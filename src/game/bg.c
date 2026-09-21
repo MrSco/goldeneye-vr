@@ -2251,7 +2251,15 @@ void roomsHandleStateDebugging(void)
 u32 bgDecompress(u8* source, u8 *target)
 {
     u8 buffer[HUFT_SCRATCH_BYTES];
-    return decompressdata(source, target, buffer);
+    u32 result;
+
+    /* Both callers hand us separate allocations, so the output can never
+     * overtake unconsumed input - see rz_buffersAreDisjoint in zlib.c. */
+    rz_buffersAreDisjoint = 1;
+    result = decompressdata(source, target, buffer);
+    rz_buffersAreDisjoint = 0;
+
+    return result;
 }
 
 
