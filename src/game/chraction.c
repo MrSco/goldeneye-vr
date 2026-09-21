@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "system.h"
+#endif
 #include <ultra64.h>
 #include <bondaicommands.h>
 #include <bondgame.h>
@@ -249,6 +252,27 @@ void expand_09_characters(s32 stageid, GuardRecord *arg1, s32 arg2)
     s32 headid;
 
     pad = &g_CurrentSetup.pads[arg1->PadID];
+
+#ifdef GEVR
+    /*
+     * PORT probe. A guard's PadID indexes the pad array with no bound: the
+     * array is terminated by a NULL plink, and nothing checks the index
+     * against it. If a guard names a pad past the terminator this reads
+     * whatever follows, and pad->stan is then walked as a StandTile - which
+     * is how the Dam load crashed. Report it rather than fault, and skip the
+     * guard, so a bad index shows up as a log line naming the id.
+     */
+    {
+        struct PadRecord *scan = g_CurrentSetup.pads;
+        s32 padCount = 0;
+        while (scan->plink != NULL) { padCount++; scan++; }
+        if ((s32)arg1->PadID >= padCount) {
+            sysLogPrintf(LOG_NOTE, "setup: guard PadID %d out of range (%d pads) - skipped",
+                    (s32)arg1->PadID, padCount);
+            return;
+        }
+    }
+#endif
 
     if (getposstan(&pad->pos, pad->stan, 20.0f, &sp48, &sp54) != 0)
     {
