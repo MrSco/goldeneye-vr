@@ -518,7 +518,7 @@ Virtually every crash encountered in this decompilation port belongs to one of s
 | **Class A: Endianness** | ROM bytes are big-endian; ARM64 host reads them natively little-endian. | Reversed `u16`/`u32` values, out-of-bounds indices, garbage animation frame counts. | Per-struct swap passes right after ROM extraction (e.g., `gevr_romswap.c`, `gevr_model.c`). Never use blanket 32-bit word swaps. |
 | **Class B: 32-bit Pointer Slots** | Original N64 code stored pointers into `s32`/`u32` fields or arrays. | High 32 bits truncated (`0x00000000xxxxxxxx`); `SIGSEGV SEGV_MAPERR` on dereference. | Keep cartridge offsets as offsets; resolve against host base pointers at runtime. Widen struct fields to `uintptr_t` or pointers. |
 | **Class C: Implicit Declarations & s32 Parameters** | Undeclared C functions default to returning `int` (truncates return pointer). Functions taking pointers declared as `s32`. | Compiler warnings (`-Wimplicit-function-declaration`, `-Wint-conversion`). High-half pointer truncation. | Maintain `src/gevr_implicit_protos.h` via `tools/gevr_implicit_decls.py full_build.log`. Fix parameter signatures in headers. |
-| **Class D: Bitfield Packing & Linker Relics** | C bitfield ordering is inverted between big-endian MIPS and little-endian ARM. Taking `&Symbol` of N64 link symbols. | Struct fields read wrong bits; link symbols have no physical address. | Read bitfields by explicit field name or shift/mask. Convert link symbols to pointer variables initialized from ROM manifest. |
+| **Class D: Bitfield Packing & Linker Relics** | C bitfield ordering is inverted between big-endian MIPS and little-endian ARM. A bitfield followed by a narrower plain member packs into one unit on MIPS but not on LP64, which moves every later field and changes `sizeof`. Taking `&Symbol` of N64 link symbols. | Struct fields read wrong bits; fields read *late* and array strides too large, so `&base[index]` disagrees with the `(index << n)` form used elsewhere; link symbols have no physical address. | Read bitfields by explicit field name or shift/mask. Where a struct must match cartridge bytes, spell the header out as plain members and check with `offsetof` — see §12.7 (`StandTile`). Convert link symbols to pointer variables initialized from ROM manifest. |
 | **Class E: Memory Pool Lifecycles** | Matrix or transient buffers allocated in `MEMPOOL_STAGE` across menu/intro state changes. | Pointer suddenly points to `0x0000000000000001` or freed pool data across screen boundaries. | Back screen-spanning transient buffers with persistent static storage (`s_matrixBuffer...`). |
 | **Class F: KSEG0 (`0x80000000`) Arithmetic** | Hardcoded `+ 0x80000000` or `- 0x80000000` in macros or pointer calculations. | Out-of-bounds pointers, heap addresses offset by 2GB. | Strip N64 virtual memory offsets; pass pointers transparently through `osVirtualToPhysical`. |
 
@@ -1251,3 +1251,68 @@ claim that all ten menu screens or Dam are fixed; visual confirmation pending.
 User subsequently confirmed mission select looks fixed. Dam still reproduces
 the same fault. New report: system recenter via holding the right-controller
 menu button leaves the cinema screen left of the current view.
+
+### 12.7 The stan tile struct did not describe the stan data — 2026-09-21
+
+The Dam defect is a host/cartridge layout mismatch in `StandTile`, found by
+measuring rather than by reading.
+
+`gevrConvertStan` (port/src/gevr_stage.c) deliberately leaves every collision
+tile **at its cartridge offset and size** — an 8-byte header followed by
+8-byte points — and only byte-swaps the 16-bit fields in place. It has to:
+tile links are `(link << 3)` relative to `firstroom - 0x80`, and
+`list_of_tilesizes` is `8 + 8*points` (`0x20` for three points, `0x58` for
+ten). Its own loop computes `bytes = 8 + 8*points` from `read16(src+tile+6)`.
+
+The host struct did not describe that data. `u32 id : 24;` followed by
+`u8 room;` packs into four bytes on big-endian MIPS, but LP64 gives the
+bitfield its own 4-byte unit and will not pack the trailing `u8` into it.
+Measured with `offsetof`, not by eye:
+
+| | room | mid | tail | points | sizeof |
+|---|---|---|---|---|---|
+| cartridge / N64 | 3 | 4 | 6 | 8 | 8 |
+| host, before | 4 | 6 | 8 | **10** | **12** |
+
+Every tile field read two bytes late, across dozens of sites in `stan.c`.
+
+**Why that produces both Dam symptoms.** `tail.hdrTail.pointCount` landed on
+the first point's `x`, a signed coordinate, so `(tail >> 12) & 0xf` is an
+arbitrary nibble:
+
+- `list_of_tilesizes[11]` is `0`, so any tile walk drawing nibble 11 never
+  advances — a live-lock, which is the **black-screen hang** the user sees.
+- Any other wrong nibble walks off the tile array into arbitrary heap.
+  `&standTileStart[link]` compounds it: that idiom is `link * sizeof(StandTile)`
+  and only agrees with the `(link << 3)` form used at stan.c:596, 2171 and 2459
+  when `sizeof(StandTile)` is 8. It was 12.
+- `tile->room` read the colour word instead, so room ids were wrong
+  everywhere they are used — portals, AI, explosions.
+
+Note which code was *not* wrong: `stanMatchTileName` reads a tile through
+`StandTilePoint *`, which is 8 bytes with no padding, so it was always
+correct. That is why the stan pointers looked plausible right up to the point
+they were walked.
+
+The fix spells the header bytes out under `GEVR` (`u16 idhi; u8 idlo; u8 room;`),
+restoring room@3, mid@4, tail@6, points@8, sizeof 8. Verified with `offsetof`
+in both configurations. `StandTile::id` has no readers; `StandFileTile` keeps
+the bitfield and has no users at all.
+
+This also supersedes the speculation in §12.2a that the fault value's two
+pointer high-halves meant a misread record at a fixed offset. It was a heap
+walk that had left the tile array.
+
+Build succeeded, `git diff --check` passed, `adb install -r` returned Success.
+**Not yet confirmed in the headset** — the hang and the fault are both
+explained by this, but neither has been observed fixed on device. The
+`dam-pad:` probes from the previous session are kept so the pad and stan
+pointers are still logged if a fault survives.
+
+#### The reusable part
+
+`grep -n ': 24;' src/bondtypes.h` found only `StandTile` and the unused
+`StandFileTile`. The general trap is **any bitfield immediately followed by a
+narrower plain member** — MIPS packs them into one unit, LP64 does not. It is
+silent: the struct compiles, the pointers look like pointers, and the damage
+only shows when the data is walked. Add it to the §3 defect-class table.

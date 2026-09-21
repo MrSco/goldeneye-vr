@@ -36,14 +36,14 @@ screen can be "working" in the logs while the headset shows black:
 
 | | What | |
 |---|---|---|
-| **open** | **Gameplay has never run.** Selecting Dam now hangs on a black screen (it used to crash; one cause was fixed). Narrowed but not solved - see §12.2a for what is ruled out | §12.2a |
+| **open** | **Gameplay has never run.** Root cause found and fixed, **not yet seen on device**: `StandTile` did not match the 8-byte cartridge tile layout `gevrConvertStan` produces, so every tile field read two bytes late. Explains both the hang and the wild-pointer fault | [HANDOFF §12.7](HANDOFF.md) |
 | **open** | Mission-complete missing-return fix and other menu screens need verification; mission select is now **seen** fixed | HANDOFF 12.6 |
 | **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
 | **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
 | **open** | Briefing crash fix and the front-end artwork/portrait fixes shipped in the 20:39 build but were never accepted in the headset — treat as unverified | HANDOFF §10 |
 | **open** | Lighting looks dark on the Nintendo logo and on characters. Unexplored; start at `calculate_normal_dir` / lookat | HANDOFF §7.2.8 |
 | **open** | Attract demos unbound. A guard in `src/game/ramromreplay.c` calls `bossRunTitleStage()` instead. Needs the `ramrom_*` segments in the manifest and a byte-swap of `ramromfilestructure` | HANDOFF item 11 |
-| **open** | System recenter via holding the right-controller menu button leaves cinema screen left of view. App recenter is hold-left-stick-click | Investigating |
+| **open** | System recenter leaves the cinema screen left of view. Fix built and installed, **not yet seen on device**: stop recreating the play space on `REFERENCE_SPACE_CHANGE_PENDING` and re-place the screen once frames pass `changeTime`. App recenter is hold-left-stick-click | [HANDOFF §12.7](HANDOFF.md) |
 
 ## Closed, but not by us
 
@@ -54,13 +54,18 @@ text. The library list name and icon are correct. Nothing further to do.
 
 ## If you are picking this up
 
-Two open items are worth the next session, in this order:
+Both open items have a fix built and installed that **nobody has looked at
+yet**. The next session's first job is to watch them, not to write code:
 
-1. **The Dam crash** (HANDOFF 12.2a). User confirmed menu fix, then reproduced
-   the same Dam fault. Trace pointer provenance from pad resolution through
-   object creation/placement; bound-pad resolution runs before prop expansion.
-2. **System recenter offset.** Check cinema screen pose when OpenXR reference
-   space changes. User reports screen moves left rather than centering.
+1. **Select Dam.** If it loads, the `StandTile` layout fix (HANDOFF 12.7) is
+   confirmed and gameplay has run for the first time. If it hangs or faults,
+   the `dam-pad:` probes still log the pad and stan pointers.
+2. **Hold the right-controller menu button to recenter.** The cinema screen
+   should land in front of you rather than to the left.
+
+Note that the tile fix also corrects `tile->room`, which portals, AI and
+explosions all read - so expect changes beyond Dam loading, and be ready for
+the next defect to be a different one rather than a regression.
 
 The working method here has been: probe, capture on device, and let the log
 decide. Every time this session guessed instead, the guess was wrong - and
