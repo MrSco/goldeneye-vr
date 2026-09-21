@@ -1092,6 +1092,33 @@ build. GoldenEye's stan format is not Perfect Dark's, so it is a reference for
 *shape* - walk the file, swap each record's fields, fix up offsets - not
 something to call directly.
 
+### 12.2a Dam: what the probes ruled out (2026-09-21)
+
+Two rounds of probing, both negative - recorded so they are not re-tried:
+
+1. **pad->stan** was the first crash, and zeroing it in gevrConvertSetup fixed
+   it. The PadID bounds probe never fired, so the guard index was always in
+   range; that suspicion was wrong.
+2. The next fault is `0xb4000071b4000077` (SEGV_ACCERR) in
+   `sub_GAME_7F0B0914` at `stan.c:1365`, via
+   `boundpads[getBoundPadNum(arg1->pad)]` in `domakedefaultobj`. The
+   bound-pad probe **also** never fired, and the converter reports
+   **368 pads, 96 bound pads** - so the array is not truncated and the index
+   is in range. Not an out-of-bounds index.
+
+Also verified with `offsetof`, not by eye: `PadRecord` and `BoundPadRecord`
+host offsets match what the converter writes exactly (plink@40, stan@48,
+bbox@56, strides 56 and 80).
+
+Both halves of the fault value are the *high* half of a heap pointer (valid
+ones here are `0xb40000712e79d4c0`), and it reproduces byte-identically across
+runs. That is adjacent heap pointers being read as a record, from a fixed
+place - so look for a field read at the wrong offset or a stale pointer, not a
+wild index. `mStan` comes from `boundpad->stan`, which the converter now
+zeroes and `init_pathtable_something` fills in; the next thing to check is
+whether that resolver runs for **bound** pads before `domakedefaultobj` uses
+them, since prop.c resolves pads and volumes in separate loops.
+
 ### 12.3 Level select screen
 
 Renders, but wrong: black where the background art should be, target reticles
