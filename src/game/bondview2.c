@@ -1,4 +1,7 @@
 #include <ultra64.h>
+#ifdef GEVR
+#include "system.h"
+#endif
 #include <math.h>
 #include <bondtypes.h>
 #include <boss.h>
@@ -2100,6 +2103,21 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
     else
     {
         sp90 = g_CurrentPlayer->field_488.current_tile_ptr;
+
+#ifdef GEVR
+        {
+            static s32 gevrMoveReports = 0;
+            if (gevrMoveReports < 6)
+            {
+                gevrMoveReports++;
+                sysLogPrintf(LOG_NOTE, "move: player=%p &tile=%p tile=%p portals=%p",
+                    (void *) g_CurrentPlayer,
+                    (void *) &g_CurrentPlayer->field_488.current_tile_ptr,
+                    (void *) sp90,
+                    (void *) g_CurrentPlayer->field_488.current_tile_ptr_for_portals);
+            }
+        }
+#endif
 
         if (obj_collision_flag)
         {

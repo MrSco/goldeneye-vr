@@ -421,6 +421,20 @@ void bondviewLoadSetupIntroSection(void)
     g_CurrentPlayer->stanHeight = stan_height;
     g_CurrentPlayer->field_6C = stan_height / FIELD_6C_FACTOR;
     change_player_pos_to_target(&g_CurrentPlayer->field_488, &start_pos, start_stan);
+
+#ifdef GEVR
+    /*
+     * PORT probe. The first gameplay frame finds current_tile_ptr NULL even
+     * though it is set right here from a live spawn stan. Record the player,
+     * the field's address and the value, so a clobber can be told apart from
+     * a different player struct being read later.
+     */
+    sysLogPrintf(LOG_NOTE, "spawn: player=%p &tile=%p tile=%p start_stan=%p pads=%d",
+        (void *) g_CurrentPlayer,
+        (void *) &g_CurrentPlayer->field_488.current_tile_ptr,
+        (void *) g_CurrentPlayer->field_488.current_tile_ptr,
+        (void *) start_stan, startpadcount);
+#endif
     g_CurrentPlayer->field_488.theta_transform.f[0] = -sinf(start_look_angle);
     g_CurrentPlayer->field_488.theta_transform.f[1] = FLOAT_INIT;
     g_CurrentPlayer->field_488.theta_transform.f[2] = cosf(start_look_angle);
