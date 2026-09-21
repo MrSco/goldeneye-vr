@@ -2461,6 +2461,29 @@ s32 stanTileDistanceRelated(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, stru
 {
     s32 i;
 
+#ifdef GEVR
+    /*
+     * The loop below clears a fixed 16 words - four consecutive 16-byte
+     * records, which is what the caller reserves on the N64 (hence the
+     * stack_padding[11] beside sp3C in bondviewTryMoveToStan).
+     *
+     * On LP64 the record's leading s32 * widens it to 24 bytes, and the
+     * compiler is free to order the caller's locals as it likes, so clearing
+     * 64 bytes from one record ran 40 bytes past it and over the caller's
+     * StandTile *. That is why Bond's tile was valid at the call and NULL
+     * inside it:
+     *
+     *   move:      tile=0xb400007130c3f440   (valid, just before)
+     *   stanlocus: NULL start                (inside, same frame)
+     *
+     * Every caller passes a single record - checked, none declares an array -
+     * so clear exactly that record.
+     */
+    for (i = 0; i < (s32) (sizeof(*arg4) / sizeof(s32)); i++)
+    {
+        ((s32 *) arg4)[i] = 0;
+    }
+#else
     // HACK:
     for(i=0;;)
     {
@@ -2471,6 +2494,7 @@ s32 stanTileDistanceRelated(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, stru
         i+=4;
         if (i>15) break;
     }
+#endif
 
     // maybe something like:
     /*
