@@ -1,4 +1,4 @@
-# GEVR Android Port — Handoff Document (Session 3)
+# GoldenEye VR — Quest Port Handoff
 
 > **Note on `artifacts/`:** build and boot logs referenced throughout this document live in the original working folder `GEVR-OpenGLES/`, not in this repository. They are debug evidence, not source.
 
@@ -6,7 +6,14 @@
 
 ---
 
-**Next agent: read §10 first, then §9/§8/§7. User confirmed file select now opens; barrel stripes, blood animation, flicker and grid fixes remain accepted. New 20:39 build addresses briefing crash, left-stick menu navigation and padded texture rows; headset validation pending.**
+**Next agent: read §11 (most recent) first, then §10/§9/§8/§7.**
+
+> This document grew session by session and is written newest-last.
+> Sections §1-§10 are a working log from 2026-09-19/20, kept for the
+> reasoning rather than as a statement of current state: several of their
+> open items have since been closed, and they cite `docs/` and `packaging/`
+> files that belong to the GEVR PC project and are not in this repository.
+> Where §11 contradicts an earlier section, §11 wins.
 
 ## 1. Executive Status (End of Session 3: 2026-09-19)
 
@@ -292,8 +299,8 @@ distorted/stretched; the gun-barrel intro plays but a little too fast and
 Bond's textures glitch; the cast screens show every character animating,
 textures glitched; after the cast the screen goes black (this is the
 file-select folders, which the logs say loaded); controller buttons appeared
-to do nothing; there is no sound at all (audio is still stubbed in
-`port/src/gevr_engine_shim.c`, by design for now).
+to do nothing; there is no sound at all (audio was still stubbed then).
+**Superseded:** audio works and the SFX bank has since been debugged - §11.
 
 21. **Speed:** the pump handed the game one retrace per XR frame, 72 a second
     on this headset; the N64 gave 60 and `bossMainloop` ticks once per
@@ -484,7 +491,7 @@ screen; only gameplay should use true stereo. That fixes the scale, the
     `destroyTimeout`**: `MainActivity.onDestroy` calls `nativeDestroy` but
     the game thread never exits, so the system kills the process. Harmless
     for now; a clean shutdown path (stop the game loop, `vr_shutdown`) is
-    still to do.
+    still to do. **Closed:** fixed and confirmed by the user - see §11.
 
 Four `stage:` log lines were left in `bossMainloop` (unload, switch, load
 done, first frame) because a stage change is where the next problems will
@@ -621,10 +628,19 @@ run blind launch/capture loops from the PC.
 
 ### 7.1 The governing principle: port, do not invent
 
+> **Stale premise (corrected 2026-09-21).** Written when the port lived
+> inside a fork of the GEVR PC repository with its `docs/` on hand. Those
+> are not in this repository, so every `docs/NNN-...`, `docs/CONTROLS.md`
+> and `packaging/...` citation below is a dead path - they live at
+> https://github.com/no6969el/GEVR. More importantly, no GEVR or GETV code
+> is in this tree (verified; see CREDITS.md), so "port the GEVR PC version"
+> is not an available method. The *observations* below about how a headset
+> presentation should behave are still sound - treat them as design notes,
+> not as instructions to copy from a tree you have.
+
 The upstream GEVR PC port (`no6969el/GEVR`, source tree `goldeneye-native`
-with `ge_vr_xr.cpp` and the `getv/` tools; NOT in this repo, only its docs
-are, under `docs/`) already solved the presentation for a headset, and it
-did it the same way as item 33:
+with `ge_vr_xr.cpp` and the `getv/` tools) already solved the presentation
+for a headset, and it did it the same way as item 33:
 
 - Front end, menus and cutscenes: a world-locked virtual screen inside a
   small hub room (`docs/175-U-19-THE-VIRTUAL-SCREEN.md`, `docs/178-...`,
@@ -649,10 +665,11 @@ pause hub. Where GoldenEye needs something PD did in game code (camera,
 HUD tags, `vr_dl_is_pause_or_menu`), look at how PD's `src/` did it, then
 at how GEVR PC did it for GoldenEye, and port the GEVR PC version.
 
-First task therefore: locate the `goldeneye-native` tree on this PC (the
-docs cite `goldeneye-native\getv\tools\...` and `ge_vr_xr.cpp`; ask the
-user if it is not under `C:\Users\Occor\Documents\other_projects`). Every
-item below names what to compare against in it.
+~~First task therefore: locate the `goldeneye-native` tree on this PC.~~
+**Dropped 2026-09-21.** The user confirmed nothing from GEVR or GETV is
+used here, and a search of the tree agrees. Do not go looking for it. The
+references this port actually has are Perfect Dark's port (`port/`) and
+Perfect Dark VR (`port/vr/`), both vendored and both in this repository.
 
 ### 7.2 Ordered work
 
@@ -732,9 +749,9 @@ item below names what to compare against in it.
    stats, `badvtx:` in `gfx_sp_vertex`, the DL dump, `gevr_input.txt`
    injection, four `stage:` logs in boss.c, the demo guard in
    ramromreplay.c (needs the ramrom demos bound and byte-swapped instead).
-   Also: no audio (stubbed), quit takes 10 s (item 17), lighting looks dark
-   on the Nintendo logo and characters (unexplored; check
-   `calculate_normal_dir` / lookat handling against GEVR PC first).
+   Also: lighting looks dark on the Nintendo logo and characters
+   (unexplored; check `calculate_normal_dir` / lookat handling). Audio and
+   the quit path were on this list and are done (§11).
 
 ### 7.3 Commands that work
 
@@ -763,10 +780,10 @@ item below names what to compare against in it.
   animate with readable names afterwards. The final Quest dialog says **App
   name unavailable**, not App not responding. The video alone does not prove
   when START was pressed or the cause of the ending black screen.
-- This workspace IS the user's fork/clone of the public GEVR repository.
-  Its docs mention a separate `goldeneye-native` development tree, but that
-  does not establish that the user has that tree locally. The sibling
-  `other_projects/goldeneye-decomp` has remote `n64decomp/007`, not GEVR VR code.
+- ~~This workspace IS the user's fork/clone of the public GEVR repository.~~
+  **No longer true (2026-09-21):** the port was split out into its own
+  repository, `MrSco/goldeneye-vr`, and carries no GEVR code. The sibling
+  `other_projects/goldeneye-decomp` has remote `n64decomp/007`.
 - The user authorized using Perfect Dark's Quest integration as the reference
   and writing the necessary GoldenEye integration. Missing GEVR source is not
   a prerequisite for progress. Keep §7's blocker ordering and black surround.
@@ -923,3 +940,95 @@ occurs, capture and symbolize its fresh stack against this build before rebuildi
 Gameplay has not yet run successfully; do not claim the level loader or stereo
 camera is fixed. Preserve full intros and black surround.
 
+
+## 11. Audio, the repository split, and provenance — 2026-09-21
+
+### 11.1 Every sound effect was playing the wrong one
+
+Symptom: the Rare logo sting did not sound like the N64's rising cymbal, and
+earlier work had chased it through the FX/reverb path, the envelope model and
+the soft mixer's SIMD paths without success.
+
+**Root cause was none of those.** GoldenEye's sound ids are 1-based indices
+into `ALInstrument::soundArray`, and the retail code encodes that bias in a
+*struct offset* rather than in the index: `ALInstrumentAlt_s::soundArray` sits
+at offset 12, one 4-byte pointer ahead of `ALInstrument::soundArray` at 16, so
+`alt->soundArray[id]` reads standard entry `id - 1`. With 8-byte pointers the
+alternate struct's 12-byte header pads out to 16, the gap vanishes, and every
+sound id silently became 0-based. `BIG_CLANK_SFX = 261` also read one past the
+end of a 261-entry array.
+
+Fix: `SND_SOUND_INDEX_BIAS` in `src/snd.h`, applied at the single lookup in
+`sndPlaySfx` (`src/snd.c`). It derives the correction from the two layouts via
+`offsetof`, so it is 0 on the N64 and 1 wherever alignment padding has eaten
+the gap. Confirmed by ear. Full write-up, including the offline analysis
+against an N64 capture: [`docs/RARE-LOGO-AUDIO-HANDOFF.md`](docs/RARE-LOGO-AUDIO-HANDOFF.md).
+
+**This is a third defect class** alongside the six in §3, and the nastiest so
+far: it produces no warning, no crash, and data that looks plausible. The
+`sfx chain:` log even looked self-consistent, which is what made the earlier
+passes trust it. Add to the §3 table when that is next revised:
+
+| Class | Mechanism | Detection | Resolution |
+|---|---|---|---|
+| **Class G: Struct-encoded index bias** | N64 code encodes an index offset as a struct-field offset rather than in arithmetic. LP64 alignment padding erases the gap. | Silent off-by-one. Values remain valid-looking; logs stay internally consistent. Suspect when an index also reads one past a count. | Derive the correction from both layouts with `offsetof` so it is a no-op on the original target. |
+
+### 11.2 Audio state
+
+Audio works: soft mixer executing aspMain-style acmds (`port/src/mixer.c`) at
+22050 Hz through SDL, CUSTOM FX, the GE additive envelope, and a real
+`aPoleFilter`. The quit path is fixed too (`audioPause` / `audioResume` /
+`audioShutdown` in `port/src/audio.c`, driven from `MainActivity.onPause`), so
+§2b's "no sound at all" and item 17's ten-second quit are both closed.
+
+NEON ADPCM decode is back on. `tools/gevr_mixer_ab/` compiles `mixer.c` twice
+into one arm64 binary and A/Bs scalar against NEON on real bank data, on the
+headset: **bit-exact** over 2,120,512 samples (291 waves, all 13 shift values,
+npredictors 1 and 4), NEON 2.75x faster. `aMix` stays scalar - the paths differ
+by <= 1 LSB and no candidate formulation is provably the RSP's. Both are named
+knobs now (`GEVR_SCALAR_ADPCM`, `GEVR_SCALAR_MIX`) rather than buried
+`!defined(GEVR)` tests.
+
+### 11.3 The repository
+
+The port was split out of `GEVR-OpenGLES` - which was two projects in one
+folder, the GEVR PC repo tracked and this port entirely untracked - into
+`MrSco/goldeneye-vr`. The old folder remains on disk as reference and holds
+`artifacts/` (boot logs, audio analysis, the `audio-reference` mixer tree),
+which is why the `artifacts/...` citations above point outside this repo.
+
+Also done, all verified by a clean build and a headset run:
+
+- Perfect Dark log tags renamed: `PerfectDark` -> `GoldenEye`, `PD-VR` ->
+  `GoldenEye-VR`, `PerfectDark-GFX` -> `GoldenEye-GFX`. The boot script's
+  logcat filter and this document's tag references moved with them.
+- Settings file is `goldeneye-vr.ini` (was `pd-vr.ini`).
+- `sysGetDataPath()`'s fallback pointed at `/data/data/com.perfectdark.port/`;
+  this app is `com.gevr.port`. Unreachable but wrong; fixed.
+- 14 dead `Java_com_perfectdark_port_*` JNI shims removed - the JVM could
+  never bind them.
+- The in-app updater and HD-texture-pack downloader removed: they fetched
+  `Alex-LeTux/perfect_dark_VR` releases and Perfect Dark HD textures into a
+  GoldenEye port. Their only caller, `port/src/optionsmenu.c`, is excluded
+  from the build; see the note at the top of that file.
+
+### 11.4 Provenance, corrected
+
+Two directories are vendored upstream source, not our own work, and now carry
+their notices: `port/` from the Perfect Dark PC port (its `port/src/` has 15 of
+our 16 files) and `port/vr/` from Alex-LeTux's perfect_dark_VR. Both are MIT,
+both carry `Copyright (c) 2022 Ryan Dwyer` through the decompilation they fork.
+See `port/LICENSE`, `port/README.md`, `port/vr/LICENSE`, `port/vr/README.md`.
+
+CREDITS.md had this wrong in both directions and has been rewritten against
+the tree: GEVR and GETV are credited as origin and inspiration only (no code
+of either is here), while the Perfect Dark port and perfect_dark_VR were
+promoted from "reference" to vendored source.
+
+### 11.5 Still open
+
+Unchanged from §7.2 and §10: gameplay has never run; the level loader, stan
+tiles and stage setups are unported; true-stereo gameplay camera not started;
+front-end artwork and dossier navigation need headset acceptance; lighting
+looks dark on the Nintendo logo and characters. The probe/test-hook cleanup
+list in §7.2 item 8 still stands.
