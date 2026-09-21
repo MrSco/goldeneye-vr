@@ -1,6 +1,10 @@
 // ============================================================================
 // VR OpenXR - Perfect Dark VR By Alex_Le_Tux
 // Unified: Android (OpenGL ES + OpenXR) / Windows (OpenGL + OpenXR)
+//
+// Vendored from Alex-LeTux/perfect_dark_VR (branch `port`) and adapted for
+// GoldenEye. MIT licensed; the upstream notice is in port/vr/LICENSE and the
+// provenance and list of changes are in port/vr/README.md.
 // ============================================================================
 
 #ifdef ANDROID

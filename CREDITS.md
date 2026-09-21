@@ -32,17 +32,31 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 - **Not claiming:** Their MIT work as closed or as "GEVR-only." Their notice travels with derived portions.
 - **Licence in tree:** see the GETV / `goldeneye-native` `LICENSE` (Copyright (c) 2026 Evan King).
 
-### Alex-LeTux / perfect_dark_VR (MIT) - design map, not vendored code
+### Alex-LeTux / perfect_dark_VR (MIT) - **vendored source**, our whole VR layer
 
-- **Repo:** https://github.com/Alex-LeTux/perfect_dark_VR  
-- **Surveyed:** branch `port` @ `67ea20c86986c6bc85687f26a27418b266af309c`
-- **What we took (recorded influence only - their VR tree is not copied into GEVR):**
-  - Controller quaternion basis of the form `{w, -x, y, -z}` (hand-axis knobs)
-  - Pistol grip offset `(0, 16, -4)` scaled into our gun-offset knobs
-  - `x/(1-damp)` integrator pre-load idea
-  - Drawn-vs-shot clamp split (aim draw path vs fire path)
-- **Also:** Perfect Dark VR's *waiting-room / hub feel* informed our cinema-hub direction (procedural room + world-locked board). We map the idea; we do **not** vendor their hub sources.
-- **Upstream notices that travel with that lineage:** Perfect Dark decomp (Ryan Dwyer et al.) and the Perfect Dark PC port (MIT).
+- **Repo:** https://github.com/Alex-LeTux/perfect_dark_VR
+- **Taken from:** branch `port` @ `67ea20c86986c6bc85687f26a27418b266af309c`
+- **What we took:** the entire `port/vr/` directory - the OpenXR session and
+  frame loop (`vr_openxr.cpp`, ~2.7k lines), controller input and aim
+  (`vr_input.cpp`), the hub, settings, logging and Android JNI glue, plus the
+  `imgui/` and `miniz/` libraries they carry. It is adapted for GoldenEye, not
+  rewritten: their structure is kept so our tree stays diffable against theirs,
+  and Perfect Dark specifics (weapon tables, scoped-weapon list, menu and
+  player state reads) are fenced off rather than deleted.
+- **Licence:** MIT. Upstream is itself a fork of the Perfect Dark
+  decompilation and carries that project's notice rather than its own, so the
+  line reads `Copyright (c) 2022 Ryan Dwyer`. The notice travels with the code
+  in [`port/vr/LICENSE`](port/vr/LICENSE); provenance and the full list of our
+  changes are in [`port/vr/README.md`](port/vr/README.md).
+- **What is ours in there:** `vr_screen.cpp` (the world-locked cinema screen,
+  because GoldenEye's camera never builds its projection from `XrFov`) and
+  `vr_settings_defaults.c` (upstream defines these in Perfect Dark's own game
+  sources, which have no GoldenEye counterpart). We removed their in-app
+  updater and HD-texture-pack downloader, which fetched Perfect Dark content.
+
+> Earlier revisions of this file described this as "design map, not vendored
+> code" and said their VR tree was not copied. That was wrong, and is
+> corrected here: `port/vr/` is their source.
 
 ### Perfect Dark PC port / decomp (MIT) - sibling engine reference
 
