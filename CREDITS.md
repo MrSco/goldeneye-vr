@@ -1,12 +1,16 @@
 # Credits
 
-Thank-you sheet for work GEVR actually leaned on. Click a name for the project; each line says **exactly what** we used it for.
+Thank-you sheet for work this port actually leaned on. Click a name for the
+project; each line says **exactly what** we used it for.
 
-Current play zip is **vr440**. [README Play](README.md#play-vr440) - [vr440 release](https://github.com/no6969el/GEVR/releases/tag/vr440). How to file bugs: [CONTRIBUTING.md](CONTRIBUTING.md). Whose license is whose: [LICENSE-MAP.md](LICENSE-MAP.md).
+This sheet is inherited from GEVR, the PC/VR project this port grew out of, and
+trimmed to what applies here. GEVR's own player-facing docs (release zips,
+controls, roadmap, `PRIOR-ART.md`, `LICENSE-MAP.md`) live in that project:
+https://github.com/no6969el/GEVR - they are not duplicated in this repository.
 
-Player door: [README](README.md) · [Beta notes](docs/BETA.md) · [Features](FEATURES.md) · [Roadmap](docs/ROADMAP.md).
+Start here instead: [README](README.md) · [HANDOFF](HANDOFF.md) · [LICENCE](LICENSE).
 
-We credit only real influence or reuse. Survey-only reads and projects we did **not** copy stay off this list (or are marked "not used"). Details and licence notes: [PRIOR-ART.md](PRIOR-ART.md). Licence for this public tree: [LICENSE](LICENSE).
+We credit only real influence or reuse. Survey-only reads and projects we did **not** copy stay off this list (or are marked "not used"). Licence for this tree: [LICENSE](LICENSE).
 
 ---
 
@@ -14,8 +18,8 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 
 | What | Whose |
 |------|--------|
-| **GoldenEye 007** | Nintendo / Rareware. The game, ROM, and assets are theirs. GEVR does **not** ship a ROM or game assets. You bring a USA `.z64` you own. |
-| **GEVR workshop binary** | Our OpenXR / VR delta on top of the native port. Separate from the game data and from upstream licences below. |
+| **GoldenEye 007** | Nintendo / Rareware. The game, ROM, and assets are theirs. This port does **not** ship a ROM or game assets. You bring a USA `.z64` you own. |
+| **This port's binary** | Our OpenGL ES / OpenXR delta on top of the decompilation. Separate from the game data and from the upstream licences below. |
 
 ---
 
@@ -67,7 +71,7 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 
 ---
 
-## Looked at, not adapted into GEVR
+## Looked at, not adapted into this port
 
 These showed up in prior-art surveys. They are **not** credited as sources of GEVR code or knobs unless a later note says otherwise.
 
@@ -93,11 +97,11 @@ If you spot a missing credit for something we really used, open an Issue titled 
 
 ## Quick links
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) - how to play vr440 and file bugs
-- [LICENSE-MAP.md](LICENSE-MAP.md) - whose license is whose
-- [README Play](README.md#play) | [Releases/latest](https://github.com/no6969el/GEVR/releases/latest)
-- [README](README.md) · [Beta notes](docs/BETA.md) · [Controls](docs/CONTROLS.md)
-- [PRIOR-ART.md](PRIOR-ART.md) - Perfect Dark VR influence detail
-- [docs/ORIGIN.md](docs/ORIGIN.md) - ours vs upstream tags
-- [LICENSE](LICENSE) - this public docs/tools tree
-- [Roadmap](docs/ROADMAP.md) · [Coming soon](docs/COMING-SOON.md)
+- [README](README.md) - what this is, how to build and run it
+- [HANDOFF.md](HANDOFF.md) - current state, what works, what is broken
+- [docs/RARE-LOGO-AUDIO-HANDOFF.md](docs/RARE-LOGO-AUDIO-HANDOFF.md) - worked
+  example of an LP64 porting-defect class
+- [LICENSE](LICENSE) - MIT, for this tree
+- [tools/gevr_mixer_ab/](tools/gevr_mixer_ab/README.md) - soft-mixer A/B harness
+- Upstream GEVR (PC/VR), including its `PRIOR-ART.md` and `LICENSE-MAP.md`:
+  https://github.com/no6969el/GEVR
