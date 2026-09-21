@@ -61,6 +61,17 @@
         android:supportsRtl="true"
         android:hardwareAccelerated="true">
 
+        <!--
+            Legacy GearVR-era marker that Meta's shell still reads to identify an
+            app as VR. Both sideloaded apps checked on this headset that resolve
+            their name in the universal menu (com.drbeef.jkxr,
+            com.nintendont.virtualboygo) declare it and this one did not, which is
+            the only manifest difference between them and us. Harmless either way.
+        -->
+        <meta-data
+            android:name="com.samsung.android.vr.application.mode"
+            android:value="vr_only" />
+
         <!-- Supported Meta devices (Quest specific) -->
         <meta-data
             android:name="com.oculus.supportedDevices"
