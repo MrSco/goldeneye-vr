@@ -35,8 +35,8 @@ screen can be "working" in the logs while the headset shows black:
 
 | | What | |
 |---|---|---|
-| **open** | **Gameplay has never run.** Selecting Dam crashes in the stan-tile path on load - the tile data is still cartridge big-endian. This is the active work | §12 |
-| **open** | Level select screen renders but its artwork and layout are wrong: black background, scattered reticles, rotated text | §12 |
+| **open** | **Gameplay has never run.** Selecting Dam now hangs on a black screen (it used to crash; one cause was fixed). Narrowed but not solved - see §12.2a for what is ruled out | §12.2a |
+| **open** | **The shared menu background draws nothing** - blacks out all ten post-file-select screens. Narrowed to the model node walk: `subdraw` emits only 10 Gfx commands for a 90-node model. Best-understood open item; start here | §12.3 |
 | **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
 | **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
 | **open** | Briefing crash fix and the front-end artwork/portrait fixes shipped in the 20:39 build but were never accepted in the headset — treat as unverified | HANDOFF §10 |
@@ -51,10 +51,33 @@ icon. This is a Quest limitation for sideloaded apps, not a defect here:
 VirtualBoyGo, installed from the same Unknown Sources list, shows the same
 text. The library list name and icon are correct. Nothing further to do.
 
+## If you are picking this up
+
+Two open items are worth the next session, in this order:
+
+1. **The menu background** (§12.3). Best understood of the two. `subdraw`
+   emits 10 Gfx commands for a model with 90 nodes and 46 display lists, so
+   the node walk produces nothing. The renderer, the viewport, the matrices
+   and the model conversion are all verified good - four dead ends are written
+   up so you do not repeat them. Next concrete step: instrument the
+   `while (root != NULL)` loop in `subdraw` (model.c:5135) and find where it
+   stops. One fix lights up ten screens.
+2. **The Dam hang** (§12.2a). Three hypotheses tested and killed with probes;
+   the fault value reproduces byte-identically, so it is a fixed location, not
+   a wild index. Next thing to check is whether `init_pathtable_something`
+   runs for **bound** pads before `domakedefaultobj` uses them - prop.c
+   resolves pads and volumes in separate loops.
+
+The working method here has been: probe, capture on device, and let the log
+decide. Every time this session guessed instead, the guess was wrong - and
+each wrong guess is recorded in §12 so the next reader inherits the
+eliminations rather than the dead ends.
+
 ## Debug hooks still compiled in
 
 All still present and all owed removal before any release build:
 
+`menubg:` and the bound-pad / PadID bounds checks (added 2026-09-21) ·
 `gfx:` and `input: pad0` once-a-second stats · `badvtx:` in `gfx_sp_vertex` ·
 four `stage:` logs in `boss.c` · `menu-pump:` / `gevrPumpStage` counters ·
 the stall watchdog (`gevr_watchdog_kill.txt` marker) · the display-list dump

@@ -1123,51 +1123,66 @@ them, since prop.c resolves pads and volumes in separate loops.
 
 The mission select is black behind its text. The background is **not 2D art**:
 `frontSetupMenuBackground` (front.c) builds a 3D wallet/folder scene and hands
-it to `subdraw`. It is shared by **ten** menus - mode select, mission select,
-difficulty and the rest of the post-file-select screens - so this is one
-defect blacking out all of them, not a mission-select problem.
+it to `subdraw`. It is shared by **ten** menus, so this one defect blacks out
+every post-file-select screen.
 
-Probably *not* wrong, so do not chase these: showing only DAM and MULTIPLAYER
-is correct on a fresh save (each entry is gated on
-`get_highest_unlocked_difficulty_for_level(...) >= 0`), and the vertical
-"PREVIOUS" is how GoldenEye draws it.
-
-A probe in `frontSetupMenuBackground` reports, once a second:
+**The finding that matters:**
 
 ```
-menubg: folder=0 pos=(-900.0,800.0) mtx=1 inst=0xb4000071305dfad8
-        obj=0x7137f0aa10 list=0xb400007130462a80
+menubg: subdraw emitted 10 Gfx commands
 ```
 
-Everything there is sane:
+Ten, for a model that converts to 276 blocks / 90 nodes / 46 display lists.
+`subdraw` walks `mdl->obj->RootNode` and emits nothing. **The fault is in the
+model node walk, not the camera, not the matrices, not the renderer.** That is
+where the next session should start: instrument the `while (root != NULL)`
+loop in `subdraw` (model.c:5135) - count nodes visited and log each node's
+opcode - and find where the walk terminates.
 
-- `inst` and `list` are inside the game heap of that run
-  (`0xb40000713043..0xb40000713143`); `obj` is in the library's data segment,
-  which is right - model headers are compiled-in assets, not loaded data.
-- `mtx=1` **is correct**, not a bug. `assets/obseg/prop/walletbond/`
-  `ModelFileHeader.inc.c` declares `MODELFILEHEADER(walletbond, 0,
-  &SKELETON(walletbond), 0, 0x2B, 0x1, 3504.53, 0, 0x54)` - numSwitches 0x2B,
-  **numMatrices 0x1**, numtextures 0x54. `nintendologo` also has numMatrices 1
-  and renders correctly. (It looked like a smoking gun against the model's 90
-  nodes; it is not.)
-- `PwalletbondZ` converts clean: 276 blocks, 90 nodes, 46 display lists, 0
-  warnings.
+#### Ruled out, with evidence - do not re-chase these
 
-So the scene is built from valid data and submitted, and nothing visible comes
-out. That narrows it to geometry landing off-screen, or the display list being
-dropped by the renderer. `gfx:` during that screen reads ~5500 tris over 72
-frames, about 76 a frame, which is the text alone - the model contributes
-nothing.
+1. **Renderer state is correct.** A display-list dump taken *on the screen*
+   shows `G_SETCIMG` width 440, `G_SETSCISSOR` (0,0)-(440,330), a full-screen
+   `G_FILLRECT` (the black), 72 `G_TRI2`, 28 vertex loads, 64 textures and one
+   `G_MOVEMEM`. Geometry reaches the renderer; nothing is being dropped and
+   the viewport maths is right.
+2. **`numMatrices = 1` is correct**, not a bug. The asset declares it:
+   `MODELFILEHEADER(walletbond, 0, &SKELETON(walletbond), 0, 0x2B, 0x1,
+   3504.53, 0, 0x54)`. `nintendologo` has the same value and renders.
+3. **Block alignment does not shift `RootNode`.** The game computes it as
+   `&Textures[numtextures]` with no alignment, while gevrModelConvert aligns
+   every block to 8 - but for the real counts they agree exactly:
+   `sizeof(ModelFileTextures)` is 16, so 43 switches + 84 textures gives 1688
+   either way. Checked numerically, not by eye.
+4. **"Models with switches are broken" is false.** `djbond` has 7 switches and
+   renders (the gun-barrel Bond).
+5. **Probably not defects at all:** only DAM and MULTIPLAYER showing is correct
+   on a fresh save (gated on `get_highest_unlocked_difficulty_for_level >= 0`),
+   and the vertical "PREVIOUS" is how GoldenEye draws it.
 
-**Next step is the display-list dump**, not more reading:
+#### What is distinctive about this model
+
+| model | switches | matrices | textures | renders |
+|---|---|---|---|---|
+| nintendologo | 0 | 1 | 1 | yes |
+| goldeneyelogo | 0 | 1 | 2 | yes |
+| legalpage | 0 | 1 | 5 | yes |
+| djbond | 7 | 21 | 13 | yes |
+| **walletbond** | **43** | 1 | **84** | **no** |
+
+It is by far the most switch-heavy model in the front end - 43 switches and 46
+display lists, i.e. mostly *selectable* parts (folders, portraits). If switch
+resolution picks nothing, ten commands is exactly what you would get. That is a
+hypothesis, not a finding.
+
+#### Using the DL dump correctly
+
+The marker is consumed at startup, so touching it before launch dumps the
+legal page. Touch it **while the screen is up**, with the app already running:
 
 ```
 adb shell "touch /sdcard/Android/data/com.gevr.port/files/gevr_dumpdl.txt"
-adb logcat -s GoldenEye | grep dl
 ```
 
-Trigger it while sitting on the mission select (`gevrMaybeDumpDl` in
-gfx_pc.cpp). Look for whether the wallet geometry is emitted at all, and if it
-is, what viewport/matrix it lands under. Compare against the GoldenEye logo
-screen, which uses the same `dynAllocate(numMatrices << 6)` + `subdraw`
-pattern (front.c:1985) and does render.
+Its budget is 900 commands (`gevrMaybeDumpDl`, gfx_pc.cpp) and it exhausts
+them, so the dump only covers the start of a frame.
