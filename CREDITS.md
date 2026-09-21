@@ -14,7 +14,7 @@ carry their notices beside them: `port/` (Perfect Dark PC port) and
 `port/vr/` (Alex-LeTux's perfect_dark_VR). `src/` is the GoldenEye
 decompilation.
 
-Start here instead: [README](README.md) · [HANDOFF](HANDOFF.md) · [LICENCE](LICENSE).
+Start here instead: [README](README.md) · [STATUS](STATUS.md) · [LICENCE](LICENSE).
 
 We credit only real influence or reuse. Survey-only reads and projects we did **not** copy stay off this list (or are marked "not used"). Licence for this tree: [LICENSE](LICENSE).
 
@@ -143,6 +143,7 @@ If you spot a missing credit for something we really used, open an Issue titled 
 ## Quick links
 
 - [README](README.md) - what this is, how to build and run it
+- [STATUS.md](STATUS.md) - what works and what does not, right now
 - [HANDOFF.md](HANDOFF.md) - current state, what works, what is broken
 - [docs/RARE-LOGO-AUDIO-HANDOFF.md](docs/RARE-LOGO-AUDIO-HANDOFF.md) - worked
   example of an LP64 porting-defect class

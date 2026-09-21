@@ -9,9 +9,10 @@ controller tracking, and runs natively on the headset — no PC, no streaming.
 > that you own. The repository ignores every ROM extension; see
 > [.gitignore](.gitignore).
 
-**Status:** in active bring-up. The title sequence, front end and audio path
-run on-device. See [HANDOFF.md](HANDOFF.md) for the current state, what works,
-and what is still broken.
+**Status:** in active bring-up. The whole title sequence runs and is watchable
+in the headset with sound; gameplay has never run. See **[STATUS.md](STATUS.md)**
+for what works, what is broken and what is next — and
+[HANDOFF.md](HANDOFF.md) for the session-by-session engineering log behind it.
 
 ---
 
@@ -95,6 +96,8 @@ powershell -Command "Get-Content $env:TEMP\gevr_boot.log -Tail 100"
 | `cmake/` | Toolchain and helper modules |
 | `tools/` | Build, probe and analysis scripts — see below |
 | `docs/` | Deep-dive notes on specific subsystems |
+| [STATUS.md](STATUS.md) | Current state — start here |
+| [HANDOFF.md](HANDOFF.md) | The engineering log behind it |
 
 ## Tools
 

@@ -6,7 +6,9 @@
 
 ---
 
-**Next agent: read §11 (most recent) first, then §10/§9/§8/§7.**
+**For current state, read [STATUS.md](STATUS.md), not this file.** This is the
+engineering log: what was tried, what it turned out to be, and why. Read §11
+(most recent) first, then §10/§9/§8/§7.
 
 > This document grew session by session and is written newest-last.
 > Sections §1-§10 are a working log from 2026-09-19/20, kept for the
@@ -1027,8 +1029,7 @@ promoted from "reference" to vendored source.
 
 ### 11.5 Still open
 
-Unchanged from §7.2 and §10: gameplay has never run; the level loader, stan
-tiles and stage setups are unported; true-stereo gameplay camera not started;
-front-end artwork and dossier navigation need headset acceptance; lighting
-looks dark on the Nintendo logo and characters. The probe/test-hook cleanup
-list in §7.2 item 8 still stands.
+Tracked in [STATUS.md](STATUS.md) rather than here, so there is one list to
+keep current instead of two. In short: gameplay has never run, the level
+loader is unported, the stereo camera has not been started, and the
+probe/test-hook cleanup in §7.2 item 8 still stands.
