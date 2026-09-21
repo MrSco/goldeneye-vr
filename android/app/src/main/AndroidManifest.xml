@@ -67,8 +67,22 @@
             android:value="quest|quest2|questpro|quest3|quest3s" />
 
         <!-- MainActivity = main immersive VR activity -->
+        <!--
+            label and icon are repeated here deliberately. Quest's shell reads the
+            LAUNCHER activity's label and icon, not the application's, and does not
+            fall back: with them unset the universal menu showed "App name
+            unavailable" and no tile art. `aapt2 dump badging` shows the difference -
+            launchable-activity must not report label='' icon=''.
+
+            The icon points at a plain PNG rather than @mipmap/ic_launcher, which
+            resolves to the adaptive-icon XML in mipmap-anydpi-v26 at every density.
+            Quest does not reliably rasterise adaptive icons for sideloaded apps.
+            The application below keeps the adaptive icon for ordinary Android.
+        -->
         <activity
             android:name=".MainActivity"
+            android:label="@string/app_name"
+            android:icon="@drawable/ic_launcher_quest"
             android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode|density|layoutDirection|locale|smallestScreenSize"
             android:excludeFromRecents="false"
             android:launchMode="singleTask"
