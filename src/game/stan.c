@@ -2157,10 +2157,26 @@ void getTileEdgePoints(StandTile *tile, s32 pointI, coord3d *currPntRtn, coord3d
  * STAN_COLLISION_TRAVERSAL_LIMIT when the tile stack limit is reached, or
  * STAN_COLLISION_NONE when traversal completes without a collision.
  */
+/* 40 (the most cat can hold entering a pass) + 15 (max points per tile). */
+#define STAN_LOCUS_TILESTACK_MAX 55
+
 StanCollisionResult sub_GAME_7F0B1DDC(StandTile **startTile, f32 x, f32 z, f32 radius, standTileLocusCallback_A_t callbackA, standTileLocusCallback_B_t callbackB, standTileLocusCallback_C_t callbackC, struct StandTileLocusCallbackRecord *record)
 {
     s32 i;
-    StandTile *tileStack[39];
+    /*
+     * This array was 39 entries, which this function's own logic can overrun -
+     * the stack protector caught it aborting the Dam load.
+     *
+     * The traversal limit below is "cat >= 41", and it is only tested once per
+     * outer iteration, after a whole tile's points have been walked. So a pass
+     * can begin with cat at 40, and each of that tile's points can push one
+     * more. pointCount is a 4-bit field, so at most 15 pushes, giving a worst
+     * case of cat = 55 and a highest written index of 54.
+     *
+     * Size it to that bound. Traversal, return values and the count handed to
+     * callbackC are all unchanged; only the smash is gone.
+     */
+    StandTile *tileStack[STAN_LOCUS_TILESTACK_MAX];
     StandTile *tile;
     StandTile *linkedTile;
     s32 visitedCount;
