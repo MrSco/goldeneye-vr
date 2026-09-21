@@ -99,7 +99,27 @@ void sets_a_bunch_of_BONDdata_values_to_default(void)
     }
 #endif
 
+#ifdef GEVR
+    /*
+     * The N64 put this model's animation rwdata immediately after the embedded
+     * Model in struct player: the model sits at 0x598, sizeof(Model) is 0xBC
+     * there, and the rwdata starts at 0x654 - adjacent, not overlapping.
+     *
+     * On LP64 the Model's pointer fields widen it to 0x100, so it now spans
+     * player+0x5d0..0x6d0 while &field_654 is at 0x690 - 0x40 bytes INSIDE the
+     * model. Every animation frame written through model->datas landed on the
+     * model's own tail. Measured with offsetof, not by eye.
+     *
+     * Give the gait model its own storage. numRecords is under 0x1F (the
+     * assert above), and rwdata is numRecords 4-byte slots, so 64 words is
+     * ample headroom.
+     */
+    static u32 gevrBondGaitRwData[64];
+
+    animInit(&g_CurrentPlayer->model, &player_gait_object_header, gevrBondGaitRwData);
+#else
     animInit(&g_CurrentPlayer->model, &player_gait_object_header, &g_CurrentPlayer->field_654);
+#endif
     modelSetScale(&g_CurrentPlayer->model, IDO_POINT_ONE);
 
 #if defined (BUGFIX_R1)
