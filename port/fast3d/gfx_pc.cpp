@@ -1133,6 +1133,11 @@ static void gfx_matrix_mul(float res[4][4], const float a[4][4], const float b[4
 }
 
 
+// Temporary menu-only probe, sampled once per menu per process.
+static bool gevrMenuTrace;
+static uint32_t gevrMenuSeen;
+static unsigned gevrMenuVertices, gevrMenuTriangles, gevrMenuClipped, gevrMenuCulled;
+
 static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     float matrix[4][4];
 
@@ -1188,6 +1193,13 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     }
 
     gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
+    if (gevrMenuTrace && gevrMenuVertices == 0) {
+        for (int i = 0; i < 4; ++i) {
+            vr_log("menubg-rsp: matrix row%d M=(%g,%g,%g,%g) P=(%g,%g,%g,%g)", i,
+                matrix[i][0], matrix[i][1], matrix[i][2], matrix[i][3],
+                rsp.P_matrix[i][0], rsp.P_matrix[i][1], rsp.P_matrix[i][2], rsp.P_matrix[i][3]);
+        }
+    }
 }
 
 
@@ -1250,6 +1262,13 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
         float y = v->v[0] * rsp.MP_matrix[0][1] + v->v[1] * rsp.MP_matrix[1][1] + v->v[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
         float z = v->v[0] * rsp.MP_matrix[0][2] + v->v[1] * rsp.MP_matrix[1][2] + v->v[2] * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
         float w = v->v[0] * rsp.MP_matrix[0][3] + v->v[1] * rsp.MP_matrix[1][3] + v->v[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
+        if (gevrMenuTrace) {
+            if (gevrMenuVertices < 8) {
+                vr_log("menubg-rsp: v=(%d,%d,%d) rgba=(%u,%u,%u,%u) clip=(%g,%g,%g,%g)",
+                    v->v[0], v->v[1], v->v[2], v->cn[0], v->cn[1], v->cn[2], v->cn[3], x,y,z,w);
+            }
+            ++gevrMenuVertices;
+        }
 
         x = gfx_adjust_x_for_aspect_ratio(x, w);
 
@@ -1470,6 +1489,7 @@ static inline bool gfx_is_matrix_inverted() {
 }
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
+    if (gevrMenuTrace) ++gevrMenuTriangles;
     struct LoadedVertex* v1 = &rsp.loaded_vertices[vtx1_idx];
     struct LoadedVertex* v2 = &rsp.loaded_vertices[vtx2_idx];
     struct LoadedVertex* v3 = &rsp.loaded_vertices[vtx3_idx];
@@ -1477,12 +1497,14 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 
     // --- CUSTOM VR HIDE: SMART REMOVAL ---
     if ((v1->clip_rej & 64) && (v2->clip_rej & 64) && (v3->clip_rej & 64)) {
+        if (gevrMenuTrace) ++gevrMenuClipped;
         return;
     }
     // -------------------------------------------------
 
     if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0) {
         if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
+            if (gevrMenuTrace) ++gevrMenuClipped;
             // The whole triangle lies outside the visible area
             return;
         }
@@ -1490,6 +1512,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 
     if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
         if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
+            if (gevrMenuTrace) ++gevrMenuCulled;
             // Why is this even an option?
             return;
         }
@@ -1521,6 +1544,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         }
 
         if (cull) {
+            if (gevrMenuTrace) ++gevrMenuCulled;
             return;
         }
     }
@@ -2703,6 +2727,24 @@ static void gfx_run_dl(Gfx* cmd) {
             // RSP commands:
             case G_NOOP: {
                 uint32_t tag_w1 = cmd->words.w1;
+                if ((tag_w1 & 0xffff0000) == 0x47450000) {
+                    if (tag_w1 == 0x4745ffff) {
+                        if (gevrMenuTrace) {
+                            vr_log("menubg-rsp: vertices=%u triangles=%u clipped=%u culled=%u submitted=%u geometry=%08x mode=%08x/%08x combine=%016llx",
+                                gevrMenuVertices, gevrMenuTriangles, gevrMenuClipped, gevrMenuCulled,
+                                gevrMenuTriangles-gevrMenuClipped-gevrMenuCulled, rsp.geometry_mode,
+                                rdp.other_mode_h, rdp.other_mode_l, (unsigned long long)rdp.combine_mode);
+                        }
+                        gevrMenuTrace = false;
+                    } else {
+                        unsigned menu = tag_w1 & 31;
+                        gevrMenuTrace = !(gevrMenuSeen & (1u << menu));
+                        gevrMenuSeen |= 1u << menu;
+                        gevrMenuVertices = gevrMenuTriangles = gevrMenuClipped = gevrMenuCulled = 0;
+                        if (gevrMenuTrace) vr_log("menubg-rsp: begin menu=%u", menu);
+                    }
+                    break;
+                }
                 switch (tag_w1) {
                     case 0x56520001: // Menu is open
                         vr_dl_is_pause_or_menu = (tag_w1 & 0xFFFF) != 0; // VR
