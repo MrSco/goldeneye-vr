@@ -133,6 +133,15 @@ offset*, which LP64 alignment padding silently erased.
 owed to whom — the GoldenEye decompilation, the GETV / `goldeneye-native`
 platform layer, the Perfect Dark decomp and PC port, and others.
 
-This tree is MIT licensed; see [LICENSE](LICENSE). Upstream notices travel with
-derived portions. The game itself is not covered by any of that and is not
-distributed here.
+This tree is MIT licensed; see [LICENSE](LICENSE). That covers this project's
+own contributions — vendored components keep their own notices:
+
+| Path | Upstream | Notice |
+|------|----------|--------|
+| `port/vr/` | [Alex-LeTux/perfect_dark_VR](https://github.com/Alex-LeTux/perfect_dark_VR) — the whole VR layer | [`port/vr/LICENSE`](port/vr/LICENSE), [provenance](port/vr/README.md) |
+| `port/vr/imgui/` | Dear ImGui | `port/vr/imgui/LICENSE.txt` |
+| `port/vr/miniz/` | miniz | header of `port/vr/miniz/miniz.c` |
+| `port/fast3d/` | Emill / n64-fast3d-engine | `port/fast3d/LICENSE.txt` |
+| `OpenXR/` | Khronos OpenXR loader | Apache-2.0, see the headers |
+
+The game itself is not covered by any of that and is not distributed here.
