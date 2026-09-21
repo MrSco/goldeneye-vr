@@ -1181,6 +1181,7 @@ static std::vector<XrSwapchainImageOpenGLKHR> g_screenImages;
 static uint32_t g_screenW = 0, g_screenH = 0;
 static bool     g_screenPending = false;
 static bool     g_screenPlaced  = false;
+static std::vector<XrTime> g_screenRecenterTimes;
 static XrPosef  g_screenPose    = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f} };
 
 static void vr_screen_destroy_swapchain(void)
@@ -2027,19 +2028,21 @@ extern "C" void vr_poll_events(void)
                 g_vrState.sessionRunning = false;
                 LOGI("Instance loss pending");
                 break;
-            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING:
-                if (g_vrState.playSpace != XR_NULL_HANDLE) {
-                    xrDestroySpace(g_vrState.playSpace);
-                    g_vrState.playSpace = XR_NULL_HANDLE;
-                }
-                // Runtimes can burst several of these (recentre, guardian/boundary reset,
-                // system menu). If the recreate fails the handle stays null and every
-                // xrLocateViews and xrEndFrame afterwards works off an invalid space, so
-                // say so loudly rather than limping on in silence.
-                if (!vr_create_play_space()) {
-                    LOGE("REFERENCE_SPACE_CHANGE_PENDING: play space recreate FAILED");
+            case XR_TYPE_EVENT_DATA_REFERENCE_SPACE_CHANGE_PENDING: {
+                const auto* change = reinterpret_cast<const XrEventDataReferenceSpaceChangePending*>(&event);
+                // Existing reference-space handles follow the runtime's new origin.
+                // Re-place the cinema screen only after views use that origin;
+                // poses located before changeTime are still in the old space.
+                if (change->session == g_vrState.session &&
+                    (change->referenceSpaceType == gPlaySpaceType ||
+                     (gPlaySpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL_FLOOR_EXT &&
+                      change->referenceSpaceType == XR_REFERENCE_SPACE_TYPE_LOCAL))) {
+                    g_screenRecenterTimes.push_back(change->changeTime);
+                    LOGI("screen: reference change queued type=%d time=%lld",
+                        (int)change->referenceSpaceType, (long long)change->changeTime);
                 }
                 break;
+            }
             default: break;
         }
     }
@@ -2361,6 +2364,15 @@ extern "C" bool vr_begin_frame_and_update_poses()
         return false;
     }
 
+    for (auto it = g_screenRecenterTimes.begin(); it != g_screenRecenterTimes.end();) {
+        if (g_frameState.predictedDisplayTime >= *it) {
+            g_screenPlaced = false;
+            it = g_screenRecenterTimes.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
     // Build the symmetric projection used by the original game from the
     // average OpenXR tangent extents.  Using the angular span directly is
     // only correct for a perfectly symmetric frustum, and using the render
@@ -2675,6 +2687,7 @@ extern "C" void vr_shutdown()
         g_menuSwapchainImagesH.clear();
     }
     vr_screen_destroy_swapchain();
+    g_screenRecenterTimes.clear();
 
     // 4. Reference spaces
     if (g_vrState.viewSpace != XR_NULL_HANDLE) {
