@@ -3809,9 +3809,16 @@ void sub_GAME_7F0B7F84(s32 roomnum, s32 portalnum /*canonically p*/, s32 depth, 
         return;
     }
  
-    i = (s32) &D_800442FC[portalnum];
+    /*
+     * D_800442FC[portalnum] records the depth this portal was reached at.
+     * The original kept its address in the register it later reuses as the
+     * loop counter, which the decomp spelled as "s32 i" - exact with 32-bit
+     * pointers, but on LP64 the address is truncated and the store below
+     * faults. Keep the slot in its own pointer; i stays the counter.
+     */
+    u8 *portalDepthSlot = &D_800442FC[portalnum];
 
-    if (i);
+    if (portalDepthSlot);
  
     playerpos = bondviewGetCurrentPlayersPosition();
     sub_GAME_7F0B96CC(portalnum, &metric);
@@ -3882,7 +3889,7 @@ void sub_GAME_7F0B7F84(s32 roomnum, s32 portalnum /*canonically p*/, s32 depth, 
         }
     }
  
-    *((u8 *) i) = depth;
+    *portalDepthSlot = depth;
  
     if ((screenbox.min.x < screenbox.max.x) && (screenbox.min.y < screenbox.max.y))
     {
@@ -3950,9 +3957,16 @@ s32 sub_GAME_7F0B7F84(s32 value, s32 roomnum, s32 portalnum /*canonically p*/, s
         return value;
     }
  
-    i = (s32) &D_800442FC[portalnum];
+    /*
+     * D_800442FC[portalnum] records the depth this portal was reached at.
+     * The original kept its address in the register it later reuses as the
+     * loop counter, which the decomp spelled as "s32 i" - exact with 32-bit
+     * pointers, but on LP64 the address is truncated and the store below
+     * faults. Keep the slot in its own pointer; i stays the counter.
+     */
+    u8 *portalDepthSlot = &D_800442FC[portalnum];
 
-    if (i);
+    if (portalDepthSlot);
  
     playerpos = bondviewGetCurrentPlayersPosition();
     sub_GAME_7F0B96CC(portalnum, &metric);
@@ -4023,7 +4037,7 @@ s32 sub_GAME_7F0B7F84(s32 value, s32 roomnum, s32 portalnum /*canonically p*/, s
         }
     }
  
-    *((u8 *) i) = depth;
+    *portalDepthSlot = depth;
  
     if ((screenbox.min.x < screenbox.max.x) && (screenbox.min.y < screenbox.max.y))
     {
@@ -5364,7 +5378,7 @@ s32 sub_GAME_7F0B9E04(coord3d *arg0, coord3d *arg1)
                     osSyncPrintf("bg: Portal \'%s\' briefly considered for window\n", bgDebPrintPORTALID(i));
 #endif
                 }
-                if (i);
+    if (i);
                 bestportalnum = i;
                 bestthing = thisthing;
                 count++;
