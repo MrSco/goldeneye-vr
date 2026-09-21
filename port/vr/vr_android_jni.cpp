@@ -136,10 +136,5 @@ Java_com_gevr_port_MainActivity_nativeSetVrJavaContext(
     setVrJavaContextInternal(env, activity, surface);
 }
 
-extern "C" JNIEXPORT void JNICALL
-Java_com_perfectdark_port_MainActivity_nativeSetVrJavaContext(
-        JNIEnv* env, jclass, jobject activity, jobject surface) {
-    setVrJavaContextInternal(env, activity, surface);
-}
 
 #endif

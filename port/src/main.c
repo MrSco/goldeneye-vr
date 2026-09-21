@@ -252,20 +252,8 @@ Java_com_gevr_port_MainActivity_nativeAudioResume(JNIEnv* env, jobject thiz) {
     audioResume();
 }
 
-JNIEXPORT void JNICALL
-Java_com_perfectdark_port_MainActivity_nativeInit(JNIEnv* env, jobject thiz, jstring dataPath) {
-    Java_com_gevr_port_MainActivity_nativeInit(env, thiz, dataPath);
-}
 
-JNIEXPORT void JNICALL
-Java_com_perfectdark_port_MainActivity_nativeStartGame(JNIEnv* env, jobject thiz) {
-    Java_com_gevr_port_MainActivity_nativeStartGame(env, thiz);
-}
 
-JNIEXPORT void JNICALL
-Java_com_perfectdark_port_MainActivity_nativeDestroy(JNIEnv* env, jobject thiz) {
-    Java_com_gevr_port_MainActivity_nativeDestroy(env, thiz);
-}
 
 // Forward declaration
 int pd_main(int argc, const char **argv);
