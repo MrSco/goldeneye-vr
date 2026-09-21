@@ -28,18 +28,28 @@ screen can be "working" in the logs while the headset shows black:
 | **seen** | File select opens on START; START advances through stage and difficulty | HANDOFF §10 |
 | **seen** | Audio — music and SFX through the soft mixer at 22050 Hz | §11 |
 | **seen** | Quitting to the Quest home is clean and immediate | §11 |
+| **seen** | App shows as "GoldenEye VR" with an icon in the Quest library | §12 |
 | **logged** | Left thumbstick drives the file-select crosshair; A / trigger / B | HANDOFF §10 |
 
 ## Open
 
 | | What | |
 |---|---|---|
-| **open** | **Gameplay has never run.** The level loader is unported: stan tiles (`T...Z`), stage setups (`U...Z`), and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
+| **open** | **Gameplay has never run.** Selecting Dam crashes in the stan-tile path on load - the tile data is still cartridge big-endian. This is the active work | §12 |
+| **open** | Level select screen renders but its artwork and layout are wrong: black background, scattered reticles, rotated text | §12 |
+| **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
 | **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
 | **open** | Briefing crash fix and the front-end artwork/portrait fixes shipped in the 20:39 build but were never accepted in the headset — treat as unverified | HANDOFF §10 |
 | **open** | Lighting looks dark on the Nintendo logo and on characters. Unexplored; start at `calculate_normal_dir` / lookat | HANDOFF §7.2.8 |
 | **open** | Attract demos unbound. A guard in `src/game/ramromreplay.c` calls `bossRunTitleStage()` instead. Needs the `ramrom_*` segments in the manifest and a byte-swap of `ramromfilestructure` | HANDOFF item 11 |
 | **open** | Recentre is hold-left-stick-click; upstream convention is both clicks together | HANDOFF §7.2.5 |
+
+## Closed, but not by us
+
+The universal menu's quit dialog says **"App name unavailable"** and shows no
+icon. This is a Quest limitation for sideloaded apps, not a defect here:
+VirtualBoyGo, installed from the same Unknown Sources list, shows the same
+text. The library list name and icon are correct. Nothing further to do.
 
 ## Debug hooks still compiled in
 

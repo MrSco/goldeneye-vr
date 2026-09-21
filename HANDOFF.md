@@ -1033,3 +1033,68 @@ Tracked in [STATUS.md](STATUS.md) rather than here, so there is one list to
 keep current instead of two. In short: gameplay has never run, the level
 loader is unported, the stereo camera has not been started, and the
 probe/test-hook cleanup in §7.2 item 8 still stands.
+
+## 12. App identity, and the Dam load crash — 2026-09-21
+
+### 12.1 Quest app name and icon
+
+The Quest UI showed "App name unavailable" and no icon. `aapt2 dump badging`
+on the shipped APK gave the cause for the library entry:
+
+```
+launchable-activity: name='com.gevr.port.MainActivity'  label='' icon=''
+```
+
+`android:label` and `android:icon` were set on `<application>` but not on the
+LAUNCHER activity, and Quest's shell reads the activity's without falling back.
+Both are set on `MainActivity` now, the icon pointing at a plain 512x512 PNG
+because every density of `@mipmap/ic_launcher` resolved to the adaptive-icon
+XML, which Quest does not reliably rasterise for sideloaded apps. App name is
+"GoldenEye VR"; the package id stays `com.gevr.port`. **Fixed** - the library
+list now shows the name and icon.
+
+**The universal menu's quit dialog still says "App name unavailable", and that
+is not ours to fix.** VirtualBoyGo, sideloaded on the same headset, shows the
+same text, so the dialog does not resolve names for unknown-sources apps at
+all. Do not spend time on it. Along the way the manifest gained
+`com.samsung.android.vr.application.mode=vr_only`, which every other Quest app
+checked declares and this one did not - it did **not** fix the dialog, and it
+is kept only because it belongs in a VR manifest.
+
+### 12.2 Dam crashes on load — stan tiles are still big-endian
+
+Selecting Dam and launching crashes. Captured 2026-09-21 11:48 from
+`adb logcat -b crash`:
+
+```
+signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x000000003413f2b3
+  #00 stanLocusAddTileRoomIfNew+64
+  #01 sub_GAME_7F0B1DDC+208
+  #02 sub_GAME_7F0B21B0+120
+  #03 stanTestVolume+108
+  #04 getposstan+164
+  #05 expand_09_characters+92
+  #06 proplvreset2+3204
+  #07 lvlStageLoad+1092
+  #08 bossMainloop+1032
+```
+
+This is the stan (standing-tile) collision data, which §5 step 3 has listed as
+unported from the start: the `T...Z` files are still cartridge big-endian and
+nothing swaps them. The fault address is the tell - `0x3413f2b3` is odd, so it
+was never a valid aligned pointer; it is byte-swapped data being walked as one.
+Defect class A (endianness), and likely B as well where the structures hold
+32-bit pointer slots.
+
+Reference: Perfect Dark's port does the equivalent job in
+`port/src/preprocess/filetiles.c`, which is in this tree and excluded from the
+build. GoldenEye's stan format is not Perfect Dark's, so it is a reference for
+*shape* - walk the file, swap each record's fields, fix up offsets - not
+something to call directly.
+
+### 12.3 Level select screen
+
+Renders, but wrong: black where the background art should be, target reticles
+scattered across the view, "MULTIPLAYER" and a rotated "PREVIOUS" floating
+free. The text and reticles are drawing, so the screen's logic runs; what is
+missing is the background and the element placement. Not yet investigated.
