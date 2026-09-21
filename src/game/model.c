@@ -5110,9 +5110,28 @@ void sub_GAME_7F074534(ModelRenderData* data, Model* model, ModelNode* node) {
 }
 
 
+#ifdef GEVR
+static bool gevrTraceNextDraw;
+
+void gevrModelTraceNextDraw(void)
+{
+    gevrTraceNextDraw = TRUE;
+}
+#endif
+
 void subdraw(ModelRenderData *mrData, Model *mdl)
 {
     ModelNode *root = mdl->obj->RootNode;
+#ifdef GEVR
+    bool trace = gevrTraceNextDraw;
+    u32 visited = 0;
+    Gfx *drawStart = mrData->gdl;
+    gevrTraceNextDraw = FALSE;
+    if (trace) {
+        sysLogPrintf(LOG_NOTE, "menubg-walk: model=%p root=%p rwdata=%p",
+            (void *)mdl, (void *)root, (void *)mdl->datas);
+    }
+#endif
     #if defined(LEFTOVERDEBUG)
 
     if (mrData->gdl == NULL)
@@ -5134,7 +5153,27 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
 
     while (root != NULL)
     {
+#ifdef GEVR
+        Gfx *nodeStart = mrData->gdl;
+        ModelNode *childBefore = root->Child;
+        if (trace && visited < 128 && (root->Opcode & 0xff) == MODELNODE_OPCODE_SWITCH) {
+            ModelRwData_SwitchRecord *rw = modelGetNodeRwData(mdl, root);
+            sysLogPrintf(LOG_NOTE, "menubg-walk: switch node=%p rw=%p visible=%d controls=%p",
+                (void *)root, (void *)rw, (s32)rw->visible,
+                (void *)root->Data->Switch.Controls);
+        }
+#endif
         sub_GAME_7F074534(mrData, mdl, root);
+#ifdef GEVR
+        if (trace && visited < 128) {
+            sysLogPrintf(LOG_NOTE,
+                "menubg-walk: node=%p opcode=%04x parent=%p next=%p child=%p->%p commands=%d",
+                (void *)root, (u32)root->Opcode, (void *)root->Parent,
+                (void *)root->Next, (void *)childBefore, (void *)root->Child,
+                (s32)(mrData->gdl - nodeStart));
+        }
+        visited++;
+#endif
 
         if (root->Child)
         {
@@ -5153,6 +5192,12 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
             }
         }
     }
+#ifdef GEVR
+    if (trace) {
+        sysLogPrintf(LOG_NOTE, "menubg-walk: visited=%u commands=%d detail-limit=128",
+            visited, (s32)(mrData->gdl - drawStart));
+    }
+#endif
 }
 
 

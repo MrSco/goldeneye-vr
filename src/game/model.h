@@ -102,6 +102,9 @@ void sub_GAME_7F074514(ModelRenderData *param_1,struct Model *param_2,struct Mod
 void sub_GAME_7F074524(Gfx *param_1,struct Model *param_2, struct ModelNode *param_3);
 void sub_GAME_7F074534(ModelRenderData* data, Model* model, ModelNode* node);
 void subdraw(ModelRenderData *arg0, struct Model *);
+#ifdef GEVR
+void gevrModelTraceNextDraw(void);
+#endif
 uintptr_t loadAnimationFrame(ModelAnimation* anim, s32 frame, ModelSkeleton* unused);
 void modelResetAnimationsScratchBuffer(void);
 void modelPromoteNodeOffsetsToPointers(ModelNode *node, uintptr_t vma, uintptr_t fileramaddr);
@@ -121,4 +124,3 @@ void return_null(void);
 #endif
 
 #endif
-
