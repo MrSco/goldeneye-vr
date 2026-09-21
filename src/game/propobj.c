@@ -46,6 +46,9 @@
 #include "quaternion.h"
 #include "random.h"
 #include "stan.h"
+#ifdef GEVR
+#include "system.h"
+#endif
 #include "stanintersection.h"
 #include "tex.h"
 #include "textrelated.h"
@@ -762,6 +765,9 @@ void sub_GAME_7F04088C(ObjectRecord *baseobj, struct coord3d *pos, Mtxf *matrix,
     xmax = chrpropBBOXGetYmin(modelBoundingBox);
     ymin = chrpropBBOXGetYmax(modelBoundingBox);
     mStan = stan;
+#ifdef GEVR
+    sysLogPrintf(LOG_NOTE, "dam-pad: move entry tile=%p local=%p", (void *)stan, (void *)mStan);
+#endif
 
     if (baseobj->flags & 4)
     {

@@ -153,6 +153,9 @@ void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex)
 
     spF0 = arg1->obj;
     var_s0 = NULL;
+#ifdef GEVR
+    sysLogPrintf(LOG_NOTE, "dam-pad: begin cmd=%d pad=%d model=%d", cmdindex, (s32)arg1->pad, spF0);
+#endif
 
     modelLoad(spF0);
 
@@ -319,6 +322,10 @@ void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex)
 
         if (getposstan(&spD0, spCC, 0.0f, &spE0, &spDC) != 0)
         {
+#ifdef GEVR
+            sysLogPrintf(LOG_NOTE, "dam-pad: resolved cmd=%d bound=%p input=%p output=%p", cmdindex,
+                (void *)var_s0, (void *)spCC, (void *)spDC);
+#endif
             if (arg1->type == PROP_TYPE_SMOKE)
             {
                 sp60 = sub_GAME_7F051DD8(arg1, PitemZ_entries[spF0].header);
@@ -484,6 +491,10 @@ void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex)
 
             modelSetScale(arg1->model, arg1->model->scale * sp78);
             matrix_scalar_multiply(arg1->model->scale, sp8C.m[0]);
+#ifdef GEVR
+            sysLogPrintf(LOG_NOTE, "dam-pad: place cmd=%d tile=%p flags=%08x flags2=%08x", cmdindex,
+                (void *)spDC, arg1->flags, arg1->flags2);
+#endif
 
             if (arg1->flags & PROPFLAG_ONSCREEN)
             {
