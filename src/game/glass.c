@@ -302,8 +302,10 @@ Gfx *glassRenderShards(Gfx *gdl)
     #undef WINDOW_PIECE
 
     gSPClearGeometryMode(gdl++, G_LIGHTING | G_TEXTURE_GEN);
-    gSPMatrix(gdl++, (u32)currentPlayerGetProjectionMatrix(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
-    gSPMatrix(gdl++, (u32)currentPlayerGetMatrix10C8(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    /* (u32) truncated these matrix pointers into the display list. Use the
+     * pass-through the rest of the port already uses - see bg.c:635. */
+    gSPMatrix(gdl++, osVirtualToPhysical((void *)currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+    gSPMatrix(gdl++, osVirtualToPhysical((void *)currentPlayerGetMatrix10C8()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
 
     return gdl;
 }
