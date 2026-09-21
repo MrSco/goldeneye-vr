@@ -244,7 +244,7 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
             conn.setReadTimeout(5000);
             conn.setConnectTimeout(5000);
             conn.setRequestMethod("GET");
-            conn.setRequestProperty("User-Agent", "PerfectDarkVR");
+            conn.setRequestProperty("User-Agent", "GoldenEyeVR");
 
             InputStream in = conn.getInputStream();
             Scanner scanner = new Scanner(in).useDelimiter("\\A");

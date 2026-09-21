@@ -24,7 +24,7 @@
 #include <openxr/openxr_platform.h>
 #include <android/log.h>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "PD-VR", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
 #else
 #define LOGI(...) printf(__VA_ARGS__)
 #endif

@@ -17,8 +17,4 @@
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
     </style>
-
-    <!-- Legacy compatibility aliases -->
-    <style name="Theme.PerfectDark" parent="Theme.GEVR" />
-    <style name="Theme.PerfectDark.Fullscreen" parent="Theme.GEVR.Fullscreen" />
 </resources>

@@ -9,7 +9,7 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
 
-#define LOG_TAG "PerfectDark-GFX"
+#define LOG_TAG "GoldenEye-GFX"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, __VA_ARGS__)
 

@@ -103,7 +103,7 @@ extern void bossEntry(void);
 #include <SDL_main.h>
 #include <EGL/egl.h>
 
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "PD-VR", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
 #else
 #define LOGI(...) printf(__VA_ARGS__)
 
@@ -273,7 +273,7 @@ int pd_main(int argc, const char **argv);
 // SDL2 will call this as the main function on Android
 int SDL_main(int argc, char* argv[]) {
     // Add some basic logging to see if we get here
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "SDL_main started on Android");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "SDL_main started on Android");
 
     // Wait for initialization if needed
     int timeout = 50; // 5 seconds
@@ -283,18 +283,18 @@ int SDL_main(int argc, char* argv[]) {
     }
 
     if (!g_initialized) {
-        __android_log_print(ANDROID_LOG_ERROR, "PerfectDark", "Android not initialized after timeout");
+        __android_log_print(ANDROID_LOG_ERROR, "GoldenEye", "Android not initialized after timeout");
         return -1;
     }
 
     // Log the data path for debugging
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "Android data path: %s", g_data_path);
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "Android data path: %s", g_data_path);
 
     // Change to the data directory so the game can find files
     if (chdir(g_data_path) != 0) {
-        __android_log_print(ANDROID_LOG_ERROR, "PerfectDark", "Failed to change to data directory: %s", g_data_path);
+        __android_log_print(ANDROID_LOG_ERROR, "GoldenEye", "Failed to change to data directory: %s", g_data_path);
     } else {
-        __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "Changed working directory to: %s", g_data_path);
+        __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "Changed working directory to: %s", g_data_path);
     }
 
     return pd_main(argc, (const char**)argv);
@@ -303,7 +303,7 @@ int SDL_main(int argc, char* argv[]) {
 const char* sysGetDataPath(void) {
     if (g_data_path[0] == '\0') {
         // Default to SDL2's internal storage path for Android
-        strcpy(g_data_path, "/data/data/com.perfectdark.port/files");
+        strcpy(g_data_path, "/data/data/com.gevr.port/files");
         sysLogPrintf(LOG_NOTE, "Using default Android data path: %s", g_data_path);
     }
     return g_data_path;
@@ -319,21 +319,21 @@ int main(int argc, const char **argv)
 
     sysInitArgs(argc, argv);
 
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "Starting initialization sequence");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "Starting initialization sequence");
 
     if (!sysArgCheck("--no-crash-handler")) {
         crashInit();
     }
 
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "sysInit starting");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "sysInit starting");
     sysInit();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "fsInit starting");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "fsInit starting");
     fsInit();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "configInit starting");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "configInit starting");
     configInit();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "SDL2 init starting");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "SDL2 init starting");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
-        __android_log_print(ANDROID_LOG_ERROR, "PerfectDark", "SDL_Init failed: %s", SDL_GetError());
+        __android_log_print(ANDROID_LOG_ERROR, "GoldenEye", "SDL_Init failed: %s", SDL_GetError());
         return -1;
     }
 
@@ -342,24 +342,24 @@ int main(int argc, const char **argv)
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
 
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "videoInit starting");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "videoInit starting");
     videoInit();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "inputInit starting");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "inputInit starting");
     inputInit();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "audioInit starting");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "audioInit starting");
     audioInit();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "romdataInit starting");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit starting");
     romdataInit();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "romdataInit complete");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit complete");
     extTexInit();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "extTexInit complete");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "extTexInit complete");
 
     g_ValidGbcRomFound = romdataCheckGbcRom();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "GBC ROM check complete");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "GBC ROM check complete");
 
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "gameInit starting");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "gameInit starting");
     gameInit();
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "gameInit complete");
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "gameInit complete");
 
     if (fsGetModDir()) {
         modConfigLoad(MOD_CONFIG_FNAME);

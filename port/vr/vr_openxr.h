@@ -8,8 +8,8 @@
 #ifdef ANDROID
 #include <openxr/openxr_platform.h>
 #include <android/log.h>
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "PD-VR", __VA_ARGS__)
-#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "PD-VR", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "GoldenEye-VR", __VA_ARGS__)
 #else
 #define LOGI(...) vr_log(__VA_ARGS__)
 #define LOGE(...) vr_log(__VA_ARGS__)

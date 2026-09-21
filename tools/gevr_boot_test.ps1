@@ -51,7 +51,7 @@ adb logcat -c
 
 # Capture before launching, or the first lines are gone by the time we look.
 $cap = Start-Process -FilePath "adb" `
-    -ArgumentList "logcat","-v","time","PerfectDark:V","GEVR:V","PD-VR:V","DEBUG:V","*:S" `
+    -ArgumentList "logcat","-v","time","GoldenEye:V","GoldenEye-VR:V","GoldenEye-GFX:V","GEVR:V","DEBUG:V","*:S" `
     -RedirectStandardOutput $log -NoNewWindow -PassThru
 Start-Sleep -Seconds 2
 

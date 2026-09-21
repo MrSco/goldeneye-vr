@@ -12,7 +12,7 @@ void vr_log(const char* format, ...) {
     /* PORT: fopen("vr_debug.txt") fails on Android, so every message here was lost; logcat instead */
     va_list ap;
     va_start(ap, format);
-    __android_log_vprint(ANDROID_LOG_INFO, "PD-VR", format, ap);
+    __android_log_vprint(ANDROID_LOG_INFO, "GoldenEye-VR", format, ap);
     va_end(ap);
     return;
 #endif

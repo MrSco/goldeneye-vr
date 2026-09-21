@@ -460,7 +460,7 @@ static bool vr_create_instance(const std::vector<const char*>& extensions)
 #ifdef ANDROID
     ci.next = &androidInfo;
 #endif
-    std::strncpy(ci.applicationInfo.applicationName, "PerfectDark", XR_MAX_APPLICATION_NAME_SIZE - 1);
+    std::strncpy(ci.applicationInfo.applicationName, "GoldenEye", XR_MAX_APPLICATION_NAME_SIZE - 1);
     ci.applicationInfo.apiVersion    = XR_API_VERSION_1_0;
     ci.enabledExtensionCount         = (uint32_t)extensions.size();
     ci.enabledExtensionNames         = extensions.data();

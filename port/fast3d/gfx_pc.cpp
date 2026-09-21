@@ -3166,7 +3166,7 @@ extern "C" void gfx_sdl_get_mirror_dimensions(int* w, int* h);
 static void gevrDumpDl(const Gfx* cmd, int depth, int* budget) {
     while (*budget > 0 && cmd != nullptr) {
         const uint8_t op = (uint8_t)(cmd->words.w0 >> 24);
-        __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "dl%d %p %02x %08x %016llx", depth, (const void*)cmd, op,
+        __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "dl%d %p %02x %08x %016llx", depth, (const void*)cmd, op,
                             (unsigned)cmd->words.w0, (unsigned long long)cmd->words.w1);
         (*budget)--;
         if (op == (uint8_t)G_ENDDL) return;
@@ -3189,10 +3189,10 @@ static void gevrMaybeDumpDl(const Gfx* commands) {
     if (access(marker, F_OK) != 0) return;
     unlink(marker);
     int budget = 900;
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "dl-dump: begin, native %ux%u dims %ux%u", (unsigned)gfx_current_native_viewport.width,
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "dl-dump: begin, native %ux%u dims %ux%u", (unsigned)gfx_current_native_viewport.width,
                         (unsigned)gfx_current_native_viewport.height, (unsigned)gfx_current_dimensions.width, (unsigned)gfx_current_dimensions.height);
     gevrDumpDl(commands, 0, &budget);
-    __android_log_print(ANDROID_LOG_INFO, "PerfectDark", "dl-dump: end (%d lines left)", budget);
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "dl-dump: end (%d lines left)", budget);
 }
 #else
 static void gevrMaybeDumpDl(const Gfx*) {}
