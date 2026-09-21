@@ -1,3 +1,18 @@
+/*
+ * NOTE (2026-09-21): the in-app updater and HD-texture-pack downloader this
+ * file drives were REMOVED. Their backends (port/vr/vr_update_dl.cpp and
+ * port/vr/vr_textures_pack_dl.cpp) fetched GitHub releases from
+ * Alex-LeTux/perfect_dark_VR and retro-foundry/Perfect-Dark-Plus-HD-Textures
+ * - Perfect Dark content, wrong for this port, and there is no GoldenEye
+ * equivalent to repoint them at. The Java helpers in SDLActivity.java went
+ * with them.
+ *
+ * This file is already excluded from the build (see CMakeLists.txt), so
+ * nothing breaks today. If you re-enable it, the extern declarations around
+ * line 50-85 and their ~20 call sites below will not link until you either
+ * strip the update/download menus or write backends against your own release
+ * endpoint.
+ */
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
