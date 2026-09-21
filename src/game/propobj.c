@@ -8479,7 +8479,9 @@ bool bgTestHitOnObj(coord3d *arg0, coord3d *arg1, coord3d *arg2, Gfx *gdl, Gfx *
         {
             op = ((u8 *) gdl)[1] & 0xf;
             padC = ((u32 *) gdl)[1] & 0x00ffffff;
-            vtxbase = (Vertex *) ((((s32) vertices) + padC) - (op << 4));
+            /* (s32)vertices truncated the host vertex buffer pointer; padC
+             * and op << 4 are byte offsets either way. */
+            vtxbase = (Vertex *) (((u8 *) vertices + padC) - (op << 4));
             gdl++;
 
             continue;

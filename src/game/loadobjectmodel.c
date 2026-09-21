@@ -512,13 +512,14 @@ ObjectRecord *setupFindObjForReuse(s32 wanttype, ObjectRecord **offscreenobjptr,
     ObjectRecord *offscreenobj = NULL;
     ObjectRecord *anyobj = NULL;
 
-    u32 *cmd = g_CurrentSetup.propDefs;
+    /* type is the header's high byte on little-endian - see cleanupObjects. */
+    PropDefHeaderRecord *cmd = g_CurrentSetup.propDefs;
 
     if (cmd)
     {
-        while ((u8)cmd[0] != PROPDEF_END)
+        while (cmd->type != PROPDEF_END)
         {
-            if ((wanttype & 0xff) == (u8)cmd[0])
+            if ((wanttype & 0xff) == cmd->type)
             {
                 ObjectRecord *obj = (ObjectRecord *)cmd;
 
@@ -547,7 +548,7 @@ ObjectRecord *setupFindObjForReuse(s32 wanttype, ObjectRecord **offscreenobjptr,
                 }
             }
 
-            cmd = cmd + sizepropdef(cmd);
+            cmd = (PropDefHeaderRecord *) ((u32 *) cmd + sizepropdef(cmd));
         }
     }
 

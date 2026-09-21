@@ -9,13 +9,20 @@
 
 void cleanupObjects(s32 stage)
 {
-    u32 *obj = (u32)g_CurrentSetup.propDefs;
-    
+    /*
+     * Two ports in one line. (u32)propDefs truncated a real host pointer, and
+     * (u8)obj[0] read the type from the low byte of the header word - true on
+     * big-endian MIPS, where the word is extrascale:16 state:8 type:8, but on
+     * little-endian the type is the HIGH byte. Walk through the header struct,
+     * which puts type at offset 3 on both.
+     */
+    PropDefHeaderRecord *obj = g_CurrentSetup.propDefs;
+
     if (obj)
     {
-        while ((u8)obj[0] != PROPDEF_END)
+        while (obj->type != PROPDEF_END)
         {
-            switch ((u8)obj[0])
+            switch (obj->type)
             {
                 case PROPDEF_DOOR:
                 case PROPDEF_PROP:
@@ -71,7 +78,7 @@ void cleanupObjects(s32 stage)
                 
             }
 
-            obj =  obj + sizepropdef(obj) ;
+            obj = (PropDefHeaderRecord *) ((u32 *) obj + sizepropdef(obj));
         }
     }
 }

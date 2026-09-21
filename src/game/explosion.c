@@ -1723,7 +1723,9 @@ Gfx *explosionRenderFlyingParticles(Gfx *gdl)
     for (i = 0; i < max_particles; i++)
     {
         // HACK: regalloc has instructions backwards.
-        particles = (struct FlyingParticles *)(u32)g_FlyingParticlesBuffer + i;
+        /* g_FlyingParticlesBuffer is already a FlyingParticles *; the (u32)
+         * truncated it. */
+        particles = g_FlyingParticlesBuffer + i;
 
         if (particles->unk00 > 0)
         {
