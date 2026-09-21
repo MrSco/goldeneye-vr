@@ -1226,7 +1226,7 @@ osGetTime is N64 ticks, so dividing it by one million was not one second.
 Build passed, installed successfully, no automatic launch. Visual fix pending.
 
 
-### 12.6 Missing menu returns corrupt matrices — 2026-09-21
+### 12.6 Missing menu returns corrupt matrices â€” 2026-09-21
 
 Background-scoped capture at 12:53:29: menu 7 loads M[0][0] = -18431.8
 (instead of 0.25), and a corrupted projection. All 216 triangles are clipped;
@@ -1247,3 +1247,7 @@ returned Success. Post-fix disassembly returns the same DL slot that
 frontDrawCursor updates. `git diff --check` passed. Renderer probes retained
 for confirmation, user asked to relaunch and inspect mission select. No
 claim that all ten menu screens or Dam are fixed; visual confirmation pending.
+
+User subsequently confirmed mission select looks fixed. Dam still reproduces
+the same fault. New report: system recenter via holding the right-controller
+menu button leaves the cinema screen left of the current view.
