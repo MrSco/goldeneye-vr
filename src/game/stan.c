@@ -7,6 +7,9 @@
 #include "chr.h"
 #include "stanintersection.h"
 #include "assert.h"
+#ifdef GEVR
+#include "system.h"
+#endif
 
 void getTileMidPoint(StandTile *tile, coord3d *out);
 
@@ -86,6 +89,12 @@ struct StandTile * standTileStart = NULL;
 uintptr_t ptr_firstroom_0 = 0;
 //D:80040F60
 struct StandTile* stanTileEnd = NULL;
+#ifdef GEVR
+/* PORT probe state for the tile-walk range check in sub_GAME_7F0B0914. */
+static s32 gevrStanWalkReports = 0;
+static u32 gevrStanWalkLink = 0xffff;
+static StandTile *gevrStanWalkLinked = NULL;
+#endif
 //D:80040F64
 s32 D_80040F64[] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 //D:80040FAC
@@ -1347,10 +1356,39 @@ bool sub_GAME_7F0B0914(StandTile **tileStack, f32 start_x, f32 start_z, f32 dest
     iterationCount = 0;
     lineDx = dest_x - start_x;
 
+#ifdef GEVR
+    /*
+     * PORT probe. The Dam load faults here on a tile outside the stan buffer.
+     * stanDetermineEOF gives us real bounds, so range-check the tile before it
+     * is dereferenced and report where it came from. Bailing out is what the
+     * "could not walk there" path already returns, so the caller copes.
+     * The savedPointIndex line below ends in a backslash - a matching
+     * artifact - so nothing may be inserted directly after it.
+     */
+    gevrStanWalkLink = 0xffff;
+    gevrStanWalkLinked = NULL;
+#endif
     savedPointIndex = uninitialized;\
     while (1)
     {
         crossings = 0;
+#ifdef GEVR
+        if (standTileStart == NULL || stanTileEnd == NULL ||
+            (uintptr_t) tile < (uintptr_t) standTileStart ||
+            (uintptr_t) tile > (uintptr_t) stanTileEnd)
+        {
+            if (gevrStanWalkReports < 12)
+            {
+                gevrStanWalkReports++;
+                sysLogPrintf(LOG_NOTE,
+                    "stanwalk: tile=%p out of [%p,%p] iter=%d prev=%p prevprev=%p link=%04x linked=%p entry=%p",
+                    (void *) tile, (void *) standTileStart, (void *) stanTileEnd,
+                    iterationCount, (void *) previousTile, (void *) previousPreviousTile,
+                    (u32) gevrStanWalkLink, (void *) gevrStanWalkLinked, (void *) *tileStack);
+            }
+            return FALSE;
+        }
+#endif
 
         if (callback)
         {
@@ -1374,6 +1412,10 @@ bool sub_GAME_7F0B0914(StandTile **tileStack, f32 start_x, f32 start_z, f32 dest
                 if (sub_GAME_7F0B07BC(start_x, start_z, dest_x, dest_z, curPoint[1].x, curPoint[1].z, nextPoint[1].x, nextPoint[1].z, hasLink))
                 {
                     linkedTile = &standTileStart[curPoint[1].link];
+#ifdef GEVR
+                    gevrStanWalkLink = curPoint[1].link;
+                    gevrStanWalkLinked = linkedTile;
+#endif
                     crossings++;
 
                     if (previousTile != linkedTile && previousPreviousTile != linkedTile)
@@ -3101,6 +3143,12 @@ void stanDetermineEOF(struct StanPrefixRecord *file /* canonically r */, s32 ori
         stanTileEnd = tile;
         tile = (StandTile *)((u8 *)tile + list_of_tilesizes[(tile->tail.half >> 0xc) & 0xf]);
     }
+
+#ifdef GEVR
+    gevrStanWalkReports = 0;
+    sysLogPrintf(LOG_NOTE, "stanwalk: bounds start=%p firstroom=%p end=%p",
+        (void *) standTileStart, (void *) file->ptr_firstroom, (void *) stanTileEnd);
+#endif
 
     stan_prefix = file;
 }
