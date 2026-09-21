@@ -520,18 +520,35 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
     /* ---- props ---- */
     if (hdr[3]) {
         props_ofs = dstpos = align8(dstpos);
+        /*
+         * PORT probe. The game walk produces sane records to a point and
+         * garbage after, with no size disagreement between the two tables -
+         * which is what a desync on THIS side looks like: one wrong N64 word
+         * count and every later record is read from the wrong offset, so the
+         * host stream carries garbage types the game then walks happily.
+         */
+        size_t propindex = 0;
         size_t pp = hdr[3];
         while (pp + 4 <= size) {
             uint8_t type = src[pp + 3]; /* type is low byte of BE header word at +0 */
             /* Actually BE: extrascale at 0-1, state at 2, type at 3 — yes byte 3. */
             size_t hb = host_prop_bytes(type);
             int n64w = n64_prop_words(type);
-            if (!hb || !n64w || pp + n64w * 4 > size || dstpos + hb > capacity) { g_setup_fail = 19; free(src); return 0; }
+            sysLogPrintf(LOG_NOTE, "setupwalk: i=%u pp=0x%06x type=%u n64w=%d hb=%u",
+                (unsigned) propindex, (unsigned) pp, (unsigned) type, n64w, (unsigned) hb);
+            if (!hb || !n64w || pp + n64w * 4 > size || dstpos + hb > capacity) {
+                sysLogPrintf(LOG_ERROR, "setupwalk: STOP i=%u pp=0x%06x type=%u n64w=%d hb=%u size=%u",
+                    (unsigned) propindex, (unsigned) pp, (unsigned) type, n64w, (unsigned) hb, (unsigned) size);
+                g_setup_fail = 19; free(src); return 0;
+            }
             convert_one_prop(dst + dstpos, src + pp, type);
             dstpos += hb;
             pp += (size_t)n64w * 4;
+            propindex++;
             if (type == 48) break;
         }
+        sysLogPrintf(LOG_NOTE, "setupwalk: done props=%u ended pp=0x%06x of size=0x%06x",
+            (unsigned) propindex, (unsigned) pp, (unsigned) size);
     }
 
     /* ---- patrol paths (8 → 16) ---- */
