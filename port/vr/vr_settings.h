@@ -1,5 +1,5 @@
 
-#define VR_INI_PATH "pd-vr.ini"
+#define VR_INI_PATH "goldeneye-vr.ini"
 extern bool VrManualReloading;
 extern bool VrlaserDotForALL;
 extern bool inputRumbleSupported(int playernum);
@@ -42,7 +42,7 @@ extern float VrHudDistance;
 
 // VR hand/gun placement. Defined in bondgun.c. These are the only values still worth varying per
 // player -- everything else about the placement is measured and baked. There is deliberately no
-// menu UI for them; they live in pd-vr.ini and vrSettingsSave() documents each one.
+// menu UI for them; they live in goldeneye-vr.ini and vrSettingsSave() documents each one.
 extern float VrGunOffX;         // grip fit trim in the controller frame, game units
 extern float VrGunOffY;
 extern float VrGunOffZ;

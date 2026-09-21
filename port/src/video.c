@@ -103,7 +103,7 @@ s32 videoInit(void)
             .wapi = wmAPI,
             .rapi = renderingAPI,
             .window_settings = {
-                    .title = "Perfect Dark",
+                    .title = "GoldenEye VR",
                     .width = VrRecommendedW,
                     .height = VrRecommendedH,
 #ifdef ANDROID

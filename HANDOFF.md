@@ -713,7 +713,7 @@ item below names what to compare against in it.
    held-left-click recentre with both stick clicks together
    (`get_button_state(0/1, "thumbstick_click")`, port/vr/vr_input.cpp),
    and expose `VrScreenDistance` / `VrScreenFov` (vr_openxr.cpp) in
-   `pd-vr.ini` via `port/vr/vr_settings.cpp`. Upstream sizes the screen in
+   `goldeneye-vr.ini` via `port/vr/vr_settings.cpp`. Upstream sizes the screen in
    metres at a distance (3.0 m wide); ours is 60 degrees at 2.5 m, which is
    2.9 m wide. Keep metres if the user prefers.
 

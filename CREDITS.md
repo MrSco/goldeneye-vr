@@ -3,10 +3,16 @@
 Thank-you sheet for work this port actually leaned on. Click a name for the
 project; each line says **exactly what** we used it for.
 
-This sheet is inherited from GEVR, the PC/VR project this port grew out of, and
-trimmed to what applies here. GEVR's own player-facing docs (release zips,
-controls, roadmap, `PRIOR-ART.md`, `LICENSE-MAP.md`) live in that project:
-https://github.com/no6969el/GEVR - they are not duplicated in this repository.
+The sheet itself started as GEVR's, the PC/VR project this port grew out of,
+and has been rewritten for what is actually in this tree. **No GEVR code is
+in this repository** - the relationship is where the project came from, not a
+code dependency; see the table near the bottom. GEVR's own player-facing docs
+live in that project: https://github.com/no6969el/GEVR.
+
+Two directories are vendored upstream source rather than our own work, and
+carry their notices beside them: `port/` (Perfect Dark PC port) and
+`port/vr/` (Alex-LeTux's perfect_dark_VR). `src/` is the GoldenEye
+decompilation.
 
 Start here instead: [README](README.md) · [HANDOFF](HANDOFF.md) · [LICENCE](LICENSE).
 
@@ -25,12 +31,23 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 
 ## Adapted or built on (specific credit)
 
-### Evan King / GETV platform layer (MIT)
+### Perfect Dark PC port (MIT) - **vendored source**, our whole host layer
 
-- **What:** The from-source PC host / platform layer GEVR's VR work sits on (`goldeneye-native` lineage).
-- **Credit for:** Host, port scaffolding, Fast3D wiring, and the native bring-up path we extend for OpenXR.
-- **Not claiming:** Their MIT work as closed or as "GEVR-only." Their notice travels with derived portions.
-- **Licence in tree:** see the GETV / `goldeneye-native` `LICENSE` (Copyright (c) 2026 Evan King).
+- **Repo:** https://github.com/fgsfdsfgs/perfect_dark (branch `port`)
+- **What we took:** `port/` - everything that stands in for the N64 so the
+  game code in `src/` can run on a headset. `port/src/` matches upstream
+  file-for-file (`main.c`, `system.c`, `video.c`, `audio.c`, `fs.c`,
+  `input.c`, `config.c`, `mixer.c`, `romdata.c`, `mod.c`, `pdmain.c`,
+  `pdsched.c`, `libultra.c`, `crash.c`, `optionsmenu.c`), with GoldenEye
+  files added alongside and Perfect Dark specifics excluded from the build
+  rather than deleted.
+- **Licence:** MIT, `Copyright (c) 2022 Ryan Dwyer` - the port is a fork of
+  the decompilation and carries its notice. Travels with the code in
+  [`port/LICENSE`](port/LICENSE); provenance in
+  [`port/README.md`](port/README.md).
+- **What is ours in there:** the `gevr_`-prefixed files (ROM binding, runtime
+  file table, byte-order passes, model/stage conversion, audio pump,
+  scheduler shim) and `menuimage.c`.
 
 ### Alex-LeTux / perfect_dark_VR (MIT) - **vendored source**, our whole VR layer
 
@@ -58,24 +75,31 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 > code" and said their VR tree was not copied. That was wrong, and is
 > corrected here: `port/vr/` is their source.
 
-### Perfect Dark PC port / decomp (MIT) - sibling engine reference
+### Perfect Dark decompilation (MIT) - the notice our port layer carries
 
-- **Repos:** https://github.com/perfect-dark-pc-port/perfect_dark (and `n64decomp/perfect_dark`)
-- **What for:** Same Rare N64 FPS family. Used as architecture and feel reference (menus, aim/sway family, Fast3D ancestry notes). Not a wholesale copy into GEVR.
+- **Repos:** https://github.com/n64decomp/perfect_dark
+- **Why here:** both `port/` and `port/vr/` descend from it, so its MIT line
+  (`Copyright (c) 2022 Ryan Dwyer`) is the notice those directories carry.
+- **Also:** same Rare N64 FPS family, so it doubles as an architecture and feel reference (menus, aim/sway family, Fast3D ancestry).
 
 ### Emill / n64-fast3d-engine - renderer ancestry
 
 - **Repo:** https://github.com/Emill/n64-fast3d-engine
 - **What for:** Lineage of the Fast3D / `gfx_pc` path used by the native port (and related PD/GE ports). Credit for the engine ancestry, not for inventing a new RDP from scratch.
 
-### n64decomp / 007 - GoldenEye decompilation upstream
+### n64decomp / 007 - GoldenEye decompilation, our `src/`
 
 - **Repo:** https://github.com/n64decomp/007
-- **What for:** Decompiled C and symbols that make a from-source port possible. Upstream posture is **not** a blanket open licence for the game; GEVR does not claim ownership of decomp or retail assets. ROM still required.
+- **What we took:** `src/` - the decompiled C and symbols that make a
+  from-source port possible. This is the game itself, not a reference.
+- **Licence:** the upstream repository ships **no licence file**, which is
+  usual for a decompilation and is not the same as a grant. Nothing here
+  claims ownership of the decompiled code or of retail assets, and a ROM you
+  own is still required to run any of it.
 
 ### Khronos OpenXR
 
-- **What for:** The VR API GEVR targets (PCVR runtimes: SteamVR-class, Pimax, Quest via PC link, etc.).
+- **What for:** The VR API this port targets. Standalone on Horizon OS via the loader vendored in `OpenXR/`; the upstream code also supports PCVR runtimes.
 - **Spec / org:** https://www.khronos.org/openxr/
 
 ### SDL2
@@ -87,22 +111,29 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 
 ## Looked at, not adapted into this port
 
-These showed up in prior-art surveys. They are **not** credited as sources of GEVR code or knobs unless a later note says otherwise.
+These showed up in prior-art surveys. They are **not** sources of code or
+knobs in this tree unless a later note says otherwise.
 
-| Project | Why listed | Used in GEVR? |
-|---------|------------|---------------|
+| Project | Why listed | Used here? |
+|---------|------------|------------|
 | StarFox64-VR | Licence unclear; rule was do not read source | **No** |
 | GoldenEye64Recomp / N64ModernRuntime | GPL host stack; kept external on purpose | **Not vendored** |
 | Xbox 360 GoldenEye recomps | Different game build / assets | **No** |
 | MGB64 (akratch) | Sibling native-port survey / control read | **Reference only** |
+| [GEVR](https://github.com/no6969el/GEVR) (no6969el) | The PC/VR project this port grew out of, and where this credit sheet came from. Its VR work targets the PC host; this port is a separate standalone Quest build. | **Inspiration only** - no GEVR code in this tree |
+| Evan King / GETV, `goldeneye-native` | The from-source PC host lineage behind GEVR. Listed because earlier revisions of this sheet credited it as our platform layer. | **Not used here** - our host layer is the Perfect Dark PC port |
 
 ---
 
 ## How we keep this honest
 
-1. **Licence first** - unclear or proprietary prior art does not influence design (see `docs/55-prior-art-licence-check.md`).
+1. **Licence first** - unclear or proprietary prior art does not influence design.
 2. **Name the borrow** - constants, transforms, and clamp splits get a recorded "what for," not a vague thank-you.
-3. **Map vs vendor** - Perfect Dark VR is **prior-art map** unless a future commit says code was brought in (then MIT notice + this sheet update).
+3. **Map vs vendor** - say which it is, plainly. `port/` and `port/vr/` are
+   **vendored**: upstream source, adapted. Their MIT notices sit beside them
+   in [`port/LICENSE`](port/LICENSE) and [`port/vr/LICENSE`](port/vr/LICENSE).
+   Anything listed as influence only must stay that way or move up to a
+   vendored entry with its notice, as those two did on 2026-09-21.
 4. **Game data stays with the player** - ROM and assets are never in the download.
 
 If you spot a missing credit for something we really used, open an Issue titled `Credits: ...` and point at the borrow. We will add a specific line, not a blanket shout-out. Do not upload ROM files.

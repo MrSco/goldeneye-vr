@@ -138,7 +138,9 @@ own contributions — vendored components keep their own notices:
 
 | Path | Upstream | Notice |
 |------|----------|--------|
+| `port/` | [Perfect Dark PC port](https://github.com/fgsfdsfgs/perfect_dark) — the whole host layer | [`port/LICENSE`](port/LICENSE), [provenance](port/README.md) |
 | `port/vr/` | [Alex-LeTux/perfect_dark_VR](https://github.com/Alex-LeTux/perfect_dark_VR) — the whole VR layer | [`port/vr/LICENSE`](port/vr/LICENSE), [provenance](port/vr/README.md) |
+| `src/` | [n64decomp/007](https://github.com/n64decomp/007) — the GoldenEye decompilation | upstream ships no licence file |
 | `port/vr/imgui/` | Dear ImGui | `port/vr/imgui/LICENSE.txt` |
 | `port/vr/miniz/` | miniz | header of `port/vr/miniz/miniz.c` |
 | `port/fast3d/` | Emill / n64-fast3d-engine | `port/fast3d/LICENSE.txt` |

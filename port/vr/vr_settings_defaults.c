@@ -2,14 +2,14 @@
  * Definitions for the VR settings and runtime flags.
  *
  * port/vr/vr_settings.h declares these and port/vr/vr_settings.cpp reads and
- * writes them through pd-vr.ini, but nothing in this tree defined them: in the
+ * writes them through goldeneye-vr.ini, but nothing in this tree defined them: in the
  * Perfect Dark VR port they live in Perfect Dark's own game sources (the header
  * still says "Defined in bondgun.c"), and those files have no counterpart here.
  * Without definitions the library does not link, so they are defined once, here,
  * on the GoldenEye side.
  *
  * The values are the neutral ones - no comfort mode on, world scale at 1:1,
- * player height mid-range - so that behaviour is whatever pd-vr.ini says and
+ * player height mid-range - so that behaviour is whatever goldeneye-vr.ini says and
  * nothing is silently enabled. Ranges are the ones documented in vr_settings.h.
  */
 
@@ -51,7 +51,7 @@ float VrSetWorldScale = 1.0f;
 /*
  * vr_settings.h says these are "Defined in bondgun.c" - Perfect Dark's weapon
  * code. There is no GoldenEye counterpart yet, so they live here. There is
- * deliberately no menu UI for them; vrSettingsSave() writes them to pd-vr.ini
+ * deliberately no menu UI for them; vrSettingsSave() writes them to goldeneye-vr.ini
  * with a comment each. Zero means no trim, which is the unadjusted fit.
  */
 float VrGunOffX = 0.0f;      /* grip fit trim in the controller frame, game units */
