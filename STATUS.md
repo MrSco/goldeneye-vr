@@ -55,13 +55,12 @@ text. The library list name and icon are correct. Nothing further to do.
 
 Two open items are worth the next session, in this order:
 
-1. **The menu background** (§12.5). User screenshot confirms black mission
-   select. Device trace visits 26 nodes and submits eight display lists in
-   the first background sample (17 top-level commands). Switches do enable
-   children. The earlier empty-walk diagnosis is disproved. A background-only
-   `menubg-rsp:` renderer trace now samples matrices, vertices, clipping and
-   culling separately for each menu. Build and installation passed; capture
-   pending. Whole-frame geometry counts cannot establish background rendering.
+1. **The menu background** (�12.6). Renderer trace caught all 216 mission-select
+   triangles clipped, with corrupted model/projection matrices. Missing
+   `return DL;` in `constructor_menu07_missionsel` returned an uninitialized
+   pointer; the caller's scissor/full-sync/end-list writes match the corruption.
+   Added the missing return there and in mission complete. Build, install and
+   compiled-code verification passed. User visual confirmation pending.
 2. **The Dam hang** (§12.2a). Three hypotheses tested and killed with probes;
    the fault value reproduces byte-identically, so it is a fixed location, not
    a wild index. Next thing to check is whether `init_pathtable_something`

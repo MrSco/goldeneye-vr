@@ -1224,3 +1224,26 @@ clipped, culled and submitted. This avoids attributing cursor/text geometry
 to the background. Fixed the existing log throttle to use sysGetMicroseconds:
 osGetTime is N64 ticks, so dividing it by one million was not one second.
 Build passed, installed successfully, no automatic launch. Visual fix pending.
+
+
+### 12.6 Missing menu returns corrupt matrices — 2026-09-21
+
+Background-scoped capture at 12:53:29: menu 7 loads M[0][0] = -18431.8
+(instead of 0.25), and a corrupted projection. All 216 triangles are clipped;
+zero culled or submitted. Menu 6's preceding sample had sane matrices and
+54 submitted triangles. Evidence remains in the temp capture cited above.
+
+`constructor_menu07_missionsel` falls off its end without returning its
+updated display-list pointer. Disassembly of the installed pre-fix binary
+shows it writes DL at [x29,-96] but returns an uninitialized [x29,-88]. The
+caller appends scissor, full sync and end-list commands. Their word patterns
+match the damaged matrices: ED scissor alters the projection and B8000000
+end-list gives the model's -18431.75 when combined with its original fraction.
+This explains why valid node traversal still produces a black screen.
+
+Added `return DL;` in mission select and mission complete (the two Gfx-returning
+functions in front.c with no return at all). Debug build passed; installation
+returned Success. Post-fix disassembly returns the same DL slot that
+frontDrawCursor updates. `git diff --check` passed. Renderer probes retained
+for confirmation, user asked to relaunch and inspect mission select. No
+claim that all ten menu screens or Dam are fixed; visual confirmation pending.
