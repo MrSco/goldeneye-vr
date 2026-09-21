@@ -2900,6 +2900,12 @@ Gfx *frontSetupMenuBackground(Gfx *DL)
         u32 now = osGetTime() / 1000000;
         if (now != lastLog) {
             lastLog = now;
+            /* Trace only the first two background draws, keeping logcat bounded. */
+            static u32 traceCount = 0;
+            if (traceCount < 2) {
+                gevrModelTraceNextDraw();
+                traceCount++;
+            }
             sysLogPrintf(LOG_NOTE,
                 "menubg: folder=%d pos=(%.1f,%.1f) mtx=%d inst=%p obj=%p list=%p",
                 (s32)selected_folder_num,
@@ -8734,4 +8740,3 @@ Gfx * menu_jump_constructor_handler(Gfx *DL)
 
     return DL;
 }
-

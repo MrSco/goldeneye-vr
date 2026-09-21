@@ -56,12 +56,13 @@ text. The library list name and icon are correct. Nothing further to do.
 Two open items are worth the next session, in this order:
 
 1. **The menu background** (§12.3). Best understood of the two. `subdraw`
-   emits 10 Gfx commands for a model with 90 nodes and 46 display lists, so
-   the node walk produces nothing. The renderer, the viewport, the matrices
-   and the model conversion are all verified good - four dead ends are written
-   up so you do not repeat them. Next concrete step: instrument the
-   `while (root != NULL)` loop in `subdraw` (model.c:5135) and find where it
-   stops. One fix lights up ten screens.
+   emits 10 top-level Gfx commands for a model with 90 nodes and 46 display
+   lists. This alone does not prove an empty walk: commands can call nested
+   display lists. A bounded `menubg-walk:` trace now records visited nodes,
+   switch visibility, child links before/after dispatch, and commands per node.
+   Debug build passed and was installed on the connected Quest; headset
+   verification is pending. Launch the app and open mission select, then read
+   the trace before choosing a fix. Earlier eliminations are in §12.3.
 2. **The Dam hang** (§12.2a). Three hypotheses tested and killed with probes;
    the fault value reproduces byte-identically, so it is a fixed location, not
    a wild index. Next thing to check is whether `init_pathtable_something`

@@ -1186,3 +1186,20 @@ adb shell "touch /sdcard/Android/data/com.gevr.port/files/gevr_dumpdl.txt"
 
 Its budget is 900 commands (`gevrMaybeDumpDl`, gfx_pc.cpp) and it exhausts
 them, so the dump only covers the start of a frame.
+
+### 12.4 Node-walk trace prepared — 2026-09-21
+
+New checkout confirmed clean at `08d8894`. Added a GEVR-only trace armed by
+`frontSetupMenuBackground` for two once-per-second samples per process.
+`subdraw` records root/runtime-data addresses, switch visibility and controls,
+each visited node's opcode/parent/next/child before and after dispatch, and
+its top-level command count. Detail is capped at 128 nodes per sample; the
+summary counts all visited nodes. Traversal behavior is unchanged.
+
+Correction to §12.3: ten top-level commands do not establish that the walk
+produces nothing, since display-list calls can submit nested geometry. The
+trace will test that claim directly. No new root cause or visual fix claimed.
+
+Validation: `assembleDebug --console=plain` succeeded; `git diff --check`
+passed; `adb install -r` returned Success. App was not launched automatically.
+Next: user opens mission select in the headset, then inspect `menubg-walk:`.
