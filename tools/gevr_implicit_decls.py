@@ -1,0 +1,158 @@
+#!/usr/bin/env python3
+"""
+Find functions the game calls without a prototype whose real return type is a
+pointer (or otherwise wider than int).
+
+Why this matters on a 64-bit host
+---------------------------------
+C gives an undeclared function the return type int. On the N64 that was
+harmless - a pointer was 32 bits, the same as an int - so the decomp never
+needed every prototype in scope. Here a pointer is 64 bits, and a call through
+an implicit declaration keeps only the low half of it. The damage then surfaces
+somewhere else entirely, as a fault on a truncated address.
+
+The compiler reports every such call ("implicit declaration of function"),
+but most of them return int and are harmless. This cross-references each one
+with its definition and keeps the ones that return a pointer, along with the
+header that declares them and the files that call them blind, so the fix is a
+matter of adding the right #include.
+
+Usage
+-----
+    python tools/gevr_implicit_decls.py <warnings.txt>
+
+where warnings.txt is a full rebuild's compiler output.
+"""
+
+import os
+import re
+import sys
+import glob
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(HERE)
+
+WARN_RE = re.compile(r"^(.*?\.c):(\d+):\d+: warning: implicit declaration of function '(\w+)'")
+# A definition: a return type that ends in '*', then the name, then '('.
+# Anchored at column 0, which is how the decomp writes every definition.
+DEF_RE_TMPL = r"^((?:const\s+)?(?:struct\s+|union\s+|enum\s+)?\w+[\w\s]*?\*+)\s*%s\s*\("
+DECL_RE_TMPL = r"^\s*(?:extern\s+)?[\w\s\*]+?\b%s\s*\([^;]*\)\s*;"
+
+
+def load_sources(pattern):
+    out = {}
+    for path in glob.glob(os.path.join(REPO, pattern), recursive=True):
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                out[os.path.relpath(path, REPO).replace("\\", "/")] = f.read()
+        except OSError:
+            pass
+    return out
+
+
+def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        return 2
+
+    uses = {}
+    with open(sys.argv[1], encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = WARN_RE.search(line.strip())
+            if m:
+                path = m.group(1).replace("\\", "/")
+                # The build runs from the .cxx directory; keep the tail that is inside the repo.
+                idx = path.find("GEVR-OpenGLES/")
+                if idx >= 0:
+                    path = path[idx + len("GEVR-OpenGLES/"):]
+                uses.setdefault(m.group(3), set()).add(path)
+
+    sources = {}
+    sources.update(load_sources("src/**/*.c"))
+    sources.update(load_sources("port/src/**/*.c"))
+    headers = {}
+    headers.update(load_sources("src/**/*.h"))
+    headers.update(load_sources("include/**/*.h"))
+    headers.update(load_sources("port/include/**/*.h"))
+
+    found = []
+    for name in sorted(uses):
+        def_re = re.compile(DEF_RE_TMPL % re.escape(name), re.M)
+        rettype = None
+        deffile = None
+        for path, text in sources.items():
+            m = def_re.search(text)
+            if m:
+                rettype = " ".join(m.group(1).split())
+                deffile = path
+                break
+        if not rettype:
+            continue
+
+        decl_re = re.compile(DECL_RE_TMPL % re.escape(name), re.M)
+        declared_in = [p for p, t in headers.items() if decl_re.search(t)]
+        found.append((name, rettype, deffile, declared_in, sorted(uses[name])))
+
+    print("%d functions called without a prototype; %d of them return a pointer:\n" % (len(uses), len(found)))
+    for name, rettype, deffile, declared_in, callers in found:
+        print("%s  ->  %s   (defined in %s)" % (name, rettype, deffile))
+        print("    declared in: %s" % (", ".join(declared_in) if declared_in else "NO HEADER"))
+        print("    called blind from: %s" % ", ".join(callers))
+
+    if len(sys.argv) > 2:
+        emit_header(sys.argv[2], found, sources)
+    return 0
+
+
+def signature(name, deffile, sources):
+    """The definition's full signature, from return type through the closing paren."""
+    text = sources[deffile]
+    m = re.search(DEF_RE_TMPL % re.escape(name), text, re.M)
+    start = m.start()
+    depth = 0
+    i = m.end() - 1  # at '('
+    while i < len(text):
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+            if depth == 0:
+                break
+        i += 1
+    sig = text[start:i + 1]
+    sig = re.sub(r"/\*.*?\*/", "", sig, flags=re.S)
+    sig = re.sub(r"//[^\n]*", "", sig)
+    return " ".join(sig.split())
+
+
+def emit_header(path, found, sources):
+    """
+    One header carrying the exact prototype of every pointer-returning function
+    that some file calls blind. bondtypes.h includes it, so every game file that
+    knows the engine's types also knows these return pointers.
+    """
+    lines = []
+    lines.append("/*")
+    lines.append(" * GENERATED by tools/gevr_implicit_decls.py - do not edit.")
+    lines.append(" *")
+    lines.append(" * Prototypes for functions that return a pointer and that at least one file")
+    lines.append(" * calls without a declaration in scope. C then assumes they return int, which")
+    lines.append(" * on the N64 was the width of a pointer and here is half of one: the call kept")
+    lines.append(" * the low 32 bits of the address and faulted far away. Each is copied from the")
+    lines.append(" * definition, with the file that defines it and the files that called it blind.")
+    lines.append(" */")
+    lines.append("#ifndef _GEVR_IMPLICIT_PROTOS_H_")
+    lines.append("#define _GEVR_IMPLICIT_PROTOS_H_")
+    lines.append("")
+    for name, rettype, deffile, declared_in, callers in found:
+        lines.append("/* %s; called blind from %s */" % (deffile, ", ".join(callers)))
+        lines.append(signature(name, deffile, sources) + ";")
+    lines.append("")
+    lines.append("#endif")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write("\n".join(lines) + "\n")
+    print("\nwrote %s (%d prototypes)" % (path, len(found)))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

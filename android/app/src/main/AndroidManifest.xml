@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.gevr.port"
+    android:installLocation="auto"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <!-- OpenGL ES 3.2 required for OpenXR mobile & Fast3D multiview -->
+    <uses-feature
+        android:glEsVersion="0x00030002"
+        android:required="true" />
+
+    <!-- VR headtracking -->
+    <uses-feature
+        android:name="android.hardware.vr.headtracking"
+        android:required="true"
+        android:version="1" />
+
+    <uses-feature
+        android:name="android.hardware.vr.highperformance"
+        android:required="true" />
+
+    <!--
+        Declared so the shell does not gate launching on controllers.
+
+        Without a hand-tracking declaration Quest's RequiresControllersLaunchInterceptor
+        treats controllers as a hard requirement and blocks the launch behind
+        LaunchCheckControllerRequiredDialogActivity. required="false" says the app
+        runs either way; 6DOF aiming still wants controllers in practice.
+    -->
+    <uses-feature
+        android:name="oculus.software.handtracking"
+        android:required="false" />
+
+    <!-- Haptics, Audio & Storage Permissions -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+
+    <!-- OpenXR permissions (Meta Quest) -->
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR" />
+    <uses-permission android:name="org.khronos.openxr.permission.OPENXR_SYSTEM" />
+
+    <!-- Queries block for OpenXR runtime broker -->
+    <queries>
+        <provider android:authorities="org.khronos.openxr.runtime_broker;org.khronos.openxr.system_runtime_broker" />
+        <intent>
+            <action android:name="org.khronos.openxr.OpenXRRuntimeService" />
+        </intent>
+        <intent>
+            <action android:name="org.khronos.openxr.OpenXRApiLayerService" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:hardwareAccelerated="true">
+
+        <!-- Supported Meta devices (Quest specific) -->
+        <meta-data
+            android:name="com.oculus.supportedDevices"
+            android:value="quest|quest2|questpro|quest3|quest3s" />
+
+        <!-- MainActivity = main immersive VR activity -->
+        <activity
+            android:name=".MainActivity"
+            android:configChanges="screenSize|screenLayout|orientation|keyboardHidden|keyboard|navigation|uiMode|density|layoutDirection|locale|smallestScreenSize"
+            android:excludeFromRecents="false"
+            android:launchMode="singleTask"
+            android:resizeableActivity="false"
+            android:screenOrientation="landscape"
+            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
+                <category android:name="com.oculus.intent.category.VR" />
+            </intent-filter>
+
+            <!-- Focus-aware VR (Meta specific) -->
+            <meta-data
+                android:name="com.oculus.vr.focusaware"
+                android:value="true" />
+        </activity>
+
+        <!-- LauncherActivity: 2D file picker when ROM is not found -->
+        <activity
+            android:name=".LauncherActivity"
+            android:exported="false"
+            android:screenOrientation="landscape"
+            android:theme="@style/Theme.AppCompat.NoActionBar">
+        </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.gevr.port.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+    </application>
+
+</manifest>

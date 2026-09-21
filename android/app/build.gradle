@@ -1,0 +1,103 @@
+plugins {
+    id 'com.android.application'
+}
+
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("keystore.properties")
+if (!keystorePropertiesFile.exists()) {
+    keystorePropertiesFile = rootProject.file("android/keystore.properties")
+}
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace 'com.gevr.port'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.gevr.port"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0-alpha"
+
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++20"
+                arguments "-DANDROID_STL=c++_shared",
+                        "-DANDROID_PLATFORM=android-24",
+                        "-DTARGET_OS=android"
+            }
+        }
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                def rawPath = keystoreProperties['storeFile']
+                if (!rawPath) throw new GradleException("storeFile missing in keystore.properties")
+                if (keystorePropertiesFile.parentFile.name == 'android' && rawPath.startsWith('android/')) {
+                    rawPath = rawPath.substring('android/'.length())
+                }
+                File resolved = new File(rawPath)
+                if (!resolved.isAbsolute()) {
+                    File propRel = new File(keystorePropertiesFile.parentFile, rawPath)
+                    if (propRel.exists()) {
+                        resolved = propRel
+                    } else {
+                        resolved = new File(rootProject.projectDir, rawPath)
+                    }
+                }
+                storeFile file(resolved)
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (keystorePropertiesFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+            ndk { debugSymbolLevel 'SYMBOL_TABLE' }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../../CMakeLists.txt')
+            version '3.22.1'
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs', '../../OpenXR/Libs/Android']
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.10.0'
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+}

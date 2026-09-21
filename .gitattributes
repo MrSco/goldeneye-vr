@@ -1,0 +1,23 @@
+# Leave existing line endings alone. This tree came from a decompilation and
+# already mixes LF and CRLF, sometimes within a single file; a blanket
+# `* text=auto` would renormalise thousands of files in one commit and bury
+# real changes. Let git store what is on disk.
+* -text
+
+# Binaries git must never touch, regardless of the above.
+*.so     binary
+*.lib    binary
+*.dll    binary
+*.a      binary
+*.png    binary
+*.jpg    binary
+*.z64    binary
+*.n64    binary
+*.v64    binary
+*.wav    binary
+*.jar    binary
+*.apk    binary
+*.bin    binary
+
+# Keep the gradle wrapper script LF so it still runs on a POSIX host.
+gradlew  text eol=lf
