@@ -353,9 +353,24 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
             uint32_t plink = read32(src + i + 0x24);
             if (dstpos + 56 > capacity) { g_setup_fail = 11; free(src); return 0; }
             for (int k = 0; k < 9; k++) putf(dst + dstpos + k * 4, readf(src + i + k * 4));
-            /* plink stays file-relative; stan usually 0 on cart */
+            /*
+             * plink stays file-relative and is rebased below onto the string
+             * pool; prop.c then adds the loaded file's base, matching how it
+             * rebases pathwaypoints/waypointgroups/intro.
+             *
+             * stan is NOT carried over. The cartridge word at 0x28 is a
+             * 4-byte slot that means nothing as a host pointer, and the game
+             * overwrites it anyway: proplvreset2 calls
+             * init_pathtable_something(pad, pad->plink, &pad->stan), which
+             * resolves the tile by name and writes it here. Copying the raw
+             * word through left a bogus pointer in any pad the resolver did
+             * not reach, and getposstan walked it - that was the Dam load
+             * crash (fault 0x3413f2b3, an odd address, in
+             * stanLocusAddTileRoomIfNew). Zero is what an unresolved pad
+             * should hold: getposstan returns early on a NULL stan.
+             */
             putptr(dst + dstpos + 40, plink ? (uintptr_t)plink : 0);
-            putptr(dst + dstpos + 48, (uintptr_t)read32(src + i + 0x28));
+            putptr(dst + dstpos + 48, 0);
             dstpos += 56;
             if (!plink) break;
         }
@@ -368,7 +383,7 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
             if (dstpos + 80 > capacity) { g_setup_fail = 12; free(src); return 0; }
             for (int k = 0; k < 9; k++) putf(dst + dstpos + k * 4, readf(src + i + k * 4));
             putptr(dst + dstpos + 40, plink ? (uintptr_t)plink : 0);
-            putptr(dst + dstpos + 48, (uintptr_t)read32(src + i + 0x28));
+            putptr(dst + dstpos + 48, 0); /* resolved at load - see the pad loop above */
             for (int k = 0; k < 6; k++) putf(dst + dstpos + 56 + k * 4, readf(src + i + 0x2c + k * 4));
             dstpos += 80;
             if (!plink) break;
