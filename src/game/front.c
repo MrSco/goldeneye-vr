@@ -2911,7 +2911,29 @@ Gfx *frontSetupMenuBackground(Gfx *DL)
         }
     }
 #endif
-    subdraw(&sp10C, walletinst[0]);
+    {
+        Gfx *gevrBefore = sp10C.gdl;
+        subdraw(&sp10C, walletinst[0]);
+#ifdef GEVR
+        /*
+         * PORT probe. The DL dump showed geometry reaching the renderer with a
+         * correct 440x330 scissor and colour image, so the question is whether
+         * any of it is the wallet. This is the command count subdraw emitted
+         * for it: ~0 means the model produced nothing and the fault is in the
+         * model/skeleton walk, a few hundred means it is drawn and landing
+         * somewhere invisible.
+         */
+        {
+            static u32 lastCmdLog = 0;
+            u32 nowCmd = osGetTime() / 1000000;
+            if (nowCmd != lastCmdLog) {
+                lastCmdLog = nowCmd;
+                sysLogPrintf(LOG_NOTE, "menubg: subdraw emitted %d Gfx commands",
+                        (s32)(sp10C.gdl - gevrBefore));
+            }
+        }
+#endif
+    }
 
     DL = sp10C.gdl;
 
