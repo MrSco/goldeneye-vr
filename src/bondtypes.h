@@ -447,7 +447,26 @@ typedef union
         u16 GroupID : 4;   // a1,a2,a3...z5,z6,z7
         u16 RoomID : 4;    // compared to 0xFF, not -1 in a function. Seen LBUs.
         */
+#ifdef GEVR
+        /*
+         * gevrConvertStan leaves every tile at its cartridge offset and size -
+         * an 8-byte header then 8-byte points - because the 16-bit tile links
+         * are (link << 3) from firstroom - 0x80 and list_of_tilesizes is
+         * 8 + 8*points. Only the 16-bit fields are byte-swapped, in place.
+         *
+         * The N64 header is a 24-bit id with a byte behind it, but LP64 gives
+         * that bitfield a 4-byte unit of its own and will not pack the
+         * trailing u8 into it: room landed at +4, mid at +6, tail at +8,
+         * points at +10, sizeof 12. Every tile field then read two bytes late
+         * and &standTileStart[link] scaled by 12 instead of 8. Spell the bytes
+         * out so the struct describes the data. StandFileTile below still has
+         * the bitfield; it has no users.
+         */
+        u16 idhi; /* 0x00 - byte-swapped by the converter */
+        u8  idlo; /* 0x02 */
+#else
         u32 id : 24;
+#endif
 
         u8  room; // compared to 0xFF, not -1 in a function. Seen LBUs.
 
