@@ -296,8 +296,32 @@ static size_t convert_one_prop(uint8_t *dst, const uint8_t *src, uint8_t type) {
         putf(dst + 20, readf(src + 20));
         put32(dst + 24, read32(src + 24));
         break;
-    default: /* objectives / END / NOTHING: word-swap in place size */
-        conv_words(dst, src, n64b);
+    default:
+        /*
+         * objectives / END / NOTHING. The first word is NOT a u32: it is
+         * PropDefHeaderRecord - u16 extrascale, u8 state, u8 type - exactly as
+         * every explicit case above writes it. Swapping it as a word reverses
+         * those four bytes and lands type at byte 0, where the host struct
+         * keeps extrascale's high byte. The game then reads pdef->type from
+         * byte 3 and never sees type 48, so the prop walk runs off the end of
+         * the list into the pads and paths behind it - which is where Dam's
+         * garbage records (pad=25653, model=1794) came from.
+         *
+         * Convert the header like the other cases, then word-swap the rest.
+         * The payload of the 2-word objective records is a u16 at offset 4 and
+         * is still swapped as a u32 here; that is wrong but harmless by
+         * comparison, and is recorded in HANDOFF rather than guessed at.
+         */
+        if (n64b >= 4) {
+            put16(dst + 0, read16(src + 0));
+            dst[2] = src[2];
+            dst[3] = src[3];
+            if (n64b > 4) {
+                conv_words(dst + 4, src + 4, n64b - 4);
+            }
+        } else {
+            conv_words(dst, src, n64b);
+        }
         break;
     }
     return host;
