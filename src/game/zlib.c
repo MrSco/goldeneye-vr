@@ -1,5 +1,30 @@
 #include <ultra64.h>
 #include "zlib.h"
+#ifdef GEVR
+#include "system.h"
+#endif
+
+/*
+ * PORT NOTE. The four guards below are the original's "output has caught up
+ * with the input we have not consumed yet" trap, for the case where a stream
+ * is expanded over its own buffer. The N64 wrote them as (u32)(s32)&ptr, which
+ * on 32-bit pointers is just the address.
+ *
+ * On LP64 that truncates both addresses to their low 32 bits. rz_inbuf and
+ * rz_outbuf are separate mallocs here, so their low halves are unrelated and
+ * the comparison became a coin toss decided by where malloc put them - which
+ * is why one Dam room inflated correctly on some runs and hung on others with
+ * byte-identical input. Compare the real pointers instead.
+ *
+ * The trap itself was a bare while(1){}, so tripping it hung the game with no
+ * evidence. Keep the trap, but say so and fail the decompress rather than
+ * spin. With the comparison fixed it should never fire.
+ */
+#ifdef GEVR
+#define ZLIB_OVERRUN_TRAP() do { sysLogPrintf(LOG_ERROR, "zlib: output overran unconsumed input (out=%p in=%p) - aborting", (void *) &rz_outbuf[w], (void *) &rz_inbuf[rz_inptr]); return 1; } while (0)
+#else
+#define ZLIB_OVERRUN_TRAP() while (1) { }
+#endif
 #include "include/string.h"
 #include "include/bstring.h"
 
@@ -309,11 +334,11 @@ s32 zlib_inflate_codes(struct huft *tl, struct huft *td, s32 bl, s32 bd)
 
         if (e == 16)                /* then it's a literal */
         {
-            if ((u32)(s32)&rz_outbuf[w] >= (u32)(s32)&rz_inbuf[rz_inptr])
+            if ((uintptr_t)&rz_outbuf[w] >= (uintptr_t)&rz_inbuf[rz_inptr])
             {
-                if ((u32)((s32)&rz_outbuf[w] - (s32)&rz_inbuf[rz_inptr]) < WSIZE)
+                if (((uintptr_t)&rz_outbuf[w] - (uintptr_t)&rz_inbuf[rz_inptr]) < WSIZE)
                 {
-                    while(1){}              
+                    ZLIB_OVERRUN_TRAP();
                 }
             }
             
@@ -359,11 +384,11 @@ s32 zlib_inflate_codes(struct huft *tl, struct huft *td, s32 bl, s32 bd)
                 
                 if (w - d >= e)         /* (this test assumes unsigned comparison) */
                 {
-                    if ((u32)(s32)&rz_outbuf[w+e-1] >= (u32)(s32)&rz_inbuf[rz_inptr])
+                    if ((uintptr_t)&rz_outbuf[w+e-1] >= (uintptr_t)&rz_inbuf[rz_inptr])
                     {
-                        if ((u32)((s32)&rz_outbuf[w+e-1] - (s32)&rz_inbuf[rz_inptr]) < WSIZE)
+                        if (((uintptr_t)&rz_outbuf[w+e-1] - (uintptr_t)&rz_inbuf[rz_inptr]) < WSIZE)
                         {
-                            while(1){}              
+                            ZLIB_OVERRUN_TRAP();
                         }
                     }
 
@@ -375,11 +400,11 @@ s32 zlib_inflate_codes(struct huft *tl, struct huft *td, s32 bl, s32 bd)
                 {
                     do
                     {
-                        if ((u32)(s32)&rz_outbuf[w] >= (u32)(s32)&rz_inbuf[rz_inptr])
+                        if ((uintptr_t)&rz_outbuf[w] >= (uintptr_t)&rz_inbuf[rz_inptr])
                         {
-                            if ((u32)((s32)&rz_outbuf[w] - (s32)&rz_inbuf[rz_inptr]) < WSIZE)
+                            if (((uintptr_t)&rz_outbuf[w] - (uintptr_t)&rz_inbuf[rz_inptr]) < WSIZE)
                             {
-                                while(1){}              
+                                ZLIB_OVERRUN_TRAP();
                             }
                         }
 
@@ -436,11 +461,11 @@ s32 zlib_inflate_stored(void)
     {
 		NEEDBITS(8)
         
-        if ((u32)(s32)&rz_outbuf[w] >= (u32)(s32)&rz_inbuf[rz_inptr])
+        if ((uintptr_t)&rz_outbuf[w] >= (uintptr_t)&rz_inbuf[rz_inptr])
         {
-            if ((u32)((s32)&rz_outbuf[w] - (s32)&rz_inbuf[rz_inptr]) < WSIZE)
+            if (((uintptr_t)&rz_outbuf[w] - (uintptr_t)&rz_inbuf[rz_inptr]) < WSIZE)
             {
-                while(1){}              
+                ZLIB_OVERRUN_TRAP();
             }
         }
         
