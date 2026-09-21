@@ -2193,6 +2193,26 @@ StanCollisionResult sub_GAME_7F0B1DDC(StandTile **startTile, f32 x, f32 z, f32 r
     radius *= level_scale;
     visitedCount = 0;
     cat = 1;
+#ifdef GEVR
+    /*
+     * PORT probe. Gameplay's first frame reaches here with a NULL tile and
+     * faults in callbackA. Nothing on this path checks, so say who did it and
+     * return the same "nothing found" the walk gives when it runs out.
+     */
+    if (startTile == NULL || *startTile == NULL)
+    {
+        static s32 reports = 0;
+        if (reports < 12)
+        {
+            reports++;
+            sysLogPrintf(LOG_NOTE,
+                "stanlocus: NULL start (startTile=%p) from %p - x=%.1f z=%.1f r=%.1f",
+                (void *) startTile, __builtin_return_address(0),
+                (double) x, (double) z, (double) radius);
+        }
+        return STAN_COLLISION_NONE;
+    }
+#endif
     tileStack[0] = *startTile;
 
     do
