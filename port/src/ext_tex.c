@@ -1,0 +1,825 @@
+#include <dirent.h>
+#include <sys/stat.h>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "external/stb_image.h"
+
+#include <PR/ultratypes.h>
+#include <PR/gbi.h>
+#include "gbi_extension.h"
+#include "system.h"
+#include "fs.h"
+#include "romdata.h"
+#include "ext_tex.h"
+
+#ifdef ANDROID
+#include <android/log.h>
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "PD-VR", __VA_ARGS__)
+#else
+#define LOGI(...) printf(__VA_ARGS__)
+#endif
+
+#include <pthread.h>
+#include <stdatomic.h>
+#include <unistd.h>
+#include <video.h>
+#include <menuimage.h>
+
+// ============================================================================
+// CONSTANTS & MACROS
+// ============================================================================
+#define MAX_PENDING_LOADS 256
+#define MAX_EXT_TEX       8192
+#define NUM_FONTS         5
+#define FONT_OUTLINES_DIR "outlines"
+
+#define FONT_HANDELGOTHICSM 0
+#define FONT_HANDELGOTHICMD 1
+#define FONT_HANDELGOTHICXS 2
+#define FONT_HANDELGOTHICLG 3
+#define FONT_NUMERIC        4
+
+#if VERSION == VERSION_PAL_FINAL
+#define NCHARS 135
+#else
+#define NCHARS 94
+#endif
+
+#ifndef NUM_FILES
+#define NUM_FILES 4096
+#endif
+
+#ifndef G_TEXTYPE_NONE
+#define G_TEXTYPE_NONE    0
+#define G_TEXTYPE_GENERAL 1
+#define G_TEXTYPE_MODEL   2
+#define G_TEXTYPE_FONT    3
+#endif
+
+struct font { int dummy; };
+static struct font *g_FontHandelGothicSm = (struct font *)0;
+static struct font *g_FontHandelGothicMd = (struct font *)0;
+static struct font *g_FontHandelGothicXs = (struct font *)0;
+static struct font *g_FontHandelGothicLg = (struct font *)0;
+static struct font *g_FontNumeric = (struct font *)0;
+
+const u16 IDMASK_FONT_OUTLINE = MASK_FONT_OUTLINE << 8;
+
+// ============================================================================
+// TYPES & STRUCTURES
+// ============================================================================
+struct PendingLoad {
+    u8 type;
+    u16 id;
+    s32 texnum;
+    _Atomic(int) state; // 0 = free, 1 = pending, 2 = decoded, 3 = consumed
+};
+
+struct ExtTexture {
+    u8 *texdata;
+    s32 texnum;
+    char extension[5];
+};
+
+struct ModelTextures {
+    s16 fileNum;
+    s16 numTextures;
+    struct ExtTexture *textures;
+};
+
+// ============================================================================
+// GLOBAL VARIABLES
+// ============================================================================
+// Threading & Async Loading State
+static struct PendingLoad pendingLoads[MAX_PENDING_LOADS];
+static pthread_mutex_t    pendingMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t     pendingCond  = PTHREAD_COND_INITIALIZER;
+static pthread_t          decodeThreadHandle;
+static _Atomic(int)       decodeThreadRunning = 0;
+static _Atomic(int)       decodeThreadStarted = 0;
+
+// Texture State
+char g_ActiveExtTexPack[FS_MAXPATH] = ""; // Name of the chosen pack folder
+static char extTexPath[FS_MAXPATH + 1];
+
+static struct ExtTexture extTextures[MAX_EXT_TEX];
+static struct ModelTextures *modelTextures;
+static s32 numModels;
+
+static struct ExtTexture fontExtTextures[NUM_FONTS][NCHARS];
+static struct ExtTexture fontOutlineExtTextures[NUM_FONTS][NCHARS];
+
+static s32 g_CurrentMaxModels = 0;
+static bool g_IsExtTexFirstInit = true;
+
+// ============================================================================
+// FORWARD DECLARATIONS
+// ============================================================================
+static void *extTexDecodeThreadFunc(void *arg);
+static int findTruePackRoot(char *currentPath);
+static int is_hex_string(const char *str);
+u8 getTexPath(char *dst, u8 type, u16 id, s32 texnum);
+
+// ============================================================================
+// ASYNC TEXTURE LOADING & THREADING
+// ============================================================================
+
+void extTexAsyncShutdown(void)
+{
+    if (!atomic_load(&decodeThreadStarted))
+        return;
+
+    atomic_store(&decodeThreadRunning, 0);
+
+    /* Wake up the thread if it is waiting on the condition variable */
+    pthread_mutex_lock(&pendingMutex);
+    pthread_cond_broadcast(&pendingCond);
+    pthread_mutex_unlock(&pendingMutex);
+
+    pthread_join(decodeThreadHandle, NULL);
+    atomic_store(&decodeThreadStarted, 0);
+}
+
+// Returns the number of consumed entries (texture ready to be uploaded).
+s32 extTexPollReady(u8 *outType, u16 *outId, s32 *outTexnum, s32 maxOut)
+{
+    s32 count = 0;
+    pthread_mutex_lock(&pendingMutex);
+    for (int i = 0; i < MAX_PENDING_LOADS && count < maxOut; ++i) {
+        if (atomic_load(&pendingLoads[i].state) == 2) {
+            outType[count] = pendingLoads[i].type;
+            outId[count] = pendingLoads[i].id;
+            outTexnum[count] = pendingLoads[i].texnum;
+            atomic_store(&pendingLoads[i].state, 0);
+            count++;
+        }
+    }
+    pthread_mutex_unlock(&pendingMutex);
+    return count;
+}
+
+static void extTexEnsureThreadStarted(void)
+{
+    if (atomic_exchange(&decodeThreadStarted, 1) == 0) {
+        atomic_store(&decodeThreadRunning, 1);
+        for (int i = 0; i < MAX_PENDING_LOADS; ++i)
+            atomic_store(&pendingLoads[i].state, 0);
+        pthread_create(&decodeThreadHandle, NULL, extTexDecodeThreadFunc, NULL);
+    }
+}
+
+static void extTexEnqueueLoad(u8 type, u16 id, s32 texnum)
+{
+    extTexEnsureThreadStarted();
+
+    pthread_mutex_lock(&pendingMutex);
+
+    // 1. Avoid duplicates: check if the texture is already in the queue
+    for (int i = 0; i < MAX_PENDING_LOADS; ++i) {
+        if (atomic_load(&pendingLoads[i].state) != 0 &&
+            pendingLoads[i].type == type &&
+            pendingLoads[i].id == id &&
+            pendingLoads[i].texnum == texnum) {
+            pthread_mutex_unlock(&pendingMutex);
+            return; // Already being decoded, cancel the addition!
+        }
+    }
+
+    // 2. Find a free slot for the new request
+    for (int i = 0; i < MAX_PENDING_LOADS; ++i) {
+        if (atomic_load(&pendingLoads[i].state) == 0) {
+            pendingLoads[i].type = type;
+            pendingLoads[i].id = id;
+            pendingLoads[i].texnum = texnum;
+            atomic_store(&pendingLoads[i].state, 1);
+            pthread_cond_signal(&pendingCond);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&pendingMutex);
+}
+
+// ============================================================================
+// TEXTURE LOOKUP & PATH RESOLUTION
+// ============================================================================
+
+s32 fileInfo(const char *filename, s32 *texNum, char extension[5])
+{
+    char *ext = strrchr(filename, '.');
+
+    // No extension
+    if (!ext) return 1;
+
+    ++ext;
+    strncpy(extension, ext, 5);
+
+    // Get the filename without extension
+    char basename[256] = { 0 };
+    memcpy(basename, filename, strlen(filename) - strlen(ext) - 1);
+
+    *texNum = strtol(basename, NULL, 16);
+
+    return 0;
+}
+
+struct ExtTexture *lookupModelTex(u16 fileNum, s32 texNum)
+{
+    if (fileNum > NUM_FILES) {
+        sysLogPrintf(LOG_WARNING, "Invalid fileNum in lookupModelTex: %04x, texNum: %04x", fileNum, texNum);
+        return 0;
+    }
+
+    struct ModelTextures *modelTex = NULL;
+    for (int i = 0; i < numModels; ++i) {
+        if (modelTextures[i].fileNum == fileNum) {
+            modelTex = &modelTextures[i];
+            break;
+        }
+    }
+
+    if (modelTex == NULL)
+        return NULL;
+
+    for (int i = 0; i < modelTex->numTextures; ++i) {
+        if (modelTex->textures[i].texnum == texNum)
+            return &modelTex->textures[i];
+    }
+
+    return NULL;
+}
+
+struct ExtTexture *getExtTexture(u8 type, u16 id, s32 texnum)
+{
+    switch (type) {
+        case G_TEXTYPE_NONE:
+            return NULL;
+        case G_TEXTYPE_GENERAL:
+            return &extTextures[texnum];
+        case G_TEXTYPE_MODEL:
+            return lookupModelTex(id, texnum);
+        case G_TEXTYPE_FONT: {
+            if (id & IDMASK_FONT_OUTLINE)
+                return &fontOutlineExtTextures[id & ~IDMASK_FONT_OUTLINE][texnum];
+
+            return &fontExtTextures[id][texnum];
+        }
+        default:
+            sysLogPrintf(LOG_WARNING, "Invalid Texture type: %d, texnum: %04x", type, texnum);
+            return NULL;
+    }
+}
+
+u8 extTexExists(u8 type, u16 id, s32 texnum)
+{
+    struct ExtTexture *tex = getExtTexture(type, id, texnum);
+    return tex && tex->texnum >= 0;
+}
+
+char *resolveFontname(const u8 fontId)
+{
+    switch (fontId) {
+        case FONT_HANDELGOTHICSM: return "fonthandelgothicsm";
+        case FONT_HANDELGOTHICMD: return "fonthandelgothicmd";
+        case FONT_HANDELGOTHICXS: return "fonthandelgothicxs";
+        case FONT_HANDELGOTHICLG: return "fonthandelgothiclg";
+        case FONT_NUMERIC:        return "fontnumeric";
+        default:                  return "";
+    }
+}
+
+u8 getTexPath(char *dst, u8 type, u16 id, s32 texnum)
+{
+    struct ExtTexture *tex;
+    const char *name;
+
+    switch (type) {
+        case G_TEXTYPE_GENERAL: {
+            tex = &extTextures[texnum];
+            snprintf(dst, FS_MAXPATH, "%s/%04x.%s", extTexPath, texnum, tex->extension);
+            return 0;
+        }
+        case G_TEXTYPE_FONT: {
+            name = resolveFontname(id & ~IDMASK_FONT_OUTLINE);
+
+            if (id & IDMASK_FONT_OUTLINE) {
+                tex = &fontOutlineExtTextures[id & ~IDMASK_FONT_OUTLINE][texnum];
+                snprintf(dst, FS_MAXPATH, "%s/%s/" FONT_OUTLINES_DIR "/%02x.%s", extTexPath, name, texnum, tex->extension);
+                return 0;
+            }
+
+            tex = &fontExtTextures[id][texnum];
+            snprintf(dst, FS_MAXPATH, "%s/%s/%02x.%s", extTexPath, name, texnum, tex->extension);
+            return 0;
+        }
+        case G_TEXTYPE_MODEL: {
+            name = romdataFileGetName(id);
+            tex = lookupModelTex(id, texnum);
+            snprintf(dst, FS_MAXPATH, "%s/%s/%05x.%s", extTexPath, name, texnum, tex->extension);
+            return 0;
+        }
+        default: return 1;
+    }
+}
+
+// ============================================================================
+// TEXTURE LOADING & PROCESSING
+// ============================================================================
+
+u8 *extTexLoad(u8 type, u16 id, s32 texnum, u32 *width, u32 *height)
+{
+    struct ExtTexture *tex = getExtTexture(type, id, texnum);
+
+    // If texnum < 0, the texture failed previously, ignore it.
+    if (!tex || tex->texnum < 0) {
+        return NULL;
+    }
+
+    // Already decoded by the background thread: fast path, no I/O.
+    if (tex->texdata) {
+        // width/height were not stored before: retrieve them via stb_image_info
+        // while avoiding a full re-decode.
+        char path[FS_MAXPATH];
+        if (getTexPath(path, type, id, texnum) == 0) {
+            int w, h, ch;
+            stbi_info(path, &w, &h, &ch);
+            *width = w; *height = h;
+        }
+        return tex->texdata;
+    }
+
+    // Not ready yet: start the decoding task (only once)
+    // and return NULL immediately -> the pink placeholder is displayed this frame.
+    extTexEnqueueLoad(type, id, texnum);
+    return NULL;
+}
+
+static void *extTexDecodeThreadFunc(void *arg)
+{
+    while (atomic_load(&decodeThreadRunning)) {
+        int found = -1;
+
+        pthread_mutex_lock(&pendingMutex);
+        for (;;) {
+            for (int i = 0; i < MAX_PENDING_LOADS; ++i) {
+                if (atomic_load(&pendingLoads[i].state) == 1) {
+                    found = i;
+                    break;
+                }
+            }
+            if (found >= 0 || !atomic_load(&decodeThreadRunning))
+                break;
+            pthread_cond_wait(&pendingCond, &pendingMutex);
+        }
+        pthread_mutex_unlock(&pendingMutex);
+
+        if (found < 0)
+            break;
+
+        struct PendingLoad *job = &pendingLoads[found];
+        char path[FS_MAXPATH];
+
+        if (getTexPath(path, job->type, job->id, job->texnum) == 0) {
+            struct ExtTexture *tex = getExtTexture(job->type, job->id, job->texnum);
+            if (tex) {
+                u32 w, h, channels;
+                u8 *pixels = stbi_load(path, (int*)&w, (int*)&h, (int*)&channels, 4);
+                if (pixels) {
+                    // Flip the texture to match the N64 rendering order!
+                    for (int y = 0; y < (int)h / 2; y++) {
+                        u8 *a = pixels + w * 4 * y;
+                        u8 *b = pixels + w * 4 * ((int)h - 1 - y);
+                        for (int x = 0; x < (int)w * 4; x++) {
+                            u8 tmp = a[x];
+                            a[x] = b[x];
+                            b[x] = tmp;
+                        }
+                    }
+                    tex->texdata = pixels;
+                } else {
+                    // The image does not exist or is corrupted, invalidate it permanently
+                    tex->texnum = -1;
+                }
+            }
+        }
+        atomic_store(&job->state, 2);
+    }
+    return NULL;
+}
+
+// ============================================================================
+// FONT & TEXTURE METADATA INITIALIZATION
+// ============================================================================
+
+u8 extTexFontID(struct font *font)
+{
+    if (font == g_FontHandelGothicSm)
+        return FONT_HANDELGOTHICSM;
+    else if (font == g_FontHandelGothicMd)
+        return FONT_HANDELGOTHICMD;
+    else if (font == g_FontHandelGothicXs)
+        return FONT_HANDELGOTHICXS;
+    else if (font == g_FontHandelGothicLg)
+        return FONT_HANDELGOTHICLG;
+    else if (font == g_FontNumeric)
+        return FONT_NUMERIC;
+
+    return 0xff;
+}
+
+u8 resolveFontID(const char *fontname)
+{
+    if (strcmp(fontname, "fonthandelgothicsm") == 0)
+        return FONT_HANDELGOTHICSM;
+    else if (strcmp(fontname, "fonthandelgothicmd") == 0)
+        return FONT_HANDELGOTHICMD;
+    else if (strcmp(fontname, "fonthandelgothicxs") == 0)
+        return FONT_HANDELGOTHICXS;
+    else if (strcmp(fontname, "fonthandelgothiclg") == 0)
+        return FONT_HANDELGOTHICLG;
+    else if (strcmp(fontname, "fontnumeric") == 0)
+        return FONT_NUMERIC;
+
+    return 0xff;
+}
+
+void setTex(struct ExtTexture *texlist, s32 index, s32 texNum, char extension[5])
+{
+    struct ExtTexture *tex = &texlist[index];
+    tex->texnum = texNum;
+    strcpy(tex->extension, extension);
+}
+
+void readModelTextures(const char *path, s16 fileNum, s32 *modelOffset, struct ModelTextures *modelTex)
+{
+    DIR *dr = opendir(path);
+    struct dirent *de;
+
+    s32 MAX_TEX = 16;
+    modelTex->textures = sysMemAlloc(MAX_TEX * sizeof(struct ExtTexture));
+    modelTex->numTextures = 0;
+    modelTex->fileNum = fileNum;
+
+    char extension[5] = { 0 };
+
+    /* The model's directory may not exist (no HD textures
+     * are provided for this model): this is not an error, we
+     * simply return with 0 textures. */
+    if (dr == NULL) {
+        return;
+    }
+
+    while ((de = readdir(dr)) != NULL) {
+        const char *name = de->d_name;
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+
+        s32 texNum;
+        s32 err = fileInfo(name, &texNum, extension);
+
+        // No extension: skip
+        if (err) continue;
+
+        setTex(modelTex->textures, modelTex->numTextures, texNum, extension);
+        modelTex->numTextures++;
+
+        // Allocate more memory for model textures if needed
+        if (modelTex->numTextures > MAX_TEX) {
+            MAX_TEX *= 2;
+            modelTex->textures = sysMemRealloc(modelTex->textures, MAX_TEX * sizeof(struct ExtTexture));
+        }
+    }
+    closedir(dr);
+
+    // Shrink the textures array to the actual number of textures found
+    s32 numTex = modelTex->numTextures;
+
+    if (numTex > 0)
+        modelTex->textures = sysMemRealloc(modelTex->textures, numTex * sizeof(struct ExtTexture));
+
+    for (int i = 0; i < modelTex->numTextures; ++i) {
+        modelTex->textures[i].texdata = 0;
+    }
+}
+
+void readFontTextures(const char *path, const char *fontName)
+{
+    DIR *dr = opendir(path);
+    struct dirent *de;
+
+    u8 fontID = resolveFontID(fontName);
+    char extension[5] = { 0 };
+
+    char outlinesPath[FS_MAXPATH];
+    sprintf(outlinesPath, "%s/" FONT_OUTLINES_DIR, path);
+    u8 outlines = false;
+
+    /* The font's directory itself is missing: nothing to read. */
+    if (dr == NULL) {
+        return;
+    }
+
+    while (true) {
+        de = readdir(dr);
+        // After done processing the font folder, do the same for the outlines folder if any
+        if (de == NULL) {
+            if (outlines) break;
+
+            outlines = true;
+            closedir(dr);
+            dr = opendir(outlinesPath);
+
+            /* The "outlines" subdirectory is optional: if it doesn't exist,
+             * stop cleanly instead of calling readdir(NULL). */
+            if (dr == NULL) break;
+
+            de = readdir(dr);
+            if (de == NULL) break;
+        }
+
+        const char *name = de->d_name;
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+
+        s32 texNum;
+        s32 err = fileInfo(name, &texNum, extension);
+
+        // No extension: skip
+        if (err) continue;
+
+        if (outlines)
+            setTex(fontOutlineExtTextures[fontID], texNum, texNum, extension);
+        else
+            setTex(fontExtTextures[fontID], texNum, texNum, extension);
+    }
+
+    /* dr may be NULL here if opening the outlines directory failed:
+     * do not call closedir(NULL). */
+    if (dr != NULL)
+        closedir(dr);
+}
+
+// ============================================================================
+// CLEANUP
+// ============================================================================
+
+void extTexFree(void)
+{
+    for (int i = 0; i < MAX_EXT_TEX; ++i) {
+        if (extTextures[i].texdata)
+            stbi_image_free(extTextures[i].texdata);
+
+        extTextures[i].texdata = 0;
+    }
+
+    for (int i = 0; i < NUM_FONTS; ++i) {
+        for (int j = 0; j < NCHARS; ++j) {
+            if (fontExtTextures[i][j].texdata)
+                stbi_image_free(fontExtTextures[i][j].texdata);
+
+            if (fontOutlineExtTextures[i][j].texdata)
+                stbi_image_free(fontOutlineExtTextures[i][j].texdata);
+
+            fontExtTextures[i][j].texdata = 0;
+            fontOutlineExtTextures[i][j].texdata = 0;
+        }
+    }
+
+    for (int i = 0; i < numModels; ++i) {
+        struct ModelTextures *modelTex = &modelTextures[i];
+        for (int j = 0; j < modelTex->numTextures; ++j) {
+            if (modelTex->textures[j].texdata)
+                stbi_image_free(modelTex->textures[j].texdata);
+
+            modelTex->textures[j].texdata = 0;
+        }
+    }
+}
+
+// ============================================================================
+// UTILITIES & PATH DISCOVERY
+// ============================================================================
+
+// Utility function to check if a filename contains only hexadecimal characters (ignores extensions)
+static int is_hex_string(const char *str)
+{
+    if (!*str) return 0;
+    while (*str) {
+        char c = *str;
+        if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
+            return 0;
+        }
+        str++;
+    }
+    return 1;
+}
+
+// Recursive searcher that forces the discovery of the true folder containing the textures
+static int findTruePackRoot(char *currentPath)
+{
+    DIR *dr = opendir(currentPath);
+    if (!dr) return 0;
+
+    struct dirent *de;
+    int is_root = 0;
+    char subdirs[16][FS_MAXPATH]; // Allows storing up to 16 subfolders to search
+    int subdir_count = 0;
+
+    while ((de = readdir(dr)) != NULL) {
+        const char *name = de->d_name;
+
+        // Ignore native folders and hidden OS remnants (e.g., macOS)
+        if (name[0] == '.') continue;
+        if (strncmp(name, "__MACOSX", 8) == 0) continue;
+
+        char filepath[FS_MAXPATH];
+        snprintf(filepath, sizeof(filepath), "%s/%s", currentPath, name);
+
+        struct stat stbuf;
+        if (stat(filepath, &stbuf) == -1) continue;
+
+        if (S_ISDIR(stbuf.st_mode)) {
+            char s = name[0];
+            // If it is a TRUE model folder (P/C/G) validated by the game
+            if ((s == 'P' || s == 'C' || s == 'G') && romdataFileGetNumForName(name) >= 0) {
+                is_root = 1;
+                break;
+            }
+            // If it is a TRUE font folder validated by the game
+            if (s == 'f' && resolveFontID(name) != 0xff) {
+                is_root = 1;
+                break;
+            }
+
+            // It is not a game folder, keep it in memory to dig into it later
+            if (subdir_count < 16) {
+                strcpy(subdirs[subdir_count++], filepath);
+            }
+        } else {
+            // It is a file: is it a true UI texture without a folder? (e.g., 0A3B.png)
+            char *dot = strrchr(name, '.');
+            if (dot) {
+                char basename[256] = {0};
+                int len = dot - name;
+                if (len > 0 && len < 255) {
+                    memcpy(basename, name, len);
+                    if (is_hex_string(basename)) {
+                        is_root = 1;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    closedir(dr);
+
+    if (is_root) {
+        return 1; // Bingo, we found the root!
+    }
+
+    // Nothing found at the root, so automatically search subfolders
+    for (int i = 0; i < subdir_count; i++) {
+        if (findTruePackRoot(subdirs[i])) {
+            strcpy(currentPath, subdirs[i]); // Update the main path with the winning folder!
+            return 1;
+        }
+    }
+
+    return 0; // Dead end
+}
+
+
+
+// ============================================================================
+// SYSTEM INITIALIZATION
+// ============================================================================
+
+s32 extTexInit(void)
+{
+    // 1. Add $S/ to force creation next to the executable
+    const char *rootPath = fsFullPath("$S/texture-packs");
+    struct stat stRoot;
+
+    if (stat(rootPath, &stRoot) == -1) {
+        fsCreateDir(rootPath);
+        sysLogPrintf(LOG_NOTE, "ext_tex: Root folder created -> %s", rootPath);
+    }
+
+    if (g_ActiveExtTexPack[0] == '\0') {
+        return 0;
+    }
+
+    // 2. Also add $S/ to load the pack subfolder
+    char relPath[FS_MAXPATH];
+    snprintf(relPath, sizeof(relPath), "$S/texture-packs/%s", g_ActiveExtTexPack);
+
+    const char *path = fsFullPath(relPath);
+    strcpy(extTexPath, path);
+
+    if (findTruePackRoot(extTexPath)) {
+        sysLogPrintf(LOG_NOTE, "ext_tex: True texture root found -> %s", extTexPath);
+    }
+
+    // 4. Reset pointers during the very first initialization
+    if (g_IsExtTexFirstInit) {
+        for (int i = 0; i < MAX_EXT_TEX; ++i) {
+            extTextures[i].texnum = -1;
+            extTextures[i].texdata = 0;
+        }
+        for (int i = 0; i < NUM_FONTS; ++i) {
+            for (int j = 0; j < NCHARS; ++j) {
+                fontExtTextures[i][j].texnum = -1;
+                fontExtTextures[i][j].texdata = 0;
+                fontOutlineExtTextures[i][j].texnum = -1;
+                fontOutlineExtTextures[i][j].texdata = 0;
+            }
+        }
+        g_IsExtTexFirstInit = false;
+    }
+
+    struct dirent *de;
+    DIR *dr = opendir(extTexPath);
+    char filepath[FS_MAXPATH];
+    s32 modelOffset = 0;
+    numModels = 0;
+
+    // 5. Initial allocation of the memory block (only once)
+    if (g_CurrentMaxModels == 0) {
+        g_CurrentMaxModels = 16;
+        modelTextures = sysMemAlloc(g_CurrentMaxModels * sizeof(struct ModelTextures));
+    }
+
+    if (dr != NULL) {
+        while ((de = readdir(dr)) != NULL) {
+            const char *name = de->d_name;
+            if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+
+            struct stat stbuf;
+            sprintf(filepath, "%s/%s", extTexPath, de->d_name);
+            if (stat(filepath, &stbuf) == -1) continue;
+
+            if (S_ISDIR(stbuf.st_mode)) {
+                char s = name[0];
+                if (s == 'P' || s == 'C' || s == 'G') {
+                    s16 fileNum = (s16)romdataFileGetNumForName(name);
+                    if (fileNum < 0) continue;
+
+                    struct ModelTextures *modelTex = &modelTextures[numModels++];
+                    readModelTextures(filepath, fileNum, &modelOffset, modelTex);
+
+                    // Protected dynamic reallocation
+                    if (numModels >= g_CurrentMaxModels) {
+                        g_CurrentMaxModels *= 2;
+                        modelTextures = sysMemRealloc(modelTextures, g_CurrentMaxModels * sizeof(struct ModelTextures));
+                    }
+                } else if (s == 'f') {
+                    readFontTextures(filepath, name);
+                }
+            } else {
+                s32 texNum = 0;
+                char extension[5] = { 0 };
+                if (!fileInfo(name, &texNum, extension)) {
+                    setTex(extTextures, texNum, texNum, extension);
+                }
+            }
+        }
+        closedir(dr);
+
+    }
+
+    return 0;
+}
+
+void extTexSetPack(const char *newPackName)
+{
+    // 1. Stop the asynchronous decoding thread if it's running
+    extTexAsyncShutdown();
+
+    // 2. Free the texture memory of the old pack
+    extTexFree();
+
+    // 3. Update the name of the new pack
+    if (newPackName != NULL) {
+        strncpy(g_ActiveExtTexPack, newPackName, sizeof(g_ActiveExtTexPack) - 1);
+        g_ActiveExtTexPack[sizeof(g_ActiveExtTexPack) - 1] = '\0';
+    } else {
+        g_ActiveExtTexPack[0] = '\0';
+    }
+
+    // 4. Manually reset the indices
+    for (int i = 0; i < MAX_EXT_TEX; ++i) {
+        extTextures[i].texnum = -1;
+        extTextures[i].texdata = 0;
+    }
+    for (int i = 0; i < NUM_FONTS; ++i) {
+        for (int j = 0; j < NCHARS; ++j) {
+            fontExtTextures[i][j].texnum = -1;
+            fontExtTextures[i][j].texdata = 0;
+            fontOutlineExtTextures[i][j].texnum = -1;
+            fontOutlineExtTextures[i][j].texdata = 0;
+        }
+    }
+
+    numModels = 0;               // Reset the models
+    g_IsExtTexFirstInit = false; // Prevent extTexInit from overwriting our reset
+
+    // 5. Load the new pack
+    extTexInit();
+}

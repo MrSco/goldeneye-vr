@@ -1,0 +1,64 @@
+# ---------------------------------------------------------------------------
+# ROM data. Non-negotiable: never commit the game or anything derived from it.
+# ---------------------------------------------------------------------------
+*.z64
+*.n64
+*.v64
+*.rom
+ge007*
+baserom*
+
+# Audio/video captures of the original game (reference material, not source)
+*.wav
+*.mp4
+
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+build/
+android/app/build/
+android/app/.cxx/
+android/.gradle/
+android/local.properties
+*.apk
+*.aab
+*.o
+*.obj
+*.elf
+*.map
+*.d
+*.pdb
+*.ilk
+
+# Native libs are vendored under OpenXR/Libs and ARE tracked - the build needs
+# them - so no blanket *.so / *.lib rule here.
+
+# ---------------------------------------------------------------------------
+# Tooling scratch
+# ---------------------------------------------------------------------------
+__pycache__/
+*.pyc
+vectors.bin
+dump_*.raw
+gevr_mixer_ab
+gevr_mixer_ab.exe
+
+# Session logs - evidence, not source
+*_report.txt
+*_log.txt
+*.log
+
+# Backups made while editing in place
+*.bak
+*.bak2
+*.bakweak
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.vs/
+.vscode/
+.idea/
+*.iml
+Thumbs.db
+desktop.ini
