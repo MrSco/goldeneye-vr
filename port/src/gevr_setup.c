@@ -1,5 +1,6 @@
 /* Cartridge Usetup*Z → host stagesetup. Pointer fields grow from 4 to 8 bytes;
  * offsets stay file-relative until proplvreset2 rebases them. */
+#include "system.h"
 #include "gevr_stage.h"
 #include <stdlib.h>
 #include <string.h>
@@ -344,6 +345,7 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
 
     /* ---- pads (N64 44 → host 56) ---- */
     uintptr_t pads_ofs = 0, bound_ofs = 0, pwp_ofs = 0, wg_ofs = 0;
+    size_t dstpos_pads_end = 0, dstpos_bound_end = 0;
     uintptr_t intro_ofs = 0, props_ofs = 0, paths_ofs = 0, ail_ofs = 0;
     uintptr_t pnames_ofs = 0, bnames_ofs = 0;
 
@@ -372,6 +374,7 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
             putptr(dst + dstpos + 40, plink ? (uintptr_t)plink : 0);
             putptr(dst + dstpos + 48, 0);
             dstpos += 56;
+            dstpos_pads_end = dstpos;
             if (!plink) break;
         }
     }
@@ -386,8 +389,23 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
             putptr(dst + dstpos + 48, 0); /* resolved at load - see the pad loop above */
             for (int k = 0; k < 6; k++) putf(dst + dstpos + 56 + k * 4, readf(src + i + 0x2c + k * 4));
             dstpos += 80;
+            dstpos_bound_end = dstpos;
             if (!plink) break;
         }
+    }
+
+    /*
+     * PORT probe: both loops above stop at the first record with a null
+     * plink. If a real pad or volume in the middle has no name the array is
+     * truncated here, and every later index reads past it - which is what a
+     * bound-pad index is about to do in domakedefaultobj. Report the counts
+     * so they can be compared against the ids the setup actually references.
+     */
+    if (pads_ofs || bound_ofs) {
+        size_t np = pads_ofs ? (dstpos_pads_end - pads_ofs) / 56 : 0;
+        size_t nb = bound_ofs ? (dstpos_bound_end - bound_ofs) / 80 : 0;
+        sysLogPrintf(LOG_NOTE, "setup: %u pads, %u bound pads converted",
+                (unsigned)np, (unsigned)nb);
     }
 
     /* ---- pathwaypoints (16 → 24) ---- */
