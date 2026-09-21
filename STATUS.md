@@ -29,6 +29,7 @@ screen can be "working" in the logs while the headset shows black:
 | **seen** | Audio — music and SFX through the soft mixer at 22050 Hz | §11 |
 | **seen** | Quitting to the Quest home is clean and immediate | §11 |
 | **seen** | App shows as "GoldenEye VR" with an icon in the Quest library | §12 |
+| **seen** | Mission-select folder background restored; user confirmed after missing-return fix | HANDOFF 12.6 |
 | **logged** | Left thumbstick drives the file-select crosshair; A / trigger / B | HANDOFF §10 |
 
 ## Open
@@ -36,13 +37,13 @@ screen can be "working" in the logs while the headset shows black:
 | | What | |
 |---|---|---|
 | **open** | **Gameplay has never run.** Selecting Dam now hangs on a black screen (it used to crash; one cause was fixed). Narrowed but not solved - see §12.2a for what is ruled out | §12.2a |
-| **open** | **The shared menu background is invisible** on post-file-select screens. New device trace proves the node walk reaches display lists; the earlier empty-walk diagnosis is disproved. Background-only renderer trace installed, awaiting capture | §12.5 |
+| **open** | Mission-complete missing-return fix and other menu screens need verification; mission select is now **seen** fixed | HANDOFF 12.6 |
 | **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
 | **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
 | **open** | Briefing crash fix and the front-end artwork/portrait fixes shipped in the 20:39 build but were never accepted in the headset — treat as unverified | HANDOFF §10 |
 | **open** | Lighting looks dark on the Nintendo logo and on characters. Unexplored; start at `calculate_normal_dir` / lookat | HANDOFF §7.2.8 |
 | **open** | Attract demos unbound. A guard in `src/game/ramromreplay.c` calls `bossRunTitleStage()` instead. Needs the `ramrom_*` segments in the manifest and a byte-swap of `ramromfilestructure` | HANDOFF item 11 |
-| **open** | Recentre is hold-left-stick-click; upstream convention is both clicks together | HANDOFF §7.2.5 |
+| **open** | System recenter via holding the right-controller menu button leaves cinema screen left of view. App recenter is hold-left-stick-click | Investigating |
 
 ## Closed, but not by us
 
@@ -55,17 +56,11 @@ text. The library list name and icon are correct. Nothing further to do.
 
 Two open items are worth the next session, in this order:
 
-1. **The menu background** (�12.6). Renderer trace caught all 216 mission-select
-   triangles clipped, with corrupted model/projection matrices. Missing
-   `return DL;` in `constructor_menu07_missionsel` returned an uninitialized
-   pointer; the caller's scissor/full-sync/end-list writes match the corruption.
-   Added the missing return there and in mission complete. Build, install and
-   compiled-code verification passed. User visual confirmation pending.
-2. **The Dam hang** (§12.2a). Three hypotheses tested and killed with probes;
-   the fault value reproduces byte-identically, so it is a fixed location, not
-   a wild index. Next thing to check is whether `init_pathtable_something`
-   runs for **bound** pads before `domakedefaultobj` uses them - prop.c
-   resolves pads and volumes in separate loops.
+1. **The Dam crash** (HANDOFF 12.2a). User confirmed menu fix, then reproduced
+   the same Dam fault. Trace pointer provenance from pad resolution through
+   object creation/placement; bound-pad resolution runs before prop expansion.
+2. **System recenter offset.** Check cinema screen pose when OpenXR reference
+   space changes. User reports screen moves left rather than centering.
 
 The working method here has been: probe, capture on device, and let the log
 decide. Every time this session guessed instead, the guess was wrong - and
