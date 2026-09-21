@@ -36,7 +36,7 @@ screen can be "working" in the logs while the headset shows black:
 | | What | |
 |---|---|---|
 | **open** | **Gameplay has never run.** Selecting Dam now hangs on a black screen (it used to crash; one cause was fixed). Narrowed but not solved - see §12.2a for what is ruled out | §12.2a |
-| **open** | **The shared menu background draws nothing** - blacks out all ten post-file-select screens. Narrowed to the model node walk: `subdraw` emits only 10 Gfx commands for a 90-node model. Best-understood open item; start here | §12.3 |
+| **open** | **The shared menu background is invisible** on post-file-select screens. New device trace proves the node walk reaches display lists; the earlier empty-walk diagnosis is disproved. Background-only renderer trace installed, awaiting capture | §12.5 |
 | **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
 | **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
 | **open** | Briefing crash fix and the front-end artwork/portrait fixes shipped in the 20:39 build but were never accepted in the headset — treat as unverified | HANDOFF §10 |
@@ -55,14 +55,13 @@ text. The library list name and icon are correct. Nothing further to do.
 
 Two open items are worth the next session, in this order:
 
-1. **The menu background** (§12.3). Best understood of the two. `subdraw`
-   emits 10 top-level Gfx commands for a model with 90 nodes and 46 display
-   lists. This alone does not prove an empty walk: commands can call nested
-   display lists. A bounded `menubg-walk:` trace now records visited nodes,
-   switch visibility, child links before/after dispatch, and commands per node.
-   Debug build passed and was installed on the connected Quest; headset
-   verification is pending. Launch the app and open mission select, then read
-   the trace before choosing a fix. Earlier eliminations are in §12.3.
+1. **The menu background** (§12.5). User screenshot confirms black mission
+   select. Device trace visits 26 nodes and submits eight display lists in
+   the first background sample (17 top-level commands). Switches do enable
+   children. The earlier empty-walk diagnosis is disproved. A background-only
+   `menubg-rsp:` renderer trace now samples matrices, vertices, clipping and
+   culling separately for each menu. Build and installation passed; capture
+   pending. Whole-frame geometry counts cannot establish background rendering.
 2. **The Dam hang** (§12.2a). Three hypotheses tested and killed with probes;
    the fault value reproduces byte-identically, so it is a fixed location, not
    a wild index. Next thing to check is whether `init_pathtable_something`

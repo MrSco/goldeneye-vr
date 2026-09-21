@@ -1203,3 +1203,24 @@ trace will test that claim directly. No new root cause or visual fix claimed.
 Validation: `assembleDebug --console=plain` succeeded; `git diff --check`
 passed; `adb install -r` returned Success. App was not launched automatically.
 Next: user opens mission select in the headset, then inspect `menubg-walk:`.
+
+### 12.5 Device trace disproves empty node walk — 2026-09-21
+
+User screenshot: mission select still black behind text/cursors. Capture in
+`C:/Users/Occor/AppData/Local/Temp/gevr-menu-walk.log` at 12:46:39 shows 26
+visited nodes, visible switches restoring their child links, eight opcode-4
+nodes each emitting two commands, and 17 commands total. These first samples
+precede the settled mission-select state; later command totals fall to 11.
+They disprove the general claim that this background's node walk does nothing.
+The original 10-command observation cannot alone localize the defect.
+
+The same capture records the known Dam crash at 12:46:45, fault address
+`0xb4000071b4000077`, via `sub_GAME_7F04088C` / `domakedefaultobj`.
+
+Next probe: G_NOOP tags scope renderer diagnostics to this background only,
+once per menu per process. `menubg-rsp:` logs the first model/projection matrix,
+eight vertices with clip-space coordinates, and triangle totals split into
+clipped, culled and submitted. This avoids attributing cursor/text geometry
+to the background. Fixed the existing log throttle to use sysGetMicroseconds:
+osGetTime is N64 ticks, so dividing it by one million was not one second.
+Build passed, installed successfully, no automatic launch. Visual fix pending.

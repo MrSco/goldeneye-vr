@@ -2897,7 +2897,7 @@ Gfx *frontSetupMenuBackground(Gfx *DL)
      */
     {
         static u32 lastLog = 0;
-        u32 now = osGetTime() / 1000000;
+        u32 now = sysGetMicroseconds() / 1000000;
         if (now != lastLog) {
             lastLog = now;
             /* Trace only the first two background draws, keeping logcat bounded. */
@@ -2919,8 +2919,12 @@ Gfx *frontSetupMenuBackground(Gfx *DL)
 #endif
     {
         Gfx *gevrBefore = sp10C.gdl;
+#ifdef GEVR
+        gDPNoOpTag(sp10C.gdl++, 0x47450000 | (current_menu & 0xff));
+#endif
         subdraw(&sp10C, walletinst[0]);
 #ifdef GEVR
+        gDPNoOpTag(sp10C.gdl++, 0x4745ffff);
         /*
          * PORT probe. The DL dump showed geometry reaching the renderer with a
          * correct 440x330 scissor and colour image, so the question is whether
@@ -2931,7 +2935,7 @@ Gfx *frontSetupMenuBackground(Gfx *DL)
          */
         {
             static u32 lastCmdLog = 0;
-            u32 nowCmd = osGetTime() / 1000000;
+            u32 nowCmd = sysGetMicroseconds() / 1000000;
             if (nowCmd != lastCmdLog) {
                 lastCmdLog = nowCmd;
                 sysLogPrintf(LOG_NOTE, "menubg: subdraw emitted %d Gfx commands",
