@@ -1119,9 +1119,55 @@ zeroes and `init_pathtable_something` fills in; the next thing to check is
 whether that resolver runs for **bound** pads before `domakedefaultobj` uses
 them, since prop.c resolves pads and volumes in separate loops.
 
-### 12.3 Level select screen
+### 12.3 The shared menu background draws nothing (2026-09-21)
 
-Renders, but wrong: black where the background art should be, target reticles
-scattered across the view, "MULTIPLAYER" and a rotated "PREVIOUS" floating
-free. The text and reticles are drawing, so the screen's logic runs; what is
-missing is the background and the element placement. Not yet investigated.
+The mission select is black behind its text. The background is **not 2D art**:
+`frontSetupMenuBackground` (front.c) builds a 3D wallet/folder scene and hands
+it to `subdraw`. It is shared by **ten** menus - mode select, mission select,
+difficulty and the rest of the post-file-select screens - so this is one
+defect blacking out all of them, not a mission-select problem.
+
+Probably *not* wrong, so do not chase these: showing only DAM and MULTIPLAYER
+is correct on a fresh save (each entry is gated on
+`get_highest_unlocked_difficulty_for_level(...) >= 0`), and the vertical
+"PREVIOUS" is how GoldenEye draws it.
+
+A probe in `frontSetupMenuBackground` reports, once a second:
+
+```
+menubg: folder=0 pos=(-900.0,800.0) mtx=1 inst=0xb4000071305dfad8
+        obj=0x7137f0aa10 list=0xb400007130462a80
+```
+
+Everything there is sane:
+
+- `inst` and `list` are inside the game heap of that run
+  (`0xb40000713043..0xb40000713143`); `obj` is in the library's data segment,
+  which is right - model headers are compiled-in assets, not loaded data.
+- `mtx=1` **is correct**, not a bug. `assets/obseg/prop/walletbond/`
+  `ModelFileHeader.inc.c` declares `MODELFILEHEADER(walletbond, 0,
+  &SKELETON(walletbond), 0, 0x2B, 0x1, 3504.53, 0, 0x54)` - numSwitches 0x2B,
+  **numMatrices 0x1**, numtextures 0x54. `nintendologo` also has numMatrices 1
+  and renders correctly. (It looked like a smoking gun against the model's 90
+  nodes; it is not.)
+- `PwalletbondZ` converts clean: 276 blocks, 90 nodes, 46 display lists, 0
+  warnings.
+
+So the scene is built from valid data and submitted, and nothing visible comes
+out. That narrows it to geometry landing off-screen, or the display list being
+dropped by the renderer. `gfx:` during that screen reads ~5500 tris over 72
+frames, about 76 a frame, which is the text alone - the model contributes
+nothing.
+
+**Next step is the display-list dump**, not more reading:
+
+```
+adb shell "touch /sdcard/Android/data/com.gevr.port/files/gevr_dumpdl.txt"
+adb logcat -s GoldenEye | grep dl
+```
+
+Trigger it while sitting on the mission select (`gevrMaybeDumpDl` in
+gfx_pc.cpp). Look for whether the wallet geometry is emitted at all, and if it
+is, what viewport/matrix it lands under. Compare against the GoldenEye logo
+screen, which uses the same `dynAllocate(numMatrices << 6)` + `subdraw`
+pattern (front.c:1985) and does render.
