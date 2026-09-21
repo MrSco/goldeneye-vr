@@ -1316,3 +1316,122 @@ pointers are still logged if a fault survives.
 narrower plain member** — MIPS packs them into one unit, LP64 does not. It is
 silent: the struct compiles, the pointers look like pointers, and the damage
 only shows when the data is walked. Add it to the §3 defect-class table.
+
+## 13. The Dam load: nine defects, one class — 2026-09-21
+
+This session took Dam from "crashes almost immediately in prop creation"
+to "loads, spawns Bond, and dies in the first rendered frame". **Nothing
+has been seen working in the headset.** The user tested after every fix
+and never saw anything but a crash back to the Quest shell. Treat every
+item below as *logged*, not *seen*.
+
+### 13.1 What was actually wrong
+
+Nine defects, found in this order. Each was proven from device evidence
+or from `offsetof`/disassembly, never from reading alone — every time
+this session reasoned from source instead, it was wrong.
+
+| # | Defect | How it was caught |
+|---|---|---|
+| 1 | `StandTile` was 12 bytes with every field 2 late; the cartridge and `gevrConvertStan` both use 8 | `offsetof`, both configs |
+| 2 | Prop-def header word-swapped as a `u32`, so type landed at byte 0 and the END record was never seen — the walk ran off the list | converter wrote 329 props, game reached cmd 536 |
+| 3 | zlib's overlap guard compared pointers truncated to 32 bits | same room inflating on some runs, hanging on others |
+| 4 | …and then the honest guard still fired, because `bgDecompress` passes disjoint buffers the original never had | the log the previous fix added |
+| 5 | Player gait root node truncated by `(int)&player_gait_hdr` | fault address == the argument in the register dump |
+| 6 | `standTileStart` truncated by `(u32)` in the locus walk | fault address was the low half of a pointer inside the stan buffer |
+| 7 | `tileStack[39]` overrun; the function's own limit allows index 54 | stack protector, `__stack_chk_fail` |
+| 8 | Bond's animation rwdata overlapped his own `Model` | `offsetof`: model 0x5d0–0x6d0, rwdata at 0x690 |
+| 9 | `stanTileDistanceRelated` cleared a fixed 64 bytes over a 24-byte record, zeroing the caller's locals | tile valid at the call, NULL inside, same frame |
+
+Plus, from a compiler-warning sweep and not yet exercised: four pointer
+truncations (`cleanup_objects.c`, `propobj.c:8482`, `glass.c:305-306`,
+`explosion.c:1726`) and the same byte-order defect as #2 in two of the
+game's own prop walks (`cleanupObjects`, `setupFindObjForReuse`).
+
+### 13.2 The one class behind almost all of it
+
+Every defect except #2 and #7 is the same thing: **a 32-bit assumption
+that was exact on the N64 and is lossy or wrong on LP64.** Three shapes:
+
+1. **A pointer through a 32-bit slot** — `(s32)`, `(u32)`, `(int)`, or an
+   `s32` variable holding an address. Items 3, 5, 6 and the sweep.
+2. **A struct whose host size differs** — so a hardcoded byte count, a
+   neighbouring buffer, or an array index lands somewhere else. Items 1,
+   8, 9.
+3. **A fixed count that was derived from the N64 size** — the 64-byte
+   clear, the 16-word loop, `tileStack[39]`.
+
+The useful generalisation: **wherever the original encoded a size, an
+offset or a count as a literal, check it against `offsetof`/`sizeof` on
+the host.** The compiler will not warn. Shape 1 it *does* warn about —
+`-Wpointer-to-int-cast` and friends — and that sweep is in §13.4.
+
+### 13.3 Where it dies now
+
+```
+lvlRender -> bgRoomVisibilityRelated -> bgDetermineVisibleRooms
+          -> bgProcessNextQueuedPortal -> sub_GAME_7F0B7F84
+```
+
+`bg.c:4026`, `*((u8 *) i) = depth`, where `i` is an `s32` holding
+`&D_800442FC[portalnum]`. Fixed in the last commit but **not tested**.
+That is the next thing to check.
+
+Note this was in the warning sweep and I dismissed it as a dead
+artifact, because the `if (i);` next to the assignment made it look
+unused. It is used eighty lines later. When triaging that sweep again,
+follow the variable, do not read the adjacent line.
+
+### 13.4 Still open, with what is known
+
+- **12 `stanwalk:` bad tiles every run.** Pads resolving to garbage
+  stan pointers. The range check added in `sub_GAME_7F0B0914` bails
+  safely so they no longer crash, but they are wrong and unexplained.
+  Item #9 fixed the *player's* tile going NULL; these are different.
+- **`animFlipFlag` and `field_5C0` write into Bond's `Model`.**
+  `struct player` spells the embedded Model as `Model *model` plus a run
+  of `field_*` placeholders covering its interior. Nearly all are
+  unreferenced, but those two are read and written by `bondhead.c` and
+  both fall inside the host Model's footprint (0x5d0–0x6d0). This is
+  gameplay-path corruption and will matter now that gameplay runs. The
+  clean fix is to declare the embedded `Model` properly and map those
+  two names onto real Model fields; it was left alone because it needs
+  its own evidence and is bigger than any crash so far required.
+- **99 remaining pointer-truncation warnings** in
+  `scratchpad/trunc.txt`. Most are benign — `bg.c`'s `csize` arithmetic
+  subtracts two segment-tagged offsets so the truncation cancels, and
+  `propobj.c`'s `(u32)rodata->Primary & 0xffffff` is deliberate. But #6
+  and the portal slot both came out of this list, so it is worth
+  re-triaging with §13.3's lesson in mind.
+- **The recenter fix from the start of the session is still unverified.**
+
+### 13.5 Debug hooks added this session — all owe removal
+
+`dam-pad:` (prop.c, propobj.c) · `stanwalk:` bounds + range check, and
+`stanlocus:` NULL guard (stan.c) · `bggdl:` (bg.c) · `setupwalk:`
+(gevr_setup.c) · `bondanim:` (initBondDATAdefaults.c) · `spawn:`
+(bondview_r.c) · `move:` (bondview2.c).
+
+The `stanwalk:` and `stanlocus:` guards also *change behaviour* — they
+return early instead of walking a bad tile. Keep them until the bad
+tiles in §13.4 are explained, then remove the guard with the probe.
+
+### 13.6 Method notes for whoever picks this up
+
+- **`adb logcat -d` beats a background pipe.** A long-lived
+  `nohup adb logcat > file` died mid-session and produced 3.6 MB with
+  zero app lines. The device ring buffer had everything.
+- **The watchdog marker gets a stack out of a hang**:
+  `adb shell touch /sdcard/Android/data/com.gevr.port/files/gevr_watchdog_kill.txt`
+  while it is hung. That is how the zlib hang was localised.
+- **Disassemble rather than infer which pointer is null.**
+  `llvm-objdump -d --disassemble-symbols=<fn> -l` against
+  `android/app/build/intermediates/cxx/Debug/*/obj/arm64-v8a/libgevr.so`,
+  then add the `+N` from the tombstone to the symbol's base. This
+  settled items 5, 6 and the current one in minutes each.
+- **Measure structs with a compiled probe**, not by reading comments.
+  The comments carry N64 offsets and are right about the N64.
+- Three times this session a value was valid at a call and wrong inside
+  it. Every time, the cause was something writing memory it did not own
+  — not a failure to set it. If the source says a pointer cannot be
+  null and it is, stop reading and go looking for the writer.

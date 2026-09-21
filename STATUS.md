@@ -1,11 +1,12 @@
 # Status
 
-**Updated 2026-09-21.** Where this and [HANDOFF.md](HANDOFF.md) disagree, this
+**Updated 2026-09-21 (evening).** Where this and [HANDOFF.md](HANDOFF.md) disagree, this
 file wins — HANDOFF is a session-by-session engineering log kept for its
 reasoning, not as a statement of current state.
 
 **In one line:** the whole title sequence runs and is watchable in the headset
-with sound; gameplay has never run.
+with sound; gameplay has never run, but Dam now loads and spawns Bond and
+fails in the first rendered frame instead of during the load.
 
 Evidence is marked, because the difference has bitten this port before — a
 screen can be "working" in the logs while the headset shows black:
@@ -36,7 +37,7 @@ screen can be "working" in the logs while the headset shows black:
 
 | | What | |
 |---|---|---|
-| **open** | **Gameplay has never run.** Root cause found and fixed, **not yet seen on device**: `StandTile` did not match the 8-byte cartridge tile layout `gevrConvertStan` produces, so every tile field read two bytes late. Explains both the hang and the wild-pointer fault | [HANDOFF §12.7](HANDOFF.md) |
+| **open** | **Gameplay has never run.** Nine defects fixed this session; the load now completes (`lvlStageLoad done`, Bond spawned) and dies in the first rendered frame, in the portal visibility walk. A fix for that is built and installed but **untested** | [HANDOFF §13](HANDOFF.md) |
 | **open** | Mission-complete missing-return fix and other menu screens need verification; mission select is now **seen** fixed | HANDOFF 12.6 |
 | **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
 | **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
@@ -54,18 +55,20 @@ text. The library list name and icon are correct. Nothing further to do.
 
 ## If you are picking this up
 
-Both open items have a fix built and installed that **nobody has looked at
-yet**. The next session's first job is to watch them, not to write code:
+**Read [HANDOFF §13](HANDOFF.md) first** - it has the nine defects, the one
+defect class behind almost all of them, what is still open, and the method
+notes that actually worked.
 
-1. **Select Dam.** If it loads, the `StandTile` layout fix (HANDOFF 12.7) is
-   confirmed and gameplay has run for the first time. If it hangs or faults,
-   the `dam-pad:` probes still log the pad and stan pointers.
-2. **Hold the right-controller menu button to recenter.** The cinema screen
-   should land in front of you rather than to the left.
-
-Note that the tile fix also corrects `tile->room`, which portals, AI and
-explosions all read - so expect changes beyond Dam loading, and be ready for
-the next defect to be a different one rather than a regression.
+1. **Select Dam.** The build on the headset has an untested fix for the
+   portal-depth truncation at `bg.c:4026`. If it survives, the next fault is
+   somewhere new; if it does not, the tombstone names the frame.
+2. **Do not trust the log over the headset.** `lvlStageLoad done` appeared in
+   the log for several builds while the user saw nothing but a crash to the
+   Quest shell. This session made that mistake in writing and had to correct
+   it.
+3. Two known-wrong things are waiting: the 12 bad stan pointers, and
+   `bondhead.c` writing into Bond's `Model` through mislabelled `field_*`
+   members. Both are in §13.4.
 
 The working method here has been: probe, capture on device, and let the log
 decide. Every time this session guessed instead, the guess was wrong - and
@@ -75,6 +78,9 @@ eliminations rather than the dead ends.
 ## Debug hooks still compiled in
 
 All still present and all owed removal before any release build:
+
+See [HANDOFF §13.5](HANDOFF.md) for the ones added on 2026-09-21 evening -
+two of them change behaviour, not just logging. Earlier hooks:
 
 `menubg:` and the bound-pad / PadID bounds checks (added 2026-09-21) ·
 `gfx:` and `input: pad0` once-a-second stats · `badvtx:` in `gfx_sp_vertex` ·
