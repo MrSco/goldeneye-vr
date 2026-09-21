@@ -4,6 +4,9 @@
 #include "chr.h"
 #include "chrobjdata.h"
 #include "initanitable.h"
+#ifdef GEVR
+#include "system.h"
+#endif
 #include "initBondDATAdefaults.h"
 #include "objecthandler.h"
 #include "player.h"
@@ -171,11 +174,30 @@ void sets_a_bunch_of_BONDdata_values_to_default(void)
 
     modelSetAnimation(&g_CurrentPlayer->model, (struct ModelAnimation *)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_idle], 0, 0.0f, 0.5f, 0.0f);
 
+#ifdef GEVR
+    /*
+     * PORT probe. subcalcmatrices below dies in process_02_position with a
+     * NULL model->anim, but this call should have just set it. Establish
+     * whether it is set here and still set at the call, and on which model.
+     */
+    sysLogPrintf(LOG_NOTE, "bondanim: table=%p idle_off=0x%x anim=%p obj=%p",
+        (void *) ptr_animation_table, (u32)(uintptr_t) &ANIM_DATA_idle,
+        (void *) ((Model *) &g_CurrentPlayer->model)->anim,
+        (void *) ((Model *) &g_CurrentPlayer->model)->obj);
+#endif
+
     subcalcpos(&g_CurrentPlayer->model);
     matrix_4x4_set_identity(&identityMatrix);
 
     renderData.basemtx = &identityMatrix;
     renderData.mtxlist = &g_CurrentPlayer->bondheadmatrices[0];
+
+#ifdef GEVR
+    sysLogPrintf(LOG_NOTE, "bondanim: at subcalcmatrices anim=%p anim2=%p attachedto=%p",
+        (void *) ((Model *) &g_CurrentPlayer->model)->anim,
+        (void *) ((Model *) &g_CurrentPlayer->model)->anim2,
+        (void *) ((Model *) &g_CurrentPlayer->model)->attachedto);
+#endif
 
     subcalcmatrices(&renderData, &g_CurrentPlayer->model);
 
