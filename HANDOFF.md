@@ -262,7 +262,7 @@ does not capture the game layer, so someone has to wear the headset.
     the frame pump in pdmain.c's order: initialise once the GL context
     exists, then per game frame poll events, begin the XR frame (which also
     paces the loop to the display), let the game draw, submit at the next
-    retrace. Verify with `adb logcat PD-VR:V` ("VR system ready", "Session
+    retrace. Verify with `adb logcat GoldenEye-VR:V` ("VR system ready", "Session
     begun") and by wearing the headset. Note for the runbook: log-only
     verification cannot tell rendering from a black screen; someone has to
     look.
@@ -311,7 +311,7 @@ to do nothing; there is no sound at all (audio is still stubbed in
     by relative path**, which cannot be opened on Android, so every message
     from `vr_openxr.cpp`, `vr_input.cpp` and the renderer's VR code was lost
     (including action-sync failures and the renderer diagnostics). It logs
-    to logcat under `PD-VR` on Android now; the boot script captures that
+    to logcat under `GoldenEye-VR` on Android now; the boot script captures that
     tag.
 24. **Input reaches the game** (`input: pad0 buttons ...` fires), but with
     Z (`0x2000`) held permanently and nobody touching the controller: the
@@ -666,7 +666,7 @@ item below names what to compare against in it.
    rows. The background is ~300 one-pixel-high I8 line texrects. Steps:
    - Dump the DL during the barrel: `adb shell "touch
      /sdcard/Android/data/com.gevr.port/files/gevr_dumpdl.txt"` then
-     `adb logcat -s PerfectDark | grep dl` (marker-triggered dump in
+     `adb logcat -s GoldenEye | grep dl` (marker-triggered dump in
      gfx_pc.cpp, `gevrMaybeDumpDl`). Read the texrect commands: uly/lry
      per line, cycle type (COPY vs 1-cycle), tile line/dxt, `G_TEXTURE`
      scale, and whether consecutive lines are 1 or 2 rows apart.
@@ -744,7 +744,7 @@ item below names what to compare against in it.
   touching CMakeLists.txt).
 - Install: `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`
   then `adb shell am force-stop com.gevr.port`.
-- Logs: `adb logcat -s PD-VR:V PerfectDark:V DEBUG:F` (VR layer, game/port,
+- Logs: `adb logcat -s GoldenEye-VR:V GoldenEye:V DEBUG:F` (VR layer, game/port,
   crashes). Ask the user to report right after the event so the ring
   buffer still holds it.
 - Symbolize: NDK `llvm-symbolizer --obj=android/app/build/intermediates/cxx/Debug/x1w2s5x6/obj/arm64-v8a/libgevr.so -i -f <offset>`.
@@ -815,7 +815,7 @@ item below names what to compare against in it.
 - APK timestamp: **2026-09-20 15:46:14**, size 25,736,957 bytes. `adb install -r`
   returned Success, then the app was force-stopped. No automatic launch/test loop.
 - User was asked to run the full intro, inspect barrel and blood, then press
-  START. Read `PerfectDark`/`PD-VR` logs immediately afterwards, especially
+  START. Read `GoldenEye`/`GoldenEye-VR` logs immediately afterwards, especially
   `blood:`, `menu-pump:`, `pump:`, `gfx:` and `watchdog:`. Keep §7 items 2–4 open
   until headset evidence closes them; gameplay camera work has not started.
 

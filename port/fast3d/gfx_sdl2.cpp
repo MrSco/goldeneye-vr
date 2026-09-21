@@ -18,7 +18,7 @@
 
 #include <EGL/egl.h>
 #include <android/log.h>
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "PD-VR", __VA_ARGS__)
+#define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
 #endif
 
 #ifndef ANDROID // if PC
@@ -150,7 +150,7 @@ extern "C" void vrShowWaitingWindow(const char *bmpPath) {
         SDL_Init(SDL_INIT_VIDEO);
 
     // Créer la fenêtre et le contexte GL
-    SDL_Window *waitWnd = SDL_CreateWindow("Perfect Dark VR",
+    SDL_Window *waitWnd = SDL_CreateWindow("GoldenEye VR",
                                            SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                            220, 40, SDL_WINDOW_OPENGL | SDL_WINDOW_BORDERLESS);
     SDL_GLContext waitCtx = SDL_GL_CreateContext(waitWnd);
@@ -413,7 +413,7 @@ static void gfx_sdl_init(const struct GfxWindowInitSettings *set) {
     SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 1);
 
     mirror_wnd = SDL_CreateWindow(
-            "Perfect Dark VR - Mirror",
+            "GoldenEye VR - Mirror",
             SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
             mirror_width, mirror_height,           // same as logo image size + toolbar height
             SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN

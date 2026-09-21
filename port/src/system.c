@@ -17,7 +17,7 @@
 
 #ifdef ANDROID
 #include <android/log.h>
-#define LOG_TAG "PerfectDark"
+#define LOG_TAG "GoldenEye"
 #endif
 
 #ifdef PLATFORM_WIN32
@@ -291,7 +291,7 @@ void sysGetHomePath(char *outPath, const u32 outLen)
     }
 #else
     // try asking SDL
-	char *sdlPath = SDL_GetPrefPath("", "perfectdark");
+	char *sdlPath = SDL_GetPrefPath("", "goldeneye-vr");
 
 	if (sdlPath && *sdlPath) {
 		// -1 to trim trailing slash

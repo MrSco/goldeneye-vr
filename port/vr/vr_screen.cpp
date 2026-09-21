@@ -17,8 +17,8 @@
 #ifdef ANDROID
 #include <GLES3/gl3.h>
 #include <android/log.h>
-#define SCR_LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "PD-VR", __VA_ARGS__)
-#define SCR_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "PD-VR", __VA_ARGS__)
+#define SCR_LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
+#define SCR_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, "GoldenEye-VR", __VA_ARGS__)
 #else
 #include "../fast3d/glad/glad.h"
 #define SCR_LOGI(...) fprintf(stderr, __VA_ARGS__)
