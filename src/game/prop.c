@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "system.h"
+#endif
 #include <ultra64.h>
 #include <memp.h>
 #include "game/mp_weapon.h"
@@ -245,6 +248,28 @@ void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex)
         }
         else
         {
+#ifdef GEVR
+            /*
+             * PORT probe. getBoundPadNum is just (pad - 10000) and nothing
+             * bounds-checks it. The bound-pad array is NULL-plink terminated,
+             * and gevrConvertSetup stops emitting at the first entry with no
+             * plink - so a volume in the middle without a name truncates it
+             * and every later id reads past the end. That is the shape of the
+             * Dam fault (0xb4000071b4000077: two pointer high halves, i.e.
+             * adjacent heap pointers being read as a record).
+             */
+            {
+                struct BoundPadRecord *bscan = g_CurrentSetup.boundpads;
+                s32 bcount = 0;
+                while (bscan->plink != NULL) { bcount++; bscan++; }
+                if (getBoundPadNum(arg1->pad) >= bcount || getBoundPadNum(arg1->pad) < 0) {
+                    sysLogPrintf(LOG_NOTE,
+                            "setup: bound pad %d (id %d) out of range (%d bound pads) - obj skipped",
+                            (s32)getBoundPadNum(arg1->pad), (s32)arg1->pad, bcount);
+                    return;
+                }
+            }
+#endif
             var_s0 = &g_CurrentSetup.boundpads[getBoundPadNum(arg1->pad)];
 
             matrix_4x4_set_basis_and_position_target(&sp8C, 0.0f, 0.0f, 0.0f, -var_s0->look.f[0], -var_s0->look.f[1], -var_s0->look.f[2], var_s0->up.f[0], var_s0->up.f[1], var_s0->up.f[2]);
