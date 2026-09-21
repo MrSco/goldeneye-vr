@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "system.h"
+#endif
 #include <os_extension.h>
 #include <assets/oddtextures.h>
 #include "assets/image_externs.h"
@@ -2885,6 +2888,29 @@ Gfx *frontSetupMenuBackground(Gfx *DL)
     sp10C.zbufferenabled = FALSE;
     sp10C.gdl = DL;
 
+#ifdef GEVR
+    /*
+     * PORT probe. The mission-select background is this 3D wallet/folder
+     * scene, and it is coming out black. Report once a second what the scene
+     * is being built from, so one capture distinguishes "never submitted"
+     * from "submitted but positioned off-screen" - they need different fixes.
+     */
+    {
+        static u32 lastLog = 0;
+        u32 now = osGetTime() / 1000000;
+        if (now != lastLog) {
+            lastLog = now;
+            sysLogPrintf(LOG_NOTE,
+                "menubg: folder=%d pos=(%.1f,%.1f) mtx=%d inst=%p obj=%p list=%p",
+                (s32)selected_folder_num,
+                (double)folderpositions[selected_folder_num].f[0],
+                (double)folderpositions[selected_folder_num].f[1],
+                (s32)walletinst[0]->obj->numMatrices,
+                (void *)walletinst[0], (void *)walletinst[0]->obj,
+                (void *)sp10C.mtxlist);
+        }
+    }
+#endif
     subdraw(&sp10C, walletinst[0]);
 
     DL = sp10C.gdl;
