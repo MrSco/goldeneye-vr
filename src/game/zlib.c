@@ -21,6 +21,25 @@
  * spin. With the comparison fixed it should never fire.
  */
 #ifdef GEVR
+/*
+ * The guard below is real for one caller and meaningless for another.
+ *
+ * obLoadFile expands a file in place: it parks the compressed copy at the far
+ * end of the region the output grows into (src/game/ob.c, "source = (ptrdata +
+ * bytes) - ..."), so the writer really does chase the reader and catching up
+ * really is fatal. That is what the original was protecting.
+ *
+ * bgDecompress instead passes two separate mallocs, so the ranges cannot
+ * overlap at all - but two unrelated allocations can still land within WSIZE
+ * of each other, and then the distance test says "overlap" when nothing is
+ * wrong. Dam room 69 hit exactly that: out=...3ec1b940 in=...3ec151d0, 26480
+ * bytes apart against a 32768 WSIZE.
+ *
+ * So let a caller that owns disjoint buffers say so. Default is 0, which keeps
+ * the original behaviour everywhere it is not set.
+ */
+s32 rz_buffersAreDisjoint = 0;
+
 #define ZLIB_OVERRUN_TRAP() do { sysLogPrintf(LOG_ERROR, "zlib: output overran unconsumed input (out=%p in=%p) - aborting", (void *) &rz_outbuf[w], (void *) &rz_inbuf[rz_inptr]); return 1; } while (0)
 #else
 #define ZLIB_OVERRUN_TRAP() while (1) { }
@@ -334,7 +353,7 @@ s32 zlib_inflate_codes(struct huft *tl, struct huft *td, s32 bl, s32 bd)
 
         if (e == 16)                /* then it's a literal */
         {
-            if ((uintptr_t)&rz_outbuf[w] >= (uintptr_t)&rz_inbuf[rz_inptr])
+            if (!rz_buffersAreDisjoint && (uintptr_t)&rz_outbuf[w] >= (uintptr_t)&rz_inbuf[rz_inptr])
             {
                 if (((uintptr_t)&rz_outbuf[w] - (uintptr_t)&rz_inbuf[rz_inptr]) < WSIZE)
                 {
@@ -384,7 +403,7 @@ s32 zlib_inflate_codes(struct huft *tl, struct huft *td, s32 bl, s32 bd)
                 
                 if (w - d >= e)         /* (this test assumes unsigned comparison) */
                 {
-                    if ((uintptr_t)&rz_outbuf[w+e-1] >= (uintptr_t)&rz_inbuf[rz_inptr])
+                    if (!rz_buffersAreDisjoint && (uintptr_t)&rz_outbuf[w+e-1] >= (uintptr_t)&rz_inbuf[rz_inptr])
                     {
                         if (((uintptr_t)&rz_outbuf[w+e-1] - (uintptr_t)&rz_inbuf[rz_inptr]) < WSIZE)
                         {
@@ -400,7 +419,7 @@ s32 zlib_inflate_codes(struct huft *tl, struct huft *td, s32 bl, s32 bd)
                 {
                     do
                     {
-                        if ((uintptr_t)&rz_outbuf[w] >= (uintptr_t)&rz_inbuf[rz_inptr])
+                        if (!rz_buffersAreDisjoint && (uintptr_t)&rz_outbuf[w] >= (uintptr_t)&rz_inbuf[rz_inptr])
                         {
                             if (((uintptr_t)&rz_outbuf[w] - (uintptr_t)&rz_inbuf[rz_inptr]) < WSIZE)
                             {
@@ -461,7 +480,7 @@ s32 zlib_inflate_stored(void)
     {
 		NEEDBITS(8)
         
-        if ((uintptr_t)&rz_outbuf[w] >= (uintptr_t)&rz_inbuf[rz_inptr])
+        if (!rz_buffersAreDisjoint && (uintptr_t)&rz_outbuf[w] >= (uintptr_t)&rz_inbuf[rz_inptr])
         {
             if (((uintptr_t)&rz_outbuf[w] - (uintptr_t)&rz_inbuf[rz_inptr]) < WSIZE)
             {
