@@ -2210,7 +2210,13 @@ StanCollisionResult sub_GAME_7F0B1DDC(StandTile **startTile, f32 x, f32 z, f32 r
                     {
                         if ((callbackB == NULL || !callbackB(tile, pointI, edgeDist, pointDistA, pointDistB, record)) && (tile->points[pointI].link >> 4))
                         {
-                            linkedTile = ((u32) standTileStart) + (tile->points[pointI].link << 3);
+                            /*
+                             * (u32)standTileStart truncates the 64-bit base to
+                             * its low half here; the same walk at stan.c:596
+                             * and :2459 already uses the byte-offset form. Link
+                             * units are 8 bytes either way.
+                             */
+                            linkedTile = (StandTile *) ((u8 *) standTileStart + (tile->points[pointI].link << 3));
                             for (i = cat - 1; i >= 0; i--)
                             {
                                 if (linkedTile == tileStack[i])
