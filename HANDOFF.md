@@ -2104,3 +2104,67 @@ Without `prox_close` the app gets no surface ("SDL Surface timeout after
 5000ms") and stops. Mask 8000 is A, 1000 START, 4000 B; the third field pair
 is the stick. Fourteen presses of A from a cold start reaches the Dam. Use
 this before handing a build over, not after.
+
+## 26. The watch crash: two gepc-ref fixes we never ported
+
+Reproduced here by driving the headset (§25.1): fourteen A presses to the
+Dam, then START. Crash every time, in `modelGetNodeRwData` called from
+`set_enviro_fog_for_items_in_solo_watch_menu` <- `draw_current_hand_item_and_ammo`
+<- `draw_watch_mission_status_page`. Fault addresses like
+`0xaebe1b28b400007b` are the signature of an 8-byte pointer read at a 4-byte
+offset: the low half is one pointer's *top* word, the high half is the next
+pointer's *low* word.
+
+A bounded probe at the call site cleared the header itself:
+
+```
+watchitem: item=5 hdr=0x..4290 sw=0x..1498 nsw=36 ntex=12 tex=0x..15b8
+           root=0x..1678 sw0=0x..1798 sw1=0x..16a8 sw2=0x..1708
+```
+
+`tex - sw` is 0x120 = 36 * 8, so the switch table is at host stride and the
+header is correct. The disassembly put the fault on `ldrb w8, [x8]` reading
+`root->Opcode`, i.e. the *argument* was the spliced pointer.
+
+**D140** (ported from gepc-ref): further down the same function,
+
+```c
+for (j = 0; j != 20; j += 4)
+    if (*(ModelNode **)((u8 *)bodymodel->Switches + j + 0x48)) ...
+```
+
+walks `Switches` with raw byte arithmetic. 0x48 and 0x5c and the `j += 4`
+step are all N64 4-byte-pointer constants; at the host's 8-byte stride every
+one of those reads is misaligned. 0x48/4 = 18 and 0x5c/4 = 23, so the host
+form is `Switches[18 + (j >> 2)]` and `Switches[23 + (j >> 2)]`. gepc-ref
+carries exactly this fix with exactly this diagnosis.
+
+**D264** (also ported): `ModelRenderData renderdata = *(ModelRenderData *)&D_80035D00;`
+copies 64 bytes spanning two adjacent N64 globals. A host link separates
+them, so the copy came back all zeros and `flags == 0` gated every geometry
+node in `subdraw()` — the watch's item preview drew nothing. The explicit
+template (`zbufferenabled = TRUE, flags = 3`) restores it. Applying this
+moved the crash from +1104 to +1440 in the same function, which is what
+exposed the D140 site.
+
+Verified here: the watch raises and opens fully, showing "Q WATCH v2.01
+BETA / MISSION STATUS: INCOMPLETE / ABORT: CANCEL CONFIRM" with the PP7
+(SILENCED) preview rendering on the screen (scratchpad/watch-full.jpg).
+The preview is D264's doing.
+
+### 26.1 Post-mission screen — not re-verified
+
+I could not drive the watch's ABORT/CONFIRM through the input hook (the
+4-frame pulse does not register there), so the post-mission screen was not
+reached. The fix for it rests on the 06:43 tombstone: `strcpy` called from
+`constructor_menu0D_missioncomplete`, which is front.c:7369
+`strcpy(stagename, frontGetPlayersFavoriteWeaponInHand(0, 0))` — a function
+that returned `int` and truncated its pointer. That is now `char *` with a
+prototype in gevr_implicit_protos.h so mpmenu.c stops calling it blind. The
+chain is solid but untested on hardware; dying in-level is the way to check.
+
+### 26.2 Still wrong
+
+Gun and hand textures render near-white in gameplay (see
+scratchpad/watch-open.jpg) — the user's "pp9, crosshair, brightness, smoke"
+report. Nothing in §25 or §26 touches that; it is the next piece of work.
