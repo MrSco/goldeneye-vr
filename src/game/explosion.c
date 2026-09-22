@@ -296,7 +296,7 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
             sp30->pos.f[1] = target_pos->f[1];
             sp30->pos.f[2] = target_pos->f[2];
 
-            while (rooms[var_v0] != 0xff && var_v0 < 7)
+            while (rooms[var_v0] != 0xff && var_v0 < PROPRECORD_STAN_ROOM_LEN - 1)
             {
                 sp30->rooms[var_v0] = rooms[var_v0];
                 var_v0++;
@@ -1249,7 +1249,8 @@ void explosionCreateSmoke(coord3d *pos, StandTile *stan, s16 smoke_type, u8 *roo
     prop->pos.y = pos->y;
     prop->pos.z = pos->z;
 
-    for (i = 0; (rooms[i] != 0xFF) && (i < 7); i++)
+    /* prop->rooms is PROPRECORD_STAN_ROOM_LEN bytes including terminator. */
+    for (i = 0; (rooms[i] != 0xFF) && (i < PROPRECORD_STAN_ROOM_LEN - 1); i++)
     {
         prop->rooms[i] = rooms[i];
     }

@@ -1995,7 +1995,10 @@ void chraiGetPropRoomIds(PropRecord *self, s32 *roomids)
     }
     else
     {
-        for (i=0; self->rooms[i] != 0xff; i++)
+        /* rooms is PROPRECORD_STAN_ROOM_LEN long and roomids is the same
+         * size, so never scan or write past it even if a terminator is
+         * missing. */
+        for (i=0; i < PROPRECORD_STAN_ROOM_LEN - 1 && self->rooms[i] != 0xff; i++)
         {
             roomids[i] = self->rooms[i];
         }
@@ -2922,6 +2925,19 @@ void chrpropUpdateRoomList(PropRecord *prop, coord3d *bbmin, coord3d *bbmax, f32
 
     // Update the room list with neighboring rooms reachable through portals and overlapped by the bounding box.
     sub_GAME_7F0BA2D4(bbmin, bbmax, rooms, &count, 7);
+
+    /*
+     * The local rooms[] holds up to 7, which is what the two collectors above
+     * are allowed to produce, but prop->rooms is PROPRECORD_STAN_ROOM_LEN
+     * bytes and one of those has to be the terminator. Copying count entries
+     * unclamped wrote up to eight bytes into a four-byte array - over unk30,
+     * and with no terminator left inside it, so chraiGetPropRoomIds then
+     * scanned past the array and overran its caller's stack buffer. That is
+     * the __stack_chk_fail in chrpropsRenderPass.
+     */
+    if (count > PROPRECORD_STAN_ROOM_LEN - 1) {
+        count = PROPRECORD_STAN_ROOM_LEN - 1;
+    }
 
     for (i = 0; i < count; i++) {
         prop->rooms[i] = rooms[i];
