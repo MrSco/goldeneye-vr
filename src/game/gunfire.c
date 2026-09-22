@@ -19,6 +19,22 @@
 #include "lv.h"
 #include "random.h"
 #include "system.h" /* PORT probe logging */
+/*
+ * WeaponStats.RecoilSpeed is initialised as one 32-bit literal per weapon
+ * (gunWeaponStats.inc.c: the KF7's is 0x40C0006) and read back as four bytes
+ * through the b44[4] union: fire cycle, recoil return, re-fire window and
+ * re-fire offset. On the N64 b44[0] is the top byte; on this little-endian
+ * host the union hands the bytes back in reverse, so every weapon's timings
+ * were permuted - the automatic cadence of the KF7 among them. Read the bytes
+ * in cartridge order. (gepc-ref has the same union and an open report, D240,
+ * that player gunshot cadence does not match the N64.)
+ */
+#ifdef GEVR
+#define GEVR_RECOIL_BYTE(stats, i) ((s8)((u32)(stats)->RecoilSpeed >> (24 - 8 * (i))))
+#else
+#define GEVR_RECOIL_BYTE(stats, i) ((stats)->b44[i])
+#endif
+
 #include "math_asinfacosf.h"
 #include "loadobjectmodel.h"
 #include "objecthandler.h"
@@ -3239,21 +3255,21 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             weapon_stats = get_ptr_item_statistics(var_s1);
 
 #if defined(VERSION_US)
-            sp1A4 = weapon_stats->b44[0];
-            sp1A0 = weapon_stats->b44[1];
+            sp1A4 = GEVR_RECOIL_BYTE(weapon_stats, 0);
+            sp1A0 = GEVR_RECOIL_BYTE(weapon_stats, 1);
 #endif
 #if defined(VERSION_JP)
-            sp1A4 = weapon_stats->b44[0];
-            sp1A0 = weapon_stats->b44[1];
-            stat_2 = weapon_stats->b44[2];
-            stat_3 = weapon_stats->b44[3];
+            sp1A4 = GEVR_RECOIL_BYTE(weapon_stats, 0);
+            sp1A0 = GEVR_RECOIL_BYTE(weapon_stats, 1);
+            stat_2 = GEVR_RECOIL_BYTE(weapon_stats, 2);
+            stat_3 = GEVR_RECOIL_BYTE(weapon_stats, 3);
             stat_4 = weapon_stats->SingleFiringRate;
 #endif
 #if defined(VERSION_EU)
-            sp1A4 = ((s32)weapon_stats->b44[0] * 50) / 60;
-            sp1A0 = ((s32)weapon_stats->b44[1] * 50) / 60;
-            stat_2 = ((s32)weapon_stats->b44[2] * 50) / 60;
-            stat_3 = ((s32)weapon_stats->b44[3] * 50) / 60;
+            sp1A4 = ((s32)GEVR_RECOIL_BYTE(weapon_stats, 0) * 50) / 60;
+            sp1A0 = ((s32)GEVR_RECOIL_BYTE(weapon_stats, 1) * 50) / 60;
+            stat_2 = ((s32)GEVR_RECOIL_BYTE(weapon_stats, 2) * 50) / 60;
+            stat_3 = ((s32)GEVR_RECOIL_BYTE(weapon_stats, 3) * 50) / 60;
             stat_4 = weapon_stats->SingleFiringRate * 50 / 60;
 #endif
 
@@ -3283,19 +3299,19 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 && (handptr->weapon_hold_time != 0)
 
 #if defined(VERSION_US)
-                && (handptr->field_890 >= weapon_stats->b44[2])
+                && (handptr->field_890 >= GEVR_RECOIL_BYTE(weapon_stats, 2))
 #endif
 #if defined(VERSION_JP) ||  defined(VERSION_EU)
                 && (handptr->field_890 >= stat_2)
 #endif
 
-                && (weapon_stats->b44[3] >= 0)
+                && (GEVR_RECOIL_BYTE(weapon_stats, 3) >= 0)
 
 #if defined(VERSION_US)
                 // HACK: registers are swapped
                 // addu a1, v1, a0
-                && (handptr->field_890 + weapon_stats->b44[3] < (0,sp1A4) + sp1A0)
-                && (handptr->field_890 + weapon_stats->b44[3] >= (s32)weapon_stats->b44[2])
+                && (handptr->field_890 + GEVR_RECOIL_BYTE(weapon_stats, 3) < (0,sp1A4) + sp1A0)
+                && (handptr->field_890 + GEVR_RECOIL_BYTE(weapon_stats, 3) >= (s32)GEVR_RECOIL_BYTE(weapon_stats, 2))
 #endif
 #if defined(VERSION_JP) ||  defined(VERSION_EU)
                 && (handptr->field_890 + stat_3 < sp1A4 + sp1A0)
@@ -3307,7 +3323,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 handptr->field_890 = 0;
                 handptr->field_88C = 0;
 #if defined(VERSION_US)
-                handptr->field_8A8 = weapon_stats->b44[3];
+                handptr->field_8A8 = GEVR_RECOIL_BYTE(weapon_stats, 3);
 #endif
 #if defined(VERSION_JP) ||  defined(VERSION_EU)
                 handptr->field_8A8 = stat_3;
