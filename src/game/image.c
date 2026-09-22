@@ -2283,6 +2283,26 @@ void texBlur(u8 *pixels, s32 width, s32 height, s32 method, s32 chansize)
 
 void texInitPool(struct texpool *arg0, u8 *arg1, s32 arg2)
 {
+#ifdef GEVR
+    /*
+     * D217 in the reference port. The whole texture layout assumes this
+     * arena starts 8-byte aligned: texAlignIndices pads each index row to
+     * an absolute 8-byte boundary, and the model display list's TLUT load
+     * addresses the palette at tex->data + len, a formula that only matches
+     * the real layout while leftpos stays 8-aligned for life.
+     *
+     * On the cartridge the pool allocations were 8-multiples so the bases
+     * were aligned anyway. Pointer widening broke that - the weapon buffers
+     * in particular land at %8 == 4 - which shifts the palette inside the
+     * allocation while the TLUT load still reads the cartridge offset, so
+     * the tile draws in flatly wrong colours. That is the first-person gun
+     * and hand.
+     *
+     * Round the base up; the pool gives up at most seven bytes and the end
+     * is unchanged. A no-op wherever the base was already aligned.
+     */
+    arg1 = (u8 *)(((uintptr_t) arg1 + 7) & ~(uintptr_t) 7);
+#endif
     arg0->start = arg1;
 	arg0->end = (struct tex *)(arg1 + arg2);
     arg0->leftpos = arg1;
