@@ -31,6 +31,22 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 
 ## Adapted or built on (specific credit)
 
+### GoldenEye PC port - **reference only**, no code vendored
+
+- **Repo:** https://github.com/jkdansereau/goldeneye-pc-port
+- **What it is:** the same GoldenEye decompilation taken to 64-bit desktop,
+  with its port-specific changes fenced behind `#ifdef PORT` and a numbered
+  findings ledger (`docs/dev/findings.md`, 202 findings) plus a defect-class
+  document (`docs/porting-notes.md`).
+- **What we use it for:** it has already met the defect class this port keeps
+  hitting - N64 assumptions that are exact with 4-byte big-endian pointers and
+  wrong on LP64. We read its findings and its `src/` fixes as a reference and
+  port the reasoning; **no code from it is vendored here**, and its `port/`
+  host layer is not used at all (ours is Perfect Dark's).
+- **Worklist:** [docs/gepc-port-worklist.md](docs/gepc-port-worklist.md) is a
+  generated index of all 429 of its `#ifdef PORT` sites.
+
+
 ### Perfect Dark PC port (MIT) - **vendored source**, our whole host layer
 
 - **Repo:** https://github.com/fgsfdsfgs/perfect_dark (branch `port`)
