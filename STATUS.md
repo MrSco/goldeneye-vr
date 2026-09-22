@@ -1,21 +1,18 @@
 # Status
 
-**Latest headset result (2026-09-21): Bond reaches gameplay and can move.**
-Dam music, stable sky, and removal of rogue text are user-confirmed. Shooting
-crashed in bullet-spark rendering; its image stride and color reads are now fixed,
-built and installed, awaiting verification. Logs prove captions were skipped by
-trigger input on the first intro frame. That frame now seeds the previous input
-state, preserving later deliberate skip presses. Captions still need visual confirmation.
-See HANDOFF 17. Older observations below describe earlier APKs.
+**Latest headset result (2026-09-22): Dam is playable.** The user moved,
+shot, killed guards, took damage and picked up an AK, with music and sound.
+It is far from right - see the Open table and [HANDOFF §18](HANDOFF.md).
 
-**Updated 2026-09-21 (late).** Where this and [HANDOFF.md](HANDOFF.md) disagree, this
+**Updated 2026-09-22.** Where this and [HANDOFF.md](HANDOFF.md) disagree, this
 file wins — HANDOFF is a session-by-session engineering log kept for its
 reasoning, not as a statement of current state.
 
-**In one line:** Dam plays its intro in the headset - the level renders
-textured, the camera moves, and both captions appear - and the most recent
-run reached first-person Bond view before crashing in the weapon model
-setup. Gameplay itself still has not run.
+**In one line:** Dam is playable - the user has moved, shot, killed guards,
+taken damage and picked up a weapon, with music and sound - but the controls
+are badly wrong, two buttons crash the game, there is no button for the door
+switch so the level cannot be finished, and many textures are drawn with the
+wrong palette.
 
 Evidence is marked, because the difference has bitten this port before — a
 screen can be "working" in the logs while the headset shows black:
@@ -46,9 +43,11 @@ screen can be "working" in the logs while the headset shows black:
 
 | | What | |
 |---|---|---|
-| **seen** | **Dam renders.** The level, the intro camera move, and both captions - "Nine years ago", then "Byelomorye Dam, Arkangelsk, USSR" - watched in the headset | [HANDOFF §14.1](HANDOFF.md) |
-| **open** | **Gameplay has never run.** The intro now reaches first-person Bond view and crashes in `gunUpdateAndFire` -> `modelInitRwData`. The reference names it - D102, the 1P weapon Model punned onto `hand->field_B68` - and its fix is written out | [HANDOFF §14.2](HANDOFF.md) |
-| **open** | Stray flickering text about a satellite during the captions, and the captions were absent on the most recent run - possibly a regression from `12ac680` rather than variance | [HANDOFF §14.1](HANDOFF.md) |
+| **seen** | **Dam is playable.** Move, shoot, kill guards, take damage, pick up an AK; music and SFX both work | [HANDOFF §18](HANDOFF.md) |
+| **open** | **Controls are badly wrong.** Left stick does not move; right stick acts as the C-buttons; no crouch and no door-switch button, so the level cannot be finished | [HANDOFF §18.3](HANDOFF.md) |
+| **open** | **Two buttons crash.** Grip (aim) faults in `gunDrawSight` -> `texSelect`; the menu button faults one frame into the watch animation | [HANDOFF §18.3](HANDOFF.md) |
+| **open** | **Wrong textures on many assets** - PP7, HUD, sparks, blood, ground weapons. The `citex:` probe shows every colour-indexed texture importing with the same palette pointer | [HANDOFF §18.2](HANDOFF.md) |
+| **open** | Bullets pass through the guard tower glass; level brightness too high | [HANDOFF §18.4](HANDOFF.md) |
 | **open** | Mission-complete missing-return fix and other menu screens need verification; mission select is now **seen** fixed | HANDOFF 12.6 |
 | **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
 | **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
@@ -79,20 +78,23 @@ rather than the next tombstone - but read §14.3 first, because this port has a
 superset of its defects and its silence about a site is not a clean bill of
 health.
 
-1. **Port D102** (HANDOFF §14.2) - the live crash. The fix is already
-   described there: give `struct hand` real `weaponModel` / `weaponRwPool`
-   fields instead of punning them onto `field_B68` / `modeldatas`, which
-   `sizeof(Model)` outgrew.
-2. **Pin the intro camera before comparing two crashes.** Dam picks one of
+1. **The palette.** HANDOFF §18.2: every colour-indexed texture imports with
+   the same palette pointer, which is why the PP7, HUD, sparks and blood are
+   wrong while the AK is right. The probe is in the tree and both of the
+   reference's candidates are already ruled out by evidence. Start at
+   whatever sets `rdp.palette`.
+2. **Controls** (§18.3) - no door-switch button means the level cannot be
+   finished. Port GEVR's scheme rather than inventing one.
+3. **Pin the intro camera before comparing two crashes.** Dam picks one of
    six at random; write an index to
    `/sdcard/Android/data/com.gevr.port/files/gevr_introcam.txt`. It is set
    to 0 on the device. Several earlier "it crashed again" rounds were
    different crashes because of this.
-3. **Do not trust the log over the headset.** `lvlStageLoad done` appeared in
+4. **Do not trust the log over the headset.** `lvlStageLoad done` appeared in
    the log for several builds while the user saw nothing but a crash to the
    Quest shell. This session made that mistake in writing and had to correct
    it.
-4. Known-wrong and waiting: the 12 bad stan pointers, and
+5. Known-wrong and waiting: the 12 bad stan pointers, and
    `bondhead.c` writing into Bond's `Model` through mislabelled `field_*`
    members. Both are in §13.4.
 

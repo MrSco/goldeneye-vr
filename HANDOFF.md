@@ -1651,3 +1651,137 @@ false rising edge; release/repress on subsequent frames still skips normally.
 Android assembleDebug passes; new APK installed successfully. Shooting and
 captions need user confirmation on this APK. Music, sky, rogue-text removal,
 first-person HUD, and movement have passed the previous failure points.
+
+## 18. Dam is playable — 2026-09-22
+
+The user played Dam: moved, shot, killed guards, took damage, picked up an
+AK, with music and SFX. That is the first time gameplay has run. It is a
+long way from right, and everything below is what is wrong with it.
+
+### 18.1 How it got here from §14
+
+| what | source |
+|---|---|
+| Bond's `Model` embedded in `struct player`, allocation sized for it | closes §13.4 |
+| 1P weapon `Model` + rwdata pool out of the `field_B68` pun | D102 |
+| Gun render data set explicitly, not from the global template | D215 |
+| Guard attack animation table indexed without truncation | D94 |
+| Equipped-weapon reads via `WeaponObjRecord::weaponnum` | D119 |
+| Sky renderer | D176/D227/D245 |
+| `get_mTrack2Vol()` returns its value | D6 class |
+| Object tag id/offset converted as separate halfwords | ours |
+| Held selection trigger no longer reads as an intro skip | ours |
+| Texture arena rounded to 8 | D217 ① — **did not fix the textures** |
+| `vtxstore_allocate` returns a real pointer | ours |
+| `sub_GAME_7F09BAC4` reads the model correctly, patches a full pointer | D255 + ours |
+| **`chr.c` actually declares `vtxstore_allocate`** | ours |
+| Throw macros use real fields instead of raw offsets | D115 |
+| `hand.field_A48` is an `ALSoundState *` | D208 |
+
+Two of those are worth reading the commits for:
+
+- **The implicit declaration.** Fixing `vtxstore_allocate`'s signature did
+  nothing, because `chr.c` never included `vtxstore.h` and was calling it
+  through an implicit declaration returning `int`. The truncation was at the
+  *call site*. Worse, an incremental build does not warn: nothing rebuilt
+  `chr.c`, so nothing complained. `touch` the file and rebuild to see it.
+- **D115.** The throw macros were raw byte offsets into `struct player`,
+  N64-sized, so `matrix_4x4_copy(THROWMTX, ..)` was scribbling 64 bytes of
+  live state **on every shot**. It had to land before D208, which changes
+  `sizeof(struct hand)`.
+
+### 18.2 Textures — the probe has the answer, nobody has acted on it
+
+The AK draws correctly and the PP7 does not; the HUD, bullet-impact sparks,
+blood and ground weapons are also wrong. The `citex:` probe added in
+`gfx_pc.cpp` logs each distinct colour-indexed texture once. Twenty entries
+from one session, and **every one has the same palette pointer**:
+
+```
+citex: addr=0xb400007ba940e5a0 siz=1 ... pal=0x7bb390e040 32x32 ... palfmt=49152
+citex: addr=0xb400007ba9413bc8 siz=0 ... pal=0x7bb390e040 16x16 ... palfmt=49152
+citex: addr=0xb400007ba9447c70 siz=1 ... pal=0x7bb390e040 32x32 ... palfmt=32768
+...
+```
+
+Different addresses, different sizes, different palette *formats* - 32768 is
+`G_TT_RGBA16`, 49152 is `G_TT_IA16` - and **one palette address for all of
+them**. CI textures each need their own TLUT. That is the defect, and it
+explains why only some assets look wrong: the ones that happen to match
+whatever single palette is loaded look right.
+
+Ruled out already, by evidence:
+
+- D217 ① (arena 8-byte alignment) is in the tree and changed nothing.
+- D217 ② (content-hash cache key) cannot apply — `TextureCacheKey` already
+  includes `palette_addrs[2]`.
+
+So start at whatever sets `rdp.palette` - the `G_LOADTLUT` / `G_SETTIMG`
+path in `gfx_pc.cpp` and whoever feeds it - and find out why it never
+changes. One entry in that log is also plainly wrong on its own terms:
+`1x1 line=16 bytes=1024`.
+
+### 18.3 Controls are badly wrong, and two buttons crash
+
+Reported from the headset:
+
+- **Left stick does nothing.** `input.c` says so in a comment: GoldenEye's
+  front end consumes the primary N64 stick, so the Perfect Dark gameplay
+  mapping uses the secondary one. In gameplay the left stick is still wired
+  to the menu stick.
+- **Right stick behaves like the C-buttons** — strafe and forward/back.
+- **Clicking the left stick looks up. Clicking the right stick crashes.**
+- **No button for crouch, and none for the door switch**, so the level
+  cannot be finished.
+- **Grip on either controller crashes.** Grip is mapped to `CONT_R`, which
+  is aim — and the crash is in the aim path, three times in one session:
+
+  ```
+  lvlRender -> maybe_mp_interface -> gunDrawSight -> texSelect -> texSetRenderMode
+  ```
+
+  Fault addresses are wild full-width garbage (`0x9e4141f7a93fb9f8`,
+  `0x4d0bfd07ad540508`, `0x8886afd7acb59268`) — not a truncation, so
+  something is handing `texSelect` a bad texture record.
+
+- **Menu button (pause) crashes** after one frame of the watch animation:
+
+  ```
+  bondviewWatchAnimationTick -> bondviewStepWatchAnimation
+    -> modelSetAnimFrame2 -> modelSetAnimFrame -> modelConstrainOrWrapAnimFrame
+  ```
+
+  Fault address 4, so a null animation - the same shape as the `anim`/`anim2`
+  crashes in §14, and the watch model is a separate `Model` at
+  `g_CurrentPlayer + 0x230` reached by a hardcoded offset in `bondview2.c`.
+  That offset is N64-sized and is a strong first suspect, being the same
+  defect as D115.
+
+The mapping itself lives in `port/src/input.c` around line 885 and in
+`port/vr/vr_input.cpp`. Per the standing rule, port GEVR's control scheme
+rather than inventing one.
+
+### 18.4 Also seen
+
+- Bullets pass through the guard tower glass without breaking it.
+- Overall level brightness is too high. The dark-lighting item in §13.4 was
+  about the Nintendo logo and characters; this is the opposite and new.
+- The HUD ammo counter draws with wrong textures.
+
+### 18.5 Still open from earlier sections
+
+`G_POPMTX on an empty modelview stack` once per run (clamped, unexplained);
+twelve `stanwalk:` bad tiles per run (guarded, unexplained); the recenter
+fix from §13 still unverified.
+
+### 18.6 Reading the logs at all
+
+Our own probes were emitting several thousand lines per level load and
+rolling the ring buffer past every crash — two reports in §14 had no
+tombstone because of it. `dam-pad:`, `setupwalk:` per-record and `bggdl:`
+are removed. Keep new probes bounded, and use:
+
+```
+adb logcat -G 16M
+adb logcat -b all -d > capture.log
+```
