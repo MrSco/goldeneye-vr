@@ -560,8 +560,6 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
             /* Actually BE: extrascale at 0-1, state at 2, type at 3 — yes byte 3. */
             size_t hb = host_prop_bytes(type);
             int n64w = n64_prop_words(type);
-            sysLogPrintf(LOG_NOTE, "setupwalk: i=%u pp=0x%06x type=%u n64w=%d hb=%u",
-                (unsigned) propindex, (unsigned) pp, (unsigned) type, n64w, (unsigned) hb);
             if (!hb || !n64w || pp + n64w * 4 > size || dstpos + hb > capacity) {
                 sysLogPrintf(LOG_ERROR, "setupwalk: STOP i=%u pp=0x%06x type=%u n64w=%d hb=%u size=%u",
                     (unsigned) propindex, (unsigned) pp, (unsigned) type, n64w, (unsigned) hb, (unsigned) size);

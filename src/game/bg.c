@@ -2356,17 +2356,6 @@ s32 bgLoadRoomPrimaryGdl(s32 roomnum, u8 *dst, s32 allocsize)
 
     obLoadBGFileBytesAtOffset(levelinfotable[levelentry_index].bg_seg_filename, scratch, fileoffset, size);
 
-#ifdef GEVR
-    /*
-     * PORT probe. The Dam load hangs inside zlib_inflate_codes here, which
-     * means the Huffman tables are being built from data that is not a
-     * compressed stream. Log what is actually being fed in: a wrong file
-     * offset or a size derived from the wrong neighbour both look like this.
-     */
-    sysLogPrintf(LOG_NOTE, "bggdl: room=%d off=0x%06x csize=%d aligned=%d hdr=%02x %02x %02x %02x",
-        roomnum, (u32) fileoffset, roominfo->csize_primary_DL_binary, size,
-        scratch[0], scratch[1], scratch[2], scratch[3]);
-#endif
 
     u8 *cart_gdl = malloc(65536);
     if (!cart_gdl) {
@@ -2374,9 +2363,6 @@ s32 bgLoadRoomPrimaryGdl(s32 roomnum, u8 *dst, s32 allocsize)
         return -1;
     }
     expanded_size = bgDecompress(scratch, cart_gdl);
-#ifdef GEVR
-    sysLogPrintf(LOG_NOTE, "bggdl: room=%d expanded=%d", roomnum, expanded_size);
-#endif
     free(scratch);
     if (expanded_size <= 0) {
         free(cart_gdl);
