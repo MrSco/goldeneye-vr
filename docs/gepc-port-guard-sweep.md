@@ -132,3 +132,46 @@ Do not batch these. Each one needs the reference branch and our equivalent read
 side by side, because half-porting a fix — taking the change without the
 scheme it belongs to — caused two separate regressions earlier in this same
 session (HANDOFF §22.1 and §23).
+
+
+## Second pass — 2026-09-22: model.c, snd.c, and what they led to
+
+### model.c (29 uncited)
+
+| Finding | Verdict |
+|---|---|
+| D43/D45 (PROMOTE32 of collision `LinkedTo`) | Solved differently: our promote pass leaves `LinkedTo` a segment-5 offset and resolves it where read. |
+| D52 (word-indexed rwdata pool) | Already here (`u32 *datas`), uncited. |
+| D59 (vtxallocator full pointer) | Already here, typed. |
+| D92 (`unka0` function pointer) | Already here, as a side table plus flag. |
+| D99 (`animflipfunc` s32) | Already here, widened to `void *`. |
+| D101 (`sp1C` stash of `arg2->Parent`) | Already here (`ModelNode *parent`). |
+| D56 / D57 (slot fallbacks) | Already here, with a warning log. |
+| **D53.2 (ModelSlot is a whole Model)** | **Ported.** Ours covered only the first eight fields; model.c's own unka0 note records a write past it reaching the tank record. Static-asserted. |
+| D156 / D311 (NaN root-motion guard) | Not ported: cutscene-only symptom not seen here. Candidate if cutscene hangs appear. |
+| D173, D193, D218, D243, D249, M-17x..M-19x | Diagnostics or cutscene speed clamps; not ported. |
+
+### Leads from model.c into neighbouring files
+
+- **propobj.c D135 (object bullet-hit parser)** — ported. Fixes "can't shoot
+  the padlock": the parser read N64 byte offsets from 16-byte host Gfx and
+  never found a triangle. Adapted for this converter's bit-0 address tag.
+- **gun.c D45 (gun model buffers)** — ported (previous commit).
+- **dyn.c D95 (master display list budget)** — ported.
+
+### snd.c (10 uncited)
+
+| Finding | Verdict |
+|---|---|
+| D147 / D152 / D285 | Not applicable: they close races with a real preemptible audio thread. Our OS threads are stubs and audio runs from the retrace. |
+| **D305 (preemption scan on an empty list)** | **Ported.** A do-while dereferenced `iterState` before its NULL check (fault 0x62) when the 8-voice pool is believed full. Single-threaded, so it applies. |
+| D202 / M-65 / M-66 (ownerless looping SFX) | Not ported: a deliberate deviation from N64 behaviour (fading loops that ring until level exit there). Candidate if a stuck door loop is heard. |
+| D202 / M-67 / M-70 / M-71, D322 | Diagnostics and telemetry. |
+
+### Not from the sweep, but found on the way
+
+The texture faults were not PORT-guard gaps. They were found by dumping the
+importers' output (HANDOFF 31): padded 32-bit rows, 32-bit odd-row swizzle,
+tile windows larger than the load, and stale pointers left in the static
+image tables across stages — the last one being a fix this branch had and
+wrongly removed.

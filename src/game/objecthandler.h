@@ -42,6 +42,19 @@ struct AnimModelSlot {
  * are 8 bytes, so this mirrors them - unk08 is Model.obj (NULL when the
  * slot is free), unk10 is Model.datas.
  */
+/* The eight named ModelSlot fields on their own, for sizing the padding below. */
+struct ModelSlotHead {
+    s16 unk00;
+    s16 unk02;
+    void *unk04;
+    void *unk08;
+    void *unk0c;
+    void *unk10;
+    f32 unk14;
+    void *unk18;
+    void *unk1c;
+};
+
 struct ModelSlot {
     s16 unk00;      /* Model.unk00 */
     s16 unk02;      /* Model.rwdatalen */
@@ -52,7 +65,18 @@ struct ModelSlot {
     f32 unk14;      /* Model.scale */
     void *unk18;    /* Model.attachedto */
     void *unk1c;    /* Model.attachedto_objinst */
+    /*
+     * D53.2 (gepc-ref): the rest of the punned Model. Every slot is used
+     * through Model *, and on the host that struct is much bigger than these
+     * eight fields; a write to any later Model field of a non-animated model
+     * (see the unka0 note in model.c, which once reached the tank record)
+     * landed in the next slot's header - the next object's model pointer.
+     * The cartridge slot was 0x20 bytes for the same reason; here it has to
+     * be a whole Model.
+     */
+    u8 rest[sizeof(Model) - sizeof(struct ModelSlotHead)];
 };
+_Static_assert(sizeof(struct ModelSlot) == sizeof(Model), "a ModelSlot must hold a whole Model");
 
 extern struct AnimModelSlot *g_AnimModelSlots;
 extern struct ModelSlot *g_ModelSlots;

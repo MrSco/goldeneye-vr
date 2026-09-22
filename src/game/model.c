@@ -2869,11 +2869,12 @@ void modelSetAnimPlaySpeed(Model *model, f32 animation_rate, f32 startframe) {
 
 
 /*
- * Guard ground callbacks are function pointers. unka0 is an s32 in Model,
- * and Model slots are allocated at sizeof(ModelSlot), which is smaller than
- * Model — widening unka0 to a pointer grew the struct and the last slot
- * wrote into the next stage-pool block (the tank record). Keep the pointer
- * here and store only a nonzero flag in the field.
+ * Guard ground callbacks are function pointers. unka0 is an s32 in Model.
+ * Model slots used to be allocated at sizeof(ModelSlot), smaller than Model,
+ * so widening unka0 to a pointer grew the struct and the last slot wrote into
+ * the next stage-pool block (the tank record). ModelSlot is now a whole Model
+ * (D53.2, objecthandler.h), but the pointer still lives here and the field
+ * still holds only a nonzero flag, so Model keeps its size.
  */
 #define GEVR_MODEL_GROUND_FN_MAX 256
 static struct {
