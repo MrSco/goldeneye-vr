@@ -262,7 +262,9 @@ static size_t convert_one_prop(uint8_t *dst, const uint8_t *src, uint8_t type) {
         put16(dst + 0, read16(src + 0));
         dst[2] = src[2];
         dst[3] = src[3];
-        put32(dst + 4, read32(src + 4));
+        /* ID and signed object offset are distinct big-endian halfwords. */
+        put16(dst + 4, read16(src + 4));
+        put16(dst + 6, read16(src + 6));
         putptr(dst + 8, (uintptr_t)read32(src + 8));
         putptr(dst + 16, (uintptr_t)read32(src + 12));
         break;
