@@ -2044,3 +2044,63 @@ they were aimed at real crashes — `strcpy` from
 
 Build passes, `adb install -r` Success, and the app launches and stays up.
 Whether the Dam loads is for the user to check; I cannot drive the menu.
+
+## 25. The real Dam crash: a tile window with lrs < uls
+
+§23 and §24 were both wrong guesses. Reverting D74 did not fix it, removing
+`gevrResetStaticTextureIds` did not fix it, and the dimension helper §22.1
+removed provably could not have caused it (for any tile with `width > 1 ||
+height > 1` it overrode its computed values with the SETTILESIZE ones, so it
+and the reverted code read exactly the same bytes).
+
+Driving the headset from the PC (see §25.1) made it reproducible here, and a
+bounded probe in `import_texture_ci8` named it in one run:
+
+```
+ci8-oob: tile=1 65515x65500=4291232500 src=1024 orig=1024 line=16 fline=1024
+ci8-oob: tile=1 65514x65500=4291167000 ...
+ci8-oob: tile=1 65514x65499=4291101486 ...
+```
+
+65515 is -21 and 65500 is -36, drifting one texel per frame with a scroll.
+`gfx_dp_set_tile_size` computes `width = (lrs - uls + 4) / 4` into a u16, so
+a window whose lower edge sits *above* its upper edge wraps to ~65500. The
+importers then read `width * height` bytes from a 1024-byte source.
+
+The emitter is GE's own water/sky quad: sub_GAME_7F09343C binds tile 0 and
+tile 1 to the same TMEM image and offsets tile 1's uls/ult (90,150 in
+quarter-texels) past lrs/lrt to move its sample point — see the comment
+above `skyPortBeginFan` in src/game/sky.c. Our `gfx_dp_set_tile_size` is
+byte-identical to gepc-ref's, so the renderer is faithful; the wrapped
+extent is simply something it was never asked to survive.
+
+`import_texture` now detects `lrs < uls || lrt < ult` and sizes that tile
+the way gepc-ref sizes every texture — from the loaded block
+(`line_size_bytes` and `size_bytes`). Sane tiles keep their SETTILESIZE
+dimensions untouched.
+
+Why it only appeared now: before §20 the texture cache key held no
+dimensions, so this quad was imported once and served from cache forever
+after. §20 added width/height and the palette hash to the key, the drifting
+width made every frame a miss, and each re-import read further past the end
+until it hit an unmapped page. The bug was always there; the cache hid it.
+
+Verified here: the Dam loads, runs at 72 fps, and renders (scratchpad/
+dam-fixed.jpg) with the sky's clouds present.
+
+### 25.1 Driving the headset from the PC
+
+The boot script's trick plus the input hook makes the whole front end
+reachable without wearing the headset:
+
+```
+adb shell am broadcast -a com.oculus.vrpowermanager.prox_close
+adb shell am start -n com.gevr.port/.MainActivity
+adb shell "echo '8000 0 0' > /sdcard/Android/data/com.gevr.port/files/gevr_input.txt"
+adb shell am startservice -n com.oculus.metacam/.capture.CaptureService -a TAKE_SCREENSHOT
+```
+
+Without `prox_close` the app gets no surface ("SDL Surface timeout after
+5000ms") and stops. Mask 8000 is A, 1000 START, 4000 B; the third field pair
+is the stick. Fourteen presses of A from a cold start reaches the Dam. Use
+this before handing a build over, not after.
