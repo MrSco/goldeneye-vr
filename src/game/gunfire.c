@@ -603,20 +603,17 @@ void gunUpdateAndFire(GUNHAND handnum)
 
         modelCalculateRwDataLen(mdlhdr);
 #ifdef DEBUG
-        /** 
-         * The model's runtime data is written into hand->modeldatas, which is a
-         * fixed run of 32 words (modeldatas .. field_C04, ending at volley).
-         */
-        if (mdlhdr->numRecords >= 32)
+        /* RW capacity is in 32-bit words, as are numRecords and RwDataIndex. */
+        if (mdlhdr->numRecords > sizeof(hand->weaponRwPool) / sizeof(hand->weaponRwPool[0]))
         {
                 osSyncPrintf("Increase GUNSAVESIZE to %d!!! ", mdlhdr->numRecords);
         }
 #endif
-        model = (Model *) (&hand->field_B68);
+        model = &hand->weaponModel;
 
         if (mdlhdr->Switches);
 
-        modelInit(model, mdlhdr, (s32 *) (&hand->modeldatas));
+        modelInit(model, mdlhdr, (s32 *)hand->weaponRwPool);
         sub_GAME_7F05E978(model, 1);
         sub_GAME_7F05EA94(model, hand->field_87E);
         node = mdlhdr->Switches[1];
@@ -625,7 +622,7 @@ void gunUpdateAndFire(GUNHAND handnum)
         {
             if (&node->Data->Switch);
 
-            flashvisptr = ((s32 *) (&hand->modeldatas)) + node->Data->Switch.RwDataIndex;
+            flashvisptr = ((s32 *)hand->weaponRwPool) + node->Data->Switch.RwDataIndex;
         }
 
         if (mdlhdr->Switches[3] != NULL)
@@ -634,6 +631,7 @@ void gunUpdateAndFire(GUNHAND handnum)
         }
 
         hand->mtxlist = rwmtx;
+        hand->weaponModel.render_pos = (RenderPosView *)rwmtx;
 
         if ((bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0) && (handnum == GUNLEFT))
         {
@@ -1493,7 +1491,10 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     s32 handnum;
     Model *model;
  
-    renderdata = *(ModelRenderData *)&D_80035CC0;
+    /* The retail template spans separate globals and assumes 32-bit fields. */
+    renderdata = (ModelRenderData){0};
+    renderdata.zbufferenabled = TRUE;
+    renderdata.flags = 3;
  
     for (handnum = 0; handnum != 2; handnum++) 
     {
@@ -1518,11 +1519,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
  
         gSPPerspNormalize(gdl++, matrix_4x4_calc_depth_scale(0.0f, 300.0f));
  
-        if ((*(Model *)&handptr->field_B68).obj->numSwitches >= 0x11 && (*(Model *)&handptr->field_B68).obj->Switches[16] != NULL)
+        if ((handptr->weaponModel).obj->numSwitches >= 0x11 && (handptr->weaponModel).obj->Switches[16] != NULL)
         {
             union ModelRwData *rwdata;
-            model = (Model *)&handptr->field_B68;
-            rwdata = modelGetNodeRwData(model, (*(Model *)&handptr->field_B68).obj->Switches[17]);
+            model = &handptr->weaponModel;
+            rwdata = modelGetNodeRwData(model, (handptr->weaponModel).obj->Switches[17]);
  
             if (rwdata != NULL) 
             {
@@ -1532,11 +1533,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             if (item == ITEM_ROCKETLAUNCH) 
             {
                 save_img_index_to_obj_ani_slot(&g_UnknownAnimController, crosshairimage);
-                gdl = process_monitor_animation_microcode(model, (*(Model *)&handptr->field_B68).obj->Switches[16], &g_UnknownAnimController, gdl, 0, 4);
+                gdl = process_monitor_animation_microcode(model, (handptr->weaponModel).obj->Switches[16], &g_UnknownAnimController, gdl, 0, 4);
             } 
             else 
             {
-                gdl = process_monitor_animation_microcode(model, (*(Model *)&handptr->field_B68).obj->Switches[16], &g_TaserAnimController, gdl, 0, 1);
+                gdl = process_monitor_animation_microcode(model, (handptr->weaponModel).obj->Switches[16], &g_TaserAnimController, gdl, 0, 1);
             }
         }
  
@@ -1577,7 +1578,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             }
         }
  
-        subdraw(&renderdata, (Model *)&handptr->field_B68);
+        subdraw(&renderdata, &handptr->weaponModel);
         gdl = renderdata.gdl;
  
         if (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0) 
@@ -1585,7 +1586,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             gSPClearGeometryMode(gdl++, G_CULL_BOTH);
         }
  
-        bondviewTransformManyPosToViewMatrix((*(Model *)&handptr->field_B68).render_pos, (*(Model *)&handptr->field_B68).obj->numMatrices);
+        bondviewTransformManyPosToViewMatrix((handptr->weaponModel).render_pos, (handptr->weaponModel).obj->numMatrices);
         matrix_4x4_7F058C88();
  
         gSPPerspNormalize(gdl++, viGetPerspNorm());
@@ -5845,11 +5846,10 @@ Gfx *microcode_generation_ammo_related(Gfx *gdl, struct sImageTableEntry *tconfi
 
 /**
  * Address: TODO
- * WARNING: This function is missing a "return". This will cause bugs on other compilers.
  */
 Gfx *set_rgba_redirect_generate_microcode(Gfx *gdl, sImageTableEntry *tconfig, f32 x, f32 y, f32 arg4, s32 arg5, f32 arg6, s32 arg7)
 {
-    microcode_generation_ammo_related(gdl, tconfig, x, y, arg4, arg5, arg6, arg7, 0xff, 0xff, 0xff, 0xff);
+    return microcode_generation_ammo_related(gdl, tconfig, x, y, arg4, arg5, arg6, arg7, 0xff, 0xff, 0xff, 0xff);
 }
 
 
@@ -5932,9 +5932,9 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
     s32 rightx;
     s32 reserveammo;
     s32 magammo;
-    u32 imageoffset_r;
+    struct sImageTableEntry *imageoffset_r;
     s32 textwidth_r;
-    u32 imageoffset_l;
+    struct sImageTableEntry *imageoffset_l;
     s32 textwidth_l;
 
     if (g_CurrentPlayer->gunammooff == 0)
@@ -5969,20 +5969,19 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                     && g_CurrentPlayer->hands[0].weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
                     && !bondwalkItemCheckBitflags(weapon_right, WEAPONSTATBITFLAG_HIDE_AMMO_DISPLAY))
                 {
-                    imageoffset_r = ammo_related[ammotype].IconImage;
+                    imageoffset_r = texGetAmmoIcon(ammo_related[ammotype].IconImage);
                     textwidth_r = 5;
 
                     if (imageoffset_r != 0)
                     {
-                        imageoffset_r += globalbank_rdram_offset;
-                        gdl = set_rgba_redirect_generate_microcode(gdl, (u8 *)imageoffset_r, (getPlayer_c_screenleft() + getPlayer_c_screenwidth()) - (f32)rightx, -1.0f,
+                        gdl = set_rgba_redirect_generate_microcode(gdl, imageoffset_r, (getPlayer_c_screenleft() + getPlayer_c_screenwidth()) - (f32)rightx, -1.0f,
 #if defined(VERSION_EU)
                             (viGetViewTop() + viGetViewHeight()) - 30, 0,
 #else
                             (viGetViewTop() + viGetViewHeight()) - 20, 0,
 #endif
                             ammo_related[ammotype].IconYOffset, 1);
-                        textwidth_r = ((u8 *)imageoffset_r)[4];
+                        textwidth_r = imageoffset_r->width;
                     }
 
                     gdl = microcode_constructor(gdl);
@@ -6035,20 +6034,19 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                     && g_CurrentPlayer->hands[1].weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
                     && !bondwalkItemCheckBitflags(weapon_left, WEAPONSTATBITFLAG_HIDE_AMMO_DISPLAY))
                 {
-                    imageoffset_l = ammo_related[ammotype].IconImage;
+                    imageoffset_l = texGetAmmoIcon(ammo_related[ammotype].IconImage);
                     textwidth_l = 5;
 
                     if (imageoffset_l != 0)
                     {
-                        imageoffset_l += globalbank_rdram_offset;
-                        gdl = set_rgba_redirect_generate_microcode(gdl, (u8 *)imageoffset_l, getPlayer_c_screenleft() + (f32)leftx, -1.0f,
+                        gdl = set_rgba_redirect_generate_microcode(gdl, imageoffset_l, getPlayer_c_screenleft() + (f32)leftx, -1.0f,
 #if defined(VERSION_EU)
                             (viGetViewTop() + viGetViewHeight()) - 30, 1,
 #else
                             (viGetViewTop() + viGetViewHeight()) - 20, 1,
 #endif
                             ammo_related[ammotype].IconYOffset, 1);
-                        textwidth_l = ((u8 *)imageoffset_l)[4];
+                        textwidth_l = imageoffset_l->width;
                     }
 
                     gdl = microcode_constructor(gdl);
@@ -6108,7 +6106,7 @@ Gfx *gunDrawWatchAmmoDisplay(Gfx *gdl)
     s32 ammotype;
     s32 reserveammo;
     s32 magammo;
-    u32 imageoffset;
+    struct sImageTableEntry *imageoffset;
     s32 textwidth;
     s32 pad;
 
@@ -6124,23 +6122,22 @@ Gfx *gunDrawWatchAmmoDisplay(Gfx *gdl)
             && g_CurrentPlayer->hands[GUNRIGHT].weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
             && !bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_HIDE_AMMO_DISPLAY))
         {
-            imageoffset = ammo_related[ammotype].IconImage;
+            imageoffset = texGetAmmoIcon(ammo_related[ammotype].IconImage);
             textwidth = 5;
 
             get_ptr_item_statistics(item);
 
             if (imageoffset != 0)
             {
-                imageoffset += globalbank_rdram_offset;
 
                 // Draw the ammo icon
 #if defined(VERSION_EU)
-                gdl = set_rgba_redirect_generate_microcode(gdl, (u8 *)imageoffset, 200.0f, 208.0f, (viGetViewTop() + viGetViewHeight()) - 30, 0, ammo_related[ammotype].IconYOffset, 1);
+                gdl = set_rgba_redirect_generate_microcode(gdl, imageoffset, 200.0f, 208.0f, (viGetViewTop() + viGetViewHeight()) - 30, 0, ammo_related[ammotype].IconYOffset, 1);
 #else
-                gdl = set_rgba_redirect_generate_microcode(gdl, (u8 *)imageoffset, 200.0f, 180.0f, (viGetViewTop() + viGetViewHeight()) - 20, 0, ammo_related[ammotype].IconYOffset, 1);
+                gdl = set_rgba_redirect_generate_microcode(gdl, imageoffset, 200.0f, 180.0f, (viGetViewTop() + viGetViewHeight()) - 20, 0, ammo_related[ammotype].IconYOffset, 1);
 #endif
 
-                textwidth = ((u8 *)imageoffset)[4];
+                textwidth = imageoffset->width;
             }
 
             gdl = microcode_constructor(gdl);
