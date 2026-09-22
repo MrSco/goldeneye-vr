@@ -1,16 +1,13 @@
 # Status
 
-**Updated 2026-09-21 (evening).** Where this and [HANDOFF.md](HANDOFF.md) disagree, this
+**Updated 2026-09-21 (late).** Where this and [HANDOFF.md](HANDOFF.md) disagree, this
 file wins — HANDOFF is a session-by-session engineering log kept for its
 reasoning, not as a statement of current state.
 
-**In one line:** the whole title sequence runs and is watchable in the headset
-with sound. Dam's satellite intro was seen once, then a guard's AI script
-crashed. The next two installs never reached that text: widening the ground
-callback grew `Model` and died in the tank setup, and after that revert the
-first tick called the same callback through a truncated address
-(`sub_GAME_7F06D490`, fault `0x35f5fbe8`) before the briefing was presented.
-The pointer now lives in a side table; `Model` is unchanged. That call held, and so did the patrol path: the satellite line and the caption after it both drew (build `3b3791a6`), then `textMeasure` faulted at `0xb64` because the caption font slot the renderer read was still null. Widening those slots to pointers reproduced the tank crash during the load (`proplvreset2`, fault `0x423000020`, build `6ea83226`) and skipped the intro; that widening is reverted. The caption now matches the stored low half against the real font pointers. The next test died on Start, in `matrix_4x4_set_lookat` (build `f3d43302`, fault `0xffffffffac19b680`): the view matrix from `dynAllocateMatrix` was stored in `player.field_64`, an `s32`, and sign-extended. The satellite lines are the briefing HUD. The dam view uses that matrix; the player struct was not widened. The matrix is kept in a local and copied into the existing pointer fields. That call held. The next test died while drawing the first prop, in `matrix_4x4_multiply_homogeneous` (build `87201a9d`, fault `0xb27105a0`): `sub_GAME_7F08BEEC` added the joint-matrix pointer as a `u32`. That add is now a full pointer. Not yet tested.
+**In one line:** Dam plays its intro in the headset - the level renders
+textured, the camera moves, and both captions appear - and the most recent
+run reached first-person Bond view before crashing in the weapon model
+setup. Gameplay itself still has not run.
 
 Evidence is marked, because the difference has bitten this port before — a
 screen can be "working" in the logs while the headset shows black:
@@ -41,9 +38,9 @@ screen can be "working" in the logs while the headset shows black:
 
 | | What | |
 |---|---|---|
-| **seen** | Dam intro: the satellite text screen draws, then the app crashes back to the Quest home. The portal-depth fix held | |
-| **seen** | Dam intro: satellite text, then a second caption line, then a crash back to the Quest home. Build `3b3791a6` | |
-| **open** | **Gameplay has never run.** After the second caption, `textMeasure` faulted at `0xb64` because the font slot it read was null. Widening those slots reproduced the tank crash in `proplvreset2` (fault `0x423000020`) and was reverted. The installed build leaves the slots 32-bit and matches that low half to the real font pointer. Not yet tested | |
+| **seen** | **Dam renders.** The level, the intro camera move, and both captions - "Nine years ago", then "Byelomorye Dam, Arkangelsk, USSR" - watched in the headset | [HANDOFF §14.1](HANDOFF.md) |
+| **open** | **Gameplay has never run.** The intro now reaches first-person Bond view and crashes in `gunUpdateAndFire` -> `modelInitRwData`. The reference names it - D102, the 1P weapon Model punned onto `hand->field_B68` - and its fix is written out | [HANDOFF §14.2](HANDOFF.md) |
+| **open** | Stray flickering text about a satellite during the captions, and the captions were absent on the most recent run - possibly a regression from `12ac680` rather than variance | [HANDOFF §14.1](HANDOFF.md) |
 | **open** | Mission-complete missing-return fix and other menu screens need verification; mission select is now **seen** fixed | HANDOFF 12.6 |
 | **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
 | **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
@@ -61,20 +58,33 @@ text. The library list name and icon are correct. Nothing further to do.
 
 ## If you are picking this up
 
-**Read [HANDOFF §13](HANDOFF.md) first** - it has the nine defects, the one
-defect class behind almost all of them, what is still open, and the method
-notes that actually worked.
+**Read [HANDOFF §14](HANDOFF.md) first, then §13.** §14 has the reference port
+that should have been used from the start, what it does and does not cover,
+and the next fix already written out. §13 has the defect class behind most of
+this.
 
-1. **Select Dam.** The satellite line and the caption after it have been
-   seen. The font slots are 32-bit again; widening them crashed the load
-   in the tank. The caption matches the stored low half to the real font.
-   `Model` is still the size the slot pool was built for. If it dies, the
-   tombstone names the frame.
-2. **Do not trust the log over the headset.** `lvlStageLoad done` appeared in
+The single most useful fact: `../gepc-ref`
+(github.com/jkdansereau/goldeneye-pc-port) is the same decompilation taken to
+64-bit, with 429 `#ifdef PORT` sites indexed in
+[docs/gepc-port-worklist.md](docs/gepc-port-worklist.md). Work that ledger
+rather than the next tombstone - but read §14.3 first, because this port has a
+superset of its defects and its silence about a site is not a clean bill of
+health.
+
+1. **Port D102** (HANDOFF §14.2) - the live crash. The fix is already
+   described there: give `struct hand` real `weaponModel` / `weaponRwPool`
+   fields instead of punning them onto `field_B68` / `modeldatas`, which
+   `sizeof(Model)` outgrew.
+2. **Pin the intro camera before comparing two crashes.** Dam picks one of
+   six at random; write an index to
+   `/sdcard/Android/data/com.gevr.port/files/gevr_introcam.txt`. It is set
+   to 0 on the device. Several earlier "it crashed again" rounds were
+   different crashes because of this.
+3. **Do not trust the log over the headset.** `lvlStageLoad done` appeared in
    the log for several builds while the user saw nothing but a crash to the
    Quest shell. This session made that mistake in writing and had to correct
    it.
-3. Two known-wrong things are waiting: the 12 bad stan pointers, and
+4. Known-wrong and waiting: the 12 bad stan pointers, and
    `bondhead.c` writing into Bond's `Model` through mislabelled `field_*`
    members. Both are in §13.4.
 
