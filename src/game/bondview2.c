@@ -7180,7 +7180,16 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         f32 nd; // canonical name
         f32 ftemp_7;
         f32 sp240;
+#ifdef GEVR
+        /* D177 (gepc-ref): move_bond_temp_struct is an 8-byte "placeholder
+         * while matching"; every use passes &curLocus to the stan locus
+         * functions, which fill a StandTileLocusCallbackRecord - 24 bytes here
+         * (an s32 * plus three s32). Their writes ran past the 8-byte local on
+         * Bond's movement path. Declare the real type. */
+        struct StandTileLocusCallbackRecord curLocus;
+#else
         struct move_bond_temp_struct curLocus;
+#endif
         struct move_bond_collision bondCollision;
         f32 shorten; // canonical name
         f32 headpos_x;

@@ -85,6 +85,22 @@ void waitForNextFrame(void) //maybe WaitForTick
   } while (nextFrameTime < frameDelay);
 
   frameDelay = 1;
+#ifdef GEVR
+  /*
+   * D155 (gepc-ref): osGetCount is wall-clock here, not a VI-locked counter,
+   * so a real stall - an asset load at a stage or cutscene boundary, a host
+   * hitch - arrives as hundreds of "frames". That becomes g_ClockTimer, which
+   * drives modelTickAnim's per-character tick loop and dozens of
+   * for (i = 0; i < g_ClockTimer; i++) sim loops: one frame then takes seconds
+   * of catch-up and feeds a bigger delta to the next. The N64 was VI-bound and
+   * never produced more than a couple. Cap the catch-up at 6 (~100 ms); after a
+   * hitch the game resumes at roughly real-time pace, as the console did when
+   * it dropped frames.
+   */
+  if (nextFrameTime > 6) {
+    nextFrameTime = 6;
+  }
+#endif
   updateFrameCounters(nextFrameTime);
 }
 
