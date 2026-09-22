@@ -1957,3 +1957,48 @@ bondview2.c:4865 reads it inverted: `invertPitch = get_..._inverted() == 0`.
 Android assembleDebug passes; `adb install -r` reports Success. Nothing in
 §22 is verified on the headset. The reticle, PP7/smoke/impact textures and
 the remaining texture complaints from §20/§21 are all still open.
+
+## 23. D74 crashed the Dam on load — reverted
+
+The §22 APK would not start the Dam at all. Tombstone (pid 12567, SDLThread,
+SIGSEGV SEGV_ACCERR, fault addr on a page boundary), symbolized against
+android/app/build/intermediates/cxx/Debug/*/obj/arm64-v8a/libgevr.so:
+
+```
+#00 import_texture_ci8            gfx_pc.cpp:922
+#01 importTextureNative           gfx_pc.cpp:991
+#02 import_texture                gfx_pc.cpp:1151
+#03 gfx_sp_tri1 -> gfx_sp_tri4 -> gfx_run_dl -> gfx_run
+```
+
+`import_texture_ci8` reads `addr[i]` for `i < width * height`, sized from
+SETTILESIZE. §20's D74 adoption removed the LOD arm of the fallback in
+`import_texture`, so a detail tile kept its own (smaller) LOADBLOCK source
+while the importer still read a full tile's worth — straight off the end of
+the mapping. The original fallback existed to give LOD tiles a source big
+enough for that read.
+
+The LOD condition is back. D74 is only safe with gepc-ref's whole scheme,
+where the loaded block sizes the read as well as supplying it; taking half
+of it is worse than taking none. Same mistake as §22.1, one function along.
+
+`port/fast3d/gfx_pc.cpp` now differs from 7bea347 only by D228 (IA16 channel
+order), D161 (CI with TLUT disabled decodes as intensity), the palette
+content hash and the extra texture-cache key fields, plus the citex probe.
+All of those are decode- or cache-identity changes; none of them resizes a
+read.
+
+User confirms the file-select portraits are fixed by the §22.1 revert.
+Everything else from §22 is still unverified on the headset.
+
+### 23.1 Symbolizing a tombstone
+
+```
+adb logcat -b all -d > scratchpad/capture.log
+grep -n "crash_dump64: performing dump" scratchpad/capture.log | tail -1
+llvm-addr2line -C -f -e android/app/build/intermediates/cxx/Debug/*/obj/arm64-v8a/libgevr.so 0x<pc>
+```
+
+The `pc` values in the backtrace are already library-relative; ignore the
+`offset 0x1258000` the APK line reports. llvm-addr2line lives in
+$ANDROID_SDK/ndk/*/toolchains/llvm/prebuilt/windows-x86_64/bin.
