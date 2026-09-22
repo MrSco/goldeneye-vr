@@ -1692,6 +1692,16 @@ Two of those are worth reading the commits for:
 
 ### 18.2 Textures — the probe has the answer, nobody has acted on it
 
+**Correction (2026-09-22 follow-up): the diagnosis below is not established.**
+`rdp.palette` is a fixed `uint16_t[256]` array emulating TLUT storage; its
+constant address is expected. `load_tlut` copies new entries into this array
+and separately updates `rdp.palette_addrs`, the source pointers used in the
+cache key. The old probe printed the array address, not the cache-key pointers.
+The probe now logs both source pointers and a hash of decoded palette contents,
+still capped at 24 distinct CI textures per process. A new headset capture is
+needed. Address-based keys also do not rule out content reuse at one address;
+neither a cache defect nor a TLUT loading defect is proven by the old logs.
+
 The AK draws correctly and the PP7 does not; the HUD, bullet-impact sparks,
 blood and ground weapons are also wrong. The `citex:` probe added in
 `gfx_pc.cpp` logs each distinct colour-indexed texture once. Twenty entries
@@ -1785,3 +1795,165 @@ are removed. Keep new probes bounded, and use:
 adb logcat -G 16M
 adb logcat -b all -d > capture.log
 ```
+
+## 19. IA16 palette decoder fixed — 2026-09-22
+
+The corrected probe capture (scratchpad/palette-test.log, PID 25755 at
+06:05:55–06:06:33 device time) shows distinct palette source pointers and
+content hashes. This disproves the claimed single-source-palette diagnosis.
+
+A concrete defect remained in palette_to_rgba32: after load_tlut's PD_BE16,
+IA16 intensity is the high byte and alpha the low byte. We decoded them in
+reverse. For example 0x58ff became white with alpha 0x58 instead of opaque
+grey. Direct IA16 decoding already uses the correct order. The reference
+port documents this exact correction as D228; credit added to CREDITS.md.
+Only the IA16 decoder was changed; RGBA16 and cache behavior are unchanged.
+
+Validation: tools/gevr_palette_probe.py compiles the production decoder and
+checks all 65,536 IA16 entries against cartridge byte order, plus all 65,536
+RGBA16 entries. Pass. Android assembleDebug passes and adb install -r reports
+Success. This is a rendering fix, unlike the preceding diagnostic-only APK.
+Visual acceptance of PP7, HUD and effects remains pending; do not claim all
+reported texture issues are resolved until the user checks. The aim/watch
+crashes and control mapping remain open.
+
+## 20. Texture reference audit after D228 failed visual acceptance
+
+User reports textures remain bad. Compared the reference renderer directly,
+not just PORT guards in the worklist. Findings and dispositions are recorded
+in [docs/texture-port-audit.md](docs/texture-port-audit.md).
+
+Applied D74 load preservation, RC2 base-image sizing, D161 CI-without-TLUT,
+and D217 palette-content cache identity. Also reconciled all native upload
+dimensions with UV normalization and removed the CI4 rectangle dimension
+override after row unpacking. Kept our working TMEM unswizzle; do not apply
+the reference's engine-side swizzle no-op as well.
+
+Both production-code synthetic probes pass; Android assembleDebug passes;
+adb install -r reports Success. This replaces the IA16-only APK. Headset
+verification of PP7/HUD/effects remains pending. No blind launch performed.
+
+## 21. Non-VR Quest controls and aim/watch crash fixes
+
+User confirmed only HUD bullet-ammo texture improved; PP7 (called pp9 in
+the report), smoke, initial impacts and other textures remain wrong.
+Priority shifted to controls. User explicitly clarified: gepc-ref parity in
+Quest screen mode first, tracked VR controls and full immersion later.
+
+Applied reference D137: gunDrawSight now accepts Gfx** and uses a Gfx* local
+through texSelect/display_image_at_position, including the header declaration.
+Applied D140: watch Model plus 192-word RW pool are real player members;
+initialization no longer uses player+0x230/+0x2ec/+0x220. All old watch scale,
+animation-frame and render-matrix aliases now access the Model members.
+Applied D191: bondviewSelectCuff indexes ModelNode pointers at host stride.
+Player allocation already uses sizeof(struct player).
+
+Screen input now emits stock N64 actions, clearing inherited PD bindings and
+unused secondary axes. Life initialization selects native 1.2 Solitaire.
+Left stick = C-direction movement, right = analog look. Right trigger fires;
+either grip aims; B/X uses/reloads; A/Y cycles weapons; left Menu opens watch.
+Native crouch/stand uses grip + left-stick down/up. Left stick navigates
+title/watch menus. Stick clicks emit no N64 actions (existing app recenter
+handling is separate). Movement is digital, matching native C-buttons.
+
+tools/gevr_controls_probe.py compiles production mapping and sight code with
+synthetic input: movement/look, release, menus, ignored clicks and a >32-bit
+display-list cursor all pass. Android assembleDebug passes with existing
+warnings. adb install -r reports Success. No launch was forced. Aim/watch and
+controls remain pending headset acceptance, not claimed crash-free.
+
+## 22. Watch/post-mission pointer slots, and the texture-audit revert
+
+User report against the §21 APK: controls usable but right-stick pitch the
+wrong way round; aim reticle correct at level start then degrading into a
+translucent garbled square; crash on "next" from the post-mission screen;
+crash partway through the watch raise animation; file-select portraits
+"cut in half" (a regression, they were fine before).
+
+### 22.1 The file-select regression came from our own texture audit
+
+§20 replaced this renderer's UV normalization in `gfx_sp_tri1` — which
+derived tex_width/tex_height from the *loaded block* (`orig_size_bytes /
+line_size_bytes`, the scheme gepc-ref also uses) — with an invented
+`gfx_native_texture_dimensions()` helper that returns the *SETTILESIZE*
+window for every tile wider than 1. Upload and normalization then disagreed
+by the row padding, which is exactly a texture drawn at half width.
+
+That helper is gone. Uploads use SETTILESIZE dimensions and the draw
+normalizes against the loaded block again, as before §20. The CI4 rectangle
+branch is restored. Kept from §20: D228 IA16 channel order, D161 CI without
+TLUT, the D217 palette-content hash in the cache key (now using SETTILESIZE
+dimensions), TLUT-mode changes marking bindings dirty, and D74's preserved
+LOADBLOCK sources. Not verified on device yet — the user has to look.
+
+Lesson, again: gepc-ref had a coherent scheme here. Half-adopting it and
+inventing the seam is worse than either side.
+
+### 22.2 More 32-bit slots holding 64-bit pointers
+
+Found by grepping the full build log for `-Wint-conversion`,
+`-Wpointer-to-int-cast` and `-Wimplicit-function-declaration` instead of
+guessing. Fixed:
+
+- `draw_current_hand_item_and_ammo` (options.c): `s32 sp7C/sp78` held the
+  Bank Gothic font and fontchar pointers, then passed them to
+  textMeasure/textRender. This is drawn as the watch comes up — the most
+  likely cause of the watch crash.
+- `draw_watch_inventory_page`: same for `pFontFile2`/`pFontChars2`.
+- `draw_abort_cancel_confirm`: `sp54/sp50/sp4C` held the abort/confirm/cancel
+  strings from langGet.
+- `watchRenderControllerOpaque` was called through an `(s32)` cast on both
+  the single- and dual-controller paths.
+- `frontGetPlayersFavoriteWeaponInHand` returned `int` and mpmenu.c called
+  it blind; front.c:7369 strcpy'd the result. That is the post-mission
+  "next" crash. Return type fixed and the prototype added to
+  src/gevr_implicit_protos.h.
+- `struct player.ptr_text_first/second_mp_award` were `s32` fields storing
+  langGet results; mpmenu's rank lines parked two more in `s32 q`/`h2`.
+- `constructor_menu16_nocontrollers` (front.c): `s32 text`.
+
+A sweep of all 247 implicitly-declared functions against their definitions
+found no other pointer-returning one. The `uintptr_t` warnings around
+`OS_K0_TO_PHYSICAL` are benign here: our `osVirtualToPhysical` is the
+identity and returns the full pointer.
+
+### 22.3 The systemic fix we have not done: gepc-ref's dram.c
+
+gepc-ref keeps `s32 pFontFile` and friends *as s32* and works, because
+`port/src/dram.c` maps 8 MB of "N64 DRAM" twice — a s32-safe view at
+0x70000000 holding all game RAM, and a KSEG0 mirror at 0x80000000 for code
+that rebuilds pointers with `offset | 0x80000000`. Every mempool pointer is
+then 0x70xxxxxx: positive as s32 and lossless through every 32-bit slot in
+the decomp. Their header shims make PHYS_TO_K0 the identity and
+OS_K0_TO_PHYSICAL a small offset so fast3d's seg_addr resolves GBI w1 words.
+
+We have no equivalent; our allocations are ordinary heap pointers, so every
+one of these slots is a landmine and we have been defusing them one at a
+time for several sessions. Porting dram.c (fixed mapping on arm64, mempool
+carved from it, the two header shims) would retire the whole class. That is
+the next big piece of work, and it is a port, not an invention.
+
+### 22.4 Stale patched texture ids across a stage reload
+
+texReset patches image ids into the compiled `globalDL_0x***` display lists
+and `s_*images` tables in place. gepc-ref never does: it allocates a fresh
+copy of the Globalimagetable segment from MEMPOOL_STAGE each texReset,
+romCopies into it and patches *that* (`globalbank_rdram_offset + GIMG_OFF(sym)`).
+Re-running our version over already-patched data leaves dead pointers —
+which fits a reticle that is right on the first load and wrong later.
+
+`gevrResetStaticTextureIds()` (assets/oddtextures.c, called at the top of
+texReset) restores every static Gfx list and image table to its compiled
+contents first, giving the same fresh-copy invariant without the segment
+copy. Kept. Whether it is enough for the reticle is unverified.
+
+### 22.5 Look inversion
+
+`set_cur_player_look_vertical_inverted(1)` now runs once per process in
+init_player_BONDdata instead of on every player init, so the watch's
+Control option and a loaded folder's saved setting still win. Note
+bondview2.c:4865 reads it inverted: `invertPitch = get_..._inverted() == 0`.
+
+Android assembleDebug passes; `adb install -r` reports Success. Nothing in
+§22 is verified on the headset. The reticle, PP7/smoke/impact textures and
+the remaining texture complaints from §20/§21 are all still open.

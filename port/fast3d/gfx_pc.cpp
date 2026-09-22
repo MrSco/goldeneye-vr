@@ -278,6 +278,7 @@ static struct RDP {
     uint16_t palette[256];
     const uint8_t* palette_addrs[2];
     uint32_t palette_fmt;
+    uint32_t palette_hash;
     struct {
         const uint8_t* addr;
         uint8_t siz;
@@ -858,8 +859,10 @@ static void import_texture_i8(int tile, const LoadedTexture& loaded_texture, boo
 
 static inline void palette_to_rgba32(const uint16_t palentry, uint8_t *rgba32_buf) {
     if (rdp.palette_fmt == G_TT_IA16) {
-        const uint8_t intensity = (palentry & 0xff);
-        const uint8_t alpha = palentry >> 8;
+        // D228 (gepc-ref): load_tlut converts big-endian IA16 to a host
+        // value, with intensity in the high byte and alpha in the low byte.
+        const uint8_t intensity = palentry >> 8;
+        const uint8_t alpha = palentry & 0xff;
         rgba32_buf[0] = intensity;
         rgba32_buf[1] = intensity;
         rgba32_buf[2] = intensity;
@@ -938,7 +941,10 @@ static void gfx_unpack_tmem_rows(uint8_t* dst, const uint8_t* src,
 
 static void importTextureNative(int tile, const LoadedTexture &loadedtexturein, bool isrect)
 {
-    const uint8_t fmt = rdp.texture_tile[tile].fmt;
+    // D161: with TLUT disabled CI texels feed the intensity path directly.
+    const uint8_t tile_fmt = rdp.texture_tile[tile].fmt;
+    const uint8_t fmt = (tile_fmt == G_IM_FMT_CI && rdp.palette_fmt == G_TT_NONE)
+            ? G_IM_FMT_I : tile_fmt;
     const uint8_t siz = rdp.texture_tile[tile].siz;
 
     /*
@@ -1002,7 +1008,8 @@ static void import_texture(int i, int tile, bool is_rect) {
     const uint32_t tex_flags = loaded_texture.tex_flags;
     const uint8_t palette_index = rdp.texture_tile[tile].palette;
 
-    if ((rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail) || !loaded_texture.addr) {
+    // D74: preserve valid LOADBLOCK/LOADTILE sources when LOD is enabled.
+    if (!loaded_texture.addr) {
         // set up miplevel 0; also acts as a catch-all for when .addr is NULL because my texture loader sucks
         loaded_texture.addr = rdp.texture_to_load.addr;
         loaded_texture.line_size_bytes = rdp.texture_tile[tile].line_size_bytes;
@@ -1022,7 +1029,7 @@ static void import_texture(int i, int tile, bool is_rect) {
      * PORT probe. The AK draws with correct textures and the PP7 does not,
      * which points at colour-indexed textures and their palettes rather than
      * at either asset. Log each distinct CI texture once - format, size,
-     * dimensions and the palette address the cache is keyed on - so the two
+     * dimensions and the palette sources the cache is keyed on - so the two
      * weapons can be compared instead of guessed about.
      */
     if (fmt == G_IM_FMT_CI) {
@@ -1034,11 +1041,18 @@ static void import_texture(int i, int tile, bool is_rect) {
         }
         if (isnew && nseen < 24) {
             seen[nseen++] = loaded_texture.addr;
+            // palette is fixed TMEM storage: its address never identifies a TLUT.
+            // Hash decoded contents as well, since a source address can be reused.
+            uint32_t palette_hash = 2166136261u;
+            for (unsigned k = 0; k < 256; ++k) {
+                palette_hash = (palette_hash ^ rdp.palette[k]) * 16777619u;
+            }
             sysLogPrintf(LOG_NOTE,
-                "citex: addr=%p siz=%u pal_idx=%u pal=%p %ux%u line=%u bytes=%u palfmt=%u",
+                "citex: addr=%p siz=%u pal_idx=%u pal_src0=%p pal_src1=%p pal_hash=%08x %ux%u line=%u bytes=%u palfmt=%u",
                 (const void *) loaded_texture.addr, (unsigned) siz,
                 (unsigned) palette_index,
-                (const void *) rdp.palette,
+                (const void *) rdp.palette_addrs[0],
+                (const void *) rdp.palette_addrs[1], (unsigned) palette_hash,
                 (unsigned) rdp.texture_tile[tile].width, (unsigned) rdp.texture_tile[tile].height,
                 (unsigned) rdp.texture_tile[tile].line_size_bytes,
                 (unsigned) loaded_texture.size_bytes, (unsigned) rdp.palette_fmt);
@@ -1086,6 +1100,19 @@ static void import_texture(int i, int tile, bool is_rect) {
 	} else {
 		key = { 0, {}, 0, 0, 0, loaded_texture.ext_key, loaded_texture.id_mask };
 	}
+    if (!external) {
+        // D217 plus this renderer's tile-sized uploads: the same source can
+        // be reinterpreted with different dimensions, pitch or TLUT contents.
+        key.width = rdp.texture_tile[tile].width;
+        key.height = rdp.texture_tile[tile].height;
+        key.source_pitch = loaded_texture.loaded_by_tile
+                ? loaded_texture.full_image_line_size_bytes : rdp.texture_tile[tile].line_size_bytes;
+        key.swizzled = loaded_texture.tmem_swizzled;
+        if (fmt == G_IM_FMT_CI) {
+            key.palette_hash = rdp.palette_hash;
+            key.palette_fmt = rdp.palette_fmt;
+        }
+    }
 
     if (gfx_texture_cache_lookup(i, key)) {
         loaded_texture.id_mask = 0;
@@ -2242,6 +2269,10 @@ static void load_tlut(const uint16_t* base, uint8_t tile, uint32_t count) {
 	for (uint32_t i = 0; i < count; ++i) {
 		*dst++ = PD_BE16(*src++);
 	}
+    rdp.palette_hash = 2166136261u;
+    for (uint16_t entry : rdp.palette) {
+        rdp.palette_hash = (rdp.palette_hash ^ entry) * 16777619u;
+    }
 
 	rdp.textures_changed[0] = rdp.textures_changed[1] = true;
 }
@@ -2719,7 +2750,11 @@ static void gfx_sp_set_other_mode(uint32_t shift, uint32_t num_bits, uint64_t mo
     om = (om & ~mask) | mode;
     rdp.other_mode_l = (uint32_t)om;
     rdp.other_mode_h = (uint32_t)(om >> 32);
-    rdp.palette_fmt = rdp.other_mode_h & (3U << G_MDSFT_TEXTLUT);
+    const uint32_t palette_fmt = rdp.other_mode_h & (3U << G_MDSFT_TEXTLUT);
+    if (palette_fmt != rdp.palette_fmt) {
+        rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+    }
+    rdp.palette_fmt = palette_fmt;
     rdp.tex_lod = (rdp.other_mode_h & G_TL_LOD) != 0;
     rdp.tex_detail = (rdp.other_mode_h & (2U << G_MDSFT_TEXTDETAIL)) == G_TD_DETAIL;
 }

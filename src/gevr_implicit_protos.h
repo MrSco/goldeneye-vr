@@ -52,6 +52,8 @@ u16 *get_ptr_first_title_line_item(ITEM_IDS item);
 ModelFileHeader *get_ptr_itemheader_in_hand(GUNHAND hand);
 /* src/game/gunfire.c; called blind from src/game/bondinv.c, src/game/front.c */
 u16 *get_ptr_long_watch_text_for_item(ITEM_IDS item);
+/* src/game/front.c; called blind from src/game/mpmenu.c */
+char *frontGetPlayersFavoriteWeaponInHand(int player, int hand);
 /* src/game/gunfire.c; called blind from src/game/bondinv.c */
 u16 *get_ptr_second_title_line_item(ITEM_IDS item);
 /* src/game/objective_status.c; called blind from src/game/options.c */

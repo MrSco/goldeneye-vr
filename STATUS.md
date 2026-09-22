@@ -44,9 +44,9 @@ screen can be "working" in the logs while the headset shows black:
 | | What | |
 |---|---|---|
 | **seen** | **Dam is playable.** Move, shoot, kill guards, take damage, pick up an AK; music and SFX both work | [HANDOFF §18](HANDOFF.md) |
-| **open** | **Controls are badly wrong.** Left stick does not move; right stick acts as the C-buttons; no crouch and no door-switch button, so the level cannot be finished | [HANDOFF §18.3](HANDOFF.md) |
-| **open** | **Two buttons crash.** Grip (aim) faults in `gunDrawSight` -> `texSelect`; the menu button faults one frame into the watch animation | [HANDOFF §18.3](HANDOFF.md) |
-| **open** | **Wrong textures on many assets** - PP7, HUD, sparks, blood, ground weapons. The `citex:` probe shows every colour-indexed texture importing with the same palette pointer | [HANDOFF §18.2](HANDOFF.md) |
+| **open** | Screen-mode controls replaced with native 1.2 mapping: left move, right look, trigger fire, grip aim, B/X use/reload, A/Y cycle, Menu watch. Grip + left down/up crouches/stands. Built/installed, headset check pending | [HANDOFF §21](HANDOFF.md) |
+| **open** | Aim/watch crash fixes D137/D140/D191 applied from gepc-ref and installed; synthetic aim test passes, headset verification pending | [HANDOFF §21](HANDOFF.md) |
+| **seen/open** | User confirms HUD bullet-ammo texture improved. PP7, smoke, initial bullet impacts and other textures still wrong | [Texture audit](docs/texture-port-audit.md) |
 | **open** | Bullets pass through the guard tower glass; level brightness too high | [HANDOFF §18.4](HANDOFF.md) |
 | **open** | Mission-complete missing-return fix and other menu screens need verification; mission select is now **seen** fixed | HANDOFF 12.6 |
 | **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
@@ -78,11 +78,11 @@ rather than the next tombstone - but read §14.3 first, because this port has a
 superset of its defects and its silence about a site is not a clean bill of
 health.
 
-1. **The palette.** HANDOFF §18.2: every colour-indexed texture imports with
-   the same palette pointer, which is why the PP7, HUD, sparks and blood are
-   wrong while the AK is right. The probe is in the tree and both of the
-   reference's candidates are already ruled out by evidence. Start at
-   whatever sets `rdp.palette`.
+1. **Textures.** User reports D228 alone did not resolve corruption. The
+   [texture audit](docs/texture-port-audit.md) adds D74/RC2/D161/D217 and
+   reconciles upload dimensions with UV normalization, including CI4 HUD
+   rectangles. Synthetic tests and Android build pass; visual check pending.
+   The earlier constant-palette diagnosis was a probe error, not the cause.
 2. **Controls** (§18.3) - no door-switch button means the level cannot be
    finished. Port GEVR's scheme rather than inventing one.
 3. **Pin the intro camera before comparing two crashes.** Dam picks one of

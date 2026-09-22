@@ -27,6 +27,9 @@ struct TextureCacheKey {
     uint8_t palette_index;
     uint64_t ext_key;
     uint16_t id_mask;
+    uint32_t width = 0, height = 0, source_pitch = 0;
+    uint32_t palette_hash = 0, palette_fmt = 0;
+    bool swizzled = false;
 
     bool operator==(const TextureCacheKey&) const noexcept = default;
 

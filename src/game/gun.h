@@ -317,7 +317,7 @@ u16 *get_ptr_short_watch_text_for_item(ITEM_IDS item);
 
 s32 bondwalkItemHasAmmo(ITEM_IDS item);
 
-void gunDrawSight(s32 *gdl);
+void gunDrawSight(Gfx **gdl);
 
 WeaponStats *get_ptr_item_statistics(ITEM_IDS item);
 

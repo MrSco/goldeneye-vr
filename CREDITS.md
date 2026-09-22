@@ -40,7 +40,12 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
   document (`docs/porting-notes.md`).
 - **What we use it for:** 64-bit port findings and fixes, including D102
   weapon-model storage. The sky geometry replacement in `src/game/sky.c`
-  adapts D176/D227/D245 from this port. Its host layer is not used.
+  adapts D176/D227/D245 from this port. The IA16 palette decoder correction
+  in `port/fast3d/gfx_pc.cpp` follows D228. Texture load preservation, mip
+  sizing, CI-without-TLUT handling and palette-content caching follow
+  D74/RC2/D161/D217, adapted to our renderer (see
+  [texture audit](docs/texture-port-audit.md)). Its host layer is not vendored.
+  Aim display-list typing and watch model/cuff fixes follow D137/D140/D191.
 - **License for adapted code:** Copyright (c) 2026 James Dansereau,
   [MIT license](docs/gepc-reference-LICENSE.txt).
 - **Worklist:** [docs/gepc-port-worklist.md](docs/gepc-port-worklist.md) is a

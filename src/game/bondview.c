@@ -1481,7 +1481,23 @@ void init_player_BONDdata(void)
     g_CurrentPlayer->bondfadefracold = 0.0f;
     g_CurrentPlayer->bondfadefracnew = 0.0f;
     g_CurrentPlayer->field_42c = 2;
+#ifdef GEVR
+    /* Screen-mode Quest sticks use the stock 1.2 movement/look layout. */
+    g_CurrentPlayer->controldef = CONTROLLER_CONFIG_SOLITARE;
+    cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
+    /* Default the right stick to upright look. Applied once, so the watch's
+     * Control option and a loaded folder's saved setting still win. */
+    {
+        static s32 lookdefaulted = 0;
+
+        if (!lookdefaulted) {
+            lookdefaulted = 1;
+            set_cur_player_look_vertical_inverted(1);
+        }
+    }
+#else
     g_CurrentPlayer->controldef = CONTROLLER_CONFIG_HONEY;
+#endif
     g_CurrentPlayer->pause_starting_angle = 0.0f;
     g_CurrentPlayer->pause_saved_verta = 0.0f;
     g_CurrentPlayer->pause_target_verta = 0.0f;

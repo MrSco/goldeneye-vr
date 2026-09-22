@@ -6213,9 +6213,9 @@ void gunSetSightVisible(s32 reason, bool visible)
 }
 
 
-void gunDrawSight(s32 *gdl) {
+void gunDrawSight(Gfx **gdl) {
 
-    s32 sp54;
+    Gfx *sp54;
     f32 xypos[2];
     f32 halfedxy[2];
 
@@ -6234,7 +6234,7 @@ void gunDrawSight(s32 *gdl) {
 #ifdef VERSION_EU
         halfedxy[1] = halfedxy[1] * g_GunSightAspectRatio;
 #endif
-        display_image_at_position(&sp54, &xypos, &halfedxy, 0x20, 0x20, 0, 0, 1, 0xFF, 0xFF, 0xFF, 0x6E, (crosshairimage->level > 0), 0);
+        display_image_at_position(&sp54, xypos, halfedxy, 0x20, 0x20, 0, 0, 1, 0xFF, 0xFF, 0xFF, 0x6E, (crosshairimage->level > 0), 0);
         *gdl = sp54;
     }
 }
