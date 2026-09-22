@@ -18,6 +18,7 @@
 #include "player.h"
 #include "lv.h"
 #include "random.h"
+#include "system.h" /* PORT probe logging */
 #include "math_asinfacosf.h"
 #include "loadobjectmodel.h"
 #include "objecthandler.h"
@@ -1603,7 +1604,19 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
 Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf *mtx, s32 arg3, s32 arg4)
 {
+#ifdef GEVR
+    /* D264 (gepc-ref): on the N64 this 64-byte copy spans two adjacent
+     * globals, D_80035D00 (zero) and D_80035D04 {1, 3, 0..} -- the
+     * ModelRenderData template documented above D_80035D00 in gun.c. A host
+     * link puts them in separate sections, so the read comes back all zeros,
+     * and flags == 0 gates every geometry node in subdraw(): the watch item
+     * preview draws nothing. Use the explicit template. */
+    ModelRenderData renderdata = {0};
+    renderdata.zbufferenabled = TRUE;
+    renderdata.flags = 3;
+#else
     ModelRenderData renderdata = *((ModelRenderData *) (&D_80035D00));
+#endif
     ModelHeader model;
     u8 spb8[0x80];
     s32 padb4;
@@ -1705,6 +1718,37 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     {
         for (j = 0; j != 20; j += 4)
         {
+#ifdef GEVR
+            /* D140 (gepc-ref): the raw byte offsets 0x48/0x5c into `Switches`
+             * (a ModelNode* array) assume 4-byte N64 pointers. 0x48/4 = 18,
+             * 0x5c/4 = 23; j steps 0..16 by 4, so k = j>>2 selects
+             * Switches[18+k] / [23+k]. At the host's 8-byte stride the raw
+             * math reads misaligned garbage -- half of one pointer and half
+             * of the next -- giving a bogus non-NULL ModelNode* and a crash
+             * in modelGetNodeRwData. */
+            ModelNode *sw48 = bodymodel->Switches[18 + (j >> 2)];
+            ModelNode *sw5c = bodymodel->Switches[23 + (j >> 2)];
+
+            if (sw48 != NULL)
+            {
+                rwdata = modelGetNodeRwData((Model *) &model, sw48);
+
+                if (rwdata != NULL)
+                {
+                    rwdata->Raw.unk00 = 1;
+                }
+            }
+
+            if (sw5c != NULL)
+            {
+                rwdata = modelGetNodeRwData((Model *) &model, sw5c);
+
+                if (rwdata != NULL)
+                {
+                    rwdata->Raw.unk00 = 1;
+                }
+            }
+#else
             if ((*((ModelNode **) ((((u8 *) bodymodel->Switches) + j) + 0x48))) != NULL)
             {
                 rwdata = modelGetNodeRwData((Model *) &model, *((ModelNode **) ((((u8 *) bodymodel->Switches) + j) + 0x48)));
@@ -1724,6 +1768,7 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
                     rwdata->Raw.unk00 = 1;
                 }
             }
+#endif
         }
     }
 
