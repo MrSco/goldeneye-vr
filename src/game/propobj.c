@@ -8454,7 +8454,18 @@ bool bgTestHitOnObj(coord3d *arg0, coord3d *arg1, coord3d *arg2, Gfx *gdl, Gfx *
 
     while (1)
     {
-        op = *((s8 *) gdl);
+        /*
+         * D135 (gepc-ref): the object bullet-hit GBI parser. A host display
+         * list is 16-byte Gfx with the two cartridge words in the low halves of
+         * words.w0 / words.w1. Every raw byte/word index here assumed the
+         * N64's 8-byte command, so the opcode was read from the wrong byte and
+         * the walk never found a G_VTX or a triangle: bullets passed straight
+         * through objects -- the Dam gate padlock could not be shot. Read the
+         * words instead.
+         */
+        u32 w0 = (u32) gdl->words.w0;
+        u32 w1 = (u32) gdl->words.w1;
+        op = (s8) (w0 >> 24);
         if (op == (s8)G_ENDDL)
         {
             if (gdl2 == 0)
@@ -8474,11 +8485,13 @@ bool bgTestHitOnObj(coord3d *arg0, coord3d *arg1, coord3d *arg2, Gfx *gdl, Gfx *
 
         if (op == G_VTX)
         {
-            op = ((u8 *) gdl)[1] & 0xf;
-            padC = ((u32 *) gdl)[1] & 0x00ffffff;
-            /* (s32)vertices truncated the host vertex buffer pointer; padC
-             * and op << 4 are byte offsets either way. */
-            vtxbase = (Vertex *) (((u8 *) vertices + padC) - (op << 4));
+            op = (w0 >> 16) & 0xf;
+            /* This port's model converter tags segmented addresses with bit 0
+             * (gevr_model.c convertGdl); strip it the way seg_addr does, or
+             * every vertex is read one byte off. gepc-ref's converter does not
+             * tag, so its mask is 0x00ffffff. */
+            padC = w1 & 0x00fffffe;
+            vtxbase = (Vertex *) ((uintptr_t) vertices + (uintptr_t) padC - (op << 4));
             gdl++;
 
             continue;
@@ -8489,9 +8502,9 @@ bool bgTestHitOnObj(coord3d *arg0, coord3d *arg1, coord3d *arg2, Gfx *gdl, Gfx *
             bboxMin = D_8003204C;
             bboxMax = D_80032058;
 
-            idx[0] = ((u8 *) gdl)[5] / 10;
-            idx[1] = ((u8 *) gdl)[6] / 10;
-            idx[2] = ((u8 *) gdl)[7] / 10;
+            idx[0] = ((w1 >> 16) & 0xff) / 10;
+            idx[1] = ((w1 >> 8) & 0xff) / 10;
+            idx[2] = (w1 & 0xff) / 10;
 
             for (i = 0; i < 3; i++)
             {
@@ -8535,29 +8548,17 @@ bool bgTestHitOnObj(coord3d *arg0, coord3d *arg1, coord3d *arg2, Gfx *gdl, Gfx *
                     dy = (f32) (((s32) hitbuf.hitpos.y) - ((s32) arg0->y));
                     dz = (f32) (((s32) hitbuf.hitpos.z) - ((s32) arg0->z));
                     tcmd = gdl;
-                    if (((*((u8 *) gdl)) != 253) && (cmdStart < gdl))
-                    {
-                        do
-                        {
-                            tcmd--;
-
-                            if ((*((u8 *) tcmd)) == 253)
-                            {
-                                break;
-                            }
-                        } while (cmdStart < tcmd);
-
-                    }
-
-                    if (tcmd == cmdStart)
-                    {
-                        texnum = -1;
-                    }
-                    else
-                    {
-                        padC = ((u32 *) tcmd)[1] - 8;
-                        texnum = *((u16 *) (padC | 0x80000000));
-                    }
+                    /*
+                     * D135: the N64 recovers the texture number from
+                     * *(s16 *)(phys(w1) - 8) behind the preceding G_SETTIMG,
+                     * through a KSEG0 address that faults on the host, and the
+                     * converted model layout does not guarantee that word
+                     * anyway. A bogus value indexes g_HitTypeSounds[] out of
+                     * bounds. texnum only flavours the impact sound and decal,
+                     * so fall back to the generic hit, as gepc-ref does.
+                     */
+                    texnum = -1;
+                    (void) tcmd;
 
                     d = ((dx * dx) + (dy * dy)) + (dz * dz);
 
@@ -8591,27 +8592,27 @@ bool bgTestHitOnObj(coord3d *arg0, coord3d *arg1, coord3d *arg2, Gfx *gdl, Gfx *
 
                 if (s2 == 0)
                 {
-                    idx2[0] = ((u32 *) gdl)[1] & 0xf;
-                    idx2[1] = ((u32) ((u8 *) gdl)[7]) >> 4;
-                    idx2[2] = ((u32 *) gdl)[0] & 0xf;
+                    idx2[0] = w1 & 0xf;
+                    idx2[1] = (w1 & 0xff) >> 4;
+                    idx2[2] = w0 & 0xf;
                 }
                 else if (s2 == 1)
                 {
-                    idx2[0] = ((u8 *) gdl)[6] & 0xf;
-                    idx2[1] = ((u32) ((u16 *) gdl)[3]) >> 12;
-                    idx2[2] = ((u32) ((u8 *) gdl)[3]) >> 4;
+                    idx2[0] = (w1 >> 8) & 0xf;
+                    idx2[1] = (w1 & 0xffff) >> 12;
+                    idx2[2] = (w0 & 0xff) >> 4;
                 }
                 else if (s2 == 2)
                 {
-                    idx2[0] = ((u16 *) gdl)[2] & 0xf;
-                    idx2[1] = ((u32) ((u8 *) gdl)[5]) >> 4;
-                    idx2[2] = ((u8 *) gdl)[2] & 0xf;
+                    idx2[0] = (w1 >> 16) & 0xf;
+                    idx2[1] = ((w1 >> 16) & 0xff) >> 4;
+                    idx2[2] = (w0 >> 8) & 0xf;
                 }
                 else
                 {
-                    idx2[0] = ((u8 *) gdl)[4] & 0xf;
-                    idx2[1] = ((u32 *) gdl)[1] >> 28;
-                    idx2[2] = ((u32) ((u16 *) gdl)[1]) >> 12;
+                    idx2[0] = (w1 >> 24) & 0xf;
+                    idx2[1] = w1 >> 28;
+                    idx2[2] = (w0 & 0xffff) >> 12;
                 }
 
                 for (i = 0; i < 3; i++)
@@ -8657,28 +8658,9 @@ bool bgTestHitOnObj(coord3d *arg0, coord3d *arg1, coord3d *arg2, Gfx *gdl, Gfx *
                         dz = (f32) (((s32) hitbuf.hitpos.z) - ((s32) arg0->z));
                         tcmd = gdl;
 
-                        if (((*((u8 *) gdl)) != G_SETTIMG) && (cmdStart < gdl))
-                        {
-                            do
-                            {
-                                tcmd--;
-                                if ((*((u8 *) tcmd)) == G_SETTIMG)
-                                {
-                                    break;
-                                }
-                            } while (cmdStart < tcmd);
-
-                        }
-
-                        if (tcmd == cmdStart)
-                        {
-                            texnum = -1;
-                        }
-                        else
-                        {
-                            padC = ((u32 *) tcmd)[1] - 8;
-                            texnum = *((u16 *) (padC | 0x80000000));
-                        }
+                        /* D135: see the G_TRI1 note; generic hit. */
+                        texnum = -1;
+                        (void) tcmd;
 
                         d = ((dx * dx) + (dy * dy)) + (dz * dz);
 

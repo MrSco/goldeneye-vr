@@ -53,9 +53,31 @@ void dynInitMemory(void) {
         g_VtxSizesByPlayerCount[getPlayerCount() - 1] = strtol(tokenFind(1, "-mvtx"), NULL, 0) * 1024;
     }
 
+#ifdef GEVR
+    /*
+     * D95 (gepc-ref): the -mgfx budget (boss.c's per-level memallocstringtable)
+     * is a byte count sized for the N64's 8-byte Gfx. Here a Gfx is 16 bytes,
+     * so the same master display list needs twice the bytes, and `gdl` - bumped
+     * with a bare gdl++ by every render function, never bounds-checked - ran
+     * off the end of g_GfxBuffers[1] and [2] every frame. Past [2] lie the
+     * per-frame vertex/matrix buffers and then, a few allocations on, the
+     * start of the default texture pool, where texReset() loads the smoke,
+     * impact and effect textures: they were overwritten with GBI commands a
+     * little more each busy frame. Scale by sizeof(Gfx) / 8. Vtx and Mtx are
+     * 16 and 64 bytes on both targets, so the vertex buffers stay as they are.
+     */
+    {
+        s32 gfxHalf = g_GfxSizesByPlayerCount[getPlayerCount() - 1] * ((s32)sizeof(Gfx) / 8);
+
+        g_GfxBuffers[0] = mempAllocBytesInBank(gfxHalf * 2, MEMPOOL_STAGE);
+        g_GfxBuffers[1] = (g_GfxBuffers[0] + gfxHalf);
+        g_GfxBuffers[2] = (g_GfxBuffers[1] + gfxHalf);
+    }
+#else
     g_GfxBuffers[0] = mempAllocBytesInBank(g_GfxSizesByPlayerCount[getPlayerCount() - 1] * 2, MEMPOOL_STAGE);
     g_GfxBuffers[1] = (g_GfxBuffers[0] + g_GfxSizesByPlayerCount[getPlayerCount() - 1]);
     g_GfxBuffers[2] = (g_GfxBuffers[1] + g_GfxSizesByPlayerCount[getPlayerCount() - 1]);
+#endif
 
     g_VtxBuffers[0] = mempAllocBytesInBank(g_VtxSizesByPlayerCount[getPlayerCount() - 1] * 2, MEMPOOL_STAGE);
     g_VtxBuffers[1] = (g_VtxBuffers[0] + g_VtxSizesByPlayerCount[getPlayerCount() - 1]);
