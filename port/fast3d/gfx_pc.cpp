@@ -1017,6 +1017,35 @@ static void import_texture(int i, int tile, bool is_rect) {
         loaded_texture.orig_size_bytes = loaded_texture.size_bytes;
     }
 
+#ifdef GEVR
+    /*
+     * PORT probe. The AK draws with correct textures and the PP7 does not,
+     * which points at colour-indexed textures and their palettes rather than
+     * at either asset. Log each distinct CI texture once - format, size,
+     * dimensions and the palette address the cache is keyed on - so the two
+     * weapons can be compared instead of guessed about.
+     */
+    if (fmt == G_IM_FMT_CI) {
+        static const uint8_t *seen[24];
+        static int nseen = 0;
+        bool isnew = true;
+        for (int k = 0; k < nseen; k++) {
+            if (seen[k] == loaded_texture.addr) { isnew = false; break; }
+        }
+        if (isnew && nseen < 24) {
+            seen[nseen++] = loaded_texture.addr;
+            sysLogPrintf(LOG_NOTE,
+                "citex: addr=%p siz=%u pal_idx=%u pal=%p %ux%u line=%u bytes=%u palfmt=%u",
+                (const void *) loaded_texture.addr, (unsigned) siz,
+                (unsigned) palette_index,
+                (const void *) rdp.palette,
+                (unsigned) rdp.texture_tile[tile].width, (unsigned) rdp.texture_tile[tile].height,
+                (unsigned) rdp.texture_tile[tile].line_size_bytes,
+                (unsigned) loaded_texture.size_bytes, (unsigned) rdp.palette_fmt);
+        }
+    }
+#endif
+
     const RawTexMetadata* metadata = &loaded_texture.raw_tex_metadata;
     const uint8_t* orig_addr = loaded_texture.addr;
     SUPPORT_CHECK(orig_addr);
