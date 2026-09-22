@@ -2283,3 +2283,64 @@ Verified only that the build installs, the Dam loads and runs at 72 fps. The
 headset stopped returning anything but black frames to the metacam capture
 service this run, so the colour change is unconfirmed; it needs the user's
 eyes.
+
+## 30. Guard-house crash and the washed-out gun: D45, the gun model buffer
+
+User report: textures unchanged by §29; further into the Dam, a crash on
+"opening a door in the guard house".
+
+The log said otherwise. The trigger was `input: pad0 buttons 8000` — N64 A,
+weapon change, not the use button — followed by
+
+```
+model Gtt33Z: 17584 -> 22880 bytes, 138 blocks (47 nodes, 21 display lists)
+FATAL: Unknown GBI opcode 0x00 at 0xb400007bb0773800.  w0 00000000 w1 00000000
+```
+
+`Gtt33Z` is the DD44, a Dam guard's drop, loaded on demand at the switch. Its
+display lists were walked into zeros fourteen milliseconds later.
+
+`sub_GAME_7F0762E0` (objecthandler_2.c) moves the file's tail from the first
+display list onward to the end of the gun's model region, then rewrites each
+display list back from the front through `texLoadFromGdl`, which expands the
+texture markers into real RDP commands. The region is `D_80032464[hand]`,
+still the N64's 0x7530. Host model files are ~30% bigger (16-byte Gfx), so the
+slack between writer and unread tail shrank until the writer overtook it. The
+silenced PP7 had already been logging the other failure mode on every level
+load: `no room to rewrite its display lists (file 25264 bytes, allocation
+30000)`, after which the rewrite *returned early*.
+
+**D45** (gepc-ref, unported and uncited here, found by the §29 sweep's file
+list) grows four coupled sizes in gun.c, all taken together:
+
+| | N64 | D45 |
+|---|---|---|
+| `size_item_buffer` (whole per-hand buffer) | 0x14820 | 0x23000 |
+| `D_80032464` (gun model region) | 0x7530 | 0xF000 |
+| suit region (`Csuit_lf_handZ` expands to 0x16F9C) | 0xBD70 | 0x18000 |
+| trigger / watch-laser region (0x16030) | 0xAFD0 | 0x17000 |
+
+The texture pool is the buffer minus the region, so growing the region alone
+would have shrunk the pool from 0xD2F0 to 0x5820. bondview2.c's no-chr path
+borrows the same two buffers for Bond's body and head and sizes itself from
+`getSizeBufferWeaponInHand`, so it follows automatically.
+
+Headroom: boss.c now logs the stage pool at the end of every level load.
+With D45 the Dam leaves **14,134,008 bytes** free, so the extra 118 KB is
+immaterial.
+
+**The bigger result:** because the PP7's rewrite used to bail, its display
+lists never went through `texLoadFromGdl` and its own textures were never
+resolved. The gun and hand were drawn with whatever was still bound — the
+grainy grey rock. That was the "pp9 texture" and hand complaint. With room to
+rewrite, the PP7 renders as a black glossy pistol in a skin-toned hand
+(scratchpad/d45-gun.jpg against scratchpad/watch-now.jpg).
+
+Verified on device: the Dam loads, no "no room" line, the PP7 renders
+correctly, firing works. Not verified: the DD44 switch itself — picking one up
+needs a dead guard, which the input hook cannot arrange. The mechanism is the
+same one the PP7 demonstrates.
+
+Still open: crosshair, smoke and HUD brightness. Any gun that previously hit
+the "no room" bail may also have been fixed by this; worth a look at every
+weapon.
