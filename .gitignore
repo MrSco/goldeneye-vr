@@ -62,3 +62,6 @@ gevr_mixer_ab.exe
 *.iml
 Thumbs.db
 desktop.ini
+
+# Session scratch: build and logcat captures, device grabs
+scratchpad/
