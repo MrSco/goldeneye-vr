@@ -2462,3 +2462,61 @@ audio runs on the retrace), M-66 (a deliberate behaviour deviation), D156
 
 Verified on device: Dam loads (13.9 MB stage pool left), firing works, the
 watch opens with the corrected ammo icon.
+
+## 33. Watch controls crash, left trigger, AI scripts, menu sprites
+
+User report: textures fixed; the padlock can be shot; the game is a little
+too bright; the AK fires far too fast; guards on 00 Agent shoot at walls; a
+crash in the watch when scrolling to the controls page (stick left twice);
+wants the left trigger to fire; "SELECT FILE" loses half its final E and
+there is a faint white line beside the eraser icon.
+
+### 33.1 Watch controls page crash (gunfire.c)
+
+Reproduced over adb (Dam, START, stick left twice). SIGSEGV at
+`0x00000000a3ec18f0` in matrix_4x4_copy <- watchRenderController:
+`matrix_4x4_copy((u32)modelstack.render_pos + i * sizeof(Mtxf), ...)`, twice
+in the function. gepc-ref has the same cast and survives only because its
+dram.c keeps pointers under 4 GB. Widened. Same file: the knife-slash
+keyframe tables were held in `u32 var_a0_2` (three functions); now
+`Weapon1PTransformKeyframe *`. RenderPosView is a union, 64 bytes, so the
+render_pos indexing strides agree.
+
+### 33.2 Left trigger fires (port/src/input.c)
+
+It was unmapped; either trigger now sets Z.
+
+### 33.3 AI: D209, D210, D310 (chraction.c, chrai.c)
+
+- D209: `act_ubytes.padding[45]` read act_gopos.unk59 (walk/run/sprint) by
+  raw byte; host pointers moved it, it read 0, and every guard was locked to
+  the walk animation. Named field.
+- D210: `act_init.padding[0x13] = -1` missed act_patrol.lastvisible60 for
+  the same reason; patrolling guards read an uninitialised "last saw Bond".
+- D310: `PRINT(STRING)` expands to the bare AI_PRINT byte (aicommands2.h), so
+  global lists (chraidata.c) hold 1-byte PRINT records, but chraiitemsize
+  NUL-scans past them into later records. m_RunToBondPersistent puts one right
+  after TRYRunToBond. Ported d310ItemSize at chraiGoToLabel and at ai()'s
+  PRINT case; level-local lists keep the NUL scan, which is right for them.
+
+Not verified: guard behaviour cannot be exercised through the input hook.
+"Shooting at walls" may or may not be one of these.
+
+### 33.4 Padded rows, every texel size (gfx_pc.cpp)
+
+IMAGE_SELECTFILE is 122x18 IA8; TMEM pads its rows to 128. Rectangles
+normalise UVs against the padded block, the upload was 122 wide, so the last
+texels fell off. The ammo-icon fix (§31.2) covered only 32-bit; the rule now
+lives in import_texture's tile fixup for every size: a block load whose rows
+are wider than the window uploads the block. The 32-bit special case is gone.
+
+Triangles normalise against the SETTILESIZE window instead, so any tile the
+fixup resizes (padded, larger-than-load, negative) is flagged `from_block`
+and triangles use the block dimensions for it too — without that, §31.6's
+fire tile would have been sampled at the wrong scale on triangles. The flag
+is cleared by every SETTILESIZE, so unresized tiles are untouched.
+
+Verified on device: SELECT FILE complete, ammo icon still clean, Dam and
+firing unchanged. The eraser's white edge remains: the icons wrap in S and
+rectangles get no half-texel filter offset, so edge samples blend with the
+opposite column. gepc-ref behaves the same; left as a known item.

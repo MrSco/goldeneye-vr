@@ -3644,7 +3644,20 @@ void get_sound_at_range(ChrRecord *self, s32 arg1, s32 arg2)
 */
 void play_hit_soundeffect_and_proper_volume( ChrRecord *self)
 {
+#ifdef GEVR
+    /*
+     * D209 (gepc-ref): act_ubytes.padding[45] is a raw-byte alias for
+     * act_gopos.unk59, the speed tier (0 walk, 1 run, 2 sprint). On the host
+     * act_gopos's pointer members widen, so byte 45 lands inside
+     * waypoints[1] - a byte of a pointer - and every guard was bound to the
+     * walk animation whatever speed the AI list asked for. Both callers reach
+     * here with actiontype == ACT_GOPOS, so the named field is the byte the
+     * N64 read.
+     */
+    get_sound_at_range(self, self->act_gopos.unk59, c_item_entries[self->bodynum].isMale);
+#else
     get_sound_at_range(self, self->act_ubytes.padding[45], c_item_entries[self->bodynum].isMale);
+#endif
 }
 
 
@@ -3830,7 +3843,18 @@ void set_actor_on_path(ChrRecord *self, struct patrol_path *path)
     self->act_patrol.forward = 1;
     self->act_patrol.waydata.age = randomGetNext() % 0x64U;
     self->act_patrol.waydata.unk03 = 0;
+#ifdef GEVR
+    /*
+     * D210 (gepc-ref): act_init.padding[0x13] is act_patrol.lastvisible60 on
+     * the N64. act_patrol widened with its path pointer, so the raw offset
+     * now lands in waydata.segdisttotal and lastvisible60 was left
+     * uninitialised: a patrolling guard's "haven't seen Bond recently" check
+     * read garbage on its first tick. Write the named field.
+     */
+    self->act_patrol.lastvisible60 = -1;
+#else
     self->act_init.padding[0x13] = -1;
+#endif
     self->act_patrol.speed = 0.0f;
 
     chrlvSetNextActPatrolStepPadPos(self);

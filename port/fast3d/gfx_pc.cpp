@@ -297,6 +297,7 @@ static struct RDP {
         uint8_t shifts, shiftt;
         uint16_t uls, ult, lrs, lrt; // U10.2
         uint16_t width, height;      // in texels
+        bool from_block;             // width/height resized to the loaded block (import_texture)
         uint16_t tmem;               // 0-511, in 64-bit word units
         uint32_t line_size_bytes;
         uint8_t palette;
@@ -735,6 +736,7 @@ void gfx_texture_cache_delete(const uint8_t* orig_addr) {
 static const uint8_t *s_dumpAddr;
 static uint8_t s_dumpFmt, s_dumpSiz;
 static int s_dumpTile;
+static uint32_t s_dumpOrig, s_dumpByTile;
 
 static void gevr_upload_native(uint32_t width, uint32_t height) {
     static int enabled = 0;
@@ -771,8 +773,9 @@ static void gevr_upload_native(uint32_t width, uint32_t height) {
                         (unsigned)width, (unsigned)height);
                 fwrite(tex_upload_buffer, 4, (size_t)width * height, f);
                 fclose(f);
-                sysLogPrintf(LOG_NOTE, "texdump: %s tile_line=%u uls=%u ult=%u lrs=%u lrt=%u palfmt=%u",
-                    path, (unsigned)rdp.texture_tile[s_dumpTile].line_size_bytes,
+                sysLogPrintf(LOG_NOTE, "texdump: %s orig=%u by_tile=%u tile_line=%u uls=%u ult=%u lrs=%u lrt=%u palfmt=%u",
+                    path, (unsigned)s_dumpOrig, (unsigned)s_dumpByTile,
+                    (unsigned)rdp.texture_tile[s_dumpTile].line_size_bytes,
                     (unsigned)rdp.texture_tile[s_dumpTile].uls, (unsigned)rdp.texture_tile[s_dumpTile].ult,
                     (unsigned)rdp.texture_tile[s_dumpTile].lrs, (unsigned)rdp.texture_tile[s_dumpTile].lrt,
                     (unsigned)rdp.palette_fmt);
@@ -811,29 +814,6 @@ static void import_texture_rgba32(int tile, const LoadedTexture& loaded_texture,
     const uint8_t* addr = loaded_texture.addr;
 	uint32_t width = rdp.texture_tile[tile].width;
 	uint32_t height = rdp.texture_tile[tile].height;
-#ifdef GEVR
-    /*
-     * A 32-bit texture's rows are padded to the TMEM line. The 9mm ammo icon
-     * is 5x12 but its LOADBLOCK holds 12 rows of 8 texels (tile line 16 bytes
-     * per TMEM half, 384 bytes in all), so copying 5-texel rows contiguously
-     * slid every row three texels further off: the HUD ammo icons came out as
-     * scrambled brass. importTextureNative's row unpacking skips 32-bit, and
-     * gfx_sp_tri1 already normalises this tile's UVs against the loaded block
-     * (line / 2 wide, orig_size_bytes / line / 2 tall). Upload that same block
-     * - which is also how gepc-ref sizes this importer - so upload and UVs
-     * agree and the padding columns are never sampled. Only padded block loads
-     * change; an unpadded tile (the 32-wide crosshair) keeps its dimensions.
-     */
-    if (!loaded_texture.loaded_by_tile && rdp.texture_tile[tile].line_size_bytes != 0) {
-        const uint32_t line = rdp.texture_tile[tile].line_size_bytes;
-        const uint32_t block_w = line / 2;
-        const uint32_t block_h = loaded_texture.orig_size_bytes / line / 2;
-        if (block_w > width && block_h != 0 && block_w * block_h * 4 <= loaded_texture.size_bytes) {
-            width = block_w;
-            height = block_h;
-        }
-    }
-#endif
 	const uint32_t size_bytes = width * height * 4;
 
     uint32_t *dest = (uint32_t *)tex_upload_buffer;
@@ -1099,6 +1079,8 @@ static void importTextureNative(int tile, const LoadedTexture &loadedtexturein, 
     s_dumpFmt = fmt;
     s_dumpSiz = siz;
     s_dumpTile = tile;
+    s_dumpOrig = loadedtexturein.orig_size_bytes;
+    s_dumpByTile = loadedtexturein.loaded_by_tile;
 #endif
 
     if (fmt == G_IM_FMT_RGBA) {
@@ -1183,9 +1165,20 @@ static void import_texture(int i, int tile, bool is_rect) {
                 case G_IM_SIZ_16b: bw = line / 2; break;
                 default:           bw = line / 2; bh /= 2; break; /* 32b: TMEM halves */
             }
-            if (bw != 0 && bh != 0 && (negative || t.width > bw || t.height > bh)) {
+            /* Also the other way round: a block load whose rows are wider
+             * than the window, because TMEM pads every row to 8 bytes. The
+             * UVs above divide by the padded width, so uploading only the
+             * window stretched the image and dropped its last texels -
+             * IMAGE_SELECTFILE (122x18 IA8, 128-byte rows) lost half its
+             * final E, the 5-wide 9mm ammo icon slid every row. Uploading
+             * the padded block puts the image where the UVs look for it; the
+             * padding columns are never sampled. */
+            const bool padded = !loaded_texture.loaded_by_tile && bw > t.width
+                    && loaded_texture.orig_size_bytes <= loaded_texture.size_bytes;
+            if (bw != 0 && bh != 0 && (negative || padded || t.width > bw || t.height > bh)) {
                 t.width = bw;
                 t.height = bh;
+                t.from_block = true;
             }
         } else if (negative) {
             t.width = 0;
@@ -1882,6 +1875,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 
     uint32_t tm = 0;
     uint32_t tex_width[2], tex_height[2], tex_width2[2], tex_height2[2];
+    bool tex_from_block[2] = { false, false };
 
     for (int i = 0; i < 2; i++) {
         // TODO: fix this; for now just ignore smaller mips
@@ -1922,6 +1916,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 
             tex_width2[i] = (rdp.texture_tile[tile].lrs - rdp.texture_tile[tile].uls + 4) / 4;
             tex_height2[i] = (rdp.texture_tile[tile].lrt - rdp.texture_tile[tile].ult + 4) / 4;
+            tex_from_block[i] = rdp.texture_tile[tile].from_block;
 
             uint32_t tex_width1 = tex_width[i] << (cms & G_TX_MIRROR);
             uint32_t tex_height1 = tex_height[i] << (cmt & G_TX_MIRROR);
@@ -2026,8 +2021,12 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                 }
             }
 
-			uint32_t tex_w = is_rect ? tex_width[t] : tex_width2[t];
-			uint32_t tex_h = is_rect ? tex_height[t] : tex_height2[t];
+			/* Rectangles normalise against the loaded block, triangles against
+			 * the SETTILESIZE window. When import_texture has resized a tile to
+			 * its block (padded rows, a window larger or negative), the upload
+			 * is the block, so triangles must use it too. */
+			uint32_t tex_w = (is_rect || tex_from_block[t]) ? tex_width[t] : tex_width2[t];
+			uint32_t tex_h = (is_rect || tex_from_block[t]) ? tex_height[t] : tex_height2[t];
 
 			buf_vbo[buf_vbo_len++] = u / tex_w;
 			buf_vbo[buf_vbo_len++] = v / tex_h;
@@ -2416,6 +2415,7 @@ static void gfx_dp_set_tile_size(uint8_t tile, uint16_t uls, uint16_t ult, uint1
     rdp.texture_tile[tile].lrt = lrt;
     rdp.texture_tile[tile].width = (lrs - uls + 4) / 4;
     rdp.texture_tile[tile].height = (lrt - ult + 4) / 4;
+    rdp.texture_tile[tile].from_block = false;
     rdp.textures_changed[0] = true;
     rdp.textures_changed[1] = true;
 }
