@@ -134,12 +134,32 @@ u32 texReadBits(s32 bitCount)
  * points at the first display list only so that the gSPSegment calls that
  * publish it still have an address.
  *
- * What does not carry over is the segment-0x02 offsets that gun.c's ammo
- * table stores literally (0x02000C84 and so on): they named positions in the
- * cartridge layout and mean nothing against the compiled-in tables. They are
- * only read when the in-game HUD draws an ammo icon, and need a lookup of
- * their own before that works.
+ * Cartridge ammo-icon addresses are resolved by texGetAmmoIcon below.
  */
+/* Resolve cartridge identities to typed host entries; never add a ROM offset
+ * to a compiled table, whose entries and linker placement have changed. */
+struct sImageTableEntry *texGetAmmoIcon(u32 address)
+{
+    switch (address)
+    {
+        case 0x02000C84: return s_ammo9mmimage;
+        case 0x02000C90: return s_rifleammoimage;
+        case 0x02000C9C: return s_shotgunammoimage;
+        case 0x02000CA8: return s_knifeammoimage;
+        case 0x02000CB4: return s_glammoimage;
+        case 0x02000CC0: return s_rocketammoimage;
+        case 0x02000CCC: return s_genericmineammoimage;
+        case 0x02000CD8: return s_grenadeammoimage;
+        case 0x02000CE4: return s_magnumammoimage;
+        case 0x02000CF0: return s_goldengunammoimage;
+        case 0x02000CFC: return s_remotemineammoimage;
+        case 0x02000D08: return s_timedmineammoimage;
+        case 0x02000D14: return s_proxmineammoimage;
+        case 0x02000D20: return s_tankammoimage;
+        default: return NULL;
+    }
+}
+
 void texReset(void)
 {
     s32 i;

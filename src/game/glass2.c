@@ -605,7 +605,8 @@ void bullet_sparks_update(void)
  */
 void bullet_spark_render(s_bullet_spark *thing, Gfx *gdlarg, s32 zbufferMode)
 {
-    Vtx vtx;
+    Vtx vtx = {0};
+    struct sImageTableEntry *frameimage;
     Mtxf *mtx;
     Gfx *gdl;
     Vtx *vertices;
@@ -635,17 +636,18 @@ void bullet_spark_render(s_bullet_spark *thing, Gfx *gdlarg, s32 zbufferMode)
         return;
     }
 
-    vtx = *((Vtx *) (&D_80040980));
     mtx = currentPlayerGetViewToWorldMtxf();
     gdl = *((Gfx **) gdlarg);
     vertices = dynAllocateVertices(4);
     room = thing->unk06;
     roompos = getRoomPositionByIndex(room);
-    vtx.v.cn[0] = ((u8 *) thing)[0x28];
-    vtx.v.cn[1] = ((u8 *) thing)[0x29];
-    vtx.v.cn[2] = ((u8 *) thing)[0x2a];
-    vtx.v.cn[3] = ((u8 *) thing)[0x2b];
+    vtx.v.cn[0] = thing->unk28;
+    vtx.v.cn[1] = thing->unk29;
+    vtx.v.cn[2] = thing->unk2A;
+    vtx.v.cn[3] = thing->unk2B;
     frame = (s32) (((f32) thing->age) * (*(&thing->unk08)));
+    /* Image entries grow with host pointers; the retail 12-byte stride is invalid. */
+    frameimage = &((struct sImageTableEntry *)thing->unk0C)[frame];
     
     x = *((f32 *) (&thing->unk10));
     y = *((f32 *) (&thing->unk14));
@@ -675,7 +677,7 @@ void bullet_spark_render(s_bullet_spark *thing, Gfx *gdlarg, s32 zbufferMode)
     // Matching hack.
     if ((roompos->f && roompos->f));
 
-    vertices[0].v.tc[0] = ((struct sImageTableEntry *) (((u8 *) thing->unk0C) + (frame * 12)))->width << 5;
+    vertices[0].v.tc[0] = frameimage->width << 5;
     vertices[0].v.tc[1] = 0;
     vertices[1].v.ob[0] = (((x + s1[0]) - s2[0]) * get_room_data_float1()) - roompos->f[0];
     vertices[1].v.ob[1] = (((y + s1[1]) - s2[1]) * get_room_data_float1()) - roompos->f[1];
@@ -686,17 +688,17 @@ void bullet_spark_render(s_bullet_spark *thing, Gfx *gdlarg, s32 zbufferMode)
     vertices[2].v.ob[1] = (((y + s0[1]) + s3[1]) * get_room_data_float1()) - roompos->f[1];
     vertices[2].v.ob[2] = (((z + s0[2]) + s3[2]) * get_room_data_float1()) - roompos->f[2];
     vertices[2].v.tc[0] = 0;
-    vertices[2].v.tc[1] = ((struct sImageTableEntry *) (((u8 *) thing->unk0C) + (frame * 12)))->height << 5;
+    vertices[2].v.tc[1] = frameimage->height << 5;
     vertices[3].v.ob[0] = (((x - s1[0]) + s2[0]) * get_room_data_float1()) - roompos->f[0];
     vertices[3].v.ob[1] = (((y - s1[1]) + s2[1]) * get_room_data_float1()) - roompos->f[1];
     vertices[3].v.ob[2] = (((z - s1[2]) + s2[2]) * get_room_data_float1()) - roompos->f[2];
-    vertices[3].v.tc[0] = ((struct sImageTableEntry *) (((u8 *) thing->unk0C) + (frame * 12)))->width << 5;
-    vertices[3].v.tc[1] = ((struct sImageTableEntry *) (((u8 *) thing->unk0C) + (frame * 12)))->height << 5;
+    vertices[3].v.tc[0] = frameimage->width << 5;
+    vertices[3].v.tc[1] = frameimage->height << 5;
     
     gSPSetGeometryMode(gdl++, G_CULL_BACK);
     gSPMatrix(gdl++, osVirtualToPhysical((void *) get_BONDdata_field_10E0()), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
     gdl = applyRoomMatrixToDisplayList(gdl, room);
-    texSelect(&gdl, (struct sImageTableEntry *) (((u8 *) thing->unk0C) + (frame * 12)), 4, zbufferMode, 2);
+    texSelect(&gdl, frameimage, 4, zbufferMode, 2);
     gSPVertex(gdl++, osVirtualToPhysical(vertices), 4, 0);
     gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
     gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);

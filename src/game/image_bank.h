@@ -27,6 +27,7 @@ extern s32 img_bitcount;
 extern s32 *pGlobalimagetable;
 extern s32 globalbank_rdram_offset;
 
+struct sImageTableEntry *texGetAmmoIcon(u32 address);
 void texReset(void);
 u32 texReadBits(s32 bitCount);
 void texSetBitstring(u8 *pos);
