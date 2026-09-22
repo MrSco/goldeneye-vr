@@ -512,7 +512,16 @@ void solo_char_load(void)
                 load_object_fill_header(headheader, (u8 *)c_item_entries[head].filename, weaponbuf0 + cursor, size0 - cursor, &pool);
                 cursor = ALIGN64_V3(get_pc_buffer_remaining_value((u8 *)c_item_entries[head].filename) + cursor + 0x3f);
                 model  = (Model *)(weaponbuf0 + cursor);
-                cursor = ALIGN64_V3(cursor + 0xfb);
+                /*
+                 * D243 in the reference port. 0xfb is 0xbc + 0x3f - the same
+                 * "sizeof(X) + 0x3f then ALIGN64_V3" idiom used for
+                 * ModelFileHeader a few lines up, precomputed for the N64's
+                 * 32-bit sizeof(Model) of 0xbc. Pointer widening takes
+                 * sizeof(Model) to 0x100 here, so the literal under-reserves
+                 * and the animdata buffer placed next lands inside this
+                 * Model's own tail. Complete the idiom instead.
+                 */
+                cursor = ALIGN64_V3(cursor + sizeof(Model) + 0x3f);
                 modelCalculateRwDataLen(bodyheader);
                 modelCalculateRwDataLen(headheader);
 
@@ -574,7 +583,15 @@ void solo_char_load(void)
             if (getPlayerCount() == 1)
             {
                 helditemdst  = weaponbuf0 + cursor;
-                cursor       = ALIGN64_V3(cursor + 0xc7);
+                /*
+                 * Same shape, and not fixed in the reference: 0xc7 is 0x88 +
+                 * 0x3f, the N64's sizeof(WeaponObjRecord). helditemdst above
+                 * points here and something_with_generating_object stores a
+                 * whole WeaponObjRecord through it, which is 0xa0 on this
+                 * target - so the item header loaded at the next cursor
+                 * overlapped the record's tail.
+                 */
+                cursor       = ALIGN64_V3(cursor + sizeof(WeaponObjRecord) + 0x3f);
                 pitemheader  = get_ptr_itemheader_in_hand(GUNLEFT);
                 *pitemheader = *PitemZ_entries[prop].header;
                 load_object_fill_header(pitemheader, (u8 *)PitemZ_entries[prop].filename, weaponbuf0 + cursor, size0 - cursor, &pool);
