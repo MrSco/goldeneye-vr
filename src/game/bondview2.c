@@ -335,6 +335,13 @@ void solo_char_load(void)
     s32                         size0;
     s32                         size1;
     s32                         helddst;
+    /*
+     * helddst is an index in the folder branch above and a buffer address
+     * here - the original's register reuse. As an s32 the address lost its
+     * top half, and something_with_generating_object stored a
+     * WeaponObjRecord through it. Keep the address in its own pointer.
+     */
+    u8                         *helditemdst;
     WeaponObjRecord             weapon;
     struct player             **pp;
     s32                         prop;
@@ -566,8 +573,7 @@ void solo_char_load(void)
         {
             if (getPlayerCount() == 1)
             {
-                helddst      = cursor;
-                helddst      = ((s32)weaponbuf0) + helddst;
+                helditemdst  = weaponbuf0 + cursor;
                 cursor       = ALIGN64_V3(cursor + 0xc7);
                 pitemheader  = get_ptr_itemheader_in_hand(GUNLEFT);
                 *pitemheader = *PitemZ_entries[prop].header;
@@ -577,11 +583,11 @@ void solo_char_load(void)
             }
             else
             {
-                helddst     = 0;
+                helditemdst = NULL;
                 pitemheader = NULL;
             }
 
-            something_with_generating_object(self, prop, item, 0, (WeaponObjRecord *)helddst, (ItemModelFileRecord *)pitemheader);
+            something_with_generating_object(self, prop, item, 0, (WeaponObjRecord *)helditemdst, (ItemModelFileRecord *)pitemheader);
         }
 
         chrlvMergeKneelToStand(self, 0.0f);
