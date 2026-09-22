@@ -1600,7 +1600,32 @@ void process_02_position(ModelRenderData *arg0, Model *model, ModelNode *node)
         sub_GAME_7F06D160(&rot1, &rot2, model->unk2c);
     }
 
-    if (model->unk84 != 0.0f)
+#ifdef GEVR
+    /*
+     * unk84 non-zero with anim2 NULL is a state the original itself treated
+     * as an error - subcalcmatrices asserts exactly this pair under
+     * LEFTOVERDEBUG ("subcalcmatrices: no anim2!"). With the asserts
+     * compiled out the blend below just dereferences it, which is the
+     * fault-address-6 crash in chrTick.
+     *
+     * Skip the blend and report it once. modelSetAnimation2 only raises
+     * unk84 when anim2 is set, so whatever leaves them disagreeing is
+     * still to be found.
+     */
+    if (model->unk84 != 0.0f && model->anim2 == NULL)
+    {
+        static s32 reports = 0;
+        if (reports < 8)
+        {
+            reports++;
+            sysLogPrintf(LOG_NOTE,
+                "noanim2: model=%p obj=%p unk84=%f unk5c=%f anim=%p joint=%d",
+                (void *) model, (void *) model->obj, (double) model->unk84,
+                (double) model->unk5c, (void *) model->anim, (s32) jointnum.v);
+        }
+    }
+#endif
+    if (model->unk84 != 0.0f && model->anim2 != NULL)
     {
         rot3 = D_800360AC;
         sub_GAME_7F06DEC0(jointnum.v, model->unk25, skeleton, model->anim2, model->unk64, &rot3);
@@ -1794,7 +1819,8 @@ void process_03_unknown(ModelRenderData *renderData, Model *model, ModelNode *no
         angle = sub_GAME_7F06D0CC(angle, tmp, model->unk2c);
     }
 
-    if (model->unk84 != 0.0f) {
+    /* Same anim2 pairing as process_02_position - see the note there. */
+    if (model->unk84 != 0.0f && model->anim2 != NULL) {
         tmp = sub_GAME_7F06E540(jointIndex, model->unk25, skeleton, model->anim2, (u8 *)model->unk64);
 
         if (model->unk5c != 0.0f) {
