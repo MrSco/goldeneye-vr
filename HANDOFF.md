@@ -2534,3 +2534,17 @@ Android now does the same when the driver has GL_EXT_sRGB_write_control
 stay raw. Without the extension it falls back to the old order. Re-measured:
 128 in, 128 out. The Dam now has its dusk-blue sky and dark rock instead of a
 washed-out grey.
+
+### 33.6 AK fire rate: weapon timing bytes read in reverse (gunfire.c)
+
+WeaponStats.RecoilSpeed is one 32-bit literal per weapon
+(gunWeaponStats.inc.c — the KF7's is 0x40C0006) read back as four bytes
+through `union { s32 RecoilSpeed; s8 b44[4]; }`: fire cycle, recoil return,
+re-fire window, re-fire offset. N64 order is 04 0C 00 06; on the host the
+union returns 06 00 0C 04, so every weapon's cadence thresholds were
+permuted. The sixteen `weapon_stats->b44[i]` reads now go through
+GEVR_RECOIL_BYTE, which shifts the bytes out of RecoilSpeed in cartridge
+order. The only such union in the headers. gepc-ref has the same code and an
+open, unexplained report (D240) that player gunshot cadence differs from the
+N64 — very likely this. Not verified in play: the input hook cannot pick up a
+KF7.
