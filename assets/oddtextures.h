@@ -155,5 +155,3 @@ extern sImageTableEntry s_mpcharselimages[];
 extern sImageTableEntry s_mpstageselimages[];
 
 #endif
-
-void gevrResetStaticTextureIds(void);
