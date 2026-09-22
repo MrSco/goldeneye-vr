@@ -8,7 +8,10 @@
 // unsure if these structs are defined as something else, elsewhere
 struct unk_09B7A0_struct_parent {
     Vertex* unk00;
-    s32 unk04;
+    /* Receives a ModelFileHeader * from vtxstore_allocate's caller and is
+     * only ever compared, never dereferenced - but as an s32 two different
+     * models could collide on their low halves. */
+    void *unk04;
     s32 unk08;
     s16 unk0C;
     s16 unk0E;
@@ -141,11 +144,23 @@ void sub_GAME_7F09B820(void)
 *  Search all props and their model data for references to the `find` address
 *  and replace it with the `replacement` address.
 */
-void sub_GAME_7F09BAC4(s32 find, s32 replacement) {
+/*
+ * D255 in the reference port, plus a truncation it does not have to fix.
+ *
+ * D255: the record's Model * was read through ((Model *)chr->chrflags) - a
+ * pun onto a 4-byte enum field. Bit-exact on the cartridge, where both are
+ * four bytes; here it reads only the pointer's low half. Read it through
+ * ObjectRecord.model instead, the same union memory correctly typed.
+ *
+ * Ours alone: find and replacement are a vertex block's address, and the
+ * rwdata slot being patched is ModelRwData_DisplayList_CollisionRecord's
+ * Vertices - a pointer here, so an s32 * view of it patches half a pointer.
+ */
+void sub_GAME_7F09BAC4(Vertex *find, Vertex *replacement) {
     PropRecord* var_s1;
-    ChrRecord* var_v0;
+    ObjectRecord* var_v0;
     Model* temp_a0;
-    s32* temp_v0_2;
+    Vertex** temp_v0_2;
     ModelNode* var_a1;
     ModelFileHeader* var_v1;
     s32 val;
@@ -153,13 +168,13 @@ void sub_GAME_7F09BAC4(s32 find, s32 replacement) {
     var_s1 = chrpropGetActiveTail();
     while (var_s1 != NULL) {
         if (var_s1->type == 1) {
-            var_v0 = var_s1->chr;
-            var_v1 = ((Model*)var_v0->chrflags)->obj;
+            var_v0 = var_s1->obj;
+            var_v1 = ((Model*)var_v0->model)->obj;
             var_a1 = var_v1->RootNode;
             while (var_a1 != NULL) {
                 val = var_a1->Opcode & 0xFF;
                 if (val == 0x18) {
-                    temp_v0_2 = modelGetNodeRwData(var_v0->chrflags, var_a1);
+                    temp_v0_2 = (Vertex **) modelGetNodeRwData((Model*)var_v0->model, var_a1);
                     if (find == *temp_v0_2) {
                         *temp_v0_2 = replacement;
                     }
@@ -214,7 +229,7 @@ void sub_GAME_7F09BBBC(void)
                         (dword_CODE_bss_8007A0EC[var_fp].unk04 == dword_CODE_bss_8007A0EC[var_s2].unk04) &&
                         (dword_CODE_bss_8007A0EC[var_fp].unk08 == dword_CODE_bss_8007A0EC[var_s2].unk08))
                     {
-                        sub_GAME_7F09BAC4((s32)dword_CODE_bss_8007A0EC[var_s2].unk00, (s32)dword_CODE_bss_8007A0EC[var_fp].unk00);
+                        sub_GAME_7F09BAC4(dword_CODE_bss_8007A0EC[var_s2].unk00, dword_CODE_bss_8007A0EC[var_fp].unk00);
                         var_s6 = 1;
 
                         dword_CODE_bss_8007A0EC[var_fp].unk0E += dword_CODE_bss_8007A0EC[var_s2].unk0E;
@@ -266,7 +281,14 @@ void sub_GAME_7F09BBBC(void)
 * PD name: vtxstore_allocate
 * Description: Allocation for batches within the storage space
 */
-s32 vtxstore_allocate(s32 arg0, s32 type, s32 arg2, s32 arg3) 
+/*
+ * Returns the allocated vertex block. The decomp declares this s32 and every
+ * caller casts the result to Vertex *, which is exact with 4-byte pointers
+ * and truncates here - chrCreateBloodStain stored through the sign-extended
+ * remains the moment a guard was shot. arg2 is a ModelFileHeader *, not an
+ * integer, for the same reason.
+ */
+Vertex *vtxstore_allocate(s32 arg0, s32 type, void *arg2, s32 arg3) 
 {
     s16* var_t3;
     s16 temp_t2;
@@ -290,7 +312,7 @@ s32 vtxstore_allocate(s32 arg0, s32 type, s32 arg2, s32 arg3)
             var_a2 = ((s16 *)&dword_CODE_bss_8007A0DC)[1];
             break;
         default:
-            return 0;
+            return NULL;
     }
 
     var_v1_2 = 0;
@@ -311,7 +333,7 @@ s32 vtxstore_allocate(s32 arg0, s32 type, s32 arg2, s32 arg3)
     if (var_a2 < var_v0) {
         sub_GAME_7F09B7A8();
         sub_GAME_7F09B7E4();
-        return 0;
+        return NULL;
     }
     // FAKE
     if (var_v0) {}
@@ -344,7 +366,7 @@ s32 vtxstore_allocate(s32 arg0, s32 type, s32 arg2, s32 arg3)
         } else {
             *var_t3 -= temp_t2;
         }
-        return (s32)var_t0[var_a1].unk00;
+        return var_t0[var_a1].unk00;
     }
     return 0;
 }
