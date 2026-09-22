@@ -2232,3 +2232,54 @@ Recommended next move: D140 and D264 were both sitting in gepc-ref behind
 `#ifdef PORT` and had simply never been swept into this tree. A systematic
 pass over gepc-ref's PORT guards, rather than case-by-case debugging, is
 likely to find the texture defects too.
+
+## 29. Systematic sweep of gepc-ref's PORT guards
+
+D140, D264 and the music fade tick were all things gepc-ref had already solved
+behind `#ifdef PORT` and that had never been carried here, so the whole
+reference tree got swept rather than debugged case by case.
+`tools/gevr_port_guard_sweep.py` walks all 399 PORT guard sites in
+`../gepc-ref/{src,port}`, pulls the finding ids out of each block, and checks
+whether we mention them anywhere. 187 distinct findings; 35 cited here, 152
+not.
+
+Results, caveats and a triage order are in
+[docs/gepc-port-guard-sweep.md](docs/gepc-port-guard-sweep.md).
+
+The important caveat is in there too: uncited is not unported. D67 (image_entry
+bitfield order) and D85 (texpool is storage, not a pointer) both show as gaps
+and are both already solved here by a different route. The 152 are candidates
+to triage, not a defect list.
+
+### 29.1 What the first pass found
+
+Triaged the renderer and the texture loader, to match the open complaint about
+gun/HUD/crosshair/smoke textures.
+
+`port/fast3d/gfx_pc.cpp` has nothing to port — all eight of its uncited
+findings (D116 D157 D172 D219 D229 D252 M-110 M-157 M-158) are env-gated
+diagnostic probes, not fixes.
+
+One real gap: **M-113/M-114** in image.c. The decoder stored 16-bit wide-pixel
+texels as native u16 while `import_texture_rgba16` reads the pool as
+big-endian bytes and `import_texture_ia16` takes intensity from `addr[0]` —
+so every non-zlib 16-bit image came back byte-swapped. The 32-bit path must
+*not* be swapped, because `import_texture_rgba32` does `PD_BE32()` on a native
+load; swapping it was the reference's own M-114 regression. Both importers
+were read here first rather than trusting the reference's split.
+
+Applied as PORT_PIXEL16 / PORT_PIXEL32, site for site: eleven 16-bit stores
+swapped, nine 32-bit stores left native. Palettes were already correct
+(image.c:307 writes them big-endian explicitly), which is why paletted
+textures decode and the fire family does not.
+
+Scope, from the reference's ROM census: IMAGE_FIRE_0..14 plus texnums
+1198-1201, 2430, 2510-2523. Every ammo, flare, crosshair and muzzle-flash
+wide-pixel image is RGBA32 and untouched — so this should fix fire and smoke
+and will *not* fix the crosshair or the washed-out gun. Those still need a
+cause.
+
+Verified only that the build installs, the Dam loads and runs at 72 fps. The
+headset stopped returning anything but black frames to the metacam capture
+service this run, so the colour change is unconfirmed; it needs the user's
+eyes.
