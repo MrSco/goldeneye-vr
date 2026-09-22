@@ -539,7 +539,7 @@ void mpCalculateAwards(bool gameoverdelay)
             if (metrics[i].awards & (1 << awardindex))
             {
                 metrics[i].awards &= ~(1 << awardindex);
-                g_playerPointers[i]->ptr_text_first_mp_award = langGet(g_AwardNames[awardindex]);
+                g_playerPointers[i]->ptr_text_first_mp_award = (char *) langGet(g_AwardNames[awardindex]);
                 numdone = 1;
             }
 
@@ -558,7 +558,7 @@ void mpCalculateAwards(bool gameoverdelay)
             if (metrics[i].awards & (1 << awardindex))
             {
                 metrics[i].awards &= ~(1 << awardindex);
-                g_playerPointers[i]->ptr_text_second_mp_award = langGet(g_AwardNames[awardindex]);
+                g_playerPointers[i]->ptr_text_second_mp_award = (char *) langGet(g_AwardNames[awardindex]);
                 numdone = 2;
             }
 
@@ -1403,11 +1403,12 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 gdl = textRender(gdl, &x, &y, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
             }
  
-            q = (s32) langGet(getStringID(LMPMENU, MPMENU_STR_1C_P)); /* P */
+            char *ptext = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_1C_P)); /* P */
+            char *counttext;
  
             // Must remain a comma expression for matching
-            h2 = (s32) langGet(getStringID(LMPMENU, MPMENU_STR_1D_KILLS)), /* KILLS */
-                sprintf(rankbuffer, ascii_pnum_KILLS, (char *) q, curplayernum + 1, (char *) h2); /* -> "P<n> KILLS" */
+            counttext = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_1D_KILLS)), /* KILLS */
+                sprintf(rankbuffer, ascii_pnum_KILLS, ptext, curplayernum + 1, counttext); /* -> "P<n> KILLS" */
  
             textMeasure(&textheight, &textwidth, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 80;
@@ -1473,11 +1474,12 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 gdl = textRender(gdl, &x, &y, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
             }
  
-            q = (s32) langGet(getStringID(LMPMENU, MPMENU_STR_1C_P)); /* P */
+            char *ptext = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_1C_P)); /* P */
+            char *counttext;
  
             // Must remain a comma expression for matching.
-            h2 = (s32) langGet(getStringID(LMPMENU, MPMENU_STR_1E_LOSSES)), /* LOSSES */
-                sprintf(rankbuffer, ascii_pnum_LOSSES, (char *) q, curplayernum + 1, (char *) h2); /* -> "P<n> LOSSES" */
+            counttext = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_1E_LOSSES)), /* LOSSES */
+                sprintf(rankbuffer, ascii_pnum_LOSSES, ptext, curplayernum + 1, counttext); /* -> "P<n> LOSSES" */
  
             textMeasure(&textheight, &textwidth, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 80;

@@ -1148,8 +1148,8 @@ s32 frontCheckIfCheatIsUnlocked(s32 cheat)
 }
 
 
-int frontGetPlayersFavoriteWeaponInHand(int player,int hand) {
-    return get_ptr_long_watch_text_for_item(array_favweapon[player][hand]);
+char *frontGetPlayersFavoriteWeaponInHand(int player,int hand) {
+    return (char *)get_ptr_long_watch_text_for_item(array_favweapon[player][hand]);
 }
 
 
@@ -7702,7 +7702,7 @@ Gfx *constructor_menu16_nocontrollers(Gfx *DL)
     s32 x2;
     s32 x;
     s32 y;
-    s32 text;
+    char *text;
     s32 conConnected = joyGetConnectedControllers();
     s32 numContCon = 0;
 

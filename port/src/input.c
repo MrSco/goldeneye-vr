@@ -883,154 +883,35 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     const struct controllercfg *cfg = &padsCfg[idx];
 
 
-    // === VR INPUT PLAYER 1 ===
+    /* Quest screen mode: ordinary GoldenEye 1.2 controls, no tracked-hand
+     * weapon logic or Perfect Dark extended buttons. */
     if (idx == 0) {
-        if (1) { // VR-1
-            // index 1 = Right hand / index 0 = Left hand
-            s32 cur_weapon = g_CurrentPlayer ? g_CurrentPlayer->equipcuritem : 0;
-            if (cur_weapon != WEAPON_LASER) {
-                if (get_button_state(1, "trigger")) npad->button |= CONT_G; // Z_TRIG
-                if (get_button_state(0, "grip") && vr_leftHasWeapon) { // Aim left grip
-                    if (!vr_grip_for_unarmed) { // if not aim. For unarmed
-                        npad->button |= CONT_R;
-                    }
-                    vr_button_L_grip = true;
-                } else {
-                    vr_button_L_grip = false;
-                }
-
-                if (get_button_state(1, "grip")) { // Aim right grip
-                    if (!vr_grip_for_unarmed) { // if not aim. For unarmed
-                        npad->button |= CONT_R;
-                    }
-                    vr_button_R_grip = true;
-                } else {
-                    vr_button_R_grip = false;
-                }
-            } else {
-                if (get_button_state(0, "trigger")) npad->button |= CONT_G; // Z_TRIG
-                if (get_button_state(1, "grip") && vr_leftHasWeapon) {
-                    if (!vr_grip_for_unarmed) { // if not aim. For unarmed
-                        npad->button |= CONT_R;
-                    }
-                    vr_button_L_grip = true;
-                } else {
-                    vr_button_L_grip = false;
-                }
-
-                if (get_button_state(0, "grip")) {
-                    if (!vr_grip_for_unarmed) { // if not aim. For unarmed
-                        npad->button |= CONT_R;
-                    }
-                    vr_button_R_grip = true;
-                } else {
-                    vr_button_R_grip = false;
-                }
-            }
-
-            if (get_button_state(1, "a")) npad->button |= CONT_A; // A_BUTTON
-            if (get_button_state(1, "b")) npad->button |= CONT_B; // B_BUTTON
-//            if (get_button_state(0, "y")) {... Not here, in lv.c file for reloading left gun
-
-#ifdef ANDROID
-            if(!VrLeftHandedMode){
-                if (get_button_state(0, "menu")) {
-                    npad->button |= CONT_START;    // START_BUTTON
-                }
-            }
-            else
-            {
-                if (get_button_state(1, "menu")) {
-                    npad->button |= CONT_START;    // START_BUTTON
-                }
-            }
-
-#else
-            if (get_button_state(0, "x")) {
-                npad->button |= CONT_START;   // START_BUTTON
-            }
-#endif
-
-            /* GoldenEye's front end consumes the primary N64 stick. The
-             * Perfect Dark gameplay mapping below uses the secondary stick
-             * for the left hand, which leaves GoldenEye's cursor stationary. */
-            if (bossGetStageNum() == LEVELID_TITLE) {
-                XrVector2f menuStick;
-                if (get_2d_input(0, "thumbstick", &menuStick)) {
-                    npad->stick_x = inputAxisScale((s32)(menuStick.x * 32767.0f),
-                            cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]) / 256;
-                    npad->stick_y = inputAxisScale((s32)(menuStick.y * 32767.0f),
-                            cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]) / 256;
-                }
-                npad->rstick_x = npad->rstick_y = 0;
-                return 0;
-            }
-
-            // VR: C-Buttons mapped to the left thumbstick (directional mapping)
-            if (g_CurrentPlayer && g_CurrentPlayer->pause_state != 0) {
-                XrVector2f leftThumbstick;
-                if (get_2d_input(0, "thumbstick", &leftThumbstick)) {
-                    if (leftThumbstick.y > 0.8f) npad->button |= CONT_E;  // U_CBUTTONS
-                    if (leftThumbstick.y < -0.8f) npad->button |= CONT_D;  // D_CBUTTONS
-                    if (leftThumbstick.x < -0.8f) npad->button |= CONT_C;  // L_CBUTTONS
-                    if (leftThumbstick.x > 0.8f) npad->button |= CONT_F;  // R_CBUTTONS
-                }
-            } else {
-
-                XrVector2f leftThumbstick;
-                if (get_2d_input(0, "thumbstick", &leftThumbstick)) {
-                    s32 rawX = (s32) (leftThumbstick.x * 32767.0f);
-                    s32 rawY = (s32) (leftThumbstick.y * 32767.0f);
-
-                    s32 scaledX = inputAxisScale(rawX, cfg->deadzone[cfg->axisMap[1][0]],
-                                                 cfg->sens[cfg->axisMap[1][0]]);
-                    s32 scaledY = inputAxisScale(rawY, cfg->deadzone[cfg->axisMap[1][1]],
-                                                 cfg->sens[cfg->axisMap[1][1]]);
-
-                    s32 finalX = scaledX / 256;
-                    s32 finalY = scaledY / 256;
-
-                    if (finalX)
-                        npad->rstick_x = (finalX == 128) ? 127 : finalX;
-                    if (finalY)
-                        npad->rstick_y = (finalY == 128) ? 127 : finalY;
-
-                }
-            }
-
-
-            if ((!g_CurrentPlayer || g_CurrentPlayer->pause_state == 0) &&
-                !get_button_state(1, "a")) {
-                XrVector2f rightThumbstick;
-                if (get_2d_input(1, "thumbstick", &rightThumbstick)) {
-                    s32 rawX = (s32)(rightThumbstick.x * 32767.0f);
-                    s32 rawY = (s32)(rightThumbstick.y * 32767.0f);
-
-                    s32 scaledX = inputAxisScale(rawX, cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]);
-                    s32 scaledY = inputAxisScale(rawY, cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]);
-
-                    s32 finalX = scaledX / 256;
-                    s32 finalY = scaledY / 256;
-
-                    if (finalX) npad->stick_x = (finalX == 128) ? 127 : finalX;
-                    if (finalY) npad->stick_y = (finalY == 128) ? 127 : finalY;
-                }
-            } else {
-                npad->stick_x = 0.0f;
-                npad->stick_y = 0.0f;
-            }
-
-
-            if (cfg->cancelCButtons) {
-                // opposite C buttons cancel each other out
-                if ((npad->button & (L_CBUTTONS | R_CBUTTONS)) == (L_CBUTTONS | R_CBUTTONS)) {
-                    npad->button &= ~(L_CBUTTONS | R_CBUTTONS);
-                }
-                if ((npad->button & (U_CBUTTONS | D_CBUTTONS)) == (U_CBUTTONS | D_CBUTTONS)) {
-                    npad->button &= ~(U_CBUTTONS | D_CBUTTONS);
-                }
-            }
-
+        memset(npad, 0, sizeof(*npad));
+        const bool menu = bossGetStageNum() == LEVELID_TITLE ||
+                (g_CurrentPlayer && g_CurrentPlayer->pause_state != 0);
+        XrVector2f left = {0}, right = {0};
+        get_2d_input(0, "thumbstick", &left);
+        get_2d_input(1, "thumbstick", &right);
+        if (get_button_state(1, "trigger")) npad->button |= Z_TRIG;
+        if (get_button_state(1, "a")) npad->button |= A_BUTTON;
+        if (get_button_state(1, "b")) npad->button |= B_BUTTON;
+        if (get_button_state(0, "menu")) npad->button |= START_BUTTON;
+        if (!menu && (get_button_state(0, "grip") || get_button_state(1, "grip")))
+            npad->button |= R_TRIG;
+        // X is also use/reload; Y cycles weapons, matching the native B/A actions.
+        if (get_button_state(0, "x")) npad->button |= B_BUTTON;
+        if (get_button_state(0, "y")) npad->button |= A_BUTTON;
+        XrVector2f look = menu ? left : right;
+        npad->stick_x = inputAxisScale((s32)(look.x * 32767.0f),
+                cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]) / 256;
+        npad->stick_y = inputAxisScale((s32)(look.y * 32767.0f),
+                cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]) / 256;
+        if (!menu) {
+            // Solitaire: C directions move; while aiming down/up crouches/stands.
+            if (left.x < -0.25f) npad->button |= L_CBUTTONS;
+            if (left.x >  0.25f) npad->button |= R_CBUTTONS;
+            if (left.y < -0.25f) npad->button |= D_CBUTTONS;
+            if (left.y >  0.25f) npad->button |= U_CBUTTONS;
         }
     }
 

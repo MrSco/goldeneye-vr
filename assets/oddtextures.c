@@ -1,3 +1,4 @@
+#include <string.h>
 #include <ultra64.h>
 #include <bondconstants.h>
 #include <bondtypes.h>
@@ -758,3 +759,161 @@ sImageTableEntry s_mpstageselimages[] = {
 
 
 
+
+/* Static display lists and image tables are patched to stage-pool pointers.
+ * Restore their original texture IDs before a new pool is loaded. */
+void gevrResetStaticTextureIds(void)
+{
+    static int saved;
+    static unsigned char original_globalDL_0x000[sizeof(globalDL_0x000)];
+    static unsigned char original_globalDL_0x078[sizeof(globalDL_0x078)];
+    static unsigned char original_globalDL_0x120[sizeof(globalDL_0x120)];
+    static unsigned char original_globalDL_0x1c8[sizeof(globalDL_0x1c8)];
+    static unsigned char original_globalDL_0x270[sizeof(globalDL_0x270)];
+    static unsigned char original_globalDL_0x318[sizeof(globalDL_0x318)];
+    static unsigned char original_globalDL_0x3c0[sizeof(globalDL_0x3c0)];
+    static unsigned char original_globalDL_0x468[sizeof(globalDL_0x468)];
+    static unsigned char original_globalDL_0x510[sizeof(globalDL_0x510)];
+    static unsigned char original_globalDL_0x5b8[sizeof(globalDL_0x5b8)];
+    static unsigned char original_globalDL_0x660[sizeof(globalDL_0x660)];
+    static unsigned char original_globalDL_0x708[sizeof(globalDL_0x708)];
+    static unsigned char original_globalDL_0x7b0[sizeof(globalDL_0x7b0)];
+    static unsigned char original_globalDL_0x858[sizeof(globalDL_0x858)];
+    static unsigned char original_globalDL_0x900[sizeof(globalDL_0x900)];
+    static unsigned char original_globalDL_0x9a8[sizeof(globalDL_0x9a8)];
+    static unsigned char original_globalDL_0xa50[sizeof(globalDL_0xa50)];
+    static unsigned char original_s_genericimage[sizeof(s_genericimage)];
+    static unsigned char original_s_impactimages[sizeof(s_impactimages)];
+    static unsigned char original_s_explosion_smokeimages[sizeof(s_explosion_smokeimages)];
+    static unsigned char original_s_scattered_explosions[sizeof(s_scattered_explosions)];
+    static unsigned char original_s_flareimage1[sizeof(s_flareimage1)];
+    static unsigned char original_s_flareimage2[sizeof(s_flareimage2)];
+    static unsigned char original_s_flareimage3[sizeof(s_flareimage3)];
+    static unsigned char original_s_flareimage4[sizeof(s_flareimage4)];
+    static unsigned char original_s_flareimage5[sizeof(s_flareimage5)];
+    static unsigned char original_s_ammo9mmimage[sizeof(s_ammo9mmimage)];
+    static unsigned char original_s_rifleammoimage[sizeof(s_rifleammoimage)];
+    static unsigned char original_s_shotgunammoimage[sizeof(s_shotgunammoimage)];
+    static unsigned char original_s_knifeammoimage[sizeof(s_knifeammoimage)];
+    static unsigned char original_s_glammoimage[sizeof(s_glammoimage)];
+    static unsigned char original_s_rocketammoimage[sizeof(s_rocketammoimage)];
+    static unsigned char original_s_genericmineammoimage[sizeof(s_genericmineammoimage)];
+    static unsigned char original_s_grenadeammoimage[sizeof(s_grenadeammoimage)];
+    static unsigned char original_s_magnumammoimage[sizeof(s_magnumammoimage)];
+    static unsigned char original_s_goldengunammoimage[sizeof(s_goldengunammoimage)];
+    static unsigned char original_s_remotemineammoimage[sizeof(s_remotemineammoimage)];
+    static unsigned char original_s_timedmineammoimage[sizeof(s_timedmineammoimage)];
+    static unsigned char original_s_proxmineammoimage[sizeof(s_proxmineammoimage)];
+    static unsigned char original_s_tankammoimage[sizeof(s_tankammoimage)];
+    static unsigned char original_s_crosshairimage[sizeof(s_crosshairimage)];
+    static unsigned char original_s_betacrosshairimage[sizeof(s_betacrosshairimage)];
+    static unsigned char original_s_glassoverlayimage[sizeof(s_glassoverlayimage)];
+    static unsigned char original_s_monitorimages[sizeof(s_monitorimages)];
+    static unsigned char original_s_skywaterimages[sizeof(s_skywaterimages)];
+    static unsigned char original_s_mainfolderimages[sizeof(s_mainfolderimages)];
+    static unsigned char original_s_mpradarimages[sizeof(s_mpradarimages)];
+    static unsigned char original_s_mpcharselimages[sizeof(s_mpcharselimages)];
+    static unsigned char original_s_mpstageselimages[sizeof(s_mpstageselimages)];
+    if (!saved) {
+        memcpy(original_globalDL_0x000, globalDL_0x000, sizeof(globalDL_0x000));
+        memcpy(original_globalDL_0x078, globalDL_0x078, sizeof(globalDL_0x078));
+        memcpy(original_globalDL_0x120, globalDL_0x120, sizeof(globalDL_0x120));
+        memcpy(original_globalDL_0x1c8, globalDL_0x1c8, sizeof(globalDL_0x1c8));
+        memcpy(original_globalDL_0x270, globalDL_0x270, sizeof(globalDL_0x270));
+        memcpy(original_globalDL_0x318, globalDL_0x318, sizeof(globalDL_0x318));
+        memcpy(original_globalDL_0x3c0, globalDL_0x3c0, sizeof(globalDL_0x3c0));
+        memcpy(original_globalDL_0x468, globalDL_0x468, sizeof(globalDL_0x468));
+        memcpy(original_globalDL_0x510, globalDL_0x510, sizeof(globalDL_0x510));
+        memcpy(original_globalDL_0x5b8, globalDL_0x5b8, sizeof(globalDL_0x5b8));
+        memcpy(original_globalDL_0x660, globalDL_0x660, sizeof(globalDL_0x660));
+        memcpy(original_globalDL_0x708, globalDL_0x708, sizeof(globalDL_0x708));
+        memcpy(original_globalDL_0x7b0, globalDL_0x7b0, sizeof(globalDL_0x7b0));
+        memcpy(original_globalDL_0x858, globalDL_0x858, sizeof(globalDL_0x858));
+        memcpy(original_globalDL_0x900, globalDL_0x900, sizeof(globalDL_0x900));
+        memcpy(original_globalDL_0x9a8, globalDL_0x9a8, sizeof(globalDL_0x9a8));
+        memcpy(original_globalDL_0xa50, globalDL_0xa50, sizeof(globalDL_0xa50));
+        memcpy(original_s_genericimage, s_genericimage, sizeof(s_genericimage));
+        memcpy(original_s_impactimages, s_impactimages, sizeof(s_impactimages));
+        memcpy(original_s_explosion_smokeimages, s_explosion_smokeimages, sizeof(s_explosion_smokeimages));
+        memcpy(original_s_scattered_explosions, s_scattered_explosions, sizeof(s_scattered_explosions));
+        memcpy(original_s_flareimage1, s_flareimage1, sizeof(s_flareimage1));
+        memcpy(original_s_flareimage2, s_flareimage2, sizeof(s_flareimage2));
+        memcpy(original_s_flareimage3, s_flareimage3, sizeof(s_flareimage3));
+        memcpy(original_s_flareimage4, s_flareimage4, sizeof(s_flareimage4));
+        memcpy(original_s_flareimage5, s_flareimage5, sizeof(s_flareimage5));
+        memcpy(original_s_ammo9mmimage, s_ammo9mmimage, sizeof(s_ammo9mmimage));
+        memcpy(original_s_rifleammoimage, s_rifleammoimage, sizeof(s_rifleammoimage));
+        memcpy(original_s_shotgunammoimage, s_shotgunammoimage, sizeof(s_shotgunammoimage));
+        memcpy(original_s_knifeammoimage, s_knifeammoimage, sizeof(s_knifeammoimage));
+        memcpy(original_s_glammoimage, s_glammoimage, sizeof(s_glammoimage));
+        memcpy(original_s_rocketammoimage, s_rocketammoimage, sizeof(s_rocketammoimage));
+        memcpy(original_s_genericmineammoimage, s_genericmineammoimage, sizeof(s_genericmineammoimage));
+        memcpy(original_s_grenadeammoimage, s_grenadeammoimage, sizeof(s_grenadeammoimage));
+        memcpy(original_s_magnumammoimage, s_magnumammoimage, sizeof(s_magnumammoimage));
+        memcpy(original_s_goldengunammoimage, s_goldengunammoimage, sizeof(s_goldengunammoimage));
+        memcpy(original_s_remotemineammoimage, s_remotemineammoimage, sizeof(s_remotemineammoimage));
+        memcpy(original_s_timedmineammoimage, s_timedmineammoimage, sizeof(s_timedmineammoimage));
+        memcpy(original_s_proxmineammoimage, s_proxmineammoimage, sizeof(s_proxmineammoimage));
+        memcpy(original_s_tankammoimage, s_tankammoimage, sizeof(s_tankammoimage));
+        memcpy(original_s_crosshairimage, s_crosshairimage, sizeof(s_crosshairimage));
+        memcpy(original_s_betacrosshairimage, s_betacrosshairimage, sizeof(s_betacrosshairimage));
+        memcpy(original_s_glassoverlayimage, s_glassoverlayimage, sizeof(s_glassoverlayimage));
+        memcpy(original_s_monitorimages, s_monitorimages, sizeof(s_monitorimages));
+        memcpy(original_s_skywaterimages, s_skywaterimages, sizeof(s_skywaterimages));
+        memcpy(original_s_mainfolderimages, s_mainfolderimages, sizeof(s_mainfolderimages));
+        memcpy(original_s_mpradarimages, s_mpradarimages, sizeof(s_mpradarimages));
+        memcpy(original_s_mpcharselimages, s_mpcharselimages, sizeof(s_mpcharselimages));
+        memcpy(original_s_mpstageselimages, s_mpstageselimages, sizeof(s_mpstageselimages));
+        saved = 1;
+    } else {
+        memcpy(globalDL_0x000, original_globalDL_0x000, sizeof(globalDL_0x000));
+        memcpy(globalDL_0x078, original_globalDL_0x078, sizeof(globalDL_0x078));
+        memcpy(globalDL_0x120, original_globalDL_0x120, sizeof(globalDL_0x120));
+        memcpy(globalDL_0x1c8, original_globalDL_0x1c8, sizeof(globalDL_0x1c8));
+        memcpy(globalDL_0x270, original_globalDL_0x270, sizeof(globalDL_0x270));
+        memcpy(globalDL_0x318, original_globalDL_0x318, sizeof(globalDL_0x318));
+        memcpy(globalDL_0x3c0, original_globalDL_0x3c0, sizeof(globalDL_0x3c0));
+        memcpy(globalDL_0x468, original_globalDL_0x468, sizeof(globalDL_0x468));
+        memcpy(globalDL_0x510, original_globalDL_0x510, sizeof(globalDL_0x510));
+        memcpy(globalDL_0x5b8, original_globalDL_0x5b8, sizeof(globalDL_0x5b8));
+        memcpy(globalDL_0x660, original_globalDL_0x660, sizeof(globalDL_0x660));
+        memcpy(globalDL_0x708, original_globalDL_0x708, sizeof(globalDL_0x708));
+        memcpy(globalDL_0x7b0, original_globalDL_0x7b0, sizeof(globalDL_0x7b0));
+        memcpy(globalDL_0x858, original_globalDL_0x858, sizeof(globalDL_0x858));
+        memcpy(globalDL_0x900, original_globalDL_0x900, sizeof(globalDL_0x900));
+        memcpy(globalDL_0x9a8, original_globalDL_0x9a8, sizeof(globalDL_0x9a8));
+        memcpy(globalDL_0xa50, original_globalDL_0xa50, sizeof(globalDL_0xa50));
+        memcpy(s_genericimage, original_s_genericimage, sizeof(s_genericimage));
+        memcpy(s_impactimages, original_s_impactimages, sizeof(s_impactimages));
+        memcpy(s_explosion_smokeimages, original_s_explosion_smokeimages, sizeof(s_explosion_smokeimages));
+        memcpy(s_scattered_explosions, original_s_scattered_explosions, sizeof(s_scattered_explosions));
+        memcpy(s_flareimage1, original_s_flareimage1, sizeof(s_flareimage1));
+        memcpy(s_flareimage2, original_s_flareimage2, sizeof(s_flareimage2));
+        memcpy(s_flareimage3, original_s_flareimage3, sizeof(s_flareimage3));
+        memcpy(s_flareimage4, original_s_flareimage4, sizeof(s_flareimage4));
+        memcpy(s_flareimage5, original_s_flareimage5, sizeof(s_flareimage5));
+        memcpy(s_ammo9mmimage, original_s_ammo9mmimage, sizeof(s_ammo9mmimage));
+        memcpy(s_rifleammoimage, original_s_rifleammoimage, sizeof(s_rifleammoimage));
+        memcpy(s_shotgunammoimage, original_s_shotgunammoimage, sizeof(s_shotgunammoimage));
+        memcpy(s_knifeammoimage, original_s_knifeammoimage, sizeof(s_knifeammoimage));
+        memcpy(s_glammoimage, original_s_glammoimage, sizeof(s_glammoimage));
+        memcpy(s_rocketammoimage, original_s_rocketammoimage, sizeof(s_rocketammoimage));
+        memcpy(s_genericmineammoimage, original_s_genericmineammoimage, sizeof(s_genericmineammoimage));
+        memcpy(s_grenadeammoimage, original_s_grenadeammoimage, sizeof(s_grenadeammoimage));
+        memcpy(s_magnumammoimage, original_s_magnumammoimage, sizeof(s_magnumammoimage));
+        memcpy(s_goldengunammoimage, original_s_goldengunammoimage, sizeof(s_goldengunammoimage));
+        memcpy(s_remotemineammoimage, original_s_remotemineammoimage, sizeof(s_remotemineammoimage));
+        memcpy(s_timedmineammoimage, original_s_timedmineammoimage, sizeof(s_timedmineammoimage));
+        memcpy(s_proxmineammoimage, original_s_proxmineammoimage, sizeof(s_proxmineammoimage));
+        memcpy(s_tankammoimage, original_s_tankammoimage, sizeof(s_tankammoimage));
+        memcpy(s_crosshairimage, original_s_crosshairimage, sizeof(s_crosshairimage));
+        memcpy(s_betacrosshairimage, original_s_betacrosshairimage, sizeof(s_betacrosshairimage));
+        memcpy(s_glassoverlayimage, original_s_glassoverlayimage, sizeof(s_glassoverlayimage));
+        memcpy(s_monitorimages, original_s_monitorimages, sizeof(s_monitorimages));
+        memcpy(s_skywaterimages, original_s_skywaterimages, sizeof(s_skywaterimages));
+        memcpy(s_mainfolderimages, original_s_mainfolderimages, sizeof(s_mainfolderimages));
+        memcpy(s_mpradarimages, original_s_mpradarimages, sizeof(s_mpradarimages));
+        memcpy(s_mpcharselimages, original_s_mpcharselimages, sizeof(s_mpcharselimages));
+        memcpy(s_mpstageselimages, original_s_mpstageselimages, sizeof(s_mpstageselimages));
+    }
+}

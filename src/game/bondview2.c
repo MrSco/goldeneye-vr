@@ -3186,10 +3186,10 @@ void sub_GAME_7F07E7CC(void) {
         return_null();
     }
 #endif
-    animInit((Model *)((u8 *)g_CurrentPlayer + 0x230), itemheader, (u32 *)((u8 *)g_CurrentPlayer + 0x2ec));
-    modelSetScale((Model *)((u8 *)g_CurrentPlayer + 0x230), c_item_entries[41].scale * 0.10000001f);
-    modelSetAnimation((Model *)((u8 *)g_CurrentPlayer + 0x230), (ModelAnimation *)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_bond_watch], 0, 0.0f, 0.5f * watch_transition_time, 0.0f);
-    *(s32 *)((u8 *)g_CurrentPlayer + 0x220) = 0;
+    animInit(&g_CurrentPlayer->something_with_watch_object_instance, itemheader, g_CurrentPlayer->watchRwPool);
+    modelSetScale(&g_CurrentPlayer->something_with_watch_object_instance, c_item_entries[41].scale * 0.10000001f);
+    modelSetAnimation(&g_CurrentPlayer->something_with_watch_object_instance, (ModelAnimation *)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_bond_watch], 0, 0.0f, 0.5f * watch_transition_time, 0.0f);
+    g_CurrentPlayer->step_in_view_watch_animation = 0;
 }
 
 
@@ -3207,7 +3207,7 @@ void bondviewSetPauseWatchRelated(f32 arg0)
     }
     else
     {
-        g_CurrentPlayer->pause_watch_related_scaled = (20.0f - g_CurrentPlayer->pause_watch_related_adjust) / arg0;
+        g_CurrentPlayer->pause_watch_related_scaled = (20.0f - g_CurrentPlayer->something_with_watch_object_instance.animframe1) / arg0;
     }
 
     g_CurrentPlayer->step_in_view_watch_animation = 1;
@@ -3228,7 +3228,7 @@ void bondviewSetPauseWatchRelatedAlt(f32 arg0)
     }
     else
     {
-        g_CurrentPlayer->pause_watch_related_scaled = g_CurrentPlayer->pause_watch_related_adjust / arg0;
+        g_CurrentPlayer->pause_watch_related_scaled = g_CurrentPlayer->something_with_watch_object_instance.animframe1 / arg0;
     }
 
     g_CurrentPlayer->step_in_view_watch_animation = 2;
@@ -3486,7 +3486,7 @@ void bondviewWatchAnimationTick(void)
 
                 if ((g_CurrentPlayer->step_in_view_watch_animation != 0) && (g_CurrentPlayer->step_in_view_watch_animation != 3))
                 {
-                    sp30 = ((20.0f - g_CurrentPlayer->pause_watch_related_adjust) * 40.0f) / 20.0f;
+                    sp30 = ((20.0f - g_CurrentPlayer->something_with_watch_object_instance.animframe1) * 40.0f) / 20.0f;
                 }
 
                 if ((g_CurrentPlayer->pause_state == 0) || (g_CurrentPlayer->pause_state == 2) || (g_CurrentPlayer->pause_state == 3))
@@ -3610,7 +3610,7 @@ void bondviewWatchAnimationTick(void)
 
                 if ((g_CurrentPlayer->step_in_view_watch_animation != 0) && (g_CurrentPlayer->step_in_view_watch_animation != 3))
                 {
-                    sp28 = (g_CurrentPlayer->pause_watch_related_adjust * 40.0f) / 20.0f;
+                    sp28 = (g_CurrentPlayer->something_with_watch_object_instance.animframe1 * 40.0f) / 20.0f;
                 }
 
                 sp20 = sp28 + 20.0f;
@@ -8378,11 +8378,11 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
 
     local = fileGetBondForCurrentFolder();
     switches = header->Switches;
-    offset = switchindex << 2;
+    offset = switchindex * sizeof(*switches); /* D191: host pointer stride. */
 
     if (1);
 
-    // byte-indexed on purpose: offset = switchindex * 4. &switches[i] won't match.
+    // Offset uses the host ModelNode pointer width.
     base = (ModelNode **) (((u8 *) switches) + offset);
 
     if (base[0] != NULL)
@@ -8550,16 +8550,16 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
         subcalcmatrices(&renderdata, (Model *) (&g_CurrentPlayer->something_with_watch_object_instance));
         nodepos = (f32 *) objheader->Switches[0]->Data;
         time = watch_time_0;
-        t = g_CurrentPlayer->pause_watch_related_adjust / 20.0f;
+        t = g_CurrentPlayer->something_with_watch_object_instance.animframe1 / 20.0f;
     
         if (t > 1.0f)
         {
             t = 1.0f;
         }
     
-        targetpos.x = matrices->m[3][0] + (((g_CurrentPlayer->field_1D4 - (nodepos[0] * g_CurrentPlayer->watch_scale_destination)) - matrices->m[3][0]) * t);
-        targetpos.y = matrices->m[3][1] + (((g_CurrentPlayer->field_1D8 + (nodepos[2] * g_CurrentPlayer->watch_scale_destination)) - matrices->m[3][1]) * t);
-        targetpos.z = matrices->m[3][2] + (((g_CurrentPlayer->pause_watch_position - (nodepos[1] * g_CurrentPlayer->watch_scale_destination)) - matrices->m[3][2]) * t);
+        targetpos.x = matrices->m[3][0] + (((g_CurrentPlayer->field_1D4 - (nodepos[0] * g_CurrentPlayer->something_with_watch_object_instance.scale)) - matrices->m[3][0]) * t);
+        targetpos.y = matrices->m[3][1] + (((g_CurrentPlayer->field_1D8 + (nodepos[2] * g_CurrentPlayer->something_with_watch_object_instance.scale)) - matrices->m[3][1]) * t);
+        targetpos.z = matrices->m[3][2] + (((g_CurrentPlayer->pause_watch_position - (nodepos[1] * g_CurrentPlayer->something_with_watch_object_instance.scale)) - matrices->m[3][2]) * t);
     
         matrix_4x4_set_basis_and_position_target(&targetmtx, 0.0f, 0.0f, 0.0f, g_CurrentPlayer->field_1E0, g_CurrentPlayer->field_1E4, g_CurrentPlayer->field_1E8, g_CurrentPlayer->field_1EC, g_CurrentPlayer->field_1F0, g_CurrentPlayer->field_1F4);
         matrix_4x4_get_rotation_around_xyz(matrices, &currot);
@@ -8570,7 +8570,7 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
         quaternion_slerp(quat1, quat2, t, quat3);
         quaternion_to_matrix(quat3, matrices->m);
         matrix_4x4_set_position(&targetpos, matrices);
-        matrix_scalar_multiply(g_CurrentPlayer->watch_scale_destination, (f32 *) matrices);
+        matrix_scalar_multiply(g_CurrentPlayer->something_with_watch_object_instance.scale, (f32 *) matrices);
         total_seconds = time / 60;
         seconds = total_seconds % 60;
         total_minutes = total_seconds / 60;
@@ -8627,7 +8627,7 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
         matrix_4x4_7F058C88();
         gdl = draw_watch_current_page(gdl, finalmtx, (g_CurrentPlayer->watch_animation_state == 5) || (g_CurrentPlayer->watch_animation_state == 12));
         matrix_4x4_7F058C64();
-        bondviewTransformManyPosToViewMatrix(g_CurrentPlayer->field_23C, objheader->numMatrices);
+        bondviewTransformManyPosToViewMatrix(g_CurrentPlayer->something_with_watch_object_instance.render_pos, objheader->numMatrices);
         matrix_4x4_7F058C88();
     }
  
