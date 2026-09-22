@@ -10209,7 +10209,20 @@ s32 playerTick(PropRecord *prop)
     s32 ret;
     s32 sub;
     PropRecord *leftprop;
+#ifdef GEVR
+    /*
+     * Cast to Mtxf * and written by matrix_4x4_multiply_homogeneous, which
+     * stores a full 4x4 - sixteen floats - so [15] is four bytes short. The
+     * reference port has the same declaration and does not fix it: it builds
+     * with -fno-stack-protector, where the overrun lands in adjacent scratch
+     * as it did on the N64. Here the canary sits right after it and turns it
+     * into __stack_chk_fail in playerTick. Pure local scratch, so widening is
+     * the same remedy their notes sanction for this class.
+     */
+    f32 mtx[16];
+#else
     f32 mtx[15];
+#endif
     s32 tailret;
     s32 anim;
     f32 angle;
