@@ -1008,8 +1008,12 @@ static void import_texture(int i, int tile, bool is_rect) {
     const uint32_t tex_flags = loaded_texture.tex_flags;
     const uint8_t palette_index = rdp.texture_tile[tile].palette;
 
-    // D74: preserve valid LOADBLOCK/LOADTILE sources when LOD is enabled.
-    if (!loaded_texture.addr) {
+    // D74 was tried here (keeping a LOD tile's own LOADBLOCK/LOADTILE source
+    // instead of miplevel 0) and crashed the Dam on load: the importers size
+    // their reads from SETTILESIZE, so a smaller preserved source runs off the
+    // end of its mapping. Adopting it needs the reference's whole scheme,
+    // where the loaded block sizes the read as well.
+    if ((rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail) || !loaded_texture.addr) {
         // set up miplevel 0; also acts as a catch-all for when .addr is NULL because my texture loader sucks
         loaded_texture.addr = rdp.texture_to_load.addr;
         loaded_texture.line_size_bytes = rdp.texture_tile[tile].line_size_bytes;
