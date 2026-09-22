@@ -808,11 +808,11 @@ Mtx *currentPlayerGetProjectionMatrix(void) {
     return g_CurrentPlayer->projmatrix;
 }
 
-void set_BONDdata_field_10E0(s32 arg0) {
+void set_BONDdata_field_10E0(Mtx *arg0) {
     g_CurrentPlayer->field_10E0 = arg0;
 }
 
-s32 get_BONDdata_field_10E0(void) {
+Mtx *get_BONDdata_field_10E0(void) {
     return g_CurrentPlayer->field_10E0;
 }
 
@@ -858,11 +858,11 @@ Mtxf *currentPlayerGetMatrix10EC(void) {
     return g_CurrentPlayer->field_10EC;
 }
 
-void sub_GAME_7F078464(s32 arg0) {
+void sub_GAME_7F078464(LookAt *arg0) {
     g_CurrentPlayer->field_10E4 = arg0;
 }
 
-s32 sub_GAME_7F078474(void)
+LookAt *sub_GAME_7F078474(void)
 {
     return g_CurrentPlayer->field_10E4;
 }

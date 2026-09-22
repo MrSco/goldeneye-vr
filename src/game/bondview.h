@@ -1154,8 +1154,11 @@ struct player
   Mtxf* viewtoworldmtxf;
   Mtx* projmatrix;
   Mtxf* projmatrixf;
-  s32 field_10E0; // ptr
-  s32 field_10E4; // ptr
+  /* Both of these hold pointers. As s32 the address was truncated and then
+   * sign-extended on the way back out: the display list carried
+   * 0xffffffffaba6a5c0 and gfx_sp_movemem faulted on G_MV_LOOKATY. */
+  Mtx *field_10E0;
+  LookAt *field_10E4;
   Mtxf* field_10E8;
   Mtxf* field_10EC;
   f32 c_scalelod60; // canonical name
@@ -2747,7 +2750,9 @@ void bondviewMovePlayerUpdateViewport(s8 arg0, s8 arg1, u16 arg2);
 
 #if defined(BUGFIX_R1)
 #define HUDMESSAGEBOTTOM jp_hudmsgBottomShow
-void hudmsgBottomShow(char *string, s32 arg1, s32 arg2);
+struct fontchar;
+struct font;
+void hudmsgBottomShow(char *string, struct fontchar *font, struct font *arg2);
 void jp_hudmsgBottomShow(char *string);
 #else
 // VERSION_US
@@ -2800,8 +2805,12 @@ f32 bondviewGetPlayerYawRadians(void);
 Mtxf *camGetWorldToScreenMtxf(void);
 void transformAndNormalizeByLength2Dto3D(struct coord2d *in, coord3d *out, f32 value);
 void bondviewTransformManyPosToViewMatrix(RenderPosView *arg0, s32 arg1);
-s32 sub_GAME_7F078474(void);
-s32 get_BONDdata_field_10E0(void);
+LookAt *sub_GAME_7F078474(void);
+Mtx *get_BONDdata_field_10E0(void);
+/* Both setters were implicitly declared, so their pointer arguments were
+ * only surviving by ABI accident. */
+void set_BONDdata_field_10E0(Mtx *arg0);
+void sub_GAME_7F078464(LookAt *arg0);
 Mtx *currentPlayerGetProjectionMatrix(void);
 Gfx *bondviewRenderProp(PropRecord *arg0, Gfx *arg1, s32 arg2);
 f32 getPlayer_c_lodscalez(void);
