@@ -793,6 +793,7 @@ void bondviewSetCameraMode(s32 arg0)
     s32 padding;
     s32 padding2;
 
+    sysLogPrintf(LOG_NOTE, "intro-mode: %d -> %d timer=%.1f cam=%p replay=%d record=%d", g_CameraMode, arg0, (double)camera_transition_timer, (void *)ptr_random06cam_entry, get_is_ramrom_flag(), get_recording_ramrom_flag());
     g_CameraMode = arg0;
     g_CameraAfterCinema = 0;
 
@@ -1256,6 +1257,12 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
     {
         if (g_CameraMode == CAMERAMODE_INTRO)
         {
+            /* The new player starts with no previous buttons. Sample the first
+             * intro frame so a held menu-selection trigger is not a new skip. */
+            if (camera_transition_timer == 0.0f)
+            {
+                oldbuttons = buttons;
+            }
             if ((camera_transition_timer < 120.0f) && ((camera_transition_timer + g_GlobalTimerDelta) >= 120.0f))
             {
 #if defined(VERSION_US) && !defined(BUGFIX_R1)
@@ -1263,6 +1270,7 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
                 hudmsgBottomShow(ptr_random06cam_entry->lang1c.lang_ptr);
 #else
                 hudmsgBottomShow(ptr_random06cam_entry->lang1c.lang_ptr, ptrFontZurichBoldChars, ptrFontZurichBold);
+                sysLogPrintf(LOG_NOTE, "caption: first=%s queued=%d timer=%d hidden=%d", ptr_random06cam_entry->lang1c.lang_ptr, display_statusbar, g_CurrentPlayer->bondmesscnt, g_CurrentPlayer->hudmessoff);
 #endif
             }
 
@@ -1274,6 +1282,7 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
                     hudmsgBottomShow(ptr_random06cam_entry->lang20.lang_ptr);
 #else
                     hudmsgBottomShow(ptr_random06cam_entry->lang20.lang_ptr, ptrFontZurichBoldChars, ptrFontZurichBold);
+                    sysLogPrintf(LOG_NOTE, "caption: second=%s queued=%d timer=%d hidden=%d", ptr_random06cam_entry->lang20.lang_ptr, display_statusbar, g_CurrentPlayer->bondmesscnt, g_CurrentPlayer->hudmessoff);
 #endif
                 }
 
@@ -1292,6 +1301,7 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
             if ((lvlGetControlsLockedFlag() == 0)
                 && (buttons & ~oldbuttons & (CONT_A | B_BUTTON | Z_TRIG | START_BUTTON | CONT_R | CONT_L)))
             {
+                sysLogPrintf(LOG_NOTE, "intro-skip: timer=%.1f buttons=%04x previous=%04x", (double)camera_transition_timer, buttons, oldbuttons);
                 g_CameraAfterCinema = CAMERAMODE_INTRO;
             }
         }
