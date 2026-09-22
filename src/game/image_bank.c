@@ -164,8 +164,6 @@ void texReset(void)
 {
     s32 i;
 
-    gevrResetStaticTextureIds();
-
     globalbank_rdram_offset = 0;
     pGlobalimagetable = (s32 *)&globalDL_0x000;
 

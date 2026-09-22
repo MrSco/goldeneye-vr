@@ -2002,3 +2002,45 @@ llvm-addr2line -C -f -e android/app/build/intermediates/cxx/Debug/*/obj/arm64-v8
 The `pc` values in the backtrace are already library-relative; ignore the
 `offset 0x1258000` the APK line reports. llvm-addr2line lives in
 $ANDROID_SDK/ndk/*/toolchains/llvm/prebuilt/windows-x86_64/bin.
+
+## 24. The Dam crash was gevrResetStaticTextureIds — removed
+
+Reverting D74 (§23) did not fix it; the same tombstone came back, symbolized
+to the same `import_texture_ci8` / `gfx_pc.cpp:922` read of `addr[i]`.
+
+The renderer was not the cause. Proof by inspection of the helper §22.1
+removed: for any tile with `width > 1 || height > 1` it overrode its computed
+values with the SETTILESIZE ones, so it and the reverted code produce
+*identical* read sizes. It differed only for the 1x1 sentinel, where it read
+*more* (16x64 from a 1024-byte block, versus one texel). Removing it cannot
+make a read run off the end.
+
+What actually changed under the Dam was §22.4. `gevrResetStaticTextureIds()`
+restores every `s_*images` table and `globalDL_0x***` list to its compiled
+image ids at the top of texReset — but texReset only re-resolves the 17
+global display lists, `genericimage`, the 6 `explosion_smokeimages` and the 5
+`scattered_explosions`. Everything else (impact, flares, the ammo icons,
+crosshairimage, monitor, skywater, mainfolder, the mp tables) is resolved
+lazily by whoever draws it. Blanking those back to `0xabcdXXXX` ids mid-run
+leaves anything already resolved during the title or file select pointing at
+a raw id, which reaches the renderer as a texture source and reads off the
+end of whatever it lands in.
+
+It is also the one change in §22 that had never run on hardware: the build
+that introduced it (§21's tail) was never installed, so the user's last good
+Dam was the APK before it.
+
+assets/oddtextures.c, assets/oddtextures.h and src/game/image_bank.c are
+back at 7bea347. The stale-patched-id problem it was written for is real and
+still open — see §22.4 — but the fix for it is gepc-ref's scheme: allocate a
+fresh copy of the Globalimagetable segment per stage and patch that
+(`globalbank_rdram_offset + GIMG_OFF(sym)`), so nothing is ever restored
+underneath a consumer. Not a blanket restore of tables texReset does not own.
+
+Kept from §22: the pointer-slot widenings. Two §21-era tombstones confirm
+they were aimed at real crashes — `strcpy` from
+`constructor_menu0D_missioncomplete` (06:43) and `textMeasure` from
+`draw_text_q_watch_v201_beta` (06:47).
+
+Build passes, `adb install -r` Success, and the app launches and stays up.
+Whether the Dam loads is for the user to check; I cannot drive the menu.
