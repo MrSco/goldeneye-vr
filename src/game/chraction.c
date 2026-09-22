@@ -34,6 +34,13 @@
 #include "stan.h"
 
 
+/* Equipped weapon props hold WeaponObjRecord, not ChrRecord. Retail act_*
+ * offsets happened to alias weaponnum; widened host fields no longer do. */
+static s32 chrlvWeaponNumber(const void *weapon)
+{
+    return ((const WeaponObjRecord *)weapon)->weaponnum;
+}
+
 point2d D_800309F0 = {0, 0};
 
 // forward declarations
@@ -347,7 +354,7 @@ u32 weaponIsOneHanded(PropRecord *arg0)
     {
         ChrRecord *v = (ChrRecord*)arg0->voidp;
 
-        return bondwalkItemCheckBitflags(v->act_bytes.padding[84], WEAPONSTATBITFLAG_ONLY_1_HANDED);
+        return bondwalkItemCheckBitflags(chrlvWeaponNumber(v), WEAPONSTATBITFLAG_ONLY_1_HANDED);
     }
 
     return 0U;
@@ -1236,24 +1243,13 @@ void chrlvInitActAttack(ChrRecord *self, struct anim_group_info **arg1, s32 arg2
 
     next_anim = (u32)randomGetNext() % (u32)arg1[anim_index]->len;
 
-    // I can't get a `li t0,72` without explicit multiply, but
-    // it seems array dereference would be more correct here?
-    // Something like:
-    //     &arg1[anim_index]->table[next_anim]
-    //     arg1[anim_index]->table + next_anim
-    panim_float = (struct weapon_firing_animation_table *)(
-            (s32)arg1[anim_index]->table + (s32)((s32)next_anim * (s32)sizeof(struct weapon_firing_animation_table))
-        );
+    /* D94: index the host table without truncating its address. */
+    panim_float = &(*arg1[anim_index]->table)[next_anim];
 
     if ((self->chrflags & CHRSTART_FORCENOBLOOD)
-        && ((s32)panim_float->anim.anim == (uintptr_t)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_fire_hip]))
+        && ((uintptr_t)panim_float->anim.anim == (uintptr_t)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_fire_hip]))
     {
-        // should be:
-        //     panim_float = &arg1[anim_index]->table[(next_anim + 1) % len]
-        // where `len = arg1[anim_index]->len`
-        panim_float = (struct weapon_firing_animation_table *)(
-            (s32)arg1[anim_index]->table + (s32)(((next_anim + 1) % arg1[anim_index]->len) * (s32)sizeof(struct weapon_firing_animation_table))
-        );
+        panim_float = &(*arg1[anim_index]->table)[(next_anim + 1) % arg1[anim_index]->len];
     }
 
     for (i=0; i<2; i++)
@@ -1262,10 +1258,10 @@ void chrlvInitActAttack(ChrRecord *self, struct anim_group_info **arg1, s32 arg2
         {
             temp_chr = chrGetEquippedWeaponProp(self, i)->chr;
 
-            if (bondwalkItemGetAutomaticFiringRate((s32) temp_chr->act_attack.attack_item) < 0)
+            if (bondwalkItemGetAutomaticFiringRate((s32) chrlvWeaponNumber(temp_chr)) < 0)
             {
                 sp60.p[i] = 1;
-                if ((s32)temp_chr->act_attack.attack_item == ITEM_LASER)
+                if ((s32)chrlvWeaponNumber(temp_chr) == ITEM_LASER)
                 {
                     phi_s6 = 0;
                 }
@@ -1276,7 +1272,7 @@ void chrlvInitActAttack(ChrRecord *self, struct anim_group_info **arg1, s32 arg2
                 phi_s7 = 1;
             }
 
-            if (((s32)temp_chr->act_attack.attack_item == ITEM_ROCKETLAUNCH) || ((s32)temp_chr->act_attack.attack_item == ITEM_GRENADELAUNCH))
+            if (((s32)chrlvWeaponNumber(temp_chr) == ITEM_ROCKETLAUNCH) || ((s32)chrlvWeaponNumber(temp_chr) == ITEM_GRENADELAUNCH))
             {
                 sp58.p[i] = 1;
             }
@@ -1634,12 +1630,12 @@ void chrlvInitActAttackWalk(ChrRecord *chr, s32 arg1)
         {
             tmp_chr = chrGetEquippedWeaponProp(chr, i)->chr;
 
-            if (bondwalkItemGetAutomaticFiringRate((s32) tmp_chr->act_attackwalk.attack_item) < 0)
+            if (bondwalkItemGetAutomaticFiringRate((s32) chrlvWeaponNumber(tmp_chr)) < 0)
             {
                 sp68.p[i] = 1;
             }
 
-            if ((tmp_chr->act_attackwalk.attack_item == ITEM_ROCKETLAUNCH) || (tmp_chr->act_attackwalk.attack_item == ITEM_GRENADELAUNCH))
+            if ((chrlvWeaponNumber(tmp_chr) == ITEM_ROCKETLAUNCH) || (chrlvWeaponNumber(tmp_chr) == ITEM_GRENADELAUNCH))
             {
                 sp60.p[i] = 1;
             }
@@ -1778,10 +1774,10 @@ void chrlvInitActAttackRoll(ChrRecord *chr, GUNHAND side)
         {
             temp_v1_2 = chrGetEquippedWeaponProp(chr, i)->chr;
 
-            if (bondwalkItemGetAutomaticFiringRate((s32) temp_v1_2->act_attackroll.attack_item) < 0)
+            if (bondwalkItemGetAutomaticFiringRate((s32) chrlvWeaponNumber(temp_v1_2)) < 0)
             {
                 sp54.p[i] = 1;
-                if (temp_v1_2->act_attackroll.attack_item == ITEM_LASER)
+                if (chrlvWeaponNumber(temp_v1_2) == ITEM_LASER)
                 {
                     phi_s3 = 0;
                 }
@@ -1792,7 +1788,7 @@ void chrlvInitActAttackRoll(ChrRecord *chr, GUNHAND side)
                 sp5C = 1;
             }
 
-            if ((temp_v1_2->act_attackroll.attack_item == ITEM_ROCKETLAUNCH) || (temp_v1_2->act_attackroll.attack_item == ITEM_GRENADELAUNCH))
+            if ((chrlvWeaponNumber(temp_v1_2) == ITEM_ROCKETLAUNCH) || (chrlvWeaponNumber(temp_v1_2) == ITEM_GRENADELAUNCH))
             {
                 sp4C.p[i] = 1;
             }
@@ -5570,8 +5566,8 @@ void sub_GAME_7F02BFE4(ChrRecord *self, s32 arg1, s32 arg2)
     temp_v1 = prop->chr;
     phi_a1 = 0;
 
-    sp33 = bondwalkItemGetSoundTriggerRate((s32) temp_v1->act_attack.attack_item);
-    sp30 = bondwalkItemGetSound((s32) temp_v1->act_attack.attack_item);
+    sp33 = bondwalkItemGetSoundTriggerRate((s32) chrlvWeaponNumber(temp_v1));
+    sp30 = bondwalkItemGetSound((s32) chrlvWeaponNumber(temp_v1));
 
     if (arg2 != 0)
     {
@@ -6577,24 +6573,24 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
         if (
             (sp44 == 0)
             || (self->seen_bond_time >= (g_GlobalTimer - CHRLV_SEEN_RECENT_CHECK))
-            || (bondwalkItemGetAutomaticFiringRate(prop_selfchr->act_attack.attack_item) < 0))
+            || (bondwalkItemGetAutomaticFiringRate(chrlvWeaponNumber(prop_selfchr)) < 0))
         {
             sp268 = 0;
             sp264 = 0;
 
             self->firecount[hand]++;
 
-            if (bondwalkItemGetAutomaticFiringRate(prop_selfchr->act_attack.attack_item) < 0)
+            if (bondwalkItemGetAutomaticFiringRate(chrlvWeaponNumber(prop_selfchr)) < 0)
             {
                 sp268 = 1;
                 sp264 = 1;
             }
-            else if (((s32) self->firecount[hand] % bondwalkItemGetAutomaticFiringRate(prop_selfchr->act_attack.attack_item)) == 0)
+            else if (((s32) self->firecount[hand] % bondwalkItemGetAutomaticFiringRate(chrlvWeaponNumber(prop_selfchr))) == 0)
             {
                 sp268 = 1;
 
-                if ((((s32) self->firecount[hand] % (s32) (bondwalkItemGetAutomaticFiringRate(prop_selfchr->act_attack.attack_item) * 2)) == 0)
-                    || (prop_selfchr->act_attack.attack_item == ITEM_LASER))
+                if ((((s32) self->firecount[hand] % (s32) (bondwalkItemGetAutomaticFiringRate(chrlvWeaponNumber(prop_selfchr)) * 2)) == 0)
+                    || (chrlvWeaponNumber(prop_selfchr) == ITEM_LASER))
                 {
                     sp264 = 1;
                 }
@@ -6677,7 +6673,7 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
 
                     sp20C = (dx * dx) + (dy * dy) + (dz * dz);
 
-                    if (prop_selfchr->act_attack.attack_item == ITEM_ROCKETLAUNCH)
+                    if (chrlvWeaponNumber(prop_selfchr) == ITEM_ROCKETLAUNCH)
                     {
                         if (((dx * dx) + (dy * dy) + (dz * dz)) > 160000.0f)
                         {
@@ -6731,7 +6727,7 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                             sp27C = 0;
                         }
                     }
-                    else if (prop_selfchr->act_attack.attack_item == ITEM_GRENADELAUNCH)
+                    else if (chrlvWeaponNumber(prop_selfchr) == ITEM_GRENADELAUNCH)
                     {
                         if (((dx * dx) + (dy * dy) + (dz * dz)) > 160000.0f)
                         {
@@ -6775,7 +6771,7 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
 
                             if (((dx * dx) + (dy * dy) + (dz * dz)) <= sp20C)
                             {
-                                chrlvUpdateShotbondsum(self, &sp234, &sp230, prop_selfchr->act_attack.attack_item);
+                                chrlvUpdateShotbondsum(self, &sp234, &sp230, chrlvWeaponNumber(prop_selfchr));
                                 sp22C = sp230 == 0;
 
                                 if ((sp234 != 0) && ((self->actiontype == ACT_ATTACK) || (self->actiontype == ACT_ATTACKROLL)))
@@ -6798,7 +6794,7 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                             sp258.f[1] = player_prop->pos.f[1];
                             sp258.f[2] = player_prop->pos.f[2];
                             sp254 = player_prop->stan;
-                            recall_joy2_hits_edit_detail_edit_flag(prop_selfchr->act_attack.attack_item, &player_prop->type, -1);
+                            recall_joy2_hits_edit_detail_edit_flag(chrlvWeaponNumber(prop_selfchr), &player_prop->type, -1);
                         }
                         else
                         {
@@ -6821,34 +6817,34 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
 
                             if (stanSavedColl_posData != NULL)
                             {
-                                recall_joy2_hits_edit_detail_edit_flag(prop_selfchr->act_attack.attack_item, &stanSavedColl_posData->type, -1);
+                                recall_joy2_hits_edit_detail_edit_flag(chrlvWeaponNumber(prop_selfchr), &stanSavedColl_posData->type, -1);
 
                                 if (stanSavedColl_posData->type == PROP_TYPE_CHR)
                                 {
                                     if ((self->chrflags & CHRFLAG_CAN_SHOOT_CHRS) != 0)
                                     {
-                                        handles_shot_actors(stanSavedColl_posData->chr, 0xF, &sp220, prop_selfchr->act_attack.attack_item, 0);
+                                        handles_shot_actors(stanSavedColl_posData->chr, 0xF, &sp220, chrlvWeaponNumber(prop_selfchr), 0);
                                     }
                                 }
                                 else if ((stanSavedColl_posData->type == PROP_TYPE_OBJ) || (stanSavedColl_posData->type == PROP_TYPE_WEAPON))
                                 {
                                     chrobjMaybeDetonateObjectIfFlags(
                                         stanSavedColl_posData->obj,
-                                        gunItemGetDestructionAmount(prop_selfchr->act_attack.attack_item),
+                                        gunItemGetDestructionAmount(chrlvWeaponNumber(prop_selfchr)),
                                         &sp258,
-                                        prop_selfchr->act_attack.attack_item,
+                                        chrlvWeaponNumber(prop_selfchr),
                                         get_cur_playernum());
                                 }
                             }
                             else
                             {
-                                recall_joy2_hits_edit_flag(prop_selfchr->act_attack.attack_item, &sp258, -1);
+                                recall_joy2_hits_edit_flag(chrlvWeaponNumber(prop_selfchr), &sp258, -1);
                             }
                         }
 
                         if (sp264 != 0)
                         {
-                            switch (prop_selfchr->act_attack.attack_item)
+                            switch (chrlvWeaponNumber(prop_selfchr))
                             {
                                 case ITEM_WPPK:
                                 case ITEM_WPPKSIL:
@@ -6877,7 +6873,7 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
 
                         if (sp264 != 0)
                         {
-                            CapBeamLengthAndDecideIfRendered(&self->beams[hand], prop_selfchr->act_attack.attack_item, &sp240, &sp258);
+                            CapBeamLengthAndDecideIfRendered(&self->beams[hand], chrlvWeaponNumber(prop_selfchr), &sp240, &sp258);
                         }
                     }
                 }
