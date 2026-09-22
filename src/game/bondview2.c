@@ -8108,14 +8108,22 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
     Mtxf sp60;
     s32 j;
     s32 i;
+    Mtx *cam5c;
+    Mtx *cam60;
+    Mtxf *cam64;
+    Mtxf *cam68;
 
     i = bondviewGetCurrentPlayersRoom();
     bondviewUpdateCurrentRoomPosition(i);
 
-    g_CurrentPlayer->field_5C = dynAllocateMatrix();
-    g_CurrentPlayer->field_60 = dynAllocateMatrix();
-    g_CurrentPlayer->field_64 = dynAllocateMatrix();
-    g_CurrentPlayer->field_68 = dynAllocateMatrix();
+    cam5c = dynAllocateMatrix();
+    cam60 = dynAllocateMatrix();
+    cam64 = (Mtxf *) dynAllocateMatrix();
+    cam68 = (Mtxf *) dynAllocateMatrix();
+    g_CurrentPlayer->field_5C = (s32) (uintptr_t) cam5c;
+    g_CurrentPlayer->field_60 = (s32) (uintptr_t) cam60;
+    g_CurrentPlayer->field_64 = (s32) (uintptr_t) cam64;
+    g_CurrentPlayer->field_68 = (s32) (uintptr_t) cam68;
 
     lookat = dynAllocateLights(2);
 
@@ -8139,12 +8147,12 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
         clpos.x, clpos.y, clpos.z,
         cam_up->x, cam_up->y, cam_up->z);
 
-    matrix_4x4_set_lookat((Mtxf*) g_CurrentPlayer->field_64,
+    matrix_4x4_set_lookat(cam64,
         cam_pos->x, cam_pos->y, cam_pos->z,
         cam_look_dir->x, cam_look_dir->y, cam_look_dir->z,
         cam_up->x, cam_up->y, cam_up->z);
 
-    matrix_4x4_set_basis_and_position((Mtxf*) g_CurrentPlayer->field_68,
+    matrix_4x4_set_basis_and_position(cam68,
         cam_pos->x, cam_pos->y, cam_pos->z,
         cam_look_dir->x, cam_look_dir->y, cam_look_dir->z,
         cam_up->x, cam_up->y, cam_up->z);
@@ -8170,20 +8178,20 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
 	}
 
     guMtxF2L((f32 (*)[4]) &sp60, temp_s0);
-    set_BONDdata_field_10E0((s32) temp_s0);
+    set_BONDdata_field_10E0(temp_s0);
 
     scale = bgGetLevelVisibilityScale();
 
     matrix_scalar_multiply(scale, spC4.m[0]);
-    guMtxF2L((f32 (*)[4]) &spC4, (Mtx* ) g_CurrentPlayer->field_5C);
-    sub_GAME_7F059334((s32* ) g_CurrentPlayer->field_5C, (s32* ) g_CurrentPlayer->field_60);
+    guMtxF2L((f32 (*)[4]) &spC4, cam5c);
+    sub_GAME_7F059334((s32 *) cam5c, (s32 *) cam60);
 
-    currentPlayerSetMatrix10C8((Mtx* ) g_CurrentPlayer->field_5C);
-    currentPlayerSetMatrix10C4((Mtx* ) g_CurrentPlayer->field_60);
-    currentPlayerSetMatrix10CC((Mtxf* ) g_CurrentPlayer->field_64);
-    currentPlayerSetViewToWorldMtxf((Mtxf* ) g_CurrentPlayer->field_68);
+    currentPlayerSetMatrix10C8(cam5c);
+    currentPlayerSetMatrix10C4(cam60);
+    currentPlayerSetMatrix10CC(cam64);
+    currentPlayerSetViewToWorldMtxf(cam68);
 
-    sub_GAME_7F078464((s32) lookat);
+    sub_GAME_7F078464(lookat);
     bondviewUpdateFrustumPlanes();
     store_BONDdata_curpos_to_previous();
 }
@@ -9725,7 +9733,7 @@ void setFontTables(s32 arg0, s32 arg1)
 
 
 #ifdef BUGFIX_R1
-void hudmsgBottomShow(char *string, s32 font, s32 arg2)
+void hudmsgBottomShow(char *string, struct fontchar *font, struct font *arg2)
 {
     s32 abs_index;
     s32 index;
@@ -9738,8 +9746,8 @@ void hudmsgBottomShow(char *string, s32 font, s32 arg2)
             abs_index = index;
             strncpy(stringbuffer_lowerleft[abs_index], string, (BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH-1));
             stringbuffer_lowerleft[abs_index][(BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH-1)] = 0;
-            dword_CODE_bss_jp80079CEC[abs_index] = font;
-            dword_CODE_bss_jp80079Cd8[abs_index] = arg2;
+            dword_CODE_bss_jp80079CEC[abs_index] = (s32)(uintptr_t)font;
+            dword_CODE_bss_jp80079Cd8[abs_index] = (s32)(uintptr_t)arg2;
             display_statusbar++;
         }
     }
@@ -9748,8 +9756,8 @@ void hudmsgBottomShow(char *string, s32 font, s32 arg2)
         index = get_cur_playernum();
         strncpy(stringbuffer_lowerleft[index], string, (BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH-1));
         stringbuffer_lowerleft[index][(BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH-1)] = 0;
-        dword_CODE_bss_jp80079CEC[index] = font;
-        dword_CODE_bss_jp80079Cd8[index] = arg2;
+        dword_CODE_bss_jp80079CEC[index] = (s32)(uintptr_t)font;
+        dword_CODE_bss_jp80079Cd8[index] = (s32)(uintptr_t)arg2;
 #if defined(VERSION_EU)
         g_CurrentPlayer->bondmesscnt = 0x64;
 #elif defined(VERSION_JP)
@@ -9842,6 +9850,28 @@ void bondviewIntroCameraTextTick(void)
 }
 
 
+static struct fontchar *gevrBottomCaptionChars(s32 index)
+{
+    s32 stored = dword_CODE_bss_jp80079CEC[index];
+
+    if (stored == (s32) (uintptr_t) ptrFontBankGothicChars)
+    {
+        return ptrFontBankGothicChars;
+    }
+    return ptrFontZurichBoldChars;
+}
+
+static struct font *gevrBottomCaptionFont(s32 index)
+{
+    s32 stored = dword_CODE_bss_jp80079Cd8[index];
+
+    if (stored == (s32) (uintptr_t) ptrFontBankGothic)
+    {
+        return ptrFontBankGothic;
+    }
+    return ptrFontZurichBold;
+}
+
 /**
  * Address: 7F08A5FC
  */
@@ -9854,6 +9884,8 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
     s32 view_top;
     s32 view_top_offset;
     s32 view_left_offset;
+    struct fontchar *captionchars;
+    struct font *captionfont;
 
     if ((g_CurrentPlayer->hudmessoff == FALSE) && (g_CurrentPlayer->bondmesscnt >= 0) && (g_CurrentPlayer->mpmenuon == FALSE))
     {
@@ -9876,7 +9908,9 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             arg0 = microcode_constructor(arg0);
             view_left_offset = 0;
             view_top_offset = 0;
-            textMeasure(&view_top_offset, &view_left_offset ,(u8* ) stringbuffer_lowerleft[status_bar_text_buffer_index], BONDVIEW_2ND_FONTTABLE(status_bar_text_buffer_index), BONDVIEW_1ST_FONTTABLE(status_bar_text_buffer_index), 0);
+            captionchars = gevrBottomCaptionChars(status_bar_text_buffer_index);
+            captionfont = gevrBottomCaptionFont(status_bar_text_buffer_index);
+            textMeasure(&view_top_offset, &view_left_offset ,(u8* ) stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, 0);
 
             if (getPlayerCount() < 3)
             {
@@ -9921,7 +9955,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
 
             view_vert = view_top - view_top_offset;
             arg0 = draw_blackbox_to_screen(arg0, &view_left, &view_vert, &view_horiz, &view_top); /* PORT: addresses were cast to s32 */
-            arg0 = combiner_bayer_lod_perspective(textRenderOutlined(arg0, &view_left, &view_vert, stringbuffer_lowerleft[status_bar_text_buffer_index], BONDVIEW_2ND_FONTTABLE(status_bar_text_buffer_index), BONDVIEW_1ST_FONTTABLE(status_bar_text_buffer_index), -1, 0x646464FFU, (s16) (s32) viGetX(), (s16) viGetY(), 0, 0));
+            arg0 = combiner_bayer_lod_perspective(textRenderOutlined(arg0, &view_left, &view_vert, stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, -1, 0x646464FFU, (s16) (s32) viGetX(), (s16) viGetY(), 0, 0));
         }
     }
 
@@ -10648,7 +10682,7 @@ Gfx *bondviewRenderProp(PropRecord *arg0, Gfx *arg1, s32 arg2)
  */
 Gfx* bondviewGfxPlayerField5cMatrix(Gfx* gdl)
 {
-    gSPMatrix(gdl++, g_CurrentPlayer->field_5C, G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gSPMatrix(gdl++, currentPlayerGetMatrix10C8(), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
     return gdl;
 }
 
@@ -10743,11 +10777,10 @@ void sub_GAME_7F08BEEC(Mtxf *matrices, s32 count)
 {
     Mtxf sp40;
     s32 i;
-    s32 j;
 
-    for (i = 0, j = 0; i < count; i++, j += sizeof(Mtxf))
+    for (i = 0; i < count; i++)
     {
-        matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), (Mtxf *)((u32)matrices + j), &sp40);
+        matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), matrices + i, &sp40);
 
         sp40.m[3][0] -= g_CurrentPlayer->current_model_pos.f[0];
         sp40.m[3][1] -= g_CurrentPlayer->current_model_pos.f[1];
