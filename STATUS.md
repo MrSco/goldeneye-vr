@@ -5,8 +5,12 @@ file wins — HANDOFF is a session-by-session engineering log kept for its
 reasoning, not as a statement of current state.
 
 **In one line:** the whole title sequence runs and is watchable in the headset
-with sound; gameplay has never run, but Dam now loads and spawns Bond and
-fails in the first rendered frame instead of during the load.
+with sound. Dam's satellite intro was seen once, then a guard's AI script
+crashed. The next two installs never reached that text: widening the ground
+callback grew `Model` and died in the tank setup, and after that revert the
+first tick called the same callback through a truncated address
+(`sub_GAME_7F06D490`, fault `0x35f5fbe8`) before the briefing was presented.
+The pointer now lives in a side table; `Model` is unchanged. That call held, and so did the patrol path: the satellite line and the caption after it both drew (build `3b3791a6`), then `textMeasure` faulted at `0xb64` because the caption font slot the renderer read was still null. Widening those slots to pointers reproduced the tank crash during the load (`proplvreset2`, fault `0x423000020`, build `6ea83226`) and skipped the intro; that widening is reverted. The caption now matches the stored low half against the real font pointers. The next test died on Start, in `matrix_4x4_set_lookat` (build `f3d43302`, fault `0xffffffffac19b680`): the view matrix from `dynAllocateMatrix` was stored in `player.field_64`, an `s32`, and sign-extended. The satellite lines are the briefing HUD. The dam view uses that matrix; the player struct was not widened. The matrix is kept in a local and copied into the existing pointer fields. That call held. The next test died while drawing the first prop, in `matrix_4x4_multiply_homogeneous` (build `87201a9d`, fault `0xb27105a0`): `sub_GAME_7F08BEEC` added the joint-matrix pointer as a `u32`. That add is now a full pointer. Not yet tested.
 
 Evidence is marked, because the difference has bitten this port before — a
 screen can be "working" in the logs while the headset shows black:
@@ -37,7 +41,9 @@ screen can be "working" in the logs while the headset shows black:
 
 | | What | |
 |---|---|---|
-| **open** | **Gameplay has never run.** Nine defects fixed this session; the load now completes (`lvlStageLoad done`, Bond spawned) and dies in the first rendered frame, in the portal visibility walk. A fix for that is built and installed but **untested** | [HANDOFF §13](HANDOFF.md) |
+| **seen** | Dam intro: the satellite text screen draws, then the app crashes back to the Quest home. The portal-depth fix held | |
+| **seen** | Dam intro: satellite text, then a second caption line, then a crash back to the Quest home. Build `3b3791a6` | |
+| **open** | **Gameplay has never run.** After the second caption, `textMeasure` faulted at `0xb64` because the font slot it read was null. Widening those slots reproduced the tank crash in `proplvreset2` (fault `0x423000020`) and was reverted. The installed build leaves the slots 32-bit and matches that low half to the real font pointer. Not yet tested | |
 | **open** | Mission-complete missing-return fix and other menu screens need verification; mission select is now **seen** fixed | HANDOFF 12.6 |
 | **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
 | **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
@@ -59,9 +65,11 @@ text. The library list name and icon are correct. Nothing further to do.
 defect class behind almost all of them, what is still open, and the method
 notes that actually worked.
 
-1. **Select Dam.** The build on the headset has an untested fix for the
-   portal-depth truncation at `bg.c:4026`. If it survives, the next fault is
-   somewhere new; if it does not, the tombstone names the frame.
+1. **Select Dam.** The satellite line and the caption after it have been
+   seen. The font slots are 32-bit again; widening them crashed the load
+   in the tank. The caption matches the stored low half to the real font.
+   `Model` is still the size the slot pool was built for. If it dies, the
+   tombstone names the frame.
 2. **Do not trust the log over the headset.** `lvlStageLoad done` appeared in
    the log for several builds while the user saw nothing but a crash to the
    Quest shell. This session made that mistake in writing and had to correct

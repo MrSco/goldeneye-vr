@@ -145,7 +145,7 @@ s32 chrResolveId                              (ChrRecord *self, s32 id);
 s32 sub_GAME_7F033780                         (waypoint *arg0, coord3d *arg1, f32 angle);
 s32 chrlvFindPathNeighborRelated              (coord3d *bondpos, StandTile *stan, f32 rot, u8 quadrant);
 s32 chrIsPosOffScreen                         (coord3d *arg0, StandTile *arg1);
-PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *stan, f32 angle, AIListRecord *ailist, s32 spawnflags);
+PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *stan, f32 angle, AIRecord *ailist, s32 spawnflags);
 void chrlvInitActAttack                       (ChrRecord *self, struct anim_group_info ** arg1, s32 arg2, point2d *arg3, s32 attack_type, s32 arg5, s32 arg6);
 s32 chrlvPatrolCalculateStep                  (ChrRecord *self, bool *forward, s32 numsteps);
 bool chrlvIsPosClearOfObjectBounds            (coord3d *pos, StandTile *stan);
@@ -4911,11 +4911,11 @@ bool chrGoToPad(ChrRecord *self, s32 padid, SPEED speed)
 /**
  * Address 0x7F02AD54.
 */
-bool if_actor_able_set_on_path(ChrRecord *self, s32 pathid)
+bool if_actor_able_set_on_path(ChrRecord *self, PathRecord *path)
 {
-    if (pathid && chrIsNotDeadOrShot(self))
+    if (path && chrIsNotDeadOrShot(self))
     {
-        set_actor_on_path(self, pathid);
+        set_actor_on_path(self, (struct patrol_path *)path);
         return TRUE;
     }
 
@@ -10658,7 +10658,7 @@ bool chrAdjustPosForSpawn(coord3d *pos, StandTile **arg1, f32 facing, bool allow
  * Address 0x7F03415C.
  * PD: chrSpawnAtCoord
 */
-PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *stan, f32 angle, AIListRecord *ailist, s32 spawnflags)
+PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *stan, f32 angle, AIRecord *ailist, s32 spawnflags)
 {
     PropRecord *chrprop;
     coord3d newpos; //struct copy here would have been more efficient
@@ -10707,7 +10707,7 @@ PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *s
 /**
  * Address 0x7F034258.
 */
-PropRecord *chrSpawnAtPad(ChrRecord *self, s32 bodynum, s32 headnum, s32 padid, AIListRecord *ailist, s32 flags)
+PropRecord *chrSpawnAtPad(ChrRecord *self, s32 bodynum, s32 headnum, s32 padid, AIRecord *ailist, s32 flags)
 {
     PadRecord *pad;
     padid = chrResolvePadId(self, padid);
@@ -10731,7 +10731,7 @@ PropRecord *chrSpawnAtPad(ChrRecord *self, s32 bodynum, s32 headnum, s32 padid, 
 /**
  * Address 0x7F034308.
  */
-PropRecord *chrSpawnAtChr(ChrRecord *self, s32 bodynum, s32 headnum, s32 chrnum, AIListRecord *ailist, s32 flags)
+PropRecord *chrSpawnAtChr(ChrRecord *self, s32 bodynum, s32 headnum, s32 chrnum, AIRecord *ailist, s32 flags)
 {
     ChrRecord *chr;
     chr = chrFindById(self, chrnum);
