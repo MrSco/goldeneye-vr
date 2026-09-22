@@ -892,7 +892,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         XrVector2f left = {0}, right = {0};
         get_2d_input(0, "thumbstick", &left);
         get_2d_input(1, "thumbstick", &right);
-        if (get_button_state(1, "trigger")) npad->button |= Z_TRIG;
+        // Either trigger fires (the left one was unmapped).
+        if (get_button_state(1, "trigger") || get_button_state(0, "trigger")) npad->button |= Z_TRIG;
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;
         if (get_button_state(1, "b")) npad->button |= B_BUTTON;
         if (get_button_state(0, "menu")) npad->button |= START_BUTTON;

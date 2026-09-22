@@ -693,6 +693,32 @@ s32 chraiitemsize(u8 *AIList, s32 offset)
     }
 }
 
+#ifdef GEVR
+/*
+ * D310 (gepc-ref): a PRINT record's size depends on which kind of list holds
+ * it. The global lists in chraidata.c are built with PRINT(STRING) expanding
+ * to the bare AI_PRINT byte (aicommands2.h) - the string is discarded - so
+ * the record is one byte, and chraiitemsize's NUL scan skips on into later
+ * records. m_RunToBondPersistent has one right after TRYRunToBond: its
+ * "no go!" landed on 00 00 (a phantom GotoNext(0), label not found, PC back
+ * to 0, spin) and its later walk read arguments as Label+EndList, so guards
+ * re-issued Stop every tick and stood still. Level-local lists do embed the
+ * NUL-terminated string, so the scan stays right for them. Use this at the
+ * record-walk sites instead of chraiitemsize.
+ */
+s32 chraiGetAIListID(AIRecord *AIList, bool *isGlobalAIList);
+
+static s32 d310ItemSize(u8 *AIList, s32 offset, bool isGlobalAIList)
+{
+    if (isGlobalAIList && AIList[offset] == AI_PRINT)
+    {
+        return 1;
+    }
+
+    return chraiitemsize(AIList, offset);
+}
+#endif
+
 /**
  * Get ID of AIList
  * @param AIList: Ailist to get ID of
@@ -738,6 +764,12 @@ s32 chraiGoToLabel(AIRecord *AIList, s32 Offset, u8 LabelNum)
     char *debAIListTypeString;
     bool  isGlobalAIList;
 
+#ifdef GEVR
+    bool d310global = FALSE;
+
+    /* D310: size PRINT records per list origin; resolve it once. */
+    (void)chraiGetAIListID(AIList, &d310global);
+#endif
     for (;;)
     {
         if (AIList[Offset].cmd == AI_Label)
@@ -766,7 +798,11 @@ s32 chraiGoToLabel(AIRecord *AIList, s32 Offset, u8 LabelNum)
             return 0;
         }
 
+#ifdef GEVR
+        Offset += d310ItemSize((u8 *)AIList, Offset, d310global);
+#else
         Offset += chraiitemsize(AIList, Offset);
+#endif
     }
 }
 
@@ -3310,7 +3346,17 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     }
         #endif
     #endif
+#ifdef GEVR
+                    {
+                        bool d310global = FALSE;
+
+                        /* D310: size the PRINT per list origin (see d310ItemSize). */
+                        (void)chraiGetAIListID(AiListp, &d310global);
+                        Offset += d310ItemSize(AiListp, Offset, d310global);
+                    }
+#else
                     Offset += chraiitemsize(AiListp, Offset);
+#endif
                     break;
                 }
                 case AI_MyTimerStart:
