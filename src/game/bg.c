@@ -356,7 +356,17 @@ void sub_GAME_7F0B37EC(void) {
             do {
                 portal = ptr[0];
                 while (ptr[1] >= portal) {
+#ifdef GEVR
+                    /* D128 (gepc-ref): the raw form assumes the N64's 8-byte
+                     * bg_portal_data_entry with controlbytes1 at byte 6. Here the
+                     * entry is 16 bytes (offset_portal is a host pointer), so the
+                     * write landed inside another portal's offset_portal and a
+                     * later line-of-sight walk through it faulted. Only levels
+                     * listed in specialportalarray (Control) reach this. */
+                    g_BgPortals[portal].controlbytes1 |= PORTALFLAG_SPECIAL;
+#else
                     ((u8 *)g_BgPortals)[(portal << 3) + 6] |= 2;
+#endif
                     portal++;
                 }
 
@@ -1698,7 +1708,33 @@ s32 sub_GAME_7F0B5864(s32 portalnum, bbox2d *bbox)
     }
     else
     {
-        if ((bounds.max.x <= bounds.min.x) || (bounds.max.y <= bounds.min.y))
+        s32 degenerate = (bounds.max.x <= bounds.min.x) || (bounds.max.y <= bounds.min.y);
+
+#ifdef GEVR
+        /*
+         * D106/D271 (gepc-ref): a portal straddling the camera near plane feeds
+         * z == 0 points into transform3Dto2DWithZScaling, whose inv_z of
+         * -1e20 throws them to ~1e20-scale screen coordinates. On the N64 those
+         * finite values flow through bgRectIntersect as plain comparisons -
+         * the room is kept or culled exactly as the console did - but a NaN
+         * would poison every comparison downstream. Treat only non-finite
+         * bounds as degenerate; the projection reaches ~1e26 at most, so 1e38
+         * catches NaN/inf and nothing finite. (D106's first form mapped every
+         * out-of-range bound to full screen and drew rooms the N64 culled.)
+         */
+        {
+            const f32 lim = 1e38f;
+
+            if (!(bounds.min.x > -lim && bounds.min.x < lim) ||
+                !(bounds.min.y > -lim && bounds.min.y < lim) ||
+                !(bounds.max.x > -lim && bounds.max.x < lim) ||
+                !(bounds.max.y > -lim && bounds.max.y < lim))
+            {
+                degenerate = 1;
+            }
+        }
+#endif
+        if (degenerate)
         {
             bounds.min.x = g_CurrentPlayer->screensize.min.x;
             bounds.min.y = g_CurrentPlayer->screensize.min.y;

@@ -2548,3 +2548,32 @@ order. The only such union in the headers. gepc-ref has the same code and an
 open, unexplained report (D240) that player gunshot cadence differs from the
 N64 — very likely this. Not verified in play: the input hook cannot pick up a
 KF7.
+
+## 34. Sweep: bg.c and bondview2.c (plus frametiming D155)
+
+bg.c — already handled here under other forms: D91 (u8 * slot), D312 (reads
+the G_VTX count from w0 directly), D154 and D69/D79/D85 (our own background
+conversion). Ported:
+- **D128** — sub_GAME_7F0B37EC set PORTALFLAG_SPECIAL through
+  `((u8 *)g_BgPortals)[(portal << 3) + 6]`, the N64's 8-byte stride; our
+  entry is 16 bytes, so the write landed inside another portal's
+  offset_portal pointer. Levels in specialportalarray (Control) would fault
+  on a later line-of-sight walk.
+- **D271** (D106 as revised) — portal screen bounds: only non-finite values
+  count as degenerate, so near-plane-straddling portals cull exactly as the
+  N64's comparisons did and NaN cannot poison them.
+
+bondview2.c — D140/D56 and D191 already here. Ported:
+- **D177** — Bond's movement declared `curLocus` as the 8-byte
+  move_bond_temp_struct placeholder; the stan locus functions fill a
+  StandTileLocusCallbackRecord, 24 bytes here, overrunning the stack frame.
+Everything else in bondview2.c is cutscene or timing diagnostics (D146,
+D160, D173, D193, D243, M-series).
+
+frametiming.c — **D155**: osGetCount is wall-clock, so a loading stall
+became hundreds of g_ClockTimer ticks of catch-up in one frame; capped at 6
+as the reference does. No effect at normal frame rates.
+
+Verified on device: Dam loads, walking and firing work, and the watch pages
+through the controls screen without crashing. Open: the N64 controller model
+that should sit in the middle of the controls page is not visible.

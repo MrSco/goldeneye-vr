@@ -175,3 +175,19 @@ importers' output (HANDOFF 31): padded 32-bit rows, 32-bit odd-row swizzle,
 tile windows larger than the load, and stale pointers left in the static
 image tables across stages — the last one being a fix this branch had and
 wrongly removed.
+
+
+## Third pass — bg.c, bondview2.c, chraction/chrai, frametiming
+
+| File | Ported | Already here / not applicable |
+|---|---|---|
+| bg.c | D128 (special-portal flag at N64 stride), D271 (non-finite portal bounds only) | D91, D312, D154, D69/D79/D85 handled differently; D104/D63 diagnostics |
+| bondview2.c | D177 (movement locus placeholder too small) | D140/D56, D191 present; D146/D160/D173/D193/D243/M-series diagnostics or cutscene work |
+| chraction.c | D209 (walk-speed byte alias), D210 (patrol last-seen field) | D309/D318 diagnostics |
+| chrai.c | D310 (1-byte PRINT in global AI lists) | D309 diagnostics |
+| frametiming.c | D155 (catch-up clamp) | D117/D134/D193 diagnostics |
+| gunfire.c | watch controller `(u32)` render_pos cast, knife keyframe `u32` (not in the reference: its dram.c hides them) | — |
+
+Found outside the sweep: weapon timing bytes read in reverse through the
+`RecoilSpeed`/`b44` union (the reference carries it too, as open D240), and
+an sRGB double-encode on the Quest swapchain.
