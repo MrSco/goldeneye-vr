@@ -1,5 +1,13 @@
 # Status
 
+**Latest headset result (2026-09-21): Bond reaches gameplay and can move.**
+Dam music, stable sky, and removal of rogue text are user-confirmed. Shooting
+crashed in bullet-spark rendering; its image stride and color reads are now fixed,
+built and installed, awaiting verification. Logs prove captions were skipped by
+trigger input on the first intro frame. That frame now seeds the previous input
+state, preserving later deliberate skip presses. Captions still need visual confirmation.
+See HANDOFF 17. Older observations below describe earlier APKs.
+
 **Updated 2026-09-21 (late).** Where this and [HANDOFF.md](HANDOFF.md) disagree, this
 file wins — HANDOFF is a session-by-session engineering log kept for its
 reasoning, not as a statement of current state.

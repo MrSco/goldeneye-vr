@@ -1560,3 +1560,94 @@ Read §13.6 first; it all still applies. Added since:
 - **`adb logcat -G 16M`.** The default 256 KiB buffer rolls before a test can
   be read; several dumps this session were empty of app lines for that reason.
 - **Pin the intro camera** before concluding two crashes are the same bug.
+
+
+## 15. Dam repair pass: built and installed, not yet verified in headset
+
+Changes in the current working tree:
+
+- D102: `struct hand` owns `weaponModel` and `weaponRwPool[192]`. All first-person
+  gun model references use them; `render_pos` is explicitly assigned alongside
+  `mtxlist` because the old code relied on their overlapping storage.
+- D98: `initBONDdataforPlayer` now allocates `sizeof(struct player)` on GEVR,
+  replacing the retail 0x2A80-byte allocation. This is essential with expanded
+  host records and the added weapon storage.
+- Gait model: the player's `model` is now an actual Model. `bondhead.c` uses its
+  `gunhand` and `animframe1` fields (retail offsets 0x24 and 0x28), rather than
+  the `animFlipFlag` and `field_5C0` placeholders. The existing separate gait
+  RW pool remains. Legacy placeholder fields are retained but unused here.
+- Music: `sub_GAME_7F0C0BF0` lacked `return get_mTrack2Vol()`. Mission transitions
+  passed an undefined value to the music volume setter. Return restored.
+- The attached video shows genuine mission failure messages, not unrelated
+  satellite text: satellite link destroyed, main computer damaged, objective B
+  failed. The setup converter handled TAG ID/OffsetToObj as one u32; they are
+  separate u16/s16 fields. Splitting the conversion preserves tag lookup and
+  signed relative object references. This is a concrete cause of false failures;
+  device verification is still needed.
+- Sky: our Fast3D explicitly drops G_RDPHALF_* commands, while the unchanged GE
+  sky emitted its triangles through those commands. Adapted the reference's
+  D176/D227/D245 geometry replacement, including perspective interpolation and
+  shared texture-coordinate scaling per fan. Source credit and MIT notice are
+  in CREDITS.md and docs/gepc-reference-LICENSE.txt. Its host layer is unused.
+- Captions: synthetic conversion checks preserve both camera language IDs and
+  the 56-byte host stride. Added `caption:` logs at both frozen-camera triggers
+  with text, queue count, timer and hidden flag. No confirmed caption fix yet;
+  neither the swirl change nor allocation corruption is proven to explain it.
+
+Validation: `python tools/gevr_setup_probe.py` passes on Windows x64 against the
+production converter using synthetic big-endian tag/camera records (no ROM).
+Android `assembleDebug` succeeds with existing compiler warnings. The final APK
+was installed successfully using adb; no blind launch loop was run. The device
+log ring is 16 MiB. User was asked to launch Dam and report gameplay, music,
+sky stability and both captions. None of these changes is marked seen yet.
+
+The initial APK installed during this pass preceded the player-allocation fix;
+it was superseded by a second install. Use the latest APK. Local build and
+pre-fix device logs, plus video contact sheet, are under scratchpad/.
+
+
+## 16. User confirms music, sky, and false objective text fixed
+
+The user reports Dam music plays correctly, the rogue text is gone, and the sky
+no longer flickers. Both bottom captions remain absent, and it crashes at Bond's
+view. Fresh log: scratchpad/dam-latest.log, process 23769 at 22:09:00.
+
+The D102 crash is passed. New crash is microcode_generation_ammo_related+372,
+called by generate_ammo_total_microcode. Fault address 0x02000C8C; tconfig is
+0x02000C84 (the cartridge 9mm icon address). image_bank.c already documented that
+these literal addresses still needed host resolution.
+
+Implemented texGetAmmoIcon for all 14 cartridge ammo icon identities, returning
+the real compiled sImageTableEntry arrays. Both HUD hands and the watch ammo
+screen use typed pointers and ->width instead of byte[4] (the retail layout).
+set_rgba_redirect_generate_microcode now returns the updated display-list pointer.
+Build succeeds and APK install succeeds. This new fix is not headset-verified yet.
+
+No caption: logs appeared on the failed run, so neither frozen-camera text trigger
+was reached. Added intro-mode: transitions with timer, camera pointer and ramrom
+flags, plus intro-skip: input edge and timer. Input logs show Z_TRIG near loading;
+this suggests early skipping but does not prove it. Asked user to release all
+buttons after selecting Dam; they said they will test again. Do not suppress
+skipping or claim a caption fix without checking this evidence.
+
+
+## 17. Movement works; shooting crash and first-frame intro skip
+
+User confirms Bond can move, then crashes as soon as they shoot. Log captured in
+scratchpad/dam-shoot.log: process 25116, crash at 22:14:08 in texSelect+344 from
+bullet_spark_render+1752. The sprite code still used frame*12 for sImageTableEntry
+arrays. Host entries have widened pointers; later frames read a bogus texture
+address. Changed all five accesses to one typed frameimage pointer. Also applied
+D219's adjacent fixes: zero-initialize the vertex template instead of reading a
+Vtx from a u32 global, and read color members instead of retail byte offsets.
+
+Caption evidence is now decisive: intro-mode 0 -> 1 at 22:13:53.413, then
+intro-skip timer=1.0 buttons=2000 previous=0000 on the first frame, followed by
+fade and swirl. The new player's button history starts at zero while menu trigger
+input carries through loading. On the initial frozen-intro tick (timer==0), seed
+oldbuttons from the current sample. Held selection input no longer creates a
+false rising edge; release/repress on subsequent frames still skips normally.
+
+Android assembleDebug passes; new APK installed successfully. Shooting and
+captions need user confirmation on this APK. Music, sky, rogue-text removal,
+first-person HUD, and movement have passed the previous failure points.
