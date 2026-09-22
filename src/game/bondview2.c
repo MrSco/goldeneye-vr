@@ -1090,7 +1090,22 @@ void bondviewCalcIntroSwirlCamera(s32 index, f32 time, coord3d *pos, coord3d *lo
 {
     struct SetupIntroSwirl *base;
     struct SetupIntroSwirl *loopbase;
+#ifdef GEVR
+    /*
+     * D189's second instance in the reference notes: the fill loop below
+     * starts at i = -1 and writes &pointbuf[i * 3], so it reaches
+     * pointbuf[-3], while coord3dCubicSplineInterp reads through
+     * pointbuf[9..11]. The declared [10] covers neither end.
+     *
+     * Keep every existing index by pointing into the middle of a buffer
+     * that actually spans [-3 .. 11]. The reference leaves this alone
+     * because it builds without a stack protector.
+     */
+    f32 pointbuf_storage[15];
+    f32 *const pointbuf = &pointbuf_storage[3];
+#else
     f32 pointbuf[10];
+#endif
     struct SetupIntroSwirl *swirl;
     f32 frac;
     f32 *dst;
@@ -1181,7 +1196,18 @@ void bondviewCalcIntroSwirlCamera(s32 index, f32 time, coord3d *pos, coord3d *lo
         lookat->y = g_CurrentPlayer->field_3C8;
         lookat->z = g_CurrentPlayer->field_3CC;
 
+#ifdef GEVR
+        /*
+         * (u32) on both halves truncates the swirl table's address. Also
+         * unfixed in the reference, whose RDRAM pool sits low enough that a
+         * 32-bit round trip survives; these are real heap pointers here.
+         * base is a byte offset of index << 5, and SetupIntroSwirl is all
+         * scalars - 32 bytes on both targets - so only the base changes.
+         */
+        swirl = (void *)((u8 *) g_IntroSwirl + (uintptr_t) base);
+#else
         swirl = (void *)(((u32) g_IntroSwirl) + (u32) base);
+#endif
 
         if (!(swirl->bitflags & 4))
         {
