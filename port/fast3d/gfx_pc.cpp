@@ -1206,12 +1206,34 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
 
 static void gfx_sp_pop_matrix(uint32_t count) {
     while (count--) {
-        if (rsp.modelview_matrix_stack_size > 0) {
+        /*
+         * Floor the stack at one entry. gfx_sp_reset starts it at 1 and every
+         * user indexes [size - 1] unchecked, so letting a pop reach 0 turns
+         * the next G_MTX into a 64-byte write at index -1 - which lands on
+         * tex_upload_buffer, the static declared immediately before rsp.
+         *
+         * That is how a display list popping more than it pushes surfaced:
+         * not as a wrong matrix, but as the texture upload pointer becoming
+         * 0x3f800000c3563fc0 - a matrix row, 1.0f then -214.25f - and
+         * palette_to_rgba32 faulting on the store.
+         *
+         * The RSP always has a current modelview matrix, so clamping matches
+         * the hardware. The imbalance is still a defect in the game's own
+         * display list, so report it once rather than hide it.
+         */
+        if (rsp.modelview_matrix_stack_size > 1) {
             --rsp.modelview_matrix_stack_size;
             if (rsp.modelview_matrix_stack_size > 0) {
                 gfx_matrix_mul(rsp.MP_matrix,
                                rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1],
                                rsp.P_matrix);
+            }
+        } else {
+            static bool reported = false;
+            if (!reported) {
+                reported = true;
+                sysLogPrintf(LOG_WARNING,
+                    "F3D: G_POPMTX on an empty modelview stack - the display list pops more than it pushes");
             }
         }
     }
