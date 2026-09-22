@@ -31,18 +31,18 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 
 ## Adapted or built on (specific credit)
 
-### GoldenEye PC port - **reference only**, no code vendored
+### GoldenEye PC port - reference and adapted sky renderer
 
 - **Repo:** https://github.com/jkdansereau/goldeneye-pc-port
 - **What it is:** the same GoldenEye decompilation taken to 64-bit desktop,
   with its port-specific changes fenced behind `#ifdef PORT` and a numbered
   findings ledger (`docs/dev/findings.md`, 202 findings) plus a defect-class
   document (`docs/porting-notes.md`).
-- **What we use it for:** it has already met the defect class this port keeps
-  hitting - N64 assumptions that are exact with 4-byte big-endian pointers and
-  wrong on LP64. We read its findings and its `src/` fixes as a reference and
-  port the reasoning; **no code from it is vendored here**, and its `port/`
-  host layer is not used at all (ours is Perfect Dark's).
+- **What we use it for:** 64-bit port findings and fixes, including D102
+  weapon-model storage. The sky geometry replacement in `src/game/sky.c`
+  adapts D176/D227/D245 from this port. Its host layer is not used.
+- **License for adapted code:** Copyright (c) 2026 James Dansereau,
+  [MIT license](docs/gepc-reference-LICENSE.txt).
 - **Worklist:** [docs/gepc-port-worklist.md](docs/gepc-port-worklist.md) is a
   generated index of all 429 of its `#ifdef PORT` sites.
 
