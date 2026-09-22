@@ -2520,3 +2520,17 @@ Verified on device: SELECT FILE complete, ammo icon still clean, Dam and
 firing unchanged. The eraser's white edge remains: the icons wrap in S and
 rectangles get no half-texel filter offset, so edge samples blend with the
 opposite column. gepc-ref behaves the same; left as a known item.
+
+### 33.5 Too bright: every colour was gamma-encoded twice (vr_openxr.cpp)
+
+Measured, not eyeballed: a temporary switch filled the screen swapchain with
+exact 128 grey and the metacam capture read 188 — linear_to_srgb(0.502).
+The game's colours are already display-encoded; on Android the port picked
+a GL_RGBA8 swapchain, which the Quest compositor reads as linear and encodes
+again. The desktop path already preferred GL_SRGB8_ALPHA8 with raw writes,
+and the framebuffer-effect blit's linear_to_srgb only makes sense with that.
+Android now does the same when the driver has GL_EXT_sRGB_write_control
+(Quest does): SRGB8_ALPHA8, with GL_FRAMEBUFFER_SRGB_EXT disabled so writes
+stay raw. Without the extension it falls back to the old order. Re-measured:
+128 in, 128 out. The Dam now has its dusk-blue sky and dark rock instead of a
+washed-out grey.

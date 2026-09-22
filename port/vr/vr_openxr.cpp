@@ -909,6 +909,28 @@ static int64_t vr_pick_swapchain_format()
 
 
 #ifdef ANDROID
+    /*
+     * The game's colours are already display-encoded (sRGB). The compositor
+     * reads a UNORM swapchain (GL_RGBA8) as linear and encodes it again on
+     * output: measured on device, a 128 grey came out as 188 - the whole game
+     * too bright. An sRGB swapchain is decoded correctly, which is also what
+     * the desktop build (below) and the framebuffer-effect blit's
+     * linear_to_srgb assume. GLES encodes every write to an sRGB target unless
+     * EXT_sRGB_write_control switches that off, so take the sRGB format only
+     * when the extension is there (then writes are raw), and fall back to the
+     * old order without it.
+     */
+    static int srgbWriteControl = -1;
+    if (srgbWriteControl < 0) {
+        const char *ext = (const char *)glGetString(GL_EXTENSIONS);
+        srgbWriteControl = ext && strstr(ext, "GL_EXT_sRGB_write_control") ? 1 : 0;
+        LOGI("sRGB write control %s", srgbWriteControl ? "available" : "missing");
+    }
+    if (srgbWriteControl && vr_format_supported(formats, (int64_t)GL_SRGB8_ALPHA8)) {
+        glDisable(0x8DB9 /* GL_FRAMEBUFFER_SRGB_EXT */);
+        LOGI("picked format=0x%llx (sRGB, writes raw)", (unsigned long long)GL_SRGB8_ALPHA8);
+        return (int64_t)GL_SRGB8_ALPHA8;
+    }
     const int64_t preferred[] = {
             (int64_t)GL_RGBA8,
             (int64_t)GL_RGB10_A2,
