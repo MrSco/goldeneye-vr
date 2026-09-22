@@ -292,13 +292,16 @@ static void gevrPollInjectedInput(void)
 	}
 	{
 		FILE *f = fopen(path, "r");
-		unsigned mask = 0; int x = 0, y = 0;
+		unsigned mask = 0; int x = 0, y = 0, frames = 4;
 		if (!f) {
 			return;
 		}
-		if (fscanf(f, "%x %d %d", &mask, &x, &y) >= 1) {
-			gevrInjectButtons = (u16)mask; gevrInjectX = (s8)x; gevrInjectY = (s8)y; gevrInjectFrames = 4;
-			sysLogPrintf(LOG_NOTE, "input: injecting buttons %04x stick %d,%d for 4 frames", mask, x, y);
+		/* optional 4th field: how many frames to hold, e.g. "0010 0 0 120" to aim */
+		if (fscanf(f, "%x %d %d %d", &mask, &x, &y, &frames) >= 1) {
+			if (frames < 1) frames = 1;
+			if (frames > 600) frames = 600;
+			gevrInjectButtons = (u16)mask; gevrInjectX = (s8)x; gevrInjectY = (s8)y; gevrInjectFrames = frames;
+			sysLogPrintf(LOG_NOTE, "input: injecting buttons %04x stick %d,%d for %d frames", mask, x, y, frames);
 		}
 		fclose(f);
 		unlink(path);

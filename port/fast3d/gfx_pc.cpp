@@ -722,6 +722,69 @@ void gfx_texture_cache_delete(const uint8_t* orig_addr) {
 }
 
 
+#ifdef GEVR
+/*
+ * Debug texture dump. Off unless /sdcard/Android/data/com.gevr.port/files/
+ * gevr_texdump exists (re-checked every 64 uploads, so it can be switched on
+ * mid-level). Each distinct native
+ * texture (by source address, format and size) is written once as a PAM
+ * (RGBA) under files/texdump/, capped at 96 files, so what the importer
+ * actually produced can be looked at instead of guessed from a screenshot.
+ */
+#include <sys/stat.h>
+static const uint8_t *s_dumpAddr;
+static uint8_t s_dumpFmt, s_dumpSiz;
+static int s_dumpTile;
+
+static void gevr_upload_native(uint32_t width, uint32_t height) {
+    static int enabled = 0;
+    static unsigned checks;
+    static unsigned count;
+    static struct { const uint8_t *addr; uint8_t fmt, siz; uint32_t w, h; } seen[96];
+    /* re-check the trigger now and then, so it can be switched on mid-level */
+    if (!enabled && (checks++ % 64) == 0) {
+        struct stat st;
+        enabled = stat("/sdcard/Android/data/com.gevr.port/files/gevr_texdump", &st) == 0;
+        if (enabled) {
+            mkdir("/sdcard/Android/data/com.gevr.port/files/texdump", 0777);
+            sysLogPrintf(LOG_NOTE, "texdump: enabled");
+        }
+    }
+    if (enabled && count < 96 && width && height && width <= 256 && height <= 256) {
+        bool isnew = true;
+        for (unsigned k = 0; k < count; ++k) {
+            if (seen[k].addr == s_dumpAddr && seen[k].fmt == s_dumpFmt && seen[k].siz == s_dumpSiz
+                    && seen[k].w == width && seen[k].h == height) { isnew = false; break; }
+        }
+        if (isnew) {
+            char path[256];
+            seen[count].addr = s_dumpAddr; seen[count].fmt = s_dumpFmt; seen[count].siz = s_dumpSiz;
+            seen[count].w = width; seen[count].h = height;
+            snprintf(path, sizeof(path),
+                "/sdcard/Android/data/com.gevr.port/files/texdump/%03u_f%u_s%u_%ux%u_t%d_%p.pam",
+                count, (unsigned)s_dumpFmt, (unsigned)s_dumpSiz, (unsigned)width, (unsigned)height,
+                s_dumpTile, (const void *)s_dumpAddr);
+            count++;
+            FILE *f = fopen(path, "wb");
+            if (f) {
+                fprintf(f, "P7\nWIDTH %u\nHEIGHT %u\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n",
+                        (unsigned)width, (unsigned)height);
+                fwrite(tex_upload_buffer, 4, (size_t)width * height, f);
+                fclose(f);
+                sysLogPrintf(LOG_NOTE, "texdump: %s tile_line=%u uls=%u ult=%u lrs=%u lrt=%u palfmt=%u",
+                    path, (unsigned)rdp.texture_tile[s_dumpTile].line_size_bytes,
+                    (unsigned)rdp.texture_tile[s_dumpTile].uls, (unsigned)rdp.texture_tile[s_dumpTile].ult,
+                    (unsigned)rdp.texture_tile[s_dumpTile].lrs, (unsigned)rdp.texture_tile[s_dumpTile].lrt,
+                    (unsigned)rdp.palette_fmt);
+            }
+        }
+    }
+    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+}
+#else
+#define gevr_upload_native(w, h) gfx_rapi->upload_texture(tex_upload_buffer, (w), (h))
+#endif
+
 static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
     const uint8_t* addr = loaded_texture.addr;
 	const uint32_t width = rdp.texture_tile[tile].width;
@@ -741,13 +804,36 @@ static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture,
         dest[3] = a ? 255 : 0;
     }
 
-    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+    gevr_upload_native(width, height);
 }
 
 static void import_texture_rgba32(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
     const uint8_t* addr = loaded_texture.addr;
-	const uint32_t width = rdp.texture_tile[tile].width;
-	const uint32_t height = rdp.texture_tile[tile].height;
+	uint32_t width = rdp.texture_tile[tile].width;
+	uint32_t height = rdp.texture_tile[tile].height;
+#ifdef GEVR
+    /*
+     * A 32-bit texture's rows are padded to the TMEM line. The 9mm ammo icon
+     * is 5x12 but its LOADBLOCK holds 12 rows of 8 texels (tile line 16 bytes
+     * per TMEM half, 384 bytes in all), so copying 5-texel rows contiguously
+     * slid every row three texels further off: the HUD ammo icons came out as
+     * scrambled brass. importTextureNative's row unpacking skips 32-bit, and
+     * gfx_sp_tri1 already normalises this tile's UVs against the loaded block
+     * (line / 2 wide, orig_size_bytes / line / 2 tall). Upload that same block
+     * - which is also how gepc-ref sizes this importer - so upload and UVs
+     * agree and the padding columns are never sampled. Only padded block loads
+     * change; an unpadded tile (the 32-wide crosshair) keeps its dimensions.
+     */
+    if (!loaded_texture.loaded_by_tile && rdp.texture_tile[tile].line_size_bytes != 0) {
+        const uint32_t line = rdp.texture_tile[tile].line_size_bytes;
+        const uint32_t block_w = line / 2;
+        const uint32_t block_h = loaded_texture.orig_size_bytes / line / 2;
+        if (block_w > width && block_h != 0 && block_w * block_h * 4 <= loaded_texture.size_bytes) {
+            width = block_w;
+            height = block_h;
+        }
+    }
+#endif
 	const uint32_t size_bytes = width * height * 4;
 
     uint32_t *dest = (uint32_t *)tex_upload_buffer;
@@ -756,7 +842,7 @@ static void import_texture_rgba32(int tile, const LoadedTexture& loaded_texture,
         *dest = PD_BE32(*src);
     }
 
-    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+    gevr_upload_native(width, height);
 }
 
 static void import_texture_ia4(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
@@ -778,7 +864,7 @@ static void import_texture_ia4(int tile, const LoadedTexture& loaded_texture, bo
         dest[3] = alpha ? 255 : 0;
     }
 
-    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+    gevr_upload_native(width, height);
 }
 
 static void import_texture_ia8(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
@@ -797,7 +883,7 @@ static void import_texture_ia8(int tile, const LoadedTexture& loaded_texture, bo
         dest[3] = alpha;
     }
 
-    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+    gevr_upload_native(width, height);
 }
 
 static void import_texture_ia16(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
@@ -816,7 +902,7 @@ static void import_texture_ia16(int tile, const LoadedTexture& loaded_texture, b
         dest[3] = alpha;
     }
 
-    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+    gevr_upload_native(width, height);
 }
 
 static void import_texture_i4(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
@@ -836,7 +922,7 @@ static void import_texture_i4(int tile, const LoadedTexture& loaded_texture, boo
         dest[3] = intensity;
     }
 
-    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+    gevr_upload_native(width, height);
 }
 
 static void import_texture_i8(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
@@ -854,7 +940,7 @@ static void import_texture_i8(int tile, const LoadedTexture& loaded_texture, boo
         dest[3] = intensity;
     }
 
-    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+    gevr_upload_native(width, height);
 }
 
 static inline void palette_to_rgba32(const uint16_t palentry, uint8_t *rgba32_buf) {
@@ -909,7 +995,7 @@ static void import_texture_ci4(int tile, const LoadedTexture& loaded_texture, bo
 		src += line_size;
 	}
 
-    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+    gevr_upload_native(width, height);
 }
 
 static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
@@ -923,7 +1009,7 @@ static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bo
 		palette_to_rgba32(rdp.palette[idx], tex_upload_buffer + 4 * i);
 	}
 
-    gfx_rapi->upload_texture(tex_upload_buffer, width, height);
+    gevr_upload_native(width, height);
 }
 
 
@@ -955,8 +1041,7 @@ static void importTextureNative(int tile, const LoadedTexture &loadedtexturein, 
      * is stored that way in the cartridge). The texture unit swaps them back
      * when it samples. Reading the bytes linearly, as the importers below do,
      * gave every such texture a halftone grid. Undo the swap here for those
-     * loads. 32-bit textures split across TMEM banks differently and are left
-     * alone.
+     * loads. 32-bit textures use a different swap and are handled below.
      */
     LoadedTexture unswizzled;
     const LoadedTexture* src = &loadedtexturein;
@@ -975,7 +1060,46 @@ static void importTextureNative(int tile, const LoadedTexture &loadedtexturein, 
             src = &unswizzled;
         }
     }
+#ifdef GEVR
+    /*
+     * 32-bit textures are swizzled too, in a different pattern: for RGBA32 and
+     * RGB24, texSwapAltRowBytes (image.c) swaps words 0<->2 and 1<->3 in each
+     * 16-byte group of every odd row - i.e. the two 8-byte texel pairs. Left
+     * as is, every other row of the muzzle flash / flare came out broken into
+     * dashes. Undo exactly that, keeping the row pitch unchanged so
+     * import_texture_rgba32's own sizing (including its padded-row case)
+     * still applies.
+     */
+    if (siz == G_IM_SIZ_32b && loadedtexturein.addr && loadedtexturein.tmem_swizzled) {
+        static uint8_t sUnswizzled32[16384];
+        const uint32_t pitch = loadedtexturein.loaded_by_tile
+                ? loadedtexturein.full_image_line_size_bytes : rdp.texture_tile[tile].line_size_bytes * 2;
+        const uint32_t total = loadedtexturein.size_bytes;
+        if (pitch >= 16 && (pitch % 16) == 0 && total >= pitch && total <= sizeof(sUnswizzled32)) {
+            const uint32_t rows = total / pitch;
+            memcpy(sUnswizzled32, loadedtexturein.addr, total);
+            for (uint32_t y = 1; y < rows; y += 2) {
+                uint8_t *row = sUnswizzled32 + y * pitch;
+                for (uint32_t x = 0; x + 16 <= pitch; x += 16) {
+                    uint8_t tmp[8];
+                    memcpy(tmp, row + x, 8);
+                    memcpy(row + x, row + x + 8, 8);
+                    memcpy(row + x + 8, tmp, 8);
+                }
+            }
+            unswizzled = loadedtexturein;
+            unswizzled.addr = sUnswizzled32;
+            src = &unswizzled;
+        }
+    }
+#endif
     const LoadedTexture& loadedtexture = *src;
+#ifdef GEVR
+    s_dumpAddr = loadedtexturein.addr;
+    s_dumpFmt = fmt;
+    s_dumpSiz = siz;
+    s_dumpTile = tile;
+#endif
 
     if (fmt == G_IM_FMT_RGBA) {
         if (siz == G_IM_SIZ_16b) import_texture_rgba16(tile, loadedtexture, isrect);
@@ -1008,31 +1132,6 @@ static void import_texture(int i, int tile, bool is_rect) {
     const uint32_t tex_flags = loaded_texture.tex_flags;
     const uint8_t palette_index = rdp.texture_tile[tile].palette;
 
-    /*
-     * A tile window whose lower edge sits above its upper edge is not an
-     * extent. GE's water/sky quad binds tile 0 and tile 1 to one TMEM image
-     * and offsets tile 1's uls/ult past lrs/lrt to move its sample point
-     * (sky.c, sub_GAME_7F09343C), so (lrs - uls + 4) / 4 goes negative and
-     * wraps to ~65500 in the u16 field. The importers size their reads from
-     * that, and ran off the end of the source: SIGSEGV on the Dam's first
-     * frames, drifting by one texel per frame with the scroll.
-     *
-     * Size those tiles the way gepc-ref sizes every texture, from the loaded
-     * block, so the read stays inside its source. Only the nonsense case is
-     * touched; every sane tile keeps its SETTILESIZE dimensions.
-     */
-    if (rdp.texture_tile[tile].lrs < rdp.texture_tile[tile].uls
-            || rdp.texture_tile[tile].lrt < rdp.texture_tile[tile].ult) {
-        const uint32_t row = rdp.texture_tile[tile].line_size_bytes;
-        const uint32_t bits = 4u << rdp.texture_tile[tile].siz;
-        if (row && loaded_texture.size_bytes) {
-            rdp.texture_tile[tile].width = row * 8 / bits;
-            rdp.texture_tile[tile].height = loaded_texture.size_bytes / row;
-        } else {
-            rdp.texture_tile[tile].width = 0;
-            rdp.texture_tile[tile].height = 0;
-        }
-    }
 
     // D74 was tried here (keeping a LOD tile's own LOADBLOCK/LOADTILE source
     // instead of miplevel 0) and crashed the Dam on load: the importers size
@@ -1052,6 +1151,46 @@ static void import_texture(int i, int tile, bool is_rect) {
             loaded_texture.full_size_bytes <<= 1;
         }
         loaded_texture.orig_size_bytes = loaded_texture.size_bytes;
+    }
+
+    /*
+     * Upload what was loaded, not a window bigger than it.
+     *
+     * The importers size their reads from the SETTILESIZE window; gfx_sp_tri1
+     * normalises UVs against the loaded block (below, per texel size). Where
+     * the window is larger than the block the two disagree and the importer
+     * reads past the image:
+     *  - GE's water/sky quad offsets tile 1's uls/ult past lrs/lrt to move its
+     *    sample point (sky.c, sub_GAME_7F09343C), so (lrs - uls + 4) / 4 wraps
+     *    to ~65500 in the u16 width: SIGSEGV on the Dam's first frames.
+     *  - The two-tile smoke/fire effect draws tile 1 (RGBA16, TMEM line 32 =
+     *    16 texels) through a 56x56 window; the N64 repeats the 16-wide image
+     *    with the tile mask. Reading 56-wide rows gave tiled, sheared blobs.
+     * In both, uploading the loaded block is what the UVs already assume, and
+     * WRAP repeats it as the RDP does. A window no larger than the block (the
+     * normal case, and the 1x1 sentinel) is left alone.
+     */
+    {
+        auto& t = rdp.texture_tile[tile];
+        const bool negative = t.lrs < t.uls || t.lrt < t.ult;
+        uint32_t line = t.line_size_bytes;
+        if (line != 0 && loaded_texture.orig_size_bytes != 0
+                && (negative || !loaded_texture.loaded_by_tile)) {
+            uint32_t bw, bh = loaded_texture.orig_size_bytes / line;
+            switch (t.siz) {
+                case G_IM_SIZ_4b:  bw = line * 2; break;
+                case G_IM_SIZ_8b:  bw = line; break;
+                case G_IM_SIZ_16b: bw = line / 2; break;
+                default:           bw = line / 2; bh /= 2; break; /* 32b: TMEM halves */
+            }
+            if (bw != 0 && bh != 0 && (negative || t.width > bw || t.height > bh)) {
+                t.width = bw;
+                t.height = bh;
+            }
+        } else if (negative) {
+            t.width = 0;
+            t.height = 0;
+        }
     }
 
 #ifdef GEVR

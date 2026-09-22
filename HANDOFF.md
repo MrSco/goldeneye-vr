@@ -2344,3 +2344,99 @@ same one the PP7 demonstrates.
 Still open: crosshair, smoke and HUD brightness. Any gun that previously hit
 the "no room" bail may also have been fixed by this; worth a look at every
 weapon.
+
+## 31. Padlock, ammo icon, smoke, impacts, crosshair — and §24 was wrong
+
+User report: textures still wrong (crosshair, HUD bullet, smoke, bullet hits);
+can't shoot the padlock past the guard house. All found with evidence rather
+than screenshots, using two new tools:
+
+- **Input hook frame count** (port/src/libultra.c): gevr_input.txt takes an
+  optional fourth field, frames to hold — `0010 0 0 300` aims for five
+  seconds. Needed for anything that must be held.
+- **Texture dumper** (port/fast3d/gfx_pc.cpp, `gevr_upload_native`): every
+  native import goes through it. Off unless
+  `/sdcard/Android/data/com.gevr.port/files/gevr_texdump` exists; re-checked
+  every 64 uploads so it can be switched on mid-level. Writes each distinct
+  texture once as a PAM under files/texdump/ (cap 96) and logs its tile.
+  `scratchpad/sheet.py` (session scratch) renders a contact sheet: composite,
+  raw RGB, alpha. This is how every texture fix below was found and checked.
+
+### 31.1 Padlock — D135, the object bullet-hit parser (propobj.c)
+
+`bgTestHitOnObj` walks an object's display list for triangles to ray-test.
+It read the opcode as `*(s8 *)gdl` — the wrong byte of a 16-byte host Gfx —
+indexed vertices and triangle nibbles as N64 byte offsets, and recovered the
+texture number through `*(u16 *)(padC | 0x80000000)`, a KSEG0 address that
+faults on the host. It could never find a triangle, so shots passed through
+every object; guards die through a different path, which is why only props
+were immune. Ported gepc-ref's D135 (read `words.w0`/`w1`, generic hit for
+texnum) with one adaptation: our model converter tags segmented addresses
+with bit 0 (gevr_model.c convertGdl), so the vertex offset is masked
+`0x00fffffe` as seg_addr does, not the reference's `0x00ffffff`.
+
+Probes confirmed shots reach `sub_GAME_7F04E720` for on-screen objects. The
+padlock itself is out of reach of the input hook, so it is not verified.
+
+### 31.2 HUD ammo icon — padded 32-bit rows
+
+The 9mm icon is 5x12 RGBA32 but its LOADBLOCK holds 12 rows of 8 texels
+(probe: tile line 16, 384 bytes). `import_texture_rgba32` copied 5-texel rows
+contiguously, sliding each row three texels. gfx_sp_tri1 already normalises
+UVs against the 8x12 block, so for a padded 32-bit block load the importer
+now uploads the block (also how gepc-ref sizes it). Unpadded tiles — the
+32-wide crosshair — are unchanged. Verified: a clean brass cartridge.
+
+### 31.3 Smoke, impacts, crosshair decay — stale image tables (§24 reversed)
+
+A probe in texSelect showed six consecutive smoke entries with headers
+reading 0 and 0x3000 and `texFindInPool` failing, at addresses *below* the
+Dam's texture pool. The title screen is a stage and runs texReset first; it
+patches the static `s_*images` tables with pointers into the title's pool.
+At the Dam's texReset `texLoad` sees a pointer, treats it as loaded, and
+skips — so smoke pointed into freed title memory for the rest of the game,
+and lazily-loaded tables (crosshair, impacts) went stale on the next stage.
+
+That is exactly what `gevrResetStaticTextureIds` (§22.4) fixed, and **§24
+removed it on a wrong diagnosis**: the Dam crash it was blamed for was the
+negative tile window found in §25, and its objection — that lazily used
+tables would hand raw ids to the renderer — was also wrong, because
+`texSelect` checks `index < NUM_TEXTURES` and loads on demand. Restored
+verbatim from a2ade78. After it: zero texSelect misses, smoke entries read
+texnums 2176..2181 in sequence, and every one resolves into the Dam's pool.
+The proper long-term form is still gepc-ref's per-stage segment copy.
+
+### 31.4 D95 — master display list overran every frame (dyn.c)
+
+The -mgfx budget is in bytes for 8-byte N64 Gfx; host Gfx is 16. `gdl++`
+has no bounds check, so the display list ran off g_GfxBuffers[1]/[2] into the
+per-frame vertex/matrix buffers and, in busy scenes, beyond. Ported gepc-ref
+D95: scale by sizeof(Gfx)/8. Not the cause of 31.3 on its own, but a real
+per-frame overrun.
+
+### 31.5 Muzzle flash — 32-bit odd-row swizzle
+
+For RGBA32/RGB24 texSwapAltRowBytes swaps words 0<->2 and 1<->3 in every
+16-byte group of odd rows; importTextureNative only undid the 4-byte pattern
+and skipped 32-bit. Added the 32-bit undo, keeping the row pitch so the
+importer's own sizing applies. Verified: the muzzle flash is a clean flame
+where every other row was dashes.
+
+### 31.6 Tile windows larger than the load
+
+Replaced §25's negative-window fixup with one rule, placed after the LOD
+fallback has finalised `loaded_texture`: if the SETTILESIZE window is wider
+or taller than the loaded block, size the tile from the block using exactly
+gfx_sp_tri1's per-size formula (32-bit: line/2 by size/line/2). Covers §25's
+sky quad and the smoke/fire effect's tile 1 (RGBA16, 16-texel rows through a
+56x56 window, which the N64 repeats with the tile mask). Reading a window
+bigger than the load is always an over-read, so no correct case changes.
+
+### 31.7 Verified on device
+
+Difficulty screen, Dam overview and firing: no regressions; an impact is now
+a dust puff with rock debris instead of a translucent noisy square.
+
+Still open: texture 086 in the dumps (32x32 IA8, noisy with an 8x8 alpha
+grid) — unidentified, may be genuine. Tile 1 of the fire effect shows a
+thin strip of row padding on its right edge.
