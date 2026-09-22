@@ -55,6 +55,7 @@ void set_missionstate(MISSION_STATE_ID arg0)
 {
     s32 old_mission_state = mission_state;
 
+
     mission_state = arg0;
 
     switch (old_mission_state)

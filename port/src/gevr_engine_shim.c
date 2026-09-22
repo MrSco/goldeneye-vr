@@ -28,6 +28,7 @@
 #include "video.h"
 #include "gevr_sched.h"
 #include "gevr_rom_segments.h"
+#include <music.h> /* musicFadeTick: the retrace-driven music cross-fade */
 
 /* ---------------------------------------------------------------- video */
 
@@ -347,6 +348,17 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	if (g_ContInputMessageQueue.validCount == 0) {
 		osContStartReadData(&g_ContInputMessageQueue);
 	}
+
+	/*
+	 * __scHandleRetrace() called this right after joyPoll(), and nothing in
+	 * this port did. musicTrack*FadeOut/FadeIn only record a fade; the volume
+	 * ramp and the alCSPStop that ends a fade-out live here, so every fade in
+	 * the game was set and never run -- opening the watch started the pause
+	 * track with the level track still at full volume under it, and closing
+	 * it left the pause track playing. One tick per retrace, which is what
+	 * FADE_FRAMERATE counts.
+	 */
+	musicFadeTick();
 
 
 	/*
