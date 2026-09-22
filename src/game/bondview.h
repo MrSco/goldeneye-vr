@@ -256,6 +256,9 @@ struct hand
   s32 field_C04;
   s32 volley;  // Number of bullets discharged in a row. For pistols, it's always 1 even if the fire button is held.
   coord3d item_related;
+  /* D102: host Model and RW records need independent storage. */
+  Model weaponModel;
+  u32 weaponRwPool[192];
 };
 
 typedef struct InvItem {
@@ -900,7 +903,7 @@ struct player
 
   // offset 0x594
   s32 standcnt;
-  Model *model;
+  Model model;
   s32 field_59C;
   s32 field_5A0;
   s32 field_5A4;

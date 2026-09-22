@@ -41,7 +41,7 @@ void bheadSetdamp(f32 headdamp);
 
 void bheadFlipAnimation()
 {
-    g_CurrentPlayer->animFlipFlag = !g_CurrentPlayer->animFlipFlag;
+    g_CurrentPlayer->model.gunhand = !g_CurrentPlayer->model.gunhand;
 }
 
 void bheadUpdateIdleRoll()
@@ -410,7 +410,7 @@ void bheadAdjustAnimation(f32 speed)
 
                 if (g_CurrentPlayer->headanim >= 0)
                 {
-                    startframe = (g_CurrentPlayer->field_5C0 - g_BondMoveAnimationSetup[g_CurrentPlayer->headanim].loopframe)
+                    startframe = (g_CurrentPlayer->model.animframe1 - g_BondMoveAnimationSetup[g_CurrentPlayer->headanim].loopframe)
                         / (g_BondMoveAnimationSetup[g_CurrentPlayer->headanim].endframe - g_BondMoveAnimationSetup[g_CurrentPlayer->headanim].loopframe);
 
                     startframe = g_BondMoveAnimationSetup[i].loopframe + ((g_BondMoveAnimationSetup[i].endframe - g_BondMoveAnimationSetup[i].loopframe) * startframe);
@@ -420,7 +420,7 @@ void bheadAdjustAnimation(f32 speed)
                     &g_CurrentPlayer->model,
                     // match hack: addu address backwards
                     (struct ModelAnimation *) ((s32)g_BondMoveAnimationSetup[i].anim_id + (uintptr_t)&ptr_animation_table->data),
-                    (s32) g_CurrentPlayer->animFlipFlag,
+                    (s32) g_CurrentPlayer->model.gunhand,
                     startframe,
                     0.5f,
                     12.0f);
