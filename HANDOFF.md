@@ -2169,33 +2169,66 @@ Gun and hand textures render near-white in gameplay (see
 scratchpad/watch-open.jpg) — the user's "pp9, crosshair, brightness, smoke"
 report. Nothing in §25 or §26 touches that; it is the next piece of work.
 
-## 27. Pause music played over the level music: musicFadeTick was never called
+## 27. Pause music played over the level music: musicFadeTick never ran
 
 User report: opening the watch starts the pause track while the level track
-keeps playing.
+keeps playing, and closing it leaves the pause track playing under the level
+track.
 
-The state machine is intact. `set_missionstate` 1 -> 3 (mp_music.c) does
-`musicTrack2Play(0x18)` and `musicTrack1FadeOut(0.5f)`, which is exactly the
-stock behaviour. But `musicTrack1FadeOut` only *records* the fade — target
-volume, remaining frames, `MUSIC_FADESTATE_FADE_OUT` — and the ramp, plus
-the `alCSPStop` that silences the track at the end, live in
-`musicFadeTick()` (src/music.c). Grepping for `MUSIC_FADESTATE_FADE_OUT`
-showed it set in three places and read in none.
+The state machine is intact. `set_missionstate` 1 -> 3 does
+`musicTrack2Play(0x18)` + `musicTrack1FadeOut(0.5f)`, and 3 -> 1 does
+`musicTrack1FadeIn(1.0f, ...)` + `musicTrack2FadeOut(1.0f)` — exactly the
+stock behaviour, both confirmed firing on device. But those functions only
+*record* a fade: target volume, remaining frames, `MUSIC_FADESTATE_FADE_OUT`.
+The volume ramp, and the `alCSPStop` that silences a track at the end of a
+fade-out, live in `musicFadeTick()` (src/music.c). Grepping showed
+`MUSIC_FADESTATE_FADE_OUT` set in three places and read in none.
 
 On the N64 `musicFadeTick()` is called from `__scHandleRetrace`
-(src/sched.c:322), right after `joyPoll()`. This port replaced that handler
-with Perfect Dark's `schedEndFrame` (port/src/pdsched.c), which never picked
-it up, so every fade in the game was set and then left alone: the level
-track stayed at full volume for the whole pause and never stopped.
+(src/sched.c:322), right after `joyPoll()`.
 
-`schedEndFrame` now calls it once per retrace, next to `sndHandleRetrace()`,
-which is what `FADE_FRAMERATE` counts. This affects every cross-fade, not
-just the watch — mission start/end, the 1->2 X-track swaps and the fade-ins
-on the way back all depended on the same tick.
+**First attempt was wrong**: I added the call to Perfect Dark's
+`schedEndFrame` in port/src/pdsched.c, which CMakeLists.txt:216 filters out
+of the build entirely — dead code, and the device showed no change. The live
+retrace handler is in port/src/gevr_engine_shim.c, the one that already
+carries a comment about `joyPoll()` having run from the scheduler's retrace
+handler on the N64. The call now sits directly after it, one tick per
+retrace, which is what `FADE_FRAMERATE` counts.
 
-Not verified by ear: I have no audio capture from the headset, only that the
-build installs, the Dam loads and the watch opens without crashing. The user
-has to confirm the swap sounds right.
+Verified on device with a bounded probe before removing it:
+
+```
+missionstate: 1 -> 3
+musicfade: t1 state=-1 left=26 vol=28399 -> 0 | t2 state=0 vol=32767
+musicfade: t1 state=-1 left=25 vol=27307 -> 0 | t2 state=0 vol=32767
+...
+musicfade: t1 state=-1 left=7  vol=7651  -> 0 | t2 state=0 vol=32767
+missionstate: 3 -> 1
+```
+
+Track 1 ramps to zero over half a second while the pause track holds at
+full. Both directions run through the same tick.
+
+This affects every cross-fade in the game, not just the watch — mission
+start/end, the 1 <-> 2 X-track swaps and the fade-ins on the way back all
+depended on it.
+
+Lesson worth keeping: before wiring anything into a port/src file, check
+CMakeLists.txt:216 — pdmain, pdsched, communityart, mpsetups, optionsmenu
+and preprocess are all excluded. An edit there builds clean and does nothing.
 
 Noticed in passing and left alone: `model GwppksilZ: no room to rewrite its
 display lists (file 25264 bytes, allocation 30000)` on the silenced PP7.
+
+## 28. Still open
+
+Gun, hand and HUD textures render near-white in gameplay (see
+scratchpad/watch-open.jpg) — the user's "pp9, crosshair, brightness, smoke"
+report. Nothing in sections 25 to 27 touches it.
+
+The post-mission screen has not been re-verified on hardware; see 26.1.
+
+Recommended next move: D140 and D264 were both sitting in gepc-ref behind
+`#ifdef PORT` and had simply never been swept into this tree. A systematic
+pass over gepc-ref's PORT guards, rather than case-by-case debugging, is
+likely to find the texture defects too.

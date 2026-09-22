@@ -25,7 +25,6 @@
 #include "audio.h"
 #include "input.h"
 #include "mixer.h"
-#include "music.h" /* musicFadeTick: the retrace-driven music cross-fade */
 
 /*
  * private typedefs and defines
@@ -296,17 +295,6 @@ void schedEndFrame(OSSched *sc)
 	joy00014238();
 
 	sndHandleRetrace();
-
-	/*
-	 * GEVR: the N64 scheduler ticked the music cross-fade from
-	 * __scHandleRetrace (src/sched.c), right after polling the controller.
-	 * This scheduler replaced that handler, so every musicTrackNFadeOut /
-	 * FadeIn set its state and nothing ever ran the ramp: opening the watch
-	 * started the pause track while the level track kept playing at full
-	 * volume, and the alCSPStop at the end of a fade-out never happened.
-	 * One tick per retrace, which is what FADE_FRAMERATE counts.
-	 */
-	musicFadeTick();
 
 	schedAudioFrame(sc);
 	schedRenderCrashPeriodically(sc->frameCount);
