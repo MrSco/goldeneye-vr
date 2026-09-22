@@ -28,6 +28,8 @@ typedef struct ModelGroupMtxBuildArg {
 
 // forward declarations
 void modelSetAnimFrame2WithChrStuff(struct Model *model, f32 framea, f32 frameb, f32 frame2a, f32 frame2b);
+typedef s32 (*GevrModelGroundFn)(Model *model, coord3d *src, coord3d *dst, f32 *ground);
+static GevrModelGroundFn gevrModelGroundFn(Model *model);
 
 
 
@@ -1105,9 +1107,18 @@ void sub_GAME_7F06D490(Model *model, ModelNode *modelNode)
     sp2c.y = sp38.y;
     sp2c.z = sp38.z;
 
-    if (model->unka0 && !((s32 (*)(Model *, coord3d *, coord3d *, f32 *)) model->unka0)(model, &rw->Header.pos, &sp2c, &rw->Header.ground))
+    if (model->unka0)
     {
-        return;
+        /*
+         * unka0 is still an s32 so Model stays the size the slot pool was
+         * built for. The real callback lives in the side table; the field
+         * only records that one was registered.
+         */
+        s32 (*groundfn)(Model *, coord3d *, coord3d *, f32 *) = gevrModelGroundFn(model);
+        if (groundfn != NULL && !groundfn(model, &rw->Header.pos, &sp2c, &rw->Header.ground))
+        {
+            return;
+        }
     }
 
     sp38.x = sp2c.x - sp38.x;
@@ -1557,6 +1568,29 @@ void process_02_position(ModelRenderData *arg0, Model *model, ModelNode *node)
 
     rot1 = D_80036094;
     
+#ifdef GEVR
+    /*
+     * PORT probe. A character reaches here during chrTick with model->anim
+     * NULL and sub_GAME_7F06DEC0 faults reading anim->unk06. Nothing on this
+     * path checks, and the original cannot have tolerated it either, so the
+     * animation is missing further upstream. Say which model it is and leave
+     * the joint at its default rotation rather than crash.
+     */
+    if (model->anim == NULL)
+    {
+        static s32 reports = 0;
+        if (reports < 8)
+        {
+            reports++;
+            sysLogPrintf(LOG_NOTE,
+                "nullanim: model=%p obj=%p skeleton=%p joint=%d datas=%p rwdatalen=%d",
+                (void *) model, (void *) model->obj, (void *) skeleton,
+                (s32) jointnum.v, (void *) model->datas, (s32) model->rwdatalen);
+        }
+        return;
+    }
+#endif
+
     sub_GAME_7F06DEC0(jointnum.v, model->gunhand, skeleton, model->anim, model->unk34, &rot1);
 
     if (model->unk2c != 0.0f)
@@ -2808,8 +2842,59 @@ void modelSetAnimPlaySpeed(Model *model, f32 animation_rate, f32 startframe) {
 }
 
 
-void sub_GAME_7F06FF5C(Model *model, s32 arg1) {
-    model->unka0 = arg1;
+/*
+ * Guard ground callbacks are function pointers. unka0 is an s32 in Model,
+ * and Model slots are allocated at sizeof(ModelSlot), which is smaller than
+ * Model — widening unka0 to a pointer grew the struct and the last slot
+ * wrote into the next stage-pool block (the tank record). Keep the pointer
+ * here and store only a nonzero flag in the field.
+ */
+#define GEVR_MODEL_GROUND_FN_MAX 256
+static struct {
+    Model *model;
+    s32 (*fn)(Model *model, coord3d *src, coord3d *dst, f32 *ground);
+} gevrModelGroundFns[GEVR_MODEL_GROUND_FN_MAX];
+
+static GevrModelGroundFn gevrModelGroundFn(Model *model)
+{
+    s32 i;
+    for (i = 0; i < GEVR_MODEL_GROUND_FN_MAX; i++)
+    {
+        if (gevrModelGroundFns[i].model == model)
+        {
+            return gevrModelGroundFns[i].fn;
+        }
+    }
+    return NULL;
+}
+
+void sub_GAME_7F06FF5C(Model *model, s32 (*groundfn)(Model *model, coord3d *src, coord3d *dst, f32 *ground)) {
+    s32 i;
+    s32 freeSlot = -1;
+
+    for (i = 0; i < GEVR_MODEL_GROUND_FN_MAX; i++)
+    {
+        if (gevrModelGroundFns[i].model == model)
+        {
+            gevrModelGroundFns[i].fn = groundfn;
+            model->unka0 = groundfn != NULL;
+            return;
+        }
+        if (freeSlot < 0 && gevrModelGroundFns[i].model == NULL)
+        {
+            freeSlot = i;
+        }
+    }
+
+    if (freeSlot >= 0)
+    {
+        gevrModelGroundFns[freeSlot].model = model;
+        gevrModelGroundFns[freeSlot].fn = groundfn;
+        model->unka0 = groundfn != NULL;
+        return;
+    }
+
+    model->unka0 = 0;
 }
 
 

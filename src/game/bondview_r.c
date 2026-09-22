@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <ultra64.h>
 #include <memp.h>
 #include <bondconstants.h>
@@ -358,6 +359,31 @@ void bondviewLoadSetupIntroSection(void)
     {
         ptr_random06cam_entry = g_CurrentSetupIntroCamera;
         rand_camera_index = (s32)(randomGetNext() % (u32) g_SetupIntroCameraCount);
+#ifdef GEVR
+        /*
+         * PORT debug hook. The intro camera is chosen at random from the six
+         * this stage declares, so each launch takes a different path through
+         * the cutscene and a crash need not reproduce. Put an index in
+         *   /sdcard/Android/data/com.gevr.port/files/gevr_introcam.txt
+         * to pin it and make a failure repeatable. Remove the file for the
+         * game's own behaviour.
+         */
+        {
+            FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_introcam.txt", "r");
+            if (f != NULL)
+            {
+                s32 forced = -1;
+                if (fscanf(f, "%d", &forced) == 1 && forced >= 0 &&
+                    forced < g_SetupIntroCameraCount)
+                {
+                    rand_camera_index = forced;
+                }
+                fclose(f);
+            }
+        }
+        sysLogPrintf(LOG_NOTE, "introcam: using camera %d of %d",
+            rand_camera_index, g_SetupIntroCameraCount);
+#endif
         while (rand_camera_index > 0)
         {
             rand_camera_index--;
