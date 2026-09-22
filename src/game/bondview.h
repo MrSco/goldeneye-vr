@@ -197,7 +197,10 @@ struct hand
   f32 field_A3C;
   f32 field_A40;
   ALSoundState * audioHandle;
-  s32 field_A48;
+  /* D208: a second ALSoundState * slot - gunfire.c passes &field_A48 to
+   * sndPlaySfx and then casts it back. As an s32 the handle was truncated
+   * and sndGetPlayingState faulted on it when glass was shot. */
+  ALSoundState * field_A48;
   s32 field_A4C;
   s32 field_A50;
   BeamRecord weapon_beam;
