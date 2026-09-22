@@ -31,6 +31,11 @@
 #include "propobj.h"
 #include "stan.h"
 #include "model.h"
+/* Both were implicitly declared here, so they returned int: vtxstore_allocate
+ * hands back a Vertex * and the truncation crashed chrCreateBloodStain the
+ * moment a guard was shot. */
+#include "vtxstore.h"
+#include "bgfog.h"
 #include "tex.h"
 
 #ifdef VERSION_EU
