@@ -2168,3 +2168,34 @@ chain is solid but untested on hardware; dying in-level is the way to check.
 Gun and hand textures render near-white in gameplay (see
 scratchpad/watch-open.jpg) — the user's "pp9, crosshair, brightness, smoke"
 report. Nothing in §25 or §26 touches that; it is the next piece of work.
+
+## 27. Pause music played over the level music: musicFadeTick was never called
+
+User report: opening the watch starts the pause track while the level track
+keeps playing.
+
+The state machine is intact. `set_missionstate` 1 -> 3 (mp_music.c) does
+`musicTrack2Play(0x18)` and `musicTrack1FadeOut(0.5f)`, which is exactly the
+stock behaviour. But `musicTrack1FadeOut` only *records* the fade — target
+volume, remaining frames, `MUSIC_FADESTATE_FADE_OUT` — and the ramp, plus
+the `alCSPStop` that silences the track at the end, live in
+`musicFadeTick()` (src/music.c). Grepping for `MUSIC_FADESTATE_FADE_OUT`
+showed it set in three places and read in none.
+
+On the N64 `musicFadeTick()` is called from `__scHandleRetrace`
+(src/sched.c:322), right after `joyPoll()`. This port replaced that handler
+with Perfect Dark's `schedEndFrame` (port/src/pdsched.c), which never picked
+it up, so every fade in the game was set and then left alone: the level
+track stayed at full volume for the whole pause and never stopped.
+
+`schedEndFrame` now calls it once per retrace, next to `sndHandleRetrace()`,
+which is what `FADE_FRAMERATE` counts. This affects every cross-fade, not
+just the watch — mission start/end, the 1->2 X-track swaps and the fade-ins
+on the way back all depended on the same tick.
+
+Not verified by ear: I have no audio capture from the headset, only that the
+build installs, the Dam loads and the watch opens without crashing. The user
+has to confirm the swap sounds right.
+
+Noticed in passing and left alone: `model GwppksilZ: no room to rewrite its
+display lists (file 25264 bytes, allocation 30000)` on the silenced PP7.
