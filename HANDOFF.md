@@ -1435,3 +1435,128 @@ tiles in §13.4 are explained, then remove the guard with the probe.
   it. Every time, the cause was something writing memory it did not own
   — not a failure to set it. If the source says a pointer cannot be
   null and it is, stop reading and go looking for the writer.
+
+## 14. Dam plays its intro; and the reference that should have been used
+
+**The user's question mid-session was the most valuable thing in it:** why
+rediscover all this when ports exist? The answer was that we were reading the
+wrong references, and correcting that changed the rate of progress
+immediately. See §14.3 before doing anything else.
+
+### 14.1 What the user now sees
+
+Selecting Dam plays the intro: the dam renders textured (wall, towers,
+railings, sky), the camera moves, and on the run before last both captions
+appeared in order - "Nine years ago", then "Byelomorye Dam, Arkangelsk,
+USSR" - matching the original. The last run reached **first-person Bond
+view** and crashed there.
+
+Two visible defects, both open:
+
+- **Stray flickering text about a satellite** during the captions. Not
+  chased at all. Readable text from elsewhere in the game plus flicker
+  suggests a text index or a clobbered text buffer rather than a renderer
+  fault. The reference has a cluster here (`front.c`, 30 sites; its D295 is
+  a `strcpy` into `char difficultytext[4]` whose NUL lands on an adjacent
+  coordinate - exactly this shape).
+- **The captions did not appear on the last run.** They did on the run
+  before, with the intro camera pinned to the same index, so this may be a
+  regression from the swirl-camera commit (12ac680) rather than variance.
+  Check that first if the captions stay missing.
+
+### 14.2 Where it dies now
+
+```
+lvlRender -> maybe_mp_interface -> gunUpdateAndFireBothHands
+          -> gunUpdateAndFire -> modelInit -> modelInitRwData
+```
+
+Fault address `0x00000001acfad174`. **The reference names this one: D102.**
+
+> the 1P weapon Model and its RW-data pool were punned onto
+> `hand->field_B68` / `hand->modeldatas`; on x86-64 `struct Model` (0xE8) is
+> too big for that layout and `modelInit()` aliases `objinst->datas` onto the
+> pool base.
+
+Their fix adds dedicated `weaponModel` / `weaponRwPool` fields to `struct
+hand` in `bondview.h` and routes both through macros
+(`HAND_WEAPON_MODEL` / `HAND_WEAPON_RWPOOL`, `gunfire.c:43-52`). Ours is
+0x100, not 0xE8, so the same pun is worse here. **That is the next fix, and
+it is already written down.**
+
+### 14.3 The reference, and how far to trust it
+
+`https://github.com/jkdansereau/goldeneye-pc-port` - the same GoldenEye
+decompilation taken to 64-bit, **429 `#ifdef PORT` sites** and a 202-entry
+findings ledger (`docs/dev/findings.md`, plus the class document
+`docs/porting-notes.md`). Cloned locally as `../gepc-ref`, reference only;
+nothing is vendored, and its `port/` host layer is unused because ours is
+Perfect Dark's. Indexed for working through in
+[docs/gepc-port-worklist.md](docs/gepc-port-worklist.md).
+
+Why the other references do not answer this:
+
+- **goldeneye-decomp** targets the N64. Every defect in §13 and here exists
+  only because the same source runs on 64-bit little-endian. On its own
+  target they are not bugs, so it never had to solve them.
+- **Perfect Dark's port** solved the class, but for PD's structures, and only
+  its host layer is vendored here.
+
+**The critical caveat, learned by finding fixes it does not have:** that port
+emulates N64 RDRAM in a low pool (`0x70xxxxxx`), so a pool address survives a
+32-bit round trip there, and it builds with `-fno-stack-protector`. Both of
+this session's last two crashes were sites it leaves untouched for exactly
+those reasons - the `(u32) g_IntroSwirl` truncation and `f32 mtx[15]`.
+
+> **This port has a superset of that port's defects. Silence in its ledger is
+> not evidence a site is clean.**
+
+Conversely it is useful for ruling things out: D57 and D92 are already handled
+here, which saved chasing the rwdata pools.
+
+### 14.4 Fixes since §13
+
+| what | source |
+|---|---|
+| lookat and projection matrix kept as pointers, not `s32` | ours |
+| modelview stack floored so `G_MTX` cannot write at index -1 | ours |
+| held-item buffer address out of an `s32` in `solo_char_load` | ours |
+| prop room list clamped to the four bytes it has (3 writers) | ours |
+| second animation not blended when absent | ours |
+| **cutscene body model and held weapon reserve their real size** | **D243** |
+| `playerTick`'s matrix local given its sixteenth float | class D8 |
+| swirl table truncation + point buffer span | **D189**, both unfixed there |
+
+### 14.5 Debug hooks added this session
+
+`introcam:` - **pin the intro camera** by writing an index to
+`/sdcard/Android/data/com.gevr.port/files/gevr_introcam.txt`; currently `0`.
+Dam picks one of six at random, which silently made several "it crashed
+again" rounds different crashes. Delete the file for stock behaviour.
+
+Also `noanim2:` / `nullanim:` (model.c) and the earlier set in §13.5. The
+`stanwalk:`, `stanlocus:` and anim guards change behaviour, not just logging.
+
+### 14.6 Still open
+
+- **D102 weapon-model pun** - the live crash, fix already described above.
+- **Stray satellite text**, and the missing captions on the last run.
+- **`G_POPMTX on an empty modelview stack`**, once per run. The clamp stops
+  it corrupting `tex_upload_buffer`, but GoldenEye's display list genuinely
+  pops more than it pushes and nobody has found why.
+- **12 `stanwalk:` bad tiles per run.** Pads resolving to garbage stan
+  pointers. Guarded, unexplained.
+- `animFlipFlag` and `field_5C0` in `bondhead.c` write inside Bond's `Model`
+  (see §13.4).
+- The recenter fix from the start of §13 is still unverified.
+
+### 14.7 Method that is working
+
+Read §13.6 first; it all still applies. Added since:
+
+- **Work the ledger, not the tombstone.** Two crashes running were resolved
+  without a device round-trip to diagnose, because the class was already
+  written down.
+- **`adb logcat -G 16M`.** The default 256 KiB buffer rolls before a test can
+  be read; several dumps this session were empty of app lines for that reason.
+- **Pin the intro camera** before concluding two crashes are the same bug.
