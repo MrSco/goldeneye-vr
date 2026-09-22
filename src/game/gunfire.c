@@ -4941,9 +4941,24 @@ CasingRecord* casingCreate(ModelFileHeader* header, Mtxf* mtx)
 #define THROWPOS_PREV_OFFSET 0xB48
 #endif
  
+#ifdef GEVR
+/*
+ * D115 in the reference port. These were raw byte offsets into struct
+ * player - handnum * sizeof(struct hand) plus a hardcoded intra-hand
+ * offset - and both the stride and the offset are N64-sized. struct player
+ * and struct hand are much larger here, so the raw arithmetic lands inside
+ * the inline gait Model and bondhead matrix region, and
+ * matrix_4x4_copy(THROWMTX, ..) scribbles 64 bytes of live state on every
+ * shot. The offsets are exactly these fields, so name them.
+ */
+#define THROWMTX     (&g_CurrentPlayer->hands[handnum].throw_item_pos_related)
+#define THROWPOS(k)  (g_CurrentPlayer->hands[handnum].throw_item_pos_related.m[3][k])
+#define THROWPREV(k) (g_CurrentPlayer->hands[handnum].throw_item_pos_related_prev.m[3][k])
+#else
 #define THROWMTX     ((Mtxf *) ((u8 *) g_CurrentPlayer + handoffset + THROWMTX_OFFSET))
 #define THROWPOS(k)  (((f32 *) ((u8 *) g_CurrentPlayer + handoffset + THROWPOS_OFFSET))[k])
 #define THROWPREV(k) (((f32 *) ((u8 *) g_CurrentPlayer + handoffset + THROWPOS_PREV_OFFSET))[k])
+#endif
  
 extern const f32 g_CasingSwitchScale;
 extern const f32 g_PistolCasingHorizontalSpeed;
