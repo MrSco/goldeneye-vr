@@ -1008,6 +1008,32 @@ static void import_texture(int i, int tile, bool is_rect) {
     const uint32_t tex_flags = loaded_texture.tex_flags;
     const uint8_t palette_index = rdp.texture_tile[tile].palette;
 
+    /*
+     * A tile window whose lower edge sits above its upper edge is not an
+     * extent. GE's water/sky quad binds tile 0 and tile 1 to one TMEM image
+     * and offsets tile 1's uls/ult past lrs/lrt to move its sample point
+     * (sky.c, sub_GAME_7F09343C), so (lrs - uls + 4) / 4 goes negative and
+     * wraps to ~65500 in the u16 field. The importers size their reads from
+     * that, and ran off the end of the source: SIGSEGV on the Dam's first
+     * frames, drifting by one texel per frame with the scroll.
+     *
+     * Size those tiles the way gepc-ref sizes every texture, from the loaded
+     * block, so the read stays inside its source. Only the nonsense case is
+     * touched; every sane tile keeps its SETTILESIZE dimensions.
+     */
+    if (rdp.texture_tile[tile].lrs < rdp.texture_tile[tile].uls
+            || rdp.texture_tile[tile].lrt < rdp.texture_tile[tile].ult) {
+        const uint32_t row = rdp.texture_tile[tile].line_size_bytes;
+        const uint32_t bits = 4u << rdp.texture_tile[tile].siz;
+        if (row && loaded_texture.size_bytes) {
+            rdp.texture_tile[tile].width = row * 8 / bits;
+            rdp.texture_tile[tile].height = loaded_texture.size_bytes / row;
+        } else {
+            rdp.texture_tile[tile].width = 0;
+            rdp.texture_tile[tile].height = 0;
+        }
+    }
+
     // D74 was tried here (keeping a LOD tile's own LOADBLOCK/LOADTILE source
     // instead of miplevel 0) and crashed the Dam on load: the importers size
     // their reads from SETTILESIZE, so a smaller preserved source runs off the
