@@ -2440,3 +2440,25 @@ a dust puff with rock debris instead of a translucent noisy square.
 Still open: texture 086 in the dumps (32x32 IA8, noisy with an 8x8 alpha
 grid) — unidentified, may be genuine. Tile 1 of the fire effect shows a
 thin strip of row padding on its right edge.
+
+## 32. Sweep second pass: model.c and snd.c
+
+Full triage in [docs/gepc-port-guard-sweep.md](docs/gepc-port-guard-sweep.md).
+Most of model.c's uncited findings turned out to be solved here already under
+other wording (D52, D59, D92, D99, D101, D56/D57, and D43/D45 by a different
+route). Two ports:
+
+- **D53.2** — `struct ModelSlot` is now a whole `Model`
+  (objecthandler.h, static-asserted). It held only the first eight fields;
+  the unka0 note in model.c already recorded a write past it that reached the
+  tank record. Any later Model field written on a non-animated model landed
+  in the next slot's header.
+- **D305** — snd.c's voice-preemption scan guards an empty tracked-sound list
+  before the do-while dereferences it (fault 0x62), under heavy SFX load.
+
+Not ported, with reasons in the doc: D147/D152/D285 (thread races; our
+audio runs on the retrace), M-66 (a deliberate behaviour deviation), D156
+(cutscene NaN guard — a candidate if a cutscene hangs).
+
+Verified on device: Dam loads (13.9 MB stage pool left), firing works, the
+watch opens with the corrected ammo icon.

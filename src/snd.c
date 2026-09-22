@@ -320,6 +320,17 @@ void sndHandleEvent(ALSndPlayer *sndp, ALSndpEvent *event) {
                             // Check if we can preempt a lower-priority sound.
                             ALSoundState *iterState = (ALSoundState *) D_800243E4.node.prev;
 
+                            /*
+                             * D305 (gepc-ref): the do-while below dereferences
+                             * iterState before its own NULL check, so an empty
+                             * tracked-sound list faults on iterState->unk3e (fault
+                             * address 0x62). The scan only runs with the 8-voice
+                             * SFX pool believed exhausted - heavy fire, explosions -
+                             * which should imply a live node, but the two have been
+                             * seen to desync. Skipping the scan changes nothing when
+                             * the list is non-empty.
+                             */
+                            if (iterState != NULL)
                             do {
                                 if (!(iterState->unk3e & 0x12) && (iterState->unk3e & 0x4) &&
                                     iterState->playingState != SOUND_STATE_PREEMPT) {
