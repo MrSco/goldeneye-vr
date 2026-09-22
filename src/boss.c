@@ -453,7 +453,7 @@ void bossMainloop(void)
         dynInitMemory();
         joyCheckStatusThreadSafe();
         lvlStageLoad(g_StageNum);
-        sysLogPrintf(LOG_NOTE, "stage: loading: lvlStageLoad done");
+        sysLogPrintf(LOG_NOTE, "stage: loading: lvlStageLoad done (stage pool %d bytes left)", mempGetBankSizeLeft(MEMPOOL_STAGE));
         viInitBuffers();
         debmenuRefresh();
         waitForNextFrame();

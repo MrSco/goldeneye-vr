@@ -103,10 +103,34 @@ Lights1 g_WeaponEnvmapLight = gdSPDefLights1(
 u32 D_80032458 = 0;
 
 //D:8003245C
+#ifdef GEVR
+/* D45 (gepc-ref): Gfx slots are 16 bytes on a 64-bit host, so a model file's
+ * display-list regions double, and texLoadFromGdl's texture-marker expansion
+ * adds more RDP commands on top. The per-hand buffer holds the model region
+ * plus the texture pool after it, and bondview's body+head+held-prop chain
+ * (bondview2.c, no-chr path) uses the same buffers; its worst case is
+ * 0x1DB9A, and the suit path needs pool 0xA0B0 + region 0x18000 = 0x220B0. */
+u32 size_item_buffer[] = {0x23000, 0x23000};
+#else
 u32 size_item_buffer[] = {0x14820, 0x14820};
+#endif
 
 //D:80032464
+#ifdef GEVR
+/* D45 (gepc-ref): the model region inside that buffer. The largest weapon
+ * model file is GautoshotZ at 0xE788 once converted. At the N64's 0x7530,
+ * sub_GAME_7F0762E0 moves the file's tail to the end of the region and writes
+ * the expanded display lists back from the front; with host-sized files the
+ * writer overtook the unread tail, and switching to a freshly loaded gun
+ * (Gtt33Z, the DD44) walked into a display list of zeros:
+ * "FATAL: Unknown GBI opcode 0x00". The silenced PP7 already logged
+ * "no room to rewrite its display lists (file 25264, allocation 30000)".
+ * Must grow together with size_item_buffer: the texture pool is the
+ * difference, and growing this alone would shrink it from 0xD2F0 to 0x5820. */
+u32 D_80032464[] ={0xF000, 0xF000};
+#else
 u32 D_80032464[] ={0x7530, 0x7530};
+#endif
 
 
 
@@ -912,13 +936,25 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
 
                 if (item == ITEM_SUIT_LF_HAND)
                 {
+#ifdef GEVR
+                    /* D45 (gepc-ref): Csuit_lf_handZ expands to 0x16F9C. */
+                    texInitPool(&g_CurrentPlayer->item_related[hand], buffer_weapon + 0x18000, size_buffer_weapon - 0x18000);
+                    load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, 0x18000, &g_CurrentPlayer->item_related[hand]);
+#else
                     texInitPool(&g_CurrentPlayer->item_related[hand], buffer_weapon + 0xBD70, size_buffer_weapon + 0xFFFF4290);
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, 0xBD70, &g_CurrentPlayer->item_related[hand]);
+#endif
                 }
                 else if ((item == ITEM_TRIGGER) || (item == ITEM_WATCHLASER))
                 {
+#ifdef GEVR
+                    /* D45 (gepc-ref): GtriggerZ / GwatchlaserZ expand to 0x16030. */
+                    texInitPool(&g_CurrentPlayer->item_related[hand], buffer_weapon + 0x17000, size_buffer_weapon - 0x17000);
+                    load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, 0x17000, &g_CurrentPlayer->item_related[hand]);
+#else
                     texInitPool(&g_CurrentPlayer->item_related[hand], buffer_weapon + 0xAFD0, size_buffer_weapon + 0xFFFF5030);
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, 0xAFD0, &g_CurrentPlayer->item_related[hand]);
+#endif
                 }
                 else
                 {
