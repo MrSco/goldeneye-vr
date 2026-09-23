@@ -1494,6 +1494,15 @@ extern "C" void gevrVrHeadQuat(float out[4])
 // The single symmetric frustum both eyes share (degrees, width/height); the
 // multiview shader shears it per eye. Zero until the first frame is located.
 extern "C" float gevrVrFov(void) { return XrFov; }
+
+// Perfect Dark's head position (vr_update_head_tracking): centimetres, in the
+// frame its look vector uses (OpenXR with X and Z mirrored, recentre yaw applied).
+extern "C" void gevrVrHeadPosCm(float out[3])
+{
+    out[0] = gHeadPos.x;
+    out[1] = gHeadPos.y;
+    out[2] = gHeadPos.z;
+}
 extern "C" float gevrVrAspect(void) { return XrAspect; }
 
 // Game units per metre: scales the eye separation (vr_get_eye_view_offset).

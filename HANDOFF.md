@@ -3084,3 +3084,52 @@ flicker; wants right-controller aim and a raise-your-wrist watch.
 gun falls back to flat when no controller pose (controllers idle on the
 desk). **For the user:** scale and eye height, flicker, tunnel, controller
 aim feel and gun placement (trim GunOff*), the watch gesture.
+
+## 48. Muzzle shots, gun size and depth, left hand, head translation, tunnel edges
+
+User report on 47: flicker gone, watch gesture works (the switch to the
+screen for the watch is deliberate - GEVR notes the stereo watch drew its
+highlight in one eye and glued its text across both), bullets leave the view
+centre, arm and gun huge with odd perspective, parts of the hand underside
+missing, sky still through the tunnel. Asked for head translation and
+left-hand dual wield.
+
+- **Gun size, measured.** At GoldenEye's own scale the PP7's muzzle node is
+  35.5 camera units ahead of the model origin (1.77 m on the Dam, view scale
+  0.2); the origin sits off-screen near the wrist, so origin-to-muzzle is
+  forearm + pistol, ~30 cm: viewmodel scale 0.17 (was GEVR's 0.5, which was
+  relative to its renderer). The origin goes 12 cm behind the controller's
+  grip so the fist lands on it; GunOffX/Y/Z trim from there.
+- **Depth.** GoldenEye draws the viewmodel without depth, parts in model
+  order - right only from the flat viewpoint. Turned by a controller, hidden
+  parts painted over visible ones: that is the "missing" underside and the
+  odd perspective. In stereo the viewmodel now depth-tests.
+- **Muzzle shots.** `bullet_path_from_screen_center` (both region copies)
+  asks `gevrStereoShot`: origin = this frame's muzzle flash node (camera
+  space, noted by gunUpdateAndFire), direction = barrel, with the game's own
+  spread kept by aiming at the spread-perturbed crosshair point at the barrel
+  target's distance (PD bgunCalculatePlayerShotSpread fires from the muzzle
+  the same way). The crosshair still follows the barrel for the HUD.
+- **Left hand.** `gevrStereoGunMatrix` takes the left controller for GUNLEFT.
+  GoldenEye's dual-wield mirror negates row 0 (a flip in the model's own
+  frame), so the placement needs no pre-flip. Shots per hand use that hand's
+  muzzle and barrel.
+- **Head translation** (PD vr_player_pos, walk half): each walk tick the
+  physical head's horizontal delta (PD gHeadPos, cm = world units, through
+  the body yaw) is added to the walk move before
+  `bondviewCalcUpdatePlayerCollision`, so room-scale walking moves Bond with
+  the game's collision and wall sliding; >25 cm per tick is ignored as a
+  glitch (PD VR_MAX_HEAD_STEP). Rising/ducking from the recentre height moves
+  the eye (-100..+30 cm). Not ported: PD's lean-ahead-of-a-blocked-body with a
+  line-of-sight probe.
+- **Tunnel edges.** Our shader also shifts each eye vertically (asymmetric
+  centres); PD widens scissors horizontally only, so a room seen through a
+  doorway lost a strip at its top or bottom and the sky showed. Scissors and
+  the portal box now also widen by 10% vertically in stereo.
+- Near plane checked and left alone: the Dam's is 5 view units (25 cm), and
+  GoldenEye's fog is tuned to the projection's depth range.
+
+**Verified on device:** builds and runs in stereo; walking and firing with
+the flat fallbacks (controllers idle). **For the user:** gun size and grip,
+depth/occlusion of the hand, muzzle shots, dual wield, physical walking and
+ducking, tunnel.

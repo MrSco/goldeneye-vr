@@ -2383,6 +2383,15 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
         // where the sheared eye can see; carry that edge out by a quarter of
         // the screen, matching the widened portal test (bg.c).
         if (gevrVrScreenMode == 0) {
+            // The shader also shifts each eye vertically (asymmetric OpenXR
+            // centres, eyeOffset.w), which PD's horizontal-only widening
+            // leaves uncovered: a room seen through a doorway lost a strip at
+            // its top or bottom edge and the sky showed through. Widen the
+            // height by the same kind of margin.
+            const float vmargin = 0.1f;
+            y += height * vmargin;
+            height += height * vmargin * 2.0f;
+
             const float extend = SCREEN_WIDTH * 0.25f;
             if (ulx <= 4) {
                 x -= extend;
