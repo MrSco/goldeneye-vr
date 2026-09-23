@@ -43,6 +43,7 @@ extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
 extern int gevrVrScreenMode;      /* gfx_pc.cpp: this frame is on the virtual screen */
 extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
 extern void vrSettingsSave(void);
+extern int gevrVrWatchGesture(void); /* vr_input.cpp */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
 float gevrVrTurnAxis(void) { return gevrTurnAxis; }
@@ -1002,6 +1003,26 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (gevrVrScreenMode) vr_screen_recenter();
             }
             both = lclick && rclick;
+        }
+        // Raise the left wrist to your face like reading a watch: open the watch.
+        // The pose must hold briefly, presses START once, and re-arms only after
+        // the arm comes down again (vr_input.cpp gevrVrWatchGesture).
+        {
+            static u32 heldsince = 0;
+            static u32 pressuntil = 0;
+            static bool armed = true;
+            if (!menu && gevrVrWatchGesture()) {
+                if (!heldsince) heldsince = now ? now : 1;
+                if (armed && now - heldsince >= 350) {
+                    pressuntil = now + 100;
+                    armed = false;
+                    LOGI("input: watch gesture -> pause\n");
+                }
+            } else {
+                heldsince = 0;
+                if (!gevrVrWatchGesture()) armed = true;
+            }
+            if (now < pressuntil) npad->button |= START_BUTTON;
         }
         // Hold the right stick click for a second: switch stereo gameplay and the
         // virtual screen, and remember the choice in goldeneye-vr.ini.
