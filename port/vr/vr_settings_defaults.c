@@ -36,6 +36,9 @@ float VrUseSnapTurn = 0.0f;
  * screen. See vr_settings.h. */
 int VrPlayMode = 1;
 
+/* GoldenEye: comfort vignette while moving in stereo, 0 = off .. 1. */
+float VrComfortVignette = 0.0f;
+
 /* --- Physical setup ------------------------------------------------------ */
 
 /*

@@ -2674,3 +2674,98 @@ struct GfxRenderingAPI gfx_opengl_api = {
         gfx_opengl_is_multiview,
         gfx_opengl_mirror_to_desktop
 };
+
+// ============================================================================
+// GoldenEye comfort vignette: a dark ring over both eyes while moving in stereo,
+// the common VR remedy for vection sickness. Drawn last into the bound
+// multiview eye FBO with its own tiny program; strength 0..1.
+// ============================================================================
+static GLuint s_vignetteProg = 0, s_vignetteVao = 0;
+static GLint s_vignetteStrengthLoc = -1;
+
+void gfx_opengl_draw_vignette(float strength)
+{
+    if (strength <= 0.001f || !use_multiview) {
+        return;
+    }
+
+    if (s_vignetteProg == 0) {
+        const char* vs =
+            "#version 300 es\n"
+            "#extension GL_OVR_multiview2 : require\n"
+            "layout(num_views = 2) in;\n"
+            "out vec2 vPos;\n"
+            "void main() {\n"
+            "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+            "    vPos = p * 2.0 - 1.0;\n"
+            "    gl_Position = vec4(vPos, 0.0, 1.0);\n"
+            "}\n";
+        const char* fs =
+            "#version 300 es\n"
+            "precision mediump float;\n"
+            "in vec2 vPos;\n"
+            "uniform float uStrength;\n"
+            "out vec4 outColor;\n"
+            "void main() {\n"
+            "    float inner = mix(1.1, 0.35, uStrength);\n"
+            "    float a = smoothstep(inner, inner + 0.45, length(vPos));\n"
+            "    outColor = vec4(0.0, 0.0, 0.0, a * min(1.0, uStrength * 1.5));\n"
+            "}\n";
+        GLuint v = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(v, 1, &vs, nullptr);
+        glCompileShader(v);
+        GLuint f = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(f, 1, &fs, nullptr);
+        glCompileShader(f);
+        s_vignetteProg = glCreateProgram();
+        glAttachShader(s_vignetteProg, v);
+        glAttachShader(s_vignetteProg, f);
+        glLinkProgram(s_vignetteProg);
+        glDeleteShader(v);
+        glDeleteShader(f);
+        GLint ok = 0;
+        glGetProgramiv(s_vignetteProg, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char log[512] = {0};
+            glGetProgramInfoLog(s_vignetteProg, sizeof(log) - 1, nullptr, log);
+            vr_log("vignette: program failed: %s", log);
+            glDeleteProgram(s_vignetteProg);
+            s_vignetteProg = 0xffffffffu;   // do not retry every frame
+            return;
+        }
+        s_vignetteStrengthLoc = glGetUniformLocation(s_vignetteProg, "uStrength");
+        glGenVertexArrays(1, &s_vignetteVao);
+    }
+    if (s_vignetteProg == 0xffffffffu) {
+        return;
+    }
+
+    GLint prevProg = 0, prevVao = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    GLboolean blend = glIsEnabled(GL_BLEND), depth = glIsEnabled(GL_DEPTH_TEST), scissor = glIsEnabled(GL_SCISSOR_TEST);
+    GLboolean depthMask = GL_TRUE;
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    GLint vp[4];
+    glGetIntegerv(GL_VIEWPORT, vp);
+
+    glViewport(0, 0, vr_get_internal_render_width(), vr_get_internal_render_height());
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_FALSE);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glUseProgram(s_vignetteProg);
+    glUniform1f(s_vignetteStrengthLoc, strength);
+    glBindVertexArray(s_vignetteVao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glBindVertexArray((GLuint)prevVao);
+    glUseProgram((GLuint)prevProg);
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    glDepthMask(depthMask);
+    if (depth) glEnable(GL_DEPTH_TEST);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    if (!blend) glDisable(GL_BLEND);
+}

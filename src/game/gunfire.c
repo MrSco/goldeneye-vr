@@ -1536,6 +1536,137 @@ void gunAdvanceBeamTimer(BeamRecord* beam)
     }
 }
 
+#ifdef GEVR
+/*
+ * Stereo: a left arm. When the left hand holds no weapon, the unarmed (fist)
+ * viewmodel the right hand uses is drawn on the left controller as well,
+ * mirrored in its own frame the way GoldenEye draws a dual-wielded left gun
+ * (row 0 negated, cull mode 2), with Bond's current sleeve. It has its own
+ * buffer and model instance: the game's left-hand slot also carries the pause
+ * watch, so it cannot be borrowed. Loaded once per level.
+ */
+#include <stdlib.h>
+
+#define GEVR_FIST_BUFSIZE 0x23000
+#define GEVR_FIST_MODELSIZE 0xF000
+
+extern s32 g_gevrStereo;
+extern s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out);
+extern s8 *get_ptr_item_text_call_line(ITEM_IDS item);
+
+static u8 *s_gevrFistBuf;
+static struct texpool s_gevrFistPool;
+static ModelFileHeader s_gevrFistHeader;
+static Model s_gevrFistModel;
+static u32 s_gevrFistRw[256];
+static s32 s_gevrFistStage = -1;
+static s32 s_gevrFistReady;
+
+static s32 gevrLeftFistLoad(void)
+{
+    ModelFileHeader *tmpl;
+    s8 *name;
+
+    if (s_gevrFistReady && s_gevrFistStage == bossGetStageNum())
+    {
+        return TRUE;
+    }
+
+    s_gevrFistReady = FALSE;
+    s_gevrFistStage = bossGetStageNum();
+
+    tmpl = get_ptr_weapon_model_header_line(ITEM_FIST);
+    name = get_ptr_item_text_call_line(ITEM_FIST);
+    if (tmpl == NULL || name == NULL)
+    {
+        return FALSE;
+    }
+    if (s_gevrFistBuf == NULL)
+    {
+        s_gevrFistBuf = malloc(GEVR_FIST_BUFSIZE);
+        if (s_gevrFistBuf == NULL)
+        {
+            return FALSE;
+        }
+    }
+
+    s_gevrFistHeader = *tmpl;
+    texInitPool(&s_gevrFistPool, s_gevrFistBuf + GEVR_FIST_MODELSIZE, GEVR_FIST_BUFSIZE - GEVR_FIST_MODELSIZE);
+    load_object_fill_header(&s_gevrFistHeader, (u8 *)name, s_gevrFistBuf, GEVR_FIST_MODELSIZE, &s_gevrFistPool);
+    modelCalculateRwDataLen(&s_gevrFistHeader);
+
+    if (s_gevrFistHeader.RootNode == NULL || (u32)s_gevrFistHeader.numRecords > ARRAYCOUNT(s_gevrFistRw))
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: left arm model did not load (%d records)", s_gevrFistHeader.numRecords);
+        return FALSE;
+    }
+
+    sysLogPrintf(LOG_NOTE, "stereo: left arm loaded (%s, %d matrices)", name, s_gevrFistHeader.numMatrices);
+    s_gevrFistReady = TRUE;
+    return TRUE;
+}
+
+static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
+{
+    ModelRenderData renderdata;
+    Mtxf armmtx;
+    Mtxf *rwmtx;
+    s32 j;
+
+    if (!g_gevrStereo
+        || get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
+        || g_CurrentPlayer->watch_animation_state != 0
+        || g_CurrentPlayer->bonddead)
+    {
+        return gdl;
+    }
+    if (!gevrStereoGunMatrix(GUNLEFT, &armmtx) || !gevrLeftFistLoad())
+    {
+        return gdl;
+    }
+
+    /* a left hand: mirrored in the model's own frame, then the viewmodel scale */
+    matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
+    matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
+
+    rwmtx = (Mtxf *) dynAllocate(s_gevrFistHeader.numMatrices * ((s32) sizeof(Mtxf)));
+    for (j = 0; j < s_gevrFistHeader.numMatrices; j++)
+    {
+        matrix_4x4_set_identity(&rwmtx[j]);
+    }
+    matrix_4x4_copy(&armmtx, &rwmtx[0]);
+
+    modelInit(&s_gevrFistModel, &s_gevrFistHeader, (s32 *) s_gevrFistRw);
+    sub_GAME_7F05E978(&s_gevrFistModel, 1);
+    sub_GAME_7F05EA94(&s_gevrFistModel, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    if (s_gevrFistHeader.numSwitches >= 0x1E)
+    {
+        bondviewSelectCuff(&s_gevrFistModel, &s_gevrFistHeader, 0x1D);
+    }
+    s_gevrFistModel.render_pos = (RenderPosView *) rwmtx;
+
+    renderdata = *templ;
+    renderdata.gdl = gdl;
+    renderdata.PropType = 4;
+    renderdata.envcolour.word = g_CurrentPlayer->tileColor.a
+                              | ((u32)g_CurrentPlayer->tileColor.r << 24)
+                              | ((u32)g_CurrentPlayer->tileColor.g << 16)
+                              | ((u32)g_CurrentPlayer->tileColor.b << 8);
+    renderdata.zbufferenabled = 1;
+
+    matrix_4x4_7F058C64();
+    gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
+    renderdata.cullmode = 2;
+    subdraw(&renderdata, &s_gevrFistModel);
+    gdl = renderdata.gdl;
+    gSPClearGeometryMode(gdl++, G_CULL_BOTH);
+    bondviewTransformManyPosToViewMatrix(s_gevrFistModel.render_pos, s_gevrFistHeader.numMatrices);
+    matrix_4x4_7F058C88();
+
+    return gdl;
+}
+#endif
+
 // Address: 0x7F062BE4
 void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 {
@@ -1667,6 +1798,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         }
     }
  
+#ifdef GEVR
+    gdl = gevrRenderLeftArm(gdl, &renderdata);
+#endif
     *gdlptr = gdl;
 }
 
