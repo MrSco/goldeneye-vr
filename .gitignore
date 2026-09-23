@@ -65,3 +65,8 @@ desktop.ini
 
 # Session scratch: build and logcat captures, device grabs
 scratchpad/
+
+# Release signing: the key and its passwords never go in the repo
+keystore.properties
+*.jks
+*.keystore
