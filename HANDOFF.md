@@ -2870,3 +2870,23 @@ them. Separate step: scan those blocks the same way first.
 - stan.c: complete. D253/D177/D89 ported in §38; D90 and D189 already here
   (STAN_LOCUS_TILESTACK_MAX 55; record-sized clear); D177's pointer-add sites
   already use u8 */array indexing; D88 diagnostics.
+
+## 42. LEFTOVERDEBUG / LEFTOVERSPECTRUM on (build flags now match ntsc-final)
+
+The US Makefile and gepc-ref's ntsc-final set both; the US ROM contains that
+code. Reviewed every block first (scratchpad ldscan.py):
+- real game-behaviour values the US ROM uses: options.c watch perspective
+  aspect 1.333 and positions (0xA0/0xAA), chr.c aim rise/fall 10/20,
+  objective_status2.c particle spread, propobj.c projectile SFX interval 6,
+  stan.c's LEFTOVERDEBUG sub_GAME_7F0B07BC edge test, glass2.c's
+  hudMakeDamageSegments variant, ob.c's obLoadBGFileBytesAtOffset order;
+- model.c null/range checks that only osSyncPrintf and call return_null()
+  (a no-op) - diagnostics, none fired in play;
+- debug menus, speed graph, indy host grabs, the ZX Spectrum emulator menu.
+Port changes needed: get_counters() in gevr_engine_shim.c (sched.c is
+excluded; clock 1 so the speed graph divides safely); a %p debug print in
+model.c subdraw; uintptr_t size math in debugmenu.c; the implicit-prototype
+header regenerated (debug-menu callers of getCurrentPlayerProp etc.).
+A full rebuild's truncation/implicit warnings were diffed against the R0
+build: the rest are confined to the debug menus. Verified on device: Dam,
+gameplay and the watch, no debug check fired.

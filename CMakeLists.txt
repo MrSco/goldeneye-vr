@@ -100,6 +100,10 @@ add_definitions(
   # US ROM, so the US revision: gepc-ref ntsc-final and the N64 Makefile use
   # BUGFIX_R0. BUGFIX_R1 is the JP/PAL revision and read JP-only state here.
   -DBUGFIX_R0=1
+  # The US Makefile builds with these too (gepc-ref ntsc-final): leftover
+  # debug checks/prints and the ZX Spectrum emulator menu are in the US ROM.
+  -DLEFTOVERDEBUG=1
+  -DLEFTOVERSPECTRUM=1
 )
 
 if(TARGET_IS_64BIT)

@@ -356,7 +356,7 @@ Gfx *debmenuDraw(Gfx *gdl)
 
 	// Make sure there'll be a least 256 GBI commands free (2KB)
 	available = dynGetFreeGfx(gdl) - 256 * sizeof(Gfx);
-	needed = (u32)gdl2 - (u32)gdl;
+	needed = (u32)((uintptr_t)gdl2 - (uintptr_t)gdl);
 
 	if (needed <= 0) { // shouldn't be possible
 		return gdl;
