@@ -195,7 +195,17 @@ extern s32 gevrCrouchToggled(void); // port/src/input.c
  * Not yet: head translation (PD walks the body after the head with collision;
  * GEVR ships HEAD_TRANSLATE=0), controller aim, the HUD on a quad layer.
  */
-#define GEVR_UNITS_PER_METRE 100.0f      /* GEVR PC GETV_XR_UNITS_PER_M */
+/*
+ * World units per metre: Bond's eye is 175 units up and a guard 185 tall, so a
+ * unit is about a centimetre (GEVR PC docs/16, GETV_XR_UNITS_PER_M=100). The
+ * eye separation is applied in VIEW space, though, and bondviewUpdateCameraMatrices
+ * builds view space as (pos - origin) * D_800364CC, the level's visibility scale
+ * (0.2 on the Dam, 1.0 on Cradle; bg.c levelinfotable). Taking the world number
+ * alone gave a Dam eye separation five times too wide: the "toy model" GEVR's
+ * wearer measured and walked down to 12-25 (docs/159).
+ */
+#define GEVR_UNITS_PER_METRE 100.0f
+extern f32 D_800364CC;
 #define GEVR_TURN_DEG_PER_TICK 2.0f      /* PD VR_JOY_TURN_SPEED: 120 deg/s at 60 Hz */
 
 extern int gevrVrScreenMode;             /* gfx_pc.cpp: the frame goes to the virtual screen */
@@ -208,6 +218,7 @@ extern void vr_align_with_game_angle(float target_game_angle);
 extern void vr_screen_recenter(void);
 extern float gevrVrTurnAxis(void);       /* input.c: right stick X, dead-zoned */
 extern s32 gevrVrTakeRecenter(void);     /* input.c: both stick clicks */
+extern void gevrVrSnapshotCameraPose(void); /* vr_openxr.cpp */
 
 s32 g_gevrStereo;                        /* this frame is drawn in stereo (fr.c, input.c) */
 static s32 s_gevrStereoWas;
@@ -287,7 +298,6 @@ void gevrStereoFrame(s32 inlevel)
 
     if (want && !s_gevrStereoWas)
     {
-        gevrVrSetWorldScale(GEVR_UNITS_PER_METRE);
         gevrStereoRecenter();
         sysLogPrintf(LOG_NOTE, "stereo: on (theta %.1f)", g_CurrentPlayer->vv_theta);
     }
@@ -301,6 +311,8 @@ void gevrStereoFrame(s32 inlevel)
     if (want)
     {
         f32 x = gevrVrTurnAxis();
+
+        gevrVrSetWorldScale(GEVR_UNITS_PER_METRE * D_800364CC);
 
         if (gevrVrTakeRecenter())
         {
@@ -327,7 +339,9 @@ void gevrStereoFrame(s32 inlevel)
         }
         s_gevrBaseYaw = gevrWrapDegrees(s_gevrBaseYaw);
 
-        /* The camera takes the newest head pose, located after this frame's tick. */
+        /* The camera takes the newest head pose, located after this frame's tick,
+         * and the compositor is told which pose that was (vr_openxr.cpp). */
+        gevrVrSnapshotCameraPose();
         gevrStereoLook(&s_gevrCamLook, &s_gevrCamUp);
     }
 

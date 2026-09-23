@@ -119,6 +119,7 @@ static inline float gevr_target_height(void) { return gevr_target_h ? (float)gev
 extern bool gVrFlatPass; // gfx_opengl.cpp
 bool is_weapon_hud = false;
 extern "C" void vr_get_eye_view_proj_gl(int eye, float outVP[16]);
+extern "C" void gevrVrMarkEyesRendered(int stereo); // vr_openxr.cpp
 int VrPauseHub = false;
 
 // --- VR: culling has to account for the per-eye clip-space shear -------------
@@ -1606,9 +1607,16 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
                 V = (int32_t)(doty * rsp.texture_scaling_factor.t);
             }
         } else {
-            d->color.r = vcn->r;
-            d->color.g = vcn->g;
-            d->color.b = vcn->b;
+            if (vcn != nullptr) {
+                d->color.r = vcn->r;
+                d->color.g = vcn->g;
+                d->color.b = vcn->b;
+            } else {
+                // Valeurs de repli par défaut pour éviter le crash (ex: noir ou blanc)
+                d->color.r = 255;
+                d->color.g = 255;
+                d->color.b = 255;
+            }
         }
 
         d->u = U;
@@ -1670,7 +1678,11 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             d->fog = rdp.fog_color.a;
         }
 
-        d->color.a = vcn->a; // can be required for SHADE_ALPHA even if fog is enabled
+        if (vcn != nullptr) {
+            d->color.a = vcn->a;
+        } else {
+            d->color.a = 255;
+        }
     }
 }
 
@@ -1770,6 +1782,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             return;
         }
     }
+
 
     if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
         if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
@@ -2364,6 +2377,21 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
         const float margin = std::max(offsetRatioL, offsetRatioR) + 0.15f; // +15% de marge de sécurité
         x -= width * margin;
         width += width * margin * 2.0f;
+
+        // GoldenEye stereo: a room scissor clamped to the viewport edge (bg.c
+        // bgScissorCurrentPlayerView) belongs to a room that goes on past it,
+        // where the sheared eye can see; carry that edge out by a quarter of
+        // the screen, matching the widened portal test (bg.c).
+        if (gevrVrScreenMode == 0) {
+            const float extend = SCREEN_WIDTH * 0.25f;
+            if (ulx <= 4) {
+                x -= extend;
+                width += extend;
+            }
+            if (lrx >= (uint32_t)(SCREEN_WIDTH - 1) * 4) {
+                width += extend;
+            }
+        }
     }
     // -------------------------------------------------------------------
 
@@ -2704,6 +2732,7 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
 
     ulxf = gfx_adjust_x_for_aspect_ratio(ulxf);
     lrxf = gfx_adjust_x_for_aspect_ratio(lrxf);
+
 
     struct LoadedVertex* ul = &rsp.loaded_vertices[MAX_VERTICES + 0];
     struct LoadedVertex* ll = &rsp.loaded_vertices[MAX_VERTICES + 1];
@@ -3665,12 +3694,14 @@ extern "C" void gfx_run(Gfx* commands) {
             gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
 
             if (screenRendered) {
+                gevrVrMarkEyesRendered(0);
                 // The eye buffers stay black behind the screen (cleared by
                 // vr_begin_eye_render). A surround, if one is ever wanted, is
                 // drawn here; the pause-hub grid was tried and rejected.
             } else {
                 // 3) Render the game directly into the headset texture
                 run_display_list();
+                gevrVrMarkEyesRendered(1);
 
                 if (VrPauseHub && VrIsPaused) {
                     float vp[2][16];

@@ -1349,6 +1349,10 @@ Gfx* bgScissorCurrentPlayerViewF(Gfx* arg0, f32 arg1, f32 arg2, f32 arg3, f32 ar
  *
  * Address 0x7F0B5058.
 */
+#ifdef GEVR
+#define GEVR_STEREO_PORTAL_WIDEN 0.25f   /* also used by fast3d's scissor edge extension */
+#endif
+
 Gfx *bgScissorCurrentPlayerView(Gfx *arg0, s32 left, s32 top, s32 width, s32 height)
 {
     struct player *temp_v0;
@@ -4820,6 +4824,29 @@ void bgUpdateCurrentPlayerScreenMinMax(void)
     {
         g_CurrentPlayer->screensize.max.y = fheight;
     }
+
+#ifdef GEVR
+    {
+        /*
+         * Stereo (bondview2.c gevrStereoFrame): each eye's view is the centre
+         * frustum sheared sideways, so it sees past the viewport's left and
+         * right edges. Rooms whose portals lie just outside the centre view
+         * were dropped and the sky showed through where one eye could still
+         * see them (tunnels). Perfect Dark VR widens fast3d's clip and scissor
+         * for the same shear; GEVR PC widens the game's portal test
+         * (GETV_VR_PORTALWIDE, CULLWIDE). A quarter of the width each side.
+         */
+        extern s32 g_gevrStereo;
+
+        if (g_gevrStereo)
+        {
+            f32 extra = (g_CurrentPlayer->screensize.max.x - g_CurrentPlayer->screensize.min.x) * GEVR_STEREO_PORTAL_WIDEN;
+
+            g_CurrentPlayer->screensize.min.x -= extra;
+            g_CurrentPlayer->screensize.max.x += extra;
+        }
+    }
+#endif
 }
 
 
