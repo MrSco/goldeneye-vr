@@ -1635,8 +1635,10 @@ static void vr_screen_uv_to_world(float u, float v, float out[3])
  * for both hands. The spot is smoothed with a speed-dependent weight, like
  * the system pointer: heavy when the hand is nearly still (hand tremor and
  * tracking noise at a few metres were visible as jitter), none when it moves
- * fast. The active hand is the one whose spot moved last or that pulled its
- * trigger.
+ * fast. The active hand changes only when a button is pressed on the other
+ * controller, as on Quest's own UI: switching on motion let an idle hand
+ * whose ray happened to land on the screen steal the pointer (on a curved
+ * screen, which wraps round, the dot kept vanishing from the middle and left).
  */
 struct VrPointerHand {
     bool hit;
@@ -1674,12 +1676,18 @@ static void vr_pointer_update(void)
             p.lastV = p.v;
         }
         p.hit = hit;
-        if (hit && get_button_state(hand, "trigger")) {
-            g_ptrActive = hand;
+    }
+    // any button on the other controller makes it the pointer
+    {
+        const int other = g_ptrActive ^ 1;
+        static const char *const buttons[] = { "trigger", "grip", "a", "b", "x", "y", "thumbstick_click", "menu" };
+        for (const char *b : buttons) {
+            if (get_button_state(other, b)) {
+                g_ptrActive = other;
+                break;
+            }
         }
     }
-    if (g_ptr[g_ptrActive ^ 1].moved && !g_ptr[g_ptrActive].moved) g_ptrActive ^= 1;
-    if (!g_ptr[g_ptrActive].hit && g_ptr[g_ptrActive ^ 1].hit) g_ptrActive ^= 1;
 }
 
 /*
@@ -1748,6 +1756,15 @@ extern "C" void vr_pointer_draw(void)
         p.o[0] = p.h[0]; p.o[1] = p.h[1] + 0.001f; p.o[2] = p.h[2];
     }
 
+    // Save the GL state first: the one-time setup below binds its own vertex
+    // array and buffer. (Unbinding the buffer there, before saving, left
+    // GL_ARRAY_BUFFER at 0 for fast3d, whose next shader switch then pointed
+    // its attributes at address 0 - the driver crashed copying from it.)
+    GLint prevProg = 0, prevVao = 0, prevBuf = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBuf);
+
     if (s_ptrProg == 0) {
         const char *vs =
             "#version 300 es\n"
@@ -1805,8 +1822,8 @@ extern "C" void vr_pointer_draw(void)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void *)0);
         glEnableVertexAttribArray(1);
         glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void *)(3 * sizeof(float)));
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray((GLuint)prevVao);
+        glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevBuf);
     }
     if (s_ptrProg == 0xffffffffu) {
         return;
@@ -1877,10 +1894,6 @@ extern "C" void vr_pointer_draw(void)
         { hn[0] - ax[0] + ay[0], hn[1] - ax[1] + ay[1], hn[2] - ax[2] + ay[2], 0.0f, 1.0f, 1.0f, dotA },
     };
 
-    GLint prevProg = 0, prevVao = 0, prevBuf = 0;
-    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
-    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
-    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBuf);
     const GLboolean blend = glIsEnabled(GL_BLEND), depth = glIsEnabled(GL_DEPTH_TEST),
                     cull = glIsEnabled(GL_CULL_FACE), scissor = glIsEnabled(GL_SCISSOR_TEST);
     GLint srcRGB, dstRGB, srcA, dstA;
@@ -2009,10 +2022,13 @@ extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]); // vr_inpu
 extern "C" bool gfx_vr_menu_R_bbox(float out[4]);                     // gfx_opengl.cpp
 
 // The game sampled the head for this frame's camera (bondview2.c gevrStereoFrame).
+extern "C" void gevrVrSnapshotControllers(void);   // vr_input.cpp
+
 extern "C" void gevrVrSnapshotCameraPose(void)
 {
     g_cameraViews = g_frameViews;
     g_haveCameraViews = true;
+    gevrVrSnapshotControllers();
 }
 
 // gfx_run finished drawing a frame into the eye buffers: stereo (the camera

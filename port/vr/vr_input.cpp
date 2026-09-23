@@ -1737,6 +1737,48 @@ extern "C" int gevrVrGripPosePlay(int hand, float pos[3], float quat[4])
     return 1;
 }
 
+/*
+ * The controllers as they were when the game took its camera pose
+ * (vr_openxr.cpp gevrVrSnapshotCameraPose). controller_pose is relative to
+ * the head at the newest XR frame; the camera is the head at the snapshot.
+ * With a 60 Hz game over a 72 Hz display a new XR frame often lands between
+ * the two, and a hand placed from the newer pose on the older camera jumped
+ * by however far the head had moved - seen as the hands flickering in
+ * motion. The game places hands and guns from this copy instead.
+ */
+static XrPosef gCamCtrlPose[2];
+static bool gCamCtrlValid[2];
+
+extern "C" void gevrVrSnapshotControllers(void)
+{
+    for (int h = 0; h < 2; h++) {
+        const XrQuaternionf& q = gControllerStates[h].controller_pose.orientation;
+        gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
+        gCamCtrlPose[h] = gControllerStates[h].controller_pose;
+    }
+}
+
+extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]);
+
+extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4])
+{
+    if (hand < 0 || hand > 1) {
+        return 0;
+    }
+    if (!gCamCtrlValid[hand]) {
+        return gevrVrGripPose(hand, pos, quat);
+    }
+    const XrPosef& pose = gCamCtrlPose[hand];
+    pos[0] = pose.position.x;
+    pos[1] = pose.position.y;
+    pos[2] = pose.position.z;
+    quat[0] = pose.orientation.x;
+    quat[1] = pose.orientation.y;
+    quat[2] = pose.orientation.z;
+    quat[3] = pose.orientation.w;
+    return 1;
+}
+
 extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4])
 {
     if (hand < 0 || hand > 1) {

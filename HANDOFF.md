@@ -3447,3 +3447,43 @@ Dark leftovers; remove unused assets and purge them from history.
   bullet-hole sprites glitch at some angles (screenshot pair: holes on the Dam
   bunker look torn/black from one angle). (3) the Dam gate button pops in
   late - draw distance too short; check other world props.
+
+## 57. Release-candidate fixes: launcher, picker, pointer, decals, draw distance, hand timing
+
+- **Launcher**: two columns, no scrolling (NoScrollbar); header with build id.
+  **Choose ROM file...** / **Change...** open the system picker through JNI
+  (MainActivity.openRomPicker); the copy goes to data/picked.z64 via a .part
+  file, the launcher probes it and adopts or rejects it, and pick errors come
+  back through MainActivity.pickResult. It rescans every second while there
+  is no ROM. Test hook: 1000 presses Start, 0020 opens the picker.
+- **Back to VR after the picker**: Quest's shell keeps focus when the picker
+  closes (session stuck at VISIBLE). MainActivity relaunches itself with the
+  Library's own intent 0.7 s later, retrying until the window has focus.
+  Verified: picker opened by the hook, closed, game back in front, session
+  FOCUSED with no Library trip.
+- **Start crash** (SIGSEGV in the Adreno driver's memcpy from 0 under
+  gfx_flush): vr_pointer_draw's one-time setup bound its own VAO/VBO and then
+  bound buffer 0, before saving the state it later "restored" - fast3d's next
+  shader switch pointed its attributes at address 0. It only happens once the
+  pointer has actually been drawn, which desk tests never did. Fixed (state
+  saved first); verified with the grid probe drawing every frame.
+- **Pointer**: once per XR frame with speed-adaptive smoothing; beam and dot
+  in the eye buffers, which are submitted over the screen layer with a
+  transparent clear; the draw pose is declared as the rendered views. The
+  active hand changes only on a button press on the other controller - motion
+  switching let an idle hand's ray steal it (the dot vanishing from the
+  middle and left of the curved screen, which wraps round further).
+  Curved-screen geometry checked with the gevr_ptrgrid probe: model dots sit
+  on the compositor's corners and edges, from the centre and 1.2 m off it.
+- **Decals**: ZMODE_DEC emulated with a two-pass stencil depth band
+  (gfx_opengl_draw_triangles) - bullet holes over an edge no longer drawn
+  against the background. Stencil cleared with depth.
+- **Draw distance**: ported GEVR PC VISFAR (props visible to the far fog,
+  bgfog.c gevrFogPropVisRange) and LODDIST 0.25 (model.c).
+- **Hands flicker in motion**: the gun/arm were placed from the controller
+  pose of the newest XR frame on a camera from an older one (60 Hz game,
+  72 Hz display). Controllers are now snapshotted with the camera
+  (gevrVrSnapshotControllers / gevrVrGripPoseCamera). Remaining suspect if
+  it persists: the 60/72 cadence itself (hands move at the game's 60 Hz).
+- Device note: a folder made by adb belongs to the shell and the release app
+  cannot write it (EACCES) - start the app once before pushing files.
