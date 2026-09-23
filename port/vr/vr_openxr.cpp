@@ -1719,11 +1719,33 @@ static void Mat4Mul(const float* a, const float* b, float* out);
 static void InvertRigidMat4(const float* m, float* out);
 static void ProjectionFromFov(const XrFovf& fov, float nearZ, float farZ, float* m);
 
+// PORT probe: a file named gevr_ptrgrid in the app's files directory draws
+// dots where the pointer model puts the screen's corners, edge midpoints and
+// centre, to check it against the compositor's (curved) screen.
+static bool vr_pointer_grid_probe(void)
+{
+    static unsigned n;
+    static bool on;
+    if ((n++ % 72) == 0) {
+        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_ptrgrid", "r");
+        on = f != nullptr;
+        if (f) fclose(f);
+    }
+    return on;
+}
+
 extern "C" void vr_pointer_draw(void)
 {
-    const VrPointerHand &p = g_ptr[g_ptrActive];
-    if (!g_screenVisible || !p.hit) {
+    const VrPointerHand &p0 = g_ptr[g_ptrActive];
+    const bool grid = g_screenVisible && g_screenW != 0 && vr_pointer_grid_probe();
+    if (!g_screenVisible || (!p0.hit && !grid)) {
         return;
+    }
+    VrPointerHand p = p0;
+    if (!p.hit) {
+        // grid only: a zero-length beam at the centre
+        vr_screen_uv_to_world(0.5f, 0.5f, p.h);
+        p.o[0] = p.h[0]; p.o[1] = p.h[1] + 0.001f; p.o[2] = p.h[2];
     }
 
     if (s_ptrProg == 0) {
@@ -1789,6 +1811,13 @@ extern "C" void vr_pointer_draw(void)
     if (s_ptrProg == 0xffffffffu) {
         return;
     }
+
+    // The eye buffers now hold something pose-dependent: declare the views it
+    // was drawn with, so that XR frames which reuse this image (72 Hz display,
+    // 60 Hz game) are reprojected from the right pose instead of letting the
+    // beam and spot swim off the screen as the head turns.
+    g_renderedViews = g_frameViews;
+    g_haveRenderedViews = true;
 
     // eye view-projections, play space
     float vp[32];
@@ -1871,6 +1900,33 @@ extern "C" void vr_pointer_draw(void)
     glBindBuffer(GL_ARRAY_BUFFER, s_ptrVbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, 12);
+
+    if (grid) {
+        static const float gu[5] = { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f };
+        static const float gv[3] = { 0.0f, 0.5f, 1.0f };
+        for (int a = 0; a < 5; a++) {
+            for (int b = 0; b < 3; b++) {
+                float g[3];
+                vr_screen_uv_to_world(gu[a], gv[b], g);
+                float gverts[6][7];
+                const float r2 = rad * 1.6f;
+                const float cx[4][2] = { {-1, -1}, {1, -1}, {1, 1}, {-1, 1} };
+                const int idx[6] = { 0, 1, 2, 0, 2, 3 };
+                for (int k = 0; k < 6; k++) {
+                    const float sx = cx[idx[k]][0], sy2 = cx[idx[k]][1];
+                    for (int c = 0; c < 3; c++) {
+                        gverts[k][c] = g[c] + (ax[c] * sx + ay[c] * sy2) * (r2 / rad);
+                    }
+                    gverts[k][3] = sx * 0.5f + 0.5f;
+                    gverts[k][4] = sy2 * 0.5f + 0.5f;
+                    gverts[k][5] = 1.0f;
+                    gverts[k][6] = 1.0f;
+                }
+                glBufferData(GL_ARRAY_BUFFER, sizeof(gverts), gverts, GL_STREAM_DRAW);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            }
+        }
+    }
 
     glBindVertexArray((GLuint)prevVao);
     glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevBuf);

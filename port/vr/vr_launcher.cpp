@@ -246,6 +246,38 @@ bool gevrOpenRomPicker()
     return ok;
 }
 
+// MainActivity.pickResult: a message about a failed or cancelled pick (a
+// successful one shows up as data/picked.z64 instead), read and cleared.
+std::string gevrTakePickResult()
+{
+    std::string out;
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return out;
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jfieldID f = env->GetStaticFieldID(cls, "pickResult", "Ljava/lang/String;");
+    if (f != nullptr) {
+        jstring s = (jstring)env->GetStaticObjectField(cls, f);
+        if (s != nullptr) {
+            const char *c = env->GetStringUTFChars(s, nullptr);
+            if (c) {
+                out = c;
+                env->ReleaseStringUTFChars(s, c);
+            }
+            env->SetStaticObjectField(cls, f, nullptr);
+            env->DeleteLocalRef(s);
+        }
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    return out;
+}
+
 // Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at
 // the screen is the mouse, and a trigger clicks. Returns whether it points.
 //
@@ -353,6 +385,13 @@ extern "C" void gevrLauncherRun(void)
     auto scan = [&]() {
         // A ROM the file picker copied in (MainActivity.onActivityResult)
         // replaces the one in use if it checks out.
+        if (pickerPending) {
+            const std::string r = gevrTakePickResult();
+            if (!r.empty()) {
+                message = r;
+                pickerPending = false;
+            }
+        }
         {
             const std::string picked = dataDir() + "/picked.z64";
             struct stat st;
