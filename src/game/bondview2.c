@@ -8745,6 +8745,26 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
         cam_look_dir->x, cam_look_dir->y, cam_look_dir->z,
         cam_up->x, cam_up->y, cam_up->z);
 
+#ifdef GEVR
+    if (g_gevrStereo)
+    {
+        /*
+         * Stereo: GoldenEye's glass and chrome reflections are a sphere map
+         * keyed to the camera's axes, so every turn of the head swept them
+         * across the surface - glass that reflects wherever you look. A real
+         * reflection changes as the eye moves, not as it turns. Key it to the
+         * body's level facing instead (fast3d carries the axes into eye space
+         * through the modelview), so head rotation leaves it where it is.
+         */
+        f32 rad = s_gevrBaseYaw * (M_PI_F / 180.0f);
+
+        guLookAtReflect(&sp108, lookat,
+            scaledpos.x, scaledpos.y, scaledpos.z,
+            scaledpos.x - sinf(rad), scaledpos.y, scaledpos.z + cosf(rad),
+            0.0f, 1.0f, 0.0f);
+    }
+    else
+#endif
     guLookAtReflect(&sp108, lookat,
         scaledpos.x, scaledpos.y, scaledpos.z,
         clpos.x, clpos.y, clpos.z,
@@ -9741,7 +9761,25 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     bondviewUpperTextWindowTimerTick();
     gdl = sub_GAME_7F08AAE8(gdl);
     gunDrawSight(&gdl);
+#ifdef GEVR
+    /*
+     * Stereo: the ammo count goes on a small panel at the right controller,
+     * Perfect Dark VR's weapon HUD (VR_WEP_HUD_CAPTURE_*_R round its ammo
+     * draw in bondgun.c); vr_openxr.cpp crops the capture to the counter.
+     */
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x56560000); /* VR_WEP_HUD_CAPTURE_BEGIN_R */
+        gdl = generate_ammo_total_microcode(gdl);
+        gDPNoOpTag(gdl++, 0x56560001); /* VR_WEP_HUD_CAPTURE_END_R */
+    }
+    else
+    {
+        gdl = generate_ammo_total_microcode(gdl);
+    }
+#else
     gdl = generate_ammo_total_microcode(gdl);
+#endif
     gdl = countdownTimerRender(gdl);
     gdl = display_red_blue_on_radar(gdl);
     return currentPlayerDrawFade(gdl);

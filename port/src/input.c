@@ -959,12 +959,23 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // Watch: grips are the N64 L/R triggers, which turn its pages.
         if (paused && get_button_state(0, "grip")) npad->button |= L_TRIG;
         if (paused && get_button_state(1, "grip")) npad->button |= R_TRIG;
-        // Either trigger fires (the left one was unmapped).
-        if (get_button_state(1, "trigger") || get_button_state(0, "trigger")) npad->button |= Z_TRIG;
+        // Screen mode: either trigger fires (the left one was unmapped).
+        // Stereo: each hand's trigger is its own gun, as in Perfect Dark VR and
+        // GEVR PC - the right trigger is GoldenEye's Z (the right gun) and the
+        // left one its R, which fires the left gun when dual-wielding and aims
+        // (zooms) otherwise. The left grip then has no job; the right grip
+        // keeps aim/zoom.
+        const bool stereoplay = g_gevrStereo && !menu;
+        if (stereoplay) {
+            if (get_button_state(1, "trigger")) npad->button |= Z_TRIG;
+            if (get_button_state(0, "trigger")) npad->button |= R_TRIG;
+        } else if (get_button_state(1, "trigger") || get_button_state(0, "trigger")) {
+            npad->button |= Z_TRIG;
+        }
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;
         if (get_button_state(1, "b")) npad->button |= B_BUTTON;
         if (get_button_state(0, "menu")) npad->button |= START_BUTTON;
-        if (!menu && (get_button_state(0, "grip") || get_button_state(1, "grip")))
+        if (!menu && (get_button_state(1, "grip") || (!stereoplay && get_button_state(0, "grip"))))
             npad->button |= R_TRIG;
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
         if (get_button_state(0, "x")) npad->button |= B_BUTTON;
@@ -1011,7 +1022,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static u32 heldsince = 0;
             static u32 pressuntil = 0;
             static bool armed = true;
-            if (!menu && gevrVrWatchGesture()) {
+            if (!menu && g_gevrStereo && gevrVrWatchGesture()) {
                 if (!heldsince) heldsince = now ? now : 1;
                 if (armed && now - heldsince >= 500) {
                     pressuntil = now + 100;
