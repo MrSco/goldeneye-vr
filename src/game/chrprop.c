@@ -887,6 +887,191 @@ s32 chrpropFindClosestBgHitRoom(s32 unused, coord3d *from, coord3d *to, coord3d 
 * the code tracing over stan tiles only cares about the furthest stan's room. Luckily,
 * none of those bugs affect props, so prop hits are always the best candidate.
 */
+#ifdef GEVR
+/*
+ * Stereo crosshair (Perfect Dark VR sight.c draws its sight in 3D at the
+ * aim ray's hit point, hand->dotpos): where the right barrel's ray first meets
+ * the world, in camera (view) space. A dry run of the shot below from the same
+ * muzzle and direction (gunfire.c gevrStereoShot, no spread): the background
+ * trace, then guards, objects and doors on screen. Nothing is applied - no
+ * damage, sparks or sounds - and a guard's near-miss flag, which the hit test
+ * sets and which alerts him, is put back. Returns FALSE outside stereo aim.
+ */
+s32 gevrStereoAimPoint(coord3d *out)
+{
+    extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+    ShotData shotdata;
+    coord3d *playerpos;
+    coord3d stanhit;
+    coord3d dest;
+    coord3d besthitpos;
+    coord3d scaleddir;
+    coord3d hitdir;
+    HitThing bghit;
+    StandTile *fromtile;
+    PropRecord *playerprop;
+    PropRecord *prop;
+    PropRecord **pp;
+    u8 visited[256];
+    f32 distscale;
+    f32 depth;
+    f32 t;
+    s32 hitbgstan = 0;
+    s32 gotbghit = 0;
+    s32 bestroom = 0;
+    s32 startroom;
+    s32 k;
+    s32 i;
+
+    if (!gevrStereoShot(GUNRIGHT, NULL, &shotdata.viewOrigin, &shotdata.viewDir))
+    {
+        return FALSE;
+    }
+
+    playerprop = getCurrentPlayerProp();
+    fromtile = playerprop->stan;
+    shotdata.weapon = getCurrentPlayerWeaponId(GUNRIGHT);
+    shotdata.maxdist = M_U32_MAX_VALUE_F;
+    for (k = 0; k < 10; k++)
+    {
+        shotdata.hits[k].prop = 0;
+        shotdata.hits[k].hitpart = 0;
+        shotdata.hits[k].node = 0;
+    }
+
+    shotdata.gunpos = shotdata.viewOrigin;
+    mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &shotdata.gunpos);
+    shotdata.dir = shotdata.viewDir;
+    mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &shotdata.dir);
+
+    dest.x = (shotdata.dir.x * M_U16_MAX_VALUE_F) + shotdata.gunpos.x;
+    dest.y = (shotdata.dir.y * M_U16_MAX_VALUE_F) + shotdata.gunpos.y;
+    dest.z = (shotdata.dir.z * M_U16_MAX_VALUE_F) + shotdata.gunpos.z;
+
+    if (walkTilesBetweenPoints_NoCallback(&fromtile, playerprop->pos.x, playerprop->pos.z, shotdata.gunpos.x, shotdata.gunpos.z))
+    {
+        distscale = get_room_data_float1() * bgGetLevelVisibilityScale();
+        playerpos = bondviewGetCurrentPlayersPosition();
+        stanResetHits();
+
+        if (!walkTilesBetweenPoints_NoCallback(&fromtile, shotdata.gunpos.x, shotdata.gunpos.z, dest.x, dest.z))
+        {
+            chrlvStanLineDirIntersection(&shotdata.gunpos, &shotdata.dir, &stanhit);
+            hitbgstan = 1;
+        }
+        else
+        {
+            stanhit = dest;
+        }
+
+        hitdir.x = stanhit.x - playerpos->x;
+        hitdir.y = stanhit.y - playerpos->y;
+        hitdir.z = stanhit.z - playerpos->z;
+        scaleddir.x = playerpos->x * distscale;
+        scaleddir.y = playerpos->y * distscale;
+        scaleddir.z = playerpos->z * distscale;
+        startroom = getTileRoom(fromtile);
+
+        for (i = 0; i < 256; i++)
+        {
+            visited[i] = 0;
+        }
+
+        if (bgTestBulletHitBackground(playerpos, &stanhit, startroom, &bghit))
+        {
+            bestroom = startroom;
+        }
+        visited[startroom] = 1;
+
+        if (bestroom <= 0)
+        {
+            if (g_BgPortals[0].offset_portal != 0)
+            {
+                bestroom = chrpropFindFirstBgHitInConnectedRooms(getTileRoom(playerprop->stan), playerpos, &stanhit, &hitdir, &scaleddir, visited, &bghit);
+            }
+            else
+            {
+                bestroom = chrpropFindClosestBgHitRoom(getTileRoom(playerprop->stan), playerpos, &stanhit, &hitdir, &scaleddir, visited, &bghit);
+            }
+        }
+        if (bestroom > 0)
+        {
+            distscale = get_room_data_float2();
+            bghit.hitpos.x *= distscale;
+            bghit.hitpos.y *= distscale;
+            bghit.hitpos.z *= distscale;
+        }
+        bestroom = chrpropFindCloserBgHitInVisibleRooms(playerpos, &stanhit, &hitdir, &scaleddir, visited, &bghit, bestroom);
+
+        if (bestroom > 0)
+        {
+            gotbghit = 1;
+            besthitpos = bghit.hitpos;
+        }
+        else
+        {
+            besthitpos = stanhit;
+        }
+
+        if (hitbgstan || gotbghit)
+        {
+            mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &besthitpos);
+            shotdata.maxdist = -besthitpos.f[2];
+        }
+    }
+
+    for (pp = g_LastOnScreenProp; (--pp) >= g_OnScreenPropList;)
+    {
+        prop = *pp;
+
+        if (prop == NULL)
+        {
+            continue;
+        }
+        if ((prop->type == PROP_TYPE_CHR) || (((prop->type == PROP_TYPE_VIEWER) && (prop->chr != 0)) && (getPlayerPointerIndex(prop) != get_cur_playernum())))
+        {
+            u32 flags = prop->chr->chrflags;
+
+            chrTestHit(prop, &shotdata);
+            prop->chr->chrflags = flags;
+        }
+        else if (((prop->type == PROP_TYPE_OBJ) || (prop->type == PROP_TYPE_WEAPON)) || (prop->type == PROP_TYPE_DOOR))
+        {
+            sub_GAME_7F04E9BC(prop, &shotdata);
+        }
+    }
+
+    /* the nearest thing along the ray, as a camera depth */
+    depth = shotdata.maxdist;
+    for (k = 0; k < 10; k++)
+    {
+        if (shotdata.hits[k].prop != 0 && shotdata.hits[k].dist < depth)
+        {
+            depth = shotdata.hits[k].dist;
+        }
+    }
+
+    /* nothing hit: a point well out along the barrel */
+    if (depth > 20000.0f || shotdata.viewDir.z > -0.001f)
+    {
+        t = 2000.0f;
+    }
+    else
+    {
+        t = (-depth - shotdata.viewOrigin.z) / shotdata.viewDir.z;
+        if (t < 1.0f)
+        {
+            t = 1.0f;
+        }
+    }
+
+    out->x = shotdata.viewOrigin.x + shotdata.viewDir.x * t;
+    out->y = shotdata.viewOrigin.y + shotdata.viewDir.y * t;
+    out->z = shotdata.viewOrigin.z + shotdata.viewDir.z * t;
+    return TRUE;
+}
+#endif
+
 void chraiDefaultWeaponFireHandler(s32 hand)
 {
     f32 new_var;
