@@ -3247,3 +3247,32 @@ stereo.
 **Not verified on device:** the headset lost tracking on the desk
 ("Finding position in room") during the ammo-panel test; everything here
 builds clean and is for the user to try.
+
+## 52. Launch hang (2D launcher), 3D crosshair
+
+- **The game would not launch** after 51: Quest's shell treated the new 2D
+  LAUNCHER activity as the immersive app (log: OnImmersiveTransitionStart for
+  LauncherActivity, "Interstitial session (APP_START) took more than 15s") and
+  waited in the loading space for an XR session. The app is vr_only. Fixed in
+  3fac2b6: MainActivity is the LAUNCHER again, LauncherActivity only the no-ROM
+  fallback. Verified: the LAUNCHER intent opens MainActivity, OpenXR inits.
+  Reference the user named: com.nintendont.virtualboygo (one vr_only activity,
+  options in VR) - not JKXR. **Next: the launcher's options in VR**, drawn on
+  the virtual screen before boot (ImGui is vendored in port/vr/imgui), with an
+  in-VR ROM browser; the 2D LauncherActivity code (ini read/write, ROM check)
+  is the reference for what it must do.
+- **Crosshair, done properly** (user: hiding it is not a fix): Perfect Dark VR
+  draws its VR sight in 3D at the aim ray's hit point (sight.c, hand->dotpos).
+  Ported: chrprop.c `gevrStereoAimPoint` is a dry run of GoldenEye's own shot
+  trace from the right muzzle along the barrel - background (stan walk,
+  bgTestBulletHitBackground and the room searches), then guards/objects/doors
+  on screen - with no effects, restoring the near-miss flag chrTestHit sets
+  (it alerts guards); nearest hit as a camera depth, else 2000 units out.
+  gunfire.c `gevrDrawSight3D` draws GoldenEye's crosshair texture on a quad
+  facing the eye at that point, ~3 degrees across (the flat sight's size),
+  world projection, no depth test. Shown when GoldenEye shows its sight (aim
+  held). Build-verified; the device went to the Quest home mid-test.
+- Health/armour HUD is still the head-locked quad at 2 m (51); the user has
+  not seen it (the build did not launch). If it still doubles, the next step
+  is a diegetic panel on the left wrist (PD's left-hand HUD capture), as the
+  ammo is on the right.

@@ -6536,6 +6536,73 @@ void gunSetSightVisible(s32 reason, bool visible)
 }
 
 
+#ifdef GEVR
+static Gfx *gevrDrawSight3D(Gfx *gdl)
+{
+    extern s32 gevrStereoAimPoint(coord3d *out);
+    coord3d p;
+    Mtxf mf;
+    Mtx *mv;
+    Vtx *v;
+    f32 dist;
+    f32 half;
+    f32 k;
+    s32 i;
+
+    if (!gevrStereoAimPoint(&p))
+    {
+        return gdl;
+    }
+
+    dist = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
+    /* the flat sight is 32 of 320 pixels across a 60 degree view: ~3 degrees */
+    half = dist * tanf(DegToRad(1.5f)) * (g_CurrentPlayer->fovy / 60.0f);
+    k = half / 16.0f;
+
+    /* a quad facing the eye at p: vertices at +-16 in the view plane */
+    matrix_4x4_set_identity(&mf);
+    mf.m[0][0] = k;
+    mf.m[1][1] = k;
+    mf.m[2][2] = k;
+    mf.m[3][0] = p.x;
+    mf.m[3][1] = p.y;
+    mf.m[3][2] = p.z;
+    mv = dynAllocateMatrix();
+    guMtxF2L(mf.m, mv);
+
+    v = dynAllocateVertices(4);
+    for (i = 0; i < 4; i++)
+    {
+        s16 sx = (i == 1 || i == 2) ? 16 : -16;
+        s16 sy = (i >= 2) ? 16 : -16;
+        v[i].v.ob[0] = sx;
+        v[i].v.ob[1] = sy;
+        v[i].v.ob[2] = 0;
+        v[i].v.flag = 0;
+        v[i].v.tc[0] = (sx > 0 ? 32 : 0) << 5;
+        v[i].v.tc[1] = (sy > 0 ? 0 : 32) << 5;
+        v[i].v.cn[0] = v[i].v.cn[1] = v[i].v.cn[2] = v[i].v.cn[3] = 0xff;
+    }
+
+    gSPMatrix(gdl++, osVirtualToPhysical((void *)currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+    gSPMatrix(gdl++, osVirtualToPhysical(mv), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gDPPipeSync(gdl++);
+    gSPClearGeometryMode(gdl++, G_ZBUFFER | G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+    gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+    texSelect(&gdl, crosshairimage, 4, 0, 0);
+    gDPSetEnvColor(gdl++, 0xff, 0xff, 0xff, 0x6e);
+    gDPSetCombineMode(gdl++, G_CC_FADEA, G_CC_FADEA);
+    gSPVertex(gdl++, osVirtualToPhysical(v), 4, 0);
+    gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
+    gDPPipeSync(gdl++);
+    gSPSetGeometryMode(gdl++, G_ZBUFFER);
+    return gdl;
+}
+#endif
+
 void gunDrawSight(Gfx **gdl) {
 
     Gfx *sp54;
@@ -6545,15 +6612,21 @@ void gunDrawSight(Gfx **gdl) {
 #ifdef GEVR
     {
         /*
-         * Stereo: the gun aims where the controller points and shots leave
-         * its muzzle, so the flat screen-space crosshair only disagrees
-         * between the eyes (it is drawn at the HUD depth, not the target's).
-         * Keep it while zoomed (the sniper scope), where it is the sight.
+         * Stereo: a screen-space sight sits at one depth for both eyes (the
+         * HUD's), so it doubles against anything nearer or further. Perfect
+         * Dark VR's answer (sight.c) is a sight drawn in 3D at the aim ray's
+         * hit point; here GoldenEye's own crosshair texture goes on a quad
+         * facing the eye at that point (chrprop.c gevrStereoAimPoint), sized
+         * to the same angle as the flat one.
          */
         extern s32 g_gevrStereo;
 
-        if (g_gevrStereo && g_CurrentPlayer->fovy >= 55.0f)
+        if (g_gevrStereo)
         {
+            if ((g_CurrentPlayer->gunsightmode == 0) && (g_CurrentPlayer->mpmenuon == FALSE))
+            {
+                *gdl = gevrDrawSight3D(*gdl);
+            }
             return;
         }
     }
