@@ -2320,6 +2320,7 @@ void texBlur(u8 *pixels, s32 width, s32 height, s32 method, s32 chansize)
 
 void texInitPool(struct texpool *arg0, u8 *arg1, s32 arg2)
 {
+    u8 *endbuf = arg1 + arg2;
 #ifdef GEVR
     /*
      * D217 in the reference port. The whole texture layout assumes this
@@ -2337,13 +2338,19 @@ void texInitPool(struct texpool *arg0, u8 *arg1, s32 arg2)
      *
      * Round the base up; the pool gives up at most seven bytes and the end
      * is unchanged. A no-op wherever the base was already aligned.
+     *
+     * The end must come from the caller's base, as the reference does: taken
+     * from the rounded base it ran up to seven bytes past the buffer. On
+     * Facility the left hand's weapon buffer lands %8 == 4 right before the
+     * remote mine's model file, and the pool's first tex record wrote 2 into
+     * the mine's switch table - a crash on the first thrown mine.
      */
     arg1 = (u8 *)(((uintptr_t) arg1 + 7) & ~(uintptr_t) 7);
 #endif
     arg0->start = arg1;
-	arg0->end = (struct tex *)(arg1 + arg2);
+	arg0->end = (struct tex *)endbuf;
     arg0->leftpos = arg1;
-    arg0->rightpos = (struct tex *)(arg1 + arg2);
+    arg0->rightpos = (struct tex *)endbuf;
 }
 
 

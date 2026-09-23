@@ -2947,3 +2947,21 @@ Verified on device: gameplay and the watch briefing page.
 - Eraser white edge on the file screen: user says low priority; open.
 
 Verified on device: Dam intro into gameplay, no errors in the log.
+
+## 45. Facility crash on the first thrown mine (texture pool end)
+
+User report: Facility, crash about three minutes in, using a mine. Tombstone:
+SIGSEGV at address 2 in modelGetNodeRwData from weaponSetGunfireVisible,
+under generate_player_thrown_object. `PchrremotemineZ`'s Switches[0] read 2.
+
+A per-frame probe of every loaded item model's switch table showed the entry
+flip 0 -> 2 on the frame bondview2 builds Bond's third-person body. The left
+hand's weapon buffer (the texture pool for that body) ended exactly where the
+mine's model file began. texInitPool (our D217 port) rounded the base up to 8
+and then took the end from the rounded base, so the pool ran up to 7 bytes
+past its buffer; the first tex record landed in the mine's switch table. The
+reference computes the end from the caller's base; ours now does too. The
+Dam's buffer happened to be 8-aligned, which is why only Facility showed it.
+
+Verified on device: Facility, table stays 0, mine thrown (5 -> 4) and
+detonated, no crash.
