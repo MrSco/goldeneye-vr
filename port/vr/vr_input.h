@@ -174,6 +174,7 @@ extern "C" {
 // Wrapper version for C (without default parameter)
 XrResult trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
 XrResult stop_haptic_vibration_c(int hand_index);
+int vr_haptics_ready(void);
 #ifdef __cplusplus
 }
 #endif

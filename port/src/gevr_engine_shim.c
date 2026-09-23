@@ -432,14 +432,21 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 
 /* ------------------------------------------------------------ rumble pak */
 
+/*
+ * Perfect Dark's port routes the motor through libultra.c: osMotorProbe for
+ * init, __osMotorAccess for start/stop, which drives inputRumble (and so the
+ * Quest controller haptics). src/motor.c talks to the SI bus and is excluded.
+ */
+extern s32 osMotorProbe(OSMesgQueue *ctrlrqueue, OSPfs *pfs, s32 channel);
+extern s32 __osMotorAccess(OSPfs *pfs, s32 cmd);
+
 s32 osMotorInit(OSMesgQueue *q, OSPfs *pfs, int channel)
 {
-	(void)q; (void)pfs; (void)channel;
-	return PFS_ERR_NOPACK;
+	return osMotorProbe(q, pfs, channel);
 }
 
-s32 osMotorStart(OSPfs *pfs) { (void)pfs; return PFS_ERR_NOPACK; }
-s32 osMotorStop(OSPfs *pfs)  { (void)pfs; return PFS_ERR_NOPACK; }
+s32 osMotorStart(OSPfs *pfs) { return __osMotorAccess(pfs, MOTOR_START); }
+s32 osMotorStop(OSPfs *pfs)  { return __osMotorAccess(pfs, MOTOR_STOP); }
 
 /* ------------------------------------------------------------------- TLB */
 
