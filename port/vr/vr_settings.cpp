@@ -53,6 +53,10 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
     fprintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
     fprintf(f, "ScreenFov=%.1f\n", VrScreenFov);
+    fprintf(f, "; 1 = a curved screen (a section of a cylinder around you), 0 = flat.\n");
+    fprintf(f, "ScreenCurved=%d\n", VrScreenCurved);
+    fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
+    fprintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
     fprintf(f, "; Stereo: darken the edges of the view while moving or smooth-turning, to\n");
     fprintf(f, "; ease motion sickness. 0 = off, up to 1 = strongest.\n");
     fprintf(f, "ComfortVignette=%.2f\n", VrComfortVignette);
@@ -118,6 +122,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
+            else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
         }
             // 2. OTHERWISE, is it a floating-point number (%f)?
         else if (sscanf(line, "%63[^=]=%f", key, &fval) == 2) {
@@ -161,6 +166,11 @@ extern "C" void vrSettingsLoad(void)
                 if (fval < 0.0f) fval = 0.0f;
                 if (fval > 1.0f) fval = 1.0f;
                 VrComfortVignette = fval;
+            }
+            else if (strcmp(key, "ScreenHeight") == 0) {
+                if (fval < -VR_SCREEN_HEIGHT_MAX) fval = -VR_SCREEN_HEIGHT_MAX;
+                if (fval > VR_SCREEN_HEIGHT_MAX) fval = VR_SCREEN_HEIGHT_MAX;
+                VrScreenHeight = fval;
             }
             else if (strcmp(key, "ScreenFov") == 0) {
                 if (fval < VR_SCREEN_FOV_MIN) fval = VR_SCREEN_FOV_MIN;

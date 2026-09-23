@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <climits>
 #include <cstdlib>
+#include <cfloat>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -217,7 +218,22 @@ void pollInjected(Injected &in)
     unlink(path);
 }
 
-void feedGamepad(ImGuiIO &io)
+// Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at
+// the screen is the mouse, and a trigger clicks. Returns whether it points.
+bool feedPointer(ImGuiIO &io)
+{
+    float u, v;
+    const bool on = gevrVrScreenPointer(&u, &v) != 0;
+    if (on) {
+        io.AddMousePosEvent(u * kTexW, v * kTexH);
+    } else {
+        io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+    }
+    io.AddMouseButtonEvent(0, on && (get_button_state(1, "trigger") || get_button_state(0, "trigger")));
+    return on;
+}
+
+void feedGamepad(ImGuiIO &io, bool pointing)
 {
     static Injected inj;
     pollInjected(inj);
@@ -235,7 +251,7 @@ void feedGamepad(ImGuiIO &io)
     io.AddKeyEvent(ImGuiKey_GamepadDpadRight, s.x > t);
     io.AddKeyEvent(ImGuiKey_GamepadFaceDown,
                    get_button_state(1, "a") || get_button_state(0, "x")
-                   || get_button_state(1, "trigger") || get_button_state(0, "trigger")
+                   || (!pointing && (get_button_state(1, "trigger") || get_button_state(0, "trigger")))
                    || (inj.mask & 0x8000));
     io.AddKeyEvent(ImGuiKey_GamepadFaceRight,
                    get_button_state(1, "b") || get_button_state(0, "y") || (inj.mask & 0x4000));
@@ -253,6 +269,7 @@ extern "C" void gevrLauncherRun(void)
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
     io.DisplaySize = ImVec2((float)kTexW, (float)kTexH);
     io.FontGlobalScale = 2.2f;
+    io.MouseDrawCursor = true;   // the laser pointer's spot
     ImGui::StyleColorsDark();
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(2.2f);
@@ -305,7 +322,7 @@ extern "C" void gevrLauncherRun(void)
         Uint32 now = SDL_GetTicks();
         io.DeltaTime = (now > last) ? (now - last) / 1000.0f : 1.0f / 72.0f;
         last = now;
-        feedGamepad(io);
+        feedGamepad(io, feedPointer(io));
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui::NewFrame();
@@ -353,6 +370,28 @@ extern "C" void gevrLauncherRun(void)
         ImGui::RadioButton("Flat screen (the whole game on a screen)", &mode, 0);
 
         ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.25f, 1), "SCREEN (menus, cutscenes, flat play)");
+        {
+            int curved = VrScreenCurved;
+            ImGui::RadioButton("Flat", &curved, 0);
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!vr_screen_curve_supported());
+            ImGui::RadioButton("Curved", &curved, 1);
+            ImGui::EndDisabled();
+            VrScreenCurved = curved;
+            // Live: this page is on the same screen.
+            float size = VrScreenFov, dist = VrScreenDistance;
+            if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg")) {
+                vr_screen_resize(VrScreenDistance, size);
+            }
+            if (ImGui::SliderFloat("Distance", &dist, VR_SCREEN_DISTANCE_MIN, VR_SCREEN_DISTANCE_MAX, "%.1f m")) {
+                vr_screen_resize(dist, VrScreenFov);
+            }
+            ImGui::TextDisabled("In game: hold both grips to move it with your hands,");
+            ImGui::TextDisabled("right stick for distance / size; hold left stick click to recentre.");
+        }
+
+        ImGui::Separator();
         ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.25f, 1), "TURNING (stereo, right stick)");
         ImGui::RadioButton("Smooth", &turn, 0);
         ImGui::SameLine();
@@ -380,7 +419,7 @@ extern "C" void gevrLauncherRun(void)
             focusStart = false;
         }
         ImGui::EndDisabled();
-        ImGui::TextDisabled("Thumbstick: move   A / trigger: select   B: back");
+        ImGui::TextDisabled("Point and trigger, or thumbstick + A.   B: back");
         ImGui::End();
         ImGui::Render();
 

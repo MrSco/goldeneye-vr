@@ -3335,3 +3335,60 @@ options inside VR; the 2D LauncherActivity hung Quest in the loading space
 - Verified on device: the launcher opens and logs `launcher: open`. The
   headset then lost tracking (passthrough prompt), so the page itself, Start
   and the settings round trip are not yet seen on device.
+
+## 55. Vignette fused, left arm solid, shots off the barrel line, tunnel hits, screen shape/grab, laser pointer
+
+User on 54: launcher works; wants screen size/shape options and grip
+adjusting in game; vignette doubled (per eye); left arm hollow / inside out;
+shots land low-right with and without the crosshair; from some spots in and
+just outside the Dam tunnel bullets hit nothing; laser-pointer menus; check
+GEVR's recent releases.
+
+- **Vignette** (gfx_opengl.cpp gfx_opengl_draw_vignette): the ring was
+  centred on each eye image's NDC centre, but Quest's eye images are
+  off-centre (asymmetric FOV), so each eye's ring sat in a different
+  direction and they never fused. Now laid out by angle: per eye, where
+  straight ahead lands (-s_eye_offsets asym_x/asym_y, the same shift the game
+  shader applies) and NDC-per-tangent (eye proj [0]/[5]); the fragment works
+  in tangent space, one ring at infinity (clear radius 48 deg at the lowest
+  strength down to 18 deg at full).
+- **Left arm**: the fist's own display lists enable back-face culling; the
+  mirror (row 0 negated) inverts every winding, so that culling kept only the
+  inside faces. New tag pair VR_CULL_MIRROR_BEGIN/END (0x56580000/1,
+  vr_openxr.h) makes fast3d swap front/back culling between them;
+  gevrRenderLeftArm wraps its draw in it.
+- **Shots**: chrprop.c traced the background from the eye
+  (bondviewGetCurrentPlayersPosition) to where the shot line meets the floor
+  plan, so with the gun in the hand wall/floor impacts were off the barrel
+  line; guards (chrTestHit) already used the muzzle ray. In stereo the trace
+  now starts at the muzzle, as PD VR's shotCalculateHits does from gunpos3d
+  (both the real shot and the 3D crosshair's dry run). The shot's random
+  spread is applied as an angle about the barrel (pixel difference x the
+  camera's c_scalex/c_scaley) instead of re-projecting the stored crosshair.
+- **Tunnel**: the background trace was skipped entirely when the floor-tile
+  walk from the player to the gun failed - in stereo whenever the gun reaches
+  past a floor edge (the tunnel mouth). gevrShotWalkToGun: on failure the
+  walk to the target starts from the player's tile and position instead
+  (PD's player-to-gun portal walk cannot fail).
+- **Screen**: flat or curved (XR_KHR_composition_layer_cylinder, enabled
+  when offered; same view angle as an arc at radius = distance), size and
+  distance in the launcher (live - the launcher is on that screen). In game,
+  both grips grab the screen: it follows the controllers' midpoint (x3) and
+  keeps facing you at the same physical size; the right stick still does
+  distance/size, now along the line to the screen instead of re-centring.
+  Height above eye level is kept on release. ini: ScreenCurved,
+  ScreenHeight.
+- **Laser pointer**: vr_openxr.cpp gevrVrScreenPointer ray-casts both
+  controllers' barrel direction (play space, vr_input.cpp
+  gevrVrGripPosePlay) onto the flat or curved screen. front.c
+  frontUpdateControlStickPosition puts GoldenEye's own folder cursor there
+  (u*viGetX, v*viGetY) when the pointed spot moves, handing back to the stick
+  when it is pushed; the trigger is Z, which the folders already accept. The
+  launcher uses it as ImGui's mouse (trigger clicks, drawn cursor).
+- GEVR vr439-vr445.1: nothing on these bugs (no comfort vignette, no
+  pointer, flat play there means a monitor). Their #84 (rifle guards read as
+  pistols from a 64-bit weapon-prop misread) is being audited here.
+- Not tested on device: the headset showed a Guardian dialog (lost
+  tracking), so testing stopped. Needs a wear-test: vignette, arm, shot
+  line, tunnel impacts, grab, curved screen, pointer (the u*viGetX mapping
+  assumes the screen shows the whole VI frame).

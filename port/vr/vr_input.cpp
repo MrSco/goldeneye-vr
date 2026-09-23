@@ -1715,6 +1715,28 @@ extern "C" int gevrVrWatchGesture(void)
 // pose is available once one has ever been seen. bondview2.c turns it into the
 // first-person gun matrix and the aim ray.
 // ============================================================================
+// The same controller in play space (the virtual screen's space): the screen
+// grab and the laser pointer (vr_openxr.cpp). 0 until it has been tracked.
+extern "C" int gevrVrGripPosePlay(int hand, float pos[3], float quat[4])
+{
+    if (hand < 0 || hand > 1) {
+        return 0;
+    }
+    const XrPosef& pose = gCtrlPosePlay[hand];
+    const XrQuaternionf& q = pose.orientation;
+    if (q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f) {
+        return 0;
+    }
+    pos[0] = pose.position.x;
+    pos[1] = pose.position.y;
+    pos[2] = pose.position.z;
+    quat[0] = q.x;
+    quat[1] = q.y;
+    quat[2] = q.z;
+    quat[3] = q.w;
+    return 1;
+}
+
 extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4])
 {
     if (hand < 0 || hand > 1) {

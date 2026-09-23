@@ -1655,13 +1655,17 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     renderdata.zbufferenabled = 1;
 
     matrix_4x4_7F058C64();
+    /* The fist's display lists turn on back-face culling themselves, and the
+     * mirror inverts every winding, so their culling would keep only the
+     * inside faces (a hollow, inside-out arm). fast3d swaps front and back
+     * between these tags (VR_CULL_MIRROR_BEGIN/END, port/vr/vr_openxr.h). */
+    gDPNoOpTag(renderdata.gdl++, 0x56580000);
     gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
-    /* no culling: the fist's display lists pick their own, and the mirror
-     * flip inverts every winding; the depth test hides the back faces */
     renderdata.cullmode = CULLMODE_NONE;
     subdraw(&renderdata, &s_gevrFistModel);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
+    gDPNoOpTag(gdl++, 0x56580001);
     bondviewTransformManyPosToViewMatrix(s_gevrFistModel.render_pos, s_gevrFistHeader.numMatrices);
     matrix_4x4_7F058C88();
 

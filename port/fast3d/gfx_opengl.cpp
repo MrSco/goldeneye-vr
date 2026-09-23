@@ -2757,9 +2757,18 @@ struct GfxRenderingAPI gfx_opengl_api = {
 // GoldenEye comfort vignette: a dark ring over both eyes while moving in stereo,
 // the common VR remedy for vection sickness. Drawn last into the bound
 // multiview eye FBO with its own tiny program; strength 0..1.
+//
+// The ring is laid out by viewing angle, not by screen position: Quest's eye
+// images are off-centre (asymmetric FOV), so a ring around each image's centre
+// sits in a different direction for each eye and the two never fuse (seen as a
+// doubled ring). Each eye gets where "straight ahead" lands in its image - the
+// same shift the game shader applies (s_eye_offsets asym_x/asym_y, from the
+// eye projection's [8]/[9]) - and its NDC-per-tangent scale ([0]/[5]), so the
+// fragment works in tangent space and both eyes draw one ring at infinity.
 // ============================================================================
 static GLuint s_vignetteProg = 0, s_vignetteVao = 0;
-static GLint s_vignetteStrengthLoc = -1;
+static GLint s_vignetteStrengthLoc = -1, s_vignetteEyeLoc = -1;
+float* vr_get_eye_proj_mtx(int eye);   // vr_openxr.cpp
 
 void gfx_opengl_draw_vignette(float strength)
 {
@@ -2772,21 +2781,27 @@ void gfx_opengl_draw_vignette(float strength)
             "#version 300 es\n"
             "#extension GL_OVR_multiview2 : require\n"
             "layout(num_views = 2) in;\n"
-            "out vec2 vPos;\n"
+            "uniform vec4 uEye[2];\n"   // xy: NDC of straight ahead, zw: NDC per unit tangent
+            "out vec2 vTan;\n"
             "void main() {\n"
             "    vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
-            "    vPos = p * 2.0 - 1.0;\n"
-            "    gl_Position = vec4(vPos, 0.0, 1.0);\n"
+            "    vec2 ndc = p * 2.0 - 1.0;\n"
+            "    vec4 e = uEye[gl_ViewID_OVR];\n"
+            "    vTan = (ndc - e.xy) / e.zw;\n"
+            "    gl_Position = vec4(ndc, 0.0, 1.0);\n"
             "}\n";
         const char* fs =
             "#version 300 es\n"
             "precision mediump float;\n"
-            "in vec2 vPos;\n"
+            "in vec2 vTan;\n"
             "uniform float uStrength;\n"
             "out vec4 outColor;\n"
             "void main() {\n"
-            "    float inner = mix(1.1, 0.35, uStrength);\n"
-            "    float a = smoothstep(inner, inner + 0.45, length(vPos));\n"
+            // radius as an angle from straight ahead: 48 deg clear at the
+            // lowest strength down to 18 deg at full, fading over 22 deg
+            "    float ang = atan(length(vTan));\n"
+            "    float inner = mix(0.84, 0.31, uStrength);\n"
+            "    float a = smoothstep(inner, inner + 0.38, ang);\n"
             "    outColor = vec4(0.0, 0.0, 0.0, a * min(1.0, uStrength * 1.5));\n"
             "}\n";
         GLuint v = glCreateShader(GL_VERTEX_SHADER);
@@ -2812,6 +2827,7 @@ void gfx_opengl_draw_vignette(float strength)
             return;
         }
         s_vignetteStrengthLoc = glGetUniformLocation(s_vignetteProg, "uStrength");
+        s_vignetteEyeLoc = glGetUniformLocation(s_vignetteProg, "uEye");
         glGenVertexArrays(1, &s_vignetteVao);
     }
     if (s_vignetteProg == 0xffffffffu) {
@@ -2836,6 +2852,15 @@ void gfx_opengl_draw_vignette(float strength)
 
     glUseProgram(s_vignetteProg);
     glUniform1f(s_vignetteStrengthLoc, strength);
+    float eyes[8];
+    for (int i = 0; i < 2; i++) {
+        const float *p = vr_get_eye_proj_mtx(i);
+        eyes[i * 4 + 0] = -s_eye_offsets[i * 4 + 1];
+        eyes[i * 4 + 1] = -s_eye_offsets[i * 4 + 3];
+        eyes[i * 4 + 2] = (p[0] > 0.01f) ? p[0] : 1.0f;
+        eyes[i * 4 + 3] = (p[5] > 0.01f) ? p[5] : 1.0f;
+    }
+    glUniform4fv(s_vignetteEyeLoc, 2, eyes);
     glBindVertexArray(s_vignetteVao);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 

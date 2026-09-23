@@ -1057,8 +1057,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
         }
         // While the virtual screen is up (menus, cutscenes, the watch, screen play), both
-        // grips turn the right stick into screen controls: up/down moves it away/nearer at
-        // the same physical size, left/right makes it bigger/smaller. Saved on release.
+        // grips take hold of it: it follows your hands (vr_screen_grab), and the right
+        // stick moves it away/nearer at the same physical size and makes it bigger/smaller
+        // with left/right. Saved on release.
         bool adjusting = false;
         {
             static bool changed = false;
@@ -1067,7 +1068,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (dt > 0.1f) dt = 0.1f;
             last = now;
             adjusting = gevrVrScreenMode && get_button_state(0, "grip") && get_button_state(1, "grip");
+            vr_screen_grab(adjusting);
             if (adjusting) {
+                changed = true;
                 const float dy = fabsf(right.y) > 0.2f ? right.y : 0.0f;
                 const float dx = fabsf(right.x) > 0.2f ? right.x : 0.0f;
                 if (dy != 0.0f || dx != 0.0f) {
@@ -1080,10 +1083,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     fov += dx * 25.0f * dt;
                     if (fov < VR_SCREEN_FOV_MIN) fov = VR_SCREEN_FOV_MIN;
                     if (fov > VR_SCREEN_FOV_MAX) fov = VR_SCREEN_FOV_MAX;
-                    VrScreenDistance = dist;
-                    VrScreenFov = fov;
-                    vr_screen_recenter();
-                    changed = true;
+                    vr_screen_resize(dist, fov);
                 }
                 npad->button &= ~(L_TRIG | R_TRIG);
             } else if (changed) {
