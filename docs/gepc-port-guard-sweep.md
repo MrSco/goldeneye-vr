@@ -246,3 +246,16 @@ Everything else D-numbered is already handled, reference-only tooling or
 options, or a diagnostic; see HANDOFF 43 for the per-id list. What remains
 uncited is M-series probes and cutscene experiments (bondview2.c, model.c,
 chr.c) plus D156/D311 and the ramrom demo path, deliberately not ported.
+
+## Ninth pass: probes and cutscene experiments
+
+Every remaining M-series block was read and classified. One live fix:
+**D243 M-190** (re-seed the POSEND look-at filter after a scripted teleport;
+chrai.c + bondview2.c). Plus **D264**-class: gunfire.c's watch controller
+model read its render data from `D_80035D04 + 0x3c` (N64 global adjacency).
+The rest are env-gated probes or experiments the reference labels as tests
+(model.c M-174..M-187, chr.c M-159..M-173, objecthandler M-154, chraction
+M-178/M-187, event.c M-120, image.c M-89, snd.c D322/M-67/M-70), clamps for
+M-188 which is already ported (model.c M-183/M-185), or already-ported fixes
+under another id (vtxstore M-140/D255, frametiming D117/D134/D155, bg.c
+M-30/D154). The sweep is complete; see HANDOFF 44.
