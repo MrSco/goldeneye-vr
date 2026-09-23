@@ -1,6 +1,8 @@
 #include <ultra64.h>
 #ifdef GEVR
 #include "system.h"
+static u32 g_gevrTeleportEpoch; /* bumped by gevrNotifyTeleport (chrai.c) */
+void gevrNotifyTeleport(void) { g_gevrTeleportEpoch++; }
 extern s32 gevrCrouchToggled(void); // port/src/input.c
 #endif
 #include <math.h>
@@ -10367,6 +10369,38 @@ s32 playerTick(PropRecord *prop)
                 g_playerPointers[index]->field_488.pos.x = mtx[12] + (mtx[4] * 7.0f);
                 g_playerPointers[index]->field_488.pos.y = mtx[13] + (mtx[5] * 7.0f);
                 g_playerPointers[index]->field_488.pos.z = mtx[14] + (mtx[6] * 7.0f);
+#ifdef GEVR
+                /*
+                 * gepc-ref D243 M-190: the cutscene camera's look-at chases
+                 * field_3C4/8/C, a leaky integrator of this position. When a
+                 * shot change teleports Bond (chrai.c bumps the epoch), re-seed
+                 * it at the new position instead of letting it glide there over
+                 * ~20 ticks - the PC-only shake in the Dam bungee cutscene,
+                 * checked against N64 footage in the reference (M-144).
+                 */
+                {
+                    static u32 lastepoch = 0;
+                    static s32 haveepoch = 0;
+                    s32 justteleported = !haveepoch || (g_gevrTeleportEpoch != lastepoch);
+
+                    lastepoch = g_gevrTeleportEpoch;
+                    haveepoch = 1;
+
+                    if ((g_CameraMode == CAMERAMODE_POSEND) && justteleported)
+                    {
+                        f32 fx = g_playerPointers[index]->field_488.pos.x;
+                        f32 fy = g_playerPointers[index]->field_488.pos.y;
+                        f32 fz = g_playerPointers[index]->field_488.pos.z;
+
+                        g_playerPointers[index]->field_3B8.f[0] = fx / S7F081478_FACTOR_2;
+                        g_playerPointers[index]->field_3B8.f[1] = fy / S7F081478_FACTOR_2;
+                        g_playerPointers[index]->field_3B8.f[2] = fz / S7F081478_FACTOR_2;
+                        g_playerPointers[index]->field_3C4 = fx;
+                        g_playerPointers[index]->field_3C8 = fy;
+                        g_playerPointers[index]->field_3CC = fz;
+                    }
+                }
+#endif
             }
  
             return ret;

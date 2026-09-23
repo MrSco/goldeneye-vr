@@ -2920,3 +2920,30 @@ D104, D236, D309, D322, M-series. Not ported: D156/D311 NaN root-motion guard
 loaded by this port).
 
 Verified on device: gameplay and the watch briefing page.
+
+## 44. Watch controller model, cutscene re-seed, the "black notch"
+
+- **Watch Controls page: N64 controller model invisible** (gunfire.c
+  watchRenderController). The decomp copies the model render data from
+  `D_80035D04 + 0x3c`, an N64 global-adjacency trick (gepc-ref D264): on the
+  host that reads unrelated bytes, `flags` came out 0 and subdraw drew none of
+  the controller's nodes. Now built explicitly (zbuffer on, flags 3). The
+  rwdata buffer was also 26 words for a model needing more; widened to 128
+  with a logged bound check. Verified on device.
+- **D243 M-190** (chrai.c, bondview2.c): the cutscene look-at filter
+  (field_3B8, field_3C4..3CC) kept easing from the pre-teleport position when
+  a scripted teleport moved Bond during POSEND. chrai's teleport handler now
+  bumps an epoch; bondview2 re-seeds the filter from the new position when it
+  changes. The only live fix among the reference's cutscene experiments.
+- **The black notch top-right** was the Quest's "screenshot saved" toast,
+  captured in the frames that follow a screenshot. Not a game bug.
+- Probe/experiment sweep closed: model.c M-174..M-187 are GE_D243M-gated
+  logging; M-183/M-185 clamps guard against M-188 (the stale 0xfb sizeof(Model)
+  literal), which we already have; chr.c M-159..M-173 are GE_D243X2 tests the
+  reference labels "not a fix"; objecthandler M-154, chraction M-178/M-187,
+  event.c M-120, image.c M-89, snd.c D322/M-67/M-70 are diagnostics;
+  vtxstore M-140 (D255), frametiming D117/D134 (D155), bg.c M-30 (D154) were
+  already ported.
+- Eraser white edge on the file screen: user says low priority; open.
+
+Verified on device: Dam intro into gameplay, no errors in the log.

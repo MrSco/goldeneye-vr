@@ -1887,7 +1887,13 @@ Gfx* watchRenderController(Gfx* gdl, Mtxf* basemtx, s32 envcolour, bool animateb
     s32 j;
     s32 offset;
     f32 angle;
+#ifdef GEVR
+    /* numRecords words, counted with host record sizes (wider than the
+     * N64's 26); checked below before modelInit writes them. */
+    u32 rwdata[128];
+#else
     u32 rwdata[26];
+#endif
     u32 pad2;
     Mtxf sp41c;
     Mtxf sp3dc;
@@ -1928,7 +1934,21 @@ Gfx* watchRenderController(Gfx* gdl, Mtxf* basemtx, s32 envcolour, bool animateb
     struct coord3d coord_node12_pos;
     struct coord3d coord_node12_base;
 
+#ifdef GEVR
+    /*
+     * Same defect as gepc-ref D264 (set_enviro_fog_for_items_in_solo_watch_menu):
+     * on the N64 this reads the ModelRenderData template spanning the last word
+     * of D_80035D04 and the next global, watchControllerButtonBases {1, 3, 0..}
+     * - basemtx 0, zbufferenabled 1, flags 3. On the host those globals are not
+     * adjacent and the struct is wider, so flags read 0 and subdraw drew none
+     * of the controller's nodes: the watch Controls page showed no controller.
+     */
+    renderdata = (ModelRenderData){0};
+    renderdata.zbufferenabled = TRUE;
+    renderdata.flags = 3;
+#else
     renderdata = *(ModelRenderData *)((u8 *)D_80035D04 + 0x3c);
+#endif
 
     sub_GAME_7F05DA8C(GUNRIGHT, 0x55);
 
@@ -1942,6 +1962,14 @@ Gfx* watchRenderController(Gfx* gdl, Mtxf* basemtx, s32 envcolour, bool animateb
     modelCalculateRwDataLen(objheader);
 
     if (objheader);
+#ifdef GEVR
+    if ((u32) objheader->numRecords > ARRAYCOUNT(rwdata))
+    {
+        sysLogPrintf(LOG_ERROR, "watch: controller model needs %d rwdata words, have %d",
+                (s32) objheader->numRecords, (s32) ARRAYCOUNT(rwdata));
+        return gdl;
+    }
+#endif
 
     modelInit(&modelstack, objheader, rwdata);
     modelstack.render_pos = (RenderPosView*) matrices;

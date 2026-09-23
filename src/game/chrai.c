@@ -4146,6 +4146,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                             chr->chrflags   = chr->chrflags | CHRFLAG_INIT;
                             setsubroty(chr->model, FacingDirection);
                             setsuboffset(chr->model, &pos);
+#ifdef GEVR
+                            {
+                                /* gepc-ref D243 M-190: tell the cutscene camera a shot change warped a chr. */
+                                extern void gevrNotifyTeleport(void);
+                                gevrNotifyTeleport();
+                            }
+#endif
                             chrDetectRooms(chr);
                             if (chr->prop == g_CurrentPlayer->prop)
                             {
