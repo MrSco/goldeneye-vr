@@ -749,6 +749,9 @@ Gfx* lvlRender(Gfx* DL)
             chraiUpdateOnscreenPropCount();
             chrpropUpdateAutoaimTarget();
             chraiCheckUseHeldItems();
+#ifdef GEVR
+            { extern void gevrStereoAimUpdate(void); gevrStereoAimUpdate(); }
+#endif
 
             if (bond_pressed_reload_activate() && bond_interact_object())
             {

@@ -897,6 +897,31 @@ s32 chrpropFindClosestBgHitRoom(s32 unused, coord3d *from, coord3d *to, coord3d 
  * damage, sparks or sounds - and a guard's near-miss flag, which the hit test
  * sets and which alerts him, is put back. Returns FALSE outside stereo aim.
  */
+static s32 s_gevrAimValid;
+static coord3d s_gevrAimPoint;
+
+s32 gevrStereoAimPoint(coord3d *out);
+
+/*
+ * Run once a frame from lvlRender right after the game traces its own shots
+ * (chraiCheckUseHeldItems): the guards' model hit lists are valid there. Drawn
+ * later from the cache (gunfire.c): tracing at draw time crashed, the lists
+ * being rebuilt by then (chrTestHit -> sub_GAME_7F06C010 on a NULL entry).
+ */
+void gevrStereoAimUpdate(void)
+{
+    s_gevrAimValid = gevrStereoAimPoint(&s_gevrAimPoint);
+}
+
+s32 gevrStereoAimCached(coord3d *out)
+{
+    if (s_gevrAimValid)
+    {
+        *out = s_gevrAimPoint;
+    }
+    return s_gevrAimValid;
+}
+
 s32 gevrStereoAimPoint(coord3d *out)
 {
     extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
@@ -1032,6 +1057,11 @@ s32 gevrStereoAimPoint(coord3d *out)
         {
             u32 flags = prop->chr->chrflags;
 
+            /* the model hit list is only valid where the game traces its own shots */
+            if (prop->chr->field_20 == NULL || prop->chr->model == NULL)
+            {
+                continue;
+            }
             chrTestHit(prop, &shotdata);
             prop->chr->chrflags = flags;
         }

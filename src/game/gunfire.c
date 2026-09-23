@@ -1656,7 +1656,9 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
 
     matrix_4x4_7F058C64();
     gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
-    renderdata.cullmode = 2;
+    /* no culling: the fist's display lists pick their own, and the mirror
+     * flip inverts every winding; the depth test hides the back faces */
+    renderdata.cullmode = CULLMODE_NONE;
     subdraw(&renderdata, &s_gevrFistModel);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
@@ -6539,7 +6541,7 @@ void gunSetSightVisible(s32 reason, bool visible)
 #ifdef GEVR
 static Gfx *gevrDrawSight3D(Gfx *gdl)
 {
-    extern s32 gevrStereoAimPoint(coord3d *out);
+    extern s32 gevrStereoAimCached(coord3d *out);
     coord3d p;
     Mtxf mf;
     Mtx *mv;
@@ -6549,7 +6551,7 @@ static Gfx *gevrDrawSight3D(Gfx *gdl)
     f32 k;
     s32 i;
 
-    if (!gevrStereoAimPoint(&p))
+    if (!gevrStereoAimCached(&p))
     {
         return gdl;
     }
