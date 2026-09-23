@@ -92,6 +92,11 @@ bool gForceFlatShaderForMenu = false;
 // flat image (see port/vr/vr_screen.h).
 bool gVrFlatPass = false;
 static GLint gCurVrFlatLoc = -1;
+static GLint gCurDecalBiasLoc = -1;
+// The projection's depth term (rsp.P_matrix[3][2]), set by gfx_pc.cpp for the
+// decal band: a point moved D view units along its ray changes clip z by
+// P32 * D / w, so a band of constant real thickness is uDecalBias = P32 * D.
+float gfx_decal_proj_z = 0.0f;
 
 static inline void gfx_opengl_menu_capture_push(void) {
     gMenuCaptureRefCount++;
@@ -313,6 +318,7 @@ struct ShaderProgram {
 
     GLint IsTitleLegal;
     GLint vrFlatLocation;
+    GLint decalBiasLocation;   // GoldenEye: view-space depth nudge for the decal band
 
     GLint TanHalfFovLeft;
     GLint TanHalfFovRight;
@@ -663,6 +669,7 @@ static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
     gCurEyeOffsetLeftLoc  = new_prg->eyeOffsetLeftLocation;
     gCurEyeOffsetRightLoc = new_prg->eyeOffsetRightLocation;
     gCurVrFlatLoc = new_prg->vrFlatLocation;
+    gCurDecalBiasLoc = new_prg->decalBiasLocation;
 }
 
 static void append_str(char* buf, size_t* len, const char* str) {
@@ -874,6 +881,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform float uTanHalfFovLeft;");
         append_line(vs_buf, &vs_len, "uniform float uTanHalfFovRight;");
         append_line(vs_buf, &vs_len, "uniform int uVrFlat;");
+        append_line(vs_buf, &vs_len, "uniform float uDecalBias;");
 
     }
 
@@ -940,7 +948,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     // VR
     if (use_multiview) {
         append_line(vs_buf, &vs_len, vr_shader);
-
+        // GoldenEye decal band (gfx_opengl_draw_triangles): a view-space nudge
+        append_line(vs_buf, &vs_len, "gl_Position.z += uDecalBias / max(gl_Position.w, 0.0001);");
     }
 
 
@@ -1284,6 +1293,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         prg->TanHalfFovRight = glGetUniformLocation(shader_program, "uTanHalfFovRight");
         prg->TanHalfFovLeft = glGetUniformLocation(shader_program, "uTanHalfFovLeft");
         prg->vrFlatLocation = glGetUniformLocation(shader_program, "uVrFlat");
+        prg->decalBiasLocation = glGetUniformLocation(shader_program, "uDecalBias");
 
     }
 
@@ -1469,6 +1479,10 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         if (gCurVrFlatLoc >= 0) glUniform1i(gCurVrFlatLoc, gVrFlatPass ? 1 : 0);
     }
 
+    if (gCurDecalBiasLoc >= 0) {
+        glUniform1f(gCurDecalBiasLoc, 0.0f);
+    }
+
     if (s_decalZ) {
         /*
          * GoldenEye: the RDP's decal Z mode draws a pixel only where it lies
@@ -1485,7 +1499,15 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
          *     are metres away, still well outside it;
          *  B: draw where marked and, pulled forward, at or in front of it;
          *     every marked pixel is zeroed again (pass or fail).
+         * The band is a fixed distance in view space (uDecalBias), not in
+         * depth-buffer steps: GoldenEye's decals sit a little off their walls
+         * (impact corners are rounded to whole units, level decals are
+         * modelled apart), and at a grazing angle that offset is a large
+         * depth difference while the headset's fine resolution keeps
+         * polygon-offset slopes tiny - decals were cut along a diagonal as
+         * you walked up to them. The N64's own decal test had coarse depth.
          */
+        const float bandD = 3.0f;   // view units either side (x0.3 by the depth-clamp hack: ~4.5 cm at the Dam's scale)
         GLboolean prevDepthMask = current_depth_mask ? GL_TRUE : GL_FALSE;
         glEnable(GL_STENCIL_TEST);
         glStencilMask(0xff);
@@ -1493,7 +1515,8 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
         glDepthMask(GL_FALSE);
         glDepthFunc(GL_GEQUAL);
-        glPolygonOffset(4.0f, 2048.0f);
+        glPolygonOffset(0.0f, 0.0f);
+        if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, -gfx_decal_proj_z * bandD);   // pushed away
         glStencilFunc(GL_ALWAYS, 1, 0xff);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
         glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
@@ -1502,12 +1525,14 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         glDepthMask(prevDepthMask);
         glDepthFunc(GL_LEQUAL);
         glPolygonOffset(-2.0f, -2.0f);
+        if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, gfx_decal_proj_z * bandD);   // pulled near
         glStencilFunc(GL_EQUAL, 1, 0xff);
         glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
         glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
 
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
         glDisable(GL_STENCIL_TEST);
+        if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, 0.0f);
         return;
     }
 
