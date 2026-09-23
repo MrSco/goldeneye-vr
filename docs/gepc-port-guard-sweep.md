@@ -225,3 +225,14 @@ earlier from input.c's point of view. See HANDOFF 37.
 | stan.c | D253 (callback declared with s32 where the type passes f32: wrong register for outFlags), D177 (named locus fields), D89 (NULL tile in the walk) | D90 (record-sized clear), D79/D88 elsewhere |
 | gfx_pc.cpp | D233 (no trivial reject with a vertex behind the camera) | — |
 | bg.c | — | D312 re-checked: G_VTX count read from w0 bits 16-23 |
+
+
+## Seventh pass — chrai.c, stan.c (complete)
+
+| File | Ported | Already here / not applicable |
+|---|---|---|
+| chrai.c | D310 (earlier) | D309 diagnostics; D243 M-145/M-169/M-170 cutscene experiments |
+| stan.c | D253, D177, D89 (HANDOFF 38) | D90, D189 (tile stack 55), D177 pointer-add sites use u8 * / indexing, D88 diagnostics |
+
+Build flags now match gepc-ref's ntsc-final except LEFTOVERDEBUG /
+LEFTOVERSPECTRUM (HANDOFF 41).

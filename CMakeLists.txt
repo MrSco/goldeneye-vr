@@ -97,7 +97,9 @@ add_definitions(
   -DLANG_US=1
   -DREFRESH_NTSC=1
   -DGEVR=1
-  -DBUGFIX_R1=1
+  # US ROM, so the US revision: gepc-ref ntsc-final and the N64 Makefile use
+  # BUGFIX_R0. BUGFIX_R1 is the JP/PAL revision and read JP-only state here.
+  -DBUGFIX_R0=1
 )
 
 if(TARGET_IS_64BIT)

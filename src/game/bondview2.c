@@ -9794,8 +9794,8 @@ void bondviewResetIntroCameraMessageDialogs(void)
     status_bar_text_buffer_index = 0;
 
 #ifdef BUGFIX_R0
-    copy_1stfonttable = ptrFontBankGothic;
-    copy_2ndfonttable = ptrFontBankGothicChars;
+    copy_1stfonttable = (uintptr_t) ptrFontBankGothic;
+    copy_2ndfonttable = (uintptr_t) ptrFontBankGothicChars;
 #endif
 }
 
@@ -9820,11 +9820,19 @@ void hudmsgsSetOff(s32 flags)
 
 
 #if defined(VERSION_US) && !defined(BUGFIX_R1)
+#ifdef GEVR
+void setFontTables(void *arg0, void *arg1)
+{
+    copy_2ndfonttable = (uintptr_t) arg0;
+    copy_1stfonttable = (uintptr_t) arg1;
+}
+#else
 void setFontTables(s32 arg0, s32 arg1)
 {
     copy_2ndfonttable = arg0;
     copy_1stfonttable = arg1;
 }
+#endif
 #endif
 
 
@@ -9948,6 +9956,11 @@ void bondviewIntroCameraTextTick(void)
 
 static struct fontchar *gevrBottomCaptionChars(s32 index)
 {
+#if defined(VERSION_US) && !defined(BUGFIX_R1)
+    /* US: one font pair for every message, set by hudmsgsReset/setFontTables. */
+    (void) index;
+    return copy_2ndfonttable ? (struct fontchar *) copy_2ndfonttable : ptrFontZurichBoldChars;
+#else
     s32 stored = dword_CODE_bss_jp80079CEC[index];
 
     if (stored == (s32) (uintptr_t) ptrFontBankGothicChars)
@@ -9955,10 +9968,15 @@ static struct fontchar *gevrBottomCaptionChars(s32 index)
         return ptrFontBankGothicChars;
     }
     return ptrFontZurichBoldChars;
+#endif
 }
 
 static struct font *gevrBottomCaptionFont(s32 index)
 {
+#if defined(VERSION_US) && !defined(BUGFIX_R1)
+    (void) index;
+    return copy_1stfonttable ? (struct font *) copy_1stfonttable : ptrFontZurichBold;
+#else
     s32 stored = dword_CODE_bss_jp80079Cd8[index];
 
     if (stored == (s32) (uintptr_t) ptrFontBankGothic)
@@ -9966,6 +9984,7 @@ static struct font *gevrBottomCaptionFont(s32 index)
         return ptrFontBankGothic;
     }
     return ptrFontZurichBold;
+#endif
 }
 
 /**
