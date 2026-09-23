@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "vr_settings.h"
+#include "vr_screen.h"
 
 extern "C" float inputRumbleGetStrength(int playernum);
 extern "C" void inputRumbleSetStrength(int playernum, int strength);
@@ -41,6 +42,17 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = stand at the height of the character you are playing instead of your own,\n");
     fprintf(f, "; so Elvis is short and Mr Blonde towers. 0 = you are your own height throughout.\n");
     fprintf(f, "MatchCharacterHeight=%d\n", VrMatchCharacterHeight ? 1 : 0);
+
+    // --- GoldenEye presentation -------------------------------------------------------------------
+    fprintf(f, "\n");
+    fprintf(f, "; 1 = true stereo in first-person play (menus, cutscenes and the watch stay on the\n");
+    fprintf(f, "; virtual screen), 0 = everything on the virtual screen. Hold the right stick click\n");
+    fprintf(f, "; in game to switch.\n");
+    fprintf(f, "PlayMode=%d\n", VrPlayMode);
+    fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
+    fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
+    fprintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
+    fprintf(f, "ScreenFov=%.1f\n", VrScreenFov);
 
     // --- VR hand placement (no menu UI; edit here) --------------------------------------------
     fprintf(f, "\n");
@@ -98,6 +110,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "HideArms") == 0) VrHideArms = (ival != 0);
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;
+            else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
         }
             // 2. OTHERWISE, is it a floating-point number (%f)?
         else if (sscanf(line, "%63[^=]=%f", key, &fval) == 2) {
@@ -132,6 +145,16 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "GunOffX") == 0) VrGunOffX = fval;
             else if (strcmp(key, "GunOffY") == 0) VrGunOffY = fval;
             else if (strcmp(key, "GunOffZ") == 0) VrGunOffZ = fval;
+            else if (strcmp(key, "ScreenDistance") == 0) {
+                if (fval < VR_SCREEN_DISTANCE_MIN) fval = VR_SCREEN_DISTANCE_MIN;
+                if (fval > VR_SCREEN_DISTANCE_MAX) fval = VR_SCREEN_DISTANCE_MAX;
+                VrScreenDistance = fval;
+            }
+            else if (strcmp(key, "ScreenFov") == 0) {
+                if (fval < VR_SCREEN_FOV_MIN) fval = VR_SCREEN_FOV_MIN;
+                if (fval > VR_SCREEN_FOV_MAX) fval = VR_SCREEN_FOV_MAX;
+                VrScreenFov = fval;
+            }
         }
             // 3. OTHERWISE, is it text (%s)?
         else if (sscanf(line, "%63[^=]=%255[^\n]", key, sval) == 2) {

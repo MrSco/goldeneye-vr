@@ -14,6 +14,8 @@
 
 #include "../vr/vr_openxr.h"
 #include "../vr/vr_input.h"
+#include "../vr/vr_screen.h"
+#include <math.h>
 
 #include <gun.h>
 #include <player.h>
@@ -31,6 +33,25 @@ extern void gevrPlayerLayout(u32 *size, u32 *pausestate); // bondview2.c
 
 /* Crouch toggle for the left stick click; bondview2.c applies it. */
 static s32 gevrCrouchToggle = 0;
+
+/*
+ * Stereo gameplay (bondview2.c gevrStereoFrame): the right stick turns the
+ * body instead of reaching the game (Perfect Dark VR's joy_for_vr), and both
+ * stick clicks recentre (GEVR PC's GETV_XR_RECENTER_CHORD).
+ */
+extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
+extern int gevrVrScreenMode;      /* gfx_pc.cpp: this frame is on the virtual screen */
+extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
+extern void vrSettingsSave(void);
+static float gevrTurnAxis = 0.0f;
+static s32 gevrRecenterPending = 0;
+float gevrVrTurnAxis(void) { return gevrTurnAxis; }
+s32 gevrVrTakeRecenter(void)
+{
+    s32 pending = gevrRecenterPending;
+    gevrRecenterPending = 0;
+    return pending;
+}
 s32 gevrCrouchToggled(void)
 {
     return gevrCrouchToggle;
@@ -947,19 +968,96 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
         if (get_button_state(0, "x")) npad->button |= B_BUTTON;
         if (get_button_state(0, "y")) npad->button |= A_BUTTON;
-        // Left stick click toggles crouch (bondview2.c reads gevrCrouchToggled).
+        const bool lclick = get_button_state(0, "thumbstick_click");
+        const bool rclick = get_button_state(1, "thumbstick_click");
+        const u32 now = SDL_GetTicks();
+        // Left stick click toggles crouch (bondview2.c reads gevrCrouchToggled). It acts on
+        // release so that a click of both sticks (recentre) or a long hold (bring the
+        // screen back, gevr_engine_shim.c) does not crouch as well.
         {
             static bool wasclicked = false;
+            static bool spoilt = false;
+            static u32 pressedat = 0;
             static s32 crouchstage = -1;
             if (bossGetStageNum() != crouchstage) {
                 crouchstage = bossGetStageNum();
                 gevrCrouchToggle = 0;
             }
-            const bool clicked = !menu && get_button_state(0, "thumbstick_click");
-            if (clicked && !wasclicked) {
+            if (lclick && !wasclicked) {
+                pressedat = now;
+                spoilt = false;
+            }
+            if (lclick && rclick) spoilt = true;
+            if (!lclick && wasclicked && !spoilt && !menu && now - pressedat < 700) {
                 gevrCrouchToggle = !gevrCrouchToggle;
             }
-            wasclicked = clicked;
+            wasclicked = lclick;
+        }
+        // Both stick clicks: recentre. Stereo faces the body the way you look; the
+        // screen comes back in front of you.
+        {
+            static bool both = false;
+            if (lclick && rclick && !both) {
+                gevrRecenterPending = 1;
+                if (gevrVrScreenMode) vr_screen_recenter();
+            }
+            both = lclick && rclick;
+        }
+        // Hold the right stick click for a second: switch stereo gameplay and the
+        // virtual screen, and remember the choice in goldeneye-vr.ini.
+        {
+            static u32 downat = 0;
+            static bool fired = false, spoilt = false;
+            if (rclick) {
+                if (!downat) {
+                    downat = now ? now : 1;
+                    fired = spoilt = false;
+                }
+                if (lclick) spoilt = true;
+                if (!fired && !spoilt && now - downat >= 1000) {
+                    VrPlayMode = VrPlayMode ? 0 : 1; /* VR_PLAYMODE_SCREEN : VR_PLAYMODE_STEREO */
+                    vrSettingsSave();
+                    fired = true;
+                    LOGI("input: play mode -> %s\n", VrPlayMode ? "stereo" : "screen");
+                }
+            } else {
+                downat = 0;
+            }
+        }
+        // While the virtual screen is up (menus, cutscenes, the watch, screen play), both
+        // grips turn the right stick into screen controls: up/down moves it away/nearer at
+        // the same physical size, left/right makes it bigger/smaller. Saved on release.
+        bool adjusting = false;
+        {
+            static bool changed = false;
+            static u32 last = 0;
+            float dt = last ? (float)(now - last) / 1000.0f : 0.0f;
+            if (dt > 0.1f) dt = 0.1f;
+            last = now;
+            adjusting = gevrVrScreenMode && get_button_state(0, "grip") && get_button_state(1, "grip");
+            if (adjusting) {
+                const float dy = fabsf(right.y) > 0.2f ? right.y : 0.0f;
+                const float dx = fabsf(right.x) > 0.2f ? right.x : 0.0f;
+                if (dy != 0.0f || dx != 0.0f) {
+                    const float halftan = tanf(VrScreenFov * 0.5f * 3.14159265f / 180.0f);
+                    const float width = 2.0f * VrScreenDistance * halftan;
+                    float dist = VrScreenDistance + dy * 1.5f * dt;
+                    if (dist < VR_SCREEN_DISTANCE_MIN) dist = VR_SCREEN_DISTANCE_MIN;
+                    if (dist > VR_SCREEN_DISTANCE_MAX) dist = VR_SCREEN_DISTANCE_MAX;
+                    float fov = 2.0f * atanf(width / (2.0f * dist)) * 180.0f / 3.14159265f;
+                    fov += dx * 25.0f * dt;
+                    if (fov < VR_SCREEN_FOV_MIN) fov = VR_SCREEN_FOV_MIN;
+                    if (fov > VR_SCREEN_FOV_MAX) fov = VR_SCREEN_FOV_MAX;
+                    VrScreenDistance = dist;
+                    VrScreenFov = fov;
+                    vr_screen_recenter();
+                    changed = true;
+                }
+                npad->button &= ~(L_TRIG | R_TRIG);
+            } else if (changed) {
+                vrSettingsSave();
+                changed = false;
+            }
         }
         // In menus either stick navigates (whichever is pushed further).
         XrVector2f look = right;
@@ -969,6 +1067,20 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]) / 256;
         npad->stick_y = inputAxisScale((s32)(look.y * 32767.0f),
                 cfg->deadzone[cfg->axisMap[0][1]], cfg->sens[cfg->axisMap[0][1]]) / 256;
+        // Stereo: the head looks and the right stick turns the body (bondview2.c), so
+        // the game's own stick turn and look stay idle. Dead zone as PD's joy_for_vr.
+        gevrTurnAxis = 0.0f;
+        if (adjusting || (g_gevrStereo && !menu)) {
+            npad->stick_x = 0;
+            npad->stick_y = 0;
+        }
+        if (g_gevrStereo && !menu && !adjusting) {
+            const float dz = 0.15f;
+            float x = right.x;
+            if (fabsf(x) < dz) x = 0.0f;
+            else x = (x - (x > 0.0f ? dz : -dz)) / (1.0f - dz);
+            gevrTurnAxis = x;
+        }
         if (!menu) {
             // Solitaire: C directions move; while aiming down/up crouches/stands.
             if (left.x < -0.25f) npad->button |= L_CBUTTONS;

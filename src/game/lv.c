@@ -668,6 +668,9 @@ Gfx *lvlPortalDebug7F0BDF10(Gfx *gdl)
 
 Gfx* lvlRender(Gfx* DL)
 {
+#ifdef GEVR
+    { extern void gevrStereoFrame(s32 inlevel); gevrStereoFrame(g_CurrentStageToLoad != LEVELID_TITLE); }
+#endif
     gSPSegment(DL++, SPSEGMENT_PHYSICAL, NULL);
     gSPSegment(DL++, SPSEGMENT_UNKNOWN, osVirtualToPhysical(ptr_font_DL));
 
@@ -698,6 +701,28 @@ Gfx* lvlRender(Gfx* DL)
             viSetViewPosition(g_CurrentPlayer->viewleft, g_CurrentPlayer->viewtop);
             viSetFovY(g_CurrentPlayer->fovy);
             viSetAspect(g_CurrentPlayer->aspect);
+#ifdef GEVR
+            {
+                /*
+                 * Stereo gameplay (bondview2.c gevrStereoFrame): Perfect Dark VR
+                 * gives the player the headset's XrFov/XrAspect (pdmain.c
+                 * VrApplySettingsOnStart, player.c player0f0bd358), so the
+                 * projection and everything the camera derives from it (the
+                 * portal and scissor scales in currentPlayerSetCameraScale)
+                 * agree; the multiview shader shears it per eye. The game's
+                 * own fovy still scales it so zoom works (60 = unzoomed).
+                 */
+                extern s32 g_gevrStereo;
+                extern float gevrVrFov(void);
+                extern float gevrVrAspect(void);
+
+                if (g_gevrStereo)
+                {
+                    viSetFovY(gevrVrFov() * (g_CurrentPlayer->fovy / 60.0f));
+                    viSetAspect(gevrVrAspect());
+                }
+            }
+#endif
 
             DL = viClearZBufCurrentPlayer(DL);
             DL = viSetupCurrentPlayerView(DL);
