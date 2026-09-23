@@ -60,6 +60,63 @@ public class MainActivity extends SDLActivity {
         initializeGame();
     }
 
+    // --- ROM file picker (called from the in-VR launcher, port/vr/vr_launcher.cpp) ---
+    private static final int REQUEST_PICK_ROM = 0x6e;
+
+    /** Opens the system file picker; the chosen file is copied to data/picked.z64. */
+    public void openRomPicker() {
+        runOnUiThread(() -> {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+            try {
+                startActivityForResult(intent, REQUEST_PICK_ROM);
+            } catch (Exception e) {
+                Log.e(TAG, "No file picker available", e);
+            }
+        });
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_PICK_ROM || resultCode != RESULT_OK || data == null || data.getData() == null) {
+            return;
+        }
+        final Uri uri = data.getData();
+        new Thread(() -> copyPickedRom(uri), "rom-copy").start();
+    }
+
+    // Copies through a .part file so the launcher never sees half a ROM; it
+    // checks the header and adopts or rejects the file.
+    private void copyPickedRom(Uri uri) {
+        File dir = new File(getExternalFilesDir(null), "data");
+        dir.mkdirs();
+        File part = new File(dir, "picked.z64.part");
+        long total = 0;
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri);
+             java.io.OutputStream out = new java.io.FileOutputStream(part)) {
+            if (in == null) throw new java.io.IOException("cannot open");
+            byte[] buf = new byte[1 << 16];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                out.write(buf, 0, n);
+                total += n;
+                if (total > (64L << 20)) throw new java.io.IOException("file too large");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "ROM copy failed", e);
+            part.delete();
+            return;
+        }
+        if (!part.renameTo(new File(dir, "picked.z64"))) {
+            Log.e(TAG, "ROM copy: rename failed");
+            part.delete();
+            return;
+        }
+        Log.i(TAG, "ROM copied from picker (" + total + " bytes)");
+    }
+
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);

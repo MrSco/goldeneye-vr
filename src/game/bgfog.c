@@ -279,6 +279,20 @@ f32 fogGetScaledFarFogIntensitySquared(void)
 /**
  * Address 0x7F0BA758.
 */
+#ifdef GEVR
+/*
+ * GEVR PC's VISFAR (GETV_VR_VISFAR=1, "MaxVisRange vs FarFog"): the far edge
+ * of the level's fog, which propobj.c uses as the range small props stay
+ * visible to (see gevrFogPropVisRange).
+ */
+static f32 s_gevrFarFog;
+
+f32 gevrFogPropVisRange(f32 maxvisrange)
+{
+    return s_gevrFarFog > maxvisrange ? s_gevrFarFog : maxvisrange;
+}
+#endif
+
 void fogLoadCurrentEnvironment(EnvironmentRecord *arg0)
 {
     f32 zrange[2]; // 48
@@ -299,6 +313,9 @@ void fogLoadCurrentEnvironment(EnvironmentRecord *arg0)
 #endif
 
     viSetZRange(arg0->Visibility.BlendMultiplier, arg0->Visibility.FarFog);
+#ifdef GEVR
+    s_gevrFarFog = (f32)arg0->Visibility.FarFog;
+#endif
     viGetZRange(&zrange);
 
     temp_f0 = bgGetLevelVisibilityScale();

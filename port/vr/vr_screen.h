@@ -31,6 +31,8 @@ void vr_screen_grab(int active);
 void vr_screen_resize(float dist, float fov);
 /* Laser pointer for the front end: 0 off screen, 1 on it, 2 on it and moved. */
 int gevrVrScreenPointer(float *u, float *v);
+/* The laser beam and spot, into the bound eye buffers while the screen is up. */
+void vr_pointer_draw(void);
 /* Whether the runtime offers the cylinder layer VrScreenCurved needs. */
 int vr_screen_curve_supported(void);
 

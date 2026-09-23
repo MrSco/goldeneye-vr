@@ -13270,6 +13270,18 @@ s32 getPropCombinedRoomsBBox2D(PropRecord *prop, bbox2d *bbox)
 /**
  * Address 0x7F054B80.
 */
+#ifdef GEVR
+/*
+ * Small props are hidden early on purpose: past the fog's start their distance
+ * counts as (d - start) * 100 / size, and they vanish at MaxVisRange - on the
+ * Dam a wall switch such as the gate button went at about 10 m. At the N64's
+ * 240 lines it was a few pixels by then; in the headset it pops in. Ported
+ * from GEVR PC (GETV_VR_VISFAR=1): the cut-off is the far fog instead
+ * (bgfog.c gevrFogPropVisRange), 15000 against 4444 on the Dam.
+ */
+extern f32 gevrFogPropVisRange(f32 maxvisrange);
+#endif
+
 f32 chrobjFogVisRangeRelated(PropRecord *prop, f32 size)
 {
     f32 ret;
@@ -13287,7 +13299,20 @@ f32 chrobjFogVisRangeRelated(PropRecord *prop, f32 size)
     {
         temp_f12 = getPlayer_c_lodscalez();
         temp_f12 = ((((prop->zDepth - nfd->MaxObfuscationRange) * 100.0f) / size) + nfd->MaxObfuscationRange) * temp_f12;
+#ifdef GEVR
+        {
+            f32 maxvis = gevrFogPropVisRange(nfd->MaxVisRange);
 
+            if (maxvis <= temp_f12)
+            {
+                ret = 0.0f;
+            }
+            else if (nfd->NearFog < temp_f12)
+            {
+                ret = (maxvis - temp_f12) / (maxvis - nfd->NearFog);
+            }
+        }
+#else
         if (nfd->MaxVisRange <= temp_f12)
         {
             ret = 0.0f; //im invisible
@@ -13299,6 +13324,7 @@ f32 chrobjFogVisRangeRelated(PropRecord *prop, f32 size)
                 ret = (nfd->MaxVisRange - temp_f12) / (nfd->MaxVisRange - nfd->NearFog);// power of fog (0 - 1 ) where 0 is full fog, and 1 is no fog
             }
         }
+#endif
     }
 
     return ret;
@@ -13328,7 +13354,11 @@ bool sub_GAME_7F054C58(coord3d *coord, f32 arg1)
             f32 scalez = getPlayer_c_lodscalez();
             sp20 = ((sp20 - ptr->z) * 100 / arg1 + ptr->z) * scalez;
 
+#ifdef GEVR
+            if (sp20 >= gevrFogPropVisRange(ptr->y))
+#else
             if (sp20 >= ptr->y)
+#endif
             {
                 result = FALSE;
             }

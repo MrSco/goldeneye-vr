@@ -1542,11 +1542,12 @@ extern "C" void vr_screen_resize(float dist, float fov)
  * across (u, left to right) and down (v, top to bottom), or false when it
  * points past it or the screen is not up. The pointing direction is the gun's
  * barrel (the grip's -Y, bondview2.c gevrGripAxes). Flat screens take a
- * ray-plane hit, curved ones a ray-cylinder hit from inside.
+ * ray-plane hit, curved ones a ray-cylinder hit from inside. `o` is the
+ * controller position (play space).
  */
-static bool vr_screen_hit(int hand, float *u, float *v)
+static bool vr_screen_hit(int hand, float *u, float *v, float o[3])
 {
-    float o[3], q[4];
+    float q[4];
     if (!g_screenPlaced || !g_screenVisible || g_screenW == 0 || !gevrVrGripPosePlay(hand, o, q)) {
         return false;
     }
@@ -1597,35 +1598,288 @@ static bool vr_screen_hit(int hand, float *u, float *v)
     return *u >= 0.0f && *u <= 1.0f && *v >= 0.0f && *v <= 1.0f;
 }
 
+// A point on the screen's surface (play space) from its u, v.
+static void vr_screen_uv_to_world(float u, float v, float out[3])
+{
+    const float cy = cosf(g_screenYaw), sy = sinf(g_screenYaw);
+    const float aspect = (float)g_screenW / (float)g_screenH;
+    float lx, ly, lz;           // in the screen's own frame, origin at its centre point's axis
+    float bx, by, bz;           // origin of that frame
+    if (VrScreenCurved && g_cylinderSupported) {
+        const float r = VrScreenDistance;
+        const float angle = VrScreenFov * 3.14159265f / 180.0f;
+        const float th = (u - 0.5f) * angle;
+        lx = r * sinf(th);
+        ly = (0.5f - v) * r * angle / aspect;
+        lz = -r * cosf(th);
+        bx = g_screenPose.position.x + sy * r;
+        by = g_screenPose.position.y;
+        bz = g_screenPose.position.z + cy * r;
+    } else {
+        const float width = vr_screen_width();
+        lx = (u - 0.5f) * width;
+        ly = (0.5f - v) * width / aspect;
+        lz = 0.0f;
+        bx = g_screenPose.position.x;
+        by = g_screenPose.position.y;
+        bz = g_screenPose.position.z;
+    }
+    // rotate by yaw about Y
+    out[0] = bx + cy * lx + sy * lz;
+    out[1] = by + ly;
+    out[2] = bz - sy * lx + cy * lz;
+}
+
 /*
- * The pointer for the front end's cursor (front.c): 0 = no controller points
- * at the screen, 1 = one does, 2 = and it moved since the last call. The hand
- * that moved most recently is the pointer.
+ * The pointer, worked out once per XR frame (vr_begin_frame_and_update_poses)
+ * for both hands. The spot is smoothed with a speed-dependent weight, like
+ * the system pointer: heavy when the hand is nearly still (hand tremor and
+ * tracking noise at a few metres were visible as jitter), none when it moves
+ * fast. The active hand is the one whose spot moved last or that pulled its
+ * trigger.
+ */
+struct VrPointerHand {
+    bool hit;
+    float u, v;                 // smoothed spot
+    float o[3], h[3];           // controller and smoothed spot, play space
+    float lastU, lastV;         // for "moved"
+    bool moved;
+};
+static VrPointerHand g_ptr[2];
+static int g_ptrActive = 1;
+
+static void vr_pointer_update(void)
+{
+    for (int hand = 0; hand < 2; hand++) {
+        VrPointerHand &p = g_ptr[hand];
+        float u, v, o[3];
+        const bool hit = vr_screen_hit(hand, &u, &v, o);
+        if (hit) {
+            if (!p.hit) {
+                p.u = u;
+                p.v = v;
+            } else {
+                const float d = fabsf(u - p.u) + fabsf(v - p.v);
+                float a = 0.22f + d * 45.0f;
+                if (a > 1.0f) a = 1.0f;
+                p.u += (u - p.u) * a;
+                p.v += (v - p.v) * a;
+            }
+            p.o[0] = o[0]; p.o[1] = o[1]; p.o[2] = o[2];
+            vr_screen_uv_to_world(p.u, p.v, p.h);
+        }
+        p.moved = hit && (!p.hit || fabsf(p.u - p.lastU) + fabsf(p.v - p.lastV) > 0.004f);
+        if (p.moved) {
+            p.lastU = p.u;
+            p.lastV = p.v;
+        }
+        p.hit = hit;
+        if (hit && get_button_state(hand, "trigger")) {
+            g_ptrActive = hand;
+        }
+    }
+    if (g_ptr[g_ptrActive ^ 1].moved && !g_ptr[g_ptrActive].moved) g_ptrActive ^= 1;
+    if (!g_ptr[g_ptrActive].hit && g_ptr[g_ptrActive ^ 1].hit) g_ptrActive ^= 1;
+}
+
+/*
+ * The pointer for the front end's cursor (front.c) and the launcher: 0 = no
+ * controller points at the screen, 1 = one does, 2 = and it moved since the
+ * last call.
  */
 extern "C" int gevrVrScreenPointer(float *u, float *v)
 {
-    static float last[2][2];
-    static bool had[2];
-    static int active = 1;
-    float hu[2], hv[2];
-    bool hit[2];
-    bool moved[2];
-
-    for (int h = 0; h < 2; h++) {
-        hit[h] = vr_screen_hit(h, &hu[h], &hv[h]);
-        moved[h] = hit[h] && (!had[h] || fabsf(hu[h] - last[h][0]) + fabsf(hv[h] - last[h][1]) > 0.004f);
-        if (moved[h]) {
-            last[h][0] = hu[h];
-            last[h][1] = hv[h];
-        }
-        had[h] = hit[h];
+    static float lastU = -1.0f, lastV = -1.0f;
+    const VrPointerHand &p = g_ptr[g_ptrActive];
+    if (!p.hit) {
+        lastU = lastV = -1.0f;
+        return 0;
     }
-    if (moved[active ^ 1] && !moved[active]) active ^= 1;
-    if (!hit[active] && hit[active ^ 1]) active ^= 1;
-    if (!hit[active]) return 0;
-    *u = hu[active];
-    *v = hv[active];
-    return moved[active] ? 2 : 1;
+    *u = p.u;
+    *v = p.v;
+    if (fabsf(p.u - lastU) + fabsf(p.v - lastV) > 0.004f) {
+        lastU = p.u;
+        lastV = p.v;
+        return 2;
+    }
+    return 1;
+}
+
+/*
+ * The beam and its spot, drawn into the eye buffers while the virtual screen
+ * is up (the projection layer is then composited over the screen, with a
+ * transparent clear - see the layer order in vr_end_frame): a thin white
+ * ray from the controller that fades in, and a soft dot on the screen, as
+ * Quest's own panels show. Premultiplied alpha, no depth.
+ */
+static GLuint s_ptrProg, s_ptrVao, s_ptrVbo;
+static GLint s_ptrVpLoc = -1;
+static void QuatToMat4(const XrQuaternionf& q, float* m);          // below
+static void Mat4Mul(const float* a, const float* b, float* out);
+static void InvertRigidMat4(const float* m, float* out);
+static void ProjectionFromFov(const XrFovf& fov, float nearZ, float farZ, float* m);
+
+extern "C" void vr_pointer_draw(void)
+{
+    const VrPointerHand &p = g_ptr[g_ptrActive];
+    if (!g_screenVisible || !p.hit) {
+        return;
+    }
+
+    if (s_ptrProg == 0) {
+        const char *vs =
+            "#version 300 es\n"
+            "#extension GL_OVR_multiview2 : require\n"
+            "layout(num_views = 2) in;\n"
+            "uniform mat4 uVP[2];\n"
+            "layout(location = 0) in vec3 aPos;\n"
+            "layout(location = 1) in vec4 aShape;\n"   // x across, y along, z kind (0 beam, 1 dot), w alpha
+            "out vec4 vShape;\n"
+            "void main() { vShape = aShape; gl_Position = uVP[gl_ViewID_OVR] * vec4(aPos, 1.0); }\n";
+        const char *fs =
+            "#version 300 es\n"
+            "precision mediump float;\n"
+            "in vec4 vShape;\n"
+            "out vec4 outColor;\n"
+            "void main() {\n"
+            "    float a;\n"
+            "    if (vShape.z < 0.5) {\n"
+            "        float c = 1.0 - abs(vShape.x * 2.0 - 1.0);\n"
+            "        a = vShape.w * c * c * smoothstep(0.0, 0.35, vShape.y);\n"
+            "    } else {\n"
+            "        float r = length(vShape.xy * 2.0 - 1.0);\n"
+            "        a = vShape.w * (1.0 - smoothstep(0.55, 1.0, r));\n"
+            "    }\n"
+            "    outColor = vec4(vec3(a), a);\n"
+            "}\n";
+        GLuint v = glCreateShader(GL_VERTEX_SHADER);
+        glShaderSource(v, 1, &vs, nullptr);
+        glCompileShader(v);
+        GLuint f = glCreateShader(GL_FRAGMENT_SHADER);
+        glShaderSource(f, 1, &fs, nullptr);
+        glCompileShader(f);
+        s_ptrProg = glCreateProgram();
+        glAttachShader(s_ptrProg, v);
+        glAttachShader(s_ptrProg, f);
+        glLinkProgram(s_ptrProg);
+        glDeleteShader(v);
+        glDeleteShader(f);
+        GLint ok = 0;
+        glGetProgramiv(s_ptrProg, GL_LINK_STATUS, &ok);
+        if (!ok) {
+            char log[512] = {0};
+            glGetProgramInfoLog(s_ptrProg, sizeof(log) - 1, nullptr, log);
+            LOGE("pointer: program failed: %s", log);
+            glDeleteProgram(s_ptrProg);
+            s_ptrProg = 0xffffffffu;
+            return;
+        }
+        s_ptrVpLoc = glGetUniformLocation(s_ptrProg, "uVP");
+        glGenVertexArrays(1, &s_ptrVao);
+        glGenBuffers(1, &s_ptrVbo);
+        glBindVertexArray(s_ptrVao);
+        glBindBuffer(GL_ARRAY_BUFFER, s_ptrVbo);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void *)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 7 * sizeof(float), (void *)(3 * sizeof(float)));
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+    if (s_ptrProg == 0xffffffffu) {
+        return;
+    }
+
+    // eye view-projections, play space
+    float vp[32];
+    for (int eye = 0; eye < 2; eye++) {
+        float pose[16], view[16], proj[16];
+        QuatToMat4(g_frameViews[eye].pose.orientation, pose);
+        pose[12] = g_frameViews[eye].pose.position.x;
+        pose[13] = g_frameViews[eye].pose.position.y;
+        pose[14] = g_frameViews[eye].pose.position.z;
+        InvertRigidMat4(pose, view);
+        ProjectionFromFov(g_frameViews[eye].fov, 0.05f, 100.0f, proj);
+        Mat4Mul(proj, view, vp + eye * 16);
+    }
+
+    float head[3];
+    vr_screen_head(head);
+    const float *o = p.o, *h = p.h;
+    float d[3] = { h[0] - o[0], h[1] - o[1], h[2] - o[2] };
+    // across the beam, facing the head
+    float m[3] = { (o[0] + h[0]) * 0.5f - head[0], (o[1] + h[1]) * 0.5f - head[1], (o[2] + h[2]) * 0.5f - head[2] };
+    float s[3] = { d[1] * m[2] - d[2] * m[1], d[2] * m[0] - d[0] * m[2], d[0] * m[1] - d[1] * m[0] };
+    float sl = sqrtf(s[0] * s[0] + s[1] * s[1] + s[2] * s[2]);
+    if (sl < 1e-6f) return;
+    const float bw = 0.0035f;           // half width, metres
+    for (int k = 0; k < 3; k++) s[k] *= bw / sl;
+
+    // the dot: a square facing the head, sized to a constant angle
+    float e[3] = { h[0] - head[0], h[1] - head[1], h[2] - head[2] };
+    const float dist = sqrtf(e[0] * e[0] + e[1] * e[1] + e[2] * e[2]);
+    if (dist < 0.05f) return;
+    float ax[3] = { -e[2], 0.0f, e[0] };                    // horizontal, across the view
+    float al = sqrtf(ax[0] * ax[0] + ax[2] * ax[2]);
+    if (al < 1e-6f) { ax[0] = 1.0f; ax[2] = 0.0f; al = 1.0f; }
+    const float rad = dist * 0.009f;
+    for (int k = 0; k < 3; k++) ax[k] *= rad / al;
+    float ay[3] = { e[1] * ax[2] - e[2] * ax[1], e[2] * ax[0] - e[0] * ax[2], e[0] * ax[1] - e[1] * ax[0] };
+    float yl = sqrtf(ay[0] * ay[0] + ay[1] * ay[1] + ay[2] * ay[2]);
+    for (int k = 0; k < 3; k++) ay[k] *= rad / (yl > 1e-6f ? yl : 1.0f);
+    // pull the dot a touch toward the viewer so it sits on the surface, not in it
+    float hn[3] = { h[0] - e[0] / dist * 0.01f, h[1] - e[1] / dist * 0.01f, h[2] - e[2] / dist * 0.01f };
+
+    const float beamA = 0.55f, dotA = 0.95f;
+    const float verts[12][7] = {
+        // beam strip (two triangles)
+        { o[0] - s[0], o[1] - s[1], o[2] - s[2], 0.0f, 0.0f, 0.0f, beamA },
+        { o[0] + s[0], o[1] + s[1], o[2] + s[2], 1.0f, 0.0f, 0.0f, beamA },
+        { h[0] + s[0], h[1] + s[1], h[2] + s[2], 1.0f, 1.0f, 0.0f, beamA },
+        { o[0] - s[0], o[1] - s[1], o[2] - s[2], 0.0f, 0.0f, 0.0f, beamA },
+        { h[0] + s[0], h[1] + s[1], h[2] + s[2], 1.0f, 1.0f, 0.0f, beamA },
+        { h[0] - s[0], h[1] - s[1], h[2] - s[2], 0.0f, 1.0f, 0.0f, beamA },
+        // dot
+        { hn[0] - ax[0] - ay[0], hn[1] - ax[1] - ay[1], hn[2] - ax[2] - ay[2], 0.0f, 0.0f, 1.0f, dotA },
+        { hn[0] + ax[0] - ay[0], hn[1] + ax[1] - ay[1], hn[2] + ax[2] - ay[2], 1.0f, 0.0f, 1.0f, dotA },
+        { hn[0] + ax[0] + ay[0], hn[1] + ax[1] + ay[1], hn[2] + ax[2] + ay[2], 1.0f, 1.0f, 1.0f, dotA },
+        { hn[0] - ax[0] - ay[0], hn[1] - ax[1] - ay[1], hn[2] - ax[2] - ay[2], 0.0f, 0.0f, 1.0f, dotA },
+        { hn[0] + ax[0] + ay[0], hn[1] + ax[1] + ay[1], hn[2] + ax[2] + ay[2], 1.0f, 1.0f, 1.0f, dotA },
+        { hn[0] - ax[0] + ay[0], hn[1] - ax[1] + ay[1], hn[2] - ax[2] + ay[2], 0.0f, 1.0f, 1.0f, dotA },
+    };
+
+    GLint prevProg = 0, prevVao = 0, prevBuf = 0;
+    glGetIntegerv(GL_CURRENT_PROGRAM, &prevProg);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevBuf);
+    const GLboolean blend = glIsEnabled(GL_BLEND), depth = glIsEnabled(GL_DEPTH_TEST),
+                    cull = glIsEnabled(GL_CULL_FACE), scissor = glIsEnabled(GL_SCISSOR_TEST);
+    GLint srcRGB, dstRGB, srcA, dstA;
+    glGetIntegerv(GL_BLEND_SRC_RGB, &srcRGB);
+    glGetIntegerv(GL_BLEND_DST_RGB, &dstRGB);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &srcA);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &dstA);
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+    glUseProgram(s_ptrProg);
+    glUniformMatrix4fv(s_ptrVpLoc, 2, GL_FALSE, vp);
+    glBindVertexArray(s_ptrVao);
+    glBindBuffer(GL_ARRAY_BUFFER, s_ptrVbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, 12);
+
+    glBindVertexArray((GLuint)prevVao);
+    glBindBuffer(GL_ARRAY_BUFFER, (GLuint)prevBuf);
+    glUseProgram((GLuint)prevProg);
+    glBlendFuncSeparate(srcRGB, dstRGB, srcA, dstA);
+    if (!blend) glDisable(GL_BLEND);
+    if (depth) glEnable(GL_DEPTH_TEST);
+    if (cull) glEnable(GL_CULL_FACE);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
 }
 
 static bool vr_screen_present_common(unsigned int srcTex, bool is2d, int w, int h);
@@ -2439,15 +2693,19 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     }
 
     // --- Layer submission ---
-    int numLayers = 1;
+    // With the virtual screen up, the screen goes first and the eye buffers
+    // (cleared transparent, holding only the laser pointer) over it, so the
+    // beam and its spot show in front of the screen; otherwise the eye
+    // buffers are the scene.
+    int numLayers = 0;
     const XrCompositionLayerBaseHeader* layers[5];
-    layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader *>(&layer);
-
     if (submitScreen) {
         layers[numLayers++] = screenCurved
             ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
             : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
+        layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     }
+    layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader *>(&layer);
 
     if (submitMenuL) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerL);
     if (submitMenuR) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerR);
@@ -2964,6 +3222,7 @@ extern "C" bool vr_begin_frame_and_update_poses()
     vr_update_head_tracking(g_frameState.predictedDisplayTime);
     update_vr_controllers(g_frameState.predictedDisplayTime);
     controller_pose();
+    vr_pointer_update();
 
     return true;
 }
@@ -3056,7 +3315,17 @@ bool vr_begin_eye_render()
     GLboolean depthMask = GL_TRUE;
     glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
     glDepthMask(GL_TRUE);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    GLfloat clearCol[4];
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, clearCol);
+    if (g_screenVisible) {
+        // The eye buffers go over the virtual screen (vr_end_frame's layer
+        // order) and carry only the pointer: clear to transparent.
+        glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    }
+    glStencilMask(0xff);
+    glClearStencil(0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);   // stencil: fast3d's decal test
+    glClearColor(clearCol[0], clearCol[1], clearCol[2], clearCol[3]);
     glDepthMask(depthMask);
     return true;
 }

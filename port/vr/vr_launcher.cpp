@@ -36,6 +36,8 @@
 #include <unistd.h>
 
 #include <SDL.h>
+#include <SDL_system.h>
+#include <jni.h>
 #include <GLES3/gl3.h>
 
 #include "imgui/imgui.h"
@@ -219,6 +221,31 @@ void pollInjected(Injected &in)
     unlink(path);
 }
 
+// The system file picker, opened by MainActivity.openRomPicker; it copies the
+// chosen file to data/picked.z64, which scan() checks and adopts.
+bool gevrOpenRomPicker()
+{
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return false;
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID m = env->GetMethodID(cls, "openRomPicker", "()V");
+    bool ok = false;
+    if (m != nullptr) {
+        env->CallVoidMethod(activity, m);
+        ok = !env->ExceptionCheck();
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    vr_log("launcher: file picker %s", ok ? "opened" : "failed");
+    return ok;
+}
+
 // Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at
 // the screen is the mouse, and a trigger clicks. Returns whether it points.
 //
@@ -297,7 +324,7 @@ extern "C" void gevrLauncherRun(void)
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;
     io.DisplaySize = ImVec2((float)kTexW, (float)kTexH);
     io.FontGlobalScale = 2.2f;
-    io.MouseDrawCursor = true;   // the laser pointer's spot
+    io.MouseDrawCursor = false;  // the pointer's own spot is drawn in 3D (vr_pointer_draw)
     ImGui::StyleColorsDark();
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(2.2f);
@@ -318,11 +345,29 @@ extern "C" void gevrLauncherRun(void)
     std::string active, message;
     RomInfo activeInfo;
     std::vector<RomInfo> others;
+    bool pickerPending = false;
 
     // Find the ROM. A good dump copied into the data folder under any name
     // ("GoldenEye 007 (USA).z64") is renamed to ge.z64, the name the loader
     // looks for, so nobody has to rename files on a headset.
     auto scan = [&]() {
+        // A ROM the file picker copied in (MainActivity.onActivityResult)
+        // replaces the one in use if it checks out.
+        {
+            const std::string picked = dataDir() + "/picked.z64";
+            struct stat st;
+            if (stat(picked.c_str(), &st) == 0) {
+                RomInfo r = probeRom(picked);
+                if (r.good && rename(picked.c_str(), (dataDir() + "/ge.z64").c_str()) == 0) {
+                    message = "ROM chosen.";
+                    vr_log("launcher: picked ROM adopted");
+                } else {
+                    message = "That file is not a GoldenEye 007 (USA) ROM: " + r.status + ".";
+                    remove(picked.c_str());
+                }
+                pickerPending = false;
+            }
+        }
         active = activeRomPath();
         others = findRoms(active);
         if (active.empty()) {
@@ -372,6 +417,15 @@ extern "C" void gevrLauncherRun(void)
         Uint32 now = SDL_GetTicks();
         io.DeltaTime = (now > last) ? (now - last) / 1000.0f : 1.0f / 72.0f;
         last = now;
+        // Look for a ROM about once a second while there is none or the file
+        // picker is out (copied over USB, or picked).
+        {
+            static Uint32 lastScan = 0;
+            if ((active.empty() || pickerPending) && now - lastScan > 1000) {
+                lastScan = now;
+                scan();
+            }
+        }
         {
             static bool pointing = false;
             const bool navUsed = feedGamepad(io, pointing);
@@ -382,37 +436,57 @@ extern "C" void gevrLauncherRun(void)
         ImGui::NewFrame();
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(io.DisplaySize);
-        ImGui::Begin("GoldenEye 007 VR", nullptr,
-                     ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse
-                     | ImGuiWindowFlags_NoSavedSettings);
+        ImGui::Begin("##launcher", nullptr,
+                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
+                     | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings
+                     | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        const ImVec4 gold(0.88f, 0.69f, 0.25f, 1.0f);
+        const ImVec4 good(0.5f, 0.9f, 0.5f, 1.0f);
+        const ImVec4 bad(0.95f, 0.5f, 0.4f, 1.0f);
 
-        ImGui::TextDisabled("Build %s", gevrBuildId);
-        ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.25f, 1), "ROM");
+        // header: title left, build right
+        ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "GOLDENEYE VR");
+        {
+            char build[96];
+            snprintf(build, sizeof(build), "Build %s", gevrBuildId);
+            const float w = ImGui::CalcTextSize(build).x;
+            ImGui::SameLine(ImGui::GetWindowWidth() - w - ImGui::GetStyle().WindowPadding.x);
+            ImGui::TextDisabled("%s", build);
+        }
+        ImGui::Separator();
+
+        // ROM
         if (active.empty()) {
-            ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1), "No GoldenEye ROM yet.");
-            ImGui::TextWrapped("Connect the headset to your computer with a USB cable and copy your "
-                               "GoldenEye 007 (USA) ROM into this folder (any file name is fine):");
-            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.45f, 1), "Android/data/com.gevr.port/files/data");
-            ImGui::TextWrapped("Then press Look again. See the README for step-by-step help.");
+            ImGui::TextColored(bad, "No ROM yet.");
+            ImGui::SameLine();
+            ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or copy it over USB into "
+                               "Android/data/com.gevr.port/files/data (any name).");
+            if (ImGui::Button("Choose ROM file...")) {
+                pickerPending = gevrOpenRomPicker();
+                message = pickerPending ? "Pick the ROM in the window that opened." : "Could not open the file picker.";
+            }
+            ImGui::SameLine();
             if (ImGui::Button("Look again")) {
                 scan();
                 if (active.empty()) message = "Still no ROM in that folder.";
             }
         } else {
-            ImGui::TextWrapped("%s", active.c_str());
-            ImGui::TextColored(activeInfo.good ? ImVec4(0.5f, 0.9f, 0.5f, 1) : ImVec4(0.95f, 0.5f, 0.4f, 1),
-                               "%s", activeInfo.status.c_str());
+            ImGui::TextColored(activeInfo.good ? good : bad, "ROM: %s", activeInfo.status.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Change...")) {
+                pickerPending = gevrOpenRomPicker();
+                message = pickerPending ? "Pick the ROM in the window that opened." : "Could not open the file picker.";
+            }
+            ImGui::TextDisabled("%s", active.c_str());
         }
-        for (size_t i = 0; i < others.size(); i++) {
+        for (size_t i = 0; i < others.size() && i < 2; i++) {
             ImGui::PushID((int)i);
-            if (ImGui::Button("Use")) {
+            if (ImGui::SmallButton("Use")) {
                 std::string dst = dataDir();
                 if (!dst.empty() && dst.back() != '/') dst += '/';
                 dst += "ge.z64";
                 if (copyFile(others[i].path, dst)) {
-                    active = activeRomPath();
-                    activeInfo = probeRom(active);
-                    others = findRoms(active);
+                    scan();
                     message = "ROM copied in.";
                 } else {
                     message = "Could not copy that ROM.";
@@ -421,58 +495,62 @@ extern "C" void gevrLauncherRun(void)
                 break;
             }
             ImGui::SameLine();
-            ImGui::TextWrapped("%s", others[i].path.c_str());
+            ImGui::TextDisabled("%s", others[i].path.c_str());
             ImGui::PopID();
         }
         if (!message.empty()) ImGui::TextDisabled("%s", message.c_str());
-
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.25f, 1), "DISPLAY");
-        ImGui::RadioButton("Stereo VR (first-person play in 3D)", &mode, 1);
-        ImGui::RadioButton("Flat screen (the whole game on a screen)", &mode, 0);
 
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.25f, 1), "SCREEN (menus, cutscenes, flat play)");
-        {
-            int curved = VrScreenCurved;
-            ImGui::RadioButton("Flat", &curved, 0);
+        // options, two columns
+        if (ImGui::BeginTable("opts", 2, ImGuiTableFlags_SizingStretchSame)) {
+            ImGui::TableNextColumn();
+            ImGui::TextColored(gold, "DISPLAY");
+            ImGui::RadioButton("Stereo VR (3D play)", &mode, 1);
+            ImGui::RadioButton("Flat screen", &mode, 0);
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "SCREEN");
+            {
+                int curved = VrScreenCurved;
+                ImGui::RadioButton("Flat", &curved, 0);
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!vr_screen_curve_supported());
+                ImGui::RadioButton("Curved", &curved, 1);
+                ImGui::EndDisabled();
+                VrScreenCurved = curved;
+                // Live: this page is on the same screen.
+                float size = VrScreenFov, dist = VrScreenDistance;
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
+                if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg")) {
+                    vr_screen_resize(VrScreenDistance, size);
+                }
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
+                if (ImGui::SliderFloat("Distance", &dist, VR_SCREEN_DISTANCE_MIN, VR_SCREEN_DISTANCE_MAX, "%.1f m")) {
+                    vr_screen_resize(dist, VrScreenFov);
+                }
+            }
+
+            ImGui::TableNextColumn();
+            ImGui::TextColored(gold, "TURNING (stereo)");
+            ImGui::RadioButton("Smooth", &turn, 0);
             ImGui::SameLine();
-            ImGui::BeginDisabled(!vr_screen_curve_supported());
-            ImGui::RadioButton("Curved", &curved, 1);
+            ImGui::RadioButton("Snap 30", &turn, 1);
+            ImGui::RadioButton("Snap 45", &turn, 2);
+            ImGui::SameLine();
+            ImGui::RadioButton("Snap 90", &turn, 3);
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "COMFORT (stereo)");
+            ImGui::Checkbox("Darken edges when moving", &vignetteOn);
+            ImGui::BeginDisabled(!vignetteOn);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
+            ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
             ImGui::EndDisabled();
-            VrScreenCurved = curved;
-            // Live: this page is on the same screen.
-            float size = VrScreenFov, dist = VrScreenDistance;
-            if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg")) {
-                vr_screen_resize(VrScreenDistance, size);
-            }
-            if (ImGui::SliderFloat("Distance", &dist, VR_SCREEN_DISTANCE_MIN, VR_SCREEN_DISTANCE_MAX, "%.1f m")) {
-                vr_screen_resize(dist, VrScreenFov);
-            }
-            ImGui::TextDisabled("In game: hold both grips to move it with your hands,");
-            ImGui::TextDisabled("right stick for distance / size; hold left stick click to recentre.");
+            ImGui::EndTable();
         }
-
         ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.25f, 1), "TURNING (stereo, right stick)");
-        ImGui::RadioButton("Smooth", &turn, 0);
-        ImGui::SameLine();
-        ImGui::RadioButton("Snap 30", &turn, 1);
-        ImGui::SameLine();
-        ImGui::RadioButton("Snap 45", &turn, 2);
-        ImGui::SameLine();
-        ImGui::RadioButton("Snap 90", &turn, 3);
+        ImGui::TextDisabled("In game: both grips grab the screen. Hold left stick click to bring it back.");
 
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.25f, 1), "COMFORT (stereo)");
-        ImGui::Checkbox("Darken the edges while moving or turning", &vignetteOn);
-        ImGui::BeginDisabled(!vignetteOn);
-        ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
-        ImGui::EndDisabled();
-
-        ImGui::Separator();
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);
-        if (ImGui::Button("   START   ", ImVec2(-1, 0))) {
+        if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))) {
             start = true;
         }
         if (focusStart) {
@@ -481,7 +559,7 @@ extern "C" void gevrLauncherRun(void)
             focusStart = false;
         }
         ImGui::EndDisabled();
-        ImGui::TextDisabled("Point and trigger, or thumbstick + A.   B: back");
+        ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
         ImGui::End();
         ImGui::Render();
 
@@ -497,6 +575,7 @@ extern "C" void gevrLauncherRun(void)
 
         // Eye buffers black behind the screen, the launcher on the screen quad.
         if (vr_begin_eye_render()) {
+            vr_pointer_draw();
             vr_end_eye_render();
         }
         vr_screen_set_visible(1);
