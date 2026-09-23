@@ -2577,3 +2577,36 @@ as the reference does. No effect at normal frame rates.
 Verified on device: Dam loads, walking and firing work, and the watch pages
 through the controls screen without crashing. Open: the N64 controller model
 that should sit in the middle of the controls page is not visible.
+
+## 35. Watch briefing page crash: setup records overwriting each other
+
+User report: from the controls page, one more left crashed. Page order is
+Mission status, Inventory, Controls, Game options, Briefing; the crash was
+`strcat(objectiveBuffer, NULL)` in draw_watch_mission_briefing_page.
+
+Found with three bounded probes (records' raw bytes, the objective list, the
+setup walk), all removed:
+
+1. **Briefing text records (type 35) were 16 bytes on the host**, the N64
+   size. setup_briefing_text_entry_parent then links them by writing an
+   8-byte host `next` pointer at +16 — the N64 field was at +12, inside the
+   record — so every link overwrote the first 8 bytes of the *next* record.
+   On Dam that wiped two briefing pages (M, Q) and the header of objective 0
+   (`00000017 00000000` became a pointer), so the setup walk never registered
+   it, objective_ptrs[0] stayed NULL, and the objectives page strcat'd NULL.
+   Fixed the way type 23 already was: host_prop_bytes(35) = 24 and a
+   converter case that leaves room for the pointer. sizepropdef derives from
+   the same table, so the walk and the layout agree.
+2. **objective_entry / watchMenuObjectiveText read the text id as a u16 at
+   +0xA and difficulty as an s8 at +0xF** — the low halves on a big-endian
+   N64. The converter stores those payloads as native 32-bit words (as
+   MissionObjectiveRecord reads them), so on the host those offsets hold the
+   high halves: 0. Readers now take the low part of the word
+   (OBJECTIVE_TEXT / OBJECTIVE_DIFFICULTY / BRIEFING_TEXT in
+   objective_status.c), correct on both byte orders.
+
+Verified on device: all four Dam objectives register (menus 0-3) with real
+text ids and per-objective difficulties; the briefing page shows A-D; seven
+lefts and three rights through the watch without a crash. This also puts
+objective A back into the mission-completion check, which had been skipping
+the NULL slot.

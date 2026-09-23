@@ -68,6 +68,16 @@ static size_t host_prop_bytes(uint8_t type) {
     case 21: return HOST_OBJ + 8; /* Armour: Object + 2 f32 */
     case 22: return 24;  /* TagObjectRecord */
     case 23: return 24;  /* MissionObjectiveRecord (gains nextentry*) */
+    /*
+     * Watch briefing text: header, menu, text word, then a next pointer the
+     * game links at load (setup_briefing_text_entry_parent). On the N64 that
+     * pointer sat at +12, inside the 16-byte record; the host structs
+     * (watchMenuObjectiveText, setup_objective_text) put it at +16. At 16 bytes
+     * each link wrote 8 bytes over the *next* record's header: two briefing
+     * pages vanished and Dam's first objective lost its header, so the watch
+     * objectives page strcat'd a NULL and crashed.
+     */
+    case 35: return 24;
     case 37: return 48;  /* RenameObjectRecord */
     case 38: return 32;  /* LockDoorRecord */
     case 39: case 40: return 208; /* VehichleRecord / AircraftRecord */
@@ -275,6 +285,14 @@ static size_t convert_one_prop(uint8_t *dst, const uint8_t *src, uint8_t type) {
         put32(dst + 4, read32(src + 4));
         put32(dst + 8, read32(src + 8));
         put32(dst + 12, read32(src + 12));
+        break;
+    case 35: /* WATCH_MENU_OBJECTIVE_TEXT: N64 16 -> host 24 (+ next*) */
+        put16(dst + 0, read16(src + 0));
+        dst[2] = src[2];
+        dst[3] = src[3];
+        put32(dst + 4, read32(src + 4));   /* menu */
+        put32(dst + 8, read32(src + 8));   /* text id, read as the low half of this word */
+        putptr(dst + 16, 0);               /* next: linked at load */
         break;
     case 44: /* SAFE_ITEM */
         put16(dst + 0, read16(src + 0));

@@ -8,6 +8,28 @@
 #include "str.h"
 #include "bondview.h"
 
+#ifdef GEVR
+/*
+ * The setup converter (port/src/gevr_setup.c) stores these records' payload as
+ * native 32-bit words, and MissionObjectiveRecord reads them that way: TextID
+ * at +8, MinDificulty at +12. The twin structs used here (objective_entry,
+ * watchMenuObjectiveText) instead read the low halfword / low byte at the
+ * big-endian positions - text as a u16 at +0xA, difficulty as an s8 at +0xF -
+ * which on this host are the *high* halves, always 0. Briefing pages showed
+ * string 0, objectives were all treated as Agent difficulty, and the
+ * objectives page crashed in strcat on langGet(0) == NULL. Take the low part
+ * of the word instead, which is right on both byte orders.
+ */
+#define GEVR_SETUP_WORD(rec, off) (*(u32 *)((u8 *)(rec) + (off)))
+#define OBJECTIVE_TEXT(e)       ((u16)GEVR_SETUP_WORD((e), 8))
+#define OBJECTIVE_DIFFICULTY(e) ((s8)GEVR_SETUP_WORD((e), 12))
+#define BRIEFING_TEXT(e)        ((u16)GEVR_SETUP_WORD((e), 8))
+#else
+#define OBJECTIVE_TEXT(e)       ((e)->text)
+#define OBJECTIVE_DIFFICULTY(e) ((e)->difficulty)
+#define BRIEFING_TEXT(e)        ((e)->text)
+#endif
+
 //Public variables - move to header
 // bss
 //CODE.bss:80075D30
@@ -89,7 +111,7 @@ u8 * get_ptr_text_for_watch_breifing_page(WATCH_BRIEFING_PAGE page)
     {
         if (page == curentry->menu)
         {
-            textptr = langGet(curentry->text);
+            textptr = langGet(BRIEFING_TEXT(curentry));
             break;
         }
     }
@@ -128,7 +150,7 @@ u8 * get_text_for_objective(int objectiveIndex)
     u8 *textptr;
     
     if ((objectiveIndex < 10) && (objective_ptrs[objectiveIndex] != 0)) {
-        return langGet(objective_ptrs[objectiveIndex]->text);
+        return langGet(OBJECTIVE_TEXT(objective_ptrs[objectiveIndex]));
     }
     return 0;
 }
@@ -144,7 +166,7 @@ s32 get_difficulty_for_objective(s32 objectiveIndex)
         entry = objective_ptrs[objectiveIndex];
         if (entry != NULL)
         {
-            return entry->difficulty;
+            return OBJECTIVE_DIFFICULTY(entry);
         }
     }
     return 0;
