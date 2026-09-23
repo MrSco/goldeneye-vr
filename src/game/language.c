@@ -385,8 +385,20 @@ u8 * langGet(s32 slotID)
      * swapped as the bank is loaded (gevrRomSwapLangBank, from load_resource),
      * so it is read natively here.
      */
-    u32 *textbank_ptr = g_LangBanks[slotID >> 10]; /* get the text file bank ID index the text ptr table */
+    u32 *textbank_ptr;
     u32 textslot_offset;
+
+#ifdef GEVR
+    /* gepc-ref D129: an impossible slot id (0xFFFFFFFF from an uninitialised
+     * text id) indexed g_LangBanks far out of range. Treat it like a missing
+     * string. */
+    if ((u32)slotID >= (u32)(ARRAYCOUNT(g_LangBanks) << 10))
+    {
+        sysLogPrintf(LOG_ERROR, "text: slot 0x%X is outside the %d banks", slotID, (s32)ARRAYCOUNT(g_LangBanks));
+        return NULL;
+    }
+#endif
+    textbank_ptr = g_LangBanks[slotID >> 10]; /* get the text file bank ID index the text ptr table */
 
     if (textbank_ptr == NULL)
     {

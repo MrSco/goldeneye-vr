@@ -236,3 +236,13 @@ earlier from input.c's point of view. See HANDOFF 37.
 
 Build flags now match gepc-ref's ntsc-final except LEFTOVERDEBUG /
 LEFTOVERSPECTRUM (HANDOFF 41).
+
+
+## Eighth pass — remaining D-numbered findings (sweep complete for D-ids)
+
+Ported: D96 (prop room list 8), D150 (NULL-safe strcpy/strncpy/strcat),
+D129 (langGet bank bound), D301 (NULL save in fileGetIsCheatUnlocked).
+Everything else D-numbered is already handled, reference-only tooling or
+options, or a diagnostic; see HANDOFF 43 for the per-id list. What remains
+uncited is M-series probes and cutscene experiments (bondview2.c, model.c,
+chr.c) plus D156/D311 and the ramrom demo path, deliberately not ported.

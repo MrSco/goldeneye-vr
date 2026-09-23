@@ -2890,3 +2890,33 @@ header regenerated (debug-menu callers of getCurrentPlayerProp etc.).
 A full rebuild's truncation/implicit warnings were diffed against the R0
 build: the rest are confined to the debug menus. Verified on device: Dam,
 gameplay and the watch, no debug check fired.
+
+## 43. Sweep: the remaining D-numbered reference findings
+
+Re-ran the sweep (83 uncited left, most M-series probes already triaged) and
+went through every remaining D-numbered one. Ported:
+- **D96** (bondconstants.h): PROPRECORD_STAN_ROOM_LEN 4 -> 8. The room-list
+  producers yield up to 7 rooms; chrprop.c had clamped to 3, silently dropping
+  a guard's 4th+ room. PropRecord is runtime-only and every user sizes by the
+  constant (explosion/smoke copies included).
+- **D150** (str.c): strcpy/strncpy/strcat treat a NULL source as "" (langGet
+  returns NULL for an unloaded bank). The pointer is laundered through an
+  empty asm, because these are nonnull builtins and a plain NULL test is
+  deleted.
+- **D129** (language.c): langGet bounds-checks the bank index.
+- **D301** (file2.c): fileGetIsCheatUnlocked returns FALSE for a NULL save.
+
+Already here or not applicable: D58 (gun-barrel reserve 0x200), D86 (gait
+RootNode), D139 (cleanup propdef type), D100/D102/D115/M-189 (inline player
+Model, gait rwdata buffer, separate weaponModel/weaponRwPool, throw offsets
+by field), D122/D126/D132/D88 (setup converter), D54 (ALParam widened with
+static asserts; music sequence header swapped by our loader), D66 (romCopyAligned
+returns void *), D80/D85/D154/D312/D313 (room DL conversion and hit tests),
+D105 (fast3d handles the Z fill), xprintf va_list (a struct on AArch64, not an
+array). Reference-only options/tooling: D121, D181, D211, D216, D225, D249,
+D48/D49/D50/D69 sidecars, D59 dram.c. Diagnostics/probes: D51, D63-D65, D75,
+D104, D236, D309, D322, M-series. Not ported: D156/D311 NaN root-motion guard
+(cutscene-only symptom not seen), ramrom demo replay (D66/D87; demos not
+loaded by this port).
+
+Verified on device: gameplay and the watch briefing page.

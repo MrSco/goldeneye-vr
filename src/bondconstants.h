@@ -4573,7 +4573,18 @@ typedef enum PROJECTILES
 #define MAX_CHRWAYPOINTS         6
 #define MAX_WAYMODE              ((s32)WAYMODE_MAGIC)
 #define MAX_TEXTURES             3001
+#ifdef GEVR
+/*
+ * gepc-ref D96: the room-list producers yield up to 7 rooms and the list is
+ * -1 terminated. On the N64 a prop spanning 4+ rooms ran past this 4-byte
+ * field; the port clamped it to 3 (chrprop.c), dropping the rest. Hold all
+ * 7 plus the terminator. PropRecord is runtime-only, and every user sizes by
+ * this constant.
+ */
+#define PROPRECORD_STAN_ROOM_LEN 8
+#else
 #define PROPRECORD_STAN_ROOM_LEN 4
+#endif
 #define NUMBER_SHOTGUN_BULLETS   5
 
 #ifdef VERSION_EU
