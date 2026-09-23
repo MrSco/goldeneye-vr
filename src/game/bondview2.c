@@ -219,6 +219,8 @@ extern void vr_screen_recenter(void);
 extern float gevrVrTurnAxis(void);       /* input.c: right stick X, dead-zoned */
 extern s32 gevrVrTakeRecenter(void);     /* input.c: both stick clicks */
 extern void gevrVrSnapshotCameraPose(void); /* vr_openxr.cpp */
+extern int gevrVrGripPose(int hand, float pos[3], float quat[4]); /* vr_input.cpp */
+extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* goldeneye-vr.ini grip trim, cm */
 
 s32 g_gevrStereo;                        /* this frame is drawn in stereo (fr.c, input.c) */
 static s32 s_gevrStereoWas;
@@ -348,6 +350,115 @@ void gevrStereoFrame(s32 inlevel)
     s_gevrStereoWas = want;
     g_gevrStereo = want;
     gevrVrScreenMode = !want;
+}
+
+/*
+ * Controller aim (Perfect Dark VR vr_gun_pos_rot / bgunSwivel): in stereo the
+ * right gun is placed by the right controller and aims where it points.
+ *
+ * Axes from the OpenXR grip pose definition: for a right hand closed round a
+ * pistol grip, +Y leaves the front of the fist (the barrel), -Z runs up
+ * through the thumb side and +X into the palm. GoldenEye's viewmodel faces -Z
+ * with +Y up, so its right/up/back axes are the grip's -X/-Z/-Y: the same
+ * 90-degree turn about X that PD applies (vr_input.cpp controller_pose).
+ *
+ * Camera space is view space, world x the level's view scale, so metres
+ * become GEVR_UNITS_PER_METRE * D_800364CC units, as for the eye separation.
+ * The viewmodel was drawn for ~1.7 m ahead of the eye (measured gunofs
+ * 10.9,-20.6,-33.4 at view scale 0.2); at arm's length it reads about twice
+ * lifelike, which is GEVR PC's -ViewmodelScale 0.5 (docs/159).
+ */
+#define GEVR_VIEWMODEL_SCALE 0.5f
+
+static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
+{
+    f32 q[4];
+    f32 x, y, z, w;
+    s32 i;
+
+    if (!gevrVrGripPose(ctrl, pos, q))
+    {
+        return FALSE;
+    }
+
+    x = q[0]; y = q[1]; z = q[2]; w = q[3];
+
+    /* grip -X, -Z, -Y in view space (columns of the rotation matrix) */
+    right[0] = -(1.0f - 2.0f * (y * y + z * z));
+    right[1] = -(2.0f * (x * y + w * z));
+    right[2] = -(2.0f * (x * z - w * y));
+    up[0] = -(2.0f * (x * z + w * y));
+    up[1] = -(2.0f * (y * z - w * x));
+    up[2] = -(1.0f - 2.0f * (x * x + y * y));
+    back[0] = -(2.0f * (x * y - w * z));
+    back[1] = -(1.0f - 2.0f * (x * x + z * z));
+    back[2] = -(2.0f * (y * z + w * x));
+
+    for (i = 0; i < 3; i++)
+    {
+        pos[i] *= GEVR_UNITS_PER_METRE * D_800364CC;
+    }
+
+    return TRUE;
+}
+
+/* gunfire.c gunUpdateAndFire: the right gun's camera-space matrix. */
+s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
+{
+    f32 pos[3], right[3], up[3], back[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 k = GEVR_VIEWMODEL_SCALE;
+    s32 i;
+
+    if (!g_gevrStereo || handnum != GUNRIGHT)
+    {
+        return FALSE;
+    }
+
+    {
+        static s32 had = -1;
+        s32 have = gevrGripAxes(1, pos, right, up, back);
+
+        if (have != had)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: gun %s", have ? "on the right controller" : "flat (no right controller pose)");
+            had = have;
+        }
+        if (!have)
+        {
+            return FALSE;
+        }
+    }
+
+    for (i = 0; i < 3; i++)
+    {
+        out->m[0][i] = right[i] * k;
+        out->m[1][i] = up[i] * k;
+        out->m[2][i] = back[i] * k;
+        /* grip trim in the gun's own right/up/back, centimetres */
+        out->m[3][i] = pos[i] + (VrGunOffX * right[i] + VrGunOffY * up[i] + VrGunOffZ * back[i]) * cm;
+    }
+    out->m[0][3] = out->m[1][3] = out->m[2][3] = 0.0f;
+    out->m[3][3] = 1.0f;
+    return TRUE;
+}
+
+/* gunfire.c caclulate_gun_crosshair_position_rotation: a point far down the barrel, view space. */
+s32 gevrStereoAimTarget(struct coord3d *target)
+{
+    f32 pos[3], right[3], up[3], back[3];
+
+    if (!g_gevrStereo || !gevrGripAxes(1, pos, right, up, back))
+    {
+        return FALSE;
+    }
+
+    target->x = pos[0] - back[0] * 1000.0f;
+    target->y = pos[1] - back[1] * 1000.0f;
+    target->z = pos[2] - back[2] * 1000.0f;
+
+    /* Pointing behind the camera: no screen position; let the game keep its own. */
+    return target->z < -1.0f;
 }
 
 /* Top of bondviewApplyVertaTheta: the head drives vv_theta and vv_verta. */

@@ -3029,3 +3029,58 @@ switch and the screen adjustment - for the user.
 collision; GEVR ships `HEAD_TRANSLATE=0`), controller aim (gun follows the
 hand), HUD on a head-locked quad, znear clamp if a blue band shows up close to
 walls (GEVR docs/19), syncing the vendored VR layer with pdvr HEAD.
+
+## 47. pdvr sync, stereo scale/flicker/tunnel, controller aim, watch gesture
+
+User report after the first stereo build: character huge against the world
+and eye too low, aim tied to the head, sky showing through the tunnel, world
+flicker; wants right-controller aim and a raise-your-wrist watch.
+
+- **pdvr sync (a4184da).** Three-way merge (base pdvr 0045feb, ours, pdvr
+  9984611) of port/vr and fast3d. One conflict, swapchain formats: our sRGB
+  choice (write-control present) stays first; upstream's eyes-RGBA8 /
+  quads-sRGB order is the fallback. Brings controller tracking hold/reject,
+  the PSVR2 profile, quad alpha fix.
+- **Scale.** Eye separation = IPD x 100 units/m x `D_800364CC`, the level's
+  view scale (bg.c levelinfotable `visibility`: 0.2 Dam, 1.0 Cradle), because
+  bondviewUpdateCameraMatrices builds view space as (pos - origin) x that
+  scale. The first build used 100 units/m: five times too wide on the Dam,
+  which is GEVR's measured "toy model" (docs/159, wearer walked down to 12-25).
+  Also explains "too low to the ground" (hyperstereo shrinks everything).
+- **Flicker.** The projection layer declared each XR frame's own pose while
+  the eye image was built from an earlier head sample (60 Hz game, 72+ Hz
+  display): the compositor reprojected old images as current. Now the pose
+  the camera sampled is snapshotted (`gevrVrSnapshotCameraPose`, from
+  gevrStereoFrame) and declared until the next stereo image is rendered
+  (`gevrVrMarkEyesRendered`). PD renders every XR frame, so never hit this.
+- **Tunnel sky.** In stereo the portal visibility box (bg.c
+  bgUpdateCurrentPlayerScreenMinMax) is widened by a quarter of the width
+  each side, and a room scissor clamped to the viewport edge is carried out
+  by the same amount in fast3d (GEVR PORTALWIDE/CULLWIDE; PD widens fast3d's
+  clip and scissor for the shear).
+- **Controller aim** (port of PD vr_gun_pos_rot / bgunSwivel; mapping by the
+  research pass, GE's twins: crosshair_angle = crosspos, field_B58 = muzzle,
+  gunmtx_camspace = cammtx). `gevrStereoGunMatrix` builds the right gun's
+  camera-space matrix from the right grip pose (`gevrVrGripPose`, raw OpenXR
+  view space): the viewmodel's right/up/back = grip -X/-Z/-Y (OpenXR grip
+  definition; PD's 90-degree X turn), position x 100 x view scale, viewmodel
+  x0.5 (GEVR -ViewmodelScale 0.5; measured flat gunofs 10.9,-20.6,-33.4 view
+  units = ~1.7 m ahead), trim `GunOffX/Y/Z` in goldeneye-vr.ini (cm, gun
+  axes). Replaces offset/sway/duck/crosshair lead in gunUpdateAndFire; the
+  reload/throw keyframe still plays in the gun's frame.
+  `caclulate_gun_crosshair_position_rotation` (both control styles end
+  there) projects the barrel ray to crosshair_angle/field_FFC and the aim
+  point in stereo, so the crosshair, auto-aim scoring and every shot through
+  bullet_path_from_screen_center follow the controller. Shots still leave
+  from the eye through that point (converges at range; PD fires from the
+  muzzle - later if close-range parallax bothers). Left-hand dual wield
+  still uses the flat viewmodel. Logs "stereo: gun on the right controller".
+- **Watch gesture** (new; GEVR lists it wanted, unbuilt): left controller
+  within 60 cm, in front of the eyes, back of the wrist (grip -X) facing
+  them, held 0.35 s -> START once; re-arms when the arm drops. Readings
+  logged as `[VR_WATCH] dist/ahead/facing` for tuning.
+
+**Verified on device:** stereo renders after the sync (sRGB format kept);
+gun falls back to flat when no controller pose (controllers idle on the
+desk). **For the user:** scale and eye height, flicker, tunnel, controller
+aim feel and gun placement (trim GunOff*), the watch gesture.
