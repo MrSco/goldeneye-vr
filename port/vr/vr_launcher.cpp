@@ -221,20 +221,45 @@ void pollInjected(Injected &in)
 
 // Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at
 // the screen is the mouse, and a trigger clicks. Returns whether it points.
-bool feedPointer(ImGuiIO &io)
+//
+// The pointer takes over only when it really moves (over 1% of the screen) or
+// a trigger is pulled, and hands back as soon as the stick or a button is
+// used: ImGui hides the gamepad focus on every mouse move, and a controller
+// lying still still jitters, which left A doing nothing.
+bool feedPointer(ImGuiIO &io, bool navUsed)
 {
+    static bool owns = false;
+    static float lu = -1.0f, lv = -1.0f;
     float u, v;
     const bool on = gevrVrScreenPointer(&u, &v) != 0;
-    if (on) {
-        io.AddMousePosEvent(u * kTexW, v * kTexH);
-    } else {
+    const bool trig = get_button_state(1, "trigger") || get_button_state(0, "trigger");
+
+    if (!on) {
+        if (owns) {
+            io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
+        }
+        owns = false;
+        io.AddMouseButtonEvent(0, false);
+        return false;
+    }
+    if (fabsf(u - lu) + fabsf(v - lv) > 0.01f || (trig && !navUsed)) {
+        owns = true;
+        lu = u;
+        lv = v;
+    }
+    if (navUsed && owns) {
+        owns = false;
         io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
     }
-    io.AddMouseButtonEvent(0, on && (get_button_state(1, "trigger") || get_button_state(0, "trigger")));
-    return on;
+    if (owns) {
+        io.AddMousePosEvent(u * kTexW, v * kTexH);
+    }
+    io.AddMouseButtonEvent(0, owns && trig);
+    return owns;
 }
 
-void feedGamepad(ImGuiIO &io, bool pointing)
+// Returns whether the stick or a button drove the focus this frame.
+bool feedGamepad(ImGuiIO &io, bool pointing)
 {
     static Injected inj;
     pollInjected(inj);
@@ -254,8 +279,10 @@ void feedGamepad(ImGuiIO &io, bool pointing)
                    get_button_state(1, "a") || get_button_state(0, "x")
                    || (!pointing && (get_button_state(1, "trigger") || get_button_state(0, "trigger")))
                    || (inj.mask & 0x8000));
-    io.AddKeyEvent(ImGuiKey_GamepadFaceRight,
-                   get_button_state(1, "b") || get_button_state(0, "y") || (inj.mask & 0x4000));
+    const bool back = get_button_state(1, "b") || get_button_state(0, "y") || (inj.mask & 0x4000);
+    const bool select = get_button_state(1, "a") || get_button_state(0, "x") || (inj.mask & 0x8000);
+    io.AddKeyEvent(ImGuiKey_GamepadFaceRight, back);
+    return fabsf(s.x) > t || fabsf(s.y) > t || back || select;
 }
 
 }  // namespace
@@ -323,7 +350,11 @@ extern "C" void gevrLauncherRun(void)
         Uint32 now = SDL_GetTicks();
         io.DeltaTime = (now > last) ? (now - last) / 1000.0f : 1.0f / 72.0f;
         last = now;
-        feedGamepad(io, feedPointer(io));
+        {
+            static bool pointing = false;
+            const bool navUsed = feedGamepad(io, pointing);
+            pointing = feedPointer(io, navUsed);
+        }
 
         ImGui_ImplOpenGL3_NewFrame();
         ImGui::NewFrame();

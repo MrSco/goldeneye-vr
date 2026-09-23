@@ -262,8 +262,15 @@ list(FILTER SRC_ENGINE EXCLUDE REGEX
 # which left roughly 900 asset symbols undefined at link time.
 #
 # *.inc.c files are #included by the others and are not compiled on their own.
-file(GLOB_RECURSE SRC_ASSETS "${CMAKE_SOURCE_DIR}/assets/*.c")
-list(FILTER SRC_ASSETS EXCLUDE REGEX "\.inc\.c$")
+#
+# Only the decompiled render-state lists and image tables are linked: every
+# piece of Rare's actual content - animations, fonts, glyphs, briefings, the
+# Rareware logo, level data, text - is read out of the player's own cartridge
+# at runtime (gevr_romload.c, gevr_rarelogo.c), so the app carries none of it.
+set(SRC_ASSETS
+  "${CMAKE_SOURCE_DIR}/assets/font_dl.c"
+  "${CMAKE_SOURCE_DIR}/assets/oddtextures.c"
+)
 
 # obseg/{stan,bg,setup,text} hold one ROM segment per level, and each segment
 # defines the same global names (intro, propDefs, pathwaypoints, padlist...).
