@@ -1737,8 +1737,6 @@ static inline float gfx_tri_signed_area(const struct LoadedVertex* v1, const str
 // the determinant of the active 3x3 rotation/scale matrix.
 // GoldenEye: set between VR_CULL_MIRROR_BEGIN/END tags (the mirrored left arm).
 static bool gevrCullMirror;
-// PORT probe: set between the bullet-impact tags (explosion.c, 0x5659000x).
-static bool gevrImpactTrace;
 
 static inline bool gfx_is_matrix_inverted() {
     /*
@@ -1926,25 +1924,6 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     for (int i = 0; i < 2; i++) {
         // TODO: fix this; for now just ignore smaller mips
         const uint32_t tile = rdp.first_tile_index + gfx_lod_tile_offset(i);
-        if (comb->used_textures[i] && gevrImpactTrace) {
-            // PORT probe: what the bullet impacts actually sample; logged when
-            // the combination changes, capped.
-            static const void *lastAddr[2];
-            static uint32_t lastKey[2];
-            static unsigned count;
-            const auto& tt = rdp.texture_tile[tile];
-            const LoadedTexture& lt = rdp.loaded_texture[tt.tmem];
-            const uint32_t k = (tile << 24) ^ (tt.tmem << 12) ^ (tt.fmt << 8) ^ (tt.siz << 6) ^ tt.line_size_bytes ^ (rdp.textures_changed[i] ? 0x800000u : 0);
-            if (count < 400 && (lastAddr[i] != lt.addr || lastKey[i] != k)) {
-                count++;
-                lastAddr[i] = lt.addr;
-                lastKey[i] = k;
-                vr_log("impact-probe: slot %d tile %u (first %u lod %d detail %u) tmem %u fmt %u siz %u line %u win %u,%u-%u,%u | loaded %p size %u byTile %d | toLoad %p | changed %d",
-                       i, tile, rdp.first_tile_index, rdp.tex_lod ? 1 : 0, rdp.tex_detail, tt.tmem, tt.fmt, tt.siz,
-                       tt.line_size_bytes, tt.uls, tt.ult, tt.lrs, tt.lrt, (const void *)lt.addr, lt.orig_size_bytes,
-                       lt.loaded_by_tile ? 1 : 0, (const void *)rdp.texture_to_load.addr, rdp.textures_changed[i] ? 1 : 0);
-            }
-        }
         if (comb->used_textures[i]) {
             if (rdp.textures_changed[i]) {
                 gfx_flush();
@@ -3145,13 +3124,6 @@ static void gfx_run_dl(Gfx* cmd) {
                         gevrCullMirror = true;
                         break;
 
-                    case 0x56590000:
-                        gevrImpactTrace = true;
-                        break;
-
-                    case 0x56590001:
-                        gevrImpactTrace = false;
-                        break;
 
                     case VR_CULL_MIRROR_END:
                         gevrCullMirror = false;
