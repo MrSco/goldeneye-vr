@@ -889,6 +889,45 @@ s32 chrpropFindClosestBgHitRoom(s32 unused, coord3d *from, coord3d *to, coord3d 
 */
 #ifdef GEVR
 /*
+ * Stereo shots leave the muzzle, and Perfect Dark VR's shotCalculateHits
+ * traces the background from there (gunpos3d), after a portal walk from the
+ * player to the gun that cannot fail. GoldenEye traced the background from
+ * the eye (bondviewGetCurrentPlayersPosition) to where the shot line meets
+ * the floor plan, which is the gun's line only when the gun is at the eye:
+ * with the gun in the hand, wall and floor impacts landed off the barrel's
+ * line (low and to the right). And it walks the floor tiles from the player
+ * to the gun first, skipping the whole background trace when that fails -
+ * which in stereo happens whenever the gun reaches past a floor edge (the
+ * Dam tunnel mouth), so bullets there hit no wall at all.
+ *
+ * In stereo the trace starts at the muzzle, and when the tile walk to the
+ * muzzle fails the walk to the target starts from the player's own tile and
+ * position (a few centimetres off the gun's line in x/z) instead of giving up.
+ */
+extern s32 g_gevrStereo;
+static f32 s_gevrWalkX, s_gevrWalkZ;
+
+static s32 gevrShotWalkToGun(StandTile **fromtile, PropRecord *playerprop, coord3d *gunpos)
+{
+    s_gevrWalkX = gunpos->x;
+    s_gevrWalkZ = gunpos->z;
+    if (walkTilesBetweenPoints_NoCallback(fromtile, playerprop->pos.x, playerprop->pos.z, gunpos->x, gunpos->z))
+    {
+        return TRUE;
+    }
+    if (!g_gevrStereo)
+    {
+        return FALSE;
+    }
+    *fromtile = playerprop->stan;
+    s_gevrWalkX = playerprop->pos.x;
+    s_gevrWalkZ = playerprop->pos.z;
+    return TRUE;
+}
+#endif
+
+#ifdef GEVR
+/*
  * Stereo crosshair (Perfect Dark VR sight.c draws its sight in 3D at the
  * aim ray's hit point, hand->dotpos): where the right barrel's ray first meets
  * the world, in camera (view) space. A dry run of the shot below from the same
@@ -973,13 +1012,27 @@ s32 gevrStereoAimPoint(coord3d *out)
     dest.y = (shotdata.dir.y * M_U16_MAX_VALUE_F) + shotdata.gunpos.y;
     dest.z = (shotdata.dir.z * M_U16_MAX_VALUE_F) + shotdata.gunpos.z;
 
+#ifdef GEVR
+    if (gevrShotWalkToGun(&fromtile, playerprop, &shotdata.gunpos))
+#else
     if (walkTilesBetweenPoints_NoCallback(&fromtile, playerprop->pos.x, playerprop->pos.z, shotdata.gunpos.x, shotdata.gunpos.z))
+#endif
     {
         distscale = get_room_data_float1() * bgGetLevelVisibilityScale();
         playerpos = bondviewGetCurrentPlayersPosition();
+#ifdef GEVR
+        if (g_gevrStereo)
+        {
+            playerpos = &shotdata.gunpos;   /* trace from the muzzle, see gevrShotWalkToGun */
+        }
+#endif
         stanResetHits();
 
+#ifdef GEVR
+        if (!walkTilesBetweenPoints_NoCallback(&fromtile, s_gevrWalkX, s_gevrWalkZ, dest.x, dest.z))
+#else
         if (!walkTilesBetweenPoints_NoCallback(&fromtile, shotdata.gunpos.x, shotdata.gunpos.z, dest.x, dest.z))
+#endif
         {
             chrlvStanLineDirIntersection(&shotdata.gunpos, &shotdata.dir, &stanhit);
             hitbgstan = 1;
@@ -1170,10 +1223,20 @@ void chraiDefaultWeaponFireHandler(s32 hand)
     dest.y = (shotdata.dir.y * M_U16_MAX_VALUE_F) + shotdata.gunpos.y;
     dest.z = (shotdata.dir.z * M_U16_MAX_VALUE_F) + shotdata.gunpos.z;
 
+#ifdef GEVR
+    if (gevrShotWalkToGun(&fromtile, playerprop, &shotdata.gunpos))
+#else
     if (walkTilesBetweenPoints_NoCallback(&fromtile, playerprop->pos.x, playerprop->pos.z, shotdata.gunpos.x, shotdata.gunpos.z))
+#endif
     {
         distscale = get_room_data_float1() * bgGetLevelVisibilityScale();
         playerpos = bondviewGetCurrentPlayersPosition();
+#ifdef GEVR
+        if (g_gevrStereo)
+        {
+            playerpos = &shotdata.gunpos;   /* trace from the muzzle, see gevrShotWalkToGun */
+        }
+#endif
 
         new_var++;
         new_var--;
@@ -1182,7 +1245,11 @@ void chraiDefaultWeaponFireHandler(s32 hand)
 
         stanResetHits();
 
+#ifdef GEVR
+        if (!walkTilesBetweenPoints_NoCallback(&fromtile, s_gevrWalkX, s_gevrWalkZ, dest.x, dest.z))
+#else
         if (!walkTilesBetweenPoints_NoCallback(&fromtile, shotdata.gunpos.x, shotdata.gunpos.z, dest.x, dest.z))
+#endif
         {
             chrlvStanLineDirIntersection(&shotdata.gunpos, &shotdata.dir, &stanhit);
             hitbgstan = 1;

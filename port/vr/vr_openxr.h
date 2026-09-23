@@ -108,6 +108,13 @@ extern void gfx_vr_hud_capture_end_R(void);
 
 #define VR_HUD_CAPTURE_BEGIN_H 0x56570000
 #define VR_HUD_CAPTURE_END_H 0x56570001
+
+// GoldenEye: between these, fast3d swaps front and back for face culling. The
+// stereo left arm is the fist viewmodel drawn through a mirrored matrix, and
+// the fist's own display lists turn on back-face culling, which the mirror
+// turns into front-face culling (the arm showed only its inside faces).
+#define VR_CULL_MIRROR_BEGIN 0x56580000
+#define VR_CULL_MIRROR_END   0x56580001
 extern void gfx_vr_hud_capture_begin_H(void);
 extern void gfx_vr_hud_capture_end_H(void);
 

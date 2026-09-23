@@ -25,9 +25,21 @@ void vr_screen_recenter(void);
 /* false while the game renders true stereo gameplay: the quad is not submitted. */
 void vr_screen_set_visible(int visible);
 
+/* Both grips held: the screen follows the hands (0 releases it). */
+void vr_screen_grab(int active);
+/* A new distance (along the line to the screen) and view angle. */
+void vr_screen_resize(float dist, float fov);
+/* Laser pointer for the front end: 0 off screen, 1 on it, 2 on it and moved. */
+int gevrVrScreenPointer(float *u, float *v);
+/* Whether the runtime offers the cylinder layer VrScreenCurved needs. */
+int vr_screen_curve_supported(void);
+
 /* Tunables, metres and degrees; saved in goldeneye-vr.ini. */
 extern float VrScreenDistance;
 extern float VrScreenFov;
+extern int VrScreenCurved;
+extern float VrScreenHeight;
+#define VR_SCREEN_HEIGHT_MAX 3.0f
 #define VR_SCREEN_DISTANCE_MIN 1.0f
 #define VR_SCREEN_DISTANCE_MAX 8.0f
 #define VR_SCREEN_FOV_MIN 25.0f

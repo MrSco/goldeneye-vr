@@ -570,15 +570,17 @@ void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
 /*
  * gunfire.c bullet_path_from_screen_center: in stereo a shot leaves the
  * muzzle along the barrel (Perfect Dark VR bgunCalculatePlayerShotSpread)
- * instead of the eye through the crosshair. The game's spread is kept: the
- * spread-perturbed crosshair point is taken at the barrel target's distance
- * and the shot aims from the muzzle at it.
+ * instead of the eye through the crosshair. The game's spread is kept as an
+ * angle around the barrel: spreadpos is the crosshair plus the random spread
+ * in screen pixels, and only that difference is used (converted with the
+ * camera's own pixels-per-tangent, bondview.c transformAndNormalizeByLength2Dto3D),
+ * so the shot does not depend on the stored crosshair being this frame's.
  */
 s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, struct coord3d *dir)
 {
     f32 pos[3], right[3], up[3], back[3];
     struct coord3d far;
-    f32 dist, len;
+    f32 len;
     s32 ctrl = handnum == GUNRIGHT ? 1 : 0;
 
     if (!g_gevrStereo || (handnum != GUNRIGHT && handnum != GUNLEFT) || !gevrGripAxes(ctrl, pos, right, up, back))
@@ -605,11 +607,14 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
     far.x = origin->x - back[0] * 1000.0f;
     far.y = origin->y - back[1] * 1000.0f;
     far.z = origin->z - back[2] * 1000.0f;
-    dist = sqrtf(far.x * far.x + far.y * far.y + far.z * far.z);
-
     if (far.z < -1.0f && spreadpos != NULL)
     {
-        transformAndNormalizeByLength2Dto3D(spreadpos, &far, dist);
+        f32 dpx = spreadpos->x - g_CurrentPlayer->crosshair_angle.f[0];
+        f32 dpy = spreadpos->y - g_CurrentPlayer->crosshair_angle.f[1];
+        f32 depth = -far.z;
+
+        far.x += dpx * g_CurrentPlayer->c_scalex * depth;
+        far.y -= dpy * g_CurrentPlayer->c_scaley * depth;
     }
 
     dir->x = far.x - origin->x;

@@ -363,6 +363,9 @@ enum class XrRuntimeType {
 
 static XrRuntimeType gActiveRuntime = XrRuntimeType::Unknown;
 bool is_meta_runtime = false;
+// GoldenEye: the curved virtual screen is a cylinder layer (VrScreenCurved).
+static bool g_cylinderSupported = false;
+extern "C" int vr_screen_curve_supported(void) { return g_cylinderSupported ? 1 : 0; }
 
 static void vr_detect_runtime() {
     XrInstanceProperties props{XR_TYPE_INSTANCE_PROPERTIES};
@@ -435,6 +438,11 @@ static std::vector<const char*> vr_enumerate_extensions()
         }
         if (std::strcmp(ext.extensionName, "XR_EXT_local_floor") == 0) {
             enabledExts.push_back("XR_EXT_local_floor");
+        }
+        if (std::strcmp(ext.extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME) == 0) {
+            enabledExts.push_back(XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
+            g_cylinderSupported = true;
+            LOGI("Extension enabled: %s", XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
         }
         if (std::strcmp(ext.extensionName, "XR_FB_color_space") == 0) {
             enabledExts.push_back("XR_FB_color_space");
@@ -1304,6 +1312,8 @@ static void vr_update_menu_swapchain_H()
 // ============================================================================
 float VrScreenDistance = 2.5f;  // metres in front of the eyes when (re)centred
 float VrScreenFov      = 60.0f; // degrees of horizontal view the screen spans at that distance
+int   VrScreenCurved   = 0;     // 1 = a cylinder section around the viewer instead of a flat quad
+float VrScreenHeight   = 0.0f;  // metres above (+) or below eye level when (re)centred
 
 static XrSwapchain g_screenSwapchain = XR_NULL_HANDLE;
 #ifdef ANDROID
@@ -1316,6 +1326,7 @@ static bool     g_screenPending = false;
 static bool     g_screenPlaced  = false;
 static std::vector<XrTime> g_screenRecenterTimes;
 static XrPosef  g_screenPose    = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f} };
+static float    g_screenYaw     = 0.0f;   // radians; the quad's +Z (its face) points back along it
 // Cleared while the game draws true stereo into the eye buffers (bondview2.c
 // gevrStereoFrame): the screen must not hang in front of the stereo view.
 static bool     g_screenVisible = true;
@@ -1395,16 +1406,226 @@ extern "C" void vr_screen_recenter(void)
     fz /= len;
 
     g_screenPose.position.x = (l.position.x + r.position.x) * 0.5f + fx * VrScreenDistance;
-    g_screenPose.position.y = (l.position.y + r.position.y) * 0.5f;
+    g_screenPose.position.y = (l.position.y + r.position.y) * 0.5f + VrScreenHeight;
     g_screenPose.position.z = (l.position.z + r.position.z) * 0.5f + fz * VrScreenDistance;
 
     // A quad shows its +Z face, so turn its -Z axis along the view direction.
     const float yaw = atan2f(-fx, -fz);
+    g_screenYaw = yaw;
     g_screenPose.orientation = { 0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f) };
     g_screenPlaced = true;
     LOGI("screen: placed at (%.2f, %.2f, %.2f), yaw %.0f deg",
          g_screenPose.position.x, g_screenPose.position.y, g_screenPose.position.z,
          yaw * 180.0f / 3.14159265f);
+}
+
+// The screen's physical width in metres (flat: the chord; curved: the same
+// angle as an arc), from the distance and the degrees of view it spans.
+static float vr_screen_width(void)
+{
+    return 2.0f * VrScreenDistance * tanf(VrScreenFov * 0.5f * 3.14159265f / 180.0f);
+}
+
+static void vr_screen_head(float out[3])
+{
+    const XrPosef& l = g_frameViews[0].pose;
+    const XrPosef& r = g_frameViews[1].pose;
+    out[0] = (l.position.x + r.position.x) * 0.5f;
+    out[1] = (l.position.y + r.position.y) * 0.5f;
+    out[2] = (l.position.z + r.position.z) * 0.5f;
+}
+
+// Face the screen back at the head from where it is now (level: yaw only).
+static void vr_screen_face_head(void)
+{
+    float h[3];
+    vr_screen_head(h);
+    const float dx = g_screenPose.position.x - h[0];
+    const float dz = g_screenPose.position.z - h[2];
+    if (dx * dx + dz * dz < 0.01f) return;
+    g_screenYaw = atan2f(-dx, -dz);
+    g_screenPose.orientation = { 0.0f, sinf(g_screenYaw * 0.5f), 0.0f, cosf(g_screenYaw * 0.5f) };
+}
+
+/*
+ * Screen controls while the virtual screen is up (port/src/input.c): hold both
+ * grips and the screen is in your hands - it follows the midpoint of the two
+ * controllers (amplified, so a small move carries it across the room) and
+ * turns to keep facing you, at the same physical size; the right stick then
+ * moves it nearer/farther along your line of sight and makes it
+ * bigger/smaller. On release the new distance, size and height are kept for
+ * the next recentre (goldeneye-vr.ini).
+ */
+extern "C" int gevrVrGripPosePlay(int hand, float pos[3], float quat[4]); // vr_input.cpp
+static bool g_screenGrabRebase = false;   // a stick resize moved it: grab on from there
+
+extern "C" void vr_screen_grab(int active)
+{
+    static bool grabbing = false;
+    static float mid0[3], pos0[3];
+    float a[3], b[3], q[4];
+
+    if (!g_screenPlaced || !active || !gevrVrGripPosePlay(0, a, q) || !gevrVrGripPosePlay(1, b, q)) {
+        if (grabbing) {
+            float h[3];
+            vr_screen_head(h);
+            VrScreenHeight = g_screenPose.position.y - h[1];
+            if (VrScreenHeight < -VR_SCREEN_HEIGHT_MAX) VrScreenHeight = -VR_SCREEN_HEIGHT_MAX;
+            if (VrScreenHeight > VR_SCREEN_HEIGHT_MAX) VrScreenHeight = VR_SCREEN_HEIGHT_MAX;
+        }
+        grabbing = false;
+        return;
+    }
+    const float mid[3] = { (a[0] + b[0]) * 0.5f, (a[1] + b[1]) * 0.5f, (a[2] + b[2]) * 0.5f };
+    if (!grabbing || g_screenGrabRebase) {
+        grabbing = true;
+        g_screenGrabRebase = false;
+        for (int k = 0; k < 3; k++) mid0[k] = mid[k];
+        pos0[0] = g_screenPose.position.x;
+        pos0[1] = g_screenPose.position.y;
+        pos0[2] = g_screenPose.position.z;
+        return;
+    }
+
+    const float gain = 3.0f;
+    const float width = vr_screen_width();
+    float p[3] = { pos0[0] + (mid[0] - mid0[0]) * gain,
+                   pos0[1] + (mid[1] - mid0[1]) * gain,
+                   pos0[2] + (mid[2] - mid0[2]) * gain };
+    float h[3];
+    vr_screen_head(h);
+    float d[3] = { p[0] - h[0], p[1] - h[1], p[2] - h[2] };
+    float dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (dist < 0.01f) return;
+    float clamped = dist;
+    if (clamped < VR_SCREEN_DISTANCE_MIN) clamped = VR_SCREEN_DISTANCE_MIN;
+    if (clamped > VR_SCREEN_DISTANCE_MAX) clamped = VR_SCREEN_DISTANCE_MAX;
+    for (int k = 0; k < 3; k++) p[k] = h[k] + d[k] * (clamped / dist);
+
+    g_screenPose.position = { p[0], p[1], p[2] };
+    // same physical width at the new distance
+    VrScreenDistance = clamped;
+    VrScreenFov = 2.0f * atanf(width / (2.0f * clamped)) * 180.0f / 3.14159265f;
+    if (VrScreenFov < VR_SCREEN_FOV_MIN) VrScreenFov = VR_SCREEN_FOV_MIN;
+    if (VrScreenFov > VR_SCREEN_FOV_MAX) VrScreenFov = VR_SCREEN_FOV_MAX;
+    vr_screen_face_head();
+}
+
+// The right stick while grabbing: a new distance and size. The screen stays in
+// the direction it is in (not snapped back in front of the head).
+extern "C" void vr_screen_resize(float dist, float fov)
+{
+    if (!g_screenPlaced) {
+        VrScreenDistance = dist;
+        VrScreenFov = fov;
+        return;
+    }
+    float h[3];
+    vr_screen_head(h);
+    float d[3] = { g_screenPose.position.x - h[0], g_screenPose.position.y - h[1], g_screenPose.position.z - h[2] };
+    float len = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (len < 0.01f) {
+        VrScreenDistance = dist;
+        VrScreenFov = fov;
+        vr_screen_recenter();
+        return;
+    }
+    g_screenPose.position = { h[0] + d[0] * dist / len, h[1] + d[1] * dist / len, h[2] + d[2] * dist / len };
+    VrScreenDistance = dist;
+    VrScreenFov = fov;
+    vr_screen_face_head();
+    g_screenGrabRebase = true;
+}
+
+/*
+ * Laser pointer: where a controller points on the virtual screen, as 0..1
+ * across (u, left to right) and down (v, top to bottom), or false when it
+ * points past it or the screen is not up. The pointing direction is the gun's
+ * barrel (the grip's -Y, bondview2.c gevrGripAxes). Flat screens take a
+ * ray-plane hit, curved ones a ray-cylinder hit from inside.
+ */
+static bool vr_screen_hit(int hand, float *u, float *v)
+{
+    float o[3], q[4];
+    if (!g_screenPlaced || !g_screenVisible || g_screenW == 0 || !gevrVrGripPosePlay(hand, o, q)) {
+        return false;
+    }
+    const float qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+    const float dir[3] = { -2.0f * (qx * qy - qw * qz),
+                           -(1.0f - 2.0f * (qx * qx + qz * qz)),
+                           -2.0f * (qy * qz + qw * qx) };
+    const float cy = cosf(g_screenYaw), sy = sinf(g_screenYaw);
+    const float aspect = (float)g_screenW / (float)g_screenH;
+
+    if (VrScreenCurved && g_cylinderSupported) {
+        // cylinder centre: back from the screen centre toward the viewer
+        const float c[3] = { g_screenPose.position.x + sy * VrScreenDistance,
+                             g_screenPose.position.y,
+                             g_screenPose.position.z + cy * VrScreenDistance };
+        // into the cylinder's frame (rotate by -yaw about Y)
+        const float rx = o[0] - c[0], ry = o[1] - c[1], rz = o[2] - c[2];
+        const float lo[3] = { cy * rx - sy * rz, ry, sy * rx + cy * rz };
+        const float ld[3] = { cy * dir[0] - sy * dir[2], dir[1], sy * dir[0] + cy * dir[2] };
+        const float r = VrScreenDistance;
+        const float A = ld[0] * ld[0] + ld[2] * ld[2];
+        const float B = 2.0f * (lo[0] * ld[0] + lo[2] * ld[2]);
+        const float C = lo[0] * lo[0] + lo[2] * lo[2] - r * r;
+        const float disc = B * B - 4.0f * A * C;
+        if (A < 1e-6f || disc < 0.0f) return false;
+        const float t = (-B + sqrtf(disc)) / (2.0f * A);
+        if (t <= 0.0f) return false;
+        const float hx = lo[0] + ld[0] * t, hy = lo[1] + ld[1] * t, hz = lo[2] + ld[2] * t;
+        const float angle = VrScreenFov * 3.14159265f / 180.0f;
+        const float height = r * angle / aspect;
+        *u = 0.5f + atan2f(hx, -hz) / angle;
+        *v = 0.5f - hy / height;
+    } else {
+        const float n[3] = { sy, 0.0f, cy };           // the face's normal (quad +Z)
+        const float denom = dir[0] * n[0] + dir[1] * n[1] + dir[2] * n[2];
+        if (denom > -1e-4f) return false;               // pointing away from its face
+        const float pp[3] = { g_screenPose.position.x - o[0], g_screenPose.position.y - o[1], g_screenPose.position.z - o[2] };
+        const float t = (pp[0] * n[0] + pp[1] * n[1] + pp[2] * n[2]) / denom;
+        if (t <= 0.0f) return false;
+        const float hx = o[0] + dir[0] * t - g_screenPose.position.x;
+        const float hy = o[1] + dir[1] * t - g_screenPose.position.y;
+        const float hz = o[2] + dir[2] * t - g_screenPose.position.z;
+        const float width = vr_screen_width();
+        const float lx = hx * cy - hz * sy;             // along the quad's +X
+        *u = 0.5f + lx / width;
+        *v = 0.5f - hy / (width / aspect);
+    }
+    return *u >= 0.0f && *u <= 1.0f && *v >= 0.0f && *v <= 1.0f;
+}
+
+/*
+ * The pointer for the front end's cursor (front.c): 0 = no controller points
+ * at the screen, 1 = one does, 2 = and it moved since the last call. The hand
+ * that moved most recently is the pointer.
+ */
+extern "C" int gevrVrScreenPointer(float *u, float *v)
+{
+    static float last[2][2];
+    static bool had[2];
+    static int active = 1;
+    float hu[2], hv[2];
+    bool hit[2];
+    bool moved[2];
+
+    for (int h = 0; h < 2; h++) {
+        hit[h] = vr_screen_hit(h, &hu[h], &hv[h]);
+        moved[h] = hit[h] && (!had[h] || fabsf(hu[h] - last[h][0]) + fabsf(hv[h] - last[h][1]) > 0.004f);
+        if (moved[h]) {
+            last[h][0] = hu[h];
+            last[h][1] = hv[h];
+        }
+        had[h] = hit[h];
+    }
+    if (moved[active ^ 1] && !moved[active]) active ^= 1;
+    if (!hit[active] && hit[active ^ 1]) active ^= 1;
+    if (!hit[active]) return 0;
+    *u = hu[active];
+    *v = hv[active];
+    return moved[active] ? 2 : 1;
 }
 
 static bool vr_screen_present_common(unsigned int srcTex, bool is2d, int w, int h);
@@ -2185,6 +2406,8 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     const bool submitScreen = g_screenVisible && g_screenPlaced && g_screenSwapchain != XR_NULL_HANDLE;
     g_screenPending = false;
     XrCompositionLayerQuad screenLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
+    XrCompositionLayerCylinderKHR screenCyl = {XR_TYPE_COMPOSITION_LAYER_CYLINDER_KHR};
+    const bool screenCurved = VrScreenCurved && g_cylinderSupported;
     if (submitScreen) {
         screenLayer.layerFlags    = 0; // opaque
         screenLayer.space         = g_vrState.playSpace;
@@ -2194,8 +2417,25 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         screenLayer.subImage.imageRect.offset = {0, 0};
         screenLayer.subImage.imageRect.extent = {(int32_t)g_screenW, (int32_t)g_screenH};
         screenLayer.pose = g_screenPose;
-        const float width = 2.0f * VrScreenDistance * tanf(VrScreenFov * 0.5f * 3.14159265f / 180.0f);
+        const float width = vr_screen_width();
         screenLayer.size = { width, width * (float)g_screenH / (float)g_screenW };
+
+        if (screenCurved) {
+            // The same view angle as an arc around a centre VrScreenDistance
+            // back toward the viewer; the cylinder shows its inside, centred
+            // on its pose's -Z (the direction the flat quad faces away from).
+            screenCyl.layerFlags    = 0;
+            screenCyl.space         = g_vrState.playSpace;
+            screenCyl.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            screenCyl.subImage      = screenLayer.subImage;
+            screenCyl.pose          = g_screenPose;
+            const float sy = sinf(g_screenYaw), cy = cosf(g_screenYaw);
+            screenCyl.pose.position.x += sy * VrScreenDistance;
+            screenCyl.pose.position.z += cy * VrScreenDistance;
+            screenCyl.radius       = VrScreenDistance;
+            screenCyl.centralAngle = VrScreenFov * 3.14159265f / 180.0f;
+            screenCyl.aspectRatio  = (float)g_screenW / (float)g_screenH;
+        }
     }
 
     // --- Layer submission ---
@@ -2203,7 +2443,11 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     const XrCompositionLayerBaseHeader* layers[5];
     layers[0] = reinterpret_cast<const XrCompositionLayerBaseHeader *>(&layer);
 
-    if (submitScreen) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
+    if (submitScreen) {
+        layers[numLayers++] = screenCurved
+            ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
+            : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
+    }
 
     if (submitMenuL) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerL);
     if (submitMenuR) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerR);

@@ -1731,6 +1731,9 @@ static inline float gfx_tri_signed_area(const struct LoadedVertex* v1, const str
 
 // Detects whether the current model has a negative scale (mirroring) by checking
 // the determinant of the active 3x3 rotation/scale matrix.
+// GoldenEye: set between VR_CULL_MIRROR_BEGIN/END tags (the mirrored left arm).
+static bool gevrCullMirror;
+
 static inline bool gfx_is_matrix_inverted() {
     /*
      * GoldenEye: never. The N64 RSP culls on screen-space winding alone, which
@@ -1794,7 +1797,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             return;
         }
 
-        const bool cull_front = (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_FRONT;
+        const bool cull_front = ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_FRONT) != gevrCullMirror;
 
         // The two eyes do not agree about the winding of a triangle that is close
         // to edge-on, because their parallax is depth-dependent and so does not
@@ -3111,6 +3114,14 @@ static void gfx_run_dl(Gfx* cmd) {
 
                     case VR_HUD_CAPTURE_END_H:
                         gfx_vr_hud_capture_end_H();
+                        break;
+
+                    case VR_CULL_MIRROR_BEGIN:
+                        gevrCullMirror = true;
+                        break;
+
+                    case VR_CULL_MIRROR_END:
+                        gevrCullMirror = false;
                         break;
                     default:
                         break;

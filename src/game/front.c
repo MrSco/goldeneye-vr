@@ -1221,6 +1221,36 @@ void frontUpdateControlStickPosition(void) {
         cursor_v_pos += (f32)(( (f32)sticky * 0.075f - 0.5f) * g_GlobalTimerDelta);
     }
 
+#ifdef GEVR
+    {
+        /*
+         * Laser pointer: a controller pointed at the virtual screen moves the
+         * folder cursor to where it points (port/vr/vr_openxr.cpp
+         * gevrVrScreenPointer; the screen shows the whole viGetX x viGetY frame).
+         * It takes over when the pointed-at spot moves and hands back to the
+         * stick as soon as the stick is pushed; the trigger selects (Z).
+         */
+        extern s32 gevrVrScreenPointer(f32 *u, f32 *v);
+        static s32 pointing = FALSE;
+        f32 u, v;
+        s32 hit = gevrVrScreenPointer(&u, &v);
+
+        if (stickx != 0 || sticky != 0 || hit == 0)
+        {
+            pointing = FALSE;
+        }
+        else if (hit == 2)
+        {
+            pointing = TRUE;
+        }
+        if (pointing)
+        {
+            cursor_h_pos = u * (f32)viGetX();
+            cursor_v_pos = v * (f32)viGetY();
+        }
+    }
+#endif
+
     if ((getPlayer_c_screentop() + getPlayer_c_screenheight() - 20.0f) < cursor_v_pos) {
         cursor_v_pos = (getPlayer_c_screentop() + getPlayer_c_screenheight() - 20.0f);
         return;
