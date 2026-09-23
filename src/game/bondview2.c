@@ -444,15 +444,14 @@ void gevrStereoFrame(s32 inlevel)
  * Controller aim (Perfect Dark VR vr_gun_pos_rot / bgunSwivel): in stereo the
  * right gun is placed by the right controller and aims where it points.
  *
- * Axes from the OpenXR grip pose definition: for a right hand closed round a
- * pistol grip, +Y leaves the front of the fist (the barrel), -Z runs up
- * through the thumb side and +X into the palm (to the left). GoldenEye's
- * viewmodel is built facing +Z, its barrel and muzzle node along +Z and its
- * +X on the gun's left: the flat game turns it round with its align matrix
- * (matrix_4x4_align toward the aim point). So the model's X/Y/Z are the
- * grip's +X/-Z/+Y - measured: mapped as -X/-Z/-Y the muzzle node came out
- * 8 cm behind the fist and shots left from the eye. right/up/back below are
- * the holder's directions (right = -X of the grip).
+ * Axes of the OpenXR grip pose, as measured on the headset (HANDOFF 50):
+ * -Z runs up through the thumb side of the fist, the barrel of a held pistol
+ * is the grip's -Y and +X is the holder's right, for either hand. (Reasoned
+ * from the spec text instead, +Y came out as the barrel; the gun then aimed
+ * backwards.) GoldenEye's viewmodel is built facing +Z, its barrel and muzzle
+ * node along +Z and its +X on the gun's left: the flat game turns it round
+ * with its align matrix (matrix_4x4_align toward the aim point). So the
+ * model's X/Y/Z are the holder's left/up/forward: -right, up, -back.
  *
  * Camera space is view space, world x the level's view scale, so metres
  * become GEVR_UNITS_PER_METRE * D_800364CC units, as for the eye separation.
@@ -481,16 +480,20 @@ static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[
 
     x = q[0]; y = q[1]; z = q[2]; w = q[3];
 
-    /* grip -X, -Z, -Y in view space (columns of the rotation matrix) */
-    right[0] = -(1.0f - 2.0f * (y * y + z * z));
-    right[1] = -(2.0f * (x * y + w * z));
-    right[2] = -(2.0f * (x * z - w * y));
+    /*
+     * The holder's right, up and back in view space: grip +X, -Z and +Y
+     * (columns of the rotation matrix). Measured on the headset: the barrel
+     * is the grip's -Y and +X is the holder's right for either hand.
+     */
+    right[0] = 1.0f - 2.0f * (y * y + z * z);
+    right[1] = 2.0f * (x * y + w * z);
+    right[2] = 2.0f * (x * z - w * y);
     up[0] = -(2.0f * (x * z + w * y));
     up[1] = -(2.0f * (y * z - w * x));
     up[2] = -(1.0f - 2.0f * (x * x + y * y));
-    back[0] = -(2.0f * (x * y - w * z));
-    back[1] = -(1.0f - 2.0f * (x * x + z * z));
-    back[2] = -(2.0f * (y * z + w * x));
+    back[0] = 2.0f * (x * y - w * z);
+    back[1] = 1.0f - 2.0f * (x * x + z * z);
+    back[2] = 2.0f * (y * z + w * x);
 
     for (i = 0; i < 3; i++)
     {
@@ -9600,6 +9603,18 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         gdl = microcode_constructor_related_to_menus(gdl, ulx, uly, lrx, lry, 160);
     }
 
+#ifdef GEVR
+    /*
+     * Stereo: the health and armour arcs go on Perfect Dark VR's head-locked
+     * HUD quad layer (VR_HUD_CAPTURE_*_H, healthbar.c in PD) instead of being
+     * drawn into the eye buffers, where the per-eye shift of 2D elements at
+     * the edge of a ~100 degree view left them doubled.
+     */
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+    }
+#endif
     if (bondviewGetIfCurrentPlayerHealthShowTime() &&
         (g_CurrentPlayer->watch_animation_state == 0))
     {
@@ -9617,6 +9632,12 @@ Gfx *maybe_mp_interface(Gfx *gdl)
             g_CurrentPlayer->healthdisplaytime = 0;
         }
     }
+#ifdef GEVR
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+    }
+#endif
 
     if (getPlayerCount() == 1)
     {

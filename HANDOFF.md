@@ -3170,3 +3170,32 @@ left controller AND looking down); sky still in the Dam tunnel.
   Not the tunnel's cause, but the old size was the cartridge's.
 
 Probes used (removed): fake grip pose, shot/fire logs, room list, no-sky.
+
+## 50. Gun backwards, guards fading in, doubled health HUD
+
+User report on 49: shots hit, but only by pointing the controller backwards
+(the gun model aims backwards); a doubled health/armour HUD when shot; the
+damage flash now fills the view; the tunnel draws, but guards fade in at
+short range; watch gesture seems right.
+
+- **Grip axes, corrected from the headset.** The barrel of a held pistol is
+  the grip pose's -Y and +X is the holder's right, for either hand. 48 had
+  the gun right and the shot backwards; 49's fake-grip test built its pose
+  from the same wrong reading (+Y forward), so it "fixed" the gun to match
+  the backward shot. `gevrGripAxes` now returns right = +X, up = -Z,
+  back = +Y; gun rows (-right, up, -back), aim and shots all follow from it.
+  The watch gesture (back of the left hand = -X) is consistent with this.
+- **Guard fade / detail distance.** `currentPlayerSetCameraScale` derives
+  c_scalelod (hence c_lodscalez, used for model LOD and the draw fade in
+  model.c/propobj.c) from the camera's field of view; stereo's ~100 degrees
+  made every model count as ~2x as far. In stereo c_scalelod now uses the
+  game's own fovy (60, or the zoomed one).
+- **Health/armour HUD** goes on Perfect Dark VR's head-locked HUD quad
+  (`VR_HUD_CAPTURE_BEGIN_H/END_H` no-op tags around the gauge bars, as PD's
+  healthbar.c) instead of the eye buffers. The HUD layer's "drawn" flag now
+  lasts until the next game frame (`gfx_vr_hud_H_new_frame`), not one XR
+  frame, or the 60 Hz game would flicker it at 72+ Hz. The layer copy uses
+  its own shader (alpha kept), not the alpha-forcing mirror blit.
+
+**Not verified on device** (the headset raised its Guardian boundary prompt
+during the HUD test; left for the user). Builds clean.
