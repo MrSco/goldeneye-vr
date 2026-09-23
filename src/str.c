@@ -1,13 +1,35 @@
 #include "str.h"
 
+#ifdef GEVR
+/*
+ * gepc-ref D150: langGet() returns NULL for a string bank that is not loaded,
+ * and the watch/briefing pages strcpy/strcat its result straight into a
+ * buffer. Treat a NULL source as "" instead of faulting. strcpy and friends
+ * are nonnull builtins to the compiler, so a plain NULL test on the argument
+ * is deleted as dead; passing the pointer through an empty asm keeps it.
+ */
+static inline const void *gevrLaunderPtr(const void *p)
+{
+    __asm__("" : "+r"(p));
+    return p;
+}
+#define GEVR_IS_NULL(p) (gevrLaunderPtr(p) == NULL)
+#endif
+
 char *strcpy(char *dst, const char *src) {
     unsigned char *ptr = dst;
+#ifdef GEVR
+    if (GEVR_IS_NULL(src)) { if (!GEVR_IS_NULL(dst)) *ptr = '\0'; return dst; }
+#endif
     while(*ptr++ = *src++);
     return dst;
 }
 
 char *strncpy(char *dst, const char *src, size_t n) {
     unsigned char *ptr = dst;
+#ifdef GEVR
+    if (GEVR_IS_NULL(src)) { while (n--) *ptr++ = '\0'; return dst; }
+#endif
     while((*ptr++ = *src++)) { 
         if (--n == 0) {
             break;
@@ -21,6 +43,9 @@ char *strncpy(char *dst, const char *src, size_t n) {
 
 char *strcat(char *dst, const char *src) {
     unsigned char *ptr = dst;
+#ifdef GEVR
+    if (GEVR_IS_NULL(dst) || GEVR_IS_NULL(src)) { return dst; }
+#endif
     while (*ptr) { ptr++; };
     while(*ptr++ = *src++);
     return dst;

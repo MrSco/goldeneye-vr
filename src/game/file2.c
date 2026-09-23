@@ -371,6 +371,16 @@ bool fileGetIsCheatUnlocked(save_data *save, s32 cheat)
 {
     s32 bits;
 
+#ifdef GEVR
+    /* gepc-ref D301: callers pass fileGetSaveForFoldernum(selected_folder_num)
+     * unchecked, which is NULL when that folder's save failed its CRC check or
+     * was never written. Not unlocked, as the CRC-fail path already reports. */
+    if (save == NULL)
+    {
+        return FALSE;
+    }
+#endif
+
     if (cheat >= 0 && cheat < CHEAT_INPUT_BUFFER_SIZE)
     {
         bits = save->unlocked_cheats_1 | save->unlocked_cheats_3 << 0x18 | save->unlocked_cheats_3 << 0x10 | save->unlocked_cheats_2 << 8;
