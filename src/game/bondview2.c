@@ -642,6 +642,43 @@ s32 gevrStereoAimTarget(struct coord3d *target)
     return target->z < -1.0f;
 }
 
+/*
+ * Comfort vignette amount for this frame (gfx_pc.cpp draws it): the ini's
+ * ComfortVignette (0 = off) scaled by how hard the stick is moving or smooth-
+ * turning the view, eased so it does not pop. Physical head motion does not
+ * count - it is the visual motion without the body's that sickens.
+ */
+extern float VrComfortVignette;         /* vr_settings */
+
+float gevrStereoVignette(void)
+{
+    static f32 level;
+    f32 target = 0.0f;
+    f32 move;
+    f32 turn;
+
+    if (g_gevrStereo && VrComfortVignette > 0.0f && g_CurrentPlayer != NULL)
+    {
+        move = sqrtf(g_CurrentPlayer->speedforwards * g_CurrentPlayer->speedforwards
+                     + g_CurrentPlayer->speedsideways * g_CurrentPlayer->speedsideways);
+        turn = VrUseSnapTurn == 0.0f ? fabsf(gevrVrTurnAxis()) : 0.0f;
+        target = move > turn ? move : turn;
+        if (target > 1.0f)
+        {
+            target = 1.0f;
+        }
+        target *= VrComfortVignette;
+    }
+
+    /* quick to close, slower to open */
+    level += (target - level) * (target > level ? 0.25f : 0.08f);
+    if (level < 0.002f)
+    {
+        level = 0.0f;
+    }
+    return level;
+}
+
 /* Top of bondviewApplyVertaTheta: the head drives vv_theta and vv_verta. */
 static void gevrStereoApplyHead(void)
 {

@@ -22,6 +22,8 @@ extern int VrPauseHub;
 #define VR_PLAYMODE_SCREEN 0
 #define VR_PLAYMODE_STEREO 1
 extern int VrPlayMode;
+// GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
+extern float VrComfortVignette;
 
 // Your standing EYE height in cm -- where your eyes are off the floor, roughly
 // 13 cm below the top of your head, not your stature. That is what the headset

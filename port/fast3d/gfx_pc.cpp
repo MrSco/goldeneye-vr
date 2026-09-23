@@ -121,6 +121,8 @@ bool is_weapon_hud = false;
 extern "C" void vr_get_eye_view_proj_gl(int eye, float outVP[16]);
 extern "C" void gevrVrMarkEyesRendered(int stereo); // vr_openxr.cpp
 void gfx_vr_hud_H_new_frame(void);                  // gfx_opengl.cpp
+void gfx_opengl_draw_vignette(float strength);      // gfx_opengl.cpp
+extern "C" float gevrStereoVignette(void);          // bondview2.c
 int VrPauseHub = false;
 
 // --- VR: culling has to account for the per-eye clip-space shear -------------
@@ -3721,6 +3723,8 @@ extern "C" void gfx_run(Gfx* commands) {
                 // 3) Render the game directly into the headset texture
                 run_display_list();
                 gevrVrMarkEyesRendered(1);
+                gfx_flush();
+                gfx_opengl_draw_vignette(gevrStereoVignette());
 
                 if (VrPauseHub && VrIsPaused) {
                     float vp[2][16];

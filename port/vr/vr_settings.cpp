@@ -53,6 +53,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
     fprintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
     fprintf(f, "ScreenFov=%.1f\n", VrScreenFov);
+    fprintf(f, "; Stereo: darken the edges of the view while moving or smooth-turning, to\n");
+    fprintf(f, "; ease motion sickness. 0 = off, up to 1 = strongest.\n");
+    fprintf(f, "ComfortVignette=%.2f\n", VrComfortVignette);
 
     // --- VR hand placement (no menu UI; edit here) --------------------------------------------
     fprintf(f, "\n");
@@ -149,6 +152,11 @@ extern "C" void vrSettingsLoad(void)
                 if (fval < VR_SCREEN_DISTANCE_MIN) fval = VR_SCREEN_DISTANCE_MIN;
                 if (fval > VR_SCREEN_DISTANCE_MAX) fval = VR_SCREEN_DISTANCE_MAX;
                 VrScreenDistance = fval;
+            }
+            else if (strcmp(key, "ComfortVignette") == 0) {
+                if (fval < 0.0f) fval = 0.0f;
+                if (fval > 1.0f) fval = 1.0f;
+                VrComfortVignette = fval;
             }
             else if (strcmp(key, "ScreenFov") == 0) {
                 if (fval < VR_SCREEN_FOV_MIN) fval = VR_SCREEN_FOV_MIN;
