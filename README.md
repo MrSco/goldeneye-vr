@@ -109,6 +109,8 @@ and install it like any other program.
      browse to that folder, and upload the ROM.
 
    Any file name works: the launcher recognizes the ROM and renames it for you.
+   Or skip the cable: press **Choose ROM file...** in the launcher and pick the ROM
+   from the headset's storage (for example the **Download** folder).
 3. Back in the headset, press **Look again**. The ROM line turns green, and it says
    **GoldenEye 007 (USA) - OK**.
 4. Pick your options and press **START**. Enjoy, 007. 🍸
@@ -118,7 +120,8 @@ and install it like any other program.
 > ```bash
 > adb install GoldenEye-VR-vX.Y.Z.apk
 > ```
-> Then push the ROM:
+> Start the app once so it creates its folder (a folder made by `adb` belongs to the
+> USB shell, and the app then can't save its settings), then push the ROM:
 > ```bash
 > adb push "GoldenEye 007 (USA).z64" /sdcard/Android/data/com.gevr.port/files/data/ge.z64
 > ```

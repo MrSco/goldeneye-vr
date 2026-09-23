@@ -63,6 +63,9 @@ public class MainActivity extends SDLActivity {
     // --- ROM file picker (called from the in-VR launcher, port/vr/vr_launcher.cpp) ---
     private static final int REQUEST_PICK_ROM = 0x6e;
 
+    /** What happened to the last pick, for the launcher to show; it reads and clears it. */
+    public static volatile String pickResult = null;
+
     /** Opens the system file picker; the chosen file is copied to data/picked.z64. */
     public void openRomPicker() {
         runOnUiThread(() -> {
@@ -80,11 +83,34 @@ public class MainActivity extends SDLActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != REQUEST_PICK_ROM || resultCode != RESULT_OK || data == null || data.getData() == null) {
+        if (requestCode != REQUEST_PICK_ROM) {
             return;
         }
-        final Uri uri = data.getData();
-        new Thread(() -> copyPickedRom(uri), "rom-copy").start();
+        if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+            final Uri uri = data.getData();
+            new Thread(() -> copyPickedRom(uri), "rom-copy").start();
+        } else {
+            pickResult = "No file chosen.";
+        }
+        returnToVr();
+    }
+
+    // The picker is a 2D panel: when it closes, Android resumes this activity but
+    // Quest's shell leaves the player in its own UI with the XR session visible
+    // and unfocused, until the app is started again from the Library. Start it
+    // again ourselves, with the very intent the Library uses (singleTask: the
+    // running instance comes back to the front).
+    private void returnToVr() {
+        try {
+            Intent back = getPackageManager().getLaunchIntentForPackage(getPackageName());
+            if (back == null) {
+                back = new Intent(this, MainActivity.class);
+            }
+            back.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            startActivity(back);
+        } catch (Exception e) {
+            Log.e(TAG, "Could not bring the game back to the front", e);
+        }
     }
 
     // Copies through a .part file so the launcher never sees half a ROM; it
@@ -107,11 +133,13 @@ public class MainActivity extends SDLActivity {
         } catch (Exception e) {
             Log.e(TAG, "ROM copy failed", e);
             part.delete();
+            pickResult = "Could not copy that file: " + e.getMessage();
             return;
         }
         if (!part.renameTo(new File(dir, "picked.z64"))) {
             Log.e(TAG, "ROM copy: rename failed");
             part.delete();
+            pickResult = "Could not copy that file.";
             return;
         }
         Log.i(TAG, "ROM copied from picker (" + total + " bytes)");
