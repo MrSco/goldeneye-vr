@@ -2180,9 +2180,16 @@ void gfx_vr_hud_capture_end_H(void)
 }
 
 bool gfx_vr_menu_H_dirty_and_clear(void) {
-    bool v = hud_H_was_drawn;
+    // GoldenEye: the game draws at 60 Hz and the display runs at 72+, so a
+    // captured HUD must stay up through the XR frames between game frames or
+    // it flickers; gfx_vr_hud_H_new_frame (gfx_run) drops it instead.
+    return hud_H_was_drawn;
+}
+
+// A new game frame is being drawn: whether it shows the head-locked HUD is
+// decided by whether it captures one.
+void gfx_vr_hud_H_new_frame(void) {
     hud_H_was_drawn = false;
-    return v;
 }
 
 GLuint gfx_opengl_get_vr_menu_texture_H(void) {

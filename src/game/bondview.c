@@ -669,6 +669,24 @@ void currentPlayerSetCameraScale(void)
 	g_CurrentPlayer->c_recipscaley = 1.0f / g_CurrentPlayer->c_scaley;
 
     g_CurrentPlayer->c_scalelod = g_CurrentPlayer->c_scaley;
+#ifdef GEVR
+    {
+        /*
+         * Stereo (bondview2.c gevrStereoFrame) gives the camera the headset's
+         * ~100 degree field of view, and c_scalelod follows it, so every model
+         * counted as half as far: guards faded in and dropped detail at half
+         * the flat game's range (lodscalez ~2). Level of detail and the draw
+         * fade keep the game's own field of view (60, or the zoomed one).
+         */
+        extern s32 g_gevrStereo;
+
+        if (g_gevrStereo && g_CurrentPlayer->fovy > 1.0f)
+        {
+            g_CurrentPlayer->c_scalelod = sinf(mDegToHalfRad(g_CurrentPlayer->fovy))
+                                        / (cosf(mDegToHalfRad(g_CurrentPlayer->fovy)) * g_CurrentPlayer->c_halfheight);
+        }
+    }
+#endif
     g_CurrentPlayer->c_scalelod60 = sinf(DegToRad(30)) / (cosf(DegToRad(30)) * 120.0f);
 	g_CurrentPlayer->c_lodscalez = g_CurrentPlayer->c_scalelod / g_CurrentPlayer->c_scalelod60;
 	tmp = (g_CurrentPlayer->c_lodscalez * M_U16_MAX_VALUE_F);

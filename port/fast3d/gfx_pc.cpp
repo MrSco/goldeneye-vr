@@ -120,6 +120,7 @@ extern bool gVrFlatPass; // gfx_opengl.cpp
 bool is_weapon_hud = false;
 extern "C" void vr_get_eye_view_proj_gl(int eye, float outVP[16]);
 extern "C" void gevrVrMarkEyesRendered(int stereo); // vr_openxr.cpp
+void gfx_vr_hud_H_new_frame(void);                  // gfx_opengl.cpp
 int VrPauseHub = false;
 
 // --- VR: culling has to account for the per-eye clip-space shear -------------
@@ -3610,6 +3611,7 @@ extern "C" void gfx_run(Gfx* commands) {
         const bool screenMode = gevrVrScreenMode != 0;
         // Stereo gameplay frames go to the eye buffers; the screen quad must not cover them.
         vr_screen_set_visible(screenMode ? 1 : 0);
+        gfx_vr_hud_H_new_frame();
 
         // The screen target keeps the game's own aspect so its 2D and 3D agree,
         // at about the eye buffer's height so text stays sharp on the quad.
