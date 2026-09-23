@@ -1650,14 +1650,17 @@ void example_vr_input_usage() {
 
 
 // ============================================================================
-// GoldenEye: raise the left wrist to your face, as if reading a watch, to open
-// the game's watch (port/src/input.c presses START on it). The left controller
-// is located in view space (update_vr_controllers), so the test is head-relative:
-//  - within 60 cm of the eyes and in front of them (inside ~40 deg of straight
-//    ahead), and
-//  - the back of the left wrist faces the eyes: for a left hand round the grip
-//    the palm is the controller's +X side and the back of the hand its -X side,
-//    so the grip pose's -X axis must point back at the head.
+// GoldenEye: raise the left wrist and look down at it, as if reading a watch,
+// to open the game's watch (port/src/input.c presses START after a short hold).
+// Every one of these must hold together - the first version fired on the arm
+// or the head alone:
+//  - the head is pitched down at least ~20 degrees (play space, gRawHeadQ);
+//  - the left controller is raised: no more than 45 cm below the eyes (a
+//    hanging arm sits ~70 cm below), within 50 cm of them;
+//  - it is in front of the eyes, inside ~32 degrees of the view direction;
+//  - the back of the wrist faces the eyes: for a left hand round the grip the
+//    palm is the controller's +X side, the back of the hand its -X side.
+// The controller pose is located in view space (update_vr_controllers).
 // Returns 1 while the pose holds. Nothing here is from Perfect Dark VR; GEVR PC
 // lists a forearm watch as wanted but not built (NOTE-ARM-WATCH-PAUSE-PANEL).
 // ============================================================================
@@ -1671,30 +1674,37 @@ extern "C" int gevrVrWatchGesture(void)
     const XrPosef& pose = st.controller_pose;
     const float px = pose.position.x, py = pose.position.y, pz = pose.position.z;
     const float dist = sqrtf(px * px + py * py + pz * pz);
-    if (dist < 0.08f || dist > 0.60f) {
+    if (dist < 0.08f || dist > 0.50f) {
         return 0;
     }
 
-    const float ahead = -pz / dist;          // cos of the angle from straight ahead
-    if (ahead < 0.75f) {
-        return 0;
-    }
+    // Head pitch and the controller's height relative to the eyes, play space.
+    const XrQuaternionf& h = gRawHeadQ;
+    const float lookY = -(2.0f * (h.y * h.z - h.w * h.x));            // view -Z, y component
+    const float relY = 2.0f * (h.x * h.y + h.w * h.z) * px
+                     + (1.0f - 2.0f * (h.x * h.x + h.z * h.z)) * py
+                     + 2.0f * (h.y * h.z - h.w * h.x) * pz;          // (R p).y
+
+    const float ahead = -pz / dist;          // cos of the angle from the view direction
 
     // The grip's -X axis in view space: q * (-1,0,0) * q^-1.
     const float qx = pose.orientation.x, qy = pose.orientation.y, qz = pose.orientation.z, qw = pose.orientation.w;
     const float ax = -(1.0f - 2.0f * (qy * qy + qz * qz));
     const float ay = -(2.0f * (qx * qy + qw * qz));
     const float az = -(2.0f * (qx * qz - qw * qy));
-
-    // Toward the eyes from the controller.
     const float facing = (ax * -px + ay * -py + az * -pz) / dist;
 
+    const bool lookingDown = lookY < -0.34f;
+    const bool raised = relY > -0.45f;
+    const bool inView = ahead > 0.85f;
+    const bool wristToEyes = facing > 0.70f;
+
     static int logTick;
-    if ((logTick++ % 36) == 0) {
-        vr_log("[VR_WATCH] dist %.2f ahead %.2f facing %.2f", dist, ahead, facing);
+    if (inView && (logTick++ % 36) == 0) {
+        vr_log("[VR_WATCH] dist %.2f ahead %.2f facing %.2f lookY %.2f relY %.2f", dist, ahead, facing, lookY, relY);
     }
 
-    return facing > 0.65f ? 1 : 0;
+    return (lookingDown && raised && inView && wristToEyes) ? 1 : 0;
 }
 
 

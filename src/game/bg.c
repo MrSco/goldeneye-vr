@@ -1359,6 +1359,28 @@ Gfx *bgScissorCurrentPlayerView(Gfx *arg0, s32 left, s32 top, s32 width, s32 hei
 
     temp_v0 = g_CurrentPlayer;
 
+#ifdef GEVR
+    {
+        /*
+         * Stereo: no per-room scissor, as GEVR PC ships (GETV_VR_ROOMSCISSOR=0).
+         * The portal boxes are computed for the centred frustum, but each eye
+         * is rendered sheared by its own asymmetric lens centre, so a room seen
+         * through a doorway lands up to ~15% sideways of its box and was cut
+         * away (the Dam tunnel's far segments showed sky or black). The
+         * portal test still decides which rooms draw; only the clip goes.
+         */
+        extern s32 g_gevrStereo;
+
+        if (g_gevrStereo)
+        {
+            left = (s32) temp_v0->viewleft;
+            top = (s32) temp_v0->viewtop;
+            width = temp_v0->viewleft + temp_v0->viewx;
+            height = temp_v0->viewtop + temp_v0->viewy;
+        }
+    }
+#endif
+
     if (left < (s32) temp_v0->viewleft)
     {
         left = (s32) temp_v0->viewleft;
