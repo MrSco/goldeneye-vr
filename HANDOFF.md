@@ -2610,3 +2610,56 @@ text ids and per-objective difficulties; the briefing page shows A-D; seven
 lefts and three rights through the watch without a crash. This also puts
 objective A back into the mission-completion check, which had been skipping
 the NULL slot.
+
+## 36. Controls after the watch, watch stick directions, chr.c/front.c sweep
+
+User report: after pausing into the watch and unpausing, the right stick did
+nothing and the left stick became look; watch navigation went the wrong way.
+Two separate defects.
+
+1. **The control style drifted away from 1.2 Solitaire.** The Quest mapping
+   in port/src/input.c (right stick = N64 stick, left stick = C-buttons) only
+   makes sense under Solitaire. init_watch_at_start_of_stage sets HONEY, and
+   the watch Controls page (sub_GAME_7F0A611C) scrolls the style with the
+   stick. Ported gepc-ref D194/D238: inputReadController re-asserts Solitaire
+   on every poll with cur_player_set_control_type (plain field writes), and
+   logs each distinct style it corrects. The Controls page therefore always
+   shows 1.2 SOLITAIRE.
+2. **Every down/left stick push in the watch read as up/right.** options.c
+   never included joy.h, so joyGetStickX/Y were implicit `int` functions.
+   MIPS callees returned an s8 sign-extended to the full register; on AArch64
+   the caller extends, so -80 came back as 176 (confirmed with a probe in the
+   list scroller, removed). This is a third form of the implicit-declaration
+   defect, so tools/gevr_implicit_decls.py now flags narrow (s8/u8/s16/u16/
+   bool) and float returns as well as pointers, keeps the entries already in
+   the header (their calls no longer warn because of it), and ignores
+   prototypes and static functions. The regenerated src/gevr_implicit_protos.h
+   goes from 41 to 90 prototypes. Worth knowing about among the 49 new ones:
+   - eight f32 watch-inventory placement getters in gunfire.c called from
+     bondinv.c (the result was read from w0, not s0) — a candidate for the
+     invisible controller model / item models on the watch;
+   - bool ray and hit tests: bgTestRayIntersectsBbox, intersectRayTriangle,
+     propobjFindHit, objTestForInteract, doorTestForInteract,
+     modelTestRayIntersectsNodeBBox — candidates for "guards shooting at the
+     wall" if their callers were seeing garbage upper bits;
+   - u16 joyGetButtons/joyGetButtonsPressedThisFrame in options.c/spectrum.c.
+   Regenerate after a full rebuild (see the tool's docstring).
+
+Also in input.c, for the watch only: the grips are L/R (the N64's own page
+turn), and in menus whichever stick is pushed further navigates.
+
+Verified on device: left from Mission status goes to Briefing and right goes
+to Inventory and then Controls; down on the Controls style reads -80; after
+unpausing, forward on the left stick moves and the right stick turns.
+
+Sweep (docs/gepc-port-guard-sweep.md, fourth pass):
+- chr.c — nothing to port. D43/D45 solved differently (CollisionRelatedNode
+  resolved as a segment-5 offset); D120 caps a PointUsage walk that only
+  cycles with the reference's broken converter, and ours swaps those arrays
+  (BK_S16S / BK_COLVTX); the rest are telemetry or intro-puppet experiments.
+- front.c — ported **M-148** (difficultytext[4] took "Secret Agent\n": a
+  stack overrun on every file-select frame), **D221** (folder hit band built
+  from separate locals the ABI does not pair) and **D50** (legal screen reads
+  legal_text_ptr before assigning it). D164 and D178 were already handled
+  (ARRAYCOUNT; ob.c swaps Ubrief* on load); D63/D64/D65/D146/D243/D250 are
+  diagnostics.

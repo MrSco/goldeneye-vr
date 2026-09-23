@@ -191,3 +191,16 @@ wrongly removed.
 Found outside the sweep: weapon timing bytes read in reverse through the
 `RecoilSpeed`/`b44` union (the reference carries it too, as open D240), and
 an sRGB double-encode on the Quest swapchain.
+
+
+## Fourth pass — chr.c, front.c
+
+| File | Ported | Already here / not applicable |
+|---|---|---|
+| chr.c | — | D43/D45 (segment-offset resolve of CollisionRelatedNode); D120 (walk cap for a converter defect ours does not have); D173/D193/M-80 telemetry; D243 M-154..M-169 intro-puppet experiments |
+| front.c | M-148 (difficulty/mission text buffers), D221 (folder hit-band pairs), D50 (uninitialised legal_text_ptr) | D164 (ARRAYCOUNT), D178/D143 (gevrRomSwapBriefing in ob.c); D63/D64/D65/D146/D243/D250 diagnostics |
+| port/src/input.c | D194/D238 (hold the control style at 1.2 Solitaire) | — |
+
+Found outside the sweep: implicit declarations of functions returning s8,
+u16, bool and f32 (joyGetStickY read -80 as 176). The prototype generator
+now covers them; see HANDOFF 36.
