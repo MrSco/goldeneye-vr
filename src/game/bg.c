@@ -4844,6 +4844,11 @@ void bgUpdateCurrentPlayerScreenMinMax(void)
 
             g_CurrentPlayer->screensize.min.x -= extra;
             g_CurrentPlayer->screensize.max.x += extra;
+
+            /* and a little vertically, for the per-eye vertical centre shift */
+            extra = (g_CurrentPlayer->screensize.max.y - g_CurrentPlayer->screensize.min.y) * 0.1f;
+            g_CurrentPlayer->screensize.min.y -= extra;
+            g_CurrentPlayer->screensize.max.y += extra;
         }
     }
 #endif

@@ -219,6 +219,7 @@ extern void vr_screen_recenter(void);
 extern float gevrVrTurnAxis(void);       /* input.c: right stick X, dead-zoned */
 extern s32 gevrVrTakeRecenter(void);     /* input.c: both stick clicks */
 extern void gevrVrSnapshotCameraPose(void); /* vr_openxr.cpp */
+extern void gevrVrHeadPosCm(float out[3]);   /* vr_openxr.cpp */
 extern int gevrVrGripPose(int hand, float pos[3], float quat[4]); /* vr_input.cpp */
 extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* goldeneye-vr.ini grip trim, cm */
 
@@ -277,9 +278,96 @@ static void gevrStereoLook(struct coord3d *look, struct coord3d *up)
     up->y = -up->y;
 }
 
+/*
+ * Head translation, the "walk" half of Perfect Dark VR's vr_player_pos: each
+ * tick the body is moved by the physical head's horizontal motion through
+ * the game's own collision (bondviewCalcUpdatePlayerCollision, the walk
+ * path), so walking round the room walks Bond and walls stop you; PD's rule
+ * that a jump over VR_MAX_HEAD_STEP (25 cm) in one tick is a tracking glitch,
+ * not a step, is kept. Height is relative: rising or ducking from the height
+ * at recentre moves the eye (clamped), which is what crouching physically
+ * should do. PD's other half, leaning the view ahead of a blocked body with a
+ * line-of-sight probe, is not ported: here the view never leaves the body.
+ * World units are centimetres (GEVR PC docs/16), the head is in cm.
+ */
+#define GEVR_HEAD_MAX_STEP_CM 25.0f
+#define GEVR_HEAD_DUCK_MAX_CM 100.0f
+#define GEVR_HEAD_RISE_MAX_CM 30.0f
+
+static s32 s_gevrHeadValid;
+static f32 s_gevrLastHead[3];
+static f32 s_gevrHeadBaseY;
+
+/* bondview2.c walk path, just before the body's move this tick. */
+void gevrStereoHeadWalk(struct coord3d *move_offset)
+{
+    f32 head[3];
+    f32 body[4];
+    f32 half;
+    struct coord3d d;
+
+    if (!g_gevrStereo)
+    {
+        s_gevrHeadValid = FALSE;
+        return;
+    }
+
+    gevrVrHeadPosCm(head);
+
+    if (!s_gevrHeadValid)
+    {
+        s_gevrLastHead[0] = head[0];
+        s_gevrLastHead[1] = head[1];
+        s_gevrLastHead[2] = head[2];
+        s_gevrHeadBaseY = head[1];
+        s_gevrHeadValid = TRUE;
+        return;
+    }
+
+    d.x = head[0] - s_gevrLastHead[0];
+    d.y = 0.0f;
+    d.z = head[2] - s_gevrLastHead[2];
+    s_gevrLastHead[0] = head[0];
+    s_gevrLastHead[1] = head[1];
+    s_gevrLastHead[2] = head[2];
+
+    if (fabsf(d.x) > GEVR_HEAD_MAX_STEP_CM || fabsf(d.z) > GEVR_HEAD_MAX_STEP_CM)
+    {
+        return;
+    }
+
+    /* Into the world the same way the look vector goes: through the body yaw. */
+    half = -s_gevrBaseYaw * (M_PI_F / 180.0f) * 0.5f;
+    body[0] = 0.0f; body[1] = sinf(half); body[2] = 0.0f; body[3] = cosf(half);
+    gevrRotateByQuat(&d, body);
+
+    move_offset->x += d.x;
+    move_offset->z += d.z;
+}
+
+/* The eye's rise (+) or duck (-) since recentre, world units. */
+static f32 gevrStereoHeadHeight(void)
+{
+    f32 head[3];
+    f32 dy;
+
+    if (!g_gevrStereo || !s_gevrHeadValid)
+    {
+        return 0.0f;
+    }
+
+    gevrVrHeadPosCm(head);
+    dy = head[1] - s_gevrHeadBaseY;
+
+    if (dy < -GEVR_HEAD_DUCK_MAX_CM) dy = -GEVR_HEAD_DUCK_MAX_CM;
+    if (dy > GEVR_HEAD_RISE_MAX_CM) dy = GEVR_HEAD_RISE_MAX_CM;
+    return dy;
+}
+
 /* Face the way the body faces: the current view becomes straight ahead. */
 static void gevrStereoRecenter(void)
 {
+    s_gevrHeadValid = FALSE;   /* next tick takes this height as standing */
     vr_align_with_game_angle(0.0f);
     s_gevrBaseYaw = g_CurrentPlayer->vv_theta;
     s_gevrLastTheta = g_CurrentPlayer->vv_theta;
@@ -364,11 +452,17 @@ void gevrStereoFrame(s32 inlevel)
  *
  * Camera space is view space, world x the level's view scale, so metres
  * become GEVR_UNITS_PER_METRE * D_800364CC units, as for the eye separation.
- * The viewmodel was drawn for ~1.7 m ahead of the eye (measured gunofs
- * 10.9,-20.6,-33.4 at view scale 0.2); at arm's length it reads about twice
- * lifelike, which is GEVR PC's -ViewmodelScale 0.5 (docs/159).
+ *
+ * Size, measured: at GoldenEye's own scale (row scale 0.1) the PP7's muzzle
+ * node sits 35.5 camera units ahead of the model origin, 1.77 m on the Dam.
+ * The origin is off-screen near the wrist (flat gunofs 10.9,-20.6,-33.4), so
+ * origin-to-muzzle is forearm plus pistol, about 30 cm: 0.17 of GoldenEye's
+ * scale. (GEVR PC's 0.5 was relative to its own renderer.) The model origin
+ * then lies about 12 cm behind the fist, so the fist, not the origin, goes
+ * on the controller; GunOffX/Y/Z in goldeneye-vr.ini trim from there.
  */
-#define GEVR_VIEWMODEL_SCALE 0.5f
+#define GEVR_VIEWMODEL_SCALE 0.17f
+#define GEVR_GRIP_TO_ORIGIN_CM 12.0f
 
 static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
 {
@@ -402,27 +496,37 @@ static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[
     return TRUE;
 }
 
-/* gunfire.c gunUpdateAndFire: the right gun's camera-space matrix. */
+/*
+ * gunfire.c gunUpdateAndFire: a gun's camera-space matrix, the right hand's
+ * from the right controller and a dual-wielded left one from the left.
+ * GoldenEye mirrors the left viewmodel afterwards by negating row 0 (a flip
+ * in the model's own frame), so the placement here holds for both hands.
+ */
+static s32 s_gevrMuzzleValid[2];
+static f32 s_gevrMuzzle[2][3];          /* camera space, from the flash node */
+
 s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
 {
     f32 pos[3], right[3], up[3], back[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 k = GEVR_VIEWMODEL_SCALE;
+    s32 ctrl = handnum == GUNRIGHT ? 1 : 0;
     s32 i;
 
-    if (!g_gevrStereo || handnum != GUNRIGHT)
+    if (!g_gevrStereo || (handnum != GUNRIGHT && handnum != GUNLEFT))
     {
         return FALSE;
     }
 
     {
-        static s32 had = -1;
-        s32 have = gevrGripAxes(1, pos, right, up, back);
+        static s32 had[2] = { -1, -1 };
+        s32 have = gevrGripAxes(ctrl, pos, right, up, back);
 
-        if (have != had)
+        if (have != had[handnum])
         {
-            sysLogPrintf(LOG_NOTE, "stereo: gun %s", have ? "on the right controller" : "flat (no right controller pose)");
-            had = have;
+            sysLogPrintf(LOG_NOTE, "stereo: %s gun %s", handnum == GUNRIGHT ? "right" : "left",
+                         have ? "on its controller" : "flat (no controller pose)");
+            had[handnum] = have;
         }
         if (!have)
         {
@@ -435,11 +539,81 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
         out->m[0][i] = right[i] * k;
         out->m[1][i] = up[i] * k;
         out->m[2][i] = back[i] * k;
-        /* grip trim in the gun's own right/up/back, centimetres */
-        out->m[3][i] = pos[i] + (VrGunOffX * right[i] + VrGunOffY * up[i] + VrGunOffZ * back[i]) * cm;
+        /* fist on the controller, then the ini trim, in the gun's own right/up/back */
+        out->m[3][i] = pos[i] + (VrGunOffX * right[i] + VrGunOffY * up[i]
+                                 + (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * back[i]) * cm;
     }
     out->m[0][3] = out->m[1][3] = out->m[2][3] = 0.0f;
     out->m[3][3] = 1.0f;
+    return TRUE;
+}
+
+/* gunfire.c: where this frame's muzzle flash node landed, camera space. */
+void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
+{
+    if (handnum == GUNRIGHT || handnum == GUNLEFT)
+    {
+        s_gevrMuzzle[handnum][0] = x;
+        s_gevrMuzzle[handnum][1] = y;
+        s_gevrMuzzle[handnum][2] = z;
+        s_gevrMuzzleValid[handnum] = TRUE;
+    }
+}
+
+/*
+ * gunfire.c bullet_path_from_screen_center: in stereo a shot leaves the
+ * muzzle along the barrel (Perfect Dark VR bgunCalculatePlayerShotSpread)
+ * instead of the eye through the crosshair. The game's spread is kept: the
+ * spread-perturbed crosshair point is taken at the barrel target's distance
+ * and the shot aims from the muzzle at it.
+ */
+s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, struct coord3d *dir)
+{
+    f32 pos[3], right[3], up[3], back[3];
+    struct coord3d far;
+    f32 dist, len;
+    s32 ctrl = handnum == GUNRIGHT ? 1 : 0;
+
+    if (!g_gevrStereo || (handnum != GUNRIGHT && handnum != GUNLEFT) || !gevrGripAxes(ctrl, pos, right, up, back))
+    {
+        return FALSE;
+    }
+
+    if (s_gevrMuzzleValid[handnum])
+    {
+        origin->x = s_gevrMuzzle[handnum][0];
+        origin->y = s_gevrMuzzle[handnum][1];
+        origin->z = s_gevrMuzzle[handnum][2];
+    }
+    else
+    {
+        origin->x = pos[0];
+        origin->y = pos[1];
+        origin->z = pos[2];
+    }
+
+    /* The barrel target, 1000 units out, and the spread point at its distance. */
+    far.x = pos[0] - back[0] * 1000.0f;
+    far.y = pos[1] - back[1] * 1000.0f;
+    far.z = pos[2] - back[2] * 1000.0f;
+    dist = sqrtf(far.x * far.x + far.y * far.y + far.z * far.z);
+
+    if (far.z < -1.0f && spreadpos != NULL)
+    {
+        transformAndNormalizeByLength2Dto3D(spreadpos, &far, dist);
+    }
+
+    dir->x = far.x - origin->x;
+    dir->y = far.y - origin->y;
+    dir->z = far.z - origin->z;
+    len = sqrtf(dir->x * dir->x + dir->y * dir->y + dir->z * dir->z);
+    if (len < 0.0001f)
+    {
+        return FALSE;
+    }
+    dir->x /= len;
+    dir->y /= len;
+    dir->z /= len;
     return TRUE;
 }
 
@@ -7693,6 +7867,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 ) * g_GlobalTimerDelta * 10.0f;
         }
 
+#ifdef GEVR
+        gevrStereoHeadWalk(&move_offset);
+#endif
         bondviewCalcUpdatePlayerCollision(&move_offset, (g_CurrentPlayer->swaytarget == 0.0f));
 
         stanTileDistanceRelated(
@@ -8704,6 +8881,7 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
         {
             cam_look = s_gevrCamLook;
             cam_up = s_gevrCamUp;
+            cam_pos.y += gevrStereoHeadHeight();
         }
 #endif
     }

@@ -802,6 +802,10 @@ void gunUpdateAndFire(GUNHAND handnum)
             matrix_4x4_multiply_in_place(&gunmtx, &flashmtx);
             matrix_4x4_copy(&flashmtx, &rwmtx[1]);
 
+#ifdef GEVR
+            { extern void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z);
+              gevrStereoNoteMuzzle(handnum, flashmtx.m[3][0], flashmtx.m[3][1], flashmtx.m[3][2]); }
+#endif
             hand->field_B58.x = flashmtx.m[3][0];
             hand->field_B58.y = flashmtx.m[3][1];
             hand->field_B58.z = flashmtx.m[3][2];
@@ -1597,6 +1601,23 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                                   | ((u32)g_CurrentPlayer->tileColor.g << 16)
                                   | ((u32)g_CurrentPlayer->tileColor.b << 8);
         renderdata.zbufferenabled = 0;
+#ifdef GEVR
+        {
+            /*
+             * Stereo: the viewmodel is drawn without depth, its parts in the
+             * model's own order, which is right only from the flat game's one
+             * viewpoint. Turned by the controller, hidden parts painted over
+             * visible ones (the "missing" underside, the odd perspective).
+             * Depth-test it; at arm's length it also meets walls correctly.
+             */
+            extern s32 g_gevrStereo;
+
+            if (g_gevrStereo)
+            {
+                renderdata.zbufferenabled = 1;
+            }
+        }
+#endif
  
         matrix_4x4_7F058C64();
  
@@ -5016,6 +5037,17 @@ void bullet_path_from_screen_center(coord3d* arg0, coord3d* result, enum GUNHAND
     crosspos.y =  g_CurrentPlayer->crosshair_angle.f[1] + randfactor * scaledspread * getPlayer_c_screenheight()
         / (PAL ? (f32)(SCREEN_HEIGHT_272) : (f32)(SCREEN_HEIGHT_240));
 
+#ifdef GEVR
+    {
+        extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+
+        if (gevrStereoShot(arg2, &crosspos, arg0, result))
+        {
+            return;
+        }
+    }
+#endif
+
     arg0->x = 0.0f;
     arg0->y = 0.0f;
     arg0->z = 0.0f;
@@ -5376,6 +5408,17 @@ void bullet_path_from_screen_center(coord3d* arg0, coord3d* result, enum GUNHAND
     randfactor = (RANDOMFRAC() - 0.5f) * RANDOMFRAC();
     crosspos.y =  g_CurrentPlayer->crosshair_angle.f[1] + randfactor * scaledspread * getPlayer_c_screenheight()
         / (PAL ? (f32)(SCREEN_HEIGHT_272) : (f32)(SCREEN_HEIGHT_240));
+
+#ifdef GEVR
+    {
+        extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+
+        if (gevrStereoShot(arg2, &crosspos, arg0, result))
+        {
+            return;
+        }
+    }
+#endif
 
     arg0->x = 0.0f;
     arg0->y = 0.0f;
