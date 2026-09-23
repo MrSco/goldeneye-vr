@@ -2543,9 +2543,17 @@ extern s32 status_bar_text_buffer_index;
 //D:8003689C
 extern s32 display_statusbar;
 //D:800368A0
+#ifdef GEVR
+extern uintptr_t copy_1stfonttable; /* a struct font *; N64 slot was s32 */
+#else
 extern s32 copy_1stfonttable;
+#endif
 //D:800368A4
+#ifdef GEVR
+extern uintptr_t copy_2ndfonttable; /* a struct fontchar * */
+#else
 extern s32 copy_2ndfonttable;
+#endif
 //D:800368A8
 extern s32 upper_text_buffer_index;
 //D:800368AC
@@ -2664,7 +2672,11 @@ void jp_hudmsgBottomShow(char *string);
 // VERSION_US
 #define HUDMESSAGEBOTTOM hudmsgBottomShow
 void hudmsgBottomShow(char *string);
+#ifdef GEVR
+void setFontTables(void *arg0, void *arg1);
+#else
 void setFontTables(s32 arg0, s32 arg1);
+#endif
 #endif
 
 Gfx * bondviewRenderDebugBondView(Gfx *arg0);

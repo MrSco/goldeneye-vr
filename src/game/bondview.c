@@ -492,9 +492,18 @@ s32 status_bar_text_buffer_index = 0;
 s32 display_statusbar = 0;
 #if defined(VERSION_US)
 //D:800368A0
+#ifdef GEVR
+/* Font pointers: pointer-width here, 4-byte slots on the N64. */
+uintptr_t copy_1stfonttable = 0;
+#else
 s32 copy_1stfonttable = 0;
+#endif
 //D:800368A4
+#ifdef GEVR
+uintptr_t copy_2ndfonttable = 0;
+#else
 s32 copy_2ndfonttable = 0;
+#endif
 #endif
 //D:800368A8
 s32 upper_text_buffer_index = 0;

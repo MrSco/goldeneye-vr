@@ -2840,3 +2840,33 @@ its radio reporting `Failed to receive ready signal from host`, plus
 IMU-corrupt errors on both controllers. And until this section the game sent
 it no haptics at all. User action: update the controller firmware in Quest
 settings (or unpair and re-pair it).
+
+## 41. US revision flags (BUGFIX_R0), chrai.c/stan.c sweep
+
+**BUGFIX_R1 -> BUGFIX_R0.** The ROM is US, and gepc-ref's ntsc-final and the
+N64 Makefile build US with BUGFIX_R0. Before switching, every R0/R1 block (88)
+was scanned for port fixes (tools: scratchpad r1scan.py): the only R1-only
+content was the JP-style hudmsgBottomShow storing font pointers as
+`(s32)(uintptr_t)` (truncating) plus caption debug logs. On the R0 side the US
+font globals copy_1stfonttable/copy_2ndfonttable were `s32` (fine under
+gepc-ref's s32-safe dram.c, truncating here): now uintptr_t under GEVR, with
+setFontTables taking pointers and the caption renderer
+(gevrBottomCaptionChars/Font) reading them on the US path, BankGothic by
+default and ZurichBold for intro captions, as the US original does. A full
+rebuild's int-conversion / pointer-to-int / implicit-declaration /
+function-pointer warnings were diffed against the R1 build: nothing new.
+§40's g_JP_GlobalTimerDelta mirror is now dormant (R1 only). Verified on
+device: intro plays, guards engage and hit Bond.
+
+Still different from the reference's ntsc-final set: LEFTOVERDEBUG and
+LEFTOVERSPECTRUM (27 files, mostly debug menus, but also ob.h,
+bondview_internal.h, initBondDATAdefaults.h, token.h and alternative code such
+as a LEFTOVERDEBUG variant of stan.c's edge test). The US ROM was built with
+them. Separate step: scan those blocks the same way first.
+
+**Sweep.**
+- chrai.c: complete. D310 ported in §34; D309 diagnostics; D243 M-145/M-169/
+  M-170 cutscene experiments.
+- stan.c: complete. D253/D177/D89 ported in §38; D90 and D189 already here
+  (STAN_LOCUS_TILESTACK_MAX 55; record-sized clear); D177's pointer-add sites
+  already use u8 */array indexing; D88 diagnostics.
