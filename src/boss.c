@@ -97,7 +97,18 @@ u32 g_BossDebugNoticeEntry = 0;
 s32 g_DebugAndUpdateStageFlag = FALSE;
 s32 g_StageNum = LEVELID_TITLE;
 u32 g_CurentMMallocValue = 0x234800;
+#ifdef GEVR
+/*
+ * The mema heap holds the streamed room geometry (bg.c bgLoadRoomModelData).
+ * 300 KB was sized for the cartridge's display lists; the host's converted
+ * ones are bigger, and stereo's wider view keeps more rooms visible at once.
+ * When a room's load failed it was silently not drawn and the sky showed
+ * through (the Dam tunnel in stereo). GEVR PC ships GETV_VR_ROOMHEAP=4096 KB.
+ */
+u32 g_CurentMaMallocValue = 4096 * 1024;
+#else
 u32 g_CurentMaMallocValue = 0x4B000;
+#endif
 s32 g_ShowMemUseFlag = FALSE;
 s32 g_ShowMemBarsFlag = FALSE;
 

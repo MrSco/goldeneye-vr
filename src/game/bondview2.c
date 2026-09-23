@@ -446,9 +446,13 @@ void gevrStereoFrame(s32 inlevel)
  *
  * Axes from the OpenXR grip pose definition: for a right hand closed round a
  * pistol grip, +Y leaves the front of the fist (the barrel), -Z runs up
- * through the thumb side and +X into the palm. GoldenEye's viewmodel faces -Z
- * with +Y up, so its right/up/back axes are the grip's -X/-Z/-Y: the same
- * 90-degree turn about X that PD applies (vr_input.cpp controller_pose).
+ * through the thumb side and +X into the palm (to the left). GoldenEye's
+ * viewmodel is built facing +Z, its barrel and muzzle node along +Z and its
+ * +X on the gun's left: the flat game turns it round with its align matrix
+ * (matrix_4x4_align toward the aim point). So the model's X/Y/Z are the
+ * grip's +X/-Z/+Y - measured: mapped as -X/-Z/-Y the muzzle node came out
+ * 8 cm behind the fist and shots left from the eye. right/up/back below are
+ * the holder's directions (right = -X of the grip).
  *
  * Camera space is view space, world x the level's view scale, so metres
  * become GEVR_UNITS_PER_METRE * D_800364CC units, as for the eye separation.
@@ -536,9 +540,9 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
 
     for (i = 0; i < 3; i++)
     {
-        out->m[0][i] = right[i] * k;
+        out->m[0][i] = -right[i] * k;   /* model +X: the gun's left */
         out->m[1][i] = up[i] * k;
-        out->m[2][i] = back[i] * k;
+        out->m[2][i] = -back[i] * k;    /* model +Z: along the barrel */
         /* fist on the controller, then the ini trim, in the gun's own right/up/back */
         out->m[3][i] = pos[i] + (VrGunOffX * right[i] + VrGunOffY * up[i]
                                  + (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * back[i]) * cm;

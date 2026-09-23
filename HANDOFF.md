@@ -3133,3 +3133,40 @@ left-hand dual wield.
 the flat fallbacks (controllers idle). **For the user:** gun size and grip,
 depth/occlusion of the hand, muzzle shots, dual wield, physical walking and
 ducking, tunnel.
+
+## 49. Shots, flash/fade, tighter watch gesture, the tunnel (room scissor, room heap)
+
+User report on 48: gun and arm size right; can't hit anything; damage flash
+and level fade-in drawn as a square; watch gesture too eager (wants a raised
+left controller AND looking down); sky still in the Dam tunnel.
+
+- **Shots.** A fake-grip probe (grip straight ahead) showed the muzzle node 8
+  cm *behind* the fist: GoldenEye's viewmodel is built facing +Z (barrel and
+  muzzle along +Z, +X on the gun's left); the flat game turns it round with
+  its align matrix. Mapping is now model X/Y/Z = grip +X/-Z/+Y (was
+  -X/-Z/-Y, which drew the gun back to front and fired from near the eye).
+  Verified: muzzle 3.55 units (~18 cm) ahead of the fist, shot along the
+  barrel, GoldenEye's tile walk accepts the gun position.
+- **Flash / fade.** First-person play letterboxes its viewport to rows
+  10..230, so the fills over the player viewport (damage flash, fade,
+  bondview2.c:4733) never matched PD's full-screen rule and drew as a
+  square. In stereo a fill covering the player viewport now covers the view.
+  Seen on device: the death flash filled the view.
+- **Watch gesture** now needs all of: head pitched down >= ~20 deg (play space,
+  gRawHeadQ), left controller within 45 cm below eye level (a hanging arm is
+  ~70), within 50 cm and inside ~32 deg of the view, back of wrist to the
+  eyes, held 0.5 s. Log `[VR_WATCH]` prints each term.
+- **Tunnel.** Reproduced with the input hook: flat showed the whole tunnel,
+  stereo stopped after one segment (sky or black beyond). Probes: identical
+  room lists, rooms loaded, portal boxes sane - but the far rooms' portal
+  boxes sat ~15% sideways of where they render (portal boxes are computed
+  for the centred frustum; each eye is sheared by its asymmetric lens
+  centre), so the per-room scissor cut them away. In stereo the room scissor
+  is now the whole viewport, as GEVR ships (GETV_VR_ROOMSCISSOR=0); the
+  portal test still picks the rooms. Verified: full tunnel to the far doors.
+- **Room heap.** Raised the mema heap (streamed room geometry) from the
+  cartridge's 300 KB to 4 MB, GEVR's GETV_VR_ROOMHEAP=4096: a failed room load
+  is silently not drawn, and the host's converted display lists are larger.
+  Not the tunnel's cause, but the old size was the cartridge's.
+
+Probes used (removed): fake grip pose, shot/fire logs, room list, no-sky.

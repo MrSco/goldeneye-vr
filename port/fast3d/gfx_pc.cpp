@@ -2933,7 +2933,15 @@ static void gfx_dp_fill_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t
     // land the right edge at +0.78 -- inside the screen, hence a strip along the
     // right that no full-screen effect ever covered. Expressed in screens it
     // holds at any native size.
+    // GoldenEye stereo: first-person play letterboxes its viewport to rows
+    // 10..230, so the damage flash and the level fade (bondview2.c, a fill
+    // over the player's viewport) never reached the screen edges and showed
+    // as a square floating in the world. In stereo, covering the player's
+    // viewport is covering the view.
+    const bool gevrStereoViewportFill = vr_is_initialized() && !gevr_screen_pass && gevrVrScreenMode == 0
+            && ulx <= 4 && uly <= 11 * 4 && lrx >= (SCREEN_WIDTH - 1) * 4 && lry >= (SCREEN_HEIGHT - 11) * 4;
     if ((ulx == 0 && uly == 0 && lrx == 319 * 4 && lry == 239 * 4)
+            || gevrStereoViewportFill
             || (vr_is_initialized()
                 && ulx <= 0 && uly <= 0
                 && lrx >= (SCREEN_WIDTH - 1) * 4 && lry >= (SCREEN_HEIGHT - 1) * 4)) {

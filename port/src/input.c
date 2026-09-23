@@ -1013,7 +1013,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static bool armed = true;
             if (!menu && gevrVrWatchGesture()) {
                 if (!heldsince) heldsince = now ? now : 1;
-                if (armed && now - heldsince >= 350) {
+                if (armed && now - heldsince >= 500) {
                     pressuntil = now + 100;
                     armed = false;
                     LOGI("input: watch gesture -> pause\n");
