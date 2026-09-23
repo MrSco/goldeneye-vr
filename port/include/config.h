@@ -2,8 +2,10 @@
 
 #include <PR/ultratypes.h>
 
-#define CONFIG_FNAME "pd.ini"
+#define CONFIG_FNAME "goldeneye.ini"
 #define CONFIG_PATH "$S/" CONFIG_FNAME
+/* The name the Perfect Dark port used; carried over once if found (config.c). */
+#define CONFIG_OLD_PATH "$S/pd.ini"
 
 void configInit(void);
 

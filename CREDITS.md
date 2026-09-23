@@ -20,6 +20,14 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 
 ---
 
+## Artwork
+
+The app icon and banner (`docs/art/`, generated into the Android resources
+by `tools/make_icons.py`) were made for this project by MrSco. They replace
+Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
+
+---
+
 ## Not ours (please do not credit us for these)
 
 | What | Whose |
@@ -56,12 +64,13 @@ We credit only real influence or reuse. Survey-only reads and projects we did **
 
 - **Repo:** https://github.com/fgsfdsfgs/perfect_dark (branch `port`)
 - **What we took:** `port/` - everything that stands in for the N64 so the
-  game code in `src/` can run on a headset. `port/src/` matches upstream
-  file-for-file (`main.c`, `system.c`, `video.c`, `audio.c`, `fs.c`,
-  `input.c`, `config.c`, `mixer.c`, `romdata.c`, `mod.c`, `pdmain.c`,
-  `pdsched.c`, `libultra.c`, `crash.c`, `optionsmenu.c`), with GoldenEye
-  files added alongside and Perfect Dark specifics excluded from the build
-  rather than deleted.
+  game code in `src/` can run on a headset: `main.c`, `system.c`,
+  `video.c`, `audio.c`, `fs.c`, `input.c`, `config.c`, `mixer.c`,
+  `libultra.c`, `crash.c` and the audio preprocess, with GoldenEye files
+  added alongside. The Perfect Dark-only files (`romdata.c`, `mod.c`,
+  `pdmain.c`, `pdsched.c`, `optionsmenu.c`, `mpsetups.c`, the Perfect Dark
+  file preprocessors and its community cover art) were removed on
+  2026-09-23; they are in upstream's history.
 - **Licence:** MIT, `Copyright (c) 2022 Ryan Dwyer` - the port is a fork of
   the decompilation and carries its notice. Travels with the code in
   [`port/LICENSE`](port/LICENSE); provenance in

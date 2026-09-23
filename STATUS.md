@@ -1,18 +1,18 @@
 # Status
 
-**Latest headset result (2026-09-22): Dam is playable.** The user moved,
-shot, killed guards, took damage and picked up an AK, with music and sound.
-It is far from right - see the Open table and [HANDOFF §18](HANDOFF.md).
+**Current state (2026-09-23, first public release v0.1.0):** the Dam plays
+end to end in true stereo VR (controller-aimed guns firing from the muzzle,
+3D sight, ammo panel on the gun, health HUD, left arm, watch gesture, head
+translation, smooth/snap turning, comfort vignette) and on the virtual screen
+(flat or curved, grab to move, laser-pointer menus), launched from an in-VR
+launcher. The app ships no game content: everything comes from the player's
+ROM. HANDOFF §46-56 has the detail. Known issues for the next release:
+the launcher cursor hides behind a curved screen and the pointer has no beam;
+bullet-hole sprites glitch at some angles; props such as the Dam gate button
+appear late (draw distance). Other levels are less tested.
 
-**Updated 2026-09-22.** Where this and [HANDOFF.md](HANDOFF.md) disagree, this
-file wins — HANDOFF is a session-by-session engineering log kept for its
-reasoning, not as a statement of current state.
-
-**In one line:** Dam is playable - the user has moved, shot, killed guards,
-taken damage and picked up a weapon, with music and sound - but the controls
-are badly wrong, two buttons crash the game, there is no button for the door
-switch so the level cannot be finished, and many textures are drawn with the
-wrong palette.
+The tables below are the older ledger (last fully revised 2026-09-22) and are
+kept for their evidence; the paragraph above and HANDOFF supersede them.
 
 Evidence is marked, because the difference has bitten this port before — a
 screen can be "working" in the logs while the headset shows black:
