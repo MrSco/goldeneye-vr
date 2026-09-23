@@ -365,6 +365,16 @@ static XrRuntimeType gActiveRuntime = XrRuntimeType::Unknown;
 bool is_meta_runtime = false;
 // GoldenEye: the curved virtual screen is a cylinder layer (VrScreenCurved).
 static bool g_cylinderSupported = false;
+
+/*
+ * The game links its own atan2f (src/game/math_atan2f.c, range 0..2pi, as on
+ * the N64), acosf and asinf into this library, and they replace libm's for the
+ * VR code too. Use the double versions, which it does not define: with the
+ * game's atan2f every point left of centre on the curved screen came out near
+ * 2pi, far off the edge, and the pointer's dot vanished there.
+ */
+static inline float vr_atan2f(float y, float x) { return (float)atan2((double)y, (double)x); }
+static inline float vr_asinf(float s) { return (float)asin((double)s); }
 extern "C" int vr_screen_curve_supported(void) { return g_cylinderSupported ? 1 : 0; }
 
 static void vr_detect_runtime() {
@@ -1410,7 +1420,7 @@ extern "C" void vr_screen_recenter(void)
     g_screenPose.position.z = (l.position.z + r.position.z) * 0.5f + fz * VrScreenDistance;
 
     // A quad shows its +Z face, so turn its -Z axis along the view direction.
-    const float yaw = atan2f(-fx, -fz);
+    const float yaw = vr_atan2f(-fx, -fz);
     g_screenYaw = yaw;
     g_screenPose.orientation = { 0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f) };
     g_screenPlaced = true;
@@ -1443,7 +1453,7 @@ static void vr_screen_face_head(void)
     const float dx = g_screenPose.position.x - h[0];
     const float dz = g_screenPose.position.z - h[2];
     if (dx * dx + dz * dz < 0.01f) return;
-    g_screenYaw = atan2f(-dx, -dz);
+    g_screenYaw = vr_atan2f(-dx, -dz);
     g_screenPose.orientation = { 0.0f, sinf(g_screenYaw * 0.5f), 0.0f, cosf(g_screenYaw * 0.5f) };
 }
 
@@ -1545,9 +1555,14 @@ extern "C" void vr_screen_resize(float dist, float fov)
  * ray-plane hit, curved ones a ray-cylinder hit from inside. `o` is the
  * controller position (play space).
  */
+// PORT probe: why the last hit test failed (logged by vr_pointer_update).
+static int g_ptrMissReason[2];      // 0 hit, 1 no pose/screen, 2 no intersection, 3 behind, 4 u, 5 v
+static float g_ptrRawU[2], g_ptrRawV[2];
+
 static bool vr_screen_hit(int hand, float *u, float *v, float o[3])
 {
     float q[4];
+    g_ptrMissReason[hand] = 1;
     if (!g_screenPlaced || !g_screenVisible || g_screenW == 0 || !gevrVrGripPosePlay(hand, o, q)) {
         return false;
     }
@@ -1572,21 +1587,21 @@ static bool vr_screen_hit(int hand, float *u, float *v, float o[3])
         const float B = 2.0f * (lo[0] * ld[0] + lo[2] * ld[2]);
         const float C = lo[0] * lo[0] + lo[2] * lo[2] - r * r;
         const float disc = B * B - 4.0f * A * C;
-        if (A < 1e-6f || disc < 0.0f) return false;
+        if (A < 1e-6f || disc < 0.0f) { g_ptrMissReason[hand] = 2; return false; }
         const float t = (-B + sqrtf(disc)) / (2.0f * A);
-        if (t <= 0.0f) return false;
+        if (t <= 0.0f) { g_ptrMissReason[hand] = 3; return false; }
         const float hx = lo[0] + ld[0] * t, hy = lo[1] + ld[1] * t, hz = lo[2] + ld[2] * t;
         const float angle = VrScreenFov * 3.14159265f / 180.0f;
         const float height = r * angle / aspect;
-        *u = 0.5f + atan2f(hx, -hz) / angle;
+        *u = 0.5f + vr_atan2f(hx, -hz) / angle;
         *v = 0.5f - hy / height;
     } else {
         const float n[3] = { sy, 0.0f, cy };           // the face's normal (quad +Z)
         const float denom = dir[0] * n[0] + dir[1] * n[1] + dir[2] * n[2];
-        if (denom > -1e-4f) return false;               // pointing away from its face
+        if (denom > -1e-4f) { g_ptrMissReason[hand] = 2; return false; }  // pointing away from its face
         const float pp[3] = { g_screenPose.position.x - o[0], g_screenPose.position.y - o[1], g_screenPose.position.z - o[2] };
         const float t = (pp[0] * n[0] + pp[1] * n[1] + pp[2] * n[2]) / denom;
-        if (t <= 0.0f) return false;
+        if (t <= 0.0f) { g_ptrMissReason[hand] = 3; return false; }
         const float hx = o[0] + dir[0] * t - g_screenPose.position.x;
         const float hy = o[1] + dir[1] * t - g_screenPose.position.y;
         const float hz = o[2] + dir[2] * t - g_screenPose.position.z;
@@ -1595,7 +1610,12 @@ static bool vr_screen_hit(int hand, float *u, float *v, float o[3])
         *u = 0.5f + lx / width;
         *v = 0.5f - hy / (width / aspect);
     }
-    return *u >= 0.0f && *u <= 1.0f && *v >= 0.0f && *v <= 1.0f;
+    g_ptrRawU[hand] = *u;
+    g_ptrRawV[hand] = *v;
+    if (*u < 0.0f || *u > 1.0f) { g_ptrMissReason[hand] = 4; return false; }
+    if (*v < 0.0f || *v > 1.0f) { g_ptrMissReason[hand] = 5; return false; }
+    g_ptrMissReason[hand] = 0;
+    return true;
 }
 
 // A point on the screen's surface (play space) from its u, v.
@@ -1676,6 +1696,28 @@ static void vr_pointer_update(void)
             p.lastV = p.v;
         }
         p.hit = hit;
+    }
+    // PORT probe: log the active hand's misses (at most every 0.25 s) and
+    // every hit/miss change, to chase the dot vanishing on the curved screen.
+    {
+        static int lastReason = -1;
+        static unsigned tick;
+        const int h = g_ptrActive;
+        const int r = g_ptrMissReason[h];
+        tick++;
+        if (g_screenVisible && (r != lastReason || (r != 0 && (tick % 18) == 0))) {
+            float o[3], q[4];
+            const bool pose = gevrVrGripPosePlay(h, o, q) != 0;
+            const float cyy = cosf(g_screenYaw), syy = sinf(g_screenYaw);
+            LOGI("pointer: hand %d %s reason %d raw u %.3f v %.3f | ctrl %s (%.2f %.2f %.2f) q (%.2f %.2f %.2f %.2f) | screen (%.2f %.2f %.2f) yaw %.0f dist %.2f fov %.1f curved %d centre (%.2f %.2f %.2f)",
+                 h, r == 0 ? "HIT" : "MISS", r, g_ptrRawU[h], g_ptrRawV[h],
+                 pose ? "ok" : "none", o[0], o[1], o[2], q[0], q[1], q[2], q[3],
+                 g_screenPose.position.x, g_screenPose.position.y, g_screenPose.position.z,
+                 g_screenYaw * 57.29578f, VrScreenDistance, VrScreenFov, VrScreenCurved ? 1 : 0,
+                 g_screenPose.position.x + syy * VrScreenDistance, g_screenPose.position.y,
+                 g_screenPose.position.z + cyy * VrScreenDistance);
+            lastReason = r;
+        }
     }
     // any button on the other controller makes it the pointer
     {
@@ -2173,7 +2215,7 @@ XrQuaternionf YawToQuaternion(float angleDegrees) {
 static float GetYawDegreesFromQuaternion(XrQuaternionf q) {
     float siny_cosp = 2.0f * (q.w * q.y + q.x * q.z);
     float cosy_cosp = 1.0f - 2.0f * (q.y * q.y + q.z * q.z);
-    return std::atan2f(siny_cosp, cosy_cosp) * (180.0f / 3.14159265f);
+    return vr_atan2f(siny_cosp, cosy_cosp) * (180.0f / 3.14159265f);
 }
 
 extern "C" void vr_align_with_game_angle(float target_game_angle) {
@@ -2692,8 +2734,8 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
                 // yaw/pitch so the quad's +Z points back at the eye (origin)
                 const float len = sqrtf(px * px + py * py + pz * pz);
                 if (len > 0.01f) {
-                    const float yaw = atan2f(-px, -pz);
-                    const float pitch = asinf(py / len);
+                    const float yaw = vr_atan2f(-px, -pz);
+                    const float pitch = vr_asinf(py / len);
                     const XrQuaternionf qy = {0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f)};
                     const XrQuaternionf qx = {sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f)};
                     menuLayerR.pose.orientation = MultiplyQuaternions(qy, qx);

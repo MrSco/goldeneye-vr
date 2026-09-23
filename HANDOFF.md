@@ -3487,3 +3487,29 @@ Dark leftovers; remove unused assets and purge them from history.
   it persists: the 60/72 cadence itself (hands move at the game's 60 Hz).
 - Device note: a folder made by adb belongs to the shell and the release app
   cannot write it (EACCES) - start the app once before pushing files.
+
+## 58. Release-build hang at the Dam; curved pointer was the game's atan2f
+
+- **Dam hang on the optimised (release) build**: watchdog marker
+  (files/gevr_watchdog_kill.txt) got the stuck stack: init_path_table_links
+  from lvlStageLoad. The decomp wrote a loop cursor through
+  `validationGroupCursors[-3]` (a one-element array, three slots before it)
+  to match the N64 stack layout - undefined behaviour that -O0 tolerated and
+  the release build turned into an endless loop. Now a plain local (GEVR).
+  Every build played before 2026-09-23 was Debug (-O0); release builds are
+  RelWithDebInfo, so keep an eye out for more of this class. A clean rebuild
+  was grepped for array-bounds / always-true warnings (see below).
+- **Curved-screen dot vanishing left of centre**: pointer probe logs showed
+  raw u of ~7.4 on every miss. The game links its own atan2f
+  (src/game/math_atan2f.c, range 0..2pi as on the N64), acosf and asinf,
+  and they replace libm's for the VR code too: angles left of centre came
+  back near 2pi. vr_openxr.cpp / vr_input.cpp now call the double versions
+  (vr_atan2f, vr_asinf, acos), which the game does not define. The same
+  override made GetYawDegreesFromQuaternion return 0..360 (harmless there:
+  its caller wraps).
+- Pointer probe (PORT): logs the active hand's misses with a reason code
+  (1 no pose, 2 no intersection, 3 behind, 4 u, 5 v), raw u/v, controller and
+  screen pose; kept for now.
+- Clean-rebuild warning sweep: one more of the class, gunfire.c's KF7
+  second muzzle flash scale kept in `((f32 *)stackpad2)[-8]` - now a local
+  (GEVR). The remaining notes are always-true `if`s from decomp matching.

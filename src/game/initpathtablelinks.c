@@ -134,14 +134,29 @@ void init_path_table_links(void)
             s32 groupNeighbourIndex;
             s32 reverseIndex;
             s32 waypointNum;
+#ifdef GEVR
+            /*
+             * PORT: the decomp wrote this loop's cursor through
+             * validationGroupCursors[-3] - three slots before a one-element
+             * array - to reproduce the N64's stack layout. That is undefined
+             * behaviour: unoptimised it scribbled on a neighbouring slot and
+             * worked, optimised (the release build) the loop never ended and
+             * the Dam hung loading (watchdog stack: init_path_table_links from
+             * lvlStageLoad). A plain local does the same job.
+             */
+            waygroup *validationGroupCursor;
+#define GEVR_VGC validationGroupCursor
+#else
             waygroup *validationGroupCursors[1];
+#define GEVR_VGC validationGroupCursors[-3]
+#endif
 
             validationGroupIndex = 0;
             validationGroup = groups;
 
             if (validationGroup->neighbours != NULL)
             {
-                validationGroupCursors[-3] = groups;
+                GEVR_VGC = groups;
 
                 do
                 {
@@ -231,10 +246,11 @@ void init_path_table_links(void)
                     }
  
                     validationGroupIndex++;
-                    validationGroupCursors[-3]++;
-                    validationGroup = validationGroupCursors[-3];
+                    GEVR_VGC++;
+                    validationGroup = GEVR_VGC;
                 }
-                while (validationGroupCursors[-3]->neighbours != NULL);
+                while (GEVR_VGC->neighbours != NULL);
+#undef GEVR_VGC
             }
         }
         if ((waypoints != NULL) && (groups != NULL))

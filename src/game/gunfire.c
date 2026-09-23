@@ -848,9 +848,21 @@ void gunUpdateAndFire(GUNHAND handnum)
                         flashpos.x = (((((f32 *) nodepos)[0] * flashmtx.m[0][0]) + (((f32 *) nodepos)[1] * flashmtx.m[1][0])) + (((f32 *) nodepos)[2] * flashmtx.m[2][0])) + flashmtx.m[3][0];
                         flashpos.y = (((((f32 *) nodepos)[0] * flashmtx.m[0][1]) + (((f32 *) nodepos)[1] * flashmtx.m[1][1])) + (((f32 *) nodepos)[2] * flashmtx.m[2][1])) + flashmtx.m[3][1];
                         flashpos.z = (((((f32 *) nodepos)[0] * flashmtx.m[0][2]) + (((f32 *) nodepos)[1] * flashmtx.m[1][2])) + (((f32 *) nodepos)[2] * flashmtx.m[2][2])) + flashmtx.m[3][2];
+#ifdef GEVR
+                        /* PORT: the decomp kept this scale in stackpad2[-8] (a
+                         * slot before the array, to match the N64 stack) -
+                         * undefined behaviour an optimised build may break, as
+                         * init_path_table_links' did. */
+                        {
+                            f32 kf7scale = IDO_POINT_ONE * flashscale;
+                            matrix_4x4_align(&flash2mtx, (randomGetNext() * (1.0f / M_U32_MAX_VALUE_F)) * M_TAU_F, -flashpos.x, -flashpos.y, -flashpos.z);
+                            matrix_scalar_multiply(kf7scale, flash2mtx.m[0]);
+                        }
+#else
                         ((f32 *) stackpad2)[-8] = IDO_POINT_ONE * flashscale;
                         matrix_4x4_align(&flash2mtx, (randomGetNext() * (1.0f / M_U32_MAX_VALUE_F)) * M_TAU_F, -flashpos.x, -flashpos.y, -flashpos.z);
                         matrix_scalar_multiply(((f32 *) stackpad2)[-8], flash2mtx.m[0]);
+#endif
                         matrix_4x4_set_rotation_axis_angle(&aimmtx, 0, gunofs.x - hand->field_A38, gunofs.y - hand->field_A3C, gunofs.z - hand->field_A40);
                         matrix_4x4_multiply_in_place(&aimmtx, &flash2mtx);
                         matrix_row_3_scalar_multiply(flashext, flash2mtx.m[0]);
