@@ -329,11 +329,26 @@ Gfx *insert_bond_eye_intro(Gfx *gdl) {
 }
 
 
+#ifdef GEVR
+/*
+ * PORT: the logo comes out of the player's cartridge (port/src/gevr_rarelogo.c),
+ * not the decomp's assets/rarewarelogo.c: display lists and textures are
+ * looked up by their segment-2 offset, which is the original symbol's name.
+ */
+extern void *gevrRareLogo(u32 ofs, s32 isdl);
+extern void gevrRareLogoLoad(void);
+#define D_020043E8      (*(Gfx *)gevrRareLogo(0x43E8, 1))
+#define DL_RAREWARETEXT (*(Gfx *)gevrRareLogo(0x44B0, 1))
+#define D_02004758      (*(Gfx *)gevrRareLogo(0x4758, 1))
+#define D_02004FE8      (*(u8 *)gevrRareLogo(0x4FE8, 0))
+#define D_02005FF0      (*(u8 *)gevrRareLogo(0x5FF0, 0))
+#else
 extern Gfx *D_020043E8;
 extern Gfx *DL_RAREWARETEXT;
 extern Gfx *D_02004758;
 extern u8 *D_02004FE8;
 extern u8 *D_02005FF0;
+#endif
 
 Gfx *load_display_rare_logo(Gfx *gdl, s32 arg1, s32 arg2, s32 arg3, s32 arg4) {
     cameraPosition1[2] = arg3;
@@ -383,15 +398,11 @@ Gfx *load_display_rare_logo(Gfx *gdl, s32 arg1, s32 arg2, s32 arg3, s32 arg4) {
 
 
 /*
- * PORT: the logo's display lists, vertices and textures are the compiled-in
- * data in assets/rarewarelogo.c - it defines the very symbols this file
- * draws with (D_020043E8, DL_RAREWARETEXT, D_02004758, D_02004FE8,
- * D_02005FF0) - so nothing is copied out of the cartridge. The segment-2
- * base the original published for the RSP is left null: every reference in
- * those lists is a host pointer. Only the texture words need putting back in
- * cartridge byte order, once.
+ * PORT: the logo's display lists, vertices and textures are converted out of
+ * the cartridge once (port/src/gevr_rarelogo.c), with every segment-2
+ * reference already a host pointer, so the segment base the original
+ * published for the RSP is left null.
  */
-void gevrRarewareLogoFixTextures(void);
 
 void setupRarewareLogoData(u8 *address, s32 size) {
     (void)address;
@@ -401,7 +412,7 @@ void setupRarewareLogoData(u8 *address, s32 size) {
     D_8002A89C = -40.0f;
     intro_eye_counter = 0;
     virtualaddress = NULL;
-    gevrRarewareLogoFixTextures();
+    gevrRareLogoLoad();
 }
 
 
