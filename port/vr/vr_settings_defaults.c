@@ -32,6 +32,10 @@ int  vr_invert_hands      = 0;      /* swap which hand holds the weapon */
 /* 0 turns snap turning off and uses smooth turning; otherwise the snap angle. */
 float VrUseSnapTurn = 0.0f;
 
+/* GoldenEye: 1 = true stereo in first-person play, 0 = everything on the virtual
+ * screen. See vr_settings.h. */
+int VrPlayMode = 1;
+
 /* --- Physical setup ------------------------------------------------------ */
 
 /*

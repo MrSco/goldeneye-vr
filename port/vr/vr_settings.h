@@ -16,6 +16,13 @@ extern bool VrWeaponRecoil;
 extern float VrSetWorldScale;
 extern int VrPauseHub;
 
+// GoldenEye: how gameplay is shown. 0 = always on the virtual screen (flat),
+// 1 = true stereo in first-person play; menus, cutscenes and the watch stay on
+// the screen either way. Hold the right stick click to switch in game.
+#define VR_PLAYMODE_SCREEN 0
+#define VR_PLAYMODE_STEREO 1
+extern int VrPlayMode;
+
 // Your standing EYE height in cm -- where your eyes are off the floor, roughly
 // 13 cm below the top of your head, not your stature. That is what the headset
 // reports and what the game's own vv_eyeheight means. It is the reference

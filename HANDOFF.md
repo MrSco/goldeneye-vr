@@ -2965,3 +2965,67 @@ Dam's buffer happened to be 8-aligned, which is why only Facility showed it.
 
 Verified on device: Facility, table stays 0, mine thrown (5 -> 4) and
 detonated, no crash.
+
+## 46. True stereo gameplay (Dam), with the virtual screen kept for everything else
+
+**Sources.** Upstream GEVR PC was re-cloned to `../gevr-up` (docs only, latest
+release vr445; no game source is published) and Perfect Dark VR's `port`
+branch to `../pdvr` (HEAD 9984611, 2026-09-21). Our vendored `port/vr` matches
+pdvr `0045feb` plus our ~290 lines; pdvr has since added controller-tracking
+robustness (hold the last pose on tracking loss, reject bad samples), a PSVR2
+profile and Quest XR-layer colour format fixes - worth a sync (open).
+
+**Approach: Perfect Dark's, gated like GEVR.** Our renderer is PD's single-pass
+multiview fast3d: the game builds one centre-eye camera and the vertex shader
+shears clip space per eye (IPD x `vr_world_scale`). GEVR PC instead loops the
+render per eye inside `lvlRender`, which forced per-eye model rebuilds and pool
+and viewport fixes (its docs 258, 292-303); not taken. From GEVR: stereo only in
+ordinary first-person play (docs/20 `geVrWorldCamera`), auto-recentre on the
+way in, both stick clicks recentre, 100 units per metre.
+
+- `bondview2.c` `gevrStereoFrame` (called at the top of `lvlRender`): decides
+  stereo per frame - PlayMode stereo, VR ready, one player, `CAMERAMODE_FP`,
+  not the tank camera, not paused (watch), not dead. Sets `gevrVrScreenMode`
+  (gfx_pc.cpp) and `g_gevrStereo`. Port of PD `joy_for_vr`: the right stick
+  turns a body yaw (2 deg/tick smooth, or `SnapTurn` degrees). Entering stereo
+  recentres (`vr_align_with_game_angle(0)`); leaving it re-hangs the screen in
+  front of you.
+- `bondviewApplyVertaTheta` (PD `bmoveUpdateVerta`) starts with
+  `gevrStereoApplyHead`, the port of PD `vr_player_rot`: look {0,0,1} and up
+  {0,-1,0} through the head quaternion, then the body yaw, y negated; writes
+  `vv_theta`/`vv_verta` so movement, aim and the gun follow the head. Verified:
+  the game's own `applied_view` then equals the head look vector exactly.
+  Game-side turns (teleports, scripted facings) are folded into the body yaw.
+- The first-person camera takes the full head look/up (roll included) at
+  `bondviewUpdateCameraMatrices`, recomputed at render time from the newest pose.
+- `lv.c`: in stereo the player gets `XrFov` x (fovy / 60) and `XrAspect` through
+  `viSetFovY`/`viSetAspect`, as PD's `VrApplySettingsOnStart` does, so the
+  projection and the portal/scissor scales (`currentPlayerSetCameraScale`)
+  agree. Overriding only `guPerspectiveF` left the rooms clipped to a band.
+- `vr_openxr.cpp`: C bridges (`gevrVrReady` returns int, not bool - the game
+  sees bool as s32), `vr_screen_set_visible` so the quad is not submitted over
+  stereo frames, `gevrVrSetWorldScale`.
+- **Fixed in PD's layer:** `vr_begin_eye_render` cleared depth with whatever
+  `glDepthMask` the last draw left; with writes off the eye buffer's depth was
+  never cleared and every depth-tested room failed (sky, gun and HUD drew, the
+  level did not). Now forces the mask on for the clear and restores it. Found by
+  counting triangle fates: 2,450 per frame reached GL and none showed.
+- Input (`input.c`), stereo only: the right stick no longer reaches the game
+  (its turn/look are replaced), right X feeds the body yaw. Chords: both stick
+  clicks = recentre; hold the right stick click 1 s = switch stereo/screen
+  (saved as `PlayMode` in goldeneye-vr.ini); while the screen is up, hold both
+  grips + right stick = screen nearer/further (up/down, same physical size) and
+  bigger/smaller (left/right), saved as `ScreenDistance`/`ScreenFov`. Left
+  stick click (crouch) now toggles on release and not as part of a chord.
+
+**Verified on device:** Dam in stereo at the headset's full FOV (rocks, road,
+barriers, sky, gun, HUD); head yaw/pitch drive the view and `applied_view`
+matches; watch open -> screen in front, close -> stereo again; no errors.
+**Not verifiable from the PC** (the input hook cannot press VR buttons, and the
+headset lay on the desk): depth/IPD comfort, turning, recentre, the mode
+switch and the screen adjustment - for the user.
+
+**Not yet:** head translation (PD walks the body after the head with
+collision; GEVR ships `HEAD_TRANSLATE=0`), controller aim (gun follows the
+hand), HUD on a head-locked quad, znear clamp if a blue band shows up close to
+walls (GEVR docs/19), syncing the vendored VR layer with pdvr HEAD.

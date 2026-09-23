@@ -21,10 +21,16 @@ unsigned int vr_screen_target_tex(void);
 
 bool vr_screen_present(unsigned int srcArrayTex, int w, int h);
 void vr_screen_recenter(void);
+/* false while the game renders true stereo gameplay: the quad is not submitted. */
+void vr_screen_set_visible(int visible);
 
-/* Tunables, metres and degrees. */
+/* Tunables, metres and degrees; saved in goldeneye-vr.ini. */
 extern float VrScreenDistance;
 extern float VrScreenFov;
+#define VR_SCREEN_DISTANCE_MIN 1.0f
+#define VR_SCREEN_DISTANCE_MAX 8.0f
+#define VR_SCREEN_FOV_MIN 25.0f
+#define VR_SCREEN_FOV_MAX 110.0f
 
 #ifdef __cplusplus
 }

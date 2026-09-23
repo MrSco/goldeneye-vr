@@ -1205,6 +1205,9 @@ static bool     g_screenPending = false;
 static bool     g_screenPlaced  = false;
 static std::vector<XrTime> g_screenRecenterTimes;
 static XrPosef  g_screenPose    = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, 0.0f, 0.0f} };
+// Cleared while the game draws true stereo into the eye buffers (bondview2.c
+// gevrStereoFrame): the screen must not hang in front of the stereo view.
+static bool     g_screenVisible = true;
 
 static void vr_screen_destroy_swapchain(void)
 {
@@ -1334,6 +1337,37 @@ extern "C" bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
     g_screenPending = true;
     return true;
 }
+
+// ============================================================================
+// GOLDENEYE STEREO GAMEPLAY - what the game-side camera reads
+// ============================================================================
+// Perfect Dark's game code reads these globals directly (bondwalk.c
+// vr_player_rot, pdmain.c VrApplySettingsOnStart). GoldenEye's game files are
+// C and cannot see the C++ globals, so they come through here.
+
+extern "C" void vr_screen_set_visible(int visible) { g_screenVisible = visible != 0; }
+
+// int, not bool: GoldenEye's game files see bool as a 32-bit int, and a C++
+// bool return leaves the upper bits of w0 undefined.
+extern "C" int gevrVrReady(void) { return (vr_is_initialized() && XrFov > 1.0f) ? 1 : 0; }
+
+// The head rotation Perfect Dark's vr_player_rot applies to the look vector:
+// the runtime's orientation with the recentre yaw folded in. {x, y, z, w}.
+extern "C" void gevrVrHeadQuat(float out[4])
+{
+    out[0] = vr_HMD_rot_Q.x;
+    out[1] = vr_HMD_rot_Q.y;
+    out[2] = vr_HMD_rot_Q.z;
+    out[3] = vr_HMD_rot_Q.w;
+}
+
+// The single symmetric frustum both eyes share (degrees, width/height); the
+// multiview shader shears it per eye. Zero until the first frame is located.
+extern "C" float gevrVrFov(void) { return XrFov; }
+extern "C" float gevrVrAspect(void) { return XrAspect; }
+
+// Game units per metre: scales the eye separation (vr_get_eye_view_offset).
+extern "C" void gevrVrSetWorldScale(float unitsPerMetre) { vr_world_scale = unitsPerMetre; }
 
 // ============================================================================
 // FBOs - Render Targets
@@ -1936,7 +1970,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // XR frames the pump closes without a game frame (72 Hz display, 60 Hz
     // game): the swapchain keeps its last image, and a frame without the
     // layer is a visible flicker.
-    const bool submitScreen = g_screenPlaced && g_screenSwapchain != XR_NULL_HANDLE;
+    const bool submitScreen = g_screenVisible && g_screenPlaced && g_screenSwapchain != XR_NULL_HANDLE;
     g_screenPending = false;
     XrCompositionLayerQuad screenLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
     if (submitScreen) {
@@ -2558,7 +2592,16 @@ bool vr_begin_eye_render()
 
     glViewport(0, 0, g_internalRenderWidth, g_internalRenderHeight);
     glScissor(0, 0, g_internalRenderWidth, g_internalRenderHeight);
+    // glClear honours the depth write mask: with the last draw of the previous
+    // frame leaving it off, the depth buffer was never cleared and every
+    // depth-tested draw failed against stale values (GoldenEye's rooms vanished
+    // in stereo; the screen target, vr_screen.cpp, already set it). Restore it
+    // afterwards so fast3d's cached depth state stays true.
+    GLboolean depthMask = GL_TRUE;
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    glDepthMask(GL_TRUE);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDepthMask(depthMask);
     return true;
 }
 

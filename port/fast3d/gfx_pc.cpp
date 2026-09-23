@@ -3562,6 +3562,8 @@ extern "C" void gfx_run(Gfx* commands) {
         const uint32_t eyeW = (uint32_t)vr_get_internal_render_width();
         const uint32_t eyeH = (uint32_t)vr_get_internal_render_height();
         const bool screenMode = gevrVrScreenMode != 0;
+        // Stereo gameplay frames go to the eye buffers; the screen quad must not cover them.
+        vr_screen_set_visible(screenMode ? 1 : 0);
 
         // The screen target keeps the game's own aspect so its 2D and 3D agree,
         // at about the eye buffer's height so text stays sharp on the quad.

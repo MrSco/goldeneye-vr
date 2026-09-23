@@ -171,6 +171,199 @@ extern s32 gevrCrouchToggled(void); // port/src/input.c
 #define aS3d "%s %3d"
 
 
+#ifdef GEVR
+/*
+ * True stereo gameplay.
+ *
+ * Ported from Perfect Dark VR (github.com/Alex-LeTux/perfect_dark_VR, branch
+ * port): its renderer, vendored in port/fast3d and port/vr, draws the game once
+ * through GL_OVR_multiview2 and shears clip space per eye in the vertex shader,
+ * so the game only has to build one centre-eye camera from the headset. PD does
+ * that in bondwalk.c: vr_player_rot() rotates the look/up vectors by the head
+ * quaternion and then by the stick-turn yaw (joy_for_vr), writes vv_theta from
+ * the result, and pdmain.c hands XrFov/XrAspect to the projection. The same
+ * steps are done here at GoldenEye's equivalents: bondviewApplyVertaTheta (PD's
+ * bmoveUpdateVerta), the camera vectors handed to bondviewUpdateCameraMatrices,
+ * and viSetupCurrentPlayerView (fr.c).
+ *
+ * When to use it follows GEVR PC (docs/20-gating.md, geVrWorldCamera): only in
+ * ordinary first-person play. Intro, swirl, death and ending cameras, the
+ * watch, the title and multiplayer render as before onto the virtual screen,
+ * and switching either way recentres (GEVR's PLAY_AUTORECENTER; PD recentres
+ * on playerEndCutscene).
+ *
+ * Not yet: head translation (PD walks the body after the head with collision;
+ * GEVR ships HEAD_TRANSLATE=0), controller aim, the HUD on a quad layer.
+ */
+#define GEVR_UNITS_PER_METRE 100.0f      /* GEVR PC GETV_XR_UNITS_PER_M */
+#define GEVR_TURN_DEG_PER_TICK 2.0f      /* PD VR_JOY_TURN_SPEED: 120 deg/s at 60 Hz */
+
+extern int gevrVrScreenMode;             /* gfx_pc.cpp: the frame goes to the virtual screen */
+extern int VrPlayMode;                   /* vr_settings: 1 = stereo gameplay */
+extern float VrUseSnapTurn;              /* vr_settings: snap angle, 0 = smooth */
+extern int gevrVrReady(void);            /* vr_openxr.cpp */
+extern void gevrVrHeadQuat(float out[4]);
+extern void gevrVrSetWorldScale(float unitsPerMetre);
+extern void vr_align_with_game_angle(float target_game_angle);
+extern void vr_screen_recenter(void);
+extern float gevrVrTurnAxis(void);       /* input.c: right stick X, dead-zoned */
+extern s32 gevrVrTakeRecenter(void);     /* input.c: both stick clicks */
+
+s32 g_gevrStereo;                        /* this frame is drawn in stereo (fr.c, input.c) */
+static s32 s_gevrStereoWas;
+static f32 s_gevrBaseYaw;                /* degrees: stick turns plus game-side turns */
+static f32 s_gevrLastTheta;              /* vv_theta as last written here */
+static s32 s_gevrSnapArmed = TRUE;
+static struct coord3d s_gevrCamLook;
+static struct coord3d s_gevrCamUp;
+
+/* Perfect Dark's vr_rotate_vector_by_quaternion (bondwalk.c): q * v * q^-1. */
+static void gevrRotateByQuat(struct coord3d *v, const f32 q[4])
+{
+    f32 qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+    f32 vx = v->x, vy = v->y, vz = v->z;
+    f32 t0 = qw * vx + qy * vz - qz * vy;
+    f32 t1 = qw * vy + qz * vx - qx * vz;
+    f32 t2 = qw * vz + qx * vy - qy * vx;
+    f32 t3 = -qx * vx - qy * vy - qz * vz;
+
+    v->x = t0 * qw - t3 * qx - t1 * qz + t2 * qy;
+    v->y = t1 * qw - t3 * qy - t2 * qx + t0 * qz;
+    v->z = t2 * qw - t3 * qz - t0 * qy + t1 * qx;
+}
+
+static f32 gevrWrapDegrees(f32 a)
+{
+    while (a < 0.0f) a += 360.0f;
+    while (a >= 360.0f) a -= 360.0f;
+    return a;
+}
+
+/*
+ * PD vr_player_rot: look {0,0,1} and up {0,-1,0} through the head, then the
+ * body yaw, stored with y negated. The body yaw is kept in vv_theta's own
+ * degrees; as a rotation it is the negative angle about +Y (PD's joy
+ * quaternion: vr_joyAccum -= turn, vv_theta = -atan2(look.x, look.z)).
+ */
+static void gevrStereoLook(struct coord3d *look, struct coord3d *up)
+{
+    f32 head[4];
+    f32 body[4];
+    f32 half = -s_gevrBaseYaw * (M_PI_F / 180.0f) * 0.5f;
+
+    gevrVrHeadQuat(head);
+    body[0] = 0.0f; body[1] = sinf(half); body[2] = 0.0f; body[3] = cosf(half);
+
+    look->x = 0.0f; look->y = 0.0f; look->z = 1.0f;
+    up->x = 0.0f; up->y = -1.0f; up->z = 0.0f;
+    gevrRotateByQuat(look, head);
+    gevrRotateByQuat(up, head);
+    gevrRotateByQuat(look, body);
+    gevrRotateByQuat(up, body);
+    look->y = -look->y;
+    up->y = -up->y;
+}
+
+/* Face the way the body faces: the current view becomes straight ahead. */
+static void gevrStereoRecenter(void)
+{
+    vr_align_with_game_angle(0.0f);
+    s_gevrBaseYaw = g_CurrentPlayer->vv_theta;
+    s_gevrLastTheta = g_CurrentPlayer->vv_theta;
+}
+
+/* Once per rendered frame, from lvlRender: pick stereo or the screen, turn. */
+void gevrStereoFrame(s32 inlevel)
+{
+    s32 want = inlevel
+        && VrPlayMode != 0
+        && gevrVrReady()
+        && g_CurrentPlayer != NULL
+        && getPlayerCount() == 1
+        && g_CameraMode == CAMERAMODE_FP
+        && g_CurrentPlayer->cameramode != 1
+        && g_CurrentPlayer->pause_state == 0
+        && !g_CurrentPlayer->bonddead;
+
+    if (want && !s_gevrStereoWas)
+    {
+        gevrVrSetWorldScale(GEVR_UNITS_PER_METRE);
+        gevrStereoRecenter();
+        sysLogPrintf(LOG_NOTE, "stereo: on (theta %.1f)", g_CurrentPlayer->vv_theta);
+    }
+    else if (!want && s_gevrStereoWas)
+    {
+        /* Back to the screen: hang it where the player is looking now. */
+        vr_screen_recenter();
+        sysLogPrintf(LOG_NOTE, "stereo: off");
+    }
+
+    if (want)
+    {
+        f32 x = gevrVrTurnAxis();
+
+        if (gevrVrTakeRecenter())
+        {
+            gevrStereoRecenter();
+        }
+
+        /* PD joy_for_vr */
+        if (VrUseSnapTurn != 0.0f)
+        {
+            if (fabsf(x) < 0.1f)
+            {
+                s_gevrSnapArmed = TRUE;
+            }
+            if (s_gevrSnapArmed && fabsf(x) > 0.5f)
+            {
+                s_gevrBaseYaw += (x > 0.0f ? 1.0f : -1.0f) * VrUseSnapTurn;
+                s_gevrSnapArmed = FALSE;
+            }
+        }
+        else
+        {
+            s_gevrBaseYaw += x * GEVR_TURN_DEG_PER_TICK * g_GlobalTimerDelta;
+            s_gevrSnapArmed = TRUE;
+        }
+        s_gevrBaseYaw = gevrWrapDegrees(s_gevrBaseYaw);
+
+        /* The camera takes the newest head pose, located after this frame's tick. */
+        gevrStereoLook(&s_gevrCamLook, &s_gevrCamUp);
+    }
+
+    s_gevrStereoWas = want;
+    g_gevrStereo = want;
+    gevrVrScreenMode = !want;
+}
+
+/* Top of bondviewApplyVertaTheta: the head drives vv_theta and vv_verta. */
+static void gevrStereoApplyHead(void)
+{
+    struct coord3d look;
+    struct coord3d up;
+    f32 horiz;
+
+    if (!g_gevrStereo)
+    {
+        return;
+    }
+
+    /* Anything else that turned the player since (a teleport, a scripted facing) turns the body. */
+    s_gevrBaseYaw = gevrWrapDegrees(s_gevrBaseYaw + (g_CurrentPlayer->vv_theta - s_gevrLastTheta));
+
+    gevrStereoLook(&look, &up);
+    horiz = sqrtf(look.x * look.x + look.z * look.z);
+
+    g_CurrentPlayer->vv_theta = gevrWrapDegrees(-atan2f(look.x, look.z) * (180.0f / M_PI_F));
+    g_CurrentPlayer->vv_verta = atan2f(look.y, horiz) * (180.0f / M_PI_F);
+    s_gevrLastTheta = g_CurrentPlayer->vv_theta;
+
+    s_gevrCamLook = look;
+    s_gevrCamUp = up;
+}
+#endif
+
+
 vec3d g_ForceBondMoveOffset;
 
 //CODE.bss:8007999C
@@ -4743,6 +4936,9 @@ void bondviewUpdatePlayerCollisionPositionFields(void)
 */
 void bondviewApplyVertaTheta(void)
 {
+#ifdef GEVR
+    gevrStereoApplyHead();
+#endif
     while (g_CurrentPlayer->vv_verta < -180.0f)
     {
         g_CurrentPlayer->vv_verta += 360.0f;
@@ -8376,6 +8572,15 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
         cam_up.x = collision->applied_view2.x;
         cam_up.y = collision->applied_view2.y;
         cam_up.z = collision->applied_view2.z;
+
+#ifdef GEVR
+        /* Stereo: the full head orientation, roll included, as PD's camera takes it. */
+        if (g_gevrStereo)
+        {
+            cam_look = s_gevrCamLook;
+            cam_up = s_gevrCamUp;
+        }
+#endif
     }
 
     bondviewUpdateCameraMatrices(&cam_pos, &cam_look, &cam_up);
