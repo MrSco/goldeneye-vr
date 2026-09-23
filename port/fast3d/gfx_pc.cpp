@@ -3727,6 +3727,7 @@ extern "C" void gfx_run(Gfx* commands) {
 
             if (screenRendered) {
                 gevrVrMarkEyesRendered(0);
+                vr_pointer_draw();
                 // The eye buffers stay black behind the screen (cleared by
                 // vr_begin_eye_render). A surround, if one is ever wanted, is
                 // drawn here; the pause-hub grid was tried and rejected.

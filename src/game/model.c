@@ -1880,6 +1880,15 @@ void modelUpdateDistanceRelations(Model* model, ModelNode* node)
     else
     {
         distance = -mtx->m[3][2] * getPlayer_c_lodscalez();
+#ifdef GEVR
+        /*
+         * Detail levels at four times GoldenEye's range (GEVR PC's
+         * GETV_VR_LODDIST=0.25): the headset resolves the low-detail
+         * models and their switch-over far beyond what the N64's 240 lines
+         * could.
+         */
+        distance *= 0.25f;
+#endif
 
         if (g_ModelDistanceScale != 1)
         {

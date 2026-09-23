@@ -336,6 +336,8 @@ static std::map<pair<uint64_t, uint32_t>, struct ShaderProgram> shader_program_p
 static GLuint opengl_vbo;
 static GLuint opengl_vao;
 static bool current_depth_mask;
+// GoldenEye: the current draws use the RDP's decal Z mode (see gfx_opengl_draw_triangles).
+static bool s_decalZ;
 
 static uint32_t frame_count;
 
@@ -1356,6 +1358,7 @@ static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint
 }
 
 static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode) {
+    s_decalZ = depth_test && depth_compare && zmode == ZMODE_DEC;
     if (depth_test) {
         glEnable(GL_DEPTH_TEST);
         glDepthMask(depth_update ? GL_TRUE : GL_FALSE);
@@ -1464,6 +1467,44 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
                             s_eye_offsets[4], s_eye_offsets[5], s_eye_offsets[6], s_eye_offsets[7]);
         }
         if (gCurVrFlatLoc >= 0) glUniform1i(gCurVrFlatLoc, gVrFlatPass ? 1 : 0);
+    }
+
+    if (s_decalZ) {
+        /*
+         * GoldenEye: the RDP's decal Z mode draws a pixel only where it lies
+         * on the surface already in the depth buffer (within a small band).
+         * Polygon offset toward the viewer alone passes everything in front,
+         * so the part of a bullet-hole quad that hangs over an edge (the Dam
+         * bunker's rim) was drawn against whatever lay behind - a torn,
+         * angle-dependent sprite. Both sides of the band, with the stencil:
+         *  A: mark pixels where the decal, pushed back, is at or behind the
+         *     surface (so not hanging in front of a far background);
+         *  B: draw where marked and, pulled forward, at or in front of it;
+         *     every marked pixel is zeroed again (pass or fail).
+         */
+        GLboolean prevDepthMask = current_depth_mask ? GL_TRUE : GL_FALSE;
+        glEnable(GL_STENCIL_TEST);
+        glStencilMask(0xff);
+
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_GEQUAL);
+        glPolygonOffset(2.0f, 8.0f);
+        glStencilFunc(GL_ALWAYS, 1, 0xff);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
+
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glDepthMask(prevDepthMask);
+        glDepthFunc(GL_LEQUAL);
+        glPolygonOffset(-2.0f, -2.0f);
+        glStencilFunc(GL_EQUAL, 1, 0xff);
+        glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
+        glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
+
+        glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+        glDisable(GL_STENCIL_TEST);
+        return;
     }
 
     glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
@@ -2292,7 +2333,8 @@ void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
     }
     if (clear_depth) {
         glDepthMask(GL_TRUE);
-        mask |= GL_DEPTH_BUFFER_BIT;
+        glStencilMask(0xff);
+        mask |= GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT;   // stencil: the decal test
     }
     glClear(mask);
     if (clear_depth) {
