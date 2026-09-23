@@ -430,6 +430,17 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	return 1;
 }
 
+/*
+ * sched.c (excluded) owned the RDP performance counters the LEFTOVERDEBUG speed
+ * graph reads. There is no RDP here: clock 1, everything else 0, so the
+ * graph's percentages divide safely.
+ */
+u32 *get_counters(void)
+{
+	static u32 counters[4] = { 1, 0, 0, 0 }; /* clock, cmd, pipe, tmem */
+	return counters;
+}
+
 /* ------------------------------------------------------------ rumble pak */
 
 /*

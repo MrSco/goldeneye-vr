@@ -5257,7 +5257,7 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
     }
     else
     {
-        osSyncPrintf("subdraw: object not initialised! (0x%X)\n", (u32)mdl->obj);
+        osSyncPrintf("subdraw: object not initialised! (%p)\n", (void *)mdl->obj);
         return_null();
     }
     #endif

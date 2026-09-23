@@ -24,9 +24,9 @@ s16 viGetViewLeft(void);
 s16 viGetViewTop(void);
 /* src/fr.c; called blind from src/game/mpmenu.c */
 s16 viGetViewWidth(void);
-/* src/fr.c; called blind from src/game/mpmenu.c, src/game/textrelated.c */
+/* src/fr.c; called blind from src/debugmenu.c */
 s16 viGetX(void);
-/* src/fr.c; called blind from src/game/mpmenu.c, src/game/textrelated.c */
+/* src/fr.c; called blind from src/debugmenu.c */
 s16 viGetY(void);
 /* src/game/bg.c; called blind from src/game/bg.c */
 bool bgProjectRoomCoordToScreen(coord3d* src, coord3d* dst);
@@ -56,6 +56,14 @@ Mtx *currentPlayerGetMatrix10C8(void);
 void *currentPlayerSetMatrix10CC(Mtxf *matrix);
 /* src/game/bondview2.c; called blind from src/game/bg.c, src/game/gun.c */
 coord3d * bondviewGetCurrentPlayersPosition3(void);
+/* src/game/bondview2.c; called blind from src/game/debugmenu_handler.c */
+bool currentPlayerGetXAutoAimEnabled(void);
+/* src/game/bondview2.c; called blind from src/game/debugmenu_handler.c */
+bool currentPlayerGetYAutoAimEnabled(void);
+/* src/game/bondview2.c; called blind from src/game/debugmenu_handler.c */
+PropRecord* getCurrentPlayerProp(void);
+/* src/game/bondview2.c; called blind from src/game/debugmenu_handler.c */
+u8 get_bondata_invincible_flag(void);
 /* src/game/cheat.c; called blind from src/game/prop.c, src/game/radar.c */
 bool cheatIsActive(CHEAT_ID cheat);
 /* src/game/chraction.c; called blind from src/game/objective_status.c */
@@ -180,7 +188,7 @@ void *setSPToEnd(u8 *stack, u32 size);
 s8 joy7000C174(s8 contpadnum);
 /* src/joy.c; called blind from src/game/options.c */
 s8 joy7000C284(s8 contpadnum);
-/* src/joy.c; called blind from src/game/options.c, src/game/spectrum.c */
+/* src/joy.c; called blind from src/game/spectrum.c */
 u16 joyGetButtons(s8 contpadnum, u16 mask);
 /* src/joy.c; called blind from src/game/options.c */
 u16 joyGetButtonsPressedThisFrame(s8 contpadnum, u16 mask);
