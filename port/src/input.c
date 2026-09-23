@@ -28,6 +28,13 @@
 #endif
 
 extern void gevrPlayerLayout(u32 *size, u32 *pausestate); // bondview2.c
+
+/* Crouch toggle for the left stick click; bondview2.c applies it. */
+static s32 gevrCrouchToggle = 0;
+s32 gevrCrouchToggled(void)
+{
+    return gevrCrouchToggle;
+}
 extern bool vr_leftHasWeapon;
 int vr_button_R_grip = false;
 int vr_button_L_grip = false;
@@ -940,6 +947,20 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
         if (get_button_state(0, "x")) npad->button |= B_BUTTON;
         if (get_button_state(0, "y")) npad->button |= A_BUTTON;
+        // Left stick click toggles crouch (bondview2.c reads gevrCrouchToggled).
+        {
+            static bool wasclicked = false;
+            static s32 crouchstage = -1;
+            if (bossGetStageNum() != crouchstage) {
+                crouchstage = bossGetStageNum();
+                gevrCrouchToggle = 0;
+            }
+            const bool clicked = !menu && get_button_state(0, "thumbstick_click");
+            if (clicked && !wasclicked) {
+                gevrCrouchToggle = !gevrCrouchToggle;
+            }
+            wasclicked = clicked;
+        }
         // In menus either stick navigates (whichever is pushed further).
         XrVector2f look = right;
         if (menu && left.x * left.x + left.y * left.y >= right.x * right.x + right.y * right.y)
@@ -1048,6 +1069,29 @@ void inputRumble(s32 idx, f32 strength, f32 time) {
     // === VR HAPTICS Player 1 ===
     if (vr_init_done && idx == 0) {
         strength *= padsCfg[idx].rumbleScale;
+
+        /*
+         * The rumble pak shim asks for 5 s at full strength on every motor
+         * start ("hope someone turns it off"), and the branch below sends it to
+         * both controllers. The left controller has been dropping off the
+         * headset until its battery is pulled; haptics are the only thing sent
+         * to it. Keep each pulse short and never repeat an identical command
+         * within 200 ms.
+         */
+        {
+            static f32 lastStrength = -1.f;
+            static u64 lastUs = 0;
+            const u64 nowUs = sysGetMicroseconds();
+
+            if (strength == lastStrength && nowUs - lastUs < 200000) {
+                return;
+            }
+            lastStrength = strength;
+            lastUs = nowUs;
+            if (time > 0.3f) {
+                time = 0.3f;
+            }
+        }
 
         s32 handRight = HAND_RIGHT;
         s32 handLeft  = HAND_LEFT;

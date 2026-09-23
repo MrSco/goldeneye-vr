@@ -1717,6 +1717,18 @@ static inline float gfx_tri_signed_area(const struct LoadedVertex* v1, const str
 // Detects whether the current model has a negative scale (mirroring) by checking
 // the determinant of the active 3x3 rotation/scale matrix.
 static inline bool gfx_is_matrix_inverted() {
+    /*
+     * GoldenEye: never. The N64 RSP culls on screen-space winding alone, which
+     * already includes any mirroring in the matrix, and the game compensates
+     * itself: a flipped door (DOORFLAG_FLIP) is drawn through a mirrored matrix
+     * with CULLMODE_FRONT (propobj.c), mirrored dual weapons pick their own cull
+     * mode (gunfire.c). Flipping again for a negative determinant - a Perfect
+     * Dark VR addition, absent from gepc-ref - double-corrected those: the
+     * tunnel door at the Dam start showed its inside faces and lost its floor
+     * edge, leaving a strip of sky colour along the wall.
+     */
+    return false;
+
     if (rsp.modelview_matrix_stack_size == 0) return false;
 
     const float (*m)[4] = rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1];

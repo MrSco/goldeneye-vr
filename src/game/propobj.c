@@ -785,8 +785,21 @@ void sub_GAME_7F04088C(ObjectRecord *baseobj, struct coord3d *pos, Mtxf *matrix,
     {
         ObjectRecord *roomObj;
         f32 distfromTileCenter;
+#ifdef GEVR
+        /*
+         * chraiGetCollisionBounds hands back the polygon pointer and edge count
+         * first. The decomp passed f32 locals for both - fine with the N64's
+         * 4-byte pointers, but here the 8-byte pointer store ran past byrefA
+         * and put its high half over the low half of mStan (a tile pointer
+         * reading 0xb400007db400007d). Every later walk from mStan then failed,
+         * so objects resting on others were placed and shaded off a bad tile.
+         */
+        struct rect4f *byrefA;
+        s32 byrefB;
+#else
         f32 byrefA;
         f32 byrefB;
+#endif
         f32 byrefC;
         f32 byrefD;
 
