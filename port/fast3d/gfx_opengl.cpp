@@ -1367,8 +1367,14 @@ static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, gfx_cm_to_opengl(cmt));
 }
 
+// GoldenEye: the two-pass decal band below is switched off for 0.1.0. Both
+// tunings tried (depth-buffer-step and view-space bands) cut or popped decals
+// on the headset; the original single-pass polygon offset stays until the
+// band can be tuned against a reproducible test (HANDOFF 60).
+#define GEVR_DECAL_BAND 0
+
 static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode) {
-    s_decalZ = depth_test && depth_compare && zmode == ZMODE_DEC;
+    s_decalZ = GEVR_DECAL_BAND && depth_test && depth_compare && zmode == ZMODE_DEC;
     if (depth_test) {
         glEnable(GL_DEPTH_TEST);
         glDepthMask(depth_update ? GL_TRUE : GL_FALSE);

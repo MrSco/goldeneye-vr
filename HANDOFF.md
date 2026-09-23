@@ -3537,3 +3537,19 @@ Dark leftovers; remove unused assets and purge them from history.
   (0x5659000x), gfx_pc.cpp logs per impact draw which TMEM tile/address is
   sampled ("impact-probe:") and explosion.c logs which image was asked for.
   Needs a reproduction with the log running.
+
+## 60. Decal band switched off for 0.1.0
+
+- The two-pass stencil decal band (57) cut bullet holes and level decals: in
+  depth-buffer steps it was far too thin at the headset's resolution and
+  grazing angles (decals cut along a diagonal, the divider's stripes);
+  moved to a view-space band (uDecalBias = P[3][2] * D / w in the vertex
+  shader) it made decals pop in and out and the overhang garble returned.
+  GEVR_DECAL_BAND 0 (gfx_opengl.cpp) restores the original single-pass
+  LEQUAL + polygon offset (-2,-2); the occasional garbled hole where a
+  quad hangs over an edge is a known issue again.
+- Next: tune against a reproducible test driven from the PC (flat screen
+  mode, gevr_input.txt fire and stick moves at a wall edge, metacam captures)
+  instead of headset rounds. Unknowns to settle first: whether the
+  depth-clamp hack (z *= 0.3) is active on this GLES, the sign/scale of
+  P[3][2] in stereo vs the screen pass, and GoldenEye's actual decal offsets.
