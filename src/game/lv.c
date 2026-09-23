@@ -325,6 +325,9 @@ void lvlStageLoad(s32 stage)
 
 #ifdef VERSION_US
     g_GlobalTimerDelta = 1.0f;
+#if defined(GEVR) && defined(BUGFIX_R1)
+    g_JP_GlobalTimerDelta = 1.0f; /* see the per-frame update below */
+#endif
 #endif
 #if defined(VERSION_JP) || defined(VERSION_EU)
     g_JP_GlobalTimerDelta = 1.0f;
@@ -969,6 +972,18 @@ void lvlManageMpGame(void)
 
 #ifdef VERSION_US
     g_GlobalTimerDelta = (f32) g_ClockTimer;
+#if defined(GEVR) && defined(BUGFIX_R1)
+    /*
+     * This build is US with the R1 (JP/PAL revision) fixes, and the R1 paths
+     * read g_JP_GlobalTimerDelta - which only the JP/PAL branch below keeps up
+     * to date. Left at 0 it froze everything R1 times with it: guards could
+     * not turn toward Bond (chrlvSetSubroty's step was 0) or blend their aim
+     * onto him (chr.c), so they fired wherever they happened to face; death
+     * animations and monitor/object timers stalled too. On the JP cartridge the
+     * two deltas are the same value, so mirror it.
+     */
+    g_JP_GlobalTimerDelta = g_GlobalTimerDelta;
+#endif
 #else
     g_JP_GlobalTimerDelta = (f32) g_ClockTimer;
 #ifdef VERSION_EU

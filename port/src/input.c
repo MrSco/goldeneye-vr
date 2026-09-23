@@ -1067,7 +1067,9 @@ void inputRumble(s32 idx, f32 strength, f32 time) {
     }
 
     // === VR HAPTICS Player 1 ===
-    if (vr_init_done && idx == 0) {
+    /* vr_init_done belongs to pdmain.c's VR loop, which screen mode does not
+     * run, so it stayed false and no rumble ever reached the controllers. */
+    if (vr_haptics_ready() && idx == 0) {
         strength *= padsCfg[idx].rumbleScale;
 
         /*

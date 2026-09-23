@@ -2801,3 +2801,42 @@ region, chraction.c ~6400) reads nominal: weapon stats are compiled-in,
 difficulty modifiers from lv.c, 007 getters properly declared. No port
 defect found in the AI beyond §38's D253. Open; needs a specific scene to
 compare against N64 footage.
+
+## 40. Guards frozen in place (JP timer), rumble never reached the controllers
+
+**Guards ignoring Bond (user video, 007 difficulty).** The guard reacted and
+fired, but toward the direction it already faced. A probe in chrlvSetSubroty
+showed the target flags right (TARGET_BOND), the angle to Bond right, and a
+turn step of 0: `0.0628 * speed * g_JP_GlobalTimerDelta * playspeed`. The
+build defines VERSION_US **and BUGFIX_R1** (from the initial commit; the
+reference builds ntsc-final with BUGFIX_R0, matching the N64 Makefile). R1
+paths read g_JP_GlobalTimerDelta, which only the JP/PAL branch of lv.c
+updates, so here it was always 0: guards could not turn toward Bond, their
+aim never blended onto him (chr.c:1844), death animations and
+monitor/object-interaction timers stalled. lv.c now mirrors
+g_GlobalTimerDelta into it under GEVR + BUGFIX_R1 (on the JP cartridge the
+two are the same value). Verified: guard 6's angle to Bond now holds at 0 as
+he tracks. Switching the build to BUGFIX_R0 like the reference is the fuller
+fix, but it flips ~50 sites and struct fields (bondview.h, chr.h) - not done
+blind.
+
+**No rumble when firing.** Three gaps, all port-side:
+- osPfsInit returned PFS_ERR_NOPACK, so joyRumblePakInit never tried the
+  motor. It now returns PFS_ERR_DEVICE (a Rumble Pak) where the port can
+  vibrate; GoldenEye saves to EEPROM, only joy.c calls it.
+- osContGetQuery reported CONT_ABSOLUTE without CONT_JOYPORT, which
+  joyRumblePakInit also requires.
+- osMotorInit/Start/Stop were stubs; they now route through osMotorProbe and
+  __osMotorAccess as Perfect Dark's port does.
+- inputRumble gated the Quest haptics on vr_init_done, set only by pdmain.c's
+  VR loop, so screen mode never vibrated. It now asks vr_haptics_ready()
+  (OpenXR session and haptic action exist).
+Traced end to end on device (rumblepak init -> start -> motor access ->
+inputRumble), no haptic errors. Firing is 0.1 s per shot (gunfire.c).
+
+**Left controller dropouts** are not the app: the system log shows the left
+controller (a9280d99bab13a51) as `disconnected detached update-required`,
+its radio reporting `Failed to receive ready signal from host`, plus
+IMU-corrupt errors on both controllers. And until this section the game sent
+it no haptics at all. User action: update the controller firmware in Quest
+settings (or unpair and re-pair it).

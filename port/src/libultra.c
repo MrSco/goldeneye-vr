@@ -351,7 +351,8 @@ void osContGetQuery(OSContStatus *status)
 	for (s32 i = 0; i < MAXCONTROLLERS; ++i, ++status) {
 		if (inputControllerConnected(i)) {
 			status->errnum = 0;
-			status->type = CONT_ABSOLUTE;
+			/* An N64 pad reports CONT_JOYPORT too; joyRumblePakInit tests it. */
+			status->type = CONT_ABSOLUTE | CONT_JOYPORT;
 			status->status = CONT_CARD_ON;
 		} else {
 			status->errnum = CONT_NO_RESPONSE_ERROR;
@@ -640,7 +641,17 @@ s32 osPiWriteIo(u32 devAddr, u32 data)
 
 s32 osPfsInit(OSMesgQueue *queue, OSPfs *pfs, int channel)
 {
-	(void)queue; (void)pfs; (void)channel;
+	(void)queue; (void)pfs;
+	/*
+	 * joyRumblePakInit only tries osMotorInit when osPfsInit says the pak is a
+	 * device that is not a controller pak - which is what a Rumble Pak is. With
+	 * NOPACK here the game never enabled rumble, so firing (gunfire.c, 0.1 s)
+	 * and damage never reached the Quest controllers. Report a Rumble Pak
+	 * wherever the port can vibrate; GoldenEye saves to EEPROM, not a pak.
+	 */
+	if (inputRumbleSupported(channel)) {
+		return PFS_ERR_DEVICE;
+	}
 	return PFS_ERR_NOPACK;
 }
 
