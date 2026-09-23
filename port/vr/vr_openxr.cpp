@@ -2104,7 +2104,6 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             menuLayerR.size = {width, width * ((y1 - y0) * h) / ((x1 - x0) * w)};
             menuLayerR.pose.position.y += 0.06f;
         }
-        }
     } else {
         submitMenuR = false;
     }
