@@ -3306,3 +3306,32 @@ pressing grip to aim at a guard crashed; no ammo panel; shots land low.
   the barrel from the muzzle.
 - **Health HUD** 1.4 m (was 2 m).
 - Test harness used: gevr_fakegrip.txt pose probe (removed again).
+
+## 54. In-VR launcher (VirtualBoyGo model)
+
+User: "do the in-VR launcher like virtualboygo". A vr_only app keeps its
+options inside VR; the 2D LauncherActivity hung Quest in the loading space
+(52), so it stays only as the no-ROM fallback.
+
+- `port/vr/vr_launcher.cpp` `gevrLauncherRun()`, called from `pd_main`
+  (port/src/main.c) after inputInit and before audio/romdata, so a ROM picked
+  there is the one the game loads. Dear ImGui (vendored, OpenGL3 on GLES 3)
+  draws a 1280x960 page into its own texture; `vr_screen_present_tex2d`
+  (vr_openxr.cpp, a 2D-texture variant of vr_screen_present) puts it on the
+  screen quad. XR frames come from the shim's pump (`gevrVrPumpBegin/End`,
+  gevr_engine_shim.c), whose first begin brings the session up and loads the
+  ini; its begin also syncs the controller actions.
+- Page: the ROM in use (absolute path, header check: 12 MB, GOLDENEYE,
+  NGEE), other GoldenEye ROMs in the data dir, /sdcard/GEVR and
+  /sdcard/Download with a Use button (copies to data/ge.z64); Stereo VR /
+  Flat screen (VrPlayMode); turning Smooth / Snap 30/45/90 (VrUseSnapTurn);
+  comfort vignette on/off + strength (VrComfortVignette); Start (focused
+  from the first frame, disabled without a good ROM). Saved with
+  vrSettingsSave on Start.
+- Input: either thumbstick navigates (ImGui gamepad nav), A/X/triggers
+  select, B/Y back. The PC hook gevr_input.txt reaches it too (8000 = A,
+  stick y +-80), so `echo 8000 > .../files/gevr_input.txt` starts the game in
+  tests; boot scripts that count A presses need one more.
+- Verified on device: the launcher opens and logs `launcher: open`. The
+  headset then lost tracking (passthrough prompt), so the page itself, Start
+  and the settings round trip are not yet seen on device.

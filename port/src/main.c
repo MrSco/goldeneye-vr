@@ -334,6 +334,18 @@ int main(int argc, const char **argv)
     videoInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "inputInit starting");
     inputInit();
+#ifdef ANDROID
+    /*
+     * The in-VR launcher (port/vr/vr_launcher.cpp): ROM, stereo or screen,
+     * turning and comfort, then Start - before the ROM is loaded, so a ROM
+     * picked there is the one the game reads. Like VirtualBoyGo, the options
+     * live inside VR; a 2D launcher activity hangs a vr_only app.
+     */
+    {
+        extern void gevrLauncherRun(void);
+        gevrLauncherRun();
+    }
+#endif
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "audioInit starting");
     audioInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit starting");

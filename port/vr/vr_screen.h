@@ -20,6 +20,7 @@ void vr_screen_target_end(void);
 unsigned int vr_screen_target_tex(void);
 
 bool vr_screen_present(unsigned int srcArrayTex, int w, int h);
+bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h);
 void vr_screen_recenter(void);
 /* false while the game renders true stereo gameplay: the quad is not submitted. */
 void vr_screen_set_visible(int visible);
