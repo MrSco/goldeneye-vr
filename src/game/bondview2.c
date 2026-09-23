@@ -221,6 +221,8 @@ extern s32 gevrVrTakeRecenter(void);     /* input.c: both stick clicks */
 extern void gevrVrSnapshotCameraPose(void); /* vr_openxr.cpp */
 extern void gevrVrHeadPosCm(float out[3]);   /* vr_openxr.cpp */
 extern int gevrVrGripPose(int hand, float pos[3], float quat[4]); /* vr_input.cpp */
+/* the same, as it was when this frame's camera pose was taken */
+extern int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);
 extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* goldeneye-vr.ini grip trim, cm */
 
 s32 g_gevrStereo;                        /* this frame is drawn in stereo (fr.c, input.c) */
@@ -473,7 +475,7 @@ static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[
     f32 x, y, z, w;
     s32 i;
 
-    if (!gevrVrGripPose(ctrl, pos, q))
+    if (!gevrVrGripPoseCamera(ctrl, pos, q))
     {
         return FALSE;
     }

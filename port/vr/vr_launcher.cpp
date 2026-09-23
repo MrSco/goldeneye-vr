@@ -318,10 +318,24 @@ bool feedPointer(ImGuiIO &io, bool navUsed)
 }
 
 // Returns whether the stick or a button drove the focus this frame.
+// The test hook's START (1000) presses the launcher's Start directly.
+bool s_injectStart = false;
+
 bool feedGamepad(ImGuiIO &io, bool pointing)
 {
     static Injected inj;
     pollInjected(inj);
+    if (inj.mask & 0x1000) {
+        s_injectStart = true;
+    }
+    static bool pickerHookDone = false;
+    if ((inj.mask & 0x0020) && !pickerHookDone) {   // test hook: L opens the file picker
+        pickerHookDone = true;
+        gevrOpenRomPicker();
+    }
+    if (!(inj.mask & 0x0020)) {
+        pickerHookDone = false;
+    }
 
     XrVector2f l = {0, 0}, r = {0, 0};
     get_2d_input(0, "thumbstick", &l);
@@ -589,9 +603,11 @@ extern "C" void gevrLauncherRun(void)
         ImGui::TextDisabled("In game: both grips grab the screen. Hold left stick click to bring it back.");
 
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);
-        if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))) {
+        if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))
+            || (s_injectStart && !active.empty() && activeInfo.good)) {
             start = true;
         }
+        s_injectStart = false;
         if (focusStart) {
             ImGui::SetItemDefaultFocus();
             ImGui::SetKeyboardFocusHere(-1);

@@ -92,7 +92,26 @@ public class MainActivity extends SDLActivity {
         } else {
             pickResult = "No file chosen.";
         }
+        // Not straight away: while the picker panel is still closing, Quest's
+        // shell takes focus back after our relaunch. Retry until we have it.
+        returnToVrAttempts = 0;
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::returnToVrUntilFocused, 700);
+    }
+
+    private int returnToVrAttempts;
+    private boolean hasWindowFocusNow;
+
+    private void returnToVrUntilFocused() {
+        if (hasWindowFocusNow && returnToVrAttempts > 0) {
+            return;
+        }
+        if (returnToVrAttempts++ >= 4) {
+            Log.w(TAG, "Could not get back to VR after the file picker");
+            return;
+        }
+        Log.i(TAG, "Returning to VR after the file picker (attempt " + returnToVrAttempts + ")");
         returnToVr();
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::returnToVrUntilFocused, 1500);
     }
 
     // The picker is a 2D panel: when it closes, Android resumes this activity but
@@ -148,6 +167,7 @@ public class MainActivity extends SDLActivity {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        hasWindowFocusNow = hasFocus;
         Log.i(TAG, "onWindowFocusChanged: " + hasFocus);
         if (hasFocus) {
             getWindow().getDecorView().post(this::hideSystemUI);
