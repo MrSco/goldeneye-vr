@@ -3392,3 +3392,12 @@ GEVR's recent releases.
   tracking), so testing stopped. Needs a wear-test: vignette, arm, shot
   line, tunnel impacts, grab, curved screen, pointer (the u*viGetX mapping
   assumes the screen shows the whole VI frame).
+- **Build id on the launcher**: port/cmake/buildid.cmake writes
+  gevr_buildid.c (`<short hash>[+ if uncommitted changes]  built <time>`) on
+  every build (gevr_buildid target); the launcher shows it at the top and
+  logs it with `launcher: open`.
+- Audit of GEVR #84 (rifle guards read as pistols, 64-bit weapon-prop
+  misread): already fixed here as D119 (chraction.c chrlvWeaponNumber).
+  Known, not fixed: bondview2.c ~11099/11112/11294 keep animation pointers
+  in s32 (`anim`, `cur`, players_cur_animation) - truncation on 64-bit, but
+  only in the multiplayer third-person path (returns early for 1 player).

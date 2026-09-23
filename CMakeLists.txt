@@ -295,9 +295,19 @@ set(SRC
   ${SRC_SEGAUDIO}
 )
 
+# Build id for the launcher (port/cmake/buildid.cmake), regenerated every build.
+set(GEVR_BUILDID_C "${CMAKE_BINARY_DIR}/gevr_buildid.c")
+add_custom_target(gevr_buildid
+  COMMAND "${CMAKE_COMMAND}" -DSRC_DIR=${CMAKE_SOURCE_DIR} -DOUT=${GEVR_BUILDID_C}
+          -P "${CMAKE_SOURCE_DIR}/port/cmake/buildid.cmake"
+  BYPRODUCTS "${GEVR_BUILDID_C}"
+  VERBATIM)
+list(APPEND SRC "${GEVR_BUILDID_C}")
+
 # Output target
 if(ANDROID)
   add_library(gevr SHARED ${SRC})
+  add_dependencies(gevr gevr_buildid)
   target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
   target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
   target_link_libraries(gevr ${LIBS} openxr_loader)

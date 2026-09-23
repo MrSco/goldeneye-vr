@@ -49,6 +49,7 @@ extern "C" {
 int gevrVrPumpBegin(void);            // port/src/gevr_engine_shim.c
 void gevrVrPumpEnd(void);
 const char *fsFullPath(const char *relPath);  // port/src/fs.c
+extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
 }
 bool vr_begin_eye_render();           // vr_openxr.cpp
@@ -300,7 +301,7 @@ extern "C" void gevrLauncherRun(void)
     bool start = false;
     Uint32 last = SDL_GetTicks();
 
-    vr_log("launcher: open (rom %s)", active.empty() ? "none" : active.c_str());
+    vr_log("launcher: open, build %s (rom %s)", gevrBuildId, active.empty() ? "none" : active.c_str());
 
     while (!start) {
         SDL_PumpEvents();
@@ -332,6 +333,7 @@ extern "C" void gevrLauncherRun(void)
                      ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse
                      | ImGuiWindowFlags_NoSavedSettings);
 
+        ImGui::TextDisabled("Build %s", gevrBuildId);
         ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.25f, 1), "ROM");
         if (active.empty()) {
             ImGui::TextWrapped("No GoldenEye ROM found. Put your USA dump in /sdcard/GEVR or Download, "
