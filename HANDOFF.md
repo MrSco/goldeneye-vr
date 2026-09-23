@@ -3401,3 +3401,49 @@ GEVR's recent releases.
   Known, not fixed: bondview2.c ~11099/11112/11294 keep animation pointers
   in s32 (`anim`, `cur`, players_cur_animation) - truncation on 64-bit, but
   only in the multiplayer third-person path (returns early for 1 player).
+
+## 56. First public release: no game content, original art, in-VR ROM setup
+
+User: README for first-time sideloaders, a release, and "make sure we have no
+game roms or anything else that will get us in trouble"; swap out Perfect
+Dark leftovers; remove unused assets and purge them from history.
+
+- **No game content in the app.** A link without assets/*.c left only 59
+  undefined symbols: the render-state lists and image tables in font_dl.c /
+  oddtextures.c (decompiled macros and texture IDs - kept, same class as
+  src/) and the Rareware logo (rarewarelogo.c: real texels and vertices).
+  Animations, fonts, glyphs and briefings were already read from the ROM.
+  port/src/gevr_rarelogo.c converts the logo out of the cartridge segment
+  (0x29E560, 26608 bytes): vertices byte-swapped, display lists rebuilt as
+  host Gfx with segment-2 addresses as pointers, texels left in cartridge
+  order; title.c looks its symbols up by segment offset (DL_RAREWARETEXT is
+  0x44B0, measured by walking the lists). CMake now links only font_dl.c and
+  oddtextures.c from assets/. Checks: no 32-byte run of the APK matches the
+  ROM except the stock DEFLATE tables and ASCII sequence tables; none of 576
+  game text strings is in it.
+- **assets/ trimmed** to the 1056 files the build includes (ninja deps):
+  tables, headers, model/weapon records. The 343 others (level geometry,
+  setups, text, models, animations, fonts, music) are deleted and purged from
+  history, with the old icons/box-art logo and port/src/communityart.c (Perfect
+  Dark community cover art). Tools that read the full tree need upstream's.
+- **Perfect Dark leftovers removed:** the "N" app icons (all mipmaps, Quest
+  icon, store icon), the box-art logo (Nintendo/Rare/007 marks and actor
+  photos), unbuilt PD files (pdmain, pdsched, mpsetups, optionsmenu, romdata,
+  mod, PD preprocessors), the libpd load fallback; the engine config is
+  goldeneye.ini (an existing pd.ini is renamed on first start).
+- **Art:** docs/art/icon_source.jpg and banner_source.jpg (the user's,
+  made for the project); tools/make_icons.py writes every icon size and
+  docs/banner.png. The monochrome themed icon is a drawn silhouette.
+- **No ROM = stay in VR.** The 2D LauncherActivity is gone (its hand-off from
+  the immersive activity could not be verified and the same 2D-activity shape
+  hung Quest's shell in 52). MainActivity creates files/data; the in-VR
+  launcher explains where to copy the ROM, has Look again, and renames a good
+  dump copied under any name to ge.z64.
+- README rewritten for players (5-step first-time sideload with SideQuest,
+  controls, troubleshooting), STATUS summary and CREDITS brought current;
+  versionName 0.1.0.
+- **Next release (user, 2026-09-23):** (1) curved screen: the launcher's
+  cursor is hidden behind the screen; add a Quest-style pointer beam. (2)
+  bullet-hole sprites glitch at some angles (screenshot pair: holes on the Dam
+  bunker look torn/black from one angle). (3) the Dam gate button pops in
+  late - draw distance too short; check other world props.

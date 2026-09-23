@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
@@ -294,6 +295,15 @@ s32 configLoad(const char *fname)
 
 void configInit(void)
 {
+	/* Earlier builds kept these settings in pd.ini (the Perfect Dark port's name). */
+	if (fsFileSize(CONFIG_PATH) <= 0 && fsFileSize(CONFIG_OLD_PATH) > 0) {
+		char from[FS_MAXPATH + 1];
+		strncpy(from, fsFullPath(CONFIG_OLD_PATH), FS_MAXPATH);
+		from[FS_MAXPATH] = '\0';
+		if (rename(from, fsFullPath(CONFIG_PATH)) == 0) {
+			sysLogPrintf(LOG_NOTE, "config: pd.ini renamed to " CONFIG_FNAME);
+		}
+	}
 	if (fsFileSize(CONFIG_PATH) > 0) {
 		configLoad(CONFIG_PATH);
 	}

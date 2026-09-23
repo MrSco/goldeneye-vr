@@ -12,12 +12,6 @@ import androidx.core.content.FileProvider;
 public class MainActivity extends SDLActivity {
     private static final String TAG = "GEVR";
 
-    // Extra used to indicate that MainActivity was explicitly launched
-    // by LauncherActivity (via the "Start" button), rather than by the
-    // Android launcher / Meta Store. Without this flag, we redirect
-    // to LauncherActivity first if no ROM is present.
-    public static final String EXTRA_FROM_LAUNCHER = "com.gevr.port.FROM_LAUNCHER";
-
     private static native void nativeSetVrJavaContext(android.app.Activity activity, android.view.Surface surface);
 
     static {
@@ -26,12 +20,7 @@ public class MainActivity extends SDLActivity {
         try {
             System.loadLibrary("gevr");
         } catch (UnsatisfiedLinkError e) {
-            // Fallback if built with legacy target name
-            try {
-                System.loadLibrary("pd");
-            } catch (UnsatisfiedLinkError e2) {
-                Log.e(TAG, "Failed to load native game library (gevr / pd)", e2);
-            }
+            Log.e(TAG, "Failed to load the native game library (gevr)", e);
         }
     }
 
@@ -58,20 +47,13 @@ public class MainActivity extends SDLActivity {
 
         Log.i(TAG, "MainActivity onCreate");
 
-        boolean fromLauncher = getIntent() != null
-                && getIntent().getBooleanExtra(EXTRA_FROM_LAUNCHER, false);
-
-        // Check if ROM already exists in standard location
+        // The app never leaves VR, even without a ROM: the in-VR launcher
+        // (port/vr/vr_launcher.cpp) shows where to copy one and picks it up.
+        // A 2D activity here stranded Quest's shell in the loading space. Make
+        // the folder now so it is there to copy into over USB.
         File dataDir = new File(getExternalFilesDir(null), "data");
-        File romFile = new File(dataDir, "ge.z64");
-        File sdcardRom = new File("/sdcard/GEVR/ge.z64");
-
-        if (!fromLauncher && !romFile.exists() && !sdcardRom.exists()) {
-            Log.i(TAG, "ROM not found, redirecting to LauncherActivity for file selection");
-            Intent intent = new Intent(this, LauncherActivity.class);
-            startActivity(intent);
-            finish();
-            return;
+        if (!dataDir.isDirectory() && !dataDir.mkdirs()) {
+            Log.w(TAG, "Could not create " + dataDir);
         }
 
         Log.i(TAG, "Starting GEVR VR mode");

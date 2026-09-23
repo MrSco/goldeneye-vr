@@ -315,10 +315,32 @@ extern "C" void gevrLauncherRun(void)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    std::string active = activeRomPath();
-    RomInfo activeInfo = active.empty() ? RomInfo() : probeRom(active);
-    std::vector<RomInfo> others = findRoms(active);
-    std::string message;
+    std::string active, message;
+    RomInfo activeInfo;
+    std::vector<RomInfo> others;
+
+    // Find the ROM. A good dump copied into the data folder under any name
+    // ("GoldenEye 007 (USA).z64") is renamed to ge.z64, the name the loader
+    // looks for, so nobody has to rename files on a headset.
+    auto scan = [&]() {
+        active = activeRomPath();
+        others = findRoms(active);
+        if (active.empty()) {
+            const std::string dir = dataDir() + "/";
+            for (const RomInfo &r : others) {
+                if (r.path.compare(0, dir.size(), dir) == 0 && r.path.find('/', dir.size()) == std::string::npos
+                    && rename(r.path.c_str(), (dir + "ge.z64").c_str()) == 0) {
+                    message = "Found " + r.path.substr(dir.size()) + " - using it.";
+                    vr_log("launcher: renamed %s to ge.z64", r.path.c_str());
+                    active = activeRomPath();
+                    others = findRoms(active);
+                    break;
+                }
+            }
+        }
+        activeInfo = active.empty() ? RomInfo() : probeRom(active);
+    };
+    scan();
 
     bool settingsRead = false;
     int mode = 1, turn = 0;
@@ -367,8 +389,15 @@ extern "C" void gevrLauncherRun(void)
         ImGui::TextDisabled("Build %s", gevrBuildId);
         ImGui::TextColored(ImVec4(0.88f, 0.69f, 0.25f, 1), "ROM");
         if (active.empty()) {
-            ImGui::TextWrapped("No GoldenEye ROM found. Put your USA dump in /sdcard/GEVR or Download, "
-                               "or next to the game as ge.z64.");
+            ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1), "No GoldenEye ROM yet.");
+            ImGui::TextWrapped("Connect the headset to your computer with a USB cable and copy your "
+                               "GoldenEye 007 (USA) ROM into this folder (any file name is fine):");
+            ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.45f, 1), "Android/data/com.gevr.port/files/data");
+            ImGui::TextWrapped("Then press Look again. See the README for step-by-step help.");
+            if (ImGui::Button("Look again")) {
+                scan();
+                if (active.empty()) message = "Still no ROM in that folder.";
+            }
         } else {
             ImGui::TextWrapped("%s", active.c_str());
             ImGui::TextColored(activeInfo.good ? ImVec4(0.5f, 0.9f, 0.5f, 1) : ImVec4(0.95f, 0.5f, 0.4f, 1),
