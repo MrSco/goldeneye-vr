@@ -1478,7 +1478,11 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
          * bunker's rim) was drawn against whatever lay behind - a torn,
          * angle-dependent sprite. Both sides of the band, with the stencil:
          *  A: mark pixels where the decal, pushed back, is at or behind the
-         *     surface (so not hanging in front of a far background);
+         *     surface (so not hanging in front of a far background). The push
+         *     is generous: GoldenEye rounds impact corners to whole units, so a
+         *     hole sits up to half a unit off its wall, and a narrow band
+         *     (units 8) cut most holes to slivers. Backgrounds behind an edge
+         *     are metres away, still well outside it;
          *  B: draw where marked and, pulled forward, at or in front of it;
          *     every marked pixel is zeroed again (pass or fail).
          */
@@ -1489,7 +1493,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
         glDepthMask(GL_FALSE);
         glDepthFunc(GL_GEQUAL);
-        glPolygonOffset(2.0f, 8.0f);
+        glPolygonOffset(4.0f, 2048.0f);
         glStencilFunc(GL_ALWAYS, 1, 0xff);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
         glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
