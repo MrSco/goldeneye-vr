@@ -204,3 +204,15 @@ an sRGB double-encode on the Quest swapchain.
 Found outside the sweep: implicit declarations of functions returning s8,
 u16, bool and f32 (joyGetStickY read -80 as 176). The prototype generator
 now covers them; see HANDOFF 36.
+
+
+## Fifth pass — bondtypes.h, propobj.c
+
+| File | Ported | Already here / not applicable |
+|---|---|---|
+| bondtypes.h | — | D69/D78 (bitfields declared reversed under GEVR), D43/D45 (LinkedTo u32), D52 (u32 *datas), D88 (setup converter widens intro cameras 40→56), D151/D157 (HANDOFF 35 reads the low part of the word) |
+| propobj.c | — | D52 (word-indexed at all three sites), D135 (HANDOFF 31); D218/D222 FOV-scale option not present; D202/D207/D318/M-65/M-71 diagnostics |
+
+Found outside the sweep: struct members declared `bool` change size in port
+files that include <stdbool.h>; struct player's pause_state sat 16 bytes
+earlier from input.c's point of view. See HANDOFF 37.

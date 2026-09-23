@@ -2663,3 +2663,43 @@ Sweep (docs/gepc-port-guard-sweep.md, fourth pass):
   legal_text_ptr before assigning it). D164 and D178 were already handled
   (ARRAYCOUNT; ob.c swaps Ubrief* on load); D63/D64/D65/D146/D243/D250 are
   diagnostics.
+
+## 37. The real cause of "left stick becomes look after the watch": bool
+
+User report after §36: pause, change nothing, unpause, and the left stick is
+still look. §36's Solitaire re-assert was right but not this bug.
+
+port/src/input.c decides "in a menu" from g_CurrentPlayer->pause_state. A
+probe there showed pause_state jump from 0 to -1065353216 (0xC0800000, the
+bits of -4.0f) on pausing and never change again, while the game paused and
+unpaused normally. offsetof(struct player, pause_state) was 548 in input.c
+and 564 in the game's files; sizeof 14144 vs 14160.
+
+bondtypes.h does `typedef s32 bool` only `#ifndef bool`. Every VR header
+includes <stdbool.h>, so a port file that includes one first sees a 1-byte
+bool in every game struct. struct player has six bool members before
+pause_state (prevupdown, movecentrerelease, ...): 24 bytes on the game side,
+8 with padding on the port side. input.c was reading a float four fields
+early, so `menu` stayed true after unpausing: left stick on the N64 stick
+(look), right stick unread, no C-buttons. inputRumble's equipcuritem read
+was misplaced the same way.
+
+Fix: the 17 struct members declared bool in bondtypes.h and bondview.h are
+now s32 — what bool already is on the game side, so the game's layout does
+not move, and every translation unit agrees. (The 30 bool bitfields in
+bondtypes.h are inside `#if 0`.) bondtypes.h carries a note forbidding bool
+members. bondview2.c exports gevrPlayerLayout(); input.c compares it with
+its own sizeof/offsetof once at startup and logs an error on mismatch.
+Only input.c, gevr_engine_shim.c, pdmain.c (excluded) and
+vr_settings_defaults.c mix stdbool with game headers; only input.c reads
+game structs.
+
+Verified on device: pause_state now reads 1, 3, 2, 0 across a pause and
+unpause from the port side; no layout error; moving and firing work after.
+
+Sweep, fifth pass (docs/gepc-port-guard-sweep.md): bondtypes.h and
+propobj.c — nothing new to port. D69/D78 (bitfield order), D43/D45, D52
+already here; D88 solved by the setup converter widening intro cameras to
+56 bytes; D151/D157 handled in §35; propobj D52 sites already word-indexed;
+D135 ported in §31; D218/D222 belong to the reference's FOV-scale option;
+D202/D207/D318/M-65/M-71 are diagnostics.
