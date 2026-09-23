@@ -1743,7 +1743,16 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     // -------------------------------------------------
 
     if ((rsp.extra_geometry_mode & G_NO_CLIPPING_EXT) == 0) {
-        if (v1->clip_rej & v2->clip_rej & v3->clip_rej) {
+        /*
+         * gepc-ref D233: the outcodes set in gfx_sp_vertex are half-space
+         * tests that only hold for w > 0. A vertex behind the camera flips
+         * them, so a large floor or wall polygon next to the player could
+         * AND to "all outside" and be dropped, leaving a hole onto the clear
+         * colour (the solid blue strip along a wall at the Dam start). Leave
+         * such triangles to GL's clipper, as the backface test below does.
+         */
+        const bool any_behind_camera = (v1->w < 0) || (v2->w < 0) || (v3->w < 0);
+        if (!any_behind_camera && (v1->clip_rej & v2->clip_rej & v3->clip_rej)) {
             if (gevrMenuTrace) ++gevrMenuClipped;
             // The whole triangle lies outside the visible area
             return;

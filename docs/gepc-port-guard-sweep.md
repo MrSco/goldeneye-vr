@@ -216,3 +216,12 @@ now covers them; see HANDOFF 36.
 Found outside the sweep: struct members declared `bool` change size in port
 files that include <stdbool.h>; struct player's pause_state sat 16 bytes
 earlier from input.c's point of view. See HANDOFF 37.
+
+
+## Sixth pass — stan.c, fast3d D233
+
+| File | Ported | Already here / not applicable |
+|---|---|---|
+| stan.c | D253 (callback declared with s32 where the type passes f32: wrong register for outFlags), D177 (named locus fields), D89 (NULL tile in the walk) | D90 (record-sized clear), D79/D88 elsewhere |
+| gfx_pc.cpp | D233 (no trivial reject with a vertex behind the camera) | — |
+| bg.c | — | D312 re-checked: G_VTX count read from w0 bits 16-23 |

@@ -2703,3 +2703,51 @@ already here; D88 solved by the setup converter widening intro cameras to
 56 bytes; D151/D157 handled in §35; propobj D52 sites already word-indexed;
 D135 ported in §31; D218/D222 belong to the reference's FOV-scale option;
 D202/D207/D318/M-65/M-71 are diagnostics.
+
+## 38. Gun tint, stan callback ABI (D253/D177/D89), D233
+
+User report: a thin coloured band on the PP7 silencer joint that turns blue,
+red or green depending on where Bond stands; AI "still not right".
+
+**Gun tint — the mechanism is faithful, the bright band is unexplained.**
+The first-person gun (model render type 3) combines
+`lerp(ENV, TEXEL0, SHADE_ALPHA) * SHADE`, with ENV = g_CurrentPlayer->tileColor,
+the saturation of the stan tile under Bond (set_color_shading_from_tile).
+Checked end to end with probes (all removed):
+- stan tile colours convert correctly: Dam is ~92% neutral (0xfff), with a
+  few red (0xb22/0xc22), teal (0x6ab) and amber (0x874) tiles — plausible
+  baked lighting;
+- on a white tile the tint is 0 and the joint renders dark;
+- forcing every tile to 0x6ab gives a tint of (0x00,0x26,0x2a) and the gun
+  and hand take a faint teal cast — N64 behaviour. No bright band;
+- vertex colours are copied byte for byte (convertVertices), env/fog words
+  are packed and unpacked consistently, fast3d keeps vertex alpha for
+  SHADE_ALPHA.
+The band in the user's screenshot measures ~(147,190,221), brighter than
+the tint can reach (<=0x7f per channel before the SHADE multiply), so it is
+not the tile tint. Not reproduced at the Dam start over eight headings.
+Needs the user's location. Also seen: a solid blue strip along the wall
+at the start (floor geometry missing, clear colour showing) — not fixed by
+D233, open.
+
+**stan.c (sweep) — ported:**
+- **D253**: stanCheckLinkedSpecialTile is standTileLocusCallback_B_t, called
+  with three f32s, but was declared with s32s. On AArch64 floats and ints use
+  separate registers, so outFlags came from x5 (garbage) instead of x2 — a
+  wild write whenever a locus touched a crouch/ladder tile (Bond's movement
+  and AI stan queries). The only such mismatch in the build
+  (-Wincompatible-function-pointer-types lists two others, both harmless).
+- **D177**: outFlags is the caller's StandTileLocusCallbackRecord; its leading
+  s32 * is 8 bytes, so outFlags[1] hit the pointer's upper half instead of
+  count (ladders never registered). Written through the named fields.
+- **D89**: NULL-tile guard in sub_GAME_7F0B0914 (the LOS/walk), returning
+  the N64-effective TRUE.
+- D90 already here; D79/D88 handled in bondtypes.h/the converter.
+
+**fast3d — D233 ported**: skip the trivial-reject AND when any vertex has
+w < 0 (outcodes invalid behind the camera), as the backface test does.
+
+**AI:** guard vision is chrCanSeeBond = stanTestLineUnobstructed (the stan
+walk above) + same end tile; bullet collision against walls works for the
+player (impacts appear), and bgBuildRoomVtxBounds already reads the G_VTX
+count from w0 (D312). Waiting on a concrete description of what the guards do.

@@ -146,7 +146,7 @@ const char aStanlinelog[] = "-stanlinelog";
 // forward declarations
 
 s32 stanIsSpecialBit1Set(StandTile *arg0, struct StandTileLocusCallbackRecord* arg1);
-s32 stanCheckLinkedSpecialTile(StandTile *tile, s32 pointIdx, s32 arg2, s32 arg3, s32 arg4, s32 *outFlags);
+s32 stanCheckLinkedSpecialTile(StandTile *tile, s32 pointIdx, f32 arg2, f32 arg3, f32 arg4, s32 *outFlags);
 s32 sub_GAME_7F0B21B0(StandTile **tileStack, f32 target_x, f32 target_z, f32 radius, s32 *rooms, s32 *count_rtn, s32 bufMax);
 f32 getShortest2dDispToInfTripleEdge(StandTile *tile, s32 start3index, f32 p_x, f32 p_z);
 StanCollisionResult sub_GAME_7F0B1DDC(struct StandTile**, f32, f32, f32, standTileLocusCallback_A_t, standTileLocusCallback_B_t, standTileLocusCallback_C_t, struct StandTileLocusCallbackRecord*);
@@ -1342,6 +1342,16 @@ bool sub_GAME_7F0B0914(StandTile **tileStack, f32 start_x, f32 start_z, f32 dest
     s32 nextPointIndex;
     s32 hasLink;
 
+#ifdef GEVR
+    /* gepc-ref D89: a pad whose stan name did not resolve passes a NULL tile.
+     * The N64 read ~0 from near-NULL, took the crossings == 0 exit and
+     * returned TRUE; reproduce that instead of faulting. */
+    if (*tileStack == NULL)
+    {
+        return TRUE;
+    }
+#endif
+
     start_x *= level_scale;
     start_z *= level_scale;
     dest_x *= level_scale;
@@ -2423,11 +2433,27 @@ s32 stanIsSpecialBit1Set(StandTile *arg0, struct StandTileLocusCallbackRecord *a
 /**
  * Address: 7F0B2274
  */
+/*
+ * GEVR (gepc-ref D253 + D177): this is standTileLocusCallback_B_t, called
+ * with three f32s. Declared with s32s, the AArch64 caller put outFlags in the
+ * third integer register while this read it from the sixth - a garbage pointer
+ * written through whenever Bond or a guard's locus touched a crouch or ladder
+ * tile. outFlags is really the caller's StandTileLocusCallbackRecord, whose
+ * leading s32 * is 8 bytes here, so outFlags[1] hit the pointer's upper half
+ * instead of count: write the named fields.
+ */
+#ifdef GEVR
+s32 stanCheckLinkedSpecialTile(StandTile *tile, s32 pointIdx, f32 arg2, f32 arg3, f32 arg4, s32 *outFlags)
+#else
 s32 stanCheckLinkedSpecialTile(StandTile *tile, s32 pointIdx, s32 arg2, s32 arg3, s32 arg4, s32 *outFlags)
+#endif
 {
     u16 link;
     StandTile *target;
     s32 mid;
+#ifdef GEVR
+    struct StandTileLocusCallbackRecord *outRecord = (struct StandTileLocusCallbackRecord *)outFlags;
+#endif
 
     link = tile->points[pointIdx].link;
 
@@ -2437,7 +2463,11 @@ s32 stanCheckLinkedSpecialTile(StandTile *tile, s32 pointIdx, s32 arg2, s32 arg3
         mid = target->mid.half;
 
         if (g_StanTileSpecialFlags[mid >> 0xc] & STANTILEFLAG_FORCECROUCH) {
+#ifdef GEVR
+            outRecord->rooms = (s32 *)1;
+#else
             outFlags[0] = 1;
+#endif
             return 1;
         }
 
@@ -2445,7 +2475,11 @@ s32 stanCheckLinkedSpecialTile(StandTile *tile, s32 pointIdx, s32 arg2, s32 arg3
 
         if (g_StanTileSpecialFlags[mid >> 0xc] & STANTILEFLAG_LADDER) {
             dword_CODE_bss_8007BA0C = target;
+#ifdef GEVR
+            outRecord->count = 1;
+#else
             outFlags[1] = 1;
+#endif
             return 0;
         }
     }
