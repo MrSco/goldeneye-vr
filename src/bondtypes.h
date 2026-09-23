@@ -46,6 +46,15 @@
  * If Sepertion of OS from Game means that it is undesirable to edit this file
  * then move bool to bondtypes.h
  */
+/*
+ * GEVR: a port file that includes <stdbool.h> first (every VR header does)
+ * skips this typedef and sees a 1-byte bool. Struct members must therefore
+ * never be declared bool: six in struct player shifted pause_state by 16
+ * bytes as seen from port/src/input.c, which then never saw the watch close
+ * and kept the left stick on look. Such members are s32, which is what bool
+ * is on the game side anyway; bondview2.c's gevrPlayerLayout() lets the port
+ * check the layout at startup.
+ */
 #ifndef __cplusplus
 #ifndef bool
 typedef s32 bool; /* Boolean (TRUE/FALSE) */
@@ -704,7 +713,7 @@ typedef union
     typedef struct ModelRenderData
     {
         Mtxf   *basemtx;        /*0x00*/ // Canonical name. See instcalcmatrices in model.c.
-        bool    zbufferenabled; /*0x04*/
+        s32    zbufferenabled; /*0x04*/
         u32     flags;          /*0x08*/
         Gfx    *gdl;            /*0x0c*/
 
@@ -1084,7 +1093,7 @@ typedef union
 
         typedef struct ModelRwData_LODRecord
         {
-            bool visible;
+            s32 visible;
         } ModelRwData_LODRecord;
 
         /**
@@ -1104,7 +1113,7 @@ typedef union
 
         typedef struct ModelRwData_BSPRecord
         {
-            bool visible;
+            s32 visible;
         } ModelRwData_BSPRecord;
 
         /**
@@ -1272,7 +1281,7 @@ typedef union
 
         typedef struct ModelRwData_SwitchRecord
         {
-            bool visible;
+            s32 visible;
         } ModelRwData_SwitchRecord;
 
         /**
@@ -1464,7 +1473,7 @@ typedef union
             char            *filename;
             float            scale;
 #ifdef DEBUG
-            bool             isLoaded;
+            s32             isLoaded;
 #endif
         } ItemModelFileRecord;
 
@@ -1924,8 +1933,8 @@ typedef union
 
     struct act_dead
     {
-        bool allowfade;      /*0x2c*/
-        bool allowreap;      /*0x30*/
+        s32 allowfade;      /*0x2c*/
+        s32 allowreap;      /*0x30*/
         s32  reaptimer;      /*0x34*/
         s32  fadetimer;      /*0x38*/
         s32  notifychrindex; /*0x3c*/
@@ -2104,12 +2113,12 @@ typedef union
 
     struct act_sidestep
     {
-        bool side; /*0x2c*/
+        s32 side; /*0x2c*/
     };
 
     struct act_jumpout
     {
-        bool side; /*0x2c*/
+        s32 side; /*0x2c*/
     };
 
     struct act_runpos
@@ -2144,7 +2153,7 @@ typedef union
     {
         struct patrol_path *path;     /*0x02c*/
         s32                 nextstep; /*0x030*/
-        bool                forward;  /*0x034*/
+        s32                forward;  /*0x034*/
         struct waydata      waydata;  /*0x038*/
         s32                 lastvisible60;
 
@@ -2265,7 +2274,7 @@ typedef union
         u32  entitytype; /*0x2c*/
         u32  entityid;   /*0x30*/
         u32  hand;       /*0x34*/
-        bool needsequip; /*0x38*/
+        s32 needsequip; /*0x38*/
     };
 
     struct act_turndir

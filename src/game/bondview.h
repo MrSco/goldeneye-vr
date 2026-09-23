@@ -499,40 +499,40 @@ struct player
    * the automatic look ahead pitch adjust is interrupted.
    * 0x010c
    */
-  bool prevupdown;
+  s32 prevupdown;
 
   /**
   * If the player is moving forward quickly, and has made a manual pitch adjustment, suppress
   * the automatic look ahead pitch adjusting until the player has slowed down.
   * 0x0110
   */
-  bool movecentrerelease;
+  s32 movecentrerelease;
 
   /**
    * If enabled, test the tiles ahead of the player for the look ahead functionality.
    * This is always enabled.
    * 0x0114
    */
-  bool lookaheadcentreenabled;
+  s32 lookaheadcentreenabled;
 
   /**
    * Look Ahead Setting in the watch menu.
    * 0x0118
    */
-  bool automovecentreenabled;
+  s32 automovecentreenabled;
 
   /**
    * Always false.
    * 0x011c
    */
-  bool fastmovecentreenabled;
+  s32 fastmovecentreenabled;
 
   /**
    * True when Look Ahead is enabled and the player is giving strong
    * forwards or backwards input.
    * 0x0120
    */
-  bool automovecentre;
+  s32 automovecentre;
 
   /**
    * 0: crosshair shown on screen

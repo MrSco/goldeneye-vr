@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stddef.h>
 #include <ctype.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
@@ -26,6 +27,7 @@
 #define LOGI(...) printf(__VA_ARGS__)
 #endif
 
+extern void gevrPlayerLayout(u32 *size, u32 *pausestate); // bondview2.c
 extern bool vr_leftHasWeapon;
 int vr_button_R_grip = false;
 int vr_button_L_grip = false;
@@ -887,6 +889,24 @@ s32 inputReadController(s32 idx, OSContPad *npad)
      * weapon logic or Perfect Dark extended buttons. */
     if (idx == 0) {
         memset(npad, 0, sizeof(*npad));
+        /*
+         * This file reads struct player directly but sees <stdbool.h>'s bool,
+         * not the game's s32 one; bondtypes.h explains why struct members may
+         * not be bool. Check once that both sides agree on the layout.
+         */
+        {
+            static s32 layoutchecked = 0;
+            if (!layoutchecked) {
+                u32 size, pausestate;
+                layoutchecked = 1;
+                gevrPlayerLayout(&size, &pausestate);
+                if (size != sizeof(struct player) || pausestate != offsetof(struct player, pause_state)) {
+                    sysLogPrintf(LOG_ERROR, "input: struct player layout differs from the game's "
+                            "(size %u vs %u, pause_state at %u vs %u)", (u32)sizeof(struct player), size,
+                            (u32)offsetof(struct player, pause_state), pausestate);
+                }
+            }
+        }
         /*
          * gepc-ref D194/D238: hold the player on 1.2 Solitaire every poll.
          * The mapping below only makes sense under that style, and the watch

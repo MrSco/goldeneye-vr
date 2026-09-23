@@ -10887,3 +10887,17 @@ void SurroundWithExplosions(int delay)
     g_SurroundBondWithExplosionsTicks = delay + g_GlobalTimer;
     g_PlayerTickExplodeCreatePosition = 0;
 }
+
+#ifdef GEVR
+/*
+ * The player struct's size and the offset of a late field, as the game's own
+ * files lay it out. port/src/input.c compares them with its view once at
+ * startup: a mismatch means some member changes size across the C/port
+ * boundary (see the bool note in bondtypes.h).
+ */
+void gevrPlayerLayout(u32 *size, u32 *pausestate)
+{
+    *size = sizeof(struct player);
+    *pausestate = __builtin_offsetof(struct player, pause_state);
+}
+#endif
