@@ -1748,28 +1748,6 @@ static void vr_pointer_update(void)
         }
         p.hit = hit;
     }
-    // PORT probe: log the active hand's misses (at most every 0.25 s) and
-    // every hit/miss change, to chase the dot vanishing on the curved screen.
-    {
-        static int lastReason = -1;
-        static unsigned tick;
-        const int h = g_ptrActive;
-        const int r = g_ptrMissReason[h];
-        tick++;
-        if (g_screenVisible && (r != lastReason || (r != 0 && (tick % 18) == 0))) {
-            float o[3], q[4];
-            const bool pose = gevrVrGripPosePlay(h, o, q) != 0;
-            const float cyy = cosf(g_screenYaw), syy = sinf(g_screenYaw);
-            LOGI("pointer: hand %d %s reason %d raw u %.3f v %.3f | ctrl %s (%.2f %.2f %.2f) q (%.2f %.2f %.2f %.2f) | screen (%.2f %.2f %.2f) yaw %.0f dist %.2f fov %.1f curved %d centre (%.2f %.2f %.2f)",
-                 h, r == 0 ? "HIT" : "MISS", r, g_ptrRawU[h], g_ptrRawV[h],
-                 pose ? "ok" : "none", o[0], o[1], o[2], q[0], q[1], q[2], q[3],
-                 g_screenPose.position.x, g_screenPose.position.y, g_screenPose.position.z,
-                 g_screenYaw * 57.29578f, VrScreenDistance, VrScreenFov, VrScreenCurved ? 1 : 0,
-                 g_screenPose.position.x + syy * VrScreenDistance, g_screenPose.position.y,
-                 g_screenPose.position.z + cyy * VrScreenDistance);
-            lastReason = r;
-        }
-    }
     // any button on the other controller makes it the pointer
     {
         const int other = g_ptrActive ^ 1;
