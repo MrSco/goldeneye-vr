@@ -3199,3 +3199,51 @@ short range; watch gesture seems right.
 
 **Not verified on device** (the headset raised its Guardian boundary prompt
 during the HUD test; left for the user). Builds clean.
+
+## 51. Ammo panel, HUD depth, crosshair, reflections, controls, vignette, left arm, launcher
+
+User report on 50: gun aims right. Asked: ammo on a panel at the right arm;
+health/armour and crosshair double (eyes disagree); a left arm from the
+mirrored melee arm; watch gesture fired in screen mode; a launcher with ROM,
+stereo/screen, turn style and a comfort vignette; glass on the truck swims
+when the head turns (stereo only); left trigger/left grip meaningless in
+stereo.
+
+- **Watch gesture** only in stereo play (input.c).
+- **Stereo buttons** (input.c): right trigger = Z (right gun); left trigger =
+  R (GoldenEye's left gun when dual-wielding, aim/zoom otherwise); right grip
+  = R; left grip free. Screen mode unchanged. (PD VR / GEVR: each trigger its
+  own gun.)
+- **Ammo** on Perfect Dark VR's right-hand weapon HUD (VR_WEP_HUD_CAPTURE_*_R
+  round generate_ammo_total_microcode, as PD's bondgun.c): vr_openxr.cpp crops
+  the capture to the counter (x 190..320, y 188..236 of 320x240, GL
+  bottom-left texel origin assumed) on a 12 cm panel 6 cm above the
+  controller, shown when it faces you (PD's rule). Kept up between game
+  frames like the head HUD. The crop direction is unverified on device.
+- **Health HUD quad** 2 m out, 44 degrees tall (was PD's 0.8 m): at 0.8 m it
+  does not fuse while the eyes are on the world.
+- **Crosshair** hidden in stereo unless zoomed (fovy < 55): it was drawn at
+  HUD depth, not the target's, and aim is the controller now.
+- **Reflections** (sphere-mapped glass/chrome): guLookAtReflect keyed to the
+  body's level facing in stereo, not the camera, so head rotation no longer
+  sweeps them (fast3d carries the axes into eye space via the modelview).
+- **Comfort vignette** (`ComfortVignette`, 0 = off .. 1): a multiview
+  full-screen pass in gfx_opengl.cpp after the scene, amount from stick
+  movement and smooth turning (bondview2.c gevrStereoVignette), eased.
+- **Left arm**: with no left-hand weapon, the ITEM_FIST viewmodel drawn on the
+  left controller, mirrored in its frame (row 0 negated, cull mode 2, as a
+  dual left gun), Bond's cuff; own 0x23000 buffer and model (the game's left
+  slot carries the watch). gunfire.c gevrRenderLeftArm.
+- **Launcher** (LauncherActivity is now the LAUNCHER; MainActivity keeps the
+  VR categories): ROM in use with its path, Select ROM, Stereo VR / Flat
+  screen, Smooth / Snap 30/45/90, vignette on/off + strength, Start. Writes
+  PlayMode/SnapTurn/ComfortVignette into data/goldeneye-vr.ini in place.
+  API-24-safe IO. `am start .../.MainActivity` still skips it (test loop).
+- **Settings bug (PD's)**: vrSettingsLoad tried "%d" first, which reads the 30
+  of "SnapTurn=30.0", so every decimal key (SnapTurn, HudDistance,
+  ScreenDistance, ScreenFov, ...) was silently dropped. Decimal values now
+  skip the integer branch.
+
+**Not verified on device:** the headset lost tracking on the desk
+("Finding position in room") during the ammo-panel test; everything here
+builds clean and is for the user to try.

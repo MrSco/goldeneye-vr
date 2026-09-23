@@ -1,75 +1,173 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+    GoldenEye VR launcher: the ROM in use, how to play (stereo VR or the flat
+    screen), turning and comfort options, then Start. Choices are written to
+    goldeneye-vr.ini, which the game reads; the last ones are preselected.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/missingRomContainer"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#000000"
-    android:gravity="center|top"
-    android:orientation="vertical"
-    android:padding="24dp">
+    android:fillViewport="true">
 
-    <ImageView
-        android:id="@+id/imageView3"
-        android:layout_width="wrap_content"
-        android:layout_height="200dp"
-        app:srcCompat="@drawable/logo" />
-
-    <Space
-        android:layout_width="match_parent"
-        android:layout_height="50dp" />
-
-    <TextView
-        android:id="@+id/infoText"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center"
-        android:text="ROM not found. Select your ROM to continue."
-        android:textColor="#FFFFFF"
-        android:textSize="16sp" />
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingLeft="48dp"
+        android:paddingTop="24dp"
+        android:paddingRight="48dp"
+        android:paddingBottom="24dp">
 
-    <Button
-        android:id="@+id/pickRomButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
-        android:background="#1E5FA8"
-        android:paddingLeft="30dp"
-        android:paddingRight="30dp"
-        android:text="Select ROM"
-        android:textColor="#FFFFFF" />
+        <ImageView
+            android:layout_width="wrap_content"
+            android:layout_height="120dp"
+            android:contentDescription="GoldenEye 007"
+            app:srcCompat="@drawable/logo" />
 
-    <Button
-        android:id="@+id/startButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="24dp"
-        android:alpha="0.5"
-        android:background="#2873C2"
-        android:enabled="false"
-        android:paddingLeft="150dp"
-        android:paddingTop="30dp"
-        android:paddingRight="150dp"
-        android:paddingBottom="30dp"
-        android:text="Start"
-        android:textColor="#FFFFFF"
-        android:textSize="20sp" />
+        <!-- ROM -->
+        <TextView
+            style="@style/LauncherHeading"
+            android:text="ROM" />
 
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        <TextView
+            android:id="@+id/infoText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Checking for the GoldenEye 007 ROM..."
+            android:textColor="#FFFFFF"
+            android:textSize="15sp" />
+
+        <TextView
+            android:id="@+id/romPathText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="#9AA4B0"
+            android:textSize="13sp" />
 
         <Button
-            android:id="@+id/resetGraphicsButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
-            android:background="#1E5FA8"
-            android:paddingLeft="30dp"
-            android:paddingRight="30dp"
-            android:text="Reset graphics settings"
-            android:textColor="#FFFFFF" />
-    </FrameLayout>
+            android:id="@+id/pickRomButton"
+            style="@style/LauncherButton"
+            android:layout_gravity="start"
+            android:layout_marginTop="8dp"
+            android:text="Select ROM..." />
 
-</LinearLayout>
+        <!-- Display -->
+        <TextView
+            style="@style/LauncherHeading"
+            android:text="Display" />
+
+        <RadioGroup
+            android:id="@+id/modeGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <RadioButton
+                android:id="@+id/modeStereo"
+                style="@style/LauncherRadio"
+                android:text="Stereo VR - first-person play in 3D; menus, cutscenes and the watch on a virtual screen" />
+
+            <RadioButton
+                android:id="@+id/modeScreen"
+                style="@style/LauncherRadio"
+                android:text="Flat screen - the whole game on a virtual screen in front of you" />
+        </RadioGroup>
+
+        <!-- Turning -->
+        <TextView
+            style="@style/LauncherHeading"
+            android:text="Turning (stereo VR, right stick)" />
+
+        <RadioGroup
+            android:id="@+id/turnGroup"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/turnSmooth"
+                style="@style/LauncherRadio"
+                android:layout_width="wrap_content"
+                android:text="Smooth" />
+
+            <RadioButton
+                android:id="@+id/turnSnap30"
+                style="@style/LauncherRadio"
+                android:layout_width="wrap_content"
+                android:text="Snap 30°" />
+
+            <RadioButton
+                android:id="@+id/turnSnap45"
+                style="@style/LauncherRadio"
+                android:layout_width="wrap_content"
+                android:text="Snap 45°" />
+
+            <RadioButton
+                android:id="@+id/turnSnap90"
+                style="@style/LauncherRadio"
+                android:layout_width="wrap_content"
+                android:text="Snap 90°" />
+        </RadioGroup>
+
+        <!-- Comfort -->
+        <TextView
+            style="@style/LauncherHeading"
+            android:text="Comfort (stereo VR)" />
+
+        <androidx.appcompat.widget.SwitchCompat
+            android:id="@+id/vignetteSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Darken the edges of the view while moving or turning"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Strength"
+                android:textColor="#9AA4B0"
+                android:textSize="14sp" />
+
+            <SeekBar
+                android:id="@+id/vignetteSeek"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="100" />
+
+            <TextView
+                android:id="@+id/vignetteValue"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:gravity="end"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/startButton"
+            style="@style/LauncherButton"
+            android:layout_marginTop="28dp"
+            android:alpha="0.5"
+            android:enabled="false"
+            android:paddingLeft="120dp"
+            android:paddingTop="22dp"
+            android:paddingRight="120dp"
+            android:paddingBottom="22dp"
+            android:text="Start"
+            android:textSize="20sp" />
+    </LinearLayout>
+</ScrollView>
