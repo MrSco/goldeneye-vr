@@ -653,7 +653,9 @@ extern "C" void gevrLauncherRun(void)
             ImGui::EndTable();
         }
         ImGui::Separator();
-        ImGui::TextDisabled("Both grips grab the screen (right stick: distance / size). Hold left stick click to recentre.");
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("Both grips grab the screen; right stick: distance / size. Hold the left stick click to recentre it.");
+        ImGui::PopStyleColor();
 
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);
         if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))
