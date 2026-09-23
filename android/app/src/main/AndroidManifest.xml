@@ -102,13 +102,9 @@
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
             android:exported="true">
 
-            <!--
-                Not the LAUNCHER any more: LauncherActivity is the entry panel and
-                starts this one. The VR categories stay so the shell still treats
-                this activity as immersive.
-            -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
                 <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
                 <category android:name="com.oculus.intent.category.VR" />
             </intent-filter>
@@ -120,21 +116,18 @@
         </activity>
 
         <!--
-            LauncherActivity: the entry panel (ROM, stereo or screen, turning,
-            comfort), then Start. Label and icon repeated for Quest's shell, as on
-            MainActivity above.
+            LauncherActivity: 2D ROM picker, shown only when no ROM is found
+            (MainActivity redirects). It must not be the LAUNCHER: the app is
+            vr_only, and Quest's shell treated a 2D entry activity as the
+            immersive app and waited for an XR session it never started (stuck
+            in the loading space, 2026-09-23). Options belong in VR, the way
+            single-activity vr_only apps such as VirtualBoyGo do them.
         -->
         <activity
             android:name=".LauncherActivity"
-            android:label="@string/app_name"
-            android:icon="@drawable/ic_launcher_quest"
-            android:exported="true"
+            android:exported="false"
             android:screenOrientation="landscape"
             android:theme="@style/Theme.GEVR.Launcher">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
         </activity>
 
         <provider
