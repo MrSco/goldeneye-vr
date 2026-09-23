@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #ifdef GEVR
 #include "system.h"
+extern s32 gevrCrouchToggled(void); // port/src/input.c
 #endif
 #include <math.h>
 #include <bondtypes.h>
@@ -5760,6 +5761,33 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         {
             currentPlayerSetSwayTarget(0);
         }
+
+#ifdef GEVR
+        /*
+         * Quest: 1.2 Solitaire only crouches while aiming (R + C-down, and it
+         * stands again as soon as C-down is let go). The Perfect Dark VR port's
+         * stick-click crouch is a toggle; port/src/input.c flips it on the left
+         * stick click. Crouch-disabling weapons are respected as the game does.
+         */
+        {
+            static s32 wascrouchtoggled = FALSE;
+            s32 crouchtoggled = gevrCrouchToggled();
+
+            if (crouchtoggled
+                && !bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_DISABLE_CROUCH))
+            {
+                moveData.crouchDown = TRUE;
+                moveData.crouchUp = FALSE;
+            }
+            else if (wascrouchtoggled)
+            {
+                moveData.crouchDown = FALSE;
+                moveData.crouchUp = TRUE;
+            }
+
+            wascrouchtoggled = crouchtoggled;
+        }
+#endif
 
         if (moveData.crouchDown)
         {

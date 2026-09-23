@@ -2751,3 +2751,53 @@ w < 0 (outcodes invalid behind the camera), as the backface test does.
 walk above) + same end tile; bullet collision against walls works for the
 player (impacts appear), and bgBuildRoomVtxBounds already reads the G_VTX
 count from w0 (D312). Waiting on a concrete description of what the guards do.
+
+## 39. Blue strip, stan pointer overwrite, crouch toggle, rumble, guard AI
+
+**Blue strip along the wall at the Dam start — fixed.** Its colour is Dam's
+sky/fog colour (0x10,0x30,0x60): a hole. Eliminated in turn with probe
+builds: not portal culling (all portals forced full-screen), not fog
+(fog forced off), but backface culling (culling off filled it). Logging the
+culled triangles showed geometry mode 0x1205 (F3D G_CULL_FRONT) under a
+negative-determinant matrix. GoldenEye compensates for mirroring itself —
+propobj.c draws a DOORFLAG_FLIP door through a mirrored matrix with
+CULLMODE_FRONT, gunfire.c picks cull modes for mirrored dual weapons — and
+the N64 RSP culls on screen winding alone. fast3d's gfx_is_matrix_inverted()
+(a Perfect Dark VR addition, not in gepc-ref) flipped the test again, so the
+flipped tunnel door showed its inside faces (the "rust pillar") and lost its
+floor edge. It now returns false. Tried and rejected on the way: skipping
+the cull for w<0 triangles (draws genuine back faces), per-vertex mirror
+tracking (same result as the original).
+
+**Stan pointer overwrite in object placement — fixed.** A walk from the
+tile 0xb400007db400007d (two pointer high halves) failed every time; traced
+with return-address logging to sub_GAME_7F04088C (propobj.c), which passed
+f32 locals to chraiGetCollisionBounds's `struct rect4f **` and `s32 *`
+out-parameters. The 8-byte pointer store overran byrefA into mStan. Typed
+correctly under GEVR. The only such call in the build's
+-Wincompatible-pointer-types output.
+
+**Crouch.** 1.2 Solitaire only crouches while aiming (R + C-down, standing
+again on release). Left stick click now toggles crouch (the Perfect Dark VR
+port's stick-click crouch, VrStickClickToCrouch): input.c keeps the toggle,
+bondview2.c forces crouchDown while set and one crouchUp on release,
+respecting WEAPONSTATBITFLAG_DISABLE_CROUCH. Reset on stage change. Not
+verified on device (the input hook cannot press the stick).
+
+**Rumble.** __osMotorAccess asks for 5 s at full strength per motor start
+and inputRumble sends it to both controllers. The user's left controller has
+been dropping off until its battery is pulled; haptics are the only traffic
+to it. Pulses are now capped at 0.3 s and identical commands are not re-sent
+within 200 ms. Cause of the dropout not proven.
+
+**Guards (user: miss a lot, only notice up close, don't reacquire).**
+Probed chrCheckTargetInSight / chrCanSeeBond on device. Vision range
+(visionrange 100 = 100 m), the fog limit (75000 units), the FOV gate and the
+random notice gate all read nominal. Most failures (824 of 920 sampled) are
+the stan line walk stopping at a tile edge with no link — GoldenEye's AI
+vision is tile-based, so guards cannot see across unwalkable gaps, barriers
+or ledges; the rest are prop polygons. Hit chance (chrlvFireWeaponRelated
+region, chraction.c ~6400) reads nominal: weapon stats are compiled-in,
+difficulty modifiers from lv.c, 007 getters properly declared. No port
+defect found in the AI beyond §38's D253. Open; needs a specific scene to
+compare against N64 footage.
