@@ -3276,3 +3276,33 @@ builds clean and is for the user to try.
   not seen it (the build did not launch). If it still doubles, the next step
   is a diegetic panel on the left wrist (PD's left-hand HUD capture), as the
   ammo is on the right.
+
+## 53. Aim crash, left arm, ammo panel, low shots, HUD 1.4 m
+
+User report on 52: launch works; no left arm; health HUD good but a bit far;
+pressing grip to aim at a guard crashed; no ammo panel; shots land low.
+
+- **Crash** (tombstone: chrTestHit -> sub_GAME_7F06C010, NULL+0x18, from
+  gevrStereoAimPoint under gunDrawSight): the guards' model hit lists
+  (chr->field_20) are valid where the game traces its own shots, not at draw
+  time. The aim trace now runs from lvlRender right after
+  chraiCheckUseHeldItems (`gevrStereoAimUpdate`) and the 3D sight draws the
+  cached point; guards with no hit list are skipped. Verified on device: aim
+  held, the 3D crosshair sits on the rock face, no crash.
+- **Left arm**: drawn but invisible - the fist's display lists set their own
+  culling and the mirror flip inverts every winding. CULLMODE_NONE (depth
+  test hides back faces). Verified: the arm shows at the (faked) left hand.
+- **Ammo panel**: submitted but empty - the counter was not where GoldenEye's
+  320x240 coordinates said (fast3d's VR viewport mapping, the HUD shader).
+  Now measured: every 30th right-hand capture is blitted to 128x128, read
+  back, and the box of drawn texels found (measured 0.75,0.23-0.85,0.27,
+  GL origin); the panel crops to it plus a margin (OpenGL imageRect origin is
+  bottom-left, confirmed), placed from the raw right grip pose 7 cm up the
+  thumb side, turned to face the eyes (PD's facing test dropped). Verified:
+  "7 | 93" floats above the (faked) gun.
+- **Low shots**: shots started at the muzzle but aimed at a point 1000 units
+  out along the *grip* line, converging with the barrel only ~50 m away, so
+  they angled low at normal range. Shot and crosshair now go straight along
+  the barrel from the muzzle.
+- **Health HUD** 1.4 m (was 2 m).
+- Test harness used: gevr_fakegrip.txt pose probe (removed again).

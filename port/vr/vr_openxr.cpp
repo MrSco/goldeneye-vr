@@ -1457,6 +1457,8 @@ extern "C" bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
 // C and cannot see the C++ globals, so they come through here.
 
 extern "C" void vr_screen_set_visible(int visible) { g_screenVisible = visible != 0; }
+extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]); // vr_input.cpp
+extern "C" bool gfx_vr_menu_R_bbox(float out[4]);                     // gfx_opengl.cpp
 
 // The game sampled the head for this frame's camera (bondview2.c gevrStereoFrame).
 extern "C" void gevrVrSnapshotCameraPose(void)
@@ -2090,19 +2092,50 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         menuLayerR.size = {1.0f * XrAspect * 0.8f, 1.0f * 0.8f};
         submitMenuR = submitMenuR && res.facingPlayer;
 
-        // GoldenEye: the capture is the whole screen and the ammo count sits in
-        // its bottom-right corner (gunfire.c generate_ammo_total_microcode:
-        // x 190..320, y 188..236 of 320x240). Show just that corner, about
-        // 12 cm wide, just above the controller.
+        // GoldenEye: the capture is the whole eye buffer; only the ammo count is
+        // drawn into it, wherever fast3d's VR mapping puts it. Crop the panel to
+        // the measured box (gfx_opengl.cpp gevr_measure_R_capture) plus a margin,
+        // at 2.5 mm a texel-row-of-128 so the digits read about 2 cm tall.
         {
-            const float x0 = 190.0f / 320.0f, x1 = 1.0f;
-            const float y0 = 188.0f / 240.0f, y1 = 236.0f / 240.0f;
             const int32_t w = (int32_t)g_menuSwapchainWidth, h = (int32_t)g_menuSwapchainHeight;
-            menuLayerR.subImage.imageRect.offset = {(int32_t)(x0 * w), (int32_t)((1.0f - y1) * h)};
-            menuLayerR.subImage.imageRect.extent = {(int32_t)((x1 - x0) * w), (int32_t)((y1 - y0) * h)};
-            const float width = 0.12f;
-            menuLayerR.size = {width, width * ((y1 - y0) * h) / ((x1 - x0) * w)};
-            menuLayerR.pose.position.y += 0.06f;
+            float box[4] = {0.60f, 0.02f, 1.0f, 0.22f};
+            gfx_vr_menu_R_bbox(box);
+            const float m = 0.02f;
+            float bx0 = box[0] - m, by0 = box[1] - m, bx1 = box[2] + m, by1 = box[3] + m;
+            if (bx0 < 0.0f) bx0 = 0.0f;
+            if (by0 < 0.0f) by0 = 0.0f;
+            if (bx1 > 1.0f) bx1 = 1.0f;
+            if (by1 > 1.0f) by1 = 1.0f;
+            // OpenGL swapchain images: texel origin bottom-left, as the box is.
+            menuLayerR.subImage.imageRect.offset = {(int32_t)(bx0 * w), (int32_t)(by0 * h)};
+            menuLayerR.subImage.imageRect.extent = {(int32_t)((bx1 - bx0) * w), (int32_t)((by1 - by0) * h)};
+            const float width = (bx1 - bx0) * 0.6f;   // the whole capture would be 0.6 m wide
+            menuLayerR.size = {width, width * ((by1 - by0) * h) / ((bx1 - bx0) * w)};
+
+            // Place it from the raw right grip pose (view space, as the gun is
+            // placed: bondview2.c gevrGripAxes), 7 cm up along the fist's
+            // thumb side (grip -Z), turned to face the eyes so it reads from any
+            // hand angle. PD's facing test (mirrored gCtrl* conventions) hid it.
+            float gp[3], gq[4];
+            if (gevrVrGripPose(1, gp, gq)) {
+                const float x = gq[0], y = gq[1], z = gq[2], ww = gq[3];
+                const float upx = -(2.0f * (x * z + ww * y));
+                const float upy = -(2.0f * (y * z - ww * x));
+                const float upz = -(1.0f - 2.0f * (x * x + y * y));
+                const float px = gp[0] + upx * 0.07f, py = gp[1] + upy * 0.07f, pz = gp[2] + upz * 0.07f;
+                menuLayerR.pose.position = {px, py, pz};
+
+                // yaw/pitch so the quad's +Z points back at the eye (origin)
+                const float len = sqrtf(px * px + py * py + pz * pz);
+                if (len > 0.01f) {
+                    const float yaw = atan2f(-px, -pz);
+                    const float pitch = asinf(py / len);
+                    const XrQuaternionf qy = {0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f)};
+                    const XrQuaternionf qx = {sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f)};
+                    menuLayerR.pose.orientation = MultiplyQuaternions(qy, qx);
+                }
+                submitMenuR = (g_menuSwapchainR != XR_NULL_HANDLE) && gfx_vr_menu_R_dirty_and_clear();
+            }
         }
     } else {
         submitMenuR = false;
@@ -2116,12 +2149,12 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
 
     menuLayerH.pose.orientation = {0.f, 0.f, 0.f, 1.f};
 
-    // GoldenEye: 2 m out and 44 degrees tall. At PD's 0.8 m the health and
+    // GoldenEye: 1.4 m out and 44 degrees tall. At PD's 0.8 m the health and
     // armour arcs sat so close that, with the eyes on the world, each eye saw
     // them in a different place (doubled); further out they fuse, and a
     // fixed angular size keeps them clear of the lens edges.
     {
-        const float d = 2.0f;
+        const float d = 1.4f;   // 2 m read as a bit too far (user)
         const float hgt = 2.0f * d * tanf(22.0f * 3.14159265f / 180.0f);
         menuLayerH.pose.position = {0.f, 0.f, -d};
         menuLayerH.size = {hgt * XrAspect, hgt};

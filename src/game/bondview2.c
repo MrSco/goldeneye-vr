@@ -599,10 +599,12 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
         origin->z = pos[2];
     }
 
-    /* The barrel target, 1000 units out, and the spread point at its distance. */
-    far.x = pos[0] - back[0] * 1000.0f;
-    far.y = pos[1] - back[1] * 1000.0f;
-    far.z = pos[2] - back[2] * 1000.0f;
+    /* The barrel target, 1000 units out along the barrel from the muzzle (a
+     * target on the grip's line converged on the barrel only far away, and
+     * shots angled low at normal range), and the spread point at its distance. */
+    far.x = origin->x - back[0] * 1000.0f;
+    far.y = origin->y - back[1] * 1000.0f;
+    far.z = origin->z - back[2] * 1000.0f;
     dist = sqrtf(far.x * far.x + far.y * far.y + far.z * far.z);
 
     if (far.z < -1.0f && spreadpos != NULL)
@@ -634,6 +636,13 @@ s32 gevrStereoAimTarget(struct coord3d *target)
         return FALSE;
     }
 
+    /* from the muzzle when known, as the shot is (gevrStereoShot) */
+    if (s_gevrMuzzleValid[GUNRIGHT])
+    {
+        pos[0] = s_gevrMuzzle[GUNRIGHT][0];
+        pos[1] = s_gevrMuzzle[GUNRIGHT][1];
+        pos[2] = s_gevrMuzzle[GUNRIGHT][2];
+    }
     target->x = pos[0] - back[0] * 1000.0f;
     target->y = pos[1] - back[1] * 1000.0f;
     target->z = pos[2] - back[2] * 1000.0f;
