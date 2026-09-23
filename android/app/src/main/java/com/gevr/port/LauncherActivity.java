@@ -6,8 +6,13 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.appcompat.widget.SwitchCompat;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -19,11 +24,25 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 /**
- * Launcher that ensures the GoldenEye 007 USA ROM exists in
- * getExternalFilesDir(null)/data as ge.z64 or /sdcard/GEVR/ge.z64 before starting VR.
+ * The app's entry panel (a 2D window on the Quest): shows the GoldenEye 007 ROM
+ * in use (getExternalFilesDir(null)/data/ge.z64 or /sdcard/GEVR/ge.z64) and lets
+ * the player pick one, choose stereo VR or the flat screen, the right-stick turn
+ * style and the comfort vignette, then starts the immersive MainActivity.
+ *
+ * The choices live in the game's own settings file, data/goldeneye-vr.ini
+ * (port/vr/vr_settings.cpp reads it at start): PlayMode, SnapTurn and
+ * ComfortVignette are rewritten in place, everything else in the file is left
+ * alone. The vignette strength is remembered in the launcher's preferences so
+ * switching it off and on keeps the chosen level.
  */
 public class LauncherActivity extends AppCompatActivity {
     public static final String ROM_FILE_NAME = "ge.z64";
@@ -37,10 +56,20 @@ public class LauncherActivity extends AppCompatActivity {
 
     private int currentRomStatus = -1;
 
+    private static final String INI_NAME = "goldeneye-vr.ini";
+    private static final String PREFS = "launcher";
+    private static final String PREF_VIGNETTE_LEVEL = "vignetteLevel";
+
     private View missingRomView;
     private TextView infoText;
+    private TextView romPathText;
     private Button pickRomButton;
     private Button startButton;
+    private RadioGroup modeGroup;
+    private RadioGroup turnGroup;
+    private SwitchCompat vignetteSwitch;
+    private SeekBar vignetteSeek;
+    private TextView vignetteValue;
 
     private final ActivityResultLauncher<String[]> romPicker =
             registerForActivityResult(new ActivityResultContracts.OpenDocument(), this::onRomPicked);
@@ -57,10 +86,135 @@ public class LauncherActivity extends AppCompatActivity {
         pickRomButton = findViewById(R.id.pickRomButton);
         startButton = findViewById(R.id.startButton);
 
+        romPathText = findViewById(R.id.romPathText);
+        modeGroup = findViewById(R.id.modeGroup);
+        turnGroup = findViewById(R.id.turnGroup);
+        vignetteSwitch = findViewById(R.id.vignetteSwitch);
+        vignetteSeek = findViewById(R.id.vignetteSeek);
+        vignetteValue = findViewById(R.id.vignetteValue);
+
         pickRomButton.setOnClickListener(v -> openRomPicker());
         startButton.setOnClickListener(v -> onStartClicked());
 
+        loadOptionsIntoUi();
+        vignetteSwitch.setOnCheckedChangeListener((b, on) -> updateVignetteUi());
+        vignetteSeek.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int v, boolean fromUser) { updateVignetteUi(); }
+            @Override public void onStartTrackingTouch(SeekBar s) { }
+            @Override public void onStopTrackingTouch(SeekBar s) { }
+        });
+
         refreshRomStatusUi();
+    }
+
+    // ---------------------------------------------------------------- options
+
+    private File getIniFile() {
+        return new File(getRomDataDir(), INI_NAME);
+    }
+
+    /** key=value from goldeneye-vr.ini, or null. */
+    private List<String> readIniLines() throws IOException {
+        List<String> lines = new ArrayList<>();
+        File ini = getIniFile();
+        if (!ini.exists()) return lines;
+        try (BufferedReader r = new BufferedReader(new InputStreamReader(new FileInputStream(ini), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = r.readLine()) != null) lines.add(line);
+        }
+        return lines;
+    }
+
+    private String readIniValue(String key) {
+        try {
+            for (String line : readIniLines()) {
+                if (line.startsWith(key + "=")) {
+                    return line.substring(key.length() + 1).trim();
+                }
+            }
+        } catch (IOException ignored) {
+        }
+        return null;
+    }
+
+    private float readIniFloat(String key, float fallback) {
+        String v = readIniValue(key);
+        if (v == null) return fallback;
+        try {
+            return Float.parseFloat(v);
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    /** Rewrite (or add) the given keys in goldeneye-vr.ini, leaving every other line as it is. */
+    private void writeIniValues(String[] keys, String[] values) throws IOException {
+        File ini = getIniFile();
+        List<String> lines = readIniLines();
+        if (lines.isEmpty()) lines.add("[VR]");
+        for (int k = 0; k < keys.length; k++) {
+            boolean found = false;
+            for (int i = 0; i < lines.size(); i++) {
+                if (lines.get(i).startsWith(keys[k] + "=")) {
+                    lines.set(i, keys[k] + "=" + values[k]);
+                    found = true;
+                }
+            }
+            if (!found) lines.add(keys[k] + "=" + values[k]);
+        }
+        try (FileOutputStream out = new FileOutputStream(ini)) {
+            out.write((android.text.TextUtils.join("\n", lines) + "\n").getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
+    private void loadOptionsIntoUi() {
+        // Display: stereo unless the player last chose the screen.
+        String mode = readIniValue("PlayMode");
+        ((RadioButton) findViewById("0".equals(mode) ? R.id.modeScreen : R.id.modeStereo)).setChecked(true);
+
+        // Turning: 0 = smooth, else the snap angle.
+        int snap = Math.round(readIniFloat("SnapTurn", 0.0f));
+        int turnId = R.id.turnSmooth;
+        if (snap >= 80) turnId = R.id.turnSnap90;
+        else if (snap >= 40) turnId = R.id.turnSnap45;
+        else if (snap > 0) turnId = R.id.turnSnap30;
+        ((RadioButton) findViewById(turnId)).setChecked(true);
+
+        // Comfort vignette: the ini holds the strength in use (0 = off); the
+        // launcher remembers the last non-zero strength for the slider.
+        float vig = readIniFloat("ComfortVignette", 0.0f);
+        float remembered = getSharedPreferences(PREFS, MODE_PRIVATE).getFloat(PREF_VIGNETTE_LEVEL, 0.5f);
+        vignetteSwitch.setChecked(vig > 0.0f);
+        vignetteSeek.setProgress(Math.round((vig > 0.0f ? vig : remembered) * 100.0f));
+        updateVignetteUi();
+    }
+
+    private void updateVignetteUi() {
+        boolean on = vignetteSwitch.isChecked();
+        vignetteSeek.setEnabled(on);
+        vignetteSeek.setAlpha(on ? 1.0f : 0.4f);
+        vignetteValue.setText(on ? (vignetteSeek.getProgress() + "%") : "off");
+    }
+
+    private void saveOptionsFromUi() {
+        String playMode = modeGroup.getCheckedRadioButtonId() == R.id.modeScreen ? "0" : "1";
+
+        int turnId = turnGroup.getCheckedRadioButtonId();
+        String snap = "0.0";
+        if (turnId == R.id.turnSnap30) snap = "30.0";
+        else if (turnId == R.id.turnSnap45) snap = "45.0";
+        else if (turnId == R.id.turnSnap90) snap = "90.0";
+
+        float level = Math.max(0.05f, vignetteSeek.getProgress() / 100.0f);
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putFloat(PREF_VIGNETTE_LEVEL, level).apply();
+        String vig = vignetteSwitch.isChecked() ? String.format(Locale.US, "%.2f", level) : "0.00";
+
+        try {
+            writeIniValues(new String[]{"PlayMode", "SnapTurn", "ComfortVignette"},
+                           new String[]{playMode, snap, vig});
+        } catch (IOException e) {
+            Toast.makeText(this, "Could not save settings: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     @Override
@@ -107,22 +261,24 @@ public class LauncherActivity extends AppCompatActivity {
             infoText.setText("GoldenEye 007 ROM not found.\n"
                     + "Please select your USA GoldenEye 007 (.z64) ROM dump,\n"
                     + "or place it in /sdcard/GEVR/ge.z64.");
+            if (romPathText != null) romPathText.setText("");
             setStartEnabled(false);
             return;
         }
 
         File target = getActiveRomFile();
+        if (romPathText != null) romPathText.setText("In use: " + target.getAbsolutePath());
         int hashStatus = checkRomHash(target);
         currentRomStatus = hashStatus;
 
         switch (hashStatus) {
             case 0:
-                infoText.setText("ROM verified: USA GoldenEye 007 [!] (12 MB)\nReady to launch in Quest VR.");
+                infoText.setText("ROM verified: USA GoldenEye 007 [!] (12 MB)");
                 setStartEnabled(true);
                 break;
             default:
-                infoText.setText("ROM detected at " + target.getName() + " (" + (target.length() / 1024 / 1024) + " MB)\n"
-                        + "Hash differs from verified USA dump. You may still try launching.");
+                infoText.setText("ROM found (" + (target.length() / 1024 / 1024) + " MB), but it is not the verified USA dump.\n"
+                        + "You may still try launching.");
                 setStartEnabled(true);
                 break;
         }
@@ -203,6 +359,7 @@ public class LauncherActivity extends AppCompatActivity {
     }
 
     private void startGame() {
+        saveOptionsFromUi();
         android.util.Log.i("GEVR", "Start clicked, launching GEVR MainActivity in VR mode");
         Intent intent = new Intent(this, MainActivity.class);
         intent.putExtra(MainActivity.EXTRA_FROM_LAUNCHER, true);

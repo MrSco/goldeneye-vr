@@ -98,8 +98,12 @@ extern "C" void vrSettingsLoad(void)
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '[' || line[0] == '\n' || line[0] == ';' || line[0] == '#') continue;
 
-        // 1. Is it an integer (%d)?
-        if (sscanf(line, "%63[^=]=%d", key, &ival) == 2) {
+        // 1. Is it an integer (%d)? Not if the value has a decimal point: "%d"
+        // happily reads the 30 of "SnapTurn=30.0", and the float keys were
+        // then swallowed by this branch and never loaded (GoldenEye fix).
+        const char *eq = strchr(line, '=');
+        const bool looksFloat = eq != NULL && strchr(eq, '.') != NULL;
+        if (!looksFloat && sscanf(line, "%63[^=]=%d", key, &ival) == 2) {
             if (strcmp(key, "ManualReloading") == 0) VrManualReloading = ival != 0;
             else if (strcmp(key, "LaserDotForAll") == 0) VrlaserDotForALL = ival != 0;
             else if (strcmp(key, "SeatedMode") == 0) VrSeatedMode = ival != 0;
