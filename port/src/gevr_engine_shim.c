@@ -266,6 +266,25 @@ static void gevrVrFrameEnd(void)
 	}
 }
 
+static void gevrVrFrameBegin(void);
+
+/*
+ * The in-VR launcher (port/vr/vr_launcher.cpp) drives XR frames itself before
+ * the game boots: the same begin (which also brings the session up and loads
+ * goldeneye-vr.ini) and end as the frame pump. Begin returns whether a frame
+ * is open.
+ */
+int gevrVrPumpBegin(void)
+{
+	gevrVrFrameBegin();
+	return gevrVrFrameBegun;
+}
+
+void gevrVrPumpEnd(void)
+{
+	gevrVrFrameEnd();
+}
+
 static void gevrVrFrameBegin(void)
 {
 	if (!gevrVrInitDone) {

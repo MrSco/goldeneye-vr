@@ -1407,9 +1407,22 @@ extern "C" void vr_screen_recenter(void)
          yaw * 180.0f / 3.14159265f);
 }
 
+static bool vr_screen_present_common(unsigned int srcTex, bool is2d, int w, int h);
+
 // Copy layer 0 of the finished frame into the screen swapchain; the layer is
 // added to this frame's submission.
 extern "C" bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
+{
+    return vr_screen_present_common(srcArrayTex, false, w, h);
+}
+
+// The same from a plain 2D texture (the in-VR launcher, vr_launcher.cpp).
+extern "C" bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h)
+{
+    return vr_screen_present_common(srcTex, true, w, h);
+}
+
+static bool vr_screen_present_common(unsigned int srcArrayTex, bool is2d, int w, int h)
 {
     if (!g_frameStarted || srcArrayTex == 0 || w <= 0 || h <= 0) {
         return false;
@@ -1435,7 +1448,11 @@ extern "C" bool vr_screen_present(unsigned int srcArrayTex, int w, int h)
     if (!dstFbo) glGenFramebuffers(1, &dstFbo);
 
     glBindFramebuffer(GL_READ_FRAMEBUFFER, srcFbo);
-    glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, (GLuint)srcArrayTex, 0, 0);
+    if (is2d) {
+        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (GLuint)srcArrayTex, 0);
+    } else {
+        glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, (GLuint)srcArrayTex, 0, 0);
+    }
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstFbo);
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_screenImages[idx].image, 0);
     glDisable(GL_SCISSOR_TEST);
