@@ -887,11 +887,29 @@ s32 inputReadController(s32 idx, OSContPad *npad)
      * weapon logic or Perfect Dark extended buttons. */
     if (idx == 0) {
         memset(npad, 0, sizeof(*npad));
-        const bool menu = bossGetStageNum() == LEVELID_TITLE ||
-                (g_CurrentPlayer && g_CurrentPlayer->pause_state != 0);
+        /*
+         * gepc-ref D194/D238: hold the player on 1.2 Solitaire every poll.
+         * The mapping below only makes sense under that style, and the watch
+         * Controls page (options.c, sub_GAME_7F0A611C) or a save load can
+         * change it; after the watch the left stick became look and the right
+         * one did nothing. Re-asserting is plain field writes, as the setter is.
+         */
+        if (g_CurrentPlayer != NULL && cur_player_get_control_type() != CONTROLLER_CONFIG_SOLITARE) {
+            static s32 lastlogged = -1;
+            if (cur_player_get_control_type() != lastlogged) {
+                lastlogged = cur_player_get_control_type();
+                LOGI("input: control style %d -> Solitaire\n", lastlogged);
+            }
+            cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
+        }
+        const bool paused = g_CurrentPlayer && g_CurrentPlayer->pause_state != 0;
+        const bool menu = bossGetStageNum() == LEVELID_TITLE || paused;
         XrVector2f left = {0}, right = {0};
         get_2d_input(0, "thumbstick", &left);
         get_2d_input(1, "thumbstick", &right);
+        // Watch: grips are the N64 L/R triggers, which turn its pages.
+        if (paused && get_button_state(0, "grip")) npad->button |= L_TRIG;
+        if (paused && get_button_state(1, "grip")) npad->button |= R_TRIG;
         // Either trigger fires (the left one was unmapped).
         if (get_button_state(1, "trigger") || get_button_state(0, "trigger")) npad->button |= Z_TRIG;
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;
@@ -902,7 +920,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
         if (get_button_state(0, "x")) npad->button |= B_BUTTON;
         if (get_button_state(0, "y")) npad->button |= A_BUTTON;
-        XrVector2f look = menu ? left : right;
+        // In menus either stick navigates (whichever is pushed further).
+        XrVector2f look = right;
+        if (menu && left.x * left.x + left.y * left.y >= right.x * right.x + right.y * right.y)
+            look = left;
         npad->stick_x = inputAxisScale((s32)(look.x * 32767.0f),
                 cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]) / 256;
         npad->stick_y = inputAxisScale((s32)(look.y * 32767.0f),

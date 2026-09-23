@@ -1526,7 +1526,14 @@ Gfx *constructor_menu00_legalscreen(Gfx *DL)
     s32 i;
     u8 *txt;
     Mtxf tmpmtx;
+#ifdef GEVR
+    /* gepc-ref D50: the lookat below reads this before the function assigns it
+     * (the product is multiplied by 0.0f, so the N64 got away with any readable
+     * register). Seed it with the array it is given a few lines later. */
+    struct legal_screen_text *legal_text_ptr = legalpage_text_array;
+#else
     struct legal_screen_text *legal_text_ptr;
+#endif
 
     renderdata = legalscreen_MRD;
     
@@ -2343,7 +2350,27 @@ void interface_menu05_fileselect(void)
             DIFFICULTY highestdifficulty;
 
             modelGetXYExtents(walletinst[foldernum], &xmax, &xmin, &ymax, &ymin);
+#ifdef GEVR
+            /*
+             * gepc-ref D221: projectRectCornersTo2D takes {min, max} pairs. The
+             * N64 build happened to lay xmax after xmin (and ymax after ymin) on
+             * the stack; the decomp's four separate locals carry no such
+             * guarantee, so f[1] read whatever sat next to them and the folder
+             * hit band collapsed. Pass real pairs with the same values.
+             */
+            {
+                struct coord2d xminmax;
+                struct coord2d yminmax;
+
+                xminmax.f[0] = xmin;
+                xminmax.f[1] = xmax;
+                yminmax.f[0] = ymin;
+                yminmax.f[1] = ymax;
+                projectRectCornersTo2D(&folderpositions_camspace[foldernum], &xminmax, &yminmax, &folderbbox.right, &folderbbox.left);
+            }
+#else
             projectRectCornersTo2D(&folderpositions_camspace[foldernum], &xmin, &ymin, &folderbbox.right, &folderbbox.left);
+#endif
 
             if ((folderbbox.right <= cursor_h_pos)
                 && (cursor_h_pos <= folderbbox.left)
@@ -2534,8 +2561,19 @@ Gfx *constructor_menu05_fileselect(Gfx *DL)
 
     for (foldernum = FOLDER1; foldernum < MAX_FOLDER_COUNT; foldernum++)
     {
+#ifdef GEVR
+        /*
+         * gepc-ref D295/M-148: the decomp's sizes are smaller than what is
+         * written. difficultytext takes a whole difficulty name plus "\n"
+         * ("Secret Agent\n" is 14 bytes with its NUL) and overran into the
+         * locals after it. missiontext widened alongside, as the reference does.
+         */
+        char difficultytext[32]; // spD0 (decomp: [4])
+        char missiontext[32];    // spBC (decomp: [18]): "Mission <chapter>.<part>\n"
+#else
         char difficultytext[4]; // spD0
         char missiontext[18];   // spBC: "Mission <chapter>.<part>\n"
+#endif
         s32 padding3;
         struct coord3d * folderworldpos;
 
