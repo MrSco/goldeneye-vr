@@ -3553,3 +3553,23 @@ Dark leftovers; remove unused assets and purge them from history.
   instead of headset rounds. Unknowns to settle first: whether the
   depth-clamp hack (z *= 0.3) is active on this GLES, the sign/scale of
   P[3][2] in stereo vs the screen pass, and GoldenEye's actual decal offsets.
+
+## 61. v0.1.0 released
+
+- Build d1cdcdb, release-signed (C:/Users/Occor/.android/goldeneye-vr-release.jks,
+  android/keystore.properties - both outside git; back them up), APK
+  SHA-256 c9895581406d62da3ce9d2cd0517978e63b314bd01844f957f4c6c2ab3d300c9.
+  Content scan: no ROM byte runs beyond the stock DEFLATE tables; symbols
+  in libgevr.so are decomp function names only. Unstripped libgevr.so for
+  symbolising user crashes: keep app/build/intermediates/cxx/RelWithDebInfo
+  output of this commit (or rebuild d1cdcdb).
+- User wear-test before release: launcher, picker round trip, curved
+  pointer, Dam load, hand jitter gone at 120 Hz.
+- **Next release (user):**
+  1. Decal cropping: bullet holes and level decals (Dam concrete-divider
+     stripes) cropped along an angle when approached obliquely - happens in
+     the 2D screen mode too, so it is the plain game path and can be
+     reproduced from the PC (flat mode, gevr_input.txt fire/stick, metacam).
+     The stencil band from 57/60 is behind GEVR_DECAL_BAND.
+  2. Left hand: use the watch arm/wrist model from the watch pause
+     animation for the left controller instead of the mirrored fist.
