@@ -6408,6 +6408,23 @@ void gunDrawSight(Gfx **gdl) {
     f32 xypos[2];
     f32 halfedxy[2];
 
+#ifdef GEVR
+    {
+        /*
+         * Stereo: the gun aims where the controller points and shots leave
+         * its muzzle, so the flat screen-space crosshair only disagrees
+         * between the eyes (it is drawn at the HUD depth, not the target's).
+         * Keep it while zoomed (the sniper scope), where it is the sight.
+         */
+        extern s32 g_gevrStereo;
+
+        if (g_gevrStereo && g_CurrentPlayer->fovy >= 55.0f)
+        {
+            return;
+        }
+    }
+#endif
+
     if ((g_CurrentPlayer->gunsightmode == 0) && (g_CurrentPlayer->mpmenuon == FALSE)) {
         sp54 = *gdl;
         texSelect(&sp54, crosshairimage, 4, 0, 0);

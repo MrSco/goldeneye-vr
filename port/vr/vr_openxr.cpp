@@ -2089,6 +2089,22 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         menuLayerR.pose = res.pose;
         menuLayerR.size = {1.0f * XrAspect * 0.8f, 1.0f * 0.8f};
         submitMenuR = submitMenuR && res.facingPlayer;
+
+        // GoldenEye: the capture is the whole screen and the ammo count sits in
+        // its bottom-right corner (gunfire.c generate_ammo_total_microcode:
+        // x 190..320, y 188..236 of 320x240). Show just that corner, about
+        // 12 cm wide, just above the controller.
+        {
+            const float x0 = 190.0f / 320.0f, x1 = 1.0f;
+            const float y0 = 188.0f / 240.0f, y1 = 236.0f / 240.0f;
+            const int32_t w = (int32_t)g_menuSwapchainWidth, h = (int32_t)g_menuSwapchainHeight;
+            menuLayerR.subImage.imageRect.offset = {(int32_t)(x0 * w), (int32_t)((1.0f - y1) * h)};
+            menuLayerR.subImage.imageRect.extent = {(int32_t)((x1 - x0) * w), (int32_t)((y1 - y0) * h)};
+            const float width = 0.12f;
+            menuLayerR.size = {width, width * ((y1 - y0) * h) / ((x1 - x0) * w)};
+            menuLayerR.pose.position.y += 0.06f;
+        }
+        }
     } else {
         submitMenuR = false;
     }
@@ -2100,10 +2116,17 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     XrCompositionLayerQuad menuLayerH = vr_init_menu_quad(g_menuSwapchainH);
 
     menuLayerH.pose.orientation = {0.f, 0.f, 0.f, 1.f};
-    menuLayerH.pose.position    = {0.f, 0.f, -VrHudDistance};
 
-    // Size in meters — adjust as needed
-    menuLayerH.size = {1.0f * XrAspect, 1.0f};
+    // GoldenEye: 2 m out and 44 degrees tall. At PD's 0.8 m the health and
+    // armour arcs sat so close that, with the eyes on the world, each eye saw
+    // them in a different place (doubled); further out they fuse, and a
+    // fixed angular size keeps them clear of the lens edges.
+    {
+        const float d = 2.0f;
+        const float hgt = 2.0f * d * tanf(22.0f * 3.14159265f / 180.0f);
+        menuLayerH.pose.position = {0.f, 0.f, -d};
+        menuLayerH.size = {hgt * XrAspect, hgt};
+    }
 
     // --- Virtual screen (world-locked) ---
     // Once the screen exists it is submitted on every frame, including the

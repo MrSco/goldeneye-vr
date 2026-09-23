@@ -2082,8 +2082,8 @@ GLuint gfx_opengl_get_vr_menu_texture_R(void)
 }
 
 bool gfx_vr_menu_R_dirty_and_clear(void) {
+    // GoldenEye: kept until the next game frame, see gfx_vr_menu_H_dirty_and_clear.
     bool v = hud_R_was_drawn;
-    hud_R_was_drawn = false;
     return v;
 }
 
@@ -2190,6 +2190,7 @@ bool gfx_vr_menu_H_dirty_and_clear(void) {
 // decided by whether it captures one.
 void gfx_vr_hud_H_new_frame(void) {
     hud_H_was_drawn = false;
+    hud_R_was_drawn = false;
 }
 
 GLuint gfx_opengl_get_vr_menu_texture_H(void) {
