@@ -972,7 +972,7 @@ void QuatSlerp(const float a[4], const float b[4], float t, float out[4])
         return;
     }
 
-    float theta0 = acosf(dot);
+    float theta0 = (float)acos((double)dot);   // not the game's acosf (math_asinfacosf.c)
     float theta  = theta0 * t;
     float sinT0  = sinf(theta0);
     float sinT   = sinf(theta);
