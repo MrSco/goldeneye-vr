@@ -3513,3 +3513,27 @@ Dark leftovers; remove unused assets and purge them from history.
 - Clean-rebuild warning sweep: one more of the class, gunfire.c's KF7
   second muzzle flash scale kept in `((f32 *)stackpad2)[-8]` - now a local
   (GEVR). The remaining notes are always-true `if`s from decomp matching.
+
+## 59. Pointer only in menus, hands in the system menu, 120 Hz, launcher icon and grab
+
+- **Pointer scope**: the beam/dot draw only while something reads the
+  pointer (gevrVrScreenPointer marks the frame): the launcher and the front
+  end's folder cursor. Not over cutscenes, briefings, gameplay or the watch.
+- **Hands during the Quest menu**: the session loses focus, controllers stop
+  updating, and their last view-relative pose made the hands follow the head.
+  gevrVrSnapshotControllers now rebuilds the view pose from the last
+  play-space pose while unfocused (session state tracked in g_sessionFocused).
+- **Hand stutter**: 60 Hz game on a 72 Hz display repeats every sixth frame;
+  reprojection hides it for head turns, not for hands. XR_FB_display_refresh_rate
+  is enabled and 120 Hz requested when offered (goldeneye-vr.ini RefreshRate,
+  0 = runtime default): each game frame shows exactly twice. Needs a
+  wear-test for smoothness and battery/heat.
+- **Launcher**: icon in the header (assets/launcher_icon.rgba, 128x128 raw
+  RGBA from tools/make_icons.py, loaded with SDL_RWFromFile); both grips
+  grab the screen and the right stick sets distance/size, as in game.
+- **Bullet holes (open)**: the garbling is a wrong texture, not depth - the
+  bad frame shows the holes with stripes resembling the crates' texture. No
+  texture-pool overflow logged. Probe in: explosion.c tags the impact draws
+  (0x5659000x), gfx_pc.cpp logs per impact draw which TMEM tile/address is
+  sampled ("impact-probe:") and explosion.c logs which image was asked for.
+  Needs a reproduction with the log running.

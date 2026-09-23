@@ -1749,12 +1749,47 @@ extern "C" int gevrVrGripPosePlay(int hand, float pos[3], float quat[4])
 static XrPosef gCamCtrlPose[2];
 static bool gCamCtrlValid[2];
 
-extern "C" void gevrVrSnapshotControllers(void)
+/*
+ * While the session is not focused (the Quest menu is up) the runtime stops
+ * updating the controllers, and their last pose relative to the head made
+ * the hands follow the head around. Then the hands are put back from their
+ * last tracked pose in play space, relative to the current head, so they
+ * stay where they were in the room.
+ */
+extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
 {
     for (int h = 0; h < 2; h++) {
-        const XrQuaternionf& q = gControllerStates[h].controller_pose.orientation;
-        gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
-        gCamCtrlPose[h] = gControllerStates[h].controller_pose;
+        const bool tracked = focused && gControllerStates[h].is_active;
+        if (tracked) {
+            const XrQuaternionf& q = gControllerStates[h].controller_pose.orientation;
+            gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
+            gCamCtrlPose[h] = gControllerStates[h].controller_pose;
+            continue;
+        }
+        const XrPosef& play = gCtrlPosePlay[h];
+        const XrQuaternionf& pq = play.orientation;
+        if (pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f) {
+            continue;   // never tracked: keep what we had
+        }
+        // view = head^-1 * play
+        const XrQuaternionf hq = head->orientation;
+        const XrQuaternionf hc = { -hq.x, -hq.y, -hq.z, hq.w };
+        const float d[3] = { play.position.x - head->position.x, play.position.y - head->position.y, play.position.z - head->position.z };
+        // rotate d by hc: v' = v + 2w(q x v) + 2 q x (q x v)
+        const float qx = hc.x, qy = hc.y, qz = hc.z, qw = hc.w;
+        const float tx = 2.0f * (qy * d[2] - qz * d[1]);
+        const float ty = 2.0f * (qz * d[0] - qx * d[2]);
+        const float tz = 2.0f * (qx * d[1] - qy * d[0]);
+        XrPosef v;
+        v.position = { d[0] + qw * tx + (qy * tz - qz * ty),
+                       d[1] + qw * ty + (qz * tx - qx * tz),
+                       d[2] + qw * tz + (qx * ty - qy * tx) };
+        v.orientation = { qw * pq.x + qx * pq.w + qy * pq.z - qz * pq.y,
+                          qw * pq.y - qx * pq.z + qy * pq.w + qz * pq.x,
+                          qw * pq.z + qx * pq.y - qy * pq.x + qz * pq.w,
+                          qw * pq.w - qx * pq.x - qy * pq.y - qz * pq.z };
+        gCamCtrlPose[h] = v;
+        gCamCtrlValid[h] = true;
     }
 }
 

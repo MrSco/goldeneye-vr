@@ -38,6 +38,7 @@ int VrPlayMode = 1;
 
 /* GoldenEye: comfort vignette while moving in stereo, 0 = off .. 1. */
 float VrComfortVignette = 0.0f;
+int VrRefreshRate = 120;   /* Hz, 0 = the runtime's default (vr_openxr.cpp vr_request_refresh_rate) */
 
 /* --- Physical setup ------------------------------------------------------ */
 

@@ -365,6 +365,47 @@ static XrRuntimeType gActiveRuntime = XrRuntimeType::Unknown;
 bool is_meta_runtime = false;
 // GoldenEye: the curved virtual screen is a cylinder layer (VrScreenCurved).
 static bool g_cylinderSupported = false;
+static bool g_refreshRateSupported = false;
+/*
+ * Display refresh rate (VrRefreshRate, goldeneye-vr.ini; 0 = the runtime's).
+ * The game runs at 60 Hz. At the default 72 Hz every sixth displayed frame
+ * repeats a game frame; head turns are reprojected, but anything moving on
+ * its own - the hands and guns above all - judders at that 12 Hz beat. At
+ * 120 Hz each game frame is shown exactly twice.
+ */
+extern int VrRefreshRate;
+static void vr_request_refresh_rate(void)
+{
+    if (!g_refreshRateSupported || VrRefreshRate <= 0) {
+        return;
+    }
+    PFN_xrEnumerateDisplayRefreshRatesFB enumRates = nullptr;
+    PFN_xrRequestDisplayRefreshRateFB request = nullptr;
+    xrGetInstanceProcAddr(g_vrState.instance, "xrEnumerateDisplayRefreshRatesFB", (PFN_xrVoidFunction *)&enumRates);
+    xrGetInstanceProcAddr(g_vrState.instance, "xrRequestDisplayRefreshRateFB", (PFN_xrVoidFunction *)&request);
+    if (!enumRates || !request) {
+        return;
+    }
+    uint32_t n = 0;
+    enumRates(g_vrState.session, 0, &n, nullptr);
+    std::vector<float> rates(n);
+    enumRates(g_vrState.session, n, &n, rates.data());
+    bool have = false;
+    for (float r : rates) {
+        LOGI("display: %.0f Hz available", r);
+        if (fabsf(r - (float)VrRefreshRate) < 0.5f) have = true;
+    }
+    if (have) {
+        XrResult res = request(g_vrState.session, (float)VrRefreshRate);
+        LOGI("display: requested %d Hz (%d)", VrRefreshRate, (int)res);
+    } else {
+        LOGI("display: %d Hz not offered, keeping the default", VrRefreshRate);
+    }
+}
+
+// XR_SESSION_STATE_FOCUSED: the game has the controllers (not the system menu).
+static bool g_sessionFocused = false;
+extern "C" int gevrVrSessionFocused(void) { return g_sessionFocused ? 1 : 0; }
 
 /*
  * The game links its own atan2f (src/game/math_atan2f.c, range 0..2pi, as on
@@ -448,6 +489,11 @@ static std::vector<const char*> vr_enumerate_extensions()
         }
         if (std::strcmp(ext.extensionName, "XR_EXT_local_floor") == 0) {
             enabledExts.push_back("XR_EXT_local_floor");
+        }
+        if (std::strcmp(ext.extensionName, XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME) == 0) {
+            enabledExts.push_back(XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
+            g_refreshRateSupported = true;
+            LOGI("Extension enabled: %s", XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME);
         }
         if (std::strcmp(ext.extensionName, XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME) == 0) {
             enabledExts.push_back(XR_KHR_COMPOSITION_LAYER_CYLINDER_EXTENSION_NAME);
@@ -1669,9 +1715,14 @@ struct VrPointerHand {
 };
 static VrPointerHand g_ptr[2];
 static int g_ptrActive = 1;
+// The beam shows only while something reads the pointer (the launcher and
+// the front end's folders call gevrVrScreenPointer every frame): not over
+// cutscenes, briefings or the watch.
+static unsigned g_ptrFrame, g_ptrWantedFrame;
 
 static void vr_pointer_update(void)
 {
+    g_ptrFrame++;
     for (int hand = 0; hand < 2; hand++) {
         VrPointerHand &p = g_ptr[hand];
         float u, v, o[3];
@@ -1740,6 +1791,7 @@ static void vr_pointer_update(void)
 extern "C" int gevrVrScreenPointer(float *u, float *v)
 {
     static float lastU = -1.0f, lastV = -1.0f;
+    g_ptrWantedFrame = g_ptrFrame;
     const VrPointerHand &p = g_ptr[g_ptrActive];
     if (!p.hit) {
         lastU = lastV = -1.0f;
@@ -1788,11 +1840,12 @@ extern "C" void vr_pointer_draw(void)
 {
     const VrPointerHand &p0 = g_ptr[g_ptrActive];
     const bool grid = g_screenVisible && g_screenW != 0 && vr_pointer_grid_probe();
-    if (!g_screenVisible || (!p0.hit && !grid)) {
+    const bool wanted = g_ptrFrame - g_ptrWantedFrame < 20;
+    if (!g_screenVisible || ((!p0.hit || !wanted) && !grid)) {
         return;
     }
     VrPointerHand p = p0;
-    if (!p.hit) {
+    if (!p.hit || !wanted) {
         // grid only: a zero-length beam at the centre
         vr_screen_uv_to_world(0.5f, 0.5f, p.h);
         p.o[0] = p.h[0]; p.o[1] = p.h[1] + 0.001f; p.o[2] = p.h[2];
@@ -2064,13 +2117,18 @@ extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]); // vr_inpu
 extern "C" bool gfx_vr_menu_R_bbox(float out[4]);                     // gfx_opengl.cpp
 
 // The game sampled the head for this frame's camera (bondview2.c gevrStereoFrame).
-extern "C" void gevrVrSnapshotControllers(void);   // vr_input.cpp
+extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused);   // vr_input.cpp
 
 extern "C" void gevrVrSnapshotCameraPose(void)
 {
     g_cameraViews = g_frameViews;
     g_haveCameraViews = true;
-    gevrVrSnapshotControllers();
+    XrPosef head;
+    head.orientation = g_frameViews[0].pose.orientation;
+    head.position = { (g_frameViews[0].pose.position.x + g_frameViews[1].pose.position.x) * 0.5f,
+                      (g_frameViews[0].pose.position.y + g_frameViews[1].pose.position.y) * 0.5f,
+                      (g_frameViews[0].pose.position.z + g_frameViews[1].pose.position.z) * 0.5f };
+    gevrVrSnapshotControllers(&head, g_sessionFocused ? 1 : 0);
 }
 
 // gfx_run finished drawing a frame into the eye buffers: stereo (the camera
@@ -2878,6 +2936,7 @@ extern "C" void vr_poll_events(void)
                         (const XrEventDataSessionStateChanged*)baseEvent;
                 if (ssEvent->session != g_vrState.session) break;
                 LOGI("Session state changed: %d", (int)ssEvent->state);
+                g_sessionFocused = ssEvent->state == XR_SESSION_STATE_FOCUSED;
 
                 switch (ssEvent->state) {
                     case XR_SESSION_STATE_READY:
@@ -2888,6 +2947,7 @@ extern "C" void vr_poll_events(void)
                             if (br == XR_SUCCESS) {
                                 g_vrState.sessionRunning = true;
                                 LOGI("Session begun");
+                                vr_request_refresh_rate();
                             }
                         }
                         break;

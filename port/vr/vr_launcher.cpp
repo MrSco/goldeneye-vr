@@ -377,6 +377,23 @@ extern "C" void gevrLauncherRun(void)
     style.WindowRounding = 0.0f;
     ImGui_ImplOpenGL3_Init("#version 300 es");
 
+    // The header icon (android assets/launcher_icon.rgba, tools/make_icons.py).
+    GLuint iconTex = 0;
+    {
+        SDL_RWops *rw = SDL_RWFromFile("launcher_icon.rgba", "rb");
+        if (rw) {
+            std::vector<unsigned char> px(128 * 128 * 4);
+            if (SDL_RWread(rw, px.data(), 1, px.size()) == px.size()) {
+                glGenTextures(1, &iconTex);
+                glBindTexture(GL_TEXTURE_2D, iconTex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 128, 128, 0, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            }
+            SDL_RWclose(rw);
+        }
+    }
+
     GLuint tex = 0, fbo = 0;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
@@ -479,9 +496,39 @@ extern "C" void gevrLauncherRun(void)
                 scan();
             }
         }
+        // Both grips: the screen is in your hands, as in game (port/src/input.c):
+        // it follows them, and the right stick moves it nearer/farther
+        // (up/down) and makes it bigger/smaller (left/right).
+        const bool grabbing = get_button_state(0, "grip") && get_button_state(1, "grip");
+        vr_screen_grab(grabbing ? 1 : 0);
+        if (grabbing) {
+            XrVector2f r = {0, 0};
+            get_2d_input(1, "thumbstick", &r);
+            const float dt = io.DeltaTime > 0.1f ? 0.1f : io.DeltaTime;
+            const float dy = fabsf(r.y) > 0.2f ? r.y : 0.0f;
+            const float dx = fabsf(r.x) > 0.2f ? r.x : 0.0f;
+            if (dy != 0.0f || dx != 0.0f) {
+                const float width = 2.0f * VrScreenDistance * tanf(VrScreenFov * 0.5f * 3.14159265f / 180.0f);
+                float dist = VrScreenDistance + dy * 1.5f * dt;
+                if (dist < VR_SCREEN_DISTANCE_MIN) dist = VR_SCREEN_DISTANCE_MIN;
+                if (dist > VR_SCREEN_DISTANCE_MAX) dist = VR_SCREEN_DISTANCE_MAX;
+                float fov = 2.0f * (float)atan((double)(width / (2.0f * dist))) * 180.0f / 3.14159265f;
+                fov += dx * 25.0f * dt;
+                if (fov < VR_SCREEN_FOV_MIN) fov = VR_SCREEN_FOV_MIN;
+                if (fov > VR_SCREEN_FOV_MAX) fov = VR_SCREEN_FOV_MAX;
+                vr_screen_resize(dist, fov);
+            }
+        }
         {
             static bool pointing = false;
-            const bool navUsed = feedGamepad(io, pointing);
+            // no stick navigation while the stick is resizing the screen
+            const bool navUsed = grabbing ? false : feedGamepad(io, pointing);
+            if (grabbing) {
+                io.AddKeyEvent(ImGuiKey_GamepadDpadUp, false);
+                io.AddKeyEvent(ImGuiKey_GamepadDpadDown, false);
+                io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, false);
+                io.AddKeyEvent(ImGuiKey_GamepadDpadRight, false);
+            }
             pointing = feedPointer(io, navUsed);
         }
 
@@ -497,7 +544,13 @@ extern "C" void gevrLauncherRun(void)
         const ImVec4 good(0.5f, 0.9f, 0.5f, 1.0f);
         const ImVec4 bad(0.95f, 0.5f, 0.4f, 1.0f);
 
-        // header: title left, build right
+        // header: icon and title left, build right
+        if (iconTex) {
+            const float s = ImGui::GetTextLineHeight() * 2.2f;
+            ImGui::Image((ImTextureID)(intptr_t)iconTex, ImVec2(s, s));
+            ImGui::SameLine();
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (s - ImGui::GetTextLineHeight()) * 0.5f);
+        }
         ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "GOLDENEYE VR");
         {
             char build[96];
@@ -600,7 +653,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::EndTable();
         }
         ImGui::Separator();
-        ImGui::TextDisabled("In game: both grips grab the screen. Hold left stick click to bring it back.");
+        ImGui::TextDisabled("Both grips grab the screen (right stick: distance / size). Hold left stick click to recentre.");
 
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);
         if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))
@@ -648,6 +701,7 @@ extern "C" void gevrLauncherRun(void)
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui::DestroyContext();
+    if (iconTex) glDeleteTextures(1, &iconTex);
     glDeleteFramebuffers(1, &fbo);
     glDeleteTextures(1, &tex);
 }
