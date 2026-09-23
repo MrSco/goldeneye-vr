@@ -1415,6 +1415,10 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
     }
 
     gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
+    {
+        extern float gfx_decal_proj_z;   // gfx_opengl.cpp: the decal band
+        gfx_decal_proj_z = rsp.P_matrix[3][2];
+    }
     if (gevrMenuTrace && gevrMenuVertices == 0) {
         for (int i = 0; i < 4; ++i) {
             vr_log("menubg-rsp: matrix row%d M=(%g,%g,%g,%g) P=(%g,%g,%g,%g)", i,
