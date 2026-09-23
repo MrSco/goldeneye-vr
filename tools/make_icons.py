@@ -204,6 +204,16 @@ def main():
     save(art_icon(512).convert('RGB'), 'drawable-nodpi', 'ic_launcher_quest.png')
     save(art_icon(512).convert('RGB'), '@', 'android', 'app', 'src', 'main', 'play_store_512.png')
     save(art_banner(1280, 560).convert('RGB'), '@', 'docs', 'banner.png')
+    # the in-VR launcher's header icon: raw 128x128 RGBA, rounded corners
+    icon = art_icon(128)
+    mask = Image.new('L', (512, 512), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, 511, 511], radius=96, fill=255)
+    icon.putalpha(mask.resize((128, 128), Image.LANCZOS))
+    raw = os.path.join(ROOT, 'android', 'app', 'src', 'main', 'assets', 'launcher_icon.rgba')
+    os.makedirs(os.path.dirname(raw), exist_ok=True)
+    with open(raw, 'wb') as fh:
+        fh.write(icon.tobytes())
+    print('wrote', os.path.relpath(raw, ROOT), icon.size)
 
 
 if __name__ == '__main__':

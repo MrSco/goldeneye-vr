@@ -2229,6 +2229,9 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
 
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
     gDPSetColorDither(gdl++, G_CD_NOISE);
+#ifdef GEVR
+    gDPNoOpTag(gdl++, 0x56590000);   /* PORT probe: bullet impacts begin (gfx_pc.cpp) */
+#endif
 
     for (i = 0; i < BULLET_IMPACT_BUFFER_LEN; i++)
     {
@@ -2275,6 +2278,22 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
                         {
                             texSelect(&gdl, &impactimages[impact_type], g_ImpactTypes[impact_type].unk1, g_ImpactTypes[impact_type].unk2, 2U);
                             sp48 = impact_type;
+#ifdef GEVR
+                            {
+                                /* PORT probe: which texture the impact asked for */
+                                extern void sysLogPrintf(s32 level, const char *fmt, ...);
+                                static u32 logged;
+                                if (logged < 60) {
+                                    logged++;
+                                    sysLogPrintf(0 /* LOG_NOTE */, "impact-probe: type %d image %p %dx%d level %d fmt %d depth %d modes %d/%d",
+                                                 impact_type, (void *)(uintptr_t)impactimages[impact_type].index,
+                                                 impactimages[impact_type].width, impactimages[impact_type].height,
+                                                 impactimages[impact_type].level, impactimages[impact_type].format,
+                                                 impactimages[impact_type].depth,
+                                                 g_ImpactTypes[impact_type].unk1, g_ImpactTypes[impact_type].unk2);
+                                }
+                            }
+#endif
                         }
 
                         gSPVertex(gdl++, osVirtualToPhysical(g_BulletImpactBuffer[i].vertex_list), 4, 0);
@@ -2291,6 +2310,9 @@ Gfx *explosionRenderBulletImpactOnProp(Gfx *gdl, PropRecord *arg1, s32 arg2)
     }
 
     gDPSetColorDither(gdl++, G_CD_BAYER);
+#ifdef GEVR
+    gDPNoOpTag(gdl++, 0x56590001);   /* PORT probe: bullet impacts end */
+#endif
 
     return gdl;
 }

@@ -57,6 +57,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ScreenCurved=%d\n", VrScreenCurved);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
     fprintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
+    fprintf(f, "; Display refresh rate in Hz: 120 shows each 60 Hz game frame exactly twice\n");
+    fprintf(f, "; (smooth hands); 0 = the headset's default (72). Used when the headset offers it.\n");
+    fprintf(f, "RefreshRate=%d\n", VrRefreshRate);
     fprintf(f, "; Stereo: darken the edges of the view while moving or smooth-turning, to\n");
     fprintf(f, "; ease motion sickness. 0 = off, up to 1 = strongest.\n");
     fprintf(f, "ComfortVignette=%.2f\n", VrComfortVignette);
@@ -123,6 +126,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
+            else if (strcmp(key, "RefreshRate") == 0) VrRefreshRate = ival < 0 ? 0 : ival;
         }
             // 2. OTHERWISE, is it a floating-point number (%f)?
         else if (sscanf(line, "%63[^=]=%f", key, &fval) == 2) {
