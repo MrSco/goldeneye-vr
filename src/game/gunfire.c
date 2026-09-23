@@ -584,6 +584,38 @@ void gunUpdateAndFire(GUNHAND handnum)
     matrix_4x4_multiply_homogeneous_in_place(&tmpmtx, &rotmtx);
     matrix_4x4_align(&tmpmtx, 0.0f, gunofs.x - hand->field_A38, gunofs.y - hand->field_A3C, gunofs.z - hand->field_A40);
     matrix_4x4_multiply_homogeneous_in_place(&tmpmtx, &rotmtx);
+#ifdef GEVR
+    {
+        /*
+         * Stereo: the right controller places and turns the gun (bondview2.c
+         * gevrStereoGunMatrix) in place of the flat viewmodel's offset, sway,
+         * duck and crosshair lead, as Perfect Dark VR's useposrot branch does.
+         * A reload/throw keyframe animation still plays in the gun's own frame.
+         */
+        extern s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out);
+        Mtxf vrmtx;
+
+        if (gevrStereoGunMatrix(handnum, &vrmtx))
+        {
+            if (hand->field_92C != 0)
+            {
+                Mtxf anim;
+
+                matrix_4x4_copy(&hand->field_8EC, &anim);
+                matrix_4x4_multiply_homogeneous_in_place(&vrmtx, &anim);
+                matrix_4x4_copy(&anim, &vrmtx);
+            }
+
+            gunofs.x = vrmtx.m[3][0];
+            gunofs.y = vrmtx.m[3][1];
+            gunofs.z = vrmtx.m[3][2];
+            matrix_4x4_copy(&vrmtx, &rotmtx);
+            rotmtx.m[3][0] = 0.0f;
+            rotmtx.m[3][1] = 0.0f;
+            rotmtx.m[3][2] = 0.0f;
+        }
+    }
+#endif
     matrix_4x4_copy(&rotmtx, &gunmtx);
     matrix_4x4_set_position(&gunofs, &gunmtx);
     matrix_4x4_copy(&gunmtx, &hand->gunmtx_camspace);
@@ -4762,6 +4794,31 @@ void caclulate_gun_crosshair_position_rotation(f32 turn_x, f32 turn_y, f32 guncr
 
     screen_width = getPlayer_c_screenwidth();
     screen_height = getPlayer_c_screenheight();
+
+#ifdef GEVR
+    {
+        /*
+         * Stereo: aim where the right controller points (Perfect Dark VR
+         * bgunSwivel projects the barrel ray to crosspos the same way). The
+         * crosshair, the gun's aim point and every shot through
+         * bullet_path_from_screen_center follow this screen position.
+         */
+        extern s32 gevrStereoAimTarget(coord3d *target);
+
+        if (gevrStereoAimTarget(&coords))
+        {
+            transform3Dto2DCoords(&coords, &g_CurrentPlayer->crosshair_angle);
+            g_CurrentPlayer->field_FFC.x = g_CurrentPlayer->crosshair_angle.f[0];
+            g_CurrentPlayer->field_FFC.y = g_CurrentPlayer->crosshair_angle.f[1];
+            g_CurrentPlayer->crosshair_x_pos = 0.0f;
+            g_CurrentPlayer->crosshair_y_pos = 0.0f;
+            g_CurrentPlayer->gun_azimuth_angle = 0.0f;
+            g_CurrentPlayer->gun_azimuth_turning = 0.0f;
+            sub_GAME_7F067AB4(&coords);
+            return;
+        }
+    }
+#endif
 
     if (guncrossdamp != g_CurrentPlayer->guncrossdamp)
     {
