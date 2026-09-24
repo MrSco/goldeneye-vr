@@ -1948,6 +1948,16 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     renderdata = (ModelRenderData){0};
     renderdata.zbufferenabled = TRUE;
     renderdata.flags = 3;
+#ifdef GEVR
+    /*
+     * The right fist first (issue #19): a gadget held in it does not write
+     * depth, so a fist drawn after it painted over the gadget wherever the two
+     * overlapped - from outside, the hand behind the mine showed through it
+     * and it looked hollow. Drawn first, the fist is hidden only where the
+     * gadget is in front.
+     */
+    gdl = gevrRenderRightFist(gdl, &renderdata);
+#endif
  
     for (handnum = 0; handnum != 2; handnum++) 
     {
@@ -2071,13 +2081,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gDPNoOpTag(renderdata.gdl++, 0x565B0001); /* VR_CULL_OFF_END */
         }
-        /*
-         * left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen:
-         * gunUpdateAndFire). A shown gadget culls the other way round as well:
-         * held, its outward face was the one culled and it looked hollow (#19),
-         * whichever way it faced - so the two cancel in left-handed mode.
-         */
-        if (gevrHandsMirrored() != (g_gevrStereo && s_gevrHiddenShown[handnum]))
+        /* left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen: gunUpdateAndFire) */
+        if (gevrHandsMirrored())
         {
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
@@ -2085,7 +2090,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         subdraw(&renderdata, &handptr->weaponModel);
         gdl = renderdata.gdl;
 #ifdef GEVR
-        if (gevrHandsMirrored() != (g_gevrStereo && s_gevrHiddenShown[handnum]))
+        if (gevrHandsMirrored())
         {
             gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
         }
@@ -2121,7 +2126,6 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gdl = gevrRenderLeftArm(gdl, &renderdata);
         }
-        gdl = gevrRenderRightFist(gdl, &renderdata);
     }
 #endif
     *gdlptr = gdl;

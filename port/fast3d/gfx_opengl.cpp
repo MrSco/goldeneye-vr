@@ -2219,10 +2219,18 @@ extern "C" bool gfx_vr_menu_R_bbox(float out[4])
     return s_gevrRBoxValid;
 }
 
+extern "C" s32 gevrAimModeOn(void);   /* bondview2.c */
 static void gevr_measure_R_capture(void)
 {
     static unsigned n;
-    if ((n++ % 30) != 0) return;
+    /* Aiming moves the counter (the ammo box shifts right in the capture): on
+     * a change, measure at once and for a few frames after, or the crop cut the
+     * digits for up to half a second - "the panel glitches and moves". */
+    static int lastAim = -1, burst;
+    const int aim = gevrAimModeOn() ? 1 : 0;
+    if (aim != lastAim) { lastAim = aim; burst = 4; }
+    if (burst > 0) burst--;
+    else if ((n++ % 30) != 0) return;
 
     const int S = 128;
     if (s_gevrRBoxFbo == 0) {
