@@ -115,6 +115,10 @@ extern void gfx_vr_hud_capture_end_R(void);
 // turns into front-face culling (the arm showed only its inside faces).
 #define VR_CULL_MIRROR_BEGIN 0x56580000
 #define VR_CULL_MIRROR_END   0x56580001
+// GoldenEye: between these, fast3d draws both faces (the stereo first-person
+// hands, guns and watch arm, as Perfect Dark VR draws its gun models).
+#define VR_CULL_OFF_BEGIN 0x565B0000
+#define VR_CULL_OFF_END   0x565B0001
 extern void gfx_vr_hud_capture_begin_H(void);
 extern void gfx_vr_hud_capture_end_H(void);
 
