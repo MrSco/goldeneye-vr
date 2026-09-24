@@ -3984,3 +3984,8 @@ Dark leftovers; remove unused assets and purge them from history.
   Gothic on a dark box, in stereo on the head-locked HUD panel, plus mode
   and level.
 - Built, installed; not seen on device. Launcher fit (two more rows) unchecked.
+- **v0.1.5 published** 2026-09-24: https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.5
+  (tag at ac96a55 = build commit; GoldenEye-VR-v0.1.5.apk SHA-256
+  aa3d0e0867fe4351db08674c9efda86074cf1a977056213ff87f7ee30ce6acf1; same key).
+  #7 closed with the cause, the settings and the run rates (120 Hz display,
+  60 fps game, ~1832x1920 per eye on Quest 3). No open issues.
