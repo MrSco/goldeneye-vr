@@ -68,22 +68,15 @@ public class MainActivity extends SDLActivity {
      */
     public void restartToLauncher() {
         runOnUiThread(() -> {
-            try {
-                Intent again = getPackageManager().getLaunchIntentForPackage(getPackageName());
-                if (again == null) {
-                    again = new Intent(this, MainActivity.class);
-                }
-                again.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                android.app.PendingIntent pi = android.app.PendingIntent.getActivity(this, 0x16, again,
-                        android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_CANCEL_CURRENT);
-                android.app.AlarmManager am = (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
-                am.set(android.app.AlarmManager.RTC, System.currentTimeMillis() + 800, pi);
-                Log.i(TAG, "Restarting into the launcher");
-            } catch (Exception e) {
-                Log.e(TAG, "Could not schedule the restart", e);
-            }
-            finishAndRemoveTask();
-            Runtime.getRuntime().exit(0);
+            // RelaunchActivity (its own process) kills this one and starts the
+            // app again. An exit here hung on native threads until Android's
+            // destroy timeout, and an alarm-started relaunch is refused once the
+            // app is in the background (API 34): Quest sat in its loading space.
+            Log.i(TAG, "Restarting into the launcher");
+            Intent phoenix = new Intent(this, RelaunchActivity.class);
+            phoenix.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            phoenix.putExtra(RelaunchActivity.EXTRA_PID, android.os.Process.myPid());
+            startActivity(phoenix);
         });
     }
 

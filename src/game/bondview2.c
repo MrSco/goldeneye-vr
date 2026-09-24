@@ -10448,11 +10448,12 @@ static Gfx *gevrDrawStats(Gfx *gdl)
 /*
  * Issue #16: holding the menu button in a level asks whether to go back to the
  * launcher (port/src/input.c). Drawn like the stats readout, in the middle of
- * the view (the head-locked HUD panel in stereo).
+ * the view (the head-locked HUD panel in stereo), at the end of every frame
+ * (lv.c lvlRender): menus, the watch and play alike.
  */
 extern int gevrReturnPrompt;
 
-static Gfx *gevrDrawReturnPrompt(Gfx *gdl)
+Gfx *gevrDrawReturnPrompt(Gfx *gdl)
 {
     const char *text = "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED";
     s32 x, y, w = 0, h = 0;
@@ -10678,7 +10679,6 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     gdl = sub_GAME_7F08AAE8(gdl);
 #ifdef GEVR
     gdl = gevrDrawStats(gdl);
-    gdl = gevrDrawReturnPrompt(gdl);
 #endif
     gunDrawSight(&gdl);
 #ifdef GEVR
