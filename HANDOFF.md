@@ -3801,3 +3801,19 @@ Dark leftovers; remove unused assets and purge them from history.
   item .. stereo pos .. vel .. floor .. player .. move .. scale ..") and
   when each reaches its floor ("after N ticks"). Remove once explained.
 - Built, installed.
+
+## 71. Stereo view units vs the world: throws and casings from the real gun
+
+- User: PP7 and AK casings show now; in stereo way too small and leaving
+  down-left of the gun. The probe explained it:
+  - flat AK: spawn 35 units from the player, velocity ~(-0.8, 1.75, -1.1),
+    so currentPlayerGetViewToWorldMtxf has unit rows (no scale);
+  - stereo: spawn ~9 units from the player - a fifth of the ~40 cm to the gun.
+- Stereo view space is GEVR_UNITS_PER_METRE x D_800364CC units to the metre
+  (5 cm each on the Dam); the view-to-world matrix does not undo that. The
+  stereo throw matrix now divides the gun's eye offset by D_800364CC before
+  going to world, and s_gevrThrowScale is the row length over D_800364CC
+  (0.17 / 0.2 = 0.85) - casings sized and flung relative to the real gun.
+  Thrown gadgets also start at the hand's true position now.
+- Probe from 70 still in (first 6 casings per mode) to confirm; then remove.
+- Built, installed.
