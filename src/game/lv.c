@@ -718,7 +718,10 @@ Gfx* lvlRender(Gfx* DL)
 
                 if (g_gevrStereo)
                 {
-                    viSetFovY(gevrVrFov() * (g_CurrentPlayer->fovy / 60.0f));
+                    /* not the watch's zoom onto its face: that zoomed the whole world */
+                    f32 zoom = g_CurrentPlayer->watch_animation_state != 0 ? 1.0f : g_CurrentPlayer->fovy / 60.0f;
+
+                    viSetFovY(gevrVrFov() * zoom);
                     viSetAspect(gevrVrAspect());
                 }
             }

@@ -44,6 +44,7 @@ extern int gevrVrScreenMode;      /* gfx_pc.cpp: this frame is on the virtual sc
 extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
 extern void vrSettingsSave(void);
 extern int gevrVrWatchGesture(void); /* vr_input.cpp */
+extern s32 g_gevrWatchGesturePending; /* bondview2.c */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
 float gevrVrTurnAxis(void) { return gevrTurnAxis; }
@@ -1028,6 +1029,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     pressuntil = now + 100;
                     armed = false;
                     LOGI("input: watch gesture -> pause\n");
+                    g_gevrWatchGesturePending = 1; /* bondview2.c: skip the raise on screen */
                 }
             } else {
                 heldsince = 0;
