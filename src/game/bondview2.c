@@ -864,6 +864,14 @@ void gevrStereoItemPose(s32 item, Mtxf *m)
 static s32 s_gevrMuzzleValid[2];
 static f32 s_gevrMuzzle[2][3];          /* camera space, from the flash node */
 
+extern int VrLeftHandedMode;     /* vr_input.cpp (goldeneye-vr.ini LeftHandedMode) */
+
+/* stereo hand models are drawn mirrored (left-handed mode): cull the other face */
+s32 gevrStereoMirrored(void)
+{
+    return g_gevrStereo && VrLeftHandedMode;
+}
+
 s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
 {
     f32 pos[3], right[3], up[3], back[3];
@@ -893,13 +901,21 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
         }
     }
 
+    /*
+     * Left-handed mode (issue #6): the gun hand is the left controller
+     * (vr_input.cpp gevrPhysHand) and the model is mirrored across the
+     * holder's left/right, as GoldenEye mirrors a dual-wielded left gun
+     * (row 0 negated): its right hand becomes a left hand. The draw swaps
+     * face culling to match (VR_CULL_MIRROR, gevrStereoMirrored), and the
+     * sideways trim mirrors with it.
+     */
     for (i = 0; i < 3; i++)
     {
-        out->m[0][i] = -right[i] * k;   /* model +X: the gun's left */
+        out->m[0][i] = (VrLeftHandedMode ? right[i] : -right[i]) * k;   /* model +X: the gun's left */
         out->m[1][i] = up[i] * k;
         out->m[2][i] = -back[i] * k;    /* model +Z: along the barrel */
         /* fist on the controller, then the ini trim, in the gun's own right/up/back */
-        out->m[3][i] = pos[i] + (VrGunOffX * right[i] + VrGunOffY * up[i]
+        out->m[3][i] = pos[i] + ((VrLeftHandedMode ? -VrGunOffX : VrGunOffX) * right[i] + VrGunOffY * up[i]
                                  + (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * back[i]) * cm;
     }
     out->m[0][3] = out->m[1][3] = out->m[2][3] = 0.0f;
@@ -1104,6 +1120,15 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     z[0] = x[1] * y[2] - x[2] * y[1];
     z[1] = x[2] * y[0] - x[0] * y[2];
     z[2] = x[0] * y[1] - x[1] * y[0];
+    if (VrLeftHandedMode)
+    {
+        /* the right wrist: the same frame reflected across left/right, so
+         * the left arm model comes out as a right arm, face to the holder's right */
+        for (i = 0; i < 3; i++)
+        {
+            y[i] = right[i];
+        }
+    }
     {
         /* the model's scale in the wanted frame: root's row length times the calibration */
         f32 rs = sqrtf(matrices[0].m[0][0] * matrices[0].m[0][0] + matrices[0].m[0][1] * matrices[0].m[0][1] + matrices[0].m[0][2] * matrices[0].m[0][2]);
@@ -1139,6 +1164,13 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
         f32 minutesAngle = (((-((f32)minutes)) * M_TAU_F) / 60.0f) + (secondsAngle / 60.0f);
         f32 hoursAngle = (((-((f32)((total_seconds / 3600) % 12))) * M_TAU_F) / 12.0f) + (minutesAngle / 12.0f) + (secondsAngle / 720.0f);
         Mtxf hand;
+        if (VrLeftHandedMode)
+        {
+            /* mirrored, the hands would run backwards */
+            secondsAngle = -secondsAngle;
+            minutesAngle = -minutesAngle;
+            hoursAngle = -hoursAngle;
+        }
         while (secondsAngle < 0.0f) secondsAngle += M_TAU_F;
         while (minutesAngle < 0.0f) minutesAngle += M_TAU_F;
         while (hoursAngle < 0.0f) hoursAngle += M_TAU_F;
@@ -1164,10 +1196,18 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
                               | ((u32)g_CurrentPlayer->tileColor.b << 8);
     renderdata.cullmode = CULLMODE_NONE;
     matrix_4x4_7F058C64();
+    if (VrLeftHandedMode)
+    {
+        gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
+    }
     gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
     subdraw(&renderdata, &s_gevrWatchModel);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
+    if (VrLeftHandedMode)
+    {
+        gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
+    }
     bondviewTransformManyPosToViewMatrix(s_gevrWatchModel.render_pos, n);
     matrix_4x4_7F058C88();
     *drawn = TRUE;

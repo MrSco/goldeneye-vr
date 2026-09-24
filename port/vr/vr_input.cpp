@@ -734,7 +734,9 @@ extern "C" bool get_button_state(int hand_index, const char* button_name) {
 extern "C" bool get_2d_input(int hand_index, const char* input_name, XrVector2f* value) {
     if (hand_index < 0 || hand_index > 1 || !value) return false;
 
-    if(VrSwapJoysticks){
+    // GoldenEye: left-handed mode moves with the right stick and turns with
+    // the left, as the off hand moves the player; SwapJoysticks inverts that.
+    if ((VrSwapJoysticks != 0) != (VrLeftHandedMode != 0)) {
         hand_index = 1 - hand_index;
     }
 
@@ -1664,9 +1666,18 @@ void example_vr_input_usage() {
 // Returns 1 while the pose holds. Nothing here is from Perfect Dark VR; GEVR PC
 // lists a forearm watch as wanted but not built (NOTE-ARM-WATCH-PAUSE-PANEL).
 // ============================================================================
+/*
+ * GoldenEye: the stereo code asks for hands by role - 0 the off hand (watch,
+ * left arm), 1 the gun hand - as Perfect Dark VR's get_button_state and
+ * gCtrl* poses do. LeftHandedMode (issue #6) swaps which physical controller
+ * plays each role; these functions read gControllerStates / gCtrlPosePlay /
+ * the camera snapshot, which are indexed by physical controller.
+ */
+static inline int gevrPhysHand(int hand) { return VrLeftHandedMode ? 1 - hand : hand; }
+
 extern "C" int gevrVrWatchGesture(void)
 {
-    const ControllerInputState& st = gControllerStates[0];
+    const ControllerInputState& st = gControllerStates[gevrPhysHand(0)];
     if (!st.is_active) {
         return 0;
     }
@@ -1687,11 +1698,13 @@ extern "C" int gevrVrWatchGesture(void)
 
     const float ahead = -pz / dist;          // cos of the angle from the view direction
 
-    // The grip's -X axis in view space: q * (-1,0,0) * q^-1.
+    // The grip's -X axis in view space: q * (-1,0,0) * q^-1. The back of a
+    // right hand (left-handed mode: the watch on the right wrist) is +X.
     const float qx = pose.orientation.x, qy = pose.orientation.y, qz = pose.orientation.z, qw = pose.orientation.w;
-    const float ax = -(1.0f - 2.0f * (qy * qy + qz * qz));
-    const float ay = -(2.0f * (qx * qy + qw * qz));
-    const float az = -(2.0f * (qx * qz - qw * qy));
+    const float side = VrLeftHandedMode ? 1.0f : -1.0f;
+    const float ax = side * (1.0f - 2.0f * (qy * qy + qz * qz));
+    const float ay = side * (2.0f * (qx * qy + qw * qz));
+    const float az = side * (2.0f * (qx * qz - qw * qy));
     const float facing = (ax * -px + ay * -py + az * -pz) / dist;
 
     const bool lookingDown = lookY < -0.34f;
@@ -1722,7 +1735,7 @@ extern "C" int gevrVrGripPosePlay(int hand, float pos[3], float quat[4])
     if (hand < 0 || hand > 1) {
         return 0;
     }
-    const XrPosef& pose = gCtrlPosePlay[hand];
+    const XrPosef& pose = gCtrlPosePlay[gevrPhysHand(hand)];
     const XrQuaternionf& q = pose.orientation;
     if (q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f) {
         return 0;
@@ -1832,10 +1845,10 @@ extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4])
     if (vr_fake_grip(hand, pos, quat)) {
         return 1;
     }
-    if (!gCamCtrlValid[hand]) {
+    if (!gCamCtrlValid[gevrPhysHand(hand)]) {
         return gevrVrGripPose(hand, pos, quat);
     }
-    const XrPosef& pose = gCamCtrlPose[hand];
+    const XrPosef& pose = gCamCtrlPose[gevrPhysHand(hand)];
     pos[0] = pose.position.x;
     pos[1] = pose.position.y;
     pos[2] = pose.position.z;
@@ -1851,7 +1864,7 @@ extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4])
     if (hand < 0 || hand > 1) {
         return 0;
     }
-    const XrPosef& pose = gControllerStates[hand].controller_pose;
+    const XrPosef& pose = gControllerStates[gevrPhysHand(hand)].controller_pose;
     const XrQuaternionf& q = pose.orientation;
     if (q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f) {
         return 0;

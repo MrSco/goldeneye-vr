@@ -340,6 +340,7 @@ void gunFireTankShell(s32 handnum)
  * and watch-lowering timings read it.
  */
 extern s32 g_gevrStereo;
+extern s32 gevrStereoMirrored(void);
 extern s32 gevrStereoItemShown(s32 item);
 extern void gevrStereoItemPose(s32 item, Mtxf *m);
 static s32 s_gevrHiddenShown[2];
@@ -1806,8 +1807,16 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     renderdata.zbufferenabled = 1;
 
     matrix_4x4_7F058C64();
+    if (gevrStereoMirrored())
+    {
+        gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
+    }
     subdraw(&renderdata, &s_gevrFistModel);
     gdl = renderdata.gdl;
+    if (gevrStereoMirrored())
+    {
+        gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
+    }
     bondviewTransformManyPosToViewMatrix(s_gevrFistModel.render_pos, s_gevrFistHeader.numMatrices);
     matrix_4x4_7F058C88();
 
@@ -1867,13 +1876,21 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
      * mirror inverts every winding, so their culling would keep only the
      * inside faces (a hollow, inside-out arm). fast3d swaps front and back
      * between these tags (VR_CULL_MIRROR_BEGIN/END, port/vr/vr_openxr.h). */
-    gDPNoOpTag(renderdata.gdl++, 0x56580000);
+    /* (left-handed mode: the gun matrix is already mirrored, so this second
+     * mirror gives a plain right fist on the right controller - no swap) */
+    if (!gevrStereoMirrored())
+    {
+        gDPNoOpTag(renderdata.gdl++, 0x56580000);
+    }
     gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
     renderdata.cullmode = CULLMODE_NONE;
     subdraw(&renderdata, &s_gevrFistModel);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
-    gDPNoOpTag(gdl++, 0x56580001);
+    if (!gevrStereoMirrored())
+    {
+        gDPNoOpTag(gdl++, 0x56580001);
+    }
     bondviewTransformManyPosToViewMatrix(s_gevrFistModel.render_pos, s_gevrFistHeader.numMatrices);
     matrix_4x4_7F058C88();
 
@@ -2005,9 +2022,22 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             }
         }
  
+#ifdef GEVR
+        /* left-handed mode mirrors the stereo gun matrix (bondview2.c) */
+        if (gevrStereoMirrored())
+        {
+            gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
+        }
+#endif
         subdraw(&renderdata, &handptr->weaponModel);
         gdl = renderdata.gdl;
- 
+#ifdef GEVR
+        if (gevrStereoMirrored())
+        {
+            gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
+        }
+#endif
+
         if (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0) 
         {
             gSPClearGeometryMode(gdl++, G_CULL_BOTH);

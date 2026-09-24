@@ -3918,3 +3918,25 @@ Dark leftovers; remove unused assets and purge them from history.
   (tag at c6e2ba8 = build commit; GoldenEye-VR-v0.1.3.apk SHA-256
   1443ef85722ed515726d7b16f18d8ea84c12e1fdd6aebcc5614ec5d2606d2246; same key).
   #2 and #3 closed with replies. Open: #6 left-handed mode (next), decals.
+
+## 76. Left-handed mode (issue #6)
+
+- Perfect Dark VR's LeftHandedMode already swapped roles at the input layer
+  (get_button_state hand index + A/B<->X/Y, gCtrl* poses, haptics). The
+  GoldenEye stereo code reads its own functions (vr_input.cpp
+  gevrVrGripPose / GripPoseCamera / GripPosePlay / WatchGesture), which
+  indexed physical controllers, so the ini setting did nothing (as the
+  reporter found). They now take a role (0 off hand, 1 gun hand) mapped by
+  gevrPhysHand; the watch gesture checks the back of a right hand (+X).
+- Sticks: left-handed moves with the right stick (get_2d_input swaps when
+  SwapJoysticks != LeftHandedMode, so SwapJoysticks can undo it).
+- Models: gevrStereoGunMatrix mirrors row 0 (as GoldenEye mirrors a dual left
+  gun) and VrGunOffX; every stereo hand draw swaps face culling with
+  VR_CULL_MIRROR while gevrStereoMirrored(): the gun/gadget viewmodel, the
+  right fist; the left-arm fist fallback is mirrored twice (plain right fist)
+  so it skips the swap; the watch arm's frame is reflected (y = +right) onto
+  the right wrist, culling swapped, clock hands negated so they run clockwise.
+  Dual-wield: GoldenEye's own left-gun mirror stacks on ours (net plain) and
+  its cullmode compensation stacks on our swap - consistent.
+- Launcher: "Left-handed" checkbox (COMFORT column), saved with the ini.
+- Built, installed; not seen on device (user to test).
