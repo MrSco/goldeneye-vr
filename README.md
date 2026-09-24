@@ -47,7 +47,7 @@
 | Smooth or snap turning, and an optional **comfort vignette** for motion sickness. | |
 
 Also:
-- An **in-VR launcher**: ROM check, display mode, screen shape and size, turning and comfort.
+- An **in-VR launcher**: ROM check, display mode, screen shape and size, turning, comfort, and a **left-handed** mode.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
 
@@ -155,6 +155,8 @@ Install the new APK the same way. Your ROM and settings stay where they are.
 | **Hold right stick click** (1 s) | Switch to the virtual screen |
 
 Real-world movement works too: lean around corners, duck, and step.
+
+**Left-handed?** Tick **Left-handed** in the launcher. The gun goes in your left hand and the watch on your right wrist, and the sticks and face buttons swap sides. The **☰ Menu** button stays on the left controller: the right one is Meta's system button.
 
 ### Virtual screen (flat play, menus and cutscenes)
 
