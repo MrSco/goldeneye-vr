@@ -1023,6 +1023,59 @@ void game_options_fx_volume_navigation(void)
 }
 
 
+#ifdef GEVR
+/*
+ * Ported from gepc-ref D118d + D261 (issue #13, "the threshold between moving
+ * down one and moving down five is very small"): the watch lists' N64 "slam
+ * the stick" fast scroll (stick past 0x46) steps one item EVERY frame while
+ * held. A real N64 stick rarely gets there; a Quest thumbstick maps to +-127
+ * and passes it at about half travel, so the list ran away. The level check
+ * is dropped; on the inventory a stick held past the smooth-scroll band
+ * (0x1f..0x45, untouched) instead repeats one item every GEVR_WATCH_NAV_RATE
+ * frames after GEVR_WATCH_NAV_DELAY. The first press still steps once through
+ * the latched path (watch_stick_y_pressed_*).
+ */
+#define GEVR_WATCH_NAV_DELAY 15
+#define GEVR_WATCH_NAV_RATE  6
+static int s_watchNavHoldDir = 0;    /* -1 up, +1 down, 0 none */
+static int s_watchNavHoldFrames = 0;
+
+static s32 gevrWatchStickFastStep(void)
+{
+    int dir = 0;
+
+    if (joyGetStickY(PLAYER_1) >= 0x46)
+    {
+        dir = -1;
+    }
+    else if (joyGetStickY(PLAYER_1) <= -0x45)
+    {
+        dir = 1;
+    }
+
+    if (dir != s_watchNavHoldDir)
+    {
+        s_watchNavHoldDir = dir;
+        s_watchNavHoldFrames = 0;
+        return 0;   /* new direction: the latched press path already stepped */
+    }
+    if (dir == 0)
+    {
+        return 0;
+    }
+    if (++s_watchNavHoldFrames > GEVR_WATCH_NAV_DELAY && s_watchNavHoldFrames % GEVR_WATCH_NAV_RATE == 0)
+    {
+        return dir;
+    }
+    return 0;
+}
+#define GEVR_WATCH_STICK_FASTUP(pad)   0
+#define GEVR_WATCH_STICK_FASTDOWN(pad) 0
+#else
+#define GEVR_WATCH_STICK_FASTUP(pad)   (joyGetStickY(pad) >= 0x47)
+#define GEVR_WATCH_STICK_FASTDOWN(pad) (joyGetStickY(pad) < -0x46)
+#endif
+
 void game_options_inventory_navigation(void)
 {
     s32 count;
@@ -1033,7 +1086,7 @@ void game_options_inventory_navigation(void)
 
     if (!get_debug_gunwatchpos_flag())
     {
-        if (joyGetButtonsPressedThisFrame(PLAYER_1, U_JPAD | U_CBUTTONS) || joyGetStickY(PLAYER_1) >= 0x47)
+        if (joyGetButtonsPressedThisFrame(PLAYER_1, U_JPAD | U_CBUTTONS) || GEVR_WATCH_STICK_FASTUP(PLAYER_1))
         {
             if (((s32) watch_inventory_cursor_pos > 0) && !watch_item_is_actively_selected)
             {
@@ -1042,7 +1095,7 @@ void game_options_inventory_navigation(void)
         }
         else
         {
-            if (joyGetButtonsPressedThisFrame(PLAYER_1, D_JPAD | D_CBUTTONS) || joyGetStickY(PLAYER_1) < -0x46)
+            if (joyGetButtonsPressedThisFrame(PLAYER_1, D_JPAD | D_CBUTTONS) || GEVR_WATCH_STICK_FASTDOWN(PLAYER_1))
             {
                 goto down_body;
             }
@@ -1098,6 +1151,21 @@ after_updown:
     {
         watch_inventory_cursor_pos += 1.0f;
     }
+
+#ifdef GEVR
+    {
+        s32 fast = gevrWatchStickFastStep();
+
+        if (fast < 0 && g_curWatchItemIndex > 0 && !watch_item_is_actively_selected)
+        {
+            watch_inventory_cursor_pos += (f32) fast;
+        }
+        else if (fast > 0 && (s32) watch_inventory_cursor_pos < count - 1 && !watch_item_is_actively_selected)
+        {
+            watch_inventory_cursor_pos += (f32) fast;
+        }
+    }
+#endif
 
     if (is_holding_less_than_10_up_on_stick() || is_holding_less_than_10_down_on_stick())
     {
@@ -1165,14 +1233,14 @@ void sub_GAME_7F0A611C(f32 *arg0, s32 *arg1, s32 arg2, s32 *arg3, s32 *arg4, s32
 {
     if (!get_debug_gunwatchpos_flag())
     {
-        if (joyGetButtonsPressedThisFrame(PLAYER_1, U_JPAD | U_CBUTTONS) || joyGetStickY(PLAYER_1) >= 0x47)
+        if (joyGetButtonsPressedThisFrame(PLAYER_1, U_JPAD | U_CBUTTONS) || GEVR_WATCH_STICK_FASTUP(PLAYER_1))
         {
             if ((s32)*arg0 > 0 && arg7)
             {
                 *arg0 -= 1.0f;
             }
         }
-        else if (joyGetButtonsPressedThisFrame(PLAYER_1, D_JPAD | D_CBUTTONS) || joyGetStickY(PLAYER_1) < -0x46)
+        else if (joyGetButtonsPressedThisFrame(PLAYER_1, D_JPAD | D_CBUTTONS) || GEVR_WATCH_STICK_FASTDOWN(PLAYER_1))
         {
             if ((s32)*arg0 < arg2 - 1 && arg7)
             {
