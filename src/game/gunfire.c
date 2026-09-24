@@ -676,11 +676,20 @@ void gunUpdateAndFire(GUNHAND handnum)
      * gadget's own size). Thrown props, grenades, rockets and casings take
      * their world matrix from this one and multiply in their model scale, so
      * they came out a fraction of their size. Give them the flat game's plain
-     * rotation; the casing offset is scaled instead (sub_GAME_7F068508).
+     * rotation; casings take the gun's scale back (gevrCasingThrowMtx).
+     *
+     * Units: stereo places the gun in view units of GEVR_UNITS_PER_METRE x
+     * D_800364CC to the metre (5 cm each on the Dam), but the view-to-world
+     * matrix has no scale, so the gun's offset from the eye (and its row
+     * length) is divided by D_800364CC first. Without it thrown things and
+     * casings started a fifth of the way from the eye to the gun, and casings
+     * were a fifth of their size (probe log, HANDOFF 71).
      */
     s_gevrThrowScale[handnum] = 1.0f;
     if (g_gevrStereo)
     {
+        extern f32 D_800364CC;
+        f32 inv = D_800364CC > 1e-6f ? 1.0f / D_800364CC : 1.0f;
         Mtxf unit;
         s32 r, c;
 
@@ -697,10 +706,13 @@ void gunUpdateAndFire(GUNHAND handnum)
                 }
                 if (r == 0)
                 {
-                    s_gevrThrowScale[handnum] = len;
+                    s_gevrThrowScale[handnum] = len * inv;
                 }
             }
         }
+        unit.m[3][0] *= inv;
+        unit.m[3][1] *= inv;
+        unit.m[3][2] *= inv;
         matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), &unit, &hand->throw_item_pos_related);
     }
     else
