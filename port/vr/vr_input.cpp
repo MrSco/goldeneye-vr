@@ -652,6 +652,14 @@ extern "C" bool get_button_state(int hand_index, const char* button_name) {
         return false;
     }
 
+    // GoldenEye: on Quest the right controller's menu button is the system
+    // (Meta) button and never reaches the app, so the game's menu / START is
+    // always the left controller's, whichever hand holds the gun. Asked for
+    // as hand 0 (port/src/input.c), as before left-handed mode existed.
+    if (strcmp(button_name, "menu") == 0) {
+        return hand_index == 0 ? gControllerStates[0].menu.currentState : false;
+    }
+
     if (VrLeftHandedMode){
         hand_index = 1 - hand_index;
     }

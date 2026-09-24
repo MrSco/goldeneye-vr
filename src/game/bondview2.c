@@ -872,6 +872,12 @@ s32 gevrStereoMirrored(void)
     return g_gevrStereo && VrLeftHandedMode;
 }
 
+/* left-handed mode, stereo or screen: the first-person guns are mirrored */
+s32 gevrHandsMirrored(void)
+{
+    return VrLeftHandedMode;
+}
+
 s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
 {
     f32 pos[3], right[3], up[3], back[3];
