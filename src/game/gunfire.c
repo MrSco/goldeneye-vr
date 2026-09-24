@@ -778,7 +778,6 @@ void gunUpdateAndFire(GUNHAND handnum)
         && hand->field_92C == 0
         && !((hand->weapon_ammo_in_magazine <= 0) && (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SINGLE_USE_RELOAD) != 0));
 
-
     if (hand->field_87F != 0 || s_gevrHiddenShown[handnum])
 #else
     if (hand->field_87F != 0)
