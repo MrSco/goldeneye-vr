@@ -377,6 +377,12 @@ static void gevr_decal_switch_poll(void)
 }
 
 static uint32_t frame_count;
+/* performance pass: the per-frame vertex ring and the per-draw uniform cache (draw_triangles) */
+static GLsizeiptr s_ringOff;
+static uint32_t s_ringFrame = 0xffffffffu;
+static bool s_uniCacheValid;
+static float s_uniEye[8], s_uniBias;
+static int s_uniFlat, s_uniMenu;
 
 static std::vector<Framebuffer> framebuffers;
 static size_t current_framebuffer;
@@ -702,6 +708,7 @@ static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
     gCurVrFlatLoc = new_prg->vrFlatLocation;
     gCurIsMenuLoc = new_prg->isMenuLocation;
     gCurDecalBiasLoc = new_prg->decalBiasLocation;
+    s_uniCacheValid = false;   /* gfx_opengl_set_uniforms just wrote them */
 }
 
 static void append_str(char* buf, size_t* len, const char* str) {
@@ -1492,8 +1499,28 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate) { // VR
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
 
-    // printf("flushing %d tris\n", buf_vbo_num_tris);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
+    /*
+     * Performance pass: one vertex buffer per frame. Every draw used to
+     * glBufferData its own few triangles - a fresh allocation each time, the
+     * costliest part of a draw on the Quest's driver, and GoldenEye issues
+     * hundreds of small draws (650 at Frigate's hull: 12-17 ms of CPU). The
+     * buffer is orphaned once a frame (and when full) and each batch appended
+     * with glBufferSubData, drawn from its own first vertex: nothing the GPU
+     * may still read is ever overwritten.
+     */
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);   /* the menu overlay and hub setups leave theirs bound */
+    const GLsizeiptr ringBytes = 4 << 20;
+    const GLsizeiptr bytes = (GLsizeiptr)(sizeof(float) * buf_vbo_len);
+    const GLsizeiptr stride = bytes / (GLsizeiptr)(3 * buf_vbo_num_tris);
+    GLsizeiptr off = (s_ringOff + stride - 1) / stride * stride;
+    if (s_ringFrame != frame_count || off + bytes > ringBytes) {
+        glBufferData(GL_ARRAY_BUFFER, ringBytes, NULL, GL_STREAM_DRAW);
+        s_ringFrame = frame_count;
+        off = 0;
+    }
+    glBufferSubData(GL_ARRAY_BUFFER, off, bytes, buf_vbo);
+    s_ringOff = off + bytes;
+    const GLint first = (GLint)(off / stride);
 
     // A HUD capture draws into a single 2D texture, so it hides the right eye by
     // pushing that eye's geometry far away. That is correct while capturing --
@@ -1504,30 +1531,44 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     // That is how a full-screen effect could come out left-eye-only after a menu
     // had been opened, and why it looked intermittent. Always write the state
     // this draw actually wants.
+    /* Performance pass: these are written only when they change for the bound
+     * program (s_uniCache*, reset on every program bind and after the decal band). */
     if (use_multiview) {
+        float eye[8];
         if (gForceFlatShaderForMenu) {
-            if (gCurEyeOffsetLeftLoc  >= 0) glUniform4f(gCurEyeOffsetLeftLoc,  0.0f, 0.0f, 0.0f, 0.0f);
-
             // Correction : décalage à 1000.0f sur l'axe Z également
-            if (gCurEyeOffsetRightLoc >= 0) glUniform4f(gCurEyeOffsetRightLoc, 1000.0f, 1000.0f, 1000.0f, 1000.0f);
-
+            const float flat[8] = { 0.0f, 0.0f, 0.0f, 0.0f, 1000.0f, 1000.0f, 1000.0f, 1000.0f };
+            memcpy(eye, flat, sizeof(eye));
         } else {
-            if (gCurEyeOffsetLeftLoc >= 0)
-                glUniform4f(gCurEyeOffsetLeftLoc,
-                            s_eye_offsets[0], s_eye_offsets[1], s_eye_offsets[2], s_eye_offsets[3]);
-            if (gCurEyeOffsetRightLoc >= 0)
-                glUniform4f(gCurEyeOffsetRightLoc,
-                            s_eye_offsets[4], s_eye_offsets[5], s_eye_offsets[6], s_eye_offsets[7]);
+            memcpy(eye, s_eye_offsets, sizeof(eye));
         }
-        if (gCurVrFlatLoc >= 0) glUniform1i(gCurVrFlatLoc, gVrFlatPass ? 1 : 0);
+        const int flatPass = gVrFlatPass ? 1 : 0;
         // GoldenEye: the stereo watch capture turns the menu flag on and off
         // between draws of the same program (bondview2.c bondviewRenderWatch).
-        if (gCurIsMenuLoc >= 0) glUniform1i(gCurIsMenuLoc, vr_dl_is_pause_or_menu ? 1 : 0);
+        const int isMenu = vr_dl_is_pause_or_menu ? 1 : 0;
+        if (!s_uniCacheValid || memcmp(eye, s_uniEye, sizeof(eye)) != 0) {
+            if (gCurEyeOffsetLeftLoc  >= 0) glUniform4f(gCurEyeOffsetLeftLoc,  eye[0], eye[1], eye[2], eye[3]);
+            if (gCurEyeOffsetRightLoc >= 0) glUniform4f(gCurEyeOffsetRightLoc, eye[4], eye[5], eye[6], eye[7]);
+            memcpy(s_uniEye, eye, sizeof(eye));
+        }
+        if (!s_uniCacheValid || flatPass != s_uniFlat) {
+            if (gCurVrFlatLoc >= 0) glUniform1i(gCurVrFlatLoc, flatPass);
+            s_uniFlat = flatPass;
+        }
+        if (!s_uniCacheValid || isMenu != s_uniMenu) {
+            if (gCurIsMenuLoc >= 0) glUniform1i(gCurIsMenuLoc, isMenu);
+            s_uniMenu = isMenu;
+        }
     }
 
-    if (gCurDecalBiasLoc >= 0) {
-        glUniform1f(gCurDecalBiasLoc, (s_isDecal && s_decalMode == 2) ? gfx_decal_proj_z * s_decalA : 0.0f);
+    {
+        const float bias = (s_isDecal && s_decalMode == 2) ? gfx_decal_proj_z * s_decalA : 0.0f;
+        if (!s_uniCacheValid || bias != s_uniBias) {
+            if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, bias);
+            s_uniBias = bias;
+        }
     }
+    s_uniCacheValid = use_multiview;   /* without multiview the eye uniforms are never cached */
 
     if (s_decalZ) {
         /*
@@ -1565,7 +1606,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, -gfx_decal_proj_z * bandD);   // pushed away
         glStencilFunc(GL_ALWAYS, 1, 0xff);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-        glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
+        glDrawArrays(GL_TRIANGLES, first, 3 * buf_vbo_num_tris);
 
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(prevDepthMask);
@@ -1574,15 +1615,16 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, gfx_decal_proj_z * bandD);   // pulled near
         glStencilFunc(GL_EQUAL, 1, 0xff);
         glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
-        glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
+        glDrawArrays(GL_TRIANGLES, first, 3 * buf_vbo_num_tris);
 
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
         glDisable(GL_STENCIL_TEST);
         if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, 0.0f);
+        s_uniCacheValid = false;   /* the band wrote the bias */
         return;
     }
 
-    glDrawArrays(GL_TRIANGLES, 0, 3 * buf_vbo_num_tris);
+    glDrawArrays(GL_TRIANGLES, first, 3 * buf_vbo_num_tris);
 
 }
 
