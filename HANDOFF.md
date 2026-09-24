@@ -4172,3 +4172,26 @@ Dark leftovers; remove unused assets and purge them from history.
 - Next (user): a performance pass - frame drops when firing the RC-P90, and
   ~48 fps close to Frigate's hull. Then: water shimmer (D245), Surface
   ground patches without impacts, decals up close, watch laser 3 arms.
+
+## 85. #18 windshield (reopened by the user): what is ruled out
+- The left windshield pane of Frigate's speedboat is missing in stereo AND
+  2D, from every angle, in the intro and in play. The boat is one model,
+  PROP_SPEEDBOAT (speedboat_header, 1 matrix, 0 switch table, 13 textures),
+  spawned by the intro, not a setup record (setup probe: Frigate has no
+  glass/tinted-glass/COPY_ITEM records; its only vehicle-type record is the
+  helicopter, type 40).
+- Ruled out with live switches (gfx_pc.cpp gevr_cull.txt, still in the
+  tree as probes): face culling off entirely (mode 1), the PD VR "hide"
+  matrix hack off (mode 2), both (3), and every switch node of the speedboat
+  forced visible (mode 4; model.c modelApplyToggleRelations). The pane never
+  appears. Node trace (model.c subdraw, speedboat_header): GROUP -> BBOX ->
+  DL(0x04) + ~20 SWITCH nodes, each gating DL(0x04) nodes; several switches
+  are visible=0 (init is TRUE; writer unknown) - but forcing them on did not
+  bring the pane, so it is not a switch.
+- Left: the pane's triangles are in some DL but never rasterise (clipped?
+  alpha 0? dropped in the Gfx conversion?), or the reference picture is not
+  the retail N64 build. Next: dump the speedboat DLs' triangles and
+  vertex alpha, or confirm the pane on the N64/gepc-ref from the same camera.
+- Driving the headset from the PC: the launcher's Start is START (1000), not
+  A (8000 activates the focused widget); screen mode via PlayMode=0 in the
+  ini (in game the user holds the right stick click to switch).
