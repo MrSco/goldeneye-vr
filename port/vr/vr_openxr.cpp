@@ -1387,10 +1387,26 @@ static float    g_screenYaw     = 0.0f;   // radians; the quad's +Z (its face) p
 // gevrStereoFrame): the screen must not hang in front of the stereo view.
 static bool     g_screenVisible = true;
 // GoldenEye: while the watch holds the screen in stereo play (bondview2.c
-// gevrStereoFrame) it is pinned to the view, straight ahead at its usual
-// distance and height, instead of hanging in the world.
+// gevrStereoFrame) it is pinned to the view, at its usual distance, until
+// the player looks toward its place in the room (below).
 static bool     g_screenHeadLocked = false;
-extern "C" void gevrVrScreenHeadLock(int on) { g_screenHeadLocked = on != 0; }
+// Pinned, the screen sits a little below the line of sight. Looking toward
+// the screen's usual place in the room (g_screenPose, where menus and
+// cutscenes show) it glides there and stays: 0 pinned, 1 gliding, 2 placed.
+static int      g_screenSnapState = 0;
+static float    g_screenSnapT = 0.0f;
+static XrTime   g_screenSnapLast = 0;
+#define GEVR_SCREEN_PIN_DOWN_DEG  8.0f
+#define GEVR_SCREEN_SNAP_DEG      20.0f
+#define GEVR_SCREEN_SNAP_SECONDS  0.35f
+extern "C" void gevrVrScreenHeadLock(int on)
+{
+    if (!on) {
+        g_screenSnapState = 0;
+        g_screenSnapT = 0.0f;
+    }
+    g_screenHeadLocked = on != 0;
+}
 
 static void vr_screen_destroy_swapchain(void)
 {
@@ -2826,9 +2842,59 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         screenLayer.subImage.imageRect.offset = {0, 0};
         screenLayer.subImage.imageRect.extent = {(int32_t)g_screenW, (int32_t)g_screenH};
         screenLayer.pose = g_screenPose;
-        if (g_screenHeadLocked) {
-            screenLayer.space = g_vrState.viewSpace;
-            screenLayer.pose  = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, VrScreenHeight, -VrScreenDistance} };
+        if (g_screenHeadLocked && g_screenSnapState != 2) {
+            // the head this frame, in play space (as the eye views)
+            const XrQuaternionf hq = views[0].pose.orientation;
+            const XrVector3f hp = { (views[0].pose.position.x + views[1].pose.position.x) * 0.5f,
+                                    (views[0].pose.position.y + views[1].pose.position.y) * 0.5f,
+                                    (views[0].pose.position.z + views[1].pose.position.z) * 0.5f };
+            const float d = VrScreenDistance;
+            float lx = 0.0f, ly = -d * tanf(GEVR_SCREEN_PIN_DOWN_DEG * 3.14159265f / 180.0f), lz = -d;
+            rotvec(&lx, &ly, &lz, hq.w, hq.x, hq.y, hq.z);
+            XrPosef pinned;
+            pinned.orientation = hq;
+            pinned.position = { hp.x + lx, hp.y + ly, hp.z + lz };
+
+            if (g_screenSnapState == 0) {
+                float fx = 0.0f, fy = 0.0f, fz = -1.0f;
+                rotvec(&fx, &fy, &fz, hq.w, hq.x, hq.y, hq.z);
+                float tx = g_screenPose.position.x - hp.x;
+                float ty = g_screenPose.position.y - hp.y;
+                float tz = g_screenPose.position.z - hp.z;
+                const float tl = sqrtf(tx * tx + ty * ty + tz * tz);
+                if (tl > 0.01f && (fx * tx + fy * ty + fz * tz) / tl > cosf(GEVR_SCREEN_SNAP_DEG * 3.14159265f / 180.0f)) {
+                    g_screenSnapState = 1;
+                    g_screenSnapT = 0.0f;
+                    g_screenSnapLast = frameState.predictedDisplayTime;
+                }
+            }
+            if (g_screenSnapState == 1) {
+                float dt = (float)(frameState.predictedDisplayTime - g_screenSnapLast) * 1e-9f;
+                g_screenSnapLast = frameState.predictedDisplayTime;
+                if (dt < 0.0f) dt = 0.0f;
+                if (dt > 0.1f) dt = 0.1f;
+                g_screenSnapT += dt / GEVR_SCREEN_SNAP_SECONDS;
+                if (g_screenSnapT >= 1.0f) {
+                    g_screenSnapState = 2;
+                } else {
+                    const float e = g_screenSnapT * g_screenSnapT * (3.0f - 2.0f * g_screenSnapT);
+                    XrQuaternionf a = pinned.orientation, b = g_screenPose.orientation;
+                    if (a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0.0f) {
+                        b.x = -b.x; b.y = -b.y; b.z = -b.z; b.w = -b.w;
+                    }
+                    XrQuaternionf q = { a.x + (b.x - a.x) * e, a.y + (b.y - a.y) * e,
+                                        a.z + (b.z - a.z) * e, a.w + (b.w - a.w) * e };
+                    const float ql = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+                    if (ql > 1e-6f) { q.x /= ql; q.y /= ql; q.z /= ql; q.w /= ql; }
+                    pinned.orientation = q;
+                    pinned.position = { pinned.position.x + (g_screenPose.position.x - pinned.position.x) * e,
+                                        pinned.position.y + (g_screenPose.position.y - pinned.position.y) * e,
+                                        pinned.position.z + (g_screenPose.position.z - pinned.position.z) * e };
+                }
+            }
+            if (g_screenSnapState != 2) {
+                screenLayer.pose = pinned;
+            }
         }
         const float width = vr_screen_width();
         screenLayer.size = { width, width * (float)g_screenH / (float)g_screenW };
@@ -2841,13 +2907,16 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             screenCyl.space         = g_vrState.playSpace;
             screenCyl.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
             screenCyl.subImage      = screenLayer.subImage;
-            screenCyl.pose          = g_screenPose;
-            const float sy = sinf(g_screenYaw), cy = cosf(g_screenYaw);
-            screenCyl.pose.position.x += sy * VrScreenDistance;
-            screenCyl.pose.position.z += cy * VrScreenDistance;
-            if (g_screenHeadLocked) {
-                screenCyl.space = g_vrState.viewSpace;
-                screenCyl.pose  = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, VrScreenHeight, 0.0f} };
+            // the arc's centre: VrScreenDistance behind the quad's pose along
+            // its +Z (for the room screen, sin/cos of its yaw)
+            screenCyl.pose = screenLayer.pose;
+            {
+                float cx = 0.0f, cyy = 0.0f, cz = VrScreenDistance;
+                const XrQuaternionf& sq = screenLayer.pose.orientation;
+                rotvec(&cx, &cyy, &cz, sq.w, sq.x, sq.y, sq.z);
+                screenCyl.pose.position.x += cx;
+                screenCyl.pose.position.y += cyy;
+                screenCyl.pose.position.z += cz;
             }
             screenCyl.radius       = VrScreenDistance;
             screenCyl.centralAngle = VrScreenFov * 3.14159265f / 180.0f;

@@ -470,8 +470,13 @@ void gevrStereoFrame(s32 inlevel)
     }
     else if (!want && s_gevrStereoWas)
     {
-        /* Back to the screen: hang it where the player is looking now. */
-        vr_screen_recenter();
+        /* Back to the screen: hang it where the player is looking now - but
+         * not for the watch, which glides to the screen's usual place when
+         * the player looks there (vr_openxr.cpp, the pinned screen). */
+        if (g_CurrentPlayer == NULL || g_CurrentPlayer->watch_animation_state == 0)
+        {
+            vr_screen_recenter();
+        }
         sysLogPrintf(LOG_NOTE, "stereo: off");
     }
 
