@@ -4148,3 +4148,17 @@ Dark leftovers; remove unused assets and purge them from history.
   #19's "hand over the mine" was most likely this same sniper-for-fist.
 - Watch laser shows three arms (its viewmodel has both arms + our watch
   arm): parked by the user.
+- #19 resolved (user-verified): mines solid and flat against the palm, top
+  out (rz -90; camera rz +90). The "hollow" look was draw order: held
+  gadgets write no depth, so the fist drawn after them painted over them
+  wherever the hand was behind. The fist is now drawn first
+  (gunRenderFirstPersonGunModels). A winding-swap experiment made it worse
+  and was undone; gadgets keep their own culling (no VR_CULL_OFF around them).
+- Ammo panel shifting while aiming: the counter moves right in the capture in
+  aim mode and the crop re-measured every 30 frames. It now re-measures for a
+  few frames as soon as aim mode changes (gevrAimModeOn). User: "a smooth
+  zoom now, not a big deal, much improved".
+- Unreleased since v0.1.7: #15 dual wield, #18 water colour (D229), #19
+  mines, the sniper-club fist, gadget culling, ammo panel. Known: water
+  shimmer (D245), Surface ground gaps, watch laser 3 arms (parked),
+  #17 awaiting the reporter.
