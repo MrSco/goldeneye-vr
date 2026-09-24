@@ -1718,6 +1718,9 @@ void proplvreset2(enum LEVELID stageId)
                         _Static_assert(offsetof(struct AutogunRecord, is_active) == 0xF0, "autogun host layout");
                         _Static_assert(offsetof(struct AutogunRecord, unkD4) == 0xF4, "autogun host layout");
                         _Static_assert(sizeof(struct AutogunRecord) == 248, "autogun host layout");
+                        _Static_assert(offsetof(struct criteria_picture, next) == 16 && sizeof(struct criteria_picture) == 24, "photo criteria host layout");
+                        _Static_assert(offsetof(struct criteria_roomentered, next) == 16 && sizeof(struct criteria_roomentered) == 24, "room criteria host layout");
+                        _Static_assert(offsetof(struct criteria_deposit, next) == 16 && sizeof(struct criteria_deposit) == 24, "deposit criteria host layout");
 #endif
                         if (withobjs && (!(((struct TankRecord *) phead)->flags2 & flags)))
                         {

@@ -78,6 +78,18 @@ static size_t host_prop_bytes(uint8_t type) {
      * objectives page strcat'd a NULL and crashed.
      */
     case 35: return 24;
+    /*
+     * Objective criteria the game links into lists at load
+     * (set_parent_cur_obj_photograph / _enter_room / _deposited_in_room):
+     * struct criteria_picture / _roomentered (3 words + next*) and
+     * criteria_deposit (4 words + next*) put next at +16 on the host, where
+     * the N64 had it at +12 / +16 inside a 16 / 20 byte record. At N64 size
+     * each link wrote its pointer over the NEXT record's header: in the
+     * Bunker the photo objective overwrote the key desk and its terminal, so
+     * neither spawned and the GoldenEye key lay on the floor (issue #3).
+     * gepc-ref D126 sizes the same four types (30/32/33/35) to 24.
+     */
+    case 30: case 32: case 33: return 24;
     case 37: return 48;  /* RenameObjectRecord */
     case 38: return 32;  /* LockDoorRecord */
     case 39: case 40: return 208; /* VehichleRecord / AircraftRecord */
@@ -324,6 +336,24 @@ static size_t convert_one_prop(uint8_t *dst, const uint8_t *src, uint8_t type) {
         put32(dst + 4, read32(src + 4));
         put32(dst + 8, read32(src + 8));
         put32(dst + 12, read32(src + 12));
+        break;
+    case 30: /* OBJECTIVE_PHOTOGRAPH: N64 16 -> host 24 (unk00 tag_id flag, next*) */
+    case 32: /* OBJECTIVE_ENTER_ROOM: N64 16 -> host 24 (unk00 pad status, next*) */
+        put16(dst + 0, read16(src + 0));
+        dst[2] = src[2];
+        dst[3] = src[3];
+        put32(dst + 4, read32(src + 4));
+        put32(dst + 8, read32(src + 8));
+        putptr(dst + 16, 0);               /* next: linked at load */
+        break;
+    case 33: /* OBJECTIVE_DEPOSIT_OBJECT_IN_ROOM: N64 20 -> host 24 (unk00 weapon pad flag, next*) */
+        put16(dst + 0, read16(src + 0));
+        dst[2] = src[2];
+        dst[3] = src[3];
+        put32(dst + 4, read32(src + 4));
+        put32(dst + 8, read32(src + 8));
+        put32(dst + 12, read32(src + 12));
+        putptr(dst + 16, 0);               /* next: linked at load */
         break;
     case 35: /* WATCH_MENU_OBJECTIVE_TEXT: N64 16 -> host 24 (+ next*) */
         put16(dst + 0, read16(src + 0));

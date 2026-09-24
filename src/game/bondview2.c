@@ -503,11 +503,76 @@ static void gevrCheatProbe(s32 inlevel)
     unlink(path);
 }
 
+/*
+ * PORT test hook: files/gevr_warp.txt holding a pad number moves Bond onto
+ * that pad (bound pads as 10000+), facing its look direction, the way the AI's
+ * teleport-to-pad command moves him (chrai.c AI_TRYTeleportingChrToPad).
+ * An objdump line's "pad" is where that object stands. Deleted once read.
+ */
+static void gevrWarpProbe(s32 inlevel)
+{
+    static u32 tick;
+    const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_warp.txt";
+    s32 padnum = -1;
+    FILE *fp;
+    PadRecord *pad;
+    coord3d pos;
+    StandTile *stan;
+    f32 facing;
+    PropRecord *pr;
+
+    if (!inlevel || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL || (++tick % 30) != 0)
+    {
+        return;
+    }
+    fp = fopen(path, "r");
+    if (fp == NULL)
+    {
+        return;
+    }
+    if (fscanf(fp, "%d", &padnum) != 1)
+    {
+        padnum = -1;
+    }
+    fclose(fp);
+    unlink(path);
+    if (padnum < 0)
+    {
+        return;
+    }
+
+    pad = isNotBoundPad(padnum) ? &g_CurrentSetup.pads[padnum]
+                                : (PadRecord *) &g_CurrentSetup.boundpads[getBoundPadNum(padnum)];
+    pos = pad->pos;
+    stan = pad->stan;
+    facing = atan2f(pad->look.x, pad->look.z);
+    pr = g_CurrentPlayer->prop;
+
+    sub_GAME_7F03D058(pr, FALSE);
+    if (chrAdjustPosForSpawn(&pos, &stan, facing, TRUE))
+    {
+        pr->pos = pos;
+        pr->stan = stan;
+        g_CurrentPlayer->field_488.collision_position = pos;
+        g_CurrentPlayer->field_488.current_tile_ptr = stan;
+        g_CurrentPlayer->vv_theta = gevrWrapDegrees(facing * (180.0f / M_PI_F));
+        bondviewUpdatePlayerRoom(g_CurrentPlayer);
+        gevrNotifyTeleport();
+        sysLogPrintf(LOG_NOTE, "warphook: pad %d -> %.0f %.0f %.0f", padnum, pos.x, pos.y, pos.z);
+    }
+    else
+    {
+        sysLogPrintf(LOG_WARNING, "warphook: pad %d has no room to stand", padnum);
+    }
+    sub_GAME_7F03D058(pr, TRUE);
+}
+
 void gevrStereoFrame(s32 inlevel)
 {
     s32 opening;
 
     gevrCheatProbe(inlevel);
+    gevrWarpProbe(inlevel);
     opening = gevrWatchOpeningByGesture(inlevel);
     s32 want = inlevel
         && VrPlayMode != 0
