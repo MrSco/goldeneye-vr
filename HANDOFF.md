@@ -3602,3 +3602,27 @@ Dark leftovers; remove unused assets and purge them from history.
   Not yet seen on device (needs a message: pickup or objective).
 - Dual wield: the left arm (watch or fist) draws only while the left hand
   holds nothing; a left gun is placed by gevrStereoGunMatrix(GUNLEFT).
+
+## 63. Sniper club swing, messages in the lower and upper thirds
+
+- User wear-test of 62: watch arm good; club pose right (butt forward); the
+  swing still led with the barrel; bottom messages readable but too central;
+  the top message (objective complete etc.) ran off the top of the lenses.
+- **Club swing** (gunfire.c): the flat align (guAlignF toward the aim point)
+  makes the model frame (-right, up, forward), the same as the stereo gun
+  matrix, so the keyframe rotation already matched. Its translation is added
+  to gunofs in camera axes (right, up, back), and stereo applied it in the
+  model frame, where x and z flip: the arc ran mirrored, which reads as the
+  pivot on the wrong end. field_8EC is copied with m[3][0] and m[3][2]
+  negated before nesting. Affects every keyframe animation (reloads, taser,
+  throws) the same way, now as in the flat game.
+- **Bottom messages** (hudmsgBottomRender): 86% down the view (lower third).
+- **Top message** (sub_GAME_7F08AAE8): in stereo, single player, captured on
+  the HUD panel (0x56570000/1) and centred at 18% down (top third). The dark
+  band behind it spans the panel width as in the flat game.
+- Built and installed (release signing). Not checked on device: the headset
+  was asleep (SDL surface timeout); user to test with the sniper and a
+  pickup/objective message.
+- Idea list for the watch transition (question only, no code): see the chat
+  reply of 2026-09-24; summary - keep stereo and show the watch pages on a
+  wrist panel above the 3D watch arm, or ease the change with a fade.
