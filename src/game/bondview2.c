@@ -517,6 +517,146 @@ static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[
 }
 
 /*
+ * Stereo gadgets in the hand (gunfire.c s_gevrHiddenShown): the flat game
+ * never drew these G models, so they have no in-hand pose. Per item: an
+ * offset from the gun matrix's origin (the wrist, GEVR_GRIP_TO_ORIGIN_CM
+ * behind the fist) along the model's own left/up/forward in cm, a turn in
+ * the model frame (degrees about its X, Y, Z), a size factor, and whether
+ * the fist is drawn round it (a model that is only the object) or not (one
+ * that brings its own hand). Model sizes (bounding radius x 0.1 x 0.17,
+ * about 20 view units to the metre): mines 4.3 cm, camera 4.5, door decoder
+ * 5, bug/modem 9, bomb case 10; grenade 36 and plastique 22 are the size of
+ * the fist-and-forearm model (21), so they likely carry a hand.
+ * files/gevr_itempose.txt overrides a line at a time while testing:
+ * "item left up fwd rx ry rz scale fist" (item as the ITEM_IDS number).
+ */
+#include <stdio.h>
+
+typedef struct
+{
+    s32 item;
+    f32 ofs[3];     /* cm: left, up, forward */
+    f32 rot[3];     /* degrees about the model's X, Y, Z */
+    f32 scale;
+    s32 fist;
+} GevrItemPose;
+
+static GevrItemPose s_gevrItemPoses[] = {
+    { ITEM_TIMEDMINE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_PROXIMITYMINE, { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_REMOTEMINE,    { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_BUG,           { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_MICROCAMERA,   { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_BOMBCASE,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_GOLDENEYEKEY,  { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_GRENADE,       { 0.0f, 0.0f,  0.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, FALSE },
+    { ITEM_PLASTIQUE,     { 0.0f, 0.0f,  0.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, FALSE },
+};
+
+static GevrItemPose *gevrItemPoseFind(s32 item)
+{
+    static u32 tick;
+    u32 i;
+
+    /* the tuning file, re-read every couple of seconds while it exists */
+    if ((tick++ % 120) == 0)
+    {
+        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_itempose.txt", "r");
+
+        if (f != NULL)
+        {
+            GevrItemPose p;
+
+            while (fscanf(f, "%d %f %f %f %f %f %f %f %d", &p.item, &p.ofs[0], &p.ofs[1], &p.ofs[2],
+                          &p.rot[0], &p.rot[1], &p.rot[2], &p.scale, &p.fist) == 9)
+            {
+                for (i = 0; i < ARRAYCOUNT(s_gevrItemPoses); i++)
+                {
+                    if (s_gevrItemPoses[i].item == p.item)
+                    {
+                        s_gevrItemPoses[i] = p;
+                        sysLogPrintf(LOG_NOTE, "stereo: item %d pose %.1f %.1f %.1f cm, %.0f %.0f %.0f deg, x%.2f, fist %d",
+                                     p.item, p.ofs[0], p.ofs[1], p.ofs[2], p.rot[0], p.rot[1], p.rot[2], p.scale, p.fist);
+                    }
+                }
+            }
+            fclose(f);
+        }
+    }
+
+    for (i = 0; i < ARRAYCOUNT(s_gevrItemPoses); i++)
+    {
+        if (s_gevrItemPoses[i].item == item)
+        {
+            return &s_gevrItemPoses[i];
+        }
+    }
+    return NULL;
+}
+
+s32 gevrStereoItemShown(s32 item)
+{
+    return g_gevrStereo && gevrItemPoseFind(item) != NULL;
+}
+
+s32 gevrStereoItemNeedsFist(s32 item)
+{
+    GevrItemPose *p = gevrItemPoseFind(item);
+
+    return p != NULL && p->fist;
+}
+
+/* m: the stereo gun matrix (rows the model's left/up/forward times the
+ * viewmodel scale, translation the model origin) */
+void gevrStereoItemPose(s32 item, Mtxf *m)
+{
+    GevrItemPose *p = gevrItemPoseFind(item);
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    Mtxf rot, out;
+    coord3d r;
+    s32 i, j;
+
+    if (p == NULL)
+    {
+        return;
+    }
+
+    for (i = 0; i < 3; i++)
+    {
+        f32 len = sqrtf(m->m[i][0] * m->m[i][0] + m->m[i][1] * m->m[i][1] + m->m[i][2] * m->m[i][2]);
+
+        if (len > 1e-6f)
+        {
+            for (j = 0; j < 3; j++)
+            {
+                m->m[3][j] += p->ofs[i] * cm * m->m[i][j] / len;
+            }
+        }
+    }
+
+    /* turn in the model's own frame: rows become rot x rows */
+    r.x = p->rot[0] * (M_PI_F / 180.0f);
+    r.y = p->rot[1] * (M_PI_F / 180.0f);
+    r.z = p->rot[2] * (M_PI_F / 180.0f);
+    matrix_4x4_set_rotation_around_xyz(&r, &rot);
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            out.m[i][j] = (rot.m[i][0] * m->m[0][j] + rot.m[i][1] * m->m[1][j] + rot.m[i][2] * m->m[2][j]) * p->scale;
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            m->m[i][j] = out.m[i][j];
+        }
+    }
+}
+
+/*
  * gunfire.c gunUpdateAndFire: a gun's camera-space matrix, the right hand's
  * from the right controller and a dual-wielded left one from the left.
  * GoldenEye mirrors the left viewmodel afterwards by negating row 0 (a flip

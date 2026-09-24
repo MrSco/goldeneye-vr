@@ -329,6 +329,22 @@ void gunFireTankShell(s32 handnum)
  */
 #endif
 
+#ifdef GEVR
+/*
+ * Stereo: gadgets the flat game keeps out of view (WEAPONSTATBITFLAG_
+ * HIDE_FIRST_PERSON_HAND: mines, grenades, the bug / covert modem, the
+ * cameras, plastique). Their G models load with every other item
+ * (used_to_load_1st_person_model_on_demand) and are drawn at the controller
+ * as GEVR PC shows throwables in the hand, posed per item (bondview2.c
+ * gevrStereoItem*). The game's own field_87F keeps its meaning: its reload
+ * and watch-lowering timings read it.
+ */
+extern s32 g_gevrStereo;
+extern s32 gevrStereoItemShown(s32 item);
+extern void gevrStereoItemPose(s32 item, Mtxf *m);
+static s32 s_gevrHiddenShown[2];
+#endif
+
 void gunUpdateAndFire(GUNHAND handnum)
 {
     Mtxf *rwmtx;
@@ -630,6 +646,11 @@ void gunUpdateAndFire(GUNHAND handnum)
             }
             matrix_4x4_multiply_homogeneous_in_place(&vrmtx, &pose);
             matrix_4x4_copy(&pose, &vrmtx);
+            if (gevrStereoItemShown(item))
+            {
+                /* a gadget: into the fingers, at its real size */
+                gevrStereoItemPose(item, &vrmtx);
+            }
 
             gunofs.x = vrmtx.m[3][0];
             gunofs.y = vrmtx.m[3][1];
@@ -659,7 +680,23 @@ void gunUpdateAndFire(GUNHAND handnum)
         hand->field_87F = 0;
     }
 
+#ifdef GEVR
+    /* the flat test above without the hide flag, for the listed gadgets */
+    s_gevrHiddenShown[handnum] = g_gevrStereo
+        && hand->field_87F == 0
+        && gevrStereoItemShown(item)
+        && get_ptr_weapon_model_header_line(item) != 0
+        && bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SHOW_FIRST_PERSON) != 0
+        && hand->weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP
+        && hand->weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
+        && Gun_hand_without_item(handnum) != 0
+        && get_itemtype_in_hand(handnum) != 0
+        && !((hand->weapon_ammo_in_magazine <= 0) && (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SINGLE_USE_RELOAD) != 0));
+
+    if (hand->field_87F != 0 || s_gevrHiddenShown[handnum])
+#else
     if (hand->field_87F != 0)
+#endif
     {
         mdlhdr = &g_CurrentPlayer->copy_of_body_obj_header[handnum];
         rwmtx = (Mtxf *) dynAllocate(mdlhdr->numMatrices * ((s32) (sizeof(Mtxf))));
@@ -1643,6 +1680,78 @@ static s32 gevrLeftFistLoad(void)
     return TRUE;
 }
 
+/*
+ * The fist viewmodel (the right hand's own) on the right controller while
+ * the game draws nothing there: a hand-held item with no model (keycards),
+ * a weapon being swapped, the empty hand after a mine or grenade leaves it,
+ * and the hand holding a gadget whose model is only the object.
+ */
+extern s32 gevrStereoItemNeedsFist(s32 item);
+
+static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
+{
+    ModelRenderData renderdata;
+    Mtxf armmtx;
+    Mtxf *rwmtx;
+    s32 item = get_item_in_hand_or_watch_menu(GUNRIGHT);
+    s32 j;
+
+    if (!g_gevrStereo
+        || g_CurrentPlayer->bonddead
+        || g_CurrentPlayer->watch_animation_state != 0
+        || item == ITEM_UNARMED || item == ITEM_TANKSHELLS)
+    {
+        return gdl;
+    }
+    if (g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0)
+    {
+        return gdl;     /* the game draws the weapon (with its hand) */
+    }
+    if (s_gevrHiddenShown[GUNRIGHT] && !gevrStereoItemNeedsFist(item))
+    {
+        return gdl;     /* the gadget's model has its own hand */
+    }
+    if (!gevrStereoGunMatrix(GUNRIGHT, &armmtx) || !gevrLeftFistLoad())
+    {
+        return gdl;
+    }
+
+    matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
+
+    rwmtx = (Mtxf *) dynAllocate(s_gevrFistHeader.numMatrices * ((s32) sizeof(Mtxf)));
+    for (j = 0; j < s_gevrFistHeader.numMatrices; j++)
+    {
+        matrix_4x4_set_identity(&rwmtx[j]);
+    }
+    matrix_4x4_copy(&armmtx, &rwmtx[0]);
+
+    modelInit(&s_gevrFistModel, &s_gevrFistHeader, (s32 *) s_gevrFistRw);
+    sub_GAME_7F05E978(&s_gevrFistModel, 1);
+    sub_GAME_7F05EA94(&s_gevrFistModel, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    if (s_gevrFistHeader.numSwitches >= 0x1E)
+    {
+        bondviewSelectCuff(&s_gevrFistModel, &s_gevrFistHeader, 0x1D);
+    }
+    s_gevrFistModel.render_pos = (RenderPosView *) rwmtx;
+
+    renderdata = *templ;
+    renderdata.gdl = gdl;
+    renderdata.PropType = 4;
+    renderdata.envcolour.word = g_CurrentPlayer->tileColor.a
+                              | ((u32)g_CurrentPlayer->tileColor.r << 24)
+                              | ((u32)g_CurrentPlayer->tileColor.g << 16)
+                              | ((u32)g_CurrentPlayer->tileColor.b << 8);
+    renderdata.zbufferenabled = 1;
+
+    matrix_4x4_7F058C64();
+    subdraw(&renderdata, &s_gevrFistModel);
+    gdl = renderdata.gdl;
+    bondviewTransformManyPosToViewMatrix(s_gevrFistModel.render_pos, s_gevrFistHeader.numMatrices);
+    matrix_4x4_7F058C88();
+
+    return gdl;
+}
+
 static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
 {
     ModelRenderData renderdata;
@@ -1728,7 +1837,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         struct hand *handptr = &g_CurrentPlayer->hands[handnum];
         s32 item = get_item_in_hand_or_watch_menu(handnum);
 
+#ifdef GEVR
+        if (handptr->field_87F == 0 && !s_gevrHiddenShown[handnum])
+#else
         if (handptr->field_87F == 0)
+#endif
         {
             continue;
         }
@@ -1859,6 +1972,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gdl = gevrRenderLeftArm(gdl, &renderdata);
         }
+        gdl = gevrRenderRightFist(gdl, &renderdata);
     }
 #endif
     *gdlptr = gdl;
