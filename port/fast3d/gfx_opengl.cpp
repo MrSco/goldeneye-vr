@@ -92,6 +92,7 @@ bool gForceFlatShaderForMenu = false;
 // flat image (see port/vr/vr_screen.h).
 bool gVrFlatPass = false;
 static GLint gCurVrFlatLoc = -1;
+static GLint gCurIsMenuLoc = -1;
 static GLint gCurDecalBiasLoc = -1;
 // The projection's depth term (rsp.P_matrix[3][2]), set by gfx_pc.cpp for the
 // decal band: a point moved D view units along its ray changes clip z by
@@ -669,6 +670,7 @@ static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
     gCurEyeOffsetLeftLoc  = new_prg->eyeOffsetLeftLocation;
     gCurEyeOffsetRightLoc = new_prg->eyeOffsetRightLocation;
     gCurVrFlatLoc = new_prg->vrFlatLocation;
+    gCurIsMenuLoc = new_prg->isMenuLocation;
     gCurDecalBiasLoc = new_prg->decalBiasLocation;
 }
 
@@ -1483,6 +1485,9 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
                             s_eye_offsets[4], s_eye_offsets[5], s_eye_offsets[6], s_eye_offsets[7]);
         }
         if (gCurVrFlatLoc >= 0) glUniform1i(gCurVrFlatLoc, gVrFlatPass ? 1 : 0);
+        // GoldenEye: the stereo watch capture turns the menu flag on and off
+        // between draws of the same program (bondview2.c bondviewRenderWatch).
+        if (gCurIsMenuLoc >= 0) glUniform1i(gCurIsMenuLoc, vr_dl_is_pause_or_menu ? 1 : 0);
     }
 
     if (gCurDecalBiasLoc >= 0) {
@@ -2004,9 +2009,8 @@ static void gfx_opengl_vr_menu_fb_init(void) {
 }
 
 bool gfx_vr_menu_L_dirty_and_clear(void) {
-    bool v = hud_L_was_drawn;
-    hud_L_was_drawn = false;
-    return v;
+    // GoldenEye: kept until the next game frame, see gfx_vr_menu_H_dirty_and_clear.
+    return hud_L_was_drawn;
 }
 
 void gfx_vr_hud_capture_begin_L(void)
@@ -2031,8 +2035,14 @@ void gfx_vr_hud_capture_begin_L(void)
     glDisable(GL_SCISSOR_TEST);
 
     if (!gVrMenuLWasClearedThisFrame) {
+        // GoldenEye: depth too - the stereo watch's pages must not test
+        // against whatever an earlier frame left in this buffer.
+        GLboolean depthMask = GL_TRUE;
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+        glDepthMask(GL_TRUE);
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glDepthMask(depthMask);
         gVrMenuLWasClearedThisFrame = true;
     }
 
@@ -2345,6 +2355,7 @@ bool gfx_vr_menu_H_dirty_and_clear(void) {
 void gfx_vr_hud_H_new_frame(void) {
     hud_H_was_drawn = false;
     hud_R_was_drawn = false;
+    hud_L_was_drawn = false;
 }
 
 GLuint gfx_opengl_get_vr_menu_texture_H(void) {

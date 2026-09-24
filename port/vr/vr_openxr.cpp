@@ -242,6 +242,7 @@ extern GLuint gfx_opengl_get_vr_menu_texture(void);  // Left-hand HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_R(void);// Right-hand HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_H(void);// Head HUD texture
 extern bool is_weapon_hud;
+extern bool gevr_L_is_watch;   // gfx_pc.cpp: the left capture is the stereo watch
 float VrHudDistance = 0.8f;
 
 // GLOBAL STATE - MENU Rendering Swapchains
@@ -2701,7 +2702,43 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
 
     XrCompositionLayerQuad menuLayerL = vr_init_menu_quad(g_menuSwapchain);
 
-    if (is_weapon_hud) {
+    if (gevr_L_is_watch) {
+        // GoldenEye: the stereo watch (bondview2.c bondviewRenderWatch) - the
+        // flat game's watch view, its own camera and pages, on a panel over the
+        // left wrist, turned to face the eyes, as Perfect Dark VR hangs its
+        // pause menu at the left controller. The capture is the game's 4:3
+        // frame (as the virtual screen shows it); 24 cm tall and at least
+        // 45 cm out, about 30 degrees of view.
+        float gp[3], gq[4];
+        submitMenuL = submitMenuL && gevrVrGripPose(0, gp, gq);
+        if (submitMenuL) {
+            const float x = gq[0], y = gq[1], z = gq[2], ww = gq[3];
+            // the holder's back (grip +Y): the wrist is 6 cm behind the fist
+            const float bx = 2.0f * (x * y - ww * z);
+            const float by = 1.0f - 2.0f * (x * x + z * z);
+            const float bz = 2.0f * (y * z + ww * x);
+            float px = gp[0] + bx * 0.06f;
+            float py = gp[1] + by * 0.06f + 0.14f;
+            float pz = gp[2] + bz * 0.06f;
+            float len = sqrtf(px * px + py * py + pz * pz);
+            if (len > 0.01f && len < 0.45f) {
+                const float s = 0.45f / len;
+                px *= s; py *= s; pz *= s;
+                len = 0.45f;
+            }
+            menuLayerL.pose.position = {px, py, pz};
+            menuLayerL.pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
+            if (len > 0.01f) {
+                const float yaw = vr_atan2f(-px, -pz);
+                const float pitch = vr_asinf(py / len);
+                const XrQuaternionf qy = {0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f)};
+                const XrQuaternionf qx = {sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f)};
+                menuLayerL.pose.orientation = MultiplyQuaternions(qy, qx);
+            }
+            const float hgt = 0.24f;
+            menuLayerL.size = {hgt * 4.0f / 3.0f, hgt};
+        }
+    } else if (is_weapon_hud) {
         VrMenuResult res = vr_compute_weapon_menu(ctrlL, /*mirror=*/true, 0.0f, 0.0f, 0.0f);
         menuLayerL.pose = res.pose;
         menuLayerL.size = {1.0f * XrAspect * 0.8f, 1.0f * 0.8f};

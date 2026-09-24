@@ -109,6 +109,11 @@ extern void gfx_vr_hud_capture_end_R(void);
 #define VR_HUD_CAPTURE_BEGIN_H 0x56570000
 #define VR_HUD_CAPTURE_END_H 0x56570001
 
+// GoldenEye: the stereo watch (bondview2.c bondviewRenderWatch) into the left
+// capture, shown on a panel at the left hand (vr_submit_frame).
+#define VR_WATCH_CAPTURE_BEGIN 0x56540000
+#define VR_WATCH_CAPTURE_END   0x56540001
+
 // GoldenEye: between these, fast3d swaps front and back for face culling. The
 // stereo left arm is the fist viewmodel drawn through a mirrored matrix, and
 // the fist's own display lists turn on back-face culling, which the mirror

@@ -1727,11 +1727,19 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     {
         struct hand *handptr = &g_CurrentPlayer->hands[handnum];
         s32 item = get_item_in_hand_or_watch_menu(handnum);
- 
-        if (handptr->field_87F == 0) 
+
+        if (handptr->field_87F == 0)
         {
             continue;
         }
+#ifdef GEVR
+        /* stereo: the watch arm is drawn on the left controller instead
+         * (gevrRenderLeftWatchArm), not as a weapon in the left hand */
+        if (g_gevrStereo && item == ITEM_SUIT_LF_HAND)
+        {
+            continue;
+        }
+#endif
  
         if (item != ITEM_WATCHLASER) 
         {
