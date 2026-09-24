@@ -883,6 +883,16 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
     f32 pos[3], right[3], up[3], back[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 k = GEVR_VIEWMODEL_CM * cm;     /* 0.17 view units on the Dam */
+    extern int VrGunSizeCheat;          /* launcher cheat: 1 tiny (the old #1 bug), 2 big */
+
+    if (VrGunSizeCheat == 1)
+    {
+        k *= 0.2f;
+    }
+    else if (VrGunSizeCheat == 2)
+    {
+        k *= 2.0f;
+    }
     s32 ctrl = handnum == GUNRIGHT ? 1 : 0;
     s32 i;
 

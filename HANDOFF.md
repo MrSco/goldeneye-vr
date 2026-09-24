@@ -3989,3 +3989,24 @@ Dark leftovers; remove unused assets and purge them from history.
   aa3d0e0867fe4351db08674c9efda86074cf1a977056213ff87f7ee30ce6acf1; same key).
   #7 closed with the cause, the settings and the run rates (120 Hz display,
   60 fps game, ~1832x1920 per eye on Quest 3). No open issues.
+
+## 78. Launcher cheats page (idea from issue #1: tiny guns as a cheat)
+
+- The game's own cheat menu just fills g_CheatActivated[] and sets
+  g_AppendCheatSinglePlayer (update_menu15_cheat); lv.c switches the
+  activated cheats on as the level starts, and only when that flag is set;
+  file.c end_of_mission_briefing then saves no progress.
+- Launcher "Cheats..." opens its own page (VR: normal/tiny/big guns; FUN:
+  DK mode, paintball, line mode, Tiny Bond, turbo, invisibility,
+  fast/slow animation, enemy rockets; WEAPONS: invincibility, all guns,
+  infinite ammo, Golden Gun, Silver/Gold PP7, Magnum, Laser, the 2x sets).
+  ini Cheats (hex CHEAT_IDS mask) and GunSizeCheat 0/1/2.
+- front.c init_menu0B_runstage (solo): gevrApplyLauncherCheats merges the
+  mask into g_CheatActivated (clearing only bits it set before) and sets
+  g_AppendCheatSinglePlayer from any active cheat. User chose "like the
+  original" with look-only cheats exempt: file.c saves progress unless
+  gevrCheatsBlockProgress (any active cheat other than DK mode, paintball,
+  line mode; marked * in the launcher).
+- Gun size cheat: gevrStereoGunMatrix k x0.2 (tiny, the old #1 bug) or x2
+  (big); fist, gadgets and casings follow; the watch arm does not. Stereo only.
+- Built, installed; not seen on device.

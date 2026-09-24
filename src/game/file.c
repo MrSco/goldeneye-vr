@@ -39,7 +39,13 @@ void end_of_mission_briefing(void)
 {
     s16 var1;
 
+#ifdef GEVR
+    /* look-only cheats (big heads, paintball, line mode) keep progress */
+    extern s32 gevrCheatsBlockProgress(void);
+    if ((-1 < briefingpage) && selected_difficulty != DIFFICULTY_007 && (g_AppendCheatSinglePlayer == FALSE || !gevrCheatsBlockProgress()))
+#else
     if ((-1 < briefingpage) && selected_difficulty != DIFFICULTY_007 && g_AppendCheatSinglePlayer == FALSE)
+#endif
     {
         var1 = solo_target_time_array[mission_folder_setup_entries[briefingpage].mission_num][selected_difficulty];
         fileUnlockStageInFolderAtDifficulty(selected_folder_num, mission_folder_setup_entries[briefingpage].mission_num, selected_difficulty, getMissiontimer() / 0x3c);

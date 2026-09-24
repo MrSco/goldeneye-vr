@@ -7055,8 +7055,68 @@ Gfx *constructor_menu0A_briefing(Gfx *DL)
 //********************************************************************************************************
 //RUN STAGE
 //********************************************************************************************************
+#ifdef GEVR
+/*
+ * Launcher cheats (goldeneye-vr.ini Cheats, a CHEAT_IDS bitmask): merged into
+ * g_CheatActivated as the game's own cheat menu fills it, so lv.c switches
+ * them on as the level starts. Cheats this code set before and the player
+ * has since unticked are cleared again. g_AppendCheatSinglePlayer (lv.c only
+ * applies cheats when it is set) follows any active cheat, as
+ * update_menu15_cheat does; whether that blocks saving is decided in file.c
+ * (gevrCheatsBlockProgress).
+ */
+extern unsigned long long VrCheatMask;
+static void gevrApplyLauncherCheats(void)
+{
+    static unsigned long long applied;
+    s32 i, any = FALSE;
+
+    for (i = 1; i < CHEAT_INVALID && i < 64; i++)
+    {
+        if ((VrCheatMask >> i) & 1ULL)
+        {
+            g_CheatActivated[i] = TRUE;
+        }
+        else if ((applied >> i) & 1ULL)
+        {
+            g_CheatActivated[i] = FALSE;
+        }
+    }
+    applied = VrCheatMask;
+    for (i = 1; i < CHEAT_INVALID; i++)
+    {
+        if (g_CheatActivated[i])
+        {
+            any = TRUE;
+        }
+    }
+    g_AppendCheatSinglePlayer = any;
+}
+
+/* the look-only cheats leave mission progress saving, as the user chose */
+s32 gevrCheatsBlockProgress(void)
+{
+    s32 i;
+
+    for (i = 1; i < CHEAT_INVALID; i++)
+    {
+        if (g_CheatActivated[i] && i != CHEAT_DK_MODE && i != CHEAT_PAINTBALL && i != CHEAT_LINEMODE)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+#endif
+
 void init_menu0B_runstage(void)
 {
+#ifdef GEVR
+    if (gamemode == GAMEMODE_SOLO)
+    {
+        gevrApplyLauncherCheats();
+    }
+#endif
     bossSetLoadedStage(selected_stage);
     lvlSetSelectedDifficulty(selected_difficulty);
 }
