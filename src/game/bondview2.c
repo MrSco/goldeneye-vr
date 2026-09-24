@@ -1246,6 +1246,12 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     return gdl;
 }
 
+/* gfx_opengl.cpp gevr_measure_R_capture: aiming moves the ammo counter */
+s32 gevrAimModeOn(void)
+{
+    return g_CurrentPlayer != NULL && g_CurrentPlayer->insightaimmode;
+}
+
 /* gunfire.c: where this frame's muzzle flash node landed, camera space. */
 void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
 {
