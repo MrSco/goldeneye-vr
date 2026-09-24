@@ -333,6 +333,12 @@ void gevrStereoHeadWalk(struct coord3d *move_offset)
     s_gevrLastHead[1] = head[1];
     s_gevrLastHead[2] = head[2];
 
+    /* the watch is up: the game is paused, leaning to read it moves nobody */
+    if (g_CurrentPlayer->watch_animation_state != 0)
+    {
+        return;
+    }
+
     if (fabsf(d.x) > GEVR_HEAD_MAX_STEP_CM || fabsf(d.z) > GEVR_HEAD_MAX_STEP_CM)
     {
         return;
@@ -385,8 +391,13 @@ void gevrStereoFrame(s32 inlevel)
         && getPlayerCount() == 1
         && g_CameraMode == CAMERAMODE_FP
         && g_CurrentPlayer->cameramode != 1
-        && g_CurrentPlayer->pause_state == 0
         && !g_CurrentPlayer->bonddead;
+    /*
+     * The watch no longer drops to the screen (pause_state): the world stays
+     * in stereo, frozen, and the watch pages go on a panel at the left hand
+     * (bondviewRenderWatch), as Perfect Dark VR shows its pause menu at the
+     * left controller over the live stereo view.
+     */
 
     if (want && !s_gevrStereoWas)
     {
@@ -402,7 +413,7 @@ void gevrStereoFrame(s32 inlevel)
 
     if (want)
     {
-        f32 x = gevrVrTurnAxis();
+        f32 x = g_CurrentPlayer->watch_animation_state != 0 ? 0.0f : gevrVrTurnAxis();
 
         gevrVrSetWorldScale(GEVR_UNITS_PER_METRE * D_800364CC);
 
@@ -698,9 +709,11 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     s32 n, i;
 
     *drawn = FALSE;
+    /* the game puts this arm (ITEM_SUIT_LF_HAND) in the left hand for the
+     * watch: it stays on the controller while the pages are open */
     if (!g_gevrStereo
-        || get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
-        || g_CurrentPlayer->watch_animation_state != 0
+        || (get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
+            && get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_SUIT_LF_HAND)
         || g_CurrentPlayer->bonddead)
     {
         return gdl;
@@ -9379,17 +9392,42 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
     union ModelRwData *rwdata;
     Mtx *perspmtx;
     u16 perspNorm;
- 
+#ifdef GEVR
+    s32 gevrPanel = FALSE;
+#endif
+
     if (g_CurrentPlayer->watch_animation_state == 0)
     {
         goto end;
     }
- 
+
     if (g_CurrentPlayer->pausing_flag == FALSE)
     {
         goto end;
     }
- 
+#ifdef GEVR
+    /*
+     * Stereo: the watch, its own camera and its pages, drawn as in the flat
+     * game into the left-hand panel (VR_WATCH_CAPTURE_*, vr_openxr.cpp) over
+     * the stereo world, from the zoom onto the face to the zoom back out.
+     * The arm raising and lowering is the real arm on the controller, so
+     * those states draw nothing here. 0x5652000x (menu on/off) keeps the
+     * shader's HUD enlargement off, as Perfect Dark VR's menu capture does.
+     */
+    if (g_gevrStereo)
+    {
+        s32 st = g_CurrentPlayer->watch_animation_state;
+
+        if (st != 4 && st != 5 && st != 6 && st != 12)
+        {
+            goto end;
+        }
+        gDPNoOpTag(gdl++, 0x56540000); /* VR_WATCH_CAPTURE_BEGIN */
+        gDPNoOpTag(gdl++, 0x56520001); /* menu on */
+        gevrPanel = TRUE;
+    }
+#endif
+
     renderdata = D_8003683C;
     watchpos = ZeroCoordWatchPos;
     objheader = get_ptr_itemheader_in_hand(GUNLEFT);
@@ -9522,8 +9560,15 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
         bondviewTransformManyPosToViewMatrix(g_CurrentPlayer->something_with_watch_object_instance.render_pos, objheader->numMatrices);
         matrix_4x4_7F058C88();
     }
- 
+
     end:
+#ifdef GEVR
+    if (gevrPanel)
+    {
+        gDPNoOpTag(gdl++, 0x56540001); /* VR_WATCH_CAPTURE_END */
+        gDPNoOpTag(gdl++, 0x56520000); /* menu off */
+    }
+#endif
     return gdl;
 }
 
@@ -9902,6 +9947,42 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
 }
 
 
+#ifdef GEVR
+/*
+ * PORT test hook: files/gevr_hudmsg.txt holding "b" shows a bottom message,
+ * "t" a top one, "bt" both - to place them in a capture without playing to
+ * a pickup or an objective. The file is deleted once read.
+ */
+#include <stdio.h>
+#include <unistd.h>
+static void gevrHudMsgProbe(void)
+{
+    static u32 tick;
+    static char top[] = "TOP MESSAGE: OBJECTIVE INFORMATION";
+    static char bottom[] = "BOTTOM MESSAGE: PICKED UP AMMO";
+    const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_hudmsg.txt";
+    char what[8] = {0};
+    FILE *f;
+
+    if ((++tick % 30) != 0)
+    {
+        return;
+    }
+    f = fopen(path, "r");
+    if (!f)
+    {
+        return;
+    }
+    if (fgets(what, sizeof(what), f))
+    {
+        if (what[0] == 'b' || what[1] == 'b') hudmsgBottomShow(bottom);
+        if (what[0] == 't' || what[1] == 't') hudmsgTopShow(top);
+    }
+    fclose(f);
+    unlink(path);
+}
+#endif
+
 Gfx *maybe_mp_interface(Gfx *gdl)
 {
     s32 ulx;
@@ -10074,6 +10155,9 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         }
     }
 
+#ifdef GEVR
+    gevrHudMsgProbe();
+#endif
     bondviewIntroCameraTextTick();
     gdl = hudmsgBottomRender(gdl);
     bondviewUpperTextWindowTimerTick();
@@ -10970,7 +11054,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             {
                 view_left = viGetViewLeft() + (viGetViewWidth() - view_left_offset) / 2;
                 view_horiz = view_left + view_left_offset;
-                view_top = viGetViewTop() + (viGetViewHeight() * 86) / 100;
+                view_top = viGetViewTop() + (viGetViewHeight() * 92) / 100;
                 gDPNoOpTag(arg0++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
             }
 #endif
@@ -11145,6 +11229,14 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                     }
 #endif
                     msg.bottom = msg.y + msg.textheight;
+#ifdef GEVR
+                    if (g_gevrStereo && getPlayerCount() == 1)
+                    {
+                        /* the band only behind the text, as the bottom message's box */
+                        gdl = microcode_constructor_related_to_menus(gdl, msg.x - 4, msg.y - 2, msg.x + msg.textwidth + 4, msg.bottom, 0x64);
+                    }
+                    else
+#endif
                     gdl = microcode_constructor_related_to_menus(gdl, 0, msg.y - 2, viGetX(), msg.bottom, 0x64);
 #ifdef VERSION_US
                     sw.screenwidth = viGetX();

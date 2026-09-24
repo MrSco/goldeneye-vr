@@ -3626,3 +3626,42 @@ Dark leftovers; remove unused assets and purge them from history.
 - Idea list for the watch transition (question only, no code): see the chat
   reply of 2026-09-24; summary - keep stereo and show the watch pages on a
   wrist panel above the 3D watch arm, or ease the change with a fade.
+
+## 64. Watch in stereo on a left-hand panel; message spacing
+
+- User: club swing right now, reloads fine. Bottom messages still a bit high;
+  the top message (now visible) seemed to take the objective-failed spot.
+- **Why messages sit higher than their numbers**: 2D rects (w == 1) on the
+  head-locked capture go through the VR shader's HUD branch, which scales w by
+  0.9 - everything 2D is enlarged 1.11x about the centre. 86% down landed at
+  90%; 18% at 14%. Bottom box now at 92% (lands ~97%, about 21 degrees below
+  centre on the 44-degree panel). The top message's band is trimmed to the
+  text in stereo (it spanned the panel).
+- **gevr_hudmsg.txt** (bondview2.c gevrHudMsgProbe, PORT test hook): "b"
+  shows a bottom message, "t" a top one, "bt" both; deleted once read.
+  Device check blocked this session: the headset lost tracking (passthrough
+  "Finding position" prompt) - not touched, testing stopped.
+- **Stereo watch** (the user's pick of the watch-transition options), after
+  Perfect Dark VR, which keeps the stereo world during its pause menu and
+  captures the menu to a quad at the left controller:
+  - GoldenEye's watch pages are already 3D: bondviewRenderWatch draws the
+    watch model with its own guPerspective (zoominfovy) and the page on the
+    face node (draw_watch_current_page). Nothing is rebuilt.
+  - Stereo no longer turns off on pause_state; no recentre on close.
+  - bondviewRenderWatch in stereo draws only states 4/5/6/12 (zoom in, menu,
+    zoom out), between VR_WATCH_CAPTURE_BEGIN/END (0x56540000/1 -> left
+    capture) and 0x56520001/0 (menu on/off: uIsMenu, so no 1.11x HUD
+    enlargement; now uploaded per draw like the eye offsets, and 0x56520000
+    is handled). The arm raising/lowering states draw nothing: the real arm
+    is on the controller (gevrRenderLeftWatchArm now also draws while the
+    left hand holds ITEM_SUIT_LF_HAND; gunRenderFirstPersonGunModels skips
+    that item in stereo).
+  - vr_openxr.cpp: gevr_L_is_watch places the L quad 6 cm behind the left
+    grip (the wrist) + 14 cm up, at least 45 cm out, billboarded to the eyes,
+    24 cm tall at 4:3 (the frame as the virtual screen shows it). The L
+    capture now persists until the next game frame (as H/R: no flicker at
+    120 Hz) and clears depth as well as colour.
+  - While the watch is up: no stick turning, no head-walk.
+  - Navigation is the game's own (stick, A/B, grips = L/R page turn), as PD's
+    pause menu is stick-only - not the laser pointer.
+- Built and installed (release). Not seen on device yet.
