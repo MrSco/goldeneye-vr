@@ -4246,3 +4246,13 @@ Dark leftovers; remove unused assets and purge them from history.
 - Self-driving the headset for perf tests works: launch with prox_close,
   START (1000) passes the launcher, A presses reach the level hook, START
   starts; Frigate's start view already faces the hull (~500 draws).
+- The lockup, caught by the new watchdog stack after the user woke the
+  headset: sndHandleEvent+0x8c <- sndPlayerVoiceHandler <- alAudioFrame <-
+  amHandleFrameMessage <- gevrAudioFrame (pump stage 6), spinning on a
+  sound-state chain that had become a cycle. Cause: gevrAudioFrame returned
+  early while audioIsPaused (sleep, focus loss) but the game kept ticking and
+  starting/stopping sounds, so the sound player's queue and chains fell out
+  of step. Fixed: the player keeps running while paused (audioEndFrame
+  already drops the output); sndHandleEvent's walk is capped at 256 as a
+  safety net (logs "snd: sound-state chain did not end" once). Two sleep/wake
+  cycles on Frigate, driven from the PC: no lockup.
