@@ -3886,3 +3886,7 @@ Dark leftovers; remove unused assets and purge them from history.
   the pasted snippet named goldeneye-vr/goldeneye-vr, which does not exist).
   Removed a stale files/gevr_introcam.txt from the headset (pinned the intro
   camera; the game picks at random again).
+- **v0.1.2 published** 2026-09-24: https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.2
+  (tag at e725639 = build commit; GoldenEye-VR-v0.1.2.apk SHA-256
+  00d40e82736bddb85c303758e94e7110a32f3e8f8ec23adfad8fe3cf82cf79cf; same key).
+  Fixes #1 and #4, README ROM steps. Open: #2, #3, #6.
