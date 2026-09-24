@@ -1333,6 +1333,22 @@ void gunCreateBeamForHand(enum GUNHAND hand)
 
     hand_ptr = &g_CurrentPlayer->hands[hand];
     player_matrix = camGetWorldToScreenMtxf();
+#ifdef GEVR
+    /* PORT probe (laser beam from the headset, #15 follow-up): beam start
+     * (field_B58), hit, the eye and the depth test inputs, a few shots only. */
+    {
+        static s32 n;
+        coord3d *eye = bondviewGetCurrentPlayersPosition();
+
+        if (getCurrentPlayerWeaponId(hand) == ITEM_LASER && n++ < 6)
+        {
+            sysLogPrintf(LOG_NOTE, "laserprobe: hand %d B58 %.1f %.1f %.1f hit %.1f %.1f %.1f eye %.1f %.1f %.1f B64 %.2f",
+                         hand, hand_ptr->field_B58.x, hand_ptr->field_B58.y, hand_ptr->field_B58.z,
+                         hand_ptr->item_related.x, hand_ptr->item_related.y, hand_ptr->item_related.z,
+                         eye->x, eye->y, eye->z, hand_ptr->field_B64);
+        }
+    }
+#endif
 
     val = -((((hand_ptr->item_related.x * player_matrix->m[0][2]) + (hand_ptr->item_related.y * player_matrix->m[1][2])) + (hand_ptr->item_related.z * player_matrix->m[2][2])) + player_matrix->m[3][2]);
 
@@ -1939,6 +1955,16 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     renderdata = (ModelRenderData){0};
     renderdata.zbufferenabled = TRUE;
     renderdata.flags = 3;
+#ifdef GEVR
+    /*
+     * The right fist first (issue #19): a gadget drawn round it may test depth
+     * without writing it (a mine's materials), and a fist drawn after it
+     * painted over the whole gadget - the hand showed through the mine held
+     * in it. Drawn first, the fist's depth hides the gadget only where the
+     * fist is in front.
+     */
+    gdl = gevrRenderRightFist(gdl, &renderdata);
+#endif
  
     for (handnum = 0; handnum != 2; handnum++) 
     {
@@ -2093,7 +2119,6 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gdl = gevrRenderLeftArm(gdl, &renderdata);
         }
-        gdl = gevrRenderRightFist(gdl, &renderdata);
     }
 #endif
     *gdlptr = gdl;
