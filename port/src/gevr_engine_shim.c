@@ -301,6 +301,7 @@ void gevrVrPumpEnd(void)
  */
 #include <time.h>
 extern uint32_t gevr_perf_draws, gevr_perf_tris;   /* fast3d gfx_pc.cpp */
+extern uint32_t gevr_flush_reason[10];
 static u64 gevrPerfNs(void)
 {
 	struct timespec ts;
@@ -341,7 +342,14 @@ static void gevrPerfFrameDone(void)
 					gameAcc / n / 1e6, gevrPerfWorstGame / 1e6, gevrPerfAcc[1] / n / 1e6,
 					gevrPerfAcc[2] / n / 1e6, gevrPerfAcc[0] / n / 1e6,
 					(unsigned)(gevr_perf_draws / gevrPerfFrames), (unsigned)(gevr_perf_tris / gevrPerfFrames / 1000));
-				sysLogPrintf(LOG_NOTE, "perf: %s", gevrPerfBuf);
+				{
+					const double n2 = (double)gevrPerfFrames;
+					sysLogPrintf(LOG_NOTE, "perf: %s | flush/frame depth %.0f vp %.0f sc %.0f tex %.0f filt %.0f shader %.0f blend %.0f full %.0f comb %.0f",
+						gevrPerfBuf, gevr_flush_reason[1] / n2, gevr_flush_reason[2] / n2, gevr_flush_reason[3] / n2,
+						gevr_flush_reason[4] / n2, gevr_flush_reason[5] / n2, gevr_flush_reason[6] / n2,
+						gevr_flush_reason[7] / n2, gevr_flush_reason[8] / n2, gevr_flush_reason[9] / n2);
+					memset(gevr_flush_reason, 0, sizeof(gevr_flush_reason));
+				}
 				gameAcc = 0;
 				gevrPerfWorstGame = 0;
 				gevrPerfFrames = 0;
