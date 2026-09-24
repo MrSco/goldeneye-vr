@@ -4162,3 +4162,13 @@ Dark leftovers; remove unused assets and purge them from history.
   mines, the sniper-club fist, gadget culling, ammo panel. Known: water
   shimmer (D245), Surface ground gaps, watch laser 3 arms (parked),
   #17 awaiting the reporter.
+
+## 84. v0.1.8 published
+- https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.8 (tag at b402573 =
+  build commit; GoldenEye-VR-v0.1.8.apk SHA-256
+  47742a0d90631afb68822fb1aa1a3e4ca5a5179b703427694c99e75f61e8da20; same
+  key). Closed #15 #17 (reporter confirmed Surface 2 on v0.1.7) #18 #19.
+- Open: features #10 (weapon wheel) and #16 (hold menu -> launcher).
+- Next (user): a performance pass - frame drops when firing the RC-P90, and
+  ~48 fps close to Frigate's hull. Then: water shimmer (D245), Surface
+  ground patches without impacts, decals up close, watch laser 3 arms.
