@@ -650,6 +650,14 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
             ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
             ImGui::EndDisabled();
+            {
+                // Issue #6: the gun in the left hand, watch on the right wrist,
+                // move with the right stick. Live: it swaps the pointer hand too.
+                bool lefty = VrLeftHandedMode != 0;
+                if (ImGui::Checkbox("Left-handed", &lefty)) {
+                    VrLeftHandedMode = lefty ? 1 : 0;
+                }
+            }
             ImGui::EndTable();
         }
         ImGui::Separator();
