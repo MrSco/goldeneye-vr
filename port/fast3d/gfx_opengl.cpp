@@ -378,6 +378,35 @@ static void gevr_decal_switch_poll(void)
 
 static uint32_t frame_count;
 /* performance pass: the per-draw uniform cache (draw_triangles) */
+/*
+ * Performance pass: a persistently mapped vertex buffer (GL_EXT_buffer_storage).
+ * glBufferData per draw cost ~5 us on the Quest's driver - 2.6 ms a frame at
+ * Frigate's hull (505 draws) - and appending with glBufferSubData stalled on
+ * buffers the GPU was still reading (tried: 12 -> 35 ms). Mapped once, the
+ * buffer takes each batch as a plain memcpy. It is split in three per-frame
+ * segments; a fence closes each segment and is waited on only before that
+ * segment is written again, two frames later.
+ */
+#define GEVR_PM_SEGMENTS 3
+static uint8_t *s_pmPtr;
+static GLsizeiptr s_pmSegSize, s_pmOff;
+static int s_pmSeg = -1;
+static uint32_t s_pmFrame = 0xffffffffu;
+static GLsync s_pmFence[GEVR_PM_SEGMENTS];
+static void gevr_pm_next_segment(void)
+{
+    if (s_pmSeg >= 0) {
+        if (s_pmFence[s_pmSeg]) glDeleteSync(s_pmFence[s_pmSeg]);
+        s_pmFence[s_pmSeg] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    }
+    s_pmSeg = (s_pmSeg + 1) % GEVR_PM_SEGMENTS;
+    if (s_pmFence[s_pmSeg]) {
+        glClientWaitSync(s_pmFence[s_pmSeg], GL_SYNC_FLUSH_COMMANDS_BIT, 100000000ull);
+        glDeleteSync(s_pmFence[s_pmSeg]);
+        s_pmFence[s_pmSeg] = 0;
+    }
+    s_pmOff = (GLsizeiptr)s_pmSeg * s_pmSegSize;
+}
 extern "C" uint64_t gevr_perf_ns_upload;   /* gevr_engine_shim.c perfsplit */
 #include <time.h>
 static bool s_uniCacheValid;
@@ -1502,10 +1531,28 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);   /* the menu overlay and hub setups leave theirs bound */
     struct timespec gevrT0, gevrT1;
     clock_gettime(CLOCK_MONOTONIC, &gevrT0);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
+    GLint first = 0;
+    if (s_pmPtr != NULL) {
+        const GLsizeiptr bytes = (GLsizeiptr)(sizeof(float) * buf_vbo_len);
+        const GLsizeiptr stride = bytes / (GLsizeiptr)(3 * buf_vbo_num_tris);
+        if (s_pmFrame != frame_count) {
+            s_pmFrame = frame_count;
+            gevr_pm_next_segment();
+        }
+        GLsizeiptr off = (s_pmOff + stride - 1) / stride * stride;
+        if (off + bytes > (GLsizeiptr)(s_pmSeg + 1) * s_pmSegSize) {
+            gevr_pm_next_segment();   /* a frame too big for one segment: take the next */
+            off = (s_pmOff + stride - 1) / stride * stride;
+        }
+        memcpy(s_pmPtr + off, buf_vbo, (size_t)bytes);
+        s_pmOff = off + bytes;
+        first = (GLint)(off / stride);
+    } else {
+        glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
+    }
     clock_gettime(CLOCK_MONOTONIC, &gevrT1);
     gevr_perf_ns_upload += (uint64_t)(gevrT1.tv_sec - gevrT0.tv_sec) * 1000000000ull + (uint64_t)(gevrT1.tv_nsec - gevrT0.tv_nsec);   /* PORT probe (performance pass) */
-    const GLint first = 0;
+
 
     // A HUD capture draws into a single 2D texture, so it hides the right eye by
     // pushing that eye's geometry far away. That is correct while capturing --
@@ -1883,6 +1930,18 @@ static void gfx_opengl_init(void) {
 
     glGenBuffers(1, &opengl_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    {
+        typedef void (*PFN_BufferStorageEXT)(GLenum, GLsizeiptr, const void *, GLbitfield);
+        PFN_BufferStorageEXT bufferStorage = (PFN_BufferStorageEXT)SDL_GL_GetProcAddress("glBufferStorageEXT");
+        const GLbitfield flags = GL_MAP_WRITE_BIT | 0x0040 /* PERSISTENT */ | 0x0080 /* COHERENT */;
+        const GLsizeiptr segment = 4 << 20;
+        if (gl_es && bufferStorage != NULL && glMapBufferRange != NULL && glFenceSync != NULL) {
+            bufferStorage(GL_ARRAY_BUFFER, segment * GEVR_PM_SEGMENTS, NULL, flags);
+            s_pmPtr = (uint8_t *)glMapBufferRange(GL_ARRAY_BUFFER, 0, segment * GEVR_PM_SEGMENTS, flags);
+            s_pmSegSize = segment;
+        }
+        sysLogPrintf(LOG_NOTE, "GL: persistent vertex buffer %s", s_pmPtr ? "on (3 x 4 MB)" : "off (glBufferData per draw)");
+    }
 
     if (gl_core_profile || gl_es) {
         // warn the user that odd behavior can occur
