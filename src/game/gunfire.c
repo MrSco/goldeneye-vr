@@ -343,6 +343,10 @@ extern s32 g_gevrStereo;
 extern s32 gevrStereoItemShown(s32 item);
 extern void gevrStereoItemPose(s32 item, Mtxf *m);
 static s32 s_gevrHiddenShown[2];
+/* the stereo gun matrix's row length (the viewmodel scale), 1 when flat:
+ * throw_item_pos_related is kept a plain rotation as in the flat game, and
+ * casing offsets in the model frame are scaled by this instead */
+static f32 s_gevrThrowScale[2] = { 1.0f, 1.0f };
 #endif
 
 void gunUpdateAndFire(GUNHAND handnum)
@@ -628,7 +632,7 @@ void gunUpdateAndFire(GUNHAND handnum)
             Mtxf pose;
 
             matrix_4x4_copy(&gevrItemRot, &pose);
-            if (hand->field_92C != 0)
+            if (hand->field_92C != 0 && !gevrStereoItemShown(item))
             {
                 /*
                  * The keyframe turn is in the model frame, which the flat
@@ -666,6 +670,41 @@ void gunUpdateAndFire(GUNHAND handnum)
     matrix_4x4_set_position(&gunofs, &gunmtx);
     matrix_4x4_copy(&gunmtx, &hand->gunmtx_camspace);
     matrix_4x4_copy(&hand->throw_item_pos_related, &hand->throw_item_pos_related_prev);
+#ifdef GEVR
+    /*
+     * Stereo: the gun matrix's rows carry the viewmodel scale (0.17, and a
+     * gadget's own size). Thrown props, grenades, rockets and casings take
+     * their world matrix from this one and multiply in their model scale, so
+     * they came out a fraction of their size. Give them the flat game's plain
+     * rotation; the casing offset is scaled instead (sub_GAME_7F068508).
+     */
+    s_gevrThrowScale[handnum] = 1.0f;
+    if (g_gevrStereo)
+    {
+        Mtxf unit;
+        s32 r, c;
+
+        matrix_4x4_copy(&hand->gunmtx_camspace, &unit);
+        for (r = 0; r < 3; r++)
+        {
+            f32 len = sqrtf(unit.m[r][0] * unit.m[r][0] + unit.m[r][1] * unit.m[r][1] + unit.m[r][2] * unit.m[r][2]);
+
+            if (len > 1e-6f)
+            {
+                for (c = 0; c < 3; c++)
+                {
+                    unit.m[r][c] /= len;
+                }
+                if (r == 0)
+                {
+                    s_gevrThrowScale[handnum] = len;
+                }
+            }
+        }
+        matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), &unit, &hand->throw_item_pos_related);
+    }
+    else
+#endif
     matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), &hand->gunmtx_camspace, &hand->throw_item_pos_related);
     hand->field_87F = 1;
 
@@ -691,6 +730,7 @@ void gunUpdateAndFire(GUNHAND handnum)
         && hand->weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
         && Gun_hand_without_item(handnum) != 0
         && get_itemtype_in_hand(handnum) != 0
+        && hand->field_92C == 0
         && !((hand->weapon_ammo_in_magazine <= 0) && (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SINGLE_USE_RELOAD) != 0));
 
     if (hand->field_87F != 0 || s_gevrHiddenShown[handnum])
@@ -5523,6 +5563,11 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
         switchpos.x = switchdata->x * g_CasingSwitchScale;
         switchpos.y = switchdata->y * g_CasingSwitchScale;
         switchpos.z = switchdata->z * g_CasingSwitchScale;
+#ifdef GEVR
+        switchpos.x *= s_gevrThrowScale[handnum];
+        switchpos.y *= s_gevrThrowScale[handnum];
+        switchpos.z *= s_gevrThrowScale[handnum];
+#endif
  
         matrix_4x4_set_identity_and_position(&switchpos, &mtx);
         matrix_4x4_multiply_in_place(THROWMTX, &mtx);
@@ -5851,6 +5896,11 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
         switchpos.x = switchdata->x * g_CasingSwitchScale;
         switchpos.y = switchdata->y * g_CasingSwitchScale;
         switchpos.z = switchdata->z * g_CasingSwitchScale;
+#ifdef GEVR
+        switchpos.x *= s_gevrThrowScale[handnum];
+        switchpos.y *= s_gevrThrowScale[handnum];
+        switchpos.z *= s_gevrThrowScale[handnum];
+#endif
  
         matrix_4x4_set_identity_and_position(&switchpos, &mtx);
         matrix_4x4_multiply_in_place(THROWMTX, &mtx);

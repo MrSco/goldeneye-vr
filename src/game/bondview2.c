@@ -609,7 +609,7 @@ static GevrItemPose s_gevrItemPoses[] = {
     { ITEM_TIMEDMINE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
     { ITEM_PROXIMITYMINE, { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
     { ITEM_REMOTEMINE,    { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
-    { ITEM_BUG,           { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_BUG,           { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.67f, TRUE },  /* covert modem: 1.5x too big (user) */
     { ITEM_MICROCAMERA,   { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
     { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
     { ITEM_BOMBCASE,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
