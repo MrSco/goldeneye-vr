@@ -3957,3 +3957,8 @@ Dark leftovers; remove unused assets and purge them from history.
   pages still use the unmirrored root (text reads correctly); clock angles
   negated so the hands run clockwise. (The left-hand item raise before the
   pause goes through the gun path, already mirrored on the screen.)
+- **v0.1.4 published** 2026-09-24: https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.4
+  (tag at 39349b4 = build commit; GoldenEye-VR-v0.1.4.apk SHA-256
+  7dd528a0218ef76e4534d0affbd15c8bf644c3ba04e0b8dbed8c616bc8e92743; same key).
+  #6 closed with a reply; no open issues. README: left-handed note under
+  Controls. The user's own ini still has LeftHandedMode=1 from testing.
