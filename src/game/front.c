@@ -444,6 +444,98 @@ struct coord3d folderpositions[] = {
 struct rectbbox folder_option_COPY_bound = { 0 };
 struct rectbbox folder_option_ERASE_bound = { 0 };
 
+struct mission_folder_setup mission_folder_setup_entries[];
+
+#ifdef GEVR
+/*
+ * PORT test hook: files/gevr_level.txt holding "<level> [difficulty]" jumps
+ * from the front end (mode select onward, so a save file is loaded) to that
+ * mission's briefing, as picking its folder and difficulty would; one A
+ * press then starts it. <level> is a LEVELID number or a mission name
+ * (dam facility runway surface bunker silo frigate surface2 bunker2 statue
+ * archives streets depot train jungle control caverns cradle aztec egypt);
+ * difficulty 0 agent, 1 secret agent, 2 00 agent (default 0). Unlocks are
+ * not checked. The file is deleted once read.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <strings.h>
+static void gevrLevelJumpProbe(void)
+{
+    static const struct { const char *name; s32 id; } names[] = {
+        { "dam", LEVELID_DAM }, { "facility", LEVELID_FACILITY }, { "runway", LEVELID_RUNWAY },
+        { "surface", LEVELID_SURFACE }, { "bunker", LEVELID_BUNKER1 }, { "silo", LEVELID_SILO },
+        { "frigate", LEVELID_FRIGATE }, { "surface2", LEVELID_SURFACE2 }, { "bunker2", LEVELID_BUNKER2 },
+        { "statue", LEVELID_STATUE }, { "archives", LEVELID_ARCHIVES }, { "streets", LEVELID_STREETS },
+        { "depot", LEVELID_DEPOT }, { "train", LEVELID_TRAIN }, { "jungle", LEVELID_JUNGLE },
+        { "control", LEVELID_CONTROL }, { "caverns", LEVELID_CAVERNS }, { "cradle", LEVELID_CRADLE },
+        { "aztec", LEVELID_AZTEC }, { "egypt", LEVELID_EGYPT },
+    };
+    static u32 tick;
+    const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_level.txt";
+    char word[32] = {0};
+    s32 level = LEVELID_NONE, diff = DIFFICULTY_AGENT, entry, i;
+    FILE *fp;
+
+    if ((++tick % 30) != 0)
+    {
+        return;
+    }
+    fp = fopen(path, "r");
+    if (fp == NULL)
+    {
+        return;
+    }
+    if (current_menu < MENU_MODE_SELECT || current_menu > MENU_BRIEFING)
+    {
+        fclose(fp);     /* keep it until a save file is chosen */
+        return;
+    }
+    if (fscanf(fp, "%31s %d", word, &diff) >= 1)
+    {
+        if (word[0] >= '0' && word[0] <= '9')
+        {
+            level = atoi(word);
+        }
+        for (i = 0; i < (s32) ARRAYCOUNT(names); i++)
+        {
+            if (strcasecmp(word, names[i].name) == 0)
+            {
+                level = names[i].id;
+            }
+        }
+    }
+    fclose(fp);
+    unlink(path);
+
+    if (diff < DIFFICULTY_AGENT || diff > DIFFICULTY_007)
+    {
+        diff = DIFFICULTY_AGENT;
+    }
+    for (entry = 0; mission_folder_setup_entries[entry].folder_text_preset; entry++)
+    {
+        if (mission_folder_setup_entries[entry].stage_id == level && level >= 0)
+        {
+            break;
+        }
+    }
+    if (!mission_folder_setup_entries[entry].folder_text_preset)
+    {
+        sysLogPrintf(LOG_WARNING, "levelhook: no mission for '%s'", word);
+        return;
+    }
+
+    sysLogPrintf(LOG_NOTE, "levelhook: %s (level %d), difficulty %d", word, level, diff);
+    gamemode = GAMEMODE_SOLO;
+    briefingpage = entry;
+    selected_stage = level;
+    selected_difficulty = diff;
+    mission_difficulty_highlighted = diff;
+    frontChangeMenu(MENU_BRIEFING, FALSE);
+}
+#endif
+
 struct mission_folder_setup mission_folder_setup_entries[] = {
   /* string_ptr  folder_text_preset                                                         icon_text_preset                                            stage_id           unknown type             mission_num briefing_name_ptr */
     {"1",        getStringID(LTITLE, TITLE_STR_120_ARK)            /* Arkangelsk */,        0,                                                          LEVELID_NONE,           0, MISSION_HEADER,          -1, 0},
@@ -8609,6 +8701,9 @@ void menu_init(void)
 #undef MENU_INIT_ASPECT_440
 #undef MENU_INIT_ASPECT_320
 
+#ifdef GEVR
+    gevrLevelJumpProbe();
+#endif
     if (
         ((menu_update > MENU_INVALID) || (maybe_prev_menu > MENU_INVALID))
         && (current_menu != MENU_SWITCH_SCREENS))
