@@ -666,18 +666,30 @@ void setupCctv(s32 arg0, CCTVRecord *arg1, s32 cmdindex)
     Mtxf *sp3C;
 
     domakedefaultobj(arg0, (struct ObjectRecord*)arg1, cmdindex);
+#ifdef GEVR
+    /*
+     * Issue #11 (gepc-ref D307, open there): the camera turned to face its own
+     * mounting pad (ObjectRecord.pad), i.e. into the wall, so it never saw Bond.
+     * The pad it watches is lookpad (N64 +0x80), which nothing read: a field
+     * name slip in the decomp source (a 4-byte read at +0x80 cannot compile
+     * from arg1->pad, a 2-byte one at +6). Perfect Dark aims at lookatpadnum.
+     */
+#define CCTV_LOOKPAD lookpad
+#else
+#define CCTV_LOOKPAD pad
+#endif
 
-    if (arg1->pad >= 0)
+    if (arg1->CCTV_LOOKPAD >= 0)
     {
         temp_a2 = (struct coord3d*)arg1->model->obj->Switches[0]->Data;
 
-        if (isNotBoundPad(arg1->pad))
+        if (isNotBoundPad(arg1->CCTV_LOOKPAD))
         {
-            sp50 = &g_CurrentSetup.pads[arg1->pad];
+            sp50 = &g_CurrentSetup.pads[arg1->CCTV_LOOKPAD];
         }
         else
         {
-            sp50 = (struct PadRecord *)&g_CurrentSetup.boundpads[getBoundPadNum(arg1->pad)];
+            sp50 = (struct PadRecord *)&g_CurrentSetup.boundpads[getBoundPadNum(arg1->CCTV_LOOKPAD)];
         }
 
         sp44.f[0] = temp_a2->f[0];
@@ -711,6 +723,7 @@ void setupCctv(s32 arg0, CCTVRecord *arg1, s32 cmdindex)
         arg1->timer = 0;
     }
 }
+#undef CCTV_LOOKPAD
 
 void setupAutogun(s32 stageID, AutogunRecord *autogun, s32 cmdindex)
 {
