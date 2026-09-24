@@ -4022,3 +4022,20 @@ Dark leftovers; remove unused assets and purge them from history.
   Next: the PP7 silencer band (HANDOFF 38, still open: a ring of faces at
   the joint in solid green/blue/red varying with location - likely lit with
   stale lights) and the decal cropping.
+
+## 79. Depth clamp on Quest; decal and silencer-band probes (post v0.1.6)
+- Root cause found for much of the decal cropping: on GLES the renderer
+  falls back to `gl_Position.z *= 0.3` when depth clamp is missing, which
+  costs about 3x depth precision. The Quest driver HAS GL_EXT_depth_clamp,
+  but glad only checks for it in its GLES2 loader, and we load through the
+  desktop loader, so it was never seen. PD VR has the same bug. Fixed in
+  gfx_opengl_init_extensions (scan with glGetStringi on ES); it now logs
+  "GL: depth clamp: yes (EXT 1 ...)" on every run.
+- Live decal switch for A/B testing: files/gevr_decal.txt "mode a b",
+  re-read about every 2 s (needs chmod 666):
+  0 = offset -2,-2 (default); 1 = polygon offset a,b;
+  2 = -2,-2 plus a pull of a view units; 3 = stencil band of half-width a.
+  Logs "decalswitch:".
+- Silencer band probe: gunfire.c tags 0x565A0000/1 around the gun draw;
+  gfx_pc.cpp logs "gunprobe:" (geometry mode, combine, lights, look-at,
+  normals, vertex colour) per distinct batch. Remove both once explained.
