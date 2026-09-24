@@ -9880,7 +9880,16 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
         secondsAngle = ((-(((f32) seconds) + framesfrac)) * M_TAU_F) / 60.0f;
         minutesAngle = ((((-((f32) minutes)) * M_TAU_F) / 60.0f) * 1.0f) + (secondsAngle / 60.0f);
         hoursAngle = ((((-((f32) ((total_seconds / 3600) % 12))) * M_TAU_F) / 12.0f) + (minutesAngle / 12.0f)) + (secondsAngle / 720.0f);
-    
+#ifdef GEVR
+        if (VrLeftHandedMode)
+        {
+            /* the watch is drawn mirrored below: keep its hands clockwise */
+            secondsAngle = -secondsAngle;
+            minutesAngle = -minutesAngle;
+            hoursAngle = -hoursAngle;
+        }
+#endif
+
         while (secondsAngle < 0.0f)
         {
             secondsAngle += M_TAU_F;
@@ -9917,12 +9926,49 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
             renderdata.envcolour.word = g_CurrentPlayer->tileColor.a | (((g_CurrentPlayer->tileColor.r << 24) | (g_CurrentPlayer->tileColor.g << 16)) | (g_CurrentPlayer->tileColor.b << 8));
         }
     
+#ifdef GEVR
+        /*
+         * Left-handed mode (issue #6): the pause raises the right arm. The
+         * whole model is mirrored across the vertical line through the watch
+         * face (the node the pages sit on), so the face stays put and the arm
+         * swaps sides; the pages are still placed from the unmirrored root, so
+         * their text reads the right way round.
+         */
+        Mtxf gevrRoot;
+        matrix_4x4_copy(matrices, &gevrRoot);
+        if (VrLeftHandedMode)
+        {
+            f32 *fp = (f32 *) objheader->Switches[2]->Data;
+            f32 cx = fp[0] * matrices[0].m[0][0] + fp[1] * matrices[0].m[1][0] + fp[2] * matrices[0].m[2][0] + matrices[0].m[3][0];
+            s32 mi, r;
+
+            for (mi = 0; mi < objheader->numMatrices; mi++)
+            {
+                for (r = 0; r < 3; r++)
+                {
+                    matrices[mi].m[r][0] = -matrices[mi].m[r][0];
+                }
+                matrices[mi].m[3][0] = 2.0f * cx - matrices[mi].m[3][0];
+            }
+            gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
+        }
+#endif
         subdraw(&renderdata, (Model *) (&g_CurrentPlayer->something_with_watch_object_instance));
         gdl = renderdata.gdl;
+#ifdef GEVR
+        if (VrLeftHandedMode)
+        {
+            gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
+        }
+#endif
         nodepos2 = (f32 *) objheader->Switches[2]->Data;
         finalmtx = dynAllocateMatrix();
         matrix_4x4_set_identity_and_position((coord3d *) nodepos2, &handmtx);
+#ifdef GEVR
+        matrix_4x4_multiply_in_place(&gevrRoot, &handmtx);
+#else
         matrix_4x4_multiply_in_place(matrices, &handmtx);
+#endif
         matrix_4x4_7F058C64();
         matrix_4x4_f32_to_s32(&handmtx, finalmtx);
         matrix_4x4_7F058C88();

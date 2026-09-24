@@ -3950,3 +3950,10 @@ Dark leftovers; remove unused assets and purge them from history.
   (x -> -x across the view centre: gun on the left, aimed at the crosshair,
   left hand; casings/throws follow via gunmtx_camspace); the draw swaps
   culling via gevrHandsMirrored().
+- Watch pause animation mirrored in left-handed mode (user):
+  bondviewRenderWatch reflects every watch-arm matrix across the vertical
+  line through the watch face node (Switches[2], the pages' anchor), so the
+  right arm raises the watch and the face stays put; culling swapped; the
+  pages still use the unmirrored root (text reads correctly); clock angles
+  negated so the hands run clockwise. (The left-hand item raise before the
+  pause goes through the gun path, already mirrored on the screen.)
