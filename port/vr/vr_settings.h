@@ -45,6 +45,8 @@ extern bool VrTwoHandAim;       // two-handed weapons aim along the line between
 extern int VrStickClickToCrouch;
 extern int VrLeftHandedMode;
 extern int VrSwapJoysticks;
+extern int VrAimSteady;         // gun-hand steadying: 0 off, 1 low, 2 high (issue #7)
+extern int VrShowStats;         // troubleshooting readout in game
 extern int VrHideArms;
 
 extern float VrHudDistance;
