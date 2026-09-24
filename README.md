@@ -47,7 +47,7 @@
 | Smooth or snap turning, and an optional **comfort vignette** for motion sickness. | |
 
 Also:
-- An **in-VR launcher**: ROM check, display mode, screen shape and size, turning, comfort, **aim steadying**, a **left-handed** mode, an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, plus tiny or big guns).
+- An **in-VR launcher**: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (72, 90 or 120 Hz), **aim steadying**, a **left-handed** mode, an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, plus tiny or big guns).
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
 

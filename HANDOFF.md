@@ -4217,3 +4217,32 @@ Dark leftovers; remove unused assets and purge them from history.
 - The #18 windshield probes were removed for the release (HANDOFF 85 lists
   what they ruled out).
 - Next: the performance pass (RC-P90 firing drops, Frigate hull ~48 fps).
+
+## 87. Performance pass
+- Stats readout (Show stats) gained CPU time per frame - GAME (logic + DL
+  build), DRAW (fast3d + GL), END, WAIT (headset pacing) - and draw calls /
+  triangles per frame (gevr_engine_shim.c gevrPerf*); logged each second as
+  "perf:" only while Show stats is on.
+- Measured at Frigate's hull (the worst view): ~500-650 real draw calls of
+  ~4 triangles each; DRAW 12-17 ms. Texture changes there are genuine
+  (cache misses ~0).
+- Fixes: (1) GL_EXT_buffer_storage persistently mapped vertex buffer, 3
+  fenced per-frame 4 MB segments (gfx_opengl.cpp gevr_pm_*): vertex upload
+  2.65 -> 0.25 ms, DRAW 8.6 -> 6.0 ms in the same view; glBufferData
+  fallback. (2) Per-draw uniforms written only when changed. (3) fast3d
+  flushes on a texture load only when the bound texture really changes
+  (gfx_texture_cache_lookup). (4) Display rate: launcher option 72/90/120,
+  default 90 (key DisplayHz; the old RefreshRate=120 default is ignored) -
+  the user found hands smooth at 90.
+- Tried and reverted: a glBufferData-orphaned ring appended with
+  glBufferSubData - stalls this driver (DRAW 12 -> 35 ms). Not done by user
+  choice: raising CPU/GPU clock levels (XR_EXT_performance_settings).
+- User combat run on Frigate afterwards: GAME avg 1.9 / max 9.8 ms, DRAW avg
+  3.4 / max 8.0, WAIT avg 11 ms; frames missed in 2 of 117 seconds.
+- A lockup in play (18:09): the game thread stuck in gevrAudioFrame (pump
+  stage 6) right after a window focus change. Not explained. The watchdog
+  now logs the game thread's stack (SIGUSR2 + _Unwind_Backtrace) when frames
+  stop, without killing it; gevr_cheat.txt "stall" freezes 7 s to test it.
+- Self-driving the headset for perf tests works: launch with prox_close,
+  START (1000) passes the launcher, A presses reach the level hook, START
+  starts; Frigate's start view already faces the hull (~500 draws).
