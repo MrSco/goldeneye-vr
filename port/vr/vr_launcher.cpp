@@ -223,6 +223,29 @@ void pollInjected(Injected &in)
 
 // The system file picker, opened by MainActivity.openRomPicker; it copies the
 // chosen file to data/picked.z64, which scan() checks and adopts.
+// Issue #16: back to the launcher from a level (port/src/input.c menu hold).
+// The launcher runs before the ROM loads, so the app restarts into it.
+extern "C" void gevrRestartToLauncher(void)
+{
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        vr_log("launcher: restart failed (no activity)");
+        return;
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID m = env->GetMethodID(cls, "restartToLauncher", "()V");
+    if (m != nullptr) {
+        vr_log("launcher: restarting into the launcher");
+        env->CallVoidMethod(activity, m);
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+}
+
 bool gevrOpenRomPicker()
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();

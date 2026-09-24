@@ -60,6 +60,33 @@ public class MainActivity extends SDLActivity {
         initializeGame();
     }
 
+    /**
+     * Back to the in-VR launcher from a level (issue #16, the menu-button hold).
+     * The launcher runs before the ROM loads and the game's state cannot be
+     * reset in place, so the process ends and the system starts the app again
+     * a moment later, with the very intent the Library uses.
+     */
+    public void restartToLauncher() {
+        runOnUiThread(() -> {
+            try {
+                Intent again = getPackageManager().getLaunchIntentForPackage(getPackageName());
+                if (again == null) {
+                    again = new Intent(this, MainActivity.class);
+                }
+                again.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                android.app.PendingIntent pi = android.app.PendingIntent.getActivity(this, 0x16, again,
+                        android.app.PendingIntent.FLAG_IMMUTABLE | android.app.PendingIntent.FLAG_CANCEL_CURRENT);
+                android.app.AlarmManager am = (android.app.AlarmManager) getSystemService(ALARM_SERVICE);
+                am.set(android.app.AlarmManager.RTC, System.currentTimeMillis() + 800, pi);
+                Log.i(TAG, "Restarting into the launcher");
+            } catch (Exception e) {
+                Log.e(TAG, "Could not schedule the restart", e);
+            }
+            finishAndRemoveTask();
+            Runtime.getRuntime().exit(0);
+        });
+    }
+
     // --- ROM file picker (called from the in-VR launcher, port/vr/vr_launcher.cpp) ---
     private static final int REQUEST_PICK_ROM = 0x6e;
 
