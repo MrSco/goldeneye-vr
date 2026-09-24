@@ -4055,3 +4055,10 @@ Dark leftovers; remove unused assets and purge them from history.
 - Decals, after the depth clamp fix (79): bullet holes better, but holes and
   the Dam's red/white stripes still cut off up close sometimes. PINNED by the
   user; the live switch (gevr_decal.txt) is in place for when we return.
+
+- Silencer band (HANDOFF 38): GONE on the depth-clamp build (user, Bunker,
+  silenced PP7). The only render change was 79's depth clamp, so the band was
+  most likely depth precision: the silencer's inner faces won against the
+  slide's joint under the z *= 0.3 hack. The probe showed the silencer is
+  lit and env-mapped (geometry mode 0x62205) with the level's white
+  GlobalLight - no stale lights. Probe removed.

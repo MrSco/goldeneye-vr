@@ -2042,7 +2042,6 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         }
  
 #ifdef GEVR
-        gDPNoOpTag(renderdata.gdl++, 0x565A0000); /* PORT probe: gun batches (gfx_pc.cpp gevrGunTrace) */
         /* left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen: gunUpdateAndFire) */
         if (gevrHandsMirrored())
         {
@@ -2056,7 +2055,6 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
         }
-        gDPNoOpTag(gdl++, 0x565A0001);
 #endif
 
         if (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0) 
