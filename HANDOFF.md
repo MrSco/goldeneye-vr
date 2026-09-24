@@ -3827,3 +3827,9 @@ Dark leftovers; remove unused assets and purge them from history.
 - Release notes: highlights of HANDOFF 62-71 (watch arm, sniper club, HUD
   messages, watch flow, gadgets in hand, casings, throw fixes, weapon
   animations). Known issue carried: decal cropping at oblique angles.
+- **Published** 2026-09-24: https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.1
+  (tag at cf4a66d = the build commit; APK GoldenEye-VR-v0.1.1.apk, SHA-256
+  996dfcd8be5bc694c4725269a4ee608cc6699bf0d9b18b29caf176ca41289eac, same
+  release key as 0.1.0 so it installs over it). Installed on the headset;
+  launch not re-checked (headset not worn: surface timeout) - code identical
+  to the user-tested build apart from the probe removal and version.
