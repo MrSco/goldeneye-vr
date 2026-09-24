@@ -1708,6 +1708,17 @@ void proplvreset2(enum LEVELID stageId)
                         break;
                     }
                     case PROPDEF_TANK:
+#ifdef GEVR
+                        /* port/src/gevr_setup.c converts these records by hand */
+                        _Static_assert(offsetof(struct TankRecord, collision) == 0x90, "tank host layout");
+                        _Static_assert(offsetof(struct TankRecord, rect) == 0x98, "tank host layout");
+                        _Static_assert(offsetof(struct TankRecord, unkD8) == 0xEC, "tank host layout");
+                        _Static_assert(sizeof(struct TankRecord) == 248, "tank host layout");
+                        _Static_assert(offsetof(struct AutogunRecord, unkC4) == 0xD8, "autogun host layout");
+                        _Static_assert(offsetof(struct AutogunRecord, is_active) == 0xF0, "autogun host layout");
+                        _Static_assert(offsetof(struct AutogunRecord, unkD4) == 0xF4, "autogun host layout");
+                        _Static_assert(sizeof(struct AutogunRecord) == 248, "autogun host layout");
+#endif
                         if (withobjs && (!(((struct TankRecord *) phead)->flags2 & flags)))
                         {
                             struct TankRecord *pdef_tank = (struct TankRecord *) phead;

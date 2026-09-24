@@ -545,8 +545,14 @@ void gevrStereoFrame(s32 inlevel)
  * scale. (GEVR PC's 0.5 was relative to its own renderer.) The model origin
  * then lies about 12 cm behind the fist, so the fist, not the origin, goes
  * on the controller; GunOffX/Y/Z in goldeneye-vr.ini trim from there.
+ *
+ * That 0.17 is in view units, and a view unit is 1 / D_800364CC cm: 5 cm on
+ * the Dam and Surface (level visibility 0.2), 1 cm everywhere else (1.0).
+ * Held at 0.17 view units the guns, hands, gadgets and casings came out a
+ * fifth of their size on every other level (issues #1, #5). The size is
+ * kept in centimetres instead: 0.17 x 5 = 0.85 cm per model-row unit.
  */
-#define GEVR_VIEWMODEL_SCALE 0.17f
+#define GEVR_VIEWMODEL_CM 0.85f
 #define GEVR_GRIP_TO_ORIGIN_CM 12.0f
 
 static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
@@ -738,7 +744,7 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
 {
     f32 pos[3], right[3], up[3], back[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
-    f32 k = GEVR_VIEWMODEL_SCALE;
+    f32 k = GEVR_VIEWMODEL_CM * cm;     /* 0.17 view units on the Dam */
     s32 ctrl = handnum == GUNRIGHT ? 1 : 0;
     s32 i;
 
