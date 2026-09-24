@@ -750,12 +750,12 @@ typedef struct
 } GevrItemPose;
 
 static GevrItemPose s_gevrItemPoses[] = {
-    { ITEM_TIMEDMINE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
-    { ITEM_PROXIMITYMINE, { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
-    { ITEM_REMOTEMINE,    { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_TIMEDMINE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 90.0f }, 1.0f, TRUE },   /* flat against the palm (#19) */
+    { ITEM_PROXIMITYMINE, { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 90.0f }, 1.0f, TRUE },
+    { ITEM_REMOTEMINE,    { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 90.0f }, 1.0f, TRUE },
     { ITEM_BUG,           { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.67f, TRUE },  /* covert modem: 1.5x too big (user) */
     { ITEM_MICROCAMERA,   { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
-    { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },   /* tiny at 1 (issue #8) */
+    { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 90.0f }, 2.0f, TRUE },   /* tiny at 1 (issue #8) */
     { ITEM_BOMBCASE,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },   /* half size at 1 (user) */
     { ITEM_GOLDENEYEKEY,  { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
     { ITEM_GRENADE,       { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.2f, TRUE },   /* 5x too big, no hand of its own (#8) */
