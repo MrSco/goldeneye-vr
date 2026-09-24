@@ -450,8 +450,8 @@ struct mission_folder_setup mission_folder_setup_entries[];
 /*
  * PORT test hook: files/gevr_level.txt holding "<level> [difficulty]" jumps
  * from the front end (mode select onward, so a save file is loaded) to that
- * mission's briefing, as picking its folder and difficulty would; one A
- * press then starts it. <level> is a LEVELID number or a mission name
+ * mission's briefing, as picking its folder and difficulty would; START
+ * (gevr_input.txt 1000) then starts it. <level> is a LEVELID number or a mission name
  * (dam facility runway surface bunker silo frigate surface2 bunker2 statue
  * archives streets depot train jungle control caverns cradle aztec egypt);
  * difficulty 0 agent, 1 secret agent, 2 00 agent (default 0). Unlocks are
