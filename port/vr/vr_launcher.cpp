@@ -53,6 +53,7 @@ void gevrVrPumpEnd(void);
 const char *fsFullPath(const char *relPath);  // port/src/fs.c
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
+void vr_apply_refresh_rate(void);     // vr_openxr.cpp
 }
 bool vr_begin_eye_render();           // vr_openxr.cpp
 void vr_end_eye_render();
@@ -726,6 +727,19 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::RadioButton("High##steady", &steady, 2);
                 VrAimSteady = steady;
             }
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "DISPLAY RATE");
+            {
+                // 90 Hz by default; 120 shows each 60 Hz game frame exactly
+                // twice (smoothest hands) but works the headset hardest.
+                int hz = VrRefreshRate >= 110 ? 120 : VrRefreshRate > 0 && VrRefreshRate < 81 ? 72 : 90;
+                ImGui::RadioButton("72 Hz", &hz, 72);
+                ImGui::SameLine();
+                ImGui::RadioButton("90 Hz", &hz, 90);
+                ImGui::SameLine();
+                ImGui::RadioButton("120 Hz", &hz, 120);
+                VrRefreshRate = hz;
+            }
 
             ImGui::TableNextColumn();
             ImGui::TextColored(gold, "TURNING (stereo)");
@@ -811,6 +825,7 @@ extern "C" void gevrLauncherRun(void)
     VrUseSnapTurn = snaps[turn < 0 ? 0 : turn > 3 ? 3 : turn];
     VrComfortVignette = vignetteOn ? vignette : 0.0f;
     vrSettingsSave();
+    vr_apply_refresh_rate();
     vr_log("launcher: start (%s, snap %.0f, vignette %.2f)", VrPlayMode ? "stereo" : "screen",
            VrUseSnapTurn, VrComfortVignette);
 
