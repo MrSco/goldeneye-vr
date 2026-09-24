@@ -227,9 +227,48 @@ static size_t convert_one_prop(uint8_t *dst, const uint8_t *src, uint8_t type) {
         conv_object(dst, src);
         for (int i = 0; i < 5; i++) put32(dst + HOST_OBJ + i * 4, read32(src + N64_OBJ + i * 4));
         break;
-    case 6: case 7: case 13: case 20: case 45: /* CCTV/MAG/AUTOGUN/AMMO/TANK: best-effort */
+    /*
+     * CCTV, ammo crate and multi-ammo crate: all 4-byte fields after the
+     * object, in the same order on both sides (the host structs only add
+     * runtime fields and tail padding), so a word copy lines up.
+     */
+    case 6: case 7: case 20:
         conv_object(dst, src);
         conv_words(dst + HOST_OBJ, src + N64_OBJ, n64b - N64_OBJ);
+        break;
+    /*
+     * TANK: N64 0xE0 -> host 248. The tail starts with the collision pointer
+     * (0x80 -> host 0x90, 8 bytes); the rest (rect, drive settings, turret
+     * angles, ammo at N64 0xD8, heading) follows it contiguously from N64 0x84
+     * -> host 0x98. The old word-for-word copy set every field one word late:
+     * the tank's shells (unkD8) read the heading slot, and Runway's tank
+     * started empty (issue #4).
+     */
+    case 45:
+        conv_object(dst, src);
+        putptr(dst + HOST_OBJ, (uintptr_t)read32(src + N64_OBJ));
+        conv_words(dst + HOST_OBJ + 8, src + N64_OBJ + 4, n64b - N64_OBJ - 4);
+        {
+            int32_t ammo;
+            memcpy(&ammo, dst + HOST_OBJ + 8 + (0xD8 - 0x84), 4);
+            sysLogPrintf(LOG_NOTE, "setup: tank with %d shells", ammo);
+        }
+        break;
+    /*
+     * AUTOGUN: N64 0xD8 -> host 248. Words 0x80..0xC0 line up (host
+     * 0x90..0xD0); then three pointers (two sound states, the beam) at N64
+     * 0xC4/0xC8/0xCC -> host 0xD8/0xE0/0xE8, is_active 0xD0 -> 0xF0 and
+     * 0xD4 -> 0xF4. The word copy had put the last two in padding and pointer
+     * halves.
+     */
+    case 13:
+        conv_object(dst, src);
+        conv_words(dst + HOST_OBJ, src + N64_OBJ, 0xC4 - N64_OBJ);
+        putptr(dst + 0xD8, (uintptr_t)read32(src + 0xC4));
+        putptr(dst + 0xE0, (uintptr_t)read32(src + 0xC8));
+        putptr(dst + 0xE8, (uintptr_t)read32(src + 0xCC));
+        put32(dst + 0xF0, read32(src + 0xD0));
+        put32(dst + 0xF4, read32(src + 0xD4));
         break;
     case 9: /* GUARD */
         put16(dst + 0, read16(src + 0));

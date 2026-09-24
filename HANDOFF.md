@@ -3833,3 +3833,26 @@ Dark leftovers; remove unused assets and purge them from history.
   release key as 0.1.0 so it installs over it). Installed on the headset;
   launch not re-checked (headset not worn: surface timeout) - code identical
   to the user-tested build apart from the probe removal and version.
+
+## 73. v0.1.2 fixes: gun size on every level, tank/autogun setup records, ROM install docs
+
+- Issue triage (GitHub #1-#6, all on 0.1.0): #5 closed by the user as a
+  duplicate of #1. Chosen for 0.1.2: #1, #4, the install confusion from #5.
+- **#1 tiny guns off the Dam**: the level table's visibility (bg.c
+  levelinfotable) is 0.2 only on Dam/Surface, 1.0 elsewhere; view units are
+  1/D_800364CC cm. GEVR_VIEWMODEL_SCALE 0.17 was in view units, so guns,
+  fist, gadgets and casings were a fifth size on other levels. Now
+  GEVR_VIEWMODEL_CM 0.85 x cm (= 0.17 on the Dam, unchanged there).
+  Everything else stereo is already in cm or angles (hands, watch arm
+  self-calibration, sight, ammo panel, gadget offsets, casing scale = k/D).
+- **#4 no tank ammo**: port/src/gevr_setup.c converted TANK (and AUTOGUN)
+  "best-effort" word for word; the tank's leading collision pointer grows
+  4->8 so every field after it was a word late and unkD8 (shells) read the
+  heading. Tank and autogun now mapped field by field; prop.c
+  _Static_asserts pin the host offsets (tank unkD8 0xEC, autogun is_active
+  0xF0, both 248 bytes). CCTV / ammo crate / multi-ammo stay word copies
+  (4-byte fields in the same order). Log: "setup: tank with N shells".
+- **Install (#5 part 2)**: README step 5 now leads with Download + Choose ROM
+  file..., warns against hand-made app folders; troubleshooting updated.
+- versionCode 3 / 0.1.2. Open for later: #2 camera photo (stereo view
+  rectangle), #3 Bunker desk, #6 left-handed mode, a level-jump test hook.

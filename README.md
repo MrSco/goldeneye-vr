@@ -95,27 +95,29 @@ and install it like any other program.
 
 ### 5. Add your ROM, then play
 
-1. In the headset, open **Library**, change the filter to **Unknown Sources**, and start **GoldenEye VR**.
-   The launcher opens and shows **"No GoldenEye ROM yet"**. That's expected; this first start
-   creates the app's folder.
-2. With the headset still plugged in, copy your ROM into this folder:
+The easy way is to put the ROM in the headset's **Download** folder and pick it from inside the app.
 
-   ```text
-   Android/data/com.gevr.port/files/data
-   ```
-
+1. With the headset plugged in, copy your ROM into the Quest's **Download** folder:
    - **Windows:** open File Explorer and go to **This PC** → **Quest** → **Internal shared storage** →
-     **Android** → **data** → **com.gevr.port** → **files** → **data**, then drop the ROM in.
-     If the Quest shows up empty, put the headset on and accept **"Allow access to data"**.
+     **Download**, then drop the ROM in. If the Quest shows up empty, put the headset on and accept
+     **"Allow access to data"**.
    - **Mac, or any computer:** in SideQuest, click the **folder** icon (Manage files on the headset),
-     browse to that folder, and upload the ROM.
-
-   Any file name works: the launcher recognizes the ROM and renames it for you.
-   Or skip the cable: press **Choose ROM file...** in the launcher and pick the ROM
-   from the headset's storage (for example the **Download** folder).
-3. Back in the headset, press **Look again**. The ROM line turns green, and it says
-   **GoldenEye 007 (USA) - OK**.
+     open **Download**, and upload the ROM.
+2. In the headset, open **Library**, change the filter to **Unknown Sources**, and start **GoldenEye VR**.
+   The launcher opens and shows **"No GoldenEye ROM yet"**. That's expected.
+3. Press **Choose ROM file...**, open **Download**, and pick your ROM. The app copies it into its
+   own folder, and the ROM line turns green: **GoldenEye 007 (USA) - OK**.
 4. Pick your options and press **START**. Enjoy, 007. 🍸
+
+> [!NOTE]
+> **Don't create the app's folder yourself.** The app makes `Android/data/com.gevr.port/files/data`
+> the first time it starts. A folder made by hand (or by `adb`) can belong to someone else, and the
+> app then can't use it. The headset's own file browser can't see inside `Android/data` either,
+> which is why **Choose ROM file...** starts from **Download**.
+>
+> Prefer copying straight into the app's folder? Start the app once first, then copy the ROM into
+> `Android/data/com.gevr.port/files/data` from your computer and press **Look again**.
+> Any file name works: the launcher recognizes the ROM and renames it for you.
 
 > [!TIP]
 > Comfortable with the command line? You can skip SideQuest:
@@ -190,7 +192,11 @@ Change the Library filter (top of the Library window) from **All** to **Unknown 
 <details>
 <summary><b>"No GoldenEye ROM yet" after I copied it</b></summary>
 
-- It must be in `Android/data/com.gevr.port/files/data`, the `data` folder *inside* `files`.
+- Easiest fix: copy the ROM to the headset's **Download** folder and use **Choose ROM file...**
+  in the launcher.
+- If you copied it into the app's folder, it must be in `Android/data/com.gevr.port/files/data`,
+  the `data` folder *inside* `files`, and the app must have created that folder itself (start the
+  app once before copying; delete a folder you made by hand, then start the app again).
 - Press **Look again**, or restart the app.
 - The ROM must be the **USA** cartridge and exactly **12 MB** (12,582,912 bytes).
   European (PAL) and Japanese versions aren't supported yet. The launcher says what's wrong
