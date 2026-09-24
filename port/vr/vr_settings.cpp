@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 #include "vr_settings.h"
 #include "vr_screen.h"
@@ -35,6 +36,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "SwapJoysticks=%d\n", VrSwapJoysticks ? 1 : 0);
     fprintf(f, "AimSteadying=%d\n", VrAimSteady);
     fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
+    fprintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
+    fprintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
     fprintf(f, "HideArms=%d\n", VrHideArms ? 1 : 0);
     fprintf(f, "ActiveTexturePack=%s\n", g_ActiveExtTexPack);
     fprintf(f, "; Your standing EYE height in cm -- where your eyes are off the floor, which is\n");
@@ -106,6 +109,10 @@ extern "C" void vrSettingsLoad(void)
 
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '[' || line[0] == '\n' || line[0] == ';' || line[0] == '#') continue;
+        if (strncmp(line, "Cheats=", 7) == 0) {        // hex bitmask of CHEAT_IDS
+            VrCheatMask = strtoull(line + 7, NULL, 16);
+            continue;
+        }
 
         // 1. Is it an integer (%d)? Not if the value has a decimal point: "%d"
         // happily reads the 30 of "SnapTurn=30.0", and the float keys were
@@ -125,6 +132,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "SwapJoysticks") == 0) VrSwapJoysticks = (ival != 0);
             else if (strcmp(key, "AimSteadying") == 0) VrAimSteady = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
+            else if (strcmp(key, "GunSizeCheat") == 0) VrGunSizeCheat = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "HideArms") == 0) VrHideArms = (ival != 0);
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;

@@ -607,6 +607,63 @@ extern "C" void gevrLauncherRun(void)
         if (!message.empty()) ImGui::TextDisabled("%s", message.c_str());
         ImGui::Separator();
 
+        // GoldenEye cheats (issue #1's idea: the tiny guns as a cheat): their
+        // own page. Ticked cheats are switched on as each mission starts, the
+        // way the game's own cheat menu does (front.c init_menu0B_runstage).
+        static bool cheatPage = false;
+        if (cheatPage) {
+            struct CheatRow { const char *name; int id; bool cosmetic; };
+            static const CheatRow fun[] = {
+                { "DK mode (big heads)", 12, true }, { "Paintball mode", 15, true }, { "Line mode", 7, true },
+                { "Tiny Bond", 14, false }, { "Turbo mode", 24, false }, { "Invisibility", 10, false },
+                { "Fast animation", 26, false }, { "Slow animation", 27, false }, { "Enemy rockets", 28, false },
+            };
+            static const CheatRow arms[] = {
+                { "Invincibility", 2, false }, { "All guns", 3, false }, { "Infinite ammo", 11, false },
+                { "Golden Gun", 19, false }, { "Silver PP7", 20, false }, { "Gold PP7", 21, false },
+                { "Magnum", 17, false }, { "Laser", 18, false }, { "2x Rocket launcher", 29, false },
+                { "2x Grenade launcher", 30, false }, { "2x RC-P90", 31, false }, { "2x Throwing knife", 32, false },
+                { "2x Hunting knife", 33, false }, { "2x Laser", 34, false },
+            };
+            auto row = [](const CheatRow& c) {
+                bool on = (VrCheatMask >> c.id) & 1ULL;
+                char label[64];
+                snprintf(label, sizeof(label), "%s%s", c.name, c.cosmetic ? "" : " *");
+                if (ImGui::Checkbox(label, &on)) {
+                    if (on) VrCheatMask |= 1ULL << c.id;
+                    else VrCheatMask &= ~(1ULL << c.id);
+                }
+            };
+            ImGui::TextColored(gold, "CHEATS");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("On from the next mission. * stops missions saving, as in the original game.");
+            ImGui::PopStyleColor();
+            if (ImGui::BeginTable("cheats", 3, ImGuiTableFlags_SizingStretchSame)) {
+                ImGui::TableNextColumn();
+                ImGui::TextColored(gold, "VR");
+                ImGui::RadioButton("Normal guns", &VrGunSizeCheat, 0);
+                ImGui::RadioButton("Tiny guns", &VrGunSizeCheat, 1);
+                ImGui::RadioButton("Big guns", &VrGunSizeCheat, 2);
+                // three even columns: the launcher page does not scroll
+                ImGui::TextColored(gold, "FUN");
+                for (int i = 0; i < 5; i++) row(fun[i]);
+                ImGui::TableNextColumn();
+                for (int i = 5; i < 9; i++) row(fun[i]);
+                ImGui::TextColored(gold, "WEAPONS");
+                for (int i = 0; i < 5; i++) row(arms[i]);
+                ImGui::TableNextColumn();
+                for (int i = 5; i < (int)(sizeof(arms) / sizeof(arms[0])); i++) row(arms[i]);
+                ImGui::EndTable();
+            }
+            if (ImGui::Button("All off")) {
+                VrCheatMask = 0;
+                VrGunSizeCheat = 0;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                cheatPage = false;
+            }
+        } else {
         // options, two columns
         if (ImGui::BeginTable("opts", 2, ImGuiTableFlags_SizingStretchSame)) {
             ImGui::TableNextColumn();
@@ -682,6 +739,13 @@ extern "C" void gevrLauncherRun(void)
         ImGui::TextWrapped("Both grips grab the screen; right stick: distance / size. Hold the left stick click to recentre it.");
         ImGui::PopStyleColor();
 
+        {
+            int n = VrGunSizeCheat ? 1 : 0;
+            for (int b = 0; b < 64; b++) n += (int)((VrCheatMask >> b) & 1ULL);
+            char label[48];
+            snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
+            if (ImGui::Button(label)) cheatPage = true;
+        }
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);
         if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))
             || (s_injectStart && !active.empty() && activeInfo.good)) {
@@ -694,6 +758,7 @@ extern "C" void gevrLauncherRun(void)
             focusStart = false;
         }
         ImGui::EndDisabled();
+        }   // cheatPage
         ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
         ImGui::End();
         ImGui::Render();
