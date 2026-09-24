@@ -4089,3 +4089,12 @@ Dark leftovers; remove unused assets and purge them from history.
   addressed (model placement).
 - #10 (weapon wheel like PD VR) is a feature - not started.
 - Built, installed; awaiting the user's Bunker test.
+- User-verified in Bunker: cameras face the room and see Bond (#11); the
+  renamed key shows its name (#12); watch inventory scrolls well (#13); the
+  left arm is more solid, but the hand's underside is not modelled at all
+  (the watch-arm model only shows the back of the hand) - accepted as an
+  original-model limitation for #9 (option 1).
+- "Game quits to the launcher when the headset sleeps": only the dev headset
+  - the watchdog marker files/gevr_watchdog_kill.txt was left from a hang
+  hunt, and with it the watchdog kills the game after 5 s without frames.
+  Marker removed; release installs never have it.
