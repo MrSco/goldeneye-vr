@@ -1772,7 +1772,8 @@ static void vr_pointer_update(void)
     // any button on the other controller makes it the pointer
     {
         const int other = g_ptrActive ^ 1;
-        static const char *const buttons[] = { "trigger", "grip", "a", "b", "x", "y", "thumbstick_click", "menu" };
+        // (not "menu": it is always the left controller's, vr_input.cpp)
+        static const char *const buttons[] = { "trigger", "grip", "a", "b", "x", "y", "thumbstick_click" };
         for (const char *b : buttons) {
             if (get_button_state(other, b)) {
                 g_ptrActive = other;

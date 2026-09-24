@@ -341,6 +341,7 @@ void gunFireTankShell(s32 handnum)
  */
 extern s32 g_gevrStereo;
 extern s32 gevrStereoMirrored(void);
+extern s32 gevrHandsMirrored(void);
 extern s32 gevrStereoItemShown(s32 item);
 extern void gevrStereoItemPose(s32 item, Mtxf *m);
 static s32 s_gevrHiddenShown[2];
@@ -669,6 +670,24 @@ void gunUpdateAndFire(GUNHAND handnum)
 #endif
     matrix_4x4_copy(&rotmtx, &gunmtx);
     matrix_4x4_set_position(&gunofs, &gunmtx);
+#ifdef GEVR
+    if (!g_gevrStereo && gevrHandsMirrored())
+    {
+        /*
+         * Left-handed mode on the screen, as in stereo: the whole camera-space
+         * viewmodel mirrored across the view's centre line (x -> -x), so the
+         * gun sits on the left, still pointing at the crosshair, held in a
+         * left hand; a dual-wielded second gun moves to the right. The draw
+         * swaps face culling (gunRenderFirstPersonGunModels).
+         */
+        s32 r;
+
+        for (r = 0; r < 4; r++)
+        {
+            gunmtx.m[r][0] = -gunmtx.m[r][0];
+        }
+    }
+#endif
     matrix_4x4_copy(&gunmtx, &hand->gunmtx_camspace);
     matrix_4x4_copy(&hand->throw_item_pos_related, &hand->throw_item_pos_related_prev);
 #ifdef GEVR
@@ -2023,8 +2042,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         }
  
 #ifdef GEVR
-        /* left-handed mode mirrors the stereo gun matrix (bondview2.c) */
-        if (gevrStereoMirrored())
+        /* left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen: gunUpdateAndFire) */
+        if (gevrHandsMirrored())
         {
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
@@ -2032,7 +2051,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         subdraw(&renderdata, &handptr->weaponModel);
         gdl = renderdata.gdl;
 #ifdef GEVR
-        if (gevrStereoMirrored())
+        if (gevrHandsMirrored())
         {
             gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
         }

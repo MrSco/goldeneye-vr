@@ -3940,3 +3940,13 @@ Dark leftovers; remove unused assets and purge them from history.
   its cullmode compensation stacks on our swap - consistent.
 - Launcher: "Left-handed" checkbox (COMFORT column), saved with the ini.
 - Built, installed; not seen on device (user to test).
+- User test: in left-handed mode the watch could not be closed - the
+  swap moved START ("menu", hand 0) to the right controller, whose menu
+  button is Quest's system button (never reaches the app). get_button_state
+  now always answers "menu" from the physical left controller when asked for
+  hand 0; the pointer no longer switches hands on "menu".
+- Screen mode now mirrors too (user: consistency): with LeftHandedMode off
+  stereo, gunUpdateAndFire negates column 0 of the camera-space gun matrix
+  (x -> -x across the view centre: gun on the left, aimed at the crosshair,
+  left hand; casings/throws follow via gunmtx_camspace); the draw swaps
+  culling via gevrHandsMirrored().
