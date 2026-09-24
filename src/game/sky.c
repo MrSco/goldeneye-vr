@@ -47,6 +47,25 @@ u32 dword_CODE_bss_80079ED8;
 
 
 
+#ifdef GEVR
+/*
+ * Issue #21 (Statue's sky moved with your head): the environment's
+ * "WaterConcavity" is really a screen-space drop for the whole sky - the
+ * horizon sits that many pixels lower (Statue 30; Train, Streets, Depot 25;
+ * Surface 2 20; Surface 7). A shift fixed on screen is fixed to the view, so
+ * in stereo looking up, down or tilting the head dragged the sky along.
+ * Stereo draws the sky where the camera maths puts it, fixed in the world.
+ */
+static f32 skyScreenDrop(void)
+{
+    extern s32 g_gevrStereo;
+
+    return g_gevrStereo ? 0.0f : fogGetCurrentEnvironmentp()->WaterConcavity;
+}
+#else
+#define skyScreenDrop() (fogGetCurrentEnvironmentp()->WaterConcavity)
+#endif
+
 /*
 * Address: 0x7F093880
 */
@@ -58,7 +77,7 @@ void skyGetWorldPosFromScreenPos(f32 offset_x, f32 offset_y, coord3d* out) {
     player_mtxf = currentPlayerGetViewToWorldMtxf();
     coords.x = getPlayer_c_screenleft() + offset_x;
     screen_top = getPlayer_c_screentop();
-    coords.y = fogGetCurrentEnvironmentp()->WaterConcavity + (offset_y + screen_top);
+    coords.y = skyScreenDrop() + (offset_y + screen_top);
     transformAndNormalizeByLength2Dto3D(&coords, out, 100.0f);
     mtx4RotateVecInPlace(player_mtxf, out->f);
 }
@@ -1556,7 +1575,7 @@ void sub_GAME_7F097388(SkyRelated18 *arg0, Mtxf *arg1, u16 arg2, f32 arg3, f32 a
     arg5->unk20 = sp60;
     arg5->unk24 = sp64;
     arg5->unk28 = sp38[0];
-    arg5->unk2c = sp38[1] - fogGetCurrentEnvironmentp()->WaterConcavity * 4.0f;
+    arg5->unk2c = sp38[1] - skyScreenDrop() * 4.0f;
     arg5->unk30 = sp38[2];
     arg5->unk34 = f22;
 
