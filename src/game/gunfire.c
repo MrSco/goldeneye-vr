@@ -5429,6 +5429,17 @@ CasingRecord* casingCreate(ModelFileHeader* header, Mtxf* mtx)
         entry++;
     }
 
+#ifdef GEVR
+    if (entry >= end)
+    {
+        static u32 fullcount;
+
+        if ((fullcount++ % 100) == 0)
+        {
+            sysLogPrintf(LOG_NOTE, "casings: all %d slots in use (%u refused)", (s32) ARRAYCOUNT(g_Casings), fullcount);
+        }
+    }
+#endif
     if (entry < end)
     {
         entry->header = header;
@@ -5487,7 +5498,30 @@ CasingRecord* casingCreate(ModelFileHeader* header, Mtxf* mtx)
  * matrix_4x4_copy(THROWMTX, ..) scribbles 64 bytes of live state on every
  * shot. The offsets are exactly these fields, so name them.
  */
-#define THROWMTX     (&g_CurrentPlayer->hands[handnum].throw_item_pos_related)
+/*
+ * Casings belong to the viewmodel: their spawn offset, model size and
+ * ejection speed are tuned to the flat game's gun, drawn big about 1.7 m
+ * out. Stereo draws the gun at real size (its matrix rows carry the
+ * viewmodel scale, s_gevrThrowScale), so casings take that scale back on:
+ * through the plain world rotation of HANDOFF 67 a rifle case left at 5 m/s
+ * and rose past the player's face. Gravity stays as it is (real, 10 m/s^2).
+ */
+static Mtxf *gevrCasingThrowMtx(s32 handnum)
+{
+    static Mtxf m;
+    s32 r, c;
+
+    matrix_4x4_copy(&g_CurrentPlayer->hands[handnum].throw_item_pos_related, &m);
+    for (r = 0; r < 3; r++)
+    {
+        for (c = 0; c < 3; c++)
+        {
+            m.m[r][c] *= s_gevrThrowScale[handnum];
+        }
+    }
+    return &m;
+}
+#define THROWMTX     (gevrCasingThrowMtx(handnum))
 #define THROWPOS(k)  (g_CurrentPlayer->hands[handnum].throw_item_pos_related.m[3][k])
 #define THROWPREV(k) (g_CurrentPlayer->hands[handnum].throw_item_pos_related_prev.m[3][k])
 #else
@@ -5573,11 +5607,6 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
         switchpos.x = switchdata->x * g_CasingSwitchScale;
         switchpos.y = switchdata->y * g_CasingSwitchScale;
         switchpos.z = switchdata->z * g_CasingSwitchScale;
-#ifdef GEVR
-        switchpos.x *= s_gevrThrowScale[handnum];
-        switchpos.y *= s_gevrThrowScale[handnum];
-        switchpos.z *= s_gevrThrowScale[handnum];
-#endif
  
         matrix_4x4_set_identity_and_position(&switchpos, &mtx);
         matrix_4x4_multiply_in_place(THROWMTX, &mtx);
@@ -5806,6 +5835,17 @@ CasingRecord* casingCreate(ModelFileHeader* header, Mtxf* mtx)
         entry++;
     }
 
+#ifdef GEVR
+    if (entry >= end)
+    {
+        static u32 fullcount;
+
+        if ((fullcount++ % 100) == 0)
+        {
+            sysLogPrintf(LOG_NOTE, "casings: all %d slots in use (%u refused)", (s32) ARRAYCOUNT(g_Casings), fullcount);
+        }
+    }
+#endif
     if (entry < end)
     {
         entry->header = header;
@@ -5906,11 +5946,6 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
         switchpos.x = switchdata->x * g_CasingSwitchScale;
         switchpos.y = switchdata->y * g_CasingSwitchScale;
         switchpos.z = switchdata->z * g_CasingSwitchScale;
-#ifdef GEVR
-        switchpos.x *= s_gevrThrowScale[handnum];
-        switchpos.y *= s_gevrThrowScale[handnum];
-        switchpos.z *= s_gevrThrowScale[handnum];
-#endif
  
         matrix_4x4_set_identity_and_position(&switchpos, &mtx);
         matrix_4x4_multiply_in_place(THROWMTX, &mtx);
@@ -6062,6 +6097,18 @@ void update_bullet_casing(CasingRecord* casing)
 
     casing->pos.y += delta * 0.5f * (casing->vel.y + new_val_y);
 
+#ifdef GEVR
+    /* a casing whose position went bad would never pass the floor test and
+     * would hold its slot for good: 20 of them and no gun ejects again */
+    if (!(casing->pos.x == casing->pos.x) || !(casing->pos.y == casing->pos.y) || !(casing->pos.z == casing->pos.z)
+        || casing->pos.y > casing->floor_y_pos + 100000.0f)
+    {
+        sysLogPrintf(LOG_WARNING, "casings: dropping one at %.1f %.1f %.1f (floor %.1f)",
+                     casing->pos.x, casing->pos.y, casing->pos.z, casing->floor_y_pos);
+        casing->header = NULL;
+        return;
+    }
+#endif
     if (casing->pos.y < casing->floor_y_pos)
     {
 #if defined(BUGFIX_R1)

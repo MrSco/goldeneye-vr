@@ -3767,3 +3767,24 @@ Dark leftovers; remove unused assets and purge them from history.
   stereo away, so that place is the usual one. The cylinder's centre is
   now derived from the quad pose for every case.
 - Built, installed; not seen on device.
+
+## 69. Stereo casings back at the viewmodel's scale
+
+- User: casings fine in 2D; in stereo they left above the gun near the face,
+  and stopped altogether after running dry, picking up ammo and switching
+  back. Phantom fist between weapons gone; watch glide/snap confirmed good.
+- 67 gave casings the plain world rotation with the spawn offset scaled. But
+  casing speed and size are tuned to the flat gun (big, ~1.7 m out): the
+  rifle's 1.67 units/tick up through camera-to-world (x5) is ~5 m/s, rising
+  ~1.25 m. In stereo casings now use gevrCasingThrowMtx - the throw matrix
+  with the viewmodel scale back on its rows - for offset, size and ejection
+  velocity (~0.85 m/s up, ~1.2 m/s aside); gravity untouched (0.2778
+  units/tick^2 at 100 units/m is 10 m/s^2). The hand's own motion
+  (THROWPOS - THROWPREV) still adds at world scale. Thrown props keep the
+  plain rotation.
+- The stop: not explained yet. Slots (20) free only when a casing falls
+  below the floor height it was spawned with; update_bullet_casing now drops
+  one whose position is NaN or absurdly high (logged "casings: dropping
+  one"), and casingCreate logs "casings: all 20 slots in use" (every 100th
+  refusal). Read those if it happens again.
+- Built, installed; not seen on device.
