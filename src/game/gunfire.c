@@ -344,6 +344,16 @@ extern s32 gevrStereoMirrored(void);
 extern s32 gevrHandsMirrored(void);
 extern s32 gevrStereoItemShown(s32 item);
 extern void gevrStereoItemPose(s32 item, Mtxf *m);
+extern s32 g_gevrStereo;
+extern int gevrVrTriggerDown[2];   /* port/src/input.c: each controller's trigger, by gun hand */
+
+/* both hands hold a gun (input.c: the left trigger fires instead of aiming) */
+s32 gevrDualWielding(void)
+{
+    return g_CurrentPlayer != NULL
+        && getCurrentPlayerWeaponId(GUNRIGHT) != ITEM_UNARMED
+        && getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED;
+}
 static s32 s_gevrHiddenShown[2];
 /* the stereo gun matrix's row length (the viewmodel scale), 1 when flat:
  * throw_item_pos_related is kept a plain rotation as in the flat game, and
@@ -5140,6 +5150,19 @@ void gunTickGameplay(s32 triggerOn)
         g_CurrentPlayer->z_trigger_timer = 0;
     }
 
+#ifdef GEVR
+    /*
+     * Issue #15, as Perfect Dark VR (bondgun.c bgunTickGameplay "bypass the
+     * alternating behavior, map 1:1"): dual-wielding in stereo, each
+     * controller's trigger fires its own gun - the game's single trigger and
+     * its turn-taking above only fit one pad aiming both guns at one crosshair.
+     */
+    if (g_gevrStereo && gevrDualWielding())
+    {
+        trigger_state.triggerOn[GUNRIGHT] = triggerOn && gevrVrTriggerDown[GUNRIGHT];
+        trigger_state.triggerOn[GUNLEFT] = triggerOn && gevrVrTriggerDown[GUNLEFT];
+    }
+#endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand
     gunTickHandState(1, trigger_state.triggerOn[1]); // Left hand
     used_to_load_1st_person_model_on_demand(0);
@@ -5217,8 +5240,28 @@ void sub_GAME_7F067AB4(coord3d *param_1)
 }
 
 
+#ifdef GEVR
+/* chrprop.c chraiCheckUseHeldItems: the hand whose shot is being traced, or -1 */
+s32 g_gevrShotHand = -1;
+#endif
+
 void gunSetTracerTarget(coord3d* pos)
 {
+#ifdef GEVR
+    /*
+     * Issue #15: both hands' tracers end at the one hit point, right for the
+     * N64 where both guns fire through the crosshair. In stereo each gun aims
+     * down its own barrel, so the other gun's tracer bent toward this shot's
+     * hit. Only the hand that fired takes it.
+     */
+    if (g_gevrStereo && (g_gevrShotHand == GUNRIGHT || g_gevrShotHand == GUNLEFT))
+    {
+        g_CurrentPlayer->hands[g_gevrShotHand].item_related.x = pos->x;
+        g_CurrentPlayer->hands[g_gevrShotHand].item_related.y = pos->y;
+        g_CurrentPlayer->hands[g_gevrShotHand].item_related.z = pos->z;
+        return;
+    }
+#endif
     g_CurrentPlayer->hands[GUNLEFT].item_related.x = g_CurrentPlayer->hands[GUNRIGHT].item_related.x = pos->x;
     g_CurrentPlayer->hands[GUNLEFT].item_related.y = g_CurrentPlayer->hands[GUNRIGHT].item_related.y = pos->y;
     g_CurrentPlayer->hands[GUNLEFT].item_related.z = g_CurrentPlayer->hands[GUNRIGHT].item_related.z = pos->z;

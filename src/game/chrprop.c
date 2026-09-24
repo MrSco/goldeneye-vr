@@ -1795,8 +1795,18 @@ void chraiCheckUseHeldItem(s32 hand)
 */
 void chraiCheckUseHeldItems(void)
 {
+#ifdef GEVR
+    extern s32 g_gevrShotHand;   /* gunfire.c gunSetTracerTarget: each gun's own tracer */
+
+    g_gevrShotHand = GUNRIGHT;
+    chraiCheckUseHeldItem(GUNRIGHT);
+    g_gevrShotHand = GUNLEFT;
+    chraiCheckUseHeldItem(GUNLEFT);
+    g_gevrShotHand = -1;
+#else
     chraiCheckUseHeldItem(GUNRIGHT);
     chraiCheckUseHeldItem(GUNLEFT);
+#endif
 }
 
 
