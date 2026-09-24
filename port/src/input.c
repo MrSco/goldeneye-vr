@@ -77,6 +77,9 @@ extern int VrLeftHandedMode;
 #define WEAPON_LASER ITEM_LASER
 #endif
 
+int gevrVrTriggerDown[2];   /* by gun hand (0 right, 1 left); gunfire.c gunTickGameplay */
+extern s32 gevrDualWielding(void);
+
 static inline bool bgunIsFiring(s32 hand) {
     return get_button_state(hand, "trigger");
 }
@@ -967,7 +970,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // (zooms) otherwise. The left grip then has no job; the right grip
         // keeps aim/zoom.
         const bool stereoplay = g_gevrStereo && !menu;
-        if (stereoplay) {
+        // Dual-wielding (issue #15): GoldenEye's R only aims - both guns take
+        // turns on Z - so the left trigger fires the left gun instead, as in
+        // Perfect Dark VR: it presses Z too, and gunfire.c gunTickGameplay
+        // gives each gun its own trigger (gevrVrTriggerDown).
+        gevrVrTriggerDown[0] = get_button_state(1, "trigger");   /* GUNRIGHT */
+        gevrVrTriggerDown[1] = get_button_state(0, "trigger");   /* GUNLEFT */
+        if (stereoplay && gevrDualWielding()) {
+            if (gevrVrTriggerDown[0] || gevrVrTriggerDown[1]) npad->button |= Z_TRIG;
+        } else if (stereoplay) {
             if (get_button_state(1, "trigger")) npad->button |= Z_TRIG;
             if (get_button_state(0, "trigger")) npad->button |= R_TRIG;
         } else if (get_button_state(1, "trigger") || get_button_state(0, "trigger")) {
