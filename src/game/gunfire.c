@@ -614,7 +614,19 @@ void gunUpdateAndFire(GUNHAND handnum)
             matrix_4x4_copy(&gevrItemRot, &pose);
             if (hand->field_92C != 0)
             {
-                matrix_4x4_multiply_homogeneous_in_place(&hand->field_8EC, &pose);
+                /*
+                 * The keyframe turn is in the model frame, which the flat
+                 * align also makes (-right, up, forward), but its offset is
+                 * added to gunofs in camera axes (right, up, back). In the
+                 * model frame x and z flip; kept as they were, the sniper
+                 * club's swing ran mirrored and the barrel end led.
+                 */
+                Mtxf anim;
+
+                matrix_4x4_copy(&hand->field_8EC, &anim);
+                anim.m[3][0] = -anim.m[3][0];
+                anim.m[3][2] = -anim.m[3][2];
+                matrix_4x4_multiply_homogeneous_in_place(&anim, &pose);
             }
             matrix_4x4_multiply_homogeneous_in_place(&vrmtx, &pose);
             matrix_4x4_copy(&pose, &vrmtx);

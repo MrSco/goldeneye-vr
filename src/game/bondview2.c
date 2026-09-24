@@ -10964,14 +10964,13 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
              * Stereo: the bottom-left messages (objectives, pickups) sat at
              * the edge of the lenses, drawn into the eye buffers. They go on
              * the head-locked HUD panel with the health and armour
-             * (VR_HUD_CAPTURE_*_H), centred and lifted to the lower middle
-             * of the view.
+             * (VR_HUD_CAPTURE_*_H), centred in the lower third of the view.
              */
             if (g_gevrStereo && getPlayerCount() == 1)
             {
                 view_left = viGetViewLeft() + (viGetViewWidth() - view_left_offset) / 2;
                 view_horiz = view_left + view_left_offset;
-                view_top = viGetViewTop() + (viGetViewHeight() * 72) / 100;
+                view_top = viGetViewTop() + (viGetViewHeight() * 86) / 100;
                 gDPNoOpTag(arg0++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
             }
 #endif
@@ -11131,6 +11130,20 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
 #endif
                     }
 
+#ifdef GEVR
+                    /*
+                     * Stereo: the top message ran along the top edge of the
+                     * lenses, half out of view. It goes on the head-locked
+                     * HUD panel (VR_HUD_CAPTURE_*_H) with the bottom message,
+                     * centred in the top third of the view.
+                     */
+                    if (g_gevrStereo && getPlayerCount() == 1)
+                    {
+                        msg.x = viGetViewLeft() + (viGetViewWidth() - msg.textwidth) / 2;
+                        msg.y = viGetViewTop() + (viGetViewHeight() * 18) / 100;
+                        gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+                    }
+#endif
                     msg.bottom = msg.y + msg.textheight;
                     gdl = microcode_constructor_related_to_menus(gdl, 0, msg.y - 2, viGetX(), msg.bottom, 0x64);
 #ifdef VERSION_US
@@ -11154,6 +11167,12 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
 #else
                         gdl = textRender(gdl, &msg.x, &msg.y, dword_CODE_bss_80079DC8[upper_text_buffer_index], ptrFontZurichBoldChars, ptrFontZurichBold, -1, sw.screenwidth, viGetY(), 0, 0);
 #endif
+                    }
+#endif
+#ifdef GEVR
+                    if (g_gevrStereo && getPlayerCount() == 1)
+                    {
+                        gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
                     }
 #endif
                     gdl = combiner_bayer_lod_perspective(gdl);
