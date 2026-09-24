@@ -4139,3 +4139,12 @@ Dark leftovers; remove unused assets and purge them from history.
   the fingers ("intersects the fingers") still to tune live.
 - Laser beam "from the headset": the user found it right on the next build
   (Frigate); the probe log was lost to logcat rollover. Probe removed.
+- The "sniper rifle as the arm holding a mine / after a knife throw": our
+  stereo fist (gevrLeftFistLoad) loaded ITEM_FIST through
+  get_ptr_*_line, which the game redirects to cur_item_weapon_getname -
+  ITEM_SNIPERRIFLE once Bond owns the sniper (the rifle-as-club melee,
+  gunfire.c ~4014). Now loads gitem_structs[ITEM_FIST] directly. The draw
+  order experiment (fist before gadget) was reverted: not the cause, and
+  #19's "hand over the mine" was most likely this same sniper-for-fist.
+- Watch laser shows three arms (its viewmodel has both arms + our watch
+  arm): parked by the user.
