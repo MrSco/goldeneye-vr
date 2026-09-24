@@ -2145,7 +2145,8 @@ static uint32_t s_statXr, s_statGame;
 static double s_statWorstMs;
 static std::chrono::steady_clock::time_point s_statT0, s_statLastGame;
 static bool s_statInit, s_statHaveGame;
-static char s_statText[256] = "";
+static char s_statText[448] = "";
+extern "C" const char *gevrPerfText(void);   // gevr_engine_shim.c: CPU time per frame
 extern "C" const char *gevrVrStatsText(void) { return s_statText; }
 
 static void vr_stats_game_frame(void)
@@ -2188,9 +2189,9 @@ static void vr_stats_xr_frame(void)
         snprintf(screen, sizeof(screen), "\nSCREEN %uX%u", (unsigned)g_screenW, (unsigned)g_screenH);
     }
     snprintf(s_statText, sizeof(s_statText),
-             "BUILD %s\nGAME %.0f FPS  WORST %.0f MS\nDISPLAY %.0f HZ  %.0f FPS\nEYE %dX%d%s",
+             "BUILD %s\nGAME %.0f FPS  WORST %.0f MS\nDISPLAY %.0f HZ  %.0f FPS\nEYE %dX%d%s\n%s",
              build, s_statGame * 1000.0 / el, s_statWorstMs, hz, s_statXr * 1000.0 / el,
-             (int)g_internalRenderWidth, (int)g_internalRenderHeight, screen);
+             (int)g_internalRenderWidth, (int)g_internalRenderHeight, screen, gevrPerfText());
     s_statT0 = now;
     s_statXr = s_statGame = 0;
     s_statWorstMs = 0.0;
