@@ -266,8 +266,29 @@ void sndHandleEvent(ALSndPlayer *sndp, ALSndpEvent *event) {
     lastInSequence = TRUE;
     isVoiceAllocated = FALSE;
     nextState = NULL;
+#ifdef GEVR
+    /*
+     * Safety net for a hang seen twice after the headset slept or lost focus:
+     * the game thread spun here forever (watchdog stack: sndHandleEvent <-
+     * sndPlayerVoiceHandler <- alAudioFrame), walking a chain of sound
+     * states that had become a cycle. The cause is fixed in audi.c
+     * gevrAudioFrame (the player now keeps running while paused); a chain
+     * longer than any real sequence now ends the walk instead of the game.
+     */
+    s32 gevrChainSteps = 0;
+#endif
 
     do {
+#ifdef GEVR
+        if (++gevrChainSteps > 256) {
+            static s32 reported;
+            if (!reported) {
+                reported = 1;
+                sysLogPrintf(LOG_ERROR, "snd: sound-state chain did not end, walk cut (event type %d)", (s32) event->common.type);
+            }
+            return;
+        }
+#endif
         if (nextState != NULL) {
             // NB: soundState is uninitialised on the first pass — original bug, preserved.
             nextStateEvent.common.state = soundState;

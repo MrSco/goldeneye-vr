@@ -447,9 +447,13 @@ void gevrAudioFrame(void)
 	if (!gevrAudioPumpArmed || !g_AudioManager.audioInfo[0]) {
 		return;
 	}
-	if (audioIsPaused()) {
-		return;
-	}
+	/*
+	 * Not skipped while the app is paused (sleep, the Meta menu): the game
+	 * keeps ticking then and keeps starting and stopping sounds, and with no
+	 * audio frames to consume them the sound player's event queue and state
+	 * chains fell out of step - on waking it spun forever in sndHandleEvent.
+	 * The N64's audio never stops; the output is dropped in audioEndFrame.
+	 */
 
     /* GE builds two retraces of samples per audio frame. */
     if (gevrAudioRetraces++ & ((1u << FRAMES_PER_FIELD_AS_POW2) - 1)) {
