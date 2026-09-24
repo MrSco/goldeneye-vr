@@ -10358,6 +10358,50 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
 
 
 
+#ifdef GEVR
+/*
+ * Launcher "Show stats" (goldeneye-vr.ini ShowStats): a troubleshooting
+ * readout in the top-left of the view - frame rates, the slowest frame, the
+ * display rate, render sizes, build (vr_openxr.cpp gevrVrStatsText), plus the
+ * mode and level. In stereo on the head-locked HUD panel, like the messages.
+ */
+extern int VrShowStats;
+extern const char *gevrVrStatsText(void);
+static Gfx *gevrDrawStats(Gfx *gdl)
+{
+    char buf[320];
+    s32 x, y, w = 0, h = 0;
+
+    if (!VrShowStats || getPlayerCount() != 1)
+    {
+        return gdl;
+    }
+    snprintf(buf, sizeof(buf), "%s\n%s  LEVEL %d", gevrVrStatsText(), g_gevrStereo ? "STEREO" : "SCREEN", (s32) bossGetStageNum());
+
+    gdl = microcode_constructor(gdl);
+    textMeasure(&h, &w, buf, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    if (g_gevrStereo)
+    {
+        x = viGetViewLeft() + (viGetViewWidth() * 22) / 100;
+        y = viGetViewTop() + (viGetViewHeight() * 12) / 100;
+        gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+    }
+    else
+    {
+        x = viGetViewLeft() + 12;
+        y = viGetViewTop() + 10;
+    }
+    gdl = microcode_constructor_related_to_menus(gdl, x - 3, y - 2, x + w + 3, y + h + 2, 0x000000A0);
+    gdl = textRender(gdl, &x, &y, buf, ptrFontBankGothicChars, ptrFontBankGothic, -1, viGetX(), viGetY(), 0, 0);
+    gdl = combiner_bayer_lod_perspective(gdl);
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+    }
+    return gdl;
+}
+#endif
+
 Gfx *maybe_mp_interface(Gfx *gdl)
 {
     s32 ulx;
@@ -10534,6 +10578,9 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     gdl = hudmsgBottomRender(gdl);
     bondviewUpperTextWindowTimerTick();
     gdl = sub_GAME_7F08AAE8(gdl);
+#ifdef GEVR
+    gdl = gevrDrawStats(gdl);
+#endif
     gunDrawSight(&gdl);
 #ifdef GEVR
     /*

@@ -32,6 +32,7 @@
 #include <vector>
 #include <array>
 #include <algorithm>
+#include <chrono>
 
 #ifdef ANDROID
 // Android Platform
@@ -2133,8 +2134,71 @@ extern "C" void gevrVrSnapshotCameraPose(void)
 
 // gfx_run finished drawing a frame into the eye buffers: stereo (the camera
 // views above) or not (the screen pass; the eyes hold nothing pose-dependent).
+/*
+ * GoldenEye: troubleshooting stats (launcher "Show stats", goldeneye-vr.ini
+ * ShowStats), drawn by the game (bondview2.c gevrDrawStats). Once a second:
+ * game frames and the slowest gap between two, XR frames and the display's
+ * refresh rate, the eye (and screen) render size, the build.
+ */
+extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
+static uint32_t s_statXr, s_statGame;
+static double s_statWorstMs;
+static std::chrono::steady_clock::time_point s_statT0, s_statLastGame;
+static bool s_statInit, s_statHaveGame;
+static char s_statText[256] = "";
+extern "C" const char *gevrVrStatsText(void) { return s_statText; }
+
+static void vr_stats_game_frame(void)
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (s_statHaveGame) {
+        const double ms = std::chrono::duration<double, std::milli>(now - s_statLastGame).count();
+        if (ms > s_statWorstMs) s_statWorstMs = ms;
+    }
+    s_statLastGame = now;
+    s_statHaveGame = true;
+    s_statGame++;
+}
+
+static void vr_stats_xr_frame(void)
+{
+    const auto now = std::chrono::steady_clock::now();
+    if (!s_statInit) {
+        s_statT0 = now;
+        s_statInit = true;
+    }
+    s_statXr++;
+    const double el = std::chrono::duration<double, std::milli>(now - s_statT0).count();
+    if (el < 1000.0) {
+        return;
+    }
+    float hz = 0.0f;
+    if (g_refreshRateSupported) {
+        PFN_xrGetDisplayRefreshRateFB get = nullptr;
+        xrGetInstanceProcAddr(g_vrState.instance, "xrGetDisplayRefreshRateFB", (PFN_xrVoidFunction *)&get);
+        if (get) get(g_vrState.session, &hz);
+    }
+    char build[16];
+    snprintf(build, sizeof(build), "%s", gevrBuildId);
+    for (char *c = build; *c; c++) {
+        if (*c == ' ') { *c = 0; break; }
+    }
+    char screen[40] = "";
+    if (g_screenVisible && g_screenW) {
+        snprintf(screen, sizeof(screen), "\nSCREEN %uX%u", (unsigned)g_screenW, (unsigned)g_screenH);
+    }
+    snprintf(s_statText, sizeof(s_statText),
+             "BUILD %s\nGAME %.0f FPS  WORST %.0f MS\nDISPLAY %.0f HZ  %.0f FPS\nEYE %dX%d%s",
+             build, s_statGame * 1000.0 / el, s_statWorstMs, hz, s_statXr * 1000.0 / el,
+             (int)g_internalRenderWidth, (int)g_internalRenderHeight, screen);
+    s_statT0 = now;
+    s_statXr = s_statGame = 0;
+    s_statWorstMs = 0.0;
+}
+
 extern "C" void gevrVrMarkEyesRendered(int stereo)
 {
+    vr_stats_game_frame();
     if (stereo && g_haveCameraViews) {
         g_renderedViews = g_cameraViews;
         g_haveRenderedViews = true;
@@ -2685,6 +2749,7 @@ static XrCompositionLayerQuad vr_init_menu_quad(XrSwapchain swapchain) {
 }
 
 static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2>& views) {
+    vr_stats_xr_frame();
     std::array<XrCompositionLayerProjectionView, 2> projViews;
     bool is_mv = gfx_get_current_rendering_api()->is_multiview();
 

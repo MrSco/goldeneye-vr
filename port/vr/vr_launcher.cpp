@@ -634,6 +634,18 @@ extern "C" void gevrLauncherRun(void)
                     vr_screen_resize(dist, VrScreenFov);
                 }
             }
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "AIM STEADYING (stereo)");
+            {
+                // Issue #7: smooths hand tremor out of the aim; big moves stay instant.
+                int steady = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
+                ImGui::RadioButton("Off##steady", &steady, 0);
+                ImGui::SameLine();
+                ImGui::RadioButton("Low##steady", &steady, 1);
+                ImGui::SameLine();
+                ImGui::RadioButton("High##steady", &steady, 2);
+                VrAimSteady = steady;
+            }
 
             ImGui::TableNextColumn();
             ImGui::TextColored(gold, "TURNING (stereo)");
@@ -656,6 +668,11 @@ extern "C" void gevrLauncherRun(void)
                 bool lefty = VrLeftHandedMode != 0;
                 if (ImGui::Checkbox("Left-handed", &lefty)) {
                     VrLeftHandedMode = lefty ? 1 : 0;
+                }
+                // Troubleshooting readout in game: fps, refresh rate, resolution, build.
+                bool stats = VrShowStats != 0;
+                if (ImGui::Checkbox("Show stats", &stats)) {
+                    VrShowStats = stats ? 1 : 0;
                 }
             }
             ImGui::EndTable();

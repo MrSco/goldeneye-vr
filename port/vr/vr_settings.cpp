@@ -33,6 +33,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "TwoHandedAiming=%d\n", VrTwoHandAim ? 1 : 0);
     fprintf(f, "LeftHandedMode=%d\n", VrLeftHandedMode ? 1 : 0);
     fprintf(f, "SwapJoysticks=%d\n", VrSwapJoysticks ? 1 : 0);
+    fprintf(f, "AimSteadying=%d\n", VrAimSteady);
+    fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
     fprintf(f, "HideArms=%d\n", VrHideArms ? 1 : 0);
     fprintf(f, "ActiveTexturePack=%s\n", g_ActiveExtTexPack);
     fprintf(f, "; Your standing EYE height in cm -- where your eyes are off the floor, which is\n");
@@ -121,6 +123,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "TwoHandedAiming") == 0) VrTwoHandAim = (ival != 0);
             else if (strcmp(key, "LeftHandedMode") == 0) VrLeftHandedMode = (ival != 0);
             else if (strcmp(key, "SwapJoysticks") == 0) VrSwapJoysticks = (ival != 0);
+            else if (strcmp(key, "AimSteadying") == 0) VrAimSteady = ival < 0 ? 0 : ival > 2 ? 2 : ival;
+            else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
             else if (strcmp(key, "HideArms") == 0) VrHideArms = (ival != 0);
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;

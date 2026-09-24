@@ -44,6 +44,8 @@ extern "C" bool VrTwoHandsGun(int weaponnum);
 int gripPressed = false;
 int VrLeftHandedMode = 0;
 int VrSwapJoysticks = 0;
+int VrAimSteady = 1;
+int VrShowStats = 0;
 bool sQuatIdleInit_reset[2] = {false, false};
 
 // ===== VR CODE EXTENSION WITH FULL CONTROLLER SUPPORT =====
@@ -1777,6 +1779,51 @@ static bool gCamCtrlValid[2];
  * last tracked pose in play space, relative to the current head, so they
  * stay where they were in the room.
  */
+/*
+ * Aim steadying (issue #7, goldeneye-vr.ini AimSteadying 0/1/2): the raw
+ * controller orientation carries hand tremor, which the crosshair - at the
+ * aim ray's hit point, metres away - magnifies (1 degree is ~35 cm at 20 m).
+ * The menu pointer was already smoothed; aiming was not. Perfect Dark VR
+ * filters its controller rotation too (CTRL_SMOOTH_ALPHA_ROT_*), but the
+ * GoldenEye stereo code reads these snapshots instead. Filtered here, once
+ * per game frame, in play space (so a head turn never drags the gun), with
+ * the pointer's speed-dependent weight: heavy for tremor-sized changes, none
+ * once the hand really moves. Position is left raw.
+ */
+static XrQuaternionf gSteadyQ[2];
+static bool gSteadyInit[2];
+
+static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw)
+{
+    // weight a: aMin below d0 degrees of change per frame, 1 above d1
+    static const float aMin[3] = { 1.0f, 0.30f, 0.12f };
+    static const float d0[3]   = { 0.0f, 0.3f,  0.5f };
+    static const float d1[3]   = { 1.0f, 3.0f,  5.0f };
+    const int lvl = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
+    XrQuaternionf s = gSteadyQ[h];
+    if (!gSteadyInit[h] || lvl == 0) {
+        gSteadyQ[h] = raw;
+        gSteadyInit[h] = true;
+        return raw;
+    }
+    float dot = s.x * raw.x + s.y * raw.y + s.z * raw.z + s.w * raw.w;
+    if (dot < 0.0f) {
+        s.x = -s.x; s.y = -s.y; s.z = -s.z; s.w = -s.w;
+        dot = -dot;
+    }
+    if (dot > 1.0f) dot = 1.0f;
+    const float deg = 2.0f * (float)acos((double)dot) * (180.0f / 3.14159265f);
+    float t = (deg - d0[lvl]) / (d1[lvl] - d0[lvl]);
+    t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
+    const float a = aMin[lvl] + (1.0f - aMin[lvl]) * t;
+    XrQuaternionf q = { s.x + (raw.x - s.x) * a, s.y + (raw.y - s.y) * a,
+                        s.z + (raw.z - s.z) * a, s.w + (raw.w - s.w) * a };
+    const float len = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    if (len > 1e-6f) { q.x /= len; q.y /= len; q.z /= len; q.w /= len; }
+    gSteadyQ[h] = q;
+    return q;
+}
+
 extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
 {
     for (int h = 0; h < 2; h++) {
@@ -1785,6 +1832,19 @@ extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
             const XrQuaternionf& q = gControllerStates[h].controller_pose.orientation;
             gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
             gCamCtrlPose[h] = gControllerStates[h].controller_pose;
+            const XrQuaternionf& pq = gCtrlPosePlay[h].orientation;
+            if (VrAimSteady > 0 && !(pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f)) {
+                // steadied play-space orientation, seen from the camera head: head^-1 * s
+                const XrQuaternionf s = gevr_steady(h, pq);
+                const XrQuaternionf hq = head->orientation;
+                const float cx = -hq.x, cy = -hq.y, cz = -hq.z, cw = hq.w;
+                gCamCtrlPose[h].orientation = { cw * s.x + cx * s.w + cy * s.z - cz * s.y,
+                                                cw * s.y - cx * s.z + cy * s.w + cz * s.x,
+                                                cw * s.z + cx * s.y - cy * s.x + cz * s.w,
+                                                cw * s.w - cx * s.x - cy * s.y - cz * s.z };
+            } else {
+                gSteadyInit[h] = false;
+            }
             continue;
         }
         const XrPosef& play = gCtrlPosePlay[h];

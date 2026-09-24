@@ -3962,3 +3962,25 @@ Dark leftovers; remove unused assets and purge them from history.
   7dd528a0218ef76e4534d0affbd15c8bf644c3ba04e0b8dbed8c616bc8e92743; same key).
   #6 closed with a reply; no open issues. README: left-handed note under
   Controls. The user's own ini still has LeftHandedMode=1 from testing.
+
+## 77. Aim steadying (issue #7) and a stats readout
+
+- #7 "crosshair not stable": the stereo aim used the raw controller
+  orientation (gevrVrSnapshotControllers copies controller_pose) - no
+  smoothing, while the menu pointer had speed-dependent smoothing and Perfect
+  Dark VR smooths gCtrlQuat (CTRL_SMOOTH_ALPHA_ROT_*). The 3D sight sits at
+  the aim ray's hit point, so tremor is magnified (1 deg ~ 35 cm at 20 m).
+- vr_input.cpp gevr_steady: per hand, once per game frame, the play-space
+  controller orientation is nlerped toward the raw one with weight a = aMin
+  below d0 degrees of change per frame rising to 1 at d1 (Low: .30/.3/3,
+  High: .12/.5/5, Off: raw); the camera snapshot's orientation becomes
+  head^-1 * steadied (so head turns never drag the gun). Position stays raw.
+  goldeneye-vr.ini AimSteadying 0/1/2 (default 1 = Low); launcher "AIM
+  STEADYING (stereo)" Off/Low/High. The ammo panel still uses the raw pose.
+- Stats: launcher "Show stats" (ini ShowStats). vr_openxr.cpp counts game
+  frames (gevrVrMarkEyesRendered) with the slowest gap, XR frames, the
+  display rate (xrGetDisplayRefreshRateFB) and render sizes once a second
+  (gevrVrStatsText); bondview2.c gevrDrawStats draws it top-left in Bank
+  Gothic on a dark box, in stereo on the head-locked HUD panel, plus mode
+  and level.
+- Built, installed; not seen on device. Launcher fit (two more rows) unchecked.
