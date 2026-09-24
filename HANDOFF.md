@@ -3914,3 +3914,7 @@ Dark leftovers; remove unused assets and purge them from history.
   the main screen completes the objective. Any level with photo, enter-room
   or deposit-in-room objectives was affected the same way.
 - Probes removed (object dump, raw record dump); warp hook kept.
+- **v0.1.3 published** 2026-09-24: https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.3
+  (tag at c6e2ba8 = build commit; GoldenEye-VR-v0.1.3.apk SHA-256
+  1443ef85722ed515726d7b16f18d8ea84c12e1fdd6aebcc5614ec5d2606d2246; same key).
+  #2 and #3 closed with replies. Open: #6 left-handed mode (next), decals.
