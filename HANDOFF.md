@@ -3788,3 +3788,16 @@ Dark leftovers; remove unused assets and purge them from history.
   one"), and casingCreate logs "casings: all 20 slots in use" (every 100th
   refusal). Read those if it happens again.
 - Built, installed; not seen on device.
+
+## 70. Pistol casings: uninitialised frac; stereo casing trace
+
+- Log after 69: "casings: dropping one at nan nan nan" in both modes; user:
+  no AK casings in stereo, and the PP7 has none in 2D or stereo.
+- Pistol branch of sub_GAME_7F068508: vel.z = frac * 0.0f before frac is
+  assigned (retail code). Garbage NaN/Inf -> NaN casing -> never below its
+  floor -> slot held forever (the old "casings stop" too). frac = 0 first.
+- The AK (rifle branch) has no such read, yet shows nothing in stereo: PORT
+  probe logs the first 6 casings after each stereo/flat change ("casings: #n
+  item .. stereo pos .. vel .. floor .. player .. move .. scale ..") and
+  when each reaches its floor ("after N ticks"). Remove once explained.
+- Built, installed.
