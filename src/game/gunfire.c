@@ -1723,8 +1723,8 @@ static s32 gevrLeftFistLoad(void)
 /*
  * The fist viewmodel (the right hand's own) on the right controller while
  * the game draws nothing there: a hand-held item with no model (keycards),
- * a weapon being swapped, the empty hand after a mine or grenade leaves it,
- * and the hand holding a gadget whose model is only the object.
+ * the empty hand after a mine or grenade leaves it, and the hand holding a
+ * gadget whose model is only the object. Not during a weapon switch.
  */
 extern s32 gevrStereoItemNeedsFist(s32 item);
 
@@ -1746,6 +1746,16 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     if (g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0)
     {
         return gdl;     /* the game draws the weapon (with its hand) */
+    }
+    switch (g_CurrentPlayer->hands[GUNRIGHT].weapon_action_state)
+    {
+        case GUN_ANIM_STATE_SWITCH_LOWER:
+        case GUN_ANIM_STATE_SWITCH_SWAP:
+        case GUN_ANIM_STATE_SWITCH_HOLD:
+        case GUN_ANIM_STATE_SWITCH_RAISE:
+            return gdl; /* between weapons the flat game shows no hand either */
+        default:
+            break;
     }
     if (s_gevrHiddenShown[GUNRIGHT] && !gevrStereoItemNeedsFist(item))
     {
@@ -6121,7 +6131,18 @@ void sub_GAME_7F068EC4(CasingRecord *casing, Gfx **gdl)
     ModelFileHeader *model_header = casing->header;
     RenderPosView   *model_matrices = dynAllocate(model_header->numMatrices * sizeof(RenderPosView));
     ModelHead        model;
+#ifdef GEVR
+    /* D264's twin: g_DefaultCasingModelRenderData is {0, 1, 3, ...} as 32-bit
+     * words - basemtx NULL, zbufferenabled 1, flags 3. Read as this struct
+     * on a 64-bit host the pointer swallows the first two words and flags
+     * comes back 0, which gates every node in subdraw: no casing ever drew
+     * (and the copy ran past the array). Build it field by field. */
+    ModelRenderData  render_data = {0};
+    render_data.zbufferenabled = TRUE;
+    render_data.flags = 3;
+#else
     ModelRenderData  render_data = *(ModelRenderData *)g_DefaultCasingModelRenderData;
+#endif
     Mtxf             casing_model_mtx;
     s32              axis_offset;
     s32              matrix_translation_in_range = TRUE;

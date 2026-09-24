@@ -3745,3 +3745,25 @@ Dark leftovers; remove unused assets and purge them from history.
   (s_gevrThrowScale). Also affects rockets and grenade-launcher rounds.
 - ITEM_BUG (covert modem) in-hand scale 0.67.
 - Built, installed, not seen on device.
+
+## 68. Casings draw at last; no fist during switches; watch screen glides home
+
+- User: covert modem right (size, one copy). No gun ejects casings. An empty
+  right hand flashed on weapon switches. Watch screen a bit high; wanted it
+  to become the room-fixed 2D screen when looking that way.
+- Casings had never drawn in this port: sub_GAME_7F068EC4 copied its render
+  template from g_DefaultCasingModelRenderData ({0, 1, 3, ...} u32s) as a
+  ModelRenderData; on LP64 basemtx swallows two words and flags reads 0,
+  which gates every node in subdraw (D264's twin; the copy also overran the
+  array). Built field by field now. Stereo casings also get the plain
+  rotation from 67, so they are world size.
+- gevrRenderRightFist skips GUN_ANIM_STATE_SWITCH_LOWER/SWAP/HOLD/RAISE.
+- Watch screen (vr_openxr.cpp): pinned 8 degrees below the line of sight
+  (was VrScreenHeight up). When the head points within 20 degrees of the
+  screen's room place (g_screenPose - where menus/cutscenes hang it) it
+  glides there over 0.35 s (smoothstep, position lerp + quaternion nlerp,
+  in play space) and stays for the rest of that watch. bondview2.c no
+  longer re-hangs the screen (vr_screen_recenter) when the watch takes
+  stereo away, so that place is the usual one. The cylinder's centre is
+  now derived from the quad pose for every case.
+- Built, installed; not seen on device.
