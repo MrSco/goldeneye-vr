@@ -375,6 +375,9 @@ static bool g_refreshRateSupported = false;
  * 120 Hz each game frame is shown exactly twice.
  */
 extern int VrRefreshRate;
+static void vr_request_refresh_rate(void);
+/* the launcher's Start (vr_launcher.cpp): the session began before it was shown */
+extern "C" void vr_apply_refresh_rate(void) { vr_request_refresh_rate(); }
 static void vr_request_refresh_rate(void)
 {
     if (!g_refreshRateSupported || VrRefreshRate <= 0) {
