@@ -1942,16 +1942,6 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     renderdata = (ModelRenderData){0};
     renderdata.zbufferenabled = TRUE;
     renderdata.flags = 3;
-#ifdef GEVR
-    /*
-     * The right fist first (issue #19): a gadget drawn round it may test depth
-     * without writing it (a mine's materials), and a fist drawn after it
-     * painted over the whole gadget - the hand showed through the mine held
-     * in it. Drawn first, the fist's depth hides the gadget only where the
-     * fist is in front.
-     */
-    gdl = gevrRenderRightFist(gdl, &renderdata);
-#endif
  
     for (handnum = 0; handnum != 2; handnum++) 
     {
@@ -2106,6 +2096,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gdl = gevrRenderLeftArm(gdl, &renderdata);
         }
+        gdl = gevrRenderRightFist(gdl, &renderdata);
     }
 #endif
     *gdlptr = gdl;
