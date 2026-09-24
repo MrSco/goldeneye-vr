@@ -3817,3 +3817,13 @@ Dark leftovers; remove unused assets and purge them from history.
   Thrown gadgets also start at the hand's true position now.
 - Probe from 70 still in (first 6 casings per mode) to confirm; then remove.
 - Built, installed.
+
+## 72. v0.1.1
+
+- User confirmed the casings (69-71) work. Casing probe removed (the NaN
+  drop guard and the "all 20 slots" log stay).
+- versionCode 2 / versionName 0.1.1; README feature table (watch arm,
+  gadgets in hand, casings); STATUS paragraph for 0.1.1.
+- Release notes: highlights of HANDOFF 62-71 (watch arm, sniper club, HUD
+  messages, watch flow, gadgets in hand, casings, throw fixes, weapon
+  animations). Known issue carried: decal cropping at oblique angles.

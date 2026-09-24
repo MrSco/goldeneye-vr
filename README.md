@@ -41,7 +41,9 @@
 | Real 3D first-person play. Look around with your head, lean and step with your body. | The whole game on a cinema-sized screen floating in front of you. |
 | Aim the gun with your **right hand**. Shots leave the muzzle and go where the barrel points. | **Flat or curved** screen, any size and distance. |
 | A 3D sight where your shot will land. Your ammo counter sits on the gun. | **Grab the screen** with both grips to move it anywhere. |
-| Your **left arm** is there too. Raise your wrist and look at it to open **Bond's watch**. | The classic experience, with no motion at all. |
+| Your **left arm** is Bond's own suit sleeve with his watch, keeping mission time. Raise your wrist and look at it to open the watch. | The classic experience, with no motion at all. |
+| Gadgets are **in your hand**: mines, the covert modem, cameras and more, thrown from where you hold them. | |
+| Spent **shell casings** fly from the ejection port. | |
 | Smooth or snap turning, and an optional **comfort vignette** for motion sickness. | |
 
 Also:
