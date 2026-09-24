@@ -4121,3 +4121,21 @@ Dark leftovers; remove unused assets and purge them from history.
   and the aim crosshair vanishes on them, as if the ray passes through. Not
   gepc-ref D312 (our bgBuildRoomVtxBounds already reads the vertex count
   from bits 16-23). Open - not investigated.
+
+## 83. #18 water, #19 mines, laser, water shimmer
+- User: dual wield confirmed good (#15).
+- #18 Frigate green sea: gepc-ref D229 ported (fast3d importTextureNative:
+  an RGBA16 tile over a CI source goes through the CI8 palette import; the
+  N64 ucode expanded CI8 water mipmaps at load). User: water is blue now.
+  Still: the water "animates oddly when I move my head" = gepc-ref D245
+  (OPEN there; s16 tc wrap seam in sky.c's water fan, worse with head
+  motion). Not fixed - known issue. #18's "sea too high on the boat" not
+  looked at.
+- #19 mines: the right fist is now drawn BEFORE the held gadget
+  (gunRenderFirstPersonGunModels), so a gadget that tests but doesn't write
+  depth is no longer painted over. User then saw the mine together with the
+  sniper rifle held before it: s_gevrHiddenShown used the watch-menu item;
+  now it also requires getCurrentPlayerWeaponId(hand) == item. Mine pose in
+  the fingers ("intersects the fingers") still to tune live.
+- Laser beam "from the headset": the user found it right on the next build
+  (Frigate); the probe log was lost to logcat rollover. Probe removed.
