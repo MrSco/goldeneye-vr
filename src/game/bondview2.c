@@ -10454,7 +10454,27 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 
     gunUpdateAndFireBothHands();
     gunRenderCasings(&gdl);
+#ifdef GEVR
+    /*
+     * Issue #9, as Perfect Dark VR (bondgun.c "// VR": the gun models drawn
+     * with culling off): in stereo the hands, guns and watch arm are seen from
+     * every side, but the flat game only ever showed one, so their display
+     * lists cull back faces that were never modelled closed - the left hand's
+     * underside and the watch band's back were see-through. fast3d skips face
+     * culling between these tags (VR_CULL_OFF_*, port/vr/vr_openxr.h).
+     */
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x565B0000);
+    }
+#endif
     gunRenderFirstPersonGunModels(&gdl);
+#ifdef GEVR
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x565B0001);
+    }
+#endif
     gdl = bondviewRenderWatch(gdl);
 
     if (g_CurrentPlayer->mpmenuon != 0)

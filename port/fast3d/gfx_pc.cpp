@@ -1737,6 +1737,8 @@ static inline float gfx_tri_signed_area(const struct LoadedVertex* v1, const str
 // the determinant of the active 3x3 rotation/scale matrix.
 // GoldenEye: set between VR_CULL_MIRROR_BEGIN/END tags (the mirrored left arm).
 static bool gevrCullMirror;
+// GoldenEye: set between VR_CULL_OFF_BEGIN/END tags (the stereo first-person models).
+static bool gevrCullOff;
 
 static inline bool gfx_is_matrix_inverted() {
     /*
@@ -1794,7 +1796,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
 
 
-    if ((rsp.geometry_mode & G_CULL_BOTH) != 0) {
+    if (!gevrCullOff && (rsp.geometry_mode & G_CULL_BOTH) != 0) {
         if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
             if (gevrMenuTrace) ++gevrMenuCulled;
             // Why is this even an option?
@@ -3128,6 +3130,14 @@ static void gfx_run_dl(Gfx* cmd) {
 
                     case VR_CULL_MIRROR_END:
                         gevrCullMirror = false;
+                        break;
+
+                    case VR_CULL_OFF_BEGIN:
+                        gevrCullOff = true;
+                        break;
+
+                    case VR_CULL_OFF_END:
+                        gevrCullOff = false;
                         break;
                     default:
                         break;
