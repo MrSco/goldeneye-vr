@@ -372,9 +372,25 @@ static size_t convert_one_prop(uint8_t *dst, const uint8_t *src, uint8_t type) {
         putptr(dst + 24, (uintptr_t)read32(src + 12));
         putptr(dst + 32, (uintptr_t)read32(src + 16));
         break;
-    case 37: /* RENAME: 9 words + Object* */
-        conv_words(dst, src, 36);
-        putptr(dst + 36, (uintptr_t)read32(src + 36));
+    /*
+     * RENAME (issues #12, #14): the header was word-swapped here, which puts
+     * type 37 at byte 0 where the host reads extrascale's high byte - the
+     * 750c833 bug, fixed then for the default case only. The prop walk never
+     * saw a rename (stepping through its 48 bytes one word at a time, so every
+     * relative index past one ran ~11 records long), no text override was
+     * registered: "Picked up something." for renamed props, and inventory
+     * entries named "." (item 0's text) that did nothing.
+     * N64 40 bytes: header, TagID and 6 text/weapon words (4..0x1f), next*
+     * (0x20), renobj* (0x24). Host (struct textoverride): next at 0x20 and
+     * obj at 0x28, both set at load (bondinvAddTextOverride, setup binding).
+     */
+    case 37:
+        put16(dst + 0, read16(src + 0));
+        dst[2] = src[2];
+        dst[3] = src[3];
+        conv_words(dst + 4, src + 4, 28);
+        putptr(dst + 32, 0);
+        putptr(dst + 40, 0);
         break;
     case 46: /* CAMERAPOS */
         put16(dst + 0, read16(src + 0));
