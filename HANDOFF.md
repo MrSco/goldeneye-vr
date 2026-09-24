@@ -4256,3 +4256,11 @@ Dark leftovers; remove unused assets and purge them from history.
   already drops the output); sndHandleEvent's walk is capped at 256 as a
   safety net (logs "snd: sound-state chain did not end" once). Two sleep/wake
   cycles on Frigate, driven from the PC: no lockup.
+
+## 88. v0.1.10 published
+- https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.10 (tag at 0af3d29 =
+  build commit; GoldenEye-VR-v0.1.10.apk SHA-256
+  ba0200c9ac6fc769b753a1d6ae8bf696b03e6c170127b02f6f655ea98d357e74; same
+  key). Performance pass (HANDOFF 87), 90 Hz default + launcher option, the
+  sleep/focus audio lockup fix. No issues closed (#10 wheel, #18 windshield
+  open).
