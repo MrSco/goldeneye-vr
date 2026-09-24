@@ -731,8 +731,10 @@ static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[
  * the fist is drawn round it (a model that is only the object) or not (one
  * that brings its own hand). Model sizes (bounding radius x 0.1 x 0.17,
  * about 20 view units to the metre): mines 4.3 cm, camera 4.5, door decoder
- * 5, bug/modem 9, bomb case 10; grenade 36 and plastique 22 are the size of
- * the fist-and-forearm model (21), so they likely carry a hand.
+ * 5, bug/modem 9, bomb case 10, grenade 36, plastique 22. None was ever seen
+ * in the flat game (the hide flag hides the whole model), so their authored
+ * sizes mean nothing: the scales below were set by eye in the headset. The
+ * grenade and plastique bring no hand, despite being fist-sized.
  * files/gevr_itempose.txt overrides a line at a time while testing:
  * "item left up fwd rx ry rz scale fist" (item as the ITEM_IDS number).
  */
@@ -753,11 +755,11 @@ static GevrItemPose s_gevrItemPoses[] = {
     { ITEM_REMOTEMINE,    { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
     { ITEM_BUG,           { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.67f, TRUE },  /* covert modem: 1.5x too big (user) */
     { ITEM_MICROCAMERA,   { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
-    { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
-    { ITEM_BOMBCASE,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },   /* tiny at 1 (issue #8) */
+    { ITEM_BOMBCASE,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },   /* half size at 1 (user) */
     { ITEM_GOLDENEYEKEY,  { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
-    { ITEM_GRENADE,       { 0.0f, 0.0f,  0.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, FALSE },
-    { ITEM_PLASTIQUE,     { 0.0f, 0.0f,  0.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, FALSE },
+    { ITEM_GRENADE,       { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.2f, TRUE },   /* 5x too big, no hand of its own (#8) */
+    { ITEM_PLASTIQUE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.4f, TRUE },
 };
 
 static GevrItemPose *gevrItemPoseFind(s32 item)

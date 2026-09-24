@@ -4039,3 +4039,19 @@ Dark leftovers; remove unused assets and purge them from history.
 - Silencer band probe: gunfire.c tags 0x565A0000/1 around the gun draw;
   gfx_pc.cpp logs "gunprobe:" (geometry mode, combine, lights, look-at,
   normals, vertex colour) per distinct batch. Remove both once explained.
+
+## 80. Gadget sizes set in the headset (issue #8); decals pinned
+- Issue #8 (tiny camera, giant grenade): the in-hand gadget scales were
+  guesses from bounding radii (65). The flat game never shows these models
+  (the hide flag hides the whole model), so their authored sizes mean nothing.
+  Tuned live with the user via gevr_itempose.txt and written into the table:
+  grenade 0.2 with the fist (it brings NO hand - the 65 guess was wrong),
+  plastique 0.4 with the fist, camera 2.0, bomb case 2.0. Mines, modem,
+  micro camera, GoldenEye key confirmed fine.
+- The data thief, key analyser and door decoder show only the fist: the game
+  marks them no-model (GUNFILERECORD NOMODEL=1, no stats), like keycards.
+  Showing them would mean loading their G models ourselves - left for later.
+- New hook: gevr_cheat.txt "give<N>" adds ITEM_IDS N to the inventory.
+- Decals, after the depth clamp fix (79): bullet holes better, but holes and
+  the Dam's red/white stripes still cut off up close sometimes. PINNED by the
+  user; the live switch (gevr_decal.txt) is in place for when we return.
