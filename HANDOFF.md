@@ -4264,3 +4264,43 @@ Dark leftovers; remove unused assets and purge them from history.
   key). Performance pass (HANDOFF 87), 90 Hz default + launcher option, the
   sleep/focus audio lockup fix. No issues closed (#10 wheel, #18 windshield
   open).
+
+
+## 89. Sky follows the head (#21); far scenery popping on Statue
+- #21 (efa4011): the environment field "WaterConcavity" is really a
+  screen-space drop of the sky; in stereo it made the sky follow the head.
+  sky.c skyScreenDrop() returns 0 in stereo. User: "sky looks good". Not yet
+  released; close #21 with the next release.
+- Statue: the tree wall, hills and gate were cut off along an edge that
+  moved with the head, popped in rows, and whole blocks (trees behind the
+  statue) vanished at some angles; 2D and stereo alike. The crosshair
+  vanishing over far ground was the same thing. Found with live switches
+  (files/gevr_rooms.txt, since removed) while the user watched:
+  1. depth: with depth clamp (HANDOFF 79) everything past the far fog
+     distance collapsed onto one depth and failed the depth test against
+     itself (GEVR PC measured the same: "the depth-clamp fix took the far
+     plane down with it"). A depth range ending short of 1.0 alone did not
+     help; clamp was confirmed on at draw time (glIsEnabled).
+  2. fast3d's CLIP_FAR reject dropped whole triangles past the far plane
+     (the rows).
+  3. bg.c's room and portal far tests (bgIsRoomOnScreen count_z,
+     sub_GAME_7F0B5528 allbehind) dropped whole rooms (the blocks).
+  Ruled out on the way: room load memory (roomstat: every listed room
+  loaded, no failed loads), object fog/distance culls, the CPU x/y clip,
+  stale depth (both per-frame clears are full), the sky (no depth).
+- Fix: one far reach for all three. The vertex shader squashes depth by 0.3
+  again (Perfect Dark VR on Quest has always run this way: its glad never
+  finds depth clamp); depth clamp stays on for anything past 3.3x; CLIP_FAR
+  tests z * 0.3 > w (gfx_pc.h GEVR_FAR_DEPTH_SCALE); the two room far tests
+  reach 1 / 0.3 as far (bg.c GEVR_FAR_EXTEND). Depth range ends at
+  1 - 1/65536 via SDL_GL_GetProcAddress (glad leaves glDepthRangef null on
+  GLES - the first try called it directly and crashed at start).
+  User: "trees stay, no popping".
+- Watch: the squash gives back some of the decal depth precision HANDOFF 79
+  won. If bullet holes or wall stripes get worse, extend only the far end
+  of the depth mapping (rsp.P_matrix gives near/far) instead of squashing.
+- Traps hit this session: the boot script's -SkipBuild install silently
+  failed (the device carries the release signature) so a round of tests ran
+  the old build; build assembleRelease and check lastUpdateTime. A test
+  capture once ran rm on /sdcard/Oculus/Screenshots and deleted the user's
+  screenshots (10 restored from local copies) - never delete there.

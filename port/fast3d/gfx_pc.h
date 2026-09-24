@@ -12,6 +12,20 @@
 
 #include "system.h"
 
+/*
+ * PORT: depth is squashed by this factor in the vertex shader (gfx_opengl.cpp),
+ * which reaches 1 / 0.3 = 3.3 times past the level's far fog distance before
+ * anything is clamped. Perfect Dark VR has always run this way on Quest (its GL
+ * loader never finds depth clamp, so it takes the squash path). With depth
+ * clamp alone (v0.1.7 - v0.1.10), everything past the far distance collapsed
+ * onto one depth and failed the depth test against itself: Statue's tree wall
+ * and hills were cut off at an angle that moved with the head (issue: far
+ * scenery pops). The far triangle reject here and the game's room far tests
+ * (bg.c GEVR_FAR_EXTEND) reach the same distance, or they cut the scenery the
+ * depth buffer now keeps.
+ */
+#define GEVR_FAR_DEPTH_SCALE 0.3f
+
 #define SCREEN_WIDTH ((int32_t)gfx_current_native_viewport.width)
 #define SCREEN_HEIGHT ((int32_t)gfx_current_native_viewport.height)
 

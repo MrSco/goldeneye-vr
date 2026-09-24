@@ -1020,10 +1020,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     }
 
 
-    if (!GLAD_GL_ARB_depth_clamp) {
-        // HACK: workaround when GL_DEPTH_CLAMP is unavailable
-        append_line(vs_buf, &vs_len, "    gl_Position.z *= 0.3f;");
-    }
+    // The far reach (gfx_pc.h GEVR_FAR_DEPTH_SCALE), with or without depth
+    // clamp: clamp then only catches what lies past 3.3x the far distance.
+    append_line(vs_buf, &vs_len, "    gl_Position.z *= 0.3f;");
     append_line(vs_buf, &vs_len, "}");
 
     // Fragment shader
@@ -1948,6 +1947,19 @@ static void gfx_opengl_init(void) {
 
     if (GLAD_GL_ARB_depth_clamp) {
         glEnable(GL_DEPTH_CLAMP);
+        /*
+         * PORT: depth clamp pins anything past the squashed far plane to the
+         * far depth, which equalled the cleared depth, so the opaque GL_LESS
+         * test threw it away. The N64's clamped far z sits just in front of
+         * its cleared z buffer and draws; end the range a step short of 1.0 so
+         * it does here too. glad's desktop loader leaves glDepthRangef null on
+         * GLES (calling it crashed at start), so ask the driver.
+         */
+        typedef void (*PFN_DepthRangef)(GLfloat, GLfloat);
+        PFN_DepthRangef depthRangef = (PFN_DepthRangef)SDL_GL_GetProcAddress("glDepthRangef");
+        if (depthRangef) {
+            depthRangef(0.0f, 1.0f - 1.0f / 65536.0f);
+        }
     }
     glDepthFunc(GL_LEQUAL);
     glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
