@@ -3856,3 +3856,24 @@ Dark leftovers; remove unused assets and purge them from history.
   file..., warns against hand-made app folders; troubleshooting updated.
 - versionCode 3 / 0.1.2. Open for later: #2 camera photo (stereo view
   rectangle), #3 Bunker desk, #6 left-handed mode, a level-jump test hook.
+
+## 74. Test hooks: jump to any mission, cheats in a level
+
+- User suggestion: use GoldenEye's cheats/debug for testing levels and
+  weapons (IGN's cheat page was not fetchable). The source has what's needed:
+  cheat.c's table (every retail button code, incl. per-level unlocks at
+  mission select) and cheatButtonHandleCheatsTurnedOn (what the codes call);
+  front.c's run path (selected_stage / selected_difficulty / briefingpage ->
+  MENU_BRIEFING -> MENU_RUN_STAGE -> bossSetLoadedStage); the leftover debug
+  menu (debugmenu_handler.c: level warp, all guns, all-levels flag).
+- files/gevr_level.txt "<level> [difficulty]" (front.c gevrLevelJumpProbe):
+  from mode select through briefing, jumps to that mission's briefing as the
+  folders would (gamemode solo); one A press (8000) starts it. Names: dam
+  facility runway surface bunker silo frigate surface2 bunker2 statue
+  archives streets depot train jungle control caverns cradle aztec egypt, or a
+  LEVELID number. Unlocks not checked. Kept until the menus reach mode select.
+- files/gevr_cheat.txt (bondview2.c gevrCheatProbe): in a level, names
+  allguns invincible maxammo infammo or CHEAT_IDS numbers, one per word.
+- Boot recipe: launcher START (1000), A presses to file select and into the
+  file (mode select), write gevr_level.txt, A to start, then gevr_cheat.txt.
+- Built and committed; not installed (user mid-test of 0.1.2 candidate).

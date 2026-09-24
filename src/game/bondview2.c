@@ -447,9 +447,68 @@ static s32 gevrWatchOpeningByGesture(s32 inlevel)
     return opening;
 }
 
+/*
+ * PORT test hook: files/gevr_cheat.txt holding cheat names (or CHEAT_IDS
+ * numbers) turns them on in the running level, through the same call the
+ * button codes use: allguns invincible maxammo infammo (others by number).
+ * Deleted once read.
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <strings.h>
+void cheatButtonHandleCheatsTurnedOn(CHEAT_ID cheat_id);
+static void gevrCheatProbe(s32 inlevel)
+{
+    static const struct { const char *name; s32 id; } names[] = {
+        { "allguns", CHEAT_ALLGUNS }, { "invincible", CHEAT_INVINCIBILITY },
+        { "maxammo", CHEAT_MAXAMMO }, { "infammo", CHEAT_INFINITE_AMMO },
+    };
+    static u32 tick;
+    const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_cheat.txt";
+    char word[32];
+    FILE *fp;
+    s32 i, id;
+
+    if (!inlevel || g_CurrentPlayer == NULL || (++tick % 30) != 0)
+    {
+        return;
+    }
+    fp = fopen(path, "r");
+    if (fp == NULL)
+    {
+        return;
+    }
+    while (fscanf(fp, "%31s", word) == 1)
+    {
+        id = (word[0] >= '0' && word[0] <= '9') ? atoi(word) : 0;
+        for (i = 0; i < (s32) ARRAYCOUNT(names); i++)
+        {
+            if (strcasecmp(word, names[i].name) == 0)
+            {
+                id = names[i].id;
+            }
+        }
+        if (id > CHEAT_UNUSED && id < CHEAT_INVALID)
+        {
+            sysLogPrintf(LOG_NOTE, "cheathook: %s (%d) on", word, id);
+            cheatButtonHandleCheatsTurnedOn((CHEAT_ID) id);
+        }
+        else
+        {
+            sysLogPrintf(LOG_WARNING, "cheathook: unknown cheat '%s'", word);
+        }
+    }
+    fclose(fp);
+    unlink(path);
+}
+
 void gevrStereoFrame(s32 inlevel)
 {
-    s32 opening = gevrWatchOpeningByGesture(inlevel);
+    s32 opening;
+
+    gevrCheatProbe(inlevel);
+    opening = gevrWatchOpeningByGesture(inlevel);
     s32 want = inlevel
         && VrPlayMode != 0
         && gevrVrReady()
