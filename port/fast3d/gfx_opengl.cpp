@@ -345,6 +345,36 @@ static GLuint opengl_vao;
 static bool current_depth_mask;
 // GoldenEye: the current draws use the RDP's decal Z mode (see gfx_opengl_draw_triangles).
 static bool s_decalZ;
+/*
+ * PORT test switch (decal cropping): files/gevr_decal.txt "mode a b", re-read
+ * every ~2 s, picks how ZMODE_DEC draws are depth-tested so candidates can be
+ * compared live in the headset:
+ *   0  polygon offset -2,-2 (the default, as gepc-ref)
+ *   1  polygon offset a,b
+ *   2  offset -2,-2 plus a fixed pull of a view units toward the eye
+ *   3  the two-pass stencil band (HANDOFF 57/60), half-width a view units
+ */
+static bool s_isDecal;
+static int s_decalMode = 0;
+static float s_decalA = 0.0f, s_decalB = 0.0f;
+static void gevr_decal_switch_poll(void)
+{
+    static unsigned n;
+    if ((n++ % 240) != 0) return;
+    FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_decal.txt", "r");
+    int mode = 0;
+    float a = 0.0f, b = 0.0f;
+    if (f) {
+        if (fscanf(f, "%d %f %f", &mode, &a, &b) < 1) mode = 0;
+        fclose(f);
+    }
+    if (mode != s_decalMode || a != s_decalA || b != s_decalB) {
+        s_decalMode = mode;
+        s_decalA = a;
+        s_decalB = b;
+        sysLogPrintf(LOG_NOTE, "decalswitch: mode %d a %.2f b %.2f", mode, a, b);
+    }
+}
 
 static uint32_t frame_count;
 
@@ -1376,7 +1406,8 @@ static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint
 #define GEVR_DECAL_BAND 0
 
 static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode) {
-    s_decalZ = GEVR_DECAL_BAND && depth_test && depth_compare && zmode == ZMODE_DEC;
+    s_isDecal = depth_test && depth_compare && zmode == ZMODE_DEC;
+    s_decalZ = (GEVR_DECAL_BAND || s_decalMode == 3) && s_isDecal;
     if (depth_test) {
         glEnable(GL_DEPTH_TEST);
         glDepthMask(depth_update ? GL_TRUE : GL_FALSE);
@@ -1405,7 +1436,11 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
                 case ZMODE_DEC:
                     glDepthFunc(GL_LEQUAL);
                     glEnable(GL_POLYGON_OFFSET_FILL);
-                    glPolygonOffset(-2, -2);
+                    if (s_decalMode == 1) {
+                        glPolygonOffset(s_decalA, s_decalB);
+                    } else {
+                        glPolygonOffset(-2, -2);
+                    }
                     break;
             }
         }
@@ -1491,7 +1526,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     }
 
     if (gCurDecalBiasLoc >= 0) {
-        glUniform1f(gCurDecalBiasLoc, 0.0f);
+        glUniform1f(gCurDecalBiasLoc, (s_isDecal && s_decalMode == 2) ? gfx_decal_proj_z * s_decalA : 0.0f);
     }
 
     if (s_decalZ) {
@@ -1518,7 +1553,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
          * polygon-offset slopes tiny - decals were cut along a diagonal as
          * you walked up to them. The N64's own decal test had coarse depth.
          */
-        const float bandD = 3.0f;   // view units either side (x0.3 by the depth-clamp hack: ~4.5 cm at the Dam's scale)
+        const float bandD = (s_decalMode == 3 && s_decalA > 0.0f) ? s_decalA : 3.0f;   // view units either side (x0.3 by the depth-clamp hack: ~4.5 cm at the Dam's scale)
         GLboolean prevDepthMask = current_depth_mask ? GL_TRUE : GL_FALSE;
         glEnable(GL_STENCIL_TEST);
         glStencilMask(0xff);
@@ -1828,6 +1863,7 @@ static void gfx_opengl_on_resize(void) {
 
 static void gfx_opengl_start_frame(void) {
     frame_count++;
+    gevr_decal_switch_poll();
 
     gVrMenuLWasClearedThisFrame = false;
     gVrMenuLCaptureDepth = 0;
