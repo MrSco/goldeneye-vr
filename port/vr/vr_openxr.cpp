@@ -242,7 +242,6 @@ extern GLuint gfx_opengl_get_vr_menu_texture(void);  // Left-hand HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_R(void);// Right-hand HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_H(void);// Head HUD texture
 extern bool is_weapon_hud;
-extern bool gevr_L_is_watch;   // gfx_pc.cpp: the left capture is the stereo watch
 float VrHudDistance = 0.8f;
 
 // GLOBAL STATE - MENU Rendering Swapchains
@@ -1387,6 +1386,11 @@ static float    g_screenYaw     = 0.0f;   // radians; the quad's +Z (its face) p
 // Cleared while the game draws true stereo into the eye buffers (bondview2.c
 // gevrStereoFrame): the screen must not hang in front of the stereo view.
 static bool     g_screenVisible = true;
+// GoldenEye: while the watch holds the screen in stereo play (bondview2.c
+// gevrStereoFrame) it is pinned to the view, straight ahead at its usual
+// distance and height, instead of hanging in the world.
+static bool     g_screenHeadLocked = false;
+extern "C" void gevrVrScreenHeadLock(int on) { g_screenHeadLocked = on != 0; }
 
 static void vr_screen_destroy_swapchain(void)
 {
@@ -1522,7 +1526,7 @@ extern "C" void vr_screen_grab(int active)
     static float mid0[3], pos0[3];
     float a[3], b[3], q[4];
 
-    if (!g_screenPlaced || !active || !gevrVrGripPosePlay(0, a, q) || !gevrVrGripPosePlay(1, b, q)) {
+    if (!g_screenPlaced || !active || g_screenHeadLocked || !gevrVrGripPosePlay(0, a, q) || !gevrVrGripPosePlay(1, b, q)) {
         if (grabbing) {
             float h[3];
             vr_screen_head(h);
@@ -2702,43 +2706,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
 
     XrCompositionLayerQuad menuLayerL = vr_init_menu_quad(g_menuSwapchain);
 
-    if (gevr_L_is_watch) {
-        // GoldenEye: the stereo watch (bondview2.c bondviewRenderWatch) - the
-        // flat game's watch view, its own camera and pages, on a panel over the
-        // left wrist, turned to face the eyes, as Perfect Dark VR hangs its
-        // pause menu at the left controller. The capture is the game's 4:3
-        // frame (as the virtual screen shows it); 24 cm tall and at least
-        // 45 cm out, about 30 degrees of view.
-        float gp[3], gq[4];
-        submitMenuL = submitMenuL && gevrVrGripPose(0, gp, gq);
-        if (submitMenuL) {
-            const float x = gq[0], y = gq[1], z = gq[2], ww = gq[3];
-            // the holder's back (grip +Y): the wrist is 6 cm behind the fist
-            const float bx = 2.0f * (x * y - ww * z);
-            const float by = 1.0f - 2.0f * (x * x + z * z);
-            const float bz = 2.0f * (y * z + ww * x);
-            float px = gp[0] + bx * 0.06f;
-            float py = gp[1] + by * 0.06f + 0.14f;
-            float pz = gp[2] + bz * 0.06f;
-            float len = sqrtf(px * px + py * py + pz * pz);
-            if (len > 0.01f && len < 0.45f) {
-                const float s = 0.45f / len;
-                px *= s; py *= s; pz *= s;
-                len = 0.45f;
-            }
-            menuLayerL.pose.position = {px, py, pz};
-            menuLayerL.pose.orientation = {0.0f, 0.0f, 0.0f, 1.0f};
-            if (len > 0.01f) {
-                const float yaw = vr_atan2f(-px, -pz);
-                const float pitch = vr_asinf(py / len);
-                const XrQuaternionf qy = {0.0f, sinf(yaw * 0.5f), 0.0f, cosf(yaw * 0.5f)};
-                const XrQuaternionf qx = {sinf(pitch * 0.5f), 0.0f, 0.0f, cosf(pitch * 0.5f)};
-                menuLayerL.pose.orientation = MultiplyQuaternions(qy, qx);
-            }
-            const float hgt = 0.24f;
-            menuLayerL.size = {hgt * 4.0f / 3.0f, hgt};
-        }
-    } else if (is_weapon_hud) {
+    if (is_weapon_hud) {
         VrMenuResult res = vr_compute_weapon_menu(ctrlL, /*mirror=*/true, 0.0f, 0.0f, 0.0f);
         menuLayerL.pose = res.pose;
         menuLayerL.size = {1.0f * XrAspect * 0.8f, 1.0f * 0.8f};
@@ -2858,6 +2826,10 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         screenLayer.subImage.imageRect.offset = {0, 0};
         screenLayer.subImage.imageRect.extent = {(int32_t)g_screenW, (int32_t)g_screenH};
         screenLayer.pose = g_screenPose;
+        if (g_screenHeadLocked) {
+            screenLayer.space = g_vrState.viewSpace;
+            screenLayer.pose  = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, VrScreenHeight, -VrScreenDistance} };
+        }
         const float width = vr_screen_width();
         screenLayer.size = { width, width * (float)g_screenH / (float)g_screenW };
 
@@ -2873,6 +2845,10 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             const float sy = sinf(g_screenYaw), cy = cosf(g_screenYaw);
             screenCyl.pose.position.x += sy * VrScreenDistance;
             screenCyl.pose.position.z += cy * VrScreenDistance;
+            if (g_screenHeadLocked) {
+                screenCyl.space = g_vrState.viewSpace;
+                screenCyl.pose  = { {0.0f, 0.0f, 0.0f, 1.0f}, {0.0f, VrScreenHeight, 0.0f} };
+            }
             screenCyl.radius       = VrScreenDistance;
             screenCyl.centralAngle = VrScreenFov * 3.14159265f / 180.0f;
             screenCyl.aspectRatio  = (float)g_screenW / (float)g_screenH;

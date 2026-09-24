@@ -3693,3 +3693,33 @@ Dark leftovers; remove unused assets and purge them from history.
 - The throw origin follows: gunmtx_camspace now carries the gadget's pose, and
   throw_item_pos_related is built from it.
 - Built (release) and committed; NOT installed yet (user mid-test of 64).
+
+## 66. Watch: wrist panel dropped; gesture skips the raise; screen pinned to view
+
+- User verdict on 64: disliked - the world zoomed, the arm animation still
+  played, the wrist panel was dark, small and hard to read. Wanted: a screen
+  pinned to the view, the raise skipped when opened by gesture, the pause
+  button keeping the full animation, closing always animated. HUD messages
+  confirmed right; test hook removed.
+- Why the world zoomed: lv.c scales the stereo FOV by g_CurrentPlayer->fovy
+  (so the sniper zoom works) and the watch zoom writes fovy
+  (bondviewUpdateWatchZoomIn -> set_cur_player_fovy). Stereo now ignores fovy
+  while watch_animation_state != 0.
+- Why the arm still played: bondviewRenderWatch drew GoldenEye's arm model in
+  the eye buffers during states 3/4. It no longer draws in stereo at all.
+- Removed: the left-hand watch capture (0x56540000 tags, gevr_L_is_watch,
+  the L quad placement). Kept (harmless): uIsMenu uploaded per draw, 0x56520000
+  handled, L capture persisting per game frame and clearing depth.
+- bondview2.c gevrWatchOpeningByGesture: input.c sets
+  g_gevrWatchGesturePending when the gesture presses START; once the watch
+  starts, a gesture-opened watch keeps stereo through states 1-4 (the pause
+  tilt, arm raise and zoom happen unseen, watch_transition_time x4), the watch
+  arm stays on the controller, and the screen comes up at state 5 with the
+  pages. The pause button: stereo stops at pause_state as before (full
+  animation on the screen). Closing: always on the screen, animated.
+- vr_openxr.cpp gevrVrScreenHeadLock: while the watch holds the screen in
+  stereo play mode, the screen layer (flat or cylinder) is in view space at
+  VrScreenDistance / VrScreenHeight; grab is off while pinned.
+- No fade added: read the user's "the 2d screen can fade into the 3d world is
+  fine" as the current switch being acceptable - ask if a fade is wanted.
+- Includes 65 (gadgets in hand). Built, installed; not seen on device.

@@ -382,8 +382,74 @@ static void gevrStereoRecenter(void)
 }
 
 /* Once per rendered frame, from lvlRender: pick stereo or the screen, turn. */
+/*
+ * The watch in stereo. Opened with the controller's pause button it plays
+ * as in the flat game, on the screen: stereo stops with the pause tilt
+ * (pause_state). Opened with the wrist gesture (port/src/input.c sets
+ * g_gevrWatchGesturePending as it presses START) the arm-raise, tilt and
+ * zoom-in have already been done by the player's own arm, so they run in
+ * stereo, unseen and GEVR_WATCH_OPEN_SPEED times faster, with the real watch
+ * arm on the controller; the screen comes up with the pages. Closing always
+ * plays the game's animation. While the watch holds the screen it is pinned
+ * to the view (gevrVrScreenHeadLock), not hung in the world.
+ */
+#define GEVR_WATCH_OPEN_SPEED 4.0f
+s32 g_gevrWatchGesturePending;
+static s32 s_gevrWatchByGesture;
+static s32 s_gevrGestureWait;
+extern f32 watch_transition_time;
+extern void gevrVrScreenHeadLock(s32 on);
+
+static s32 gevrWatchOpeningByGesture(s32 inlevel)
+{
+    static f32 normalspeed = -1.0f;
+    s32 opening = FALSE;
+
+    if (normalspeed < 0.0f)
+    {
+        normalspeed = watch_transition_time;
+    }
+    if (g_gevrWatchGesturePending)
+    {
+        g_gevrWatchGesturePending = 0;
+        s_gevrGestureWait = 60;     /* the START press takes a frame or two to land */
+    }
+
+    if (inlevel && g_CurrentPlayer != NULL)
+    {
+        s32 st = g_CurrentPlayer->watch_animation_state;
+
+        if (s_gevrGestureWait > 0)
+        {
+            if (st != 0)
+            {
+                s_gevrWatchByGesture = TRUE;
+                s_gevrGestureWait = 0;
+            }
+            else
+            {
+                s_gevrGestureWait--;
+            }
+        }
+        else if (st == 0)
+        {
+            s_gevrWatchByGesture = FALSE;
+        }
+        opening = s_gevrWatchByGesture && st >= 1 && st <= 4;
+    }
+    else
+    {
+        s_gevrWatchByGesture = FALSE;
+        s_gevrGestureWait = 0;
+    }
+
+    watch_transition_time = opening ? normalspeed * GEVR_WATCH_OPEN_SPEED : normalspeed;
+    return opening;
+}
+
 void gevrStereoFrame(s32 inlevel)
 {
+    s32 opening = gevrWatchOpeningByGesture(inlevel);
     s32 want = inlevel
         && VrPlayMode != 0
         && gevrVrReady()
@@ -391,13 +457,11 @@ void gevrStereoFrame(s32 inlevel)
         && getPlayerCount() == 1
         && g_CameraMode == CAMERAMODE_FP
         && g_CurrentPlayer->cameramode != 1
+        && (g_CurrentPlayer->pause_state == 0 || opening)
         && !g_CurrentPlayer->bonddead;
-    /*
-     * The watch no longer drops to the screen (pause_state): the world stays
-     * in stereo, frozen, and the watch pages go on a panel at the left hand
-     * (bondviewRenderWatch), as Perfect Dark VR shows its pause menu at the
-     * left controller over the live stereo view.
-     */
+
+    gevrVrScreenHeadLock(!want && inlevel && VrPlayMode != 0 && g_CurrentPlayer != NULL
+                         && g_CurrentPlayer->watch_animation_state != 0);
 
     if (want && !s_gevrStereoWas)
     {
@@ -9532,9 +9596,6 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
     union ModelRwData *rwdata;
     Mtx *perspmtx;
     u16 perspNorm;
-#ifdef GEVR
-    s32 gevrPanel = FALSE;
-#endif
 
     if (g_CurrentPlayer->watch_animation_state == 0)
     {
@@ -9547,24 +9608,13 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
     }
 #ifdef GEVR
     /*
-     * Stereo: the watch, its own camera and its pages, drawn as in the flat
-     * game into the left-hand panel (VR_WATCH_CAPTURE_*, vr_openxr.cpp) over
-     * the stereo world, from the zoom onto the face to the zoom back out.
-     * The arm raising and lowering is the real arm on the controller, so
-     * those states draw nothing here. 0x5652000x (menu on/off) keeps the
-     * shader's HUD enlargement off, as Perfect Dark VR's menu capture does.
+     * Stereo shows the watch only while a gesture-opened watch gets to its
+     * pages (gevrWatchOpeningByGesture): the player's own arm and the watch
+     * arm on the controller stand in for this raise and zoom.
      */
     if (g_gevrStereo)
     {
-        s32 st = g_CurrentPlayer->watch_animation_state;
-
-        if (st != 4 && st != 5 && st != 6 && st != 12)
-        {
-            goto end;
-        }
-        gDPNoOpTag(gdl++, 0x56540000); /* VR_WATCH_CAPTURE_BEGIN */
-        gDPNoOpTag(gdl++, 0x56520001); /* menu on */
-        gevrPanel = TRUE;
+        goto end;
     }
 #endif
 
@@ -9702,13 +9752,6 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
     }
 
     end:
-#ifdef GEVR
-    if (gevrPanel)
-    {
-        gDPNoOpTag(gdl++, 0x56540001); /* VR_WATCH_CAPTURE_END */
-        gDPNoOpTag(gdl++, 0x56520000); /* menu off */
-    }
-#endif
     return gdl;
 }
 
@@ -10087,41 +10130,6 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
 }
 
 
-#ifdef GEVR
-/*
- * PORT test hook: files/gevr_hudmsg.txt holding "b" shows a bottom message,
- * "t" a top one, "bt" both - to place them in a capture without playing to
- * a pickup or an objective. The file is deleted once read.
- */
-#include <stdio.h>
-#include <unistd.h>
-static void gevrHudMsgProbe(void)
-{
-    static u32 tick;
-    static char top[] = "TOP MESSAGE: OBJECTIVE INFORMATION";
-    static char bottom[] = "BOTTOM MESSAGE: PICKED UP AMMO";
-    const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_hudmsg.txt";
-    char what[8] = {0};
-    FILE *f;
-
-    if ((++tick % 30) != 0)
-    {
-        return;
-    }
-    f = fopen(path, "r");
-    if (!f)
-    {
-        return;
-    }
-    if (fgets(what, sizeof(what), f))
-    {
-        if (what[0] == 'b' || what[1] == 'b') hudmsgBottomShow(bottom);
-        if (what[0] == 't' || what[1] == 't') hudmsgTopShow(top);
-    }
-    fclose(f);
-    unlink(path);
-}
-#endif
 
 Gfx *maybe_mp_interface(Gfx *gdl)
 {
@@ -10295,9 +10303,6 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         }
     }
 
-#ifdef GEVR
-    gevrHudMsgProbe();
-#endif
     bondviewIntroCameraTextTick();
     gdl = hudmsgBottomRender(gdl);
     bondviewUpperTextWindowTimerTick();

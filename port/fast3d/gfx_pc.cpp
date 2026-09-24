@@ -118,7 +118,6 @@ static inline float gevr_target_width(void) { return gevr_target_w ? (float)gevr
 static inline float gevr_target_height(void) { return gevr_target_h ? (float)gevr_target_h : (float)vr_get_internal_render_height(); }
 extern bool gVrFlatPass; // gfx_opengl.cpp
 bool is_weapon_hud = false;
-bool gevr_L_is_watch = false;   // the left capture holds the stereo watch
 extern "C" void vr_get_eye_view_proj_gl(int eye, float outVP[16]);
 extern "C" void gevrVrMarkEyesRendered(int stereo); // vr_openxr.cpp
 void gfx_vr_hud_H_new_frame(void);                  // gfx_opengl.cpp
@@ -3080,23 +3079,12 @@ static void gfx_run_dl(Gfx* cmd) {
                 }
                 switch (tag_w1) {
                     case 0x56520001: // Menu is open
-                    case 0x56520000: // GoldenEye: menu closed (the stereo watch pairs them)
+                    case 0x56520000: // GoldenEye: menu closed
                         vr_dl_is_pause_or_menu = (tag_w1 & 0xFFFF) != 0; // VR
-                        break;
-
-                    case VR_WATCH_CAPTURE_BEGIN:
-                        is_weapon_hud = false;
-                        gevr_L_is_watch = true;
-                        gfx_vr_hud_capture_begin_L();
-                        break;
-
-                    case VR_WATCH_CAPTURE_END:
-                        gfx_vr_hud_capture_end_L();
                         break;
 
                     case VR_MENU_HUD_CAPTURE_BEGIN_L:
                         is_weapon_hud = false;
-                        gevr_L_is_watch = false;
                         gfx_vr_hud_capture_begin_L();
                         break;
 
