@@ -746,27 +746,14 @@ Gfx* lvlRender(Gfx* DL)
             }
 
             DL = viSetupScreensForNumPlayers(DL);
-#ifdef GEVR
-            /* PORT probe (performance pass): the game tick in sections, logged as perfgame */
-            extern u64 gevrPerfNow(void);
-            extern void gevrPerfGameAdd(int section, u64 ns);
-            u64 gevrT = gevrPerfNow(), gevrT2;
-#define GEVR_GAME_SECTION(i) (gevrT2 = gevrPerfNow(), gevrPerfGameAdd((i), gevrT2 - gevrT), gevrT = gevrT2)
-#else
-#define GEVR_GAME_SECTION(i)
-#endif
             DL = skyRender(DL);
             bgRoomVisibilityRelated();
-            GEVR_GAME_SECTION(0);
             propsTick();
-            GEVR_GAME_SECTION(1);
             chraiUpdateOnscreenPropCount();
             chrpropUpdateAutoaimTarget();
             chraiCheckUseHeldItems();
-            GEVR_GAME_SECTION(2);
 #ifdef GEVR
             { extern void gevrStereoAimUpdate(void); gevrStereoAimUpdate(); }
-            GEVR_GAME_SECTION(3);
 #endif
 
             if (bond_pressed_reload_activate() && bond_interact_object())
@@ -776,9 +763,7 @@ Gfx* lvlRender(Gfx* DL)
             }
 
             propsTickPlayer();
-            GEVR_GAME_SECTION(4);
             DL = bgLevelRender(DL);
-            GEVR_GAME_SECTION(5);
 
             if (get_debug_portal_flag())
             {

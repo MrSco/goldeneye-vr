@@ -386,16 +386,6 @@ static constexpr float clampf(const float x, const float min, const float max) {
 
 /* the stats readout's per-frame draw count (port/src/gevr_engine_shim.c gevrPerf*) */
 extern "C" { uint32_t gevr_perf_draws, gevr_perf_tris; }
-/* performance pass: time in GL draws and texture imports, and texture cache misses */
-extern "C" { uint64_t gevr_perf_ns_gl, gevr_perf_ns_tex; uint32_t gevr_perf_texmiss; }
-#include <time.h>
-static inline uint64_t gevr_ns(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec; }
-/* PORT probe (performance pass): why fast3d flushed a non-empty batch, counted
- * per reason and printed with the perf line (gevr_engine_shim.c). 1 depth mode,
- * 2 viewport, 3 scissor, 4 texture load, 5 filter/clamp, 6 shader, 7 blend,
- * 8 buffer full, 9 new combiner. */
-extern "C" { uint32_t gevr_flush_reason[10]; }
-#define GEVR_FLUSH(r) do { if (buf_vbo_len) gevr_flush_reason[r]++; gfx_flush(); } while (0)
 static uint32_t g_gevrTrisThisFrame, g_gevrFlushesThisFrame; /* PORT probe: per-frame draw statistic, logged once a second from gfx_run */
 void gfx_flush(void) {
     g_gevrTrisThisFrame += buf_vbo_num_tris;
@@ -403,9 +393,7 @@ void gfx_flush(void) {
     gevr_perf_tris += buf_vbo_num_tris;
     if (buf_vbo_len > 0) {
         gevr_perf_draws++;
-        const uint64_t t0 = gevr_ns();
         gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
-        gevr_perf_ns_gl += gevr_ns() - t0;
         buf_vbo_len = 0;
         buf_vbo_num_tris = 0;
     }
@@ -658,7 +646,7 @@ static struct ColorCombiner* gfx_lookup_or_create_color_combiner(const ColorComb
     if (prev_combiner != color_combiner_pool.end()) {
         return &prev_combiner->second;
     }
-    GEVR_FLUSH(9);
+    gfx_flush();
     prev_combiner = color_combiner_pool.insert(std::make_pair(key, ColorCombiner())).first;
     gfx_generate_cc(&prev_combiner->second, key);
     return &prev_combiner->second;
@@ -707,7 +695,6 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     }
 
     gfx_flush();   /* a new texture: the batch so far draws with the old one */
-    gevr_perf_texmiss++;
 
     uint32_t texture_id;
     if (!gfx_texture_cache.free_texture_ids.empty()) {
@@ -1890,19 +1877,19 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     uint8_t depth_mode = (depth_test ? 1 : 0) | (depth_update ? 2 : 0) | (depth_compare ? 4 : 0) | (depth_source_prim ? 8 : 0) | (zmode >> 6);
 
     if (depth_mode != rendering_state.depth_mode) {
-        GEVR_FLUSH(1);
+        gfx_flush();
         gfx_rapi->set_depth_mode(depth_test, depth_update, depth_compare, depth_source_prim, zmode);
         rendering_state.depth_mode = depth_mode;
     }
 
     if (rdp.viewport_or_scissor_changed) {
         if (memcmp(&rdp.viewport, &rendering_state.viewport, sizeof(rdp.viewport)) != 0) {
-            GEVR_FLUSH(2);
+            gfx_flush();
             gfx_rapi->set_viewport(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width, rdp.viewport.height);
             rendering_state.viewport = rdp.viewport;
         }
         if (memcmp(&rdp.scissor, &rendering_state.scissor, sizeof(rdp.scissor)) != 0) {
-            GEVR_FLUSH(3);
+            gfx_flush();
             gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
             rendering_state.scissor = rdp.scissor;
         }
@@ -1975,9 +1962,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         if (comb->used_textures[i]) {
             if (rdp.textures_changed[i]) {
                 /* the flush, if the texture really changes, is in gfx_texture_cache_lookup */
-                const uint64_t t0 = gevr_ns();
                 import_texture(i, tile, is_rect);
-                gevr_perf_ns_tex += gevr_ns() - t0;
                 rdp.textures_changed[i] = false;
             }
 
@@ -2026,7 +2011,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                 bool linear_filter = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT;
                 if (linear_filter != rendering_state.textures[i]->second.linear_filter ||
                     cms != rendering_state.textures[i]->second.cms || cmt != rendering_state.textures[i]->second.cmt) {
-                    GEVR_FLUSH(5);
+                    gfx_flush();
                     gfx_rapi->set_sampler_parameters(i, linear_filter, cms, cmt);
                     rendering_state.textures[i]->second.linear_filter = linear_filter;
                     rendering_state.textures[i]->second.cms = cms;
@@ -2042,13 +2027,13 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                 gfx_lookup_or_create_shader_program(comb->shader_id0, comb->shader_id1 | (tm * SHADER_OPT_TEXEL0_CLAMP_S));
     }
     if (prg != rendering_state.shader_program) {
-        GEVR_FLUSH(6);
+        gfx_flush();
         gfx_rapi->unload_shader(rendering_state.shader_program);
         gfx_rapi->load_shader(prg);
         rendering_state.shader_program = prg;
     }
     if (use_alpha != rendering_state.alpha_blend || use_modulate != rendering_state.modulate) {
-        GEVR_FLUSH(7);
+        gfx_flush();
         gfx_rapi->set_use_alpha(use_alpha, use_modulate);
         rendering_state.alpha_blend = use_alpha;
         rendering_state.modulate = use_modulate;
@@ -2208,7 +2193,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
 
     if (++buf_vbo_num_tris == MAX_BUFFERED) {
-        GEVR_FLUSH(8);
+        gfx_flush();
     }
 }
 
