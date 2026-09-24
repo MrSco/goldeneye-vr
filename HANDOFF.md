@@ -3723,3 +3723,25 @@ Dark leftovers; remove unused assets and purge them from history.
 - No fade added: read the user's "the 2d screen can fade into the 3d world is
   fine" as the current switch being acceptable - ask if a fade is wanted.
 - Includes 65 (gadgets in hand). Built, installed; not seen on device.
+
+## 67. Gadget throw fixes
+
+- User: watch good. Covert modem ~1.5x too big in hand; on a throw one goes
+  where aimed and "another copy drops behind / goes behind the camera".
+  Asked that models which bring their own hand (grenade, throwing knife)
+  get no fake fist - grenade/plastique already have fist off, and the knife
+  is an ordinary visible weapon the game draws with its hand.
+- The second copy: the in-hand model playing the game's throw keyframes
+  (gun.c grenadeThrowKeyframes, *MineThrowKeyframes, ... - "strange since you
+  cannot see it on screen"); after the release they carry it down and back
+  past the camera. A shown gadget now hides while field_92C (a keyframe
+  animation this frame) is set, and in stereo its pose ignores field_8EC, so
+  the throw leaves from the hand.
+- Thrown props were being made a fraction of their size: gunInitProjectileObject
+  multiplies the hand's world matrix (throw_item_pos_related) by the model
+  scale, and in stereo that matrix carried the viewmodel scale (0.17). It is
+  now built from unit rows (the flat game's plain rotation); casings keep
+  their spawn point by scaling the switch offset by the removed factor
+  (s_gevrThrowScale). Also affects rockets and grenade-launcher rounds.
+- ITEM_BUG (covert modem) in-hand scale 0.67.
+- Built, installed, not seen on device.
