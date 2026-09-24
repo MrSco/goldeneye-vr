@@ -125,6 +125,42 @@ void gevrSchedTraceMenu(s32 menu, s32 afterTick)
 	}
 }
 
+/*
+ * A hang in play (2026-09-24, Frigate: stuck at pump stage 6, inside the audio
+ * frame, right after a focus change) left no stack. When frames stop, the
+ * watchdog now signals the game thread with SIGUSR2; this handler logs its
+ * stack (function names where dladdr knows them) and returns - the game is
+ * not killed, so a headset sleep costs nothing.
+ */
+#include <unwind.h>
+#include <dlfcn.h>
+struct gevrBt { uintptr_t pc[32]; int n; };
+static _Unwind_Reason_Code gevrBtStep(struct _Unwind_Context *ctx, void *arg)
+{
+	struct gevrBt *bt = (struct gevrBt *)arg;
+	uintptr_t pc = _Unwind_GetIP(ctx);
+	if (pc && bt->n < 32) bt->pc[bt->n++] = pc;
+	return bt->n < 32 ? _URC_NO_REASON : _URC_END_OF_STACK;
+}
+static void gevrStackDumpHandler(int sig)
+{
+	struct gevrBt bt;
+	int i;
+	(void)sig;
+	bt.n = 0;
+	_Unwind_Backtrace(gevrBtStep, &bt);
+	for (i = 0; i < bt.n; i++) {
+		Dl_info info;
+		if (dladdr((void *)bt.pc[i], &info) && info.dli_sname) {
+			sysLogPrintf(LOG_ERROR, "watchdog stack #%d %s+0x%lx", i, info.dli_sname,
+				(unsigned long)(bt.pc[i] - (uintptr_t)info.dli_saddr));
+		} else {
+			sysLogPrintf(LOG_ERROR, "watchdog stack #%d %p (%s)", i, (void *)bt.pc[i],
+				info.dli_fname ? info.dli_fname : "?");
+		}
+	}
+}
+
 static void *gevrWatchdog(void *arg)
 {
 	u32 last = 0, stalled = 0, reported = 0;
@@ -149,6 +185,15 @@ static void *gevrWatchdog(void *arg)
 				reported = 1;
 				sysLogPrintf(LOG_ERROR, "watchdog: no retrace for %u s (pump stage %u, entries %u, xr loops %u, frame open %d, xr begun %d)",
 						stalled, gevrPumpStage, gevrPumpEntries, gevrPumpLoops, gevrFrameOpen, gevrVrFrameBegun);
+				/* where the game thread is (a paused headset shows the frame wait, a hang its cause) */
+				{
+					static int installed;
+					if (!installed) {
+						signal(SIGUSR2, gevrStackDumpHandler);
+						installed = 1;
+					}
+					pthread_kill(gevrGameThread, SIGUSR2);
+				}
 			}
 			/* A stack costs the process; only take one when asked for by a marker file. */
 			if (stalled >= 5 && access("/sdcard/Android/data/com.gevr.port/files/gevr_watchdog_kill.txt", F_OK) == 0) {

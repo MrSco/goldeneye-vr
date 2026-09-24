@@ -481,6 +481,13 @@ static void gevrCheatProbe(s32 inlevel)
     }
     while (fscanf(fp, "%31s", word) == 1)
     {
+        /* "stall": freeze the game thread 7 s - tests the watchdog stack dump */
+        if (strcasecmp(word, "stall") == 0)
+        {
+            sysLogPrintf(LOG_NOTE, "cheathook: stalling the game thread for 7 s");
+            sysSleep(70000000);
+            continue;
+        }
         /* "relaunch": the menu-hold restart into the launcher (issue #16) */
         if (strcasecmp(word, "relaunch") == 0)
         {
