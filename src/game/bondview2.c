@@ -557,6 +557,271 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
     return TRUE;
 }
 
+/*
+ * Stereo: the left arm is Bond's own - the suited forearm and hand with the
+ * watch from the pause animation (Csuit_lf_handZ, ITEM_SUIT_LF_HAND, what
+ * the game shows when you raise the watch), on the left controller while the
+ * left hand holds nothing. The watch keeps the mission time.
+ *
+ * Posed with the game's own watch animation (ANIM_DATA_bond_watch, frame
+ * GEVR_WATCHARM_FRAME: arm raised), computed at the origin, then moved
+ * rigidly so the wrist (root joint SKEL_LF_WRIST_ER) sits on the controller:
+ * C = inverse(root) * wanted, every matrix times C. The wrist frame is the one
+ * the pause gives it when it turns the watch to the camera
+ * (matrix_4x4_set_basis_and_position_target): local +Y is the watch face,
+ * +X toward the fingers, Z = X x Y. On the controller the fingers point
+ * along the barrel and the watch face is the back of the left hand, which
+ * faces the holder's left. The size is calibrated once from the model:
+ * wrist-to-elbow is made a real forearm (GEVR_FOREARM_M).
+ */
+#include <stdlib.h>                         /* malloc: a pointer, not an implicit int */
+char *get_ptr_item_text_call_line(ITEM_IDS item);           /* gun.c */
+ModelFileHeader *get_ptr_weapon_model_header_line(ITEM_IDS weapon);
+void matrix_4x4_7F058C64(void);                             /* matrixmath */
+void matrix_4x4_7F058C88(void);
+#define GEVR_WATCHARM_MODELSIZE 0x18000     /* gun.c: Csuit_lf_handZ expands to 0x16F9C */
+#define GEVR_WATCHARM_BUFSIZE   0x30000
+#define GEVR_WATCHARM_FRAME     20.0f
+#define GEVR_FOREARM_M          0.26f
+#define GEVR_WRIST_BEHIND_CM    6.0f
+#define GEVR_WATCHARM_ELBOW     8           /* SKEL_LF_ELBOW_ER's matrix */
+
+
+static u8 *s_gevrWatchBuf;
+static struct texpool s_gevrWatchPool;
+static ModelFileHeader s_gevrWatchHeader;
+static Model s_gevrWatchModel;
+static u32 s_gevrWatchRw[192];
+static s32 s_gevrWatchStage = -1;
+static s32 s_gevrWatchReady;
+static f32 s_gevrWatchScale;               /* 0 until calibrated */
+
+static s32 gevrLeftWatchLoad(void)
+{
+    ModelFileHeader *tmpl;
+    s8 *name;
+
+    if (s_gevrWatchReady && s_gevrWatchStage == bossGetStageNum())
+    {
+        return TRUE;
+    }
+    s_gevrWatchReady = FALSE;
+    s_gevrWatchStage = bossGetStageNum();
+
+    tmpl = get_ptr_weapon_model_header_line(ITEM_SUIT_LF_HAND);
+    name = get_ptr_item_text_call_line(ITEM_SUIT_LF_HAND);
+    if (tmpl == NULL || name == NULL)
+    {
+        return FALSE;
+    }
+    if (s_gevrWatchBuf == NULL)
+    {
+        s_gevrWatchBuf = malloc(GEVR_WATCHARM_BUFSIZE);
+        if (s_gevrWatchBuf == NULL)
+        {
+            return FALSE;
+        }
+    }
+    s_gevrWatchHeader = *tmpl;
+    texInitPool(&s_gevrWatchPool, s_gevrWatchBuf + GEVR_WATCHARM_MODELSIZE, GEVR_WATCHARM_BUFSIZE - GEVR_WATCHARM_MODELSIZE);
+    load_object_fill_header(&s_gevrWatchHeader, (u8 *)name, s_gevrWatchBuf, GEVR_WATCHARM_MODELSIZE, &s_gevrWatchPool);
+    modelCalculateRwDataLen(&s_gevrWatchHeader);
+    if (s_gevrWatchHeader.RootNode == NULL || s_gevrWatchHeader.numRecords > 0x32 || s_gevrWatchHeader.numMatrices < 4)
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: watch arm did not load (%d records, %d matrices)",
+                     s_gevrWatchHeader.numRecords, s_gevrWatchHeader.numMatrices);
+        return FALSE;
+    }
+
+    animInit(&s_gevrWatchModel, &s_gevrWatchHeader, s_gevrWatchRw);
+    modelSetScale(&s_gevrWatchModel, c_item_entries[41].scale * 0.10000001f);
+    modelSetAnimation(&s_gevrWatchModel, (ModelAnimation *)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_bond_watch], 0, 0.0f, 0.0f, 0.0f);
+    s_gevrWatchScale = 0.0f;
+    sysLogPrintf(LOG_NOTE, "stereo: watch arm loaded (%s, %d matrices, %d anim frames)",
+                 name, s_gevrWatchHeader.numMatrices, s_gevrWatchModel.anim ? s_gevrWatchModel.anim->unk04 : -1);
+    s_gevrWatchReady = TRUE;
+    return TRUE;
+}
+
+/* row-vector affine helpers: out = a then b */
+static void gevrMtxMul(const Mtxf *a, const Mtxf *b, Mtxf *out)
+{
+    Mtxf r;
+    s32 i, j;
+    for (i = 0; i < 4; i++)
+    {
+        for (j = 0; j < 4; j++)
+        {
+            r.m[i][j] = a->m[i][0] * b->m[0][j] + a->m[i][1] * b->m[1][j] + a->m[i][2] * b->m[2][j] + a->m[i][3] * b->m[3][j];
+        }
+    }
+    *out = r;
+}
+
+static s32 gevrMtxInvAffine(const Mtxf *m, Mtxf *out)
+{
+    f32 a = m->m[0][0], b = m->m[0][1], c = m->m[0][2];
+    f32 d = m->m[1][0], e = m->m[1][1], f = m->m[1][2];
+    f32 g = m->m[2][0], h = m->m[2][1], k = m->m[2][2];
+    f32 det = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g);
+    f32 id;
+    s32 j;
+    if (fabsf(det) < 1e-12f)
+    {
+        return FALSE;
+    }
+    id = 1.0f / det;
+    out->m[0][0] = (e * k - f * h) * id; out->m[0][1] = (c * h - b * k) * id; out->m[0][2] = (b * f - c * e) * id;
+    out->m[1][0] = (f * g - d * k) * id; out->m[1][1] = (a * k - c * g) * id; out->m[1][2] = (c * d - a * f) * id;
+    out->m[2][0] = (d * h - e * g) * id; out->m[2][1] = (b * g - a * h) * id; out->m[2][2] = (a * e - b * d) * id;
+    for (j = 0; j < 3; j++)
+    {
+        out->m[3][j] = -(m->m[3][0] * out->m[0][j] + m->m[3][1] * out->m[1][j] + m->m[3][2] * out->m[2][j]);
+    }
+    out->m[0][3] = out->m[1][3] = out->m[2][3] = 0.0f;
+    out->m[3][3] = 1.0f;
+    return TRUE;
+}
+
+/*
+ * gunfire.c gunRenderFirstPersonGunModels: returns whether the watch arm was
+ * drawn (the mirrored fist is the fallback).
+ */
+Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
+{
+    ModelRenderData renderdata;
+    Mtxf base, want, inv, corr;
+    Mtxf *matrices;
+    f32 pos[3], right[3], up[3], back[3], x[3], y[3], z[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 frame;
+    s32 n, i;
+
+    *drawn = FALSE;
+    if (!g_gevrStereo
+        || get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
+        || g_CurrentPlayer->watch_animation_state != 0
+        || g_CurrentPlayer->bonddead)
+    {
+        return gdl;
+    }
+    if (!gevrGripAxes(0, pos, right, up, back) || !gevrLeftWatchLoad())
+    {
+        return gdl;
+    }
+
+    n = s_gevrWatchHeader.numMatrices;
+    frame = GEVR_WATCHARM_FRAME;
+    if (s_gevrWatchModel.anim != NULL && frame > (f32)(s_gevrWatchModel.anim->unk04 - 1))
+    {
+        frame = (f32)(s_gevrWatchModel.anim->unk04 - 1);
+    }
+    modelSetAnimFrame2(&s_gevrWatchModel, frame, 0.0f);
+
+    /* pose at the origin */
+    matrix_4x4_set_identity(&base);
+    matrices = (Mtxf *)dynAllocate(n * (s32)sizeof(Mtxf));
+    renderdata = *templ;
+    renderdata.basemtx = &base;
+    renderdata.mtxlist = matrices;
+    bondviewSelectCuff(&s_gevrWatchModel, &s_gevrWatchHeader, 4);
+    subcalcmatrices(&renderdata, &s_gevrWatchModel);
+
+    /* size, once: wrist to elbow becomes a real forearm */
+    if (s_gevrWatchScale == 0.0f)
+    {
+        f32 dx = 0, dy = 0, dz = 0, len;
+        if (n > GEVR_WATCHARM_ELBOW)
+        {
+            dx = matrices[GEVR_WATCHARM_ELBOW].m[3][0] - matrices[0].m[3][0];
+            dy = matrices[GEVR_WATCHARM_ELBOW].m[3][1] - matrices[0].m[3][1];
+            dz = matrices[GEVR_WATCHARM_ELBOW].m[3][2] - matrices[0].m[3][2];
+        }
+        len = sqrtf(dx * dx + dy * dy + dz * dz);
+        s_gevrWatchScale = (len > 1e-4f) ? (GEVR_FOREARM_M * 100.0f / len) : 1.0f;   /* per cm, times cm below */
+        sysLogPrintf(LOG_NOTE, "stereo: watch arm wrist-to-elbow %.3f (model scale %.4f) -> %.4f per cm",
+                     len, s_gevrWatchModel.scale, s_gevrWatchScale);
+    }
+
+    /* the wanted wrist frame on the controller (view space) */
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = -back[i];            /* toward the fingers: along the barrel */
+        y[i] = -right[i];           /* the watch face: the back of the left hand */
+    }
+    z[0] = x[1] * y[2] - x[2] * y[1];
+    z[1] = x[2] * y[0] - x[0] * y[2];
+    z[2] = x[0] * y[1] - x[1] * y[0];
+    {
+        /* the model's scale in the wanted frame: root's row length times the calibration */
+        f32 rs = sqrtf(matrices[0].m[0][0] * matrices[0].m[0][0] + matrices[0].m[0][1] * matrices[0].m[0][1] + matrices[0].m[0][2] * matrices[0].m[0][2]);
+        f32 s = rs * s_gevrWatchScale * cm;
+        for (i = 0; i < 3; i++)
+        {
+            want.m[0][i] = x[i] * s;
+            want.m[1][i] = y[i] * s;
+            want.m[2][i] = z[i] * s;
+            want.m[3][i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * cm;
+        }
+        want.m[0][3] = want.m[1][3] = want.m[2][3] = 0.0f;
+        want.m[3][3] = 1.0f;
+    }
+    if (!gevrMtxInvAffine(&matrices[0], &inv))
+    {
+        return gdl;
+    }
+    gevrMtxMul(&inv, &want, &corr);
+    for (i = 0; i < n; i++)
+    {
+        gevrMtxMul(&matrices[i], &corr, &matrices[i]);
+    }
+
+    /* the watch hands: mission time, as the pause does */
+    {
+        s32 time = watch_time_0;
+        s32 total_seconds = time / 60;
+        s32 seconds = total_seconds % 60;
+        s32 minutes = (total_seconds / 60) % 60;
+        f32 framesfrac = ((f32)(time % 60)) / 60.0f;
+        f32 secondsAngle = ((-(((f32)seconds) + framesfrac)) * M_TAU_F) / 60.0f;
+        f32 minutesAngle = (((-((f32)minutes)) * M_TAU_F) / 60.0f) + (secondsAngle / 60.0f);
+        f32 hoursAngle = (((-((f32)((total_seconds / 3600) % 12))) * M_TAU_F) / 12.0f) + (minutesAngle / 12.0f) + (secondsAngle / 720.0f);
+        Mtxf hand;
+        while (secondsAngle < 0.0f) secondsAngle += M_TAU_F;
+        while (minutesAngle < 0.0f) minutesAngle += M_TAU_F;
+        while (hoursAngle < 0.0f) hoursAngle += M_TAU_F;
+        matrix_4x4_set_position_and_rotation_around_y((f32 *)s_gevrWatchHeader.Switches[0]->Data, hoursAngle, &hand);
+        gevrMtxMul(&hand, &matrices[0], &matrices[1]);
+        matrix_4x4_set_position_and_rotation_around_y((f32 *)s_gevrWatchHeader.Switches[1]->Data, minutesAngle, &hand);
+        gevrMtxMul(&hand, &matrices[0], &matrices[2]);
+        matrix_4x4_set_position_and_rotation_around_y((f32 *)s_gevrWatchHeader.Switches[2]->Data, secondsAngle, &hand);
+        gevrMtxMul(&hand, &matrices[0], &matrices[3]);
+    }
+    {
+        ModelRwData_SwitchRecord *face = (ModelRwData_SwitchRecord *)modelGetNodeRwData(&s_gevrWatchModel, (ModelNode *)s_gevrWatchHeader.Switches[3]);
+        if (face) face->visible = TRUE;
+    }
+
+    renderdata.flags = 3;
+    renderdata.zbufferenabled = 1;
+    renderdata.gdl = gdl;
+    renderdata.PropType = PROP_TYPE_WEAPON;
+    renderdata.envcolour.word = g_CurrentPlayer->tileColor.a
+                              | ((u32)g_CurrentPlayer->tileColor.r << 24)
+                              | ((u32)g_CurrentPlayer->tileColor.g << 16)
+                              | ((u32)g_CurrentPlayer->tileColor.b << 8);
+    renderdata.cullmode = CULLMODE_NONE;
+    matrix_4x4_7F058C64();
+    gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
+    subdraw(&renderdata, &s_gevrWatchModel);
+    gdl = renderdata.gdl;
+    gSPClearGeometryMode(gdl++, G_CULL_BOTH);
+    bondviewTransformManyPosToViewMatrix(s_gevrWatchModel.render_pos, n);
+    matrix_4x4_7F058C88();
+    *drawn = TRUE;
+    return gdl;
+}
+
 /* gunfire.c: where this frame's muzzle flash node landed, camera space. */
 void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
 {
@@ -10694,9 +10959,31 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                          + BONDVIEW_VIEW_TOP_OFFSET_3;
             }
 
+#ifdef GEVR
+            /*
+             * Stereo: the bottom-left messages (objectives, pickups) sat at
+             * the edge of the lenses, drawn into the eye buffers. They go on
+             * the head-locked HUD panel with the health and armour
+             * (VR_HUD_CAPTURE_*_H), centred and lifted to the lower middle
+             * of the view.
+             */
+            if (g_gevrStereo && getPlayerCount() == 1)
+            {
+                view_left = viGetViewLeft() + (viGetViewWidth() - view_left_offset) / 2;
+                view_horiz = view_left + view_left_offset;
+                view_top = viGetViewTop() + (viGetViewHeight() * 72) / 100;
+                gDPNoOpTag(arg0++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+            }
+#endif
             view_vert = view_top - view_top_offset;
             arg0 = draw_blackbox_to_screen(arg0, &view_left, &view_vert, &view_horiz, &view_top); /* PORT: addresses were cast to s32 */
             arg0 = combiner_bayer_lod_perspective(textRenderOutlined(arg0, &view_left, &view_vert, stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, -1, 0x646464FFU, (s16) (s32) viGetX(), (s16) viGetY(), 0, 0));
+#ifdef GEVR
+            if (g_gevrStereo && getPlayerCount() == 1)
+            {
+                gDPNoOpTag(arg0++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+            }
+#endif
         }
     }
 

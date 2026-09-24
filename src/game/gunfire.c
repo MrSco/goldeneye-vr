@@ -561,6 +561,16 @@ void gunUpdateAndFire(GUNHAND handnum)
         gunofs.y += 27.8f;
         gunofs.z += 2.0f;
     }
+#ifdef GEVR
+    /*
+     * The item's own fixed pose in the model frame: the sniper rifle held as a
+     * club (the fist slot while carrying the sniper: butt first), the remote
+     * detonator, the watch laser, the taser. Stereo builds the gun matrix from
+     * the controller and would otherwise drop it (the club stayed barrel first).
+     */
+    Mtxf gevrItemRot;
+    matrix_4x4_copy(&rotmtx, &gevrItemRot);
+#endif
 
     if (hand->field_92C != 0)
     {
@@ -597,14 +607,17 @@ void gunUpdateAndFire(GUNHAND handnum)
 
         if (gevrStereoGunMatrix(handnum, &vrmtx))
         {
+            /* as the flat game nests them: item pose, then the keyframe
+             * animation, then (instead of sway and aim) the controller */
+            Mtxf pose;
+
+            matrix_4x4_copy(&gevrItemRot, &pose);
             if (hand->field_92C != 0)
             {
-                Mtxf anim;
-
-                matrix_4x4_copy(&hand->field_8EC, &anim);
-                matrix_4x4_multiply_homogeneous_in_place(&vrmtx, &anim);
-                matrix_4x4_copy(&anim, &vrmtx);
+                matrix_4x4_multiply_homogeneous_in_place(&hand->field_8EC, &pose);
             }
+            matrix_4x4_multiply_homogeneous_in_place(&vrmtx, &pose);
+            matrix_4x4_copy(&pose, &vrmtx);
 
             gunofs.x = vrmtx.m[3][0];
             gunofs.y = vrmtx.m[3][1];
@@ -1817,7 +1830,16 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     }
  
 #ifdef GEVR
-    gdl = gevrRenderLeftArm(gdl, &renderdata);
+    {
+        /* Bond's watch arm on the left controller; the mirrored fist if it cannot load */
+        extern Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
+        s32 drawn = FALSE;
+        gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
+        if (!drawn)
+        {
+            gdl = gevrRenderLeftArm(gdl, &renderdata);
+        }
+    }
 #endif
     *gdlptr = gdl;
 }
