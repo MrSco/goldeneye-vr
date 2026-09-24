@@ -378,6 +378,8 @@ static void gevr_decal_switch_poll(void)
 
 static uint32_t frame_count;
 /* performance pass: the per-draw uniform cache (draw_triangles) */
+extern "C" uint64_t gevr_perf_ns_upload;   /* gevr_engine_shim.c perfsplit */
+#include <time.h>
 static bool s_uniCacheValid;
 static float s_uniEye[8], s_uniBias;
 static int s_uniFlat, s_uniMenu;
@@ -1498,7 +1500,11 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate) { // VR
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
 
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);   /* the menu overlay and hub setups leave theirs bound */
+    struct timespec gevrT0, gevrT1;
+    clock_gettime(CLOCK_MONOTONIC, &gevrT0);
     glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
+    clock_gettime(CLOCK_MONOTONIC, &gevrT1);
+    gevr_perf_ns_upload += (uint64_t)(gevrT1.tv_sec - gevrT0.tv_sec) * 1000000000ull + (uint64_t)(gevrT1.tv_nsec - gevrT0.tv_nsec);   /* PORT probe (performance pass) */
     const GLint first = 0;
 
     // A HUD capture draws into a single 2D texture, so it hides the right eye by
