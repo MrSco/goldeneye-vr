@@ -3573,3 +3573,32 @@ Dark leftovers; remove unused assets and purge them from history.
      The stencil band from 57/60 is behind GEVR_DECAL_BAND.
   2. Left hand: use the watch arm/wrist model from the watch pause
      animation for the left controller instead of the mirrored fist.
+
+## 62. Watch arm on the left hand, sniper club pose, HUD messages on the panel
+
+- **Watch arm** (bondview2.c gevrRenderLeftWatchArm): Csuit_lf_handZ
+  (ITEM_SUIT_LF_HAND, the pause watch arm; c_item_entries[41]) loaded into
+  its own buffer (model 0x18000 as gun.c, textures after), posed with
+  ANIM_DATA_bond_watch at frame 20 at the origin, then moved rigidly so the
+  wrist root (SKEL_LF_WRIST_ER) sits 6 cm behind the left grip: local +X
+  along the barrel (fingers), +Y the watch face = back of the left hand
+  (holder's left), Z = X x Y - the frame the pause uses to show the watch.
+  Size self-calibrated: wrist-to-elbow (matrix 8) = 26 cm (logged: 23.92
+  model-scaled units). Watch hands show mission time. Drawn only while the
+  left hand is empty and the watch is shut; the mirrored fist remains the
+  fallback. Verified on device with a fake grip pose.
+- **gevr_fakegrip.txt** (vr_input.cpp, PORT probe): lines "hand x y z qx qy
+  qz qw" (view space, metres) place that controller for gevrVrGripPoseCamera
+  - look at hand models in a capture without holding anything. Watch face to
+  the eyes: `0 -0.05 -0.12 -0.35 -0.5 0.5 0.5 0.5`.
+- **Sniper as a club** (the fist slot while carrying the sniper): the flat
+  game turns the model by D_80035C88 in the model frame; the stereo gun matrix
+  rebuilt everything from the controller and dropped it. gunfire.c keeps the
+  item pose (gevrItemRot) and nests item pose -> keyframe animation ->
+  controller, which also restores the remote detonator, watch laser and
+  taser poses. Not yet seen on device (needs the sniper).
+- **Bottom-left messages** (hudmsgBottomRender): in stereo drawn on the
+  head-locked HUD panel with health/armour, centred at 72% down the view.
+  Not yet seen on device (needs a message: pickup or objective).
+- Dual wield: the left arm (watch or fist) draws only while the left hand
+  holds nothing; a left gun is placed by gevrStereoGunMatrix(GUNLEFT).

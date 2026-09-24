@@ -1795,10 +1795,42 @@ extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
 
 extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]);
 
+// PORT probe: files/gevr_fakegrip.txt holds "hand x y z qx qy qz qw" lines
+// (view space, metres): that controller is placed there, so a model on it can
+// be looked at in a headset capture without holding anything.
+static bool vr_fake_grip(int hand, float pos[3], float quat[4])
+{
+    static unsigned n;
+    static bool have[2];
+    static float fp[2][7];
+    if ((n++ % 36) == 0) {
+        have[0] = have[1] = false;
+        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_fakegrip.txt", "r");
+        if (f) {
+            int h;
+            float v[7];
+            while (fscanf(f, "%d %f %f %f %f %f %f %f", &h, &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]) == 8) {
+                if (h == 0 || h == 1) {
+                    memcpy(fp[h], v, sizeof(v));
+                    have[h] = true;
+                }
+            }
+            fclose(f);
+        }
+    }
+    if (!have[hand]) return false;
+    memcpy(pos, fp[hand], 3 * sizeof(float));
+    memcpy(quat, fp[hand] + 3, 4 * sizeof(float));
+    return true;
+}
+
 extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4])
 {
     if (hand < 0 || hand > 1) {
         return 0;
+    }
+    if (vr_fake_grip(hand, pos, quat)) {
+        return 1;
     }
     if (!gCamCtrlValid[hand]) {
         return gevrVrGripPose(hand, pos, quat);
