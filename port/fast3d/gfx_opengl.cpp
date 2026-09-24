@@ -1720,6 +1720,25 @@ static void gl_texture_barrier_safe(void) {
 
 static void gfx_opengl_init_extensions(void) {
     // patch some extension values and pointers
+#ifdef GEVR
+    /*
+     * PORT: glad only looks for GL_EXT_depth_clamp in its GLES2 loader, and we
+     * load GLES through the desktop one, so the Quest (which has it) always fell
+     * back to the z *= 0.3 hack below and lost ~3x depth precision - bullet holes
+     * and wall decals cropped and fought their walls at a slant. Ask the driver.
+     */
+    if (gl_es && !GLAD_GL_EXT_depth_clamp && glGetStringi && GLVersion.major >= 3) {
+        GLint n = 0;
+        glGetIntegerv(GL_NUM_EXTENSIONS, &n);
+        for (GLint i = 0; i < n; i++) {
+            const char *ext = (const char *)glGetStringi(GL_EXTENSIONS, i);
+            if (ext && strcmp(ext, "GL_EXT_depth_clamp") == 0) {
+                GLAD_GL_EXT_depth_clamp = 1;
+                break;
+            }
+        }
+    }
+#endif
     if (!GLAD_GL_ARB_depth_clamp) {
         if (GLAD_GL_EXT_depth_clamp || GLAD_GL_NV_depth_clamp) {
             GLAD_GL_ARB_depth_clamp = 1;
@@ -1767,6 +1786,8 @@ static void gfx_opengl_init(void) {
     gl_es = (val == SDL_GL_CONTEXT_PROFILE_ES);
 
     gfx_opengl_init_extensions();
+    sysLogPrintf(LOG_NOTE, "GL: depth clamp: %s (EXT %d, NV %d, es %d)", GLAD_GL_ARB_depth_clamp ? "yes" : "no (z *= 0.3 hack)",
+                 GLAD_GL_EXT_depth_clamp, GLAD_GL_NV_depth_clamp, gl_es ? 1 : 0);
 
 #ifndef ANDROID // if PC
     gfx_opengl_init_texture_barrier(); // VR AMD fix
