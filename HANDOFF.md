@@ -4016,3 +4016,9 @@ Dark leftovers; remove unused assets and purge them from history.
   stayed full size. gevrGunSizeFactor now also scales the grip-to-origin
   offset and trims (gevrStereoGunMatrix), the gadget pose offsets, and the
   watch arm's size and wrist offset - all about the controller grip.
+- **v0.1.6 published** 2026-09-24: https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.6
+  (tag at f1004a4 = build commit; GoldenEye-VR-v0.1.6.apk SHA-256
+  3698cdf6e1e20b6deebd6c789ef35b52b457800d3b3173afeafccc9e026afcc8; same key).
+  Next: the PP7 silencer band (HANDOFF 38, still open: a ring of faces at
+  the joint in solid green/blue/red varying with location - likely lit with
+  stale lights) and the decal cropping.
