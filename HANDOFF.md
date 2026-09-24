@@ -4098,3 +4098,26 @@ Dark leftovers; remove unused assets and purge them from history.
   - the watchdog marker files/gevr_watchdog_kill.txt was left from a hang
   hunt, and with it the watchdog kills the game after 5 s without frames.
   Marker removed; release installs never have it.
+
+## 82. v0.1.7 published; #17 retest asked; dual wield (#15)
+- v0.1.7: https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.7 (tag at
+  1aba178 = build commit; GoldenEye-VR-v0.1.7.apk SHA-256
+  3a8058a712b1860aba2ab3f21f0e3ce500c4afc37ea608897131dbed9d85b920; same
+  key). Closed #8 #9 #11 #12 #13 #14 with replies.
+- #17 (Surface crashes at mission start, on v0.1.6): does not reproduce on
+  v0.1.7 (Surface on Agent loads and plays). Likely the rename fix (81):
+  Surface has 4 rename records from index 95, and on v0.1.6 every later
+  relative record lookup was shifted. Commented asking the reporter to retest.
+- #15 dual wield: GoldenEye has one trigger (moveData.triggerOn) and both
+  guns take turns on it; R only aims, so the left trigger (mapped to R) just
+  aimed. As PD VR (bondgun.c ~16526 "map 1:1"): dual-wielding in stereo,
+  input.c presses Z for either trigger and records gevrVrTriggerDown[hand];
+  gunTickGameplay gives each gun its own trigger. Tracers:
+  gunSetTracerTarget wrote one hit point into BOTH hands, so the other gun's
+  tracer bent to this shot's hit; now only g_gevrShotHand's (set around each
+  hand in chraiCheckUseHeldItems). The hits themselves were already per
+  barrel (gevrStereoShot(hand)). Built, installed; awaiting user test.
+- New from the user (Surface): some ground patches take no bullet impacts
+  and the aim crosshair vanishes on them, as if the ray passes through. Not
+  gepc-ref D312 (our bgBuildRoomVtxBounds already reads the vertex count
+  from bits 16-23). Open - not investigated.
