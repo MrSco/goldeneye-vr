@@ -4062,3 +4062,30 @@ Dark leftovers; remove unused assets and purge them from history.
   slide's joint under the z *= 0.3 hack. The probe showed the silencer is
   lit and env-mapped (geometry mode 0x62205) with the level's white
   GlobalLight - no stale lights. Probe removed.
+
+## 81. Issues #9, #11-#14 (for v0.1.7)
+- #13 twitchy inventory stick: the N64 "slam the stick" fast scroll (stick
+  past 0x46 steps one item EVERY frame) - a Quest stick maps to +-127 and
+  passes it at half travel. Ported gepc-ref D118d + D261: that check is
+  dropped, a held stick repeats one item every 6 frames after 15
+  (options.c gevrWatchStickFastStep).
+- #11 Bunker cameras facing the wall (gepc-ref D307, open there):
+  setupCctv aimed at arg1->pad (the camera's own mounting pad) instead of
+  CCTVRecord.lookpad, which nothing read - a decomp field-name slip. PD's
+  setup.c uses lookatpadnum. Fixed under GEVR (CCTV_LOOKPAD).
+- #12 "Picked up something." and #14 inventory entries named ".": the
+  setup converter word-swapped the RENAME record's header (the 750c833 bug,
+  fixed then only in the default case), so the type byte moved and the prop
+  walk never saw a rename: no text overrides at all, on every level, and every
+  relative record index past a rename ran ~11 long. Header now written as a
+  header. Also noted, not changed: n64_prop_words gives OBJECTIVE_COPY_ITEM
+  (34) 1 word; gepc-ref says the real size is 3 (d88_propdefs.py). Harmless
+  unless a retail setup has a type-34 record.
+- #9 see-through left hand underside / watch band back: the flat game only
+  showed one side, so the display lists cull faces never modelled closed.
+  As PD VR (bondgun.c "// VR" clears culling for gun models), the stereo
+  first-person draw is wrapped in VR_CULL_OFF tags (0x565B0000/1) and fast3d
+  skips face culling there. "The watch does not sit on the arm" is not
+  addressed (model placement).
+- #10 (weapon wheel like PD VR) is a feature - not started.
+- Built, installed; awaiting the user's Bunker test.
