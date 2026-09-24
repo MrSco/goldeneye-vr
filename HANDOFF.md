@@ -4010,3 +4010,9 @@ Dark leftovers; remove unused assets and purge them from history.
 - Gun size cheat: gevrStereoGunMatrix k x0.2 (tiny, the old #1 bug) or x2
   (big); fist, gadgets and casings follow; the watch arm does not. Stereo only.
 - Built, installed; not seen on device.
+- User test (screenshot): with Tiny guns the covert modem floated well in
+  front of a tiny hand, and the watch arm stayed full size. Scaling k alone
+  shrank the models toward their origin 12 cm behind the fist while offsets
+  stayed full size. gevrGunSizeFactor now also scales the grip-to-origin
+  offset and trims (gevrStereoGunMatrix), the gadget pose offsets, and the
+  watch arm's size and wrist offset - all about the controller grip.
