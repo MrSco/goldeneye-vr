@@ -858,6 +858,13 @@ Gfx* lvlRender(Gfx* DL)
     }
 
     gDPSetScissor(DL++, G_SC_NON_INTERLACE, 0, 0, viGetX(), viGetY());
+#ifdef GEVR
+    {
+        extern Gfx *gevrDrawReturnPrompt(Gfx *gdl);   /* bondview2.c, issue #16 */
+
+        DL = gevrDrawReturnPrompt(DL);
+    }
+#endif
 
     return DL;
 }

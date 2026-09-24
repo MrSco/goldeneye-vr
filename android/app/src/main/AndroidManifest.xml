@@ -116,7 +116,20 @@
         </activity>
 
         <!--
-            No 2D activities: the app is vr_only, and Quest's shell treated a 2D
+            Issue #16: restarts the game into the launcher (RelaunchActivity.java).
+            Its own process, so it outlives the game process it kills; it never
+            draws and finishes in onCreate.
+        -->
+        <activity
+            android:name=".RelaunchActivity"
+            android:process=":relaunch"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:exported="false" />
+
+        <!--
+            No other 2D activities: the app is vr_only, and Quest's shell treated a 2D
             activity as the immersive app and waited for an XR session it never
             started (stuck in the loading space, 2026-09-23). ROM choice and
             options live in VR (port/vr/vr_launcher.cpp), the way single-activity

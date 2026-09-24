@@ -988,10 +988,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;
         if (get_button_state(1, "b")) npad->button |= B_BUTTON;
-        // Menu button (issue #16): in a level a tap is START, sent on release,
-        // and a 1.5 s hold asks whether to go back to the launcher (A yes, B no;
-        // bondview2.c gevrDrawReturnPrompt). The app restarts into it, so the
-        // mission in progress is lost. Paused or in the menus it is START as before.
+        // Menu button (issue #16): a tap is START, sent on release, and a 1.5 s
+        // hold asks whether to go back to the launcher (A yes, B no; bondview2.c
+        // gevrDrawReturnPrompt) - in play, on the watch and in the menus alike.
+        // The app restarts into it, so the mission in progress is lost.
         {
             static u32 downat = 0, startuntil = 0;
             static bool consumed = false, aWas = true, bWas = true;
@@ -1003,15 +1003,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     LOGI("input: menu hold -> back to the launcher\n");
                     gevrRestartToLauncher();
                 }
-                if ((b && !bWas) || menu) {
+                if (b && !bWas) {
                     LOGI("input: menu hold -> cancelled\n");
                     gevrReturnPrompt = 0;
                 }
                 aWas = a;
                 bWas = b;
-                downat = 0;
-            } else if (menu) {
-                if (held) npad->button |= START_BUTTON;
                 downat = 0;
             } else if (held) {
                 if (!downat) {
