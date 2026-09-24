@@ -23,6 +23,15 @@
 #include "explosion.h"
 #include "bgroomtrans.h"
 #include "gevr_stage.h"
+#ifdef GEVR
+/*
+ * The renderer draws 1 / 0.3 times past the far fog distance (fast3d gfx_pc.h
+ * GEVR_FAR_DEPTH_SCALE). The room and portal far tests reach as far, or a room
+ * the depth buffer would keep is dropped whole (Statue's trees behind the
+ * statue vanished and came back as the head turned).
+ */
+#define GEVR_FAR_EXTEND (1.0f / 0.3f)
+#endif
 #include "system.h"
 #include "platform.h"
 #include <stdlib.h>
@@ -1470,6 +1479,9 @@ bool bgIsRoomOnScreen(s32 roomID, struct rectbbox *screenbox)
     viGetZRange(zrange);
 
     zrange[1] = zrange[1] / mCurrentLevelVisibilityScale;
+#ifdef GEVR
+    zrange[1] *= GEVR_FAR_EXTEND;
+#endif
 
     for (i = 0; i < 8; i++) {
         if (i & 1) {
@@ -1590,6 +1602,9 @@ s32 sub_GAME_7F0B5528(s32 portalnum, f32 arg1, coord3d *arg2)
     allbehind = 1;
     viGetZRange(zrange);
     zrange[1] /= mCurrentLevelVisibilityScale;
+#ifdef GEVR
+    zrange[1] *= GEVR_FAR_EXTEND;
+#endif
 
     for (i = 0; i < g_BgPortals[portalnum].offset_portal->numPoints; i++) {
         point = &arg2[i];

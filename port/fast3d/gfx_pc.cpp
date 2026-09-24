@@ -1686,7 +1686,7 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             d->clip_rej |= 8; // CLIP_TOP
         }
         // if (z < -w) d->clip_rej |= 16; // CLIP_NEAR
-        if (z > w) {
+        if (z * GEVR_FAR_DEPTH_SCALE > w) {   // past the squashed far plane (gfx_pc.h)
             d->clip_rej |= 32; // CLIP_FAR
         }
 
