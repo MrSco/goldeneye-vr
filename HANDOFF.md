@@ -3665,3 +3665,31 @@ Dark leftovers; remove unused assets and purge them from history.
   - Navigation is the game's own (stick, A/B, grips = L/R page turn), as PD's
     pause menu is stick-only - not the laser pointer.
 - Built and installed (release). Not seen on device yet.
+
+## 65. Gadgets in the right hand (stereo)
+
+- User idea: holding the bug / mines shows no right hand in stereo. GEVR PC
+  does this ("throwables show in your hand and leave from the grip", its
+  BETA/FEATURES docs), so it is a port.
+- The flat game hides these by WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_HAND, but
+  used_to_load_1st_person_model_on_demand loads their G models anyway. In
+  stereo gunfire.c keeps a separate s_gevrHiddenShown[hand] (the flat
+  visibility test minus the hide flag, for a whitelist) and draws them
+  through the normal viewmodel path; field_87F is untouched because the
+  reload/watch-lowering timings read it.
+- bondview2.c s_gevrItemPoses: per item offset (cm left/up/forward from the
+  wrist origin), turn, size, and whether the fist is drawn round it. First
+  guesses from bounding radii: mines/bug(covert modem)/cameras/bomb case/
+  GoldenEye key 15-16 cm forward with the fist; grenade and plastique at the
+  gun pose without the fist (their models are fist-and-forearm sized, so they
+  likely bring a hand). Not seen yet - expect tuning.
+- files/gevr_itempose.txt (re-read every ~2 s): lines
+  "item left up fwd rx ry rz scale fist" override an entry (item = ITEM_IDS
+  number, e.g. ITEM_BUG). Logged as "stereo: item N pose ...".
+- gevrRenderRightFist (gunfire.c): the fist on the right controller whenever
+  the game draws no right viewmodel (no-model items such as keycards, weapon
+  swap, the empty hand after a throw) or the gadget needs one. Not with
+  unarmed (the game's fist), the tank, the watch or death.
+- The throw origin follows: gunmtx_camspace now carries the gadget's pose, and
+  throw_item_pos_related is built from it.
+- Built (release) and committed; NOT installed yet (user mid-test of 64).
