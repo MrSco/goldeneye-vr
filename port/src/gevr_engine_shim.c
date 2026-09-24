@@ -321,6 +321,12 @@ void gevrPerfAdd(int section, u64 ns)
 	gevrPerfFrameAcc[section] += ns;
 }
 u64 gevrPerfNow(void) { return gevrPerfNs(); }
+/* lv.c GEVR_GAME_SECTION: 0 sky+rooms, 1 props (AI), 2 shots, 3 stereo aim trace, 4 player, 5 bg display lists */
+static u64 gevrPerfGameNs[6], gevrPerfGameMax[6], gevrPerfGameFrame[6];
+void gevrPerfGameAdd(int section, u64 ns)
+{
+	if (section >= 0 && section < 6) gevrPerfGameFrame[section] += ns;
+}
 /* at the end of each presented frame */
 static void gevrPerfFrameDone(void)
 {
@@ -355,6 +361,12 @@ static void gevrPerfFrameDone(void)
 					sysLogPrintf(LOG_NOTE, "perfsplit: gl %.2f ms (upload %.2f)  tex %.2f ms  texmiss %.1f per frame",
 						gevr_perf_ns_gl / n2 / 1e6, gevr_perf_ns_upload / n2 / 1e6, gevr_perf_ns_tex / n2 / 1e6, gevr_perf_texmiss / n2);
 					gevr_perf_ns_gl = gevr_perf_ns_tex = gevr_perf_ns_upload = 0;
+					sysLogPrintf(LOG_NOTE, "perfgame: sky %.2f props %.2f/%.1f shots %.2f/%.1f aim %.2f/%.1f player %.2f/%.1f bg %.2f (avg/max ms)",
+						gevrPerfGameNs[0] / n2 / 1e6, gevrPerfGameNs[1] / n2 / 1e6, gevrPerfGameMax[1] / 1e6,
+						gevrPerfGameNs[2] / n2 / 1e6, gevrPerfGameMax[2] / 1e6, gevrPerfGameNs[3] / n2 / 1e6, gevrPerfGameMax[3] / 1e6,
+						gevrPerfGameNs[4] / n2 / 1e6, gevrPerfGameMax[4] / 1e6, gevrPerfGameNs[5] / n2 / 1e6);
+					memset(gevrPerfGameNs, 0, sizeof(gevrPerfGameNs));
+					memset(gevrPerfGameMax, 0, sizeof(gevrPerfGameMax));
 					gevr_perf_texmiss = 0;
 				}
 				gameAcc = 0;
@@ -367,6 +379,11 @@ static void gevrPerfFrameDone(void)
 		}
 	}
 	for (i = 0; i < 3; i++) gevrPerfFrameAcc[i] = 0;
+	for (i = 0; i < 6; i++) {
+		gevrPerfGameNs[i] += gevrPerfGameFrame[i];
+		if (gevrPerfGameFrame[i] > gevrPerfGameMax[i]) gevrPerfGameMax[i] = gevrPerfGameFrame[i];
+		gevrPerfGameFrame[i] = 0;
+	}
 	gevrPerfFrameStart = now;
 }
 
