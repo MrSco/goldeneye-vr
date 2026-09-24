@@ -326,6 +326,16 @@ This project's own code is **MIT** licensed ([LICENSE](LICENSE)). Vendored compo
 
 The app icon and banner art were made for this project.
 
+## ⭐ Star History
+
+<a href="https://www.star-history.com/?repos=MrSco%2Fgoldeneye-vr&type=timeline&logscale=&releases=&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=MrSco/goldeneye-vr&type=timeline&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=MrSco/goldeneye-vr&type=timeline&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=MrSco/goldeneye-vr&type=timeline&legend=bottom-right" />
+ </picture>
+</a>
+
 ---
 
 <sub>GoldenEye VR is a non-commercial fan project. It is not affiliated with, endorsed by or

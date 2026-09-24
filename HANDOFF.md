@@ -3877,3 +3877,12 @@ Dark leftovers; remove unused assets and purge them from history.
 - Boot recipe: launcher START (1000), A presses to file select and into the
   file (mode select), write gevr_level.txt, A to start, then gevr_cheat.txt.
 - Built and committed; not installed (user mid-test of 0.1.2 candidate).
+- Verified 2026-09-24 with the hooks: gevr_level.txt "runway 0" from file
+  select (after one A into the file) -> Runway briefing -> START (1000) ->
+  "setup: tank with 30 shells", stereo on. A on the briefing only works with
+  the cursor on its START tab. Every gevr_input.txt write needs chmod 666
+  (the game deletes it; a fresh file is 660 and unreadable). User confirmed
+  Dam and Facility gun sizes. README: star history chart (MrSco/goldeneye-vr;
+  the pasted snippet named goldeneye-vr/goldeneye-vr, which does not exist).
+  Removed a stale files/gevr_introcam.txt from the headset (pinned the intro
+  camera; the game picks at random again).
