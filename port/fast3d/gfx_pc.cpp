@@ -384,10 +384,14 @@ static constexpr float clampf(const float x, const float min, const float max) {
     return (x < min) ? min : (x > max) ? max : x;
 }
 
+/* the stats readout's per-frame draw count (port/src/gevr_engine_shim.c gevrPerf*) */
+extern "C" { uint32_t gevr_perf_draws, gevr_perf_tris; }
 static uint32_t g_gevrTrisThisFrame, g_gevrFlushesThisFrame; /* PORT probe: per-frame draw statistic, logged once a second from gfx_run */
 void gfx_flush(void) {
     g_gevrTrisThisFrame += buf_vbo_num_tris;
     g_gevrFlushesThisFrame++;
+    gevr_perf_draws++;
+    gevr_perf_tris += buf_vbo_num_tris;
     if (buf_vbo_len > 0) {
         gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
         buf_vbo_len = 0;

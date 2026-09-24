@@ -10411,7 +10411,7 @@ extern int VrShowStats;
 extern const char *gevrVrStatsText(void);
 static Gfx *gevrDrawStats(Gfx *gdl)
 {
-    char buf[320];
+    char buf[520];
     s32 x, y, w = 0, h = 0;
 
     if (!VrShowStats || getPlayerCount() != 1)

@@ -100,6 +100,9 @@ static u32 gevrFramesLogged;
  * tombstone carries that thread's stack. Diagnostic; costs one wake-up a second.
  */
 #include <pthread.h>
+static u64 gevrPerfNs(void);
+void gevrPerfAdd(int section, u64 ns);
+static void gevrPerfFrameDone(void);
 #include <unistd.h>
 #include <signal.h>
 static s32 gevrVrFrameBegun; /* tentative; defined with the VR lifecycle below */
@@ -216,7 +219,11 @@ s32 gevrSchedSend(OSMesgQueue *mq, OSMesg msg)
 			gevrFrameOpen = 1;
 		}
 
-		videoSubmitCommands((Gfx *)t->list.t.data_ptr);
+		{
+			const u64 t0 = gevrPerfNs();
+			videoSubmitCommands((Gfx *)t->list.t.data_ptr);
+			gevrPerfAdd(1, gevrPerfNs() - t0);
+		}
 		gevrTasksThisFrame++;
 	}
 
@@ -285,6 +292,69 @@ void gevrVrPumpEnd(void)
 	gevrVrFrameEnd();
 }
 
+/*
+ * Performance readout (Show stats): where a frame's CPU time goes, averaged
+ * each second - WAIT for the headset (xrWaitFrame), DRAW (fast3d running the
+ * display lists and issuing GL: videoSubmitCommands), END (finishing and
+ * submitting the frame), GAME (the rest: game logic and building the display
+ * lists) - and the draw calls and triangles per frame.
+ */
+#include <time.h>
+extern uint32_t gevr_perf_draws, gevr_perf_tris;   /* fast3d gfx_pc.cpp */
+static u64 gevrPerfNs(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return (u64)ts.tv_sec * 1000000000ull + (u64)ts.tv_nsec;
+}
+static u64 gevrPerfAcc[3], gevrPerfFrameStart, gevrPerfSecStart, gevrPerfWorstGame;
+static u64 gevrPerfFrameAcc[3];
+static u32 gevrPerfFrames;
+static char gevrPerfBuf[160];
+const char *gevrPerfText(void) { return gevrPerfBuf; }
+void gevrPerfAdd(int section, u64 ns)
+{
+	gevrPerfFrameAcc[section] += ns;
+}
+u64 gevrPerfNow(void) { return gevrPerfNs(); }
+/* at the end of each presented frame */
+static void gevrPerfFrameDone(void)
+{
+	const u64 now = gevrPerfNs();
+	int i;
+	if (gevrPerfFrameStart) {
+		const u64 total = now - gevrPerfFrameStart;
+		const u64 known = gevrPerfFrameAcc[0] + gevrPerfFrameAcc[1] + gevrPerfFrameAcc[2];
+		const u64 game = total > known ? total - known : 0;
+		if (game > gevrPerfWorstGame) gevrPerfWorstGame = game;
+		for (i = 0; i < 3; i++) gevrPerfAcc[i] += gevrPerfFrameAcc[i];
+		gevrPerfAcc[0] += 0;
+		gevrPerfFrames++;
+		if (!gevrPerfSecStart) gevrPerfSecStart = now;
+		{
+			static u64 gameAcc;
+			gameAcc += game;
+			if (now - gevrPerfSecStart >= 1000000000ull && gevrPerfFrames) {
+				const double n = (double)gevrPerfFrames;
+				snprintf(gevrPerfBuf, sizeof(gevrPerfBuf),
+					"GAME %.1f MAX %.1f  DRAW %.1f  END %.1f  WAIT %.1f\nDRAWS %u  TRIS %uK",
+					gameAcc / n / 1e6, gevrPerfWorstGame / 1e6, gevrPerfAcc[1] / n / 1e6,
+					gevrPerfAcc[2] / n / 1e6, gevrPerfAcc[0] / n / 1e6,
+					(unsigned)(gevr_perf_draws / gevrPerfFrames), (unsigned)(gevr_perf_tris / gevrPerfFrames / 1000));
+				sysLogPrintf(LOG_NOTE, "perf: %s", gevrPerfBuf);
+				gameAcc = 0;
+				gevrPerfWorstGame = 0;
+				gevrPerfFrames = 0;
+				gevr_perf_draws = gevr_perf_tris = 0;
+				for (i = 0; i < 3; i++) gevrPerfAcc[i] = 0;
+				gevrPerfSecStart = now;
+			}
+		}
+	}
+	for (i = 0; i < 3; i++) gevrPerfFrameAcc[i] = 0;
+	gevrPerfFrameStart = now;
+}
+
 static void gevrVrFrameBegin(void)
 {
 	if (!gevrVrInitDone) {
@@ -304,7 +374,11 @@ static void gevrVrFrameBegin(void)
 	}
 
 	vr_poll_events();
-	gevrVrFrameBegun = vr_begin_frame_and_update_poses() ? 1 : 0;
+	{
+		const u64 t0 = gevrPerfNs();
+		gevrVrFrameBegun = vr_begin_frame_and_update_poses() ? 1 : 0;
+		gevrPerfAdd(0, gevrPerfNs() - t0);
+	}
 	gevrXrFramesBegun++; /* false: no session yet, or an empty frame already closed */
 
 	/* Hold the left stick click for about a second to bring the virtual screen back in front of you. */
@@ -337,8 +411,13 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	gevrPumpStage = 1; gevrPumpEntries++;
 
 	if (gevrFrameOpen) {
-		videoEndFrame();
+		{
+			const u64 t0 = gevrPerfNs();
+			videoEndFrame();
+			gevrPerfAdd(2, gevrPerfNs() - t0);
+		}
 		gevrFrameOpen = 0;
+		gevrPerfFrameDone();
 
 		if (gevrFramesLogged < 3) {
 			gevrFramesLogged++;
