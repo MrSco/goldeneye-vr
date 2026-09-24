@@ -1,6 +1,6 @@
 # Status
 
-**Current state (2026-09-23, first public release v0.1.0):** the Dam plays
+**Current state (2026-09-24, v0.1.1; first public release v0.1.0 on 2026-09-23):** the Dam plays
 end to end in true stereo VR (controller-aimed guns firing from the muzzle,
 3D sight, ammo panel on the gun, health HUD, left arm, watch gesture, head
 translation, smooth/snap turning, comfort vignette) and on the virtual screen
@@ -10,6 +10,14 @@ ROM. HANDOFF §46-56 has the detail. Known issues for the next release:
 the launcher cursor hides behind a curved screen and the pointer has no beam;
 bullet-hole sprites glitch at some angles; props such as the Dam gate button
 appear late (draw distance). Other levels are less tested.
+
+v0.1.1 (HANDOFF §62-71) adds Bond's watch arm on the left hand, gadgets held
+and thrown from the right hand, shell casings (they had never drawn in this
+port), the sniper club posed and swung butt-first, HUD messages on the
+head-locked panel, and a smoother watch (the wrist gesture skips the raise;
+the screen is pinned to the view, then settles into its place in the room).
+Still open: bullet holes and wall decals cropped at oblique angles (both
+modes).
 
 The tables below are the older ledger (last fully revised 2026-09-22) and are
 kept for their evidence; the paragraph above and HANDOFF supersede them.
