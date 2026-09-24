@@ -2061,6 +2061,16 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         }
  
 #ifdef GEVR
+        /*
+         * A gadget the flat game never showed (s_gevrHiddenShown) keeps its own
+         * face culling: its models do not write depth, so drawn with culling
+         * off (VR_CULL_OFF, bondview2.c) the inside faces painted over the
+         * outside and a mine looked like a see-through shell.
+         */
+        if (g_gevrStereo && s_gevrHiddenShown[handnum])
+        {
+            gDPNoOpTag(renderdata.gdl++, 0x565B0001); /* VR_CULL_OFF_END */
+        }
         /* left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen: gunUpdateAndFire) */
         if (gevrHandsMirrored())
         {
@@ -2073,6 +2083,10 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         if (gevrHandsMirrored())
         {
             gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
+        }
+        if (g_gevrStereo && s_gevrHiddenShown[handnum])
+        {
+            gDPNoOpTag(gdl++, 0x565B0000); /* VR_CULL_OFF_BEGIN again */
         }
 #endif
 
