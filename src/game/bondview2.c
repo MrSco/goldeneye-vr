@@ -808,6 +808,8 @@ s32 gevrStereoItemNeedsFist(s32 item)
 
 /* m: the stereo gun matrix (rows the model's left/up/forward times the
  * viewmodel scale, translation the model origin) */
+static f32 gevrGunSizeFactor(void);   /* the tiny/big guns cheat, below */
+
 void gevrStereoItemPose(s32 item, Mtxf *m)
 {
     GevrItemPose *p = gevrItemPoseFind(item);
@@ -829,7 +831,7 @@ void gevrStereoItemPose(s32 item, Mtxf *m)
         {
             for (j = 0; j < 3; j++)
             {
-                m->m[3][j] += p->ofs[i] * cm * m->m[i][j] / len;
+                m->m[3][j] += p->ofs[i] * cm * gevrGunSizeFactor() * m->m[i][j] / len;
             }
         }
     }
@@ -878,21 +880,26 @@ s32 gevrHandsMirrored(void)
     return VrLeftHandedMode;
 }
 
+/*
+ * Launcher cheat "Tiny guns" / "Big guns" (VrGunSizeCheat 1 / 2): everything
+ * held - the viewmodel, fists, gadgets, the watch arm - scales by this about
+ * the controller's grip, so the hand stays in the hand. Scaling the models
+ * alone shrank them toward their origin 12 cm behind the fist while a
+ * gadget kept its full-size reach, and floated off in front.
+ */
+static f32 gevrGunSizeFactor(void)
+{
+    extern int VrGunSizeCheat;
+
+    return VrGunSizeCheat == 1 ? 0.2f : VrGunSizeCheat == 2 ? 2.0f : 1.0f;
+}
+
 s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
 {
     f32 pos[3], right[3], up[3], back[3];
+    f32 size = gevrGunSizeFactor();
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
-    f32 k = GEVR_VIEWMODEL_CM * cm;     /* 0.17 view units on the Dam */
-    extern int VrGunSizeCheat;          /* launcher cheat: 1 tiny (the old #1 bug), 2 big */
-
-    if (VrGunSizeCheat == 1)
-    {
-        k *= 0.2f;
-    }
-    else if (VrGunSizeCheat == 2)
-    {
-        k *= 2.0f;
-    }
+    f32 k = GEVR_VIEWMODEL_CM * cm * size;   /* 0.17 view units on the Dam at normal size */
     s32 ctrl = handnum == GUNRIGHT ? 1 : 0;
     s32 i;
 
@@ -932,7 +939,7 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
         out->m[2][i] = -back[i] * k;    /* model +Z: along the barrel */
         /* fist on the controller, then the ini trim, in the gun's own right/up/back */
         out->m[3][i] = pos[i] + ((VrLeftHandedMode ? -VrGunOffX : VrGunOffX) * right[i] + VrGunOffY * up[i]
-                                 + (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * back[i]) * cm;
+                                 + (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * back[i]) * cm * size;
     }
     out->m[0][3] = out->m[1][3] = out->m[2][3] = 0.0f;
     out->m[3][3] = 1.0f;
@@ -1148,13 +1155,13 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     {
         /* the model's scale in the wanted frame: root's row length times the calibration */
         f32 rs = sqrtf(matrices[0].m[0][0] * matrices[0].m[0][0] + matrices[0].m[0][1] * matrices[0].m[0][1] + matrices[0].m[0][2] * matrices[0].m[0][2]);
-        f32 s = rs * s_gevrWatchScale * cm;
+        f32 s = rs * s_gevrWatchScale * cm * gevrGunSizeFactor();
         for (i = 0; i < 3; i++)
         {
             want.m[0][i] = x[i] * s;
             want.m[1][i] = y[i] * s;
             want.m[2][i] = z[i] * s;
-            want.m[3][i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * cm;
+            want.m[3][i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * cm * gevrGunSizeFactor();
         }
         want.m[0][3] = want.m[1][3] = want.m[2][3] = 0.0f;
         want.m[3][3] = 1.0f;
