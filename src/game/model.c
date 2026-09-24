@@ -1933,23 +1933,6 @@ void modelApplyToggleRelations(Model* model, ModelNode* node)
 {
     ModelRoData_SwitchRecord *rodata = &node->Data->Switch;
     ModelRwData_SwitchRecord *rwdata = modelGetNodeRwData(model, node);
-#ifdef GEVR
-    /* PORT test switch (#18): files/gevr_cull.txt "4" shows every speedboat
-     * switch, "5 n" only the one at rw slot n (gfx_pc.cpp polls the file). */
-    {
-        extern struct ModelFileHeader speedboat_header;
-        extern int gevrCullTestMode(int *arg);
-        int arg = -1;
-        int mode = gevrCullTestMode(&arg);
-
-        if (model->obj == &speedboat_header
-            && (mode == 4 || (mode == 5 && (u32 *) rwdata - (u32 *) model->datas == (u32) arg)))
-        {
-            node->Child = rodata->Controls;
-            return;
-        }
-    }
-#endif
 
     if (rwdata->visible)
     {
@@ -5265,20 +5248,9 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
     u32 visited = 0;
     Gfx *drawStart = mrData->gdl;
     gevrTraceNextDraw = FALSE;
-    {
-        /* PORT probe (#18 Frigate windshield): the speedboat's first draws */
-        extern struct ModelFileHeader speedboat_header;
-        static s32 boatTraces;
-
-        if (mdl->obj == &speedboat_header && boatTraces < 4)
-        {
-            boatTraces++;
-            trace = TRUE;
-        }
-    }
     if (trace) {
-        sysLogPrintf(LOG_NOTE, "menubg-walk: model=%p root=%p rwdata=%p flags=%d zbuf=%d",
-            (void *)mdl, (void *)root, (void *)mdl->datas, (s32)mrData->flags, (s32)mrData->zbufferenabled);
+        sysLogPrintf(LOG_NOTE, "menubg-walk: model=%p root=%p rwdata=%p",
+            (void *)mdl, (void *)root, (void *)mdl->datas);
     }
 #endif
     #if defined(LEFTOVERDEBUG)

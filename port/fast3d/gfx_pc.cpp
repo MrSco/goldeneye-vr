@@ -1781,40 +1781,15 @@ static inline bool gfx_is_matrix_inverted() {
     return det < 0.0f;
 }
 
-/* PORT test switch (#18 Frigate windshield): files/gevr_cull.txt "mode",
- * re-read every ~4 s. 1: no face culling; 2: no VR-hide removal; 3: both. */
-static int s_gevrCullTest, s_gevrCullArg = -1;
-extern "C" int gevrCullTestMode(int *arg)
-{
-    *arg = s_gevrCullArg;
-    return s_gevrCullTest;
-}
-static void gevr_cull_test_poll(void)
-{
-    static unsigned n;
-    if ((n++ % 200000) != 0) return;
-    FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_cull.txt", "r");
-    int mode = 0;
-    if (f) {
-        if (fscanf(f, "%d %d", &mode, &s_gevrCullArg) < 1) mode = 0;
-        fclose(f);
-    }
-    if (mode != s_gevrCullTest) {
-        s_gevrCullTest = mode;
-        sysLogPrintf(LOG_NOTE, "culltest: mode %d arg %d", mode, s_gevrCullArg);
-    }
-}
-
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
     if (gevrMenuTrace) ++gevrMenuTriangles;
-    gevr_cull_test_poll();
     struct LoadedVertex* v1 = &rsp.loaded_vertices[vtx1_idx];
     struct LoadedVertex* v2 = &rsp.loaded_vertices[vtx2_idx];
     struct LoadedVertex* v3 = &rsp.loaded_vertices[vtx3_idx];
     struct LoadedVertex* v_arr[3] = { v1, v2, v3 };
 
     // --- CUSTOM VR HIDE: SMART REMOVAL ---
-    if (!(s_gevrCullTest < 4 && (s_gevrCullTest & 2)) && (v1->clip_rej & 64) && (v2->clip_rej & 64) && (v3->clip_rej & 64)) {
+    if ((v1->clip_rej & 64) && (v2->clip_rej & 64) && (v3->clip_rej & 64)) {
         if (gevrMenuTrace) ++gevrMenuClipped;
         return;
     }
@@ -1838,7 +1813,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
 
 
-    if (!gevrCullOff && !(s_gevrCullTest < 4 && (s_gevrCullTest & 1)) && (rsp.geometry_mode & G_CULL_BOTH) != 0) {
+    if (!gevrCullOff && (rsp.geometry_mode & G_CULL_BOTH) != 0) {
         if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
             if (gevrMenuTrace) ++gevrMenuCulled;
             // Why is this even an option?
