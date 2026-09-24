@@ -2071,8 +2071,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gDPNoOpTag(renderdata.gdl++, 0x565B0001); /* VR_CULL_OFF_END */
         }
-        /* left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen: gunUpdateAndFire) */
-        if (gevrHandsMirrored())
+        /*
+         * left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen:
+         * gunUpdateAndFire). A shown gadget culls the other way round as well:
+         * held, its outward face was the one culled and it looked hollow (#19),
+         * whichever way it faced - so the two cancel in left-handed mode.
+         */
+        if (gevrHandsMirrored() != (g_gevrStereo && s_gevrHiddenShown[handnum]))
         {
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
@@ -2080,7 +2085,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         subdraw(&renderdata, &handptr->weaponModel);
         gdl = renderdata.gdl;
 #ifdef GEVR
-        if (gevrHandsMirrored())
+        if (gevrHandsMirrored() != (g_gevrStereo && s_gevrHiddenShown[handnum]))
         {
             gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
         }
