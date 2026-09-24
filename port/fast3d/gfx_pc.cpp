@@ -268,6 +268,7 @@ struct LoadedTexture {
     uint32_t tex_flags;
     bool loaded_by_tile = false;
     bool tmem_swizzled = false; /* loaded with dxt 0: odd rows are already in TMEM's word-swapped layout */
+    uint8_t src_fmt = 0xFF;     /* gepc-ref D229: G_IM_FMT_* of the load that last wrote this slot */
 	uint32_t width;
 	uint32_t height;
 	uint64_t ext_key;
@@ -285,6 +286,7 @@ static struct RDP {
     uint32_t palette_hash;
     struct {
         const uint8_t* addr;
+        uint8_t fmt; /* gepc-ref D229 */
         uint8_t siz;
         uint32_t width;
         uint32_t tex_flags;
@@ -1013,9 +1015,23 @@ static void importTextureNative(int tile, const LoadedTexture &loadedtexturein, 
 {
     // D161: with TLUT disabled CI texels feed the intensity path directly.
     const uint8_t tile_fmt = rdp.texture_tile[tile].fmt;
-    const uint8_t fmt = (tile_fmt == G_IM_FMT_CI && rdp.palette_fmt == G_TT_NONE)
+    uint8_t fmt = (tile_fmt == G_IM_FMT_CI && rdp.palette_fmt == G_TT_NONE)
             ? G_IM_FMT_I : tile_fmt;
-    const uint8_t siz = rdp.texture_tile[tile].siz;
+    uint8_t siz = rdp.texture_tile[tile].siz;
+
+    /*
+     * Ported from gepc-ref D229 (issue #18, Frigate's green sea): GoldenEye
+     * loads its CI8 water mipmaps with gDPLoadBlock, then the water draw
+     * re-declares the same TMEM as RGBA16. On the N64 GE's own microcode
+     * expanded the indices through the TLUT at load, so that tile held real
+     * 16-bit pixels; fast3d uploads the raw index bytes as 16-bit texels, and
+     * green dominates. An RGBA16 tile over a CI source goes through the CI8
+     * palette import instead. Real RGBA16 loads keep their own format.
+     */
+    if (fmt == G_IM_FMT_RGBA && siz == G_IM_SIZ_16b && loadedtexturein.src_fmt == G_IM_FMT_CI) {
+        fmt = G_IM_FMT_CI;
+        siz = G_IM_SIZ_8b;
+    }
 
     /*
      * GoldenEye loads most textures with gDPLoadBlock's dxt at 0, which on the
@@ -1127,6 +1143,7 @@ static void import_texture(int i, int tile, bool is_rect) {
     if ((rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail) || !loaded_texture.addr) {
         // set up miplevel 0; also acts as a catch-all for when .addr is NULL because my texture loader sucks
         loaded_texture.addr = rdp.texture_to_load.addr;
+    loaded_texture.src_fmt = rdp.texture_to_load.fmt; /* gepc-ref D229 */
         loaded_texture.line_size_bytes = rdp.texture_tile[tile].line_size_bytes;
         loaded_texture.full_image_line_size_bytes = rdp.texture_tile[tile].line_size_bytes;
         loaded_texture.full_size_bytes = loaded_texture.full_image_line_size_bytes * rdp.texture_tile[tile].height;
@@ -2430,6 +2447,7 @@ static void gfx_dp_set_scissor(uint32_t mode, uint32_t ulx, uint32_t uly, uint32
 
 static void gfx_dp_set_texture_image(uint32_t format, uint32_t size, uint32_t width, uint32_t tex_flags, const void* addr) {
     rdp.texture_to_load.addr = (const uint8_t*)addr;
+    rdp.texture_to_load.fmt = (uint8_t)format; /* gepc-ref D229 */
     rdp.texture_to_load.siz = size;
     rdp.texture_to_load.width = width;
     rdp.texture_to_load.tex_flags = tex_flags;
@@ -2597,6 +2615,7 @@ static void gfx_dp_load_block(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t
 
 // Always available as a fallback, even if an external texture exists for this slot.
     loaded_texture.addr = rdp.texture_to_load.addr;
+    loaded_texture.src_fmt = rdp.texture_to_load.fmt; /* gepc-ref D229 */
 
     if (gfx_external_textures_enabled && extTexExists(type, id, texnum)) {
         loaded_texture.type = type;
@@ -2649,6 +2668,7 @@ static void gfx_dp_load_tile(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t 
     loaded_texture.tex_flags = rdp.texture_to_load.tex_flags;
     loaded_texture.raw_tex_metadata = rdp.texture_to_load.raw_tex_metadata;
     loaded_texture.addr = rdp.texture_to_load.addr + start_offset_bytes;
+    loaded_texture.src_fmt = rdp.texture_to_load.fmt; /* gepc-ref D229 */
     loaded_texture.loaded_by_tile = true;
     loaded_texture.tmem_swizzled = false;
 
