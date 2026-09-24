@@ -4197,3 +4197,23 @@ Dark leftovers; remove unused assets and purge them from history.
   ini (in game the user holds the right stick click to switch).
 - User supplied an N64 first-person reference: both panes show there (the
   left one dark over the water). So it is a port bug. Shelved for now.
+
+## 86. v0.1.9 published: hold Menu for the launcher (#16)
+- https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.9 (tag at b80b096 =
+  build commit; GoldenEye-VR-v0.1.9.apk SHA-256
+  8d6605ff565a15485aade12d2d571ac249257e94c6a32a3a356c9df3cd6f6761; same
+  key). Closed #16.
+- input.c: the menu button is START on release; a 1.5 s hold raises
+  gevrReturnPrompt (drawn at the end of lv.c lvlRender by bondview2.c
+  gevrDrawReturnPrompt: menus, watch and play); A calls
+  vr_launcher.cpp gevrRestartToLauncher -> MainActivity.restartToLauncher,
+  B cancels; A/B/START are masked while it is up.
+- The restart: RelaunchActivity (android:process=":relaunch", translucent,
+  finishes in onCreate) kills the game pid and starts the launch intent
+  (ProcessPhoenix pattern). Tried first: AlarmManager + Runtime.exit - exit
+  hung on native threads until destroyTimeout and, on API 34, an alarm cannot
+  start a dead app's activity: Quest sat in its loading space. User-verified.
+- gevr_cheat.txt "relaunch" runs the same restart from the PC.
+- The #18 windshield probes were removed for the release (HANDOFF 85 lists
+  what they ruled out).
+- Next: the performance pass (RC-P90 firing drops, Frigate hull ~48 fps).
