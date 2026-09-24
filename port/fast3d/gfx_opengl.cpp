@@ -2268,7 +2268,7 @@ static void gevr_measure_R_capture(void)
         s_gevrRBox[3] = (float)(y1 + 1) / S;
         s_gevrRBoxValid = true;
         static unsigned logged;
-        if ((logged++ % 20) == 0) {
+        static float lastbox[4]; (void)logged; /* PORT probe (ammo panel jumps while aiming): log each change */ if (fabsf(lastbox[0] - s_gevrRBox[0]) + fabsf(lastbox[1] - s_gevrRBox[1]) + fabsf(lastbox[2] - s_gevrRBox[2]) + fabsf(lastbox[3] - s_gevrRBox[3]) > 0.01f) { lastbox[0] = s_gevrRBox[0]; lastbox[1] = s_gevrRBox[1]; lastbox[2] = s_gevrRBox[2]; lastbox[3] = s_gevrRBox[3];
             vr_log("ammo panel: drawn box %.3f,%.3f - %.3f,%.3f (GL origin)", s_gevrRBox[0], s_gevrRBox[1], s_gevrRBox[2], s_gevrRBox[3]);
         }
     }
