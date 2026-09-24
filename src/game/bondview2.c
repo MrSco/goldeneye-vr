@@ -481,6 +481,13 @@ static void gevrCheatProbe(s32 inlevel)
     }
     while (fscanf(fp, "%31s", word) == 1)
     {
+        /* "give<N>": put item N (ITEM_IDS) in the inventory, e.g. give40 = camera */
+        if (strncasecmp(word, "give", 4) == 0)
+        {
+            id = atoi(word + 4);
+            sysLogPrintf(LOG_NOTE, "cheathook: give item %d -> %d", id, bondinvAddInvItem((ITEM_IDS) id));
+            continue;
+        }
         id = (word[0] >= '0' && word[0] <= '9') ? atoi(word) : 0;
         for (i = 0; i < (s32) ARRAYCOUNT(names); i++)
         {
