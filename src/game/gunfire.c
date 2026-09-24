@@ -778,6 +778,7 @@ void gunUpdateAndFire(GUNHAND handnum)
         && hand->field_92C == 0
         && !((hand->weapon_ammo_in_magazine <= 0) && (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SINGLE_USE_RELOAD) != 0));
 
+
     if (hand->field_87F != 0 || s_gevrHiddenShown[handnum])
 #else
     if (hand->field_87F != 0)
@@ -1734,8 +1735,14 @@ static s32 gevrLeftFistLoad(void)
     s_gevrFistReady = FALSE;
     s_gevrFistStage = bossGetStageNum();
 
-    tmpl = get_ptr_weapon_model_header_line(ITEM_FIST);
-    name = get_ptr_item_text_call_line(ITEM_FIST);
+    /*
+     * The fist itself, not through get_ptr_*_line(ITEM_FIST): once Bond owns
+     * the sniper rifle the game swaps "unarmed" for the rifle as a club
+     * (cur_item_weapon_getname), and the hand that holds gadgets, keycards
+     * and the empty hand after a throw came out as a sniper rifle.
+     */
+    tmpl = gitem_structs[ITEM_FIST].item_header;
+    name = (s8 *) gitem_structs[ITEM_FIST].item_file_name;
     if (tmpl == NULL || name == NULL)
     {
         return FALSE;
