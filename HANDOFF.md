@@ -3890,3 +3890,27 @@ Dark leftovers; remove unused assets and purge them from history.
   (tag at e725639 = build commit; GoldenEye-VR-v0.1.2.apk SHA-256
   00d40e82736bddb85c303758e94e7110a32f3e8f8ec23adfad8fe3cf82cf79cf; same key).
   Fixes #1 and #4, README ROM steps. Open: #2, #3, #6.
+
+## 75. Bunker desk (#3) and camera photo (#2): objective records overwrote their neighbours
+
+- Tools added: files/gevr_warp.txt "<pad>" (bondview2.c gevrWarpProbe) moves
+  Bond onto a pad like the AI's teleport-to-pad. An object's pad puts you at
+  that object (inside a crate or desk): pick open-floor pads.
+- Probe path: object dump at level start showed the key and keyboard at floor
+  height, no desk near them, records #62-64/#66 missing and two phantom
+  "alarms" (model 0, pad 0). A raw dump of the cartridge records showed the
+  desk (pad 53) and its terminal (monitor, pad 54) present in the setup,
+  right after an OBJECTIVE_PHOTOGRAPH record.
+- Cause: struct criteria_picture / criteria_roomentered (3 words + next*) and
+  criteria_deposit (4 words + next*) are 24 bytes on the host, next at +16;
+  gevr_setup.c emitted them at N64 size (16/16/20), so linking the lists at
+  load (set_parent_cur_obj_photograph etc.) wrote the pointer over the next
+  record's header. Bunker: the desk and terminal never spawned (key on the
+  floor), the host walk ran 36 records out of step, and the photo objective
+  never completed. gepc-ref D126 already sized types 30/32/33/35 to 24 (we had
+  only 35). Now all four are 24 with field-by-field conversion; prop.c
+  _Static_asserts pin next at +16 and size 24.
+- User verified: desk, terminal and key in place (key picked up), photo of
+  the main screen completes the objective. Any level with photo, enter-room
+  or deposit-in-room objectives was affected the same way.
+- Probes removed (object dump, raw record dump); warp hook kept.
