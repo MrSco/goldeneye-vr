@@ -1499,11 +1499,6 @@ struct GfxVtx {
     };
 };
 
-// PORT probe (PP7 silencer band, HANDOFF 38): set between the first-person gun
-// draw tags (gunfire.c, 0x565A000x); gfx_sp_vertex logs the lighting/texgen
-// state of each distinct gun batch, and the lights/look-at every ~2 s.
-static bool gevrGunTrace;
-
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
 
@@ -1633,34 +1628,6 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
 
         d->u = U;
         d->v = V;
-
-        if (gevrGunTrace && i == 0) {
-            static uint64_t seen[48];
-            static int nseen;
-            static unsigned tick;
-            const uint64_t sig = ((uint64_t)rsp.geometry_mode << 32) ^ (uint32_t)rdp.combine_mode ^ ((uint64_t)rsp.current_num_lights << 60)
-                               ^ ((uint64_t)(rsp.lookat_enabled ? 1 : 0) << 63);
-            bool isnew = true;
-            for (int k = 0; k < nseen; k++) if (seen[k] == sig) { isnew = false; break; }
-            if (isnew && nseen < 48) seen[nseen++] = sig;
-            const bool lit = (rsp.geometry_mode & (G_LIGHTING | G_TEXTURE_GEN)) != 0;
-            if (isnew || (lit && (tick++ % 240) == 0)) {
-                const Light_t &L0 = rsp.current_lights[0];
-                const Light_t &A = rsp.current_lights[rsp.current_num_lights > 0 ? rsp.current_num_lights - 1 : 0];
-                vr_log("gunprobe: geo %08x comb %016llx om %08x/%08x lights %d lookat %d n0 %d,%d,%d col %d,%d,%d uv %d,%d vcol %d,%d,%d "
-                       "L0 col %d,%d,%d dir %d,%d,%d amb %d,%d,%d la0 %d,%d,%d la1 %d,%d,%d tex %p",
-                       (unsigned)rsp.geometry_mode, (unsigned long long)rdp.combine_mode, (unsigned)rdp.other_mode_h, (unsigned)rdp.other_mode_l,
-                       (int)rsp.current_num_lights, rsp.lookat_enabled ? 1 : 0,
-                       (int)(int8_t)v->cn[0], (int)(int8_t)v->cn[1], (int)(int8_t)v->cn[2],
-                       (int)v->cn[0], (int)v->cn[1], (int)v->cn[2], (int)U, (int)V,
-                       (int)d->color.r, (int)d->color.g, (int)d->color.b,
-                       L0.col[0], L0.col[1], L0.col[2], (int)(int8_t)L0.dir[0], (int)(int8_t)L0.dir[1], (int)(int8_t)L0.dir[2],
-                       A.col[0], A.col[1], A.col[2],
-                       (int)(int8_t)rsp.lookat[0].dir[0], (int)(int8_t)rsp.lookat[0].dir[1], (int)(int8_t)rsp.lookat[0].dir[2],
-                       (int)(int8_t)rsp.lookat[1].dir[0], (int)(int8_t)rsp.lookat[1].dir[1], (int)(int8_t)rsp.lookat[1].dir[2],
-                       (const void *)rdp.loaded_texture[rdp.texture_tile[0].tmem].addr);
-            }
-        }
 
         // trivial clip rejection
         //
@@ -3152,14 +3119,6 @@ static void gfx_run_dl(Gfx* cmd) {
 
                     case VR_HUD_CAPTURE_END_H:
                         gfx_vr_hud_capture_end_H();
-                        break;
-
-                    case 0x565A0000:
-                        gevrGunTrace = true;
-                        break;
-
-                    case 0x565A0001:
-                        gevrGunTrace = false;
                         break;
 
                     case VR_CULL_MIRROR_BEGIN:
