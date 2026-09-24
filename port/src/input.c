@@ -78,6 +78,8 @@ extern int VrLeftHandedMode;
 #endif
 
 int gevrVrTriggerDown[2];   /* by gun hand (0 right, 1 left); gunfire.c gunTickGameplay */
+int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondview2.c draws it) */
+extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern s32 gevrDualWielding(void);
 
 static inline bool bgunIsFiring(s32 hand) {
@@ -986,12 +988,54 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;
         if (get_button_state(1, "b")) npad->button |= B_BUTTON;
-        if (get_button_state(0, "menu")) npad->button |= START_BUTTON;
+        // Menu button (issue #16): in a level a tap is START, sent on release,
+        // and a 1.5 s hold asks whether to go back to the launcher (A yes, B no;
+        // bondview2.c gevrDrawReturnPrompt). The app restarts into it, so the
+        // mission in progress is lost. Paused or in the menus it is START as before.
+        {
+            static u32 downat = 0, startuntil = 0;
+            static bool consumed = false, aWas = true, bWas = true;
+            const u32 t = SDL_GetTicks();
+            const bool held = get_button_state(0, "menu");
+            if (gevrReturnPrompt) {
+                const bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
+                if (a && !aWas) {
+                    LOGI("input: menu hold -> back to the launcher\n");
+                    gevrRestartToLauncher();
+                }
+                if ((b && !bWas) || menu) {
+                    LOGI("input: menu hold -> cancelled\n");
+                    gevrReturnPrompt = 0;
+                }
+                aWas = a;
+                bWas = b;
+                downat = 0;
+            } else if (menu) {
+                if (held) npad->button |= START_BUTTON;
+                downat = 0;
+            } else if (held) {
+                if (!downat) {
+                    downat = t ? t : 1;
+                    consumed = false;
+                }
+                if (!consumed && t - downat >= 1500) {
+                    consumed = true;
+                    gevrReturnPrompt = 1;
+                    aWas = bWas = true;   /* a button already down does not answer */
+                    LOGI("input: menu hold -> return prompt\n");
+                }
+            } else {
+                if (downat && !consumed) startuntil = t + 100;
+                downat = 0;
+            }
+            if (t < startuntil) npad->button |= START_BUTTON;
+        }
         if (!menu && (get_button_state(1, "grip") || (!stereoplay && get_button_state(0, "grip"))))
             npad->button |= R_TRIG;
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
         if (get_button_state(0, "x")) npad->button |= B_BUTTON;
         if (get_button_state(0, "y")) npad->button |= A_BUTTON;
+        if (gevrReturnPrompt) npad->button &= ~(A_BUTTON | B_BUTTON | START_BUTTON);
         const bool lclick = get_button_state(0, "thumbstick_click");
         const bool rclick = get_button_state(1, "thumbstick_click");
         const u32 now = SDL_GetTicks();

@@ -481,6 +481,16 @@ static void gevrCheatProbe(s32 inlevel)
     }
     while (fscanf(fp, "%31s", word) == 1)
     {
+        /* "relaunch": the menu-hold restart into the launcher (issue #16) */
+        if (strcasecmp(word, "relaunch") == 0)
+        {
+            extern void gevrRestartToLauncher(void);
+
+            fclose(fp);
+            unlink(path);
+            gevrRestartToLauncher();
+            return;
+        }
         /* "give<N>": put item N (ITEM_IDS) in the inventory, e.g. give40 = camera */
         if (strncasecmp(word, "give", 4) == 0)
         {
@@ -10434,6 +10444,42 @@ static Gfx *gevrDrawStats(Gfx *gdl)
 }
 #endif
 
+#ifdef GEVR
+/*
+ * Issue #16: holding the menu button in a level asks whether to go back to the
+ * launcher (port/src/input.c). Drawn like the stats readout, in the middle of
+ * the view (the head-locked HUD panel in stereo).
+ */
+extern int gevrReturnPrompt;
+
+static Gfx *gevrDrawReturnPrompt(Gfx *gdl)
+{
+    const char *text = "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED";
+    s32 x, y, w = 0, h = 0;
+
+    if (!gevrReturnPrompt)
+    {
+        return gdl;
+    }
+    gdl = microcode_constructor(gdl);
+    textMeasure(&h, &w, (char *) text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    x = viGetViewLeft() + (viGetViewWidth() - w) / 2;
+    y = viGetViewTop() + (viGetViewHeight() * 40) / 100;
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+    }
+    gdl = microcode_constructor_related_to_menus(gdl, x - 8, y - 6, x + w + 8, y + h + 6, 0x000000C0);
+    gdl = textRender(gdl, &x, &y, (char *) text, ptrFontBankGothicChars, ptrFontBankGothic, -1, viGetX(), viGetY(), 0, 0);
+    gdl = combiner_bayer_lod_perspective(gdl);
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+    }
+    return gdl;
+}
+#endif
+
 Gfx *maybe_mp_interface(Gfx *gdl)
 {
     s32 ulx;
@@ -10632,6 +10678,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     gdl = sub_GAME_7F08AAE8(gdl);
 #ifdef GEVR
     gdl = gevrDrawStats(gdl);
+    gdl = gevrDrawReturnPrompt(gdl);
 #endif
     gunDrawSight(&gdl);
 #ifdef GEVR
