@@ -386,6 +386,10 @@ static constexpr float clampf(const float x, const float min, const float max) {
 
 /* the stats readout's per-frame draw count (port/src/gevr_engine_shim.c gevrPerf*) */
 extern "C" { uint32_t gevr_perf_draws, gevr_perf_tris; }
+/* performance pass: time in GL draws and texture imports, and texture cache misses */
+extern "C" { uint64_t gevr_perf_ns_gl, gevr_perf_ns_tex; uint32_t gevr_perf_texmiss; }
+#include <time.h>
+static inline uint64_t gevr_ns(void) { struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); return (uint64_t)ts.tv_sec * 1000000000ull + ts.tv_nsec; }
 /* PORT probe (performance pass): why fast3d flushed a non-empty batch, counted
  * per reason and printed with the perf line (gevr_engine_shim.c). 1 depth mode,
  * 2 viewport, 3 scissor, 4 texture load, 5 filter/clamp, 6 shader, 7 blend,
@@ -399,7 +403,9 @@ void gfx_flush(void) {
     gevr_perf_tris += buf_vbo_num_tris;
     if (buf_vbo_len > 0) {
         gevr_perf_draws++;
+        const uint64_t t0 = gevr_ns();
         gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
+        gevr_perf_ns_gl += gevr_ns() - t0;
         buf_vbo_len = 0;
         buf_vbo_num_tris = 0;
     }
@@ -701,6 +707,7 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     }
 
     gfx_flush();   /* a new texture: the batch so far draws with the old one */
+    gevr_perf_texmiss++;
 
     uint32_t texture_id;
     if (!gfx_texture_cache.free_texture_ids.empty()) {
@@ -1968,7 +1975,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         if (comb->used_textures[i]) {
             if (rdp.textures_changed[i]) {
                 /* the flush, if the texture really changes, is in gfx_texture_cache_lookup */
+                const uint64_t t0 = gevr_ns();
                 import_texture(i, tile, is_rect);
+                gevr_perf_ns_tex += gevr_ns() - t0;
                 rdp.textures_changed[i] = false;
             }
 

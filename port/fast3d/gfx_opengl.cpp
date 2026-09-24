@@ -377,9 +377,7 @@ static void gevr_decal_switch_poll(void)
 }
 
 static uint32_t frame_count;
-/* performance pass: the per-frame vertex ring and the per-draw uniform cache (draw_triangles) */
-static GLsizeiptr s_ringOff;
-static uint32_t s_ringFrame = 0xffffffffu;
+/* performance pass: the per-draw uniform cache (draw_triangles) */
 static bool s_uniCacheValid;
 static float s_uniEye[8], s_uniBias;
 static int s_uniFlat, s_uniMenu;
@@ -1499,28 +1497,9 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate) { // VR
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
 
-    /*
-     * Performance pass: one vertex buffer per frame. Every draw used to
-     * glBufferData its own few triangles - a fresh allocation each time, the
-     * costliest part of a draw on the Quest's driver, and GoldenEye issues
-     * hundreds of small draws (650 at Frigate's hull: 12-17 ms of CPU). The
-     * buffer is orphaned once a frame (and when full) and each batch appended
-     * with glBufferSubData, drawn from its own first vertex: nothing the GPU
-     * may still read is ever overwritten.
-     */
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);   /* the menu overlay and hub setups leave theirs bound */
-    const GLsizeiptr ringBytes = 4 << 20;
-    const GLsizeiptr bytes = (GLsizeiptr)(sizeof(float) * buf_vbo_len);
-    const GLsizeiptr stride = bytes / (GLsizeiptr)(3 * buf_vbo_num_tris);
-    GLsizeiptr off = (s_ringOff + stride - 1) / stride * stride;
-    if (s_ringFrame != frame_count || off + bytes > ringBytes) {
-        glBufferData(GL_ARRAY_BUFFER, ringBytes, NULL, GL_STREAM_DRAW);
-        s_ringFrame = frame_count;
-        off = 0;
-    }
-    glBufferSubData(GL_ARRAY_BUFFER, off, bytes, buf_vbo);
-    s_ringOff = off + bytes;
-    const GLint first = (GLint)(off / stride);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
+    const GLint first = 0;
 
     // A HUD capture draws into a single 2D texture, so it hides the right eye by
     // pushing that eye's geometry far away. That is correct while capturing --

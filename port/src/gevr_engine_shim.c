@@ -302,6 +302,8 @@ void gevrVrPumpEnd(void)
 #include <time.h>
 extern uint32_t gevr_perf_draws, gevr_perf_tris;   /* fast3d gfx_pc.cpp */
 extern uint32_t gevr_flush_reason[10];
+extern uint64_t gevr_perf_ns_gl, gevr_perf_ns_tex;
+extern uint32_t gevr_perf_texmiss;
 static u64 gevrPerfNs(void)
 {
 	struct timespec ts;
@@ -349,6 +351,10 @@ static void gevrPerfFrameDone(void)
 						gevr_flush_reason[4] / n2, gevr_flush_reason[5] / n2, gevr_flush_reason[6] / n2,
 						gevr_flush_reason[7] / n2, gevr_flush_reason[8] / n2, gevr_flush_reason[9] / n2);
 					memset(gevr_flush_reason, 0, sizeof(gevr_flush_reason));
+					sysLogPrintf(LOG_NOTE, "perfsplit: gl %.2f ms  tex %.2f ms  texmiss %.1f per frame",
+						gevr_perf_ns_gl / n2 / 1e6, gevr_perf_ns_tex / n2 / 1e6, gevr_perf_texmiss / n2);
+					gevr_perf_ns_gl = gevr_perf_ns_tex = 0;
+					gevr_perf_texmiss = 0;
 				}
 				gameAcc = 0;
 				gevrPerfWorstGame = 0;
