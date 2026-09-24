@@ -5522,6 +5522,12 @@ static Mtxf *gevrCasingThrowMtx(s32 handnum)
     return &m;
 }
 #define THROWMTX     (gevrCasingThrowMtx(handnum))
+
+/* PORT probe: the first casings after each stereo/flat change, spawn and end */
+static s32 s_gevrCasingAge[20];
+static s32 s_gevrCasingTraced[20];
+static s32 s_gevrCasingTraceLeft;
+static s32 s_gevrCasingTraceMode = -1;
 #define THROWPOS(k)  (g_CurrentPlayer->hands[handnum].throw_item_pos_related.m[3][k])
 #define THROWPREV(k) (g_CurrentPlayer->hands[handnum].throw_item_pos_related_prev.m[3][k])
 #else
@@ -5589,6 +5595,12 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
 #endif
  
     weaponid = getCurrentPlayerWeaponId(handnum);
+#ifdef GEVR
+    /* the pistol branch sets vel.z = frac * 0.0f before frac is assigned:
+     * stack garbage that is NaN or Inf made the whole casing NaN, and a NaN
+     * casing never falls below its floor, so it held its slot for good */
+    frac = 0.0f;
+#endif
     cartridge_header = get_ptr_item_statistics(weaponid)->ptr_cartridge_struct;
  
     // Do not create ejected casings in multiplayer.
@@ -5735,7 +5747,32 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
             casing->vel.z += (THROWPOS(2) - THROWPREV(2)) / g_GlobalTimerDelta;
         }
     }
- 
+#ifdef GEVR
+    {
+        s32 idx = (s32) (casing - g_Casings);
+
+        if (s_gevrCasingTraceMode != g_gevrStereo)
+        {
+            s_gevrCasingTraceMode = g_gevrStereo;
+            s_gevrCasingTraceLeft = 6;
+        }
+        s_gevrCasingAge[idx] = 0;
+        s_gevrCasingTraced[idx] = s_gevrCasingTraceLeft > 0;
+        if (s_gevrCasingTraced[idx])
+        {
+            PropRecord *pp = getCurrentPlayerProp();
+
+            s_gevrCasingTraceLeft--;
+            sysLogPrintf(LOG_NOTE, "casings: #%d item %d %s pos %.1f %.1f %.1f vel %.2f %.2f %.2f floor %.1f player %.1f %.1f %.1f move %.2f %.2f %.2f scale %.3f",
+                         idx, weaponid, g_gevrStereo ? "stereo" : "flat",
+                         casing->pos.x, casing->pos.y, casing->pos.z, casing->vel.x, casing->vel.y, casing->vel.z,
+                         floor_y_pos, pp->pos.x, pp->pos.y, pp->pos.z,
+                         THROWPOS(0) - THROWPREV(0), THROWPOS(1) - THROWPREV(1), THROWPOS(2) - THROWPREV(2),
+                         s_gevrThrowScale[handnum]);
+        }
+    }
+#endif
+
     if (handoffset);
 }
 #endif
@@ -5928,6 +5965,12 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
 #endif
  
     weaponid = getCurrentPlayerWeaponId(handnum);
+#ifdef GEVR
+    /* the pistol branch sets vel.z = frac * 0.0f before frac is assigned:
+     * stack garbage that is NaN or Inf made the whole casing NaN, and a NaN
+     * casing never falls below its floor, so it held its slot for good */
+    frac = 0.0f;
+#endif
     cartridge_header = get_ptr_item_statistics(weaponid)->ptr_cartridge_struct;
  
     // Do not create ejected casings in multiplayer.
@@ -6074,7 +6117,32 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
             casing->vel.z += (THROWPOS(2) - THROWPREV(2)) / g_GlobalTimerDelta;
         }
     }
- 
+#ifdef GEVR
+    {
+        s32 idx = (s32) (casing - g_Casings);
+
+        if (s_gevrCasingTraceMode != g_gevrStereo)
+        {
+            s_gevrCasingTraceMode = g_gevrStereo;
+            s_gevrCasingTraceLeft = 6;
+        }
+        s_gevrCasingAge[idx] = 0;
+        s_gevrCasingTraced[idx] = s_gevrCasingTraceLeft > 0;
+        if (s_gevrCasingTraced[idx])
+        {
+            PropRecord *pp = getCurrentPlayerProp();
+
+            s_gevrCasingTraceLeft--;
+            sysLogPrintf(LOG_NOTE, "casings: #%d item %d %s pos %.1f %.1f %.1f vel %.2f %.2f %.2f floor %.1f player %.1f %.1f %.1f move %.2f %.2f %.2f scale %.3f",
+                         idx, weaponid, g_gevrStereo ? "stereo" : "flat",
+                         casing->pos.x, casing->pos.y, casing->pos.z, casing->vel.x, casing->vel.y, casing->vel.z,
+                         floor_y_pos, pp->pos.x, pp->pos.y, pp->pos.z,
+                         THROWPOS(0) - THROWPREV(0), THROWPOS(1) - THROWPREV(1), THROWPOS(2) - THROWPREV(2),
+                         s_gevrThrowScale[handnum]);
+        }
+    }
+#endif
+
     if (handoffset);
 }
 #endif
@@ -6107,6 +6175,19 @@ void update_bullet_casing(CasingRecord* casing)
                      casing->pos.x, casing->pos.y, casing->pos.z, casing->floor_y_pos);
         casing->header = NULL;
         return;
+    }
+#endif
+#ifdef GEVR
+    {
+        s32 idx = (s32) (casing - g_Casings);
+
+        s_gevrCasingAge[idx]++;
+        if (s_gevrCasingTraced[idx] && casing->pos.y < casing->floor_y_pos)
+        {
+            s_gevrCasingTraced[idx] = FALSE;
+            sysLogPrintf(LOG_NOTE, "casings: #%d reached the floor after %d ticks at %.1f %.1f %.1f",
+                         idx, s_gevrCasingAge[idx], casing->pos.x, casing->pos.y, casing->pos.z);
+        }
     }
 #endif
     if (casing->pos.y < casing->floor_y_pos)
