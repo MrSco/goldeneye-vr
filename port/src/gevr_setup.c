@@ -663,6 +663,11 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
             /* Actually BE: extrascale at 0-1, state at 2, type at 3 — yes byte 3. */
             size_t hb = host_prop_bytes(type);
             int n64w = n64_prop_words(type);
+            /* PORT probe (Frigate boat windshield, #18): glass records and any COPY_ITEM */
+            if (type == 34 || type == 42 || type == 47 || type == 39 || type == 40 || (read32(src + pp + 4) >> 16) == 0x122) {
+                sysLogPrintf(LOG_NOTE, "setupprobe: i=%u type=%u w0=%08x w1=%08x w2=%08x",
+                    (unsigned) propindex, (unsigned) type, read32(src + pp), read32(src + pp + 4), read32(src + pp + 8));
+            }
             if (!hb || !n64w || pp + n64w * 4 > size || dstpos + hb > capacity) {
                 sysLogPrintf(LOG_ERROR, "setupwalk: STOP i=%u pp=0x%06x type=%u n64w=%d hb=%u size=%u",
                     (unsigned) propindex, (unsigned) pp, (unsigned) type, n64w, (unsigned) hb, (unsigned) size);

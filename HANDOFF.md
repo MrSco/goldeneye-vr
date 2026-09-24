@@ -4195,3 +4195,5 @@ Dark leftovers; remove unused assets and purge them from history.
 - Driving the headset from the PC: the launcher's Start is START (1000), not
   A (8000 activates the focused widget); screen mode via PlayMode=0 in the
   ini (in game the user holds the right stick click to switch).
+- User supplied an N64 first-person reference: both panes show there (the
+  left one dark over the water). So it is a port bug. Shelved for now.
