@@ -244,7 +244,7 @@ extern GLuint gfx_opengl_get_vr_menu_texture_R(void);// Right-hand HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_H(void);// Head HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_P(void);// weapon panel texture (issue #10)
 extern GLuint gfx_vr_scope_texture(void);            // sniper scope image (issue #40)
-extern "C" float gevrScopeLens[4];                   // bondview2.c: up, back, right, diameter (m)
+extern "C" float gevrScopeLens[4];                   // bondview2.c: right, up, back, diameter (m)
 #define GEVR_SCOPE_RES 512                           // gfx_opengl.cpp's scope target
 extern bool is_weapon_hud;
 float VrHudDistance = 0.8f;
@@ -3175,8 +3175,8 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             const float rx = 1.0f - 2.0f * (y * y + z * z), ry = 2.0f * (x * y + w * z), rz = 2.0f * (x * z - w * y);
             const float ux = -(2.0f * (x * z + w * y)), uy = -(2.0f * (y * z - w * x)), uz = -(1.0f - 2.0f * (x * x + y * y));
             const float bx = 2.0f * (x * y - w * z), by = 1.0f - 2.0f * (x * x + z * z), bz = 2.0f * (y * z + w * x);
-            const float up = gevrScopeLens[0], back = gevrScopeLens[1];
-            const float side = gevrScopeLens[2] * (VrLeftHandedMode ? -1.0f : 1.0f);   // the gun is mirrored
+            // bondview2.c gevrScopeLensPlace: on the model's eyepiece, mirrored with the gun
+            const float side = gevrScopeLens[0], up = gevrScopeLens[1], back = gevrScopeLens[2];
             scopeLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
             scopeLayer.space = g_vrState.viewSpace;
             scopeLayer.eyeVisibility = VrLeftHandedMode ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
