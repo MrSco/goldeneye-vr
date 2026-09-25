@@ -1247,10 +1247,33 @@ static int tp_reverse_dxt(uint32_t dxt, int texw, int size) {
 
 static uint32_t s_tpLookups, s_tpHits, s_tpLogged;
 
+/*
+ * GLideN64's filter-palette copy (gDP.cpp gDPLoadTLUT): count entries from
+ * the start of the TLUT load's image - not from where the load reads - into
+ * entry (tmem - 256) on, never cleared. N64 byte order, 8 bytes of padding
+ * each side for the checksum's short reads. The copy runs 4 bytes past count:
+ * with odd counts the checksum reads 2 bytes further, and the pack's names
+ * match the image's own bytes there (10 of 10 on the Dam).
+ */
+static uint8_t s_filterPalette[8 + 1024 + 8];
+void gevr_tlut_note(uint32_t palofs, uint32_t count, const void *base) {
+    (void)base;
+    const uint8_t *img = rdp.texture_to_load.addr;
+    if (img == nullptr) return;
+    uint32_t at = palofs * 2, n = count * 2 + 4;
+    if (at >= 1024) return;
+    if (at + n > 1024) n = 1024 - at;
+    memcpy(s_filterPalette + 8 + at, img, n);
+}
+static uint32_t s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize;
+
 /* The pack entry for the texture tile draws from, or -1; *hw x *hh is the area the checksum covers. */
 static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, uint32_t *hh) {
     const auto &t = rdp.texture_tile[tile];
-    if (lt.load_type == 0 || lt.img_addr == nullptr) return -1;
+    if (lt.load_type == 0 || lt.img_addr == nullptr) {
+        ++s_tpSkipLoad;
+        return -1;
+    }
     const int size = t.orig_siz;
 
     // an aligned base (N64 textures are 8-byte aligned; keep any offset in start)
@@ -1279,26 +1302,31 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
         else bpl = (lt.dxt > 1 ? tp_reverse_dxt(lt.dxt, tw, size) : (int)lt.dxt) << 3;
         // never read past what the block loaded (the emulator reads RDRAM; this is a heap)
         if (lt.orig_size_bytes != 0 && (int64_t)(h - 1) * bpl + ((w << size) >> 1) > (int64_t)lt.orig_size_bytes) {
+            ++s_tpSkipSize;
             return -1;
         }
     }
-    if (w <= 0 || h <= 0 || ((w << size) >> 1) < 4 || h > 1024 || w > 1024) return -1;
+    if (w <= 0 || h <= 0 || ((w << size) >> 1) < 4 || h > 1024 || w > 1024) {
+        ++s_tpSkipSize;
+        return -1;
+    }
 
     const uint32_t tex = tp_rice(base, start, w, h, size, bpl);
     const bool ci = size < G_IM_SIZ_16b && (rdp.palette_fmt != G_TT_NONE || t.orig_fmt == G_IM_FMT_CI);
     int id;
     uint32_t pal = 0;
     if (ci) {
-        // the TLUT as N64 bytes (rdp.palette holds host-order entries), padded for short reads
-        uint8_t palbuf[8 + 512 + 8] = { 0 };
-        uint8_t *palbytes = palbuf + 8;
-        for (int k = 0; k < 256; ++k) {
-            palbytes[2 * k] = (uint8_t)(rdp.palette[k] >> 8);
-            palbytes[2 * k + 1] = (uint8_t)rdp.palette[k];
-        }
+        /*
+         * The palette as GLideN64 hashes it: its filter-palette copy
+         * (gDP.cpp gDPLoadTLUT) takes the TLUT load's image from its START,
+         * ignoring the load's offset. GoldenEye keeps each palette after its
+         * texture in one image and loads it at an offset, so what GLideN64
+         * (and so the pack's names) hash as the palette is the texture's own
+         * first bytes. s_filterPalette mirrors that copy (gevr_tlut_note).
+         */
         const int cimax = tp_cimax(base, start, w, h, size, bpl);
         const intptr_t pstart = size == G_IM_SIZ_4b ? (intptr_t)t.palette * 32 : 0;
-        pal = tp_rice(palbytes, pstart, cimax + 1, 1, 2, size == G_IM_SIZ_4b ? 32 : 512);
+        pal = tp_rice(s_filterPalette + 8, pstart, cimax + 1, 1, 2, size == G_IM_SIZ_4b ? 32 : 512);
         id = gevrtp::find((uint64_t)pal << 32 | tex, t.orig_fmt, (uint8_t)size);
         if (id < 0) id = gevrtp::find(pal, t.orig_fmt, (uint8_t)size);
         if (id < 0) id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size);
@@ -1308,14 +1336,29 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
 
     ++s_tpLookups;
     if (id >= 0) ++s_tpHits;
+    // the front end's letters are the first ~70; past them, every miss and the
+    // bigger hits (the world's), to see what a level matches
+    static uint32_t s_tpMissLogged, s_tpBigLogged;
+    const bool big = w * h >= 256;
+    bool log = false;
     if (s_tpLogged < 80) {
+        log = true;
+    } else if (id < 0 && s_tpMissLogged < 300) {
+        log = true;
+        ++s_tpMissLogged;
+    } else if (id >= 0 && big && s_tpBigLogged < 150) {
+        log = true;
+        ++s_tpBigLogged;
+    }
+    if (log) {
         ++s_tpLogged;
         sysLogPrintf(LOG_NOTE, "texpack: %s %08X%s%08X f%u s%u %dx%d bpl %d load %u upload %ux%u",
                      id >= 0 ? "hit " : "miss", tex, ci ? "#" : " ", ci ? pal : 0, (unsigned)t.orig_fmt,
                      (unsigned)size, w, h, bpl, (unsigned)lt.load_type, (unsigned)t.width, (unsigned)t.height);
     }
     if ((s_tpLookups % 500) == 0) {
-        sysLogPrintf(LOG_NOTE, "texpack: %u of %u textures matched", s_tpHits, s_tpLookups);
+        sysLogPrintf(LOG_NOTE, "texpack: %u of %u textures matched (skipped: %u mip levels, %u unknown loads, %u sizes)",
+                     s_tpHits, s_tpLookups, s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize);
     }
     *hw = (uint32_t)w;
     *hh = (uint32_t)h;
@@ -1348,7 +1391,14 @@ static bool gevr_texpack_upload(const uint8_t *img, uint32_t iw, uint32_t ih, ui
 
 /* import_texture's miss: the pack's image if there is one and it's decoded. */
 static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const TextureCacheKey &key) {
-    if (!s_tpActive || (rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail)) return false;
+    if (!s_tpActive) return false;
+    // a mip chain's smaller levels keep their own textures; its base level
+    // (first_tile_index) is the one a pack replaces - GoldenEye mipmaps most of
+    // its world and model textures, so skipping the whole chain skipped them
+    if (rdp.tex_lod && tile > rdp.first_tile_index) {
+        ++s_tpSkipLod;
+        return false;
+    }
     uint32_t hw, hh, iw, ih;
     const int id = gevr_texpack_lookup(tile, lt, &hw, &hh);
     if (id < 0) return false;
@@ -2844,6 +2894,12 @@ static void load_tlut(const uint16_t* base, uint8_t tile, uint32_t count) {
 	const uint32_t palofs = rdp.texture_tile[tile].tmem - 256;
 	SUPPORT_CHECK(palofs + count <= 256);
 
+#ifdef GEVR
+	{
+		extern void gevr_tlut_note(uint32_t palofs, uint32_t count, const void *base);
+		gevr_tlut_note(palofs, count, base);
+	}
+#endif
 	const uint16_t *src = base;
 	uint16_t *dst = rdp.palette + palofs;
 	for (uint32_t i = 0; i < count; ++i) {
