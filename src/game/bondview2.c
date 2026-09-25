@@ -566,7 +566,7 @@ static s32 gevrWarpNearDish(coord3d *dish)
     {
         ObjectRecord *obj = (ObjectRecord *) def;
 
-        if (def->type == PROPDEF_PROP && obj->obj == PROP_SEVDISH && obj->pad >= 0)
+        if (def->type == PROPDEF_PROP && (obj->obj == PROP_SEVDISH || obj->obj == PROP_SATDISH) && obj->pad >= 0)
         {
             PadRecord *pad = gevrWarpPad(obj->pad);
 
@@ -581,7 +581,26 @@ static s32 gevrWarpNearDish(coord3d *dish)
     }
     if (!found)
     {
-        sysLogPrintf(LOG_WARNING, "warphook: no satellite dish in this level");
+        /* list the level's prop types, to find what the dish is here */
+        char line[480];
+        s32 n = 0;
+        s32 seen[64];
+        s32 nseen = 0;
+        s32 k;
+
+        line[0] = 0;
+        for (def = g_CurrentSetup.propDefs; def->type != PROPDEF_END; def = sizepropdef(def) + def)
+        {
+            ObjectRecord *o = (ObjectRecord *) def;
+
+            if (def->type != PROPDEF_PROP) continue;
+            for (k = 0; k < nseen && seen[k] != o->obj; k++) {}
+            if (k < nseen || nseen >= 64) continue;
+            seen[nseen++] = o->obj;
+            n += snprintf(line + n, sizeof(line) - n, "%d/p%d ", o->obj, o->pad);
+            if (n > (s32) sizeof(line) - 16) break;
+        }
+        sysLogPrintf(LOG_WARNING, "warphook: no satellite dish in this level; prop types (obj/pad): %s", line);
         return -1;
     }
     for (def = g_CurrentSetup.propDefs; def->type != PROPDEF_END; def = sizepropdef(def) + def)
