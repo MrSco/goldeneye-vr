@@ -331,11 +331,11 @@ The app icon and banner art were made for this project.
 
 ## ⭐ Star History
 
-<a href="https://www.star-history.com/?repos=MrSco%2Fgoldeneye-vr&type=timeline&logscale=&releases=&legend=bottom-right">
+<a href="https://www.star-history.com/?repos=MrSco%2Fgoldeneye-vr&type=timeline&legend=bottom-right">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=MrSco/goldeneye-vr&type=timeline&theme=dark&legend=bottom-right" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=MrSco/goldeneye-vr&type=timeline&legend=bottom-right" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=MrSco/goldeneye-vr&type=timeline&legend=bottom-right" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=MrSco/goldeneye-vr&type=date&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=MrSco/goldeneye-vr&type=date&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=MrSco/goldeneye-vr&type=date&legend=bottom-right" />
  </picture>
 </a>
 
