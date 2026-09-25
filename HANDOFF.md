@@ -4457,3 +4457,17 @@ Dark leftovers; remove unused assets and purge them from history.
   `vX.Y.Z-test.N`, versionName the same without the `v`, **versionCode bumped**
   (Android refuses a lower one), signed with the release key, asset named
   `GoldenEye-VR-vX.Y.Z-test.N.apk`.
+- **Seen on the Quest 3, 2026-09-25** (build 7d391a0, versionName faked to
+  0.1.11 with the same versionCode 13 so it installs over the release without
+  uninstalling): as 0.1.12 the launcher logs "offer none" and shows no line;
+  as 0.1.11 it offers v0.1.12, and Update -> unknown-apps page -> download ->
+  confirm installed the published v0.1.12 in the headset (installerPackageName
+  com.gevr.port), ROM and settings intact. Two fixes it took: the update line
+  sits beside the Cheats button (under the ROM it pushed the panel's bottom
+  off) and wraps; and Quest's "Install unknown apps" entry hands over to a
+  second settings screen and finishes at once, so onActivityResult came while
+  the page was up and comeBackToVr closed it in half a second - a result
+  within 2 s now watches canRequestPackageInstalls instead (UpdateChecker
+  permissionWatchTick). Not seen yet: which install route ran (the log had
+  rotated), cancelling the confirm, offline, debug-signed, and "Updated to"
+  (needs a release that has the updater).
