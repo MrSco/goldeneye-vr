@@ -536,14 +536,6 @@ static void gevrCheatProbe(s32 inlevel)
  */
 extern s32 sizepropdef(PropDefHeaderRecord *pdef);   /* loadobjectmodel.c */
 
-/* vr_input.cpp (issue #40): the sniper rifle aimed (zoomed) in stereo, for
- * Perfect Dark VR's scoped-weapon steadying of head and hand */
-s32 gevrScopedWeaponAiming(void)
-{
-    return g_gevrStereo && g_CurrentPlayer != NULL && g_CurrentPlayer->insightaimmode &&
-           getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_SNIPERRIFLE;
-}
-
 static PadRecord *gevrWarpPad(s32 padnum)
 {
     return isNotBoundPad(padnum) ? &g_CurrentSetup.pads[padnum]
