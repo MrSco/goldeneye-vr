@@ -1543,12 +1543,14 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  *
  * The lens sits on the model's eyepiece, the rear face of the scope tube in
  * GsniperrifleZ (display list node 0x27c, measured from the ROM: centred at
- * x 13.4, y 73.1 on its end ring at z -160, 23.5 in radius, in model units;
- * model +X is the gun's left). The gun draws at GEVR_VIEWMODEL_CM x 0.1 (its
- * model scale) cm a unit with its origin GEVR_GRIP_TO_ORIGIN_CM behind the
- * fist (gevrStereoGunMatrix), so the lens is placed the same way and follows
- * the grip trims, the gun size cheats and the left-handed mirror. A first try
- * a guessed 6.5 cm over the grip hung 25 cm in front of the eyepiece.
+ * x 13.5, y 126.5 on its end ring at z -128, 23.5 in radius, in model units;
+ * model +X is the gun's left). Those are the raw vertex coordinates: the root
+ * position node's own offset (0, -53.2, -31.9) is not drawn, its matrix being
+ * the gun's (the muzzle node at (0, 53.2, 804.1) logged 4.2 cm up and 56.2
+ * ahead of the grip, as that predicts). The gun draws at GEVR_VIEWMODEL_CM x
+ * 0.1 (its model scale) cm a unit with its origin GEVR_GRIP_TO_ORIGIN_CM
+ * behind the fist (gevrStereoGunMatrix), so the lens is placed the same way
+ * and follows the grip trims, the gun size cheats and the left-handed mirror.
  * files/gevr_scope.txt "right up back diameter K" (metres added to the lens;
  * K) adjusts it while testing.
  */
@@ -1560,9 +1562,9 @@ static f32 s_gevrScopeTrim[4];  /* gevr_scope.txt: added to the lens */
 static f32 s_gevrScopeK = 0.25f;   /* the 4 cm eyepiece about 15 cm from the eye is about 15 degrees */
 
 #define GEVR_SCOPE_NEAR_M       0.05f
-#define GEVR_SCOPE_EYEPIECE_X   13.4f
-#define GEVR_SCOPE_EYEPIECE_Y   73.1f
-#define GEVR_SCOPE_EYEPIECE_Z   -160.0f
+#define GEVR_SCOPE_EYEPIECE_X   13.5f
+#define GEVR_SCOPE_EYEPIECE_Y   126.5f
+#define GEVR_SCOPE_EYEPIECE_Z   -128.0f
 #define GEVR_SCOPE_EYEPIECE_R   23.5f
 
 static void gevrScopeTune(void)
@@ -1639,8 +1641,8 @@ s32 gevrScopeBegin(void)
         sysLogPrintf(LOG_NOTE, "stereo: scope %s", on ? "on (aiming)" : "off");
         if (on)
         {
-            /* the model's scale, checked: its muzzle node (0, 0, 772.1) should
-             * come out 53.6 cm ahead of the grip at 0.085 cm a unit */
+            /* the model's scale, checked: its muzzle node (0, 53.2, 804.1)
+             * comes out 4.5 cm up and 56.3 cm ahead of the grip at 0.085 cm a unit */
             f32 m[3] = { (o.x - pos[0]) / vu * 100.0f, (o.y - pos[1]) / vu * 100.0f, (o.z - pos[2]) / vu * 100.0f };
 
             sysLogPrintf(LOG_NOTE, "stereo: scope lens right %.3f up %.3f back %.3f m, %.3f wide; muzzle right %.1f up %.1f back %.1f cm",
