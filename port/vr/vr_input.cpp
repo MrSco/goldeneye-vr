@@ -37,7 +37,6 @@ extern int weaponnum;
 extern bool VR_FUNC_SECONDARY;
 extern int vr_button_R_grip;
 extern int vr_button_L_grip;
-extern "C" int gevrScopedWeaponAiming(void);   // bondview2.c (issue #40)
 extern bool VrMotionThrowing;
 bool WepCanZoom = false;
 bool VrWeaponRecoil = true;
@@ -1431,11 +1430,10 @@ void controller_pose() {
         // --- Determine whether grip is pressed for THIS controller ---
         gripPressed = (sourceIndex == 1) ? (vr_button_R_grip != 0) : (vr_button_L_grip != 0);
         /* The scoped-weapon list below is Perfect Dark's (Sniper Rifle, Laptop
-         * Gun, FarSight, ...). GoldenEye's is the sniper rifle, aimed in
-         * stereo (issue #40, bondview2.c gevrScopedWeaponAiming): the zoom
-         * magnifies about 11x, and with it every tremor of the head and hand,
-         * so Perfect Dark VR's steadying of both runs while it's up. */
-        WepCanZoom = gevrScopedWeaponAiming() != 0;
+         * Gun, FarSight, ...). Not used for GoldenEye: steadying a zoomed
+         * headset view was tried for the sniper (issue #40) and was worse -
+         * a scope in the lens replaces the headset zoom. */
+        WepCanZoom = false;
 #if 0 /* Perfect Dark scoped weapons - not yet ported to GoldenEye */
         WepCanZoom = weaponnum == WEAPON_SNIPERRIFLE
                      || weaponnum == WEAPON_MAGSEC4

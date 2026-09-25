@@ -1036,9 +1036,6 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // as Perfect Dark VR's (sight.c sightDrawLeftHand, on vr_button_L_grip).
         // Not R as well: here R aims and zooms.
         vr_button_L_grip = stereoplay && gevrDualWielding() && get_button_state(0, "grip");
-        // Issue #40: the right grip as Perfect Dark VR reads it (vr_input.cpp,
-        // vr_openxr.cpp): with a scoped weapon aimed it steadies head and hand.
-        vr_button_R_grip = stereoplay && get_button_state(1, "grip");
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
         if (get_button_state(0, "x")) npad->button |= B_BUTTON;
         if (get_button_state(0, "y")) npad->button |= A_BUTTON;
