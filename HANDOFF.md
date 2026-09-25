@@ -4304,3 +4304,25 @@ Dark leftovers; remove unused assets and purge them from history.
   the old build; build assembleRelease and check lastUpdateTime. A test
   capture once ran rm on /sdcard/Oculus/Screenshots and deleted the user's
   screenshots (10 restored from local copies) - never delete there.
+
+## 90. Decals: the band's depth term was the camera's
+- Symptom (Dam, 2D and stereo): red/white stripes cut off along the wall's
+  triangle diagonal up close, bullet holes garbled or gone as you moved.
+- Live switch results (files/gevr_decal.txt): offset -8,-8 better; band 3
+  better; band 1 worse; band 10 nothing; mode 2's 3-unit pull worse. Not
+  monotonic, so the band's scale was wrong, not its width.
+- Cause, logged: gfx_decal_proj_z was P_matrix[3][2], but GoldenEye loads its
+  camera into the projection, so P is camera x projection: P[3][2] = 275.6 on
+  the Dam against the real depth offset B = -10 - the band pushed decals the
+  wrong way by a camera-dependent amount. Fix (gfx_pc.cpp): recover
+  A = -P[r][2] / P[r][3] from a top row (the camera part is rigid) and
+  B = P[3][2] + A * P[3][3]. The two-pass band (GEVR_DECAL_BAND) is now on
+  by default at 3 view units. User: "stripes and holes look good now".
+- Still open: at some positions every bullet hole shows a comb (alternate
+  texel rows shifted by half the width = TMEM odd-row word swap in the wrong
+  state). Holes load through texSelect with dxt != 0 (tmem_swizzled false,
+  read linearly); the cache key carries swizzled, and image.c swizzles
+  decoded textures only on some load paths. Next: log the hole texture's key
+  and bytes when the comb shows.
+- #22: grenade moved out of the fist (forward 15 -> 18.5 cm), awaiting the
+  user's look.
