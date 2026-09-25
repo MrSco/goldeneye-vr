@@ -4488,3 +4488,10 @@ Dark leftovers; remove unused assets and purge them from history.
   every gun that can be dual wielded, as bondinvCycleForward offers them).
   "<gun> x2" (or "<right> / <left>"), shows the right gun's model, equips both
   hands on release as A's cycle does; opens on the pair in hand. User-tested.
+
+## 100. Left gun's sight (#37, merged 2026-09-25)
+- Dual-wielding, the left grip shows the left gun's sight in blue, as Perfect
+  Dark VR's sightDrawLeftHand (on vr_button_L_grip; not R, which aims/zooms
+  here). chrprop.c traces an aim point per hand (the left one only while its
+  grip is held); gunfire.c gevrDrawSight3D(hand) draws it with the env colour
+  as the colour and the texture's alpha as the shape. User-tested.
