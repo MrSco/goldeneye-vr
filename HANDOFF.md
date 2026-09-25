@@ -4381,3 +4381,30 @@ Dark leftovers; remove unused assets and purge them from history.
   Closed with replies: #21, #22, #27 (asked the reporter to reopen with a
   screenshot if Surface pop-in remains), #28. Open: #9, #10, #18, #23, #24,
   #25, #26; bullet-hole comb (HANDOFF 90).
+
+## 94. Weapon panel (#10); muzzle point and loaded rocket on scaled levels
+- Weapon panel (64da01b, 9d1e385 and this commit), user: "panel looks good
+  enough for now". In stereo play a tap of the weapon hand's A cycles (sent
+  on release); a 350 ms hold shows a copy of the watch inventory list above
+  the weapon hand on its own layer (VR_WEAPON_PANEL_CAPTURE 0x565C, P
+  swapchain in vr_openxr.cpp, billboarded 18 cm above the controller, crop
+  from gevrWeaponPanelRect). The movement stick scrolls it (no walking while
+  up); release equips with gunRequestHandWeaponChange (only if the highlight
+  moved). The highlighted item's model is drawn in a strip above the list:
+  VR fast3d forces 3D viewports to the whole eye buffer, so the strip is a
+  clip-space scale/offset in the projection; the model is the panel's own
+  copy (loaded from gitem_structs like the stereo arms, g_gevrItemModelOverride
+  in set_enviro_fog_for_items_in_solo_watch_menu) so the hand keeps the
+  equipped weapon (user's choice). Unarmed shows the fist (depth x0.35: never
+  placed in the watch). Tuning: files/gevr_wpanel.txt "open dy fov index"
+  forces it open in front of the eyes. Not done: the tank as a model (user:
+  forget it); dual-wield pairs are not listed (the watch never listed them).
+- Muzzle point (field_B58/B64): converted to world without dividing out
+  D_800364CC, so on the Dam (0.2) beams, tracers and launched grenades and
+  rockets started a fifth of the way from the eye to the gun; now divided in
+  stereo, as the throw matrix was (HANDOFF 71). The rocket loaded in the
+  launcher was drawn after matrix_4x4_7F058C64 turned the world scale off,
+  ~6x too big on the Dam; now drawn before it in stereo. User: "rocket
+  launcher and lasers look good now". Not done: gevrStereoShot's origin has
+  the same mismatch (bullets leave from near the eye, along the barrel);
+  aiming was verified as is, re-test in the headset before changing it.
