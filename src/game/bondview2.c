@@ -912,7 +912,7 @@ typedef struct
     f32 ofs[3];     /* cm: left, up, forward */
     f32 rot[3];     /* degrees about the model's X, Y, Z */
     f32 scale;
-    s32 fist;
+    s32 fist;       /* the hand round it: 0 none, 1 the fist, 2 the taser's hand (#41) */
 } GevrItemPose;
 
 static GevrItemPose s_gevrItemPoses[] = {
@@ -924,7 +924,11 @@ static GevrItemPose s_gevrItemPoses[] = {
     { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 90.0f }, 2.0f, TRUE },   /* tiny at 1 (issue #8) */
     { ITEM_BOMBCASE,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },   /* half size at 1 (user) */
     { ITEM_GOLDENEYEKEY,  { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
-    { ITEM_GRENADE,       { 2.5f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.2f, TRUE },   /* 5x too big, no hand of its own (#8); off the palm (#22) */
+    /* 5x too big, no hand of its own (#8). Held in the taser's hand (#41, hand
+     * 2, gunfire.c gevrTaserHandLoad) where the taser's body was: its centre
+     * in GtaserZ, x 1 y 79.5 z 57.5 model units at 0.085 cm each. (In the
+     * open fist it sat at 2.5, 1, 15, off the palm: #22.) */
+    { ITEM_GRENADE,       { 0.0f, 6.8f, 4.9f }, { 0.0f, 0.0f, 0.0f }, 0.2f, 2 },
     { ITEM_PLASTIQUE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.4f, TRUE },
 };
 
@@ -979,6 +983,14 @@ s32 gevrStereoItemNeedsFist(s32 item)
     GevrItemPose *p = gevrItemPoseFind(item);
 
     return p != NULL && p->fist;
+}
+
+/* which hand holds it: 0 none (the model has its own), 1 the fist, 2 the taser's hand (#41) */
+s32 gevrStereoItemHand(s32 item)
+{
+    GevrItemPose *p = gevrItemPoseFind(item);
+
+    return p != NULL ? p->fist : 0;
 }
 
 /* m: the stereo gun matrix (rows the model's left/up/forward times the

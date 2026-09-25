@@ -1816,12 +1816,130 @@ static s32 gevrLeftFistLoad(void)
 }
 
 /*
+ * Issue #41: a grenade held in the fist viewmodel (the open karate-chop
+ * hand) looked wrong; the taser viewmodel's hand is curled round a grip, as
+ * a hand holding a grenade is (user). A private copy of GtaserZ with the
+ * taser itself taken out: its hand and sleeve are the display lists under
+ * the hand switches (8-11, the ones sub_GAME_7F05E978 shows; they draw with
+ * the fist's skin and cuff textures 0x701-0x706), the taser's body parts sit
+ * under BSP nodes (textures 0x581-0x589, 0x394, 0x17/0x18), and its arc is
+ * a collision display list (switch 16). Measured from the ROM. Drawn through
+ * the same gun matrix as the taser, the hand lands where the taser's does.
+ */
+#define GEVR_TASERHAND_BUFSIZE 0x40000
+#define GEVR_TASERHAND_MODELSIZE 0x10000
+
+static u8 *s_gevrTaserHandBuf;
+static struct texpool s_gevrTaserHandPool;
+static ModelFileHeader s_gevrTaserHandHeader;
+static Model s_gevrTaserHandModel;
+static u32 s_gevrTaserHandRw[256];
+static s32 s_gevrTaserHandStage = -1;
+static s32 s_gevrTaserHandReady;
+
+/* the display lists not under a switch: the taser's own parts */
+static s32 gevrHideUnswitchedDls(ModelNode *node)
+{
+    s32 n = 0;
+
+    while (node != NULL)
+    {
+        u32 op = node->Opcode & 0xFF;
+
+        if ((op == MODELNODE_OPCODE_DL
+             && (node->Parent == NULL || (node->Parent->Opcode & 0xFF) != MODELNODE_OPCODE_SWITCH))
+            || op == MODELNODE_OPCODE_DLCOLLISION)
+        {
+            if (op == MODELNODE_OPCODE_DL)
+            {
+                node->Data->DisplayList.Primary = NULL;
+                node->Data->DisplayList.Secondary = NULL;
+            }
+            else
+            {
+                node->Data->DisplayListCollisions.Primary = NULL;
+                node->Data->DisplayListCollisions.Secondary = NULL;
+            }
+            n++;
+        }
+
+        if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+            if (node != NULL)
+            {
+                node = node->Next;
+            }
+        }
+    }
+    return n;
+}
+
+static s32 gevrTaserHandLoad(void)
+{
+    ModelFileHeader *tmpl;
+    s8 *name;
+    s32 hidden;
+
+    if (s_gevrTaserHandReady && s_gevrTaserHandStage == bossGetStageNum())
+    {
+        return TRUE;
+    }
+
+    s_gevrTaserHandReady = FALSE;
+    s_gevrTaserHandStage = bossGetStageNum();
+
+    tmpl = gitem_structs[ITEM_TASER].item_header;
+    name = (s8 *) gitem_structs[ITEM_TASER].item_file_name;
+    if (tmpl == NULL || name == NULL)
+    {
+        return FALSE;
+    }
+    if (s_gevrTaserHandBuf == NULL)
+    {
+        s_gevrTaserHandBuf = malloc(GEVR_TASERHAND_BUFSIZE);
+        if (s_gevrTaserHandBuf == NULL)
+        {
+            return FALSE;
+        }
+    }
+
+    s_gevrTaserHandHeader = *tmpl;
+    texInitPool(&s_gevrTaserHandPool, s_gevrTaserHandBuf + GEVR_TASERHAND_MODELSIZE,
+                GEVR_TASERHAND_BUFSIZE - GEVR_TASERHAND_MODELSIZE);
+    load_object_fill_header(&s_gevrTaserHandHeader, (u8 *)name, s_gevrTaserHandBuf, GEVR_TASERHAND_MODELSIZE,
+                            &s_gevrTaserHandPool);
+    modelCalculateRwDataLen(&s_gevrTaserHandHeader);
+
+    if (s_gevrTaserHandHeader.RootNode == NULL
+        || (u32)s_gevrTaserHandHeader.numRecords > ARRAYCOUNT(s_gevrTaserHandRw))
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: taser hand model did not load (%d records)", s_gevrTaserHandHeader.numRecords);
+        return FALSE;
+    }
+
+    hidden = gevrHideUnswitchedDls(s_gevrTaserHandHeader.RootNode);
+    sysLogPrintf(LOG_NOTE, "stereo: taser hand loaded (%s, %d matrices, %d taser parts hidden)",
+                 name, s_gevrTaserHandHeader.numMatrices, hidden);
+    s_gevrTaserHandReady = TRUE;
+    return TRUE;
+}
+
+/*
  * The fist viewmodel (the right hand's own) on the right controller while
  * the game draws nothing there: a hand-held item with no model (keycards),
  * the empty hand after a mine or grenade leaves it, and the hand holding a
  * gadget whose model is only the object. Not during a weapon switch.
  */
 extern s32 gevrStereoItemNeedsFist(s32 item);
+extern s32 gevrStereoItemHand(s32 item);   /* bondview2.c: GEVR_ITEM_HAND_* */
 
 static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
 {
@@ -1830,6 +1948,9 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     Mtxf *rwmtx;
     s32 item = get_item_in_hand_or_watch_menu(GUNRIGHT);
     s32 j;
+    Model *mdl = &s_gevrFistModel;
+    ModelFileHeader *hdr = &s_gevrFistHeader;
+    u32 *rw = s_gevrFistRw;
 
     if (!g_gevrStereo
         || g_CurrentPlayer->bonddead
@@ -1856,28 +1977,45 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     {
         return gdl;     /* the gadget's model has its own hand */
     }
-    if (!gevrStereoGunMatrix(GUNRIGHT, &armmtx) || !gevrLeftFistLoad())
+    if (!gevrStereoGunMatrix(GUNRIGHT, &armmtx))
+    {
+        return gdl;
+    }
+    /* issue #41: a grenade in the taser's gripping hand, not the open fist */
+    if (s_gevrHiddenShown[GUNRIGHT] && gevrStereoItemHand(item) == 2 && gevrTaserHandLoad())
+    {
+        mdl = &s_gevrTaserHandModel;
+        hdr = &s_gevrTaserHandHeader;
+        rw = s_gevrTaserHandRw;
+    }
+    else if (!gevrLeftFistLoad())
     {
         return gdl;
     }
 
     matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
 
-    rwmtx = (Mtxf *) dynAllocate(s_gevrFistHeader.numMatrices * ((s32) sizeof(Mtxf)));
-    for (j = 0; j < s_gevrFistHeader.numMatrices; j++)
+    rwmtx = (Mtxf *) dynAllocate(hdr->numMatrices * ((s32) sizeof(Mtxf)));
+    for (j = 0; j < hdr->numMatrices; j++)
     {
         matrix_4x4_set_identity(&rwmtx[j]);
     }
     matrix_4x4_copy(&armmtx, &rwmtx[0]);
 
-    modelInit(&s_gevrFistModel, &s_gevrFistHeader, (s32 *) s_gevrFistRw);
-    sub_GAME_7F05E978(&s_gevrFistModel, 1);
-    sub_GAME_7F05EA94(&s_gevrFistModel, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
-    if (s_gevrFistHeader.numSwitches >= 0x1E)
+    modelInit(mdl, hdr, (s32 *) rw);
+    sub_GAME_7F05E978(mdl, 1);
+    sub_GAME_7F05EA94(mdl, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    if (hdr->numSwitches >= 0x1E)
     {
-        bondviewSelectCuff(&s_gevrFistModel, &s_gevrFistHeader, 0x1D);
+        bondviewSelectCuff(mdl, hdr, 0x1D);
     }
-    s_gevrFistModel.render_pos = (RenderPosView *) rwmtx;
+    if (mdl == &s_gevrTaserHandModel && hdr->numSwitches > 16 && hdr->Switches[16] != NULL
+        && (hdr->Switches[16]->Opcode & 0xFF) == MODELNODE_OPCODE_DLCOLLISION)
+    {
+        /* the taser's arc draws from its run-time data, not the file's */
+        modelGetNodeRwData(mdl, hdr->Switches[16])->DisplayListCollisions.gdl = NULL;
+    }
+    mdl->render_pos = (RenderPosView *) rwmtx;
 
     renderdata = *templ;
     renderdata.gdl = gdl;
@@ -1893,13 +2031,13 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     {
         gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
     }
-    subdraw(&renderdata, &s_gevrFistModel);
+    subdraw(&renderdata, mdl);
     gdl = renderdata.gdl;
     if (gevrStereoMirrored())
     {
         gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
     }
-    bondviewTransformManyPosToViewMatrix(s_gevrFistModel.render_pos, s_gevrFistHeader.numMatrices);
+    bondviewTransformManyPosToViewMatrix(mdl->render_pos, hdr->numMatrices);
     matrix_4x4_7F058C88();
 
     return gdl;
