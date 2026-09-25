@@ -1427,13 +1427,13 @@ static void gevrStereoApplyHead(void)
     s_gevrBaseYaw = gevrWrapDegrees(s_gevrBaseYaw + (g_CurrentPlayer->vv_theta - s_gevrLastTheta));
 
     /*
-     * In the tank (issue #28) the tank code sets vv_theta itself every tick,
-     * from the hull and turret angles, discarding what the head wrote; the
-     * line above then fed that correction back into the body and cancelled
-     * (or, at a wrap, mirrored) the head's turn: looking right swung the
-     * view left. There the head only looks: the body rides on the tank's
-     * own angle, and vv_theta / vv_verta stay the tank's, driven by the left
-     * stick as in the flat game.
+     * In the tank (issue #28) the tank code sets vv_theta itself every tick
+     * from the hull and turret angles, discarding what the head wrote, and
+     * the line above fed that back and cancelled (or at a wrap mirrored) the
+     * head's turn: looking right swung the view left. There the head only
+     * looks: the body rides on the tank's own angle (the left stick drives
+     * the hull, the right stick turns the turret: gevrStereoTankTurretTurn),
+     * and vv_theta / vv_verta stay the tank's.
      */
     if (g_PlayerIsInTank == 1)
     {
@@ -1453,6 +1453,16 @@ static void gevrStereoApplyHead(void)
 
     s_gevrCamLook = look;
     s_gevrCamUp = up;
+}
+
+/*
+ * The tank's turret turn this tick in stereo (#28): the right stick, which
+ * turns the body on foot, turns the turret at the flat game's stick rate
+ * (1 degree a tick at full tilt); the head stays free to look around.
+ */
+static f32 gevrStereoTankTurretTurn(void)
+{
+    return gevrVrTurnAxis() * DegToRad1Fact(1) * g_GlobalTimerDelta;
 }
 #endif
 
@@ -6897,6 +6907,12 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
                 g_TankTurretTurn += DegToRad1Fact(1) * targetSpeed * g_GlobalTimerDelta;
             }
+#ifdef GEVR
+            if (g_gevrStereo)
+            {
+                g_TankTurretTurn = gevrStereoTankTurretTurn();
+            }
+#endif
 
             if (!g_CurrentPlayer->insightaimmode)
             {
