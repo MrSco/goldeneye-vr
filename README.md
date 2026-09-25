@@ -132,11 +132,13 @@ The easy way is to put the ROM in the headset's **Download** folder and pick it 
 
 ### Updating
 
-From the next release on, the launcher checks GitHub for a newer version each time it opens.
-When one is out, press **Update** and confirm in the window that opens. The first time, the
-headset asks you to allow **Install unknown apps** for GoldenEye VR. Your ROM and settings stay.
+From v0.1.13 on, the launcher checks GitHub for a newer version each time it opens. When one
+is out, an **Update** button appears beside **Cheats...**. Press it and confirm in the window that
+opens. The first time, a settings window asks first: turn on **Allow from this source** and the
+game comes back by itself. Your ROM and settings stay.
 
-Or install the new APK the same way as the first time. Your ROM and settings stay where they are.
+Coming from v0.1.12 or older, or if you'd rather not update in the headset: install the new APK
+the same way as the first time. Your ROM and settings stay where they are.
 **Don't uninstall first:** uninstalling deletes the app's folder, ROM included.
 
 ## 🎮 Controls

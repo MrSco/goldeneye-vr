@@ -4471,3 +4471,13 @@ Dark leftovers; remove unused assets and purge them from history.
   permissionWatchTick). Not seen yet: which install route ran (the log had
   rotated), cancelling the confirm, offline, debug-signed, and "Updated to"
   (needs a release that has the updater).
+
+## 97. v0.1.13 published (2026-09-25)
+- Tag v0.1.13 = build commit 17718d9 (versionCode 14), release key, APK
+  SHA-256 4df0a3ec...5b688 (GitHub's asset digest matches: the updater checks
+  it). Installed over the headset's copy and started: launcher "v0.1.13 build
+  17718d9", updater "installed 0.1.13, offer none". Contents: HANDOFF 96 (the
+  in-headset updater, update line beside Cheats, version in the header).
+- Players on v0.1.12 or older install this one with SideQuest; from here on
+  the launcher offers releases itself. README "Updating" says so.
+- Branch feature/launcher-update-check deleted (merged).
