@@ -1443,7 +1443,7 @@ static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint
 
 static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode) {
     s_isDecal = depth_test && depth_compare && zmode == ZMODE_DEC;
-    s_decalZ = (GEVR_DECAL_BAND || s_decalMode == 3) && s_isDecal;
+    s_decalZ = ((GEVR_DECAL_BAND && s_decalMode == 0) || s_decalMode == 3) && s_isDecal;
     if (depth_test) {
         glEnable(GL_DEPTH_TEST);
         glDepthMask(depth_update ? GL_TRUE : GL_FALSE);

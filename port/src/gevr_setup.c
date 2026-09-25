@@ -263,7 +263,7 @@ static size_t convert_one_prop(uint8_t *dst, const uint8_t *src, uint8_t type) {
         {
             int32_t ammo;
             memcpy(&ammo, dst + HOST_OBJ + 8 + (0xD8 - 0x84), 4);
-            sysLogPrintf(LOG_NOTE, "setup: tank with %d shells", ammo);
+            sysLogPrintf(LOG_NOTE, "setup: tank with %d shells (pad %d)", ammo, (int)(int16_t)read16(src + 6));
         }
         break;
     /*

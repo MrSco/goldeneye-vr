@@ -639,8 +639,12 @@ void gevrStereoFrame(s32 inlevel)
             gevrStereoRecenter();
         }
 
-        /* PD joy_for_vr */
-        if (VrUseSnapTurn != 0.0f)
+        /* PD joy_for_vr; in the tank the left stick turns the tank and the view rides on it (#28) */
+        if (g_PlayerIsInTank == 1)
+        {
+            s_gevrSnapArmed = TRUE;
+        }
+        else if (VrUseSnapTurn != 0.0f)
         {
             if (fabsf(x) < 0.1f)
             {
@@ -1421,6 +1425,24 @@ static void gevrStereoApplyHead(void)
 
     /* Anything else that turned the player since (a teleport, a scripted facing) turns the body. */
     s_gevrBaseYaw = gevrWrapDegrees(s_gevrBaseYaw + (g_CurrentPlayer->vv_theta - s_gevrLastTheta));
+
+    /*
+     * In the tank (issue #28) the tank code sets vv_theta itself every tick,
+     * from the hull and turret angles, discarding what the head wrote; the
+     * line above then fed that correction back into the body and cancelled
+     * (or, at a wrap, mirrored) the head's turn: looking right swung the
+     * view left. There the head only looks: the body rides on the tank's
+     * own angle, and vv_theta / vv_verta stay the tank's, driven by the left
+     * stick as in the flat game.
+     */
+    if (g_PlayerIsInTank == 1)
+    {
+        gevrStereoLook(&look, &up);
+        s_gevrLastTheta = g_CurrentPlayer->vv_theta;
+        s_gevrCamLook = look;
+        s_gevrCamUp = up;
+        return;
+    }
 
     gevrStereoLook(&look, &up);
     horiz = sqrtf(look.x * look.x + look.z * look.z);
