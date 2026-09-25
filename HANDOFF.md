@@ -4481,3 +4481,10 @@ Dark leftovers; remove unused assets and purge them from history.
 - Players on v0.1.12 or older install this one with SideQuest; from here on
   the launcher offers releases itself. README "Updating" says so.
 - Branch feature/launcher-update-check deleted (merged).
+
+## 99. Weapon panel dual-wield pairs (#33, merged 2026-09-25)
+- bondview2.c gevrWeaponPanelBuild: the panel's own list, the watch's items
+  with each gun's pairs after it (inventory INV_ITEM_DUAL, and with all guns
+  every gun that can be dual wielded, as bondinvCycleForward offers them).
+  "<gun> x2" (or "<right> / <left>"), shows the right gun's model, equips both
+  hands on release as A's cycle does; opens on the pair in hand. User-tested.
