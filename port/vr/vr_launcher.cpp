@@ -898,8 +898,11 @@ extern "C" void gevrLauncherRun(void)
                     ImGui::SameLine();
                     if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
                     if (!upd.message.empty()) {
+                        // wrapped: the row ends at the panel's edge
                         ImGui::SameLine();
-                        ImGui::TextDisabled("%s", upd.message.c_str());
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                        ImGui::TextWrapped("%s", upd.message.c_str());
+                        ImGui::PopStyleColor();
                     }
                 } else if (upd.state == "downloading") {
                     // Cancel on the left of every busy line: a prompt closed from the
@@ -924,7 +927,9 @@ extern "C" void gevrLauncherRun(void)
                     ImGui::TextWrapped("%s", upd.message.c_str());
                     ImGui::PopStyleColor();
                 } else if (!upd.message.empty()) {
-                    ImGui::TextColored(good, "%s", upd.message.c_str());   // "Updated to v0.1.13."
+                    ImGui::PushStyleColor(ImGuiCol_Text, good);
+                    ImGui::TextWrapped("%s", upd.message.c_str());   // "Updated to v0.1.13."
+                    ImGui::PopStyleColor();
                 }
             }
         }
