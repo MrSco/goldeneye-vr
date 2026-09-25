@@ -1540,16 +1540,30 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * It only draws while aiming (grip held, as the flat game's R: the sight comes
  * up), which is deliberate and costs no draw calls the rest of the time. A
  * test of the lens being near the eye flickered on and off at its edge.
- * files/gevr_scope.txt "up back right diameter K" (metres from the grip; K)
- * overrides the lens while testing.
+ *
+ * The lens sits on the model's eyepiece, the rear face of the scope tube in
+ * GsniperrifleZ (display list node 0x27c, measured from the ROM: centred at
+ * x 13.4, y 73.1 on its end ring at z -160, 23.5 in radius, in model units;
+ * model +X is the gun's left). The gun draws at GEVR_VIEWMODEL_CM x 0.1 (its
+ * model scale) cm a unit with its origin GEVR_GRIP_TO_ORIGIN_CM behind the
+ * fist (gevrStereoGunMatrix), so the lens is placed the same way and follows
+ * the grip trims, the gun size cheats and the left-handed mirror. A first try
+ * a guessed 6.5 cm over the grip hung 25 cm in front of the eyepiece.
+ * files/gevr_scope.txt "right up back diameter K" (metres added to the lens;
+ * K) adjusts it while testing.
  */
 s32 gevrScopeOn;                /* this frame's world is kept for the scope */
 f32 gevrScopeVP[16];            /* head camera space to the scope's clip space, column-major */
 f32 gevrScopeHeadP[2];          /* the head projection's x and y scales */
-f32 gevrScopeLens[4] = { 0.065f, 0.0f, 0.0f, 0.05f };   /* up, back, right, diameter (m) */
-static f32 s_gevrScopeK = 0.47f;   /* a 5 cm lens 10 cm from the eye is about 28 degrees */
+f32 gevrScopeLens[4];           /* the lens from the gun hand's grip: right, up, back, diameter (m) */
+static f32 s_gevrScopeTrim[4];  /* gevr_scope.txt: added to the lens */
+static f32 s_gevrScopeK = 0.25f;   /* the 4 cm eyepiece about 15 cm from the eye is about 15 degrees */
 
-#define GEVR_SCOPE_NEAR_M    0.05f
+#define GEVR_SCOPE_NEAR_M       0.05f
+#define GEVR_SCOPE_EYEPIECE_X   13.4f
+#define GEVR_SCOPE_EYEPIECE_Y   73.1f
+#define GEVR_SCOPE_EYEPIECE_Z   -160.0f
+#define GEVR_SCOPE_EYEPIECE_R   23.5f
 
 static void gevrScopeTune(void)
 {
@@ -1567,18 +1581,33 @@ static void gevrScopeTune(void)
         return;
     }
     if (fscanf(f, "%f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4]) == 5
-        && (v[0] != gevrScopeLens[0] || v[1] != gevrScopeLens[1] || v[2] != gevrScopeLens[2]
-            || v[3] != gevrScopeLens[3] || v[4] != s_gevrScopeK))
+        && (v[0] != s_gevrScopeTrim[0] || v[1] != s_gevrScopeTrim[1] || v[2] != s_gevrScopeTrim[2]
+            || v[3] != s_gevrScopeTrim[3] || v[4] != s_gevrScopeK))
     {
-        gevrScopeLens[0] = v[0];
-        gevrScopeLens[1] = v[1];
-        gevrScopeLens[2] = v[2];
-        gevrScopeLens[3] = v[3];
+        s_gevrScopeTrim[0] = v[0];
+        s_gevrScopeTrim[1] = v[1];
+        s_gevrScopeTrim[2] = v[2];
+        s_gevrScopeTrim[3] = v[3];
         s_gevrScopeK = v[4];
-        sysLogPrintf(LOG_NOTE, "stereo: scope lens up %.3f back %.3f right %.3f m, %.3f m wide, K %.2f",
+        sysLogPrintf(LOG_NOTE, "stereo: scope trim right %.3f up %.3f back %.3f m, diameter %+.3f m, K %.2f",
                      v[0], v[1], v[2], v[3], v[4]);
     }
     fclose(f);
+}
+
+/* the lens on the eyepiece, from the gun hand's grip (vr_openxr.cpp places it) */
+static void gevrScopeLensPlace(void)
+{
+    f32 size = gevrGunSizeFactor();
+    f32 unit = GEVR_VIEWMODEL_CM * 0.1f / 100.0f * size;   /* metres a model unit */
+    f32 left = VrLeftHandedMode ? -1.0f : 1.0f;             /* model +X, in the holder's right */
+
+    gevrScopeLens[0] = (VrLeftHandedMode ? -VrGunOffX : VrGunOffX) * size / 100.0f
+                     - left * GEVR_SCOPE_EYEPIECE_X * unit + s_gevrScopeTrim[0];
+    gevrScopeLens[1] = VrGunOffY * size / 100.0f + GEVR_SCOPE_EYEPIECE_Y * unit + s_gevrScopeTrim[1];
+    gevrScopeLens[2] = (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * size / 100.0f
+                     - GEVR_SCOPE_EYEPIECE_Z * unit + s_gevrScopeTrim[2];
+    gevrScopeLens[3] = 2.0f * GEVR_SCOPE_EYEPIECE_R * unit + s_gevrScopeTrim[3];
 }
 
 /* lvlRender, once the player's view is set up: whether this frame draws the scope */
@@ -1602,11 +1631,24 @@ s32 gevrScopeBegin(void)
         && vu > 1e-6f && gevrGripAxes(1, pos, right, up, back) && gevrStereoShot(GUNRIGHT, NULL, &o, &d))
     {
         gevrScopeTune();
+        gevrScopeLensPlace();
         on = TRUE;
     }
     if (on != was)
     {
         sysLogPrintf(LOG_NOTE, "stereo: scope %s", on ? "on (aiming)" : "off");
+        if (on)
+        {
+            /* the model's scale, checked: its muzzle node (0, 0, 772.1) should
+             * come out 53.6 cm ahead of the grip at 0.085 cm a unit */
+            f32 m[3] = { (o.x - pos[0]) / vu * 100.0f, (o.y - pos[1]) / vu * 100.0f, (o.z - pos[2]) / vu * 100.0f };
+
+            sysLogPrintf(LOG_NOTE, "stereo: scope lens right %.3f up %.3f back %.3f m, %.3f wide; muzzle right %.1f up %.1f back %.1f cm",
+                         gevrScopeLens[0], gevrScopeLens[1], gevrScopeLens[2], gevrScopeLens[3],
+                         m[0] * right[0] + m[1] * right[1] + m[2] * right[2],
+                         m[0] * up[0] + m[1] * up[1] + m[2] * up[2],
+                         m[0] * back[0] + m[1] * back[1] + m[2] * back[2]);
+        }
         was = on;
     }
     if (!on)
