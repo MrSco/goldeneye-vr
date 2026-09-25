@@ -7072,9 +7072,16 @@ void gunSetSightVisible(s32 reason, bool visible)
 
 
 #ifdef GEVR
-static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand)
+/*
+ * scope: the sniper scope's copy (issue #40, bondview2.c gevrScopeBegin), seen
+ * from the scope's camera on the shot line - the aim point is the lens's
+ * centre - and a quarter of the lens across at any zoom.
+ */
+static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
 {
     extern s32 gevrStereoAimCached(s32 hand, coord3d *out);
+    extern f32 gevrScopeOrigin[3];
+    extern f32 gevrScopeFovDeg;
     coord3d p;
     Mtxf mf;
     Mtx *mv;
@@ -7089,9 +7096,18 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand)
         return gdl;
     }
 
-    dist = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
-    /* the flat sight is 32 of 320 pixels across a 60 degree view: ~3 degrees */
-    half = dist * tanf(DegToRad(1.5f)) * (g_CurrentPlayer->fovy / 60.0f);
+    if (scope)
+    {
+        f32 dx = p.x - gevrScopeOrigin[0], dy = p.y - gevrScopeOrigin[1], dz = p.z - gevrScopeOrigin[2];
+
+        half = sqrtf(dx * dx + dy * dy + dz * dz) * tanf(DegToRad(gevrScopeFovDeg * 0.125f));
+    }
+    else
+    {
+        dist = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
+        /* the flat sight is 32 of 320 pixels across a 60 degree view: ~3 degrees */
+        half = dist * tanf(DegToRad(1.5f));   /* the view never zooms in stereo (lv.c, issue #40) */
+    }
     k = half / 16.0f;
 
     /* a quad facing the eye at p: vertices at +-16 in the view plane */
@@ -7171,12 +7187,20 @@ void gunDrawSight(Gfx **gdl) {
          */
         extern s32 g_gevrStereo;
         extern int vr_button_L_grip;
+        extern s32 gevrScopeOn;
 
         if (g_gevrStereo)
         {
             if ((g_CurrentPlayer->gunsightmode == 0) && (g_CurrentPlayer->mpmenuon == FALSE))
             {
-                *gdl = gevrDrawSight3D(*gdl, GUNRIGHT);
+                *gdl = gevrDrawSight3D(*gdl, GUNRIGHT, FALSE);
+                /* issue #40: the same sight in the sniper scope, for the scope only */
+                if (gevrScopeOn)
+                {
+                    gDPNoOpTag((*gdl)++, 0x565E0000); /* VR_SCOPE_ONLY_BEGIN */
+                    *gdl = gevrDrawSight3D(*gdl, GUNRIGHT, TRUE);
+                    gDPNoOpTag((*gdl)++, 0x565E0001); /* VR_SCOPE_ONLY_END */
+                }
             }
             /*
              * Issue #37: dual-wielding, the left gun's own sight while its grip
@@ -7187,7 +7211,7 @@ void gunDrawSight(Gfx **gdl) {
             if (vr_button_L_grip && ((g_CurrentPlayer->gunsightmode & ~GUNSIGHTREASON_NOTAIMING) == 0)
                 && (g_CurrentPlayer->mpmenuon == FALSE))
             {
-                *gdl = gevrDrawSight3D(*gdl, GUNLEFT);
+                *gdl = gevrDrawSight3D(*gdl, GUNLEFT, FALSE);
             }
             return;
         }

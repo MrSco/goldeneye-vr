@@ -4568,3 +4568,72 @@ Dark leftovers; remove unused assets and purge them from history.
   chase itself. User-tested on Runway.
 - Testing: gevr_level.txt "runway 0", START, then gevr_warp.txt "44" puts
   Bond by the tank.
+
+## 105. Sniper scope in the lens (#40, branch fix/40-sniper)
+- 9f3a605 and 8c8138f: the shot origin in world units on the scaled levels
+  (gevrViewToWorldPos divides by D_800364CC), and the headset view never
+  zooms (lv.c keeps gevrVrFov). User: "aim works, hits land on crosshair".
+  Aiming (grip) shows the normal 3D sight, like every gun.
+- The scope, as the user settled it through testing (30a51cc..4f4bba6,
+  user: "looking good", 90 fps held):
+  - It shows whenever the sniper is in hand. It is always zoomed, as a real
+    scope: its FOV is the game's own sniper_zoom (15 degrees, 7 at most),
+    not a zoom scaled to the lens (user). Grip brings up the red sight; the
+    left stick up/down zooms while aiming, the game's C-up/down.
+    - Rejected first: showing it only near the eye (it flickered at the
+      test's edge), and a doubled zoom (user: "use same zoom that og game
+      used").
+  - lv.c tags the world's draws, from viSetupCurrentPlayerView to the gun
+    (VR_SCOPE_REC_BEGIN/END, 0x565D0000/1), when bondview2.c
+    gevrScopeBegin turns the scope on.
+  - gfx_opengl.cpp gevr_scope_keep records each draw (program, `first`/count
+    in the mapped ring, textures, depth and alpha modes). A draw is dropped
+    when every vertex falls outside one side of the scope's view. That's
+    4-162 draws, well inside the frame budget.
+  - gfx_vr_scope_render redraws the kept draws after the eye pass into a
+    512x512 FBO. The VS uScope branch does
+    c = (x/P00, y/P11, -w) -> uScopeVP * c, with view 1 pushed out. All GL
+    state is put back afterwards.
+  - The scope camera sits on the shot line (gevrStereoShot o, d; up is the
+    grip's up), so the sight at the lens centre is the hit point at any
+    range.
+  - The sight: gunfire.c gunDrawSight draws gevrDrawSight3D a second time
+    between VR_SCOPE_ONLY_BEGIN/END (0x565E0000/1). Those draws are kept
+    for the scope and not drawn to the eyes. It's a quarter of the lens
+    across at any zoom.
+  - The lens (vr_openxr.cpp) is a quad in view space, placed from the gun
+    hand's newest grip pose. It sits at the model's eyepiece, measured from
+    the ROM (GsniperrifleZ node 0x27c end ring: x 13.5, y 126.5, z -128,
+    r 23.5).
+    - Placement follows gevrStereoGunMatrix: 0.085 cm a unit, the origin
+      12 cm behind the fist, the grip trims, the size cheats and the
+      left-handed mirror. That puts it 10.8 cm up and 22.9 cm back from
+      the grip.
+    - The root position node's offset is NOT drawn, so the vertices are
+      raw. Adding it put the lens 4.5 cm low and 2.7 cm toward the butt.
+      The muzzle-check log line confirms this.
+  - The lens is drawn at twice the eyepiece's size (user). Nearer than 10 cm
+    to the aiming eye it is moved out along the same line and grown to the
+    same angle; it had vanished when brought right up to the eye.
+  - It is visible to the right eye only, or the left in LeftHandedMode.
+  - The copy writes the game's bytes unconverted (g_srgbWritesRaw: sRGB
+    write control is off, so writes to the sRGB image aren't encoded).
+    Converting to linear first, as vr_copy_menu_layer does, made it very
+    dark. vr_copy_menu_layer likely darkens the L/R/H/P HUD layers' mid-
+    tones the same way; not changed.
+- Tuning and probes:
+  - files/gevr_scope.txt "right up back diameter K" adds trims (metres) and
+    sets K (default 1), re-read every ~2 s while the scope is on.
+  - Touching files/gevr_scopedump writes the scope image to gevr_scope.pam,
+    with pixel and vertex stats in the log.
+  - The lens pose is logged every ~2 s.
+  - gevr_cheat.txt "hold17" draws the sniper. The fake-grip probe
+    (gevr_fakegrip.txt) now places controller-held layers too
+    (gevrVrGripPose).
+- The headset capture (metacam) is the left eye, so it never shows the lens.
+- Dam sky moving with head pitch (user, even with the original textures):
+  the agent's reading is sky.c skyIsScreenCornerInSky. Cloud strength comes
+  from the elevation of the screen corners, so the clouds fade to blue as
+  the head tilts. Proposed fix: in stereo, f12 = 1 above the horizon.
+  Separately, the sky's w is in world units on the 0.2-scale levels (5x the
+  stereo depth). Not started.
