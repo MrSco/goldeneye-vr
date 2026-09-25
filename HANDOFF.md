@@ -4370,3 +4370,14 @@ Dark leftovers; remove unused assets and purge them from history.
   -B / 2) (1913fbc); user: "scorch stays under the tank now".
 - Dead end on the way: scaling the offset by the w column length k. On
   Runway every matrix with a depth term has k = 1 (logged); reverted.
+
+## 93. v0.1.11 published
+- https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.11 (tag at cb2a0bd =
+  build commit; GoldenEye-VR-v0.1.11.apk SHA-256
+  6183a098882787e65c1f3e2f72f6472dee4b54c3dcf06e54df80025607b15867; same key,
+  installed over the device copy; uploaded asset hash re-checked). Far
+  scenery reach (HANDOFF 89), sky fixed in stereo, decal band with the real
+  depth term and near-plane clamp (90, 92), grenade pose, tank controls.
+  Closed with replies: #21, #22, #27 (asked the reporter to reopen with a
+  screenshot if Surface pop-in remains), #28. Open: #9, #10, #18, #23, #24,
+  #25, #26; bullet-hole comb (HANDOFF 90).
