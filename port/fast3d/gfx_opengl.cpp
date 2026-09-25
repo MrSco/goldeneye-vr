@@ -98,6 +98,21 @@ static GLint gCurDecalBiasLoc = -1;
 // decal band: a point moved D view units along its ray changes clip z by
 // P32 * D / w, so a band of constant real thickness is uDecalBias = P32 * D.
 float gfx_decal_proj_z = 0.0f;
+/*
+ * The shader divides the band's offset by clip w. A large ground decal can
+ * have a corner behind the camera (w < 0): clamped at 0.0001 that corner got
+ * a pull of ~1e5 and dragged the whole triangle toward the eye - Runway's
+ * scorch marks drew over the tank from inside it. Clamp at the near plane
+ * instead (B ~ -2 * near), which no visible point is closer than.
+ */
+static void gevr_set_decal_bias(float bias)
+{
+    if (gCurDecalBiasLoc >= 0) {
+        float nearW = -gfx_decal_proj_z * 0.5f;
+        if (nearW < 0.01f) nearW = 0.01f;
+        glUniform2f(gCurDecalBiasLoc, bias, nearW);
+    }
+}
 
 static inline void gfx_opengl_menu_capture_push(void) {
     gMenuCaptureRefCount++;
@@ -948,7 +963,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform float uTanHalfFovLeft;");
         append_line(vs_buf, &vs_len, "uniform float uTanHalfFovRight;");
         append_line(vs_buf, &vs_len, "uniform int uVrFlat;");
-        append_line(vs_buf, &vs_len, "uniform float uDecalBias;");
+        append_line(vs_buf, &vs_len, "uniform vec2 uDecalBias;");
 
     }
 
@@ -1016,7 +1031,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     if (use_multiview) {
         append_line(vs_buf, &vs_len, vr_shader);
         // GoldenEye decal band (gfx_opengl_draw_triangles): a view-space nudge
-        append_line(vs_buf, &vs_len, "gl_Position.z += uDecalBias / max(gl_Position.w, 0.0001);");
+        append_line(vs_buf, &vs_len, "gl_Position.z += uDecalBias.x / max(gl_Position.w, max(uDecalBias.y, 0.0001));");
     }
 
 
@@ -1592,7 +1607,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     {
         const float bias = (s_isDecal && s_decalMode == 2) ? gfx_decal_proj_z * s_decalA : 0.0f;
         if (!s_uniCacheValid || bias != s_uniBias) {
-            if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, bias);
+            gevr_set_decal_bias(bias);
             s_uniBias = bias;
         }
     }
@@ -1631,7 +1646,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         glDepthMask(GL_FALSE);
         glDepthFunc(GL_GEQUAL);
         glPolygonOffset(0.0f, 0.0f);
-        if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, -gfx_decal_proj_z * bandD);   // pushed away
+        gevr_set_decal_bias(-gfx_decal_proj_z * bandD);   // pushed away
         glStencilFunc(GL_ALWAYS, 1, 0xff);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
         glDrawArrays(GL_TRIANGLES, first, 3 * buf_vbo_num_tris);
@@ -1640,14 +1655,14 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         glDepthMask(prevDepthMask);
         glDepthFunc(GL_LEQUAL);
         glPolygonOffset(-2.0f, -2.0f);
-        if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, gfx_decal_proj_z * bandD);   // pulled near
+        gevr_set_decal_bias(gfx_decal_proj_z * bandD);   // pulled near
         glStencilFunc(GL_EQUAL, 1, 0xff);
         glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
         glDrawArrays(GL_TRIANGLES, first, 3 * buf_vbo_num_tris);
 
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
         glDisable(GL_STENCIL_TEST);
-        if (gCurDecalBiasLoc >= 0) glUniform1f(gCurDecalBiasLoc, 0.0f);
+        gevr_set_decal_bias(0.0f);
         s_uniCacheValid = false;   /* the band wrote the bias */
         return;
     }
