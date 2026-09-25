@@ -169,7 +169,7 @@ final class UpdateChecker {
             message = "";
             update();
         } else {
-            setState(AVAILABLE, "Installing updates needs \"Install unknown apps\" allowed for GoldenEye VR.");
+            setState(AVAILABLE, "Allow \"Install unknown apps\" first.");
         }
     }
 
@@ -521,7 +521,7 @@ final class UpdateChecker {
     }
 
     private void askForInstallPermission() {
-        setState(NEEDS_PERMISSION, "Allow \"Install unknown apps\" for GoldenEye VR in the window that opened.");
+        setState(NEEDS_PERMISSION, "Allow \"Install unknown apps\" in the window that opened.");
         activity.runOnUiThread(() -> {
             try {
                 activity.cancelComeBackToVr();
