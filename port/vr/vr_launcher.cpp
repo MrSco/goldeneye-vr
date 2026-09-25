@@ -571,7 +571,11 @@ extern "C" void gevrLauncherRun(void)
     bool start = false;
     Uint32 last = SDL_GetTicks();
 
-    vr_log("launcher: open, build %s (rom %s)", gevrBuildId, active.empty() ? "none" : active.c_str());
+    // The app's versionName (android build.gradle), for the header beside the build.
+    const std::string appVersion = gevrUpdaterStatus().installed;
+
+    vr_log("launcher: open, v%s build %s (rom %s)", appVersion.c_str(), gevrBuildId,
+           active.empty() ? "none" : active.c_str());
 
     // One look at the GitHub releases per launch (the answer arrives in the
     // background; the line under the ROM shows it). Polled a few times a
@@ -657,7 +661,7 @@ extern "C" void gevrLauncherRun(void)
         const ImVec4 good(0.5f, 0.9f, 0.5f, 1.0f);
         const ImVec4 bad(0.95f, 0.5f, 0.4f, 1.0f);
 
-        // header: icon and title left, build right
+        // header: icon and title left, version and build right
         if (iconTex) {
             const float s = ImGui::GetTextLineHeight() * 2.2f;
             ImGui::Image((ImTextureID)(intptr_t)iconTex, ImVec2(s, s));
@@ -666,8 +670,12 @@ extern "C" void gevrLauncherRun(void)
         }
         ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "GOLDENEYE VR");
         {
-            char build[96];
-            snprintf(build, sizeof(build), "Build %s", gevrBuildId);
+            char build[128];
+            if (!appVersion.empty()) {
+                snprintf(build, sizeof(build), "v%s  Build %s", appVersion.c_str(), gevrBuildId);
+            } else {
+                snprintf(build, sizeof(build), "Build %s", gevrBuildId);
+            }
             const float w = ImGui::CalcTextSize(build).x;
             ImGui::SameLine(ImGui::GetWindowWidth() - w - ImGui::GetStyle().WindowPadding.x);
             ImGui::TextDisabled("%s", build);
