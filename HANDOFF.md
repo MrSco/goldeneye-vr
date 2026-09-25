@@ -4324,5 +4324,29 @@ Dark leftovers; remove unused assets and purge them from history.
   read linearly); the cache key carries swizzled, and image.c swizzles
   decoded textures only on some load paths. Next: log the hole texture's key
   and bytes when the comb shows.
-- #22: grenade moved out of the fist (forward 15 -> 18.5 cm), awaiting the
-  user's look.
+- #22: grenade pose, see HANDOFF 91.
+
+## 91. Tank head look (#28), grenade (#22), Surface 2 horizon (#27)
+- #28: in the tank the view followed the turret and looking right swung it
+  left. The tank code sets vv_theta every tick from the hull and turret
+  (bondview2.c ~8089), discarding the head's; gevrStereoApplyHead fed that
+  back into s_gevrBaseYaw as "something else turned the player". In the
+  tank now the head only turns the camera, the body yaw rides on the tank's
+  vv_theta, vv_theta/vv_verta stay the tank's, and the right-stick body turn
+  is off (the left stick's C-left/right turns the tank). User: "tank works
+  now, head looks the right way" (commit 36a8c2b). Runway's tank is pad 44
+  (gevr_warp.txt 44, then B).
+- #22: grenade 2.5 cm to the model's left (off the palm), forward back at
+  15, tuned live with gevr_itempose.txt "26 2.5 1 15 0 0 0 0.2 1"; user:
+  "good now" (64b069f). The first try moved it forward - wrong axis.
+- #27 (Surface 2 horizon pop-in, reporter's shots show tree walls cut off
+  with sky beyond): same mechanism as Statue (HANDOFF 89); Surface 2's start
+  view is complete with 14f2133. Ask the reporter to confirm on the release.
+- New, not fixed: an explosion scorch on the ground showed on top of the
+  tank's deck (Runway). Scorches use texSelect mode 4 = G_RM_ZB_CLD_SURF
+  (not a decal, so not the band); explosionRenderScorchBuffer never sets
+  G_ZBUFFER, and fast3d depth-tests only with G_ZBUFFER, so a scorch drawn
+  after the tank is not tested against it. Check the N64 path before
+  changing anything.
+- Test hooks: gevr_decal.txt modes 1/2 now turn the band off (it was forced
+  on by GEVR_DECAL_BAND); mode 0 = the default band.
