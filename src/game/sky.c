@@ -101,6 +101,27 @@ bool skyIsScreenCornerInSky(coord3d *corner3dpos, coord3d *dstpos, f32 *dstfrac)
     {
         f12 = 1.0f;
     }
+#ifdef GEVR
+    {
+        /*
+         * Stereo: the clouds' strength is keyed to how high each screen corner
+         * points (2 tan of its elevation), which on the N64's view is full at
+         * the top corners unless you look well down. The headset's corners
+         * move with the head, so tilting it faded the Dam's white clouds to
+         * the sky's blue and back, and looking up put a haze band on the
+         * bottom edge: the sky seemed to move with the head (user, with or
+         * without a texture pack). Full strength above the horizon keeps the
+         * fade on the horizon itself, where the edge vertices (y = 0) give the
+         * sky's colour, as the N64 shows it looking level.
+         */
+        extern s32 g_gevrStereo;
+
+        if (g_gevrStereo && corner3dpos->y > 0.0f)
+        {
+            f12 = 1.0f;
+        }
+    }
+#endif
 
     *dstfrac = 1.0f - f12;
 
@@ -153,6 +174,18 @@ bool skyIsCornerInWater(coord3d *corner3dpos, coord3d *dstpos, f32 *dstfrac)
     {
         f12 = 1.0f;
     }
+#ifdef GEVR
+    {
+        /* stereo: as the clouds (skyIsScreenCornerInSky), the water's own
+         * colour below the horizon however the head tilts */
+        extern s32 g_gevrStereo;
+
+        if (g_gevrStereo && corner3dpos->y < 0.0f)
+        {
+            f12 = 1.0f;
+        }
+    }
+#endif
 
     *dstfrac = 1.0f - f12;
 
