@@ -4637,3 +4637,21 @@ Dark leftovers; remove unused assets and purge them from history.
   the head tilts. Proposed fix: in stereo, f12 = 1 above the horizon.
   Separately, the sky's w is in world units on the 0.2-scale levels (5x the
   stereo depth). Not started.
+
+## 106. Stereo sky: clouds no longer follow head pitch (branch fix/sky-pitch)
+- The user saw the Dam sky move up and down with head pitch, with or without
+  the texture pack. The agent traced it to sky.c skyIsScreenCornerInSky.
+  - Each cloud corner's colour strength is min(1, 2 tan(elevation)) of its
+    screen corner's ray.
+  - On the N64's view the top corners are at full strength unless you look
+    well down. The headset's corners move with the head, so tilting down
+    faded the white clouds to blue, and tilting up put a haze band on the
+    bottom edge.
+- d0d11f9: in stereo, corners above the horizon take full strength. The fade
+  stays on the horizon edge vertices (y = 0, the sky's colour). Water
+  corners (skyIsCornerInWater) get the same below the horizon. Screen mode
+  is unchanged. Installed, awaiting the user's look on the Dam (and Frigate
+  or Surface 2 for the water).
+- Not changed, noted by the agent: the sky's w is in world units on the
+  0.2-scale levels (the clouds sit at 5x their stereo depth; a depth error,
+  not motion).
