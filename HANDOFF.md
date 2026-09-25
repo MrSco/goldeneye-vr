@@ -4408,3 +4408,12 @@ Dark leftovers; remove unused assets and purge them from history.
   launcher and lasers look good now". Not done: gevrStereoShot's origin has
   the same mismatch (bullets leave from near the eye, along the barrel);
   aiming was verified as is, re-test in the headset before changing it.
+
+## 95. v0.1.12 published
+- https://github.com/MrSco/goldeneye-vr/releases/tag/v0.1.12 (tag at 1fdc07d =
+  build commit; GoldenEye-VR-v0.1.12.apk SHA-256
+  bf5198fc88494264c48d57490e92c589b820a0cb56d5873803b88d8d348d90fc; same key,
+  installed over the device copy; uploaded asset hash re-checked). Weapon
+  panel (HANDOFF 94), lasers and launchers from the gun, rocket size.
+  Closed #10 with a reply. Open: #9, #18, #23, #24, #25, #26; bullet-hole
+  comb (HANDOFF 90); gevrStereoShot origin on scaled levels (HANDOFF 94).
