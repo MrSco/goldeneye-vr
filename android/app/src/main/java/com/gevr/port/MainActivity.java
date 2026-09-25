@@ -56,8 +56,25 @@ public class MainActivity extends SDLActivity {
             Log.w(TAG, "Could not create " + dataDir);
         }
 
+        updater = new UpdateChecker(this);
+
         Log.i(TAG, "Starting GEVR VR mode");
         initializeGame();
+    }
+
+    // --- Update check (GitHub releases), driven by the in-VR launcher ---
+    static final int REQUEST_INSTALL_PERMISSION = 0x6f;
+    static final int REQUEST_INSTALLER = 0x70;
+    private UpdateChecker updater;
+
+    /** Tab-separated state for port/vr/vr_launcher.cpp; see UpdateChecker.status. */
+    public String updaterStatus() {
+        return updater != null ? updater.status() : "";
+    }
+
+    /** "check", "update", "testbuilds:0" / "testbuilds:1". */
+    public void updaterCommand(String cmd) {
+        if (updater != null) updater.command(cmd);
     }
 
     /**
@@ -103,6 +120,19 @@ public class MainActivity extends SDLActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        // The updater's 2D panels: "install unknown apps" settings, or the
+        // installer activity when it was closed without updating.
+        if (requestCode == REQUEST_INSTALL_PERMISSION || requestCode == REQUEST_INSTALLER) {
+            comeBackToVr();
+            if (updater != null) {
+                if (requestCode == REQUEST_INSTALL_PERMISSION) {
+                    updater.onPermissionPageClosed();
+                } else {
+                    updater.onInstallerClosed(resultCode == RESULT_OK);
+                }
+            }
+            return;
+        }
         if (requestCode != REQUEST_PICK_ROM) {
             return;
         }
@@ -112,14 +142,31 @@ public class MainActivity extends SDLActivity {
         } else {
             pickResult = "No file chosen.";
         }
-        // Not straight away: while the picker panel is still closing, Quest's
-        // shell takes focus back after our relaunch. Retry until we have it.
-        returnToVrAttempts = 0;
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::returnToVrUntilFocused, 700);
+        comeBackToVr();
     }
 
     private int returnToVrAttempts;
     private boolean hasWindowFocusNow;
+    // One handler and one runnable, so a new request or a cancel replaces any
+    // retry still queued rather than running alongside it.
+    private final android.os.Handler returnToVrHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable returnToVrStep = this::returnToVrUntilFocused;
+
+    /**
+     * After a 2D panel (file picker, updater prompts) closes. Not straight
+     * away: while the panel is still closing, Quest's shell takes focus back
+     * after our relaunch. Retry until we have it. UI thread.
+     */
+    void comeBackToVr() {
+        returnToVrHandler.removeCallbacks(returnToVrStep);
+        returnToVrAttempts = 0;
+        returnToVrHandler.postDelayed(returnToVrStep, 700);
+    }
+
+    /** Another 2D panel is about to open: a pending retry would cover it. UI thread. */
+    void cancelComeBackToVr() {
+        returnToVrHandler.removeCallbacks(returnToVrStep);
+    }
 
     private void returnToVrUntilFocused() {
         if (hasWindowFocusNow && returnToVrAttempts > 0) {
@@ -131,7 +178,7 @@ public class MainActivity extends SDLActivity {
         }
         Log.i(TAG, "Returning to VR after the file picker (attempt " + returnToVrAttempts + ")");
         returnToVr();
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::returnToVrUntilFocused, 1500);
+        returnToVrHandler.postDelayed(returnToVrStep, 1500);
     }
 
     // The picker is a 2D panel: when it closes, Android resumes this activity but
