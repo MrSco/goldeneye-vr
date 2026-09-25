@@ -1417,7 +1417,32 @@ static void gfx_opengl_delete_texture(uint32_t texID) {
     glDeleteTextures(1, &texID);
 }
 
+/*
+ * Issue #25: textures from a texture pack (gevr_texpack.cpp) carry mipmaps and
+ * always filter trilinearly, whatever the N64 asked for: hi-res detail
+ * minified without them shimmers in VR. Tracked per GL texture name, since
+ * the texture cache reuses names for native uploads.
+ */
+static std::vector<uint8_t> s_texIsHd;
+static GLuint s_boundTex[2];
+static int s_activeTexUnit;
+static GLfloat s_maxAniso = -1.0f;
+
+static bool gevr_tex_is_hd(GLuint id) {
+    return id < s_texIsHd.size() && s_texIsHd[id];
+}
+
+static void gevr_tex_mark_hd(GLuint id, bool hd) {
+    if (id >= s_texIsHd.size()) {
+        if (!hd) return;
+        s_texIsHd.resize(id + 256, 0);
+    }
+    s_texIsHd[id] = hd;
+}
+
 static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_filter) {
+    s_boundTex[tile] = texture_id;
+    s_activeTexUnit = tile;
 
     glActiveTexture(GL_TEXTURE0 + tile);
     glBindTexture(GL_TEXTURE_2D, texture_id);
@@ -1427,6 +1452,29 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_f
 
 static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
+    // a name that held a pack image keeps its old mip levels: sample level 0 only
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    gevr_tex_mark_hd(s_boundTex[s_activeTexUnit], false);
+}
+
+static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 1000);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    if (s_maxAniso < 0.0f) {
+        // GL_EXT_texture_filter_anisotropic, which Quest has; an error means it's absent
+        s_maxAniso = 0.0f;
+        while (glGetError() != GL_NO_ERROR) {
+        }
+        glGetFloatv(0x84FF /* GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT */, &s_maxAniso);
+        if (glGetError() != GL_NO_ERROR) s_maxAniso = 0.0f;
+    }
+    if (s_maxAniso > 1.0f) {
+        glTexParameterf(GL_TEXTURE_2D, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY_EXT */, s_maxAniso < 4.0f ? s_maxAniso : 4.0f);
+    }
+    gevr_tex_mark_hd(s_boundTex[s_activeTexUnit], true);
 }
 
 static uint32_t gfx_cm_to_opengl(uint32_t val) {
@@ -1446,8 +1494,14 @@ static uint32_t gfx_cm_to_opengl(uint32_t val) {
 static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint32_t cms, uint32_t cmt) {
     const GLint filter = linear_filter && (current_filter_mode == FILTER_LINEAR) ? GL_LINEAR : GL_NEAREST;
     glActiveTexture(GL_TEXTURE0 + tile);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+    s_activeTexUnit = tile;
+    if (gevr_tex_is_hd(s_boundTex[tile])) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    } else {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, filter);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter);
+    }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, gfx_cm_to_opengl(cms));
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, gfx_cm_to_opengl(cmt));
 }
@@ -2695,6 +2749,8 @@ void gfx_opengl_select_texture_fb(int fb_id) {
     // glDisable(GL_DEPTH_TEST);
     glActiveTexture(GL_TEXTURE0 + 0);
     glBindTexture(GL_TEXTURE_2D, framebuffers[fb_id].clrbuf);
+    s_boundTex[0] = framebuffers[fb_id].clrbuf;
+    s_activeTexUnit = 0;
 
     current_textures_linear_filter[0] = true;
 }
@@ -3104,7 +3160,8 @@ struct GfxRenderingAPI gfx_opengl_api = {
         gfx_opengl_get_texture_filter,
         gfx_opengl_set_eye_offsets,
         gfx_opengl_is_multiview,
-        gfx_opengl_mirror_to_desktop
+        gfx_opengl_mirror_to_desktop,
+        gfx_opengl_upload_texture_hd
 };
 
 // ============================================================================

@@ -59,6 +59,9 @@ struct GfxRenderingAPI {
     bool (*is_multiview)(void);
     void (*mirror_to_desktop)(uint32_t src_w, uint32_t src_h, uint32_t dst_w, uint32_t dst_h);
 
+    // GoldenEye issue #25: a texture-pack image, with mipmaps (gevr_texpack.cpp)
+    void (*upload_texture_hd)(const uint8_t* rgba32_buf, uint32_t width, uint32_t height);
+
 };
 
 #endif
