@@ -4568,3 +4568,47 @@ Dark leftovers; remove unused assets and purge them from history.
   chase itself. User-tested on Runway.
 - Testing: gevr_level.txt "runway 0", START, then gevr_warp.txt "44" puts
   Bond by the tank.
+
+## 105. Sniper scope in the lens (#40, branch fix/40-sniper)
+- 9f3a605 and 8c8138f: the shot origin in world units on the scaled levels
+  (gevrViewToWorldPos divides by D_800364CC), and the headset view never
+  zooms (lv.c keeps gevrVrFov). User: "aim works, hits land on crosshair".
+  Aiming (grip) shows the normal 3D sight, like every gun.
+- 30a51cc, the scope:
+  - lv.c tags the world's draws, from viSetupCurrentPlayerView to the gun
+    (VR_SCOPE_REC_BEGIN/END, 0x565D0000/1), while bondview2.c
+    gevrScopeBegin says the lens is up at the aiming eye. The test is the
+    sniper in hand, the lens within 35 cm of that eye and within about 37
+    degrees of the barrel line.
+  - gfx_opengl.cpp gevr_scope_keep records each draw (program, `first`/count
+    in the mapped ring, textures, depth and alpha modes). A draw is dropped
+    when every vertex falls outside one side of the scope's view.
+  - gfx_vr_scope_render redraws the kept draws after the eye pass into a
+    512x512 FBO. The VS uScope branch does
+    c = (x/P00, y/P11, -w) -> uScopeVP * c, with view 1 pushed out. All GL
+    state is put back afterwards.
+  - The scope camera sits on the shot line (gevrStereoShot o, d; up is the
+    grip's up), so the reticle centre is the hit point at any range.
+  - Its FOV is K x sniper_zoom (K 0.47: 15 degrees gives about 4x, 7 gives
+    about 8.5x). Zoom with the left stick up/down while aiming, the game's
+    own C-up/down.
+  - vr_openxr.cpp copies the target into the scope swapchain (512x512,
+    round mask, duplex reticle, dark rim, premultiplied). It shows as a quad
+    at the grip + gevrScopeLens offsets (up 6.5 cm, back 0, right 0; 5 cm
+    wide), oriented as the grip turned -90 degrees about X.
+  - eyeVisibility is the right eye, or the left in LeftHandedMode (the
+    sideways offset mirrors with the gun).
+- Tuning without a rebuild: files/gevr_scope.txt "up back right diameter K"
+  (metres; re-read every ~2 s).
+- NOT yet seen on the headset: an adb launch met the "controllers required"
+  dialog and Guardian (desk). If the lens is in the wrong place on the model,
+  push a gevr_scope.txt while the user holds it.
+- Test hooks added: gevr_cheat.txt "hold17" draws the sniper. The fake-grip
+  probe (gevr_fakegrip.txt) now places controller-held layers too
+  (gevrVrGripPose).
+- Dam sky moving with head pitch (user, even with the original textures):
+  the agent's reading is sky.c skyIsScreenCornerInSky. Cloud strength comes
+  from the elevation of the screen corners, so the clouds fade to blue as
+  the head tilts. Proposed fix: in stereo, f12 = 1 above the horizon.
+  Separately, the sky's w is in world units on the 0.2-scale levels (5x the
+  stereo depth). Not started.
