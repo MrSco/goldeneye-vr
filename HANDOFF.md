@@ -4637,3 +4637,20 @@ Dark leftovers; remove unused assets and purge them from history.
   the head tilts. Proposed fix: in stereo, f12 = 1 above the horizon.
   Separately, the sky's w is in world units on the 0.2-scale levels (5x the
   stereo depth). Not started.
+
+## 106. Stereo sky pitch: tried, parked (branch fix/sky-pitch, not merged)
+- User: on the Dam the sky seems to move with head tilt, with original
+  textures too. It's slight, mostly at the top of an upward tilt.
+- Two stereo-only changes on fix/sky-pitch (d0d11f9, 59485da):
+  - Cloud strength: full above the horizon. sky.c skyIsScreenCornerInSky
+    keys it to the screen corners' elevation.
+  - Far sky points stay on the cloud layer. They were pulled in along
+    their rays past the 300000 reach, which sagged the textured surface to
+    eye height at the horizon. The fill below the horizon reaches ~1
+    degree up to meet the layer.
+- User, after both: "it's the same as when you started". No visible change,
+  so neither was merged, and the headset got main's build back.
+- If it comes up again, look elsewhere:
+  - the per-eye frusta against the game's single central sky polygon
+    (skyClamp pins it to the central screen rectangle), and
+  - the straight-up case (all four corners in the sky).
