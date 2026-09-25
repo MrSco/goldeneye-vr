@@ -1177,8 +1177,13 @@ static void importTextureNative(int tile, const LoadedTexture &loadedtexturein, 
  * as they sit in that layout - byte h of the emulator's memory is N64 byte
  * h ^ 3. So every read here goes through tp_byte on a 4-aligned base.
  */
+/* h ^ s_tpSwap: 3 for data in N64 byte order; 0 for 32-bit texels, which this
+ * port keeps as host-order words (the 9mm ammo icon's checksum only matched
+ * its pack name read that way) - already the emulator's layout. */
+static int s_tpSwap = 3;
+
 static inline uint8_t tp_byte(const uint8_t *base, intptr_t h) {
-    return base[h ^ 3];
+    return base[h ^ s_tpSwap];
 }
 
 static inline uint32_t tp_word(const uint8_t *base, intptr_t h) {
@@ -1302,15 +1307,23 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
         else bpl = (lt.dxt > 1 ? tp_reverse_dxt(lt.dxt, tw, size) : (int)lt.dxt) << 3;
         // never read past what the block loaded (the emulator reads RDRAM; this is a heap)
         if (lt.orig_size_bytes != 0 && (int64_t)(h - 1) * bpl + ((w << size) >> 1) > (int64_t)lt.orig_size_bytes) {
-            ++s_tpSkipSize;
+            if (s_tpSkipSize++ < 12) {
+                sysLogPrintf(LOG_NOTE, "texpack: skip f%u s%d %dx%d bpl %d > loaded %u (tile %dx%d masks %u/%u cm %u/%u line %u dxt %u)",
+                             (unsigned)t.orig_fmt, size, w, h, bpl, (unsigned)lt.orig_size_bytes, tw, th,
+                             (unsigned)t.masks, (unsigned)t.maskt, (unsigned)t.orig_cms, (unsigned)t.orig_cmt,
+                             (unsigned)(t.line_size_bytes >> 3), (unsigned)lt.dxt);
+            }
             return -1;
         }
     }
     if (w <= 0 || h <= 0 || ((w << size) >> 1) < 4 || h > 1024 || w > 1024) {
-        ++s_tpSkipSize;
+        if (s_tpSkipSize++ < 12) {
+            sysLogPrintf(LOG_NOTE, "texpack: skip f%u s%d %dx%d (too small or large)", (unsigned)t.orig_fmt, size, w, h);
+        }
         return -1;
     }
 
+    s_tpSwap = lt.img_siz == G_IM_SIZ_32b ? 0 : 3;
     const uint32_t tex = tp_rice(base, start, w, h, size, bpl);
     const bool ci = size < G_IM_SIZ_16b && (rdp.palette_fmt != G_TT_NONE || t.orig_fmt == G_IM_FMT_CI);
     int id;
@@ -1326,6 +1339,7 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
          */
         const int cimax = tp_cimax(base, start, w, h, size, bpl);
         const intptr_t pstart = size == G_IM_SIZ_4b ? (intptr_t)t.palette * 32 : 0;
+        s_tpSwap = 3;   // palettes are in N64 byte order
         pal = tp_rice(s_filterPalette + 8, pstart, cimax + 1, 1, 2, size == G_IM_SIZ_4b ? 32 : 512);
         id = gevrtp::find((uint64_t)pal << 32 | tex, t.orig_fmt, (uint8_t)size);
         if (id < 0) id = gevrtp::find(pal, t.orig_fmt, (uint8_t)size);
@@ -1336,29 +1350,23 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
 
     ++s_tpLookups;
     if (id >= 0) ++s_tpHits;
-    // the front end's letters are the first ~70; past them, every miss and the
-    // bigger hits (the world's), to see what a level matches
-    static uint32_t s_tpMissLogged, s_tpBigLogged;
-    const bool big = w * h >= 256;
-    bool log = false;
-    if (s_tpLogged < 80) {
-        log = true;
-    } else if (id < 0 && s_tpMissLogged < 300) {
-        log = true;
-        ++s_tpMissLogged;
-    } else if (id >= 0 && big && s_tpBigLogged < 150) {
-        log = true;
-        ++s_tpBigLogged;
-    }
-    if (log) {
-        ++s_tpLogged;
-        sysLogPrintf(LOG_NOTE, "texpack: %s %08X%s%08X f%u s%u %dx%d bpl %d load %u upload %ux%u",
-                     id >= 0 ? "hit " : "miss", tex, ci ? "#" : " ", ci ? pal : 0, (unsigned)t.orig_fmt,
-                     (unsigned)size, w, h, bpl, (unsigned)lt.load_type, (unsigned)t.width, (unsigned)t.height);
+    // each distinct texture once (hit or miss), and counts of distinct ones:
+    // some textures are looked up again and again and would drown the rest
+    static std::unordered_map<uint64_t, bool> s_tpSeen;
+    static uint32_t s_tpUniqueHits;
+    const uint64_t seenKey = ((uint64_t)pal << 32 | tex) ^ ((uint64_t)t.orig_fmt << 61) ^ ((uint64_t)size << 58);
+    if (s_tpSeen.find(seenKey) == s_tpSeen.end() && s_tpSeen.size() < 4000) {
+        s_tpSeen[seenKey] = id >= 0;
+        if (id >= 0) ++s_tpUniqueHits;
+        if (s_tpSeen.size() <= 600) {
+            sysLogPrintf(LOG_NOTE, "texpack: %s %08X%s%08X f%u s%u %dx%d bpl %d load %u upload %ux%u",
+                         id >= 0 ? "hit " : "miss", tex, ci ? "#" : " ", ci ? pal : 0, (unsigned)t.orig_fmt,
+                         (unsigned)size, w, h, bpl, (unsigned)lt.load_type, (unsigned)t.width, (unsigned)t.height);
+        }
     }
     if ((s_tpLookups % 500) == 0) {
-        sysLogPrintf(LOG_NOTE, "texpack: %u of %u textures matched (skipped: %u mip levels, %u unknown loads, %u sizes)",
-                     s_tpHits, s_tpLookups, s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize);
+        sysLogPrintf(LOG_NOTE, "texpack: %u of %u distinct textures matched (%u of %u lookups; skipped: %u mip levels, %u unknown loads, %u sizes)",
+                     s_tpUniqueHits, (unsigned)s_tpSeen.size(), s_tpHits, s_tpLookups, s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize);
     }
     *hw = (uint32_t)w;
     *hh = (uint32_t)h;
