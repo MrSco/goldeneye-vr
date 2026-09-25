@@ -13407,7 +13407,13 @@ bool posIsOnScreen(PropRecord *prop, coord3d *pos, f32 arg2, bool arg3)
                     f32 ydiff = pos->y - campos->y;
                     f32 zdiff = pos->z - campos->z;
 
+#ifdef GEVR
+                    /* issue #39: the cap reaches as far as the rooms (bg.h GEVR_FAR_EXTEND);
+                     * Surface's far scenery is past 32000 units at 3.3x */
+                    if (xdiff * xdiff + ydiff * ydiff + zdiff * zdiff > (32000 * GEVR_FAR_EXTEND) * (32000 * GEVR_FAR_EXTEND))
+#else
                     if (xdiff * xdiff + ydiff * ydiff + zdiff * zdiff > 32000 * 32000)
+#endif
                     {
                         result = FALSE;
                     }

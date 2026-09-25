@@ -648,7 +648,12 @@ s32 fogPositionIsVisibleThroughFog(coord3d *pos, f32 range)
 
     ff = (((sp24.f[0] * player_mtx->m[0][0]) + (sp24.f[1] * player_mtx->m[0][1]) + (sp24.f[2] * player_mtx->m[0][2])));
 
+#ifdef GEVR
+    /* issue #39: as far as the rooms draw (bg.h GEVR_FAR_EXTEND) */
+    if (ff > (g_ScaledFarFogIntensity * GEVR_FAR_EXTEND + range))
+#else
     if (ff > (g_ScaledFarFogIntensity + range))
+#endif
     {
         return 0;
     }
@@ -690,6 +695,19 @@ s32 fogGetPropDistColor(PropRecord *prop, rgba_f32 *color)
 
     if (color->rgba[3] > 1.0f)
     {
+#ifdef GEVR
+        /*
+         * Issue #39: past the fog but within the rooms' extended reach (bg.h
+         * GEVR_FAR_EXTEND), drawn fully fogged as the room geometry out there
+         * is, rather than dropped - the radar dish on Surface popped in after
+         * its building.
+         */
+        if (prop->zDepth < g_CurFogDetails.scaled_far_fog_dist * GEVR_FAR_EXTEND)
+        {
+            color->rgba[3] = 1.0f;
+            return 1;
+        }
+#endif
         return 0; // Prop is completely obscured by fog (don't render)
     }
 
