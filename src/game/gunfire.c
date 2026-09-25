@@ -7091,7 +7091,7 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand)
 
     dist = sqrtf(p.x * p.x + p.y * p.y + p.z * p.z);
     /* the flat sight is 32 of 320 pixels across a 60 degree view: ~3 degrees */
-    half = dist * tanf(DegToRad(1.5f)) * (g_CurrentPlayer->fovy / 60.0f);
+    half = dist * tanf(DegToRad(1.5f));   /* the view never zooms in stereo (lv.c, issue #40) */
     k = half / 16.0f;
 
     /* a quad facing the eye at p: vertices at +-16 in the view plane */
