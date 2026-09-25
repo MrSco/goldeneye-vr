@@ -124,6 +124,8 @@ extern "C" void gevrVrMarkEyesRendered(int stereo); // vr_openxr.cpp
 void gfx_vr_hud_H_new_frame(void);                  // gfx_opengl.cpp
 void gfx_opengl_draw_vignette(float strength);      // gfx_opengl.cpp
 extern "C" float gevrStereoVignette(void);          // bondview2.c
+void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40)
+void gfx_vr_scope_render(void);
 int VrPauseHub = false;
 
 // --- VR: culling has to account for the per-eye clip-space shear -------------
@@ -3542,6 +3544,16 @@ static void gfx_run_dl(Gfx* cmd) {
                     case VR_CULL_OFF_END:
                         gevrCullOff = false;
                         break;
+
+                    case VR_SCOPE_REC_BEGIN:   // issue #40, lv.c lvlRender
+                        gfx_flush();
+                        gfx_vr_scope_record(true, gfx_rapi->get_clip_parameters().invert_y);
+                        break;
+
+                    case VR_SCOPE_REC_END:
+                        gfx_flush();
+                        gfx_vr_scope_record(false, false);
+                        break;
                     default:
                         break;
                 }
@@ -4158,6 +4170,7 @@ extern "C" void gfx_run(Gfx* commands) {
                 run_display_list();
                 gevrVrMarkEyesRendered(1);
                 gfx_flush();
+                gfx_vr_scope_render();   // issue #40: the world again, through the sniper scope
                 gfx_opengl_draw_vignette(gevrStereoVignette());
 
                 if (VrPauseHub && VrIsPaused) {

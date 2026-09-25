@@ -688,6 +688,9 @@ Gfx* lvlRender(Gfx* DL)
     {
         s32 i;
         s32 pcount;
+#ifdef GEVR
+        s32 gevrScopeRec;
+#endif
 
         pcount = getPlayerCount();
 
@@ -729,6 +732,18 @@ Gfx* lvlRender(Gfx* DL)
 
             DL = viClearZBufCurrentPlayer(DL);
             DL = viSetupCurrentPlayerView(DL);
+#ifdef GEVR
+            {
+                /* issue #40: the world, up to the gun, is kept for the sniper scope */
+                extern s32 gevrScopeBegin(void);
+
+                gevrScopeRec = gevrScopeBegin();
+                if (gevrScopeRec)
+                {
+                    gDPNoOpTag(DL++, 0x565D0000); /* VR_SCOPE_REC_BEGIN */
+                }
+            }
+#endif
 
             if (get_debug_render_raster() == DEB_MOVE_VIEW)
             {
@@ -844,6 +859,12 @@ Gfx* lvlRender(Gfx* DL)
                 set_max_ammo_for_cur_player();
             }
 
+#ifdef GEVR
+            if (gevrScopeRec)
+            {
+                gDPNoOpTag(DL++, 0x565D0001); /* VR_SCOPE_REC_END */
+            }
+#endif
             if (get_debug_render_raster() == DEB_BOND_VIEW)
             {
                 DL = maybe_mp_interface(DL);
