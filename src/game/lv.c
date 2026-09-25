@@ -688,6 +688,9 @@ Gfx* lvlRender(Gfx* DL)
     {
         s32 i;
         s32 pcount;
+#ifdef GEVR
+        s32 gevrScopeRec;
+#endif
 
         pcount = getPlayerCount();
 
@@ -710,7 +713,10 @@ Gfx* lvlRender(Gfx* DL)
                  * projection and everything the camera derives from it (the
                  * portal and scissor scales in currentPlayerSetCameraScale)
                  * agree; the multiview shader shears it per eye. The game's
-                 * own fovy still scales it so zoom works (60 = unzoomed).
+                 * own zoom (fovy) no longer scales it (issue #40): a zoomed
+                 * headset view put the sight out of reach (user). Aiming shows
+                 * the sight at a 1:1 view like every gun; the sniper's zoom is
+                 * the scope's to show.
                  */
                 extern s32 g_gevrStereo;
                 extern float gevrVrFov(void);
@@ -718,10 +724,7 @@ Gfx* lvlRender(Gfx* DL)
 
                 if (g_gevrStereo)
                 {
-                    /* not the watch's zoom onto its face: that zoomed the whole world */
-                    f32 zoom = g_CurrentPlayer->watch_animation_state != 0 ? 1.0f : g_CurrentPlayer->fovy / 60.0f;
-
-                    viSetFovY(gevrVrFov() * zoom);
+                    viSetFovY(gevrVrFov());
                     viSetAspect(gevrVrAspect());
                 }
             }
@@ -729,6 +732,18 @@ Gfx* lvlRender(Gfx* DL)
 
             DL = viClearZBufCurrentPlayer(DL);
             DL = viSetupCurrentPlayerView(DL);
+#ifdef GEVR
+            {
+                /* issue #40: the world, up to the gun, is kept for the sniper scope */
+                extern s32 gevrScopeBegin(void);
+
+                gevrScopeRec = gevrScopeBegin();
+                if (gevrScopeRec)
+                {
+                    gDPNoOpTag(DL++, 0x565D0000); /* VR_SCOPE_REC_BEGIN */
+                }
+            }
+#endif
 
             if (get_debug_render_raster() == DEB_MOVE_VIEW)
             {
@@ -844,6 +859,12 @@ Gfx* lvlRender(Gfx* DL)
                 set_max_ammo_for_cur_player();
             }
 
+#ifdef GEVR
+            if (gevrScopeRec)
+            {
+                gDPNoOpTag(DL++, 0x565D0001); /* VR_SCOPE_REC_END */
+            }
+#endif
             if (get_debug_render_raster() == DEB_BOND_VIEW)
             {
                 DL = maybe_mp_interface(DL);

@@ -1430,9 +1430,9 @@ void controller_pose() {
         // --- Determine whether grip is pressed for THIS controller ---
         gripPressed = (sourceIndex == 1) ? (vr_button_R_grip != 0) : (vr_button_L_grip != 0);
         /* The scoped-weapon list below is Perfect Dark's (Sniper Rifle, Laptop
-         * Gun, FarSight, ...). GoldenEye has its own scoped weapons under
-         * different identifiers, so the list has to be rewritten rather than
-         * renamed. Until it is, no weapon reports zoom. */
+         * Gun, FarSight, ...). Not used for GoldenEye: steadying a zoomed
+         * headset view was tried for the sniper (issue #40) and was worse -
+         * a scope in the lens replaces the headset zoom. */
         WepCanZoom = false;
 #if 0 /* Perfect Dark scoped weapons - not yet ported to GoldenEye */
         WepCanZoom = weaponnum == WEAPON_SNIPERRIFLE
@@ -1933,6 +1933,10 @@ extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4])
 {
     if (hand < 0 || hand > 1) {
         return 0;
+    }
+    // the probe places the layers held on a controller too (the scope's lens)
+    if (vr_fake_grip(hand, pos, quat)) {
+        return 1;
     }
     const XrPosef& pose = gControllerStates[gevrPhysHand(hand)].controller_pose;
     const XrQuaternionf& q = pose.orientation;
