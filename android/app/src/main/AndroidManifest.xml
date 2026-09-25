@@ -22,16 +22,15 @@
         android:required="true" />
 
     <!--
-        Declared so the shell does not gate launching on controllers.
-
-        Without a hand-tracking declaration Quest's RequiresControllersLaunchInterceptor
-        treats controllers as a hard requirement and blocks the launch behind
-        LaunchCheckControllerRequiredDialogActivity. required="false" says the app
-        runs either way; 6DOF aiming still wants controllers in practice.
+        No hand-tracking declaration, as Perfect Dark VR has none: the game is
+        played with controllers. With one (it was here to get past Quest's
+        RequiresControllersLaunchInterceptor when launching from a PC), Quest
+        switched to hands mid-game whenever the controllers were set down, put
+        them to sleep 30 s later, and on some controllers the reconnect then
+        failed ("update-required") until a battery pull or reboot (2026-09-25).
+        Launching with the controllers asleep now shows Quest's "controllers
+        required" prompt instead.
     -->
-    <uses-feature
-        android:name="oculus.software.handtracking"
-        android:required="false" />
 
     <!-- Haptics, Audio & Storage Permissions -->
     <uses-permission android:name="android.permission.VIBRATE" />
