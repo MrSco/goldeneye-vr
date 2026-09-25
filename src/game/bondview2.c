@@ -10518,12 +10518,112 @@ static s32 s_gevrWpIndex;
 static s32 s_gevrWpTextY;
 static s32 s_gevrWpRepeat;
 static s32 s_gevrWpHeld;
+#define GEVR_WP_MODEL_H 46   /* the model's strip above the list, screen units */
+/* tuning (files/gevr_wpanel.txt "open dy fov", re-read every second): force the panel
+ * open from the PC, move the model down by dy screen units, widen the model's view */
+static s32 s_gevrWpTuneOpen;
+s32 gevrWeaponPanelInFront;   /* vr_openxr.cpp: tuning puts the panel before the eyes (the hands may be asleep) */
+static f32 s_gevrWpTuneDy = 22.0f;   /* tuned in the headset: the watch frames items high */
+static f32 s_gevrWpTuneFov = 60.0f;  /* the watch's 45 filled the strip */
+static s32 s_gevrWpTuneIndex = -1;
+static void gevrWeaponPanelTune(void)
+{
+    static u32 tick;
+    if ((tick++ % 60) == 0)
+    {
+        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_wpanel.txt", "r");
+        s32 open = 0;
+        s32 index = -1;
+        f32 dy = s_gevrWpTuneDy, fov = s_gevrWpTuneFov;
+        if (f)
+        {
+            if (fscanf(f, "%d %f %f %d", &open, &dy, &fov, &index) < 1) open = 0;
+            fclose(f);
+            if (open != s_gevrWpTuneOpen || dy != s_gevrWpTuneDy || fov != s_gevrWpTuneFov)
+            {
+                sysLogPrintf(LOG_NOTE, "wpanel: open %d dy %.1f fov %.1f", open, dy, fov);
+            }
+        }
+        s_gevrWpTuneOpen = open;
+        gevrWeaponPanelInFront = open;
+        s_gevrWpTuneDy = dy;
+        s_gevrWpTuneFov = fov > 5.0f ? fov : 60.0f;
+        s_gevrWpTuneIndex = index;
+    }
+}
+static f32 s_gevrWpSpin;
 
 extern u16 *bondinvGetNameByIndex(s32 index);
 extern s32 bondinvGetTextbyInvIndex(s32 index);
 extern void bondinvSetCurEquippedItem(int current_item);
 extern int bondinvGetCurEquippedItem(void);
 extern void bondinvDetermineEquippedItem(void);
+extern Gfx *sub_GAME_7F0A6EE8(Gfx *DL);   /* options.c: the watch item preview's RDP setup */
+extern f32 get_xrotation_solo_watch_menu_for_item(ITEM_IDS item);
+extern f32 get_yrotation_solo_watch_menu_for_item(ITEM_IDS item);
+extern f32 get_horizontal_offset_on_solo_watch_menu_for_item(ITEM_IDS item);
+extern f32 get_vertical_offset_on_solo_watch_menu_for_item(ITEM_IDS item);
+extern f32 get_depth_offset_solo_watch_menu_inventory_page_for_item(ITEM_IDS item);
+extern void sub_GAME_7F05DAE4(GUNHAND hand);
+
+/*
+ * The highlighted item's model, as the watch's inventory page draws it, in a
+ * box of the panel. In VR fast3d stretches every 3D viewport over the whole eye
+ * buffer (gfx_pc.cpp gfx_calc_and_set_viewport), so the box is put into the
+ * projection instead: a scale and offset in clip space. The aspect is the box's
+ * as it lands in the eye buffer (the game's 320x240 is stretched onto it).
+ */
+extern int vr_get_internal_render_width(void);
+extern int vr_get_internal_render_height(void);
+
+static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, s32 h)
+{
+    Mtx *proj = dynAllocateMatrix();
+    u16 perspNorm;
+    f32 pf[4][4];
+    Mtxf rot;
+    Mtxf cam;
+    f32 hoff = get_horizontal_offset_on_solo_watch_menu_for_item(item);
+    f32 voff = get_vertical_offset_on_solo_watch_menu_for_item(item);
+    f32 depth = get_depth_offset_solo_watch_menu_inventory_page_for_item(item);
+    f32 xrot = get_xrotation_solo_watch_menu_for_item(item);
+    f32 yrot = get_yrotation_solo_watch_menu_for_item(item);
+    f32 sw = (f32) viGetX();
+    f32 sh = (f32) viGetY();
+    f32 fbw = (f32) vr_get_internal_render_width();
+    f32 fbh = (f32) vr_get_internal_render_height();
+    f32 aspect = ((f32) w / (f32) h) * ((fbw > 0.0f && fbh > 0.0f) ? (fbw * sh) / (fbh * sw) : 1.0f);
+    f32 sx = (f32) w / sw;
+    f32 sy = (f32) h / sh;
+    f32 cx = ((f32) x0 + (f32) w * 0.5f) / sw * 2.0f - 1.0f;
+    f32 cy = 1.0f - ((f32) y0 + (f32) h * 0.5f + s_gevrWpTuneDy) / sh * 2.0f;
+    s32 i;
+
+    /* the watch spins it 2.5 degrees a frame (options.c D_80040B1C) */
+    s_gevrWpSpin += (2.5f * speedgraphframes * M_TAU_F) / 360.0f;
+    while (s_gevrWpSpin > M_PI_F) s_gevrWpSpin -= M_TAU_F;
+
+    guPerspectiveF(pf, &perspNorm, s_gevrWpTuneFov, aspect, 10.0f, 10000.0f, 1.0f);
+    for (i = 0; i < 4; i++)
+    {
+        pf[i][0] = pf[i][0] * sx + pf[i][3] * cx;
+        pf[i][1] = pf[i][1] * sy + pf[i][3] * cy;
+    }
+    guMtxF2L(pf, proj);
+    gSPPerspNormalize(gdl++, perspNorm);
+    gSPMatrix(gdl++, osVirtualToPhysical(proj), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+
+    matrix_4x4_set_rotation_around_y((yrot * M_TAU_F) / 360.0f, &rot);
+    matrix_4x4_set_rotation_around_z(M_TAU_F - ((xrot * M_TAU_F) / 360.0f), &cam);
+    matrix_4x4_multiply_in_place(&cam, &rot);
+    matrix_4x4_set_lookat_target(&cam, cosf(s_gevrWpSpin) * depth, voff, sinf(s_gevrWpSpin) * depth + hoff,
+                                 0.0f, voff, hoff, 0.0f, 1.0f, 0.0f);
+    matrix_4x4_multiply_in_place(&cam, &rot);
+
+    /* the in-hand HUD's colours (options.c draw_current_hand_item_and_ammo), not the watch's green */
+    gdl = set_enviro_fog_for_items_in_solo_watch_menu(sub_GAME_7F0A6EE8(gdl), item, &rot, 0xFF, 0x64DC6428);
+    return gdl;
+}
 
 Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 {
@@ -10552,6 +10652,11 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
     count = bondinvCountTotalItemsInInv();
 
+    if (s_gevrWpShown && (gevrWeaponPanelRelease || !gevrWeaponPanelOpen))
+    {
+        sub_GAME_7F05DAE4(GUNRIGHT);   /* the preview used the right hand's model slot */
+    }
+
     if (gevrWeaponPanelRelease)
     {
         gevrWeaponPanelRelease = 0;
@@ -10565,6 +10670,12 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
             bondinvSetCurEquippedItem(s_gevrWpIndex);
         }
         s_gevrWpShown = FALSE;
+    }
+
+    gevrWeaponPanelTune();
+    if (s_gevrWpTuneOpen)
+    {
+        gevrWeaponPanelOpen = 1;
     }
 
     if (!gevrWeaponPanelOpen || count <= 0)
@@ -10621,6 +10732,10 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         s_gevrWpHeld = FALSE;
     }
 
+    if (s_gevrWpTuneOpen && s_gevrWpTuneIndex >= 0)
+    {
+        s_gevrWpIndex = s_gevrWpTuneIndex;
+    }
     if (s_gevrWpIndex >= count)
     {
         s_gevrWpIndex = count - 1;
@@ -10655,7 +10770,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
     /* centred in the screen, so the layer's crop is the same whichever way the image is read */
     bw = tw + 20;
-    bh = lh * 5 + 12;
+    bh = GEVR_WP_MODEL_H + lh * 5 + 12;
     bx0 = (viGetX() - bw) / 2;
     by0 = (viGetY() - bh) / 2;
     gevrWeaponPanelRect[0] = (float) bx0 / (float) viGetX();
@@ -10665,14 +10780,15 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
     gDPNoOpTag(gdl++, 0x565C0000); /* VR_WEAPON_PANEL_CAPTURE_BEGIN */
 
-    gdl = microcode_constructor_related_to_menus(gdl, bx0, by0, bx0 + bw, by0 + bh, 0x000000C0);
+    gdl = microcode_constructor_related_to_menus(gdl, bx0, by0, bx0 + bw, by0 + bh, 0x8898B4F4);
 
     x = bx0 + 10;
-    y = by0 + 6;
-    gdl = textRender(gdl, &x, &y, list, ptrFontBankGothicChars, ptrFontBankGothic, 0xAA00B0, tw + 1, lh * 5, s_gevrWpTextY, lh);
+    y = by0 + GEVR_WP_MODEL_H + 6;
+    /* brighter than the watch's 0xAA00B0: the panel floats over the world (user: hard to read) */
+    gdl = textRender(gdl, &x, &y, list, ptrFontBankGothicChars, ptrFontBankGothic, 0xE0E6EEFF, tw + 1, lh * 5, s_gevrWpTextY, lh);
 
-    midy = by0 + 6 + lh * 2 + 1;
-    gdl = microcode_constructor_related_to_menus(gdl, bx0 + 7, midy, bx0 + bw - 7, midy + lh - 2, 0x800050);
+    midy = by0 + GEVR_WP_MODEL_H + 6 + lh * 2 + 1;
+    gdl = microcode_constructor_related_to_menus(gdl, bx0 + 7, midy, bx0 + bw - 7, midy + lh - 2, 0x141C28E0);
 
     if (s_gevrWpTextY == target)
     {
@@ -10686,10 +10802,13 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
             gdl = microcode_constructor(gdl);
             textMeasure(&nh, &nw, name, ptrFontBankGothicChars, ptrFontBankGothic, lh);
             x = bx0 + 10;
-            y = by0 + 6 + lh * 2;
-            gdl = textRender(gdl, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0FFA0F0, nw, 0x64, 0, lh);
+            y = by0 + GEVR_WP_MODEL_H + 6 + lh * 2;
+            gdl = textRender(gdl, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, 0xFFF080FF, nw, 0x64, 0, lh);
         }
     }
+
+    gdl = gevrDrawWeaponPanelModel(gdl, bondinvGetTextbyInvIndex(s_gevrWpIndex),
+                                   bx0 + 4, by0 + 2, bw - 8, GEVR_WP_MODEL_H - 2);
 
     gdl = combiner_bayer_lod_perspective(gdl);
     gDPNoOpTag(gdl++, 0x565C0001); /* VR_WEAPON_PANEL_CAPTURE_END */

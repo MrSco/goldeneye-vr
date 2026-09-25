@@ -2724,6 +2724,7 @@ extern bool gfx_vr_menu_H_dirty_and_clear(void);
 extern bool gfx_vr_menu_P_dirty_and_clear(void);
 /* bondview2.c gevrDrawWeaponPanel: the panel's box in the game's screen, 0..1 */
 extern "C" float gevrWeaponPanelRect[4];
+extern "C" int gevrWeaponPanelInFront;   /* bondview2.c tuning: before the eyes */
 
 static const float VR_MENU_FACING_THRESHOLD = 0.8f;
 
@@ -2953,6 +2954,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
 
         // 18 cm above the controller (head space), turned to face the eyes
         float px = gCtrlPos[hand][0] / 100.f, py = gCtrlPos[hand][1] / 100.f + 0.18f, pz = gCtrlPos[hand][2] / 100.f;
+        if (gevrWeaponPanelInFront) { px = 0.f; py = -0.05f; pz = -0.45f; }
         menuLayerP.pose.position = {px, py, pz};
         float fx = -px, fy = -py, fz = -pz;
         float fl = sqrtf(fx * fx + fy * fy + fz * fz);
