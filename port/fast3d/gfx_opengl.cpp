@@ -1679,6 +1679,7 @@ struct GevrScopeDraw {
 #define GEVR_SCOPE_RES 512
 static std::vector<GevrScopeDraw> s_scopeDraws;
 static bool s_scopeRec, s_scopeTaken, s_scopeDrawn;
+static bool s_scopeOnly;   // VR_SCOPE_ONLY: kept for the scope, not drawn to the eyes
 static float s_scopeVP[16], s_scopeHeadP[2];
 static GLuint s_scopeFbo, s_scopeTex, s_scopeDepth;
 
@@ -1734,11 +1735,17 @@ static bool gevr_scope_sees(const float* v, size_t len, size_t tris)
     return false;
 }
 
+// gunfire.c gunDrawSight: the sight drawn for the scope alone, after the world
+void gfx_vr_scope_only(bool on)
+{
+    s_scopeOnly = on && s_scopeTaken;
+}
+
 static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_len, size_t buf_vbo_num_tris)
 {
     // the HUD, rects and menus (w == 1: the shader's HUD branch) are not the world
     if (s_curPrg == NULL || gForceFlatShaderForMenu || vr_dl_is_pause_or_menu || buf_vbo[3] == 1.0f
-        || !gevr_scope_sees(buf_vbo, buf_vbo_len, buf_vbo_num_tris)) {
+        || (!s_scopeOnly && !gevr_scope_sees(buf_vbo, buf_vbo_len, buf_vbo_num_tris))) {
         return;
     }
     GevrScopeDraw d;
@@ -1760,6 +1767,7 @@ static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_le
 void gfx_vr_scope_render(void)
 {
     s_scopeRec = false;
+    s_scopeOnly = false;
     if (!s_scopeTaken) {
         return;
     }
@@ -1987,8 +1995,11 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     } else {
         glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     }
-    if (s_scopeRec) {
+    if (s_scopeRec || s_scopeOnly) {
         gevr_scope_keep(first, buf_vbo, buf_vbo_len, buf_vbo_num_tris);   // issue #40
+        if (s_scopeOnly) {
+            return;   // the scope's own sight: not for the eyes
+        }
     }
 
 
