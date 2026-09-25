@@ -79,6 +79,9 @@ extern int VrLeftHandedMode;
 
 int gevrVrTriggerDown[2];   /* by gun hand (0 right, 1 left); gunfire.c gunTickGameplay */
 int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondview2.c draws it) */
+extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
+extern f32 gevrWeaponPanelStickY;
+#define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern s32 gevrDualWielding(void);
 
@@ -1032,6 +1035,39 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
         if (get_button_state(0, "x")) npad->button |= B_BUTTON;
         if (get_button_state(0, "y")) npad->button |= A_BUTTON;
+        // Issue #10: in stereo play the weapon hand's A is held back. A tap sends
+        // A on release (the game's weapon cycle); a hold shows the weapon panel
+        // (bondview2.c gevrDrawWeaponPanel) and letting go equips what it
+        // highlights. The other hand's Y still cycles at once.
+        {
+            static u32 adown = 0, apulse = 0;
+            static bool apanel = false;
+            const u32 t = SDL_GetTicks();
+            if (stereoplay && !gevrReturnPrompt) {
+                const bool a = get_button_state(1, "a");
+                if (!get_button_state(0, "y")) npad->button &= ~A_BUTTON;
+                if (a) {
+                    if (!adown) {
+                        adown = t ? t : 1;
+                        apanel = false;
+                    }
+                    if (!apanel && t - adown >= GEVR_WEAPON_PANEL_HOLD_MS) {
+                        apanel = true;
+                        gevrWeaponPanelOpen = 1;
+                        LOGI("input: weapon panel open\n");
+                    }
+                } else if (adown) {
+                    if (!apanel) apulse = t + 100;
+                    else gevrWeaponPanelRelease = 1;
+                    gevrWeaponPanelOpen = 0;
+                    adown = 0;
+                }
+                if (t < apulse) npad->button |= A_BUTTON;
+            } else {
+                adown = 0;
+                gevrWeaponPanelOpen = 0;
+            }
+        }
         if (gevrReturnPrompt) npad->button &= ~(A_BUTTON | B_BUTTON | START_BUTTON);
         const bool lclick = get_button_state(0, "thumbstick_click");
         const bool rclick = get_button_state(1, "thumbstick_click");
@@ -1167,7 +1203,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             else x = (x - (x > 0.0f ? dz : -dz)) / (1.0f - dz);
             gevrTurnAxis = x;
         }
-        if (!menu) {
+        // The weapon panel (issue #10) takes the other hand's stick while it is up.
+        gevrWeaponPanelStickY = gevrWeaponPanelOpen ? left.y : 0.0f;
+        if (!menu && !gevrWeaponPanelOpen) {
             // Solitaire: C directions move; while aiming down/up crouches/stands.
             if (left.x < -0.25f) npad->button |= L_CBUTTONS;
             if (left.x >  0.25f) npad->button |= R_CBUTTONS;

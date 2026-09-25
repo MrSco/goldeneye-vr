@@ -10498,6 +10498,204 @@ static Gfx *gevrDrawStats(Gfx *gdl)
  */
 extern int gevrReturnPrompt;
 
+/*
+ * Issue #10: the weapon panel. Holding the weapon button (A) shows a copy of
+ * the watch's inventory list (options.c draw_watch_inventory_page: the same
+ * joined name list, five lines, highlight bar and colours) above the weapon
+ * hand, on its own layer (VR_WEAPON_PANEL_CAPTURE, vr_openxr.cpp). The other
+ * hand's stick scrolls it; letting go equips the highlighted item with the
+ * game's animated weapon switch (as A's cycle does, gun.c
+ * gunRequestHandWeaponChange). A tap still cycles (port/src/input.c).
+ */
+s32 gevrWeaponPanelOpen;       /* input.c: the button is held */
+s32 gevrWeaponPanelRelease;    /* input.c: let go while open: equip */
+f32 gevrWeaponPanelStickY;     /* input.c: the other hand's stick, up positive */
+float gevrWeaponPanelRect[4];  /* the panel's box in the game's screen, 0..1 (vr_openxr.cpp crops to it) */
+
+static s32 s_gevrWpShown;
+static s32 s_gevrWpMoved;
+static s32 s_gevrWpIndex;
+static s32 s_gevrWpTextY;
+static s32 s_gevrWpRepeat;
+static s32 s_gevrWpHeld;
+
+extern u16 *bondinvGetNameByIndex(s32 index);
+extern s32 bondinvGetTextbyInvIndex(s32 index);
+extern void bondinvSetCurEquippedItem(int current_item);
+extern int bondinvGetCurEquippedItem(void);
+extern void bondinvDetermineEquippedItem(void);
+
+Gfx *gevrDrawWeaponPanel(Gfx *gdl)
+{
+    char list[2000];
+    s32 count;
+    s32 i;
+    s32 lh = j_text_trigger ? 14 : 12;
+    s32 target;
+    s32 tw = 0;
+    s32 th = 0;
+    s32 bw;
+    s32 bh;
+    s32 bx0;
+    s32 by0;
+    s32 x;
+    s32 y;
+    s32 midy;
+
+    if (!g_gevrStereo || g_CurrentPlayer == NULL)
+    {
+        gevrWeaponPanelOpen = 0;
+        gevrWeaponPanelRelease = 0;
+        s_gevrWpShown = FALSE;
+        return gdl;
+    }
+
+    count = bondinvCountTotalItemsInInv();
+
+    if (gevrWeaponPanelRelease)
+    {
+        gevrWeaponPanelRelease = 0;
+
+        if (s_gevrWpShown && s_gevrWpMoved && count > 0)
+        {
+            s32 item = bondinvGetTextbyInvIndex(s_gevrWpIndex);
+
+            gunRequestHandWeaponChange(GUNRIGHT, item, 1);
+            gunRequestHandWeaponChange(GUNLEFT, ITEM_UNARMED, 1);
+            bondinvSetCurEquippedItem(s_gevrWpIndex);
+        }
+        s_gevrWpShown = FALSE;
+    }
+
+    if (!gevrWeaponPanelOpen || count <= 0)
+    {
+        s_gevrWpShown = FALSE;
+        return gdl;
+    }
+
+    if (!s_gevrWpShown)
+    {
+        bondinvDetermineEquippedItem();
+        s_gevrWpIndex = bondinvGetCurEquippedItem();
+        if (s_gevrWpIndex < 0 || s_gevrWpIndex >= count)
+        {
+            s_gevrWpIndex = 0;
+        }
+        s_gevrWpTextY = 2 * lh - s_gevrWpIndex * lh;
+        s_gevrWpRepeat = 0;
+        s_gevrWpHeld = FALSE;
+        s_gevrWpMoved = FALSE;
+        s_gevrWpShown = TRUE;
+    }
+
+    /* the other stick: a step on a push, then repeating, as the watch's fast step */
+    if (gevrWeaponPanelStickY > 0.5f || gevrWeaponPanelStickY < -0.5f)
+    {
+        s32 step = FALSE;
+
+        if (!s_gevrWpHeld)
+        {
+            step = TRUE;
+            s_gevrWpHeld = TRUE;
+            s_gevrWpRepeat = 15;
+        }
+        else if (--s_gevrWpRepeat <= 0)
+        {
+            step = TRUE;
+            s_gevrWpRepeat = 6;
+        }
+
+        if (step)
+        {
+            s32 next = s_gevrWpIndex + (gevrWeaponPanelStickY > 0.0f ? -1 : 1);
+
+            if (next >= 0 && next < count && next != s_gevrWpIndex)
+            {
+                s_gevrWpIndex = next;
+                s_gevrWpMoved = TRUE;
+            }
+        }
+    }
+    else if (gevrWeaponPanelStickY < 0.3f && gevrWeaponPanelStickY > -0.3f)
+    {
+        s_gevrWpHeld = FALSE;
+    }
+
+    if (s_gevrWpIndex >= count)
+    {
+        s_gevrWpIndex = count - 1;
+    }
+
+    /* the list scrolls to put the highlighted item on the middle line, as the watch's */
+    target = 2 * lh - s_gevrWpIndex * lh;
+    if (target < s_gevrWpTextY)
+    {
+        s_gevrWpTextY = s_gevrWpTextY - (s_gevrWpTextY - target) / 3 - 1;
+        if (s_gevrWpTextY < target) s_gevrWpTextY = target;
+    }
+    else if (s_gevrWpTextY < target)
+    {
+        s_gevrWpTextY = s_gevrWpTextY + (target - s_gevrWpTextY) / 3 + 1;
+        if (s_gevrWpTextY > target) s_gevrWpTextY = target;
+    }
+
+    list[0] = 0;
+    for (i = 0; i < count; i++)
+    {
+        char *name = (char *) bondinvGetNameByIndex(i);
+
+        if (name != NULL && strlen(list) + strlen(name) < sizeof(list) - 1)
+        {
+            strcat(list, name);
+        }
+    }
+
+    gdl = microcode_constructor(gdl);
+    textMeasure(&th, &tw, list, ptrFontBankGothicChars, ptrFontBankGothic, lh);
+
+    /* centred in the screen, so the layer's crop is the same whichever way the image is read */
+    bw = tw + 20;
+    bh = lh * 5 + 12;
+    bx0 = (viGetX() - bw) / 2;
+    by0 = (viGetY() - bh) / 2;
+    gevrWeaponPanelRect[0] = (float) bx0 / (float) viGetX();
+    gevrWeaponPanelRect[1] = (float) by0 / (float) viGetY();
+    gevrWeaponPanelRect[2] = (float) (bx0 + bw) / (float) viGetX();
+    gevrWeaponPanelRect[3] = (float) (by0 + bh) / (float) viGetY();
+
+    gDPNoOpTag(gdl++, 0x565C0000); /* VR_WEAPON_PANEL_CAPTURE_BEGIN */
+
+    gdl = microcode_constructor_related_to_menus(gdl, bx0, by0, bx0 + bw, by0 + bh, 0x000000C0);
+
+    x = bx0 + 10;
+    y = by0 + 6;
+    gdl = textRender(gdl, &x, &y, list, ptrFontBankGothicChars, ptrFontBankGothic, 0xAA00B0, tw + 1, lh * 5, s_gevrWpTextY, lh);
+
+    midy = by0 + 6 + lh * 2 + 1;
+    gdl = microcode_constructor_related_to_menus(gdl, bx0 + 7, midy, bx0 + bw - 7, midy + lh - 2, 0x800050);
+
+    if (s_gevrWpTextY == target)
+    {
+        char *name = (char *) bondinvGetNameByIndex(s_gevrWpIndex);
+
+        if (name != NULL)
+        {
+            s32 nw = 0;
+            s32 nh = 0;
+
+            gdl = microcode_constructor(gdl);
+            textMeasure(&nh, &nw, name, ptrFontBankGothicChars, ptrFontBankGothic, lh);
+            x = bx0 + 10;
+            y = by0 + 6 + lh * 2;
+            gdl = textRender(gdl, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0FFA0F0, nw, 0x64, 0, lh);
+        }
+    }
+
+    gdl = combiner_bayer_lod_perspective(gdl);
+    gDPNoOpTag(gdl++, 0x565C0001); /* VR_WEAPON_PANEL_CAPTURE_END */
+    return gdl;
+}
+
 Gfx *gevrDrawReturnPrompt(Gfx *gdl)
 {
     const char *text = "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED";
