@@ -936,6 +936,28 @@ static s32 gevrShotWalkToGun(StandTile **fromtile, PropRecord *playerprop, coord
  * damage, sparks or sounds - and a guard's near-miss flag, which the hit test
  * sets and which alerts him, is put back. Returns FALSE outside stereo aim.
  */
+/*
+ * A view-space point to the world. In stereo the gun and shot origins sit in
+ * view units (world units times D_800364CC, 0.2 on the Dam and Surface), but
+ * the view-to-world matrix carries no scale (HANDOFF 71, 94): without the
+ * division the background trace started a fifth of the way from the eye to
+ * the muzzle there, and wall hits landed off the sight - about one sight
+ * height with the sniper zoomed (issue #40).
+ */
+static void gevrViewToWorldPos(coord3d *p)
+{
+    extern s32 g_gevrStereo;
+    extern f32 D_800364CC;
+
+    if (g_gevrStereo && D_800364CC > 1e-6f)
+    {
+        p->x /= D_800364CC;
+        p->y /= D_800364CC;
+        p->z /= D_800364CC;
+    }
+    mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), p);
+}
+
 static s32 s_gevrAimValid[GUNHANDS];
 static coord3d s_gevrAimPoint[GUNHANDS];
 
@@ -1011,7 +1033,7 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     }
 
     shotdata.gunpos = shotdata.viewOrigin;
-    mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &shotdata.gunpos);
+    gevrViewToWorldPos(&shotdata.gunpos);
     shotdata.dir = shotdata.viewDir;
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &shotdata.dir);
 
@@ -1205,7 +1227,7 @@ s32 gevrStereoAimPoint(s32 hand, coord3d *out)
     o.y = tankobj->model->render_pos[4].pos.m[3][1];
     o.z = tankobj->model->render_pos[4].pos.m[3][2];
     mw = o;
-    mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &mw);
+    gevrViewToWorldPos(&mw);
     vel.x = -sinf(yaw) * cosf(pitch) * g_TankShellSpeed;
     vel.y = sinf(pitch) * g_TankShellSpeed;
     vel.z = cosf(yaw) * cosf(pitch) * g_TankShellSpeed;
@@ -1241,7 +1263,7 @@ s32 gevrStereoAimPoint(s32 hand, coord3d *out)
         }
         /* the arc at the hit's distance */
         hw = *out;
-        mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &hw);
+        gevrViewToWorldPos(&hw);
         dh = sqrtf((hw.x - mw.x) * (hw.x - mw.x) + (hw.z - mw.z) * (hw.z - mw.z));
         tt = dh / vh;
         aimw.x = mw.x + vel.x * tt;
@@ -1308,7 +1330,11 @@ void chraiDefaultWeaponFireHandler(s32 hand)
     shotdata.gunpos.y = shotdata.viewOrigin.y;
     shotdata.gunpos.z = shotdata.viewOrigin.z;
 
+#ifdef GEVR
+    gevrViewToWorldPos(&shotdata.gunpos);   /* issue #40: view units on the scaled levels */
+#else
     mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &shotdata.gunpos);
+#endif
 
     shotdata.dir.x = shotdata.viewDir.x;
     shotdata.dir.y = shotdata.viewDir.y;
