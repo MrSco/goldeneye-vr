@@ -1458,14 +1458,7 @@ static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width,
 }
 
 static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
-    static int logged = 0;
-    const bool check = logged < 40;   // the first few only: glGetError can stall
-    if (check) {
-        while (glGetError() != GL_NO_ERROR) {
-        }
-    }
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
-    const GLenum e1 = check ? glGetError() : GL_NO_ERROR;
     // before generating: the cache reuses names, and a native upload left this
     // one at MAX_LEVEL 0 - glGenerateMipmap stops there, and raising it after
     // left the texture incomplete (sampled as opaque black: blocks for text)
@@ -1474,14 +1467,6 @@ static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t wid
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, levels);
     glGenerateMipmap(GL_TEXTURE_2D);
-    const GLenum e2 = check ? glGetError() : GL_NO_ERROR;
-    GLint bound = 0;
-    if (check) glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
-    if (check) {
-        logged++;
-        LOGI("texpack: upload %ux%u to tex %d (tracked %u, unit %d): teximage 0x%x mipmap 0x%x",
-             width, height, bound, s_boundTex[s_activeTexUnit], s_activeTexUnit, e1, e2);
-    }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     if (s_maxAniso < 0.0f) {

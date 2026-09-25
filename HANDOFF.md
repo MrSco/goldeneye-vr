@@ -4495,3 +4495,35 @@ Dark leftovers; remove unused assets and purge them from history.
   here). chrprop.c traces an aim point per hand (the left one only while its
   grip is held); gunfire.c gevrDrawSight3D(hand) draws it with the env colour
   as the colour and the texture's alpha as the shape. User-tested.
+
+## 101. Texture packs (#25, merged 2026-09-25)
+- Launcher: Mods... under COMFORT opens a page listing curated packs
+  (ModManager.java PACKS): download from the author's own site on request,
+  size checked, ZipFile's CRCs checked, PNGs unpacked into
+  files/texture-packs/<id>; Original vs pack saved as ActiveTexturePack.
+  Nothing of the packs ships with the app. First entry: evilgames.eu's
+  GoldenEye 007 HD (intermissionfb, GhostlyDark; GLideN64 "Rice" PNGs,
+  135 MB; unpacks to 1762 textures). The pack is WIP: no guards, 7 weapons,
+  106 Dam textures, text, gun barrel, effects, ammo icons.
+- Renderer: gevr_texpack.cpp indexes IDENT#CRC#F#S[#PAL]_all/ciByRGBA names
+  on a thread and decodes on demand (stb_image, halved to 1024 a side, 160 MB
+  kept). gfx_pc.cpp computes GLideN64's checksum on a texture-cache miss
+  (Textures.cpp _loadHiresTexture's rows/width/stride, TxUtil RiceCRC32),
+  shows the native texture until the image is decoded, then erases that
+  cache entry so the next draw uploads the pack's. Pack images get mipmaps,
+  trilinear and 4x anisotropic filtering (upload_texture_hd).
+- What it took to match (Dam, seen): 502 of 665 distinct textures, and no
+  miss whose checksum the pack has.
+  - Mip chains: only levels past first_tile_index are skipped; skipping the
+    whole chain skipped GoldenEye's world and model textures.
+  - Palettes: GLideN64's filter-palette copy takes the TLUT load's image
+    from its START (gDP.cpp gDPLoadTLUT ignores the offset), and GoldenEye
+    loads each palette at an offset after its texture, so the pack names
+    hash the texture's first bytes (s_filterPalette mirrors the copy). Odd
+    colour counts read 2 bytes past: the image's next bytes matched 5 of 5.
+  - 32-bit texels are host-order words in this port (the emulator's RDRAM
+    layout already): read without the ^3 (the 9mm ammo icon).
+  - glGenerateMipmap stops at MAX_LEVEL, which native uploads leave at 0 on
+    reused names: set the range first (black blocks for text otherwise).
+- Files pushed with adb into Android/data/<pkg> are invisible to the app
+  (ENOENT): test packs have to be installed by the app (the Mods page).

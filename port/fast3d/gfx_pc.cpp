@@ -1307,19 +1307,13 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
         else bpl = (lt.dxt > 1 ? tp_reverse_dxt(lt.dxt, tw, size) : (int)lt.dxt) << 3;
         // never read past what the block loaded (the emulator reads RDRAM; this is a heap)
         if (lt.orig_size_bytes != 0 && (int64_t)(h - 1) * bpl + ((w << size) >> 1) > (int64_t)lt.orig_size_bytes) {
-            if (s_tpSkipSize++ < 12) {
-                sysLogPrintf(LOG_NOTE, "texpack: skip f%u s%d %dx%d bpl %d > loaded %u (tile %dx%d masks %u/%u cm %u/%u line %u dxt %u)",
-                             (unsigned)t.orig_fmt, size, w, h, bpl, (unsigned)lt.orig_size_bytes, tw, th,
-                             (unsigned)t.masks, (unsigned)t.maskt, (unsigned)t.orig_cms, (unsigned)t.orig_cmt,
-                             (unsigned)(t.line_size_bytes >> 3), (unsigned)lt.dxt);
-            }
+            ++s_tpSkipSize;
             return -1;
         }
     }
+    // too narrow for the checksum's word reads (1x1 colours, 1-wide ramps), or too big
     if (w <= 0 || h <= 0 || ((w << size) >> 1) < 4 || h > 1024 || w > 1024) {
-        if (s_tpSkipSize++ < 12) {
-            sysLogPrintf(LOG_NOTE, "texpack: skip f%u s%d %dx%d (too small or large)", (unsigned)t.orig_fmt, size, w, h);
-        }
+        ++s_tpSkipSize;
         return -1;
     }
 
@@ -1350,23 +1344,9 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
 
     ++s_tpLookups;
     if (id >= 0) ++s_tpHits;
-    // each distinct texture once (hit or miss), and counts of distinct ones:
-    // some textures are looked up again and again and would drown the rest
-    static std::unordered_map<uint64_t, bool> s_tpSeen;
-    static uint32_t s_tpUniqueHits;
-    const uint64_t seenKey = ((uint64_t)pal << 32 | tex) ^ ((uint64_t)t.orig_fmt << 61) ^ ((uint64_t)size << 58);
-    if (s_tpSeen.find(seenKey) == s_tpSeen.end() && s_tpSeen.size() < 4000) {
-        s_tpSeen[seenKey] = id >= 0;
-        if (id >= 0) ++s_tpUniqueHits;
-        if (s_tpSeen.size() <= 600) {
-            sysLogPrintf(LOG_NOTE, "texpack: %s %08X%s%08X f%u s%u %dx%d bpl %d load %u upload %ux%u",
-                         id >= 0 ? "hit " : "miss", tex, ci ? "#" : " ", ci ? pal : 0, (unsigned)t.orig_fmt,
-                         (unsigned)size, w, h, bpl, (unsigned)lt.load_type, (unsigned)t.width, (unsigned)t.height);
-        }
-    }
-    if ((s_tpLookups % 500) == 0) {
-        sysLogPrintf(LOG_NOTE, "texpack: %u of %u distinct textures matched (%u of %u lookups; skipped: %u mip levels, %u unknown loads, %u sizes)",
-                     s_tpUniqueHits, (unsigned)s_tpSeen.size(), s_tpHits, s_tpLookups, s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize);
+    if ((s_tpLookups % 2000) == 0) {
+        sysLogPrintf(LOG_NOTE, "texpack: %u of %u lookups matched (skipped: %u mip levels, %u unknown loads, %u sizes)",
+                     s_tpHits, s_tpLookups, s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize);
     }
     *hw = (uint32_t)w;
     *hh = (uint32_t)h;
@@ -1414,12 +1394,6 @@ static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const Texture
     if (img == nullptr) {
         s_tpPending[id].push_back(key);   // the native texture until it's decoded
         return false;
-    }
-    static int logged = 0;
-    if (logged < 40) {
-        logged++;
-        sysLogPrintf(LOG_NOTE, "texpack: hd %ux%u for %ux%u, uploaded as %ux%u, tile %d unit %d", iw, ih, hw, hh,
-                     (unsigned)rdp.texture_tile[tile].width, (unsigned)rdp.texture_tile[tile].height, tile, 0);
     }
     return gevr_texpack_upload(img, iw, ih, hw, hh, rdp.texture_tile[tile].width, rdp.texture_tile[tile].height);
 }
