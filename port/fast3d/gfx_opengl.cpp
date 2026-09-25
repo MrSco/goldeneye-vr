@@ -2,7 +2,9 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 
+#include <algorithm>
 #include <map>
 #include <unordered_map>
 #include <vector>
@@ -343,6 +345,10 @@ struct ShaderProgram {
     GLint TanHalfFovLeft;
     GLint TanHalfFovRight;
 
+    GLint scopeLocation;       // GoldenEye (issue #40): the sniper scope's pass
+    GLint scopeVPLocation;
+    GLint scopeHeadPLocation;
+
 };
 
 
@@ -430,6 +436,15 @@ static void gevr_pm_next_segment(void)
 static bool s_uniCacheValid;
 static float s_uniEye[8], s_uniBias;
 static int s_uniFlat, s_uniMenu;
+
+/*
+ * Issue #40: the state the fast3d frontend last set, so the sniper scope's pass
+ * (gfx_vr_scope_render) can put it back after drawing with its own.
+ */
+static struct ShaderProgram* s_curPrg;
+static bool s_depthArgs[4];
+static uint16_t s_depthZmode;
+static bool s_alphaArgs[2];
 
 static std::vector<Framebuffer> framebuffers;
 static size_t current_framebuffer;
@@ -746,6 +761,7 @@ static void gfx_opengl_unload_shader(struct ShaderProgram* old_prg) {
 
 static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
     // if (!new_prg) return;
+    s_curPrg = new_prg;
     glUseProgram(new_prg->opengl_program_id);
     gfx_opengl_vertex_array_set_attribs(new_prg);
     gfx_opengl_set_uniforms(new_prg);
@@ -968,6 +984,10 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform float uTanHalfFovRight;");
         append_line(vs_buf, &vs_len, "uniform int uVrFlat;");
         append_line(vs_buf, &vs_len, "uniform vec2 uDecalBias;");
+        // GoldenEye (issue #40): the sniper scope's pass (gfx_vr_scope_render)
+        append_line(vs_buf, &vs_len, "uniform int uScope;");
+        append_line(vs_buf, &vs_len, "uniform mat4 uScopeVP;");
+        append_line(vs_buf, &vs_len, "uniform vec2 uHeadP;");
 
     }
 
@@ -1042,6 +1062,16 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     // The far reach (gfx_pc.h GEVR_FAR_DEPTH_SCALE), with or without depth
     // clamp: clamp then only catches what lies past 3.3x the far distance.
     append_line(vs_buf, &vs_len, "    gl_Position.z *= 0.3f;");
+    if (use_multiview) {
+        // The scope pass: back from the head's clip space to its camera space
+        // (the head projection is symmetric, w = -z), then through the scope's
+        // camera. It draws into a flat target, so the second view is dropped.
+        append_line(vs_buf, &vs_len,
+                    "if (uScope == 1) {"
+                    " vec4 c = vec4(aVtxPos.x / uHeadP.x, aVtxPos.y / uHeadP.y, -aVtxPos.w, 1.0);"
+                    " gl_Position = (gl_ViewID_OVR == 0u) ? uScopeVP * c : vec4(0.0, 0.0, 2.0, 1.0);"
+                    " }");
+    }
     append_line(vs_buf, &vs_len, "}");
 
     // Fragment shader
@@ -1369,7 +1399,11 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
     // VR...
     prg->vrFlatLocation = -1;
+    prg->scopeLocation = prg->scopeVPLocation = prg->scopeHeadPLocation = -1;
     if (use_multiview) {
+        prg->scopeLocation = glGetUniformLocation(shader_program, "uScope");
+        prg->scopeVPLocation = glGetUniformLocation(shader_program, "uScopeVP");
+        prg->scopeHeadPLocation = glGetUniformLocation(shader_program, "uHeadP");
         prg->eyeOffsetLeftLocation = glGetUniformLocation(shader_program, "uEyeOffsetLeft");
         prg->eyeOffsetRightLocation = glGetUniformLocation(shader_program, "uEyeOffsetRight");
         prg->isMenuLocation = glGetUniformLocation(shader_program, "uIsMenu");
@@ -1521,6 +1555,11 @@ static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint
 #define GEVR_DECAL_BAND 1
 
 static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode) {
+    s_depthArgs[0] = depth_test;
+    s_depthArgs[1] = depth_update;
+    s_depthArgs[2] = depth_compare;
+    s_depthArgs[3] = depth_source_prim;
+    s_depthZmode = zmode;
     s_isDecal = depth_test && depth_compare && zmode == ZMODE_DEC;
     s_decalZ = ((GEVR_DECAL_BAND && s_decalMode == 0) || s_decalMode == 3) && s_isDecal;
     if (depth_test) {
@@ -1588,6 +1627,8 @@ static void gfx_opengl_set_scissor(int x, int y, int width, int height) {
 }
 
 static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate) { // VR
+    s_alphaArgs[0] = use_alpha;
+    s_alphaArgs[1] = modulate;
     if (use_alpha) glEnable(GL_BLEND);
     else glDisable(GL_BLEND);
 
@@ -1604,6 +1645,283 @@ static void gfx_opengl_set_use_alpha(bool use_alpha, bool modulate) { // VR
 
 
 
+
+// ============================================================================
+// VR - the sniper scope (issue #40)
+// ============================================================================
+/*
+ * bondview2.c gevrScopeBegin puts a camera on the sniper's shot line and
+ * lvlRender tags the world's draws (VR_SCOPE_REC_*). Each is kept here as it
+ * is drawn - its program, its range of the frame's vertex ring, its textures,
+ * depth and blend modes - and drawn a second time after the eye pass, into a
+ * small target through the scope's camera (the vertex shader's uScope branch).
+ * The ring's segment is not written again until two frames later, so the
+ * vertices are still there. Draws the scope's narrow view misses are dropped
+ * as they are kept. vr_openxr.cpp shows the target as the lens.
+ */
+extern "C" {
+extern int gevrScopeOn;             // bondview2.c
+extern float gevrScopeVP[16];
+extern float gevrScopeHeadP[2];
+}
+
+struct GevrScopeDraw {
+    struct ShaderProgram* prg;
+    GLint first;
+    GLsizei count;
+    GLuint tex[2];
+    bool linear[2];
+    bool depth[4];
+    uint16_t zmode;
+    bool alpha[2];
+};
+
+#define GEVR_SCOPE_RES 512
+static std::vector<GevrScopeDraw> s_scopeDraws;
+static bool s_scopeRec, s_scopeTaken, s_scopeDrawn;
+static float s_scopeVP[16], s_scopeHeadP[2];
+static GLuint s_scopeFbo, s_scopeTex, s_scopeDepth;
+
+void gfx_vr_scope_record(bool on, bool invert_y)
+{
+    s_scopeRec = false;
+    if (!on) {
+        return;
+    }
+    s_scopeDraws.clear();
+    s_scopeTaken = false;
+    // needs the mapped ring: without it every draw overwrites the last one's vertices
+    if (!gevrScopeOn || s_pmPtr == NULL || gVrFlatPass
+        || fabsf(gevrScopeHeadP[0]) < 1e-6f || fabsf(gevrScopeHeadP[1]) < 1e-6f) {
+        return;
+    }
+    memcpy(s_scopeVP, gevrScopeVP, sizeof(s_scopeVP));
+    s_scopeHeadP[0] = gevrScopeHeadP[0];
+    s_scopeHeadP[1] = invert_y ? -gevrScopeHeadP[1] : gevrScopeHeadP[1];
+    s_scopeRec = true;
+    s_scopeTaken = true;
+}
+
+// Whether any of a batch can show through the scope: not when all its
+// vertices lie outside one side of the scope's view (each side is a plane in
+// clip space, so this holds for the whole triangle), or all behind it.
+static bool gevr_scope_sees(const float* v, size_t len, size_t tris)
+{
+    const size_t n = 3 * tris;
+    if (n == 0) {
+        return false;
+    }
+    const size_t stride = len / n;
+    const float* M = s_scopeVP;
+    const float ix = 1.0f / s_scopeHeadP[0], iy = 1.0f / s_scopeHeadP[1];
+    unsigned all = 0x1f;
+    for (size_t i = 0; i < n; i++, v += stride) {
+        const float cx = v[0] * ix, cy = v[1] * iy, cz = -v[3];
+        const float x = M[0] * cx + M[4] * cy + M[8] * cz + M[12];
+        const float y = M[1] * cx + M[5] * cy + M[9] * cz + M[13];
+        const float w = M[3] * cx + M[7] * cy + M[11] * cz + M[15];
+        unsigned out = 0;
+        if (x < -w) out |= 1;
+        if (x > w) out |= 2;
+        if (y < -w) out |= 4;
+        if (y > w) out |= 8;
+        if (w <= 0.0f) out |= 16;
+        all &= out;
+        if (all == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_len, size_t buf_vbo_num_tris)
+{
+    // the HUD, rects and menus (w == 1: the shader's HUD branch) are not the world
+    if (s_curPrg == NULL || gForceFlatShaderForMenu || vr_dl_is_pause_or_menu || buf_vbo[3] == 1.0f
+        || !gevr_scope_sees(buf_vbo, buf_vbo_len, buf_vbo_num_tris)) {
+        return;
+    }
+    GevrScopeDraw d;
+    d.prg = s_curPrg;
+    d.first = first;
+    d.count = (GLsizei)(3 * buf_vbo_num_tris);
+    for (int t = 0; t < 2; t++) {
+        d.tex[t] = s_boundTex[t];
+        d.linear[t] = current_textures_linear_filter[t];
+    }
+    memcpy(d.depth, s_depthArgs, sizeof(d.depth));
+    d.zmode = s_depthZmode;
+    d.alpha[0] = s_alphaArgs[0];
+    d.alpha[1] = s_alphaArgs[1];
+    s_scopeDraws.push_back(d);
+}
+
+// After the eye pass (gfx_pc.cpp gfx_run): the kept draws again, through the scope.
+void gfx_vr_scope_render(void)
+{
+    s_scopeRec = false;
+    if (!s_scopeTaken) {
+        return;
+    }
+    s_scopeTaken = false;
+
+    // everything this changes, to put back for the rest of the frame
+    GLint prevDraw = 0, prevRead = 0, prevVao = 0, vp[4], sc[4], depthFunc = GL_LEQUAL;
+    GLint blendSrcRgb = GL_ONE, blendDstRgb = GL_ZERO, blendSrcA = GL_ONE, blendDstA = GL_ZERO;
+    GLfloat clearCol[4], offFactor = 0.0f, offUnits = 0.0f;
+    GLboolean depthMask = GL_TRUE;
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_VIEWPORT, vp);
+    glGetIntegerv(GL_SCISSOR_BOX, sc);
+    glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
+    glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcA);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstA);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, clearCol);
+    glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &offFactor);
+    glGetFloatv(GL_POLYGON_OFFSET_UNITS, &offUnits);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    const GLboolean scissorOn = glIsEnabled(GL_SCISSOR_TEST);
+    const GLboolean depthOn = glIsEnabled(GL_DEPTH_TEST);
+    const GLboolean blendOn = glIsEnabled(GL_BLEND);
+    const GLboolean offsetOn = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+    struct ShaderProgram* const prevPrg = s_curPrg;
+    bool savedDepth[4], savedAlpha[2];
+    memcpy(savedDepth, s_depthArgs, sizeof(savedDepth));
+    memcpy(savedAlpha, s_alphaArgs, sizeof(savedAlpha));
+    const uint16_t savedZmode = s_depthZmode;
+    const bool savedMask = current_depth_mask, savedIsDecal = s_isDecal, savedDecalZ = s_decalZ;
+
+    if (!s_scopeFbo) {
+        glGenTextures(1, &s_scopeTex);
+        glBindTexture(GL_TEXTURE_2D, s_scopeTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, GEVR_SCOPE_RES, GEVR_SCOPE_RES, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glGenRenderbuffers(1, &s_scopeDepth);
+        glBindRenderbuffer(GL_RENDERBUFFER, s_scopeDepth);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, GEVR_SCOPE_RES, GEVR_SCOPE_RES);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+        glGenFramebuffers(1, &s_scopeFbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, s_scopeFbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_scopeTex, 0);
+        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_scopeDepth);
+        const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        sysLogPrintf(st == GL_FRAMEBUFFER_COMPLETE ? LOG_NOTE : LOG_WARNING,
+                     "scope: %dx%d target %s (0x%x)", GEVR_SCOPE_RES, GEVR_SCOPE_RES,
+                     st == GL_FRAMEBUFFER_COMPLETE ? "ready" : "incomplete", st);
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, s_scopeFbo);
+    glViewport(0, 0, GEVR_SCOPE_RES, GEVR_SCOPE_RES);
+    glDisable(GL_SCISSOR_TEST);
+    glDepthMask(GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    if (opengl_vao) {
+        glBindVertexArray(opengl_vao);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+
+    static std::vector<struct ShaderProgram*> touched;
+    touched.clear();
+    struct ShaderProgram* bound = prevPrg;
+    const GevrScopeDraw* last = NULL;
+    for (const GevrScopeDraw& d : s_scopeDraws) {
+        if (last == NULL || d.prg != bound) {
+            if (last != NULL || d.prg != bound) {
+                gfx_opengl_unload_shader(bound);
+            }
+            gfx_opengl_load_shader(d.prg);
+            bound = d.prg;
+            if (std::find(touched.begin(), touched.end(), d.prg) == touched.end()) {
+                touched.push_back(d.prg);
+            }
+            if (d.prg->scopeLocation >= 0) glUniform1i(d.prg->scopeLocation, 1);
+            if (d.prg->scopeVPLocation >= 0) glUniformMatrix4fv(d.prg->scopeVPLocation, 1, GL_FALSE, s_scopeVP);
+            if (d.prg->scopeHeadPLocation >= 0) glUniform2f(d.prg->scopeHeadPLocation, s_scopeHeadP[0], s_scopeHeadP[1]);
+        }
+        for (int t = 0; t < 2; t++) {
+            if (d.prg->used_textures[t]) {
+                glActiveTexture(GL_TEXTURE0 + t);
+                glBindTexture(GL_TEXTURE_2D, d.tex[t]);
+                if (d.prg->three_point_filter_locations[t] >= 0) {
+                    glUniform1i(d.prg->three_point_filter_locations[t], d.linear[t]);
+                }
+            }
+        }
+        if (last == NULL || memcmp(d.depth, last->depth, sizeof(d.depth)) != 0 || d.zmode != last->zmode) {
+            // a decal takes the plain polygon offset here, not the eye pass's stencil band
+            gfx_opengl_set_depth_mode(d.depth[0], d.depth[1], d.depth[2], d.depth[3], d.zmode);
+        }
+        if (last == NULL || d.alpha[0] != last->alpha[0] || d.alpha[1] != last->alpha[1]) {
+            gfx_opengl_set_use_alpha(d.alpha[0], d.alpha[1]);
+        }
+        glDrawArrays(GL_TRIANGLES, d.first, d.count);
+        last = &d;
+    }
+
+    // the programs back to the eye pass, and the state as fast3d left it
+    for (struct ShaderProgram* p : touched) {
+        if (p->scopeLocation >= 0) {
+            glUseProgram(p->opengl_program_id);
+            glUniform1i(p->scopeLocation, 0);
+        }
+    }
+    if (bound != prevPrg) {
+        gfx_opengl_unload_shader(bound);
+    }
+    if (prevPrg != NULL) {
+        gfx_opengl_load_shader(prevPrg);
+    } else {
+        s_curPrg = NULL;
+        glUseProgram(0);
+    }
+    for (int t = 0; t < 2; t++) {
+        glActiveTexture(GL_TEXTURE0 + t);
+        glBindTexture(GL_TEXTURE_2D, s_boundTex[t]);
+    }
+    glActiveTexture(GL_TEXTURE0 + s_activeTexUnit);
+    memcpy(s_depthArgs, savedDepth, sizeof(savedDepth));
+    memcpy(s_alphaArgs, savedAlpha, sizeof(savedAlpha));
+    s_depthZmode = savedZmode;
+    current_depth_mask = savedMask;
+    s_isDecal = savedIsDecal;
+    s_decalZ = savedDecalZ;
+    if (depthOn) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    glDepthMask(depthMask);
+    glDepthFunc((GLenum)depthFunc);
+    if (offsetOn) glEnable(GL_POLYGON_OFFSET_FILL); else glDisable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(offFactor, offUnits);
+    if (blendOn) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glBlendFuncSeparate((GLenum)blendSrcRgb, (GLenum)blendDstRgb, (GLenum)blendSrcA, (GLenum)blendDstA);
+    glClearColor(clearCol[0], clearCol[1], clearCol[2], clearCol[3]);
+    glBindVertexArray((GLuint)prevVao);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDraw);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevRead);
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    glScissor(sc[0], sc[1], sc[2], sc[3]);
+    if (scissorOn) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
+    s_uniCacheValid = false;
+
+    static uint32_t logged;
+    if ((logged++ % 300) == 0) {
+        sysLogPrintf(LOG_NOTE, "scope: %u of the world's draws through the lens", (unsigned)s_scopeDraws.size());
+    }
+    s_scopeDraws.clear();
+    s_scopeDrawn = true;
+}
+
+// vr_openxr.cpp: this game frame's scope image, or 0 when there is none
+GLuint gfx_vr_scope_texture(void)
+{
+    return s_scopeDrawn ? s_scopeTex : 0;
+}
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
 
@@ -1626,6 +1944,9 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         first = (GLint)(off / stride);
     } else {
         glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
+    }
+    if (s_scopeRec) {
+        gevr_scope_keep(first, buf_vbo, buf_vbo_len, buf_vbo_num_tris);   // issue #40
     }
 
 
@@ -2599,6 +2920,7 @@ void gfx_vr_hud_H_new_frame(void) {
     hud_P_was_drawn = false;
     hud_R_was_drawn = false;
     hud_L_was_drawn = false;
+    s_scopeDrawn = false;   // the sniper scope's image, likewise (issue #40)
 }
 
 GLuint gfx_opengl_get_vr_menu_texture_H(void) {

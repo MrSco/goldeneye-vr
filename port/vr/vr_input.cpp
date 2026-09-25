@@ -1934,6 +1934,10 @@ extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4])
     if (hand < 0 || hand > 1) {
         return 0;
     }
+    // the probe places the layers held on a controller too (the scope's lens)
+    if (vr_fake_grip(hand, pos, quat)) {
+        return 1;
+    }
     const XrPosef& pose = gControllerStates[gevrPhysHand(hand)].controller_pose;
     const XrQuaternionf& q = pose.orientation;
     if (q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f) {
