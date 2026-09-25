@@ -48,6 +48,8 @@
 
 Also:
 - An **in-VR launcher**: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (72, 90 or 120 Hz), **aim steadying**, a **left-handed** mode, an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, plus tiny or big guns).
+- **HD textures**: the launcher's **Mods** page downloads a fan-made texture pack on request, straight from its authors' site, and installs it in the headset. First up: *GoldenEye 007 HD* by intermissionfb and GhostlyDark (evilgames.eu, 129 MB). Nothing of theirs ships with the app.
+- **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
 
@@ -150,10 +152,12 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Right trigger** | Fire (the gun in your right hand) |
 | **Left trigger** | Aim / zoom, or fire the left gun when dual-wielding |
 | **Right grip** | Aim / zoom, and shows the 3D sight |
+| **Left grip** | Dual-wielding: shows the left gun's sight (blue) |
 | **Left stick** | Walk and strafe |
 | **Right stick** | Turn: smooth or snap, set in the launcher |
 | **Left stick click** | Crouch (toggle) |
 | **A** / **Y** | Next weapon |
+| **Hold A** | Weapon panel above your gun hand: scroll with the other stick, let go to equip (dual-wield pairs included) |
 | **B** / **X** | Action: doors, switches, reload |
 | **☰ Menu** (left controller) | Pause / Bond's watch |
 | **Hold ☰ Menu** (1.5 s) | Back to the launcher, to change settings or cheats (asks first: A yes, B no) |
@@ -334,6 +338,10 @@ This project's own code is **MIT** licensed ([LICENSE](LICENSE)). Vendored compo
 | `OpenXR/` | Khronos OpenXR loader | Apache-2.0 |
 
 The app icon and banner art were made for this project.
+
+Texture packs on the Mods page belong to their authors and are downloaded from their
+own sites when you ask: *GoldenEye 007 HD* by **intermissionfb** and **GhostlyDark**
+([evilgames.eu](https://evilgames.eu/texture-packs/ge007-hd.htm)).
 
 ## ⭐ Star History
 
