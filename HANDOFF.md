@@ -4417,3 +4417,42 @@ Dark leftovers; remove unused assets and purge them from history.
   panel (HANDOFF 94), lasers and launchers from the gun, rocket size.
   Closed #10 with a reply. Open: #9, #18, #23, #24, #25, #26; bullet-hole
   comb (HANDOFF 90); gevrStereoShot origin on scaled levels (HANDOFF 94).
+
+## 96. Launcher update check (branch feature/launcher-update-check, not released)
+- Written off-device (cloud session): **logged at best - nothing here has been
+  built with the real SDK or seen in the headset.** Java compiled against
+  hand-written Android stubs, UpdateVersion/parseReleases unit-tested (46
+  checks), vr_launcher.cpp syntax-checked with -Wall -Wextra. First job on the
+  PC: `gradlew assembleRelease`, install, and walk the list below.
+- android UpdateChecker.java: GET /repos/MrSco/goldeneye-vr/releases, newest
+  non-draft release with an APK whose tag beats versionName (UpdateVersion:
+  semver order, `v0.1.13-test.1` < `v0.1.13`). Pre-releases only with the
+  launcher's new "Offer test builds" box (SharedPreferences "updater", not the
+  ini). Download to files/updates, check size + GitHub's sha256 digest, then
+  package name, versionCode not lower, and signer = the installed app's key
+  (a debug build gets a plain "signed with a different key" message instead of
+  Android's "App not installed"). Install: PackageInstaller session, receiver
+  not exported (ContextCompat), session id checked; on STATUS_FAILURE /
+  _BLOCKED, or if the session throws, once more via ACTION_VIEW + FileProvider.
+- First use asks for "Install unknown apps" (ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+  for result; the update continues if granted). Every 2D panel returns to VR
+  through MainActivity.comeBackToVr (the ROM picker's retry loop, now one
+  handler/runnable so a new panel cancels a pending relaunch).
+- Launcher: checks once per launch; a line under the ROM appears only when
+  there is news (update available + Update button, download %, confirm/
+  permission text, errors with Retry, "Updated to vX" after an update). Cancel
+  on every busy line - the way out if a prompt closes without reporting back.
+- Manifest: INTERNET, REQUEST_INSTALL_PACKAGES.
+- To verify on device: (1) with v0.1.12 published and this build as 0.1.12,
+  "up to date" = no line; (2) set versionName 0.1.11 / lower code, build,
+  install -> "Update available: v0.1.12" -> Update -> unknown-apps panel ->
+  back in VR -> confirm panel -> app updates, relaunch shows "Updated to
+  v0.1.12." and the ROM/settings are intact; (3) cancel the confirm panel ->
+  back in VR, "Update cancelled."; (4) airplane mode -> red error + Retry;
+  (5) debug-signed build -> different-key message. Open question: whether
+  Quest's shell allows the session or needs the ACTION_VIEW route (logcat tag
+  GEVR-Update says which ran).
+- Test builds for this: publish as a GitHub **pre-release**, tag
+  `vX.Y.Z-test.N`, versionName the same without the `v`, **versionCode bumped**
+  (Android refuses a lower one), signed with the release key, asset named
+  `GoldenEye-VR-vX.Y.Z-test.N.apk`.

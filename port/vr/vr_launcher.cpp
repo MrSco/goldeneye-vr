@@ -302,6 +302,88 @@ std::string gevrTakePickResult()
     return out;
 }
 
+// Update check against the GitHub releases (android UpdateChecker.java, through
+// MainActivity.updaterStatus / updaterCommand). Java does the network and the
+// install; the launcher shows its state and forwards the buttons.
+struct UpdateStatus {
+    std::string state;      // idle checking uptodate available downloading permission installing error
+    std::string offered;    // version the Update button installs
+    std::string message;
+    std::string installed;
+    int progress = -1;
+    bool testBuilds = false;
+};
+
+UpdateStatus gevrUpdaterStatus()
+{
+    UpdateStatus st;
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return st;
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID m = env->GetMethodID(cls, "updaterStatus", "()Ljava/lang/String;");
+    std::string raw;
+    if (m != nullptr) {
+        jstring s = (jstring)env->CallObjectMethod(activity, m);
+        if (!env->ExceptionCheck() && s != nullptr) {
+            const char *c = env->GetStringUTFChars(s, nullptr);
+            if (c) {
+                raw = c;
+                env->ReleaseStringUTFChars(s, c);
+            }
+        }
+        if (s != nullptr) env->DeleteLocalRef(s);
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+
+    // state \t offered \t progress \t message \t testBuilds \t installed
+    std::vector<std::string> f;
+    size_t pos = 0;
+    while (true) {
+        size_t tab = raw.find('\t', pos);
+        f.push_back(raw.substr(pos, tab == std::string::npos ? std::string::npos : tab - pos));
+        if (tab == std::string::npos) break;
+        pos = tab + 1;
+    }
+    if (f.size() >= 6) {
+        st.state = f[0];
+        st.offered = f[1];
+        st.progress = atoi(f[2].c_str());
+        st.message = f[3];
+        st.testBuilds = f[4] == "1";
+        st.installed = f[5];
+    }
+    return st;
+}
+
+void gevrUpdaterCommand(const char *cmd)
+{
+    JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
+    jobject activity = (jobject)SDL_AndroidGetActivity();
+    if (env == nullptr || activity == nullptr) {
+        return;
+    }
+    jclass cls = env->GetObjectClass(activity);
+    jmethodID m = env->GetMethodID(cls, "updaterCommand", "(Ljava/lang/String;)V");
+    if (m != nullptr) {
+        jstring s = env->NewStringUTF(cmd);
+        env->CallVoidMethod(activity, m, s);
+        env->DeleteLocalRef(s);
+    }
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+    }
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(activity);
+    vr_log("launcher: updater %s", cmd);
+}
+
 // Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at
 // the screen is the mouse, and a trigger clicks. Returns whether it points.
 //
@@ -491,6 +573,13 @@ extern "C" void gevrLauncherRun(void)
 
     vr_log("launcher: open, build %s (rom %s)", gevrBuildId, active.empty() ? "none" : active.c_str());
 
+    // One look at the GitHub releases per launch (the answer arrives in the
+    // background; the line under the ROM shows it). Polled a few times a
+    // second rather than every frame: it crosses into Java.
+    gevrUpdaterCommand("check");
+    UpdateStatus upd;
+    Uint32 lastUpdPoll = 0;
+
     while (!start) {
         SDL_PumpEvents();
 
@@ -629,6 +718,46 @@ extern "C" void gevrLauncherRun(void)
             ImGui::PopID();
         }
         if (!message.empty()) ImGui::TextDisabled("%s", message.c_str());
+
+        // Update line: only when there is something to say, so an up-to-date
+        // launcher looks as it always has.
+        if (now - lastUpdPoll > 250 || lastUpdPoll == 0) {
+            lastUpdPoll = now;
+            upd = gevrUpdaterStatus();
+        }
+        if (upd.state == "available") {
+            ImGui::TextColored(gold, "Update available: v%s", upd.offered.c_str());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
+            if (!upd.message.empty()) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", upd.message.c_str());
+            }
+        } else if (upd.state == "downloading") {
+            // Cancel on the left of every busy line: a prompt closed from the
+            // shell may never report back, and this is the way out of it.
+            if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+            ImGui::SameLine();
+            if (upd.progress >= 0) {
+                ImGui::TextColored(gold, "Downloading v%s... %d%%", upd.offered.c_str(), upd.progress);
+            } else {
+                ImGui::TextColored(gold, "Downloading v%s...", upd.offered.c_str());
+            }
+        } else if (upd.state == "permission" || upd.state == "installing") {
+            if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, gold);
+            ImGui::TextWrapped("%s", upd.message.c_str());
+            ImGui::PopStyleColor();
+        } else if (upd.state == "error") {
+            if (ImGui::SmallButton("Retry##update")) gevrUpdaterCommand("retry");
+            ImGui::SameLine();
+            ImGui::PushStyleColor(ImGuiCol_Text, bad);
+            ImGui::TextWrapped("%s", upd.message.c_str());
+            ImGui::PopStyleColor();
+        } else if (!upd.message.empty()) {
+            ImGui::TextColored(good, "%s", upd.message.c_str());   // "Updated to v0.1.13."
+        }
         ImGui::Separator();
 
         // GoldenEye cheats (issue #1's idea: the tiny guns as a cheat): their
@@ -767,6 +896,13 @@ extern "C" void gevrLauncherRun(void)
                 bool stats = VrShowStats != 0;
                 if (ImGui::Checkbox("Show stats", &stats)) {
                     VrShowStats = stats ? 1 : 0;
+                }
+                // GitHub pre-releases too (UpdateChecker.java): for trying a
+                // fix before it ships. Saved by the updater, not the ini.
+                bool tests = upd.testBuilds;
+                if (ImGui::Checkbox("Offer test builds", &tests)) {
+                    upd.testBuilds = tests;
+                    gevrUpdaterCommand(tests ? "testbuilds:1" : "testbuilds:0");
                 }
             }
             ImGui::EndTable();
