@@ -4569,7 +4569,7 @@ Dark leftovers; remove unused assets and purge them from history.
 - Testing: gevr_level.txt "runway 0", START, then gevr_warp.txt "44" puts
   Bond by the tank.
 
-## 105. Sniper scope in the lens (#40, branch fix/40-sniper)
+## 105. Sniper scope in the lens (#40, merged 2026-09-25)
 - 9f3a605 and 8c8138f: the shot origin in world units on the scaled levels
   (gevrViewToWorldPos divides by D_800364CC), and the headset view never
   zooms (lv.c keeps gevrVrFov). User: "aim works, hits land on crosshair".
