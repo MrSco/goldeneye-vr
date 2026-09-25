@@ -125,6 +125,7 @@ void gfx_vr_hud_H_new_frame(void);                  // gfx_opengl.cpp
 void gfx_opengl_draw_vignette(float strength);      // gfx_opengl.cpp
 extern "C" float gevrStereoVignette(void);          // bondview2.c
 void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40)
+void gfx_vr_scope_only(bool on);
 void gfx_vr_scope_render(void);
 int VrPauseHub = false;
 
@@ -3553,6 +3554,12 @@ static void gfx_run_dl(Gfx* cmd) {
                     case VR_SCOPE_REC_END:
                         gfx_flush();
                         gfx_vr_scope_record(false, false);
+                        break;
+
+                    case VR_SCOPE_ONLY_BEGIN:   // gunfire.c gunDrawSight: the scope's sight
+                    case VR_SCOPE_ONLY_END:
+                        gfx_flush();
+                        gfx_vr_scope_only(tag_w1 == VR_SCOPE_ONLY_BEGIN);
                         break;
                     default:
                         break;

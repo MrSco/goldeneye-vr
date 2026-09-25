@@ -1532,14 +1532,14 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * at any range, and it turns with the gun, as the lens does, so the world
  * through the lens stays upright.
  *
- * The zoom is the game's own (sniper_zoom, 60 down to 7 degrees, changed with
- * up/down on the left stick while aiming, as C-up/down on the N64). The lens
- * shows K times that angle: K is the lens's size at the eye over the flat
- * game's 60 degrees, so a zoom magnifies as it did on the N64.
- *
- * It only draws while aiming (grip held, as the flat game's R: the sight comes
- * up), which is deliberate and costs no draw calls the rest of the time. A
- * test of the lens being near the eye flickered on and off at its edge.
+ * The lens shows the scope's view all the time the sniper is in hand, always
+ * zoomed, as a real scope is (user): the game's own sniper zoom, the view the
+ * N64 screen showed when aiming - sniper_zoom, 15 degrees by default, 7 at
+ * most, changed with up/down on the left stick while aiming as C-up/down on
+ * the N64 (user: the original game's zoom, not one scaled to the lens).
+ * Aiming (grip, the flat game's R) brings up the red sight in it, as on the
+ * N64. (A first try that showed the lens only near the eye flickered on and
+ * off at the test's edge.)
  *
  * The lens sits on the model's eyepiece, the rear face of the scope tube in
  * GsniperrifleZ (display list node 0x27c, measured from the ROM: centred at
@@ -1551,6 +1551,12 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * 0.1 (its model scale) cm a unit with its origin GEVR_GRIP_TO_ORIGIN_CM
  * behind the fist (gevrStereoGunMatrix), so the lens is placed the same way
  * and follows the grip trims, the gun size cheats and the left-handed mirror.
+ * It shows at twice the eyepiece's size (user: easier to use than a true
+ * one); the zoom stays the game's.
+ *
+ * The sight in the scope is the game's own red one (gunfire.c gunDrawSight,
+ * drawn for the scope only), at the aim point - the scope's centre - and a
+ * quarter of the lens across at any zoom.
  * files/gevr_scope.txt "right up back diameter K" (metres added to the lens;
  * K) adjusts it while testing.
  */
@@ -1558,10 +1564,13 @@ s32 gevrScopeOn;                /* this frame's world is kept for the scope */
 f32 gevrScopeVP[16];            /* head camera space to the scope's clip space, column-major */
 f32 gevrScopeHeadP[2];          /* the head projection's x and y scales */
 f32 gevrScopeLens[4];           /* the lens from the gun hand's grip: right, up, back, diameter (m) */
+f32 gevrScopeOrigin[3];         /* the scope camera, camera space (gunfire.c sizes its sight) */
+f32 gevrScopeFovDeg;            /* the angle across the lens */
 static f32 s_gevrScopeTrim[4];  /* gevr_scope.txt: added to the lens */
-static f32 s_gevrScopeK = 0.25f;   /* the 4 cm eyepiece about 15 cm from the eye is about 15 degrees */
+static f32 s_gevrScopeK = 1.0f;    /* the N64's own zoomed view (gevr_scope.txt can change it) */
 
 #define GEVR_SCOPE_NEAR_M       0.05f
+#define GEVR_SCOPE_LENS_SCALE   2.0f
 #define GEVR_SCOPE_EYEPIECE_X   13.5f
 #define GEVR_SCOPE_EYEPIECE_Y   126.5f
 #define GEVR_SCOPE_EYEPIECE_Z   -128.0f
@@ -1609,7 +1618,7 @@ static void gevrScopeLensPlace(void)
     gevrScopeLens[1] = VrGunOffY * size / 100.0f + GEVR_SCOPE_EYEPIECE_Y * unit + s_gevrScopeTrim[1];
     gevrScopeLens[2] = (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * size / 100.0f
                      - GEVR_SCOPE_EYEPIECE_Z * unit + s_gevrScopeTrim[2];
-    gevrScopeLens[3] = 2.0f * GEVR_SCOPE_EYEPIECE_R * unit + s_gevrScopeTrim[3];
+    gevrScopeLens[3] = 2.0f * GEVR_SCOPE_EYEPIECE_R * unit * GEVR_SCOPE_LENS_SCALE + s_gevrScopeTrim[3];
 }
 
 /* lvlRender, once the player's view is set up: whether this frame draws the scope */
@@ -1629,7 +1638,7 @@ s32 gevrScopeBegin(void)
 
     gevrScopeOn = FALSE;
     if (g_gevrStereo && g_CurrentPlayer != NULL && !gevrVrScreenMode && g_PlayerIsInTank != 1
-        && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_SNIPERRIFLE && g_CurrentPlayer->insightaimmode
+        && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_SNIPERRIFLE
         && vu > 1e-6f && gevrGripAxes(1, pos, right, up, back) && gevrStereoShot(GUNRIGHT, NULL, &o, &d))
     {
         gevrScopeTune();
@@ -1638,7 +1647,7 @@ s32 gevrScopeBegin(void)
     }
     if (on != was)
     {
-        sysLogPrintf(LOG_NOTE, "stereo: scope %s", on ? "on (aiming)" : "off");
+        sysLogPrintf(LOG_NOTE, "stereo: scope %s", on ? "on (sniper in hand)" : "off");
         if (on)
         {
             /* the model's scale, checked: its muzzle node (0, 53.2, 804.1)
@@ -1673,9 +1682,13 @@ s32 gevrScopeBegin(void)
     u[1] = r[2] * f[0] - r[0] * f[2];
     u[2] = r[0] * f[1] - r[1] * f[0];
 
-    fov = s_gevrScopeK * g_CurrentPlayer->sniper_zoom;
+    fov = s_gevrScopeK * g_CurrentPlayer->sniper_zoom;   /* always zoomed, as a real scope */
     if (fov < 1.0f) fov = 1.0f;
     if (fov > 60.0f) fov = 60.0f;
+    gevrScopeFovDeg = fov;
+    gevrScopeOrigin[0] = o.x;
+    gevrScopeOrigin[1] = o.y;
+    gevrScopeOrigin[2] = o.z;
     g = 1.0f / tanf(fov * 0.5f * (M_PI_F / 180.0f));
     n = GEVR_SCOPE_NEAR_M * vu;
     viGetZRange(zr);

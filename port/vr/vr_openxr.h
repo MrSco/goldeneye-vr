@@ -130,6 +130,9 @@ extern void gfx_vr_hud_capture_end_P(void);
 // again from the sniper scope's camera (gfx_opengl.cpp gfx_vr_scope_render).
 #define VR_SCOPE_REC_BEGIN 0x565D0000
 #define VR_SCOPE_REC_END   0x565D0001
+// ... and draws between these go to the scope only, not the eyes (its sight).
+#define VR_SCOPE_ONLY_BEGIN 0x565E0000
+#define VR_SCOPE_ONLY_END   0x565E0001
 extern void gfx_vr_hud_capture_begin_H(void);
 extern void gfx_vr_hud_capture_end_H(void);
 

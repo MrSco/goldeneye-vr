@@ -236,6 +236,7 @@ static bool g_colorSpaceExtSupported = false;
 
 #ifdef ANDROID
 static bool g_menuSwapchainIsSrgb = false;
+static bool g_srgbWritesRaw = false;   // sRGB write control off: writes to sRGB images are not encoded
 #endif
 static uint32_t g_menuSwapchainWidth  = 0;
 static uint32_t g_menuSwapchainHeight = 0;
@@ -246,6 +247,7 @@ extern GLuint gfx_opengl_get_vr_menu_texture_P(void);// weapon panel texture (is
 extern GLuint gfx_vr_scope_texture(void);            // sniper scope image (issue #40)
 extern "C" float gevrScopeLens[4];                   // bondview2.c: right, up, back, diameter (m)
 #define GEVR_SCOPE_RES 512                           // gfx_opengl.cpp's scope target
+#define GEVR_SCOPE_MIN_EYE_M 0.10f                   // the lens is kept this far from the aiming eye
 extern bool is_weapon_hud;
 float VrHudDistance = 0.8f;
 
@@ -1018,6 +1020,7 @@ static int64_t vr_pick_swapchain_format(bool forQuadLayer = false)
     }
     if (srgbWriteControl && vr_format_supported(formats, (int64_t)GL_SRGB8_ALPHA8)) {
         glDisable(0x8DB9 /* GL_FRAMEBUFFER_SRGB_EXT */);
+        g_srgbWritesRaw = true;
         LOGI("picked format=0x%llx (sRGB, writes raw)", (unsigned long long)GL_SRGB8_ALPHA8);
         return (int64_t)GL_SRGB8_ALPHA8;
     }
@@ -1430,9 +1433,12 @@ static void vr_update_menu_swapchain_P()
 
 /*
  * The sniper scope's lens (issue #40): the scope's view (gfx_opengl.cpp
- * gfx_vr_scope_render) cut round, darkened toward the rim as a scope tube is,
- * with a duplex reticle - fine lines at the centre, heavy posts toward the
- * edge. Written premultiplied, as the menu copy is.
+ * gfx_vr_scope_render) cut round with a thin dark rim, premultiplied. Its
+ * sight is the game's own red one, drawn into the view. The colours are the
+ * game's display-encoded bytes: with sRGB write control off (the usual case,
+ * vr_pick_swapchain_format) they go into the sRGB image unchanged, as the eye
+ * buffers' do. Converting them to linear first, as the menu copy does, left
+ * the lens very dark (user).
  */
 #ifdef ANDROID
 static GLuint s_scopeCopyProg = 0;
@@ -1463,10 +1469,7 @@ static bool vr_scope_copy_init()
             "    float a = 1.0 - smoothstep(1.0 - 2.0 * px, 1.0, r);\n"
             "    if (a <= 0.0) { o = vec4(0.0); return; }\n"
             "    vec3 c = texture(uTex, uv).rgb;\n"
-            "    float t = r > 0.55 ? 0.022 : 0.0045;\n"
-            "    float line = max(1.0 - smoothstep(t, t + px, abs(p.x)), 1.0 - smoothstep(t, t + px, abs(p.y)));\n"
-            "    c *= 1.0 - line;\n"
-            "    c *= 1.0 - 0.85 * smoothstep(0.8, 1.0, r);\n"
+            "    c *= 1.0 - 0.6 * smoothstep(0.9, 1.0, r);\n"
             "    if (uSrgb == 1) c = mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));\n"
             "    o = vec4(c * a, a);\n"
             "}\n";
@@ -1540,7 +1543,7 @@ static void vr_update_scope_swapchain(GLuint srcTex)
         glViewport(0, 0, GEVR_SCOPE_RES, GEVR_SCOPE_RES);
 
         glUseProgram(s_scopeCopyProg);
-        glUniform1i(s_scopeCopySrgbLoc, g_menuSwapchainIsSrgb ? 1 : 0);
+        glUniform1i(s_scopeCopySrgbLoc, (g_menuSwapchainIsSrgb && !g_srgbWritesRaw) ? 1 : 0);
         if (!s_menuCopyVao) glGenVertexArrays(1, &s_menuCopyVao);
         glBindVertexArray(s_menuCopyVao);
         glBindTexture(GL_TEXTURE_2D, srcTex);
@@ -3191,6 +3194,22 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             scopeLayer.pose.orientation = MultiplyQuaternions(XrQuaternionf{x, y, z, w},
                                                               XrQuaternionf{-0.70710678f, 0.0f, 0.0f, 0.70710678f});
             scopeLayer.size = {gevrScopeLens[3], gevrScopeLens[3]};
+            // Brought right up to the aiming eye the lens went out of sight
+            // (user): the eyepiece sits 23 cm behind the controller, so it
+            // can reach the eye itself. Nearer than GEVR_SCOPE_MIN_EYE_M it
+            // is moved out along the same line and grown to the same angle.
+            {
+                const float ex = VrLeftHandedMode ? -0.032f : 0.032f;   // the aiming eye, half the IPD
+                const float vx = scopeLayer.pose.position.x - ex;
+                const float vy = scopeLayer.pose.position.y;
+                const float vz = scopeLayer.pose.position.z;
+                const float dist = sqrtf(vx * vx + vy * vy + vz * vz);
+                if (dist < GEVR_SCOPE_MIN_EYE_M && dist > 1e-4f) {
+                    const float s = GEVR_SCOPE_MIN_EYE_M / dist;
+                    scopeLayer.pose.position = {ex + vx * s, vy * s, vz * s};
+                    scopeLayer.size = {gevrScopeLens[3] * s, gevrScopeLens[3] * s};
+                }
+            }
             submitScope = true;
             static unsigned n;
             if ((n++ % 180) == 0) {
