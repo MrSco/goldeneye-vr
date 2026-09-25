@@ -4551,3 +4551,20 @@ Dark leftovers; remove unused assets and purge them from history.
 - Launching from adb with the controllers asleep now meets Quest's
   "controllers required" dialog (no hand-tracking declaration): wake them, or
   have the user launch.
+
+## 104. Tank aim in stereo (#38, merged 2026-09-25)
+- The sight shows where the shell lands: chrprop.c gevrStereoAimPoint traces
+  from the turret's muzzle (render_pos[4], as gunFireTankShell spawns it)
+  toward the shell's arc (g_TankShellSpeed a tick, 0.2778 a tick squared of
+  gravity), re-aiming its straight trace (gevrStereoAimTrace, split out) at
+  the arc three times, skipping the tank. The N64's line 10 degrees under the
+  barrel had the shells landing above it.
+- The turret follows the right controller: yaw toward the controller's
+  direction at the flat game's full-stick rate (gevrStereoTankTurretTurn,
+  against the hull; the right stick only when untracked), pitch from the
+  controller in play space (field_2A08; through the camera it fed back via
+  the tank's view pitch and climbed to the stop). In stereo the view rides
+  the hull (vv_theta without the turret), a gunner's seat, so the aim can't
+  chase itself. User-tested on Runway.
+- Testing: gevr_level.txt "runway 0", START, then gevr_warp.txt "44" puts
+  Bond by the tank.
