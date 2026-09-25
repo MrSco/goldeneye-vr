@@ -1032,6 +1032,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
         if (!menu && (get_button_state(1, "grip") || (!stereoplay && get_button_state(0, "grip"))))
             npad->button |= R_TRIG;
+        // Issue #37: dual-wielding, the left grip shows the left gun's sight,
+        // as Perfect Dark VR's (sight.c sightDrawLeftHand, on vr_button_L_grip).
+        // Not R as well: here R aims and zooms.
+        vr_button_L_grip = stereoplay && gevrDualWielding() && get_button_state(0, "grip");
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
         if (get_button_state(0, "x")) npad->button |= B_BUTTON;
         if (get_button_state(0, "y")) npad->button |= A_BUTTON;

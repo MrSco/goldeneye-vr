@@ -929,17 +929,17 @@ static s32 gevrShotWalkToGun(StandTile **fromtile, PropRecord *playerprop, coord
 #ifdef GEVR
 /*
  * Stereo crosshair (Perfect Dark VR sight.c draws its sight in 3D at the
- * aim ray's hit point, hand->dotpos): where the right barrel's ray first meets
+ * aim ray's hit point, hand->dotpos): where a barrel's ray first meets
  * the world, in camera (view) space. A dry run of the shot below from the same
  * muzzle and direction (gunfire.c gevrStereoShot, no spread): the background
  * trace, then guards, objects and doors on screen. Nothing is applied - no
  * damage, sparks or sounds - and a guard's near-miss flag, which the hit test
  * sets and which alerts him, is put back. Returns FALSE outside stereo aim.
  */
-static s32 s_gevrAimValid;
-static coord3d s_gevrAimPoint;
+static s32 s_gevrAimValid[GUNHANDS];
+static coord3d s_gevrAimPoint[GUNHANDS];
 
-s32 gevrStereoAimPoint(coord3d *out);
+s32 gevrStereoAimPoint(s32 hand, coord3d *out);
 
 /*
  * Run once a frame from lvlRender right after the game traces its own shots
@@ -949,19 +949,23 @@ s32 gevrStereoAimPoint(coord3d *out);
  */
 void gevrStereoAimUpdate(void)
 {
-    s_gevrAimValid = gevrStereoAimPoint(&s_gevrAimPoint);
+    extern int vr_button_L_grip;   /* port/src/input.c: dual-wielding, the left grip */
+
+    s_gevrAimValid[GUNRIGHT] = gevrStereoAimPoint(GUNRIGHT, &s_gevrAimPoint[GUNRIGHT]);
+    /* issue #37: the left gun's sight, traced only while its grip asks for it */
+    s_gevrAimValid[GUNLEFT] = vr_button_L_grip && gevrStereoAimPoint(GUNLEFT, &s_gevrAimPoint[GUNLEFT]);
 }
 
-s32 gevrStereoAimCached(coord3d *out)
+s32 gevrStereoAimCached(s32 hand, coord3d *out)
 {
-    if (s_gevrAimValid)
+    if (s_gevrAimValid[hand])
     {
-        *out = s_gevrAimPoint;
+        *out = s_gevrAimPoint[hand];
     }
-    return s_gevrAimValid;
+    return s_gevrAimValid[hand];
 }
 
-s32 gevrStereoAimPoint(coord3d *out)
+s32 gevrStereoAimPoint(s32 hand, coord3d *out)
 {
     extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
     ShotData shotdata;
@@ -987,14 +991,14 @@ s32 gevrStereoAimPoint(coord3d *out)
     s32 k;
     s32 i;
 
-    if (!gevrStereoShot(GUNRIGHT, NULL, &shotdata.viewOrigin, &shotdata.viewDir))
+    if (!gevrStereoShot(hand, NULL, &shotdata.viewOrigin, &shotdata.viewDir))
     {
         return FALSE;
     }
 
     playerprop = getCurrentPlayerProp();
     fromtile = playerprop->stan;
-    shotdata.weapon = getCurrentPlayerWeaponId(GUNRIGHT);
+    shotdata.weapon = getCurrentPlayerWeaponId(hand);
     shotdata.maxdist = M_U32_MAX_VALUE_F;
     for (k = 0; k < 10; k++)
     {
