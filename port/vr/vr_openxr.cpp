@@ -3192,6 +3192,12 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
                                                               XrQuaternionf{-0.70710678f, 0.0f, 0.0f, 0.70710678f});
             scopeLayer.size = {gevrScopeLens[3], gevrScopeLens[3]};
             submitScope = true;
+            static unsigned n;
+            if ((n++ % 180) == 0) {
+                LOGI("scope: lens at (%.3f %.3f %.3f) m, facing (%.2f %.2f %.2f), %s eye",
+                     scopeLayer.pose.position.x, scopeLayer.pose.position.y, scopeLayer.pose.position.z,
+                     bx, by, bz, VrLeftHandedMode ? "left" : "right");
+            }
         }
     }
 

@@ -1866,6 +1866,48 @@ void gfx_vr_scope_render(void)
         last = &d;
     }
 
+    // PORT probe: touching files/gevr_scopedump writes this frame's scope
+    // image to files/gevr_scope.pam (top row first) and logs how much of it
+    // was drawn, with the first draws' first vertex through the scope camera.
+    {
+        static unsigned tick;
+        const char* trig = "/sdcard/Android/data/com.gevr.port/files/gevr_scopedump";
+        FILE* t = ((tick++ % 30) == 0) ? fopen(trig, "r") : NULL;
+        if (t != NULL) {
+            fclose(t);
+            remove(trig);
+            static std::vector<uint8_t> px;
+            px.resize(GEVR_SCOPE_RES * GEVR_SCOPE_RES * 4);
+            glReadPixels(0, 0, GEVR_SCOPE_RES, GEVR_SCOPE_RES, GL_RGBA, GL_UNSIGNED_BYTE, px.data());
+            unsigned lit = 0;
+            for (size_t i = 0; i < px.size(); i += 4) {
+                if (px[i] > 8 || px[i + 1] > 8 || px[i + 2] > 8) lit++;
+            }
+            FILE* f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_scope.pam", "wb");
+            if (f != NULL) {
+                fprintf(f, "P7\nWIDTH %d\nHEIGHT %d\nDEPTH 4\nMAXVAL 255\nTUPLTYPE RGB_ALPHA\nENDHDR\n",
+                        GEVR_SCOPE_RES, GEVR_SCOPE_RES);
+                for (int y = GEVR_SCOPE_RES - 1; y >= 0; y--) {
+                    fwrite(&px[(size_t)y * GEVR_SCOPE_RES * 4], 1, GEVR_SCOPE_RES * 4, f);
+                }
+                fclose(f);
+            }
+            sysLogPrintf(LOG_NOTE, "scope: dump, %u of %u pixels lit, %u draws, headP %.3f %.3f",
+                         lit, GEVR_SCOPE_RES * GEVR_SCOPE_RES, (unsigned)s_scopeDraws.size(),
+                         s_scopeHeadP[0], s_scopeHeadP[1]);
+            for (size_t k = 0; k < s_scopeDraws.size() && k < 4; k++) {
+                const GevrScopeDraw& d = s_scopeDraws[k];
+                const float* v = (const float*)(s_pmPtr + (size_t)d.first * d.prg->num_floats * sizeof(float));
+                const float cx = v[0] / s_scopeHeadP[0], cy = v[1] / s_scopeHeadP[1], cz = -v[3];
+                const float* M = s_scopeVP;
+                sysLogPrintf(LOG_NOTE, "scope: draw %u first %d count %d clip (%.2f %.2f %.2f %.2f) -> (%.2f %.2f %.2f %.2f)",
+                             (unsigned)k, d.first, d.count, v[0], v[1], v[2], v[3],
+                             M[0] * cx + M[4] * cy + M[8] * cz + M[12], M[1] * cx + M[5] * cy + M[9] * cz + M[13],
+                             M[2] * cx + M[6] * cy + M[10] * cz + M[14], M[3] * cx + M[7] * cy + M[11] * cz + M[15]);
+            }
+        }
+    }
+
     // the programs back to the eye pass, and the state as fast3d left it
     for (struct ShaderProgram* p : touched) {
         if (p->scopeLocation >= 0) {
