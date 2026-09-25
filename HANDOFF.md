@@ -4538,3 +4538,16 @@ Dark leftovers; remove unused assets and purge them from history.
 - Warp hook: gevr_warp.txt "sevdish" logs the level's dish props (PROP_SEVDISH
   or PROP_SATDISH) and warps to a pickup/guard pad ~1.8x the fog's reach from
   the first, facing it; with no dish it lists the level's prop types.
+
+## 103. v0.1.14 published (2026-09-25)
+- Tag v0.1.14 = build commit 99e831b (versionCode 15), release key, APK
+  SHA-256 7955cf7d...9e933 (GitHub's digest matches). Seen starting on the
+  headset (launcher v0.1.14, updater "offer none", pack indexed, Dam loaded).
+  Contents: 99 (#33 pairs), 100 (#37 left sight), 101 (#25 texture packs),
+  102 (#39 prop reach), and no hand-tracking declaration (controllers).
+- Closed #25 #33 #37 #39 with replies. New open: #38 (tank crosshair doesn't
+  point where the tank fires), #40 (sniper crosshair missing when zoomed),
+  #41 (grenade in the karate-chop hand; use the taser hand).
+- Launching from adb with the controllers asleep now meets Quest's
+  "controllers required" dialog (no hand-tracking declaration): wake them, or
+  have the user launch.
