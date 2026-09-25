@@ -7072,9 +7072,9 @@ void gunSetSightVisible(s32 reason, bool visible)
 
 
 #ifdef GEVR
-static Gfx *gevrDrawSight3D(Gfx *gdl)
+static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand)
 {
-    extern s32 gevrStereoAimCached(coord3d *out);
+    extern s32 gevrStereoAimCached(s32 hand, coord3d *out);
     coord3d p;
     Mtxf mf;
     Mtx *mv;
@@ -7084,7 +7084,7 @@ static Gfx *gevrDrawSight3D(Gfx *gdl)
     f32 k;
     s32 i;
 
-    if (!gevrStereoAimCached(&p))
+    if (!gevrStereoAimCached(hand, &p))
     {
         return gdl;
     }
@@ -7128,8 +7128,23 @@ static Gfx *gevrDrawSight3D(Gfx *gdl)
     gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
     gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
     texSelect(&gdl, crosshairimage, 4, 0, 0);
-    gDPSetEnvColor(gdl++, 0xff, 0xff, 0xff, 0x6e);
-    gDPSetCombineMode(gdl++, G_CC_FADEA, G_CC_FADEA);
+    if (hand == GUNLEFT)
+    {
+        /*
+         * Issue #37: the left gun's sight in blue, so the two can be told
+         * apart. The colour is the env colour itself and only the shape
+         * (alpha) comes from the texture: tinting the texture would darken
+         * whatever colours the ROM's sight has instead of turning it blue.
+         */
+        gDPSetEnvColor(gdl++, 0x40, 0x90, 0xff, 0x6e);
+        gDPSetCombineLERP(gdl++, 0, 0, 0, ENVIRONMENT, TEXEL0, 0, ENVIRONMENT, 0,
+                          0, 0, 0, ENVIRONMENT, TEXEL0, 0, ENVIRONMENT, 0);
+    }
+    else
+    {
+        gDPSetEnvColor(gdl++, 0xff, 0xff, 0xff, 0x6e);
+        gDPSetCombineMode(gdl++, G_CC_FADEA, G_CC_FADEA);
+    }
     gSPVertex(gdl++, osVirtualToPhysical(v), 4, 0);
     gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
     gDPPipeSync(gdl++);
@@ -7155,12 +7170,24 @@ void gunDrawSight(Gfx **gdl) {
          * to the same angle as the flat one.
          */
         extern s32 g_gevrStereo;
+        extern int vr_button_L_grip;
 
         if (g_gevrStereo)
         {
             if ((g_CurrentPlayer->gunsightmode == 0) && (g_CurrentPlayer->mpmenuon == FALSE))
             {
-                *gdl = gevrDrawSight3D(*gdl);
+                *gdl = gevrDrawSight3D(*gdl, GUNRIGHT);
+            }
+            /*
+             * Issue #37: dual-wielding, the left gun's own sight while its grip
+             * is held (Perfect Dark VR sight.c sightDrawLeftHand: the left
+             * grip, not the aim state). Every other reason to hide the sight
+             * (the option, damage, no control) still applies.
+             */
+            if (vr_button_L_grip && ((g_CurrentPlayer->gunsightmode & ~GUNSIGHTREASON_NOTAIMING) == 0)
+                && (g_CurrentPlayer->mpmenuon == FALSE))
+            {
+                *gdl = gevrDrawSight3D(*gdl, GUNLEFT);
             }
             return;
         }
