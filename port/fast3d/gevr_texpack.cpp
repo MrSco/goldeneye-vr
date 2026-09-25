@@ -17,6 +17,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -127,10 +128,15 @@ static bool parseName(const char *name, uint64_t *key, uint8_t *fmt, uint8_t *si
 static void scan(const std::string &dir, std::vector<Entry> &out,
                  std::unordered_map<uint64_t, std::vector<int>> &index) {
     DIR *d = opendir(dir.c_str());
-    if (d == nullptr) return;
+    if (d == nullptr) {
+        TPLOG("texpack: can't open %s (%s)", dir.c_str(), strerror(errno));
+        return;
+    }
     struct dirent *de;
+    int seen = 0, bad = 0;
     while ((de = readdir(d)) != nullptr) {
         const char *name = de->d_name;
+        ++seen;
         if (name[0] == '.' || strncmp(name, "~!~", 3) == 0) continue;   // as GLideN64 skips them
         std::string path = dir + "/" + name;
         bool isDir = de->d_type == DT_DIR;
@@ -144,7 +150,10 @@ static void scan(const std::string &dir, std::vector<Entry> &out,
         }
         uint64_t key;
         uint8_t fmt, siz;
-        if (!parseName(name, &key, &fmt, &siz)) continue;
+        if (!parseName(name, &key, &fmt, &siz)) {
+            if (bad++ < 3) TPLOG("texpack: not a pack texture name: %s", name);
+            continue;
+        }
         std::vector<int> &slot = index[key];
         bool dup = false;
         for (int i : slot) {
@@ -162,6 +171,7 @@ static void scan(const std::string &dir, std::vector<Entry> &out,
         out.push_back(std::move(e));
     }
     closedir(d);
+    if (bad > 0) TPLOG("texpack: %s: %d entries, %d names skipped", dir.c_str(), seen, bad);
 }
 
 // halve (2x2 box) until both sides are at most MAX_SIDE
