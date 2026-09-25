@@ -775,7 +775,7 @@ static GevrItemPose s_gevrItemPoses[] = {
     { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 90.0f }, 2.0f, TRUE },   /* tiny at 1 (issue #8) */
     { ITEM_BOMBCASE,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },   /* half size at 1 (user) */
     { ITEM_GOLDENEYEKEY,  { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
-    { ITEM_GRENADE,       { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.2f, TRUE },   /* 5x too big, no hand of its own (#8) */
+    { ITEM_GRENADE,       { 2.5f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.2f, TRUE },   /* 5x too big, no hand of its own (#8); off the palm (#22) */
     { ITEM_PLASTIQUE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.4f, TRUE },
 };
 
