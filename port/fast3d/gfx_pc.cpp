@@ -3184,6 +3184,14 @@ static void gfx_run_dl(Gfx* cmd) {
                         gfx_vr_hud_capture_end_H();
                         break;
 
+                    case VR_WEAPON_PANEL_CAPTURE_BEGIN:
+                        gfx_vr_hud_capture_begin_P();
+                        break;
+
+                    case VR_WEAPON_PANEL_CAPTURE_END:
+                        gfx_vr_hud_capture_end_P();
+                        break;
+
                     case VR_CULL_MIRROR_BEGIN:
                         gevrCullMirror = true;
                         break;

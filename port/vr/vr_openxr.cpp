@@ -242,6 +242,7 @@ static uint32_t g_menuSwapchainHeight = 0;
 extern GLuint gfx_opengl_get_vr_menu_texture(void);  // Left-hand HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_R(void);// Right-hand HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_H(void);// Head HUD texture
+extern GLuint gfx_opengl_get_vr_menu_texture_P(void);// weapon panel texture (issue #10)
 extern bool is_weapon_hud;
 float VrHudDistance = 0.8f;
 
@@ -249,15 +250,18 @@ float VrHudDistance = 0.8f;
 static XrSwapchain g_menuSwapchain  = XR_NULL_HANDLE; // Left-hand HUD
 static XrSwapchain g_menuSwapchainR = XR_NULL_HANDLE; // Right-hand HUD
 static XrSwapchain g_menuSwapchainH = XR_NULL_HANDLE; // Head-locked HUD
+static XrSwapchain g_menuSwapchainP = XR_NULL_HANDLE; // weapon panel (issue #10)
 
 #ifdef ANDROID
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImages;
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImagesR;
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImagesH;
+static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImagesP;
 #else
 static std::vector<XrSwapchainImageOpenGLKHR> g_menuSwapchainImages;
 static std::vector<XrSwapchainImageOpenGLKHR> g_menuSwapchainImagesR;
 static std::vector<XrSwapchainImageOpenGLKHR> g_menuSwapchainImagesH;
+static std::vector<XrSwapchainImageOpenGLKHR> g_menuSwapchainImagesP;
 #endif
 
 // ============================================================================
@@ -1174,7 +1178,22 @@ static bool vr_create_menu_swapchain()
     xrEnumerateSwapchainImages(g_menuSwapchainH, imageCount, &imageCount,
                                reinterpret_cast<XrSwapchainImageBaseHeader*>(g_menuSwapchainImagesH.data()));
 
-    LOGI("Menu swapchains created L/R/H: %u x %u (format=0x%llx)",
+    // Swapchain for the weapon panel (issue #10)
+    if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &swapchainInfo, &g_menuSwapchainP))) {
+        LOGE("xrCreateSwapchain (menu P) failed (format=0x%llx)", (unsigned long long)chosenFormat);
+        return false;
+    }
+    imageCount = 0;
+    xrEnumerateSwapchainImages(g_menuSwapchainP, 0, &imageCount, nullptr);
+#ifdef ANDROID
+    g_menuSwapchainImagesP.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
+#else
+    g_menuSwapchainImagesP.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
+#endif
+    xrEnumerateSwapchainImages(g_menuSwapchainP, imageCount, &imageCount,
+                               reinterpret_cast<XrSwapchainImageBaseHeader*>(g_menuSwapchainImagesP.data()));
+
+    LOGI("Menu swapchains created L/R/H/P: %u x %u (format=0x%llx)",
          g_menuSwapchainWidth, g_menuSwapchainHeight, (unsigned long long)chosenFormat);
     return true;
 }
@@ -1365,6 +1384,23 @@ static void vr_update_menu_swapchain_H()
 
     XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
     xrReleaseSwapchainImage(g_menuSwapchainH, &releaseInfo);
+}
+
+static void vr_update_menu_swapchain_P()
+{
+    uint32_t imageIndex = 0;
+    XrSwapchainImageAcquireInfo acquireInfo = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    xrAcquireSwapchainImage(g_menuSwapchainP, &acquireInfo, &imageIndex);
+
+    XrSwapchainImageWaitInfo waitInfo = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(g_menuSwapchainP, &waitInfo);
+
+    static GLuint srcFboP = 0, dstFboP = 0;
+    vr_copy_menu_layer(gfx_opengl_get_vr_menu_texture_P(), g_menuSwapchainImagesP[imageIndex].image, srcFboP, dstFboP);
+
+    XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    xrReleaseSwapchainImage(g_menuSwapchainP, &releaseInfo);
 }
 
 // ============================================================================
@@ -2685,6 +2721,9 @@ static void quaternionMul_XR(const XrQuaternionf *a, const XrQuaternionf *b, XrQ
 extern bool gfx_vr_menu_L_dirty_and_clear(void);
 extern bool gfx_vr_menu_R_dirty_and_clear(void);
 extern bool gfx_vr_menu_H_dirty_and_clear(void);
+extern bool gfx_vr_menu_P_dirty_and_clear(void);
+/* bondview2.c gevrDrawWeaponPanel: the panel's box in the game's screen, 0..1 */
+extern "C" float gevrWeaponPanelRect[4];
 
 static const float VR_MENU_FACING_THRESHOLD = 0.8f;
 
@@ -2893,6 +2932,60 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         menuLayerH.size = {hgt * XrAspect, hgt};
     }
 
+    // --- The weapon panel (issue #10): above the weapon hand, facing the eyes ---
+    bool submitMenuP = (g_menuSwapchainP != XR_NULL_HANDLE) && gfx_vr_menu_P_dirty_and_clear();
+    if (submitMenuP) vr_update_menu_swapchain_P();
+
+    XrCompositionLayerQuad menuLayerP = vr_init_menu_quad(g_menuSwapchainP);
+    if (submitMenuP) {
+        const int hand = VrLeftHandedMode ? ctrlL : ctrlR;
+        const float W = (float)g_menuSwapchainWidth, H = (float)g_menuSwapchainHeight;
+        // only the panel's box of the capture (the game draws it in screen space)
+        float x0 = gevrWeaponPanelRect[0], y0 = gevrWeaponPanelRect[1];
+        float x1 = gevrWeaponPanelRect[2], y1 = gevrWeaponPanelRect[3];
+        if (!(x1 > x0 && y1 > y0)) { x0 = 0.f; y0 = 0.f; x1 = 1.f; y1 = 1.f; }
+        menuLayerP.subImage.imageRect.offset = {(int32_t)(x0 * W), (int32_t)((1.0f - y1) * H)};
+        menuLayerP.subImage.imageRect.extent = {(int32_t)((x1 - x0) * W), (int32_t)((y1 - y0) * H)};
+
+        const float boxW = (x1 - x0) * W, boxH = (y1 - y0) * H;
+        const float hgt = 0.14f;   // metres
+        menuLayerP.size = {hgt * boxW / (boxH > 1.f ? boxH : 1.f), hgt};
+
+        // 18 cm above the controller (head space), turned to face the eyes
+        float px = gCtrlPos[hand][0] / 100.f, py = gCtrlPos[hand][1] / 100.f + 0.18f, pz = gCtrlPos[hand][2] / 100.f;
+        menuLayerP.pose.position = {px, py, pz};
+        float fx = -px, fy = -py, fz = -pz;
+        float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+        if (fl < 1e-4f) fl = 1e-4f;
+        fx /= fl; fy /= fl; fz /= fl;
+        // right = up x forward, up' = forward x right (the panel stays upright)
+        float rx = fz, ry = 0.f, rz = -fx;
+        float rl = sqrtf(rx * rx + rz * rz);
+        if (rl < 1e-4f) { rx = 1.f; rz = 0.f; rl = 1.f; }
+        rx /= rl; rz /= rl;
+        float ux = fy * rz - fz * ry, uy = fz * rx - fx * rz, uz = fx * ry - fy * rx;
+        // rotation matrix columns (right, up, forward) -> quaternion
+        float m00 = rx, m01 = ux, m02 = fx;
+        float m10 = ry, m11 = uy, m12 = fy;
+        float m20 = rz, m21 = uz, m22 = fz;
+        float tr = m00 + m11 + m22;
+        XrQuaternionf q;
+        if (tr > 0.f) {
+            float s = sqrtf(tr + 1.f) * 2.f;
+            q.w = 0.25f * s; q.x = (m21 - m12) / s; q.y = (m02 - m20) / s; q.z = (m10 - m01) / s;
+        } else if (m00 > m11 && m00 > m22) {
+            float s = sqrtf(1.f + m00 - m11 - m22) * 2.f;
+            q.w = (m21 - m12) / s; q.x = 0.25f * s; q.y = (m01 + m10) / s; q.z = (m02 + m20) / s;
+        } else if (m11 > m22) {
+            float s = sqrtf(1.f + m11 - m00 - m22) * 2.f;
+            q.w = (m02 - m20) / s; q.x = (m01 + m10) / s; q.y = 0.25f * s; q.z = (m12 + m21) / s;
+        } else {
+            float s = sqrtf(1.f + m22 - m00 - m11) * 2.f;
+            q.w = (m10 - m01) / s; q.x = (m02 + m20) / s; q.y = (m12 + m21) / s; q.z = 0.25f * s;
+        }
+        menuLayerP.pose.orientation = q;
+    }
+
     // --- Virtual screen (world-locked) ---
     // Once the screen exists it is submitted on every frame, including the
     // XR frames the pump closes without a game frame (72 Hz display, 60 Hz
@@ -3012,6 +3105,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     if (submitMenuL) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerL);
     if (submitMenuR) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerR);
     if (submitMenuH) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerH);
+    if (submitMenuP) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerP);
 
 #ifndef ANDROID // if PC
     // for miroir PC
@@ -3779,6 +3873,11 @@ extern "C" void vr_shutdown()
         xrDestroySwapchain(g_menuSwapchainH);
         g_menuSwapchainH = XR_NULL_HANDLE;
         g_menuSwapchainImagesH.clear();
+    }
+    if (g_menuSwapchainP != XR_NULL_HANDLE) {
+        xrDestroySwapchain(g_menuSwapchainP);
+        g_menuSwapchainP = XR_NULL_HANDLE;
+        g_menuSwapchainImagesP.clear();
     }
     vr_screen_destroy_swapchain();
     g_screenRecenterTimes.clear();

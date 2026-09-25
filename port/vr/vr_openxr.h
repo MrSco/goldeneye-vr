@@ -109,6 +109,13 @@ extern void gfx_vr_hud_capture_end_R(void);
 #define VR_HUD_CAPTURE_BEGIN_H 0x56570000
 #define VR_HUD_CAPTURE_END_H 0x56570001
 
+// GoldenEye (issue #10): the weapon panel held above the weapon hand
+// (bondview2.c gevrDrawWeaponPanel), its own layer like the head-locked HUD.
+#define VR_WEAPON_PANEL_CAPTURE_BEGIN 0x565C0000
+#define VR_WEAPON_PANEL_CAPTURE_END   0x565C0001
+extern void gfx_vr_hud_capture_begin_P(void);
+extern void gfx_vr_hud_capture_end_P(void);
+
 // GoldenEye: between these, fast3d swaps front and back for face culling. The
 // stereo left arm is the fist viewmodel drawn through a mirrored matrix, and
 // the fist's own display lists turn on back-face culling, which the mirror

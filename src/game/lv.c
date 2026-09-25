@@ -863,6 +863,10 @@ Gfx* lvlRender(Gfx* DL)
         extern Gfx *gevrDrawReturnPrompt(Gfx *gdl);   /* bondview2.c, issue #16 */
 
         DL = gevrDrawReturnPrompt(DL);
+        {
+            extern Gfx *gevrDrawWeaponPanel(Gfx *gdl);   /* bondview2.c, issue #10 */
+            DL = gevrDrawWeaponPanel(DL);
+        }
     }
 #endif
 

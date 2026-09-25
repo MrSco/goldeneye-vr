@@ -44,6 +44,7 @@ bool VrIsTitleLegal = true;
 static bool hud_L_was_drawn = false;
 static bool hud_R_was_drawn = false;
 static bool hud_H_was_drawn = false;
+static bool hud_P_was_drawn = false;   /* the weapon panel (issue #10) */
 // ============================================================================
 // GLOBAL STATE - MSAA
 // ============================================================================
@@ -80,6 +81,9 @@ static int gVrMenuLCaptureDepth = 0;
 
 static bool gVrMenuHWasClearedThisFrame = false;
 static int gVrMenuHCaptureDepth = 0;
+
+static bool gVrMenuPWasClearedThisFrame = false;
+static int gVrMenuPCaptureDepth = 0;
 
 static GLint gCurEyeOffsetLeftLoc  = -1;
 static GLint gCurEyeOffsetRightLoc = -1;
@@ -2002,6 +2006,9 @@ static void gfx_opengl_start_frame(void) {
     gVrMenuHWasClearedThisFrame = false;
     gVrMenuHCaptureDepth = 0;
 
+    gVrMenuPWasClearedThisFrame = false;
+    gVrMenuPCaptureDepth = 0;
+
 }
 
 static void gfx_opengl_end_frame(void) {
@@ -2529,6 +2536,7 @@ bool gfx_vr_menu_H_dirty_and_clear(void) {
 // decided by whether it captures one.
 void gfx_vr_hud_H_new_frame(void) {
     hud_H_was_drawn = false;
+    hud_P_was_drawn = false;
     hud_R_was_drawn = false;
     hud_L_was_drawn = false;
 }
@@ -2536,6 +2544,89 @@ void gfx_vr_hud_H_new_frame(void) {
 GLuint gfx_opengl_get_vr_menu_texture_H(void) {
     if (gVrMenuHFb <= 0) return 0;
     return framebuffers[gVrMenuHFb].clrbuf;
+}
+
+// ============================================================================
+// --- VR - the weapon panel (issue #10), a copy of the head-locked capture
+// ============================================================================
+static int gVrMenuPFb = -1;
+static int gVrMenuPFbPrevious = -1;
+static GLint gVrMenuPPrevViewport[4] = {0,0,0,0};
+
+void gfx_vr_hud_capture_begin_P(void)
+{
+    gfx_flush();
+    {
+        int w = vr_get_internal_render_width();
+        int h = vr_get_internal_render_height();
+        if (gVrMenuPFb <= 0)
+            gVrMenuPFb = gfx_opengl_create_framebuffer();
+        gfx_opengl_update_framebuffer_parameters(
+                gVrMenuPFb, (uint32_t)w, (uint32_t)h,
+                /*msaalevel=*/1, /*inverty=*/false,
+                /*rendertarget=*/true, /*hasdepth=*/true, /*canextractdepth=*/true);
+    }
+
+    if (gVrMenuPCaptureDepth++ > 0) {
+        return;
+    }
+    gfx_opengl_menu_capture_push();
+
+    glGetIntegerv(GL_VIEWPORT, gVrMenuPPrevViewport);
+    gVrMenuPFbPrevious = (int)current_framebuffer;
+
+    gfx_opengl_start_draw_to_framebuffer(gVrMenuPFb, 0.0f);
+
+    int w = vr_get_internal_render_width();
+    int h = vr_get_internal_render_height();
+
+    glViewport(0, 0, w, h);
+    glDisable(GL_SCISSOR_TEST);
+
+    if (!gVrMenuPWasClearedThisFrame) {
+        glClearColor(0.f, 0.f, 0.f, 0.f);
+        glDepthMask(GL_TRUE);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);   /* the item model is depth-tested */
+        glDepthMask(current_depth_mask ? GL_TRUE : GL_FALSE);
+        gVrMenuPWasClearedThisFrame = true;
+    }
+
+    glEnable(GL_SCISSOR_TEST);
+    glScissor(0, 0, w, h);
+}
+
+void gfx_vr_hud_capture_end_P(void)
+{
+    gfx_flush();
+
+    if (gVrMenuPCaptureDepth <= 0) {
+        gVrMenuPCaptureDepth = 0;
+        return;
+    }
+
+    if (--gVrMenuPCaptureDepth > 0) {
+        return;
+    }
+
+    gfx_opengl_menu_capture_pop();
+    hud_P_was_drawn = true;
+
+    if (gVrMenuPFbPrevious >= 0) {
+        gfx_opengl_start_draw_to_framebuffer(gVrMenuPFbPrevious, 0.0f);
+    }
+    gVrMenuPFbPrevious = -1;
+
+    glViewport(gVrMenuPPrevViewport[0], gVrMenuPPrevViewport[1], gVrMenuPPrevViewport[2], gVrMenuPPrevViewport[3]);
+    glScissor(gVrMenuPPrevViewport[0], gVrMenuPPrevViewport[1], gVrMenuPPrevViewport[2], gVrMenuPPrevViewport[3]);
+}
+
+bool gfx_vr_menu_P_dirty_and_clear(void) {
+    return hud_P_was_drawn;   /* dropped by gfx_vr_hud_H_new_frame, as the head-locked HUD */
+}
+
+GLuint gfx_opengl_get_vr_menu_texture_P(void) {
+    if (gVrMenuPFb <= 0) return 0;
+    return framebuffers[gVrMenuPFb].clrbuf;
 }
 //---
 
