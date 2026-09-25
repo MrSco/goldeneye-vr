@@ -57,6 +57,13 @@ public class MainActivity extends SDLActivity {
         }
 
         updater = new UpdateChecker(this);
+        String version = "0";
+        try {
+            version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception e) {
+            Log.w(TAG, "no versionName", e);
+        }
+        mods = new ModManager(this, version);
 
         Log.i(TAG, "Starting GEVR VR mode");
         initializeGame();
@@ -75,6 +82,19 @@ public class MainActivity extends SDLActivity {
     /** "check", "update", "testbuilds:0" / "testbuilds:1". */
     public void updaterCommand(String cmd) {
         if (updater != null) updater.command(cmd);
+    }
+
+    // --- Mods page (texture packs from their authors' sites), driven by the in-VR launcher ---
+    private ModManager mods;
+
+    /** One tab-separated line per pack for port/vr/vr_launcher.cpp; see ModManager.status. */
+    public String modsStatus() {
+        return mods != null ? mods.status() : "";
+    }
+
+    /** "install:<id>", "remove:<id>", "cancel". */
+    public void modsCommand(String cmd) {
+        if (mods != null) mods.command(cmd);
     }
 
     /**

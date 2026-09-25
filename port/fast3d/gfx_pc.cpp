@@ -43,6 +43,7 @@
 extern "C" {
 #include "ext_tex.h"
 }
+#include "gevr_texpack.h"
 
 #include "../vr/vr_hub.h"
 
@@ -277,6 +278,15 @@ struct LoadedTexture {
 	uint16_t id_mask;
 	uint32_t texnum;
     struct RawTexMetadata raw_tex_metadata;
+    /* issue #25: where the load came from, for the texture-pack checksum */
+    uint8_t load_type = 0;                /* 1 LOADBLOCK, 2 LOADTILE */
+    const uint8_t* img_addr = nullptr;    /* SETTEXTUREIMAGE's address */
+    uint32_t img_width = 0;               /* its width in texels (LOADTILE) */
+    uint8_t img_siz = 0;
+    uint16_t load_uls = 0, load_ult = 0;  /* LOADTILE's corner and size, in texels */
+    uint16_t load_w = 0, load_h = 0;
+    uint8_t load_masks = 0, load_maskt = 0;
+    uint32_t dxt = 0;                     /* LOADBLOCK */
 };
 
 static struct RDP {
@@ -307,6 +317,9 @@ static struct RDP {
         uint16_t tmem;               // 0-511, in 64-bit word units
         uint32_t line_size_bytes;
         uint8_t palette;
+        /* issue #25: as SETTILE gave them, for the texture-pack checksum */
+        uint8_t masks, maskt;
+        uint8_t orig_fmt, orig_siz, orig_cms, orig_cmt;
     } texture_tile[8];
     LoadedTexture loaded_texture[512]; // for each tmem location
     bool textures_changed[2];
@@ -652,8 +665,17 @@ static struct ColorCombiner* gfx_lookup_or_create_color_combiner(const ColorComb
     return &prev_combiner->second;
 }
 
+#ifdef GEVR
+/* issue #25: cache entries showing the native texture while their pack image decodes */
+static std::unordered_map<int, std::vector<TextureCacheKey>> s_tpPending;
+static bool s_tpActive = false;
+#endif
+
 void gfx_texture_cache_clear() {
     gfx_flush();
+#ifdef GEVR
+    s_tpPending.clear();
+#endif
     for (const auto& entry : gfx_texture_cache.map) {
         gfx_texture_cache.free_texture_ids.push_back(entry.second.texture_id);
     }
@@ -1143,6 +1165,249 @@ static void importTextureNative(int tile, const LoadedTexture &loadedtexturein, 
 
 
 
+#ifdef GEVR
+/*
+ * Issue #25: GLideN64 ("Rice") texture packs. Each pack PNG is named by the
+ * checksum GLideN64 computes for the texture (GLideNHQ/TxUtil.cpp RiceCRC32
+ * and checksum64; Textures.cpp _loadHiresTexture chooses the rows), so the
+ * same checksum is computed here from what this renderer knows of the load.
+ *
+ * Emulators keep RDRAM as native 32-bit words: the checksum reads each 4
+ * bytes as one big-endian N64 word, and an unaligned read takes the bytes
+ * as they sit in that layout - byte h of the emulator's memory is N64 byte
+ * h ^ 3. So every read here goes through tp_byte on a 4-aligned base.
+ */
+static inline uint8_t tp_byte(const uint8_t *base, intptr_t h) {
+    return base[h ^ 3];
+}
+
+static inline uint32_t tp_word(const uint8_t *base, intptr_t h) {
+    return tp_byte(base, h) | (uint32_t)tp_byte(base, h + 1) << 8 | (uint32_t)tp_byte(base, h + 2) << 16 |
+           (uint32_t)tp_byte(base, h + 3) << 24;
+}
+
+/* Rice's checksum: rows top to bottom (numbered from the bottom), each row's
+ * words right to left, xor'd with their offset, rotated in. */
+static uint32_t tp_rice(const uint8_t *base, intptr_t start, int w, int h, int size, int stride) {
+    const int bpl = (w << size) >> 1;
+    uint32_t crc = 0;
+    intptr_t row = start;
+    for (int y = h - 1; y >= 0; --y) {
+        uint32_t e = 0;
+        int x = bpl - 4;
+        do {
+            e = tp_word(base, row + x) ^ (uint32_t)x;
+            crc = ((crc << 4) | (crc >> 28)) + e;
+            x -= 4;
+        } while (x >= 0);
+        crc += e ^ (uint32_t)y;
+        row += stride;
+    }
+    return crc;
+}
+
+/* the highest colour index the texture uses (CI4: nibbles, CI8: bytes) */
+static int tp_cimax(const uint8_t *base, intptr_t start, int w, int h, int size, int stride) {
+    int m = 0;
+    for (int y = 0; y < h; ++y) {
+        const intptr_t row = start + (intptr_t)y * stride;
+        if (size == G_IM_SIZ_8b) {
+            for (int x = 0; x < w; ++x) {
+                const int v = tp_byte(base, row + x);
+                if (v > m && (m = v) == 0xFF) return m;
+            }
+        } else {
+            for (int x = 0; x < w / 2; ++x) {
+                const int v = tp_byte(base, row + x);
+                const int hi = v >> 4, lo = v & 15;
+                if (hi > m) m = hi;
+                if (lo > m) m = lo;
+                if (m == 15) return m;
+            }
+        }
+    }
+    return m;
+}
+
+/* LOADBLOCK's dxt back to 64-bit words per row (GLideN64 ReverseDXT) */
+static int tp_reverse_dxt(uint32_t dxt, int texw, int size) {
+    if (dxt == 0x800) return 1;
+    int lo = 2047 / (int)dxt;
+    if ((2048 + lo - 1) / lo > (int)dxt) lo++;
+    const int hi = 2047 / ((int)dxt - 1);
+    if (lo == hi) return lo;
+    static const int bytes[4] = { 0, 1, 2, 4 };
+    int words = size == 0 ? texw / 16 : texw * bytes[size & 3] / 8;
+    if (words < 1) words = 1;
+    for (int i = lo; i <= hi; ++i) {
+        if (i == words) return i;
+    }
+    return (lo + hi) / 2;
+}
+
+static uint32_t s_tpLookups, s_tpHits, s_tpLogged;
+
+/* The pack entry for the texture tile draws from, or -1; *hw x *hh is the area the checksum covers. */
+static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, uint32_t *hh) {
+    const auto &t = rdp.texture_tile[tile];
+    if (lt.load_type == 0 || lt.img_addr == nullptr) return -1;
+    const int size = t.orig_siz;
+
+    // an aligned base (N64 textures are 8-byte aligned; keep any offset in start)
+    const uint8_t *base = (const uint8_t *)((uintptr_t)lt.img_addr & ~(uintptr_t)3);
+    intptr_t start = lt.img_addr - base;
+    int w, h, bpl;
+    if (lt.load_type == 2) {
+        bpl = (int)(lt.img_width << lt.img_siz >> 1);
+        start += (intptr_t)lt.load_ult * bpl + ((((intptr_t)lt.load_uls << lt.img_siz) + 1) >> 1);
+        const int infow = lt.load_masks ? std::min<int>(lt.load_w, 1 << lt.load_masks) : lt.load_w;
+        const int infoh = lt.load_maskt ? std::min<int>(lt.load_h, 1 << lt.load_maskt) : lt.load_h;
+        w = std::min<int>(infow, (int)lt.img_width);
+        if (lt.img_siz > size) w <<= (lt.img_siz - size);
+        h = infoh;
+    } else {
+        const int tw = (((t.lrs >> 2) - (t.uls >> 2)) & 0x3FF) + 1;
+        const int th = (((t.lrt >> 2) - (t.ult >> 2)) & 0x3FF) + 1;
+        const int mw = t.masks ? 1 << t.masks : tw;
+        const int mh = t.maskt ? 1 << t.maskt : th;
+        const bool clamps = (t.orig_cms & G_TX_CLAMP) != 0, clampt = (t.orig_cmt & G_TX_CLAMP) != 0;
+        w = (clamps && tw <= 256) ? std::min(mw, tw) : mw;
+        h = ((clampt && th <= 256) || mh > 256) ? std::min(mh, th) : mh;
+        const int line = (int)(t.line_size_bytes >> 3);
+        if (size == G_IM_SIZ_32b) bpl = line << 4;
+        else if (lt.dxt == 0) bpl = line << 3;
+        else bpl = (lt.dxt > 1 ? tp_reverse_dxt(lt.dxt, tw, size) : (int)lt.dxt) << 3;
+        // never read past what the block loaded (the emulator reads RDRAM; this is a heap)
+        if (lt.orig_size_bytes != 0 && (int64_t)(h - 1) * bpl + ((w << size) >> 1) > (int64_t)lt.orig_size_bytes) {
+            return -1;
+        }
+    }
+    if (w <= 0 || h <= 0 || ((w << size) >> 1) < 4 || h > 1024 || w > 1024) return -1;
+
+    const uint32_t tex = tp_rice(base, start, w, h, size, bpl);
+    const bool ci = size < G_IM_SIZ_16b && (rdp.palette_fmt != G_TT_NONE || t.orig_fmt == G_IM_FMT_CI);
+    int id;
+    uint32_t pal = 0;
+    if (ci) {
+        // the TLUT as N64 bytes (rdp.palette holds host-order entries), padded for short reads
+        uint8_t palbuf[8 + 512 + 8] = { 0 };
+        uint8_t *palbytes = palbuf + 8;
+        for (int k = 0; k < 256; ++k) {
+            palbytes[2 * k] = (uint8_t)(rdp.palette[k] >> 8);
+            palbytes[2 * k + 1] = (uint8_t)rdp.palette[k];
+        }
+        const int cimax = tp_cimax(base, start, w, h, size, bpl);
+        const intptr_t pstart = size == G_IM_SIZ_4b ? (intptr_t)t.palette * 32 : 0;
+        pal = tp_rice(palbytes, pstart, cimax + 1, 1, 2, size == G_IM_SIZ_4b ? 32 : 512);
+        id = gevrtp::find((uint64_t)pal << 32 | tex, t.orig_fmt, (uint8_t)size);
+        if (id < 0) id = gevrtp::find(pal, t.orig_fmt, (uint8_t)size);
+        if (id < 0) id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size);
+    } else {
+        id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size);
+    }
+
+    ++s_tpLookups;
+    if (id >= 0) ++s_tpHits;
+    if (s_tpLogged < 80) {
+        ++s_tpLogged;
+        sysLogPrintf(LOG_NOTE, "texpack: %s %08X%s%08X f%u s%u %dx%d bpl %d load %u upload %ux%u",
+                     id >= 0 ? "hit " : "miss", tex, ci ? "#" : " ", ci ? pal : 0, (unsigned)t.orig_fmt,
+                     (unsigned)size, w, h, bpl, (unsigned)lt.load_type, (unsigned)t.width, (unsigned)t.height);
+    }
+    if ((s_tpLookups % 500) == 0) {
+        sysLogPrintf(LOG_NOTE, "texpack: %u of %u textures matched", s_tpHits, s_tpLookups);
+    }
+    *hw = (uint32_t)w;
+    *hh = (uint32_t)h;
+    return id;
+}
+
+static std::vector<uint8_t> s_tpCanvas;
+
+/* Upload the pack image for a texture uploaded as uw x uh whose checksum covered
+ * its top-left hw x hh (a block's padded rows): scaled to fit, edges repeated. */
+static bool gevr_texpack_upload(const uint8_t *img, uint32_t iw, uint32_t ih, uint32_t hw, uint32_t hh,
+                                uint32_t uw, uint32_t uh) {
+    if (uw == hw && uh == hh) {
+        gfx_rapi->upload_texture_hd(img, iw, ih);
+        return true;
+    }
+    if (uw < hw || uh < hh || uw > 4 * hw || uh > 4 * hh) return false;
+    const uint32_t cw = (uint32_t)((uint64_t)uw * iw / hw), ch = (uint32_t)((uint64_t)uh * ih / hh);
+    if (cw == 0 || ch == 0 || cw > 2048 || ch > 2048) return false;
+    s_tpCanvas.resize((size_t)cw * ch * 4);
+    for (uint32_t y = 0; y < ch; ++y) {
+        const uint8_t *src = img + (size_t)std::min(y, ih - 1) * iw * 4;
+        uint8_t *dst = &s_tpCanvas[(size_t)y * cw * 4];
+        memcpy(dst, src, (size_t)iw * 4);
+        for (uint32_t x = iw; x < cw; ++x) memcpy(dst + x * 4, src + (iw - 1) * 4, 4);
+    }
+    gfx_rapi->upload_texture_hd(s_tpCanvas.data(), cw, ch);
+    return true;
+}
+
+/* import_texture's miss: the pack's image if there is one and it's decoded. */
+static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const TextureCacheKey &key) {
+    if (!s_tpActive || (rdp.tex_lod && tile >= rdp.first_tile_index + rdp.tex_detail)) return false;
+    uint32_t hw, hh, iw, ih;
+    const int id = gevr_texpack_lookup(tile, lt, &hw, &hh);
+    if (id < 0) return false;
+    const uint8_t *img = gevrtp::image(id, &iw, &ih);
+    if (img == nullptr) {
+        s_tpPending[id].push_back(key);   // the native texture until it's decoded
+        return false;
+    }
+    return gevr_texpack_upload(img, iw, ih, hw, hh, rdp.texture_tile[tile].width, rdp.texture_tile[tile].height);
+}
+
+static void gfx_texture_cache_erase(const TextureCacheKey &key) {
+    auto it = gfx_texture_cache.map.find(key);
+    if (it == gfx_texture_cache.map.end()) return;
+    gfx_flush();
+    for (int i = 0; i < 2; ++i) {
+        if (rendering_state.textures[i] == &*it) {
+            rendering_state.textures[i] = nullptr;
+            rdp.textures_changed[i] = true;
+        }
+    }
+    gfx_texture_cache.lru.erase(it->second.lru_location);
+    gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
+    gfx_texture_cache.map.erase(it);
+}
+
+extern "C" char g_ActiveExtTexPack[];                  /* port/src/ext_tex.c, the launcher's Mods page */
+extern "C" const char *fsFullPath(const char *relPath);
+
+/* Once a frame: start the pack, and swap in images as they finish decoding. */
+static void gevr_texpack_frame(void) {
+    static bool started = false;
+    if (!started) {
+        started = true;
+        if (g_ActiveExtTexPack[0] != '\0') {
+            char rel[320];
+            snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
+            gevrtp::start(fsFullPath(rel));
+        }
+    }
+    if (gevrtp::takeIndexReady()) {
+        s_tpActive = true;
+        gfx_texture_cache_clear();   // what was uploaded before the index existed looks again
+    }
+    if (!s_tpActive) return;
+    int ids[32];
+    int n;
+    while ((n = gevrtp::takeDone(ids, 32)) > 0) {
+        for (int k = 0; k < n; ++k) {
+            auto it = s_tpPending.find(ids[k]);
+            if (it == s_tpPending.end()) continue;
+            for (const TextureCacheKey &key : it->second) gfx_texture_cache_erase(key);
+            s_tpPending.erase(it);
+        }
+    }
+    gevrtp::trim((size_t)160 << 20);
+}
+#endif
+
 static void import_texture(int i, int tile, bool is_rect) {
     LoadedTexture& loaded_texture = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
     const uint8_t fmt = rdp.texture_tile[tile].fmt;
@@ -1347,6 +1612,11 @@ static void import_texture(int i, int tile, bool is_rect) {
         return;
 	}
 
+#ifdef GEVR
+    if (gevr_texpack_import(tile, loaded_texture, key)) {
+        return;
+    }
+#endif
     importTextureNative(tile, loaded_texture, is_rect);
 }
 
@@ -2507,6 +2777,12 @@ static void gfx_dp_set_tile(uint8_t fmt, uint32_t siz, uint32_t line, uint32_t t
     // OTRTODO:
     // SUPPORT_CHECK(tmem == 0 || tmem == 256);
     static uint32_t max_tmem = 0;
+    rdp.texture_tile[tile].masks = masks;
+    rdp.texture_tile[tile].maskt = maskt;
+    rdp.texture_tile[tile].orig_fmt = fmt;
+    rdp.texture_tile[tile].orig_siz = siz;
+    rdp.texture_tile[tile].orig_cms = cms;
+    rdp.texture_tile[tile].orig_cmt = cmt;
     if (cms == G_TX_WRAP && masks == G_TX_NOMASK) {
         cms = G_TX_CLAMP;
     }
@@ -2647,6 +2923,10 @@ static void gfx_dp_load_block(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t
     loaded_texture.raw_tex_metadata = rdp.texture_to_load.raw_tex_metadata;
     loaded_texture.loaded_by_tile = false;
     loaded_texture.tmem_swizzled = (dxt == 0);
+    loaded_texture.load_type = 1;
+    loaded_texture.img_addr = rdp.texture_to_load.addr;
+    loaded_texture.img_siz = rdp.texture_to_load.siz;
+    loaded_texture.dxt = dxt;
 
 	auto& tex_to_load = rdp.texture_to_load;
 	uint8_t type = tex_to_load.type;
@@ -2712,6 +2992,16 @@ static void gfx_dp_load_tile(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t 
     loaded_texture.src_fmt = rdp.texture_to_load.fmt; /* gepc-ref D229 */
     loaded_texture.loaded_by_tile = true;
     loaded_texture.tmem_swizzled = false;
+    loaded_texture.load_type = 2;
+    loaded_texture.img_addr = rdp.texture_to_load.addr;
+    loaded_texture.img_width = full_image_width;
+    loaded_texture.img_siz = rdp.texture_to_load.siz;
+    loaded_texture.load_uls = (uint16_t)(uls >> 2);
+    loaded_texture.load_ult = (uint16_t)(ult >> 2);
+    loaded_texture.load_w = (uint16_t)(((lrs >> 2) - (uls >> 2) + 1) & 0x3FF);
+    loaded_texture.load_h = (uint16_t)(((lrt >> 2) - (ult >> 2) + 1) & 0x3FF);
+    loaded_texture.load_masks = rdp.texture_tile[tile].masks;
+    loaded_texture.load_maskt = rdp.texture_tile[tile].maskt;
 
     rdp.texture_tile[tile].uls = uls;
     rdp.texture_tile[tile].ult = ult;
@@ -3665,6 +3955,9 @@ extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
     gfx_sp_reset();
 
+#ifdef GEVR
+    gevr_texpack_frame();
+#endif
     {
         u8 rType[8]; u16 rId[8]; s32 rTexnum[8];
         s32 n = extTexPollReady(rType, rId, rTexnum, 8);
