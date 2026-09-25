@@ -1592,12 +1592,33 @@ static void gevrStereoApplyHead(void)
 }
 
 /*
- * The tank's turret turn this tick in stereo (#28): the right stick, which
- * turns the body on foot, turns the turret at the flat game's stick rate
- * (1 degree a tick at full tilt); the head stays free to look around.
+ * The tank's turret turn this tick in stereo. Issue #38 (user): the turret
+ * turns toward where the right controller points, at the flat game's
+ * full-tilt stick rate (1 degree a tick), measured against the hull - the
+ * view rides the hull in stereo (the vv_theta set below), so the aim doesn't
+ * chase itself. The pitch follows the controller too (field_2A08). Without a
+ * tracked controller the right stick turns it, as it did for #28.
  */
 static f32 gevrStereoTankTurretTurn(void)
 {
+    struct coord3d o, d;
+
+    if (gevrStereoShot(GUNRIGHT, NULL, &o, &d))
+    {
+        mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &d);
+        if (d.x * d.x + d.z * d.z > 0.000001f)
+        {
+            /* bondviewSet3dCoord7F07CEB0: x = -sin(yaw), z = cos(yaw) */
+            f32 err = atan2f(-d.x, d.z) - g_TankOrientationAngle - g_TankTurretAngle;
+            f32 step = DegToRad1Fact(1) * g_GlobalTimerDelta;
+
+            while (err >= M_PI_F) err -= M_TAU_F;
+            while (err < -M_PI_F) err += M_TAU_F;
+            if (err > step) err = step;
+            if (err < -step) err = -step;
+            return err;
+        }
+    }
     return gevrVrTurnAxis() * DegToRad1Fact(1) * g_GlobalTimerDelta;
 }
 #endif
@@ -8266,6 +8287,20 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             ((DegToRad1Fact(g_CurrentPlayer->speedtheta * 3.5f)) * (4.0f)) +
             (ftemp * 4.0f)
             ) * 360.0f / M_TAU_F;
+#ifdef GEVR
+        /*
+         * Issue #38: in stereo the view rides the hull and the turret swivels
+         * under it after the controller (gevrStereoTankTurretTurn), like a
+         * gunner's seat. Riding the turret, the view turned as the turret did
+         * and a controller aim would chase itself round.
+         */
+        if (g_gevrStereo)
+        {
+            g_CurrentPlayer->vv_theta = (g_TankOrientationAngle +
+                                         ((DegToRad1Fact(g_CurrentPlayer->speedtheta * 3.5f)) * (4.0f))) *
+                                        360.0f / M_TAU_F;
+        }
+#endif
 
         while (g_CurrentPlayer->vv_theta < 0.0f)
         {
@@ -9869,17 +9904,25 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
     /*
      * Issue #38: in the tank, the turret's pitch follows this (+10 degrees,
      * tank_vertical_angle). In stereo the crosshair is the controller's barrel
-     * seen from the head, so tilting the head moved the gun: the barrel's own
-     * pitch in the world instead. The right stick still turns the turret (#28).
+     * seen from the head, so tilting the head moved the gun. The barrel's pitch
+     * is taken from the controller in play space, where up is up: turned into
+     * the world through the camera instead, it fed back through the tank's own
+     * view pitch and climbed to the stop (user: "keeps aiming up, like
+     * something's fighting it"). The right stick still turns the turret (#28).
      */
     if (g_gevrStereo && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TANKSHELLS && get_ptr_for_players_tank() != NULL)
     {
-        struct coord3d o, d;
+        extern int gevrVrGripPosePlay(int hand, float pos[3], float quat[4]);   /* vr_input.cpp */
+        f32 p[3], q[4];
 
-        if (gevrStereoShot(GUNRIGHT, NULL, &o, &d))
+        if (gevrVrGripPosePlay(1, p, q))
         {
-            mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &d);
-            g_CurrentPlayer->field_2A08 = atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
+            /* the barrel is the grip's -Y (gevrGripAxes): its height is -(1 - 2(x^2 + z^2)) */
+            f32 barrely = -(1.0f - 2.0f * (q[0] * q[0] + q[2] * q[2]));
+
+            if (barrely > 1.0f) barrely = 1.0f;
+            if (barrely < -1.0f) barrely = -1.0f;
+            g_CurrentPlayer->field_2A08 = asinf(barrely);
         }
     }
 #endif

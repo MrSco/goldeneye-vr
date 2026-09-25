@@ -965,7 +965,12 @@ s32 gevrStereoAimCached(s32 hand, coord3d *out)
     return s_gevrAimValid[hand];
 }
 
-s32 gevrStereoAimPoint(s32 hand, coord3d *out)
+/*
+ * The trace itself: from a view-space origin along a view-space direction,
+ * the first thing hit (background, guards, objects, doors), skipping the
+ * prop given (the tank the shot leaves). *out is the view-space point.
+ */
+static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vorigin, const coord3d *vdir, coord3d *out)
 {
     extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
     ShotData shotdata;
@@ -990,52 +995,9 @@ s32 gevrStereoAimPoint(s32 hand, coord3d *out)
     s32 startroom;
     s32 k;
     s32 i;
-    PropRecord *tankprop = NULL;
 
-    if (hand == GUNRIGHT && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TANKSHELLS)
-    {
-        tankprop = get_ptr_for_players_tank();
-        if (tankprop != NULL && !(tankprop->flags & TANK_RUN_STATE_RUNNING))
-        {
-            tankprop = NULL;
-        }
-    }
-    if (tankprop != NULL)
-    {
-        /*
-         * Issue #38: in the tank the sight follows the tank's gun, not the hand.
-         * The shell leaves the turret's muzzle (gunfire.c gunFireTankShell:
-         * render_pos[4], view space) along the turret (bondview2.c
-         * bondviewSet3dCoord7F07CEB0). The N64's crosshair sits 10 degrees under
-         * the barrel, which is raised as much for the shell's drop
-         * (bondview2.c tank_vertical_angle), and so does this one.
-         */
-        ObjectRecord *tankobj = tankprop->obj;
-        f32 yaw = g_TankOrientationAngle + g_TankTurretOrientationAngleRad;
-        f32 pitch = g_TankTurretVerticalAngle - 0.17453294f;
-        f32 len;
-
-        shotdata.viewOrigin.x = tankobj->model->render_pos[4].pos.m[3][0];
-        shotdata.viewOrigin.y = tankobj->model->render_pos[4].pos.m[3][1];
-        shotdata.viewOrigin.z = tankobj->model->render_pos[4].pos.m[3][2];
-        shotdata.viewDir.x = -sinf(yaw) * cosf(pitch);
-        shotdata.viewDir.y = sinf(pitch);
-        shotdata.viewDir.z = cosf(yaw) * cosf(pitch);
-        mtx4RotateVecInPlace(camGetWorldToScreenMtxf(), &shotdata.viewDir);
-        len = sqrtf(shotdata.viewDir.x * shotdata.viewDir.x + shotdata.viewDir.y * shotdata.viewDir.y +
-                    shotdata.viewDir.z * shotdata.viewDir.z);
-        if (len < 0.0001f)
-        {
-            return FALSE;
-        }
-        shotdata.viewDir.x /= len;
-        shotdata.viewDir.y /= len;
-        shotdata.viewDir.z /= len;
-    }
-    else if (!gevrStereoShot(hand, NULL, &shotdata.viewOrigin, &shotdata.viewDir))
-    {
-        return FALSE;
-    }
+    shotdata.viewOrigin = *vorigin;
+    shotdata.viewDir = *vdir;
 
     playerprop = getCurrentPlayerProp();
     fromtile = playerprop->stan;
@@ -1196,6 +1158,96 @@ s32 gevrStereoAimPoint(s32 hand, coord3d *out)
     out->x = shotdata.viewOrigin.x + shotdata.viewDir.x * t;
     out->y = shotdata.viewOrigin.y + shotdata.viewDir.y * t;
     out->z = shotdata.viewOrigin.z + shotdata.viewDir.z * t;
+    return TRUE;
+}
+
+s32 gevrStereoAimPoint(s32 hand, coord3d *out)
+{
+    extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+    extern f32 g_TankShellSpeed;
+    PropRecord *tankprop = NULL;
+    ObjectRecord *tankobj;
+    coord3d o, d, mw, vel, aimw;
+    f32 yaw, pitch, vh, len;
+    s32 iter;
+
+    if (hand == GUNRIGHT && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TANKSHELLS)
+    {
+        tankprop = get_ptr_for_players_tank();
+        if (tankprop != NULL && !(tankprop->flags & TANK_RUN_STATE_RUNNING))
+        {
+            tankprop = NULL;
+        }
+    }
+    if (tankprop == NULL)
+    {
+        if (!gevrStereoShot(hand, NULL, &o, &d))
+        {
+            return FALSE;
+        }
+        return gevrStereoAimTrace(hand, NULL, &o, &d, out);
+    }
+
+    /*
+     * Issue #38: in the tank the sight shows where the shell lands. It leaves
+     * the turret's muzzle (gunfire.c gunFireTankShell: render_pos[4], view
+     * space) along the turret (bondview2.c bondviewSet3dCoord7F07CEB0) at
+     * g_TankShellSpeed a tick, and falls (propobj.c: 0.278 a tick squared,
+     * trapezoid-integrated, so exact for this). The trace is straight, so it's
+     * aimed at the arc: trace, find where the arc is at that distance, aim
+     * there and trace again. A sight on the N64's line 10 degrees under the
+     * barrel had the shells landing above it (user).
+     */
+    tankobj = tankprop->obj;
+    yaw = g_TankOrientationAngle + g_TankTurretOrientationAngleRad;
+    pitch = g_TankTurretVerticalAngle;
+    o.x = tankobj->model->render_pos[4].pos.m[3][0];
+    o.y = tankobj->model->render_pos[4].pos.m[3][1];
+    o.z = tankobj->model->render_pos[4].pos.m[3][2];
+    mw = o;
+    mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &mw);
+    vel.x = -sinf(yaw) * cosf(pitch) * g_TankShellSpeed;
+    vel.y = sinf(pitch) * g_TankShellSpeed;
+    vel.z = cosf(yaw) * cosf(pitch) * g_TankShellSpeed;
+    vh = sqrtf(vel.x * vel.x + vel.z * vel.z);
+    aimw.x = mw.x + vel.x * 30.0f;
+    aimw.y = mw.y + vel.y * 30.0f;
+    aimw.z = mw.z + vel.z * 30.0f;
+
+    for (iter = 0; iter < 3; iter++)
+    {
+        coord3d hw;
+        f32 dh, tt;
+
+        d.x = aimw.x - mw.x;
+        d.y = aimw.y - mw.y;
+        d.z = aimw.z - mw.z;
+        mtx4RotateVecInPlace(camGetWorldToScreenMtxf(), &d);
+        len = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+        if (len < 0.0001f)
+        {
+            return FALSE;
+        }
+        d.x /= len;
+        d.y /= len;
+        d.z /= len;
+        if (!gevrStereoAimTrace(hand, tankprop, &o, &d, out))
+        {
+            return FALSE;
+        }
+        if (vh < 0.001f)
+        {
+            break;
+        }
+        /* the arc at the hit's distance */
+        hw = *out;
+        mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &hw);
+        dh = sqrtf((hw.x - mw.x) * (hw.x - mw.x) + (hw.z - mw.z) * (hw.z - mw.z));
+        tt = dh / vh;
+        aimw.x = mw.x + vel.x * tt;
+        aimw.y = mw.y + vel.y * tt - 0.5f * 0.27777779f * tt * tt;
+        aimw.z = mw.z + vel.z * tt;
+    }
     return TRUE;
 }
 #endif
