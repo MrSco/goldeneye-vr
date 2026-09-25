@@ -1433,11 +1433,13 @@ static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, gfx_cm_to_opengl(cmt));
 }
 
-// GoldenEye: the two-pass decal band below is switched off for 0.1.0. Both
-// tunings tried (depth-buffer-step and view-space bands) cut or popped decals
-// on the headset; the original single-pass polygon offset stays until the
-// band can be tuned against a reproducible test (HANDOFF 60).
-#define GEVR_DECAL_BAND 0
+// GoldenEye: the two-pass decal band below, on since HANDOFF 90. It was off
+// from 0.1.0 because every tuning cut or popped decals: the band's view-space
+// distance was scaled by P[3][2] of a matrix that has the camera folded in
+// (gfx_pc.cpp gfx_decal_proj_z), the wrong sign and ~27x too large. With the
+// real depth term, 3 view units held the Dam's stripes and bullet holes on the
+// headset (files/gevr_decal.txt still overrides for testing).
+#define GEVR_DECAL_BAND 1
 
 static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool depth_compare, bool depth_source_prim, uint16_t zmode) {
     s_isDecal = depth_test && depth_compare && zmode == ZMODE_DEC;

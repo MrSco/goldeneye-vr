@@ -1449,8 +1449,33 @@ static void gfx_sp_matrix(uint8_t parameters, const int32_t* addr) {
 
     gfx_matrix_mul(rsp.MP_matrix, rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1], rsp.P_matrix);
     {
-        extern float gfx_decal_proj_z;   // gfx_opengl.cpp: the decal band
-        gfx_decal_proj_z = rsp.P_matrix[3][2];
+        /*
+         * gfx_opengl.cpp's decal band scales a view-space distance by the
+         * projection's depth offset (clip z = A * z_view + B). GoldenEye loads
+         * its camera into the projection matrix, so P_matrix is camera x
+         * projection and P[3][2] mixes B with the camera's translation (275
+         * against B = -10 at the Dam, measured) - the band pushed decals the
+         * wrong way by a camera-dependent amount: holes and stripes cut off,
+         * garbled or gone as you moved. The camera part is a rotation and
+         * translation, so each of the top rows holds P[r][3] = -c and
+         * P[r][2] = A * c for its camera column c: A = -P[r][2] / P[r][3],
+         * then B = P[3][2] + A * P[3][3]. A plain projection gives B = P[3][2].
+         */
+        extern float gfx_decal_proj_z;
+        int best = -1;
+        float bestW = 0.0f;
+        for (int r = 0; r < 3; r++) {
+            if (fabsf(rsp.P_matrix[r][3]) > bestW) {
+                bestW = fabsf(rsp.P_matrix[r][3]);
+                best = r;
+            }
+        }
+        if (best >= 0 && bestW > 1e-6f) {
+            const float a = -rsp.P_matrix[best][2] / rsp.P_matrix[best][3];
+            gfx_decal_proj_z = rsp.P_matrix[3][2] + a * rsp.P_matrix[3][3];
+        } else {
+            gfx_decal_proj_z = rsp.P_matrix[3][2];
+        }
     }
     if (gevrMenuTrace && gevrMenuVertices == 0) {
         for (int i = 0; i < 4; ++i) {
