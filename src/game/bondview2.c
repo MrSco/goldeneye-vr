@@ -10518,6 +10518,7 @@ static s32 s_gevrWpIndex;
 static s32 s_gevrWpTextY;
 static s32 s_gevrWpRepeat;
 static s32 s_gevrWpHeld;
+static s32 s_gevrWpShownItem;
 #define GEVR_WP_MODEL_H 46   /* the model's strip above the list, screen units */
 /* tuning (files/gevr_wpanel.txt "open dy fov", re-read every second): force the panel
  * open from the PC, move the model down by dy screen units, widen the model's view */
@@ -10565,6 +10566,74 @@ extern f32 get_horizontal_offset_on_solo_watch_menu_for_item(ITEM_IDS item);
 extern f32 get_vertical_offset_on_solo_watch_menu_for_item(ITEM_IDS item);
 extern f32 get_depth_offset_solo_watch_menu_inventory_page_for_item(ITEM_IDS item);
 extern void sub_GAME_7F05DAE4(GUNHAND hand);
+extern ModelFileHeader *g_gevrItemModelOverride;   /* gunfire.c set_enviro_fog_for_items_in_solo_watch_menu */
+extern GunModelFileRecord gitem_structs[];
+
+/*
+ * The panel's own copy of the highlighted item's model, loaded as the stereo
+ * arms load theirs (gunfire.c gevrLeftFistLoad): from gitem_structs, into a
+ * buffer of its own, only when the highlight changes. The watch's draw would
+ * load the item into the right hand's model slot instead, and the gun in the
+ * hand changed as the list scrolled (user: keep the equipped weapon in hand
+ * until release).
+ */
+#define GEVR_WP_MODELSIZE 0x40000
+#define GEVR_WP_BUFSIZE   0x70000
+static u8 *s_gevrWpModelBuf;
+static struct texpool s_gevrWpModelPool;
+static ModelFileHeader s_gevrWpModelHeader;
+static s32 s_gevrWpModelItem = -1;
+static s32 s_gevrWpModelStage = -1;
+static s32 s_gevrWpModelOk;
+
+static ModelFileHeader *gevrWeaponPanelModel(s32 item)
+{
+    ModelFileHeader *tmpl;
+    char *name;
+
+    if (item == s_gevrWpModelItem && s_gevrWpModelStage == bossGetStageNum())
+    {
+        return s_gevrWpModelOk ? &s_gevrWpModelHeader : NULL;
+    }
+    s_gevrWpModelItem = item;
+    s_gevrWpModelStage = bossGetStageNum();
+    s_gevrWpModelOk = FALSE;
+
+    if (item <= ITEM_UNARMED || item >= ITEM_IDS_MAX)
+    {
+        return NULL;
+    }
+    tmpl = gitem_structs[item].item_header;
+    name = (char *) gitem_structs[item].item_file_name;
+    if (tmpl == NULL || name == NULL)
+    {
+        return NULL;
+    }
+    if (s_gevrWpModelBuf == NULL)
+    {
+        s_gevrWpModelBuf = malloc(GEVR_WP_BUFSIZE);
+        if (s_gevrWpModelBuf == NULL)
+        {
+            return NULL;
+        }
+    }
+
+    s_gevrWpModelHeader = *tmpl;
+    texInitPool(&s_gevrWpModelPool, s_gevrWpModelBuf + GEVR_WP_MODELSIZE, GEVR_WP_BUFSIZE - GEVR_WP_MODELSIZE);
+    load_object_fill_header(&s_gevrWpModelHeader, (u8 *) name, s_gevrWpModelBuf, GEVR_WP_MODELSIZE, &s_gevrWpModelPool);
+    modelCalculateRwDataLen(&s_gevrWpModelHeader);
+    if (s_gevrWpModelHeader.RootNode == NULL)
+    {
+        sysLogPrintf(LOG_ERROR, "wpanel: model for item %d (%s) did not load", item, name);
+        return NULL;
+    }
+    s_gevrWpModelOk = TRUE;
+    sysLogPrintf(LOG_NOTE, "wpanel: item %d model %s, watch pose h %.1f v %.1f depth %.1f rot %.1f %.1f", item, name,
+                 get_horizontal_offset_on_solo_watch_menu_for_item(item), get_vertical_offset_on_solo_watch_menu_for_item(item),
+                 get_depth_offset_solo_watch_menu_inventory_page_for_item(item),
+                 get_xrotation_solo_watch_menu_for_item(item), get_yrotation_solo_watch_menu_for_item(item));
+    return &s_gevrWpModelHeader;
+}
 
 /*
  * The highlighted item's model, as the watch's inventory page draws it, in a
@@ -10598,6 +10667,10 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
     f32 cx = ((f32) x0 + (f32) w * 0.5f) / sw * 2.0f - 1.0f;
     f32 cy = 1.0f - ((f32) y0 + (f32) h * 0.5f + s_gevrWpTuneDy) / sh * 2.0f;
     s32 i;
+    if (item == ITEM_FIST)
+    {
+        depth *= 0.35f;   /* never placed in the watch: the table's default 1000 showed a speck */
+    }
 
     /* the watch spins it 2.5 degrees a frame (options.c D_80040B1C) */
     s_gevrWpSpin += (2.5f * speedgraphframes * M_TAU_F) / 360.0f;
@@ -10621,7 +10694,12 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
     matrix_4x4_multiply_in_place(&cam, &rot);
 
     /* the in-hand HUD's colours (options.c draw_current_hand_item_and_ammo), not the watch's green */
-    gdl = set_enviro_fog_for_items_in_solo_watch_menu(sub_GAME_7F0A6EE8(gdl), item, &rot, 0xFF, 0x64DC6428);
+    g_gevrItemModelOverride = gevrWeaponPanelModel(item);
+    if (g_gevrItemModelOverride != NULL)
+    {
+        gdl = set_enviro_fog_for_items_in_solo_watch_menu(sub_GAME_7F0A6EE8(gdl), item, &rot, 0xFF, 0x64DC6428);
+    }
+    g_gevrItemModelOverride = NULL;
     return gdl;
 }
 
@@ -10807,7 +10885,25 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         }
     }
 
-    gdl = gevrDrawWeaponPanelModel(gdl, bondinvGetTextbyInvIndex(s_gevrWpIndex),
+    {
+        /*
+         * The model shown: unarmed is the arm (the fist), even when the game
+         * has swapped "unarmed" for the sniper rifle as a club; the watch's
+         * own mapping for the trigger and watch laser.
+         */
+        s32 shown = bondinvGetTextbyInvIndex(s_gevrWpIndex);
+
+        if (shown == ITEM_UNARMED)
+        {
+            shown = ITEM_FIST;
+        }
+        else if (shown == ITEM_TRIGGER || shown == ITEM_WATCHLASER)
+        {
+            shown = ITEM_WATCHMAGNETATTRACT;
+        }
+        s_gevrWpShownItem = shown;
+    }
+    gdl = gevrDrawWeaponPanelModel(gdl, s_gevrWpShownItem,
                                    bx0 + 4, by0 + 2, bw - 8, GEVR_WP_MODEL_H - 2);
 
     gdl = combiner_bayer_lod_perspective(gdl);

@@ -956,8 +956,41 @@ void gunUpdateAndFire(GUNHAND handnum)
             hand->field_B58.x = flashmtx.m[3][0];
             hand->field_B58.y = flashmtx.m[3][1];
             hand->field_B58.z = flashmtx.m[3][2];
+#ifdef GEVR
+            /*
+             * The muzzle point, where beams, tracers and launched grenades and
+             * rockets start. In stereo the gun sits in view units (1 / D_800364CC
+             * cm) but the view-to-world matrix carries no scale, the same
+             * mismatch the throw matrix above corrects (HANDOFF 71): on the Dam
+             * (0.2) the point landed a fifth of the way from the eye to the
+             * muzzle - the watch laser's beam and the grenade launcher's rounds
+             * came out of the face. Frigate (1.0) was right.
+             */
+            {
+                extern s32 g_gevrStereo;
+                extern f32 D_800364CC;
+
+                if (g_gevrStereo && D_800364CC > 1e-6f)
+                {
+                    hand->field_B58.x /= D_800364CC;
+                    hand->field_B58.y /= D_800364CC;
+                    hand->field_B58.z /= D_800364CC;
+                }
+            }
+#endif
             mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &hand->field_B58);
             hand->field_B64 = -flashmtx.m[3][2];
+#ifdef GEVR
+            {
+                extern s32 g_gevrStereo;
+                extern f32 D_800364CC;
+
+                if (g_gevrStereo && D_800364CC > 1e-6f)
+                {
+                    hand->field_B64 /= D_800364CC;
+                }
+            }
+#endif
 
             if (hand->field_87D != 0)
             {
@@ -1026,6 +1059,17 @@ void gunUpdateAndFire(GUNHAND handnum)
             hand->field_B58.y = hand->throw_item_pos_related.m[3][1];
             hand->field_B58.z = hand->throw_item_pos_related.m[3][2];
             hand->field_B64 = -hand->gunmtx_camspace.m[3][2];
+#ifdef GEVR
+            {
+                extern s32 g_gevrStereo;
+                extern f32 D_800364CC;
+
+                if (g_gevrStereo && D_800364CC > 1e-6f)
+                {
+                    hand->field_B64 /= D_800364CC;   /* as the muzzle point above */
+                }
+            }
+#endif
         }
 
         node = mdlhdr->Switches[6];
@@ -2041,9 +2085,40 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         }
 #endif
  
+#ifdef GEVR
+        /*
+         * The rocket loaded in the launcher is a world prop placed at the
+         * muzzle, in world-unit camera space (gun.c gunUpdateAttachedRocket).
+         * Drawn after matrix_4x4_7F058C64, which turns the level's fixed-point
+         * world scale off for the view model, it missed that scale: in stereo,
+         * where the gun is in view units, it came out 1 / (0.85 * D_800364CC)
+         * too big - about six times on the Dam, barely on Frigate. Draw it while
+         * the world scale is still on.
+         */
+        {
+            extern s32 g_gevrStereo;
+
+            if (g_gevrStereo && item == ITEM_ROCKETLAUNCH && handptr->rocket != NULL)
+            {
+                model = handptr->rocket->model;
+
+                subdraw(&renderdata, model);
+                bondviewTransformManyPosToViewMatrix(model->render_pos, model->obj->numMatrices);
+
+                if (handptr->firedrocket != 0)
+                {
+                    handptr->rocket = NULL;
+                }
+            }
+        }
+#endif
         matrix_4x4_7F058C64();
- 
-        if (item == ITEM_ROCKETLAUNCH && handptr->rocket != NULL) 
+
+#ifdef GEVR
+        if (!g_gevrStereo && item == ITEM_ROCKETLAUNCH && handptr->rocket != NULL)
+#else
+        if (item == ITEM_ROCKETLAUNCH && handptr->rocket != NULL)
+#endif
         {
             model = handptr->rocket->model;
  
@@ -2132,6 +2207,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 }
 
 
+#ifdef GEVR
+/* bondview2.c weapon panel (issue #10): draw this model instead of loading the item into the right hand */
+ModelFileHeader *g_gevrItemModelOverride;
+#endif
+
 Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf *mtx, s32 arg3, s32 arg4)
 {
 #ifdef GEVR
@@ -2162,6 +2242,14 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
         itemid = ITEM_WATCHMAGNETATTRACT;
     }
 
+#ifdef GEVR
+    if (g_gevrItemModelOverride != NULL)
+    {
+        bodymodel = g_gevrItemModelOverride;
+    }
+    else
+#endif
+    {
     sub_GAME_7F05DA8C(GUNRIGHT, itemid);
 
     if ((!Gun_hand_without_item(GUNRIGHT)) || (!get_itemtype_in_hand(GUNRIGHT)))
@@ -2170,7 +2258,13 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     }
 
     bodymodel = &g_CurrentPlayer->copy_of_body_obj_header[GUNRIGHT];
+    }
 
+#ifdef GEVR
+    /* the panel brings its own loaded model (the fist for unarmed, never shown in the watch) */
+    if (g_gevrItemModelOverride == NULL)
+#endif
+    {
     if (!get_ptr_weapon_model_header_line(itemid))
     {
         goto earlyreturn;
@@ -2179,6 +2273,7 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     if (bondwalkItemCheckBitflags(itemid, WEAPONSTATBITFLAG_HIDE_FIRST_PERSON_MENU))
     {
         goto earlyreturn;
+    }
     }
 
     matrices = dynAllocate(bodymodel->numMatrices << 6);
