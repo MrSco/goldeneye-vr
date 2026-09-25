@@ -122,15 +122,15 @@ public class MainActivity extends SDLActivity {
         super.onActivityResult(requestCode, resultCode, data);
         // The updater's 2D panels: "install unknown apps" settings, or the
         // installer activity when it was closed without updating.
-        if (requestCode == REQUEST_INSTALL_PERMISSION || requestCode == REQUEST_INSTALLER) {
+        if (requestCode == REQUEST_INSTALL_PERMISSION) {
+            // the updater decides: on Quest this result comes while the page is still up
+            if (updater != null) updater.onPermissionPageClosed();
+            else comeBackToVr();
+            return;
+        }
+        if (requestCode == REQUEST_INSTALLER) {
             comeBackToVr();
-            if (updater != null) {
-                if (requestCode == REQUEST_INSTALL_PERMISSION) {
-                    updater.onPermissionPageClosed();
-                } else {
-                    updater.onInstallerClosed(resultCode == RESULT_OK);
-                }
-            }
+            if (updater != null) updater.onInstallerClosed(resultCode == RESULT_OK);
             return;
         }
         if (requestCode != REQUEST_PICK_ROM) {

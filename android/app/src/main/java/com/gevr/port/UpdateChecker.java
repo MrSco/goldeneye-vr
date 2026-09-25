@@ -12,6 +12,9 @@ import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.Log;
 
@@ -97,6 +100,9 @@ final class UpdateChecker {
     private volatile boolean cancelled;            // the launcher's Cancel, for a running download
     private volatile boolean triedInstallerActivity; // fallback route used for this install
     private volatile File installingApk;            // the APK the current install is for
+    private final Handler ui = new Handler(Looper.getMainLooper());
+    private final Runnable permissionWatch = this::permissionWatchTick;
+    private long permissionAsked;                   // uptimeMillis the settings page was opened
     private final String installed;
 
     UpdateChecker(MainActivity activity) {
@@ -162,15 +168,47 @@ final class UpdateChecker {
         }
     }
 
-    /** MainActivity: back from the "install unknown apps" settings page. */
+    /**
+     * MainActivity: the "install unknown apps" page reported back. On Quest
+     * that entry hands over to a second settings screen and finishes at once,
+     * so the result arrives while the page is still up; coming back to VR then
+     * closed it before it could be used. A result that quick means the page is
+     * still open: watch the permission instead, and come back once it is on.
+     */
     synchronized void onPermissionPageClosed() {
         if (!NEEDS_PERMISSION.equals(state)) return;
         if (canInstall()) {
-            message = "";
-            update();
+            permissionGranted();
+        } else if (SystemClock.uptimeMillis() - permissionAsked < 2000) {
+            Log.i(TAG, "settings page handed over; watching the permission");
+            ui.removeCallbacks(permissionWatch);
+            ui.postDelayed(permissionWatch, 500);
         } else {
+            activity.comeBackToVr();
             setState(AVAILABLE, "Allow \"Install unknown apps\" first.");
         }
+    }
+
+    // Twice a second while the settings page is up, for two minutes. Closing
+    // the page without switching it on leaves the player in the shell; the
+    // launcher shows the wait (with Cancel) when they come back.
+    private synchronized void permissionWatchTick() {
+        if (!NEEDS_PERMISSION.equals(state)) return;
+        if (canInstall()) {
+            permissionGranted();
+        } else if (SystemClock.uptimeMillis() - permissionAsked > 120000) {
+            setState(AVAILABLE, "Allow \"Install unknown apps\" first.");
+        } else {
+            ui.postDelayed(permissionWatch, 500);
+        }
+    }
+
+    private void permissionGranted() {
+        Log.i(TAG, "install permission granted");
+        ui.removeCallbacks(permissionWatch);
+        activity.comeBackToVr();
+        message = "";
+        update();
     }
 
     // ---- check -----------------------------------------------------------------
@@ -277,6 +315,7 @@ final class UpdateChecker {
             return;
         }
         if (INSTALLING.equals(state) || NEEDS_PERMISSION.equals(state)) {
+            ui.removeCallbacks(permissionWatch);
             int id = session;
             session = -1;
             if (id >= 0) {
@@ -522,6 +561,7 @@ final class UpdateChecker {
 
     private void askForInstallPermission() {
         setState(NEEDS_PERMISSION, "Allow \"Install unknown apps\" in the window that opened.");
+        permissionAsked = SystemClock.uptimeMillis();
         activity.runOnUiThread(() -> {
             try {
                 activity.cancelComeBackToVr();
