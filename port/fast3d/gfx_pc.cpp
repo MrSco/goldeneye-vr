@@ -1357,6 +1357,12 @@ static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const Texture
         s_tpPending[id].push_back(key);   // the native texture until it's decoded
         return false;
     }
+    static int logged = 0;
+    if (logged < 40) {
+        logged++;
+        sysLogPrintf(LOG_NOTE, "texpack: hd %ux%u for %ux%u, uploaded as %ux%u, tile %d unit %d", iw, ih, hw, hh,
+                     (unsigned)rdp.texture_tile[tile].width, (unsigned)rdp.texture_tile[tile].height, tile, 0);
+    }
     return gevr_texpack_upload(img, iw, ih, hw, hh, rdp.texture_tile[tile].width, rdp.texture_tile[tile].height);
 }
 
