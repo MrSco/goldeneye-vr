@@ -147,6 +147,27 @@ bool skyIsScreenCornerInSky(coord3d *corner3dpos, coord3d *dstpos, f32 *dstfrac)
         dstpos->x = eye->x + sp2c * corner3dpos->f[0];
         dstpos->y = eye->y + sp2c * sp24;
         dstpos->z = eye->z + sp2c * corner3dpos->f[2];
+#ifdef GEVR
+        {
+            /*
+             * Stereo: a point past the 300000 reach is pulled in along its
+             * ray, which puts it below the cloud layer - a horizon point
+             * (y = 0) at eye height. The clouds were then textured across a
+             * surface sagging from the layer down to eye height at the
+             * horizon, which the corners move as the head tilts: the texture
+             * slid near the horizon (user; the N64's narrow view hid it).
+             * Kept on the layer, capped in reach only, the texture is the
+             * layer's; its edge sits ~1 degree over the horizon, and the fill
+             * below reaches up to it (skyRender).
+             */
+            extern s32 g_gevrStereo;
+
+            if (g_gevrStereo)
+            {
+                dstpos->y = fogGetCurrentEnvironmentp()->CloudRepeat;
+            }
+        }
+#endif
 
         return TRUE;
     }
@@ -954,6 +975,22 @@ Gfx *skyRender(Gfx *gdl)
                 if (sp274[j].unk2c > f12) { f12 = sp274[j].unk2c; }
             }
 
+#ifdef GEVR
+            {
+                /* stereo: up to the cloud layer's edge, ~1 degree over the
+                 * horizon (skyIsScreenCornerInSky); the clouds draw over the rest */
+                extern s32 g_gevrStereo;
+
+                if (g_gevrStereo)
+                {
+                    f16 -= 16.0f;
+                    if (f16 < getPlayer_c_screentop() * 4.0f)
+                    {
+                        f16 = getPlayer_c_screentop() * 4.0f;
+                    }
+                }
+            }
+#endif
             gDPPipeSync(gdl++);
             gDPSetCycleType(gdl++, G_CYC_FILL);
             gDPSetRenderMode(gdl++, G_RM_NOOP, G_RM_NOOP2);
@@ -1484,6 +1521,29 @@ Gfx *skyRender(Gfx *gdl)
         }
 
 #ifdef GEVR
+        {
+            /*
+             * Stereo, all four corners in the sky: a corner within a degree of
+             * the horizon is kept on the cloud layer (skyIsScreenCornerInSky),
+             * so it no longer projects onto its own corner; held there, as the
+             * top corners are when the horizon shows, the layer still fills
+             * the view.
+             */
+            extern s32 g_gevrStereo;
+
+            if (g_gevrStereo && s1 == 4 && ((sp538 << 3) | (sp534 << 2) | (sp530 << 1) | sp52c) == 15)
+            {
+                f32 l4 = getPlayer_c_screenleft() * 4.0f;
+                f32 t4 = getPlayer_c_screentop() * 4.0f;
+                f32 r4 = (getPlayer_c_screenleft() + getPlayer_c_screenwidth()) * 4.0f - 1.0f;
+                f32 b4 = (getPlayer_c_screentop() + getPlayer_c_screenheight()) * 4.0f - 1.0f;
+
+                sp94[0].unk28 = l4; sp94[0].unk2c = t4;
+                sp94[1].unk28 = r4; sp94[1].unk2c = t4;
+                sp94[2].unk28 = l4; sp94[2].unk2c = b4;
+                sp94[3].unk28 = r4; sp94[3].unk2c = b4;
+            }
+        }
         /* D227 (M-95): one shared wScale for every triangle drawn from this
          * sp94[] fan -- see skyPortBeginFan() above. Computed from unk0c,
          * which none of the position overrides below touch. */
