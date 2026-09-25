@@ -4418,7 +4418,7 @@ Dark leftovers; remove unused assets and purge them from history.
   Closed #10 with a reply. Open: #9, #18, #23, #24, #25, #26; bullet-hole
   comb (HANDOFF 90); gevrStereoShot origin on scaled levels (HANDOFF 94).
 
-## 96. Launcher update check (branch feature/launcher-update-check, not released)
+## 96. Launcher update check (feature/launcher-update-check, merged to main 2026-09-25, not released)
 - Written off-device (cloud session): **logged at best - nothing here has been
   built with the real SDK or seen in the headset.** Java compiled against
   hand-written Android stubs, UpdateVersion/parseReleases unit-tested (46
