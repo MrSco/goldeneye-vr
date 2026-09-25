@@ -231,4 +231,16 @@ void bgFindRoomsAlongSegment(coord3d *pos1, coord3d *pos2, u8 *initialRooms, u8 
 s32 sub_GAME_7F0B9E04(coord3d *arg0, coord3d *arg1);
 void bgRoomCalcBB(s32 room);
 
+#ifdef GEVR
+/*
+ * The renderer draws 1 / 0.3 times past the far fog distance (fast3d gfx_pc.h
+ * GEVR_FAR_DEPTH_SCALE). Every far test reaches as far: bg.c's room and portal
+ * tests (else a room the depth buffer would keep is dropped whole: Statue's
+ * trees vanished and came back as the head turned), and the prop tests in
+ * bgfog.c and propobj.c (else a prop pops in after the room it stands in:
+ * issue #39, Surface's radar dish over its building).
+ */
+#define GEVR_FAR_EXTEND (1.0f / 0.3f)
+#endif
+
 #endif

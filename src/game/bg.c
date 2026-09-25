@@ -23,15 +23,6 @@
 #include "explosion.h"
 #include "bgroomtrans.h"
 #include "gevr_stage.h"
-#ifdef GEVR
-/*
- * The renderer draws 1 / 0.3 times past the far fog distance (fast3d gfx_pc.h
- * GEVR_FAR_DEPTH_SCALE). The room and portal far tests reach as far, or a room
- * the depth buffer would keep is dropped whole (Statue's trees behind the
- * statue vanished and came back as the head turned).
- */
-#define GEVR_FAR_EXTEND (1.0f / 0.3f)
-#endif
 #include "system.h"
 #include "platform.h"
 #include <stdlib.h>
