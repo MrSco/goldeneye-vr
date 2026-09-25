@@ -10554,6 +10554,158 @@ static void gevrWeaponPanelTune(void)
 }
 static f32 s_gevrWpSpin;
 
+/*
+ * Issue #33: the panel's own list. The watch's items, each weapon followed by
+ * its dual-wield pairs: the watch never listed pairs, A's cycle reaches them
+ * (bondinv.c bondinvCycleForward: the inventory's INV_ITEM_DUAL entries and,
+ * with all guns, every gun that can be dual wielded, one player only).
+ */
+extern u16 *bondinvGetNameByIndex(s32 index);
+extern s32 bondinvGetTextbyInvIndex(s32 index);
+
+#define GEVR_WP_MAX 96
+typedef struct
+{
+    s32  inv;     /* the watch's index, or -1 for a pair whose gun isn't listed */
+    s32  right;
+    s32  left;
+    char name[48];
+} GevrWpEntry;
+static GevrWpEntry s_gevrWpList[GEVR_WP_MAX];
+
+/* one line of the list: the name without its line break, a suffix, the break back */
+static void gevrWpSetName(GevrWpEntry *e, const char *name, const char *suffix, const char *other)
+{
+    size_t n = 0;
+
+    e->name[0] = 0;
+    if (name != NULL)
+    {
+        while (name[n] != 0 && name[n] != '\n' && n < sizeof(e->name) - 12)
+        {
+            n++;
+        }
+        memcpy(e->name, name, n);
+        e->name[n] = 0;
+    }
+    if (other != NULL)
+    {
+        size_t m = 0;
+
+        strcat(e->name, " / ");
+        n = strlen(e->name);
+        while (other[m] != 0 && other[m] != '\n' && n + m < sizeof(e->name) - 2)
+        {
+            m++;
+        }
+        memcpy(e->name + n, other, m);
+        e->name[n + m] = 0;
+    }
+    else if (suffix != NULL)
+    {
+        strcat(e->name, suffix);
+    }
+    strcat(e->name, "\n");
+}
+
+static s32 gevrWpListed(s32 n, s32 right, s32 left)
+{
+    s32 i;
+
+    for (i = 0; i < n; i++)
+    {
+        if (s_gevrWpList[i].right == right && s_gevrWpList[i].left == left)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static s32 gevrWpAddPair(s32 n, s32 inv, s32 right, s32 left)
+{
+    GevrWpEntry *e;
+
+    if (n >= GEVR_WP_MAX || gevrWpListed(n, right, left))
+    {
+        return n;
+    }
+    e = &s_gevrWpList[n];
+    e->inv = inv;
+    e->right = right;
+    e->left = left;
+    if (right == left)
+    {
+        gevrWpSetName(e, (const char *) get_ptr_short_watch_text_for_item(right), " x2", NULL);
+    }
+    else
+    {
+        gevrWpSetName(e, (const char *) get_ptr_short_watch_text_for_item(right), NULL,
+                      (const char *) get_ptr_short_watch_text_for_item(left));
+    }
+    return n + 1;
+}
+
+/* the inventory's pairs for this gun (all of them when right < 0) */
+static s32 gevrWpAddInventoryPairs(s32 n, s32 inv, s32 right)
+{
+    InvItem *item = g_CurrentPlayer->ptr_inventory_first_in_cycle;
+
+    while (item)
+    {
+        if (item->type == INV_ITEM_DUAL
+            && (right < 0 || item->type_inv_item.type_dual.weapon_right == right))
+        {
+            n = gevrWpAddPair(n, inv, item->type_inv_item.type_dual.weapon_right,
+                              item->type_inv_item.type_dual.weapon_left);
+        }
+        item = item->next;
+        if (item == g_CurrentPlayer->ptr_inventory_first_in_cycle)
+        {
+            break;
+        }
+    }
+    return n;
+}
+
+static s32 gevrWeaponPanelBuild(void)
+{
+    s32 count = bondinvCountTotalItemsInInv();
+    s32 n = 0;
+    s32 i;
+
+    for (i = 0; i < count && n < GEVR_WP_MAX; i++)
+    {
+        s32 weap = bondinvGetTextbyInvIndex(i);
+        GevrWpEntry *e = &s_gevrWpList[n++];
+
+        e->inv = i;
+        e->right = weap;
+        e->left = ITEM_UNARMED;
+        gevrWpSetName(e, (const char *) bondinvGetNameByIndex(i), NULL, NULL);
+
+        if (weap <= ITEM_UNARMED || weap >= ITEM_BOMBCASE)
+        {
+            continue;
+        }
+        n = gevrWpAddInventoryPairs(n, i, weap);
+
+        /* all guns: the pair A's cycle offers (bondinvCycleForward's equipallguns branch) */
+        if (g_CurrentPlayer->equipallguns && getPlayerCount() == 1
+            && bondwalkItemCheckBitflags(weap, WEAPONSTATBITFLAG_CAN_DUAL_WIELD)
+#ifdef BUGFIX_R1
+            && (!j_text_trigger || weap != ITEM_KNIFE)
+#endif
+        )
+        {
+            n = gevrWpAddPair(n, i, weap, weap);
+        }
+    }
+
+    /* a pair whose gun the watch doesn't list still gets a line */
+    return gevrWpAddInventoryPairs(n, -1, -1);
+}
+
 extern u16 *bondinvGetNameByIndex(s32 index);
 extern s32 bondinvGetTextbyInvIndex(s32 index);
 extern void bondinvSetCurEquippedItem(int current_item);
@@ -10705,7 +10857,7 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
 
 Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 {
-    char list[2000];
+    char list[GEVR_WP_MAX * 48];
     s32 count;
     s32 i;
     s32 lh = j_text_trigger ? 14 : 12;
@@ -10728,7 +10880,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         return gdl;
     }
 
-    count = bondinvCountTotalItemsInInv();
+    count = gevrWeaponPanelBuild();
 
     if (s_gevrWpShown && (gevrWeaponPanelRelease || !gevrWeaponPanelOpen))
     {
@@ -10739,13 +10891,17 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     {
         gevrWeaponPanelRelease = 0;
 
-        if (s_gevrWpShown && s_gevrWpMoved && count > 0)
+        if (s_gevrWpShown && s_gevrWpMoved && count > 0 && s_gevrWpIndex < count)
         {
-            s32 item = bondinvGetTextbyInvIndex(s_gevrWpIndex);
+            GevrWpEntry *e = &s_gevrWpList[s_gevrWpIndex];
 
-            gunRequestHandWeaponChange(GUNRIGHT, item, 1);
-            gunRequestHandWeaponChange(GUNLEFT, ITEM_UNARMED, 1);
-            bondinvSetCurEquippedItem(s_gevrWpIndex);
+            /* both hands, as A's cycle equips a pair (gun.c) */
+            gunRequestHandWeaponChange(GUNRIGHT, e->right, 1);
+            gunRequestHandWeaponChange(GUNLEFT, e->left, 1);
+            if (e->inv >= 0)
+            {
+                bondinvSetCurEquippedItem(e->inv);
+            }
         }
         s_gevrWpShown = FALSE;
     }
@@ -10764,11 +10920,24 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
     if (!s_gevrWpShown)
     {
+        s32 right = getCurrentPlayerWeaponId(GUNRIGHT);
+        s32 left = getCurrentPlayerWeaponId(GUNLEFT);
+        s32 inv;
+
         bondinvDetermineEquippedItem();
-        s_gevrWpIndex = bondinvGetCurEquippedItem();
-        if (s_gevrWpIndex < 0 || s_gevrWpIndex >= count)
+        inv = bondinvGetCurEquippedItem();
+        s_gevrWpIndex = 0;
+        for (i = 0; i < count; i++)
         {
-            s_gevrWpIndex = 0;
+            if (s_gevrWpList[i].right == right && s_gevrWpList[i].left == left)
+            {
+                s_gevrWpIndex = i;
+                break;
+            }
+            if (s_gevrWpList[i].inv == inv && s_gevrWpList[i].left == ITEM_UNARMED)
+            {
+                s_gevrWpIndex = i;   /* keep looking: the exact pair wins */
+            }
         }
         s_gevrWpTextY = 2 * lh - s_gevrWpIndex * lh;
         s_gevrWpRepeat = 0;
@@ -10835,9 +11004,9 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     list[0] = 0;
     for (i = 0; i < count; i++)
     {
-        char *name = (char *) bondinvGetNameByIndex(i);
+        char *name = s_gevrWpList[i].name;
 
-        if (name != NULL && strlen(list) + strlen(name) < sizeof(list) - 1)
+        if (strlen(list) + strlen(name) < sizeof(list) - 1)
         {
             strcat(list, name);
         }
@@ -10870,9 +11039,8 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
     if (s_gevrWpTextY == target)
     {
-        char *name = (char *) bondinvGetNameByIndex(s_gevrWpIndex);
+        char *name = s_gevrWpList[s_gevrWpIndex].name;
 
-        if (name != NULL)
         {
             s32 nw = 0;
             s32 nh = 0;
@@ -10891,7 +11059,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
          * has swapped "unarmed" for the sniper rifle as a club; the watch's
          * own mapping for the trigger and watch laser.
          */
-        s32 shown = bondinvGetTextbyInvIndex(s_gevrWpIndex);
+        s32 shown = s_gevrWpList[s_gevrWpIndex].right;   /* a pair shows its right gun */
 
         if (shown == ITEM_UNARMED)
         {
