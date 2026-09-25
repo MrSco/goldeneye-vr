@@ -990,8 +990,49 @@ s32 gevrStereoAimPoint(s32 hand, coord3d *out)
     s32 startroom;
     s32 k;
     s32 i;
+    PropRecord *tankprop = NULL;
 
-    if (!gevrStereoShot(hand, NULL, &shotdata.viewOrigin, &shotdata.viewDir))
+    if (hand == GUNRIGHT && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TANKSHELLS)
+    {
+        tankprop = get_ptr_for_players_tank();
+        if (tankprop != NULL && !(tankprop->flags & TANK_RUN_STATE_RUNNING))
+        {
+            tankprop = NULL;
+        }
+    }
+    if (tankprop != NULL)
+    {
+        /*
+         * Issue #38: in the tank the sight follows the tank's gun, not the hand.
+         * The shell leaves the turret's muzzle (gunfire.c gunFireTankShell:
+         * render_pos[4], view space) along the turret (bondview2.c
+         * bondviewSet3dCoord7F07CEB0). The N64's crosshair sits 10 degrees under
+         * the barrel, which is raised as much for the shell's drop
+         * (bondview2.c tank_vertical_angle), and so does this one.
+         */
+        ObjectRecord *tankobj = tankprop->obj;
+        f32 yaw = g_TankOrientationAngle + g_TankTurretOrientationAngleRad;
+        f32 pitch = g_TankTurretVerticalAngle - 0.17453294f;
+        f32 len;
+
+        shotdata.viewOrigin.x = tankobj->model->render_pos[4].pos.m[3][0];
+        shotdata.viewOrigin.y = tankobj->model->render_pos[4].pos.m[3][1];
+        shotdata.viewOrigin.z = tankobj->model->render_pos[4].pos.m[3][2];
+        shotdata.viewDir.x = -sinf(yaw) * cosf(pitch);
+        shotdata.viewDir.y = sinf(pitch);
+        shotdata.viewDir.z = cosf(yaw) * cosf(pitch);
+        mtx4RotateVecInPlace(camGetWorldToScreenMtxf(), &shotdata.viewDir);
+        len = sqrtf(shotdata.viewDir.x * shotdata.viewDir.x + shotdata.viewDir.y * shotdata.viewDir.y +
+                    shotdata.viewDir.z * shotdata.viewDir.z);
+        if (len < 0.0001f)
+        {
+            return FALSE;
+        }
+        shotdata.viewDir.x /= len;
+        shotdata.viewDir.y /= len;
+        shotdata.viewDir.z /= len;
+    }
+    else if (!gevrStereoShot(hand, NULL, &shotdata.viewOrigin, &shotdata.viewDir))
     {
         return FALSE;
     }
@@ -1106,7 +1147,7 @@ s32 gevrStereoAimPoint(s32 hand, coord3d *out)
     {
         prop = *pp;
 
-        if (prop == NULL)
+        if (prop == NULL || prop == tankprop)   /* not the tank the shot leaves */
         {
             continue;
         }

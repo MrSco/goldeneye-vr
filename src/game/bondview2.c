@@ -9865,6 +9865,24 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
         ft4 -= M_TAU_F;
     }
     g_CurrentPlayer->field_2A08 = ft4;
+#ifdef GEVR
+    /*
+     * Issue #38: in the tank, the turret's pitch follows this (+10 degrees,
+     * tank_vertical_angle). In stereo the crosshair is the controller's barrel
+     * seen from the head, so tilting the head moved the gun: the barrel's own
+     * pitch in the world instead. The right stick still turns the turret (#28).
+     */
+    if (g_gevrStereo && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TANKSHELLS && get_ptr_for_players_tank() != NULL)
+    {
+        struct coord3d o, d;
+
+        if (gevrStereoShot(GUNRIGHT, NULL, &o, &d))
+        {
+            mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &d);
+            g_CurrentPlayer->field_2A08 = atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
+        }
+    }
+#endif
 
     angle = atan2f(-vec.x, -vec.z);
     if (angle >= M_PI_F) {
