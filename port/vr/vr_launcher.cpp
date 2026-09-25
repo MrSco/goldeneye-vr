@@ -719,44 +719,11 @@ extern "C" void gevrLauncherRun(void)
         }
         if (!message.empty()) ImGui::TextDisabled("%s", message.c_str());
 
-        // Update line: only when there is something to say, so an up-to-date
-        // launcher looks as it always has.
+        // The update line's state (drawn beside the Cheats button, above
+        // START: a line under the ROM pushed the bottom of the panel off).
         if (now - lastUpdPoll > 250 || lastUpdPoll == 0) {
             lastUpdPoll = now;
             upd = gevrUpdaterStatus();
-        }
-        if (upd.state == "available") {
-            ImGui::TextColored(gold, "Update available: v%s", upd.offered.c_str());
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
-            if (!upd.message.empty()) {
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", upd.message.c_str());
-            }
-        } else if (upd.state == "downloading") {
-            // Cancel on the left of every busy line: a prompt closed from the
-            // shell may never report back, and this is the way out of it.
-            if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
-            ImGui::SameLine();
-            if (upd.progress >= 0) {
-                ImGui::TextColored(gold, "Downloading v%s... %d%%", upd.offered.c_str(), upd.progress);
-            } else {
-                ImGui::TextColored(gold, "Downloading v%s...", upd.offered.c_str());
-            }
-        } else if (upd.state == "permission" || upd.state == "installing") {
-            if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
-            ImGui::SameLine();
-            ImGui::PushStyleColor(ImGuiCol_Text, gold);
-            ImGui::TextWrapped("%s", upd.message.c_str());
-            ImGui::PopStyleColor();
-        } else if (upd.state == "error") {
-            if (ImGui::SmallButton("Retry##update")) gevrUpdaterCommand("retry");
-            ImGui::SameLine();
-            ImGui::PushStyleColor(ImGuiCol_Text, bad);
-            ImGui::TextWrapped("%s", upd.message.c_str());
-            ImGui::PopStyleColor();
-        } else if (!upd.message.empty()) {
-            ImGui::TextColored(good, "%s", upd.message.c_str());   // "Updated to v0.1.13."
         }
         ImGui::Separator();
 
@@ -918,6 +885,48 @@ extern "C" void gevrLauncherRun(void)
             char label[48];
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
+
+            // Update line: only when there is something to say, so an
+            // up-to-date launcher looks as it always has.
+            bool updLine = upd.state == "available" || upd.state == "downloading"
+                || upd.state == "permission" || upd.state == "installing"
+                || upd.state == "error" || !upd.message.empty();
+            if (updLine) {
+                ImGui::SameLine();
+                if (upd.state == "available") {
+                    ImGui::TextColored(gold, "Update available: v%s", upd.offered.c_str());
+                    ImGui::SameLine();
+                    if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
+                    if (!upd.message.empty()) {
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("%s", upd.message.c_str());
+                    }
+                } else if (upd.state == "downloading") {
+                    // Cancel on the left of every busy line: a prompt closed from the
+                    // shell may never report back, and this is the way out of it.
+                    if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+                    ImGui::SameLine();
+                    if (upd.progress >= 0) {
+                        ImGui::TextColored(gold, "Downloading v%s... %d%%", upd.offered.c_str(), upd.progress);
+                    } else {
+                        ImGui::TextColored(gold, "Downloading v%s...", upd.offered.c_str());
+                    }
+                } else if (upd.state == "permission" || upd.state == "installing") {
+                    if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, gold);
+                    ImGui::TextWrapped("%s", upd.message.c_str());
+                    ImGui::PopStyleColor();
+                } else if (upd.state == "error") {
+                    if (ImGui::SmallButton("Retry##update")) gevrUpdaterCommand("retry");
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                    ImGui::TextWrapped("%s", upd.message.c_str());
+                    ImGui::PopStyleColor();
+                } else if (!upd.message.empty()) {
+                    ImGui::TextColored(good, "%s", upd.message.c_str());   // "Updated to v0.1.13."
+                }
+            }
         }
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);
         if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))

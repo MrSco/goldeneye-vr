@@ -4438,7 +4438,8 @@ Dark leftovers; remove unused assets and purge them from history.
   for result; the update continues if granted). Every 2D panel returns to VR
   through MainActivity.comeBackToVr (the ROM picker's retry loop, now one
   handler/runnable so a new panel cancels a pending relaunch).
-- Launcher: checks once per launch; a line under the ROM appears only when
+- Launcher: checks once per launch; beside the Cheats button (above START - a
+  line under the ROM pushed the panel's bottom off) a line appears only when
   there is news (update available + Update button, download %, confirm/
   permission text, errors with Retry, "Updated to vX" after an update). Cancel
   on every busy line - the way out if a prompt closes without reporting back.
