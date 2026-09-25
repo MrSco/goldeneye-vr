@@ -4527,3 +4527,14 @@ Dark leftovers; remove unused assets and purge them from history.
     reused names: set the range first (black blocks for text otherwise).
 - Files pushed with adb into Android/data/<pkg> are invisible to the app
   (ENOENT): test packs have to be installed by the app (the Mods page).
+
+## 102. Props draw as far as the rooms (#39, branch fix/39-prop-draw-distance)
+- The far-scenery fix (89) let rooms draw 1/0.3 past the fog; props kept the
+  fog's reach, so Surface's radar dish popped in after its building. The prop
+  tests get the same GEVR_FAR_EXTEND (moved to bg.h): bgfog.c
+  fogPositionIsVisibleThroughFog, fogGetPropDistColor (past the fog but within
+  reach: drawn fully fogged instead of dropped) and propobj.c's 32000 cap.
+  User-tested on Surface: the dish shows from far away.
+- Warp hook: gevr_warp.txt "sevdish" logs the level's dish props (PROP_SEVDISH
+  or PROP_SATDISH) and warps to a pickup/guard pad ~1.8x the fog's reach from
+  the first, facing it; with no dish it lists the level's prop types.
