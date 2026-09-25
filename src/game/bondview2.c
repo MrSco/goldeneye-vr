@@ -531,8 +531,109 @@ static void gevrCheatProbe(s32 inlevel)
  * PORT test hook: files/gevr_warp.txt holding a pad number moves Bond onto
  * that pad (bound pads as 10000+), facing its look direction, the way the AI's
  * teleport-to-pad command moves him (chrai.c AI_TRYTeleportingChrToPad).
- * An objdump line's "pad" is where that object stands. Deleted once read.
+ * "sevdish" picks a spot looking at Surface's radar dish (gevrWarpNearDish).
+ * Deleted once read.
  */
+extern s32 sizepropdef(PropDefHeaderRecord *pdef);   /* loadobjectmodel.c */
+
+static PadRecord *gevrWarpPad(s32 padnum)
+{
+    return isNotBoundPad(padnum) ? &g_CurrentSetup.pads[padnum]
+                                 : (PadRecord *) &g_CurrentSetup.boundpads[getBoundPadNum(padnum)];
+}
+
+/*
+ * "sevdish" (issue #39): log where Severnaya's satellite dishes stand, then pick
+ * a standing spot looking at the first from past where props used to vanish
+ * (about 1.8 times the fog's reach, inside the extended one): the pads of
+ * pickups and guards, which stand on open floor - an object's own pad drops
+ * Bond inside it. Returns the pad, or -1; *dish is where to face.
+ */
+static s32 gevrWarpNearDish(coord3d *dish)
+{
+    extern f32 g_ScaledFarFogIntensity;
+    PropDefHeaderRecord *def = g_CurrentSetup.propDefs;
+    f32 target = g_ScaledFarFogIntensity * 1.8f;
+    f32 bestdiff = 0.0f;
+    s32 best = -1;
+    s32 found = FALSE;
+
+    if (def == NULL)
+    {
+        return -1;
+    }
+    for (; def->type != PROPDEF_END; def = sizepropdef(def) + def)
+    {
+        ObjectRecord *obj = (ObjectRecord *) def;
+
+        if (def->type == PROPDEF_PROP && obj->obj == PROP_SEVDISH && obj->pad >= 0)
+        {
+            PadRecord *pad = gevrWarpPad(obj->pad);
+
+            sysLogPrintf(LOG_NOTE, "warphook: satellite dish on pad %d at %.0f %.0f %.0f", obj->pad,
+                         pad->pos.x, pad->pos.y, pad->pos.z);
+            if (!found)
+            {
+                *dish = pad->pos;
+                found = TRUE;
+            }
+        }
+    }
+    if (!found)
+    {
+        sysLogPrintf(LOG_WARNING, "warphook: no satellite dish in this level");
+        return -1;
+    }
+    for (def = g_CurrentSetup.propDefs; def->type != PROPDEF_END; def = sizepropdef(def) + def)
+    {
+        s32 padnum;
+        PadRecord *pad;
+        f32 dx, dz, d, diff;
+
+        switch (def->type)
+        {
+            case PROPDEF_GUARD:
+                padnum = ((GuardRecord *) def)->PadID;
+                break;
+            case PROPDEF_KEY:
+            case PROPDEF_COLLECTABLE:
+            case PROPDEF_AMMO:
+            case PROPDEF_ARMOUR:
+                padnum = ((ObjectRecord *) def)->pad;
+                break;
+            default:
+                continue;
+        }
+        if (padnum < 0)
+        {
+            continue;
+        }
+        pad = gevrWarpPad(padnum);
+        if (pad->stan == NULL)
+        {
+            continue;
+        }
+        dx = pad->pos.x - dish->x;
+        dz = pad->pos.z - dish->z;
+        d = sqrtf(dx * dx + dz * dz);
+        diff = fabsf(d - target);
+        if (best < 0 || diff < bestdiff)
+        {
+            best = padnum;
+            bestdiff = diff;
+        }
+    }
+    if (best >= 0)
+    {
+        PadRecord *pad = gevrWarpPad(best);
+        f32 dx = pad->pos.x - dish->x, dz = pad->pos.z - dish->z;
+
+        sysLogPrintf(LOG_NOTE, "warphook: fog reach %.0f; pad %d is %.0f from the dish", g_ScaledFarFogIntensity,
+                     best, sqrtf(dx * dx + dz * dz));
+    }
+    return best;
+}
+
 static void gevrWarpProbe(s32 inlevel)
 {
     static u32 tick;
@@ -544,6 +645,9 @@ static void gevrWarpProbe(s32 inlevel)
     StandTile *stan;
     f32 facing;
     PropRecord *pr;
+    char word[32];
+    coord3d dish;
+    s32 facedish = FALSE;
 
     if (!inlevel || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL || (++tick % 30) != 0)
     {
@@ -554,22 +658,35 @@ static void gevrWarpProbe(s32 inlevel)
     {
         return;
     }
-    if (fscanf(fp, "%d", &padnum) != 1)
+    word[0] = 0;
+    if (fscanf(fp, "%31s", word) != 1)
     {
-        padnum = -1;
+        word[0] = 0;
     }
     fclose(fp);
     unlink(path);
+    if (strcmp(word, "sevdish") == 0)
+    {
+        padnum = gevrWarpNearDish(&dish);
+        facedish = TRUE;
+    }
+    else if (sscanf(word, "%d", &padnum) != 1)
+    {
+        padnum = -1;
+    }
     if (padnum < 0)
     {
         return;
     }
 
-    pad = isNotBoundPad(padnum) ? &g_CurrentSetup.pads[padnum]
-                                : (PadRecord *) &g_CurrentSetup.boundpads[getBoundPadNum(padnum)];
+    pad = gevrWarpPad(padnum);
     pos = pad->pos;
     stan = pad->stan;
     facing = atan2f(pad->look.x, pad->look.z);
+    if (facedish)
+    {
+        facing = atan2f(dish.x - pos.x, dish.z - pos.z);
+    }
     pr = g_CurrentPlayer->prop;
 
     sub_GAME_7F03D058(pr, FALSE);
