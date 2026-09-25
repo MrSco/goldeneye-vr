@@ -4350,3 +4350,23 @@ Dark leftovers; remove unused assets and purge them from history.
   changing anything.
 - Test hooks: gevr_decal.txt modes 1/2 now turn the band off (it was forced
   on by GEVR_DECAL_BAND); mode 0 = the default band.
+
+## 92. Tank controls final; scorch over the tank was the decal band
+- Tank (#28), final (f825e91), user: "that feels good": the right stick
+  turns the turret at the flat game's stick rate (g_TankTurretTurn =
+  gevrVrTurnAxis() * 1 deg/tick), the left stick drives and turns the hull,
+  the view rides on the tank's vv_theta with the head free on top. Tried and
+  rejected by the user: the turret following the head.
+- Not done: entering the tank adds ITEM_TANKSHELLS to the inventory but does
+  not select it - the N64 code does the same (bondview2.c enter path,
+  bondinvAddInvItem has no auto-equip); the player cycles to it.
+- The scorch on the tank's deck (HANDOFF 91's G_ZBUFFER guess was wrong: a
+  probe showed the scorch draws depth-tested) was pre-placed level decals
+  under the decal band: off (gevr_decal.txt "1 -2 -2") hid it, band 0.5 and
+  mode 2 at 0.5 both leaked. A draw probe showed a ground-decal vertex at
+  clip w = -113 (behind the camera); the shader divided the band offset by
+  max(w, 0.0001), a pull of ~1e5 dragging the triangle toward the eye. Now
+  clamped at the near plane (uDecalBias is vec2(offset, near), near =
+  -B / 2) (1913fbc); user: "scorch stays under the tank now".
+- Dead end on the way: scaling the offset by the w column length k. On
+  Runway every matrix with a depth term has k = 1 (logged); reverted.
