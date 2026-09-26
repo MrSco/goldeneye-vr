@@ -4709,3 +4709,26 @@ Dark leftovers; remove unused assets and purge them from history.
   - near the face it turns toward the eyes, with its nearest edge kept
     12 cm ahead (the compositor's near plane cut it);
   - the lens shader and target are made on the first frame (stutter).
+- Stereo audit (user: are text, panels, models and decals in both eyes?):
+  - Eye pass: every draw is multiview (num_views 2), so both eyes. This
+    covers the world, the guns and hands, decals (the stencil band is per
+    view), the sky, and in-eye 2D text (the w = 1 HUD branch shifts it per
+    eye). The vignette, laser pointer and hub shaders are multiview too.
+  - The right-eye push (flat offsets, x + 1000) is only on inside HUD
+    captures, which draw into their own single targets. Every begin
+    flushes before it pushes and every end flushes before it pops.
+  - The HUD panels (H, R, P, L) and the scope lens are quad layers with
+    eyeVisibility BOTH. They stay up through in-between frames until the
+    next game frame.
+  - CPU culling: the trivial reject is widened to both eye frusta. The
+    back-face test keeps a triangle either eye sees the front of.
+  - Redraw: replays everything the eye pass drew into the eye buffers
+    except the captures (already layers) and the scope-only sight.
+    Decals replay with their band. Texture ids are recycled, not deleted,
+    and refilled only during the next game frame, which records again.
+    The pause hub never draws (VrIsPaused is never set). The 0x5652 menu
+    flag tag isn't emitted by GoldenEye.
+  - ad3a635: a capture's end restores the viewport, and the scissor to the
+    same box, with direct GL calls. The redraw kept fast3d's last scissor
+    for the draws after it (a room's, or the capture's own). It now
+    records the box GL actually has.
