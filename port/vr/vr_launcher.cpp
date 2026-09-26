@@ -1052,9 +1052,13 @@ extern "C" void gevrLauncherRun(void)
                 // Issue #6 (a left-handed player's request): move with the
                 // other stick, its click (crouch) with it. SwapJoysticks, as
                 // PD VR names it, swaps whichever way the hand setting has them.
+                // On this line, and short: the page does not scroll and has no
+                // line to spare (a line of its own grew it about 9 px), and a
+                // column is about 600 px wide at the 2.2x scale - "Move with
+                // left stick" beside "Left-handed" needed 596 and was cut off.
                 ImGui::SameLine();
                 bool swap = VrSwapJoysticks != 0;
-                if (ImGui::Checkbox(lefty ? "Move with left stick###swapsticks" : "Move with right stick###swapsticks", &swap)) {
+                if (ImGui::Checkbox("Swap sticks", &swap)) {
                     VrSwapJoysticks = swap ? 1 : 0;
                 }
                 // Troubleshooting readout in game: fps, refresh rate, resolution, build.
