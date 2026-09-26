@@ -3222,12 +3222,13 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         menuLayerP.pose.orientation = q;
     }
 
-    // --- The sniper scope's lens (issue #40): on the gun, to the aiming eye ---
+    // --- The sniper scope's lens (issue #40): on the gun, to both eyes ---
     // Placed from the gun hand's newest pose (view space), at the lens's
     // offset from the grip along the gun's up/back/right (bondview2.c
     // gevrGripAxes: right grip +X, up -Z, back +Y), facing back along the gun
-    // so it turns with it. Only the aiming eye sees it - the right, or the
-    // left in left-handed mode (issue #6) - as a scope is looked through.
+    // so it turns with it. Both eyes see it, as a screen on the scope's back
+    // at its own depth: shown to the aiming eye only, the two eyes disagreed
+    // and it looked wrong with both open (user).
     XrCompositionLayerQuad scopeLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
     bool submitScope = false;
     {
@@ -3243,7 +3244,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             const float side = gevrScopeLens[0], up = gevrScopeLens[1], back = gevrScopeLens[2];
             scopeLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
             scopeLayer.space = g_vrState.viewSpace;
-            scopeLayer.eyeVisibility = VrLeftHandedMode ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
+            scopeLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
             scopeLayer.subImage.swapchain = g_scopeSwapchain;
             scopeLayer.subImage.imageArrayIndex = 0;
             scopeLayer.subImage.imageRect.offset = {0, 0};
@@ -3274,9 +3275,9 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             submitScope = true;
             static unsigned n;
             if ((n++ % 180) == 0) {
-                LOGI("scope: lens at (%.3f %.3f %.3f) m, facing (%.2f %.2f %.2f), %s eye",
+                LOGI("scope: lens at (%.3f %.3f %.3f) m, facing (%.2f %.2f %.2f)%s",
                      scopeLayer.pose.position.x, scopeLayer.pose.position.y, scopeLayer.pose.position.z,
-                     bx, by, bz, VrLeftHandedMode ? "left" : "right");
+                     bx, by, bz, VrLeftHandedMode ? ", left-handed" : "");
             }
         }
     }
