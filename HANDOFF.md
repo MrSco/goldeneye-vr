@@ -4784,6 +4784,21 @@ headset:
     long streak off the gun.
   - The flash matrices were probed first and are faithful.
   - MERGED 2026-09-26 (user: "ar33 muzzle flash looks great").
+- fix/pp7-silencer-band (HANDOFF 38/79): the coloured crescent on the PP7
+  silencer's back.
+  - Not the tile tint, and not depth (79 was wrong). The silencer's back cap
+    is drawn with texture 0x648, a 1x1 CI4 with s up to ~5 texels.
+  - import_texture uploads a block-loaded texture at its padded TMEM width:
+    16x1 here ("citex: ... siz=0 ... 16x1 line=8"). GL clamps at that edge;
+    the RDP clamps a mask-0 or clamped tile at its SETTILESIZE window.
+  - So the cap sampled the row's pad bytes, which texAlignIndices never
+    writes, as palette indices past its palette. It drew leftover TLUT
+    colours from the last world draw: green on the Dam, blue at Surface's
+    start.
+  - gevr_upload_native now fills the pad from the window's edge texel on a
+    clamped axis; the window (clamp_w/clamp_h) is in the cache key. This
+    applies to any padded block, not just the PP7.
+  - MERGED 2026-09-26 (user on Dam: "silencer looks fixed"; log clean).
 - fix/46-xenia-onscreen (#46): AI_IFImOnScreen needs the chr's room to be
   inside the N64's far distance. The room walk records that
   (bg.c s_gevrRoomN64); drawing keeps GEVR_FAR_EXTEND.
