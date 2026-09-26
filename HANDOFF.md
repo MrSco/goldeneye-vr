@@ -4674,3 +4674,38 @@ Dark leftovers; remove unused assets and purge them from history.
     - taser DLs use 0x581-0x589, 0x394 and 0x17/0x18;
     - the body centre is x 1, y 79.5, z 57.5 model units.
 - User: "works good". Merged 2026-09-25.
+
+## 108. Redraw between game frames (#53, branch fix/53-reprojection)
+- The game draws at 60 Hz and the display runs at 72 or 90 Hz. The pump
+  (port/src/gevr_engine_shim.c) used to hand the compositor the last image
+  on in-between XR frames, and it turns that for head rotation only. Near
+  and moving things doubled ("reprojection ghosting"; the metrics showed no
+  stale frames).
+- Perfect Dark VR draws a game frame every XR frame. GoldenEye counts whole
+  60 Hz ticks; gepc-ref parked running it faster (docs/dev/UNLOCKED-FPS-PLAN.md).
+- 699bb99, f35996f:
+  - gfx_opengl.cpp keeps every eye-pass draw of a stereo game frame
+    (gevr_eye_keep).
+  - gfx_pc.cpp gfx_vr_redraw_frame redraws them on the pump's in-between
+    frames. The VS uReproj branch does
+    c = (x/P00, y/P11, -w) -> P * delta * c.
+  - The world moves by the head's move since the game frame
+    (vr_openxr.cpp gevrVrRedrawDelta, recorded vs this frame's views).
+  - What each controller holds moves by that controller's move
+    (gunfire.c gevrHandTag, VR_HAND_DRAW 0x565F0000 | ctrl+1;
+    gevrVrRedrawHandDelta: camera-time grip pose -> newest).
+  - The frame is submitted with its own views.
+  - The pump log counts redrawn frames ("(30 redrawn)" at 90 Hz).
+- be84c50: no depth range. gfx_opengl_set_depth_range's glDepthRange
+  fallback is null on GLES and crashed the first redraw. fast3d never sets
+  one here.
+- Measured: 90 fps held, GPU% 0.37 -> ~0.5. The first 20 s with the sniper
+  out went over budget at times.
+- User so far: ghosting "seems better, I guess"; controller tracking was
+  less smooth before f35996f (the gun stayed put in the world on redrawn
+  frames).
+- Test build also merges fix/40-scope-both-eyes:
+  - the lens shows to both eyes;
+  - near the face it turns toward the eyes, with its nearest edge kept
+    12 cm ahead (the compositor's near plane cut it);
+  - the lens shader and target are made on the first frame (stutter).
