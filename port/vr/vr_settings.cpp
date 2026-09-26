@@ -74,10 +74,9 @@ extern "C" void vrSettingsSave(void)
 
     // --- VR hand placement (no menu UI; edit here) --------------------------------------------
     fprintf(f, "\n");
-    fprintf(f, "; Where the gun sits in your hand, in the CONTROLLER's own frame (game units,\n");
-    fprintf(f, "; roughly cm). Adjust if the model's trigger finger does not land on your real\n");
-    fprintf(f, "; one. X = right, Y = up, Z = forward along the barrel. Everything else about the\n");
-    fprintf(f, "; placement is measured and baked in; these vary with hand size and grip style.\n");
+    fprintf(f, "; Where the gun sits in your hand, in the CONTROLLER's own frame (cm). Set them\n");
+    fprintf(f, "; in game with the launcher's Gun fit..., or here. X = right, Y = up, Z = back\n");
+    fprintf(f, "; toward you (negative is forward). All three 0 means the fitted defaults.\n");
     fprintf(f, "GunOffX=%.4f\n", VrGunOffX);
     fprintf(f, "GunOffY=%.4f\n", VrGunOffY);
     fprintf(f, "GunOffZ=%.4f\n", VrGunOffZ);
@@ -110,6 +109,9 @@ extern "C" void vrSettingsLoad(void)
     int ival;
     char sval[256];
 
+    // The gun's trim (GunOffX/Y/Z): kept aside, see below.
+    float gunOff[3] = { 0.0f, 0.0f, 0.0f };
+    bool gunOffRead = false;
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '[' || line[0] == '\n' || line[0] == ';' || line[0] == '#') continue;
         if (strncmp(line, "Cheats=", 7) == 0) {        // hex bitmask of CHEAT_IDS
@@ -176,9 +178,9 @@ extern "C" void vrSettingsLoad(void)
             }
             else if (strcmp(key, "ArmElbowTuck") == 0) VrArmElbowTuck = fval;
             else if (strcmp(key, "ArmBodyFollow") == 0) VrArmBodyFollow = fval;
-            else if (strcmp(key, "GunOffX") == 0) VrGunOffX = fval;
-            else if (strcmp(key, "GunOffY") == 0) VrGunOffY = fval;
-            else if (strcmp(key, "GunOffZ") == 0) VrGunOffZ = fval;
+            else if (strcmp(key, "GunOffX") == 0) { gunOff[0] = fval; gunOffRead = true; }
+            else if (strcmp(key, "GunOffY") == 0) { gunOff[1] = fval; gunOffRead = true; }
+            else if (strcmp(key, "GunOffZ") == 0) { gunOff[2] = fval; gunOffRead = true; }
             else if (strcmp(key, "ScreenDistance") == 0) {
                 if (fval < VR_SCREEN_DISTANCE_MIN) fval = VR_SCREEN_DISTANCE_MIN;
                 if (fval > VR_SCREEN_DISTANCE_MAX) fval = VR_SCREEN_DISTANCE_MAX;
@@ -210,6 +212,15 @@ extern "C" void vrSettingsLoad(void)
     }
 
     fclose(f);
+
+    // GunOffX/Y/Z of 0, 0, 0 is the old default, which every install wrote
+    // before the launcher's Gun fit existed: it keeps the fitted defaults
+    // (vr_settings_defaults.c). Any other trim is the player's own.
+    if (gunOffRead && (gunOff[0] != 0.0f || gunOff[1] != 0.0f || gunOff[2] != 0.0f)) {
+        VrGunOffX = gunOff[0];
+        VrGunOffY = gunOff[1];
+        VrGunOffZ = gunOff[2];
+    }
 
     // Tell the engine to use external textures.
     // Initialization will be safely handled by the game later via extTexInit().
