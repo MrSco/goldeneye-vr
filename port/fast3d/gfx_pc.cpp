@@ -127,6 +127,15 @@ extern "C" float gevrStereoVignette(void);          // bondview2.c
 void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40)
 void gfx_vr_scope_only(bool on);
 void gfx_vr_scope_render(void);
+void gfx_vr_eye_record(bool on, const float* proj, bool invert_y);   // gfx_opengl.cpp (issue #53)
+void gfx_vr_eye_hand(int ctrl);
+bool gfx_vr_eye_replay_ready(void);
+void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1);
+extern "C" int gevrVrRedrawDelta(float out[16]);   // vr_openxr.cpp
+extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
+extern "C" void gevrVrMarkRedrawn(void);
+extern "C" float g_viProjectionMatrixF[4][4];     // fr.c: the game's projection
+static float s_gevrLastVignette;                  // the eye pass's, for its redraws
 int VrPauseHub = false;
 
 // --- VR: culling has to account for the per-eye clip-space shear -------------
@@ -2165,7 +2174,16 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
 
 
-    if (!gevrCullOff && (rsp.geometry_mode & G_CULL_BOTH) != 0) {
+    /*
+     * Issue #24: under VR_CULL_OFF (the stereo hands and guns, seen from every
+     * side) a face the display list would cull is still drawn, but a hair
+     * farther away, so that a front face glued to it wins the depth test as
+     * the N64's culling had it: the open fist has a white triangle back to
+     * back with a skin one at the base of the index finger, and drawn first
+     * it won the GL_LESS tie from every side.
+     */
+    bool gevrBackFace = false;
+    if ((rsp.geometry_mode & G_CULL_BOTH) != 0 && !(gevrCullOff && (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH)) {
         if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
             if (gevrMenuTrace) ++gevrMenuCulled;
             // Why is this even an option?
@@ -2198,7 +2216,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             cull = cull_front ? (cross <= 0) : (cross >= 0);
         }
 
-        if (cull) {
+        if (cull && gevrCullOff) {
+            gevrBackFace = true;
+        } else if (cull) {
             if (gevrMenuTrace) ++gevrMenuCulled;
             return;
         }
@@ -2382,13 +2402,22 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     struct GfxClipParameters clip_parameters = gfx_rapi->get_clip_parameters();
 
     for (int i = 0; i < 3; i++) {
-        float z = v_arr[i]->z, w = v_arr[i]->w;
+        float x = v_arr[i]->x, y = v_arr[i]->y, z = v_arr[i]->z, w = v_arr[i]->w;
+        if (gevrBackFace) {
+            // 1e-4 of NDC depth farther (the point moved out along its ray,
+            // so a redraw rebuilding it from x, y and w keeps the push: #53)
+            const float s = 1.0f + 1e-4f;
+            z = (z + 1e-4f * w) * s;
+            x *= s;
+            y *= s;
+            w *= s;
+        }
         if (clip_parameters.z_is_from_0_to_1) {
             z = (z + w) / 2.0f;
         }
 
-        buf_vbo[buf_vbo_len++] = v_arr[i]->x;
-        buf_vbo[buf_vbo_len++] = clip_parameters.invert_y ? -v_arr[i]->y : v_arr[i]->y;
+        buf_vbo[buf_vbo_len++] = x;
+        buf_vbo[buf_vbo_len++] = clip_parameters.invert_y ? -y : y;
         buf_vbo[buf_vbo_len++] = z;
         buf_vbo[buf_vbo_len++] = w;
 
@@ -3477,6 +3506,13 @@ static void gfx_run_dl(Gfx* cmd) {
                     }
                     break;
                 }
+                if ((tag_w1 & 0xFFFF0000u) == 0x565F0000u) {
+                    // VR_HAND_DRAW (issue #53, gunfire.c gevrHandTag): the draws
+                    // that follow controller (low bits - 1), or none (0)
+                    gfx_flush();
+                    gfx_vr_eye_hand((int)(tag_w1 & 0xFF) - 1);
+                    break;
+                }
                 switch (tag_w1) {
                     case 0x56520001: // Menu is open
                     case 0x56520000: // GoldenEye: menu closed
@@ -4174,11 +4210,15 @@ extern "C" void gfx_run(Gfx* commands) {
                 // drawn here; the pause-hub grid was tried and rejected.
             } else {
                 // 3) Render the game directly into the headset texture
+                // (its draws kept for the XR frames before the next game frame: issue #53)
+                gfx_vr_eye_record(true, &g_viProjectionMatrixF[0][0], gfx_rapi->get_clip_parameters().invert_y);
                 run_display_list();
-                gevrVrMarkEyesRendered(1);
                 gfx_flush();
+                gfx_vr_eye_record(false, nullptr, false);
+                gevrVrMarkEyesRendered(1);
                 gfx_vr_scope_render();   // issue #40: the world again, through the sniper scope
-                gfx_opengl_draw_vignette(gevrStereoVignette());
+                s_gevrLastVignette = gevrStereoVignette();
+                gfx_opengl_draw_vignette(s_gevrLastVignette);
 
                 if (VrPauseHub && VrIsPaused) {
                     float vp[2][16];
@@ -4234,6 +4274,36 @@ extern "C" void gfx_run(Gfx* commands) {
 }
 
 
+
+/*
+ * Issue #53: an XR frame the game doesn't draw (the pump, gevr_engine_shim.c:
+ * a 72/90 Hz display over a 60 Hz game) gets the last stereo game frame drawn
+ * again from its own head pose, instead of the old image for the compositor
+ * to turn. Nothing when that frame wasn't stereo gameplay (the virtual screen
+ * is world-locked already, and its eye buffers hold only the pointer).
+ */
+extern "C" int gfx_vr_redraw_frame(void) {
+    float delta[16];
+
+    if (!vr_is_initialized() || !gfx_rapi->is_multiview() || gevrVrScreenMode
+        || !gfx_vr_eye_replay_ready() || !gevrVrRedrawDelta(delta)) {
+        return 0;
+    }
+    if (!vr_begin_eye_render()) {
+        return 0;
+    }
+    gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
+    {
+        float hand[2][16];
+        const bool have0 = gevrVrRedrawHandDelta(0, hand[0]) != 0;
+        const bool have1 = gevrVrRedrawHandDelta(1, hand[1]) != 0;
+        gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr);
+    }
+    gfx_opengl_draw_vignette(s_gevrLastVignette);
+    vr_end_eye_render();
+    gevrVrMarkRedrawn();
+    return 1;
+}
 
 extern "C" void gfx_end_frame(void) {
     if (!dropped_frame) {
