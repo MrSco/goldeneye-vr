@@ -1494,12 +1494,28 @@ static s32 gevrShotCtrl(s32 handnum)
 }
 
 /*
- * The watch face on the left arm, view space: the watch arm's wrist and wrist
- * frame (gevrRenderLeftWatchArm), then the face's measured offset in it, half
- * a centimetre proud of the glass. The wrist alone is inside the arm, and the
- * beam came out of the fingers (user).
+ * The watch laser leaves the watch at its twelve o'clock edge (user): the
+ * face's centre (the watch arm's wrist and wrist frame, gevrRenderLeftWatchArm,
+ * then the face's measured offset in it), GEVR_WATCH_EDGE_CM out along the
+ * wrist frame's z. That axis is square to the forearm and in the face's
+ * plane: the thumb side, the controller's up, for either hand (z is taken
+ * before the left-handed flip). Held across the chest like Bond's arm in the
+ * viewmodel, it points ahead. The wrist alone is inside the arm (the beam
+ * came out of the fingers), and out of the face it pointed at the eyes (user).
  */
-#define GEVR_WATCHFACE_LIFT_CM 0.5f
+#define GEVR_WATCH_EDGE_CM 2.0f
+
+/* the laser's direction: the grip's up; written as the "back" the shot code
+ * negates (gevrStereoShot, gevrStereoAimTarget) */
+static void gevrWatchAimAxis(const f32 up[3], f32 back[3])
+{
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        back[i] = -up[i];
+    }
+}
 
 s32 gevrStereoWatchPoint(f32 out[3])
 {
@@ -1532,8 +1548,8 @@ s32 gevrStereoWatchPoint(f32 out[3])
         out[i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * unit;
         if (s_gevrWatchFaceKnown)
         {
-            out[i] += (s_gevrWatchFaceCm[0] * x[i] + (s_gevrWatchFaceCm[1] + GEVR_WATCHFACE_LIFT_CM) * y[i]
-                       + s_gevrWatchFaceCm[2] * z[i]) * unit;
+            out[i] += (s_gevrWatchFaceCm[0] * x[i] + s_gevrWatchFaceCm[1] * y[i]
+                       + (s_gevrWatchFaceCm[2] + GEVR_WATCH_EDGE_CM) * z[i]) * unit;
         }
     }
     return TRUE;
@@ -1605,7 +1621,8 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
 
     if (handnum == GUNRIGHT && ctrl == 0)
     {
-        /* issue #31: from the watch, along the left hand */
+        /* issue #31: from the watch, out of its twelve o'clock edge */
+        gevrWatchAimAxis(up, back);
         gevrStereoWatchPoint(pos);
         origin->x = pos[0];
         origin->y = pos[1];
@@ -1668,7 +1685,8 @@ s32 gevrStereoAimTarget(struct coord3d *target)
     /* from the muzzle when known, as the shot is (gevrStereoShot) */
     if (ctrl == 0)
     {
-        gevrStereoWatchPoint(pos);   /* issue #31: the watch */
+        gevrWatchAimAxis(up, back);   /* issue #31: the watch, out of its twelve o'clock edge */
+        gevrStereoWatchPoint(pos);
     }
     else if (s_gevrMuzzleValid[GUNRIGHT])
     {
