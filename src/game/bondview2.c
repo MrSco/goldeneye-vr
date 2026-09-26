@@ -505,6 +505,16 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: give item %d -> %d", id, bondinvAddInvItem((ITEM_IDS) id));
             continue;
         }
+        /* "timer": a running two-minute countdown on screen, as a level's AI
+         * shows one (chrai.c), to test its drawing anywhere (issue #42) */
+        if (strcasecmp(word, "timer") == 0)
+        {
+            countdownTimerSetValue(2.0f * 60.0f * 60.0f);
+            countdownTimerSetVisible(1, TRUE);
+            countdownTimerSetRunning(TRUE);
+            sysLogPrintf(LOG_NOTE, "cheathook: countdown timer on");
+            continue;
+        }
         /* "hold<N>": give item N and draw it in the gun hand, e.g. hold17 = sniper rifle */
         if (strncasecmp(word, "hold", 4) == 0)
         {
@@ -1171,6 +1181,8 @@ static u32 s_gevrWatchRw[192];
 static s32 s_gevrWatchStage = -1;
 static s32 s_gevrWatchReady;
 static f32 s_gevrWatchScale;               /* 0 until calibrated */
+static f32 s_gevrWatchFaceCm[3];           /* the face's centre from the wrist, in the wrist frame (#31) */
+static s32 s_gevrWatchFaceKnown;
 
 static s32 gevrLeftWatchLoad(void)
 {
@@ -1392,6 +1404,32 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
         gevrMtxMul(&hand, &matrices[0], &matrices[3]);
     }
     {
+        /*
+         * Issue #31: the watch laser leaves the watch face (gevrStereoWatchPoint),
+         * whose centre is the hands' pivot. Kept in the wrist frame, so the
+         * shot takes it from this frame's controller pose.
+         */
+        f32 unit = cm * gevrGunSizeFactor();
+        f32 d[3];
+
+        for (i = 0; i < 3; i++)
+        {
+            d[i] = matrices[1].m[3][i] - want.m[3][i];
+        }
+        if (unit > 1e-6f)
+        {
+            s_gevrWatchFaceCm[0] = (d[0] * x[0] + d[1] * x[1] + d[2] * x[2]) / unit;
+            s_gevrWatchFaceCm[1] = (d[0] * y[0] + d[1] * y[1] + d[2] * y[2]) / unit;
+            s_gevrWatchFaceCm[2] = (d[0] * z[0] + d[1] * z[1] + d[2] * z[2]) / unit;
+            if (!s_gevrWatchFaceKnown)
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: watch face %.1f %.1f %.1f cm from the wrist (fingers, face, side)",
+                             s_gevrWatchFaceCm[0], s_gevrWatchFaceCm[1], s_gevrWatchFaceCm[2]);
+            }
+            s_gevrWatchFaceKnown = TRUE;
+        }
+    }
+    {
         ModelRwData_SwitchRecord *face = (ModelRwData_SwitchRecord *)modelGetNodeRwData(&s_gevrWatchModel, (ModelNode *)s_gevrWatchHeader.Switches[3]);
         if (face) face->visible = TRUE;
     }
@@ -1443,6 +1481,266 @@ void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
 }
 
 /*
+ * Issue #31: the watch laser's and the detonator's viewmodels are Bond's left
+ * arm with the watch, raised, and his right hand at it. In stereo that arm is
+ * the tracked one on the left controller (gevrRenderLeftWatchArm), the item's
+ * own model is not drawn (gunfire.c), and the right hand is the fist. The
+ * laser leaves the watch and aims along the left hand; the right trigger
+ * still fires it (user).
+ */
+s32 gevrStereoWatchItem(s32 item)
+{
+    return g_gevrStereo && (item == ITEM_WATCHLASER || item == ITEM_TRIGGER);
+}
+
+/* the controller a hand's shots leave from: the watch items aim with the left */
+static s32 gevrShotCtrl(s32 handnum)
+{
+    if (handnum == GUNRIGHT && gevrStereoWatchItem(getCurrentPlayerWeaponId(GUNRIGHT)))
+    {
+        return 0;
+    }
+    return handnum == GUNRIGHT ? 1 : 0;
+}
+
+/*
+ * The watch laser leaves the watch at its twelve o'clock edge (user): the
+ * face's centre (the watch arm's wrist and wrist frame, gevrRenderLeftWatchArm,
+ * then the face's measured offset in it), GEVR_WATCH_EDGE_CM along the wrist
+ * frame's -z. That axis is square to the forearm and in the face's plane: the
+ * little-finger side, the controller's down, for either hand (z, the thumb
+ * side, is taken before the left-handed flip). Palm down with the forearm
+ * across the chest, as Bond's arm is in the viewmodel, the thumb faces you
+ * (six o'clock: it shot the player, user) and twelve points ahead. The wrist
+ * alone is inside the arm (the beam came out of the fingers), and out of the
+ * face it pointed at the eyes (user).
+ */
+#define GEVR_WATCH_EDGE_CM 2.0f
+
+/* the laser's direction: the grip's down; written as the "back" the shot code
+ * negates (gevrStereoShot, gevrStereoAimTarget) */
+static void gevrWatchAimAxis(const f32 up[3], f32 back[3])
+{
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        back[i] = up[i];
+    }
+}
+
+/*
+ * The watch face on the tracked arm, view space: its centre, and the wrist
+ * frame (x toward the fingers, y out of the face, z the thumb side). The same
+ * frame as the watch arm's: z is taken before the left-handed flip of y.
+ */
+static s32 gevrWatchFaceFrame(f32 o[3], f32 x[3], f32 y[3], f32 z[3])
+{
+    f32 pos[3], right[3], up[3], back[3];
+    f32 unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    s32 i;
+
+    if (!g_gevrStereo || !gevrGripAxes(0, pos, right, up, back))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = -back[i];
+        y[i] = -right[i];
+    }
+    z[0] = x[1] * y[2] - x[2] * y[1];
+    z[1] = x[2] * y[0] - x[0] * y[2];
+    z[2] = x[0] * y[1] - x[1] * y[0];
+    if (VrLeftHandedMode)
+    {
+        for (i = 0; i < 3; i++)
+        {
+            y[i] = right[i];
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        o[i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * unit;
+        if (s_gevrWatchFaceKnown)
+        {
+            o[i] += (s_gevrWatchFaceCm[0] * x[i] + s_gevrWatchFaceCm[1] * y[i] + s_gevrWatchFaceCm[2] * z[i]) * unit;
+        }
+    }
+    return TRUE;
+}
+
+s32 gevrStereoWatchPoint(f32 out[3])
+{
+    f32 o[3], x[3], y[3], z[3];
+    f32 unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    s32 i;
+
+    if (!gevrWatchFaceFrame(o, x, y, z))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = o[i] - GEVR_WATCH_EDGE_CM * z[i] * unit;
+    }
+    return TRUE;
+}
+
+/*
+ * Issue #31 (user): the watch laser and the detonator fire only with the gun
+ * hand at the watch, as Bond's right hand presses it in their viewmodels.
+ * gunfire.c gunTickGameplay drops the trigger otherwise. "At" is the watch
+ * face within GEVR_WATCH_PRESS_CM of the hand, taken as the line from the
+ * controller's grip to GEVR_WATCH_REACH_CM along the fingers. Real
+ * centimetres: the tiny/big guns cheat does not change the reach. Once at
+ * the watch, the hand may drift to GEVR_WATCH_KEEP_CM: at one edge a held
+ * beam cut in and out (log: 9.6 fires, 10.3 held, back and forth). Kept each
+ * tick while a watch item is out, so the gripping hand (gunfire.c
+ * gevrRenderWatchGripHand) shows exactly when a pull would fire (user: a
+ * visual sign that firing is possible).
+ */
+#define GEVR_WATCH_PRESS_CM 10.0f
+#define GEVR_WATCH_KEEP_CM 14.0f
+#define GEVR_WATCH_REACH_CM 10.0f
+
+static s32 s_gevrWatchGrip;
+
+/* gunfire.c gunTickGameplay, each tick: held is whether a watch item is out */
+s32 gevrStereoWatchGripUpdate(s32 held, f32 *cmOut)
+{
+    f32 watch[3], pos[3], right[3], up[3], back[3], seg[3], d[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 len2, t, dist;
+    s32 i;
+
+    if (!held || cm < 1e-6f || !gevrStereoWatchPoint(watch) || !gevrGripAxes(1, pos, right, up, back))
+    {
+        s_gevrWatchGrip = FALSE;
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        seg[i] = -back[i] * GEVR_WATCH_REACH_CM * cm;
+        d[i] = watch[i] - pos[i];
+    }
+    len2 = seg[0] * seg[0] + seg[1] * seg[1] + seg[2] * seg[2];
+    t = len2 > 1e-12f ? (d[0] * seg[0] + d[1] * seg[1] + d[2] * seg[2]) / len2 : 0.0f;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    for (i = 0; i < 3; i++)
+    {
+        d[i] -= seg[i] * t;
+    }
+    dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm;
+    if (cmOut != NULL)
+    {
+        *cmOut = dist;
+    }
+    s_gevrWatchGrip = dist < (s_gevrWatchGrip ? GEVR_WATCH_KEEP_CM : GEVR_WATCH_PRESS_CM);
+    return s_gevrWatchGrip;
+}
+
+s32 gevrStereoWatchGrip(void)
+{
+    return g_gevrStereo && s_gevrWatchGrip;
+}
+
+/*
+ * The watch laser's own two-arm viewmodel at the watch (gunfire.c
+ * gevrRenderWatchGripHand), placed so that the model's watch face lies on the
+ * tracked arm's: its left fist then takes the tracked hand's place, with its
+ * right hand holding it as Bond's does. The model's
+ * frame, measured from the ROM (GwatchlaserZ; GtriggerZ is the same model):
+ * the face is DL 0x300's dial 0x648 and bezel 0x5e0 (area-weighted centre
+ * and normal), and the arm's way is its forearm's: the sleeve's (0x2b8)
+ * principal axis, elbow to wrist, in the face's plane. Its fist is bent 88
+ * degrees off that axis; laid along the fist, the model's arm pointed ahead
+ * with the laser (user: turn it 90 degrees right, twelve o'clock ahead).
+ * Drawn at the viewmodel's size, as the fist is.
+ * files/gevr_watchhand.txt "dx dy dz rx ry rz scale" trims it in the wrist
+ * frame (cm along x fingers, y face, z thumb; degrees about them), re-read
+ * every couple of seconds while it exists.
+ */
+static const f32 s_gevrLaserFace[3] = { -2.89f, 80.96f, 81.51f };
+static const f32 s_gevrLaserNormal[3] = { 0.0062f, 0.8650f, -0.5017f };
+static const f32 s_gevrLaserForearm[3] = { -0.4488f, 0.4508f, 0.7716f };
+static f32 s_gevrWatchHandTrim[7] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+
+s32 gevrStereoWatchHandMatrix(Mtxf *out)
+{
+    f32 o[3], x[3], y[3], z[3], lz[3], bx[3], by[3], bz[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 s;
+    const f32 *lx = s_gevrLaserForearm, *ly = s_gevrLaserNormal;
+    Mtxf rot;
+    coord3d r;
+    s32 i, j;
+    static u32 tick;
+
+    if ((tick++ % 120) == 0)
+    {
+        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_watchhand.txt", "r");
+
+        if (f != NULL)
+        {
+            f32 t[7];
+
+            if (fscanf(f, "%f %f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5], &t[6]) == 7)
+            {
+                for (i = 0; i < 7; i++)
+                {
+                    s_gevrWatchHandTrim[i] = t[i];
+                }
+                sysLogPrintf(LOG_NOTE, "stereo: watch hand trim %.1f %.1f %.1f cm, %.0f %.0f %.0f deg, x%.2f",
+                             t[0], t[1], t[2], t[3], t[4], t[5], t[6]);
+            }
+            fclose(f);
+        }
+    }
+
+    if (!gevrWatchFaceFrame(o, x, y, z))
+    {
+        return FALSE;
+    }
+    s = GEVR_VIEWMODEL_CM * 0.1f * cm * gevrGunSizeFactor() * s_gevrWatchHandTrim[6];
+
+    /* the trim's turn, in the wrist frame: the frame's axes turned by it */
+    r.x = s_gevrWatchHandTrim[3] * (M_PI_F / 180.0f);
+    r.y = s_gevrWatchHandTrim[4] * (M_PI_F / 180.0f);
+    r.z = s_gevrWatchHandTrim[5] * (M_PI_F / 180.0f);
+    matrix_4x4_set_rotation_around_xyz(&r, &rot);
+    for (j = 0; j < 3; j++)
+    {
+        bx[j] = rot.m[0][0] * x[j] + rot.m[0][1] * y[j] + rot.m[0][2] * z[j];
+        by[j] = rot.m[1][0] * x[j] + rot.m[1][1] * y[j] + rot.m[1][2] * z[j];
+        bz[j] = rot.m[2][0] * x[j] + rot.m[2][1] * y[j] + rot.m[2][2] * z[j];
+        o[j] += (s_gevrWatchHandTrim[0] * x[j] + s_gevrWatchHandTrim[1] * y[j] + s_gevrWatchHandTrim[2] * z[j])
+                * cm * gevrGunSizeFactor();
+    }
+
+    /* model x along its forearm, y out of its face, z = x cross y: onto the wrist's */
+    lz[0] = lx[1] * ly[2] - lx[2] * ly[1];
+    lz[1] = lx[2] * ly[0] - lx[0] * ly[2];
+    lz[2] = lx[0] * ly[1] - lx[1] * ly[0];
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            out->m[i][j] = s * (lx[i] * bx[j] + ly[i] * by[j] + lz[i] * bz[j]);
+        }
+    }
+    for (j = 0; j < 3; j++)
+    {
+        out->m[3][j] = o[j] - (s_gevrLaserFace[0] * out->m[0][j] + s_gevrLaserFace[1] * out->m[1][j]
+                               + s_gevrLaserFace[2] * out->m[2][j]);
+    }
+    out->m[0][3] = out->m[1][3] = out->m[2][3] = 0.0f;
+    out->m[3][3] = 1.0f;
+    return TRUE;
+}
+
+/*
  * gunfire.c bullet_path_from_screen_center: in stereo a shot leaves the
  * muzzle along the barrel (Perfect Dark VR bgunCalculatePlayerShotSpread)
  * instead of the eye through the crosshair. The game's spread is kept as an
@@ -1456,14 +1754,23 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
     f32 pos[3], right[3], up[3], back[3];
     struct coord3d far;
     f32 len;
-    s32 ctrl = handnum == GUNRIGHT ? 1 : 0;
+    s32 ctrl = gevrShotCtrl(handnum);
 
     if (!g_gevrStereo || (handnum != GUNRIGHT && handnum != GUNLEFT) || !gevrGripAxes(ctrl, pos, right, up, back))
     {
         return FALSE;
     }
 
-    if (s_gevrMuzzleValid[handnum])
+    if (handnum == GUNRIGHT && ctrl == 0)
+    {
+        /* issue #31: from the watch, out of its twelve o'clock edge */
+        gevrWatchAimAxis(up, back);
+        gevrStereoWatchPoint(pos);
+        origin->x = pos[0];
+        origin->y = pos[1];
+        origin->z = pos[2];
+    }
+    else if (s_gevrMuzzleValid[handnum])
     {
         origin->x = s_gevrMuzzle[handnum][0];
         origin->y = s_gevrMuzzle[handnum][1];
@@ -1510,14 +1817,20 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
 s32 gevrStereoAimTarget(struct coord3d *target)
 {
     f32 pos[3], right[3], up[3], back[3];
+    s32 ctrl = gevrShotCtrl(GUNRIGHT);
 
-    if (!g_gevrStereo || !gevrGripAxes(1, pos, right, up, back))
+    if (!g_gevrStereo || !gevrGripAxes(ctrl, pos, right, up, back))
     {
         return FALSE;
     }
 
     /* from the muzzle when known, as the shot is (gevrStereoShot) */
-    if (s_gevrMuzzleValid[GUNRIGHT])
+    if (ctrl == 0)
+    {
+        gevrWatchAimAxis(up, back);   /* issue #31: the watch, out of its twelve o'clock edge */
+        gevrStereoWatchPoint(pos);
+    }
+    else if (s_gevrMuzzleValid[GUNRIGHT])
     {
         pos[0] = s_gevrMuzzle[GUNRIGHT][0];
         pos[1] = s_gevrMuzzle[GUNRIGHT][1];
@@ -1536,8 +1849,8 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * headset view put the sight out of reach); the scope shows the zoom instead,
  * as a lens on the gun. lvlRender tags the world's draws (VR_SCOPE_REC_*),
  * gfx_opengl.cpp draws them a second time from the scope's camera, and
- * vr_openxr.cpp shows that image as a round layer at the lens, to the aiming
- * eye only: a scope is looked through with one eye.
+ * vr_openxr.cpp shows that image as a round layer at the lens, to both eyes
+ * (to the aiming eye only, the eyes disagreed with both open: user).
  *
  * The scope's camera sits on the shot's own line (gevrStereoShot: from the
  * muzzle along the barrel), so the reticle's centre is where the bullet goes
@@ -6320,6 +6633,24 @@ void bondviewUpdatePlayerCollisionPositionFields(void)
 
     phi_f0 = g_CurrentPlayer->eyeheight +
         ((g_CurrentPlayer->field_88 + g_CurrentPlayer->ducking_height_offset) * g_playerPerm->player_perspective_height);
+#ifdef GEVR
+    {
+        /*
+         * Issue #48: a physical duck lowers Bond himself, as Perfect Dark VR
+         * sets its crouch from the head (bondmove.c): guards aim at and test
+         * cover against this position (chraction.c chrlvAttackRelated7F0292A8).
+         * Ducking behind boxes only lowered the camera, and guards still
+         * shot a standing Bond over the cover. The camera takes only the rise
+         * now (bondviewUpdateCameraMatrices' caller), the duck being in here.
+         */
+        f32 duck = gevrStereoHeadHeight();
+
+        if (duck < 0.0f)
+        {
+            phi_f0 += duck;
+        }
+    }
+#endif
 
     if (phi_f0 < 30.0f)
     {
@@ -10104,7 +10435,15 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
         {
             cam_look = s_gevrCamLook;
             cam_up = s_gevrCamUp;
-            cam_pos.y += gevrStereoHeadHeight();
+            {
+                /* the rise only: a duck is already in the body (issue #48) */
+                f32 rise = gevrStereoHeadHeight();
+
+                if (rise > 0.0f)
+                {
+                    cam_pos.y += rise;
+                }
+            }
         }
 #endif
     }
@@ -10770,6 +11109,12 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
             if ((u32) credits_pointer[i].TextId1 != 0x5011)
             {
                 text = langGet(credits_pointer[i].TextId1);
+#ifdef GEVR
+                if (text == NULL)
+                {
+                    text = "";   /* a missing string can't stop the credits (issue #51) */
+                }
+#endif
 
                 if (credits_pointer[i].Position1 >= 0)
                 {
@@ -10814,6 +11159,12 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
             if (credits_pointer[i].TextId2 != 0x5011)
             {
                 text = langGet(credits_pointer[i].TextId2);
+#ifdef GEVR
+                if (text == NULL)
+                {
+                    text = "";
+                }
+#endif
 
                 if (credits_pointer[i].Position2 >= 0)
                 {
@@ -12618,6 +12969,12 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                 view_left = viGetViewLeft() + (viGetViewWidth() - view_left_offset) / 2;
                 view_horiz = view_left + view_left_offset;
                 view_top = viGetViewTop() + (viGetViewHeight() * 92) / 100;
+                if (is_clock_drawn_onscreen())
+                {
+                    /* the countdown shows under it on the panel (issue #42): lift
+                     * it by as much as the flat game does (OFFSET_2 - OFFSET_1) */
+                    view_top -= BONDVIEW_VIEW_TOP_OFFSET_2 - BONDVIEW_VIEW_TOP_OFFSET_1;
+                }
                 gDPNoOpTag(arg0++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
             }
 #endif
@@ -12782,12 +13139,16 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                      * Stereo: the top message ran along the top edge of the
                      * lenses, half out of view. It goes on the head-locked
                      * HUD panel (VR_HUD_CAPTURE_*_H) with the bottom message,
-                     * centred in the top third of the view.
+                     * centred. In the top fifth of the view, reading it was
+                     * tiring (issue #43): 120 lines down from the flat place,
+                     * as Perfect Dark VR's top subtitles (hudmsg.c,
+                     * HUDMSGALIGN_TOP), just under the centre and clear of the
+                     * bottom message and the countdown.
                      */
                     if (g_gevrStereo && getPlayerCount() == 1)
                     {
                         msg.x = viGetViewLeft() + (viGetViewWidth() - msg.textwidth) / 2;
-                        msg.y = viGetViewTop() + (viGetViewHeight() * 18) / 100;
+                        msg.y += 120;
                         gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
                     }
 #endif
