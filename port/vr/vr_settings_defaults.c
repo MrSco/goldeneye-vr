@@ -78,8 +78,8 @@ float VrGunOffZ = -12.35f;   /* back */
  * Gun fit sets them while holding with both hands (port/src/input.c). The
  * defaults are the user's, set that way in the headset (2026-09-26). */
 float VrGripTrim[2][6] = {
-    { 0.52f, -4.08f, 2.30f, 0.0f, 0.0f, 0.0f },      /* handguns: under the gun hand */
-    { -0.60f, -4.74f, 3.24f, 59.4f, 0.0f, 73.4f },   /* long guns: underhand below the fore-end */
+    { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },   /* handguns: under the gun hand */
+    { 0.02f, -4.72f, 5.23f, 90.1f, 0.0f, 83.1f },    /* long guns: underhand below the fore-end */
 };
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
 float VrArmBodyFollow = 0.0f;  /* how fast the smoothed torso yaw chases the head */
