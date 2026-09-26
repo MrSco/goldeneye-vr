@@ -11,6 +11,7 @@
 #include <map>
 #include <set>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <list>
 #include <stack>
@@ -839,6 +840,23 @@ void gfx_texture_cache_delete(const uint8_t* orig_addr) {
  * actually produced can be looked at instead of guessed from a screenshot.
  */
 #include <sys/stat.h>
+
+/*
+ * tools/texai texture dump: while files/gevr_packdump exists, each texture the
+ * texture pack lacks (every texture, with no pack) is written once to
+ * files/texture-dump/ as GLideN64 would dump it - its pack name, the texels the
+ * checksum covers, RGBA PNG - with a line in index.tsv (size, format, wrap
+ * flags, level). gevr_texpack_lookup names it; the native upload that follows
+ * supplies the texels (gevr_upload_native).
+ */
+static bool s_tdOn;
+static struct {
+    bool pending;
+    uint32_t w, h;
+    char name[80];
+    char line[200];
+} s_td;
+
 static const uint8_t *s_dumpAddr;
 static uint8_t s_dumpFmt, s_dumpSiz;
 static int s_dumpTile;
@@ -865,6 +883,12 @@ static void gevr_upload_native(uint32_t width, uint32_t height) {
             for (uint32_t y = ch; y < height; y++) {
                 memcpy(tex_upload_buffer + (size_t)y * width * 4, tex_upload_buffer + (size_t)(ch - 1) * width * 4, (size_t)width * 4);
             }
+        }
+    }
+    if (s_td.pending) {
+        s_td.pending = false;
+        if (s_td.w <= width && s_td.h <= height) {
+            gevrtp::dump(s_td.name, tex_upload_buffer, s_td.w, s_td.h, width * 4, s_td.line);
         }
     }
     /* re-check the trigger now and then, so it can be switched on mid-level */
@@ -1352,6 +1376,26 @@ void gevr_tlut_note(uint32_t palofs, uint32_t count, const void *base) {
 }
 static uint32_t s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize;
 
+extern "C" int g_StageNum;   // src/boss.c
+static std::unordered_set<std::string> s_tdSeen;
+
+/* the texture-dump name for a texture the pack lacks; the upload that follows writes it */
+static void gevr_packdump_note(uint32_t tex, uint32_t pal, bool ci, uint8_t fmt, uint8_t siz, int w, int h,
+                               uint8_t cms, uint8_t cmt, uint8_t masks, uint8_t maskt) {
+    if (ci) {
+        snprintf(s_td.name, sizeof(s_td.name), "GOLDENEYE#%08X#%u#%u#%08X_ciByRGBA.png", tex, fmt, siz, pal);
+    } else {
+        snprintf(s_td.name, sizeof(s_td.name), "GOLDENEYE#%08X#%u#%u_all.png", tex, fmt, siz);
+    }
+    if (!s_tdSeen.insert(s_td.name).second) return;
+    // name, size, format, wrap flags (bit 0 mirror, bit 1 clamp), mask bits, level
+    snprintf(s_td.line, sizeof(s_td.line), "%s\t%d\t%d\t%u\t%u\t%u\t%u\t%u\t%u\t%d\n", s_td.name, w, h, fmt, siz,
+             cms, cmt, masks, maskt, g_StageNum);
+    s_td.w = (uint32_t)w;
+    s_td.h = (uint32_t)h;
+    s_td.pending = true;
+}
+
 /* The pack entry for the texture tile draws from, or -1; *hw x *hh is the area the checksum covers. */
 static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, uint32_t *hh) {
     const auto &t = rdp.texture_tile[tile];
@@ -1422,6 +1466,9 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
         id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size);
     }
 
+    if (s_tdOn && id < 0) {
+        gevr_packdump_note(tex, pal, ci, t.orig_fmt, (uint8_t)size, w, h, t.orig_cms, t.orig_cmt, t.masks, t.maskt);
+    }
     ++s_tpLookups;
     if (id >= 0) ++s_tpHits;
     if ((s_tpLookups % 2000) == 0) {
@@ -1459,7 +1506,8 @@ static bool gevr_texpack_upload(const uint8_t *img, uint32_t iw, uint32_t ih, ui
 
 /* import_texture's miss: the pack's image if there is one and it's decoded. */
 static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const TextureCacheKey &key) {
-    if (!s_tpActive) return false;
+    s_td.pending = false;
+    if (!s_tpActive && !s_tdOn) return false;
     // a mip chain's smaller levels keep their own textures; its base level
     // (first_tile_index) is the one a pack replaces - GoldenEye mipmaps most of
     // its world and model textures, so skipping the whole chain skipped them
@@ -1497,6 +1545,16 @@ static void gevr_texpack_frame(void) {
     if (gevrtp::takeIndexReady()) {
         s_tpActive = true;
         gfx_texture_cache_clear();   // what was uploaded before the index existed looks again
+    }
+    // tools/texai texture dump, switched on by files/gevr_packdump (checked every 120 frames)
+    static unsigned tdChecks;
+    if (!s_tdOn && (tdChecks++ % 120) == 0) {
+        struct stat st;
+        if (stat(fsFullPath("$S/gevr_packdump"), &st) == 0) {
+            s_tdOn = true;
+            gevrtp::dumpStart(fsFullPath("$S/texture-dump"));
+            gfx_texture_cache_clear();   // what is already uploaded is looked at again
+        }
     }
     if (!s_tpActive) return;
     int ids[32];
