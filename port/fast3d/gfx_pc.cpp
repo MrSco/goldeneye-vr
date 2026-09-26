@@ -693,6 +693,8 @@ struct TpJob {
 };
 static std::unordered_map<int, std::vector<TpJob>> s_tpPending;
 static std::vector<std::pair<int, TpJob>> s_tpUploads;
+/* issue #52: texture cache traffic, logged every 5 s while there is any (gevr_texpack_frame) */
+static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads;
 static bool s_tpActive = false;
 #endif
 
@@ -740,7 +742,13 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
         gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
         gfx_texture_cache.map.erase(it);
         gfx_texture_cache.lru.pop_front();
+#ifdef GEVR
+        s_gevrTcEvictions++;
+#endif
     }
+#ifdef GEVR
+    s_gevrTcMisses++;
+#endif
 
     gfx_flush();   /* a new texture: the batch so far draws with the old one */
 
@@ -1478,6 +1486,7 @@ static void gevr_texpack_frame(void) {
             gfx_rapi->select_texture(0, it->second.texture_id, false);
             if (gevr_texpack_upload(img, iw, ih, job.hw, job.hh, job.uw, job.uh)) {
                 budget -= std::min(budget, (size_t)iw * ih * 4);
+                s_gevrTcHdUploads++;
             }
         }
         s_tpUploads.erase(s_tpUploads.begin(), s_tpUploads.begin() + done);
@@ -1485,6 +1494,19 @@ static void gevr_texpack_frame(void) {
         rdp.textures_changed[0] = true;
     }
     gevrtp::trim((size_t)160 << 20);
+
+    {
+        static unsigned frames;
+        if (++frames >= 300) {
+            frames = 0;
+            if (s_gevrTcMisses || s_gevrTcEvictions || s_gevrTcHdUploads) {
+                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads, %u evicted, %u pack uploads; %u queued, %u decoding",
+                             (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads,
+                             (unsigned)s_tpUploads.size(), (unsigned)s_tpPending.size());
+            }
+            s_gevrTcMisses = s_gevrTcEvictions = s_gevrTcHdUploads = 0;
+        }
+    }
 }
 #endif
 
