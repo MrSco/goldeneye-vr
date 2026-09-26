@@ -128,9 +128,11 @@ void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40
 void gfx_vr_scope_only(bool on);
 void gfx_vr_scope_render(void);
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y);   // gfx_opengl.cpp (issue #53)
+void gfx_vr_eye_hand(int ctrl);
 bool gfx_vr_eye_replay_ready(void);
-void gfx_vr_eye_replay(const float* delta);
+void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1);
 extern "C" int gevrVrRedrawDelta(float out[16]);   // vr_openxr.cpp
+extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
 extern "C" void gevrVrMarkRedrawn(void);
 extern "C" float g_viProjectionMatrixF[4][4];     // fr.c: the game's projection
 static float s_gevrLastVignette;                  // the eye pass's, for its redraws
@@ -3484,6 +3486,13 @@ static void gfx_run_dl(Gfx* cmd) {
                     }
                     break;
                 }
+                if ((tag_w1 & 0xFFFF0000u) == 0x565F0000u) {
+                    // VR_HAND_DRAW (issue #53, gunfire.c gevrHandTag): the draws
+                    // that follow controller (low bits - 1), or none (0)
+                    gfx_flush();
+                    gfx_vr_eye_hand((int)(tag_w1 & 0xFF) - 1);
+                    break;
+                }
                 switch (tag_w1) {
                     case 0x56520001: // Menu is open
                     case 0x56520000: // GoldenEye: menu closed
@@ -4264,7 +4273,12 @@ extern "C" int gfx_vr_redraw_frame(void) {
         return 0;
     }
     gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
-    gfx_vr_eye_replay(delta);
+    {
+        float hand[2][16];
+        const bool have0 = gevrVrRedrawHandDelta(0, hand[0]) != 0;
+        const bool have1 = gevrVrRedrawHandDelta(1, hand[1]) != 0;
+        gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr);
+    }
     gfx_opengl_draw_vignette(s_gevrLastVignette);
     vr_end_eye_render();
     gevrVrMarkRedrawn();

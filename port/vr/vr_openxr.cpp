@@ -2475,6 +2475,44 @@ extern "C" int gevrVrRedrawDelta(float out[16])
     return 1;
 }
 
+/*
+ * ... and what a controller holds (gunfire.c gevrHandTag) moves with that
+ * controller instead: from its pose relative to the head when the game frame's
+ * camera was taken (the one the gun was placed from, vr_input.cpp
+ * gevrVrGripPoseCamera) to its newest one relative to the head now. In the
+ * game frame's camera space a held point c = G_old m becomes G_new m, so
+ *   c' = R_new R_old^T c + (p_new - R_new R_old^T p_old) * scale.
+ * The hand is placed relative to the head, so the head's own move is in it.
+ */
+extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);   // vr_input.cpp
+
+extern "C" int gevrVrRedrawHandDelta(int hand, float out[16])
+{
+    float po[3], qo[4], pn[3], qn[4];
+    if (!g_haveRecordedViews || vr_world_scale <= 0.0f
+        || !gevrVrGripPoseCamera(hand, po, qo) || !gevrVrGripPose(hand, pn, qn)) {
+        return 0;
+    }
+    float Ro[9], Rn[9], R[9];
+    vr_quat_to_mat3(XrQuaternionf{qo[0], qo[1], qo[2], qo[3]}, Ro);
+    vr_quat_to_mat3(XrQuaternionf{qn[0], qn[1], qn[2], qn[3]}, Rn);
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+            // (R_new R_old^T)[r][c] = sum_k Rn[r][k] Ro[c][k]
+            R[r * 3 + c] = Rn[r * 3 + 0] * Ro[c * 3 + 0] + Rn[r * 3 + 1] * Ro[c * 3 + 1] + Rn[r * 3 + 2] * Ro[c * 3 + 2];
+        }
+    }
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+            out[c * 4 + r] = R[r * 3 + c];
+        }
+        out[12 + r] = (pn[r] - (R[r * 3 + 0] * po[0] + R[r * 3 + 1] * po[1] + R[r * 3 + 2] * po[2])) * vr_world_scale;
+        out[r * 4 + 3] = 0.0f;
+    }
+    out[15] = 1.0f;
+    return 1;
+}
+
 // the in-between frame was drawn for this XR frame's own views
 extern "C" void gevrVrMarkRedrawn(void)
 {
