@@ -4758,8 +4758,41 @@ headset:
 - fix/46-xenia-onscreen (#46): AI_IFImOnScreen needs the chr's room to be
   inside the N64's far distance. The room walk records that
   (bg.c s_gevrRoomN64); drawing keeps GEVR_FAR_EXTEND.
-- fix/31-watchlaser-arm (#31): no port watch arm while the right hand holds
-  the watch laser or the detonator (their models have the arms).
+- fix/31-watchlaser-arm (#31): MERGED 2026-09-26 (user: "feels good").
+  The first cut (no port watch arm) left the left arm untracked. What
+  shipped, designed with the user in the headset:
+  - The items' own model (Bond's left arm and watch, his right hand at it)
+    is not drawn in stereo. The tracked watch arm is that arm; the right
+    hand is the fist.
+  - The laser leaves the watch's twelve o'clock edge along the controller's
+    down (the little-finger side): arm across the chest, it points ahead.
+    Along the arm it came out of the fingers; out of the face it would hit
+    the eyes; the thumb side (six o'clock) shot the player. The face's
+    centre is the watch hands' pivot on the tracked arm
+    (s_gevrWatchFaceCm), 2 cm out to the edge (bondview2.c
+    gevrStereoWatchPoint, gevrShotCtrl, gevrWatchAimAxis). The beam, the
+    shot and the sight all take it.
+  - The right trigger fires only with the gun hand at the watch: the face
+    within 10 cm of the line from the grip to 10 cm along the fingers,
+    kept until 14 (gevrStereoWatchGripUpdate, each tick while a watch item
+    is out). The detonator too.
+  - At the watch, the whole watch laser viewmodel (GwatchlaserZ; GtriggerZ
+    is the same model) replaces the watch arm on the left controller, with
+    its right hand holding its left fist, set up as a weapon (hand
+    switches, bondviewSelectCuff 0x1D). Its right hand alone on the open
+    tracked hand stood beside the wrist. Anchored by its watch face (dial
+    0x648 and bezel 0x5e0) with its forearm (the sleeve's principal axis)
+    along the tracked forearm. Its fist is bent 88 degrees off that; laid
+    along the fist, the arm pointed ahead. files/gevr_watchhand.txt trims it.
+  - The watch gesture is off while gripping, and re-arms once the arm comes
+    down (input.c).
+  - The 3 m reach is the original's (beam and damage capped at 300 units).
+  - Left-handed mode is by role throughout (gevrPhysHand, get_button_state,
+    the watch arm's mirrored frame). Checked in the code, not yet in the
+    headset.
+  - Model measurements: area-weighted triangle centroids and normals from a
+    walk like tools/gevr_model_probe.py's (GwatchlaserZ: 36 switches, root
+    0x198, 19 nodes, 9 DLs).
 - fix/24-hand-backface (#24): under VR_CULL_OFF a culled face draws 1e-4
   NDC farther, so the fist's white back triangle loses to its skin twin.
   MERGED 2026-09-26 (user: fixed; tested with main merged in).
