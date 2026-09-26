@@ -1757,6 +1757,21 @@ extern s32 g_gevrStereo;
 extern s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out);
 extern s8 *get_ptr_item_text_call_line(ITEM_IDS item);
 
+/*
+ * Issue #53: tag the draws that follow a controller (0 left, 1 right; -1
+ * ends). fast3d keeps them apart, and on the XR frames between game frames it
+ * moves them by that controller's motion since the game frame instead of
+ * leaving them where they were in the world (gfx_opengl.cpp gfx_vr_eye_replay).
+ */
+static Gfx *gevrHandTag(Gfx *gdl, s32 ctrl)
+{
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x565F0000 | (u32)(ctrl + 1)); /* VR_HAND_DRAW */
+    }
+    return gdl;
+}
+
 static u8 *s_gevrFistBuf;
 static struct texpool s_gevrFistPool;
 static ModelFileHeader s_gevrFistHeader;
@@ -2137,8 +2152,14 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
      * overlapped - from outside, the hand behind the mine showed through it
      * and it looked hollow. Drawn first, the fist is hidden only where the
      * gadget is in front.
+     *
+     * Issue #53: what each controller holds is tagged with it
+     * (VR_HAND_DRAW_BEGIN | controller + 1, gevrHandTag), so the XR frames
+     * between game frames move it by that controller's own motion.
      */
+    gdl = gevrHandTag(gdl, 1);
     gdl = gevrRenderRightFist(gdl, &renderdata);
+    gdl = gevrHandTag(gdl, -1);
 #endif
  
     for (handnum = 0; handnum != 2; handnum++) 
@@ -2161,9 +2182,10 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             continue;
         }
+        gdl = gevrHandTag(gdl, handnum == GUNRIGHT ? 1 : 0);
 #endif
- 
-        if (item != ITEM_WATCHLASER) 
+
+        if (item != ITEM_WATCHLASER)
         {
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
         }
@@ -2320,10 +2342,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
  
         bondviewTransformManyPosToViewMatrix((handptr->weaponModel).render_pos, (handptr->weaponModel).obj->numMatrices);
         matrix_4x4_7F058C88();
- 
+
         gSPPerspNormalize(gdl++, viGetPerspNorm());
- 
-        if (item == ITEM_WATCHLASER) 
+#ifdef GEVR
+        gdl = gevrHandTag(gdl, -1);
+#endif
+
+        if (item == ITEM_WATCHLASER)
         {
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
         }
@@ -2343,6 +2368,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
          * before it raises its own watch arm (bondview2.c), so while the
          * watch is up this arm is back.
          */
+        gdl = gevrHandTag(gdl, 0);
         if (rightitem != ITEM_WATCHLASER && rightitem != ITEM_TRIGGER)
         {
             gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
@@ -2351,6 +2377,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                 gdl = gevrRenderLeftArm(gdl, &renderdata);
             }
         }
+        gdl = gevrHandTag(gdl, -1);
     }
 #endif
     *gdlptr = gdl;
@@ -7343,7 +7370,9 @@ void gunDrawSight(Gfx **gdl) {
         {
             if ((g_CurrentPlayer->gunsightmode == 0) && (g_CurrentPlayer->mpmenuon == FALSE))
             {
+                *gdl = gevrHandTag(*gdl, 1);   /* issue #53: it follows the gun */
                 *gdl = gevrDrawSight3D(*gdl, GUNRIGHT, FALSE);
+                *gdl = gevrHandTag(*gdl, -1);
                 /* issue #40: the same sight in the sniper scope, for the scope only */
                 if (gevrScopeOn)
                 {
@@ -7361,7 +7390,9 @@ void gunDrawSight(Gfx **gdl) {
             if (vr_button_L_grip && ((g_CurrentPlayer->gunsightmode & ~GUNSIGHTREASON_NOTAIMING) == 0)
                 && (g_CurrentPlayer->mpmenuon == FALSE))
             {
+                *gdl = gevrHandTag(*gdl, 0);
                 *gdl = gevrDrawSight3D(*gdl, GUNLEFT, FALSE);
+                *gdl = gevrHandTag(*gdl, -1);
             }
             return;
         }
