@@ -4991,3 +4991,33 @@ Latent, noted by the agents:
 - A second session works on #9 (feature/9-hand-shells) in the main
   checkout; this one uses ../gevr-wt. Both install to the same headset:
   check the launcher's build line.
+
+## 113. Two-handed hold for any gun (#35, merged 2026-09-26)
+- User-tested through many rounds; MERGED (user: grips set as default).
+- Taking hold (bondview2.c gevrStereoTwoHandUpdate, each tick): the off
+  hand's grip, with that controller within 12 cm of the barrel (kept to
+  22 cm), as the watch laser's grip (#31). Guns and launchers
+  (gevrStereoTwoHandItem); not dual wielding, knives, gadgets, watch items.
+- Aim: Perfect Dark VR's vrBuildGunRotation - the barrel turns toward the
+  line between the hands, eased (0.15 a tick) and faded as the hands close
+  (9..18 cm), a shortest-arc turn keeping the wrist's roll. Applied in
+  gevrGripAxes for the gun hand, so gun, shots, sight, muzzle and scope
+  follow. Handguns keep the wrist's aim (hands 8-12 cm apart jittered),
+  as PD's Slayer.
+- The holding hand (gunfire.c gevrRenderLeftArm): the taser's gripping hand
+  (#41), mirrored, drawn BEFORE the guns (their wood/second list does not
+  write depth in flat play) and tagged with the gun's controller (#53).
+  Pinned to the gun in place and turn: the gun hand's matrix mirrored, its
+  palm (GtaserZ taser centre 1, 79.5, 57.5) put on the hold point:
+  - handguns: the drawn gun hand's palm (the model, not the controller:
+    after Gun fit the two agree);
+  - long guns: 35% of the way from that palm to the muzzle (taking hold
+    accepts 20..55%).
+- Trim per class (VrGripTrim, ini GripPistol / GripRifle: cm out, up,
+  forward; degrees about the hand's X, Y, Z), set in Gun fit while holding
+  with both hands: move stick forward/sideways, turn stick up/down and tilt,
+  right grip + turn stick roll. Defaults are the user's.
+- Tried and dropped: the fist (not a grip), the controller's own turn
+  (pivoted), the gun frame with the old trims (fingers up), hand-line aim
+  on handguns (jitter), the controller point as the hold point before the
+  gun fit (a 12 cm gap).
