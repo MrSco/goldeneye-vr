@@ -505,6 +505,16 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: give item %d -> %d", id, bondinvAddInvItem((ITEM_IDS) id));
             continue;
         }
+        /* "timer": a running two-minute countdown on screen, as a level's AI
+         * shows one (chrai.c), to test its drawing anywhere (issue #42) */
+        if (strcasecmp(word, "timer") == 0)
+        {
+            countdownTimerSetValue(2.0f * 60.0f * 60.0f);
+            countdownTimerSetVisible(1, TRUE);
+            countdownTimerSetRunning(TRUE);
+            sysLogPrintf(LOG_NOTE, "cheathook: countdown timer on");
+            continue;
+        }
         /* "hold<N>": give item N and draw it in the gun hand, e.g. hold17 = sniper rifle */
         if (strncasecmp(word, "hold", 4) == 0)
         {
@@ -12959,6 +12969,12 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                 view_left = viGetViewLeft() + (viGetViewWidth() - view_left_offset) / 2;
                 view_horiz = view_left + view_left_offset;
                 view_top = viGetViewTop() + (viGetViewHeight() * 92) / 100;
+                if (is_clock_drawn_onscreen())
+                {
+                    /* the countdown shows under it on the panel (issue #42): lift
+                     * it by as much as the flat game does (OFFSET_2 - OFFSET_1) */
+                    view_top -= BONDVIEW_VIEW_TOP_OFFSET_2 - BONDVIEW_VIEW_TOP_OFFSET_1;
+                }
                 gDPNoOpTag(arg0++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
             }
 #endif
@@ -13123,12 +13139,16 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                      * Stereo: the top message ran along the top edge of the
                      * lenses, half out of view. It goes on the head-locked
                      * HUD panel (VR_HUD_CAPTURE_*_H) with the bottom message,
-                     * centred in the top third of the view.
+                     * centred. In the top fifth of the view, reading it was
+                     * tiring (issue #43): 120 lines down from the flat place,
+                     * as Perfect Dark VR's top subtitles (hudmsg.c,
+                     * HUDMSGALIGN_TOP), just under the centre and clear of the
+                     * bottom message and the countdown.
                      */
                     if (g_gevrStereo && getPlayerCount() == 1)
                     {
                         msg.x = viGetViewLeft() + (viGetViewWidth() - msg.textwidth) / 2;
-                        msg.y = viGetViewTop() + (viGetViewHeight() * 18) / 100;
+                        msg.y += 120;
                         gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
                     }
 #endif

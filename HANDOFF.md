@@ -4745,6 +4745,9 @@ headset:
   - The countdown timer goes on the H panel (it doubled at its own HUD
     depth), and the bottom message lifts above it.
   - The top dialogue sits 120 lines lower, as PD VR's top subtitles.
+  - MERGED 2026-09-26. The timer was seen fixed on Dam (user: "looks
+    good"), shown with the new test hook gevr_cheat.txt "timer". The
+    dialogue move was not seen in the headset.
 - fix/48-duck-cover (#48): a physical duck lowers Bond's position for the
   guards (PD VR bondmove.c); the camera adds only the rise.
   MERGED 2026-09-26 (user: view moves as before, guards miss more when
