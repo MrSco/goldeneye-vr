@@ -505,6 +505,16 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: give item %d -> %d", id, bondinvAddInvItem((ITEM_IDS) id));
             continue;
         }
+        /* "timer": a running two-minute countdown on screen, as a level's AI
+         * shows one (chrai.c), to test its drawing anywhere (issue #42) */
+        if (strcasecmp(word, "timer") == 0)
+        {
+            countdownTimerSetValue(2.0f * 60.0f * 60.0f);
+            countdownTimerSetVisible(1, TRUE);
+            countdownTimerSetRunning(TRUE);
+            sysLogPrintf(LOG_NOTE, "cheathook: countdown timer on");
+            continue;
+        }
         /* "hold<N>": give item N and draw it in the gun hand, e.g. hold17 = sniper rifle */
         if (strncasecmp(word, "hold", 4) == 0)
         {
