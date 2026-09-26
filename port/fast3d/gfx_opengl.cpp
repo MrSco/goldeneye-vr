@@ -766,6 +766,16 @@ static void gfx_opengl_unload_shader(struct ShaderProgram* old_prg) {
     }
 }
 
+/* VR_HUD_FULL_SIZE_BEGIN/END (issue #42): the shrink is a uniform, written when
+ * a program is loaded, so the current program's copy is written here too. */
+void gfx_opengl_vr_hud_full_size(bool full)
+{
+    VrIsTitleLegal = !full;
+    if (s_curPrg != NULL && s_curPrg->IsTitleLegal >= 0) {
+        glUniform1i(s_curPrg->IsTitleLegal, VrIsTitleLegal ? 1 : 0);
+    }
+}
+
 static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
     // if (!new_prg) return;
     s_curPrg = new_prg;

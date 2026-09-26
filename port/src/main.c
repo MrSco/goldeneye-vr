@@ -345,6 +345,24 @@ int main(int argc, const char **argv)
         extern void gevrLauncherRun(void);
         gevrLauncherRun();
     }
+    /*
+     * Issue #54, as gepc-ref D257 (Game.AllUnlocked): the launcher's "Unlock
+     * all missions and cheats" sets the game's own debug unlock flags, which
+     * fileIsStageUnlockedAtDifficulty and the 007-mode gate already OR in:
+     * every solo mission at every difficulty, and 007 mode. The Cheat Options
+     * list is opened in front.c. Nothing is written to the saves.
+     */
+    {
+        extern int VrUnlockAll;
+        extern s32 debug_enable_all_levels_flag;
+        extern s32 debug_007_unlock_flag;
+
+        if (VrUnlockAll) {
+            debug_enable_all_levels_flag = 1;
+            debug_007_unlock_flag = 1;
+            sysLogPrintf(LOG_NOTE, "unlock all: missions, 007 mode and cheats");
+        }
+    }
 #endif
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "audioInit starting");
     audioInit();

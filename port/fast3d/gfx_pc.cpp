@@ -3697,6 +3697,14 @@ static void gfx_run_dl(Gfx* cmd) {
                         gfx_vr_hud_capture_end_P();
                         break;
 
+                    case VR_HUD_FULL_SIZE_BEGIN:   // issue #42: the countdown timer
+                    case VR_HUD_FULL_SIZE_END: {
+                        extern void gfx_opengl_vr_hud_full_size(bool full);
+                        gfx_flush();
+                        gfx_opengl_vr_hud_full_size(tag_w1 == VR_HUD_FULL_SIZE_BEGIN);
+                        break;
+                    }
+
                     case VR_CULL_MIRROR_BEGIN:
                         gevrCullMirror = true;
                         break;
