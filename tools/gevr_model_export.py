@@ -133,8 +133,9 @@ class Model:
         else:
             prim, sec, verts, nv = self.ptr(rod), self.ptr(rod + 4), self.ptr(rod + 8), s16(d, rod + 0xC)
             mtype = None
+        block = [list(struct.unpack_from(">hhh", d, verts + VTX_SIZE * i)) for i in range(nv)] if verts else []
         return {"node": node, "op": op, "primary": prim, "secondary": sec, "vtxblock": verts,
-                "numvtx": nv, "modeltype": mtype, "group": group, "switch": switch}
+                "numvtx": nv, "modeltype": mtype, "group": group, "switch": switch, "block_xyz": block}
 
     def mtx_translation(self, mtx):
         """Rest-pose translation of a matrix: its group's origin plus every ancestor's."""
