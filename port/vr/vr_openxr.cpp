@@ -2409,15 +2409,76 @@ static void vr_stats_xr_frame(void)
     s_statWorstMs = 0.0;
 }
 
+// The views the last stereo game frame's camera was built from (issue #53).
+static std::array<XrView, 2> g_recordedViews = { XrView{XR_TYPE_VIEW}, XrView{XR_TYPE_VIEW} };
+static bool g_haveRecordedViews = false;
+
 extern "C" void gevrVrMarkEyesRendered(int stereo)
 {
     vr_stats_game_frame();
     if (stereo && g_haveCameraViews) {
         g_renderedViews = g_cameraViews;
         g_haveRenderedViews = true;
+        g_recordedViews = g_cameraViews;
+        g_haveRecordedViews = true;
     } else {
         g_haveRenderedViews = false;
+        g_haveRecordedViews = false;
     }
+}
+
+/*
+ * Issue #53: an XR frame between game frames draws the last game frame again
+ * from this frame's head pose (gfx_pc.cpp gfx_vr_redraw_frame). Its camera
+ * space is the head's at the game frame (x right, y up, -z ahead; the body's
+ * yaw and the recentre are the same for both and cancel), in view units
+ * (vr_world_scale to the metre), so a point there moves to
+ *   R_new^T R_old c + R_new^T (p_old - p_new) * scale
+ * with each head at its eyes' midpoint. out: that, a GL matrix.
+ */
+static void vr_quat_to_mat3(const XrQuaternionf& q, float m[9])   // row-major
+{
+    const float x = q.x, y = q.y, z = q.z, w = q.w;
+    m[0] = 1.0f - 2.0f * (y * y + z * z); m[1] = 2.0f * (x * y - w * z);        m[2] = 2.0f * (x * z + w * y);
+    m[3] = 2.0f * (x * y + w * z);        m[4] = 1.0f - 2.0f * (x * x + z * z); m[5] = 2.0f * (y * z - w * x);
+    m[6] = 2.0f * (x * z - w * y);        m[7] = 2.0f * (y * z + w * x);        m[8] = 1.0f - 2.0f * (x * x + y * y);
+}
+
+extern "C" int gevrVrRedrawDelta(float out[16])
+{
+    if (!g_haveRecordedViews || !g_frameStarted || !g_frameState.shouldRender || vr_world_scale <= 0.0f) {
+        return 0;
+    }
+    const XrView* o = g_recordedViews.data();
+    const XrView* n = g_frameViews.data();
+    float Ro[9], Rn[9];
+    vr_quat_to_mat3(o[0].pose.orientation, Ro);
+    vr_quat_to_mat3(n[0].pose.orientation, Rn);
+    const float po[3] = { (o[0].pose.position.x + o[1].pose.position.x) * 0.5f,
+                          (o[0].pose.position.y + o[1].pose.position.y) * 0.5f,
+                          (o[0].pose.position.z + o[1].pose.position.z) * 0.5f };
+    const float pn[3] = { (n[0].pose.position.x + n[1].pose.position.x) * 0.5f,
+                          (n[0].pose.position.y + n[1].pose.position.y) * 0.5f,
+                          (n[0].pose.position.z + n[1].pose.position.z) * 0.5f };
+    const float d[3] = { po[0] - pn[0], po[1] - pn[1], po[2] - pn[2] };
+
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+            // (R_new^T R_old)[r][c] = sum_k Rn[k][r] Ro[k][c]
+            out[c * 4 + r] = Rn[0 * 3 + r] * Ro[0 * 3 + c] + Rn[1 * 3 + r] * Ro[1 * 3 + c] + Rn[2 * 3 + r] * Ro[2 * 3 + c];
+        }
+        out[12 + r] = (Rn[0 * 3 + r] * d[0] + Rn[1 * 3 + r] * d[1] + Rn[2 * 3 + r] * d[2]) * vr_world_scale;
+        out[r * 4 + 3] = 0.0f;
+    }
+    out[15] = 1.0f;
+    return 1;
+}
+
+// the in-between frame was drawn for this XR frame's own views
+extern "C" void gevrVrMarkRedrawn(void)
+{
+    g_renderedViews = g_frameViews;
+    g_haveRenderedViews = true;
 }
 
 // int, not bool: GoldenEye's game files see bool as a 32-bit int, and a C++
