@@ -1847,17 +1847,19 @@ s32 gevrStereoTwoHandGrip(void)
  *
  * The swing is Perfect Dark VR's (bondgun.c bgunTickGameplay, WEAPON_UNARMED):
  * the controller's velocity less the head's, so walking does not punch, turned
- * into the controller's own frame by its worldToLocal. A blow is 1.5 m/s along
- * +Y, out over the knuckles, or 2.5 m/s across it, and re-arms once the hand
- * slows. The hit is GoldenEye's own fist (chrprop.c gevrChopHit: its guards,
+ * into the controller's own frame by its worldToLocal; a blow re-arms once the
+ * hand slows. Its speeds are lower than Perfect Dark's fist (1.5 m/s along +Y,
+ * out over the knuckles, 2.5 across it): a chop comes down on the hand's edge,
+ * across +Y, and 2.5 took a wild swing (user; 2.55-3.02 logged). 1.2 and 1.6
+ * sit near its knife's 1.0. The hit is GoldenEye's own fist (chrprop.c gevrChopHit: its guards,
  * checks, ITEM_FIST damage and whiff) taken round the hand: the guard must come
  * within GEVR_CHOP_TOUCH_CM of it in the swing's first GEVR_CHOP_TICKS, or the
  * chop whiffs. The touch and the 30-tick cooldown are GEVR PC's hand melee
  * (gevr-up GETV_VR_HANDMELEE _R, _COOL). The blow goes from the eye to the
  * hand, as the fist's goes along the view.
  */
-#define GEVR_CHOP_THRUST 1.5f     /* m/s */
-#define GEVR_CHOP_SLASH 2.5f      /* m/s */
+#define GEVR_CHOP_THRUST 1.2f     /* m/s */
+#define GEVR_CHOP_SLASH 1.6f      /* m/s */
 #define GEVR_CHOP_TOUCH_CM 10.0f
 #define GEVR_CHOP_TICKS 20
 #define GEVR_CHOP_COOL 30
@@ -1887,7 +1889,9 @@ void gevrOffHandChopTick(void)
     static s32 s_left;    /* ticks the swing has left to land */
     static s32 s_cool;
     static s32 s_fast;     /* Perfect Dark's vr_hand_triggered: the hand has not slowed yet */
-    f32 rel[3], loc[3], thrust, slash;
+    static f32 s_peak[3];  /* tuning: a quick move's fastest, logged if it made no blow */
+    static s32 s_moving, s_blow;
+    f32 rel[3], loc[3], thrust, slash, speed;
     s32 fast;
     s32 i;
 
@@ -1915,9 +1919,32 @@ void gevrOffHandChopTick(void)
     if (fast && !s_fast && s_left <= 0 && s_cool <= 0)
     {
         s_left = GEVR_CHOP_TICKS;
-        sysLogPrintf(LOG_NOTE, "stereo: chop, thrust %.2f slash %.2f m/s", thrust, slash);
+        s_blow = TRUE;
+        sysLogPrintf(LOG_NOTE, "stereo: chop, thrust %.2f slash %.2f m/s (x %.2f z %.2f)", thrust, slash, loc[0], loc[2]);
     }
     s_fast = fast;
+
+    speed = sqrtf(loc[0] * loc[0] + loc[1] * loc[1] + loc[2] * loc[2]);
+    if (speed > 1.0f)
+    {
+        if (!s_moving || slash > sqrtf(s_peak[0] * s_peak[0] + s_peak[2] * s_peak[2]))
+        {
+            s_peak[0] = loc[0];
+            s_peak[1] = loc[1];
+            s_peak[2] = loc[2];
+        }
+        s_moving = TRUE;
+    }
+    else if (speed < 0.7f && s_moving)
+    {
+        if (!s_blow)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: chop too slow, peak thrust %.2f slash %.2f m/s (x %.2f z %.2f)", s_peak[1],
+                         sqrtf(s_peak[0] * s_peak[0] + s_peak[2] * s_peak[2]), s_peak[0], s_peak[2]);
+        }
+        s_moving = FALSE;
+        s_blow = FALSE;
+    }
 
     if (s_left > 0)
     {
