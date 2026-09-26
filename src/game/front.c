@@ -1120,7 +1120,49 @@ Gfx *frontPrintText(Gfx *gdl, s32 *x, s32 *y, s8 *text, struct fontchar *second_
 }
 
 
+#ifdef GEVR
+static s32 frontCheckIfCheatIsUnlockedInSave(s32 cheat);
+
+/*
+ * Issue #54: with the launcher's "Unlock all missions and cheats", the Cheat
+ * Options menu lists every cheat it can. Only what the menu shows changes:
+ * the save is never touched, and fileGetIsCheatUnlocked still reads it, so a
+ * target time beaten still earns and saves its cheat as normal. (gepc-ref's
+ * D257 patched the save slots as they were read instead; every file then
+ * read as fully completed, and a save written while it was on kept that.)
+ */
 s32 frontCheckIfCheatIsUnlocked(s32 cheat)
+{
+    extern int VrUnlockAll;
+
+    if (VrUnlockAll && cheat >= CHEAT_INVINCIBILITY && cheat <= CHEAT_2X_LASER)
+    {
+        switch (cheat)
+        {
+            /* never in the menu: button-code and debug cheats */
+            case CHEAT_MAXAMMO:
+            case CHEAT_DEBUG_UNK5:
+            case CHEAT_DEACTIVATE_INVINCIBILITY:
+            case CHEAT_LINEMODE:
+            case CHEAT_2X_HEALTH:
+            case CHEAT_2X_ARMOR:
+            case CHEAT_EXTRA_WEAPONS:
+            case CHEAT_10X_HEALTH:
+            case CHEAT_BONDPHASE:
+            case CHEAT_DEBUG_POS:
+                break;
+
+            default:
+                return 1;
+        }
+    }
+    return frontCheckIfCheatIsUnlockedInSave(cheat);
+}
+
+static s32 frontCheckIfCheatIsUnlockedInSave(s32 cheat)
+#else
+s32 frontCheckIfCheatIsUnlocked(s32 cheat)
+#endif
 {
     switch(cheat)
     {
@@ -3273,8 +3315,20 @@ s32 get_highest_unlocked_difficulty_for_level(s32 arg0)
 
         for (difficulty=num; difficulty >= 0; difficulty--)
         {
+#ifdef GEVR
+            extern int VrUnlockAll;
+#endif
             temp_v0 = fileIsStageUnlockedAtDifficulty(selected_folder_num, arg0, difficulty);
+            /*
+             * With a cheat on, the game offers only completed stages. Unlock
+             * all (issue #54) opens every stage without writing completions
+             * into the save, so it offers the unlocked ones too.
+             */
+#ifdef GEVR
+            if (g_AppendCheatSinglePlayer == 0 || VrUnlockAll)
+#else
             if (g_AppendCheatSinglePlayer == 0)
+#endif
             {
                 if (temp_v0 != DIFFICULTY_AGENT)
                 {
