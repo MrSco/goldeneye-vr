@@ -4776,6 +4776,14 @@ headset:
       start;
     - the M16/AR33 extra long flash (gepc-ref D303), in 2D and VR.
     Each gets its own branch.
+- fix/m16-flash (gepc-ref D303): the AR33's extra long flash.
+  - The star flare arms (a DLPRIMARY node, drawn by dorottex) count quads,
+    not vertices: dorottex reads numVertices * 4.
+  - gevr_model.c converted only numVertices of them. On the M16 (6 arms, 24
+    vertices at 0x478) the last 18 came from the next block and drew as a
+    long streak off the gun.
+  - The flash matrices were probed first and are faithful.
+  - MERGED 2026-09-26 (user: "ar33 muzzle flash looks great").
 - fix/46-xenia-onscreen (#46): AI_IFImOnScreen needs the chr's room to be
   inside the N64's far distance. The room walk records that
   (bg.c s_gevrRoomN64); drawing keeps GEVR_FAR_EXTEND.
