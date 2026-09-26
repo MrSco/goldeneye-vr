@@ -2084,6 +2084,9 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     Mtxf armmtx;
     Mtxf *rwmtx;
     s32 j;
+    Model *mdl = &s_gevrFistModel;
+    ModelFileHeader *hdr = &s_gevrFistHeader;
+    u32 *rw = s_gevrFistRw;
 
     if (!g_gevrStereo
         || get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
@@ -2092,11 +2095,15 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     {
         return gdl;
     }
-    if (!gevrStereoGunMatrix(GUNLEFT, &armmtx) || !gevrLeftFistLoad())
+    if (!gevrStereoGunMatrix(GUNLEFT, &armmtx))
     {
         return gdl;
     }
-    /* issue #35: holding the gun, the fist goes round the barrel */
+    /*
+     * Issue #35: holding the gun, the hand goes round the barrel, and it is
+     * the taser's gripping hand (#41, the grenade's hand; user) rather than
+     * the clenched fist, mirrored into a left hand like the fist.
+     */
     {
         extern s32 gevrStereoTwoHandFistShift(f32 shift[3]);
         f32 shift[3];
@@ -2106,28 +2113,44 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
             armmtx.m[3][0] += shift[0];
             armmtx.m[3][1] += shift[1];
             armmtx.m[3][2] += shift[2];
+            if (gevrTaserHandLoad())
+            {
+                mdl = &s_gevrTaserHandModel;
+                hdr = &s_gevrTaserHandHeader;
+                rw = s_gevrTaserHandRw;
+            }
         }
+    }
+    if (mdl == &s_gevrFistModel && !gevrLeftFistLoad())
+    {
+        return gdl;
     }
 
     /* a left hand: mirrored in the model's own frame, then the viewmodel scale */
     matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
     matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
 
-    rwmtx = (Mtxf *) dynAllocate(s_gevrFistHeader.numMatrices * ((s32) sizeof(Mtxf)));
-    for (j = 0; j < s_gevrFistHeader.numMatrices; j++)
+    rwmtx = (Mtxf *) dynAllocate(hdr->numMatrices * ((s32) sizeof(Mtxf)));
+    for (j = 0; j < hdr->numMatrices; j++)
     {
         matrix_4x4_set_identity(&rwmtx[j]);
     }
     matrix_4x4_copy(&armmtx, &rwmtx[0]);
 
-    modelInit(&s_gevrFistModel, &s_gevrFistHeader, (s32 *) s_gevrFistRw);
-    sub_GAME_7F05E978(&s_gevrFistModel, 1);
-    sub_GAME_7F05EA94(&s_gevrFistModel, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
-    if (s_gevrFistHeader.numSwitches >= 0x1E)
+    modelInit(mdl, hdr, (s32 *) rw);
+    sub_GAME_7F05E978(mdl, 1);
+    sub_GAME_7F05EA94(mdl, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    if (hdr->numSwitches >= 0x1E)
     {
-        bondviewSelectCuff(&s_gevrFistModel, &s_gevrFistHeader, 0x1D);
+        bondviewSelectCuff(mdl, hdr, 0x1D);
     }
-    s_gevrFistModel.render_pos = (RenderPosView *) rwmtx;
+    if (mdl == &s_gevrTaserHandModel && hdr->numSwitches > 16 && hdr->Switches[16] != NULL
+        && (hdr->Switches[16]->Opcode & 0xFF) == MODELNODE_OPCODE_DLCOLLISION)
+    {
+        /* the taser's arc draws from its run-time data, not the file's */
+        modelGetNodeRwData(mdl, hdr->Switches[16])->DisplayListCollisions.gdl = NULL;
+    }
+    mdl->render_pos = (RenderPosView *) rwmtx;
 
     renderdata = *templ;
     renderdata.gdl = gdl;
@@ -2151,14 +2174,14 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     }
     gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
     renderdata.cullmode = CULLMODE_NONE;
-    subdraw(&renderdata, &s_gevrFistModel);
+    subdraw(&renderdata, mdl);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
     if (!gevrStereoMirrored())
     {
         gDPNoOpTag(gdl++, 0x56580001);
     }
-    bondviewTransformManyPosToViewMatrix(s_gevrFistModel.render_pos, s_gevrFistHeader.numMatrices);
+    bondviewTransformManyPosToViewMatrix(mdl->render_pos, hdr->numMatrices);
     matrix_4x4_7F058C88();
 
     return gdl;
@@ -2602,7 +2625,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
         if (gevrStereoTwoHandGrip())
         {
+            /* it is on the gun: between game frames it moves with the gun's
+             * hand, not its own (#53; on its own it wobbled against the gun) */
+            gdl = gevrHandTag(gdl, 1);
             gdl = gevrRenderLeftArm(gdl, &renderdata);
+            gdl = gevrHandTag(gdl, 0);
         }
         else if (!(gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()))
         {

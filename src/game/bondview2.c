@@ -1683,7 +1683,7 @@ s32 gevrStereoWatchGrip(void)
  * on the trigger hand, and the shortest-arc turn keeps the wrist's roll.
  */
 #define GEVR_TWOHAND_PRESS_CM 12.0f
-#define GEVR_TWOHAND_KEEP_CM 18.0f
+#define GEVR_TWOHAND_KEEP_CM 22.0f
 #define GEVR_TWOHAND_SEP_MIN 9.0f
 #define GEVR_TWOHAND_SEP_MAX 18.0f
 #define GEVR_TWOHAND_EASE 0.15f
