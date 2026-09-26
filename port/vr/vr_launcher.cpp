@@ -955,8 +955,9 @@ extern "C" void gevrLauncherRun(void)
                 VrGunSizeCheat = 0;
             }
             ImGui::SameLine();
-            // Issue #54, gepc-ref D257 Game.AllUnlocked: the game's own mission
-            // select and Cheat Options, fully open (port/src/libultra.c).
+            // Issue #54, as gepc-ref D257 Game.AllUnlocked: the game's own mission
+            // select and Cheat Options, fully open (port/src/main.c, front.c).
+            // Nothing is written to the saves.
             {
                 bool unlock = VrUnlockAll != 0;
                 if (ImGui::Checkbox("Unlock all missions and cheats", &unlock)) {
@@ -964,8 +965,8 @@ extern "C" void gevrLauncherRun(void)
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Every mission at every difficulty, 007 mode, and every cheat\n"
-                                      "in the game's own Cheat Options. A mission saved while this\n"
-                                      "is on keeps them in that save file.");
+                                      "in the game's own Cheat Options. Your save files are left as\n"
+                                      "they are; missions you finish still count as usual.");
                 }
             }
             ImGui::SameLine();

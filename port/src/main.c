@@ -346,11 +346,11 @@ int main(int argc, const char **argv)
         gevrLauncherRun();
     }
     /*
-     * Issue #54, gepc-ref D257 (Game.AllUnlocked): the launcher's "Unlock all
-     * missions and cheats" sets the game's own debug unlock flags, which
+     * Issue #54, as gepc-ref D257 (Game.AllUnlocked): the launcher's "Unlock
+     * all missions and cheats" sets the game's own debug unlock flags, which
      * fileIsStageUnlockedAtDifficulty and the 007-mode gate already OR in:
-     * every solo mission at every difficulty, and 007 mode. The cheat bits
-     * are patched into the save as it is read (libultra.c).
+     * every solo mission at every difficulty, and 007 mode. The Cheat Options
+     * list is opened in front.c. Nothing is written to the saves.
      */
     {
         extern int VrUnlockAll;
