@@ -308,6 +308,7 @@ extern void vr_screen_recenter(void);                                    /* vr_o
 static s32 gevrVrInitDone;
 static s32 gevrVrFrameBegun;
 static u32 gevrXrFramesBegun; /* PORT probe */
+static u32 gevrRedraws;       /* in-between frames drawn again (issue #53) */
 
 static void gevrVrFrameEnd(void)
 {
@@ -512,8 +513,10 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	 * retrace (bossMainloop only checks that at least half a frame passed).
 	 * xrWaitFrame paces us at the display's rate, 72 Hz on this headset, so
 	 * handing the game one retrace per XR frame ran it a fifth too fast.
-	 * Frames that come before the next retrace is due re-present the last
-	 * image instead.
+	 * Frames that come before the next retrace is due show the last game frame
+	 * again - drawn anew from the head's pose for that frame (issue #53,
+	 * gfx_pc.cpp gfx_vr_redraw_frame), not the old image for the compositor to
+	 * turn, which left anything near or moving doubled.
 	 */
 	{
 		static u64 nextRetraceUs;
@@ -531,6 +534,13 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 			}
 			if (nextRetraceUs == 0 || now + 2000 >= nextRetraceUs) {
 				break;
+			}
+			if (gevrVrFrameBegun) {
+				extern int gfx_vr_redraw_frame(void);
+				const u64 t0 = gevrPerfNs();
+
+				gevrRedraws += gfx_vr_redraw_frame();
+				gevrPerfAdd(1, gevrPerfNs() - t0);
 			}
 			gevrVrFrameEnd();
 		}
@@ -552,8 +562,8 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 			sRetraces++;
 			if (sStatUs == 0) sStatUs = now;
 			if (now - sStatUs >= 1000000) {
-				sysLogPrintf(LOG_NOTE, "pump: %u retraces, %u xr frames in %llu ms", sRetraces, gevrXrFramesBegun, (unsigned long long)((now - sStatUs) / 1000));
-				sStatUs = now; sRetraces = 0; gevrXrFramesBegun = 0;
+				sysLogPrintf(LOG_NOTE, "pump: %u retraces, %u xr frames (%u redrawn) in %llu ms", sRetraces, gevrXrFramesBegun, gevrRedraws, (unsigned long long)((now - sStatUs) / 1000));
+				sStatUs = now; sRetraces = 0; gevrXrFramesBegun = 0; gevrRedraws = 0;
 			}
 		}
 	}
