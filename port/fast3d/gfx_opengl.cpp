@@ -2176,6 +2176,7 @@ struct GevrEyeDraw {
     bool alpha[2];
     bool decalZ;
     bool isMenu;
+    int8_t hand;       // the controller it follows (gunfire.c gevrHandTag), or -1: the world
     GLint viewport[4];
     GLint scissor[4];
 };
@@ -2183,6 +2184,7 @@ struct GevrEyeDraw {
 static std::vector<GevrEyeDraw> s_eyeDraws;
 static float s_eyeProj[16];    // the game's projection (fr.c g_viProjectionMatrixF), as a GL matrix
 static float s_eyeHeadP[2];
+static int s_eyeHand = -1;
 
 // gfx_pc.cpp gfx_run, around the stereo eye pass
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y)
@@ -2190,6 +2192,7 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y)
     if (on) {
         s_eyeDraws.clear();
         s_eyeReady = false;
+        s_eyeHand = -1;
         // needs the mapped ring (each draw's vertices stay put) and the plain y
         s_eyeRec = proj != NULL && s_pmPtr != NULL && !invert_y
                 && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
@@ -2202,6 +2205,12 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y)
         s_eyeReady = s_eyeRec && !s_eyeDraws.empty();
         s_eyeRec = false;
     }
+}
+
+// gfx_pc.cpp: VR_HAND_DRAW, what follows a controller (-1: the world again)
+void gfx_vr_eye_hand(int ctrl)
+{
+    s_eyeHand = (ctrl == 0 || ctrl == 1) ? ctrl : -1;
 }
 
 bool gfx_vr_eye_replay_ready(void)
@@ -2229,23 +2238,15 @@ static void gevr_eye_keep(GLint first, GLsizei count)
     d.alpha[1] = s_alphaArgs[1];
     d.decalZ = s_decalZ;
     d.isMenu = vr_dl_is_pause_or_menu;
+    d.hand = (int8_t)s_eyeHand;
     memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
     memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
     s_eyeDraws.push_back(d);
 }
 
-/*
- * Into the eye buffers already bound and cleared (gfx_pc.cpp
- * gfx_vr_redraw_frame). delta: the head's move from the game frame's pose,
- * in its camera space (view units), a GL matrix.
- */
-void gfx_vr_eye_replay(const float* delta)
+/* projection x a move in the game frame's camera space */
+static void gevr_eye_proj_times(const float* delta, float M[16])
 {
-    if (!s_eyeReady) {
-        return;
-    }
-
-    float M[16];   // projection x the head's move
     for (int c = 0; c < 4; c++) {
         for (int r = 0; r < 4; r++) {
             float v = 0.0f;
@@ -2255,6 +2256,26 @@ void gfx_vr_eye_replay(const float* delta)
             M[c * 4 + r] = v;
         }
     }
+}
+
+/*
+ * Into the eye buffers already bound and cleared (gfx_pc.cpp
+ * gfx_vr_redraw_frame). delta: the head's move from the game frame's pose,
+ * in its camera space (view units), a GL matrix. hand0/hand1: each
+ * controller's move in that space, or NULL, for what it holds: kept where it
+ * was in the world, a gun lagged the hand every third frame at 90 Hz (user:
+ * controller tracking not as smooth).
+ */
+void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1)
+{
+    if (!s_eyeReady) {
+        return;
+    }
+
+    float Ms[3][16];   // [0] the world (the head's move), [1] left, [2] right controller
+    gevr_eye_proj_times(delta, Ms[0]);
+    gevr_eye_proj_times(hand0 != NULL ? hand0 : delta, Ms[1]);
+    gevr_eye_proj_times(hand1 != NULL ? hand1 : delta, Ms[2]);
 
     // everything this changes, to put back as fast3d left it
     GLint prevVao = 0, depthFunc = GL_LEQUAL;
@@ -2293,6 +2314,7 @@ void gfx_vr_eye_replay(const float* delta)
     struct ShaderProgram* bound = prevPrg;
     const GevrEyeDraw* last = NULL;
     int lastMenu = -1;
+    int lastMove = -2;
     for (const GevrEyeDraw& d : s_eyeDraws) {
         if (last == NULL || d.prg != bound) {
             if (last != NULL || d.prg != bound) {
@@ -2305,8 +2327,12 @@ void gfx_vr_eye_replay(const float* delta)
                 touched.push_back(d.prg);
             }
             if (d.prg->reprojLocation >= 0) glUniform1i(d.prg->reprojLocation, 1);
-            if (d.prg->reprojVPLocation >= 0) glUniformMatrix4fv(d.prg->reprojVPLocation, 1, GL_FALSE, M);
             if (d.prg->scopeHeadPLocation >= 0) glUniform2f(d.prg->scopeHeadPLocation, s_eyeHeadP[0], s_eyeHeadP[1]);
+            lastMove = -2;
+        }
+        if (d.hand != lastMove) {
+            if (d.prg->reprojVPLocation >= 0) glUniformMatrix4fv(d.prg->reprojVPLocation, 1, GL_FALSE, Ms[d.hand + 1]);
+            lastMove = d.hand;
         }
         if ((int)d.isMenu != lastMenu) {
             if (gCurIsMenuLoc >= 0) glUniform1i(gCurIsMenuLoc, d.isMenu ? 1 : 0);
