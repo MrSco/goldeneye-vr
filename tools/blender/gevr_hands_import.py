@@ -21,6 +21,10 @@ Writes, into the output folder:
                     camera on those parts only (a close-up among the rest)
   <model>.blend     with --save, for opening in Blender by hand
 
+Textures: when build/handmodels/tex holds PNGs from tools/gevr_tex_decode.py,
+materials use them and the renders are textured; otherwise one flat colour
+per texture number.
+
 All output is ROM-derived and stays under build/.
 """
 
@@ -34,6 +38,7 @@ import bpy
 from mathutils import Vector
 
 WELD = 0.5  # model units; the N64 duplicates seam vertices at identical positions
+TEXDIR = None  # build/handmodels/tex: PNGs from tools/gevr_tex_decode.py, when present
 
 
 def args():
@@ -75,6 +80,15 @@ def material_for(tex, cache):
     name = "tex_%x" % tex if tex is not None else "tex_none"
     m = bpy.data.materials.new(name)
     m.diffuse_color = texture_colour(tex)
+    png = os.path.join(TEXDIR, "0x%03x.png" % tex) if TEXDIR and tex is not None else None
+    if png and os.path.exists(png):
+        m.use_nodes = True
+        nt = m.node_tree
+        img = nt.nodes.new("ShaderNodeTexImage")
+        img.image = bpy.data.images.load(png)
+        img.interpolation = "Closest"
+        nt.links.new(img.outputs["Color"], nt.nodes["Principled BSDF"].inputs["Base Color"])
+        nt.nodes.active = img
     cache[tex] = m
     return m
 
@@ -186,11 +200,17 @@ def red_tubes(ob, info, radius):
     return o
 
 
-def render_views(objs, out, tag):
+def render_views(objs, out, tag, hide=()):
+    """Render objs (and whatever else is visible) from eight sides, framed on objs."""
+    for o in hide:
+        o.hide_render = True
+        for t in bpy.data.objects:
+            if t.name == o.name + "_holes":
+                t.hide_render = True
     scene = bpy.context.scene
     scene.render.engine = "BLENDER_WORKBENCH"
     scene.display.shading.light = "STUDIO"
-    scene.display.shading.color_type = "MATERIAL"
+    scene.display.shading.color_type = "TEXTURE" if TEXDIR else "MATERIAL"
     scene.display.shading.show_backface_culling = False
     scene.display.shading.show_cavity = False
     scene.render.resolution_x = 640
@@ -234,7 +254,10 @@ def render_views(objs, out, tag):
 
 
 def main():
+    global TEXDIR
     src, out, show, frame, save = args()
+    tex = os.path.join(os.path.dirname(os.path.abspath(src)), "tex")
+    TEXDIR = tex if os.path.isdir(tex) else None
     os.makedirs(out, exist_ok=True)
     with open(src, encoding="utf-8") as f:
         model = json.load(f)
@@ -279,4 +302,5 @@ def main():
         bpy.ops.wm.save_as_mainfile(filepath=os.path.join(out, model["model"] + ".blend"))
 
 
-main()
+if __name__ == "__main__":
+    main()
