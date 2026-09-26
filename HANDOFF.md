@@ -4674,3 +4674,110 @@ Dark leftovers; remove unused assets and purge them from history.
     - taser DLs use 0x581-0x589, 0x394 and 0x17/0x18;
     - the body centre is x 1, y 79.5, z 57.5 model units.
 - User: "works good". Merged 2026-09-25.
+
+## 108. Redraw between game frames (#53, merged 2026-09-26)
+- The game draws at 60 Hz and the display runs at 72 or 90 Hz. The pump
+  (port/src/gevr_engine_shim.c) used to hand the compositor the last image
+  on in-between XR frames, and it turns that for head rotation only. Near
+  and moving things doubled ("reprojection ghosting"; the metrics showed no
+  stale frames).
+- Perfect Dark VR draws a game frame every XR frame. GoldenEye counts whole
+  60 Hz ticks; gepc-ref parked running it faster (docs/dev/UNLOCKED-FPS-PLAN.md).
+- 699bb99, f35996f:
+  - gfx_opengl.cpp keeps every eye-pass draw of a stereo game frame
+    (gevr_eye_keep).
+  - gfx_pc.cpp gfx_vr_redraw_frame redraws them on the pump's in-between
+    frames. The VS uReproj branch does
+    c = (x/P00, y/P11, -w) -> P * delta * c.
+  - The world moves by the head's move since the game frame
+    (vr_openxr.cpp gevrVrRedrawDelta, recorded vs this frame's views).
+  - What each controller holds moves by that controller's move
+    (gunfire.c gevrHandTag, VR_HAND_DRAW 0x565F0000 | ctrl+1;
+    gevrVrRedrawHandDelta: camera-time grip pose -> newest).
+  - The frame is submitted with its own views.
+  - The pump log counts redrawn frames ("(30 redrawn)" at 90 Hz).
+- be84c50: no depth range. gfx_opengl_set_depth_range's glDepthRange
+  fallback is null on GLES and crashed the first redraw. fast3d never sets
+  one here.
+- Measured: 90 fps held, GPU% 0.37 -> ~0.5. The first 20 s with the sniper
+  out went over budget at times.
+- User so far: ghosting "seems better, I guess"; controller tracking was
+  less smooth before f35996f (the gun stayed put in the world on redrawn
+  frames).
+- Test build also merges fix/40-scope-both-eyes:
+  - the lens shows to both eyes;
+  - near the face it turns toward the eyes, with its nearest edge kept
+    12 cm ahead (the compositor's near plane cut it);
+  - the lens shader and target are made on the first frame (stutter).
+- Stereo audit (user: are text, panels, models and decals in both eyes?):
+  - Eye pass: every draw is multiview (num_views 2), so both eyes. This
+    covers the world, the guns and hands, decals (the stencil band is per
+    view), the sky, and in-eye 2D text (the w = 1 HUD branch shifts it per
+    eye). The vignette, laser pointer and hub shaders are multiview too.
+  - The right-eye push (flat offsets, x + 1000) is only on inside HUD
+    captures, which draw into their own single targets. Every begin
+    flushes before it pushes and every end flushes before it pops.
+  - The HUD panels (H, R, P, L) and the scope lens are quad layers with
+    eyeVisibility BOTH. They stay up through in-between frames until the
+    next game frame.
+  - CPU culling: the trivial reject is widened to both eye frusta. The
+    back-face test keeps a triangle either eye sees the front of.
+  - Redraw: replays everything the eye pass drew into the eye buffers
+    except the captures (already layers) and the scope-only sight.
+    Decals replay with their band. Texture ids are recycled, not deleted,
+    and refilled only during the next game frame, which records again.
+    The pause hub never draws (VrIsPaused is never set). The 0x5652 menu
+    flag tag isn't emitted by GoldenEye.
+  - ad3a635: a capture's end restores the viewport, and the scissor to the
+    same box, with direct GL calls. The redraw kept fast3d's last scissor
+    for the draws after it (a room's, or the capture's own). It now
+    records the box GL actually has.
+
+## 109. Open-issue triage, fix branches to test (2026-09-25)
+Fix branches, each from main, built, pushed and not yet tested on the
+headset:
+- fix/51-credits: the credits crash.
+  - The Cuba setup's credits offset pointed into pad 39 after
+    gevr_setup.c's re-layout; the converter now emits a host copy.
+  - Null-text guard. gevr_level.txt "cuba" runs the ending.
+- fix/42-43-hud (#42, #43):
+  - The countdown timer goes on the H panel (it doubled at its own HUD
+    depth), and the bottom message lifts above it.
+  - The top dialogue sits 120 lines lower, as PD VR's top subtitles.
+- fix/48-duck-cover (#48): a physical duck lowers Bond's position for the
+  guards (PD VR bondmove.c); the camera adds only the rise.
+- fix/52-texpack-perf (#52):
+  - Pack uploads happen at frame start, outside the eye pass, about 4 MB a
+    frame.
+  - lastUse is stamped when a decode finishes.
+  - Anisotropy is 2x, and resets when a slot is reused.
+  - The decode thread runs at low priority.
+- fix/46-xenia-onscreen (#46): AI_IFImOnScreen needs the chr's room to be
+  inside the N64's far distance. The room walk records that
+  (bg.c s_gevrRoomN64); drawing keeps GEVR_FAR_EXTEND.
+- fix/31-watchlaser-arm (#31): no port watch arm while the right hand holds
+  the watch laser or the detonator (their models have the arms).
+- fix/24-hand-backface (#24): under VR_CULL_OFF a culled face draws 1e-4
+  NDC farther, so the fist's white back triangle loses to its skin twin.
+- fix/49-sky-fill (#49): the stereo sky fill below the horizon is a far
+  polygon through skyPortRenderPoly.
+  - It was w = 1, drawn as HUD: at HUD depth, and at 2/3 size because
+    VrIsTitleLegal is never cleared.
+  - May also be the Dam "sky moves" report (HANDOFF 106).
+
+Original behaviour, to answer rather than fix:
+- #44: GE guards have no ammo or reload.
+- #47: the deck's gaps are authored translucent, and vines draw over it
+  without depth. A VR-only depth pre-pass is possible if wanted.
+- #48 in part: guard sight and damage walk floor tiles and props only.
+
+Not started: #50, #35, #23, #29, #30, #32, #9. #18 waits on the
+reporter's screenshot.
+
+Latent, noted by the agents:
+- VrIsTitleLegal is never cleared (every w = 1 draw gets w = 1.5).
+  Clearing it would rescale all HUD captures; needs its own audit.
+- gfx_pc.cpp use_alpha treats G_RM_AA_ZB_OPA_TERR (ALPHA_CVG_SEL, no
+  FORCE_BL) as blended.
+- The worktree ../gevr-wt builds main-based branches beside the main
+  checkout (keystore.properties and local.properties copied in).
