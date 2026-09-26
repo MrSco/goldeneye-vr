@@ -1519,9 +1519,14 @@ static void gevrWatchAimAxis(const f32 up[3], f32 back[3])
     }
 }
 
-s32 gevrStereoWatchPoint(f32 out[3])
+/*
+ * The watch face on the tracked arm, view space: its centre, and the wrist
+ * frame (x toward the fingers, y out of the face, z the thumb side). The same
+ * frame as the watch arm's: z is taken before the left-handed flip of y.
+ */
+static s32 gevrWatchFaceFrame(f32 o[3], f32 x[3], f32 y[3], f32 z[3])
 {
-    f32 pos[3], right[3], up[3], back[3], x[3], y[3], z[3];
+    f32 pos[3], right[3], up[3], back[3];
     f32 unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
     s32 i;
 
@@ -1529,7 +1534,6 @@ s32 gevrStereoWatchPoint(f32 out[3])
     {
         return FALSE;
     }
-    /* the same frame as the watch arm's: z is taken before the left-handed flip of y */
     for (i = 0; i < 3; i++)
     {
         x[i] = -back[i];
@@ -1547,12 +1551,28 @@ s32 gevrStereoWatchPoint(f32 out[3])
     }
     for (i = 0; i < 3; i++)
     {
-        out[i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * unit;
+        o[i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * unit;
         if (s_gevrWatchFaceKnown)
         {
-            out[i] += (s_gevrWatchFaceCm[0] * x[i] + s_gevrWatchFaceCm[1] * y[i]
-                       + (s_gevrWatchFaceCm[2] - GEVR_WATCH_EDGE_CM) * z[i]) * unit;
+            o[i] += (s_gevrWatchFaceCm[0] * x[i] + s_gevrWatchFaceCm[1] * y[i] + s_gevrWatchFaceCm[2] * z[i]) * unit;
         }
+    }
+    return TRUE;
+}
+
+s32 gevrStereoWatchPoint(f32 out[3])
+{
+    f32 o[3], x[3], y[3], z[3];
+    f32 unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    s32 i;
+
+    if (!gevrWatchFaceFrame(o, x, y, z))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = o[i] - GEVR_WATCH_EDGE_CM * z[i] * unit;
     }
     return TRUE;
 }
@@ -1563,24 +1583,30 @@ s32 gevrStereoWatchPoint(f32 out[3])
  * gunfire.c gunTickGameplay drops the trigger otherwise. "At" is the watch
  * face within GEVR_WATCH_PRESS_CM of the hand, taken as the line from the
  * controller's grip to GEVR_WATCH_REACH_CM along the fingers. Real
- * centimetres: the tiny/big guns cheat does not change the reach. Once
- * firing, the hand may drift to GEVR_WATCH_KEEP_CM: at one edge a held beam
- * cut in and out (log: 9.6 fires, 10.3 held, back and forth).
+ * centimetres: the tiny/big guns cheat does not change the reach. Once at
+ * the watch, the hand may drift to GEVR_WATCH_KEEP_CM: at one edge a held
+ * beam cut in and out (log: 9.6 fires, 10.3 held, back and forth). Kept each
+ * tick while a watch item is out, so the gripping hand (gunfire.c
+ * gevrRenderWatchGripHand) shows exactly when a pull would fire (user: a
+ * visual sign that firing is possible).
  */
 #define GEVR_WATCH_PRESS_CM 10.0f
 #define GEVR_WATCH_KEEP_CM 14.0f
 #define GEVR_WATCH_REACH_CM 10.0f
 
-s32 gevrStereoHandAtWatch(f32 *cmOut)
+static s32 s_gevrWatchGrip;
+
+/* gunfire.c gunTickGameplay, each tick: held is whether a watch item is out */
+s32 gevrStereoWatchGripUpdate(s32 held, f32 *cmOut)
 {
-    static s32 s_at;
     f32 watch[3], pos[3], right[3], up[3], back[3], seg[3], d[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 len2, t, dist;
     s32 i;
 
-    if (cm < 1e-6f || !gevrStereoWatchPoint(watch) || !gevrGripAxes(1, pos, right, up, back))
+    if (!held || cm < 1e-6f || !gevrStereoWatchPoint(watch) || !gevrGripAxes(1, pos, right, up, back))
     {
+        s_gevrWatchGrip = FALSE;
         return FALSE;
     }
     for (i = 0; i < 3; i++)
@@ -1601,18 +1627,103 @@ s32 gevrStereoHandAtWatch(f32 *cmOut)
     {
         *cmOut = dist;
     }
-    {
-        /* asked only while the trigger is down: a new pull starts from the press distance */
-        static s32 s_lastTimer;
+    s_gevrWatchGrip = dist < (s_gevrWatchGrip ? GEVR_WATCH_KEEP_CM : GEVR_WATCH_PRESS_CM);
+    return s_gevrWatchGrip;
+}
 
-        if (g_GlobalTimer - s_lastTimer > 2)
+s32 gevrStereoWatchGrip(void)
+{
+    return g_gevrStereo && s_gevrWatchGrip;
+}
+
+/*
+ * The gripping right hand of the watch laser's own viewmodel (gunfire.c
+ * gevrRenderWatchGripHand), placed so that the model's watch face lies on the
+ * tracked arm's: its hand then holds the wrist as Bond's does. The model's
+ * frame, measured from the ROM (GwatchlaserZ; GtriggerZ is the same model):
+ * the face is DL 0x300's dial 0x648 and bezel 0x5e0 (area-weighted centre
+ * and normal), the fingers' way is toward its left fist's skin (0x702-0x706)
+ * in the face's plane. Drawn at the viewmodel's size, as the fist is.
+ * files/gevr_watchhand.txt "dx dy dz rx ry rz scale" trims it in the wrist
+ * frame (cm along x fingers, y face, z thumb; degrees about them), re-read
+ * every couple of seconds while it exists.
+ */
+static const f32 s_gevrLaserFace[3] = { -2.89f, 80.96f, 81.51f };
+static const f32 s_gevrLaserNormal[3] = { 0.0062f, 0.8650f, -0.5017f };
+static const f32 s_gevrLaserToFist[3] = { -0.9095f, -0.2036f, -0.3623f };
+static f32 s_gevrWatchHandTrim[7] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+
+s32 gevrStereoWatchHandMatrix(Mtxf *out)
+{
+    f32 o[3], x[3], y[3], z[3], lz[3], bx[3], by[3], bz[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 s;
+    const f32 *lx = s_gevrLaserToFist, *ly = s_gevrLaserNormal;
+    Mtxf rot;
+    coord3d r;
+    s32 i, j;
+    static u32 tick;
+
+    if ((tick++ % 120) == 0)
+    {
+        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_watchhand.txt", "r");
+
+        if (f != NULL)
         {
-            s_at = FALSE;
+            f32 t[7];
+
+            if (fscanf(f, "%f %f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5], &t[6]) == 7)
+            {
+                for (i = 0; i < 7; i++)
+                {
+                    s_gevrWatchHandTrim[i] = t[i];
+                }
+                sysLogPrintf(LOG_NOTE, "stereo: watch hand trim %.1f %.1f %.1f cm, %.0f %.0f %.0f deg, x%.2f",
+                             t[0], t[1], t[2], t[3], t[4], t[5], t[6]);
+            }
+            fclose(f);
         }
-        s_lastTimer = g_GlobalTimer;
     }
-    s_at = dist < (s_at ? GEVR_WATCH_KEEP_CM : GEVR_WATCH_PRESS_CM);
-    return s_at;
+
+    if (!gevrWatchFaceFrame(o, x, y, z))
+    {
+        return FALSE;
+    }
+    s = GEVR_VIEWMODEL_CM * 0.1f * cm * gevrGunSizeFactor() * s_gevrWatchHandTrim[6];
+
+    /* the trim's turn, in the wrist frame: the frame's axes turned by it */
+    r.x = s_gevrWatchHandTrim[3] * (M_PI_F / 180.0f);
+    r.y = s_gevrWatchHandTrim[4] * (M_PI_F / 180.0f);
+    r.z = s_gevrWatchHandTrim[5] * (M_PI_F / 180.0f);
+    matrix_4x4_set_rotation_around_xyz(&r, &rot);
+    for (j = 0; j < 3; j++)
+    {
+        bx[j] = rot.m[0][0] * x[j] + rot.m[0][1] * y[j] + rot.m[0][2] * z[j];
+        by[j] = rot.m[1][0] * x[j] + rot.m[1][1] * y[j] + rot.m[1][2] * z[j];
+        bz[j] = rot.m[2][0] * x[j] + rot.m[2][1] * y[j] + rot.m[2][2] * z[j];
+        o[j] += (s_gevrWatchHandTrim[0] * x[j] + s_gevrWatchHandTrim[1] * y[j] + s_gevrWatchHandTrim[2] * z[j])
+                * cm * gevrGunSizeFactor();
+    }
+
+    /* model x toward the fist, y out of its face, z = x cross y: onto the wrist's */
+    lz[0] = lx[1] * ly[2] - lx[2] * ly[1];
+    lz[1] = lx[2] * ly[0] - lx[0] * ly[2];
+    lz[2] = lx[0] * ly[1] - lx[1] * ly[0];
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            out->m[i][j] = s * (lx[i] * bx[j] + ly[i] * by[j] + lz[i] * bz[j]);
+        }
+    }
+    for (j = 0; j < 3; j++)
+    {
+        out->m[3][j] = o[j] - (s_gevrLaserFace[0] * out->m[0][j] + s_gevrLaserFace[1] * out->m[1][j]
+                               + s_gevrLaserFace[2] * out->m[2][j]);
+    }
+    out->m[0][3] = out->m[1][3] = out->m[2][3] = 0.0f;
+    out->m[3][3] = 1.0f;
+    return TRUE;
 }
 
 /*
