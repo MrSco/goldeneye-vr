@@ -1969,6 +1969,8 @@ static s32 gevrTaserHandLoad(void)
 extern s32 gevrStereoItemNeedsFist(s32 item);
 extern s32 gevrStereoItemHand(s32 item);   /* bondview2.c: GEVR_ITEM_HAND_* */
 extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator (#31) */
+extern s32 gevrStereoWatchGrip(void);      /* bondview2.c: the gun hand is at the watch (#31) */
+extern s32 gevrStereoWatchHandMatrix(Mtxf *out);
 
 static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
 {
@@ -1991,6 +1993,10 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     if (g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0 && !gevrStereoWatchItem(item))
     {
         return gdl;     /* the game draws the weapon (with its hand) */
+    }
+    if (gevrStereoWatchItem(item) && gevrStereoWatchGrip())
+    {
+        return gdl;     /* the hand is holding the watch (gevrRenderWatchGripHand) */
     }
     switch (g_CurrentPlayer->hands[GUNRIGHT].weapon_action_state)
     {
@@ -2141,6 +2147,206 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
         gDPNoOpTag(gdl++, 0x56580001);
     }
     bondviewTransformManyPosToViewMatrix(s_gevrFistModel.render_pos, s_gevrFistHeader.numMatrices);
+    matrix_4x4_7F058C88();
+
+    return gdl;
+}
+
+/*
+ * Issue #31 (user): at the watch, the gun hand becomes the watch laser
+ * viewmodel's own right hand, gripping Bond's left wrist - the sign that a
+ * pull fires. A private copy of GwatchlaserZ (the detonator's GtriggerZ is
+ * the same model) with every display list but that hand's taken out. Its
+ * nine, in walk order, measured from the ROM: 0 the hand (DL 0x1c8), 1-6 the
+ * sleeves (one per outfit, switched), 7 the left fist and watch (0x300), 8
+ * the hand's pressing finger (0x330, on a joint of its own). Placed on the
+ * tracked arm by bondview2.c gevrStereoWatchHandMatrix.
+ */
+#define GEVR_WATCHHAND_BUFSIZE 0x48000
+#define GEVR_WATCHHAND_MODELSIZE 0x18000
+#define GEVR_WATCHHAND_DLS 9
+
+static u8 *s_gevrWatchHandBuf;
+static struct texpool s_gevrWatchHandPool;
+static ModelFileHeader s_gevrWatchHandHeader;
+static Model s_gevrWatchHandModel;
+static u32 s_gevrWatchHandRw[256];
+static s32 s_gevrWatchHandStage = -1;
+static s32 s_gevrWatchHandReady;
+
+/* the next node in walk order (child first, then the next, climbing back up) */
+static ModelNode *gevrNextNode(ModelNode *node)
+{
+    if (node->Child != NULL)
+    {
+        return node->Child;
+    }
+    while (node != NULL && node->Next == NULL)
+    {
+        node = node->Parent;
+    }
+    return node != NULL ? node->Next : NULL;
+}
+
+static s32 gevrWatchHandLoad(void)
+{
+    ModelFileHeader *tmpl;
+    s8 *name;
+    ModelNode *node;
+    s32 dls = 0;
+
+    if (s_gevrWatchHandReady && s_gevrWatchHandStage == bossGetStageNum())
+    {
+        return TRUE;
+    }
+    if (s_gevrWatchHandStage == bossGetStageNum() && s_gevrWatchHandStage != -1 && !s_gevrWatchHandReady)
+    {
+        return FALSE;   /* failed on this stage already */
+    }
+
+    s_gevrWatchHandReady = FALSE;
+    s_gevrWatchHandStage = bossGetStageNum();
+
+    tmpl = gitem_structs[ITEM_WATCHLASER].item_header;
+    name = (s8 *) gitem_structs[ITEM_WATCHLASER].item_file_name;
+    if (tmpl == NULL || name == NULL)
+    {
+        return FALSE;
+    }
+    if (s_gevrWatchHandBuf == NULL)
+    {
+        s_gevrWatchHandBuf = malloc(GEVR_WATCHHAND_BUFSIZE);
+        if (s_gevrWatchHandBuf == NULL)
+        {
+            return FALSE;
+        }
+    }
+
+    s_gevrWatchHandHeader = *tmpl;
+    texInitPool(&s_gevrWatchHandPool, s_gevrWatchHandBuf + GEVR_WATCHHAND_MODELSIZE,
+                GEVR_WATCHHAND_BUFSIZE - GEVR_WATCHHAND_MODELSIZE);
+    load_object_fill_header(&s_gevrWatchHandHeader, (u8 *)name, s_gevrWatchHandBuf, GEVR_WATCHHAND_MODELSIZE,
+                            &s_gevrWatchHandPool);
+    modelCalculateRwDataLen(&s_gevrWatchHandHeader);
+
+    if (s_gevrWatchHandHeader.RootNode == NULL
+        || (u32)s_gevrWatchHandHeader.numRecords > ARRAYCOUNT(s_gevrWatchHandRw))
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: watch hand model did not load (%d records)", s_gevrWatchHandHeader.numRecords);
+        return FALSE;
+    }
+
+    for (node = s_gevrWatchHandHeader.RootNode; node != NULL; node = gevrNextNode(node))
+    {
+        if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_DL)
+        {
+            dls++;
+        }
+    }
+    if (dls != GEVR_WATCHHAND_DLS)
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: watch hand model has %d display lists, not %d", dls, GEVR_WATCHHAND_DLS);
+        return FALSE;
+    }
+    dls = 0;
+    for (node = s_gevrWatchHandHeader.RootNode; node != NULL; node = gevrNextNode(node))
+    {
+        if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_DL)
+        {
+            if (dls != 0 && dls != GEVR_WATCHHAND_DLS - 1)
+            {
+                node->Data->DisplayList.Primary = NULL;
+                node->Data->DisplayList.Secondary = NULL;
+            }
+            dls++;
+        }
+    }
+
+    sysLogPrintf(LOG_NOTE, "stereo: watch hand loaded (%s, %d matrices)", name, s_gevrWatchHandHeader.numMatrices);
+    s_gevrWatchHandReady = TRUE;
+    return TRUE;
+}
+
+static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
+{
+    ModelRenderData renderdata;
+    Mtxf base;
+    Mtxf *rwmtx;
+    ModelNode *node;
+    s32 n, j;
+
+    if (!g_gevrStereo
+        || g_CurrentPlayer->bonddead
+        || g_CurrentPlayer->watch_animation_state != 0
+        || !gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT))
+        || !gevrStereoWatchGrip())
+    {
+        return gdl;
+    }
+    if (!gevrStereoWatchHandMatrix(&base) || !gevrWatchHandLoad())
+    {
+        return gdl;
+    }
+
+    /* every matrix the placement; a joint's, its offset from the root first
+     * (the root's own offset is not drawn, as for every viewmodel) */
+    n = s_gevrWatchHandHeader.numMatrices;
+    rwmtx = (Mtxf *) dynAllocate(n * ((s32) sizeof(Mtxf)));
+    for (j = 0; j < n; j++)
+    {
+        matrix_4x4_copy(&base, &rwmtx[j]);
+    }
+    for (node = s_gevrWatchHandHeader.RootNode; node != NULL; node = gevrNextNode(node))
+    {
+        if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_GROUP && node->Parent != NULL)
+        {
+            s32 idx = node->Data->Group.MatrixID0;
+            coord3d acc = { 0.0f, 0.0f, 0.0f };
+            ModelNode *up;
+
+            for (up = node; up != NULL && up->Parent != NULL; up = up->Parent)
+            {
+                if ((up->Opcode & 0xFF) == MODELNODE_OPCODE_GROUP)
+                {
+                    acc.x += up->Data->Group.Origin.x;
+                    acc.y += up->Data->Group.Origin.y;
+                    acc.z += up->Data->Group.Origin.z;
+                }
+            }
+            if (idx >= 0 && idx < n)
+            {
+                for (j = 0; j < 3; j++)
+                {
+                    rwmtx[idx].m[3][j] = acc.x * base.m[0][j] + acc.y * base.m[1][j] + acc.z * base.m[2][j] + base.m[3][j];
+                }
+            }
+        }
+    }
+
+    modelInit(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, (s32 *) s_gevrWatchHandRw);
+    s_gevrWatchHandModel.render_pos = (RenderPosView *) rwmtx;
+
+    renderdata = *templ;
+    renderdata.gdl = gdl;
+    renderdata.PropType = 4;
+    renderdata.envcolour.word = g_CurrentPlayer->tileColor.a
+                              | ((u32)g_CurrentPlayer->tileColor.r << 24)
+                              | ((u32)g_CurrentPlayer->tileColor.g << 16)
+                              | ((u32)g_CurrentPlayer->tileColor.b << 8);
+    renderdata.zbufferenabled = 1;
+
+    matrix_4x4_7F058C64();
+    if (gevrStereoMirrored())
+    {
+        gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
+    }
+    subdraw(&renderdata, &s_gevrWatchHandModel);
+    gdl = renderdata.gdl;
+    if (gevrStereoMirrored())
+    {
+        gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
+    }
+    bondviewTransformManyPosToViewMatrix(s_gevrWatchHandModel.render_pos, n);
     matrix_4x4_7F058C88();
 
     return gdl;
@@ -2383,6 +2589,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gdl = gevrRenderLeftArm(gdl, &renderdata);
         }
+        gdl = gevrRenderWatchGripHand(gdl, &renderdata);   /* #31: the gun hand holding the watch */
         gdl = gevrHandTag(gdl, -1);
     }
 #endif
@@ -5475,23 +5682,23 @@ void gunTickGameplay(s32 triggerOn)
     /*
      * Issue #31 (user): the watch laser and the detonator fire only with the
      * gun hand at the watch, as Bond's right hand presses it in their
-     * viewmodels (bondview2.c gevrStereoHandAtWatch).
+     * viewmodels (bondview2.c gevrStereoWatchGripUpdate). Kept every tick, not
+     * only while the trigger is down: the hand shows the grip whenever a pull
+     * would fire.
      */
-    if (g_gevrStereo && trigger_state.triggerOn[GUNRIGHT]
-        && gevrStereoWatchItem(getCurrentPlayerWeaponId(GUNRIGHT)))
     {
-        extern s32 gevrStereoHandAtWatch(f32 *cmOut);
+        extern s32 gevrStereoWatchGripUpdate(s32 held, f32 *cmOut);
         static s32 wasAt = -1;
+        s32 held = g_gevrStereo && gevrStereoWatchItem(getCurrentPlayerWeaponId(GUNRIGHT));
         f32 cm = 0.0f;
-        s32 at = gevrStereoHandAtWatch(&cm);
+        s32 at = gevrStereoWatchGripUpdate(held, &cm);
 
-        if (at != wasAt)
+        if (held && at != wasAt)
         {
-            sysLogPrintf(LOG_NOTE, "stereo: watch item trigger, hand %.1f cm from the watch: %s",
-                         cm, at ? "fires" : "held");
-            wasAt = at;
+            sysLogPrintf(LOG_NOTE, "stereo: watch grip %s, hand %.1f cm from the watch", at ? "on" : "off", cm);
         }
-        if (!at)
+        wasAt = held ? at : -1;
+        if (held && !at)
         {
             trigger_state.triggerOn[GUNRIGHT] = 0;
         }
