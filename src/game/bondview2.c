@@ -1728,20 +1728,10 @@ static s32 gevrTwoHandIsHandgun(s32 item)
     }
 }
 
-/* The palm of a hand in a gun viewmodel: the taser's centre in GtaserZ,
- * where #41 holds the grenade, in model units (0.085 cm each at normal size) */
-static const f32 s_gevrTwoHandPalm[3] = { 1.0f, 79.5f, 57.5f };
-
-/*
- * The point where the off hand holds nearest the off hand, and how far the
- * hand is from it (real cm). The barrel runs along the gun as drawn, to the
- * muzzle or GEVR_TWOHAND_BARREL_CM, from the trigger fist - the controller -
- * or, with drawn set, from the gun hand's palm as the model draws it: that is
- * about 7 cm behind the controller and up, and holding by the controller left
- * a gap between the hand and the pistol's grip (user). Taking hold measures
- * from the controller (the player's hands); drawing uses the model.
- */
-static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
+/* The point where the off hand holds nearest the off hand, and how far the
+ * hand is from it (real cm). The barrel runs from the trigger fist along the
+ * gun as drawn, to the muzzle or GEVR_TWOHAND_BARREL_CM. */
+static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm)
 {
     f32 gpos[3], right[3], up[3], back[3], ignore[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
@@ -1752,20 +1742,6 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     if (cm < 1e-6f || !gevrGripAxes(1, gpos, right, up, back) || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
     {
         return FALSE;
-    }
-    if (drawn)
-    {
-        Mtxf gm;
-
-        if (!gevrStereoGunMatrix(GUNRIGHT, &gm))
-        {
-            return FALSE;
-        }
-        for (i = 0; i < 3; i++)
-        {
-            gpos[i] = gm.m[3][i] + 0.1f * (s_gevrTwoHandPalm[0] * gm.m[0][i] + s_gevrTwoHandPalm[1] * gm.m[1][i]
-                                           + s_gevrTwoHandPalm[2] * gm.m[2][i]);
-        }
     }
     if (s_gevrMuzzleValid[GUNRIGHT])
     {
@@ -1811,7 +1787,7 @@ s32 gevrStereoTwoHandUpdate(void)
     if (!g_gevrStereo || gevrDualWielding() || !gevrStereoTwoHandItem(item)
         || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
         || g_CurrentPlayer->hands[GUNRIGHT].field_87F == 0
-        || !get_button_state(0, "grip") || !gevrTwoHandBarrel(opos, snap, &dist, FALSE))
+        || !get_button_state(0, "grip") || !gevrTwoHandBarrel(opos, snap, &dist))
     {
         s_gevrTwoHand = FALSE;
     }
@@ -1851,6 +1827,7 @@ s32 gevrStereoTwoHandGrip(void)
  * barrel). files/gevr_twohand.txt "class dx dy dz rx ry rz" (a line each)
  * overrides it while tuning in the headset, re-read every couple of seconds.
  */
+static const f32 s_gevrTwoHandPalm[3] = { 1.0f, 79.5f, 57.5f };
 static f32 s_gevrTwoHandTrim[2][6] = {
     { 0.0f, -2.0f, 1.0f, 0.0f, 0.0f, 0.0f },     /* handguns: under the gun hand */
     { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -25.0f },    /* long guns: rolled toward palm up (+30 turned it away: user) */
@@ -1892,7 +1869,7 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
         }
     }
 
-    if (!gevrStereoTwoHandGrip() || !gevrTwoHandBarrel(opos, snap, &dist, TRUE) || !gevrGripAxes(1, gpos, right, up, back))
+    if (!gevrStereoTwoHandGrip() || !gevrTwoHandBarrel(opos, snap, &dist) || !gevrGripAxes(1, gpos, right, up, back))
     {
         return FALSE;
     }
