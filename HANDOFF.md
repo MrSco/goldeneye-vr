@@ -4761,6 +4761,10 @@ headset:
 - fix/46-xenia-onscreen (#46): AI_IFImOnScreen needs the chr's room to be
   inside the N64's far distance. The room walk records that
   (bg.c s_gevrRoomN64); drawing keeps GEVR_FAR_EXTEND.
+  MERGED 2026-09-26 (user, warped to the bridge: "xenia triggered
+  properly"). Xenia is guard 361 on pad 567 (ai_1, list 0x402: line of
+  sight or on screen). The bridge runs about 1000 pad units west of her;
+  gevr_warp.txt "487" (guard 36's pad) lands near its head facing away.
 - fix/31-watchlaser-arm (#31): MERGED 2026-09-26 (user: "feels good").
   The first cut (no port watch arm) left the left arm untracked. What
   shipped, designed with the user in the headset:
@@ -4810,8 +4814,18 @@ headset:
 
 Original behaviour, to answer rather than fix:
 - #44: GE guards have no ammo or reload.
-- #47: the deck's gaps are authored translucent, and vines draw over it
-  without depth. A VR-only depth pre-pass is possible if wanted.
+- #47: CONFIRMED ORIGINAL 2026-09-26 (user found N64 footage with the same
+  see-through planks). Measured in the headset (probes on branch
+  fix/47-bridge, not merged):
+  - The plank textures are 1-bit alpha (CI, RGBA16 palette): solid wood,
+    clear gaps, pack or not.
+  - The bridge is one object model (combiner (TEXEL0 - ENV) * PRIM_A +
+    ENV, alpha TEXEL0 * ENV), drawn at env alpha 123. That is the
+    object's distance fade (propobj.c chrobjFogVisRangeRelated, from its
+    origin's depth), on the N64 too. The port's GEVR_FAR prop range only
+    makes it more opaque. The vines show through the half-opaque deck.
+  - The earlier "planks authored translucent" reading was wrong: it is the
+    whole-object fade, not the texture.
 - #48 in part: guard sight and damage walk floor tiles and props only.
   - The shot lands when stanTestLineUnobstructed walks connected tiles
     from the gun to Bond's own tile (chraction.c chrlvAttackRelated7F0292A8,

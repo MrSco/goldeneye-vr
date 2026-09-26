@@ -13372,6 +13372,31 @@ bool sub_GAME_7F054C58(coord3d *coord, f32 arg1)
 /**
  * Address: 7F054D6C
  */
+#ifdef GEVR
+/*
+ * Issue #46: posIsOnScreen's room test at the N64's far distance (bg.c
+ * gevrRoomIsRenderedN64): the prop's first drawn room is one the N64 would
+ * have drawn too. For the AI's "am I on screen" (chrai.c AI_IFImOnScreen).
+ */
+extern s32 gevrRoomIsRenderedN64(s32 roomID);
+
+bool gevrPropRoomOnScreenN64(PropRecord *prop)
+{
+    s32 room_ids[8];
+    s32 *r;
+
+    chraiGetPropRoomIds(prop, room_ids);
+    for (r = room_ids; *r >= 0; r++)
+    {
+        if (getROOMID_isRendered(*r) != 0)
+        {
+            return gevrRoomIsRenderedN64(*r) != 0;
+        }
+    }
+    return FALSE;
+}
+#endif
+
 bool posIsOnScreen(PropRecord *prop, coord3d *pos, f32 arg2, bool arg3)
 {
     s32 room_ids[8];

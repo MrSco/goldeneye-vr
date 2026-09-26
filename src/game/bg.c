@@ -439,6 +439,26 @@ next_entry:
 }
 
 
+#ifdef GEVR
+/*
+ * Issue #46: the rooms (and portals) the N64's own far distance reaches.
+ * GEVR_FAR_EXTEND draws rooms 3.3x further; the AI's "am I on screen"
+ * (chrai.c AI_IFImOnScreen) still asks the N64's question, or a guard set to
+ * wake when he's first seen - Jungle's Xenia, meant to wake as Bond steps on
+ * the bridge - woke some 50 m early. The portal walk carries each room's
+ * state from the room it was reached from (sub_GAME_7F0B7F84).
+ */
+static u8 s_gevrRoomN64[MAXROOMCOUNT];
+static u8 s_gevrPortalN64[PORTMAX];
+static s32 s_gevrHitN64;         /* the last far test had a point inside the N64 far */
+static s32 s_gevrPathN64 = 1;    /* the room being added was reached inside it */
+
+s32 gevrRoomIsRenderedN64(s32 roomID)
+{
+    return roomID >= 0 && roomID < MAXROOMCOUNT && g_BgRoomInfo[roomID].room_rendered && s_gevrRoomN64[roomID];
+}
+#endif
+
 /**
  * Address 0x7F0B39BC.
  *
@@ -449,6 +469,13 @@ s32 sub_GAME_7F0B39BC(int curroom,int unk1, bbox2d * screensize, s32 next)
     int temp;
 
     g_BgRoomInfo[curroom].room_rendered = '\x01';
+#ifdef GEVR
+    if (s_gevrPathN64)
+    {
+        s_gevrRoomN64[curroom] = 1;
+    }
+    s_gevrPathN64 = 1;
+#endif
 
     if (g_BgRoomInfo[curroom].room_loaded_mask != '\0') {
         return 0;
@@ -1471,6 +1498,8 @@ bool bgIsRoomOnScreen(s32 roomID, struct rectbbox *screenbox)
 
     zrange[1] = zrange[1] / mCurrentLevelVisibilityScale;
 #ifdef GEVR
+    const f32 farN64 = zrange[1];   /* issue #46 */
+    s32 count_zN64 = 0;
     zrange[1] *= GEVR_FAR_EXTEND;
 #endif
 
@@ -1497,6 +1526,11 @@ bool bgIsRoomOnScreen(s32 roomID, struct rectbbox *screenbox)
             if (zrange[1] <= -projected.z) {
                 count_z++;
             }
+#ifdef GEVR
+            if (farN64 <= -projected.z) {
+                count_zN64++;
+            }
+#endif
 
             if (screenbox->left <= projected.x) {
                 count_left++;
@@ -1519,6 +1553,11 @@ bool bgIsRoomOnScreen(s32 roomID, struct rectbbox *screenbox)
             if (zrange[1] <= -projected.z) {
                 count_z++;
             }
+#ifdef GEVR
+            if (farN64 <= -projected.z) {
+                count_zN64++;
+            }
+#endif
 
             if (projected.x <= screenbox->left) {
                 count_left++;
@@ -1546,6 +1585,9 @@ bool bgIsRoomOnScreen(s32 roomID, struct rectbbox *screenbox)
             || count_bottom == 8) {
         return FALSE;
     }
+#ifdef GEVR
+    s_gevrHitN64 = count_zN64 != 8;
+#endif
 
     return TRUE;
 }
@@ -1594,6 +1636,7 @@ s32 sub_GAME_7F0B5528(s32 portalnum, f32 arg1, coord3d *arg2)
     viGetZRange(zrange);
     zrange[1] /= mCurrentLevelVisibilityScale;
 #ifdef GEVR
+    const f32 farN64 = zrange[1];   /* issue #46 */
     zrange[1] *= GEVR_FAR_EXTEND;
 #endif
 
@@ -1622,6 +1665,11 @@ s32 sub_GAME_7F0B5528(s32 portalnum, f32 arg1, coord3d *arg2)
         if (-zrange[1] * 0.9f < point->z) {
             allbehind = 0;
         }
+#ifdef GEVR
+        if (-farN64 * 0.9f < point->z) {
+            s_gevrHitN64 = 1;
+        }
+#endif
     }
 
     if (allbehind) {
@@ -1674,12 +1722,18 @@ s32 sub_GAME_7F0B5864(s32 portalnum, bbox2d *bbox)
     }
 
     scale = sub_GAME_7F0B9990(portalnum);
+#ifdef GEVR
+    s_gevrHitN64 = 0;
+#endif
     pointcount = sub_GAME_7F0B5528(portalnum, scale, points);
 
     if (scale > 0.0f)
     {
         pointcount += sub_GAME_7F0B5528(portalnum, -scale, &points[pointcount]);
     }
+#ifdef GEVR
+    s_gevrPortalN64[portalnum] = s_gevrHitN64;
+#endif
 
     onscreencount = 0;
     i = 0;
@@ -4019,6 +4073,9 @@ s32 sub_GAME_7F0B7F84(s32 value, s32 roomnum, s32 portalnum /*canonically p*/, s
      * faults. Keep the slot in its own pointer; i stays the counter.
      */
     u8 *portalDepthSlot = &D_800442FC[portalnum];
+#ifdef GEVR
+    s32 gevrN64 = s_gevrRoomN64[roomnum];   /* issue #46: reached inside the N64's far */
+#endif
 
     if (portalDepthSlot);
  
@@ -4061,6 +4118,9 @@ s32 sub_GAME_7F0B7F84(s32 value, s32 roomnum, s32 portalnum /*canonically p*/, s
             {
                 return value;
             }
+#ifdef GEVR
+            gevrN64 = gevrN64 && s_gevrPortalN64[portalnum];
+#endif
  
             otherroom = (g_BgPortals[portalnum].connectedRoom1 ^ g_BgPortals[portalnum].connectedRoom2) ^ roomnum;
  
@@ -4068,6 +4128,9 @@ s32 sub_GAME_7F0B7F84(s32 value, s32 roomnum, s32 portalnum /*canonically p*/, s
             {
                 return value;
             }
+#ifdef GEVR
+            gevrN64 = gevrN64 && s_gevrHitN64;
+#endif
  
             screenbox.f[0][0] = g_CurrentPlayer->screensize.f[0][0];
             screenbox.f[0][1] = g_CurrentPlayer->screensize.f[0][1];
@@ -4080,6 +4143,9 @@ s32 sub_GAME_7F0B7F84(s32 value, s32 roomnum, s32 portalnum /*canonically p*/, s
             {
                 return value;
             }
+#ifdef GEVR
+            gevrN64 = gevrN64 && s_gevrPortalN64[portalnum];
+#endif
  
             bgRectIntersect(&screenbox, parentbox);
             bgRectIntersect(&screenbox, &g_CurrentPlayer->screensize);
@@ -4095,6 +4161,9 @@ s32 sub_GAME_7F0B7F84(s32 value, s32 roomnum, s32 portalnum /*canonically p*/, s
  
     if ((screenbox.min.x < screenbox.max.x) && (screenbox.min.y < screenbox.max.y))
     {
+#ifdef GEVR
+        s_gevrPathN64 = gevrN64;
+#endif
         if (sub_GAME_7F0B39BC(otherroom, depth, &screenbox, g_BgPortals[portalnum].controlbytes1 & PORTALFLAG_SPECIAL))
         {
             return value;
@@ -4512,6 +4581,9 @@ void bgDetermineVisibleRooms(void)
         g_BgRoomInfo[i].room_rendered = 0;
         g_BgRoomInfo[i].room_neighbor_to_rendered = 0;
         g_BgRoomInfo[i].room_loaded_mask = 0;
+#ifdef GEVR
+        s_gevrRoomN64[i] = 0;
+#endif
     }
 
     for (i = 0; i < PORTMAX; i++) 
@@ -4549,6 +4621,9 @@ void bgDetermineVisibleRooms(void)
         {
             if (bgIsRoomOnScreen(var_s0, &g_CurrentPlayer->screensize) != 0) 
             {
+#ifdef GEVR
+                s_gevrPathN64 = s_gevrHitN64;   /* no portals: the room's own far test */
+#endif
                 sub_GAME_7F0B39BC(var_s0, 0, &g_CurrentPlayer->screensize, 1);
             }
         }
