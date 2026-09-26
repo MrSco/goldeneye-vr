@@ -4958,3 +4958,42 @@ Latent, noted by the agents:
   running. The user could not see anything wrong, then or now. Remaining
   idea, unproven: a chr teleported while off-screen and then in magic-mode
   gopos keeps a stale manground until it is next updated normally.
+
+## 112. #9 hand shells, Phase 0: export, Blender, hole survey (2026-09-26)
+Branch feature/9-hand-shells. The user asked to patch the hand and arm models'
+missing walls with Blender. Plan: ship only our own new triangles (existing
+ROM vertices referenced by node and index, new points authored), merged in at
+model load behind a fingerprint check; no ROM bytes in the repo. No reference
+port has done this (GEVR PC parks its ghost fingers, PD VR hides fist bones).
+- tools/gevr_model_export.py: walks a model file (gevr_model_probe's walk)
+  and runs every DL through a small F3D interpreter (G_MTX seg 3, G_VTX seg 5,
+  G_TRI1 /10, Rare's G_TRI4, the 0xC0 texture marker, G_TEXTURE scale).
+  JSON to build/handmodels/ (gitignored: ROM-derived). Each vertex keeps
+  node / idx / mtx. Counts come from MODELFILEHEADER (NUMTEXTURES is the 8th
+  argument, not the 5th - the probe's docstring example is easy to misread).
+- tools/blender/gevr_hands_import.py (Blender 5.2, headless): one object per
+  DL node, seam vertices welded, boundary loops to holes.json, Workbench
+  renders from 8 sides with boundary edges as red tubes; --frame for a
+  close-up, --save for a .blend. Run with absolute paths: a relative render
+  path lands nowhere.
+- Csuit_lf_handZ (the left watch arm) is rigid: every DL is under matrix 0
+  (the hand group at the end of a 5-group chain). Parts: hand 0x1c0 (338
+  tris), sleeves on switches 4-9 (one per outfit; 5/6/7 share a mesh), watch
+  0x2f8 (370), face 0x328 (switch 3), watch hands 0x358/0x388/0x3b8.
+- Holes found:
+  - Hand: palm and the underside of every finger are one 49-edge loop (the
+    fingers are open half-tubes); three 9-edge loops more. The 8-edge wrist
+    ring is shared exactly with the sleeve's cuff, so it closes in assembly.
+  - Sleeve: open elbow end (octagon); the jacket cuff edge has no thickness,
+    an open ring between it and the shirt cuff.
+  - Watch: the band covers the top of the wrist only (no back half), and the
+    case has no back. The other ~30 loops on the watch are layered trim and
+    dial marks (overlays, not holes).
+- Hands in gun models (survey of all G*Z): rifles have none. 12 models carry
+  a hand (textures 0x701-0x706), in 4-10 parts each. The PPK family (wppk,
+  wppksil, gold, silver) share one hand, knife/throwknife share one; with the
+  fist, golden gun, ruger, tt33, taser, watchlaser and the watch arm that is 9
+  unique hands to patch.
+- Not done: texture decode (renders are flat colour per texture id). Needed
+  to pick palm UVs in Phase 1: port image.c's texInflateZlib path, or take a
+  gevr_texdump from the headset with the watch up.
