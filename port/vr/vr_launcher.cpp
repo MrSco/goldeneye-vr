@@ -1049,6 +1049,14 @@ extern "C" void gevrLauncherRun(void)
                 if (ImGui::Checkbox("Left-handed", &lefty)) {
                     VrLeftHandedMode = lefty ? 1 : 0;
                 }
+                // Issue #6 (a left-handed player's request): move with the
+                // other stick, its click (crouch) with it. SwapJoysticks, as
+                // PD VR names it, swaps whichever way the hand setting has them.
+                ImGui::SameLine();
+                bool swap = VrSwapJoysticks != 0;
+                if (ImGui::Checkbox(lefty ? "Move with left stick###swapsticks" : "Move with right stick###swapsticks", &swap)) {
+                    VrSwapJoysticks = swap ? 1 : 0;
+                }
                 // Troubleshooting readout in game: fps, refresh rate, resolution, build.
                 bool stats = VrShowStats != 0;
                 if (ImGui::Checkbox("Show stats", &stats)) {
