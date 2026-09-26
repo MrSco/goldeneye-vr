@@ -1091,6 +1091,17 @@ extern "C" void gevrLauncherRun(void)
             char label[48];
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
+            // Gun fit (user): the gun's place in the hand, set live in the next
+            // level (port/src/input.c). On this row: the page has no line to
+            // spare, and beside "Mods... (HD textures on)" it would not fit.
+            ImGui::SameLine();
+            if (ImGui::Button(VrGunFitArmed ? "Gun fit: on" : "Gun fit...")) {
+                VrGunFitArmed = !VrGunFitArmed;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
+                                  "the gun on your hand. A keeps it, B puts it back.");
+            }
 
             // Update line: only when there is something to say, so an
             // up-to-date launcher looks as it always has.
