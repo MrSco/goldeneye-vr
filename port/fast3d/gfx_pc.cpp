@@ -699,6 +699,33 @@ static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads, s_gevrTcRe
 #include <unordered_set>
 static std::unordered_set<uint64_t> s_gevrTcEvicted;
 /*
+ * Issue #52: a CI texture's cache key hashes the palette, which keeps one
+ * source with a palette rebuilt in place apart. fast3d hashed all 256 TMEM
+ * palette entries, and a 16- or 64-colour palette leaves the rest holding
+ * whatever earlier draws loaded: the same texture, same palette at the same
+ * address, got a new key whenever the draw order changed. On Surface with a
+ * texture pack that was ~150 loads a second (logged), each a pack upload - the
+ * stutter, and in the deferred-upload build the native texture flashing in
+ * for a frame ("HD flipping back to low res"). Only the entries the texture
+ * can use are hashed: a CI4 texture's 16-entry bank, and for CI8 those the
+ * last palette load from entry 0 filled.
+ */
+static uint32_t s_gevrTlutEnd = 256;
+
+static uint32_t gevr_palette_key_hash(uint8_t siz, uint8_t palette_index) {
+    uint32_t lo = 0, n = s_gevrTlutEnd ? s_gevrTlutEnd : 256;
+    if (siz == G_IM_SIZ_4b) {
+        lo = (uint32_t)(palette_index & 15) * 16;
+        n = 16;
+    }
+    uint32_t h = 2166136261u;
+    for (uint32_t k = lo; k < lo + n && k < 256; ++k) {
+        h = (h ^ rdp.palette[k]) * 16777619u;
+    }
+    return h;
+}
+
+/*
  * A load of a key never seen evicted: where its texture and palette live -
  * inside the game's texture pool (image.c, stable for the level) or not -
  * with a few examples each 5 s, to find what keeps making new keys.
@@ -1719,7 +1746,11 @@ static void import_texture(int i, int tile, bool is_rect) {
                 ? loaded_texture.full_image_line_size_bytes : rdp.texture_tile[tile].line_size_bytes;
         key.swizzled = loaded_texture.tmem_swizzled;
         if (fmt == G_IM_FMT_CI) {
+#ifdef GEVR
+            key.palette_hash = gevr_palette_key_hash(siz, palette_index);
+#else
             key.palette_hash = rdp.palette_hash;
+#endif
             key.palette_fmt = rdp.palette_fmt;
         }
     }
@@ -3019,6 +3050,11 @@ static void load_tlut(const uint16_t* base, uint8_t tile, uint32_t count) {
     for (uint16_t entry : rdp.palette) {
         rdp.palette_hash = (rdp.palette_hash ^ entry) * 16777619u;
     }
+#ifdef GEVR
+    if (palofs == 0) {
+        s_gevrTlutEnd = count < 256 ? count : 256;   /* a CI8 palette's own entries (gevr_palette_key_hash) */
+    }
+#endif
 
 	rdp.textures_changed[0] = rdp.textures_changed[1] = true;
 }
