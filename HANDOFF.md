@@ -4655,7 +4655,7 @@ Dark leftovers; remove unused assets and purge them from history.
     (skyClamp pins it to the central screen rectangle), and
   - the straight-up case (all four corners in the sky).
 
-## 107. Grenade in the taser's hand (#41, branch fix/41-grenade-hand)
+## 107. Grenade in the taser's hand (#41, merged 2026-09-25)
 - The grenade sat in the open fist (the karate-chop hand). The issue asked
   for the taser viewmodel's hand, which is curled round its grip.
 - 1cf9c8c:
@@ -4673,4 +4673,4 @@ Dark leftovers; remove unused assets and purge them from history.
     - hand DLs use textures 0x701-0x706, shared with GfistZ;
     - taser DLs use 0x581-0x589, 0x394 and 0x17/0x18;
     - the body centre is x 1, y 79.5, z 57.5 model units.
-- User: "works good". Awaiting "merge".
+- User: "works good". Merged 2026-09-25.
