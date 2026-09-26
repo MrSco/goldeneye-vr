@@ -4747,6 +4747,8 @@ headset:
   - The top dialogue sits 120 lines lower, as PD VR's top subtitles.
 - fix/48-duck-cover (#48): a physical duck lowers Bond's position for the
   guards (PD VR bondmove.c); the camera adds only the rise.
+  MERGED 2026-09-26 (user: view moves as before, guards miss more when
+  ducked; tested with main merged in).
 - fix/52-texpack-perf (#52):
   - Pack uploads happen at frame start, outside the eye pass, about 4 MB a
     frame.
@@ -4772,6 +4774,19 @@ Original behaviour, to answer rather than fix:
 - #47: the deck's gaps are authored translucent, and vines draw over it
   without depth. A VR-only depth pre-pass is possible if wanted.
 - #48 in part: guard sight and damage walk floor tiles and props only.
+  - The shot lands when stanTestLineUnobstructed walks connected tiles
+    from the gun to Bond's own tile (chraction.c chrlvAttackRelated7F0292A8,
+    then the stan trace in the fire path). No BG ray test, unlike the
+    player's bullets (chrprop.c bgTestBulletHitBackground).
+  - A wall between separate floor areas blocks (no tile link). Tiles
+    linked across a height change (ledges, rock ridges) and glass the AI
+    sees through don't. gepc-ref's reference agrees: walls, low barriers
+    and railings block; crates don't.
+  - Head walking moves Bond through the walk collision; the view never
+    leaves the body. So no VR cause was found.
+  - The user chose to keep the original: no 3D wall test for guard shots.
+  - Not #32: that is the player's BG ray test (bullet impacts). Guard
+    rockets and grenade rounds are projectiles and do use it.
 
 Not started: #50, #35, #23, #29, #30, #32, #9. #18 waits on the
 reporter's screenshot.
