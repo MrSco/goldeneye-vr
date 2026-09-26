@@ -10770,6 +10770,12 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
             if ((u32) credits_pointer[i].TextId1 != 0x5011)
             {
                 text = langGet(credits_pointer[i].TextId1);
+#ifdef GEVR
+                if (text == NULL)
+                {
+                    text = "";   /* a missing string can't stop the credits (issue #51) */
+                }
+#endif
 
                 if (credits_pointer[i].Position1 >= 0)
                 {
@@ -10814,6 +10820,12 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
             if (credits_pointer[i].TextId2 != 0x5011)
             {
                 text = langGet(credits_pointer[i].TextId2);
+#ifdef GEVR
+                if (text == NULL)
+                {
+                    text = "";
+                }
+#endif
 
                 if (credits_pointer[i].Position2 >= 0)
                 {
