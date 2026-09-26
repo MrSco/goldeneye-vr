@@ -80,6 +80,13 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "GunOffX=%.4f\n", VrGunOffX);
     fprintf(f, "GunOffY=%.4f\n", VrGunOffY);
     fprintf(f, "GunOffZ=%.4f\n", VrGunOffZ);
+    fprintf(f, "; The holding hand of a two-handed hold (issue #35), set with Gun fit while\n");
+    fprintf(f, "; holding a gun with both hands: cm outward, up, forward, then degrees of turn\n");
+    fprintf(f, "; about the hand's X, Y, Z. GripPistol for handguns, GripRifle for long guns.\n");
+    fprintf(f, "GripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGripTrim[0][0], VrGripTrim[0][1],
+            VrGripTrim[0][2], VrGripTrim[0][3], VrGripTrim[0][4], VrGripTrim[0][5]);
+    fprintf(f, "GripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGripTrim[1][0], VrGripTrim[1][1],
+            VrGripTrim[1][2], VrGripTrim[1][3], VrGripTrim[1][4], VrGripTrim[1][5]);
     fprintf(f, "\n");
     fprintf(f, "; 0..1. How tightly the elbows are pulled in toward your body. 0 leaves them at the\n");
     fprintf(f, "; animation's rest pose (they splay outward), 1 pins them hard against the torso.\n");
@@ -114,6 +121,14 @@ extern "C" void vrSettingsLoad(void)
     bool gunOffRead = false;
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '[' || line[0] == '\n' || line[0] == ';' || line[0] == '#') continue;
+        if (strncmp(line, "GripPistol=", 11) == 0 || strncmp(line, "GripRifle=", 10) == 0) {
+            const int cls = line[4] == 'P' ? 0 : 1;
+            float t[6];
+            if (sscanf(strchr(line, '=') + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 6) {
+                for (int i = 0; i < 6; i++) VrGripTrim[cls][i] = t[i];
+            }
+            continue;
+        }
         if (strncmp(line, "Cheats=", 7) == 0) {        // hex bitmask of CHEAT_IDS
             VrCheatMask = strtoull(line + 7, NULL, 16);
             continue;
