@@ -1815,10 +1815,10 @@ s32 gevrStereoTwoHandGrip(void)
 
 /*
  * The holding hand's model matrix. gunfire.c gevrRenderLeftArm hands over the
- * gun hand's own (gevrStereoGunMatrix(GUNRIGHT), mirrored into the other hand
- * and at the model's scale): the gripping hand then takes the gun in the gun's
- * frame, not the controller's (user: it should cup the bottom of the gun).
- * This turns it by the trim, then moves it so its palm - the taser's centre in
+ * off hand's (gevrStereoGunMatrix(GUNLEFT), mirrored into a left hand and at
+ * the model's scale), so the hand turns as the player's does. (Taken from the
+ * gun's frame instead, the hand held its fingers up beside the gun: worse,
+ * user.) This turns it by the trim, then moves it so its palm - the taser's centre in
  * GtaserZ, GEVR_TWOHAND_PALM, where #41 holds the grenade - lies on the hold
  * point, plus the trim's offset.
  *
@@ -1830,7 +1830,7 @@ s32 gevrStereoTwoHandGrip(void)
 static const f32 s_gevrTwoHandPalm[3] = { 1.0f, 79.5f, 57.5f };
 static f32 s_gevrTwoHandTrim[2][6] = {
     { 0.0f, -2.0f, 1.0f, 0.0f, 0.0f, 0.0f },     /* handguns: under the gun hand */
-    { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 30.0f },     /* long guns: rolled toward palm up */
+    { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -25.0f },    /* long guns: rolled toward palm up (+30 turned it away: user) */
 };
 
 s32 gevrStereoTwoHandMatrix(Mtxf *m)
@@ -1913,7 +1913,10 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     f32 *axes[3];
     s32 i, a;
 
-    if (cm < 1e-6f || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
+    /* a handgun keeps the wrist's aim, as PD VR's Slayer: the hands are 8-12 cm
+     * apart, in the fade band, and the gun jittered (user) */
+    if (cm < 1e-6f || gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT))
+        || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
     {
         return;
     }
