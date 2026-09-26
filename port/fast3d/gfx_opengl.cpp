@@ -1763,6 +1763,47 @@ static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_le
     s_scopeDraws.push_back(d);
 }
 
+/* the scope's target, once (gfx_vr_scope_prepare makes it ahead of use) */
+static void gevr_scope_make_target(void)
+{
+    if (s_scopeFbo) {
+        return;
+    }
+    GLint prevFbo = 0;
+    glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
+    glGenTextures(1, &s_scopeTex);
+    glBindTexture(GL_TEXTURE_2D, s_scopeTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, GEVR_SCOPE_RES, GEVR_SCOPE_RES, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glGenRenderbuffers(1, &s_scopeDepth);
+    glBindRenderbuffer(GL_RENDERBUFFER, s_scopeDepth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, GEVR_SCOPE_RES, GEVR_SCOPE_RES);
+    glBindRenderbuffer(GL_RENDERBUFFER, 0);
+    glGenFramebuffers(1, &s_scopeFbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, s_scopeFbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_scopeTex, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_scopeDepth);
+    const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    sysLogPrintf(st == GL_FRAMEBUFFER_COMPLETE ? LOG_NOTE : LOG_WARNING,
+                 "scope: %dx%d target %s (0x%x)", GEVR_SCOPE_RES, GEVR_SCOPE_RES,
+                 st == GL_FRAMEBUFFER_COMPLETE ? "ready" : "incomplete", st);
+    glBindTexture(GL_TEXTURE_2D, s_boundTex[s_activeTexUnit]);
+    glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFbo);
+}
+
+/*
+ * vr_openxr.cpp, on the first XR frame: the target made then, not the moment
+ * the rifle first comes out (with its model loading and the lens shader
+ * compiling, that swap was a big stutter: user).
+ */
+void gfx_vr_scope_prepare(void)
+{
+    gevr_scope_make_target();
+}
+
 // After the eye pass (gfx_pc.cpp gfx_run): the kept draws again, through the scope.
 void gfx_vr_scope_render(void)
 {
@@ -1803,27 +1844,7 @@ void gfx_vr_scope_render(void)
     const uint16_t savedZmode = s_depthZmode;
     const bool savedMask = current_depth_mask, savedIsDecal = s_isDecal, savedDecalZ = s_decalZ;
 
-    if (!s_scopeFbo) {
-        glGenTextures(1, &s_scopeTex);
-        glBindTexture(GL_TEXTURE_2D, s_scopeTex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, GEVR_SCOPE_RES, GEVR_SCOPE_RES, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glGenRenderbuffers(1, &s_scopeDepth);
-        glBindRenderbuffer(GL_RENDERBUFFER, s_scopeDepth);
-        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, GEVR_SCOPE_RES, GEVR_SCOPE_RES);
-        glBindRenderbuffer(GL_RENDERBUFFER, 0);
-        glGenFramebuffers(1, &s_scopeFbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, s_scopeFbo);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_scopeTex, 0);
-        glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, s_scopeDepth);
-        const GLenum st = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        sysLogPrintf(st == GL_FRAMEBUFFER_COMPLETE ? LOG_NOTE : LOG_WARNING,
-                     "scope: %dx%d target %s (0x%x)", GEVR_SCOPE_RES, GEVR_SCOPE_RES,
-                     st == GL_FRAMEBUFFER_COMPLETE ? "ready" : "incomplete", st);
-    }
+    gevr_scope_make_target();
 
     glBindFramebuffer(GL_FRAMEBUFFER, s_scopeFbo);
     glViewport(0, 0, GEVR_SCOPE_RES, GEVR_SCOPE_RES);
