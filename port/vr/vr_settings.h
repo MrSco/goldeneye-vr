@@ -50,6 +50,7 @@ extern int VrShowStats;         // troubleshooting readout in game
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n
 extern int VrGunSizeCheat;      // VR fun cheat: 0 normal, 1 tiny, 2 big guns
 extern int VrUnlockAll;         // every mission, 007 mode and every cheat unlocked (issue #54)
+extern int VrGunFitArmed;       // launcher "Gun fit...": fit the gun in the next level (not saved)
 extern int VrHideArms;
 
 extern float VrHudDistance;
