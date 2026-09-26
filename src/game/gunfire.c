@@ -2084,6 +2084,11 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     Mtxf armmtx;
     Mtxf *rwmtx;
     s32 j;
+    Model *mdl = &s_gevrFistModel;
+    ModelFileHeader *hdr = &s_gevrFistHeader;
+    u32 *rw = s_gevrFistRw;
+    s32 held;
+    extern s32 gevrStereoTwoHandGrip(void);
 
     if (!g_gevrStereo
         || get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
@@ -2092,7 +2097,28 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     {
         return gdl;
     }
-    if (!gevrStereoGunMatrix(GUNLEFT, &armmtx) || !gevrLeftFistLoad())
+    /*
+     * Issue #35: holding the gun, it is the taser's gripping hand (#41, the
+     * grenade's hand; user) rather than the clenched fist, and bondview2.c
+     * gevrStereoTwoHandMatrix trims its turn and puts its palm where it
+     * holds (user: it should cup the bottom of the gun). It is turned as
+     * the gun is - the gun hand's matrix, mirrored into the other hand - so
+     * it is pinned to the gun in turn as well as place (user: it still
+     * pivoted with the off-hand controller). Its turn is set with the
+     * launcher's Gun fit, holding with both hands.
+     */
+    held = gevrStereoTwoHandGrip();
+    if (!gevrStereoGunMatrix(held ? GUNRIGHT : GUNLEFT, &armmtx))
+    {
+        return gdl;
+    }
+    if (held && gevrTaserHandLoad())
+    {
+        mdl = &s_gevrTaserHandModel;
+        hdr = &s_gevrTaserHandHeader;
+        rw = s_gevrTaserHandRw;
+    }
+    if (mdl == &s_gevrFistModel && !gevrLeftFistLoad())
     {
         return gdl;
     }
@@ -2100,22 +2126,34 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     /* a left hand: mirrored in the model's own frame, then the viewmodel scale */
     matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
     matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
+    if (held)
+    {
+        extern s32 gevrStereoTwoHandMatrix(Mtxf *m);
 
-    rwmtx = (Mtxf *) dynAllocate(s_gevrFistHeader.numMatrices * ((s32) sizeof(Mtxf)));
-    for (j = 0; j < s_gevrFistHeader.numMatrices; j++)
+        gevrStereoTwoHandMatrix(&armmtx);
+    }
+
+    rwmtx = (Mtxf *) dynAllocate(hdr->numMatrices * ((s32) sizeof(Mtxf)));
+    for (j = 0; j < hdr->numMatrices; j++)
     {
         matrix_4x4_set_identity(&rwmtx[j]);
     }
     matrix_4x4_copy(&armmtx, &rwmtx[0]);
 
-    modelInit(&s_gevrFistModel, &s_gevrFistHeader, (s32 *) s_gevrFistRw);
-    sub_GAME_7F05E978(&s_gevrFistModel, 1);
-    sub_GAME_7F05EA94(&s_gevrFistModel, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
-    if (s_gevrFistHeader.numSwitches >= 0x1E)
+    modelInit(mdl, hdr, (s32 *) rw);
+    sub_GAME_7F05E978(mdl, 1);
+    sub_GAME_7F05EA94(mdl, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    if (hdr->numSwitches >= 0x1E)
     {
-        bondviewSelectCuff(&s_gevrFistModel, &s_gevrFistHeader, 0x1D);
+        bondviewSelectCuff(mdl, hdr, 0x1D);
     }
-    s_gevrFistModel.render_pos = (RenderPosView *) rwmtx;
+    if (mdl == &s_gevrTaserHandModel && hdr->numSwitches > 16 && hdr->Switches[16] != NULL
+        && (hdr->Switches[16]->Opcode & 0xFF) == MODELNODE_OPCODE_DLCOLLISION)
+    {
+        /* the taser's arc draws from its run-time data, not the file's */
+        modelGetNodeRwData(mdl, hdr->Switches[16])->DisplayListCollisions.gdl = NULL;
+    }
+    mdl->render_pos = (RenderPosView *) rwmtx;
 
     renderdata = *templ;
     renderdata.gdl = gdl;
@@ -2139,14 +2177,14 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     }
     gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
     renderdata.cullmode = CULLMODE_NONE;
-    subdraw(&renderdata, &s_gevrFistModel);
+    subdraw(&renderdata, mdl);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
     if (!gevrStereoMirrored())
     {
         gDPNoOpTag(gdl++, 0x56580001);
     }
-    bondviewTransformManyPosToViewMatrix(s_gevrFistModel.render_pos, s_gevrFistHeader.numMatrices);
+    bondviewTransformManyPosToViewMatrix(mdl->render_pos, hdr->numMatrices);
     matrix_4x4_7F058C88();
 
     return gdl;
@@ -2379,9 +2417,24 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
      */
     gdl = gevrHandTag(gdl, 1);
     gdl = gevrRenderRightFist(gdl, &renderdata);
+    /*
+     * #35: the hand holding the gun goes first too, for the same reason: the
+     * gun's wooden parts (its second display list, drawn without writing
+     * depth) did not hide it, and it showed through the KF7's wooden fore-end
+     * but not its metal (user). It is on the gun, so it is tagged with the
+     * gun's hand (#53; on its own it wobbled against the gun).
+     */
+    {
+        extern s32 gevrStereoTwoHandGrip(void);
+
+        if (gevrStereoTwoHandGrip())
+        {
+            gdl = gevrRenderLeftArm(gdl, &renderdata);
+        }
+    }
     gdl = gevrHandTag(gdl, -1);
 #endif
- 
+
     for (handnum = 0; handnum != 2; handnum++) 
     {
         struct hand *handptr = &g_CurrentPlayer->hands[handnum];
@@ -2585,7 +2638,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         /* also for the watch laser and the detonator: it is their arm (issue #31) */
         gdl = gevrHandTag(gdl, 0);
         /* #31: at the watch, the watch laser's own two arms instead (gevrRenderWatchGripHand) */
-        if (!(gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()))
+        /* #35: holding the gun, the hand was drawn before the guns, instead of the watch arm */
+        extern s32 gevrStereoTwoHandGrip(void);
+
+        if (gevrStereoTwoHandGrip())
+        {
+        }
+        else if (!(gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()))
         {
             gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
             if (!drawn)
@@ -5706,6 +5765,12 @@ void gunTickGameplay(s32 triggerOn)
         {
             trigger_state.triggerOn[GUNRIGHT] = 0;
         }
+    }
+    /* issue #35: the off hand's hold on the gun (bondview2.c gevrStereoTwoHandUpdate) */
+    {
+        extern s32 gevrStereoTwoHandUpdate(void);
+
+        gevrStereoTwoHandUpdate();
     }
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand
