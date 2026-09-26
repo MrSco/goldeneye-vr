@@ -38,6 +38,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
     fprintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
     fprintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
+    fprintf(f, "; 1 = every mission at every difficulty, 007 mode and every cheat unlocked.\n");
+    fprintf(f, "UnlockAll=%d\n", VrUnlockAll ? 1 : 0);
     fprintf(f, "HideArms=%d\n", VrHideArms ? 1 : 0);
     fprintf(f, "ActiveTexturePack=%s\n", g_ActiveExtTexPack);
     fprintf(f, "; Your standing EYE height in cm -- where your eyes are off the floor, which is\n");
@@ -134,6 +136,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "AimSteadying") == 0) VrAimSteady = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);
             else if (strcmp(key, "GunSizeCheat") == 0) VrGunSizeCheat = ival < 0 ? 0 : ival > 2 ? 2 : ival;
+            else if (strcmp(key, "UnlockAll") == 0) VrUnlockAll = ival != 0;
             else if (strcmp(key, "HideArms") == 0) VrHideArms = (ival != 0);
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;

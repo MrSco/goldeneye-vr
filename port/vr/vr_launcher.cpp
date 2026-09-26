@@ -955,6 +955,21 @@ extern "C" void gevrLauncherRun(void)
                 VrGunSizeCheat = 0;
             }
             ImGui::SameLine();
+            // Issue #54, as gepc-ref D257 Game.AllUnlocked: the game's own mission
+            // select and Cheat Options, fully open (port/src/main.c, front.c).
+            // Nothing is written to the saves.
+            {
+                bool unlock = VrUnlockAll != 0;
+                if (ImGui::Checkbox("Unlock all missions and cheats", &unlock)) {
+                    VrUnlockAll = unlock ? 1 : 0;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Every mission at every difficulty, 007 mode, and every cheat\n"
+                                      "in the game's own Cheat Options. Your save files are left as\n"
+                                      "they are; missions you finish still count as usual.");
+                }
+            }
+            ImGui::SameLine();
             if (ImGui::Button("Done", ImVec2(-1, 0))) {
                 cheatPage = false;
             }
@@ -1059,7 +1074,7 @@ extern "C" void gevrLauncherRun(void)
         ImGui::PopStyleColor();
 
         {
-            int n = VrGunSizeCheat ? 1 : 0;
+            int n = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
             for (int b = 0; b < 64; b++) n += (int)((VrCheatMask >> b) & 1ULL);
             char label[48];
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);

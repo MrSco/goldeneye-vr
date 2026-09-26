@@ -48,6 +48,7 @@ int VrAimSteady = 1;
 int VrShowStats = 0;
 unsigned long long VrCheatMask = 0;
 int VrGunSizeCheat = 0;
+int VrUnlockAll = 0;
 bool sQuatIdleInit_reset[2] = {false, false};
 
 // ===== VR CODE EXTENSION WITH FULL CONTROLLER SUPPORT =====
