@@ -1443,6 +1443,47 @@ void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
 }
 
 /*
+ * Issue #31: the watch laser's and the detonator's viewmodels are Bond's left
+ * arm with the watch, raised, and his right hand at it. In stereo that arm is
+ * the tracked one on the left controller (gevrRenderLeftWatchArm), the item's
+ * own model is not drawn (gunfire.c), and the right hand is the fist. The
+ * laser leaves the watch and aims along the left hand; the right trigger
+ * still fires it (user).
+ */
+s32 gevrStereoWatchItem(s32 item)
+{
+    return g_gevrStereo && (item == ITEM_WATCHLASER || item == ITEM_TRIGGER);
+}
+
+/* the controller a hand's shots leave from: the watch items aim with the left */
+static s32 gevrShotCtrl(s32 handnum)
+{
+    if (handnum == GUNRIGHT && gevrStereoWatchItem(getCurrentPlayerWeaponId(GUNRIGHT)))
+    {
+        return 0;
+    }
+    return handnum == GUNRIGHT ? 1 : 0;
+}
+
+/* the watch on the left arm: the watch arm's wrist (gevrRenderLeftWatchArm), view space */
+s32 gevrStereoWatchPoint(f32 out[3])
+{
+    f32 pos[3], right[3], up[3], back[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    s32 i;
+
+    if (!g_gevrStereo || !gevrGripAxes(0, pos, right, up, back))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * cm * gevrGunSizeFactor();
+    }
+    return TRUE;
+}
+
+/*
  * gunfire.c bullet_path_from_screen_center: in stereo a shot leaves the
  * muzzle along the barrel (Perfect Dark VR bgunCalculatePlayerShotSpread)
  * instead of the eye through the crosshair. The game's spread is kept as an
@@ -1456,14 +1497,22 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
     f32 pos[3], right[3], up[3], back[3];
     struct coord3d far;
     f32 len;
-    s32 ctrl = handnum == GUNRIGHT ? 1 : 0;
+    s32 ctrl = gevrShotCtrl(handnum);
 
     if (!g_gevrStereo || (handnum != GUNRIGHT && handnum != GUNLEFT) || !gevrGripAxes(ctrl, pos, right, up, back))
     {
         return FALSE;
     }
 
-    if (s_gevrMuzzleValid[handnum])
+    if (handnum == GUNRIGHT && ctrl == 0)
+    {
+        /* issue #31: from the watch, along the left hand */
+        gevrStereoWatchPoint(pos);
+        origin->x = pos[0];
+        origin->y = pos[1];
+        origin->z = pos[2];
+    }
+    else if (s_gevrMuzzleValid[handnum])
     {
         origin->x = s_gevrMuzzle[handnum][0];
         origin->y = s_gevrMuzzle[handnum][1];
@@ -1510,14 +1559,19 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
 s32 gevrStereoAimTarget(struct coord3d *target)
 {
     f32 pos[3], right[3], up[3], back[3];
+    s32 ctrl = gevrShotCtrl(GUNRIGHT);
 
-    if (!g_gevrStereo || !gevrGripAxes(1, pos, right, up, back))
+    if (!g_gevrStereo || !gevrGripAxes(ctrl, pos, right, up, back))
     {
         return FALSE;
     }
 
     /* from the muzzle when known, as the shot is (gevrStereoShot) */
-    if (s_gevrMuzzleValid[GUNRIGHT])
+    if (ctrl == 0)
+    {
+        gevrStereoWatchPoint(pos);   /* issue #31: the watch */
+    }
+    else if (s_gevrMuzzleValid[GUNRIGHT])
     {
         pos[0] = s_gevrMuzzle[GUNRIGHT][0];
         pos[1] = s_gevrMuzzle[GUNRIGHT][1];
