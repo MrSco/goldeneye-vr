@@ -2414,9 +2414,24 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
      */
     gdl = gevrHandTag(gdl, 1);
     gdl = gevrRenderRightFist(gdl, &renderdata);
+    /*
+     * #35: the hand holding the gun goes first too, for the same reason: the
+     * gun's wooden parts (its second display list, drawn without writing
+     * depth) did not hide it, and it showed through the KF7's wooden fore-end
+     * but not its metal (user). It is on the gun, so it is tagged with the
+     * gun's hand (#53; on its own it wobbled against the gun).
+     */
+    {
+        extern s32 gevrStereoTwoHandGrip(void);
+
+        if (gevrStereoTwoHandGrip())
+        {
+            gdl = gevrRenderLeftArm(gdl, &renderdata);
+        }
+    }
     gdl = gevrHandTag(gdl, -1);
 #endif
- 
+
     for (handnum = 0; handnum != 2; handnum++) 
     {
         struct hand *handptr = &g_CurrentPlayer->hands[handnum];
@@ -2620,16 +2635,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         /* also for the watch laser and the detonator: it is their arm (issue #31) */
         gdl = gevrHandTag(gdl, 0);
         /* #31: at the watch, the watch laser's own two arms instead (gevrRenderWatchGripHand) */
-        /* #35: holding the gun, the fist round its barrel instead of the watch arm */
+        /* #35: holding the gun, the hand was drawn before the guns, instead of the watch arm */
         extern s32 gevrStereoTwoHandGrip(void);
 
         if (gevrStereoTwoHandGrip())
         {
-            /* it is on the gun: between game frames it moves with the gun's
-             * hand, not its own (#53; on its own it wobbled against the gun) */
-            gdl = gevrHandTag(gdl, 1);
-            gdl = gevrRenderLeftArm(gdl, &renderdata);
-            gdl = gevrHandTag(gdl, 0);
         }
         else if (!(gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()))
         {
