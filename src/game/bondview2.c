@@ -12969,12 +12969,8 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                 view_left = viGetViewLeft() + (viGetViewWidth() - view_left_offset) / 2;
                 view_horiz = view_left + view_left_offset;
                 view_top = viGetViewTop() + (viGetViewHeight() * 92) / 100;
-                if (is_clock_drawn_onscreen())
-                {
-                    /* the countdown shows under it on the panel (issue #42): lift
-                     * it by as much as the flat game does (OFFSET_2 - OFFSET_1) */
-                    view_top -= BONDVIEW_VIEW_TOP_OFFSET_2 - BONDVIEW_VIEW_TOP_OFFSET_1;
-                }
+                /* (issue #42: the countdown is drawn full size at the panel's
+                 * foot, below these, so they are not lifted for it) */
                 gDPNoOpTag(arg0++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
             }
 #endif
