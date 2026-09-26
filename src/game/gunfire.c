@@ -2153,14 +2153,19 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
 }
 
 /*
- * Issue #31 (user): at the watch, the gun hand becomes the watch laser
- * viewmodel's own right hand, gripping Bond's left wrist - the sign that a
- * pull fires. A private copy of GwatchlaserZ (the detonator's GtriggerZ is
- * the same model) with every display list but that hand's taken out. Its
- * nine, in walk order, measured from the ROM: 0 the hand (DL 0x1c8), 1-6 the
- * sleeves (one per outfit, switched), 7 the left fist and watch (0x300), 8
- * the hand's pressing finger (0x330, on a joint of its own). Placed on the
- * tracked arm by bondview2.c gevrStereoWatchHandMatrix.
+ * Issue #31 (user): at the watch, both arms become the watch laser's own
+ * viewmodel - Bond's left fist and watch with his right hand holding it -
+ * the sign that a pull fires. Its right hand only reads as a grip round its
+ * own left fist (a first try put it on the tracked open hand: it stood
+ * beside the wrist), so the whole model is drawn, on the left controller,
+ * and the tracked watch arm steps aside until the hand leaves the watch. A
+ * private copy of GwatchlaserZ (the detonator's GtriggerZ is the same model)
+ * set up as the game sets up a weapon's (hand switches, the outfit's
+ * sleeve). Its nine display lists, in walk order, measured from the ROM: 0
+ * the right hand (0x1c8), 1-6 the sleeves (one per outfit, switched), 7 the
+ * left fist and watch (0x300), 8 the right hand's pressing finger (0x330, on
+ * a joint of its own). Placed by bondview2.c gevrStereoWatchHandMatrix: its
+ * watch face on the tracked arm's.
  */
 #define GEVR_WATCHHAND_BUFSIZE 0x48000
 #define GEVR_WATCHHAND_MODELSIZE 0x18000
@@ -2248,21 +2253,9 @@ static s32 gevrWatchHandLoad(void)
         sysLogPrintf(LOG_ERROR, "stereo: watch hand model has %d display lists, not %d", dls, GEVR_WATCHHAND_DLS);
         return FALSE;
     }
-    dls = 0;
-    for (node = s_gevrWatchHandHeader.RootNode; node != NULL; node = gevrNextNode(node))
-    {
-        if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_DL)
-        {
-            if (dls != 0 && dls != GEVR_WATCHHAND_DLS - 1)
-            {
-                node->Data->DisplayList.Primary = NULL;
-                node->Data->DisplayList.Secondary = NULL;
-            }
-            dls++;
-        }
-    }
 
-    sysLogPrintf(LOG_NOTE, "stereo: watch hand loaded (%s, %d matrices)", name, s_gevrWatchHandHeader.numMatrices);
+    sysLogPrintf(LOG_NOTE, "stereo: watch hands loaded (%s, %d matrices, %d switches)", name,
+                 s_gevrWatchHandHeader.numMatrices, s_gevrWatchHandHeader.numSwitches);
     s_gevrWatchHandReady = TRUE;
     return TRUE;
 }
@@ -2323,7 +2316,14 @@ static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
         }
     }
 
+    /* as gunUpdateAndFire sets up a weapon's: the hands, then the outfit's sleeve */
     modelInit(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, (s32 *) s_gevrWatchHandRw);
+    sub_GAME_7F05E978(&s_gevrWatchHandModel, 1);
+    sub_GAME_7F05EA94(&s_gevrWatchHandModel, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    if (s_gevrWatchHandHeader.numSwitches >= 0x1E)
+    {
+        bondviewSelectCuff(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, 0x1D);
+    }
     s_gevrWatchHandModel.render_pos = (RenderPosView *) rwmtx;
 
     renderdata = *templ;
@@ -2584,12 +2584,16 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
         /* also for the watch laser and the detonator: it is their arm (issue #31) */
         gdl = gevrHandTag(gdl, 0);
-        gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
-        if (!drawn)
+        /* #31: at the watch, the watch laser's own two arms instead (gevrRenderWatchGripHand) */
+        if (!(gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()))
         {
-            gdl = gevrRenderLeftArm(gdl, &renderdata);
+            gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
+            if (!drawn)
+            {
+                gdl = gevrRenderLeftArm(gdl, &renderdata);
+            }
         }
-        gdl = gevrRenderWatchGripHand(gdl, &renderdata);   /* #31: the gun hand holding the watch */
+        gdl = gevrRenderWatchGripHand(gdl, &renderdata);
         gdl = gevrHandTag(gdl, -1);
     }
 #endif
