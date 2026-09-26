@@ -11658,8 +11658,8 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         const float *t = VrGripTrim[gevrStereoTwoHandClass()];
 
         snprintf(buf, sizeof(buf),
-                 "GRIP FIT (%s)\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM  TILT %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nA: KEEP IT   B: PUT IT BACK",
-                 gevrStereoTwoHandClass() ? "RIFLE" : "PISTOL", t[2], -t[0], t[1], t[3]);
+                 "GRIP FIT (%s)\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nA: KEEP IT   B: PUT IT BACK",
+                 gevrStereoTwoHandClass() ? "RIFLE" : "PISTOL", t[2], -t[0], t[1], t[3], t[5]);
     }
     else
     {

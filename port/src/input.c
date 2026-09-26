@@ -1007,12 +1007,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     /* Holding with both hands (#35, user): the holding hand instead, for
                      * this class of gun - [0] out to the off hand's side (so the move
                      * stick's right is inward), [1] up, [2] forward, [3] its tilt, about
-                     * 45 degrees a second on the turn stick's sideways. */
+                     * 45 degrees a second on the turn stick's sideways - or, with the
+                     * right grip held, [5] its roll (user: to turn it more underhand). */
                     float *t = VrGripTrim[gevrStereoTwoHandClass()];
                     t[0] -= mx * rate * dt;
                     t[2] += my * rate * dt;
                     t[1] += ry * rate * dt;
-                    t[3] += rx * 45.0f * dt;
+                    t[get_button_state(1, "grip") ? 5 : 3] += rx * 45.0f * dt;
                 } else {
                     /* +X is the holder's right (mirrored when left-handed), +Z back toward you */
                     VrGunOffX += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
@@ -1145,7 +1146,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
         }
         if (gevrReturnPrompt) npad->button &= ~(A_BUTTON | B_BUTTON | START_BUTTON);
-        if (fitting) npad->button &= ~(A_BUTTON | B_BUTTON);   /* gun fit keeps them */
+        if (fitting) npad->button &= ~(A_BUTTON | B_BUTTON | R_TRIG);   /* gun fit keeps them (the right grip rolls the grip hand) */
         const bool lclick = get_button_state(0, "thumbstick_click");
         const bool rclick = get_button_state(1, "thumbstick_click");
         const u32 now = SDL_GetTicks();
