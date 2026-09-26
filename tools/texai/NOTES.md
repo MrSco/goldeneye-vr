@@ -68,6 +68,67 @@ Findings:
   have per-hour limits. Fine for a few dozen showcase textures, not
   for 1,500+.
 
+## Local pass (ComfyUI, same six textures)
+
+The user's ComfyUI Desktop (0.37.4) is at `E:\AI\ComfyUI-Installs\ComfyUI`, with
+its API on :8188. It had no image models. Added from the Comfy-Org Hugging
+Face repos:
+- `RealESRGAN_x4plus` (67 MB, BSD-3)
+- SeedVR2 7B int8 (8.3 GB) plus its VAE (0.5 GB), Apache-2.0
+
+`comfy.py` sends each texture at its own size, padded by 8 texels: wrapped on
+axes that repeat, edge-repeated on clamped ones. It then frames the answer
+for `texai.py post`.
+
+Run times on the RTX 3080 Ti:
+
+| method | time per texture |
+|---|---|
+| Real-ESRGAN | about 0.5 s |
+| SeedVR2 (two 4x passes) | 8-20 s |
+| Real-ESRGAN, then SeedVR2 | about 35 s |
+
+A single 32x SeedVR2 pass does nothing useful: it restores roughly 4x at a
+time and keeps a 32x lanczos blur as content.
+
+drift4 (dB) for the final soft textures, next to the chat models:
+
+| texture | ESRGAN | SeedVR2 | ESRGAN+SeedVR2 | ChatGPT | Gemini |
+|---|---|---|---|---|---|
+| brick | 37.3 | 33.5 | 38.4 | 24.7 | 24.5 |
+| panel | 38.8 | 38.8 | 38.7 | 20.5 | 22.3 |
+| "58" sign | 34.9 | 30.7 | 34.4 | 14.6 | 12.5 |
+| face | 33.3 | 38.6 | 32.8 | 26.9 | 16.7 |
+| frond | 17.7 | 17.6 | 17.7 | 15.0 | 12.9 |
+| foliage | 26.1 | 39.5 | 25.8 | 24.5 | 31.5 |
+
+What the pilot shows, in `compare_final.png`:
+- Local upscalers keep the texture. The chat models remaster it. Neither is
+  better everywhere.
+- Best per kind of texture:
+  - **Tiling materials (brick, rock, foliage):** SeedVR2. Faithful layout
+    with real material grain. Gemini is also good on foliage.
+  - **Lettering and signs:** Real-ESRGAN, or ESRGAN then SeedVR2. The only
+    methods that keep Rare's glyphs.
+  - **Faces:** ChatGPT, with the neutral prompt. SeedVR2 is the best local
+    one. Real-ESRGAN looks plastic.
+  - **Machinery, panels, posters:** ChatGPT or Gemini. The local
+    upscalers keep them flat and painterly, and SeedVR2 turns pixel noise
+    into dots and blocks.
+  - **Cut-out foliage:** ChatGPT or Gemini. Locally the leaf goes to smooth
+    blobs.
+- Key-colour spill on cut-out edges is cleaned in `post` (purple pixels
+  within 6 px of the edge are refilled). Dark purple traces remain on the
+  local frond results.
+
+A workable split for the real gap fill:
+- Everything goes through SeedVR2 locally, overnight: about 5-8 hours for
+  1,500-2,000 textures, and free.
+- Text and signs use Real-ESRGAN.
+- A reviewed list of showcase textures (faces, panels, posters, weapons)
+  goes to ChatGPT.
+- The drift score plus the sheet decide which result each texture keeps.
+
 ## Next steps (not started)
 
 1. **Port: dump misses.** Behind a marker file, `gevr_texpack_lookup` writes
