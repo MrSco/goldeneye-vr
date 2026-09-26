@@ -45,11 +45,12 @@
 | Gadgets are **in your hand**: mines, the covert modem, cameras and more, thrown from where you hold them. | |
 | The **sniper rifle's scope** shows the zoomed view in its lens, with a red sight when you aim. | |
 | The **watch laser** fires when you bring your gun hand to the watch and grip it, as Bond does in the original. | |
+| Hold any gun with **both hands**: put your left hand on it and squeeze the grip. A rifle then aims along the line between your hands. | |
 | Spent **shell casings** fly from the ejection port. | |
 | Smooth or snap turning, and an optional **comfort vignette** for motion sickness. | |
 
 Also:
-- An **in-VR launcher**: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (72, 90 or 120 Hz), **aim steadying**, a **left-handed** mode, an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, plus tiny or big guns).
+- An **in-VR launcher**: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (72, 90 or 120 Hz), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
 - **HD textures**: the launcher's **Mods** page downloads a fan-made texture pack on request, straight from its authors' site, and installs it in the headset. First up: *GoldenEye 007 HD* by intermissionfb and GhostlyDark (evilgames.eu, 129 MB). Nothing of theirs ships with the app.
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
@@ -155,6 +156,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Left trigger** | Aim / zoom, or fire the left gun when dual-wielding |
 | **Right grip** | Aim / zoom, and shows the 3D sight |
 | **Left grip** | Dual-wielding: shows the left gun's sight (blue) |
+| **Left hand on the gun** + **left grip** | Hold it with both hands |
 | **Left stick** | Walk and strafe |
 | **Right stick** | Turn: smooth or snap, set in the launcher |
 | **Left stick click** | Crouch (toggle) |
@@ -172,6 +174,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 Real-world movement works too: lean around corners, duck, and step. Ducking behind cover hides you from guards.
 
 **Left-handed?** Tick **Left-handed** in the launcher. The gun goes in your left hand and the watch on your right wrist, and the sticks and face buttons swap sides. The **☰ Menu** button stays on the left controller: the right one is Meta's system button.
+To walk with the left stick anyway, tick **Swap sticks** as well.
 
 ### Virtual screen (flat play, menus and cutscenes)
 
@@ -194,6 +197,11 @@ Everything in the launcher is saved for next time. Finer settings live in
 `Android/data/com.gevr.port/files/data/goldeneye-vr.ini`, which explains each line: gun
 position in your hand, HUD distance, player height and more. Edit it on your
 computer while the headset is plugged in.
+
+**Gun fit...** (beside **Cheats...**) sets where the gun sits in your hand, in the headset.
+Turn it on, start a mission in stereo with a gun, and move the gun with the sticks until its grip
+is in your hand. Hold the gun with both hands to fit the holding hand as well. **A** keeps it,
+**B** puts it back.
 
 The launcher's first line shows the build, for example `Build 4526b62 built 2026-09-23 15:10`.
 Mention it when you report a bug.
