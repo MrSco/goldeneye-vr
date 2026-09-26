@@ -1848,13 +1848,19 @@ s32 gevrStereoTwoHandGrip(void)
  *
  * The trim, per class (0 handguns, 1 long guns): cm along the off hand's
  * side, up and forward; degrees about the model's X, Y and Z (Z is along the
- * barrel). files/gevr_twohand.txt "class dx dy dz rx ry rz" (a line each)
- * overrides it while tuning in the headset, re-read every couple of seconds.
+ * barrel). It is a setting (VrGripTrim, goldeneye-vr.ini GripPistol and
+ * GripRifle), set in game with the launcher's Gun fit while holding with both
+ * hands (port/src/input.c; user). files/gevr_twohand.txt "class dx dy dz rx
+ * ry rz" (a line each) overrides it too, re-read every couple of seconds.
  */
-static f32 s_gevrTwoHandTrim[2][6] = {
-    { 0.0f, -2.0f, 1.0f, 0.0f, 0.0f, 0.0f },     /* handguns: under the gun hand */
-    { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -25.0f },    /* long guns: rolled toward palm up (+30 turned it away: user) */
-};
+extern float VrGripTrim[2][6];   /* vr_settings_defaults.c */
+#define s_gevrTwoHandTrim VrGripTrim
+
+/* the trim's class for the gun in hand: 0 handgun, 1 long gun */
+s32 gevrStereoTwoHandClass(void)
+{
+    return gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT)) ? 0 : 1;
+}
 
 s32 gevrStereoTwoHandMatrix(Mtxf *m)
 {
@@ -11646,9 +11652,21 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     {
         return gdl;
     }
-    snprintf(buf, sizeof(buf),
-             "GUN FIT\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nA: KEEP IT   B: PUT IT BACK",
-             -VrGunOffZ, VrGunOffX, VrGunOffY);
+    if (gevrStereoTwoHandGrip())
+    {
+        /* holding with both hands: the sticks move the holding hand (input.c) */
+        const float *t = VrGripTrim[gevrStereoTwoHandClass()];
+
+        snprintf(buf, sizeof(buf),
+                 "GRIP FIT (%s)\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM  TILT %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nA: KEEP IT   B: PUT IT BACK",
+                 gevrStereoTwoHandClass() ? "RIFLE" : "PISTOL", t[2], -t[0], t[1], t[3]);
+    }
+    else
+    {
+        snprintf(buf, sizeof(buf),
+                 "GUN FIT\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\nA: KEEP IT   B: PUT IT BACK",
+                 -VrGunOffZ, VrGunOffX, VrGunOffY);
+    }
 
     gdl = microcode_constructor(gdl);
     textMeasure(&h, &w, buf, ptrFontBankGothicChars, ptrFontBankGothic, 0);

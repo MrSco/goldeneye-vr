@@ -51,6 +51,8 @@ extern int VrGunFitArmed;                 /* vr_input.cpp: launcher "Gun fit..."
 extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* vr_settings_defaults.c: the gun's trim in the hand, cm */
 extern s32 gevrGunFitAvailable(void);     /* bondview2.c: a gun in hand, in a level, in stereo */
 int gevrGunFitActive;                     /* bondview2.c draws the readout while it is set */
+extern float VrGripTrim[2][6];            /* vr_settings_defaults.c: the two-handed hold's hand (#35) */
+extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
 float gevrVrTurnAxis(void) { return gevrTurnAxis; }
@@ -981,11 +983,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         {
             static bool fitWas = false, aHeld = true, bHeld = true;
             static float savedX, savedY, savedZ;
+            static float savedGrip[2][6];
             static u32 fitLast;
             const u32 now = SDL_GetTicks();
             fitting = VrGunFitArmed && !menu && g_gevrStereo && gevrGunFitAvailable();
             if (fitting && !fitWas) {
                 savedX = VrGunOffX; savedY = VrGunOffY; savedZ = VrGunOffZ;
+                memcpy(savedGrip, VrGripTrim, sizeof(savedGrip));
                 aHeld = bHeld = true;   /* a button already down does not answer */
                 fitLast = now;
                 LOGI("input: gun fit on (%.1f %.1f %.1f)\n", VrGunOffX, VrGunOffY, VrGunOffZ);
@@ -998,10 +1002,23 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 float mx = fabsf(left.x) < dz ? 0.0f : left.x;
                 float my = fabsf(left.y) < dz ? 0.0f : left.y;
                 float ry = fabsf(right.y) < dz ? 0.0f : right.y;
-                /* +X is the holder's right (mirrored when left-handed), +Z back toward you */
-                VrGunOffX += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
-                VrGunOffZ -= my * rate * dt;
-                VrGunOffY += ry * rate * dt;
+                float rx = fabsf(right.x) < dz ? 0.0f : right.x;
+                if (gevrStereoTwoHandGrip()) {
+                    /* Holding with both hands (#35, user): the holding hand instead, for
+                     * this class of gun - [0] out to the off hand's side (so the move
+                     * stick's right is inward), [1] up, [2] forward, [3] its tilt, about
+                     * 45 degrees a second on the turn stick's sideways. */
+                    float *t = VrGripTrim[gevrStereoTwoHandClass()];
+                    t[0] -= mx * rate * dt;
+                    t[2] += my * rate * dt;
+                    t[1] += ry * rate * dt;
+                    t[3] += rx * 45.0f * dt;
+                } else {
+                    /* +X is the holder's right (mirrored when left-handed), +Z back toward you */
+                    VrGunOffX += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
+                    VrGunOffZ -= my * rate * dt;
+                    VrGunOffY += ry * rate * dt;
+                }
                 const bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
                 if (a && !aHeld) {
                     VrGunFitArmed = 0;
@@ -1009,6 +1026,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     LOGI("input: gun fit kept (%.1f %.1f %.1f)\n", VrGunOffX, VrGunOffY, VrGunOffZ);
                 } else if (b && !bHeld) {
                     VrGunOffX = savedX; VrGunOffY = savedY; VrGunOffZ = savedZ;
+                    memcpy(VrGripTrim, savedGrip, sizeof(savedGrip));
                     VrGunFitArmed = 0;
                     LOGI("input: gun fit undone\n");
                 }
