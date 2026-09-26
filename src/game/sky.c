@@ -36,6 +36,9 @@ static void skyPortCaptureTile(Gfx *start, Gfx *end);
  * down) so the D245 water call site's GE_D245_FIXEDSHIFT clamp can use it --
  * same forward-declare reason as the functions above. */
 #define SKY_TC_MAX_SHIFT 5
+/* issue #49: the stereo fill below the horizon, next to the port's sky helpers */
+static Gfx *skyPortRenderPoly(Gfx *gdl, SkyRelated38 **v, s32 nverts);
+static Gfx *skyPortRenderFill(Gfx *gdl, f32 x1, f32 y1, f32 x2, f32 y2);
 #endif
 
 // bss
@@ -922,10 +925,28 @@ Gfx *skyRender(Gfx *gdl)
             }
 
             gDPPipeSync(gdl++);
+#ifdef GEVR
+            {
+                extern s32 g_gevrStereo;
+
+                if (g_gevrStereo)
+                {
+                    gdl = skyPortRenderFill(gdl, f14, f16, f2, f12);   /* issue #49 */
+                }
+                else
+                {
+                    gDPSetCycleType(gdl++, G_CYC_FILL);
+                    gDPSetRenderMode(gdl++, G_RM_NOOP, G_RM_NOOP2);
+                    gDPSetTexturePersp(gdl++, G_TP_NONE);
+                    gDPFillRectangle(gdl++, (s32)(f14 * 0.25f), (s32)(f16 * 0.25f), (s32)(f2 * 0.25f), (s32)(f12 * 0.25f));
+                }
+            }
+#else
             gDPSetCycleType(gdl++, G_CYC_FILL);
             gDPSetRenderMode(gdl++, G_RM_NOOP, G_RM_NOOP2);
             gDPSetTexturePersp(gdl++, G_TP_NONE);
             gDPFillRectangle(gdl++, (s32)(f14 * 0.25f), (s32)(f16 * 0.25f), (s32)(f2 * 0.25f), (s32)(f12 * 0.25f));
+#endif
             gDPPipeSync(gdl++);
             gDPSetTexturePersp(gdl++, G_TP_PERSP);
         }
@@ -2092,6 +2113,53 @@ static Gfx *skyPortRenderPoly(Gfx *gdl, SkyRelated38 **v, s32 nverts)
         gdl = skyPortEmitTileShift(gdl, 0, 0);
 
     return gdl;
+}
+
+/*
+ * Issue #49: in stereo the box below the horizon (IsWater == 0 levels such as
+ * Cradle, the Dam, Statue) can't be a fill rectangle: fast3d draws that at
+ * w = 1, which the multiview shader takes for the HUD - at the HUD's depth
+ * (about 1 m) and, with uIsTitleLegal never cleared in GoldenEye, at w = 1.5,
+ * two thirds of its size. So Cradle's blue void hung below the horizon with a
+ * black band over it and moved with the head. Drawn through skyPortRenderPoly
+ * it takes the clouds' own path, at a flat w far enough to be at infinity.
+ * Edges on the game's view rectangle carry past it, since each eye sees
+ * beyond that centred rectangle. Coordinates in quarter N64 screen pixels.
+ */
+static Gfx *skyPortRenderFill(Gfx *gdl, f32 x1, f32 y1, f32 x2, f32 y2)
+{
+    struct CurrentEnvironmentRecord *env = fogGetCurrentEnvironmentp();
+    f32 l = getPlayer_c_screenleft() * 4.0f;
+    f32 t = getPlayer_c_screentop() * 4.0f;
+    f32 w = getPlayer_c_screenwidth() * 4.0f;
+    f32 h = getPlayer_c_screenheight() * 4.0f;
+    SkyRelated38 v[4];
+    SkyRelated38 *pv[4];
+    s32 i;
+
+    /* out to NDC -3..3: |ndc| x w (10000) stays inside Vtx.ob's s16 */
+    if (x1 <= l)            x1 = l - w;
+    if (x2 >= l + w - 1.0f) x2 = l + w + w;
+    if (y1 <= t)            y1 = t - h;      /* the horizon above the view: all of it */
+    if (y2 >= t + h - 1.0f) y2 = t + h + h;
+
+    for (i = 0; i < 4; i++)                  /* TL, TR, BL, BR, as skyRenderFull's quads */
+    {
+        v[i].unk00 = v[i].unk04 = v[i].unk08 = 0.0f;
+        v[i].unk28 = (i & 1) ? x2 : x1;
+        v[i].unk2c = (i & 2) ? y2 : y1;
+        v[i].unk0c = 10000.0f;               /* flat and far: the eyes' parallax ~3e-4 NDC */
+        v[i].unk20 = v[i].unk24 = v[i].unk30 = v[i].unk34 = 0.0f;
+        v[i].r = env->Red;
+        v[i].g = env->Green;
+        v[i].b = env->Blue;
+        v[i].a = 255.0f;
+        pv[i] = &v[i];
+    }
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    return skyPortRenderPoly(gdl, pv, 4);
 }
 #endif
 

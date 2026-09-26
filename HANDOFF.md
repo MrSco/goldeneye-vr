@@ -4803,7 +4803,10 @@ headset:
   polygon through skyPortRenderPoly.
   - It was w = 1, drawn as HUD: at HUD depth, and at 2/3 size because
     VrIsTitleLegal is never cleared.
-  - May also be the Dam "sky moves" report (HANDOFF 106).
+  - May also be the Dam "sky moves" report (HANDOFF 106). Likely not: the
+    fill is drawn only for skies without water (IsWater == 0), and Dam has
+    water.
+  - MERGED 2026-09-26 (user on Cradle: "looks good").
 
 Original behaviour, to answer rather than fix:
 - #44: GE guards have no ammo or reload.
