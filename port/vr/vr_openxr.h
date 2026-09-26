@@ -108,6 +108,13 @@ extern void gfx_vr_hud_capture_end_R(void);
 
 #define VR_HUD_CAPTURE_BEGIN_H 0x56570000
 #define VR_HUD_CAPTURE_END_H 0x56570001
+// GoldenEye (issue #42): the head-locked HUD's draws between these keep their
+// full size. Every other flat HUD draw is shrunk to two thirds round the
+// panel's centre (the vertex shader's "legal" branch, w = 1.5), which put the
+// countdown timer, drawn at the foot of the game's screen, near the middle of
+// the view among the messages (user). Full size, it sits at the panel's foot.
+#define VR_HUD_FULL_SIZE_BEGIN 0x56590000
+#define VR_HUD_FULL_SIZE_END   0x56590001
 
 // GoldenEye (issue #10): the weapon panel held above the weapon hand
 // (bondview2.c gevrDrawWeaponPanel), its own layer like the head-locked HUD.
