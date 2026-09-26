@@ -789,6 +789,8 @@ void gfx_texture_cache_delete(const uint8_t* orig_addr) {
  * actually produced can be looked at instead of guessed from a screenshot.
  */
 #include <sys/stat.h>
+#include <unistd.h>
+static int s_gevrXluProbeFrames;   /* issue #47 probe, gevr_upload_native */
 static const uint8_t *s_dumpAddr;
 static uint8_t s_dumpFmt, s_dumpSiz;
 static int s_dumpTile;
@@ -836,6 +838,32 @@ static void gevr_upload_native(uint32_t width, uint32_t height) {
                     (unsigned)rdp.texture_tile[s_dumpTile].lrs, (unsigned)rdp.texture_tile[s_dumpTile].lrt,
                     (unsigned)rdp.palette_fmt);
             }
+        }
+    }
+    /*
+     * PORT probe (issue #47, the Jungle bridge's see-through planks):
+     * touching files/gevr_xluprobe clears the texture cache once
+     * (gevr_texpack_frame), and for the next frames every texture uploaded
+     * under a blended render mode, or with texels neither clear nor opaque,
+     * is logged with its format, size and alpha histogram as decoded.
+     */
+    if (s_gevrXluProbeFrames > 0 && width && height) {
+        const uint32_t ml = rdp.other_mode_l;
+        const bool blend = (ml & (3 << 20)) == (G_BL_CLR_MEM << 20) && (ml & (3 << 16)) == (G_BL_1MA << 16);
+        unsigned zero = 0, full = 0, part = 0, amin = 255, amax = 0;
+        for (uint32_t k = 0; k < width * height; ++k) {
+            const unsigned a = tex_upload_buffer[k * 4 + 3];
+            if (a == 0) zero++;
+            else if (a == 255) full++;
+            else { part++; if (a < amin) amin = a; if (a > amax) amax = a; }
+        }
+        if (blend || part) {
+            sysLogPrintf(LOG_NOTE, "xluprobe: %p f%u s%u %ux%u palfmt %u | mode %08x z_upd %u z_cmp %u zmode %u cvg_x_alpha %u blend %u"
+                         " | alpha 0:%u 255:%u part:%u (%u..%u)",
+                         (const void *)s_dumpAddr, (unsigned)s_dumpFmt, (unsigned)s_dumpSiz, (unsigned)width, (unsigned)height,
+                         (unsigned)rdp.palette_fmt, (unsigned)ml, (ml & Z_UPD) ? 1u : 0u, (ml & Z_CMP) ? 1u : 0u,
+                         (unsigned)((ml & ZMODE_DEC) >> 10), (ml & CVG_X_ALPHA) ? 1u : 0u, blend ? 1u : 0u,
+                         zero, full, part, part ? amin : 0u, amax);
         }
     }
     gfx_rapi->upload_texture(tex_upload_buffer, width, height);
@@ -1431,6 +1459,19 @@ extern "C" const char *fsFullPath(const char *relPath);
 /* Once a frame: start the pack, and swap in images as they finish decoding. */
 static void gevr_texpack_frame(void) {
     static bool started = false;
+    {
+        /* issue #47 probe (gevr_upload_native): everything in view uploads again, logged */
+        static unsigned tick;
+        if (s_gevrXluProbeFrames > 0) {
+            s_gevrXluProbeFrames--;
+        } else if ((tick++ % 30) == 0
+                   && access("/sdcard/Android/data/com.gevr.port/files/gevr_xluprobe", F_OK) == 0) {
+            unlink("/sdcard/Android/data/com.gevr.port/files/gevr_xluprobe");
+            gfx_texture_cache_clear();
+            s_gevrXluProbeFrames = 3;
+            sysLogPrintf(LOG_NOTE, "xluprobe: texture cache cleared, logging the next frames' uploads");
+        }
+    }
     if (!started) {
         started = true;
         if (g_ActiveExtTexPack[0] != '\0') {
