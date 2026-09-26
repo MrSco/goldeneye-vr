@@ -664,6 +664,13 @@ extern "C" bool get_button_state(int hand_index, const char* button_name) {
         return hand_index == 0 ? gControllerStates[0].menu.currentState : false;
     }
 
+    // Issue #6: a stick's click goes with the stick (get_2d_input), so with
+    // SwapJoysticks a left-handed player moves and crouches on the left stick.
+    if ((VrSwapJoysticks != 0) && strcmp(button_name, "thumbstick_click") == 0) {
+        const int stick = ((VrSwapJoysticks != 0) != (VrLeftHandedMode != 0)) ? 1 - hand_index : hand_index;
+        return gControllerStates[stick].thumbstick_click.currentState;
+    }
+
     if (VrLeftHandedMode){
         hand_index = 1 - hand_index;
     }
