@@ -43,6 +43,8 @@
 | A 3D sight where your shot will land. Your ammo counter sits on the gun. | **Grab the screen** with both grips to move it anywhere. |
 | Your **left arm** is Bond's own suit sleeve with his watch, keeping mission time. Raise your wrist and look at it to open the watch. | The classic experience, with no motion at all. |
 | Gadgets are **in your hand**: mines, the covert modem, cameras and more, thrown from where you hold them. | |
+| The **sniper rifle's scope** shows the zoomed view in its lens, with a red sight when you aim. | |
+| The **watch laser** fires when you bring your gun hand to the watch and grip it, as Bond does in the original. | |
 | Spent **shell casings** fly from the ejection port. | |
 | Smooth or snap turning, and an optional **comfort vignette** for motion sickness. | |
 
@@ -156,6 +158,8 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Left stick** | Walk and strafe |
 | **Right stick** | Turn: smooth or snap, set in the launcher |
 | **Left stick click** | Crouch (toggle) |
+| **Left stick up/down** (aiming the sniper rifle) | Zoom the scope |
+| **Gun hand at the watch** + **right trigger** | Fire the watch laser |
 | **A** / **Y** | Next weapon |
 | **Hold A** | Weapon panel above your gun hand: scroll with the other stick, let go to equip (dual-wield pairs included) |
 | **B** / **X** | Action: doors, switches, reload |
@@ -165,7 +169,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Both stick clicks** | Recenter the view |
 | **Hold right stick click** (1 s) | Switch to the virtual screen |
 
-Real-world movement works too: lean around corners, duck, and step.
+Real-world movement works too: lean around corners, duck, and step. Ducking behind cover hides you from guards.
 
 **Left-handed?** Tick **Left-handed** in the launcher. The gun goes in your left hand and the watch on your right wrist, and the sticks and face buttons swap sides. The **☰ Menu** button stays on the left controller: the right one is Meta's system button.
 
