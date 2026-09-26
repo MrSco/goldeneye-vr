@@ -4892,3 +4892,21 @@ Latent, noted by the agents:
   FORCE_BL) as blended.
 - The worktree ../gevr-wt builds main-based branches beside the main
   checkout (keystore.properties and local.properties copied in).
+
+## 110. v0.1.15 published (2026-09-26)
+- Tag v0.1.15 = build commit 66e2dee (versionCode 16), release key, APK
+  SHA-256 6de0af44...9a6b (GitHub's digest matches). The user saw the
+  launcher show v0.1.15 on the headset before publishing.
+- Contents since v0.1.14: #38 tank aim (104), #40 sniper scope (105), #41
+  grenade hand, #53 redraw between game frames (108), and the 109 branches:
+  #51 credits, #24 hand back face, #48 duck, #31 watch laser, #42/#43 HUD,
+  #49 Cradle sky, #46 Xenia, #52 texture pack stutter, the AR33 flash
+  (gepc-ref D303) and the PP7 silencer band. README: scope, watch laser,
+  ducking.
+- Closed with replies: #24 #31 #38 #40 #41 #42 #43 #46 #48 #49 #51 #52 #53
+  (completed); #44 #47 #9 (not planned: original behaviour / original
+  models).
+- Open: #50 Trevelyan floating (Cradle), #54 launcher level select, #35
+  two-handed rifle grip, #32 Surface bullet impacts, #29 bullet-hole
+  stripes, #30 water shimmer, #23 multiplayer; #18 waits on the reporter.
+- Unmerged leftovers: fix/47-bridge (probes only), fix/sky-pitch (parked).
