@@ -449,7 +449,6 @@ static uint16_t s_depthZmode;
 static bool s_alphaArgs[2];
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
-static float s_curDepthRange[2] = { 0.0f, 1.0f };
 static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
 static void gevr_eye_keep(GLint first, GLsizei count);
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ);
@@ -1635,8 +1634,6 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
 }
 
 static void gfx_opengl_set_depth_range(float znear, float zfar) {
-    s_curDepthRange[0] = znear;
-    s_curDepthRange[1] = zfar;
     if (glDepthRangef) {
         glDepthRangef(znear, zfar);
     }
@@ -2162,7 +2159,9 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ)
  * from the head's new pose: the vertex shader's uReproj branch takes each
  * vertex back to the game frame's camera space and through the head's move
  * since (vr_openxr.cpp gevrVrRedrawDelta). Everything stays where it was in
- * the world; what moves on its own still moves at 60 Hz. The vertex ring's
+ * the world; what moves on its own still moves at 60 Hz. (No depth range is
+ * kept: fast3d never sets one here, and GLES has no glDepthRange for the
+ * loader's fallback - calling it crashed.) The vertex ring's
  * segment isn't written again before the next game frame, whose fence then
  * covers these reads too.
  */
@@ -2179,7 +2178,6 @@ struct GevrEyeDraw {
     bool isMenu;
     GLint viewport[4];
     GLint scissor[4];
-    float depthRange[2];
 };
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
@@ -2233,8 +2231,6 @@ static void gevr_eye_keep(GLint first, GLsizei count)
     d.isMenu = vr_dl_is_pause_or_menu;
     memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
     memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
-    d.depthRange[0] = s_curDepthRange[0];
-    d.depthRange[1] = s_curDepthRange[1];
     s_eyeDraws.push_back(d);
 }
 
@@ -2286,7 +2282,6 @@ void gfx_vr_eye_replay(const float* delta)
     GLint savedViewport[4], savedScissor[4];
     memcpy(savedViewport, s_curViewport, sizeof(savedViewport));
     memcpy(savedScissor, s_curScissor, sizeof(savedScissor));
-    const float savedRange[2] = { s_curDepthRange[0], s_curDepthRange[1] };
 
     if (opengl_vao) {
         glBindVertexArray(opengl_vao);
@@ -2338,9 +2333,6 @@ void gfx_vr_eye_replay(const float* delta)
         if (last == NULL || memcmp(d.scissor, last->scissor, sizeof(d.scissor)) != 0) {
             glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
         }
-        if (last == NULL || d.depthRange[0] != last->depthRange[0] || d.depthRange[1] != last->depthRange[1]) {
-            gfx_opengl_set_depth_range(d.depthRange[0], d.depthRange[1]);
-        }
         gevr_issue_draw(d.first, d.count, d.decalZ);
         last = &d;
     }
@@ -2381,7 +2373,6 @@ void gfx_vr_eye_replay(const float* delta)
     glBlendFuncSeparate((GLenum)blendSrcRgb, (GLenum)blendDstRgb, (GLenum)blendSrcA, (GLenum)blendDstA);
     gfx_opengl_set_viewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
     gfx_opengl_set_scissor(savedScissor[0], savedScissor[1], savedScissor[2], savedScissor[3]);
-    gfx_opengl_set_depth_range(savedRange[0], savedRange[1]);
     glBindVertexArray((GLuint)prevVao);
     s_uniCacheValid = false;
 }
