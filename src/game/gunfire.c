@@ -5793,6 +5793,24 @@ s32 g_gevrShotHand = -1;
 void gunSetTracerTarget(coord3d* pos)
 {
 #ifdef GEVR
+    {
+        /*
+         * PORT probe (the AR33's tracer ran off to the left, user): the hit
+         * point, the firing hand's muzzle point (field_B58, world) and the
+         * player, all world units, at most twice a second.
+         */
+        static u32 s_last;
+        s32 hand = (g_gevrShotHand == GUNLEFT) ? GUNLEFT : GUNRIGHT;
+        coord3d *m = &g_CurrentPlayer->hands[hand].field_B58;
+        coord3d *pl = &g_CurrentPlayer->prop->pos;
+
+        if (g_gevrStereo && g_GlobalTimer - s_last > 30)
+        {
+            s_last = g_GlobalTimer;
+            sysLogPrintf(LOG_NOTE, "tracerprobe: hand %d (shot hand %d) hit %.0f %.0f %.0f muzzle %.0f %.0f %.0f player %.0f %.0f %.0f",
+                         hand, g_gevrShotHand, pos->x, pos->y, pos->z, m->x, m->y, m->z, pl->x, pl->y, pl->z);
+        }
+    }
     /*
      * Issue #15: both hands' tracers end at the one hit point, right for the
      * N64 where both guns fire through the crosshair. In stereo each gun aims

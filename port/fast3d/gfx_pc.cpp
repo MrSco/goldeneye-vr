@@ -694,7 +694,18 @@ struct TpJob {
 static std::unordered_map<int, std::vector<TpJob>> s_tpPending;
 static std::vector<std::pair<int, TpJob>> s_tpUploads;
 /* issue #52: texture cache traffic, logged every 5 s while there is any (gevr_texpack_frame) */
-static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads;
+static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads, s_gevrTcReloads;
+/* the keys evicted lately, to tell a load of one back (the cache too small) from a new one */
+#include <unordered_set>
+static std::unordered_set<uint64_t> s_gevrTcEvicted;
+static uint64_t gevr_tc_key_hash(const TextureCacheKey &k) {
+    uint64_t h = (uint64_t)(uintptr_t)k.texture_addr;
+    h = h * 1099511628211ull ^ ((uint64_t)k.width << 32 | k.height);
+    h = h * 1099511628211ull ^ ((uint64_t)k.fmt << 16 | (uint64_t)k.siz << 8 | k.palette_index);
+    h = h * 1099511628211ull ^ (uint64_t)(uintptr_t)k.palette_addrs[0];
+    h = h * 1099511628211ull ^ ((uint64_t)k.palette_hash << 32 | k.source_pitch);
+    return h;
+}
 static bool s_tpActive = false;
 #endif
 
@@ -740,14 +751,17 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
         // Remove the texture that was least recently used
         it = gfx_texture_cache.lru.front().it;
         gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
-        gfx_texture_cache.map.erase(it);
-        gfx_texture_cache.lru.pop_front();
 #ifdef GEVR
         s_gevrTcEvictions++;
+        if (s_gevrTcEvicted.size() > 16384) s_gevrTcEvicted.clear();
+        s_gevrTcEvicted.insert(gevr_tc_key_hash(it->first));
 #endif
+        gfx_texture_cache.map.erase(it);
+        gfx_texture_cache.lru.pop_front();
     }
 #ifdef GEVR
     s_gevrTcMisses++;
+    if (s_gevrTcEvicted.erase(gevr_tc_key_hash(key))) s_gevrTcReloads++;
 #endif
 
     gfx_flush();   /* a new texture: the batch so far draws with the old one */
@@ -1500,11 +1514,11 @@ static void gevr_texpack_frame(void) {
         if (++frames >= 300) {
             frames = 0;
             if (s_gevrTcMisses || s_gevrTcEvictions || s_gevrTcHdUploads) {
-                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads, %u evicted, %u pack uploads; %u queued, %u decoding",
-                             (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads,
+                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads (%u of them evicted before), %u evicted, %u pack uploads; %u queued, %u decoding",
+                             (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses, s_gevrTcReloads, s_gevrTcEvictions, s_gevrTcHdUploads,
                              (unsigned)s_tpUploads.size(), (unsigned)s_tpPending.size());
             }
-            s_gevrTcMisses = s_gevrTcEvictions = s_gevrTcHdUploads = 0;
+            s_gevrTcMisses = s_gevrTcEvictions = s_gevrTcHdUploads = s_gevrTcReloads = 0;
         }
     }
 }
