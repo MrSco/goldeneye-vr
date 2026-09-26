@@ -28,4 +28,10 @@ int takeDone(int *ids, int max);
 // Free the least recently used images while more than budget bytes are held.
 void trim(size_t budget);
 
+// Texture dump (tools/texai): write w x h RGBA texels (rows stride bytes apart)
+// as <dir>/<name>, and indexLine to <dir>/index.tsv, on a thread of its own.
+// The texels are copied. dumpStart once first; it makes the directory.
+void dumpStart(const char *dir);
+void dump(const char *name, const uint8_t *rgba, uint32_t w, uint32_t h, uint32_t stride, const char *indexLine);
+
 } // namespace gevrtp
