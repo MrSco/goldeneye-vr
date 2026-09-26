@@ -1643,15 +1643,18 @@ s32 gevrStereoWatchGrip(void)
  * right hand holding it as Bond's does. The model's
  * frame, measured from the ROM (GwatchlaserZ; GtriggerZ is the same model):
  * the face is DL 0x300's dial 0x648 and bezel 0x5e0 (area-weighted centre
- * and normal), the fingers' way is toward its left fist's skin (0x702-0x706)
- * in the face's plane. Drawn at the viewmodel's size, as the fist is.
+ * and normal), and the arm's way is its forearm's: the sleeve's (0x2b8)
+ * principal axis, elbow to wrist, in the face's plane. Its fist is bent 88
+ * degrees off that axis; laid along the fist, the model's arm pointed ahead
+ * with the laser (user: turn it 90 degrees right, twelve o'clock ahead).
+ * Drawn at the viewmodel's size, as the fist is.
  * files/gevr_watchhand.txt "dx dy dz rx ry rz scale" trims it in the wrist
  * frame (cm along x fingers, y face, z thumb; degrees about them), re-read
  * every couple of seconds while it exists.
  */
 static const f32 s_gevrLaserFace[3] = { -2.89f, 80.96f, 81.51f };
 static const f32 s_gevrLaserNormal[3] = { 0.0062f, 0.8650f, -0.5017f };
-static const f32 s_gevrLaserToFist[3] = { -0.9095f, -0.2036f, -0.3623f };
+static const f32 s_gevrLaserForearm[3] = { -0.4488f, 0.4508f, 0.7716f };
 static f32 s_gevrWatchHandTrim[7] = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
 
 s32 gevrStereoWatchHandMatrix(Mtxf *out)
@@ -1659,7 +1662,7 @@ s32 gevrStereoWatchHandMatrix(Mtxf *out)
     f32 o[3], x[3], y[3], z[3], lz[3], bx[3], by[3], bz[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 s;
-    const f32 *lx = s_gevrLaserToFist, *ly = s_gevrLaserNormal;
+    const f32 *lx = s_gevrLaserForearm, *ly = s_gevrLaserNormal;
     Mtxf rot;
     coord3d r;
     s32 i, j;
@@ -1706,7 +1709,7 @@ s32 gevrStereoWatchHandMatrix(Mtxf *out)
                 * cm * gevrGunSizeFactor();
     }
 
-    /* model x toward the fist, y out of its face, z = x cross y: onto the wrist's */
+    /* model x along its forearm, y out of its face, z = x cross y: onto the wrist's */
     lz[0] = lx[1] * ly[2] - lx[2] * ly[1];
     lz[1] = lx[2] * ly[0] - lx[0] * ly[2];
     lz[2] = lx[0] * ly[1] - lx[1] * ly[0];

@@ -45,6 +45,7 @@ extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
 extern void vrSettingsSave(void);
 extern int gevrVrWatchGesture(void); /* vr_input.cpp */
 extern s32 g_gevrWatchGesturePending; /* bondview2.c */
+extern s32 gevrStereoWatchGrip(void);    /* bondview2.c: the gun hand holds the watch (#31) */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
 float gevrVrTurnAxis(void) { return gevrTurnAxis; }
@@ -1115,7 +1116,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static u32 heldsince = 0;
             static u32 pressuntil = 0;
             static bool armed = true;
-            if (!menu && g_gevrStereo && gevrVrWatchGesture()) {
+            // Issue #31 (user): not while the gun hand holds the watch for the
+            // watch laser or the detonator - aiming them raises the wrist too.
+            // It re-arms only once the arm comes down, as after a press.
+            if (gevrStereoWatchGrip()) {
+                heldsince = 0;
+                if (gevrVrWatchGesture()) armed = false;
+            } else if (!menu && g_gevrStereo && gevrVrWatchGesture()) {
                 if (!heldsince) heldsince = now ? now : 1;
                 if (armed && now - heldsince >= 500) {
                     pressuntil = now + 100;
