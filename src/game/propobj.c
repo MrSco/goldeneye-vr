@@ -13372,6 +13372,31 @@ bool sub_GAME_7F054C58(coord3d *coord, f32 arg1)
 /**
  * Address: 7F054D6C
  */
+#ifdef GEVR
+/*
+ * Issue #46: posIsOnScreen's room test at the N64's far distance (bg.c
+ * gevrRoomIsRenderedN64): the prop's first drawn room is one the N64 would
+ * have drawn too. For the AI's "am I on screen" (chrai.c AI_IFImOnScreen).
+ */
+extern s32 gevrRoomIsRenderedN64(s32 roomID);
+
+bool gevrPropRoomOnScreenN64(PropRecord *prop)
+{
+    s32 room_ids[8];
+    s32 *r;
+
+    chraiGetPropRoomIds(prop, room_ids);
+    for (r = room_ids; *r >= 0; r++)
+    {
+        if (getROOMID_isRendered(*r) != 0)
+        {
+            return gevrRoomIsRenderedN64(*r) != 0;
+        }
+    }
+    return FALSE;
+}
+#endif
+
 bool posIsOnScreen(PropRecord *prop, coord3d *pos, f32 arg2, bool arg3)
 {
     s32 room_ids[8];
@@ -14209,6 +14234,10 @@ const char D_80052A44[] = ":\n";
 
     Timer value is set using countdownTimerSetValue()
 */
+#ifdef GEVR
+extern s32 g_gevrStereo;   /* bondview2.c */
+#endif
+
 Gfx *countdownTimerRender(Gfx *DL)
 {
     s32 mins;
@@ -14230,6 +14259,18 @@ Gfx *countdownTimerRender(Gfx *DL)
         ms = ((s32) floorFloat((time * 100.0f) / 60.0f) - (mins * 6000)) - (secs * 100);
 
         DL = microcode_constructor(DL);
+#ifdef GEVR
+        /*
+         * Issue #42: stereo draws the timer on the head-locked HUD panel with
+         * the health and the messages, as Perfect Dark VR does (hudmsg.c
+         * hudmsgsRender). In the eye buffers the HUD branch's per-eye shift
+         * gave it a depth of its own, and it doubled.
+         */
+        if (g_gevrStereo)
+        {
+            gDPNoOpTag(DL++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+        }
+#endif
 
         #if defined(VERSION_US) || defined(VERSION_JP)
             valign_offset = 18;
@@ -14256,6 +14297,12 @@ Gfx *countdownTimerRender(Gfx *DL)
         DL = gunDrawHudInteger(DL, ms % 10, 0xBE, HUDHALIGN_MIDDLE, (viGetViewTop() + viGetViewHeight()) - valign_offset, HUDVALIGN_MIDDLE, 1);
 
         DL = combiner_bayer_lod_perspective(DL);
+#ifdef GEVR
+        if (g_gevrStereo)
+        {
+            gDPNoOpTag(DL++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+        }
+#endif
     }
 
     return DL;

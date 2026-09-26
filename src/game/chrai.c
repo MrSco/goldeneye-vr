@@ -1859,7 +1859,19 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 case AI_IFImOnScreen:
                 {
                     AiIFImOnScreenRecord *ai = AiListp + Offset;
+#ifdef GEVR
+                    /*
+                     * Issue #46: drawn, and in a room the N64's far distance
+                     * reaches: rooms draw 3.3x further in VR (bg.h
+                     * GEVR_FAR_EXTEND), and Jungle's Xenia, set to wake when
+                     * first seen, woke long before the bridge.
+                     */
+                    extern bool gevrPropRoomOnScreenN64(PropRecord *prop);
+
+                    if ((ChrEntityp->prop->flags & PROPFLAG_ONSCREEN) && gevrPropRoomOnScreenN64(ChrEntityp->prop))
+#else
                     if ((ChrEntityp->prop->flags & PROPFLAG_ONSCREEN))
+#endif
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
