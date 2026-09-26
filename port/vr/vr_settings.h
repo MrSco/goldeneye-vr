@@ -49,6 +49,7 @@ extern int VrAimSteady;         // gun-hand steadying: 0 off, 1 low, 2 high (iss
 extern int VrShowStats;         // troubleshooting readout in game
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n
 extern int VrGunSizeCheat;      // VR fun cheat: 0 normal, 1 tiny, 2 big guns
+extern int VrUnlockAll;         // every mission, 007 mode and every cheat unlocked (issue #54)
 extern int VrHideArms;
 
 extern float VrHudDistance;
