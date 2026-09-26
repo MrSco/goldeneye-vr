@@ -49,7 +49,7 @@ done this (GEVR PC parks its ghost fingers, PD VR hides fist bones).
   unique hands to patch. Gun hands use more than one matrix (e.g. a trigger
   finger on its own bone): fairing must not mix matrices there.
 
-## Phase 1: patching the watch arm (in progress, 2026-09-26)
+## Phase 1: patching the watch arm (2026-09-26)
 - tools/gevr_tex_decode.py ports texLoad's lookup (images.def sizes to
   running offsets from GEVR_SEG_IMAGES) and texInflateZlib. All the hand,
   sleeve and cuff textures decode; 0x706 has plain skin for the palm. The
@@ -74,18 +74,51 @@ done this (GEVR PC parks its ghost fingers, PD VR hides fist bones).
     (numpy, uniform weights) for all new points of the part with every ROM
     vertex fixed. The solve is linear, so each new point is stored as
     weights over ROM vertices and the game rebuilds it from the player's ROM.
+  - ribbon: new geometry between two edges round an axis along x (the watch
+    band's back half, strap end to strap end under the wrist, tightening
+    to bottom_radius halfway). Its new points are stored as affine weights
+    over four ROM vertices ("anchors"), its texture coordinates continue the
+    strap's (the strap texture wraps). Its winding follows the strap.
   - Checks printed per part: open edges left, winding (every shared edge
-    walked both ways), edges on 3+ faces.
-- State at the stop: hand = zipfill (130 triangles, 43 new points, fair 1)
-  plus three fingertip fills; sleeve 0x1f0 = elbow cap (shade 60) and cuff
-  bridge (shade 90). Winding consistent, no 3-face edges; the hand's 11 open
-  edges are the wrist ring (8) and a lone triangle (398) that is its own
-  piece. Renders of that last run not yet reviewed.
-- Still to do: review the zipfill renders (the fairing still made a membrane
-  between the curled fingertips and the heel on the fair 2 run), the other
-  sleeve meshes (0x220 family has 6 loops, 0x2b0 has 4), the watch band back
-  (a new strip under the wrist between the strap ends: loops rom 2 and 71 on
-  0x2f8) and the case back, then before/after renders for the user.
+    walked both ways), edges on 3+ faces. directed_loops says when a
+    boundary path never closes (faces wound both ways along it: the watch
+    case's rim) - such a rim is not offered as a loop.
+- --compare my,q2 --tag x writes compare_x.png (before row over after row).
+  The previews do not apply the shade (vertex colour): linings and caps look
+  brighter there than in the game.
+
+## Phase 1 result: the watch arm (2026-09-26)
+tools/handpatch/Csuit_lf_handZ.patch.json, from the recipe beside it:
+- Hand 0x1c0 (151 triangles, 43 faired points): zipfill closes the pinky and
+  ring undersides from their tips and the palm between the heel and the
+  curled fingers (fair 1 bows it into the curl; fair 2 made 463 triangles
+  and a membrane); three fingertip fills. Palm UVs on 0x706's plain skin.
+  Left open on purpose: the wrist ring (the sleeve's cuff closes it) and a
+  lone triangle (rom 398) that is its own piece.
+- Sleeves, one entry per outfit node (each has its own fingerprint, even the
+  ones that share a loop layout):
+  - 0x1f0 / 0x2e0: elbow cap (shade 60) + jacket edge to shirt cuff (90).
+  - 0x220 / 0x250 / 0x280 (tuxedo: jacket, white cuff band 0x645, bare
+    wrist): elbow cap + jacket edge to cuff band inner end [56, 1] + cuff
+    band edge to wrist tube inner end [0, 11] (shade 110).
+  - 0x2b0 (rolled camo sleeve over the forearm): elbow cap + sleeve edge to
+    forearm [18, 0], on the green half of 0x66c.
+  - Every sleeve is closed but its wrist ring (shared with the hand).
+- Watch 0x2f8: ribbon from strap end [23, 22] to [91, 92] under the wrist,
+  axis (y 3758, z 31), bottom radius 288 (the cuffs are ~270-275 from the
+  axis at the watch on every outfit, interpolated between their end rings;
+  no sleeve has vertices under the watch). 16 triangles on 0x5e3.
+- Not done, on purpose: the case back. The case is sunk into the cuff (face
+  at y 4000, cuff top ~4030 at the watch), so its open bottom is not in
+  view; its rim is also wound both ways, so it is not a clean loop.
+- Most drawn at once in game: hand 151 + one sleeve <= 50 + band 16.
+  Group by texture and shade at runtime (the hand's four groups are one
+  texture) to keep draw calls down.
+- Fairing weights run to 60 terms per point (threshold 1e-3); raise the
+  threshold if load time matters.
+- Next hands (Phase 3): gun hands use several matrices; fair per matrix or
+  keep new points on one bone, and check the rest pose before trusting a
+  render.
 - Phase 2 (runtime: gevr_handpatch.c at the model-load hook after
   sub_GAME_7F0762E0, objecthandler_2.c) is ON HOLD by the user's call until
   the #35 / viewmodel work in that code has landed; branch it from the new

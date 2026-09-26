@@ -32,7 +32,9 @@ Operations (recipe "ops"):
 Loops are named by any ROM vertex index on them ("loop": 57).
 
 --list prints every part's loops with such an index. --render draws before
-and after views (boundary edges red, patch faces tinted with --tint).
+and after views of those parts (--frame: framed on these; --tint: patch faces
+magenta); --compare my,q2 --tag hand also writes compare_hand.png, the
+before row over the after row for those views.
 """
 
 import json
@@ -54,7 +56,7 @@ RECIPES = os.path.join(REPO, "tools", "handpatch")
 def args():
     a = sys.argv[sys.argv.index("--") + 1:]
     o = {"src": a[0], "out": a[1], "list": False, "render": None, "frame": None, "save": False,
-         "tint": False}
+         "tint": False, "compare": None, "tag": "patch"}
     i = 2
     while i < len(a):
         k = a[i]
@@ -63,6 +65,12 @@ def args():
             i += 1
         elif k in ("--render", "--frame"):
             o[k[2:]] = [int(x, 16) for x in a[i + 1].split(",")]
+            i += 2
+        elif k == "--compare":
+            o["compare"] = a[i + 1].split(",")
+            i += 2
+        elif k == "--tag":
+            o["tag"] = a[i + 1]
             i += 2
         else:
             raise SystemExit("unknown argument " + k)
@@ -94,6 +102,7 @@ def directed_loops(bm):
                 break
     used = set()
     loops = []
+    dropped = 0
     for start in list(out):
         for first in out[start]:
             if (start, first.index) in used:
@@ -114,8 +123,13 @@ def directed_loops(bm):
                 cur = nxt
                 cands = [v for v in out.get(cur.index, []) if (cur.index, v.index) not in used]
                 if not cands:
+                    if len(path) > 1:
+                        dropped += 1
                     break
                 nxt = cands[0]
+    if dropped and not getattr(directed_loops, "quiet", False):
+        print("   note: %d boundary paths never close (faces wound both ways along them);"
+              " they are not offered as loops" % dropped)
     return [lp for lp in loops if len(lp) >= 3], face_of
 
 
@@ -300,7 +314,7 @@ def refine(bm, lay_patch, k):
         bmesh.ops.triangulate(bm, faces=faces)
 
 
-def fair(bm, n_orig, lay_idx, lay_mtx):
+def fair(bm, n_orig, lay_idx, lay_mtx, free):
     """Place every new point so the patch continues the curvature around it:
     the bi-Laplacian (uniform weights) is zero at each new point, with every
     ROM vertex held fixed. The system is linear, so each new point comes out
@@ -309,7 +323,7 @@ def fair(bm, n_orig, lay_idx, lay_mtx):
     import numpy as np
     verts = list(bm.verts)
     n = len(verts)
-    new = [v.index for v in verts if v.index >= n_orig]
+    new = sorted(free)
     if not new:
         return {}
     L = np.zeros((n, n))
@@ -320,7 +334,7 @@ def fair(bm, n_orig, lay_idx, lay_mtx):
             L[v.index, j] -= 1.0 / len(nb)
     M = L @ L
     U = np.array(new)
-    F = np.array([i for i in range(n) if i < n_orig])
+    F = np.array([i for i in range(n) if i < n_orig])  # ROM vertices only
     W = -np.linalg.solve(M[np.ix_(U, U)], M[np.ix_(U, F)])
     X = np.array([list(verts[i].co) for i in F])
     mixes = {}
@@ -336,6 +350,81 @@ def fair(bm, n_orig, lay_idx, lay_mtx):
         mixes[int(u)] = {"mix": [[int(v[lay_idx]), round(float(x), 5)] for v, x in zip(refs, wk)],
                          "mtx": int(refs[0][lay_mtx])}
     return mixes
+
+
+# ---------------------------------------------------------------------------
+# New geometry: the back half of the watch band
+# ---------------------------------------------------------------------------
+
+def vert_by_rom(bm, lay_idx, rom):
+    for v in bm.verts:
+        if v[lay_idx] == rom:
+            return v
+    raise SystemExit("no vertex with ROM index %d" % rom)
+
+
+def ribbon(bm, lay_idx, op):
+    """A strip from one edge to another round an axis along x (the wrist):
+    the band's missing back half, from one strap end under the wrist to the
+    other. It leaves each end at the strap's radius and tightens to
+    bottom_radius halfway, so it sits on the cuff. Returns the new faces as
+    (verts, (s, t) per corner) and the new points."""
+    a0, a1 = (vert_by_rom(bm, lay_idx, r) for r in op["from"])
+    b0, b1 = (vert_by_rom(bm, lay_idx, r) for r in op["to"])
+    cy, cz = op["axis"]
+    n = op.get("segments", 8)
+
+    def polar(p):
+        return math.hypot(p.y - cy, p.z - cz), math.atan2(p.y - cy, p.z - cz)
+
+    rails = []
+    for pa, pb in ((a0, b0), (a1, b1)):
+        ra, ta = polar(pa.co)
+        rb, tb = polar(pb.co)
+        # go round the underside: through angle -90 degrees (y below the axis)
+        while tb < ta:
+            tb += 2 * math.pi
+        if not (ta < 1.5 * math.pi < tb):
+            ta, tb = ta + 2 * math.pi, tb
+            while tb < ta:
+                tb += 2 * math.pi
+        rail = [pa]
+        for i in range(1, n):
+            t = i / n
+            r_lin = (1 - t) * ra + t * rb
+            r = r_lin - (r_lin - op["bottom_radius"]) * math.sin(math.pi * t) ** 0.8
+            th = ta + t * (tb - ta)
+            x = (1 - t) * pa.co.x + t * pb.co.x
+            rail.append(bm.verts.new((x, cy + r * math.sin(th), cz + r * math.cos(th))))
+        rail.append(pb)
+        rails.append(rail)
+    # texture: across the band like the strap's end (s from the "from" pair),
+    # along it at the strap's rate, continuing past its end (the texture wraps)
+    s0, s1 = op["s"]
+    t_end, t_rate = op["t"]
+    faces = []
+    along = 0.0
+    for i in range(n):
+        seg = ((rails[0][i + 1].co - rails[0][i].co).length + (rails[1][i + 1].co - rails[1][i].co).length) / 2
+        tA = t_end - along * t_rate
+        tB = t_end - (along + seg) * t_rate
+        along += seg
+        quad = (rails[0][i], rails[1][i], rails[1][i + 1], rails[0][i + 1])
+        st = ((s0, tA), (s1, tA), (s1, tB), (s0, tB))
+        faces.append((quad, st))
+    new = [v for rail in rails for v in rail[1:-1]]
+    return faces, new
+
+
+def affine_mix(bm, lay_idx, lay_mtx, v, anchors):
+    """v as an affine combination of four ROM vertices (weights sum to 1), so
+    the patch stores no coordinates."""
+    import numpy as np
+    A = [vert_by_rom(bm, lay_idx, r) for r in anchors]
+    M = np.array([[a.co.x for a in A], [a.co.y for a in A], [a.co.z for a in A], [1, 1, 1, 1]])
+    w = np.linalg.solve(M, np.array([v.co.x, v.co.y, v.co.z, 1.0]))
+    return {"mix": [[int(a[lay_idx]), round(float(x), 6)] for a, x in zip(A, w)],
+            "mtx": int(A[0][lay_mtx])}
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +466,31 @@ def fnv_vertices(model, node):
     return "0x%08x" % h
 
 
+def compare_sheet(out, tag, views):
+    """Before over after for each view, side by side, as compare_<tag>.png."""
+    import numpy as np
+    rows = []
+    for when in ("before", "after"):
+        tiles = []
+        for v in views:
+            name = v.replace("+", "p").replace("-", "m")
+            img = bpy.data.images.load(os.path.join(out, "view_%s_%s_%s.png" % (tag, when, name)))
+            w, h = img.size
+            px = np.array(img.pixels[:], dtype=np.float32).reshape(h, w, 4)
+            tiles.append(px)
+            bpy.data.images.remove(img)
+        rows.append(np.concatenate(tiles, axis=1))
+    sheet = np.concatenate([rows[1], rows[0]], axis=0)  # pixels run bottom-up: before on top
+    h, w = sheet.shape[:2]
+    img = bpy.data.images.new("compare", w, h, alpha=True)
+    img.pixels = sheet.ravel()
+    path = os.path.join(out, "compare_%s.png" % tag)
+    img.filepath_raw = path
+    img.file_format = "PNG"
+    img.save()
+    return path
+
+
 def main():
     o = args()
     with open(o["src"], encoding="utf-8") as f:
@@ -402,8 +516,11 @@ def main():
             print("part 0x%04x: %d loops" % (node, len(loops)))
             for lp in sorted(loops, key=lambda l: -len(l)):
                 c, per, idx = loop_info(lp, lay)
-                print("   loop %3d verts  perimeter %7.0f  centre (%6.0f %6.0f %6.0f)  rom %d"
-                      % (len(lp), per, c.x, c.y, c.z, idx))
+                lo = [min(v.co[a] for v in lp) for a in range(3)]
+                hi = [max(v.co[a] for v in lp) for a in range(3)]
+                print("   loop %3d verts  perimeter %7.0f  centre (%6.0f %6.0f %6.0f)  rom %-4d"
+                      "  x %.0f..%.0f  y %.0f..%.0f  z %.0f..%.0f"
+                      % (len(lp), per, c.x, c.y, c.z, idx, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]))
             bm.free()
         return
 
@@ -414,7 +531,8 @@ def main():
     before = None
     if o["render"]:
         before = H.render_views([objs[n] for n in (o["frame"] or o["render"]) if n in objs],
-                                o["out"], "before", hide=[ob for n, ob in objs.items() if n not in o["render"]])
+                                o["out"], o["tag"] + "_before",
+                                hide=[ob for n, ob in objs.items() if n not in o["render"]])
 
     patch = {"model": name, "note": "Ours: triangles over ROM vertex indices, our UVs. No ROM data.",
              "parts": []}
@@ -431,6 +549,8 @@ def main():
         lay_mtx = bm.verts.layers.int["rom_mtx"]
         lay_patch = bm.faces.layers.int.new("patch")
         uvl = bm.loops.layers.uv["UVMap"]
+        fixed_st = {}   # corners whose texture coordinates the op chose itself (s, t)
+        anchored = {}   # new points placed by an op, stored as affine weights
         for k, op in enumerate(ops, 1):
             loops, face_of = directed_loops(bm)
             if op["op"] == "fill":
@@ -466,6 +586,32 @@ def main():
                 lb = find_loop(loops, lay_idx, op["loops"][1])
                 tris = bridge_loops(la, lb)
                 print("0x%04x bridge loops %s: %d triangles" % (node, op["loops"], len(tris)))
+            elif op["op"] == "ribbon":
+                quads, new_pts = ribbon(bm, lay_idx, op)
+                tris = []
+                made = []
+                for quad, st in quads:
+                    for tri in ((0, 1, 2), (0, 2, 3)):
+                        f = bm.faces.new([quad[i] for i in tri])
+                        f[lay_patch] = k
+                        f.smooth = False
+                        made.append(f)
+                        for i in tri:
+                            fixed_st[quad[i]] = st[i]
+                # the first quad starts on the strap's end edge a0 -> a1; the
+                # strap must walk that edge the other way
+                a0, a1 = quads[0][0][0], quads[0][0][1]
+                e = next(e for e in a0.link_edges if e.other_vert(a0) is a1)
+                strap = [f for f in e.link_faces if f[lay_patch] == 0]
+                if strap:
+                    lp_ = next(l for l in strap[0].loops if l.edge is e)
+                    if lp_.vert is a0:
+                        bmesh.ops.reverse_faces(bm, faces=made)
+                bm.normal_update()
+                for v in new_pts:
+                    anchored[v] = affine_mix(bm, lay_idx, lay_mtx, v, op["anchors"])
+                print("0x%04x ribbon %s -> %s: %d triangles, %d new points"
+                      % (node, op["from"], op["to"], 2 * len(quads), len(new_pts)))
             else:
                 raise SystemExit("unknown op " + op["op"])
             for t in tris:
@@ -480,14 +626,22 @@ def main():
                 refine(bm, lay_patch, k)
         bm.verts.index_update()
         bm.verts.ensure_lookup_table()
-        mixes = fair(bm, n_orig, lay_idx, lay_mtx)
+        faired = {v.index for f in bm.faces if f[lay_patch] and ops[f[lay_patch] - 1].get("fair")
+                  for v in f.verts if v.index >= n_orig}
+        mixes = fair(bm, n_orig, lay_idx, lay_mtx, faired)
+        for v, m in anchored.items():
+            mixes[v.index] = m
 
         groups = []
         for k, op in enumerate(ops, 1):
             faces = [f for f in bm.faces if f[lay_patch] == k]
             texnum = int(op["tex"], 16)
             info = model["textures"]["0x%x" % texnum]
-            uv = plane_uv([tuple(f.verts) for f in faces], op.get("uvbox", [0, 0, 1, 1]))
+            if op["op"] == "ribbon":
+                uv = {v.index: (fixed_st[v][0] / 32.0 / info["w"], fixed_st[v][1] / 32.0 / info["h"])
+                      for f in faces for v in f.verts}
+            else:
+                uv = plane_uv([tuple(f.verts) for f in faces], op.get("uvbox", [0, 0, 1, 1]))
             slot = None
             for i, m in enumerate(ob.data.materials):
                 if m.name.startswith("tex_%x" % texnum):
@@ -553,8 +707,11 @@ def main():
 
     if o["render"]:
         for p in H.render_views([objs[n] for n in (o["frame"] or o["render"]) if n in objs],
-                                o["out"], "after", hide=[ob for n, ob in objs.items() if n not in o["render"]]):
+                                o["out"], o["tag"] + "_after",
+                                hide=[ob for n, ob in objs.items() if n not in o["render"]]):
             print("wrote " + p)
+        if o["compare"]:
+            print("wrote " + compare_sheet(o["out"], o["tag"], o["compare"]))
     if o["save"]:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.join(o["out"], name + "_patched.blend"))
 
