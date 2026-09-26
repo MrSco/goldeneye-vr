@@ -43,6 +43,7 @@ struct TextureCacheKey {
     uint16_t id_mask;
     uint32_t width = 0, height = 0, source_pitch = 0;
     uint32_t palette_hash = 0, palette_fmt = 0;
+    uint32_t clamp = 0; /* a padded block's clamp window (clamp_w << 16 | clamp_h): the pad is filled from it */
     bool swizzled = false;
 
     bool operator==(const TextureCacheKey&) const noexcept = default;
