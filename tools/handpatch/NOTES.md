@@ -124,6 +124,71 @@ tools/handpatch/Csuit_lf_handZ.patch.json, from the recipe beside it:
   the #35 / viewmodel work in that code has landed; branch it from the new
   main then.
 
+## Phase 3: the gun hands (2026-09-26)
+Every hand-carrying model has a recipe and a patch in tools/handpatch:
+GwppkZ (+ GwppksilZ, GgoldwppkZ, GsilverwppkZ by "same_as"), GgoldengunZ,
+GrugerZ, Gtt33Z, GknifeZ, GthrowknifeZ, GfistZ, GtaserZ, GwatchlaserZ.
+Rifles have no hands. Each run printed no new mis-wound or 3-face edges
+(every one left was in the model before).
+
+How a gun model's hand is built:
+- Switches 8-13 (and 35 when there are 36 switches) are the hand, all set
+  together by sub_GAME_7F05E978; switch 6 is the trigger finger on its own
+  bone (matrix 4 or 5); 29-34 are outfit cuffs (only the watch laser model
+  has them). GfistZ has no switches: its four finger parts sit under BSP
+  nodes (draw order only) and all six parts always draw.
+- The hand is split into up to ten parts whose seams meet at the same points,
+  so holes are judged on the parts welded together (an "assembly"; welding
+  keys on position AND matrix). Per-part outlines are mostly seams.
+- The pistol hand (PPK family, golden gun, Cougar, DD44, both knives) is one
+  design: an open grip cavity (the gun's handle fills it; its rim is wound
+  both ways, a "mixed open chain" - left alone), a 14-vertex socket where
+  the trigger finger plugs in (open knuckle on the knives), two fingertip
+  holes, and the forearm's cut end. The trigger finger's base (17 verts)
+  matches the socket (both perimeter 177).
+- T-junction slits along some part seams (single edges wound both ways) are
+  original and have no area; left alone.
+
+What the patches do:
+- Pistols and knives: cap the forearm end (0x704, shade 60), close the
+  socket (0x704), the two fingertips (0x706); the trigger finger's base on
+  its own bone, drawn with the trigger finger. 47 triangles (32 knives).
+- GfistZ (actually an open hand in a suit sleeve): jacket end cap, jacket
+  edge -> shirt sleeve far end, shirt cuff -> forearm (like the tuxedo).
+- GtaserZ (also the grenade hand): finger holes first (two touch the big
+  loop), then earclip the open forearm underside (maxdiag 80, flat cut end),
+  then fill + fair the palm (loop "largest"). 152 triangles.
+- GwatchlaserZ: both palms (fair), arm ends, 12 finger holes, the pressing
+  finger (spans bones 0 and 3), and all six sleeve troughs closed
+  underneath (earclip). The watch's trim rings left alone.
+
+Tool changes in this phase:
+- Assemblies ({"host", "nodes", "ops"}), loops named "node:index"; the patch
+  corners carry their node, weights are [node, index, weight]; each patch
+  part lists a fingerprint for every node it references.
+- directed_loops prunes half-edges that can be on no cycle and, on a dead
+  end, keeps the cycles found and releases the rest of the path (the old
+  walk threw away a whole good loop on the taser). mixed_loops lists the
+  rims wound both ways; a fill takes one only with "mixed": true.
+- Ear clipping makes each ear a face at once and refuses an ear that repeats
+  a face or runs its diagonal along an edge with two faces (holes that touch).
+- fill_loop takes edge normals from the mesh, turned to the loop direction.
+- "same_as": borrow another model's recipe, nodes matched by vertex-block
+  fingerprint; refuses when a node has no single match (the throwing knife's
+  two main parts differ from the knife's, so it has its own recipe).
+- The exporter follows a switch node's Controls pointer.
+
+For Phase 2 (the runtime), from this format:
+- A patch part draws with its host node, right after the host's own DL
+  (same segment 5, same matrix state).
+- Corners may come from other nodes of the same model file (the hand's
+  parts) and from more than one matrix (the watch laser's pressing finger;
+  pistol trigger fingers stay on their own bone). Load each corner under its
+  own G_MTX, 16-vertex cache batches like the original DLs do.
+- New points: sum of weight * ROM vertex position (same node:index refs),
+  computed once at load. Group by texture + shade to keep draw calls down.
+- Skip a whole patch part if any referenced node's fingerprint differs.
+
 Tool quirks
 - Bash heredocs with Python inside break here: write edit scripts to the
   scratchpad and run them.

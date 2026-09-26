@@ -1,0 +1,71 @@
+{
+ "model": "GthrowknifeZ",
+ "note": "Throwing knife hand (issue #9, Phase 3). Like the knife's, but its two largest parts differ, so it has its own recipe.",
+ "assemblies": [
+  {
+   "host": "0x015c",
+   "nodes": [
+    "0x015c",
+    "0x01ec",
+    "0x0204",
+    "0x021c",
+    "0x0264",
+    "0x027c",
+    "0x0294",
+    "0x02f4",
+    "0x030c",
+    "0x0384"
+   ],
+   "ops": [
+    {
+     "op": "fill",
+     "loop": "0x015c:92",
+     "why": "the forearm's cut end",
+     "tex": "0x704",
+     "shade": [
+      60,
+      60,
+      60,
+      255
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0204:1",
+     "why": "the open knuckle (the pistol hands' trigger finger socket)",
+     "tex": "0x704",
+     "uvbox": [
+      0.1,
+      0.1,
+      0.9,
+      0.9
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x01ec:0",
+     "why": "fingertip",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x021c:10",
+     "why": "fingertip",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    }
+   ]
+  }
+ ]
+}
