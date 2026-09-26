@@ -1,0 +1,116 @@
+# AI-generated HD textures: research and pilot (2026-09-26)
+
+Branch `claude/ai-generated-hd-textures-477235`. Question: can image AI fill
+the gaps in the texture pack we offer (evilgames.eu "GoldenEye 007 HD",
+intermissionfb and GhostlyDark)?
+
+## The gap
+
+- The installed pack (headset, `files/texture-packs/ge007-hd`) has 1763 PNGs:
+  508 in-game textures, 651 explosion/smoke/death frames, 299 gun barrel frames,
+  about 200 font glyphs, and a few ammo, crosshair and watch textures.
+  On the Dam, 502 of 665 distinct textures matched (HANDOFF 101).
+- It has no guards or characters. It covers only 7 weapons and, for levels,
+  mostly the Dam.
+- The ROM's texture table holds 2698 textures (`assets/images.def`).
+  - The pilot decoder reads 1744 of them: the zlib ones, via
+    `tools/gevr_tex_decode.py` on `feature/9-hand-shells`.
+  - The other 954 use Rare's own compression.
+- The pack keys each image by GLideN64's Rice checksum of the texture *as
+  drawn*. So a texture number from the ROM can't say whether the pack has it;
+  only a dump from the running game can. Guess: 1,500+ missing textures.
+
+## Pilot
+
+Six ROM textures went through ChatGPT (its image model, Plus) and Gemini
+(3.1 Pro = Nano Banana Pro), both driven in the user's Chrome. The prompts
+are the templates in `texai.py`.
+
+`drift4` is the PSNR of the answer averaged over 4x4 texels, against the
+original. Higher means the layout is kept.
+
+| texture | ChatGPT | Gemini |
+|---|---|---|
+| 00c3 brick wall | 24.7: bricks half size (pattern redrawn) | 24.5: bricks slightly larger, close |
+| 0160 Facility panel | 20.5: excellent | 22.3: excellent |
+| 0955 "58" sign | 14.6: Rare's digits replaced by a stencil font | 12.5: same |
+| 081d face | 26.9: same person, excellent | 16.7: a different person |
+| 0914 frond (cut-out) | 15.0: new leaf shape, fine inside the original's silhouette | 12.9: a different plant |
+| 094e jungle foliage | 24.5: realistic, pattern loose | 31.5: follows the original's pattern |
+
+Findings:
+
+- **Don't describe identity.** The first face prompt said "a man". ChatGPT
+  followed the words over the picture and drew a man on a woman's texture.
+  With "the same person" it kept her.
+- **Never ship raw answers.** Colour and brightness drift. Checked on the
+  sheet, not measured:
+  - Locking the result back to the original texel by texel (`strict`)
+    ghosts wherever the model moved something.
+  - A 4x4-texel colour lock (`soft`) keeps the model's detail and the
+    original's colours. Use `soft`.
+- **drift4 separates good answers from wrong ones:**
+  - At 20 or above, the answer is usable.
+  - At 17 or below, it is always visibly wrong.
+  - It misses a redrawn pattern at the same colours (ChatGPT's bricks), so
+    tiling materials need an eyeball check, or a pattern-scale check to be
+    written.
+- **Wrap flags matter.** 094e only repeats horizontally: seam-fixing it
+  vertically smeared its dark top band. A dump has to record the tile's
+  cms/cmt.
+- **Lettering is out.** Both models replace Rare's glyphs. Text, fonts and
+  HUD stay with the pack or hand work.
+- **Output sizes and watermarks:**
+  - ChatGPT answers at 1254x1254; Gemini's page shows 1024x1024.
+  - No visible watermark was found in these Gemini downloads. They carry
+    SynthID, which is invisible.
+- **Throughput by hand is about 1 minute per image per service.** The apps
+  have per-hour limits. Fine for a few dozen showcase textures, not
+  for 1,500+.
+
+## Next steps (not started)
+
+1. **Port: dump misses.** Behind a marker file, `gevr_texpack_lookup` writes
+   each texture the pack doesn't match as `GOLDENEYE#CRC#F#S[#PAL]_all.png` /
+   `_ciByRGBA.png`. It already computes the key. Add a sidecar line per
+   texture with fmt/siz/size, cms/cmt and mask, and the level. The user plays
+   each level once, with unlock all and the level select, then `adb pull`.
+2. **Port: a fill pack.** A second pack scanned after the main one (first
+   match wins), so AI textures fill gaps and never replace the authors' work.
+3. **Batch through the APIs, not the apps.**
+   - Needs an OpenAI and/or Gemini API key.
+   - Research quotes (not checked here) put 2000 images at about $40 (Gemini
+     Flash image, batch) to $270 (Nano Banana Pro). gpt-image-2 medium is
+     about $0.05 each, half that in batch.
+   - Run both models and keep the better score, then have a person review
+     the sheet.
+4. **Local option.** The RTX 3080 Ti runs GAN upscalers in milliseconds per
+   texture. Candidates:
+   - 4xTextureDAT2_otf (CC-BY-4.0)
+   - 4x-GameAI 2.0 (WTFPL)
+   - Real-ESRGAN (BSD-3)
+   They keep the layout exactly, which suits tiling materials. Not tried:
+   nothing was downloaded.
+
+## Legal line
+
+- The originals, the answers and the finished PNGs are all ROM-derived. Keep
+  them under `build/`.
+- An AI pack is a separate download, like the evilgames one.
+- The evilgames repo has no license, so ask its authors before merging into
+  or redistributing their pack.
+- The guard faces are photos of real people (Rare staff), a likeness question
+  on top of copyright.
+
+## Running the pilot again
+
+```
+python tools/texai/texai.py prep  <orig_dir> build/texai-pilot    # in/<tex>.png + in/<tex>.txt
+#   send each in/<tex>.png with its prompt; save answers to build/texai-pilot/out/<tool>/<tex>.png
+python tools/texai/texai.py post  <orig_dir> build/texai-pilot
+python tools/texai/texai.py sheet <orig_dir> build/texai-pilot
+```
+
+`<orig_dir>` holds the originals as `<tex>.png`, e.g. decoded with
+`python tools/gevr_tex_decode.py "<rom>" <orig_dir> 0x0c3 0x160 ...` on the #9
+branch (it writes `0x0c3.png`; the samples file names them `00c3`).
