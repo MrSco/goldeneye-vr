@@ -14269,6 +14269,9 @@ Gfx *countdownTimerRender(Gfx *DL)
         if (g_gevrStereo)
         {
             gDPNoOpTag(DL++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+            /* full size, so it sits at the panel's foot, below the messages
+             * (user: it was in the middle of the view) */
+            gDPNoOpTag(DL++, 0x56590000); /* VR_HUD_FULL_SIZE_BEGIN */
         }
 #endif
 
@@ -14300,6 +14303,7 @@ Gfx *countdownTimerRender(Gfx *DL)
 #ifdef GEVR
         if (g_gevrStereo)
         {
+            gDPNoOpTag(DL++, 0x56590001); /* VR_HUD_FULL_SIZE_END */
             gDPNoOpTag(DL++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
         }
 #endif
