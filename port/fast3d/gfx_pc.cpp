@@ -2174,7 +2174,16 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
 
 
-    if (!gevrCullOff && (rsp.geometry_mode & G_CULL_BOTH) != 0) {
+    /*
+     * Issue #24: under VR_CULL_OFF (the stereo hands and guns, seen from every
+     * side) a face the display list would cull is still drawn, but a hair
+     * farther away, so that a front face glued to it wins the depth test as
+     * the N64's culling had it: the open fist has a white triangle back to
+     * back with a skin one at the base of the index finger, and drawn first
+     * it won the GL_LESS tie from every side.
+     */
+    bool gevrBackFace = false;
+    if ((rsp.geometry_mode & G_CULL_BOTH) != 0 && !(gevrCullOff && (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH)) {
         if ((rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH) {
             if (gevrMenuTrace) ++gevrMenuCulled;
             // Why is this even an option?
@@ -2207,7 +2216,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             cull = cull_front ? (cross <= 0) : (cross >= 0);
         }
 
-        if (cull) {
+        if (cull && gevrCullOff) {
+            gevrBackFace = true;
+        } else if (cull) {
             if (gevrMenuTrace) ++gevrMenuCulled;
             return;
         }
@@ -2391,13 +2402,22 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     struct GfxClipParameters clip_parameters = gfx_rapi->get_clip_parameters();
 
     for (int i = 0; i < 3; i++) {
-        float z = v_arr[i]->z, w = v_arr[i]->w;
+        float x = v_arr[i]->x, y = v_arr[i]->y, z = v_arr[i]->z, w = v_arr[i]->w;
+        if (gevrBackFace) {
+            // 1e-4 of NDC depth farther (the point moved out along its ray,
+            // so a redraw rebuilding it from x, y and w keeps the push: #53)
+            const float s = 1.0f + 1e-4f;
+            z = (z + 1e-4f * w) * s;
+            x *= s;
+            y *= s;
+            w *= s;
+        }
         if (clip_parameters.z_is_from_0_to_1) {
             z = (z + w) / 2.0f;
         }
 
-        buf_vbo[buf_vbo_len++] = v_arr[i]->x;
-        buf_vbo[buf_vbo_len++] = clip_parameters.invert_y ? -v_arr[i]->y : v_arr[i]->y;
+        buf_vbo[buf_vbo_len++] = x;
+        buf_vbo[buf_vbo_len++] = clip_parameters.invert_y ? -y : y;
         buf_vbo[buf_vbo_len++] = z;
         buf_vbo[buf_vbo_len++] = w;
 

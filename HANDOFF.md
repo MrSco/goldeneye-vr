@@ -4760,6 +4760,7 @@ headset:
   the watch laser or the detonator (their models have the arms).
 - fix/24-hand-backface (#24): under VR_CULL_OFF a culled face draws 1e-4
   NDC farther, so the fist's white back triangle loses to its skin twin.
+  MERGED 2026-09-26 (user: fixed; tested with main merged in).
 - fix/49-sky-fill (#49): the stereo sky fill below the horizon is a far
   polygon through skyPortRenderPoly.
   - It was w = 1, drawn as HUD: at HUD depth, and at 2/3 size because
