@@ -6320,6 +6320,24 @@ void bondviewUpdatePlayerCollisionPositionFields(void)
 
     phi_f0 = g_CurrentPlayer->eyeheight +
         ((g_CurrentPlayer->field_88 + g_CurrentPlayer->ducking_height_offset) * g_playerPerm->player_perspective_height);
+#ifdef GEVR
+    {
+        /*
+         * Issue #48: a physical duck lowers Bond himself, as Perfect Dark VR
+         * sets its crouch from the head (bondmove.c): guards aim at and test
+         * cover against this position (chraction.c chrlvAttackRelated7F0292A8).
+         * Ducking behind boxes only lowered the camera, and guards still
+         * shot a standing Bond over the cover. The camera takes only the rise
+         * now (bondviewUpdateCameraMatrices' caller), the duck being in here.
+         */
+        f32 duck = gevrStereoHeadHeight();
+
+        if (duck < 0.0f)
+        {
+            phi_f0 += duck;
+        }
+    }
+#endif
 
     if (phi_f0 < 30.0f)
     {
@@ -10104,7 +10122,15 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
         {
             cam_look = s_gevrCamLook;
             cam_up = s_gevrCamUp;
-            cam_pos.y += gevrStereoHeadHeight();
+            {
+                /* the rise only: a duck is already in the body (issue #48) */
+                f32 rise = gevrStereoHeadHeight();
+
+                if (rise > 0.0f)
+                {
+                    cam_pos.y += rise;
+                }
+            }
         }
 #endif
     }
