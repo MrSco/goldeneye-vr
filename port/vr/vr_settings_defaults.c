@@ -75,10 +75,11 @@ float VrGunOffZ = -12.35f;   /* back */
 /* Issue #35: the holding hand's trim for a two-handed hold, per class (0
  * handguns, 1 long guns): cm along the off hand's side, up and forward, then
  * degrees about the hand model's X, Y, Z (bondview2.c gevrStereoTwoHandMatrix).
- * Gun fit sets them while holding with both hands (port/src/input.c). */
+ * Gun fit sets them while holding with both hands (port/src/input.c). The
+ * defaults are the user's, set that way in the headset (2026-09-26). */
 float VrGripTrim[2][6] = {
-    { 0.0f, -2.0f, 1.0f, 0.0f, 0.0f, 0.0f },     /* handguns: under the gun hand */
-    { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, -25.0f },    /* long guns: rolled toward palm up */
+    { 0.52f, -4.08f, 2.30f, 0.0f, 0.0f, 0.0f },      /* handguns: under the gun hand */
+    { -0.92f, -3.15f, 2.89f, 15.2f, 0.0f, -25.0f },  /* long guns: under the fore-end, tipped forward */
 };
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
 float VrArmBodyFollow = 0.0f;  /* how fast the smoothed torso yaw chases the head */
