@@ -1540,6 +1540,49 @@ s32 gevrStereoWatchPoint(f32 out[3])
 }
 
 /*
+ * Issue #31 (user): the watch laser and the detonator fire only with the gun
+ * hand at the watch, as Bond's right hand presses it in their viewmodels.
+ * gunfire.c gunTickGameplay drops the trigger otherwise. "At" is the watch
+ * face within GEVR_WATCH_PRESS_CM of the hand, taken as the line from the
+ * controller's grip to GEVR_WATCH_REACH_CM along the fingers. Real
+ * centimetres: the tiny/big guns cheat does not change the reach.
+ */
+#define GEVR_WATCH_PRESS_CM 10.0f
+#define GEVR_WATCH_REACH_CM 10.0f
+
+s32 gevrStereoHandAtWatch(f32 *cmOut)
+{
+    f32 watch[3], pos[3], right[3], up[3], back[3], seg[3], d[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 len2, t, dist;
+    s32 i;
+
+    if (cm < 1e-6f || !gevrStereoWatchPoint(watch) || !gevrGripAxes(1, pos, right, up, back))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        seg[i] = -back[i] * GEVR_WATCH_REACH_CM * cm;
+        d[i] = watch[i] - pos[i];
+    }
+    len2 = seg[0] * seg[0] + seg[1] * seg[1] + seg[2] * seg[2];
+    t = len2 > 1e-12f ? (d[0] * seg[0] + d[1] * seg[1] + d[2] * seg[2]) / len2 : 0.0f;
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+    for (i = 0; i < 3; i++)
+    {
+        d[i] -= seg[i] * t;
+    }
+    dist = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm;
+    if (cmOut != NULL)
+    {
+        *cmOut = dist;
+    }
+    return dist < GEVR_WATCH_PRESS_CM;
+}
+
+/*
  * gunfire.c bullet_path_from_screen_center: in stereo a shot leaves the
  * muzzle along the barrel (Perfect Dark VR bgunCalculatePlayerShotSpread)
  * instead of the eye through the crosshair. The game's spread is kept as an
