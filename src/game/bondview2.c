@@ -1710,9 +1710,13 @@ s32 gevrStereoTwoHandItem(s32 item)
 /*
  * Where the off hand holds (user, in the headset: it could slide right onto
  * the barrel): a handgun's at its grip, wrapping the gun hand; a long gun's
- * on the fore-end, GEVR_TWOHAND_FORE_MIN..MAX of the way from the grip to the
- * muzzle.
+ * on the fore-end, GEVR_TWOHAND_FORE of the way from the grip to the muzzle -
+ * one point, as the handgun's (user: sliding along it, the hand clipped
+ * through the magazine). Taking hold still accepts the hand anywhere
+ * GEVR_TWOHAND_FORE_MIN..MAX along it. The grip fit's forward trim moves the
+ * point.
  */
+#define GEVR_TWOHAND_FORE 0.35f
 #define GEVR_TWOHAND_FORE_MIN 0.2f
 #define GEVR_TWOHAND_FORE_MAX 0.55f
 
@@ -1785,8 +1789,9 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     tmin = tmax = 0.0f;
     if (!gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT)))
     {
-        tmin = len * GEVR_TWOHAND_FORE_MIN;
-        tmax = len * GEVR_TWOHAND_FORE_MAX;
+        /* drawn: the one point; taking hold: anywhere on the fore-end */
+        tmin = len * (drawn ? GEVR_TWOHAND_FORE : GEVR_TWOHAND_FORE_MIN);
+        tmax = len * (drawn ? GEVR_TWOHAND_FORE : GEVR_TWOHAND_FORE_MAX);
     }
     if (t < tmin) t = tmin;
     if (t > tmax) t = tmax;
