@@ -11257,6 +11257,45 @@ static Gfx *gevrDrawStats(Gfx *gdl)
     }
     return gdl;
 }
+
+/*
+ * Launcher "Gun fit..." (user: the model's trigger was behind the real trigger
+ * finger): in a level, with a gun in hand, in stereo, port/src/input.c moves
+ * the gun on the hand with the sticks (VrGunOffX/Y/Z, read every frame by
+ * gevrStereoGunMatrix). This says when, and draws the readout on the HUD panel.
+ */
+extern int gevrGunFitActive;   /* port/src/input.c */
+
+s32 gevrGunFitAvailable(void)
+{
+    return g_gevrStereo && g_CurrentPlayer != NULL && getPlayerCount() == 1 && !g_CurrentPlayer->bonddead
+        && g_CurrentPlayer->watch_animation_state == 0 && g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0;
+}
+
+static Gfx *gevrDrawGunFit(Gfx *gdl)
+{
+    char buf[256];
+    s32 x, y, w = 0, h = 0;
+
+    if (!gevrGunFitActive || !g_gevrStereo || getPlayerCount() != 1)
+    {
+        return gdl;
+    }
+    snprintf(buf, sizeof(buf),
+             "GUN FIT\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nA: KEEP IT   B: PUT IT BACK",
+             -VrGunOffZ, VrGunOffX, VrGunOffY);
+
+    gdl = microcode_constructor(gdl);
+    textMeasure(&h, &w, buf, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    x = viGetViewLeft() + (viGetViewWidth() - w) / 2;
+    y = viGetViewTop() + (viGetViewHeight() * 62) / 100;
+    gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+    gdl = microcode_constructor_related_to_menus(gdl, x - 3, y - 2, x + w + 3, y + h + 2, 0x000000A0);
+    gdl = textRender(gdl, &x, &y, buf, ptrFontBankGothicChars, ptrFontBankGothic, -1, viGetX(), viGetY(), 0, 0);
+    gdl = combiner_bayer_lod_perspective(gdl);
+    gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+    return gdl;
+}
 #endif
 
 #ifdef GEVR
@@ -12075,6 +12114,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     gdl = sub_GAME_7F08AAE8(gdl);
 #ifdef GEVR
     gdl = gevrDrawStats(gdl);
+    gdl = gevrDrawGunFit(gdl);
 #endif
     gunDrawSight(&gdl);
 #ifdef GEVR
