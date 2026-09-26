@@ -1536,8 +1536,8 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * headset view put the sight out of reach); the scope shows the zoom instead,
  * as a lens on the gun. lvlRender tags the world's draws (VR_SCOPE_REC_*),
  * gfx_opengl.cpp draws them a second time from the scope's camera, and
- * vr_openxr.cpp shows that image as a round layer at the lens, to the aiming
- * eye only: a scope is looked through with one eye.
+ * vr_openxr.cpp shows that image as a round layer at the lens, to both eyes
+ * (to the aiming eye only, the eyes disagreed with both open: user).
  *
  * The scope's camera sits on the shot's own line (gevrStereoShot: from the
  * muzzle along the barrel), so the reticle's centre is where the bullet goes
@@ -10796,6 +10796,12 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
             if ((u32) credits_pointer[i].TextId1 != 0x5011)
             {
                 text = langGet(credits_pointer[i].TextId1);
+#ifdef GEVR
+                if (text == NULL)
+                {
+                    text = "";   /* a missing string can't stop the credits (issue #51) */
+                }
+#endif
 
                 if (credits_pointer[i].Position1 >= 0)
                 {
@@ -10840,6 +10846,12 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
             if (credits_pointer[i].TextId2 != 0x5011)
             {
                 text = langGet(credits_pointer[i].TextId2);
+#ifdef GEVR
+                if (text == NULL)
+                {
+                    text = "";
+                }
+#endif
 
                 if (credits_pointer[i].Position2 >= 0)
                 {
