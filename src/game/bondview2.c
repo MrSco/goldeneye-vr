@@ -1637,9 +1637,10 @@ s32 gevrStereoWatchGrip(void)
 }
 
 /*
- * The gripping right hand of the watch laser's own viewmodel (gunfire.c
+ * The watch laser's own two-arm viewmodel at the watch (gunfire.c
  * gevrRenderWatchGripHand), placed so that the model's watch face lies on the
- * tracked arm's: its hand then holds the wrist as Bond's does. The model's
+ * tracked arm's: its left fist then takes the tracked hand's place, with its
+ * right hand holding it as Bond's does. The model's
  * frame, measured from the ROM (GwatchlaserZ; GtriggerZ is the same model):
  * the face is DL 0x300's dial 0x648 and bezel 0x5e0 (area-weighted centre
  * and normal), the fingers' way is toward its left fist's skin (0x702-0x706)
