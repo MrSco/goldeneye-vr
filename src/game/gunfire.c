@@ -5472,6 +5472,30 @@ void gunTickGameplay(s32 triggerOn)
         trigger_state.triggerOn[GUNRIGHT] = triggerOn && gevrVrTriggerDown[GUNRIGHT];
         trigger_state.triggerOn[GUNLEFT] = triggerOn && gevrVrTriggerDown[GUNLEFT];
     }
+    /*
+     * Issue #31 (user): the watch laser and the detonator fire only with the
+     * gun hand at the watch, as Bond's right hand presses it in their
+     * viewmodels (bondview2.c gevrStereoHandAtWatch).
+     */
+    if (g_gevrStereo && trigger_state.triggerOn[GUNRIGHT]
+        && gevrStereoWatchItem(getCurrentPlayerWeaponId(GUNRIGHT)))
+    {
+        extern s32 gevrStereoHandAtWatch(f32 *cmOut);
+        static s32 wasAt = -1;
+        f32 cm = 0.0f;
+        s32 at = gevrStereoHandAtWatch(&cm);
+
+        if (at != wasAt)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: watch item trigger, hand %.1f cm from the watch: %s",
+                         cm, at ? "fires" : "held");
+            wasAt = at;
+        }
+        if (!at)
+        {
+            trigger_state.triggerOn[GUNRIGHT] = 0;
+        }
+    }
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand
     gunTickHandState(1, trigger_state.triggerOn[1]); // Left hand
