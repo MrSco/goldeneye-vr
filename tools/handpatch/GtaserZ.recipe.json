@@ -1,0 +1,163 @@
+{
+ "model": "GtaserZ",
+ "note": "Taser hand (issue #9, Phase 3); also the grenade hand (#41 draws these DLs in a private copy). Parts on switches 8-11, all bone 0. The small finger holes are filled first: two of them touch the forearm's big loop, and zipping that first can close one of their edges.",
+ "assemblies": [
+  {
+   "host": "0x0200",
+   "nodes": [
+    "0x01a0",
+    "0x0200",
+    "0x0440",
+    "0x0470"
+   ],
+   "ops": [
+    {
+     "op": "fill",
+     "loop": "0x0200:30",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0200:64",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0200:90",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0200:108",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0200:131",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0200:168",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0200:206",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0200:233",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0200:83",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x0200:12",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    },
+    {
+     "op": "earclip",
+     "loop": "0x01a0:0",
+     "maxdiag": 80,
+     "why": "zip the forearm's open underside and the finger channels",
+     "tex": "0x704",
+     "uvbox": [
+      0.1,
+      0.1,
+      0.9,
+      0.9
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "largest",
+     "fair": 1,
+     "why": "the palm, what the zip leaves",
+     "tex": "0x706",
+     "uvbox": [
+      0.55,
+      0.15,
+      0.95,
+      0.85
+     ]
+    }
+   ]
+  }
+ ]
+}

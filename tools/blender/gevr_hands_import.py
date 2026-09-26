@@ -39,6 +39,7 @@ from mathutils import Vector
 
 WELD = 0.5  # model units; the N64 duplicates seam vertices at identical positions
 TEXDIR = None  # build/handmodels/tex: PNGs from tools/gevr_tex_decode.py, when present
+ALLREFS = {}   # object name -> {mesh vertex index: [(node, idx, mtx), ...]} for welded vertices
 
 
 def args():
@@ -93,13 +94,18 @@ def material_for(tex, cache):
     return m
 
 
-def build_part(model, node, mats):
+def build_part(model, node, mats, name=None):
+    """One object from a DL node, or from several (a list) welded together:
+    the hand in a gun model is split into parts whose seams meet at the same
+    points. Vertices weld when they share a position and a matrix."""
+    nodes = node if isinstance(node, (list, tuple)) else [node]
     verts = model["verts"]
-    tris = [t for t in model["tris"] if t["node"] == node]
+    tris = [t for t in model["tris"] if t["node"] in nodes]
     if not tris:
         return None
-    me = bpy.data.meshes.new("node_%04x" % node)
-    ob = bpy.data.objects.new("node_%04x" % node, me)
+    name = name or "node_" + "_".join("%04x" % n for n in nodes)
+    me = bpy.data.meshes.new(name)
+    ob = bpy.data.objects.new(name, me)
     bpy.context.collection.objects.link(ob)
     bm = bmesh.new()
     lay_node = bm.verts.layers.int.new("rom_node")
@@ -108,15 +114,20 @@ def build_part(model, node, mats):
     uv = bm.loops.layers.uv.new("UVMap")
     welded = {}
     slot = {}
+    refs = {}
     for t in tris:
         vs = []
         for vi in t["v"]:
             v = verts[vi]
-            key = tuple(round(c / WELD) for c in v["pos"])
+            key = tuple(round(c / WELD) for c in v["pos"]) + (v["mtx"],)
             if key not in welded:
                 bv = bm.verts.new(v["pos"])
                 bv[lay_node], bv[lay_idx], bv[lay_mtx] = v["node"], v["idx"], v["mtx"]
                 welded[key] = bv
+                refs[bv] = []
+            r = (v["node"], v["idx"], v["mtx"])
+            if r not in refs[welded[key]]:
+                refs[welded[key]].append(r)
             vs.append((welded[key], v))
         if len({id(b) for b, _ in vs}) < 3:
             continue
@@ -133,6 +144,8 @@ def build_part(model, node, mats):
         for loop, (_, v) in zip(f.loops, vs):
             loop[uv].uv = (v["st"][0] / 32.0 / max(w["w"], 1), 1 - v["st"][1] / 32.0 / max(w["h"], 1))
     bm.normal_update()
+    bm.verts.index_update()
+    ALLREFS[ob.name] = {bv.index: r for bv, r in refs.items()}
     bm.to_mesh(me)
     bm.free()
     return ob

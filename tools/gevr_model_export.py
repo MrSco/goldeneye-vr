@@ -102,6 +102,13 @@ class Model:
             n = self.ptr(4 * i)
             if n is not None:
                 self.switch_of[n] = i
+                # a switch node shows the node its record controls, which
+                # need not be its child (the fist's sleeves)
+                rod = self.ptr(n + 4)
+                if probe.be16(d, n) & 0xFF == 18 and rod is not None:
+                    ctl = self.ptr(rod)
+                    if ctl is not None:
+                        self.switch_of.setdefault(ctl, i)
         self.visit(self.root, None, None, set())
 
     def visit(self, n, group, switch, seen):

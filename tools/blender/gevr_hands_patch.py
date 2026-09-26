@@ -27,9 +27,22 @@ Operations (recipe "ops"):
           vertices.
   earclip close one loop by clipping convex ears, shortest first: for a
           curled hand, where "fill" webs the fingers to the palm like a mitten.
+          With "maxdiag" it only zips the narrow channels (fingers, an open
+          forearm) and leaves the rest for a fill of "loop": "largest".
   bridge  join two loops with a strip (the gap between a jacket cuff and the
           shirt cuff inside it).
-Loops are named by any ROM vertex index on them ("loop": 57).
+  ribbon  new geometry between two edges round an axis (the watch band).
+Loops and points are named by any ROM vertex on them: 57 (an index in the
+host node's vertex block) or "0x02b8:57" (node and index).
+
+A recipe patches assemblies: {"host": node, "nodes": [...], "ops": [...]}.
+The nodes are welded into one mesh (per position and matrix), so the seams
+between a gun hand's parts are not holes; the patch is drawn with the host
+node (for a gun hand, any node on switches 8-13: they switch together). The
+older form "parts": {node: ops} is an assembly of one node. A recipe of
+{"same_as": "GwppkZ"} borrows that model's recipe for a model with the same
+hand, mapping its nodes by vertex-block fingerprint (both exports needed).
+--list --assemble 0x2b8,0x318 lists the loops of such a welded set.
 
 --list prints every part's loops with such an index. --render draws before
 and after views of those parts (--frame: framed on these; --tint: patch faces
@@ -72,6 +85,9 @@ def args():
         elif k == "--tag":
             o["tag"] = a[i + 1]
             i += 2
+        elif k == "--assemble":
+            o.setdefault("assemble", []).append([int(x, 16) for x in a[i + 1].split(",")])
+            i += 2
         else:
             raise SystemExit("unknown argument " + k)
     return o
@@ -100,52 +116,168 @@ def directed_loops(bm):
                 out.setdefault(b.index, []).append(a)
                 face_of[(b.index, a.index)] = f
                 break
-    used = set()
+    # half-edges that cannot lie on a cycle (faces wound both ways along a
+    # rim leave a vertex with nothing coming in or going out) are pruned first
+    edges = {(b, a.index) for b, lst in out.items() for a in lst}
+    total = len(edges)
+    while True:
+        outdeg, indeg = {}, {}
+        for a, b in edges:
+            outdeg[a] = outdeg.get(a, 0) + 1
+            indeg[b] = indeg.get(b, 0) + 1
+        keep = {(a, b) for a, b in edges if indeg.get(a) and outdeg.get(b)}
+        if keep == edges:
+            break
+        edges = keep
+    dropped = total - len(edges)
+    nexts = {}
+    for a, b in sorted(edges):
+        nexts.setdefault(a, []).append(b)
+    used = set()   # half-edges already in a loop
     loops = []
-    dropped = 0
-    for start in list(out):
-        for first in out[start]:
-            if (start, first.index) in used:
-                continue
-            path = [bm.verts[start]]
-            cur = bm.verts[start]
-            nxt = first
-            while True:
-                used.add((cur.index, nxt.index))
-                if nxt.index in [v.index for v in path]:
-                    k = [v.index for v in path].index(nxt.index)
-                    loops.append(path[k:])       # a simple cycle closes here
-                    path = path[:k + 1]
-                    if k == 0:
-                        break
-                else:
-                    path.append(nxt)
-                cur = nxt
-                cands = [v for v in out.get(cur.index, []) if (cur.index, v.index) not in used]
-                if not cands:
-                    if len(path) > 1:
-                        dropped += 1
+    for h in sorted(edges):
+        if h in used:
+            continue
+        path, walked = [h[0]], []   # the open path's vertices and half-edges
+        cur, nxt = h
+        while True:
+            walked.append((cur, nxt))
+            if nxt in path:
+                k = path.index(nxt)
+                loops.append([bm.verts[i] for i in path[k:]])   # a simple cycle closes here
+                used.update(walked[k:])
+                path, walked = path[:k + 1], walked[:k]
+                if k == 0:
                     break
-                nxt = cands[0]
+            else:
+                path.append(nxt)
+            cur = nxt
+            cands = [b for b in nexts.get(cur, []) if (cur, b) not in used and (cur, b) not in walked]
+            if not cands:
+                # a dead end: the cycles found on the way are kept, the rest of
+                # the path is released for other walks (it once swallowed a
+                # whole good loop on the taser hand)
+                dropped += 1
+                break
+            nxt = cands[0]
     if dropped and not getattr(directed_loops, "quiet", False):
         print("   note: %d boundary paths never close (faces wound both ways along them);"
               " they are not offered as loops" % dropped)
     return [lp for lp in loops if len(lp) >= 3], face_of
 
 
-def loop_info(lp, lay_idx):
+class Refs:
+    """Where the vertices of one patched object came from. A welded vertex
+    may stand for several ROM vertices (a seam between two parts); a recipe
+    names a loop or a point by any of them: 57 (in the host node) or
+    "0x02b8:57". Points the patch adds have none."""
+
+    def __init__(self, bm, host, allrefs):
+        self.host = host
+        self.lay = (bm.verts.layers.int["rom_node"], bm.verts.layers.int["rom_idx"],
+                    bm.verts.layers.int["rom_mtx"])
+        self.all = allrefs
+        self.n_orig = len(bm.verts)
+
+    def parse(self, spec):
+        if isinstance(spec, str) and ":" in spec:
+            node, idx = spec.split(":")
+            return int(node, 16), int(idx)
+        return self.host, int(spec)
+
+    def of(self, v):
+        if v.index >= self.n_orig:
+            return []
+        return self.all.get(v.index) or [(v[self.lay[0]], v[self.lay[1]], v[self.lay[2]])]
+
+    def matches(self, v, spec):
+        node, idx = self.parse(spec)
+        return any(r[0] == node and r[1] == idx for r in self.of(v))
+
+    def primary(self, v):
+        """The ROM vertex a corner loads: the first one welded here."""
+        return self.of(v)[0]
+
+    def name(self, v):
+        node, idx, _ = self.primary(v)
+        return str(idx) if node == self.host else "0x%04x:%d" % (node, idx)
+
+
+def miswound(bm):
+    """Edges whose two faces walk them the same way (wound inconsistently)."""
+    bad = 0
+    for e in bm.edges:
+        if len(e.link_faces) == 2:
+            dirs = []
+            for f in e.link_faces:
+                for lp_ in f.loops:
+                    if lp_.edge == e:
+                        dirs.append((lp_.vert.index, lp_.link_loop_next.vert.index))
+            if dirs[0] == dirs[1]:
+                bad += 1
+    return bad
+
+
+def mixed_loops(bm, loops):
+    """Boundary edges no directed loop took (faces wound both ways along
+    them), chained into cycles ignoring direction. A fill over one of these
+    winds as the chain runs; the game draws both sides in VR anyway."""
+    taken = set()
+    for lp in loops:
+        for i in range(len(lp)):
+            taken.add(frozenset((lp[i].index, lp[(i + 1) % len(lp)].index)))
+    rest = [e for e in bm.edges if len(e.link_faces) == 1
+            and frozenset((e.verts[0].index, e.verts[1].index)) not in taken]
+    adj = {}
+    for e in rest:
+        for v in e.verts:
+            adj.setdefault(v.index, []).append(e)
+    seen = set()
+    out = []
+    for e0 in rest:
+        if e0 in seen:
+            continue
+        seen.add(e0)
+        chain = [e0.verts[0], e0.verts[1]]
+        closed = False
+        while True:
+            nxt = [e for e in adj[chain[-1].index] if e not in seen]
+            if not nxt:
+                break
+            e = nxt[0]
+            seen.add(e)
+            v = e.other_vert(chain[-1])
+            if v is chain[0]:
+                closed = True
+                break
+            chain.append(v)
+        out.append((chain, closed))
+    return out
+
+
+def loop_info(lp, R):
     pts = [v.co for v in lp]
     centre = sum(pts, Vector()) / len(pts)
     per = sum((lp[i].co - lp[(i + 1) % len(lp)].co).length for i in range(len(lp)))
-    return centre, per, min(v[lay_idx] for v in lp)
+    first = min(lp, key=lambda v: (R.primary(v)[0] != R.host, R.primary(v)[0], R.primary(v)[1]))
+    return centre, per, R.name(first)
 
 
-def find_loop(loops, lay_idx, rom_idx):
+def find_loop(loops, R, spec, bm=None):
+    """The loop through ROM vertex spec; "largest" is the longest loop left
+    (the palm, once the fingers are zipped). Loops whose faces are wound both
+    ways are searched only when bm is given (the op says "mixed": true)."""
+    if spec == "largest":
+        return max(loops, key=lambda lp: sum((lp[i].co - lp[i - 1].co).length for i in range(len(lp))))
     for lp in loops:
-        if any(v[lay_idx] == rom_idx for v in lp):
+        if any(R.matches(v, spec) for v in lp):
             return lp
-    raise SystemExit("no boundary loop through ROM vertex %d" % rom_idx)
-
+    if bm is not None:
+        for lp, closed in mixed_loops(bm, loops):
+            if closed and any(R.matches(v, spec) for v in lp):
+                print("   (loop %s has faces wound both ways)" % spec)
+                return lp
+    raise SystemExit("no boundary loop through ROM vertex %s" % spec)
 
 # ---------------------------------------------------------------------------
 # Liepa's hole triangulation
@@ -160,11 +292,15 @@ def fill_loop(lp, face_of):
     """Triangles (as vertex triples) closing the loop, by Liepa's DP."""
     n = len(lp)
     P = [v.co.copy() for v in lp]
-    # the outside face across each loop edge (i, i+1)
+    # the outside face across each loop edge (i, i+1), turned to match the
+    # loop's direction (a face wound the other way counts as flipped)
     edge_normal = []
     for i in range(n):
-        f = face_of[(lp[i].index, lp[(i + 1) % n].index)]
-        edge_normal.append(f.normal.copy())
+        a, b = lp[i], lp[(i + 1) % n]
+        e = next(e for e in a.link_edges if e.other_vert(a) is b)
+        f = e.link_faces[0]
+        walks_ab = any(l.vert is a and l.link_loop_next.vert is b for l in f.loops)
+        edge_normal.append(-f.normal if walks_ab else f.normal.copy())
     INF = (1e9, 1e18)
     W = {}
     O = {}
@@ -223,14 +359,17 @@ def fill_loop(lp, face_of):
     return tris, W[(0, n - 1)]
 
 
-def earclip_loop(lp, maxdiag=None):
+def earclip_loop(lp, maxdiag=None, make=None):
     """Close a loop by clipping ears, shortest diagonal first, never at a
     reflex corner. With maxdiag, stop once every ear left is wider than that
     (the fingers are zipped; what is left is the palm, for "fill"). Reflex is judged against the surface the loop cuts: the
     fill should face away from the faces around each corner. At a fingertip
     the ear closes the finger's channel; at the valley between two fingers
     the ear would span the gap and faces the wrong way, so fingers are zipped
-    one by one from the tip and never webbed together or to the palm."""
+    one by one from the tip and never webbed together or to the palm.
+
+    With make, each ear becomes a face as soon as it is clipped, so the next
+    ear sees it (make returns the face, or None if it already exists)."""
     expect = {}
     for v in lp:
         acc = Vector()
@@ -250,6 +389,12 @@ def earclip_loop(lp, maxdiag=None):
                 continue
             conv = t.normalized().dot((expect[p.index] + expect[c.index] + expect[n.index]).normalized())
             diag = (n.co - p.co).length
+            # where two holes touch, an ear can repeat a face or run its
+            # diagonal along an edge that already has two faces
+            e = next((e for e in p.link_edges if e.other_vert(p) is n), None)
+            if e is not None and (len(e.link_faces) >= 2 or
+                                  any(c in f.verts for f in e.link_faces)):
+                continue
             if fallback is None or conv > fallback[0]:
                 fallback = (conv, i)
             if conv <= 0.05:
@@ -268,9 +413,13 @@ def earclip_loop(lp, maxdiag=None):
         i = best[1]
         p, c, n = ring[i - 1], ring[i], ring[(i + 1) % len(ring)]
         tris.append((p, c, n))
+        if make:
+            make((p, c, n))
         del ring[i]
     if len(ring) == 3:
         tris.append(tuple(ring))
+        if make:
+            make(tuple(ring))
     return tris, forced
 
 
@@ -314,7 +463,7 @@ def refine(bm, lay_patch, k):
         bmesh.ops.triangulate(bm, faces=faces)
 
 
-def fair(bm, n_orig, lay_idx, lay_mtx, free):
+def fair(bm, n_orig, R, free):
     """Place every new point so the patch continues the curvature around it:
     the bi-Laplacian (uniform weights) is zero at each new point, with every
     ROM vertex held fixed. The system is linear, so each new point comes out
@@ -343,12 +492,12 @@ def fair(bm, n_orig, lay_idx, lay_mtx, free):
         keep = np.nonzero(np.abs(w) > 1e-3)[0]
         wk = w[keep] / w[keep].sum()
         verts[u].co = Vector(wk @ X[keep])
-        refs = [verts[F[j]] for j in keep]
-        mtx = {v[lay_mtx] for v in refs}
+        refs = [R.primary(verts[F[j]]) for j in keep]
+        mtx = {r[2] for r in refs}
         if len(mtx) > 1:
             print("   warning: new point %d mixes matrices %s" % (u, sorted(mtx)))
-        mixes[int(u)] = {"mix": [[int(v[lay_idx]), round(float(x), 5)] for v, x in zip(refs, wk)],
-                         "mtx": int(refs[0][lay_mtx])}
+        mixes[int(u)] = {"mix": [["0x%04x" % r[0], int(r[1]), round(float(x), 5)] for r, x in zip(refs, wk)],
+                         "mtx": int(refs[0][2])}
     return mixes
 
 
@@ -356,21 +505,20 @@ def fair(bm, n_orig, lay_idx, lay_mtx, free):
 # New geometry: the back half of the watch band
 # ---------------------------------------------------------------------------
 
-def vert_by_rom(bm, lay_idx, rom):
+def vert_by_rom(bm, R, spec):
     for v in bm.verts:
-        if v[lay_idx] == rom:
+        if R.matches(v, spec):
             return v
-    raise SystemExit("no vertex with ROM index %d" % rom)
+    raise SystemExit("no vertex for ROM vertex %s" % spec)
 
-
-def ribbon(bm, lay_idx, op):
+def ribbon(bm, R, op):
     """A strip from one edge to another round an axis along x (the wrist):
     the band's missing back half, from one strap end under the wrist to the
     other. It leaves each end at the strap's radius and tightens to
     bottom_radius halfway, so it sits on the cuff. Returns the new faces as
     (verts, (s, t) per corner) and the new points."""
-    a0, a1 = (vert_by_rom(bm, lay_idx, r) for r in op["from"])
-    b0, b1 = (vert_by_rom(bm, lay_idx, r) for r in op["to"])
+    a0, a1 = (vert_by_rom(bm, R, r) for r in op["from"])
+    b0, b1 = (vert_by_rom(bm, R, r) for r in op["to"])
     cy, cz = op["axis"]
     n = op.get("segments", 8)
 
@@ -416,15 +564,16 @@ def ribbon(bm, lay_idx, op):
     return faces, new
 
 
-def affine_mix(bm, lay_idx, lay_mtx, v, anchors):
+def affine_mix(bm, R, v, anchors):
     """v as an affine combination of four ROM vertices (weights sum to 1), so
     the patch stores no coordinates."""
     import numpy as np
-    A = [vert_by_rom(bm, lay_idx, r) for r in anchors]
+    A = [vert_by_rom(bm, R, r) for r in anchors]
     M = np.array([[a.co.x for a in A], [a.co.y for a in A], [a.co.z for a in A], [1, 1, 1, 1]])
     w = np.linalg.solve(M, np.array([v.co.x, v.co.y, v.co.z, 1.0]))
-    return {"mix": [[int(a[lay_idx]), round(float(x), 6)] for a, x in zip(A, w)],
-            "mtx": int(A[0][lay_mtx])}
+    refs = [R.primary(a) for a in A]
+    return {"mix": [["0x%04x" % r[0], int(r[1]), round(float(x), 6)] for r, x in zip(refs, w)],
+            "mtx": int(refs[0][2])}
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +640,59 @@ def compare_sheet(out, tag, views):
     return path
 
 
+def borrowed_recipe(model, other, export_dir):
+    """A model whose hand is another's (the gold and silver PPKs share the
+    PPK's hand, the throwing knife the knife's) uses that model's recipe,
+    each node mapped to the node here with the same vertex block (same
+    fingerprint). Every node the recipe names must have exactly one match."""
+    with open(os.path.join(RECIPES, other + ".recipe.json"), encoding="utf-8") as f:
+        src = json.load(f)
+    with open(os.path.join(export_dir, other + ".json"), encoding="utf-8") as f:
+        src_model = json.load(f)
+    mine = {}
+    for p in model["parts"]:
+        mine.setdefault(fnv_vertices(model, p["node"]), []).append(p["node"])
+    nodemap = {}
+    for p in src_model["parts"]:
+        fp = fnv_vertices(src_model, p["node"])
+        if len(mine.get(fp, [])) == 1:
+            nodemap["0x%04x" % p["node"]] = "0x%04x" % mine[fp][0]
+
+    def m(x):
+        if isinstance(x, str) and ":" in x:
+            node, idx = x.split(":")
+            return nodemap[node] + ":" + idx
+        return x
+
+    out = {"model": model["model"], "same_as": other, "assemblies": []}
+    for a in assemblies_of(src):
+        missing = [n for n in a["nodes"] if n not in nodemap]
+        if missing:
+            raise SystemExit("same_as %s: no single match here for node(s) %s" % (other, missing))
+        ops = []
+        for op in a["ops"]:
+            op = dict(op)
+            for key in ("loop", "palm"):
+                if key in op and op[key] != "largest":
+                    # a bare index names a vertex of the host node there
+                    op[key] = m(op[key] if isinstance(op[key], str) else "%s:%d" % (a["host"], op[key]))
+            for key in ("loops", "from", "to", "anchors"):
+                if key in op:
+                    op[key] = [m(x if isinstance(x, str) else "%s:%d" % (a["host"], x)) for x in op[key]]
+            ops.append(op)
+        out["assemblies"].append({"host": nodemap[a["host"]], "nodes": [nodemap[n] for n in a["nodes"]],
+                                  "ops": ops})
+    print("same_as %s: nodes %s" % (other, ", ".join("%s->%s" % kv for kv in sorted(nodemap.items())
+                                                      if any(kv[0] in a["nodes"] for a in assemblies_of(src)))))
+    return out
+
+
+def assemblies_of(recipe):
+    """The recipe's assemblies; the older {"parts": {node: ops}} as one-node ones."""
+    out = [{"host": n, "nodes": [n], "ops": ops} for n, ops in recipe.get("parts", {}).items()]
+    return out + list(recipe.get("assemblies", []))
+
+
 def main():
     o = args()
     with open(o["src"], encoding="utf-8") as f:
@@ -500,94 +702,134 @@ def main():
     H.TEXDIR = tex if os.path.isdir(tex) else None
     bpy.ops.wm.read_factory_settings(use_empty=True)
     mats = {}
+    recipe_path = os.path.join(RECIPES, name + ".recipe.json")
+    recipe = None
+    if os.path.exists(recipe_path):
+        with open(recipe_path, encoding="utf-8") as f:
+            recipe = json.load(f)
+        if "same_as" in recipe:
+            recipe = borrowed_recipe(model, recipe["same_as"], os.path.dirname(os.path.abspath(o["src"])))
+
+    # one object per assembly, and one per node that is in none
+    if o["list"] and o.get("assemble"):
+        sets = o["assemble"]
+    elif recipe:
+        sets = [[int(n, 16) for n in a["nodes"]] for a in assemblies_of(recipe)]
+    else:
+        sets = []
     objs = {}
-    for p in model["parts"]:
-        ob = H.build_part(model, p["node"], mats)
+    for g in sets:
+        ob = H.build_part(model, g, mats)
         if ob is not None:
-            objs[p["node"]] = ob
+            objs[tuple(g)] = ob
+    taken = {n for g in sets for n in g}
+    for p in model["parts"]:
+        if p["node"] not in taken:
+            ob = H.build_part(model, p["node"], mats)
+            if ob is not None:
+                objs[(p["node"],)] = ob
+
+    def pick(nodes):
+        return [ob for key, ob in objs.items() if set(key) & set(nodes)]
 
     if o["list"]:
-        for node, ob in objs.items():
+        wanted = [tuple(g) for g in o.get("assemble", [])]
+        for key, ob in objs.items():
+            if wanted and key not in wanted:
+                continue
             bm = bmesh.new()
             bm.from_mesh(ob.data)
             bm.verts.ensure_lookup_table()
-            lay = bm.verts.layers.int["rom_idx"]
+            R = Refs(bm, key[0], H.ALLREFS.get(ob.name, {}))
+            directed_loops.quiet = True
             loops, _ = directed_loops(bm)
-            print("part 0x%04x: %d loops" % (node, len(loops)))
-            for lp in sorted(loops, key=lambda l: -len(l)):
-                c, per, idx = loop_info(lp, lay)
+            mixed = mixed_loops(bm, loops)
+            print("part %s: %d loops, %d with faces wound both ways"
+                  % (" ".join("0x%04x" % n for n in key), len(loops), len(mixed)))
+            tagged = [(lp, "") for lp in loops] + [(lp, " MIXED" + ("" if c else " OPEN CHAIN")) for lp, c in mixed]
+            for lp, tag in sorted(tagged, key=lambda t: -len(t[0])):
+                c, per, nm = loop_info(lp, R)
                 lo = [min(v.co[a] for v in lp) for a in range(3)]
                 hi = [max(v.co[a] for v in lp) for a in range(3)]
-                print("   loop %3d verts  perimeter %7.0f  centre (%6.0f %6.0f %6.0f)  rom %-4d"
-                      "  x %.0f..%.0f  y %.0f..%.0f  z %.0f..%.0f"
-                      % (len(lp), per, c.x, c.y, c.z, idx, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2]))
+                mt = sorted({R.primary(v)[2] for v in lp})
+                print("   loop %3d verts  perimeter %7.0f  centre (%6.0f %6.0f %6.0f)  rom %-12s"
+                      "  x %.0f..%.0f  y %.0f..%.0f  z %.0f..%.0f  mtx %s%s"
+                      % (len(lp), per, c.x, c.y, c.z, nm, lo[0], hi[0], lo[1], hi[1], lo[2], hi[2], mt, tag))
             bm.free()
         return
 
-    recipe_path = os.path.join(RECIPES, name + ".recipe.json")
-    with open(recipe_path, encoding="utf-8") as f:
-        recipe = json.load(f)
+    if recipe is None:
+        raise SystemExit("no recipe: " + recipe_path)
 
-    before = None
     if o["render"]:
-        before = H.render_views([objs[n] for n in (o["frame"] or o["render"]) if n in objs],
-                                o["out"], o["tag"] + "_before",
-                                hide=[ob for n, ob in objs.items() if n not in o["render"]])
+        show = pick(o["render"])
+        H.render_views(pick(o["frame"] or o["render"]), o["out"], o["tag"] + "_before",
+                       hide=[ob for ob in objs.values() if ob not in show])
 
-    patch = {"model": name, "note": "Ours: triangles over ROM vertex indices, our UVs. No ROM data.",
+    patch = {"model": name,
+             "note": "Ours: triangles over ROM vertices (node, index), weights over them, our UVs. No ROM data.",
              "parts": []}
     patch_mat = bpy.data.materials.new("patch_tint")
     patch_mat.diffuse_color = (1.0, 0.1, 0.8, 1)
-    for node_hex, ops in recipe["parts"].items():
-        node = int(node_hex, 16)
-        ob = objs[node]
+    for a in assemblies_of(recipe):
+        nodes = [int(n, 16) for n in a["nodes"]]
+        host = int(a["host"], 16)
+        ops = a["ops"]
+        ob = objs[tuple(nodes)]
+        label = "0x%04x" % host + ("+%d" % (len(nodes) - 1) if len(nodes) > 1 else "")
         bm = bmesh.new()
         bm.from_mesh(ob.data)
         bm.verts.ensure_lookup_table()
+        R = Refs(bm, host, H.ALLREFS.get(ob.name, {}))
         n_orig = len(bm.verts)
-        lay_idx = bm.verts.layers.int["rom_idx"]
-        lay_mtx = bm.verts.layers.int["rom_mtx"]
         lay_patch = bm.faces.layers.int.new("patch")
         uvl = bm.loops.layers.uv["UVMap"]
+        bad_before = miswound(bm)
+        over_before = sum(1 for e in bm.edges if len(e.link_faces) > 2)
+        directed_loops.quiet = False
         fixed_st = {}   # corners whose texture coordinates the op chose itself (s, t)
         anchored = {}   # new points placed by an op, stored as affine weights
         for k, op in enumerate(ops, 1):
             loops, face_of = directed_loops(bm)
+            directed_loops.quiet = True   # said once per assembly is enough
+
+            def make(t, k=k):
+                try:
+                    f = bm.faces.new(t)
+                except ValueError:
+                    return None
+                f[lay_patch] = k
+                f.smooth = False
+                return f
+
             if op["op"] == "fill":
-                lp = find_loop(loops, lay_idx, op["loop"])
+                lp = find_loop(loops, R, op["loop"], bm if op.get("mixed") else None)
                 tris, w = fill_loop(lp, face_of)
-                print("0x%04x fill loop %d (%d verts): %d triangles, max angle %.0f deg"
-                      % (node, op["loop"], len(lp), len(tris), math.degrees(w[0])))
+                print("%s fill loop %s (%d verts): %d triangles, max angle %.0f deg"
+                      % (label, op["loop"], len(lp), len(tris), math.degrees(w[0])))
             elif op["op"] == "earclip":
-                lp = find_loop(loops, lay_idx, op["loop"])
-                tris, forced = earclip_loop(lp, op.get("maxdiag"))
-                print("0x%04x earclip loop %d (%d verts): %d triangles, %d forced at reflex corners"
-                      % (node, op["loop"], len(lp), len(tris), forced))
+                lp = find_loop(loops, R, op["loop"], bm if op.get("mixed") else None)
+                tris, forced = earclip_loop(lp, op.get("maxdiag"), make)
+                print("%s earclip loop %s (%d verts): %d triangles, %d forced at reflex corners"
+                      % (label, op["loop"], len(lp), len(tris), forced))
+                tris = []   # made as they were clipped
             elif op["op"] == "zipfill":
                 # zip the narrow channels (fingers), then Liepa-fill what is left
-                lp = find_loop(loops, lay_idx, op["loop"])
-                tris, _ = earclip_loop(lp, op["maxdiag"])
-                zipped = 0
-                for t in tris:
-                    try:
-                        f = bm.faces.new(t)
-                        f[lay_patch] = k
-                        f.smooth = False
-                        zipped += 1
-                    except ValueError:
-                        pass
+                lp = find_loop(loops, R, op["loop"], bm if op.get("mixed") else None)
+                tris, _ = earclip_loop(lp, op["maxdiag"], make)
+                zipped = len(tris)
                 loops, face_of = directed_loops(bm)
-                rest = find_loop(loops, lay_idx, op["palm"])
+                rest = find_loop(loops, R, op["palm"], bm if op.get("mixed") else None)
                 tris, w = fill_loop(rest, face_of)
-                print("0x%04x zipfill loop %d (%d verts): %d zipped, palm %d verts -> %d triangles, max angle %.0f deg"
-                      % (node, op["loop"], len(lp), zipped, len(rest), len(tris), math.degrees(w[0])))
+                print("%s zipfill loop %s (%d verts): %d zipped, palm %d verts -> %d triangles, max angle %.0f deg"
+                      % (label, op["loop"], len(lp), zipped, len(rest), len(tris), math.degrees(w[0])))
             elif op["op"] == "bridge":
-                la = find_loop(loops, lay_idx, op["loops"][0])
-                lb = find_loop(loops, lay_idx, op["loops"][1])
+                la = find_loop(loops, R, op["loops"][0], bm if op.get("mixed") else None)
+                lb = find_loop(loops, R, op["loops"][1], bm if op.get("mixed") else None)
                 tris = bridge_loops(la, lb)
-                print("0x%04x bridge loops %s: %d triangles" % (node, op["loops"], len(tris)))
+                print("%s bridge loops %s: %d triangles" % (label, op["loops"], len(tris)))
             elif op["op"] == "ribbon":
-                quads, new_pts = ribbon(bm, lay_idx, op)
+                quads, new_pts = ribbon(bm, R, op)
                 tris = []
                 made = []
                 for quad, st in quads:
@@ -609,9 +851,9 @@ def main():
                         bmesh.ops.reverse_faces(bm, faces=made)
                 bm.normal_update()
                 for v in new_pts:
-                    anchored[v] = affine_mix(bm, lay_idx, lay_mtx, v, op["anchors"])
-                print("0x%04x ribbon %s -> %s: %d triangles, %d new points"
-                      % (node, op["from"], op["to"], 2 * len(quads), len(new_pts)))
+                    anchored[v] = affine_mix(bm, R, v, op["anchors"])
+                print("%s ribbon %s -> %s: %d triangles, %d new points"
+                      % (label, op["from"], op["to"], 2 * len(quads), len(new_pts)))
             else:
                 raise SystemExit("unknown op " + op["op"])
             for t in tris:
@@ -628,11 +870,12 @@ def main():
         bm.verts.ensure_lookup_table()
         faired = {v.index for f in bm.faces if f[lay_patch] and ops[f[lay_patch] - 1].get("fair")
                   for v in f.verts if v.index >= n_orig}
-        mixes = fair(bm, n_orig, lay_idx, lay_mtx, faired)
+        mixes = fair(bm, n_orig, R, faired)
         for v, m in anchored.items():
             mixes[v.index] = m
 
         groups = []
+        used = set()
         for k, op in enumerate(ops, 1):
             faces = [f for f in bm.faces if f[lay_patch] == k]
             texnum = int(op["tex"], 16)
@@ -665,39 +908,34 @@ def main():
                         index[v.index] = len(verts)
                         e = {"s": round(u * info["w"] * 32), "t": round(vv * info["h"] * 32)}
                         if v.index < n_orig:
-                            e.update({"ref": v[lay_idx], "mtx": v[lay_mtx]})
+                            node, idx, mtx = R.primary(v)
+                            e.update({"node": "0x%04x" % node, "ref": idx, "mtx": mtx})
+                            used.add(node)
                         else:
                             e.update(mixes[v.index])
+                            used.update(int(m[0], 16) for m in e["mix"])
                         verts.append(e)
                     tri_ids.append(index[v.index])
                 out_tris.append(tri_ids)
             groups.append({"op": op["op"], "why": op.get("why", ""), "tex": "0x%03x" % texnum,
                            "shade": op.get("shade", [255, 255, 255, 255]),
                            "verts": verts, "tris": out_tris})
-            print("0x%04x op %d %s: %d triangles, %d corners (%d new points)"
-                  % (node, k, op["op"], len(out_tris), len(verts),
+            print("%s op %d %s: %d triangles, %d corners (%d new points)"
+                  % (label, k, op["op"], len(out_tris), len(verts),
                      sum(1 for e in verts if "mix" in e)))
-        # winding check: every edge with two faces must be walked both ways
-        bad = 0
-        for e in bm.edges:
-            if len(e.link_faces) == 2:
-                dirs = []
-                for f in e.link_faces:
-                    for lp_ in f.loops:
-                        if lp_.edge == e:
-                            dirs.append((lp_.vert.index, lp_.link_loop_next.vert.index))
-                if dirs[0] == dirs[1]:
-                    bad += 1
         remaining = sum(1 for e in bm.edges if len(e.link_faces) == 1)
         over = sum(1 for e in bm.edges if len(e.link_faces) > 2)
-        print("0x%04x: %d open edges left, %d wound inconsistently, %d shared by 3+ faces"
-              % (node, remaining, bad, over))
+        print("%s: %d open edges left, %d wound inconsistently (%d in the model before), %d shared by 3+ faces (%d before)"
+              % (label, remaining, miswound(bm), bad_before, over, over_before))
         bm.normal_update()
         bm.to_mesh(ob.data)
         bm.free()
-        part = next(p for p in model["parts"] if p["node"] == node)
-        patch["parts"].append({"node": node_hex, "numvtx": part["numvtx"],
-                               "fingerprint": fnv_vertices(model, node), "groups": groups})
+        numvtx = {p["node"]: p["numvtx"] for p in model["parts"]}
+        patch["parts"].append({
+            "host": "0x%04x" % host,
+            "nodes": {"0x%04x" % n: {"numvtx": numvtx[n], "fingerprint": fnv_vertices(model, n)}
+                      for n in sorted(used)},
+            "groups": groups})
 
     out_patch = os.path.join(RECIPES, name + ".patch.json")
     with open(out_patch, "w", encoding="utf-8", newline="\n") as f:
@@ -706,9 +944,9 @@ def main():
     print("wrote " + out_patch)
 
     if o["render"]:
-        for p in H.render_views([objs[n] for n in (o["frame"] or o["render"]) if n in objs],
-                                o["out"], o["tag"] + "_after",
-                                hide=[ob for n, ob in objs.items() if n not in o["render"]]):
+        show = pick(o["render"])
+        for p in H.render_views(pick(o["frame"] or o["render"]), o["out"], o["tag"] + "_after",
+                                hide=[ob for ob in objs.values() if ob not in show]):
             print("wrote " + p)
         if o["compare"]:
             print("wrote " + compare_sheet(o["out"], o["tag"], o["compare"]))
