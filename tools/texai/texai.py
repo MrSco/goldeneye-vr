@@ -6,7 +6,7 @@ textures and a comparison sheet.
 
     python tools/texai/texai.py prep  <orig_dir> <work_dir> [samples.json]
     python tools/texai/texai.py post  <orig_dir> <work_dir> [tool ...]
-    python tools/texai/texai.py sheet <orig_dir> <work_dir> [tool ...]
+    python tools/texai/texai.py sheet <orig_dir> <work_dir> [--final] [tool ...]
 
 <orig_dir> holds the original textures as <tex>.png (RGBA, as the game uses
 them). <work_dir> gets:
@@ -16,6 +16,7 @@ them). <work_dir> gets:
     final/<tool>/<tex>_soft.png  the pack texture (colour locked to the original)
     final/<tool>/<tex>_strict.png  locked texel by texel (ghosts if the model moved things)
     compare.png                  original | bicubic | per tool: raw, strict, soft, soft tiled
+    compare_final.png            (sheet --final) original | bicubic | each tool's soft texture
 
 Everything in <orig_dir> and <work_dir> is derived from the ROM: keep both
 under build/ (gitignored), never in the repo.
@@ -253,7 +254,11 @@ def post_one(orig_dir, src, tex, m, dst_base):
         o = ahd > 0
         inside = (p & morph(o, SCALE, True)) | morph(o, SCALE, False)
         ahd = np.where(inside, 255.0, 0.0) if binary else ahd * inside
-        base = bleed(base, np.where(p & inside, 255.0, 0.0))
+        # key spill: purple-tinted pixels near the silhouette's edge (resampling
+        # blends the key colour into the edge); their colour comes from inside
+        near_edge = inside & ~morph(inside, 6, False)
+        spill = near_edge & (raw[:, :, 0] > raw[:, :, 1] + 30) & (raw[:, :, 2] > raw[:, :, 1] + 30)
+        base = bleed(base, np.where(p & inside & ~spill, 255.0, 0.0))
     else:
         ahd = np.full((H, W), 255.0)
     for mode, block in (('strict', 1), ('soft', 4)):
@@ -307,8 +312,38 @@ def fit(im):
     return bg.convert('RGB')
 
 
+def sheet_compact(orig_dir, work, names):
+    """original, bicubic, then each tool's pack texture (soft) - what would ship"""
+    man = json.load(open(os.path.join(work, 'in', 'manifest.json')))
+    cols = ['original', 'bicubic'] + names
+    out = Image.new('RGB', (len(cols) * (CELL + 8), len(man) * (CELL + 24) + 24), BG)
+    dr = ImageDraw.Draw(out)
+    for c, name in enumerate(cols):
+        dr.text((c * (CELL + 8) + 4, 6), name, fill=(255, 255, 255))
+    for r, (tex, m) in enumerate(man.items()):
+        y = 24 + r * (CELL + 24)
+        orig = Image.open(os.path.join(orig_dir, tex + '.png')).convert('RGBA')
+        if m['flip']:
+            orig = orig.transpose(Image.FLIP_TOP_BOTTOM)
+        cells = [orig.resize((orig.width * SCALE, orig.height * SCALE), Image.NEAREST),
+                 orig.resize((orig.width * SCALE, orig.height * SCALE), Image.BICUBIC)]
+        for t in names:
+            f = os.path.join(work, 'final', t, tex + '_soft.png')
+            im = Image.open(f).convert('RGBA') if os.path.exists(f) else None
+            cells.append(im.transpose(Image.FLIP_TOP_BOTTOM) if im is not None and m['flip'] else im)
+        for c, im in enumerate(cells):
+            if im is not None:
+                out.paste(fit(im), (c * (CELL + 8), y))
+        dr.text((4, y + CELL + 4), '%s  %s  %dx%d' % (tex, m['what'], m['w'], m['h']), fill=(255, 220, 0))
+    path = os.path.join(work, 'compare_final.png')
+    out.save(path)
+    print(path)
+
+
 def sheet(orig_dir, work, names):
     names = tools_in(work, names)
+    if names and names[0] == '--final':
+        return sheet_compact(orig_dir, work, names[1:] or tools_in(work, []))
     man = json.load(open(os.path.join(work, 'in', 'manifest.json')))
     cols = ['original', 'bicubic'] + sum([[t + ' raw', t + ' strict', t + ' soft', t + ' soft 2x2'] for t in names], [])
     out = Image.new('RGB', (len(cols) * (CELL + 8), len(man) * (CELL + 24) + 24), BG)
