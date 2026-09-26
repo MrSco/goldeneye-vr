@@ -4654,3 +4654,23 @@ Dark leftovers; remove unused assets and purge them from history.
   - the per-eye frusta against the game's single central sky polygon
     (skyClamp pins it to the central screen rectangle), and
   - the straight-up case (all four corners in the sky).
+
+## 107. Grenade in the taser's hand (#41, branch fix/41-grenade-hand)
+- The grenade sat in the open fist (the karate-chop hand). The issue asked
+  for the taser viewmodel's hand, which is curled round its grip.
+- 1cf9c8c:
+  - gunfire.c gevrTaserHandLoad keeps a private copy of GtaserZ, loaded as
+    the fist is. gevrHideUnswitchedDls blanks the display lists that are not
+    under a switch: the taser's body sits under BSP nodes, the hand and
+    sleeve under the hand switches 8-11. It also blanks the collision
+    display lists.
+  - After modelInit, the arc's rw gdl (switch 16) is cleared.
+  - gevrRenderRightFist draws this copy when the item's hand kind is 2
+    (bondview2.c gevrStereoItemHand, the pose table's former fist flag).
+  - The grenade pose is 0, 6.8, 4.9 cm (left, up, forward from the gun
+    origin), the taser body's centre in the model.
+  - Measured from the ROM:
+    - hand DLs use textures 0x701-0x706, shared with GfistZ;
+    - taser DLs use 0x581-0x589, 0x394 and 0x17/0x18;
+    - the body centre is x 1, y 79.5, z 57.5 model units.
+- User: "works good". Awaiting "merge".
