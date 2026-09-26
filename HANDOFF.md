@@ -4736,7 +4736,8 @@ Dark leftovers; remove unused assets and purge them from history.
 ## 109. Open-issue triage, fix branches to test (2026-09-25)
 Fix branches, each from main, built, pushed and not yet tested on the
 headset:
-- fix/51-credits: the credits crash.
+- fix/51-credits: the credits crash. MERGED 2026-09-26 (user: the
+  credits played through to the cast montage; tested with main merged in).
   - The Cuba setup's credits offset pointed into pad 39 after
     gevr_setup.c's re-layout; the converter now emits a host copy.
   - Null-text guard. gevr_level.txt "cuba" runs the ending.
