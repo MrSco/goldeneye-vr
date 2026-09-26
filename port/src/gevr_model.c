@@ -12,6 +12,7 @@
 #include "platform.h"
 #include "system.h"
 #include "gevr_model.h"
+#include "gevr_handpatch.h"
 
 struct ModelFileHeader *gevrModelPendingHeader = NULL;
 
@@ -1157,6 +1158,30 @@ u32 gevrModelConvert(u8 *data, u32 size, u32 capacity, s32 numSwitches, s32 numT
 		if (c.blocks[i].kind == BK_NODE) nodes++;
 		if (c.blocks[i].kind == BK_GDL) gdls++;
 		if (c.blocks[i].kind == BK_DATA) embedded++;
+	}
+
+	/*
+	 * A model with a hand patch (issue #9, gevr_handpatch.h) names its nodes by
+	 * their cartridge offsets, and loads its textures with the model's own
+	 * marker words: both are only known here, before the blocks go.
+	 */
+	if (gevrHandPatchWants(c.name)) {
+		for (i = 0; i < c.numBlocks; i++) {
+			const struct block *b = &c.blocks[i];
+
+			if (b->kind == BK_NODE) {
+				gevrHandPatchNoteNode(b->src, b->dst);
+			} else if (b->kind == BK_GDL) {
+				const Gfx *g = (const Gfx *)(out + b->dst);
+				u32 k, n = b->dstSize / sizeof(Gfx);
+
+				for (k = 0; k < n; k++) {
+					if ((u8)(g[k].words.w0 >> 24) == 0xc0) {
+						gevrHandPatchNoteMarker((u32)(g[k].words.w1 & 0xfff), (u32)g[k].words.w0);
+					}
+				}
+			}
+		}
 	}
 
 	memcpy(data, out, outSize);
