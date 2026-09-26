@@ -2099,13 +2099,16 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     }
     /*
      * Issue #35: holding the gun, it is the taser's gripping hand (#41, the
-     * grenade's hand; user) rather than the clenched fist, turned as the
-     * controller is (the gun's frame read worse: user), and bondview2.c
+     * grenade's hand; user) rather than the clenched fist, and bondview2.c
      * gevrStereoTwoHandMatrix trims its turn and puts its palm where it
-     * holds (user: it should cup the bottom of the gun).
+     * holds (user: it should cup the bottom of the gun). It is turned as
+     * the gun is - the gun hand's matrix, mirrored into the other hand - so
+     * it is pinned to the gun in turn as well as place (user: it still
+     * pivoted with the off-hand controller). Its turn is set with the
+     * launcher's Gun fit, holding with both hands.
      */
     held = gevrStereoTwoHandGrip();
-    if (!gevrStereoGunMatrix(GUNLEFT, &armmtx))
+    if (!gevrStereoGunMatrix(held ? GUNRIGHT : GUNLEFT, &armmtx))
     {
         return gdl;
     }
