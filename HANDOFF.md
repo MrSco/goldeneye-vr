@@ -4958,3 +4958,25 @@ Latent, noted by the agents:
   running. The user could not see anything wrong, then or now. Remaining
   idea, unproven: a chr teleported while off-screen and then in magic-mode
   gopos keeps a stale manground until it is next updated normally.
+
+## 112. Gun fit in game; the user's fit as the default (2026-09-26)
+- feature/gun-fit: MERGED 2026-09-26 (user: "gun fit mode is fantastic").
+  - The launcher runs before the ROM loads, so no gun model exists there;
+    the fit is in game (user's choice). Launcher bottom row, beside
+    Cheats...: "Gun fit..." arms it (VrGunFitArmed, not saved).
+  - port/src/input.c: in a level, stereo, gun in hand
+    (bondview2.c gevrGunFitAvailable), the move stick moves the gun
+    forward/back and sideways, the turn stick up/down, about 3 cm a second
+    (VrGunOffX/Y/Z, read every frame by gevrStereoGunMatrix). Neither stick
+    nor A/B reach the game. A keeps it (vrSettingsSave), B restores; either
+    ends it. bondview2.c gevrDrawGunFit draws the readout on the H panel.
+  - Defaults are now the user's fit: GunOffX 2.74, GunOffY 1.94,
+    GunOffZ -12.35 (the model's hand sat about 12 cm behind the real one).
+    Every install wrote 0, 0, 0, so an ini with all three 0 keeps the new
+    defaults (vr_settings.cpp). The ini comment had Z as forward; it is back
+    toward the player.
+  - The fist and gadgets use the same gun matrix, so they move with it.
+- feature/35-two-hand-grip (not merged, in test): the palm-based hold point
+  (eaa9ff5) was worse (user) and is reverted; the controller-based 17:37
+  version stands. With the gun now on the real hand, the hold should line up
+  with the drawn grip.
