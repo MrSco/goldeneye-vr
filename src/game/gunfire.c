@@ -2087,6 +2087,8 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     Model *mdl = &s_gevrFistModel;
     ModelFileHeader *hdr = &s_gevrFistHeader;
     u32 *rw = s_gevrFistRw;
+    s32 held;
+    extern s32 gevrStereoTwoHandGrip(void);
 
     if (!g_gevrStereo
         || get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
@@ -2095,31 +2097,23 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     {
         return gdl;
     }
-    if (!gevrStereoGunMatrix(GUNLEFT, &armmtx))
+    /*
+     * Issue #35: holding the gun, it is the taser's gripping hand (#41, the
+     * grenade's hand; user) rather than the clenched fist, in the gun's own
+     * frame - the gun hand's matrix, mirrored into the other hand - and
+     * bondview2.c gevrStereoTwoHandMatrix turns it and puts its palm where
+     * it holds (user: it should cup the bottom of the gun).
+     */
+    held = gevrStereoTwoHandGrip();
+    if (!gevrStereoGunMatrix(held ? GUNRIGHT : GUNLEFT, &armmtx))
     {
         return gdl;
     }
-    /*
-     * Issue #35: holding the gun, the hand goes round the barrel, and it is
-     * the taser's gripping hand (#41, the grenade's hand; user) rather than
-     * the clenched fist, mirrored into a left hand like the fist.
-     */
+    if (held && gevrTaserHandLoad())
     {
-        extern s32 gevrStereoTwoHandFistShift(f32 shift[3]);
-        f32 shift[3];
-
-        if (gevrStereoTwoHandFistShift(shift))
-        {
-            armmtx.m[3][0] += shift[0];
-            armmtx.m[3][1] += shift[1];
-            armmtx.m[3][2] += shift[2];
-            if (gevrTaserHandLoad())
-            {
-                mdl = &s_gevrTaserHandModel;
-                hdr = &s_gevrTaserHandHeader;
-                rw = s_gevrTaserHandRw;
-            }
-        }
+        mdl = &s_gevrTaserHandModel;
+        hdr = &s_gevrTaserHandHeader;
+        rw = s_gevrTaserHandRw;
     }
     if (mdl == &s_gevrFistModel && !gevrLeftFistLoad())
     {
@@ -2129,6 +2123,12 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     /* a left hand: mirrored in the model's own frame, then the viewmodel scale */
     matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
     matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
+    if (held)
+    {
+        extern s32 gevrStereoTwoHandMatrix(Mtxf *m);
+
+        gevrStereoTwoHandMatrix(&armmtx);
+    }
 
     rwmtx = (Mtxf *) dynAllocate(hdr->numMatrices * ((s32) sizeof(Mtxf)));
     for (j = 0; j < hdr->numMatrices; j++)
