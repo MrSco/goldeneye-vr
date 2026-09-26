@@ -678,8 +678,50 @@ static struct ColorCombiner* gfx_lookup_or_create_color_combiner(const ColorComb
 }
 
 #ifdef GEVR
-/* issue #25: cache entries showing the native texture while their pack image decodes */
-static std::unordered_map<int, std::vector<TextureCacheKey>> s_tpPending;
+/*
+ * issue #25: cache entries showing the native texture while their pack image
+ * decodes. Issue #52: and those whose image is decoded, uploaded at the start
+ * of a frame (gevr_texpack_frame) - uploaded where they were first seen, in
+ * the middle of the eye pass, each glTexImage2D + glGenerateMipmap made the
+ * tiled GPU store and reload both eye buffers, and a level full of new pack
+ * textures (Surface) lagged.
+ */
+struct TpJob {
+    TextureCacheKey key;
+    uint32_t hw, hh;   // the N64 texture the pack image replaces
+    uint32_t uw, uh;   // the tile it was drawn with
+};
+static std::unordered_map<int, std::vector<TpJob>> s_tpPending;
+static std::vector<std::pair<int, TpJob>> s_tpUploads;
+/* issue #52: texture cache traffic, logged every 5 s while there is any (gevr_texpack_frame) */
+static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads;
+/*
+ * Issue #52: a CI texture's cache key hashes the palette, which keeps one
+ * source with a palette rebuilt in place apart. fast3d hashed all 256 TMEM
+ * palette entries, and a 16- or 64-colour palette leaves the rest holding
+ * whatever earlier draws loaded: the same texture, same palette at the same
+ * address, got a new key whenever the draw order changed. On Surface with a
+ * texture pack that was ~150 loads a second (logged), each a pack upload - the
+ * stutter, and in the deferred-upload build the native texture flashing in
+ * for a frame ("HD flipping back to low res"). Only the entries the texture
+ * can use are hashed: a CI4 texture's 16-entry bank, and for CI8 those the
+ * last palette load from entry 0 filled.
+ */
+static uint32_t s_gevrTlutEnd = 256;
+
+static uint32_t gevr_palette_key_hash(uint8_t siz, uint8_t palette_index) {
+    uint32_t lo = 0, n = s_gevrTlutEnd ? s_gevrTlutEnd : 256;
+    if (siz == G_IM_SIZ_4b) {
+        lo = (uint32_t)(palette_index & 15) * 16;
+        n = 16;
+    }
+    uint32_t h = 2166136261u;
+    for (uint32_t k = lo; k < lo + n && k < 256; ++k) {
+        h = (h ^ rdp.palette[k]) * 16777619u;
+    }
+    return h;
+}
+
 static bool s_tpActive = false;
 #endif
 
@@ -687,6 +729,7 @@ void gfx_texture_cache_clear() {
     gfx_flush();
 #ifdef GEVR
     s_tpPending.clear();
+    s_tpUploads.clear();
 #endif
     for (const auto& entry : gfx_texture_cache.map) {
         gfx_texture_cache.free_texture_ids.push_back(entry.second.texture_id);
@@ -724,9 +767,15 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
         // Remove the texture that was least recently used
         it = gfx_texture_cache.lru.front().it;
         gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
+#ifdef GEVR
+        s_gevrTcEvictions++;
+#endif
         gfx_texture_cache.map.erase(it);
         gfx_texture_cache.lru.pop_front();
     }
+#ifdef GEVR
+    s_gevrTcMisses++;
+#endif
 
     gfx_flush();   /* a new texture: the batch so far draws with the old one */
 
@@ -1402,27 +1451,14 @@ static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const Texture
     uint32_t hw, hh, iw, ih;
     const int id = gevr_texpack_lookup(tile, lt, &hw, &hh);
     if (id < 0) return false;
-    const uint8_t *img = gevrtp::image(id, &iw, &ih);
-    if (img == nullptr) {
-        s_tpPending[id].push_back(key);   // the native texture until it's decoded
-        return false;
+    const TpJob job = { key, hw, hh, rdp.texture_tile[tile].width, rdp.texture_tile[tile].height };
+    // the native texture now; the pack's goes in at a frame's start (issue #52)
+    if (gevrtp::image(id, &iw, &ih) == nullptr) {
+        s_tpPending[id].push_back(job);   // once it's decoded
+    } else {
+        s_tpUploads.push_back({ id, job });
     }
-    return gevr_texpack_upload(img, iw, ih, hw, hh, rdp.texture_tile[tile].width, rdp.texture_tile[tile].height);
-}
-
-static void gfx_texture_cache_erase(const TextureCacheKey &key) {
-    auto it = gfx_texture_cache.map.find(key);
-    if (it == gfx_texture_cache.map.end()) return;
-    gfx_flush();
-    for (int i = 0; i < 2; ++i) {
-        if (rendering_state.textures[i] == &*it) {
-            rendering_state.textures[i] = nullptr;
-            rdp.textures_changed[i] = true;
-        }
-    }
-    gfx_texture_cache.lru.erase(it->second.lru_location);
-    gfx_texture_cache.free_texture_ids.push_back(it->second.texture_id);
-    gfx_texture_cache.map.erase(it);
+    return false;
 }
 
 extern "C" char g_ActiveExtTexPack[];                  /* port/src/ext_tex.c, the launcher's Mods page */
@@ -1450,11 +1486,54 @@ static void gevr_texpack_frame(void) {
         for (int k = 0; k < n; ++k) {
             auto it = s_tpPending.find(ids[k]);
             if (it == s_tpPending.end()) continue;
-            for (const TextureCacheKey &key : it->second) gfx_texture_cache_erase(key);
+            for (const TpJob &job : it->second) s_tpUploads.push_back({ ids[k], job });
             s_tpPending.erase(it);
         }
     }
+
+    /*
+     * Issue #52: the decoded images go into their cache entries' textures
+     * here, before the eye pass, about 4 MB of texels a frame (at least one
+     * image). An entry evicted meanwhile is imported again when next drawn.
+     */
+    if (!s_tpUploads.empty()) {
+        gfx_flush();
+        size_t budget = (size_t)4 << 20, done = 0;
+        for (; done < s_tpUploads.size() && budget > 0; ++done) {
+            const int id = s_tpUploads[done].first;
+            const TpJob &job = s_tpUploads[done].second;
+            auto it = gfx_texture_cache.map.find(job.key);
+            if (it == gfx_texture_cache.map.end()) continue;
+            uint32_t iw, ih;
+            const uint8_t *img = gevrtp::image(id, &iw, &ih);
+            if (img == nullptr) {
+                s_tpPending[id].push_back(job);   // trimmed meanwhile: decoding again
+                continue;
+            }
+            gfx_rapi->select_texture(0, it->second.texture_id, false);
+            if (gevr_texpack_upload(img, iw, ih, job.hw, job.hh, job.uw, job.uh)) {
+                budget -= std::min(budget, (size_t)iw * ih * 4);
+                s_gevrTcHdUploads++;
+            }
+        }
+        s_tpUploads.erase(s_tpUploads.begin(), s_tpUploads.begin() + done);
+        rendering_state.textures[0] = nullptr;   // unit 0 was rebound
+        rdp.textures_changed[0] = true;
+    }
     gevrtp::trim((size_t)160 << 20);
+
+    {
+        static unsigned frames;
+        if (++frames >= 300) {
+            frames = 0;
+            if (s_gevrTcMisses || s_gevrTcEvictions || s_gevrTcHdUploads) {
+                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads, %u evicted, %u pack uploads; %u queued, %u decoding",
+                             (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads,
+                             (unsigned)s_tpUploads.size(), (unsigned)s_tpPending.size());
+            }
+            s_gevrTcMisses = s_gevrTcEvictions = s_gevrTcHdUploads = 0;
+        }
+    }
 }
 #endif
 
@@ -1623,7 +1702,11 @@ static void import_texture(int i, int tile, bool is_rect) {
                 ? loaded_texture.full_image_line_size_bytes : rdp.texture_tile[tile].line_size_bytes;
         key.swizzled = loaded_texture.tmem_swizzled;
         if (fmt == G_IM_FMT_CI) {
+#ifdef GEVR
+            key.palette_hash = gevr_palette_key_hash(siz, palette_index);
+#else
             key.palette_hash = rdp.palette_hash;
+#endif
             key.palette_fmt = rdp.palette_fmt;
         }
     }
@@ -2923,6 +3006,11 @@ static void load_tlut(const uint16_t* base, uint8_t tile, uint32_t count) {
     for (uint16_t entry : rdp.palette) {
         rdp.palette_hash = (rdp.palette_hash ^ entry) * 16777619u;
     }
+#ifdef GEVR
+    if (palofs == 0) {
+        s_gevrTlutEnd = count < 256 ? count : 256;   /* a CI8 palette's own entries (gevr_palette_key_hash) */
+    }
+#endif
 
 	rdp.textures_changed[0] = rdp.textures_changed[1] = true;
 }
