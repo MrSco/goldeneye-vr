@@ -46,6 +46,13 @@ extern void vrSettingsSave(void);
 extern int gevrVrWatchGesture(void); /* vr_input.cpp */
 extern s32 g_gevrWatchGesturePending; /* bondview2.c */
 extern s32 gevrStereoWatchGrip(void);    /* bondview2.c: the gun hand holds the watch (#31) */
+extern s32 gevrStereoTwoHandGrip(void);  /* bondview2.c: the off hand holds the gun (#35) */
+extern int VrGunFitArmed;                 /* vr_input.cpp: launcher "Gun fit..." */
+extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* vr_settings_defaults.c: the gun's trim in the hand, cm */
+extern s32 gevrGunFitAvailable(void);     /* bondview2.c: a gun in hand, in a level, in stereo */
+int gevrGunFitActive;                     /* bondview2.c draws the readout while it is set */
+extern float VrGripTrim[2][6];            /* vr_settings_defaults.c: the two-handed hold's hand (#35) */
+extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
 float gevrVrTurnAxis(void) { return gevrTurnAxis; }
@@ -966,6 +973,71 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         XrVector2f left = {0}, right = {0};
         get_2d_input(0, "thumbstick", &left);
         get_2d_input(1, "thumbstick", &right);
+        // Gun fit (launcher "Gun fit...", user): in a level with a gun in hand,
+        // the sticks move the gun on the hand - VrGunOffX/Y/Z, which
+        // bondview2.c gevrStereoGunMatrix reads every frame - instead of the
+        // player: the move stick forward/back and sideways, the turn stick up
+        // and down, about 3 cm a second. A keeps it (goldeneye-vr.ini), B puts
+        // it back; either ends the fit. The game gets neither stick nor A/B.
+        bool fitting = false;
+        {
+            static bool fitWas = false, aHeld = true, bHeld = true;
+            static float savedX, savedY, savedZ;
+            static float savedGrip[2][6];
+            static u32 fitLast;
+            const u32 now = SDL_GetTicks();
+            fitting = VrGunFitArmed && !menu && g_gevrStereo && gevrGunFitAvailable();
+            if (fitting && !fitWas) {
+                savedX = VrGunOffX; savedY = VrGunOffY; savedZ = VrGunOffZ;
+                memcpy(savedGrip, VrGripTrim, sizeof(savedGrip));
+                aHeld = bHeld = true;   /* a button already down does not answer */
+                fitLast = now;
+                LOGI("input: gun fit on (%.1f %.1f %.1f)\n", VrGunOffX, VrGunOffY, VrGunOffZ);
+            }
+            if (fitting) {
+                const float dz = 0.15f, rate = 3.0f;
+                float dt = (now - fitLast) / 1000.0f;
+                if (dt > 0.1f) dt = 0.1f;
+                fitLast = now;
+                float mx = fabsf(left.x) < dz ? 0.0f : left.x;
+                float my = fabsf(left.y) < dz ? 0.0f : left.y;
+                float ry = fabsf(right.y) < dz ? 0.0f : right.y;
+                float rx = fabsf(right.x) < dz ? 0.0f : right.x;
+                if (gevrStereoTwoHandGrip()) {
+                    /* Holding with both hands (#35, user): the holding hand instead, for
+                     * this class of gun - [0] out to the off hand's side (so the move
+                     * stick's right is inward), [1] up, [2] forward, [3] its tilt, about
+                     * 45 degrees a second on the turn stick's sideways - or, with the
+                     * right grip held, [5] its roll (user: to turn it more underhand). */
+                    float *t = VrGripTrim[gevrStereoTwoHandClass()];
+                    t[0] -= mx * rate * dt;
+                    t[2] += my * rate * dt;
+                    t[1] += ry * rate * dt;
+                    t[get_button_state(1, "grip") ? 5 : 3] += rx * 45.0f * dt;
+                } else {
+                    /* +X is the holder's right (mirrored when left-handed), +Z back toward you */
+                    VrGunOffX += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
+                    VrGunOffZ -= my * rate * dt;
+                    VrGunOffY += ry * rate * dt;
+                }
+                const bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
+                if (a && !aHeld) {
+                    VrGunFitArmed = 0;
+                    vrSettingsSave();
+                    LOGI("input: gun fit kept (%.1f %.1f %.1f)\n", VrGunOffX, VrGunOffY, VrGunOffZ);
+                } else if (b && !bHeld) {
+                    VrGunOffX = savedX; VrGunOffY = savedY; VrGunOffZ = savedZ;
+                    memcpy(VrGripTrim, savedGrip, sizeof(savedGrip));
+                    VrGunFitArmed = 0;
+                    LOGI("input: gun fit undone\n");
+                }
+                aHeld = a;
+                bHeld = b;
+                left.x = left.y = right.x = right.y = 0.0f;
+            }
+            fitWas = fitting;
+            gevrGunFitActive = fitting && VrGunFitArmed;
+        }
         // Watch: grips are the N64 L/R triggers, which turn its pages.
         if (paused && get_button_state(0, "grip")) npad->button |= L_TRIG;
         if (paused && get_button_state(1, "grip")) npad->button |= R_TRIG;
@@ -1048,7 +1120,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static u32 adown = 0, apulse = 0;
             static bool apanel = false;
             const u32 t = SDL_GetTicks();
-            if (stereoplay && !gevrReturnPrompt) {
+            if (stereoplay && !gevrReturnPrompt && !fitting) {
                 const bool a = get_button_state(1, "a");
                 if (!get_button_state(0, "y")) npad->button &= ~A_BUTTON;
                 if (a) {
@@ -1074,6 +1146,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
         }
         if (gevrReturnPrompt) npad->button &= ~(A_BUTTON | B_BUTTON | START_BUTTON);
+        if (fitting) npad->button &= ~(A_BUTTON | B_BUTTON | R_TRIG);   /* gun fit keeps them (the right grip rolls the grip hand) */
         const bool lclick = get_button_state(0, "thumbstick_click");
         const bool rclick = get_button_state(1, "thumbstick_click");
         const u32 now = SDL_GetTicks();
@@ -1119,7 +1192,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             // Issue #31 (user): not while the gun hand holds the watch for the
             // watch laser or the detonator - aiming them raises the wrist too.
             // It re-arms only once the arm comes down, as after a press.
-            if (gevrStereoWatchGrip()) {
+            if (gevrStereoWatchGrip() || gevrStereoTwoHandGrip()) {
                 heldsince = 0;
                 if (gevrVrWatchGesture()) armed = false;
             } else if (!menu && g_gevrStereo && gevrVrWatchGesture()) {
@@ -1356,9 +1429,7 @@ void inputRumble(s32 idx, f32 strength, f32 time) {
         // controller that is not the trigger hand. Only meaningful while it is actually
         // gripping -- an idle off hand is not touching the weapon and should stay quiet.
         const s32  supportHand    = vr_invert_hands ? 1 : 0;
-        const bool supportOnWeapon =
-                VrTwoHandsGun(cur_weapon)
-                && get_button_state(supportHand, "grip");
+        const bool supportOnWeapon = gevrStereoTwoHandGrip() != 0;   /* issue #35: the off hand at the gun */
 
         if (strength > 0.f) {
             if (strength > 1.f) strength = 1.f;

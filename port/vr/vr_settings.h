@@ -50,6 +50,7 @@ extern int VrShowStats;         // troubleshooting readout in game
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n
 extern int VrGunSizeCheat;      // VR fun cheat: 0 normal, 1 tiny, 2 big guns
 extern int VrUnlockAll;         // every mission, 007 mode and every cheat unlocked (issue #54)
+extern int VrGunFitArmed;       // launcher "Gun fit...": fit the gun in the next level (not saved)
 extern int VrHideArms;
 
 extern float VrHudDistance;
@@ -62,6 +63,7 @@ extern float VrHudDistance;
 extern float VrGunOffX;         // grip fit trim in the controller frame, game units
 extern float VrGunOffY;
 extern float VrGunOffZ;
+extern float VrGripTrim[2][6];  // two-handed hold's hand trim: [handgun, long gun][dx dy dz rx ry rz]
 extern float VrArmElbowTuck;    // 0..1, how tightly the elbow is pinned toward the body
 extern float VrArmBodyFollow;   // how fast the smoothed torso yaw chases the head (spin comfort)
 extern int   VrFistClench;      // close the off-hand while the left grip is squeezed

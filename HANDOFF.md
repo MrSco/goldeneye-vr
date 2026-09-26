@@ -4959,41 +4959,65 @@ Latent, noted by the agents:
   idea, unproven: a chr teleported while off-screen and then in magic-mode
   gopos keeps a stale manground until it is next updated normally.
 
-## 112. #9 hand shells, Phase 0: export, Blender, hole survey (2026-09-26)
-Branch feature/9-hand-shells. The user asked to patch the hand and arm models'
-missing walls with Blender. Plan: ship only our own new triangles (existing
-ROM vertices referenced by node and index, new points authored), merged in at
-model load behind a fingerprint check; no ROM bytes in the repo. No reference
-port has done this (GEVR PC parks its ghost fingers, PD VR hides fist bones).
-- tools/gevr_model_export.py: walks a model file (gevr_model_probe's walk)
-  and runs every DL through a small F3D interpreter (G_MTX seg 3, G_VTX seg 5,
-  G_TRI1 /10, Rare's G_TRI4, the 0xC0 texture marker, G_TEXTURE scale).
-  JSON to build/handmodels/ (gitignored: ROM-derived). Each vertex keeps
-  node / idx / mtx. Counts come from MODELFILEHEADER (NUMTEXTURES is the 8th
-  argument, not the 5th - the probe's docstring example is easy to misread).
-- tools/blender/gevr_hands_import.py (Blender 5.2, headless): one object per
-  DL node, seam vertices welded, boundary loops to holes.json, Workbench
-  renders from 8 sides with boundary edges as red tubes; --frame for a
-  close-up, --save for a .blend. Run with absolute paths: a relative render
-  path lands nowhere.
-- Csuit_lf_handZ (the left watch arm) is rigid: every DL is under matrix 0
-  (the hand group at the end of a 5-group chain). Parts: hand 0x1c0 (338
-  tris), sleeves on switches 4-9 (one per outfit; 5/6/7 share a mesh), watch
-  0x2f8 (370), face 0x328 (switch 3), watch hands 0x358/0x388/0x3b8.
-- Holes found:
-  - Hand: palm and the underside of every finger are one 49-edge loop (the
-    fingers are open half-tubes); three 9-edge loops more. The 8-edge wrist
-    ring is shared exactly with the sleeve's cuff, so it closes in assembly.
-  - Sleeve: open elbow end (octagon); the jacket cuff edge has no thickness,
-    an open ring between it and the shirt cuff.
-  - Watch: the band covers the top of the wrist only (no back half), and the
-    case has no back. The other ~30 loops on the watch are layered trim and
-    dial marks (overlays, not holes).
-- Hands in gun models (survey of all G*Z): rifles have none. 12 models carry
-  a hand (textures 0x701-0x706), in 4-10 parts each. The PPK family (wppk,
-  wppksil, gold, silver) share one hand, knife/throwknife share one; with the
-  fist, golden gun, ruger, tt33, taser, watchlaser and the watch arm that is 9
-  unique hands to patch.
-- Not done: texture decode (renders are flat colour per texture id). Needed
-  to pick palm UVs in Phase 1: port image.c's texInflateZlib path, or take a
-  gevr_texdump from the headset with the watch up.
+## 112. Gun fit in game; the user's fit as the default (2026-09-26)
+- feature/gun-fit: MERGED 2026-09-26 (user: "gun fit mode is fantastic").
+  - The launcher runs before the ROM loads, so no gun model exists there;
+    the fit is in game (user's choice). Launcher bottom row, beside
+    Cheats...: "Gun fit..." arms it (VrGunFitArmed, not saved).
+  - port/src/input.c: in a level, stereo, gun in hand
+    (bondview2.c gevrGunFitAvailable), the move stick moves the gun
+    forward/back and sideways, the turn stick up/down, about 3 cm a second
+    (VrGunOffX/Y/Z, read every frame by gevrStereoGunMatrix). Neither stick
+    nor A/B reach the game. A keeps it (vrSettingsSave), B restores; either
+    ends it. bondview2.c gevrDrawGunFit draws the readout on the H panel.
+  - Defaults are now the user's fit: GunOffX 2.74, GunOffY 1.94,
+    GunOffZ -12.35 (the model's hand sat about 12 cm behind the real one).
+    Every install wrote 0, 0, 0, so an ini with all three 0 keeps the new
+    defaults (vr_settings.cpp). The ini comment had Z as forward; it is back
+    toward the player.
+  - The fist and gadgets use the same gun matrix, so they move with it.
+- feature/35-two-hand-grip (not merged, in test): the palm-based hold point
+  (eaa9ff5) was worse (user) and is reverted; the controller-based 17:37
+  version stands. With the gun now on the real hand, the hold should line up
+  with the drawn grip.
+- fix/viewmodel-wood: MERGED 2026-09-26 (user: "wood looks solid now").
+  A stereo gun's wooden parts (KF7 grip and fore-end) read as a see-through
+  shell. They are the model's second display list, drawn by the gun's
+  branch of modelApplyRenderModeType3 - PropType 4, named CHR+1 in the
+  decomp (VIEWER+1 is 7; an earlier try there did nothing) - blended without
+  writing depth. Right in the flat game's painter's order; in stereo
+  (both-sided, depth-tested) the inside faces painted over the outside. In
+  stereo that pass is now G_RM_AA_ZB_TEX_EDGE2 (alpha-tested, depth).
+- A second session works on #9 (feature/9-hand-shells) in the main
+  checkout; this one uses ../gevr-wt. Both install to the same headset:
+  check the launcher's build line.
+
+## 113. Two-handed hold for any gun (#35, merged 2026-09-26)
+- User-tested through many rounds; MERGED (user: grips set as default).
+- Taking hold (bondview2.c gevrStereoTwoHandUpdate, each tick): the off
+  hand's grip, with that controller within 12 cm of the barrel (kept to
+  22 cm), as the watch laser's grip (#31). Guns and launchers
+  (gevrStereoTwoHandItem); not dual wielding, knives, gadgets, watch items.
+- Aim: Perfect Dark VR's vrBuildGunRotation - the barrel turns toward the
+  line between the hands, eased (0.15 a tick) and faded as the hands close
+  (9..18 cm), a shortest-arc turn keeping the wrist's roll. Applied in
+  gevrGripAxes for the gun hand, so gun, shots, sight, muzzle and scope
+  follow. Handguns keep the wrist's aim (hands 8-12 cm apart jittered),
+  as PD's Slayer.
+- The holding hand (gunfire.c gevrRenderLeftArm): the taser's gripping hand
+  (#41), mirrored, drawn BEFORE the guns (their wood/second list does not
+  write depth in flat play) and tagged with the gun's controller (#53).
+  Pinned to the gun in place and turn: the gun hand's matrix mirrored, its
+  palm (GtaserZ taser centre 1, 79.5, 57.5) put on the hold point:
+  - handguns: the drawn gun hand's palm (the model, not the controller:
+    after Gun fit the two agree);
+  - long guns: 35% of the way from that palm to the muzzle (taking hold
+    accepts 20..55%).
+- Trim per class (VrGripTrim, ini GripPistol / GripRifle: cm out, up,
+  forward; degrees about the hand's X, Y, Z), set in Gun fit while holding
+  with both hands: move stick forward/sideways, turn stick up/down and tilt,
+  right grip + turn stick roll. Defaults are the user's.
+- Tried and dropped: the fist (not a grip), the controller's own turn
+  (pivoted), the gun frame with the old trims (fingers up), hand-line aim
+  on handguns (jitter), the controller point as the hold point before the
+  gun fit (a 12 cm gap).
