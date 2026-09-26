@@ -4980,3 +4980,14 @@ Latent, noted by the agents:
   (eaa9ff5) was worse (user) and is reverted; the controller-based 17:37
   version stands. With the gun now on the real hand, the hold should line up
   with the drawn grip.
+- fix/viewmodel-wood: MERGED 2026-09-26 (user: "wood looks solid now").
+  A stereo gun's wooden parts (KF7 grip and fore-end) read as a see-through
+  shell. They are the model's second display list, drawn by the gun's
+  branch of modelApplyRenderModeType3 - PropType 4, named CHR+1 in the
+  decomp (VIEWER+1 is 7; an earlier try there did nothing) - blended without
+  writing depth. Right in the flat game's painter's order; in stereo
+  (both-sided, depth-tested) the inside faces painted over the outside. In
+  stereo that pass is now G_RM_AA_ZB_TEX_EDGE2 (alpha-tested, depth).
+- A second session works on #9 (feature/9-hand-shells) in the main
+  checkout; this one uses ../gevr-wt. Both install to the same headset:
+  check the launcher's build line.
