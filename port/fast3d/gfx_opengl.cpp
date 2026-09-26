@@ -348,6 +348,8 @@ struct ShaderProgram {
     GLint scopeLocation;       // GoldenEye (issue #40): the sniper scope's pass
     GLint scopeVPLocation;
     GLint scopeHeadPLocation;
+    GLint reprojLocation;      // GoldenEye (issue #53): the in-between frame's redraw
+    GLint reprojVPLocation;
 
 };
 
@@ -445,6 +447,12 @@ static struct ShaderProgram* s_curPrg;
 static bool s_depthArgs[4];
 static uint16_t s_depthZmode;
 static bool s_alphaArgs[2];
+// ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
+static GLint s_curViewport[4], s_curScissor[4];
+static float s_curDepthRange[2] = { 0.0f, 1.0f };
+static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
+static void gevr_eye_keep(GLint first, GLsizei count);
+static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ);
 
 static std::vector<Framebuffer> framebuffers;
 static size_t current_framebuffer;
@@ -896,6 +904,17 @@ static void append_formula(char* buf, size_t* len, uint8_t c[2][4], bool do_sing
 const char* vr_shader = R"(
 vec4 mvPos = aVtxPos;
 
+// GoldenEye (issue #53): an in-between XR frame redraws the last game frame
+// from the head's newer pose - back to that frame's camera space (x/P00,
+// y/P11, -w), then through the head's move and the projection. Not the
+// screen-locked draws (w = 1, and the HUD's marker values).
+if (uReproj == 1) {
+    float vr_wm1 = abs(aVtxPos.w - 1.0);
+    if (vr_wm1 != 0.0 && vr_wm1 != 7.0 && vr_wm1 != 8.0 && vr_wm1 != 9.0) {
+        mvPos = uReprojVP * vec4(aVtxPos.x / uHeadP.x, aVtxPos.y / uHeadP.y, -aVtxPos.w, 1.0);
+    }
+}
+
 if (uVrFlat == 0) {
 
 bool vr_is_Menu_or_HUD = (abs(mvPos.w - 1.0) == 0.0);
@@ -988,6 +1007,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "uniform int uScope;");
         append_line(vs_buf, &vs_len, "uniform mat4 uScopeVP;");
         append_line(vs_buf, &vs_len, "uniform vec2 uHeadP;");
+        // GoldenEye (issue #53): the in-between frame's redraw (gfx_vr_eye_replay)
+        append_line(vs_buf, &vs_len, "uniform int uReproj;");
+        append_line(vs_buf, &vs_len, "uniform mat4 uReprojVP;");
 
     }
 
@@ -1400,7 +1422,10 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     // VR...
     prg->vrFlatLocation = -1;
     prg->scopeLocation = prg->scopeVPLocation = prg->scopeHeadPLocation = -1;
+    prg->reprojLocation = prg->reprojVPLocation = -1;
     if (use_multiview) {
+        prg->reprojLocation = glGetUniformLocation(shader_program, "uReproj");
+        prg->reprojVPLocation = glGetUniformLocation(shader_program, "uReprojVP");
         prg->scopeLocation = glGetUniformLocation(shader_program, "uScope");
         prg->scopeVPLocation = glGetUniformLocation(shader_program, "uScopeVP");
         prg->scopeHeadPLocation = glGetUniformLocation(shader_program, "uHeadP");
@@ -1610,6 +1635,8 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
 }
 
 static void gfx_opengl_set_depth_range(float znear, float zfar) {
+    s_curDepthRange[0] = znear;
+    s_curDepthRange[1] = zfar;
     if (glDepthRangef) {
         glDepthRangef(znear, zfar);
     }
@@ -1619,10 +1646,12 @@ static void gfx_opengl_set_depth_range(float znear, float zfar) {
 }
 
 static void gfx_opengl_set_viewport(int x, int y, int width, int height) {
+    s_curViewport[0] = x; s_curViewport[1] = y; s_curViewport[2] = width; s_curViewport[3] = height;
     glViewport(x, y, width, height);
 }
 
 static void gfx_opengl_set_scissor(int x, int y, int width, int height) {
+    s_curScissor[0] = x; s_curScissor[1] = y; s_curScissor[2] = width; s_curScissor[3] = height;
     glScissor(x, y, width, height);
 }
 
@@ -2001,6 +2030,9 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
             return;   // the scope's own sight: not for the eyes
         }
     }
+    if (s_eyeRec) {
+        gevr_eye_keep(first, (GLsizei)(3 * buf_vbo_num_tris));   // issue #53
+    }
 
 
     // A HUD capture draws into a single 2D texture, so it hides the right eye by
@@ -2051,7 +2083,13 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     }
     s_uniCacheValid = use_multiview;   /* without multiview the eye uniforms are never cached */
 
-    if (s_decalZ) {
+    gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ);
+}
+
+/* the draw itself, with the decal band (the eye pass, and its redraw: issue #53) */
+static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ)
+{
+    if (decalZ) {
         /*
          * GoldenEye: the RDP's decal Z mode draws a pixel only where it lies
          * on the surface already in the depth buffer (within a small band).
@@ -2087,7 +2125,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         gevr_set_decal_bias(-gfx_decal_proj_z * bandD);   // pushed away
         glStencilFunc(GL_ALWAYS, 1, 0xff);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-        glDrawArrays(GL_TRIANGLES, first, 3 * buf_vbo_num_tris);
+        glDrawArrays(GL_TRIANGLES, first, count);
 
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(prevDepthMask);
@@ -2096,7 +2134,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         gevr_set_decal_bias(gfx_decal_proj_z * bandD);   // pulled near
         glStencilFunc(GL_EQUAL, 1, 0xff);
         glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
-        glDrawArrays(GL_TRIANGLES, first, 3 * buf_vbo_num_tris);
+        glDrawArrays(GL_TRIANGLES, first, count);
 
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
         glDisable(GL_STENCIL_TEST);
@@ -2105,8 +2143,247 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         return;
     }
 
-    glDrawArrays(GL_TRIANGLES, first, 3 * buf_vbo_num_tris);
+    glDrawArrays(GL_TRIANGLES, first, count);
 
+}
+
+// ============================================================================
+// VR - the in-between frame's redraw (issue #53)
+// ============================================================================
+/*
+ * The game draws at 60 Hz and the display runs at 72 or 90. On the XR frames
+ * between game frames the pump handed the compositor the last image again,
+ * and it turns that to the head's new orientation only: the gun and hands,
+ * leaning and anything near showed double - "reprojection ghosting" at a 12 Hz
+ * beat at 72 Hz, 30 at 90 (issue #53). Perfect Dark VR draws a game frame for
+ * every XR frame; GoldenEye's engine counts whole 60 Hz ticks and can't (and
+ * gepc-ref parked running it faster). Instead the eye pass's draws are kept,
+ * as the scope keeps the world's, and an in-between frame draws them again
+ * from the head's new pose: the vertex shader's uReproj branch takes each
+ * vertex back to the game frame's camera space and through the head's move
+ * since (vr_openxr.cpp gevrVrRedrawDelta). Everything stays where it was in
+ * the world; what moves on its own still moves at 60 Hz. The vertex ring's
+ * segment isn't written again before the next game frame, whose fence then
+ * covers these reads too.
+ */
+struct GevrEyeDraw {
+    struct ShaderProgram* prg;
+    GLint first;
+    GLsizei count;
+    GLuint tex[2];
+    bool linear[2];
+    bool depth[4];
+    uint16_t zmode;
+    bool alpha[2];
+    bool decalZ;
+    bool isMenu;
+    GLint viewport[4];
+    GLint scissor[4];
+    float depthRange[2];
+};
+
+static std::vector<GevrEyeDraw> s_eyeDraws;
+static float s_eyeProj[16];    // the game's projection (fr.c g_viProjectionMatrixF), as a GL matrix
+static float s_eyeHeadP[2];
+
+// gfx_pc.cpp gfx_run, around the stereo eye pass
+void gfx_vr_eye_record(bool on, const float* proj, bool invert_y)
+{
+    if (on) {
+        s_eyeDraws.clear();
+        s_eyeReady = false;
+        // needs the mapped ring (each draw's vertices stay put) and the plain y
+        s_eyeRec = proj != NULL && s_pmPtr != NULL && !invert_y
+                && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
+        if (s_eyeRec) {
+            memcpy(s_eyeProj, proj, sizeof(s_eyeProj));   // row-vector rows = GL columns
+            s_eyeHeadP[0] = proj[0];
+            s_eyeHeadP[1] = proj[5];
+        }
+    } else {
+        s_eyeReady = s_eyeRec && !s_eyeDraws.empty();
+        s_eyeRec = false;
+    }
+}
+
+bool gfx_vr_eye_replay_ready(void)
+{
+    return s_eyeReady;
+}
+
+static void gevr_eye_keep(GLint first, GLsizei count)
+{
+    // not the HUD captures, which draw into their own targets
+    if (s_curPrg == NULL || gForceFlatShaderForMenu || gVrFlatPass) {
+        return;
+    }
+    GevrEyeDraw d;
+    d.prg = s_curPrg;
+    d.first = first;
+    d.count = count;
+    for (int t = 0; t < 2; t++) {
+        d.tex[t] = s_boundTex[t];
+        d.linear[t] = current_textures_linear_filter[t];
+    }
+    memcpy(d.depth, s_depthArgs, sizeof(d.depth));
+    d.zmode = s_depthZmode;
+    d.alpha[0] = s_alphaArgs[0];
+    d.alpha[1] = s_alphaArgs[1];
+    d.decalZ = s_decalZ;
+    d.isMenu = vr_dl_is_pause_or_menu;
+    memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
+    memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
+    d.depthRange[0] = s_curDepthRange[0];
+    d.depthRange[1] = s_curDepthRange[1];
+    s_eyeDraws.push_back(d);
+}
+
+/*
+ * Into the eye buffers already bound and cleared (gfx_pc.cpp
+ * gfx_vr_redraw_frame). delta: the head's move from the game frame's pose,
+ * in its camera space (view units), a GL matrix.
+ */
+void gfx_vr_eye_replay(const float* delta)
+{
+    if (!s_eyeReady) {
+        return;
+    }
+
+    float M[16];   // projection x the head's move
+    for (int c = 0; c < 4; c++) {
+        for (int r = 0; r < 4; r++) {
+            float v = 0.0f;
+            for (int k = 0; k < 4; k++) {
+                v += s_eyeProj[k * 4 + r] * delta[c * 4 + k];
+            }
+            M[c * 4 + r] = v;
+        }
+    }
+
+    // everything this changes, to put back as fast3d left it
+    GLint prevVao = 0, depthFunc = GL_LEQUAL;
+    GLint blendSrcRgb = GL_ONE, blendDstRgb = GL_ZERO, blendSrcA = GL_ONE, blendDstA = GL_ZERO;
+    GLfloat offFactor = 0.0f, offUnits = 0.0f;
+    GLboolean depthMask = GL_TRUE;
+    glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &prevVao);
+    glGetIntegerv(GL_DEPTH_FUNC, &depthFunc);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &blendSrcRgb);
+    glGetIntegerv(GL_BLEND_DST_RGB, &blendDstRgb);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &blendSrcA);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &blendDstA);
+    glGetFloatv(GL_POLYGON_OFFSET_FACTOR, &offFactor);
+    glGetFloatv(GL_POLYGON_OFFSET_UNITS, &offUnits);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &depthMask);
+    const GLboolean depthOn = glIsEnabled(GL_DEPTH_TEST);
+    const GLboolean blendOn = glIsEnabled(GL_BLEND);
+    const GLboolean offsetOn = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+    struct ShaderProgram* const prevPrg = s_curPrg;
+    bool savedDepth[4], savedAlpha[2];
+    memcpy(savedDepth, s_depthArgs, sizeof(savedDepth));
+    memcpy(savedAlpha, s_alphaArgs, sizeof(savedAlpha));
+    const uint16_t savedZmode = s_depthZmode;
+    const bool savedMask = current_depth_mask, savedIsDecal = s_isDecal, savedDecalZ = s_decalZ;
+    GLint savedViewport[4], savedScissor[4];
+    memcpy(savedViewport, s_curViewport, sizeof(savedViewport));
+    memcpy(savedScissor, s_curScissor, sizeof(savedScissor));
+    const float savedRange[2] = { s_curDepthRange[0], s_curDepthRange[1] };
+
+    if (opengl_vao) {
+        glBindVertexArray(opengl_vao);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+
+    static std::vector<struct ShaderProgram*> touched;
+    touched.clear();
+    struct ShaderProgram* bound = prevPrg;
+    const GevrEyeDraw* last = NULL;
+    int lastMenu = -1;
+    for (const GevrEyeDraw& d : s_eyeDraws) {
+        if (last == NULL || d.prg != bound) {
+            if (last != NULL || d.prg != bound) {
+                gfx_opengl_unload_shader(bound);
+            }
+            gfx_opengl_load_shader(d.prg);   // the eye offsets, as the eye pass had them
+            bound = d.prg;
+            lastMenu = -1;
+            if (std::find(touched.begin(), touched.end(), d.prg) == touched.end()) {
+                touched.push_back(d.prg);
+            }
+            if (d.prg->reprojLocation >= 0) glUniform1i(d.prg->reprojLocation, 1);
+            if (d.prg->reprojVPLocation >= 0) glUniformMatrix4fv(d.prg->reprojVPLocation, 1, GL_FALSE, M);
+            if (d.prg->scopeHeadPLocation >= 0) glUniform2f(d.prg->scopeHeadPLocation, s_eyeHeadP[0], s_eyeHeadP[1]);
+        }
+        if ((int)d.isMenu != lastMenu) {
+            if (gCurIsMenuLoc >= 0) glUniform1i(gCurIsMenuLoc, d.isMenu ? 1 : 0);
+            lastMenu = d.isMenu ? 1 : 0;
+        }
+        for (int t = 0; t < 2; t++) {
+            if (d.prg->used_textures[t]) {
+                glActiveTexture(GL_TEXTURE0 + t);
+                glBindTexture(GL_TEXTURE_2D, d.tex[t]);
+                if (d.prg->three_point_filter_locations[t] >= 0) {
+                    glUniform1i(d.prg->three_point_filter_locations[t], d.linear[t]);
+                }
+            }
+        }
+        if (last == NULL || memcmp(d.depth, last->depth, sizeof(d.depth)) != 0 || d.zmode != last->zmode) {
+            gfx_opengl_set_depth_mode(d.depth[0], d.depth[1], d.depth[2], d.depth[3], d.zmode);
+        }
+        if (last == NULL || d.alpha[0] != last->alpha[0] || d.alpha[1] != last->alpha[1]) {
+            gfx_opengl_set_use_alpha(d.alpha[0], d.alpha[1]);
+        }
+        if (last == NULL || memcmp(d.viewport, last->viewport, sizeof(d.viewport)) != 0) {
+            glViewport(d.viewport[0], d.viewport[1], d.viewport[2], d.viewport[3]);
+        }
+        if (last == NULL || memcmp(d.scissor, last->scissor, sizeof(d.scissor)) != 0) {
+            glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
+        }
+        if (last == NULL || d.depthRange[0] != last->depthRange[0] || d.depthRange[1] != last->depthRange[1]) {
+            gfx_opengl_set_depth_range(d.depthRange[0], d.depthRange[1]);
+        }
+        gevr_issue_draw(d.first, d.count, d.decalZ);
+        last = &d;
+    }
+
+    // the programs back to the eye pass, and the state as fast3d left it
+    for (struct ShaderProgram* p : touched) {
+        if (p->reprojLocation >= 0) {
+            glUseProgram(p->opengl_program_id);
+            glUniform1i(p->reprojLocation, 0);
+        }
+    }
+    if (bound != prevPrg) {
+        gfx_opengl_unload_shader(bound);
+    }
+    if (prevPrg != NULL) {
+        gfx_opengl_load_shader(prevPrg);
+    } else {
+        s_curPrg = NULL;
+        glUseProgram(0);
+    }
+    for (int t = 0; t < 2; t++) {
+        glActiveTexture(GL_TEXTURE0 + t);
+        glBindTexture(GL_TEXTURE_2D, s_boundTex[t]);
+    }
+    glActiveTexture(GL_TEXTURE0 + s_activeTexUnit);
+    memcpy(s_depthArgs, savedDepth, sizeof(savedDepth));
+    memcpy(s_alphaArgs, savedAlpha, sizeof(savedAlpha));
+    s_depthZmode = savedZmode;
+    current_depth_mask = savedMask;
+    s_isDecal = savedIsDecal;
+    s_decalZ = savedDecalZ;
+    if (depthOn) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
+    glDepthMask(depthMask);
+    glDepthFunc((GLenum)depthFunc);
+    if (offsetOn) glEnable(GL_POLYGON_OFFSET_FILL); else glDisable(GL_POLYGON_OFFSET_FILL);
+    glPolygonOffset(offFactor, offUnits);
+    if (blendOn) glEnable(GL_BLEND); else glDisable(GL_BLEND);
+    glBlendFuncSeparate((GLenum)blendSrcRgb, (GLenum)blendDstRgb, (GLenum)blendSrcA, (GLenum)blendDstA);
+    gfx_opengl_set_viewport(savedViewport[0], savedViewport[1], savedViewport[2], savedViewport[3]);
+    gfx_opengl_set_scissor(savedScissor[0], savedScissor[1], savedScissor[2], savedScissor[3]);
+    gfx_opengl_set_depth_range(savedRange[0], savedRange[1]);
+    glBindVertexArray((GLuint)prevVao);
+    s_uniCacheValid = false;
 }
 
 typedef void (APIENTRY* DEBUGPROC)(GLenum source,
