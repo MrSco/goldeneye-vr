@@ -1671,7 +1671,7 @@ s32 gevrStereoWatchGrip(void)
  * the off hand's grip takes hold only with that hand at the gun - within
  * GEVR_TWOHAND_PRESS_CM of the barrel, kept to GEVR_TWOHAND_KEEP_CM - and
  * while it holds, the off hand is drawn round the barrel (gunfire.c
- * gevrRenderLeftArm, shifted by gevrStereoTwoHandFistShift) in place of the
+ * gevrRenderLeftArm, placed by gevrStereoTwoHandMatrix) in place of the
  * watch arm, and the watch gesture is off (port/src/input.c).
  *
  * The aim is Perfect Dark VR's (bondgun.c vrBuildGunRotation): the barrel
@@ -1707,15 +1707,36 @@ s32 gevrStereoTwoHandItem(s32 item)
     }
 }
 
-/* The point on the barrel nearest the off hand, and how far the hand is from
- * it (real cm). The barrel runs from the trigger fist along the gun as drawn,
- * to the muzzle or GEVR_TWOHAND_BARREL_CM. */
+/*
+ * Where the off hand holds (user, in the headset: it could slide right onto
+ * the barrel): a handgun's at its grip, wrapping the gun hand; a long gun's
+ * on the fore-end, GEVR_TWOHAND_FORE_MIN..MAX of the way from the grip to the
+ * muzzle.
+ */
+#define GEVR_TWOHAND_FORE_MIN 0.2f
+#define GEVR_TWOHAND_FORE_MAX 0.55f
+
+static s32 gevrTwoHandIsHandgun(s32 item)
+{
+    switch (item)
+    {
+        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33: case ITEM_RUGER: case ITEM_GOLDENGUN:
+        case ITEM_SILVERWPPK: case ITEM_GOLDWPPK: case ITEM_FLAREPISTOL: case ITEM_TASER: case ITEM_LASER:
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
+/* The point where the off hand holds nearest the off hand, and how far the
+ * hand is from it (real cm). The barrel runs from the trigger fist along the
+ * gun as drawn, to the muzzle or GEVR_TWOHAND_BARREL_CM. */
 static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm)
 {
     f32 gpos[3], right[3], up[3], back[3], ignore[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 len = GEVR_TWOHAND_BARREL_CM * cm * gevrGunSizeFactor();
-    f32 t, d[3];
+    f32 t, tmin, tmax, d[3];
     s32 i;
 
     if (cm < 1e-6f || !gevrGripAxes(1, gpos, right, up, back) || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
@@ -1737,8 +1758,14 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm)
         d[i] = opos[i] - gpos[i];
     }
     t = -(d[0] * back[0] + d[1] * back[1] + d[2] * back[2]);
-    if (t < 0.0f) t = 0.0f;
-    if (t > len) t = len;
+    tmin = tmax = 0.0f;
+    if (!gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT)))
+    {
+        tmin = len * GEVR_TWOHAND_FORE_MIN;
+        tmax = len * GEVR_TWOHAND_FORE_MAX;
+    }
+    if (t < tmin) t = tmin;
+    if (t > tmax) t = tmax;
     for (i = 0; i < 3; i++)
     {
         snap[i] = gpos[i] - back[i] * t;
@@ -1786,19 +1813,94 @@ s32 gevrStereoTwoHandGrip(void)
     return g_gevrStereo && s_gevrTwoHand;
 }
 
-/* where the off hand's fist goes: moved from the controller onto the barrel */
-s32 gevrStereoTwoHandFistShift(f32 shift[3])
-{
-    f32 opos[3], snap[3], dist;
-    s32 i;
+/*
+ * The holding hand's model matrix. gunfire.c gevrRenderLeftArm hands over the
+ * gun hand's own (gevrStereoGunMatrix(GUNRIGHT), mirrored into the other hand
+ * and at the model's scale): the gripping hand then takes the gun in the gun's
+ * frame, not the controller's (user: it should cup the bottom of the gun).
+ * This turns it by the trim, then moves it so its palm - the taser's centre in
+ * GtaserZ, GEVR_TWOHAND_PALM, where #41 holds the grenade - lies on the hold
+ * point, plus the trim's offset.
+ *
+ * The trim, per class (0 handguns, 1 long guns): cm along the off hand's
+ * side, up and forward; degrees about the model's X, Y and Z (Z is along the
+ * barrel). files/gevr_twohand.txt "class dx dy dz rx ry rz" (a line each)
+ * overrides it while tuning in the headset, re-read every couple of seconds.
+ */
+static const f32 s_gevrTwoHandPalm[3] = { 1.0f, 79.5f, 57.5f };
+static f32 s_gevrTwoHandTrim[2][6] = {
+    { 0.0f, -2.0f, 1.0f, 0.0f, 0.0f, 0.0f },     /* handguns: under the gun hand */
+    { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 30.0f },     /* long guns: rolled toward palm up */
+};
 
-    if (!gevrStereoTwoHandGrip() || !gevrTwoHandBarrel(opos, snap, &dist))
+s32 gevrStereoTwoHandMatrix(Mtxf *m)
+{
+    f32 opos[3], snap[3], dist, gpos[3], right[3], up[3], back[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    f32 bx[3], by[3], bz[3], side[3], palm[3], target[3];
+    f32 *tr;
+    Mtxf rot;
+    coord3d r;
+    s32 i, j;
+    static u32 tick;
+
+    if ((tick++ % 120) == 0)
+    {
+        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_twohand.txt", "r");
+
+        if (f != NULL)
+        {
+            s32 cls;
+            f32 t[6];
+
+            while (fscanf(f, "%d %f %f %f %f %f %f", &cls, &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 7)
+            {
+                if (cls == 0 || cls == 1)
+                {
+                    for (i = 0; i < 6; i++)
+                    {
+                        s_gevrTwoHandTrim[cls][i] = t[i];
+                    }
+                    sysLogPrintf(LOG_NOTE, "stereo: two-handed trim %s %.1f %.1f %.1f cm, %.0f %.0f %.0f deg",
+                                 cls ? "long" : "handgun", t[0], t[1], t[2], t[3], t[4], t[5]);
+                }
+            }
+            fclose(f);
+        }
+    }
+
+    if (!gevrStereoTwoHandGrip() || !gevrTwoHandBarrel(opos, snap, &dist) || !gevrGripAxes(1, gpos, right, up, back))
     {
         return FALSE;
     }
+    tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT)) ? 0 : 1];
+
+    /* the trim's turn, in the model's own frame */
+    r.x = tr[3] * (M_PI_F / 180.0f);
+    r.y = tr[4] * (M_PI_F / 180.0f);
+    r.z = tr[5] * (M_PI_F / 180.0f);
+    matrix_4x4_set_rotation_around_xyz(&r, &rot);
+    for (j = 0; j < 3; j++)
+    {
+        bx[j] = rot.m[0][0] * m->m[0][j] + rot.m[0][1] * m->m[1][j] + rot.m[0][2] * m->m[2][j];
+        by[j] = rot.m[1][0] * m->m[0][j] + rot.m[1][1] * m->m[1][j] + rot.m[1][2] * m->m[2][j];
+        bz[j] = rot.m[2][0] * m->m[0][j] + rot.m[2][1] * m->m[1][j] + rot.m[2][2] * m->m[2][j];
+    }
+    for (j = 0; j < 3; j++)
+    {
+        m->m[0][j] = bx[j];
+        m->m[1][j] = by[j];
+        m->m[2][j] = bz[j];
+    }
+
+    /* the palm onto the hold point, plus the offset along the off hand's side, up and forward */
     for (i = 0; i < 3; i++)
     {
-        shift[i] = snap[i] - opos[i];
+        side[i] = VrLeftHandedMode ? right[i] : -right[i];
+        palm[i] = s_gevrTwoHandPalm[0] * m->m[0][i] + s_gevrTwoHandPalm[1] * m->m[1][i]
+                + s_gevrTwoHandPalm[2] * m->m[2][i] + m->m[3][i];
+        target[i] = snap[i] + (tr[0] * side[i] + tr[1] * up[i] - tr[2] * back[i]) * cm;
+        m->m[3][i] += target[i] - palm[i];
     }
     return TRUE;
 }
