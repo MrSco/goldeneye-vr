@@ -791,6 +791,51 @@ void gfx_texture_cache_delete(const uint8_t* orig_addr) {
 #include <sys/stat.h>
 #include <unistd.h>
 static int s_gevrXluProbeFrames;   /* issue #47 probe, gevr_upload_native */
+
+/* issue #47 probe: per blended draw state, the vertex alpha and fog it carries */
+static struct GevrXluTri {
+    const uint8_t *tex;
+    uint32_t ml, geo;
+    uint64_t cc;
+    uint8_t amin, amax, fmin, fmax, prima, enva;
+    unsigned n;
+} s_gevrXluTris[64];
+static unsigned s_gevrXluTriCount;
+
+static void gevr_xlu_probe_tri(struct LoadedVertex *const v[3], const uint8_t *tex) {
+    const uint32_t geo = rsp.geometry_mode & G_FOG;
+    unsigned k;
+    for (k = 0; k < s_gevrXluTriCount; ++k) {
+        GevrXluTri &t = s_gevrXluTris[k];
+        if (t.tex == tex && t.ml == rdp.other_mode_l && t.cc == rdp.combine_mode && t.geo == geo) break;
+    }
+    if (k == s_gevrXluTriCount) {
+        if (k >= 64) return;
+        GevrXluTri &t = s_gevrXluTris[k];
+        t.tex = tex; t.ml = rdp.other_mode_l; t.cc = rdp.combine_mode; t.geo = geo;
+        t.amin = t.fmin = 255; t.amax = t.fmax = 0; t.n = 0;
+        t.prima = rdp.prim_color.a; t.enva = rdp.env_color.a;
+        s_gevrXluTriCount++;
+    }
+    GevrXluTri &t = s_gevrXluTris[k];
+    for (int i = 0; i < 3; ++i) {
+        if (v[i]->color.a < t.amin) t.amin = v[i]->color.a;
+        if (v[i]->color.a > t.amax) t.amax = v[i]->color.a;
+        if (v[i]->fog < t.fmin) t.fmin = v[i]->fog;
+        if (v[i]->fog > t.fmax) t.fmax = v[i]->fog;
+    }
+    t.n++;
+}
+
+static void gevr_xlu_probe_flush(void) {
+    for (unsigned k = 0; k < s_gevrXluTriCount; ++k) {
+        const GevrXluTri &t = s_gevrXluTris[k];
+        sysLogPrintf(LOG_NOTE, "xluprobe: tris %u tex %p mode %08x cc %016llx fog %u | vtx alpha %u..%u fog %u..%u prim a %u env a %u",
+                     t.n, (const void *)t.tex, (unsigned)t.ml, (unsigned long long)t.cc, t.geo ? 1u : 0u,
+                     t.amin, t.amax, t.fmin, t.fmax, t.prima, t.enva);
+    }
+    s_gevrXluTriCount = 0;
+}
 static const uint8_t *s_dumpAddr;
 static uint8_t s_dumpFmt, s_dumpSiz;
 static int s_dumpTile;
@@ -1463,7 +1508,9 @@ static void gevr_texpack_frame(void) {
         /* issue #47 probe (gevr_upload_native): everything in view uploads again, logged */
         static unsigned tick;
         if (s_gevrXluProbeFrames > 0) {
-            s_gevrXluProbeFrames--;
+            if (--s_gevrXluProbeFrames == 0) {
+                gevr_xlu_probe_flush();
+            }
         } else if ((tick++ % 30) == 0
                    && access("/sdcard/Android/data/com.gevr.port/files/gevr_xluprobe", F_OK) == 0) {
             unlink("/sdcard/Android/data/com.gevr.port/files/gevr_xluprobe");
@@ -2305,6 +2352,12 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     const bool use_grayscale = rdp.grayscale;
     const bool use_modulate = use_alpha && (rsp.extra_geometry_mode & G_MODULATE_EXT) != 0;
     const bool use_blur = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) == G_TF_BLUR_EXT;
+#ifdef GEVR
+    /* issue #47 probe: what a blended draw's alpha is made of (gevr_upload_native) */
+    if (s_gevrXluProbeFrames > 0 && use_alpha && !texture_edge) {
+        gevr_xlu_probe_tri(v_arr, rdp.loaded_texture[rdp.texture_tile[rdp.first_tile_index].tmem].addr);
+    }
+#endif
 
     if (texture_edge) {
         use_alpha = true;
