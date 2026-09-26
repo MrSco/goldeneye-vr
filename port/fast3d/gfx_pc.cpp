@@ -698,6 +698,30 @@ static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads, s_gevrTcRe
 /* the keys evicted lately, to tell a load of one back (the cache too small) from a new one */
 #include <unordered_set>
 static std::unordered_set<uint64_t> s_gevrTcEvicted;
+/*
+ * A load of a key never seen evicted: where its texture and palette live -
+ * inside the game's texture pool (image.c, stable for the level) or not -
+ * with a few examples each 5 s, to find what keeps making new keys.
+ */
+extern "C" struct gevr_texpool_view { uint8_t *start; void *end; uint8_t *leftpos; void *rightpos; } ptr_texture_alloc_start;
+static unsigned s_gevrTcNewInPool, s_gevrTcNewOutPool, s_gevrTcNewPalOut, s_gevrTcNewShown;
+static bool gevr_in_tex_pool(const void *p) {
+    const uint8_t *a = (const uint8_t *)p;
+    return a != nullptr && a >= ptr_texture_alloc_start.start && a < (const uint8_t *)ptr_texture_alloc_start.end;
+}
+static void gevr_tc_note_new_key(const struct TextureCacheKey &k) {
+    const bool in = gevr_in_tex_pool(k.texture_addr);
+    if (in) s_gevrTcNewInPool++; else s_gevrTcNewOutPool++;
+    if (k.palette_addrs[0] != nullptr && !gevr_in_tex_pool(k.palette_addrs[0])) s_gevrTcNewPalOut++;
+    if (s_gevrTcNewShown < 6) {
+        s_gevrTcNewShown++;
+        sysLogPrintf(LOG_NOTE, "texcache: new key tex %p (%s pool) pal %p (%s) f%u s%u %ux%u pitch %u palhash %08x",
+                     (const void *)k.texture_addr, in ? "in" : "out of", (const void *)k.palette_addrs[0],
+                     k.palette_addrs[0] ? (gevr_in_tex_pool(k.palette_addrs[0]) ? "in pool" : "out of pool") : "none",
+                     (unsigned)k.fmt, (unsigned)k.siz, (unsigned)k.width, (unsigned)k.height, (unsigned)k.source_pitch,
+                     (unsigned)k.palette_hash);
+    }
+}
 static uint64_t gevr_tc_key_hash(const TextureCacheKey &k) {
     uint64_t h = (uint64_t)(uintptr_t)k.texture_addr;
     h = h * 1099511628211ull ^ ((uint64_t)k.width << 32 | k.height);
@@ -761,7 +785,11 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     }
 #ifdef GEVR
     s_gevrTcMisses++;
-    if (s_gevrTcEvicted.erase(gevr_tc_key_hash(key))) s_gevrTcReloads++;
+    if (s_gevrTcEvicted.erase(gevr_tc_key_hash(key))) {
+        s_gevrTcReloads++;
+    } else {
+        gevr_tc_note_new_key(key);
+    }
 #endif
 
     gfx_flush();   /* a new texture: the batch so far draws with the old one */
@@ -1514,11 +1542,13 @@ static void gevr_texpack_frame(void) {
         if (++frames >= 300) {
             frames = 0;
             if (s_gevrTcMisses || s_gevrTcEvictions || s_gevrTcHdUploads) {
-                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads (%u of them evicted before), %u evicted, %u pack uploads; %u queued, %u decoding",
-                             (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses, s_gevrTcReloads, s_gevrTcEvictions, s_gevrTcHdUploads,
+                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads (%u of them evicted before; new: %u in the pool, %u out, %u palettes out), %u evicted, %u pack uploads; %u queued, %u decoding",
+                             (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses, s_gevrTcReloads, s_gevrTcNewInPool, s_gevrTcNewOutPool,
+                             s_gevrTcNewPalOut, s_gevrTcEvictions, s_gevrTcHdUploads,
                              (unsigned)s_tpUploads.size(), (unsigned)s_tpPending.size());
             }
             s_gevrTcMisses = s_gevrTcEvictions = s_gevrTcHdUploads = s_gevrTcReloads = 0;
+            s_gevrTcNewInPool = s_gevrTcNewOutPool = s_gevrTcNewPalOut = s_gevrTcNewShown = 0;
         }
     }
 }
