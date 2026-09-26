@@ -335,7 +335,8 @@ static void discoverRodata(struct conv *c, struct block *b)
 	}
 	case MODELNODE_OPCODE_DLPRIMARY: {
 		const struct cartDLPrimary *s = (const void *)p;
-		u32 n = R32(numVertices);
+		/* numVertices counts quads: the flare arms (dorottex) read four vertices each */
+		u32 n = R32(numVertices) * 4;
 		markRef(c, R32(vertices), BK_VTX, 0, n, n * CART_VERTEX_SIZE);
 		markRef(c, R32(primary), BK_GDL, 0, 0, 0);
 		break;
