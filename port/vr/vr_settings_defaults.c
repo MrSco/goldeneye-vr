@@ -60,11 +60,18 @@ float VrSetWorldScale = 1.0f;
  * vr_settings.h says these are "Defined in bondgun.c" - Perfect Dark's weapon
  * code. There is no GoldenEye counterpart yet, so they live here. There is
  * deliberately no menu UI for them; vrSettingsSave() writes them to goldeneye-vr.ini
- * with a comment each. Zero means no trim, which is the unadjusted fit.
+ * with a comment each. The gun's trim is set in game with the launcher's
+ * "Gun fit..." (port/src/input.c).
+ *
+ * The defaults were set with it in the headset (2026-09-26, user): the model's
+ * hand sat about 12 cm behind the real one and its trigger missed the finger.
+ * Z is back toward the player, so -12.35 is 12.35 cm forward. An ini holding
+ * 0, 0, 0 - the old default, which every install wrote - keeps these
+ * (vr_settings.cpp).
  */
-float VrGunOffX = 0.0f;      /* grip fit trim in the controller frame, game units */
-float VrGunOffY = 0.0f;
-float VrGunOffZ = 0.0f;
+float VrGunOffX = 2.74f;     /* grip fit trim in the controller frame, cm: right */
+float VrGunOffY = 1.94f;     /* up */
+float VrGunOffZ = -12.35f;   /* back */
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
 float VrArmBodyFollow = 0.0f;  /* how fast the smoothed torso yaw chases the head */
 int   VrFistClench    = 0;     /* close the off hand while the left grip is squeezed */

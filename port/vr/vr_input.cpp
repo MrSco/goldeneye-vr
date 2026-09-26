@@ -49,6 +49,7 @@ int VrShowStats = 0;
 unsigned long long VrCheatMask = 0;
 int VrGunSizeCheat = 0;
 int VrUnlockAll = 0;
+int VrGunFitArmed = 0;         /* launcher "Gun fit...": fit the gun in the next level (port/src/input.c) */
 bool sQuatIdleInit_reset[2] = {false, false};
 
 // ===== VR CODE EXTENSION WITH FULL CONTROLLER SUPPORT =====
