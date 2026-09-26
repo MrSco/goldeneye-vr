@@ -3803,7 +3803,21 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
         {
             if (renderdata->zbufferenabled)
             {
+#ifdef GEVR
+                /*
+                 * PropType 4 (named CHR+1 here) is the first-person gun, fist and
+                 * hands, and only stereo draws them with the z-buffer. This
+                 * second list - a KF7's wood, and the like - is blended without
+                 * writing depth: in the flat game's painter's order that was
+                 * right, but drawn both-sided (#9) and depth-tested, its inside
+                 * faces painted over its outside and it read as a see-through
+                 * shell (user). Alpha-tested with depth instead: solid where
+                 * the texture is, cut-outs kept.
+                 */
+                gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_TEX_EDGE2);
+#else
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
+#endif
             }
             else
             {
