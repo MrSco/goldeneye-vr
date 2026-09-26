@@ -4910,3 +4910,33 @@ Latent, noted by the agents:
   two-handed rifle grip, #32 Surface bullet impacts, #29 bullet-hole
   stripes, #30 water shimmer, #23 multiplayer; #18 waits on the reporter.
 - Unmerged leftovers: fix/47-bridge (probes only), fix/sky-pitch (parked).
+
+## 111. After v0.1.15: #54 unlock all, #6 left-stick movement (2026-09-26)
+- feature/54-unlock-all (#54): MERGED 2026-09-26 (user: "looks good").
+  - Launcher Cheats page, bottom row: "Unlock all missions and cheats"
+    (UnlockAll in goldeneye-vr.ini).
+  - main.c sets the game's debug unlock flags after the launcher (every
+    mission at every difficulty, 007 mode), as gepc-ref D257.
+  - front.c: frontCheckIfCheatIsUnlocked lists every menu cheat, and
+    mission select keeps unlocked stages while a cheat is on.
+  - The first cut ported gepc-ref's save patch (every slot's cheat bits and
+    empty times filled as read). User: it "overwrote every save file" - every
+    file read as completed, and any save written would have kept it. The
+    headset's eeprom.bin was not written (backup in the session scratchpad).
+    Now nothing reaches the save; fileGetIsCheatUnlocked still reads it, so
+    target times still earn cheats.
+- feature/6-lefty-sticks (#6, a left-handed player's comment): MERGED
+  2026-09-26 (user-tested).
+  - "Move with left stick" beside Left-handed (label follows the hand
+    setting): PD VR's SwapJoysticks, XORed with the hand in get_2d_input.
+  - With it set, a stick's click goes with its stick (vr_input.cpp
+    get_button_state), so crouch stays on the moving stick.
+- Built, not yet tested:
+  - fix/50-trevelyan-float: probe only. Cradle ai_15 teleports Trevelyan
+    (chr 0) to pad 150 (-9 -249 15, "p517a") when he stops out of sight;
+    chrAdjustPosForSpawn keeps the pad's y and CHRFLAG_INIT takes the floor
+    from the pad's tile. The probe logs "tpprobe:" lines; gevr_warp.txt
+    "chr <num> <pad>" runs the teleport on demand.
+  - feature/35-two-hand-grip: the off hand's grip holds the gun within 12 cm
+    of the barrel (kept to 18); PD VR's hand-line aim in gevrGripAxes; the
+    mirrored fist on the barrel instead of the watch arm; watch gesture off.
