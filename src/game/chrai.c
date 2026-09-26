@@ -4162,7 +4162,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                             {
                                 /* gepc-ref D243 M-190: tell the cutscene camera a shot change warped a chr. */
                                 extern void gevrNotifyTeleport(void);
+                                extern void gevrTeleportProbeNote(ChrRecord *, s32, PadRecord *, coord3d *, StandTile *);
                                 gevrNotifyTeleport();
+                                gevrTeleportProbeNote(chr, padnum, pad, &pos, stan);   /* issue #50 probe */
                             }
 #endif
                             chrDetectRooms(chr);

@@ -672,6 +672,80 @@ static s32 gevrWarpNearDish(coord3d *dish)
     return best;
 }
 
+/*
+ * PORT probe (issue #50, Trevelyan floating on Cradle after his teleport to
+ * pad 150): chrai.c's AI teleport and the "chr <num> <pad>" warp below log
+ * where the chr lands and the floor under it, then the chr's height for the
+ * next few seconds. Remove once explained.
+ */
+static ChrRecord *s_gevrTpChr;
+static s32 s_gevrTpLogs;
+
+void gevrTeleportProbeNote(ChrRecord *chr, s32 padnum, PadRecord *pad, coord3d *pos, StandTile *stan)
+{
+    sysLogPrintf(LOG_NOTE, "tpprobe: chr %d -> pad %d (%.0f %.0f %.0f, plink %s, pad stan %p room %d) lands %.0f %.0f %.0f on stan %p room %d floor %.1f",
+                 chr->chrnum, padnum, pad->pos.x, pad->pos.y, pad->pos.z, pad->plink ? pad->plink : "-",
+                 (void *) pad->stan, pad->stan ? getTileRoom(pad->stan) : -1, pos->x, pos->y, pos->z,
+                 (void *) stan, stan ? getTileRoom(stan) : -1, stan ? stanGetPositionYValue(stan, pos->x, pos->z) : -99999.0f);
+    s_gevrTpChr = chr;
+    s_gevrTpLogs = 10;
+}
+
+static void gevrTeleportProbeFollow(void)
+{
+    static u32 tick;
+    ChrRecord *chr = s_gevrTpChr;
+
+    if (s_gevrTpLogs <= 0 || chr == NULL || chr->prop == NULL || (++tick % 20) != 0)
+    {
+        return;
+    }
+    s_gevrTpLogs--;
+    sysLogPrintf(LOG_NOTE, "tpprobe: chr %d at %.0f %.0f %.0f stan %p room %d floor %.1f ground %.1f manground %.1f action %d flags %08x",
+                 chr->chrnum, chr->prop->pos.x, chr->prop->pos.y, chr->prop->pos.z,
+                 (void *) chr->prop->stan, chr->prop->stan ? getTileRoom(chr->prop->stan) : -1,
+                 chr->prop->stan ? stanGetPositionYValue(chr->prop->stan, chr->prop->pos.x, chr->prop->pos.z) : -99999.0f,
+                 chr->ground, chr->manground, (s32) chr->actiontype, (u32) chr->chrflags);
+}
+
+/* "chr <num> <pad>": the AI's teleport-to-pad steps (chrai.c AI_TRYTeleportingChrToPad) on that chr */
+static void gevrWarpChr(s32 chrnum, s32 padnum)
+{
+    ChrRecord *chr = chrFindById(NULL, chrnum);
+    PadRecord *pad;
+    coord3d pos;
+    StandTile *stan;
+    f32 facing;
+
+    if (chr == NULL || chr->prop == NULL)
+    {
+        sysLogPrintf(LOG_WARNING, "warphook: no chr %d", chrnum);
+        return;
+    }
+    padnum = chrResolvePadId(chr, padnum);
+    pad = gevrWarpPad(padnum);
+    facing = atan2f(pad->look.x, pad->look.z);
+    pos = pad->pos;
+    stan = pad->stan;
+    sub_GAME_7F03D058(chr->prop, FALSE);
+    if (chrAdjustPosForSpawn(&pos, &stan, facing, TRUE))
+    {
+        chr->prop->pos = pos;
+        chr->prop->stan = stan;
+        chr->chrflags |= CHRFLAG_INIT;
+        setsubroty(chr->model, facing);
+        setsuboffset(chr->model, &pos);
+        gevrNotifyTeleport();
+        chrDetectRooms(chr);
+        gevrTeleportProbeNote(chr, padnum, pad, &pos, stan);
+    }
+    else
+    {
+        sysLogPrintf(LOG_WARNING, "warphook: chr %d: pad %d has no room to stand", chrnum, padnum);
+    }
+    sub_GAME_7F03D058(chr->prop, TRUE);
+}
+
 static void gevrWarpProbe(s32 inlevel)
 {
     static u32 tick;
@@ -700,6 +774,18 @@ static void gevrWarpProbe(s32 inlevel)
     if (fscanf(fp, "%31s", word) != 1)
     {
         word[0] = 0;
+    }
+    if (strcmp(word, "chr") == 0)
+    {
+        s32 chrnum = -1, chrpad = -1;
+
+        if (fscanf(fp, "%d %d", &chrnum, &chrpad) == 2)
+        {
+            fclose(fp);
+            unlink(path);
+            gevrWarpChr(chrnum, chrpad);
+            return;
+        }
     }
     fclose(fp);
     unlink(path);
@@ -752,6 +838,7 @@ void gevrStereoFrame(s32 inlevel)
 
     gevrCheatProbe(inlevel);
     gevrWarpProbe(inlevel);
+    gevrTeleportProbeFollow();
     opening = gevrWatchOpeningByGesture(inlevel);
     s32 want = inlevel
         && VrPlayMode != 0
