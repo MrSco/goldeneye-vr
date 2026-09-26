@@ -1171,6 +1171,8 @@ static u32 s_gevrWatchRw[192];
 static s32 s_gevrWatchStage = -1;
 static s32 s_gevrWatchReady;
 static f32 s_gevrWatchScale;               /* 0 until calibrated */
+static f32 s_gevrWatchFaceCm[3];           /* the face's centre from the wrist, in the wrist frame (#31) */
+static s32 s_gevrWatchFaceKnown;
 
 static s32 gevrLeftWatchLoad(void)
 {
@@ -1392,6 +1394,32 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
         gevrMtxMul(&hand, &matrices[0], &matrices[3]);
     }
     {
+        /*
+         * Issue #31: the watch laser leaves the watch face (gevrStereoWatchPoint),
+         * whose centre is the hands' pivot. Kept in the wrist frame, so the
+         * shot takes it from this frame's controller pose.
+         */
+        f32 unit = cm * gevrGunSizeFactor();
+        f32 d[3];
+
+        for (i = 0; i < 3; i++)
+        {
+            d[i] = matrices[1].m[3][i] - want.m[3][i];
+        }
+        if (unit > 1e-6f)
+        {
+            s_gevrWatchFaceCm[0] = (d[0] * x[0] + d[1] * x[1] + d[2] * x[2]) / unit;
+            s_gevrWatchFaceCm[1] = (d[0] * y[0] + d[1] * y[1] + d[2] * y[2]) / unit;
+            s_gevrWatchFaceCm[2] = (d[0] * z[0] + d[1] * z[1] + d[2] * z[2]) / unit;
+            if (!s_gevrWatchFaceKnown)
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: watch face %.1f %.1f %.1f cm from the wrist (fingers, face, side)",
+                             s_gevrWatchFaceCm[0], s_gevrWatchFaceCm[1], s_gevrWatchFaceCm[2]);
+            }
+            s_gevrWatchFaceKnown = TRUE;
+        }
+    }
+    {
         ModelRwData_SwitchRecord *face = (ModelRwData_SwitchRecord *)modelGetNodeRwData(&s_gevrWatchModel, (ModelNode *)s_gevrWatchHeader.Switches[3]);
         if (face) face->visible = TRUE;
     }
@@ -1465,20 +1493,48 @@ static s32 gevrShotCtrl(s32 handnum)
     return handnum == GUNRIGHT ? 1 : 0;
 }
 
-/* the watch on the left arm: the watch arm's wrist (gevrRenderLeftWatchArm), view space */
+/*
+ * The watch face on the left arm, view space: the watch arm's wrist and wrist
+ * frame (gevrRenderLeftWatchArm), then the face's measured offset in it, half
+ * a centimetre proud of the glass. The wrist alone is inside the arm, and the
+ * beam came out of the fingers (user).
+ */
+#define GEVR_WATCHFACE_LIFT_CM 0.5f
+
 s32 gevrStereoWatchPoint(f32 out[3])
 {
-    f32 pos[3], right[3], up[3], back[3];
-    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 pos[3], right[3], up[3], back[3], x[3], y[3], z[3];
+    f32 unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
     s32 i;
 
     if (!g_gevrStereo || !gevrGripAxes(0, pos, right, up, back))
     {
         return FALSE;
     }
+    /* the same frame as the watch arm's: z is taken before the left-handed flip of y */
     for (i = 0; i < 3; i++)
     {
-        out[i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * cm * gevrGunSizeFactor();
+        x[i] = -back[i];
+        y[i] = -right[i];
+    }
+    z[0] = x[1] * y[2] - x[2] * y[1];
+    z[1] = x[2] * y[0] - x[0] * y[2];
+    z[2] = x[0] * y[1] - x[1] * y[0];
+    if (VrLeftHandedMode)
+    {
+        for (i = 0; i < 3; i++)
+        {
+            y[i] = right[i];
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = pos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * back[i] * unit;
+        if (s_gevrWatchFaceKnown)
+        {
+            out[i] += (s_gevrWatchFaceCm[0] * x[i] + (s_gevrWatchFaceCm[1] + GEVR_WATCHFACE_LIFT_CM) * y[i]
+                       + s_gevrWatchFaceCm[2] * z[i]) * unit;
+        }
     }
     return TRUE;
 }
