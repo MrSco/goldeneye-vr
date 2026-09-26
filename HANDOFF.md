@@ -4674,3 +4674,52 @@ Dark leftovers; remove unused assets and purge them from history.
     - taser DLs use 0x581-0x589, 0x394 and 0x17/0x18;
     - the body centre is x 1, y 79.5, z 57.5 model units.
 - User: "works good". Merged 2026-09-25.
+
+## 109. Open-issue triage, fix branches to test (2026-09-25)
+Fix branches, each from main, built, pushed and not yet tested on the
+headset:
+- fix/51-credits: the credits crash.
+  - The Cuba setup's credits offset pointed into pad 39 after
+    gevr_setup.c's re-layout; the converter now emits a host copy.
+  - Null-text guard. gevr_level.txt "cuba" runs the ending.
+- fix/42-43-hud (#42, #43):
+  - The countdown timer goes on the H panel (it doubled at its own HUD
+    depth), and the bottom message lifts above it.
+  - The top dialogue sits 120 lines lower, as PD VR's top subtitles.
+- fix/48-duck-cover (#48): a physical duck lowers Bond's position for the
+  guards (PD VR bondmove.c); the camera adds only the rise.
+- fix/52-texpack-perf (#52):
+  - Pack uploads happen at frame start, outside the eye pass, about 4 MB a
+    frame.
+  - lastUse is stamped when a decode finishes.
+  - Anisotropy is 2x, and resets when a slot is reused.
+  - The decode thread runs at low priority.
+- fix/46-xenia-onscreen (#46): AI_IFImOnScreen needs the chr's room to be
+  inside the N64's far distance. The room walk records that
+  (bg.c s_gevrRoomN64); drawing keeps GEVR_FAR_EXTEND.
+- fix/31-watchlaser-arm (#31): no port watch arm while the right hand holds
+  the watch laser or the detonator (their models have the arms).
+- fix/24-hand-backface (#24): under VR_CULL_OFF a culled face draws 1e-4
+  NDC farther, so the fist's white back triangle loses to its skin twin.
+- fix/49-sky-fill (#49): the stereo sky fill below the horizon is a far
+  polygon through skyPortRenderPoly.
+  - It was w = 1, drawn as HUD: at HUD depth, and at 2/3 size because
+    VrIsTitleLegal is never cleared.
+  - May also be the Dam "sky moves" report (HANDOFF 106).
+
+Original behaviour, to answer rather than fix:
+- #44: GE guards have no ammo or reload.
+- #47: the deck's gaps are authored translucent, and vines draw over it
+  without depth. A VR-only depth pre-pass is possible if wanted.
+- #48 in part: guard sight and damage walk floor tiles and props only.
+
+Not started: #50, #35, #23, #29, #30, #32, #9. #18 waits on the
+reporter's screenshot.
+
+Latent, noted by the agents:
+- VrIsTitleLegal is never cleared (every w = 1 draw gets w = 1.5).
+  Clearing it would rescale all HUD captures; needs its own audit.
+- gfx_pc.cpp use_alpha treats G_RM_AA_ZB_OPA_TERR (ALPHA_CVG_SEL, no
+  FORCE_BL) as blended.
+- The worktree ../gevr-wt builds main-based branches beside the main
+  checkout (keystore.properties and local.properties copied in).
