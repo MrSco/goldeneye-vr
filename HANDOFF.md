@@ -5021,3 +5021,17 @@ Latent, noted by the agents:
   (pivoted), the gun frame with the old trims (fingers up), hand-line aim
   on handguns (jitter), the controller point as the hold point before the
   gun fit (a 12 cm gap).
+
+## 114. v0.1.16 published (2026-09-26)
+- Tag v0.1.16 = build commit 612c8e8 (versionCode 17), release key, APK
+  SHA-256 6f252c02...6eac83 (GitHub's digest matches). Installed on the
+  headset with adb (0.1.16, release signature).
+- Contents since v0.1.15: #35 two-handed hold (113), gun fit and grip fit
+  with the user's fit as defaults, the stereo gun wood (112), #54 unlock all,
+  #6 Swap sticks, the countdown at the HUD panel's foot (111). README:
+  two-handed hold, gun fit, Swap sticks, unlock all.
+- Closed with replies: #54 #35 (completed). Replied on closed #6 to the
+  left-handed player who asked for left-stick movement.
+- Open: #50 Trevelyan floating (parked), #9 hand underside (another
+  session), #32 Surface bullet impacts, #29 bullet-hole stripes, #30 water
+  shimmer, #23 multiplayer; #18 waits on the reporter.
