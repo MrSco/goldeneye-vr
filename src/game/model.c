@@ -3654,20 +3654,7 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
         {
             if (renderdata->zbufferenabled)
             {
-#ifdef GEVR
-                /*
-                 * Only the stereo viewmodel draws here with the z-buffer (the
-                 * flat game draws the gun without it, in the model's order).
-                 * Its second list - the KF7's wood, and the like - wrote no
-                 * depth, so both-sided (#9) its back faces painted over its
-                 * front ones and it read as a see-through shell, and the
-                 * holding hand (#35) showed through it (user). The same blend,
-                 * writing depth.
-                 */
-                gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_CUSTOM_AA_ZB_XLU_SURF2);
-#else
                 gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
-#endif
             }
             else
             {
