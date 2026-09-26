@@ -2992,6 +2992,23 @@ static XrCompositionLayerQuad vr_init_menu_quad(XrSwapchain swapchain) {
 
 static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2>& views) {
     vr_stats_xr_frame();
+#ifdef ANDROID
+    {
+        /*
+         * The sniper scope's lens shader and target (issue #40), made on the
+         * first frame instead of the moment the rifle comes out: compiled
+         * then, with the rifle's model loading, the swap was a big stutter
+         * (user).
+         */
+        static bool warmed;
+        if (!warmed && g_scopeSwapchain != XR_NULL_HANDLE) {
+            extern void gfx_vr_scope_prepare(void);   // gfx_opengl.cpp
+            warmed = true;
+            vr_scope_copy_init();
+            gfx_vr_scope_prepare();
+        }
+    }
+#endif
     std::array<XrCompositionLayerProjectionView, 2> projViews;
     bool is_mv = gfx_get_current_rendering_api()->is_multiview();
 
