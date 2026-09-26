@@ -950,6 +950,19 @@ void gunUpdateAndFire(GUNHAND handnum)
             matrix_4x4_copy(&flashmtx, &rwmtx[1]);
 
 #ifdef GEVR
+            {
+                /* issue #31: the watch laser's beam leaves the watch on the left arm */
+                extern s32 gevrStereoWatchItem(s32 item);
+                extern s32 gevrStereoWatchPoint(f32 out[3]);
+                f32 watch[3];
+
+                if (handnum == GUNRIGHT && gevrStereoWatchItem(item) && gevrStereoWatchPoint(watch))
+                {
+                    flashmtx.m[3][0] = watch[0];
+                    flashmtx.m[3][1] = watch[1];
+                    flashmtx.m[3][2] = watch[2];
+                }
+            }
             { extern void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z);
               gevrStereoNoteMuzzle(handnum, flashmtx.m[3][0], flashmtx.m[3][1], flashmtx.m[3][2]); }
 #endif
@@ -1955,6 +1968,7 @@ static s32 gevrTaserHandLoad(void)
  */
 extern s32 gevrStereoItemNeedsFist(s32 item);
 extern s32 gevrStereoItemHand(s32 item);   /* bondview2.c: GEVR_ITEM_HAND_* */
+extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator (#31) */
 
 static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
 {
@@ -1974,7 +1988,7 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     {
         return gdl;
     }
-    if (g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0)
+    if (g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0 && !gevrStereoWatchItem(item))
     {
         return gdl;     /* the game draws the weapon (with its hand) */
     }
@@ -2321,6 +2335,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
+        /* issue #31: the watch items' arm is the tracked watch arm (bondview2.c gevrStereoWatchItem) */
+        if (!gevrStereoWatchItem(item))
 #endif
         subdraw(&renderdata, &handptr->weaponModel);
         gdl = renderdata.gdl;
@@ -2359,23 +2375,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         /* Bond's watch arm on the left controller; the mirrored fist if it cannot load */
         extern Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
         s32 drawn = FALSE;
-        s32 rightitem = get_item_in_hand_or_watch_menu(GUNRIGHT);
 
-        /*
-         * Issue #31: the watch laser's and the detonator's viewmodels are
-         * Bond's left arm with the watch (and his right hand) already; a third
-         * arm here was one too many. The flat game swaps them for unarmed
-         * before it raises its own watch arm (bondview2.c), so while the
-         * watch is up this arm is back.
-         */
+        /* also for the watch laser and the detonator: it is their arm (issue #31) */
         gdl = gevrHandTag(gdl, 0);
-        if (rightitem != ITEM_WATCHLASER && rightitem != ITEM_TRIGGER)
+        gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
+        if (!drawn)
         {
-            gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
-            if (!drawn)
-            {
-                gdl = gevrRenderLeftArm(gdl, &renderdata);
-            }
+            gdl = gevrRenderLeftArm(gdl, &renderdata);
         }
         gdl = gevrHandTag(gdl, -1);
     }
