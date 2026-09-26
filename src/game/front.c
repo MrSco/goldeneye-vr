@@ -453,7 +453,8 @@ struct mission_folder_setup mission_folder_setup_entries[];
  * mission's briefing, as picking its folder and difficulty would; START
  * (gevr_input.txt 1000) then starts it. <level> is a LEVELID number or a mission name
  * (dam facility runway surface bunker silo frigate surface2 bunker2 statue
- * archives streets depot train jungle control caverns cradle aztec egypt);
+ * archives streets depot train jungle control caverns cradle aztec egypt, or
+ * cuba: the ending, which starts at once, as after a completed Cradle);
  * difficulty 0 agent, 1 secret agent, 2 00 agent (default 0). Unlocks are
  * not checked. The file is deleted once read.
  */
@@ -475,7 +476,7 @@ static void gevrLevelJumpProbe(void)
     static u32 tick;
     const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_level.txt";
     char word[32] = {0};
-    s32 level = LEVELID_NONE, diff = DIFFICULTY_AGENT, entry, i;
+    s32 level = LEVELID_NONE, diff = DIFFICULTY_AGENT, entry, i, cuba = 0;
     FILE *fp;
 
     if ((++tick % 30) != 0)
@@ -509,6 +510,12 @@ static void gevrLevelJumpProbe(void)
     fclose(fp);
     unlink(path);
 
+    /* "cuba": the ending (issue #51, the credits), run as a completed Cradle runs it */
+    if (strcasecmp(word, "cuba") == 0 || level == LEVELID_CUBA)
+    {
+        cuba = 1;
+        level = LEVELID_CRADLE;
+    }
     if (diff < DIFFICULTY_AGENT || diff > DIFFICULTY_007)
     {
         diff = DIFFICULTY_AGENT;
@@ -532,6 +539,12 @@ static void gevrLevelJumpProbe(void)
     selected_stage = level;
     selected_difficulty = diff;
     mission_difficulty_highlighted = diff;
+    if (cuba)
+    {
+        frontChangeMenu(MENU_RUN_STAGE, TRUE);   /* as the Cradle briefing does after a win */
+        selected_stage = LEVELID_CUBA;
+        return;
+    }
     frontChangeMenu(MENU_BRIEFING, FALSE);
 }
 #endif

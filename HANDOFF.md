@@ -4674,3 +4674,163 @@ Dark leftovers; remove unused assets and purge them from history.
     - taser DLs use 0x581-0x589, 0x394 and 0x17/0x18;
     - the body centre is x 1, y 79.5, z 57.5 model units.
 - User: "works good". Merged 2026-09-25.
+
+## 108. Redraw between game frames (#53, merged 2026-09-26)
+- The game draws at 60 Hz and the display runs at 72 or 90 Hz. The pump
+  (port/src/gevr_engine_shim.c) used to hand the compositor the last image
+  on in-between XR frames, and it turns that for head rotation only. Near
+  and moving things doubled ("reprojection ghosting"; the metrics showed no
+  stale frames).
+- Perfect Dark VR draws a game frame every XR frame. GoldenEye counts whole
+  60 Hz ticks; gepc-ref parked running it faster (docs/dev/UNLOCKED-FPS-PLAN.md).
+- 699bb99, f35996f:
+  - gfx_opengl.cpp keeps every eye-pass draw of a stereo game frame
+    (gevr_eye_keep).
+  - gfx_pc.cpp gfx_vr_redraw_frame redraws them on the pump's in-between
+    frames. The VS uReproj branch does
+    c = (x/P00, y/P11, -w) -> P * delta * c.
+  - The world moves by the head's move since the game frame
+    (vr_openxr.cpp gevrVrRedrawDelta, recorded vs this frame's views).
+  - What each controller holds moves by that controller's move
+    (gunfire.c gevrHandTag, VR_HAND_DRAW 0x565F0000 | ctrl+1;
+    gevrVrRedrawHandDelta: camera-time grip pose -> newest).
+  - The frame is submitted with its own views.
+  - The pump log counts redrawn frames ("(30 redrawn)" at 90 Hz).
+- be84c50: no depth range. gfx_opengl_set_depth_range's glDepthRange
+  fallback is null on GLES and crashed the first redraw. fast3d never sets
+  one here.
+- Measured: 90 fps held, GPU% 0.37 -> ~0.5. The first 20 s with the sniper
+  out went over budget at times.
+- User so far: ghosting "seems better, I guess"; controller tracking was
+  less smooth before f35996f (the gun stayed put in the world on redrawn
+  frames).
+- Test build also merges fix/40-scope-both-eyes:
+  - the lens shows to both eyes;
+  - near the face it turns toward the eyes, with its nearest edge kept
+    12 cm ahead (the compositor's near plane cut it);
+  - the lens shader and target are made on the first frame (stutter).
+- Stereo audit (user: are text, panels, models and decals in both eyes?):
+  - Eye pass: every draw is multiview (num_views 2), so both eyes. This
+    covers the world, the guns and hands, decals (the stencil band is per
+    view), the sky, and in-eye 2D text (the w = 1 HUD branch shifts it per
+    eye). The vignette, laser pointer and hub shaders are multiview too.
+  - The right-eye push (flat offsets, x + 1000) is only on inside HUD
+    captures, which draw into their own single targets. Every begin
+    flushes before it pushes and every end flushes before it pops.
+  - The HUD panels (H, R, P, L) and the scope lens are quad layers with
+    eyeVisibility BOTH. They stay up through in-between frames until the
+    next game frame.
+  - CPU culling: the trivial reject is widened to both eye frusta. The
+    back-face test keeps a triangle either eye sees the front of.
+  - Redraw: replays everything the eye pass drew into the eye buffers
+    except the captures (already layers) and the scope-only sight.
+    Decals replay with their band. Texture ids are recycled, not deleted,
+    and refilled only during the next game frame, which records again.
+    The pause hub never draws (VrIsPaused is never set). The 0x5652 menu
+    flag tag isn't emitted by GoldenEye.
+  - ad3a635: a capture's end restores the viewport, and the scissor to the
+    same box, with direct GL calls. The redraw kept fast3d's last scissor
+    for the draws after it (a room's, or the capture's own). It now
+    records the box GL actually has.
+
+## 109. Open-issue triage, fix branches to test (2026-09-25)
+Fix branches, each from main, built, pushed and not yet tested on the
+headset:
+- fix/51-credits: the credits crash. MERGED 2026-09-26 (user: the
+  credits played through to the cast montage; tested with main merged in).
+  - The Cuba setup's credits offset pointed into pad 39 after
+    gevr_setup.c's re-layout; the converter now emits a host copy.
+  - Null-text guard. gevr_level.txt "cuba" runs the ending.
+- fix/42-43-hud (#42, #43):
+  - The countdown timer goes on the H panel (it doubled at its own HUD
+    depth), and the bottom message lifts above it.
+  - The top dialogue sits 120 lines lower, as PD VR's top subtitles.
+  - MERGED 2026-09-26. The timer was seen fixed on Dam (user: "looks
+    good"), shown with the new test hook gevr_cheat.txt "timer". The
+    dialogue move was not seen in the headset.
+- fix/48-duck-cover (#48): a physical duck lowers Bond's position for the
+  guards (PD VR bondmove.c); the camera adds only the rise.
+  MERGED 2026-09-26 (user: view moves as before, guards miss more when
+  ducked; tested with main merged in).
+- fix/52-texpack-perf (#52):
+  - Pack uploads happen at frame start, outside the eye pass, about 4 MB a
+    frame.
+  - lastUse is stamped when a decode finishes.
+  - Anisotropy is 2x, and resets when a slot is reused.
+  - The decode thread runs at low priority.
+- fix/46-xenia-onscreen (#46): AI_IFImOnScreen needs the chr's room to be
+  inside the N64's far distance. The room walk records that
+  (bg.c s_gevrRoomN64); drawing keeps GEVR_FAR_EXTEND.
+- fix/31-watchlaser-arm (#31): MERGED 2026-09-26 (user: "feels good").
+  The first cut (no port watch arm) left the left arm untracked. What
+  shipped, designed with the user in the headset:
+  - The items' own model (Bond's left arm and watch, his right hand at it)
+    is not drawn in stereo. The tracked watch arm is that arm; the right
+    hand is the fist.
+  - The laser leaves the watch's twelve o'clock edge along the controller's
+    down (the little-finger side): arm across the chest, it points ahead.
+    Along the arm it came out of the fingers; out of the face it would hit
+    the eyes; the thumb side (six o'clock) shot the player. The face's
+    centre is the watch hands' pivot on the tracked arm
+    (s_gevrWatchFaceCm), 2 cm out to the edge (bondview2.c
+    gevrStereoWatchPoint, gevrShotCtrl, gevrWatchAimAxis). The beam, the
+    shot and the sight all take it.
+  - The right trigger fires only with the gun hand at the watch: the face
+    within 10 cm of the line from the grip to 10 cm along the fingers,
+    kept until 14 (gevrStereoWatchGripUpdate, each tick while a watch item
+    is out). The detonator too.
+  - At the watch, the whole watch laser viewmodel (GwatchlaserZ; GtriggerZ
+    is the same model) replaces the watch arm on the left controller, with
+    its right hand holding its left fist, set up as a weapon (hand
+    switches, bondviewSelectCuff 0x1D). Its right hand alone on the open
+    tracked hand stood beside the wrist. Anchored by its watch face (dial
+    0x648 and bezel 0x5e0) with its forearm (the sleeve's principal axis)
+    along the tracked forearm. Its fist is bent 88 degrees off that; laid
+    along the fist, the arm pointed ahead. files/gevr_watchhand.txt trims it.
+  - The watch gesture is off while gripping, and re-arms once the arm comes
+    down (input.c).
+  - The 3 m reach is the original's (beam and damage capped at 300 units).
+  - Left-handed mode is by role throughout (gevrPhysHand, get_button_state,
+    the watch arm's mirrored frame). Checked in the code, not yet in the
+    headset.
+  - Model measurements: area-weighted triangle centroids and normals from a
+    walk like tools/gevr_model_probe.py's (GwatchlaserZ: 36 switches, root
+    0x198, 19 nodes, 9 DLs).
+- fix/24-hand-backface (#24): under VR_CULL_OFF a culled face draws 1e-4
+  NDC farther, so the fist's white back triangle loses to its skin twin.
+  MERGED 2026-09-26 (user: fixed; tested with main merged in).
+- fix/49-sky-fill (#49): the stereo sky fill below the horizon is a far
+  polygon through skyPortRenderPoly.
+  - It was w = 1, drawn as HUD: at HUD depth, and at 2/3 size because
+    VrIsTitleLegal is never cleared.
+  - May also be the Dam "sky moves" report (HANDOFF 106).
+
+Original behaviour, to answer rather than fix:
+- #44: GE guards have no ammo or reload.
+- #47: the deck's gaps are authored translucent, and vines draw over it
+  without depth. A VR-only depth pre-pass is possible if wanted.
+- #48 in part: guard sight and damage walk floor tiles and props only.
+  - The shot lands when stanTestLineUnobstructed walks connected tiles
+    from the gun to Bond's own tile (chraction.c chrlvAttackRelated7F0292A8,
+    then the stan trace in the fire path). No BG ray test, unlike the
+    player's bullets (chrprop.c bgTestBulletHitBackground).
+  - A wall between separate floor areas blocks (no tile link). Tiles
+    linked across a height change (ledges, rock ridges) and glass the AI
+    sees through don't. gepc-ref's reference agrees: walls, low barriers
+    and railings block; crates don't.
+  - Head walking moves Bond through the walk collision; the view never
+    leaves the body. So no VR cause was found.
+  - The user chose to keep the original: no 3D wall test for guard shots.
+  - Not #32: that is the player's BG ray test (bullet impacts). Guard
+    rockets and grenade rounds are projectiles and do use it.
+
+Not started: #50, #35, #23, #29, #30, #32, #9. #18 waits on the
+reporter's screenshot.
+
+Latent, noted by the agents:
+- VrIsTitleLegal is never cleared (every w = 1 draw gets w = 1.5).
+  Clearing it would rescale all HUD captures; needs its own audit.
+- gfx_pc.cpp use_alpha treats G_RM_AA_ZB_OPA_TERR (ALPHA_CVG_SEL, no
+  FORCE_BL) as blended.
+- The worktree ../gevr-wt builds main-based branches beside the main
+  checkout (keystore.properties and local.properties copied in).
