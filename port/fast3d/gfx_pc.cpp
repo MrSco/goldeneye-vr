@@ -326,6 +326,7 @@ static struct RDP {
         uint16_t uls, ult, lrs, lrt; // U10.2
         uint16_t width, height;      // in texels
         bool from_block;             // width/height resized to the loaded block (import_texture)
+        uint16_t clamp_w, clamp_h;   // the window a padded block clamps at, 0 if none (import_texture)
         uint16_t tmem;               // 0-511, in 64-bit word units
         uint32_t line_size_bytes;
         uint8_t palette;
@@ -848,6 +849,24 @@ static void gevr_upload_native(uint32_t width, uint32_t height) {
     static unsigned checks;
     static unsigned count;
     static struct { const uint8_t *addr; uint8_t fmt, siz; uint32_t w, h; } seen[96];
+
+    /* a padded block's clamp: its edge texel fills the pad (import_texture) */
+    {
+        const uint32_t cw = rdp.texture_tile[s_dumpTile].clamp_w, ch = rdp.texture_tile[s_dumpTile].clamp_h;
+        if (cw != 0 && cw < width) {
+            for (uint32_t y = 0; y < height; y++) {
+                uint8_t *row = tex_upload_buffer + (size_t)y * width * 4;
+                for (uint32_t x = cw; x < width; x++) {
+                    memcpy(row + x * 4, row + (cw - 1) * 4, 4);
+                }
+            }
+        }
+        if (ch != 0 && ch < height) {
+            for (uint32_t y = ch; y < height; y++) {
+                memcpy(tex_upload_buffer + (size_t)y * width * 4, tex_upload_buffer + (size_t)(ch - 1) * width * 4, (size_t)width * 4);
+            }
+        }
+    }
     /* re-check the trigger now and then, so it can be switched on mid-level */
     if (!enabled && (checks++ % 64) == 0) {
         struct stat st;
@@ -1615,6 +1634,30 @@ static void import_texture(int i, int tile, bool is_rect) {
             t.width = 0;
             t.height = 0;
         }
+
+        /*
+         * "The padding columns are never sampled" holds only while the UVs stay
+         * inside the window. On a clamped axis (G_TX_CLAMP, or a wrap with mask
+         * 0, which gfx_dp_set_tile turns into a clamp) the RDP clamps at the
+         * window's edge; GL clamps at the uploaded block's edge, so UVs past the
+         * window read the padding. The PP7 silencer's back cap (texture 0x648,
+         * 1x1 CI in an 8-byte row) has s up to ~5 texels: it sampled pad bytes
+         * texAlignIndices never writes, as palette indices past its own palette
+         * - leftover TLUT entries from the last world draw, a band whose colour
+         * followed where Bond stood. gevr_upload_native fills the pad from the
+         * window's edge texel, as the clamp would. Worked out afresh each import:
+         * SETTILE can change the modes without a new SETTILESIZE.
+         */
+        t.clamp_w = t.clamp_h = 0;
+        if (t.from_block && !negative) {
+            const uint32_t ww = (t.lrs - t.uls + 4) / 4, wh = (t.lrt - t.ult + 4) / 4;
+            if ((t.cms & G_TX_CLAMP) && !(t.cms & G_TX_MIRROR) && ww != 0 && ww < t.width) {
+                t.clamp_w = ww;
+            }
+            if ((t.cmt & G_TX_CLAMP) && !(t.cmt & G_TX_MIRROR) && wh != 0 && wh < t.height) {
+                t.clamp_h = wh;
+            }
+        }
     }
 
 #ifdef GEVR
@@ -1701,6 +1744,7 @@ static void import_texture(int i, int tile, bool is_rect) {
         key.source_pitch = loaded_texture.loaded_by_tile
                 ? loaded_texture.full_image_line_size_bytes : rdp.texture_tile[tile].line_size_bytes;
         key.swizzled = loaded_texture.tmem_swizzled;
+        key.clamp = ((uint32_t)rdp.texture_tile[tile].clamp_w << 16) | rdp.texture_tile[tile].clamp_h;
         if (fmt == G_IM_FMT_CI) {
 #ifdef GEVR
             key.palette_hash = gevr_palette_key_hash(siz, palette_index);
