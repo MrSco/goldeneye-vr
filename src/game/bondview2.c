@@ -1496,16 +1496,18 @@ static s32 gevrShotCtrl(s32 handnum)
 /*
  * The watch laser leaves the watch at its twelve o'clock edge (user): the
  * face's centre (the watch arm's wrist and wrist frame, gevrRenderLeftWatchArm,
- * then the face's measured offset in it), GEVR_WATCH_EDGE_CM out along the
- * wrist frame's z. That axis is square to the forearm and in the face's
- * plane: the thumb side, the controller's up, for either hand (z is taken
- * before the left-handed flip). Held across the chest like Bond's arm in the
- * viewmodel, it points ahead. The wrist alone is inside the arm (the beam
- * came out of the fingers), and out of the face it pointed at the eyes (user).
+ * then the face's measured offset in it), GEVR_WATCH_EDGE_CM along the wrist
+ * frame's -z. That axis is square to the forearm and in the face's plane: the
+ * little-finger side, the controller's down, for either hand (z, the thumb
+ * side, is taken before the left-handed flip). Palm down with the forearm
+ * across the chest, as Bond's arm is in the viewmodel, the thumb faces you
+ * (six o'clock: it shot the player, user) and twelve points ahead. The wrist
+ * alone is inside the arm (the beam came out of the fingers), and out of the
+ * face it pointed at the eyes (user).
  */
 #define GEVR_WATCH_EDGE_CM 2.0f
 
-/* the laser's direction: the grip's up; written as the "back" the shot code
+/* the laser's direction: the grip's down; written as the "back" the shot code
  * negates (gevrStereoShot, gevrStereoAimTarget) */
 static void gevrWatchAimAxis(const f32 up[3], f32 back[3])
 {
@@ -1513,7 +1515,7 @@ static void gevrWatchAimAxis(const f32 up[3], f32 back[3])
 
     for (i = 0; i < 3; i++)
     {
-        back[i] = -up[i];
+        back[i] = up[i];
     }
 }
 
@@ -1549,7 +1551,7 @@ s32 gevrStereoWatchPoint(f32 out[3])
         if (s_gevrWatchFaceKnown)
         {
             out[i] += (s_gevrWatchFaceCm[0] * x[i] + s_gevrWatchFaceCm[1] * y[i]
-                       + (s_gevrWatchFaceCm[2] + GEVR_WATCH_EDGE_CM) * z[i]) * unit;
+                       + (s_gevrWatchFaceCm[2] - GEVR_WATCH_EDGE_CM) * z[i]) * unit;
         }
     }
     return TRUE;
@@ -1561,13 +1563,17 @@ s32 gevrStereoWatchPoint(f32 out[3])
  * gunfire.c gunTickGameplay drops the trigger otherwise. "At" is the watch
  * face within GEVR_WATCH_PRESS_CM of the hand, taken as the line from the
  * controller's grip to GEVR_WATCH_REACH_CM along the fingers. Real
- * centimetres: the tiny/big guns cheat does not change the reach.
+ * centimetres: the tiny/big guns cheat does not change the reach. Once
+ * firing, the hand may drift to GEVR_WATCH_KEEP_CM: at one edge a held beam
+ * cut in and out (log: 9.6 fires, 10.3 held, back and forth).
  */
 #define GEVR_WATCH_PRESS_CM 10.0f
+#define GEVR_WATCH_KEEP_CM 14.0f
 #define GEVR_WATCH_REACH_CM 10.0f
 
 s32 gevrStereoHandAtWatch(f32 *cmOut)
 {
+    static s32 s_at;
     f32 watch[3], pos[3], right[3], up[3], back[3], seg[3], d[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 len2, t, dist;
@@ -1595,7 +1601,18 @@ s32 gevrStereoHandAtWatch(f32 *cmOut)
     {
         *cmOut = dist;
     }
-    return dist < GEVR_WATCH_PRESS_CM;
+    {
+        /* asked only while the trigger is down: a new pull starts from the press distance */
+        static s32 s_lastTimer;
+
+        if (g_GlobalTimer - s_lastTimer > 2)
+        {
+            s_at = FALSE;
+        }
+        s_lastTimer = g_GlobalTimer;
+    }
+    s_at = dist < (s_at ? GEVR_WATCH_KEEP_CM : GEVR_WATCH_PRESS_CM);
+    return s_at;
 }
 
 /*
