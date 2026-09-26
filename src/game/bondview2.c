@@ -1845,21 +1845,27 @@ s32 gevrStereoTwoHandGrip(void)
 /*
  * Issue #55: chop with the free hand while the other holds a gun.
  *
- * The swing is Perfect Dark VR's (bondgun.c bgunTickGameplay, WEAPON_UNARMED):
- * the controller's velocity less the head's, so walking does not punch, turned
- * into the controller's own frame by its worldToLocal; a blow re-arms once the
- * hand slows. Its speeds are lower than Perfect Dark's fist (1.5 m/s along +Y,
- * out over the knuckles, 2.5 across it): a chop comes down on the hand's edge,
- * across +Y, and 2.5 took a wild swing (user; 2.55-3.02 logged). 1.2 and 1.6
- * sit near its knife's 1.0. The hit is GoldenEye's own fist (chrprop.c gevrChopHit: its guards,
- * checks, ITEM_FIST damage and whiff) taken round the hand: the guard must come
- * within GEVR_CHOP_TOUCH_CM of it in the swing's first GEVR_CHOP_TICKS, or the
- * chop whiffs. The touch and the 30-tick cooldown are GEVR PC's hand melee
- * (gevr-up GETV_VR_HANDMELEE _R, _COOL). The blow goes from the eye to the
- * hand, as the fist's goes along the view.
+ * The hand's speed is Perfect Dark VR's (bondgun.c bgunTickGameplay,
+ * WEAPON_UNARMED): the controller's velocity less the head's, so walking does
+ * not punch, turned into the controller's own frame by its worldToLocal.
+ *
+ * The hit is taken on contact, as GEVR PC's hand melee (gevr-up
+ * GETV_VR_HANDMELEE and SWINGHIT: a touch radius, a swing speed, cooldown 30):
+ * whenever the hand, moving at GEVR_CHOP_HIT or more, comes within
+ * GEVR_CHOP_TOUCH_CM of a guard, GoldenEye's own fist lands (chrprop.c
+ * gevrChopHit: its guards, checks and ITEM_FIST damage), the blow going from
+ * the eye to the hand as the fist's goes along the view. Set off by Perfect
+ * Dark's swing test instead, the wind-up started the chop and the blow coming
+ * down after it was lost, and the blows themselves - down on the hand's edge,
+ * 1.4-1.9 m/s - mostly missed the test's 1.6 across the hand (user, logged).
+ *
+ * The swing test still gives the fist's whiff: a swing that passes it - 1.2 m/s
+ * along +Y, over the knuckles, or 1.6 across it (Perfect Dark's fist's 1.5 and
+ * 2.5 took a wild swing, user) - and lands nothing in GEVR_CHOP_TICKS.
  */
-#define GEVR_CHOP_THRUST 1.2f     /* m/s */
-#define GEVR_CHOP_SLASH 1.6f      /* m/s */
+#define GEVR_CHOP_HIT 1.0f        /* m/s, the hand's speed at contact */
+#define GEVR_CHOP_THRUST 1.2f     /* m/s, a swing that whiffs */
+#define GEVR_CHOP_SLASH 1.6f
 #define GEVR_CHOP_TOUCH_CM 10.0f
 #define GEVR_CHOP_TICKS 20
 #define GEVR_CHOP_COOL 30
@@ -1886,11 +1892,9 @@ void gevrOffHandChopTick(void)
     extern s32 gevrChopHit(const f32 at[3], f32 touch, const f32 dir[3]);   /* chrprop.c */
     extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
     extern int vr_haptics_ready(void);        /* vr_input.cpp */
-    static s32 s_left;    /* ticks the swing has left to land */
+    static s32 s_whiff;    /* ticks until a swing that has landed nothing whiffs, 0 none */
     static s32 s_cool;
     static s32 s_fast;     /* Perfect Dark's vr_hand_triggered: the hand has not slowed yet */
-    static f32 s_peak[3];  /* tuning: a quick move's fastest, logged if it made no blow */
-    static s32 s_moving, s_blow;
     f32 rel[3], loc[3], thrust, slash, speed;
     s32 fast;
     s32 i;
@@ -1902,8 +1906,8 @@ void gevrOffHandChopTick(void)
     if (!g_gevrStereo || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
         || g_PlayerIsInTank == 1 || gevrDualWielding() || gevrStereoTwoHandGrip() || gevrStereoWatchGrip())
     {
-        s_left = 0;
-        s_fast = TRUE;   /* a hand let go mid-swing is not a blow */
+        s_whiff = 0;
+        s_fast = TRUE;   /* a hand let go mid-swing is not a swing */
         return;
     }
 
@@ -1914,39 +1918,17 @@ void gevrOffHandChopTick(void)
     gevrWorldToLocal(vr_ctrl_quat_play[0], rel, loc);
     thrust = loc[1];
     slash = sqrtf(loc[0] * loc[0] + loc[2] * loc[2]);
+    speed = sqrtf(thrust * thrust + slash * slash);
     fast = thrust > GEVR_CHOP_THRUST || slash > GEVR_CHOP_SLASH;
 
-    if (fast && !s_fast && s_left <= 0 && s_cool <= 0)
+    /* not while the last blow's follow-through is still going */
+    if (fast && !s_fast && s_whiff <= 0 && s_cool <= 0)
     {
-        s_left = GEVR_CHOP_TICKS;
-        s_blow = TRUE;
-        sysLogPrintf(LOG_NOTE, "stereo: chop, thrust %.2f slash %.2f m/s (x %.2f z %.2f)", thrust, slash, loc[0], loc[2]);
+        s_whiff = GEVR_CHOP_TICKS;
     }
     s_fast = fast;
 
-    speed = sqrtf(loc[0] * loc[0] + loc[1] * loc[1] + loc[2] * loc[2]);
-    if (speed > 1.0f)
-    {
-        if (!s_moving || slash > sqrtf(s_peak[0] * s_peak[0] + s_peak[2] * s_peak[2]))
-        {
-            s_peak[0] = loc[0];
-            s_peak[1] = loc[1];
-            s_peak[2] = loc[2];
-        }
-        s_moving = TRUE;
-    }
-    else if (speed < 0.7f && s_moving)
-    {
-        if (!s_blow)
-        {
-            sysLogPrintf(LOG_NOTE, "stereo: chop too slow, peak thrust %.2f slash %.2f m/s (x %.2f z %.2f)", s_peak[1],
-                         sqrtf(s_peak[0] * s_peak[0] + s_peak[2] * s_peak[2]), s_peak[0], s_peak[2]);
-        }
-        s_moving = FALSE;
-        s_blow = FALSE;
-    }
-
-    if (s_left > 0)
+    if (speed >= GEVR_CHOP_HIT && s_cool <= 0)
     {
         f32 at[3], ignore[3], dir[3], len;
         f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
@@ -1960,22 +1942,24 @@ void gevrOffHandChopTick(void)
             }
             if (gevrChopHit(at, GEVR_CHOP_TOUCH_CM * cm, dir))
             {
-                sysLogPrintf(LOG_NOTE, "stereo: chop landed, %d ticks in", GEVR_CHOP_TICKS - s_left);
+                sysLogPrintf(LOG_NOTE, "stereo: chop landed at %.2f m/s (thrust %.2f slash %.2f)", speed, thrust, slash);
                 if (vr_haptics_ready())
                 {
                     trigger_haptic_vibration_c(0, 0.8f, 0.08f);
                 }
-                s_left = 0;
+                s_whiff = 0;
                 s_cool = GEVR_CHOP_COOL;
-                return;
             }
         }
-        s_left -= g_ClockTimer;
-        if (s_left <= 0)
+    }
+
+    if (s_whiff > 0)
+    {
+        s_whiff -= g_ClockTimer;
+        if (s_whiff <= 0)
         {
             sysLogPrintf(LOG_NOTE, "stereo: chop missed");
             sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, NULL);
-            s_cool = GEVR_CHOP_COOL;
         }
     }
 }
