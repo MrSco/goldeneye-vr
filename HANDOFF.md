@@ -5035,3 +5035,25 @@ Latent, noted by the agents:
 - Open: #50 Trevelyan floating (parked), #9 hand underside (another
   session), #32 Surface bullet impacts, #29 bullet-hole stripes, #30 water
   shimmer, #23 multiplayer; #18 waits on the reporter.
+
+## 115. Free-hand chop (#55, merged 2026-09-26)
+- feature/55-off-hand-chop: MERGED (user: "feels better", two-handed hold
+  "seemed ok"). With the off hand free (not dual wielding, not holding the
+  gun with both hands, not gripping the watch laser, watch closed, not in the
+  tank), a blow with it chops a guard with GoldenEye's own fist.
+- Hand speed: Perfect Dark VR's gesture frame (vr_ctrl_velocity_play less
+  vr_head_velocity_play, turned into the controller's frame by its
+  worldToLocal), bondview2.c gevrOffHandChopTick, called from gunfire.c
+  gunTickGameplay after the two-handed hold.
+- Hit: on contact, as GEVR PC's hand melee (gevr-up GETV_VR_HANDMELEE /
+  SWINGHIT): hand moving at 1 m/s or more within 10 cm of a guard's view-space
+  box. chrprop.c gevrChopHit is chraiFistAttackHandler round the hand (same
+  guards, line and tile checks, hit part, ITEM_FIST damage: full on a guard
+  standing or patrolling, 1/8 front, 1/4 side, 1/2 behind otherwise). Blow
+  direction eye to hand. Cooldown 30 ticks, a short buzz on the off hand.
+- Whiff: a swing passing PD's test at 1.2 m/s along +Y (over the knuckles) or
+  1.6 across it, landing nothing in 20 ticks, plays PUNCHING_AIR_SFX.
+- Rejected on the way: PD's fist speeds (1.5 / 2.5 m/s) took a wild swing;
+  starting the chop on the swing test lost the blow to the wind-up (the
+  wind-up is as fast as the chop, 1.1-1.8 m/s). Logged chops at contact:
+  1.08-2.52 m/s; lower GEVR_CHOP_HIT to 0.8 if soft chops pass through.
