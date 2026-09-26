@@ -247,7 +247,8 @@ extern GLuint gfx_opengl_get_vr_menu_texture_P(void);// weapon panel texture (is
 extern GLuint gfx_vr_scope_texture(void);            // sniper scope image (issue #40)
 extern "C" float gevrScopeLens[4];                   // bondview2.c: right, up, back, diameter (m)
 #define GEVR_SCOPE_RES 512                           // gfx_opengl.cpp's scope target
-#define GEVR_SCOPE_MIN_EYE_M 0.10f                   // the lens is kept this far from the aiming eye
+#define GEVR_SCOPE_MIN_DEPTH_M 0.12f                 // the lens's nearest edge stays this far ahead of the eyes
+#define GEVR_SCOPE_TURN_M 0.08f                      // ... and turns toward them within this of it
 extern bool is_weapon_hud;
 float VrHudDistance = 0.8f;
 
@@ -2409,15 +2410,114 @@ static void vr_stats_xr_frame(void)
     s_statWorstMs = 0.0;
 }
 
+// The views the last stereo game frame's camera was built from (issue #53).
+static std::array<XrView, 2> g_recordedViews = { XrView{XR_TYPE_VIEW}, XrView{XR_TYPE_VIEW} };
+static bool g_haveRecordedViews = false;
+
 extern "C" void gevrVrMarkEyesRendered(int stereo)
 {
     vr_stats_game_frame();
     if (stereo && g_haveCameraViews) {
         g_renderedViews = g_cameraViews;
         g_haveRenderedViews = true;
+        g_recordedViews = g_cameraViews;
+        g_haveRecordedViews = true;
     } else {
         g_haveRenderedViews = false;
+        g_haveRecordedViews = false;
     }
+}
+
+/*
+ * Issue #53: an XR frame between game frames draws the last game frame again
+ * from this frame's head pose (gfx_pc.cpp gfx_vr_redraw_frame). Its camera
+ * space is the head's at the game frame (x right, y up, -z ahead; the body's
+ * yaw and the recentre are the same for both and cancel), in view units
+ * (vr_world_scale to the metre), so a point there moves to
+ *   R_new^T R_old c + R_new^T (p_old - p_new) * scale
+ * with each head at its eyes' midpoint. out: that, a GL matrix.
+ */
+static void vr_quat_to_mat3(const XrQuaternionf& q, float m[9])   // row-major
+{
+    const float x = q.x, y = q.y, z = q.z, w = q.w;
+    m[0] = 1.0f - 2.0f * (y * y + z * z); m[1] = 2.0f * (x * y - w * z);        m[2] = 2.0f * (x * z + w * y);
+    m[3] = 2.0f * (x * y + w * z);        m[4] = 1.0f - 2.0f * (x * x + z * z); m[5] = 2.0f * (y * z - w * x);
+    m[6] = 2.0f * (x * z - w * y);        m[7] = 2.0f * (y * z + w * x);        m[8] = 1.0f - 2.0f * (x * x + y * y);
+}
+
+extern "C" int gevrVrRedrawDelta(float out[16])
+{
+    if (!g_haveRecordedViews || !g_frameStarted || !g_frameState.shouldRender || vr_world_scale <= 0.0f) {
+        return 0;
+    }
+    const XrView* o = g_recordedViews.data();
+    const XrView* n = g_frameViews.data();
+    float Ro[9], Rn[9];
+    vr_quat_to_mat3(o[0].pose.orientation, Ro);
+    vr_quat_to_mat3(n[0].pose.orientation, Rn);
+    const float po[3] = { (o[0].pose.position.x + o[1].pose.position.x) * 0.5f,
+                          (o[0].pose.position.y + o[1].pose.position.y) * 0.5f,
+                          (o[0].pose.position.z + o[1].pose.position.z) * 0.5f };
+    const float pn[3] = { (n[0].pose.position.x + n[1].pose.position.x) * 0.5f,
+                          (n[0].pose.position.y + n[1].pose.position.y) * 0.5f,
+                          (n[0].pose.position.z + n[1].pose.position.z) * 0.5f };
+    const float d[3] = { po[0] - pn[0], po[1] - pn[1], po[2] - pn[2] };
+
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+            // (R_new^T R_old)[r][c] = sum_k Rn[k][r] Ro[k][c]
+            out[c * 4 + r] = Rn[0 * 3 + r] * Ro[0 * 3 + c] + Rn[1 * 3 + r] * Ro[1 * 3 + c] + Rn[2 * 3 + r] * Ro[2 * 3 + c];
+        }
+        out[12 + r] = (Rn[0 * 3 + r] * d[0] + Rn[1 * 3 + r] * d[1] + Rn[2 * 3 + r] * d[2]) * vr_world_scale;
+        out[r * 4 + 3] = 0.0f;
+    }
+    out[15] = 1.0f;
+    return 1;
+}
+
+/*
+ * ... and what a controller holds (gunfire.c gevrHandTag) moves with that
+ * controller instead: from its pose relative to the head when the game frame's
+ * camera was taken (the one the gun was placed from, vr_input.cpp
+ * gevrVrGripPoseCamera) to its newest one relative to the head now. In the
+ * game frame's camera space a held point c = G_old m becomes G_new m, so
+ *   c' = R_new R_old^T c + (p_new - R_new R_old^T p_old) * scale.
+ * The hand is placed relative to the head, so the head's own move is in it.
+ */
+extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);   // vr_input.cpp
+
+extern "C" int gevrVrRedrawHandDelta(int hand, float out[16])
+{
+    float po[3], qo[4], pn[3], qn[4];
+    if (!g_haveRecordedViews || vr_world_scale <= 0.0f
+        || !gevrVrGripPoseCamera(hand, po, qo) || !gevrVrGripPose(hand, pn, qn)) {
+        return 0;
+    }
+    float Ro[9], Rn[9], R[9];
+    vr_quat_to_mat3(XrQuaternionf{qo[0], qo[1], qo[2], qo[3]}, Ro);
+    vr_quat_to_mat3(XrQuaternionf{qn[0], qn[1], qn[2], qn[3]}, Rn);
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+            // (R_new R_old^T)[r][c] = sum_k Rn[r][k] Ro[c][k]
+            R[r * 3 + c] = Rn[r * 3 + 0] * Ro[c * 3 + 0] + Rn[r * 3 + 1] * Ro[c * 3 + 1] + Rn[r * 3 + 2] * Ro[c * 3 + 2];
+        }
+    }
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+            out[c * 4 + r] = R[r * 3 + c];
+        }
+        out[12 + r] = (pn[r] - (R[r * 3 + 0] * po[0] + R[r * 3 + 1] * po[1] + R[r * 3 + 2] * po[2])) * vr_world_scale;
+        out[r * 4 + 3] = 0.0f;
+    }
+    out[15] = 1.0f;
+    return 1;
+}
+
+// the in-between frame was drawn for this XR frame's own views
+extern "C" void gevrVrMarkRedrawn(void)
+{
+    g_renderedViews = g_frameViews;
+    g_haveRenderedViews = true;
 }
 
 // int, not bool: GoldenEye's game files see bool as a 32-bit int, and a C++
@@ -2532,6 +2632,30 @@ static bool vr_ensure_swapchain_images()
 // ============================================================================
 // HEAD TRACKING - Math Helpers
 // ============================================================================
+
+/* the rotation whose columns are x, y, z (an orthonormal right-handed basis) */
+static XrQuaternionf vr_quat_from_basis(const float x[3], const float y[3], const float z[3])
+{
+    const float m00 = x[0], m01 = y[0], m02 = z[0];
+    const float m10 = x[1], m11 = y[1], m12 = z[1];
+    const float m20 = x[2], m21 = y[2], m22 = z[2];
+    const float tr = m00 + m11 + m22;
+    XrQuaternionf q;
+    if (tr > 0.0f) {
+        const float s = sqrtf(tr + 1.0f) * 2.0f;
+        q.w = 0.25f * s; q.x = (m21 - m12) / s; q.y = (m02 - m20) / s; q.z = (m10 - m01) / s;
+    } else if (m00 > m11 && m00 > m22) {
+        const float s = sqrtf(1.0f + m00 - m11 - m22) * 2.0f;
+        q.w = (m21 - m12) / s; q.x = 0.25f * s; q.y = (m01 + m10) / s; q.z = (m02 + m20) / s;
+    } else if (m11 > m22) {
+        const float s = sqrtf(1.0f + m11 - m00 - m22) * 2.0f;
+        q.w = (m02 - m20) / s; q.x = (m01 + m10) / s; q.y = 0.25f * s; q.z = (m12 + m21) / s;
+    } else {
+        const float s = sqrtf(1.0f + m22 - m00 - m11) * 2.0f;
+        q.w = (m10 - m01) / s; q.x = (m02 + m20) / s; q.y = (m12 + m21) / s; q.z = 0.25f * s;
+    }
+    return q;
+}
 
 XrQuaternionf MultiplyQuaternions(XrQuaternionf q1, XrQuaternionf q2) {
     XrQuaternionf result;
@@ -2967,6 +3091,23 @@ static XrCompositionLayerQuad vr_init_menu_quad(XrSwapchain swapchain) {
 
 static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2>& views) {
     vr_stats_xr_frame();
+#ifdef ANDROID
+    {
+        /*
+         * The sniper scope's lens shader and target (issue #40), made on the
+         * first frame instead of the moment the rifle comes out: compiled
+         * then, with the rifle's model loading, the swap was a big stutter
+         * (user).
+         */
+        static bool warmed;
+        if (!warmed && g_scopeSwapchain != XR_NULL_HANDLE) {
+            extern void gfx_vr_scope_prepare(void);   // gfx_opengl.cpp
+            warmed = true;
+            vr_scope_copy_init();
+            gfx_vr_scope_prepare();
+        }
+    }
+#endif
     std::array<XrCompositionLayerProjectionView, 2> projViews;
     bool is_mv = gfx_get_current_rendering_api()->is_multiview();
 
@@ -3161,12 +3302,13 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         menuLayerP.pose.orientation = q;
     }
 
-    // --- The sniper scope's lens (issue #40): on the gun, to the aiming eye ---
+    // --- The sniper scope's lens (issue #40): on the gun, to both eyes ---
     // Placed from the gun hand's newest pose (view space), at the lens's
     // offset from the grip along the gun's up/back/right (bondview2.c
     // gevrGripAxes: right grip +X, up -Z, back +Y), facing back along the gun
-    // so it turns with it. Only the aiming eye sees it - the right, or the
-    // left in left-handed mode (issue #6) - as a scope is looked through.
+    // so it turns with it. Both eyes see it, as a screen on the scope's back
+    // at its own depth: shown to the aiming eye only, the two eyes disagreed
+    // and it looked wrong with both open (user).
     XrCompositionLayerQuad scopeLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
     bool submitScope = false;
     {
@@ -3180,9 +3322,10 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             const float bx = 2.0f * (x * y - w * z), by = 1.0f - 2.0f * (x * x + z * z), bz = 2.0f * (y * z + w * x);
             // bondview2.c gevrScopeLensPlace: on the model's eyepiece, mirrored with the gun
             const float side = gevrScopeLens[0], up = gevrScopeLens[1], back = gevrScopeLens[2];
+            bool lensHidden = false;
             scopeLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
             scopeLayer.space = g_vrState.viewSpace;
-            scopeLayer.eyeVisibility = VrLeftHandedMode ? XR_EYE_VISIBILITY_LEFT : XR_EYE_VISIBILITY_RIGHT;
+            scopeLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
             scopeLayer.subImage.swapchain = g_scopeSwapchain;
             scopeLayer.subImage.imageArrayIndex = 0;
             scopeLayer.subImage.imageRect.offset = {0, 0};
@@ -3194,28 +3337,60 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             scopeLayer.pose.orientation = MultiplyQuaternions(XrQuaternionf{x, y, z, w},
                                                               XrQuaternionf{-0.70710678f, 0.0f, 0.0f, 0.70710678f});
             scopeLayer.size = {gevrScopeLens[3], gevrScopeLens[3]};
-            // Brought right up to the aiming eye the lens went out of sight
-            // (user): the eyepiece sits 23 cm behind the controller, so it
-            // can reach the eye itself. Nearer than GEVR_SCOPE_MIN_EYE_M it
-            // is moved out along the same line and grown to the same angle.
+            /*
+             * Near the eyes the compositor clips a layer at its near plane.
+             * Held up to the face, tilted along the gun, the lens lost the
+             * part nearest the eyes along a straight line (user, screenshots).
+             * The eyepiece sits 23 cm behind the controller, so it can reach
+             * the eyes themselves. So as its nearest edge comes within
+             * GEVR_SCOPE_TURN_M of GEVR_SCOPE_MIN_DEPTH_M (depth along the
+             * view, the same for both eyes), it turns toward the eyes. Still
+             * nearer, it is moved out along its line of sight and grown to
+             * the same size. The gun's up stays its up.
+             */
             {
-                const float ex = VrLeftHandedMode ? -0.032f : 0.032f;   // the aiming eye, half the IPD
-                const float vx = scopeLayer.pose.position.x - ex;
-                const float vy = scopeLayer.pose.position.y;
-                const float vz = scopeLayer.pose.position.z;
-                const float dist = sqrtf(vx * vx + vy * vy + vz * vz);
-                if (dist < GEVR_SCOPE_MIN_EYE_M && dist > 1e-4f) {
-                    const float s = GEVR_SCOPE_MIN_EYE_M / dist;
-                    scopeLayer.pose.position = {ex + vx * s, vy * s, vz * s};
-                    scopeLayer.size = {gevrScopeLens[3] * s, gevrScopeLens[3] * s};
+                XrVector3f c = scopeLayer.pose.position;
+                const float r = gevrScopeLens[3] * 0.5f;
+                float n[3] = { bx, by, bz };
+                const float nearAligned = -c.z - r * sqrtf(fmaxf(0.0f, 1.0f - bz * bz));
+                float t = (GEVR_SCOPE_MIN_DEPTH_M + GEVR_SCOPE_TURN_M - nearAligned) / GEVR_SCOPE_TURN_M;
+                t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+                const float cl = sqrtf(c.x * c.x + c.y * c.y + c.z * c.z);
+                if (t > 0.0f && cl > 1e-4f) {
+                    const float f[3] = { -c.x / cl, -c.y / cl, -c.z / cl };   // toward the eyes
+                    for (int i = 0; i < 3; i++) n[i] += (f[i] - n[i]) * t;
+                }
+                const float nl = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+                if (nl > 1e-4f) { n[0] /= nl; n[1] /= nl; n[2] /= nl; }
+                // +Z the lens's face, +Y the gun's up square to it, +X = Y x Z
+                const float ud = ux * n[0] + uy * n[1] + uz * n[2];
+                float yv[3] = { ux - ud * n[0], uy - ud * n[1], uz - ud * n[2] };
+                const float yl = sqrtf(yv[0] * yv[0] + yv[1] * yv[1] + yv[2] * yv[2]);
+                if (yl > 1e-4f) {
+                    yv[0] /= yl; yv[1] /= yl; yv[2] /= yl;
+                    const float xv[3] = { yv[1] * n[2] - yv[2] * n[1], yv[2] * n[0] - yv[0] * n[2], yv[0] * n[1] - yv[1] * n[0] };
+                    scopeLayer.pose.orientation = vr_quat_from_basis(xv, yv, n);
+                }
+                float nearest = -c.z - r * sqrtf(fmaxf(0.0f, 1.0f - n[2] * n[2]));
+                if (-c.z < 0.02f) {
+                    nearest = -1.0f;   // beside or behind the eyes: out of sight
+                }
+                if (nearest < GEVR_SCOPE_MIN_DEPTH_M) {
+                    if (nearest > 0.005f) {
+                        const float k = GEVR_SCOPE_MIN_DEPTH_M / nearest;
+                        scopeLayer.pose.position = {c.x * k, c.y * k, c.z * k};
+                        scopeLayer.size = {gevrScopeLens[3] * k, gevrScopeLens[3] * k};
+                    } else {
+                        lensHidden = true;
+                    }
                 }
             }
-            submitScope = true;
+            submitScope = !lensHidden;
             static unsigned n;
             if ((n++ % 180) == 0) {
-                LOGI("scope: lens at (%.3f %.3f %.3f) m, facing (%.2f %.2f %.2f), %s eye",
+                LOGI("scope: lens at (%.3f %.3f %.3f) m, facing (%.2f %.2f %.2f)%s",
                      scopeLayer.pose.position.x, scopeLayer.pose.position.y, scopeLayer.pose.position.z,
-                     bx, by, bz, VrLeftHandedMode ? "left" : "right");
+                     bx, by, bz, VrLeftHandedMode ? ", left-handed" : "");
             }
         }
     }
