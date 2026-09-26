@@ -2265,6 +2265,18 @@ static void gevr_eye_keep(GLint first, GLsizei count)
     s_eyeDraws.push_back(d);
 }
 
+/*
+ * A HUD capture's end puts the eye pass's viewport back, and the scissor to
+ * that same box, with glViewport/glScissor directly. The eye pass's draws
+ * after it use that box until fast3d next sets one, so the redraw records it
+ * too: it kept fast3d's last scissor, a room's or the capture's own.
+ */
+static void gevr_eye_capture_restored(const GLint vp[4])
+{
+    memcpy(s_curViewport, vp, sizeof(s_curViewport));
+    memcpy(s_curScissor, vp, sizeof(s_curScissor));
+}
+
 /* projection x a move in the game frame's camera space */
 static void gevr_eye_proj_times(const float* delta, float M[16])
 {
@@ -3014,6 +3026,7 @@ void gfx_vr_hud_capture_end_L(void)
             gVrMenuPrevViewport[1],
             gVrMenuPrevViewport[2],
             gVrMenuPrevViewport[3]);
+    gevr_eye_capture_restored(gVrMenuPrevViewport);   // issue #53
 }
 
 GLuint gfx_opengl_get_vr_menu_texture(void) {
@@ -3166,6 +3179,7 @@ void gfx_vr_hud_capture_end_R(void)
                gVrMenuRPrevViewport[2], gVrMenuRPrevViewport[3]);
     glScissor (gVrMenuRPrevViewport[0], gVrMenuRPrevViewport[1],
                gVrMenuRPrevViewport[2], gVrMenuRPrevViewport[3]);
+    gevr_eye_capture_restored(gVrMenuRPrevViewport);   // issue #53
 
 
 }
@@ -3272,6 +3286,7 @@ void gfx_vr_hud_capture_end_H(void)
             gVrMenuHPrevViewport[1],
             gVrMenuHPrevViewport[2],
             gVrMenuHPrevViewport[3]);
+    gevr_eye_capture_restored(gVrMenuHPrevViewport);   // issue #53
 }
 
 bool gfx_vr_menu_H_dirty_and_clear(void) {
@@ -3368,6 +3383,7 @@ void gfx_vr_hud_capture_end_P(void)
 
     glViewport(gVrMenuPPrevViewport[0], gVrMenuPPrevViewport[1], gVrMenuPPrevViewport[2], gVrMenuPPrevViewport[3]);
     glScissor(gVrMenuPPrevViewport[0], gVrMenuPPrevViewport[1], gVrMenuPPrevViewport[2], gVrMenuPPrevViewport[3]);
+    gevr_eye_capture_restored(gVrMenuPPrevViewport);   // issue #53
 }
 
 bool gfx_vr_menu_P_dirty_and_clear(void) {
