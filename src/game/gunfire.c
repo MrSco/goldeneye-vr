@@ -1029,34 +1029,6 @@ void gunUpdateAndFire(GUNHAND handnum)
                     matrix_4x4_multiply_in_place(&rotmtx, &flash2mtx);
                     matrix_4x4_set_position(&flashpos, &flash2mtx);
                     matrix_4x4_copy(&flash2mtx, &rwmtx[2]);
-#ifdef GEVR
-                    {
-                        /* PORT probe (gepc-ref D303, the M16 flash): the second flash's inputs and result */
-                        extern s32 g_gevrStereo;
-                        static u32 s_last;
-                        Mtxf *r = &rwmtx[2];
-
-                        if (g_GlobalTimer - s_last > 20)
-                        {
-                            s_last = g_GlobalTimer;
-                            sysLogPrintf(LOG_NOTE, "flashprobe: item %d stereo %d ext %.2f scale %.2f flashpos %.1f %.1f %.1f gunofs %.1f %.1f %.1f a38 %.1f %.1f %.1f anim %d",
-                                         item, g_gevrStereo, flashext, flashscale, flashpos.x, flashpos.y, flashpos.z,
-                                         gunofs.x, gunofs.y, gunofs.z, hand->field_A38, hand->field_A3C, hand->field_A40, hand->field_92C);
-                            sysLogPrintf(LOG_NOTE, "flashprobe: rot  [%.3f %.3f %.3f] [%.3f %.3f %.3f] [%.3f %.3f %.3f]",
-                                         rotmtx.m[0][0], rotmtx.m[0][1], rotmtx.m[0][2], rotmtx.m[1][0], rotmtx.m[1][1], rotmtx.m[1][2],
-                                         rotmtx.m[2][0], rotmtx.m[2][1], rotmtx.m[2][2]);
-                            sysLogPrintf(LOG_NOTE, "flashprobe: aim  [%.3f %.3f %.3f] [%.3f %.3f %.3f] [%.3f %.3f %.3f]",
-                                         aimmtx.m[0][0], aimmtx.m[0][1], aimmtx.m[0][2], aimmtx.m[1][0], aimmtx.m[1][1], aimmtx.m[1][2],
-                                         aimmtx.m[2][0], aimmtx.m[2][1], aimmtx.m[2][2]);
-                            sysLogPrintf(LOG_NOTE, "flashprobe: out  [%.3f %.3f %.3f] [%.3f %.3f %.3f] [%.3f %.3f %.3f] pos %.1f %.1f %.1f",
-                                         r->m[0][0], r->m[0][1], r->m[0][2], r->m[1][0], r->m[1][1], r->m[1][2],
-                                         r->m[2][0], r->m[2][1], r->m[2][2], r->m[3][0], r->m[3][1], r->m[3][2]);
-                            sysLogPrintf(LOG_NOTE, "flashprobe: fl1  [%.3f %.3f %.3f] [%.3f %.3f %.3f] [%.3f %.3f %.3f] pos %.1f %.1f %.1f",
-                                         flashmtx.m[0][0], flashmtx.m[0][1], flashmtx.m[0][2], flashmtx.m[1][0], flashmtx.m[1][1], flashmtx.m[1][2],
-                                         flashmtx.m[2][0], flashmtx.m[2][1], flashmtx.m[2][2], flashmtx.m[3][0], flashmtx.m[3][1], flashmtx.m[3][2]);
-                        }
-                    }
-#endif
                 }
 
                 if (mdlhdr->Skeleton == (&skeleton_gun_kf7))
