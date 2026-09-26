@@ -2096,6 +2096,18 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     {
         return gdl;
     }
+    /* issue #35: holding the gun, the fist goes round the barrel */
+    {
+        extern s32 gevrStereoTwoHandFistShift(f32 shift[3]);
+        f32 shift[3];
+
+        if (gevrStereoTwoHandFistShift(shift))
+        {
+            armmtx.m[3][0] += shift[0];
+            armmtx.m[3][1] += shift[1];
+            armmtx.m[3][2] += shift[2];
+        }
+    }
 
     /* a left hand: mirrored in the model's own frame, then the viewmodel scale */
     matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
@@ -2585,7 +2597,14 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         /* also for the watch laser and the detonator: it is their arm (issue #31) */
         gdl = gevrHandTag(gdl, 0);
         /* #31: at the watch, the watch laser's own two arms instead (gevrRenderWatchGripHand) */
-        if (!(gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()))
+        /* #35: holding the gun, the fist round its barrel instead of the watch arm */
+        extern s32 gevrStereoTwoHandGrip(void);
+
+        if (gevrStereoTwoHandGrip())
+        {
+            gdl = gevrRenderLeftArm(gdl, &renderdata);
+        }
+        else if (!(gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()))
         {
             gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
             if (!drawn)
@@ -5706,6 +5725,12 @@ void gunTickGameplay(s32 triggerOn)
         {
             trigger_state.triggerOn[GUNRIGHT] = 0;
         }
+    }
+    /* issue #35: the off hand's hold on the gun (bondview2.c gevrStereoTwoHandUpdate) */
+    {
+        extern s32 gevrStereoTwoHandUpdate(void);
+
+        gevrStereoTwoHandUpdate();
     }
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand

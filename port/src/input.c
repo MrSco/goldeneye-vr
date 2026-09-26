@@ -46,6 +46,7 @@ extern void vrSettingsSave(void);
 extern int gevrVrWatchGesture(void); /* vr_input.cpp */
 extern s32 g_gevrWatchGesturePending; /* bondview2.c */
 extern s32 gevrStereoWatchGrip(void);    /* bondview2.c: the gun hand holds the watch (#31) */
+extern s32 gevrStereoTwoHandGrip(void);  /* bondview2.c: the off hand holds the gun (#35) */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
 float gevrVrTurnAxis(void) { return gevrTurnAxis; }
@@ -1119,7 +1120,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             // Issue #31 (user): not while the gun hand holds the watch for the
             // watch laser or the detonator - aiming them raises the wrist too.
             // It re-arms only once the arm comes down, as after a press.
-            if (gevrStereoWatchGrip()) {
+            if (gevrStereoWatchGrip() || gevrStereoTwoHandGrip()) {
                 heldsince = 0;
                 if (gevrVrWatchGesture()) armed = false;
             } else if (!menu && g_gevrStereo && gevrVrWatchGesture()) {
@@ -1356,9 +1357,7 @@ void inputRumble(s32 idx, f32 strength, f32 time) {
         // controller that is not the trigger hand. Only meaningful while it is actually
         // gripping -- an idle off hand is not touching the weapon and should stay quiet.
         const s32  supportHand    = vr_invert_hands ? 1 : 0;
-        const bool supportOnWeapon =
-                VrTwoHandsGun(cur_weapon)
-                && get_button_state(supportHand, "grip");
+        const bool supportOnWeapon = gevrStereoTwoHandGrip() != 0;   /* issue #35: the off hand at the gun */
 
         if (strength > 0.f) {
             if (strength > 1.f) strength = 1.f;
