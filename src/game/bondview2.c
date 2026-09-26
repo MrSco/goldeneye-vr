@@ -1536,8 +1536,8 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * headset view put the sight out of reach); the scope shows the zoom instead,
  * as a lens on the gun. lvlRender tags the world's draws (VR_SCOPE_REC_*),
  * gfx_opengl.cpp draws them a second time from the scope's camera, and
- * vr_openxr.cpp shows that image as a round layer at the lens, to the aiming
- * eye only: a scope is looked through with one eye.
+ * vr_openxr.cpp shows that image as a round layer at the lens, to both eyes
+ * (to the aiming eye only, the eyes disagreed with both open: user).
  *
  * The scope's camera sits on the shot's own line (gevrStereoShot: from the
  * muzzle along the barrel), so the reticle's centre is where the bullet goes
@@ -6320,6 +6320,24 @@ void bondviewUpdatePlayerCollisionPositionFields(void)
 
     phi_f0 = g_CurrentPlayer->eyeheight +
         ((g_CurrentPlayer->field_88 + g_CurrentPlayer->ducking_height_offset) * g_playerPerm->player_perspective_height);
+#ifdef GEVR
+    {
+        /*
+         * Issue #48: a physical duck lowers Bond himself, as Perfect Dark VR
+         * sets its crouch from the head (bondmove.c): guards aim at and test
+         * cover against this position (chraction.c chrlvAttackRelated7F0292A8).
+         * Ducking behind boxes only lowered the camera, and guards still
+         * shot a standing Bond over the cover. The camera takes only the rise
+         * now (bondviewUpdateCameraMatrices' caller), the duck being in here.
+         */
+        f32 duck = gevrStereoHeadHeight();
+
+        if (duck < 0.0f)
+        {
+            phi_f0 += duck;
+        }
+    }
+#endif
 
     if (phi_f0 < 30.0f)
     {
@@ -10104,7 +10122,15 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
         {
             cam_look = s_gevrCamLook;
             cam_up = s_gevrCamUp;
-            cam_pos.y += gevrStereoHeadHeight();
+            {
+                /* the rise only: a duck is already in the body (issue #48) */
+                f32 rise = gevrStereoHeadHeight();
+
+                if (rise > 0.0f)
+                {
+                    cam_pos.y += rise;
+                }
+            }
         }
 #endif
     }
@@ -10770,6 +10796,12 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
             if ((u32) credits_pointer[i].TextId1 != 0x5011)
             {
                 text = langGet(credits_pointer[i].TextId1);
+#ifdef GEVR
+                if (text == NULL)
+                {
+                    text = "";   /* a missing string can't stop the credits (issue #51) */
+                }
+#endif
 
                 if (credits_pointer[i].Position1 >= 0)
                 {
@@ -10814,6 +10846,12 @@ Gfx *bondviewRenderCredits(Gfx *gdl)
             if (credits_pointer[i].TextId2 != 0x5011)
             {
                 text = langGet(credits_pointer[i].TextId2);
+#ifdef GEVR
+                if (text == NULL)
+                {
+                    text = "";
+                }
+#endif
 
                 if (credits_pointer[i].Position2 >= 0)
                 {
