@@ -4758,6 +4758,24 @@ headset:
   - lastUse is stamped when a decode finishes.
   - Anisotropy is 2x, and resets when a slot is reused.
   - The decode thread runs at low priority.
+  - The real cause, found with cache-traffic probes on Surface: fast3d keyed
+    CI textures on a hash of all 256 TMEM palette entries. A 16- or
+    64-colour palette leaves the rest holding earlier draws' colours, so the
+    same texture (same address, same palette address) got a new key
+    whenever draw order changed. That was ~150 loads a second, each a pack
+    upload: the stutter on main, and the native texture flashing in for a
+    frame in the deferred build. gevr_palette_key_hash hashes a CI4
+    texture's 16-entry bank, or the entries a CI8 texture's palette load
+    filled. After it, loads fall to a few per 5 s once an area is loaded.
+  - The "texcache:" log line (every 5 s, only while textures load) stays
+    for next time.
+  - MERGED 2026-09-26 (user on Surface with a pack: "much smoother", no
+    flicker).
+  - Seen while testing, not caused by it:
+    - the PP7 silencer joint band (HANDOFF 38/79) is back at Surface's
+      start;
+    - the M16/AR33 extra long flash (gepc-ref D303), in 2D and VR.
+    Each gets its own branch.
 - fix/46-xenia-onscreen (#46): AI_IFImOnScreen needs the chr's room to be
   inside the N64's far distance. The room walk records that
   (bg.c s_gevrRoomN64); drawing keeps GEVR_FAR_EXTEND.

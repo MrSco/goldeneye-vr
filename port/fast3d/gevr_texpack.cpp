@@ -30,6 +30,8 @@
 
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -196,6 +198,10 @@ static void shrink(std::vector<uint8_t> &px, uint32_t &w, uint32_t &h) {
 }
 
 static void worker(std::string dir) {
+#ifdef __ANDROID__
+    // issue #52: never ahead of the game's own thread (it decodes flat out as a level starts)
+    setpriority(PRIO_PROCESS, (id_t)gettid(), 10);
+#endif
     std::vector<Entry> entries;
     std::unordered_map<uint64_t, std::vector<int>> index;
     scan(dir, entries, index);
@@ -238,6 +244,7 @@ static void worker(std::string dir) {
                 e.w = uw;
                 e.h = uh;
                 e.state = READY;
+                e.lastUse = ++s_tick;   // the newest: trim() mustn't free it before it's uploaded (#52)
             } else {
                 e.state = FAILED;
             }

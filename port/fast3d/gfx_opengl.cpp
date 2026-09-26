@@ -1512,6 +1512,10 @@ static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width,
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
     // a name that held a pack image keeps its old mip levels: sample level 0 only
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+    if (gevr_tex_is_hd(s_boundTex[s_activeTexUnit]) && s_maxAniso > 1.0f) {
+        // ... and its anisotropy, which a native texture doesn't need (issue #52)
+        glTexParameterf(GL_TEXTURE_2D, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY_EXT */, 1.0f);
+    }
     gevr_tex_mark_hd(s_boundTex[s_activeTexUnit], false);
 }
 
@@ -1536,7 +1540,8 @@ static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t wid
         if (glGetError() != GL_NO_ERROR) s_maxAniso = 0.0f;
     }
     if (s_maxAniso > 1.0f) {
-        glTexParameterf(GL_TEXTURE_2D, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY_EXT */, s_maxAniso < 4.0f ? s_maxAniso : 4.0f);
+        // 2x: 4x cost the pack's big textures a lot of GPU time on outdoor levels (issue #52)
+        glTexParameterf(GL_TEXTURE_2D, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY_EXT */, s_maxAniso < 2.0f ? s_maxAniso : 2.0f);
     }
     gevr_tex_mark_hd(s_boundTex[s_activeTexUnit], true);
 }
