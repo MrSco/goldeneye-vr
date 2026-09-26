@@ -2334,10 +2334,22 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         /* Bond's watch arm on the left controller; the mirrored fist if it cannot load */
         extern Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
         s32 drawn = FALSE;
-        gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
-        if (!drawn)
+        s32 rightitem = get_item_in_hand_or_watch_menu(GUNRIGHT);
+
+        /*
+         * Issue #31: the watch laser's and the detonator's viewmodels are
+         * Bond's left arm with the watch (and his right hand) already; a third
+         * arm here was one too many. The flat game swaps them for unarmed
+         * before it raises its own watch arm (bondview2.c), so while the
+         * watch is up this arm is back.
+         */
+        if (rightitem != ITEM_WATCHLASER && rightitem != ITEM_TRIGGER)
         {
-            gdl = gevrRenderLeftArm(gdl, &renderdata);
+            gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
+            if (!drawn)
+            {
+                gdl = gevrRenderLeftArm(gdl, &renderdata);
+            }
         }
     }
 #endif
