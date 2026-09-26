@@ -4940,3 +4940,21 @@ Latent, noted by the agents:
   - feature/35-two-hand-grip: the off hand's grip holds the gun within 12 cm
     of the barrel (kept to 18); PD VR's hand-line aim in gevrGripAxes; the
     mirrored fist on the barrel instead of the watch arm; watch gesture off.
+- fix/6-swap-sticks-label: MERGED 2026-09-26 (user: "looks good"). "Move
+  with left stick" beside Left-handed was cut off: a launcher column is
+  about 600 px at the 2.2x scale and the pair needed 596. A line of its own
+  grows the page, which does not scroll and has no line to spare (about
+  9 px by the layout sums; user). Now "Swap sticks" on the same line.
+- fix/42-timer-bottom: MERGED 2026-09-26 (user: "looks good"). The stereo
+  countdown sat just under the middle of the view among the messages: every
+  flat HUD draw is shrunk to two thirds round the H panel's centre (vertex
+  shader "legal" branch, w = 1.5; VrIsTitleLegal is never cleared). Tag pair
+  VR_HUD_FULL_SIZE_BEGIN/END (0x5659) drops the shrink for the timer's
+  digits (uniform rewritten on the current program): they sit at the
+  panel's foot, about 19 degrees down. Messages are no longer lifted for it.
+- fix/50-trevelyan-float: PARKED. The probe (warp hook "chr 0 150" on
+  Cradle) showed the teleport correct: pad 150 at y -1056 over a floor of
+  -1141.2, ground snapped to the floor on the first tick, then normal
+  running. The user could not see anything wrong, then or now. Remaining
+  idea, unproven: a chr teleported while off-screen and then in magic-mode
+  gopos keeps a stale manground until it is next updated normally.
