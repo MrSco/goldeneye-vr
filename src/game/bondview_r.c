@@ -337,6 +337,11 @@ void bondviewLoadSetupIntroSection(void)
                     {
                         credits++;
                     }
+#ifdef GEVR
+                    /* issue #51: the table port/src/gevr_setup.c emits (Cuba: 5010/5011, 271 entries) */
+                    sysLogPrintf(LOG_NOTE, "credits: +0x%X first %04X/%04X, %d entries", (u32)intro_credits->unk04,
+                                 credits_pointer->TextId1, credits_pointer->TextId2, (s32)(credits - credits_pointer));
+#endif
 
                     intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroCredits));
                 }

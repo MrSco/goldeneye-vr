@@ -617,6 +617,8 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
     }
 
     /* ---- intro: most cmds keep N64 word size; CAMERA expands 40→56 ---- */
+    size_t credits_slot = 0;   /* host offset of SetupIntroCredits.unk04 (issue #51) */
+    uint32_t credits_src = 0;  /* its CreditsEntry table, a cartridge file offset */
     if (hdr[2]) {
         intro_ofs = dstpos = align8(dstpos);
         size_t ip = hdr[2];
@@ -639,11 +641,39 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
                 if (dstpos + nw * 4 > capacity) { g_setup_fail = 18; free(src); return 0; }
                 for (uint8_t w = 0; w < nw; w++)
                     put32(dst + dstpos + w * 4, read32(src + ip + w * 4));
+                if (cmd == 8) { /* INTROTYPE_CREDITS: unk04 is a cartridge file offset */
+                    credits_slot = dstpos + 4;
+                    credits_src = read32(src + ip + 4);
+                }
                 dstpos += nw * 4;
             }
             ip += nw * 4;
             if (cmd == 9) break;
         }
+    }
+
+    /*
+     * Issue #51: the Cuba ending's credits (bondview_r.c adds unk04 to the
+     * file's base). The host layout moves everything, and 0x8D8 landed in pad
+     * 39: its floats read as text ids from banks not loaded, langGet returned
+     * NULL and textMeasure crashed on the first credits frame. A CreditsEntry
+     * is six u16 on both sides; emit a swapped copy through its 0/0 end and
+     * point unk04 at it.
+     */
+    if (credits_slot) {
+        uint32_t out = 0;
+        if (credits_src && credits_src + 12 <= size) {
+            size_t cp = credits_src;
+            out = (uint32_t)(dstpos = align8(dstpos));
+            for (; cp + 12 <= size; cp += 12) {
+                if (dstpos + 12 > capacity) { g_setup_fail = 29; free(src); return 0; }
+                for (int k = 0; k < 6; k++)
+                    put16(dst + dstpos + k * 2, read16(src + cp + k * 2));
+                dstpos += 12;
+                if (read16(src + cp) == 0 && read16(src + cp + 2) == 0) break;
+            }
+        }
+        put32(dst + credits_slot, out);
     }
 
     /* ---- props ---- */

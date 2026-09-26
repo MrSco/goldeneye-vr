@@ -950,6 +950,19 @@ void gunUpdateAndFire(GUNHAND handnum)
             matrix_4x4_copy(&flashmtx, &rwmtx[1]);
 
 #ifdef GEVR
+            {
+                /* issue #31: the watch laser's beam leaves the watch on the left arm */
+                extern s32 gevrStereoWatchItem(s32 item);
+                extern s32 gevrStereoWatchPoint(f32 out[3]);
+                f32 watch[3];
+
+                if (handnum == GUNRIGHT && gevrStereoWatchItem(item) && gevrStereoWatchPoint(watch))
+                {
+                    flashmtx.m[3][0] = watch[0];
+                    flashmtx.m[3][1] = watch[1];
+                    flashmtx.m[3][2] = watch[2];
+                }
+            }
             { extern void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z);
               gevrStereoNoteMuzzle(handnum, flashmtx.m[3][0], flashmtx.m[3][1], flashmtx.m[3][2]); }
 #endif
@@ -1757,6 +1770,21 @@ extern s32 g_gevrStereo;
 extern s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out);
 extern s8 *get_ptr_item_text_call_line(ITEM_IDS item);
 
+/*
+ * Issue #53: tag the draws that follow a controller (0 left, 1 right; -1
+ * ends). fast3d keeps them apart, and on the XR frames between game frames it
+ * moves them by that controller's motion since the game frame instead of
+ * leaving them where they were in the world (gfx_opengl.cpp gfx_vr_eye_replay).
+ */
+static Gfx *gevrHandTag(Gfx *gdl, s32 ctrl)
+{
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x565F0000 | (u32)(ctrl + 1)); /* VR_HAND_DRAW */
+    }
+    return gdl;
+}
+
 static u8 *s_gevrFistBuf;
 static struct texpool s_gevrFistPool;
 static ModelFileHeader s_gevrFistHeader;
@@ -1940,6 +1968,9 @@ static s32 gevrTaserHandLoad(void)
  */
 extern s32 gevrStereoItemNeedsFist(s32 item);
 extern s32 gevrStereoItemHand(s32 item);   /* bondview2.c: GEVR_ITEM_HAND_* */
+extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator (#31) */
+extern s32 gevrStereoWatchGrip(void);      /* bondview2.c: the gun hand is at the watch (#31) */
+extern s32 gevrStereoWatchHandMatrix(Mtxf *out);
 
 static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
 {
@@ -1959,9 +1990,13 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     {
         return gdl;
     }
-    if (g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0)
+    if (g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0 && !gevrStereoWatchItem(item))
     {
         return gdl;     /* the game draws the weapon (with its hand) */
+    }
+    if (gevrStereoWatchItem(item) && gevrStereoWatchGrip())
+    {
+        return gdl;     /* the hand is holding the watch (gevrRenderWatchGripHand) */
     }
     switch (g_CurrentPlayer->hands[GUNRIGHT].weapon_action_state)
     {
@@ -2116,6 +2151,206 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
 
     return gdl;
 }
+
+/*
+ * Issue #31 (user): at the watch, both arms become the watch laser's own
+ * viewmodel - Bond's left fist and watch with his right hand holding it -
+ * the sign that a pull fires. Its right hand only reads as a grip round its
+ * own left fist (a first try put it on the tracked open hand: it stood
+ * beside the wrist), so the whole model is drawn, on the left controller,
+ * and the tracked watch arm steps aside until the hand leaves the watch. A
+ * private copy of GwatchlaserZ (the detonator's GtriggerZ is the same model)
+ * set up as the game sets up a weapon's (hand switches, the outfit's
+ * sleeve). Its nine display lists, in walk order, measured from the ROM: 0
+ * the right hand (0x1c8), 1-6 the sleeves (one per outfit, switched), 7 the
+ * left fist and watch (0x300), 8 the right hand's pressing finger (0x330, on
+ * a joint of its own). Placed by bondview2.c gevrStereoWatchHandMatrix: its
+ * watch face on the tracked arm's.
+ */
+#define GEVR_WATCHHAND_BUFSIZE 0x48000
+#define GEVR_WATCHHAND_MODELSIZE 0x18000
+#define GEVR_WATCHHAND_DLS 9
+
+static u8 *s_gevrWatchHandBuf;
+static struct texpool s_gevrWatchHandPool;
+static ModelFileHeader s_gevrWatchHandHeader;
+static Model s_gevrWatchHandModel;
+static u32 s_gevrWatchHandRw[256];
+static s32 s_gevrWatchHandStage = -1;
+static s32 s_gevrWatchHandReady;
+
+/* the next node in walk order (child first, then the next, climbing back up) */
+static ModelNode *gevrNextNode(ModelNode *node)
+{
+    if (node->Child != NULL)
+    {
+        return node->Child;
+    }
+    while (node != NULL && node->Next == NULL)
+    {
+        node = node->Parent;
+    }
+    return node != NULL ? node->Next : NULL;
+}
+
+static s32 gevrWatchHandLoad(void)
+{
+    ModelFileHeader *tmpl;
+    s8 *name;
+    ModelNode *node;
+    s32 dls = 0;
+
+    if (s_gevrWatchHandReady && s_gevrWatchHandStage == bossGetStageNum())
+    {
+        return TRUE;
+    }
+    if (s_gevrWatchHandStage == bossGetStageNum() && s_gevrWatchHandStage != -1 && !s_gevrWatchHandReady)
+    {
+        return FALSE;   /* failed on this stage already */
+    }
+
+    s_gevrWatchHandReady = FALSE;
+    s_gevrWatchHandStage = bossGetStageNum();
+
+    tmpl = gitem_structs[ITEM_WATCHLASER].item_header;
+    name = (s8 *) gitem_structs[ITEM_WATCHLASER].item_file_name;
+    if (tmpl == NULL || name == NULL)
+    {
+        return FALSE;
+    }
+    if (s_gevrWatchHandBuf == NULL)
+    {
+        s_gevrWatchHandBuf = malloc(GEVR_WATCHHAND_BUFSIZE);
+        if (s_gevrWatchHandBuf == NULL)
+        {
+            return FALSE;
+        }
+    }
+
+    s_gevrWatchHandHeader = *tmpl;
+    texInitPool(&s_gevrWatchHandPool, s_gevrWatchHandBuf + GEVR_WATCHHAND_MODELSIZE,
+                GEVR_WATCHHAND_BUFSIZE - GEVR_WATCHHAND_MODELSIZE);
+    load_object_fill_header(&s_gevrWatchHandHeader, (u8 *)name, s_gevrWatchHandBuf, GEVR_WATCHHAND_MODELSIZE,
+                            &s_gevrWatchHandPool);
+    modelCalculateRwDataLen(&s_gevrWatchHandHeader);
+
+    if (s_gevrWatchHandHeader.RootNode == NULL
+        || (u32)s_gevrWatchHandHeader.numRecords > ARRAYCOUNT(s_gevrWatchHandRw))
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: watch hand model did not load (%d records)", s_gevrWatchHandHeader.numRecords);
+        return FALSE;
+    }
+
+    for (node = s_gevrWatchHandHeader.RootNode; node != NULL; node = gevrNextNode(node))
+    {
+        if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_DL)
+        {
+            dls++;
+        }
+    }
+    if (dls != GEVR_WATCHHAND_DLS)
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: watch hand model has %d display lists, not %d", dls, GEVR_WATCHHAND_DLS);
+        return FALSE;
+    }
+
+    sysLogPrintf(LOG_NOTE, "stereo: watch hands loaded (%s, %d matrices, %d switches)", name,
+                 s_gevrWatchHandHeader.numMatrices, s_gevrWatchHandHeader.numSwitches);
+    s_gevrWatchHandReady = TRUE;
+    return TRUE;
+}
+
+static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
+{
+    ModelRenderData renderdata;
+    Mtxf base;
+    Mtxf *rwmtx;
+    ModelNode *node;
+    s32 n, j;
+
+    if (!g_gevrStereo
+        || g_CurrentPlayer->bonddead
+        || g_CurrentPlayer->watch_animation_state != 0
+        || !gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT))
+        || !gevrStereoWatchGrip())
+    {
+        return gdl;
+    }
+    if (!gevrStereoWatchHandMatrix(&base) || !gevrWatchHandLoad())
+    {
+        return gdl;
+    }
+
+    /* every matrix the placement; a joint's, its offset from the root first
+     * (the root's own offset is not drawn, as for every viewmodel) */
+    n = s_gevrWatchHandHeader.numMatrices;
+    rwmtx = (Mtxf *) dynAllocate(n * ((s32) sizeof(Mtxf)));
+    for (j = 0; j < n; j++)
+    {
+        matrix_4x4_copy(&base, &rwmtx[j]);
+    }
+    for (node = s_gevrWatchHandHeader.RootNode; node != NULL; node = gevrNextNode(node))
+    {
+        if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_GROUP && node->Parent != NULL)
+        {
+            s32 idx = node->Data->Group.MatrixID0;
+            coord3d acc = { 0.0f, 0.0f, 0.0f };
+            ModelNode *up;
+
+            for (up = node; up != NULL && up->Parent != NULL; up = up->Parent)
+            {
+                if ((up->Opcode & 0xFF) == MODELNODE_OPCODE_GROUP)
+                {
+                    acc.x += up->Data->Group.Origin.x;
+                    acc.y += up->Data->Group.Origin.y;
+                    acc.z += up->Data->Group.Origin.z;
+                }
+            }
+            if (idx >= 0 && idx < n)
+            {
+                for (j = 0; j < 3; j++)
+                {
+                    rwmtx[idx].m[3][j] = acc.x * base.m[0][j] + acc.y * base.m[1][j] + acc.z * base.m[2][j] + base.m[3][j];
+                }
+            }
+        }
+    }
+
+    /* as gunUpdateAndFire sets up a weapon's: the hands, then the outfit's sleeve */
+    modelInit(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, (s32 *) s_gevrWatchHandRw);
+    sub_GAME_7F05E978(&s_gevrWatchHandModel, 1);
+    sub_GAME_7F05EA94(&s_gevrWatchHandModel, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    if (s_gevrWatchHandHeader.numSwitches >= 0x1E)
+    {
+        bondviewSelectCuff(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, 0x1D);
+    }
+    s_gevrWatchHandModel.render_pos = (RenderPosView *) rwmtx;
+
+    renderdata = *templ;
+    renderdata.gdl = gdl;
+    renderdata.PropType = 4;
+    renderdata.envcolour.word = g_CurrentPlayer->tileColor.a
+                              | ((u32)g_CurrentPlayer->tileColor.r << 24)
+                              | ((u32)g_CurrentPlayer->tileColor.g << 16)
+                              | ((u32)g_CurrentPlayer->tileColor.b << 8);
+    renderdata.zbufferenabled = 1;
+
+    matrix_4x4_7F058C64();
+    if (gevrStereoMirrored())
+    {
+        gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
+    }
+    subdraw(&renderdata, &s_gevrWatchHandModel);
+    gdl = renderdata.gdl;
+    if (gevrStereoMirrored())
+    {
+        gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
+    }
+    bondviewTransformManyPosToViewMatrix(s_gevrWatchHandModel.render_pos, n);
+    matrix_4x4_7F058C88();
+
+    return gdl;
+}
 #endif
 
 // Address: 0x7F062BE4
@@ -2137,8 +2372,14 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
      * overlapped - from outside, the hand behind the mine showed through it
      * and it looked hollow. Drawn first, the fist is hidden only where the
      * gadget is in front.
+     *
+     * Issue #53: what each controller holds is tagged with it
+     * (VR_HAND_DRAW_BEGIN | controller + 1, gevrHandTag), so the XR frames
+     * between game frames move it by that controller's own motion.
      */
+    gdl = gevrHandTag(gdl, 1);
     gdl = gevrRenderRightFist(gdl, &renderdata);
+    gdl = gevrHandTag(gdl, -1);
 #endif
  
     for (handnum = 0; handnum != 2; handnum++) 
@@ -2161,9 +2402,10 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             continue;
         }
+        gdl = gevrHandTag(gdl, handnum == GUNRIGHT ? 1 : 0);
 #endif
- 
-        if (item != ITEM_WATCHLASER) 
+
+        if (item != ITEM_WATCHLASER)
         {
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
         }
@@ -2299,6 +2541,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
+        /* issue #31: the watch items' arm is the tracked watch arm (bondview2.c gevrStereoWatchItem) */
+        if (!gevrStereoWatchItem(item))
 #endif
         subdraw(&renderdata, &handptr->weaponModel);
         gdl = renderdata.gdl;
@@ -2320,10 +2564,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
  
         bondviewTransformManyPosToViewMatrix((handptr->weaponModel).render_pos, (handptr->weaponModel).obj->numMatrices);
         matrix_4x4_7F058C88();
- 
+
         gSPPerspNormalize(gdl++, viGetPerspNorm());
- 
-        if (item == ITEM_WATCHLASER) 
+#ifdef GEVR
+        gdl = gevrHandTag(gdl, -1);
+#endif
+
+        if (item == ITEM_WATCHLASER)
         {
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
         }
@@ -2334,11 +2581,20 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         /* Bond's watch arm on the left controller; the mirrored fist if it cannot load */
         extern Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
         s32 drawn = FALSE;
-        gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
-        if (!drawn)
+
+        /* also for the watch laser and the detonator: it is their arm (issue #31) */
+        gdl = gevrHandTag(gdl, 0);
+        /* #31: at the watch, the watch laser's own two arms instead (gevrRenderWatchGripHand) */
+        if (!(gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()))
         {
-            gdl = gevrRenderLeftArm(gdl, &renderdata);
+            gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
+            if (!drawn)
+            {
+                gdl = gevrRenderLeftArm(gdl, &renderdata);
+            }
         }
+        gdl = gevrRenderWatchGripHand(gdl, &renderdata);
+        gdl = gevrHandTag(gdl, -1);
     }
 #endif
     *gdlptr = gdl;
@@ -5427,6 +5683,30 @@ void gunTickGameplay(s32 triggerOn)
         trigger_state.triggerOn[GUNRIGHT] = triggerOn && gevrVrTriggerDown[GUNRIGHT];
         trigger_state.triggerOn[GUNLEFT] = triggerOn && gevrVrTriggerDown[GUNLEFT];
     }
+    /*
+     * Issue #31 (user): the watch laser and the detonator fire only with the
+     * gun hand at the watch, as Bond's right hand presses it in their
+     * viewmodels (bondview2.c gevrStereoWatchGripUpdate). Kept every tick, not
+     * only while the trigger is down: the hand shows the grip whenever a pull
+     * would fire.
+     */
+    {
+        extern s32 gevrStereoWatchGripUpdate(s32 held, f32 *cmOut);
+        static s32 wasAt = -1;
+        s32 held = g_gevrStereo && gevrStereoWatchItem(getCurrentPlayerWeaponId(GUNRIGHT));
+        f32 cm = 0.0f;
+        s32 at = gevrStereoWatchGripUpdate(held, &cm);
+
+        if (held && at != wasAt)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: watch grip %s, hand %.1f cm from the watch", at ? "on" : "off", cm);
+        }
+        wasAt = held ? at : -1;
+        if (held && !at)
+        {
+            trigger_state.triggerOn[GUNRIGHT] = 0;
+        }
+    }
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand
     gunTickHandState(1, trigger_state.triggerOn[1]); // Left hand
@@ -7331,7 +7611,9 @@ void gunDrawSight(Gfx **gdl) {
         {
             if ((g_CurrentPlayer->gunsightmode == 0) && (g_CurrentPlayer->mpmenuon == FALSE))
             {
+                *gdl = gevrHandTag(*gdl, 1);   /* issue #53: it follows the gun */
                 *gdl = gevrDrawSight3D(*gdl, GUNRIGHT, FALSE);
+                *gdl = gevrHandTag(*gdl, -1);
                 /* issue #40: the same sight in the sniper scope, for the scope only */
                 if (gevrScopeOn)
                 {
@@ -7349,7 +7631,9 @@ void gunDrawSight(Gfx **gdl) {
             if (vr_button_L_grip && ((g_CurrentPlayer->gunsightmode & ~GUNSIGHTREASON_NOTAIMING) == 0)
                 && (g_CurrentPlayer->mpmenuon == FALSE))
             {
+                *gdl = gevrHandTag(*gdl, 0);
                 *gdl = gevrDrawSight3D(*gdl, GUNLEFT, FALSE);
+                *gdl = gevrHandTag(*gdl, -1);
             }
             return;
         }
