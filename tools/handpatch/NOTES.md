@@ -189,6 +189,35 @@ For Phase 2 (the runtime), from this format:
   computed once at load. Group by texture + shade to keep draw calls down.
 - Skip a whole patch part if any referenced node's fingerprint differs.
 
+## Phase 2: the runtime (2026-09-26, built, awaiting the headset test)
+Started once #35 and the stereo viewmodel wood had merged (main v0.1.16,
+merged into the branch as 4aff811).
+- tools/gevr_handpatch_gen.py: tools/handpatch/*.patch.json ->
+  port/src/gevr_handpatch_data.c (generated, committed; 13 models, 34 parts,
+  1384 triangles, 3418 weights). Re-run it after any patch changes.
+- port/include/gevr_handpatch.h, port/src/gevr_handpatch.c:
+  - gevrModelConvert() (gevr_model.c) asks gevrHandPatchWants(name) and, for
+    a patched model, notes every node's cartridge -> host offset and each
+    texture marker's w0 (0xC0 commands) before its block table goes.
+  - load_object_fill_header() (objecthandler_2.c) calls gevrHandPatchApply()
+    after sub_GAME_7F0762E0: every model load passes there, the private
+    loaders too (fist, taser/grenade hand, watch laser, watch arm).
+  - Per part: every referenced node must have its numvtx and FNV; corners
+    from the node's Vertices (host pointers after promotion), new points as
+    weight sums; per group the model's own marker (w0 noted, w1 = texture
+    number) then G_MTX (segment 3 | 1 tag) + G_VTX per matrix run, 16-vertex
+    batches, G_TRI1; texLoadFromGdl() expands the markers with the model's
+    texture pool (it writes the G_TEXTURE too: writeTexFlag starts TRUE).
+    The host's Primary becomes a wrapper [G_DL own list, G_DL patch, ENDDL].
+  - Allocations are per model buffer (24 slots), freed when a model loads
+    into that buffer again; two copies of a gun are two buffers.
+  - files/gevr_handpatch.txt, read at each model load: 0 off, 2 magenta
+    (shade), else on. A weapon switch or level load re-reads it.
+  - Log: "handpatch <model>: N of M parts, T triangles" (LOG_NOTE), or a
+    warning naming the node that did not match.
+- A desk check (prox_close + am start) hit Guardian and the controllers
+  dialog; the test is the user's.
+
 Tool quirks
 - Bash heredocs with Python inside break here: write edit scripts to the
   scratchpad and run them.
