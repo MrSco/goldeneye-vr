@@ -51,7 +51,13 @@
 
 Also:
 - An **in-VR launcher**: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (72, 90 or 120 Hz), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
-- **HD textures**: the launcher's **Mods** page downloads a fan-made texture pack on request, straight from its authors' site, and installs it in the headset. First up: *GoldenEye 007 HD* by intermissionfb and GhostlyDark (evilgames.eu, 129 MB). Nothing of theirs ships with the app.
+- **HD textures**: the launcher's **Mods** page downloads a fan-made texture pack on request and installs it in the headset:
+  - *GoldenEye 007 HD* by intermissionfb and GhostlyDark (evilgames.eu, 129 MB).
+  - *GoldenEye 007 HD + AI* (251 MB), our [fork](https://github.com/MrSco/GoldenEye-007-HD). It adds AI upscales of the game's own textures for the ones the pack doesn't cover yet: guards, weapons, parts of levels.
+
+  Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
+
+  In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
@@ -351,9 +357,11 @@ This project's own code is **MIT** licensed ([LICENSE](LICENSE)). Vendored compo
 
 The app icon and banner art were made for this project.
 
-Texture packs on the Mods page belong to their authors and are downloaded from their
-own sites when you ask: *GoldenEye 007 HD* by **intermissionfb** and **GhostlyDark**
-([evilgames.eu](https://evilgames.eu/texture-packs/ge007-hd.htm)).
+Texture packs on the Mods page belong to their authors and are downloaded when you
+ask: *GoldenEye 007 HD* by **intermissionfb** and **GhostlyDark**
+([evilgames.eu](https://evilgames.eu/texture-packs/ge007-hd.htm)). Our fork,
+*GoldenEye 007 HD + AI* ([MrSco/GoldenEye-007-HD](https://github.com/MrSco/GoldenEye-007-HD)),
+is their pack plus AI upscales, made with `tools/texai`, for the textures it doesn't have yet.
 
 ## ⭐ Star History
 

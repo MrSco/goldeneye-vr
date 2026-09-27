@@ -5083,3 +5083,68 @@ Latent, noted by the agents:
 - Tested: PP7 pistol-whip (2.04-2.54 m/s, reach 30-33 cm), throwing knife.
   Not re-tested since the fix: fist, club (butt reach), hunting knife, left
   chop.
+
+## 117. HD + AI texture pack, pack updates, texture switch (merged 2026-09-26)
+
+Branch claude/ai-generated-hd-textures-477235. Details are in
+tools/texai/NOTES.md.
+
+**The pack**
+- The evilgames pack is forked to github.com/MrSco/GoldenEye-007-HD.
+  - User decision: no permission ask. The authors are credited in
+    CREDITS.md, the fork README and the zip's readme.
+- `GOLDENEYE/AI/` holds 990 AI textures, only for ones the pack lacks. They
+  never replace the authors' textures.
+- Each release `ai-<version>` carries
+  `ge007-hd-ai-<version>-gliden64-png.zip`: the authors' master at their HD
+  release's sizes, plus `GOLDENEYE/AI` (package.py). Latest:
+  ai-2026.09.26.4.
+
+**Mods page**
+- It lists a second pack, "GoldenEye 007 HD + AI".
+- ModManager follows each pack's GitHub releases. The check runs when the
+  page opens, once a run.
+  - A new install takes the newest release.
+  - An installed pack whose marker version differs shows "Update to X".
+  - So pack releases need no app release.
+- Seen on the headset: 2026.09.26 -> .2 -> .3 -> .4.
+- Each pack's credit line now wraps. The AI pack's ran off the page's
+  right edge (user).
+
+**Texture switch**
+- Hold Menu. With a pack in use, the back-to-launcher prompt adds
+  "X: HD TEXTURES OFF/ON". X switches the pack for the session.
+  - gfx_pc.cpp gevrTexpackToggle/State apply it at the next frame start.
+  - bondview2.c says which way in a level. X isn't sent as use/reload.
+- The user rejected a left-stick hold for this, because it recentres the
+  screen.
+- The prompt's box now covers its last line: textMeasure only counts line
+  breaks.
+
+**Texture dump**
+- While files/gevr_packdump exists, gfx_pc.cpp writes each texture the
+  active pack lacks to files/texture-dump/.
+  - Files get their GLideN64 name, with a line in index.tsv: size, format,
+    wrap flags, level.
+- Checked: 68 of 76 dumped names are in the authors' ge007.tdb.
+
+**tools/texai**
+- romkeys.py names the ROM's zlib textures as GLideN64 does, with no
+  headset: 1,225 of 1,744 are in ge007.tdb. That gave 927 AI textures.
+- batch.py drives the user's ComfyUI (E:\AI\ComfyUI-Installs, :8188).
+  - SeedVR2 7B int8 runs in two 4x passes (one 32x pass only blurs).
+  - Real-ESRGAN takes IA/RGBA textures (lettering, glows).
+- texai.py post:
+  - a 4x4-texel colour lock with transparent texels filled first;
+  - seams by the wrap flags;
+  - alpha upscaled on its own;
+  - outside a cut-out, the original's own colour. The Rare logo draws its
+    RAREWARE tiles ignoring alpha, so colour bled into the transparent
+    texels showed as an orange block.
+- rejected.txt lists textures reviewed out: invented text, halftone
+  dossiers.
+
+**Not done**
+- The 954 non-zlib ROM textures, and every level not yet played with the
+  dump on.
+- Next steps: dump, then batch.py, then package.py, then an ai- release.

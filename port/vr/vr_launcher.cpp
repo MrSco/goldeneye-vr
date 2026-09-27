@@ -503,7 +503,10 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     for (const ModPack &p : packs) {
         ImGui::PushID(p.id.c_str());
         ImGui::Text("%s  %s", p.title.c_str(), p.version.c_str());
-        ImGui::TextDisabled("by %s  -  %s  -  %d MB", p.by.c_str(), p.site.c_str(), p.mb);
+        // wrapped: the AI pack's credit ran off the page's right edge (user)
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+        ImGui::TextWrapped("by %s  -  %s  -  %d MB", p.by.c_str(), p.site.c_str(), p.mb);
+        ImGui::PopStyleColor();
         if (p.state == "downloading" || p.state == "installing") {
             if (ImGui::SmallButton("Cancel")) gevrJavaCommand("modsCommand", "cancel");
             ImGui::SameLine();
