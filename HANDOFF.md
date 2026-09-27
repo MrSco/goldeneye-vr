@@ -5438,3 +5438,19 @@ tools/texai/NOTES.md.
 - Open: an internet lobby (master server, e.g. on goldeneyevr.com's
   Cloudflare Workers, plus NAT: port forwarding, hole punching or a relay)
   is a separate decision. v0.1.18 notes draft in the session scratchpad.
+
+## 127. v0.1.18 published (2026-09-27)
+- Tag v0.1.18 = build commit 49640de (versionCode 19), release key, APK
+  SHA-256 27005e17...7b46f7 (GitHub's digest matches). Installed on the
+  headset with adb.
+- Contents since v0.1.17: online multiplayer, experimental (124, 126: host
+  weapons choice, LAN list), hand and arm shells (#9, 121), texture tour and
+  pack ai-2026.09.27.2 (122), HD pack on blended tiles and the file-select
+  hitch (123), melee pace (125). README: multiplayer section.
+- Multiplayer has still never been played on two headsets.
+- Issues not yet replied to (awaiting the user): #9 close, #23 comment
+  (keep open), #55 pace note.
+- The website's deploy gate (its multiplayer section) is now met.
+- Next multiplayer milestone proposed: game codes and an internet game list
+  on a Cloudflare Worker (step 1), then UDP hole punching (step 2), a relay
+  only if needed (step 3).
