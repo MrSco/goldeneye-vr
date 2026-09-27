@@ -87,6 +87,11 @@ extern "C" void vrSettingsSave(void)
             VrGripTrim[0][2], VrGripTrim[0][3], VrGripTrim[0][4], VrGripTrim[0][5]);
     fprintf(f, "GripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGripTrim[1][0], VrGripTrim[1][1],
             VrGripTrim[1][2], VrGripTrim[1][3], VrGripTrim[1][4], VrGripTrim[1][5]);
+    fprintf(f, "; The hand holding the watch for the watch laser (issue #60), set with Gun fit\n");
+    fprintf(f, "; while holding the watch: cm along the arm, out of the watch face, along the\n");
+    fprintf(f, "; thumb, then degrees of turn about the hand's X, Y, Z.\n");
+    fprintf(f, "GripWatch=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrWatchGripTrim[0], VrWatchGripTrim[1],
+            VrWatchGripTrim[2], VrWatchGripTrim[3], VrWatchGripTrim[4], VrWatchGripTrim[5]);
     fprintf(f, "\n");
     fprintf(f, "; 0..1. How tightly the elbows are pulled in toward your body. 0 leaves them at the\n");
     fprintf(f, "; animation's rest pose (they splay outward), 1 pins them hard against the torso.\n");
@@ -126,6 +131,13 @@ extern "C" void vrSettingsLoad(void)
             float t[6];
             if (sscanf(strchr(line, '=') + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 6) {
                 for (int i = 0; i < 6; i++) VrGripTrim[cls][i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(line, "GripWatch=", 10) == 0) {
+            float t[6];
+            if (sscanf(line + 10, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 6) {
+                for (int i = 0; i < 6; i++) VrWatchGripTrim[i] = t[i];
             }
             continue;
         }
