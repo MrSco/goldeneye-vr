@@ -1,0 +1,8 @@
+[
+ {"tex": "00c3", "what": "a red brick wall with light mortar", "kind": "material", "wrap": [true, true]},
+ {"tex": "0160", "what": "a grey metal control panel: two gauges, four indicator lamps and a slider", "kind": "detail"},
+ {"tex": "0955", "what": "a wall sign: the number 58 stencilled in black on a light grey panel with a dark frame", "kind": "detail"},
+ {"tex": "081d", "what": "face", "kind": "face", "flip": true},
+ {"tex": "0914", "what": "a green jungle plant frond", "kind": "detail"},
+ {"tex": "094e", "what": "dense green jungle foliage", "kind": "material", "wrap": [true, false]}
+]

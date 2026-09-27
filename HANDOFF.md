@@ -5035,3 +5035,189 @@ Latent, noted by the agents:
 - Open: #50 Trevelyan floating (parked), #9 hand underside (another
   session), #32 Surface bullet impacts, #29 bullet-hole stripes, #30 water
   shimmer, #23 multiplayer; #18 waits on the reporter.
+
+## 115. Free-hand chop (#55, merged 2026-09-26)
+- feature/55-off-hand-chop: MERGED (user: "feels better", two-handed hold
+  "seemed ok"). With the off hand free (not dual wielding, not holding the
+  gun with both hands, not gripping the watch laser, watch closed, not in the
+  tank), a blow with it chops a guard with GoldenEye's own fist.
+- Hand speed: Perfect Dark VR's gesture frame (vr_ctrl_velocity_play less
+  vr_head_velocity_play, turned into the controller's frame by its
+  worldToLocal), bondview2.c gevrOffHandChopTick, called from gunfire.c
+  gunTickGameplay after the two-handed hold.
+- Hit: on contact, as GEVR PC's hand melee (gevr-up GETV_VR_HANDMELEE /
+  SWINGHIT): hand moving at 1 m/s or more within 10 cm of a guard's view-space
+  box. chrprop.c gevrChopHit is chraiFistAttackHandler round the hand (same
+  guards, line and tile checks, hit part, ITEM_FIST damage: full on a guard
+  standing or patrolling, 1/8 front, 1/4 side, 1/2 behind otherwise). Blow
+  direction eye to hand. Cooldown 30 ticks, a short buzz on the off hand.
+- Whiff: a swing passing PD's test at 1.2 m/s along +Y (over the knuckles) or
+  1.6 across it, landing nothing in 20 ticks, plays PUNCHING_AIR_SFX.
+- Rejected on the way: PD's fist speeds (1.5 / 2.5 m/s) took a wild swing;
+  starting the chop on the swing test lost the blow to the wind-up (the
+  wind-up is as fast as the chop, 1.1-1.8 m/s). Logged chops at contact:
+  1.08-2.52 m/s; lower GEVR_CHOP_HIT to 0.8 if soft chops pass through.
+
+## 116. Melee with either hand, whatever it holds (merged 2026-09-26)
+- feature/right-hand-swing: MERGED (user: "feels good", hears the whiff).
+  Supersedes 115's placement: bondview2.c gevrHandChopTick(ctrl) for both
+  hands, called from lv.c lvlRender right after chraiCheckUseHeldItems.
+- The bug it fixes (also in 115 as merged): run from gunTickGameplay (the move
+  tick, boss.c lvlViewMoveTick, before lvlRender), the blow read last frame's
+  guard matrices, which chr.c packs into N64 fixed point in place after the
+  draw (bondviewTransformManyPosToViewMatrix). Boxes were garbage and blows
+  landed from afar (user). Only between propsTick and the draw are a chr's
+  render_pos floats - where the game's own fist reads them. The same holds for
+  the first-person gun's weaponModel.render_pos: use hands[].gunmtx_camspace.
+- Per item: bare hand / fist 1 m/s at the hand; sniper club (ITEM_FIST with
+  cur_item_weapon_getname sniper) 1 m/s, hand to butt; hunting knife 1 m/s at
+  the hand, ITEM_KNIFE damage; guns 2 m/s (PD pistol-whip), hand to the muzzle
+  as drawn (s_gevrMuzzleItem guards a stale muzzle); gadgets and the throwing
+  knife 2 m/s at the hand. Damage ITEM_FIST otherwise (GE scores the club so).
+- Club butt: GsniperrifleZ has no BBOX node; its lowest-z vertex measured from
+  the ROM, (-13, 26.75, -320) model units, through gunmtx_camspace x 0.1.
+- Whiff for every miss (GE's is the fist's alone; user wanted the sound);
+  armed swings whiff only past PD's pistol-whip test, 2 m/s either way.
+- Off: the off hand on the gun (two-handed), either hand at the watch laser,
+  the tank, the watch. The gun hand swings its rifle while two-handed.
+- Tested: PP7 pistol-whip (2.04-2.54 m/s, reach 30-33 cm), throwing knife.
+  Not re-tested since the fix: fist, club (butt reach), hunting knife, left
+  chop.
+
+## 117. HD + AI texture pack, pack updates, texture switch (merged 2026-09-26)
+
+Branch claude/ai-generated-hd-textures-477235. Details are in
+tools/texai/NOTES.md.
+
+**The pack**
+- The evilgames pack is forked to github.com/MrSco/GoldenEye-007-HD.
+  - User decision: no permission ask. The authors are credited in
+    CREDITS.md, the fork README and the zip's readme.
+- `GOLDENEYE/AI/` holds 990 AI textures, only for ones the pack lacks. They
+  never replace the authors' textures.
+- Each release `ai-<version>` carries
+  `ge007-hd-ai-<version>-gliden64-png.zip`: the authors' master at their HD
+  release's sizes, plus `GOLDENEYE/AI` (package.py). Latest:
+  ai-2026.09.26.4.
+
+**Mods page**
+- It lists a second pack, "GoldenEye 007 HD + AI".
+- ModManager follows each pack's GitHub releases. The check runs when the
+  page opens, once a run.
+  - A new install takes the newest release.
+  - An installed pack whose marker version differs shows "Update to X".
+  - So pack releases need no app release.
+- Seen on the headset: 2026.09.26 -> .2 -> .3 -> .4.
+- Each pack's credit line now wraps. The AI pack's ran off the page's
+  right edge (user).
+
+**Texture switch**
+- Hold Menu. With a pack in use, the back-to-launcher prompt adds
+  "X: HD TEXTURES OFF/ON". X switches the pack for the session.
+  - gfx_pc.cpp gevrTexpackToggle/State apply it at the next frame start.
+  - bondview2.c says which way in a level. X isn't sent as use/reload.
+- The user rejected a left-stick hold for this, because it recentres the
+  screen.
+- The prompt's box now covers its last line: textMeasure only counts line
+  breaks.
+
+**Texture dump**
+- While files/gevr_packdump exists, gfx_pc.cpp writes each texture the
+  active pack lacks to files/texture-dump/.
+  - Files get their GLideN64 name, with a line in index.tsv: size, format,
+    wrap flags, level.
+- Checked: 68 of 76 dumped names are in the authors' ge007.tdb.
+
+**tools/texai**
+- romkeys.py names the ROM's zlib textures as GLideN64 does, with no
+  headset: 1,225 of 1,744 are in ge007.tdb. That gave 927 AI textures.
+- batch.py drives the user's ComfyUI (E:\AI\ComfyUI-Installs, :8188).
+  - SeedVR2 7B int8 runs in two 4x passes (one 32x pass only blurs).
+  - Real-ESRGAN takes IA/RGBA textures (lettering, glows).
+- texai.py post:
+  - a 4x4-texel colour lock with transparent texels filled first;
+  - seams by the wrap flags;
+  - alpha upscaled on its own;
+  - outside a cut-out, the original's own colour. The Rare logo draws its
+    RAREWARE tiles ignoring alpha, so colour bled into the transparent
+    texels showed as an orange block.
+- rejected.txt lists textures reviewed out: invented text, halftone
+  dossiers.
+
+**Not done**
+- The 954 non-zlib ROM textures, and every level not yet played with the
+  dump on.
+- Next steps: dump, then batch.py, then package.py, then an ai- release.
+
+## 118. Scopes at the N64's magnification; laser scope; rifle magnifiers; grip steadying (#58, merged 2026-09-27)
+- fix/58-scope-zoom + feature/laser-scope (stacked): MERGED (user: "feels
+  and looks good"). Supersedes 105's zoom rule.
+- Magnification (#58, ApeFe: "about 2x"): the lens showed sniper_zoom's
+  degrees across itself, but it fills only 20-40 degrees of the view. Now
+  tan(view/2) = tan(lens/2) x tan(zoom/2) / tan(30): the N64's zoomed view
+  over its 60-degree normal one. vr_openxr.cpp publishes gevrScopeLensTan
+  (lens radius / distance, as last shown); bondview2.c gevrScopeBegin sizes
+  the scope's view from it each frame. Logged on zoom changes.
+- Sniper range in stereo (gun.c camera_sniper_zoom_*): no wider than it
+  starts (15 degrees, 4.4x; 60 showed the world at its own size, user), on to
+  2.65 degrees, 25x (the N64's 7 / 9.4x, then 15x, were not enough, user).
+  The screen keeps 7..60 (get_item_in_hand_zoom returns at least 7).
+- Aiming the sniper, the moving stick's side to side no longer strafes
+  (input.c, bondview2.c gevrScopeZoomStick); up/down zooms as before.
+- Scopes are a table (bondview2.c s_gevrScopes, eyepieces from the ROM, raw
+  vertex coordinates): sniper (node 0x27c end ring), laser (GlaserZ node
+  0x2ac, rear face of the sight housing: 0, 100, -80, r 16; fixed 3x, 21.8
+  degrees - the N64 never zoomed it; 2.2x was a bit little, user), KF7 (Gak47Z
+  receiver top rear: 0, 80, -44) and AR33 (Gm16Z rear sight housing: 0.5, 140,
+  -5), r 16, at their own aim zoom (ak47 30, m16 20 degrees).
+- The KF7's and AR33's magnifier shows only with the eye within 15 cm of it,
+  gone past 20 (user's idea; hysteresis, as one distance flickered in 105).
+  Logged "sight magnifier on/off (item, eye cm)". Tested clean.
+- Rifles' whole-screen aim zoom: references disagree - PD VR zooms the whole
+  headset view (with head and hand smoothing while gripping a zoom weapon),
+  GEVR PC rejects view zoom (docs/37 trap 3: a scope render instead, never
+  built). User chose the magnifier.
+- Grip steadying (PD VR vr_input.cpp WepCanZoom, CTRL_SMOOTH_ALPHA_ROT_GRIP
+  0.10 per XR frame): aiming a gun with a scope, the gun hand's turn is
+  slerped 0.15 a game frame (vr_input.cpp gevr_steady, bondview2.c
+  gevrGripSteadyOn). Position stays raw.
+- Redraw fix: the #53 in-between frames moved the gun to the RAW newest turn
+  while the game frame used the steadied one, putting tremor back on every
+  redrawn frame (aim steadying too, since 108). vr_input.cpp
+  gevrVrGripPoseSteady carries the play-space steadying onto the newest
+  view pose (raw_view x raw_play^-1 x steady_play); gevrVrRedrawHandDelta and
+  the scope lens use it.
+- #58 and #59 still open: reply to ApeFe at the release. #58: magnification
+  explained, 25x, grip steadying; the "move half as far" idea not done. #59
+  (no zoom on the AR33 and KF7 since #40; could the laser's modeled scope
+  zoom?): the near-eye magnifiers at their original zoom, and the laser's 3x
+  scope.
+
+## 119. v0.1.17 published (2026-09-27)
+- Tag v0.1.17 = build commit 2ea2a6d (versionCode 18), release key, APK
+  SHA-256 c49c8936...32cfd7 (GitHub's digest matches). Installed on the
+  headset with adb.
+- Contents since v0.1.16: melee with either hand (115-116), HD + AI texture
+  pack with pack updates and the Menu+X switch (117), scopes at the N64's
+  magnification, laser scope, KF7/AR33 near-eye magnifiers, grip steadying,
+  steadied redraws (118). README: melee, scopes, magnifiers.
+- Closed with replies: #58 #59 #57 (completed). Commented on closed #55.
+- Open: #60 laser watch pop-in (owner asked for screenshots; listed as a
+  known issue), #56 akimbo with different guns, #50 (parked), #9 (another
+  session), #32 #30 #29 #23 #18.
+
+## 120. fix/60-watch-grip-hand: SHELVED (2026-09-27)
+- #60 (ApeFe): at the watch, the watch laser's own two-arm viewmodel
+  (GwatchlaserZ) replaced the tracked watch arm and popped to a smaller,
+  coarser arm. User: the new HD textures handle it mostly; branch shelved,
+  not merged. Pushed, two commits:
+  - 1fb7ef9: the tracked watch arm stays; the gun hand at the watch is the
+    taser's gripping hand (the #41 grenade hand) on its controller; the
+    GwatchlaserZ copy, loader and gevrStereoWatchHandMatrix removed. Tested:
+    the hand only changed model near the wrist (user: should snap and lock).
+  - 7a07ebb (built, never installed): the gripping hand pinned to the left
+    wrist as #35's is to the gun (bondview2.c gevrStereoWatchGripMatrix:
+    GUNLEFT's matrix, trim turn, palm on the watch face plus a wrist-frame
+    offset; left hand's redraw tag), trim VrWatchGripTrim / ini GripWatch,
+    set in Gun fit while holding the watch ("WATCH GRIP FIT").
+- The headset was left on 1fb7ef9 (this branch), not main.

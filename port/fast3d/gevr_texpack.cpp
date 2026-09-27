@@ -41,6 +41,7 @@
 #endif
 
 #include "external/stb_image.h"   // the implementation is in port/src/ext_tex.c
+#include <zlib.h>
 
 namespace gevrtp {
 
@@ -320,6 +321,107 @@ void trim(size_t budget) {
         std::vector<uint8_t>().swap(e.rgba);
         e.state = UNLOADED;   // decoded again if it's needed again
     }
+}
+
+/*
+ * Texture dump for tools/texai: the textures a pack lacks, as GLideN64 would
+ * dump them (its names, RGBA PNG), plus a line each in index.tsv. Written on a
+ * thread of its own: entering a level imports hundreds of textures at once.
+ */
+struct DumpJob {
+    std::string name, line;
+    std::vector<uint8_t> rgba;
+    uint32_t w, h;
+};
+static std::mutex s_dumpMu;
+static std::condition_variable s_dumpCv;
+static std::deque<DumpJob> s_dumpQueue;
+static std::string s_dumpDir;
+
+static void pngChunk(FILE *f, const char *type, const uint8_t *data, uint32_t len) {
+    uint8_t be[4] = { (uint8_t)(len >> 24), (uint8_t)(len >> 16), (uint8_t)(len >> 8), (uint8_t)len };
+    fwrite(be, 1, 4, f);
+    fwrite(type, 1, 4, f);
+    if (len) fwrite(data, 1, len, f);
+    uLong crc = crc32(0, (const Bytef *)type, 4);
+    if (len) crc = crc32(crc, data, len);
+    uint8_t c[4] = { (uint8_t)(crc >> 24), (uint8_t)(crc >> 16), (uint8_t)(crc >> 8), (uint8_t)crc };
+    fwrite(c, 1, 4, f);
+}
+
+static bool writePng(const std::string &path, const DumpJob &j) {
+    // filter byte 0 (none) before each row, then deflate
+    std::vector<uint8_t> raw((size_t)(j.w * 4 + 1) * j.h);
+    for (uint32_t y = 0; y < j.h; ++y) {
+        raw[(size_t)y * (j.w * 4 + 1)] = 0;
+        memcpy(&raw[(size_t)y * (j.w * 4 + 1) + 1], &j.rgba[(size_t)y * j.w * 4], (size_t)j.w * 4);
+    }
+    uLongf zlen = compressBound((uLong)raw.size());
+    std::vector<uint8_t> z(zlen);
+    if (compress2(z.data(), &zlen, raw.data(), (uLong)raw.size(), 6) != Z_OK) return false;
+    FILE *f = fopen(path.c_str(), "wb");
+    if (f == nullptr) return false;
+    static const uint8_t sig[8] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n' };
+    fwrite(sig, 1, 8, f);
+    const uint8_t ihdr[13] = { (uint8_t)(j.w >> 24), (uint8_t)(j.w >> 16), (uint8_t)(j.w >> 8), (uint8_t)j.w,
+                               (uint8_t)(j.h >> 24), (uint8_t)(j.h >> 16), (uint8_t)(j.h >> 8), (uint8_t)j.h,
+                               8, 6, 0, 0, 0 };   // 8-bit RGBA, no interlace
+    pngChunk(f, "IHDR", ihdr, 13);
+    pngChunk(f, "IDAT", z.data(), (uint32_t)zlen);
+    pngChunk(f, "IEND", nullptr, 0);
+    return fclose(f) == 0;
+}
+
+static void dumpWorker() {
+#ifdef __ANDROID__
+    setpriority(PRIO_PROCESS, (id_t)gettid(), 10);
+#endif
+    unsigned written = 0;
+    while (true) {
+        DumpJob j;
+        {
+            std::unique_lock<std::mutex> lk(s_dumpMu);
+            s_dumpCv.wait(lk, [] { return !s_dumpQueue.empty(); });
+            j = std::move(s_dumpQueue.front());
+            s_dumpQueue.pop_front();
+        }
+        if (!writePng(s_dumpDir + "/" + j.name, j)) {
+            TPLOG("texdump: could not write %s (%s)", j.name.c_str(), strerror(errno));
+            continue;
+        }
+        FILE *f = fopen((s_dumpDir + "/index.tsv").c_str(), "a");
+        if (f != nullptr) {
+            fputs(j.line.c_str(), f);
+            fclose(f);
+        }
+        if ((++written % 100) == 0) TPLOG("texdump: %u textures written to %s", written, s_dumpDir.c_str());
+    }
+}
+
+void dumpStart(const char *dir) {
+    static std::atomic<bool> started{false};
+    bool expected = false;
+    if (dir == nullptr || !started.compare_exchange_strong(expected, true)) return;
+    s_dumpDir = dir;
+    mkdir(dir, 0777);
+    TPLOG("texdump: on, writing to %s", dir);
+    std::thread(dumpWorker).detach();
+}
+
+void dump(const char *name, const uint8_t *rgba, uint32_t w, uint32_t h, uint32_t stride, const char *indexLine) {
+    if (s_dumpDir.empty() || w == 0 || h == 0) return;
+    DumpJob j;
+    j.name = name;
+    j.line = indexLine;
+    j.w = w;
+    j.h = h;
+    j.rgba.resize((size_t)w * h * 4);
+    for (uint32_t y = 0; y < h; ++y) memcpy(&j.rgba[(size_t)y * w * 4], rgba + (size_t)y * stride, (size_t)w * 4);
+    {
+        std::lock_guard<std::mutex> lk(s_dumpMu);
+        s_dumpQueue.push_back(std::move(j));
+    }
+    s_dumpCv.notify_one();
 }
 
 } // namespace gevrtp
