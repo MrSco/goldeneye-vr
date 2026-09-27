@@ -2598,6 +2598,7 @@ extern f32 D_80036AC0;
 extern f32 D_80036AC4;
 
 extern s32 startpadcount;
+void mp_respawn_handler_net(s32 pad_index, f32 theta);
 extern vec3d g_ForceBondMoveOffset;
 extern s32 mission_timer;
 

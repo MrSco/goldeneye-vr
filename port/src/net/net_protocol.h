@@ -8,7 +8,7 @@
 #include "net/netbuf.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         2
+#define GEVR_NET_VERSION         3
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
@@ -49,7 +49,7 @@ typedef enum {
     NET_MSG_FIRE_EVENT = 11,    /* Shooter -> Server / Peers */
     NET_MSG_HIT_REPORT = 12,    /* Shooter -> Server */
     NET_MSG_DAMAGE_EVENT = 13,  /* Server -> All */
-    NET_MSG_RESPAWN = 14,       /* Server -> All */
+    NET_MSG_RESPAWN = 14,       /* Respawning player -> host -> peers */
     NET_MSG_MATCH_END = 15,     /* Server -> All */
     
     /* Voice Chat */

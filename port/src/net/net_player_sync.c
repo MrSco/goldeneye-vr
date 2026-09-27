@@ -46,12 +46,6 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             float dz = m->pos.z - pl->prop->pos.z;
             float dist_sq = dx*dx + dy*dy + dz*dz;
             
-            /* If player was marked dead and moves/teleports on respawn, revive them */
-            if (pl->bonddead && dist_sq > (150.0f * 150.0f)) {
-                pl->bonddead = 0;
-                pl->deathanimfinished = 0;
-            }
-
             if (dist_sq > (512.0f * 512.0f) || dist_sq < 0.0001f || (pl->bonddead == 0 && pl->deathanimfinished)) {
                 pl->prop->pos = m->pos;
                 pl->deathanimfinished = 0;
@@ -175,4 +169,3 @@ void netPlayerSyncAfterTick(s32 playernum) {
     
     netSendLocalPlayerMove(&move);
 }
-
