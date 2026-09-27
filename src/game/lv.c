@@ -698,7 +698,18 @@ Gfx* lvlRender(Gfx* DL)
 
         for(i = 0; i < pcount; i++)
         {
-            set_cur_player(get_nth_player_from_shuffled(i));
+            s32 playernum = get_nth_player_from_shuffled(i);
+#ifdef GEVR
+            {
+                extern bool netIsActive(void);
+                extern int netGetLocalSlot(void);
+                if (netIsActive() && playernum != netGetLocalSlot())
+                {
+                    continue; /* In online VR multiplayer, only render the local player's view */
+                }
+            }
+#endif
+            set_cur_player(playernum);
 
             viSetViewSize(g_CurrentPlayer->viewx, g_CurrentPlayer->viewy);
             viSetViewPosition(g_CurrentPlayer->viewleft, g_CurrentPlayer->viewtop);
