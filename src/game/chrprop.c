@@ -1848,10 +1848,11 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
  * checks, hit part and ITEM_FIST damage, but the guard's box (view space, as
  * above) must come within touch of the segment from..to - the hand, or the
  * sniper club from the hand to its end - not straddle the view's centre line
- * within reach. dir is the blow's direction in view space. Returns whether
- * anyone was hit; the whiff is the caller's.
+ * within reach. dir is the blow's direction in view space; item_id is the
+ * damage, ITEM_FIST or the knife's, as the fist's caller passes. Returns
+ * whether anyone was hit; the whiff is the caller's.
  */
-s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3])
+s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id)
 {
     PropRecord *playerprop = getCurrentPlayerProp();
     f32 ducking = bondviewGetPlayerDuckingHeightRelated(g_CurrentPlayer);
@@ -1954,9 +1955,9 @@ s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3])
         vector.z = dir[2];
         mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &vector);
 
-        if (handles_shot_actors(chr, hitpart, &vector, ITEM_FIST, 1))
+        if (handles_shot_actors(chr, hitpart, &vector, item_id, 1))
         {
-            recall_joy2_hits_edit_detail_edit_flag(ITEM_FIST, prop, -1);
+            recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);
             hit = 1;
         }
     }
@@ -1964,73 +1965,6 @@ s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3])
     return hit;
 }
 
-/*
- * The sniper club's far end (bondview2.c gevrHandChopTick): of the corners of
- * the held model's boxes, as drawn last (view space, as a guard's in
- * modelGetAxisExtents), the one farthest from the hand.
- */
-s32 gevrModelFarCorner(Model *model, const f32 from[3], f32 out[3])
-{
-    ModelNode *node;
-    f32 best = -1.0f;
-
-    if (model == NULL || model->obj == NULL || model->render_pos == NULL)
-    {
-        return FALSE;
-    }
-    node = model->obj->RootNode;
-
-    while (node)
-    {
-        if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_BBOX)
-        {
-            struct ModelRoData_BoundingBoxRecord *bbox = &node->Data->BoundingBox;
-            Mtxf *mtx = modelFindNodeMtx(model, node, 0);
-            s32 c, i;
-
-            for (c = 0; mtx != NULL && c < 8; c++)
-            {
-                f32 x = (c & 1) ? bbox->Bounds.xmax : bbox->Bounds.xmin;
-                f32 y = (c & 2) ? bbox->Bounds.ymax : bbox->Bounds.ymin;
-                f32 z = (c & 4) ? bbox->Bounds.zmax : bbox->Bounds.zmin;
-                f32 p[3], d = 0.0f;
-
-                for (i = 0; i < 3; i++)
-                {
-                    p[i] = x * mtx->m[0][i] + y * mtx->m[1][i] + z * mtx->m[2][i] + mtx->m[3][i];
-                    d += (p[i] - from[i]) * (p[i] - from[i]);
-                }
-                if (d > best)
-                {
-                    best = d;
-                    out[0] = p[0];
-                    out[1] = p[1];
-                    out[2] = p[2];
-                }
-            }
-        }
-
-        if (node->Child)
-        {
-            node = node->Child;
-        }
-        else
-        {
-            while (node)
-            {
-                if (node->Next)
-                {
-                    node = node->Next;
-                    break;
-                }
-
-                node = node->Parent;
-            }
-        }
-    }
-
-    return best >= 0.0f;
-}
 #endif
 
 
