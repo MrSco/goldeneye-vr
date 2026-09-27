@@ -5205,3 +5205,19 @@ tools/texai/NOTES.md.
 - Open: #60 laser watch pop-in (owner asked for screenshots; listed as a
   known issue), #56 akimbo with different guns, #50 (parked), #9 (another
   session), #32 #30 #29 #23 #18.
+
+## 120. fix/60-watch-grip-hand: SHELVED (2026-09-27)
+- #60 (ApeFe): at the watch, the watch laser's own two-arm viewmodel
+  (GwatchlaserZ) replaced the tracked watch arm and popped to a smaller,
+  coarser arm. User: the new HD textures handle it mostly; branch shelved,
+  not merged. Pushed, two commits:
+  - 1fb7ef9: the tracked watch arm stays; the gun hand at the watch is the
+    taser's gripping hand (the #41 grenade hand) on its controller; the
+    GwatchlaserZ copy, loader and gevrStereoWatchHandMatrix removed. Tested:
+    the hand only changed model near the wrist (user: should snap and lock).
+  - 7a07ebb (built, never installed): the gripping hand pinned to the left
+    wrist as #35's is to the gun (bondview2.c gevrStereoWatchGripMatrix:
+    GUNLEFT's matrix, trim turn, palm on the watch face plus a wrist-frame
+    offset; left hand's redraw tag), trim VrWatchGripTrim / ini GripWatch,
+    set in Gun fit while holding the watch ("WATCH GRIP FIT").
+- The headset was left on 1fb7ef9 (this branch), not main.
