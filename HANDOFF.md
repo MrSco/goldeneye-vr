@@ -5187,5 +5187,8 @@ tools/texai/NOTES.md.
   gevrVrGripPoseSteady carries the play-space steadying onto the newest
   view pose (raw_view x raw_play^-1 x steady_play); gevrVrRedrawHandDelta and
   the scope lens use it.
-- #58 still open: reply to ApeFe at the release (magnification explained,
-  25x, grip steadying; the "move half as far" idea not done).
+- #58 and #59 still open: reply to ApeFe at the release. #58: magnification
+  explained, 25x, grip steadying; the "move half as far" idea not done. #59
+  (no zoom on the AR33 and KF7 since #40; could the laser's modeled scope
+  zoom?): the near-eye magnifiers at their original zoom, and the laser's 3x
+  scope.
