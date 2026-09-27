@@ -55,7 +55,12 @@ extern const char gevrBuildId[];              // generated, port/cmake/buildid.c
 void vrSettingsSave(void);            // vr_settings.cpp
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
 void vr_apply_refresh_rate(void);     // vr_openxr.cpp
+extern int selected_num_players;      // src/game/front.c
+extern int gamemode;                  // src/game/front.c
+extern int g_StageNum;                 // port/src/main.c
 }
+#include "net_core.h"
+#include "net_discovery.h"
 bool vr_begin_eye_render();           // vr_openxr.cpp
 void vr_end_eye_render();
 
@@ -574,6 +579,180 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
 }
 
+void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
+{
+    ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
+    ImGui::Separator();
+    
+    static int subTab = 0; // 0 = Host, 1 = Join LAN / IP
+    static char directIp[64] = "192.168.1.";
+    static int selectedStageIdx = 0;
+    static int selectedChrIdx = 0;
+    
+    struct MpStage { const char *name; int id; };
+    static const MpStage stages[] = {
+        { "Facility", 0x1B },
+        { "Complex", 0x1E },
+        { "Temple", 0x24 },
+        { "Stack", 0x26 },
+        { "Caverns", 0x23 },
+        { "Library", 0x28 },
+        { "Basement", 0x27 },
+        { "Archives", 0x1C },
+        { "Cradle", 0x20 },
+        { "Egyptian", 0x22 }
+    };
+    
+    static const char *const characters[] = {
+        "James Bond", "Mishkin", "Boris", "Ourumov", "Trevelyan",
+        "Valentin", "Xenia", "Natalya", "Baron Samedi", "Jaws", "Mayday", "Oddjob"
+    };
+    
+    if (ImGui::RadioButton("Host Game", subTab == 0)) subTab = 0;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Join Game (LAN / Direct IP)", subTab == 1)) subTab = 1;
+    ImGui::Separator();
+    
+    if (subTab == 0) {
+        if (!netIsHost()) {
+            ImGui::TextColored(gold, "HOST CONFIGURATION");
+            
+            ImGui::Text("Stage: ");
+            ImGui::SameLine();
+            if (ImGui::BeginCombo("##stagecombo", stages[selectedStageIdx].name)) {
+                for (int n = 0; n < (int)(sizeof(stages)/sizeof(stages[0])); n++) {
+                    bool isSelected = (selectedStageIdx == n);
+                    if (ImGui::Selectable(stages[n].name, isSelected)) selectedStageIdx = n;
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            
+            ImGui::Text("Character: ");
+            ImGui::SameLine();
+            if (ImGui::BeginCombo("##chrcombo", characters[selectedChrIdx])) {
+                for (int n = 0; n < (int)(sizeof(characters)/sizeof(characters[0])); n++) {
+                    bool isSelected = (selectedChrIdx == n);
+                    if (ImGui::Selectable(characters[n], isSelected)) selectedChrIdx = n;
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            
+            ImGui::Spacing();
+            if (ImGui::Button("START HOSTING LOBBY", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f))) {
+                netHostStart(GEVR_DEFAULT_PORT);
+                netDiscoveryInit();
+                netDiscoveryStartBroadcasting("GEVR Match", GEVR_DEFAULT_PORT);
+                netLobbySetCharacter((uint8_t)selectedChrIdx);
+                netLobbySetMatchConfig((uint8_t)stages[selectedStageIdx].id, 0, 0);
+            }
+        } else {
+            ImGui::TextColored(good, "LOBBY ACTIVE (Broadcasting on LAN port %d)", GEVR_DEFAULT_PORT);
+            ImGui::Text("Stage: %s", stages[selectedStageIdx].name);
+            ImGui::Separator();
+            
+            const NetMsgLobbyState *lobby = netGetLobbyState();
+            ImGui::TextColored(gold, "PLAYERS IN LOBBY (%d/4):", netGetConnectedPlayerCount());
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                if (lobby->slots[i].connected) {
+                    ImGui::BulletText("Slot %d: %s (%s) %s", i + 1,
+                                     lobby->slots[i].name,
+                                     characters[lobby->slots[i].chr_id % 12],
+                                     (i == 0) ? "[HOST]" : (lobby->slots[i].ready ? "[READY]" : "[WAITING]"));
+                } else {
+                    ImGui::TextDisabled("Slot %d: [Open]", i + 1);
+                }
+            }
+            
+            ImGui::Spacing();
+            if (ImGui::Button("LAUNCH MULTIPLAYER MATCH!", ImVec2(-1, ImGui::GetFrameHeight() * 1.8f))) {
+                netLobbyHostLaunchMatch();
+                gamemode = 1; // GAMEMODE_MULTI
+                selected_num_players = netGetConnectedPlayerCount();
+                if (selected_num_players < 2) selected_num_players = 2;
+                g_StageNum = stages[selectedStageIdx].id;
+                startMatch = true;
+                open = false;
+            }
+            
+            if (ImGui::Button("Stop Hosting")) {
+                netDiscoveryStopBroadcasting();
+                netDisconnect();
+            }
+        }
+    } else {
+        if (!netIsActive() || netIsHost()) {
+            netDiscoveryInit();
+            ImGui::TextColored(gold, "LAN GAMES DISCOVERED (%d):", netDiscoveryGetServerCount());
+            int count = netDiscoveryGetServerCount();
+            if (count == 0) {
+                ImGui::TextDisabled("Searching your Wi-Fi network for GoldenEye VR hosts...");
+            } else {
+                for (int i = 0; i < count; i++) {
+                    const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
+                    char label[128];
+                    snprintf(label, sizeof(label), "%s (%s:%d) - %d/%d Players",
+                             srv->server_name, srv->host_ip, srv->port, srv->player_count, srv->max_players);
+                    if (ImGui::Button(label)) {
+                        netConnect(srv->host_ip, srv->port);
+                    }
+                }
+            }
+            
+            ImGui::Separator();
+            ImGui::Text("Or Connect Directly via IP:");
+            ImGui::InputText("##directip", directIp, sizeof(directIp));
+            ImGui::SameLine();
+            if (ImGui::Button("Connect")) {
+                netConnect(directIp, GEVR_DEFAULT_PORT);
+            }
+        } else {
+            ImGui::TextColored(good, "CONNECTED TO SERVER! You are Player Slot %d", netGetLocalSlot() + 1);
+            
+            ImGui::Text("Choose Your Character: ");
+            ImGui::SameLine();
+            if (ImGui::BeginCombo("##chrclientcombo", characters[selectedChrIdx])) {
+                for (int n = 0; n < (int)(sizeof(characters)/sizeof(characters[0])); n++) {
+                    bool isSelected = (selectedChrIdx == n);
+                    if (ImGui::Selectable(characters[n], isSelected)) {
+                        selectedChrIdx = n;
+                        netLobbySetCharacter((uint8_t)selectedChrIdx);
+                    }
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            
+            const NetMsgLobbyState *lobby = netGetLobbyState();
+            static bool clientReady = false;
+            if (ImGui::Checkbox("I am Ready", &clientReady)) {
+                netLobbySetReady(clientReady);
+            }
+            
+            ImGui::TextColored(gold, "Waiting for Host to launch match...");
+            if (netGetState() == NET_STATE_INGAME) {
+                gamemode = 1; // GAMEMODE_MULTI
+                selected_num_players = netGetConnectedPlayerCount();
+                if (selected_num_players < 2) selected_num_players = 2;
+                g_StageNum = lobby->stage_num;
+                startMatch = true;
+                open = false;
+            }
+            
+            if (ImGui::Button("Disconnect")) {
+                netDisconnect();
+            }
+        }
+    }
+    
+    ImGui::Spacing();
+    ImGui::Separator();
+    if (ImGui::Button("Back to Main Menu", ImVec2(-1, 0))) {
+        open = false;
+    }
+}
+
 // Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at
 // the screen is the mouse, and a trigger clicks. Returns whether it points.
 //
@@ -930,7 +1109,10 @@ extern "C" void gevrLauncherRun(void)
         // way the game's own cheat menu does (front.c init_menu0B_runstage).
         static bool cheatPage = false;
         static bool modsPage = false;
-        if (modsPage) {
+        static bool mpPage = false;
+        if (mpPage) {
+            gevrMultiplayerPage(mpPage, start, gold, good, bad);
+        } else if (modsPage) {
             gevrModsPage(modsPage, now, gold, good, bad);
         } else if (cheatPage) {
             struct CheatRow { const char *name; int id; bool cosmetic; };
@@ -1127,6 +1309,10 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
                                   "the gun on your hand. A keeps it, B puts it back.");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Multiplayer...")) {
+                mpPage = true;
             }
 
             // Update line: only when there is something to say, so an
