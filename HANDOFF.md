@@ -5148,3 +5148,44 @@ tools/texai/NOTES.md.
 - The 954 non-zlib ROM textures, and every level not yet played with the
   dump on.
 - Next steps: dump, then batch.py, then package.py, then an ai- release.
+
+## 118. Scopes at the N64's magnification; laser scope; rifle magnifiers; grip steadying (#58, merged 2026-09-27)
+- fix/58-scope-zoom + feature/laser-scope (stacked): MERGED (user: "feels
+  and looks good"). Supersedes 105's zoom rule.
+- Magnification (#58, ApeFe: "about 2x"): the lens showed sniper_zoom's
+  degrees across itself, but it fills only 20-40 degrees of the view. Now
+  tan(view/2) = tan(lens/2) x tan(zoom/2) / tan(30): the N64's zoomed view
+  over its 60-degree normal one. vr_openxr.cpp publishes gevrScopeLensTan
+  (lens radius / distance, as last shown); bondview2.c gevrScopeBegin sizes
+  the scope's view from it each frame. Logged on zoom changes.
+- Sniper range in stereo (gun.c camera_sniper_zoom_*): no wider than it
+  starts (15 degrees, 4.4x; 60 showed the world at its own size, user), on to
+  2.65 degrees, 25x (the N64's 7 / 9.4x, then 15x, were not enough, user).
+  The screen keeps 7..60 (get_item_in_hand_zoom returns at least 7).
+- Aiming the sniper, the moving stick's side to side no longer strafes
+  (input.c, bondview2.c gevrScopeZoomStick); up/down zooms as before.
+- Scopes are a table (bondview2.c s_gevrScopes, eyepieces from the ROM, raw
+  vertex coordinates): sniper (node 0x27c end ring), laser (GlaserZ node
+  0x2ac, rear face of the sight housing: 0, 100, -80, r 16; fixed 3x, 21.8
+  degrees - the N64 never zoomed it; 2.2x was a bit little, user), KF7 (Gak47Z
+  receiver top rear: 0, 80, -44) and AR33 (Gm16Z rear sight housing: 0.5, 140,
+  -5), r 16, at their own aim zoom (ak47 30, m16 20 degrees).
+- The KF7's and AR33's magnifier shows only with the eye within 15 cm of it,
+  gone past 20 (user's idea; hysteresis, as one distance flickered in 105).
+  Logged "sight magnifier on/off (item, eye cm)". Tested clean.
+- Rifles' whole-screen aim zoom: references disagree - PD VR zooms the whole
+  headset view (with head and hand smoothing while gripping a zoom weapon),
+  GEVR PC rejects view zoom (docs/37 trap 3: a scope render instead, never
+  built). User chose the magnifier.
+- Grip steadying (PD VR vr_input.cpp WepCanZoom, CTRL_SMOOTH_ALPHA_ROT_GRIP
+  0.10 per XR frame): aiming a gun with a scope, the gun hand's turn is
+  slerped 0.15 a game frame (vr_input.cpp gevr_steady, bondview2.c
+  gevrGripSteadyOn). Position stays raw.
+- Redraw fix: the #53 in-between frames moved the gun to the RAW newest turn
+  while the game frame used the steadied one, putting tremor back on every
+  redrawn frame (aim steadying too, since 108). vr_input.cpp
+  gevrVrGripPoseSteady carries the play-space steadying onto the newest
+  view pose (raw_view x raw_play^-1 x steady_play); gevrVrRedrawHandDelta and
+  the scope lens use it.
+- #58 still open: reply to ApeFe at the release (magnification explained,
+  25x, grip steadying; the "move half as far" idea not done).
