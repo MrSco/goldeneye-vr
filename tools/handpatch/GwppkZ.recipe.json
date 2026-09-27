@@ -1,0 +1,115 @@
+{
+ "model": "GwppkZ",
+ "note": "Gun hand (issue #9, Phase 3). The hand's parts on bone 0 are welded into one mesh; the patch draws with the host, a part on the hand switches (8-13, switched together). Loops are named node:index.",
+ "assemblies": [
+  {
+   "host": "0x0408",
+   "nodes": [
+    "0x0318",
+    "0x0390",
+    "0x03a8",
+    "0x03c0",
+    "0x0408",
+    "0x0468",
+    "0x04b0"
+   ],
+   "ops": [
+    {
+     "op": "skirt",
+     "chain": "largest",
+     "to": "rest",
+     "gap": 0.6,
+     "reach": 60,
+     "why": "the inside of the fist: skin from the open rim to what it holds",
+     "tex": "0x706",
+     "uvbox": [
+      0.55,
+      0.15,
+      0.95,
+      0.85
+     ],
+     "shade": [
+      200,
+      200,
+      200,
+      255
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x04b0:108",
+     "why": "the forearm's cut end",
+     "tex": "0x704",
+     "shade": [
+      60,
+      60,
+      60,
+      255
+     ],
+     "fair": 2,
+     "dome": 0.15
+    },
+    {
+     "op": "fill",
+     "loop": "0x0318:24",
+     "why": "the trigger finger's socket (or the knife hand's open knuckle)",
+     "tex": "0x704",
+     "uvbox": [
+      0.1,
+      0.1,
+      0.9,
+      0.9
+     ]
+    },
+    {
+     "op": "fill",
+     "loop": "0x03a8:0",
+     "why": "fingertip",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x03c0:0",
+     "why": "fingertip",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    }
+   ]
+  },
+  {
+   "host": "0x02b8",
+   "nodes": [
+    "0x02b8"
+   ],
+   "ops": [
+    {
+     "op": "fill",
+     "loop": "0x02b8:0",
+     "why": "the trigger finger's base (its own bone)",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ]
+    }
+   ]
+  }
+ ]
+}
