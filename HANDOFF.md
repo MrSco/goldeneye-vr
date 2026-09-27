@@ -5221,3 +5221,38 @@ tools/texai/NOTES.md.
     offset; left hand's redraw tag), trim VrWatchGripTrim / ini GripWatch,
     set in Gun fit while holding the watch ("WATCH GRIP FIT").
 - The headset was left on 1fb7ef9 (this branch), not main.
+
+## 121. Hand and arm shells closed (#9, merged 2026-09-27)
+- User-tested over four rounds on Dam; MERGED as edee89e (user: "as good
+  as we can do for now"). Branch feature/9-hand-shells, worktree
+  ../gevr-hands; the whole story is in tools/handpatch/NOTES.md.
+- The N64 modelled the first-person hands as open shells (fingers and
+  forearms as the top half of a tube, no palm, open sleeve ends). 13 models
+  now get patches at load: Csuit_lf_handZ (watch arm), GwppkZ, GwppksilZ,
+  GgoldwppkZ, GsilverwppkZ, GgoldengunZ, GrugerZ, Gtt33Z, GknifeZ,
+  GthrowknifeZ, GfistZ, GtaserZ (taser, grenade and two-handed grip hand),
+  GwatchlaserZ. 34 parts, 3526 triangles.
+- Pipeline (tools only, nothing ROM-derived committed):
+  - tools/gevr_model_export.py -> build/handmodels/<Model>.json (gitignored),
+    tools/gevr_tex_decode.py for textured renders.
+  - Blender 5.2 headless: tools/blender/gevr_hands_patch.py applies
+    tools/handpatch/<Model>.recipe.json (ours) and writes <Model>.patch.json:
+    corners as ROM vertex refs (node, index) or weights over four ROM
+    vertices on one bone, our s/t and shade, an FNV fingerprint per node.
+    Ops: fill (Liepa), earclip, tube (a finger's or forearm's missing half
+    from its two rails), skirt (fist to grip), bridge, ribbon (watch band),
+    fair/dome. --render/--compare/--view draw before/after sheets.
+  - tools/gevr_handpatch_gen.py -> port/src/gevr_handpatch_data.c
+    (generated, committed). Re-run after any patch change.
+- Runtime: gevr_model.c notes each wanted model's node offsets and texture
+  markers during conversion; load_object_fill_header (objecthandler_2.c)
+  calls gevrHandPatchApply (port/src/gevr_handpatch.c): a part applies only
+  if every node's vertex count and fingerprint match; the host's Primary
+  becomes [own DL, patch DL, END], per model buffer. Log: "handpatch <model>:
+  N of M parts, T triangles". files/gevr_handpatch.txt: 0 off, 2 magenta
+  patch faces, anything else on (the headset has 1).
+- Last test: 10 of the 13 loaded, all parts applied. Not seen in the
+  headset since the final rounds: GwppkZ, GknifeZ, GthrowknifeZ.
+- Open: the PP7's index finger never shows (own bone, switch entry 6, the
+  trigger pivot); likely placement in stereo, not a shell - compare with
+  gevr_handpatch.txt 0. #9 left open to close with a reply at release.
