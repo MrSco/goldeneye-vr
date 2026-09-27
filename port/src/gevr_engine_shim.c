@@ -302,8 +302,6 @@ extern bool vr_begin_frame_and_update_poses(void);
 extern bool vr_end_frame_and_submit(void);
 extern bool vr_apply_pending_scale(void);
 extern void vrSettingsLoad(void);
-extern bool get_button_state(int hand_index, const char *button_name); /* vr_input.cpp */
-extern void vr_screen_recenter(void);                                    /* vr_openxr.cpp */
 
 static s32 gevrVrInitDone;
 static s32 gevrVrFrameBegun;
@@ -429,18 +427,8 @@ static void gevrVrFrameBegin(void)
 		gevrPerfAdd(0, gevrPerfNs() - t0);
 	}
 	gevrXrFramesBegun++; /* false: no session yet, or an empty frame already closed */
-
-	/* Hold the left stick click for about a second to bring the virtual screen back in front of you. */
-	if (gevrVrFrameBegun) {
-		static u32 held;
-		if (get_button_state(0, "thumbstick_click")) {
-			if (++held == 72) {
-				vr_screen_recenter();
-			}
-		} else {
-			held = 0;
-		}
-	}
+	/* Holding the left stick click brought the virtual screen back here; it now
+	   switches the texture pack (input.c). Both stick clicks still recentre. */
 }
 
 /*

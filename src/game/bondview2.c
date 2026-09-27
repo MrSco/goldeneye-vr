@@ -746,10 +746,34 @@ static void gevrWarpProbe(s32 inlevel)
     sub_GAME_7F03D058(pr, TRUE);
 }
 
+/*
+ * input.c: holding the left stick click switched the texture pack; say which
+ * way with the game's own bottom message. Outside a level the note is dropped.
+ */
+extern s32 gevrTexpackToggleMsg;
+static void gevrTexpackMessage(s32 inlevel)
+{
+    static char msg[32];
+    s32 m = gevrTexpackToggleMsg;
+
+    if (m == 0)
+    {
+        return;
+    }
+    gevrTexpackToggleMsg = 0;
+    if (!inlevel || g_CurrentPlayer == NULL)
+    {
+        return;
+    }
+    strcpy(msg, m == 3 ? "HD textures on" : m == 2 ? "HD textures off" : "No HD texture pack");
+    hudmsgBottomShow(msg);
+}
+
 void gevrStereoFrame(s32 inlevel)
 {
     s32 opening;
 
+    gevrTexpackMessage(inlevel);
     gevrCheatProbe(inlevel);
     gevrWarpProbe(inlevel);
     opening = gevrWatchOpeningByGesture(inlevel);
