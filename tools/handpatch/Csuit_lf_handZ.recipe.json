@@ -3,43 +3,404 @@
  "note": "Left watch arm (issue #9). Loops are named by a ROM vertex index on them (tools/blender/gevr_hands_patch.py --list). Numbers here are our design inputs; the patch this makes stores no coordinates.",
  "parts": {
   "0x01c0": [
-   {"op": "zipfill", "loop": 0, "maxdiag": 250, "palm": 424, "fair": 1, "why": "palm and the underside of the pinky and ring fingers", "tex": "0x706", "uvbox": [0.55, 0.15, 0.95, 0.85]},
-   {"op": "fill", "loop": 87, "why": "fingertip", "tex": "0x706", "uvbox": [0.6, 0.3, 0.9, 0.6]},
-   {"op": "fill", "loop": 127, "why": "fingertip", "tex": "0x706", "uvbox": [0.6, 0.3, 0.9, 0.6]},
-   {"op": "fill", "loop": 167, "why": "fingertip", "tex": "0x706", "uvbox": [0.6, 0.3, 0.9, 0.6]}
+   {
+    "op": "tube",
+    "rails": [
+     [
+      72,
+      49,
+      47,
+      46
+     ],
+     [
+      74,
+      39,
+      51,
+      40,
+      42
+     ]
+    ],
+    "tip": 43,
+    "arc": 2,
+    "round": 0.7,
+    "why": "the ring finger's missing underside",
+    "tex": "0x706",
+    "uvbox": [
+     0.55,
+     0.15,
+     0.95,
+     0.85
+    ],
+    "shade": [
+     215,
+     215,
+     215,
+     255
+    ]
+   },
+   {
+    "op": "tube",
+    "rails": [
+     [
+      25,
+      9,
+      8,
+      7
+     ],
+     [
+      27,
+      0,
+      10,
+      1,
+      3
+     ]
+    ],
+    "tip": 4,
+    "arc": 2,
+    "round": 0.7,
+    "why": "the pinky's missing underside",
+    "tex": "0x706",
+    "uvbox": [
+     0.55,
+     0.15,
+     0.95,
+     0.85
+    ],
+    "shade": [
+     215,
+     215,
+     215,
+     255
+    ]
+   },
+   {
+    "op": "fill",
+    "loop": "largest",
+    "fair": 1,
+    "dome": 0.2,
+    "why": "the palm, a shallow cushion",
+    "tex": "0x706",
+    "uvbox": [
+     0.55,
+     0.15,
+     0.95,
+     0.85
+    ],
+    "shade": [
+     235,
+     235,
+     235,
+     255
+    ]
+   },
+   {
+    "op": "fill",
+    "loop": 87,
+    "fair": 1,
+    "dome": 0.3,
+    "why": "fingertip, rounded",
+    "tex": "0x706",
+    "uvbox": [
+     0.6,
+     0.3,
+     0.9,
+     0.6
+    ]
+   },
+   {
+    "op": "fill",
+    "loop": 127,
+    "fair": 1,
+    "dome": 0.3,
+    "why": "fingertip, rounded",
+    "tex": "0x706",
+    "uvbox": [
+     0.6,
+     0.3,
+     0.9,
+     0.6
+    ]
+   },
+   {
+    "op": "fill",
+    "loop": 167,
+    "fair": 1,
+    "dome": 0.3,
+    "why": "fingertip, rounded",
+    "tex": "0x706",
+    "uvbox": [
+     0.6,
+     0.3,
+     0.9,
+     0.6
+    ]
+   }
   ],
   "0x01f0": [
-   {"op": "fill", "loop": 134, "why": "elbow end of the sleeve (switch 4)", "tex": "0x63e", "shade": [60, 60, 60, 255]},
-   {"op": "bridge", "loops": [18, 0], "why": "jacket cuff edge to the shirt cuff inside it", "tex": "0x63e", "shade": [90, 90, 90, 255]}
+   {
+    "op": "fill",
+    "loop": 134,
+    "why": "elbow end of the sleeve (switch 4)",
+    "tex": "0x63e",
+    "shade": [
+     60,
+     60,
+     60,
+     255
+    ]
+   },
+   {
+    "op": "bridge",
+    "loops": [
+     18,
+     0
+    ],
+    "why": "jacket cuff edge to the shirt cuff inside it",
+    "tex": "0x63e",
+    "shade": [
+     90,
+     90,
+     90,
+     255
+    ]
+   }
   ],
   "0x02e0": [
-   {"op": "fill", "loop": 134, "why": "elbow end of the sleeve (switch 9, the 0x1f0 mesh)", "tex": "0x660", "shade": [60, 60, 60, 255]},
-   {"op": "bridge", "loops": [18, 0], "why": "jacket cuff edge to the shirt cuff inside it", "tex": "0x660", "shade": [90, 90, 90, 255]}
+   {
+    "op": "fill",
+    "loop": 134,
+    "why": "elbow end of the sleeve (switch 9, the 0x1f0 mesh)",
+    "tex": "0x660",
+    "shade": [
+     60,
+     60,
+     60,
+     255
+    ]
+   },
+   {
+    "op": "bridge",
+    "loops": [
+     18,
+     0
+    ],
+    "why": "jacket cuff edge to the shirt cuff inside it",
+    "tex": "0x660",
+    "shade": [
+     90,
+     90,
+     90,
+     255
+    ]
+   }
   ],
   "0x0220": [
-   {"op": "fill", "loop": 57, "why": "elbow end of the sleeve (switch 5)", "tex": "0x63d", "shade": [60, 60, 60, 255]},
-   {"op": "bridge", "loops": [56, 1], "why": "jacket edge to the shirt cuff band inside it", "tex": "0x63d", "shade": [90, 90, 90, 255]},
-   {"op": "bridge", "loops": [0, 11], "why": "shirt cuff band edge to the wrist inside it", "tex": "0x645", "shade": [110, 110, 110, 255]}
+   {
+    "op": "fill",
+    "loop": 57,
+    "why": "elbow end of the sleeve (switch 5)",
+    "tex": "0x63d",
+    "shade": [
+     60,
+     60,
+     60,
+     255
+    ]
+   },
+   {
+    "op": "bridge",
+    "loops": [
+     56,
+     1
+    ],
+    "why": "jacket edge to the shirt cuff band inside it",
+    "tex": "0x63d",
+    "shade": [
+     90,
+     90,
+     90,
+     255
+    ]
+   },
+   {
+    "op": "bridge",
+    "loops": [
+     0,
+     11
+    ],
+    "why": "shirt cuff band edge to the wrist inside it",
+    "tex": "0x645",
+    "shade": [
+     110,
+     110,
+     110,
+     255
+    ]
+   }
   ],
   "0x0250": [
-   {"op": "fill", "loop": 57, "why": "elbow end of the sleeve (switch 6, the 0x220 mesh)", "tex": "0x69f", "shade": [60, 60, 60, 255]},
-   {"op": "bridge", "loops": [56, 1], "why": "jacket edge to the shirt cuff band inside it", "tex": "0x69f", "shade": [90, 90, 90, 255]},
-   {"op": "bridge", "loops": [0, 11], "why": "shirt cuff band edge to the wrist inside it", "tex": "0x645", "shade": [110, 110, 110, 255]}
+   {
+    "op": "fill",
+    "loop": 57,
+    "why": "elbow end of the sleeve (switch 6, the 0x220 mesh)",
+    "tex": "0x69f",
+    "shade": [
+     60,
+     60,
+     60,
+     255
+    ]
+   },
+   {
+    "op": "bridge",
+    "loops": [
+     56,
+     1
+    ],
+    "why": "jacket edge to the shirt cuff band inside it",
+    "tex": "0x69f",
+    "shade": [
+     90,
+     90,
+     90,
+     255
+    ]
+   },
+   {
+    "op": "bridge",
+    "loops": [
+     0,
+     11
+    ],
+    "why": "shirt cuff band edge to the wrist inside it",
+    "tex": "0x645",
+    "shade": [
+     110,
+     110,
+     110,
+     255
+    ]
+   }
   ],
   "0x0280": [
-   {"op": "fill", "loop": 57, "why": "elbow end of the sleeve (switch 7, the 0x220 mesh)", "tex": "0x667", "shade": [60, 60, 60, 255]},
-   {"op": "bridge", "loops": [56, 1], "why": "jacket edge to the shirt cuff band inside it", "tex": "0x667", "shade": [90, 90, 90, 255]},
-   {"op": "bridge", "loops": [0, 11], "why": "shirt cuff band edge to the wrist inside it", "tex": "0x645", "shade": [110, 110, 110, 255]}
+   {
+    "op": "fill",
+    "loop": 57,
+    "why": "elbow end of the sleeve (switch 7, the 0x220 mesh)",
+    "tex": "0x667",
+    "shade": [
+     60,
+     60,
+     60,
+     255
+    ]
+   },
+   {
+    "op": "bridge",
+    "loops": [
+     56,
+     1
+    ],
+    "why": "jacket edge to the shirt cuff band inside it",
+    "tex": "0x667",
+    "shade": [
+     90,
+     90,
+     90,
+     255
+    ]
+   },
+   {
+    "op": "bridge",
+    "loops": [
+     0,
+     11
+    ],
+    "why": "shirt cuff band edge to the wrist inside it",
+    "tex": "0x645",
+    "shade": [
+     110,
+     110,
+     110,
+     255
+    ]
+   }
   ],
   "0x02b0": [
-   {"op": "fill", "loop": 144, "why": "elbow end of the rolled sleeve (switch 8)", "tex": "0x66c", "uvbox": [0.05, 0.55, 0.95, 0.95], "shade": [60, 60, 60, 255]},
-   {"op": "bridge", "loops": [18, 0], "why": "rolled sleeve edge to the forearm inside it", "tex": "0x66c", "uvbox": [0.05, 0.55, 0.95, 0.95], "shade": [90, 90, 90, 255]}
+   {
+    "op": "fill",
+    "loop": 144,
+    "why": "elbow end of the rolled sleeve (switch 8)",
+    "tex": "0x66c",
+    "uvbox": [
+     0.05,
+     0.55,
+     0.95,
+     0.95
+    ],
+    "shade": [
+     60,
+     60,
+     60,
+     255
+    ]
+   },
+   {
+    "op": "bridge",
+    "loops": [
+     18,
+     0
+    ],
+    "why": "rolled sleeve edge to the forearm inside it",
+    "tex": "0x66c",
+    "uvbox": [
+     0.05,
+     0.55,
+     0.95,
+     0.95
+    ],
+    "shade": [
+     90,
+     90,
+     90,
+     255
+    ]
+   }
   ],
   "0x02f8": [
-   {"op": "ribbon", "why": "the back half of the watch band, from one strap end under the wrist to the other",
-    "from": [23, 22], "to": [91, 92], "anchors": [23, 22, 91, 2],
-    "axis": [3758, 31], "bottom_radius": 288, "segments": 8,
-    "tex": "0x5e3", "s": [1997, 59], "t": [-27, 4.08]}
+   {
+    "op": "ribbon",
+    "why": "the back half of the watch band, from one strap end under the wrist to the other",
+    "from": [
+     23,
+     22
+    ],
+    "to": [
+     91,
+     92
+    ],
+    "anchors": [
+     23,
+     22,
+     91,
+     2
+    ],
+    "axis": [
+     3758,
+     31
+    ],
+    "bottom_radius": 288,
+    "segments": 8,
+    "tex": "0x5e3",
+    "s": [
+     1997,
+     59
+    ],
+    "t": [
+     -27,
+     4.08
+    ]
+   }
   ]
  }
 }
