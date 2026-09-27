@@ -57,7 +57,8 @@ extern float VrGripTrim[2][6];            /* vr_settings_defaults.c: the two-han
 extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
-float gevrVrTurnAxis(void) { return gevrTurnAxis; }
+extern float gevrInjectTurn;   /* libultra.c: the PC input hook's turn */
+float gevrVrTurnAxis(void) { return gevrInjectTurn != 0.0f ? gevrInjectTurn : gevrTurnAxis; }
 s32 gevrVrTakeRecenter(void)
 {
     s32 pending = gevrRecenterPending;

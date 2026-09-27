@@ -51,11 +51,27 @@ def upload(img, name):
     return json.loads(call('/upload/image', body, {'Content-Type': 'multipart/form-data; boundary=' + b}))['name']
 
 
+JOB_LIMIT = 240   # seconds; a job past this has spilled out of VRAM (minutes a texture) or hung
+
+
+def free():
+    """Unload ComfyUI's models and cached memory. Its VRAM use crept up over a
+    batch until a 33x33 texture that takes 11 s ran for minutes, spilling."""
+    call('/free', json.dumps({'unload_models': True, 'free_memory': True}).encode(),
+         {'Content-Type': 'application/json'})
+
+
 def run(graph, save_node):
     pid = json.loads(call('/prompt', json.dumps({'prompt': graph, 'client_id': uuid.uuid4().hex}).encode(),
                           {'Content-Type': 'application/json'}))['prompt_id']
     t0 = time.time()
     while True:
+        if time.time() - t0 > JOB_LIMIT:
+            call('/interrupt', b'{}', {'Content-Type': 'application/json'})
+            while pid not in json.loads(call('/history/' + pid)):   # let it stop before the next job
+                time.sleep(1)
+            free()
+            raise RuntimeError('ComfyUI job ran past %d s; interrupted, memory freed' % JOB_LIMIT)
         h = json.loads(call('/history/' + pid))
         if pid in h:
             st = h[pid].get('status', {})
