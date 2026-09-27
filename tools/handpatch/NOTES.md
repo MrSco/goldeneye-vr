@@ -218,6 +218,46 @@ merged into the branch as 4aff811).
 - A desk check (prox_close + am start) hit Guardian and the controllers
   dialog; the test is the user's.
 
+## The rebuild (2026-09-26, after the first headset test)
+The first patches were spanning fills: the smallest surface across each
+hole. On flat cut ends that is right; on hands it is wrong, because the
+N64 modelled fingers and forearms as the top half of a tube and the palm as
+nothing at all. A spanning fill leaves flat finger undersides, fingertip
+flaps and a palm that dips. The user saw craters and missing fingers.
+What was tried and dropped:
+- Lofted arcs across the ear-clip's rungs: the rungs come from the hole's
+  outline, which on a curled low-poly hand is a row of knuckle notches, so
+  the channels fragment and the arcs flip.
+- Mirroring each finger's own top faces across its rim, rung by rung: the
+  same fragmentation, plus an unreliable pick of "the top faces", so spikes.
+- Reading cross-sections from the mesh's own cross edges: these tops are not
+  strips, so only two or three edges per finger exist, all at the tip.
+What works:
+- "tube": the recipe names each half-finger's two rails (rim vertices, base
+  to tip) and its tip; the tool pairs rail vertices by their share of the
+  rail's length and builds a half-round arc under each pair, as deep as the
+  modelled top is high and never shallower than 0.7 of the half-width,
+  joined into the tube's other half and fanned to the tip. A cut end (the
+  taser forearm's elbow, "tip": null) leaves a ring that a flat fill caps.
+  Deterministic; it follows the curl because the rails do.
+- Palms and caps: fill, one refinement, bi-Laplacian fairing for the
+  in-plane spread, then "dome" pushes the new points out along the fill's
+  normal by x times the loop's radius in the middle (0.2 palms, 0.3 caps):
+  a convex cushion, never a crater. The ray-cast "inflate" is gone.
+- Rails so far: watch hand ring finger [72 49 47 46] / [74 39 51 40 42]
+  tip 43, pinky [25 9 8 7] / [27 0 10 1 3] tip 4 (indices in the hand
+  node); taser forearm [0x01a0:63, :13] / [:69, :14], open both ends.
+  Read off the loop coordinates: the fingers run along +x, z across the
+  hand, the tip is the vertex with the largest x in its protrusion.
+- The other hands only needed rounded caps (fingers already full tubes);
+  the watch laser's two palms are cushions.
+Left alone, worth a look in the headset: on the PPK the index finger is not
+seen at all in the user's screenshots - the socket patch shows where it
+should enter the hand. The finger is its own part on bone 4 (switch table
+entry 6, a position node the game rotates for trigger pulls), so it is
+either drawn inside the gun's grip since the gun fit moved the gun, or not
+placed in stereo. Not a shell problem; test with gevr_handpatch.txt = 0.
+
 Tool quirks
 - Bash heredocs with Python inside break here: write edit scripts to the
   scratchpad and run them.

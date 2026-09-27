@@ -29,8 +29,16 @@ Operations (recipe "ops"):
           curled hand, where "fill" webs the fingers to the palm like a mitten.
           With "maxdiag" it only zips the narrow channels (fingers, an open
           forearm) and leaves the rest for a fill of "loop": "largest".
+  tube    rebuild the missing bottom half of a finger or forearm modelled as
+          the top half of a tube, from its two rails ("rails": [[base..tip],
+          [base..tip]]) and "tip" (null for a cut end): a half-round arc under
+          each cross-section, joined into the tube's other half.
   bridge  join two loops with a strip (the gap between a jacket cuff and the
           shirt cuff inside it).
+Op options: "fair": N refines and fairs a fill's new points; "dome": x then
+raises them by x times the loop's radius in the middle (a palm's cushion, a
+fingertip). "loop": "largest" / "largest:2" names the largest loops left. Every new
+point is stored as affine weights over four ROM vertices on one bone.
   ribbon  new geometry between two edges round an axis (the watch band).
 Loops and points are named by any ROM vertex on them: 57 (an index in the
 host node's vertex block) or "0x02b8:57" (node and index).
@@ -259,7 +267,10 @@ def loop_info(lp, R):
     pts = [v.co for v in lp]
     centre = sum(pts, Vector()) / len(pts)
     per = sum((lp[i].co - lp[(i + 1) % len(lp)].co).length for i in range(len(lp)))
-    first = min(lp, key=lambda v: (R.primary(v)[0] != R.host, R.primary(v)[0], R.primary(v)[1]))
+    rom = [v for v in lp if R.of(v)]
+    if not rom:
+        return centre, per, "(new points only)"
+    first = min(rom, key=lambda v: (R.primary(v)[0] != R.host, R.primary(v)[0], R.primary(v)[1]))
     return centre, per, R.name(first)
 
 
@@ -267,8 +278,10 @@ def find_loop(loops, R, spec, bm=None):
     """The loop through ROM vertex spec; "largest" is the longest loop left
     (the palm, once the fingers are zipped). Loops whose faces are wound both
     ways are searched only when bm is given (the op says "mixed": true)."""
-    if spec == "largest":
-        return max(loops, key=lambda lp: sum((lp[i].co - lp[i - 1].co).length for i in range(len(lp))))
+    if isinstance(spec, str) and spec.startswith("largest"):
+        nth = int(spec.split(":")[1]) if ":" in spec else 1
+        ranked = sorted(loops, key=lambda lp: -sum((lp[i].co - lp[i - 1].co).length for i in range(len(lp))))
+        return ranked[nth - 1]
     for lp in loops:
         if any(R.matches(v, spec) for v in lp):
             return lp
@@ -463,18 +476,21 @@ def refine(bm, lay_patch, k):
         bmesh.ops.triangulate(bm, faces=faces)
 
 
-def fair(bm, n_orig, R, free):
-    """Place every new point so the patch continues the curvature around it:
-    the bi-Laplacian (uniform weights) is zero at each new point, with every
-    ROM vertex held fixed. The system is linear, so each new point comes out
-    as fixed weights over ROM vertices; the patch stores the weights and the
-    game computes the point from the player's own ROM."""
+def fair_positions(bm, free):
+    """Place the free points so the patch continues the curvature around it:
+    the bi-Laplacian (uniform weights) is zero at each, every other point held
+    where it is. Positions only; how a new point is stored comes later
+    (op_anchors)."""
     import numpy as np
+    bm.verts.index_update()
+    bm.verts.ensure_lookup_table()
     verts = list(bm.verts)
     n = len(verts)
-    new = sorted(free)
-    if not new:
-        return {}
+    U = np.array(sorted(v.index for v in free), dtype=np.int64)
+    if len(U) == 0:
+        return
+    freeset = set(U.tolist())
+    F = np.array([i for i in range(n) if i not in freeset], dtype=np.int64)
     L = np.zeros((n, n))
     for v in verts:
         nb = [e.other_vert(v).index for e in v.link_edges]
@@ -482,23 +498,201 @@ def fair(bm, n_orig, R, free):
         for j in nb:
             L[v.index, j] -= 1.0 / len(nb)
     M = L @ L
-    U = np.array(new)
-    F = np.array([i for i in range(n) if i < n_orig])  # ROM vertices only
-    W = -np.linalg.solve(M[np.ix_(U, U)], M[np.ix_(U, F)])
     X = np.array([list(verts[i].co) for i in F])
-    mixes = {}
+    XU = -np.linalg.solve(M[np.ix_(U, U)], M[np.ix_(U, F)] @ X)
     for r, u in enumerate(U):
-        w = W[r]
-        keep = np.nonzero(np.abs(w) > 1e-3)[0]
-        wk = w[keep] / w[keep].sum()
-        verts[u].co = Vector(wk @ X[keep])
-        refs = [R.primary(verts[F[j]]) for j in keep]
-        mtx = {r[2] for r in refs}
-        if len(mtx) > 1:
-            print("   warning: new point %d mixes matrices %s" % (u, sorted(mtx)))
-        mixes[int(u)] = {"mix": [["0x%04x" % r[0], int(r[1]), round(float(x), 5)] for r, x in zip(refs, wk)],
-                         "mtx": int(refs[0][2])}
-    return mixes
+        verts[int(u)].co = Vector(XU[r].tolist())
+
+
+# ---------------------------------------------------------------------------
+# Rebuilding the missing half: lofted channels, inflated palms, domed caps
+# ---------------------------------------------------------------------------
+
+def tube(bm, lp, op, tag, R):
+    """Rebuild the missing bottom half of a finger or forearm that was
+    modelled as the top half of a tube. The recipe names its two rails (rim
+    vertices from the base to the tip) and the tip vertex where they meet,
+    or "tip": null for an end that is cut (a forearm).
+
+    Rail vertices are paired by their share of the rail's length; each pair
+    is a cross-section, and gets a half-round arc underneath: as deep as the
+    modelled top is high above the pair, and never shallower than "round"
+    (0.7) of the half-width, so a flat-topped finger still comes out round.
+    Consecutive arcs are joined by strips, the last is fanned to the tip.
+    Rim vertices are shared, so the new half meets the old without a seam;
+    the ends left open are rings for the fills that follow. Returns the new
+    points and each vertex's (u, v): u across the arc, v along the rail."""
+    rails = [[vert_by_rom(bm, R, x) for x in rail] for rail in op["rails"]]
+    tip = vert_by_rom(bm, R, op["tip"]) if op.get("tip") is not None else None
+    arcn = op.get("arc", 2)
+    rnd = op.get("round", 0.7)
+
+    def shares(rail):
+        d = [0.0]
+        for a, b in zip(rail, rail[1:]):
+            d.append(d[-1] + (b.co - a.co).length)
+        return [x / d[-1] for x in d] if d[-1] > 0 else [0.0] * len(rail)
+
+    sA, sB = shares(rails[0]), shares(rails[1])
+    # events along the tube: every rail vertex, paired with the nearest on
+    # the other rail by share
+    rungs = []
+    for i, sv in enumerate(sA):
+        j = min(range(len(sB)), key=lambda j: abs(sB[j] - sv))
+        rungs.append((sv, i, j))
+    for j, sv in enumerate(sB):
+        i = min(range(len(sA)), key=lambda i: abs(sA[i] - sv))
+        rungs.append((sv, i, j))
+    rungs = sorted(set(rungs), key=lambda r: (r[0], r[1], r[2]))
+    seen, order = set(), []
+    for sv, i, j in rungs:
+        if (i, j) not in seen:
+            seen.add((i, j))
+            order.append((sv, i, j))
+    new, uv, arcs = [], {}, []
+    up_prev = None
+    for sv, i, j in order:
+        a, b = rails[0][i], rails[1][j]
+        m = (a.co + b.co) / 2
+        chord = b.co - a.co
+        c = max(chord.length / 2, 1e-3)
+        xh = chord / (2 * c)
+        acc = Vector()
+        tops = set()
+        for v in (a, b):
+            for f in v.link_faces:
+                if f[tag[0]] == 0:
+                    acc += f.normal * f.calc_area()
+                    tops.update(f.verts)
+        up = acc - xh * acc.dot(xh)
+        if up.length < 1e-9:
+            up = up_prev if up_prev is not None else Vector((0, 1, 0))
+        up.normalize()
+        up_prev = up
+        h = max([(v.co - m).dot(up) for v in tops] + [0.0])
+        d = max(rnd * c, min(h, 1.5 * c))
+        arc = [b]
+        for k in range(1, arcn + 1):
+            th = math.pi * k / (arcn + 1)
+            v = bm.verts.new(m + xh * (c * math.cos(th)) - up * (d * math.sin(th)))
+            new.append(v)
+            uv[v] = (k / (arcn + 1), sv)
+            arc.append(v)
+        arc.append(a)
+        uv.setdefault(b, (0.0, sv))
+        uv.setdefault(a, (1.0, sv))
+        arcs.append(arc)
+    made = []
+
+    def face(vs):
+        out = []
+        for v in vs:
+            if not out or out[-1] is not v:
+                out.append(v)
+        if len(out) > 1 and out[0] is out[-1]:
+            out.pop()
+        if len(set(out)) < 3:
+            return
+        polys = [out] if len(out) == 3 else [[out[0], out[1], out[2]], [out[0], out[2], out[3]]]
+        for t in polys:
+            try:
+                f = bm.faces.new(t)
+            except ValueError:
+                continue
+            f[tag[0]] = tag[1]
+            f.smooth = False
+            made.append(f)
+
+    for q, r in zip(arcs, arcs[1:]):
+        for k in range(len(q) - 1):
+            face([q[k], q[k + 1], r[k + 1], r[k]])
+    if tip is not None:
+        last = arcs[-1]
+        for k in range(len(last) - 1):
+            face([last[k], last[k + 1], tip])
+        uv.setdefault(tip, (0.5, 1.0))
+    # wind like the rim faces the tube grows from
+    bm.normal_update()
+    mine = set(made)
+    for f in made:
+        flip = None
+        for l in f.loops:
+            others = [g for g in l.edge.link_faces if g not in mine and g[tag[0]] == 0]
+            if others:
+                ol = next(x for x in others[0].loops if x.edge is l.edge)
+                flip = ol.vert.index == l.vert.index
+                break
+        if flip is not None:
+            if flip:
+                bmesh.ops.reverse_faces(bm, faces=made)
+            break
+    return new, uv, len(order)
+
+
+def dome(bm, pts, lp, lay_patch, k, amount):
+    """Round a small cap (a fingertip, a socket): its new points rise by
+    amount x the loop's radius at the middle, falling to nothing at the rim."""
+    bm.normal_update()
+    c = sum((v.co for v in lp), Vector()) / len(lp)
+    n = Vector()
+    for f in bm.faces:
+        if f[lay_patch] == k:
+            n += f.normal
+    if n.length < 1e-9:
+        return
+    n.normalize()
+    radius = sum(((v.co - c) - n * (v.co - c).dot(n)).length for v in lp) / len(lp)
+    for v in pts:
+        rho = ((v.co - c) - n * (v.co - c).dot(n)).length
+        v.co += n * amount * radius * max(0.0, 1.0 - (rho / max(radius, 1e-6)) ** 2)
+
+
+def op_anchors(bm, R, faces, n_orig):
+    """Four ROM vertices on one bone, spread out, for storing an op's new
+    points as affine weights: the op's own ROM corners, widened by a ring of
+    neighbours if they lie too flat."""
+    cand = {v for f in faces for v in f.verts if v.index < n_orig}
+    if not cand:
+        return None
+    mtx = max({R.primary(v)[2] for v in cand}, key=lambda m: sum(1 for v in cand if R.primary(v)[2] == m))
+
+    def pickset(cs):
+        cs = sorted((v for v in cs if R.primary(v)[2] == mtx), key=lambda v: v.index)
+        if len(cs) < 4:
+            return None
+        a0 = cs[0]
+        a1 = max(cs, key=lambda v: (v.co - a0.co).length)
+        ax = (a1.co - a0.co).normalized()
+        a2 = max(cs, key=lambda v: ((v.co - a0.co) - ax * (v.co - a0.co).dot(ax)).length)
+        nrm = (a1.co - a0.co).cross(a2.co - a0.co)
+        if nrm.length < 1e-6:
+            return None
+        nrm.normalize()
+        a3 = max(cs, key=lambda v: abs((v.co - a0.co).dot(nrm)))
+        spread = (a1.co - a0.co).length
+        if abs((a3.co - a0.co).dot(nrm)) < 0.05 * spread:
+            return None
+        return [a0, a1, a2, a3]
+
+    got = pickset(cand)
+    if got is None:
+        ring = set(cand)
+        for v in cand:
+            for e in v.link_edges:
+                w = e.other_vert(v)
+                if w.index < n_orig:
+                    ring.add(w)
+        got = pickset(ring)
+    return got
+
+
+def anchor_mix(R, anchors, co):
+    import numpy as np
+    M = np.array([[a.co.x for a in anchors], [a.co.y for a in anchors], [a.co.z for a in anchors], [1, 1, 1, 1]])
+    w = np.linalg.solve(M, np.array([co.x, co.y, co.z, 1.0]))
+    refs = [R.primary(a) for a in anchors]
+    return {"mix": [["0x%04x" % r[0], int(r[1]), round(float(x), 6)] for r, x in zip(refs, w)],
+            "mtx": int(refs[0][2])}
 
 
 # ---------------------------------------------------------------------------
@@ -788,10 +982,17 @@ def main():
         over_before = sum(1 for e in bm.edges if len(e.link_faces) > 2)
         directed_loops.quiet = False
         fixed_st = {}   # corners whose texture coordinates the op chose itself (s, t)
-        anchored = {}   # new points placed by an op, stored as affine weights
+        fixed_uv = {}   # loft corners: (u, v) in 0..1, mapped into the op's uvbox
+        anchored = {}   # ribbon points: their own anchors
+        born = {}       # new point -> the op that made it
         for k, op in enumerate(ops, 1):
             loops, face_of = directed_loops(bm)
             directed_loops.quiet = True   # said once per assembly is enough
+            # bmesh hands out a new wrapper object at every access, so points
+            # are kept by index (new ones are appended; nothing is removed)
+            bm.verts.index_update()
+            before = len(bm.verts)
+            lp = None
 
             def make(t, k=k):
                 try:
@@ -813,16 +1014,13 @@ def main():
                 print("%s earclip loop %s (%d verts): %d triangles, %d forced at reflex corners"
                       % (label, op["loop"], len(lp), len(tris), forced))
                 tris = []   # made as they were clipped
-            elif op["op"] == "zipfill":
-                # zip the narrow channels (fingers), then Liepa-fill what is left
-                lp = find_loop(loops, R, op["loop"], bm if op.get("mixed") else None)
-                tris, _ = earclip_loop(lp, op["maxdiag"], make)
-                zipped = len(tris)
-                loops, face_of = directed_loops(bm)
-                rest = find_loop(loops, R, op["palm"], bm if op.get("mixed") else None)
-                tris, w = fill_loop(rest, face_of)
-                print("%s zipfill loop %s (%d verts): %d zipped, palm %d verts -> %d triangles, max angle %.0f deg"
-                      % (label, op["loop"], len(lp), zipped, len(rest), len(tris), math.degrees(w[0])))
+            elif op["op"] == "tube":
+                pts, uvs, nr = tube(bm, lp, op, (lay_patch, k), R)
+                bm.verts.index_update()
+                fixed_uv.update({v.index: t for v, t in uvs.items()})
+                tris = []
+                print("%s tube %s: %d cross-sections, %d new points"
+                      % (label, op.get("why", ""), nr, len(pts)))
             elif op["op"] == "bridge":
                 la = find_loop(loops, R, op["loops"][0], bm if op.get("mixed") else None)
                 lb = find_loop(loops, R, op["loops"][1], bm if op.get("mixed") else None)
@@ -847,11 +1045,12 @@ def main():
                 strap = [f for f in e.link_faces if f[lay_patch] == 0]
                 if strap:
                     lp_ = next(l for l in strap[0].loops if l.edge is e)
-                    if lp_.vert is a0:
+                    if lp_.vert.index == a0.index:
                         bmesh.ops.reverse_faces(bm, faces=made)
                 bm.normal_update()
+                bm.verts.index_update()
                 for v in new_pts:
-                    anchored[v] = affine_mix(bm, R, v, op["anchors"])
+                    anchored[v.index] = affine_mix(bm, R, v, op["anchors"])
                 print("%s ribbon %s -> %s: %d triangles, %d new points"
                       % (label, op["from"], op["to"], 2 * len(quads), len(new_pts)))
             else:
@@ -864,24 +1063,71 @@ def main():
                     continue
                 f[lay_patch] = k
                 f.smooth = False
+            lp_idx = [v.index for v in lp] if lp is not None else None
             for _ in range(op.get("fair", 0)):
                 refine(bm, lay_patch, k)
+            bm.verts.index_update()
+            bm.verts.ensure_lookup_table()
+            if lp_idx is not None:
+                lp = [bm.verts[i] for i in lp_idx]   # wrappers taken before a bmesh op go stale
+            created = [v for v in bm.verts if v.index >= before]
+            for v in created:
+                born[v.index] = k
+            inner = [v for v in created if v.index not in fixed_uv and v.index not in anchored]
+            if op.get("fair"):
+                fair_positions(bm, inner)
+            if op.get("dome") and lp is not None:
+                dome(bm, inner, lp, lay_patch, k, op["dome"])
+            if op.get("debug"):
+                for l2 in sorted(directed_loops(bm)[0], key=len, reverse=True)[:6]:
+                    print("      left: loop %d verts through %s" % (len(l2), loop_info(l2, R)[2]))
         bm.verts.index_update()
         bm.verts.ensure_lookup_table()
-        faired = {v.index for f in bm.faces if f[lay_patch] and ops[f[lay_patch] - 1].get("fair")
-                  for v in f.verts if v.index >= n_orig}
-        mixes = fair(bm, n_orig, R, faired)
-        for v, m in anchored.items():
-            mixes[v.index] = m
+        # every new point as affine weights over four ROM vertices of its op
+        mixes = {}
+        for k, op in enumerate(ops, 1):
+            pts = [bm.verts[i] for i, kk in born.items() if kk == k]
+            if not pts:
+                continue
+            if op["op"] == "ribbon":
+                for v in pts:
+                    mixes[v.index] = anchored[v.index]
+                continue
+            anchors = op_anchors(bm, R, [f for f in bm.faces if f[lay_patch] == k], n_orig)
+            if anchors is None:
+                raise SystemExit("%s op %d: no four ROM vertices to anchor its new points to" % (label, k))
+            for v in pts:
+                mixes[v.index] = anchor_mix(R, anchors, v.co)
 
         groups = []
         used = set()
+
+        def corner(v, s_, t_, verts, index):
+            key = (v.index, s_, t_)
+            if key not in index:
+                index[key] = len(verts)
+                e = {"s": s_, "t": t_}
+                if v.index < n_orig:
+                    node, idx, mtx = R.primary(v)
+                    e.update({"node": "0x%04x" % node, "ref": idx, "mtx": mtx})
+                    used.add(node)
+                else:
+                    e.update(mixes[v.index])
+                    used.update(int(m[0], 16) for m in e["mix"])
+                verts.append(e)
+            return index[key]
+
         for k, op in enumerate(ops, 1):
             faces = [f for f in bm.faces if f[lay_patch] == k]
             texnum = int(op["tex"], 16)
             info = model["textures"]["0x%x" % texnum]
             if op["op"] == "ribbon":
                 uv = {v.index: (fixed_st[v][0] / 32.0 / info["w"], fixed_st[v][1] / 32.0 / info["h"])
+                      for f in faces for v in f.verts}
+            elif op["op"] == "tube":
+                b = op.get("uvbox", [0, 0, 1, 1])
+                uv = {v.index: (b[0] + fixed_uv.get(v.index, (0.5, 0.5))[0] * (b[2] - b[0]),
+                                b[1] + fixed_uv.get(v.index, (0.5, 0.5))[1] * (b[3] - b[1]))
                       for f in faces for v in f.verts}
             else:
                 uv = plane_uv([tuple(f.verts) for f in faces], op.get("uvbox", [0, 0, 1, 1]))
