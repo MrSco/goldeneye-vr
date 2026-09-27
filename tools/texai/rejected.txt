@@ -29,3 +29,11 @@ F1291B59  dark panel turned into a spiky shape
 7424950E  dossier frame, white shape added top left
 0CC6CA1D  level photo, white blotch top right
 AF0507C3  checker pattern, noise added in the dark squares
+5B8779F6  flat grey strip (Facility), dense crosshatch invented
+8FD987F5  flat grey strip (Facility), dense crosshatch invented
+815A8D5A  dark panel, two white eyes added
+CB2352A7  dark blue noise, bubbles added
+EDA4B17B  warning triangle, pictogram mangled
+8BF0E252  computer screen text, gibberish
+6B8EDF8F  computer screen text, gibberish
+0BD392EA  static noise, smoothed into blobs

@@ -232,6 +232,15 @@ def ibp(hd, rgb0, opaque, block, wrap, iters=12):
     return hd
 
 
+def native_psnr(hd_path, orig):
+    """An HD texture averaged back down to the original's texels, against the
+    original (PIL image): how much texel-level detail was invented, which the
+    4x4 colour lock lets through. SeedVR2 vs Real-ESRGAN is picked on it."""
+    o = np.asarray(orig.convert('RGBA')).astype(np.float64)
+    h = Image.open(hd_path).convert('RGB').resize((o.shape[1] * SCALE, o.shape[0] * SCALE), Image.LANCZOS)
+    return psnr(down(np.asarray(h).astype(np.float64), SCALE), o[:, :, :3], o[:, :, 3] > 0)
+
+
 def post_one(orig_dir, src, tex, m, dst_base):
     orig = load_orig(orig_dir, tex, m)
     W, H = m['w'] * SCALE, m['h'] * SCALE
