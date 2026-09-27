@@ -165,14 +165,14 @@
      ],
      "tip": null,
      "arc": 3,
-     "round": 0.9,
-     "why": "the forearm's missing half, elbow to wrist",
-     "tex": "0x704",
+     "round": 0.25,
+     "why": "the forearm's missing underside, elbow to wrist (the top is more than half the tube: a shallow bottom closes it)",
+     "tex": "0x705",
      "uvbox": [
-      0.1,
-      0.1,
-      0.9,
-      0.9
+      0.35,
+      0.7,
+      0.65,
+      0.85
      ],
      "shade": [
       215,
@@ -186,16 +186,22 @@
     {
      "op": "fill",
      "loop": "largest:2",
-     "why": "the elbow's cut end",
-     "tex": "0x704",
+     "why": "the elbow's cut end, a rounded skin stump (seen from behind in a two-handed hold)",
+     "tex": "0x705",
      "shade": [
-      60,
-      60,
-      60,
+      170,
+      170,
+      170,
       255
      ],
      "fair": 2,
-     "dome": 0.15
+     "dome": 0.15,
+     "uvbox": [
+      0.35,
+      0.7,
+      0.65,
+      0.85
+     ]
     },
     {
      "op": "fill",

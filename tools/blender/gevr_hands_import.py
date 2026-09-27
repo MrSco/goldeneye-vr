@@ -213,6 +213,9 @@ def red_tubes(ob, info, radius):
     return o
 
 
+EXTRA_VIEWS = {}   # name -> direction the camera looks from, added by --view
+
+
 def render_views(objs, out, tag, hide=()):
     """Render objs (and whatever else is visible) from eight sides, framed on objs."""
     for o in hide:
@@ -254,6 +257,7 @@ def render_views(objs, out, tag, hide=()):
         "+z": Vector((0, 0, 1)), "-z": Vector((0, 0, -1)),
         "q1": Vector((1, 1, 1)).normalized(), "q2": Vector((-1, -1, -1)).normalized(),
     }
+    views.update({k: Vector(d).normalized() for k, d in EXTRA_VIEWS.items()})
     written = []
     for name, d in views.items():
         cam.location = centre + d * size * 2

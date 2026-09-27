@@ -60,7 +60,8 @@ hand, mapping its nodes by vertex-block fingerprint (both exports needed).
 --list prints every part's loops with such an index. --render draws before
 and after views of those parts (--frame: framed on these; --tint: patch faces
 magenta); --compare my,q2 --tag hand also writes compare_hand.png, the
-before row over the after row for those views.
+before row over the after row for those views; --view elbow=0,-0.6,-0.8
+adds a view from that direction.
 """
 
 import json
@@ -95,6 +96,10 @@ def args():
             i += 2
         elif k == "--compare":
             o["compare"] = a[i + 1].split(",")
+            i += 2
+        elif k == "--view":
+            name, d = a[i + 1].split("=")
+            H.EXTRA_VIEWS[name] = tuple(float(x) for x in d.split(","))
             i += 2
         elif k == "--tag":
             o["tag"] = a[i + 1]
@@ -521,9 +526,16 @@ def tube(bm, lp, op, tag, R):
     or "tip": null for an end that is cut (a forearm).
 
     Rail vertices are paired by their share of the rail's length; each pair
-    is a cross-section, and gets a half-round arc underneath: as deep as the
-    modelled top is high above the pair, and never shallower than "round"
-    (0.7) of the half-width, so a flat-topped finger still comes out round.
+    is a cross-section, and gets a half-round arc on the side away from the
+    modelled top. The top is the shortest way over the modelled surface
+    from one rail vertex to the other that keeps off the rails; "up" is
+    the top faces' normal, turned round when the top lies below it (a
+    sleeve that bulges out above its rails has faces leaning down there).
+    The arc is as deep as the top is high above the pair, less twice the
+    height of the top's widest point when that is above the pair (a top that
+    is more than half the tube leaves a shallower bottom to close it), and
+    never shallower than "round" (0.7) of the half-width, so a flat-topped
+    finger still comes out round.
     Consecutive arcs are joined by strips, the last is fanned to the tip.
     Rim vertices are shared, so the new half meets the old without a seam;
     the ends left open are rings for the fills that follow. Returns the new
@@ -555,6 +567,42 @@ def tube(bm, lp, op, tag, R):
         if (i, j) not in seen:
             seen.add((i, j))
             order.append((sv, i, j))
+    rim = set(rails[0]) | set(rails[1]) | ({tip} if tip is not None else set())
+
+    def over_top(a, b, limit):
+        """The shortest way from a to b over the modelled faces' edges that
+        keeps off the rails (so not round the tip), no longer than 6 half-widths
+        and within 2.4 of the pair: the modelled top's cross-section. None for
+        a finger whose top is a strip straight between its rails."""
+        import heapq
+        dist, prev, heap, n = {a: 0.0}, {}, [(0.0, 0, a)], 1
+        while heap:
+            du, _, u = heapq.heappop(heap)
+            if u is b:
+                break
+            if du > dist.get(u, 1e30) or du > limit:
+                continue
+            for e in u.link_edges:
+                if not any(f[tag[0]] == 0 for f in e.link_faces):
+                    continue
+                w = e.other_vert(u)
+                if w is not b and w in rim:
+                    continue
+                dw = du + e.calc_length()
+                if dw < dist.get(w, 1e30):
+                    dist[w], prev[w] = dw, u
+                    heapq.heappush(heap, (dw, n, w))
+                    n += 1
+        if b not in prev or dist[b] > limit:
+            return []
+        path, u = [], prev[b]
+        while u is not a:
+            path.append(u)
+            u = prev[u]
+        # a detour round through the hand is not this cross-section
+        m = (a.co + b.co) / 2
+        return path if all((v.co - m).length <= limit * 0.4 for v in path) else []
+
     new, uv, arcs = [], {}, []
     up_prev = None
     for sv, i, j in order:
@@ -574,9 +622,29 @@ def tube(bm, lp, op, tag, R):
         if up.length < 1e-9:
             up = up_prev if up_prev is not None else Vector((0, 1, 0))
         up.normalize()
+        top = over_top(a, b, 6 * c)
+        if top:
+            turned = sum((v.co - m).dot(up) for v in top) < 0
+        else:   # a strip of a top: keep to the side the last pair was on
+            turned = up_prev is not None and up.dot(up_prev) < 0
+        if turned:
+            up = -up
         up_prev = up
-        h = max([(v.co - m).dot(up) for v in tops] + [0.0])
-        d = max(rnd * c, min(h, 1.5 * c))
+        h = max([(v.co - m).dot(up) for v in list(tops) + top] + [0.0])
+        # the top's widest point on each side, where it bulges past the pair
+        yw = []
+        for sgn in (-1, 1):
+            side = [v for v in top if sgn * (v.co - m).dot(xh) > c * 1.05]
+            if side:
+                w = max(side, key=lambda v: sgn * (v.co - m).dot(xh))
+                yw.append(max(0.0, (w.co - m).dot(up)))
+            else:
+                yw.append(0.0)
+        d = max(rnd * c, min(h - 2 * sum(yw) / 2, 1.5 * c))
+        if op.get("debug"):
+            print("      tube pair %s-%s: half-width %.1f, top %.1f high over %d vertices%s, widest at %.1f/%.1f,"
+                  " depth %.1f" % (R.name(a), R.name(b), c, h, len(top), " (up turned round)" if turned else "",
+                                   yw[0], yw[1], d))
         arc = [b]
         for k in range(1, arcn + 1):
             th = math.pi * k / (arcn + 1)
