@@ -122,6 +122,18 @@ def native_input(orig_dir, tex, m):
     return Image.fromarray(a)
 
 
+def alpha_input(orig_dir, tex, m):
+    """the texture's alpha as a grey image, upright and padded as native_input pads
+    the colours: an upscaler turns a stair-stepped 1-bit mask into a smooth edge"""
+    im = Image.open(os.path.join(orig_dir, tex + '.png')).convert('RGBA')
+    if m['flip']:
+        im = im.transpose(Image.FLIP_TOP_BOTTOM)
+    a = np.asarray(im)[:, :, 3]
+    a = np.pad(a, ((PAD, PAD), (0, 0)), mode='wrap' if m['wrap'][1] else 'edge')
+    a = np.pad(a, ((0, 0), (PAD, PAD)), mode='wrap' if m['wrap'][0] else 'edge')
+    return Image.fromarray(a).convert('RGB')
+
+
 def framed(answer, m, canvas=1024):
     """crop the padding off and place the texture where prep put it on its 1024 canvas"""
     w, h = m['w'], m['h']
