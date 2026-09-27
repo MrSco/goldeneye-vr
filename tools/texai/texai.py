@@ -135,7 +135,10 @@ def load_orig(orig_dir, tex, m):
 
 
 def down(hd, s):
-    h, w = hd.shape[0] // s, hd.shape[1] // s
+    """s x s block averages; a partial last block (33-texel sides) repeats its edge"""
+    h, w = -(-hd.shape[0] // s), -(-hd.shape[1] // s)
+    if (h * s, w * s) != hd.shape[:2]:
+        hd = np.pad(hd, ((0, h * s - hd.shape[0]), (0, w * s - hd.shape[1]), (0, 0)), mode='edge')
     return hd.reshape(h, s, w, s, -1).mean(axis=(1, 3))
 
 
@@ -225,7 +228,7 @@ def ibp(hd, rgb0, opaque, block, wrap, iters=12):
     for _ in range(iters):
         err = tgt - down(hd, SCALE * block)
         err[~msk] = 0
-        hd = hd + up(err, SCALE * block, wrap)
+        hd = hd + up(err, SCALE * block, wrap)[:hd.shape[0], :hd.shape[1]]
     return hd
 
 
