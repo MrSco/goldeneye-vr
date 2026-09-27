@@ -1981,6 +1981,8 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     Model *mdl = &s_gevrFistModel;
     ModelFileHeader *hdr = &s_gevrFistHeader;
     u32 *rw = s_gevrFistRw;
+    s32 watchGrip;
+    extern s32 gevrStereoWatchGripMatrix(Mtxf *m);   /* bondview2.c */
 
     if (!g_gevrStereo
         || g_CurrentPlayer->bonddead
@@ -2007,19 +2009,20 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     {
         return gdl;     /* the gadget's model has its own hand */
     }
-    if (!gevrStereoGunMatrix(GUNRIGHT, &armmtx))
+    /* #60: holding the watch, the hand is placed from the left arm it holds */
+    watchGrip = gevrStereoWatchItem(item) && gevrStereoWatchGrip();
+    if (!gevrStereoGunMatrix(watchGrip ? GUNLEFT : GUNRIGHT, &armmtx))
     {
         return gdl;
     }
     /*
      * issue #41: a grenade in the taser's gripping hand, not the open fist.
      * Issue #60: the hand holding the watch for the laser is that gripping
-     * hand too, on its controller, at the tracked watch arm - which stays
-     * (the watch laser's own two-arm viewmodel had replaced both, and popped
-     * to its smaller, coarser arm: user).
+     * hand too, pinned to the tracked watch arm's wrist - which stays (the
+     * watch laser's own two-arm viewmodel had replaced both, and popped to
+     * its smaller, coarser arm: user).
      */
-    if (((s_gevrHiddenShown[GUNRIGHT] && gevrStereoItemHand(item) == 2)
-         || (gevrStereoWatchItem(item) && gevrStereoWatchGrip()))
+    if (((s_gevrHiddenShown[GUNRIGHT] && gevrStereoItemHand(item) == 2) || watchGrip)
         && gevrTaserHandLoad())
     {
         mdl = &s_gevrTaserHandModel;
@@ -2032,6 +2035,10 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     }
 
     matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
+    if (watchGrip && !gevrStereoWatchGripMatrix(&armmtx))
+    {
+        return gdl;
+    }
 
     rwmtx = (Mtxf *) dynAllocate(hdr->numMatrices * ((s32) sizeof(Mtxf)));
     for (j = 0; j < hdr->numMatrices; j++)
@@ -2219,7 +2226,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
      * (VR_HAND_DRAW_BEGIN | controller + 1, gevrHandTag), so the XR frames
      * between game frames move it by that controller's own motion.
      */
-    gdl = gevrHandTag(gdl, 1);
+    /* #60: the hand holding the watch is on the left arm, so it moves with the left controller */
+    gdl = gevrHandTag(gdl, (gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()) ? 0 : 1);
     gdl = gevrRenderRightFist(gdl, &renderdata);
     /*
      * #35: the hand holding the gun goes first too, for the same reason: the

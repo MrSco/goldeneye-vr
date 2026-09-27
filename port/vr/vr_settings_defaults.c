@@ -81,6 +81,13 @@ float VrGripTrim[2][6] = {
     { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },   /* handguns: under the gun hand */
     { 0.02f, -4.72f, 5.23f, 90.1f, 0.0f, 83.1f },    /* long guns: underhand below the fore-end */
 };
+/* Issue #60: the gun hand holding the watch for the watch laser, pinned to the
+ * left wrist: cm along the arm toward the fingers, out of the watch face,
+ * along the thumb, then degrees about the hand model's X, Y, Z
+ * (bondview2.c gevrStereoWatchGripMatrix). Gun fit sets it while holding the
+ * watch. The default grips the forearm's inner side, the grip along the arm
+ * (the long guns' 90 degrees), clear of the face the beam leaves. */
+float VrWatchGripTrim[6] = { 0.0f, -5.0f, 0.0f, 90.0f, 0.0f, 0.0f };
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
 float VrArmBodyFollow = 0.0f;  /* how fast the smoothed torso yaw chases the head */
 int   VrFistClench    = 0;     /* close the off hand while the left grip is squeezed */
