@@ -1281,6 +1281,12 @@ f32 gunSetHorizontalOffset(GUNHAND hand)
 
 f32 get_item_in_hand_zoom(void) {
     if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE) {
+#ifdef GEVR
+        /* the screen: the N64's closest, whatever the scope zoomed to (issue #58) */
+        if (g_CurrentPlayer->sniper_zoom < 7.0f) {
+            return 7.0f;
+        }
+#endif
         return g_CurrentPlayer->sniper_zoom;
     }
     if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_CAMERA) {
@@ -1327,9 +1333,26 @@ void camera_sniper_zoom_in(f32 zoom)
 {
 	if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE) {
 		g_CurrentPlayer->sniper_zoom /= (1.0f + (zoom * 0.1f));
+#ifdef GEVR
+		{
+			/*
+			 * Issue #58: in stereo on to 4.4 degrees, 15x - the
+			 * figure players quote for it - past the N64's 7 degrees (9.4x).
+			 * That filled the screen; the lens fills a fifth of the view
+			 * (user: "should zoom a bit more at max").
+			 */
+			extern s32 g_gevrStereo;
+			f32 closest = g_gevrStereo ? 4.4f : 7.0f;
+
+			if (g_CurrentPlayer->sniper_zoom < closest) {
+				g_CurrentPlayer->sniper_zoom = closest;
+			}
+		}
+#else
 		if (g_CurrentPlayer->sniper_zoom < 7.0f) {
 			g_CurrentPlayer->sniper_zoom = 7.0f;
 		}
+#endif
 	}
 	else
 	{
