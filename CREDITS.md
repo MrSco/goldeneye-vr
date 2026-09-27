@@ -162,6 +162,19 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 - **What for:** Windowing / input host dependency used by the native port stack.
 - **Licence:** zlib (see vendored SDL `LICENSE.txt` / `CREDITS.txt` in the product tree when binaries ship).
 
+### ENet (zpl-c/enet single-header C99 amalgamation)
+
+- **Author:** Phil Badis and Dominik Madarász (single-header C99 fork); upstream library by Lee Salzman
+- **Repo:** https://github.com/zpl-c/enet (upstream: http://enet.bespin.org / https://github.com/lsalzman/enet)
+- **What for:** Reliable/unreliable UDP networking library used for multiplayer transport (`port/external/enet.c`, `port/include/external/enet.h`).
+- **Licence:** MIT (Copyright (c) 2002-2020 Lee Salzman, Phil Badis).
+
+### Perfect Dark Netplay (fgsfdsfgs/perfect_dark)
+
+- **Repo:** https://github.com/fgsfdsfgs/perfect_dark (branch `port-net`)
+- **What for:** Network protocol design, `netbuf` endian-safe serialization, and server-authoritative state synchronization architecture adapted for GoldenEye VR multiplayer.
+- **Licence:** MIT.
+
 ---
 
 ## Looked at, not adapted into this port

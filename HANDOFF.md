@@ -5319,3 +5319,59 @@ tools/texai/NOTES.md.
   - The gevr_texdump marker writes native PAMs with the tile number in the
     name (`_t1`).
 - tools/texai/rejected.txt: 49CB30EE, a flat grey Dam strip (99c2f98).
+
+## 124. Online multiplayer, LAN / direct IP (#23, merged 2026-09-27)
+- **Experimental and not yet played on two headsets.** Merged through PR
+  #61 so testers get it in the next release. Built by other agents on
+  feature/online-multiplayer (worktree ../gevr-multiplayer) and reviewed
+  over five rounds. MULTIPLAYER.md has the protocol and the two-headset
+  test list. #23 stays open.
+- **Model.** Each headset runs the whole match. Every player sends its own
+  position, angles, inputs and held weapon each tick
+  (NET_MSG_PLAYER_STATE, port/src/net/net_player_sync.c), and the host
+  relays them. This is not the host-run simulation of upstream PD's netplay
+  (fgsfdsfgs/perfect_dark branch port-net). Only netbuf and the
+  netplayermove/UCMD shape came from there. Merged this way for
+  testing; porting PD's model is still open.
+- **Transport.** zpl-c/enet single header (port/include/external/enet.h,
+  port/external/enet.c) on UDP 27007; LAN beacons on UDP 27008
+  (net_discovery.c). Protocol version 3, so every headset needs the same
+  build.
+- **Lobby.** Launcher -> Multiplayer...: host, or join from the LAN list or
+  by IP; pick a character; ready.
+  - The stages and their player caps are front.c's multi_stage_setups
+    (Cradle is not a multiplayer stage).
+  - Launch needs 2+ ready players in consecutive slots.
+  - Launch boots straight into the stage: gamemode MULTI,
+    init_mp_options_for_scenario and setMPWeaponSet, player_char from the
+    lobby, and the host's random seed. main.c keeps a g_StageNum the
+    launcher set.
+- **Engine hooks** (all #ifdef GEVR and gated on netIsActive()):
+  - Only the local slot renders, full screen in stereo (lv.c, the
+    bondview2.c viewport helpers). The stereo gate allows 2+ players
+    online.
+  - gevrStereoApplyHead, gevrStereoFrame and gun fit act on the local slot
+    only; lvlRender makes the local player current first.
+  - input.c: the VR controller drives the local slot. Remote slots are fed
+    from their netplayermove, and the connected mask is the local slot plus
+    the active remotes.
+  - Remote players get a position lerp (snapping past 512 units),
+    bondviewUpdatePlayerRoom, angles, stance, and the held weapon model
+    (chrGiveWeapon).
+  - Damage: the shooter reports bullet hits (chraction.c
+    handles_shot_actors), and the owner reports explosions (explosion.c;
+    the host reports level explosions). The host broadcasts
+    NET_MSG_DAMAGE_EVENT, and every headset runs record_damage_kills on
+    the target, so health and kills agree.
+  - Respawn: the respawning player sends its pad and facing, and every
+    headset runs mp_respawn_handler_net for that slot, even if it didn't
+    see the death (b87b749). Only the local slot can respawn by button.
+- **Known gaps.**
+  - If the host quits mid-match, the client falls back to local
+    split-screen (netIsActive goes false) instead of returning to the menu.
+  - Match end isn't synced.
+  - Remote hand poses are sent but not drawn.
+  - FIRE_EVENT and VOIP are placeholders.
+- **The desktop (WIN32) build paths are dead Perfect Dark leftovers and
+  don't compile.** A one-headset test peer would have to be a standalone
+  ENet program.
