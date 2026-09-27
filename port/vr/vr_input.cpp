@@ -1803,8 +1803,20 @@ static bool gCamCtrlValid[2];
  */
 static XrQuaternionf gSteadyQ[2];
 static bool gSteadyInit[2];
+static bool gSteadyUsed[2];   // this game frame's snapshot took the steadied turn
 
-static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw)
+/*
+ * Aiming a gun with a scope (bondview2.c gevrGripSteadyOn), Perfect Dark VR's
+ * grip steadying: while gripping a zoom weapon its controller turn is slerped
+ * CTRL_SMOOTH_ALPHA_ROT_GRIP (0.10) of the way each XR frame, whatever the
+ * hand's speed (vr_input.cpp WepCanZoom). Here once a game frame: 0.15 at
+ * 60 Hz is its 0.10 at 90 Hz (1 - 0.9^1.5). Issue #58: the scope magnifies
+ * the hand's tremor.
+ */
+#define GEVR_GRIP_STEADY_ALPHA 0.15f
+extern "C" int gevrGripSteadyOn(void);   // bondview2.c
+
+static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
 {
     // weight a: aMin below d0 degrees of change per frame, 1 above d1
     static const float aMin[3] = { 1.0f, 0.30f, 0.12f };
@@ -1812,7 +1824,7 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw)
     static const float d1[3]   = { 1.0f, 3.0f,  5.0f };
     const int lvl = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
     XrQuaternionf s = gSteadyQ[h];
-    if (!gSteadyInit[h] || lvl == 0) {
+    if (!gSteadyInit[h] || (lvl == 0 && !grip)) {
         gSteadyQ[h] = raw;
         gSteadyInit[h] = true;
         return raw;
@@ -1826,7 +1838,7 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw)
     const float deg = 2.0f * (float)acos((double)dot) * (180.0f / 3.14159265f);
     float t = (deg - d0[lvl]) / (d1[lvl] - d0[lvl]);
     t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
-    const float a = aMin[lvl] + (1.0f - aMin[lvl]) * t;
+    const float a = grip ? GEVR_GRIP_STEADY_ALPHA : aMin[lvl] + (1.0f - aMin[lvl]) * t;
     XrQuaternionf q = { s.x + (raw.x - s.x) * a, s.y + (raw.y - s.y) * a,
                         s.z + (raw.z - s.z) * a, s.w + (raw.w - s.w) * a };
     const float len = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
@@ -1844,9 +1856,12 @@ extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
             gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
             gCamCtrlPose[h] = gControllerStates[h].controller_pose;
             const XrQuaternionf& pq = gCtrlPosePlay[h].orientation;
-            if (VrAimSteady > 0 && !(pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f)) {
+            const bool grip = h == gevrPhysHand(1) && gevrGripSteadyOn();
+            gSteadyUsed[h] = false;
+            if ((VrAimSteady > 0 || grip) && !(pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f)) {
                 // steadied play-space orientation, seen from the camera head: head^-1 * s
-                const XrQuaternionf s = gevr_steady(h, pq);
+                const XrQuaternionf s = gevr_steady(h, pq, grip);
+                gSteadyUsed[h] = true;
                 const XrQuaternionf hq = head->orientation;
                 const float cx = -hq.x, cy = -hq.y, cz = -hq.z, cw = hq.w;
                 gCamCtrlPose[h].orientation = { cw * s.x + cx * s.w + cy * s.z - cz * s.y,
@@ -1935,6 +1950,46 @@ extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4])
     quat[1] = pose.orientation.y;
     quat[2] = pose.orientation.z;
     quat[3] = pose.orientation.w;
+    return 1;
+}
+
+/*
+ * The newest pose, its turn steadied as the game frame's was (gevr_steady):
+ * the play-space steadying carried onto the newest view-space pose,
+ * view = raw_view * raw_play^-1 * steady_play. The redrawn gun and the scope's
+ * lens take it, so steadying is not undone between game frames (a raw newest
+ * turn put the tremor back on every redrawn frame, and the lens slid off a
+ * steadied gun).
+ */
+extern "C" int gevrVrGripPoseSteady(int hand, float pos[3], float quat[4])
+{
+    if (hand < 0 || hand > 1 || !gevrVrGripPose(hand, pos, quat)) {
+        return 0;
+    }
+    const int h = gevrPhysHand(hand);
+    const XrQuaternionf& rp = gCtrlPosePlay[h].orientation;
+    if (!gSteadyUsed[h] || !gSteadyInit[h] || (rp.x == 0.0f && rp.y == 0.0f && rp.z == 0.0f && rp.w == 0.0f)) {
+        return 1;
+    }
+    // a = raw_view * conj(raw_play), then a * steady_play (Hamilton products)
+    const XrQuaternionf v = { quat[0], quat[1], quat[2], quat[3] };
+    const XrQuaternionf c = { -rp.x, -rp.y, -rp.z, rp.w };
+    const XrQuaternionf& s = gSteadyQ[h];
+    const XrQuaternionf a = { v.w * c.x + v.x * c.w + v.y * c.z - v.z * c.y,
+                              v.w * c.y - v.x * c.z + v.y * c.w + v.z * c.x,
+                              v.w * c.z + v.x * c.y - v.y * c.x + v.z * c.w,
+                              v.w * c.w - v.x * c.x - v.y * c.y - v.z * c.z };
+    XrQuaternionf r = { a.w * s.x + a.x * s.w + a.y * s.z - a.z * s.y,
+                        a.w * s.y - a.x * s.z + a.y * s.w + a.z * s.x,
+                        a.w * s.z + a.x * s.y - a.y * s.x + a.z * s.w,
+                        a.w * s.w - a.x * s.x - a.y * s.y - a.z * s.z };
+    const float len = sqrtf(r.x * r.x + r.y * r.y + r.z * r.z + r.w * r.w);
+    if (len > 1e-6f) {
+        quat[0] = r.x / len;
+        quat[1] = r.y / len;
+        quat[2] = r.z / len;
+        quat[3] = r.w / len;
+    }
     return 1;
 }
 
