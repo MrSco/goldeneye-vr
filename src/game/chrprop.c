@@ -1843,14 +1843,16 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
 
 #ifdef GEVR
 /*
- * Issue #55: the free hand's chop (bondview2.c gevrOffHandChopTick). The fist
+ * Issue #55: a blow of the hand (bondview2.c gevrHandChopTick). The fist
  * above, round the hand instead of the view: the same guards, line and tile
  * checks, hit part and ITEM_FIST damage, but the guard's box (view space, as
- * above) must come within touch of the hand at `at`, not straddle the view's
- * centre line within reach. dir is the blow's direction in view space. Returns
- * whether anyone was hit; the whiff is the caller's, at the swing's end.
+ * above) must come within touch of the segment from..to - the hand, or the
+ * sniper club from the hand to its end - not straddle the view's centre line
+ * within reach. dir is the blow's direction in view space; item_id is the
+ * damage, ITEM_FIST or the knife's, as the fist's caller passes. Returns
+ * whether anyone was hit; the whiff is the caller's.
  */
-s32 gevrChopHit(const f32 at[3], f32 touch, const f32 dir[3])
+s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id)
 {
     PropRecord *playerprop = getCurrentPlayerProp();
     f32 ducking = bondviewGetPlayerDuckingHeightRelated(g_CurrentPlayer);
@@ -1864,7 +1866,9 @@ s32 gevrChopHit(const f32 at[3], f32 touch, const f32 dir[3])
         StandTile *tile;
         coord3d vector;
         f32 max0, min0, max1, min1, max2, min2;
+        f32 lo[3], hi[3], t0, t1;
         s32 hitpart;
+        s32 k;
 
         if (prop == NULL || !(prop->zDepth < 500.0f))
         {
@@ -1885,9 +1889,40 @@ s32 gevrChopHit(const f32 at[3], f32 touch, const f32 dir[3])
         modelGetAxisExtents(chr->model, &max1, &min1, 1);
         modelGetAxisExtents(chr->model, &max2, &min2, 2);
 
-        if (at[0] + touch < min0 || at[0] - touch > max0
-            || at[1] + touch < min1 || at[1] - touch > max1
-            || at[2] + touch < min2 || at[2] - touch > max2)
+        /* the segment against the box grown by touch, slab by slab */
+        lo[0] = min0 - touch; hi[0] = max0 + touch;
+        lo[1] = min1 - touch; hi[1] = max1 + touch;
+        lo[2] = min2 - touch; hi[2] = max2 + touch;
+        t0 = 0.0f;
+        t1 = 1.0f;
+        for (k = 0; k < 3 && t0 <= t1; k++)
+        {
+            f32 d = to[k] - from[k];
+
+            if (d > -1e-6f && d < 1e-6f)
+            {
+                if (from[k] < lo[k] || from[k] > hi[k])
+                {
+                    t0 = 2.0f;
+                }
+            }
+            else
+            {
+                f32 a = (lo[k] - from[k]) / d;
+                f32 b = (hi[k] - from[k]) / d;
+
+                if (a > b)
+                {
+                    f32 swap = a;
+
+                    a = b;
+                    b = swap;
+                }
+                if (a > t0) t0 = a;
+                if (b < t1) t1 = b;
+            }
+        }
+        if (t0 > t1)
         {
             continue;
         }
@@ -1920,15 +1955,16 @@ s32 gevrChopHit(const f32 at[3], f32 touch, const f32 dir[3])
         vector.z = dir[2];
         mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &vector);
 
-        if (handles_shot_actors(chr, hitpart, &vector, ITEM_FIST, 1))
+        if (handles_shot_actors(chr, hitpart, &vector, item_id, 1))
         {
-            recall_joy2_hits_edit_detail_edit_flag(ITEM_FIST, prop, -1);
+            recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);
             hit = 1;
         }
     }
 
     return hit;
 }
+
 #endif
 
 

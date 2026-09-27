@@ -769,6 +769,15 @@ Gfx* lvlRender(Gfx* DL)
             chraiCheckUseHeldItems();
 #ifdef GEVR
             { extern void gevrStereoAimUpdate(void); gevrStereoAimUpdate(); }
+            /*
+             * Issue #55: a blow of either hand (bondview2.c gevrHandChopTick),
+             * here with the game's own fist: the guards' matrices are this
+             * frame's floats only between propsTick and their draw, which
+             * packs them into fixed point in place (chr.c). From the move tick
+             * it read last frame's packed ones: boxes of garbage, and blows
+             * landing from afar (user).
+             */
+            { extern void gevrHandChopTick(s32 ctrl); gevrHandChopTick(0); gevrHandChopTick(1); }
 #endif
 
             if (bond_pressed_reload_activate() && bond_interact_object())
