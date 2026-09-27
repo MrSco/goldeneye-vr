@@ -40,6 +40,7 @@ static s32 gevrCrouchToggle = 0;
  * stick clicks recentre (GEVR PC's GETV_XR_RECENTER_CHORD).
  */
 extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
+extern s32 gevrScopeZoomStick(void);  /* bondview2.c: aiming the sniper, this stick zooms */
 extern int gevrVrScreenMode;      /* gfx_pc.cpp: this frame is on the virtual screen */
 extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
 extern void vrSettingsSave(void);
@@ -87,6 +88,10 @@ extern int VrLeftHandedMode;
 
 int gevrVrTriggerDown[2];   /* by gun hand (0 right, 1 left); gunfire.c gunTickGameplay */
 int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondview2.c draws it) */
+extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
+extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
+s32 gevrTexpackToggleMsg;                  /* bondview2.c says it in a level: 2 off, 3 on */
+static bool gevrSwallowX;                  /* X answered the prompt: not use/reload until let go */
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
 extern f32 gevrWeaponPanelStickY;
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
@@ -1068,13 +1073,16 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // hold asks whether to go back to the launcher (A yes, B no; bondview2.c
         // gevrDrawReturnPrompt) - in play, on the watch and in the menus alike.
         // The app restarts into it, so the mission in progress is lost.
+        // With a texture pack in use the prompt also offers X: switch the pack
+        // off, or on again, for the session (gfx_pc.cpp gevrTexpackToggle).
         {
             static u32 downat = 0, startuntil = 0;
-            static bool consumed = false, aWas = true, bWas = true;
+            static bool consumed = false, aWas = true, bWas = true, xWas = true;
             const u32 t = SDL_GetTicks();
             const bool held = get_button_state(0, "menu");
             if (gevrReturnPrompt) {
                 const bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
+                const bool x = get_button_state(0, "x");
                 if (a && !aWas) {
                     LOGI("input: menu hold -> back to the launcher\n");
                     gevrRestartToLauncher();
@@ -1083,8 +1091,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     LOGI("input: menu hold -> cancelled\n");
                     gevrReturnPrompt = 0;
                 }
+                if (x && !xWas && gevrTexpackState() >= 0) {
+                    gevrTexpackToggleMsg = gevrTexpackToggle() + 2;
+                    gevrReturnPrompt = 0;
+                    gevrSwallowX = true;
+                    LOGI("input: menu hold -> texture pack %s\n", gevrTexpackToggleMsg == 3 ? "on" : "off");
+                }
                 aWas = a;
                 bWas = b;
+                xWas = x;
                 downat = 0;
             } else if (held) {
                 if (!downat) {
@@ -1094,7 +1109,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (!consumed && t - downat >= 1500) {
                     consumed = true;
                     gevrReturnPrompt = 1;
-                    aWas = bWas = true;   /* a button already down does not answer */
+                    aWas = bWas = xWas = true;   /* a button already down does not answer */
                     LOGI("input: menu hold -> return prompt\n");
                 }
             } else {
@@ -1110,7 +1125,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // Not R as well: here R aims and zooms.
         vr_button_L_grip = stereoplay && gevrDualWielding() && get_button_state(0, "grip");
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
-        if (get_button_state(0, "x")) npad->button |= B_BUTTON;
+        // (Not the X that just switched the texture pack in the prompt, until let go.)
+        if (gevrSwallowX && !get_button_state(0, "x")) gevrSwallowX = false;
+        if (get_button_state(0, "x") && !gevrSwallowX) npad->button |= B_BUTTON;
         if (get_button_state(0, "y")) npad->button |= A_BUTTON;
         // Issue #10: in stereo play the weapon hand's A is held back. A tap sends
         // A on release (the game's weapon cycle); a hold shows the weapon panel
@@ -1290,9 +1307,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // The weapon panel (issue #10) takes the other hand's stick while it is up.
         gevrWeaponPanelStickY = gevrWeaponPanelOpen ? left.y : 0.0f;
         if (!menu && !gevrWeaponPanelOpen) {
-            // Solitaire: C directions move; while aiming down/up crouches/stands.
-            if (left.x < -0.25f) npad->button |= L_CBUTTONS;
-            if (left.x >  0.25f) npad->button |= R_CBUTTONS;
+            // Solitaire: C directions move; while aiming down/up crouches/stands,
+            // or with the sniper zooms - and then side to side does not strafe
+            // the scope off its target (issue #58, user).
+            const bool zoomStick = gevrScopeZoomStick() != 0;
+            if (!zoomStick && left.x < -0.25f) npad->button |= L_CBUTTONS;
+            if (!zoomStick && left.x >  0.25f) npad->button |= R_CBUTTONS;
             if (left.y < -0.25f) npad->button |= D_CBUTTONS;
             if (left.y >  0.25f) npad->button |= U_CBUTTONS;
         }

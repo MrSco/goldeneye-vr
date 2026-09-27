@@ -746,10 +746,34 @@ static void gevrWarpProbe(s32 inlevel)
     sub_GAME_7F03D058(pr, TRUE);
 }
 
+/*
+ * input.c: X in the menu-hold prompt switched the texture pack; say which way
+ * with the game's own bottom message. Outside a level the note is dropped.
+ */
+extern s32 gevrTexpackToggleMsg;
+static void gevrTexpackMessage(s32 inlevel)
+{
+    static char msg[32];
+    s32 m = gevrTexpackToggleMsg;
+
+    if (m == 0)
+    {
+        return;
+    }
+    gevrTexpackToggleMsg = 0;
+    if (!inlevel || g_CurrentPlayer == NULL)
+    {
+        return;
+    }
+    strcpy(msg, m == 3 ? "HD textures on" : m == 2 ? "HD textures off" : "No HD texture pack");
+    hudmsgBottomShow(msg);
+}
+
 void gevrStereoFrame(s32 inlevel)
 {
     s32 opening;
 
+    gevrTexpackMessage(inlevel);
     gevrCheatProbe(inlevel);
     gevrWarpProbe(inlevel);
     opening = gevrWatchOpeningByGesture(inlevel);
@@ -1081,6 +1105,7 @@ void gevrStereoItemPose(s32 item, Mtxf *m)
  * in the model's own frame), so the placement here holds for both hands.
  */
 static s32 s_gevrMuzzleValid[2];
+static s32 s_gevrMuzzleItem[2];   /* the item whose muzzle it is (gevrHandChopTick) */
 static f32 s_gevrMuzzle[2][3];          /* camera space, from the flash node */
 
 extern int VrLeftHandedMode;     /* vr_input.cpp (goldeneye-vr.ini LeftHandedMode) */
@@ -1497,6 +1522,7 @@ void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
         s_gevrMuzzle[handnum][1] = y;
         s_gevrMuzzle[handnum][2] = z;
         s_gevrMuzzleValid[handnum] = TRUE;
+        s_gevrMuzzleItem[handnum] = getCurrentPlayerWeaponId(handnum);
     }
 }
 
@@ -1840,6 +1866,193 @@ s32 gevrStereoTwoHandUpdate(void)
 s32 gevrStereoTwoHandGrip(void)
 {
     return g_gevrStereo && s_gevrTwoHand;
+}
+
+/*
+ * Issue #55: chop with the free hand while the other holds a gun.
+ *
+ * The hand's speed is Perfect Dark VR's (bondgun.c bgunTickGameplay,
+ * WEAPON_UNARMED): the controller's velocity less the head's, so walking does
+ * not punch, turned into the controller's own frame by its worldToLocal.
+ *
+ * The hit is taken on contact, as GEVR PC's hand melee (gevr-up
+ * GETV_VR_HANDMELEE and SWINGHIT: a touch radius, a swing speed, cooldown 30):
+ * whenever the hand, moving at GEVR_CHOP_HIT or more, comes within
+ * GEVR_CHOP_TOUCH_CM of a guard, GoldenEye's own fist lands (chrprop.c
+ * gevrChopHit: its guards, checks and ITEM_FIST damage), the blow going from
+ * the eye to the hand as the fist's goes along the view. Set off by Perfect
+ * Dark's swing test instead, the wind-up started the chop and the blow coming
+ * down after it was lost, and the blows themselves - down on the hand's edge,
+ * 1.4-1.9 m/s - mostly missed the test's 1.6 across the hand (user, logged).
+ *
+ * The swing test still gives the fist's whiff: a swing that passes it - 1.2 m/s
+ * along +Y, over the knuckles, or 1.6 across it (Perfect Dark's fist's 1.5 and
+ * 2.5 took a wild swing, user) - and lands nothing in GEVR_CHOP_TICKS.
+ *
+ * Either hand, whatever it holds (user), as Perfect Dark VR punches, stabs
+ * and pistol-whips by swinging; the trigger still does what it did. The damage
+ * is GoldenEye's melee: the fist's, as it gives the sniper club, or the
+ * knife's for the knife (chraiCheckUseHeldItem). A blow lands along what is
+ * held, from the hand to the gun's muzzle as drawn, or to the club's butt;
+ * a bare hand, the knife or a gadget at the hand. A hand holding anything but
+ * the fist or the knife needs GEVR_CHOP_HIT_ARMED, Perfect Dark's pistol-whip
+ * speed, so turning a gun on a guard beside you does not strike him. Every
+ * blow that misses whiffs, GoldenEye's fist's sound (its own is the fist's
+ * alone; the knife and a gun were silent, user); an armed swing must pass
+ * Perfect Dark's pistol-whip test, 2 m/s either way, so aiming stays quiet.
+ *
+ * Run from lvlRender beside the game's own fist (lv.c), not the move tick.
+ */
+#define GEVR_CHOP_HIT 1.0f        /* m/s, the hand's speed at contact */
+#define GEVR_CHOP_HIT_ARMED 2.0f  /* m/s, with a gun or a gadget in the hand */
+#define GEVR_CHOP_SWING_ARMED 2.0f   /* m/s, its whiff: Perfect Dark's pistol-whip test */
+#define GEVR_CHOP_THRUST 1.2f     /* m/s, a swing that whiffs */
+#define GEVR_CHOP_SLASH 1.6f
+#define GEVR_CHOP_TOUCH_CM 10.0f
+#define GEVR_CHOP_TICKS 20
+#define GEVR_CHOP_COOL 30
+
+static void gevrWorldToLocal(const f32 q[4], const f32 v[3], f32 out[3])
+{
+    f32 qw = q[0], qx = -q[1], qy = -q[2], qz = -q[3];
+    f32 tx = 2.0f * (qy * v[2] - qz * v[1]);
+    f32 ty = 2.0f * (qz * v[0] - qx * v[2]);
+    f32 tz = 2.0f * (qx * v[1] - qy * v[0]);
+
+    out[0] = v[0] + qw * tx + qy * tz - qz * ty;
+    out[1] = v[1] + qw * ty + qz * tx - qx * tz;
+    out[2] = v[2] + qw * tz + qx * ty - qy * tx;
+}
+
+/*
+ * GsniperrifleZ's butt, model units: its lowest vertex along the barrel axis,
+ * measured from the ROM (x -53..47, y -133..107, z -320..772: 93 cm). The
+ * model has no bounding box node, and its drawn matrices are fixed point by
+ * the tick, so the club's end is taken from this through the float gun matrix
+ * (hands[].gunmtx_camspace, model units x 0.1 as GEVR_TWOHAND_PALM).
+ */
+static const f32 s_gevrClubButt[3] = { -13.0f, 26.75f, -320.0f };
+
+/* lv.c lvlRender, each frame: ctrl 0 the off hand, 1 the gun hand */
+void gevrHandChopTick(s32 ctrl)
+{
+    extern float vr_ctrl_quat_play[2][4];     /* vr_input.cpp: the gesture frame, play space */
+    extern float vr_ctrl_velocity_play[2][3];
+    extern float vr_head_velocity_play[3];    /* vr_openxr.cpp */
+    extern s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id);   /* chrprop.c */
+    extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
+    extern int vr_haptics_ready(void);        /* vr_input.cpp */
+    static s32 s_whiff[2];   /* ticks until a swing that has landed nothing whiffs, 0 none */
+    static s32 s_cool[2];
+    static s32 s_fast[2];    /* Perfect Dark's vr_hand_triggered: the hand has not slowed yet */
+    s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
+    s32 item = getCurrentPlayerWeaponId(hand);
+    s32 bare = item == ITEM_UNARMED || item == ITEM_FIST;
+    s32 club = item == ITEM_FIST && g_CurrentPlayer->cur_item_weapon_getname == ITEM_SNIPERRIFLE;
+    s32 damage = item == ITEM_KNIFE ? ITEM_KNIFE : ITEM_FIST;
+    f32 need = (bare || item == ITEM_KNIFE) ? GEVR_CHOP_HIT : GEVR_CHOP_HIT_ARMED;
+    f32 rel[3], loc[3], thrust, slash, speed;
+    s32 fast;
+    s32 i;
+
+    if (s_cool[ctrl] > 0)
+    {
+        s_cool[ctrl] -= g_ClockTimer;
+    }
+    /* the off hand on the gun, or either hand at the watch laser, is holding on */
+    if (!g_gevrStereo || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
+        || g_PlayerIsInTank == 1 || gevrStereoWatchGrip() || (ctrl == 0 && gevrStereoTwoHandGrip()))
+    {
+        s_whiff[ctrl] = 0;
+        s_fast[ctrl] = TRUE;   /* a hand let go mid-swing is not a swing */
+        return;
+    }
+
+    for (i = 0; i < 3; i++)
+    {
+        rel[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
+    }
+    gevrWorldToLocal(vr_ctrl_quat_play[ctrl], rel, loc);
+    thrust = loc[1];
+    slash = sqrtf(loc[0] * loc[0] + loc[2] * loc[2]);
+    speed = sqrtf(thrust * thrust + slash * slash);
+    if (bare || item == ITEM_KNIFE)
+    {
+        fast = thrust > GEVR_CHOP_THRUST || slash > GEVR_CHOP_SLASH;
+    }
+    else
+    {
+        fast = thrust > GEVR_CHOP_SWING_ARMED || slash > GEVR_CHOP_SWING_ARMED;
+    }
+
+    /* not while the last blow's follow-through is still going */
+    if (fast && !s_fast[ctrl] && s_whiff[ctrl] <= 0 && s_cool[ctrl] <= 0)
+    {
+        s_whiff[ctrl] = GEVR_CHOP_TICKS;
+    }
+    s_fast[ctrl] = fast;
+
+    if (speed >= need && s_cool[ctrl] <= 0)
+    {
+        f32 at[3], end[3], ignore[3], dir[3], len;
+        f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+
+        if (gevrGripAxesRaw(ctrl, at, ignore, ignore, ignore))
+        {
+            end[0] = at[0];
+            end[1] = at[1];
+            end[2] = at[2];
+            if (club)
+            {
+                Mtxf *g = &g_CurrentPlayer->hands[GUNRIGHT].gunmtx_camspace;
+
+                for (i = 0; i < 3; i++)
+                {
+                    end[i] = g->m[3][i] + 0.1f * (s_gevrClubButt[0] * g->m[0][i] + s_gevrClubButt[1] * g->m[1][i]
+                                                  + s_gevrClubButt[2] * g->m[2][i]);
+                }
+            }
+            else if (!bare && item != ITEM_KNIFE && s_gevrMuzzleValid[hand] && s_gevrMuzzleItem[hand] == item)
+            {
+                end[0] = s_gevrMuzzle[hand][0];
+                end[1] = s_gevrMuzzle[hand][1];
+                end[2] = s_gevrMuzzle[hand][2];
+            }
+            len = sqrtf(end[0] * end[0] + end[1] * end[1] + end[2] * end[2]);
+            for (i = 0; i < 3; i++)
+            {
+                dir[i] = len > 1e-6f ? end[i] / len : (i == 2 ? -1.0f : 0.0f);
+            }
+            if (gevrChopHit(at, end, GEVR_CHOP_TOUCH_CM * cm, dir, damage))
+            {
+                f32 d[3];
+
+                for (i = 0; i < 3; i++)
+                {
+                    d[i] = end[i] - at[i];
+                }
+                sysLogPrintf(LOG_NOTE, "stereo: %s blow (item %d%s) landed at %.2f m/s (thrust %.2f slash %.2f), reach %.0f cm",
+                             ctrl ? "gun hand" : "off hand", item, club ? ", club" : "", speed, thrust, slash,
+                             cm > 1e-6f ? sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm : 0.0f);
+                if (vr_haptics_ready())
+                {
+                    trigger_haptic_vibration_c(ctrl, 0.8f, 0.08f);
+                }
+                s_whiff[ctrl] = 0;
+                s_cool[ctrl] = GEVR_CHOP_COOL;
+            }
+        }
+    }
+
+    if (s_whiff[ctrl] > 0)
+    {
+        s_whiff[ctrl] -= g_ClockTimer;
+        if (s_whiff[ctrl] <= 0)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: %s swing missed", ctrl ? "gun hand" : "off hand");
+            sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, NULL);
+        }
+    }
 }
 
 /*
@@ -2234,10 +2447,20 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * through the lens stays upright.
  *
  * The lens shows the scope's view all the time the sniper is in hand, always
- * zoomed, as a real scope is (user): the game's own sniper zoom, the view the
- * N64 screen showed when aiming - sniper_zoom, 15 degrees by default, 7 at
- * most, changed with up/down on the left stick while aiming as C-up/down on
- * the N64 (user: the original game's zoom, not one scaled to the lens).
+ * zoomed, as a real scope is (user): the game's own sniper zoom -
+ * sniper_zoom, 15 degrees by default, changed with up/down on the left stick
+ * while aiming as C-up/down on the N64; in stereo no wider than it starts
+ * (the N64's 60 showed the world at its own size, user) and on to 2.65
+ * degrees, 25x, past the N64's 7 (user: more at max; gun.c) - at the
+ * N64's magnification. There that view filled the screen the 60-degree
+ * normal view filled: 4.4x at 15 degrees, 9.4x at 7. Shown as those same
+ * degrees across the lens, which fills only 20-40 degrees of the headset's
+ * view, it magnified 2-4x (issue #58: "about 2x"; the zoom was never the
+ * magnification). So the view across the lens is the lens's own angle over
+ * the N64's magnification, tan(view / 2) = tan(lens / 2) x tan(zoom / 2) /
+ * tan(30), from the lens as last shown (vr_openxr.cpp gevrScopeLensTan):
+ * nearer the eye, it shows more, at the same magnification, as a real
+ * scope's eye relief.
  * Aiming (grip, the flat game's R) brings up the red sight in it, as on the
  * N64. (A first try that showed the lens only near the eye flickered on and
  * off at the test's edge.)
@@ -2269,13 +2492,109 @@ f32 gevrScopeOrigin[3];         /* the scope camera, camera space (gunfire.c siz
 f32 gevrScopeFovDeg;            /* the angle across the lens */
 static f32 s_gevrScopeTrim[4];  /* gevr_scope.txt: added to the lens */
 static f32 s_gevrScopeK = 1.0f;    /* the N64's own zoomed view (gevr_scope.txt can change it) */
+extern float gevrScopeLensTan;     /* vr_openxr.cpp: tan of half the lens's angle, as last shown */
+#define GEVR_SCOPE_FLAT_FOVY 60.0f /* the N64's normal view (player.c), the zoom's 1x */
 
 #define GEVR_SCOPE_NEAR_M       0.05f
 #define GEVR_SCOPE_LENS_SCALE   2.0f
-#define GEVR_SCOPE_EYEPIECE_X   13.5f
-#define GEVR_SCOPE_EYEPIECE_Y   126.5f
-#define GEVR_SCOPE_EYEPIECE_Z   -128.0f
-#define GEVR_SCOPE_EYEPIECE_R   23.5f
+/*
+ * Each scope's eyepiece, model units, raw vertex coordinates as the sniper's
+ * above (measured from the ROM), and its zoom.
+ *
+ * The Moonraker laser's sight is a scope too (user), at a lower zoom than the
+ * sniper's (user: "don't make it zoom as much"), fixed: the N64 never zoomed
+ * it (laser_stats Zoom 0). 3x, 21.8 degrees - the rifles' 2.2x was a bit
+ * little (user). Its eyepiece is the rear face of the sight's housing in
+ * GlaserZ (display list node 0x2ac: x -18..18, y 84..116, z -80..-37, on the
+ * tube 0x294 at y 91..109).
+ *
+ * The rifles that zoom when aiming on the N64 - the KF7 (ak47_stats Zoom 30,
+ * 2.2x) and the AR33 (m16_stats Zoom 20, 3.3x) - zoomed the whole screen; a
+ * headset's view must not (as Perfect Dark VR does; GEVR PC's plan instead is
+ * a scope render). They have no scope, so their magnifier sits on the sight
+ * line at the back of the sights and shows only with the eye brought to it
+ * (user), within GEVR_SCOPE_NEAR_SHOW_M, gone past GEVR_SCOPE_NEAR_HIDE_M (a
+ * single distance flickered at its edge, HANDOFF 105). KF7 (Gak47Z): the
+ * receiver's top, y 79, back to z -44; front sight post y 80 at z 600..627.
+ * AR33 (Gm16Z): the carry handle's rear sight housing, x -10..11, y 100..154,
+ * z -5..70; front sight y 154 at z 634..677.
+ */
+#define GEVR_SCOPE_NEAR_SHOW_M  0.15f
+#define GEVR_SCOPE_NEAR_HIDE_M  0.20f
+#define GEVR_LASER_SCOPE_ZOOM   21.8f   /* 3x: 2 atan(tan 30 / 3) */
+
+struct GevrScope
+{
+    s32 item;
+    f32 x, y, z, r;   /* the eyepiece: centre and radius */
+    s32 nearOnly;     /* no scope on the model: shown with the eye at it */
+};
+
+static const struct GevrScope s_gevrScopes[] = {
+    { ITEM_SNIPERRIFLE, 13.5f, 126.5f, -128.0f, 23.5f, FALSE },   /* node 0x27c's end ring */
+    { ITEM_LASER,        0.0f, 100.0f,  -80.0f, 16.0f, FALSE },
+    { ITEM_AK47,         0.0f,  80.0f,  -44.0f, 16.0f, TRUE },
+    { ITEM_M16,          0.5f, 140.0f,   -5.0f, 16.0f, TRUE },
+};
+
+/* the held gun's scope, if it has one */
+static const struct GevrScope *gevrScopeFor(s32 item)
+{
+    s32 i;
+
+    for (i = 0; i < (s32) (sizeof(s_gevrScopes) / sizeof(s_gevrScopes[0])); i++)
+    {
+        if (s_gevrScopes[i].item == item)
+        {
+            return &s_gevrScopes[i];
+        }
+    }
+    return NULL;
+}
+
+/* the scope's zoom, degrees: the sniper's own, the laser's, a rifle's aim zoom */
+static f32 gevrScopeZoom(s32 item)
+{
+    f32 zoom;
+
+    if (item == ITEM_LASER)
+    {
+        return GEVR_LASER_SCOPE_ZOOM;
+    }
+    if (item != ITEM_SNIPERRIFLE)
+    {
+        return get_ptr_item_statistics(item)->Zoom;
+    }
+    zoom = g_CurrentPlayer->sniper_zoom;
+    if (zoom > sniperrifle_stats.Zoom)
+    {
+        zoom = sniperrifle_stats.Zoom;   /* zoomed out on the screen: the scope's widest (gun.c) */
+    }
+    return zoom;
+}
+
+/*
+ * vr_input.cpp gevrVrSnapshotControllers: aiming (the grip) a gun with a
+ * scope, the gun hand's turn is steadied hard, as Perfect Dark VR does while
+ * gripping a zoom weapon (vr_input.cpp WepCanZoom, CTRL_SMOOTH_ALPHA_ROT_GRIP)
+ * - the scope magnifies the hand's tremor (issue #58, user).
+ */
+s32 gevrGripSteadyOn(void)
+{
+    return g_gevrStereo && g_CurrentPlayer != NULL && g_CurrentPlayer->insightaimmode
+        && gevrScopeFor(getCurrentPlayerWeaponId(GUNRIGHT)) != NULL;
+}
+
+/*
+ * port/src/input.c: aiming the sniper, the moving stick's up/down zooms (the
+ * N64's C-up/down); its side to side then strafes the scope off its target,
+ * so it does not (issue #58, user).
+ */
+s32 gevrScopeZoomStick(void)
+{
+    return g_gevrStereo && g_CurrentPlayer != NULL && g_CurrentPlayer->insightaimmode
+        && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_SNIPERRIFLE;
+}
 
 static void gevrScopeTune(void)
 {
@@ -2308,18 +2627,22 @@ static void gevrScopeTune(void)
 }
 
 /* the lens on the eyepiece, from the gun hand's grip (vr_openxr.cpp places it) */
-static void gevrScopeLensPlace(void)
+static void gevrScopeLensPlace(const struct GevrScope *sc)
 {
     f32 size = gevrGunSizeFactor();
     f32 unit = GEVR_VIEWMODEL_CM * 0.1f / 100.0f * size;   /* metres a model unit */
     f32 left = VrLeftHandedMode ? -1.0f : 1.0f;             /* model +X, in the holder's right */
+    f32 ex = sc->x;
+    f32 ey = sc->y;
+    f32 ez = sc->z;
+    f32 er = sc->r;
 
     gevrScopeLens[0] = (VrLeftHandedMode ? -VrGunOffX : VrGunOffX) * size / 100.0f
-                     - left * GEVR_SCOPE_EYEPIECE_X * unit + s_gevrScopeTrim[0];
-    gevrScopeLens[1] = VrGunOffY * size / 100.0f + GEVR_SCOPE_EYEPIECE_Y * unit + s_gevrScopeTrim[1];
+                     - left * ex * unit + s_gevrScopeTrim[0];
+    gevrScopeLens[1] = VrGunOffY * size / 100.0f + ey * unit + s_gevrScopeTrim[1];
     gevrScopeLens[2] = (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * size / 100.0f
-                     - GEVR_SCOPE_EYEPIECE_Z * unit + s_gevrScopeTrim[2];
-    gevrScopeLens[3] = 2.0f * GEVR_SCOPE_EYEPIECE_R * unit * GEVR_SCOPE_LENS_SCALE + s_gevrScopeTrim[3];
+                     - ez * unit + s_gevrScopeTrim[2];
+    gevrScopeLens[3] = 2.0f * er * unit * GEVR_SCOPE_LENS_SCALE + s_gevrScopeTrim[3];
 }
 
 /* lvlRender, once the player's view is set up: whether this frame draws the scope */
@@ -2331,24 +2654,56 @@ s32 gevrScopeBegin(void)
     f32 pos[3], right[3], up[3], back[3];
     f32 r[3], u[3], f[3];
     f32 vu = GEVR_UNITS_PER_METRE * D_800364CC;
-    f32 len, fov, g, n, fa, A, B, ro, uo, fo;
+    f32 len, zoom, fov, g, n, fa, A, B, ro, uo, fo;
     f32 zr[2];
     struct coord3d o, d;
     s32 on = FALSE;
+    s32 item = g_CurrentPlayer != NULL ? getCurrentPlayerWeaponId(GUNRIGHT) : ITEM_UNARMED;
+    const struct GevrScope *sc = gevrScopeFor(item);
+    static s32 s_near;
+    f32 eye = 0.0f;
     s32 i;
 
     gevrScopeOn = FALSE;
     if (g_gevrStereo && g_CurrentPlayer != NULL && !gevrVrScreenMode && g_PlayerIsInTank != 1
-        && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_SNIPERRIFLE
+        && sc != NULL
         && vu > 1e-6f && gevrGripAxes(1, pos, right, up, back) && gevrStereoShot(GUNRIGHT, NULL, &o, &d))
     {
         gevrScopeTune();
-        gevrScopeLensPlace();
+        gevrScopeLensPlace(sc);
         on = TRUE;
+        if (sc->nearOnly)
+        {
+            /* the lens from the head (camera space's origin), metres */
+            f32 l[3];
+
+            for (i = 0; i < 3; i++)
+            {
+                l[i] = pos[i] / vu + right[i] * gevrScopeLens[0] + up[i] * gevrScopeLens[1] + back[i] * gevrScopeLens[2];
+            }
+            eye = sqrtf(l[0] * l[0] + l[1] * l[1] + l[2] * l[2]);
+            if (eye < GEVR_SCOPE_NEAR_SHOW_M || (s_near && eye < GEVR_SCOPE_NEAR_HIDE_M))
+            {
+                if (!s_near)
+                {
+                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier on (item %d, eye %.1f cm from it)", item, eye * 100.0f);
+                }
+                s_near = TRUE;
+            }
+            else
+            {
+                if (s_near)
+                {
+                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier off (item %d, eye %.1f cm from it)", item, eye * 100.0f);
+                }
+                s_near = FALSE;
+                on = FALSE;
+            }
+        }
     }
     if (on != was)
     {
-        sysLogPrintf(LOG_NOTE, "stereo: scope %s", on ? "on (sniper in hand)" : "off");
+        sysLogPrintf(LOG_NOTE, "stereo: scope %s (item %d)", on ? "on" : "off", item);
         if (on)
         {
             /* the model's scale, checked: its muzzle node (0, 53.2, 804.1)
@@ -2383,9 +2738,31 @@ s32 gevrScopeBegin(void)
     u[1] = r[2] * f[0] - r[0] * f[2];
     u[2] = r[0] * f[1] - r[1] * f[0];
 
-    fov = s_gevrScopeK * g_CurrentPlayer->sniper_zoom;   /* always zoomed, as a real scope */
-    if (fov < 1.0f) fov = 1.0f;
+    zoom = gevrScopeZoom(item);
+    fov = zoom * s_gevrScopeK;   /* always zoomed, as a real scope */
     if (fov > 60.0f) fov = 60.0f;
+    if (gevrScopeLensTan > 1e-3f)
+    {
+        /* the N64's magnification: its zoomed view over its normal one */
+        f32 t = gevrScopeLensTan * tanf(fov * 0.5f * (M_PI_F / 180.0f))
+                / tanf(GEVR_SCOPE_FLAT_FOVY * 0.5f * (M_PI_F / 180.0f));
+
+        fov = 2.0f * atanf(t) * (180.0f / M_PI_F);
+    }
+    if (fov < 0.5f) fov = 0.5f;
+    {
+        static f32 loggedZoom;
+        static u32 n;
+
+        if ((n++ % 240) == 0 || fabsf(zoom - loggedZoom) > 1.0f)
+        {
+            loggedZoom = zoom;
+            sysLogPrintf(LOG_NOTE, "stereo: scope zoom %.1f deg (%.1fx): %.2f deg across a %.1f deg lens",
+                         loggedZoom, tanf(GEVR_SCOPE_FLAT_FOVY * 0.5f * (M_PI_F / 180.0f))
+                                     / tanf(loggedZoom * 0.5f * (M_PI_F / 180.0f)),
+                         fov, 2.0f * atanf(gevrScopeLensTan) * (180.0f / M_PI_F));
+        }
+    }
     gevrScopeFovDeg = fov;
     gevrScopeOrigin[0] = o.x;
     gevrScopeOrigin[1] = o.y;
@@ -12278,13 +12655,23 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
 Gfx *gevrDrawReturnPrompt(Gfx *gdl)
 {
-    const char *text = "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED";
+    extern int gevrTexpackState(void);   /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
+    static char text[160];
     s32 x, y, w = 0, h = 0;
+    s32 pack;
 
     if (!gevrReturnPrompt)
     {
         return gdl;
     }
+    /* with a texture pack in use, X switches it (input.c) */
+    pack = gevrTexpackState();
+    strcpy(text, "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED");
+    if (pack >= 0)
+    {
+        strcat(text, pack ? "\n\nX: HD TEXTURES OFF" : "\n\nX: HD TEXTURES ON");
+    }
+    strcat(text, "\n");   /* textMeasure counts a line at each break: the last line too */
     gdl = microcode_constructor(gdl);
     textMeasure(&h, &w, (char *) text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
     x = viGetViewLeft() + (viGetViewWidth() - w) / 2;

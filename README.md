@@ -43,7 +43,8 @@
 | A 3D sight where your shot will land. Your ammo counter sits on the gun. | **Grab the screen** with both grips to move it anywhere. |
 | Your **left arm** is Bond's own suit sleeve with his watch, keeping mission time. Raise your wrist and look at it to open the watch. | The classic experience, with no motion at all. |
 | Gadgets are **in your hand**: mines, the covert modem, cameras and more, thrown from where you hold them. | |
-| The **sniper rifle's scope** shows the zoomed view in its lens, with a red sight when you aim. | |
+| The **sniper rifle's scope** shows the zoomed view in its lens, 4.4x up to 25x, with a red sight when you aim. The **Moonraker laser** has a 3x scope, and the **KF7** and **AR33** show a magnifier when you bring your eye to their sights. | |
+| **Melee with either hand**: swing your hand, a gun, the knife or the sniper rifle's butt at a guard. Sneak up on one and chop him. | |
 | The **watch laser** fires when you bring your gun hand to the watch and grip it, as Bond does in the original. | |
 | Hold any gun with **both hands**: put your left hand on it and squeeze the grip. A rifle then aims along the line between your hands. | |
 | Spent **shell casings** fly from the ejection port. | |
@@ -51,7 +52,13 @@
 
 Also:
 - An **in-VR launcher**: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (72, 90 or 120 Hz), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
-- **HD textures**: the launcher's **Mods** page downloads a fan-made texture pack on request, straight from its authors' site, and installs it in the headset. First up: *GoldenEye 007 HD* by intermissionfb and GhostlyDark (evilgames.eu, 129 MB). Nothing of theirs ships with the app.
+- **HD textures**: the launcher's **Mods** page downloads a fan-made texture pack on request and installs it in the headset:
+  - *GoldenEye 007 HD* by intermissionfb and GhostlyDark (evilgames.eu, 129 MB).
+  - *GoldenEye 007 HD + AI* (251 MB), our [fork](https://github.com/MrSco/GoldenEye-007-HD). It adds AI upscales of the game's own textures for the ones the pack doesn't cover yet: guards, weapons, parts of levels.
+
+  Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
+
+  In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
@@ -154,13 +161,14 @@ the same way as the first time. Your ROM and settings stay where they are.
 |---|---|
 | **Right trigger** | Fire (the gun in your right hand) |
 | **Left trigger** | Aim / zoom, or fire the left gun when dual-wielding |
-| **Right grip** | Aim / zoom, and shows the 3D sight |
+| **Right grip** | Aim / zoom, and shows the 3D sight. Steadies a gun with a scope |
 | **Left grip** | Dual-wielding: shows the left gun's sight (blue) |
 | **Left hand on the gun** + **left grip** | Hold it with both hands |
 | **Left stick** | Walk and strafe |
 | **Right stick** | Turn: smooth or snap, set in the launcher |
 | **Left stick click** | Crouch (toggle) |
-| **Left stick up/down** (aiming the sniper rifle) | Zoom the scope |
+| **Left stick up/down** (aiming the sniper rifle) | Zoom the scope (the stick doesn't strafe then) |
+| **Swing either hand** at a guard | Melee: chop, punch, pistol-whip, stab or club |
 | **Gun hand at the watch** + **right trigger** | Fire the watch laser |
 | **A** / **Y** | Next weapon |
 | **Hold A** | Weapon panel above your gun hand: scroll with the other stick, let go to equip (dual-wield pairs included) |
@@ -351,9 +359,11 @@ This project's own code is **MIT** licensed ([LICENSE](LICENSE)). Vendored compo
 
 The app icon and banner art were made for this project.
 
-Texture packs on the Mods page belong to their authors and are downloaded from their
-own sites when you ask: *GoldenEye 007 HD* by **intermissionfb** and **GhostlyDark**
-([evilgames.eu](https://evilgames.eu/texture-packs/ge007-hd.htm)).
+Texture packs on the Mods page belong to their authors and are downloaded when you
+ask: *GoldenEye 007 HD* by **intermissionfb** and **GhostlyDark**
+([evilgames.eu](https://evilgames.eu/texture-packs/ge007-hd.htm)). Our fork,
+*GoldenEye 007 HD + AI* ([MrSco/GoldenEye-007-HD](https://github.com/MrSco/GoldenEye-007-HD)),
+is their pack plus AI upscales, made with `tools/texai`, for the textures it doesn't have yet.
 
 ## ⭐ Star History
 

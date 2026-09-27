@@ -92,7 +92,7 @@ public class MainActivity extends SDLActivity {
         return mods != null ? mods.status() : "";
     }
 
-    /** "install:<id>", "remove:<id>", "cancel". */
+    /** "check", "install:<id>", "remove:<id>", "cancel"; see ModManager.command. */
     public void modsCommand(String cmd) {
         if (mods != null) mods.command(cmd);
     }
