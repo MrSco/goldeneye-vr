@@ -37,6 +37,7 @@ typedef struct {
     uint8_t  player_count;
     uint8_t  max_players;
     uint8_t  stage_num;
+    uint8_t  weapon_set; /* mp_weapon.c's set, the host's choice */
 } NetDiscoveryBeacon;
 #pragma pack(pop)
 
@@ -125,6 +126,7 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         beacon.player_count = (uint8_t)netGetConnectedPlayerCount();
         beacon.max_players = GEVR_MAX_PLAYERS;
         beacon.stage_num = (uint8_t)netGetLobbyStage();
+        beacon.weapon_set = netGetLobbyWeaponSet();
         
         struct sockaddr_in broadcast_addr;
         memset(&broadcast_addr, 0, sizeof(broadcast_addr));
@@ -173,6 +175,7 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
                 srv->player_count = b->player_count;
                 srv->max_players = b->max_players;
                 srv->stage_num = b->stage_num;
+                srv->weapon_set = b->weapon_set;
                 srv->last_seen_ms = current_time_ms;
             }
         }

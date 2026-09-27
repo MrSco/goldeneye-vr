@@ -4,9 +4,10 @@ This is an experimental native Quest LAN and direct-IP multiplayer mode. It uses
 
 ## Network setup
 
-- Use the same APK version on every headset. The current game and discovery protocol version is `3`.
+- Use the same APK version on every headset. The current game and discovery protocol version is `4`.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
+- The host picks the stage, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
 - A match supports up to four occupied, consecutive player slots. The host launcher requires at least two players, all ready, and a stage with enough slots before launch.
 
 ## Implemented messages
