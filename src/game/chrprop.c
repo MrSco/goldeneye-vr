@@ -1853,15 +1853,27 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
  * above) must come within touch of the segment from..to - the hand, or the
  * sniper club from the hand to its end - not straddle the view's centre line
  * within reach. dir is the blow's direction in view space; item_id is the
- * damage, ITEM_FIST or the knife's, as the fist's caller passes. Returns
- * whether anyone was hit; the whiff is the caller's.
+ * damage, ITEM_FIST or the knife's, as the fist's caller passes.
+ *
+ * A guard is struck only by a hand moving into him at `need` m/s or more: vel
+ * (the hand's, view space, m/s) toward the nearest point of his box, or from
+ * inside it toward his middle across the floor, or down onto him. Lifting the
+ * hand off him after a chop, or pulling it back, is no blow (user: the upswing
+ * chopped). The fastest of those speeds goes to *into.
+ *
+ * Returns 0 with no guard in touch, 1 with one in touch that the hand is not
+ * moving into, 2 moving into one: struck if `land`, else only reported (the
+ * hand is still recovering from its last blow). The whiff is the caller's.
  */
-s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id)
+s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id,
+                const f32 vel[3], f32 need, s32 land, f32 *into)
 {
     PropRecord *playerprop = getCurrentPlayerProp();
     f32 ducking = bondviewGetPlayerDuckingHeightRelated(g_CurrentPlayer);
     PropRecord **propptr;
     s32 hit = 0;
+
+    *into = 0.0f;
 
     for (propptr = g_LastOnScreenProp - 1; propptr >= g_OnScreenPropList; propptr--)
     {
@@ -1943,6 +1955,51 @@ s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3],
             continue;
         }
 
+        /* moving into him: from where the segment first comes in touch */
+        {
+            f32 p[3], n[3], len, speed;
+
+            for (k = 0; k < 3; k++)
+            {
+                p[k] = from[k] + t0 * (to[k] - from[k]);
+            }
+            n[0] = (p[0] < min0 ? min0 : p[0] > max0 ? max0 : p[0]) - p[0];
+            n[1] = (p[1] < min1 ? min1 : p[1] > max1 ? max1 : p[1]) - p[1];
+            n[2] = (p[2] < min2 ? min2 : p[2] > max2 ? max2 : p[2]) - p[2];
+            len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (len < 1e-3f)
+            {
+                /* inside the box */
+                n[0] = 0.5f * (min0 + max0) - p[0];
+                n[1] = 0.0f;
+                n[2] = 0.5f * (min2 + max2) - p[2];
+                len = sqrtf(n[0] * n[0] + n[2] * n[2]);
+            }
+            speed = len < 1e-3f ? -vel[2] : (vel[0] * n[0] + vel[1] * n[1] + vel[2] * n[2]) / len;
+            if (-vel[1] > speed)
+            {
+                speed = -vel[1];
+            }
+            if (speed > *into)
+            {
+                *into = speed;
+            }
+            if (speed < need)
+            {
+                if (hit == 0)
+                {
+                    hit = 1;
+                }
+                continue;
+            }
+        }
+
+        if (!land)
+        {
+            hit = 2;
+            continue;
+        }
+
         hitpart = HIT_CHEST;
 
         if (currentPlayerGetCrouchPos() == CROUCH_HALF)
@@ -1962,7 +2019,7 @@ s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3],
         if (handles_shot_actors(chr, hitpart, &vector, item_id, 1))
         {
             recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);
-            hit = 1;
+            hit = 2;
         }
     }
 
