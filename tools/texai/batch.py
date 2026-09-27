@@ -139,14 +139,14 @@ def main():
             continue
         img = Image.open(os.path.join(a.dump_dir, r['name'])).convert('RGBA')
         m = manifest_entry(r, img)
+        ans_path = os.path.join(a.work, 'answer', r['name'])
         try:
             answer = upscale(a.tool, comfy.native_input(a.dump_dir, tex, m))
+            comfy.framed(answer, m).save(ans_path)
+            s = texai.post_one(a.dump_dir, ans_path, tex, m, os.path.join(a.work, 'final', tex))
         except Exception as e:   # one bad texture must not stop an overnight run
-            print('%s: %s' % (r['name'], e))
+            print('%s: %s: %s' % (r['name'], type(e).__name__, e))
             continue
-        ans_path = os.path.join(a.work, 'answer', r['name'])
-        comfy.framed(answer, m).save(ans_path)
-        s = texai.post_one(a.dump_dir, ans_path, tex, m, os.path.join(a.work, 'final', tex))
         os.makedirs(dst_dir, exist_ok=True)
         os.replace(os.path.join(a.work, 'final', tex + '_soft.png'), dst)
         log.write('%s\t%s\t%d\t%d\t%.1f\t%.1f\t%s\n' % (r['name'], a.tool, r['w'], r['h'], s['drift'], s['drift4'],
