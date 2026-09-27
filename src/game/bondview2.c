@@ -2447,10 +2447,18 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * through the lens stays upright.
  *
  * The lens shows the scope's view all the time the sniper is in hand, always
- * zoomed, as a real scope is (user): the game's own sniper zoom, the view the
- * N64 screen showed when aiming - sniper_zoom, 15 degrees by default, 7 at
- * most, changed with up/down on the left stick while aiming as C-up/down on
- * the N64 (user: the original game's zoom, not one scaled to the lens).
+ * zoomed, as a real scope is (user): the game's own sniper zoom -
+ * sniper_zoom, 15 degrees by default, 7 zoomed in, 60 out, changed with
+ * up/down on the left stick while aiming as C-up/down on the N64 - at the
+ * N64's magnification. There that view filled the screen the 60-degree
+ * normal view filled: 4.4x at 15 degrees, 9.4x at 7. Shown as those same
+ * degrees across the lens, which fills only 20-40 degrees of the headset's
+ * view, it magnified 2-4x (issue #58: "about 2x"; the zoom was never the
+ * magnification). So the view across the lens is the lens's own angle over
+ * the N64's magnification, tan(view / 2) = tan(lens / 2) x tan(zoom / 2) /
+ * tan(30), from the lens as last shown (vr_openxr.cpp gevrScopeLensTan):
+ * nearer the eye, it shows more, at the same magnification, as a real
+ * scope's eye relief.
  * Aiming (grip, the flat game's R) brings up the red sight in it, as on the
  * N64. (A first try that showed the lens only near the eye flickered on and
  * off at the test's edge.)
@@ -2482,6 +2490,8 @@ f32 gevrScopeOrigin[3];         /* the scope camera, camera space (gunfire.c siz
 f32 gevrScopeFovDeg;            /* the angle across the lens */
 static f32 s_gevrScopeTrim[4];  /* gevr_scope.txt: added to the lens */
 static f32 s_gevrScopeK = 1.0f;    /* the N64's own zoomed view (gevr_scope.txt can change it) */
+extern float gevrScopeLensTan;     /* vr_openxr.cpp: tan of half the lens's angle, as last shown */
+#define GEVR_SCOPE_FLAT_FOVY 60.0f /* the N64's normal view (player.c), the zoom's 1x */
 
 #define GEVR_SCOPE_NEAR_M       0.05f
 #define GEVR_SCOPE_LENS_SCALE   2.0f
@@ -2597,8 +2607,29 @@ s32 gevrScopeBegin(void)
     u[2] = r[0] * f[1] - r[1] * f[0];
 
     fov = s_gevrScopeK * g_CurrentPlayer->sniper_zoom;   /* always zoomed, as a real scope */
-    if (fov < 1.0f) fov = 1.0f;
     if (fov > 60.0f) fov = 60.0f;
+    if (gevrScopeLensTan > 1e-3f)
+    {
+        /* the N64's magnification: its zoomed view over its normal one */
+        f32 t = gevrScopeLensTan * tanf(fov * 0.5f * (M_PI_F / 180.0f))
+                / tanf(GEVR_SCOPE_FLAT_FOVY * 0.5f * (M_PI_F / 180.0f));
+
+        fov = 2.0f * atanf(t) * (180.0f / M_PI_F);
+    }
+    if (fov < 0.5f) fov = 0.5f;
+    {
+        static f32 loggedZoom;
+        static u32 n;
+
+        if ((n++ % 240) == 0 || fabsf(g_CurrentPlayer->sniper_zoom - loggedZoom) > 1.0f)
+        {
+            loggedZoom = g_CurrentPlayer->sniper_zoom;
+            sysLogPrintf(LOG_NOTE, "stereo: scope zoom %.1f deg (%.1fx): %.2f deg across a %.1f deg lens",
+                         loggedZoom, tanf(GEVR_SCOPE_FLAT_FOVY * 0.5f * (M_PI_F / 180.0f))
+                                     / tanf(loggedZoom * 0.5f * (M_PI_F / 180.0f)),
+                         fov, 2.0f * atanf(gevrScopeLensTan) * (180.0f / M_PI_F));
+        }
+    }
     gevrScopeFovDeg = fov;
     gevrScopeOrigin[0] = o.x;
     gevrScopeOrigin[1] = o.y;

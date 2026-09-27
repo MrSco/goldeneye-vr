@@ -246,6 +246,10 @@ extern GLuint gfx_opengl_get_vr_menu_texture_H(void);// Head HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_P(void);// weapon panel texture (issue #10)
 extern GLuint gfx_vr_scope_texture(void);            // sniper scope image (issue #40)
 extern "C" float gevrScopeLens[4];                   // bondview2.c: right, up, back, diameter (m)
+// Issue #58: the lens's radius over its distance from the eyes, as last shown
+// (tan of half the angle it fills). bondview2.c gevrScopeBegin sizes the
+// scope's view to it, so it magnifies as the N64's zoom did.
+extern "C" { float gevrScopeLensTan = 0.0f; }
 #define GEVR_SCOPE_RES 512                           // gfx_opengl.cpp's scope target
 #define GEVR_SCOPE_MIN_DEPTH_M 0.12f                 // the lens's nearest edge stays this far ahead of the eyes
 #define GEVR_SCOPE_TURN_M 0.08f                      // ... and turns toward them within this of it
@@ -3351,6 +3355,11 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             {
                 XrVector3f c = scopeLayer.pose.position;
                 const float r = gevrScopeLens[3] * 0.5f;
+                {
+                    // moved out and grown below, it fills the same angle
+                    const float cd = sqrtf(c.x * c.x + c.y * c.y + c.z * c.z);
+                    gevrScopeLensTan = cd > 0.01f ? r / cd : 0.0f;
+                }
                 float n[3] = { bx, by, bz };
                 const float nearAligned = -c.z - r * sqrtf(fmaxf(0.0f, 1.0f - bz * bz));
                 float t = (GEVR_SCOPE_MIN_DEPTH_M + GEVR_SCOPE_TURN_M - nearAligned) / GEVR_SCOPE_TURN_M;
