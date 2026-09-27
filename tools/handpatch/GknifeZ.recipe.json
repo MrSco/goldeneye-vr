@@ -18,6 +18,27 @@
    ],
    "ops": [
     {
+     "op": "skirt",
+     "chain": "largest",
+     "to": "rest",
+     "gap": 0.6,
+     "reach": 60,
+     "why": "the inside of the fist: skin from the open rim to what it holds",
+     "tex": "0x706",
+     "uvbox": [
+      0.55,
+      0.15,
+      0.95,
+      0.85
+     ],
+     "shade": [
+      200,
+      200,
+      200,
+      255
+     ]
+    },
+    {
      "op": "fill",
      "loop": "0x01a4:104",
      "why": "the forearm's cut end",
@@ -27,7 +48,9 @@
       60,
       60,
       255
-     ]
+     ],
+     "fair": 2,
+     "dome": 0.15
     },
     {
      "op": "fill",

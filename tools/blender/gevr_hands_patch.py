@@ -33,6 +33,11 @@ Operations (recipe "ops"):
           the top half of a tube, from its two rails ("rails": [[base..tip],
           [base..tip]]) and "tip" (null for a cut end): a half-round arc under
           each cross-section, joined into the tube's other half.
+  skirt   close the gap between a hand's open rim ("chain": a ROM vertex on
+          it, or "largest") and the object it holds ("to": its nodes, or
+          "rest": all the model's other parts): a strip from each rim
+          vertex to the nearest point on the object, so a fist round a grip
+          shows skin meeting metal, not the inside of the fingers.
   bridge  join two loops with a strip (the gap between a jacket cuff and the
           shirt cuff inside it).
 Op options: "fair": N refines and fairs a fill's new points; "dome": x then
@@ -66,6 +71,7 @@ import sys
 import bmesh
 import bpy
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gevr_hands_import as H  # noqa: E402
@@ -629,6 +635,117 @@ def tube(bm, lp, op, tag, R):
     return new, uv, len(order)
 
 
+def boundary_chain(bm, R, spec):
+    """The open-edge chain through ROM vertex spec, in order along it: a
+    closed ring, or a path between two dead ends (where a T-junction breaks
+    a rim wound both ways, as round a pistol grip)."""
+    adj = {}
+    for e in bm.edges:
+        if len(e.link_faces) == 1:
+            a, b = e.verts[0].index, e.verts[1].index
+            adj.setdefault(a, set()).add(b)
+            adj.setdefault(b, set()).add(a)
+    if spec == "largest":
+        # the biggest open-edge component: round a pistol grip, the fist's gutter
+        best, seen0 = None, set()
+        for s0 in adj:
+            if s0 in seen0:
+                continue
+            c0, st0 = [], [s0]
+            seen0.add(s0)
+            while st0:
+                u = st0.pop()
+                c0.append(u)
+                for w in adj[u]:
+                    if w not in seen0:
+                        seen0.add(w)
+                        st0.append(w)
+            if best is None or len(c0) > len(best):
+                best = c0
+        start = best[0]
+    else:
+        start = vert_by_rom(bm, R, spec).index
+    comp, st, seen = [], [start], {start}
+    while st:
+        u = st.pop()
+        comp.append(u)
+        for w in adj.get(u, ()):
+            if w not in seen:
+                seen.add(w)
+                st.append(w)
+    ends = [u for u in comp if len(adj[u]) == 1]
+    first = ends[0] if ends else start
+    order, used, cur = [first], set(), first
+    while True:
+        nxt = [w for w in sorted(adj[cur]) if frozenset((cur, w)) not in used]
+        if not nxt:
+            break
+        w = nxt[0]
+        used.add(frozenset((cur, w)))
+        if w == first:
+            break
+        order.append(w)
+        cur = w
+    closed = not ends
+    return [bm.verts[u] for u in order], closed
+
+
+def skirt(bm, R, op, tag, target_bvh):
+    """Close the gap between a hand's open rim and the thing it holds: from
+    each rim vertex to the nearest point on the held object's surface (just
+    outside it), joined into a strip. Looking into the fist you then see skin
+    meeting the grip instead of the inside of the fingers. Rim vertices
+    further than "reach" from the object are left out."""
+    chain, closed = boundary_chain(bm, R, op["chain"])
+    gap = op.get("gap", 0.6)
+    reach = op.get("reach", 60.0)
+    proj = []
+    for v in chain:
+        loc, nrm, idx, dist = target_bvh.find_nearest(v.co, reach)
+        if loc is None:
+            proj.append(None)
+            continue
+        out = v.co - loc
+        side = out.normalized() if out.length > 1e-6 else nrm
+        proj.append(bm.verts.new(loc + side * gap))
+    made, new = [], [p for p in proj if p is not None]
+    n = len(chain)
+    for i in range(n if closed else n - 1):
+        j = (i + 1) % n
+        a, b, pa, pb = chain[i], chain[j], proj[i], proj[j]
+        quads = []
+        if pa is not None and pb is not None:
+            quads = [[a, b, pb], [a, pb, pa]]
+        elif pa is not None:
+            quads = [[a, b, pa]]
+        elif pb is not None:
+            quads = [[a, b, pb]]
+        for t in quads:
+            if len({x.index if x.index >= 0 else id(x) for x in t}) < 3:
+                continue
+            try:
+                f = bm.faces.new(t)
+            except ValueError:
+                continue
+            f[tag[0]] = tag[1]
+            f.smooth = False
+            made.append(f)
+    # wind like the rim faces (the rim is wound both ways in places: follow
+    # the majority)
+    bm.normal_update()
+    mine = set(made)
+    votes = 0
+    for f in made:
+        for l in f.loops:
+            others = [g for g in l.edge.link_faces if g not in mine and g[tag[0]] == 0]
+            if others:
+                ol = next(x for x in others[0].loops if x.edge is l.edge)
+                votes += 1 if ol.vert.index == l.vert.index else -1
+    if votes > 0:
+        bmesh.ops.reverse_faces(bm, faces=made)
+    return made, new, len(chain), closed
+
+
 def dome(bm, pts, lp, lay_patch, k, amount):
     """Round a small cap (a fingertip, a socket): its new points rise by
     amount x the loop's radius at the middle, falling to nothing at the rim."""
@@ -871,7 +988,7 @@ def borrowed_recipe(model, other, export_dir):
                     # a bare index names a vertex of the host node there
                     op[key] = m(op[key] if isinstance(op[key], str) else "%s:%d" % (a["host"], op[key]))
             for key in ("loops", "from", "to", "anchors"):
-                if key in op:
+                if key in op and not isinstance(op[key], str):   # "to": "rest" stays as it is
                     op[key] = [m(x if isinstance(x, str) else "%s:%d" % (a["host"], x)) for x in op[key]]
             ops.append(op)
         out["assemblies"].append({"host": nodemap[a["host"]], "nodes": [nodemap[n] for n in a["nodes"]],
@@ -982,7 +1099,8 @@ def main():
         over_before = sum(1 for e in bm.edges if len(e.link_faces) > 2)
         directed_loops.quiet = False
         fixed_st = {}   # corners whose texture coordinates the op chose itself (s, t)
-        fixed_uv = {}   # loft corners: (u, v) in 0..1, mapped into the op's uvbox
+        fixed_uv = {}   # tube corners: (u, v) in 0..1, mapped into the op's uvbox
+        target_bvh = {} # skirt targets (the held object), by node set
         anchored = {}   # ribbon points: their own anchors
         born = {}       # new point -> the op that made it
         for k, op in enumerate(ops, 1):
@@ -1021,6 +1139,26 @@ def main():
                 tris = []
                 print("%s tube %s: %d cross-sections, %d new points"
                       % (label, op.get("why", ""), nr, len(pts)))
+            elif op["op"] == "skirt":
+                if op["to"] == "rest":
+                    # everything in the model that is not the hand: what it holds
+                    handnodes = {int(n, 16) for aa in assemblies_of(recipe) for n in aa["nodes"]}
+                    op = dict(op, to=["0x%04x" % pp["node"] for pp in model["parts"]
+                                      if pp["node"] not in handnodes
+                                      and any(t["node"] == pp["node"] for t in model["tris"])])
+                if tuple(int(x, 16) for x in op["to"]) not in target_bvh:
+                    tob = H.build_part(model, [int(x, 16) for x in op["to"]], mats, name="skirt_target")
+                    tbm = bmesh.new()
+                    tbm.from_mesh(tob.data)
+                    target_bvh[tuple(int(x, 16) for x in op["to"])] = BVHTree.FromBMesh(tbm)
+                    tbm.free()
+                    bpy.data.objects.remove(tob)
+                made_s, pts, nchain, closed = skirt(bm, R, op, (lay_patch, k),
+                                                    target_bvh[tuple(int(x, 16) for x in op["to"])])
+                bm.verts.index_update()
+                tris = []
+                print("%s skirt from %s: chain of %d (%s), %d faces, %d new points"
+                      % (label, op["chain"], nchain, "ring" if closed else "open", len(made_s), len(pts)))
             elif op["op"] == "bridge":
                 la = find_loop(loops, R, op["loops"][0], bm if op.get("mixed") else None)
                 lb = find_loop(loops, R, op["loops"][1], bm if op.get("mixed") else None)
