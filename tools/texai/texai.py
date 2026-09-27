@@ -242,7 +242,11 @@ def post_one(orig_dir, src, tex, m, dst_base):
     raw = np.asarray(ai.resize((W, H), Image.LANCZOS)).astype(np.float64)
     rgb0, a0 = orig[:, :, :3], orig[:, :, 3]
     opaque = a0 > 0
+    background = None
     if not opaque.all() and opaque.any():
+        # the colours of the transparent texels alone (the opaque ones filled from
+        # them), upscaled: what the finished texture keeps outside its cut-out
+        background = np.clip(up(bleed(rgb0, 255.0 - a0), SCALE, wrap), 0, 255)
         # transparent texels' colours (black, mostly) must not reach the 4x4
         # averages the colour lock and the drift score use: they darkened every
         # cut-out's edge (the RAREWARE letters). Their neighbours' colours instead.
@@ -282,8 +286,12 @@ def post_one(orig_dir, src, tex, m, dst_base):
     for mode, block in (('strict', 1), ('soft', 4)):
         hd = np.clip(ibp(base, rgb0, opaque, block, wrap), 0, 255)
         stats['seam_' + mode] = seam(hd, wrap)
-        if m['alpha']:
-            hd = bleed(hd, ahd)
+        if m['alpha'] and background is not None:
+            # Outside the cut-out keep the original's own colour there (black,
+            # mostly): some draws ignore alpha and show it - the Rare logo's
+            # RAREWARE letters are orange on the black of their transparent
+            # texels, and colour bled into them made the strip one orange block.
+            hd = np.where(ahd[:, :, None] > 0, hd, background)
         img = Image.fromarray(np.dstack([hd, ahd]).round().astype(np.uint8), 'RGBA')
         if m['flip']:
             img = img.transpose(Image.FLIP_TOP_BOTTOM)   # back the way the game stores it
