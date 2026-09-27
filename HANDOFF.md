@@ -5192,3 +5192,16 @@ tools/texai/NOTES.md.
   (no zoom on the AR33 and KF7 since #40; could the laser's modeled scope
   zoom?): the near-eye magnifiers at their original zoom, and the laser's 3x
   scope.
+
+## 119. v0.1.17 published (2026-09-27)
+- Tag v0.1.17 = build commit 2ea2a6d (versionCode 18), release key, APK
+  SHA-256 c49c8936...32cfd7 (GitHub's digest matches). Installed on the
+  headset with adb.
+- Contents since v0.1.16: melee with either hand (115-116), HD + AI texture
+  pack with pack updates and the Menu+X switch (117), scopes at the N64's
+  magnification, laser scope, KF7/AR33 near-eye magnifiers, grip steadying,
+  steadied redraws (118). README: melee, scopes, magnifiers.
+- Closed with replies: #58 #59 #57 (completed). Commented on closed #55.
+- Open: #60 laser watch pop-in (owner asked for screenshots; listed as a
+  known issue), #56 akimbo with different guns, #50 (parked), #9 (another
+  session), #32 #30 #29 #23 #18.
