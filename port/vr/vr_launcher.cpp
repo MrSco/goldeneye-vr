@@ -54,6 +54,7 @@ const char *fsFullPath(const char *relPath);  // port/src/fs.c
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
+void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
 void vr_apply_refresh_rate(void);     // vr_openxr.cpp
 extern int selected_num_players;      // src/game/front.c
 extern int gamemode;                  // src/game/front.c
@@ -1484,6 +1485,7 @@ extern "C" void gevrLauncherRun(void)
     vr_apply_refresh_rate();
     vr_log("launcher: start (%s, snap %.0f, vignette %.2f)", VrPlayMode ? "stereo" : "screen",
            VrUseSnapTurn, VrComfortVignette);
+    gevrTexpackStartEarly();   // index the chosen pack while the game boots
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui::DestroyContext();
