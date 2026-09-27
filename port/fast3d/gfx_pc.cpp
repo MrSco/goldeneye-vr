@@ -696,7 +696,9 @@ struct TpJob {
 static std::unordered_map<int, std::vector<TpJob>> s_tpPending;
 static std::vector<std::pair<int, TpJob>> s_tpUploads;
 /* issue #52: texture cache traffic, logged every 5 s while there is any (gevr_texpack_frame) */
-static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads;
+static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads, s_gevrTcRefused;
+/* files/gevr_texprobe.txt: a texture checksum (hex) whose every pack lookup is logged */
+static uint32_t s_tpProbe;
 /*
  * Issue #52: a CI texture's cache key hashes the palette, which keeps one
  * source with a palette rebuilt in place apart. fast3d hashed all 256 TMEM
@@ -1469,6 +1471,14 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
     if (s_tdOn && id < 0) {
         gevr_packdump_note(tex, pal, ci, t.orig_fmt, (uint8_t)size, w, h, t.orig_cms, t.orig_cmt, t.masks, t.maskt);
     }
+    if (s_tpProbe != 0 && tex == s_tpProbe) {
+        static unsigned lines;
+        if (lines++ < 200) {
+            sysLogPrintf(LOG_NOTE, "texprobe: %08X fmt %u siz %d pal %08X tile %d (first %u, lod %d, detail %d) load %d "
+                         "checksum %dx%d drawn %ux%u -> %d %s", tex, t.orig_fmt, size, pal, tile, rdp.first_tile_index,
+                         (int)rdp.tex_lod, (int)rdp.tex_detail, lt.load_type, w, h, t.width, t.height, id, gevrtp::name(id));
+        }
+    }
     ++s_tpLookups;
     if (id >= 0) ++s_tpHits;
     if ((s_tpLookups % 2000) == 0) {
@@ -1548,16 +1558,27 @@ extern "C" int gevrTexpackToggle(void) {
     return (s_tpUserOff ^= 1) ? 0 : 1;
 }
 
+/*
+ * The launcher's Start (vr_launcher.cpp), once the pack is chosen: index it
+ * while the game boots. Started at the first frame on a low-priority thread,
+ * the index was ready only around the file select, and clearing the texture
+ * cache then to look everything up again was a visible hitch (user).
+ */
+extern "C" void gevrTexpackStartEarly(void) {
+    if (g_ActiveExtTexPack[0] != '\0') {
+        char rel[320];
+        snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
+        gevrtp::start(fsFullPath(rel));
+    }
+}
+
 /* Once a frame: start the pack, and swap in images as they finish decoding. */
 static void gevr_texpack_frame(void) {
     static bool started = false;
     if (!started) {
         started = true;
-        if (g_ActiveExtTexPack[0] != '\0') {
-            char rel[320];
-            snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
-            gevrtp::start(fsFullPath(rel));
-        }
+        gevrTexpackStartEarly();   // (already running, from the launcher)
+        gevrtp::waitIndex(5000);   // a name scan, normally done by now: nothing drawn needs looking up again
     }
     if (gevrtp::takeIndexReady()) {
         s_tpIndexed = true;
@@ -1616,6 +1637,14 @@ static void gevr_texpack_frame(void) {
             if (gevr_texpack_upload(img, iw, ih, job.hw, job.hh, job.uw, job.uh)) {
                 budget -= std::min(budget, (size_t)iw * ih * 4);
                 s_gevrTcHdUploads++;
+            } else {
+                // matched but not used: the game's own texture stays, which looks like a missing one
+                static std::unordered_set<int> logged;
+                s_gevrTcRefused++;
+                if (logged.size() < 64 && logged.insert(id).second) {
+                    sysLogPrintf(LOG_WARNING, "texpack: not used, sizes don't fit: %s (pack %ux%u, checksum over %ux%u, "
+                                 "drawn %ux%u)", gevrtp::name(id), iw, ih, job.hw, job.hh, job.uw, job.uh);
+                }
             }
         }
         s_tpUploads.erase(s_tpUploads.begin(), s_tpUploads.begin() + done);
@@ -1628,12 +1657,21 @@ static void gevr_texpack_frame(void) {
         static unsigned frames;
         if (++frames >= 300) {
             frames = 0;
-            if (s_gevrTcMisses || s_gevrTcEvictions || s_gevrTcHdUploads) {
-                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads, %u evicted, %u pack uploads; %u queued, %u decoding",
-                             (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads,
-                             (unsigned)s_tpUploads.size(), (unsigned)s_tpPending.size());
+            if (s_gevrTcMisses || s_gevrTcEvictions || s_gevrTcHdUploads || s_gevrTcRefused) {
+                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads, %u evicted, %u pack uploads, %u refused; "
+                             "%u queued, %u decoding", (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses,
+                             s_gevrTcEvictions, s_gevrTcHdUploads, s_gevrTcRefused, (unsigned)s_tpUploads.size(),
+                             (unsigned)s_tpPending.size());
             }
-            s_gevrTcMisses = s_gevrTcEvictions = s_gevrTcHdUploads = 0;
+            s_gevrTcMisses = s_gevrTcEvictions = s_gevrTcHdUploads = s_gevrTcRefused = 0;
+            FILE *pf = fopen(fsFullPath("$S/gevr_texprobe.txt"), "r");
+            unsigned probe = 0;
+            if (pf != nullptr) {
+                if (fscanf(pf, "%x", &probe) != 1) probe = 0;
+                fclose(pf);
+            }
+            if (probe != s_tpProbe) sysLogPrintf(LOG_NOTE, "texprobe: watching %08X", probe);
+            s_tpProbe = probe;
         }
     }
 }
