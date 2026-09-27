@@ -1888,21 +1888,37 @@ s32 gevrStereoTwoHandGrip(void)
  *
  * The hand's speed is Perfect Dark VR's (bondgun.c bgunTickGameplay,
  * WEAPON_UNARMED): the controller's velocity less the head's, so walking does
- * not punch, turned into the controller's own frame by its worldToLocal.
+ * not punch, turned into the controller's own frame by its worldToLocal, and
+ * from there into view space by the grip's axes (gevrGripAxesRaw).
  *
  * The hit is taken on contact, as GEVR PC's hand melee (gevr-up
- * GETV_VR_HANDMELEE and SWINGHIT: a touch radius, a swing speed, cooldown 30):
- * whenever the hand, moving at GEVR_CHOP_HIT or more, comes within
- * GEVR_CHOP_TOUCH_CM of a guard, GoldenEye's own fist lands (chrprop.c
+ * GETV_VR_HANDMELEE and SWINGHIT: a touch radius and a swing speed):
+ * whenever the hand, moving into a guard at GEVR_CHOP_HIT or more, comes
+ * within GEVR_CHOP_TOUCH_CM of him, GoldenEye's own fist lands (chrprop.c
  * gevrChopHit: its guards, checks and ITEM_FIST damage), the blow going from
  * the eye to the hand as the fist's goes along the view. Set off by Perfect
  * Dark's swing test instead, the wind-up started the chop and the blow coming
  * down after it was lost, and the blows themselves - down on the hand's edge,
  * 1.4-1.9 m/s - mostly missed the test's 1.6 across the hand (user, logged).
+ * Moving at any speed in any direction, the hand lifted off a guard after a
+ * chop chopped him again (user); moving into him is toward his box or down.
  *
- * The swing test still gives the fist's whiff: a swing that passes it - 1.2 m/s
- * along +Y, over the knuckles, or 1.6 across it (Perfect Dark's fist's 1.5 and
- * 2.5 took a wild swing, user) - and lands nothing in GEVR_CHOP_TICKS.
+ * A swing gives the fist's whiff if it lands nothing in GEVR_CHOP_TICKS: 1.2
+ * m/s out ahead, or 1.6 across or down (Perfect Dark's fist's 1.5 and 2.5 took
+ * a wild swing, user), never up or back. Perfect Dark's thrust is the grip's
+ * +Y, which here runs back to the wrist (the barrel is -Y, measured above), so
+ * pulling the hand back or lifting it for a chop whiffed.
+ *
+ * The pace is GoldenEye's (user: its fist has a limit). A punch there runs its
+ * keyframes to the end before a held trigger starts the next (gunfire.c,
+ * gun.c gunSample1PTransform): fistMeleeKeyframes 42 ticks, the knife's slashes
+ * and the sniper club's quicker swing 52. So a hand lands a blow once a cycle,
+ * in place of GEVR PC's 30-tick cooldown. The game has one fist; the other hand
+ * waits half a cycle after a blow, so the two in turn land one each 21 ticks
+ * at most, not one each 15 (user: left and right back to back were
+ * overpowered). A blow held back does nothing, and makes no whiff.
+ * files/gevr_melee.txt "same other" (ticks) overrides both, for tuning,
+ * re-read every couple of seconds.
  *
  * Either hand, whatever it holds (user), as Perfect Dark VR punches, stabs
  * and pistol-whips by swinging; the trigger still does what it did. The damage
@@ -1914,18 +1930,20 @@ s32 gevrStereoTwoHandGrip(void)
  * speed, so turning a gun on a guard beside you does not strike him. Every
  * blow that misses whiffs, GoldenEye's fist's sound (its own is the fist's
  * alone; the knife and a gun were silent, user); an armed swing must pass
- * Perfect Dark's pistol-whip test, 2 m/s either way, so aiming stays quiet.
+ * Perfect Dark's pistol-whip test, 2 m/s any way but up or back, so aiming
+ * stays quiet.
  *
  * Run from lvlRender beside the game's own fist (lv.c), not the move tick.
  */
 #define GEVR_CHOP_HIT 1.0f        /* m/s, the hand's speed at contact */
 #define GEVR_CHOP_HIT_ARMED 2.0f  /* m/s, with a gun or a gadget in the hand */
 #define GEVR_CHOP_SWING_ARMED 2.0f   /* m/s, its whiff: Perfect Dark's pistol-whip test */
-#define GEVR_CHOP_THRUST 1.2f     /* m/s, a swing that whiffs */
-#define GEVR_CHOP_SLASH 1.6f
+#define GEVR_CHOP_THRUST 1.2f     /* m/s, a swing that whiffs: out ahead */
+#define GEVR_CHOP_SLASH 1.6f      /* across or down */
 #define GEVR_CHOP_TOUCH_CM 10.0f
 #define GEVR_CHOP_TICKS 20
-#define GEVR_CHOP_COOL 30
+#define GEVR_CHOP_CYCLE_FIST 42   /* ticks between a hand's blows */
+#define GEVR_CHOP_CYCLE_KNIFE 52
 
 static void gevrWorldToLocal(const f32 q[4], const f32 v[3], f32 out[3])
 {
@@ -1954,21 +1972,46 @@ void gevrHandChopTick(s32 ctrl)
     extern float vr_ctrl_quat_play[2][4];     /* vr_input.cpp: the gesture frame, play space */
     extern float vr_ctrl_velocity_play[2][3];
     extern float vr_head_velocity_play[3];    /* vr_openxr.cpp */
-    extern s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id);   /* chrprop.c */
+    extern s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id,
+                           const f32 vel[3], f32 need, s32 land, f32 *into);   /* chrprop.c */
     extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
     extern int vr_haptics_ready(void);        /* vr_input.cpp */
     static s32 s_whiff[2];   /* ticks until a swing that has landed nothing whiffs, 0 none */
-    static s32 s_cool[2];
+    static s32 s_cool[2];    /* ticks until the hand's next blow can land */
     static s32 s_fast[2];    /* Perfect Dark's vr_hand_triggered: the hand has not slowed yet */
+    static s32 s_told[2];    /* tuning: what this touch has logged, gevrChopHit's 1 or 2 */
+    static s32 s_pace[2] = { -1, -1 };   /* files/gevr_melee.txt: same hand, other hand */
+    static u32 s_read;
     s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
     s32 item = getCurrentPlayerWeaponId(hand);
     s32 bare = item == ITEM_UNARMED || item == ITEM_FIST;
     s32 club = item == ITEM_FIST && g_CurrentPlayer->cur_item_weapon_getname == ITEM_SNIPERRIFLE;
     s32 damage = item == ITEM_KNIFE ? ITEM_KNIFE : ITEM_FIST;
     f32 need = (bare || item == ITEM_KNIFE) ? GEVR_CHOP_HIT : GEVR_CHOP_HIT_ARMED;
-    f32 rel[3], loc[3], thrust, slash, speed;
+    f32 rel[3], loc[3], vel[3], at[3], right[3], up[3], back[3], thrust, slash, speed;
     s32 fast;
     s32 i;
+
+    if (ctrl == 0 && (s_read++ % 120) == 0)
+    {
+        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_melee.txt", "r");
+        s32 same = -1, other = -1;
+
+        if (f != NULL)
+        {
+            if (fscanf(f, "%d %d", &same, &other) != 2)
+            {
+                same = other = -1;
+            }
+            fclose(f);
+        }
+        if (same != s_pace[0] || other != s_pace[1])
+        {
+            s_pace[0] = same;
+            s_pace[1] = other;
+            sysLogPrintf(LOG_NOTE, "stereo: melee pace %d ticks same hand, %d other hand (-1 GoldenEye's)", same, other);
+        }
+    }
 
     if (s_cool[ctrl] > 0)
     {
@@ -1976,10 +2019,12 @@ void gevrHandChopTick(s32 ctrl)
     }
     /* the off hand on the gun, or either hand at the watch laser, is holding on */
     if (!g_gevrStereo || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
-        || g_PlayerIsInTank == 1 || gevrStereoWatchGrip() || (ctrl == 0 && gevrStereoTwoHandGrip()))
+        || g_PlayerIsInTank == 1 || gevrStereoWatchGrip() || (ctrl == 0 && gevrStereoTwoHandGrip())
+        || !gevrGripAxesRaw(ctrl, at, right, up, back))
     {
         s_whiff[ctrl] = 0;
         s_fast[ctrl] = TRUE;   /* a hand let go mid-swing is not a swing */
+        s_told[ctrl] = 0;
         return;
     }
 
@@ -1988,9 +2033,14 @@ void gevrHandChopTick(s32 ctrl)
         rel[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
     }
     gevrWorldToLocal(vr_ctrl_quat_play[ctrl], rel, loc);
-    thrust = loc[1];
-    slash = sqrtf(loc[0] * loc[0] + loc[2] * loc[2]);
-    speed = sqrtf(thrust * thrust + slash * slash);
+    /* the grip's +X, +Y and +Z are right, back and down */
+    for (i = 0; i < 3; i++)
+    {
+        vel[i] = loc[0] * right[i] + loc[1] * back[i] - loc[2] * up[i];
+    }
+    speed = sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]);
+    thrust = -vel[2];
+    slash = sqrtf(vel[0] * vel[0] + (vel[1] < 0.0f ? vel[1] * vel[1] : 0.0f));
     if (bare || item == ITEM_KNIFE)
     {
         fast = thrust > GEVR_CHOP_THRUST || slash > GEVR_CHOP_SLASH;
@@ -2000,62 +2050,92 @@ void gevrHandChopTick(s32 ctrl)
         fast = thrust > GEVR_CHOP_SWING_ARMED || slash > GEVR_CHOP_SWING_ARMED;
     }
 
-    /* not while the last blow's follow-through is still going */
+    /* not while the last blow's follow-through is still going, nor while the hand recovers */
     if (fast && !s_fast[ctrl] && s_whiff[ctrl] <= 0 && s_cool[ctrl] <= 0)
     {
         s_whiff[ctrl] = GEVR_CHOP_TICKS;
     }
     s_fast[ctrl] = fast;
 
-    if (speed >= need && s_cool[ctrl] <= 0)
+    if (speed < need)
     {
-        f32 at[3], end[3], ignore[3], dir[3], len;
+        s_told[ctrl] = 0;
+    }
+    else
+    {
+        f32 end[3], dir[3], len, into;
         f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+        s32 cycle = s_pace[0] >= 0 ? s_pace[0] : (item == ITEM_KNIFE || club) ? GEVR_CHOP_CYCLE_KNIFE : GEVR_CHOP_CYCLE_FIST;
+        s32 other = s_pace[1] >= 0 ? s_pace[1] : cycle / 2;
+        s32 got;
 
-        if (gevrGripAxesRaw(ctrl, at, ignore, ignore, ignore))
+        end[0] = at[0];
+        end[1] = at[1];
+        end[2] = at[2];
+        if (club)
         {
-            end[0] = at[0];
-            end[1] = at[1];
-            end[2] = at[2];
-            if (club)
-            {
-                Mtxf *g = &g_CurrentPlayer->hands[GUNRIGHT].gunmtx_camspace;
+            Mtxf *g = &g_CurrentPlayer->hands[GUNRIGHT].gunmtx_camspace;
 
-                for (i = 0; i < 3; i++)
-                {
-                    end[i] = g->m[3][i] + 0.1f * (s_gevrClubButt[0] * g->m[0][i] + s_gevrClubButt[1] * g->m[1][i]
-                                                  + s_gevrClubButt[2] * g->m[2][i]);
-                }
-            }
-            else if (!bare && item != ITEM_KNIFE && s_gevrMuzzleValid[hand] && s_gevrMuzzleItem[hand] == item)
-            {
-                end[0] = s_gevrMuzzle[hand][0];
-                end[1] = s_gevrMuzzle[hand][1];
-                end[2] = s_gevrMuzzle[hand][2];
-            }
-            len = sqrtf(end[0] * end[0] + end[1] * end[1] + end[2] * end[2]);
             for (i = 0; i < 3; i++)
             {
-                dir[i] = len > 1e-6f ? end[i] / len : (i == 2 ? -1.0f : 0.0f);
+                end[i] = g->m[3][i] + 0.1f * (s_gevrClubButt[0] * g->m[0][i] + s_gevrClubButt[1] * g->m[1][i]
+                                              + s_gevrClubButt[2] * g->m[2][i]);
             }
-            if (gevrChopHit(at, end, GEVR_CHOP_TOUCH_CM * cm, dir, damage))
-            {
-                f32 d[3];
+        }
+        else if (!bare && item != ITEM_KNIFE && s_gevrMuzzleValid[hand] && s_gevrMuzzleItem[hand] == item)
+        {
+            end[0] = s_gevrMuzzle[hand][0];
+            end[1] = s_gevrMuzzle[hand][1];
+            end[2] = s_gevrMuzzle[hand][2];
+        }
+        len = sqrtf(end[0] * end[0] + end[1] * end[1] + end[2] * end[2]);
+        for (i = 0; i < 3; i++)
+        {
+            dir[i] = len > 1e-6f ? end[i] / len : (i == 2 ? -1.0f : 0.0f);
+        }
+        got = gevrChopHit(at, end, GEVR_CHOP_TOUCH_CM * cm, dir, damage, vel, need, s_cool[ctrl] <= 0, &into);
+        if (got == 2 && s_cool[ctrl] <= 0)
+        {
+            f32 d[3];
 
-                for (i = 0; i < 3; i++)
-                {
-                    d[i] = end[i] - at[i];
-                }
-                sysLogPrintf(LOG_NOTE, "stereo: %s blow (item %d%s) landed at %.2f m/s (thrust %.2f slash %.2f), reach %.0f cm",
-                             ctrl ? "gun hand" : "off hand", item, club ? ", club" : "", speed, thrust, slash,
-                             cm > 1e-6f ? sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm : 0.0f);
-                if (vr_haptics_ready())
-                {
-                    trigger_haptic_vibration_c(ctrl, 0.8f, 0.08f);
-                }
-                s_whiff[ctrl] = 0;
-                s_cool[ctrl] = GEVR_CHOP_COOL;
+            for (i = 0; i < 3; i++)
+            {
+                d[i] = end[i] - at[i];
             }
+            sysLogPrintf(LOG_NOTE, "stereo: %s blow (item %d%s) landed at %.2f m/s, %.2f into him, reach %.0f cm; next in %d, other hand %d",
+                         ctrl ? "gun hand" : "off hand", item, club ? ", club" : "", speed, into,
+                         cm > 1e-6f ? sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm : 0.0f, cycle, other);
+            if (vr_haptics_ready())
+            {
+                trigger_haptic_vibration_c(ctrl, 0.8f, 0.08f);
+            }
+            s_cool[ctrl] = cycle;
+            if (s_cool[!ctrl] < other)
+            {
+                s_cool[!ctrl] = other;
+            }
+            s_told[ctrl] = 2;   /* its follow-through is not a blow held back */
+        }
+        else if (got == 0)
+        {
+            s_told[ctrl] = 0;
+        }
+        else if (got != s_told[ctrl])
+        {
+            if (got == 2)
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: %s blow held back, %d ticks to go", ctrl ? "gun hand" : "off hand", s_cool[ctrl]);
+            }
+            else
+            {
+                sysLogPrintf(LOG_NOTE, "stereo: %s hand on a guard, moving off him (%.2f m/s, %.2f into him)",
+                             ctrl ? "gun hand" : "off hand", speed, into);
+            }
+            s_told[ctrl] = got;
+        }
+        if (got == 2)
+        {
+            s_whiff[ctrl] = 0;   /* it touched him */
         }
     }
 
