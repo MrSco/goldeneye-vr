@@ -455,7 +455,7 @@ static std::vector<std::string> gevrSplit(const std::string &s, char sep)
 // the renderer (port/fast3d/gevr_texpack.cpp) uses the one picked here from
 // the next START. Nothing of theirs ships with the app.
 struct ModPack {
-    std::string id, title, by, site, version, state, message;
+    std::string id, title, by, site, version, state, message, update;   // update: a newer release's version
     int mb = 0, progress = -1;
 };
 
@@ -463,6 +463,11 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
 {
     static std::vector<ModPack> packs;
     static Uint32 lastPoll = 0;
+    static bool checked = false;
+    if (!checked) {
+        checked = true;
+        gevrJavaCommand("modsCommand", "check");   // newer pack releases on GitHub (ModManager.checkLatest)
+    }
     if (now - lastPoll > 250 || lastPoll == 0) {
         lastPoll = now;
         packs.clear();
@@ -481,6 +486,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                 p.state = f[6];
                 p.progress = atoi(f[7].c_str());
                 p.message = f[8];
+                if (f.size() > 9) p.update = f[9];
                 packs.push_back(p);
             }
         }
@@ -514,6 +520,20 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             if (ImGui::SmallButton("Remove")) {
                 if (inuse) g_ActiveExtTexPack[0] = '\0';
                 gevrJavaCommand("modsCommand", ("remove:" + p.id).c_str());
+            }
+            if (!p.update.empty()) {
+                // a newer release of the pack (ModManager.checkLatest): it replaces this one
+                char label[64];
+                snprintf(label, sizeof(label), "Update to %s (%d MB)", p.update.c_str(), p.mb);
+                const float w = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
+                ImGui::SameLine();
+                if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
+                if (ImGui::SmallButton(label)) gevrJavaCommand("modsCommand", ("install:" + p.id).c_str());
+            }
+            if (!p.message.empty()) {   // an update that failed; the installed pack stays
+                ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                ImGui::TextWrapped("%s", p.message.c_str());
+                ImGui::PopStyleColor();
             }
         } else {
             if (p.state == "error") {
