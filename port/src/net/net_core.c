@@ -414,8 +414,48 @@ bool netIsRemotePlayerActive(int slot_id) {
     return s_remote_active[slot_id];
 }
 
+static void netProcessHitReport(uint8_t shooter_slot, uint8_t target, uint8_t weapon, float hx, float hy, float hz, float dmg) {
+    if (!netIsHost()) return;
+    (void)hy;
+    
+    NET_LOG("Hit reported: shooter %d -> target %d (dmg: %.1f)", shooter_slot, target, dmg);
+    
+    float vx = hx;
+    float vz = hz;
+    
+    /* Host resolves damage and broadcasts damage event to all peers */
+    u8 draw[128];
+    struct netbuf dbuf = { .data = draw, .size = sizeof(draw) };
+    netbufStartWrite(&dbuf);
+    netbufWriteU32(&dbuf, GEVR_NET_MAGIC);
+    netbufWriteU16(&dbuf, GEVR_NET_VERSION);
+    netbufWriteU8(&dbuf, NET_MSG_DAMAGE_EVENT);
+    netbufWriteU8(&dbuf, 0);
+    netbufWriteU8(&dbuf, target);
+    netbufWriteU8(&dbuf, shooter_slot);
+    netbufWriteU8(&dbuf, weapon);
+    netbufWriteF32(&dbuf, dmg);
+    netbufWriteF32(&dbuf, vx);
+    netbufWriteF32(&dbuf, vz);
+    
+    netBroadcastBuf(&dbuf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    
+    /* Also execute damage on host locally */
+    if (target < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
+        s32 prev = get_cur_playernum();
+        set_cur_player(target);
+        record_damage_kills(dmg, vx, vz, shooter_slot, 1);
+        set_cur_player(prev);
+    }
+}
+
 void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg) {
     if (s_state != NET_STATE_INGAME) return;
+    
+    if (netIsHost()) {
+        netProcessHitReport((uint8_t)s_local_slot, target_slot, weapon_id, hit_x, hit_y, hit_z, dmg);
+        return;
+    }
     
     u8 raw[128];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -698,32 +738,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             (void)hit_loc;
             
             if (netIsHost()) {
-                NET_LOG("Hit reported: shooter %d -> target %d (dmg: %.1f)", slot_id, target, dmg);
-                
-                float vx = hx;
-                float vz = hz;
-                
-                /* Host resolves damage and broadcasts damage event */
-                u8 draw[128];
-                struct netbuf dbuf = { .data = draw, .size = sizeof(draw) };
-                netbufStartWrite(&dbuf);
-                netbufWriteU32(&dbuf, GEVR_NET_MAGIC);
-                netbufWriteU16(&dbuf, GEVR_NET_VERSION);
-                netbufWriteU8(&dbuf, NET_MSG_DAMAGE_EVENT);
-                netbufWriteU8(&dbuf, 0);
-                netbufWriteU8(&dbuf, target);
-                netbufWriteU8(&dbuf, slot_id);
-                netbufWriteU8(&dbuf, weapon);
-                netbufWriteF32(&dbuf, dmg);
-                netbufWriteF32(&dbuf, vx);
-                netbufWriteF32(&dbuf, vz);
-                
-                netBroadcastBuf(&dbuf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
-                
-                /* If host is the target, apply damage locally */
-                if (target == (uint8_t)s_local_slot && g_CurrentPlayer != NULL) {
-                    record_damage_kills(dmg, vx, vz, slot_id, 1);
-                }
+                netProcessHitReport((uint8_t)slot_id, target, weapon, hx, hy, hz, dmg);
             }
             break;
         }
@@ -736,10 +751,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             float vz = netbufReadF32(&buf);
             (void)weapon;
             
-            /* If we are the target, apply authoritative damage in the engine */
-            if (target == (uint8_t)s_local_slot && g_CurrentPlayer != NULL) {
-                NET_LOG("Took damage: %.1f from attacker %d", dmg, attacker);
+            /* Apply authoritative damage to the target player across all connected headsets */
+            if (target < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
+                NET_LOG("Player %d took %.1f damage from attacker %d", target, dmg, attacker);
+                s32 prev = get_cur_playernum();
+                set_cur_player(target);
                 record_damage_kills(dmg, vx, vz, attacker, 1);
+                set_cur_player(prev);
             }
             break;
         }

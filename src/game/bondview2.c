@@ -778,30 +778,32 @@ void gevrStereoFrame(s32 inlevel)
     gevrWarpProbe(inlevel);
     opening = gevrWatchOpeningByGesture(inlevel);
     extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    struct player *pl = (netIsActive() && netGetLocalSlot() >= 0 && g_playerPointers[netGetLocalSlot()]) ? g_playerPointers[netGetLocalSlot()] : g_CurrentPlayer;
     s32 want = inlevel
         && VrPlayMode != 0
         && gevrVrReady()
-        && g_CurrentPlayer != NULL
+        && pl != NULL
         && (getPlayerCount() == 1 || netIsActive())
         && g_CameraMode == CAMERAMODE_FP
-        && g_CurrentPlayer->cameramode != 1
-        && (g_CurrentPlayer->pause_state == 0 || opening)
-        && !g_CurrentPlayer->bonddead;
+        && pl->cameramode != 1
+        && (pl->pause_state == 0 || opening)
+        && !pl->bonddead;
 
-    gevrVrScreenHeadLock(!want && inlevel && VrPlayMode != 0 && g_CurrentPlayer != NULL
-                         && g_CurrentPlayer->watch_animation_state != 0);
+    gevrVrScreenHeadLock(!want && inlevel && VrPlayMode != 0 && pl != NULL
+                         && pl->watch_animation_state != 0);
 
     if (want && !s_gevrStereoWas)
     {
         gevrStereoRecenter();
-        sysLogPrintf(LOG_NOTE, "stereo: on (theta %.1f)", g_CurrentPlayer->vv_theta);
+        sysLogPrintf(LOG_NOTE, "stereo: on (theta %.1f)", pl->vv_theta);
     }
     else if (!want && s_gevrStereoWas)
     {
         /* Back to the screen: hang it where the player is looking now - but
          * not for the watch, which glides to the screen's usual place when
          * the player looks there (vr_openxr.cpp, the pinned screen). */
-        if (g_CurrentPlayer == NULL || g_CurrentPlayer->watch_animation_state == 0)
+        if (pl == NULL || pl->watch_animation_state == 0)
         {
             vr_screen_recenter();
         }
@@ -810,7 +812,7 @@ void gevrStereoFrame(s32 inlevel)
 
     if (want)
     {
-        f32 x = g_CurrentPlayer->watch_animation_state != 0 ? 0.0f : gevrVrTurnAxis();
+        f32 x = pl->watch_animation_state != 0 ? 0.0f : gevrVrTurnAxis();
 
         gevrVrSetWorldScale(GEVR_UNITS_PER_METRE * D_800364CC);
 
@@ -12062,8 +12064,10 @@ extern int gevrGunFitActive;   /* port/src/input.c */
 s32 gevrGunFitAvailable(void)
 {
     extern bool netIsActive(void);
-    return g_gevrStereo && g_CurrentPlayer != NULL && (getPlayerCount() == 1 || netIsActive()) && !g_CurrentPlayer->bonddead
-        && g_CurrentPlayer->watch_animation_state == 0 && g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0;
+    extern int netGetLocalSlot(void);
+    struct player *pl = (netIsActive() && netGetLocalSlot() >= 0 && g_playerPointers[netGetLocalSlot()]) ? g_playerPointers[netGetLocalSlot()] : g_CurrentPlayer;
+    return g_gevrStereo && pl != NULL && (getPlayerCount() == 1 || netIsActive()) && !pl->bonddead
+        && pl->watch_animation_state == 0 && pl->hands[GUNRIGHT].field_87F != 0;
 }
 
 static Gfx *gevrDrawGunFit(Gfx *gdl)

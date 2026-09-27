@@ -669,7 +669,16 @@ Gfx *lvlPortalDebug7F0BDF10(Gfx *gdl)
 Gfx* lvlRender(Gfx* DL)
 {
 #ifdef GEVR
-    { extern void gevrStereoFrame(s32 inlevel); gevrStereoFrame(g_CurrentStageToLoad != LEVELID_TITLE); }
+    {
+        extern void gevrStereoFrame(s32 inlevel);
+        extern bool netIsActive(void);
+        extern int netGetLocalSlot(void);
+        if (netIsActive() && netGetLocalSlot() >= 0)
+        {
+            set_cur_player(netGetLocalSlot());
+        }
+        gevrStereoFrame(g_CurrentStageToLoad != LEVELID_TITLE);
+    }
 #endif
     gSPSegment(DL++, SPSEGMENT_PHYSICAL, NULL);
     gSPSegment(DL++, SPSEGMENT_UNKNOWN, osVirtualToPhysical(ptr_font_DL));
