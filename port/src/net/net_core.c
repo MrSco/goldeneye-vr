@@ -791,10 +791,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             uint8_t pad_index = netbufReadU8(&buf);
             float theta = netbufReadF32(&buf);
             int slot = slot_id;
+            /* Applied whether or not this headset saw the player die: the
+             * respawn resets health, armour and position, so it also brings
+             * a copy that drifted back in line with its owner. */
             if (s_state != NET_STATE_INGAME || buf.error ||
                 slot < 0 || slot >= GEVR_MAX_PLAYERS || slot == s_local_slot ||
                 pad_index >= startpadcount || g_playerPointers[slot] == NULL ||
-                g_playerPointers[slot]->prop == NULL || !g_playerPointers[slot]->bonddead) break;
+                g_playerPointers[slot]->prop == NULL) break;
             if (netIsHost()) {
                 if (slot == 0 || s_client_peers[slot] != peer ||
                     (int)(intptr_t)peer->data != slot) break;
