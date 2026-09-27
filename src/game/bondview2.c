@@ -2502,6 +2502,27 @@ extern float gevrScopeLensTan;     /* vr_openxr.cpp: tan of half the lens's angl
 #define GEVR_SCOPE_EYEPIECE_Z   -128.0f
 #define GEVR_SCOPE_EYEPIECE_R   23.5f
 
+/*
+ * The Moonraker laser's sight as a scope too (user), at a lower zoom than the
+ * sniper's (user: "don't make it zoom as much"). The N64 never zoomed it
+ * (laser_stats Zoom 0); it takes the rifles' aim zoom, the KF7's and AK47's
+ * 30 degrees (2.2x), fixed. Its eyepiece is the rear face of the sight's
+ * housing in GlaserZ (display list node 0x2ac, from the ROM: x -18..18,
+ * y 84..116, z -80..-37, on the tube 0x294 at y 91..109), raw vertex
+ * coordinates as the sniper's.
+ */
+#define GEVR_LASER_EYEPIECE_X   0.0f
+#define GEVR_LASER_EYEPIECE_Y   100.0f
+#define GEVR_LASER_EYEPIECE_Z   -80.0f
+#define GEVR_LASER_EYEPIECE_R   16.0f
+#define GEVR_LASER_SCOPE_ZOOM   30.0f
+
+/* the held gun's scope, if it has one */
+static s32 gevrScopeItem(s32 item)
+{
+    return item == ITEM_SNIPERRIFLE || item == ITEM_LASER;
+}
+
 static void gevrScopeTune(void)
 {
     static u32 tick;
@@ -2533,18 +2554,23 @@ static void gevrScopeTune(void)
 }
 
 /* the lens on the eyepiece, from the gun hand's grip (vr_openxr.cpp places it) */
-static void gevrScopeLensPlace(void)
+static void gevrScopeLensPlace(s32 item)
 {
     f32 size = gevrGunSizeFactor();
     f32 unit = GEVR_VIEWMODEL_CM * 0.1f / 100.0f * size;   /* metres a model unit */
     f32 left = VrLeftHandedMode ? -1.0f : 1.0f;             /* model +X, in the holder's right */
+    s32 laser = item == ITEM_LASER;
+    f32 ex = laser ? GEVR_LASER_EYEPIECE_X : GEVR_SCOPE_EYEPIECE_X;
+    f32 ey = laser ? GEVR_LASER_EYEPIECE_Y : GEVR_SCOPE_EYEPIECE_Y;
+    f32 ez = laser ? GEVR_LASER_EYEPIECE_Z : GEVR_SCOPE_EYEPIECE_Z;
+    f32 er = laser ? GEVR_LASER_EYEPIECE_R : GEVR_SCOPE_EYEPIECE_R;
 
     gevrScopeLens[0] = (VrLeftHandedMode ? -VrGunOffX : VrGunOffX) * size / 100.0f
-                     - left * GEVR_SCOPE_EYEPIECE_X * unit + s_gevrScopeTrim[0];
-    gevrScopeLens[1] = VrGunOffY * size / 100.0f + GEVR_SCOPE_EYEPIECE_Y * unit + s_gevrScopeTrim[1];
+                     - left * ex * unit + s_gevrScopeTrim[0];
+    gevrScopeLens[1] = VrGunOffY * size / 100.0f + ey * unit + s_gevrScopeTrim[1];
     gevrScopeLens[2] = (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * size / 100.0f
-                     - GEVR_SCOPE_EYEPIECE_Z * unit + s_gevrScopeTrim[2];
-    gevrScopeLens[3] = 2.0f * GEVR_SCOPE_EYEPIECE_R * unit * GEVR_SCOPE_LENS_SCALE + s_gevrScopeTrim[3];
+                     - ez * unit + s_gevrScopeTrim[2];
+    gevrScopeLens[3] = 2.0f * er * unit * GEVR_SCOPE_LENS_SCALE + s_gevrScopeTrim[3];
 }
 
 /* lvlRender, once the player's view is set up: whether this frame draws the scope */
@@ -2556,24 +2582,25 @@ s32 gevrScopeBegin(void)
     f32 pos[3], right[3], up[3], back[3];
     f32 r[3], u[3], f[3];
     f32 vu = GEVR_UNITS_PER_METRE * D_800364CC;
-    f32 len, fov, g, n, fa, A, B, ro, uo, fo;
+    f32 len, zoom, fov, g, n, fa, A, B, ro, uo, fo;
     f32 zr[2];
     struct coord3d o, d;
     s32 on = FALSE;
+    s32 item = g_CurrentPlayer != NULL ? getCurrentPlayerWeaponId(GUNRIGHT) : ITEM_UNARMED;
     s32 i;
 
     gevrScopeOn = FALSE;
     if (g_gevrStereo && g_CurrentPlayer != NULL && !gevrVrScreenMode && g_PlayerIsInTank != 1
-        && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_SNIPERRIFLE
+        && gevrScopeItem(item)
         && vu > 1e-6f && gevrGripAxes(1, pos, right, up, back) && gevrStereoShot(GUNRIGHT, NULL, &o, &d))
     {
         gevrScopeTune();
-        gevrScopeLensPlace();
+        gevrScopeLensPlace(item);
         on = TRUE;
     }
     if (on != was)
     {
-        sysLogPrintf(LOG_NOTE, "stereo: scope %s", on ? "on (sniper in hand)" : "off");
+        sysLogPrintf(LOG_NOTE, "stereo: scope %s", !on ? "off" : item == ITEM_LASER ? "on (laser in hand)" : "on (sniper in hand)");
         if (on)
         {
             /* the model's scale, checked: its muzzle node (0, 53.2, 804.1)
@@ -2608,12 +2635,19 @@ s32 gevrScopeBegin(void)
     u[1] = r[2] * f[0] - r[0] * f[2];
     u[2] = r[0] * f[1] - r[1] * f[0];
 
-    fov = g_CurrentPlayer->sniper_zoom;
-    if (fov > sniperrifle_stats.Zoom)
+    if (item == ITEM_LASER)
     {
-        fov = sniperrifle_stats.Zoom;   /* zoomed out on the screen: the scope's widest (gun.c) */
+        zoom = GEVR_LASER_SCOPE_ZOOM;
     }
-    fov *= s_gevrScopeK;   /* always zoomed, as a real scope */
+    else
+    {
+        zoom = g_CurrentPlayer->sniper_zoom;
+        if (zoom > sniperrifle_stats.Zoom)
+        {
+            zoom = sniperrifle_stats.Zoom;   /* zoomed out on the screen: the scope's widest (gun.c) */
+        }
+    }
+    fov = zoom * s_gevrScopeK;   /* always zoomed, as a real scope */
     if (fov > 60.0f) fov = 60.0f;
     if (gevrScopeLensTan > 1e-3f)
     {
@@ -2628,9 +2662,9 @@ s32 gevrScopeBegin(void)
         static f32 loggedZoom;
         static u32 n;
 
-        if ((n++ % 240) == 0 || fabsf(g_CurrentPlayer->sniper_zoom - loggedZoom) > 1.0f)
+        if ((n++ % 240) == 0 || fabsf(zoom - loggedZoom) > 1.0f)
         {
-            loggedZoom = g_CurrentPlayer->sniper_zoom;
+            loggedZoom = zoom;
             sysLogPrintf(LOG_NOTE, "stereo: scope zoom %.1f deg (%.1fx): %.2f deg across a %.1f deg lens",
                          loggedZoom, tanf(GEVR_SCOPE_FLAT_FOVY * 0.5f * (M_PI_F / 180.0f))
                                      / tanf(loggedZoom * 0.5f * (M_PI_F / 180.0f)),
