@@ -5290,3 +5290,32 @@ tools/texai/NOTES.md.
   - The "controllers required" launch check wants a controller actually
     held ("in hand: Y"); a button press alone doesn't clear it.
   - prox_close lapsed once mid-run, so the headset slept.
+
+## 123. HD pack on blended texture tiles (Dam cliffs); file-select hitch reduced (merged 2026-09-27)
+- **Dam cliffs** (user: "dam walls aren't HD" with the pack on; the pack
+  switch changed nothing).
+  - The cliff blends two full-size I4 64x64 textures. The snowy rock,
+    38C2DA20, is on tile 1 (lod 1, detail 1).
+  - gevr_texpack_import skipped every tile above first_tile_index when
+    tex_lod was set, treating it as a smaller mip level, so the authors' HD
+    rock was never even looked up.
+  - It now looks up every sampled tile, as GLideN64 does (395b8f0, made by a
+    Codex agent on codex/hd-texture-cliffs-menu-hitch, signed build here).
+    User-verified: the cliff is HD. Any surface built the same way benefits.
+- **File-select hitch** with a pack (there since packs were added).
+  - The index is built from the launcher's Start (gevrTexpackStartEarly),
+    and the first frame waits for it (gevrtp::waitIndex). It was ready 15 ms
+    after Start, so there's no cache clear at file select any more (9cbd431).
+  - HD uploads are time-sliced to about 2 ms a frame, at least one image;
+    loops over 11 ms are logged (395b8f0).
+  - That second went from 64/90 frames (45/60 ticks, a 7-frame stall) to
+    79/90 (52/60, 2 frames). The rest is the game's own menu load.
+- **Diagnostics for "served by the pack but not on screen"** (9cbd431):
+  - A pack upload refused because its sizes don't fit is logged once per
+    texture ("texpack: not used, sizes don't fit") and counted in the
+    texcache line.
+  - files/gevr_texprobe.txt holding a hex checksum logs each lookup of it:
+    tile, mip state, sizes, and the entry found.
+  - The gevr_texdump marker writes native PAMs with the tile number in the
+    name (`_t1`).
+- tools/texai/rejected.txt: 49CB30EE, a flat grey Dam strip (99c2f98).
