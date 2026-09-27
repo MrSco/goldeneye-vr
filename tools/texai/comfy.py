@@ -101,13 +101,22 @@ def esrgan_graph(name):
 
 
 def native_input(orig_dir, tex, m):
-    """the texture upright, transparent texels on the key colour, padded PAD texels each side"""
+    """the texture upright, padded PAD texels each side. Transparent texels get
+    the key colour when m['keyed'] (as the chat models are sent), otherwise their
+    opaque neighbours' colours (texai.bleed): an upscaler blends whatever sits
+    next to an edge into it, and the key colour came out as a purple fringe."""
     im = Image.open(os.path.join(orig_dir, tex + '.png')).convert('RGBA')
     if m['flip']:
         im = im.transpose(Image.FLIP_TOP_BOTTOM)
-    bg = Image.new('RGBA', im.size, KEY + (255,))
-    bg.alpha_composite(im)
-    a = np.asarray(bg.convert('RGB'))
+    if m.get('keyed', True):
+        bg = Image.new('RGBA', im.size, KEY + (255,))
+        bg.alpha_composite(im)
+        a = np.asarray(bg.convert('RGB'))
+    else:
+        import texai
+        px = np.asarray(im).astype(np.float64)
+        filled = texai.bleed(px[:, :, :3], px[:, :, 3]) if px[:, :, 3].max() > 0 else px[:, :, :3]
+        a = np.clip(filled, 0, 255).round().astype(np.uint8)
     a = np.pad(a, ((PAD, PAD), (0, 0), (0, 0)), mode='wrap' if m['wrap'][1] else 'edge')
     a = np.pad(a, ((0, 0), (PAD, PAD), (0, 0)), mode='wrap' if m['wrap'][0] else 'edge')
     return Image.fromarray(a)

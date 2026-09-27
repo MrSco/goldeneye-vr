@@ -250,14 +250,16 @@ def post_one(orig_dir, src, tex, m, dst_base):
         ahd = np.where(ahd >= 128, 255.0, 0.0) if binary else np.clip(ahd, 0, 255)
         # the model's silhouette, but only within a texel of the original's: its
         # finer edge, not a new shape; key-coloured pixels never show
-        p = painted(raw)
+        p = painted(raw) if m.get('keyed', True) else np.ones(ahd.shape, bool)
         o = ahd > 0
-        inside = (p & morph(o, SCALE, True)) | morph(o, SCALE, False)
+        # unkeyed answers (local upscalers fed bleed-filled texels) have no
+        # silhouette of their own: the original's alpha is the shape
+        inside = ((p & morph(o, SCALE, True)) | morph(o, SCALE, False)) if m.get('keyed', True) else o
         ahd = np.where(inside, 255.0, 0.0) if binary else ahd * inside
         # key spill: purple-tinted pixels near the silhouette's edge (resampling
         # blends the key colour into the edge); their colour comes from inside
         near_edge = inside & ~morph(inside, 6, False)
-        spill = near_edge & (raw[:, :, 0] > raw[:, :, 1] + 30) & (raw[:, :, 2] > raw[:, :, 1] + 30)
+        spill = near_edge & (raw[:, :, 0] > raw[:, :, 1] + 30) & (raw[:, :, 2] > raw[:, :, 1] + 30) & m.get('keyed', True)
         base = bleed(base, np.where(p & inside & ~spill, 255.0, 0.0))
     else:
         ahd = np.full((H, W), 255.0)

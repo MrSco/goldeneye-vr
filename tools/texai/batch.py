@@ -80,7 +80,7 @@ def manifest_entry(r, img):
     k = texai.CANVAS // max(w, h)
     x0, y0 = (texai.CANVAS - w * k) // 2, (texai.CANVAS - h * k) // 2
     return dict(what='', kind='material' if any(wrap) else 'detail', wrap=wrap, flip=False, w=w, h=h,
-                alpha=img.getextrema()[3][0] < 255,
+                alpha=img.getextrema()[3][0] < 255, keyed=False,
                 box=[x0 / texai.CANVAS, y0 / texai.CANVAS, (x0 + w * k) / texai.CANVAS, (y0 + h * k) / texai.CANVAS])
 
 
