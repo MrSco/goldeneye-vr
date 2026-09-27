@@ -12440,6 +12440,7 @@ Gfx *gevrDrawReturnPrompt(Gfx *gdl)
     {
         strcat(text, pack ? "\n\nX: HD TEXTURES OFF" : "\n\nX: HD TEXTURES ON");
     }
+    strcat(text, "\n");   /* textMeasure counts a line at each break: the last line too */
     gdl = microcode_constructor(gdl);
     textMeasure(&h, &w, (char *) text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
     x = viGetViewLeft() + (viGetViewWidth() - w) / 2;
