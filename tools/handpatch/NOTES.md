@@ -251,6 +251,27 @@ What works:
   hand, the tip is the vertex with the largest x in its protrusion.
 - The other hands only needed rounded caps (fingers already full tubes);
   the watch laser's two palms are cushions.
+Round 4 (2026-09-27, after the headset test of ccd015b, main v0.1.17
+merged as 66ec1d3):
+- The user traced a hollow in the grip/taser/grenade hand's forearm, seen
+  from the elbow end in a two-handed hold (GtaserZ). Cause: tube() took
+  "up" from the rail vertices' face normals, and this forearm's top is more
+  than half the tube (widest 18 units above the rails, 45 high), so those
+  faces lean down: "up" pointed at the missing side and the rebuilt half
+  went up inside the arch; the elbow cap spanned a sliver.
+- tube() now finds the top's cross-section as the shortest way over the
+  modelled faces from rail to rail that keeps off the rails (no longer than
+  6 half-widths, within 2.4 of the pair; a finger whose top is a strip
+  straight between its rails has none), turns "up" round when that lies
+  below it, and keeps a pathless pair on the last pair's side. The depth
+  is the top's height less twice the height of its widest point: 8.2 and
+  8.7 for this forearm ("round" 0.25). The watch hand's tubes keep their
+  direction; two mid-finger sections come out a little rounder (the path
+  finds the top a little higher than the rails' own faces did).
+- The forearm underside and elbow cap: 0x705's plain lower middle (the
+  forearm's own texture; 0x704 is a knuckle texture and banded), cap shade
+  170 instead of 60 (dark read as a hole from behind).
+- --view name=x,y,z adds a render direction (elbow-end views for this).
 Left alone, worth a look in the headset: on the PPK the index finger is not
 seen at all in the user's screenshots - the socket patch shows where it
 should enter the hand. The finger is its own part on bone 4 (switch table
