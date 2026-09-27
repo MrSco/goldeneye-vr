@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "chrobjdata.h"
 #include "gevr_model.h"
+#include "gevr_handpatch.h"
 #include "system.h"
 #include "image.h"
 #include "math_asinfacosf.h"
@@ -136,6 +137,9 @@ void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8* ds
 
     sub_GAME_7F075A90(objheader, 0x5000000, (uintptr_t)filedata);
     sub_GAME_7F0762E0(objheader, name, dst, buffer);
+
+    /* PORT: close the hand and arm models' open shells for VR (issue #9) */
+    gevrHandPatchApply(objheader, (const char *)name, buffer);
 }
 
 

@@ -246,6 +246,10 @@ extern GLuint gfx_opengl_get_vr_menu_texture_H(void);// Head HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_P(void);// weapon panel texture (issue #10)
 extern GLuint gfx_vr_scope_texture(void);            // sniper scope image (issue #40)
 extern "C" float gevrScopeLens[4];                   // bondview2.c: right, up, back, diameter (m)
+// Issue #58: the lens's radius over its distance from the eyes, as last shown
+// (tan of half the angle it fills). bondview2.c gevrScopeBegin sizes the
+// scope's view to it, so it magnifies as the N64's zoom did.
+extern "C" { float gevrScopeLensTan = 0.0f; }
 #define GEVR_SCOPE_RES 512                           // gfx_opengl.cpp's scope target
 #define GEVR_SCOPE_MIN_DEPTH_M 0.12f                 // the lens's nearest edge stays this far ahead of the eyes
 #define GEVR_SCOPE_TURN_M 0.08f                      // ... and turns toward them within this of it
@@ -2485,12 +2489,14 @@ extern "C" int gevrVrRedrawDelta(float out[16])
  * The hand is placed relative to the head, so the head's own move is in it.
  */
 extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);   // vr_input.cpp
+extern "C" int gevrVrGripPoseSteady(int hand, float pos[3], float quat[4]);   // vr_input.cpp: its turn steadied
 
 extern "C" int gevrVrRedrawHandDelta(int hand, float out[16])
 {
     float po[3], qo[4], pn[3], qn[4];
+    // the newest pose steadied as the game frame's was (aim and grip steadying)
     if (!g_haveRecordedViews || vr_world_scale <= 0.0f
-        || !gevrVrGripPoseCamera(hand, po, qo) || !gevrVrGripPose(hand, pn, qn)) {
+        || !gevrVrGripPoseCamera(hand, po, qo) || !gevrVrGripPoseSteady(hand, pn, qn)) {
         return 0;
     }
     float Ro[9], Rn[9], R[9];
@@ -3314,7 +3320,8 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     {
         const GLuint scopeTex = gfx_vr_scope_texture();
         float gp[3], gq[4];
-        if (g_scopeSwapchain != XR_NULL_HANDLE && scopeTex != 0 && gevrVrGripPose(1, gp, gq)) {
+        // steadied as the gun is (vr_input.cpp gevrVrGripPoseSteady), or it slides off its eyepiece
+        if (g_scopeSwapchain != XR_NULL_HANDLE && scopeTex != 0 && gevrVrGripPoseSteady(1, gp, gq)) {
             vr_update_scope_swapchain(scopeTex);
             const float x = gq[0], y = gq[1], z = gq[2], w = gq[3];
             const float rx = 1.0f - 2.0f * (y * y + z * z), ry = 2.0f * (x * y + w * z), rz = 2.0f * (x * z - w * y);
@@ -3351,6 +3358,11 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             {
                 XrVector3f c = scopeLayer.pose.position;
                 const float r = gevrScopeLens[3] * 0.5f;
+                {
+                    // moved out and grown below, it fills the same angle
+                    const float cd = sqrtf(c.x * c.x + c.y * c.y + c.z * c.z);
+                    gevrScopeLensTan = cd > 0.01f ? r / cd : 0.0f;
+                }
                 float n[3] = { bx, by, bz };
                 const float nearAligned = -c.z - r * sqrtf(fmaxf(0.0f, 1.0f - bz * bz));
                 float t = (GEVR_SCOPE_MIN_DEPTH_M + GEVR_SCOPE_TURN_M - nearAligned) / GEVR_SCOPE_TURN_M;
