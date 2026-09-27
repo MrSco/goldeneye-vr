@@ -19,7 +19,8 @@ import java.util.zip.ZipFile;
 /**
  * The launcher's Mods page (port/vr/vr_launcher.cpp, through
  * MainActivity.modsStatus and MainActivity.modsCommand): fan-made texture
- * packs, downloaded from their authors' own sites when the player asks and
+ * packs, downloaded when the player asks (from their authors' site, or our
+ * GitHub fork for the AI-filled one) and
  * unpacked into files/texture-packs/&lt;id&gt;, where the renderer looks for
  * them (port/fast3d/gevr_texpack.cpp). Nothing of theirs ships with the app;
  * the list below only says where each pack lives.
@@ -50,12 +51,20 @@ final class ModManager {
      * the renderer matches by the same checksum the emulator uses. The HD
      * build (135 MB) rather than the 4K one: the 4K pack is 1.6 GB of textures
      * the Quest would only shrink again.
+     *
+     * "+ AI" is our fork of it (github.com/MrSco/GoldenEye-007-HD): their latest
+     * textures at their HD sizes, plus GOLDENEYE/AI - AI upscales of the game's
+     * own textures for the ones the pack lacks (tools/texai, package.py).
      */
     static final Pack[] PACKS = {
         new Pack("ge007-hd", "GoldenEye 007 HD", "intermissionfb and GhostlyDark", "evilgames.eu",
                 "v2025.12.30",
                 "https://evilgames.eu/files/texture-packs/ge007-hd-v2025.12.30-gliden64-png-hd.zip",
                 135256079L),
+        new Pack("ge007-hd-ai", "GoldenEye 007 HD + AI", "intermissionfb and GhostlyDark, AI fill by GoldenEye VR",
+                "github.com/MrSco", "2026.09.26",
+                "https://github.com/MrSco/GoldenEye-007-HD/releases/download/ai-2026.09.26/ge007-hd-ai-2026.09.26-gliden64-png.zip",
+                256315453L),
     };
 
     // Per-pack states the launcher shows (vr_launcher.cpp keeps the same names).

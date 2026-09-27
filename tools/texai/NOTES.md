@@ -69,12 +69,22 @@ intermissionfb and GhostlyDark)?
   release is 25-50% of that, so 4-32x (median 8-16x). Ours is 8x (256 px
   for 32 px), to keep the download small; raise `texai.SCALE` if it looks
   soft next to theirs.
-- **Release.** The launcher entry (`ModManager.PACKS`) needs the fork's
-  release zip URL and exact size.
-  - The planned zip is the authors' published HD zip (the dump was measured
-    against it) plus `GOLDENEYE/AI`.
-  - Their repo has no license: get intermissionfb and GhostlyDark's OK
-    before publishing it.
+- **Release (user decision 2026-09-26: no permission ask).** The public repo
+  has a fork button and they're credited: `CREDITS.md`, the fork README, the
+  zip's readme.
+  1. Package:
+     `python tools/texai/package.py <fork> build/pack/ge007-hd-v2025.12.30-gliden64-png-hd.zip <out.zip>`.
+     The zip holds the authors' latest master, resized to their HD release's
+     per-texture sizes (Hacks/ left out), plus `GOLDENEYE/AI/`.
+  2. Commit `GOLDENEYE/AI` and the README in the fork, push, and attach the
+     zip to a release on MrSco/GoldenEye-007-HD.
+  3. Add a `ModManager.PACKS` entry with the asset URL and its exact byte
+     size (the download is checked against it).
+- **Review.** `python tools/texai/review.py build/texai-rom <fork>` writes
+  pages to `build/texai-batch/review_NN.png`, worst drift first.
+  - SeedVR2 does well on materials, props, signs and decals.
+  - It reinvents ornate pixel art (e.g. 7A7EF21F). Those are candidates for
+    ChatGPT, or for leaving out.
 
 ## Pilot
 
