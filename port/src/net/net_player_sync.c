@@ -9,6 +9,9 @@
 #include <bondtypes.h>
 #include "game/player.h"
 #include "game/bondview.h"
+#include "game/gun.h"
+#include "game/propobj.h"
+#include "game/objecthandler.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -18,6 +21,7 @@
 #endif
 
 extern bool get_button_state(int controllerIndex, const char* buttonName);
+extern enum PROP getPropForHeldItem(ITEM_IDS arg0);
 
 void netPlayerSyncInit(void) {
 }
@@ -42,8 +46,15 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             float dz = m->pos.z - pl->prop->pos.z;
             float dist_sq = dx*dx + dy*dy + dz*dz;
             
-            if (dist_sq > (512.0f * 512.0f) || dist_sq < 0.0001f) {
+            /* If player was marked dead and moves/teleports on respawn, revive them */
+            if (pl->bonddead && dist_sq > (150.0f * 150.0f)) {
+                pl->bonddead = 0;
+                pl->deathanimfinished = 0;
+            }
+
+            if (dist_sq > (512.0f * 512.0f) || dist_sq < 0.0001f || (pl->bonddead == 0 && pl->deathanimfinished)) {
                 pl->prop->pos = m->pos;
+                pl->deathanimfinished = 0;
             } else {
                 float lerp = 0.35f;
                 pl->prop->pos.x += dx * lerp;
@@ -74,6 +85,25 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                 pl->prop->chr->aimendback = m->angles[1];
                 pl->prop->chr->aimendsideback = 0.0f;
                 pl->prop->chr->ground = pl->prop->pos.y;
+
+                /* Weapon synchronization on remote character */
+                s8 cur_wep = -1;
+                if (pl->prop->chr->weapons_held[GUNRIGHT] && pl->prop->chr->weapons_held[GUNRIGHT]->weapon) {
+                    cur_wep = pl->prop->chr->weapons_held[GUNRIGHT]->weapon->weaponnum;
+                }
+                if (cur_wep != m->weaponnum) {
+                    chrSetWeaponFlag4(pl->prop->chr, GUNRIGHT);
+                    if (pl->prop->chr->weapons_held[GUNRIGHT] && pl->prop->chr->weapons_held[GUNRIGHT]->obj) {
+                        objFreePermanently(pl->prop->chr->weapons_held[GUNRIGHT]->obj, 1);
+                    }
+                    if (m->weaponnum > ITEM_UNARMED && m->weaponnum < ITEM_IDS_MAX) {
+                        enum PROP prop = getPropForHeldItem((ITEM_IDS)m->weaponnum);
+                        if ((s32)prop >= 0) {
+                            chrGiveWeapon(pl->prop->chr, prop, (ITEM_IDS)m->weaponnum, 0);
+                        }
+                    }
+                    pl->hands[GUNRIGHT].weaponnum = (ITEM_IDS)m->weaponnum;
+                }
             }
             
             /* Firing state */
@@ -114,7 +144,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
     move.angles[0] = pl->vv_theta;
     move.angles[1] = pl->vv_verta;
     
-    move.weaponnum = (s8)pl->hands[GUNRIGHT].field_87F;
+    move.weaponnum = (s8)getCurrentPlayerWeaponId(GUNRIGHT);
     move.crouchpos = (s8)pl->crouchpos;
     
     if (pl->prop) {

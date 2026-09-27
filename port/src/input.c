@@ -1404,8 +1404,8 @@ s32 inputControllerConnected(s32 idx)
     if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS) {
         return 0;
     }
-    if (netIsActive() && idx < netGetConnectedPlayerCount()) {
-        return 1;
+    if (netIsActive()) {
+        return (idx == netGetLocalSlot() || netIsRemotePlayerActive(idx)) ? 1 : 0;
     }
     return pads[idx] || (connectedMask & (1 << idx));
 }
@@ -1553,9 +1553,13 @@ void inputRumbleSetStrength(s32 cidx, f32 val)
 s32 inputControllerMask(void)
 {
     if (netIsActive()) {
-        int count = netGetConnectedPlayerCount();
-        if (count < 1) count = 1;
-        return (1 << count) - 1;
+        s32 mask = 0;
+        for (int i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+            if (i == netGetLocalSlot() || netIsRemotePlayerActive(i)) {
+                mask |= (1 << i);
+            }
+        }
+        return mask ? mask : 1;
     }
     return connectedMask;
 }

@@ -43,6 +43,16 @@
 #include "gevr_rom_segments.h"
 #include "gevr_sched.h"
 
+#ifdef GEVR
+extern bool netIsActive(void);
+extern uint32_t netGetRandomSeed(void);
+extern void netPoll(void);
+extern void netDiscoveryUpdate(u32 current_time_ms);
+extern void netPlayerSyncBeforeTick(s32 playernum);
+extern void netPlayerSyncAfterTick(s32 playernum);
+extern u64 sysGetMicroseconds(void);
+#endif
+
 /**
  * @file boss.c
  * @brief Main game loop and initialization functions.
@@ -386,8 +396,6 @@ void bossMainloop(void)
 
     nowCount = osGetCount();
 #ifdef GEVR
-    extern bool netIsActive(void);
-    extern uint32_t netGetRandomSeed(void);
     if (netIsActive()) {
         randomSetSeed(netGetRandomSeed());
     } else {
@@ -559,11 +567,6 @@ void bossMainloop(void)
 			                }
 #ifdef GEVR
                             {
-                                extern void netPoll(void);
-                                extern void netDiscoveryUpdate(u32 current_time_ms);
-                                extern void netPlayerSyncBeforeTick(s32 playernum);
-                                extern void netPlayerSyncAfterTick(s32 playernum);
-                                extern u64 sysGetMicroseconds(void);
                                 netPoll();
                                 netDiscoveryUpdate((u32)(sysGetMicroseconds() / 1000));
                             }
