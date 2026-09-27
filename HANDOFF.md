@@ -5057,3 +5057,29 @@ Latent, noted by the agents:
   starting the chop on the swing test lost the blow to the wind-up (the
   wind-up is as fast as the chop, 1.1-1.8 m/s). Logged chops at contact:
   1.08-2.52 m/s; lower GEVR_CHOP_HIT to 0.8 if soft chops pass through.
+
+## 116. Melee with either hand, whatever it holds (merged 2026-09-26)
+- feature/right-hand-swing: MERGED (user: "feels good", hears the whiff).
+  Supersedes 115's placement: bondview2.c gevrHandChopTick(ctrl) for both
+  hands, called from lv.c lvlRender right after chraiCheckUseHeldItems.
+- The bug it fixes (also in 115 as merged): run from gunTickGameplay (the move
+  tick, boss.c lvlViewMoveTick, before lvlRender), the blow read last frame's
+  guard matrices, which chr.c packs into N64 fixed point in place after the
+  draw (bondviewTransformManyPosToViewMatrix). Boxes were garbage and blows
+  landed from afar (user). Only between propsTick and the draw are a chr's
+  render_pos floats - where the game's own fist reads them. The same holds for
+  the first-person gun's weaponModel.render_pos: use hands[].gunmtx_camspace.
+- Per item: bare hand / fist 1 m/s at the hand; sniper club (ITEM_FIST with
+  cur_item_weapon_getname sniper) 1 m/s, hand to butt; hunting knife 1 m/s at
+  the hand, ITEM_KNIFE damage; guns 2 m/s (PD pistol-whip), hand to the muzzle
+  as drawn (s_gevrMuzzleItem guards a stale muzzle); gadgets and the throwing
+  knife 2 m/s at the hand. Damage ITEM_FIST otherwise (GE scores the club so).
+- Club butt: GsniperrifleZ has no BBOX node; its lowest-z vertex measured from
+  the ROM, (-13, 26.75, -320) model units, through gunmtx_camspace x 0.1.
+- Whiff for every miss (GE's is the fist's alone; user wanted the sound);
+  armed swings whiff only past PD's pistol-whip test, 2 m/s either way.
+- Off: the off hand on the gun (two-handed), either hand at the watch laser,
+  the tank, the watch. The gun hand swings its rifle while two-handed.
+- Tested: PP7 pistol-whip (2.04-2.54 m/s, reach 30-33 cm), throwing knife.
+  Not re-tested since the fix: fist, club (butt reach), hunting knife, left
+  chop.
