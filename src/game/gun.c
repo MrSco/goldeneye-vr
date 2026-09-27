@@ -1293,6 +1293,21 @@ void camera_sniper_zoom_out(f32 zoom)
 {
 	if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE) {
 		g_CurrentPlayer->sniper_zoom *= (1.0f + (zoom * 0.1f));
+#ifdef GEVR
+		{
+			/*
+			 * Issue #58: in stereo no wider than the scope starts, the
+			 * sniper's own zoom (4.4x). Out to the N64's 60 degrees the lens
+			 * showed the world at its own size, which the eyes see round it
+			 * anyway (user: "should be more zoomed than just normal").
+			 */
+			extern s32 g_gevrStereo;
+
+			if (g_gevrStereo && g_CurrentPlayer->sniper_zoom > sniperrifle_stats.Zoom) {
+				g_CurrentPlayer->sniper_zoom = sniperrifle_stats.Zoom;
+			}
+		}
+#endif
 		if (g_CurrentPlayer->sniper_zoom > 60.0f) {
 			g_CurrentPlayer->sniper_zoom = 60.0f;
 		}

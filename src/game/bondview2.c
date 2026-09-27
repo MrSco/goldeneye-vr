@@ -2448,8 +2448,10 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  *
  * The lens shows the scope's view all the time the sniper is in hand, always
  * zoomed, as a real scope is (user): the game's own sniper zoom -
- * sniper_zoom, 15 degrees by default, 7 zoomed in, 60 out, changed with
- * up/down on the left stick while aiming as C-up/down on the N64 - at the
+ * sniper_zoom, 15 degrees by default, 7 zoomed in, changed with up/down on
+ * the left stick while aiming as C-up/down on the N64, and in stereo no
+ * wider than it starts (gun.c camera_sniper_zoom_out; the N64's 60 showed the
+ * world at its own size, user) - at the
  * N64's magnification. There that view filled the screen the 60-degree
  * normal view filled: 4.4x at 15 degrees, 9.4x at 7. Shown as those same
  * degrees across the lens, which fills only 20-40 degrees of the headset's
@@ -2606,7 +2608,12 @@ s32 gevrScopeBegin(void)
     u[1] = r[2] * f[0] - r[0] * f[2];
     u[2] = r[0] * f[1] - r[1] * f[0];
 
-    fov = s_gevrScopeK * g_CurrentPlayer->sniper_zoom;   /* always zoomed, as a real scope */
+    fov = g_CurrentPlayer->sniper_zoom;
+    if (fov > sniperrifle_stats.Zoom)
+    {
+        fov = sniperrifle_stats.Zoom;   /* zoomed out on the screen: the scope's widest (gun.c) */
+    }
+    fov *= s_gevrScopeK;   /* always zoomed, as a real scope */
     if (fov > 60.0f) fov = 60.0f;
     if (gevrScopeLensTan > 1e-3f)
     {
