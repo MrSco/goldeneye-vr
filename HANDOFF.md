@@ -5414,3 +5414,27 @@ tools/texai/NOTES.md.
   blow on a remote player goes through handles_shot_actors like a bullet
   hit.
 - #55: reply at release.
+
+## 126. Multiplayer: the host picks the weapons; the LAN list shows each game (#23, merged 2026-09-27)
+- fix/mp-weapon-set: MERGED (user checked the host page on one headset; a
+  match itself is still untested on two).
+- **Every online match was Slappers only.** The launcher's launch passed
+  setMPWeaponSet(0) as "standard weapons" (net_core.c's comment too), but
+  set 0 is Slappers only. mp_weapon.c's table order, named from the ROM's
+  LmpweaponsE text bank: 0 Slappers, 1 Pistols, 2 Throwing Knives,
+  3 Automatics, 4 Power Weapons, 5 Sniper Rifles, 6 Grenades, 7 Remote
+  Mines, 8 Grenade Launchers, 9 Timed Mines, 10 Proximity Mines, 11 Rockets,
+  12 Lasers, 13 Golden Gun. The game starts at 0xB (Rockets).
+- Host page: a Weapons choice (vr_launcher.cpp weaponSets), starting at
+  getMPWeaponSet(). netLobbySetMatchConfig carries it; host and clients
+  both apply netGetLobbyWeaponSet() at launch.
+- LAN list (Join tab; user: make it easy to find games): "<host's
+  character>'s game - stage, weapons - n/cap players", a full game greyed
+  out. Players have no names yet ("Host" / "Player"). The beacon adds
+  weapon_set and host_id; a headset ignores beacons with its own host_id
+  (arc4random per run; it listed its own game, user). Protocol version 4.
+- README: "Multiplayer (experimental)" section (host, join, weapons, UDP
+  27007 forwarding for internet play, what's missing).
+- Open: an internet lobby (master server, e.g. on goldeneyevr.com's
+  Cloudflare Workers, plus NAT: port forwarding, hole punching or a relay)
+  is a separate decision. v0.1.18 notes draft in the session scratchpad.
