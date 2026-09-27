@@ -5375,3 +5375,42 @@ tools/texai/NOTES.md.
 - **The desktop (WIN32) build paths are dead Perfect Dark leftovers and
   don't compile.** A one-headset test peer would have to be a standalone
   ENet program.
+
+## 125. Melee: blows land only moving into a guard, at GoldenEye's fist pace (#55, merged 2026-09-27)
+- **User-tested: "feels good".** Branch claude/melee-swing-speed-balance-afa827
+  (2bf89da). The user found that the upswing after a chop chopped again,
+  and that left and right back to back were overpowered.
+- **Upswing.** chrprop.c gevrChopHit now takes the hand's velocity (view
+  space, m/s) and lands only on a hand moving into the guard at the old
+  speeds (1 m/s bare or knife, 2 armed). "Into" means toward the nearest
+  point of his box, from inside the box toward his middle across the
+  floor, or down onto him. It returns 0 (no guard in touch), 1 (touching,
+  moving off him) or 2 (moving into him: struck, or only reported while
+  the hand recovers).
+- **Velocity in view space.** bondview2.c gevrHandChopTick turns Perfect
+  Dark's controller-local velocity into view space by the grip's axes from
+  gevrGripAxesRaw (+X right, +Y back, +Z down). Trap: Perfect Dark's
+  "thrust" is the grip's +Y, which on this port runs back to the wrist
+  (the barrel is -Y, HANDOFF 50). So its swing test whiffed on pulling the
+  hand back or lifting it for a chop. The whiff's test is now in view
+  space: 1.2 m/s out ahead, or 1.6 across or down (2 armed), never up or
+  back.
+- **Pace, from the game's own keyframes.** A punch runs to the end before
+  a held trigger starts the next (gunfire.c; gun.c gunSample1PTransform
+  sums keyframes 1..n-3).
+  - fistMeleeKeyframes: 42 ticks, hit at 30.
+  - The knife's slashes: 52. The sniper club's two swings: 60 and 52
+    (52 used).
+  - A hand lands one blow per cycle (GEVR PC's 30-tick cooldown per hand
+    is gone). The other hand then waits half a cycle, so two hands in turn
+    land at most one blow per 21 ticks (was 15, plus the upswing hits).
+  - A blow held back does nothing and makes no whiff.
+- **Tuning.** files/gevr_melee.txt "same other" (ticks) overrides both for
+  every item, re-read every 120 frames; deleting it restores the game's
+  pace. The log reports "melee pace", each landed blow with its speed into
+  the guard and the next waits, "blow held back, N ticks to go", and "hand
+  on a guard, moving off him" (once per touch).
+- Online multiplayer (124): the tick runs for the local slot only, and a
+  blow on a remote player goes through handles_shot_actors like a bullet
+  hit.
+- #55: reply at release.
