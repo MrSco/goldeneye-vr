@@ -73,6 +73,24 @@ intermissionfb and GhostlyDark)?
     - 518 new gap names, 469 of them 16 texels or more (`build/texai-rom2`).
   - Still only from a dump: textures outside the texture table (fonts,
     effects, model-embedded art such as the Rare logo).
+- **What the ROM can't give (checked 2026-09-27).**
+  - After ai-2026.09.27, 1,070 real textures are still missing (1,580
+    counting 510 flat ones of 8 texels or less).
+  - Offline variants were tried against every table texture: swap on/off,
+    sub-tiles, stride. They recover none of them.
+    - 33x33 CI: 630 tdb entries; only 8 of the ROM's 101 match in any
+      variant.
+    - Most of the rest are 95x32 IA, 32x32 CI and 16x16 RGBA.
+  - These are built or changed at run time, or read past the loaded texture
+    into whatever follows it in memory, as GoldenEye's global explosion and
+    smoke DLs do (56x56 IA8 with 64 masks). The port's lookup skips those
+    reads (s_tpSkipSize).
+  - Palette-only mismatches (21 textures) are odd colour counts: GLideN64's
+    palette checksum reads 2 bytes past into memory that varies (one 16x1
+    ramp has 47 tdb names). All are tiny ramps and flat colours.
+  - 31 small textures (128x9 strips, 14x14 fire) that `--min 16` skipped were
+    added with `--min 9`.
+  - The rest needs the in-game dump.
 - **Pack scale.** The authors' 4K sources are 16-64x native. Their HD
   release is 25-50% of that, so 4-32x (median 8-16x). Ours is 8x (256 px
   for 32 px), to keep the download small; raise `texai.SCALE` if it looks
