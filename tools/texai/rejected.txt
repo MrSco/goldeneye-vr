@@ -76,3 +76,4 @@ A2B6E7DB  Silo console, fake text or eyes in the screen
 37CBD523  Silo console, fake text or eyes in the screen
 061EE845  dial panel, contour swirls invented
 EB5E0862  dial panel, contour swirls invented
+49CB30EE  flat grey strip (Dam), nothing to upscale; SeedVR2 invents crosshatch on these
