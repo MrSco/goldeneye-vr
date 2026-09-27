@@ -242,13 +242,26 @@ def post_one(orig_dir, src, tex, m, dst_base):
     raw = np.asarray(ai.resize((W, H), Image.LANCZOS)).astype(np.float64)
     rgb0, a0 = orig[:, :, :3], orig[:, :, 3]
     opaque = a0 > 0
+    if not opaque.all() and opaque.any():
+        # transparent texels' colours (black, mostly) must not reach the 4x4
+        # averages the colour lock and the drift score use: they darkened every
+        # cut-out's edge (the RAREWARE letters). Their neighbours' colours instead.
+        rgb0 = bleed(rgb0, a0)
     op4 = down(opaque[:, :, None].astype(np.float64), 4)[:, :, 0] > 0.5
     stats = dict(drift=psnr(down(raw, SCALE), rgb0, opaque),
                  drift4=psnr(down(raw, SCALE * 4), down(rgb0, 4), op4) if op4.any() else float('nan'),
                  seam=seam(raw, wrap))
     base = fix_seams(raw, wrap, max(4, W // 16))
     if m['alpha']:
-        ahd = up(a0[:, :, None], SCALE, wrap)[:, :, 0]
+        if m.get('alpha_answer'):
+            # the alpha upscaled on its own (comfy.alpha_input): smooth edges
+            # instead of the 1-bit mask's stair steps
+            aa = Image.open(m['alpha_answer']).convert('L')
+            aa = aa.crop((round(bx[0] * aa.width), round(bx[1] * aa.height),
+                          round(bx[2] * aa.width), round(bx[3] * aa.height)))
+            ahd = np.asarray(aa.resize((W, H), Image.LANCZOS)).astype(np.float64)
+        else:
+            ahd = up(a0[:, :, None], SCALE, wrap)[:, :, 0]
         binary = set(np.unique(a0)) <= {0.0, 255.0}
         ahd = np.where(ahd >= 128, 255.0, 0.0) if binary else np.clip(ahd, 0, 255)
         # the model's silhouette, but only within a texel of the original's: its

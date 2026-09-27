@@ -110,6 +110,17 @@ def upscale(tool, src):
 FMT_RGBA, FMT_IA, FMT_I = 0, 3, 4   # G_IM_FMT_*
 
 
+def alpha_answer(dump_dir, tex, m, work, name):
+    """A cut-out's alpha through Real-ESRGAN on its own (fast, keeps shapes):
+    the post step's edge. Saved as <work>/alpha/<name>; its path goes in m."""
+    path = os.path.join(work, 'alpha', name)
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        comfy.framed(comfy.esrgan(comfy.alpha_input(dump_dir, tex, m), 'alpha')[0], m).save(path)
+    m['alpha_answer'] = path
+    return path
+
+
 def pick_tool(tool, r):
     """--tool auto: IA textures (lettering, decals, signatures) and RGBA ones
     (glow sprites) go to Real-ESRGAN, which keeps shapes as drawn - SeedVR2
@@ -180,6 +191,8 @@ def main():
         try:
             answer = upscale(tool, comfy.native_input(a.dump_dir, tex, m))
             comfy.framed(answer, m).save(ans_path)
+            if m['alpha']:
+                alpha_answer(a.dump_dir, tex, m, a.work, r['name'])
             s = texai.post_one(a.dump_dir, ans_path, tex, m, os.path.join(a.work, 'final', tex))
             if r['fmt'] in (FMT_IA, FMT_I):
                 keep_grey(os.path.join(a.work, 'final', tex + '_soft.png'), img)
