@@ -1023,6 +1023,10 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
 
     playerprop = getCurrentPlayerProp();
     fromtile = playerprop->stan;
+    if (fromtile == NULL)
+    {
+        return FALSE;   /* off the floor tiles (a warp onto a tile-less pad): no room to trace from */
+    }
     shotdata.weapon = getCurrentPlayerWeaponId(hand);
     shotdata.maxdist = M_U32_MAX_VALUE_F;
     for (k = 0; k < 10; k++)
