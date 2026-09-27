@@ -44,6 +44,8 @@ LEVELS = {
 
 
 def level_folder(stage):
+    if stage < 0:
+        return 'From ROM'   # romkeys.py: named from the ROM, level unknown
     return LEVELS.get(stage, 'Other (level %d)' % stage)
 
 
