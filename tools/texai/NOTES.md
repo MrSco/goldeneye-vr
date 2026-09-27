@@ -10,15 +10,54 @@ intermissionfb and GhostlyDark)?
   508 in-game textures, 651 explosion/smoke/death frames, 299 gun barrel frames,
   about 200 font glyphs, and a few ammo, crosshair and watch textures.
   On the Dam, 502 of 665 distinct textures matched (HANDOFF 101).
-- It has no guards or characters. It covers only 7 weapons and, for levels,
-  mostly the Dam.
+- It has no guards or characters and covers only 7 weapons. Its level
+  textures cover 15 missions, each only partly: Dam 106, Facility 86,
+  Runway 63, Surface 45, Archives 40, Streets 30, Aztec 27, Silo 25,
+  Bunker 20, Jungle 15, Statue 12, Frigate 7, Train 2, Caverns 2, Depot 1.
+  These counts are folder sizes in the authors' repo, which restructured the
+  same textures after the release.
+- The authors' repo (github.com/GhostlyDark/GoldenEye-007-HD, forked to
+  MrSco/GoldenEye-007-HD on 2026-09-26) has `GOLDENEYE/ge007.tdb`, a
+  database of every texture the game draws: 35,517 GLideN64 names with their
+  native sizes.
+  - That is 4,801 distinct textures (checksum, format, size); the pack
+    covers 1,780.
+  - The gap is 3,021 textures. 511 of them are 8 texels or less on a side
+    (flat colours, ramps), so about 2,500 are worth generating.
+  - The database has names only, no texels; the texels come from the dump.
 - The ROM's texture table holds 2698 textures (`assets/images.def`).
   - The pilot decoder reads 1744 of them: the zlib ones, via
     `tools/gevr_tex_decode.py` on `feature/9-hand-shells`.
   - The other 954 use Rare's own compression.
 - The pack keys each image by GLideN64's Rice checksum of the texture *as
-  drawn*. So a texture number from the ROM can't say whether the pack has it;
-  only a dump from the running game can. Guess: 1,500+ missing textures.
+  drawn*. A texture number from the ROM can't be matched to a pack name, so
+  the texels come from the running game (the dump below).
+
+## Dump and batch (for the fork)
+
+- **Build.** Build `63e1628` onward writes a dump while `files/gevr_packdump`
+  exists.
+  - It writes every texture the active pack lacks to `files/texture-dump/`.
+  - Each file is named as GLideN64 dumps it (the name the pack loader looks
+    up), holding the RGBA texels the checksum covers.
+  - `index.tsv` gets a line per texture: size, format, cms/cmt, mask bits,
+    and the level (`g_StageNum`).
+- **Collect.** Play each level, then
+  `adb pull /sdcard/Android/data/com.gevr.port/files/texture-dump`.
+- **Generate.** `tools/texai/batch.py <dump> <fork> [--tool seedvr2]`:
+  - It skips names the fork already has, and textures under 16 texels.
+  - Each texture is upscaled through ComfyUI, padded by its own wrap flags.
+  - The results are colour-locked and written to
+    `<fork>/GOLDENEYE/AI/<Mission NN - Name>/<name>`.
+  - It resumes if stopped, and logs drift scores to `build/texai-batch/log.tsv`.
+- **Speed.** About 12 s a texture with SeedVR2 at 16x (256-1024 px), so about
+  8 hours for 2,500.
+- **Release.** The launcher entry (`ModManager.PACKS`) needs the fork's
+  release zip URL and exact size.
+  - The planned zip is the authors' published HD zip (the dump was measured
+    against it) plus `GOLDENEYE/AI`.
+  - Their repo has no license: get intermissionfb and GhostlyDark's OK
+    before publishing it.
 
 ## Pilot
 
