@@ -54,7 +54,7 @@ static void netResetLobbyState(void) {
     s_lobby_state.header.msg_type = NET_MSG_LOBBY_STATE;
     s_lobby_state.stage_num = (uint8_t)LEVELID_FACILITY;
     s_lobby_state.scenario = 0;     /* Normal Deathmatch */
-    s_lobby_state.weapon_set = 0;   /* Standard weapons */
+    s_lobby_state.weapon_set = 0;   /* the host's choice, set before hosting (vr_launcher.cpp); 0 is Slappers only */
     
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         s_remote_active[i] = false;
@@ -192,6 +192,10 @@ int netGetLocalSlot(void) {
 
 uint8_t netGetLobbyStage(void) {
     return s_lobby_state.stage_num;
+}
+
+uint8_t netGetLobbyWeaponSet(void) {
+    return s_lobby_state.weapon_set;
 }
 
 int netGetConnectedPlayerCount(void) {

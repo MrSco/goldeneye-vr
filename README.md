@@ -59,6 +59,7 @@ Also:
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
   In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
+- **Multiplayer** (experimental): deathmatch for up to four players, each in their own headset, over your Wi-Fi or by IP. See [Multiplayer](#-multiplayer-experimental).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
@@ -198,6 +199,33 @@ To walk with the left stick anyway, tick **Swap sticks** as well.
 | **Hold left stick click** (1 s) | Bring the screen back in front of you |
 | **Hold right stick click** (1 s) | Switch to stereo VR |
 | **Grips** (in Bond's watch) | Turn the watch pages |
+
+## 🌐 Multiplayer (experimental)
+
+Deathmatch for two to four players, each in their own headset, on the game's multiplayer stages.
+This is its first release: expect rough edges, and please report what you find.
+
+**Everyone needs the same version of GoldenEye VR**, and each player their own ROM.
+
+**Host a game.** In the launcher press **Multiplayer...**, stay on **Host Game**, and pick:
+- a **stage**. Egypt takes 2 players; Caverns, Bunker II and Archives take 3; the rest take 4.
+- your **character**.
+- the **weapons**: the game's own sets, from Slappers only to the Golden Gun, proximity mines included.
+
+Then press **START HOSTING LOBBY**. When every player shows **[READY]**, press **LAUNCH MULTIPLAYER MATCH!**.
+
+**Join a game.** Press **Multiplayer...** and choose **Join Game**. Games on your Wi-Fi are listed with
+their stage, weapons and players; pick one. Or type the host's IP address and press **Connect**.
+Then choose your character and tick **I am Ready**.
+
+**Over the internet.** On the same Wi-Fi it just works. To play over the internet, the host forwards
+**UDP port 27007** on their router to their Quest and gives the others their public IP address.
+(The Wi-Fi game list uses UDP 27008.)
+
+**Not there yet:**
+- If the host quits, the match doesn't end cleanly for the others.
+- The end of a match isn't shared between headsets.
+- You don't see other players' hands move, and there's no voice chat.
 
 ## ⚙️ Settings
 

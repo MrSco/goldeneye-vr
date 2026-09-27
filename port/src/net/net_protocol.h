@@ -8,7 +8,7 @@
 #include "net/netbuf.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         3
+#define GEVR_NET_VERSION         4   /* 4: the LAN beacon carries the weapon set */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4

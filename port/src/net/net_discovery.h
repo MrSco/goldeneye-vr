@@ -19,6 +19,7 @@ typedef struct {
     uint8_t  player_count;
     uint8_t  max_players;
     uint8_t  stage_num;
+    uint8_t  weapon_set;
     uint32_t last_seen_ms;
 } NetDiscoveredServer;
 

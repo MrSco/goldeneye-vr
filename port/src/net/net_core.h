@@ -36,6 +36,7 @@ int netGetLocalSlot(void);
 int netGetConnectedPlayerCount(void);
 const NetMsgLobbyState *netGetLobbyState(void);
 uint8_t netGetLobbyStage(void);
+uint8_t netGetLobbyWeaponSet(void);
 uint32_t netGetRandomSeed(void);
 
 /* Lobby Operations */

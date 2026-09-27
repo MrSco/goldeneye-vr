@@ -63,6 +63,7 @@ void bossSetLoadedStage(int stage);
 void init_mp_options_for_scenario(int numplayers);
 void reset_mp_options_for_scenario(int scenarioid);
 void setMPWeaponSet(int setNUM);
+int getMPWeaponSet(void);
 extern int player_char[];
 }
 #include "net_core.h"
@@ -623,6 +624,34 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         { "Archives",  GEVR_LEVEL_ARCHIVES, 3 },
     };
     
+    /*
+     * The game's multiplayer weapon sets, in its own order (mp_weapon.c
+     * mp_weapon_set_text_table), named as the ROM's LmpweaponsE text bank. The
+     * host picks one; the lobby carries it to everyone (netLobbySetMatchConfig)
+     * and the LAN beacon shows it. Launch had passed 0 for "standard weapons",
+     * but 0 is Slappers only: every online match was unarmed.
+     */
+    static const char *const weaponSets[] = {
+        "Slappers only", "Pistols", "Throwing Knives", "Automatics", "Power Weapons",
+        "Sniper Rifles", "Grenades", "Remote Mines", "Grenade Launchers", "Timed Mines",
+        "Proximity Mines", "Rockets", "Lasers", "Golden Gun",
+    };
+    const int weaponSetCount = (int)(sizeof(weaponSets) / sizeof(weaponSets[0]));
+    static int selectedWeaponSet = -1;
+    if (selectedWeaponSet < 0 || selectedWeaponSet >= weaponSetCount) {
+        selectedWeaponSet = getMPWeaponSet();   // the game's own starting set (mp_weapon.c: 0xB)
+        if (selectedWeaponSet < 0 || selectedWeaponSet >= weaponSetCount) selectedWeaponSet = 0;
+    }
+    auto weaponSetName = [&](int set) { return (set >= 0 && set < weaponSetCount) ? weaponSets[set] : "?"; };
+    auto stageName = [&](int id) {
+        for (const MpStage &st : stages) if (st.id == id) return st.name;
+        return "?";
+    };
+    auto stageCap = [&](int id) {
+        for (const MpStage &st : stages) if (st.id == id) return st.maxPlayers;
+        return (int)GEVR_MAX_PLAYERS;
+    };
+
     struct MpChar { const char *name; int id; };
     static const MpChar characters[] = {
         { "James Bond",    0 },
@@ -669,18 +698,33 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 }
                 ImGui::EndCombo();
             }
-            
+
+            ImGui::Text("Weapons: ");
+            ImGui::SameLine();
+            if (ImGui::BeginCombo("##weaponcombo", weaponSetName(selectedWeaponSet))) {
+                for (int n = 0; n < weaponSetCount; n++) {
+                    bool isSelected = (selectedWeaponSet == n);
+                    if (ImGui::Selectable(weaponSets[n], isSelected)) selectedWeaponSet = n;
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+
             ImGui::Spacing();
             if (ImGui::Button("START HOSTING LOBBY", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f))) {
+                // the LAN browser's name for this game: players have no names yet, so the host's character's
+                char gameName[GEVR_MAX_NAME_LEN];
+                snprintf(gameName, sizeof(gameName), "%s's game", characters[selectedChrIdx].name);
                 netHostStart(GEVR_DEFAULT_PORT);
                 netDiscoveryInit();
-                netDiscoveryStartBroadcasting("GEVR Match", GEVR_DEFAULT_PORT);
+                netDiscoveryStartBroadcasting(gameName, GEVR_DEFAULT_PORT);
                 netLobbySetCharacter((uint8_t)characters[selectedChrIdx].id);
-                netLobbySetMatchConfig((uint8_t)stages[selectedStageIdx].id, 0, 0);
+                netLobbySetMatchConfig((uint8_t)stages[selectedStageIdx].id, 0, (uint8_t)selectedWeaponSet);
             }
         } else {
             ImGui::TextColored(good, "LOBBY ACTIVE (Broadcasting on LAN port %d)", GEVR_DEFAULT_PORT);
-            ImGui::Text("Stage: %s (Max %d Players)", stages[selectedStageIdx].name, stages[selectedStageIdx].maxPlayers);
+            ImGui::Text("Stage: %s (Max %d Players)   Weapons: %s", stages[selectedStageIdx].name,
+                        stages[selectedStageIdx].maxPlayers, weaponSetName(netGetLobbyWeaponSet()));
             ImGui::Separator();
             
             const NetMsgLobbyState *lobby = netGetLobbyState();
@@ -732,7 +776,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 
                 init_mp_options_for_scenario(selected_num_players);
                 reset_mp_options_for_scenario(0); // SCENARIO_NORMAL
-                setMPWeaponSet(0);
+                setMPWeaponSet(netGetLobbyWeaponSet());   // the host's choice, as the clients take it
                 for (int p = 0; p < selected_num_players && p < 4; p++) {
                     player_char[p] = lobby ? lobby->slots[p].chr_id : p;
                 }
@@ -757,12 +801,17 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             } else {
                 for (int i = 0; i < count; i++) {
                     const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
-                    char label[128];
-                    snprintf(label, sizeof(label), "%s (%s:%d) - %d/%d Players",
-                             srv->server_name, srv->host_ip, srv->port, srv->player_count, srv->max_players);
-                    if (ImGui::Button(label)) {
+                    const int cap = stageCap(srv->stage_num);
+                    const bool full = srv->player_count >= cap;
+                    char label[160];
+                    snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##srv%d",
+                             srv->server_name, stageName(srv->stage_num), weaponSetName(srv->weapon_set),
+                             srv->player_count, cap, full ? " (full)" : "", i);
+                    if (full) ImGui::BeginDisabled();
+                    if (ImGui::Button(label, ImVec2(-1, 0))) {
                         netConnect(srv->host_ip, srv->port);
                     }
+                    if (full) ImGui::EndDisabled();
                 }
             }
             
@@ -775,6 +824,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             }
         } else {
             ImGui::TextColored(good, "CONNECTED TO SERVER! You are Player Slot %d", netGetLocalSlot() + 1);
+            ImGui::Text("Stage: %s   Weapons: %s", stageName(netGetLobbyStage()), weaponSetName(netGetLobbyWeaponSet()));
             
             ImGui::Text("Choose Your Character: ");
             ImGui::SameLine();
