@@ -1085,7 +1085,7 @@ extern "C" void gevrLauncherRun(void)
         }
         ImGui::Separator();
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("Both grips grab the screen; right stick: distance / size. Click both sticks to recentre it.");
+        ImGui::TextWrapped("Both grips grab the screen; right stick: distance / size. Hold the left stick click to recentre it.");
         ImGui::PopStyleColor();
 
         {

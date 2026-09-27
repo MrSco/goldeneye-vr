@@ -87,12 +87,13 @@ extern int VrLeftHandedMode;
 
 int gevrVrTriggerDown[2];   /* by gun hand (0 right, 1 left); gunfire.c gunTickGameplay */
 int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondview2.c draws it) */
+extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
+extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
+s32 gevrTexpackToggleMsg;                  /* bondview2.c says it in a level: 2 off, 3 on */
+static bool gevrSwallowX;                  /* X answered the prompt: not use/reload until let go */
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
 extern f32 gevrWeaponPanelStickY;
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
-#define GEVR_TEXPACK_HOLD_MS 1000
-extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
-s32 gevrTexpackToggleMsg;                  /* bondview2.c shows it: 1 no pack, 2 off, 3 on */
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern s32 gevrDualWielding(void);
 
@@ -1071,13 +1072,16 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // hold asks whether to go back to the launcher (A yes, B no; bondview2.c
         // gevrDrawReturnPrompt) - in play, on the watch and in the menus alike.
         // The app restarts into it, so the mission in progress is lost.
+        // With a texture pack in use the prompt also offers X: switch the pack
+        // off, or on again, for the session (gfx_pc.cpp gevrTexpackToggle).
         {
             static u32 downat = 0, startuntil = 0;
-            static bool consumed = false, aWas = true, bWas = true;
+            static bool consumed = false, aWas = true, bWas = true, xWas = true;
             const u32 t = SDL_GetTicks();
             const bool held = get_button_state(0, "menu");
             if (gevrReturnPrompt) {
                 const bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
+                const bool x = get_button_state(0, "x");
                 if (a && !aWas) {
                     LOGI("input: menu hold -> back to the launcher\n");
                     gevrRestartToLauncher();
@@ -1086,8 +1090,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     LOGI("input: menu hold -> cancelled\n");
                     gevrReturnPrompt = 0;
                 }
+                if (x && !xWas && gevrTexpackState() >= 0) {
+                    gevrTexpackToggleMsg = gevrTexpackToggle() + 2;
+                    gevrReturnPrompt = 0;
+                    gevrSwallowX = true;
+                    LOGI("input: menu hold -> texture pack %s\n", gevrTexpackToggleMsg == 3 ? "on" : "off");
+                }
                 aWas = a;
                 bWas = b;
+                xWas = x;
                 downat = 0;
             } else if (held) {
                 if (!downat) {
@@ -1097,7 +1108,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (!consumed && t - downat >= 1500) {
                     consumed = true;
                     gevrReturnPrompt = 1;
-                    aWas = bWas = true;   /* a button already down does not answer */
+                    aWas = bWas = xWas = true;   /* a button already down does not answer */
                     LOGI("input: menu hold -> return prompt\n");
                 }
             } else {
@@ -1113,7 +1124,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // Not R as well: here R aims and zooms.
         vr_button_L_grip = stereoplay && gevrDualWielding() && get_button_state(0, "grip");
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
-        if (get_button_state(0, "x")) npad->button |= B_BUTTON;
+        // (Not the X that just switched the texture pack in the prompt, until let go.)
+        if (gevrSwallowX && !get_button_state(0, "x")) gevrSwallowX = false;
+        if (get_button_state(0, "x") && !gevrSwallowX) npad->button |= B_BUTTON;
         if (get_button_state(0, "y")) npad->button |= A_BUTTON;
         // Issue #10: in stereo play the weapon hand's A is held back. A tap sends
         // A on release (the game's weapon cycle); a hold shows the weapon panel
@@ -1154,15 +1167,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         const bool rclick = get_button_state(1, "thumbstick_click");
         const u32 now = SDL_GetTicks();
         // Left stick click toggles crouch (bondview2.c reads gevrCrouchToggled). It acts on
-        // release so that a click of both sticks (recentre) or a long hold (the texture
-        // pack, below) does not crouch as well.
-        // Held for a second, the left stick click switches the texture pack off or on
-        // again (gfx_pc.cpp gevrTexpackToggle; bondview2.c says which in a level). The
-        // hold used to bring the screen back; both stick clicks still do.
+        // release so that a click of both sticks (recentre) or a long hold (bring the
+        // screen back, gevr_engine_shim.c) does not crouch as well.
         {
             static bool wasclicked = false;
             static bool spoilt = false;
-            static bool held = false;
             static u32 pressedat = 0;
             static s32 crouchstage = -1;
             if (bossGetStageNum() != crouchstage) {
@@ -1172,14 +1181,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (lclick && !wasclicked) {
                 pressedat = now;
                 spoilt = false;
-                held = false;
             }
             if (lclick && rclick) spoilt = true;
-            if (lclick && !spoilt && !held && now - pressedat >= GEVR_TEXPACK_HOLD_MS) {
-                held = true;
-                gevrTexpackToggleMsg = gevrTexpackToggle() + 2;   /* 1 no pack, 2 off, 3 on */
-                LOGI("input: left stick hold -> texture pack %d\n", gevrTexpackToggleMsg);
-            }
             if (!lclick && wasclicked && !spoilt && !menu && now - pressedat < 700) {
                 gevrCrouchToggle = !gevrCrouchToggle;
             }

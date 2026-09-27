@@ -747,8 +747,8 @@ static void gevrWarpProbe(s32 inlevel)
 }
 
 /*
- * input.c: holding the left stick click switched the texture pack; say which
- * way with the game's own bottom message. Outside a level the note is dropped.
+ * input.c: X in the menu-hold prompt switched the texture pack; say which way
+ * with the game's own bottom message. Outside a level the note is dropped.
  */
 extern s32 gevrTexpackToggleMsg;
 static void gevrTexpackMessage(s32 inlevel)
@@ -12424,12 +12424,21 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
 Gfx *gevrDrawReturnPrompt(Gfx *gdl)
 {
-    const char *text = "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED";
+    extern int gevrTexpackState(void);   /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
+    static char text[160];
     s32 x, y, w = 0, h = 0;
+    s32 pack;
 
     if (!gevrReturnPrompt)
     {
         return gdl;
+    }
+    /* with a texture pack in use, X switches it (input.c) */
+    pack = gevrTexpackState();
+    strcpy(text, "BACK TO THE LAUNCHER?\n\nA: YES      B: NO\n\nTHIS MISSION WILL NOT BE SAVED");
+    if (pack >= 0)
+    {
+        strcat(text, pack ? "\n\nX: HD TEXTURES OFF" : "\n\nX: HD TEXTURES ON");
     }
     gdl = microcode_constructor(gdl);
     textMeasure(&h, &w, (char *) text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
