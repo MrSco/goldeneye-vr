@@ -43,6 +43,16 @@
 #include "gevr_rom_segments.h"
 #include "gevr_sched.h"
 
+#ifdef GEVR
+extern bool netIsActive(void);
+extern uint32_t netGetRandomSeed(void);
+extern void netPoll(void);
+extern void netDiscoveryUpdate(u32 current_time_ms);
+extern void netPlayerSyncBeforeTick(s32 playernum);
+extern void netPlayerSyncAfterTick(s32 playernum);
+extern u64 sysGetMicroseconds(void);
+#endif
+
 /**
  * @file boss.c
  * @brief Main game loop and initialization functions.
@@ -368,21 +378,32 @@ void bossMainloop(void)
 
     if (g_StageNum != LEVELID_TITLE)
     {
-        fileValidateSaves();
-        fileSetCurrentFolder(FOLDER1);
-        set_selected_difficulty(DIFFICULTY_AGENT);
-        set_solo_and_ptr_briefing(g_StageNum);
-
-        if (tokenFind(1, "-hard"))
+        if (gamemode != GAMEMODE_MULTI)
         {
-            // convert ASCII difficulty value to int in set difficulty calls eg '1' = 49, 49-48 = 1
-            set_selected_difficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
-            lvlSetSelectedDifficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
+            fileValidateSaves();
+            fileSetCurrentFolder(FOLDER1);
+            set_selected_difficulty(DIFFICULTY_AGENT);
+            set_solo_and_ptr_briefing(g_StageNum);
+
+            if (tokenFind(1, "-hard"))
+            {
+                // convert ASCII difficulty value to int in set difficulty calls eg '1' = 49, 49-48 = 1
+                set_selected_difficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
+                lvlSetSelectedDifficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
+            }
         }
     }
 
     nowCount = osGetCount();
+#ifdef GEVR
+    if (netIsActive()) {
+        randomSetSeed(netGetRandomSeed());
+    } else {
+        randomSetSeed(nowCount);
+    }
+#else
     randomSetSeed(nowCount);
+#endif
 
     // 'done' value never changes, and control never breaks -- infinite loop
     while (!done)
@@ -544,6 +565,12 @@ void bossMainloop(void)
 			                	joyButtons = joyGetButtons(0, ANY_BUTTON);
 			                	g_BossIsDebugMenuOpen = debug_menu_processor(joyStickXPos, joyStickYPos, joyButtons, joyGetButtonsPressedThisFrame(0, ANY_BUTTON));
 			                }
+#ifdef GEVR
+                            {
+                                netPoll();
+                                netDiscoveryUpdate((u32)(sysGetMicroseconds() / 1000));
+                            }
+#endif
                             gevrSchedTraceMenu(get_currentmenu(), 0);
                             lvlManageMpGame();
                             gevrSchedTraceMenu(get_currentmenu(), 1);
@@ -553,7 +580,8 @@ void bossMainloop(void)
                             {
                                 for (i = 0; i < getPlayerCount(); i++)
                                 {
-                                    set_cur_player(get_nth_player_from_shuffled(i));
+                                    s32 playernum = get_nth_player_from_shuffled(i);
+                                    set_cur_player(playernum);
 
                                     localPlayer = g_CurrentPlayer;
                                     viSetViewSize(localPlayer->viewx, localPlayer->viewy);
@@ -561,7 +589,13 @@ void bossMainloop(void)
                                     localPlayer = g_CurrentPlayer;
                                     viSetViewPosition(localPlayer->viewleft, localPlayer->viewtop);
 
+#ifdef GEVR
+                                    netPlayerSyncBeforeTick(playernum);
+#endif
                                     lvlViewMoveTick();
+#ifdef GEVR
+                                    netPlayerSyncAfterTick(playernum);
+#endif
                                 }
                             }
 

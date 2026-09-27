@@ -398,12 +398,11 @@ int main(int argc, const char **argv)
     sysLogPrintf(LOG_NOTE, "memp heap at %p - %p", g_MempHeap, g_MempHeap + g_MempHeapSize);
     sysLogPrintf(LOG_NOTE, "rom  file at %p - %p", g_RomFile, g_RomFile + g_RomFileSize);
 
-    g_SndDisabled = sysArgCheck("--no-sound");
-
-    g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
-
-    // Debug
-   // g_SkipIntro = true; // SKIP INTRO
+    if (sysArgCheck("--boot-stage")) {
+        g_StageNum = sysArgGetInt("--boot-stage", STAGE_TITLE);
+    } else if (g_StageNum <= 0) {
+        g_StageNum = STAGE_TITLE;
+    }
 
     if (g_StageNum == STAGE_TITLE && (sysArgCheck("--skip-intro") || g_SkipIntro)) {
         // shorthand for --boot-stage 0x26
