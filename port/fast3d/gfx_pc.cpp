@@ -1532,12 +1532,17 @@ extern "C" char g_ActiveExtTexPack[];                  /* port/src/ext_tex.c, th
 extern "C" const char *fsFullPath(const char *relPath);
 
 /*
- * Holding the left stick click (input.c) switches the texture pack off and on
- * again for the session, to compare. The switch lands at the next frame's
- * start (gevr_texpack_frame). 1 = on now, 0 = off now, -1 = no pack in use.
+ * X in the menu-hold prompt (input.c, bondview2.c gevrDrawReturnPrompt)
+ * switches the texture pack off and on again for the session, to compare. The
+ * switch lands at the next frame's start (gevr_texpack_frame).
+ * 1 = on, 0 = off, -1 = no pack in use (the Mods page picked Original).
  */
 static std::atomic<int> s_tpUserOff{0};
 static bool s_tpIndexed = false;
+extern "C" int gevrTexpackState(void) {
+    if (g_ActiveExtTexPack[0] == '\0') return -1;
+    return s_tpUserOff ? 0 : 1;
+}
 extern "C" int gevrTexpackToggle(void) {
     if (g_ActiveExtTexPack[0] == '\0') return -1;
     return (s_tpUserOff ^= 1) ? 0 : 1;
