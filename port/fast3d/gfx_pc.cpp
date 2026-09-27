@@ -1517,7 +1517,7 @@ static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const Texture
     }
     uint32_t hw, hh, iw, ih;
     const int id = gevr_texpack_lookup(tile, lt, &hw, &hh);
-    if (id < 0) return false;
+    if (id < 0 || !s_tpActive) return false;   // (looked up only for the dump: pack switched off)
     const TpJob job = { key, hw, hh, rdp.texture_tile[tile].width, rdp.texture_tile[tile].height };
     // the native texture now; the pack's goes in at a frame's start (issue #52)
     if (gevrtp::image(id, &iw, &ih) == nullptr) {
@@ -1531,6 +1531,18 @@ static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const Texture
 extern "C" char g_ActiveExtTexPack[];                  /* port/src/ext_tex.c, the launcher's Mods page */
 extern "C" const char *fsFullPath(const char *relPath);
 
+/*
+ * Holding the left stick click (input.c) switches the texture pack off and on
+ * again for the session, to compare. The switch lands at the next frame's
+ * start (gevr_texpack_frame). 1 = on now, 0 = off now, -1 = no pack in use.
+ */
+static std::atomic<int> s_tpUserOff{0};
+static bool s_tpIndexed = false;
+extern "C" int gevrTexpackToggle(void) {
+    if (g_ActiveExtTexPack[0] == '\0') return -1;
+    return (s_tpUserOff ^= 1) ? 0 : 1;
+}
+
 /* Once a frame: start the pack, and swap in images as they finish decoding. */
 static void gevr_texpack_frame(void) {
     static bool started = false;
@@ -1543,8 +1555,16 @@ static void gevr_texpack_frame(void) {
         }
     }
     if (gevrtp::takeIndexReady()) {
-        s_tpActive = true;
+        s_tpIndexed = true;
+        s_tpActive = !s_tpUserOff;
         gfx_texture_cache_clear();   // what was uploaded before the index existed looks again
+    }
+    if (s_tpIndexed && s_tpActive == (s_tpUserOff != 0)) {
+        s_tpActive = !s_tpActive;
+        s_tpUploads.clear();
+        s_tpPending.clear();
+        gfx_texture_cache_clear();   // every texture looks again: the pack's, or the game's own
+        sysLogPrintf(LOG_NOTE, "texpack: switched %s", s_tpActive ? "on" : "off");
     }
     // tools/texai texture dump, switched on by files/gevr_packdump (checked every 120 frames)
     static unsigned tdChecks;

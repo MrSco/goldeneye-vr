@@ -90,6 +90,9 @@ int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondvie
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
 extern f32 gevrWeaponPanelStickY;
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
+#define GEVR_TEXPACK_HOLD_MS 1000
+extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
+s32 gevrTexpackToggleMsg;                  /* bondview2.c shows it: 1 no pack, 2 off, 3 on */
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern s32 gevrDualWielding(void);
 
@@ -1151,11 +1154,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         const bool rclick = get_button_state(1, "thumbstick_click");
         const u32 now = SDL_GetTicks();
         // Left stick click toggles crouch (bondview2.c reads gevrCrouchToggled). It acts on
-        // release so that a click of both sticks (recentre) or a long hold (bring the
-        // screen back, gevr_engine_shim.c) does not crouch as well.
+        // release so that a click of both sticks (recentre) or a long hold (the texture
+        // pack, below) does not crouch as well.
+        // Held for a second, the left stick click switches the texture pack off or on
+        // again (gfx_pc.cpp gevrTexpackToggle; bondview2.c says which in a level). The
+        // hold used to bring the screen back; both stick clicks still do.
         {
             static bool wasclicked = false;
             static bool spoilt = false;
+            static bool held = false;
             static u32 pressedat = 0;
             static s32 crouchstage = -1;
             if (bossGetStageNum() != crouchstage) {
@@ -1165,8 +1172,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (lclick && !wasclicked) {
                 pressedat = now;
                 spoilt = false;
+                held = false;
             }
             if (lclick && rclick) spoilt = true;
+            if (lclick && !spoilt && !held && now - pressedat >= GEVR_TEXPACK_HOLD_MS) {
+                held = true;
+                gevrTexpackToggleMsg = gevrTexpackToggle() + 2;   /* 1 no pack, 2 off, 3 on */
+                LOGI("input: left stick hold -> texture pack %d\n", gevrTexpackToggleMsg);
+            }
             if (!lclick && wasclicked && !spoilt && !menu && now - pressedat < 700) {
                 gevrCrouchToggle = !gevrCrouchToggle;
             }
