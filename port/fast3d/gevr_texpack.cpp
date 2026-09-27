@@ -16,6 +16,7 @@
 #include "gevr_texpack.h"
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cerrno>
 #include <cstdio>
@@ -64,6 +65,7 @@ static std::deque<int> s_queue;
 static std::vector<int> s_done;
 static std::atomic<bool> s_started{false};
 static std::atomic<bool> s_ready{false};
+static std::atomic<bool> s_scanned{false};   // the scan is over, textures in it or not
 static bool s_announced = false;
 static uint64_t s_tick = 0;
 static size_t s_held = 0;                                     // bytes of decoded images
@@ -213,6 +215,7 @@ static void worker(std::string dir) {
         s_index.swap(index);
     }
     s_ready = !s_entries.empty();
+    s_scanned = true;
 
     while (true) {
         int id;
@@ -264,6 +267,19 @@ bool takeIndexReady() {
     if (s_announced || !s_ready) return false;
     s_announced = true;
     return true;
+}
+
+void waitIndex(int ms) {
+    for (int waited = 0; s_started && !s_scanned && waited < ms; waited += 10) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+}
+
+const char *name(int id) {
+    if (!s_ready || id < 0 || id >= (int)s_entries.size()) return "";
+    const std::string &p = s_entries[id].path;   // never changes after publishing
+    const size_t slash = p.find_last_of('/');
+    return p.c_str() + (slash == std::string::npos ? 0 : slash + 1);
 }
 
 int find(uint64_t key, uint8_t fmt, uint8_t siz) {
