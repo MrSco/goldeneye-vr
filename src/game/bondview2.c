@@ -727,8 +727,14 @@ static void gevrWarpProbe(s32 inlevel)
     }
     pr = g_CurrentPlayer->prop;
 
+    if (stan == NULL)
+    {
+        /* standing off the floor tiles crashed the stereo aim trace (Dam pad 111) */
+        sysLogPrintf(LOG_WARNING, "warphook: pad %d has no floor tile", padnum);
+        return;
+    }
     sub_GAME_7F03D058(pr, FALSE);
-    if (chrAdjustPosForSpawn(&pos, &stan, facing, TRUE))
+    if (chrAdjustPosForSpawn(&pos, &stan, facing, TRUE) && stan != NULL)
     {
         pr->pos = pos;
         pr->stan = stan;
