@@ -37,3 +37,42 @@ EDA4B17B  warning triangle, pictogram mangled
 8BF0E252  computer screen text, gibberish
 6B8EDF8F  computer screen text, gibberish
 0BD392EA  static noise, smoothed into blobs
+35A29628  warning triangle, pictogram mangled
+C7AF4210  helicopter blueprint, gibberish caption
+80226D12  helicopter blueprint, gibberish caption
+69E3100F  screen overlay, invented text
+530CEDDE  screen overlay, invented text
+07CEE918  dial panel, contour swirls invented
+EA4EB818  dial panel, contour swirls invented
+15FE0971  dial panel, contour swirls invented
+BB2F0990  dial panel, contour swirls invented
+0D3E1168  light panel, fake letters in the red box
+4F9A951A  dark panel, two white eyes added
+7849822A  dark panel, two white eyes added
+879A951A  dark panel, two white eyes added
+969A8FFA  dark panel, two white eyes added
+6771E819  flat grey strip, dense crosshatch invented
+68862E11  flat grey strip, dense crosshatch invented
+0BE54909  map tile, coastline turned stringy
+29653A1A  map tile, coastline turned stringy
+3E689737  map tile, coastline turned stringy
+F2289732  map tile, coastline turned stringy
+0D75A5EA  map tile, coastline turned stringy
+EC85A5EA  map tile, coastline turned stringy
+14AFC4DE  map tile, coastline turned stringy
+D5FFC4DF  map tile, coastline turned stringy
+5F27E7A0  map tile, coastline turned stringy
+64BDF3B9  fire, emblem invented
+BA178014  fire, creature shape invented
+47AA6DE2  face poster, invented eyes
+6F3BB7C7  face poster, invented eyes
+A2A6E7DB  Silo console, fake text or eyes in the screen
+A2B6E7DB  Silo console, fake text or eyes in the screen
+0F3AAB38  Silo console, fake text or eyes in the screen
+2C3ABC66  Silo console, fake text or eyes in the screen
+4D0CC62C  Silo console, fake text or eyes in the screen
+514CC62C  Silo console, fake text or eyes in the screen
+0F6BD703  Silo console, fake text or eyes in the screen
+37CBD523  Silo console, fake text or eyes in the screen
+061EE845  dial panel, contour swirls invented
+EB5E0862  dial panel, contour swirls invented

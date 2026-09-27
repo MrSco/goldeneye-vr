@@ -112,6 +112,41 @@ intermissionfb and GhostlyDark)?
   - It reinvents ornate pixel art (e.g. 7A7EF21F). Those are candidates for
     ChatGPT, or for leaving out.
 
+## Headset tour (2026-09-27, release ai-2026.09.27.2)
+
+The ROM pass can't reach textures the game builds or reads at run time, so
+`tools/texai/tour.py` drives the headset through all 20 missions with the
+dump on. It warps to every pad and spins where something new shows up.
+Running unattended, it took about 3.5 hours and found ~380 real gaps. The
+script's docstring lists the traps: exit-zone pads, intro timing, sleep.
+
+What the tour taught:
+- **Measure gaps with the dump, not the tdb.** Most tdb names the pack lacks
+  are never looked up by our port. The dump shows exactly what the
+  installed pack misses.
+- **Palette checksums vary for one image.** The checksum takes in bytes the
+  texture doesn't use, so a Silo console dumps under 5-8 names with
+  identical pixels.
+  - batch.py makes one `#$` (any-palette) file for these. The port looks it
+    up after the exact name misses, and it also covers variants nobody has
+    dumped yet.
+- **SeedVR2 invents structure on grainy art.** On stone, bark and the Statue
+  Park statue's 33x33 tiles it drew chrome ornaments, a different one on
+  each tile.
+  - Grainy textures (flat share < 0.15) get both upscalers. Real-ESRGAN wins
+    only if it is 1.5 dB more faithful at native resolution.
+  - regrain.py applies the same test to textures already in the fork (129
+    swapped).
+- **ComfyUI's VRAM creeps up over a run** until jobs spill and crawl.
+  comfy.py frees memory every 15 jobs and interrupts any job past 240 s.
+  One hung SeedVR2 job ignored the interrupt and needed a ComfyUI restart.
+- **package.py sizes AI textures to the authors' scale** beside them: about
+  256 px on the long side, 4x for a 64-px wall. The fork keeps the 8x
+  masters. The zip went from 334 MB to 262 MB.
+- **Review failures** to watch for: invented text, "eyes" on small dark
+  screens, contour swirls on flat grey dials, stringy coastlines on map
+  tiles. They are all on rejected.txt.
+
 ## Pilot
 
 Six ROM textures went through ChatGPT (its image model, Plus) and Gemini
