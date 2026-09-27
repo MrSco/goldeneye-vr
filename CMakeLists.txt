@@ -164,7 +164,7 @@ set(GEVR_INCLUDES
   "${CMAKE_SOURCE_DIR}/src/game"
   "${CMAKE_SOURCE_DIR}/src/libultra/audio"
   "${CMAKE_SOURCE_DIR}/OpenXR/Include"
-  "${CMAKE_SOURCE_DIR}/port/external/enet/include"
+  "${CMAKE_SOURCE_DIR}/port/include/net"
   "${CMAKE_SOURCE_DIR}/port/src/net"
 )
 
@@ -197,14 +197,10 @@ endif()
 if(ANDROID)
   list(APPEND LIBS GLESv3 EGL log android)
 elseif(WIN32)
-  list(APPEND LIBS opengl32 dbghelp -static-libstdc++)
+  list(APPEND LIBS opengl32 dbghelp ws2_32 winmm -static-libstdc++)
 else()
   list(APPEND LIBS GL stdc++ m dl)
 endif()
-
-# ENet UDP Networking
-add_subdirectory(port/external/enet)
-list(APPEND LIBS enet)
 
 # OpenXR Loader
 if(ANDROID)
@@ -298,6 +294,8 @@ set(SRC_SEGAUDIO
 )
 
 set(SRC_NET
+  "${CMAKE_SOURCE_DIR}/port/external/enet.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_core.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_discovery.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_player_sync.c"

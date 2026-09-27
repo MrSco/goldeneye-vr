@@ -21,6 +21,7 @@
 #include <player.h>
 #include <options.h>
 #include <boss.h>
+#include "net/net_core.h"
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -936,9 +937,32 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     const struct controllercfg *cfg = &padsCfg[idx];
 
 
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    const int localSlot = netIsActive() ? netGetLocalSlot() : 0;
+
+    if (netIsActive() && idx != localSlot) {
+        memset(npad, 0, sizeof(*npad));
+        if (netIsRemotePlayerActive(idx)) {
+            const struct netplayermove *m = netGetRemotePlayerMove(idx);
+            if (m) {
+                /* In GoldenEye, stick_y is forward/back (-70..+70), stick_x is strafe left/right (-70..+70) */
+                npad->stick_y = (s8)(m->movespeed[0] * 70.0f);
+                npad->stick_x = (s8)(m->movespeed[1] * 70.0f);
+                if (m->ucmd & UCMD_FIRE) {
+                    npad->button |= Z_TRIG;
+                }
+                if (m->ucmd & UCMD_DUCK) {
+                    npad->button |= D_CBUTTONS;
+                }
+            }
+        }
+        return 0;
+    }
+
     /* Quest screen mode: ordinary GoldenEye 1.2 controls, no tracked-hand
      * weapon logic or Perfect Dark extended buttons. */
-    if (idx == 0) {
+    if (idx == localSlot) {
         memset(npad, 0, sizeof(*npad));
         /*
          * This file reads struct player directly but sees <stdbool.h>'s bool,
@@ -1380,6 +1404,9 @@ s32 inputControllerConnected(s32 idx)
     if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS) {
         return 0;
     }
+    if (netIsActive() && idx < netGetConnectedPlayerCount()) {
+        return 1;
+    }
     return pads[idx] || (connectedMask & (1 << idx));
 }
 
@@ -1525,6 +1552,11 @@ void inputRumbleSetStrength(s32 cidx, f32 val)
 
 s32 inputControllerMask(void)
 {
+    if (netIsActive()) {
+        int count = netGetConnectedPlayerCount();
+        if (count < 1) count = 1;
+        return (1 << count) - 1;
+    }
     return connectedMask;
 }
 

@@ -3,13 +3,18 @@
 #include "../vr/vr_openxr.h"
 #include "net_player_sync.h"
 #include "net_core.h"
+#include "net_protocol.h"
+#include "system.h"
 #include <ultra64.h>
 #include <bondtypes.h>
-#include <player.h>
-#include <bondview.h>
+#include "game/player.h"
+#include "game/bondview.h"
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
+#endif
+#ifndef M_PI_F
+#define M_PI_F 3.14159265358979323846f
 #endif
 
 extern bool get_button_state(int controllerIndex, const char* buttonName);
@@ -26,23 +31,57 @@ void netPlayerSyncBeforeTick(s32 playernum) {
     }
     
     if (netIsRemotePlayerActive(playernum) && g_playerPointers[playernum]) {
-        const NetMsgPlayerState *ps = netGetRemotePlayerState(playernum);
+        const struct netplayermove *m = netGetRemotePlayerMove(playernum);
         struct player *pl = g_playerPointers[playernum];
-        if (pl && pl->prop) {
-            float lerp = 0.35f;
-            pl->prop->pos.x += (ps->pos_x - pl->prop->pos.x) * lerp;
-            pl->prop->pos.y += (ps->pos_y - pl->prop->pos.y) * lerp;
-            pl->prop->pos.z += (ps->pos_z - pl->prop->pos.z) * lerp;
+        if (!pl || !m) return;
+        
+        if (pl->prop) {
+            /* Position: check for huge delta or initial snap */
+            float dx = m->pos.x - pl->prop->pos.x;
+            float dy = m->pos.y - pl->prop->pos.y;
+            float dz = m->pos.z - pl->prop->pos.z;
+            float dist_sq = dx*dx + dy*dy + dz*dz;
+            
+            if (dist_sq > (512.0f * 512.0f) || dist_sq < 0.0001f) {
+                pl->prop->pos = m->pos;
+            } else {
+                float lerp = 0.35f;
+                pl->prop->pos.x += dx * lerp;
+                pl->prop->pos.y += dy * lerp;
+                pl->prop->pos.z += dz * lerp;
+            }
             
             pl->pos = pl->prop->pos;
             pl->field_488.collision_position = pl->prop->pos;
-            pl->vv_theta = ps->head_yaw;
+            pl->field_488.pos = pl->prop->pos;
             
+            /* Forward movement speeds for third-person animations */
+            pl->speedforwards = m->movespeed[0];
+            pl->speedsideways = m->movespeed[1];
+            
+            /* Orientation */
+            pl->vv_theta = m->angles[0];
+            pl->vv_verta = m->angles[1];
+            pl->vv_verta360 = m->angles[1];
+            pl->vv_costheta = cosf(m->angles[0] * (M_PI_F / 180.0f));
+            pl->vv_sintheta = sinf(m->angles[0] * (M_PI_F / 180.0f));
+            
+            /* Crouch / Stance */
+            pl->crouchpos = m->crouchpos;
+            
+            /* Third-person character model animation */
             if (pl->prop->chr) {
-                pl->prop->chr->aimendback = ps->head_pitch;
+                pl->prop->chr->aimendback = m->angles[1];
                 pl->prop->chr->aimendsideback = 0.0f;
+                pl->prop->chr->ground = pl->prop->pos.y;
             }
-            pl->hands[GUNRIGHT].field_87D = ps->is_firing;
+            
+            /* Firing state */
+            pl->hands[GUNRIGHT].field_87D = (m->ucmd & UCMD_FIRE) ? 1 : 0;
+
+            /* Crucial: update player room list so prop renders across portal room boundaries */
+            extern void bondviewUpdatePlayerRoom(struct player *player);
+            bondviewUpdatePlayerRoom(pl);
         }
     }
 }
@@ -54,32 +93,56 @@ void netPlayerSyncAfterTick(s32 playernum) {
     if (playernum != local_slot || !g_playerPointers[playernum]) return;
     
     struct player *pl = g_playerPointers[playernum];
-    if (!pl || !pl->prop) return;
+    if (!pl) return;
     
-    NetMsgPlayerState local_state;
-    memset(&local_state, 0, sizeof(local_state));
+    struct netplayermove move;
+    memset(&move, 0, sizeof(move));
     
-    local_state.pos_x = pl->prop->pos.x;
-    local_state.pos_y = pl->prop->pos.y;
-    local_state.pos_z = pl->prop->pos.z;
-    
-    float qx = vr_HMD_rot_Q.x;
-    float qy = vr_HMD_rot_Q.y;
-    float qz = vr_HMD_rot_Q.z;
-    float qw = vr_HMD_rot_Q.w;
-    
-    float sin_pitch = 2.0f * (qw * qx - qy * qz);
-    if (fabsf(sin_pitch) >= 1.0f) {
-        local_state.head_pitch = copysignf(90.0f, sin_pitch);
-    } else {
-        local_state.head_pitch = asinf(sin_pitch) * (180.0f / (float)M_PI);
+    move.tick = (u32)(sysGetMicroseconds() / 1000);
+    move.ucmd = 0;
+    if (get_button_state(1, "trigger")) {
+        move.ucmd |= UCMD_FIRE;
     }
-    local_state.head_yaw = atan2f(2.0f * (qw * qy + qx * qz), 1.0f - 2.0f * (qx * qx + qy * qy)) * (180.0f / (float)M_PI);
+    if (pl->crouchpos != CROUCH_STAND) {
+        move.ucmd |= UCMD_DUCK;
+    }
     
-    local_state.hand_x = gCtrlPos[1][0];
-    local_state.hand_y = gCtrlPos[1][1];
-    local_state.hand_z = gCtrlPos[1][2];
-    local_state.is_firing = get_button_state(1, "trigger") ? 1 : 0;
+    move.movespeed[0] = pl->speedforwards;
+    move.movespeed[1] = pl->speedsideways;
     
-    netSendLocalPlayerState(&local_state);
+    /* Head (HMD) orientation */
+    move.angles[0] = pl->vv_theta;
+    move.angles[1] = pl->vv_verta;
+    
+    move.weaponnum = (s8)pl->hands[GUNRIGHT].field_87F;
+    move.crouchpos = (s8)pl->crouchpos;
+    
+    if (pl->prop) {
+        move.pos = pl->prop->pos;
+    } else {
+        move.pos = pl->pos;
+    }
+    
+    /* Hand controller transform */
+    move.handpos.x = gCtrlPos[1][0];
+    move.handpos.y = gCtrlPos[1][1];
+    move.handpos.z = gCtrlPos[1][2];
+    
+    /* Extract hand rotation euler angles from quaternion */
+    float hqw = gCtrlQuat[1][0];
+    float hqx = gCtrlQuat[1][1];
+    float hqy = gCtrlQuat[1][2];
+    float hqz = gCtrlQuat[1][3];
+    
+    float sin_p = 2.0f * (hqw * hqx - hqy * hqz);
+    if (fabsf(sin_p) >= 1.0f) {
+        move.handrot.x = copysignf(90.0f, sin_p);
+    } else {
+        move.handrot.x = asinf(sin_p) * (180.0f / (float)M_PI);
+    }
+    move.handrot.y = atan2f(2.0f * (hqw * hqy + hqx * hqz), 1.0f - 2.0f * (hqx * hqx + hqy * hqy)) * (180.0f / (float)M_PI);
+    move.handrot.z = atan2f(2.0f * (hqw * hqz + hqx * hqy), 1.0f - 2.0f * (hqx * hqx + hqz * hqz)) * (180.0f / (float)M_PI);
+    
+    netSendLocalPlayerMove(&move);
 }
+

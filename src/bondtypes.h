@@ -2607,7 +2607,7 @@ typedef union
 
         u32 unk90;
         f32 unk94;
-        struct ALSoundState* sounds[2]; // 0x98
+        ALSoundState* sounds[2]; // 0x98
 
         u32 lastSfxTimer; // 0xa0
         u32 soundSlot; // 0xa4
@@ -3662,7 +3662,7 @@ typedef union
         f32         roty;         /*0xa0*/
         PathRecord *path;         /*0xa4*/
         s32         nextstep;     /*0xa8*/
-        struct ALSoundState *Sound;      /*0xac*/
+        ALSoundState *Sound;      /*0xac*/
     } VehichleRecord;
     // VehichleRecord *pVehichleData;//not Global, local to Object or function
     // VehichleRecord *pAircraftData;//not Global, local to Object or function
@@ -3690,7 +3690,7 @@ typedef union
         f32           yrot;            /*0xa4*/
         s32           nextstep;        /*0xa8*/
         PathRecord   *path;            /*0xac*/
-        struct ALSoundState *Sound;           /*0xb0*/
+        ALSoundState *Sound;           /*0xb0*/
     } AircraftRecord;
     #define New_AircraftRecord(pad)                 \
         {                                           \

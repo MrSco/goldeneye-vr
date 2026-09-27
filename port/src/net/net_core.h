@@ -35,6 +35,8 @@ bool netIsHost(void);
 int netGetLocalSlot(void);
 int netGetConnectedPlayerCount(void);
 const NetMsgLobbyState *netGetLobbyState(void);
+uint8_t netGetLobbyStage(void);
+uint32_t netGetRandomSeed(void);
 
 /* Lobby Operations */
 void netLobbySetReady(bool ready);
@@ -43,11 +45,13 @@ void netLobbySetMatchConfig(uint8_t stage_num, uint8_t scenario, uint8_t weapon_
 bool netLobbyHostLaunchMatch(void);
 
 /* Gameplay State Sending */
+void netSendLocalPlayerMove(const struct netplayermove *move);
 void netSendLocalPlayerState(const NetMsgPlayerState *state);
 void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg);
 void netSendFireEvent(uint8_t weapon_id);
 
 /* Remote State Retrieval */
+const struct netplayermove *netGetRemotePlayerMove(int slot_id);
 const NetMsgPlayerState *netGetRemotePlayerState(int slot_id);
 bool netIsRemotePlayerActive(int slot_id);
 
