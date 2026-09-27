@@ -5772,15 +5772,6 @@ void gunTickGameplay(s32 triggerOn)
 
         gevrStereoTwoHandUpdate();
     }
-    /* issue #55: a blow of either hand, with whatever it holds (bondview2.c
-     * gevrHandChopTick), after the hold above so a hand on the gun does not
-     * chop */
-    {
-        extern void gevrHandChopTick(s32 ctrl);
-
-        gevrHandChopTick(0);
-        gevrHandChopTick(1);
-    }
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand
     gunTickHandState(1, trigger_state.triggerOn[1]); // Left hand

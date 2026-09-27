@@ -1872,11 +1872,16 @@ s32 gevrStereoTwoHandGrip(void)
  * held, from the hand to the gun's muzzle as drawn, or to the club's butt;
  * a bare hand, the knife or a gadget at the hand. A hand holding anything but
  * the fist or the knife needs GEVR_CHOP_HIT_ARMED, Perfect Dark's pistol-whip
- * speed, so turning a gun on a guard beside you does not strike him, and
- * misses without the whiff: GoldenEye's is the fist's alone.
+ * speed, so turning a gun on a guard beside you does not strike him. Every
+ * blow that misses whiffs, GoldenEye's fist's sound (its own is the fist's
+ * alone; the knife and a gun were silent, user); an armed swing must pass
+ * Perfect Dark's pistol-whip test, 2 m/s either way, so aiming stays quiet.
+ *
+ * Run from lvlRender beside the game's own fist (lv.c), not the move tick.
  */
 #define GEVR_CHOP_HIT 1.0f        /* m/s, the hand's speed at contact */
 #define GEVR_CHOP_HIT_ARMED 2.0f  /* m/s, with a gun or a gadget in the hand */
+#define GEVR_CHOP_SWING_ARMED 2.0f   /* m/s, its whiff: Perfect Dark's pistol-whip test */
 #define GEVR_CHOP_THRUST 1.2f     /* m/s, a swing that whiffs */
 #define GEVR_CHOP_SLASH 1.6f
 #define GEVR_CHOP_TOUCH_CM 10.0f
@@ -1904,7 +1909,7 @@ static void gevrWorldToLocal(const f32 q[4], const f32 v[3], f32 out[3])
  */
 static const f32 s_gevrClubButt[3] = { -13.0f, 26.75f, -320.0f };
 
-/* gunfire.c gunTickGameplay, each tick: ctrl 0 the off hand, 1 the gun hand */
+/* lv.c lvlRender, each frame: ctrl 0 the off hand, 1 the gun hand */
 void gevrHandChopTick(s32 ctrl)
 {
     extern float vr_ctrl_quat_play[2][4];     /* vr_input.cpp: the gesture frame, play space */
@@ -1947,7 +1952,14 @@ void gevrHandChopTick(s32 ctrl)
     thrust = loc[1];
     slash = sqrtf(loc[0] * loc[0] + loc[2] * loc[2]);
     speed = sqrtf(thrust * thrust + slash * slash);
-    fast = bare && (thrust > GEVR_CHOP_THRUST || slash > GEVR_CHOP_SLASH);
+    if (bare || item == ITEM_KNIFE)
+    {
+        fast = thrust > GEVR_CHOP_THRUST || slash > GEVR_CHOP_SLASH;
+    }
+    else
+    {
+        fast = thrust > GEVR_CHOP_SWING_ARMED || slash > GEVR_CHOP_SWING_ARMED;
+    }
 
     /* not while the last blow's follow-through is still going */
     if (fast && !s_fast[ctrl] && s_whiff[ctrl] <= 0 && s_cool[ctrl] <= 0)
