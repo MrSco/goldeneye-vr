@@ -1336,13 +1336,13 @@ void camera_sniper_zoom_in(f32 zoom)
 #ifdef GEVR
 		{
 			/*
-			 * Issue #58: in stereo on to 4.4 degrees, 15x - the
-			 * figure players quote for it - past the N64's 7 degrees (9.4x).
-			 * That filled the screen; the lens fills a fifth of the view
-			 * (user: "should zoom a bit more at max").
+			 * Issue #58: in stereo on to 2.65 degrees, 25x, past the
+			 * N64's 7 degrees (9.4x). That filled the screen; the lens fills
+			 * a fifth of the view. 15x (4.4 degrees, the figure players
+			 * quote) still was not as much as it could (user).
 			 */
 			extern s32 g_gevrStereo;
-			f32 closest = g_gevrStereo ? 4.4f : 7.0f;
+			f32 closest = g_gevrStereo ? 2.65f : 7.0f;
 
 			if (g_CurrentPlayer->sniper_zoom < closest) {
 				g_CurrentPlayer->sniper_zoom = closest;

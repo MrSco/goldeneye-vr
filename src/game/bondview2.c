@@ -2450,8 +2450,8 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * zoomed, as a real scope is (user): the game's own sniper zoom -
  * sniper_zoom, 15 degrees by default, changed with up/down on the left stick
  * while aiming as C-up/down on the N64; in stereo no wider than it starts
- * (the N64's 60 showed the world at its own size, user) and on to 4.4 degrees,
- * 15x, past the N64's 7 (user: a bit more at max; gun.c) - at the
+ * (the N64's 60 showed the world at its own size, user) and on to 2.65
+ * degrees, 25x, past the N64's 7 (user: more at max; gun.c) - at the
  * N64's magnification. There that view filled the screen the 60-degree
  * normal view filled: 4.4x at 15 degrees, 9.4x at 7. Shown as those same
  * degrees across the lens, which fills only 20-40 degrees of the headset's
@@ -2504,9 +2504,9 @@ extern float gevrScopeLensTan;     /* vr_openxr.cpp: tan of half the lens's angl
 
 /*
  * The Moonraker laser's sight as a scope too (user), at a lower zoom than the
- * sniper's (user: "don't make it zoom as much"). The N64 never zoomed it
- * (laser_stats Zoom 0); it takes the rifles' aim zoom, the KF7's and AK47's
- * 30 degrees (2.2x), fixed. Its eyepiece is the rear face of the sight's
+ * sniper's (user: "don't make it zoom as much"), fixed: the N64 never zoomed
+ * it (laser_stats Zoom 0). 3x, 21.8 degrees - the rifles' aim zoom, the KF7's
+ * and AK47's 30 degrees (2.2x), was a bit little (user). Its eyepiece is the rear face of the sight's
  * housing in GlaserZ (display list node 0x2ac, from the ROM: x -18..18,
  * y 84..116, z -80..-37, on the tube 0x294 at y 91..109), raw vertex
  * coordinates as the sniper's.
@@ -2515,12 +2515,23 @@ extern float gevrScopeLensTan;     /* vr_openxr.cpp: tan of half the lens's angl
 #define GEVR_LASER_EYEPIECE_Y   100.0f
 #define GEVR_LASER_EYEPIECE_Z   -80.0f
 #define GEVR_LASER_EYEPIECE_R   16.0f
-#define GEVR_LASER_SCOPE_ZOOM   30.0f
+#define GEVR_LASER_SCOPE_ZOOM   21.8f   /* 3x: 2 atan(tan 30 / 3) */
 
 /* the held gun's scope, if it has one */
 static s32 gevrScopeItem(s32 item)
 {
     return item == ITEM_SNIPERRIFLE || item == ITEM_LASER;
+}
+
+/*
+ * port/src/input.c: aiming the sniper, the moving stick's up/down zooms (the
+ * N64's C-up/down); its side to side then strafes the scope off its target,
+ * so it does not (issue #58, user).
+ */
+s32 gevrScopeZoomStick(void)
+{
+    return g_gevrStereo && g_CurrentPlayer != NULL && g_CurrentPlayer->insightaimmode
+        && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_SNIPERRIFLE;
 }
 
 static void gevrScopeTune(void)
