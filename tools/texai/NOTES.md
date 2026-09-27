@@ -52,6 +52,23 @@ intermissionfb and GhostlyDark)?
   - It resumes if stopped, and logs drift scores to `build/texai-batch/log.tsv`.
 - **Speed.** About 12 s a texture with SeedVR2 at 16x (256-1024 px), so about
   8 hours for 2,500.
+- **No headset needed for most textures (`romkeys.py`).**
+  - It names ROM textures offline the way the pack does. It rebuilds each
+    zlib texture's pool bytes (texInflateZlib: rows padded to 8 bytes, odd
+    rows word-swapped per the header's LOD bits, the palette hashed from the
+    image's own first bytes), then takes GLideN64's checksum.
+  - Every name is kept only if the authors' `ge007.tdb` lists it.
+  - 2026-09-26: 1,744 decoded, 1,225 exact matches, 21 on the texture
+    checksum only, 498 unmatched (drawn from a sub-tile, or never drawn).
+    258 of the matches are already in the pack, so 967 go to batch.py
+    (`build/texai-rom`, level column -1, written to `GOLDENEYE/AI/From ROM/`).
+  - Wrap flags are guessed from the size: power-of-two sides repeat.
+  - Still needed from the headset dump: the 954 non-zlib textures (Rare's
+    own compression) and the 498 unmatched.
+- **Pack scale.** The authors' 4K sources are 16-64x native. Their HD
+  release is 25-50% of that, so 4-32x (median 8-16x). Ours is 8x (256 px
+  for 32 px), to keep the download small; raise `texai.SCALE` if it looks
+  soft next to theirs.
 - **Release.** The launcher entry (`ModManager.PACKS`) needs the fork's
   release zip URL and exact size.
   - The planned zip is the authors' published HD zip (the dump was measured
