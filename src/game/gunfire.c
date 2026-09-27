@@ -5772,12 +5772,14 @@ void gunTickGameplay(s32 triggerOn)
 
         gevrStereoTwoHandUpdate();
     }
-    /* issue #55: the free hand's chop (bondview2.c gevrOffHandChopTick), after
-     * the hold above so a hand on the gun does not chop */
+    /* issue #55: a blow of the free hand, or of the gun hand holding the fist
+     * or the sniper club (bondview2.c gevrHandChopTick), after the hold above
+     * so a hand on the gun does not chop */
     {
-        extern void gevrOffHandChopTick(void);
+        extern void gevrHandChopTick(s32 ctrl);
 
-        gevrOffHandChopTick();
+        gevrHandChopTick(0);
+        gevrHandChopTick(1);
     }
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand

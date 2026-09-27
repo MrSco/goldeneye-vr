@@ -1862,6 +1862,12 @@ s32 gevrStereoTwoHandGrip(void)
  * The swing test still gives the fist's whiff: a swing that passes it - 1.2 m/s
  * along +Y, over the knuckles, or 1.6 across it (Perfect Dark's fist's 1.5 and
  * 2.5 took a wild swing, user) - and lands nothing in GEVR_CHOP_TICKS.
+ *
+ * The gun hand too, when it holds the fist - GoldenEye's "unarmed", which is
+ * the sniper rifle held as a club once Bond carries one - as Perfect Dark VR
+ * punches and pistol-whips by swinging. The trigger still punches as before.
+ * The club lands along its length, from the hand to its far end (chrprop.c
+ * gevrModelFarCorner, from the model as drawn).
  */
 #define GEVR_CHOP_HIT 1.0f        /* m/s, the hand's speed at contact */
 #define GEVR_CHOP_THRUST 1.2f     /* m/s, a swing that whiffs */
@@ -1882,83 +1888,112 @@ static void gevrWorldToLocal(const f32 q[4], const f32 v[3], f32 out[3])
     out[2] = v[2] + qw * tz + qx * ty - qy * tx;
 }
 
-/* gunfire.c gunTickGameplay, each tick */
-void gevrOffHandChopTick(void)
+/* gunfire.c gunTickGameplay, each tick: ctrl 0 the off hand, 1 the gun hand */
+void gevrHandChopTick(s32 ctrl)
 {
     extern float vr_ctrl_quat_play[2][4];     /* vr_input.cpp: the gesture frame, play space */
     extern float vr_ctrl_velocity_play[2][3];
     extern float vr_head_velocity_play[3];    /* vr_openxr.cpp */
     extern s32 gevrDualWielding(void);        /* gunfire.c */
-    extern s32 gevrChopHit(const f32 at[3], f32 touch, const f32 dir[3]);   /* chrprop.c */
+    extern s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3]);   /* chrprop.c */
+    extern s32 gevrModelFarCorner(Model *model, const f32 from[3], f32 out[3]);
     extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
     extern int vr_haptics_ready(void);        /* vr_input.cpp */
-    static s32 s_whiff;    /* ticks until a swing that has landed nothing whiffs, 0 none */
-    static s32 s_cool;
-    static s32 s_fast;     /* Perfect Dark's vr_hand_triggered: the hand has not slowed yet */
+    static s32 s_whiff[2];   /* ticks until a swing that has landed nothing whiffs, 0 none */
+    static s32 s_cool[2];
+    static s32 s_fast[2];    /* Perfect Dark's vr_hand_triggered: the hand has not slowed yet */
     f32 rel[3], loc[3], thrust, slash, speed;
+    s32 club = FALSE;
+    s32 free;
     s32 fast;
     s32 i;
 
-    if (s_cool > 0)
+    if (s_cool[ctrl] > 0)
     {
-        s_cool -= g_ClockTimer;
+        s_cool[ctrl] -= g_ClockTimer;
+    }
+    if (ctrl == 0)
+    {
+        free = !gevrDualWielding() && !gevrStereoTwoHandGrip() && !gevrStereoWatchGrip();
+    }
+    else
+    {
+        free = getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_FIST;
+        club = free && g_CurrentPlayer->cur_item_weapon_getname == ITEM_SNIPERRIFLE;
     }
     if (!g_gevrStereo || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
-        || g_PlayerIsInTank == 1 || gevrDualWielding() || gevrStereoTwoHandGrip() || gevrStereoWatchGrip())
+        || g_PlayerIsInTank == 1 || !free)
     {
-        s_whiff = 0;
-        s_fast = TRUE;   /* a hand let go mid-swing is not a swing */
+        s_whiff[ctrl] = 0;
+        s_fast[ctrl] = TRUE;   /* a hand let go mid-swing is not a swing */
         return;
     }
 
     for (i = 0; i < 3; i++)
     {
-        rel[i] = vr_ctrl_velocity_play[0][i] - vr_head_velocity_play[i];
+        rel[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
     }
-    gevrWorldToLocal(vr_ctrl_quat_play[0], rel, loc);
+    gevrWorldToLocal(vr_ctrl_quat_play[ctrl], rel, loc);
     thrust = loc[1];
     slash = sqrtf(loc[0] * loc[0] + loc[2] * loc[2]);
     speed = sqrtf(thrust * thrust + slash * slash);
     fast = thrust > GEVR_CHOP_THRUST || slash > GEVR_CHOP_SLASH;
 
     /* not while the last blow's follow-through is still going */
-    if (fast && !s_fast && s_whiff <= 0 && s_cool <= 0)
+    if (fast && !s_fast[ctrl] && s_whiff[ctrl] <= 0 && s_cool[ctrl] <= 0)
     {
-        s_whiff = GEVR_CHOP_TICKS;
+        s_whiff[ctrl] = GEVR_CHOP_TICKS;
     }
-    s_fast = fast;
+    s_fast[ctrl] = fast;
 
-    if (speed >= GEVR_CHOP_HIT && s_cool <= 0)
+    if (speed >= GEVR_CHOP_HIT && s_cool[ctrl] <= 0)
     {
-        f32 at[3], ignore[3], dir[3], len;
+        f32 at[3], end[3], ignore[3], dir[3], len;
         f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
 
-        if (gevrGripAxesRaw(0, at, ignore, ignore, ignore))
+        if (gevrGripAxesRaw(ctrl, at, ignore, ignore, ignore))
         {
-            len = sqrtf(at[0] * at[0] + at[1] * at[1] + at[2] * at[2]);
+            end[0] = at[0];
+            end[1] = at[1];
+            end[2] = at[2];
+            if (club && !gevrModelFarCorner(&g_CurrentPlayer->hands[GUNRIGHT].weaponModel, at, end))
+            {
+                end[0] = at[0];
+                end[1] = at[1];
+                end[2] = at[2];
+            }
+            len = sqrtf(end[0] * end[0] + end[1] * end[1] + end[2] * end[2]);
             for (i = 0; i < 3; i++)
             {
-                dir[i] = len > 1e-6f ? at[i] / len : (i == 2 ? -1.0f : 0.0f);
+                dir[i] = len > 1e-6f ? end[i] / len : (i == 2 ? -1.0f : 0.0f);
             }
-            if (gevrChopHit(at, GEVR_CHOP_TOUCH_CM * cm, dir))
+            if (gevrChopHit(at, end, GEVR_CHOP_TOUCH_CM * cm, dir))
             {
-                sysLogPrintf(LOG_NOTE, "stereo: chop landed at %.2f m/s (thrust %.2f slash %.2f)", speed, thrust, slash);
+                f32 d[3];
+
+                for (i = 0; i < 3; i++)
+                {
+                    d[i] = end[i] - at[i];
+                }
+                sysLogPrintf(LOG_NOTE, "stereo: %s %s landed at %.2f m/s (thrust %.2f slash %.2f), reach %.0f cm",
+                             ctrl ? "gun hand" : "off hand", club ? "club" : "chop", speed, thrust, slash,
+                             cm > 1e-6f ? sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm : 0.0f);
                 if (vr_haptics_ready())
                 {
-                    trigger_haptic_vibration_c(0, 0.8f, 0.08f);
+                    trigger_haptic_vibration_c(ctrl, 0.8f, 0.08f);
                 }
-                s_whiff = 0;
-                s_cool = GEVR_CHOP_COOL;
+                s_whiff[ctrl] = 0;
+                s_cool[ctrl] = GEVR_CHOP_COOL;
             }
         }
     }
 
-    if (s_whiff > 0)
+    if (s_whiff[ctrl] > 0)
     {
-        s_whiff -= g_ClockTimer;
-        if (s_whiff <= 0)
+        s_whiff[ctrl] -= g_ClockTimer;
+        if (s_whiff[ctrl] <= 0)
         {
-            sysLogPrintf(LOG_NOTE, "stereo: chop missed");
+            sysLogPrintf(LOG_NOTE, "stereo: %s swing missed", ctrl ? "gun hand" : "off hand");
             sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, NULL);
         }
     }
