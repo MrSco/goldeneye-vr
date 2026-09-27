@@ -2,7 +2,9 @@
 #include "net_core.h"
 #include "platform.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef ntohl
 #undef ntohl
@@ -38,6 +40,7 @@ typedef struct {
     uint8_t  max_players;
     uint8_t  stage_num;
     uint8_t  weapon_set; /* mp_weapon.c's set, the host's choice */
+    uint32_t host_id;    /* the sender's s_self_id: a headset hears its own broadcast */
 } NetDiscoveryBeacon;
 #pragma pack(pop)
 
@@ -50,8 +53,20 @@ static uint32_t s_last_broadcast_ms = 0;
 static NetDiscoveredServer s_servers[GEVR_MAX_LAN_SERVERS];
 static int s_server_count = 0;
 
+/* This run's id, stamped on our beacons: our own game came back in the Join
+ * list (user). Random per run, so it holds on any number of interfaces. */
+static uint32_t s_self_id = 0;
+
 bool netDiscoveryInit(void) {
     if (s_disc_socket != INVALID_SOCKET) return true;
+
+    while (s_self_id == 0) {
+#ifdef __ANDROID__
+        s_self_id = arc4random();
+#else
+        s_self_id = (uint32_t)time(NULL) ^ (uint32_t)clock() ^ (uint32_t)(uintptr_t)&s_self_id;
+#endif
+    }
     
     s_disc_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (s_disc_socket == INVALID_SOCKET) return false;
@@ -127,6 +142,7 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         beacon.max_players = GEVR_MAX_PLAYERS;
         beacon.stage_num = (uint8_t)netGetLobbyStage();
         beacon.weapon_set = netGetLobbyWeaponSet();
+        beacon.host_id = PD_LE32(s_self_id);
         
         struct sockaddr_in broadcast_addr;
         memset(&broadcast_addr, 0, sizeof(broadcast_addr));
@@ -150,7 +166,7 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         uint32_t magic = PD_LE32(b->magic);
         uint16_t version = PD_LE16(b->version);
         uint16_t port = PD_LE16(b->port);
-        if (magic == GEVR_NET_MAGIC && version == GEVR_NET_VERSION) {
+        if (magic == GEVR_NET_MAGIC && version == GEVR_NET_VERSION && PD_LE32(b->host_id) != s_self_id) {
             char sender_ip[32];
             inet_ntop(AF_INET, &sender_addr.sin_addr, sender_ip, sizeof(sender_ip));
             
