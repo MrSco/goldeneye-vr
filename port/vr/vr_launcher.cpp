@@ -56,7 +56,17 @@ void vrSettingsSave(void);            // vr_settings.cpp
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
 void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
 void vr_apply_refresh_rate(void);     // vr_openxr.cpp
+extern int selected_num_players;      // src/game/front.c
+extern int gamemode;                  // src/game/front.c
+extern int g_StageNum;                 // port/src/main.c
+void bossSetLoadedStage(int stage);
+void init_mp_options_for_scenario(int numplayers);
+void reset_mp_options_for_scenario(int scenarioid);
+void setMPWeaponSet(int setNUM);
+extern int player_char[];
 }
+#include "net_core.h"
+#include "net_discovery.h"
 bool vr_begin_eye_render();           // vr_openxr.cpp
 void vr_end_eye_render();
 
@@ -575,6 +585,249 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
 }
 
+void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
+{
+    ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
+    ImGui::Separator();
+    
+    static int subTab = 0; // 0 = Host, 1 = Join LAN / IP
+    static char directIp[64] = "192.168.1.";
+    static int selectedStageIdx = 0;
+    static int selectedChrIdx = 0;
+    
+    enum {
+        GEVR_LEVEL_FACILITY = 34,
+        GEVR_LEVEL_COMPLEX  = 31,
+        GEVR_LEVEL_TEMPLE   = 38,
+        GEVR_LEVEL_STACK    = 46,
+        GEVR_LEVEL_CAVERNS  = 39,
+        GEVR_LEVEL_LIBRARY  = 48,
+        GEVR_LEVEL_BASEMENT = 45,
+        GEVR_LEVEL_CAVES    = 50,
+        GEVR_LEVEL_EGYPT    = 32,
+        GEVR_LEVEL_BUNKER2  = 27,
+        GEVR_LEVEL_ARCHIVES = 24,
+    };
+    struct MpStage { const char *name; int id; int maxPlayers; };
+    static const MpStage stages[] = {
+        { "Facility",  GEVR_LEVEL_FACILITY, 4 },
+        { "Complex",   GEVR_LEVEL_COMPLEX,  4 },
+        { "Temple",    GEVR_LEVEL_TEMPLE,   4 },
+        { "Stack",     GEVR_LEVEL_STACK,    4 },
+        { "Caverns",   GEVR_LEVEL_CAVERNS,  3 },
+        { "Library",   GEVR_LEVEL_LIBRARY,  4 },
+        { "Basement",  GEVR_LEVEL_BASEMENT, 4 },
+        { "Caves",     GEVR_LEVEL_CAVES,    4 },
+        { "Egypt",     GEVR_LEVEL_EGYPT,    2 },
+        { "Bunker II", GEVR_LEVEL_BUNKER2,  3 },
+        { "Archives",  GEVR_LEVEL_ARCHIVES, 3 },
+    };
+    
+    struct MpChar { const char *name; int id; };
+    static const MpChar characters[] = {
+        { "James Bond",    0 },
+        { "Natalya",       1 },
+        { "Trevelyan",     2 },
+        { "Xenia",         3 },
+        { "Ourumov",       4 },
+        { "Boris",         5 },
+        { "Valentin",      6 },
+        { "Mishkin",       7 },
+        { "Mayday",        8 },
+        { "Jaws",          9 },
+        { "Oddjob",       10 },
+        { "Baron Samedi", 11 },
+    };
+    
+    if (ImGui::RadioButton("Host Game", subTab == 0)) subTab = 0;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Join Game (LAN / Direct IP)", subTab == 1)) subTab = 1;
+    ImGui::Separator();
+    
+    if (subTab == 0) {
+        if (!netIsHost()) {
+            ImGui::TextColored(gold, "HOST CONFIGURATION");
+            
+            ImGui::Text("Stage: ");
+            ImGui::SameLine();
+            if (ImGui::BeginCombo("##stagecombo", stages[selectedStageIdx].name)) {
+                for (int n = 0; n < (int)(sizeof(stages)/sizeof(stages[0])); n++) {
+                    bool isSelected = (selectedStageIdx == n);
+                    if (ImGui::Selectable(stages[n].name, isSelected)) selectedStageIdx = n;
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            
+            ImGui::Text("Character: ");
+            ImGui::SameLine();
+            if (ImGui::BeginCombo("##chrcombo", characters[selectedChrIdx].name)) {
+                for (int n = 0; n < (int)(sizeof(characters)/sizeof(characters[0])); n++) {
+                    bool isSelected = (selectedChrIdx == n);
+                    if (ImGui::Selectable(characters[n].name, isSelected)) selectedChrIdx = n;
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            
+            ImGui::Spacing();
+            if (ImGui::Button("START HOSTING LOBBY", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f))) {
+                netHostStart(GEVR_DEFAULT_PORT);
+                netDiscoveryInit();
+                netDiscoveryStartBroadcasting("GEVR Match", GEVR_DEFAULT_PORT);
+                netLobbySetCharacter((uint8_t)characters[selectedChrIdx].id);
+                netLobbySetMatchConfig((uint8_t)stages[selectedStageIdx].id, 0, 0);
+            }
+        } else {
+            ImGui::TextColored(good, "LOBBY ACTIVE (Broadcasting on LAN port %d)", GEVR_DEFAULT_PORT);
+            ImGui::Text("Stage: %s (Max %d Players)", stages[selectedStageIdx].name, stages[selectedStageIdx].maxPlayers);
+            ImGui::Separator();
+            
+            const NetMsgLobbyState *lobby = netGetLobbyState();
+            int pCount = netGetConnectedPlayerCount();
+            int maxP = stages[selectedStageIdx].maxPlayers;
+            bool slotsReady = true;
+            int nextSlot = 0;
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                if (lobby->slots[i].connected) {
+                    if (i != nextSlot || !lobby->slots[i].ready) slotsReady = false;
+                    nextSlot++;
+                }
+            }
+            bool canLaunch = (pCount >= 2 && pCount <= maxP && slotsReady);
+            
+            ImGui::TextColored(gold, "PLAYERS IN LOBBY (%d/%d):", pCount, maxP);
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                if (lobby->slots[i].connected) {
+                    ImGui::BulletText("Slot %d: %s (%s) %s", i + 1,
+                                     lobby->slots[i].name,
+                                     characters[lobby->slots[i].chr_id % 12].name,
+                                     (i == 0) ? "[HOST]" : (lobby->slots[i].ready ? "[READY]" : "[WAITING]"));
+                } else {
+                    ImGui::TextDisabled("Slot %d: [Open]", i + 1);
+                }
+            }
+            
+            if (!canLaunch) {
+                ImGui::Spacing();
+                if (pCount > maxP) {
+                    ImGui::TextColored(bad, "Stage player limit exceeded! Max %d players for %s (currently %d).",
+                                       maxP, stages[selectedStageIdx].name, pCount);
+                } else if (pCount < 2) {
+                    ImGui::TextColored(bad, "Waiting for at least one more player.");
+                } else {
+                    ImGui::TextColored(bad, "All players must be ready in consecutive slots. Rejoin to fill an open slot.");
+                }
+            }
+            
+            ImGui::Spacing();
+            if (!canLaunch) ImGui::BeginDisabled();
+            if (ImGui::Button("LAUNCH MULTIPLAYER MATCH!", ImVec2(-1, ImGui::GetFrameHeight() * 1.8f))) {
+                if (!netLobbyHostLaunchMatch()) return;
+                gamemode = 1; // GAMEMODE_MULTI
+                selected_num_players = netGetConnectedPlayerCount();
+                if (selected_num_players < 2) selected_num_players = 2;
+                g_StageNum = stages[selectedStageIdx].id;
+                bossSetLoadedStage(g_StageNum);
+                
+                init_mp_options_for_scenario(selected_num_players);
+                reset_mp_options_for_scenario(0); // SCENARIO_NORMAL
+                setMPWeaponSet(0);
+                for (int p = 0; p < selected_num_players && p < 4; p++) {
+                    player_char[p] = lobby ? lobby->slots[p].chr_id : p;
+                }
+                
+                startMatch = true;
+                open = false;
+            }
+            if (!canLaunch) ImGui::EndDisabled();
+            
+            if (ImGui::Button("Stop Hosting")) {
+                netDiscoveryStopBroadcasting();
+                netDisconnect();
+            }
+        }
+    } else {
+        if (!netIsActive() || netIsHost()) {
+            netDiscoveryInit();
+            ImGui::TextColored(gold, "LAN GAMES DISCOVERED (%d):", netDiscoveryGetServerCount());
+            int count = netDiscoveryGetServerCount();
+            if (count == 0) {
+                ImGui::TextDisabled("Searching your Wi-Fi network for GoldenEye VR hosts...");
+            } else {
+                for (int i = 0; i < count; i++) {
+                    const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
+                    char label[128];
+                    snprintf(label, sizeof(label), "%s (%s:%d) - %d/%d Players",
+                             srv->server_name, srv->host_ip, srv->port, srv->player_count, srv->max_players);
+                    if (ImGui::Button(label)) {
+                        netConnect(srv->host_ip, srv->port);
+                    }
+                }
+            }
+            
+            ImGui::Separator();
+            ImGui::Text("Or Connect Directly via IP:");
+            ImGui::InputText("##directip", directIp, sizeof(directIp));
+            ImGui::SameLine();
+            if (ImGui::Button("Connect")) {
+                netConnect(directIp, GEVR_DEFAULT_PORT);
+            }
+        } else {
+            ImGui::TextColored(good, "CONNECTED TO SERVER! You are Player Slot %d", netGetLocalSlot() + 1);
+            
+            ImGui::Text("Choose Your Character: ");
+            ImGui::SameLine();
+            if (ImGui::BeginCombo("##chrclientcombo", characters[selectedChrIdx].name)) {
+                for (int n = 0; n < (int)(sizeof(characters)/sizeof(characters[0])); n++) {
+                    bool isSelected = (selectedChrIdx == n);
+                    if (ImGui::Selectable(characters[n].name, isSelected)) {
+                        selectedChrIdx = n;
+                        netLobbySetCharacter((uint8_t)characters[selectedChrIdx].id);
+                    }
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            
+            const NetMsgLobbyState *lobby = netGetLobbyState();
+            static bool clientReady = false;
+            if (ImGui::Checkbox("I am Ready", &clientReady)) {
+                netLobbySetReady(clientReady);
+            }
+            
+            ImGui::TextColored(gold, "Waiting for Host to launch match...");
+            if (netGetState() == NET_STATE_INGAME) {
+                gamemode = 1; // GAMEMODE_MULTI
+                selected_num_players = netGetConnectedPlayerCount();
+                if (selected_num_players < 2) selected_num_players = 2;
+                g_StageNum = lobby->stage_num;
+                bossSetLoadedStage(g_StageNum);
+                
+                init_mp_options_for_scenario(selected_num_players);
+                reset_mp_options_for_scenario(lobby->scenario);
+                setMPWeaponSet(lobby->weapon_set);
+                for (int p = 0; p < selected_num_players && p < 4; p++) {
+                    player_char[p] = lobby->slots[p].chr_id;
+                }
+                
+                startMatch = true;
+                open = false;
+            }
+            
+            if (ImGui::Button("Disconnect")) {
+                netDisconnect();
+            }
+        }
+    }
+    
+    ImGui::Spacing();
+    ImGui::Separator();
+    if (ImGui::Button("Back to Main Menu", ImVec2(-1, 0))) {
+        open = false;
+    }
+}
+
 // Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at
 // the screen is the mouse, and a trigger clicks. Returns whether it points.
 //
@@ -778,6 +1031,9 @@ extern "C" void gevrLauncherRun(void)
     while (!start) {
         SDL_PumpEvents();
 
+        netPoll();
+        netDiscoveryUpdate(SDL_GetTicks());
+
         if (!gevrVrPumpBegin()) {
             SDL_Delay(5);
             continue;
@@ -931,7 +1187,10 @@ extern "C" void gevrLauncherRun(void)
         // way the game's own cheat menu does (front.c init_menu0B_runstage).
         static bool cheatPage = false;
         static bool modsPage = false;
-        if (modsPage) {
+        static bool mpPage = false;
+        if (mpPage) {
+            gevrMultiplayerPage(mpPage, start, gold, good, bad);
+        } else if (modsPage) {
             gevrModsPage(modsPage, now, gold, good, bad);
         } else if (cheatPage) {
             struct CheatRow { const char *name; int id; bool cosmetic; };
@@ -1128,6 +1387,10 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
                                   "the gun on your hand. A keeps it, B puts it back.");
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Multiplayer...")) {
+                mpPage = true;
             }
 
             // Update line: only when there is something to say, so an

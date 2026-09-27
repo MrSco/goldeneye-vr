@@ -632,7 +632,32 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                             }
 
                             sp90 = get_cur_playernum();
-                            set_cur_player(getPlayerPointerIndex(temp_s0));
+                            s32 targetIndex = getPlayerPointerIndex(temp_s0);
+#ifdef GEVR
+                            extern bool netIsActive(void);
+                            extern int netGetLocalSlot(void);
+                            extern bool netIsHost(void);
+                            extern void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg);
+                            if (netIsActive())
+                            {
+                                bool should_report = ((s32)temp_s2->player == netGetLocalSlot()) ||
+                                                     (temp_s2->player < 0 && netIsHost());
+                                if (should_report)
+                                {
+                                    if (getPlayerCount() == 1)
+                                    {
+                                        minfrac *= g_SpExplosionDamageMult;
+                                    }
+                                    if (isBondInTank() == 1)
+                                    {
+                                        minfrac *= 2.0f;
+                                    }
+                                    netSendHitReport((uint8_t)targetIndex, ITEM_GRENADE, 0, xdist, 0.0f, zdist, minfrac);
+                                }
+                                continue;
+                            }
+#endif
+                            set_cur_player(targetIndex);
 
                             if (getPlayerCount() == 1)
                             {

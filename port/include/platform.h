@@ -28,6 +28,15 @@
 #define PD_BE32(x) __builtin_bswap32(x)
 #define PD_BE64(x) __builtin_bswap64(x)
 #endif
+#if defined(PLATFORM_BIG_ENDIAN)
+#define PD_LE16(x) PD_BE16(x)
+#define PD_LE32(x) PD_BE32(x)
+#define PD_LE64(x) PD_BE64(x)
+#else
+#define PD_LE16(x) (x)
+#define PD_LE32(x) (x)
+#define PD_LE64(x) (x)
+#endif
 #define PD_BEPTR(x) (sizeof(void*) == 8 ? (uintptr_t)PD_BE64((uint64_t)(x)) : (uintptr_t)PD_BE32((uint32_t)(x)))
 
 #endif /* _IN_PLATFORM_H */
