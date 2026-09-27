@@ -5148,3 +5148,111 @@ tools/texai/NOTES.md.
 - The 954 non-zlib ROM textures, and every level not yet played with the
   dump on.
 - Next steps: dump, then batch.py, then package.py, then an ai- release.
+
+## 118. Scopes at the N64's magnification; laser scope; rifle magnifiers; grip steadying (#58, merged 2026-09-27)
+- fix/58-scope-zoom + feature/laser-scope (stacked): MERGED (user: "feels
+  and looks good"). Supersedes 105's zoom rule.
+- Magnification (#58, ApeFe: "about 2x"): the lens showed sniper_zoom's
+  degrees across itself, but it fills only 20-40 degrees of the view. Now
+  tan(view/2) = tan(lens/2) x tan(zoom/2) / tan(30): the N64's zoomed view
+  over its 60-degree normal one. vr_openxr.cpp publishes gevrScopeLensTan
+  (lens radius / distance, as last shown); bondview2.c gevrScopeBegin sizes
+  the scope's view from it each frame. Logged on zoom changes.
+- Sniper range in stereo (gun.c camera_sniper_zoom_*): no wider than it
+  starts (15 degrees, 4.4x; 60 showed the world at its own size, user), on to
+  2.65 degrees, 25x (the N64's 7 / 9.4x, then 15x, were not enough, user).
+  The screen keeps 7..60 (get_item_in_hand_zoom returns at least 7).
+- Aiming the sniper, the moving stick's side to side no longer strafes
+  (input.c, bondview2.c gevrScopeZoomStick); up/down zooms as before.
+- Scopes are a table (bondview2.c s_gevrScopes, eyepieces from the ROM, raw
+  vertex coordinates): sniper (node 0x27c end ring), laser (GlaserZ node
+  0x2ac, rear face of the sight housing: 0, 100, -80, r 16; fixed 3x, 21.8
+  degrees - the N64 never zoomed it; 2.2x was a bit little, user), KF7 (Gak47Z
+  receiver top rear: 0, 80, -44) and AR33 (Gm16Z rear sight housing: 0.5, 140,
+  -5), r 16, at their own aim zoom (ak47 30, m16 20 degrees).
+- The KF7's and AR33's magnifier shows only with the eye within 15 cm of it,
+  gone past 20 (user's idea; hysteresis, as one distance flickered in 105).
+  Logged "sight magnifier on/off (item, eye cm)". Tested clean.
+- Rifles' whole-screen aim zoom: references disagree - PD VR zooms the whole
+  headset view (with head and hand smoothing while gripping a zoom weapon),
+  GEVR PC rejects view zoom (docs/37 trap 3: a scope render instead, never
+  built). User chose the magnifier.
+- Grip steadying (PD VR vr_input.cpp WepCanZoom, CTRL_SMOOTH_ALPHA_ROT_GRIP
+  0.10 per XR frame): aiming a gun with a scope, the gun hand's turn is
+  slerped 0.15 a game frame (vr_input.cpp gevr_steady, bondview2.c
+  gevrGripSteadyOn). Position stays raw.
+- Redraw fix: the #53 in-between frames moved the gun to the RAW newest turn
+  while the game frame used the steadied one, putting tremor back on every
+  redrawn frame (aim steadying too, since 108). vr_input.cpp
+  gevrVrGripPoseSteady carries the play-space steadying onto the newest
+  view pose (raw_view x raw_play^-1 x steady_play); gevrVrRedrawHandDelta and
+  the scope lens use it.
+- #58 and #59 still open: reply to ApeFe at the release. #58: magnification
+  explained, 25x, grip steadying; the "move half as far" idea not done. #59
+  (no zoom on the AR33 and KF7 since #40; could the laser's modeled scope
+  zoom?): the near-eye magnifiers at their original zoom, and the laser's 3x
+  scope.
+
+## 119. v0.1.17 published (2026-09-27)
+- Tag v0.1.17 = build commit 2ea2a6d (versionCode 18), release key, APK
+  SHA-256 c49c8936...32cfd7 (GitHub's digest matches). Installed on the
+  headset with adb.
+- Contents since v0.1.16: melee with either hand (115-116), HD + AI texture
+  pack with pack updates and the Menu+X switch (117), scopes at the N64's
+  magnification, laser scope, KF7/AR33 near-eye magnifiers, grip steadying,
+  steadied redraws (118). README: melee, scopes, magnifiers.
+- Closed with replies: #58 #59 #57 (completed). Commented on closed #55.
+- Open: #60 laser watch pop-in (owner asked for screenshots; listed as a
+  known issue), #56 akimbo with different guns, #50 (parked), #9 (another
+  session), #32 #30 #29 #23 #18.
+
+## 120. fix/60-watch-grip-hand: SHELVED (2026-09-27)
+- #60 (ApeFe): at the watch, the watch laser's own two-arm viewmodel
+  (GwatchlaserZ) replaced the tracked watch arm and popped to a smaller,
+  coarser arm. User: the new HD textures handle it mostly; branch shelved,
+  not merged. Pushed, two commits:
+  - 1fb7ef9: the tracked watch arm stays; the gun hand at the watch is the
+    taser's gripping hand (the #41 grenade hand) on its controller; the
+    GwatchlaserZ copy, loader and gevrStereoWatchHandMatrix removed. Tested:
+    the hand only changed model near the wrist (user: should snap and lock).
+  - 7a07ebb (built, never installed): the gripping hand pinned to the left
+    wrist as #35's is to the gun (bondview2.c gevrStereoWatchGripMatrix:
+    GUNLEFT's matrix, trim turn, palm on the watch face plus a wrist-frame
+    offset; left hand's redraw tag), trim VrWatchGripTrim / ini GripWatch,
+    set in Gun fit while holding the watch ("WATCH GRIP FIT").
+- The headset was left on 1fb7ef9 (this branch), not main.
+
+## 121. Hand and arm shells closed (#9, merged 2026-09-27)
+- User-tested over four rounds on Dam; MERGED as edee89e (user: "as good
+  as we can do for now"). Branch feature/9-hand-shells, worktree
+  ../gevr-hands; the whole story is in tools/handpatch/NOTES.md.
+- The N64 modelled the first-person hands as open shells (fingers and
+  forearms as the top half of a tube, no palm, open sleeve ends). 13 models
+  now get patches at load: Csuit_lf_handZ (watch arm), GwppkZ, GwppksilZ,
+  GgoldwppkZ, GsilverwppkZ, GgoldengunZ, GrugerZ, Gtt33Z, GknifeZ,
+  GthrowknifeZ, GfistZ, GtaserZ (taser, grenade and two-handed grip hand),
+  GwatchlaserZ. 34 parts, 3526 triangles.
+- Pipeline (tools only, nothing ROM-derived committed):
+  - tools/gevr_model_export.py -> build/handmodels/<Model>.json (gitignored),
+    tools/gevr_tex_decode.py for textured renders.
+  - Blender 5.2 headless: tools/blender/gevr_hands_patch.py applies
+    tools/handpatch/<Model>.recipe.json (ours) and writes <Model>.patch.json:
+    corners as ROM vertex refs (node, index) or weights over four ROM
+    vertices on one bone, our s/t and shade, an FNV fingerprint per node.
+    Ops: fill (Liepa), earclip, tube (a finger's or forearm's missing half
+    from its two rails), skirt (fist to grip), bridge, ribbon (watch band),
+    fair/dome. --render/--compare/--view draw before/after sheets.
+  - tools/gevr_handpatch_gen.py -> port/src/gevr_handpatch_data.c
+    (generated, committed). Re-run after any patch change.
+- Runtime: gevr_model.c notes each wanted model's node offsets and texture
+  markers during conversion; load_object_fill_header (objecthandler_2.c)
+  calls gevrHandPatchApply (port/src/gevr_handpatch.c): a part applies only
+  if every node's vertex count and fingerprint match; the host's Primary
+  becomes [own DL, patch DL, END], per model buffer. Log: "handpatch <model>:
+  N of M parts, T triangles". files/gevr_handpatch.txt: 0 off, 2 magenta
+  patch faces, anything else on (the headset has 1).
+- Last test: 10 of the 13 loaded, all parts applied. Not seen in the
+  headset since the final rounds: GwppkZ, GknifeZ, GthrowknifeZ.
+- Open: the PP7's index finger never shows (own bone, switch entry 6, the
+  trigger pivot); likely placement in stereo, not a shell - compare with
+  gevr_handpatch.txt 0. #9 left open to close with a reply at release.

@@ -1,0 +1,477 @@
+{
+ "model": "GwatchlaserZ",
+ "note": "Watch laser two-arm pose (issue #9, Phase 3; shown while the off hand grips the watch, #31). Hands 0x1c8 and 0x300 have no switch (always drawn); the sleeves are outfit switches 29-34 and are open troughs; the pressing finger 0x330 spans bones 0 and 3. The watch's trim rings are left alone.",
+ "assemblies": [
+  {
+   "host": "0x01c8",
+   "nodes": [
+    "0x01c8",
+    "0x0300"
+   ],
+   "ops": [
+    {
+     "op": "fill",
+     "loop": "213",
+     "fair": 1,
+     "why": "the right hand's open palm",
+     "tex": "0x706",
+     "uvbox": [
+      0.55,
+      0.15,
+      0.95,
+      0.85
+     ],
+     "dome": 0.2
+    },
+    {
+     "op": "fill",
+     "loop": "0x0300:263",
+     "fair": 1,
+     "why": "the left fist's open palm",
+     "tex": "0x706",
+     "uvbox": [
+      0.55,
+      0.15,
+      0.95,
+      0.85
+     ],
+     "dome": 0.2
+    },
+    {
+     "op": "fill",
+     "loop": "1",
+     "why": "the left wrist's cut end, inside the sleeve",
+     "tex": "0x704",
+     "shade": [
+      60,
+      60,
+      60,
+      255
+     ],
+     "fair": 2,
+     "dome": 0.15
+    },
+    {
+     "op": "fill",
+     "loop": "0x0300:284",
+     "why": "the arm's cut end",
+     "tex": "0x704",
+     "shade": [
+      60,
+      60,
+      60,
+      255
+     ],
+     "fair": 2,
+     "dome": 0.15
+    },
+    {
+     "op": "fill",
+     "loop": "294",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "322",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0300:369",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0300:390",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0300:467",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0300:460",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0300:559",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0300:566",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "223",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "253",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "386",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0300:368",
+     "why": "finger hole",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    }
+   ]
+  },
+  {
+   "host": "0x0330",
+   "nodes": [
+    "0x0330"
+   ],
+   "ops": [
+    {
+     "op": "fill",
+     "loop": "0x0330:77",
+     "why": "the pressing finger's open end",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0330:40",
+     "why": "the pressing finger's open end",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0330:14",
+     "why": "the pressing finger's open end",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    },
+    {
+     "op": "fill",
+     "loop": "0x0330:10",
+     "why": "the pressing finger's open end",
+     "tex": "0x706",
+     "uvbox": [
+      0.6,
+      0.3,
+      0.9,
+      0.6
+     ],
+     "fair": 1,
+     "dome": 0.3
+    }
+   ]
+  },
+  {
+   "host": "0x02b8",
+   "nodes": [
+    "0x02b8"
+   ],
+   "ops": [
+    {
+     "op": "earclip",
+     "loop": "0x02b8:0",
+     "why": "the sleeve's open underside and ends (switch 29)",
+     "tex": "0x63e",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ]
+    }
+   ]
+  },
+  {
+   "host": "0x02e8",
+   "nodes": [
+    "0x02e8"
+   ],
+   "ops": [
+    {
+     "op": "earclip",
+     "loop": "0x02e8:0",
+     "why": "the sleeve's open underside and ends (switch 34)",
+     "tex": "0x660",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ]
+    }
+   ]
+  },
+  {
+   "host": "0x0258",
+   "nodes": [
+    "0x0258"
+   ],
+   "ops": [
+    {
+     "op": "earclip",
+     "loop": "0x0258:11",
+     "why": "the jacket's open underside (switch 30)",
+     "tex": "0x63d",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ]
+    },
+    {
+     "op": "earclip",
+     "loop": "0x0258:0",
+     "why": "the cuff band's open underside",
+     "tex": "0x645",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ]
+    }
+   ]
+  },
+  {
+   "host": "0x0288",
+   "nodes": [
+    "0x0288"
+   ],
+   "ops": [
+    {
+     "op": "earclip",
+     "loop": "0x0288:11",
+     "why": "the jacket's open underside (switch 31)",
+     "tex": "0x69f",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ]
+    },
+    {
+     "op": "earclip",
+     "loop": "0x0288:0",
+     "why": "the cuff band's open underside",
+     "tex": "0x645",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ]
+    }
+   ]
+  },
+  {
+   "host": "0x01f8",
+   "nodes": [
+    "0x01f8"
+   ],
+   "ops": [
+    {
+     "op": "earclip",
+     "loop": "0x01f8:11",
+     "why": "the jacket's open underside (switch 32)",
+     "tex": "0x667",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ]
+    },
+    {
+     "op": "earclip",
+     "loop": "0x01f8:0",
+     "why": "the cuff band's open underside",
+     "tex": "0x645",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ]
+    }
+   ]
+  },
+  {
+   "host": "0x0228",
+   "nodes": [
+    "0x0228"
+   ],
+   "ops": [
+    {
+     "op": "earclip",
+     "loop": "0x0228:14",
+     "why": "the rolled sleeve's open underside (switch 33)",
+     "tex": "0x66c",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ],
+     "uvbox": [
+      0.05,
+      0.55,
+      0.95,
+      0.95
+     ]
+    },
+    {
+     "op": "earclip",
+     "loop": "0x0228:0",
+     "why": "the forearm's open underside",
+     "tex": "0x701",
+     "shade": [
+      100,
+      100,
+      100,
+      255
+     ]
+    }
+   ]
+  }
+ ]
+}
