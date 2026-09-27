@@ -17,10 +17,16 @@ GoldenEye's zlib textures that memory is fully determined by the ROM
     bytes (GLideN64 hashes a TLUT load from its image's start).
 The texture checksum covers width x height texels at the padded stride.
 
+The textures in Rare's own scheme (texInflateNonZlib: huffman, RLE, lookup
+tables, blur; RGBA, IA and I formats) go through rareimg.py, a port of that
+decompressor, and are named the same way (no palette checksum). Checked
+2026-09-27: 782 of 954 are names ge007.tdb lists, and the 54 of those also in
+a headset texture dump decode to the very texels the game drew.
+
 Every computed name is checked against the authors' texture database
 (<fork_dir>/GOLDENEYE/ge007.tdb, every texture the game draws): only names it
 lists are written, so a wrong guess about how a texture is drawn is dropped,
-never generated. Non-zlib textures (Rare's own scheme) are not decoded yet.
+never generated.
 
 Writes <out_dir>/<name> (RGBA as the renderer shows it) and
 <out_dir>/index.tsv in the texture dump's format (gfx_pc.cpp
@@ -38,6 +44,7 @@ TOOLS = os.path.dirname(HERE)
 sys.path.insert(0, TOOLS)
 import gevr_model_probe as probe   # noqa: E402
 import gevr_tex_decode as dec      # noqa: E402
+import rareimg                      # noqa: E402
 
 CI8 = (0x09, 0x0b)   # TEXFORMAT_RGBA16_CI8, TEXFORMAT_IA16_CI8
 FMT_CI = 2
@@ -138,6 +145,27 @@ def rgba(fmt, idx, pal):
     return bytes(px)
 
 
+def named(rom, t, seg, offs):
+    """(pack name, G_IM_FMT, G_IM_SIZ, w, h, RGBA texels, texture checksum) of
+    texture t's base image, zlib (paletted) or Rare's own scheme (rareimg.py)"""
+    src = rom[seg + offs[t]: seg + offs[t + 1] + 16]
+    if (src[0] >> 6) & 1:
+        r = decode_raw(rom, t, seg, offs)
+        if r is None:
+            return None
+        fmt, w, h, idx, pal, head = r
+        if w == 0 or h == 0:
+            return None
+        name, crc, siz = names_for(fmt, w, h, idx, pal, head)
+        return name, FMT_CI, siz, w, h, rgba(fmt, idx, pal), crc
+    img = rareimg.decode(bytes(src[1:]), src[0])
+    if img is None:
+        return None
+    crc = rice(img.data, 0, img.w, img.h, img.siz, img.stride)
+    name = 'GOLDENEYE#%08X#%d#%d_all.png' % (crc, img.gbifmt, img.siz)
+    return name, img.gbifmt, img.siz, img.w, img.h, img.rgba, crc
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('rom')
@@ -169,20 +197,17 @@ def main():
     stats = dict(decoded=0, exact=0, texonly=0, none=0, inpack=0, written=0)
     for t in range(len(offs) - 1):
         try:
-            r = decode_raw(rom, t, seg, offs)
+            got = named(rom, t, seg, offs)
         except Exception:
-            r = None
-        if r is None:
+            got = None
+        if got is None:
             continue
-        fmt, w, h, idx, pal, head = r
-        if w == 0 or h == 0:
-            continue
+        name, gfmt, siz, w, h, px, crc = got
         stats['decoded'] += 1
-        name, tex, siz = names_for(fmt, w, h, idx, pal, head)
         if name.upper() in tdb:
             stats['exact'] += 1
-        elif ('%08X' % tex, str(FMT_CI), str(siz)) in tdb_tex:
-            stats['texonly'] += 1     # the texture, drawn with another palette checksum
+        elif ('%08X' % crc, str(gfmt), str(siz)) in tdb_tex:
+            stats['texonly'] += 1     # the texture, drawn with another palette or tile
             continue
         else:
             stats['none'] += 1
@@ -191,14 +216,14 @@ def main():
             stats['inpack'] += 1
             if not a.all:
                 continue
-        Image.frombytes('RGBA', (w, h), rgba(fmt, idx, pal)).save(os.path.join(a.out_dir, name))
+        Image.frombytes('RGBA', (w, h), px).save(os.path.join(a.out_dir, name))
         pow2 = lambda v: v & (v - 1) == 0
         cms = 0 if pow2(w) else 2
         cmt = 0 if pow2(h) else 2
         masks = w.bit_length() - 1 if pow2(w) else 0
         maskt = h.bit_length() - 1 if pow2(h) else 0
         # level -1: the ROM does not say where a texture is drawn; the texture number follows
-        index.write('%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n' % (name, w, h, FMT_CI, siz, cms, cmt, masks, maskt, -1, t))
+        index.write('%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n' % (name, w, h, gfmt, siz, cms, cmt, masks, maskt, -1, t))
         stats['written'] += 1
     index.close()
     print(stats)

@@ -63,8 +63,16 @@ intermissionfb and GhostlyDark)?
     258 of the matches are already in the pack, so 967 go to batch.py
     (`build/texai-rom`, level column -1, written to `GOLDENEYE/AI/From ROM/`).
   - Wrap flags are guessed from the size: power-of-two sides repeat.
-  - Still needed from the headset dump: the 954 non-zlib textures (Rare's
-    own compression) and the 498 unmatched.
+  - 2026-09-27: `rareimg.py` ports texInflateNonZlib (huffman, RLE, lookup,
+    blur; RGBA/IA/I formats). All 2,698 table textures now decode.
+    - 2,007 are names the tdb lists; 782 of those are from the 954 non-zlib.
+    - The 54 non-zlib textures that are also in the headset dump decode to
+      identical texels.
+    - Where the port and the N64 differ (a u16 lookup read by byte), the
+      N64's reading is used.
+    - 518 new gap names, 469 of them 16 texels or more (`build/texai-rom2`).
+  - Still only from a dump: textures outside the texture table (fonts,
+    effects, model-embedded art such as the Rare logo).
 - **Pack scale.** The authors' 4K sources are 16-64x native. Their HD
   release is 25-50% of that, so 4-32x (median 8-16x). Ours is 8x (256 px
   for 32 px), to keep the download small; raise `texai.SCALE` if it looks
