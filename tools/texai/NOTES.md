@@ -63,8 +63,34 @@ intermissionfb and GhostlyDark)?
     258 of the matches are already in the pack, so 967 go to batch.py
     (`build/texai-rom`, level column -1, written to `GOLDENEYE/AI/From ROM/`).
   - Wrap flags are guessed from the size: power-of-two sides repeat.
-  - Still needed from the headset dump: the 954 non-zlib textures (Rare's
-    own compression) and the 498 unmatched.
+  - 2026-09-27: `rareimg.py` ports texInflateNonZlib (huffman, RLE, lookup,
+    blur; RGBA/IA/I formats). All 2,698 table textures now decode.
+    - 2,007 are names the tdb lists; 782 of those are from the 954 non-zlib.
+    - The 54 non-zlib textures that are also in the headset dump decode to
+      identical texels.
+    - Where the port and the N64 differ (a u16 lookup read by byte), the
+      N64's reading is used.
+    - 518 new gap names, 469 of them 16 texels or more (`build/texai-rom2`).
+  - Still only from a dump: textures outside the texture table (fonts,
+    effects, model-embedded art such as the Rare logo).
+- **What the ROM can't give (checked 2026-09-27).**
+  - After ai-2026.09.27, 1,070 real textures are still missing (1,580
+    counting 510 flat ones of 8 texels or less).
+  - Offline variants were tried against every table texture: swap on/off,
+    sub-tiles, stride. They recover none of them.
+    - 33x33 CI: 630 tdb entries; only 8 of the ROM's 101 match in any
+      variant.
+    - Most of the rest are 95x32 IA, 32x32 CI and 16x16 RGBA.
+  - These are built or changed at run time, or read past the loaded texture
+    into whatever follows it in memory, as GoldenEye's global explosion and
+    smoke DLs do (56x56 IA8 with 64 masks). The port's lookup skips those
+    reads (s_tpSkipSize).
+  - Palette-only mismatches (21 textures) are odd colour counts: GLideN64's
+    palette checksum reads 2 bytes past into memory that varies (one 16x1
+    ramp has 47 tdb names). All are tiny ramps and flat colours.
+  - 31 small textures (128x9 strips, 14x14 fire) that `--min 16` skipped were
+    added with `--min 9`.
+  - The rest needs the in-game dump.
 - **Pack scale.** The authors' 4K sources are 16-64x native. Their HD
   release is 25-50% of that, so 4-32x (median 8-16x). Ours is 8x (256 px
   for 32 px), to keep the download small; raise `texai.SCALE` if it looks
@@ -85,6 +111,41 @@ intermissionfb and GhostlyDark)?
   - SeedVR2 does well on materials, props, signs and decals.
   - It reinvents ornate pixel art (e.g. 7A7EF21F). Those are candidates for
     ChatGPT, or for leaving out.
+
+## Headset tour (2026-09-27, release ai-2026.09.27.2)
+
+The ROM pass can't reach textures the game builds or reads at run time, so
+`tools/texai/tour.py` drives the headset through all 20 missions with the
+dump on. It warps to every pad and spins where something new shows up.
+Running unattended, it took about 3.5 hours and found ~380 real gaps. The
+script's docstring lists the traps: exit-zone pads, intro timing, sleep.
+
+What the tour taught:
+- **Measure gaps with the dump, not the tdb.** Most tdb names the pack lacks
+  are never looked up by our port. The dump shows exactly what the
+  installed pack misses.
+- **Palette checksums vary for one image.** The checksum takes in bytes the
+  texture doesn't use, so a Silo console dumps under 5-8 names with
+  identical pixels.
+  - batch.py makes one `#$` (any-palette) file for these. The port looks it
+    up after the exact name misses, and it also covers variants nobody has
+    dumped yet.
+- **SeedVR2 invents structure on grainy art.** On stone, bark and the Statue
+  Park statue's 33x33 tiles it drew chrome ornaments, a different one on
+  each tile.
+  - Grainy textures (flat share < 0.15) get both upscalers. Real-ESRGAN wins
+    only if it is 1.5 dB more faithful at native resolution.
+  - regrain.py applies the same test to textures already in the fork (129
+    swapped).
+- **ComfyUI's VRAM creeps up over a run** until jobs spill and crawl.
+  comfy.py frees memory every 15 jobs and interrupts any job past 240 s.
+  One hung SeedVR2 job ignored the interrupt and needed a ComfyUI restart.
+- **package.py sizes AI textures to the authors' scale** beside them: about
+  256 px on the long side, 4x for a 64-px wall. The fork keeps the 8x
+  masters. The zip went from 334 MB to 262 MB.
+- **Review failures** to watch for: invented text, "eyes" on small dark
+  screens, contour swirls on flat grey dials, stringy coastlines on map
+  tiles. They are all on rejected.txt.
 
 ## Pilot
 

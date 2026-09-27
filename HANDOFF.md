@@ -5256,3 +5256,37 @@ tools/texai/NOTES.md.
 - Open: the PP7's index finger never shows (own bone, switch entry 6, the
   trigger pivot); likely placement in stereo, not a shell - compare with
   gevr_handpatch.txt 0. #9 left open to close with a reply at release.
+
+## 122. Texture tour of every level; pack ai-2026.09.27.2; stereo aim crash guard (merged 2026-09-27)
+- **Pack release.** MrSco/GoldenEye-007-HD release ai-2026.09.27.2 (fork
+  8a2011b): 1,847 AI textures, 262 MB. The launcher's Mods page offers it as
+  an update. The whole story is in tools/texai/NOTES.md, "Headset tour".
+- **The tour.** tools/texai/tour.py drives the headset through all 20
+  missions with files/gevr_packdump on. It warps to every pad, spins the
+  view where a texture the fork lacks shows up, and leaves each level
+  through the watch's abort. About 3.5 h unattended; ~380 real gaps.
+- **Game fix.** chrprop.c gevrStereoAimTrace skips its trace when Bond has no
+  floor tile. A warp onto Dam pad 111 (no tile) crashed in
+  getTileRoom(NULL) on the next frame.
+- **Test hooks.**
+  - The warp hook refuses tile-less pads.
+  - gevr_input.txt takes a 5th field, -100..100: the VR right stick's turn
+    for the held frames (libultra.c gevrInjectTurn, input.c
+    gevrVrTurnAxis). In stereo the N64 stick X strafes, so this is the only
+    way to turn from the PC.
+- **Texture tooling.**
+  - Palette-variant names become one `#$` wildcard file.
+  - Grainy art gets Real-ESRGAN where it is 1.5 dB more faithful than
+    SeedVR2 (regrain.py did the same for released textures, 129 swapped).
+  - AI textures are packaged at the authors' HD scale.
+  - comfy.py frees memory every 15 jobs and interrupts any job past 240 s.
+  - 78 rejects are on tools/texai/rejected.txt.
+- **Driving a level from the PC** (see tour.py's docstring):
+  - Abort: START, wait 3.5 s (the watch opens on Mission Status), A, stick
+    right, A; "stage: switching to 90" confirms it. Then A twice through
+    the report, and the level hook fires at mission select.
+  - Pads inside a level's exit zone end the mission (Surface 2's pads 2-9).
+- **Headset traps.**
+  - The "controllers required" launch check wants a controller actually
+    held ("in hand: Y"); a button press alone doesn't clear it.
+  - prox_close lapsed once mid-run, so the headset slept.

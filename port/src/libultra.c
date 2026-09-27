@@ -275,16 +275,19 @@ s32 osContStartReadData(OSMesgQueue *mesgq)
  * 4000 = B) and an optional stick pair, e.g. "1000" or "0000 0 -80". It is
  * applied to pad 0 for a few frames and the file is deleted, so menus can be
  * driven from the PC: adb shell "echo 1000 > /sdcard/Android/data/com.gevr.port/files/gevr_input.txt".
+ * An optional 5th field, -100..100, is the VR right stick's turn for those
+ * frames (input.c gevrVrTurnAxis), so stereo play can be turned too.
  */
 #include <stdio.h>
 #include <unistd.h>
 static u16 gevrInjectButtons; static s8 gevrInjectX, gevrInjectY; static s32 gevrInjectFrames;
+float gevrInjectTurn;
 static void gevrPollInjectedInput(void)
 {
 	static u32 sTick;
 	const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_input.txt";
 	if (gevrInjectFrames > 0) {
-		gevrInjectFrames--;
+		if (--gevrInjectFrames == 0) gevrInjectTurn = 0.0f;
 		return;
 	}
 	if ((++sTick % 15) != 0) {
@@ -292,16 +295,19 @@ static void gevrPollInjectedInput(void)
 	}
 	{
 		FILE *f = fopen(path, "r");
-		unsigned mask = 0; int x = 0, y = 0, frames = 4;
+		unsigned mask = 0; int x = 0, y = 0, frames = 4, turn = 0;
 		if (!f) {
 			return;
 		}
 		/* optional 4th field: how many frames to hold, e.g. "0010 0 0 120" to aim */
-		if (fscanf(f, "%x %d %d %d", &mask, &x, &y, &frames) >= 1) {
+		if (fscanf(f, "%x %d %d %d %d", &mask, &x, &y, &frames, &turn) >= 1) {
 			if (frames < 1) frames = 1;
 			if (frames > 600) frames = 600;
+			if (turn < -100) turn = -100;
+			if (turn > 100) turn = 100;
 			gevrInjectButtons = (u16)mask; gevrInjectX = (s8)x; gevrInjectY = (s8)y; gevrInjectFrames = frames;
-			sysLogPrintf(LOG_NOTE, "input: injecting buttons %04x stick %d,%d for %d frames", mask, x, y, frames);
+			gevrInjectTurn = turn / 100.0f;
+			sysLogPrintf(LOG_NOTE, "input: injecting buttons %04x stick %d,%d turn %d for %d frames", mask, x, y, turn, frames);
 		}
 		fclose(f);
 		unlink(path);
