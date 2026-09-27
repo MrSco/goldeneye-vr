@@ -2489,12 +2489,14 @@ extern "C" int gevrVrRedrawDelta(float out[16])
  * The hand is placed relative to the head, so the head's own move is in it.
  */
 extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);   // vr_input.cpp
+extern "C" int gevrVrGripPoseSteady(int hand, float pos[3], float quat[4]);   // vr_input.cpp: its turn steadied
 
 extern "C" int gevrVrRedrawHandDelta(int hand, float out[16])
 {
     float po[3], qo[4], pn[3], qn[4];
+    // the newest pose steadied as the game frame's was (aim and grip steadying)
     if (!g_haveRecordedViews || vr_world_scale <= 0.0f
-        || !gevrVrGripPoseCamera(hand, po, qo) || !gevrVrGripPose(hand, pn, qn)) {
+        || !gevrVrGripPoseCamera(hand, po, qo) || !gevrVrGripPoseSteady(hand, pn, qn)) {
         return 0;
     }
     float Ro[9], Rn[9], R[9];
@@ -3318,7 +3320,8 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     {
         const GLuint scopeTex = gfx_vr_scope_texture();
         float gp[3], gq[4];
-        if (g_scopeSwapchain != XR_NULL_HANDLE && scopeTex != 0 && gevrVrGripPose(1, gp, gq)) {
+        // steadied as the gun is (vr_input.cpp gevrVrGripPoseSteady), or it slides off its eyepiece
+        if (g_scopeSwapchain != XR_NULL_HANDLE && scopeTex != 0 && gevrVrGripPoseSteady(1, gp, gq)) {
             vr_update_scope_swapchain(scopeTex);
             const float x = gq[0], y = gq[1], z = gq[2], w = gq[3];
             const float rx = 1.0f - 2.0f * (y * y + z * z), ry = 2.0f * (x * y + w * z), rz = 2.0f * (x * z - w * y);
