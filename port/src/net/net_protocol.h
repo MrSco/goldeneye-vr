@@ -3,10 +3,14 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <ultra64.h>
+#include "bondtypes.h"
+#include "net/netbuf.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         1
+#define GEVR_NET_VERSION         2
 #define GEVR_DEFAULT_PORT        27007
+#define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
 #define GEVR_MAX_NAME_LEN        24
 #define GEVR_VOIP_MAX_BYTES      128
@@ -14,10 +18,19 @@
 /* ENet Channels */
 enum {
     NET_CHAN_RELIABLE = 0,      /* Match state, lobby, damage, weapon events */
-    NET_CHAN_PLAYER_STATE = 1,   /* Unreliable sequenced player transforms */
+    NET_CHAN_PLAYER_STATE = 1,   /* Unreliable sequenced player commands / transforms */
     NET_CHAN_VOIP = 2,          /* Voice chat audio packets */
     NET_CHAN_MAX
 };
+
+/* User command bitflags (adapted from Perfect Dark port-net) */
+#define UCMD_FIRE           (1 << 0)
+#define UCMD_ACTIVATE       (1 << 1)
+#define UCMD_RELOAD         (1 << 2)
+#define UCMD_AIMMODE        (1 << 3)
+#define UCMD_DUCK           (1 << 4)
+#define UCMD_SELECT         (1 << 7)
+#define UCMD_SELECT_DUAL    (1 << 8)
 
 /* Packet Opcodes */
 typedef enum {
@@ -29,6 +42,7 @@ typedef enum {
     NET_MSG_LOBBY_STATE = 3,    /* Server -> All */
     NET_MSG_LOBBY_READY = 4,    /* Client -> Server */
     NET_MSG_START_MATCH = 5,    /* Server -> All */
+    NET_MSG_LOBBY_CHARACTER = 6, /* Client -> Server (change character without re-handshaking) */
     
     /* In-Match State */
     NET_MSG_PLAYER_STATE = 10,  /* Player -> Server / Peers */
@@ -41,6 +55,55 @@ typedef enum {
     /* Voice Chat */
     NET_MSG_VOIP_FRAME = 20,    /* Player -> Server / Peers */
 } NetMsgType;
+
+/* Player movement & input command struct (serialized via netbuf) */
+struct netplayermove {
+    u32 tick;
+    u32 ucmd;
+    f32 movespeed[2];   /* [0]: forward (-1..1), [1]: strafe (-1..1) */
+    f32 angles[2];      /* [0]: theta (yaw), [1]: verta (pitch) */
+    f32 crosspos[2];    /* crosshair pos */
+    s8  weaponnum;      /* equipped weapon ITEM_* */
+    s8  crouchpos;      /* 0: stand, 1: crouch */
+    coord3d pos;        /* world position */
+    coord3d handpos;    /* 6DoF hand aim position in world/view */
+    coord3d handrot;    /* 6DoF hand aim rotation (pitch, yaw, roll) */
+};
+
+/* Serialization for netplayermove */
+static inline u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplayermove *m) {
+    netbufWriteU32(buf, m->tick);
+    netbufWriteU32(buf, m->ucmd);
+    netbufWriteF32(buf, m->movespeed[0]);
+    netbufWriteF32(buf, m->movespeed[1]);
+    netbufWriteF32(buf, m->angles[0]);
+    netbufWriteF32(buf, m->angles[1]);
+    netbufWriteF32(buf, m->crosspos[0]);
+    netbufWriteF32(buf, m->crosspos[1]);
+    netbufWriteS8(buf, m->weaponnum);
+    netbufWriteS8(buf, m->crouchpos);
+    netbufWriteCoord(buf, &m->pos);
+    netbufWriteCoord(buf, &m->handpos);
+    netbufWriteCoord(buf, &m->handrot);
+    return buf->error;
+}
+
+static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove *m) {
+    m->tick = netbufReadU32(buf);
+    m->ucmd = netbufReadU32(buf);
+    m->movespeed[0] = netbufReadF32(buf);
+    m->movespeed[1] = netbufReadF32(buf);
+    m->angles[0] = netbufReadF32(buf);
+    m->angles[1] = netbufReadF32(buf);
+    m->crosspos[0] = netbufReadF32(buf);
+    m->crosspos[1] = netbufReadF32(buf);
+    m->weaponnum = netbufReadS8(buf);
+    m->crouchpos = netbufReadS8(buf);
+    netbufReadCoord(buf, &m->pos);
+    netbufReadCoord(buf, &m->handpos);
+    netbufReadCoord(buf, &m->handrot);
+    return buf->error;
+}
 
 #pragma pack(push, 1)
 
@@ -98,7 +161,7 @@ typedef struct {
     uint32_t  random_seed;
 } NetMsgStartMatch;
 
-/* 6DoF High-Frequency Player State (~30-60 Hz) */
+/* High-frequency player state */
 typedef struct {
     NetHeader header;
     uint32_t  sequence;
@@ -143,6 +206,7 @@ typedef struct {
     uint8_t   weapon_id;
     uint8_t   is_dead;
     float     damage;
+    float     vector_x, vector_z;
     float     new_health;
     float     new_armor;
 } NetMsgDamageEvent;

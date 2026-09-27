@@ -777,11 +777,12 @@ void gevrStereoFrame(s32 inlevel)
     gevrCheatProbe(inlevel);
     gevrWarpProbe(inlevel);
     opening = gevrWatchOpeningByGesture(inlevel);
+    extern bool netIsActive(void);
     s32 want = inlevel
         && VrPlayMode != 0
         && gevrVrReady()
         && g_CurrentPlayer != NULL
-        && getPlayerCount() == 1
+        && (getPlayerCount() == 1 || netIsActive())
         && g_CameraMode == CAMERAMODE_FP
         && g_CurrentPlayer->cameramode != 1
         && (g_CurrentPlayer->pause_state == 0 || opening)
@@ -2843,6 +2844,13 @@ static void gevrStereoApplyHead(void)
     f32 horiz;
 
     if (!g_gevrStereo)
+    {
+        return;
+    }
+
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
     {
         return;
     }
@@ -10602,6 +10610,14 @@ s16 getHeight330or240(void)
 
 s16 bondviewGetCurrentPlayerViewportWidth(void)
 {
+#ifdef GEVR
+    extern bool netIsActive(void);
+    if (netIsActive())
+    {
+        return VIEWPORT_WIDTH_FULLSCREEN;
+    }
+#endif
+
     if (getPlayerCount() >= 3)
     {
         return VIEWPORT_WIDTH_4P;
@@ -10627,6 +10643,14 @@ s16 bondviewGetCurrentPlayerViewportWidth(void)
 
 s16 get_curplayer_viewport_ulx(void)
 {
+#ifdef GEVR
+    extern bool netIsActive(void);
+    if (netIsActive())
+    {
+        return 0;
+    }
+#endif
+
     if (2 < getPlayerCount())
     {
         if ((get_cur_playernum() == 1) || (get_cur_playernum() == 3))
@@ -10646,6 +10670,14 @@ s16 get_curplayer_viewport_ulx(void)
  */
 s16 bondviewGetCurrentPlayerViewportHeight(void)
 {
+#ifdef GEVR
+    extern bool netIsActive(void);
+    if (netIsActive())
+    {
+        return VIEWPORT_HEIGHT_DEFAULT;
+    }
+#endif
+
     f32 t;
 
     if (getPlayerCount() >= 2)
@@ -10692,6 +10724,14 @@ s16 bondviewGetCurrentPlayerViewportHeight(void)
  */
 s16 bondviewGetCurrentPlayerViewportUly(void)
 {
+#ifdef GEVR
+    extern bool netIsActive(void);
+    if (netIsActive())
+    {
+        return VIEWPORT_ULY_DEFAULT;
+    }
+#endif
+
     f32 t;
 
     if (getPlayerCount() == 2)
@@ -12021,7 +12061,8 @@ extern int gevrGunFitActive;   /* port/src/input.c */
 
 s32 gevrGunFitAvailable(void)
 {
-    return g_gevrStereo && g_CurrentPlayer != NULL && getPlayerCount() == 1 && !g_CurrentPlayer->bonddead
+    extern bool netIsActive(void);
+    return g_gevrStereo && g_CurrentPlayer != NULL && (getPlayerCount() == 1 || netIsActive()) && !g_CurrentPlayer->bonddead
         && g_CurrentPlayer->watch_animation_state == 0 && g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0;
 }
 
@@ -12029,8 +12070,9 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
 {
     char buf[256];
     s32 x, y, w = 0, h = 0;
+    extern bool netIsActive(void);
 
-    if (!gevrGunFitActive || !g_gevrStereo || getPlayerCount() != 1)
+    if (!gevrGunFitActive || !g_gevrStereo || (!netIsActive() && getPlayerCount() != 1))
     {
         return gdl;
     }
@@ -13779,7 +13821,8 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
              * the head-locked HUD panel with the health and armour
              * (VR_HUD_CAPTURE_*_H), centred in the lower third of the view.
              */
-            if (g_gevrStereo && getPlayerCount() == 1)
+            extern bool netIsActive(void);
+            if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
             {
                 view_left = viGetViewLeft() + (viGetViewWidth() - view_left_offset) / 2;
                 view_horiz = view_left + view_left_offset;
@@ -13793,7 +13836,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             arg0 = draw_blackbox_to_screen(arg0, &view_left, &view_vert, &view_horiz, &view_top); /* PORT: addresses were cast to s32 */
             arg0 = combiner_bayer_lod_perspective(textRenderOutlined(arg0, &view_left, &view_vert, stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, -1, 0x646464FFU, (s16) (s32) viGetX(), (s16) viGetY(), 0, 0));
 #ifdef GEVR
-            if (g_gevrStereo && getPlayerCount() == 1)
+            if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
             {
                 gDPNoOpTag(arg0++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
             }
@@ -13956,7 +13999,8 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                      * HUDMSGALIGN_TOP), just under the centre and clear of the
                      * bottom message and the countdown.
                      */
-                    if (g_gevrStereo && getPlayerCount() == 1)
+                    extern bool netIsActive(void);
+                    if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
                     {
                         msg.x = viGetViewLeft() + (viGetViewWidth() - msg.textwidth) / 2;
                         msg.y += 120;
@@ -13965,7 +14009,7 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
 #endif
                     msg.bottom = msg.y + msg.textheight;
 #ifdef GEVR
-                    if (g_gevrStereo && getPlayerCount() == 1)
+                    if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
                     {
                         /* the band only behind the text, as the bottom message's box */
                         gdl = microcode_constructor_related_to_menus(gdl, msg.x - 4, msg.y - 2, msg.x + msg.textwidth + 4, msg.bottom, 0x64);
@@ -13997,7 +14041,7 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                     }
 #endif
 #ifdef GEVR
-                    if (g_gevrStereo && getPlayerCount() == 1)
+                    if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
                     {
                         gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
                     }

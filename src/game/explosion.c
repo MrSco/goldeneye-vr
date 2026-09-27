@@ -632,7 +632,16 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                             }
 
                             sp90 = get_cur_playernum();
-                            set_cur_player(getPlayerPointerIndex(temp_s0));
+                            s32 targetIndex = getPlayerPointerIndex(temp_s0);
+#ifdef GEVR
+                            extern bool netIsActive(void);
+                            extern int netGetLocalSlot(void);
+                            if (netIsActive() && targetIndex != netGetLocalSlot())
+                            {
+                                continue;
+                            }
+#endif
+                            set_cur_player(targetIndex);
 
                             if (getPlayerCount() == 1)
                             {

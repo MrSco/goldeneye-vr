@@ -368,21 +368,34 @@ void bossMainloop(void)
 
     if (g_StageNum != LEVELID_TITLE)
     {
-        fileValidateSaves();
-        fileSetCurrentFolder(FOLDER1);
-        set_selected_difficulty(DIFFICULTY_AGENT);
-        set_solo_and_ptr_briefing(g_StageNum);
-
-        if (tokenFind(1, "-hard"))
+        if (gamemode != GAMEMODE_MULTI)
         {
-            // convert ASCII difficulty value to int in set difficulty calls eg '1' = 49, 49-48 = 1
-            set_selected_difficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
-            lvlSetSelectedDifficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
+            fileValidateSaves();
+            fileSetCurrentFolder(FOLDER1);
+            set_selected_difficulty(DIFFICULTY_AGENT);
+            set_solo_and_ptr_briefing(g_StageNum);
+
+            if (tokenFind(1, "-hard"))
+            {
+                // convert ASCII difficulty value to int in set difficulty calls eg '1' = 49, 49-48 = 1
+                set_selected_difficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
+                lvlSetSelectedDifficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
+            }
         }
     }
 
     nowCount = osGetCount();
+#ifdef GEVR
+    extern bool netIsActive(void);
+    extern uint32_t netGetRandomSeed(void);
+    if (netIsActive()) {
+        randomSetSeed(netGetRandomSeed());
+    } else {
+        randomSetSeed(nowCount);
+    }
+#else
     randomSetSeed(nowCount);
+#endif
 
     // 'done' value never changes, and control never breaks -- infinite loop
     while (!done)
@@ -550,8 +563,9 @@ void bossMainloop(void)
                                 extern void netDiscoveryUpdate(u32 current_time_ms);
                                 extern void netPlayerSyncBeforeTick(s32 playernum);
                                 extern void netPlayerSyncAfterTick(s32 playernum);
+                                extern u64 sysGetMicroseconds(void);
                                 netPoll();
-                                netDiscoveryUpdate((u32)(osGetCount() / 1000));
+                                netDiscoveryUpdate((u32)(sysGetMicroseconds() / 1000));
                             }
 #endif
                             gevrSchedTraceMenu(get_currentmenu(), 0);

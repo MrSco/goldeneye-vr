@@ -58,6 +58,11 @@ void vr_apply_refresh_rate(void);     // vr_openxr.cpp
 extern int selected_num_players;      // src/game/front.c
 extern int gamemode;                  // src/game/front.c
 extern int g_StageNum;                 // port/src/main.c
+void bossSetLoadedStage(int stage);
+void init_mp_options_for_scenario(int numplayers);
+void reset_mp_options_for_scenario(int scenarioid);
+void setMPWeaponSet(int setNUM);
+extern int player_char[];
 }
 #include "net_core.h"
 #include "net_discovery.h"
@@ -589,23 +594,48 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     static int selectedStageIdx = 0;
     static int selectedChrIdx = 0;
     
-    struct MpStage { const char *name; int id; };
+    enum {
+        GEVR_LEVEL_FACILITY = 34,
+        GEVR_LEVEL_COMPLEX  = 31,
+        GEVR_LEVEL_TEMPLE   = 38,
+        GEVR_LEVEL_STACK    = 46,
+        GEVR_LEVEL_CAVERNS  = 39,
+        GEVR_LEVEL_LIBRARY  = 48,
+        GEVR_LEVEL_BASEMENT = 45,
+        GEVR_LEVEL_CAVES    = 50,
+        GEVR_LEVEL_EGYPT    = 32,
+        GEVR_LEVEL_BUNKER2  = 27,
+        GEVR_LEVEL_ARCHIVES = 24,
+    };
+    struct MpStage { const char *name; int id; int maxPlayers; };
     static const MpStage stages[] = {
-        { "Facility", 0x1B },
-        { "Complex", 0x1E },
-        { "Temple", 0x24 },
-        { "Stack", 0x26 },
-        { "Caverns", 0x23 },
-        { "Library", 0x28 },
-        { "Basement", 0x27 },
-        { "Archives", 0x1C },
-        { "Cradle", 0x20 },
-        { "Egyptian", 0x22 }
+        { "Facility",  GEVR_LEVEL_FACILITY, 4 },
+        { "Complex",   GEVR_LEVEL_COMPLEX,  4 },
+        { "Temple",    GEVR_LEVEL_TEMPLE,   4 },
+        { "Stack",     GEVR_LEVEL_STACK,    4 },
+        { "Caverns",   GEVR_LEVEL_CAVERNS,  3 },
+        { "Library",   GEVR_LEVEL_LIBRARY,  4 },
+        { "Basement",  GEVR_LEVEL_BASEMENT, 4 },
+        { "Caves",     GEVR_LEVEL_CAVES,    4 },
+        { "Egypt",     GEVR_LEVEL_EGYPT,    2 },
+        { "Bunker II", GEVR_LEVEL_BUNKER2,  3 },
+        { "Archives",  GEVR_LEVEL_ARCHIVES, 3 },
     };
     
-    static const char *const characters[] = {
-        "James Bond", "Mishkin", "Boris", "Ourumov", "Trevelyan",
-        "Valentin", "Xenia", "Natalya", "Baron Samedi", "Jaws", "Mayday", "Oddjob"
+    struct MpChar { const char *name; int id; };
+    static const MpChar characters[] = {
+        { "James Bond",    0 },
+        { "Natalya",       1 },
+        { "Trevelyan",     2 },
+        { "Xenia",         3 },
+        { "Ourumov",       4 },
+        { "Boris",         5 },
+        { "Valentin",      6 },
+        { "Mishkin",       7 },
+        { "Mayday",        8 },
+        { "Jaws",          9 },
+        { "Oddjob",       10 },
+        { "Baron Samedi", 11 },
     };
     
     if (ImGui::RadioButton("Host Game", subTab == 0)) subTab = 0;
@@ -630,10 +660,10 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             
             ImGui::Text("Character: ");
             ImGui::SameLine();
-            if (ImGui::BeginCombo("##chrcombo", characters[selectedChrIdx])) {
+            if (ImGui::BeginCombo("##chrcombo", characters[selectedChrIdx].name)) {
                 for (int n = 0; n < (int)(sizeof(characters)/sizeof(characters[0])); n++) {
                     bool isSelected = (selectedChrIdx == n);
-                    if (ImGui::Selectable(characters[n], isSelected)) selectedChrIdx = n;
+                    if (ImGui::Selectable(characters[n].name, isSelected)) selectedChrIdx = n;
                     if (isSelected) ImGui::SetItemDefaultFocus();
                 }
                 ImGui::EndCombo();
@@ -644,37 +674,58 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 netHostStart(GEVR_DEFAULT_PORT);
                 netDiscoveryInit();
                 netDiscoveryStartBroadcasting("GEVR Match", GEVR_DEFAULT_PORT);
-                netLobbySetCharacter((uint8_t)selectedChrIdx);
+                netLobbySetCharacter((uint8_t)characters[selectedChrIdx].id);
                 netLobbySetMatchConfig((uint8_t)stages[selectedStageIdx].id, 0, 0);
             }
         } else {
             ImGui::TextColored(good, "LOBBY ACTIVE (Broadcasting on LAN port %d)", GEVR_DEFAULT_PORT);
-            ImGui::Text("Stage: %s", stages[selectedStageIdx].name);
+            ImGui::Text("Stage: %s (Max %d Players)", stages[selectedStageIdx].name, stages[selectedStageIdx].maxPlayers);
             ImGui::Separator();
             
             const NetMsgLobbyState *lobby = netGetLobbyState();
-            ImGui::TextColored(gold, "PLAYERS IN LOBBY (%d/4):", netGetConnectedPlayerCount());
+            int pCount = netGetConnectedPlayerCount();
+            int maxP = stages[selectedStageIdx].maxPlayers;
+            bool canLaunch = (pCount <= maxP);
+            
+            ImGui::TextColored(gold, "PLAYERS IN LOBBY (%d/%d):", pCount, maxP);
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
                 if (lobby->slots[i].connected) {
                     ImGui::BulletText("Slot %d: %s (%s) %s", i + 1,
                                      lobby->slots[i].name,
-                                     characters[lobby->slots[i].chr_id % 12],
+                                     characters[lobby->slots[i].chr_id % 12].name,
                                      (i == 0) ? "[HOST]" : (lobby->slots[i].ready ? "[READY]" : "[WAITING]"));
                 } else {
                     ImGui::TextDisabled("Slot %d: [Open]", i + 1);
                 }
             }
             
+            if (!canLaunch) {
+                ImGui::Spacing();
+                ImGui::TextColored(bad, "Stage player limit exceeded! Max %d players for %s (currently %d).",
+                                   maxP, stages[selectedStageIdx].name, pCount);
+            }
+            
             ImGui::Spacing();
+            if (!canLaunch) ImGui::BeginDisabled();
             if (ImGui::Button("LAUNCH MULTIPLAYER MATCH!", ImVec2(-1, ImGui::GetFrameHeight() * 1.8f))) {
                 netLobbyHostLaunchMatch();
                 gamemode = 1; // GAMEMODE_MULTI
                 selected_num_players = netGetConnectedPlayerCount();
                 if (selected_num_players < 2) selected_num_players = 2;
                 g_StageNum = stages[selectedStageIdx].id;
+                bossSetLoadedStage(g_StageNum);
+                
+                init_mp_options_for_scenario(selected_num_players);
+                reset_mp_options_for_scenario(0); // SCENARIO_NORMAL
+                setMPWeaponSet(0);
+                for (int p = 0; p < selected_num_players && p < 4; p++) {
+                    player_char[p] = lobby ? lobby->slots[p].chr_id : p;
+                }
+                
                 startMatch = true;
                 open = false;
             }
+            if (!canLaunch) ImGui::EndDisabled();
             
             if (ImGui::Button("Stop Hosting")) {
                 netDiscoveryStopBroadcasting();
@@ -712,12 +763,12 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             
             ImGui::Text("Choose Your Character: ");
             ImGui::SameLine();
-            if (ImGui::BeginCombo("##chrclientcombo", characters[selectedChrIdx])) {
+            if (ImGui::BeginCombo("##chrclientcombo", characters[selectedChrIdx].name)) {
                 for (int n = 0; n < (int)(sizeof(characters)/sizeof(characters[0])); n++) {
                     bool isSelected = (selectedChrIdx == n);
-                    if (ImGui::Selectable(characters[n], isSelected)) {
+                    if (ImGui::Selectable(characters[n].name, isSelected)) {
                         selectedChrIdx = n;
-                        netLobbySetCharacter((uint8_t)selectedChrIdx);
+                        netLobbySetCharacter((uint8_t)characters[selectedChrIdx].id);
                     }
                     if (isSelected) ImGui::SetItemDefaultFocus();
                 }
@@ -736,6 +787,15 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 selected_num_players = netGetConnectedPlayerCount();
                 if (selected_num_players < 2) selected_num_players = 2;
                 g_StageNum = lobby->stage_num;
+                bossSetLoadedStage(g_StageNum);
+                
+                init_mp_options_for_scenario(selected_num_players);
+                reset_mp_options_for_scenario(lobby->scenario);
+                setMPWeaponSet(lobby->weapon_set);
+                for (int p = 0; p < selected_num_players && p < 4; p++) {
+                    player_char[p] = lobby->slots[p].chr_id;
+                }
+                
                 startMatch = true;
                 open = false;
             }
@@ -955,6 +1015,9 @@ extern "C" void gevrLauncherRun(void)
 
     while (!start) {
         SDL_PumpEvents();
+
+        netPoll();
+        netDiscoveryUpdate(SDL_GetTicks());
 
         if (!gevrVrPumpBegin()) {
             SDL_Delay(5);

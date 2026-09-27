@@ -2630,9 +2630,26 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
         if (self->prop->type == PROP_TYPE_VIEWER)
         {
             playerNum = get_cur_playernum();
-            set_cur_player(getPlayerPointerIndex(self->prop));
-            record_damage_kills(damageToCause * 0.125f, vector->x, vector->z, playerNum, 1);
-            set_cur_player(playerNum);
+            s32 targetNum = getPlayerPointerIndex(self->prop);
+#ifdef GEVR
+            extern bool netIsActive(void);
+            extern int netGetLocalSlot(void);
+            extern void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg);
+            if (netIsActive())
+            {
+                if (playerNum == netGetLocalSlot())
+                {
+                    u8 wepid = (u8)(g_CurrentPlayer ? g_CurrentPlayer->hands[GUNRIGHT].field_87F : weaponid);
+                    netSendHitReport((uint8_t)targetNum, wepid, (uint8_t)hitpart, vector->x, vector->y, vector->z, damageToCause * 0.125f);
+                }
+            }
+            else
+#endif
+            {
+                set_cur_player(targetNum);
+                record_damage_kills(damageToCause * 0.125f, vector->x, vector->z, playerNum, 1);
+                set_cur_player(playerNum);
+            }
         }
         else
         {

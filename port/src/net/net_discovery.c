@@ -1,5 +1,6 @@
 #include "net_discovery.h"
 #include "net_core.h"
+#include "platform.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -117,13 +118,13 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         s_last_broadcast_ms = current_time_ms;
         
         NetDiscoveryBeacon beacon;
-        beacon.magic = GEVR_NET_MAGIC;
-        beacon.version = GEVR_NET_VERSION;
-        beacon.port = s_broadcast_port;
+        beacon.magic = PD_LE32(GEVR_NET_MAGIC);
+        beacon.version = PD_LE16(GEVR_NET_VERSION);
+        beacon.port = PD_LE16(s_broadcast_port);
         snprintf(beacon.name, GEVR_MAX_NAME_LEN, "%s", s_broadcast_name);
         beacon.player_count = (uint8_t)netGetConnectedPlayerCount();
         beacon.max_players = GEVR_MAX_PLAYERS;
-        beacon.stage_num = 0x1B;
+        beacon.stage_num = (uint8_t)netGetLobbyStage();
         
         struct sockaddr_in broadcast_addr;
         memset(&broadcast_addr, 0, sizeof(broadcast_addr));
@@ -144,14 +145,17 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
                          (struct sockaddr *)&sender_addr, &addr_len);
     while (bytes >= (int)sizeof(NetDiscoveryBeacon)) {
         const NetDiscoveryBeacon *b = (const NetDiscoveryBeacon *)buffer;
-        if (b->magic == GEVR_NET_MAGIC && b->version == GEVR_NET_VERSION) {
+        uint32_t magic = PD_LE32(b->magic);
+        uint16_t version = PD_LE16(b->version);
+        uint16_t port = PD_LE16(b->port);
+        if (magic == GEVR_NET_MAGIC && version == GEVR_NET_VERSION) {
             char sender_ip[32];
             inet_ntop(AF_INET, &sender_addr.sin_addr, sender_ip, sizeof(sender_ip));
             
             /* Update existing or add new server */
             int found_idx = -1;
             for (int i = 0; i < s_server_count; i++) {
-                if (strcmp(s_servers[i].host_ip, sender_ip) == 0 && s_servers[i].port == b->port) {
+                if (strcmp(s_servers[i].host_ip, sender_ip) == 0 && s_servers[i].port == port) {
                     found_idx = i;
                     break;
                 }
@@ -164,7 +168,7 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
             if (found_idx >= 0) {
                 NetDiscoveredServer *srv = &s_servers[found_idx];
                 snprintf(srv->host_ip, sizeof(srv->host_ip), "%s", sender_ip);
-                srv->port = b->port;
+                srv->port = port;
                 snprintf(srv->server_name, sizeof(srv->server_name), "%s", b->name);
                 srv->player_count = b->player_count;
                 srv->max_players = b->max_players;
