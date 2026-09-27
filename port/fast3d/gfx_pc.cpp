@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 
 #include <map>
@@ -1376,7 +1377,7 @@ void gevr_tlut_note(uint32_t palofs, uint32_t count, const void *base) {
     if (at + n > 1024) n = 1024 - at;
     memcpy(s_filterPalette + 8 + at, img, n);
 }
-static uint32_t s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize;
+static uint32_t s_tpSkipLoad, s_tpSkipSize;
 
 extern "C" int g_StageNum;   // src/boss.c
 static std::unordered_set<std::string> s_tdSeen;
@@ -1482,8 +1483,8 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
     ++s_tpLookups;
     if (id >= 0) ++s_tpHits;
     if ((s_tpLookups % 2000) == 0) {
-        sysLogPrintf(LOG_NOTE, "texpack: %u of %u lookups matched (skipped: %u mip levels, %u unknown loads, %u sizes)",
-                     s_tpHits, s_tpLookups, s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize);
+        sysLogPrintf(LOG_NOTE, "texpack: %u of %u lookups matched (skipped: %u unknown loads, %u sizes)",
+                     s_tpHits, s_tpLookups, s_tpSkipLoad, s_tpSkipSize);
     }
     *hw = (uint32_t)w;
     *hh = (uint32_t)h;
@@ -1518,13 +1519,8 @@ static bool gevr_texpack_upload(const uint8_t *img, uint32_t iw, uint32_t ih, ui
 static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const TextureCacheKey &key) {
     s_td.pending = false;
     if (!s_tpActive && !s_tdOn) return false;
-    // a mip chain's smaller levels keep their own textures; its base level
-    // (first_tile_index) is the one a pack replaces - GoldenEye mipmaps most of
-    // its world and model textures, so skipping the whole chain skipped them
-    if (rdp.tex_lod && tile > rdp.first_tile_index) {
-        ++s_tpSkipLod;
-        return false;
-    }
+    // LOD can also blend two independent full-size textures. Look up the tile
+    // actually sampled by TEXEL1; the Dam's snowy cliff rock is tile 1.
     uint32_t hw, hh, iw, ih;
     const int id = gevr_texpack_lookup(tile, lt, &hw, &hh);
     if (id < 0 || !s_tpActive) return false;   // (looked up only for the dump: pack switched off)
@@ -1616,13 +1612,15 @@ static void gevr_texpack_frame(void) {
 
     /*
      * Issue #52: the decoded images go into their cache entries' textures
-     * here, before the eye pass, about 4 MB of texels a frame (at least one
+     * here, before the eye pass, about 4 MB or 2 ms per frame (at least one
      * image). An entry evicted meanwhile is imported again when next drawn.
      */
     if (!s_tpUploads.empty()) {
         gfx_flush();
-        size_t budget = (size_t)4 << 20, done = 0;
+        const auto uploadStart = std::chrono::steady_clock::now();
+        size_t budget = (size_t)4 << 20, done = 0, uploaded = 0;
         for (; done < s_tpUploads.size() && budget > 0; ++done) {
+            if (uploaded > 0 && std::chrono::steady_clock::now() - uploadStart >= std::chrono::milliseconds(2)) break;
             const int id = s_tpUploads[done].first;
             const TpJob &job = s_tpUploads[done].second;
             auto it = gfx_texture_cache.map.find(job.key);
@@ -1636,6 +1634,7 @@ static void gevr_texpack_frame(void) {
             gfx_rapi->select_texture(0, it->second.texture_id, false);
             if (gevr_texpack_upload(img, iw, ih, job.hw, job.hh, job.uw, job.uh)) {
                 budget -= std::min(budget, (size_t)iw * ih * 4);
+                ++uploaded;
                 s_gevrTcHdUploads++;
             } else {
                 // matched but not used: the game's own texture stays, which looks like a missing one
@@ -1646,6 +1645,12 @@ static void gevr_texpack_frame(void) {
                                  "drawn %ux%u)", gevrtp::name(id), iw, ih, job.hw, job.hh, job.uw, job.uh);
                 }
             }
+        }
+        const auto uploadUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - uploadStart).count();
+        if (uploadUs > 11000) {
+            sysLogPrintf(LOG_WARNING, "texpack: upload loop %lld us, %u images uploaded, %u jobs processed, %u queued",
+                         (long long)uploadUs, (unsigned)uploaded, (unsigned)done, (unsigned)(s_tpUploads.size() - done));
         }
         s_tpUploads.erase(s_tpUploads.begin(), s_tpUploads.begin() + done);
         rendering_state.textures[0] = nullptr;   // unit 0 was rebound
