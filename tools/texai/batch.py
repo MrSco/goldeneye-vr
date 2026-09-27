@@ -107,11 +107,36 @@ def upscale(tool, src):
     return comfy.seedvr2(mid, final, 'batch_2')[0]
 
 
+FMT_RGBA, FMT_IA, FMT_I = 0, 3, 4   # G_IM_FMT_*
+
+
+def pick_tool(tool, r):
+    """--tool auto: IA textures (lettering, decals, signatures) and RGBA ones
+    (glow sprites) go to Real-ESRGAN, which keeps shapes as drawn - SeedVR2
+    redraws letters. Everything else (paletted art, greyscale photos) to SeedVR2."""
+    if tool != 'auto':
+        return tool
+    return 'esrgan' if r['fmt'] in (FMT_IA, FMT_RGBA) else 'seedvr2'
+
+
+def keep_grey(path, orig):
+    """I/IA textures stay grey (the model tints them). An I texture whose alpha
+    was its intensity gets the new intensity as alpha too."""
+    import numpy as np
+    im = np.asarray(Image.open(path).convert('RGBA')).astype(np.float64)
+    o = np.asarray(orig.convert('RGBA')).astype(np.int32)
+    y = im[:, :, 0] * 0.299 + im[:, :, 1] * 0.587 + im[:, :, 2] * 0.114
+    im[:, :, 0] = im[:, :, 1] = im[:, :, 2] = y
+    if (o[:, :, 3] == o[:, :, 0]).all():
+        im[:, :, 3] = y
+    Image.fromarray(np.clip(im, 0, 255).round().astype(np.uint8), 'RGBA').save(path)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('dump_dir')
     ap.add_argument('fork_dir')
-    ap.add_argument('--tool', default='seedvr2', choices=('seedvr2', 'esrgan', 'esrgan-seedvr2'))
+    ap.add_argument('--tool', default='auto', choices=('auto', 'seedvr2', 'esrgan', 'esrgan-seedvr2'))
     ap.add_argument('--work', default=os.path.join('build', 'texai-batch'))
     ap.add_argument('--min', type=int, default=16)
     ap.add_argument('--limit', type=int, default=0)
@@ -151,16 +176,19 @@ def main():
         img = Image.open(os.path.join(a.dump_dir, r['name'])).convert('RGBA')
         m = manifest_entry(r, img)
         ans_path = os.path.join(a.work, 'answer', r['name'])
+        tool = pick_tool(a.tool, r)
         try:
-            answer = upscale(a.tool, comfy.native_input(a.dump_dir, tex, m))
+            answer = upscale(tool, comfy.native_input(a.dump_dir, tex, m))
             comfy.framed(answer, m).save(ans_path)
             s = texai.post_one(a.dump_dir, ans_path, tex, m, os.path.join(a.work, 'final', tex))
+            if r['fmt'] in (FMT_IA, FMT_I):
+                keep_grey(os.path.join(a.work, 'final', tex + '_soft.png'), img)
         except Exception as e:   # one bad texture must not stop an overnight run
             print('%s: %s: %s' % (r['name'], type(e).__name__, e))
             continue
         os.makedirs(dst_dir, exist_ok=True)
         os.replace(os.path.join(a.work, 'final', tex + '_soft.png'), dst)
-        log.write('%s\t%s\t%d\t%d\t%.1f\t%.1f\t%s\n' % (r['name'], a.tool, r['w'], r['h'], s['drift'], s['drift4'],
+        log.write('%s\t%s\t%d\t%d\t%.1f\t%.1f\t%s\n' % (r['name'], tool, r['w'], r['h'], s['drift'], s['drift4'],
                                                        level_folder(r['stage'])))
         log.flush()
         done += 1
