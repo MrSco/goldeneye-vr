@@ -51,6 +51,12 @@ extern s32 gevrCrouchToggled(void); // port/src/input.c
 #include "stanintersection.h"
 #include "textrelated.h"
 
+#ifdef GEVR
+extern bool netIsActive(void);
+extern int netGetLocalSlot(void);
+extern void netSendRespawnEvent(u8 pad_index, f32 theta);
+#endif
+
 #ifdef VERSION_EU
 
     #define BONDVIEW_AUTOAIM_TIME 0x19 /* 25 */
@@ -11679,7 +11685,7 @@ Gfx *bondviewRenderGaugeBars(Gfx *gdl)
 }
 
 
-void mp_respawn_handler(void) 
+static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
 {
     coord3d start_pos = ZeroCoordSpawnPos;
     f32 start_look_angle;
@@ -11709,7 +11715,11 @@ void mp_respawn_handler(void)
     bondviewClearUpperTextDisplayFlag(-1);
 
 
-    if ((getPlayerCount() >= 2) && (startpadcount > 0))
+    if (forced_pad >= 0)
+    {
+        var_v1 = forced_pad;
+    }
+    else if ((getPlayerCount() >= 2) && (startpadcount > 0))
     {
         var_v1 = bondviewGetRandomSpawnPadIndex();
     }
@@ -11731,7 +11741,9 @@ void mp_respawn_handler(void)
     start_pos.y = g_CurrentPlayer->eyeheight + stan_height;
     g_CurrentPlayer->field_70 = stan_height;
 
-    start_look_angle = randomGetNext() * 2.3283064e-10f * 6.2831855f;
+    start_look_angle = forced_pad >= 0
+        ? forced_theta * (6.2831855f / 360.0f)
+        : randomGetNext() * 2.3283064e-10f * 6.2831855f;
 
     g_CurrentPlayer->vv_theta = (f32) ((start_look_angle * 360.0f) / 6.2831855f);
     g_CurrentPlayer->stanHeight = stan_height;
@@ -11819,6 +11831,29 @@ void mp_respawn_handler(void)
     g_CurrentPlayer->field_7C = -0.0001f;
     g_CurrentPlayer->field_80 = 0.0f;
     currentPlayerStartChrFade(120.0f, 1.0f);
+#ifdef GEVR
+    if (forced_pad < 0)
+    {
+        if (netIsActive() && get_cur_playernum() == netGetLocalSlot())
+        {
+            netSendRespawnEvent((u8)var_v1, g_CurrentPlayer->vv_theta);
+        }
+    }
+#endif
+}
+
+void mp_respawn_handler(void)
+{
+    mp_respawn_handler_internal(-1, 0.0f);
+}
+
+void mp_respawn_handler_net(s32 pad_index, f32 theta)
+{
+    if (pad_index < 0 || pad_index >= startpadcount)
+    {
+        return;
+    }
+    mp_respawn_handler_internal(pad_index, theta);
 }
 
 
@@ -12918,7 +12953,11 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                         }
                         if ((scenario != SCENARIO_YOLT) || (total < 2))
                         {
-                            if (joyGetButtons(get_cur_playernum(), 0xB000))
+                            if (joyGetButtons(get_cur_playernum(), 0xB000)
+#ifdef GEVR
+                                && (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+#endif
+                            )
                             {
                                 mp_respawn_handler();
                             }

@@ -685,7 +685,15 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             const NetMsgLobbyState *lobby = netGetLobbyState();
             int pCount = netGetConnectedPlayerCount();
             int maxP = stages[selectedStageIdx].maxPlayers;
-            bool canLaunch = (pCount <= maxP);
+            bool slotsReady = true;
+            int nextSlot = 0;
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                if (lobby->slots[i].connected) {
+                    if (i != nextSlot || !lobby->slots[i].ready) slotsReady = false;
+                    nextSlot++;
+                }
+            }
+            bool canLaunch = (pCount >= 2 && pCount <= maxP && slotsReady);
             
             ImGui::TextColored(gold, "PLAYERS IN LOBBY (%d/%d):", pCount, maxP);
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
@@ -701,14 +709,20 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             
             if (!canLaunch) {
                 ImGui::Spacing();
-                ImGui::TextColored(bad, "Stage player limit exceeded! Max %d players for %s (currently %d).",
-                                   maxP, stages[selectedStageIdx].name, pCount);
+                if (pCount > maxP) {
+                    ImGui::TextColored(bad, "Stage player limit exceeded! Max %d players for %s (currently %d).",
+                                       maxP, stages[selectedStageIdx].name, pCount);
+                } else if (pCount < 2) {
+                    ImGui::TextColored(bad, "Waiting for at least one more player.");
+                } else {
+                    ImGui::TextColored(bad, "All players must be ready in consecutive slots. Rejoin to fill an open slot.");
+                }
             }
             
             ImGui::Spacing();
             if (!canLaunch) ImGui::BeginDisabled();
             if (ImGui::Button("LAUNCH MULTIPLAYER MATCH!", ImVec2(-1, ImGui::GetFrameHeight() * 1.8f))) {
-                netLobbyHostLaunchMatch();
+                if (!netLobbyHostLaunchMatch()) return;
                 gamemode = 1; // GAMEMODE_MULTI
                 selected_num_players = netGetConnectedPlayerCount();
                 if (selected_num_players < 2) selected_num_players = 2;
