@@ -28,6 +28,31 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 
 ---
 
+## HD texture packs (optional downloads on the Mods page)
+
+### GoldenEye 007 HD - intermissionfb and GhostlyDark
+
+- **Repo:** https://github.com/GhostlyDark/GoldenEye-007-HD · site:
+  https://evilgames.eu/texture-packs/ge007-hd.htm
+- **Who:** textures by **intermissionfb**, font textures by **GhostlyDark**.
+- **What for:** the launcher's Mods page downloads their HD release on
+  request (nothing of theirs ships with the app). Their texture database
+  (`GOLDENEYE/ge007.tdb`) is how `tools/texai` finds the textures the pack
+  does not cover yet.
+
+### GoldenEye 007 HD + AI - our fork of the above
+
+- **Repo:** https://github.com/MrSco/GoldenEye-007-HD
+- **What it is:** the authors' pack (their latest textures, at the sizes of
+  their HD release) plus `GOLDENEYE/AI/`, AI upscales of the game's own
+  textures for the ones the pack lacks. The AI textures never replace theirs.
+- **Made with:** `tools/texai` in this repo, running
+  [SeedVR2](https://github.com/ByteDance-Seed/SeedVR) (Apache-2.0) in
+  [ComfyUI](https://github.com/comfyanonymous/ComfyUI) on a local GPU. These are
+  tools used offline to make the textures; neither is part of the app.
+
+---
+
 ## Not ours (please do not credit us for these)
 
 | What | Whose |

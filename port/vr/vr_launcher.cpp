@@ -489,7 +489,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     ImGui::TextColored(gold, "MODS");
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("Texture packs made by fans replace the game's textures with sharper ones. They download "
-                       "from their authors' sites; nothing is included with GoldenEye VR. A pack is used from the "
+                       "when you ask; nothing is included with GoldenEye VR. A pack is used from the "
                        "next START.");
     ImGui::PopStyleColor();
     ImGui::Separator();
@@ -537,7 +537,10 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     for (const ModPack &p : packs) {
         if (p.state != "installed") continue;
+        // beside the last choice while it fits, else on the next line
+        const float w = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(p.title.c_str()).x;
         ImGui::SameLine();
+        if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
         if (ImGui::RadioButton(p.title.c_str(), p.id == g_ActiveExtTexPack)) {
             snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
         }
