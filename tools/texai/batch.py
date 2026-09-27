@@ -62,6 +62,15 @@ def read_index(dump_dir):
     return rows
 
 
+def rejected():
+    """texture checksums whose AI version was reviewed out (rejected.txt)"""
+    path = os.path.join(HERE, 'rejected.txt')
+    if not os.path.exists(path):
+        return set()
+    with open(path, encoding='utf-8') as f:
+        return {l.split()[0].upper() for l in f if l.strip() and not l.startswith('#')}
+
+
 def fork_names(fork_dir):
     names = set()
     for root, _, files in os.walk(os.path.join(fork_dir, 'GOLDENEYE')):
@@ -112,7 +121,9 @@ def main():
 
     rows = read_index(a.dump_dir)
     have = fork_names(a.fork_dir)
+    rej = rejected()
     todo = [r for r in rows if r['name'] not in have and min(r['w'], r['h']) >= a.min
+            and r['name'].split('#')[1].upper() not in rej
             and (a.stage is None or r['stage'] == a.stage)]
     print('%d dumped, %d already in the fork, %d under %d texels, %d to do'
           % (len(rows), sum(r['name'] in have for r in rows),

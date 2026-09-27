@@ -1,0 +1,10 @@
+# Texture checksums whose AI version is left out (the game keeps its own).
+# One per line; checked by batch.py (skipped) and package.py (not shipped).
+# 2026-09-26 review of the SeedVR2 ROM batch:
+AEF2EED3  16x16 ruler/barcode turned into little robots
+B44D13C7  camouflage grew text
+1522AE9E  face reinterpreted
+DEBB248E  "KH-8" lettering distorted
+FBF69A1D  green panel grew invented text
+C6685079  flat panel grew invented text
+A121C1CF  Earth view grew text lines

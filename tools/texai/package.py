@@ -59,7 +59,13 @@ def main():
                 n, s = line.strip().split(';')
                 tdb[n.upper() + '.PNG'] = tuple(int(v) for v in s.split('x'))
 
-    counts = dict(authors=0, authors_new=0, resized=0, ai=0)
+    rej = set()
+    rpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected.txt')
+    if os.path.exists(rpath):
+        with open(rpath, encoding='utf-8') as f:
+            rej = {l.split()[0].upper() for l in f if l.strip() and not l.startswith('#')}
+
+    counts = dict(authors=0, authors_new=0, resized=0, ai=0, rejected=0)
     tmp = out + '.part'
     with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_STORED) as z:
         z.writestr('readme-ge007-hd-ai.txt', README)
@@ -74,6 +80,9 @@ def main():
                 path = os.path.join(dirpath, name)
                 arc = rp + '/' + name
                 if rp.startswith('GOLDENEYE/AI'):
+                    if name.split('#')[1].upper() in rej:   # reviewed out (rejected.txt)
+                        counts['rejected'] += 1
+                        continue
                     z.write(path, arc)
                     counts['ai'] += 1
                     continue
