@@ -65,6 +65,7 @@ public class MainActivity extends SDLActivity {
         }
         mods = new ModManager(this, version);
         lobbies = new LobbyClient();
+        reporter = new LogReporter(this);
 
         Log.i(TAG, "Starting GEVR VR mode");
         initializeGame();
@@ -88,6 +89,10 @@ public class MainActivity extends SDLActivity {
     // --- Mods page (texture packs from their authors' sites), driven by the in-VR launcher ---
     private ModManager mods;
     private LobbyClient lobbies;
+    private LogReporter reporter;
+
+    public String reportStatus() { return reporter != null ? reporter.status() : "idle"; }
+    public void reportCommand(String cmd) { if (reporter != null) reporter.command(cmd); }
 
     public String lobbyEvent() { return lobbies != null ? lobbies.event() : ""; }
     public void lobbyCommand(String cmd) { if (lobbies != null) lobbies.command(cmd); }

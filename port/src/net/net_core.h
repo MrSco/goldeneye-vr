@@ -64,6 +64,7 @@ bool netLobbyHostLaunchMatch(void);
 void netSendLocalPlayerMove(const struct netplayermove *move);
 void netSendLocalPlayerState(const NetMsgPlayerState *state);
 void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg);
+void netSendWorldHitReport(uint8_t target_slot, uint8_t weapon_id, float hit_x, float hit_y, float hit_z, float dmg);
 void netSendRespawnEvent(uint8_t pad_index, float theta);
 void netSendFireEvent(uint8_t weapon_id);
 

@@ -10264,6 +10264,12 @@ void generate_language_specific_text_for_weapon(u8 *finalstring, ITEM_IDS itemty
     u32 morethan2players;
 
     morethan2players = FALSE;
+#ifdef GEVR
+    /* 3+ players skip the "Picked up" strcpy below and strcat onto the
+     * caller's uninitialised stack buffer; online matches allocate every
+     * slot for drop-in, so this runs even when alone. */
+    *finalstring = 0;
+#endif
 
     if (j_text_trigger != 0)
     {
