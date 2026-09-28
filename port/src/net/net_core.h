@@ -49,6 +49,7 @@ void netStageLoaded(void);
 void netHostRoundEnded(void);
 void netHostReturnToWarmup(void);
 const NetMsgLobbyState *netGetLobbyState(void);
+const char *netGetSlotName(int slot);   /* NULL for an empty slot */
 uint8_t netGetLobbyStage(void);
 uint8_t netGetLobbyWeaponSet(void);
 uint32_t netGetRandomSeed(void);
