@@ -78,6 +78,8 @@ int vr_right_gun_fire;
 int vr_left_gun_fire;
 extern bool vr_grip_for_unarmed;
 extern int VrLeftHandedMode;
+extern bool netIsActive(void);
+extern void netVoiceToggleMuted(void);
 
 #ifndef HAND_RIGHT
 #define HAND_RIGHT 1
@@ -1152,8 +1154,23 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // X is also use/reload; Y cycles weapons, matching the native B/A actions.
         // (Not the X that just switched the texture pack in the prompt, until let go.)
         if (gevrSwallowX && !get_button_state(0, "x")) gevrSwallowX = false;
-        if (get_button_state(0, "x") && !gevrSwallowX) npad->button |= B_BUTTON;
-        if (get_button_state(0, "y")) npad->button |= A_BUTTON;
+        /* Left X+Y is the multiplayer mic toggle. Swallow both game actions
+         * from the first simultaneous frame, and fire once after 0.5 s. */
+        const bool micChord = netIsActive() && get_button_state(0, "x") && get_button_state(0, "y");
+        const u32 micNow = SDL_GetTicks();
+        {
+            static u32 chordSince = 0;
+            static bool chordFired = false;
+            if (micChord) {
+                if (!chordSince) chordSince = micNow ? micNow : 1;
+                if (!chordFired && micNow - chordSince >= 500) {
+                    netVoiceToggleMuted();
+                    chordFired = true;
+                }
+            } else { chordSince = 0; chordFired = false; }
+        }
+        if (!micChord && get_button_state(0, "x") && !gevrSwallowX) npad->button |= B_BUTTON;
+        if (!micChord && get_button_state(0, "y")) npad->button |= A_BUTTON;
         // Issue #10: in stereo play the weapon hand's A is held back. A tap sends
         // A on release (the game's weapon cycle); a hold shows the weapon panel
         // (bondview2.c gevrDrawWeaponPanel) and letting go equips what it

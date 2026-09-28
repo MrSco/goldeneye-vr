@@ -341,10 +341,33 @@ public class MainActivity extends SDLActivity {
         super.onDestroy();
     }
 
+    private static final int VOICE_PERMISSION_REQUEST = 4137;
+
+    public void requestVoicePermission(String ignored) {
+        runOnUiThread(() -> {
+            if (android.os.Build.VERSION.SDK_INT < 23 ||
+                checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                nativeVoicePermissionResult(true);
+            } else {
+                requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, VOICE_PERMISSION_REQUEST);
+            }
+        });
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == VOICE_PERMISSION_REQUEST) {
+            nativeVoicePermissionResult(grantResults.length > 0 &&
+                grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED);
+        }
+    }
+
     // Native methods
     public native void nativeInit(String dataPath);
     private static native void nativeVrResume();
     public native void nativeDestroy();
     public native void nativeAudioPause();
     public native void nativeAudioResume();
+    public native void nativeVoicePermissionResult(boolean granted);
 }
