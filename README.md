@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://goldeneyevr.com"><img alt="Website: goldeneyevr.com" src="https://img.shields.io/badge/website-goldeneyevr.com-d4a017?style=for-the-badge"></a>
   <a href="https://github.com/MrSco/goldeneye-vr/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/MrSco/goldeneye-vr?style=for-the-badge&color=d4a017"></a>
   <a href="https://github.com/MrSco/goldeneye-vr/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/MrSco/goldeneye-vr/total?style=for-the-badge&color=8a6d1f"></a>
   <img alt="Meta Quest 2 / 3 / 3S / Pro" src="https://img.shields.io/badge/Meta%20Quest-2%20%7C%203%20%7C%203S%20%7C%20Pro-1c1c1c?style=for-the-badge">
