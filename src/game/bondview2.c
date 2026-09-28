@@ -12255,7 +12255,7 @@ extern int gevrReturnPrompt;
 s32 gevrWeaponPanelOpen;       /* input.c: the button is held */
 s32 gevrWeaponPanelRelease;    /* input.c: let go while open: equip */
 f32 gevrWeaponPanelStickY;     /* input.c: the other hand's stick, up positive */
-s32 gevrWeaponPanelLeft;       /* input.c: the left hand's panel, opened with Y (#56) */
+s32 gevrWeaponPanelLeft;       /* input.c: the left hand's panel, opened with X (#56) */
 float gevrWeaponPanelRect[4];  /* the panel's box in the game's screen, 0..1 (vr_openxr.cpp crops to it) */
 
 static s32 s_gevrWpShown;
@@ -12453,7 +12453,7 @@ static s32 gevrWeaponPanelBuild(void)
 }
 
 /*
- * Issue #56: the left hand's panel (hold Y). GoldenEye keeps two different
+ * Issue #56: the left hand's panel (hold X). GoldenEye keeps two different
  * guns as one INV_ITEM_DUAL {right, left} (bondinv.c: a guard's linked pair
  * picked up, a level's starting pair, the 2x cheats), and each hand switches
  * on its own (gun.c gunRequestHandWeaponChange). The list is what the left
