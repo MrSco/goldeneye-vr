@@ -299,7 +299,12 @@ set(SRC_NET
   "${CMAKE_SOURCE_DIR}/port/src/net/net_core.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_discovery.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_player_sync.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_ice.cpp"
 )
+
+set(NO_SERVER ON CACHE BOOL "Build only the libjuice ICE client" FORCE)
+set(NO_TESTS ON CACHE BOOL "Do not build libjuice tests" FORCE)
+add_subdirectory(port/external/libjuice)
 
 set(SRC
   ${SRC_PORT}
@@ -330,7 +335,7 @@ if(ANDROID)
   add_dependencies(gevr gevr_buildid)
   target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
   target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
-  target_link_libraries(gevr ${LIBS} openxr_loader)
+  target_link_libraries(gevr ${LIBS} openxr_loader juice-static)
   target_link_options(gevr PRIVATE -Wl,--error-limit=0)
 
   # Also build pd alias so that any legacy loader references succeed
@@ -339,7 +344,7 @@ else()
   add_executable(gevr ${SRC})
   target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
   target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
-  target_link_libraries(gevr ${LIBS})
+  target_link_libraries(gevr ${LIBS} juice-static)
   if(WIN32)
     target_link_libraries(gevr openxr_loader urlmon)
   endif()

@@ -7,6 +7,7 @@
 
 #include "net/netenet.h"
 #include "net_core.h"
+#include "net_ice.h"
 #include "net/netbuf.h"
 #include "bondconstants.h"
 #include "game/player.h"
@@ -28,6 +29,17 @@ static bool s_initialized = false;
 static NetState s_state = NET_STATE_OFFLINE;
 static ENetHost *s_host = NULL;
 static ENetPeer *s_server_peer = NULL; /* Used when we are a client */
+static ENetVirtualSendCallback s_virtual_send = NULL;
+static ENetVirtualReceiveCallback s_virtual_receive = NULL;
+static void *s_virtual_context = NULL;
+
+void netSetVirtualTransport(ENetVirtualSendCallback sendCallback,
+                            ENetVirtualReceiveCallback receiveCallback, void *context) {
+    s_virtual_send = sendCallback;
+    s_virtual_receive = receiveCallback;
+    s_virtual_context = context;
+    if (s_host) enet_host_set_virtual_transport(s_host, sendCallback, receiveCallback, context);
+}
 static int s_local_slot = 0;
 
 /* Remote player state cache */
@@ -83,6 +95,7 @@ void netShutdown(void) {
     if (!s_initialized) return;
     
     netDisconnect();
+    netIceStop();
     enet_deinitialize();
     s_initialized = false;
     s_state = NET_STATE_OFFLINE;
@@ -102,6 +115,7 @@ bool netHostStart(uint16_t port) {
         NET_ERR("Failed to create ENet host on port %d!", address.port);
         return false;
     }
+    enet_host_set_virtual_transport(s_host, s_virtual_send, s_virtual_receive, s_virtual_context);
     
     s_state = NET_STATE_HOSTING_LOBBY;
     s_local_slot = 0;
@@ -128,6 +142,7 @@ bool netConnect(const char *host_addr, uint16_t port) {
         NET_ERR("Failed to create client ENet host!");
         return false;
     }
+    enet_host_set_virtual_transport(s_host, s_virtual_send, s_virtual_receive, s_virtual_context);
     
     ENetAddress address;
     enet_address_set_ip(&address, host_addr ? host_addr : "127.0.0.1");
@@ -876,6 +891,9 @@ void netPoll(void) {
             }
             case ENET_EVENT_TYPE_DISCONNECT: {
                 NET_LOG("Peer disconnected.");
+                char departed_ip[64] = "";
+                enet_address_get_ip(&event.peer->address, departed_ip, sizeof(departed_ip));
+                netIceForgetPeer(departed_ip);
                 if (netIsHost()) {
                     int slot = (int)(intptr_t)event.peer->data;
                     if (slot >= 1 && slot < GEVR_MAX_PLAYERS) {
