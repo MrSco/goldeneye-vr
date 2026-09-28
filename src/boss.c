@@ -400,6 +400,21 @@ void bossMainloop(void)
                 lvlSetSelectedDifficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
             }
         }
+#ifdef GEVR
+        else
+        {
+            /*
+             * An online match boots here from the launcher, past the legal
+             * screen that reads the saves (front.c). Unread, saves[] was all
+             * zeros, folder 1 matched its first slot, and every stage start
+             * (init_watch_at_start_of_stage) set the music and effects volume
+             * from it: 0, a silent match (#62). Read as the menus do; the
+             * match then takes folder 1's settings, as a menu launch with no
+             * folder chosen would.
+             */
+            fileValidateSaves();
+        }
+#endif
     }
 
     nowCount = osGetCount();

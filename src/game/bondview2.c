@@ -797,7 +797,11 @@ void gevrStereoFrame(s32 inlevel)
         && gevrVrReady()
         && pl != NULL
         && (getPlayerCount() == 1 || netIsActive())
-        && g_CameraMode == CAMERAMODE_FP
+        /* Multiplayer plays in CAMERAMODE_NONE: bondviewAdvanceCameraMode
+         * leaves it there after the CAMERAMODE_MP swirl, and MoveBond runs in
+         * it. Demanding FP kept an online match on the screen, and holding
+         * the right stick click could not switch it (user, #62). */
+        && (g_CameraMode == CAMERAMODE_FP || (netIsActive() && g_CameraMode == CAMERAMODE_NONE))
         && pl->cameramode != 1
         && (pl->pause_state == 0 || opening)
         && !pl->bonddead;
@@ -14424,7 +14428,12 @@ s32 playerTick(PropRecord *prop)
             {
                 cur = ppointers[index]->players_cur_animation;
  
+#ifdef GEVR
+                /* offsets, not addresses: see the modelSetAnimation below */
+                if (cur == g_bondviewBondDeathAnimations[i])
+#else
                 if (cur == (g_bondviewBondDeathAnimations[i] + ((s32) ptr_animation_table)))
+#endif
                 {
                     found = 1;
                 }
@@ -14437,7 +14446,11 @@ s32 playerTick(PropRecord *prop)
             }
             else
             {
+#ifdef GEVR
+                anim = g_bondviewBondDeathAnimations[randomGetNext() % g_bondviewBondDeathAnimationsCount];
+#else
                 anim = g_bondviewBondDeathAnimations[randomGetNext() % g_bondviewBondDeathAnimationsCount] + ((s32) ptr_animation_table);
+#endif
                 angle = 0.5f;
             }
  
@@ -14619,7 +14632,11 @@ lean_return_to_centre:
  
             if (fa->anim != 0)
             {
+#ifdef GEVR
+                anim = fa->anim;
+#else
                 anim = fa->anim + (s32) ptr_animation_table;
+#endif
             }
  
             angle *= fa->x;
@@ -14632,7 +14649,18 @@ lean_return_to_centre:
 join_768:
         if ((firingtable != NULL) && (anim == 0))
         {
+#ifdef GEVR
+        {
+            /* initactorpropstuff.c turned the table's offset into a host
+             * pointer in place; its low 32 bits are no animation */
+            uintptr_t fp = (uintptr_t)firingtable->anim.anim;
+            uintptr_t fb = (uintptr_t)ptr_animation_table;
+
+            anim = (s32)(fp >= fb ? fp - fb : fp);
+        }
+#else
             anim = *((s32 *) firingtable);
+#endif
         }
  
         if (anim != cur)
@@ -14661,7 +14689,20 @@ join_768:
             if (ppointers[index]->bodyModel->anim2 == NULL)
             {
                 startframe = (0.0f <= frame) ? (frame) : (0.0f);
+#ifdef GEVR
+                /*
+                 * anim, cur and players_cur_animation hold offsets into
+                 * ptr_animation_table, as the cartridge's tables do; the
+                 * address is made here at full width. As s32 addresses
+                 * ("offset + (s32) ptr_animation_table", and a pointer read
+                 * back through (s32 *)) the heap's top half was dropped: an
+                 * online match crashed in modelSetAnimFrame on a player body
+                 * (#62, x1 0x74073894).
+                 */
+                modelSetAnimation(ppointers[index]->bodyModel, (ModelAnimation *) ((uintptr_t)ptr_animation_table + (u32)anim), 0, startframe, angle, 16.0f);
+#else
                 modelSetAnimation(ppointers[index]->bodyModel, (ModelAnimation *) anim, 0, startframe, angle, 16.0f);
+#endif
                 ppointers[index]->players_cur_animation = anim;
                 ppointers[index]->field_1288 = angle;
  
