@@ -20,6 +20,7 @@
 #include "game/propobj.h"
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -60,6 +61,43 @@ static bool s_remote_active[GEVR_MAX_PLAYERS];
 
 /* Current Lobby State */
 static NetMsgLobbyState s_lobby_state;
+
+extern char VrPlayerName[];   /* port/vr/vr_settings_defaults.c: the launcher's "Your name" */
+
+/*
+ * A name off the wire, as the lobby keeps it: printable ASCII (the game's font
+ * draws it over the player's head, and '|' separates the lobby service's
+ * fields), at most the launcher's 15 characters, trimmed, never empty. Read no
+ * further than end: the sender's terminator isn't trusted.
+ */
+static void netCleanName(char *dst, const char *src, const char *end)
+{
+    int n = 0;
+    for (const char *c = src; c && c < end && *c && n < 15; c++) {
+        if (*c >= 0x20 && *c <= 0x7e && *c != '|' && (n > 0 || *c != ' ')) dst[n++] = *c;
+    }
+    while (n > 0 && dst[n - 1] == ' ') n--;
+    dst[n] = '\0';
+    if (n == 0) snprintf(dst, GEVR_MAX_NAME_LEN, "Player");
+}
+
+/* Host: a joining player's name, numbered when it's someone else's already ("Agent 2"). */
+static void netSetJoinerName(int slot, const char *src, const char *end)
+{
+    char clean[GEVR_MAX_NAME_LEN];
+    char *dst = s_lobby_state.slots[slot].name;
+    netCleanName(clean, src, end);
+    snprintf(dst, GEVR_MAX_NAME_LEN, "%s", clean);
+    for (int k = 2; k <= GEVR_MAX_PLAYERS + 1; k++) {
+        bool taken = false;
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+            if (i != slot && s_lobby_state.slots[i].connected
+                && strcasecmp(s_lobby_state.slots[i].name, dst) == 0) taken = true;
+        }
+        if (!taken) return;
+        snprintf(dst, GEVR_MAX_NAME_LEN, "%.13s %d", clean, k);
+    }
+}
 
 static uint32_t s_rng_seed = 0;
 
@@ -157,7 +195,7 @@ bool netHostStart(uint16_t port) {
     s_lobby_state.slots[0].connected = 1;
     s_lobby_state.slots[0].ready = 1;
     s_lobby_state.slots[0].chr_id = 0; /* James Bond */
-    snprintf(s_lobby_state.slots[0].name, GEVR_MAX_NAME_LEN, "Host");
+    netCleanName(s_lobby_state.slots[0].name, VrPlayerName, VrPlayerName + strlen(VrPlayerName));
     
     player_char[0] = 0;
     
@@ -870,6 +908,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (!netIsHost()) break;
             if (peer->data) break;
             char *name = netbufReadStr(&buf);
+            const char *name_end = (const char *)buf.data + buf.rp;
             uint8_t requested_chr = netbufReadU8(&buf);
             if (buf.error) break;
             if (requested_chr >= 12) requested_chr = 0;
@@ -895,7 +934,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_lobby_state.slots[assigned].connected = 1;
             s_lobby_state.slots[assigned].ready = 0;
             s_lobby_state.slots[assigned].chr_id = requested_chr;
-            snprintf(s_lobby_state.slots[assigned].name, GEVR_MAX_NAME_LEN, "%s", name ? name : "Player");
+            netSetJoinerName(assigned, name, name_end);
             player_char[assigned] = requested_chr;
             
             /* Send welcome to client */
@@ -934,7 +973,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             }
             netBroadcastBuf(&lbuf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
             if (s_state == NET_STATE_INGAME) netSendMatchStartTo(peer);
-            NET_LOG("Assigned player '%s' to slot %d", name ? name : "Player", assigned);
+            NET_LOG("Assigned player '%s' to slot %d", s_lobby_state.slots[assigned].name, assigned);
             break;
         }
         case NET_MSG_WELCOME: {
@@ -968,7 +1007,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 s_lobby_state.slots[i].chr_id = netbufReadU8(&buf);
                 char *name = netbufReadStr(&buf);
                 if (name) {
-                    snprintf(s_lobby_state.slots[i].name, GEVR_MAX_NAME_LEN, "%s", name);
+                    netCleanName(s_lobby_state.slots[i].name, name, (const char *)buf.data + buf.rp);
                 }
                 player_char[i] = s_lobby_state.slots[i].chr_id;
             }
@@ -1377,7 +1416,7 @@ void netPoll(void) {
                     netbufWriteU16(&buf, GEVR_NET_VERSION);
                     netbufWriteU8(&buf, NET_MSG_HELLO);
                     netbufWriteU8(&buf, 0xFF);
-                    netbufWriteStr(&buf, "QuestPlayer");
+                    netbufWriteStr(&buf, VrPlayerName);
                     netbufWriteU8(&buf, 0); /* Default Bond */
                     
                     ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
