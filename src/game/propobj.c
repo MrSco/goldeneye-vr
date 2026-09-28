@@ -14399,7 +14399,12 @@ void drop_inventory(void)
     {
         propid = getPropForHeldItem(item);
 
+#ifdef GEVR
+        /* -1 (no held model) compared signed: PROP is unsigned under Clang (player.c sub_GAME_7F09B398) */
+        if (((s32)propid >= 0) && (bondinvHasInvItem(item) != 0))
+#else
         if ((propid >= 0) && (bondinvHasInvItem(item) != 0))
+#endif
         {
             prop = something_with_generating_object(playerchr, propid, item, 0x20000000, NULL, NULL);
 
