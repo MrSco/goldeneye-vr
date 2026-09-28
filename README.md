@@ -220,6 +220,11 @@ Then press **START HOSTING LOBBY**. When every player shows **[READY]**, press *
 enter a private code, or select a game discovered on your Wi-Fi. Direct IP remains available as a fallback.
 Then choose your character and tick **I am Ready**.
 
+**Voice chat.** Allow microphone access to talk. Everyone can hear each other in the lobby;
+in a match, voices get quieter with distance and pan toward the speaker. Mute in the lobby or
+on the watch's Game Options page, or hold left **X + Y** for half a second. Your mute choice is saved.
+If you deny microphone access, you can still hear other players.
+
 **Over the internet.** No IP addresses and no router setup: headsets connect directly when they can,
 and through a Cloudflare relay when they can't. The game list and private codes come from our lobby
 service at `lobbies.goldeneyevr.com`, which keeps a game's listing and connection details (including
@@ -228,7 +233,7 @@ IP addresses) only while the game is open. Games on your Wi-Fi still work withou
 **Not there yet:**
 - If the host quits, the match doesn't end cleanly for the others.
 - The end of a match isn't shared between headsets.
-- You don't see other players' hands move, and there's no voice chat.
+- You don't see other players' hands move.
 
 ## ⚙️ Settings
 

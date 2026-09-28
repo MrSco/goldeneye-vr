@@ -252,6 +252,12 @@ Java_com_gevr_port_MainActivity_nativeAudioResume(JNIEnv* env, jobject thiz) {
     audioResume();
 }
 
+JNIEXPORT void JNICALL
+Java_com_gevr_port_MainActivity_nativeVoicePermissionResult(JNIEnv* env, jobject thiz, jboolean granted) {
+    extern void netVoicePermissionResult(int granted);
+    netVoicePermissionResult(granted ? 1 : 0);
+}
+
 
 
 
@@ -334,6 +340,12 @@ int main(int argc, const char **argv)
     videoInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "inputInit starting");
     inputInit();
+    /*
+     * Before the launcher: multiplayer lobby voice (port/src/net/net_voice.c)
+     * plays through the game's output device while players wait to start.
+     */
+    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "audioInit starting");
+    audioInit();
 #ifdef ANDROID
     /*
      * The in-VR launcher (port/vr/vr_launcher.cpp): ROM, stereo or screen,
@@ -364,8 +376,6 @@ int main(int argc, const char **argv)
         }
     }
 #endif
-    __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "audioInit starting");
-    audioInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit starting");
     romdataInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit complete");

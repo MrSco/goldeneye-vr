@@ -9,6 +9,7 @@
 #include "net_core.h"
 #include "net_ice.h"
 #include "net/netbuf.h"
+#include "net_voice.h"
 #include "bondconstants.h"
 #include "game/player.h"
 #include "game/front.h"
@@ -165,6 +166,7 @@ bool netConnect(const char *host_addr, uint16_t port) {
 }
 
 void netDisconnect(void) {
+    netVoiceReset();
     if (!s_host) return;
     
     if (s_server_peer) {
@@ -534,8 +536,10 @@ void netSendFireEvent(uint8_t weapon_id) {
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
 }
 
-void netSendVoipChunk(const uint8_t *opus_data, uint16_t size) {
-    if (s_state != NET_STATE_INGAME || size == 0 || size > GEVR_VOIP_MAX_BYTES) return;
+void netSendVoipChunk(uint32_t sequence, const uint8_t *opus_data, uint16_t size) {
+    if ((s_state != NET_STATE_INGAME && s_state != NET_STATE_HOSTING_LOBBY &&
+         s_state != NET_STATE_CLIENT_LOBBY) || s_local_slot < 0 || !opus_data ||
+        size == 0 || size > GEVR_VOIP_MAX_BYTES) return;
     
     u8 raw[256];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -544,6 +548,7 @@ void netSendVoipChunk(const uint8_t *opus_data, uint16_t size) {
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_VOIP_FRAME);
     netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU32(&buf, sequence);
     netbufWriteU16(&buf, size);
     netbufWriteData(&buf, opus_data, size);
     
@@ -651,7 +656,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_lobby_state.weapon_set = netbufReadU8(&buf);
             s_lobby_state.countdown_secs = netbufReadU8(&buf);
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                uint8_t was_connected = s_lobby_state.slots[i].connected;
                 s_lobby_state.slots[i].connected = netbufReadU8(&buf);
+                if (was_connected && !s_lobby_state.slots[i].connected)
+                    netVoiceForgetSlot((uint8_t)i);
                 s_lobby_state.slots[i].ready = netbufReadU8(&buf);
                 s_lobby_state.slots[i].chr_id = netbufReadU8(&buf);
                 char *name = netbufReadStr(&buf);
@@ -846,6 +854,19 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_VOIP_FRAME: {
+            if (s_state != NET_STATE_INGAME && s_state != NET_STATE_HOSTING_LOBBY &&
+                s_state != NET_STATE_CLIENT_LOBBY) break;
+            if (slot_id >= GEVR_MAX_PLAYERS || slot_id == s_local_slot ||
+                !s_lobby_state.slots[slot_id].connected) break;
+            if (netIsHost()) {
+                if (slot_id == 0 || s_client_peers[slot_id] != peer ||
+                    (int)(intptr_t)peer->data != slot_id) break;
+            } else if (peer != s_server_peer) break;
+            const uint32_t sequence = netbufReadU32(&buf);
+            const uint16_t payload_size = netbufReadU16(&buf);
+            if (buf.error || payload_size == 0 || payload_size > GEVR_VOIP_MAX_BYTES ||
+                netbufReadLeft(&buf) != payload_size || size != 14u + payload_size) break;
+            netVoiceReceive(slot_id, sequence, data + buf.rp, payload_size);
             if (netIsHost()) {
                 netBroadcastPacket(data, size, NET_CHAN_VOIP, ENET_PACKET_FLAG_UNSEQUENCED, peer);
             }
@@ -857,7 +878,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
 }
 
 void netPoll(void) {
-    if (!s_host) return;
+    if (!s_host) {
+        netVoiceTick();
+        return;
+    }
     
     ENetEvent event;
     while (enet_host_service(s_host, &event, 0) > 0) {
@@ -899,6 +923,7 @@ void netPoll(void) {
                     if (slot >= 1 && slot < GEVR_MAX_PLAYERS) {
                         s_client_peers[slot] = NULL;
                         s_remote_active[slot] = false;
+                        netVoiceForgetSlot((uint8_t)slot);
                         memset(&s_lobby_state.slots[slot], 0, sizeof(NetLobbySlot));
                         
                         /* Broadcast updated lobby state */
@@ -925,6 +950,7 @@ void netPoll(void) {
                     /* Server disconnected */
                     s_server_peer = NULL;
                     s_state = NET_STATE_OFFLINE;
+                    netVoiceReset();
                 }
                 event.peer->data = NULL;
                 break;
@@ -934,4 +960,5 @@ void netPoll(void) {
                 break;
         }
     }
+    netVoiceTick();
 }

@@ -22,6 +22,7 @@ extern int VrPauseHub;
 #define VR_PLAYMODE_SCREEN 0
 #define VR_PLAYMODE_STEREO 1
 extern int VrPlayMode;
+extern int VrMicMuted;
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
 // Display refresh rate in Hz, 0 = the runtime's default (vr_openxr.cpp).

@@ -67,6 +67,7 @@ int getMPWeaponSet(void);
 extern int player_char[];
 }
 #include "net_core.h"
+#include "net_voice.h"
 #include "net_discovery.h"
 #include "net_ice.h"
 #include "juice/juice.h"
@@ -828,6 +829,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 char gameName[GEVR_MAX_NAME_LEN];
                 snprintf(gameName, sizeof(gameName), "%s's game", characters[selectedChrIdx].name);
                 if (netHostStart(GEVR_DEFAULT_PORT)) {
+                    gevrJavaCommand("requestVoicePermission", "");
                     netIceStartHost();
                     netDiscoveryInit();
                     netDiscoveryStartBroadcasting(gameName, GEVR_DEFAULT_PORT);
@@ -844,6 +846,12 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             }
         } else {
             ImGui::TextColored(good, "LOBBY ACTIVE (Broadcasting on LAN port %d)", GEVR_DEFAULT_PORT);
+            bool micMuted = netVoiceIsMuted() != 0;
+            if (ImGui::Checkbox("Microphone muted", &micMuted)) netVoiceSetMuted(micMuted);
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", !netVoiceHasPermission() ? "No mic access (listen only)" :
+                netVoiceCaptureReady() ? "Mic ready" : netVoiceCaptureFailed() ?
+                "Mic unavailable (listen only)" : "Mic starting");
             if (!hostedCode.empty()) {
                 if (hostVisibility) ImGui::TextColored(gold, "PRIVATE JOIN CODE: %s", hostedCode.c_str());
                 else ImGui::TextColored(good, "Public game listed online: %s", hostedCode.c_str());
@@ -953,6 +961,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                          game.name.c_str(), stageName(game.stage), weaponSetName(game.weapons),
                          game.players, game.maxPlayers, game.code.c_str());
                 if (ImGui::Button(label, ImVec2(-1, 0))) {
+                    gevrJavaCommand("requestVoicePermission", "");
                     netDisconnect();
                     netIceStop();
                     clientJoinId.clear();
@@ -964,6 +973,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##privatecode", privateCode, sizeof(privateCode));
             if (ImGui::Button("Join by code", ImVec2(-1, 0))) {
+                gevrJavaCommand("requestVoicePermission", "");
                 netDisconnect();
                 netIceStop();
                 clientJoinId.clear();
@@ -996,6 +1006,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                              srv->player_count, cap, full ? " (full)" : "", i);
                     if (full) ImGui::BeginDisabled();
                     if (ImGui::Button(label, ImVec2(-1, 0))) {
+                        gevrJavaCommand("requestVoicePermission", "");
                         gevrJavaCommand("lobbyCommand", "stop");
                         netIceStop();
                         clientJoinId.clear();
@@ -1010,6 +1021,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##directip", directIp, sizeof(directIp));
             if (ImGui::Button("Connect", ImVec2(-1, 0))) {
+                gevrJavaCommand("requestVoicePermission", "");
                 gevrJavaCommand("lobbyCommand", "stop");
                 netIceStop();
                 clientJoinId.clear();
@@ -1025,6 +1037,12 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             }
         } else {
             ImGui::TextColored(good, "CONNECTED TO SERVER! You are Player Slot %d", netGetLocalSlot() + 1);
+            bool micMuted = netVoiceIsMuted() != 0;
+            if (ImGui::Checkbox("Microphone muted", &micMuted)) netVoiceSetMuted(micMuted);
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", !netVoiceHasPermission() ? "No mic access (listen only)" :
+                netVoiceCaptureReady() ? "Mic ready" : netVoiceCaptureFailed() ?
+                "Mic unavailable (listen only)" : "Mic starting");
             ImGui::Text("Stage: %s   Weapons: %s", stageName(netGetLobbyStage()), weaponSetName(netGetLobbyWeaponSet()));
             
             ImGui::Text("Choose Your Character: ");
