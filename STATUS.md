@@ -68,8 +68,8 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   D159 odd-row swap fix), #30 water shimmer (open in the PC port too, D245),
   #32 Surface ground patches without impacts (the PC port's D313 fix is
   already in bg.c; re-check), #60 laser watch arm changes size. Closed
-  2026-09-28: #18 (fixed), #50 (not reproduced), #64 (fixed); #56 and #63
-  are done on main, to close when it is pushed.
+  2026-09-28: #18 (fixed), #50 (not reproduced), #56, #63, #64 (done on
+  main, unreleased).
 - Unmerged branches: only fix/60-watch-grip-hand (shelved: the laser watch
   gripped with a mirrored hand, which didn't lock to the wrist). One
   checkout, this one; no other worktrees.
