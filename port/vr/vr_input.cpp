@@ -816,6 +816,10 @@ XrResult trigger_haptic_vibration_c(int hand_index, float amplitude, float durat
     return trigger_haptic_vibration(hand_index, amplitude, duration);
 }
 
+XrResult trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float duration, float frequency) {
+    return trigger_haptic_vibration(hand_index, amplitude, duration, frequency);
+}
+
 /* True once the OpenXR session and its haptic action exist (screen mode too). */
 int vr_haptics_ready(void) {
     return g_vrState.session != XR_NULL_HANDLE && gHapticAction != XR_NULL_HANDLE;
