@@ -3028,6 +3028,7 @@ extern bool gfx_vr_menu_P_dirty_and_clear(void);
 /* bondview2.c gevrDrawWeaponPanel: the panel's box in the game's screen, 0..1 */
 extern "C" float gevrWeaponPanelRect[4];
 extern "C" int gevrWeaponPanelInFront;   /* bondview2.c tuning: before the eyes */
+extern "C" int gevrWeaponPanelLeft;      /* bondview2.c: the left hand's panel (#56) */
 
 static const float VR_MENU_FACING_THRESHOLD = 0.8f;
 
@@ -3254,12 +3255,13 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     }
 
     // --- The weapon panel (issue #10): above the weapon hand, facing the eyes ---
+    // (the left hand's panel, issue #56: above the off hand)
     bool submitMenuP = (g_menuSwapchainP != XR_NULL_HANDLE) && gfx_vr_menu_P_dirty_and_clear();
     if (submitMenuP) vr_update_menu_swapchain_P();
 
     XrCompositionLayerQuad menuLayerP = vr_init_menu_quad(g_menuSwapchainP);
     if (submitMenuP) {
-        const int hand = VrLeftHandedMode ? ctrlL : ctrlR;
+        const int hand = ((VrLeftHandedMode != 0) != (gevrWeaponPanelLeft != 0)) ? ctrlL : ctrlR;
         const float W = (float)g_menuSwapchainWidth, H = (float)g_menuSwapchainHeight;
         // only the panel's box of the capture (the game draws it in screen space)
         float x0 = gevrWeaponPanelRect[0], y0 = gevrWeaponPanelRect[1];

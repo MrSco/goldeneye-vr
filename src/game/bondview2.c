@@ -12255,6 +12255,7 @@ extern int gevrReturnPrompt;
 s32 gevrWeaponPanelOpen;       /* input.c: the button is held */
 s32 gevrWeaponPanelRelease;    /* input.c: let go while open: equip */
 f32 gevrWeaponPanelStickY;     /* input.c: the other hand's stick, up positive */
+s32 gevrWeaponPanelLeft;       /* input.c: the left hand's panel, opened with Y (#56) */
 float gevrWeaponPanelRect[4];  /* the panel's box in the game's screen, 0..1 (vr_openxr.cpp crops to it) */
 
 static s32 s_gevrWpShown;
@@ -12451,6 +12452,104 @@ static s32 gevrWeaponPanelBuild(void)
     return gevrWpAddInventoryPairs(n, -1, -1);
 }
 
+/*
+ * Issue #56: the left hand's panel (hold Y). GoldenEye keeps two different
+ * guns as one INV_ITEM_DUAL {right, left} (bondinv.c: a guard's linked pair
+ * picked up, a level's starting pair, the 2x cheats), and each hand switches
+ * on its own (gun.c gunRequestHandWeaponChange). The list is what the left
+ * hand can take beside the right's gun: nothing, or a gun that can be doubled
+ * (WEAPONSTATBITFLAG_CAN_DUAL_WIELD: no gadgets) that the player carries; the
+ * right's own gun only as a pair the game already offers. One player only:
+ * the left hand's model buffer exists only then (initBondDATA.c
+ * init_player_BONDdata_stats), and the right hand must hold such a gun too.
+ */
+extern ITEM_IDS get_next_weapon_in_cycle_for_hand(GUNHAND hand, s32 direction);
+extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);
+
+static s32 gevrLeftGunOk(s32 item)
+{
+    return item > ITEM_UNARMED && item < ITEM_BOMBCASE
+        && bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_CAN_DUAL_WIELD);
+}
+
+/* the player carries this gun: on its own, in a pair, or through all guns */
+static s32 gevrLeftHasGun(s32 item)
+{
+    InvItem *first = g_CurrentPlayer->ptr_inventory_first_in_cycle;
+    InvItem *it = first;
+
+    if (bondinvItemAvailable(item))
+    {
+        return TRUE;
+    }
+    while (it)
+    {
+        if (it->type == INV_ITEM_DUAL
+            && (it->type_inv_item.type_dual.weapon_right == item || it->type_inv_item.type_dual.weapon_left == item))
+        {
+            return TRUE;
+        }
+        it = it->next;
+        if (it == first)
+        {
+            break;
+        }
+    }
+    return FALSE;
+}
+
+s32 gevrLeftPanelAvailable(void)
+{
+    return g_gevrStereo && g_CurrentPlayer != NULL && getPlayerCount() == 1 && !netIsActive()
+        && !g_CurrentPlayer->bonddead
+        && gevrLeftGunOk(get_next_weapon_in_cycle_for_hand(GUNRIGHT, 0));
+}
+
+static s32 gevrWeaponPanelBuildLeft(void)
+{
+    s32 right = get_next_weapon_in_cycle_for_hand(GUNRIGHT, 0);
+    s32 n = 0;
+    s32 item;
+    GevrWpEntry *e = &s_gevrWpList[n++];
+
+    e->inv = -1;
+    e->right = right;
+    e->left = ITEM_UNARMED;
+    gevrWpSetName(e, (const char *) get_ptr_short_watch_text_for_item(ITEM_FIST), NULL, NULL);
+
+    for (item = ITEM_UNARMED + 1; item < ITEM_BOMBCASE && n < GEVR_WP_MAX; item++)
+    {
+        if (!gevrLeftGunOk(item)
+            || (item == right ? !bondinvItemAvailableForHand(right, right) : !gevrLeftHasGun(item)))
+        {
+            continue;
+        }
+        e = &s_gevrWpList[n++];
+        e->inv = -1;
+        e->right = right;
+        e->left = item;
+        gevrWpSetName(e, (const char *) get_ptr_short_watch_text_for_item(item), NULL, NULL);
+    }
+    return n;
+}
+
+/* the left hand alone; a new pair joins the inventory as the game keeps pairs,
+ * so A's cycle and the weapon panel offer it afterwards too */
+static void gevrLeftPanelEquip(s32 right, s32 left)
+{
+    if (left != ITEM_UNARMED && !bondinvItemAvailableForHand(right, left))
+    {
+        bondinvAddDoublesInvItem(right, left);
+        if (!bondinvItemAvailableForHand(right, left))
+        {
+            sysLogPrintf(LOG_WARNING, "wpanel: no inventory room for the pair %d / %d", right, left);
+            return;
+        }
+        sysLogPrintf(LOG_NOTE, "wpanel: new pair %d / %d", right, left);
+    }
+    gunRequestHandWeaponChange(GUNLEFT, left, 1);
+}
+
 extern u16 *bondinvGetNameByIndex(s32 index);
 extern s32 bondinvGetTextbyInvIndex(s32 index);
 extern void bondinvSetCurEquippedItem(int current_item);
@@ -12625,7 +12724,12 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         return gdl;
     }
 
-    count = gevrWeaponPanelBuild();
+    if (gevrWeaponPanelLeft && !gevrLeftPanelAvailable())
+    {
+        gevrWeaponPanelOpen = 0;
+        gevrWeaponPanelRelease = 0;
+    }
+    count = gevrWeaponPanelLeft ? gevrWeaponPanelBuildLeft() : gevrWeaponPanelBuild();
 
     if (s_gevrWpShown && (gevrWeaponPanelRelease || !gevrWeaponPanelOpen))
     {
@@ -12640,12 +12744,19 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         {
             GevrWpEntry *e = &s_gevrWpList[s_gevrWpIndex];
 
-            /* both hands, as A's cycle equips a pair (gun.c) */
-            gunRequestHandWeaponChange(GUNRIGHT, e->right, 1);
-            gunRequestHandWeaponChange(GUNLEFT, e->left, 1);
-            if (e->inv >= 0)
+            if (gevrWeaponPanelLeft)
             {
-                bondinvSetCurEquippedItem(e->inv);
+                gevrLeftPanelEquip(e->right, e->left);
+            }
+            else
+            {
+                /* both hands, as A's cycle equips a pair (gun.c) */
+                gunRequestHandWeaponChange(GUNRIGHT, e->right, 1);
+                gunRequestHandWeaponChange(GUNLEFT, e->left, 1);
+                if (e->inv >= 0)
+                {
+                    bondinvSetCurEquippedItem(e->inv);
+                }
             }
         }
         s_gevrWpShown = FALSE;
@@ -12672,6 +12783,12 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         bondinvDetermineEquippedItem();
         inv = bondinvGetCurEquippedItem();
         s_gevrWpIndex = 0;
+        if (gevrWeaponPanelLeft)
+        {
+            /* every line has the right hand's gun: find the left's, even mid-switch */
+            right = s_gevrWpList[0].right;
+            left = get_next_weapon_in_cycle_for_hand(GUNLEFT, 0);
+        }
         for (i = 0; i < count; i++)
         {
             if (s_gevrWpList[i].right == right && s_gevrWpList[i].left == left)
@@ -12804,7 +12921,8 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
          * has swapped "unarmed" for the sniper rifle as a club; the watch's
          * own mapping for the trigger and watch laser.
          */
-        s32 shown = s_gevrWpList[s_gevrWpIndex].right;   /* a pair shows its right gun */
+        /* a pair shows its right gun; the left hand's panel, the left one */
+        s32 shown = gevrWeaponPanelLeft ? s_gevrWpList[s_gevrWpIndex].left : s_gevrWpList[s_gevrWpIndex].right;
 
         if (shown == ITEM_UNARMED)
         {
