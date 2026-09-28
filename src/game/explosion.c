@@ -638,6 +638,7 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                             extern int netGetLocalSlot(void);
                             extern bool netIsHost(void);
                             extern void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg);
+                            extern void netSendWorldHitReport(uint8_t target_slot, uint8_t weapon_id, float hit_x, float hit_y, float hit_z, float dmg);
                             if (netIsActive())
                             {
                                 bool should_report = ((s32)temp_s2->player == netGetLocalSlot()) ||
@@ -652,7 +653,14 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                                     {
                                         minfrac *= 2.0f;
                                     }
-                                    netSendHitReport((uint8_t)targetIndex, ITEM_GRENADE, 0, xdist, 0.0f, zdist, minfrac);
+                                    if (temp_s2->player < 0)
+                                    {
+                                        netSendWorldHitReport((uint8_t)targetIndex, ITEM_GRENADE, xdist, 0.0f, zdist, minfrac);
+                                    }
+                                    else
+                                    {
+                                        netSendHitReport((uint8_t)targetIndex, ITEM_GRENADE, 0, xdist, 0.0f, zdist, minfrac);
+                                    }
                                 }
                                 continue;
                             }

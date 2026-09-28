@@ -450,7 +450,9 @@ static void gevrJavaCommand(const char *method, const char *arg)
     }
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
-    vr_log("launcher: %s %s", method, arg);
+    // Report commands contain the optional private note and player name.
+    if (strcmp(method, "reportCommand") == 0) vr_log("launcher: reportCommand");
+    else vr_log("launcher: %s %s", method, arg);
 }
 
 static std::string gevrEncodeUrl64(const char *input)
@@ -469,6 +471,35 @@ static std::string gevrEncodeUrl64(const char *input)
         if (i + 2 < n) out.push_back(alphabet[value & 63]);
     }
     return out;
+}
+
+static void gevrReportPage(bool &open, bool crash, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
+{
+    static char note[501] = {};
+    static Uint32 lastPoll = 0;
+    static std::string status;
+    Uint32 now = SDL_GetTicks();
+    if (now - lastPoll > 250 || !lastPoll) {
+        status = gevrJavaString("reportStatus");
+        lastPoll = now;
+    }
+    ImGui::TextColored(gold, crash ? "SEND CRASH REPORT" : "SEND DEBUG LOG");
+    ImGui::TextWrapped("This sends the game log, available crash data, your player name and headset model. Network addresses and connection details are removed from text logs.");
+    ImGui::Spacing();
+    ImGui::TextWrapped("Optional note (what happened just before the problem):");
+    ImGui::InputTextMultiline("##reportnote", note, sizeof(note), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
+    ImGui::Spacing();
+    if (status != "sending" && ImGui::Button("Send", ImVec2(-1, 0))) {
+        std::string command = "send|" + gevrEncodeUrl64(note) + "|"
+            + gevrEncodeUrl64(VrPlayerName) + "|" + gevrBuildId;
+        gevrJavaCommand("reportCommand", command.c_str());
+        status = "sending";
+    }
+    if (status == "sending") ImGui::TextColored(gold, "Sending...");
+    else if (status == "sent") ImGui::TextColored(good, "Sent. Thank you.");
+    else if (status.rfind("error:", 0) == 0) ImGui::TextColored(bad, "%s", status.c_str() + 6);
+    ImGui::Spacing();
+    if (ImGui::Button("Back", ImVec2(-1, 0))) open = false;
 }
 
 static std::string gevrDecodeUrl64(const std::string &input)
@@ -1014,6 +1045,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             }
             if (!onlineMessage.empty()) ImGui::TextWrapped("%s", onlineMessage.c_str());
             ImGui::Separator();
+            /* An internet join in progress is only cancelled by its own
+             * Cancel button: the LAN and direct-IP buttons below it shift
+             * under the pointer when that button appears. */
+            const bool joiningOnline = !clientJoinId.empty();
+            if (joiningOnline) ImGui::BeginDisabled();
             netDiscoveryInit();
             ImGui::TextColored(gold, "LAN GAMES DISCOVERED (%d):", netDiscoveryGetServerCount());
             int count = netDiscoveryGetServerCount();
@@ -1053,6 +1089,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 clientJoinId.clear();
                 netConnect(directIp, GEVR_DEFAULT_PORT);
             }
+            if (joiningOnline) ImGui::EndDisabled();
         } else if (netGetState() == NET_STATE_CONNECTING) {
             ImGui::TextColored(gold, "Connecting to host...");
             if (ImGui::Button("Cancel connection")) {
@@ -1463,6 +1500,13 @@ extern "C" void gevrLauncherRun(void)
     gevrUpdaterCommand("check");
     UpdateStatus upd;
     Uint32 lastUpdPoll = 0;
+    static bool reportPage = false;
+    static bool reportCrash = false;
+    if (gevrJavaString("reportStatus") == "offer") {
+        reportPage = true;
+        reportCrash = true;
+        gevrJavaCommand("reportCommand", "offered");
+    }
 
     while (!start) {
         SDL_PumpEvents();
@@ -1545,12 +1589,13 @@ extern "C" void gevrLauncherRun(void)
         const ImVec4 good(0.5f, 0.9f, 0.5f, 1.0f);
         const ImVec4 bad(0.95f, 0.5f, 0.4f, 1.0f);
 
-        // header: icon and title left, version and build right
+        // header: icon and title left, build stamp and report button stacked right
+        const float headerY = ImGui::GetCursorPosY();
+        const float headerH = ImGui::GetTextLineHeight() * 2.2f;
         if (iconTex) {
-            const float s = ImGui::GetTextLineHeight() * 2.2f;
-            ImGui::Image((ImTextureID)(intptr_t)iconTex, ImVec2(s, s));
+            ImGui::Image((ImTextureID)(intptr_t)iconTex, ImVec2(headerH, headerH));
             ImGui::SameLine();
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (s - ImGui::GetTextLineHeight()) * 0.5f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (headerH - ImGui::GetTextLineHeight()) * 0.5f);
         }
         ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "GOLDENEYE VR");
         {
@@ -1561,9 +1606,19 @@ extern "C" void gevrLauncherRun(void)
                 snprintf(build, sizeof(build), "Build %s", gevrBuildId);
             }
             const float w = ImGui::CalcTextSize(build).x;
-            ImGui::SameLine(ImGui::GetWindowWidth() - w - ImGui::GetStyle().WindowPadding.x);
+            const float buttonW = ImGui::CalcTextSize("Send debug log").x + ImGui::GetStyle().FramePadding.x * 2;
+            const float right = ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+            ImGui::SetCursorPos(ImVec2(right - w, headerY));
             ImGui::TextDisabled("%s", build);
+            ImGui::SetCursorPos(ImVec2(right - buttonW,
+                headerY + ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y));
+            if (ImGui::SmallButton("Send debug log")) {
+                reportPage = true;
+                reportCrash = false;
+            }
         }
+        const float iconBottom = headerY + headerH + ImGui::GetStyle().ItemSpacing.y;
+        if (ImGui::GetCursorPosY() < iconBottom) ImGui::SetCursorPosY(iconBottom);
         ImGui::Separator();
 
         // ROM
@@ -1625,7 +1680,9 @@ extern "C" void gevrLauncherRun(void)
         static bool cheatPage = false;
         static bool modsPage = false;
         static bool mpPage = false;
-        if (mpPage) {
+        if (reportPage) {
+            gevrReportPage(reportPage, reportCrash, gold, good, bad);
+        } else if (mpPage) {
             gevrMultiplayerPage(mpPage, start, gold, good, bad);
         } else if (modsPage) {
             gevrModsPage(modsPage, now, gold, good, bad);
@@ -1705,6 +1762,10 @@ extern "C" void gevrLauncherRun(void)
             ImGui::RadioButton("Flat screen", &mode, 0);
             ImGui::Spacing();
             ImGui::TextColored(gold, "SCREEN");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Both grips grab the screen; right stick: distance / size.\n"
+                                  "Hold the left stick click to recentre it.");
+            }
             {
                 int curved = VrScreenCurved;
                 ImGui::RadioButton("Flat", &curved, 0);
@@ -1804,10 +1865,51 @@ extern "C" void gevrLauncherRun(void)
             ImGui::EndTable();
         }
         ImGui::Separator();
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("Both grips grab the screen; right stick: distance / size. Hold the left stick click to recentre it.");
-        ImGui::PopStyleColor();
-
+        // Update line: only when there is something to say, so an
+        // up-to-date launcher looks as it always has.
+        bool updLine = upd.state == "available" || upd.state == "downloading"
+            || upd.state == "permission" || upd.state == "installing"
+            || upd.state == "error" || !upd.message.empty();
+        if (updLine) {
+            if (upd.state == "available") {
+                ImGui::TextColored(gold, "Update available: v%s", upd.offered.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
+                if (!upd.message.empty()) {
+                    // wrapped: the row ends at the panel's edge
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                    ImGui::TextWrapped("%s", upd.message.c_str());
+                    ImGui::PopStyleColor();
+                }
+            } else if (upd.state == "downloading") {
+                // Cancel on the left of every busy line: a prompt closed from the
+                // shell may never report back, and this is the way out of it.
+                if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+                ImGui::SameLine();
+                if (upd.progress >= 0) {
+                    ImGui::TextColored(gold, "Downloading v%s... %d%%", upd.offered.c_str(), upd.progress);
+                } else {
+                    ImGui::TextColored(gold, "Downloading v%s...", upd.offered.c_str());
+                }
+            } else if (upd.state == "permission" || upd.state == "installing") {
+                if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, gold);
+                ImGui::TextWrapped("%s", upd.message.c_str());
+                ImGui::PopStyleColor();
+            } else if (upd.state == "error") {
+                if (ImGui::SmallButton("Retry##update")) gevrUpdaterCommand("retry");
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                ImGui::TextWrapped("%s", upd.message.c_str());
+                ImGui::PopStyleColor();
+            } else if (!upd.message.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, good);
+                ImGui::TextWrapped("%s", upd.message.c_str());   // "Updated to v0.1.13."
+                ImGui::PopStyleColor();
+            }
+        }
         {
             int n = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
             for (int b = 0; b < 64; b++) n += (int)((VrCheatMask >> b) & 1ULL);
@@ -1828,53 +1930,6 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SameLine();
             if (ImGui::Button("Multiplayer...")) {
                 mpPage = true;
-            }
-
-            // Update line: only when there is something to say, so an
-            // up-to-date launcher looks as it always has.
-            bool updLine = upd.state == "available" || upd.state == "downloading"
-                || upd.state == "permission" || upd.state == "installing"
-                || upd.state == "error" || !upd.message.empty();
-            if (updLine) {
-                ImGui::SameLine();
-                if (upd.state == "available") {
-                    ImGui::TextColored(gold, "Update available: v%s", upd.offered.c_str());
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
-                    if (!upd.message.empty()) {
-                        // wrapped: the row ends at the panel's edge
-                        ImGui::SameLine();
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-                        ImGui::TextWrapped("%s", upd.message.c_str());
-                        ImGui::PopStyleColor();
-                    }
-                } else if (upd.state == "downloading") {
-                    // Cancel on the left of every busy line: a prompt closed from the
-                    // shell may never report back, and this is the way out of it.
-                    if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
-                    ImGui::SameLine();
-                    if (upd.progress >= 0) {
-                        ImGui::TextColored(gold, "Downloading v%s... %d%%", upd.offered.c_str(), upd.progress);
-                    } else {
-                        ImGui::TextColored(gold, "Downloading v%s...", upd.offered.c_str());
-                    }
-                } else if (upd.state == "permission" || upd.state == "installing") {
-                    if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
-                    ImGui::SameLine();
-                    ImGui::PushStyleColor(ImGuiCol_Text, gold);
-                    ImGui::TextWrapped("%s", upd.message.c_str());
-                    ImGui::PopStyleColor();
-                } else if (upd.state == "error") {
-                    if (ImGui::SmallButton("Retry##update")) gevrUpdaterCommand("retry");
-                    ImGui::SameLine();
-                    ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                    ImGui::TextWrapped("%s", upd.message.c_str());
-                    ImGui::PopStyleColor();
-                } else if (!upd.message.empty()) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, good);
-                    ImGui::TextWrapped("%s", upd.message.c_str());   // "Updated to v0.1.13."
-                    ImGui::PopStyleColor();
-                }
             }
         }
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);

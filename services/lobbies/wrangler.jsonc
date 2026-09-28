@@ -5,6 +5,8 @@
   "routes": [{ "pattern": "lobbies.goldeneyevr.com", "custom_domain": true }],
   "assets": { "directory": "./public" },
   "workers_dev": false,
+  "send_email": [{ "name": "EMAIL" }],
+  "vars": { "REPORT_TO": "info@goldeneyevr.com" },
   "observability": { "enabled": true, "traces": { "enabled": true } },
   "durable_objects": {
     "bindings": [{ "name": "REGISTRY", "class_name": "LobbyRegistry" }]
