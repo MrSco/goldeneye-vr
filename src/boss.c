@@ -38,6 +38,7 @@
 #include "game/stan.h"
 #include "game/textrelated.h"
 #include "game/player.h"
+#include "game/chrai.h"
 #include "game/frametiming.h"
 #include "PR/R4300.h"
 #include "gevr_rom_segments.h"
@@ -47,10 +48,17 @@
 extern bool netIsActive(void);
 extern uint32_t netGetRandomSeed(void);
 extern void netPoll(void);
+extern void gevrLobbyGameTick(void);
+extern void gevrLobbySessionStopped(void);
 extern void netDiscoveryUpdate(u32 current_time_ms);
 extern void netPlayerSyncBeforeTick(s32 playernum);
 extern void netPlayerSyncAfterTick(s32 playernum);
 extern u64 sysGetMicroseconds(void);
+extern bool netSlotOccupied(int slot);
+extern bool netTakeRoundReset(void);
+extern void netStageLoaded(void);
+static bool s_net_slot_enabled[4];
+static bool s_net_session_started;
 #endif
 
 /**
@@ -485,6 +493,13 @@ void bossMainloop(void)
         dynInitMemory();
         joyCheckStatusThreadSafe();
         lvlStageLoad(g_StageNum);
+#ifdef GEVR
+        if (s_net_session_started && g_StageNum == LEVELID_TITLE)
+            gevrLobbySessionStopped();
+        for (int slot = 0; slot < 4; slot++) s_net_slot_enabled[slot] = TRUE;
+        s_net_session_started = netIsActive() && g_StageNum != LEVELID_TITLE;
+        netStageLoaded();
+#endif
         sysLogPrintf(LOG_NOTE, "stage: loading: lvlStageLoad done (stage pool %d bytes left)", mempGetBankSizeLeft(MEMPOOL_STAGE));
         viInitBuffers();
         debmenuRefresh();
@@ -568,7 +583,23 @@ void bossMainloop(void)
 #ifdef GEVR
                             {
                                 netPoll();
+                                gevrLobbyGameTick();
                                 netDiscoveryUpdate((u32)(sysGetMicroseconds() / 1000));
+                                if (s_net_session_started && !netIsActive())
+                                    bossSetLoadedStage(LEVELID_TITLE);
+                                if (netTakeRoundReset()) bossSetLoadedStage(g_StageNum);
+                                if (netIsActive()) {
+                                    for (i = 0; i < getPlayerCount(); i++) {
+                                        if (g_playerPointers[i] && g_playerPointers[i]->prop) {
+                                            bool occupied = netSlotOccupied(i);
+                                            if (occupied != s_net_slot_enabled[i]) {
+                                                if (occupied) chrpropEnable(g_playerPointers[i]->prop);
+                                                else chrpropDisable(g_playerPointers[i]->prop);
+                                                s_net_slot_enabled[i] = occupied;
+                                            }
+                                        }
+                                    }
+                                }
                             }
 #endif
                             gevrSchedTraceMenu(get_currentmenu(), 0);
@@ -581,6 +612,7 @@ void bossMainloop(void)
                                 for (i = 0; i < getPlayerCount(); i++)
                                 {
                                     s32 playernum = get_nth_player_from_shuffled(i);
+                                    if (netIsActive() && !netSlotOccupied(playernum)) continue;
                                     set_cur_player(playernum);
 
                                     localPlayer = g_CurrentPlayer;

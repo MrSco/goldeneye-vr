@@ -203,7 +203,7 @@ To walk with the left stick anyway, tick **Swap sticks** as well.
 
 ## 🌐 Multiplayer (experimental)
 
-Deathmatch for two to four players, each in their own headset, on the game's multiplayer stages.
+Host a deathmatch alone or play with up to four players, each in their own headset, on the game's multiplayer stages.
 It's still experimental: expect rough edges, and please report what you find.
 
 **Everyone needs the same version of GoldenEye VR**, and each player their own ROM.
@@ -214,11 +214,11 @@ It's still experimental: expect rough edges, and please report what you find.
 - your **character**.
 - the **weapons**: the game's own sets, from Slappers only to the Golden Gun, proximity mines included.
 
-Then press **START HOSTING LOBBY**. When every player shows **[READY]**, press **LAUNCH MULTIPLAYER MATCH!**.
+Then press **START HOSTING LOBBY**. You can launch alone once everyone currently connected shows **[READY]**. The host can explore in warmup without running the round clock or score. When a guest has loaded the map, the stage and equipment reset and the timed round begins together. If the last guest leaves, the host returns to warmup.
 
 **Join a game.** Press **Multiplayer...** and choose **Join Game**. Pick a public internet game,
 enter a private code, or select a game discovered on your Wi-Fi. Direct IP remains available as a fallback.
-Then choose your character and tick **I am Ready**.
+Then choose your character and tick **I am Ready**. Open spots can be joined during warmup or an active round. A late join starts from a fresh spawn with zero score, and reconnecting does not restore a previous score.
 
 **Voice chat.** Allow microphone access to talk. Everyone can hear each other in the lobby;
 in a match, voices get quieter with distance and pan toward the speaker. Mute in the lobby or
@@ -227,13 +227,10 @@ If you deny microphone access, you can still hear other players.
 
 **Over the internet.** No IP addresses and no router setup: headsets connect directly when they can,
 and through a Cloudflare relay when they can't. The game list and private codes come from our lobby
-service at `lobbies.goldeneyevr.com`, which keeps a game's listing and connection details (including
+service at [lobbies.goldeneyevr.com](https://lobbies.goldeneyevr.com/), which shows public activity and keeps a game's listing and connection details (including
 IP addresses) only while the game is open. Games on your Wi-Fi still work without it (UDP 27008).
 
-**Not there yet:**
-- If the host quits, the match doesn't end cleanly for the others.
-- The end of a match isn't shared between headsets.
-- You don't see other players' hands move.
+**Not there yet:** You don't see other players' hands move.
 
 ## ⚙️ Settings
 

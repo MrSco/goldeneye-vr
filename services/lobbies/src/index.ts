@@ -7,10 +7,11 @@ interface Env {
 }
 
 type Visibility = "public" | "private";
+type Phase = "waiting" | "warmup" | "in_progress";
 type Lobby = {
   code: string; owner_hash: string; name: string; visibility: Visibility;
   version: number; stage: number; weapons: number; players: number;
-  max_players: number; open: number; expires: number;
+  max_players: number; open: number; expires: number; phase: Phase;
 };
 type Join = { id: string; code: string; token_hash: string; offer: string | null; answer: string | null; expires: number };
 
@@ -28,6 +29,9 @@ export class LobbyRegistry extends DurableObject<Env> {
     super(ctx, env);
     ctx.blockConcurrencyWhile(async () => {
       this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS lobbies (code TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, name TEXT NOT NULL, visibility TEXT NOT NULL, version INTEGER NOT NULL, stage INTEGER NOT NULL, weapons INTEGER NOT NULL, players INTEGER NOT NULL, max_players INTEGER NOT NULL, open INTEGER NOT NULL, expires INTEGER NOT NULL)");
+      const columns = this.ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(lobbies)").toArray();
+      if (!columns.some(column => column.name === "phase"))
+        this.ctx.storage.sql.exec("ALTER TABLE lobbies ADD COLUMN phase TEXT NOT NULL DEFAULT 'waiting'");
       this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS joins (id TEXT PRIMARY KEY, code TEXT NOT NULL, token_hash TEXT NOT NULL, offer TEXT, answer TEXT, expires INTEGER NOT NULL)");
       this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, reset INTEGER NOT NULL)");
       this.ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS lobbies_expires ON lobbies(expires)");
@@ -67,7 +71,7 @@ export class LobbyRegistry extends DurableObject<Env> {
     let code: string;
     do { code = codeValue(); } while (this.lobby(code));
     const ownerToken = crypto.randomUUID() + crypto.randomUUID();
-    this.ctx.storage.sql.exec("INSERT INTO lobbies VALUES(?,?,?,?,?,?,?,?,?,?,?)", code, await digest(ownerToken), x.name, x.visibility, x.version, x.stage, x.weapons, 1, x.maxPlayers, 1, Date.now() + TTL);
+    this.ctx.storage.sql.exec("INSERT INTO lobbies(code,owner_hash,name,visibility,version,stage,weapons,players,max_players,open,expires,phase) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", code, await digest(ownerToken), x.name, x.visibility, x.version, x.stage, x.weapons, 1, x.maxPlayers, 1, Date.now() + TTL, "waiting");
     return json({ code, ownerToken, ttlSeconds: TTL / 1000 }, 201);
   }
 
@@ -75,8 +79,11 @@ export class LobbyRegistry extends DurableObject<Env> {
     const lobby = this.lobby(code);
     if (!lobby || lobby.owner_hash !== await digest(token)) return bad("Lobby unavailable", 404);
     const x = input as Record<string, unknown>;
-    if (!x || !validInt(x.players, 1, lobby.max_players) || typeof x.open !== "boolean") return bad("Invalid lobby state");
-    this.ctx.storage.sql.exec("UPDATE lobbies SET players=?,open=?,expires=? WHERE code=?", x.players, x.open ? 1 : 0, Date.now() + TTL, code);
+    if (!x || !validInt(x.players, 1, lobby.max_players) || typeof x.open !== "boolean" ||
+        (x.phase !== undefined && !["waiting", "warmup", "in_progress"].includes(String(x.phase)))) return bad("Invalid lobby state");
+    const phase = (x.phase || lobby.phase) as Phase;
+    if (phase === "in_progress" && Number(x.players) < 2) return bad("An active match needs two players");
+    this.ctx.storage.sql.exec("UPDATE lobbies SET players=?,open=?,phase=?,expires=? WHERE code=?", x.players, x.open ? 1 : 0, phase, Date.now() + TTL, code);
     return json({ ok: true });
   }
 
@@ -91,7 +98,25 @@ export class LobbyRegistry extends DurableObject<Env> {
   async list(version: number): Promise<Response> {
     this.cleanup();
     const rows = this.ctx.storage.sql.exec<Lobby>("SELECT * FROM lobbies WHERE visibility='public' AND version=? AND open=1 AND players<max_players ORDER BY expires DESC LIMIT 64", version).toArray();
-    return json({ lobbies: rows.map(({ code, name, stage, weapons, players, max_players }) => ({ code, name, stage, weapons, players, maxPlayers: max_players })) });
+    return json({ lobbies: rows.map(({ code, name, stage, weapons, players, max_players, phase }) => ({ code, name, stage, weapons, players, maxPlayers: max_players, phase })) });
+  }
+
+  async activity(): Promise<Response> {
+    this.cleanup();
+    const rows = this.ctx.storage.sql.exec<Lobby>("SELECT code,name,visibility,version,stage,weapons,players,max_players,open,phase FROM lobbies ORDER BY expires DESC").toArray();
+    const counts = { public: 0, private: 0, waiting: 0, warmup: 0, inProgress: 0, players: 0 };
+    for (const row of rows) {
+      counts[row.visibility]++;
+      if (row.phase === "in_progress") counts.inProgress++;
+      else counts[row.phase]++;
+      counts.players += row.players;
+    }
+    return json({ updatedAt: new Date().toISOString(), counts,
+      lobbies: rows.filter(row => row.visibility === "public").slice(0, 64).map(row => ({
+        code: row.code, name: row.name, version: row.version, stage: row.stage,
+        weapons: row.weapons, players: row.players, maxPlayers: row.max_players,
+        phase: row.phase, joinable: !!row.open && row.players < row.max_players
+      })) });
   }
 
   async resolve(code: string, version: number): Promise<Response> {
@@ -174,6 +199,7 @@ export default {
       if (!await registry.limit(ip, action, action === "read" ? 120 : 40)) return bad("Too many requests", 429);
       const token = request.headers.get("Authorization")?.replace(/^Bearer /i, "") || "";
       const body = request.method === "GET" || request.method === "DELETE" ? null : await request.json().catch(() => null);
+      if (path.length === 2 && path[1] === "activity" && request.method === "GET") return registry.activity();
       if (path[1] !== "lobbies") return bad("Not found", 404);
       if (path.length === 2 && request.method === "POST") return registry.create(body);
       if (path.length === 2 && request.method === "GET") return registry.list(Number(url.searchParams.get("version")));
