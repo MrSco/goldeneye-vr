@@ -394,44 +394,60 @@ static void netSendWorldSnapshot(ENetPeer *peer) {
     u8 raw[512];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     int count = 0;
-    int index = 0;
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_WORLD_SNAPSHOT);
     netbufWriteU8(&buf, 0);
     netbufWriteU8(&buf, 0); /* record count, filled before sending */
-    for (; def->type != PROPDEF_END && index <= UINT16_MAX; def += sizepropdef(def), index++) {
-        if (!netSnapshotObjectType(def->type)) continue;
-        ObjectRecord *obj = (ObjectRecord *)def;
-        netbufWriteU16(&buf, (u16)index);
-        netbufWriteU8(&buf, (u8)def->type);
-        netbufWriteU8(&buf, obj->prop ? 1 : 0);
-        netbufWriteU8(&buf, obj->prop && (obj->prop->flags & PROPFLAG_ENABLED) ? 1 : 0);
-        netbufWriteU32(&buf, obj->runtime_bitflags &
-                       (RUNTIMEBITFLAG_REMOVE | RUNTIMEBITFLAG_DESTROYED | RUNTIMEBITFLAG_BEENOPENED));
-        if (def->type == PROPDEF_DOOR) {
-            DoorRecord *door = (DoorRecord *)def;
-            netbufWriteF32(&buf, door->openPosition);
-            netbufWriteU8(&buf, (u8)door->openstate);
-        } else {
-            netbufWriteF32(&buf, 0);
-            netbufWriteU8(&buf, 0);
-        }
-        count++;
-        if (count == 32 || (def + sizepropdef(def))->type == PROPDEF_END) {
-            if (!buf.error) {
-                raw[8] = (u8)count;
-                ENetPacket *packet = enet_packet_create(raw, buf.wp, ENET_PACKET_FLAG_RELIABLE);
-                enet_peer_send(peer, NET_CHAN_RELIABLE, packet);
+    for (int source = 0; source < 3; source++) {
+        int limit = source == 1 ? MAX_WEAPON_SLOTS : MAX_AMMO_CRATES;
+        for (int slot = 0; source == 0 ? (def->type != PROPDEF_END && slot < 0x8000) :
+             slot < limit; slot++) {
+            ObjectRecord *obj;
+            u16 index;
+            if (source == 0) {
+                obj = (ObjectRecord *)def;
+                index = (u16)slot;
+                def += sizepropdef(def);
+                if (!netSnapshotObjectType(obj->type)) continue;
+            } else if (source == 1) {
+                obj = (ObjectRecord *)&g_WeaponSlots[slot];
+                index = (u16)(0x8000 + slot);
+            } else {
+                obj = (ObjectRecord *)&g_AmmoCrates[slot];
+                index = (u16)(0x9000 + slot);
             }
-            netbufStartWrite(&buf);
-            netbufWriteU32(&buf, GEVR_NET_MAGIC);
-            netbufWriteU16(&buf, GEVR_NET_VERSION);
-            netbufWriteU8(&buf, NET_MSG_WORLD_SNAPSHOT);
-            netbufWriteU8(&buf, 0);
-            netbufWriteU8(&buf, 0);
-            count = 0;
+            netbufWriteU16(&buf, index);
+            netbufWriteU8(&buf, (u8)obj->type);
+            netbufWriteU8(&buf, obj->prop ? 1 : 0);
+            netbufWriteU8(&buf, obj->prop && (obj->prop->flags & PROPFLAG_ENABLED) ? 1 : 0);
+            netbufWriteU32(&buf, obj->runtime_bitflags &
+                           (RUNTIMEBITFLAG_REMOVE | RUNTIMEBITFLAG_DESTROYED | RUNTIMEBITFLAG_BEENOPENED));
+            if (source == 0 && obj->type == PROPDEF_DOOR) {
+                DoorRecord *door = (DoorRecord *)obj;
+                netbufWriteF32(&buf, door->openPosition);
+                netbufWriteU8(&buf, (u8)door->openstate);
+            } else {
+                netbufWriteF32(&buf, 0);
+                netbufWriteU8(&buf, 0);
+            }
+            netbufWriteU32(&buf, obj->prop ? (u32)obj->prop->timetoregen : 0);
+            count++;
+            if (count == 24) {
+                if (!buf.error) {
+                    raw[8] = (u8)count;
+                    ENetPacket *packet = enet_packet_create(raw, buf.wp, ENET_PACKET_FLAG_RELIABLE);
+                    enet_peer_send(peer, NET_CHAN_RELIABLE, packet);
+                }
+                netbufStartWrite(&buf);
+                netbufWriteU32(&buf, GEVR_NET_MAGIC);
+                netbufWriteU16(&buf, GEVR_NET_VERSION);
+                netbufWriteU8(&buf, NET_MSG_WORLD_SNAPSHOT);
+                netbufWriteU8(&buf, 0);
+                netbufWriteU8(&buf, 0);
+                count = 0;
+            }
         }
     }
     if (count && !buf.error) {
@@ -1157,7 +1173,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME ||
                 !g_CurrentSetup.propDefs) break;
             u8 count = netbufReadU8(&buf);
-            if (count == 0 || count > 32 || size != 9u + (size_t)count * 14u) break;
+            if (count == 0 || count > 24 || size != 9u + (size_t)count * 18u) break;
             for (int i = 0; i < count; i++) {
                 u16 index = netbufReadU16(&buf);
                 u8 type = netbufReadU8(&buf);
@@ -1166,9 +1182,16 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 u32 runtime = netbufReadU32(&buf);
                 float position = netbufReadF32(&buf);
                 u8 state = netbufReadU8(&buf);
+                u32 regen = netbufReadU32(&buf);
                 if (buf.error) break;
-                ObjectRecord *obj = setupGetPtrToCommandByIndex(index);
-                if (!obj || obj->type != type || !netSnapshotObjectType(type)) continue;
+                ObjectRecord *obj = NULL;
+                if (index >= 0x9000 && index < 0x9000 + MAX_AMMO_CRATES)
+                    obj = (ObjectRecord *)&g_AmmoCrates[index - 0x9000];
+                else if (index >= 0x8000 && index < 0x8000 + MAX_WEAPON_SLOTS)
+                    obj = (ObjectRecord *)&g_WeaponSlots[index - 0x8000];
+                else if (index < 0x8000 && netSnapshotObjectType(type))
+                    obj = setupGetPtrToCommandByIndex(index);
+                if (!obj || obj->type != type) continue;
                 if (!has_prop) {
                     if (obj->prop) objFreePermanently(obj, true);
                     continue;
@@ -1179,6 +1202,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 obj->runtime_bitflags = (obj->runtime_bitflags & ~mask) | (runtime & mask);
                 if (enabled) chrpropEnable(obj->prop);
                 else chrpropDisable(obj->prop);
+                obj->prop->timetoregen = (s32)regen;
                 if (type == PROPDEF_DOOR) {
                     DoorRecord *door = (DoorRecord *)obj;
                     door->openPosition = position;
