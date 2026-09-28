@@ -339,6 +339,11 @@ const NetMsgLobbyState *netGetLobbyState(void) {
     return &s_lobby_state;
 }
 
+const char *netGetSlotName(int slot) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected) return NULL;
+    return s_lobby_state.slots[slot].name;
+}
+
 static void netBroadcastPacket(const void *data, size_t size, uint8_t channel, uint32_t flags, ENetPeer *except) {
     if (!s_host) return;
     
