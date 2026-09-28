@@ -147,14 +147,8 @@ void audioEndFrame(void)
         if (gap > maxGap) maxGap = gap;
         lastSubmit = now;
         if (!lastReport) lastReport = now;
-        /* PROBE (#62 solo warmup: no sound): the game's own samples that aren't silence */
-        static u32 probeNonzero;
-        for (u32 pi = 0; nextBuf && pi < nextSize / sizeof(s16); pi++) {
-            if (nextBuf[pi] != 0) probeNonzero++;
-        }
         if (now - lastReport >= 2000000) {
-            sysLogPrintf(LOG_NOTE, "audio queue: frames=%u..%u empty=%u dropped=%u maxgap=%u us nonzero=%u", minQueued, maxQueued, empty, dropped, maxGap, probeNonzero);
-            probeNonzero = 0;
+            sysLogPrintf(LOG_NOTE, "audio queue: frames=%u..%u empty=%u dropped=%u maxgap=%u us", minQueued, maxQueued, empty, dropped, maxGap);
             lastReport = now;
             empty = dropped = maxQueued = maxGap = 0;
             minQueued = ~0u;
