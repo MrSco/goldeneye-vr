@@ -810,7 +810,10 @@ static void netProcessHitReport(uint8_t shooter_slot, uint8_t target, uint8_t we
     if (target < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
         s32 prev = get_cur_playernum();
         set_cur_player(target);
+        extern s32 s_gevrExplosionDamage;
+        s_gevrExplosionDamage = (weapon == ITEM_GRENADE || weapon == ITEM_GRENADELAUNCH || weapon == ITEM_ROCKETLAUNCH || weapon == ITEM_PROXIMITYMINE || weapon == ITEM_TIMEDMINE || weapon == ITEM_REMOTEMINE || weapon == ITEM_TANKSHELLS);
         record_damage_kills(dmg, vx, vz, shooter_slot, 1);
+        s_gevrExplosionDamage = 0;
         set_cur_player(prev);
     }
 }
@@ -1337,7 +1340,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 NET_LOG("Player %d took %.1f damage from attacker %d", target, dmg, attacker);
                 s32 prev = get_cur_playernum();
                 set_cur_player(target);
+                extern s32 s_gevrExplosionDamage;
+                s_gevrExplosionDamage = (weapon == ITEM_GRENADE || weapon == ITEM_GRENADELAUNCH || weapon == ITEM_ROCKETLAUNCH || weapon == ITEM_PROXIMITYMINE || weapon == ITEM_TIMEDMINE || weapon == ITEM_REMOTEMINE || weapon == ITEM_TANKSHELLS);
                 record_damage_kills(dmg, vx, vz, attacker, 1);
+                s_gevrExplosionDamage = 0;
                 set_cur_player(prev);
             }
             break;

@@ -1618,6 +1618,214 @@ void inputRumbleSetStrength(s32 cidx, f32 val)
     padsCfg[cidx].rumbleScale = val;
 }
 
+struct WeaponRumbleProfile {
+    f32 amplitude; // Base amplitude 0..1 (value / 10.0f)
+    f32 duration;  // Seconds
+    f32 frequency; // Hz
+};
+
+static struct WeaponRumbleProfile getWeaponRumbleProfile(s32 item_id) {
+    struct WeaponRumbleProfile p = { 0.40f, 0.06f, 180.0f }; // Default fallback
+
+    switch (item_id) {
+        case ITEM_WPPKSIL: // PP7 Special Issue (Silenced) - Value 1
+            p.amplitude = 0.10f;
+            p.duration  = 0.04f;
+            p.frequency = 320.0f;
+            break;
+        case ITEM_LASER: // Military Laser - Value 1
+        case ITEM_WATCHLASER: // Watch Laser - Value 1
+            p.amplitude = 0.10f;
+            p.duration  = 0.05f;
+            p.frequency = 350.0f;
+            break;
+        case ITEM_UNARMED: // Unarmed / Knives - Value 1
+        case ITEM_FIST:
+        case ITEM_KNIFE:
+        case ITEM_THROWKNIFE:
+            p.amplitude = 0.10f;
+            p.duration  = 0.04f;
+            p.frequency = 250.0f;
+            break;
+        case ITEM_WPPK: // PP7 Special Issue - Value 2
+        case ITEM_SILVERWPPK: // Silver PP7 - Value 2
+        case ITEM_GOLDWPPK: // Gold PP7 - Value 2
+            p.amplitude = 0.20f;
+            p.duration  = 0.05f;
+            p.frequency = 240.0f;
+            break;
+        case ITEM_MP5KSIL: // D5K Deutsche (Silenced) - Value 2
+            p.amplitude = 0.20f;
+            p.duration  = 0.05f;
+            p.frequency = 280.0f;
+            break;
+        case ITEM_TASER: // Taser - Value 2
+            p.amplitude = 0.20f;
+            p.duration  = 0.08f;
+            p.frequency = 300.0f;
+            break;
+        case ITEM_SKORPION: // Klobb - Value 3
+            p.amplitude = 0.30f;
+            p.duration  = 0.04f;
+            p.frequency = 260.0f;
+            break;
+        case ITEM_UZI: // ZMG (9mm) - Value 3
+        case ITEM_MP5K: // D5K Deutsche - Value 3
+            p.amplitude = 0.30f;
+            p.duration  = 0.05f;
+            p.frequency = 210.0f;
+            break;
+        case ITEM_SPECTRE: // Phantom - Value 3
+            p.amplitude = 0.30f;
+            p.duration  = 0.05f;
+            p.frequency = 200.0f;
+            break;
+        case ITEM_FNP90: // RCP-90 - Value 3
+            p.amplitude = 0.30f;
+            p.duration  = 0.04f;
+            p.frequency = 230.0f;
+            break;
+        case ITEM_TT33: // DD44 Dostovei - Value 5
+            p.amplitude = 0.50f;
+            p.duration  = 0.06f;
+            p.frequency = 190.0f;
+            break;
+        case ITEM_AK47: // KF7 Soviet - Value 6
+        case ITEM_M16: // US AR33 Assault Rifle - Value 6
+            p.amplitude = 0.60f;
+            p.duration  = 0.07f;
+            p.frequency = 160.0f;
+            break;
+        case ITEM_GOLDENGUN: // Golden Gun - Value 7
+        case ITEM_SNIPERRIFLE: // Sniper Rifle - Value 7
+            p.amplitude = 0.70f;
+            p.duration  = 0.09f;
+            p.frequency = 130.0f;
+            break;
+        case ITEM_RUGER: // Cougar Magnum - Value 8
+            p.amplitude = 0.80f;
+            p.duration  = 0.12f;
+            p.frequency = 110.0f;
+            break;
+        case ITEM_AUTOSHOT: // Automatic Shotgun - Value 8
+            p.amplitude = 0.80f;
+            p.duration  = 0.10f;
+            p.frequency = 120.0f;
+            break;
+        case ITEM_GRENADELAUNCH: // Grenade Launcher - Value 8
+            p.amplitude = 0.80f;
+            p.duration  = 0.14f;
+            p.frequency = 100.0f;
+            break;
+        case ITEM_ROCKETLAUNCH: // Rocket Launcher - Value 8
+            p.amplitude = 0.80f;
+            p.duration  = 0.15f;
+            p.frequency = 90.0f;
+            break;
+        case ITEM_SHOTGUN: // Shotgun - Value 9
+            p.amplitude = 0.90f;
+            p.duration  = 0.12f;
+            p.frequency = 110.0f;
+            break;
+        case ITEM_TANKSHELLS: // Tank - Value 10
+            p.amplitude = 1.00f;
+            p.duration  = 0.22f;
+            p.frequency = 80.0f;
+            break;
+        case ITEM_GRENADE:
+        case ITEM_TIMEDMINE:
+        case ITEM_PROXIMITYMINE:
+        case ITEM_REMOTEMINE:
+        case ITEM_TRIGGER:
+            p.amplitude = 0.00f;
+            p.duration  = 0.0f;
+            p.frequency = 0.0f;
+            break;
+        default:
+            break;
+    }
+    return p;
+}
+
+void gevrRumbleGunfire(s32 hand, s32 item_id) {
+    if (padsCfg[0].rumbleScale <= 0.f) {
+        return;
+    }
+
+    struct WeaponRumbleProfile p = getWeaponRumbleProfile(item_id);
+    f32 amp = p.amplitude * padsCfg[0].rumbleScale;
+    if (amp <= 0.001f || p.duration <= 0.001f) {
+        return;
+    }
+
+    // VR Haptics
+    if (vr_haptics_ready()) {
+        // GUNRIGHT = 0 -> OpenXR 1 (right hand)
+        // GUNLEFT  = 1 -> OpenXR 0 (left hand)
+        s32 targetHand = (hand == 1) ? 0 : 1;
+        if (vr_invert_hands) {
+            targetHand = 1 - targetHand;
+        }
+
+        trigger_haptic_vibration_freq_c(targetHand, amp, p.duration, p.frequency);
+
+        // Two-handed grip support: if gripping with off hand, mirror recoil with 60% strength
+        if (gevrStereoTwoHandGrip() != 0) {
+            s32 supportHand = 1 - targetHand;
+            trigger_haptic_vibration_freq_c(supportHand, amp * 0.6f, p.duration, p.frequency);
+        }
+    }
+
+    // Gamepad controller rumble
+    if (pads[0] && padsCfg[0].rumbleOn) {
+        SDL_GameControllerRumble(pads[0], (u16)(amp * 65535.f), (u16)(amp * 65535.f), (u32)(p.duration * 1000.f));
+    }
+}
+
+s32 s_gevrExplosionDamage = 0;
+
+void gevrRumbleDamage(f32 damage_amount, s32 is_explosion) {
+    if (padsCfg[0].rumbleScale <= 0.f) {
+        return;
+    }
+
+    f32 amp;
+    f32 dur;
+    f32 freq;
+
+    if (is_explosion) {
+        // Heavy explosive shockwave
+        amp = 0.80f + (damage_amount * 0.20f);
+        if (amp > 1.0f) amp = 1.0f;
+        dur = 0.20f + (damage_amount * 0.10f);
+        if (dur > 0.35f) dur = 0.35f;
+        freq = 90.0f;
+    } else {
+        // Bullet hit / impact
+        amp = 0.40f + (damage_amount * 1.5f);
+        if (amp > 0.90f) amp = 0.90f;
+        dur = 0.09f + (damage_amount * 0.15f);
+        if (dur > 0.22f) dur = 0.22f;
+        freq = 150.0f;
+    }
+
+    amp *= padsCfg[0].rumbleScale;
+    if (amp <= 0.001f) {
+        return;
+    }
+
+    // VR Haptics: pulse both controllers simultaneously for full-body impact
+    if (vr_haptics_ready()) {
+        trigger_haptic_vibration_freq_c(0, amp, dur, freq);
+        trigger_haptic_vibration_freq_c(1, amp, dur, freq);
+    }
+
+    // Gamepad controller rumble
+    if (pads[0] && padsCfg[0].rumbleOn) {
+        SDL_GameControllerRumble(pads[0], (u16)(amp * 65535.f), (u16)(amp * 65535.f), (u32)(dur * 1000.f));
+    }
+}
+
 s32 inputControllerMask(void)
 {
     if (netIsActive()) {
