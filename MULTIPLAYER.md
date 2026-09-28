@@ -4,7 +4,7 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 ## Network setup
 
-- Use the same APK version on every headset. The current game and discovery protocol version is `4`.
+- Use the same APK version on every headset. The current game and discovery protocol version is `5`.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
 - Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same four-player lobby.
@@ -19,8 +19,13 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 - `NET_MSG_PLAYER_STATE` sends position, movement, head angle, stance, weapon ID, firing input, and controller pose. Remote movement and held weapon models use this state. Remote 6DoF hand posing is not yet applied to character models.
 - `NET_MSG_HIT_REPORT` sends a locally detected hit to the host. The host applies it and sends `NET_MSG_DAMAGE_EVENT` to the clients.
 - `NET_MSG_RESPAWN` sends the respawning player's spawn pad and facing angle through the host. Each receiving headset runs GoldenEye's respawn routine for that player.
+- `NET_MSG_VOIP_FRAME` carries sequenced 20 ms Opus voice frames on the unreliable voice channel. The host validates and relays client frames.
 
-`NET_MSG_FIRE_EVENT`, `NET_MSG_VOIP_FRAME`, and `NET_MSG_MATCH_END` are protocol scaffolding, not complete gameplay or voice features. Discovery uses a separate UDP beacon rather than these game messages.
+`NET_MSG_FIRE_EVENT` and `NET_MSG_MATCH_END` are protocol scaffolding. Discovery uses a separate UDP beacon rather than these game messages.
+
+## Voice chat
+
+Allow microphone access when hosting or joining to talk. Denying it leaves voice receive available. The lobby uses full-volume voice; in a match voices pan with direction and fade from 2 m to silence at 20 m, including while dead or spectating. Walls do not occlude voice. Use **Microphone muted** in the lobby or the **Microphone** row on the watch's Game Options page. In play, hold left **X + Y** for half a second to toggle mute. The mute choice is remembered. Leaving the game or opening the Quest system menu stops capture and transmission.
 
 ## Two-headset test
 
@@ -29,5 +34,6 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 3. On the other choose **Join Game (LAN / Direct IP)**. Select the discovered host or enter its LAN IP and press **Connect**.
 4. Choose a character, check **I am Ready**, then on the host press **LAUNCH MULTIPLAYER MATCH!**.
 5. Check movement through doorways, weapon models, shooting in both directions, explosive damage, stereo view while the other player dies or uses the watch, and health and scores after a respawn.
+6. Check lobby voice, distance and direction in the match, both mute controls, and continued voice after a death. Repeat with microphone permission denied on one headset to check listen-only mode. The log shows `voice: microphone permission granted` and `voice: capture open, 16000 Hz 1 ch` when the microphone is live, or `voice: capture open failed` with SDL's reason.
 
 The mode still needs a two-headset playtest. Also test two separate home networks, a phone hotspot, a four-player game with mixed LAN and internet joins, private code visibility, and reconnecting after a disconnect. Confirm that damage and respawn state agree on all headsets after several kills.

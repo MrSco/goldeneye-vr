@@ -58,7 +58,7 @@ const NetMsgPlayerState *netGetRemotePlayerState(int slot_id);
 bool netIsRemotePlayerActive(int slot_id);
 
 /* VoIP */
-void netSendVoipChunk(const uint8_t *opus_data, uint16_t size);
+void netSendVoipChunk(uint32_t sequence, const uint8_t *opus_data, uint16_t size);
 
 #ifdef __cplusplus
 }

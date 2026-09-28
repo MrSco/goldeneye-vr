@@ -7,6 +7,9 @@
 #include <snd.h>
 #include <random.h>
 #include "options.h"
+#ifdef GEVR
+#include "net_voice.h"
+#endif
 #include "bondview.h"
 #include "dyn.h"
 #include "file.h"
@@ -17,6 +20,14 @@
 #include "glass.h"
 #include "frametiming.h"
 #include "assets/obseg/text/LoptionE.h"
+
+#ifdef GEVR
+extern bool netIsActive(void);
+static void gevrMicOptionInput(void);
+static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y);
+/* Row pitch while the Microphone row shares the eight toggles' space. */
+#define GEVR_MIC_YINC (YINC - 2)
+#endif
 
 #define WATCH_BACKGROUND_VERTEX_COUNT 30
 
@@ -972,7 +983,13 @@ void sub_GAME_7F0A5998(void)
 
     aux = game_options_index;
 
-    if (aux >= 10)
+    if (aux >=
+#ifdef GEVR
+        (netIsActive() ? 11 : 10)
+#else
+        10
+#endif
+        )
     {
         game_options_index = GAME_OPTIONS_INDEX_MUSIC;
         return;
@@ -980,7 +997,12 @@ void sub_GAME_7F0A5998(void)
 
     if (aux < 0)
     {
-        game_options_index = GAME_OPTIONS_INDEX_RATIO;
+        game_options_index =
+#ifdef GEVR
+            netIsActive() ? GAME_OPTIONS_INDEX_MIC : GAME_OPTIONS_INDEX_RATIO;
+#else
+            GAME_OPTIONS_INDEX_RATIO;
+#endif
     }
 }
 
@@ -1652,6 +1674,13 @@ void sub_GAME_7F0A6A80(void)
                 case GAME_OPTIONS_INDEX_SCREEN_SIZE:
                 case GAME_OPTIONS_INDEX_RATIO:
                     sub_GAME_7F0A5998();
+                    break;
+#ifdef GEVR
+                case GAME_OPTIONS_INDEX_MIC:
+                    sub_GAME_7F0A5998();
+                    gevrMicOptionInput();
+                    break;
+#endif
             }
             watch_screen3_navigation();
             break;
@@ -3634,6 +3663,78 @@ void game_option_toggle_input(s32 option_index)
 }
 
 
+#ifdef GEVR
+/*
+ * Multiplayer voice (port/src/net/net_voice.c): a ninth Game Options row,
+ * Microphone, handled like game_option_toggle_input above. Left while it is
+ * selected mutes, right unmutes; the choice is kept in goldeneye-vr.ini.
+ */
+static void gevrMicOptionInput(void)
+{
+    if (!netIsActive() || !watch_item_is_actively_selected)
+    {
+        return;
+    }
+
+    if (joyGetButtonsPressedThisFrame(PLAYER_1, L_CBUTTONS|L_TRIG|L_JPAD) || sub_GAME_7F0A4FB0())
+    {
+        if (!netVoiceIsMuted())
+        {
+            netVoiceSetMuted(1);
+            set_controlstick_lr_disabled();
+            sndPlaySfx(g_musicSfxBufferPtr, OPTION_CHOOSE_SFX, NULL);
+        }
+    }
+    else if (joyGetButtonsPressedThisFrame(PLAYER_1, R_CBUTTONS|R_TRIG|R_JPAD) || sub_GAME_7F0A4FEC())
+    {
+        if (netVoiceIsMuted())
+        {
+            netVoiceSetMuted(0);
+            set_controlstick_lr_disabled();
+            sndPlaySfx(g_musicSfxBufferPtr, OPTION_CHOOSE_SFX, NULL);
+        }
+    }
+}
+
+
+/*
+ * Drawn like draw_toggle_options and draw_toggle_option_values: the label,
+ * then Off and On in the value columns with the live one lit.
+ */
+static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y)
+{
+    s32 selected = game_options_index == GAME_OPTIONS_INDEX_MIC;
+    u32 lit = 0x00FF00B0;
+    u32 offcolour = 0x00800080;
+    u32 oncolour = 0x00800080;
+
+    if (selected && watch_item_is_actively_selected)
+    {
+        lit = 0xA0FFA0F0;
+        gdl = draw_options_labels(gdl, XOFFSET_1, y, "Microphone", -1, 1, 0x7000A0, 0, 0, 0x3000B0, 0);
+    }
+    else
+    {
+        gdl = draw_options_labels(gdl, XOFFSET_1, y, "Microphone", selected ? 0xA0FFA0F0 : 0xFF00B0, 0, -1, 0, 0, 0x3000B0, 0);
+    }
+
+    if (netVoiceIsMuted())
+    {
+        offcolour = lit;
+    }
+    else
+    {
+        oncolour = lit;
+    }
+
+    gdl = draw_options_labels(gdl, j_text_trigger ? 0xBE : 0xC8, y, (char *) langGet(getStringID(LOPTIONS, OPTION_STR_1A_OFF_LF)), offcolour, 0, -1, 1, 0, 0x3000B0, 0);
+    gdl = draw_options_labels(gdl, 0xFA, y, (char *) langGet(getStringID(LOPTIONS, OPTION_STR_19_ON_LF)), oncolour, 0, -1, 1, 0, 0x3000B0, 0);
+
+    return gdl;
+}
+#endif
+
+
 /**
  * Address: 7F0AB908
  *
@@ -3788,10 +3889,20 @@ Gfx *draw_toggle_options(Gfx *gdl)
 {
     s32 y_offset;
     s32 i;
+    s32 yinc = YINC;
+
+#ifdef GEVR
+    /* In a multiplayer game the Microphone row (gevrDrawMicOption) shares
+     * the eight rows' space. */
+    if (netIsActive())
+    {
+        yinc = GEVR_MIC_YINC;
+    }
+#endif
 
     gdl = microcode_constructor(gdl);
 
-    for (i = 0, y_offset = YOFFSET_1; i < 8; i = i + 1, y_offset = y_offset + YINC) {
+    for (i = 0, y_offset = YOFFSET_1; i < 8; i = i + 1, y_offset = y_offset + yinc) {
 
         if ( i == game_options_index - 2)
         {
@@ -3894,6 +4005,12 @@ Gfx *draw_watch_game_options_page(Gfx *gdl, Mtx *param_2) {
         }
 
         gdl = draw_toggle_options(gdl);
+#ifdef GEVR
+        if (netIsActive())
+        {
+            gdl = gevrDrawMicOption(gdl, YOFFSET_1 + 8 * GEVR_MIC_YINC);
+        }
+#endif
     }
 
     return gdl;
