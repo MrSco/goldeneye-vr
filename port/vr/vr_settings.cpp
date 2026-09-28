@@ -57,6 +57,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; in game to switch.\n");
     fprintf(f, "PlayMode=%d\n", VrPlayMode);
     fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
+    fprintf(f, "; Your name in multiplayer, up to 15 characters.\n");
+    fprintf(f, "PlayerName=%s\n", VrPlayerName);
     fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
     fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
     fprintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
@@ -106,6 +108,16 @@ extern "C" void vrSettingsSave(void)
     fclose(f);
 }
 
+// A multiplayer name for a player who hasn't chosen one. The Meta account name
+// isn't open to a sideloaded app (the Platform SDK needs a store app and an
+// entitled user), so a number keeps the default apart from everyone else's.
+extern "C" void vrEnsurePlayerName(void)
+{
+    if (VrPlayerName[0] != '\0') return;
+    snprintf(VrPlayerName, sizeof(VrPlayerName), "Agent %u", 1000u + arc4random_uniform(9000u));
+    vrSettingsSave();
+}
+
 extern "C" void vrSettingsLoad(void)
 {
     FILE *f = fopen(VR_INI_PATH, "r");
@@ -132,6 +144,12 @@ extern "C" void vrSettingsLoad(void)
         }
         if (strncmp(line, "Cheats=", 7) == 0) {        // hex bitmask of CHEAT_IDS
             VrCheatMask = strtoull(line + 7, NULL, 16);
+            continue;
+        }
+        if (strncmp(line, "PlayerName=", 11) == 0) {   // text, even when it reads as a number ("007")
+            strncpy(VrPlayerName, line + 11, sizeof(VrPlayerName) - 1);
+            VrPlayerName[sizeof(VrPlayerName) - 1] = '\0';
+            VrPlayerName[strcspn(VrPlayerName, "\r\n")] = '\0';
             continue;
         }
 
