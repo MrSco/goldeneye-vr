@@ -961,10 +961,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 }
             }
             ImGui::Text("Private code:");
-            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##privatecode", privateCode, sizeof(privateCode));
-            ImGui::SameLine();
-            if (ImGui::Button("Join by code")) {
+            if (ImGui::Button("Join by code", ImVec2(-1, 0))) {
                 netDisconnect();
                 netIceStop();
                 clientJoinId.clear();
@@ -1008,9 +1007,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             
             ImGui::Separator();
             ImGui::Text("Or Connect Directly via IP:");
+            ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##directip", directIp, sizeof(directIp));
-            ImGui::SameLine();
-            if (ImGui::Button("Connect")) {
+            if (ImGui::Button("Connect", ImVec2(-1, 0))) {
                 gevrJavaCommand("lobbyCommand", "stop");
                 netIceStop();
                 clientJoinId.clear();
