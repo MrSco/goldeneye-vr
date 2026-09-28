@@ -619,7 +619,19 @@ void sub_GAME_7F09B398(enum GUNHAND hand)
     {
         wepid = getCurrentPlayerWeaponId(hand);
         prop = getPropForHeldItem(wepid);
+#ifdef GEVR
+        /*
+         * getPropForHeldItem returns -1 for a hand with no held model (the
+         * fist, unarmed, the taser). PROP has no negative enumerator, so Clang
+         * makes it unsigned and drops "prop >= 0" as always true (IDO kept it
+         * signed): modelLoad(-1) read before PitemZ_entries and crashed the
+         * moment a multiplayer match raised an empty hand. Compared signed, as
+         * net_player_sync.c does.
+         */
+        if ((s32)prop >= 0)
+#else
         if (prop >= 0)
+#endif
         {
             flags = ((hand * 4) == 0)
                   ? 0
