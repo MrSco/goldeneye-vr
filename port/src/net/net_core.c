@@ -815,6 +815,14 @@ static void netProcessHitReport(uint8_t shooter_slot, uint8_t target, uint8_t we
     }
 }
 
+/* Host only: damage from an explosion no player owns (player -1). It is
+ * resolved with the target as its own attacker, so a death counts as a
+ * suicide rather than a kill for the host's slot. */
+void netSendWorldHitReport(uint8_t target_slot, uint8_t weapon_id, float hit_x, float hit_y, float hit_z, float dmg) {
+    if (s_state != NET_STATE_INGAME || !netIsHost()) return;
+    netProcessHitReport(target_slot, target_slot, weapon_id, hit_x, hit_y, hit_z, dmg);
+}
+
 void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg) {
     if (s_state != NET_STATE_INGAME) return;
     
@@ -1021,11 +1029,11 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_LOBBY_READY: {
             if (s_state != NET_STATE_HOSTING_LOBBY) break;
             int slot = (int)(intptr_t)peer->data;
-            uint8_t claimed_slot = netbufReadU8(&buf);
+            /* netLobbySetReady sends the slot in the header, then one byte. */
             uint8_t ready = netbufReadU8(&buf);
             if (slot >= 1 && slot < s_max_players && s_client_peers[slot] == peer &&
-                s_lobby_state.slots[slot].connected && !buf.error && size == 10 &&
-                claimed_slot == slot && slot_id == slot && ready <= 1) {
+                s_lobby_state.slots[slot].connected && !buf.error && size == 9 &&
+                slot_id == slot && ready <= 1) {
                 s_lobby_state.slots[slot].ready = ready;
                 
                 u8 lraw[256];
@@ -1052,10 +1060,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_LOBBY_CHARACTER: {
             if (s_state != NET_STATE_HOSTING_LOBBY) break;
             int slot = (int)(intptr_t)peer->data;
-            uint8_t claimed_slot = netbufReadU8(&buf);
+            /* netLobbySetCharacter sends the slot in the header, then one byte. */
             uint8_t chr_id = netbufReadU8(&buf);
-            if (!buf.error && size == 10 && slot >= 1 && slot < s_max_players &&
-                claimed_slot == slot && slot_id == slot && chr_id < 12 &&
+            if (!buf.error && size == 9 && slot >= 1 && slot < s_max_players &&
+                slot_id == slot && chr_id < 12 &&
                 s_client_peers[slot] == peer) {
                 s_lobby_state.slots[slot].chr_id = chr_id;
                 player_char[slot] = chr_id;

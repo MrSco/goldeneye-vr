@@ -4,6 +4,11 @@ interface Env {
   REGISTRY: DurableObjectNamespace<LobbyRegistry>;
   TURN_KEY_ID: string;
   TURN_KEY_API_TOKEN: string;
+  REPORT_TO: string;
+  EMAIL: { send(message: {
+    from: string; to: string; subject: string; text: string;
+    attachments: Array<{ content: string; filename: string; type: string; disposition: "attachment" }>;
+  }): Promise<{ messageId: string }> };
 }
 
 type Visibility = "public" | "private";
@@ -188,6 +193,107 @@ async function turnCredentials(env: Env): Promise<Response> {
   return json({ host: "turn.cloudflare.com", port: 3478, username: turn.username, credential: turn.credential });
 }
 
+async function boundedText(request: Request, max: number): Promise<string> {
+  if (!request.body) throw new Error("Empty request");
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > max) throw new Error("Report too large");
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+  return new TextDecoder().decode(bytes);
+}
+
+function decodeBase64(value: unknown, maxBytes: number): Uint8Array {
+  if (typeof value !== "string" || value.length > Math.ceil(maxBytes / 3) * 4 + 4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(value))
+    throw new Error("Invalid attachment");
+  const raw = atob(value);
+  if (raw.length > maxBytes) throw new Error("Attachment too large");
+  return Uint8Array.from(raw, c => c.charCodeAt(0));
+}
+
+async function decompressBounded(gzip: Uint8Array, max: number): Promise<Uint8Array> {
+  const stream = new Blob([gzip]).stream().pipeThrough(new DecompressionStream("gzip"));
+  const reader = stream.getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > max) throw new Error("Log too large");
+      parts.push(value);
+    }
+  } finally { await reader.cancel().catch(() => {}); }
+  const result = new Uint8Array(size);
+  let offset = 0;
+  for (const part of parts) { result.set(part, offset); offset += part.length; }
+  return result;
+}
+
+async function report(request: Request, env: Env, registry: DurableObjectStub<LobbyRegistry>, ip: string): Promise<Response> {
+  if (!await registry.limit(ip, "report", 3, 3_600_000)
+      || !await registry.limit("all", "report-day", 100, 86_400_000)) return bad("Report limit reached", 429);
+  let input: Record<string, unknown>;
+  try { input = JSON.parse(await boundedText(request, 4_200_000)) as Record<string, unknown>; }
+  catch { return bad("Invalid or oversized report"); }
+  const field = (name: string, max: number) => typeof input?.[name] === "string" && (input[name] as string).length <= max;
+  if (!input || !["manual", "crash"].includes(String(input.kind)) || !field("version", 40)
+      || !field("build", 64) || !field("device", 120) || !field("player", 64) || !field("note", 500)
+      || !field("crash_summary", 500))
+    return bad("Invalid report details");
+  let gzip: Uint8Array, tombstone: Uint8Array, plain: Uint8Array;
+  try {
+    gzip = decodeBase64(input.log_gz_b64, 2_500_000);
+    tombstone = decodeBase64(input.tombstone_b64, 1_000_000);
+    plain = await decompressBounded(gzip, 3_000_000);
+  } catch { return bad("Invalid report attachments"); }
+  // The client redacts before compression; enforce the same text boundary on the server.
+  const log = new TextDecoder().decode(plain)
+    .replace(/(?<![0-9.])(?!127\.)\d{1,3}(?:\.\d{1,3}){3}(?![0-9.])/g, "[redacted address]")
+    .replace(/^.*(?:lobbyCommand|launcher: lobbyCommand).*(?:offer|answer)\|.*$/gim, "[redacted signaling]");
+  const cleaned = new TextEncoder().encode(log);
+  const id = crypto.randomUUID().slice(0, 8);
+  const safe = (value: unknown) => String(value).replace(/[\r\n\t]/g, " ");
+  const title = `[GEVR ${input.kind}] v${safe(input.version)} build ${safe(input.build)} - ${safe(input.player)} - ${id}`;
+  const attachments: Array<{ content: string; filename: string; type: string; disposition: "attachment" }> = [];
+  const encode = (bytes: Uint8Array) => {
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 8192)
+      out += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    return btoa(out);
+  };
+  if (cleaned.length <= 750_000) {
+    attachments.push({ content: encode(cleaned), filename: `gevr-${id}.txt`, type: "text/plain", disposition: "attachment" });
+  } else {
+    // Recompress after the server's redaction pass.
+    const compressed = await new Response(new Blob([cleaned]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
+    attachments.push({ content: encode(new Uint8Array(compressed)), filename: `gevr-${id}.txt.gz`, type: "application/gzip", disposition: "attachment" });
+  }
+  if (tombstone.length) attachments.push({ content: encode(tombstone), filename: `tombstone-${id}.pb`, type: "application/octet-stream", disposition: "attachment" });
+  try {
+    await env.EMAIL.send({
+      from: "reports@goldeneyevr.com", to: env.REPORT_TO, subject: title,
+      text: `Report: ${id}\nKind: ${safe(input.kind)}\nVersion: ${safe(input.version)}\nBuild: ${safe(input.build)}\nDevice: ${safe(input.device)}\nPlayer: ${safe(input.player)}\nNote: ${safe(input.note)}\nCrash: ${safe(input.crash_summary)}\nTombstone: ${tombstone.length ? "attached protobuf" : "unavailable"}`,
+      attachments
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "report_email_error", code: (error as { code?: string }).code, message: String(error) }));
+    return bad("Report delivery unavailable", 503);
+  }
+  return json({ ok: true, id }, 201);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
@@ -196,6 +302,8 @@ export default {
       if (path[0] !== "v1") return bad("Not found", 404);
       const registry = env.REGISTRY.getByName("global-v1");
       const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+      if (path.length === 2 && path[1] === "reports" && request.method === "POST")
+        return report(request, env, registry, ip);
       const action = request.method === "GET" ? "read" : "write";
       if (!await registry.limit(ip, action, action === "read" ? 120 : 40)) return bad("Too many requests", 429);
       const token = request.headers.get("Authorization")?.replace(/^Bearer /i, "") || "";

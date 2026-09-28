@@ -1120,7 +1120,10 @@ void lvlManageMpGame(void)
         }
     }
 
-    if (!netWarmup && (getPlayerCount() >= 2) && (g_CurrentStageToLoad != LEVELID_TITLE))
+    /* Warmup runs no clock, point limit or YOLT tracking, but a death in it
+     * still sets MISSION_STATE_6 (level music out, death sting on track 2);
+     * the state-6 check below must run to bring the music back. */
+    if ((getPlayerCount() >= 2) && (g_CurrentStageToLoad != LEVELID_TITLE))
     {
         if (get_mission_state() == MISSION_STATE_6)
         {
@@ -1149,7 +1152,7 @@ void lvlManageMpGame(void)
             }
         }
 
-        if (g_MpTime > 0)
+        if (!netWarmup && g_MpTime > 0)
         {
             s32 current_time;
             s32 sp180;
@@ -1200,7 +1203,7 @@ void lvlManageMpGame(void)
         }
 
         // when playing with a kill limit, g_MpPoint is not zero
-        if ((g_MpPoint > 0) && (g_ClockTimer != 0))
+        if (!netWarmup && (g_MpPoint > 0) && (g_ClockTimer != 0))
         {
             s32 var_player_count1;
             s32 i;
@@ -1243,7 +1246,7 @@ void lvlManageMpGame(void)
 
 
         // YOLT scenario: end-of-game tracking.
-        if ((get_scenario() == SCENARIO_YOLT) && (g_ClockTimer != 0))
+        if (!netWarmup && (get_scenario() == SCENARIO_YOLT) && (g_ClockTimer != 0))
         {
             s32 player_count;
             s32 killed_count;
