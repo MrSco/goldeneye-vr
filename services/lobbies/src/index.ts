@@ -107,6 +107,7 @@ export class LobbyRegistry extends DurableObject<Env> {
     const counts = { public: 0, private: 0, waiting: 0, warmup: 0, inProgress: 0, players: 0 };
     for (const row of rows) {
       counts[row.visibility]++;
+      if (row.visibility === "private") continue;
       if (row.phase === "in_progress") counts.inProgress++;
       else counts[row.phase]++;
       counts.players += row.players;
