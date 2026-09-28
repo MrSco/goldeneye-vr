@@ -66,6 +66,7 @@ void reset_mp_options_for_scenario(int scenarioid);
 void setMPWeaponSet(int setNUM);
 int getMPWeaponSet(void);
 extern int player_char[];
+extern int player_handicap[];
 }
 #include "net_core.h"
 #include "net_voice.h"
@@ -974,6 +975,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 setMPWeaponSet(netGetLobbyWeaponSet());   // the host's choice, as the clients take it
                 for (int p = 0; p < selected_num_players && p < 4; p++) {
                     player_char[p] = lobby ? lobby->slots[p].chr_id : p;
+                    // Lobby character selection can preempt the game's default handicap setup.
+                    player_handicap[p] = 5; // Health +0 (Normal), 1x incoming damage
                 }
                 
                 startMatch = true;
@@ -1147,6 +1150,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 setMPWeaponSet(lobby->weapon_set);
                 for (int p = 0; p < selected_num_players && p < 4; p++) {
                     player_char[p] = lobby->slots[p].chr_id;
+                    player_handicap[p] = 5; // Health +0 (Normal), 1x incoming damage
                 }
                 
                 startMatch = true;
