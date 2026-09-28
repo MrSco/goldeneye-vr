@@ -78,6 +78,7 @@ int vr_right_gun_fire;
 int vr_left_gun_fire;
 extern bool vr_grip_for_unarmed;
 extern int VrLeftHandedMode;
+extern int VrSwapJoysticks;
 extern bool netIsActive(void);
 extern void netVoiceToggleMuted(void);
 
@@ -95,9 +96,11 @@ int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondvie
 extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
 extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
 s32 gevrTexpackToggleMsg;                  /* bondview2.c says it in a level: 2 off, 3 on */
-static bool gevrSwallowX;                  /* X answered the prompt: not use/reload until let go */
+static bool gevrSwallowX;                  /* X answered the prompt: no weapon change until let go */
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
 extern f32 gevrWeaponPanelStickY;
+extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
+extern s32 gevrLeftPanelAvailable(void);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern s32 gevrDualWielding(void);
@@ -1151,8 +1154,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // as Perfect Dark VR's (sight.c sightDrawLeftHand, on vr_button_L_grip).
         // Not R as well: here R aims and zooms.
         vr_button_L_grip = stereoplay && gevrDualWielding() && get_button_state(0, "grip");
-        // X is also use/reload; Y cycles weapons, matching the native B/A actions.
-        // (Not the X that just switched the texture pack in the prompt, until let go.)
+        // The off hand's buttons do what the gun hand's in the same place do, as
+        // in the launcher (user): X (lower) is A, the weapons, and Y (upper) is B,
+        // use/reload. (Not the X that just switched the texture pack in the
+        // prompt, until let go.)
         if (gevrSwallowX && !get_button_state(0, "x")) gevrSwallowX = false;
         /* Left X+Y is the multiplayer mic toggle. Swallow both game actions
          * from the first simultaneous frame, and fire once after 0.5 s. */
@@ -1169,38 +1174,80 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
             } else { chordSince = 0; chordFired = false; }
         }
-        if (!micChord && get_button_state(0, "x") && !gevrSwallowX) npad->button |= B_BUTTON;
-        if (!micChord && get_button_state(0, "y")) npad->button |= A_BUTTON;
+        if (!micChord && get_button_state(0, "x") && !gevrSwallowX) npad->button |= A_BUTTON;
+        if (!micChord && get_button_state(0, "y")) npad->button |= B_BUTTON;
         // Issue #10: in stereo play the weapon hand's A is held back. A tap sends
         // A on release (the game's weapon cycle); a hold shows the weapon panel
         // (bondview2.c gevrDrawWeaponPanel) and letting go equips what it
-        // highlights. The other hand's Y still cycles at once.
+        // highlights. Issue #56: the other hand's X does the same for the left
+        // hand's panel (a gun for the left hand alone), while the left hand can
+        // take one (bondview2.c gevrLeftPanelAvailable); otherwise X still
+        // cycles at once, held as A. A press while the other panel is up does
+        // nothing. Issue #63: a tap of A with the right grip (R) held goes to the
+        // previous weapon, as GoldenEye's own hold A and pull Z (bondview2.c
+        // weaponBackOffset): A and Z go down together, so the game sees Z pressed
+        // with A held and never A alone (which cycles forward).
         {
-            static u32 adown = 0, apulse = 0;
-            static bool apanel = false;
+            static u32 adown = 0, apulse = 0, xdown = 0, xpulse = 0;
+            static bool apanel = false, aspoilt = false, xpanel = false, xspoilt = false, xatonce = false;
+            static bool aback = false;
             const u32 t = SDL_GetTicks();
             if (stereoplay && !gevrReturnPrompt && !fitting) {
                 const bool a = get_button_state(1, "a");
-                if (!get_button_state(0, "y")) npad->button &= ~A_BUTTON;
+                const bool x = !micChord && !gevrSwallowX && get_button_state(0, "x");
+                if (x && !xdown) {
+                    xdown = t ? t : 1;
+                    xpanel = false;
+                    xspoilt = false;
+                    xatonce = !gevrLeftPanelAvailable();
+                }
+                npad->button &= ~A_BUTTON;
+                if (x && xatonce) npad->button |= A_BUTTON;
                 if (a) {
                     if (!adown) {
                         adown = t ? t : 1;
                         apanel = false;
+                        aspoilt = false;
                     }
-                    if (!apanel && t - adown >= GEVR_WEAPON_PANEL_HOLD_MS) {
+                    if (gevrWeaponPanelOpen && !apanel) aspoilt = true;
+                    if (!apanel && !aspoilt && t - adown >= GEVR_WEAPON_PANEL_HOLD_MS) {
                         apanel = true;
+                        gevrWeaponPanelLeft = 0;
                         gevrWeaponPanelOpen = 1;
                         LOGI("input: weapon panel open\n");
                     }
                 } else if (adown) {
-                    if (!apanel) apulse = t + 100;
-                    else gevrWeaponPanelRelease = 1;
-                    gevrWeaponPanelOpen = 0;
+                    if (apanel) {
+                        gevrWeaponPanelRelease = 1;
+                        gevrWeaponPanelOpen = 0;
+                    } else if (!aspoilt) {
+                        apulse = t + 100;
+                        aback = get_button_state(1, "grip");
+                        if (aback) LOGI("input: grip + A -> previous weapon\n");
+                    }
                     adown = 0;
                 }
-                if (t < apulse) npad->button |= A_BUTTON;
+                if (x) {
+                    if (gevrWeaponPanelOpen && !xpanel) xspoilt = true;
+                    if (!xatonce && !xpanel && !xspoilt && t - xdown >= GEVR_WEAPON_PANEL_HOLD_MS) {
+                        xpanel = true;
+                        gevrWeaponPanelLeft = 1;
+                        gevrWeaponPanelOpen = 1;
+                        LOGI("input: left hand panel open\n");
+                    }
+                } else if (xdown) {
+                    if (xpanel) {
+                        gevrWeaponPanelRelease = 1;
+                        gevrWeaponPanelOpen = 0;
+                    } else if (!xatonce && !xspoilt) {
+                        xpulse = t + 100;
+                    }
+                    xdown = 0;
+                }
+                if (t < apulse || t < xpulse) npad->button |= A_BUTTON;
+                if (t < apulse && aback) npad->button |= Z_TRIG;
             } else {
-                adown = 0;
+                adown = xdown = 0;
                 gevrWeaponPanelOpen = 0;
             }
         }
@@ -1339,16 +1386,21 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             npad->stick_x = 0;
             npad->stick_y = 0;
         }
-        if (g_gevrStereo && !menu && !adjusting) {
+        // The weapon panels scroll with the stick on the other hand from their
+        // button - A's (issue #10) the off hand's, X's (#56) the gun hand's - and
+        // that stick neither moves nor turns while one is up. "left" is the move
+        // stick and "right" the turn stick, on whichever hands Swap sticks puts them.
+        const bool panelOnMoveStick = gevrWeaponPanelOpen && ((gevrWeaponPanelLeft != 0) == (VrSwapJoysticks != 0));
+        const bool panelOnTurnStick = gevrWeaponPanelOpen && !panelOnMoveStick;
+        gevrWeaponPanelStickY = panelOnMoveStick ? left.y : panelOnTurnStick ? right.y : 0.0f;
+        if (g_gevrStereo && !menu && !adjusting && !panelOnTurnStick) {
             const float dz = 0.15f;
             float x = right.x;
             if (fabsf(x) < dz) x = 0.0f;
             else x = (x - (x > 0.0f ? dz : -dz)) / (1.0f - dz);
             gevrTurnAxis = x;
         }
-        // The weapon panel (issue #10) takes the other hand's stick while it is up.
-        gevrWeaponPanelStickY = gevrWeaponPanelOpen ? left.y : 0.0f;
-        if (!menu && !gevrWeaponPanelOpen) {
+        if (!menu && !panelOnMoveStick) {
             // Solitaire: C directions move; while aiming down/up crouches/stands,
             // or with the sniper zooms - and then side to side does not strafe
             // the scope off its target (issue #58, user).
