@@ -5454,3 +5454,34 @@ tools/texai/NOTES.md.
 - Next multiplayer milestone proposed: game codes and an internet game list
   on a Cloudflare Worker (step 1), then UDP hole punching (step 2), a relay
   only if needed (step 3).
+
+## 128. Internet lobbies and TURN (#23); v0.1.19 published (2026-09-27)
+- **Landed without a section of its own** (f1205ce, 65ed5fd; built by the
+  user's agent, branch codex/multiplayer-lobbies): public and private
+  internet lobbies.
+  - Host page: Public game (listed in PUBLIC INTERNET GAMES) or Private
+    game (PRIVATE JOIN CODE shown; Join by code on the Join tab). Wi-Fi
+    list and direct IP stay.
+  - Lobby service: services/lobbies, a Cloudflare Worker with one
+    SQLite-backed Durable Object, at lobbies.goldeneyevr.com (custom
+    domain). Lobbies expire 45 s without a host heartbeat, joins after 90 s.
+    It also carries ICE offers/answers and issues short-lived Cloudflare
+    Realtime TURN credentials (secrets TURN_KEY_ID, TURN_KEY_API_TOKEN).
+    Endpoints in services/lobbies/README.md.
+  - App: android LobbyClient.java (HTTP to the Worker, driven by launcher
+    lobbyCommand strings), port/src/net/net_ice.cpp over vendored libjuice
+    1.7.4 (port/external/libjuice, MPL-2.0, CREDITS.md): ENet datagrams go
+    direct over ICE where possible, through TURN otherwise; enet.h adapted.
+  - TURN cost estimate (from the current packets, 60/s of ~120 B): about
+    26 MB per player-hour per opponent if relayed; Cloudflare gives 1,000 GB
+    a month free, then $0.05/GB egress.
+- **Release checks:** GET /v1/lobbies?version=4 returned {"lobbies":[]};
+  a private test lobby stayed off the public list, got a TURN credential
+  (host/port/username/credential), and was deleted. User: launcher shows
+  v0.1.19; the log showed "lobbyCommand list|4" with no error.
+- **v0.1.19:** tag = build 3759f0f (versionCode 20), release key, APK
+  SHA-256 5b80d397...eec685 (GitHub's digest matches), libjuice.so in the
+  APK. README reworded for players (public list, private codes, no router
+  setup, what the lobby service keeps).
+- Still untested: two headsets on different networks, a phone hotspot, a
+  4-player mixed LAN/internet game (MULTIPLAYER.md's list).
