@@ -13240,13 +13240,15 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
             damage_dealt *= 0.25f;
         }
 
-        if (g_CurrentPlayer->bonddead == FALSE && g_CurrentPlayer->cheatBondInvincible == FALSE)
+        if (g_CurrentPlayer->cheatBondInvincible == FALSE)
         {
-            joyRumblePakStart(get_cur_playernum(), 0.25);
-            if (cur_player_get_control_type() >= 4)
+            extern void gevrRumbleDamage(f32 damage_amount, s32 is_explosion);
+            extern s32 s_gevrExplosionDamage;
+            extern bool netIsActive(void);
+            extern int netGetLocalSlot(void);
+            if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
             {
-                // rumble second controller in 2.x
-                joyRumblePakStart(get_cur_playernum() + getPlayerCount(), 0.25);
+                gevrRumbleDamage(damage_amount, s_gevrExplosionDamage);
             }
         }
 
