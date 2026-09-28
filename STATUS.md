@@ -7,9 +7,9 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-28. **Latest release:** v0.1.19 (build 3759f0f,
-versionCode 20). **On main, unreleased:** voice chat (network protocol 5, so
-v0.1.19 and the next release will not see each other's games).
+**Updated:** 2026-09-28. **Latest release:** v0.2.0 (build 0e80ce4,
+versionCode 21): voice chat, network protocol 5 (older versions do not see
+v0.2.0 games). **On main, unreleased:** nothing.
 
 ## What it is
 
@@ -54,7 +54,7 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   different guns, #60 laser watch pop-in (reopened).
 - Unmerged branches: fix/50-trevelyan-float and fix/47-bridge (probes),
   fix/sky-pitch (parked, no visible effect), fix/60-watch-grip-hand
-  (shelved), feature/voice-chat (merged, can be deleted).
+  (shelved).
 
 ## How to work on it
 
@@ -87,5 +87,5 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## Next
 
-- v0.1.20 with voice chat, then a two-headset session for the test list in
-  MULTIPLAYER.md.
+- A two-headset session for the test list in MULTIPLAYER.md (voice heard,
+  distance and direction, two networks, a hotspot, four players).
