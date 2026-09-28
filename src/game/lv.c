@@ -898,6 +898,16 @@ Gfx* lvlRender(Gfx* DL)
             {
                 gDPNoOpTag(DL++, 0x565D0001); /* VR_SCOPE_REC_END */
             }
+            {
+                /*
+                 * Online: the other players' names (gunfire.c), while the depth
+                 * buffer still holds the level, before the gun and the HUD, and
+                 * out of the scope's copy, which is drawn from another camera.
+                 */
+                extern Gfx *gevrDrawNameTags(Gfx *gdl);
+
+                DL = gevrDrawNameTags(DL);
+            }
 #endif
             if (get_debug_render_raster() == DEB_BOND_VIEW)
             {

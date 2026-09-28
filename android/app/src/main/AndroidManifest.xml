@@ -22,6 +22,15 @@
         android:required="true" />
 
     <!--
+        The Quest system keyboard over the game: SDL_StartTextInput shows it
+        when a launcher text box takes the focus (the multiplayer name, join
+        code and IP). Without this an immersive app gets no keyboard.
+    -->
+    <uses-feature
+        android:name="oculus.software.overlay_keyboard"
+        android:required="false" />
+
+    <!--
         No hand-tracking declaration, as Perfect Dark VR has none: the game is
         played with controllers. With one (it was here to get past Quest's
         RequiresControllersLaunchInterceptor when launching from a PC), Quest

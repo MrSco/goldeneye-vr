@@ -53,6 +53,7 @@ void gevrVrPumpEnd(void);
 const char *fsFullPath(const char *relPath);  // port/src/fs.c
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
+void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
 void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
 void vr_apply_refresh_rate(void);     // vr_openxr.cpp
@@ -641,6 +642,13 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
 }
 
+// Names: printable ASCII, which the game's font can draw over a player's head,
+// less '|', the lobby service's field separator.
+int nameCharFilter(ImGuiInputTextCallbackData *data)
+{
+    return data->EventChar < 0x20 || data->EventChar > 0x7e || data->EventChar == '|';
+}
+
 void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
     ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
@@ -662,6 +670,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     static int selectedStageIdx = 0;
     static int selectedChrIdx = 0;
 
+    vrEnsurePlayerName();   // here, not at launcher start: the settings load on the first frame
     for (int i = 0; i < 32; ++i) {
         const std::string raw = gevrJavaString("lobbyEvent");
         if (raw.empty()) break;
@@ -781,6 +790,23 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     if (ImGui::RadioButton("Host Game", subTab == 0)) subTab = 0;
     ImGui::SameLine();
     if (ImGui::RadioButton("Join Game", subTab == 1)) subTab = 1;
+    // Your name: in the lobby lists and over your head in a match. Fixed while
+    // in a lobby, where the others already have it.
+    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 2.0f);
+    ImGui::TextUnformatted("Your name:");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(netIsActive());
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputText("##playername", VrPlayerName, sizeof(VrPlayerName),
+                     ImGuiInputTextFlags_CallbackCharFilter, nameCharFilter);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        size_t n = strlen(VrPlayerName);
+        while (n > 0 && VrPlayerName[n - 1] == ' ') VrPlayerName[--n] = '\0';
+        if (VrPlayerName[0] == ' ') memmove(VrPlayerName, VrPlayerName + strspn(VrPlayerName, " "), n + 1);
+        vrEnsurePlayerName();
+        vrSettingsSave();
+    }
+    ImGui::EndDisabled();
     ImGui::Separator();
     
     if (subTab == 0) {
@@ -825,9 +851,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
 
             ImGui::Spacing();
             if (ImGui::Button("START HOSTING LOBBY", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f))) {
-                // the LAN browser's name for this game: players have no names yet, so the host's character's
+                // the game's name in the LAN and internet lists: the host's
                 char gameName[GEVR_MAX_NAME_LEN];
-                snprintf(gameName, sizeof(gameName), "%s's game", characters[selectedChrIdx].name);
+                snprintf(gameName, sizeof(gameName), "%s's game", VrPlayerName);
                 if (netHostStart(GEVR_DEFAULT_PORT)) {
                     netSetMaxPlayers(stages[selectedStageIdx].maxPlayers);
                     gevrJavaCommand("requestVoicePermission", "");
@@ -1065,6 +1091,13 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 netLobbySetReady(clientReady);
             }
             
+            ImGui::TextColored(gold, "PLAYERS IN LOBBY:");
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                if (!lobby->slots[i].connected) continue;
+                ImGui::BulletText("%s (%s) %s", lobby->slots[i].name, characters[lobby->slots[i].chr_id % 12].name,
+                                  i == 0 ? "[HOST]" : i == netGetLocalSlot() ? "[YOU]" :
+                                  lobby->slots[i].ready ? "[READY]" : "[WAITING]");
+            }
             ImGui::TextColored(gold, "Waiting for Host to launch match...");
             if (netGetState() == NET_STATE_INGAME) {
                 gamemode = 1; // GAMEMODE_MULTI
@@ -1249,6 +1282,65 @@ bool feedGamepad(ImGuiIO &io, bool pointing)
     return fabsf(s.x) > t || fabsf(s.y) > t || back || select;
 }
 
+// The Quest system keyboard (AndroidManifest: oculus.software.overlay_keyboard).
+// SDL_StartTextInput shows it over the launcher (SDLActivity's DummyEdit), and
+// it types into SDL: text as SDL_TEXTINPUT, Backspace and Return as key
+// presses. Those come on Android's UI thread, so they wait here, '\b' and '\r'
+// standing for the two keys, and go to ImGui with the frame's other input.
+SDL_mutex *s_kbdLock;
+std::string s_kbdQueue;
+
+int SDLCALL keyboardWatch(void *, SDL_Event *e)
+{
+    const bool text = e->type == SDL_TEXTINPUT;
+    const bool key = e->type == SDL_KEYDOWN
+        && (e->key.keysym.sym == SDLK_BACKSPACE || e->key.keysym.sym == SDLK_RETURN);
+    if (!text && !key) return 1;
+    SDL_LockMutex(s_kbdLock);
+    if (key) s_kbdQueue += e->key.keysym.sym == SDLK_BACKSPACE ? '\b' : '\r';
+    else for (const char *c = e->text.text; *c; c++) {
+        if ((unsigned char)*c >= 0x20) s_kbdQueue += *c;   // Return comes as a key too
+    }
+    SDL_UnlockMutex(s_kbdLock);
+    return 1;
+}
+
+void feedKeyboard(ImGuiIO &io)
+{
+    std::string q;
+    SDL_LockMutex(s_kbdLock);
+    q.swap(s_kbdQueue);
+    SDL_UnlockMutex(s_kbdLock);
+    if (!io.WantTextInput) return;   // no text box to type into
+    size_t run = 0;
+    for (size_t i = 0; i <= q.size(); i++) {
+        if (i < q.size() && q[i] != '\b' && q[i] != '\r') continue;
+        if (i > run) io.AddInputCharactersUTF8(q.substr(run, i - run).c_str());
+        if (i < q.size()) {
+            const ImGuiKey k = q[i] == '\b' ? ImGuiKey_Backspace : ImGuiKey_Enter;
+            io.AddKeyEvent(k, true);
+            io.AddKeyEvent(k, false);
+        }
+        run = i + 1;
+    }
+}
+
+// Up while a text box has the focus: shown when one takes it, put away when it
+// lets go (Return, or pointing elsewhere). Closed with its own button, it
+// comes back on pointing at the box again.
+void showKeyboard(const ImGuiIO &io)
+{
+    static bool shown = false;
+    if (io.WantTextInput != shown) {
+        shown = io.WantTextInput;
+        if (shown) SDL_StartTextInput();
+        else SDL_StopTextInput();
+        vr_log("launcher: system keyboard %s", shown ? "up" : "down");
+    } else if (shown && io.MouseClicked[0]) {
+        SDL_StartTextInput();
+    }
+}
+
 }  // namespace
 
 extern "C" void gevrLauncherRun(void)
@@ -1262,6 +1354,9 @@ extern "C" void gevrLauncherRun(void)
     io.DisplaySize = ImVec2((float)kTexW, (float)kTexH);
     io.FontGlobalScale = 2.2f;
     io.MouseDrawCursor = false;  // the pointer's own spot is drawn in 3D (vr_pointer_draw)
+    s_kbdLock = SDL_CreateMutex();
+    SDL_StopTextInput();         // no keyboard until a text box asks for it
+    SDL_AddEventWatch(keyboardWatch, nullptr);
     ImGui::StyleColorsDark();
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(2.2f);
@@ -1435,6 +1530,7 @@ extern "C" void gevrLauncherRun(void)
                 io.AddKeyEvent(ImGuiKey_GamepadDpadRight, false);
             }
             pointing = feedPointer(io, navUsed);
+            feedKeyboard(io);
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -1797,6 +1893,7 @@ extern "C" void gevrLauncherRun(void)
         ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
         ImGui::End();
         ImGui::Render();
+        showKeyboard(io);
 
         GLint prevFbo = 0;
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
@@ -1828,6 +1925,11 @@ extern "C" void gevrLauncherRun(void)
            VrUseSnapTurn, VrComfortVignette);
     gevrTexpackStartEarly();   // index the chosen pack while the game boots
 
+    SDL_StopTextInput();
+    SDL_DelEventWatch(keyboardWatch, nullptr);
+    SDL_DestroyMutex(s_kbdLock);
+    s_kbdLock = nullptr;
+    s_kbdQueue.clear();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui::DestroyContext();
     if (iconTex) glDeleteTextures(1, &iconTex);
