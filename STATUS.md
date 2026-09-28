@@ -58,9 +58,10 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   some positions, #30 water shimmer, #32 Surface ground patches without
   impacts, #50 Trevelyan floating on Cradle (parked), #56 akimbo with
   different guns, #60 laser watch pop-in (reopened).
-- Unmerged branches: fix/50-trevelyan-float and fix/47-bridge (probes),
-  fix/sky-pitch (parked, no visible effect), fix/60-watch-grip-hand
-  (shelved).
+- Unmerged branches: only fix/60-watch-grip-hand (shelved: the laser watch
+  gripped with a mirrored hand, which didn't lock to the wrist). The Codex
+  worktrees in ~/.codex/worktrees (3a7c on the merged codex/lobby-drop-in,
+  f9e0 detached) belong to the Codex app.
 
 ## How to work on it
 
