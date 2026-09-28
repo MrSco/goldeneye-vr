@@ -918,7 +918,27 @@ Gfx* lvlRender(Gfx* DL)
                 DL = bondviewRemoved7F08BCB8(DL);
             }
 
+#ifdef GEVR
+            /* The MP watch menu is 2D text. In stereo it must share the
+             * head-locked HUD quad, not the two eye buffers. */
+            {
+                extern s32 g_gevrStereo;
+                s32 capture_mp_menu = g_gevrStereo && netIsActive() && g_CurrentPlayer->mpmenuon;
+                if (capture_mp_menu)
+                {
+                    gDPNoOpTag(DL++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+                    gDPNoOpTag(DL++, 0x56590000); /* VR_HUD_FULL_SIZE_BEGIN */
+                }
+                DL = mp_watch_menu_display(DL);
+                if (capture_mp_menu)
+                {
+                    gDPNoOpTag(DL++, 0x56590001); /* VR_HUD_FULL_SIZE_END */
+                    gDPNoOpTag(DL++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+                }
+            }
+#else
             DL = mp_watch_menu_display(DL);
+#endif
         }
     }
 
