@@ -7658,28 +7658,17 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
  * the eye, as the 3D sight does; up close a font pixel is 0.7 cm of world, and
  * far off never under ~0.07 degrees, so a name stays readable across a map.
  */
-Gfx *gevrDrawNameTags(Gfx *gdl)
+/* one name, its panel's foot at the world point at */
+static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at)
 {
-    extern const char *netGetSlotName(int slot);
-    extern bool netIsActive(void);
-    extern int netGetLocalSlot(void);
     extern f32 D_800364CC;
     struct fontchar *chars = ptrFontZurichBoldChars;
     struct font *font = ptrFontZurichBold;
-    s32 i;
 
-    if (!netIsActive() || chars == NULL || font == NULL || D_800364CC <= 1e-6f)
     {
-        return gdl;
-    }
-
-    for (i = 0; i < getPlayerCount(); i++)
-    {
-        struct player *pl = g_playerPointers[i];
         struct fontchar *glyph[16];
         s32 gx[16];
         s32 n = 0, x = 0, top = 0x7fff, bottom = 0, prev = 'H', g;
-        const char *name;
         const char *c;
         coord3d v;
         Mtxf mf;
@@ -7687,15 +7676,9 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
         Vtx *vtx;
         f32 dist, k;
 
-        if (i == netGetLocalSlot() || pl == NULL || pl->prop == NULL || pl->bonddead
-            || !(pl->prop->flags & PROPFLAG_ONSCREEN))
+        if (chars == NULL || font == NULL || D_800364CC <= 1e-6f)
         {
-            continue;
-        }
-        name = netGetSlotName(i);
-        if (name == NULL)
-        {
-            continue;
+            return gdl;
         }
 
         /* lay the name out as textRender does, in font pixels */
@@ -7721,19 +7704,17 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
         }
         if (n == 0)
         {
-            continue;
+            return gdl;
         }
 
-        /* the prop is at eye height (bondview2.c start_pos): the panel starts a head above */
-        v = pl->prop->pos;
-        v.y += 25.0f;
+        v = at;
         mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &v);
         v.x *= D_800364CC;   /* view space is world * D_800364CC (bondviewUpdateCameraMatrices) */
         v.y *= D_800364CC;
         v.z *= D_800364CC;
         if (v.z > -1.0f)
         {
-            continue;   /* behind the eye */
+            return gdl;   /* behind the eye */
         }
         dist = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z) / D_800364CC;
         k = dist * 0.0012f;
@@ -7826,6 +7807,37 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
             gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
         }
         gDPPipeSync(gdl++);
+    }
+    return gdl;
+}
+
+Gfx *gevrDrawNameTags(Gfx *gdl)
+{
+    extern const char *netGetSlotName(int slot);
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    s32 i;
+
+    for (i = 0; i < getPlayerCount(); i++)
+    {
+        struct player *pl = g_playerPointers[i];
+        const char *name;
+        coord3d at;
+
+        if (i == netGetLocalSlot() || pl == NULL || pl->prop == NULL || pl->bonddead
+            || !(pl->prop->flags & PROPFLAG_ONSCREEN))
+        {
+            continue;
+        }
+        name = netGetSlotName(i);
+        if (name == NULL)
+        {
+            continue;
+        }
+        /* the prop is at eye height (bondview2.c start_pos): the panel starts a head above */
+        at = pl->prop->pos;
+        at.y += 25.0f;
+        gdl = gevrDrawNameTag(gdl, name, at);
     }
     return gdl;
 }
