@@ -7,16 +7,10 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-28. **Latest release:** v0.2.0 (build 0e80ce4,
-versionCode 21): voice chat, network protocol 5 (older versions do not see
-v0.2.0 games). **On main, unreleased:** nothing. **Next release, v0.3.0:**
-PR #62 (draft, branch codex/lobby-drop-in, protocol 6): drop-in joins during
-a round, a live lobby dashboard at lobbies.goldeneyevr.com, player names
-(launcher "Your name", typed on the Quest system keyboard) and name tags
-over other players' heads, and the fixes from its first headset runs (crash
-on an empty hand, player body animations, silent and flat-only online
-matches). Solo warmup, the keyboard and a tag were checked on one headset;
-the rest waits on the two-headset test.
+**Updated:** 2026-09-28. **Latest release:** v0.3.0 (build 5fa83da, the
+PR #62 merge, versionCode 22): drop-in multiplayer, player names and name
+tags, the live lobbies page, network protocol 6 (older versions do not see
+v0.3.0 games). **On main, unreleased:** nothing.
 
 ## What it is
 
@@ -45,7 +39,12 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   by the host, synced weapons, deaths, respawns and explosions. Voice chat:
   Opus on its own ENet channel, full volume in the lobby, distance and
   direction in a match, mute in the lobby, on the watch, or with left X+Y.
-  Details in MULTIPLAYER.md.
+  Drop-in (v0.3.0): games stay listed after the start, solo warmup, late
+  joiners get match and world snapshots, slots are reused, scores carry
+  over. Names: launcher "Your name" (ini PlayerName, typed on the Quest
+  system keyboard, default "Agent NNNN"), shown in the lobby lists and as
+  depth-tested tags over other players (gunfire.c gevrDrawNameTags). Live
+  dashboard at lobbies.goldeneyevr.com. Details in MULTIPLAYER.md.
 
 ## What does not, or is untested
 
@@ -94,7 +93,7 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## Next
 
-- A two-headset session on PR #62 for the test list in MULTIPLAYER.md and
-  the PR (mid-round joins, slot reuse, scoring, pickups, doors, voice heard,
-  distance and direction, name tags hidden by walls, the host leaving, two
-  networks, a hotspot, four players); then release v0.3.0.
+- A two-headset session on v0.3.0 for the test list in MULTIPLAYER.md and
+  PR #62 (mid-round joins, slot reuse, scoring, pickups, doors, objects
+  dropped before a late join, voice heard, distance and direction, name tags
+  hidden by walls, the host leaving, two networks, a hotspot, four players).
