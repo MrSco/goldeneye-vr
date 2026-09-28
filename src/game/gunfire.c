@@ -4231,12 +4231,8 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 if (var_s1 != ITEM_CAMERA)
                 {
-                    joyRumblePakStart(get_cur_playernum(), 0.1f);
-
-                    if (cur_player_get_control_type() >= 4)
-                    {
-                        joyRumblePakStart(get_cur_playernum() + getPlayerCount(), 0.1f);
-                    }
+                    extern void gevrRumbleGunfire(s32 hand, s32 item_id);
+                    gevrRumbleGunfire(hand, var_s1);
                 }
 
                 handptr->weapon_ammo_in_magazine -= 1;

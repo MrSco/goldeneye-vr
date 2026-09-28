@@ -10569,13 +10569,13 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                         if (sp6C->actiontype == ACT_DIE)
                         {
 #if defined(VERSION_US)
-                            if ((sp6C->chrflags << 7) >= 0)
+                            if (!(sp6C->chrflags & CHRFLAG_TANK_CRUSH_SFX_PLAYED))
 #endif
 #if defined(VERSION_JP) || defined(VERSION_EU)
-                            if ((sp6C->chrflags << 7) >= 0 && lvlGetControlsLockedFlag() == 0)
+                            if (!(sp6C->chrflags & CHRFLAG_TANK_CRUSH_SFX_PLAYED) && lvlGetControlsLockedFlag() == 0)
 #endif
                             {
-                                sp6C->chrflags |= CHRFLAG_01000000;
+                                sp6C->chrflags |= CHRFLAG_TANK_CRUSH_SFX_PLAYED;
                                 if ((D_80048380 % 3) < 2)
                                 {
                                     chrobjSndCreatePostEventDefault(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, CRUSHED_YELL_SFX, NULL), &prop->pos);
@@ -13358,13 +13358,15 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
             damage_dealt *= 0.25f;
         }
 
-        if (g_CurrentPlayer->bonddead == FALSE && g_CurrentPlayer->cheatBondInvincible == FALSE)
+        if (g_CurrentPlayer->cheatBondInvincible == FALSE)
         {
-            joyRumblePakStart(get_cur_playernum(), 0.25);
-            if (cur_player_get_control_type() >= 4)
+            extern void gevrRumbleDamage(f32 damage_amount, s32 is_explosion);
+            extern s32 s_gevrExplosionDamage;
+            extern bool netIsActive(void);
+            extern int netGetLocalSlot(void);
+            if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
             {
-                // rumble second controller in 2.x
-                joyRumblePakStart(get_cur_playernum() + getPlayerCount(), 0.25);
+                gevrRumbleDamage(damage_amount, s_gevrExplosionDamage);
             }
         }
 
