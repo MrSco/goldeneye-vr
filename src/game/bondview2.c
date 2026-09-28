@@ -802,6 +802,26 @@ void gevrStereoFrame(s32 inlevel)
         && (pl->pause_state == 0 || opening)
         && !pl->bonddead;
 
+    /* PROBE (#62 solo warmup: stuck on the screen, no sound): every 2 s in a level */
+    {
+        static u32 probeN;
+        extern s32 g_ControlsLockedFlag;
+        extern s32 g_musicXTrack1CurrentTrackNum;
+        extern s32 g_musicXTrack1Fade;
+        extern u16 g_musicXTrack1Volume;
+        extern u16 get_mTrack2Vol(void);
+        extern u16 call_sndGetSfxSlotFirstNaturalVolume(void);
+
+        if (inlevel && pl != NULL && (probeN++ % 120) == 0)
+        {
+            sysLogPrintf(LOG_NOTE, "probe: want %d (mode %d ready %d players %d net %d cam %d plcam %d pause %d dead %d) paused %d locked %d mission %d track %d fade %d vol %d music %d sfx %d",
+                         want, VrPlayMode, gevrVrReady(), getPlayerCount(), netIsActive(), (s32)g_CameraMode,
+                         pl->cameramode, pl->pause_state, pl->bonddead, checkGamePaused(), g_ControlsLockedFlag,
+                         (s32)get_mission_state(), g_musicXTrack1CurrentTrackNum, g_musicXTrack1Fade,
+                         g_musicXTrack1Volume, get_mTrack2Vol(), call_sndGetSfxSlotFirstNaturalVolume());
+        }
+    }
+
     gevrVrScreenHeadLock(!want && inlevel && VrPlayMode != 0 && pl != NULL
                          && pl->watch_animation_state != 0);
 
