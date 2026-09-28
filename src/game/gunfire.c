@@ -7818,6 +7818,43 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
     extern int netGetLocalSlot(void);
     s32 i;
 
+    /* PROBE (name tags on one headset): with files/gevr_tagtest there, your own
+     * name 3 m ahead of where you stood when it appeared */
+    if (!netIsActive())
+    {
+        extern char VrPlayerName[];
+        static u32 probeTick;
+        static s32 probeOn;
+        static coord3d probeAt;
+
+        if ((probeTick++ % 60) == 0)
+        {
+            FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_tagtest", "r");
+
+            if (f != NULL)
+            {
+                fclose(f);
+                if (!probeOn && g_CurrentPlayer != NULL && g_CurrentPlayer->prop != NULL)
+                {
+                    probeAt = g_CurrentPlayer->prop->pos;
+                    probeAt.x += -g_CurrentPlayer->vv_sintheta * 300.0f;
+                    probeAt.z += g_CurrentPlayer->vv_costheta * 300.0f;
+                    probeOn = TRUE;
+                    sysLogPrintf(LOG_NOTE, "tagtest: at %.0f %.0f %.0f (you %.0f %.0f %.0f)", probeAt.x, probeAt.y, probeAt.z, g_CurrentPlayer->prop->pos.x, g_CurrentPlayer->prop->pos.y, g_CurrentPlayer->prop->pos.z);
+                }
+            }
+            else
+            {
+                probeOn = FALSE;
+            }
+        }
+        if (probeOn)
+        {
+            gdl = gevrDrawNameTag(gdl, VrPlayerName, probeAt);
+        }
+        return gdl;
+    }
+
     for (i = 0; i < getPlayerCount(); i++)
     {
         struct player *pl = g_playerPointers[i];
