@@ -10569,13 +10569,13 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                         if (sp6C->actiontype == ACT_DIE)
                         {
 #if defined(VERSION_US)
-                            if ((sp6C->chrflags << 7) >= 0)
+                            if (!(sp6C->chrflags & CHRFLAG_TANK_CRUSH_SFX_PLAYED))
 #endif
 #if defined(VERSION_JP) || defined(VERSION_EU)
-                            if ((sp6C->chrflags << 7) >= 0 && lvlGetControlsLockedFlag() == 0)
+                            if (!(sp6C->chrflags & CHRFLAG_TANK_CRUSH_SFX_PLAYED) && lvlGetControlsLockedFlag() == 0)
 #endif
                             {
-                                sp6C->chrflags |= CHRFLAG_01000000;
+                                sp6C->chrflags |= CHRFLAG_TANK_CRUSH_SFX_PLAYED;
                                 if ((D_80048380 % 3) < 2)
                                 {
                                     chrobjSndCreatePostEventDefault(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, CRUSHED_YELL_SFX, NULL), &prop->pos);
