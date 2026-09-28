@@ -31,7 +31,7 @@ Run `npm run dev` and make requests to `http://127.0.0.1:8787/v1/lobbies`. TURN 
 | GET | `/v1/lobbies/:code/joins` | Owner token | Poll offers |
 | PUT | `/v1/lobbies/:code/joins/:id/answer` | Owner token | Submit ICE answer |
 | GET | `/v1/lobbies/:code/joins/:id/answer` | Join token | Poll answer |
-| POST | `/v1/lobbies/:code/turn` | Owner or join token | Issue a short-lived TURN credential |
+| POST | `/v1/lobbies/:code/turn` | Owner or join token; 120 requests per IP per hour | Issue a short-lived TURN credential |
 | POST | `/v1/reports` | 3 per IP per hour, 100 global per day | Email an explicitly submitted debug report |
 
 Authorization uses `Authorization: Bearer <token>`. The TURN key never leaves the Worker; issued per-peer credentials are short lived.

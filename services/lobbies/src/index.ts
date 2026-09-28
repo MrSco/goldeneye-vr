@@ -320,8 +320,8 @@ export default {
       if (path[3] === "turn" && path.length === 4 && request.method === "POST") {
         const id = typeof (body as Record<string, unknown>)?.id === "string" ? String((body as Record<string, unknown>).id) : null;
         if (!await registry.mayIssueTurn(code, id, token)) return bad("Not authorized", 403);
-        if (!await registry.limit(ip, "turn-day", 24, 86_400_000) || !await registry.limit("all", "turn-day", 500, 86_400_000))
-          return bad("Relay capacity reached; try again later", 429);
+        if (!await registry.limit(ip, "turn-hour", 120, 3_600_000))
+          return bad("Too many relay requests; try again later", 429);
         return turnCredentials(env);
       }
       if (path[3] === "joins" && path.length === 4 && request.method === "POST") return registry.join(code, Number((body as Record<string, unknown>)?.version));
