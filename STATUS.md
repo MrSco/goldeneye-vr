@@ -52,12 +52,14 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   networks, a phone hotspot, four players mixed LAN and internet, voice heard
   by anyone. Not done: the match end is not shared, the host leaving is not
   handled, other players' hands do not move.
-- Open issues: #9 hand undersides (shells done, the PP7 index finger never
-  draws), #18 Frigate water colour and the speedboat windshield (waiting on
-  the reporter), #23 multiplayer (kept open), #29 striped bullet holes from
-  some positions, #30 water shimmer, #32 Surface ground patches without
-  impacts, #50 Trevelyan floating on Cradle (parked), #56 akimbo with
-  different guns, #60 laser watch pop-in (reopened).
+- Open issues: #9 hand undersides (work in progress: shells patched in
+  v0.1.18, gaps left such as the PP7 index finger), #23 multiplayer (kept
+  open), #29 striped bullet holes from some positions (try the PC port's
+  D159 odd-row swap fix), #30 water shimmer (open in the PC port too, D245),
+  #32 Surface ground patches without impacts (the PC port's D313 fix is
+  already in bg.c; re-check), #56 akimbo with different guns (the original
+  glitch; the requested picker would be new), #60 laser watch arm changes
+  size. Closed 2026-09-28: #18 (fixed), #50 (not reproduced).
 - Unmerged branches: only fix/60-watch-grip-hand (shelved: the laser watch
   gripped with a mirrored hand, which didn't lock to the wrist). One
   checkout, this one; no other worktrees.
