@@ -5530,8 +5530,7 @@ tools/texai/NOTES.md.
   (options.c, audio.c, input.c, the manifest) and the tree has LF islands in
   CRLF files (CMakeLists.txt SRC_NET block, MainActivity.java). Restored per
   line against HEAD; Git Bash `grep -c $'\r$'` cannot be trusted for this,
-  count b"\r
-" in Python.
+  count b"\r\n" in Python.
 - **Tested 2026-09-28 (Quest 3, release build 261a7c6, one headset):** the
   permission prompt, then Android's RecordActivityMonitor showed the mic
   opening and closing with each mute toggle and rehost and closing on the
