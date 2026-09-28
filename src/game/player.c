@@ -6,6 +6,10 @@
 #include "unk_092E50.h"
 #include "bondview.h"
 #include "lv.h"
+#ifdef GEVR
+extern bool netIsActive(void);
+extern bool netSlotOccupied(int slot);
+#endif
 
 struct player *g_playerPointers[4];
 struct player_data g_playerPlayerData[4];
@@ -640,6 +644,17 @@ void shuffle_player_ids(void) {
         array_PLAYER_IDs[i] = array_PLAYER_IDs[i + random % (4 - i)];
         array_PLAYER_IDs[i + random % (4 - i)] = temp;
     }
+#ifdef GEVR
+    if (netIsActive()) {
+        PLAYER_ID ordered[4];
+        s32 count = 0;
+        for (i = 0; i < 4; i++)
+            if (netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
+        for (i = 0; i < 4; i++)
+            if (!netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
+        for (i = 0; i < 4; i++) array_PLAYER_IDs[i] = ordered[i];
+    }
+#endif
 }
 
 s32 get_player_position_in_shuffled(s32 current_player_num) {

@@ -14,6 +14,10 @@
 #include "game/player.h"
 #include "game/front.h"
 #include "game/bondview.h"
+#include "game/lv.h"
+#include "game/chrai.h"
+#include "game/loadobjectmodel.h"
+#include "game/propobj.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -28,6 +32,12 @@
 
 static bool s_initialized = false;
 static NetState s_state = NET_STATE_OFFLINE;
+static NetPhase s_phase = NET_PHASE_WAITING;
+static int s_max_players = GEVR_MAX_PLAYERS;
+static bool s_round_reset_pending = false;
+static bool s_round_reset_loading = false;
+static bool s_pause_after_results = false;
+static uint64_t s_next_round_at_us = 0;
 static ENetHost *s_host = NULL;
 static ENetPeer *s_server_peer = NULL; /* Used when we are a client */
 static ENetVirtualSendCallback s_virtual_send = NULL;
@@ -59,6 +69,21 @@ uint32_t netGetRandomSeed(void) {
 
 /* ENet Peer to slot mapping on host */
 static ENetPeer *s_client_peers[GEVR_MAX_PLAYERS];
+extern s32 D_80048394;
+extern s32 D_800483A8;
+static void netBroadcastBuf(struct netbuf *buf, uint8_t channel, uint32_t flags, ENetPeer *except);
+
+static void netForgetPlayerScore(int slot) {
+    if (s_state != NET_STATE_INGAME || slot < 1 || slot >= GEVR_MAX_PLAYERS) return;
+    for (int shooter = 0; shooter < GEVR_MAX_PLAYERS; shooter++) {
+        if (shooter != slot) {
+            g_playerPlayerData[shooter].kill_count += g_playerPlayerData[shooter].kill_counts[slot];
+            g_playerPlayerData[shooter].kill_counts[slot] = 0;
+        }
+    }
+    memset(g_playerPlayerData[slot].kill_counts, 0, sizeof(g_playerPlayerData[slot].kill_counts));
+    g_playerPlayerData[slot].kill_count = 0;
+}
 
 static void netResetLobbyState(void) {
     memset(&s_lobby_state, 0, sizeof(s_lobby_state));
@@ -119,6 +144,12 @@ bool netHostStart(uint16_t port) {
     enet_host_set_virtual_transport(s_host, s_virtual_send, s_virtual_receive, s_virtual_context);
     
     s_state = NET_STATE_HOSTING_LOBBY;
+    s_phase = NET_PHASE_WAITING;
+    s_max_players = GEVR_MAX_PLAYERS;
+    s_round_reset_pending = false;
+    s_round_reset_loading = false;
+    s_pause_after_results = false;
+    s_next_round_at_us = 0;
     s_local_slot = 0;
     netResetLobbyState();
     
@@ -186,6 +217,11 @@ void netDisconnect(void) {
     s_host = NULL;
     
     s_state = NET_STATE_OFFLINE;
+    s_phase = NET_PHASE_WAITING;
+    s_round_reset_pending = false;
+    s_round_reset_loading = false;
+    s_pause_after_results = false;
+    s_next_round_at_us = 0;
     s_local_slot = 0;
     netResetLobbyState();
     NET_LOG("Disconnected and reset network state.");
@@ -223,6 +259,44 @@ int netGetConnectedPlayerCount(void) {
     return count;
 }
 
+int netGetMaxPlayers(void) {
+    return s_max_players;
+}
+
+void netSetMaxPlayers(int max_players) {
+    if (max_players >= 2 && max_players <= GEVR_MAX_PLAYERS)
+        s_max_players = max_players;
+}
+
+NetPhase netGetPhase(void) {
+    return s_phase;
+}
+
+bool netSlotOccupied(int slot) {
+    return slot >= 0 && slot < s_max_players &&
+           (slot == s_local_slot || (s_lobby_state.slots[slot].connected &&
+            (s_state != NET_STATE_INGAME || s_lobby_state.slots[slot].ready)));
+}
+
+bool netTakeRoundReset(void) {
+    bool pending = s_round_reset_pending;
+    s_round_reset_pending = false;
+    return pending;
+}
+
+static void netBroadcastRoundPhase(NetPhase phase) {
+    u8 raw[16];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_ROUND_PHASE);
+    netbufWriteU8(&buf, 0);
+    netbufWriteU8(&buf, (uint8_t)phase);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    s_phase = phase;
+}
+
 const NetMsgLobbyState *netGetLobbyState(void) {
     return &s_lobby_state;
 }
@@ -247,6 +321,197 @@ static void netBroadcastPacket(const void *data, size_t size, uint8_t channel, u
 static void netBroadcastBuf(struct netbuf *buf, uint8_t channel, uint32_t flags, ENetPeer *except) {
     if (!buf || buf->error || buf->wp == 0) return;
     netBroadcastPacket(buf->data, buf->wp, channel, flags, except);
+}
+
+static void netBroadcastLobbyState(void) {
+    u8 raw[256];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_LOBBY_STATE);
+    netbufWriteU8(&buf, 0);
+    netbufWriteU8(&buf, s_lobby_state.stage_num);
+    netbufWriteU8(&buf, s_lobby_state.scenario);
+    netbufWriteU8(&buf, s_lobby_state.weapon_set);
+    netbufWriteU8(&buf, s_lobby_state.countdown_secs);
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        netbufWriteU8(&buf, s_lobby_state.slots[i].connected);
+        netbufWriteU8(&buf, s_lobby_state.slots[i].ready);
+        netbufWriteU8(&buf, s_lobby_state.slots[i].chr_id);
+        netbufWriteStr(&buf, s_lobby_state.slots[i].name);
+    }
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+}
+
+static void netSendMatchSnapshot(ENetPeer *peer) {
+    u8 raw[512];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_MATCH_SNAPSHOT);
+    netbufWriteU8(&buf, 0);
+    netbufWriteU32(&buf, (u32)D_80048394);
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        netbufWriteU32(&buf, (u32)g_playerPlayerData[i].kill_count);
+        for (int j = 0; j < GEVR_MAX_PLAYERS; j++)
+            netbufWriteU32(&buf, (u32)g_playerPlayerData[i].kill_counts[j]);
+    }
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        struct player *pl = g_playerPointers[i];
+        netbufWriteU8(&buf, pl && netSlotOccupied(i) ? 1 : 0);
+        netbufWriteF32(&buf, pl && pl->prop ? pl->prop->pos.x : 0);
+        netbufWriteF32(&buf, pl && pl->prop ? pl->prop->pos.y : 0);
+        netbufWriteF32(&buf, pl && pl->prop ? pl->prop->pos.z : 0);
+        netbufWriteF32(&buf, pl ? pl->vv_theta : 0);
+        netbufWriteF32(&buf, pl ? pl->vv_verta : 0);
+        netbufWriteF32(&buf, pl ? pl->bondhealth : 0);
+        netbufWriteF32(&buf, pl ? pl->bondarmour : 0);
+    }
+    if (buf.error) return;
+    ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
+    enet_peer_send(peer, NET_CHAN_RELIABLE, packet);
+}
+
+static bool netSnapshotObjectType(int type) {
+    switch (type) {
+        case PROPDEF_DOOR:
+        case PROPDEF_PROP:
+        case PROPDEF_KEY:
+        case PROPDEF_MAGAZINE:
+        case PROPDEF_COLLECTABLE:
+        case PROPDEF_AMMO:
+        case PROPDEF_ARMOUR:
+            return true;
+        default: return false;
+    }
+}
+
+static void netSendWorldSnapshot(ENetPeer *peer) {
+    PropDefHeaderRecord *def = g_CurrentSetup.propDefs;
+    if (!def) return;
+    u8 raw[512];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    int count = 0;
+    int index = 0;
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_WORLD_SNAPSHOT);
+    netbufWriteU8(&buf, 0);
+    netbufWriteU8(&buf, 0); /* record count, filled before sending */
+    for (; def->type != PROPDEF_END && index <= UINT16_MAX; def += sizepropdef(def), index++) {
+        if (!netSnapshotObjectType(def->type)) continue;
+        ObjectRecord *obj = (ObjectRecord *)def;
+        netbufWriteU16(&buf, (u16)index);
+        netbufWriteU8(&buf, (u8)def->type);
+        netbufWriteU8(&buf, obj->prop ? 1 : 0);
+        netbufWriteU8(&buf, obj->prop && (obj->prop->flags & PROPFLAG_ENABLED) ? 1 : 0);
+        netbufWriteU32(&buf, obj->runtime_bitflags &
+                       (RUNTIMEBITFLAG_REMOVE | RUNTIMEBITFLAG_DESTROYED | RUNTIMEBITFLAG_BEENOPENED));
+        if (def->type == PROPDEF_DOOR) {
+            DoorRecord *door = (DoorRecord *)def;
+            netbufWriteF32(&buf, door->openPosition);
+            netbufWriteU8(&buf, (u8)door->openstate);
+        } else {
+            netbufWriteF32(&buf, 0);
+            netbufWriteU8(&buf, 0);
+        }
+        count++;
+        if (count == 32 || (def + sizepropdef(def))->type == PROPDEF_END) {
+            if (!buf.error) {
+                raw[8] = (u8)count;
+                ENetPacket *packet = enet_packet_create(raw, buf.wp, ENET_PACKET_FLAG_RELIABLE);
+                enet_peer_send(peer, NET_CHAN_RELIABLE, packet);
+            }
+            netbufStartWrite(&buf);
+            netbufWriteU32(&buf, GEVR_NET_MAGIC);
+            netbufWriteU16(&buf, GEVR_NET_VERSION);
+            netbufWriteU8(&buf, NET_MSG_WORLD_SNAPSHOT);
+            netbufWriteU8(&buf, 0);
+            netbufWriteU8(&buf, 0);
+            count = 0;
+        }
+    }
+    if (count && !buf.error) {
+        raw[8] = (u8)count;
+        ENetPacket *packet = enet_packet_create(raw, buf.wp, ENET_PACKET_FLAG_RELIABLE);
+        enet_peer_send(peer, NET_CHAN_RELIABLE, packet);
+    }
+}
+
+static bool netAllLoaded(void) {
+    for (int i = 0; i < s_max_players; i++)
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].ready) return false;
+    return true;
+}
+
+static void netBeginRoundReset(void) {
+    u8 raw[8];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_ROUND_RESET);
+    netbufWriteU8(&buf, 0);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    netBroadcastRoundPhase(NET_PHASE_WARMUP);
+    s_round_reset_pending = true;
+    s_round_reset_loading = true;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
+        if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].ready = 0;
+    netBroadcastLobbyState();
+}
+
+void netHostRoundEnded(void) {
+    if (!netIsHost() || s_state != NET_STATE_INGAME || s_phase != NET_PHASE_IN_PROGRESS) return;
+    u8 raw[8];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_MATCH_END);
+    netbufWriteU8(&buf, 0);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+}
+
+void netHostReturnToWarmup(void) {
+    if (!netIsHost() || s_state != NET_STATE_INGAME || s_phase != NET_PHASE_IN_PROGRESS) return;
+    s_pause_after_results = true;
+    netBeginRoundReset();
+}
+
+void netStageLoaded(void) {
+    if (s_state != NET_STATE_INGAME || s_local_slot < 0) return;
+    s_lobby_state.slots[s_local_slot].ready = 1;
+    if (!netIsHost()) {
+        u8 raw[24];
+        struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+        netbufStartWrite(&buf);
+        netbufWriteU32(&buf, GEVR_NET_MAGIC);
+        netbufWriteU16(&buf, GEVR_NET_VERSION);
+        netbufWriteU8(&buf, NET_MSG_STAGE_READY);
+        netbufWriteU8(&buf, (uint8_t)s_local_slot);
+        struct player *pl = g_playerPointers[s_local_slot];
+        netbufWriteF32(&buf, pl && pl->prop ? pl->prop->pos.x : 0);
+        netbufWriteF32(&buf, pl && pl->prop ? pl->prop->pos.y : 0);
+        netbufWriteF32(&buf, pl && pl->prop ? pl->prop->pos.z : 0);
+        netbufWriteF32(&buf, pl ? pl->vv_theta : 0);
+        netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    } else {
+        netBroadcastLobbyState();
+        if (netGetConnectedPlayerCount() == 1) s_round_reset_loading = false;
+        if (netGetConnectedPlayerCount() >= 2 && netAllLoaded()) {
+            if (s_round_reset_loading) {
+                s_round_reset_loading = false;
+                if (s_pause_after_results) {
+                    s_pause_after_results = false;
+                    s_next_round_at_us = sysGetMicroseconds() + 15000000;
+                } else netBroadcastRoundPhase(NET_PHASE_IN_PROGRESS);
+            } else if (s_phase == NET_PHASE_WARMUP) netBeginRoundReset();
+        }
+    }
 }
 
 void netLobbySetReady(bool ready) {
@@ -350,24 +615,7 @@ void netLobbySetMatchConfig(uint8_t stage_num, uint8_t scenario, uint8_t weapon_
     netBroadcastBuf(&lbuf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
 }
 
-bool netLobbyHostLaunchMatch(void) {
-    if (!netIsHost()) return false;
-
-    int connected = 0;
-    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-        if (s_lobby_state.slots[i].connected) {
-            if (i != connected || !s_lobby_state.slots[i].ready) return false;
-            connected++;
-        }
-    }
-    if (connected < 2) return false;
-    
-    s_rng_seed = (uint32_t)(sysGetMicroseconds());
-    if (s_rng_seed == 0) s_rng_seed = 0x12345678;
-    
-    extern void randomSetSeed(u32);
-    randomSetSeed(s_rng_seed);
-    
+static void netSendMatchStartTo(ENetPeer *peer) {
     u8 raw[256];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&buf);
@@ -378,14 +626,42 @@ bool netLobbyHostLaunchMatch(void) {
     netbufWriteU8(&buf, s_lobby_state.stage_num);
     netbufWriteU8(&buf, s_lobby_state.scenario);
     netbufWriteU8(&buf, s_lobby_state.weapon_set);
-    netbufWriteU32(&buf, s_rng_seed); /* Synchronized RNG Seed */
+    netbufWriteU32(&buf, s_rng_seed);
     netbufWriteU8(&buf, (uint8_t)netGetConnectedPlayerCount());
-    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
         netbufWriteU8(&buf, s_lobby_state.slots[i].chr_id);
+    netbufWriteU8(&buf, (uint8_t)s_phase);
+    if (peer) {
+        ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
+        enet_peer_send(peer, NET_CHAN_RELIABLE, packet);
+    } else {
+        netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
     }
+}
+
+bool netLobbyHostLaunchMatch(void) {
+    if (!netIsHost()) return false;
+
+    int connected = 0;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        if (s_lobby_state.slots[i].connected) {
+            if (i >= s_max_players || !s_lobby_state.slots[i].ready) return false;
+            connected++;
+        }
+    }
+    if (connected < 1) return false;
     
-    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    s_rng_seed = (uint32_t)(sysGetMicroseconds());
+    if (s_rng_seed == 0) s_rng_seed = 0x12345678;
+    
+    extern void randomSetSeed(u32);
+    randomSetSeed(s_rng_seed);
+    
+    s_phase = NET_PHASE_WARMUP;
+    netSendMatchStartTo(NULL);
     s_state = NET_STATE_INGAME;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
+        if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].ready = 0;
     NET_LOG("Match launched! Stage: %d, Players: %d, Seed: 0x%08X", s_lobby_state.stage_num, netGetConnectedPlayerCount(), s_rng_seed);
     return true;
 }
@@ -568,18 +844,23 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
     
     if (magic != GEVR_NET_MAGIC || version != GEVR_NET_VERSION) {
         NET_ERR("Ignored packet with invalid magic/version: %08x v%d", magic, version);
+        if (magic == GEVR_NET_MAGIC && version != GEVR_NET_VERSION)
+            enet_peer_disconnect(peer, 0);
         return;
     }
     
     switch (msg_type) {
         case NET_MSG_HELLO: {
             if (!netIsHost()) break;
+            if (peer->data) break;
             char *name = netbufReadStr(&buf);
             uint8_t requested_chr = netbufReadU8(&buf);
+            if (buf.error) break;
+            if (requested_chr >= 12) requested_chr = 0;
             
             /* Find an available slot */
             int assigned = -1;
-            for (int i = 1; i < GEVR_MAX_PLAYERS; i++) {
+            for (int i = 1; i < s_max_players; i++) {
                 if (!s_lobby_state.slots[i].connected) {
                     assigned = i;
                     break;
@@ -636,12 +917,17 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 netbufWriteStr(&lbuf, s_lobby_state.slots[i].name);
             }
             netBroadcastBuf(&lbuf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+            if (s_state == NET_STATE_INGAME) netSendMatchStartTo(peer);
             NET_LOG("Assigned player '%s' to slot %d", name ? name : "Player", assigned);
             break;
         }
         case NET_MSG_WELCOME: {
-            if (netIsHost()) break;
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_CONNECTING) break;
             s_local_slot = netbufReadU8(&buf);
+            if (s_local_slot < 1 || s_local_slot >= GEVR_MAX_PLAYERS) {
+                enet_peer_disconnect(peer, 0);
+                break;
+            }
             s_lobby_state.stage_num = netbufReadU8(&buf);
             s_lobby_state.scenario = netbufReadU8(&buf);
             s_lobby_state.weapon_set = netbufReadU8(&buf);
@@ -658,8 +944,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
                 uint8_t was_connected = s_lobby_state.slots[i].connected;
                 s_lobby_state.slots[i].connected = netbufReadU8(&buf);
-                if (was_connected && !s_lobby_state.slots[i].connected)
+                if (was_connected && !s_lobby_state.slots[i].connected) {
                     netVoiceForgetSlot((uint8_t)i);
+                    netForgetPlayerScore(i);
+                }
                 s_lobby_state.slots[i].ready = netbufReadU8(&buf);
                 s_lobby_state.slots[i].chr_id = netbufReadU8(&buf);
                 char *name = netbufReadStr(&buf);
@@ -671,10 +959,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_LOBBY_READY: {
-            if (!netIsHost()) break;
+            if (s_state != NET_STATE_HOSTING_LOBBY) break;
             int slot = (int)(intptr_t)peer->data;
+            uint8_t claimed_slot = netbufReadU8(&buf);
             uint8_t ready = netbufReadU8(&buf);
-            if (slot >= 1 && slot < GEVR_MAX_PLAYERS) {
+            if (slot >= 1 && slot < s_max_players && s_client_peers[slot] == peer &&
+                s_lobby_state.slots[slot].connected && !buf.error && size == 10 &&
+                claimed_slot == slot && slot_id == slot && ready <= 1) {
                 s_lobby_state.slots[slot].ready = ready;
                 
                 u8 lraw[256];
@@ -699,10 +990,12 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_LOBBY_CHARACTER: {
-            if (!netIsHost()) break;
+            if (s_state != NET_STATE_HOSTING_LOBBY) break;
             int slot = (int)(intptr_t)peer->data;
+            uint8_t claimed_slot = netbufReadU8(&buf);
             uint8_t chr_id = netbufReadU8(&buf);
-            if (!buf.error && slot >= 1 && slot < GEVR_MAX_PLAYERS &&
+            if (!buf.error && size == 10 && slot >= 1 && slot < s_max_players &&
+                claimed_slot == slot && slot_id == slot && chr_id < 12 &&
                 s_client_peers[slot] == peer) {
                 s_lobby_state.slots[slot].chr_id = chr_id;
                 player_char[slot] = chr_id;
@@ -729,6 +1022,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_START_MATCH: {
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_CLIENT_LOBBY) break;
             s_lobby_state.stage_num = netbufReadU8(&buf);
             s_lobby_state.scenario = netbufReadU8(&buf);
             s_lobby_state.weapon_set = netbufReadU8(&buf);
@@ -738,19 +1032,172 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 uint8_t ch = netbufReadU8(&buf);
                 player_char[i] = ch;
             }
+            uint8_t phase = netbufReadU8(&buf);
+            if (buf.error || phase > NET_PHASE_IN_PROGRESS) break;
             s_rng_seed = seed;
             extern void randomSetSeed(u32);
             randomSetSeed(s_rng_seed);
             (void)num_players;
             s_state = NET_STATE_INGAME;
+            /* A late joiner stays in warmup until the reliable match snapshot arrives. */
+            s_phase = phase == NET_PHASE_IN_PROGRESS ? NET_PHASE_WARMUP : (NetPhase)phase;
+            s_lobby_state.slots[s_local_slot].ready = 0;
             NET_LOG("Starting match on stage %d! Seed: 0x%08X", s_lobby_state.stage_num, s_rng_seed);
+            break;
+        }
+        case NET_MSG_STAGE_READY: {
+            if (!netIsHost() || s_state != NET_STATE_INGAME) break;
+            int slot = (int)(intptr_t)peer->data;
+            if (slot < 1 || slot >= s_max_players || s_client_peers[slot] != peer ||
+                !s_lobby_state.slots[slot].connected || size != 24) break;
+            float x = netbufReadF32(&buf), y = netbufReadF32(&buf);
+            float z = netbufReadF32(&buf), yaw = netbufReadF32(&buf);
+            if (buf.error) break;
+            if (s_phase == NET_PHASE_IN_PROGRESS && startpadcount > 0 && g_playerPointers[slot]) {
+                s32 previous = get_cur_playernum();
+                set_cur_player(slot);
+                mp_respawn_handler_net(0, yaw);
+                set_cur_player(previous);
+                u8 respawn_raw[16];
+                struct netbuf respawn = { .data = respawn_raw, .size = sizeof(respawn_raw) };
+                netbufStartWrite(&respawn);
+                netbufWriteU32(&respawn, GEVR_NET_MAGIC);
+                netbufWriteU16(&respawn, GEVR_NET_VERSION);
+                netbufWriteU8(&respawn, NET_MSG_RESPAWN);
+                netbufWriteU8(&respawn, (u8)slot);
+                netbufWriteU8(&respawn, 0);
+                netbufWriteF32(&respawn, yaw);
+                netBroadcastBuf(&respawn, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+            }
+            if (g_playerPointers[slot] && g_playerPointers[slot]->prop) {
+                struct player *pl = g_playerPointers[slot];
+                pl->prop->pos.x = x;
+                pl->prop->pos.y = y;
+                pl->prop->pos.z = z;
+                pl->pos = pl->prop->pos;
+                pl->vv_theta = yaw;
+            }
+            if (s_phase == NET_PHASE_IN_PROGRESS) {
+                netSendMatchSnapshot(peer);
+                netSendWorldSnapshot(peer);
+            }
+            s_lobby_state.slots[slot].ready = 1;
+            netBroadcastLobbyState();
+            if (s_phase == NET_PHASE_WARMUP && netGetConnectedPlayerCount() >= 2 && netAllLoaded()) {
+                if (s_round_reset_loading) {
+                    s_round_reset_loading = false;
+                    if (s_pause_after_results) {
+                        s_pause_after_results = false;
+                        s_next_round_at_us = sysGetMicroseconds() + 15000000;
+                    } else netBroadcastRoundPhase(NET_PHASE_IN_PROGRESS);
+                } else netBeginRoundReset();
+            }
+            break;
+        }
+        case NET_MSG_ROUND_RESET: {
+            if (netIsHost() || peer != s_server_peer || size != 8) break;
+            s_phase = NET_PHASE_WARMUP;
+            s_round_reset_pending = true;
+            s_lobby_state.slots[s_local_slot].ready = 0;
+            break;
+        }
+        case NET_MSG_MATCH_END: {
+            if (netIsHost() || peer != s_server_peer || size != 8 ||
+                s_state != NET_STATE_INGAME || s_phase != NET_PHASE_IN_PROGRESS) break;
+            extern void mpCalculateAwards(bool);
+            mpCalculateAwards(false);
+            break;
+        }
+        case NET_MSG_ROUND_PHASE: {
+            if (netIsHost() || peer != s_server_peer || size != 9) break;
+            uint8_t phase = netbufReadU8(&buf);
+            if (phase != NET_PHASE_WARMUP && phase != NET_PHASE_IN_PROGRESS) break;
+            s_phase = (NetPhase)phase;
+            break;
+        }
+        case NET_MSG_MATCH_SNAPSHOT: {
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME ||
+                s_local_slot < 0) break;
+            u32 clock = netbufReadU32(&buf);
+            u32 score_bank[GEVR_MAX_PLAYERS];
+            u32 scores[GEVR_MAX_PLAYERS][GEVR_MAX_PLAYERS];
+            uint8_t occupied[GEVR_MAX_PLAYERS];
+            float state[GEVR_MAX_PLAYERS][7];
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                score_bank[i] = netbufReadU32(&buf);
+                for (int j = 0; j < GEVR_MAX_PLAYERS; j++) scores[i][j] = netbufReadU32(&buf);
+            }
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                occupied[i] = netbufReadU8(&buf);
+                for (int j = 0; j < 7; j++) state[i][j] = netbufReadF32(&buf);
+            }
+            if (buf.error || netbufReadLeft(&buf) != 0) break;
+            D_80048394 = (s32)clock;
+            D_800483A8 = (s32)clock;
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                g_playerPlayerData[i].kill_count = (s32)score_bank[i];
+                for (int j = 0; j < GEVR_MAX_PLAYERS; j++)
+                    g_playerPlayerData[i].kill_counts[j] = (s32)scores[i][j];
+                if (i == s_local_slot || !occupied[i] || !g_playerPointers[i] ||
+                    !g_playerPointers[i]->prop) continue;
+                struct player *pl = g_playerPointers[i];
+                pl->prop->pos.x = state[i][0];
+                pl->prop->pos.y = state[i][1];
+                pl->prop->pos.z = state[i][2];
+                pl->pos = pl->prop->pos;
+                pl->vv_theta = state[i][3];
+                pl->vv_verta = state[i][4];
+                pl->bondhealth = state[i][5];
+                pl->bondarmour = state[i][6];
+            }
+            s_phase = NET_PHASE_IN_PROGRESS;
+            break;
+        }
+        case NET_MSG_WORLD_SNAPSHOT: {
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME ||
+                !g_CurrentSetup.propDefs) break;
+            u8 count = netbufReadU8(&buf);
+            if (count == 0 || count > 32 || size != 9u + (size_t)count * 14u) break;
+            for (int i = 0; i < count; i++) {
+                u16 index = netbufReadU16(&buf);
+                u8 type = netbufReadU8(&buf);
+                u8 has_prop = netbufReadU8(&buf);
+                u8 enabled = netbufReadU8(&buf);
+                u32 runtime = netbufReadU32(&buf);
+                float position = netbufReadF32(&buf);
+                u8 state = netbufReadU8(&buf);
+                if (buf.error) break;
+                ObjectRecord *obj = setupGetPtrToCommandByIndex(index);
+                if (!obj || obj->type != type || !netSnapshotObjectType(type)) continue;
+                if (!has_prop) {
+                    if (obj->prop) objFreePermanently(obj, true);
+                    continue;
+                }
+                if (!obj->prop) continue;
+                const u32 mask = RUNTIMEBITFLAG_REMOVE | RUNTIMEBITFLAG_DESTROYED |
+                                 RUNTIMEBITFLAG_BEENOPENED;
+                obj->runtime_bitflags = (obj->runtime_bitflags & ~mask) | (runtime & mask);
+                if (enabled) chrpropEnable(obj->prop);
+                else chrpropDisable(obj->prop);
+                if (type == PROPDEF_DOOR) {
+                    DoorRecord *door = (DoorRecord *)obj;
+                    door->openPosition = position;
+                    door->openstate = (s8)state;
+                }
+            }
             break;
         }
         case NET_MSG_PLAYER_STATE: {
             int slot = slot_id;
-            if (slot >= 0 && slot < GEVR_MAX_PLAYERS && slot != s_local_slot) {
+            if (s_state == NET_STATE_INGAME && slot >= 0 && slot < s_max_players &&
+                slot != s_local_slot && s_lobby_state.slots[slot].connected &&
+                s_lobby_state.slots[slot].ready &&
+                ((!netIsHost() && peer == s_server_peer) ||
+                 (netIsHost() && slot > 0 && s_client_peers[slot] == peer &&
+                  (int)(intptr_t)peer->data == slot))) {
                 struct netplayermove move;
                 netbufReadPlayerMove(&buf, &move);
+                if (buf.error || netbufReadLeft(&buf) != 0) break;
                 s_remote_moves[slot] = move;
                 
                 /* Mirror to legacy NetMsgPlayerState for components that read it */
@@ -790,7 +1237,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             float dmg = netbufReadF32(&buf);
             (void)hit_loc;
             
-            if (netIsHost()) {
+            if (netIsHost() && s_phase == NET_PHASE_IN_PROGRESS && !buf.error &&
+                slot_id > 0 && slot_id < s_max_players && s_client_peers[slot_id] == peer &&
+                (int)(intptr_t)peer->data == slot_id && netSlotOccupied(slot_id) &&
+                netSlotOccupied(target)) {
                 netProcessHitReport((uint8_t)slot_id, target, weapon, hx, hy, hz, dmg);
             }
             break;
@@ -805,7 +1255,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             (void)weapon;
             
             /* Apply authoritative damage to the target player across all connected headsets */
-            if (target < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
+            if (!netIsHost() && peer == s_server_peer && !buf.error &&
+                s_phase == NET_PHASE_IN_PROGRESS && netSlotOccupied(target) &&
+                attacker < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
                 NET_LOG("Player %d took %.1f damage from attacker %d", target, dmg, attacker);
                 s32 prev = get_cur_playernum();
                 set_cur_player(target);
@@ -848,7 +1300,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_FIRE_EVENT: {
             uint8_t weapon = netbufReadU8(&buf);
             (void)weapon;
-            if (netIsHost()) {
+            if (netIsHost() && !buf.error && slot_id > 0 && slot_id < s_max_players &&
+                s_client_peers[slot_id] == peer && (int)(intptr_t)peer->data == slot_id &&
+                netSlotOccupied(slot_id)) {
                 netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
             }
             break;
@@ -924,6 +1378,7 @@ void netPoll(void) {
                         s_client_peers[slot] = NULL;
                         s_remote_active[slot] = false;
                         netVoiceForgetSlot((uint8_t)slot);
+                        netForgetPlayerScore(slot);
                         memset(&s_lobby_state.slots[slot], 0, sizeof(NetLobbySlot));
                         
                         /* Broadcast updated lobby state */
@@ -945,6 +1400,12 @@ void netPoll(void) {
                             netbufWriteStr(&lbuf, s_lobby_state.slots[i].name);
                         }
                         netBroadcastBuf(&lbuf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+                        if (s_state == NET_STATE_INGAME && netGetConnectedPlayerCount() == 1 &&
+                            s_phase == NET_PHASE_IN_PROGRESS) {
+                            s_pause_after_results = false;
+                            s_next_round_at_us = 0;
+                            netBeginRoundReset();
+                        }
                     }
                 } else {
                     /* Server disconnected */
@@ -959,6 +1420,12 @@ void netPoll(void) {
             default:
                 break;
         }
+    }
+    if (netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_WARMUP &&
+        s_next_round_at_us && sysGetMicroseconds() >= s_next_round_at_us &&
+        netGetConnectedPlayerCount() >= 2 && netAllLoaded()) {
+        s_next_round_at_us = 0;
+        netBeginRoundReset();
     }
     netVoiceTick();
 }

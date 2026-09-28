@@ -17,6 +17,14 @@
 #include "mp_music.h"
 #include "file.h"
 #include "assets/obseg/text/LmpmenuE.h"
+#ifdef GEVR
+extern bool netIsActive(void);
+extern bool netIsHost(void);
+extern int netGetLocalSlot(void);
+extern void netHostRoundEnded(void);
+extern void netHostReturnToWarmup(void);
+extern bool netSlotOccupied(int slot);
+#endif
 
 #ifdef REFRESH_PAL
 #define MPMENU_YOFF 8   /* PAL: every text row sits 8 pixels lower */
@@ -138,6 +146,15 @@ void mpwatchUnpauseGame(void)
  */
 s32 mpFindMaxInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        s32 values[4] = {value0, value1, value2, value3};
+        s32 best = -1;
+        for (s32 slot = 0; slot < numplayers; slot++)
+            if (netSlotOccupied(slot) && (best < 0 || values[slot] > values[best])) best = slot;
+        return best < 0 ? 0 : best;
+    }
+#endif
     s32 aux;
     s32 result;
  
@@ -178,6 +195,15 @@ s32 mpFindMaxInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
  */
 s32 mpFindMinInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        s32 values[4] = {value0, value1, value2, value3};
+        s32 best = -1;
+        for (s32 slot = 0; slot < numplayers; slot++)
+            if (netSlotOccupied(slot) && (best < 0 || values[slot] < values[best])) best = slot;
+        return best < 0 ? 0 : best;
+    }
+#endif
     s32 aux;
     s32 result;
  
@@ -221,6 +247,15 @@ s32 mpFindMinInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
  */
 s32 mpFindMaxFloat(s32 numplayers, f32 value0, f32 value1, f32 value2, f32 value3)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        f32 values[4] = {value0, value1, value2, value3};
+        s32 best = -1;
+        for (s32 slot = 0; slot < numplayers; slot++)
+            if (netSlotOccupied(slot) && (best < 0 || values[slot] > values[best])) best = slot;
+        return best < 0 ? 0 : best;
+    }
+#endif
     s32 aux;
     s32 result;
  
@@ -263,6 +298,15 @@ s32 mpFindMaxFloat(s32 numplayers, f32 value0, f32 value1, f32 value2, f32 value
  */
 s32 mpFindMinFloat(s32 numplayers, f32 value0, f32 value1, f32 value2, f32 value3)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        f32 values[4] = {value0, value1, value2, value3};
+        s32 best = -1;
+        for (s32 slot = 0; slot < numplayers; slot++)
+            if (netSlotOccupied(slot) && (best < 0 || values[slot] < values[best])) best = slot;
+        return best < 0 ? 0 : best;
+    }
+#endif
     s32 aux;
     s32 result;
  
@@ -335,6 +379,12 @@ void mpwatchSetStopPlayFlag(void)
 
 void mpCalculateAwards(bool gameoverdelay)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        if (g_gameOverFlag) return;
+        netHostRoundEnded();
+    }
+#endif
     s32 player_count;
     s32 i;
     s32 j;
@@ -343,7 +393,7 @@ void mpCalculateAwards(bool gameoverdelay)
     s32 prev_player_num;
     s32 duration;
 
-    struct AwardMetrics metrics[4];
+    struct AwardMetrics metrics[4] = {0};
 
     player_count = getPlayerCount();
     duration = getMissiontimer();
@@ -378,6 +428,9 @@ void mpCalculateAwards(bool gameoverdelay)
 
     for (i = 0; i < player_count; i++)
     {
+#ifdef GEVR
+        if (netIsActive() && !netSlotOccupied(i)) continue;
+#endif
 
         set_cur_player(i);
 
@@ -407,6 +460,8 @@ void mpCalculateAwards(bool gameoverdelay)
                 metrics[i].num_kills += g_playerPlayerData[i].kill_counts[j];
             }
         }
+
+        metrics[i].num_kills += g_playerPlayerData[i].kill_count;
 
         metrics[i].ks_ratio = metrics[i].num_kills * 100.0f / (metrics[i].num_shots + 1.0f);
         metrics[i].kd_ratio = metrics[i].num_kills * 100.0f / (metrics[i].num_deaths + 1.0f);
@@ -510,6 +565,9 @@ void mpCalculateAwards(bool gameoverdelay)
 
     for (i = 0; i < player_count; i++)
     {
+#ifdef GEVR
+        if (netIsActive() && !netSlotOccupied(i)) continue;
+#endif
         if (g_playerPlayerData[i].most_killed_one_time == 4)
         {
             metrics[i].awards |= AWARD_QUADKILL;
@@ -531,6 +589,9 @@ void mpCalculateAwards(bool gameoverdelay)
     // other awards.
     for (i = 0; i < player_count; i++)
     {
+#ifdef GEVR
+        if (netIsActive() && !netSlotOccupied(i)) continue;
+#endif
         s32 numdone = 0;
         s32 awardindex = 16;
 
@@ -688,6 +749,14 @@ void mpwatchMenuTick(void)
 
                     if (g_gameOverFlag)
                     {
+#ifdef GEVR
+                        if (netIsActive()) {
+                            if (netIsHost() && player_num == netGetLocalSlot())
+                                netHostReturnToWarmup();
+                            g_CurrentPlayer->mpmenumode = MENU_FINISHED;
+                            return;
+                        }
+#endif
                         menu_count = 0;
                         g_CurrentPlayer->mpmenumode = MENU_FINISHED;
 
@@ -858,6 +927,8 @@ s32 get_points_for_mp_player(s32 playernum)
                     points -= g_playerPlayerData[i].kill_counts[playernum];
                 }
             }
+
+            points += g_playerPlayerData[playernum].kill_count;
 
             points += g_playerPlayerData[playernum].killed_gg_owner_count * (player_count - 2);
             break;
@@ -1302,6 +1373,27 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                     other_team_colour = GREEN_NORMAL;
                 }
  
+#ifdef GEVR
+                if (netIsActive())
+                {
+                    s32 row = 0;
+                    for (i = 0; i < player_count; i++)
+                    {
+                        if (!netSlotOccupied(i)) continue;
+                        char entry[32];
+                        snprintf(entry, sizeof(entry), "P%d  %d", i + 1, scores[i]);
+                        x = (viGetViewLeft() + two_player_x_offset) + 53;
+                        y = viGetViewTop() + (70 + MPMENU_YOFF) + row * 15;
+                        viewleft = viGetX();
+                        h1 = viGetY();
+                        colour = i == curplayernum ? current_colour : same_team_colour;
+                        gdl = textRender(gdl, &x, &y, entry, ptrFontBankGothicChars,
+                                         ptrFontBankGothic, colour, viewleft, h1, 0, 0);
+                        row++;
+                    }
+                }
+                else
+#endif
                 if (player_count == 2)
                 {
                     viewleft = viGetViewLeft();
@@ -1416,7 +1508,26 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             viewleft = viGetX(); 
             h1 = viGetY();
             gdl = textRender(gdl, &x, &y, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
- 
+#ifdef GEVR
+            if (netIsActive())
+            {
+                s32 row = 0;
+                for (i = 0; i < player_count; i++)
+                {
+                    if (!netSlotOccupied(i) || i == curplayernum) continue;
+                    char entry[32];
+                    snprintf(entry, sizeof(entry), "P%d  %d", i + 1,
+                             g_playerPlayerData[curplayernum].kill_counts[i]);
+                    x = (viGetViewLeft() + two_player_x_offset) + 53;
+                    y = viGetViewTop() + (70 + MPMENU_YOFF) + row * 15;
+                    viewleft = viGetX(); h1 = viGetY();
+                    gdl = textRender(gdl, &x, &y, entry, ptrFontBankGothicChars,
+                                     ptrFontBankGothic, GREEN_NORMAL, viewleft, h1, 0, 0);
+                    row++;
+                }
+            }
+            else
+#endif
             if (player_count == 2)
             {
                 if (curplayernum != 0)
@@ -1487,7 +1598,28 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             viewleft = viGetX(); 
             h1 = viGetY();
             gdl = textRender(gdl, &x, &y, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0xff4040b0, viewleft, h1, 0, 0);
- 
+#ifdef GEVR
+            if (netIsActive())
+            {
+                s32 row = 0;
+                for (i = 0; i < player_count; i++)
+                {
+                    if (!netSlotOccupied(i)) continue;
+                    s32 losses = g_playerPlayerData[i].kill_counts[curplayernum];
+                    if (i == curplayernum && losses == 0) continue;
+                    char entry[32];
+                    snprintf(entry, sizeof(entry), "P%d  %d", i + 1, losses);
+                    x = (viGetViewLeft() + two_player_x_offset) + 53;
+                    y = viGetViewTop() + (70 + MPMENU_YOFF) + row * 15;
+                    viewleft = viGetX(); h1 = viGetY();
+                    gdl = textRender(gdl, &x, &y, entry, ptrFontBankGothicChars,
+                                     ptrFontBankGothic, i == curplayernum ? RED_HIGHLIGHT : GREEN_NORMAL,
+                                     viewleft, h1, 0, 0);
+                    row++;
+                }
+            }
+            else
+#endif
             if (player_count == 2)
             {
                 if (curplayernum != 0)

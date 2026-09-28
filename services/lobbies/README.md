@@ -7,9 +7,9 @@ This Worker supplies the public lobby browser, unlisted codes, ICE signaling, an
 1. Create a Cloudflare Realtime TURN key in the Cloudflare dashboard. Keep its token and key ID server-side.
 2. From this directory, run `npm ci`, then set the Worker secrets with `npx wrangler secret put TURN_KEY_ID` and `npx wrangler secret put TURN_KEY_API_TOKEN`. Enter values at the interactive prompts; do not put them in source or shell command arguments.
 3. Run `npm run check`, `npx wrangler deploy --dry-run`, then `npm run deploy`. The Worker config attaches `lobbies.goldeneyevr.com` as a Custom Domain in the `goldeneyevr.com` zone. The Quest app calls that host.
-4. Check `GET https://lobbies.goldeneyevr.com/v1/lobbies?version=4` and confirm it returns `{"lobbies":[]}` before distributing an APK with the online browser enabled.
+4. Check `/` for the dashboard, `GET /v1/activity` for public activity, and `GET /v1/lobbies?version=6` for compatible open games before distributing the protocol-6 APK.
 
-The service uses one SQLite-backed Durable Object for lobby coordination. Lobbies expire after 45 seconds without a host heartbeat; pending joins expire after 90 seconds. Public list responses exclude private games and owner tokens. The code is an unlisted join key for private games, not an account identity. Turn on Cloudflare request analytics and monitor Worker/DO limits and TURN egress as usage grows.
+The service uses one SQLite-backed Durable Object for lobby coordination. Lobbies expire after 45 seconds without a host heartbeat; pending joins expire after 90 seconds. Public list responses exclude private games and owner tokens. `/v1/activity` reports private games only as an aggregate count; it publishes names, stages, phase, occupancy, and open spots only for public games. `waiting`, `warmup`, and `in_progress` are independent of occupancy and joinability. The code is an unlisted join key for private games, not an account identity. Turn on Cloudflare request analytics and monitor Worker/DO limits and TURN egress as usage grows.
 
 ## Local check
 
@@ -20,8 +20,9 @@ Run `npm run dev` and make requests to `http://127.0.0.1:8787/v1/lobbies`. TURN 
 | Method | Path | Access | Purpose |
 | --- | --- | --- | --- |
 | POST | `/v1/lobbies` | Rate-limited | Create a public or private lobby; returns owner token and code |
-| GET | `/v1/lobbies?version=4` | Rate-limited | List compatible open public games |
-| GET | `/v1/lobbies/:code?version=4` | Code | Resolve an available game |
+| GET | `/v1/lobbies?version=6` | Rate-limited | List compatible open public games |
+| GET | `/v1/lobbies/:code?version=6` | Code | Resolve an available game |
+| GET | `/v1/activity` | Rate-limited | Public activity and aggregate private count |
 | PUT, DELETE | `/v1/lobbies/:code` | Owner token | Refresh state or remove game |
 | POST | `/v1/lobbies/:code/joins` | Code | Start a join and receive a join token |
 | PUT | `/v1/lobbies/:code/joins/:id/offer` | Join token | Submit ICE offer |
