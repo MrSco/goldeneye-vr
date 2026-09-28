@@ -669,7 +669,10 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                                 minfrac *= 2.0f;
                             }
 
+                            extern s32 s_gevrExplosionDamage;
+                            s_gevrExplosionDamage = 1;
                             record_damage_kills(minfrac, xdist, zdist, (s32) temp_s2->player, 1);
+                            s_gevrExplosionDamage = 0;
                             set_cur_player(sp90);
                         }
                     }
