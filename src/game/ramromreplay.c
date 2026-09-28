@@ -548,7 +548,7 @@ void select_ramrom_to_play(void)
         /*
          * PORT, temporary: the table entries point at the ramrom_* variables
          * defined in port/src/gevr_engine_shim.c, and those are NULL until the
-         * demo segments are bound and byte-swapped (see HANDOFF.md). Playing
+         * demo segments are bound and byte-swapped (see docs/archive/HANDOFF.md). Playing
          * one would DMA from a null pointer and then load a stage. Until then
          * the attract loop goes back to the title, as it does when a demo
          * ends.

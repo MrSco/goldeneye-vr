@@ -227,7 +227,7 @@ If you spot a missing credit for something we really used, open an Issue titled 
 
 - [README](README.md) - what this is, how to build and run it
 - [STATUS.md](STATUS.md) - what works and what does not, right now
-- [HANDOFF.md](HANDOFF.md) - current state, what works, what is broken
+- [docs/archive/HANDOFF.md](docs/archive/HANDOFF.md) - the engineering log up to 2026-09-28, archived
 - [docs/RARE-LOGO-AUDIO-HANDOFF.md](docs/RARE-LOGO-AUDIO-HANDOFF.md) - worked
   example of an LP64 porting-defect class
 - [LICENSE](LICENSE) - MIT, for this tree
