@@ -9,6 +9,8 @@ This Worker supplies the public lobby browser, unlisted codes, ICE signaling, an
 3. Run `npm run check`, `npx wrangler deploy --dry-run`, then `npm run deploy`. The Worker config attaches `lobbies.goldeneyevr.com` as a Custom Domain in the `goldeneyevr.com` zone. The Quest app calls that host.
 4. Check `/` for the dashboard, `GET /v1/activity` for public activity, and `GET /v1/lobbies?version=6` for compatible open games before distributing the protocol-6 APK.
 
+Debug reports use the Worker `send_email` binding. `REPORT_TO` is `info@goldeneyevr.com`, which must be verified as an account destination address in Cloudflare Email Routing before it can receive messages from this binding. The sender domain must be enabled for Email Service. Run `npm run check` and `npx wrangler deploy --dry-run` before deploying this change.
+
 The service uses one SQLite-backed Durable Object for lobby coordination. Lobbies expire after 45 seconds without a host heartbeat; pending joins expire after 90 seconds. Public list responses exclude private games and owner tokens. `/v1/activity` reports private games only as an aggregate count; every other total and the published names, stages, phases, occupancy, and open spots cover public games only. `waiting`, `warmup`, and `in_progress` are independent of occupancy and joinability. The code is an unlisted join key for private games, not an account identity. Turn on Cloudflare request analytics and monitor Worker/DO limits and TURN egress as usage grows.
 
 ## Local check
@@ -30,5 +32,6 @@ Run `npm run dev` and make requests to `http://127.0.0.1:8787/v1/lobbies`. TURN 
 | PUT | `/v1/lobbies/:code/joins/:id/answer` | Owner token | Submit ICE answer |
 | GET | `/v1/lobbies/:code/joins/:id/answer` | Join token | Poll answer |
 | POST | `/v1/lobbies/:code/turn` | Owner or join token | Issue a short-lived TURN credential |
+| POST | `/v1/reports` | 3 per IP per hour, 100 global per day | Email an explicitly submitted debug report |
 
 Authorization uses `Authorization: Bearer <token>`. The TURN key never leaves the Worker; issued per-peer credentials are short lived.

@@ -11779,7 +11779,7 @@ static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
 {
     coord3d start_pos = ZeroCoordSpawnPos;
     f32 start_look_angle;
-    s32 start_stan;
+    StandTile *start_stan;
     s32 pad;
     f32 stan_height;
     s32 var_v0;
@@ -11877,7 +11877,7 @@ static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
             switch (intro_record->type) 
             {
                 case 0: // INTROTYPE_SPAWN
-                    intro_record = (struct SetupIntroEmpty*)((s32)intro_record + sizeof(struct SetupIntroSpawn));
+                    intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroSpawn));
                     break;
                 case 1: // INTROTYPE_ITEM
                     if (check_ramrom_flags() == ((struct SetupIntroAmmo*)intro_record)->is_demo_playback) {
@@ -11887,28 +11887,28 @@ static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
                             bondinvAddInvItem(((struct SetupIntroItem*)intro_record)->item_right);
                         }
                     }
-                    intro_record = (struct SetupIntroEmpty*)((s32)intro_record + sizeof(struct SetupIntroItem));
+                    intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroItem));
                     break;
                 case 2: // INTROTYPE_AMMO
                     if (check_ramrom_flags() == ((struct SetupIntroAmmo*)intro_record)->is_demo_playback) {
                         give_cur_player_ammo(((struct SetupIntroAmmo*)intro_record)->ammo_type, ((struct SetupIntroAmmo*)intro_record)->ammo_amount);
                     }
-                    intro_record = (struct SetupIntroEmpty*)((s32)intro_record + sizeof(struct SetupIntroAmmo));
+                    intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroAmmo));
                     break;
                 case 3: // INTROTYPE_SWIRL
-                    intro_record = (struct SetupIntroEmpty*)((s32)intro_record + sizeof(struct SetupIntroSwirl));
+                    intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroSwirl));
                     break;
                 case 4: // INTROTYPE_ANIM
-                    intro_record = (struct SetupIntroEmpty*)((s32)intro_record + sizeof(struct SetupIntroAnim));
+                    intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroAnim));
                     break;
                 case 5: // INTROTYPE_CUFF
-                    intro_record = (struct SetupIntroEmpty*)((s32)intro_record + sizeof(struct SetupIntroCuff));
+                    intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroCuff));
                     break;
                 case 6: // INTROTYPE_CAMERA
-                    intro_record = (struct SetupIntroEmpty*)((s32)intro_record + sizeof(struct SetupIntroCamera));
+                    intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroCamera));
                     break;
                 default: // INTROTYPE_WATCH, INTROTYPE_CREDITS
-                    intro_record = (struct SetupIntroEmpty*)((s32)intro_record + sizeof(struct SetupIntroEmpty));
+                    intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroEmpty));
                     break;
             }
     #ifdef DEBUG
