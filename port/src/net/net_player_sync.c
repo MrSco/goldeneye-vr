@@ -4,6 +4,7 @@
 #include "net_player_sync.h"
 #include "net_core.h"
 #include "net_protocol.h"
+#include "net_voice.h"
 #include "system.h"
 #include <ultra64.h>
 #include <bondtypes.h>
@@ -112,6 +113,8 @@ void netPlayerSyncBeforeTick(s32 playernum) {
 
 void netPlayerSyncAfterTick(s32 playernum) {
     if (!netIsActive()) return;
+    /* This tick ran the level's players: their structs are valid for voice. */
+    netVoicePlayersTick();
     
     int local_slot = netGetLocalSlot();
     if (playernum != local_slot || !g_playerPointers[playernum]) return;

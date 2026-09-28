@@ -36,6 +36,11 @@ static SDL_atomic_t paused;
 static uint32_t send_sequence;
 static uint32_t capture_retry_at;
 static int capture_failed;
+/* Set by the game's per-player tick (net_player_sync.c) and cleared by the
+ * next netPoll, which runs before it. Player structs live in the stage pool
+ * and are stale between levels, so the mixer reads positions only on a tick
+ * that ran the players. */
+static int players_ticked;
 
 static int voiceSession(void) {
     NetState state = netGetState();
@@ -86,9 +91,13 @@ void netVoiceReset(void) {
     send_sequence = 0;
     capture_retry_at = 0;
     capture_failed = 0;
+    players_ticked = 0;
 }
 
+void netVoicePlayersTick(void) { players_ticked = 1; }
+
 void netVoiceTick(void) {
+    players_ticked = 0;
     if (!voiceSession() || VrMicMuted || !SDL_AtomicGet(&permission) || SDL_AtomicGet(&paused)) {
         voiceCloseCapture();
     } else {
@@ -222,10 +231,13 @@ void netVoiceMix(int16_t *stereo, size_t frames) {
         left[slot] = right[slot] = 0.0f;
         if ((int)slot == netGetLocalSlot() || !netGetLobbyState()->slots[slot].connected) continue;
         float gain = 0.7f, pan = 0.0f;
-        if (netGetState() == NET_STATE_INGAME) {
+        /* Positions only on a tick that ran the players (players_ticked):
+         * while a level loads or ends, everyone is heard at lobby volume. */
+        if (netGetState() == NET_STATE_INGAME && players_ticked) {
             int local = netGetLocalSlot();
-            struct player *listener = local >= 0 && local < GEVR_MAX_PLAYERS ? g_playerPointers[local] : NULL;
-            struct player *speaker = g_playerPointers[slot];
+            int count = getPlayerCount();
+            struct player *listener = local >= 0 && local < GEVR_MAX_PLAYERS && local < count ? g_playerPointers[local] : NULL;
+            struct player *speaker = (int)slot < count ? g_playerPointers[slot] : NULL;
             if (!listener || !speaker) continue;
             coord3d a = listener->prop ? listener->prop->pos : listener->pos;
             coord3d b = speaker->prop ? speaker->prop->pos : speaker->pos;
