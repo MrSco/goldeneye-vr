@@ -670,6 +670,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     static int selectedStageIdx = 0;
     static int selectedChrIdx = 0;
 
+    vrEnsurePlayerName();   // here, not at launcher start: the settings load on the first frame
     for (int i = 0; i < 32; ++i) {
         const std::string raw = gevrJavaString("lobbyEvent");
         if (raw.empty()) break;
@@ -1356,7 +1357,6 @@ extern "C" void gevrLauncherRun(void)
     s_kbdLock = SDL_CreateMutex();
     SDL_StopTextInput();         // no keyboard until a text box asks for it
     SDL_AddEventWatch(keyboardWatch, nullptr);
-    vrEnsurePlayerName();
     ImGui::StyleColorsDark();
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(2.2f);

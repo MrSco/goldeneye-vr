@@ -13,8 +13,14 @@ extern char g_ActiveExtTexPack[FS_MAXPATH];
 extern "C" void extTexSetPack(const char *newPackName);
 extern "C" void videoSetExternalTextures(bool enable);
 
+// Set once vrSettingsLoad has run (the first VR frame, gevr_engine_shim.c).
+// A save before it writes every default over the player's file: the launcher's
+// first name did, at launcher start, and reset everything it held.
+static bool s_settingsLoaded = false;
+
 extern "C" void vrSettingsSave(void)
 {
+    if (!s_settingsLoaded) return;
     FILE *f = fopen(VR_INI_PATH, "w");
     if (!f) return;
 
@@ -120,6 +126,7 @@ extern "C" void vrEnsurePlayerName(void)
 
 extern "C" void vrSettingsLoad(void)
 {
+    s_settingsLoaded = true;   // with no file yet, the defaults are the settings
     FILE *f = fopen(VR_INI_PATH, "r");
     if (!f) return;
 
