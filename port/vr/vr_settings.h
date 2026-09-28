@@ -23,6 +23,7 @@ extern int VrPauseHub;
 #define VR_PLAYMODE_STEREO 1
 extern int VrPlayMode;
 extern int VrMicMuted;
+extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launcher "Your name")
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
 // Display refresh rate in Hz, 0 = the runtime's default (vr_openxr.cpp).

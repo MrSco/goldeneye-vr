@@ -8,7 +8,7 @@
 #include "net/netbuf.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         5   /* 5: sequenced Opus voice frames */
+#define GEVR_NET_VERSION         6   /* 6: live match admission and round phases */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
@@ -51,9 +51,14 @@ typedef enum {
     NET_MSG_DAMAGE_EVENT = 13,  /* Server -> All */
     NET_MSG_RESPAWN = 14,       /* Respawning player -> host -> peers */
     NET_MSG_MATCH_END = 15,     /* Server -> All */
+    NET_MSG_STAGE_READY = 16,   /* Loaded client -> host */
+    NET_MSG_ROUND_RESET = 17,   /* Host -> all, reload stage */
+    NET_MSG_ROUND_PHASE = 18,   /* Host -> all, warmup/active clock */
+    NET_MSG_MATCH_SNAPSHOT = 19,/* Host -> loaded late joiner */
     
     /* Voice Chat */
     NET_MSG_VOIP_FRAME = 20,    /* Player -> Server / Peers */
+    NET_MSG_WORLD_SNAPSHOT = 21,/* Host -> loaded late joiner: pickups and doors */
 } NetMsgType;
 
 /* Player movement & input command struct (serialized via netbuf) */

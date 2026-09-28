@@ -62,6 +62,10 @@
 #include "frametiming.h"
 #include "chr.h"
 #include "gevr_rom_segments.h"
+#ifdef GEVR
+extern bool netIsActive(void);
+extern int netGetPhase(void);
+#endif
 
 // bss
 //CODE.bss:8008C260
@@ -411,6 +415,7 @@ void lvlStageLoad(s32 stage)
         {
             s32 s3;
             player_data = (struct player_data *)&g_playerPlayerData[i];
+            player_data->kill_count = 0;
 
             if (getPlayerCount() == 1)
             {
@@ -893,6 +898,16 @@ Gfx* lvlRender(Gfx* DL)
             {
                 gDPNoOpTag(DL++, 0x565D0001); /* VR_SCOPE_REC_END */
             }
+            {
+                /*
+                 * Online: the other players' names (gunfire.c), while the depth
+                 * buffer still holds the level, before the gun and the HUD, and
+                 * out of the scope's copy, which is drawn from another camera.
+                 */
+                extern Gfx *gevrDrawNameTags(Gfx *gdl);
+
+                DL = gevrDrawNameTags(DL);
+            }
 #endif
             if (get_debug_render_raster() == DEB_BOND_VIEW)
             {
@@ -1047,6 +1062,11 @@ void lvlSetMultipliersForDifficulty(void)
 void lvlManageMpGame(void)
 {
     tlbmanageResetCurrentEntriesCount();
+#ifdef GEVR
+    const s32 netWarmup = netIsActive() && netGetPhase() == 1; /* NET_PHASE_WARMUP */
+#else
+    const s32 netWarmup = FALSE;
+#endif
 
     if (g_ControlsLockedFlag != 0)
     {
@@ -1100,7 +1120,7 @@ void lvlManageMpGame(void)
         }
     }
 
-    if ((getPlayerCount() >= 2) && (g_CurrentStageToLoad != LEVELID_TITLE))
+    if (!netWarmup && (getPlayerCount() >= 2) && (g_CurrentStageToLoad != LEVELID_TITLE))
     {
         if (get_mission_state() == MISSION_STATE_6)
         {
@@ -1286,13 +1306,13 @@ void lvlManageMpGame(void)
         }
     }
 
-    D_80048394 = D_80048394 + g_ClockTimer;
+    D_80048394 = D_80048394 + (netWarmup ? 0 : g_ClockTimer);
 #ifdef VERSION_EU
     g_CurrentMultiPlayerSec = (f32) (D_80048394) / 50.0f;
 #else
     g_CurrentMultiPlayerSec = (f32) (D_80048394) / 60.0f;
 #endif
-    D_800483A8 = D_800483A8 + g_ClockTimer;
+    D_800483A8 = D_800483A8 + (netWarmup ? 0 : g_ClockTimer);
 #ifdef VERSION_EU
     g_CurrentMultiPlayerMin = (f32) (D_800483A8) / 50.0f;
 #else
@@ -1774,5 +1794,3 @@ f32 lvlGetPowerOnTimeSec(void)
 {
     return g_PowerOnTimeSec;
 }
-
-
