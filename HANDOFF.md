@@ -5485,3 +5485,58 @@ tools/texai/NOTES.md.
   setup, what the lobby service keeps).
 - Still untested: two headsets on different networks, a phone hotspot, a
   4-player mixed LAN/internet game (MULTIPLAYER.md's list).
+
+## 129. Multiplayer voice chat (#23; feature/voice-chat merged 2026-09-28)
+- Started by the user's Codex agent in its worktree (.codex/worktrees/f9e0),
+  which ran out of budget mid-pass; reviewed, fixed and finished here
+  (709f8fa, 261a7c6). Branch notes: MULTIPLAYER.md "Voice chat".
+- **Codec and wire:** libopus 1.6.1, fetched by CMake FetchContent from the
+  pinned xiph tarball (SHA-256 in CMakeLists.txt; a clean build needs the
+  internet once), BSD, docs/opus-LICENSE.txt, CREDITS.md. 20 ms mono 16 kHz
+  frames at 24 kb/s, DTX (silence sends nothing), complexity 5 (the codec
+  runs on the game thread). NET_MSG_VOIP_FRAME on NET_CHAN_VOIP, unreliable,
+  with a sequence number; the host checks that the slot matches the sending
+  peer and relays to the others. GEVR_VOIP_MAX_BYTES 200. Protocol version 5:
+  the lobby service lists by version, so v0.1.19 and this build never see
+  each other's games.
+- **Capture:** an SDL capture device (AAudio) opened only while in a lobby or
+  match, unmuted, with permission, not paused. RECORD_AUDIO is requested
+  from the launcher when hosting or joining (MainActivity
+  .requestVoicePermission -> nativeVoicePermissionResult); denied means
+  listen only. The manifest marks the microphone as not required. Stale
+  capture (more than 8 frames queued after a stall) is dropped.
+- **Playback:** port/src/net/net_voice.c mixes into the game's SDL output in
+  audioEndFrame; in the lobby audioVoiceIdleTick feeds the device 20 ms at a
+  time, which needs audioInit BEFORE the launcher (moved in main.c; the draft
+  had it after, so lobby voice was silent). Per player: an Opus decoder, a
+  200 ms ring, 40 ms of buffering before a stream starts, PLC for up to 5
+  lost frames then a reset, linear 16 k -> 22.05 k resampling. Lobby: full
+  volume, centred. Match: 2 m..20 m linear fade, panned with the listener's
+  right = (-cos theta, -sin theta) in x/z, which is how radar.c places a
+  player on the radar's right (the draft had the sign flipped). Positions
+  are read only on a tick where netPlayerSyncAfterTick ran (players_ticked,
+  cleared at each netPoll): player structs live in the stage pool and go
+  stale between levels while the net state stays INGAME. Streams keep
+  draining while a player is out of range.
+- **Mute (MicMuted in goldeneye-vr.ini):** the "Microphone muted" checkbox
+  on the host and client lobby pages (with a mic status line); the watch's
+  Game Options ninth row "Microphone" Off/On, drawn and toggled like
+  game_option_toggle_input (set_controlstick_lr_disabled and the option
+  sound; the draft retoggled every frame the stick was held). The eight
+  toggle rows tighten from YINC to YINC-2 while netIsActive so the row fits
+  the face. In play, hold left X+Y for 0.5 s (input.c swallows B and A for
+  the chord).
+- **Line endings:** the draft's editor had put LF lines into CRLF files
+  (options.c, audio.c, input.c, the manifest) and the tree has LF islands in
+  CRLF files (CMakeLists.txt SRC_NET block, MainActivity.java). Restored per
+  line against HEAD; Git Bash `grep -c $'$'` cannot be trusted for this,
+  count b"
+" in Python.
+- **Tested 2026-09-28 (Quest 3, release build 261a7c6, one headset):** the
+  permission prompt, then Android's RecordActivityMonitor showed the mic
+  opening and closing with each mute toggle and rehost and closing on the
+  exact lobby stop; no errors. Untested: hearing anyone, distance and
+  direction, the watch row, the X+Y chord, listen-only after a denial: all
+  need the second headset (MULTIPLAYER.md two-headset test, step 6).
+- Unchanged: match end and the host leaving are still not handled. Next
+  release (v0.1.20) carries protocol 5; the README voice paragraph is in.
