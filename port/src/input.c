@@ -1181,10 +1181,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // hand's panel (a gun for the left hand alone), while the left hand can
         // take one (bondview2.c gevrLeftPanelAvailable); otherwise Y still
         // cycles at once, held as A. A press while the other panel is up does
-        // nothing.
+        // nothing. Issue #63: a tap of A with the right grip (R) held goes to the
+        // previous weapon, as GoldenEye's own hold A and pull Z (bondview2.c
+        // weaponBackOffset): A and Z go down together, so the game sees Z pressed
+        // with A held and never A alone (which cycles forward).
         {
             static u32 adown = 0, apulse = 0, ydown = 0, ypulse = 0;
             static bool apanel = false, aspoilt = false, ypanel = false, yspoilt = false, yatonce = false;
+            static bool aback = false;
             const u32 t = SDL_GetTicks();
             if (stereoplay && !gevrReturnPrompt && !fitting) {
                 const bool a = get_button_state(1, "a");
@@ -1216,6 +1220,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         gevrWeaponPanelOpen = 0;
                     } else if (!aspoilt) {
                         apulse = t + 100;
+                        aback = get_button_state(1, "grip");
+                        if (aback) LOGI("input: grip + A -> previous weapon\n");
                     }
                     adown = 0;
                 }
@@ -1237,6 +1243,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     ydown = 0;
                 }
                 if (t < apulse || t < ypulse) npad->button |= A_BUTTON;
+                if (t < apulse && aback) npad->button |= Z_TRIG;
             } else {
                 adown = ydown = 0;
                 gevrWeaponPanelOpen = 0;
