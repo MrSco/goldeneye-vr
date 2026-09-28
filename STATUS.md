@@ -7,15 +7,13 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-28. **Latest release:** v0.3.1 (build df311a0, the
-PR #66 merge, versionCode 23): multiplayer crash fixes and the launcher's
+**Updated:** 2026-09-28. **Latest release:** v0.3.2 (versionCode 27):
+multiplayer pause controls (#76), calibrated recoil and damage rumble (#64),
+tank runover audio (#68), left-hand weapons (#56), previous weapon with right
+grip + A (#63), left X for weapons and Y for use/reload, and normal online
+damage handicap (#69). v0.3.1 (df311a0) fixed multiplayer crashes and added
 "Send debug log". v0.3.0 (5fa83da) brought drop-in multiplayer, names and
-name tags, network protocol 6. **On main, unreleased:** #76 VR multiplayer
-pause menu; #64 more rumble (weapon-calibrated recoil, whole-body damage
-haptics); #68 tank runover scream; #56 a gun for the left hand (hold X);
-#63 previous weapon (right grip + A); the off hand's X and Y swapped (X
-weapons, Y use/reload: tell players in the release notes). versionCode is
-26 on main (test installs over a 25).
+name tags, network protocol 6.
 
 ## What it is
 
@@ -68,8 +66,7 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   D159 odd-row swap fix), #30 water shimmer (open in the PC port too, D245),
   #32 Surface ground patches without impacts (the PC port's D313 fix is
   already in bg.c; re-check), #60 laser watch arm changes size. Closed
-  2026-09-28: #18 (fixed), #50 (not reproduced), #56, #63, #64 (done on
-  main, unreleased).
+  2026-09-28: #18 (fixed), #50 (not reproduced), #56, #63, #64.
 - Unmerged branches: only fix/60-watch-grip-hand (shelved: the laser watch
   gripped with a mirrored hand, which didn't lock to the wrist). One
   checkout, this one; no other worktrees.
