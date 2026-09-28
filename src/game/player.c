@@ -6,6 +6,10 @@
 #include "unk_092E50.h"
 #include "bondview.h"
 #include "lv.h"
+#ifdef GEVR
+extern bool netIsActive(void);
+extern bool netSlotOccupied(int slot);
+#endif
 
 struct player *g_playerPointers[4];
 struct player_data g_playerPlayerData[4];
@@ -615,7 +619,19 @@ void sub_GAME_7F09B398(enum GUNHAND hand)
     {
         wepid = getCurrentPlayerWeaponId(hand);
         prop = getPropForHeldItem(wepid);
+#ifdef GEVR
+        /*
+         * getPropForHeldItem returns -1 for a hand with no held model (the
+         * fist, unarmed, the taser). PROP has no negative enumerator, so Clang
+         * makes it unsigned and drops "prop >= 0" as always true (IDO kept it
+         * signed): modelLoad(-1) read before PitemZ_entries and crashed the
+         * moment a multiplayer match raised an empty hand. Compared signed, as
+         * net_player_sync.c does.
+         */
+        if ((s32)prop >= 0)
+#else
         if (prop >= 0)
+#endif
         {
             flags = ((hand * 4) == 0)
                   ? 0
@@ -640,6 +656,17 @@ void shuffle_player_ids(void) {
         array_PLAYER_IDs[i] = array_PLAYER_IDs[i + random % (4 - i)];
         array_PLAYER_IDs[i + random % (4 - i)] = temp;
     }
+#ifdef GEVR
+    if (netIsActive()) {
+        PLAYER_ID ordered[4];
+        s32 count = 0;
+        for (i = 0; i < 4; i++)
+            if (netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
+        for (i = 0; i < 4; i++)
+            if (!netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
+        for (i = 0; i < 4; i++) array_PLAYER_IDs[i] = ordered[i];
+    }
+#endif
 }
 
 s32 get_player_position_in_shuffled(s32 current_player_num) {

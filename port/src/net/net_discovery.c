@@ -40,6 +40,8 @@ typedef struct {
     uint8_t  max_players;
     uint8_t  stage_num;
     uint8_t  weapon_set; /* mp_weapon.c's set, the host's choice */
+    uint8_t  phase;
+    uint8_t  joinable;
     uint32_t host_id;    /* the sender's s_self_id: a headset hears its own broadcast */
 } NetDiscoveryBeacon;
 #pragma pack(pop)
@@ -139,9 +141,11 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         beacon.port = PD_LE16(s_broadcast_port);
         snprintf(beacon.name, GEVR_MAX_NAME_LEN, "%s", s_broadcast_name);
         beacon.player_count = (uint8_t)netGetConnectedPlayerCount();
-        beacon.max_players = GEVR_MAX_PLAYERS;
+        beacon.max_players = (uint8_t)netGetMaxPlayers();
         beacon.stage_num = (uint8_t)netGetLobbyStage();
         beacon.weapon_set = netGetLobbyWeaponSet();
+        beacon.phase = (uint8_t)netGetPhase();
+        beacon.joinable = beacon.player_count < beacon.max_players;
         beacon.host_id = PD_LE32(s_self_id);
         
         struct sockaddr_in broadcast_addr;
@@ -192,6 +196,8 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
                 srv->max_players = b->max_players;
                 srv->stage_num = b->stage_num;
                 srv->weapon_set = b->weapon_set;
+                srv->phase = b->phase;
+                srv->joinable = b->joinable;
                 srv->last_seen_ms = current_time_ms;
             }
         }

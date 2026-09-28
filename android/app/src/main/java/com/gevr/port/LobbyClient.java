@@ -38,7 +38,9 @@ final class LobbyClient {
     private boolean offerSent;
     private boolean answerReceived;
     private int players = 1;
+    private int maxPlayers = 4;
     private boolean open = true;
+    private String phase = "waiting";
     private long nextHeartbeat;
     private long nextRequests;
     private String lastError = "";
@@ -67,7 +69,9 @@ final class LobbyClient {
                 if (fields.length != 7) return;
                 stop();
                 players = 1;
+                maxPlayers = Integer.parseInt(fields[6]);
                 open = true;
+                phase = "waiting";
                 pendingCreate = new JSONObject()
                         .put("visibility", fields[1]).put("name", fields[2])
                         .put("version", Integer.parseInt(fields[3]))
@@ -89,6 +93,15 @@ final class LobbyClient {
                     }
                 }
                 break;
+            case "phase":
+                if (fields.length == 3 && ("warmup".equals(fields[1]) || "in_progress".equals(fields[1]))) {
+                    phase = fields[1];
+                    players = Integer.parseInt(fields[2]);
+                    open = players < maxPlayers;
+                    nextHeartbeat = 0;
+                    nextRequests = 0;
+                }
+                break;
             case "list": {
                 int version = Integer.parseInt(fields[1]);
                 JSONArray rows = http("GET", BASE + "?version=" + version, null, "").getJSONArray("lobbies");
@@ -97,7 +110,8 @@ final class LobbyClient {
                     JSONObject row = rows.getJSONObject(i);
                     events.add("LOBBY|" + row.getString("code") + "|" + clean(row.getString("name")) + "|"
                             + row.getInt("stage") + "|" + row.getInt("weapons") + "|"
-                            + row.getInt("players") + "|" + row.getInt("maxPlayers"));
+                            + row.getInt("players") + "|" + row.getInt("maxPlayers") + "|"
+                            + row.optString("phase", "waiting"));
                 }
                 events.add("LIST_END");
                 break;
@@ -140,12 +154,13 @@ final class LobbyClient {
             if (pendingCreate != null) registerPending();
             if (hosting && !code.isEmpty()) {
                 if (System.currentTimeMillis() >= nextHeartbeat) {
-                    http("PUT", BASE + "/" + code, new JSONObject().put("players", players).put("open", open), ownerToken);
+                    http("PUT", BASE + "/" + code, new JSONObject()
+                            .put("players", players).put("open", open).put("phase", phase), ownerToken);
                     nextHeartbeat = System.currentTimeMillis() + 15_000;
                 }
-                if (System.currentTimeMillis() >= nextRequests) {
+                if (open && System.currentTimeMillis() >= nextRequests) {
                     JSONArray requests = http("GET", BASE + "/" + code + "/joins", null, ownerToken).getJSONArray("requests");
-                    nextRequests = System.currentTimeMillis() + 4_000;
+                    nextRequests = System.currentTimeMillis() + ("waiting".equals(phase) ? 4_000 : 10_000);
                     for (int i = 0; i < requests.length(); i++) {
                         JSONObject request = requests.getJSONObject(i);
                         String id = request.getString("id");
@@ -191,6 +206,7 @@ final class LobbyClient {
             catch (Exception e) { Log.w(TAG, "Failed to remove lobby", e); }
         }
         hosting = false;
+        phase = "waiting";
         code = "";
         ownerToken = "";
         joinId = "";

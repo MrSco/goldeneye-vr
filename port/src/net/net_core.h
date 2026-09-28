@@ -18,6 +18,12 @@ typedef enum {
     NET_STATE_INGAME
 } NetState;
 
+typedef enum {
+    NET_PHASE_WAITING = 0,
+    NET_PHASE_WARMUP = 1,
+    NET_PHASE_IN_PROGRESS = 2
+} NetPhase;
+
 /* Lifecycle */
 bool netInit(void);
 void netShutdown(void);
@@ -34,7 +40,16 @@ bool netIsActive(void);
 bool netIsHost(void);
 int netGetLocalSlot(void);
 int netGetConnectedPlayerCount(void);
+int netGetMaxPlayers(void);
+void netSetMaxPlayers(int max_players);
+NetPhase netGetPhase(void);
+bool netSlotOccupied(int slot);
+bool netTakeRoundReset(void);
+void netStageLoaded(void);
+void netHostRoundEnded(void);
+void netHostReturnToWarmup(void);
 const NetMsgLobbyState *netGetLobbyState(void);
+const char *netGetSlotName(int slot);   /* NULL for an empty slot */
 uint8_t netGetLobbyStage(void);
 uint8_t netGetLobbyWeaponSet(void);
 uint32_t netGetRandomSeed(void);

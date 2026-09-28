@@ -53,6 +53,7 @@ void gevrVrPumpEnd(void);
 const char *fsFullPath(const char *relPath);  // port/src/fs.c
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
+void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
 void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
 void vr_apply_refresh_rate(void);     // vr_openxr.cpp
@@ -641,6 +642,13 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
 }
 
+// Names: printable ASCII, which the game's font can draw over a player's head,
+// less '|', the lobby service's field separator.
+int nameCharFilter(ImGuiInputTextCallbackData *data)
+{
+    return data->EventChar < 0x20 || data->EventChar > 0x7e || data->EventChar == '|';
+}
+
 void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
     ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
@@ -654,7 +662,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     static std::string onlineMessage;
     static std::string clientJoinId;
     static std::vector<std::string> hostJoinIds;
-    struct OnlineLobby { std::string code, name; int stage, weapons, players, maxPlayers; };
+    struct OnlineLobby { std::string code, name, phase; int stage, weapons, players, maxPlayers; };
     static std::vector<OnlineLobby> onlineLobbies;
     static bool listLoading = false;
     static uint32_t lastListMs = 0;
@@ -662,6 +670,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     static int selectedStageIdx = 0;
     static int selectedChrIdx = 0;
 
+    vrEnsurePlayerName();   // here, not at launcher start: the settings load on the first frame
     for (int i = 0; i < 32; ++i) {
         const std::string raw = gevrJavaString("lobbyEvent");
         if (raw.empty()) break;
@@ -674,8 +683,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             listLoading = true;
         } else if (f[0] == "LIST_END") {
             listLoading = false;
-        } else if (f[0] == "LOBBY" && f.size() >= 7) {
-            onlineLobbies.push_back({f[1], f[2], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())});
+        } else if (f[0] == "LOBBY" && f.size() >= 8) {
+            onlineLobbies.push_back({f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())});
         } else if (f[0] == "JOINED" && f.size() >= 4) {
             clientJoinId = f[1];
             if (!netIceStartClient(f[1].c_str(), f[2].c_str(), f[3].c_str())) onlineMessage = "Could not start internet connection";
@@ -781,6 +790,23 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     if (ImGui::RadioButton("Host Game", subTab == 0)) subTab = 0;
     ImGui::SameLine();
     if (ImGui::RadioButton("Join Game", subTab == 1)) subTab = 1;
+    // Your name: in the lobby lists and over your head in a match. Fixed while
+    // in a lobby, where the others already have it.
+    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 2.0f);
+    ImGui::TextUnformatted("Your name:");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(netIsActive());
+    ImGui::SetNextItemWidth(-1);
+    ImGui::InputText("##playername", VrPlayerName, sizeof(VrPlayerName),
+                     ImGuiInputTextFlags_CallbackCharFilter, nameCharFilter);
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        size_t n = strlen(VrPlayerName);
+        while (n > 0 && VrPlayerName[n - 1] == ' ') VrPlayerName[--n] = '\0';
+        if (VrPlayerName[0] == ' ') memmove(VrPlayerName, VrPlayerName + strspn(VrPlayerName, " "), n + 1);
+        vrEnsurePlayerName();
+        vrSettingsSave();
+    }
+    ImGui::EndDisabled();
     ImGui::Separator();
     
     if (subTab == 0) {
@@ -825,10 +851,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
 
             ImGui::Spacing();
             if (ImGui::Button("START HOSTING LOBBY", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f))) {
-                // the LAN browser's name for this game: players have no names yet, so the host's character's
+                // the game's name in the LAN and internet lists: the host's
                 char gameName[GEVR_MAX_NAME_LEN];
-                snprintf(gameName, sizeof(gameName), "%s's game", characters[selectedChrIdx].name);
+                snprintf(gameName, sizeof(gameName), "%s's game", VrPlayerName);
                 if (netHostStart(GEVR_DEFAULT_PORT)) {
+                    netSetMaxPlayers(stages[selectedStageIdx].maxPlayers);
                     gevrJavaCommand("requestVoicePermission", "");
                     netIceStartHost();
                     netDiscoveryInit();
@@ -871,14 +898,12 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 gevrJavaCommand("lobbyCommand", refresh.c_str());
             }
             bool slotsReady = true;
-            int nextSlot = 0;
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
                 if (lobby->slots[i].connected) {
-                    if (i != nextSlot || !lobby->slots[i].ready) slotsReady = false;
-                    nextSlot++;
+                    if (i >= maxP || !lobby->slots[i].ready) slotsReady = false;
                 }
             }
-            bool canLaunch = (pCount >= 2 && pCount <= maxP && slotsReady);
+            bool canLaunch = (pCount >= 1 && pCount <= maxP && slotsReady);
             
             ImGui::TextColored(gold, "PLAYERS IN LOBBY (%d/%d):", pCount, maxP);
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
@@ -897,10 +922,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 if (pCount > maxP) {
                     ImGui::TextColored(bad, "Stage player limit exceeded! Max %d players for %s (currently %d).",
                                        maxP, stages[selectedStageIdx].name, pCount);
-                } else if (pCount < 2) {
-                    ImGui::TextColored(bad, "Waiting for at least one more player.");
                 } else {
-                    ImGui::TextColored(bad, "All players must be ready in consecutive slots. Rejoin to fill an open slot.");
+                    ImGui::TextColored(bad, "All connected players must be ready.");
                 }
             }
             
@@ -908,11 +931,10 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             if (!canLaunch) ImGui::BeginDisabled();
             if (ImGui::Button("LAUNCH MULTIPLAYER MATCH!", ImVec2(-1, ImGui::GetFrameHeight() * 1.8f))) {
                 if (!netLobbyHostLaunchMatch()) return;
-                gevrJavaCommand("lobbyCommand", "stop");
-                hostedCode.clear();
+                gevrJavaCommand("lobbyCommand", (std::string("phase|") +
+                    (pCount > 1 ? "in_progress" : "warmup") + "|" + std::to_string(pCount)).c_str());
                 gamemode = 1; // GAMEMODE_MULTI
-                selected_num_players = netGetConnectedPlayerCount();
-                if (selected_num_players < 2) selected_num_players = 2;
+                selected_num_players = maxP;
                 g_StageNum = stages[selectedStageIdx].id;
                 bossSetLoadedStage(g_StageNum);
                 
@@ -957,9 +979,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             else if (onlineLobbies.empty()) ImGui::TextDisabled("No open internet games found.");
             for (const OnlineLobby &game : onlineLobbies) {
                 char label[180];
-                snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players##online%s",
+                snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##online%s",
                          game.name.c_str(), stageName(game.stage), weaponSetName(game.weapons),
-                         game.players, game.maxPlayers, game.code.c_str());
+                         game.players, game.maxPlayers,
+                         game.phase == "warmup" ? " (warmup)" : game.phase == "in_progress" ? " (in progress)" : "",
+                         game.code.c_str());
                 if (ImGui::Button(label, ImVec2(-1, 0))) {
                     gevrJavaCommand("requestVoicePermission", "");
                     netDisconnect();
@@ -998,12 +1022,14 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             } else {
                 for (int i = 0; i < count; i++) {
                     const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
-                    const int cap = stageCap(srv->stage_num);
-                    const bool full = srv->player_count >= cap;
+                    const int cap = srv->max_players;
+                    const bool full = !srv->joinable;
                     char label[160];
                     snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##srv%d",
                              srv->server_name, stageName(srv->stage_num), weaponSetName(srv->weapon_set),
-                             srv->player_count, cap, full ? " (full)" : "", i);
+                             srv->player_count, cap,
+                             full ? " (full)" : srv->phase == NET_PHASE_WARMUP ? " (warmup)" :
+                             srv->phase == NET_PHASE_IN_PROGRESS ? " (in progress)" : "", i);
                     if (full) ImGui::BeginDisabled();
                     if (ImGui::Button(label, ImVec2(-1, 0))) {
                         gevrJavaCommand("requestVoicePermission", "");
@@ -1065,11 +1091,17 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 netLobbySetReady(clientReady);
             }
             
+            ImGui::TextColored(gold, "PLAYERS IN LOBBY:");
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                if (!lobby->slots[i].connected) continue;
+                ImGui::BulletText("%s (%s) %s", lobby->slots[i].name, characters[lobby->slots[i].chr_id % 12].name,
+                                  i == 0 ? "[HOST]" : i == netGetLocalSlot() ? "[YOU]" :
+                                  lobby->slots[i].ready ? "[READY]" : "[WAITING]");
+            }
             ImGui::TextColored(gold, "Waiting for Host to launch match...");
             if (netGetState() == NET_STATE_INGAME) {
                 gamemode = 1; // GAMEMODE_MULTI
-                selected_num_players = netGetConnectedPlayerCount();
-                if (selected_num_players < 2) selected_num_players = 2;
+                selected_num_players = stageCap(lobby->stage_num);
                 g_StageNum = lobby->stage_num;
                 bossSetLoadedStage(g_StageNum);
                 
@@ -1106,6 +1138,68 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         }
         open = false;
     }
+}
+
+/* The launcher is no longer pumping signaling after the stage starts. Keep the
+ * tiny JNI event drain on the game thread; all HTTP work stays on LobbyClient's
+ * background executor. */
+extern "C" void gevrLobbyGameTick(void)
+{
+    static Uint32 lastTick = 0;
+    static Uint32 lastRefresh = 0;
+    static NetPhase lastPhase = NET_PHASE_WAITING;
+    static std::vector<std::string> pendingAnswers;
+    const Uint32 now = SDL_GetTicks();
+    if (now - lastTick < 250) return;
+    lastTick = now;
+
+    if (netIsHost()) {
+        for (int i = 0; i < 32; ++i) {
+            const std::string event = gevrJavaString("lobbyEvent");
+            if (event.empty()) break;
+            const auto fields = gevrSplitLobbyEvent(event);
+            if (fields[0] == "HOST_PEER" && fields.size() >= 5 && netIcePeerCount() < 3 &&
+                netIceAddHostPeer(fields[1].c_str(), gevrDecodeUrl64(fields[2]).c_str(),
+                                  fields[3].c_str(), fields[4].c_str()))
+                pendingAnswers.push_back(fields[1]);
+        }
+        for (auto it = pendingAnswers.begin(); it != pendingAnswers.end();) {
+            char sdp[JUICE_MAX_SDP_STRING_LEN];
+            if (netIceTakeDescription(it->c_str(), sdp, sizeof(sdp))) {
+                gevrJavaCommand("lobbyCommand", ("answer|" + *it + "|" + gevrEncodeUrl64(sdp)).c_str());
+                it = pendingAnswers.erase(it);
+            } else if (netIceStatus(it->c_str())) {
+                it = pendingAnswers.erase(it);
+            } else ++it;
+        }
+        const NetPhase phase = netGetPhase();
+        if (phase != lastPhase || now - lastRefresh >= 5000) {
+            lastRefresh = now;
+            const char *phaseName = phase == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup";
+            if (phase != lastPhase) {
+                lastPhase = phase;
+                gevrJavaCommand("lobbyCommand", (std::string("phase|") + phaseName + "|" +
+                                std::to_string(netGetConnectedPlayerCount())).c_str());
+            } else {
+                const int players = netGetConnectedPlayerCount();
+                gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
+                                "|" + (players < netGetMaxPlayers() ? "1" : "0")).c_str());
+            }
+        }
+    } else {
+        lastPhase = NET_PHASE_WAITING;
+        lastRefresh = 0;
+        pendingAnswers.clear();
+    }
+    netIcePoll();
+}
+
+extern "C" void gevrLobbySessionStopped(void)
+{
+    gevrJavaCommand("lobbyCommand", "stop");
+    netIceStop();
+    netDiscoveryShutdown();
+    netDisconnect();
 }
 
 // Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at
@@ -1188,6 +1282,65 @@ bool feedGamepad(ImGuiIO &io, bool pointing)
     return fabsf(s.x) > t || fabsf(s.y) > t || back || select;
 }
 
+// The Quest system keyboard (AndroidManifest: oculus.software.overlay_keyboard).
+// SDL_StartTextInput shows it over the launcher (SDLActivity's DummyEdit), and
+// it types into SDL: text as SDL_TEXTINPUT, Backspace and Return as key
+// presses. Those come on Android's UI thread, so they wait here, '\b' and '\r'
+// standing for the two keys, and go to ImGui with the frame's other input.
+SDL_mutex *s_kbdLock;
+std::string s_kbdQueue;
+
+int SDLCALL keyboardWatch(void *, SDL_Event *e)
+{
+    const bool text = e->type == SDL_TEXTINPUT;
+    const bool key = e->type == SDL_KEYDOWN
+        && (e->key.keysym.sym == SDLK_BACKSPACE || e->key.keysym.sym == SDLK_RETURN);
+    if (!text && !key) return 1;
+    SDL_LockMutex(s_kbdLock);
+    if (key) s_kbdQueue += e->key.keysym.sym == SDLK_BACKSPACE ? '\b' : '\r';
+    else for (const char *c = e->text.text; *c; c++) {
+        if ((unsigned char)*c >= 0x20) s_kbdQueue += *c;   // Return comes as a key too
+    }
+    SDL_UnlockMutex(s_kbdLock);
+    return 1;
+}
+
+void feedKeyboard(ImGuiIO &io)
+{
+    std::string q;
+    SDL_LockMutex(s_kbdLock);
+    q.swap(s_kbdQueue);
+    SDL_UnlockMutex(s_kbdLock);
+    if (!io.WantTextInput) return;   // no text box to type into
+    size_t run = 0;
+    for (size_t i = 0; i <= q.size(); i++) {
+        if (i < q.size() && q[i] != '\b' && q[i] != '\r') continue;
+        if (i > run) io.AddInputCharactersUTF8(q.substr(run, i - run).c_str());
+        if (i < q.size()) {
+            const ImGuiKey k = q[i] == '\b' ? ImGuiKey_Backspace : ImGuiKey_Enter;
+            io.AddKeyEvent(k, true);
+            io.AddKeyEvent(k, false);
+        }
+        run = i + 1;
+    }
+}
+
+// Up while a text box has the focus: shown when one takes it, put away when it
+// lets go (Return, or pointing elsewhere). Closed with its own button, it
+// comes back on pointing at the box again.
+void showKeyboard(const ImGuiIO &io)
+{
+    static bool shown = false;
+    if (io.WantTextInput != shown) {
+        shown = io.WantTextInput;
+        if (shown) SDL_StartTextInput();
+        else SDL_StopTextInput();
+        vr_log("launcher: system keyboard %s", shown ? "up" : "down");
+    } else if (shown && io.MouseClicked[0]) {
+        SDL_StartTextInput();
+    }
+}
+
 }  // namespace
 
 extern "C" void gevrLauncherRun(void)
@@ -1201,6 +1354,9 @@ extern "C" void gevrLauncherRun(void)
     io.DisplaySize = ImVec2((float)kTexW, (float)kTexH);
     io.FontGlobalScale = 2.2f;
     io.MouseDrawCursor = false;  // the pointer's own spot is drawn in 3D (vr_pointer_draw)
+    s_kbdLock = SDL_CreateMutex();
+    SDL_StopTextInput();         // no keyboard until a text box asks for it
+    SDL_AddEventWatch(keyboardWatch, nullptr);
     ImGui::StyleColorsDark();
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(2.2f);
@@ -1374,6 +1530,7 @@ extern "C" void gevrLauncherRun(void)
                 io.AddKeyEvent(ImGuiKey_GamepadDpadRight, false);
             }
             pointing = feedPointer(io, navUsed);
+            feedKeyboard(io);
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -1736,6 +1893,7 @@ extern "C" void gevrLauncherRun(void)
         ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
         ImGui::End();
         ImGui::Render();
+        showKeyboard(io);
 
         GLint prevFbo = 0;
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
@@ -1767,6 +1925,11 @@ extern "C" void gevrLauncherRun(void)
            VrUseSnapTurn, VrComfortVignette);
     gevrTexpackStartEarly();   // index the chosen pack while the game boots
 
+    SDL_StopTextInput();
+    SDL_DelEventWatch(keyboardWatch, nullptr);
+    SDL_DestroyMutex(s_kbdLock);
+    s_kbdLock = nullptr;
+    s_kbdQueue.clear();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui::DestroyContext();
     if (iconTex) glDeleteTextures(1, &iconTex);

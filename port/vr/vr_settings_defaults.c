@@ -28,6 +28,7 @@ bool vr_grip_for_unarmed  = false;  /* the grip button still does something with
 int  VrHideArms           = 0;      /* draw no arm models */
 int  VrStickClickToCrouch = 0;      /* crouch on stick click instead of physically ducking */
 int  VrMicMuted           = 0;      /* persist multiplayer microphone mute */
+char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one up when empty */
 int  vr_invert_hands      = 0;      /* swap which hand holds the weapon */
 
 /* 0 turns snap turning off and uses smooth turning; otherwise the snap angle. */
