@@ -9,7 +9,14 @@ when it merges.
 
 **Updated:** 2026-09-28. **Latest release:** v0.2.0 (build 0e80ce4,
 versionCode 21): voice chat, network protocol 5 (older versions do not see
-v0.2.0 games). **On main, unreleased:** nothing.
+v0.2.0 games). **On main, unreleased:** nothing. **Next release, v0.3.0:**
+PR #62 (draft, branch codex/lobby-drop-in, protocol 6): drop-in joins during
+a round, a live lobby dashboard at lobbies.goldeneyevr.com, player names
+(launcher "Your name", typed on the Quest system keyboard) and name tags
+over other players' heads, and the fixes from its first headset runs (crash
+on an empty hand, player body animations, silent and flat-only online
+matches). Solo warmup, the keyboard and a tag were checked on one headset;
+the rest waits on the two-headset test.
 
 ## What it is
 
@@ -87,5 +94,7 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## Next
 
-- A two-headset session for the test list in MULTIPLAYER.md (voice heard,
-  distance and direction, two networks, a hotspot, four players).
+- A two-headset session on PR #62 for the test list in MULTIPLAYER.md and
+  the PR (mid-round joins, slot reuse, scoring, pickups, doors, voice heard,
+  distance and direction, name tags hidden by walls, the host leaving, two
+  networks, a hotspot, four players); then release v0.3.0.
