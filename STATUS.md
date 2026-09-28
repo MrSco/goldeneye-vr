@@ -7,10 +7,15 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-28. **Latest release:** v0.3.0 (build 5fa83da, the
-PR #62 merge, versionCode 22): drop-in multiplayer, player names and name
-tags, the live lobbies page, network protocol 6 (older versions do not see
-v0.3.0 games). **On main, unreleased:** #64 more rumble (weapon-calibrated recoil and whole-body damage haptics).
+**Updated:** 2026-09-28. **Latest release:** v0.3.1 (build df311a0, the
+PR #66 merge, versionCode 23): multiplayer crash fixes and the launcher's
+"Send debug log". v0.3.0 (5fa83da) brought drop-in multiplayer, names and
+name tags, network protocol 6. **On main, unreleased:** #76 VR multiplayer
+pause menu; #64 more rumble (weapon-calibrated recoil, whole-body damage
+haptics); #68 tank runover scream; #56 a gun for the left hand (hold X);
+#63 previous weapon (right grip + A); the off hand's X and Y swapped (X
+weapons, Y use/reload: tell players in the release notes). versionCode is
+26 on main (test installs over a 25).
 
 ## What it is
 
@@ -29,6 +34,11 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   melee from either hand, casings, HUD on a head-locked panel, snap or smooth
   turning, comfort vignette, 90 Hz. Or everything on the virtual screen (flat
   or curved).
+- Weapons in stereo: tap A or X cycles, grip + A goes back (#63, the game's
+  own hold A + Z), hold A is the weapon panel (#10), hold X the left hand's
+  panel (#56): any doubles-capable gun the player carries, kept as the
+  game's INV_ITEM_DUAL pair for the level; the right's own gun only with
+  two of it. Solo only (the left hand's model buffer exists only then).
 - In-VR launcher: ROM pick, play mode, turning and comfort, gun fit, unlock
   all (RAM only, saves untouched), texture packs (GoldenEye 007 HD and the
   HD + AI pack from the MrSco/GoldenEye-007-HD fork) and the updater.
@@ -57,9 +67,9 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   open), #29 striped bullet holes from some positions (try the PC port's
   D159 odd-row swap fix), #30 water shimmer (open in the PC port too, D245),
   #32 Surface ground patches without impacts (the PC port's D313 fix is
-  already in bg.c; re-check), #56 akimbo with different guns (the original
-  glitch; the requested picker would be new), #60 laser watch arm changes
-  size. Closed 2026-09-28: #18 (fixed), #50 (not reproduced), #64 (fixed).
+  already in bg.c; re-check), #60 laser watch arm changes size. Closed
+  2026-09-28: #18 (fixed), #50 (not reproduced), #64 (fixed); #56 and #63
+  are done on main, to close when it is pushed.
 - Unmerged branches: only fix/60-watch-grip-hand (shelved: the laser watch
   gripped with a mirrored hand, which didn't lock to the wrist). One
   checkout, this one; no other worktrees.
