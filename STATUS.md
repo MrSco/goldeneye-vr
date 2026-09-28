@@ -10,7 +10,7 @@ when it merges.
 **Updated:** 2026-09-28. **Latest release:** v0.3.0 (build 5fa83da, the
 PR #62 merge, versionCode 22): drop-in multiplayer, player names and name
 tags, the live lobbies page, network protocol 6 (older versions do not see
-v0.3.0 games). **On main, unreleased:** nothing.
+v0.3.0 games). **On main, unreleased:** #64 more rumble (weapon-calibrated recoil and whole-body damage haptics).
 
 ## What it is
 
@@ -59,7 +59,7 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   #32 Surface ground patches without impacts (the PC port's D313 fix is
   already in bg.c; re-check), #56 akimbo with different guns (the original
   glitch; the requested picker would be new), #60 laser watch arm changes
-  size. Closed 2026-09-28: #18 (fixed), #50 (not reproduced).
+  size. Closed 2026-09-28: #18 (fixed), #50 (not reproduced), #64 (fixed).
 - Unmerged branches: only fix/60-watch-grip-hand (shelved: the laser watch
   gripped with a mirrored hand, which didn't lock to the wrist). One
   checkout, this one; no other worktrees.
