@@ -209,19 +209,20 @@ This is its first release: expect rough edges, and please report what you find.
 **Everyone needs the same version of GoldenEye VR**, and each player their own ROM.
 
 **Host a game.** In the launcher press **Multiplayer...**, stay on **Host Game**, and pick:
+- **Public game** to appear in the internet browser, or **Private game** to share a join code.
 - a **stage**. Egypt takes 2 players; Caverns, Bunker II and Archives take 3; the rest take 4.
 - your **character**.
 - the **weapons**: the game's own sets, from Slappers only to the Golden Gun, proximity mines included.
 
 Then press **START HOSTING LOBBY**. When every player shows **[READY]**, press **LAUNCH MULTIPLAYER MATCH!**.
 
-**Join a game.** Press **Multiplayer...** and choose **Join Game**. Games on your Wi-Fi are listed with
-their stage, weapons and players; pick one. Or type the host's IP address and press **Connect**.
+**Join a game.** Press **Multiplayer...** and choose **Join Game**. Pick a public internet game,
+enter a private code, or select a game discovered on your Wi-Fi. Direct IP remains available as a fallback.
 Then choose your character and tick **I am Ready**.
 
-**Over the internet.** On the same Wi-Fi it just works. To play over the internet, the host forwards
-**UDP port 27007** on their router to their Quest and gives the others their public IP address.
-(The Wi-Fi game list uses UDP 27008.)
+**Over the internet.** The lobby service and TURN relay connect headsets across different networks
+without entering an IP address or forwarding a router port. Online browsing needs the separately
+deployed lobby service; LAN discovery uses UDP 27008 and still works if the service is unavailable.
 
 **Not there yet:**
 - If the host quits, the match doesn't end cleanly for the others.

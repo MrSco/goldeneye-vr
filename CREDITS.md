@@ -9,9 +9,10 @@ in this repository** - the relationship is where the project came from, not a
 code dependency; see the table near the bottom. GEVR's own player-facing docs
 live in that project: https://github.com/no6969el/GEVR.
 
-Two directories are vendored upstream source rather than our own work, and
-carry their notices beside them: `port/` (Perfect Dark PC port) and
-`port/vr/` (Alex-LeTux's perfect_dark_VR). `src/` is the GoldenEye
+Three directories are vendored upstream source rather than our own work, and
+carry their notices beside them: `port/` (Perfect Dark PC port),
+`port/vr/` (Alex-LeTux's perfect_dark_VR), and `port/external/libjuice`.
+`src/` is the GoldenEye
 decompilation.
 
 Start here instead: [README](README.md) · [STATUS](STATUS.md) · [LICENCE](LICENSE).
@@ -63,6 +64,14 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 ---
 
 ## Adapted or built on (specific credit)
+
+### libjuice - ICE connectivity for internet multiplayer
+
+- **Repo:** https://github.com/paullouisageneau/libjuice (v1.7.4)
+- **What we use it for:** ICE candidate gathering, TURN allocations, and
+  UDP transport for the game's ENet packets.
+- **License:** MPL-2.0; the upstream notice is in
+  [`port/external/libjuice/LICENSE`](port/external/libjuice/LICENSE).
 
 ### GoldenEye PC port - reference and adapted sky renderer
 

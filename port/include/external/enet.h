@@ -630,6 +630,11 @@ extern "C" {
 	typedef uint64_t (ENET_CALLBACK *ENetChecksumCallback)(const ENetBuffer* buffers, int bufferCount);
 
 	typedef int (ENET_CALLBACK *ENetInterceptCallback)(ENetEvent* event, ENetAddress* address, uint8_t* receivedData, int receivedDataLength);
+	/* A virtual datagram path allows ICE/TURN to carry ENet packets while the
+	 * regular socket continues to serve LAN and direct-IP peers. send returns
+	 * -2 for an address it does not own; receive returns 0 when its queue is empty. */
+	typedef int (ENET_CALLBACK *ENetVirtualSendCallback)(const ENetAddress*, const ENetBuffer*, size_t, void*);
+	typedef int (ENET_CALLBACK *ENetVirtualReceiveCallback)(ENetAddress*, ENetBuffer*, void*);
 
 	typedef struct _ENetHost {
 		ENetSocket socket;
@@ -663,6 +668,9 @@ extern "C" {
 		uint8_t* receivedData;
 		size_t receivedDataLength;
 		ENetInterceptCallback interceptCallback;
+		ENetVirtualSendCallback virtualSendCallback;
+		ENetVirtualReceiveCallback virtualReceiveCallback;
+		void* virtualTransportContext;
 		size_t connectedPeers;
 		size_t bandwidthLimitedPeers;
 		size_t duplicatePeers;
@@ -750,6 +758,7 @@ extern "C" {
 	ENET_API uint32_t enet_host_get_bytes_received(const ENetHost*);
 	ENET_API void enet_host_set_max_duplicate_peers(ENetHost*, uint16_t);
 	ENET_API void enet_host_set_intercept_callback(ENetHost*, ENetInterceptCallback);
+	ENET_API void enet_host_set_virtual_transport(ENetHost*, ENetVirtualSendCallback, ENetVirtualReceiveCallback, void*);
 	ENET_API void enet_host_set_checksum_callback(ENetHost*, ENetChecksumCallback);
 
 	ENET_API uint32_t enet_peer_get_id(const ENetPeer*);
@@ -2549,7 +2558,10 @@ extern "C" {
 			ENetBuffer buffer;
 			buffer.data = host->packetData[0];
 			buffer.dataLength = host->mtu;
-			receivedLength = enet_socket_receive(host->socket, &host->receivedAddress, &buffer, 1);
+			receivedLength = host->virtualReceiveCallback != NULL
+				? host->virtualReceiveCallback(&host->receivedAddress, &buffer, host->virtualTransportContext) : 0;
+			if (receivedLength == 0)
+				receivedLength = enet_socket_receive(host->socket, &host->receivedAddress, &buffer, 1);
 
 			if (receivedLength == -2)
 				continue;
@@ -2884,7 +2896,10 @@ extern "C" {
 				}
 
 				currentPeer->lastSendTime = host->serviceTime;
-				sentLength = enet_socket_send(host->socket, &currentPeer->address, host->buffers, host->bufferCount);
+				sentLength = host->virtualSendCallback != NULL
+					? host->virtualSendCallback(&currentPeer->address, host->buffers, host->bufferCount, host->virtualTransportContext) : -2;
+				if (sentLength == -2)
+					sentLength = enet_socket_send(host->socket, &currentPeer->address, host->buffers, host->bufferCount);
 
 				enet_protocol_remove_sent_unreliable_commands(currentPeer);
 
@@ -5021,6 +5036,13 @@ extern "C" {
 
 	void enet_host_set_intercept_callback(ENetHost* host, ENetInterceptCallback callback) {
 		host->interceptCallback = callback;
+	}
+
+	void enet_host_set_virtual_transport(ENetHost* host, ENetVirtualSendCallback sendCallback,
+		ENetVirtualReceiveCallback receiveCallback, void* context) {
+		host->virtualSendCallback = sendCallback;
+		host->virtualReceiveCallback = receiveCallback;
+		host->virtualTransportContext = context;
 	}
 
 	void enet_host_set_checksum_callback(ENetHost* host, ENetChecksumCallback callback) {

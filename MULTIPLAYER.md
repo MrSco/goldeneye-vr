@@ -1,12 +1,14 @@
 # GoldenEye VR multiplayer
 
-This is an experimental native Quest LAN and direct-IP multiplayer mode. It uses ENet and borrows command and serialization ideas from the Perfect Dark PC port. Each headset simulates the match locally; the host relays player state and resolves reported player damage.
+This is an experimental native Quest multiplayer mode. It uses ENet and borrows command and serialization ideas from the Perfect Dark PC port. Each headset simulates the match locally; the host relays player state and resolves reported player damage. The launcher can browse public internet games or join an unlisted private game by code. LAN and direct IP remain available.
 
 ## Network setup
 
 - Use the same APK version on every headset. The current game and discovery protocol version is `4`.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
+- Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same four-player lobby.
+- Internet hosting requires the lobby Worker and Cloudflare TURN key described in `services/lobbies/README.md`. If they are unavailable, LAN and direct IP still work.
 - The host picks the stage, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
 - A match supports up to four occupied, consecutive player slots. The host launcher requires at least two players, all ready, and a stage with enough slots before launch.
 
@@ -28,4 +30,4 @@ This is an experimental native Quest LAN and direct-IP multiplayer mode. It uses
 4. Choose a character, check **I am Ready**, then on the host press **LAUNCH MULTIPLAYER MATCH!**.
 5. Check movement through doorways, weapon models, shooting in both directions, explosive damage, stereo view while the other player dies or uses the watch, and health and scores after a respawn.
 
-The mode still needs a two-headset playtest. In particular, confirm that damage and respawn state agree on both headsets after several kills, and that reconnecting after a disconnect behaves as expected.
+The mode still needs a two-headset playtest. Also test two separate home networks, a phone hotspot, a four-player game with mixed LAN and internet joins, private code visibility, and reconnecting after a disconnect. Confirm that damage and respawn state agree on all headsets after several kills.
