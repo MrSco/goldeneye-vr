@@ -7650,6 +7650,185 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
     gSPSetGeometryMode(gdl++, G_ZBUFFER);
     return gdl;
 }
+
+/*
+ * Online multiplayer: the other players' names over their heads, in the
+ * game's Zurich Bold on a dim panel. Drawn in the world pass with the depth
+ * test (lv.c), so a wall that hides a player hides the name. The letters face
+ * the eye, as the 3D sight does; up close a font pixel is 0.7 cm of world, and
+ * far off never under ~0.07 degrees, so a name stays readable across a map.
+ */
+Gfx *gevrDrawNameTags(Gfx *gdl)
+{
+    extern const char *netGetSlotName(int slot);
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    extern f32 D_800364CC;
+    struct fontchar *chars = ptrFontZurichBoldChars;
+    struct font *font = ptrFontZurichBold;
+    s32 i;
+
+    if (!netIsActive() || chars == NULL || font == NULL || D_800364CC <= 1e-6f)
+    {
+        return gdl;
+    }
+
+    for (i = 0; i < getPlayerCount(); i++)
+    {
+        struct player *pl = g_playerPointers[i];
+        struct fontchar *glyph[16];
+        s32 gx[16];
+        s32 n = 0, x = 0, top = 0x7fff, bottom = 0, prev = 'H', g;
+        const char *name;
+        const char *c;
+        coord3d v;
+        Mtxf mf;
+        Mtx *mv;
+        Vtx *vtx;
+        f32 dist, k;
+
+        if (i == netGetLocalSlot() || pl == NULL || pl->prop == NULL || pl->bonddead
+            || !(pl->prop->flags & PROPFLAG_ONSCREEN))
+        {
+            continue;
+        }
+        name = netGetSlotName(i);
+        if (name == NULL)
+        {
+            continue;
+        }
+
+        /* lay the name out as textRender does, in font pixels */
+        for (c = name; *c != '\0' && n < 16; c++)
+        {
+            struct fontchar *ch;
+
+            if (*c < 0x21 || *c > 0x7e)
+            {
+                x += 5;
+                prev = 'H';
+                continue;
+            }
+            ch = &chars[*c - 0x21];
+            x -= font->kerning[chars[prev - 0x21].kerningindex * 13 + ch->kerningindex] - 1;
+            glyph[n] = ch;
+            gx[n] = x;
+            n++;
+            if (ch->baseline < top) top = ch->baseline;
+            if (ch->baseline + ch->height > bottom) bottom = ch->baseline + ch->height;
+            x += ch->width;
+            prev = *c;
+        }
+        if (n == 0)
+        {
+            continue;
+        }
+
+        /* the prop is at eye height (bondview2.c start_pos): the panel starts a head above */
+        v = pl->prop->pos;
+        v.y += 25.0f;
+        mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &v);
+        v.x *= D_800364CC;   /* view space is world * D_800364CC (bondviewUpdateCameraMatrices) */
+        v.y *= D_800364CC;
+        v.z *= D_800364CC;
+        if (v.z > -1.0f)
+        {
+            continue;   /* behind the eye */
+        }
+        dist = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z) / D_800364CC;
+        k = dist * 0.0012f;
+        if (k < 0.7f)
+        {
+            k = 0.7f;
+        }
+        k *= D_800364CC;
+
+        matrix_4x4_set_identity(&mf);
+        mf.m[0][0] = k;
+        mf.m[1][1] = k;
+        mf.m[2][2] = k;
+        mf.m[3][0] = v.x;
+        mf.m[3][1] = v.y;
+        mf.m[3][2] = v.z;
+        mv = dynAllocateMatrix();
+        guMtxF2L(mf.m, mv);
+
+        /* font y runs down; here up, the panel's foot at the anchor */
+        vtx = dynAllocateVertices(4 * (n + 1));
+        for (g = 0; g <= n; g++)
+        {
+            Vtx *q = &vtx[g * 4];
+            s32 x0, x1, y0, y1, w, h, j;
+
+            if (g == 0)
+            {
+                x0 = -x / 2 - 3;
+                x1 = x - x / 2 + 3;
+                y0 = 0;
+                y1 = bottom - top + 6;
+                w = h = 0;
+            }
+            else
+            {
+                struct fontchar *ch = glyph[g - 1];
+
+                x0 = gx[g - 1] - x / 2;
+                x1 = x0 + ch->width;
+                y1 = bottom + 3 - ch->baseline;
+                y0 = y1 - ch->height;
+                w = ch->width;
+                h = ch->height;
+            }
+            for (j = 0; j < 4; j++)
+            {
+                q[j].v.ob[0] = (j == 1 || j == 2) ? x1 : x0;
+                q[j].v.ob[1] = (j >= 2) ? y1 : y0;
+                q[j].v.ob[2] = 0;
+                q[j].v.flag = 0;
+                q[j].v.tc[0] = ((j == 1 || j == 2) ? w : 0) << 5;
+                q[j].v.tc[1] = ((j >= 2) ? 0 : h) << 5;
+                q[j].v.cn[0] = q[j].v.cn[1] = q[j].v.cn[2] = q[j].v.cn[3] = 0xff;
+            }
+        }
+
+        gSPMatrix(gdl++, osVirtualToPhysical((void *)currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+        gSPMatrix(gdl++, osVirtualToPhysical(mv), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+        gDPPipeSync(gdl++);
+        gSPClearGeometryMode(gdl++, G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+        gSPSetGeometryMode(gdl++, G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH);
+        gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+        gDPSetRenderMode(gdl++, G_RM_ZB_XLU_SURF, G_RM_ZB_XLU_SURF2);
+        gDPSetAlphaCompare(gdl++, G_AC_NONE);
+        gDPSetTexturePersp(gdl++, G_TP_PERSP);
+        gDPSetTextureLOD(gdl++, G_TL_TILE);
+        gDPSetTextureLUT(gdl++, G_TT_NONE);
+        gDPSetTextureFilter(gdl++, G_TF_BILERP);
+        gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+
+        /* the panel */
+        gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
+        gDPSetPrimColor(gdl++, 0, 0, 0x00, 0x00, 0x00, 0x70);
+        gSPVertex(gdl++, osVirtualToPhysical(vtx), 4, 0);
+        gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
+
+        /* the letters: the font's own combiner (textrelated.c), white */
+        gDPPipeSync(gdl++);
+        gDPSetCombineLERP(gdl++, 0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0,
+                          0, 0, 0, PRIMITIVE, TEXEL0, 0, PRIMITIVE, 0);
+        gDPSetPrimColor(gdl++, 0, 0, 0xff, 0xff, 0xff, 0xff);
+        for (g = 0; g < n; g++)
+        {
+            gDPLoadTextureBlock(gdl++, glyph[g]->pixeldata, G_IM_FMT_I, G_IM_SIZ_8b,
+                                (glyph[g]->width + 7) & ~7, glyph[g]->height, 0,
+                                G_TX_NOMIRROR | G_TX_CLAMP, G_TX_NOMIRROR | G_TX_CLAMP,
+                                G_TX_NOMASK, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOLOD);
+            gSPVertex(gdl++, osVirtualToPhysical(&vtx[(g + 1) * 4]), 4, 0);
+            gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
+        }
+        gDPPipeSync(gdl++);
+    }
+    return gdl;
+}
 #endif
 
 void gunDrawSight(Gfx **gdl) {
