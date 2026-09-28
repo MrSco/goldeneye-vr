@@ -96,7 +96,7 @@ int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondvie
 extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
 extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
 s32 gevrTexpackToggleMsg;                  /* bondview2.c says it in a level: 2 off, 3 on */
-static bool gevrSwallowX;                  /* X answered the prompt: not use/reload until let go */
+static bool gevrSwallowX;                  /* X answered the prompt: no weapon change until let go */
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
 extern f32 gevrWeaponPanelStickY;
 extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
@@ -1154,8 +1154,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // as Perfect Dark VR's (sight.c sightDrawLeftHand, on vr_button_L_grip).
         // Not R as well: here R aims and zooms.
         vr_button_L_grip = stereoplay && gevrDualWielding() && get_button_state(0, "grip");
-        // X is also use/reload; Y cycles weapons, matching the native B/A actions.
-        // (Not the X that just switched the texture pack in the prompt, until let go.)
+        // The off hand's buttons do what the gun hand's in the same place do, as
+        // in the launcher (user): X (lower) is A, the weapons, and Y (upper) is B,
+        // use/reload. (Not the X that just switched the texture pack in the
+        // prompt, until let go.)
         if (gevrSwallowX && !get_button_state(0, "x")) gevrSwallowX = false;
         /* Left X+Y is the multiplayer mic toggle. Swallow both game actions
          * from the first simultaneous frame, and fire once after 0.5 s. */
@@ -1172,35 +1174,35 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
             } else { chordSince = 0; chordFired = false; }
         }
-        if (!micChord && get_button_state(0, "x") && !gevrSwallowX) npad->button |= B_BUTTON;
-        if (!micChord && get_button_state(0, "y")) npad->button |= A_BUTTON;
+        if (!micChord && get_button_state(0, "x") && !gevrSwallowX) npad->button |= A_BUTTON;
+        if (!micChord && get_button_state(0, "y")) npad->button |= B_BUTTON;
         // Issue #10: in stereo play the weapon hand's A is held back. A tap sends
         // A on release (the game's weapon cycle); a hold shows the weapon panel
         // (bondview2.c gevrDrawWeaponPanel) and letting go equips what it
-        // highlights. Issue #56: the other hand's Y does the same for the left
+        // highlights. Issue #56: the other hand's X does the same for the left
         // hand's panel (a gun for the left hand alone), while the left hand can
-        // take one (bondview2.c gevrLeftPanelAvailable); otherwise Y still
+        // take one (bondview2.c gevrLeftPanelAvailable); otherwise X still
         // cycles at once, held as A. A press while the other panel is up does
         // nothing. Issue #63: a tap of A with the right grip (R) held goes to the
         // previous weapon, as GoldenEye's own hold A and pull Z (bondview2.c
         // weaponBackOffset): A and Z go down together, so the game sees Z pressed
         // with A held and never A alone (which cycles forward).
         {
-            static u32 adown = 0, apulse = 0, ydown = 0, ypulse = 0;
-            static bool apanel = false, aspoilt = false, ypanel = false, yspoilt = false, yatonce = false;
+            static u32 adown = 0, apulse = 0, xdown = 0, xpulse = 0;
+            static bool apanel = false, aspoilt = false, xpanel = false, xspoilt = false, xatonce = false;
             static bool aback = false;
             const u32 t = SDL_GetTicks();
             if (stereoplay && !gevrReturnPrompt && !fitting) {
                 const bool a = get_button_state(1, "a");
-                const bool y = !micChord && get_button_state(0, "y");
-                if (y && !ydown) {
-                    ydown = t ? t : 1;
-                    ypanel = false;
-                    yspoilt = false;
-                    yatonce = !gevrLeftPanelAvailable();
+                const bool x = !micChord && !gevrSwallowX && get_button_state(0, "x");
+                if (x && !xdown) {
+                    xdown = t ? t : 1;
+                    xpanel = false;
+                    xspoilt = false;
+                    xatonce = !gevrLeftPanelAvailable();
                 }
                 npad->button &= ~A_BUTTON;
-                if (y && yatonce) npad->button |= A_BUTTON;
+                if (x && xatonce) npad->button |= A_BUTTON;
                 if (a) {
                     if (!adown) {
                         adown = t ? t : 1;
@@ -1225,27 +1227,27 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     }
                     adown = 0;
                 }
-                if (y) {
-                    if (gevrWeaponPanelOpen && !ypanel) yspoilt = true;
-                    if (!yatonce && !ypanel && !yspoilt && t - ydown >= GEVR_WEAPON_PANEL_HOLD_MS) {
-                        ypanel = true;
+                if (x) {
+                    if (gevrWeaponPanelOpen && !xpanel) xspoilt = true;
+                    if (!xatonce && !xpanel && !xspoilt && t - xdown >= GEVR_WEAPON_PANEL_HOLD_MS) {
+                        xpanel = true;
                         gevrWeaponPanelLeft = 1;
                         gevrWeaponPanelOpen = 1;
                         LOGI("input: left hand panel open\n");
                     }
-                } else if (ydown) {
-                    if (ypanel) {
+                } else if (xdown) {
+                    if (xpanel) {
                         gevrWeaponPanelRelease = 1;
                         gevrWeaponPanelOpen = 0;
-                    } else if (!yatonce && !yspoilt) {
-                        ypulse = t + 100;
+                    } else if (!xatonce && !xspoilt) {
+                        xpulse = t + 100;
                     }
-                    ydown = 0;
+                    xdown = 0;
                 }
-                if (t < apulse || t < ypulse) npad->button |= A_BUTTON;
+                if (t < apulse || t < xpulse) npad->button |= A_BUTTON;
                 if (t < apulse && aback) npad->button |= Z_TRIG;
             } else {
-                adown = ydown = 0;
+                adown = xdown = 0;
                 gevrWeaponPanelOpen = 0;
             }
         }
@@ -1385,7 +1387,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             npad->stick_y = 0;
         }
         // The weapon panels scroll with the stick on the other hand from their
-        // button - A's (issue #10) the off hand's, Y's (#56) the gun hand's - and
+        // button - A's (issue #10) the off hand's, X's (#56) the gun hand's - and
         // that stick neither moves nor turns while one is up. "left" is the move
         // stick and "right" the turn stick, on whichever hands Swap sticks puts them.
         const bool panelOnMoveStick = gevrWeaponPanelOpen && ((gevrWeaponPanelLeft != 0) == (VrSwapJoysticks != 0));
