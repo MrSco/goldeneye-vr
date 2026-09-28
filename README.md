@@ -173,6 +173,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Swing either hand** at a guard | Melee: chop, punch, pistol-whip, stab or club |
 | **Gun hand at the watch** + **right trigger** | Fire the watch laser |
 | **A** / **Y** | Next weapon |
+| **Right grip** + **A** | Previous weapon |
 | **Hold A** | Weapon panel above your gun hand: scroll with the other stick, let go to equip (dual-wield pairs included) |
 | **Hold Y** | Left-hand panel: a second gun for your left hand, any gun you carry that can be dual-wielded (not gadgets). Scroll with the right stick, let go to equip. Solo missions, with such a gun in your right hand |
 | **B** / **X** | Action: doors, switches, reload |
