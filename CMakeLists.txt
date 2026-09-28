@@ -297,10 +297,21 @@ set(SRC_NET
   "${CMAKE_SOURCE_DIR}/port/external/enet.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_core.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_voice.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_discovery.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_player_sync.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_ice.cpp"
 )
+
+include(FetchContent)
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "Do not build Opus tests" FORCE)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "Do not build Opus tools" FORCE)
+set(OPUS_INSTALL OFF CACHE BOOL "Do not install Opus" FORCE)
+FetchContent_Declare(opus
+  URL https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz
+  URL_HASH SHA256=6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1)
+FetchContent_MakeAvailable(opus)
+target_compile_options(opus PRIVATE $<$<CONFIG:Debug>:-O2>)
 
 set(NO_SERVER ON CACHE BOOL "Build only the libjuice ICE client" FORCE)
 set(NO_TESTS ON CACHE BOOL "Do not build libjuice tests" FORCE)
@@ -335,7 +346,7 @@ if(ANDROID)
   add_dependencies(gevr gevr_buildid)
   target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
   target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
-  target_link_libraries(gevr ${LIBS} openxr_loader juice-static)
+  target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus)
   target_link_options(gevr PRIVATE -Wl,--error-limit=0)
 
   # Also build pd alias so that any legacy loader references succeed
@@ -344,7 +355,7 @@ else()
   add_executable(gevr ${SRC})
   target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
   target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
-  target_link_libraries(gevr ${LIBS} juice-static)
+  target_link_libraries(gevr ${LIBS} juice-static opus)
   if(WIN32)
     target_link_libraries(gevr openxr_loader urlmon)
   endif()

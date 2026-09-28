@@ -5,6 +5,9 @@
 #include "config.h"
 #include "audio.h"
 #include "system.h"
+#include "net_voice.h"
+#include "net_core.h"
+#include <string.h>
 
 static SDL_AudioDeviceID dev;
 static const s16 *nextBuf;
@@ -54,6 +57,7 @@ s32 audioInit(void)
 #ifdef GEVR
 void audioPause(void)
 {
+    netVoicePause();
 	if (!dev) {
 		return;
 	}
@@ -67,6 +71,7 @@ void audioPause(void)
 
 void audioResume(void)
 {
+    netVoiceResume();
 	if (!dev) {
 		return;
 	}
@@ -77,6 +82,8 @@ void audioResume(void)
 
 void audioShutdown(void)
 {
+    netVoicePause();
+    netVoiceReset();
 	if (!dev) {
 		return;
 	}
@@ -148,7 +155,14 @@ void audioEndFrame(void)
         }
 #endif
 		if (audioGetSamplesBuffered() < queueLimit) {
-			if (SDL_QueueAudio(dev, nextBuf, nextSize) != 0) {
+            static s16 mixed[32768];
+            const s16 *out = nextBuf;
+            if (nextSize <= sizeof(mixed) && nextSize % (sizeof(s16) * 2) == 0) {
+                memcpy(mixed, nextBuf, nextSize);
+                netVoiceMix(mixed, nextSize / (sizeof(s16) * 2));
+                out = mixed;
+            }
+			if (SDL_QueueAudio(dev, out, nextSize) != 0) {
                 sysLogPrintf(LOG_ERROR, "SDL_QueueAudio: %s", SDL_GetError());
             }
 #ifdef GEVR
@@ -167,6 +181,19 @@ void audioEndFrame(void)
 		nextBuf = NULL;
 		nextSize = 0;
 	}
+}
+
+/* The launcher has no GoldenEye PCM pump. Keep the same output device fed with
+ * small voice-only buffers while players talk in the lobby. */
+void audioVoiceIdleTick(void)
+{
+    if (!dev || sAudioPaused || netGetState() == NET_STATE_INGAME ||
+        netGetState() == NET_STATE_OFFLINE || netGetState() == NET_STATE_CONNECTING)
+        return;
+    if (SDL_GetQueuedAudioSize(dev) >= 441u * sizeof(s16) * 2 * 3) return;
+    s16 voice[441 * 2] = {0};
+    netVoiceMix(voice, 441);
+    SDL_QueueAudio(dev, voice, sizeof(voice));
 }
 
 PD_CONSTRUCTOR static void audioConfigInit(void)

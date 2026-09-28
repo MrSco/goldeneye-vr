@@ -56,6 +56,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; virtual screen), 0 = everything on the virtual screen. Hold the right stick click\n");
     fprintf(f, "; in game to switch.\n");
     fprintf(f, "PlayMode=%d\n", VrPlayMode);
+    fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
     fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
     fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
     fprintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
@@ -158,6 +159,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
+            else if (strcmp(key, "MicMuted") == 0) VrMicMuted = ival != 0;
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
             /* DisplayHz replaces RefreshRate, whose 120 was only ever the old default
              * (no option set it): the new default, 90, applies to existing installs. */

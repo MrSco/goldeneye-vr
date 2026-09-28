@@ -171,6 +171,12 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 - **What for:** Windowing / input host dependency used by the native port stack.
 - **Licence:** zlib (see vendored SDL `LICENSE.txt` / `CREDITS.txt` in the product tree when binaries ship).
 
+### libopus
+
+- **What for:** Encodes and decodes multiplayer voice chat. CMake fetches the pinned 1.6.1 source release.
+- **Source:** https://opus-codec.org/downloads/
+- **Licence:** BSD-style; full copyright notice, conditions and disclaimer in `docs/opus-LICENSE.txt`.
+
 ### ENet (zpl-c/enet single-header C99 amalgamation)
 
 - **Author:** Phil Badis and Dominik Madarász (single-header C99 fork); upstream library by Lee Salzman

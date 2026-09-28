@@ -8,12 +8,12 @@
 #include "net/netbuf.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         4   /* 4: the LAN beacon carries the weapon set */
+#define GEVR_NET_VERSION         5   /* 5: sequenced Opus voice frames */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
 #define GEVR_MAX_NAME_LEN        24
-#define GEVR_VOIP_MAX_BYTES      128
+#define GEVR_VOIP_MAX_BYTES      200 /* a 20 ms Opus frame at 24 kb/s averages ~60 bytes; VBR peaks higher */
 
 /* ENet Channels */
 enum {
