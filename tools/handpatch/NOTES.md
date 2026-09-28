@@ -1,6 +1,6 @@
 # #9 hand shells: working notes (branch feature/9-hand-shells)
 
-These notes stay on the branch. HANDOFF.md gets one numbered section when the
+These notes stay on the branch. STATUS.md (short, rewritten in place) gets a line when the
 branch merges; a number taken earlier raced the gun-fit (112) and two-handed
 hold (113) entries on main.
 

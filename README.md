@@ -311,7 +311,7 @@ Found a bug? Open an [Issue](https://github.com/MrSco/goldeneye-vr/issues) with:
 - the level
 - what happened
 
-For the engineering side, see [STATUS.md](STATUS.md) and the session log in [HANDOFF.md](HANDOFF.md).
+For the engineering side, see [STATUS.md](STATUS.md) (short, kept current) and the archived session log in [docs/archive/HANDOFF.md](docs/archive/HANDOFF.md).
 
 ## 🛠 Building from source
 
