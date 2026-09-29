@@ -330,6 +330,7 @@ struct ShaderProgram {
     GLint frame_count_location;
     GLint noise_scale_location;
     GLint three_point_filter_locations[2];
+    GLint opaque_depth_pass_location;
 
 
     GLint eyeOffsetLeftLocation;
@@ -446,12 +447,14 @@ static int s_uniFlat, s_uniMenu;
 static struct ShaderProgram* s_curPrg;
 static bool s_depthArgs[4];
 static uint16_t s_depthZmode;
+static bool s_opaqueDepthWrite;
 static bool s_alphaArgs[2];
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
 static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
 static void gevr_eye_keep(GLint first, GLsizei count);
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ);
+static void gevr_opaque_depth_after_blend(GLint first, GLsizei count);
 
 static std::vector<Framebuffer> framebuffers;
 static size_t current_framebuffer;
@@ -1161,6 +1164,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
     append_line(fs_buf, &fs_len, "uniform int frame_count;");
     append_line(fs_buf, &fs_len, "uniform float noise_scale;");
+    if (cc_features.opt_alpha) {
+        append_line(fs_buf, &fs_len, "uniform int uOpaqueDepthPass;");
+    }
 
     append_line(fs_buf, &fs_len, "float random(in vec3 value) {");
     append_line(fs_buf, &fs_len,
@@ -1312,6 +1318,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         if (cc_features.opt_invisible) {
             append_line(fs_buf, &fs_len, "    texel.a = 0.0;");
         }
+        // Issue #71: the depth-only draw after a blended Z_UPD draw keeps
+        // only the pixels that blending made opaque. Glass stays see-through.
+        append_line(fs_buf, &fs_len, "    if (uOpaqueDepthPass != 0 && texel.a < 0.99) discard;");
 
         append_line(fs_buf, &fs_len, "    OUTPUT_COLOR = texel;");
     }
@@ -1423,6 +1432,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
     prg->frame_count_location = glGetUniformLocation(shader_program, "frame_count");
     prg->noise_scale_location = glGetUniformLocation(shader_program, "noise_scale");
+    prg->opaque_depth_pass_location = cc_features.opt_alpha
+            ? glGetUniformLocation(shader_program, "uOpaqueDepthPass") : -1;
     prg->three_point_filter_locations[0] = glGetUniformLocation(shader_program,
                                                                 "three_point_filter0");
     prg->three_point_filter_locations[1] = glGetUniformLocation(shader_program,
@@ -1599,12 +1610,15 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
     s_depthArgs[2] = depth_compare;
     s_depthArgs[3] = depth_source_prim;
     s_depthZmode = zmode;
+    // The custom XLU + Z_UPD mode asks for a second, depth-only draw of
+    // fully opaque fragments. The color draw keeps ordinary XLU blending.
+    s_opaqueDepthWrite = depth_test && depth_compare && depth_update && zmode == ZMODE_XLU;
     s_isDecal = depth_test && depth_compare && zmode == ZMODE_DEC;
     s_decalZ = ((GEVR_DECAL_BAND && s_decalMode == 0) || s_decalMode == 3) && s_isDecal;
     if (depth_test) {
         glEnable(GL_DEPTH_TEST);
-        glDepthMask(depth_update ? GL_TRUE : GL_FALSE);
-        current_depth_mask = depth_update;
+        glDepthMask(depth_update && !s_opaqueDepthWrite ? GL_TRUE : GL_FALSE);
+        current_depth_mask = depth_update && !s_opaqueDepthWrite;
 
         if (depth_compare) {
             switch (zmode) {
@@ -1884,6 +1898,7 @@ void gfx_vr_scope_render(void)
     memcpy(savedAlpha, s_alphaArgs, sizeof(savedAlpha));
     const uint16_t savedZmode = s_depthZmode;
     const bool savedMask = current_depth_mask, savedIsDecal = s_isDecal, savedDecalZ = s_decalZ;
+    const bool savedOpaqueDepthWrite = s_opaqueDepthWrite;
 
     gevr_scope_make_target();
 
@@ -1933,6 +1948,7 @@ void gfx_vr_scope_render(void)
             gfx_opengl_set_use_alpha(d.alpha[0], d.alpha[1]);
         }
         glDrawArrays(GL_TRIANGLES, d.first, d.count);
+        gevr_opaque_depth_after_blend(d.first, d.count);
         last = &d;
     }
 
@@ -2003,6 +2019,7 @@ void gfx_vr_scope_render(void)
     memcpy(s_alphaArgs, savedAlpha, sizeof(savedAlpha));
     s_depthZmode = savedZmode;
     current_depth_mask = savedMask;
+    s_opaqueDepthWrite = savedOpaqueDepthWrite;
     s_isDecal = savedIsDecal;
     s_decalZ = savedDecalZ;
     if (depthOn) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
@@ -2177,7 +2194,26 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ)
     }
 
     glDrawArrays(GL_TRIANGLES, first, count);
+    gevr_opaque_depth_after_blend(first, count);
 
+}
+
+static void gevr_opaque_depth_after_blend(GLint first, GLsizei count)
+{
+    if (!s_opaqueDepthWrite || !s_curPrg || s_curPrg->opaque_depth_pass_location < 0) {
+        return;
+    }
+
+    // Some model textures are cutouts in a translucent display list. Writing
+    // depth during the color draw would also let clear and glass pixels hide
+    // geometry. Only pixels whose final combiner alpha is opaque do so.
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glDepthMask(GL_TRUE);
+    glUniform1i(s_curPrg->opaque_depth_pass_location, 1);
+    glDrawArrays(GL_TRIANGLES, first, count);
+    glUniform1i(s_curPrg->opaque_depth_pass_location, 0);
+    glDepthMask(GL_FALSE);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 }
 
 // ============================================================================
@@ -2348,6 +2384,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     memcpy(savedAlpha, s_alphaArgs, sizeof(savedAlpha));
     const uint16_t savedZmode = s_depthZmode;
     const bool savedMask = current_depth_mask, savedIsDecal = s_isDecal, savedDecalZ = s_decalZ;
+    const bool savedOpaqueDepthWrite = s_opaqueDepthWrite;
     GLint savedViewport[4], savedScissor[4];
     memcpy(savedViewport, s_curViewport, sizeof(savedViewport));
     memcpy(savedScissor, s_curScissor, sizeof(savedScissor));
@@ -2436,6 +2473,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     memcpy(s_alphaArgs, savedAlpha, sizeof(savedAlpha));
     s_depthZmode = savedZmode;
     current_depth_mask = savedMask;
+    s_opaqueDepthWrite = savedOpaqueDepthWrite;
     s_isDecal = savedIsDecal;
     s_decalZ = savedDecalZ;
     if (depthOn) glEnable(GL_DEPTH_TEST); else glDisable(GL_DEPTH_TEST);
