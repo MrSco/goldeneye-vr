@@ -246,6 +246,9 @@ extern GLuint gfx_opengl_get_vr_menu_texture_H(void);// Head HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_P(void);// weapon panel texture (issue #10)
 extern GLuint gfx_vr_scope_texture(void);            // sniper scope image (issue #40)
 extern "C" float gevrScopeLens[4];                   // bondview2.c: right, up, back, diameter (m)
+extern "C" float gevrScopeGunOrigin[3];              // bondview2.c: gun grip pos in view space (m)
+extern "C" float gevrScopeGunAxes[3][3];             // bondview2.c: right, up, back axes
+extern "C" int   gevrScopeGunValid;                  // bondview2.c: whether gevrScopeGunOrigin/Axes valid
 // Issue #58: the lens's radius over its distance from the eyes, as last shown
 // (tan of half the angle it fills). bondview2.c gevrScopeBegin sizes the
 // scope's view to it, so it magnifies as the N64's zoom did.
@@ -3325,10 +3328,22 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         // steadied as the gun is (vr_input.cpp gevrVrGripPoseSteady), or it slides off its eyepiece
         if (g_scopeSwapchain != XR_NULL_HANDLE && scopeTex != 0 && gevrVrGripPoseSteady(1, gp, gq)) {
             vr_update_scope_swapchain(scopeTex);
-            const float x = gq[0], y = gq[1], z = gq[2], w = gq[3];
-            const float rx = 1.0f - 2.0f * (y * y + z * z), ry = 2.0f * (x * y + w * z), rz = 2.0f * (x * z - w * y);
-            const float ux = -(2.0f * (x * z + w * y)), uy = -(2.0f * (y * z - w * x)), uz = -(1.0f - 2.0f * (x * x + y * y));
-            const float bx = 2.0f * (x * y - w * z), by = 1.0f - 2.0f * (x * x + z * z), bz = 2.0f * (y * z + w * x);
+            float rx, ry, rz;
+            float ux, uy, uz;
+            float bx, by, bz;
+            if (gevrScopeGunValid) {
+                gp[0] = gevrScopeGunOrigin[0];
+                gp[1] = gevrScopeGunOrigin[1];
+                gp[2] = gevrScopeGunOrigin[2];
+                rx = gevrScopeGunAxes[0][0]; ry = gevrScopeGunAxes[0][1]; rz = gevrScopeGunAxes[0][2];
+                ux = gevrScopeGunAxes[1][0]; uy = gevrScopeGunAxes[1][1]; uz = gevrScopeGunAxes[1][2];
+                bx = gevrScopeGunAxes[2][0]; by = gevrScopeGunAxes[2][1]; bz = gevrScopeGunAxes[2][2];
+            } else {
+                const float x = gq[0], y = gq[1], z = gq[2], w = gq[3];
+                rx = 1.0f - 2.0f * (y * y + z * z); ry = 2.0f * (x * y + w * z); rz = 2.0f * (x * z - w * y);
+                ux = -(2.0f * (x * z + w * y));     uy = -(2.0f * (y * z - w * x)); uz = -(1.0f - 2.0f * (x * x + y * y));
+                bx = 2.0f * (x * y - w * z);         by = 1.0f - 2.0f * (x * x + z * z); bz = 2.0f * (y * z + w * x);
+            }
             // bondview2.c gevrScopeLensPlace: on the model's eyepiece, mirrored with the gun
             const float side = gevrScopeLens[0], up = gevrScopeLens[1], back = gevrScopeLens[2];
             bool lensHidden = false;
@@ -3342,9 +3357,11 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             scopeLayer.pose.position = { gp[0] + ux * up + bx * back + rx * side,
                                          gp[1] + uy * up + by * back + ry * side,
                                          gp[2] + uz * up + bz * back + rz * side };
-            // the quad's +X/+Y/+Z onto the grip's +X/-Z/+Y: a -90 degree turn about X
-            scopeLayer.pose.orientation = MultiplyQuaternions(XrQuaternionf{x, y, z, w},
-                                                              XrQuaternionf{-0.70710678f, 0.0f, 0.0f, 0.70710678f});
+            // the quad's +X/+Y/+Z onto the gun's right/up/back basis
+            const float r_axis[3] = { rx, ry, rz };
+            const float u_axis[3] = { ux, uy, uz };
+            const float b_axis[3] = { bx, by, bz };
+            scopeLayer.pose.orientation = vr_quat_from_basis(r_axis, u_axis, b_axis);
             scopeLayer.size = {gevrScopeLens[3], gevrScopeLens[3]};
             /*
              * Near the eyes the compositor clips a layer at its near plane.
