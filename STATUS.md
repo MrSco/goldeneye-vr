@@ -7,17 +7,17 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-29. **Latest release:** v0.3.4 (versionCode 29):
-restore original multiplayer movement speed, multiplayer testing fixes.
-Unreleased on main (versionCode 31): sniper scope steadiness (#79), VR
-motion throwing and grenade cooking, room-aware voice falloff, Music and
-Voice volume in the launcher and the multiplayer pause menu, the Dam
-truck's headlights no longer showing the wheel behind them (#71: props'
-blended layers write depth where opaque, model.c + gfx_opengl.cpp),
-bullet holes no longer striped from some positions (#29: texSelect's
-mip-mapped draws inherited rooms' G_TD_DETAIL and fast3d read tile 1 as
-the base; now G_TD_CLAMP, othermodemicrocode.c; gepc-ref D107's renderer
-fix not taken, it would move our rooms onto their detail tile).
+**Updated:** 2026-09-29. **Latest release:** v0.3.5 (tag v0.3.5,
+versionCode 32): sniper scope steadiness (#79), VR motion throwing and
+grenade cooking, room-aware voice falloff, Music and Voice volume in the
+launcher and the multiplayer pause menu, the Dam truck's headlights no
+longer showing the wheel behind them (#71: props' blended layers write
+depth where opaque, model.c + gfx_opengl.cpp), bullet holes no longer
+striped from some positions (#29: texSelect's mip-mapped draws inherited
+rooms' G_TD_DETAIL and fast3d read tile 1 as the base; now G_TD_CLAMP,
+othermodemicrocode.c; gepc-ref D107's renderer fix not taken, it would
+move our rooms onto their detail tile). v0.3.4 (c16afce, versionCode 29)
+restored multiplayer movement speed and brought multiplayer testing fixes.
 v0.3.3 (49f2ac6, versionCode 28) brought multiplayer HUD text crash guard (#78),
 player and lobby version tooltips, and TURN credential rate limit fix. v0.3.2 (0852b9f, versionCode 27) brought
 multiplayer pause controls (#76), calibrated recoil and damage rumble (#64),
