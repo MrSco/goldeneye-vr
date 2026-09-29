@@ -1786,6 +1786,8 @@ extern "C" int gevrVrGripPosePlay(int hand, float pos[3], float quat[4])
  */
 static XrPosef gCamCtrlPose[2];
 static bool gCamCtrlValid[2];
+static bool gCamCtrlTracked[2];
+static unsigned gCamCtrlSnapshotId;
 
 /*
  * While the session is not focused (the Quest menu is up) the runtime stops
@@ -1848,26 +1850,24 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
     float targetA = aMin[lvl];
     float maxA = 1.0f;
 
+    const float mag = gevrScopeMagnification();
     if (grip) {
         // Base alpha respects launcher setting: Low = 0.15f, High = 0.08f, Off = 0.25f
         float baseA = (lvl == 2) ? 0.08f : (lvl == 0 ? 0.25f : 0.15f);
         if (gevrStereoTwoHandGrip()) {
             baseA *= 0.65f; // two-handed hold steadies the grip
         }
-        const float mag = gevrScopeMagnification();
-        if (mag > 1.05f) {
-            // As zoom increases up to 25x, steady alpha scales down to filter high-mag tremor
-            targetA = baseA / (1.0f + 0.12f * (mag - 1.0f));
-            if (targetA < 0.015f) targetA = 0.015f;
-            // Cap maxA during zoom so intentional adjustments don't jump to 1:1 raw speed:
-            // at 25x, maxA is ~0.18f. At 2x, maxA is ~0.50f.
-            maxA = 0.15f + 0.70f / mag;
-            if (maxA > 1.0f) maxA = 1.0f;
-            eff_d0 = 0.2f;
-            eff_d1 = 3.0f;
-        } else {
-            targetA = baseA;
-        }
+        targetA = baseA;
+    }
+    if (mag > 1.05f) {
+        // The scope is zoomed even before the eye-near/aim flag turns on.
+        // Limit the raw-speed branch for every scoped frame, including that transition.
+        targetA /= 1.0f + 0.12f * (mag - 1.0f);
+        if (targetA < 0.015f) targetA = 0.015f;
+        maxA = 0.08f + 0.50f / mag;
+        if (maxA > 0.5f) maxA = 0.5f;
+        eff_d0 = 0.2f;
+        eff_d1 = 3.0f;
     }
 
     float t = (deg - eff_d0) / (eff_d1 - eff_d0);
@@ -1884,8 +1884,10 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
 
 extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
 {
+    ++gCamCtrlSnapshotId;
     for (int h = 0; h < 2; h++) {
         const bool tracked = focused && gControllerStates[h].is_active;
+        gCamCtrlTracked[h] = tracked;
         if (tracked) {
             const XrQuaternionf& q = gControllerStates[h].controller_pose.orientation;
             gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
@@ -1934,6 +1936,12 @@ extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
         gCamCtrlPose[h] = v;
         gCamCtrlValid[h] = true;
     }
+}
+
+extern "C" unsigned gevrVrGripSnapshotId(void) { return gCamCtrlSnapshotId; }
+extern "C" int gevrVrGripTracked(int hand)
+{
+    return hand >= 0 && hand < 2 && gCamCtrlTracked[gevrPhysHand(hand)];
 }
 
 extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]);

@@ -229,6 +229,8 @@ extern void gevrVrHeadPosCm(float out[3]);   /* vr_openxr.cpp */
 extern int gevrVrGripPose(int hand, float pos[3], float quat[4]); /* vr_input.cpp */
 /* the same, as it was when this frame's camera pose was taken */
 extern int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);
+extern unsigned gevrVrGripSnapshotId(void);
+extern int gevrVrGripTracked(int hand);
 extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* goldeneye-vr.ini grip trim, cm */
 
 s32 g_gevrStereo;                        /* this frame is drawn in stereo (fr.c, input.c) */
@@ -1728,8 +1730,9 @@ s32 gevrStereoWatchGrip(void)
  * The aim is Perfect Dark VR's (bondgun.c vrBuildGunRotation): the barrel
  * turns toward the line between the two hands, eased in and out
  * (GEVR_TWOHAND_EASE a tick), and fades back to the wrist as the hands close
- * (GEVR_TWOHAND_SEP_MIN..MAX, PD's measured 9..18 cm), where that line stops
- * meaning anything. So a pistol takes the two-handed hold but keeps the
+ * (GEVR_TWOHAND_SEP_MIN..MAX), where that line stops meaning anything. The
+ * line's influence also scales with its length relative to a rifle barrel.
+ * So a pistol takes the two-handed hold but keeps the
  * wrist's aim, as PD's Slayer does. Only the direction turns: the gun stays
  * on the trigger hand, and the shortest-arc turn keeps the wrist's roll.
  */
@@ -1741,6 +1744,25 @@ s32 gevrStereoWatchGrip(void)
 #define GEVR_TWOHAND_BARREL_CM 40.0f
 
 static s32 s_gevrTwoHand;
+static s32 s_gevrTwoHandResetDir;
+
+/* Touch files/gevr_aimlog.txt to sample the grip/aim path in the app log. */
+static s32 gevrAimLogEnabled(void)
+{
+    static u32 check;
+    static s32 enabled;
+    if ((check++ % 90) == 0)
+    {
+#ifdef ANDROID
+        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_aimlog.txt", "r");
+#else
+        FILE *f = fopen("gevr_aimlog.txt", "r");
+#endif
+        enabled = f != NULL;
+        if (f != NULL) fclose(f);
+    }
+    return enabled;
+}
 
 /* guns, and the launchers; not knives, gadgets, throwables or the watch items */
 s32 gevrStereoTwoHandItem(s32 item)
@@ -1864,7 +1886,7 @@ s32 gevrStereoTwoHandUpdate(void)
     s32 was = s_gevrTwoHand;
     f32 opos[3], snap[3], dist = 0.0f;
 
-    static s32 s_graceFrames = 0;
+    static s32 s_farFrames = 0;
 
     /* Remote players have no tracked hands on this headset. */
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
@@ -1875,27 +1897,38 @@ s32 gevrStereoTwoHandUpdate(void)
         || g_CurrentPlayer->hands[GUNRIGHT].field_87F == 0)
     {
         s_gevrTwoHand = FALSE;
-        s_graceFrames = 0;
+        s_farFrames = 0;
     }
     else if (!get_button_state(0, "grip"))
     {
         s_gevrTwoHand = FALSE;
-        s_graceFrames = 0;
+        s_farFrames = 0;
     }
     else
     {
-        if (gevrTwoHandBarrel(opos, snap, &dist, FALSE))
+        if (!gevrVrGripTracked(0) || !gevrVrGripTracked(1))
         {
-            s_gevrTwoHand = dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM);
-            s_graceFrames = s_gevrTwoHand ? 10 : 0;
+            /* Keep the last supported aim while the grip remains pressed.
+             * Near the headset, the support controller can be occluded for
+             * much longer than ten frames; dropping the hold snaps the scope. */
+            s_farFrames = 0;
         }
-        else if (s_graceFrames > 0)
+        else if (gevrTwoHandBarrel(opos, snap, &dist, FALSE))
         {
-            s_graceFrames--;
+            if (dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM))
+            {
+                s_gevrTwoHand = TRUE;
+                s_farFrames = 0;
+            }
+            else if (!s_gevrTwoHand || ++s_farFrames >= 8)
+            {
+                s_gevrTwoHand = FALSE;
+                s_farFrames = 0;
+            }
         }
         else
         {
-            s_gevrTwoHand = FALSE;
+            s_farFrames = 0;
         }
     }
     if (s_gevrTwoHand != was)
@@ -1903,10 +1936,18 @@ s32 gevrStereoTwoHandUpdate(void)
         sysLogPrintf(LOG_NOTE, "stereo: two-handed hold %s (item %d, off hand %.1f cm from the barrel)",
                      s_gevrTwoHand ? "on" : "off", item, dist);
     }
+    if (gevrAimLogEnabled() && (gevrVrGripSnapshotId() % 6) == 0)
+    {
+        sysLogPrintf(LOG_NOTE, "aim79 hold frame %u item %d grip %d tracked %d/%d hold %d far %d dist %.1f amt %.2f",
+                     gevrVrGripSnapshotId(), item, get_button_state(0, "grip"),
+                     gevrVrGripTracked(0), gevrVrGripTracked(1), s_gevrTwoHand,
+                     s_farFrames, dist, s_gevrTwoHandAmt);
+    }
     s_gevrTwoHandAmt += ((s_gevrTwoHand ? 1.0f : 0.0f) - s_gevrTwoHandAmt) * GEVR_TWOHAND_EASE;
     if (!s_gevrTwoHand && s_gevrTwoHandAmt < 0.001f)
     {
         s_gevrTwoHandAmt = 0.0f;
+        s_gevrTwoHandResetDir = TRUE;
     }
     return s_gevrTwoHand;
 }
@@ -2284,18 +2325,26 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
 {
     f32 opos[3], ignore[3], d[3], v[3], t[3], k[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
-    f32 sep, sepw, blend, tl, s, c;
+    f32 sep, sepw, blend, tl, s, c, alpha = 0.0f, deg = 0.0f;
     f32 *axes[3];
     s32 i, a;
 
     /* a handgun keeps the wrist's aim, as PD VR's Slayer: the hands are 8-12 cm
      * apart, in the fade band, and the gun jittered (user) */
     static f32 s_twoHandDir[3];
+    static f32 s_twoHandSepCm;
     static s32 s_twoHandDirValid = 0;
+    static unsigned s_twoHandSnapshotId;
+    static unsigned s_twoHandLoggedId;
 
-    if (!s_gevrTwoHand)
+    if (s_gevrTwoHandResetDir)
     {
         s_twoHandDirValid = 0;
+        s_gevrTwoHandResetDir = FALSE;
+    }
+    if (!s_gevrTwoHand && !s_twoHandDirValid)
+    {
+        return;
     }
 
     if (cm < 1e-6f || gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT))
@@ -2312,32 +2361,29 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     {
         return;
     }
-    sepw = (sep / cm - GEVR_TWOHAND_SEP_MIN) / (GEVR_TWOHAND_SEP_MAX - GEVR_TWOHAND_SEP_MIN);
-    if (sepw < 0.0f) sepw = 0.0f;
-    if (sepw > 1.0f) sepw = 1.0f;
-    blend = s_gevrTwoHandAmt * sepw;
-    if (blend <= 0.001f)
-    {
-        return;
-    }
-
     for (i = 0; i < 3; i++)
     {
         d[i] /= sep;
     }
 
-    /* Issue #79: smooth two-handed aim line to eliminate dual controller tracking jitter */
+    /* Advance once per controller snapshot. Gun, shots and scope all ask for
+     * these axes, so advancing here on every call made the filter frame-rate
+     * dependent and gave them different aim directions within one frame. */
     if (!s_twoHandDirValid)
     {
         s_twoHandDir[0] = d[0];
         s_twoHandDir[1] = d[1];
         s_twoHandDir[2] = d[2];
+        s_twoHandSepCm = sep / cm;
+        s_twoHandSnapshotId = gevrVrGripSnapshotId();
         s_twoHandDirValid = 1;
     }
-    else
+    else if (s_gevrTwoHand && s_twoHandSnapshotId != gevrVrGripSnapshotId()
+             && gevrVrGripTracked(0) && gevrVrGripTracked(1))
     {
         f32 dot = s_twoHandDir[0] * d[0] + s_twoHandDir[1] * d[1] + s_twoHandDir[2] * d[2];
-        f32 deg, alpha, tdeg, mag, maxAlpha;
+        f32 tdeg, mag, maxAlpha;
+        s_twoHandSnapshotId = gevrVrGripSnapshotId();
         if (dot > 1.0f) dot = 1.0f;
         if (dot < -1.0f) dot = -1.0f;
         deg = acosf(dot) * (180.0f / M_PI_F);
@@ -2345,10 +2391,8 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
 
         if (mag > 1.05f)
         {
-            alpha = 0.08f / (1.0f + 0.12f * (mag - 1.0f));
-            if (alpha < 0.015f) alpha = 0.015f;
-            maxAlpha = 0.15f + 0.70f / mag;
-            if (maxAlpha > 1.0f) maxAlpha = 1.0f;
+            alpha = 0.12f / (1.0f + 0.08f * (mag - 1.0f));
+            maxAlpha = 0.08f + 0.50f / mag;
             tdeg = (deg - 0.2f) / (3.0f - 0.2f);
             if (tdeg < 0.0f) tdeg = 0.0f;
             if (tdeg > 1.0f) tdeg = 1.0f;
@@ -2365,6 +2409,7 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
         {
             s_twoHandDir[i] += (d[i] - s_twoHandDir[i]) * alpha;
         }
+        s_twoHandSepCm += (sep / cm - s_twoHandSepCm) * alpha;
         tl = sqrtf(s_twoHandDir[0] * s_twoHandDir[0] + s_twoHandDir[1] * s_twoHandDir[1] + s_twoHandDir[2] * s_twoHandDir[2]);
         if (tl > 1e-6f)
         {
@@ -2372,6 +2417,35 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
             s_twoHandDir[1] /= tl;
             s_twoHandDir[2] /= tl;
         }
+    }
+
+    sepw = (s_twoHandSepCm - GEVR_TWOHAND_SEP_MIN) / (GEVR_TWOHAND_SEP_MAX - GEVR_TWOHAND_SEP_MIN);
+    if (sepw < 0.0f) sepw = 0.0f;
+    if (sepw > 1.0f) sepw = 1.0f;
+    /* A hand line only 12-20 cm long amplifies centimetre-scale motion by
+     * several times. Give it the leverage of a 40 cm rifle barrel. */
+    blend = s_gevrTwoHandAmt * sepw * fminf(s_twoHandSepCm / GEVR_TWOHAND_BARREL_CM, 1.0f);
+    if (blend <= 0.001f)
+    {
+        return;
+    }
+    if (gevrAimLogEnabled() && (gevrVrGripSnapshotId() % 6) == 0
+        && s_twoHandLoggedId != gevrVrGripSnapshotId())
+    {
+        s_twoHandLoggedId = gevrVrGripSnapshotId();
+        f32 rawDot = d[0] * -back[0] + d[1] * -back[1] + d[2] * -back[2];
+        f32 smoothDot = s_twoHandDir[0] * -back[0] + s_twoHandDir[1] * -back[1] + s_twoHandDir[2] * -back[2];
+        if (rawDot > 1.0f) rawDot = 1.0f;
+        if (rawDot < -1.0f) rawDot = -1.0f;
+        if (smoothDot > 1.0f) smoothDot = 1.0f;
+        if (smoothDot < -1.0f) smoothDot = -1.0f;
+        sysLogPrintf(LOG_NOTE, "aim79 axis frame %u sep %.1f/%.1f cm rawerr %.1f filtErr %.1f blend %.3f step %.2f alpha %.3f mag %.1f gun %.3f,%.3f,%.3f off %.3f,%.3f,%.3f wrist %.3f,%.3f,%.3f",
+                     gevrVrGripSnapshotId(), sep / cm, s_twoHandSepCm,
+                     acosf(rawDot) * (180.0f / M_PI_F), acosf(smoothDot) * (180.0f / M_PI_F),
+                     blend, deg, alpha, gevrScopeMagnification(),
+                     pos[0] / cm, pos[1] / cm, pos[2] / cm,
+                     opos[0] / cm, opos[1] / cm, opos[2] / cm,
+                     -back[0], -back[1], -back[2]);
     }
 
     /* the barrel toward the hand line, by blend */
