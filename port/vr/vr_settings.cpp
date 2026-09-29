@@ -212,7 +212,7 @@ extern "C" void vrSettingsLoad(void)
         }
             // 2. OTHERWISE, is it a floating-point number (%f)?
         else if (sscanf(line, "%63[^=]=%f", key, &fval) == 2) {
-            if (strcmp(key, "Vibration") == 0) inputRumbleGetStrength(fval);
+            if (strcmp(key, "Vibration") == 0) inputRumbleSetStrength(0, fval);
             else if (strcmp(key, "StereoCrosshair") == 0) {
                 if (fval < HUD_STEREO_DEPTH_MIN) fval = HUD_STEREO_DEPTH_MIN;
                 if (fval > HUD_STEREO_DEPTH_MAX) fval = HUD_STEREO_DEPTH_MAX;

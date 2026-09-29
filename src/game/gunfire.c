@@ -5045,7 +5045,9 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             && (handptr->weapon_action_state != GUN_ANIM_STATE_KNIFE_SLASH2_RECOVER)
             && (handptr->field_890 >= WHEN_11_FLD890_2))
         {
+            extern void gevrRumbleGunfire(s32 hand, s32 item_id);
             handptr->weapon_firing_status = 1;
+            gevrRumbleGunfire(hand, var_s1);
             if ((handptr->weapon_action_state == GUN_ANIM_STATE_KNIFE_SLASH1_BEGIN) || (handptr->weapon_action_state == GUN_ANIM_STATE_KNIFE_SLASH1_STRIKE))
             {
                 handptr->weapon_action_state = GUN_ANIM_STATE_KNIFE_SLASH1_RECOVER;
@@ -5103,6 +5105,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 handptr->weapon_firing_status = 1;
                 handptr->weapon_action_state = GUN_ANIM_STATE_PUNCH1_RECOVER;
+                gevrRumbleGunfire(hand, var_s1);
             }
         }
         else if ((handptr->weapon_action_state == GUN_ANIM_STATE_PUNCH2_STRIKE) || (handptr->weapon_action_state == GUN_ANIM_STATE_PUNCH2_RECOVER))
@@ -5120,6 +5123,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 handptr->weapon_firing_status = 1;
                 handptr->weapon_action_state = GUN_ANIM_STATE_PUNCH2_RECOVER;
+                gevrRumbleGunfire(hand, var_s1);
             }
         }
 
@@ -5152,6 +5156,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 handptr->weapon_action_state = GUN_ANIM_STATE_GRENADE_RECOVER;
                 handptr->field_890 = 0.0f;
                 handptr->field_88C = 0;
+                gevrRumbleGunfire(hand, var_s1);
             }
         }
         else
@@ -5228,6 +5233,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 handptr->weapon_action_state = GUN_ANIM_STATE_THROWKNIFE_RECOVER;
                 handptr->field_890 = 0.0f;
                 handptr->field_88C = 0;
+                gevrRumbleGunfire(hand, var_s1);
             }
         }
         else
@@ -5272,6 +5278,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 handptr->weapon_action_state = GUN_ANIM_STATE_MINE_RECOVER;
                 handptr->field_890 = 0.0f;
                 handptr->field_88C = 0;
+                gevrRumbleGunfire(hand, var_s1);
             }
         }
         else

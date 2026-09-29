@@ -1668,12 +1668,8 @@ static struct WeaponRumbleProfile getWeaponRumbleProfile(s32 item_id) {
 }
 
 void gevrRumbleGunfire(s32 hand, s32 item_id) {
-    if (padsCfg[0].rumbleScale <= 0.f) {
-        return;
-    }
-
     struct WeaponRumbleProfile p = getWeaponRumbleProfile(item_id);
-    f32 amp = p.amplitude * padsCfg[0].rumbleScale;
+    f32 amp = p.amplitude;
     if (amp <= 0.001f || p.duration <= 0.001f) {
         return;
     }
@@ -1697,53 +1693,34 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
     }
 
     // Gamepad controller rumble
-    if (pads[0] && padsCfg[0].rumbleOn) {
-        SDL_GameControllerRumble(pads[0], (u16)(amp * 65535.f), (u16)(amp * 65535.f), (u32)(p.duration * 1000.f));
+    if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
+        f32 padAmp = amp * padsCfg[0].rumbleScale;
+        SDL_GameControllerRumble(pads[0], (u16)(padAmp * 65535.f), (u16)(padAmp * 65535.f), (u32)(p.duration * 1000.f));
     }
 }
 
 s32 s_gevrExplosionDamage = 0;
 
 void gevrRumbleDamage(f32 damage_amount, s32 is_explosion) {
-    if (padsCfg[0].rumbleScale <= 0.f) {
-        return;
-    }
-
+    (void)damage_amount;
     f32 base_amp = 0.0f, base_dur = 0.0f, freq = 0.0f;
     s32 action_id = is_explosion ? GEVR_ACTION_DAMAGE_EXPLOSION : GEVR_ACTION_DAMAGE_BULLET;
     vrHapticsGetRumble(action_id, &base_amp, &base_dur, &freq);
 
-    f32 amp;
-    f32 dur;
-
-    if (is_explosion) {
-        // Heavy explosive shockwave
-        amp = base_amp * (0.80f + (damage_amount * 0.20f));
-        if (amp > 1.0f) amp = 1.0f;
-        dur = base_dur * (0.80f + (damage_amount * 0.40f));
-        if (dur > 0.50f) dur = 0.50f;
-    } else {
-        // Bullet hit / impact
-        amp = base_amp * (0.60f + (damage_amount * 1.0f));
-        if (amp > 1.0f) amp = 1.0f;
-        dur = base_dur * (0.70f + (damage_amount * 0.60f));
-        if (dur > 0.35f) dur = 0.35f;
-    }
-
-    amp *= padsCfg[0].rumbleScale;
-    if (amp <= 0.001f || dur <= 0.001f) {
+    if (base_amp <= 0.001f || base_dur <= 0.001f) {
         return;
     }
 
     // VR Haptics: pulse both controllers simultaneously for full-body impact
     if (vr_haptics_ready()) {
-        trigger_haptic_vibration_freq_c(0, amp, dur, freq);
-        trigger_haptic_vibration_freq_c(1, amp, dur, freq);
+        trigger_haptic_vibration_freq_c(0, base_amp, base_dur, freq);
+        trigger_haptic_vibration_freq_c(1, base_amp, base_dur, freq);
     }
 
     // Gamepad controller rumble
-    if (pads[0] && padsCfg[0].rumbleOn) {
-        SDL_GameControllerRumble(pads[0], (u16)(amp * 65535.f), (u16)(amp * 65535.f), (u32)(dur * 1000.f));
+    if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
+        f32 padAmp = base_amp * padsCfg[0].rumbleScale;
+        SDL_GameControllerRumble(pads[0], (u16)(padAmp * 65535.f), (u16)(padAmp * 65535.f), (u32)(base_dur * 1000.f));
     }
 }
 
