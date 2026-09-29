@@ -11,7 +11,9 @@ when it merges.
 restore original multiplayer movement speed, multiplayer testing fixes.
 Unreleased on main (versionCode 31): sniper scope steadiness (#79), VR
 motion throwing and grenade cooking, room-aware voice falloff, Music and
-Voice volume in the launcher and the multiplayer pause menu.
+Voice volume in the launcher and the multiplayer pause menu, the Dam
+truck's headlights no longer showing the wheel behind them (#71: props'
+blended layers write depth where opaque, model.c + gfx_opengl.cpp).
 v0.3.3 (49f2ac6, versionCode 28) brought multiplayer HUD text crash guard (#78),
 player and lobby version tooltips, and TURN credential rate limit fix. v0.3.2 (0852b9f, versionCode 27) brought
 multiplayer pause controls (#76), calibrated recoil and damage rumble (#64),
