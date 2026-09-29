@@ -944,6 +944,13 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                      lobby->slots[i].name,
                                      characters[lobby->slots[i].chr_id % 12].name,
                                      (i == 0) ? "[HOST]" : (lobby->slots[i].ready ? "[READY]" : "[WAITING]"));
+                    if (ImGui::IsItemHovered()) {
+                        const char *ver = netGetSlotAppVersion(i);
+                        const char *verStr = (ver && ver[0]) ? ver : "Protocol 6 (legacy / <= v0.3.2)";
+                        const char *role = (i == 0) ? "Host (You)" : (lobby->slots[i].ready ? "Ready" : "Waiting");
+                        ImGui::SetTooltip("Player: %s\nRole: %s\nApp Version: %s\nNetwork Protocol: %d\nSlot: %d",
+                                          lobby->slots[i].name, role, verStr, GEVR_NET_VERSION, i + 1);
+                    }
                 } else {
                     ImGui::TextDisabled("Slot %d: [Open]", i + 1);
                 }
@@ -1025,6 +1032,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                     clientJoinId.clear();
                     onlineMessage = "Joining " + game.name + "...";
                     gevrJavaCommand("lobbyCommand", ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d\nProtocol: %d",
+                                      game.name.c_str(), game.code.c_str(),
+                                      game.phase.c_str(), game.players, game.maxPlayers, GEVR_NET_VERSION);
                 }
             }
             ImGui::Text("Private code:");
@@ -1137,6 +1149,13 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 ImGui::BulletText("%s (%s) %s", lobby->slots[i].name, characters[lobby->slots[i].chr_id % 12].name,
                                   i == 0 ? "[HOST]" : i == netGetLocalSlot() ? "[YOU]" :
                                   lobby->slots[i].ready ? "[READY]" : "[WAITING]");
+                if (ImGui::IsItemHovered()) {
+                    const char *ver = netGetSlotAppVersion(i);
+                    const char *verStr = (ver && ver[0]) ? ver : "Protocol 6 (legacy / <= v0.3.2)";
+                    const char *role = (i == 0) ? "Host" : (i == netGetLocalSlot() ? "You" : (lobby->slots[i].ready ? "Ready" : "Waiting"));
+                    ImGui::SetTooltip("Player: %s\nRole: %s\nApp Version: %s\nNetwork Protocol: %d\nSlot: %d",
+                                      lobby->slots[i].name, role, verStr, GEVR_NET_VERSION, i + 1);
+                }
             }
             ImGui::TextColored(gold, "Waiting for Host to launch match...");
             if (netGetState() == NET_STATE_INGAME) {
@@ -1494,6 +1513,11 @@ extern "C" void gevrLauncherRun(void)
 
     // The app's versionName (android build.gradle), for the header beside the build.
     const std::string appVersion = gevrUpdaterStatus().installed;
+    {
+        char localVerStr[32];
+        snprintf(localVerStr, sizeof(localVerStr), "v%s (%.7s)", appVersion.c_str(), gevrBuildId);
+        netSetLocalAppVersion(localVerStr);
+    }
 
     vr_log("launcher: open, v%s build %s (rom %s)", appVersion.c_str(), gevrBuildId,
            active.empty() ? "none" : active.c_str());
