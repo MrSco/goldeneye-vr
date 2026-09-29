@@ -233,6 +233,7 @@ void inputRumbleSetStrength(s32 cidx, f32 val);
 // Direct weapon and damage haptics for VR and controller rumble
 void gevrRumbleGunfire(s32 hand, s32 item_id);
 void gevrRumbleDamage(f32 damage_amount, s32 is_explosion);
+s32 gevrIsThrowable(s32 item);
 
 // locks the mouse cursor in the window and makes it invisible if argument is true
 void inputLockMouse(s32 lock);

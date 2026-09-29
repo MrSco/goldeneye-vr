@@ -4023,6 +4023,21 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             handptr->field_88C = 0;
             break;
         case ITEM_GRENADE:
+#ifdef GEVR
+            if (gevrIsMotionThrowGripping(hand))
+            {
+                /* Grip is held on grenade: trigger cooks it, but releasing trigger must NOT fire.
+                 * Only detonate in hand if cooked for too long (field_890 >= WHEN_1_CASE_GRENADE_FLD890)! */
+                if (handptr->field_890 >= WHEN_1_CASE_GRENADE_FLD890)
+                {
+                    g_CurrentPlayer->last_z_trigger_timer = handptr->field_890;
+                    handptr->weapon_action_state = GUN_ANIM_STATE_GRENADE_THROW;
+                    handptr->field_88C = 0;
+                    handptr->field_890 = 0;
+                }
+            }
+            else
+#endif
             if ((handptr->field_888 != 0) || (handptr->field_890 >= WHEN_1_CASE_GRENADE_FLD890))
             {
                 g_CurrentPlayer->last_z_trigger_timer = handptr->field_890;
@@ -4030,6 +4045,12 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 handptr->field_88C = 0;
                 handptr->field_890 = 0;
             }
+#ifdef GEVR
+            if (handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
+            {
+                gevrGrenadeCookHapticTick(hand, (s32)handptr->field_890);
+            }
+#endif
             break;
         case ITEM_FIST:
             if (!(randomGetNext() & 1))
@@ -5767,6 +5788,24 @@ void gunTickGameplay(s32 triggerOn)
         extern s32 gevrStereoTwoHandUpdate(void);
 
         gevrStereoTwoHandUpdate();
+    }
+    /* Motion throwing for throwables (grenades, knives, mines) */
+    {
+        extern void gevrMotionThrowUpdate(void);
+
+        gevrMotionThrowUpdate();
+    }
+    /* Suppress trigger on non-grenade throwables when gripping */
+    for (s32 h = 0; h < 2; h++)
+    {
+        if (gevrIsMotionThrowGripping(h))
+        {
+            s32 it = getCurrentPlayerWeaponId(h);
+            if (it != ITEM_GRENADE)
+            {
+                trigger_state.triggerOn[h] = 0;
+            }
+        }
     }
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand

@@ -104,6 +104,28 @@ extern s32 gevrLeftPanelAvailable(void);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern s32 gevrDualWielding(void);
+extern bool VrMotionThrowing;
+extern ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand);
+
+s32 gevrIsThrowable(s32 item)
+{
+    switch (item)
+    {
+        case ITEM_THROWKNIFE:
+        case ITEM_GRENADE:
+        case ITEM_TIMEDMINE:
+        case ITEM_PROXIMITYMINE:
+        case ITEM_REMOTEMINE:
+        case ITEM_PLASTIQUE:
+        case ITEM_BOMBCASE:
+        case ITEM_BUG:
+        case ITEM_MICROCAMERA:
+        case ITEM_GOLDENEYEKEY:
+            return 1;
+        default:
+            return 0;
+    }
+}
 
 static inline bool bgunIsFiring(s32 hand) {
     return get_button_state(hand, "trigger");
@@ -1150,12 +1172,16 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             if (t < startuntil) npad->button |= START_BUTTON;
         }
-        if (!menu && (get_button_state(1, "grip") || (!stereoplay && get_button_state(0, "grip"))))
+        const bool rightGrip = get_button_state(1, "grip");
+        const bool leftGrip = get_button_state(0, "grip");
+        const bool rightThrowable = g_CurrentPlayer && VrMotionThrowing && gevrIsThrowable(getCurrentPlayerWeaponId(GUNRIGHT));
+        const bool leftThrowable = g_CurrentPlayer && VrMotionThrowing && gevrIsThrowable(getCurrentPlayerWeaponId(GUNLEFT));
+        if (!menu && ((rightGrip && !rightThrowable) || (!stereoplay && leftGrip && !leftThrowable)))
             npad->button |= R_TRIG;
         // Issue #37: dual-wielding, the left grip shows the left gun's sight,
         // as Perfect Dark VR's (sight.c sightDrawLeftHand, on vr_button_L_grip).
         // Not R as well: here R aims and zooms.
-        vr_button_L_grip = stereoplay && gevrDualWielding() && get_button_state(0, "grip");
+        vr_button_L_grip = stereoplay && gevrDualWielding() && leftGrip && !leftThrowable;
         // The off hand's buttons do what the gun hand's in the same place do, as
         // in the launcher (user): X (lower) is A, the weapons, and Y (upper) is B,
         // use/reload. (Not the X that just switched the texture pack in the
