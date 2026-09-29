@@ -1774,12 +1774,70 @@ extern "C" void gevrLauncherRun(void)
         static bool cheatPage = false;
         static bool modsPage = false;
         static bool mpPage = false;
+        static bool throwingPage = false;
         if (reportPage) {
             gevrReportPage(reportPage, reportCrash, gold, good, bad);
         } else if (mpPage) {
             gevrMultiplayerPage(mpPage, start, gold, good, bad);
         } else if (modsPage) {
             gevrModsPage(modsPage, now, gold, good, bad);
+        } else if (throwingPage) {
+            ImGui::TextColored(gold, "MOTION THROWING SETTINGS");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("Hold Grip on throwables (grenades, knives, mines), swing arm, and release Grip to throw.\n"
+                               "Grip + Trigger cooks grenades. Releases instantly at 90%% grip squeeze.");
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+
+            bool motionThrow = VrMotionThrowing;
+            if (ImGui::Checkbox("Enable motion throwing", &motionThrow)) {
+                VrMotionThrowing = motionThrow;
+            }
+
+            ImGui::BeginDisabled(!VrMotionThrowing);
+
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "THROW STRENGTH & VELOCITY");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
+            ImGui::SliderFloat("##ThrowStrength", &VrMotionThrowStrength, 0.5f, 2.0f, "Strength %.2fx");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Scales throw speed with physical swing speed.\n1.0x = natural realism, higher = longer throws.");
+            }
+
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "TRAJECTORY CALIBRATION");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
+            ImGui::SliderFloat("##ThrowPitch", &VrMotionThrowPitch, -20.0f, 20.0f, "Pitch %+.0f°");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Vertical pitch trim: adjust upward (+) or downward (-) if throws fly too low/high.");
+            }
+
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "GAZE ASSIST (overhand throws)");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
+            float gazePct = VrMotionThrowGazeAssist * 100.0f;
+            if (ImGui::SliderFloat("##ThrowGaze", &gazePct, 0.0f, 100.0f, "Gaze %.0f%%")) {
+                VrMotionThrowGazeAssist = gazePct / 100.0f;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Blends overhand throw direction toward where you are looking (0%% = pure hand, 100%% = max gaze pull).\n"
+                                  "Underhand rolls, bowling, and throws behind your back remain 100%% pure hand physics.");
+            }
+
+            ImGui::EndDisabled();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            if (ImGui::Button("Reset to Defaults")) {
+                VrMotionThrowing = true;
+                VrMotionThrowStrength = 1.0f;
+                VrMotionThrowPitch = 0.0f;
+                VrMotionThrowGazeAssist = 0.50f;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                throwingPage = false;
+            }
         } else if (cheatPage) {
             struct CheatRow { const char *name; int id; bool cosmetic; };
             static const CheatRow fun[] = {
@@ -1921,21 +1979,14 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
             ImGui::EndDisabled();
             {
-                bool motionThrow = VrMotionThrowing;
-                if (ImGui::Checkbox("Motion throwing", &motionThrow)) {
-                    VrMotionThrowing = motionThrow;
+                char throwLabel[64];
+                snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
+                if (ImGui::Button(throwLabel)) {
+                    throwingPage = true;
                 }
                 if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Hold grip on throwables (grenades, knives, mines), swing arm, and release grip to throw");
+                    ImGui::SetTooltip("Configure motion throwing, throw strength, pitch trim, and gaze assist");
                 }
-                ImGui::SameLine();
-                ImGui::BeginDisabled(!VrMotionThrowing);
-                ImGui::SetNextItemWidth(100.0f);
-                ImGui::SliderFloat("##ThrowPitch", &VrMotionThrowPitch, -20.0f, 20.0f, "%+.0f°");
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Motion throw vertical pitch offset (degrees): adjust up (+) or down (-)");
-                }
-                ImGui::EndDisabled();
             }
             {
                 // Issue #6: the gun in the left hand, watch on the right wrist,

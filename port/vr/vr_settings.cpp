@@ -33,6 +33,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "SeatedMode=%d\n", VrSeatedMode ? 1 : 0);
     fprintf(f, "MotionThrowing=%d\n", VrMotionThrowing ? 1 : 0);
     fprintf(f, "MotionThrowPitch=%.1f\n", VrMotionThrowPitch);
+    fprintf(f, "MotionThrowGazeAssist=%.2f\n", VrMotionThrowGazeAssist);
+    fprintf(f, "MotionThrowStrength=%.2f\n", VrMotionThrowStrength);
     fprintf(f, "Vibration=%.4f\n", inputRumbleGetStrength(g_ExtMenuPlayer));
     fprintf(f, "StereoCrosshair=%.4f\n", VrStereoCrosshair);
     fprintf(f, "HudDistance=%.4f\n", VrHudDistance);
@@ -245,6 +247,16 @@ extern "C" void vrSettingsLoad(void)
                 if (fval < -45.0f) fval = -45.0f;
                 if (fval > 45.0f) fval = 45.0f;
                 VrMotionThrowPitch = fval;
+            }
+            else if (strcmp(key, "MotionThrowGazeAssist") == 0) {
+                if (fval < 0.0f) fval = 0.0f;
+                if (fval > 1.0f) fval = 1.0f;
+                VrMotionThrowGazeAssist = fval;
+            }
+            else if (strcmp(key, "MotionThrowStrength") == 0) {
+                if (fval < 0.2f) fval = 0.2f;
+                if (fval > 3.0f) fval = 3.0f;
+                VrMotionThrowStrength = fval;
             }
             else if (strcmp(key, "ScreenHeight") == 0) {
                 if (fval < -VR_SCREEN_HEIGHT_MAX) fval = -VR_SCREEN_HEIGHT_MAX;

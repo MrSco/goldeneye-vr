@@ -234,6 +234,7 @@ void inputRumbleSetStrength(s32 cidx, f32 val);
 void gevrRumbleGunfire(s32 hand, s32 item_id);
 void gevrRumbleDamage(f32 damage_amount, s32 is_explosion);
 s32 gevrIsThrowable(s32 item);
+float get_analog_value(int hand_index, const char *input_name);
 
 // locks the mouse cursor in the window and makes it invisible if argument is true
 void inputLockMouse(s32 lock);

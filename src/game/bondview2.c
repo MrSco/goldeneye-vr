@@ -2225,13 +2225,15 @@ void gevrHandChopTick(s32 ctrl)
 }
 
 #define GEVR_THROW_BUFFER_SIZE 6
-#define GEVR_MOTION_THROW_MIN_SPEED 1.2f
+#define GEVR_MOTION_THROW_MIN_SPEED 0.8f
 
 static struct coord3d s_gevrThrowVelBuffer[2][GEVR_THROW_BUFFER_SIZE];
 static s32 s_gevrThrowVelHead[2] = { 0, 0 };
 static s32 s_gevrThrowVelCount[2] = { 0, 0 };
-static s32 s_gevrThrowGripHeld[2] = { 0, 0 };
 static s32 s_gevrThrowWindup[2] = { 0, 0 };
+static f32 s_gevrGripPeak[2] = { 0.0f, 0.0f };
+static s32 s_gevrGripArmed[2] = { 0, 0 };
+static s32 s_gevrTrackingLostFrames[2] = { 0, 0 };
 
 void gevrMotionThrowTick(s32 hand)
 {
@@ -2240,8 +2242,10 @@ void gevrMotionThrowTick(s32 hand)
     extern float vr_ctrl_quat_play[2][4];
     extern bool VrMotionThrowing;
     extern float VrMotionThrowPitch;
+    extern float VrMotionThrowGazeAssist;
+    extern float VrMotionThrowStrength;
     extern s32 g_gevrStereo;
-    extern _Bool get_button_state(int hand_index, const char *button_name);
+    extern float get_analog_value(int hand_index, const char *input_name);
     extern s32 gevrDualWielding(void);
     extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
     extern int vr_haptics_ready(void);
@@ -2256,7 +2260,9 @@ void gevrMotionThrowTick(s32 hand)
         || g_CurrentPlayer->watch_animation_state != 0 || g_PlayerIsInTank == 1)
     {
         s_gevrThrowWindup[hand] = 0;
-        s_gevrThrowGripHeld[hand] = 0;
+        s_gevrGripArmed[hand] = 0;
+        s_gevrGripPeak[hand] = 0.0f;
+        s_gevrTrackingLostFrames[hand] = 0;
         return;
     }
 
@@ -2271,7 +2277,9 @@ void gevrMotionThrowTick(s32 hand)
     if (!gevrIsThrowable(item))
     {
         s_gevrThrowWindup[hand] = 0;
-        s_gevrThrowGripHeld[hand] = 0;
+        s_gevrGripArmed[hand] = 0;
+        s_gevrGripPeak[hand] = 0.0f;
+        s_gevrTrackingLostFrames[hand] = 0;
         return;
     }
 
@@ -2281,45 +2289,22 @@ void gevrMotionThrowTick(s32 hand)
         handptr->weapon_action_state == GUN_ANIM_STATE_GRENADE_THROW)
     {
         s_gevrThrowWindup[hand] = 0;
+        s_gevrGripArmed[hand] = 0;
     }
 
-    s32 grip = get_button_state(ctrl, "grip");
-    s32 was_held = s_gevrThrowGripHeld[hand];
-    s_gevrThrowGripHeld[hand] = grip;
+    f32 grip_val = get_analog_value(ctrl, "grip");
 
-    f32 at[3], right[3], up[3], back[3];
-    if (!gevrGripAxesRaw(ctrl, at, right, up, back))
-    {
-        s_gevrThrowWindup[hand] = 0;
-        return;
-    }
-
-    f32 rel[3], loc[3], vel[3];
-    for (s32 i = 0; i < 3; i++)
-    {
-        rel[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
-    }
-    gevrWorldToLocal(vr_ctrl_quat_play[ctrl], rel, loc);
-
-    for (s32 i = 0; i < 3; i++)
-    {
-        vel[i] = loc[0] * right[i] + loc[1] * back[i] - loc[2] * up[i];
-    }
-
-    struct coord3d world_vel;
-    world_vel.x = vel[0];
-    world_vel.y = vel[1];
-    world_vel.z = vel[2];
-    mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32 *)&world_vel);
-
-    /* Grip pressed this frame: start windup if weapon idle or cooking grenade */
-    if (grip && !was_held)
+    /* Arm windup when grip is squeezed >= 0.55f (and user had released past 0.25f previously) */
+    if (grip_val >= 0.55f && !s_gevrGripArmed[hand])
     {
         if (handptr->weapon_ammo_in_magazine > 0 &&
             (handptr->weapon_action_state == GUN_ANIM_STATE_IDLE ||
              (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)))
         {
+            s_gevrGripArmed[hand] = 1;
             s_gevrThrowWindup[hand] = 1;
+            s_gevrGripPeak[hand] = grip_val;
+            s_gevrTrackingLostFrames[hand] = 0;
             s_gevrThrowVelHead[hand] = 0;
             s_gevrThrowVelCount[hand] = 0;
             for (s32 i = 0; i < GEVR_THROW_BUFFER_SIZE; i++)
@@ -2335,20 +2320,88 @@ void gevrMotionThrowTick(s32 hand)
         }
     }
 
-    /* While grip is held: store sample and pulse if cooking */
-    if (grip && s_gevrThrowWindup[hand])
+    /* Track peak grip compression and trigger release at 90% peak squeeze */
+    s32 release = 0;
+    if (s_gevrGripArmed[hand])
     {
-        s32 head = s_gevrThrowVelHead[hand];
-        s_gevrThrowVelBuffer[hand][head] = world_vel;
-        s_gevrThrowVelHead[hand] = (head + 1) % GEVR_THROW_BUFFER_SIZE;
-        if (s_gevrThrowVelCount[hand] < GEVR_THROW_BUFFER_SIZE)
+        if (grip_val > s_gevrGripPeak[hand])
         {
-            s_gevrThrowVelCount[hand]++;
+            s_gevrGripPeak[hand] = grip_val;
+        }
+
+        /* Release immediately when grip drops to 90% of peak squeeze, or below 0.35f */
+        if (grip_val < s_gevrGripPeak[hand] * 0.90f || grip_val < 0.35f)
+        {
+            release = 1;
+            s_gevrGripArmed[hand] = 0;
+        }
+    }
+    else
+    {
+        /* Reset peak only when fully released below 0.25f, ready for next throw */
+        if (grip_val < 0.25f)
+        {
+            s_gevrGripPeak[hand] = 0.0f;
         }
     }
 
-    /* Grip released this frame */
-    if (!grip && was_held && s_gevrThrowWindup[hand])
+    f32 at[3], right[3], up[3], back[3];
+    s32 has_axes = gevrGripAxesRaw(ctrl, at, right, up, back);
+    if (!has_axes)
+    {
+        s_gevrTrackingLostFrames[hand]++;
+        if (s_gevrTrackingLostFrames[hand] > 15)
+        {
+            /* Tracking lost for too long (>250ms), cancel windup */
+            s_gevrThrowWindup[hand] = 0;
+            s_gevrGripArmed[hand] = 0;
+            return;
+        }
+    }
+    else
+    {
+        s_gevrTrackingLostFrames[hand] = 0;
+    }
+
+    struct coord3d world_vel;
+    world_vel.x = 0.0f;
+    world_vel.y = 0.0f;
+    world_vel.z = 0.0f;
+
+    if (has_axes)
+    {
+        f32 rel[3], loc[3], vel[3];
+        for (s32 i = 0; i < 3; i++)
+        {
+            rel[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
+        }
+        gevrWorldToLocal(vr_ctrl_quat_play[ctrl], rel, loc);
+
+        for (s32 i = 0; i < 3; i++)
+        {
+            vel[i] = loc[0] * right[i] + loc[1] * back[i] - loc[2] * up[i];
+        }
+
+        world_vel.x = vel[0];
+        world_vel.y = vel[1];
+        world_vel.z = vel[2];
+        mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32 *)&world_vel);
+
+        /* While grip is held: store sample in rolling buffer */
+        if (s_gevrThrowWindup[hand] && s_gevrGripArmed[hand])
+        {
+            s32 head = s_gevrThrowVelHead[hand];
+            s_gevrThrowVelBuffer[hand][head] = world_vel;
+            s_gevrThrowVelHead[hand] = (head + 1) % GEVR_THROW_BUFFER_SIZE;
+            if (s_gevrThrowVelCount[hand] < GEVR_THROW_BUFFER_SIZE)
+            {
+                s_gevrThrowVelCount[hand]++;
+            }
+        }
+    }
+
+    /* Grip released this frame (via 90% peak threshold) */
+    if (release && s_gevrThrowWindup[hand])
     {
         s_gevrThrowWindup[hand] = 0;
 
@@ -2370,11 +2423,14 @@ void gevrMotionThrowTick(s32 hand)
             }
         }
 
-        f32 cur_speed = sqrtf(world_vel.x * world_vel.x + world_vel.y * world_vel.y + world_vel.z * world_vel.z);
-        if (cur_speed > peak_speed)
+        if (has_axes)
         {
-            peak_speed = cur_speed;
-            peak_idx = -2;
+            f32 cur_speed = sqrtf(world_vel.x * world_vel.x + world_vel.y * world_vel.y + world_vel.z * world_vel.z);
+            if (cur_speed > peak_speed)
+            {
+                peak_speed = cur_speed;
+                peak_idx = -2;
+            }
         }
 
         if (peak_speed >= GEVR_MOTION_THROW_MIN_SPEED)
@@ -2384,9 +2440,17 @@ void gevrMotionThrowTick(s32 hand)
             if (s_gevrThrowVelCount[hand] > 0)
             {
                 s32 prev_idx = (s_gevrThrowVelHead[hand] - 1 + GEVR_THROW_BUFFER_SIZE) % GEVR_THROW_BUFFER_SIZE;
-                dir_vec.x = world_vel.x * 0.6f + s_gevrThrowVelBuffer[hand][prev_idx].x * 0.4f;
-                dir_vec.y = world_vel.y * 0.6f + s_gevrThrowVelBuffer[hand][prev_idx].y * 0.4f;
-                dir_vec.z = world_vel.z * 0.6f + s_gevrThrowVelBuffer[hand][prev_idx].z * 0.4f;
+                if (!has_axes)
+                {
+                    /* If current frame had a tracking dropout, use the latest buffered sample */
+                    dir_vec = s_gevrThrowVelBuffer[hand][prev_idx];
+                }
+                else
+                {
+                    dir_vec.x = world_vel.x * 0.6f + s_gevrThrowVelBuffer[hand][prev_idx].x * 0.4f;
+                    dir_vec.y = world_vel.y * 0.6f + s_gevrThrowVelBuffer[hand][prev_idx].y * 0.4f;
+                    dir_vec.z = world_vel.z * 0.6f + s_gevrThrowVelBuffer[hand][prev_idx].z * 0.4f;
+                }
             }
 
             f32 dir_speed = sqrtf(dir_vec.x * dir_vec.x + dir_vec.y * dir_vec.y + dir_vec.z * dir_vec.z);
@@ -2401,6 +2465,56 @@ void gevrMotionThrowTick(s32 hand)
                 f32 dir_x = dir_vec.x / dir_speed;
                 f32 dir_y = dir_vec.y / dir_speed;
                 f32 dir_z = dir_vec.z / dir_speed;
+
+                /* Gaze assist: blend trajectory toward center-of-POV gaze for overhand throws matching view direction */
+                f32 cam_pos[3], cam_quat[4];
+                s32 has_cam_pose = gevrVrGripPoseCamera(ctrl, cam_pos, cam_quat);
+                s32 is_overhand = (has_cam_pose && cam_pos[1] >= -0.30f);
+
+                f32 dot = dir_x * s_gevrCamLook.x + dir_y * s_gevrCamLook.y + dir_z * s_gevrCamLook.z;
+
+                f32 assist_weight = 0.0f;
+                if (is_overhand && dot > 0.5f && VrMotionThrowGazeAssist > 0.0f)
+                {
+                    f32 t = (dot - 0.5f) / (0.94f - 0.5f);
+                    if (t > 1.0f) t = 1.0f;
+                    f32 cone_factor = t * t * (3.0f - 2.0f * t);
+                    assist_weight = VrMotionThrowGazeAssist * cone_factor;
+
+                    f32 hand_h = sqrtf(dir_x * dir_x + dir_z * dir_z);
+                    f32 gaze_h = sqrtf(s_gevrCamLook.x * s_gevrCamLook.x + s_gevrCamLook.z * s_gevrCamLook.z);
+                    if (hand_h > 0.0001f && gaze_h > 0.0001f)
+                    {
+                        f32 hand_yaw = atan2f(dir_x, dir_z);
+                        f32 gaze_yaw = atan2f(s_gevrCamLook.x, s_gevrCamLook.z);
+                        f32 diff_yaw = gaze_yaw - hand_yaw;
+                        while (diff_yaw > M_PI_F) diff_yaw -= 2.0f * M_PI_F;
+                        while (diff_yaw < -M_PI_F) diff_yaw += 2.0f * M_PI_F;
+                        f32 new_yaw = hand_yaw + diff_yaw * (assist_weight * 0.55f);
+
+                        f32 hand_pitch = atan2f(dir_y, hand_h);
+                        f32 gaze_pitch = atan2f(s_gevrCamLook.y, gaze_h);
+                        f32 pitch_rate = 0.50f;
+                        if (item == ITEM_GRENADE)
+                        {
+                            if (hand_pitch > gaze_pitch)
+                            {
+                                /* Upward lob: preserve upward arc while gently guiding toward gaze */
+                                pitch_rate = 0.20f;
+                            }
+                            else
+                            {
+                                pitch_rate = 0.40f;
+                            }
+                        }
+                        f32 new_pitch = hand_pitch + (gaze_pitch - hand_pitch) * (assist_weight * pitch_rate);
+
+                        f32 cos_p = cosf(new_pitch);
+                        dir_x = sinf(new_yaw) * cos_p;
+                        dir_y = sinf(new_pitch);
+                        dir_z = cosf(new_yaw) * cos_p;
+                    }
+                }
 
                 /* Adjust pitch angle by VrMotionThrowPitch (in degrees) */
                 if (VrMotionThrowPitch != 0.0f)
@@ -2420,10 +2534,11 @@ void gevrMotionThrowTick(s32 hand)
                 }
 
                 f32 speed_scale = (item == ITEM_THROWKNIFE) ? 5.0f : 3.8f;
+                speed_scale *= VrMotionThrowStrength;
                 f32 throw_mag = peak_speed * speed_scale;
 
-                f32 min_mag = (item == ITEM_THROWKNIFE) ? 12.0f : 8.0f;
-                f32 max_mag = (item == ITEM_THROWKNIFE) ? 45.0f : 32.0f;
+                f32 min_mag = (item == ITEM_THROWKNIFE) ? 5.0f : 3.0f;
+                f32 max_mag = (item == ITEM_THROWKNIFE) ? 50.0f : 40.0f;
                 if (throw_mag < min_mag) throw_mag = min_mag;
                 if (throw_mag > max_mag) throw_mag = max_mag;
 
@@ -2431,6 +2546,14 @@ void gevrMotionThrowTick(s32 hand)
                 final_vel.x = dir_x * throw_mag;
                 final_vel.y = dir_y * throw_mag;
                 final_vel.z = dir_z * throw_mag;
+
+                if (assist_weight > 0.0f)
+                {
+                    f32 look_boost = throw_mag * 0.12f * assist_weight;
+                    final_vel.x += s_gevrCamLook.x * look_boost;
+                    final_vel.y += s_gevrCamLook.y * look_boost;
+                    final_vel.z += s_gevrCamLook.z * look_boost;
+                }
 
                 g_gevrMotionThrowActive[hand] = 1;
                 g_gevrMotionThrowVel[hand] = final_vel;

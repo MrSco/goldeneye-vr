@@ -21,6 +21,8 @@
 bool VrManualReloading    = false;  /* reload by gesture rather than automatically */
 bool VrMotionThrowing     = true;   /* throw grenades, knives and mines by arm motion */
 float VrMotionThrowPitch  = 0.0f;   /* vertical pitch offset in degrees for motion throws */
+float VrMotionThrowGazeAssist = 0.50f; /* 0..1 gaze direction assist for overhand throws */
+float VrMotionThrowStrength = 1.0f;   /* throw speed / strength multiplier (0.5 .. 2.0) */
 bool VrSeatedMode         = false;  /* play seated; height is taken from the ini */
 bool VrlaserDotForALL     = false;  /* laser dot on every weapon, not just the ones that have one */
 bool VrTwoHandAim         = false;  /* two-handed weapons aim along the line between both controllers */
