@@ -136,6 +136,11 @@ final class LogReporter {
             File files = context.getExternalFilesDir(null);
             if (files == null) throw new Exception("Game files unavailable");
             StringBuilder text = new StringBuilder();
+            File ini = new File(files, "data/goldeneye-vr.ini");
+            if (!ini.isFile()) ini = new File(files, "goldeneye-vr.ini");
+            if (ini.isFile()) {
+                text.append("=== goldeneye-vr.ini ===\n").append(tail(ini, 50_000)).append("\n");
+            }
             text.append("=== previous game run ===\n").append(tail(new File(files, "gevr.prev.log"), 1_200_000));
             text.append("\n=== current game run ===\n").append(tail(new File(files, "gevr.log"), 800_000));
             text.append("\n=== app logcat ===\n").append(logcat());
