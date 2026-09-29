@@ -228,7 +228,7 @@ list(FILTER SRC_PORT EXCLUDE REGEX ".*(preprocess|pdmain|pdsched|communityart|mp
 # GoldenEye. port/src/gevr_romload.c stands in for them; see that file for what
 # a GoldenEye replacement has to do.
 list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
-# port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25 (touching this line makes the glob re-run)
+# port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25; port/vr/vr_haptics.cpp 2026-09-29 (touching this line makes the glob re-run)
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/external/.*")
 
