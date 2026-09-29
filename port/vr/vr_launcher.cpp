@@ -46,6 +46,7 @@
 #include "vr_log.h"
 #include "vr_screen.h"
 #include "vr_settings.h"
+#include "vr_haptics.h"
 
 extern "C" {
 int gevrVrPumpBegin(void);            // port/src/gevr_engine_shim.c
@@ -474,6 +475,145 @@ static std::string gevrEncodeUrl64(const char *input)
     return out;
 }
 
+static void gevrHapticsPage(bool &open, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
+{
+    static int activeTab = HAPTIC_CAT_PISTOLS;
+
+    ImGui::TextColored(gold, "HAPTIC FEEDBACK SETTINGS");
+    ImGui::TextDisabled("Tune vibration intensity (0-10) and pulse duration (ms) for each weapon and action. Feel real-time vibrations while testing.");
+    ImGui::Spacing();
+
+    // Category Tabs (6 categories, keeping every category to <= 8 items so nothing is cut off)
+    const char *catNames[] = {
+        "Pistols",
+        "Automatics",
+        "Rifles & Heavy",
+        "Melee & Thrown",
+        "Gadgets",
+        "Damage & Actions"
+    };
+
+    for (int i = 0; i < HAPTIC_CAT_COUNT; ++i) {
+        if (i > 0) ImGui::SameLine();
+        bool isSelected = (activeTab == i);
+        if (isSelected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.30f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, gold);
+        }
+        if (ImGui::Button(catNames[i])) {
+            activeTab = i;
+        }
+        if (isSelected) {
+            ImGui::PopStyleColor(2);
+        }
+    }
+
+    ImGui::Separator();
+
+    // Scrollable region for table so the footer is always pinned visible and nothing is ever clipped
+    const float footerH = ImGui::GetFrameHeightWithSpacing() * 2.0f;
+    ImGui::BeginChild("##haptics_scroll", ImVec2(0, -footerH), false, ImGuiWindowFlags_None);
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 3.0f));
+
+    // Table of items for activeTab
+    if (ImGui::BeginTable("haptics_table", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn("Item / Action", ImGuiTableColumnFlags_WidthFixed, 270.0f);
+        ImGui::TableSetupColumn("Intensity", ImGuiTableColumnFlags_WidthFixed, 330.0f);
+        ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed, 390.0f);
+        ImGui::TableSetupColumn("Test Feel", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableHeadersRow();
+
+        int count = vrHapticsGetCount();
+        for (int i = 0; i < count; ++i) {
+            HapticProfile *p = vrHapticsGetProfileByIndex(i);
+            if (!p || p->category != (HapticCategory)activeTab) continue;
+
+            ImGui::PushID(p->iniKey);
+
+            // Column 0: Name
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("%s", p->name);
+
+            // Column 1: Intensity Stepper & Slider
+            ImGui::TableNextColumn();
+            bool changed = false;
+            if (ImGui::Button("-##int", ImVec2(34, 0))) {
+                if (p->intensity > 0) {
+                    p->intensity--;
+                    changed = true;
+                }
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(170.0f);
+            if (ImGui::SliderInt("##int_sl", &p->intensity, 0, 10, "%d")) {
+                changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("+##int", ImVec2(34, 0))) {
+                if (p->intensity < 10) {
+                    p->intensity++;
+                    changed = true;
+                }
+            }
+
+            // Column 2: Duration Stepper & Slider
+            ImGui::TableNextColumn();
+            if (ImGui::Button("-##dur", ImVec2(34, 0))) {
+                if (p->durationMs > 10) {
+                    p->durationMs = std::max(10, p->durationMs - 10);
+                    changed = true;
+                } else if (p->durationMs > 0 && p->intensity == 0) {
+                    p->durationMs = 0;
+                    changed = true;
+                }
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(220.0f);
+            if (ImGui::SliderInt("##dur_sl", &p->durationMs, 10, 500, "%d ms")) {
+                changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("+##dur", ImVec2(34, 0))) {
+                if (p->durationMs < 500) {
+                    p->durationMs = std::min(500, p->durationMs + 10);
+                    changed = true;
+                }
+            }
+
+            // Column 3: Test Button
+            ImGui::TableNextColumn();
+            if (ImGui::Button("Test", ImVec2(100, 0)) || changed) {
+                vrHapticsTriggerTest(p->id);
+            }
+
+            ImGui::PopID();
+        }
+
+        ImGui::EndTable();
+    }
+
+    ImGui::PopStyleVar();
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    // Footer actions
+    if (ImGui::Button("Reset Category to Defaults")) {
+        vrHapticsResetCategory((HapticCategory)activeTab);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset All to Defaults")) {
+        vrHapticsResetAll();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Back", ImVec2(-1, 0))) {
+        vrSettingsSave();
+        open = false;
+    }
+}
+
 static void gevrReportPage(bool &open, bool crash, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
     static char note[501] = {};
@@ -491,6 +631,7 @@ static void gevrReportPage(bool &open, bool crash, const ImVec4 &gold, const ImV
     ImGui::InputTextMultiline("##reportnote", note, sizeof(note), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
     ImGui::Spacing();
     if (status != "sending" && ImGui::Button("Send", ImVec2(-1, 0))) {
+        vrHapticsDumpCTable();
         std::string command = "send|" + gevrEncodeUrl64(note) + "|"
             + gevrEncodeUrl64(VrPlayerName) + "|" + gevrBuildId;
         gevrJavaCommand("reportCommand", command.c_str());
@@ -1774,8 +1915,11 @@ extern "C" void gevrLauncherRun(void)
         static bool cheatPage = false;
         static bool modsPage = false;
         static bool mpPage = false;
+        static bool hapticsPage = false;
         if (reportPage) {
             gevrReportPage(reportPage, reportCrash, gold, good, bad);
+        } else if (hapticsPage) {
+            gevrHapticsPage(hapticsPage, gold, good, bad);
         } else if (mpPage) {
             gevrMultiplayerPage(mpPage, start, gold, good, bad);
         } else if (modsPage) {
@@ -2041,6 +2185,10 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SameLine();
             if (ImGui::Button("Multiplayer...")) {
                 mpPage = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Haptics...")) {
+                hapticsPage = true;
             }
         }
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);
