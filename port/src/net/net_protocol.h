@@ -59,6 +59,7 @@ typedef enum {
     /* Voice Chat */
     NET_MSG_VOIP_FRAME = 20,    /* Player -> Server / Peers */
     NET_MSG_WORLD_SNAPSHOT = 21,/* Host -> loaded late joiner: pickups and doors */
+    NET_MSG_APP_VERSION = 22,   /* Player -> Host / Peers: app version string */
 } NetMsgType;
 
 /* Player movement & input command struct (serialized via netbuf) */
