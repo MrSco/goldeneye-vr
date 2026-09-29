@@ -15,6 +15,7 @@
 #define VOICE_QUEUE (VOICE_FRAME * 10)
 
 extern int VrMicMuted;
+extern float VrVoiceVolume;
 extern void vrSettingsSave(void);
 extern void audioVoiceIdleTick(void);
 
@@ -234,13 +235,35 @@ static int16_t clampSample(float value) {
     return (int16_t)value;
 }
 
+static int playersShareRoom(struct player *listener, struct player *speaker) {
+    if (!listener || !speaker) return 0;
+    if (listener->prop && speaker->prop) {
+        size_t max_rooms = sizeof(listener->prop->rooms);
+        for (size_t i = 0; i < max_rooms && listener->prop->rooms[i] != 0xff; i++) {
+            uint8_t r1 = listener->prop->rooms[i];
+            for (size_t j = 0; j < max_rooms && speaker->prop->rooms[j] != 0xff; j++) {
+                if (r1 == speaker->prop->rooms[j]) return 1;
+            }
+        }
+        if (listener->prop->stan && speaker->prop->stan &&
+            listener->prop->stan->room != 0xff &&
+            listener->prop->stan->room == speaker->prop->stan->room) {
+            return 1;
+        }
+    }
+    if (listener->registeredroom >= 0 && listener->registeredroom == speaker->registeredroom) {
+        return 1;
+    }
+    return 0;
+}
+
 void netVoiceMix(int16_t *stereo, size_t frames) {
-    if (!stereo || !voiceSession() || SDL_AtomicGet(&paused)) return;
+    if (!stereo || !voiceSession() || SDL_AtomicGet(&paused) || VrVoiceVolume <= 0.0f) return;
     float left[GEVR_MAX_PLAYERS], right[GEVR_MAX_PLAYERS];
     for (unsigned slot = 0; slot < GEVR_MAX_PLAYERS; slot++) {
         left[slot] = right[slot] = 0.0f;
         if ((int)slot == netGetLocalSlot() || !netGetLobbyState()->slots[slot].connected) continue;
-        float gain = 0.7f, pan = 0.0f;
+        float gain = 1.0f * VrVoiceVolume, pan = 0.0f;
         /* Positions only on a tick that ran the players (players_ticked):
          * while a level loads or ends, everyone is heard at lobby volume. */
         if (netGetState() == NET_STATE_INGAME && players_ticked) {
@@ -253,8 +276,25 @@ void netVoiceMix(int16_t *stereo, size_t frames) {
             coord3d b = speaker->prop ? speaker->prop->pos : speaker->pos;
             float dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
             float distance = sqrtf(dx * dx + dy * dy + dz * dz);
-            if (distance >= 2000.0f) continue;
-            if (distance > 200.0f) gain *= (2000.0f - distance) / 1800.0f;
+
+            int same_room = playersShareRoom(listener, speaker);
+            if (same_room) {
+                /* In the same room: extended range (up to 3500u).
+                 * Volume never drops below 50% while in the same room. */
+                if (distance > 200.0f) {
+                    float t = (distance - 200.0f) / 3300.0f;
+                    if (t > 1.0f) t = 1.0f;
+                    gain *= (1.0f - 0.5f * t);
+                }
+            } else {
+                /* Different rooms: cutoff at 2500u with steep quadratic falloff. */
+                if (distance >= 2500.0f) continue;
+                if (distance > 200.0f) {
+                    float t = (2500.0f - distance) / 2300.0f;
+                    gain *= (t * t);
+                }
+            }
+
             if (distance > 1.0f) {
                 float yaw = listener->vv_theta * 0.01745329252f;
                 /* The listener's right is (-cos theta, -sin theta) in x/z:
