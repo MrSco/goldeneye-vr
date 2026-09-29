@@ -44,7 +44,7 @@ extern "C" bool VrTwoHandsGun(int weaponnum);
 int gripPressed = false;
 int VrLeftHandedMode = 0;
 int VrSwapJoysticks = 0;
-int VrAimSteady = 1;
+int VrAimSteady = 2;
 int VrShowStats = 0;
 unsigned long long VrCheatMask = 0;
 int VrGunSizeCheat = 0;
@@ -1846,6 +1846,7 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
     float eff_d0 = d0[lvl];
     float eff_d1 = d1[lvl];
     float targetA = aMin[lvl];
+    float maxA = 1.0f;
 
     if (grip) {
         // Base alpha respects launcher setting: Low = 0.15f, High = 0.08f, Off = 0.25f
@@ -1858,9 +1859,12 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
             // As zoom increases up to 25x, steady alpha scales down to filter high-mag tremor
             targetA = baseA / (1.0f + 0.12f * (mag - 1.0f));
             if (targetA < 0.015f) targetA = 0.015f;
-            const float sm = sqrtf(mag);
-            eff_d0 = 0.3f / sm;
-            eff_d1 = 3.0f / sm;
+            // Cap maxA during zoom so intentional adjustments don't jump to 1:1 raw speed:
+            // at 25x, maxA is ~0.18f. At 2x, maxA is ~0.50f.
+            maxA = 0.15f + 0.70f / mag;
+            if (maxA > 1.0f) maxA = 1.0f;
+            eff_d0 = 0.2f;
+            eff_d1 = 3.0f;
         } else {
             targetA = baseA;
         }
@@ -1868,7 +1872,7 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
 
     float t = (deg - eff_d0) / (eff_d1 - eff_d0);
     t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
-    const float a = targetA + (1.0f - targetA) * t;
+    const float a = targetA + (maxA - targetA) * t;
 
     XrQuaternionf q = { s.x + (raw.x - s.x) * a, s.y + (raw.y - s.y) * a,
                         s.z + (raw.z - s.z) * a, s.w + (raw.w - s.w) * a };
