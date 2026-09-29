@@ -1735,8 +1735,8 @@ s32 gevrStereoWatchGrip(void)
  */
 #define GEVR_TWOHAND_PRESS_CM 12.0f
 #define GEVR_TWOHAND_KEEP_CM 22.0f
-#define GEVR_TWOHAND_SEP_MIN 9.0f
-#define GEVR_TWOHAND_SEP_MAX 18.0f
+#define GEVR_TWOHAND_SEP_MIN 5.0f
+#define GEVR_TWOHAND_SEP_MAX 12.0f
 #define GEVR_TWOHAND_EASE 0.15f
 #define GEVR_TWOHAND_BARREL_CM 40.0f
 
@@ -1864,20 +1864,39 @@ s32 gevrStereoTwoHandUpdate(void)
     s32 was = s_gevrTwoHand;
     f32 opos[3], snap[3], dist = 0.0f;
 
+    static s32 s_graceFrames = 0;
+
     /* Remote players have no tracked hands on this headset. */
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
         return FALSE;
 
     if (!g_gevrStereo || gevrDualWielding() || !gevrStereoTwoHandItem(item)
         || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
-        || g_CurrentPlayer->hands[GUNRIGHT].field_87F == 0
-        || !get_button_state(0, "grip") || !gevrTwoHandBarrel(opos, snap, &dist, FALSE))
+        || g_CurrentPlayer->hands[GUNRIGHT].field_87F == 0)
     {
         s_gevrTwoHand = FALSE;
+        s_graceFrames = 0;
+    }
+    else if (!get_button_state(0, "grip"))
+    {
+        s_gevrTwoHand = FALSE;
+        s_graceFrames = 0;
     }
     else
     {
-        s_gevrTwoHand = dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM);
+        if (gevrTwoHandBarrel(opos, snap, &dist, FALSE))
+        {
+            s_gevrTwoHand = dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM);
+            s_graceFrames = s_gevrTwoHand ? 10 : 0;
+        }
+        else if (s_graceFrames > 0)
+        {
+            s_graceFrames--;
+        }
+        else
+        {
+            s_gevrTwoHand = FALSE;
+        }
     }
     if (s_gevrTwoHand != was)
     {
@@ -2274,10 +2293,14 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     static f32 s_twoHandDir[3];
     static s32 s_twoHandDirValid = 0;
 
+    if (!s_gevrTwoHand)
+    {
+        s_twoHandDirValid = 0;
+    }
+
     if (cm < 1e-6f || gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT))
         || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
     {
-        s_twoHandDirValid = 0;
         return;
     }
     for (i = 0; i < 3; i++)
@@ -2287,7 +2310,6 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     sep = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
     if (sep < 1e-6f)
     {
-        s_twoHandDirValid = 0;
         return;
     }
     sepw = (sep / cm - GEVR_TWOHAND_SEP_MIN) / (GEVR_TWOHAND_SEP_MAX - GEVR_TWOHAND_SEP_MIN);
@@ -2296,7 +2318,6 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     blend = s_gevrTwoHandAmt * sepw;
     if (blend <= 0.001f)
     {
-        s_twoHandDirValid = 0;
         return;
     }
 
@@ -2316,17 +2337,29 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     else
     {
         f32 dot = s_twoHandDir[0] * d[0] + s_twoHandDir[1] * d[1] + s_twoHandDir[2] * d[2];
-        f32 deg, alpha, tdeg, mag;
+        f32 deg, alpha, tdeg, mag, maxAlpha;
         if (dot > 1.0f) dot = 1.0f;
         if (dot < -1.0f) dot = -1.0f;
         deg = acosf(dot) * (180.0f / M_PI_F);
         mag = gevrScopeMagnification();
 
-        tdeg = deg / (3.0f / sqrtf(mag));
-        if (tdeg > 1.0f) tdeg = 1.0f;
-
-        alpha = 0.15f / (1.0f + 0.12f * (mag - 1.0f));
-        alpha = alpha + (1.0f - alpha) * tdeg;
+        if (mag > 1.05f)
+        {
+            alpha = 0.08f / (1.0f + 0.12f * (mag - 1.0f));
+            if (alpha < 0.015f) alpha = 0.015f;
+            maxAlpha = 0.15f + 0.70f / mag;
+            if (maxAlpha > 1.0f) maxAlpha = 1.0f;
+            tdeg = (deg - 0.2f) / (3.0f - 0.2f);
+            if (tdeg < 0.0f) tdeg = 0.0f;
+            if (tdeg > 1.0f) tdeg = 1.0f;
+            alpha = alpha + (maxAlpha - alpha) * tdeg;
+        }
+        else
+        {
+            tdeg = deg / 3.0f;
+            if (tdeg > 1.0f) tdeg = 1.0f;
+            alpha = 0.15f + (1.0f - 0.15f) * tdeg;
+        }
 
         for (i = 0; i < 3; i++)
         {
@@ -2367,6 +2400,10 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
         return;
     }
     c = v[0] * t[0] + v[1] * t[1] + v[2] * t[2];
+    if (c < 0.25f)
+    {
+        return;
+    }
     for (i = 0; i < 3; i++)
     {
         k[i] /= s;
@@ -2645,6 +2682,9 @@ f32 gevrScopeHeadP[2];          /* the head projection's x and y scales */
 f32 gevrScopeLens[4];           /* the lens from the gun hand's grip: right, up, back, diameter (m) */
 f32 gevrScopeOrigin[3];         /* the scope camera, camera space (gunfire.c sizes its sight) */
 f32 gevrScopeFovDeg;            /* the angle across the lens */
+f32 gevrScopeGunOrigin[3];      /* gun grip pos in view space (m) */
+f32 gevrScopeGunAxes[3][3];     /* gun right, up, back axes */
+s32 gevrScopeGunValid;          /* whether gevrScopeGunOrigin/Axes valid */
 static f32 s_gevrScopeTrim[4];  /* gevr_scope.txt: added to the lens */
 static f32 s_gevrScopeK = 1.0f;    /* the N64's own zoomed view (gevr_scope.txt can change it) */
 extern float gevrScopeLensTan;     /* vr_openxr.cpp: tan of half the lens's angle, as last shown */
@@ -2855,6 +2895,7 @@ s32 gevrScopeBegin(void)
     s32 i;
 
     gevrScopeOn = FALSE;
+    gevrScopeGunValid = FALSE;
     if (g_gevrStereo && g_CurrentPlayer != NULL && !gevrVrScreenMode && g_PlayerIsInTank != 1
         && sc != NULL
         && vu > 1e-6f && gevrGripAxes(1, pos, right, up, back) && gevrStereoShot(GUNRIGHT, NULL, &o, &d))
@@ -2916,6 +2957,15 @@ s32 gevrScopeBegin(void)
         s_gevrScopeEyeNear = FALSE;
         return FALSE;
     }
+
+    for (i = 0; i < 3; i++)
+    {
+        gevrScopeGunOrigin[i] = pos[i] / vu;
+        gevrScopeGunAxes[0][i] = right[i];
+        gevrScopeGunAxes[1][i] = up[i];
+        gevrScopeGunAxes[2][i] = back[i];
+    }
+    gevrScopeGunValid = TRUE;
 
     /* the camera: on the shot's line, looking along it, the gun's up as its up */
     f[0] = d.x; f[1] = d.y; f[2] = d.z;
