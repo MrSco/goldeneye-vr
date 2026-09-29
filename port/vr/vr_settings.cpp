@@ -4,6 +4,7 @@
 
 #include "vr_settings.h"
 #include "vr_screen.h"
+#include "vr_haptics.h"
 
 extern "C" float inputRumbleGetStrength(int playernum);
 extern "C" void inputRumbleSetStrength(int playernum, int strength);
@@ -117,7 +118,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 0 = it stays open. Single-handed weapons only, since on two-handers that grip\n");
     fprintf(f, "; already means 'take the two-handed hold'.\n");
     fprintf(f, "FistClench=%d\n", VrFistClench);
+    vrHapticsSaveIni(f);
     fclose(f);
+    vrHapticsDumpCTable();
 }
 
 // A multiplayer name for a player who hasn't chosen one. The Meta account name
@@ -133,6 +136,7 @@ extern "C" void vrEnsurePlayerName(void)
 extern "C" void vrSettingsLoad(void)
 {
     s_settingsLoaded = true;   // with no file yet, the defaults are the settings
+    vrHapticsInit();
     FILE *f = fopen(VR_INI_PATH, "r");
     if (!f) return;
 
@@ -164,6 +168,14 @@ extern "C" void vrSettingsLoad(void)
             VrPlayerName[sizeof(VrPlayerName) - 1] = '\0';
             VrPlayerName[strcspn(VrPlayerName, "\r\n")] = '\0';
             continue;
+        }
+
+        // Custom Haptics line (Intensity,Duration)
+        char kbuf[64] = {}, vbuf[128] = {};
+        if (sscanf(line, "%63[^=]=%127[^\r\n]", kbuf, vbuf) == 2) {
+            if (vrHapticsLoadLine(kbuf, vbuf)) {
+                continue;
+            }
         }
 
         // 1. Is it an integer (%d)? Not if the value has a decimal point: "%d"
