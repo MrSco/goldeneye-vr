@@ -65,11 +65,16 @@ def main():
             with Image.open(io.BytesIO(rz.read(info))) as im:
                 rel[os.path.basename(info.filename).upper()] = im.size
     tdb = {}
+    tdb_prefix = {}
     with open(os.path.join(root, 'ge007.tdb'), encoding='utf-8') as f:
         for line in f:
             if ';' in line:
                 n, s = line.strip().split(';')
-                tdb[n.upper() + '.PNG'] = tuple(int(v) for v in s.split('x'))
+                dims = tuple(int(v) for v in s.split('x'))
+                tdb[n.upper() + '.PNG'] = dims
+                parts = n.split('#')
+                if len(parts) >= 4:
+                    tdb_prefix[(parts[0].upper(), parts[1].upper(), parts[2], parts[3].split('_')[0])] = dims
 
     rej = set()
     rpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected.txt')
@@ -97,11 +102,16 @@ def main():
                         continue
                     counts['ai'] += 1
                     with Image.open(path) as im:
-                        nat = tdb.get(name.upper()) or (im.width // AI_SCALE, im.height // AI_SCALE)
+                        parts = name.split('#')
+                        nat = tdb.get(name.upper())
+                        if nat is None and len(parts) >= 4:
+                            nat = tdb_prefix.get((parts[0].upper(), parts[1].upper(), parts[2], parts[3].split('_')[0]))
+                        if nat is None:
+                            nat = (im.width // AI_SCALE, im.height // AI_SCALE)
                         s = min(AI_SCALE, hd_scale(max(nat)))
                         size = (nat[0] * s, nat[1] * s)
-                        if size[0] >= im.width or im.width != nat[0] * AI_SCALE:
-                            z.write(path, arc)   # already at (or under) the HD size, or not an 8x upscale
+                        if size[0] >= im.width:
+                            z.write(path, arc)   # already at (or under) the HD size
                             continue
                         im.load()
                         im = im.resize(size, Image.LANCZOS)
