@@ -3726,7 +3726,12 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
             {
                 if (renderdata->zbufferenabled)
                 {
+#ifdef GEVR
+                    /* Issue #71: see modelApplyRenderModeType4's copy. */
+                    gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_CUSTOM_AA_ZB_XLU_SURF2);
+#else
                     gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
+#endif
                 }
                 else
                 {
@@ -4027,7 +4032,22 @@ void modelApplyRenderModeType4(ModelRenderData *renderdata, bool isPrimary)
 
                 if (renderdata->zbufferenabled)
                 {
+#ifdef GEVR
+                    /*
+                     * Issue #71. PropType 9 (PROP_TYPE_MAX: every solid prop,
+                     * despite this branch's SMOKE+1 name) draws its secondary
+                     * list blended, without writing depth. The Dam truck's
+                     * headlights are such quads, filling holes in its front
+                     * panel, and its wheels' side discs come later in the
+                     * same list: from a VR head's low, close angles the wheel
+                     * behind painted over the lamp. Asking for Z_UPD makes
+                     * fast3d (gfx_opengl.cpp) add a depth-only draw of the
+                     * pixels whose alpha is opaque; glass keeps blending.
+                     */
+                    gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_CUSTOM_AA_ZB_XLU_SURF2);
+#else
                     gDPSetRenderMode(renderdata->gdl++, G_RM_FOG_PRIM_A, G_RM_AA_ZB_XLU_SURF2);
+#endif
                 }
                 else
                 {
