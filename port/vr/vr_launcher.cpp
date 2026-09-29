@@ -1867,6 +1867,23 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
             ImGui::EndDisabled();
             {
+                bool motionThrow = VrMotionThrowing;
+                if (ImGui::Checkbox("Motion throwing", &motionThrow)) {
+                    VrMotionThrowing = motionThrow;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Hold grip on throwables (grenades, knives, mines), swing arm, and release grip to throw");
+                }
+                ImGui::SameLine();
+                ImGui::BeginDisabled(!VrMotionThrowing);
+                ImGui::SetNextItemWidth(100.0f);
+                ImGui::SliderFloat("##ThrowPitch", &VrMotionThrowPitch, -20.0f, 20.0f, "%+.0f°");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Motion throw vertical pitch offset (degrees): adjust up (+) or down (-)");
+                }
+                ImGui::EndDisabled();
+            }
+            {
                 // Issue #6: the gun in the left hand, watch on the right wrist,
                 // move with the right stick. Live: it swaps the pointer hand too.
                 bool lefty = VrLeftHandedMode != 0;

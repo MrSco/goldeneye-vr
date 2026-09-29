@@ -46,6 +46,11 @@ ALSoundState* g_ImpactSfxStates[NUM_IMPACT_SFX_STATES];
 CasingRecord g_Casings[20];
 s32 dword_CODE_bss_80076A48; // Unused
 
+#ifdef GEVR
+s32 g_gevrMotionThrowActive[2] = { 0, 0 };
+struct coord3d g_gevrMotionThrowVel[2];
+#endif
+
 #ifdef REFRESH_PAL
     /* PAL */
     #define THROWN_ITEM_REFRESH_RATE                   50
@@ -1849,9 +1854,21 @@ void generate_player_thrown_grenade(s32 hand)
     bullet_path_from_screen_center(&sp94, &base_speed_vec, hand);
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32*)&base_speed_vec);
 
-    throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
-    throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
-    throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+#ifdef GEVR
+    if (g_gevrMotionThrowActive[hand])
+    {
+        throw_speed_vec.f[0] = g_gevrMotionThrowVel[hand].x;
+        throw_speed_vec.f[1] = g_gevrMotionThrowVel[hand].y;
+        throw_speed_vec.f[2] = g_gevrMotionThrowVel[hand].z;
+        g_gevrMotionThrowActive[hand] = 0;
+    }
+    else
+#endif
+    {
+        throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
+        throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
+        throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+    }
 
     if (g_ClockTimer > 0)
     {
@@ -1936,9 +1953,21 @@ void generate_player_thrown_knife(s32 hand)
     bullet_path_from_screen_center(&sp94, &base_speed_vec, hand);
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32*)&base_speed_vec);
 
-    throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
-    throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
-    throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+#ifdef GEVR
+    if (g_gevrMotionThrowActive[hand])
+    {
+        throw_speed_vec.f[0] = g_gevrMotionThrowVel[hand].x;
+        throw_speed_vec.f[1] = g_gevrMotionThrowVel[hand].y;
+        throw_speed_vec.f[2] = g_gevrMotionThrowVel[hand].z;
+        g_gevrMotionThrowActive[hand] = 0;
+    }
+    else
+#endif
+    {
+        throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
+        throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
+        throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+    }
 
     if (g_ClockTimer > 0)
     {
@@ -2035,9 +2064,21 @@ void generate_player_thrown_object(s32 hand)
     bullet_path_from_screen_center(&sp94, &base_speed_vec, hand);
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32*)&base_speed_vec);
 
-    throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
-    throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
-    throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+#ifdef GEVR
+    if (g_gevrMotionThrowActive[hand])
+    {
+        throw_speed_vec.f[0] = g_gevrMotionThrowVel[hand].x;
+        throw_speed_vec.f[1] = g_gevrMotionThrowVel[hand].y;
+        throw_speed_vec.f[2] = g_gevrMotionThrowVel[hand].z;
+        g_gevrMotionThrowActive[hand] = 0;
+    }
+    else
+#endif
+    {
+        throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
+        throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
+        throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+    }
 
     if (g_ClockTimer > 0)
     {

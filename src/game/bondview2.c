@@ -2163,6 +2163,342 @@ void gevrHandChopTick(s32 ctrl)
     }
 }
 
+#define GEVR_THROW_BUFFER_SIZE 6
+#define GEVR_MOTION_THROW_MIN_SPEED 1.2f
+
+static struct coord3d s_gevrThrowVelBuffer[2][GEVR_THROW_BUFFER_SIZE];
+static s32 s_gevrThrowVelHead[2] = { 0, 0 };
+static s32 s_gevrThrowVelCount[2] = { 0, 0 };
+static s32 s_gevrThrowGripHeld[2] = { 0, 0 };
+static s32 s_gevrThrowWindup[2] = { 0, 0 };
+
+void gevrMotionThrowTick(s32 hand)
+{
+    extern float vr_ctrl_velocity_play[2][3];
+    extern float vr_head_velocity_play[3];
+    extern float vr_ctrl_quat_play[2][4];
+    extern bool VrMotionThrowing;
+    extern float VrMotionThrowPitch;
+    extern s32 g_gevrStereo;
+    extern _Bool get_button_state(int hand_index, const char *button_name);
+    extern s32 gevrDualWielding(void);
+    extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
+    extern int vr_haptics_ready(void);
+    extern s32 gevrIsThrowable(s32 item);
+    extern s32 g_gevrMotionThrowActive[2];
+    extern struct coord3d g_gevrMotionThrowVel[2];
+    extern void generate_player_thrown_grenade(s32 hand);
+    extern void generate_player_thrown_knife(s32 hand);
+    extern void generate_player_thrown_object(s32 hand);
+
+    if (!g_gevrStereo || !VrMotionThrowing || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
+        || g_CurrentPlayer->watch_animation_state != 0 || g_PlayerIsInTank == 1)
+    {
+        s_gevrThrowWindup[hand] = 0;
+        s_gevrThrowGripHeld[hand] = 0;
+        return;
+    }
+
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        return;
+    }
+
+    s32 ctrl = gevrShotCtrl(hand);
+    s32 item = getCurrentPlayerWeaponId(hand);
+
+    if (!gevrIsThrowable(item))
+    {
+        s_gevrThrowWindup[hand] = 0;
+        s_gevrThrowGripHeld[hand] = 0;
+        return;
+    }
+
+    struct hand *handptr = &g_CurrentPlayer->hands[hand];
+    if (handptr->weapon_ammo_in_magazine <= 0 ||
+        handptr->weapon_action_state == GUN_ANIM_STATE_GRENADE_RECOVER ||
+        handptr->weapon_action_state == GUN_ANIM_STATE_GRENADE_THROW)
+    {
+        s_gevrThrowWindup[hand] = 0;
+    }
+
+    s32 grip = get_button_state(ctrl, "grip");
+    s32 was_held = s_gevrThrowGripHeld[hand];
+    s_gevrThrowGripHeld[hand] = grip;
+
+    f32 at[3], right[3], up[3], back[3];
+    if (!gevrGripAxesRaw(ctrl, at, right, up, back))
+    {
+        s_gevrThrowWindup[hand] = 0;
+        return;
+    }
+
+    f32 rel[3], loc[3], vel[3];
+    for (s32 i = 0; i < 3; i++)
+    {
+        rel[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
+    }
+    gevrWorldToLocal(vr_ctrl_quat_play[ctrl], rel, loc);
+
+    for (s32 i = 0; i < 3; i++)
+    {
+        vel[i] = loc[0] * right[i] + loc[1] * back[i] - loc[2] * up[i];
+    }
+
+    struct coord3d world_vel;
+    world_vel.x = vel[0];
+    world_vel.y = vel[1];
+    world_vel.z = vel[2];
+    mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32 *)&world_vel);
+
+    /* Grip pressed this frame: start windup if weapon idle or cooking grenade */
+    if (grip && !was_held)
+    {
+        if (handptr->weapon_ammo_in_magazine > 0 &&
+            (handptr->weapon_action_state == GUN_ANIM_STATE_IDLE ||
+             (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)))
+        {
+            s_gevrThrowWindup[hand] = 1;
+            s_gevrThrowVelHead[hand] = 0;
+            s_gevrThrowVelCount[hand] = 0;
+            for (s32 i = 0; i < GEVR_THROW_BUFFER_SIZE; i++)
+            {
+                s_gevrThrowVelBuffer[hand][i].x = 0.0f;
+                s_gevrThrowVelBuffer[hand][i].y = 0.0f;
+                s_gevrThrowVelBuffer[hand][i].z = 0.0f;
+            }
+            if (vr_haptics_ready())
+            {
+                trigger_haptic_vibration_c(ctrl, 0.25f, 0.04f);
+            }
+        }
+    }
+
+    /* While grip is held: store sample and pulse if cooking */
+    if (grip && s_gevrThrowWindup[hand])
+    {
+        s32 head = s_gevrThrowVelHead[hand];
+        s_gevrThrowVelBuffer[hand][head] = world_vel;
+        s_gevrThrowVelHead[hand] = (head + 1) % GEVR_THROW_BUFFER_SIZE;
+        if (s_gevrThrowVelCount[hand] < GEVR_THROW_BUFFER_SIZE)
+        {
+            s_gevrThrowVelCount[hand]++;
+        }
+    }
+
+    /* Grip released this frame */
+    if (!grip && was_held && s_gevrThrowWindup[hand])
+    {
+        s_gevrThrowWindup[hand] = 0;
+
+        if (handptr->weapon_ammo_in_magazine <= 0)
+        {
+            return;
+        }
+
+        f32 peak_speed = 0.0f;
+        s32 peak_idx = -1;
+        for (s32 i = 0; i < s_gevrThrowVelCount[hand]; i++)
+        {
+            struct coord3d *v = &s_gevrThrowVelBuffer[hand][i];
+            f32 spd = sqrtf(v->x * v->x + v->y * v->y + v->z * v->z);
+            if (spd > peak_speed)
+            {
+                peak_speed = spd;
+                peak_idx = i;
+            }
+        }
+
+        f32 cur_speed = sqrtf(world_vel.x * world_vel.x + world_vel.y * world_vel.y + world_vel.z * world_vel.z);
+        if (cur_speed > peak_speed)
+        {
+            peak_speed = cur_speed;
+            peak_idx = -2;
+        }
+
+        if (peak_speed >= GEVR_MOTION_THROW_MIN_SPEED)
+        {
+            /* Throw direction: prioritize release motion (blend of release frame and previous sample) */
+            struct coord3d dir_vec = world_vel;
+            if (s_gevrThrowVelCount[hand] > 0)
+            {
+                s32 prev_idx = (s_gevrThrowVelHead[hand] - 1 + GEVR_THROW_BUFFER_SIZE) % GEVR_THROW_BUFFER_SIZE;
+                dir_vec.x = world_vel.x * 0.6f + s_gevrThrowVelBuffer[hand][prev_idx].x * 0.4f;
+                dir_vec.y = world_vel.y * 0.6f + s_gevrThrowVelBuffer[hand][prev_idx].y * 0.4f;
+                dir_vec.z = world_vel.z * 0.6f + s_gevrThrowVelBuffer[hand][prev_idx].z * 0.4f;
+            }
+
+            f32 dir_speed = sqrtf(dir_vec.x * dir_vec.x + dir_vec.y * dir_vec.y + dir_vec.z * dir_vec.z);
+            if (dir_speed < 0.2f && peak_idx >= 0)
+            {
+                dir_vec = s_gevrThrowVelBuffer[hand][peak_idx];
+                dir_speed = sqrtf(dir_vec.x * dir_vec.x + dir_vec.y * dir_vec.y + dir_vec.z * dir_vec.z);
+            }
+
+            if (dir_speed > 0.001f)
+            {
+                f32 dir_x = dir_vec.x / dir_speed;
+                f32 dir_y = dir_vec.y / dir_speed;
+                f32 dir_z = dir_vec.z / dir_speed;
+
+                /* Adjust pitch angle by VrMotionThrowPitch (in degrees) */
+                if (VrMotionThrowPitch != 0.0f)
+                {
+                    f32 horiz = sqrtf(dir_x * dir_x + dir_z * dir_z);
+                    if (horiz > 0.0001f)
+                    {
+                        f32 elev = atan2f(dir_y, horiz);
+                        elev += VrMotionThrowPitch * (M_PI_F / 180.0f);
+                        if (elev > 1.4f) elev = 1.4f;
+                        if (elev < -1.4f) elev = -1.4f;
+                        dir_y = sinf(elev);
+                        f32 h_scale = cosf(elev) / horiz;
+                        dir_x *= h_scale;
+                        dir_z *= h_scale;
+                    }
+                }
+
+                f32 speed_scale = (item == ITEM_THROWKNIFE) ? 5.0f : 3.8f;
+                f32 throw_mag = peak_speed * speed_scale;
+
+                f32 min_mag = (item == ITEM_THROWKNIFE) ? 12.0f : 8.0f;
+                f32 max_mag = (item == ITEM_THROWKNIFE) ? 45.0f : 32.0f;
+                if (throw_mag < min_mag) throw_mag = min_mag;
+                if (throw_mag > max_mag) throw_mag = max_mag;
+
+                struct coord3d final_vel;
+                final_vel.x = dir_x * throw_mag;
+                final_vel.y = dir_y * throw_mag;
+                final_vel.z = dir_z * throw_mag;
+
+                g_gevrMotionThrowActive[hand] = 1;
+                g_gevrMotionThrowVel[hand] = final_vel;
+
+                if (item == ITEM_GRENADE)
+                {
+                    if (handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
+                    {
+                        g_CurrentPlayer->last_z_trigger_timer = (s32)handptr->field_890;
+                    }
+                    else
+                    {
+                        g_CurrentPlayer->last_z_trigger_timer = 0;
+                    }
+                    generate_player_thrown_grenade(hand);
+                    handptr->weapon_ammo_in_magazine -= 1;
+                    handptr->weapon_action_state = GUN_ANIM_STATE_GRENADE_RECOVER;
+                    handptr->field_87E = 0;
+                    handptr->field_890 = 0.0f;
+                    handptr->field_88C = 0;
+                }
+                else if (item == ITEM_THROWKNIFE)
+                {
+                    g_CurrentPlayer->last_z_trigger_timer = 0;
+                    generate_player_thrown_knife(hand);
+                    handptr->weapon_ammo_in_magazine -= 1;
+                    handptr->weapon_action_state = GUN_ANIM_STATE_THROWKNIFE_RECOVER;
+                    handptr->field_87E = 0;
+                    handptr->field_890 = 0.0f;
+                    handptr->field_88C = 0;
+                }
+                else
+                {
+                    g_CurrentPlayer->last_z_trigger_timer = 0;
+                    generate_player_thrown_object(hand);
+                    handptr->weapon_ammo_in_magazine -= 1;
+                    handptr->weapon_action_state = GUN_ANIM_STATE_MINE_RECOVER;
+                    handptr->field_87E = 0;
+                    handptr->field_890 = 0.0f;
+                    handptr->field_88C = 0;
+                }
+
+                if (vr_haptics_ready())
+                {
+                    trigger_haptic_vibration_c(ctrl, 0.75f, 0.09f);
+                }
+
+                sysLogPrintf(LOG_NOTE, "stereo: motion throw hand %d item %d speed %.2f m/s (mag %.1f)",
+                             hand, item, peak_speed, throw_mag);
+            }
+        }
+        else
+        {
+            if (item == ITEM_GRENADE && handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
+            {
+                /* The grenade was cooked and gently dropped at player's feet */
+                struct coord3d drop_vel;
+                drop_vel.x = 0.0f;
+                drop_vel.y = -1.0f;
+                drop_vel.z = 0.0f;
+                g_gevrMotionThrowActive[hand] = 1;
+                g_gevrMotionThrowVel[hand] = drop_vel;
+                g_CurrentPlayer->last_z_trigger_timer = (s32)handptr->field_890;
+
+                generate_player_thrown_grenade(hand);
+                handptr->weapon_ammo_in_magazine -= 1;
+                handptr->weapon_action_state = GUN_ANIM_STATE_GRENADE_RECOVER;
+                handptr->field_87E = 0;
+                handptr->field_890 = 0.0f;
+                handptr->field_88C = 0;
+
+                if (vr_haptics_ready())
+                {
+                    trigger_haptic_vibration_c(ctrl, 0.5f, 0.06f);
+                }
+                sysLogPrintf(LOG_NOTE, "stereo: dropped cooked grenade at feet (timer %d)",
+                             g_CurrentPlayer->last_z_trigger_timer);
+            }
+            else
+            {
+                if (vr_haptics_ready())
+                {
+                    trigger_haptic_vibration_c(ctrl, 0.15f, 0.03f);
+                }
+                sysLogPrintf(LOG_NOTE, "stereo: motion throw hand %d cancelled (speed %.2f < %.2f)",
+                             hand, peak_speed, GEVR_MOTION_THROW_MIN_SPEED);
+            }
+        }
+    }
+}
+
+void gevrMotionThrowUpdate(void)
+{
+    gevrMotionThrowTick(GUNRIGHT);
+    gevrMotionThrowTick(GUNLEFT);
+}
+
+s32 gevrIsMotionThrowGripping(s32 hand)
+{
+    if (hand < 0 || hand > 1) return 0;
+    return s_gevrThrowWindup[hand];
+}
+
+void gevrGrenadeCookHapticTick(s32 hand, s32 cook_tick)
+{
+    if (!g_gevrStereo || !vr_haptics_ready())
+    {
+        return;
+    }
+    s32 ctrl = gevrShotCtrl(hand);
+    s32 pulse = 0;
+    if (cook_tick < 120)
+    {
+        pulse = (cook_tick % 30 == 0);
+    }
+    else if (cook_tick < 180)
+    {
+        pulse = (cook_tick % 20 == 0);
+    }
+    else
+    {
+        pulse = (cook_tick % 10 == 0);
+    }
+    if (pulse)
+    {
+        trigger_haptic_vibration_c(ctrl, 0.35f + (cook_tick / 500.0f), 0.04f);
+    }
+}
+
 /*
  * The holding hand's model matrix. gunfire.c gevrRenderLeftArm hands over the
  * off hand's (gevrStereoGunMatrix(GUNLEFT), mirrored into a left hand and at

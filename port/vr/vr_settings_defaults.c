@@ -19,7 +19,8 @@
 /* --- Comfort and control options ---------------------------------------- */
 
 bool VrManualReloading    = false;  /* reload by gesture rather than automatically */
-bool VrMotionThrowing     = false;  /* throw grenades by arm motion */
+bool VrMotionThrowing     = true;   /* throw grenades, knives and mines by arm motion */
+float VrMotionThrowPitch  = 0.0f;   /* vertical pitch offset in degrees for motion throws */
 bool VrSeatedMode         = false;  /* play seated; height is taken from the ini */
 bool VrlaserDotForALL     = false;  /* laser dot on every weapon, not just the ones that have one */
 bool VrTwoHandAim         = false;  /* two-handed weapons aim along the line between both controllers */

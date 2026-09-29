@@ -10,6 +10,7 @@ extern float VrStereoCrosshair;
 #define HUD_STEREO_DEPTH_MAX 4.0f
 extern bool VrSeatedMode;
 extern bool VrMotionThrowing;
+extern float VrMotionThrowPitch;
 extern bool VrWeaponRecoil;
 #define WORLDSCALE_MIN    0.50f
 #define WORLDSCALE_MAX    1.50f
