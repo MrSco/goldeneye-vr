@@ -952,10 +952,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if (netIsRemotePlayerActive(idx)) {
             const struct netplayermove *m = netGetRemotePlayerMove(idx);
             if (m) {
-                /* In GoldenEye, stick_y is forward/back (-70..+70), stick_x is strafe left/right (-70..+70) */
-                npad->stick_y = (s8)(m->movespeed[0] * 70.0f);
-                npad->stick_x = (s8)(m->movespeed[1] * 70.0f);
-                if (m->ucmd & UCMD_FIRE) {
+                /* Remote positions are authoritative. Feeding their movement
+                 * back through the local walk simulation moves them twice and
+                 * makes the character bounce between ticks. */
+                if ((m->ucmd & UCMD_FIRE) && g_playerPointers[idx] &&
+                    !g_playerPointers[idx]->bonddead) {
                     npad->button |= Z_TRIG;
                 }
                 if (m->ucmd & UCMD_DUCK) {
@@ -1004,7 +1005,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
         }
         const bool paused = g_CurrentPlayer && g_CurrentPlayer->pause_state != 0;
-        const bool menu = bossGetStageNum() == LEVELID_TITLE || paused;
+        const bool menu = bossGetStageNum() == LEVELID_TITLE || paused ||
+                          (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon);
         XrVector2f left = {0}, right = {0};
         get_2d_input(0, "thumbstick", &left);
         get_2d_input(1, "thumbstick", &right);
@@ -1375,6 +1377,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         XrVector2f look = right;
         if (menu && left.x * left.x + left.y * left.y >= right.x * right.x + right.y * right.y)
             look = left;
+        if (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon) {
+            /* Keep page navigation on the left stick and volume on the right.
+             * A diagonal adjustment must not also change pages. */
+            look.x = left.x;
+            look.y = right.y;
+        }
         npad->stick_x = inputAxisScale((s32)(look.x * 32767.0f),
                 cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]) / 256;
         npad->stick_y = inputAxisScale((s32)(look.y * 32767.0f),

@@ -7,9 +7,10 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-28. **Latest release:** v0.3.3 (versionCode 28):
-multiplayer HUD text crash guard (#78), player and lobby version tooltips,
-and TURN credential rate limit fix. v0.3.2 (0852b9f, versionCode 27) brought
+**Updated:** 2026-09-28. **Latest release:** v0.3.4 (versionCode 29):
+restore original multiplayer movement speed, multiplayer testing fixes.
+v0.3.3 (49f2ac6, versionCode 28) brought multiplayer HUD text crash guard (#78),
+player and lobby version tooltips, and TURN credential rate limit fix. v0.3.2 (0852b9f, versionCode 27) brought
 multiplayer pause controls (#76), calibrated recoil and damage rumble (#64),
 tank runover audio (#68), left-hand weapons (#56), previous weapon with right
 grip + A (#63), left X for weapons and Y for use/reload, and normal online

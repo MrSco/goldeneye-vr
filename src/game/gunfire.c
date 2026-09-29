@@ -7812,6 +7812,7 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
     extern const char *netGetSlotName(int slot);
     extern bool netIsActive(void);
     extern int netGetLocalSlot(void);
+    extern int netVoiceSlotSpeaking(unsigned char slot);
     s32 i;
 
     for (i = 0; i < getPlayerCount(); i++)
@@ -7833,7 +7834,16 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
         /* the prop is at eye height (bondview2.c start_pos): the panel starts a head above */
         at = pl->prop->pos;
         at.y += 25.0f;
-        gdl = gevrDrawNameTag(gdl, name, at);
+        if (netVoiceSlotSpeaking((unsigned char)i))
+        {
+            char speaking_name[20];
+            snprintf(speaking_name, sizeof(speaking_name), ">)) %.11s", name);
+            gdl = gevrDrawNameTag(gdl, speaking_name, at);
+        }
+        else
+        {
+            gdl = gevrDrawNameTag(gdl, name, at);
+        }
     }
     return gdl;
 }

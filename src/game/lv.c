@@ -65,6 +65,7 @@
 #ifdef GEVR
 extern bool netIsActive(void);
 extern int netGetPhase(void);
+#include "options.h"
 #endif
 
 // bss
@@ -357,9 +358,21 @@ void lvlStageLoad(s32 stage)
     g_MpSoundStateRelated = 0;
 
     sndSetScalerApplyVolumeAllSfxSlot(1.0f);
-    musicTrack1ApplySeqpVol(VOLUME_MAX);
-    musicTrack2ApplySeqpVol(VOLUME_MAX);
-    musicTrack3ApplySeqpVol(VOLUME_MAX);
+#ifdef GEVR
+    if (netIsActive())
+    {
+        u16 volume = get_mTrack2Vol();
+        musicTrack1ApplySeqpVol(volume);
+        musicTrack2ApplySeqpVol(volume);
+        musicTrack3ApplySeqpVol(volume);
+    }
+    else
+#endif
+    {
+        musicTrack1ApplySeqpVol(VOLUME_MAX);
+        musicTrack2ApplySeqpVol(VOLUME_MAX);
+        musicTrack3ApplySeqpVol(VOLUME_MAX);
+    }
     sub_GAME_7F0C1364();
     modelmgrSetLevelResetting(TRUE);
     set_mt_tex_alloc();

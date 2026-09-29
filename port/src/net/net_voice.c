@@ -26,6 +26,7 @@ typedef struct {
     int seen, started;
     int16_t current, next;
     unsigned phase;
+    uint32_t speaking_until;
 } VoiceStream;
 
 static VoiceStream streams[GEVR_MAX_PLAYERS];
@@ -67,6 +68,10 @@ int netVoiceHasPermission(void) { return SDL_AtomicGet(&permission); }
 int netVoiceCaptureReady(void) { return capture != 0; }
 int netVoiceCaptureFailed(void) { return capture_failed; }
 int netVoiceIsMuted(void) { return VrMicMuted != 0; }
+int netVoiceSlotSpeaking(uint8_t slot) {
+    return slot < GEVR_MAX_PLAYERS && streams[slot].speaking_until != 0 &&
+           (int32_t)(streams[slot].speaking_until - SDL_GetTicks()) > 0;
+}
 
 void netVoiceSetMuted(int muted) {
     muted = muted != 0;
@@ -186,6 +191,11 @@ void netVoiceReceive(uint8_t slot, uint32_t sequence, const uint8_t *packet, uin
     int16_t decoded[VOICE_FRAME];
     int n = opus_decode(s->decoder, packet, size, decoded, VOICE_FRAME, 0);
     if (n <= 0 || n > VOICE_FRAME) return;
+    {
+        int64_t energy = 0;
+        for (int i = 0; i < n; i++) energy += decoded[i] < 0 ? -(int32_t)decoded[i] : decoded[i];
+        if (energy / n > 320) s->speaking_until = SDL_GetTicks() + 300;
+    }
     pushSamples(s, decoded, (unsigned)n);
     s->last_sequence = sequence;
     s->seen = 1;

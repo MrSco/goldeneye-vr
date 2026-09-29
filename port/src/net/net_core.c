@@ -53,11 +53,19 @@ void netSetVirtualTransport(ENetVirtualSendCallback sendCallback,
     if (s_host) enet_host_set_virtual_transport(s_host, sendCallback, receiveCallback, context);
 }
 static int s_local_slot = 0;
+static uint8_t s_preferred_chr_id = 0;
+
+void netSetPreferredCharacter(uint8_t chr_id) {
+    if (chr_id < 12) s_preferred_chr_id = chr_id;
+}
 
 /* Remote player state cache */
 static struct netplayermove s_remote_moves[GEVR_MAX_PLAYERS];
 static NetMsgPlayerState s_remote_players[GEVR_MAX_PLAYERS];
 static bool s_remote_active[GEVR_MAX_PLAYERS];
+static bool s_waiting_for_match_snapshot = false;
+static bool s_stage_ready_sent = false;
+static uint64_t s_last_stage_ready_us = 0;
 
 /* Current Lobby State */
 static NetMsgLobbyState s_lobby_state;
@@ -240,6 +248,8 @@ bool netConnect(const char *host_addr, uint16_t port) {
 
 void netDisconnect(void) {
     netVoiceReset();
+    s_waiting_for_match_snapshot = false;
+    s_stage_ready_sent = false;
     if (!s_host) return;
     
     if (s_server_peer) {
@@ -578,6 +588,8 @@ void netStageLoaded(void) {
     if (s_state != NET_STATE_INGAME || s_local_slot < 0) return;
     s_lobby_state.slots[s_local_slot].ready = 1;
     if (!netIsHost()) {
+        s_stage_ready_sent = true;
+        s_last_stage_ready_us = sysGetMicroseconds();
         u8 raw[24];
         struct netbuf buf = { .data = raw, .size = sizeof(raw) };
         netbufStartWrite(&buf);
@@ -1165,6 +1177,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_state = NET_STATE_INGAME;
             /* A late joiner stays in warmup until the reliable match snapshot arrives. */
             s_phase = phase == NET_PHASE_IN_PROGRESS ? NET_PHASE_WARMUP : (NetPhase)phase;
+            s_waiting_for_match_snapshot = phase == NET_PHASE_IN_PROGRESS;
+            s_stage_ready_sent = false;
             s_lobby_state.slots[s_local_slot].ready = 0;
             NET_LOG("Starting match on stage %d! Seed: 0x%08X", s_lobby_state.stage_num, s_rng_seed);
             break;
@@ -1177,7 +1191,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             float x = netbufReadF32(&buf), y = netbufReadF32(&buf);
             float z = netbufReadF32(&buf), yaw = netbufReadF32(&buf);
             if (buf.error) break;
-            if (s_phase == NET_PHASE_IN_PROGRESS && startpadcount > 0 && g_playerPointers[slot]) {
+            bool was_ready = s_lobby_state.slots[slot].ready != 0;
+            if (!was_ready && s_phase == NET_PHASE_IN_PROGRESS && startpadcount > 0 && g_playerPointers[slot]) {
                 s32 previous = get_cur_playernum();
                 set_cur_player(slot);
                 mp_respawn_handler_net(0, yaw);
@@ -1193,7 +1208,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 netbufWriteF32(&respawn, yaw);
                 netBroadcastBuf(&respawn, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
             }
-            if (g_playerPointers[slot] && g_playerPointers[slot]->prop) {
+            if (!was_ready && g_playerPointers[slot] && g_playerPointers[slot]->prop) {
                 struct player *pl = g_playerPointers[slot];
                 pl->prop->pos.x = x;
                 pl->prop->pos.y = y;
@@ -1275,6 +1290,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 pl->bondarmour = state[i][6];
             }
             s_phase = NET_PHASE_IN_PROGRESS;
+            s_waiting_for_match_snapshot = false;
             break;
         }
         case NET_MSG_WORLD_SNAPSHOT: {
@@ -1503,7 +1519,7 @@ void netPoll(void) {
                     netbufWriteU8(&buf, NET_MSG_HELLO);
                     netbufWriteU8(&buf, 0xFF);
                     netbufWriteStr(&buf, VrPlayerName);
-                    netbufWriteU8(&buf, 0); /* Default Bond */
+                    netbufWriteU8(&buf, s_preferred_chr_id);
                     
                     ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
                     enet_peer_send(event.peer, NET_CHAN_RELIABLE, packet);
@@ -1576,6 +1592,12 @@ void netPoll(void) {
         netGetConnectedPlayerCount() >= 2 && netAllLoaded()) {
         s_next_round_at_us = 0;
         netBeginRoundReset();
+    }
+    if (s_waiting_for_match_snapshot && s_stage_ready_sent &&
+        s_state == NET_STATE_INGAME && !netIsHost() &&
+        sysGetMicroseconds() - s_last_stage_ready_us > 3000000) {
+        NET_LOG("Still waiting for in-progress snapshot; repeating stage-ready request");
+        netStageLoaded();
     }
     netVoiceTick();
 }

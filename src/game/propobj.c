@@ -12412,7 +12412,26 @@ void doorBuildClippedVertices(DoorRecord *inDoor)
             cutoff = door->bbox.Bounds.xmin + 0.5f;
         }
 
-        ((struct ModelRwData_DisplayList_CollisionRecord *)inDoor)->Vertices = dynAllocateVertices(src->numVertices);
+        /* The model retains this pointer between door ticks. The dynamic
+         * vertex arena swaps every rendered frame, so vertices allocated
+         * there can be overwritten before the next door update and make a
+         * moving wall panel flicker or appear transparent. */
+        if (door->unkcc == NULL)
+        {
+            return;
+        }
+        ((struct ModelRwData_DisplayList_CollisionRecord *)inDoor)->Vertices = door->unkcc;
+        for (i = 0; i < src->numVertices; i++)
+        {
+            door->unkcc[i] = src->Vertices[i];
+        }
+
+        /* The four-vertex clipping assumption below does not hold for the
+         * vertically rising wall panels (for example, Facility's tank room).
+         * It folds their triangles into giant coloured shards while opening.
+         * Let those panels slide into the wall with their original mesh. */
+        if (door->doorType == DOORTYPE_VERTICAL)
+            return;
 
         for (i = 0; i < src->numVertices / 4; i++)
         {
@@ -12426,15 +12445,6 @@ void doorBuildClippedVertices(DoorRecord *inDoor)
                 n1 = &(&src->Vertices[i * 4])[(j + 1) % 4];
                 n2 = &(&src->Vertices[i * 4])[(j + 2) % 4];
                 n3 = &(&src->Vertices[i * 4])[(j + 3) % 4];
-
-                if (j == 0)
-                {
-                    *dcur = *cur;
-                    *d1 = *n1;
-                    *d2 = *n2;
-                    *d3 = *n3;
-                    if (1);
-                }
 
                 // Rebuild the S/T coords for vertically sliding doors to mask the door's resizing.
                 if (door->doorType == DOORTYPE_VERTICAL)

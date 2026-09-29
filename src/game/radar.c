@@ -36,6 +36,7 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
     s32 loop_start_left;
     s32 loop_start_top;
     f32 temp_f16;
+    s32 radar_scale = 1;
 
 #if defined(VERSION_EU)
     #define RADAR_TOP_OFFSET 0x1d
@@ -70,9 +71,24 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
 
     start_left = (viGetViewLeft() + viGetViewWidth()) - 0x29;
     start_top = viGetViewTop() + RADAR_TOP_OFFSET;
-    
+#ifdef GEVR
+    {
+        extern s32 g_gevrStereo;
+        if (g_gevrStereo)
+        {
+            /* Keep the radar within the comfortable centre of the HUD quad. */
+            start_left -= 32;
+            start_top += 20;
+            radar_scale = 2;
+        }
+    }
+#endif
     if ((player_count >= 3) && !(cur_playernum & 1))
     {
+#ifdef GEVR
+        extern s32 g_gevrStereo;
+        if (!g_gevrStereo)
+#endif
         start_left += 0xF;
     }
     
@@ -85,17 +101,18 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
 
     gSPTextureRectangle(
         DL++,
-        (start_left - 0x10) << 2,
-        (start_top - RADAR_RECT1_OFFSET) << 2,
-        (start_left + 0x10) << 2,
-        (start_top + RADAR_RECT1_OFFSET) << 2,
+        (start_left - 0x10 * radar_scale) << 2,
+        (start_top - RADAR_RECT1_OFFSET * radar_scale) << 2,
+        (start_left + 0x10 * radar_scale) << 2,
+        (start_top + RADAR_RECT1_OFFSET * radar_scale) << 2,
         G_TX_RENDERTILE,
         0x10,
         0x10,
-        0x400,
-        RADAR_RECT1_D);
+        0x400 / radar_scale,
+        RADAR_RECT1_D / radar_scale);
     
-    DL = microcode_constructor_related_to_menus(DL, start_left - 2, start_top - 2, start_left + 2, start_top + 2, 0x40);
+    DL = microcode_constructor_related_to_menus(DL, start_left - 2 * radar_scale, start_top - 2 * radar_scale,
+                                                  start_left + 2 * radar_scale, start_top + 2 * radar_scale, 0x40);
     
     if ((current_scenario == SCENARIO_2v2)
         || (current_scenario == SCENARIO_3v1)
@@ -112,18 +129,30 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
             dl_color_1 = 0x8888FFFF;
         }
         
-        DL = microcode_constructor_related_to_menus(DL, start_left - 1, start_top - 1, start_left + 1, start_top + 1, dl_color_1);
+        DL = microcode_constructor_related_to_menus(DL, start_left - radar_scale, start_top - radar_scale,
+                                                      start_left + radar_scale, start_top + radar_scale, dl_color_1);
     }
     else
     {
-        DL = microcode_constructor_related_to_menus(DL, start_left - 1, start_top - 1, start_left + 1, start_top + 1, -0x60);
+        DL = microcode_constructor_related_to_menus(DL, start_left - radar_scale, start_top - radar_scale,
+                                                      start_left + radar_scale, start_top + radar_scale, -0x60);
     }
 
     for (i = 0; i < player_count; i++)
     {
+#ifdef GEVR
+        {
+            extern bool netIsActive(void);
+            extern bool netSlotOccupied(int slot);
+            extern bool netIsRemotePlayerActive(int slot);
+            if (netIsActive() && (!netSlotOccupied(i) ||
+                (i != cur_playernum && !netIsRemotePlayerActive(i)))) continue;
+        }
+#endif
         if (i != cur_playernum)
         {
-            if (g_playerPointers[i]->bonddead == FALSE)
+            if (g_playerPointers[i] && g_playerPointers[i]->prop &&
+                g_playerPointers[i]->bonddead == FALSE)
             {
                 f32 tt1;
                 other_player_prop = g_playerPointers[i]->prop;
@@ -134,7 +163,7 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
                 
                 temp_f28 = ((atan2f(temp_f20, temp_f22) * 180.0f) / M_PI_F) + g_CurrentPlayer->vv_theta + 180.0f;
                 
-                temp_f24 = 16;
+                temp_f24 = 16 * radar_scale;
                 temp_f16 = 4000;
 
                 tt1 = (temp_f24 / temp_f16);
@@ -187,8 +216,12 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
                 loop_start_left = (s32) (sinf(temp_f28 * 0.017453292f) * temp_f2) + start_left;
                 loop_start_top = (s32) (cosf(temp_f28 * 0.017453292f) * temp_f2 * RADAR_VERT_SCALE) + start_top;
                 
-                DL = microcode_constructor_related_to_menus(DL, loop_start_left - 2, loop_start_top - 2, loop_start_left + 2, loop_start_top + 2, 0x40);
-                DL = microcode_constructor_related_to_menus(DL, loop_start_left - 1, loop_start_top - 1, loop_start_left + 1, loop_start_top + 1, dl_color_2);
+                DL = microcode_constructor_related_to_menus(DL, loop_start_left - 2 * radar_scale,
+                    loop_start_top - 2 * radar_scale, loop_start_left + 2 * radar_scale,
+                    loop_start_top + 2 * radar_scale, 0x40);
+                DL = microcode_constructor_related_to_menus(DL, loop_start_left - radar_scale,
+                    loop_start_top - radar_scale, loop_start_left + radar_scale,
+                    loop_start_top + radar_scale, dl_color_2);
             }
         }
     }

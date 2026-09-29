@@ -1005,6 +1005,17 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             ImGui::TextWrapped("You are hosting. Stop the lobby before joining another game.");
             if (ImGui::Button("Return to Host Game")) subTab = 0;
         } else if (!netIsActive()) {
+            ImGui::Text("Your character:");
+            ImGui::SameLine();
+            if (ImGui::BeginCombo("##chrjoincombo", characters[selectedChrIdx].name)) {
+                for (int n = 0; n < (int)(sizeof(characters)/sizeof(characters[0])); n++) {
+                    bool isSelected = selectedChrIdx == n;
+                    if (ImGui::Selectable(characters[n].name, isSelected)) selectedChrIdx = n;
+                    if (isSelected) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            netSetPreferredCharacter((uint8_t)characters[selectedChrIdx].id);
             const uint32_t listNow = SDL_GetTicks();
             if (listNow - lastListMs > 8000 || lastListMs == 0) {
                 lastListMs = listNow;
@@ -1130,6 +1141,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                     bool isSelected = (selectedChrIdx == n);
                     if (ImGui::Selectable(characters[n].name, isSelected)) {
                         selectedChrIdx = n;
+                        netSetPreferredCharacter((uint8_t)characters[selectedChrIdx].id);
                         netLobbySetCharacter((uint8_t)characters[selectedChrIdx].id);
                     }
                     if (isSelected) ImGui::SetItemDefaultFocus();
