@@ -1,0 +1,20 @@
+name: Announce Release to Discord
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  discord-announcement:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Github Releases To Discord
+        uses: SethCohen/github-releases-to-discord@v1.20.0
+        with:
+          # This pulls your webhook URL securely from GitHub Repository Secrets
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+          # Optional Customizations:
+          # color: "3066993"                         # Decimal color code for the embed sidebar
+          # username: "Deploy Bot"                    # Overrides the webhook name
+          # avatar_url: "https://example.com" # Overrides the webhook profile picture
