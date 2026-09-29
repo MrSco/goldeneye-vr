@@ -31,6 +31,11 @@ extern const char *netGetSlotName(int slot);
 extern int netVoiceSlotSpeaking(unsigned char slot);
 extern void gevrLobbySessionStopped(void);
 extern void gevrRestartToLauncher(void);
+extern float VrMusicVolume;
+extern float VrVoiceVolume;
+extern void vrSettingsSave(void);
+extern bool get_button_state(int hand, const char *button_name);
+static s32 s_mpAudioSlider = 0; /* 0 = MUSIC, 1 = VOICE */
 #endif
 
 #ifdef REFRESH_PAL
@@ -710,32 +715,56 @@ void mpwatchMenuTick(void)
                 if (netIsActive() && player_num == netGetLocalSlot() &&
                     g_CurrentPlayer->mpmenumode == MENU_PAUSE)
                 {
-                    static s32 music_stick_direction = 0;
-                    static s32 music_stick_held_ticks = 0;
+                    static int last_rclick = 0;
+                    int rclick = get_button_state(1, "thumbstick_click") ? 1 : 0;
+                    int rclick_pressed = rclick && !last_rclick;
+                    last_rclick = rclick;
+
+                    /* Right stick click only: A also closes the pause menu. */
+                    if (rclick_pressed)
+                    {
+                        s_mpAudioSlider = !s_mpAudioSlider;
+                        mpwatchPlayBeep();
+                    }
+
+                    static s32 audio_stick_direction = 0;
+                    static s32 audio_stick_held_ticks = 0;
                     s32 stick_y = joyGetStickY(player_num);
                     s32 direction = stick_y > 30 ? 1 : stick_y < -30 ? -1 : 0;
                     s32 change = 0;
-                    s32 volume;
-                    if (direction != music_stick_direction)
+                    if (direction != audio_stick_direction)
                     {
-                        music_stick_direction = direction;
-                        music_stick_held_ticks = 0;
+                        audio_stick_direction = direction;
+                        audio_stick_held_ticks = 0;
                         change = direction;
                     }
-                    else if (direction != 0 && ++music_stick_held_ticks >= 18 &&
-                             (music_stick_held_ticks - 18) % 6 == 0)
+                    else if (direction != 0 && ++audio_stick_held_ticks >= 18 &&
+                             (audio_stick_held_ticks - 18) % 6 == 0)
                     {
                         change = direction;
                     }
                     if (change)
                     {
-                        volume = (s32)get_mTrack2Vol() + change * 3277;
-                        if (volume < 0) volume = 0;
-                        if (volume > 32767) volume = 32767;
-                        set_mTrack2Vol((u16)volume);
-                        musicTrack1ApplySeqpVol((u16)volume);
-                        musicTrack3ApplySeqpVol((u16)volume);
-                        mpwatchPlayBeep();
+                        if (s_mpAudioSlider == 0)
+                        {
+                            s32 volume = (s32)get_mTrack2Vol() + change * 3277;
+                            if (volume < 0) volume = 0;
+                            if (volume > 32767) volume = 32767;
+                            set_mTrack2Vol((u16)volume);
+                            musicTrack1ApplySeqpVol((u16)volume);
+                            musicTrack3ApplySeqpVol((u16)volume);
+                            VrMusicVolume = (float)volume / 32767.0f;
+                            vrSettingsSave();
+                            mpwatchPlayBeep();
+                        }
+                        else
+                        {
+                            VrVoiceVolume += change * 0.10f;
+                            if (VrVoiceVolume < 0.0f) VrVoiceVolume = 0.0f;
+                            if (VrVoiceVolume > 1.0f) VrVoiceVolume = 1.0f;
+                            vrSettingsSave();
+                            mpwatchPlayBeep();
+                        }
                     }
                 }
 #endif
@@ -759,7 +788,11 @@ void mpwatchMenuTick(void)
                     mpwatchPlayBeep();
                     g_CurrentPlayer->mpquitconfirm = 0;
                 }
+#ifdef GEVR
+                else if (!netIsActive() && joyGetButtonsPressedThisFrame(player_num, A_BUTTON) && (g_CurrentPlayer->mpmenumode == MENU_PAUSE))
+#else
                 else if (joyGetButtonsPressedThisFrame(player_num, A_BUTTON) && (g_CurrentPlayer->mpmenumode == MENU_PAUSE))
+#endif
                 {
                     mpwatchPlayBeep();
                     if (!g_pausedFlag)
@@ -1893,15 +1926,47 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
 #ifdef GEVR
         if (netIsActive() && g_CurrentPlayer->mpmenumode == MENU_PAUSE)
         {
-            char music_label[40];
-            snprintf(music_label, sizeof(music_label), "MUSIC %d%%  R STICK",
-                     ((s32)get_mTrack2Vol() * 100 + 16383) / 32767);
+            char music_label[48];
+            char voice_label[48];
+            char hint_label[48];
+            u32 music_color;
+            u32 voice_color;
+
+            int music_val = ((s32)get_mTrack2Vol() * 100 + 16383) / 32767;
+            int voice_val = (int)(VrVoiceVolume * 100.0f + 0.5f);
+
+            snprintf(music_label, sizeof(music_label), "%sMUSIC %d%%%s",
+                     s_mpAudioSlider == 0 ? "> " : "  ", music_val,
+                     s_mpAudioSlider == 0 ? " <" : "");
+            snprintf(voice_label, sizeof(voice_label), "%sVOICE %d%%%s",
+                     s_mpAudioSlider == 1 ? "> " : "  ", voice_val,
+                     s_mpAudioSlider == 1 ? " <" : "");
+            snprintf(hint_label, sizeof(hint_label), "R-STICK:ADJ  CLICK:SWAP");
+
+            music_color = (s_mpAudioSlider == 0) ? 0xa0ffa0f0 : 0x00ff00b0;
             textMeasure(&textheight, &textwidth, music_label,
                         ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
-            y = menu_top + 132 + MPMENU_YOFF;
+            y = menu_top + 116 + MPMENU_YOFF;
             viewleft = viGetX(); h1 = viGetY();
             gdl = textRender(gdl, &x, &y, music_label, ptrFontBankGothicChars,
+                             ptrFontBankGothic, music_color, viewleft, h1, 0, 0);
+
+            voice_color = (s_mpAudioSlider == 1) ? 0xa0ffa0f0 : 0x00ff00b0;
+            textMeasure(&textheight, &textwidth, voice_label,
+                        ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+            y = menu_top + 130 + MPMENU_YOFF;
+            viewleft = viGetX(); h1 = viGetY();
+            gdl = textRender(gdl, &x, &y, voice_label, ptrFontBankGothicChars,
+                             ptrFontBankGothic, voice_color, viewleft, h1, 0, 0);
+
+            textMeasure(&textheight, &textwidth, hint_label,
+                        ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+            y = menu_top + 144 + MPMENU_YOFF;
+            viewleft = viGetX(); h1 = viGetY();
+            gdl = textRender(gdl, &x, &y, hint_label, ptrFontBankGothicChars,
                              ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
         }
 #endif
