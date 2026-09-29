@@ -11,6 +11,8 @@ extern float VrStereoCrosshair;
 extern bool VrSeatedMode;
 extern bool VrMotionThrowing;
 extern float VrMotionThrowPitch;
+extern float VrMotionThrowGazeAssist;
+extern float VrMotionThrowStrength;
 extern bool VrWeaponRecoil;
 #define WORLDSCALE_MIN    0.50f
 #define WORLDSCALE_MAX    1.50f

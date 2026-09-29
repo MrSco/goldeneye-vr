@@ -733,7 +733,7 @@ extern "C" bool get_button_state(int hand_index, const char* button_name) {
 
 
 
-/*float get_analog_value(int hand_index, const char* input_name) {
+extern "C" float get_analog_value(int hand_index, const char* input_name) {
     if (hand_index < 0 || hand_index > 1) return 0.0f;
 
     if (VrLeftHandedMode){
@@ -749,7 +749,7 @@ extern "C" bool get_button_state(int hand_index, const char* button_name) {
         return state.grip_value.currentState;
     }
     return 0.0f;
-}*/
+}
 
 
 extern "C" bool get_2d_input(int hand_index, const char* input_name, XrVector2f* value) {
