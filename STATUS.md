@@ -7,8 +7,11 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-28. **Latest release:** v0.3.4 (versionCode 29):
+**Updated:** 2026-09-29. **Latest release:** v0.3.4 (versionCode 29):
 restore original multiplayer movement speed, multiplayer testing fixes.
+Unreleased on main (versionCode 31): sniper scope steadiness (#79), VR
+motion throwing and grenade cooking, room-aware voice falloff, Music and
+Voice volume in the launcher and the multiplayer pause menu.
 v0.3.3 (49f2ac6, versionCode 28) brought multiplayer HUD text crash guard (#78),
 player and lobby version tooltips, and TURN credential rate limit fix. v0.3.2 (0852b9f, versionCode 27) brought
 multiplayer pause controls (#76), calibrated recoil and damage rumble (#64),
@@ -49,7 +52,13 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   Owner-authoritative positions with input extrapolation, hit reports relayed
   by the host, synced weapons, deaths, respawns and explosions. Voice chat:
   Opus on its own ENet channel, full volume in the lobby, distance and
-  direction in a match, mute in the lobby, on the watch, or with left X+Y.
+  direction in a match (same room: gentle falloff to a 50% floor out to
+  3500 units; other rooms: quadratic to silence at 2500, net_voice.c
+  playersShareRoom), mute in the lobby, on the watch, or with left X+Y.
+  Music and Voice volume: launcher sliders and the multiplayer pause menu
+  (right stick adjusts, right stick click swaps; A still closes the menu),
+  saved as MusicVolume and VoiceVolume under [VR] in goldeneye-vr.ini.
+  Launcher Join Game is an accordion (Public, Private, LAN, Direct IP).
   Drop-in (v0.3.0): games stay listed after the start, solo warmup, late
   joiners get match and world snapshots, slots are reused, scores carry
   over. Names: launcher "Your name" (ini PlayerName, typed on the Quest
@@ -70,9 +79,10 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   #32 Surface ground patches without impacts (the PC port's D313 fix is
   already in bg.c; re-check), #60 laser watch arm changes size. Closed
   2026-09-28: #18 (fixed), #50 (not reproduced), #56, #63, #64.
-- Unmerged branches: only fix/60-watch-grip-hand (shelved: the laser watch
-  gripped with a mirrored hand, which didn't lock to the wrist). One
-  checkout, this one; no other worktrees.
+- Unmerged branches: fix/60-watch-grip-hand (shelved: the laser watch
+  gripped with a mirrored hand, which didn't lock to the wrist), plus
+  whatever `git worktree list` shows in progress (several worktrees exist
+  again, including Codex ones).
 
 ## How to work on it
 
