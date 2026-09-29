@@ -61,6 +61,8 @@ static bool s_remote_active[GEVR_MAX_PLAYERS];
 
 /* Current Lobby State */
 static NetMsgLobbyState s_lobby_state;
+static char s_slot_app_version[GEVR_MAX_PLAYERS][32];
+static char s_local_app_version[32] = "";
 
 extern char VrPlayerName[];   /* port/vr/vr_settings_defaults.c: the launcher's "Your name" */
 
@@ -135,6 +137,7 @@ static void netResetLobbyState(void) {
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         s_remote_active[i] = false;
         s_client_peers[i] = NULL;
+        s_slot_app_version[i][0] = '\0';
         memset(&s_remote_moves[i], 0, sizeof(s_remote_moves[i]));
         memset(&s_remote_players[i], 0, sizeof(s_remote_players[i]));
     }
@@ -196,6 +199,7 @@ bool netHostStart(uint16_t port) {
     s_lobby_state.slots[0].ready = 1;
     s_lobby_state.slots[0].chr_id = 0; /* James Bond */
     netCleanName(s_lobby_state.slots[0].name, VrPlayerName, VrPlayerName + strlen(VrPlayerName));
+    strncpy(s_slot_app_version[0], s_local_app_version, sizeof(s_slot_app_version[0]) - 1);
     
     player_char[0] = 0;
     
@@ -357,6 +361,35 @@ static void netBroadcastPacket(const void *data, size_t size, uint8_t channel, u
     } else if (s_server_peer && s_server_peer != except) {
         ENetPacket *packet = enet_packet_create(data, size, flags);
         enet_peer_send(s_server_peer, channel, packet);
+    }
+}
+
+void netSetLocalAppVersion(const char *version) {
+    if (!version) return;
+    strncpy(s_local_app_version, version, sizeof(s_local_app_version) - 1);
+    s_local_app_version[sizeof(s_local_app_version) - 1] = '\0';
+}
+
+const char *netGetSlotAppVersion(int slot) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected) return NULL;
+    return s_slot_app_version[slot];
+}
+
+static void netSendLocalAppVersion(ENetPeer *target_peer) {
+    if (!s_local_app_version[0]) return;
+    u8 raw[64];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_APP_VERSION);
+    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteStr(&buf, s_local_app_version);
+    ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
+    if (target_peer) {
+        enet_peer_send(target_peer, NET_CHAN_RELIABLE, packet);
+    } else {
+        netBroadcastPacket(buf.data, buf.wp, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
     }
 }
 
@@ -969,6 +1002,23 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             ENetPacket *wp = enet_packet_create(wbuf.data, wbuf.wp, ENET_PACKET_FLAG_RELIABLE);
             enet_peer_send(peer, NET_CHAN_RELIABLE, wp);
             
+            /* Send host's app version and known peer versions to the new client */
+            netSendLocalAppVersion(peer);
+            for (int k = 1; k < s_max_players; k++) {
+                if (k != assigned && s_lobby_state.slots[k].connected && s_slot_app_version[k][0]) {
+                    u8 vraw[64];
+                    struct netbuf vbuf = { .data = vraw, .size = sizeof(vraw) };
+                    netbufStartWrite(&vbuf);
+                    netbufWriteU32(&vbuf, GEVR_NET_MAGIC);
+                    netbufWriteU16(&vbuf, GEVR_NET_VERSION);
+                    netbufWriteU8(&vbuf, NET_MSG_APP_VERSION);
+                    netbufWriteU8(&vbuf, (uint8_t)k);
+                    netbufWriteStr(&vbuf, s_slot_app_version[k]);
+                    ENetPacket *vp = enet_packet_create(vbuf.data, vbuf.wp, ENET_PACKET_FLAG_RELIABLE);
+                    enet_peer_send(peer, NET_CHAN_RELIABLE, vp);
+                }
+            }
+            
             /* Broadcast updated lobby state */
             u8 lraw[256];
             struct netbuf lbuf = { .data = lraw, .size = sizeof(lraw) };
@@ -1003,6 +1053,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_lobby_state.scenario = netbufReadU8(&buf);
             s_lobby_state.weapon_set = netbufReadU8(&buf);
             s_state = NET_STATE_CLIENT_LOBBY;
+            strncpy(s_slot_app_version[s_local_slot], s_local_app_version, sizeof(s_slot_app_version[0]) - 1);
+            netSendLocalAppVersion(s_server_peer);
             NET_LOG("Connected! Assigned local slot: %d, stage: %d", s_local_slot, s_lobby_state.stage_num);
             break;
         }
@@ -1018,6 +1070,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 if (was_connected && !s_lobby_state.slots[i].connected) {
                     netVoiceForgetSlot((uint8_t)i);
                     netForgetPlayerScore(i);
+                    s_slot_app_version[i][0] = '\0';
                 }
                 s_lobby_state.slots[i].ready = netbufReadU8(&buf);
                 s_lobby_state.slots[i].chr_id = netbufReadU8(&buf);
@@ -1408,6 +1461,20 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             }
             break;
         }
+        case NET_MSG_APP_VERSION: {
+            uint8_t slot = slot_id;
+            if (slot >= GEVR_MAX_PLAYERS) break;
+            char *ver = netbufReadStr(&buf);
+            if (!ver || buf.error) break;
+            strncpy(s_slot_app_version[slot], ver, sizeof(s_slot_app_version[slot]) - 1);
+            s_slot_app_version[slot][sizeof(s_slot_app_version[slot]) - 1] = '\0';
+            NET_LOG("Received app version from slot %d: %s", slot, s_slot_app_version[slot]);
+            if (netIsHost()) {
+                /* Relay peer's version to all other clients */
+                netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+            }
+            break;
+        }
         default:
             break;
     }
@@ -1462,6 +1529,7 @@ void netPoll(void) {
                         netVoiceForgetSlot((uint8_t)slot);
                         netForgetPlayerScore(slot);
                         memset(&s_lobby_state.slots[slot], 0, sizeof(NetLobbySlot));
+                        s_slot_app_version[slot][0] = '\0';
                         
                         /* Broadcast updated lobby state */
                         u8 lraw[256];
