@@ -1819,6 +1819,8 @@ static bool gSteadyUsed[2];   // this game frame's snapshot took the steadied tu
  */
 #define GEVR_GRIP_STEADY_ALPHA 0.15f
 extern "C" int gevrGripSteadyOn(void);   // bondview2.c
+extern "C" int gevrStereoTwoHandGrip(void); // bondview2.c
+extern "C" float gevrScopeMagnification(void); // bondview2.c
 
 static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
 {
@@ -1840,9 +1842,34 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
     }
     if (dot > 1.0f) dot = 1.0f;
     const float deg = 2.0f * (float)acos((double)dot) * (180.0f / 3.14159265f);
-    float t = (deg - d0[lvl]) / (d1[lvl] - d0[lvl]);
+
+    float eff_d0 = d0[lvl];
+    float eff_d1 = d1[lvl];
+    float targetA = aMin[lvl];
+
+    if (grip) {
+        // Base alpha respects launcher setting: Low = 0.15f, High = 0.08f, Off = 0.25f
+        float baseA = (lvl == 2) ? 0.08f : (lvl == 0 ? 0.25f : 0.15f);
+        if (gevrStereoTwoHandGrip()) {
+            baseA *= 0.65f; // two-handed hold steadies the grip
+        }
+        const float mag = gevrScopeMagnification();
+        if (mag > 1.05f) {
+            // As zoom increases up to 25x, steady alpha scales down to filter high-mag tremor
+            targetA = baseA / (1.0f + 0.12f * (mag - 1.0f));
+            if (targetA < 0.015f) targetA = 0.015f;
+            const float sm = sqrtf(mag);
+            eff_d0 = 0.3f / sm;
+            eff_d1 = 3.0f / sm;
+        } else {
+            targetA = baseA;
+        }
+    }
+
+    float t = (deg - eff_d0) / (eff_d1 - eff_d0);
     t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
-    const float a = grip ? GEVR_GRIP_STEADY_ALPHA : aMin[lvl] + (1.0f - aMin[lvl]) * t;
+    const float a = targetA + (1.0f - targetA) * t;
+
     XrQuaternionf q = { s.x + (raw.x - s.x) * a, s.y + (raw.y - s.y) * a,
                         s.z + (raw.z - s.z) * a, s.w + (raw.w - s.w) * a };
     const float len = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
@@ -1860,7 +1887,8 @@ extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
             gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
             gCamCtrlPose[h] = gControllerStates[h].controller_pose;
             const XrQuaternionf& pq = gCtrlPosePlay[h].orientation;
-            const bool grip = h == gevrPhysHand(1) && gevrGripSteadyOn();
+            const bool twoHand = gevrStereoTwoHandGrip() != 0;
+            const bool grip = (h == gevrPhysHand(1) || (h == gevrPhysHand(0) && twoHand)) && gevrGripSteadyOn();
             gSteadyUsed[h] = false;
             if ((VrAimSteady > 0 || grip) && !(pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f)) {
                 // steadied play-space orientation, seen from the camera head: head^-1 * s
