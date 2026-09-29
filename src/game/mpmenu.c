@@ -720,7 +720,8 @@ void mpwatchMenuTick(void)
                     int rclick_pressed = rclick && !last_rclick;
                     last_rclick = rclick;
 
-                    if (joyGetButtonsPressedThisFrame(player_num, A_BUTTON) || rclick_pressed)
+                    /* Right stick click only: A also closes the pause menu. */
+                    if (rclick_pressed)
                     {
                         s_mpAudioSlider = !s_mpAudioSlider;
                         mpwatchPlayBeep();
@@ -1940,7 +1941,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             snprintf(voice_label, sizeof(voice_label), "%sVOICE %d%%%s",
                      s_mpAudioSlider == 1 ? "> " : "  ", voice_val,
                      s_mpAudioSlider == 1 ? " <" : "");
-            snprintf(hint_label, sizeof(hint_label), "R-STICK:ADJ  A:SWITCH");
+            snprintf(hint_label, sizeof(hint_label), "R-STICK:ADJ  CLICK:SWAP");
 
             music_color = (s_mpAudioSlider == 0) ? 0xa0ffa0f0 : 0x00ff00b0;
             textMeasure(&textheight, &textwidth, music_label,
@@ -1966,7 +1967,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             y = menu_top + 144 + MPMENU_YOFF;
             viewleft = viGetX(); h1 = viGetY();
             gdl = textRender(gdl, &x, &y, hint_label, ptrFontBankGothicChars,
-                             ptrFontBankGothic, 0x00800080, viewleft, h1, 0, 0);
+                             ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
         }
 #endif
         gdl = combiner_bayer_lod_perspective(gdl);
