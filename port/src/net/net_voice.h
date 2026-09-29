@@ -13,6 +13,7 @@ int netVoiceHasPermission(void);
 int netVoiceCaptureReady(void);
 int netVoiceCaptureFailed(void);
 int netVoiceIsMuted(void);
+int netVoiceSlotSpeaking(uint8_t slot);
 void netVoiceSetMuted(int muted);
 void netVoiceToggleMuted(void);
 void netVoicePause(void);

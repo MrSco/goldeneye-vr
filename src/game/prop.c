@@ -1700,10 +1700,23 @@ void proplvreset2(enum LEVELID stageId)
                         if (getPlayerCount() >= 2)
                         {
                             struct s_mp_weapon_set *mpweapon = &getPtrMPWeaponSetData()[lastmpweaponnum];
-                            
+
+                            /* A multiplayer crate belongs to the selected weapon set.
+                             * The map's original slots must not grant every ammo type. */
+                            for (i9 = 0; i9 < AMMOTYPE_GLOBAL_MAX; i9++)
+                            {
+                                pdef_macr->slots[i9].quantity = 0;
+                            }
                             ammoqty = mpweapon->ammoamount;
-                            if (mpweapon->ammotype);
-                            pdef_macr->slots[mpweapon->ammotype - 1].quantity = ammoqty;
+                            if (mpweapon->ammotype > AMMO_NONE &&
+                                mpweapon->ammotype <= AMMOTYPE_GLOBAL_MAX)
+                            {
+                                pdef_macr->slots[mpweapon->ammotype - 1].quantity = ammoqty;
+                            }
+                            else
+                            {
+                                ammoqty = 0;
+                            }
                         }
 
                         if (((ammoqty > 0) && withobjs) && (!(pdef_macr->flags2 & flags)))

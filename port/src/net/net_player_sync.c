@@ -1,4 +1,5 @@
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include "../vr/vr_openxr.h"
 #include "net_player_sync.h"
@@ -23,6 +24,8 @@
 
 extern bool get_button_state(int controllerIndex, const char* buttonName);
 extern enum PROP getPropForHeldItem(ITEM_IDS arg0);
+static coord3d s_remote_render_pos[GEVR_MAX_PLAYERS];
+static bool s_remote_render_valid[GEVR_MAX_PLAYERS];
 
 void netPlayerSyncInit(void) {
 }
@@ -34,6 +37,8 @@ void netPlayerSyncBeforeTick(s32 playernum) {
     if (playernum == local_slot) {
         return;
     }
+    if (playernum < 0 || playernum >= GEVR_MAX_PLAYERS) return;
+    s_remote_render_valid[playernum] = false;
     
     if (netIsRemotePlayerActive(playernum) && g_playerPointers[playernum]) {
         const struct netplayermove *m = netGetRemotePlayerMove(playernum);
@@ -41,13 +46,21 @@ void netPlayerSyncBeforeTick(s32 playernum) {
         if (!pl || !m) return;
         
         if (pl->prop) {
+            /* A corpse stays at its death location until the reliable respawn
+             * event resets the player. Late movement packets must not drag it. */
+            if (pl->bonddead) {
+                pl->speedforwards = 0.0f;
+                pl->speedsideways = 0.0f;
+                pl->hands[GUNRIGHT].field_87D = 0;
+                return;
+            }
             /* Position: check for huge delta or initial snap */
             float dx = m->pos.x - pl->prop->pos.x;
             float dy = m->pos.y - pl->prop->pos.y;
             float dz = m->pos.z - pl->prop->pos.z;
             float dist_sq = dx*dx + dy*dy + dz*dz;
             
-            if (dist_sq > (512.0f * 512.0f) || dist_sq < 0.0001f || (pl->bonddead == 0 && pl->deathanimfinished)) {
+            if (dist_sq > (512.0f * 512.0f) || dist_sq < 0.0001f || pl->deathanimfinished) {
                 pl->prop->pos = m->pos;
                 pl->deathanimfinished = 0;
             } else {
@@ -79,7 +92,9 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             if (pl->prop->chr) {
                 pl->prop->chr->aimendback = m->angles[1];
                 pl->prop->chr->aimendsideback = 0.0f;
-                pl->prop->chr->ground = pl->prop->pos.y;
+                /* Network position is at the eye; the model's ground is at
+                 * the feet. Using eye height here causes vertical twitching. */
+                pl->prop->chr->ground = pl->prop->pos.y - pl->eyeheight;
 
                 /* Weapon synchronization on remote character */
                 s8 cur_wep = -1;
@@ -107,6 +122,8 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             /* Crucial: update player room list so prop renders across portal room boundaries */
             extern void bondviewUpdatePlayerRoom(struct player *player);
             bondviewUpdatePlayerRoom(pl);
+            s_remote_render_pos[playernum] = pl->prop->pos;
+            s_remote_render_valid[playernum] = true;
         }
     }
 }
@@ -117,7 +134,49 @@ void netPlayerSyncAfterTick(s32 playernum) {
     netVoicePlayersTick();
     
     int local_slot = netGetLocalSlot();
-    if (playernum != local_slot || !g_playerPointers[playernum]) return;
+    if (playernum != local_slot) {
+        /* The original per-player tick can move a remote prop after the
+         * network correction above. Restore its received position and room
+         * membership before the shared world render. */
+        if (playernum >= 0 && playernum < GEVR_MAX_PLAYERS &&
+            s_remote_render_valid[playernum] && g_playerPointers[playernum] &&
+            g_playerPointers[playernum]->prop) {
+            struct player *remote = g_playerPointers[playernum];
+            remote->prop->pos = s_remote_render_pos[playernum];
+            remote->pos = remote->prop->pos;
+            remote->field_488.collision_position = remote->prop->pos;
+            remote->field_488.pos = remote->prop->pos;
+            if (remote->prop->chr)
+                remote->prop->chr->ground = remote->prop->pos.y - remote->eyeheight;
+            bondviewUpdatePlayerRoom(remote);
+        }
+        return;
+    }
+    if (!g_playerPointers[playernum]) return;
+
+    {
+        static int last_phase = -1;
+        static unsigned last_connected = 0;
+        unsigned connected = 0;
+        const NetMsgLobbyState *lobby = netGetLobbyState();
+        int phase = netGetPhase();
+        for (int slot = 0; slot < GEVR_MAX_PLAYERS; slot++)
+            if (lobby->slots[slot].connected) connected |= 1u << slot;
+        if (last_phase >= 0) {
+            if (last_phase != NET_PHASE_IN_PROGRESS && phase == NET_PHASE_IN_PROGRESS)
+                hudmsgTopShow("MATCH STARTED");
+            for (int slot = 0; slot < GEVR_MAX_PLAYERS; slot++) {
+                if (slot != local_slot && (connected & (1u << slot)) &&
+                    !(last_connected & (1u << slot))) {
+                    char message[48];
+                    snprintf(message, sizeof(message), "%s joined", lobby->slots[slot].name);
+                    hudmsgTopShow(message);
+                }
+            }
+        }
+        last_phase = phase;
+        last_connected = connected;
+    }
     
     struct player *pl = g_playerPointers[playernum];
     if (!pl) return;

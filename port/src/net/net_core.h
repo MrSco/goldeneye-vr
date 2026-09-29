@@ -59,6 +59,7 @@ uint32_t netGetRandomSeed(void);
 /* Lobby Operations */
 void netLobbySetReady(bool ready);
 void netLobbySetCharacter(uint8_t chr_id);
+void netSetPreferredCharacter(uint8_t chr_id);
 void netLobbySetMatchConfig(uint8_t stage_num, uint8_t scenario, uint8_t weapon_set);
 bool netLobbyHostLaunchMatch(void);
 

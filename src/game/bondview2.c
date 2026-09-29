@@ -314,6 +314,9 @@ void gevrStereoHeadWalk(struct coord3d *move_offset)
     f32 half;
     struct coord3d d;
 
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        return;
+
     if (!g_gevrStereo)
     {
         s_gevrHeadValid = FALSE;
@@ -340,7 +343,8 @@ void gevrStereoHeadWalk(struct coord3d *move_offset)
     s_gevrLastHead[2] = head[2];
 
     /* the watch is up: the game is paused, leaning to read it moves nobody */
-    if (g_CurrentPlayer->watch_animation_state != 0)
+    if (g_CurrentPlayer->watch_animation_state != 0 ||
+        (netIsActive() && g_CurrentPlayer->mpmenuon))
     {
         return;
     }
@@ -365,7 +369,8 @@ static f32 gevrStereoHeadHeight(void)
     f32 head[3];
     f32 dy;
 
-    if (!g_gevrStereo || !s_gevrHeadValid)
+    if (!g_gevrStereo || !s_gevrHeadValid ||
+        (netIsActive() && get_cur_playernum() != netGetLocalSlot()))
     {
         return 0.0f;
     }
@@ -1857,6 +1862,10 @@ s32 gevrStereoTwoHandUpdate(void)
     s32 item = getCurrentPlayerWeaponId(GUNRIGHT);
     s32 was = s_gevrTwoHand;
     f32 opos[3], snap[3], dist = 0.0f;
+
+    /* Remote players have no tracked hands on this headset. */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        return FALSE;
 
     if (!g_gevrStereo || gevrDualWielding() || !gevrStereoTwoHandItem(item)
         || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
@@ -8649,6 +8658,9 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             static s32 wascrouchtoggled = FALSE;
             s32 crouchtoggled = gevrCrouchToggled();
 
+            if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+            {
+
             if (crouchtoggled
                 && !bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_DISABLE_CROUCH))
             {
@@ -8661,7 +8673,8 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 moveData.crouchUp = TRUE;
             }
 
-            wascrouchtoggled = crouchtoggled;
+                wascrouchtoggled = crouchtoggled;
+            }
         }
 #endif
 
@@ -9339,6 +9352,15 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     bondviewPlayerTickDamageAndHealth();
     bondviewPlayerTickExplode();
     bondviewProcessInput(stick_x, stick_y, buttons, oldbuttons);
+
+#ifdef GEVR
+    if (netIsActive() && get_cur_playernum() == netGetLocalSlot() &&
+        g_CurrentPlayer->mpmenuon)
+    {
+        g_CurrentPlayer->speedforwards = 0.0f;
+        g_CurrentPlayer->speedsideways = 0.0f;
+    }
+#endif
 
     if (lvlGetControlsLockedFlag())
     {
@@ -11800,6 +11822,13 @@ static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
     g_CurrentPlayer->damagetype = 7;
     g_CurrentPlayer->gunammooff = 0;
     g_CurrentPlayer->gunsightmode = 2;
+#ifdef GEVR
+    if (netIsActive() && get_cur_playernum() == netGetLocalSlot() &&
+        get_mission_state() == MISSION_STATE_6)
+    {
+        set_missionstate(MISSION_STATE_1);
+    }
+#endif
 
     hudmsgsSetOn(-1);
     bondviewClearUpperTextDisplayFlag(-1);
@@ -13161,7 +13190,11 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                         }
                         if ((scenario != SCENARIO_YOLT) || (total < 2))
                         {
-                            if (joyGetButtons(get_cur_playernum(), 0xB000)
+                            if (
+#ifdef GEVR
+                                (netIsActive() && get_cur_playernum() == netGetLocalSlot()) ||
+#endif
+                                joyGetButtons(get_cur_playernum(), 0xB000)
 #ifdef GEVR
                                 && (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
 #endif
@@ -13205,7 +13238,19 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     gdl = generate_ammo_total_microcode(gdl);
 #endif
     gdl = countdownTimerRender(gdl);
+#ifdef GEVR
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+    }
+#endif
     gdl = display_red_blue_on_radar(gdl);
+#ifdef GEVR
+    if (g_gevrStereo)
+    {
+        gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+    }
+#endif
     return currentPlayerDrawFade(gdl);
 }
 

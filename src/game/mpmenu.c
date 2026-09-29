@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <stdio.h>
 #include <music.h>
 #include <bondgame.h>
 #include <bondinv.h>
@@ -15,6 +16,7 @@
 #include "lv.h"
 #include "language.h"
 #include "mp_music.h"
+#include "options.h"
 #include "file.h"
 #include "assets/obseg/text/LmpmenuE.h"
 #ifdef GEVR
@@ -25,6 +27,8 @@ extern int netGetLocalSlot(void);
 extern void netHostRoundEnded(void);
 extern void netHostReturnToWarmup(void);
 extern bool netSlotOccupied(int slot);
+extern const char *netGetSlotName(int slot);
+extern int netVoiceSlotSpeaking(unsigned char slot);
 extern void gevrLobbySessionStopped(void);
 extern void gevrRestartToLauncher(void);
 #endif
@@ -702,6 +706,39 @@ void mpwatchMenuTick(void)
 
             if (g_CurrentPlayer->mpmenuon != FALSE)
             {
+#ifdef GEVR
+                if (netIsActive() && player_num == netGetLocalSlot() &&
+                    g_CurrentPlayer->mpmenumode == MENU_PAUSE)
+                {
+                    static s32 music_stick_direction = 0;
+                    static s32 music_stick_held_ticks = 0;
+                    s32 stick_y = joyGetStickY(player_num);
+                    s32 direction = stick_y > 30 ? 1 : stick_y < -30 ? -1 : 0;
+                    s32 change = 0;
+                    s32 volume;
+                    if (direction != music_stick_direction)
+                    {
+                        music_stick_direction = direction;
+                        music_stick_held_ticks = 0;
+                        change = direction;
+                    }
+                    else if (direction != 0 && ++music_stick_held_ticks >= 18 &&
+                             (music_stick_held_ticks - 18) % 6 == 0)
+                    {
+                        change = direction;
+                    }
+                    if (change)
+                    {
+                        volume = (s32)get_mTrack2Vol() + change * 3277;
+                        if (volume < 0) volume = 0;
+                        if (volume > 32767) volume = 32767;
+                        set_mTrack2Vol((u16)volume);
+                        musicTrack1ApplySeqpVol((u16)volume);
+                        musicTrack3ApplySeqpVol((u16)volume);
+                        mpwatchPlayBeep();
+                    }
+                }
+#endif
                 if (mpwatchIsPlayerPressingRight(player_num) && mpwatchMenuCanGoRight())
                 {
                     mpwatchPlayBeep();
@@ -843,13 +880,13 @@ Gfx *display_text_for_playerdata_on_MP_menu(Gfx *gdl, s32 x, s32 y, s32 points, 
     s32 textwidth;
     s32 textheight;
     s32 unused;
-    u16 *text;
+    char text[32];
     s16 viX;
     s32 viY;
 
-    sprintf(&text, "%d", points);
+    snprintf(text, sizeof(text), "%d", points);
 
-    textMeasure(&textheight, &textwidth, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    textMeasure(&textheight, &textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
 
     textX = x - (textwidth >> 1);
     textY = y;
@@ -859,37 +896,37 @@ Gfx *display_text_for_playerdata_on_MP_menu(Gfx *gdl, s32 x, s32 y, s32 points, 
         case GREEN_NORMAL:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRender(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFF00B0, viX, viY, 0, 0);
+            gdl = textRender(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFF00B0, viX, viY, 0, 0);
             break;
 
         case GREEN_HIGHLIGHT:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRenderOutlined(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0FFA0F0, 0x7000A0, viX, viY, 0, 0);
+            gdl = textRenderOutlined(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0FFA0F0, 0x7000A0, viX, viY, 0, 0);
             break;
 
         case RED_NORMAL:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRender(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFF4040B0, viX, viY, 0, 0);
+            gdl = textRender(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFF4040B0, viX, viY, 0, 0);
             break;
 
         case RED_HIGHLIGHT:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRenderOutlined(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFFA0A0F0, 0x700000A0, viX, viY, 0, 0);
+            gdl = textRenderOutlined(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFFA0A0F0, 0x700000A0, viX, viY, 0, 0);
             break;
 
         case BLUE_NORMAL:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRender(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0x4040FFB0, viX, viY, 0, 0);
+            gdl = textRender(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x4040FFB0, viX, viY, 0, 0);
             break;
 
         case BLUE_HIGHLIGHT:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRenderOutlined(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0A0FFF0, 0x70A0, viX, viY, 0, 0);
+            gdl = textRenderOutlined(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0A0FFF0, 0x70A0, viX, viY, 0, 0);
             break;
     }
 
@@ -1036,29 +1073,29 @@ void write_playerrank_to_buffer(char *buffer, s32 playernum)
     switch (j)
     {
         case 0:
-            sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_11_RANK1ST))); /* Rank: 1st */
+            snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_11_RANK1ST))); /* Rank: 1st */
             break;
         case 1:
-            sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
+            snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
             break;
         case 2:
             if ((scenario != SCENARIO_2v2) && (scenario != SCENARIO_2v1))
             {
-                sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_13_RANK3RD))); /* Rank: 3rd */
+                snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_13_RANK3RD))); /* Rank: 3rd */
             }
             else
             {
-                sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
+                snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
             }
             break;
         case 3:
             if (scenario != SCENARIO_3v1)
             {
-                sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_14_RANK4TH))); /* Rank: 4th */
+                snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_14_RANK4TH))); /* Rank: 4th */
             }
             else
             {
-                sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
+                snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
             }
             break;
     }
@@ -1142,7 +1179,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
     s32 m;
     s32 h1;
     s32 h2;
-    char rankbuffer[4];
+    char rankbuffer[64];
     s32 two_player_x_offset;
     s32 menu_top;
     char *text;
@@ -1182,11 +1219,11 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
         menu_top = viGetViewTop();
 
 #ifdef GEVR
-        if (g_gevrStereo && netIsActive())
+        if (netIsActive())
         {
             /* Online uses four logical slots but one full-width view. The
              * original watch layout occupies a 160px split-screen region;
-             * centre it in the 320px HUD and below the lens's top edge. */
+             * centre it in the view in both stereo and 2D mode. */
             two_player_x_offset = (viGetViewWidth() - 160) / 2;
             if (two_player_x_offset < 0) two_player_x_offset = 0;
             menu_top += (viGetViewHeight() - 150) / 2;
@@ -1365,7 +1402,11 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 fav_x_offset = (g_stopPlayFlag == 0); 
             }
  
+#ifdef GEVR
+            if (netIsActive() || mpwatchShouldDisplayScore(fav_x_offset))
+#else
             if (mpwatchShouldDisplayScore(fav_x_offset))
+#endif
             {
                 scenario = get_scenario();
                 text = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_1B_SCORES)); /* SCORES */
@@ -1406,14 +1447,30 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                     {
                         if (!netSlotOccupied(i)) continue;
                         char entry[32];
-                        snprintf(entry, sizeof(entry), "P%d  %d", i + 1, scores[i]);
+                        const char *name = netGetSlotName(i);
+                        u32 row_colour;
+                        if (!name || !name[0]) name = "Player";
+                        snprintf(entry, sizeof(entry), "%s%s  %d",
+                                 netVoiceSlotSpeaking((unsigned char)i) ? ">)) " : "",
+                                 name, scores[i]);
                         x = (viGetViewLeft() + two_player_x_offset) + 53;
                         y = menu_top + (70 + MPMENU_YOFF) + row * 15;
                         viewleft = viGetX();
                         h1 = viGetY();
                         colour = i == curplayernum ? current_colour : same_team_colour;
+                        /* TEXTCOLORS is an enum, not a packed RGBA value.
+                         * Passing 0..5 to textRender made every row transparent. */
+                        switch ((TEXTCOLORS)colour)
+                        {
+                            case RED_NORMAL: row_colour = 0xFF4040B0; break;
+                            case RED_HIGHLIGHT: row_colour = 0xFFA0A0F0; break;
+                            case BLUE_NORMAL: row_colour = 0x4040FFB0; break;
+                            case BLUE_HIGHLIGHT: row_colour = 0xA0A0FFF0; break;
+                            case GREEN_HIGHLIGHT: row_colour = 0xA0FFA0F0; break;
+                            default: row_colour = 0x00FF00B0; break;
+                        }
                         gdl = textRender(gdl, &x, &y, entry, ptrFontBankGothicChars,
-                                         ptrFontBankGothic, colour, viewleft, h1, 0, 0);
+                                         ptrFontBankGothic, row_colour, viewleft, h1, 0, 0);
                         row++;
                     }
                 }
@@ -1833,6 +1890,21 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 gdl = textRender(gdl, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
             }
         }
+#ifdef GEVR
+        if (netIsActive() && g_CurrentPlayer->mpmenumode == MENU_PAUSE)
+        {
+            char music_label[40];
+            snprintf(music_label, sizeof(music_label), "MUSIC %d%%  R STICK",
+                     ((s32)get_mTrack2Vol() * 100 + 16383) / 32767);
+            textMeasure(&textheight, &textwidth, music_label,
+                        ptrFontBankGothicChars, ptrFontBankGothic, 0);
+            x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+            y = menu_top + 132 + MPMENU_YOFF;
+            viewleft = viGetX(); h1 = viGetY();
+            gdl = textRender(gdl, &x, &y, music_label, ptrFontBankGothicChars,
+                             ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
+        }
+#endif
         gdl = combiner_bayer_lod_perspective(gdl);
     }
     else if (((((g_CurrentPlayer->bonddead) && (g_CurrentPlayer->deathanimfinished)) && (g_CurrentPlayer->redbloodfinished)) && (!g_stopPlayFlag)) && (!g_gameOverFlag))

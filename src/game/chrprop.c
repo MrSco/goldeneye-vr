@@ -1839,6 +1839,51 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
         }
     }
 
+#ifdef GEVR
+    /* Online opponents can be absent from the current room's on-screen list
+     * for a tick while their network position crosses a portal. A close punch
+     * should still be able to hit the player, subject to reach, facing and the
+     * same solid-world line test as the normal melee path. */
+    if (!hit)
+    {
+        extern bool netIsActive(void);
+        extern int netGetLocalSlot(void);
+        extern bool netSlotOccupied(int slot);
+        if (netIsActive() && get_cur_playernum() == netGetLocalSlot())
+        {
+            for (s32 slot = 0; slot < getPlayerCount(); slot++)
+            {
+                struct player *target;
+                f32 dx, dy, dz, dist2, facing;
+                if (slot == get_cur_playernum() || !netSlotOccupied(slot)) continue;
+                target = g_playerPointers[slot];
+                if (!target || !target->prop || !target->prop->chr || target->bonddead) continue;
+                prop = target->prop;
+                dx = prop->pos.x - playerprop->pos.x;
+                dy = prop->pos.y - playerprop->pos.y;
+                dz = prop->pos.z - playerprop->pos.z;
+                dist2 = dx * dx + dz * dz;
+                if (dist2 > 100.0f * 100.0f || fabsf(dy) > 100.0f) continue;
+                facing = dx * g_CurrentPlayer->vv_sintheta - dz * g_CurrentPlayer->vv_costheta;
+                if (facing < 0.25f * sqrtf(dist2)) continue;
+                tile = playerprop->stan;
+                if (!stanTestLineUnobstructed(&tile, playerprop->pos.x, playerprop->pos.z,
+                                              prop->pos.x, prop->pos.z,
+                                              CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER,
+                                              ducking, ducking, 0.0f, 1.0f)) continue;
+                vector.x = dx;
+                vector.y = dy;
+                vector.z = dz;
+                if (handles_shot_actors(prop->chr, HIT_CHEST, &vector, item_id, 1))
+                {
+                    recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);
+                    hit = 1;
+                    break;
+                }
+            }
+        }
+    }
+#endif
     if ((!hit) && (item_id == ITEM_FIST))
     {
         sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, 0);
@@ -4471,4 +4516,3 @@ ObjectRecord * sub_GAME_7F03FAB0(struct coord3d *pos, s32 RoomID)
 
     return NULL;
 }
-
