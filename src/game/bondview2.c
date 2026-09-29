@@ -912,6 +912,7 @@ void gevrStereoFrame(s32 inlevel)
 
 static f32 s_gevrTwoHandAmt;   /* issue #35: the two-handed hold, eased 0..1 (gevrStereoTwoHandUpdate) */
 static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3]);
+f32 gevrScopeMagnification(void);
 
 static s32 gevrGripAxesRaw(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
 {
@@ -2270,9 +2271,13 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
 
     /* a handgun keeps the wrist's aim, as PD VR's Slayer: the hands are 8-12 cm
      * apart, in the fade band, and the gun jittered (user) */
+    static f32 s_twoHandDir[3];
+    static s32 s_twoHandDirValid = 0;
+
     if (cm < 1e-6f || gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT))
         || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
     {
+        s_twoHandDirValid = 0;
         return;
     }
     for (i = 0; i < 3; i++)
@@ -2282,6 +2287,7 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     sep = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
     if (sep < 1e-6f)
     {
+        s_twoHandDirValid = 0;
         return;
     }
     sepw = (sep / cm - GEVR_TWOHAND_SEP_MIN) / (GEVR_TWOHAND_SEP_MAX - GEVR_TWOHAND_SEP_MIN);
@@ -2290,15 +2296,56 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     blend = s_gevrTwoHandAmt * sepw;
     if (blend <= 0.001f)
     {
+        s_twoHandDirValid = 0;
         return;
+    }
+
+    for (i = 0; i < 3; i++)
+    {
+        d[i] /= sep;
+    }
+
+    /* Issue #79: smooth two-handed aim line to eliminate dual controller tracking jitter */
+    if (!s_twoHandDirValid)
+    {
+        s_twoHandDir[0] = d[0];
+        s_twoHandDir[1] = d[1];
+        s_twoHandDir[2] = d[2];
+        s_twoHandDirValid = 1;
+    }
+    else
+    {
+        f32 dot = s_twoHandDir[0] * d[0] + s_twoHandDir[1] * d[1] + s_twoHandDir[2] * d[2];
+        f32 deg, alpha, tdeg, mag;
+        if (dot > 1.0f) dot = 1.0f;
+        if (dot < -1.0f) dot = -1.0f;
+        deg = acosf(dot) * (180.0f / M_PI_F);
+        mag = gevrScopeMagnification();
+
+        tdeg = deg / (3.0f / sqrtf(mag));
+        if (tdeg > 1.0f) tdeg = 1.0f;
+
+        alpha = 0.15f / (1.0f + 0.12f * (mag - 1.0f));
+        alpha = alpha + (1.0f - alpha) * tdeg;
+
+        for (i = 0; i < 3; i++)
+        {
+            s_twoHandDir[i] += (d[i] - s_twoHandDir[i]) * alpha;
+        }
+        tl = sqrtf(s_twoHandDir[0] * s_twoHandDir[0] + s_twoHandDir[1] * s_twoHandDir[1] + s_twoHandDir[2] * s_twoHandDir[2]);
+        if (tl > 1e-6f)
+        {
+            s_twoHandDir[0] /= tl;
+            s_twoHandDir[1] /= tl;
+            s_twoHandDir[2] /= tl;
+        }
     }
 
     /* the barrel toward the hand line, by blend */
     for (i = 0; i < 3; i++)
     {
-        d[i] /= sep;
         v[i] = -back[i];
-        t[i] = v[i] + (d[i] - v[i]) * blend;
+        t[i] = v[i] + (s_twoHandDir[i] - v[i]) * blend;
     }
     tl = sqrtf(t[0] * t[0] + t[1] * t[1] + t[2] * t[2]);
     if (tl < 1e-4f)
@@ -2681,16 +2728,51 @@ static f32 gevrScopeZoom(s32 item)
     return zoom;
 }
 
+/* The N64's normal view was 60 deg (30 deg half-angle). Magnification = tan(30) / tan(zoom / 2) */
+f32 gevrScopeMagnification(void)
+{
+    s32 item;
+    f32 zoom;
+
+    if (!g_gevrStereo || g_CurrentPlayer == NULL)
+    {
+        return 1.0f;
+    }
+    item = getCurrentPlayerWeaponId(GUNRIGHT);
+    if (gevrScopeFor(item) == NULL)
+    {
+        return 1.0f;
+    }
+    zoom = gevrScopeZoom(item);
+    if (zoom < 0.5f) zoom = 0.5f;
+    if (zoom > 60.0f) zoom = 60.0f;
+    return tanf(30.0f * (M_PI_F / 180.0f)) / tanf(zoom * 0.5f * (M_PI_F / 180.0f));
+}
+
+static s32 s_gevrScopeEyeNear = 0;
+
 /*
  * vr_input.cpp gevrVrSnapshotControllers: aiming (the grip) a gun with a
  * scope, the gun hand's turn is steadied hard, as Perfect Dark VR does while
  * gripping a zoom weapon (vr_input.cpp WepCanZoom, CTRL_SMOOTH_ALPHA_ROT_GRIP)
  * - the scope magnifies the hand's tremor (issue #58, user).
+ * Issue #79: Also steadies when two-handed holding or when the scope is raised to the eye.
  */
 s32 gevrGripSteadyOn(void)
 {
-    return g_gevrStereo && g_CurrentPlayer != NULL && g_CurrentPlayer->insightaimmode
-        && gevrScopeFor(getCurrentPlayerWeaponId(GUNRIGHT)) != NULL;
+    if (!g_gevrStereo || g_CurrentPlayer == NULL)
+    {
+        return FALSE;
+    }
+    if (gevrStereoTwoHandGrip())
+    {
+        return TRUE;
+    }
+    if (gevrScopeFor(getCurrentPlayerWeaponId(GUNRIGHT)) != NULL)
+    {
+        return g_CurrentPlayer->insightaimmode || s_gevrScopeEyeNear;
+    }
+    return FALSE;
 }
 
 /*
@@ -2780,7 +2862,6 @@ s32 gevrScopeBegin(void)
         gevrScopeTune();
         gevrScopeLensPlace(sc);
         on = TRUE;
-        if (sc->nearOnly)
         {
             /* the lens from the head (camera space's origin), metres */
             f32 l[3];
@@ -2790,6 +2871,10 @@ s32 gevrScopeBegin(void)
                 l[i] = pos[i] / vu + right[i] * gevrScopeLens[0] + up[i] * gevrScopeLens[1] + back[i] * gevrScopeLens[2];
             }
             eye = sqrtf(l[0] * l[0] + l[1] * l[1] + l[2] * l[2]);
+            s_gevrScopeEyeNear = (eye < 0.35f);
+        }
+        if (sc->nearOnly)
+        {
             if (eye < GEVR_SCOPE_NEAR_SHOW_M || (s_near && eye < GEVR_SCOPE_NEAR_HIDE_M))
             {
                 if (!s_near)
@@ -2828,6 +2913,7 @@ s32 gevrScopeBegin(void)
     }
     if (!on)
     {
+        s_gevrScopeEyeNear = FALSE;
         return FALSE;
     }
 
