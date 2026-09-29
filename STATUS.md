@@ -13,7 +13,11 @@ Unreleased on main (versionCode 31): sniper scope steadiness (#79), VR
 motion throwing and grenade cooking, room-aware voice falloff, Music and
 Voice volume in the launcher and the multiplayer pause menu, the Dam
 truck's headlights no longer showing the wheel behind them (#71: props'
-blended layers write depth where opaque, model.c + gfx_opengl.cpp).
+blended layers write depth where opaque, model.c + gfx_opengl.cpp),
+bullet holes no longer striped from some positions (#29: texSelect's
+mip-mapped draws inherited rooms' G_TD_DETAIL and fast3d read tile 1 as
+the base; now G_TD_CLAMP, othermodemicrocode.c; gepc-ref D107's renderer
+fix not taken, it would move our rooms onto their detail tile).
 v0.3.3 (49f2ac6, versionCode 28) brought multiplayer HUD text crash guard (#78),
 player and lobby version tooltips, and TURN credential rate limit fix. v0.3.2 (0852b9f, versionCode 27) brought
 multiplayer pause controls (#76), calibrated recoil and damage rumble (#64),
@@ -76,8 +80,8 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   handled, other players' hands do not move.
 - Open issues: #9 hand undersides (work in progress: shells patched in
   v0.1.18, gaps left such as the PP7 index finger), #23 multiplayer (kept
-  open), #29 striped bullet holes from some positions (try the PC port's
-  D159 odd-row swap fix), #30 water shimmer (open in the PC port too, D245),
+  open), #30 water shimmer (open in the PC port too, D245; the blue water
+  goes through the same texSelect path #29 fixed, so re-check it),
   #32 Surface ground patches without impacts (the PC port's D313 fix is
   already in bg.c; re-check), #60 laser watch arm changes size. Closed
   2026-09-28: #18 (fixed), #50 (not reproduced), #56, #63, #64.
