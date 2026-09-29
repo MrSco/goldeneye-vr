@@ -102,9 +102,9 @@ final class ModManager {
                 135256079L,
                 "GhostlyDark/GoldenEye-007-HD", "", "ge007-hd-", "-gliden64-png-hd.zip"),
         new Pack("ge007-hd-ai", "GoldenEye 007 HD + AI", "intermissionfb and GhostlyDark, AI by GoldenEye VR",
-                "github.com/MrSco", "2026.09.26",
-                "https://github.com/MrSco/GoldenEye-007-HD/releases/download/ai-2026.09.26/ge007-hd-ai-2026.09.26-gliden64-png.zip",
-                256315453L,
+                "github.com/MrSco", "2026.09.29.2",
+                "https://github.com/MrSco/GoldenEye-007-HD/releases/download/ai-2026.09.29.2/ge007-hd-ai-2026.09.29.2-gliden64-png.zip",
+                373969887L,
                 "MrSco/GoldenEye-007-HD", "ai-", "ge007-hd-ai-", "-gliden64-png.zip"),
     };
 
