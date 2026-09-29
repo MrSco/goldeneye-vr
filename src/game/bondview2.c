@@ -2473,10 +2473,8 @@ void gevrMotionThrowTick(s32 hand)
                     handptr->field_88C = 0;
                 }
 
-                if (vr_haptics_ready())
-                {
-                    trigger_haptic_vibration_c(ctrl, 0.75f, 0.09f);
-                }
+                extern void gevrRumbleGunfire(s32 hand, s32 item_id);
+                gevrRumbleGunfire(hand, item);
 
                 sysLogPrintf(LOG_NOTE, "stereo: motion throw hand %d item %d speed %.2f m/s (mag %.1f)",
                              hand, item, peak_speed, throw_mag);
@@ -2502,10 +2500,8 @@ void gevrMotionThrowTick(s32 hand)
                 handptr->field_890 = 0.0f;
                 handptr->field_88C = 0;
 
-                if (vr_haptics_ready())
-                {
-                    trigger_haptic_vibration_c(ctrl, 0.5f, 0.06f);
-                }
+                extern void gevrRumbleGunfire(s32 hand, s32 item_id);
+                gevrRumbleGunfire(hand, item);
                 sysLogPrintf(LOG_NOTE, "stereo: dropped cooked grenade at feet (timer %d)",
                              g_CurrentPlayer->last_z_trigger_timer);
             }

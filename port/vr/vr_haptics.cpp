@@ -46,50 +46,50 @@
 
 static HapticProfile s_profiles[] = {
     // === Category: Pistols ===
-    { ITEM_WPPK,        "PP7 Special Issue",           "PP7",             HAPTIC_CAT_PISTOLS,        2, 2,  50,  50, 240.0f },
-    { ITEM_WPPKSIL,     "PP7 (Silenced)",              "PP7_Silenced",    HAPTIC_CAT_PISTOLS,        1, 1,  40,  40, 320.0f },
-    { ITEM_SILVERWPPK,  "Silver PP7",                  "Silver_PP7",      HAPTIC_CAT_PISTOLS,        2, 2,  50,  50, 240.0f },
-    { ITEM_GOLDWPPK,    "Gold PP7",                    "Gold_PP7",        HAPTIC_CAT_PISTOLS,        2, 2,  50,  50, 240.0f },
-    { ITEM_TT33,        "DD44 Dostovei",               "DD44",            HAPTIC_CAT_PISTOLS,        5, 5,  60,  60, 190.0f },
-    { ITEM_RUGER,       "Cougar Magnum",               "Cougar_Magnum",   HAPTIC_CAT_PISTOLS,        8, 8, 120, 120, 110.0f },
-    { ITEM_GOLDENGUN,   "Golden Gun",                  "Golden_Gun",      HAPTIC_CAT_PISTOLS,        7, 7,  90,  90, 130.0f },
+    { ITEM_WPPK,        "PP7 Special Issue",           "PP7",             HAPTIC_CAT_PISTOLS,        5, 5,  60,  60, 240.0f },
+    { ITEM_WPPKSIL,     "PP7 (Silenced)",              "PP7_Silenced",    HAPTIC_CAT_PISTOLS,        4, 4,  60,  60, 320.0f },
+    { ITEM_SILVERWPPK,  "Silver PP7",                  "Silver_PP7",      HAPTIC_CAT_PISTOLS,        5, 5,  80,  80, 240.0f },
+    { ITEM_GOLDWPPK,    "Gold PP7",                    "Gold_PP7",        HAPTIC_CAT_PISTOLS,        5, 5, 100, 100, 240.0f },
+    { ITEM_TT33,        "DD44 Dostovei",               "DD44",            HAPTIC_CAT_PISTOLS,        8, 8, 100, 100, 190.0f },
+    { ITEM_RUGER,       "Cougar Magnum",               "Cougar_Magnum",   HAPTIC_CAT_PISTOLS,       10, 10, 140, 140, 110.0f },
+    { ITEM_GOLDENGUN,   "Golden Gun",                  "Golden_Gun",      HAPTIC_CAT_PISTOLS,        8, 8,  90,  90, 130.0f },
 
     // === Category: Automatics ===
-    { ITEM_SKORPION,    "Klobb",                       "Klobb",           HAPTIC_CAT_AUTOMATICS,     3, 3,  40,  40, 260.0f },
-    { ITEM_AK47,        "KF7 Soviet",                  "KF7_Soviet",      HAPTIC_CAT_AUTOMATICS,     6, 6,  70,  70, 160.0f },
-    { ITEM_UZI,         "ZMG (9mm)",                   "ZMG_9mm",         HAPTIC_CAT_AUTOMATICS,     3, 3,  50,  50, 210.0f },
-    { ITEM_MP5K,        "D5K Deutsche",                "D5K",             HAPTIC_CAT_AUTOMATICS,     3, 3,  50,  50, 210.0f },
-    { ITEM_MP5KSIL,     "D5K (Silenced)",              "D5K_Silenced",    HAPTIC_CAT_AUTOMATICS,     2, 2,  50,  50, 280.0f },
-    { ITEM_SPECTRE,     "Phantom",                     "Phantom",         HAPTIC_CAT_AUTOMATICS,     3, 3,  50,  50, 200.0f },
-    { ITEM_FNP90,       "RCP-90",                      "RCP90",           HAPTIC_CAT_AUTOMATICS,     3, 3,  40,  40, 230.0f },
-    { ITEM_M16,         "US AR33 Assault Rifle",       "AR33",            HAPTIC_CAT_AUTOMATICS,     6, 6,  70,  70, 160.0f },
+    { ITEM_SKORPION,    "Klobb",                       "Klobb",           HAPTIC_CAT_AUTOMATICS,     8, 8,  70,  70, 260.0f },
+    { ITEM_AK47,        "KF7 Soviet",                  "KF7_Soviet",      HAPTIC_CAT_AUTOMATICS,     8, 8, 140, 140, 160.0f },
+    { ITEM_UZI,         "ZMG (9mm)",                   "ZMG_9mm",         HAPTIC_CAT_AUTOMATICS,     6, 6,  60,  60, 210.0f },
+    { ITEM_MP5K,        "D5K Deutsche",                "D5K",             HAPTIC_CAT_AUTOMATICS,     6, 6,  60,  60, 210.0f },
+    { ITEM_MP5KSIL,     "D5K (Silenced)",              "D5K_Silenced",    HAPTIC_CAT_AUTOMATICS,     6, 6,  40,  40, 280.0f },
+    { ITEM_SPECTRE,     "Phantom",                     "Phantom",         HAPTIC_CAT_AUTOMATICS,     6, 6,  70,  70, 200.0f },
+    { ITEM_FNP90,       "RCP-90",                      "RCP90",           HAPTIC_CAT_AUTOMATICS,     6, 6,  40,  40, 230.0f },
+    { ITEM_M16,         "US AR33 Assault Rifle",       "AR33",            HAPTIC_CAT_AUTOMATICS,     7, 7, 100, 100, 160.0f },
 
     // === Category: Rifles & Heavy ===
     { ITEM_SNIPERRIFLE, "Sniper Rifle",                "Sniper_Rifle",    HAPTIC_CAT_HEAVY,          7, 7,  90,  90, 130.0f },
-    { ITEM_SHOTGUN,     "Shotgun",                     "Shotgun",         HAPTIC_CAT_HEAVY,          9, 9, 120, 120, 110.0f },
+    { ITEM_SHOTGUN,     "Shotgun",                     "Shotgun",         HAPTIC_CAT_HEAVY,          9, 9, 130, 130, 110.0f },
     { ITEM_AUTOSHOT,    "Automatic Shotgun",           "Auto_Shotgun",    HAPTIC_CAT_HEAVY,          8, 8, 100, 100, 120.0f },
-    { ITEM_GRENADELAUNCH, "Grenade Launcher",          "Grenade_Launcher",HAPTIC_CAT_HEAVY,          8, 8, 140, 140, 100.0f },
-    { ITEM_ROCKETLAUNCH,  "Rocket Launcher",           "Rocket_Launcher", HAPTIC_CAT_HEAVY,          8, 8, 150, 150,  90.0f },
-    { ITEM_TANKSHELLS,  "Tank Shells",                 "Tank_Shells",     HAPTIC_CAT_HEAVY,         10, 10, 220, 220,  80.0f },
+    { ITEM_GRENADELAUNCH, "Grenade Launcher",          "Grenade_Launcher",HAPTIC_CAT_HEAVY,          8, 8, 130, 130, 100.0f },
+    { ITEM_ROCKETLAUNCH,  "Rocket Launcher",           "Rocket_Launcher", HAPTIC_CAT_HEAVY,          9, 9, 200, 200,  90.0f },
+    { ITEM_TANKSHELLS,  "Tank Shells",                 "Tank_Shells",     HAPTIC_CAT_HEAVY,         10, 10, 260, 260,  80.0f },
 
     // === Category: Melee & Thrown ===
-    { ITEM_UNARMED,     "Unarmed / Fist",              "Unarmed",         HAPTIC_CAT_MELEE_THROWN,   1, 1,  40,  40, 250.0f },
-    { ITEM_KNIFE,       "Hunting Knife",               "Hunting_Knife",   HAPTIC_CAT_MELEE_THROWN,   1, 1,  40,  40, 250.0f },
-    { ITEM_THROWKNIFE,  "Throwing Knife",              "Throwing_Knife",  HAPTIC_CAT_MELEE_THROWN,   1, 1,  40,  40, 250.0f },
-    { ITEM_GRENADE,     "Hand Grenade",                "Grenade",         HAPTIC_CAT_MELEE_THROWN,   0, 0,   0,   0, 150.0f },
-    { ITEM_TIMEDMINE,   "Timed Mine",                  "Timed_Mine",      HAPTIC_CAT_MELEE_THROWN,   0, 0,   0,   0, 150.0f },
-    { ITEM_PROXIMITYMINE, "Proximity Mine",            "Proximity_Mine",  HAPTIC_CAT_MELEE_THROWN,   0, 0,   0,   0, 150.0f },
-    { ITEM_REMOTEMINE,  "Remote Mine",                 "Remote_Mine",     HAPTIC_CAT_MELEE_THROWN,   0, 0,   0,   0, 150.0f },
+    { ITEM_UNARMED,     "Unarmed / Fist",              "Unarmed",         HAPTIC_CAT_MELEE_THROWN,   5, 5,  80,  80, 250.0f },
+    { ITEM_KNIFE,       "Hunting Knife",               "Hunting_Knife",   HAPTIC_CAT_MELEE_THROWN,   5, 5,  80,  80, 250.0f },
+    { ITEM_THROWKNIFE,  "Throwing Knife",              "Throwing_Knife",  HAPTIC_CAT_MELEE_THROWN,   3, 3,  50,  50, 250.0f },
+    { ITEM_GRENADE,     "Hand Grenade",                "Grenade",         HAPTIC_CAT_MELEE_THROWN,   3, 3,  50,  50, 150.0f },
+    { ITEM_TIMEDMINE,   "Timed Mine",                  "Timed_Mine",      HAPTIC_CAT_MELEE_THROWN,   3, 3,  50,  50, 150.0f },
+    { ITEM_PROXIMITYMINE, "Proximity Mine",            "Proximity_Mine",  HAPTIC_CAT_MELEE_THROWN,   3, 3,  50,  50, 150.0f },
+    { ITEM_REMOTEMINE,  "Remote Mine",                 "Remote_Mine",     HAPTIC_CAT_MELEE_THROWN,   3, 3,  50,  50, 150.0f },
 
     // === Category: Gadgets ===
-    { ITEM_TRIGGER,     "Watch Detonator",             "Detonator",       HAPTIC_CAT_GADGETS,        1, 1,  30,  30, 300.0f },
-    { ITEM_TASER,       "Taser",                       "Taser",           HAPTIC_CAT_GADGETS,        2, 2,  80,  80, 300.0f },
-    { ITEM_LASER,       "Military Laser",              "Military_Laser",  HAPTIC_CAT_GADGETS,        1, 1,  50,  50, 350.0f },
-    { ITEM_WATCHLASER,  "Watch Laser",                 "Watch_Laser",     HAPTIC_CAT_GADGETS,        1, 1,  50,  50, 350.0f },
+    { ITEM_TRIGGER,     "Watch Detonator",             "Detonator",       HAPTIC_CAT_GADGETS,        2, 2,  30,  30, 300.0f },
+    { ITEM_TASER,       "Taser",                       "Taser",           HAPTIC_CAT_GADGETS,        5, 5,  80,  80, 300.0f },
+    { ITEM_LASER,       "Military Laser",              "Military_Laser",  HAPTIC_CAT_GADGETS,       10, 10, 20,  20, 350.0f },
+    { ITEM_WATCHLASER,  "Watch Laser",                 "Watch_Laser",     HAPTIC_CAT_GADGETS,        9, 9,  20,  20, 350.0f },
 
     // === Category: Damage & Actions ===
-    { GEVR_ACTION_DAMAGE_BULLET,    "Damage (Bullet Hit)", "Damage_Bullet",   HAPTIC_CAT_DAMAGE,     4, 4, 100, 100, 150.0f },
-    { GEVR_ACTION_DAMAGE_EXPLOSION, "Damage (Explosion)",  "Damage_Explosion",HAPTIC_CAT_DAMAGE,     8, 8, 250, 250,  90.0f },
+    { GEVR_ACTION_DAMAGE_BULLET,    "Damage (Bullet Hit)", "Damage_Bullet",   HAPTIC_CAT_DAMAGE,     6, 6,  90,  90, 150.0f },
+    { GEVR_ACTION_DAMAGE_EXPLOSION, "Damage (Explosion)",  "Damage_Explosion",HAPTIC_CAT_DAMAGE,     9, 9, 280, 280,  90.0f },
 };
 
 static const int kNumProfiles = sizeof(s_profiles) / sizeof(s_profiles[0]);
@@ -169,8 +169,18 @@ extern "C" void vrHapticsSaveIni(void *file_handle) {
 extern "C" int vrHapticsLoadLine(const char *key, const char *val) {
     if (!key || !val) return 0;
 
+    // Trim key
+    while (*key == ' ' || *key == '\t') key++;
+    char trimmedKey[64];
+    strncpy(trimmedKey, key, sizeof(trimmedKey) - 1);
+    trimmedKey[sizeof(trimmedKey) - 1] = '\0';
+    int klen = strlen(trimmedKey);
+    while (klen > 0 && (trimmedKey[klen - 1] == ' ' || trimmedKey[klen - 1] == '\t' || trimmedKey[klen - 1] == '\r' || trimmedKey[klen - 1] == '\n')) {
+        trimmedKey[--klen] = '\0';
+    }
+
     for (int i = 0; i < kNumProfiles; ++i) {
-        if (strcmp(s_profiles[i].iniKey, key) == 0) {
+        if (strcmp(s_profiles[i].iniKey, trimmedKey) == 0) {
             int intensity = 0;
             int durationMs = 0;
             if (sscanf(val, "%d,%d", &intensity, &durationMs) == 2) {
