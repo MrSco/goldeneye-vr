@@ -8,27 +8,16 @@ the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
 **Updated:** 2026-09-30. **Latest release:** v0.3.5 (tag v0.3.5,
-versionCode 32): sniper scope steadiness (#79), VR motion throwing and
-grenade cooking, room-aware voice falloff, Music and Voice volume in the
-launcher and the multiplayer pause menu, the Dam truck's headlights no
-longer showing the wheel behind them (#71: props' blended layers write
-depth where opaque, model.c + gfx_opengl.cpp), bullet holes no longer
-striped from some positions (#29: texSelect's mip-mapped draws inherited
-rooms' G_TD_DETAIL and fast3d read tile 1 as the base; now G_TD_CLAMP,
-othermodemicrocode.c; gepc-ref D107's renderer fix not taken, it would
-move our rooms onto their detail tile). v0.3.4 (c16afce) multiplayer testing
-fixes (and the remote-body regression fixed on the protocol 7 branch);
-v0.3.3 (49f2ac6) HUD text crash guard (#78), version tooltips, TURN rate
-limit; v0.3.2 (0852b9f) pause controls (#76), rumble (#64), tank audio
-(#68), left-hand weapons (#56), previous weapon (#63), online damage
-handicap (#69); v0.3.1 crash fixes and "Send debug log"; v0.3.0 drop-in
-multiplayer, names and tags, protocol 6.
-Unreleased on main (versionCode 34): the launcher haptics screen (#64),
-motion-throw gaze assist and its settings pane, voice falloff that treats
-players in view as the same room, SFX volume and mic mute in the launcher
-and the multiplayer pause menu, the multiplayer page fitting the panel, and
-stereo dropping the walk animation's side sway and vertical bob (bondhead.c;
-screen mode keeps them).
+versionCode 32): sniper scope steadiness (#79), motion throwing and grenade
+cooking, room-aware voice falloff, Music and Voice volume, the Dam truck's
+headlights (#71), bullet holes no longer striped (#29). Earlier: v0.3.4
+multiplayer testing fixes, v0.3.3 HUD text crash guard (#78), v0.3.2 pause
+controls, rumble, tank audio, left-hand weapons, previous weapon, damage
+handicap, v0.3.1 crash fixes and "Send debug log", v0.3.0 drop-in
+multiplayer with names and tags. Unreleased on main (versionCode 34): the
+launcher haptics screen (#64), motion-throw gaze assist, voice falloff that
+treats players in view as the same room, SFX volume and mic mute in the
+launcher and the pause menu, stereo without the walk sway and bob.
 Main 396dd64 (0.3.6, versionCode 43, protocol 9) carries the full multiplayer
 punch list: in-level lobby (MENU_LOBBY), match config and restored options,
 mute chord (hold Menu + right B), countdown and round transitions, late-join
@@ -43,17 +32,27 @@ first stage (net_core.c netClearVotes at init and launch), plus the rotation
 no longer turning before the first round; copies were posed from the barrel
 (bent over, twisting: now the view's pitch and no yaw, as the flat game) and
 had fists re-given every tick (a draw replayed forever); an overlap escape
-lets a player walk out of another's cylinder. Protocol 10 (090cd6c): the
-owner's health, armour and death ride in PLAYER_STATE and rule its copies (a
-client died on the host only, then stood as a corpse ignoring its moves),
-and a copy's shot ammo boxes and guns fly on every headset (the copy pass was
-caught by the barrel pass's "no projectiles in an extra pass" rule). The
-MP pause menu (3880832..dd5870b, user-checked on the Quest): the left stick
-moves the LOBBY cursor both ways, the right stick changes values in any
-direction, START MATCH counts down on its row and in the title, RETURN TO
-LOBBY says it cancels, and the hands hold still under the menu (the locate,
-the camera snapshot and the redraw hand delta all hold; see the memory note
-on controller pose layers). The Quest has dd5870b (versionCode 44).
+lets two overlapping players walk apart (inside 60 units the game's volume
+test refused every move; the copies' lag lets players get inside). Protocol
+10 (090cd6c..9c032d3): the owner's health, armour and death ride in
+PLAYER_STATE; a copy takes no damage of its own and dies when its owner
+reports dead (credited to the last attacker), after grace periods each way
+(a copy respawned in the tick it died once crashed the door tick; a stale
+"dead" packet after a respawn once killed a fresh copy for a second point).
+A copy's shot ammo boxes and guns fly on every headset. Kills scored twice
+since 5974d49 (kill_count was both the game's kill message counter and the
+drop-in score bank): the bank is player_data.gevr_score_bank now. The match
+countdown rewrites its HUD message in place (the queue dropped numbers).
+MP pause menu (3880832..dd5870b): left stick moves the LOBBY cursor, right
+stick changes values any direction, START MATCH counts down on its row and
+in the title, RETURN TO LOBBY says it cancels, hands hold still under the
+menu (locate, camera snapshot and redraw delta all hold; memory note on
+controller pose layers). The weapons panel (hold A) wraps.
+Two-headset sessions 2026-09-30 afternoon (four rounds, both on the branch):
+bodies upright, no more stuck players, ammo boxes move for both, a kill is
+one point, the cap ends the match at 5 on both headsets with the results
+screen for both, the chosen stage holds, the countdown counts. The Quest has
+55c6ce1 (versionCode 44); 66f1613 adds only more door logging.
 
 ## What it is
 
@@ -165,14 +164,14 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## Next
 
-- Install the playtest branch's latest build on both headsets and re-check
-  the 2026-09-30 report: bodies upright and steady, no draw animation on
-  grip, players walking out of each other (log "net: move: player N
-  blocked by player M" says whether player props block at all online: a
-  copy's collision_bounds are never refreshed, so they may not), the
-  chosen stage kept from warmup to match. Open oddity: the copies' logged
-  aim pitch printed near 350 where atan2 cannot reach; the barrel is now
-  only logged, so the next capture separates the two.
-- Then MULTIPLAYER.md step 8 (quit and rejoin, NEXT MAP, host migration),
-  the rest of step 7, the older list (mid-round joins, slot reuse, scoring,
-  two networks, a hotspot, four players). Release as v0.3.6 after it.
+- Merge the playtest branch (17 commits) and release as v0.3.6 once the
+  Facility swinging doors are understood: the log line "move: blocked by
+  door" (with the door's box and polygon corners since 66f1613) fired at
+  90 degrees open several times, but the players passed through on the
+  next round; possibly a leaf swung across the passage, as the original
+  game's leaves also block. Open oddity: the copies' logged aim pitch
+  printed near 350 where atan2 cannot reach (the barrel is only logged now).
+  The log's own "version:" line prints the CMake-configure-time hash.
+- Then MULTIPLAYER.md step 8 (quit and rejoin, NEXT MAP votes, host
+  migration), the rest of step 7, the older list (mid-round joins, slot
+  reuse, two networks, a hotspot, four players).
