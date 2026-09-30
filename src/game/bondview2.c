@@ -5955,6 +5955,28 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
         else
         {
 block_20:
+#ifdef GEVR
+            /* playtest 2026-09-30 ("players stuck in each other"): a move refused for another player's prop */
+            if (netIsActive() && stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_VIEWER)
+            {
+                static u64 s_next_block_log_us;
+                u64 now = sysGetMicroseconds();
+
+                if (now >= s_next_block_log_us)
+                {
+                    f32 bx = stanSavedColl_posData->pos.x - g_CurrentPlayer->field_488.collision_position.x;
+                    f32 bz = stanSavedColl_posData->pos.z - g_CurrentPlayer->field_488.collision_position.z;
+
+                    s_next_block_log_us = now + 500000;
+                    sysLogPrintf(LOG_NOTE, "net: move: player %d blocked by player %d (%.0f apart, bounds %.0f,%.0f %.0f,%.0f)",
+                                 get_cur_playernum(), getPlayerPointerIndex(stanSavedColl_posData), sqrtf(bx * bx + bz * bz),
+                                 g_playerPointers[getPlayerPointerIndex(stanSavedColl_posData)]->collision_bounds.f[0],
+                                 g_playerPointers[getPlayerPointerIndex(stanSavedColl_posData)]->collision_bounds.f[1],
+                                 g_playerPointers[getPlayerPointerIndex(stanSavedColl_posData)]->collision_bounds.f[4],
+                                 g_playerPointers[getPlayerPointerIndex(stanSavedColl_posData)]->collision_bounds.f[5]);
+                }
+            }
+#endif
             /* I'm sorry, this is the only way I could make it match. */
             if (g_PlayerTankProp == NULL
                 && (stanSavedColl_posData != NULL)
