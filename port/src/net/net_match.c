@@ -1,0 +1,125 @@
+#include "net_match.h"
+#include <ultra64.h>
+#include <bondtypes.h>
+#include "bondconstants.h"
+
+/* The launcher's order; the level ids are the ROM's LEVELID values. */
+static const NetMatchStage s_stages[] = {
+    { "Facility",  34, 4 }, { "Complex",   31, 4 }, { "Temple",    38, 4 }, { "Stack",    46, 4 },
+    { "Caverns",   39, 3 }, { "Library",   48, 4 }, { "Basement",  45, 4 }, { "Caves",    50, 4 },
+    { "Egypt",     32, 2 }, { "Bunker II", 27, 3 }, { "Archives",  24, 3 },
+};
+
+/* mp_weapon.c mp_weapon_set_text_table's order, as the ROM's LmpweaponsE names them */
+static const char *const s_weapon_sets[] = {
+    "Slappers only", "Pistols", "Throwing Knives", "Automatics", "Power Weapons",
+    "Sniper Rifles", "Grenades", "Remote Mines", "Grenade Launchers", "Timed Mines",
+    "Proximity Mines", "Rockets", "Lasers", "Golden Gun", "Custom",
+};
+
+static const char *const s_scenarios[] = {
+    "Normal", "You Only Live Twice", "The Living Daylights", "The Man With The Golden Gun", "Licence To Kill",
+};
+
+/* front.c multi_game_lengths */
+static const char *const s_lengths[] = {
+    "No limit", "5 minutes", "10 minutes", "20 minutes", "First to 5", "First to 10", "First to 20", "Last one standing",
+};
+
+/* front.c MP_handicap_table: the damage taken, as the game's menu words it */
+static const char *const s_health[] = {
+    "-10 (Hero)", "-4 (Veteran)", "-3 (Veteran)", "-2 (Veteran)", "-1 (Veteran)", "Normal",
+    "+1 (Novice)", "+2 (Novice)", "+3 (Novice)", "+4 (Novice)", "+10 (Rookie)",
+};
+
+/* front.c mp_chr_setup, all 64: the game's own, then Rare's staff heads on Bond's tuxedo */
+static const char *const s_characters[] = {
+    "James Bond", "Natalya", "Trevelyan", "Xenia", "Ourumov", "Boris", "Valentin", "Mishkin",
+    "Mayday", "Jaws", "Oddjob", "Baron Samedi",
+    "Russian Soldier", "Russian Infantry", "Scientist", "Female Scientist", "Russian Commandant",
+    "Janus Marine", "Naval Officer", "Helicopter Pilot", "St. Petersburg Guard", "Female Civilian",
+    "Civilian", "Civilian 2", "Civilian 3", "Siberian Guard", "Arctic Commando", "Siberian Guard 2",
+    "Siberian Special Forces", "Jungle Commando", "Janus Special Forces", "Moonraker Elite",
+    "Female Moonraker Elite", "Rosika",
+    "Karl", "Martin", "Mark", "Dave", "Duncan", "B", "Steve E", "Grant", "Graeme", "Ken", "Alan", "Pete",
+    "Shaun", "Dwayne", "Des", "Chris", "Lee", "Neil", "Jim", "Robin", "Steve H", "Terrorist", "Biker",
+    "Joel", "Scott", "Joe", "Sally", "Marion", "Mandy", "Vivien",
+};
+
+/* Every gun of the fourteen sets, plus the four that have a third-person
+ * model of their own (player.c getPropForHeldItem): the knife, the shotgun,
+ * the Phantom and the silenced D5K. */
+static const NetMatchItem s_items[] = {
+    { "PP7",                ITEM_WPPK },
+    { "PP7 (Silenced)",     ITEM_WPPKSIL },
+    { "DD44 Dostovei",      ITEM_TT33 },
+    { "Cougar Magnum",      ITEM_RUGER },
+    { "Golden Gun",         ITEM_GOLDENGUN },
+    { "Klobb",              ITEM_SKORPION },
+    { "ZMG (9mm)",          ITEM_UZI },
+    { "D5K Deutsche",       ITEM_MP5K },
+    { "D5K (Silenced)",     ITEM_MP5KSIL },
+    { "Phantom",            ITEM_SPECTRE },
+    { "KF7 Soviet",         ITEM_AK47 },
+    { "AR33 Assault Rifle", ITEM_M16 },
+    { "RC-P90",             ITEM_FNP90 },
+    { "Shotgun",            ITEM_SHOTGUN },
+    { "Automatic Shotgun",  ITEM_AUTOSHOT },
+    { "Sniper Rifle",       ITEM_SNIPERRIFLE },
+    { "Moonraker Laser",    ITEM_LASER },
+    { "Grenade Launcher",   ITEM_GRENADELAUNCH },
+    { "Rocket Launcher",    ITEM_ROCKETLAUNCH },
+    { "Hand Grenade",       ITEM_GRENADE },
+    { "Throwing Knife",     ITEM_THROWKNIFE },
+    { "Hunting Knife",      ITEM_KNIFE },
+    { "Remote Mine",        ITEM_REMOTEMINE },
+    { "Timed Mine",         ITEM_TIMEDMINE },
+    { "Proximity Mine",     ITEM_PROXIMITYMINE },
+};
+
+#define COUNT(a) ((int)(sizeof(a) / sizeof((a)[0])))
+
+int netStageCount(void) { return COUNT(s_stages); }
+const NetMatchStage *netStage(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? &s_stages[idx] : &s_stages[0]; }
+const char *netStageName(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? s_stages[idx].name : ""; }
+int netStageMaxPlayers(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? s_stages[idx].max_players : 0; }
+int netStageIndexOf(uint8_t level_id) {
+    for (int i = 0; i < COUNT(s_stages); i++)
+        if (s_stages[i].level_id == level_id) return i;
+    return -1;
+}
+
+int netWeaponSetCount(void) { return COUNT(s_weapon_sets); }
+const char *netWeaponSetName(int idx) { return idx >= 0 && idx < COUNT(s_weapon_sets) ? s_weapon_sets[idx] : ""; }
+
+int netScenarioCount(void) { return COUNT(s_scenarios); }
+const char *netScenarioName(int idx) { return idx >= 0 && idx < COUNT(s_scenarios) ? s_scenarios[idx] : ""; }
+
+int netGameLengthCount(void) { return COUNT(s_lengths); }
+const char *netGameLengthName(int idx) { return idx >= 0 && idx < COUNT(s_lengths) ? s_lengths[idx] : ""; }
+
+int netHealthCount(void) { return COUNT(s_health); }
+const char *netHealthName(int idx) { return idx >= 0 && idx < COUNT(s_health) ? s_health[idx] : ""; }
+
+int netCharacterCount(void) { return COUNT(s_characters); }
+const char *netCharacterName(int idx) { return idx >= 0 && idx < COUNT(s_characters) ? s_characters[idx] : ""; }
+
+int netItemCount(void) { return COUNT(s_items); }
+const NetMatchItem *netItem(int idx) { return idx >= 0 && idx < COUNT(s_items) ? &s_items[idx] : &s_items[0]; }
+int netItemIndexOf(int item) {
+    for (int i = 0; i < COUNT(s_items); i++)
+        if (s_items[i].item == item) return i;
+    return -1;
+}
+const char *netItemName(int item) {
+    int idx = netItemIndexOf(item);
+    return idx >= 0 ? s_items[idx].name : "";
+}
+
+const char *netDualWieldName(int mode) {
+    return mode == NET_DUAL_DOUBLES ? "Doubles" : mode == NET_DUAL_ANY ? "Any two guns" : "Off";
+}
+
+const char *netNextRoundName(int mode) {
+    return mode == NET_NEXT_SHUFFLE ? "Shuffle" : mode == NET_NEXT_PLAYLIST ? "Playlist" : "Vote";
+}

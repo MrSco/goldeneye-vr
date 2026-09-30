@@ -71,6 +71,13 @@ extern struct s_mp_weapon_set mp_weapon_set_prox_m[];
 extern struct s_mp_weapon_set mp_weapon_set_rockets[];
 extern struct s_mp_weapon_set mp_weapon_set_lasers[];
 extern struct s_mp_weapon_set mp_weapon_set_golden[];
+extern struct s_mp_weapon_set mp_weapon_set_custom[];
+
+/* The fifteenth set: the online host's own four guns (mpBuildCustomWeaponSet);
+ * net_match.h NET_WEAPON_SET_CUSTOM must agree. */
+#define MP_WEAPON_SET_CUSTOM 14
+const struct s_mp_weapon_set *mpPresetEntryForItem(s32 item);
+void mpBuildCustomWeaponSet(const u8 items[4]);
 
 void incrementMPWeaponSet(void);
 u16* getPtrMPWeaponSetTextID(void);

@@ -8,7 +8,7 @@
 #include "net/netbuf.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         8   /* 8: next-map votes, host migration; 7: gun aim in PLAYER_STATE, projectile/explosion/object events */
+#define GEVR_NET_VERSION         9   /* 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
@@ -32,6 +32,8 @@ enum {
 #define UCMD_SELECT         (1 << 7)
 #define UCMD_SELECT_DUAL    (1 << 8)
 #define UCMD_AIMVALID       (1 << 9)    /* aimorigin/aimdir hold the right gun's barrel */
+#define UCMD_FIRE_LEFT      (1 << 10)   /* the left gun's trigger (dual wielding) */
+#define UCMD_AIMVALID_LEFT  (1 << 11)   /* aimorigin_l/aimdir_l hold the left gun's barrel */
 
 /* Packet Opcodes */
 typedef enum {
@@ -67,16 +69,68 @@ typedef enum {
     NET_MSG_EXPLOSION = 24,     /* a damaging explosion the player caused */
     NET_MSG_OBJECT_STATE = 25,  /* a pickup collected or a door used */
     NET_MSG_COUNTDOWN = 26,     /* Host -> all: the next round starts in N ms (0 cancels) */
-    NET_MSG_STAGE_VOTE = 27,    /* Player -> host: my next-map vote (stage index, 0xFF none) */
-    NET_MSG_STAGE_VOTES = 28,   /* Host -> all: every slot's vote */
+    NET_MSG_VOTE = 27,          /* Player -> host: my vote (ballot kind, value; 0xFF none) */
+    NET_MSG_VOTES = 28,         /* Host -> all: a ballot's votes, every slot */
     NET_MSG_LOBBY_HANDOFF = 29, /* Host -> client: lobby code, owner token, game name, max players (host migration) */
+    NET_MSG_LOBBY_LOADOUT = 30, /* Client -> host: my four spawn guns */
 } NetMsgType;
 
 /* NET_MSG_OBJECT_STATE actions */
 enum {
     NET_OBJECT_PICKUP = 1,      /* value: the collector's tick operation */
     NET_OBJECT_DOOR = 2,        /* value: the door's new DOORSTATE */
+    NET_OBJECT_SPECIAL_TAKEN = 3, /* value: the item (the Golden Gun, the flag) the player now holds; index unused */
 };
+
+/* The ballots of NET_MSG_VOTE / NET_MSG_VOTES */
+enum {
+    NET_BALLOT_STAGE = 0,       /* a stage index (net_match.c) */
+    NET_BALLOT_WEAPONS = 1,     /* a weapon set */
+    NET_BALLOT_COUNT
+};
+
+/*
+ * The match as the host has set it: what every headset applies before each
+ * stage load (net_core.c netApplyMatchConfig). In LOBBY_STATE, WELCOME and
+ * START_MATCH.
+ */
+typedef struct {
+    uint8_t stage;          /* LEVELID */
+    uint8_t scenario;       /* MPSCENARIOS, 0..4 */
+    uint8_t weapon_set;     /* 0..13 GoldenEye's, NET_WEAPON_SET_CUSTOM the host's own four */
+    uint8_t game_length;    /* front.c multi_game_lengths index, 0..7 */
+    uint8_t health;         /* front.c MP_handicap_table index, 0..10, for everyone */
+    uint8_t dual_wield;     /* NET_DUAL_OFF / DOUBLES / ANY */
+    uint8_t loadouts;       /* 1: every player spawns with its own four guns */
+    uint8_t next_round;     /* NET_NEXT_VOTE / SHUFFLE / PLAYLIST (the host's rows show it) */
+    uint8_t custom_set[4];  /* the custom set's guns, ITEM_IDS */
+} NetMatchConfig;
+
+static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfig *c) {
+    netbufWriteU8(buf, c->stage);
+    netbufWriteU8(buf, c->scenario);
+    netbufWriteU8(buf, c->weapon_set);
+    netbufWriteU8(buf, c->game_length);
+    netbufWriteU8(buf, c->health);
+    netbufWriteU8(buf, c->dual_wield);
+    netbufWriteU8(buf, c->loadouts);
+    netbufWriteU8(buf, c->next_round);
+    for (int i = 0; i < 4; i++) netbufWriteU8(buf, c->custom_set[i]);
+    return buf->error;
+}
+
+static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
+    c->stage = netbufReadU8(buf);
+    c->scenario = netbufReadU8(buf);
+    c->weapon_set = netbufReadU8(buf);
+    c->game_length = netbufReadU8(buf);
+    c->health = netbufReadU8(buf);
+    c->dual_wield = netbufReadU8(buf);
+    c->loadouts = netbufReadU8(buf);
+    c->next_round = netbufReadU8(buf);
+    for (int i = 0; i < 4; i++) c->custom_set[i] = netbufReadU8(buf);
+    return buf->error;
+}
 
 /* Player movement & input command struct (serialized via netbuf) */
 struct netplayermove {
@@ -92,6 +146,9 @@ struct netplayermove {
     coord3d handrot;    /* 6DoF hand aim rotation (pitch, yaw, roll) */
     coord3d aimorigin;  /* right gun's muzzle, world space (UCMD_AIMVALID) */
     coord3d aimdir;     /* right gun's barrel direction, world space, unit length */
+    s8  weaponnum_left; /* the left hand's ITEM_*, ITEM_UNARMED when empty (dual wielding) */
+    coord3d aimorigin_l;/* left gun's muzzle (UCMD_AIMVALID_LEFT) */
+    coord3d aimdir_l;   /* left gun's barrel direction */
 };
 
 /* Serialization for netplayermove */
@@ -111,6 +168,9 @@ static inline u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplay
     netbufWriteCoord(buf, &m->handrot);
     netbufWriteCoord(buf, &m->aimorigin);
     netbufWriteCoord(buf, &m->aimdir);
+    netbufWriteS8(buf, m->weaponnum_left);
+    netbufWriteCoord(buf, &m->aimorigin_l);
+    netbufWriteCoord(buf, &m->aimdir_l);
     return buf->error;
 }
 
@@ -130,6 +190,9 @@ static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove 
     netbufReadCoord(buf, &m->handrot);
     netbufReadCoord(buf, &m->aimorigin);
     netbufReadCoord(buf, &m->aimdir);
+    m->weaponnum_left = netbufReadS8(buf);
+    netbufReadCoord(buf, &m->aimorigin_l);
+    netbufReadCoord(buf, &m->aimdir_l);
     return buf->error;
 }
 
@@ -150,42 +213,38 @@ typedef struct {
     uint8_t   requested_chr_id;
 } NetMsgHello;
 
-/* Server welcome */
+/* Server welcome (on the wire: assigned slot, the match config, the host's slot) */
 typedef struct {
     NetHeader header;
     uint8_t   assigned_slot;
-    uint8_t   stage_num;
-    uint8_t   scenario;
-    uint8_t   weapon_set;
+    NetMatchConfig config;
+    uint8_t   host_slot;
 } NetMsgWelcome;
 
 /* Lobby Player Slot Info */
 typedef struct {
     uint8_t   connected;
     uint8_t   ready;
-    uint8_t   chr_id;
-    uint8_t   pad;
+    uint8_t   chr_id;       /* mp_chr_setup index, 0..63 */
+    uint8_t   spectator;    /* joined a live round: watching until the next one */
+    uint8_t   loadout[4];   /* the player's four spawn guns (config.loadouts) */
     uint16_t  ping_ms;
     char      name[GEVR_MAX_NAME_LEN];
 } NetLobbySlot;
 
-/* Lobby State Broadcast */
+/* Lobby State Broadcast (net_core.c netBroadcastLobbyState writes it, the
+ * NET_MSG_LOBBY_STATE handler reads it: the one place each) */
 typedef struct {
     NetHeader     header;
-    uint8_t       stage_num;
-    uint8_t       scenario;
-    uint8_t       weapon_set;
+    NetMatchConfig config;
     uint8_t       countdown_secs;
     NetLobbySlot  slots[GEVR_MAX_PLAYERS];
 } NetMsgLobbyState;
 
-/* Match Launch */
+/* Match Launch (on the wire: config, seed, player count, chr_id[4], phase) */
 typedef struct {
     NetHeader header;
-    uint8_t   stage_num;
-    uint8_t   scenario;
-    uint8_t   weapon_set;
-    uint8_t   start_pad[GEVR_MAX_PLAYERS];
+    NetMatchConfig config;
     uint32_t  random_seed;
 } NetMsgStartMatch;
 

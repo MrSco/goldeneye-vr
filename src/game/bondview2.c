@@ -770,21 +770,31 @@ static void gevrWarpProbe(s32 inlevel)
  * with the game's own bottom message. Outside a level the note is dropped.
  */
 extern s32 gevrTexpackToggleMsg;
+extern s32 gevrMicToggleMsg;   /* input.c: the Menu + B chord, 1 muted, 2 on */
 static void gevrTexpackMessage(s32 inlevel)
 {
     static char msg[32];
     s32 m = gevrTexpackToggleMsg;
+    s32 mic = gevrMicToggleMsg;
 
-    if (m == 0)
+    if (m == 0 && mic == 0)
     {
         return;
     }
     gevrTexpackToggleMsg = 0;
+    gevrMicToggleMsg = 0;
     if (!inlevel || g_CurrentPlayer == NULL)
     {
         return;
     }
-    strcpy(msg, m == 3 ? "HD textures on" : m == 2 ? "HD textures off" : "No HD texture pack");
+    if (mic != 0)
+    {
+        strcpy(msg, mic == 1 ? "Microphone muted" : "Microphone on");
+    }
+    else
+    {
+        strcpy(msg, m == 3 ? "HD textures on" : m == 2 ? "HD textures off" : "No HD texture pack");
+    }
     hudmsgBottomShow(msg);
 }
 
