@@ -15160,6 +15160,38 @@ void hudmsgTopShow(char* mess)
 }
 
 
+#ifdef GEVR
+/*
+ * A message that replaces the one it follows: the top window queues two
+ * messages, each up for about a second, so a countdown posting a new number
+ * every second overflowed it and numbers went missing (user, 2026-09-30).
+ * A queued message that starts with prefix is rewritten in place and kept
+ * up; otherwise the message is queued as usual.
+ */
+void gevrHudTopReplace(const char *mess, const char *prefix)
+{
+    s32 k;
+    size_t n = strlen(prefix);
+
+    for (k = 0; k < display_upper_text_window && k < 2; k++)
+    {
+        s32 index = (upper_text_buffer_index + k) % 2;
+
+        if (strncmp(stringbuffer_top[index], prefix, n) == 0)
+        {
+            strncpy(stringbuffer_top[index], mess, BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH - 1);
+            stringbuffer_top[index][BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH - 1] = 0;
+            if (k == 0 && upper_text_window_timer < BONDVIEW_UPPER_TEXT_TIMER_A)
+            {
+                upper_text_window_timer = BONDVIEW_UPPER_TEXT_TIMER_A;
+            }
+            return;
+        }
+    }
+    hudmsgTopShow((char *)mess);
+}
+#endif
+
 /**
  * Address 0x7F08A9F8.
  */
