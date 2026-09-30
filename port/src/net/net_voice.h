@@ -22,6 +22,7 @@ void netVoiceReset(void);
 void netVoiceForgetSlot(uint8_t slot);
 void netVoiceTick(void);
 void netVoicePlayersTick(void);
+int netPlayersWereTicked(void);
 void netVoiceReceive(uint8_t slot, uint32_t sequence, const uint8_t *packet, uint16_t size);
 void netVoiceMix(int16_t *stereo, size_t frames);
 

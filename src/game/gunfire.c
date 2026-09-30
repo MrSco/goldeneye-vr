@@ -275,12 +275,22 @@ void gunFireTankShell(s32 handnum)
     shellmtx.m[3][1] = 0.0f;
     shellmtx.m[3][2] = 0.0f;
 
-    if (hand->rocket != NULL) 
+#ifdef GEVR
+    /* A received rocket (gun.c gevrNetSpawnProjectile) is a new one: the
+     * copy's launcher never has its first-person rocket attached. */
+    if (weaponid != ITEM_TANKSHELLS
+        && gevrNetProjectile(GEVR_NETPROJ_ROCKET, handnum, &spawnpos, &velocity, &shellmtx, &unscaledvelocity))
+    {
+        obj = (WeaponObjRecord *) create_new_item_instance_of_model(PROP_CHRROCKET, ITEM_ROCKETROUND);
+    }
+    else
+#endif
+    if (hand->rocket != NULL)
     {
         obj = (WeaponObjRecord *) hand->rocket;
         hand->firedrocket = 1;
-    } 
-    else 
+    }
+    else
     {
         obj = (WeaponObjRecord *) create_new_item_instance_of_model(PROP_CHRROCKET, ITEM_ROCKETROUND);
     }
