@@ -418,6 +418,25 @@ void bondviewLoadSetupIntroSection(void)
     {
         if ((getPlayerCount() >= 2) && (startpadcount > 0))
         {
+#ifdef GEVR
+            /*
+             * Online every headset places every slot at stage load, and the
+             * random picker only avoids the other players' positions as this
+             * headset sees them: each player's own pick differed per headset
+             * (the per-player pad counter is a process-wide count), so two
+             * players could start on one pad, inside each other (two-headset
+             * test). The start pad comes from the match seed instead, a
+             * permutation shared by all headsets, one pad per slot.
+             */
+            extern bool netIsActive(void);
+            extern int netStartPad(int slot, int padcount);
+
+            if (netIsActive())
+            {
+                rand_pad_index = netStartPad(get_cur_playernum(), startpadcount);
+            }
+            else
+#endif
             rand_pad_index = bondviewGetRandomSpawnPadIndex();
         }
         else
