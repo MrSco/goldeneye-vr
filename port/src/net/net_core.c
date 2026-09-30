@@ -24,6 +24,8 @@
 #include "game/chrai.h"
 #include "game/loadobjectmodel.h"
 #include "game/propobj.h"
+#include "music.h"   /* g_musicSfxBufferPtr: the hit heard at a copy (netApplyDamage) */
+#include "snd.h"
 #include "system.h"
 #include <math.h>
 #include <stdio.h>
@@ -112,6 +114,22 @@ static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, flo
     s32 prev = get_cur_playernum();
     f32 h0 = pl->bondhealth, a0 = pl->bondarmour;
     s_last_attacker[target] = (int8_t)attacker;
+    if (target != s_local_slot) {
+        /*
+         * A copy takes no damage of its own: its health is its owner's
+         * (protocol 10) and it dies when its owner reports dead
+         * (net_player_sync.c), credited to the last attacker recorded here.
+         * Applied locally, the same event killed a copy on one headset and
+         * not the owner on its own (the owner's damage-flash gate), and the
+         * kill was counted where the owner never died: the client won 5-0
+         * on its screen, 4-0 on the host's (match 2026-09-30, 15:04). The
+         * hit is still heard from where the copy stands.
+         */
+        if (pl->prop && !pl->bonddead)
+            chrobjSndCreatePostEventDefault(sndPlaySfx(g_musicSfxBufferPtr, BOND_GET_HIT1_SFX, 0), &pl->prop->pos);
+        NET_LOG("damage: player %d took %.2f from %d (weapon %d): a copy, its owner decides", target, dmg, attacker, weapon);
+        return;
+    }
     set_cur_player(target);
     s_gevrExplosionDamage = (weapon == ITEM_GRENADE || weapon == ITEM_GRENADELAUNCH || weapon == ITEM_ROCKETLAUNCH || weapon == ITEM_PROXIMITYMINE || weapon == ITEM_TIMEDMINE || weapon == ITEM_REMOTEMINE || weapon == ITEM_TANKSHELLS);
     record_damage_kills(dmg, vx, vz, attacker, 1);
