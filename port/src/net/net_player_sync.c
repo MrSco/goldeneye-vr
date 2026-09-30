@@ -29,6 +29,12 @@ extern void bondviewUpdatePlayerRoom(struct player *player);
 static coord3d s_remote_render_pos[GEVR_MAX_PLAYERS];
 static StandTile *s_remote_render_tile[GEVR_MAX_PLAYERS];
 static bool s_remote_render_valid[GEVR_MAX_PLAYERS];
+static f32 s_remote_barrel_pitch[GEVR_MAX_PLAYERS];   /* logged only (see netPlayerSyncBeforeTick) */
+static f32 s_remote_barrel_yaw[GEVR_MAX_PLAYERS];
+static s8 s_copy_weapon[GEVR_MAX_PLAYERS][2];         /* the item last given to a copy's hand (netSyncCopyHand) */
+static u64 s_copy_dead_since_us[GEVR_MAX_PLAYERS];    /* the copy has been dead since (0: alive) */
+static u64 s_copy_alive_since_us[GEVR_MAX_PLAYERS];   /* the copy has been alive since (0: dead) */
+static u64 s_owner_dead_since_us[GEVR_MAX_PLAYERS];   /* the owner has reported dead since (0: alive) */
 
 void netPlayerSyncInit(void) {
 }
@@ -131,16 +137,27 @@ void netSpectatorFrame(void) {
     }
 }
 
-static void netSyncCopyHand(struct player *pl, int hand, int weapon, int fire) {
+static void netSyncCopyHand(struct player *pl, int slot, int hand, int weapon, int fire) {
     ChrRecord *chr = pl->prop->chr;
     int current = chr->weapons_held[hand] && chr->weapons_held[hand]->weapon ? chr->weapons_held[hand]->weapon->weaponnum : ITEM_UNARMED;
-    if (current != weapon) {
+    /*
+     * An item with no held model (fists) leaves the hand empty, so read
+     * back from the chr it never matched and the hand was re-given every
+     * tick, replaying the body's draw (playtest 2026-09-30: "takes the gun
+     * out from behind the back"). The item last given is remembered per
+     * hand; the chr is consulted only for an item that has a model, which a
+     * new chr (a stage load) will lack.
+     */
+    bool has_model = weapon > ITEM_UNARMED && weapon < ITEM_IDS_MAX && (s32)getPropForHeldItem((ITEM_IDS)weapon) >= 0;
+    if (s_copy_weapon[slot][hand] != weapon || (has_model && current != weapon)) {
+        sysLogPrintf(LOG_NOTE, "net: copy %d %s hand weapon %d -> %d (held %d, given %d)", slot,
+                     hand == GUNLEFT ? "left" : "right", current, weapon, pl->hands[hand].weaponnum, s_copy_weapon[slot][hand]);
         chrSetWeaponFlag4(chr, hand);
         if (chr->weapons_held[hand] && chr->weapons_held[hand]->obj) objFreePermanently(chr->weapons_held[hand]->obj, 1);
-        if (weapon > ITEM_UNARMED && weapon < ITEM_IDS_MAX) {
-            enum PROP prop = getPropForHeldItem((ITEM_IDS)weapon);
-            if ((s32)prop >= 0) chrGiveWeapon(chr, prop, (ITEM_IDS)weapon, hand == GUNLEFT ? PROPFLAG_WEAPON_LEFTHANDED : 0);
+        if (has_model) {
+            chrGiveWeapon(chr, getPropForHeldItem((ITEM_IDS)weapon), (ITEM_IDS)weapon, hand == GUNLEFT ? PROPFLAG_WEAPON_LEFTHANDED : 0);
         }
+        s_copy_weapon[slot][hand] = (s8)weapon;
     }
     if (pl->hands[hand].weaponnum != weapon) {
         pl->hands[hand].weaponnum = (ITEM_IDS)weapon;
@@ -175,6 +192,74 @@ void netPlayerSyncBeforeTick(s32 playernum) {
         if (!pl || !m) return;
         
         if (pl->prop) {
+            /*
+             * The owner decides its own life (protocol 10). Each headset
+             * applies the host's damage events to the copy as well, for the
+             * kill credit and the death animation, but the accounting drifts
+             * (armour picked up on one headset, the damage-flash gate), and a
+             * copy that died where its owner did not stood as a corpse
+             * ignoring the owner's moves (playtest 2026-09-30). So: dead
+             * owner, live copy: the copy dies, credited to whoever last hurt
+             * it here; live owner, dead copy: the copy respawns (any pad, the
+             * position below snaps it); both alive: the owner's numbers.
+             */
+            /*
+             * With a grace period each way. The owner's packets run a
+             * round trip behind the host's damage event, so the copy dies
+             * here while the owner's last packet still says alive, and the
+             * owner's own death follows within the round trip: acting at
+             * once respawned a copy in the tick it died, mid death, and the
+             * game crashed in the next object tick (host log, 2026-09-30).
+             * A dead copy is resurrected only after the owner has reported
+             * alive for 1.5 s past the death; a live copy is killed only
+             * after the owner has reported dead for 0.5 s, by when the
+             * damage event that kills it properly has normally arrived.
+             */
+            {
+                u64 now = sysGetMicroseconds();
+                if (pl->bonddead) {
+                    if (!s_copy_dead_since_us[playernum]) s_copy_dead_since_us[playernum] = now;
+                    s_copy_alive_since_us[playernum] = 0;
+                } else {
+                    if (!s_copy_alive_since_us[playernum]) s_copy_alive_since_us[playernum] = now;
+                    s_copy_dead_since_us[playernum] = 0;
+                }
+                if (m->dead) {
+                    if (!s_owner_dead_since_us[playernum]) s_owner_dead_since_us[playernum] = now;
+                } else {
+                    s_owner_dead_since_us[playernum] = 0;
+                }
+                /*
+                 * ... and the copy alive for 0.5 s as well: the owner's
+                 * RESPAWN revives the copy while its last state packet still
+                 * says dead, and the kill rule killed the fresh copy at once,
+                 * crediting a second kill for one death (match 2026-09-30,
+                 * 14:52). The post-respawn packets arrive well inside that.
+                 */
+                /* copies take no damage of their own now (net_core.c netApplyDamage): the owner's death is the kill */
+                if (m->dead && !pl->bonddead && now - s_owner_dead_since_us[playernum] > 100000
+                    && now - s_copy_alive_since_us[playernum] > 500000) {
+                    s32 prev = get_cur_playernum();
+                    s32 killer = netLastAttacker(playernum);
+                    sysLogPrintf(LOG_NOTE, "net: copy %d: owner dead, copy alive (health %.2f): killing, credit %d", playernum, pl->bondhealth, killer);
+                    set_cur_player(playernum);
+                    record_damage_kills(1000.0f, 0.0f, 1.0f, killer, 1);
+                    set_cur_player(prev);
+                    s_copy_dead_since_us[playernum] = now;
+                } else if (!m->dead && pl->bonddead && m->health > 0.0f && now - s_copy_dead_since_us[playernum] > 1500000) {
+                    s32 prev = get_cur_playernum();
+                    sysLogPrintf(LOG_NOTE, "net: copy %d: owner alive (health %.2f) %.1f s past the copy's death: respawning the copy",
+                                 playernum, m->health, (now - s_copy_dead_since_us[playernum]) / 1000000.0f);
+                    set_cur_player(playernum);
+                    mp_respawn_handler_net(0, m->angles[0]);
+                    set_cur_player(prev);
+                    pl->deathanimfinished = 1;   /* snap to the owner below */
+                    s_copy_dead_since_us[playernum] = 0;
+                } else if (!m->dead && !pl->bonddead) {
+                    pl->bondhealth = m->health;
+                    pl->bondarmour = m->armour;
+                }
+            }
             /* A corpse stays at its death location until the reliable respawn
              * event resets the player. Late movement packets must not drag it. */
             if (pl->bonddead) {
@@ -232,18 +317,29 @@ void netPlayerSyncBeforeTick(s32 playernum) {
              * torso pitched through whole turns each time the copy changed
              * step (strafing left and right, user).
              */
+            /*
+             * Playtest 2026-09-30: posed from the barrel, the copies stood
+             * bent over (a VR gun rests 30-47 degrees down while the head is
+             * level: "net: pose local"), twisted at the waist whenever the
+             * controller swung, and jumped between the two sources as the
+             * grip came and went (the "draws the gun from behind the back"
+             * look). The flat game poses the body from the view: its pitch,
+             * and no yaw, since its gun points where it looks. So here, with
+             * the barrel's pitch and yaw only logged.
+             */
             {
                 coord3d o;
                 coord3d d;
+                s_remote_barrel_pitch[playernum] = 0.0f;
+                s_remote_barrel_yaw[playernum] = 0.0f;
                 if (!pl->bonddead && netGetRemoteAim(playernum, GUNRIGHT, &o, &d)) {
                     f32 theta = pl->vv_theta * (M_PI_F / 180.0f);
                     f32 fx = -sinf(theta), fz = cosf(theta);   /* the view's forward, level */
-                    pl->field_2A08 = atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
-                    pl->field_2A0C = atan2f(d.x * fz - d.z * fx, d.x * fx + d.z * fz);
-                } else {
-                    pl->field_2A08 = pl->vv_verta * (M_PI_F / 180.0f);
-                    pl->field_2A0C = 0.0f;
+                    s_remote_barrel_pitch[playernum] = atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z)) * (180.0f / M_PI_F);
+                    s_remote_barrel_yaw[playernum] = atan2f(d.x * fz - d.z * fx, d.x * fx + d.z * fz) * (180.0f / M_PI_F);
                 }
+                pl->field_2A08 = pl->vv_verta * (M_PI_F / 180.0f);
+                pl->field_2A0C = 0.0f;
             }
             /* Third-person character model animation */
             if (pl->prop->chr) {
@@ -251,8 +347,36 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                  * the feet. Using eye height here causes vertical twitching. */
                 pl->prop->chr->ground = pl->prop->pos.y - pl->eyeheight;
 
-                netSyncCopyHand(pl, GUNRIGHT, netRemoteWeapon(playernum, GUNRIGHT), netRemoteTrigger(playernum, GUNRIGHT));
-                netSyncCopyHand(pl, GUNLEFT, netRemoteWeapon(playernum, GUNLEFT), netRemoteTrigger(playernum, GUNLEFT));
+                netSyncCopyHand(pl, playernum, GUNRIGHT, netRemoteWeapon(playernum, GUNRIGHT), netRemoteTrigger(playernum, GUNRIGHT));
+                netSyncCopyHand(pl, playernum, GUNLEFT, netRemoteWeapon(playernum, GUNLEFT), netRemoteTrigger(playernum, GUNLEFT));
+            }
+
+            /*
+             * Playtest logging (2026-09-30: "bent over at the torso", "twists
+             * when the controllers move", "bends when strafing", "draws the
+             * gun from behind the back on grip"): what the copy's body is
+             * posed from, every 2 s and at each change of the aim source.
+             * pitch/yaw are field_2A08/field_2A0C in degrees (up and left
+             * positive), head is the owner's view pitch, turn is field_1280
+             * (the strafe turn), anim the body's animation offset.
+             */
+            {
+                static u64 next_pose_log_us[GEVR_MAX_PLAYERS];
+                static s8 last_aim[GEVR_MAX_PLAYERS] = { -1, -1, -1, -1 };
+                s8 aim = (m->ucmd & UCMD_AIMVALID) ? 1 : 0;
+                u64 now = sysGetMicroseconds();
+                if (aim != last_aim[playernum] || now >= next_pose_log_us[playernum]) {
+                    sysLogPrintf(LOG_NOTE, "net: pose %d %s pitch %.0f yaw %.0f (barrel %.0f/%.0f) head %.0f fwd %.2f side %.2f turn %.0f crouch %d anim %d wep %d/%d fire %d%d%s",
+                                 playernum, aim ? "barrel" : "head",
+                                 pl->field_2A08 * (180.0f / M_PI_F), pl->field_2A0C * (180.0f / M_PI_F),
+                                 s_remote_barrel_pitch[playernum], s_remote_barrel_yaw[playernum], pl->vv_verta,
+                                 pl->speedforwards, pl->speedsideways, pl->field_1280, pl->crouchpos,
+                                 pl->players_cur_animation, pl->hands[GUNRIGHT].weaponnum, pl->hands[GUNLEFT].weaponnum,
+                                 pl->hands[GUNRIGHT].field_87D ? 1 : 0, pl->hands[GUNLEFT].field_87D ? 1 : 0,
+                                 aim != last_aim[playernum] ? " (aim source changed)" : "");
+                    last_aim[playernum] = aim;
+                    next_pose_log_us[playernum] = now + 2000000;
+                }
             }
 
             /* Crucial: update player room list so prop renders across portal room boundaries */
@@ -344,9 +468,10 @@ void netPlayerSyncAfterTick(s32 playernum) {
             if (end) {
                 s32 sec = end > now ? (s32)((end - now + 999999) / 1000000) : 0;
                 if (sec > 0 && sec != last_sec) {
+                    extern void gevrHudTopReplace(const char *mess, const char *prefix);
                     char message[48];
                     snprintf(message, sizeof(message), "MATCH STARTS IN %d", sec);
-                    hudmsgTopShow(message);
+                    gevrHudTopReplace(message, "MATCH STARTS IN");   /* in place: the queue dropped numbers */
                     last_sec = sec;
                 }
                 if (!fading && end <= now + 1000000) {
@@ -417,6 +542,9 @@ void netPlayerSyncAfterTick(s32 playernum) {
     move.weaponnum = (s8)getCurrentPlayerWeaponId(GUNRIGHT);
     move.weaponnum_left = netActiveDualWield() ? (s8)getCurrentPlayerWeaponId(GUNLEFT) : ITEM_UNARMED;
     move.crouchpos = (s8)pl->crouchpos;
+    move.health = pl->bondhealth;
+    move.armour = pl->bondarmour;
+    move.dead = pl->bonddead ? 1 : 0;
     
     if (pl->prop) {
         move.pos = pl->prop->pos;
@@ -461,6 +589,21 @@ void netPlayerSyncAfterTick(s32 playernum) {
             s_last_act_pos = move.pos;
         }
         if (act) netTouchLocalActivity();
+    }
+
+    /* The owner's side of the copy's pose line above, to compare against. */
+    {
+        static u64 next_local_log_us;
+        u64 now = sysGetMicroseconds();
+        if (now >= next_local_log_us) {
+            next_local_log_us = now + 2000000;
+            sysLogPrintf(LOG_NOTE, "net: pose local %s pitch %.0f yaw %.0f head %.0f fwd %.2f side %.2f turn %.0f crouch %d wep %d/%d ucmd %x aimdir %.2f,%.2f,%.2f",
+                         (move.ucmd & UCMD_AIMVALID) ? "barrel" : "head",
+                         pl->field_2A08 * (180.0f / M_PI_F), pl->field_2A0C * (180.0f / M_PI_F), pl->vv_verta,
+                         pl->speedforwards, pl->speedsideways, pl->field_1280, pl->crouchpos,
+                         move.weaponnum, move.weaponnum_left, (unsigned)move.ucmd,
+                         move.aimdir.x, move.aimdir.y, move.aimdir.z);
+        }
     }
 
     netSendLocalPlayerMove(&move);
