@@ -46,6 +46,8 @@ NetPhase netGetPhase(void);
 bool netSlotOccupied(int slot);
 bool netTakeRoundReset(void);
 void netStageLoaded(void);
+uint64_t netGetCountdownEndUs(void);   /* the next round's start, sysGetMicroseconds clock; 0 none */
+bool netTakeStageFadeIn(void);         /* once after each online stage load */
 void netHostRoundEnded(void);
 void netHostReturnToWarmup(void);
 const NetMsgLobbyState *netGetLobbyState(void);

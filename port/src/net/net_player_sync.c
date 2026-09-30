@@ -257,6 +257,38 @@ void netPlayerSyncAfterTick(s32 playernum) {
         int phase = netGetPhase();
         for (int slot = 0; slot < GEVR_MAX_PLAYERS; slot++)
             if (lobby->slots[slot].connected) connected |= 1u << slot;
+        /* The host's countdown to the next round (net_core.c
+         * netScheduleRound): a top message each second, a fade to black over
+         * its last second, and a fade in once the new stage has loaded. */
+        {
+            extern void currentPlayerSetFadeColour(s32 r, s32 g, s32 b, f32 frac);
+            extern void currentPlayerSetFadeFrac(f32 maxfadetime, f32 frac);
+            static s32 last_sec = -1;
+            static s32 fading = 0;
+            u64 end = netGetCountdownEndUs();
+            u64 now = sysGetMicroseconds();
+            if (netTakeStageFadeIn()) {
+                currentPlayerSetFadeColour(0, 0, 0, 1.0f);
+                currentPlayerSetFadeFrac(60.0f, 0.0f);
+                fading = 0;
+            }
+            if (end) {
+                s32 sec = end > now ? (s32)((end - now + 999999) / 1000000) : 0;
+                if (sec > 0 && sec != last_sec) {
+                    char message[48];
+                    snprintf(message, sizeof(message), "MATCH STARTS IN %d", sec);
+                    hudmsgTopShow(message);
+                    last_sec = sec;
+                }
+                if (!fading && end <= now + 1000000) {
+                    currentPlayerSetFadeColour(0, 0, 0, 0.0f);
+                    currentPlayerSetFadeFrac(60.0f, 1.0f);
+                    fading = 1;
+                }
+            } else {
+                last_sec = -1;
+            }
+        }
         if (last_phase >= 0) {
             if (last_phase != NET_PHASE_IN_PROGRESS && phase == NET_PHASE_IN_PROGRESS)
                 hudmsgTopShow("MATCH STARTED");

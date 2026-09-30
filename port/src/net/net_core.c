@@ -624,9 +624,54 @@ static bool netAllLoaded(void) {
     return true;
 }
 
+/* The countdown to the next round, as every headset shows it
+ * (net_player_sync.c): the host schedules the round reset and tells the
+ * clients when it falls. 0 cancels. */
+static uint64_t s_countdown_end_us = 0;
+static bool s_stage_fade_in = false;
+
+static void netSendCountdown(uint32_t ms) {
+    u8 raw[16];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_COUNTDOWN);
+    netbufWriteU8(&buf, 0);
+    netbufWriteU32(&buf, ms);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+}
+
+static void netScheduleRound(uint32_t secs) {
+    s_next_round_at_us = sysGetMicroseconds() + (uint64_t)secs * 1000000;
+    s_countdown_end_us = s_next_round_at_us;
+    netSendCountdown(secs * 1000);
+    NET_LOG("Next round in %u s", secs);
+}
+
+static void netCancelRound(void) {
+    if (!s_next_round_at_us && !s_countdown_end_us) return;
+    s_next_round_at_us = 0;
+    s_countdown_end_us = 0;
+    netSendCountdown(0);
+    NET_LOG("Next round countdown cancelled");
+}
+
+uint64_t netGetCountdownEndUs(void) {
+    return s_countdown_end_us;
+}
+
+/* One fade from black per online stage load (net_player_sync.c). */
+bool netTakeStageFadeIn(void) {
+    bool pending = s_stage_fade_in;
+    s_stage_fade_in = false;
+    return pending;
+}
+
 static void netBeginRoundReset(void) {
     u8 raw[8];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    s_countdown_end_us = 0;
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
@@ -662,6 +707,7 @@ void netHostReturnToWarmup(void) {
 void netStageLoaded(void) {
     netPlayersTickedReset(); /* events queued through the load are for the old stage */
     if (s_state != NET_STATE_INGAME || s_local_slot < 0) return;
+    s_stage_fade_in = true;
     s_lobby_state.slots[s_local_slot].ready = 1;
     if (!netIsHost()) {
         s_stage_ready_sent = true;
@@ -687,9 +733,9 @@ void netStageLoaded(void) {
                 s_round_reset_loading = false;
                 if (s_pause_after_results) {
                     s_pause_after_results = false;
-                    s_next_round_at_us = sysGetMicroseconds() + 15000000;
+                    netScheduleRound(15);
                 } else netBroadcastRoundPhase(NET_PHASE_IN_PROGRESS);
-            } else if (s_phase == NET_PHASE_WARMUP) netBeginRoundReset();
+            } else if (s_phase == NET_PHASE_WARMUP && !s_next_round_at_us) netScheduleRound(10); /* a joiner: everyone sees the countdown */
         }
     }
 }
@@ -1381,7 +1427,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     s_round_reset_loading = false;
                     if (s_pause_after_results) {
                         s_pause_after_results = false;
-                        s_next_round_at_us = sysGetMicroseconds() + 15000000;
+                        netScheduleRound(15);
                     } else netBroadcastRoundPhase(NET_PHASE_IN_PROGRESS);
                 } else netBeginRoundReset();
             }
@@ -1391,7 +1437,14 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (netIsHost() || peer != s_server_peer || size != 8) break;
             s_phase = NET_PHASE_WARMUP;
             s_round_reset_pending = true;
+            s_countdown_end_us = 0;
             s_lobby_state.slots[s_local_slot].ready = 0;
+            break;
+        }
+        case NET_MSG_COUNTDOWN: {
+            if (netIsHost() || peer != s_server_peer || size != 12) break;
+            uint32_t ms = netbufReadU32(&buf);
+            s_countdown_end_us = ms ? sysGetMicroseconds() + (uint64_t)ms * 1000 : 0;
             break;
         }
         case NET_MSG_MATCH_END: {
@@ -1813,6 +1866,8 @@ void netPoll(void) {
                             s_pause_after_results = false;
                             s_next_round_at_us = 0;
                             netBeginRoundReset();
+                        } else if (s_state == NET_STATE_INGAME && netGetConnectedPlayerCount() < 2) {
+                            netCancelRound(); /* the countdown was for the player who left */
                         }
                     }
                 } else {
