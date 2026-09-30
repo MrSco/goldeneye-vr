@@ -1438,8 +1438,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             look = left;
         if (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon) {
             /* Keep page navigation on the left stick and volume on the right.
-             * A diagonal adjustment must not also change pages. */
-            look.x = left.x;
+             * A diagonal adjustment must not also change pages. The left
+             * stick's up and down move the LOBBY page's cursor (mpmenu.c), so
+             * a mostly vertical push flips no page either. */
+            look.x = fabsf(left.y) > fabsf(left.x) ? 0.0f : left.x;
             look.y = right.y;
         }
         npad->stick_x = inputAxisScale((s32)(look.x * 32767.0f),
@@ -2382,4 +2384,11 @@ PD_CONSTRUCTOR static void inputConfigInit(void)
             configRegisterString(keyname, bindStrs[c][ck], MAX_BIND_STR);
         }
     }
+}
+
+/* vr_input.cpp controller_pose: the multiplayer pause menu is up, hold the hands still */
+int gevrMpMenuOpen(void)
+{
+    extern bool netIsActive(void);
+    return netIsActive() && g_CurrentPlayer != NULL && g_CurrentPlayer->mpmenuon;
 }
