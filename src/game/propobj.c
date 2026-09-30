@@ -12646,6 +12646,23 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
 
     for (index = 0; index < count; index++)
     {
+#ifdef GEVR
+        /*
+         * Split screen shares one speaker, so a sound is as loud as it is for
+         * the nearest player. Online each headset hears only its own player:
+         * measured to the other players' copies, a remote gun or explosion
+         * was always as loud as if it were beside you.
+         */
+        {
+            extern bool netIsActive(void);
+            extern int netGetLocalSlot(void);
+
+            if (netIsActive() && index != netGetLocalSlot())
+            {
+                continue;
+            }
+        }
+#endif
         prop  = g_playerPointers[index]->prop;
         diffx = prop->pos.x - pos->x;
         diffy = prop->pos.y - pos->y;

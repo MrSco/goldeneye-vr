@@ -8,7 +8,7 @@
 #include "net/netbuf.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         6   /* 6: live match admission and round phases */
+#define GEVR_NET_VERSION         7   /* 7: gun aim in PLAYER_STATE, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
@@ -31,6 +31,7 @@ enum {
 #define UCMD_DUCK           (1 << 4)
 #define UCMD_SELECT         (1 << 7)
 #define UCMD_SELECT_DUAL    (1 << 8)
+#define UCMD_AIMVALID       (1 << 9)    /* aimorigin/aimdir hold the right gun's barrel */
 
 /* Packet Opcodes */
 typedef enum {
@@ -74,6 +75,8 @@ struct netplayermove {
     coord3d pos;        /* world position */
     coord3d handpos;    /* 6DoF hand aim position in world/view */
     coord3d handrot;    /* 6DoF hand aim rotation (pitch, yaw, roll) */
+    coord3d aimorigin;  /* right gun's muzzle, world space (UCMD_AIMVALID) */
+    coord3d aimdir;     /* right gun's barrel direction, world space, unit length */
 };
 
 /* Serialization for netplayermove */
@@ -91,6 +94,8 @@ static inline u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplay
     netbufWriteCoord(buf, &m->pos);
     netbufWriteCoord(buf, &m->handpos);
     netbufWriteCoord(buf, &m->handrot);
+    netbufWriteCoord(buf, &m->aimorigin);
+    netbufWriteCoord(buf, &m->aimdir);
     return buf->error;
 }
 
@@ -108,6 +113,8 @@ static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove 
     netbufReadCoord(buf, &m->pos);
     netbufReadCoord(buf, &m->handpos);
     netbufReadCoord(buf, &m->handrot);
+    netbufReadCoord(buf, &m->aimorigin);
+    netbufReadCoord(buf, &m->aimdir);
     return buf->error;
 }
 

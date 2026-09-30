@@ -1668,6 +1668,13 @@ static struct WeaponRumbleProfile getWeaponRumbleProfile(s32 item_id) {
 }
 
 void gevrRumbleGunfire(s32 hand, s32 item_id) {
+    extern int netGetLocalSlot(void);
+    extern s32 get_cur_playernum(void);
+    /* Another player's copy fires on this headset too: only the local
+     * player's own gun reaches the controllers. */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot()) {
+        return;
+    }
     struct WeaponRumbleProfile p = getWeaponRumbleProfile(item_id);
     f32 amp = p.amplitude;
     if (amp <= 0.001f || p.duration <= 0.001f) {

@@ -18,6 +18,7 @@
 #include "game/chrai.h"
 #include "game/loadobjectmodel.h"
 #include "game/propobj.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -823,6 +824,21 @@ const NetMsgPlayerState *netGetRemotePlayerState(int slot_id) {
 bool netIsRemotePlayerActive(int slot_id) {
     if (slot_id < 0 || slot_id >= GEVR_MAX_PLAYERS || slot_id == s_local_slot) return false;
     return s_remote_active[slot_id];
+}
+
+/* The remote player's right gun barrel in world space, when its owner aims
+ * from a tracked controller (bondview2.c gevrStereoShot for a copy). */
+int netGetRemoteAim(int slot_id, coord3d *origin, coord3d *dir) {
+    if (!netIsRemotePlayerActive(slot_id) || !origin || !dir) return 0;
+    const struct netplayermove *m = &s_remote_moves[slot_id];
+    if (!(m->ucmd & UCMD_AIMVALID)) return 0;
+    float len = sqrtf(m->aimdir.x * m->aimdir.x + m->aimdir.y * m->aimdir.y + m->aimdir.z * m->aimdir.z);
+    if (!(len > 0.0001f) || !isfinite(m->aimorigin.x) || !isfinite(m->aimorigin.y) || !isfinite(m->aimorigin.z)) return 0;
+    *origin = m->aimorigin;
+    dir->x = m->aimdir.x / len;
+    dir->y = m->aimdir.y / len;
+    dir->z = m->aimdir.z / len;
+    return 1;
 }
 
 static void netProcessHitReport(uint8_t shooter_slot, uint8_t target, uint8_t weapon, float hx, float hy, float hz, float dmg) {

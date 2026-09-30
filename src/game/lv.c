@@ -813,21 +813,38 @@ Gfx* lvlRender(Gfx* DL)
                  * players' copies are traced here too, or their bullets never
                  * land: no impacts, no broken glass. Only the shooter reports
                  * hits on players (chraction.c), so this adds no damage.
+                 *
+                 * A copy's own camera matrices are built only in its view pass,
+                 * which never runs online, and the on-screen props' hit tests
+                 * are in the local view's space: the copy shoots with the local
+                 * view's matrices, its shot converted into them from the
+                 * owner's world-space barrel (bondview2.c gevrStereoShot).
                  */
                 extern bool netSlotOccupied(int slot);
                 s32 localslot = get_cur_playernum();
+                struct player *localplayer = g_CurrentPlayer;
                 s32 slot;
 
-                if (netIsActive())
+                if (netIsActive() && localplayer != NULL)
                 {
                     for (slot = 0; slot < 4; slot++)
                     {
-                        if (slot == localslot || !netSlotOccupied(slot) || g_playerPointers[slot] == NULL)
+                        struct player *remote = g_playerPointers[slot];
+                        Mtxf *savedv2w;
+                        Mtxf *savedw2v;
+
+                        if (slot == localslot || !netSlotOccupied(slot) || remote == NULL || remote->bonddead)
                         {
                             continue;
                         }
+                        savedv2w = remote->viewtoworldmtxf;
+                        savedw2v = remote->field_10CC;
+                        remote->viewtoworldmtxf = localplayer->viewtoworldmtxf;
+                        remote->field_10CC = localplayer->field_10CC;
                         set_cur_player(slot);
                         chraiCheckUseHeldItems();
+                        remote->viewtoworldmtxf = savedv2w;
+                        remote->field_10CC = savedw2v;
                     }
                     set_cur_player(localslot);
                 }
