@@ -135,10 +135,32 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             /* Crouch / Stance */
             pl->crouchpos = m->crouchpos;
             
+            /*
+             * The body's aim, as bondviewRenderDebugBondView finds it for a
+             * drawn view (bondview2.c playerTick reads field_2A08/field_2A0C):
+             * the aim's pitch, and its yaw off the view; radians, up and left
+             * positive. Online the copy's view is never built; the owner's
+             * barrel gives both, the head's pitch without it. The chr's
+             * aimendback is playerTick's to write: set here, in degrees, it
+             * stood whenever an animation blend skipped that write, and the
+             * torso pitched through whole turns each time the copy changed
+             * step (strafing left and right, user).
+             */
+            {
+                coord3d o;
+                coord3d d;
+                if (!pl->bonddead && netGetRemoteAim(playernum, &o, &d)) {
+                    f32 theta = pl->vv_theta * (M_PI_F / 180.0f);
+                    f32 fx = -sinf(theta), fz = cosf(theta);   /* the view's forward, level */
+                    pl->field_2A08 = atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
+                    pl->field_2A0C = atan2f(d.x * fz - d.z * fx, d.x * fx + d.z * fz);
+                } else {
+                    pl->field_2A08 = pl->vv_verta * (M_PI_F / 180.0f);
+                    pl->field_2A0C = 0.0f;
+                }
+            }
             /* Third-person character model animation */
             if (pl->prop->chr) {
-                pl->prop->chr->aimendback = m->angles[1];
-                pl->prop->chr->aimendsideback = 0.0f;
                 /* Network position is at the eye; the model's ground is at
                  * the feet. Using eye height here causes vertical twitching. */
                 pl->prop->chr->ground = pl->prop->pos.y - pl->eyeheight;
@@ -313,14 +335,22 @@ void netPlayerSyncAfterTick(s32 playernum) {
     
     move.tick = (u32)(sysGetMicroseconds() / 1000);
     move.ucmd = 0;
-    if (get_button_state(1, "trigger")) {
+    {
         /* The copies fire on this as the game's gun would: not with the
-         * fists, the knife or the detonator (their hits and blasts come from
-         * this headset), and not through a reload or with an empty gun. */
+         * detonator (its blasts come from this headset), and not through a
+         * reload or with an empty gun. The fists and the knife swing on it
+         * too - the trigger, or a swing of either hand (bondview2.c
+         * gevrHandChopTick) - so the others hear the blow, or its miss, from
+         * where this player stands; the hits themselves still come from here. */
+        extern s32 gevrHandChopSwinging(s32 ctrl);
         ITEM_IDS item = getCurrentPlayerWeaponId(GUNRIGHT);
-        if (item != ITEM_UNARMED && item != ITEM_KNIFE && item != ITEM_TRIGGER &&
-            (pl->hands[GUNRIGHT].weapon_ammo_in_magazine > 0 ||
-             bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_CLICKY))) {
+        if (item == ITEM_FIST || item == ITEM_KNIFE) {
+            if (get_button_state(1, "trigger") || gevrHandChopSwinging(0) || gevrHandChopSwinging(1)) {
+                move.ucmd |= UCMD_FIRE;
+            }
+        } else if (get_button_state(1, "trigger") && item != ITEM_UNARMED && item != ITEM_TRIGGER &&
+                   (pl->hands[GUNRIGHT].weapon_ammo_in_magazine > 0 ||
+                    bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_CLICKY))) {
             move.ucmd |= UCMD_FIRE;
         }
     }

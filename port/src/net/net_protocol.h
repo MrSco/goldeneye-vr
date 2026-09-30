@@ -8,7 +8,7 @@
 #include "net/netbuf.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         7   /* 7: gun aim in PLAYER_STATE, projectile/explosion/object events */
+#define GEVR_NET_VERSION         8   /* 8: next-map votes, host migration; 7: gun aim in PLAYER_STATE, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
@@ -67,6 +67,9 @@ typedef enum {
     NET_MSG_EXPLOSION = 24,     /* a damaging explosion the player caused */
     NET_MSG_OBJECT_STATE = 25,  /* a pickup collected or a door used */
     NET_MSG_COUNTDOWN = 26,     /* Host -> all: the next round starts in N ms (0 cancels) */
+    NET_MSG_STAGE_VOTE = 27,    /* Player -> host: my next-map vote (stage index, 0xFF none) */
+    NET_MSG_STAGE_VOTES = 28,   /* Host -> all: every slot's vote */
+    NET_MSG_LOBBY_HANDOFF = 29, /* Host -> client: lobby code, owner token, game name, max players (host migration) */
 } NetMsgType;
 
 /* NET_MSG_OBJECT_STATE actions */

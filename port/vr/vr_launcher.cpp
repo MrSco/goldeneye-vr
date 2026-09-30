@@ -828,6 +828,10 @@ extern "C" void musicTrack1ApplySeqpVol(uint16_t);
 extern "C" void musicTrack3ApplySeqpVol(uint16_t);
 extern "C" void gevrSndApplySfxVolume(uint16_t);
 
+// How this headset reached its game: through the internet lobby (ICE) or the
+// LAN. A host migration rejoins the same way (gevrLobbyGameTick).
+static bool g_joinedViaInternet = false;
+
 void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
     static int subTab = 0; // 0 = Host, 1 = Join
@@ -855,6 +859,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         if (f[0] == "CREATED" && f.size() >= 2 && netIsHost()) {
             hostedCode = f[1];
             onlineMessage = "Lobby online";
+            // the clients keep the lobby and its token: whoever is elected host
+            // if this one leaves resumes the same lobby (net_core.c netHostLost)
+            netSetLobbyHandoff(f[1].c_str(), f.size() >= 3 ? f[2].c_str() : "");
         } else if (f[0] == "LIST_BEGIN") {
             onlineLobbies.clear();
             listLoading = true;
@@ -864,6 +871,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             onlineLobbies.push_back({f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())});
         } else if (f[0] == "JOINED" && f.size() >= 4) {
             clientJoinId = f[1];
+            g_joinedViaInternet = true;
             if (!netIceStartClient(f[1].c_str(), f[2].c_str(), f[3].c_str())) onlineMessage = "Could not start internet connection";
             else onlineMessage = "Finding a connection to host...";
         } else if (f[0] == "HOST_PEER" && f.size() >= 5 && netIsHost()) {
@@ -1072,6 +1080,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 snprintf(gameName, sizeof(gameName), "%s's game", VrPlayerName);
                 if (netHostStart(GEVR_DEFAULT_PORT)) {
                     netSetMaxPlayers(stages[selectedStageIdx].maxPlayers);
+                    netSetGameName(gameName);   // the clients keep it: the LAN beacon of a migrated host
+                    g_joinedViaInternet = false;
                     gevrJavaCommand("requestVoicePermission", "");
                     netIceStartHost();
                     netDiscoveryInit();
@@ -1310,6 +1320,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                             gevrJavaCommand("lobbyCommand", "stop");
                             netIceStop();
                             clientJoinId.clear();
+                            g_joinedViaInternet = false;
                             netConnect(srv->host_ip, srv->port);
                         }
                         if (full) ImGui::EndDisabled();
@@ -1327,6 +1338,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                     gevrJavaCommand("lobbyCommand", "stop");
                     netIceStop();
                     clientJoinId.clear();
+                    g_joinedViaInternet = false;
                     netConnect(directIp, GEVR_DEFAULT_PORT);
                 }
             }
@@ -1441,6 +1453,28 @@ extern "C" void gevrLobbyGameTick(void)
     if (now - lastTick < 250) return;
     lastTick = now;
 
+    // Host migration (net_core.c netHostLost): elected, this headset serves
+    // the same match. The ICE transport first when there is an internet lobby
+    // to resume (netSetVirtualTransport reaches the ENet host it then makes),
+    // the lobby under its owner token, and the LAN beacon under the old name.
+    if (netTakeHostTakeover()) {
+        const bool internet = netGetLobbyCode()[0] != '\0';
+        netIceStop();
+        if (internet) netIceStartHost();
+        if (netHostTakeOver(GEVR_DEFAULT_PORT)) {
+            if (internet) {
+                gevrJavaCommand("lobbyCommand", (std::string("resume|") + netGetLobbyCode() + "|" + netGetLobbyToken() + "|" +
+                    std::to_string(netGetMaxPlayers()) + "|" +
+                    (netGetPhase() == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup") + "|1").c_str());
+            }
+            netDiscoveryInit();
+            netDiscoveryStartBroadcasting(netGetGameName(), GEVR_DEFAULT_PORT);
+            vr_log("launcher: took the match over%s, beacon '%s'", internet ? " with the internet lobby" : "", netGetGameName());
+            lastPhase = NET_PHASE_WAITING;
+            lastRefresh = 0;
+        }
+    }
+
     if (netIsHost()) {
         for (int i = 0; i < 32; ++i) {
             const std::string event = gevrJavaString("lobbyEvent");
@@ -1467,9 +1501,11 @@ extern "C" void gevrLobbyGameTick(void)
             if (phase != lastPhase) {
                 lastPhase = phase;
                 gevrJavaCommand("lobbyCommand", (std::string("phase|") + phaseName + "|" +
-                                std::to_string(netGetConnectedPlayerCount())).c_str());
+                                std::to_string(netGetLivePlayerCount())).c_str());
             } else {
-                const int players = netGetConnectedPlayerCount();
+                // live connections: a player yet to come back after a host
+                // change must find the lobby open
+                const int players = netGetLivePlayerCount();
                 gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
                                 "|" + (players < netGetMaxPlayers() ? "1" : "0")).c_str());
             }
@@ -1478,16 +1514,85 @@ extern "C" void gevrLobbyGameTick(void)
         lastPhase = NET_PHASE_WAITING;
         lastRefresh = 0;
         pendingAnswers.clear();
+
+        // A client whose host left: to the elected one, the way this headset
+        // came in - the internet lobby (the new host resumes it; a join before
+        // its first heartbeat is refused and asked again) or the LAN beacon
+        // under the game's name, skipping the old host's while it lingers.
+        // The ICE peer, once connected, connects ENet itself (net_ice.cpp).
+        static Uint32 attemptMs = 0;
+        static bool wasConnecting = false;
+        static std::string rejoinId;
+        const char *oldIp = "";
+        if (netMigrationWantsRejoin(&oldIp)) {
+            const bool internet = g_joinedViaInternet && netGetLobbyCode()[0] != '\0';
+            const bool connecting = netMigrationConnecting();
+            if (wasConnecting && !connecting) {
+                // the attempt failed: start over
+                rejoinId.clear();
+                attemptMs = 0;
+                if (internet) netIceStop();
+            }
+            wasConnecting = connecting;
+            for (int i = 0; i < 32; ++i) {
+                const std::string event = gevrJavaString("lobbyEvent");
+                if (event.empty()) break;
+                const auto f = gevrSplitLobbyEvent(event);
+                if (f[0] == "JOINED" && f.size() >= 4) {
+                    rejoinId = f[1];
+                    if (!netIceStartClient(f[1].c_str(), f[2].c_str(), f[3].c_str())) rejoinId.clear();
+                } else if (f[0] == "ANSWER" && f.size() >= 3 && !rejoinId.empty()) {
+                    netIceApplyAnswer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str());
+                } else if (f[0] == "ERROR" && f.size() >= 2) {
+                    vr_log("launcher: rejoin: %s", f[1].c_str());
+                    rejoinId.clear();
+                }
+            }
+            char sdp[JUICE_MAX_SDP_STRING_LEN];
+            if (!rejoinId.empty() && netIceTakeDescription(rejoinId.c_str(), sdp, sizeof(sdp)))
+                gevrJavaCommand("lobbyCommand", ("offer|" + gevrEncodeUrl64(sdp)).c_str());
+            if (!connecting && now - attemptMs >= 4000) {
+                if (internet) {
+                    if (rejoinId.empty()) {
+                        attemptMs = now;
+                        netIceStop();
+                        gevrJavaCommand("lobbyCommand", (std::string("join|") + netGetLobbyCode() + "|" +
+                                        std::to_string(GEVR_NET_VERSION)).c_str());
+                        vr_log("launcher: rejoining lobby %s after the host change", netGetLobbyCode());
+                    }
+                } else {
+                    netDiscoveryInit();
+                    for (int i = 0; i < netDiscoveryGetServerCount(); ++i) {
+                        const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
+                        if (strcmp(srv->server_name, netGetGameName()) != 0 || strcmp(srv->host_ip, oldIp) == 0) continue;
+                        attemptMs = now;
+                        vr_log("launcher: rejoining '%s' at %s after the host change", srv->server_name, srv->host_ip);
+                        netConnect(srv->host_ip, srv->port);
+                        break;
+                    }
+                }
+            }
+        } else {
+            rejoinId.clear();
+            attemptMs = 0;
+            wasConnecting = false;
+        }
     }
     netIcePoll();
 }
 
 extern "C" void gevrLobbySessionStopped(void)
 {
-    gevrJavaCommand("lobbyCommand", "stop");
+    // A host leaving players behind hands the internet lobby to the one they
+    // elect (net_core.c netHostLost): left, not deleted.
+    const bool handover = netIsHost() && netGetState() == NET_STATE_INGAME && netGetLivePlayerCount() > 1;
+    // ENet's goodbye first: over the internet it travels through the ICE
+    // peers, and with those torn down first it was dropped, so the host kept
+    // a stale player until the timeout (the quit-and-rejoin hang, user).
+    netDisconnect();
     netIceStop();
     netDiscoveryShutdown();
-    netDisconnect();
+    gevrJavaCommand("lobbyCommand", handover ? "leave" : "stop");
 }
 
 // Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at

@@ -15,7 +15,8 @@ typedef enum {
     NET_STATE_HOSTING_LOBBY,
     NET_STATE_CONNECTING,
     NET_STATE_CLIENT_LOBBY,
-    NET_STATE_INGAME
+    NET_STATE_INGAME,
+    NET_STATE_MIGRATING     /* the host left mid-match: taking over, or rejoining the new host */
 } NetState;
 
 typedef enum {
@@ -81,6 +82,27 @@ int netGetRemoteAim(int slot_id, coord3d *origin, coord3d *dir);   /* 1 with the
 
 /* VoIP */
 void netSendVoipChunk(uint32_t sequence, const uint8_t *opus_data, uint16_t size);
+
+/* Next map (mpmenu.c NEXT MAP row): the multiplayer stages and each slot's vote */
+int netStageCount(void);
+const char *netStageName(int idx);
+int netStageMaxPlayers(int idx);
+int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
+void netSetLocalStageVote(int idx);         /* -1: no vote */
+int netGetStageVote(int slot);              /* -1 none */
+
+/* Host migration (vr_launcher.cpp gevrLobbyGameTick drives the transports) */
+void netSetGameName(const char *name);              /* the LAN beacon's name, shared with the clients */
+void netSetLobbyHandoff(const char *code, const char *token);   /* the internet lobby, shared with the clients */
+const char *netGetGameName(void);
+const char *netGetLobbyCode(void);
+const char *netGetLobbyToken(void);
+int netGetLivePlayerCount(void);            /* connected players with a live connection (the lobby service's count) */
+bool netTakeHostTakeover(void);             /* once: this headset was elected host; set the transport, then netHostTakeOver */
+bool netHostTakeOver(uint16_t port);
+bool netMigrationWantsRejoin(const char **old_host_ip);   /* a client still looking for the new host */
+bool netMigrationConnecting(void);          /* its ENet connection is under way */
+void netMigrationGiveUp(void);
 
 #ifdef __cplusplus
 }

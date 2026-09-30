@@ -1867,6 +1867,17 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
 #endif
     if ((!hit) && (item_id == ITEM_FIST))
     {
+#ifdef GEVR
+        extern bool netIsActive(void);
+        extern int netGetLocalSlot(void);
+
+        if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        {
+            /* another player's swing, heard from where they stand */
+            chrobjSndCreatePostEventDefault(sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, 0), &playerprop->pos);
+            return;
+        }
+#endif
         sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, 0);
     }
 }

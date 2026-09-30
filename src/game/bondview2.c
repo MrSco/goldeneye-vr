@@ -2052,6 +2052,8 @@ static void gevrWorldToLocal(const f32 q[4], const f32 v[3], f32 out[3])
 static const f32 s_gevrClubButt[3] = { -13.0f, 26.75f, -320.0f };
 
 /* lv.c lvlRender, each frame: ctrl 0 the off hand, 1 the gun hand */
+static s32 s_gevrChopSwing[2];   /* ticks left of "a swing began" (gevrHandChopSwinging) */
+
 void gevrHandChopTick(s32 ctrl)
 {
     extern float vr_ctrl_quat_play[2][4];     /* vr_input.cpp: the gesture frame, play space */
@@ -2077,6 +2079,10 @@ void gevrHandChopTick(s32 ctrl)
     s32 fast;
     s32 i;
 
+    if (s_gevrChopSwing[ctrl] > 0)
+    {
+        s_gevrChopSwing[ctrl] -= g_ClockTimer;
+    }
     if (ctrl == 0 && (s_read++ % 120) == 0)
     {
         FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_melee.txt", "r");
@@ -2139,6 +2145,7 @@ void gevrHandChopTick(s32 ctrl)
     if (fast && !s_fast[ctrl] && s_whiff[ctrl] <= 0 && s_cool[ctrl] <= 0)
     {
         s_whiff[ctrl] = GEVR_CHOP_TICKS;
+        s_gevrChopSwing[ctrl] = 3;   /* online the copies swing on it too (net_player_sync.c) */
     }
     s_fast[ctrl] = fast;
 
@@ -2233,6 +2240,12 @@ void gevrHandChopTick(s32 ctrl)
             sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, NULL);
         }
     }
+}
+
+/* net_player_sync.c: this hand began a swing within the last few ticks */
+s32 gevrHandChopSwinging(s32 ctrl)
+{
+    return ctrl >= 0 && ctrl < 2 && s_gevrChopSwing[ctrl] > 0;
 }
 
 #define GEVR_THROW_BUFFER_SIZE 6
@@ -15228,6 +15241,9 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
 /**
  * Address: 0x7F08B0F0
  */
+/* player.c: a view pass past the frame's first (lv.c gevrViewPass) */
+extern s32 g_gevrExtraPass;
+
 s32 playerTick(PropRecord *prop)
 {
     s32 index;
@@ -15483,7 +15499,12 @@ set_crouch_lean:
             sub = 4;
             angle = -ppointers[index]->speedsideways;
  
-            if (ppointers[index]->field_1280 < 90.0f)
+            /*
+             * The turn toward the step, 15 degrees a view pass as the split
+             * screen had it: online the frame's one drawn view turns it, not
+             * the copies' and the barrels' passes as well.
+             */
+            if (!g_gevrExtraPass && ppointers[index]->field_1280 < 90.0f)
             {
                 ppointers[index]->field_1280 = ppointers[index]->field_1280 + 15.0f;
             }
@@ -15493,7 +15514,7 @@ set_crouch_lean:
             sub = 3;
             angle = ppointers[index]->speedsideways;
  
-            if (ppointers[index]->field_1280 > (-90.0f))
+            if (!g_gevrExtraPass && ppointers[index]->field_1280 > (-90.0f))
             {
                 ppointers[index]->field_1280 = ppointers[index]->field_1280 - 15.0f;
             }
@@ -15593,12 +15614,12 @@ set_full_lean:
             sub = 0;
  
 lean_return_to_centre:
-            if (0.0f < ppointers[index]->field_1280)
+            if (!g_gevrExtraPass && 0.0f < ppointers[index]->field_1280)
             {
                 ppointers[index]->field_1280 = ppointers[index]->field_1280 - 15.0f;
             }
  
-            if (ppointers[index]->field_1280 < 0.0f)
+            if (!g_gevrExtraPass && ppointers[index]->field_1280 < 0.0f)
             {
                 ppointers[index]->field_1280 = ppointers[index]->field_1280 + 15.0f;
             }

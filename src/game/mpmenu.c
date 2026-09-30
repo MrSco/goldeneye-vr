@@ -42,7 +42,14 @@ extern void netVoiceSetMuted(int muted);
 extern int netVoiceHasPermission(void);
 extern int netVoiceCaptureFailed(void);
 /* The pause menu's audio rows, in the order a right stick click steps through. */
-enum { MPAUDIO_MUSIC, MPAUDIO_SFX, MPAUDIO_VOICE, MPAUDIO_MIC, MPAUDIO_ROWS };
+enum { MPAUDIO_MUSIC, MPAUDIO_SFX, MPAUDIO_VOICE, MPAUDIO_MIC, MPAUDIO_NEXTMAP, MPAUDIO_ROWS };
+/* NEXT MAP row: the party's vote on the next round's stage (net_core.c) */
+extern int netStageCount(void);
+extern const char *netStageName(int idx);
+extern int netStageMaxPlayers(int idx);
+extern void netSetLocalStageVote(int idx);
+extern int netGetStageVote(int slot);
+extern int netGetConnectedPlayerCount(void);
 static s32 s_mpAudioSlider = MPAUDIO_MUSIC;
 #endif
 
@@ -783,6 +790,25 @@ void mpwatchMenuTick(void)
                             if (VrVoiceVolume < 0.0f) VrVoiceVolume = 0.0f;
                             if (VrVoiceVolume > 1.0f) VrVoiceVolume = 1.0f;
                             vrSettingsSave();
+                            mpwatchPlayBeep();
+                        }
+                        else if (s_mpAudioSlider == MPAUDIO_NEXTMAP)
+                        {
+                            /* Up and down through the maps the party fits;
+                             * past either end is no vote. The host settles it
+                             * as the next round begins (net_core.c). */
+                            s32 players = netGetConnectedPlayerCount();
+                            s32 vote = netGetStageVote(netGetLocalSlot());
+                            s32 n = netStageCount();
+                            s32 tries = n + 1;
+
+                            do
+                            {
+                                vote += change;
+                                if (vote >= n) vote = -1;
+                                if (vote < -1) vote = n - 1;
+                            } while (vote >= 0 && netStageMaxPlayers(vote) < players && --tries > 0);
+                            netSetLocalStageVote(vote);
                             mpwatchPlayBeep();
                         }
                         else if ((change < 0) != (netVoiceIsMuted() != 0))
@@ -1983,11 +2009,33 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                              !netVoiceHasPermission() ? "NO ACCESS" :
                              netVoiceCaptureFailed() ? "UNAVAILABLE" : "ACTIVE");
                 }
+                else if (row == MPAUDIO_NEXTMAP)
+                {
+                    /* this player's vote, and how many share it */
+                    s32 vote = netGetStageVote(netGetLocalSlot());
+                    s32 tally = 0;
+                    s32 slot;
+
+                    for (slot = 0; slot < 4; slot++)
+                    {
+                        if (vote >= 0 && netGetStageVote(slot) == vote) tally++;
+                    }
+                    name = "NEXT MAP";
+                    if (vote < 0)
+                    {
+                        snprintf(value, sizeof(value), "NO VOTE");
+                    }
+                    else
+                    {
+                        snprintf(value, sizeof(value), "%s (%d)", netStageName(vote), tally);
+                    }
+                }
 
                 if (row == MPAUDIO_ROWS)
                 {
                     snprintf(row_label, sizeof(row_label), "%s  CLICK:NEXT",
-                             s_mpAudioSlider == MPAUDIO_MIC ? "R-STICK:ON/OFF" : "R-STICK:ADJ");
+                             s_mpAudioSlider == MPAUDIO_MIC ? "R-STICK:ON/OFF" :
+                             s_mpAudioSlider == MPAUDIO_NEXTMAP ? "R-STICK:PICK" : "R-STICK:ADJ");
                 }
                 else
                 {
