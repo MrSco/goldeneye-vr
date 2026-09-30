@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <ultra64.h>
 #include <assert.h>
 #include <bondgame.h>
@@ -2254,6 +2257,9 @@ PropRecord *propFindForInteract(void)
 
 bool bond_interact_object(void)
 {
+#ifdef GEVR
+    if (gevrSpectating()) return FALSE;
+#endif
     PropRecord *prop;
     TICKOP tickop;
 
@@ -2862,6 +2868,9 @@ void sub_GAME_7F03D058(PropRecord *prop, bool unset) //#MATCH
 */
 void propsTickPlayer(void)
 {
+#ifdef GEVR
+    if (gevrSpectating()) return;
+#endif
     PropRecord *prop;
     PropRecord *propprev;
     bool isCollected = FALSE;

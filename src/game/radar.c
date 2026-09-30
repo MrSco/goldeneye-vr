@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <ultra64.h>
 #include "math_atan2f.h"
 #include "textrelated.h"
@@ -145,7 +148,7 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
             extern bool netIsActive(void);
             extern bool netSlotOccupied(int slot);
             extern bool netIsRemotePlayerActive(int slot);
-            if (netIsActive() && (!netSlotOccupied(i) ||
+            if (netIsActive() && (i == netSpectatorTarget() || !netSlotOccupied(i) ||
                 (i != cur_playernum && !netIsRemotePlayerActive(i)))) continue;
         }
 #endif

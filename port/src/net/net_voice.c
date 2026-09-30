@@ -176,6 +176,7 @@ static void pushSamples(VoiceStream *s, const int16_t *pcm, unsigned n) {
 
 void netVoiceReceive(uint8_t slot, uint32_t sequence, const uint8_t *packet, uint16_t size) {
     if (slot >= GEVR_MAX_PLAYERS || !packet || !size || size > GEVR_VOIP_MAX_BYTES) return;
+    if (!netVoiceSameGroup(slot, netGetLocalSlot())) return;
     VoiceStream *s = &streams[slot];
     if (s->seen && (int32_t)(sequence - s->last_sequence) <= 0) return;
     if (!s->decoder) {
@@ -291,11 +292,14 @@ void netVoiceMix(int16_t *stereo, size_t frames) {
     float left[GEVR_MAX_PLAYERS], right[GEVR_MAX_PLAYERS];
     for (unsigned slot = 0; slot < GEVR_MAX_PLAYERS; slot++) {
         left[slot] = right[slot] = 0.0f;
-        if ((int)slot == netGetLocalSlot() || !netGetLobbyState()->slots[slot].connected) continue;
+        if ((int)slot == netGetLocalSlot() || !netVoiceSameGroup(slot, netGetLocalSlot())) {
+            applied_left[slot] = applied_right[slot] = 0;
+            continue;
+        }
         float gain = 1.0f * VrVoiceVolume, pan = 0.0f;
         /* Positions only on a tick that ran the players (players_ticked):
          * while a level loads or ends, everyone is heard at lobby volume. */
-        if (netGetState() == NET_STATE_INGAME && players_ticked) {
+        if (netGetState() == NET_STATE_INGAME && players_ticked && !netLocalIsSpectator()) {
             int local = netGetLocalSlot();
             int count = getPlayerCount();
             struct player *listener = local >= 0 && local < GEVR_MAX_PLAYERS && local < count ? g_playerPointers[local] : NULL;

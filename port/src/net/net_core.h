@@ -79,6 +79,7 @@ int netGetPlayingCount(void);               /* connected and not spectating */
 int netMpPlayerCount(int fallback);         /* the game's player_count online: the humans in the round */
 bool netSlotIsSpectator(int slot);
 bool netLocalIsSpectator(void);
+int netVoiceSameGroup(int a, int b);
 void netSendSpecialTaken(s32 item);         /* the local player took the flag or the Golden Gun */
 
 /* Gameplay State Sending */

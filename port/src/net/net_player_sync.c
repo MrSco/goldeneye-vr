@@ -4,6 +4,7 @@
 #include "../vr/vr_openxr.h"
 #include "net_player_sync.h"
 #include "net_core.h"
+#include "net_game.h"
 #include "net_protocol.h"
 #include "net_voice.h"
 #include "system.h"
@@ -71,6 +72,62 @@ static StandTile *netSyncRemoteTile(struct player *pl, const coord3d *from, bool
     pl->field_488.current_tile_ptr_for_portals = tile;
     pl->prop->stan = tile;
     return tile;
+}
+
+static int s_follow_slot = -1;
+static bool s_spectator_entered = false;
+static bool s_follow_a, s_follow_b;
+void netSpectatorReset(void) {
+    s_follow_slot = -1;
+    s_spectator_entered = false;
+    s_follow_a = s_follow_b = false;
+}
+int netSpectatorTarget(void) { return netLocalIsSpectator() ? s_follow_slot : -1; }
+static bool netCanFollow(int slot) {
+    return slot >= 0 && slot < getPlayerCount() && slot != netGetLocalSlot() &&
+           netSlotOccupied(slot) && !netSlotIsSpectator(slot) && g_playerPointers[slot] &&
+           g_playerPointers[slot]->prop && !g_playerPointers[slot]->bonddead;
+}
+void netSpectatorFrame(void) {
+    if (!gevrSpectating() || !g_CurrentPlayer || !g_CurrentPlayer->prop) {
+        if (s_spectator_entered) netSpectatorReset();
+        return;
+    }
+    struct player *pl = g_CurrentPlayer;
+    if (!s_spectator_entered) {
+        currentPlayerEquipWeaponWrapper(GUNRIGHT, ITEM_UNARMED);
+        currentPlayerEquipWeaponWrapper(GUNLEFT, ITEM_UNARMED);
+        pl->cheatBondInvincible = true;
+        s_spectator_entered = true;
+    }
+    bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
+    int direction = !pl->mpmenuon ? (a && !s_follow_a ? 1 : b && !s_follow_b ? -1 : 0) : 0;
+    s_follow_a = a; s_follow_b = b;
+    int old = s_follow_slot;
+    if (!netCanFollow(s_follow_slot) || direction) {
+        int start = s_follow_slot < 0 ? netGetLocalSlot() : s_follow_slot;
+        int step = direction ? direction : 1;
+        s_follow_slot = -1;
+        for (int i = 1; i <= GEVR_MAX_PLAYERS; i++) {
+            int slot = (start + i * step + GEVR_MAX_PLAYERS * 2) % GEVR_MAX_PLAYERS;
+            if (netCanFollow(slot)) { s_follow_slot = slot; break; }
+        }
+    }
+    pl->speedforwards = pl->speedsideways = 0;
+    if (s_follow_slot < 0) return; /* retain a safe camera until somebody is alive */
+    struct player *target = g_playerPointers[s_follow_slot];
+    coord3d from = pl->prop->pos;
+    pl->prop->pos = target->prop->pos;
+    pl->pos = pl->field_488.collision_position = pl->field_488.pos = pl->prop->pos;
+    netSyncRemoteTile(pl, &from, old != s_follow_slot);
+    bondviewUpdatePlayerRoom(pl);
+    if (old != s_follow_slot) {
+        char label[64];
+        gevrSpectatorAim(target->vv_theta);
+        snprintf(label, sizeof(label), "SPECTATING %s", netGetSlotName(s_follow_slot));
+        hudmsgTopShow(label);
+        sysLogPrintf(LOG_NOTE, "spectator: following slot %d", s_follow_slot);
+    }
 }
 
 void netPlayerSyncBeforeTick(s32 playernum) {
@@ -308,6 +365,10 @@ void netPlayerSyncAfterTick(s32 playernum) {
                     fading = 1;
                 }
             } else {
+                if (fading) {
+                    currentPlayerSetFadeFrac(15.0f, 0.0f);
+                    fading = 0;
+                }
                 last_sec = -1;
             }
         }
@@ -328,7 +389,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
     }
     
     struct player *pl = g_playerPointers[playernum];
-    if (!pl) return;
+    if (!pl || netLocalIsSpectator()) return;
     
     struct netplayermove move;
     memset(&move, 0, sizeof(move));

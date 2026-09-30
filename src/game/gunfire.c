@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <ultra64.h>
 #include <limits.h>
 #include <bondconstants.h>
@@ -1484,7 +1487,7 @@ Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2)
         dist = flash->unk24;
         flareoffset = D_80035CA8;
         extraorigin = D_80035CB4;
-        extra_scale = 1.4142f; // ~√2
+        extra_scale = 1.4142f; // ~âˆš2
         image = flareimage3;
         worldtoscreen = camGetWorldToScreenMtxf();
 
@@ -5867,7 +5870,7 @@ void gunTickGameplay(s32 triggerOn)
     {
         extern void gevrMotionThrowUpdate(void);
 
-        gevrMotionThrowUpdate();
+        if (!gevrSpectating()) gevrMotionThrowUpdate();
     }
     /* Suppress trigger on non-grenade throwables when gripping */
     for (s32 h = 0; h < 2; h++)
@@ -5881,6 +5884,9 @@ void gunTickGameplay(s32 triggerOn)
             }
         }
     }
+#endif
+#ifdef GEVR
+    if (gevrSpectating()) trigger_state.triggerOn[0] = trigger_state.triggerOn[1] = 0;
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand
     gunTickHandState(1, trigger_state.triggerOn[1]); // Left hand
@@ -6395,7 +6401,7 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
     Mtxf rotmtx;
 #endif
     f32 rand;
-    s32 new_var; /* dead but declared on EU — still reserves its frame slot */
+    s32 new_var; /* dead but declared on EU â€” still reserves its frame slot */
     f32 frac;
 #if VERSION_EU
     s32 randlimit;
@@ -6740,7 +6746,7 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
     Mtxf rotmtx;
 #endif
     f32 rand;
-    s32 new_var; /* dead but declared on EU — still reserves its frame slot */
+    s32 new_var; /* dead but declared on EU â€” still reserves its frame slot */
     f32 frac;
 #if VERSION_EU
     s32 randlimit;
@@ -7934,7 +7940,7 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
         const char *name;
         coord3d at;
 
-        if (i == netGetLocalSlot() || pl == NULL || pl->prop == NULL || pl->bonddead
+        if (i == netGetLocalSlot() || netPlayerIsSpectator(i) || i == netSpectatorTarget() || pl == NULL || pl->prop == NULL || pl->bonddead
             || !(pl->prop->flags & PROPFLAG_ONSCREEN))
         {
             continue;

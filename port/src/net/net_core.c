@@ -961,8 +961,9 @@ static void netReadyProgress(void) {
 }
 
 void netStageLoaded(void) {
+    netSpectatorReset();
     netPlayersTickedReset(); /* events queued through the load are for the old stage */
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0) return;
+    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
     s_stage_fade_in = true;
     s_lobby_state.slots[s_local_slot].ready = 1;
     if (!netIsHost()) {
@@ -1129,6 +1130,14 @@ bool netSlotIsSpectator(int slot) {
     return slot >= 0 && slot < GEVR_MAX_PLAYERS && s_lobby_state.slots[slot].spectator != 0;
 }
 
+int netPlayerIsSpectator(int slot) { return netIsActive() && netSlotIsSpectator(slot); }
+int gevrSpectating(void) { return netLocalIsSpectator() && get_cur_playernum() == s_local_slot; }
+int netVoiceSameGroup(int a, int b) {
+    return a >= 0 && b >= 0 && a < GEVR_MAX_PLAYERS && b < GEVR_MAX_PLAYERS &&
+           s_lobby_state.slots[a].connected && s_lobby_state.slots[b].connected &&
+           netSlotIsSpectator(a) == netSlotIsSpectator(b);
+}
+
 bool netLocalIsSpectator(void) {
     return netIsActive() && netSlotIsSpectator(s_local_slot);
 }
@@ -1229,7 +1238,7 @@ bool netLobbyHostLaunchMatch(void) {
 }
 
 void netSendLocalPlayerMove(const struct netplayermove *move) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0) return;
+    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
     
     u8 raw[256];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -1244,7 +1253,7 @@ void netSendLocalPlayerMove(const struct netplayermove *move) {
 }
 
 void netSendLocalPlayerState(const NetMsgPlayerState *state) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0) return;
+    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
     
     struct netplayermove m;
     memset(&m, 0, sizeof(m));
@@ -1479,7 +1488,10 @@ void netSendVoipChunk(uint32_t sequence, const uint8_t *opus_data, uint16_t size
     netbufWriteU16(&buf, size);
     netbufWriteData(&buf, opus_data, size);
     
-    netBroadcastBuf(&buf, NET_CHAN_VOIP, ENET_PACKET_FLAG_UNSEQUENCED, NULL);
+    if (netIsHost()) {
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) if (s_client_peers[i] && netVoiceSameGroup(i, s_local_slot))
+            enet_peer_send(s_client_peers[i], NET_CHAN_VOIP, enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_UNSEQUENCED));
+    } else netBroadcastBuf(&buf, NET_CHAN_VOIP, ENET_PACKET_FLAG_UNSEQUENCED, NULL);
 }
 
 static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
@@ -1776,11 +1788,12 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         }
         case NET_MSG_VOTE: {
             /* a player's vote on a ballot: the host keeps the tally and tells everyone */
-            if (!netIsHost() || size != 10) break;
+            if (!netIsHost() || size != 10 || s_lobby_state.config.next_round != NET_NEXT_VOTE) break;
             int slot = slot_id;
             uint8_t kind = netbufReadU8(&buf);
             uint8_t vote = netbufReadU8(&buf);
             if (buf.error || kind >= NET_BALLOT_COUNT || !netAcceptPlayerEvent(peer, slot)) break;
+            if (kind == NET_BALLOT_WEAPONS && s_lobby_state.config.scenario == SCENARIO_MWTGG) break;
             s_vote[kind][slot] = vote < netBallotSize(kind) ? (int8_t)vote : -1;
             netBroadcastVotes(kind);
             break;
@@ -2009,6 +2022,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_RESPAWN: {
+            if (netSlotIsSpectator(slot_id)) break;
             uint8_t pad_index = netbufReadU8(&buf);
             float theta = netbufReadF32(&buf);
             int slot = slot_id;
@@ -2040,6 +2054,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_PROJECTILE: {
+            if (netSlotIsSpectator(slot_id)) break;
             extern void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3d *pos,
                                                const coord3d *vel, const f32 *rot9, const coord3d *extra, s32 cooktimer);
             int slot = slot_id;
@@ -2069,6 +2084,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_EXPLOSION: {
+            if (netSlotIsSpectator(slot_id)) break;
             extern void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 ground, s32 flag8);
             int slot = slot_id;
             uint8_t type = netbufReadU8(&buf);
@@ -2088,6 +2104,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_OBJECT_STATE: {
+            if (netSlotIsSpectator(slot_id)) break;
             extern void gevrNetDoorApply(PropRecord *prop, PropRecord *byprop, s32 state);
             int slot = slot_id;
             uint16_t index = netbufReadU16(&buf);
@@ -2161,7 +2178,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 netbufReadLeft(&buf) != payload_size || size != 14u + payload_size) break;
             netVoiceReceive(slot_id, sequence, data + buf.rp, payload_size);
             if (netIsHost()) {
-                netBroadcastPacket(data, size, NET_CHAN_VOIP, ENET_PACKET_FLAG_UNSEQUENCED, peer);
+                for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                    if (s_client_peers[i] && s_client_peers[i] != peer && netVoiceSameGroup(i, slot_id))
+                        enet_peer_send(s_client_peers[i], NET_CHAN_VOIP, enet_packet_create(data, size, ENET_PACKET_FLAG_UNSEQUENCED));
+                }
             }
             break;
         }
@@ -2223,6 +2243,8 @@ static void netBroadcastAllVotes(void) {
 void netSetLocalVote(int kind, int idx) {
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || s_local_slot >= GEVR_MAX_PLAYERS ||
         kind < 0 || kind >= NET_BALLOT_COUNT) return;
+    if (s_lobby_state.config.next_round != NET_NEXT_VOTE ||
+        (kind == NET_BALLOT_WEAPONS && s_lobby_state.config.scenario == SCENARIO_MWTGG)) return;
     if (idx < -1 || idx >= netBallotSize(kind)) idx = -1;
     s_vote[kind][s_local_slot] = (int8_t)idx;
     if (netIsHost()) {

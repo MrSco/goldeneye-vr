@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <string.h>
 #include <stddef.h>
 #include <ctype.h>
@@ -1239,7 +1242,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static bool apanel = false, aspoilt = false, xpanel = false, xspoilt = false, xatonce = false;
             static bool aback = false;
             const u32 t = SDL_GetTicks();
-            if (stereoplay && !gevrReturnPrompt && !fitting) {
+            if (stereoplay && !gevrReturnPrompt && !fitting && !gevrSpectating()) {
                 const bool a = get_button_state(1, "a");
                 const bool x = !gevrSwallowX && get_button_state(0, "x");
                 if (x && !xdown) {
@@ -1465,6 +1468,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
     }
 
+    if (gevrSpectating() && g_CurrentPlayer && !g_CurrentPlayer->mpmenuon) {
+        npad->stick_x = npad->stick_y = npad->rstick_x = npad->rstick_y = 0;
+        npad->button &= ~(Z_TRIG | A_BUTTON | B_BUTTON | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS);
+        gevrTurnAxis = 0;
+    }
     return 0;
 }
 
