@@ -30,7 +30,7 @@ and the multiplayer pause menu, the multiplayer page fitting the panel, and
 stereo dropping the walk animation's side sway and vertical bob (bondhead.c;
 screen mode keeps them).
 Branch claude/multiplayer-visibility-bug-16b1a8 (main merged in) builds as
-0.3.6, versionCode 35, protocol 8, for the two-headset test: the
+0.3.6, versionCode 38, protocol 8, for the two-headset test: the
 multiplayer fixes below, the 2026-09-29 test report's fixes (spawn pads,
 name tags, torso pitch, melee, countdown, hurt sound, door z-fight, quit and
 rejoin), a NEXT MAP vote in the pause menu and host migration.
