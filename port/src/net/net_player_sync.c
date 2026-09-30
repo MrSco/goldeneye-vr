@@ -467,9 +467,10 @@ void netPlayerSyncAfterTick(s32 playernum) {
             if (end) {
                 s32 sec = end > now ? (s32)((end - now + 999999) / 1000000) : 0;
                 if (sec > 0 && sec != last_sec) {
+                    extern void gevrHudTopReplace(const char *mess, const char *prefix);
                     char message[48];
                     snprintf(message, sizeof(message), "MATCH STARTS IN %d", sec);
-                    hudmsgTopShow(message);
+                    gevrHudTopReplace(message, "MATCH STARTS IN");   /* in place: the queue dropped numbers */
                     last_sec = sec;
                 }
                 if (!fading && end <= now + 1000000) {
