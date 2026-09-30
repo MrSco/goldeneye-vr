@@ -29,6 +29,9 @@ extern void bondviewUpdatePlayerRoom(struct player *player);
 static coord3d s_remote_render_pos[GEVR_MAX_PLAYERS];
 static StandTile *s_remote_render_tile[GEVR_MAX_PLAYERS];
 static bool s_remote_render_valid[GEVR_MAX_PLAYERS];
+static f32 s_remote_barrel_pitch[GEVR_MAX_PLAYERS];   /* logged only (see netPlayerSyncBeforeTick) */
+static f32 s_remote_barrel_yaw[GEVR_MAX_PLAYERS];
+static s8 s_copy_weapon[GEVR_MAX_PLAYERS][2];         /* the item last given to a copy's hand (netSyncCopyHand) */
 
 void netPlayerSyncInit(void) {
 }
@@ -134,16 +137,24 @@ void netSpectatorFrame(void) {
 static void netSyncCopyHand(struct player *pl, int slot, int hand, int weapon, int fire) {
     ChrRecord *chr = pl->prop->chr;
     int current = chr->weapons_held[hand] && chr->weapons_held[hand]->weapon ? chr->weapons_held[hand]->weapon->weaponnum : ITEM_UNARMED;
-    if (current != weapon) {
-        /* a re-given weapon plays the body's draw animation: log every change (playtest 2026-09-30) */
-        sysLogPrintf(LOG_NOTE, "net: copy %d %s hand weapon %d -> %d (held %d, sent %d)", slot,
-                     hand == GUNLEFT ? "left" : "right", current, weapon, pl->hands[hand].weaponnum, weapon);
+    /*
+     * An item with no held model (fists) leaves the hand empty, so read
+     * back from the chr it never matched and the hand was re-given every
+     * tick, replaying the body's draw (playtest 2026-09-30: "takes the gun
+     * out from behind the back"). The item last given is remembered per
+     * hand; the chr is consulted only for an item that has a model, which a
+     * new chr (a stage load) will lack.
+     */
+    bool has_model = weapon > ITEM_UNARMED && weapon < ITEM_IDS_MAX && (s32)getPropForHeldItem((ITEM_IDS)weapon) >= 0;
+    if (s_copy_weapon[slot][hand] != weapon || (has_model && current != weapon)) {
+        sysLogPrintf(LOG_NOTE, "net: copy %d %s hand weapon %d -> %d (held %d, given %d)", slot,
+                     hand == GUNLEFT ? "left" : "right", current, weapon, pl->hands[hand].weaponnum, s_copy_weapon[slot][hand]);
         chrSetWeaponFlag4(chr, hand);
         if (chr->weapons_held[hand] && chr->weapons_held[hand]->obj) objFreePermanently(chr->weapons_held[hand]->obj, 1);
-        if (weapon > ITEM_UNARMED && weapon < ITEM_IDS_MAX) {
-            enum PROP prop = getPropForHeldItem((ITEM_IDS)weapon);
-            if ((s32)prop >= 0) chrGiveWeapon(chr, prop, (ITEM_IDS)weapon, hand == GUNLEFT ? PROPFLAG_WEAPON_LEFTHANDED : 0);
+        if (has_model) {
+            chrGiveWeapon(chr, getPropForHeldItem((ITEM_IDS)weapon), (ITEM_IDS)weapon, hand == GUNLEFT ? PROPFLAG_WEAPON_LEFTHANDED : 0);
         }
+        s_copy_weapon[slot][hand] = (s8)weapon;
     }
     if (pl->hands[hand].weaponnum != weapon) {
         pl->hands[hand].weaponnum = (ITEM_IDS)weapon;
@@ -235,18 +246,29 @@ void netPlayerSyncBeforeTick(s32 playernum) {
              * torso pitched through whole turns each time the copy changed
              * step (strafing left and right, user).
              */
+            /*
+             * Playtest 2026-09-30: posed from the barrel, the copies stood
+             * bent over (a VR gun rests 30-47 degrees down while the head is
+             * level: "net: pose local"), twisted at the waist whenever the
+             * controller swung, and jumped between the two sources as the
+             * grip came and went (the "draws the gun from behind the back"
+             * look). The flat game poses the body from the view: its pitch,
+             * and no yaw, since its gun points where it looks. So here, with
+             * the barrel's pitch and yaw only logged.
+             */
             {
                 coord3d o;
                 coord3d d;
+                s_remote_barrel_pitch[playernum] = 0.0f;
+                s_remote_barrel_yaw[playernum] = 0.0f;
                 if (!pl->bonddead && netGetRemoteAim(playernum, GUNRIGHT, &o, &d)) {
                     f32 theta = pl->vv_theta * (M_PI_F / 180.0f);
                     f32 fx = -sinf(theta), fz = cosf(theta);   /* the view's forward, level */
-                    pl->field_2A08 = atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
-                    pl->field_2A0C = atan2f(d.x * fz - d.z * fx, d.x * fx + d.z * fz);
-                } else {
-                    pl->field_2A08 = pl->vv_verta * (M_PI_F / 180.0f);
-                    pl->field_2A0C = 0.0f;
+                    s_remote_barrel_pitch[playernum] = atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z)) * (180.0f / M_PI_F);
+                    s_remote_barrel_yaw[playernum] = atan2f(d.x * fz - d.z * fx, d.x * fx + d.z * fz) * (180.0f / M_PI_F);
                 }
+                pl->field_2A08 = pl->vv_verta * (M_PI_F / 180.0f);
+                pl->field_2A0C = 0.0f;
             }
             /* Third-person character model animation */
             if (pl->prop->chr) {
@@ -273,9 +295,10 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                 s8 aim = (m->ucmd & UCMD_AIMVALID) ? 1 : 0;
                 u64 now = sysGetMicroseconds();
                 if (aim != last_aim[playernum] || now >= next_pose_log_us[playernum]) {
-                    sysLogPrintf(LOG_NOTE, "net: pose %d %s pitch %.0f yaw %.0f head %.0f fwd %.2f side %.2f turn %.0f crouch %d anim %d wep %d/%d fire %d%d%s",
+                    sysLogPrintf(LOG_NOTE, "net: pose %d %s pitch %.0f yaw %.0f (barrel %.0f/%.0f) head %.0f fwd %.2f side %.2f turn %.0f crouch %d anim %d wep %d/%d fire %d%d%s",
                                  playernum, aim ? "barrel" : "head",
-                                 pl->field_2A08 * (180.0f / M_PI_F), pl->field_2A0C * (180.0f / M_PI_F), pl->vv_verta,
+                                 pl->field_2A08 * (180.0f / M_PI_F), pl->field_2A0C * (180.0f / M_PI_F),
+                                 s_remote_barrel_pitch[playernum], s_remote_barrel_yaw[playernum], pl->vv_verta,
                                  pl->speedforwards, pl->speedsideways, pl->field_1280, pl->crouchpos,
                                  pl->players_cur_animation, pl->hands[GUNRIGHT].weaponnum, pl->hands[GUNLEFT].weaponnum,
                                  pl->hands[GUNRIGHT].field_87D ? 1 : 0, pl->hands[GUNLEFT].field_87D ? 1 : 0,
