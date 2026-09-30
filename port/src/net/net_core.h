@@ -51,7 +51,10 @@ void netStageLoaded(void);
 uint64_t netGetCountdownEndUs(void);   /* the next round's start, sysGetMicroseconds clock; 0 none */
 bool netTakeStageFadeIn(void);         /* once after each online stage load */
 void netHostRoundEnded(void);
-void netHostReturnToWarmup(void);
+void netHostContinue(void);
+void netHostReturnToLobby(void);
+void netHostStartRoundNow(void);
+int netCountdownSecondsLeft(void);
 const NetMsgLobbyState *netGetLobbyState(void);
 const char *netGetSlotName(int slot);   /* NULL for an empty slot */
 void netSetLocalAppVersion(const char *version);
@@ -69,6 +72,7 @@ bool netLobbyHostLaunchMatch(void);
 
 /* The match config (net_protocol.h NetMatchConfig) */
 const NetMatchConfig *netGetMatchConfig(void);
+const NetMatchConfig *netGetActiveMatchConfig(void);
 void netLobbySetConfig(const NetMatchConfig *config);   /* host: kept and told to everyone */
 void netApplyMatchConfig(void);             /* every headset, before each stage load */
 int netGetPlayingCount(void);               /* connected and not spectating */

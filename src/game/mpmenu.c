@@ -19,13 +19,17 @@
 #include "options.h"
 #include "file.h"
 #include "assets/obseg/text/LmpmenuE.h"
+#ifdef REFRESH_PAL
+#define MPMENU_YOFF 8   /* PAL: every text row sits 8 pixels lower */
+#else
+#define MPMENU_YOFF 0
+#endif
 #ifdef GEVR
 extern s32 g_gevrStereo;
 extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern int netGetLocalSlot(void);
 extern void netHostRoundEnded(void);
-extern void netHostReturnToWarmup(void);
 extern bool netSlotOccupied(int slot);
 extern const char *netGetSlotName(int slot);
 extern int netVoiceSlotSpeaking(unsigned char slot);
@@ -41,24 +45,450 @@ extern int netVoiceIsMuted(void);
 extern void netVoiceSetMuted(int muted);
 extern int netVoiceHasPermission(void);
 extern int netVoiceCaptureFailed(void);
-/* The pause menu's audio rows, in the order a right stick click steps through. */
-enum { MPAUDIO_MUSIC, MPAUDIO_SFX, MPAUDIO_VOICE, MPAUDIO_MIC, MPAUDIO_NEXTMAP, MPAUDIO_ROWS };
-/* NEXT MAP row: the party's vote on the next round's stage (net_core.c) */
-extern int netStageCount(void);
-extern const char *netStageName(int idx);
-extern int netStageMaxPlayers(int idx);
+#include "net_game.h"
+void mpwatchPlayBeep(void);
+extern int netMpPlayerCount(int fallback);
+extern int netGetConnectedPlayerCount(void);
+extern int netGetPlayingCount(void);
+extern int netGetPhase(void);
 extern void netSetLocalVote(int kind, int idx);
 extern int netGetVote(int kind, int slot);
-extern int netGetConnectedPlayerCount(void);
-extern int netMpPlayerCount(int fallback);   /* the game's player_count online: the humans in the round */
-static s32 s_mpAudioSlider = MPAUDIO_MUSIC;
+extern void netLobbySetCharacter(u8 chr_id);
+extern void netLobbySetLoadout(const u8 items[4]);
+extern unsigned VrMpFavStages, VrMpFavSets;
+extern s32 g_gameOverFlag;
+enum { NET_SCENARIO_YOLT = 1, NET_SCENARIO_TLD = 2, NET_SCENARIO_MWTGG = 3 };
+enum { NET_WEAPON_SET_CUSTOM_ROW = 14, NET_NEXT_VOTE_ROW = 0 };
+
+/*
+ * The pause menu's pages of rows: PAUSE holds the audio, LOBBY the match
+ * (the settings the host changes, the votes, this player's character and
+ * guns, the host's START MATCH and RETURN TO LOBBY). The right stick click
+ * steps the cursor, up and down change the value (repeating after 18
+ * ticks), A fires an action row. The others see a host-only row dim.
+ */
+enum { GEVR_ROW_VALUE, GEVR_ROW_ACTION };
+typedef struct {
+    const char *name;
+    u8 kind;
+    u8 hostonly;
+    s32 (*visible)(void);             /* NULL: always */
+    void (*value)(char *buf, s32 n);  /* the text after the name; NULL: none */
+    void (*step)(s32 dir);            /* -1 down, +1 up; an action row's A is dir 0 */
+    const char *hint;                 /* the legend's stick hint */
+} GevrMenuRow;
+typedef struct {
+    const GevrMenuRow *rows;
+    s32 count;
+    s32 cursor;                       /* a row index */
+    s32 scroll;                       /* the first row drawn, among the visible */
+} GevrMenuPage;
+#define GEVR_MENU_ROWS_SHOWN 8
+
+static void gevrUpper(char *b)
+{
+    for (; *b; b++)
+    {
+        if (*b >= 'a' && *b <= 'z') *b -= 'a' - 'A';
+    }
+}
+
+static s32 gevrCycled(s32 v, s32 dir, s32 count)
+{
+    v += dir;
+    if (v < 0) v = count - 1;
+    if (v >= count) v = 0;
+    return v;
+}
+
+/* ---- PAUSE: the audio rows ---- */
+static void rowMusicValue(char *b, s32 n) { snprintf(b, n, "%d%%", ((s32)get_mTrack2Vol() * 100 + 16383) / 32767); }
+static void rowMusicStep(s32 dir)
+{
+    s32 volume = (s32)get_mTrack2Vol() + dir * 3277;
+    if (volume < 0) volume = 0;
+    if (volume > 32767) volume = 32767;
+    set_mTrack2Vol((u16)volume);
+    musicTrack1ApplySeqpVol((u16)volume);
+    musicTrack3ApplySeqpVol((u16)volume);
+    VrMusicVolume = (float)volume / 32767.0f;
+    vrSettingsSave();
+}
+static void rowSfxValue(char *b, s32 n) { snprintf(b, n, "%d%%", (int)(VrSfxVolume * 100.0f + 0.5f)); }
+static void rowSfxStep(s32 dir)
+{
+    /* Tenths, so the steps land on 0..100% exactly. */
+    s32 tenths = (s32)(VrSfxVolume * 10.0f + 0.5f) + dir;
+    if (tenths < 0) tenths = 0;
+    if (tenths > 10) tenths = 10;
+    VrSfxVolume = (float)tenths / 10.0f;
+    gevrSndApplySfxVolume((u16)(VrSfxVolume * 32767.0f));
+    vrSettingsSave();
+}
+static void rowVoiceValue(char *b, s32 n) { snprintf(b, n, "%d%%", (int)(VrVoiceVolume * 100.0f + 0.5f)); }
+static void rowVoiceStep(s32 dir)
+{
+    VrVoiceVolume += dir * 0.10f;
+    if (VrVoiceVolume < 0.0f) VrVoiceVolume = 0.0f;
+    if (VrVoiceVolume > 1.0f) VrVoiceVolume = 1.0f;
+    vrSettingsSave();
+}
+static void rowMicValue(char *b, s32 n)
+{
+    snprintf(b, n, "%s", netVoiceIsMuted() ? "MUTED" : !netVoiceHasPermission() ? "NO ACCESS" :
+             netVoiceCaptureFailed() ? "UNAVAILABLE" : "ACTIVE");
+}
+static void rowMicStep(s32 dir)
+{
+    /* up = active, down = muted */
+    if ((dir < 0) != (netVoiceIsMuted() != 0)) netVoiceSetMuted(dir < 0);
+}
+static const GevrMenuRow s_pauseRows[] = {
+    { "MUSIC", GEVR_ROW_VALUE, 0, NULL, rowMusicValue, rowMusicStep, "R-STICK:ADJ" },
+    { "SFX",   GEVR_ROW_VALUE, 0, NULL, rowSfxValue,   rowSfxStep,   "R-STICK:ADJ" },
+    { "VOICE", GEVR_ROW_VALUE, 0, NULL, rowVoiceValue, rowVoiceStep, "R-STICK:ADJ" },
+    { "MIC",   GEVR_ROW_VALUE, 0, NULL, rowMicValue,   rowMicStep,   "R-STICK:ON/OFF" },
+};
+
+/* ---- LOBBY: the match ---- */
+static s32 lobbyVoting(void) { return gevrNetConfigGet(CFG_NEXT_ROUND) == NET_NEXT_VOTE_ROW; }
+static s32 lobbyNotGoldenGun(void) { return gevrNetConfigGet(CFG_SCENARIO) != NET_SCENARIO_MWTGG; }
+static s32 lobbyNotYolt(void) { return gevrNetConfigGet(CFG_SCENARIO) != NET_SCENARIO_YOLT; }
+static s32 lobbyCustomSet(void) { return lobbyNotGoldenGun() && gevrNetConfigGet(CFG_WEAPON_SET) == NET_WEAPON_SET_CUSTOM_ROW; }
+static s32 lobbyWeaponVote(void) { return lobbyVoting() && lobbyNotGoldenGun(); }
+static s32 lobbyLoadouts(void) { return gevrNetConfigGet(CFG_LOADOUTS) != 0; }
+static s32 lobbyCanStart(void) { return netIsHost() && (netGetPhase() == 1 || g_gameOverFlag) && netCountdownSecondsLeft() == 0; }
+static s32 lobbyCanReturn(void) { return netIsHost() && (netGetPhase() == 2 || netCountdownSecondsLeft() > 0); }
+
+/* the vote rows: this player's pick and how many share it, or the host's mode */
+static void lobbyVoteValue(char *b, s32 n, s32 kind, const char *(*name)(int))
+{
+    s32 mode = gevrNetConfigGet(CFG_NEXT_ROUND);
+    if (mode != NET_NEXT_VOTE_ROW)
+    {
+        snprintf(b, n, "%s", netNextRoundName(mode));
+        return;
+    }
+    s32 vote = netGetVote(kind, netGetLocalSlot());
+    s32 tally = 0;
+    s32 slot;
+    for (slot = 0; slot < 4; slot++)
+    {
+        if (vote >= 0 && netGetVote(kind, slot) == vote) tally++;
+    }
+    if (vote < 0) snprintf(b, n, "NO VOTE");
+    else snprintf(b, n, "%s (%d)", name(vote), tally);
+}
+static void rowNextMapValue(char *b, s32 n) { lobbyVoteValue(b, n, 0, netStageName); }
+static void rowNextMapStep(s32 dir)
+{
+    /* through the maps the party fits; past either end is no vote */
+        s32 vote = netGetVote(0, netGetLocalSlot());
+    s32 count = netStageCount();
+    s32 tries = count + 1;
+    if (!lobbyVoting()) return;
+    do
+    {
+        vote += dir;
+        if (vote >= count) vote = -1;
+        if (vote < -1) vote = count - 1;
+    } while (vote >= 0 && !netStageEligible(vote) && --tries > 0);
+    netSetLocalVote(0, vote);
+}
+static void rowNextWeaponsValue(char *b, s32 n) { lobbyVoteValue(b, n, 1, netWeaponSetName); }
+static void rowNextWeaponsStep(s32 dir)
+{
+    s32 vote = netGetVote(1, netGetLocalSlot());
+    s32 count = netWeaponSetCount();
+    if (!lobbyVoting()) return;
+    vote += dir;
+    if (vote >= count) vote = -1;
+    if (vote < -1) vote = count - 1;
+    netSetLocalVote(1, vote);
+}
+static void rowNextRoundValue(char *b, s32 n) { snprintf(b, n, "%s", netNextRoundName(gevrNetConfigGet(CFG_NEXT_ROUND))); }
+static void rowNextRoundStep(s32 dir) { gevrNetConfigSet(CFG_NEXT_ROUND, gevrCycled(gevrNetConfigGet(CFG_NEXT_ROUND), dir, 3)); }
+static void rowScenarioValue(char *b, s32 n) { snprintf(b, n, "%s", netScenarioName(gevrNetConfigGet(CFG_SCENARIO))); }
+static void rowScenarioStep(s32 dir) { gevrNetConfigSet(CFG_SCENARIO, gevrCycled(gevrNetConfigGet(CFG_SCENARIO), dir, netScenarioCount())); }
+static void rowLengthValue(char *b, s32 n) { snprintf(b, n, "%s", netGameLengthName(gevrNetConfigGet(CFG_GAME_LENGTH))); }
+static void rowLengthStep(s32 dir)
+{
+    /* The Living Daylights takes the time limits only, as the game's own menu has it */
+    s32 count = gevrNetConfigGet(CFG_SCENARIO) == NET_SCENARIO_TLD ? 4 : 7;
+    gevrNetConfigSet(CFG_GAME_LENGTH, gevrCycled(gevrNetConfigGet(CFG_GAME_LENGTH), dir, count));
+}
+static void rowHealthValue(char *b, s32 n) { snprintf(b, n, "%s", netHealthName(gevrNetConfigGet(CFG_HEALTH))); }
+static void rowHealthStep(s32 dir) { gevrNetConfigSet(CFG_HEALTH, gevrCycled(gevrNetConfigGet(CFG_HEALTH), dir, netHealthCount())); }
+static void rowDualValue(char *b, s32 n) { snprintf(b, n, "%s", netDualWieldName(gevrNetConfigGet(CFG_DUAL_WIELD))); }
+static void rowDualStep(s32 dir) { gevrNetConfigSet(CFG_DUAL_WIELD, gevrCycled(gevrNetConfigGet(CFG_DUAL_WIELD), dir, 3)); }
+static void rowLoadoutsValue(char *b, s32 n) { snprintf(b, n, "%s", gevrNetConfigGet(CFG_LOADOUTS) ? "ON" : "OFF"); }
+static void rowLoadoutsStep(s32 dir) { gevrNetConfigSet(CFG_LOADOUTS, !gevrNetConfigGet(CFG_LOADOUTS)); }
+static void rowWeaponsValue(char *b, s32 n) { snprintf(b, n, "%s", netWeaponSetName(gevrNetConfigGet(CFG_WEAPON_SET))); }
+static void rowWeaponsStep(s32 dir) { gevrNetConfigSet(CFG_WEAPON_SET, gevrCycled(gevrNetConfigGet(CFG_WEAPON_SET), dir, netWeaponSetCount())); }
+static void rowMapValue(char *b, s32 n) { snprintf(b, n, "%s", netStageName(netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE)))); }
+static void rowMapStep(s32 dir)
+{
+    s32 idx = netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE));
+        s32 tries = netStageCount();
+    do
+    {
+        idx = gevrCycled(idx < 0 ? 0 : idx, dir, netStageCount());
+    } while (!netStageEligible(idx) && --tries > 0);
+    gevrNetConfigSet(CFG_STAGE, idx);   /* the setter takes the list position */
+}
+static void lobbyCustomValue(char *b, s32 n, s32 k) { snprintf(b, n, "%s", netItemName(gevrNetConfigGet(CFG_CUSTOM0 + k))); }
+static void lobbyCustomStep(s32 dir, s32 k)
+{
+    s32 idx = netItemIndexOf(gevrNetConfigGet(CFG_CUSTOM0 + k));
+    idx = gevrCycled(idx < 0 ? 0 : idx, dir, netItemCount());
+    gevrNetConfigSet(CFG_CUSTOM0 + k, gevrNetItemAt(idx));
+}
+static void rowCustom0Value(char *b, s32 n) { lobbyCustomValue(b, n, 0); }
+static void rowCustom1Value(char *b, s32 n) { lobbyCustomValue(b, n, 1); }
+static void rowCustom2Value(char *b, s32 n) { lobbyCustomValue(b, n, 2); }
+static void rowCustom3Value(char *b, s32 n) { lobbyCustomValue(b, n, 3); }
+static void rowCustom0Step(s32 dir) { lobbyCustomStep(dir, 0); }
+static void rowCustom1Step(s32 dir) { lobbyCustomStep(dir, 1); }
+static void rowCustom2Step(s32 dir) { lobbyCustomStep(dir, 2); }
+static void rowCustom3Step(s32 dir) { lobbyCustomStep(dir, 3); }
+static void rowCharacterValue(char *b, s32 n) { snprintf(b, n, "%s", netCharacterName(gevrNetSlotChr(netGetLocalSlot()))); }
+static void rowCharacterStep(s32 dir) { netLobbySetCharacter((u8)gevrCycled(gevrNetSlotChr(netGetLocalSlot()), dir, netCharacterCount())); }
+static void lobbyLoadoutValue(char *b, s32 n, s32 k)
+{
+    s32 item = gevrNetSlotLoadout(netGetLocalSlot(), k);
+    snprintf(b, n, "%s", item ? netItemName(item) : "NONE");
+}
+static void lobbyLoadoutStep(s32 dir, s32 k)
+{
+    u8 items[4];
+    s32 i;
+    s32 idx;
+    for (i = 0; i < 4; i++) items[i] = (u8)gevrNetSlotLoadout(netGetLocalSlot(), i);
+    idx = netItemIndexOf(items[k]);
+    idx = gevrCycled(idx < 0 ? 0 : idx, dir, netItemCount());
+    items[k] = gevrNetItemAt(idx);
+    netLobbySetLoadout(items);
+}
+static void rowLoadout0Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 0); }
+static void rowLoadout1Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 1); }
+static void rowLoadout2Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 2); }
+static void rowLoadout3Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 3); }
+static void rowLoadout0Step(s32 dir) { lobbyLoadoutStep(dir, 0); }
+static void rowLoadout1Step(s32 dir) { lobbyLoadoutStep(dir, 1); }
+static void rowLoadout2Step(s32 dir) { lobbyLoadoutStep(dir, 2); }
+static void rowLoadout3Step(s32 dir) { lobbyLoadoutStep(dir, 3); }
+/* the favorites: this headset's, for the shuffle and the playlist when it hosts;
+ * the toggle is for the map or set the vote row points at (or the current one) */
+static s32 lobbyFavStage(void)
+{
+    s32 v = lobbyVoting() ? netGetVote(0, netGetLocalSlot()) : -1;
+    return v >= 0 ? v : netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE));
+}
+static s32 lobbyFavSet(void)
+{
+    s32 v = lobbyVoting() ? netGetVote(1, netGetLocalSlot()) : -1;
+    return v >= 0 ? v : gevrNetConfigGet(CFG_WEAPON_SET);
+}
+static void rowFavMapValue(char *b, s32 n)
+{
+    s32 i = lobbyFavStage();
+    snprintf(b, n, "%s %s", netStageName(i), i >= 0 && ((VrMpFavStages >> i) & 1u) ? "YES" : "NO");
+}
+static void rowFavMapStep(s32 dir)
+{
+    s32 i = lobbyFavStage();
+    if (i < 0) return;
+    VrMpFavStages ^= 1u << i;
+    vrSettingsSave();
+}
+static void rowFavSetValue(char *b, s32 n)
+{
+    s32 i = lobbyFavSet();
+    snprintf(b, n, "%s %s", netWeaponSetName(i), i >= 0 && ((VrMpFavSets >> i) & 1u) ? "YES" : "NO");
+}
+static void rowFavSetStep(s32 dir)
+{
+    s32 i = lobbyFavSet();
+    if (i < 0) return;
+    VrMpFavSets ^= 1u << i;
+    vrSettingsSave();
+}
+static void rowStartStep(s32 dir) { netHostStartRoundNow(); }
+static void rowReturnStep(s32 dir) { netHostReturnToLobby(); }
+static const GevrMenuRow s_lobbyRows[] = {
+    { "START MATCH",     GEVR_ROW_ACTION, 1, lobbyCanStart,     NULL,               rowStartStep,       "A:START" },
+    { "RETURN TO LOBBY", GEVR_ROW_ACTION, 1, lobbyCanReturn,    NULL,               rowReturnStep,      "A:RETURN" },
+    { "NEXT ROUND",      GEVR_ROW_VALUE,  1, NULL,              rowNextRoundValue,  rowNextRoundStep,   "R-STICK:PICK" },
+    { "NEXT MAP",        GEVR_ROW_VALUE,  0, lobbyVoting,       rowNextMapValue,    rowNextMapStep,     "R-STICK:VOTE" },
+    { "NEXT WEAPONS",    GEVR_ROW_VALUE,  0, lobbyWeaponVote,       rowNextWeaponsValue, rowNextWeaponsStep, "R-STICK:VOTE" },
+    { "MAP",             GEVR_ROW_VALUE,  1, NULL,              rowMapValue,        rowMapStep,         "R-STICK:PICK" },
+    { "WEAPONS",         GEVR_ROW_VALUE,  1, lobbyNotGoldenGun, rowWeaponsValue,    rowWeaponsStep,     "R-STICK:PICK" },
+    { "CUSTOM 1",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom0Value,    rowCustom0Step,     "R-STICK:PICK" },
+    { "CUSTOM 2",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom1Value,    rowCustom1Step,     "R-STICK:PICK" },
+    { "CUSTOM 3",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom2Value,    rowCustom2Step,     "R-STICK:PICK" },
+    { "CUSTOM 4",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom3Value,    rowCustom3Step,     "R-STICK:PICK" },
+    { "SCENARIO",        GEVR_ROW_VALUE,  1, NULL,              rowScenarioValue,   rowScenarioStep,    "R-STICK:PICK" },
+    { "LENGTH",          GEVR_ROW_VALUE,  1, lobbyNotYolt,      rowLengthValue,     rowLengthStep,      "R-STICK:PICK" },
+    { "HEALTH",          GEVR_ROW_VALUE,  1, NULL,              rowHealthValue,     rowHealthStep,      "R-STICK:PICK" },
+    { "DUAL WIELD",      GEVR_ROW_VALUE,  1, NULL,              rowDualValue,       rowDualStep,        "R-STICK:PICK" },
+    { "LOADOUTS",        GEVR_ROW_VALUE,  1, NULL,              rowLoadoutsValue,   rowLoadoutsStep,    "R-STICK:ON/OFF" },
+    { "CHARACTER",       GEVR_ROW_VALUE,  0, NULL,              rowCharacterValue,  rowCharacterStep,   "R-STICK:PICK" },
+    { "LOADOUT 1",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout0Value,   rowLoadout0Step,    "R-STICK:PICK" },
+    { "LOADOUT 2",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout1Value,   rowLoadout1Step,    "R-STICK:PICK" },
+    { "LOADOUT 3",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout2Value,   rowLoadout2Step,    "R-STICK:PICK" },
+    { "LOADOUT 4",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout3Value,   rowLoadout3Step,    "R-STICK:PICK" },
+    { "FAV MAP",         GEVR_ROW_VALUE,  0, NULL,              rowFavMapValue,     rowFavMapStep,      "R-STICK:YES/NO" },
+    { "FAV SET",         GEVR_ROW_VALUE,  0, NULL,              rowFavSetValue,     rowFavSetStep,      "R-STICK:YES/NO" },
+};
+static GevrMenuPage s_pausePage = { s_pauseRows, sizeof(s_pauseRows) / sizeof(s_pauseRows[0]), 0, 0 };
+static GevrMenuPage s_lobbyPage = { s_lobbyRows, sizeof(s_lobbyRows) / sizeof(s_lobbyRows[0]), 0, 0 };
+
+static GevrMenuPage *gevrMenuPageFor(s32 mode)
+{
+    return mode == MENU_PAUSE ? &s_pausePage : mode == MENU_LOBBY ? &s_lobbyPage : NULL;
+}
+static s32 gevrRowVisible(const GevrMenuRow *r) { return r->visible == NULL || r->visible(); }
+static s32 gevrRowEditable(const GevrMenuRow *r) { return !r->hostonly || netIsHost(); }
+
+/* the cursor onto a visible row: dir steps to the next one that way, 0 keeps it or takes the nearest below */
+static void gevrPageMoveCursor(GevrMenuPage *page, s32 dir)
+{
+    s32 tries = page->count;
+    s32 c = page->cursor;
+    if (dir != 0) c = gevrCycled(c, dir, page->count);
+    while (tries-- > 0 && !gevrRowVisible(&page->rows[c]))
+    {
+        c = gevrCycled(c, dir ? dir : 1, page->count);
+    }
+    page->cursor = c;
+}
+
+static void gevrMenuPagesTick(s32 player_num)
+{
+    static int last_rclick = 0;
+    static s32 stick_direction = 0;
+    static s32 stick_held_ticks = 0;
+    GevrMenuPage *page;
+    s32 change = 0;
+    s32 stick_y;
+    s32 direction;
+    int rclick;
+
+    if (!netIsActive() || player_num != netGetLocalSlot()) return;
+    page = gevrMenuPageFor(g_CurrentPlayer->mpmenumode);
+    if (page == NULL) return;
+
+    rclick = get_button_state(1, "thumbstick_click") ? 1 : 0;
+    /* Right stick click only: A also closes the pause menu. */
+    if (rclick && !last_rclick)
+    {
+        gevrPageMoveCursor(page, 1);
+        mpwatchPlayBeep();
+    }
+    last_rclick = rclick;
+
+    stick_y = joyGetStickY(player_num);
+    direction = stick_y > 30 ? 1 : stick_y < -30 ? -1 : 0;
+    if (direction != stick_direction)
+    {
+        stick_direction = direction;
+        stick_held_ticks = 0;
+        change = direction;
+    }
+    else if (direction != 0 && ++stick_held_ticks >= 18 && (stick_held_ticks - 18) % 6 == 0)
+    {
+        change = direction;
+    }
+    gevrPageMoveCursor(page, 0);
+    if (change)
+    {
+        const GevrMenuRow *r = &page->rows[page->cursor];
+        if (gevrRowEditable(r) && r->kind == GEVR_ROW_VALUE && r->step != NULL)
+        {
+            r->step(change);
+            /* After the change, so a volume's beep plays at the new level. */
+            mpwatchPlayBeep();
+        }
+    }
+}
+
+/* A on the LOBBY page: the selected action row */
+static s32 gevrMenuPageAction(void)
+{
+    GevrMenuPage *page = gevrMenuPageFor(g_CurrentPlayer->mpmenumode);
+    const GevrMenuRow *r;
+    if (page == NULL) return 0;
+    gevrPageMoveCursor(page, 0);
+    r = &page->rows[page->cursor];
+    if (!gevrRowVisible(r) || !gevrRowEditable(r) || r->kind != GEVR_ROW_ACTION || r->step == NULL) return 0;
+    r->step(0);
+    mpwatchPlayBeep();
+    return 1;
+}
+
+static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
+{
+    GevrMenuPage *page = gevrMenuPageFor(g_CurrentPlayer->mpmenumode);
+    char label[64];
+    char value[40];
+    s32 vis[32];
+    s32 nvis = 0;
+    s32 ci = 0;
+    s32 i;
+    s32 x;
+    s32 y;
+    s32 textwidth;
+    s32 textheight;
+    s32 shown;
+    s32 y0;
+    const GevrMenuRow *sel;
+
+    if (!netIsActive() || page == NULL) return gdl;
+    /* PAUSE: under the score block; LOBBY: the page's own top */
+    shown = g_CurrentPlayer->mpmenumode == MENU_PAUSE ? page->count : GEVR_MENU_ROWS_SHOWN;
+    y0 = g_CurrentPlayer->mpmenumode == MENU_PAUSE ? 116 : 37;
+    gevrPageMoveCursor(page, 0);
+    for (i = 0; i < page->count && nvis < 32; i++)
+    {
+        if (gevrRowVisible(&page->rows[i]))
+        {
+            if (i == page->cursor) ci = nvis;
+            vis[nvis++] = i;
+        }
+    }
+    if (page->scroll > ci) page->scroll = ci;
+    if (page->scroll < ci - shown + 1) page->scroll = ci - shown + 1;
+    if (page->scroll > nvis - shown) page->scroll = nvis - shown;
+    if (page->scroll < 0) page->scroll = 0;
+
+    for (i = 0; i < shown && page->scroll + i < nvis; i++)
+    {
+        const GevrMenuRow *r = &page->rows[vis[page->scroll + i]];
+        const s32 selected = vis[page->scroll + i] == page->cursor;
+        const s32 dim = !gevrRowEditable(r);
+        value[0] = '\0';
+        if (r->value != NULL) r->value(value, sizeof(value));
+        snprintf(label, sizeof(label), "%s%s %s%s", selected ? "> " : "  ", r->name, value, selected ? " <" : "");
+        gevrUpper(label);
+        textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+        y = menu_top + y0 + i * 13 + MPMENU_YOFF;
+        gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic,
+                         dim ? 0x00ff0080 : selected ? 0xa0ffa0f0 : 0x00ff00b0, viGetX(), viGetY(), 0, 0);
+    }
+    /* the legend: the selected row's hint, the click, and arrows when rows are out of view */
+    sel = &page->rows[page->cursor];
+    snprintf(label, sizeof(label), "%s%s  CLICK:NEXT%s", page->scroll > 0 ? "^ " : "",
+             gevrRowEditable(sel) ? sel->hint : "HOST ONLY", page->scroll + shown < nvis ? " v" : "");
+    textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+    y = menu_top + y0 + shown * 13 + 2 + MPMENU_YOFF;
+    gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viGetX(), viGetY(), 0, 0);
+    return gdl;
+}
 #endif
 
-#ifdef REFRESH_PAL
-#define MPMENU_YOFF 8   /* PAL: every text row sits 8 pixels lower */
-#else
-#define MPMENU_YOFF 0
-#endif
+
 
 // bss
 s32 g_stopPlayFlag;
@@ -92,12 +522,17 @@ s32 mpwatchMenuCanGoRight(void)
         case MENU_LOSSES:
         case MENU_KILLS:
         case MENU_PAUSE:
+        case MENU_LOBBY:
             return 1;
         case MENU_EXIT:
         case MENU_EXIT_CONFIRM:
         case MENU_FINISHED:
             return 0;
         case MENU_SCORES:
+#ifdef GEVR
+            /* online the results lead on to the LOBBY page, where the next match is voted */
+            if (netIsActive()) return 1;
+#endif
             return g_gameOverFlag ? 0 : 1;
         default:
             return 0;
@@ -112,6 +547,7 @@ s32 mpwatchMenuCanGoLeft(void)
         case MENU_KILLS:
         case MENU_SCORES:
         case MENU_PAUSE:
+        case MENU_LOBBY:
         case MENU_EXIT:
             return 1;
         case MENU_GOWOC:
@@ -728,108 +1164,23 @@ void mpwatchMenuTick(void)
             if (g_CurrentPlayer->mpmenuon != FALSE)
             {
 #ifdef GEVR
-                if (netIsActive() && player_num == netGetLocalSlot() &&
-                    g_CurrentPlayer->mpmenumode == MENU_PAUSE)
-                {
-                    static int last_rclick = 0;
-                    int rclick = get_button_state(1, "thumbstick_click") ? 1 : 0;
-                    int rclick_pressed = rclick && !last_rclick;
-                    last_rclick = rclick;
-
-                    /* Right stick click only: A also closes the pause menu. */
-                    if (rclick_pressed)
-                    {
-                        s_mpAudioSlider = (s_mpAudioSlider + 1) % MPAUDIO_ROWS;
-                        mpwatchPlayBeep();
-                    }
-
-                    static s32 audio_stick_direction = 0;
-                    static s32 audio_stick_held_ticks = 0;
-                    s32 stick_y = joyGetStickY(player_num);
-                    s32 direction = stick_y > 30 ? 1 : stick_y < -30 ? -1 : 0;
-                    s32 change = 0;
-                    if (direction != audio_stick_direction)
-                    {
-                        audio_stick_direction = direction;
-                        audio_stick_held_ticks = 0;
-                        change = direction;
-                    }
-                    else if (direction != 0 && ++audio_stick_held_ticks >= 18 &&
-                             (audio_stick_held_ticks - 18) % 6 == 0)
-                    {
-                        change = direction;
-                    }
-                    if (change)
-                    {
-                        if (s_mpAudioSlider == MPAUDIO_MUSIC)
-                        {
-                            s32 volume = (s32)get_mTrack2Vol() + change * 3277;
-                            if (volume < 0) volume = 0;
-                            if (volume > 32767) volume = 32767;
-                            set_mTrack2Vol((u16)volume);
-                            musicTrack1ApplySeqpVol((u16)volume);
-                            musicTrack3ApplySeqpVol((u16)volume);
-                            VrMusicVolume = (float)volume / 32767.0f;
-                            vrSettingsSave();
-                            mpwatchPlayBeep();
-                        }
-                        else if (s_mpAudioSlider == MPAUDIO_SFX)
-                        {
-                            /* Tenths, so the steps land on 0..100% exactly. */
-                            s32 tenths = (s32)(VrSfxVolume * 10.0f + 0.5f) + change;
-                            if (tenths < 0) tenths = 0;
-                            if (tenths > 10) tenths = 10;
-                            VrSfxVolume = (float)tenths / 10.0f;
-                            gevrSndApplySfxVolume((u16)(VrSfxVolume * 32767.0f));
-                            vrSettingsSave();
-                            /* After the change, so the beep plays at the new level. */
-                            mpwatchPlayBeep();
-                        }
-                        else if (s_mpAudioSlider == MPAUDIO_VOICE)
-                        {
-                            VrVoiceVolume += change * 0.10f;
-                            if (VrVoiceVolume < 0.0f) VrVoiceVolume = 0.0f;
-                            if (VrVoiceVolume > 1.0f) VrVoiceVolume = 1.0f;
-                            vrSettingsSave();
-                            mpwatchPlayBeep();
-                        }
-                        else if (s_mpAudioSlider == MPAUDIO_NEXTMAP)
-                        {
-                            /* Up and down through the maps the party fits;
-                             * past either end is no vote. The host settles it
-                             * as the next round begins (net_core.c). */
-                            s32 players = netGetConnectedPlayerCount();
-                            s32 vote = netGetVote(0, netGetLocalSlot());
-                            s32 n = netStageCount();
-                            s32 tries = n + 1;
-
-                            do
-                            {
-                                vote += change;
-                                if (vote >= n) vote = -1;
-                                if (vote < -1) vote = n - 1;
-                            } while (vote >= 0 && netStageMaxPlayers(vote) < players && --tries > 0);
-                            netSetLocalVote(0, vote);
-                            mpwatchPlayBeep();
-                        }
-                        else if ((change < 0) != (netVoiceIsMuted() != 0))
-                        {
-                            /* Mic: up = active, down = muted. */
-                            netVoiceSetMuted(change < 0);
-                            mpwatchPlayBeep();
-                        }
-                    }
-                }
+                gevrMenuPagesTick(player_num);
 #endif
                 if (mpwatchIsPlayerPressingRight(player_num) && mpwatchMenuCanGoRight())
                 {
                     mpwatchPlayBeep();
                     g_CurrentPlayer->mpmenumode++;
+#ifdef GEVR
+                    if (g_CurrentPlayer->mpmenumode == MENU_LOBBY && !netIsActive()) g_CurrentPlayer->mpmenumode++;
+#endif
                 }
                 else if (mpwatchIsPlayerPressingLeft(player_num) && mpwatchMenuCanGoLeft())
                 {
                     mpwatchPlayBeep();
                     g_CurrentPlayer->mpmenumode--;
+#ifdef GEVR
+                    if (g_CurrentPlayer->mpmenumode == MENU_LOBBY && !netIsActive()) g_CurrentPlayer->mpmenumode--;
+#endif
                 }
                 else if (mpwatchIsPlayerPressingRight(player_num) && (g_CurrentPlayer->mpmenumode == MENU_EXIT_CONFIRM))
                 {
@@ -869,6 +1220,28 @@ void mpwatchMenuTick(void)
                         g_CurrentPlayer->mpmenumode = MENU_SCORES;
                     }
                 }
+#ifdef GEVR
+                else if (netIsActive() && g_CurrentPlayer->mpmenumode == MENU_LOBBY &&
+                         joyGetButtonsPressedThisFrame(player_num, A_BUTTON | B_BUTTON | START_BUTTON))
+                {
+                    /* A fires the selected action row; B or START closes the menu (not at the results) */
+                    if (joyGetButtonsPressedThisFrame(player_num, A_BUTTON))
+                    {
+                        if (player_num == netGetLocalSlot()) gevrMenuPageAction();
+                    }
+                    else if (!g_gameOverFlag)
+                    {
+                        mpwatchPlayBeep();
+                        g_CurrentPlayer->mpmenuon = FALSE;
+                        g_CurrentPlayer->healthdisplaytime = (PAL ? 50 : 60);
+                        if (get_cur_playernum() == who_paused)
+                        {
+                            g_pausedFlag = 0;
+                            lvlSetControlsLockedFlag(0);
+                        }
+                    }
+                }
+#endif
                 else if (((joyGetButtonsPressedThisFrame(player_num, A_BUTTON | START_BUTTON)) && ((((g_CurrentPlayer->mpmenumode != MENU_EXIT)) && (g_CurrentPlayer->mpmenumode != MENU_EXIT_CONFIRM)) || ((g_CurrentPlayer->mpmenumode == MENU_EXIT_CONFIRM) && (g_CurrentPlayer->mpquitconfirm != 1)))) || (joyGetButtonsPressedThisFrame(player_num, B_BUTTON)))
                 {
                     mpwatchPlayBeep();
@@ -877,9 +1250,14 @@ void mpwatchMenuTick(void)
                     {
 #ifdef GEVR
                         if (netIsActive()) {
-                            if (netIsHost() && player_num == netGetLocalSlot())
-                                netHostReturnToWarmup();
-                            g_CurrentPlayer->mpmenumode = MENU_FINISHED;
+                            /* The host: A or START goes on to the next match (a
+                             * countdown the LOBBY page votes through), B returns
+                             * everyone to the lobby. The others wait; the header
+                             * says so. Everyone stays on the results meanwhile. */
+                            if (netIsHost() && player_num == netGetLocalSlot()) {
+                                if (joyGetButtonsPressedThisFrame(player_num, B_BUTTON)) netHostReturnToLobby();
+                                else netHostContinue();
+                            }
                             return;
                         }
 #endif
@@ -1336,6 +1714,22 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 {
                     text = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_15_PLAY)); /* PLAY */
                 }
+#ifdef GEVR
+                else if (netIsActive() && (netCountdownSecondsLeft() > 0 || !alt_gameover_msg))
+                {
+                    /* online: the countdown to the next match, or whose move it is */
+                    static char gameover[32];
+                    if (netCountdownSecondsLeft() > 0)
+                    {
+                        snprintf(gameover, sizeof(gameover), "NEXT MATCH IN %d", netCountdownSecondsLeft());
+                    }
+                    else
+                    {
+                        strcpy(gameover, netIsHost() ? "A:CONTINUE  B:LOBBY" : "WAITING FOR HOST");
+                    }
+                    text = gameover;
+                }
+#endif
                 else
                 {
                     if (alt_gameover_msg)
@@ -1351,6 +1745,11 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             case MENU_FINISHED:
                 text = (char *) ascii_MP_watch_menu_BLANK;
                 break;
+#ifdef GEVR
+            case MENU_LOBBY:
+                text = (char *) "LOBBY";
+                break;
+#endif
             case MENU_PAUSE:
                 if (g_pausedFlag)
                 {
@@ -1977,82 +2376,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             }
         }
 #ifdef GEVR
-        if (netIsActive() && g_CurrentPlayer->mpmenumode == MENU_PAUSE)
-        {
-            char row_label[48];
-            char value[24];
-            s32 row;
-
-            for (row = 0; row <= MPAUDIO_ROWS; row++)
-            {
-                const char *name = "";
-                s32 selected = row == s_mpAudioSlider;
-
-                if (row == MPAUDIO_MUSIC)
-                {
-                    name = "MUSIC";
-                    snprintf(value, sizeof(value), "%d%%", ((s32)get_mTrack2Vol() * 100 + 16383) / 32767);
-                }
-                else if (row == MPAUDIO_SFX)
-                {
-                    name = "SFX";
-                    snprintf(value, sizeof(value), "%d%%", (int)(VrSfxVolume * 100.0f + 0.5f));
-                }
-                else if (row == MPAUDIO_VOICE)
-                {
-                    name = "VOICE";
-                    snprintf(value, sizeof(value), "%d%%", (int)(VrVoiceVolume * 100.0f + 0.5f));
-                }
-                else if (row == MPAUDIO_MIC)
-                {
-                    name = "MIC";
-                    snprintf(value, sizeof(value), "%s", netVoiceIsMuted() ? "MUTED" :
-                             !netVoiceHasPermission() ? "NO ACCESS" :
-                             netVoiceCaptureFailed() ? "UNAVAILABLE" : "ACTIVE");
-                }
-                else if (row == MPAUDIO_NEXTMAP)
-                {
-                    /* this player's vote, and how many share it */
-                    s32 vote = netGetVote(0, netGetLocalSlot());
-                    s32 tally = 0;
-                    s32 slot;
-
-                    for (slot = 0; slot < 4; slot++)
-                    {
-                        if (vote >= 0 && netGetVote(0, slot) == vote) tally++;
-                    }
-                    name = "NEXT MAP";
-                    if (vote < 0)
-                    {
-                        snprintf(value, sizeof(value), "NO VOTE");
-                    }
-                    else
-                    {
-                        snprintf(value, sizeof(value), "%s (%d)", netStageName(vote), tally);
-                    }
-                }
-
-                if (row == MPAUDIO_ROWS)
-                {
-                    snprintf(row_label, sizeof(row_label), "%s  CLICK:NEXT",
-                             s_mpAudioSlider == MPAUDIO_MIC ? "R-STICK:ON/OFF" :
-                             s_mpAudioSlider == MPAUDIO_NEXTMAP ? "R-STICK:PICK" : "R-STICK:ADJ");
-                }
-                else
-                {
-                    snprintf(row_label, sizeof(row_label), "%s%s %s%s",
-                             selected ? "> " : "  ", name, value, selected ? " <" : "");
-                }
-
-                textMeasure(&textheight, &textwidth, row_label,
-                            ptrFontBankGothicChars, ptrFontBankGothic, 0);
-                x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
-                y = menu_top + 116 + row * 13 + (row == MPAUDIO_ROWS ? 2 : 0) + MPMENU_YOFF;
-                viewleft = viGetX(); h1 = viGetY();
-                gdl = textRender(gdl, &x, &y, row_label, ptrFontBankGothicChars,
-                                 ptrFontBankGothic, selected ? 0xa0ffa0f0 : 0x00ff00b0, viewleft, h1, 0, 0);
-            }
-        }
+        gdl = gevrMenuPagesDraw(gdl, menu_top, two_player_x_offset);
 #endif
         gdl = combiner_bayer_lod_perspective(gdl);
     }
