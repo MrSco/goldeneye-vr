@@ -997,7 +997,6 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
     ShotData shotdata;
     coord3d *playerpos;
-    coord3d stanhit;
     coord3d dest;
     coord3d besthitpos;
     coord3d scaleddir;
@@ -1011,8 +1010,6 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     f32 distscale;
     f32 depth;
     f32 t;
-    s32 hitbgstan = 0;
-    s32 gotbghit = 0;
     s32 bestroom = 0;
     s32 startroom;
     s32 k;
@@ -1061,23 +1058,16 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
 #endif
         stanResetHits();
 
-#ifdef GEVR
-        if (!walkTilesBetweenPoints_NoCallback(&fromtile, s_gevrWalkX, s_gevrWalkZ, dest.x, dest.z))
-#else
-        if (!walkTilesBetweenPoints_NoCallback(&fromtile, shotdata.gunpos.x, shotdata.gunpos.z, dest.x, dest.z))
-#endif
-        {
-            chrlvStanLineDirIntersection(&shotdata.gunpos, &shotdata.dir, &stanhit);
-            hitbgstan = 1;
-        }
-        else
-        {
-            stanhit = dest;
-        }
+        /* The tile walk selects rooms, not a 3D obstruction. Its x/z edge
+         * can be a railing or stairwell with open air above it. Trace the
+         * full barrel ray against geometry instead of stopping at that edge
+         * (or clamping an edge behind the muzzle to the gun tip).
+         */
+        walkTilesBetweenPoints_NoCallback(&fromtile, s_gevrWalkX, s_gevrWalkZ, dest.x, dest.z);
 
-        hitdir.x = stanhit.x - playerpos->x;
-        hitdir.y = stanhit.y - playerpos->y;
-        hitdir.z = stanhit.z - playerpos->z;
+        hitdir.x = dest.x - playerpos->x;
+        hitdir.y = dest.y - playerpos->y;
+        hitdir.z = dest.z - playerpos->z;
         scaleddir.x = playerpos->x * distscale;
         scaleddir.y = playerpos->y * distscale;
         scaleddir.z = playerpos->z * distscale;
@@ -1088,7 +1078,7 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
             visited[i] = 0;
         }
 
-        if (bgTestBulletHitBackground(playerpos, &stanhit, startroom, &bghit))
+        if (bgTestBulletHitBackground(playerpos, &dest, startroom, &bghit))
         {
             bestroom = startroom;
         }
@@ -1098,11 +1088,11 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
         {
             if (g_BgPortals[0].offset_portal != 0)
             {
-                bestroom = chrpropFindFirstBgHitInConnectedRooms(getTileRoom(playerprop->stan), playerpos, &stanhit, &hitdir, &scaleddir, visited, &bghit);
+                bestroom = chrpropFindFirstBgHitInConnectedRooms(getTileRoom(playerprop->stan), playerpos, &dest, &hitdir, &scaleddir, visited, &bghit);
             }
             else
             {
-                bestroom = chrpropFindClosestBgHitRoom(getTileRoom(playerprop->stan), playerpos, &stanhit, &hitdir, &scaleddir, visited, &bghit);
+                bestroom = chrpropFindClosestBgHitRoom(getTileRoom(playerprop->stan), playerpos, &dest, &hitdir, &scaleddir, visited, &bghit);
             }
         }
         if (bestroom > 0)
@@ -1112,20 +1102,11 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
             bghit.hitpos.y *= distscale;
             bghit.hitpos.z *= distscale;
         }
-        bestroom = chrpropFindCloserBgHitInVisibleRooms(playerpos, &stanhit, &hitdir, &scaleddir, visited, &bghit, bestroom);
+        bestroom = chrpropFindCloserBgHitInVisibleRooms(playerpos, &dest, &hitdir, &scaleddir, visited, &bghit, bestroom);
 
         if (bestroom > 0)
         {
-            gotbghit = 1;
             besthitpos = bghit.hitpos;
-        }
-        else
-        {
-            besthitpos = stanhit;
-        }
-
-        if (hitbgstan || gotbghit)
-        {
             mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &besthitpos);
             shotdata.maxdist = -besthitpos.f[2];
         }
