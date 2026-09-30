@@ -48,8 +48,12 @@ owner's health, armour and death ride in PLAYER_STATE and rule its copies (a
 client died on the host only, then stood as a corpse ignoring its moves),
 and a copy's shot ammo boxes and guns fly on every headset (the copy pass was
 caught by the barrel pass's "no projectiles in an extra pass" rule). The
-user's Quest ran the branch's first build (c9910aa) for the test; the later
-commits are built as versionCode 44, not installed.
+MP pause menu (3880832..dd5870b, user-checked on the Quest): the left stick
+moves the LOBBY cursor both ways, the right stick changes values in any
+direction, START MATCH counts down on its row and in the title, RETURN TO
+LOBBY says it cancels, and the hands hold still under the menu (the locate,
+the camera snapshot and the redraw hand delta all hold; see the memory note
+on controller pose layers). The Quest has dd5870b (versionCode 44).
 
 ## What it is
 
