@@ -806,6 +806,32 @@ Gfx* lvlRender(Gfx* DL)
             chrpropUpdateAutoaimTarget();
             chraiCheckUseHeldItems();
 #ifdef GEVR
+            {
+                /*
+                 * The game traces each player's shots in that player's own
+                 * view pass. Online only the local view is drawn, so the other
+                 * players' copies are traced here too, or their bullets never
+                 * land: no impacts, no broken glass. Only the shooter reports
+                 * hits on players (chraction.c), so this adds no damage.
+                 */
+                extern bool netSlotOccupied(int slot);
+                s32 localslot = get_cur_playernum();
+                s32 slot;
+
+                if (netIsActive())
+                {
+                    for (slot = 0; slot < 4; slot++)
+                    {
+                        if (slot == localslot || !netSlotOccupied(slot) || g_playerPointers[slot] == NULL)
+                        {
+                            continue;
+                        }
+                        set_cur_player(slot);
+                        chraiCheckUseHeldItems();
+                    }
+                    set_cur_player(localslot);
+                }
+            }
             { extern void gevrStereoAimUpdate(void); gevrStereoAimUpdate(); }
             /*
              * Issue #55: a blow of either hand (bondview2.c gevrHandChopTick),
