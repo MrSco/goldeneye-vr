@@ -33,6 +33,7 @@ static f32 s_remote_barrel_pitch[GEVR_MAX_PLAYERS];   /* logged only (see netPla
 static f32 s_remote_barrel_yaw[GEVR_MAX_PLAYERS];
 static s8 s_copy_weapon[GEVR_MAX_PLAYERS][2];         /* the item last given to a copy's hand (netSyncCopyHand) */
 static u64 s_copy_dead_since_us[GEVR_MAX_PLAYERS];    /* the copy has been dead since (0: alive) */
+static u64 s_copy_alive_since_us[GEVR_MAX_PLAYERS];   /* the copy has been alive since (0: dead) */
 static u64 s_owner_dead_since_us[GEVR_MAX_PLAYERS];   /* the owner has reported dead since (0: alive) */
 
 void netPlayerSyncInit(void) {
@@ -218,7 +219,9 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                 u64 now = sysGetMicroseconds();
                 if (pl->bonddead) {
                     if (!s_copy_dead_since_us[playernum]) s_copy_dead_since_us[playernum] = now;
+                    s_copy_alive_since_us[playernum] = 0;
                 } else {
+                    if (!s_copy_alive_since_us[playernum]) s_copy_alive_since_us[playernum] = now;
                     s_copy_dead_since_us[playernum] = 0;
                 }
                 if (m->dead) {
@@ -226,7 +229,15 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                 } else {
                     s_owner_dead_since_us[playernum] = 0;
                 }
-                if (m->dead && !pl->bonddead && now - s_owner_dead_since_us[playernum] > 500000) {
+                /*
+                 * ... and the copy alive for 0.5 s as well: the owner's
+                 * RESPAWN revives the copy while its last state packet still
+                 * says dead, and the kill rule killed the fresh copy at once,
+                 * crediting a second kill for one death (match 2026-09-30,
+                 * 14:52). The post-respawn packets arrive well inside that.
+                 */
+                if (m->dead && !pl->bonddead && now - s_owner_dead_since_us[playernum] > 500000
+                    && now - s_copy_alive_since_us[playernum] > 500000) {
                     s32 prev = get_cur_playernum();
                     s32 killer = netLastAttacker(playernum);
                     sysLogPrintf(LOG_NOTE, "net: copy %d: owner dead, copy alive (health %.2f): killing, credit %d", playernum, pl->bondhealth, killer);
