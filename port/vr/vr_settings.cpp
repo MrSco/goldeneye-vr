@@ -16,6 +16,7 @@ extern "C" void videoSetExternalTextures(bool enable);
 extern "C" void set_mTrack2Vol(unsigned short);
 extern "C" void musicTrack1ApplySeqpVol(unsigned short);
 extern "C" void musicTrack3ApplySeqpVol(unsigned short);
+extern "C" void gevrSndApplySfxVolume(unsigned short);
 
 // Set once vrSettingsLoad has run (the first VR frame, gevr_engine_shim.c).
 // A save before it writes every default over the player's file: the launcher's
@@ -72,6 +73,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
     fprintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
     fprintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
+    fprintf(f, "SfxVolume=%.2f\n", VrSfxVolume);
     fprintf(f, "; Your name in multiplayer, up to 15 characters.\n");
     fprintf(f, "PlayerName=%s\n", VrPlayerName);
     fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
@@ -211,6 +213,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "DisplayHz") == 0) VrRefreshRate = ival < 0 ? 0 : ival;
             else if (strcmp(key, "MusicVolume") == 0) VrMusicVolume = ival <= 0 ? 0.0f : (ival >= 1 ? 1.0f : (float)ival);
             else if (strcmp(key, "VoiceVolume") == 0) VrVoiceVolume = ival <= 0 ? 0.0f : (ival >= 1 ? 1.0f : (float)ival);
+            else if (strcmp(key, "SfxVolume") == 0) VrSfxVolume = ival <= 0 ? 0.0f : 1.0f;
         }
             // 2. OTHERWISE, is it a floating-point number (%f)?
         else if (sscanf(line, "%63[^=]=%f", key, &fval) == 2) {
@@ -290,6 +293,11 @@ extern "C" void vrSettingsLoad(void)
                 if (fval > 1.0f) fval = 1.0f;
                 VrVoiceVolume = fval;
             }
+            else if (strcmp(key, "SfxVolume") == 0) {
+                if (fval < 0.0f) fval = 0.0f;
+                if (fval > 1.0f) fval = 1.0f;
+                VrSfxVolume = fval;
+            }
         }
             // 3. OTHERWISE, is it text (%s)?
         else if (sscanf(line, "%63[^=]=%255[^\n]", key, sval) == 2) {
@@ -306,6 +314,7 @@ extern "C" void vrSettingsLoad(void)
     set_mTrack2Vol(mVol);
     musicTrack1ApplySeqpVol(mVol);
     musicTrack3ApplySeqpVol(mVol);
+    gevrSndApplySfxVolume((unsigned short)(VrSfxVolume * 32767.0f));
 
     // GunOffX/Y/Z of 0, 0, 0 is the old default, which every install wrote
     // before the launcher's Gun fit existed: it keeps the fitted defaults
