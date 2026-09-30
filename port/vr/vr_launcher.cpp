@@ -826,6 +826,7 @@ extern "C" uint16_t get_mTrack2Vol(void);
 extern "C" void set_mTrack2Vol(uint16_t);
 extern "C" void musicTrack1ApplySeqpVol(uint16_t);
 extern "C" void musicTrack3ApplySeqpVol(uint16_t);
+extern "C" void gevrSndApplySfxVolume(uint16_t);
 
 void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
@@ -991,9 +992,10 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     // Persistent Audio Volume controls
     int musicPct = (int)(((s32)get_mTrack2Vol() * 100 + 16383) / 32767);
     int voicePct = (int)(VrVoiceVolume * 100.0f + 0.5f);
+    int sfxPct = (int)(VrSfxVolume * 100.0f + 0.5f);
     ImGui::TextUnformatted("Music Vol:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
     if (ImGui::SliderInt("##mpmusicvol", &musicPct, 0, 100, "%d%%")) {
         uint16_t vol = (uint16_t)((musicPct * 32767 + 50) / 100);
         set_mTrack2Vol(vol);
@@ -1002,10 +1004,19 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         VrMusicVolume = (float)musicPct / 100.0f;
         vrSettingsSave();
     }
-    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 2.0f);
+    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
+    ImGui::TextUnformatted("SFX Vol:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+    if (ImGui::SliderInt("##mpsfxvol", &sfxPct, 0, 100, "%d%%")) {
+        VrSfxVolume = (float)sfxPct / 100.0f;
+        gevrSndApplySfxVolume((uint16_t)((sfxPct * 32767 + 50) / 100));
+        vrSettingsSave();
+    }
+    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
     ImGui::TextUnformatted("Voice Vol:");
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
     if (ImGui::SliderInt("##mpvoicevol", &voicePct, 0, 100, "%d%%")) {
         VrVoiceVolume = (float)voicePct / 100.0f;
         vrSettingsSave();
@@ -1077,11 +1088,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         } else {
             ImGui::TextColored(good, "LOBBY ACTIVE (Broadcasting on LAN port %d)", GEVR_DEFAULT_PORT);
             bool micMuted = netVoiceIsMuted() != 0;
-            if (ImGui::Checkbox("Microphone muted", &micMuted)) netVoiceSetMuted(micMuted);
+            if (ImGui::Checkbox("Mute Microphone", &micMuted)) netVoiceSetMuted(micMuted);
             ImGui::SameLine();
-            ImGui::TextDisabled("%s", !netVoiceHasPermission() ? "No mic access (listen only)" :
-                netVoiceCaptureReady() ? "Mic ready" : netVoiceCaptureFailed() ?
-                "Mic unavailable (listen only)" : "Mic starting");
+            ImGui::TextDisabled("%s", micMuted ? "Mic muted" :
+                !netVoiceHasPermission() ? "No mic access (listen only)" :
+                netVoiceCaptureFailed() ? "Mic unavailable (listen only)" : "Mic active");
             if (!hostedCode.empty()) {
                 if (hostVisibility) ImGui::TextColored(gold, "PRIVATE JOIN CODE: %s", hostedCode.c_str());
                 else ImGui::TextColored(good, "Public game listed online: %s", hostedCode.c_str());
@@ -1322,11 +1333,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         } else {
             ImGui::TextColored(good, "CONNECTED TO SERVER! You are Player Slot %d", netGetLocalSlot() + 1);
             bool micMuted = netVoiceIsMuted() != 0;
-            if (ImGui::Checkbox("Microphone muted", &micMuted)) netVoiceSetMuted(micMuted);
+            if (ImGui::Checkbox("Mute Microphone", &micMuted)) netVoiceSetMuted(micMuted);
             ImGui::SameLine();
-            ImGui::TextDisabled("%s", !netVoiceHasPermission() ? "No mic access (listen only)" :
-                netVoiceCaptureReady() ? "Mic ready" : netVoiceCaptureFailed() ?
-                "Mic unavailable (listen only)" : "Mic starting");
+            ImGui::TextDisabled("%s", micMuted ? "Mic muted" :
+                !netVoiceHasPermission() ? "No mic access (listen only)" :
+                netVoiceCaptureFailed() ? "Mic unavailable (listen only)" : "Mic active");
             ImGui::Text("Stage: %s   Weapons: %s", stageName(netGetLobbyStage()), weaponSetName(netGetLobbyWeaponSet()));
             
             ImGui::Text("Choose Your Character: ");
