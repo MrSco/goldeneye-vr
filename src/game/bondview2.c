@@ -3110,6 +3110,26 @@ void gevrSetCopyTrace(s32 on)
     s_gevrCopyTrace = on;
 }
 
+/* The local player's own barrel for a pass of its own (lv.c
+ * gevrLocalBarrelPlan), world space; NULL clears it. */
+static s32 s_gevrPassAimValid[2];
+static struct coord3d s_gevrPassAimOrigin[2];
+static struct coord3d s_gevrPassAimDir[2];
+
+void gevrSetPassAim(s32 hand, const struct coord3d *origin, const struct coord3d *dir)
+{
+    if (hand < 0 || hand > 1)
+    {
+        return;
+    }
+    s_gevrPassAimValid[hand] = origin != NULL && dir != NULL;
+    if (s_gevrPassAimValid[hand])
+    {
+        s_gevrPassAimOrigin[hand] = *origin;
+        s_gevrPassAimDir[hand] = *dir;
+    }
+}
+
 /*
  * A remote player's copy firing on this headset, in its own view pass (lv.c
  * gevrRemotePlayerPass, whose camera sits on the owner's barrel): the shot
@@ -3128,7 +3148,13 @@ static s32 gevrRemoteCopyShot(s32 handnum, struct coord3d *origin, struct coord3
     {
         return FALSE;
     }
-    if (handnum != GUNRIGHT || !netGetRemoteAim(get_cur_playernum(), &wo, &wd))
+    if (handnum >= 0 && handnum <= 1 && s_gevrPassAimValid[handnum])
+    {
+        /* the local player's own off-view hand */
+        wo = s_gevrPassAimOrigin[handnum];
+        wd = s_gevrPassAimDir[handnum];
+    }
+    else if (handnum != GUNRIGHT || !netGetRemoteAim(get_cur_playernum(), &wo, &wd))
     {
         wo = g_CurrentPlayer->prop->pos;
         wd = g_CurrentPlayer->field_488.applied_view;
@@ -3188,7 +3214,8 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
     f32 len;
     s32 ctrl;
 
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    if ((netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        || (s_gevrCopyTrace && handnum >= 0 && handnum <= 1 && s_gevrPassAimValid[handnum]))
     {
         return gevrRemoteCopyShot(handnum, origin, dir);
     }

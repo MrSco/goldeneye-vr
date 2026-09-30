@@ -697,11 +697,26 @@ Gfx *lvlPortalDebug7F0BDF10(Gfx *gdl)
  * controller; the commands the viewport setup writes go to a scratch buffer;
  * and what only the local player does (collecting pickups, the sight, the
  * HUD) stays out.
+ *
+ * The local player gets the same pass for a hand firing well outside the
+ * head's view (gevrLocalBarrelPlan): in stereo the gun is not the head, and
+ * the head pass's on-screen list holds nothing beside or behind the player.
  */
-static void gevrRemotePlayerPass(s32 playernum)
+static s32 s_gevrBarrelHand[2];         /* the local hands a pass traces this frame */
+static coord3d s_gevrBarrelOrigin[2];   /* and their barrels, world space */
+static coord3d s_gevrBarrelDir[2];
+
+static void gevrViewPass(s32 playernum, s32 hand)
 {
     extern int netGetRemoteAim(int slot_id, coord3d *origin, coord3d *dir);
+    extern int netGetLocalSlot(void);
     extern void gevrSetCopyTrace(s32 on);
+    extern void gevrSetPassAim(s32 hand, const coord3d *origin, const coord3d *dir);
+    extern void chraiCheckUseHeldItem(s32 hand);
+    extern s32 g_gevrShotHand;
+    extern s32 g_gevrExtraPass;
+    s32 islocal = netIsActive() && playernum == netGetLocalSlot();
+    s32 aimed;
     extern void bondviewUpdateCameraMatrices(coord3d *cam_pos, coord3d *cam_look_dir, coord3d *cam_up);
     extern s32 g_gevrStereo;
     extern float gevrVrFov(void);
@@ -713,11 +728,16 @@ static void gevrRemotePlayerPass(s32 playernum)
     coord3d look;
     coord3d up;
 
-    if (pl == NULL || pl->prop == NULL || pl->prop->stan == NULL)
+    if (pl == NULL || pl->prop == NULL || pl->prop->stan == NULL || hand < 0 || hand > 1)
+    {
+        return;
+    }
+    if (islocal && !s_gevrBarrelHand[hand])
     {
         return;
     }
     set_cur_player(playernum);
+    g_gevrExtraPass = TRUE;
 
     viSetViewSize(g_CurrentPlayer->viewx, g_CurrentPlayer->viewy);
     viSetViewPosition(g_CurrentPlayer->viewleft, g_CurrentPlayer->viewtop);
@@ -731,12 +751,23 @@ static void gevrRemotePlayerPass(s32 playernum)
     /* the projection (projmatrixf) and the viewport; the commands are dropped */
     viSetupCurrentPlayerView(scratch);
 
-    if (pl->bonddead || !netGetRemoteAim(playernum, &pos, &look))
+    if (islocal)
+    {
+        pos = s_gevrBarrelOrigin[hand];
+        look = s_gevrBarrelDir[hand];
+        aimed = TRUE;
+    }
+    else if (pl->bonddead || !netGetRemoteAim(playernum, &pos, &look))
     {
         pos = pl->field_488.pos;
         look = pl->field_488.applied_view;
+        aimed = FALSE;
     }
     else
+    {
+        aimed = TRUE;
+    }
+    if (aimed)
     {
         /*
          * With the muzzle as the frustum's apex the shot runs down the axis
@@ -770,10 +801,62 @@ static void gevrRemotePlayerPass(s32 playernum)
     propsTick();
     chraiUpdateOnscreenPropCount();
     gevrSetCopyTrace(TRUE);
-    chraiCheckUseHeldItems();
+    if (islocal)
+    {
+        gevrSetPassAim(hand, &s_gevrBarrelOrigin[hand], &s_gevrBarrelDir[hand]);
+        g_gevrShotHand = hand;
+        chraiCheckUseHeldItem(hand);
+        g_gevrShotHand = -1;
+        gevrSetPassAim(hand, NULL, NULL);
+    }
+    else
+    {
+        chraiCheckUseHeldItems();
+    }
     gevrSetCopyTrace(FALSE);
 
+    g_gevrExtraPass = FALSE;
     set_cur_player(prev);
+}
+
+/*
+ * In stereo the gun is not the head: a shot fired well outside the head's
+ * view (round a corner, beside or behind, without looking) finds no targets
+ * in the head pass's on-screen list, and past 90 degrees its depth maths
+ * inverts. Online such a hand gets its own pass, camera on its barrel, before
+ * the head pass, which then leaves that hand's trace to it. Solo keeps the
+ * head pass alone, as Perfect Dark VR does (its shotCalculateHits tests the
+ * on-screen props too): guards' ticks are not pass-gated. Called as the local
+ * player before its camera is built, so the barrel's world direction takes
+ * the previous frame's head transform.
+ */
+static void gevrLocalBarrelPlan(void)
+{
+    extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+    extern s32 gevrStereoShotWorld(s32 handnum, coord3d *origin, coord3d *dir);
+    extern s32 g_gevrStereo;
+    s32 hand;
+
+    for (hand = 0; hand < 2; hand++)
+    {
+        coord3d o;
+        coord3d d;
+
+        s_gevrBarrelHand[hand] = FALSE;
+        if (!g_gevrStereo || !netIsActive() || get_hands_firing_status(hand) == 0)
+        {
+            continue;
+        }
+        if (!gevrStereoShot(hand, NULL, &o, &d) || -d.z >= 0.819f)
+        {
+            continue;   /* within 35 degrees of the view axis: the head pass sees it */
+        }
+        if (!gevrStereoShotWorld(hand, &s_gevrBarrelOrigin[hand], &s_gevrBarrelDir[hand]))
+        {
+            continue;
+        }
+        s_gevrBarrelHand[hand] = TRUE;
+    }
 }
 #endif
 
@@ -829,7 +912,7 @@ Gfx* lvlRender(Gfx* DL)
                      * players' copies get their view pass without the drawing. */
                     if (netSlotOccupied(playernum))
                     {
-                        gevrRemotePlayerPass(playernum);
+                        gevrViewPass(playernum, GUNRIGHT);
                     }
                     continue;
                 }
@@ -863,6 +946,19 @@ Gfx* lvlRender(Gfx* DL)
                 {
                     viSetFovY(gevrVrFov());
                     viSetAspect(gevrVrAspect());
+                }
+            }
+            /* a hand firing well off the head's view gets its own pass first */
+            gevrLocalBarrelPlan();
+            {
+                s32 hand;
+
+                for (hand = 0; hand < 2; hand++)
+                {
+                    if (s_gevrBarrelHand[hand])
+                    {
+                        gevrViewPass(playernum, hand);
+                    }
                 }
             }
 #endif
@@ -903,9 +999,29 @@ Gfx* lvlRender(Gfx* DL)
             propsTick();
             chraiUpdateOnscreenPropCount();
             chrpropUpdateAutoaimTarget();
-            chraiCheckUseHeldItems();
 #ifdef GEVR
+            {
+                /* the hands a barrel pass traced this frame stay out (gevrLocalBarrelPlan) */
+                extern void chraiCheckUseHeldItem(s32 hand);
+                extern s32 g_gevrShotHand;
+                s32 hand;
+
+                for (hand = 0; hand < 2; hand++)
+                {
+                    if (s_gevrBarrelHand[hand])
+                    {
+                        continue;
+                    }
+                    g_gevrShotHand = hand;
+                    chraiCheckUseHeldItem(hand);
+                }
+                g_gevrShotHand = -1;
+            }
             { extern void gevrStereoAimUpdate(void); gevrStereoAimUpdate(); }
+#else
+            chraiCheckUseHeldItems();
+#endif
+#ifdef GEVR
             /*
              * Issue #55: a blow of either hand (bondview2.c gevrHandChopTick),
              * here with the game's own fist: the guards' matrices are this
