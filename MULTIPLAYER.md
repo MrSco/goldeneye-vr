@@ -4,7 +4,7 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 ## Network setup
 
-- Use the same APK version on every headset. The current game and discovery protocol version is `9`; the lobby service lists and joins only games on the same protocol, so an earlier test build (protocol 7 or 8) or release cannot join a protocol 9 game.
+- Use the same APK version on every headset. The current game and discovery protocol version is `10`; the lobby service lists and joins only games on the same protocol, so an earlier test build or release cannot join a protocol 10 game.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
 - Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same four-player lobby.
@@ -18,7 +18,7 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 - `NET_MSG_LOBBY_HANDOFF` (protocol 8) gives each client the internet lobby's code and owner token, the LAN beacon's name and the party size, so an elected host can carry the match on (see below).
 - `NET_MSG_STAGE_VOTE` and `NET_MSG_STAGE_VOTES` (protocol 8) carry each player's next-map vote to the host and the tally back. `NET_MSG_ROUND_RESET` then names the next round's stage.
 - `NET_MSG_START_MATCH` sends stage settings, character choices, player count, and the initial random seed.
-- `NET_MSG_PLAYER_STATE` sends position, movement, head angle, stance, weapon ID, firing input, controller pose, and (protocol 7) the right gun's barrel in world space. Remote movement and held weapon models use this state; the copy's shots leave the owner's barrel. Remote 6DoF hand posing is not yet applied to character models.
+- `NET_MSG_PLAYER_STATE` sends position, movement, head angle, stance, weapon ID, firing input, controller pose, (protocol 7) the right gun's barrel in world space and (protocol 10) the owner's health, armour and death. Remote movement and held weapon models use this state; the copy's shots leave the owner's barrel; the copy's life follows its owner (a copy that died where its owner did not respawns, one that lived where its owner died is killed with the credit going to whoever last hurt it on that headset). Remote 6DoF hand posing is not yet applied to character models.
 - `NET_MSG_HIT_REPORT` sends a locally detected hit to the host. The host applies it and sends `NET_MSG_DAMAGE_EVENT` to the clients.
 - `NET_MSG_RESPAWN` sends the respawning player's spawn pad and facing angle through the host. Each receiving headset runs GoldenEye's respawn routine for that player.
 - `NET_MSG_PROJECTILE` (protocol 7) sends a thrown or launched projectile (grenade, knife, mine or other thrown object, launcher round, rocket) with its spawn point, velocity and orientation. Each receiving headset runs the same spawner for that player's copy, so the projectile flies and bounces everywhere.

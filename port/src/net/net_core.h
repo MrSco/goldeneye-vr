@@ -95,6 +95,7 @@ void netSendFireEvent(uint8_t weapon_id);
 const struct netplayermove *netGetRemotePlayerMove(int slot_id);
 const NetMsgPlayerState *netGetRemotePlayerState(int slot_id);
 bool netIsRemotePlayerActive(int slot_id);
+int netLastAttacker(int slot);   /* the last slot whose damage this headset applied to slot's player, or slot itself */
 int netGetRemoteAim(int slot_id, int hand, coord3d *origin, coord3d *dir);   /* 1 with the owner's world-space barrel */
 
 /* VoIP */
