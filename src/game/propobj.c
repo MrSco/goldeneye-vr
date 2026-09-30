@@ -13958,6 +13958,35 @@ void doorActivateWrapper(PropRecord *prop) //#MATCH
     sub_GAME_7F03E6A0(prop);
 }
 
+#ifdef GEVR
+/*
+ * Online: another player used this door on their headset (net_core.c
+ * NET_MSG_OBJECT_STATE, after Perfect Dark port-net's SVC_PROP_DOOR, which
+ * sets the door's mode). It swings away from that player's copy and takes
+ * the state the owner's door took, as doorActivateWrapper would have.
+ */
+void gevrNetDoorApply(PropRecord *prop, PropRecord *byprop, s32 state)
+{
+    DoorRecord *door = prop->door;
+
+    if (door == NULL)
+    {
+        return;
+    }
+    if (byprop != NULL)
+    {
+        doorsChooseSwingDirection(byprop, door);
+    }
+    if (door->openstate != state)
+    {
+        doorActivate(door, state);
+    }
+    door->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED;
+    door->flags2 &= ~8;
+    sub_GAME_7F03E6A0(prop);
+}
+#endif
+
 
 bool posIsInFrontOfDoor(PropRecord *prop, DoorRecord *door)
 {
@@ -14078,6 +14107,14 @@ TICKOP propdoorInteract(PropRecord* doorprop)
     {
         doorsChooseSwingDirection(playerprop, door);
         doorActivateWrapper(doorprop);
+#ifdef GEVR
+        /* online: the door moves on the other headsets too (net_core.c) */
+        {
+            extern void netSendDoorState(ObjectRecord *door, s32 state);
+
+            netSendDoorState((ObjectRecord *) door, door->openstate);
+        }
+#endif
     }
     else if ((door->openstate == DOORSTATE_STATIONARY) && (door->openPosition < 0.5f))
     {

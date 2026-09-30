@@ -68,6 +68,12 @@ typedef enum {
     NET_MSG_OBJECT_STATE = 25,  /* a pickup collected or a door used */
 } NetMsgType;
 
+/* NET_MSG_OBJECT_STATE actions */
+enum {
+    NET_OBJECT_PICKUP = 1,      /* value: the collector's tick operation */
+    NET_OBJECT_DOOR = 2,        /* value: the door's new DOORSTATE */
+};
+
 /* Player movement & input command struct (serialized via netbuf) */
 struct netplayermove {
     u32 tick;
