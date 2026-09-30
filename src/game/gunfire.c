@@ -7944,9 +7944,11 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
         {
             continue;
         }
-        /* the prop is at eye height (bondview2.c start_pos): the panel starts a head above */
+        /* Over the head: the body stands eyeheight below the prop (its eye)
+         * and is about 185 tall, whatever the owner's own eye height in VR.
+         * From the eye alone the tag sat on the head (two-headset test). */
         at = pl->prop->pos;
-        at.y += 25.0f;
+        at.y = at.y - pl->eyeheight + 205.0f;
         if (netVoiceSlotSpeaking((unsigned char)i))
         {
             char speaking_name[20];
