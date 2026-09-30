@@ -1236,6 +1236,35 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 }
                 if (!onlineMessage.empty()) ImGui::TextWrapped("%s", onlineMessage.c_str());
 
+                // Launcher idle kick: if host is inactive for 10 minutes, stop hosting
+                static uint32_t s_launcher_host_act_ms = 0;
+                static float s_last_px = 0.0f, s_last_py = 0.0f;
+                const uint32_t actNow = SDL_GetTicks();
+                if (s_launcher_host_act_ms == 0) s_launcher_host_act_ms = actNow;
+                ImGuiIO &io = ImGui::GetIO();
+                bool act = io.MouseDown[0] || fabsf(io.MousePos.x - s_last_px) > 2.0f || fabsf(io.MousePos.y - s_last_py) > 2.0f;
+                s_last_px = io.MousePos.x;
+                s_last_py = io.MousePos.y;
+                if (get_button_state(0, "thumbstick_click") || get_button_state(1, "thumbstick_click") ||
+                    get_button_state(0, "a") || get_button_state(0, "b") || get_button_state(0, "x") || get_button_state(0, "y") ||
+                    get_button_state(1, "a") || get_button_state(1, "b") || get_button_state(1, "x") || get_button_state(1, "y") ||
+                    get_button_state(0, "trigger") || get_button_state(1, "trigger") ||
+                    get_button_state(0, "grip") || get_button_state(1, "grip")) {
+                    act = true;
+                }
+                if (act) {
+                    s_launcher_host_act_ms = actNow;
+                } else if (actNow - s_launcher_host_act_ms >= 10 * 60 * 1000) {
+                    gevrJavaCommand("lobbyCommand", "stop");
+                    netDiscoveryStopBroadcasting();
+                    netDisconnect();
+                    netIceStop();
+                    hostedCode.clear();
+                    hostJoinIds.clear();
+                    onlineMessage = "Hosting stopped due to inactivity (10 min idle)";
+                    s_launcher_host_act_ms = 0;
+                }
+
                 const NetMsgLobbyState *lobby = netGetLobbyState();
                 int pCount = netGetConnectedPlayerCount();
                 int maxP = netGetMaxPlayers();

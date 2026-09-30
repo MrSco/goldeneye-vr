@@ -17,12 +17,16 @@ type Lobby = {
   code: string; owner_hash: string; name: string; visibility: Visibility;
   version: number; stage: number; weapons: number; players: number;
   max_players: number; open: number; expires: number; phase: Phase;
+  created_at: number; phase_changed_at: number;
 };
 type Join = { id: string; code: string; token_hash: string; offer: string | null; answer: string | null; expires: number };
 
 const TTL = 45_000;
+const WAITING_IDLE_TIMEOUT = 15 * 60_000;
+const MAX_LOBBY_LIFESPAN = 2 * 3600_000;
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "cache-control": "no-store" } });
+const json = (value: unknown, status = 200, extraHeaders: Record<string, string> = {}) =>
+  Response.json(value, { status, headers: { "cache-control": "no-store", ...extraHeaders } });
 const bad = (message: string, status = 400) => json({ error: message }, status);
 const codeValue = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), n => ALPHABET[n & 31]).join("");
 const digest = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))), b => b.toString(16).padStart(2, "0")).join("");
@@ -37,6 +41,10 @@ export class LobbyRegistry extends DurableObject<Env> {
       const columns = this.ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(lobbies)").toArray();
       if (!columns.some(column => column.name === "phase"))
         this.ctx.storage.sql.exec("ALTER TABLE lobbies ADD COLUMN phase TEXT NOT NULL DEFAULT 'waiting'");
+      if (!columns.some(column => column.name === "created_at"))
+        this.ctx.storage.sql.exec("ALTER TABLE lobbies ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0");
+      if (!columns.some(column => column.name === "phase_changed_at"))
+        this.ctx.storage.sql.exec("ALTER TABLE lobbies ADD COLUMN phase_changed_at INTEGER NOT NULL DEFAULT 0");
       this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS joins (id TEXT PRIMARY KEY, code TEXT NOT NULL, token_hash TEXT NOT NULL, offer TEXT, answer TEXT, expires INTEGER NOT NULL)");
       this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, reset INTEGER NOT NULL)");
       this.ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS lobbies_expires ON lobbies(expires)");
@@ -46,7 +54,10 @@ export class LobbyRegistry extends DurableObject<Env> {
 
   private cleanup() {
     const now = Date.now();
-    this.ctx.storage.sql.exec("DELETE FROM lobbies WHERE expires < ?", now);
+    this.ctx.storage.sql.exec(
+      "DELETE FROM lobbies WHERE expires < ? OR (phase = 'waiting' AND players = 1 AND created_at > 0 AND created_at < ?) OR (created_at > 0 AND created_at < ?)",
+      now, now - WAITING_IDLE_TIMEOUT, now - MAX_LOBBY_LIFESPAN
+    );
     this.ctx.storage.sql.exec("DELETE FROM joins WHERE expires < ? OR code NOT IN (SELECT code FROM lobbies)", now);
     this.ctx.storage.sql.exec("DELETE FROM limits WHERE reset < ?", now);
   }
@@ -76,19 +87,41 @@ export class LobbyRegistry extends DurableObject<Env> {
     let code: string;
     do { code = codeValue(); } while (this.lobby(code));
     const ownerToken = crypto.randomUUID() + crypto.randomUUID();
-    this.ctx.storage.sql.exec("INSERT INTO lobbies(code,owner_hash,name,visibility,version,stage,weapons,players,max_players,open,expires,phase) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)", code, await digest(ownerToken), x.name, x.visibility, x.version, x.stage, x.weapons, 1, x.maxPlayers, 1, Date.now() + TTL, "waiting");
+    const now = Date.now();
+    this.ctx.storage.sql.exec(
+      "INSERT INTO lobbies(code,owner_hash,name,visibility,version,stage,weapons,players,max_players,open,expires,phase,created_at,phase_changed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+      code, await digest(ownerToken), x.name, x.visibility, x.version, x.stage, x.weapons, 1, x.maxPlayers, 1, now + TTL, "waiting", now, now
+    );
     return json({ code, ownerToken, ttlSeconds: TTL / 1000 }, 201);
   }
 
   async update(code: string, token: string, input: unknown): Promise<Response> {
     const lobby = this.lobby(code);
     if (!lobby || lobby.owner_hash !== await digest(token)) return bad("Lobby unavailable", 404);
+    const now = Date.now();
+    if (lobby.created_at > 0) {
+      if (lobby.phase === "waiting" && lobby.players === 1 && now - lobby.created_at > WAITING_IDLE_TIMEOUT) {
+        this.ctx.storage.sql.exec("DELETE FROM lobbies WHERE code=?", code);
+        this.ctx.storage.sql.exec("DELETE FROM joins WHERE code=?", code);
+        return bad("Lobby idle timeout", 410);
+      }
+      if (now - lobby.created_at > MAX_LOBBY_LIFESPAN) {
+        this.ctx.storage.sql.exec("DELETE FROM lobbies WHERE code=?", code);
+        this.ctx.storage.sql.exec("DELETE FROM joins WHERE code=?", code);
+        return bad("Lobby lifetime expired", 410);
+      }
+    }
     const x = input as Record<string, unknown>;
     if (!x || !validInt(x.players, 1, lobby.max_players) || typeof x.open !== "boolean" ||
         (x.phase !== undefined && !["waiting", "warmup", "in_progress"].includes(String(x.phase)))) return bad("Invalid lobby state");
     const phase = (x.phase || lobby.phase) as Phase;
     if (phase === "in_progress" && Number(x.players) < 2) return bad("An active match needs two players");
-    this.ctx.storage.sql.exec("UPDATE lobbies SET players=?,open=?,phase=?,expires=? WHERE code=?", x.players, x.open ? 1 : 0, phase, Date.now() + TTL, code);
+    const phaseChangedAt = (phase !== lobby.phase) ? now : (lobby.phase_changed_at || now);
+    const createdAt = lobby.created_at || (lobby.expires - TTL);
+    this.ctx.storage.sql.exec(
+      "UPDATE lobbies SET players=?,open=?,phase=?,expires=?,created_at=?,phase_changed_at=? WHERE code=?",
+      x.players, x.open ? 1 : 0, phase, now + TTL, createdAt, phaseChangedAt, code
+    );
     return json({ ok: true });
   }
 
@@ -108,7 +141,7 @@ export class LobbyRegistry extends DurableObject<Env> {
 
   async activity(): Promise<Response> {
     this.cleanup();
-    const rows = this.ctx.storage.sql.exec<Lobby>("SELECT code,name,visibility,version,stage,weapons,players,max_players,open,phase FROM lobbies ORDER BY expires DESC").toArray();
+    const rows = this.ctx.storage.sql.exec<Lobby>("SELECT code,name,visibility,version,stage,weapons,players,max_players,open,phase,created_at,phase_changed_at,expires FROM lobbies ORDER BY expires DESC").toArray();
     const counts = { public: 0, private: 0, waiting: 0, warmup: 0, inProgress: 0, players: 0 };
     for (const row of rows) {
       counts[row.visibility]++;
@@ -121,8 +154,10 @@ export class LobbyRegistry extends DurableObject<Env> {
       lobbies: rows.filter(row => row.visibility === "public").slice(0, 64).map(row => ({
         code: row.code, name: row.name, version: row.version, stage: row.stage,
         weapons: row.weapons, players: row.players, maxPlayers: row.max_players,
-        phase: row.phase, joinable: !!row.open && row.players < row.max_players
-      })) });
+        phase: row.phase, joinable: !!row.open && row.players < row.max_players,
+        createdAt: row.created_at || (row.expires - TTL),
+        phaseChangedAt: row.phase_changed_at || (row.expires - TTL)
+      })) }, 200, { "access-control-allow-origin": "*" });
   }
 
   async resolve(code: string, version: number): Promise<Response> {
@@ -297,6 +332,17 @@ async function report(request: Request, env: Env, registry: DurableObjectStub<Lo
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     try {
+      if (request.method === "OPTIONS") {
+        return new Response(null, {
+          status: 204,
+          headers: {
+            "access-control-allow-origin": "*",
+            "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "access-control-allow-headers": "Content-Type, Authorization",
+            "access-control-max-age": "86400",
+          }
+        });
+      }
       const url = new URL(request.url);
       const path = url.pathname.split("/").filter(Boolean);
       if (path[0] !== "v1") return bad("Not found", 404);

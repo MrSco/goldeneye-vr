@@ -36,7 +36,8 @@ button:disabled { opacity:.6; cursor:wait; }
 .badge.playing { color:var(--green); border-color:#477055; }
 .meta { display:flex; flex-wrap:wrap; gap:8px; margin:0; }
 .meta span { border:1px solid var(--line); border-radius:4px; padding:5px 8px; color:var(--muted); font-size:13px; }
-.game-bottom { display:flex; justify-content:space-between; gap:10px; margin-top:24px; padding-top:17px; border-top:1px solid var(--line); font-size:14px; }
+.game-time { margin-top:14px; font-size:13px; color:var(--muted); }
+.game-bottom { display:flex; justify-content:space-between; gap:10px; margin-top:18px; padding-top:17px; border-top:1px solid var(--line); font-size:14px; }
 .game-bottom strong { color:var(--text); }
 .game-bottom .closed { color:var(--muted); }
 .empty { grid-column:1/-1; padding:54px 30px; border:1px dashed var(--line); border-radius:10px; text-align:center; color:var(--muted); }

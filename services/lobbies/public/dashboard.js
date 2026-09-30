@@ -3,6 +3,26 @@ const weapons = ["Slappers only","Pistols","Throwing Knives","Automatics","Power
 const byId = id => document.getElementById(id);
 let loading = false;
 
+function timeAgo(ms) {
+  const diffSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  const remMin = diffMin % 60;
+  return remMin ? `${diffHours}h ${remMin}m ago` : `${diffHours}h ago`;
+}
+
+function durationStr(ms) {
+  const diffSec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (diffSec < 60) return `${diffSec}s`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHours = Math.floor(diffMin / 60);
+  const remMin = diffMin % 60;
+  return remMin ? `${diffHours}h ${remMin}m` : `${diffHours}h`;
+}
+
 function gameCard(game) {
   const card = document.createElement("article");
   card.className = "game";
@@ -21,6 +41,16 @@ function gameCard(game) {
     label.textContent = value;
     meta.append(label);
   }
+  const timeInfo = document.createElement("div");
+  timeInfo.className = "game-time";
+  const hostedTime = game.createdAt ? timeAgo(game.createdAt) : null;
+  const phaseDuration = game.phaseChangedAt ? durationStr(game.phaseChangedAt) : null;
+  const phaseLabel = { waiting: "In lobby", warmup: "Warmup", in_progress: "Playing" }[game.phase] || "Live";
+  if (hostedTime && phaseDuration) {
+    timeInfo.textContent = `Hosted ${hostedTime} · ${phaseLabel} for ${phaseDuration}`;
+  } else if (hostedTime) {
+    timeInfo.textContent = `Hosted ${hostedTime}`;
+  }
   const bottom = document.createElement("div");
   bottom.className = "game-bottom";
   const occupancy = document.createElement("strong");
@@ -29,7 +59,7 @@ function gameCard(game) {
   availability.className = game.joinable ? "" : "closed";
   availability.textContent = game.joinable ? `${game.maxPlayers - game.players} open ${game.maxPlayers - game.players === 1 ? "spot" : "spots"}` : "Not accepting joins";
   bottom.append(occupancy, availability);
-  card.append(top, meta, bottom);
+  card.append(top, meta, timeInfo, bottom);
   return card;
 }
 
