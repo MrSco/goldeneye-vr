@@ -2901,8 +2901,14 @@ void propsTickPlayer(void)
             if (isCollected && ((prop->type == PROP_TYPE_OBJ) || (prop->type == PROP_TYPE_WEAPON)))
             {
                 extern void netSendObjectPickup(ObjectRecord *obj, s32 tickop);
+                extern void netSendSpecialTaken(s32 item);
 
                 netSendObjectPickup(prop->obj, isCollected);
+                if (prop->type == PROP_TYPE_WEAPON && prop->weapon != NULL)
+                {
+                    /* the flag or the Golden Gun: into this player's copy's hands on the others' headsets */
+                    netSendSpecialTaken(prop->weapon->weaponnum);
+                }
             }
 #endif
             propExecuteTickOperation(prop, isCollected);

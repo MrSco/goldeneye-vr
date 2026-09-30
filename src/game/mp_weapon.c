@@ -196,6 +196,11 @@ struct s_mp_weapon_set mp_weapon_set_golden[] =
     INLINE_S_MP_WEAPON_SET(ITEM_GOLDENGUN, PROP_CHRGOLDEN, 1.5, AMMO_GGUN, 0xA, 1)
 };
 
+/* The host's own set online (net_core.c netApplyMatchConfig): four guns,
+ * each in two slots as the presets pair them. mpBuildCustomWeaponSet fills
+ * it before a stage load; the game's own menu never reaches it. */
+struct s_mp_weapon_set mp_weapon_set_custom[8];
+
 //D:800490F0
 struct s_mp_weapon_set_text mp_weapon_set_text_table[] = 
 {
@@ -212,10 +217,66 @@ struct s_mp_weapon_set_text mp_weapon_set_text_table[] =
     {getStringID(LMPWEAPONS, MPWEAPON_STR_09_PROXIMITYMINES), mp_weapon_set_prox_m},
     {getStringID(LMPWEAPONS, MPWEAPON_STR_0A_ROCKETS), mp_weapon_set_rockets},
     {getStringID(LMPWEAPONS, MPWEAPON_STR_0B_LASERS), mp_weapon_set_lasers},
-    {getStringID(LMPWEAPONS, MPWEAPON_STR_0C_GOLDENGUN), mp_weapon_set_golden}
+    {getStringID(LMPWEAPONS, MPWEAPON_STR_0C_GOLDENGUN), mp_weapon_set_golden},
+    {getStringID(LMPWEAPONS, MPWEAPON_STR_00_SLAPPERSONLY), mp_weapon_set_custom}   /* MP_WEAPON_SET_CUSTOM, online; net_match.c names it */
 };
 
 s32 mp_weapon_set = 0xB;
+
+/* The preset entry that carries a gun - its model, size, ammo type and amount,
+ * and whether the gun itself lies on the pad: the custom set and the spawn
+ * loadouts take theirs from here. NULL for a gun no preset has. */
+const struct s_mp_weapon_set *mpPresetEntryForItem(s32 item)
+{
+    s32 set;
+    s32 slot;
+
+    for (set = 0; set < MP_WEAPON_SET_CUSTOM; set++)
+    {
+        for (slot = 0; slot < 8; slot++)
+        {
+            if (mp_weapon_set_text_table[set].weapon_set[slot].itemID == item)
+            {
+                return &mp_weapon_set_text_table[set].weapon_set[slot];
+            }
+        }
+    }
+    return NULL;
+}
+
+void mpBuildCustomWeaponSet(const u8 items[4])
+{
+    extern PROP getPropForHeldItem(ITEM_IDS arg0);          /* player.c */
+    extern s32 get_ammo_type_for_weapon(ITEM_IDS weapon);   /* gunfire.c */
+    s32 i;
+
+    for (i = 0; i < 4; i++)
+    {
+        const struct s_mp_weapon_set *e = mpPresetEntryForItem(items[i]);
+        struct s_mp_weapon_set slot;
+
+        if (e != NULL)
+        {
+            slot = *e;
+        }
+        else
+        {
+            /* a gun no preset has (the knife, the shotgun, the Phantom, the silenced D5K) */
+            slot.itemID = items[i];
+            slot.propID = getPropForHeldItem((ITEM_IDS) items[i]);
+            slot.size = 1.0f;
+            slot.ammotype = get_ammo_type_for_weapon((ITEM_IDS) items[i]);
+            slot.ammoamount = 0x32;
+            slot.allowpickup = 1;
+            if (slot.propID < 0)
+            {
+                slot = mp_weapon_set_slaps[0];   /* nothing to place on the pad */
+            }
+        }
+        mp_weapon_set_custom[2 * i] = slot;
+        mp_weapon_set_custom[2 * i + 1] = slot;
+    }
+}
 
 
 //increment mp_weapon_set by 1, capping at 0xE

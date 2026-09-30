@@ -603,9 +603,9 @@ void bossMainloop(void)
                                 if (s_net_session_started && !netIsActive())
                                     bossSetLoadedStage(LEVELID_TITLE);
                                 if (netTakeRoundReset()) {
-                                    /* the next round's map: the vote's, or the same (net_core.c) */
-                                    extern unsigned char netGetLobbyStage(void);
-                                    g_StageNum = netGetLobbyStage();
+                                    /* the next round's settings, the vote's map among them (net_core.c) */
+                                    extern void netApplyMatchConfig(void);
+                                    netApplyMatchConfig();
                                     bossSetLoadedStage(g_StageNum);
                                 }
                                 if (netIsActive()) {

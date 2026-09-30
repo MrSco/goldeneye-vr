@@ -47,9 +47,10 @@ enum { MPAUDIO_MUSIC, MPAUDIO_SFX, MPAUDIO_VOICE, MPAUDIO_MIC, MPAUDIO_NEXTMAP, 
 extern int netStageCount(void);
 extern const char *netStageName(int idx);
 extern int netStageMaxPlayers(int idx);
-extern void netSetLocalStageVote(int idx);
-extern int netGetStageVote(int slot);
+extern void netSetLocalVote(int kind, int idx);
+extern int netGetVote(int kind, int slot);
 extern int netGetConnectedPlayerCount(void);
+extern int netMpPlayerCount(int fallback);   /* the game's player_count online: the humans in the round */
 static s32 s_mpAudioSlider = MPAUDIO_MUSIC;
 #endif
 
@@ -798,7 +799,7 @@ void mpwatchMenuTick(void)
                              * past either end is no vote. The host settles it
                              * as the next round begins (net_core.c). */
                             s32 players = netGetConnectedPlayerCount();
-                            s32 vote = netGetStageVote(netGetLocalSlot());
+                            s32 vote = netGetVote(0, netGetLocalSlot());
                             s32 n = netStageCount();
                             s32 tries = n + 1;
 
@@ -808,7 +809,7 @@ void mpwatchMenuTick(void)
                                 if (vote >= n) vote = -1;
                                 if (vote < -1) vote = n - 1;
                             } while (vote >= 0 && netStageMaxPlayers(vote) < players && --tries > 0);
-                            netSetLocalStageVote(vote);
+                            netSetLocalVote(0, vote);
                             mpwatchPlayBeep();
                         }
                         else if ((change < 0) != (netVoiceIsMuted() != 0))
@@ -1062,7 +1063,7 @@ s32 get_points_for_mp_player(s32 playernum)
 
             points += g_playerPlayerData[playernum].kill_count;
 
-            points += g_playerPlayerData[playernum].killed_gg_owner_count * (player_count - 2);
+            points += g_playerPlayerData[playernum].killed_gg_owner_count * (netMpPlayerCount(player_count) - 2);
             break;
 
         case SCENARIO_YOLT:
@@ -2012,13 +2013,13 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 else if (row == MPAUDIO_NEXTMAP)
                 {
                     /* this player's vote, and how many share it */
-                    s32 vote = netGetStageVote(netGetLocalSlot());
+                    s32 vote = netGetVote(0, netGetLocalSlot());
                     s32 tally = 0;
                     s32 slot;
 
                     for (slot = 0; slot < 4; slot++)
                     {
-                        if (vote >= 0 && netGetStageVote(slot) == vote) tally++;
+                        if (vote >= 0 && netGetVote(0, slot) == vote) tally++;
                     }
                     name = "NEXT MAP";
                     if (vote < 0)

@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include "net_protocol.h"
+#include "net_match.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,8 +64,18 @@ uint32_t netGetRandomSeed(void);
 void netLobbySetReady(bool ready);
 void netLobbySetCharacter(uint8_t chr_id);
 void netSetPreferredCharacter(uint8_t chr_id);
-void netLobbySetMatchConfig(uint8_t stage_num, uint8_t scenario, uint8_t weapon_set);
+void netLobbySetLoadout(const uint8_t items[4]);   /* my four spawn guns */
 bool netLobbyHostLaunchMatch(void);
+
+/* The match config (net_protocol.h NetMatchConfig) */
+const NetMatchConfig *netGetMatchConfig(void);
+void netLobbySetConfig(const NetMatchConfig *config);   /* host: kept and told to everyone */
+void netApplyMatchConfig(void);             /* every headset, before each stage load */
+int netGetPlayingCount(void);               /* connected and not spectating */
+int netMpPlayerCount(int fallback);         /* the game's player_count online: the humans in the round */
+bool netSlotIsSpectator(int slot);
+bool netLocalIsSpectator(void);
+void netSendSpecialTaken(s32 item);         /* the local player took the flag or the Golden Gun */
 
 /* Gameplay State Sending */
 void netSendLocalPlayerMove(const struct netplayermove *move);
@@ -83,13 +94,9 @@ int netGetRemoteAim(int slot_id, coord3d *origin, coord3d *dir);   /* 1 with the
 /* VoIP */
 void netSendVoipChunk(uint32_t sequence, const uint8_t *opus_data, uint16_t size);
 
-/* Next map (mpmenu.c NEXT MAP row): the multiplayer stages and each slot's vote */
-int netStageCount(void);
-const char *netStageName(int idx);
-int netStageMaxPlayers(int idx);
-int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
-void netSetLocalStageVote(int idx);         /* -1: no vote */
-int netGetStageVote(int slot);              /* -1 none */
+/* Ballots (mpmenu.c NEXT MAP / NEXT WEAPONS rows); kind is NET_BALLOT_* */
+void netSetLocalVote(int kind, int idx);    /* -1: no vote */
+int netGetVote(int kind, int slot);         /* -1 none */
 
 /* Host migration (vr_launcher.cpp gevrLobbyGameTick drives the transports) */
 void netSetGameName(const char *name);              /* the LAN beacon's name, shared with the clients */

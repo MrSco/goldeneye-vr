@@ -76,6 +76,15 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "SfxVolume=%.2f\n", VrSfxVolume);
     fprintf(f, "; Your name in multiplayer, up to 15 characters.\n");
     fprintf(f, "PlayerName=%s\n", VrPlayerName);
+    fprintf(f, "; The multiplayer page's last choices. MpStage is the level id; the sets,\n");
+    fprintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
+    fprintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
+    fprintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility);
+    fprintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
+            VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
+    for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
+    for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
+    fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
     fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
     fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
     fprintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
@@ -207,6 +216,20 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
             else if (strcmp(key, "MicMuted") == 0) VrMicMuted = ival != 0;
+            else if (strcmp(key, "MpStage") == 0) VrMpStage = ival;
+            else if (strcmp(key, "MpWeaponSet") == 0) VrMpWeaponSet = ival;
+            else if (strcmp(key, "MpChr") == 0) VrMpChr = ival;
+            else if (strcmp(key, "MpVisibility") == 0) VrMpVisibility = ival != 0;
+            else if (strcmp(key, "MpScenario") == 0) VrMpScenario = ival;
+            else if (strcmp(key, "MpLength") == 0) VrMpLength = ival;
+            else if (strcmp(key, "MpHealth") == 0) VrMpHealth = ival;
+            else if (strcmp(key, "MpDual") == 0) VrMpDual = ival;
+            else if (strcmp(key, "MpLoadouts") == 0) VrMpLoadouts = ival != 0;
+            else if (strcmp(key, "MpNextRound") == 0) VrMpNextRound = ival;
+            else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = (unsigned)ival;
+            else if (strcmp(key, "MpFavSets") == 0) VrMpFavSets = (unsigned)ival;
+            else if (strncmp(key, "MpCustom", 8) == 0 && key[8] >= '1' && key[8] <= '4') VrMpCustom[key[8] - '1'] = ival;
+            else if (strncmp(key, "MpLoadout", 9) == 0 && key[9] >= '1' && key[9] <= '4') VrMpLoadout[key[9] - '1'] = ival;
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
             /* DisplayHz replaces RefreshRate, whose 120 was only ever the old default
              * (no option set it): the new default, 90, applies to existing installs. */

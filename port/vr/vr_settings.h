@@ -30,6 +30,14 @@ extern float VrMusicVolume;
 extern float VrVoiceVolume;
 extern float VrSfxVolume;
 extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launcher "Your name")
+// The multiplayer page's choices, kept between runs (the launcher restarts the app).
+// Stage is a LEVELID; sets, scenario, length, health are net_match.c indices;
+// the guns are ITEM_IDS values; the favorites are bitmasks over net_match.c's lists.
+extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility;
+extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
+extern int VrMpCustom[4];       // the host's custom set
+extern int VrMpLoadout[4];      // this player's spawn guns
+extern unsigned VrMpFavStages, VrMpFavSets;
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
 // Display refresh rate in Hz, 0 = the runtime's default (vr_openxr.cpp).

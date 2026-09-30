@@ -97,6 +97,12 @@ int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondvie
 extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
 extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
 s32 gevrTexpackToggleMsg;                  /* bondview2.c says it in a level: 2 off, 3 on */
+s32 gevrMicToggleMsg;                      /* bondview2.c says it in a level: 1 muted, 2 on */
+static bool s_menuHeld;                    /* the Menu button is down (the microphone chord's other half) */
+extern int VrLeftHandedMode;               /* vr_settings.h: the physical controllers swap roles */
+extern int netVoiceIsMuted(void);
+extern void netVoiceToggleMuted(void);
+extern void mpwatchPlayBeep(void);         /* mpmenu.c */
 static bool gevrSwallowX;                  /* X answered the prompt: no weapon change until let go */
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
 extern f32 gevrWeaponPanelStickY;
@@ -1137,6 +1143,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static bool consumed = false, aWas = true, bWas = true, xWas = true;
             const u32 t = SDL_GetTicks();
             const bool held = get_button_state(0, "menu");
+            s_menuHeld = held;
             if (gevrReturnPrompt) {
                 const bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
                 const bool x = get_button_state(0, "x");
@@ -1166,6 +1173,25 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     downat = t ? t : 1;
                     consumed = false;
                 }
+                /* Menu + the other hand's B (the physical right controller's,
+                 * whichever hand is the gun hand): the multiplayer microphone.
+                 * Two hands, nothing else bound; Menu is consumed (no START on
+                 * release, no prompt) and B held back while Menu is down, so
+                 * nothing leaks into the game (the old X+Y chord sent a reload
+                 * or a weapon change and gave no sign it had worked). */
+                {
+                    static bool micWas = false;
+                    const bool mic = VrLeftHandedMode ? get_button_state(0, "y") : get_button_state(1, "b");
+                    if (mic && !micWas && netIsActive()) {
+                        netVoiceToggleMuted();
+                        gevrMicToggleMsg = netVoiceIsMuted() ? 1 : 2;
+                        mpwatchPlayBeep();
+                        consumed = true;
+                        LOGI("input: menu + B -> microphone %s\n", netVoiceIsMuted() ? "muted" : "on");
+                    }
+                    micWas = mic;
+                }
+                if (!VrLeftHandedMode) npad->button &= ~B_BUTTON;
                 if (!consumed && t - downat >= 1500) {
                     consumed = true;
                     gevrReturnPrompt = 1;
@@ -1193,23 +1219,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // use/reload. (Not the X that just switched the texture pack in the
         // prompt, until let go.)
         if (gevrSwallowX && !get_button_state(0, "x")) gevrSwallowX = false;
-        /* Left X+Y is the multiplayer mic toggle. Swallow both game actions
-         * from the first simultaneous frame, and fire once after 0.5 s. */
-        const bool micChord = netIsActive() && get_button_state(0, "x") && get_button_state(0, "y");
-        const u32 micNow = SDL_GetTicks();
-        {
-            static u32 chordSince = 0;
-            static bool chordFired = false;
-            if (micChord) {
-                if (!chordSince) chordSince = micNow ? micNow : 1;
-                if (!chordFired && micNow - chordSince >= 500) {
-                    netVoiceToggleMuted();
-                    chordFired = true;
-                }
-            } else { chordSince = 0; chordFired = false; }
-        }
-        if (!micChord && get_button_state(0, "x") && !gevrSwallowX) npad->button |= A_BUTTON;
-        if (!micChord && get_button_state(0, "y")) npad->button |= B_BUTTON;
+        if (get_button_state(0, "x") && !gevrSwallowX) npad->button |= A_BUTTON;
+        /* the off hand's upper button is B, unless Menu is held on the other
+         * hand: left-handed, that is the microphone chord's B */
+        if (get_button_state(0, "y") && !(VrLeftHandedMode && s_menuHeld)) npad->button |= B_BUTTON;
         // Issue #10: in stereo play the weapon hand's A is held back. A tap sends
         // A on release (the game's weapon cycle); a hold shows the weapon panel
         // (bondview2.c gevrDrawWeaponPanel) and letting go equips what it
@@ -1228,7 +1241,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             const u32 t = SDL_GetTicks();
             if (stereoplay && !gevrReturnPrompt && !fitting) {
                 const bool a = get_button_state(1, "a");
-                const bool x = !micChord && !gevrSwallowX && get_button_state(0, "x");
+                const bool x = !gevrSwallowX && get_button_state(0, "x");
                 if (x && !xdown) {
                     xdown = t ? t : 1;
                     xpanel = false;

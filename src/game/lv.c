@@ -1540,11 +1540,13 @@ void lvlManageMpGame(void)
                 }
             }
 
-            if (fully_dead_total >= player_count - 1)
+            /* online: the humans in the round, not the stage's slots (net_core.c) */
+            extern int netMpPlayerCount(int fallback);
+            if (fully_dead_total >= netMpPlayerCount(player_count) - 1)
             {
                 mpCalculateAwards(FALSE);
             }
-            else if (killed_total >= player_count - 1)
+            else if (killed_total >= netMpPlayerCount(player_count) - 1)
             {
                 mpwatchSetStopPlayFlag();
             }
