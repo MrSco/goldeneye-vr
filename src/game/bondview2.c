@@ -14356,6 +14356,19 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                     sndPlaySfx(g_musicSfxBufferPtr, BOND_GET_HIT1_SFX, 0);
                 }
 #else
+#ifdef GEVR
+                if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+                {
+                    /* Another player took the hit: heard from where they
+                     * stand, not as one's own (two-headset test: everyone
+                     * heard every hit as if it were theirs). */
+                    if (g_CurrentPlayer->prop != NULL)
+                    {
+                        chrobjSndCreatePostEventDefault(sndPlaySfx(g_musicSfxBufferPtr, BOND_GET_HIT1_SFX, 0), &g_CurrentPlayer->prop->pos);
+                    }
+                }
+                else
+#endif
                 sndPlaySfx(g_musicSfxBufferPtr, BOND_GET_HIT1_SFX, 0);
 #endif
             }
