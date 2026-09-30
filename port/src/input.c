@@ -104,6 +104,8 @@ extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left h
 extern s32 gevrLeftPanelAvailable(void);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
+extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online game */
+extern bool netIsActive(void);
 extern s32 gevrDualWielding(void);
 extern bool VrMotionThrowing;
 extern ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand);
@@ -982,9 +984,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     !g_playerPointers[idx]->bonddead) {
                     npad->button |= Z_TRIG;
                 }
-                if (m->ucmd & UCMD_DUCK) {
-                    npad->button |= D_CBUTTONS;
-                }
+                /* The crouch arrives with the state (net_player_sync.c
+                 * crouchpos). As a C-down press it also stepped the copy
+                 * back, or turned its look up, by control style. */
             }
         }
         return 0;
@@ -1140,6 +1142,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 const bool x = get_button_state(0, "x");
                 if (a && !aWas) {
                     LOGI("input: menu hold -> back to the launcher\n");
+                    if (netIsActive()) {
+                        gevrLobbySessionStopped();   /* the goodbye: the host frees the slot at once */
+                    }
                     gevrRestartToLauncher();
                 }
                 if (b && !bWas) {

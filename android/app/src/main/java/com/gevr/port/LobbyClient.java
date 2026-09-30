@@ -82,6 +82,28 @@ final class LobbyClient {
                 break;
             }
             case "stop": stop(); break;
+            case "leave": forget(); break;   // a host leaving players behind: the lobby stays for the one they elect
+            case "resume": {
+                // resume|code|ownerToken|maxPlayers|phase|players: the elected host runs the same lobby
+                if (fields.length != 6) return;
+                pendingCreate = null;
+                code = fields[1];
+                ownerToken = fields[2];
+                maxPlayers = Integer.parseInt(fields[3]);
+                phase = fields[4];
+                players = Integer.parseInt(fields[5]);
+                open = players < maxPlayers;
+                joinId = "";
+                joinToken = "";
+                offerSent = false;
+                answerReceived = false;
+                hosting = true;
+                nextHeartbeat = 0;
+                nextRequests = 0;
+                seenRequests.clear();
+                events.add("CREATED|" + code + "|" + ownerToken);
+                break;
+            }
             case "refresh":
                 if (fields.length == 3) {
                     int newPlayers = Integer.parseInt(fields[1]);
@@ -196,7 +218,7 @@ final class LobbyClient {
         nextHeartbeat = 0;
         nextRequests = 0;
         seenRequests.clear();
-        events.add("CREATED|" + code);
+        events.add("CREATED|" + code + "|" + ownerToken);
     }
 
     private void stop() {
@@ -205,6 +227,12 @@ final class LobbyClient {
             try { http("DELETE", BASE + "/" + code, null, ownerToken); }
             catch (Exception e) { Log.w(TAG, "Failed to remove lobby", e); }
         }
+        forget();
+    }
+
+    /** Drops this client's part in the lobby without removing the lobby itself. */
+    private void forget() {
+        pendingCreate = null;
         hosting = false;
         phase = "waiting";
         code = "";

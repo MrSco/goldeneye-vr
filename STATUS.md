@@ -7,7 +7,7 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-29. **Latest release:** v0.3.5 (tag v0.3.5,
+**Updated:** 2026-09-30. **Latest release:** v0.3.5 (tag v0.3.5,
 versionCode 32): sniper scope steadiness (#79), VR motion throwing and
 grenade cooking, room-aware voice falloff, Music and Voice volume in the
 launcher and the multiplayer pause menu, the Dam truck's headlights no
@@ -30,8 +30,10 @@ and the multiplayer pause menu, the multiplayer page fitting the panel, and
 stereo dropping the walk animation's side sway and vertical bob (bondhead.c;
 screen mode keeps them).
 Branch claude/multiplayer-visibility-bug-16b1a8 (main merged in) builds as
-0.3.6, versionCode 35, protocol 7, for the two-headset test: the
-multiplayer fixes below.
+0.3.6, versionCode 35, protocol 8, for the two-headset test: the
+multiplayer fixes below, the 2026-09-29 test report's fixes (spawn pads,
+name tags, torso pitch, melee, countdown, hurt sound, door z-fight, quit and
+rejoin), a NEXT MAP vote in the pause menu and host migration.
 
 ## What it is
 
@@ -63,11 +65,14 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   Cloudflare Worker in `services/lobbies`, libjuice ICE, Cloudflare TURN).
   Owner-authoritative positions (the copy's stand tile follows them, so
   bodies render in the right room), hit reports relayed by the host, synced
-  weapons, deaths and respawns. Protocol 7 (branch
+  weapons, deaths and respawns. Protocol 8 (branch
   claude/multiplayer-visibility-bug-16b1a8, unreleased): the owner's
   projectiles, damaging explosions, door use and pickups are mirrored;
   remote gunfire fires from the owner's barrel and is placed by distance
-  and direction. Voice chat: Opus on its own ENet channel, full volume in
+  and direction; each copy gets its own view pass (shots, projectiles);
+  seeded start pads; a countdown to each round; NEXT MAP vote in the pause
+  menu; host migration (lowest slot takes over, the others rejoin through
+  the same lobby or LAN beacon, 20 s grace). Voice chat: Opus on its own ENet channel, full volume in
   the lobby, distance and direction in a match: in view (a clear floor-tile
   walk to the speaker on the same floor; BG rooms are geometry chunks, too
   small to mean "same room") full to 500 units, easing to 60% at 4000; out
@@ -85,13 +90,14 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## What does not, or is untested
 
-- Two headsets on v0.3.5: other players invisible (v0.3.4: the copy's stand
-  tile never followed its position), their shots clicking like reloads (no
-  ammo), no explosions from them, and walking too fast with 2+ players (one
-  walk-animation rwdata buffer shared by all four since 579cbb9). Fixed on
-  the protocol 7 branch, untested there. Untested: two home networks, a
-  hotspot, four players mixed LAN and internet. Not done: match end not
-  shared, host leaving not handled, other players' hands do not move.
+- Two headsets, 2026-09-29 night (0.3.6 test builds): players see each
+  other, tags, guns, bullet holes; the v0.3.5 faults (invisible bodies,
+  reload clicks, no explosions, fast walking) are gone. Its report's ten
+  items are fixed on the branch but untested since, as are the NEXT MAP
+  vote and host migration (the rejoin path needs three headsets). Untested:
+  two home networks, a hotspot, four players mixed LAN and internet. Not
+  done: other players' hands do not move; the held guns are the ROM's
+  third-person models (no better ones exist).
 - Open issues: #9 hand undersides (work in progress: shells patched in
   v0.1.18, gaps left such as the PP7 index finger), #23 multiplayer (kept
   open), #30 water shimmer (open in the PC port too, D245; the blue water
@@ -138,9 +144,9 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## Next
 
-- A two-headset session on the protocol 7 build: MULTIPLAYER.md step 7
-  (bodies through rooms, stairs and respawns; equal speed solo and with
-  two; remote gunfire, throws, explosions, doors, pickups; v0.3.5 refused),
-  then the older list (mid-round joins, slot reuse, scoring, objects
-  dropped before a late join, name tags hidden by walls, the host leaving,
-  two networks, a hotspot, four players). Release as v0.3.6 after it.
+- A two-headset session on the protocol 8 build: MULTIPLAYER.md step 8
+  (spawn pads, torso while strafing, melee, countdown, hurt sound, doors,
+  quit and rejoin, NEXT MAP, host migration), the rest of step 7, then the
+  older list (mid-round joins, slot reuse, scoring, objects dropped before
+  a late join, name tags hidden by walls, two networks, a hotspot, four
+  players). Release as v0.3.6 after it.

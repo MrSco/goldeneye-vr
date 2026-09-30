@@ -602,7 +602,12 @@ void bossMainloop(void)
                                 netDiscoveryUpdate((u32)(sysGetMicroseconds() / 1000));
                                 if (s_net_session_started && !netIsActive())
                                     bossSetLoadedStage(LEVELID_TITLE);
-                                if (netTakeRoundReset()) bossSetLoadedStage(g_StageNum);
+                                if (netTakeRoundReset()) {
+                                    /* the next round's map: the vote's, or the same (net_core.c) */
+                                    extern unsigned char netGetLobbyStage(void);
+                                    g_StageNum = netGetLobbyStage();
+                                    bossSetLoadedStage(g_StageNum);
+                                }
                                 if (netIsActive()) {
                                     for (i = 0; i < getPlayerCount(); i++) {
                                         if (g_playerPointers[i] && g_playerPointers[i]->prop) {
