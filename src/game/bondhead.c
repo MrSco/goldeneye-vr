@@ -12,6 +12,10 @@
 #include "bondhead.h"
 #include "model.h"
 
+#ifdef GEVR
+extern s32 g_gevrStereo;   /* bondview2.c: this frame is drawn in stereo */
+#endif
+
 
 /**
  * Address 0x80036AD0.
@@ -276,6 +280,23 @@ void bheadUpdate(f32 percent_speed, f32 speedsideways)
 
     if (abs_anim_speed > 0.0f)
     {
+#ifdef GEVR
+        /*
+         * Stereo: the walk animation sways the head bone side to side and
+         * bobs it up and down. On a screen that reads as walking; in the
+         * headset a motion the wearer's neck did not perform is a nausea
+         * source (GEVR PC docs/89), so the camera takes neither. Its roll
+         * is already dropped (bondview2.c gevrStereoLook). The lateral
+         * term keeps only the strafe input added below; the forward term
+         * is Bond's locomotion and stays. Perfect Dark VR's bondhead.c
+         * does the vertical half; the physical head's rise and duck are
+         * added elsewhere (gevrStereoHeadHeight).
+         */
+        if (g_gevrStereo)
+        {
+            g_CurrentPlayer->bondheadmatrices[0].m[3][0] = 0.0f;
+        }
+#endif
         g_CurrentPlayer->bondheadmatrices[0].m[3][0] += speedsideways;
         g_CurrentPlayer->bondheadmatrices[0].m[3][2] *= percent_speed;
 
@@ -288,6 +309,12 @@ void bheadUpdate(f32 percent_speed, f32 speedsideways)
         headpos.f[0] =   g_CurrentPlayer->bondheadmatrices[0].m[3][0] * g_CurrentPlayer->headamplitude;
         headpos.f[1] = ((g_CurrentPlayer->bondheadmatrices[0].m[3][1] - g_CurrentPlayer->standheight) * g_CurrentPlayer->headamplitude) + g_CurrentPlayer->standheight;
         headpos.f[2] =   g_CurrentPlayer->bondheadmatrices[0].m[3][2] * g_CurrentPlayer->headamplitude;
+#ifdef GEVR
+        if (g_gevrStereo)
+        {
+            headpos.f[1] = g_CurrentPlayer->standheight;
+        }
+#endif
 
         if (g_CurrentPlayer->headanim >= 0)
         {
