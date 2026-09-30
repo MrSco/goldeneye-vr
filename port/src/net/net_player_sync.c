@@ -236,7 +236,8 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                  * crediting a second kill for one death (match 2026-09-30,
                  * 14:52). The post-respawn packets arrive well inside that.
                  */
-                if (m->dead && !pl->bonddead && now - s_owner_dead_since_us[playernum] > 500000
+                /* copies take no damage of their own now (net_core.c netApplyDamage): the owner's death is the kill */
+                if (m->dead && !pl->bonddead && now - s_owner_dead_since_us[playernum] > 100000
                     && now - s_copy_alive_since_us[playernum] > 500000) {
                     s32 prev = get_cur_playernum();
                     s32 killer = netLastAttacker(playernum);
