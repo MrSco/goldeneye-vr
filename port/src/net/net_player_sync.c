@@ -102,6 +102,7 @@ void netSpectatorFrame(void) {
     }
     bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
     int direction = !pl->mpmenuon ? (a && !s_follow_a ? 1 : b && !s_follow_b ? -1 : 0) : 0;
+    if (direction) netTouchLocalActivity();
     s_follow_a = a; s_follow_b = b;
     int old = s_follow_slot;
     if (!netCanFollow(s_follow_slot) || direction) {
@@ -442,6 +443,25 @@ void netPlayerSyncAfterTick(s32 playernum) {
     }
     move.handrot.y = atan2f(2.0f * (hqw * hqy + hqx * hqz), 1.0f - 2.0f * (hqx * hqx + hqy * hqy)) * (180.0f / (float)M_PI);
     move.handrot.z = atan2f(2.0f * (hqw * hqz + hqx * hqy), 1.0f - 2.0f * (hqx * hqx + hqz * hqz)) * (180.0f / (float)M_PI);
+
+    {
+        static coord3d s_last_act_pos;
+        static f32 s_last_act_theta = 0.0f, s_last_act_verta = 0.0f;
+        bool act = false;
+        if (fabsf(pl->speedforwards) > 0.02f || fabsf(pl->speedsideways) > 0.02f) act = true;
+        if (move.ucmd != 0) act = true;
+        if (fabsf(move.angles[0] - s_last_act_theta) > 2.0f || fabsf(move.angles[1] - s_last_act_verta) > 2.0f) {
+            act = true;
+            s_last_act_theta = move.angles[0];
+            s_last_act_verta = move.angles[1];
+        }
+        f32 dx = move.pos.x - s_last_act_pos.x, dy = move.pos.y - s_last_act_pos.y, dz = move.pos.z - s_last_act_pos.z;
+        if (dx * dx + dy * dy + dz * dz > 0.0016f) {
+            act = true;
+            s_last_act_pos = move.pos;
+        }
+        if (act) netTouchLocalActivity();
+    }
 
     netSendLocalPlayerMove(&move);
 }

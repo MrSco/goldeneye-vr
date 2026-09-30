@@ -111,6 +111,7 @@ extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue 
 extern f32 gevrWeaponPanelStickY;
 extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
 extern s32 gevrLeftPanelAvailable(void);
+extern void gevrCycleLeftWeapon(s32 dir);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online game */
@@ -1231,16 +1232,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // (bondview2.c gevrDrawWeaponPanel) and letting go equips what it
         // highlights. Issue #56: the other hand's X does the same for the left
         // hand's panel (a gun for the left hand alone), while the left hand can
-        // take one (bondview2.c gevrLeftPanelAvailable); otherwise X still
-        // cycles at once, held as A. A press while the other panel is up does
-        // nothing. Issue #63: a tap of A with the right grip (R) held goes to the
-        // previous weapon, as GoldenEye's own hold A and pull Z (bondview2.c
-        // weaponBackOffset): A and Z go down together, so the game sees Z pressed
-        // with A held and never A alone (which cycles forward).
+        // take one (bondview2.c gevrLeftPanelAvailable); otherwise X symmetrically
+        // cycles the primary weapon. Issue #63: a tap of A with the right grip held
+        // goes to the previous weapon, as GoldenEye's own hold A and pull Z (bondview2.c
+        // weaponBackOffset). Holding left grip while tapping X similarly cycles
+        // backward (the left weapon when dual wielding, or primary weapon otherwise).
         {
             static u32 adown = 0, apulse = 0, xdown = 0, xpulse = 0;
-            static bool apanel = false, aspoilt = false, xpanel = false, xspoilt = false, xatonce = false;
-            static bool aback = false;
+            static bool apanel = false, aspoilt = false, xpanel = false, xspoilt = false;
+            static bool aback = false, xback = false;
             const u32 t = SDL_GetTicks();
             if (stereoplay && !gevrReturnPrompt && !fitting && !gevrSpectating()) {
                 const bool a = get_button_state(1, "a");
@@ -1249,16 +1249,17 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     xdown = t ? t : 1;
                     xpanel = false;
                     xspoilt = false;
-                    xatonce = !gevrLeftPanelAvailable();
+                    xback = get_button_state(0, "grip");
                 }
                 npad->button &= ~A_BUTTON;
-                if (x && xatonce) npad->button |= A_BUTTON;
                 if (a) {
                     if (!adown) {
                         adown = t ? t : 1;
                         apanel = false;
                         aspoilt = false;
+                        aback = get_button_state(1, "grip");
                     }
+                    if (get_button_state(1, "grip")) aback = true;
                     if (gevrWeaponPanelOpen && !apanel) aspoilt = true;
                     if (!apanel && !aspoilt && t - adown >= GEVR_WEAPON_PANEL_HOLD_MS) {
                         apanel = true;
@@ -1272,14 +1273,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         gevrWeaponPanelOpen = 0;
                     } else if (!aspoilt) {
                         apulse = t + 100;
-                        aback = get_button_state(1, "grip");
+                        if (get_button_state(1, "grip")) aback = true;
                         if (aback) LOGI("input: grip + A -> previous weapon\n");
                     }
                     adown = 0;
                 }
                 if (x) {
+                    if (get_button_state(0, "grip")) xback = true;
                     if (gevrWeaponPanelOpen && !xpanel) xspoilt = true;
-                    if (!xatonce && !xpanel && !xspoilt && t - xdown >= GEVR_WEAPON_PANEL_HOLD_MS) {
+                    if (gevrLeftPanelAvailable() && !xpanel && !xspoilt && t - xdown >= GEVR_WEAPON_PANEL_HOLD_MS) {
                         xpanel = true;
                         gevrWeaponPanelLeft = 1;
                         gevrWeaponPanelOpen = 1;
@@ -1289,13 +1291,22 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     if (xpanel) {
                         gevrWeaponPanelRelease = 1;
                         gevrWeaponPanelOpen = 0;
-                    } else if (!xatonce && !xspoilt) {
-                        xpulse = t + 100;
+                    } else if (!xspoilt) {
+                        if (get_button_state(0, "grip")) xback = true;
+                        if (gevrLeftPanelAvailable()) {
+                            gevrCycleLeftWeapon(xback ? -1 : 1);
+                            if (xback) LOGI("input: grip + X -> previous left weapon\n");
+                            else LOGI("input: tap X -> next left weapon\n");
+                        } else {
+                            xpulse = t + 100;
+                            if (xback) LOGI("input: grip + X -> previous weapon\n");
+                            else LOGI("input: tap X -> next weapon\n");
+                        }
                     }
                     xdown = 0;
                 }
                 if (t < apulse || t < xpulse) npad->button |= A_BUTTON;
-                if (t < apulse && aback) npad->button |= Z_TRIG;
+                if ((t < apulse && aback) || (t < xpulse && xback)) npad->button |= Z_TRIG;
             } else {
                 adown = xdown = 0;
                 gevrWeaponPanelOpen = 0;
@@ -1472,6 +1483,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         npad->stick_x = npad->stick_y = npad->rstick_x = npad->rstick_y = 0;
         npad->button &= ~(Z_TRIG | A_BUTTON | B_BUTTON | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS);
         gevrTurnAxis = 0;
+    }
+    if (npad->button != 0 || npad->stick_x != 0 || npad->stick_y != 0 || npad->rstick_x != 0 || npad->rstick_y != 0) {
+        netTouchLocalActivity();
     }
     return 0;
 }

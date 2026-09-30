@@ -13445,7 +13445,7 @@ static s32 gevrWeaponPanelBuildLeft(void)
 
 /* the left hand alone; a new pair joins the inventory as the game keeps pairs,
  * so A's cycle and the weapon panel offer it afterwards too */
-static void gevrLeftPanelEquip(s32 right, s32 left)
+static void gevrLeftPanelEquip(s32 right, s32 left, s32 dir)
 {
     if (left != ITEM_UNARMED && !bondinvItemAvailableForHand(right, left))
     {
@@ -13457,7 +13457,43 @@ static void gevrLeftPanelEquip(s32 right, s32 left)
         }
         sysLogPrintf(LOG_NOTE, "wpanel: new pair %d / %d", right, left);
     }
-    gunRequestHandWeaponChange(GUNLEFT, left, 1);
+    gunRequestHandWeaponChange(GUNLEFT, left, dir);
+}
+
+void gevrCycleLeftWeapon(s32 dir)
+{
+    s32 count;
+    s32 cur_left;
+    s32 right;
+    s32 idx = 0;
+    s32 next_idx;
+    s32 i;
+
+    if (!gevrLeftPanelAvailable())
+    {
+        return;
+    }
+
+    count = gevrWeaponPanelBuildLeft();
+    if (count <= 1)
+    {
+        return;
+    }
+
+    cur_left = getCurrentPlayerWeaponId(GUNLEFT);
+    right = s_gevrWpList[0].right;
+
+    for (i = 0; i < count; i++)
+    {
+        if (s_gevrWpList[i].left == cur_left)
+        {
+            idx = i;
+            break;
+        }
+    }
+
+    next_idx = (idx + dir + count) % count;
+    gevrLeftPanelEquip(right, s_gevrWpList[next_idx].left, dir);
 }
 
 extern u16 *bondinvGetNameByIndex(s32 index);
@@ -13656,7 +13692,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
             if (gevrWeaponPanelLeft)
             {
-                gevrLeftPanelEquip(e->right, e->left);
+                gevrLeftPanelEquip(e->right, e->left, 1);
             }
             else
             {

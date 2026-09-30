@@ -55,6 +55,7 @@ void netHostContinue(void);
 void netHostReturnToLobby(void);
 void netHostStartRoundNow(void);
 int netCountdownSecondsLeft(void);
+void netTouchLocalActivity(void);
 const NetMsgLobbyState *netGetLobbyState(void);
 const char *netGetSlotName(int slot);   /* NULL for an empty slot */
 void netSetLocalAppVersion(const char *version);

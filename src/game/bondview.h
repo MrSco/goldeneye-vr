@@ -2756,4 +2756,9 @@ void currentPlayerAdjustFade(f32 maxfadetime, s32 r, s32 g, s32 b, f32 frac);
 void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex);
 void sub_GAME_7F08976C(f32 param_1);
 
+#ifdef GEVR
+s32 gevrLeftPanelAvailable(void);
+void gevrCycleLeftWeapon(s32 dir);
+#endif
+
 #endif

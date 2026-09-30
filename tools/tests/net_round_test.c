@@ -15,6 +15,10 @@ u64 sysGetMicroseconds(void) { return test_now; }
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 void netVoiceForgetSlot(uint8_t slot) { (void)slot; voice_clears++; }
 void netPlayersTickedReset(void) {}
+static int s_hudmsg_count, s_lobby_stops, s_launcher_restarts;
+void hudmsgTopShow(char *mess) { (void)mess; s_hudmsg_count++; }
+void gevrLobbySessionStopped(void) { s_lobby_stops++; }
+void gevrRestartToLauncher(void) { s_launcher_restarts++; }
 ENetPacket *enet_packet_create(const void *data, size_t size, uint32_t flags) {
     ENetPacket *p = calloc(1, sizeof(*p));
     p->data = malloc(size); memcpy(p->data, data, size); p->dataLength = size; p->flags = flags;
@@ -120,8 +124,31 @@ static void test_ballots_roles_rotation(void) {
     s_local_slot=s_host_slot=1; assert(netIsHost() && netPlayerInRound(0));
 }
 
+static void test_idle_timeout(void) {
+    session();
+    s_last_local_activity_us = test_now;
+    s_hudmsg_count = s_lobby_stops = s_launcher_restarts = 0;
+    test_now += 269ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_hudmsg_count == 0 && s_lobby_stops == 0 && s_launcher_restarts == 0);
+
+    test_now += 1ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_hudmsg_count == 1 && s_lobby_stops == 0 && s_launcher_restarts == 0);
+
+    netTouchLocalActivity();
+    s_hudmsg_count = 0;
+    test_now += 10ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_hudmsg_count == 0);
+
+    test_now += 300ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_lobby_stops == 1 && s_launcher_restarts == 1);
+}
+
 int main(void) {
-    test_round_flow(); test_settings_and_wire(); test_ballots_roles_rotation();
+    test_round_flow(); test_settings_and_wire(); test_ballots_roles_rotation(); test_idle_timeout();
     puts("PASS: round transitions, pending settings, truncated packets, both hands, ballots, rotation, roles and migration slots");
     return 0;
 }
