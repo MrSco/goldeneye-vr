@@ -16,16 +16,13 @@ depth where opaque, model.c + gfx_opengl.cpp), bullet holes no longer
 striped from some positions (#29: texSelect's mip-mapped draws inherited
 rooms' G_TD_DETAIL and fast3d read tile 1 as the base; now G_TD_CLAMP,
 othermodemicrocode.c; gepc-ref D107's renderer fix not taken, it would
-move our rooms onto their detail tile). v0.3.4 (c16afce, versionCode 29)
-restored multiplayer movement speed and brought multiplayer testing fixes.
-v0.3.3 (49f2ac6, versionCode 28) brought multiplayer HUD text crash guard (#78),
-player and lobby version tooltips, and TURN credential rate limit fix. v0.3.2 (0852b9f, versionCode 27) brought
-multiplayer pause controls (#76), calibrated recoil and damage rumble (#64),
-tank runover audio (#68), left-hand weapons (#56), previous weapon with right
-grip + A (#63), left X for weapons and Y for use/reload, and normal online
-damage handicap (#69). v0.3.1 (df311a0) fixed multiplayer crashes and added
-"Send debug log". v0.3.0 (5fa83da) brought drop-in multiplayer, names and
-name tags, network protocol 6.
+move our rooms onto their detail tile). v0.3.4 (c16afce) multiplayer testing
+fixes (and the remote-body regression fixed on the protocol 7 branch);
+v0.3.3 (49f2ac6) HUD text crash guard (#78), version tooltips, TURN rate
+limit; v0.3.2 (0852b9f) pause controls (#76), rumble (#64), tank audio
+(#68), left-hand weapons (#56), previous weapon (#63), online damage
+handicap (#69); v0.3.1 crash fixes and "Send debug log"; v0.3.0 drop-in
+multiplayer, names and tags, protocol 6.
 
 ## What it is
 
@@ -55,29 +52,32 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 - Multiplayer, experimental (#23): host and join on Wi-Fi, by direct IP, or
   through public and private internet lobbies (lobbies.goldeneyevr.com, a
   Cloudflare Worker in `services/lobbies`, libjuice ICE, Cloudflare TURN).
-  Owner-authoritative positions with input extrapolation, hit reports relayed
-  by the host, synced weapons, deaths, respawns and explosions. Voice chat:
-  Opus on its own ENet channel, full volume in the lobby, distance and
-  direction in a match (same room: gentle falloff to a 50% floor out to
-  3500 units; other rooms: quadratic to silence at 2500, net_voice.c
+  Owner-authoritative positions (the copy's stand tile follows them, so
+  bodies render in the right room), hit reports relayed by the host, synced
+  weapons, deaths and respawns. Protocol 7 (branch
+  claude/multiplayer-visibility-bug-16b1a8, unreleased): the owner's
+  projectiles, damaging explosions, door use and pickups are mirrored;
+  remote gunfire fires from the owner's barrel and is placed by distance
+  and direction. Voice chat: Opus on its own ENet channel, full volume in
+  the lobby, distance and direction in a match (net_voice.c
   playersShareRoom), mute in the lobby, on the watch, or with left X+Y.
-  Music and Voice volume: launcher sliders and the multiplayer pause menu
-  (right stick adjusts, right stick click swaps; A still closes the menu),
-  saved as MusicVolume and VoiceVolume under [VR] in goldeneye-vr.ini.
-  Launcher Join Game is an accordion (Public, Private, LAN, Direct IP).
-  Drop-in (v0.3.0): games stay listed after the start, solo warmup, late
-  joiners get match and world snapshots, slots are reused, scores carry
-  over. Names: launcher "Your name" (ini PlayerName, typed on the Quest
-  system keyboard, default "Agent NNNN"), shown in the lobby lists and as
-  depth-tested tags over other players (gunfire.c gevrDrawNameTags). Live
-  dashboard at lobbies.goldeneyevr.com. Details in MULTIPLAYER.md.
+  Music and Voice volume in the launcher and the pause menu (right stick;
+  saved under [VR] in goldeneye-vr.ini). Join Game is an accordion (Public,
+  Private, LAN, Direct IP). Drop-in: games stay listed after the start,
+  late joiners get match and world snapshots, slots reused, scores kept.
+  Names: launcher "Your name" (ini PlayerName), in the lobby lists and as
+  depth-tested tags over other players (gunfire.c gevrDrawNameTags).
+  Dashboard at lobbies.goldeneyevr.com. Details in MULTIPLAYER.md.
 
 ## What does not, or is untested
 
-- Multiplayer has never been played on two headsets. Untested: two home
-  networks, a phone hotspot, four players mixed LAN and internet, voice heard
-  by anyone. Not done: the match end is not shared, the host leaving is not
-  handled, other players' hands do not move.
+- Two headsets on v0.3.5: other players invisible (v0.3.4: the copy's stand
+  tile never followed its position), their shots clicking like reloads (no
+  ammo), no explosions from them, and walking too fast with 2+ players (one
+  walk-animation rwdata buffer shared by all four since 579cbb9). Fixed on
+  the protocol 7 branch, untested there. Untested: two home networks, a
+  hotspot, four players mixed LAN and internet. Not done: match end not
+  shared, host leaving not handled, other players' hands do not move.
 - Open issues: #9 hand undersides (work in progress: shells patched in
   v0.1.18, gaps left such as the PP7 index finger), #23 multiplayer (kept
   open), #30 water shimmer (open in the PC port too, D245; the blue water
@@ -121,7 +121,9 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## Next
 
-- A two-headset session on v0.3.0 for the test list in MULTIPLAYER.md and
-  PR #62 (mid-round joins, slot reuse, scoring, pickups, doors, objects
-  dropped before a late join, voice heard, distance and direction, name tags
-  hidden by walls, the host leaving, two networks, a hotspot, four players).
+- A two-headset session on the protocol 7 build: MULTIPLAYER.md step 7
+  (bodies through rooms, stairs and respawns; equal speed solo and with
+  two; remote gunfire, throws, explosions, doors, pickups; v0.3.5 refused),
+  then the older list (mid-round joins, slot reuse, scoring, objects
+  dropped before a late join, name tags hidden by walls, the host leaving,
+  two networks, a hotspot, four players). Release as v0.3.6 after it.

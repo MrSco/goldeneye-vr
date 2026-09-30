@@ -1117,7 +1117,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                      (i == 0) ? "[HOST]" : (lobby->slots[i].ready ? "[READY]" : "[WAITING]"));
                     if (ImGui::IsItemHovered()) {
                         const char *ver = netGetSlotAppVersion(i);
-                        const char *verStr = (ver && ver[0]) ? ver : "Protocol 6 (legacy / <= v0.3.2)";
+                        const char *verStr = (ver && ver[0]) ? ver : "older build (no version announced)";
                         const char *role = (i == 0) ? "Host (You)" : (lobby->slots[i].ready ? "Ready" : "Waiting");
                         ImGui::SetTooltip("Player: %s\nRole: %s\nApp Version: %s\nNetwork Protocol: %d\nSlot: %d",
                                           lobby->slots[i].name, role, verStr, GEVR_NET_VERSION, i + 1);
@@ -1358,7 +1358,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                   lobby->slots[i].ready ? "[READY]" : "[WAITING]");
                 if (ImGui::IsItemHovered()) {
                     const char *ver = netGetSlotAppVersion(i);
-                    const char *verStr = (ver && ver[0]) ? ver : "Protocol 6 (legacy / <= v0.3.2)";
+                    const char *verStr = (ver && ver[0]) ? ver : "older build (no version announced)";
                     const char *role = (i == 0) ? "Host" : (i == netGetLocalSlot() ? "You" : (lobby->slots[i].ready ? "Ready" : "Waiting"));
                     ImGui::SetTooltip("Player: %s\nRole: %s\nApp Version: %s\nNetwork Protocol: %d\nSlot: %d",
                                       lobby->slots[i].name, role, verStr, GEVR_NET_VERSION, i + 1);
