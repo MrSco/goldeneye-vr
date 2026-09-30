@@ -335,6 +335,9 @@ bool netSlotOccupied(int slot) {
 bool netTakeRoundReset(void) {
     bool pending = s_round_reset_pending;
     s_round_reset_pending = false;
+    /* The stage is about to reload and the players' structs with it: world
+     * events wait for the new stage's first tick (netPlayersWereTicked). */
+    if (pending) netPlayersTickedReset();
     return pending;
 }
 
@@ -508,7 +511,11 @@ static int netObjectIndex(ObjectRecord *target) {
 static void netSendObjectEvent(ObjectRecord *obj, uint8_t action, int8_t value) {
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !obj) return;
     int index = netObjectIndex(obj);
-    if (index < 0) return;
+    /* Only the setup's objects are the same on every headset. The
+     * g_WeaponSlots / g_AmmoCrates pools (0x8000+, 0x9000+) are recycled per
+     * headset for held models, projectiles and dropped guns, so a slot
+     * number names a different object on each one. */
+    if (index < 0 || index >= 0x8000) return;
 
     u8 raw[24];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -551,7 +558,10 @@ static void netSendWorldSnapshot(ENetPeer *peer) {
     netbufWriteU8(&buf, NET_MSG_WORLD_SNAPSHOT);
     netbufWriteU8(&buf, 0);
     netbufWriteU8(&buf, 0); /* record count, filled before sending */
-    for (int source = 0; source < 3; source++) {
+    /* Setup objects only (source 0): the weapon and ammo-crate pools are
+     * recycled per headset, so their slot numbers name different objects on
+     * the joiner (see netSendObjectEvent). */
+    for (int source = 0; source < 1; source++) {
         int limit = source == 1 ? MAX_WEAPON_SLOTS : MAX_AMMO_CRATES;
         for (int slot = 0; source == 0 ? (def->type != PROPDEF_END && slot < 0x8000) :
              slot < limit; slot++) {
@@ -650,6 +660,7 @@ void netHostReturnToWarmup(void) {
 }
 
 void netStageLoaded(void) {
+    netPlayersTickedReset(); /* events queued through the load are for the old stage */
     if (s_state != NET_STATE_INGAME || s_local_slot < 0) return;
     s_lobby_state.slots[s_local_slot].ready = 1;
     if (!netIsHost()) {
@@ -897,7 +908,8 @@ int netGetRemoteAim(int slot_id, coord3d *origin, coord3d *dir) {
     const struct netplayermove *m = &s_remote_moves[slot_id];
     if (!(m->ucmd & UCMD_AIMVALID)) return 0;
     float len = sqrtf(m->aimdir.x * m->aimdir.x + m->aimdir.y * m->aimdir.y + m->aimdir.z * m->aimdir.z);
-    if (!(len > 0.0001f) || !isfinite(m->aimorigin.x) || !isfinite(m->aimorigin.y) || !isfinite(m->aimorigin.z)) return 0;
+    if (!(len > 0.0001f) || !isfinite(len) ||
+        !isfinite(m->aimorigin.x) || !isfinite(m->aimorigin.y) || !isfinite(m->aimorigin.z)) return 0;
     *origin = m->aimorigin;
     dir->x = m->aimdir.x / len;
     dir->y = m->aimdir.y / len;
@@ -1450,6 +1462,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 u8 state = netbufReadU8(&buf);
                 u32 regen = netbufReadU32(&buf);
                 if (buf.error) break;
+                if (index >= 0x8000) continue; /* pool slots are not a shared identity */
                 ObjectRecord *obj = netObjectByIndex(index, type);
                 if (!obj) continue;
                 if (!has_prop) {
@@ -1645,20 +1658,30 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
             }
             if (!netPlayersWereTicked()) break;
+            if (index >= 0x8000) break; /* pool slots are not a shared identity (netSendObjectEvent) */
             ObjectRecord *obj = netObjectByIndex(index, type);
             if (!obj || !obj->prop) break;
             NET_LOG("object rx: slot %d index 0x%04x action %d value %d", slot, index, action, value);
             if (action == NET_OBJECT_PICKUP) {
-                /* Gone here too, and back on the same regeneration timer. A
-                 * pickup that went into the collector's hands only goes away
-                 * here (it would reparent to whoever is current). */
-                s32 op = value == TICKOP_FREE ? TICKOP_FREE :
-                         (value == TICKOP_GIVETOPLAYER || value == TICKOP_DISABLE) ? TICKOP_DISABLE : TICKOP_NONE;
-                if (op != TICKOP_NONE && (obj->prop->flags & PROPFLAG_ENABLED) && obj->prop->timetoregen <= 0 &&
-                    (obj->prop->type == PROP_TYPE_OBJ || obj->prop->type == PROP_TYPE_WEAPON)) {
-                    propExecuteTickOperation(obj->prop, op);
+                if (obj->prop->type != PROP_TYPE_OBJ && obj->prop->type != PROP_TYPE_WEAPON) break;
+                if (obj->state & PROPSTATE_RESPAWN) {
+                    /* Gone here too, and back on the sender's timer. Already
+                     * regenerating here (collected a moment earlier on this
+                     * headset, or a late event): the timer restarts, so it
+                     * cannot come back before the sender's does. */
+                    if ((obj->prop->flags & PROPFLAG_ENABLED) && obj->prop->timetoregen <= 0)
+                        propExecuteTickOperation(obj->prop, TICKOP_FREE);
+                    else
+                        obj->prop->timetoregen = 0x4B0;
+                } else if (value == TICKOP_GIVETOPLAYER) {
+                    /* kept on the collector's player there; only hidden here */
+                    if (obj->prop->flags & PROPFLAG_ENABLED) propExecuteTickOperation(obj->prop, TICKOP_DISABLE);
+                } else {
+                    /* freed for good there (objFree in propPickupByPlayer) */
+                    objFreePermanently(obj, TRUE);
                 }
             } else if (action == NET_OBJECT_DOOR) {
+                if (value == DOORSTATE_WAITING) value = DOORSTATE_OPENING; /* opened, held for its sibling door */
                 if (obj->type == PROPDEF_DOOR && obj->prop->type == PROP_TYPE_DOOR &&
                     (value == DOORSTATE_OPENING || value == DOORSTATE_CLOSING)) {
                     struct player *by = g_playerPointers[slot];
