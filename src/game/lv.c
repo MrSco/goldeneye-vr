@@ -736,6 +736,26 @@ static void gevrRemotePlayerPass(s32 playernum)
         pos = pl->field_488.pos;
         look = pl->field_488.applied_view;
     }
+    else
+    {
+        /*
+         * With the muzzle as the frustum's apex the shot runs down the axis
+         * exactly. A gun poked through a doorway or a wall (a VR habit: shoot
+         * round the frame without looking) puts the apex past the portal,
+         * which then culls the room beyond. When the muzzle is off the copy's
+         * own floor chunk, the apex goes back to the eye, along the same
+         * barrel; the portal is then in front of it.
+         */
+        extern s32 walkTilesBetweenPoints_NoCallback(StandTile **tileStack, f32 start_x, f32 start_z, f32 dest_x, f32 dest_z);
+        extern s32 getTileRoom(StandTile *tile);
+        StandTile *tile = pl->prop->stan;
+
+        if (!walkTilesBetweenPoints_NoCallback(&tile, pl->prop->pos.x, pl->prop->pos.z, pos.x, pos.z)
+            || tile == NULL || getTileRoom(tile) != getTileRoom(pl->prop->stan))
+        {
+            pos = pl->field_488.pos;
+        }
+    }
     up.x = 0.0f;
     up.y = 1.0f;
     up.z = 0.0f;
