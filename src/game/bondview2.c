@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <ultra64.h>
 #ifdef GEVR
 #include "system.h"
@@ -311,6 +314,7 @@ static f32 s_gevrHeadBaseY;
 /* bondview2.c walk path, just before the body's move this tick. */
 void gevrStereoHeadWalk(struct coord3d *move_offset)
 {
+    if (gevrSpectating()) return;
     f32 head[3];
     f32 body[4];
     f32 half;
@@ -2066,6 +2070,7 @@ static s32 s_gevrChopSwing[2];   /* ticks left of "a swing began" (gevrHandChopS
 
 void gevrHandChopTick(s32 ctrl)
 {
+    if (gevrSpectating()) return;
     extern float vr_ctrl_quat_play[2][4];     /* vr_input.cpp: the gesture frame, play space */
     extern float vr_ctrl_velocity_play[2][3];
     extern float vr_head_velocity_play[3];    /* vr_openxr.cpp */
@@ -3846,6 +3851,15 @@ static void gevrStereoApplyHead(void)
  * chase itself. The pitch follows the controller too (field_2A08). Without a
  * tracked controller the right stick turns it, as it did for #28.
  */
+void gevrSpectatorAim(float yaw)
+{
+    struct coord3d look, up;
+    gevrStereoLook(&look, &up);
+    s_gevrBaseYaw = gevrWrapDegrees(s_gevrBaseYaw + yaw + atan2f(look.x, look.z) * (180.0f / M_PI_F));
+    s_gevrLastTheta = g_CurrentPlayer->vv_theta;
+    gevrStereoApplyHead();
+}
+
 static f32 gevrStereoTankTurretTurn(void)
 {
     struct coord3d o, d;
@@ -13068,6 +13082,21 @@ s32 gevrGunFitAvailable(void)
         && pl->watch_animation_state == 0 && pl->hands[GUNRIGHT].field_87F != 0;
 }
 
+static Gfx *gevrDrawSpectatorLabel(Gfx *gdl)
+{
+    char label[80];
+    s32 x, y, w, h;
+    if (!gevrSpectating()) return gdl;
+    const char *name = netGetSlotName(netSpectatorTarget());
+    snprintf(label, sizeof(label), name ? "SPECTATING %s   A:NEXT B:PREV" : "SPECTATING - WAITING FOR A PLAYER", name ? name : "");
+    gdl = microcode_constructor(gdl);
+    textMeasure(&h, &w, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    x = viGetViewLeft() + (viGetViewWidth() - w) / 2;
+    y = viGetViewTop() + 20;
+    gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic, 0xa0ffa0ff, viGetX(), viGetY(), 0, 0);
+    return combiner_bayer_lod_perspective(gdl);
+}
+
 static Gfx *gevrDrawGunFit(Gfx *gdl)
 {
     char buf[256];
@@ -14060,6 +14089,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 #ifdef GEVR
     gdl = gevrDrawStats(gdl);
     gdl = gevrDrawGunFit(gdl);
+    gdl = gevrDrawSpectatorLabel(gdl);
 #endif
     gunDrawSight(&gdl);
 #ifdef GEVR
@@ -14227,6 +14257,9 @@ s32 sub_GAME_7F0898E8(void)
  * Address JP 7F089FF0.
  */
 void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor) {
+#ifdef GEVR
+    if (netPlayerIsSpectator(get_cur_playernum())) return;
+#endif
     f32 damage_dealt = g_playerPerm->handicap * damage_amount;
     s32 cur_player_num;
     f32 angle;
@@ -15386,6 +15419,10 @@ s32 playerTick(PropRecord *prop)
         goto clear_and_return;
     }
  
+#ifdef GEVR
+    if (netPlayerIsSpectator(index) || (gevrSpectating() && index == netSpectatorTarget() && !g_gevrExtraPass))
+        goto clear_and_return;
+#endif
     anim = 0;
     firingtable = NULL;
     local90 = -1.0f;

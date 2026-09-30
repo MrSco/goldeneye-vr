@@ -21,6 +21,8 @@ void netHostContinue(void);
 void netHostReturnToLobby(void);
 void netHostStartRoundNow(void);
 int gevrSpectating(void);
+int netPlayerIsSpectator(int slot);
+void gevrSpectatorAim(float yaw);
 int netSpectatorTarget(void);
 void netSpectatorFrame(void);
 void netSpectatorReset(void);

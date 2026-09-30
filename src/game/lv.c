@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include "system.h"
 #include <ultra64.h>
 #include <math.h>
@@ -872,6 +875,7 @@ Gfx* lvlRender(Gfx* DL)
             set_cur_player(netGetLocalSlot());
         }
         gevrStereoFrame(g_CurrentStageToLoad != LEVELID_TITLE);
+        if (g_CurrentStageToLoad != LEVELID_TITLE) netSpectatorFrame();
     }
 #endif
     gSPSegment(DL++, SPSEGMENT_PHYSICAL, NULL);
