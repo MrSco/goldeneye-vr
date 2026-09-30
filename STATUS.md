@@ -29,7 +29,9 @@ name tags, network protocol 6.
 Unreleased on main (versionCode 34): the launcher haptics screen (#64),
 motion-throw gaze assist and its settings pane, voice falloff that treats
 players in view as the same room, SFX volume and mic mute in the launcher
-and the multiplayer pause menu, and the multiplayer page fitting the panel.
+and the multiplayer pause menu, the multiplayer page fitting the panel, and
+stereo dropping the walk animation's side sway and vertical bob (bondhead.c;
+screen mode keeps them).
 
 ## What it is
 
