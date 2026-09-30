@@ -13797,6 +13797,11 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         {
             s32 next = s_gevrWpIndex + (gevrWeaponPanelStickY > 0.0f ? -1 : 1);
 
+            /* the list wraps: past the bottom is the top again, and the reverse (user, 2026-09-30) */
+            if (count > 0)
+            {
+                next = (next + count) % count;
+            }
             if (next >= 0 && next < count && next != s_gevrWpIndex)
             {
                 s_gevrWpIndex = next;
@@ -14450,6 +14455,15 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                             if(1);
 
                             g_playerPlayerData[playerid].kill_counts[sp2C]++;
+#ifdef GEVR
+                            if (netIsActive())
+                            {
+                                extern s32 get_points_for_mp_player(s32 playernum);
+                                sysLogPrintf(LOG_NOTE, "net: kill: player %d killed player %d: points %d / %d, bank %d / %d",
+                                             playerid, sp2C, get_points_for_mp_player(playerid), get_points_for_mp_player(sp2C),
+                                             g_playerPlayerData[playerid].gevr_score_bank, g_playerPlayerData[sp2C].gevr_score_bank);
+                            }
+#endif
                         }
 
                         bondviewKillCurrentPlayer();

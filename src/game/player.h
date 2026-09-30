@@ -71,6 +71,12 @@ struct player_data {
 
     /* 0x6c */
     int killed_civilians;
+
+#ifdef GEVR
+    /* online: the kills against players who have since left (net_core.c
+     * netForgetPlayerScore), counted with kill_counts; not an N64 field */
+    int gevr_score_bank;
+#endif
 };
 
 extern struct player *g_playerPointers[4];
