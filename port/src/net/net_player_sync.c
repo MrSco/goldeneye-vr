@@ -32,6 +32,8 @@ static bool s_remote_render_valid[GEVR_MAX_PLAYERS];
 static f32 s_remote_barrel_pitch[GEVR_MAX_PLAYERS];   /* logged only (see netPlayerSyncBeforeTick) */
 static f32 s_remote_barrel_yaw[GEVR_MAX_PLAYERS];
 static s8 s_copy_weapon[GEVR_MAX_PLAYERS][2];         /* the item last given to a copy's hand (netSyncCopyHand) */
+static u64 s_copy_dead_since_us[GEVR_MAX_PLAYERS];    /* the copy has been dead since (0: alive) */
+static u64 s_owner_dead_since_us[GEVR_MAX_PLAYERS];   /* the owner has reported dead since (0: alive) */
 
 void netPlayerSyncInit(void) {
 }
@@ -200,23 +202,51 @@ void netPlayerSyncBeforeTick(s32 playernum) {
              * it here; live owner, dead copy: the copy respawns (any pad, the
              * position below snaps it); both alive: the owner's numbers.
              */
-            if (m->dead && !pl->bonddead) {
-                s32 prev = get_cur_playernum();
-                s32 killer = netLastAttacker(playernum);
-                sysLogPrintf(LOG_NOTE, "net: copy %d: owner dead, copy alive (health %.2f): killing, credit %d", playernum, pl->bondhealth, killer);
-                set_cur_player(playernum);
-                record_damage_kills(1000.0f, 0.0f, 1.0f, killer, 1);
-                set_cur_player(prev);
-            } else if (!m->dead && pl->bonddead && m->health > 0.0f) {
-                s32 prev = get_cur_playernum();
-                sysLogPrintf(LOG_NOTE, "net: copy %d: owner alive (health %.2f), copy dead: respawning the copy", playernum, m->health);
-                set_cur_player(playernum);
-                mp_respawn_handler_net(0, m->angles[0]);
-                set_cur_player(prev);
-                pl->deathanimfinished = 1;   /* snap to the owner below */
-            } else if (!m->dead && !pl->bonddead) {
-                pl->bondhealth = m->health;
-                pl->bondarmour = m->armour;
+            /*
+             * With a grace period each way. The owner's packets run a
+             * round trip behind the host's damage event, so the copy dies
+             * here while the owner's last packet still says alive, and the
+             * owner's own death follows within the round trip: acting at
+             * once respawned a copy in the tick it died, mid death, and the
+             * game crashed in the next object tick (host log, 2026-09-30).
+             * A dead copy is resurrected only after the owner has reported
+             * alive for 1.5 s past the death; a live copy is killed only
+             * after the owner has reported dead for 0.5 s, by when the
+             * damage event that kills it properly has normally arrived.
+             */
+            {
+                u64 now = sysGetMicroseconds();
+                if (pl->bonddead) {
+                    if (!s_copy_dead_since_us[playernum]) s_copy_dead_since_us[playernum] = now;
+                } else {
+                    s_copy_dead_since_us[playernum] = 0;
+                }
+                if (m->dead) {
+                    if (!s_owner_dead_since_us[playernum]) s_owner_dead_since_us[playernum] = now;
+                } else {
+                    s_owner_dead_since_us[playernum] = 0;
+                }
+                if (m->dead && !pl->bonddead && now - s_owner_dead_since_us[playernum] > 500000) {
+                    s32 prev = get_cur_playernum();
+                    s32 killer = netLastAttacker(playernum);
+                    sysLogPrintf(LOG_NOTE, "net: copy %d: owner dead, copy alive (health %.2f): killing, credit %d", playernum, pl->bondhealth, killer);
+                    set_cur_player(playernum);
+                    record_damage_kills(1000.0f, 0.0f, 1.0f, killer, 1);
+                    set_cur_player(prev);
+                    s_copy_dead_since_us[playernum] = now;
+                } else if (!m->dead && pl->bonddead && m->health > 0.0f && now - s_copy_dead_since_us[playernum] > 1500000) {
+                    s32 prev = get_cur_playernum();
+                    sysLogPrintf(LOG_NOTE, "net: copy %d: owner alive (health %.2f) %.1f s past the copy's death: respawning the copy",
+                                 playernum, m->health, (now - s_copy_dead_since_us[playernum]) / 1000000.0f);
+                    set_cur_player(playernum);
+                    mp_respawn_handler_net(0, m->angles[0]);
+                    set_cur_player(prev);
+                    pl->deathanimfinished = 1;   /* snap to the owner below */
+                    s_copy_dead_since_us[playernum] = 0;
+                } else if (!m->dead && !pl->bonddead) {
+                    pl->bondhealth = m->health;
+                    pl->bondarmour = m->armour;
+                }
             }
             /* A corpse stays at its death location until the reliable respawn
              * event resets the player. Late movement packets must not drag it. */
