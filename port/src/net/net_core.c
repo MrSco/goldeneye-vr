@@ -271,6 +271,7 @@ static void netResetLobbyState(void) {
 }
 
 bool netInit(void) {
+    netClearVotes(-1);   /* -1 is "no vote"; zero would be the first stage (see netLobbyHostLaunchMatch) */
     if (s_initialized) return true;
     
     if (enet_initialize() != 0) {
@@ -1245,6 +1246,14 @@ bool netLobbyHostLaunchMatch(void) {
     randomSetSeed(s_rng_seed);
     
     netLatchRoundSettings();
+    /*
+     * No votes yet. The ballots are zero from the start, and zero is a vote
+     * for the first stage and set: the warmup join's countdown tallied
+     * "Facility, Power Weapons" from every connected slot and the match
+     * left the host's Bunker II for it (playtest 2026-09-30, "round
+     * settings ... ballot stage 0 set 4").
+     */
+    netClearVotes(-1);
     s_lobby_open = false;
     s_phase = NET_PHASE_WARMUP;
     netSendMatchStartTo(NULL);
