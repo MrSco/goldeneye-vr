@@ -684,6 +684,79 @@ Gfx *lvlPortalDebug7F0BDF10(Gfx *gdl)
  * Address 0x7F0BE30C (VERSION_US).
  */
 
+#ifdef GEVR
+/*
+ * Online only the local view is drawn, but the game traces each player's
+ * shots, tests their hits and steps their projectiles in that player's own
+ * view pass: with its camera, its room visibility, its on-screen prop list
+ * and the props' matrices in its camera's space. Split screen runs one such
+ * pass per player, and it is what every hit test assumes. The other players'
+ * copies get that pass here, minus the drawing: the camera sits on the
+ * owner's gun barrel (the shot then runs straight down the camera's axis),
+ * or at the copy's eye along its view when the owner does not aim with a
+ * controller; the commands the viewport setup writes go to a scratch buffer;
+ * and what only the local player does (collecting pickups, the sight, the
+ * HUD) stays out.
+ */
+static void gevrRemotePlayerPass(s32 playernum)
+{
+    extern int netGetRemoteAim(int slot_id, coord3d *origin, coord3d *dir);
+    extern void gevrSetCopyTrace(s32 on);
+    extern void bondviewUpdateCameraMatrices(coord3d *cam_pos, coord3d *cam_look_dir, coord3d *cam_up);
+    extern s32 g_gevrStereo;
+    extern float gevrVrFov(void);
+    extern float gevrVrAspect(void);
+    static Gfx scratch[64];
+    struct player *pl = g_playerPointers[playernum];
+    s32 prev = get_cur_playernum();
+    coord3d pos;
+    coord3d look;
+    coord3d up;
+
+    if (pl == NULL || pl->prop == NULL || pl->prop->stan == NULL)
+    {
+        return;
+    }
+    set_cur_player(playernum);
+
+    viSetViewSize(g_CurrentPlayer->viewx, g_CurrentPlayer->viewy);
+    viSetViewPosition(g_CurrentPlayer->viewleft, g_CurrentPlayer->viewtop);
+    viSetFovY(g_CurrentPlayer->fovy);
+    viSetAspect(g_CurrentPlayer->aspect);
+    if (g_gevrStereo)
+    {
+        viSetFovY(gevrVrFov());
+        viSetAspect(gevrVrAspect());
+    }
+    /* the projection (projmatrixf) and the viewport; the commands are dropped */
+    viSetupCurrentPlayerView(scratch);
+
+    if (pl->bonddead || !netGetRemoteAim(playernum, &pos, &look))
+    {
+        pos = pl->field_488.pos;
+        look = pl->field_488.applied_view;
+    }
+    up.x = 0.0f;
+    up.y = 1.0f;
+    up.z = 0.0f;
+    if (look.y * look.y > 0.98f * (look.x * look.x + look.y * look.y + look.z * look.z))
+    {
+        /* straight up or down: any level up vector will do */
+        up.y = 0.0f;
+        up.z = 1.0f;
+    }
+    bondviewUpdateCameraMatrices(&pos, &look, &up);
+    bgRoomVisibilityRelated();
+    propsTick();
+    chraiUpdateOnscreenPropCount();
+    gevrSetCopyTrace(TRUE);
+    chraiCheckUseHeldItems();
+    gevrSetCopyTrace(FALSE);
+
+    set_cur_player(prev);
+}
+#endif
+
 Gfx* lvlRender(Gfx* DL)
 {
 #ifdef GEVR
@@ -728,11 +801,17 @@ Gfx* lvlRender(Gfx* DL)
             s32 playernum = get_nth_player_from_shuffled(i);
 #ifdef GEVR
             {
-                extern bool netIsActive(void);
                 extern int netGetLocalSlot(void);
+                extern bool netSlotOccupied(int slot);
                 if (netIsActive() && playernum != netGetLocalSlot())
                 {
-                    continue; /* In online VR multiplayer, only render the local player's view */
+                    /* Online only the local player's view is drawn; the other
+                     * players' copies get their view pass without the drawing. */
+                    if (netSlotOccupied(playernum))
+                    {
+                        gevrRemotePlayerPass(playernum);
+                    }
+                    continue;
                 }
             }
 #endif
@@ -806,50 +885,6 @@ Gfx* lvlRender(Gfx* DL)
             chrpropUpdateAutoaimTarget();
             chraiCheckUseHeldItems();
 #ifdef GEVR
-            {
-                /*
-                 * The game traces each player's shots in that player's own
-                 * view pass. Online only the local view is drawn, so the other
-                 * players' copies are traced here too, or their bullets never
-                 * land: no impacts, no broken glass. Only the shooter reports
-                 * hits on players (chraction.c), so this adds no damage.
-                 *
-                 * A copy's own camera matrices are built only in its view pass,
-                 * which never runs online, and the on-screen props' hit tests
-                 * are in the local view's space: the copy shoots with the local
-                 * view's matrices, its shot converted into them from the
-                 * owner's world-space barrel (bondview2.c gevrStereoShot).
-                 */
-                extern bool netSlotOccupied(int slot);
-                s32 localslot = get_cur_playernum();
-                struct player *localplayer = g_CurrentPlayer;
-                s32 slot;
-
-                if (netIsActive() && localplayer != NULL)
-                {
-                    for (slot = 0; slot < 4; slot++)
-                    {
-                        struct player *remote = g_playerPointers[slot];
-                        Mtxf *savedv2w;
-                        Mtxf *savedw2v;
-
-                        if (slot == localslot || !netSlotOccupied(slot) || remote == NULL ||
-                            remote->prop == NULL || remote->prop->stan == NULL || remote->bonddead)
-                        {
-                            continue;
-                        }
-                        savedv2w = remote->viewtoworldmtxf;
-                        savedw2v = remote->field_10CC;
-                        remote->viewtoworldmtxf = localplayer->viewtoworldmtxf;
-                        remote->field_10CC = localplayer->field_10CC;
-                        set_cur_player(slot);
-                        chraiCheckUseHeldItems();
-                        remote->viewtoworldmtxf = savedv2w;
-                        remote->field_10CC = savedw2v;
-                    }
-                    set_cur_player(localslot);
-                }
-            }
             { extern void gevrStereoAimUpdate(void); gevrStereoAimUpdate(); }
             /*
              * Issue #55: a blow of either hand (bondview2.c gevrHandChopTick),

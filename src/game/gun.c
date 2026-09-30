@@ -106,6 +106,7 @@ void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3
                             const f32 *rot9, const coord3d *extra, s32 cooktimer)
 {
     extern int netGetLocalSlot(void);
+    extern void gevrSetCopyTrace(s32 on);
     s32 prev = get_cur_playernum();
     s32 local = netGetLocalSlot();
     struct player *pl;
@@ -147,6 +148,7 @@ void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3
     s_gevrNetSpawn.active = TRUE;
 
     set_cur_player(slot);
+    gevrSetCopyTrace(TRUE);
 
     switch (kind)
     {
@@ -167,6 +169,7 @@ void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3
             break;
     }
 
+    gevrSetCopyTrace(FALSE);
     set_cur_player(prev);
     s_gevrNetSpawn.active = FALSE;
     pl->viewtoworldmtxf = savedv2w;
