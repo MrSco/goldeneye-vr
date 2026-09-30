@@ -861,6 +861,10 @@ void musicSeqPlayerInit(void)
     musicTrack1ApplySeqpVol(musicTrack1GetVolume());
     musicTrack2ApplySeqpVol(musicTrack2GetVolume());
     musicTrack3ApplySeqpVol(musicTrack3GetVolume());
+    {
+        extern float VrSfxVolume;
+        sndApplyVolumeAllSfxSlot((u16)(VrSfxVolume * 32767.0f));
+    }
 #endif
 }
 
