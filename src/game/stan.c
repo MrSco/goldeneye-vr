@@ -24,24 +24,27 @@ extern bool netIsActive(void);
 extern bool netSlotOccupied(int slot);
 extern void chrpropGetCollisionBounds(PropRecord *prop, f32 *collision_radius, f32 *height, f32 *arg3);
 
-static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, struct rect4f *polygon, s32 edges, const char *where)
+/*
+ * Two players already closer than the sum of their radii (60 units for two
+ * Bonds): the volume test refuses every destination whose circle overlaps
+ * the other's cylinder, in every direction, so both stood locked at 34
+ * apart until one died (both headsets' logs, 2026-09-30). The copies lag
+ * their owners, which is how two players get inside 60 at all. From inside,
+ * a move that does not bring them closer goes through.
+ */
+static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, f32 dest_x, f32 dest_z, const char *where)
 {
     static u64 s_next_log_us;
     u64 now;
     s32 slot;
-    f32 dx, dz, dist, radius, height, unused;
+    f32 dx, dz, dist, ndx, ndz, ndist, radius, height, unused;
 
-    if (prop->type != PROP_TYPE_VIEWER || polygon == NULL || edges <= 0 || !netIsActive()
+    if (prop->type != PROP_TYPE_VIEWER || !netIsActive()
         || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL || g_CurrentPlayer->prop == prop)
     {
         return 0;
     }
 
-    /*
-     * An empty slot's player keeps its initial (zero) bounds, and the point
-     * test counts every point as inside that: 2122 units away, every second
-     * (first run). Only a player who is there, and only within reach.
-     */
     slot = getPlayerPointerIndex(prop);
 
     if (!netSlotOccupied(slot))
@@ -54,14 +57,18 @@ static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, struct rect4f *polyg
     dist = sqrtf(dx * dx + dz * dz);
     chrpropGetCollisionBounds(prop, &radius, &height, &unused);
 
-    if (dist > radius + g_CurrentPlayer->field_488.collision_radius)
+    if (dist >= radius + g_CurrentPlayer->field_488.collision_radius)
     {
-        return 0;
+        return 0;   /* not overlapping: the game's own tests apply */
     }
 
-    if (!chrpropTestPointInPolygon(&g_CurrentPlayer->field_488.collision_position, polygon, edges))
+    ndx = prop->pos.x - dest_x;
+    ndz = prop->pos.z - dest_z;
+    ndist = sqrtf(ndx * ndx + ndz * ndz);
+
+    if (ndist < dist - 0.01f)
     {
-        return 0;
+        return 0;   /* closer still: refused as ever */
     }
 
     now = sysGetMicroseconds();
@@ -69,8 +76,8 @@ static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, struct rect4f *polyg
     if (now >= s_next_log_us)
     {
         s_next_log_us = now + 1000000;
-        sysLogPrintf(LOG_NOTE, "net: move: player %d inside player %d's cylinder (%s, %.0f apart, radius %.0f), let through",
-                     get_cur_playernum(), slot, where, dist, radius);
+        sysLogPrintf(LOG_NOTE, "net: move: player %d overlapping player %d (%s, %.0f apart, radii %.0f+%.0f), moving apart let through",
+                     get_cur_playernum(), slot, where, dist, radius, g_CurrentPlayer->field_488.collision_radius);
     }
 
     return 1;
@@ -1773,7 +1780,7 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &spA4, &spA0);
 
 #ifdef GEVR
-                if (gevrNetInsidePlayerProp(prop, polygon, numvertices0, "line"))
+                if (gevrNetInsidePlayerProp(prop, dest_x, dest_z, "line"))
                 {
                     continue;
                 }
@@ -2119,7 +2126,7 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
             {
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &sp94, &sp90);
 #ifdef GEVR
-                if (gevrNetInsidePlayerProp(prop, polygon, numvertices0, "volume"))
+                if (gevrNetInsidePlayerProp(prop, arg1, arg2, "volume"))
                 {
                     continue;
                 }
