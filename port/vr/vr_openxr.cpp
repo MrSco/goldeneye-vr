@@ -2493,10 +2493,19 @@ extern "C" int gevrVrRedrawDelta(float out[16])
  */
 extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);   // vr_input.cpp
 extern "C" int gevrVrGripPoseSteady(int hand, float pos[3], float quat[4]);   // vr_input.cpp: its turn steadied
+extern "C" int gevrMpMenuOpen(void);                                          // input.c: the multiplayer pause menu is up
 
 extern "C" int gevrVrRedrawHandDelta(int hand, float out[16])
 {
     float po[3], qo[4], pn[3], qn[4];
+    // The multiplayer pause menu holds the hands where they were (vr_input.cpp):
+    // a redrawn frame keeps them there too, on the head, or the game frames
+    // showed the held pair and the redrawn frames the newest one, and the two
+    // flashed against each other at 90 Hz (user, 2026-09-30).
+    if (gevrMpMenuOpen()) {
+        for (int i = 0; i < 16; i++) out[i] = (i % 5 == 0) ? 1.0f : 0.0f;
+        return 1;
+    }
     // the newest pose steadied as the game frame's was (aim and grip steadying)
     if (!g_haveRecordedViews || vr_world_scale <= 0.0f
         || !gevrVrGripPoseCamera(hand, po, qo) || !gevrVrGripPoseSteady(hand, pn, qn)) {
