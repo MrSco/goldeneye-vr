@@ -21,14 +21,40 @@
  * is already inside.
  */
 extern bool netIsActive(void);
+extern bool netSlotOccupied(int slot);
+extern void chrpropGetCollisionBounds(PropRecord *prop, f32 *collision_radius, f32 *height, f32 *arg3);
 
 static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, struct rect4f *polygon, s32 edges, const char *where)
 {
     static u64 s_next_log_us;
     u64 now;
+    s32 slot;
+    f32 dx, dz, dist, radius, height, unused;
 
     if (prop->type != PROP_TYPE_VIEWER || polygon == NULL || edges <= 0 || !netIsActive()
         || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL || g_CurrentPlayer->prop == prop)
+    {
+        return 0;
+    }
+
+    /*
+     * An empty slot's player keeps its initial (zero) bounds, and the point
+     * test counts every point as inside that: 2122 units away, every second
+     * (first run). Only a player who is there, and only within reach.
+     */
+    slot = getPlayerPointerIndex(prop);
+
+    if (!netSlotOccupied(slot))
+    {
+        return 0;
+    }
+
+    dx = prop->pos.x - g_CurrentPlayer->field_488.collision_position.x;
+    dz = prop->pos.z - g_CurrentPlayer->field_488.collision_position.z;
+    dist = sqrtf(dx * dx + dz * dz);
+    chrpropGetCollisionBounds(prop, &radius, &height, &unused);
+
+    if (dist > radius + g_CurrentPlayer->field_488.collision_radius)
     {
         return 0;
     }
@@ -42,12 +68,9 @@ static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, struct rect4f *polyg
 
     if (now >= s_next_log_us)
     {
-        f32 dx = prop->pos.x - g_CurrentPlayer->field_488.collision_position.x;
-        f32 dz = prop->pos.z - g_CurrentPlayer->field_488.collision_position.z;
-
         s_next_log_us = now + 1000000;
-        sysLogPrintf(LOG_NOTE, "net: move: player %d inside player %d's cylinder (%s, %.0f apart), let through",
-                     get_cur_playernum(), getPlayerPointerIndex(prop), where, sqrtf(dx * dx + dz * dz));
+        sysLogPrintf(LOG_NOTE, "net: move: player %d inside player %d's cylinder (%s, %.0f apart, radius %.0f), let through",
+                     get_cur_playernum(), slot, where, dist, radius);
     }
 
     return 1;
