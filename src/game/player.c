@@ -678,9 +678,21 @@ void shuffle_player_ids(void) {
 #endif
 }
 
+#ifdef GEVR
+/* lv.c gevrViewPass: an extra view pass (another player's copy, or the local
+ * player's off-view hand) counts as a later pass, so the once-a-frame work
+ * of the first pass does not run again in it. */
+s32 g_gevrExtraPass = 0;
+#endif
+
 s32 get_player_position_in_shuffled(s32 current_player_num) {
     s32 i;
     s32 position = 0;
+#ifdef GEVR
+    if (g_gevrExtraPass) {
+        return 1;
+    }
+#endif
 
     for (i = 0; i < 4; i++) {
         if (current_player_num != array_PLAYER_IDs[i])

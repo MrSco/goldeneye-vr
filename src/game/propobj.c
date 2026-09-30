@@ -4563,7 +4563,13 @@ s32 objTick(struct PropRecord *prop)
 		{
 			extern bool netIsActive(void);
 			extern bool netSlotOccupied(int slot);
+			extern s32 g_gevrExtraPass;
 
+			if (g_gevrExtraPass)
+			{
+				/* the local player's own off-view pass: its projectiles step in the head pass */
+				isSimOwner = FALSE;
+			}
 			if (netIsActive() && !isSimOwner && (obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE)
 				&& obj->projectile != NULL && obj->projectile->ownerprop != NULL)
 			{
