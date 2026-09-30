@@ -41,6 +41,7 @@ extern bool VrMotionThrowing;
 bool WepCanZoom = false;
 bool VrWeaponRecoil = true;
 extern "C" bool VrTwoHandsGun(int weaponnum);
+extern "C" int gevrMpMenuOpen(void);   /* input.c: the multiplayer pause menu is up */
 int gripPressed = false;
 int VrLeftHandedMode = 0;
 int VrSwapJoysticks = 0;
@@ -1332,6 +1333,15 @@ void controller_pose() {
             // allow re-anchoring on the next valid pose.
             sLastPoseGood[i] = false;
             sRejectStreak[i] = 0;
+            continue;
+        }
+
+        // The multiplayer pause menu is worked with the sticks and buttons:
+        // the hands and guns hold still meanwhile, so the gun does not wave
+        // about (or swing a punch) while the host picks a map (user,
+        // 2026-09-30). The last pose stands until the menu closes.
+        if (gevrMpMenuOpen()) {
+            HoldLastWeaponPose();
             continue;
         }
 
