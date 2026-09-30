@@ -9,6 +9,49 @@
 #include "assert.h"
 #ifdef GEVR
 #include "system.h"
+#include "player.h"
+
+/*
+ * Online, a player standing inside another player's collision cylinder is
+ * let out of it. The copies stand where their owners last reported, a step
+ * behind, so two players walking into each other overlap on both headsets;
+ * from inside a cylinder every move crosses its edge, and neither could move
+ * until one killed the other (playtest 2026-09-30). Only the local player's
+ * own moves (g_CurrentPlayer is its owner) and only against the cylinder it
+ * is already inside.
+ */
+extern bool netIsActive(void);
+
+static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, struct rect4f *polygon, s32 edges, const char *where)
+{
+    static u64 s_next_log_us;
+    u64 now;
+
+    if (prop->type != PROP_TYPE_VIEWER || polygon == NULL || edges <= 0 || !netIsActive()
+        || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL || g_CurrentPlayer->prop == prop)
+    {
+        return 0;
+    }
+
+    if (!chrpropTestPointInPolygon(&g_CurrentPlayer->field_488.collision_position, polygon, edges))
+    {
+        return 0;
+    }
+
+    now = sysGetMicroseconds();
+
+    if (now >= s_next_log_us)
+    {
+        f32 dx = prop->pos.x - g_CurrentPlayer->field_488.collision_position.x;
+        f32 dz = prop->pos.z - g_CurrentPlayer->field_488.collision_position.z;
+
+        s_next_log_us = now + 1000000;
+        sysLogPrintf(LOG_NOTE, "net: move: player %d inside player %d's cylinder (%s, %.0f apart), let through",
+                     get_cur_playernum(), getPlayerPointerIndex(prop), where, sqrtf(dx * dx + dz * dz));
+    }
+
+    return 1;
+}
 #endif
 
 void getTileMidPoint(StandTile *tile, coord3d *out);
@@ -1706,6 +1749,13 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
             {
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &spA4, &spA0);
 
+#ifdef GEVR
+                if (gevrNetInsidePlayerProp(prop, polygon, numvertices0, "line"))
+                {
+                    continue;
+                }
+#endif
+
                 if (numvertices0 > 0)
                 {
                     for (i = 0; i < numvertices0; i++)
@@ -2045,6 +2095,12 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
             if (propIsOfCdType(prop, cdtypes) != 0)
             {
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &sp94, &sp90);
+#ifdef GEVR
+                if (gevrNetInsidePlayerProp(prop, polygon, numvertices0, "volume"))
+                {
+                    continue;
+                }
+#endif
                 if ((numvertices0 > 0) && ((sp108 == 0) || ((sp90 <= arg5) && (arg6 <= sp94))))
                 {
                     var_f24 = -1.0f;

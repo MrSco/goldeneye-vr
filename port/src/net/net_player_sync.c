@@ -131,10 +131,13 @@ void netSpectatorFrame(void) {
     }
 }
 
-static void netSyncCopyHand(struct player *pl, int hand, int weapon, int fire) {
+static void netSyncCopyHand(struct player *pl, int slot, int hand, int weapon, int fire) {
     ChrRecord *chr = pl->prop->chr;
     int current = chr->weapons_held[hand] && chr->weapons_held[hand]->weapon ? chr->weapons_held[hand]->weapon->weaponnum : ITEM_UNARMED;
     if (current != weapon) {
+        /* a re-given weapon plays the body's draw animation: log every change (playtest 2026-09-30) */
+        sysLogPrintf(LOG_NOTE, "net: copy %d %s hand weapon %d -> %d (held %d, sent %d)", slot,
+                     hand == GUNLEFT ? "left" : "right", current, weapon, pl->hands[hand].weaponnum, weapon);
         chrSetWeaponFlag4(chr, hand);
         if (chr->weapons_held[hand] && chr->weapons_held[hand]->obj) objFreePermanently(chr->weapons_held[hand]->obj, 1);
         if (weapon > ITEM_UNARMED && weapon < ITEM_IDS_MAX) {
@@ -251,8 +254,35 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                  * the feet. Using eye height here causes vertical twitching. */
                 pl->prop->chr->ground = pl->prop->pos.y - pl->eyeheight;
 
-                netSyncCopyHand(pl, GUNRIGHT, netRemoteWeapon(playernum, GUNRIGHT), netRemoteTrigger(playernum, GUNRIGHT));
-                netSyncCopyHand(pl, GUNLEFT, netRemoteWeapon(playernum, GUNLEFT), netRemoteTrigger(playernum, GUNLEFT));
+                netSyncCopyHand(pl, playernum, GUNRIGHT, netRemoteWeapon(playernum, GUNRIGHT), netRemoteTrigger(playernum, GUNRIGHT));
+                netSyncCopyHand(pl, playernum, GUNLEFT, netRemoteWeapon(playernum, GUNLEFT), netRemoteTrigger(playernum, GUNLEFT));
+            }
+
+            /*
+             * Playtest logging (2026-09-30: "bent over at the torso", "twists
+             * when the controllers move", "bends when strafing", "draws the
+             * gun from behind the back on grip"): what the copy's body is
+             * posed from, every 2 s and at each change of the aim source.
+             * pitch/yaw are field_2A08/field_2A0C in degrees (up and left
+             * positive), head is the owner's view pitch, turn is field_1280
+             * (the strafe turn), anim the body's animation offset.
+             */
+            {
+                static u64 next_pose_log_us[GEVR_MAX_PLAYERS];
+                static s8 last_aim[GEVR_MAX_PLAYERS] = { -1, -1, -1, -1 };
+                s8 aim = (m->ucmd & UCMD_AIMVALID) ? 1 : 0;
+                u64 now = sysGetMicroseconds();
+                if (aim != last_aim[playernum] || now >= next_pose_log_us[playernum]) {
+                    sysLogPrintf(LOG_NOTE, "net: pose %d %s pitch %.0f yaw %.0f head %.0f fwd %.2f side %.2f turn %.0f crouch %d anim %d wep %d/%d fire %d%d%s",
+                                 playernum, aim ? "barrel" : "head",
+                                 pl->field_2A08 * (180.0f / M_PI_F), pl->field_2A0C * (180.0f / M_PI_F), pl->vv_verta,
+                                 pl->speedforwards, pl->speedsideways, pl->field_1280, pl->crouchpos,
+                                 pl->players_cur_animation, pl->hands[GUNRIGHT].weaponnum, pl->hands[GUNLEFT].weaponnum,
+                                 pl->hands[GUNRIGHT].field_87D ? 1 : 0, pl->hands[GUNLEFT].field_87D ? 1 : 0,
+                                 aim != last_aim[playernum] ? " (aim source changed)" : "");
+                    last_aim[playernum] = aim;
+                    next_pose_log_us[playernum] = now + 2000000;
+                }
             }
 
             /* Crucial: update player room list so prop renders across portal room boundaries */
@@ -461,6 +491,21 @@ void netPlayerSyncAfterTick(s32 playernum) {
             s_last_act_pos = move.pos;
         }
         if (act) netTouchLocalActivity();
+    }
+
+    /* The owner's side of the copy's pose line above, to compare against. */
+    {
+        static u64 next_local_log_us;
+        u64 now = sysGetMicroseconds();
+        if (now >= next_local_log_us) {
+            next_local_log_us = now + 2000000;
+            sysLogPrintf(LOG_NOTE, "net: pose local %s pitch %.0f yaw %.0f head %.0f fwd %.2f side %.2f turn %.0f crouch %d wep %d/%d ucmd %x aimdir %.2f,%.2f,%.2f",
+                         (move.ucmd & UCMD_AIMVALID) ? "barrel" : "head",
+                         pl->field_2A08 * (180.0f / M_PI_F), pl->field_2A0C * (180.0f / M_PI_F), pl->vv_verta,
+                         pl->speedforwards, pl->speedsideways, pl->field_1280, pl->crouchpos,
+                         move.weaponnum, move.weaponnum_left, (unsigned)move.ucmd,
+                         move.aimdir.x, move.aimdir.y, move.aimdir.z);
+        }
     }
 
     netSendLocalPlayerMove(&move);

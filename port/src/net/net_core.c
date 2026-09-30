@@ -30,14 +30,15 @@
 #include <string.h>
 #include <strings.h>
 
-#ifdef ANDROID
-#include <android/log.h>
-#define NET_LOG(...) __android_log_print(ANDROID_LOG_INFO, "GEVR-Net", __VA_ARGS__)
-#define NET_ERR(...) __android_log_print(ANDROID_LOG_ERROR, "GEVR-Net", __VA_ARGS__)
-#else
-#define NET_LOG(...) printf("[GEVR-Net] " __VA_ARGS__); printf("\n")
-#define NET_ERR(...) fprintf(stderr, "[GEVR-Net-Err] " __VA_ARGS__); fprintf(stderr, "\n")
-#endif
+/*
+ * Through the game's log (system.c sysLogPrintf): logcat under the app's tag
+ * and the gevr.log file the launcher's "Send debug log" bundles. As a
+ * separate "GEVR-Net" logcat tag these lines were missing from a tester's
+ * bundle (2026-09-30): the bundle's logcat tail is 1500 lines, which the
+ * Quest's own services fill in under a minute.
+ */
+#define NET_LOG(...) sysLogPrintf(LOG_NOTE, "net: " __VA_ARGS__)
+#define NET_ERR(...) sysLogPrintf(LOG_ERROR, "net: " __VA_ARGS__)
 
 static bool s_initialized = false;
 static NetState s_state = NET_STATE_OFFLINE;
@@ -899,6 +900,7 @@ bool netTakeStageFadeIn(void) {
 }
 
 static void netResolveVotes(void);
+static bool s_rotate_next;   /* the next round follows a finished match: rotate (see netResolveVotes) */
 
 static void netBeginRoundReset(bool start) {
     u8 raw[64];
@@ -945,6 +947,7 @@ void netHostContinue(void) {
     if (!netIsHost() || s_state != NET_STATE_INGAME || !s_match_ended || s_next_round_at_us) return;
     s_results_deadline_us = 0;
     NET_LOG("host: continue");
+    s_rotate_next = true;
     netScheduleRound(20);
 }
 
@@ -1337,7 +1340,7 @@ static void netProcessHitReport(uint8_t shooter_slot, uint8_t target, uint8_t we
     if (!netIsHost()) return;
     (void)hy;
     
-    NET_LOG("Hit reported: shooter %d -> target %d (dmg: %.1f)", shooter_slot, target, dmg);
+    NET_LOG("Hit reported: shooter %d -> target %d weapon %d (dmg: %.1f)", shooter_slot, target, weapon, dmg);
     
     float vx = hx;
     float vz = hz;
@@ -2339,12 +2342,27 @@ static int netRotationPick(int kind, int current, unsigned favorites, int mode) 
     random ^= random << 13; random ^= random >> 17; random ^= random << 5;
     return choices[random % (uint32_t)count];
 }
+/*
+ * The rotation (shuffle, playlist) turns only after a finished match: the
+ * round that follows the launcher's launch, a warmup join or the host's
+ * START MATCH plays the stage the host chose. Before this the warmup join's
+ * countdown resolved the rotation too, so a shuffle host who picked Bunker II
+ * warmed up there and started the match on a random other map (tester,
+ * 2026-09-30). Ballots still count whenever somebody voted.
+ */
+static bool s_rotate_next = false;   /* declared with netResolveVotes above */
+
 static void netResolveVotes(void) {
     int mode = s_lobby_state.config.next_round;
-    int stage = mode == NET_NEXT_VOTE ? netTallyBallot(NET_BALLOT_STAGE) :
-        netRotationPick(NET_BALLOT_STAGE, netStageIndexOf(s_round.config.stage), VrMpFavStages, mode);
-    int set = mode == NET_NEXT_VOTE ? netTallyBallot(NET_BALLOT_WEAPONS) :
-        netRotationPick(NET_BALLOT_WEAPONS, s_round.config.weapon_set, VrMpFavSets, mode);
+    bool rotate = s_rotate_next && mode != NET_NEXT_VOTE;
+    int stage = mode == NET_NEXT_VOTE ? netTallyBallot(NET_BALLOT_STAGE) : rotate ?
+        netRotationPick(NET_BALLOT_STAGE, netStageIndexOf(s_round.config.stage), VrMpFavStages, mode) : -1;
+    int set = mode == NET_NEXT_VOTE ? netTallyBallot(NET_BALLOT_WEAPONS) : rotate ?
+        netRotationPick(NET_BALLOT_WEAPONS, s_round.config.weapon_set, VrMpFavSets, mode) : -1;
+    NET_LOG("round settings: mode %d (%s), lobby stage %d, last round stage %d, ballot stage %d set %d",
+            mode, s_rotate_next ? "after a match" : "first round, no rotation",
+            s_lobby_state.config.stage, s_round.config.stage, stage, set);
+    s_rotate_next = false;
     if (stage >= 0 && netStageEligible(stage)) s_lobby_state.config.stage = netStage(stage)->level_id;
     if (!netStageEligible(netStageIndexOf(s_lobby_state.config.stage))) s_lobby_state.config.stage = s_round.config.stage;
     if (s_lobby_state.config.scenario == SCENARIO_MWTGG) s_lobby_state.config.weapon_set = 13;
