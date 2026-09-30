@@ -189,6 +189,35 @@ void netPlayerSyncBeforeTick(s32 playernum) {
         if (!pl || !m) return;
         
         if (pl->prop) {
+            /*
+             * The owner decides its own life (protocol 10). Each headset
+             * applies the host's damage events to the copy as well, for the
+             * kill credit and the death animation, but the accounting drifts
+             * (armour picked up on one headset, the damage-flash gate), and a
+             * copy that died where its owner did not stood as a corpse
+             * ignoring the owner's moves (playtest 2026-09-30). So: dead
+             * owner, live copy: the copy dies, credited to whoever last hurt
+             * it here; live owner, dead copy: the copy respawns (any pad, the
+             * position below snaps it); both alive: the owner's numbers.
+             */
+            if (m->dead && !pl->bonddead) {
+                s32 prev = get_cur_playernum();
+                s32 killer = netLastAttacker(playernum);
+                sysLogPrintf(LOG_NOTE, "net: copy %d: owner dead, copy alive (health %.2f): killing, credit %d", playernum, pl->bondhealth, killer);
+                set_cur_player(playernum);
+                record_damage_kills(1000.0f, 0.0f, 1.0f, killer, 1);
+                set_cur_player(prev);
+            } else if (!m->dead && pl->bonddead && m->health > 0.0f) {
+                s32 prev = get_cur_playernum();
+                sysLogPrintf(LOG_NOTE, "net: copy %d: owner alive (health %.2f), copy dead: respawning the copy", playernum, m->health);
+                set_cur_player(playernum);
+                mp_respawn_handler_net(0, m->angles[0]);
+                set_cur_player(prev);
+                pl->deathanimfinished = 1;   /* snap to the owner below */
+            } else if (!m->dead && !pl->bonddead) {
+                pl->bondhealth = m->health;
+                pl->bondarmour = m->armour;
+            }
             /* A corpse stays at its death location until the reliable respawn
              * event resets the player. Late movement packets must not drag it. */
             if (pl->bonddead) {
@@ -470,6 +499,9 @@ void netPlayerSyncAfterTick(s32 playernum) {
     move.weaponnum = (s8)getCurrentPlayerWeaponId(GUNRIGHT);
     move.weaponnum_left = netActiveDualWield() ? (s8)getCurrentPlayerWeaponId(GUNLEFT) : ITEM_UNARMED;
     move.crouchpos = (s8)pl->crouchpos;
+    move.health = pl->bondhealth;
+    move.armour = pl->bondarmour;
+    move.dead = pl->bonddead ? 1 : 0;
     
     if (pl->prop) {
         move.pos = pl->prop->pos;

@@ -4563,11 +4563,18 @@ s32 objTick(struct PropRecord *prop)
 		{
 			extern bool netIsActive(void);
 			extern bool netSlotOccupied(int slot);
+			extern int netGetLocalSlot(void);
 			extern s32 g_gevrExtraPass;
 
-			if (g_gevrExtraPass)
+			if (g_gevrExtraPass && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
 			{
-				/* the local player's own off-view pass: its projectiles step in the head pass */
+				/*
+				 * The local player's own off-view pass: its projectiles step in
+				 * the head pass. A copy's pass is an extra pass too, and this
+				 * once caught it: an ammo box or gun a copy shot was stepped by
+				 * nobody, so it flew only on the shooter's headset (playtest
+				 * 2026-09-30).
+				 */
 				isSimOwner = FALSE;
 			}
 			if (netIsActive() && !isSimOwner && (obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE)

@@ -98,6 +98,29 @@ void netSetPreferredCharacter(uint8_t chr_id) {
 
 /* Remote player state cache */
 static struct netplayermove s_remote_moves[GEVR_MAX_PLAYERS];
+static int8_t s_last_attacker[GEVR_MAX_PLAYERS] = { -1, -1, -1, -1 };   /* per target: who last damaged it here */
+
+int netLastAttacker(int slot) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS) return slot;
+    return s_last_attacker[slot] >= 0 ? s_last_attacker[slot] : slot;
+}
+
+/* Every headset's damage application, logged with the target's accounting (playtest 2026-09-30) */
+static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, float dmg, float vx, float vz) {
+    extern s32 s_gevrExplosionDamage;
+    struct player *pl = g_playerPointers[target];
+    s32 prev = get_cur_playernum();
+    f32 h0 = pl->bondhealth, a0 = pl->bondarmour;
+    s_last_attacker[target] = (int8_t)attacker;
+    set_cur_player(target);
+    s_gevrExplosionDamage = (weapon == ITEM_GRENADE || weapon == ITEM_GRENADELAUNCH || weapon == ITEM_ROCKETLAUNCH || weapon == ITEM_PROXIMITYMINE || weapon == ITEM_TIMEDMINE || weapon == ITEM_REMOTEMINE || weapon == ITEM_TANKSHELLS);
+    record_damage_kills(dmg, vx, vz, attacker, 1);
+    s_gevrExplosionDamage = 0;
+    set_cur_player(prev);
+    NET_LOG("damage: player %d took %.2f from %d (weapon %d): health %.2f -> %.2f, armour %.2f -> %.2f%s%s",
+            target, dmg, attacker, weapon, h0, pl->bondhealth, a0, pl->bondarmour,
+            pl->bonddead ? ", dead" : "", target == s_local_slot ? " (me)" : "");
+}
 static NetMsgPlayerState s_remote_players[GEVR_MAX_PLAYERS];
 static bool s_remote_active[GEVR_MAX_PLAYERS];
 static bool s_waiting_for_match_snapshot = false;
@@ -1373,13 +1396,7 @@ static void netProcessHitReport(uint8_t shooter_slot, uint8_t target, uint8_t we
     
     /* Also execute damage on host locally */
     if (target < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
-        s32 prev = get_cur_playernum();
-        set_cur_player(target);
-        extern s32 s_gevrExplosionDamage;
-        s_gevrExplosionDamage = (weapon == ITEM_GRENADE || weapon == ITEM_GRENADELAUNCH || weapon == ITEM_ROCKETLAUNCH || weapon == ITEM_PROXIMITYMINE || weapon == ITEM_TIMEDMINE || weapon == ITEM_REMOTEMINE || weapon == ITEM_TANKSHELLS);
-        record_damage_kills(dmg, vx, vz, shooter_slot, 1);
-        s_gevrExplosionDamage = 0;
-        set_cur_player(prev);
+        netApplyDamage(target, shooter_slot, weapon, dmg, vx, vz);
     }
 }
 
@@ -2054,14 +2071,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (!netIsHost() && peer == s_server_peer && !buf.error &&
                 s_phase == NET_PHASE_IN_PROGRESS && netSlotOccupied(target) &&
                 attacker < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
-                NET_LOG("Player %d took %.1f damage from attacker %d", target, dmg, attacker);
-                s32 prev = get_cur_playernum();
-                set_cur_player(target);
-                extern s32 s_gevrExplosionDamage;
-                s_gevrExplosionDamage = (weapon == ITEM_GRENADE || weapon == ITEM_GRENADELAUNCH || weapon == ITEM_ROCKETLAUNCH || weapon == ITEM_PROXIMITYMINE || weapon == ITEM_TIMEDMINE || weapon == ITEM_REMOTEMINE || weapon == ITEM_TANKSHELLS);
-                record_damage_kills(dmg, vx, vz, attacker, 1);
-                s_gevrExplosionDamage = 0;
-                set_cur_player(prev);
+                netApplyDamage(target, attacker, weapon, dmg, vx, vz);
             }
             break;
         }
