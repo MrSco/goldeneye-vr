@@ -9,6 +9,7 @@
 #ifdef GEVR
 extern bool netIsActive(void);
 extern bool netSlotOccupied(int slot);
+extern int netGetLocalSlot(void);
 #endif
 
 struct player *g_playerPointers[4];
@@ -658,10 +659,18 @@ void shuffle_player_ids(void) {
     }
 #ifdef GEVR
     if (netIsActive()) {
+        /*
+         * Online only the local view is drawn, and the world's once-a-frame
+         * work (props, remote bodies, sounds) runs in that one pass when its
+         * player is first in this order (get_player_position_in_shuffled() == 0).
+         * Put the local slot first so it runs every frame, not 1 in N.
+         */
         PLAYER_ID ordered[4];
         s32 count = 0;
+        s32 local = netGetLocalSlot();
+        if (local >= 0 && local < 4 && netSlotOccupied(local)) ordered[count++] = local;
         for (i = 0; i < 4; i++)
-            if (netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
+            if (netSlotOccupied(array_PLAYER_IDs[i]) && array_PLAYER_IDs[i] != local) ordered[count++] = array_PLAYER_IDs[i];
         for (i = 0; i < 4; i++)
             if (!netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
         for (i = 0; i < 4; i++) array_PLAYER_IDs[i] = ordered[i];

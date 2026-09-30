@@ -4470,8 +4470,24 @@ s32 objTick(struct PropRecord *prop)
 			)
 			
             isSimOwner = projectile->ownerprop == g_CurrentPlayer->prop;
-			
+
 		}
+#ifdef GEVR
+		/*
+		 * Online the local view's pass is the only one each frame, and the
+		 * local slot is first in the shuffle (player.c): it steps every
+		 * object, including the projectiles thrown or fired by the other
+		 * players' copies, which would otherwise hang in the air.
+		 */
+		{
+			extern bool netIsActive(void);
+
+			if (netIsActive())
+			{
+				isSimOwner = TRUE;
+			}
+		}
+#endif
 	}
 
     /**
