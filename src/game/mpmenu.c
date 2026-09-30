@@ -35,7 +35,15 @@ extern float VrMusicVolume;
 extern float VrVoiceVolume;
 extern void vrSettingsSave(void);
 extern bool get_button_state(int hand, const char *button_name);
-static s32 s_mpAudioSlider = 0; /* 0 = MUSIC, 1 = VOICE */
+extern float VrSfxVolume;
+extern void gevrSndApplySfxVolume(u16 volume);
+extern int netVoiceIsMuted(void);
+extern void netVoiceSetMuted(int muted);
+extern int netVoiceHasPermission(void);
+extern int netVoiceCaptureFailed(void);
+/* The pause menu's audio rows, in the order a right stick click steps through. */
+enum { MPAUDIO_MUSIC, MPAUDIO_SFX, MPAUDIO_VOICE, MPAUDIO_MIC, MPAUDIO_ROWS };
+static s32 s_mpAudioSlider = MPAUDIO_MUSIC;
 #endif
 
 #ifdef REFRESH_PAL
@@ -723,7 +731,7 @@ void mpwatchMenuTick(void)
                     /* Right stick click only: A also closes the pause menu. */
                     if (rclick_pressed)
                     {
-                        s_mpAudioSlider = !s_mpAudioSlider;
+                        s_mpAudioSlider = (s_mpAudioSlider + 1) % MPAUDIO_ROWS;
                         mpwatchPlayBeep();
                     }
 
@@ -745,7 +753,7 @@ void mpwatchMenuTick(void)
                     }
                     if (change)
                     {
-                        if (s_mpAudioSlider == 0)
+                        if (s_mpAudioSlider == MPAUDIO_MUSIC)
                         {
                             s32 volume = (s32)get_mTrack2Vol() + change * 3277;
                             if (volume < 0) volume = 0;
@@ -757,12 +765,30 @@ void mpwatchMenuTick(void)
                             vrSettingsSave();
                             mpwatchPlayBeep();
                         }
-                        else
+                        else if (s_mpAudioSlider == MPAUDIO_SFX)
+                        {
+                            /* Tenths, so the steps land on 0..100% exactly. */
+                            s32 tenths = (s32)(VrSfxVolume * 10.0f + 0.5f) + change;
+                            if (tenths < 0) tenths = 0;
+                            if (tenths > 10) tenths = 10;
+                            VrSfxVolume = (float)tenths / 10.0f;
+                            gevrSndApplySfxVolume((u16)(VrSfxVolume * 32767.0f));
+                            vrSettingsSave();
+                            /* After the change, so the beep plays at the new level. */
+                            mpwatchPlayBeep();
+                        }
+                        else if (s_mpAudioSlider == MPAUDIO_VOICE)
                         {
                             VrVoiceVolume += change * 0.10f;
                             if (VrVoiceVolume < 0.0f) VrVoiceVolume = 0.0f;
                             if (VrVoiceVolume > 1.0f) VrVoiceVolume = 1.0f;
                             vrSettingsSave();
+                            mpwatchPlayBeep();
+                        }
+                        else if ((change < 0) != (netVoiceIsMuted() != 0))
+                        {
+                            /* Mic: up = active, down = muted. */
+                            netVoiceSetMuted(change < 0);
                             mpwatchPlayBeep();
                         }
                     }
@@ -1926,48 +1952,57 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
 #ifdef GEVR
         if (netIsActive() && g_CurrentPlayer->mpmenumode == MENU_PAUSE)
         {
-            char music_label[48];
-            char voice_label[48];
-            char hint_label[48];
-            u32 music_color;
-            u32 voice_color;
+            char row_label[48];
+            char value[24];
+            s32 row;
 
-            int music_val = ((s32)get_mTrack2Vol() * 100 + 16383) / 32767;
-            int voice_val = (int)(VrVoiceVolume * 100.0f + 0.5f);
+            for (row = 0; row <= MPAUDIO_ROWS; row++)
+            {
+                const char *name = "";
+                s32 selected = row == s_mpAudioSlider;
 
-            snprintf(music_label, sizeof(music_label), "%sMUSIC %d%%%s",
-                     s_mpAudioSlider == 0 ? "> " : "  ", music_val,
-                     s_mpAudioSlider == 0 ? " <" : "");
-            snprintf(voice_label, sizeof(voice_label), "%sVOICE %d%%%s",
-                     s_mpAudioSlider == 1 ? "> " : "  ", voice_val,
-                     s_mpAudioSlider == 1 ? " <" : "");
-            snprintf(hint_label, sizeof(hint_label), "R-STICK:ADJ  CLICK:SWAP");
+                if (row == MPAUDIO_MUSIC)
+                {
+                    name = "MUSIC";
+                    snprintf(value, sizeof(value), "%d%%", ((s32)get_mTrack2Vol() * 100 + 16383) / 32767);
+                }
+                else if (row == MPAUDIO_SFX)
+                {
+                    name = "SFX";
+                    snprintf(value, sizeof(value), "%d%%", (int)(VrSfxVolume * 100.0f + 0.5f));
+                }
+                else if (row == MPAUDIO_VOICE)
+                {
+                    name = "VOICE";
+                    snprintf(value, sizeof(value), "%d%%", (int)(VrVoiceVolume * 100.0f + 0.5f));
+                }
+                else if (row == MPAUDIO_MIC)
+                {
+                    name = "MIC";
+                    snprintf(value, sizeof(value), "%s", netVoiceIsMuted() ? "MUTED" :
+                             !netVoiceHasPermission() ? "NO ACCESS" :
+                             netVoiceCaptureFailed() ? "UNAVAILABLE" : "ACTIVE");
+                }
 
-            music_color = (s_mpAudioSlider == 0) ? 0xa0ffa0f0 : 0x00ff00b0;
-            textMeasure(&textheight, &textwidth, music_label,
-                        ptrFontBankGothicChars, ptrFontBankGothic, 0);
-            x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
-            y = menu_top + 116 + MPMENU_YOFF;
-            viewleft = viGetX(); h1 = viGetY();
-            gdl = textRender(gdl, &x, &y, music_label, ptrFontBankGothicChars,
-                             ptrFontBankGothic, music_color, viewleft, h1, 0, 0);
+                if (row == MPAUDIO_ROWS)
+                {
+                    snprintf(row_label, sizeof(row_label), "%s  CLICK:NEXT",
+                             s_mpAudioSlider == MPAUDIO_MIC ? "R-STICK:ON/OFF" : "R-STICK:ADJ");
+                }
+                else
+                {
+                    snprintf(row_label, sizeof(row_label), "%s%s %s%s",
+                             selected ? "> " : "  ", name, value, selected ? " <" : "");
+                }
 
-            voice_color = (s_mpAudioSlider == 1) ? 0xa0ffa0f0 : 0x00ff00b0;
-            textMeasure(&textheight, &textwidth, voice_label,
-                        ptrFontBankGothicChars, ptrFontBankGothic, 0);
-            x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
-            y = menu_top + 130 + MPMENU_YOFF;
-            viewleft = viGetX(); h1 = viGetY();
-            gdl = textRender(gdl, &x, &y, voice_label, ptrFontBankGothicChars,
-                             ptrFontBankGothic, voice_color, viewleft, h1, 0, 0);
-
-            textMeasure(&textheight, &textwidth, hint_label,
-                        ptrFontBankGothicChars, ptrFontBankGothic, 0);
-            x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
-            y = menu_top + 144 + MPMENU_YOFF;
-            viewleft = viGetX(); h1 = viGetY();
-            gdl = textRender(gdl, &x, &y, hint_label, ptrFontBankGothicChars,
-                             ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
+                textMeasure(&textheight, &textwidth, row_label,
+                            ptrFontBankGothicChars, ptrFontBankGothic, 0);
+                x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+                y = menu_top + 116 + row * 13 + (row == MPAUDIO_ROWS ? 2 : 0) + MPMENU_YOFF;
+                viewleft = viGetX(); h1 = viGetY();
+                gdl = textRender(gdl, &x, &y, row_label, ptrFontBankGothicChars,
+                                 ptrFontBankGothic, selected ? 0xa0ffa0f0 : 0x00ff00b0, viewleft, h1, 0, 0);
+            }
         }
 #endif
         gdl = combiner_bayer_lod_perspective(gdl);

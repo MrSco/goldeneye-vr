@@ -205,6 +205,9 @@ ALSoundState *sndPlaySfx(struct ALBankAlt_s *soundBank, s16 soundIndex, ALSoundS
 u16 sndGetSfxSlotFirstNaturalVolume(void);
 void sndApplyVolumeAllSfxSlot(u16 arg0);
 void sndSetScalerApplyVolumeAllSfxSlot(f32 arg0);
+#ifdef GEVR
+void gevrSndApplySfxVolume(u16 volume);
+#endif
 
 extern s8 g_sndBootswitchSound;
 

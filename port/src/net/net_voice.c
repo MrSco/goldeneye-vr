@@ -8,6 +8,7 @@
 #include "system.h"
 #include "game/player.h"
 #include "game/bondview.h"
+#include "game/stan.h"
 
 #define VOICE_RATE 16000
 #define OUTPUT_RATE 22050
@@ -260,8 +261,32 @@ static int playersShareRoom(struct player *listener, struct player *speaker) {
     return 0;
 }
 
+/* GoldenEye's BG rooms are geometry chunks, not rooms as a player sees them:
+ * one hall is several of them and a player's box overlaps only a few, so a
+ * shared room index misses most players in plain view. The in-view test is a
+ * clear walk over the floor tiles (walls are tile edges with no neighbour)
+ * from the listener, whose tile is authoritative, to the speaker. The walk
+ * is flat, so it must also end on the speaker's floor: both positions use
+ * the same convention, so compare their heights above the floor under them.
+ * Runs on the main thread between frames (gevrAudioFrame). */
+static int playersPathClear(struct player *listener, struct player *speaker) {
+    if (!listener->prop || !speaker->prop || !listener->prop->stan) return 0;
+    StandTile *tile = listener->prop->stan;
+    coord3d a = listener->prop->pos, b = speaker->prop->pos;
+    if (!walkTilesBetweenPoints_NoCallback(&tile, a.x, a.z, b.x, b.z) || !tile) return 0;
+    float listener_up = a.y - stanGetPositionYValue(listener->prop->stan, a.x, a.z);
+    float speaker_up = b.y - stanGetPositionYValue(tile, b.x, b.z);
+    return fabsf(listener_up - speaker_up) < 200.0f;
+}
+
 void netVoiceMix(int16_t *stereo, size_t frames) {
     if (!stereo || !voiceSession() || SDL_AtomicGet(&paused) || VrVoiceVolume <= 0.0f) return;
+    /* Gains ramp across each buffer from the last one applied, so a speaker
+     * stepping behind a wall fades rather than clicks. */
+    static float applied_left[GEVR_MAX_PLAYERS], applied_right[GEVR_MAX_PLAYERS];
+    static uint32_t log_at;
+    int log_now = (int32_t)(SDL_GetTicks() - log_at) >= 0;
+    if (log_now) log_at = SDL_GetTicks() + 2000;
     float left[GEVR_MAX_PLAYERS], right[GEVR_MAX_PLAYERS];
     for (unsigned slot = 0; slot < GEVR_MAX_PLAYERS; slot++) {
         left[slot] = right[slot] = 0.0f;
@@ -281,22 +306,27 @@ void netVoiceMix(int16_t *stereo, size_t frames) {
             float distance = sqrtf(dx * dx + dy * dy + dz * dz);
 
             int same_room = playersShareRoom(listener, speaker);
-            if (same_room) {
-                /* In the same room: extended range (up to 3500u).
-                 * Volume never drops below 50% while in the same room. */
-                if (distance > 200.0f) {
-                    float t = (distance - 200.0f) / 3300.0f;
+            int path_clear = !same_room && playersPathClear(listener, speaker);
+            if (same_room || path_clear) {
+                /* In view: full volume to 500u, easing to a 60% floor at
+                 * 4000u and staying there. */
+                if (distance > 500.0f) {
+                    float t = (distance - 500.0f) / 3500.0f;
                     if (t > 1.0f) t = 1.0f;
-                    gain *= (1.0f - 0.5f * t);
+                    gain *= (1.0f - 0.4f * t);
                 }
             } else {
-                /* Different rooms: cutoff at 2500u with steep quadratic falloff. */
-                if (distance >= 2500.0f) continue;
-                if (distance > 200.0f) {
+                /* Out of view: cutoff at 2500u with steep quadratic falloff. */
+                if (distance >= 2500.0f) gain = 0.0f;
+                else if (distance > 200.0f) {
                     float t = (2500.0f - distance) / 2300.0f;
                     gain *= (t * t);
                 }
             }
+            if (log_now)
+                sysLogPrintf(LOG_NOTE, "voice: slot %u dist %.0f room %d path %d gain %.2f",
+                             slot, distance, same_room, path_clear, gain);
+            if (gain <= 0.0f) continue;
 
             if (distance > 1.0f) {
                 float yaw = listener->vv_theta * 0.01745329252f;
@@ -308,17 +338,28 @@ void netVoiceMix(int16_t *stereo, size_t frames) {
         left[slot] = gain * (1.0f - pan);
         right[slot] = gain * (1.0f + pan);
     }
+    float step_left[GEVR_MAX_PLAYERS], step_right[GEVR_MAX_PLAYERS];
+    for (unsigned slot = 0; slot < GEVR_MAX_PLAYERS; slot++) {
+        step_left[slot] = frames ? (left[slot] - applied_left[slot]) / frames : 0.0f;
+        step_right[slot] = frames ? (right[slot] - applied_right[slot]) / frames : 0.0f;
+    }
     for (size_t i = 0; i < frames; i++) {
         float l = stereo[2 * i], r = stereo[2 * i + 1];
         for (unsigned slot = 0; slot < GEVR_MAX_PLAYERS; slot++) {
             /* Every stream keeps flowing, so a player walking back into
              * range is heard live, not from 200 ms ago. */
             float sample = streamSample(&streams[slot]);
-            if (left[slot] == 0.0f && right[slot] == 0.0f) continue;
-            l += sample * left[slot];
-            r += sample * right[slot];
+            float gain_left = applied_left[slot] + step_left[slot] * (float)(i + 1);
+            float gain_right = applied_right[slot] + step_right[slot] * (float)(i + 1);
+            if (gain_left == 0.0f && gain_right == 0.0f) continue;
+            l += sample * gain_left;
+            r += sample * gain_right;
         }
         stereo[2 * i] = clampSample(l);
         stereo[2 * i + 1] = clampSample(r);
+    }
+    for (unsigned slot = 0; slot < GEVR_MAX_PLAYERS; slot++) {
+        applied_left[slot] = left[slot];
+        applied_right[slot] = right[slot];
     }
 }

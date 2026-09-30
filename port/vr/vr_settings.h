@@ -28,6 +28,7 @@ extern int VrPlayMode;
 extern int VrMicMuted;
 extern float VrMusicVolume;
 extern float VrVoiceVolume;
+extern float VrSfxVolume;
 extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launcher "Your name")
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
