@@ -66,6 +66,7 @@ typedef enum {
     NET_MSG_PROJECTILE = 23,    /* a thrown or launched projectile: spawner, point, velocity */
     NET_MSG_EXPLOSION = 24,     /* a damaging explosion the player caused */
     NET_MSG_OBJECT_STATE = 25,  /* a pickup collected or a door used */
+    NET_MSG_COUNTDOWN = 26,     /* Host -> all: the next round starts in N ms (0 cancels) */
 } NetMsgType;
 
 /* NET_MSG_OBJECT_STATE actions */
