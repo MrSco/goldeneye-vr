@@ -830,9 +830,6 @@ extern "C" void gevrSndApplySfxVolume(uint16_t);
 
 void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
-    ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
-    ImGui::Separator();
-    
     static int subTab = 0; // 0 = Host, 1 = Join
     static int joinMethod = 0; // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
     static char directIp[64] = "192.168.1.";
@@ -967,6 +964,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         { "Baron Samedi", 11 },
     };
     
+    // The panel does not scroll: the title shares the Host/Join row so the
+    // lobby and Back to Main Menu fit below.
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
+    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
     if (ImGui::RadioButton("Host Game", subTab == 0)) subTab = 0;
     ImGui::SameLine();
     if (ImGui::RadioButton("Join Game", subTab == 1)) subTab = 1;
@@ -1120,6 +1122,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             bool canLaunch = (pCount >= 1 && pCount <= maxP && slotsReady);
             
             ImGui::TextColored(gold, "PLAYERS IN LOBBY (%d/%d):", pCount, maxP);
+            char openSlots[32] = "";
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
                 if (lobby->slots[i].connected) {
                     ImGui::BulletText("Slot %d: %s (%s) %s", i + 1,
@@ -1133,10 +1136,13 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                         ImGui::SetTooltip("Player: %s\nRole: %s\nApp Version: %s\nNetwork Protocol: %d\nSlot: %d",
                                           lobby->slots[i].name, role, verStr, GEVR_NET_VERSION, i + 1);
                     }
-                } else {
-                    ImGui::TextDisabled("Slot %d: [Open]", i + 1);
+                } else if (i < maxP) {
+                    // one line for all the open slots, not one each
+                    const size_t n = strlen(openSlots);
+                    snprintf(openSlots + n, sizeof(openSlots) - n, "%s%d", n ? ", " : "", i + 1);
                 }
             }
+            if (openSlots[0]) ImGui::TextDisabled("Open slots: %s", openSlots);
             
             if (!canLaunch) {
                 ImGui::Spacing();
@@ -1149,8 +1155,12 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             }
             
             ImGui::Spacing();
+            // Launch and Stop Hosting share a row (the panel does not scroll).
+            const float stopW = ImGui::CalcTextSize("Stop Hosting").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            const float launchRowH = ImGui::GetFrameHeight() * 1.8f;
             if (!canLaunch) ImGui::BeginDisabled();
-            if (ImGui::Button("LAUNCH MULTIPLAYER MATCH!", ImVec2(-1, ImGui::GetFrameHeight() * 1.8f))) {
+            if (ImGui::Button("LAUNCH MULTIPLAYER MATCH!",
+                              ImVec2(-(stopW + ImGui::GetStyle().ItemSpacing.x), launchRowH))) {
                 if (!netLobbyHostLaunchMatch()) return;
                 gevrJavaCommand("lobbyCommand", (std::string("phase|") +
                     (pCount > 1 ? "in_progress" : "warmup") + "|" + std::to_string(pCount)).c_str());
@@ -1172,8 +1182,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 open = false;
             }
             if (!canLaunch) ImGui::EndDisabled();
-            
-            if (ImGui::Button("Stop Hosting")) {
+            ImGui::SameLine();
+            if (ImGui::Button("Stop Hosting", ImVec2(stopW, launchRowH))) {
                 gevrJavaCommand("lobbyCommand", "stop");
                 netDiscoveryStopBroadcasting();
                 netDisconnect();
