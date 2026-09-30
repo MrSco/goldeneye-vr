@@ -24,10 +24,51 @@
 
 extern bool get_button_state(int controllerIndex, const char* buttonName);
 extern enum PROP getPropForHeldItem(ITEM_IDS arg0);
+extern void bondviewUpdatePlayerRoom(struct player *player);
 static coord3d s_remote_render_pos[GEVR_MAX_PLAYERS];
+static StandTile *s_remote_render_tile[GEVR_MAX_PLAYERS];
 static bool s_remote_render_valid[GEVR_MAX_PLAYERS];
 
 void netPlayerSyncInit(void) {
+}
+
+/*
+ * A remote copy is placed at its owner's position, not walked there, so its
+ * stand tile has to be moved along with it, as the game moves the camera tile
+ * (bondview.c bondviewSetCurrentPlayerPosition). The copy's rooms are built
+ * from this tile (chrprop.c chrpropUpdateRoomList) and its model stands on it
+ * (chr.c sub_GAME_7F01FC10): a stale tile files the body in a room the view
+ * never draws, which hid every other player from v0.3.4.
+ */
+static StandTile *netSyncRemoteTile(struct player *pl, const coord3d *from, bool snapped) {
+    extern s32 walkTilesBetweenPoints_NoCallback(StandTile **tileStack, f32 start_x, f32 start_z, f32 dest_x, f32 dest_z);
+    extern s32 stanTestPointWithinTileBoundsMaybe(StandTile *tile, f32 p_x, f32 p_z);
+    extern StandTile *stanFindTileBelowPos(coord3d *pos, u8 *rooms, f32 *yRtn);
+    coord3d to = pl->prop->pos;
+    StandTile *tile = pl->field_488.current_tile_ptr;
+
+    if (tile && !snapped) {
+        StandTile *walked = tile;
+        if (walkTilesBetweenPoints_NoCallback(&walked, from->x, from->z, to.x, to.z) &&
+            walked && stanTestPointWithinTileBoundsMaybe(walked, to.x, to.z)) {
+            tile = walked;
+        } else if (!stanTestPointWithinTileBoundsMaybe(tile, to.x, to.z)) {
+            tile = NULL;
+        }
+    } else {
+        tile = NULL;
+    }
+
+    if (!tile) {
+        f32 y;
+        tile = stanFindTileBelowPos(&to, NULL, &y);
+        if (!tile) return NULL;
+    }
+
+    pl->field_488.current_tile_ptr = tile;
+    pl->field_488.current_tile_ptr_for_portals = tile;
+    pl->prop->stan = tile;
+    return tile;
 }
 
 void netPlayerSyncBeforeTick(s32 playernum) {
@@ -55,12 +96,15 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                 return;
             }
             /* Position: check for huge delta or initial snap */
+            coord3d from = pl->prop->pos;
+            bool snapped = false;
             float dx = m->pos.x - pl->prop->pos.x;
             float dy = m->pos.y - pl->prop->pos.y;
             float dz = m->pos.z - pl->prop->pos.z;
             float dist_sq = dx*dx + dy*dy + dz*dz;
-            
+
             if (dist_sq > (512.0f * 512.0f) || dist_sq < 0.0001f || pl->deathanimfinished) {
+                snapped = dist_sq >= 0.0001f;
                 pl->prop->pos = m->pos;
                 pl->deathanimfinished = 0;
             } else {
@@ -73,7 +117,8 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             pl->pos = pl->prop->pos;
             pl->field_488.collision_position = pl->prop->pos;
             pl->field_488.pos = pl->prop->pos;
-            
+            s_remote_render_tile[playernum] = netSyncRemoteTile(pl, &from, snapped);
+
             /* Forward movement speeds for third-person animations */
             pl->speedforwards = m->movespeed[0];
             pl->speedsideways = m->movespeed[1];
@@ -120,7 +165,6 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             pl->hands[GUNRIGHT].field_87D = (m->ucmd & UCMD_FIRE) ? 1 : 0;
 
             /* Crucial: update player room list so prop renders across portal room boundaries */
-            extern void bondviewUpdatePlayerRoom(struct player *player);
             bondviewUpdatePlayerRoom(pl);
             s_remote_render_pos[playernum] = pl->prop->pos;
             s_remote_render_valid[playernum] = true;
@@ -142,13 +186,42 @@ void netPlayerSyncAfterTick(s32 playernum) {
             s_remote_render_valid[playernum] && g_playerPointers[playernum] &&
             g_playerPointers[playernum]->prop) {
             struct player *remote = g_playerPointers[playernum];
+            const struct netplayermove *m = netGetRemotePlayerMove(playernum);
+            StandTile *tile = s_remote_render_tile[playernum];
             remote->prop->pos = s_remote_render_pos[playernum];
             remote->pos = remote->prop->pos;
             remote->field_488.collision_position = remote->prop->pos;
             remote->field_488.pos = remote->prop->pos;
+            if (tile) {
+                remote->field_488.current_tile_ptr = tile;
+                remote->field_488.current_tile_ptr_for_portals = tile;
+                remote->prop->stan = tile;
+            }
+            /* The tick read no stick for the copy and zeroed these; the body's
+             * walk animation (bondview2.c playerTick) is chosen from them. */
+            if (m) {
+                remote->speedforwards = m->movespeed[0];
+                remote->speedsideways = m->movespeed[1];
+            }
             if (remote->prop->chr)
                 remote->prop->chr->ground = remote->prop->pos.y - remote->eyeheight;
             bondviewUpdatePlayerRoom(remote);
+
+            {
+                static u64 next_log_us[GEVR_MAX_PLAYERS];
+                u64 now = sysGetMicroseconds();
+                if (now >= next_log_us[playernum]) {
+                    const u8 *rooms = remote->prop->rooms;
+                    next_log_us[playernum] = now + 5000000;
+                    sysLogPrintf(LOG_NOTE, "net: remote %d at %.0f,%.0f,%.0f tile room %d, prop rooms %d %d %d, %s",
+                                 playernum, remote->prop->pos.x, remote->prop->pos.y, remote->prop->pos.z,
+                                 tile ? (s32)tile->room : -1,
+                                 rooms[0] == 0xff ? -1 : rooms[0],
+                                 rooms[0] == 0xff || rooms[1] == 0xff ? -1 : rooms[1],
+                                 rooms[0] == 0xff || rooms[1] == 0xff || rooms[2] == 0xff ? -1 : rooms[2],
+                                 (remote->prop->flags & PROPFLAG_ONSCREEN) ? "on screen" : "off screen");
+                }
+            }
         }
         return;
     }
