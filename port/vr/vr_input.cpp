@@ -560,6 +560,11 @@ XrResult update_vr_controllers(XrTime predicted_time) {
     };
 
     // 3. Read states for each controller
+    // The multiplayer pause menu is worked with the sticks and buttons: the
+    // located poses hold still meanwhile, so the hands and guns (drawn from
+    // these through gevrVrSnapshotControllers and gevrVrGripPosePlay) do not
+    // wave about while the host picks a map (user, 2026-09-30).
+    const bool holdHands = gevrMpMenuOpen() != 0;
     for (int hand = 0; hand < 2; hand++) {
         auto& state = gControllerStates[hand];
         XrPath handPath = gHandPaths[hand];
@@ -582,10 +587,14 @@ XrResult update_vr_controllers(XrTime predicted_time) {
                     (f & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT);
 
             if (fullyTracked) {
-                state.controller_pose = loc.pose;
-                gCachedVelocity[hand] = velocity;
+                if (!holdHands) {
+                    state.controller_pose = loc.pose;
+                    gCachedVelocity[hand] = velocity;
+                    spaceLocation = loc;
+                } else {
+                    gCachedVelocity[hand] = { XR_TYPE_SPACE_VELOCITY };
+                }
                 state.is_active = true;
-                spaceLocation = loc;
             } else {
                 // Out of tracking (PSVR2 out of view, empty SteamVR pose, IMU drift):
                 // We do NOT touch controller_pose → last tracked pose is preserved.
@@ -610,7 +619,7 @@ XrResult update_vr_controllers(XrTime predicted_time) {
                     (f & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) &&
                     (f & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT);
 
-            if (fullyTracked) {
+            if (fullyTracked && !holdHands) {
                 gCtrlPosePlay[hand] = loc.pose;
                 gCachedVelocityPlay[hand] = velocity;
             } else {
