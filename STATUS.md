@@ -29,11 +29,13 @@ players in view as the same room, SFX volume and mic mute in the launcher
 and the multiplayer pause menu, the multiplayer page fitting the panel, and
 stereo dropping the walk animation's side sway and vertical bob (bondhead.c;
 screen mode keeps them).
-Branch claude/multiplayer-visibility-bug-16b1a8 (main merged in) builds as
-0.3.6, versionCode 38, protocol 8, for the two-headset test: the
-multiplayer fixes below, the 2026-09-29 test report's fixes (spawn pads,
-name tags, torso pitch, melee, countdown, hurt sound, door z-fight, quit and
-rejoin), a NEXT MAP vote in the pause menu and host migration.
+Branch claude/multiplayer-visibility-bug-16b1a8 builds as 0.3.6, versionCode 39,
+protocol 9, for the two-headset test: the full multiplayer punch list (P1–P5),
+including in-level lobby (MENU_LOBBY) and shared row framework, match config and
+restored options, mute chord (hold Menu + right B), single-reload countdown and
+round transitions, late-join spectator camera with isolated spectator voice groups,
+spawn loadouts (4-gun kit) and online dual wielding (doubles & any-two modes with
+left-barrel aiming/view passes), ballots, shuffle and playlist rotation.
 
 ## What it is
 
@@ -65,20 +67,21 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   Cloudflare Worker in `services/lobbies`, libjuice ICE, Cloudflare TURN).
   Owner-authoritative positions (the copy's stand tile follows them, so
   bodies render in the right room), hit reports relayed by the host, synced
-  weapons, deaths and respawns. Protocol 8 (branch
+  weapons, deaths and respawns. Protocol 9 (branch
   claude/multiplayer-visibility-bug-16b1a8, unreleased): the owner's
   projectiles, damaging explosions, door use and pickups are mirrored;
   remote gunfire fires from the owner's barrel and is placed by distance
   and direction; each copy gets its own view pass (shots, projectiles);
-  seeded start pads; a countdown to each round; NEXT MAP vote in the pause
-  menu; host migration (lowest slot takes over, the others rejoin through
-  the same lobby or LAN beacon, 20 s grace). Voice chat: Opus on its own ENet channel, full volume in
+  seeded start pads; a countdown to each round; NEXT MAP / NEXT WEAPONS ballots in
+  the in-level lobby; host migration (lowest slot takes over, the others rejoin through
+  the same lobby or LAN beacon, 20 s grace); late-join spectator camera with isolated
+  spectator voice groups; spawn loadouts and dual wielding (doubles and any-two). Voice chat: Opus on its own ENet channel, full volume in
   the lobby, distance and direction in a match: in view (a clear floor-tile
   walk to the speaker on the same floor; BG rooms are geometry chunks, too
   small to mean "same room") full to 500 units, easing to 60% at 4000; out
   of view quadratic to silence at 2500 (net_voice.c, logs "voice: slot ..."
   every 2 s). Mute: launcher "Mute Microphone", the watch, the pause menu,
-  left X+Y. Music, SFX (the game's own effects volume) and Voice: launcher
+  hold Menu + right B. Music, SFX (the game's own effects volume) and Voice: launcher
   sliders and pause menu rows (right stick adjusts, click steps MUSIC, SFX,
   VOICE, MIC; A still closes the menu), saved in goldeneye-vr.ini. The
   launcher never scrolls; its pages fit. Join Game is an accordion.
