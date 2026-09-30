@@ -29,13 +29,22 @@ players in view as the same room, SFX volume and mic mute in the launcher
 and the multiplayer pause menu, the multiplayer page fitting the panel, and
 stereo dropping the walk animation's side sway and vertical bob (bondhead.c;
 screen mode keeps them).
-Branch claude/multiplayer-visibility-bug-16b1a8 builds as 0.3.6, versionCode 43
-(installing over vc 42 on the headset), protocol 9, for the two-headset test: the full
-multiplayer punch list (P1–P5), including in-level lobby (MENU_LOBBY) and shared row
-framework, match config and restored options, mute chord (hold Menu + right B), single-reload
-countdown and round transitions, late-join spectator camera with isolated spectator voice groups,
-spawn loadouts (4-gun kit) and online dual wielding (doubles & any-two modes with left-barrel
-aiming/view passes), ballots, shuffle and playlist rotation.
+Main 396dd64 (0.3.6, versionCode 43, protocol 9) carries the full multiplayer
+punch list: in-level lobby (MENU_LOBBY), match config and restored options,
+mute chord (hold Menu + right B), countdown and round transitions, late-join
+spectator camera with its own voice group, spawn loadouts, online dual
+wielding, ballots, shuffle and playlist rotation.
+Branch claude/playtest-logging-feedback-731f59 (versionCode 44, protocol 9,
+unmerged) answers the 2026-09-30 tester report: net log lines now reach the
+debug bundle (they were a separate logcat tag and rotated out); the lockup
+was an unbounded inventory cycle (bondinv.c, now bounded and dumped); the
+Bunker II to Facility switch was the ballots starting at zero, a vote for the
+first stage (net_core.c netClearVotes at init and launch), plus the rotation
+no longer turning before the first round; copies were posed from the barrel
+(bent over, twisting: now the view's pitch and no yaw, as the flat game) and
+had fists re-given every tick (a draw replayed forever); an overlap escape
+lets a player walk out of another's cylinder. The user's Quest ran the first
+build of the branch for the test; the later commits are built, not installed.
 
 ## What it is
 
@@ -147,9 +156,14 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## Next
 
-- A two-headset session on the protocol 8 build: MULTIPLAYER.md step 8
-  (spawn pads, torso while strafing, melee, countdown, hurt sound, doors,
-  quit and rejoin, NEXT MAP, host migration), the rest of step 7, then the
-  older list (mid-round joins, slot reuse, scoring, objects dropped before
-  a late join, name tags hidden by walls, two networks, a hotspot, four
-  players). Release as v0.3.6 after it.
+- Install the playtest branch's latest build on both headsets and re-check
+  the 2026-09-30 report: bodies upright and steady, no draw animation on
+  grip, players walking out of each other (log "net: move: player N
+  blocked by player M" says whether player props block at all online: a
+  copy's collision_bounds are never refreshed, so they may not), the
+  chosen stage kept from warmup to match. Open oddity: the copies' logged
+  aim pitch printed near 350 where atan2 cannot reach; the barrel is now
+  only logged, so the next capture separates the two.
+- Then MULTIPLAYER.md step 8 (quit and rejoin, NEXT MAP, host migration),
+  the rest of step 7, the older list (mid-round joins, slot reuse, scoring,
+  two networks, a hotspot, four players). Release as v0.3.6 after it.
