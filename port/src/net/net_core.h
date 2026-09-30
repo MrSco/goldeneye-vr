@@ -94,7 +94,7 @@ void netSendFireEvent(uint8_t weapon_id);
 const struct netplayermove *netGetRemotePlayerMove(int slot_id);
 const NetMsgPlayerState *netGetRemotePlayerState(int slot_id);
 bool netIsRemotePlayerActive(int slot_id);
-int netGetRemoteAim(int slot_id, coord3d *origin, coord3d *dir);   /* 1 with the owner's world-space barrel */
+int netGetRemoteAim(int slot_id, int hand, coord3d *origin, coord3d *dir);   /* 1 with the owner's world-space barrel */
 
 /* VoIP */
 void netSendVoipChunk(uint32_t sequence, const uint8_t *opus_data, uint16_t size);

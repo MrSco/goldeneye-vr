@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <ultra64.h>
 #include "bondview.h"
 #include "chr.h"
@@ -478,6 +481,17 @@ int bondinvAddWeaponByProp(PropRecord *prop)
             WeaponObjRecord *otherweapon;
 
             s8 weaponnum = weapon->weaponnum;
+#ifdef GEVR
+            if (netActiveDualWield() && bondinvHasInvItem(weaponnum) &&
+                bondwalkItemCheckBitflags(weaponnum, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) &&
+                !bondinvHasDualWeapon(weaponnum, weaponnum)) {
+                added = bondinvAddDoublesInvItem(weaponnum, weaponnum);
+                if (added) {
+                    gunRequestHandWeaponChange(GUNRIGHT, weaponnum, 1);
+                    gunRequestHandWeaponChange(GUNLEFT, weaponnum, 1);
+                }
+            } else
+#endif
             added = bondinvAddInvItem(weaponnum);
 
             otherweapon = weapon->dualweapon;
