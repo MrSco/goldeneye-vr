@@ -12540,12 +12540,50 @@ void doorBuildClippedVertices(DoorRecord *inDoor)
             door->unkcc[i] = src->Vertices[i];
         }
 
-        /* The four-vertex clipping assumption below does not hold for the
-         * vertically rising wall panels (for example, Facility's tank room).
-         * It folds their triangles into giant coloured shards while opening.
-         * Let those panels slide into the wall with their original mesh. */
         if (door->doorType == DOORTYPE_VERTICAL)
+        {
+            /*
+             * The part risen above the frame folds down to the frame line
+             * (the bounding box's top comes down as the door opens, see
+             * doorUpdateBbox), as the original did; left whole, the panel
+             * shows through the wall it slides into (z-fighting, and its top
+             * face in the room above: two-headset test). The original walked
+             * four-vertex quads, which the wall panels are not; each vertex
+             * here finds its own partner below it (same x and z) for the
+             * texture coordinates. The shards seen before came from the
+             * per-frame vertex arena, fixed above.
+             */
+            Vertex *dst = ((struct ModelRwData_DisplayList_CollisionRecord *)inDoor)->Vertices;
+
+            for (i = 0; i < src->numVertices; i++)
+            {
+                Vertex *below = NULL;
+
+                cur = &src->Vertices[i];
+                if (cur->coord.y < cutoff)
+                {
+                    continue;
+                }
+                for (k = 0; k < src->numVertices; k++)
+                {
+                    Vertex *other = &src->Vertices[k];
+
+                    if (other->coord.x == cur->coord.x && other->coord.z == cur->coord.z
+                        && other->coord.y < cur->coord.y
+                        && (below == NULL || other->coord.y > below->coord.y))
+                    {
+                        below = other;
+                    }
+                }
+                if (below != NULL)
+                {
+                    dst[i].s = ((cur->coord.y - cutoff) * (below->s - cur->s) / (cur->coord.y - below->coord.y)) + cur->s;
+                    dst[i].t = ((cur->coord.y - cutoff) * (below->t - cur->t) / (cur->coord.y - below->coord.y)) + cur->t;
+                }
+                dst[i].coord.y = cutoff;
+            }
             return;
+        }
 
         for (i = 0; i < src->numVertices / 4; i++)
         {
