@@ -39,6 +39,8 @@ extern float VrMusicVolume;
 extern float VrVoiceVolume;
 extern void vrSettingsSave(void);
 extern bool get_button_state(int hand, const char *button_name);
+typedef struct { float x, y; } GevrVec2;   /* XrVector2f's layout */
+extern bool get_2d_input(int hand, const char *input_name, GevrVec2 *value);
 extern float VrSfxVolume;
 extern void gevrSndApplySfxVolume(u16 volume);
 extern int netVoiceIsMuted(void);
@@ -63,9 +65,11 @@ enum { NET_WEAPON_SET_CUSTOM_ROW = 14, NET_NEXT_VOTE_ROW = 0 };
 /*
  * The pause menu's pages of rows: PAUSE holds the audio, LOBBY the match
  * (the settings the host changes, the votes, this player's character and
- * guns, the host's START MATCH and RETURN TO LOBBY). The right stick click
- * steps the cursor, up and down change the value (repeating after 18
+ * guns, the host's START MATCH and RETURN TO LOBBY). The left stick moves
+ * the cursor up and down (the right stick click still steps it down), the
+ * right stick changes the value in any direction (repeating after 18
  * ticks), A fires an action row. The others see a host-only row dim.
+ * (User, 2026-09-30: a click that only went down was no way to navigate.)
  */
 enum { GEVR_ROW_VALUE, GEVR_ROW_ACTION };
 typedef struct {
@@ -157,7 +161,7 @@ static s32 lobbyNotYolt(void) { return gevrNetConfigGet(CFG_SCENARIO) != NET_SCE
 static s32 lobbyCustomSet(void) { return lobbyNotGoldenGun() && gevrNetConfigGet(CFG_WEAPON_SET) == NET_WEAPON_SET_CUSTOM_ROW; }
 static s32 lobbyWeaponVote(void) { return lobbyVoting() && lobbyNotGoldenGun(); }
 static s32 lobbyLoadouts(void) { return gevrNetConfigGet(CFG_LOADOUTS) != 0; }
-static s32 lobbyCanStart(void) { return netIsHost() && (netGetPhase() == 1 || g_gameOverFlag) && netCountdownSecondsLeft() == 0; }
+static s32 lobbyCanStart(void) { return netIsHost() && (netGetPhase() == 1 || g_gameOverFlag); }
 static s32 lobbyCanReturn(void) { return netIsHost() && (netGetPhase() == 2 || netCountdownSecondsLeft() > 0); }
 
 /* the vote rows: this player's pick and how many share it, or the host's mode */
@@ -315,9 +319,26 @@ static void rowFavSetStep(s32 dir)
 }
 static void rowStartStep(s32 dir) { netHostStartRoundNow(); }
 static void rowReturnStep(s32 dir) { netHostReturnToLobby(); }
+/*
+ * The start's countdown, on the row and in the page's title: pressing START
+ * MATCH used to swap the row for RETURN TO LOBBY with nothing else changing,
+ * so the host had no idea a start was under way, and the natural next press
+ * cancelled it (user, 2026-09-30). The HUD's own "MATCH STARTS IN" is hidden
+ * while this menu is up.
+ */
+static void rowStartValue(char *b, s32 n)
+{
+    s32 secs = netCountdownSecondsLeft();
+    if (secs > 0) snprintf(b, n, "- STARTING IN %d", secs);
+    else b[0] = '\0';
+}
+static void rowReturnValue(char *b, s32 n)
+{
+    snprintf(b, n, "%s", netCountdownSecondsLeft() > 0 ? "- CANCELS THE START" : "");
+}
 static const GevrMenuRow s_lobbyRows[] = {
-    { "START MATCH",     GEVR_ROW_ACTION, 1, lobbyCanStart,     NULL,               rowStartStep,       "A:START" },
-    { "RETURN TO LOBBY", GEVR_ROW_ACTION, 1, lobbyCanReturn,    NULL,               rowReturnStep,      "A:RETURN" },
+    { "START MATCH",     GEVR_ROW_ACTION, 1, lobbyCanStart,     rowStartValue,      rowStartStep,       "A:START" },
+    { "RETURN TO LOBBY", GEVR_ROW_ACTION, 1, lobbyCanReturn,    rowReturnValue,     rowReturnStep,      "A:RETURN" },
     { "NEXT ROUND",      GEVR_ROW_VALUE,  1, NULL,              rowNextRoundValue,  rowNextRoundStep,   "R-STICK:PICK" },
     { "NEXT MAP",        GEVR_ROW_VALUE,  0, lobbyVoting,       rowNextMapValue,    rowNextMapStep,     "R-STICK:VOTE" },
     { "NEXT WEAPONS",    GEVR_ROW_VALUE,  0, lobbyWeaponVote,       rowNextWeaponsValue, rowNextWeaponsStep, "R-STICK:VOTE" },
@@ -371,6 +392,7 @@ static void gevrMenuPagesTick(s32 player_num)
     GevrMenuPage *page;
     s32 change = 0;
     s32 stick_y;
+    s32 stick_x_value = 0;
     s32 direction;
     int rclick;
 
@@ -387,8 +409,46 @@ static void gevrMenuPagesTick(s32 player_num)
     }
     last_rclick = rclick;
 
+    {
+        /*
+         * The left stick's up and down move the cursor (its x flips the
+         * page: input.c gives the game that as stick_x, and drops it while
+         * the stick is mostly vertical); the right stick's left and right
+         * change the value like its up and down below.
+         */
+        static s32 nav_direction = 0;
+        static s32 nav_held_ticks = 0;
+        GevrVec2 lstick = { 0.0f, 0.0f };
+        GevrVec2 rstick = { 0.0f, 0.0f };
+        float lx, ly, rx, ry;
+        s32 nav;
+        get_2d_input(0, "thumbstick", &lstick);
+        get_2d_input(1, "thumbstick", &rstick);
+        lx = lstick.x < 0.0f ? -lstick.x : lstick.x;
+        ly = lstick.y < 0.0f ? -lstick.y : lstick.y;
+        rx = rstick.x < 0.0f ? -rstick.x : rstick.x;
+        ry = rstick.y < 0.0f ? -rstick.y : rstick.y;
+        nav = ly > 0.5f && ly > lx ? (lstick.y > 0.0f ? -1 : 1) : 0;
+        if (nav != nav_direction)
+        {
+            nav_direction = nav;
+            nav_held_ticks = 0;
+            if (nav)
+            {
+                gevrPageMoveCursor(page, nav);
+                mpwatchPlayBeep();
+            }
+        }
+        else if (nav != 0 && ++nav_held_ticks >= 18 && (nav_held_ticks - 18) % 6 == 0)
+        {
+            gevrPageMoveCursor(page, nav);
+            mpwatchPlayBeep();
+        }
+        stick_x_value = rx > 0.5f && rx > ry ? (rstick.x > 0.0f ? 1 : -1) : 0;
+    }
+
     stick_y = joyGetStickY(player_num);
-    direction = stick_y > 30 ? 1 : stick_y < -30 ? -1 : 0;
+    direction = stick_y > 30 ? 1 : stick_y < -30 ? -1 : stick_x_value;
     if (direction != stick_direction)
     {
         stick_direction = direction;
@@ -478,7 +538,7 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
     }
     /* the legend: the selected row's hint, the click, and arrows when rows are out of view */
     sel = &page->rows[page->cursor];
-    snprintf(label, sizeof(label), "%s%s  CLICK:NEXT%s", page->scroll > 0 ? "^ " : "",
+    snprintf(label, sizeof(label), "%sL-STICK:ROW  %s%s", page->scroll > 0 ? "^ " : "",
              gevrRowEditable(sel) ? sel->hint : "HOST ONLY", page->scroll + shown < nvis ? " v" : "");
     textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
     x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
@@ -925,7 +985,7 @@ void mpCalculateAwards(bool gameoverdelay)
             }
         }
 
-        metrics[i].num_kills += g_playerPlayerData[i].kill_count;
+        metrics[i].num_kills += g_playerPlayerData[i].gevr_score_bank;
 
         metrics[i].ks_ratio = metrics[i].num_kills * 100.0f / (metrics[i].num_shots + 1.0f);
         metrics[i].kd_ratio = metrics[i].num_kills * 100.0f / (metrics[i].num_deaths + 1.0f);
@@ -1425,7 +1485,8 @@ s32 get_points_for_mp_player(s32 playernum)
                 }
             }
 
-            points += g_playerPlayerData[playernum].kill_count;
+            /* the score bank: kills against players who have left (net_core.c netForgetPlayerScore) */
+            points += g_playerPlayerData[playernum].gevr_score_bank;
 
             points += g_playerPlayerData[playernum].killed_gg_owner_count * (netMpPlayerCount(player_count) - 2);
             break;
@@ -1733,8 +1794,15 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 break;
 #ifdef GEVR
             case MENU_LOBBY:
-                text = (char *) "LOBBY";
+            {
+                /* the start's countdown, for everyone at the menu */
+                static char lobbyTitle[32];
+                s32 secs = netCountdownSecondsLeft();
+                if (secs > 0) snprintf(lobbyTitle, sizeof(lobbyTitle), "STARTING IN %d", secs);
+                else snprintf(lobbyTitle, sizeof(lobbyTitle), "LOBBY");
+                text = lobbyTitle;
                 break;
+            }
 #endif
             case MENU_PAUSE:
                 if (g_pausedFlag)

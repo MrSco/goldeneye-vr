@@ -9,6 +9,79 @@
 #include "assert.h"
 #ifdef GEVR
 #include "system.h"
+#include "player.h"
+
+/*
+ * Online, a player standing inside another player's collision cylinder is
+ * let out of it. The copies stand where their owners last reported, a step
+ * behind, so two players walking into each other overlap on both headsets;
+ * from inside a cylinder every move crosses its edge, and neither could move
+ * until one killed the other (playtest 2026-09-30). Only the local player's
+ * own moves (g_CurrentPlayer is its owner) and only against the cylinder it
+ * is already inside.
+ */
+extern bool netIsActive(void);
+extern bool netSlotOccupied(int slot);
+extern void chrpropGetCollisionBounds(PropRecord *prop, f32 *collision_radius, f32 *height, f32 *arg3);
+
+/*
+ * Two players already closer than the sum of their radii (60 units for two
+ * Bonds): the volume test refuses every destination whose circle overlaps
+ * the other's cylinder, in every direction, so both stood locked at 34
+ * apart until one died (both headsets' logs, 2026-09-30). The copies lag
+ * their owners, which is how two players get inside 60 at all. From inside,
+ * a move that does not bring them closer goes through.
+ */
+static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, f32 dest_x, f32 dest_z, const char *where)
+{
+    static u64 s_next_log_us;
+    u64 now;
+    s32 slot;
+    f32 dx, dz, dist, ndx, ndz, ndist, radius, height, unused;
+
+    if (prop->type != PROP_TYPE_VIEWER || !netIsActive()
+        || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL || g_CurrentPlayer->prop == prop)
+    {
+        return 0;
+    }
+
+    slot = getPlayerPointerIndex(prop);
+
+    if (!netSlotOccupied(slot))
+    {
+        return 0;
+    }
+
+    dx = prop->pos.x - g_CurrentPlayer->field_488.collision_position.x;
+    dz = prop->pos.z - g_CurrentPlayer->field_488.collision_position.z;
+    dist = sqrtf(dx * dx + dz * dz);
+    chrpropGetCollisionBounds(prop, &radius, &height, &unused);
+
+    if (dist >= radius + g_CurrentPlayer->field_488.collision_radius)
+    {
+        return 0;   /* not overlapping: the game's own tests apply */
+    }
+
+    ndx = prop->pos.x - dest_x;
+    ndz = prop->pos.z - dest_z;
+    ndist = sqrtf(ndx * ndx + ndz * ndz);
+
+    if (ndist < dist - 0.01f)
+    {
+        return 0;   /* closer still: refused as ever */
+    }
+
+    now = sysGetMicroseconds();
+
+    if (now >= s_next_log_us)
+    {
+        s_next_log_us = now + 1000000;
+        sysLogPrintf(LOG_NOTE, "net: move: player %d overlapping player %d (%s, %.0f apart, radii %.0f+%.0f), moving apart let through",
+                     get_cur_playernum(), slot, where, dist, radius, g_CurrentPlayer->field_488.collision_radius);
+    }
+
+    return 1;
+}
 #endif
 
 void getTileMidPoint(StandTile *tile, coord3d *out);
@@ -1706,6 +1779,13 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
             {
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &spA4, &spA0);
 
+#ifdef GEVR
+                if (gevrNetInsidePlayerProp(prop, dest_x, dest_z, "line"))
+                {
+                    continue;
+                }
+#endif
+
                 if (numvertices0 > 0)
                 {
                     for (i = 0; i < numvertices0; i++)
@@ -2045,6 +2125,12 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
             if (propIsOfCdType(prop, cdtypes) != 0)
             {
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &sp94, &sp90);
+#ifdef GEVR
+                if (gevrNetInsidePlayerProp(prop, arg1, arg2, "volume"))
+                {
+                    continue;
+                }
+#endif
                 if ((numvertices0 > 0) && ((sp108 == 0) || ((sp90 <= arg5) && (arg6 <= sp94))))
                 {
                     var_f24 = -1.0f;

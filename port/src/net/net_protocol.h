@@ -8,7 +8,7 @@
 #include "net/netbuf.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         9   /* 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         10  /* 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
@@ -149,6 +149,17 @@ struct netplayermove {
     s8  weaponnum_left; /* the left hand's ITEM_*, ITEM_UNARMED when empty (dual wielding) */
     coord3d aimorigin_l;/* left gun's muzzle (UCMD_AIMVALID_LEFT) */
     coord3d aimdir_l;   /* left gun's barrel direction */
+    /*
+     * Protocol 10: the owner's own health, armour and death, which its
+     * copies mirror (net_player_sync.c). Every headset applied the host's
+     * damage events to its own accounting, and those drift (armour picked up
+     * on one headset, the damage-flash gate): a client died on the host's
+     * headset and stayed alive on its own, its corpse ignoring its moves
+     * (playtest 2026-09-30). Perfect Dark's port-net sends SVC_PLAYER_STATS.
+     */
+    f32 health;         /* bondhealth, 0..1 */
+    f32 armour;         /* bondarmour, 0..1 */
+    u8  dead;           /* bonddead */
 };
 
 /* Serialization for netplayermove */
@@ -171,6 +182,9 @@ static inline u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplay
     netbufWriteS8(buf, m->weaponnum_left);
     netbufWriteCoord(buf, &m->aimorigin_l);
     netbufWriteCoord(buf, &m->aimdir_l);
+    netbufWriteF32(buf, m->health);
+    netbufWriteF32(buf, m->armour);
+    netbufWriteU8(buf, m->dead);
     return buf->error;
 }
 
@@ -193,6 +207,9 @@ static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove 
     m->weaponnum_left = netbufReadS8(buf);
     netbufReadCoord(buf, &m->aimorigin_l);
     netbufReadCoord(buf, &m->aimdir_l);
+    m->health = netbufReadF32(buf);
+    m->armour = netbufReadF32(buf);
+    m->dead = netbufReadU8(buf);
     return buf->error;
 }
 

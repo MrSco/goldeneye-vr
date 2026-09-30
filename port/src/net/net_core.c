@@ -24,20 +24,23 @@
 #include "game/chrai.h"
 #include "game/loadobjectmodel.h"
 #include "game/propobj.h"
+#include "music.h"   /* g_musicSfxBufferPtr: the hit heard at a copy (netApplyDamage) */
+#include "snd.h"
 #include "system.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
 
-#ifdef ANDROID
-#include <android/log.h>
-#define NET_LOG(...) __android_log_print(ANDROID_LOG_INFO, "GEVR-Net", __VA_ARGS__)
-#define NET_ERR(...) __android_log_print(ANDROID_LOG_ERROR, "GEVR-Net", __VA_ARGS__)
-#else
-#define NET_LOG(...) printf("[GEVR-Net] " __VA_ARGS__); printf("\n")
-#define NET_ERR(...) fprintf(stderr, "[GEVR-Net-Err] " __VA_ARGS__); fprintf(stderr, "\n")
-#endif
+/*
+ * Through the game's log (system.c sysLogPrintf): logcat under the app's tag
+ * and the gevr.log file the launcher's "Send debug log" bundles. As a
+ * separate "GEVR-Net" logcat tag these lines were missing from a tester's
+ * bundle (2026-09-30): the bundle's logcat tail is 1500 lines, which the
+ * Quest's own services fill in under a minute.
+ */
+#define NET_LOG(...) sysLogPrintf(LOG_NOTE, "net: " __VA_ARGS__)
+#define NET_ERR(...) sysLogPrintf(LOG_ERROR, "net: " __VA_ARGS__)
 
 static bool s_initialized = false;
 static NetState s_state = NET_STATE_OFFLINE;
@@ -97,6 +100,45 @@ void netSetPreferredCharacter(uint8_t chr_id) {
 
 /* Remote player state cache */
 static struct netplayermove s_remote_moves[GEVR_MAX_PLAYERS];
+static int8_t s_last_attacker[GEVR_MAX_PLAYERS] = { -1, -1, -1, -1 };   /* per target: who last damaged it here */
+
+int netLastAttacker(int slot) {
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS) return slot;
+    return s_last_attacker[slot] >= 0 ? s_last_attacker[slot] : slot;
+}
+
+/* Every headset's damage application, logged with the target's accounting (playtest 2026-09-30) */
+static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, float dmg, float vx, float vz) {
+    extern s32 s_gevrExplosionDamage;
+    struct player *pl = g_playerPointers[target];
+    s32 prev = get_cur_playernum();
+    f32 h0 = pl->bondhealth, a0 = pl->bondarmour;
+    s_last_attacker[target] = (int8_t)attacker;
+    if (target != s_local_slot) {
+        /*
+         * A copy takes no damage of its own: its health is its owner's
+         * (protocol 10) and it dies when its owner reports dead
+         * (net_player_sync.c), credited to the last attacker recorded here.
+         * Applied locally, the same event killed a copy on one headset and
+         * not the owner on its own (the owner's damage-flash gate), and the
+         * kill was counted where the owner never died: the client won 5-0
+         * on its screen, 4-0 on the host's (match 2026-09-30, 15:04). The
+         * hit is still heard from where the copy stands.
+         */
+        if (pl->prop && !pl->bonddead)
+            chrobjSndCreatePostEventDefault(sndPlaySfx(g_musicSfxBufferPtr, BOND_GET_HIT1_SFX, 0), &pl->prop->pos);
+        NET_LOG("damage: player %d took %.2f from %d (weapon %d): a copy, its owner decides", target, dmg, attacker, weapon);
+        return;
+    }
+    set_cur_player(target);
+    s_gevrExplosionDamage = (weapon == ITEM_GRENADE || weapon == ITEM_GRENADELAUNCH || weapon == ITEM_ROCKETLAUNCH || weapon == ITEM_PROXIMITYMINE || weapon == ITEM_TIMEDMINE || weapon == ITEM_REMOTEMINE || weapon == ITEM_TANKSHELLS);
+    record_damage_kills(dmg, vx, vz, attacker, 1);
+    s_gevrExplosionDamage = 0;
+    set_cur_player(prev);
+    NET_LOG("damage: player %d took %.2f from %d (weapon %d): health %.2f -> %.2f, armour %.2f -> %.2f%s%s",
+            target, dmg, attacker, weapon, h0, pl->bondhealth, a0, pl->bondarmour,
+            pl->bonddead ? ", dead" : "", target == s_local_slot ? " (me)" : "");
+}
 static NetMsgPlayerState s_remote_players[GEVR_MAX_PLAYERS];
 static bool s_remote_active[GEVR_MAX_PLAYERS];
 static bool s_waiting_for_match_snapshot = false;
@@ -223,15 +265,23 @@ extern s32 D_800483A8;
 static void netBroadcastBuf(struct netbuf *buf, uint8_t channel, uint32_t flags, ENetPeer *except);
 static void netHostDropSlot(int slot, ENetPeer *stale);
 
+/*
+ * A player leaves: the kills against them go to their killers' score bank
+ * (gevr_score_bank, counted in the points and the awards with the
+ * per-victim table). The bank was kill_count until 2026-09-30, which the
+ * game's kill message also increments on every kill, so every kill scored
+ * twice (three kills read as six, the cap of five was skipped).
+ */
 static void netForgetPlayerScore(int slot) {
     if (s_state != NET_STATE_INGAME || slot < 0 || slot >= GEVR_MAX_PLAYERS) return;
     for (int shooter = 0; shooter < GEVR_MAX_PLAYERS; shooter++) {
         if (shooter != slot) {
-            g_playerPlayerData[shooter].kill_count += g_playerPlayerData[shooter].kill_counts[slot];
+            g_playerPlayerData[shooter].gevr_score_bank += g_playerPlayerData[shooter].kill_counts[slot];
             g_playerPlayerData[shooter].kill_counts[slot] = 0;
         }
     }
     memset(g_playerPlayerData[slot].kill_counts, 0, sizeof(g_playerPlayerData[slot].kill_counts));
+    g_playerPlayerData[slot].gevr_score_bank = 0;
     g_playerPlayerData[slot].kill_count = 0;
 }
 
@@ -270,6 +320,7 @@ static void netResetLobbyState(void) {
 }
 
 bool netInit(void) {
+    netClearVotes(-1);   /* -1 is "no vote"; zero would be the first stage (see netLobbyHostLaunchMatch) */
     if (s_initialized) return true;
     
     if (enet_initialize() != 0) {
@@ -591,7 +642,7 @@ static void netSendMatchSnapshot(ENetPeer *peer) {
     netbufWriteU8(&buf, s_match_ended || g_gameOverFlag != 0);
     netbufWriteU32(&buf, (u32)D_80048394);
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-        netbufWriteU32(&buf, (u32)g_playerPlayerData[i].kill_count);
+        netbufWriteU32(&buf, (u32)g_playerPlayerData[i].gevr_score_bank);
         for (int j = 0; j < GEVR_MAX_PLAYERS; j++)
             netbufWriteU32(&buf, (u32)g_playerPlayerData[i].kill_counts[j]);
     }
@@ -899,6 +950,7 @@ bool netTakeStageFadeIn(void) {
 }
 
 static void netResolveVotes(void);
+static bool s_rotate_next;   /* the next round follows a finished match: rotate (see netResolveVotes) */
 
 static void netBeginRoundReset(bool start) {
     u8 raw[64];
@@ -945,6 +997,7 @@ void netHostContinue(void) {
     if (!netIsHost() || s_state != NET_STATE_INGAME || !s_match_ended || s_next_round_at_us) return;
     s_results_deadline_us = 0;
     NET_LOG("host: continue");
+    s_rotate_next = true;
     netScheduleRound(20);
 }
 
@@ -1242,6 +1295,14 @@ bool netLobbyHostLaunchMatch(void) {
     randomSetSeed(s_rng_seed);
     
     netLatchRoundSettings();
+    /*
+     * No votes yet. The ballots are zero from the start, and zero is a vote
+     * for the first stage and set: the warmup join's countdown tallied
+     * "Facility, Power Weapons" from every connected slot and the match
+     * left the host's Bunker II for it (playtest 2026-09-30, "round
+     * settings ... ballot stage 0 set 4").
+     */
+    netClearVotes(-1);
     s_lobby_open = false;
     s_phase = NET_PHASE_WARMUP;
     netSendMatchStartTo(NULL);
@@ -1337,7 +1398,7 @@ static void netProcessHitReport(uint8_t shooter_slot, uint8_t target, uint8_t we
     if (!netIsHost()) return;
     (void)hy;
     
-    NET_LOG("Hit reported: shooter %d -> target %d (dmg: %.1f)", shooter_slot, target, dmg);
+    NET_LOG("Hit reported: shooter %d -> target %d weapon %d (dmg: %.1f)", shooter_slot, target, weapon, dmg);
     
     float vx = hx;
     float vz = hz;
@@ -1361,13 +1422,7 @@ static void netProcessHitReport(uint8_t shooter_slot, uint8_t target, uint8_t we
     
     /* Also execute damage on host locally */
     if (target < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
-        s32 prev = get_cur_playernum();
-        set_cur_player(target);
-        extern s32 s_gevrExplosionDamage;
-        s_gevrExplosionDamage = (weapon == ITEM_GRENADE || weapon == ITEM_GRENADELAUNCH || weapon == ITEM_ROCKETLAUNCH || weapon == ITEM_PROXIMITYMINE || weapon == ITEM_TIMEDMINE || weapon == ITEM_REMOTEMINE || weapon == ITEM_TANKSHELLS);
-        record_damage_kills(dmg, vx, vz, shooter_slot, 1);
-        s_gevrExplosionDamage = 0;
-        set_cur_player(prev);
+        netApplyDamage(target, shooter_slot, weapon, dmg, vx, vz);
     }
 }
 
@@ -1910,7 +1965,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             D_80048394 = (s32)clock;
             D_800483A8 = (s32)clock;
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-                g_playerPlayerData[i].kill_count = (s32)score_bank[i];
+                g_playerPlayerData[i].gevr_score_bank = (s32)score_bank[i];
                 for (int j = 0; j < GEVR_MAX_PLAYERS; j++)
                     g_playerPlayerData[i].kill_counts[j] = (s32)scores[i][j];
                 if (i == s_local_slot || !occupied[i] || !g_playerPointers[i] ||
@@ -2042,14 +2097,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (!netIsHost() && peer == s_server_peer && !buf.error &&
                 s_phase == NET_PHASE_IN_PROGRESS && netSlotOccupied(target) &&
                 attacker < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
-                NET_LOG("Player %d took %.1f damage from attacker %d", target, dmg, attacker);
-                s32 prev = get_cur_playernum();
-                set_cur_player(target);
-                extern s32 s_gevrExplosionDamage;
-                s_gevrExplosionDamage = (weapon == ITEM_GRENADE || weapon == ITEM_GRENADELAUNCH || weapon == ITEM_ROCKETLAUNCH || weapon == ITEM_PROXIMITYMINE || weapon == ITEM_TIMEDMINE || weapon == ITEM_REMOTEMINE || weapon == ITEM_TANKSHELLS);
-                record_damage_kills(dmg, vx, vz, attacker, 1);
-                s_gevrExplosionDamage = 0;
-                set_cur_player(prev);
+                netApplyDamage(target, attacker, weapon, dmg, vx, vz);
             }
             break;
         }
@@ -2339,12 +2387,27 @@ static int netRotationPick(int kind, int current, unsigned favorites, int mode) 
     random ^= random << 13; random ^= random >> 17; random ^= random << 5;
     return choices[random % (uint32_t)count];
 }
+/*
+ * The rotation (shuffle, playlist) turns only after a finished match: the
+ * round that follows the launcher's launch, a warmup join or the host's
+ * START MATCH plays the stage the host chose. Before this the warmup join's
+ * countdown resolved the rotation too, so a shuffle host who picked Bunker II
+ * warmed up there and started the match on a random other map (tester,
+ * 2026-09-30). Ballots still count whenever somebody voted.
+ */
+static bool s_rotate_next = false;   /* declared with netResolveVotes above */
+
 static void netResolveVotes(void) {
     int mode = s_lobby_state.config.next_round;
-    int stage = mode == NET_NEXT_VOTE ? netTallyBallot(NET_BALLOT_STAGE) :
-        netRotationPick(NET_BALLOT_STAGE, netStageIndexOf(s_round.config.stage), VrMpFavStages, mode);
-    int set = mode == NET_NEXT_VOTE ? netTallyBallot(NET_BALLOT_WEAPONS) :
-        netRotationPick(NET_BALLOT_WEAPONS, s_round.config.weapon_set, VrMpFavSets, mode);
+    bool rotate = s_rotate_next && mode != NET_NEXT_VOTE;
+    int stage = mode == NET_NEXT_VOTE ? netTallyBallot(NET_BALLOT_STAGE) : rotate ?
+        netRotationPick(NET_BALLOT_STAGE, netStageIndexOf(s_round.config.stage), VrMpFavStages, mode) : -1;
+    int set = mode == NET_NEXT_VOTE ? netTallyBallot(NET_BALLOT_WEAPONS) : rotate ?
+        netRotationPick(NET_BALLOT_WEAPONS, s_round.config.weapon_set, VrMpFavSets, mode) : -1;
+    NET_LOG("round settings: mode %d (%s), lobby stage %d, last round stage %d, ballot stage %d set %d",
+            mode, s_rotate_next ? "after a match" : "first round, no rotation",
+            s_lobby_state.config.stage, s_round.config.stage, stage, set);
+    s_rotate_next = false;
     if (stage >= 0 && netStageEligible(stage)) s_lobby_state.config.stage = netStage(stage)->level_id;
     if (!netStageEligible(netStageIndexOf(s_lobby_state.config.stage))) s_lobby_state.config.stage = s_round.config.stage;
     if (s_lobby_state.config.scenario == SCENARIO_MWTGG) s_lobby_state.config.weapon_set = 13;

@@ -5955,6 +5955,69 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
         else
         {
 block_20:
+#ifdef GEVR
+            /* a move refused for a door: which, and how open (Facility double door that opens but blocks, user 2026-09-30) */
+            if (stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_DOOR && stanSavedColl_posData->door != NULL)
+            {
+                static u64 s_next_door_log_us;
+                u64 now = sysGetMicroseconds();
+
+                if (now >= s_next_door_log_us)
+                {
+                    DoorRecord *d = stanSavedColl_posData->door;
+                    DoorRecord *l = d->linkedDoor;
+
+                    s_next_door_log_us = now + 1000000;
+                    sysLogPrintf(LOG_NOTE, "move: blocked by door %p type %d flags %x state %d open %.2f max %.2f perim %.2f edges %d pad %d%s",
+                                 (void *)d, d->doorType, d->doorFlags, d->openstate, d->openPosition, d->maxFrac, d->perimFrac,
+                                 d->ptr_allocated_collisiondata_block ? d->ptr_allocated_collisiondata_block->edges : -1,
+                                 ((ObjectRecord *)d)->pad, l && l != d ? " (linked)" : "");
+                    if (l && l != d)
+                    {
+                        sysLogPrintf(LOG_NOTE, "move:   linked door %p state %d open %.2f max %.2f perim %.2f edges %d",
+                                     (void *)l, l->openstate, l->openPosition, l->maxFrac, l->perimFrac,
+                                     l->ptr_allocated_collisiondata_block ? l->ptr_allocated_collisiondata_block->edges : -1);
+                    }
+                    sysLogPrintf(LOG_NOTE, "move:   door at %.0f,%.0f,%.0f me %.0f,%.0f bbox x %.0f..%.0f y %.0f..%.0f z %.0f..%.0f",
+                                 d->runtime_pos.x, d->runtime_pos.y, d->runtime_pos.z,
+                                 g_CurrentPlayer->field_488.collision_position.x, g_CurrentPlayer->field_488.collision_position.z,
+                                 d->bbox.Bounds.xmin, d->bbox.Bounds.xmax, d->bbox.Bounds.ymin, d->bbox.Bounds.ymax,
+                                 d->bbox.Bounds.zmin, d->bbox.Bounds.zmax);
+                    if (d->ptr_allocated_collisiondata_block)
+                    {
+                        struct collision_data *c = d->ptr_allocated_collisiondata_block;
+                        s32 k;
+                        char line[200];
+                        s32 n = snprintf(line, sizeof(line), "move:   polygon top %.0f bottom %.0f:", c->top, c->bottom);
+                        for (k = 0; k < c->edges && k < 8 && n < (s32)sizeof(line) - 24; k++)
+                        {
+                            n += snprintf(line + n, sizeof(line) - n, " (%.0f,%.0f)", c->polygon[k].f[0], c->polygon[k].f[1]);
+                        }
+                        sysLogPrintf(LOG_NOTE, "%s", line);
+                    }
+                }
+            }
+            /* playtest 2026-09-30 ("players stuck in each other"): a move refused for another player's prop */
+            if (netIsActive() && stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_VIEWER)
+            {
+                static u64 s_next_block_log_us;
+                u64 now = sysGetMicroseconds();
+
+                if (now >= s_next_block_log_us)
+                {
+                    f32 bx = stanSavedColl_posData->pos.x - g_CurrentPlayer->field_488.collision_position.x;
+                    f32 bz = stanSavedColl_posData->pos.z - g_CurrentPlayer->field_488.collision_position.z;
+
+                    s_next_block_log_us = now + 500000;
+                    sysLogPrintf(LOG_NOTE, "net: move: player %d blocked by player %d (%.0f apart, bounds %.0f,%.0f %.0f,%.0f)",
+                                 get_cur_playernum(), getPlayerPointerIndex(stanSavedColl_posData), sqrtf(bx * bx + bz * bz),
+                                 g_playerPointers[getPlayerPointerIndex(stanSavedColl_posData)]->collision_bounds.f[0],
+                                 g_playerPointers[getPlayerPointerIndex(stanSavedColl_posData)]->collision_bounds.f[1],
+                                 g_playerPointers[getPlayerPointerIndex(stanSavedColl_posData)]->collision_bounds.f[4],
+                                 g_playerPointers[getPlayerPointerIndex(stanSavedColl_posData)]->collision_bounds.f[5]);
+                }
+            }
+#endif
             /* I'm sorry, this is the only way I could make it match. */
             if (g_PlayerTankProp == NULL
                 && (stanSavedColl_posData != NULL)
@@ -13775,6 +13838,11 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         {
             s32 next = s_gevrWpIndex + (gevrWeaponPanelStickY > 0.0f ? -1 : 1);
 
+            /* the list wraps: past the bottom is the top again, and the reverse (user, 2026-09-30) */
+            if (count > 0)
+            {
+                next = (next + count) % count;
+            }
             if (next >= 0 && next < count && next != s_gevrWpIndex)
             {
                 s_gevrWpIndex = next;
@@ -14428,6 +14496,15 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                             if(1);
 
                             g_playerPlayerData[playerid].kill_counts[sp2C]++;
+#ifdef GEVR
+                            if (netIsActive())
+                            {
+                                extern s32 get_points_for_mp_player(s32 playernum);
+                                sysLogPrintf(LOG_NOTE, "net: kill: player %d killed player %d: points %d / %d, bank %d / %d",
+                                             playerid, sp2C, get_points_for_mp_player(playerid), get_points_for_mp_player(sp2C),
+                                             g_playerPlayerData[playerid].gevr_score_bank, g_playerPlayerData[sp2C].gevr_score_bank);
+                            }
+#endif
                         }
 
                         bondviewKillCurrentPlayer();
@@ -15123,6 +15200,38 @@ void hudmsgTopShow(char* mess)
 #endif
 }
 
+
+#ifdef GEVR
+/*
+ * A message that replaces the one it follows: the top window queues two
+ * messages, each up for about a second, so a countdown posting a new number
+ * every second overflowed it and numbers went missing (user, 2026-09-30).
+ * A queued message that starts with prefix is rewritten in place and kept
+ * up; otherwise the message is queued as usual.
+ */
+void gevrHudTopReplace(const char *mess, const char *prefix)
+{
+    s32 k;
+    size_t n = strlen(prefix);
+
+    for (k = 0; k < display_upper_text_window && k < 2; k++)
+    {
+        s32 index = (upper_text_buffer_index + k) % 2;
+
+        if (strncmp(stringbuffer_top[index], prefix, n) == 0)
+        {
+            strncpy(stringbuffer_top[index], mess, BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH - 1);
+            stringbuffer_top[index][BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH - 1] = 0;
+            if (k == 0 && upper_text_window_timer < BONDVIEW_UPPER_TEXT_TIMER_A)
+            {
+                upper_text_window_timer = BONDVIEW_UPPER_TEXT_TIMER_A;
+            }
+            return;
+        }
+    }
+    hudmsgTopShow((char *)mess);
+}
+#endif
 
 /**
  * Address 0x7F08A9F8.
