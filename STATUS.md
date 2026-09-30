@@ -26,6 +26,10 @@ grip + A (#63), left X for weapons and Y for use/reload, and normal online
 damage handicap (#69). v0.3.1 (df311a0) fixed multiplayer crashes and added
 "Send debug log". v0.3.0 (5fa83da) brought drop-in multiplayer, names and
 name tags, network protocol 6.
+Unreleased on main (versionCode 34): the launcher haptics screen (#64),
+motion-throw gaze assist and its settings pane, voice falloff that treats
+players in view as the same room, SFX volume and mic mute in the launcher
+and the multiplayer pause menu, and the multiplayer page fitting the panel.
 
 ## What it is
 
@@ -58,13 +62,15 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   Owner-authoritative positions with input extrapolation, hit reports relayed
   by the host, synced weapons, deaths, respawns and explosions. Voice chat:
   Opus on its own ENet channel, full volume in the lobby, distance and
-  direction in a match (same room: gentle falloff to a 50% floor out to
-  3500 units; other rooms: quadratic to silence at 2500, net_voice.c
-  playersShareRoom), mute in the lobby, on the watch, or with left X+Y.
-  Music and Voice volume: launcher sliders and the multiplayer pause menu
-  (right stick adjusts, right stick click swaps; A still closes the menu),
-  saved as MusicVolume and VoiceVolume under [VR] in goldeneye-vr.ini.
-  Launcher Join Game is an accordion (Public, Private, LAN, Direct IP).
+  direction in a match: in view (a clear floor-tile walk to the speaker on
+  the same floor; BG rooms are geometry chunks, too small to mean "same
+  room") full to 500 units, easing to 60% at 4000; out of view quadratic
+  to silence at 2500 (net_voice.c, logs "voice: slot ..." every 2 s).
+  Mute: launcher "Mute Microphone", the watch, the pause menu, left X+Y.
+  Music, SFX (the game's own effects volume) and Voice: launcher sliders
+  and pause menu rows (right stick adjusts, click steps MUSIC, SFX, VOICE,
+  MIC; A still closes the menu), saved in goldeneye-vr.ini. The launcher
+  never scrolls; its pages are laid out to fit. Join Game is an accordion.
   Drop-in (v0.3.0): games stay listed after the start, solo warmup, late
   joiners get match and world snapshots, slots are reused, scores carry
   over. Names: launcher "Your name" (ini PlayerName, typed on the Quest
@@ -117,7 +123,10 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 - Two defect classes explain most crashes: byte order of ROM data, and
   32-bit pointer slots in N64 structs (docs/RARE-LOGO-AUDIO-HANDOFF.md,
   docs/gepc-port-guard-sweep.md). Line endings are mixed per file and stored
-  as on disk (`* -text`); edit in place, never rewrite a whole file.
+  as on disk (`* -text`); edit in place, never rewrite a whole file. Some
+  files mix endings inside (src/game/mpmenu.c), and editors, including
+  Claude's Edit tool, turn them all CRLF: before committing, compare
+  `git diff --stat` with `git diff --stat --ignore-cr-at-eol`.
 
 ## Next
 
