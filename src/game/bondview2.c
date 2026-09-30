@@ -2256,6 +2256,13 @@ void gevrMotionThrowTick(s32 hand)
     extern void generate_player_thrown_knife(s32 hand);
     extern void generate_player_thrown_object(s32 hand);
 
+    /* The wind-up state below is the local player's; another player's copy
+     * (dead or alive) must not touch it. */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        return;
+    }
+
     if (!g_gevrStereo || !VrMotionThrowing || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
         || g_CurrentPlayer->watch_animation_state != 0 || g_PlayerIsInTank == 1)
     {
@@ -2263,11 +2270,6 @@ void gevrMotionThrowTick(s32 hand)
         s_gevrGripArmed[hand] = 0;
         s_gevrGripPeak[hand] = 0.0f;
         s_gevrTrackingLostFrames[hand] = 0;
-        return;
-    }
-
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
-    {
         return;
     }
 
@@ -2650,12 +2652,15 @@ void gevrMotionThrowUpdate(void)
 s32 gevrIsMotionThrowGripping(s32 hand)
 {
     if (hand < 0 || hand > 1) return 0;
+    /* the local player's grip; another player's copy is never winding up here */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot()) return 0;
     return s_gevrThrowWindup[hand];
 }
 
 void gevrGrenadeCookHapticTick(s32 hand, s32 cook_tick)
 {
-    if (!g_gevrStereo || !vr_haptics_ready())
+    if (!g_gevrStereo || !vr_haptics_ready()
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot()))
     {
         return;
     }
@@ -3059,12 +3064,99 @@ s32 gevrStereoWatchHandMatrix(Mtxf *out)
  * camera's own pixels-per-tangent, bondview.c transformAndNormalizeByLength2Dto3D),
  * so the shot does not depend on the stored crosshair being this frame's.
  */
+/*
+ * World space to the current view's space, the inverse of the view-to-world
+ * matrix and of chrprop.c gevrViewToWorldPos (whose division by the level's
+ * visibility scale in stereo this undoes). ispoint 0 turns a direction.
+ */
+static void gevrWorldToViewSpace(Mtxf *v2w, struct coord3d *p, s32 ispoint)
+{
+    f32 x = p->x, y = p->y, z = p->z;
+
+    if (ispoint)
+    {
+        x -= v2w->m[3][0];
+        y -= v2w->m[3][1];
+        z -= v2w->m[3][2];
+    }
+    p->x = x * v2w->m[0][0] + y * v2w->m[0][1] + z * v2w->m[0][2];
+    p->y = x * v2w->m[1][0] + y * v2w->m[1][1] + z * v2w->m[1][2];
+    p->z = x * v2w->m[2][0] + y * v2w->m[2][1] + z * v2w->m[2][2];
+    if (ispoint && g_gevrStereo && D_800364CC > 1e-6f)
+    {
+        p->x *= D_800364CC;
+        p->y *= D_800364CC;
+        p->z *= D_800364CC;
+    }
+}
+
+/*
+ * A remote player's copy firing on this headset (lv.c traces its shots with
+ * the local view's matrices, which the on-screen props' hit tests use): the
+ * shot leaves the owner's real muzzle along the owner's barrel, sent in world
+ * space (net_player_sync.c), or from the copy's eye along its view when the
+ * owner does not aim with a controller.
+ */
+static s32 gevrRemoteCopyShot(s32 handnum, struct coord3d *origin, struct coord3d *dir)
+{
+    extern int netGetRemoteAim(int slot_id, struct coord3d *origin, struct coord3d *dir);
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    struct coord3d wo, wd;
+
+    if (v2w == NULL || g_CurrentPlayer->prop == NULL)
+    {
+        return FALSE;
+    }
+    if (handnum != GUNRIGHT || !netGetRemoteAim(get_cur_playernum(), &wo, &wd))
+    {
+        wo = g_CurrentPlayer->prop->pos;
+        wd = g_CurrentPlayer->field_488.applied_view;
+    }
+    gevrWorldToViewSpace(v2w, &wo, TRUE);
+    gevrWorldToViewSpace(v2w, &wd, FALSE);
+    *origin = wo;
+    *dir = wd;
+    return TRUE;
+}
+
+s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, struct coord3d *dir);
+
+/*
+ * The local player's right gun barrel in world space, for the other headsets
+ * to fire this player's copy along it (net_player_sync.c).
+ */
+s32 gevrStereoShotWorld(s32 handnum, struct coord3d *origin, struct coord3d *dir)
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+
+    if (v2w == NULL || !gevrStereoShot(handnum, NULL, origin, dir))
+    {
+        return FALSE;
+    }
+    if (g_gevrStereo && D_800364CC > 1e-6f)
+    {
+        origin->x /= D_800364CC;
+        origin->y /= D_800364CC;
+        origin->z /= D_800364CC;
+    }
+    mtx4TransformVecInPlace(v2w, origin);
+    mtx4RotateVecInPlace(v2w, dir);
+    return TRUE;
+}
+
 s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, struct coord3d *dir)
 {
     f32 pos[3], right[3], up[3], back[3];
     struct coord3d far;
     f32 len;
-    s32 ctrl = gevrShotCtrl(handnum);
+    s32 ctrl;
+
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        return gevrRemoteCopyShot(handnum, origin, dir);
+    }
+
+    ctrl = gevrShotCtrl(handnum);
 
     if (!g_gevrStereo || (handnum != GUNRIGHT && handnum != GUNLEFT) || !gevrGripAxes(ctrl, pos, right, up, back))
     {

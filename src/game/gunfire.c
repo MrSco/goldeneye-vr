@@ -3664,6 +3664,53 @@ void sub_GAME_7F0649D8(enum GUNHAND hand)
 #endif
 
 
+#ifdef GEVR
+/*
+ * Online, another player's copy fires on this headset. Its gun's sound was
+ * played like the local player's own gun, at full volume from anywhere; place
+ * it at the copy as a guard's shots are (chraction.c sub_GAME_7F02BFE4:
+ * volume by distance, propobj.c measuring from the local player online), and
+ * pan it toward the copy the way remote voices are (net_voice.c netVoiceMix).
+ */
+static void gevrPlaceRemoteGunSound(ALSoundState *state)
+{
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    struct player *listener;
+    s32 local;
+    f32 dx, dz, dist, pan, yaw;
+
+    if (state == NULL || !netIsActive() || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL)
+    {
+        return;
+    }
+    local = netGetLocalSlot();
+    if (get_cur_playernum() == local || local < 0 || local >= 4)
+    {
+        return;
+    }
+    chrobjSndCreatePostEventDefault(state, &g_CurrentPlayer->prop->pos);
+
+    listener = g_playerPointers[local];
+    if (listener == NULL || listener->prop == NULL)
+    {
+        return;
+    }
+    dx = g_CurrentPlayer->prop->pos.x - listener->prop->pos.x;
+    dz = g_CurrentPlayer->prop->pos.z - listener->prop->pos.z;
+    dist = sqrtf(dx * dx + dz * dz);
+    pan = 0.0f;
+    if (dist > 1.0f)
+    {
+        /* the listener's right is (-cos theta, -sin theta) in x/z (radar.c) */
+        yaw = listener->vv_theta * (M_PI_F / 180.0f);
+        pan = -(dx * cosf(yaw) + dz * sinf(yaw)) / dist * 0.7f;
+    }
+    sndCreatePostEvent(state, AL_SNDP_PAN_EVT, (s32)(AL_PAN_CENTER + pan * 63.0f));
+}
+#endif
+
+
 /**
  * Address: 7F064B28
  */
@@ -4298,10 +4345,16 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                             if (handptr->audioHandle == NULL)
                             {
                                 sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, bondwalkItemGetSound(var_s1), (struct ALSoundState *) &handptr->audioHandle);
+#ifdef GEVR
+                                gevrPlaceRemoteGunSound(handptr->audioHandle);
+#endif
                             }
                             else if ((struct ALSoundState *)handptr->field_A48 == 0)
                             {
                                 sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, bondwalkItemGetSound(var_s1), (struct ALSoundState *) &handptr->field_A48);
+#ifdef GEVR
+                                gevrPlaceRemoteGunSound((ALSoundState *) handptr->field_A48);
+#endif
                             }
 
                             handptr->field_A50 = g_GlobalTimer;
@@ -4311,7 +4364,11 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                     if (var_s1 == ITEM_WATCHLASER)
                     {
                         sp1B0 = watchlaser_fire_sounds;
+#ifdef GEVR
+                        gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, sp1B0.half[randomGetNext() & 1], NULL));
+#else
                         sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, sp1B0.half[randomGetNext() & 1], NULL);
+#endif
                     }
                 }
             }

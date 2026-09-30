@@ -159,6 +159,26 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                     }
                     pl->hands[GUNRIGHT].weaponnum = (ITEM_IDS)m->weaponnum;
                 }
+
+                /*
+                 * The copy fires on this headset: its shots make the sound,
+                 * the flash and the impacts, while hits on players come only
+                 * from the owner's reports. It never picks anything up here, so
+                 * keep its gun loaded, or every trigger pull was an empty click
+                 * and a reload (and an out-of-ammo weapon swap that the sync
+                 * above swapped straight back). Perfect Dark port-net sends the
+                 * ammo itself (SVC_PLAYER_STATS); a full gun is enough here.
+                 */
+                if (m->weaponnum > ITEM_UNARMED && m->weaponnum < ITEM_IDS_MAX) {
+                    WeaponStats *stats = get_ptr_item_statistics((ITEM_IDS)m->weaponnum);
+                    if (stats && stats->AmmoType > 0 && stats->AmmoType < (s32)(sizeof(pl->ammoheldarr) / sizeof(pl->ammoheldarr[0]))) {
+                        s32 mag = stats->MagSize > 0 ? stats->MagSize : 1;
+                        if (pl->ammoheldarr[stats->AmmoType] < mag)
+                            pl->ammoheldarr[stats->AmmoType] = mag;
+                        if (pl->hands[GUNRIGHT].weapon_ammo_in_magazine <= 0)
+                            pl->hands[GUNRIGHT].weapon_ammo_in_magazine = mag;
+                    }
+                }
             }
             
             /* Firing state */
@@ -301,6 +321,16 @@ void netPlayerSyncAfterTick(s32 playernum) {
     }
     move.handrot.y = atan2f(2.0f * (hqw * hqy + hqx * hqz), 1.0f - 2.0f * (hqx * hqx + hqy * hqy)) * (180.0f / (float)M_PI);
     move.handrot.z = atan2f(2.0f * (hqw * hqz + hqx * hqy), 1.0f - 2.0f * (hqx * hqx + hqz * hqz)) * (180.0f / (float)M_PI);
-    
+
+    /* The right gun's barrel in world space: this player's copy on the other
+     * headsets fires along it (bondview2.c gevrStereoShot), so its shots land
+     * where this player aimed, not where the head looks. */
+    {
+        extern s32 gevrStereoShotWorld(s32 handnum, coord3d *origin, coord3d *dir);
+        if (gevrStereoShotWorld(GUNRIGHT, &move.aimorigin, &move.aimdir)) {
+            move.ucmd |= UCMD_AIMVALID;
+        }
+    }
+
     netSendLocalPlayerMove(&move);
 }
