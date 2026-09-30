@@ -5956,6 +5956,30 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
         {
 block_20:
 #ifdef GEVR
+            /* a move refused for a door: which, and how open (Facility double door that opens but blocks, user 2026-09-30) */
+            if (stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_DOOR && stanSavedColl_posData->door != NULL)
+            {
+                static u64 s_next_door_log_us;
+                u64 now = sysGetMicroseconds();
+
+                if (now >= s_next_door_log_us)
+                {
+                    DoorRecord *d = stanSavedColl_posData->door;
+                    DoorRecord *l = d->linkedDoor;
+
+                    s_next_door_log_us = now + 1000000;
+                    sysLogPrintf(LOG_NOTE, "move: blocked by door %p type %d flags %x state %d open %.2f max %.2f perim %.2f edges %d pad %d%s",
+                                 (void *)d, d->doorType, d->doorFlags, d->openstate, d->openPosition, d->maxFrac, d->perimFrac,
+                                 d->ptr_allocated_collisiondata_block ? d->ptr_allocated_collisiondata_block->edges : -1,
+                                 ((ObjectRecord *)d)->pad, l && l != d ? " (linked)" : "");
+                    if (l && l != d)
+                    {
+                        sysLogPrintf(LOG_NOTE, "move:   linked door %p state %d open %.2f max %.2f perim %.2f edges %d",
+                                     (void *)l, l->openstate, l->openPosition, l->maxFrac, l->perimFrac,
+                                     l->ptr_allocated_collisiondata_block ? l->ptr_allocated_collisiondata_block->edges : -1);
+                    }
+                }
+            }
             /* playtest 2026-09-30 ("players stuck in each other"): a move refused for another player's prop */
             if (netIsActive() && stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_VIEWER)
             {
