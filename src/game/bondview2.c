@@ -5978,6 +5978,23 @@ block_20:
                                      (void *)l, l->openstate, l->openPosition, l->maxFrac, l->perimFrac,
                                      l->ptr_allocated_collisiondata_block ? l->ptr_allocated_collisiondata_block->edges : -1);
                     }
+                    sysLogPrintf(LOG_NOTE, "move:   door at %.0f,%.0f,%.0f me %.0f,%.0f bbox x %.0f..%.0f y %.0f..%.0f z %.0f..%.0f",
+                                 d->runtime_pos.x, d->runtime_pos.y, d->runtime_pos.z,
+                                 g_CurrentPlayer->field_488.collision_position.x, g_CurrentPlayer->field_488.collision_position.z,
+                                 d->bbox.Bounds.xmin, d->bbox.Bounds.xmax, d->bbox.Bounds.ymin, d->bbox.Bounds.ymax,
+                                 d->bbox.Bounds.zmin, d->bbox.Bounds.zmax);
+                    if (d->ptr_allocated_collisiondata_block)
+                    {
+                        struct collision_data *c = d->ptr_allocated_collisiondata_block;
+                        s32 k;
+                        char line[200];
+                        s32 n = snprintf(line, sizeof(line), "move:   polygon top %.0f bottom %.0f:", c->top, c->bottom);
+                        for (k = 0; k < c->edges && k < 8 && n < (s32)sizeof(line) - 24; k++)
+                        {
+                            n += snprintf(line + n, sizeof(line) - n, " (%.0f,%.0f)", c->polygon[k].f[0], c->polygon[k].f[1]);
+                        }
+                        sysLogPrintf(LOG_NOTE, "%s", line);
+                    }
                 }
             }
             /* playtest 2026-09-30 ("players stuck in each other"): a move refused for another player's prop */
