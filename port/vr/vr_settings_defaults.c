@@ -33,6 +33,7 @@ int  VrStickClickToCrouch = 0;      /* crouch on stick click instead of physical
 int  VrMicMuted           = 0;      /* persist multiplayer microphone mute */
 float VrMusicVolume       = 1.0f;   /* music volume (0..1) */
 float VrVoiceVolume       = 1.0f;   /* multiplayer voice chat volume (0..1) */
+float VrSfxVolume         = 1.0f;   /* multiplayer sound effects volume (0..1) */
 char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one up when empty */
 int  vr_invert_hands      = 0;      /* swap which hand holds the weapon */
 
