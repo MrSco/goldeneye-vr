@@ -7,24 +7,24 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-30. **Latest release:** v0.3.5 (tag v0.3.5,
-versionCode 32): sniper scope steadiness (#79), motion throwing and grenade
-cooking, room-aware voice falloff, Music and Voice volume, the Dam truck's
-headlights (#71), bullet holes no longer striped (#29). Earlier: v0.3.4
-multiplayer testing fixes, v0.3.3 HUD text crash guard (#78), v0.3.2 pause
-controls, rumble, tank audio, left-hand weapons, previous weapon, damage
-handicap, v0.3.1 crash fixes and "Send debug log", v0.3.0 drop-in
-multiplayer with names and tags. Unreleased on main (versionCode 34): the
-launcher haptics screen (#64), motion-throw gaze assist, voice falloff that
-treats players in view as the same room, SFX volume and mic mute in the
-launcher and the pause menu, stereo without the walk sway and bob.
+**Updated:** 2026-09-30. **Latest release:** v0.3.6 (tag v0.3.6, commit
+081a1ae, versionCode 45, protocol 10): the 2026-09-30 playtest branch (below)
+plus everything unreleased since v0.3.5 (launcher haptics screen #64,
+motion-throw gaze assist, voice falloff by view, SFX volume and mic mute,
+stereo without the walk sway and bob). v0.3.5 (versionCode 32): sniper scope
+steadiness (#79), motion throwing and grenade cooking, room-aware voice
+falloff, Music and Voice volume, the Dam truck's headlights (#71), bullet
+holes no longer striped (#29). Earlier: v0.3.4 multiplayer testing fixes,
+v0.3.3 HUD text crash guard (#78), v0.3.2 pause controls, rumble, tank audio,
+left-hand weapons, previous weapon, damage handicap, v0.3.1 crash fixes and
+"Send debug log", v0.3.0 drop-in multiplayer with names and tags.
 Main 396dd64 (0.3.6, versionCode 43, protocol 9) carries the full multiplayer
 punch list: in-level lobby (MENU_LOBBY), match config and restored options,
 mute chord (hold Menu + right B), countdown and round transitions, late-join
 spectator camera with its own voice group, spawn loadouts, online dual
 wielding, ballots, shuffle and playlist rotation.
-Branch claude/playtest-logging-feedback-731f59 (versionCode 44, protocol 9,
-unmerged) answers the 2026-09-30 tester report: net log lines now reach the
+The 2026-09-30 playtest branch (claude/playtest-logging-feedback-731f59,
+merged as f0c8e74, in v0.3.6) answered the tester report: net log lines now reach the
 debug bundle (they were a separate logcat tag and rotated out); the lockup
 was an unbounded inventory cycle (bondinv.c, now bounded and dumped); the
 Bunker II to Facility switch was the ballots starting at zero, a vote for the
@@ -164,9 +164,8 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## Next
 
-- Merge the playtest branch (17 commits) and release as v0.3.6 once the
-  Facility swinging doors are understood: the log line "move: blocked by
-  door" (with the door's box and polygon corners since 66f1613) fired at
+- v0.3.6 is out; both testers should update. The Facility swinging doors
+  are the open question: the log line "move: blocked by door" (with the door's box and polygon corners since 66f1613) fired at
   90 degrees open several times, but the players passed through on the
   next round; possibly a leaf swung across the passage, as the original
   game's leaves also block. Open oddity: the copies' logged aim pitch
