@@ -1221,25 +1221,11 @@ void mpwatchMenuTick(void)
                     }
                 }
 #ifdef GEVR
-                else if (netIsActive() && g_CurrentPlayer->mpmenumode == MENU_LOBBY &&
-                         joyGetButtonsPressedThisFrame(player_num, A_BUTTON | B_BUTTON | START_BUTTON))
+                else if (netIsActive() && player_num == netGetLocalSlot() &&
+                         g_CurrentPlayer->mpmenumode == MENU_LOBBY &&
+                         joyGetButtonsPressedThisFrame(player_num, A_BUTTON) && gevrMenuPageAction())
                 {
-                    /* A fires the selected action row; B or START closes the menu (not at the results) */
-                    if (joyGetButtonsPressedThisFrame(player_num, A_BUTTON))
-                    {
-                        if (player_num == netGetLocalSlot()) gevrMenuPageAction();
-                    }
-                    else if (!g_gameOverFlag)
-                    {
-                        mpwatchPlayBeep();
-                        g_CurrentPlayer->mpmenuon = FALSE;
-                        g_CurrentPlayer->healthdisplaytime = (PAL ? 50 : 60);
-                        if (get_cur_playernum() == who_paused)
-                        {
-                            g_pausedFlag = 0;
-                            lvlSetControlsLockedFlag(0);
-                        }
-                    }
+                    /* Selected action consumed A; other buttons use the normal close/results path. */
                 }
 #endif
                 else if (((joyGetButtonsPressedThisFrame(player_num, A_BUTTON | START_BUTTON)) && ((((g_CurrentPlayer->mpmenumode != MENU_EXIT)) && (g_CurrentPlayer->mpmenumode != MENU_EXIT_CONFIRM)) || ((g_CurrentPlayer->mpmenumode == MENU_EXIT_CONFIRM) && (g_CurrentPlayer->mpquitconfirm != 1)))) || (joyGetButtonsPressedThisFrame(player_num, B_BUTTON)))

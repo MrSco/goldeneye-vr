@@ -15,6 +15,8 @@ int gevrNetSlotLoadout(int slot, int k);
 unsigned char gevrNetItemAt(int idx);
 int netStageEligible(int idx);
 int netActiveDualWield(void);
+int netRemoteWeapon(int slot, int hand);
+int netRemoteTrigger(int slot, int hand);
 int netActiveLoadoutItem(int slot, int k);
 int netCountdownSecondsLeft(void);
 void netHostContinue(void);
@@ -22,11 +24,13 @@ void netHostReturnToLobby(void);
 void netHostStartRoundNow(void);
 int gevrSpectating(void);
 int netPlayerIsSpectator(int slot);
+int netPlayerInRound(int slot);
 void gevrSpectatorAim(float yaw);
 int netSpectatorTarget(void);
 void netSpectatorFrame(void);
 void netSpectatorReset(void);
 void gevrGiveOnlineLoadout(void);
+void gevrEquipOnlineLoadout(void);
 void gevrPreloadOnlineLoadouts(void);
 #ifdef __cplusplus
 }

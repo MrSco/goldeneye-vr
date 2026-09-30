@@ -1487,7 +1487,7 @@ Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2)
         dist = flash->unk24;
         flareoffset = D_80035CA8;
         extraorigin = D_80035CB4;
-        extra_scale = 1.4142f; // ~âˆš2
+        extra_scale = 1.4142f; // ~√2
         image = flareimage3;
         worldtoscreen = camGetWorldToScreenMtxf();
 
@@ -3685,7 +3685,7 @@ void sub_GAME_7F0649D8(enum GUNHAND hand)
  * volume by distance, propobj.c measuring from the local player online), and
  * pan it toward the copy the way remote voices are (net_voice.c netVoiceMix).
  */
-static void gevrPlaceRemoteGunSound(ALSoundState *state)
+static void gevrPlaceRemoteGunSound(ALSoundState *state, s32 hand)
 {
     extern bool netIsActive(void);
     extern int netGetLocalSlot(void);
@@ -3702,15 +3702,18 @@ static void gevrPlaceRemoteGunSound(ALSoundState *state)
     {
         return;
     }
-    chrobjSndCreatePostEventDefault(state, &g_CurrentPlayer->prop->pos);
+    extern int netGetRemoteAim(int slot, int hand, coord3d *origin, coord3d *dir);
+    coord3d origin = g_CurrentPlayer->prop->pos, direction;
+    netGetRemoteAim(get_cur_playernum(), hand, &origin, &direction);
+    chrobjSndCreatePostEventDefault(state, &origin);
 
     listener = g_playerPointers[local];
     if (listener == NULL || listener->prop == NULL)
     {
         return;
     }
-    dx = g_CurrentPlayer->prop->pos.x - listener->prop->pos.x;
-    dz = g_CurrentPlayer->prop->pos.z - listener->prop->pos.z;
+    dx = origin.x - listener->prop->pos.x;
+    dz = origin.z - listener->prop->pos.z;
     dist = sqrtf(dx * dx + dz * dz);
     pan = 0.0f;
     if (dist > 1.0f)
@@ -4359,14 +4362,14 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                             {
                                 sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, bondwalkItemGetSound(var_s1), (struct ALSoundState *) &handptr->audioHandle);
 #ifdef GEVR
-                                gevrPlaceRemoteGunSound(handptr->audioHandle);
+                                gevrPlaceRemoteGunSound(handptr->audioHandle, hand);
 #endif
                             }
                             else if ((struct ALSoundState *)handptr->field_A48 == 0)
                             {
                                 sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, bondwalkItemGetSound(var_s1), (struct ALSoundState *) &handptr->field_A48);
 #ifdef GEVR
-                                gevrPlaceRemoteGunSound((ALSoundState *) handptr->field_A48);
+                                gevrPlaceRemoteGunSound((ALSoundState *) handptr->field_A48, hand);
 #endif
                             }
 
@@ -4378,7 +4381,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                     {
                         sp1B0 = watchlaser_fire_sounds;
 #ifdef GEVR
-                        gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, sp1B0.half[randomGetNext() & 1], NULL));
+                        gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, sp1B0.half[randomGetNext() & 1], NULL), hand);
 #else
                         sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, sp1B0.half[randomGetNext() & 1], NULL);
 #endif
@@ -5831,7 +5834,12 @@ void gunTickGameplay(s32 triggerOn)
      * controller's trigger fires its own gun - the game's single trigger and
      * its turn-taking above only fit one pad aiming both guns at one crosshair.
      */
-    if (g_gevrStereo && gevrDualWielding())
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        trigger_state.triggerOn[GUNRIGHT] = netRemoteTrigger(get_cur_playernum(), GUNRIGHT);
+        trigger_state.triggerOn[GUNLEFT] = netRemoteTrigger(get_cur_playernum(), GUNLEFT);
+    }
+    else if (g_gevrStereo && gevrDualWielding())
     {
         trigger_state.triggerOn[GUNRIGHT] = triggerOn && gevrVrTriggerDown[GUNRIGHT];
         trigger_state.triggerOn[GUNLEFT] = triggerOn && gevrVrTriggerDown[GUNLEFT];
@@ -5870,7 +5878,7 @@ void gunTickGameplay(s32 triggerOn)
     {
         extern void gevrMotionThrowUpdate(void);
 
-        if (!gevrSpectating()) gevrMotionThrowUpdate();
+        if (!gevrSpectating() && (!netIsActive() || get_cur_playernum() == netGetLocalSlot())) gevrMotionThrowUpdate();
     }
     /* Suppress trigger on non-grenade throwables when gripping */
     for (s32 h = 0; h < 2; h++)
@@ -5889,6 +5897,22 @@ void gunTickGameplay(s32 triggerOn)
     if (gevrSpectating()) trigger_state.triggerOn[0] = trigger_state.triggerOn[1] = 0;
 #endif
     gunTickHandState(0, trigger_state.triggerOn[0]); // Right hand
+#ifdef GEVR
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot() && !g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT]) {
+        /* A low-memory copy needs shot timing and its third-person gun, never a 1P model. */
+        static s32 next_fire[4];
+        int slot = get_cur_playernum(), item = netRemoteWeapon(slot, GUNLEFT);
+        struct hand *left = &g_CurrentPlayer->hands[GUNLEFT];
+        left->weapon_firing_status = left->field_87D = 0;
+        if (!trigger_state.triggerOn[GUNLEFT] || item == ITEM_UNARMED) next_fire[slot] = 0;
+        else if (g_GlobalTimer >= next_fire[slot] && !lvlGetControlsLockedFlag() && !g_CurrentPlayer->bonddead) {
+            int rate = bondwalkItemGetAutomaticFiringRate(item);
+            next_fire[slot] = g_GlobalTimer + (rate > 0 ? rate : 6);
+            left->weapon_firing_status = left->field_87D = 1;
+            if (bondwalkItemGetSound(item)) gevrPlaceRemoteGunSound(sndPlaySfx(g_musicSfxBufferPtr, bondwalkItemGetSound(item), NULL), GUNLEFT);
+        }
+    } else
+#endif
     gunTickHandState(1, trigger_state.triggerOn[1]); // Left hand
     used_to_load_1st_person_model_on_demand(0);
     used_to_load_1st_person_model_on_demand(1);
@@ -6401,7 +6425,7 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
     Mtxf rotmtx;
 #endif
     f32 rand;
-    s32 new_var; /* dead but declared on EU â€” still reserves its frame slot */
+    s32 new_var; /* dead but declared on EU — still reserves its frame slot */
     f32 frac;
 #if VERSION_EU
     s32 randlimit;
@@ -6746,7 +6770,7 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
     Mtxf rotmtx;
 #endif
     f32 rand;
-    s32 new_var; /* dead but declared on EU â€” still reserves its frame slot */
+    s32 new_var; /* dead but declared on EU — still reserves its frame slot */
     f32 frac;
 #if VERSION_EU
     s32 randlimit;

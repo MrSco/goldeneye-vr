@@ -711,7 +711,7 @@ static coord3d s_gevrBarrelDir[2];
 
 static void gevrViewPass(s32 playernum, s32 hand)
 {
-    extern int netGetRemoteAim(int slot_id, coord3d *origin, coord3d *dir);
+    extern int netGetRemoteAim(int slot_id, int hand, coord3d *origin, coord3d *dir);
     extern int netGetLocalSlot(void);
     extern void gevrSetCopyTrace(s32 on);
     extern void gevrSetPassAim(s32 hand, const coord3d *origin, const coord3d *dir);
@@ -760,7 +760,7 @@ static void gevrViewPass(s32 playernum, s32 hand)
         look = s_gevrBarrelDir[hand];
         aimed = TRUE;
     }
-    else if (pl->bonddead || !netGetRemoteAim(playernum, &pos, &look))
+    else if (pl->bonddead || !netGetRemoteAim(playernum, hand, &pos, &look))
     {
         pos = pl->field_488.pos;
         look = pl->field_488.applied_view;
@@ -814,7 +814,9 @@ static void gevrViewPass(s32 playernum, s32 hand)
     }
     else
     {
-        chraiCheckUseHeldItems();
+        g_gevrShotHand = hand;
+        chraiCheckUseHeldItem(hand);
+        g_gevrShotHand = -1;
     }
     gevrSetCopyTrace(FALSE);
 
@@ -917,6 +919,7 @@ Gfx* lvlRender(Gfx* DL)
                     if (netSlotOccupied(playernum))
                     {
                         gevrViewPass(playernum, GUNRIGHT);
+                        if (netRemoteWeapon(playernum, GUNLEFT) != ITEM_UNARMED) gevrViewPass(playernum, GUNLEFT);
                     }
                     continue;
                 }
@@ -1514,11 +1517,17 @@ void lvlManageMpGame(void)
 
             for (i = 0; i < player_count; i++)
             {
+#ifdef GEVR
+                if (netIsActive() && !netPlayerInRound(i)) continue;
+#endif
                 killed_count = 0;
                 not_dead_count = 0;
 
                 for (j = 0; j < player_count; j++)
                 {
+#ifdef GEVR
+                    if (netIsActive() && !netPlayerInRound(j)) continue;
+#endif
                     if (g_playerPointers[j]->bonddead == 0)
                     {
                         not_dead_count++;

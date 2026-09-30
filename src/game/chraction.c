@@ -2639,7 +2639,9 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
             {
                 if (playerNum == netGetLocalSlot())
                 {
-                    u8 wepid = (u8)(g_CurrentPlayer ? g_CurrentPlayer->hands[GUNRIGHT].field_87F : weaponid);
+                    extern s32 g_gevrShotHand;
+                    s32 hand = g_gevrShotHand >= 0 && g_gevrShotHand <= 1 ? g_gevrShotHand : GUNRIGHT;
+                    u8 wepid = (u8)(g_CurrentPlayer ? getCurrentPlayerWeaponId(hand) : weaponid);
                     netSendHitReport((uint8_t)targetNum, wepid, (uint8_t)hitpart, vector->x, vector->y, vector->z, damageToCause * 0.125f);
                 }
             }

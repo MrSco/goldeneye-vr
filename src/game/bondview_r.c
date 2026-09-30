@@ -17,6 +17,7 @@
 #include "game/stan.h"
 #ifdef GEVR
 #include "system.h"
+#include "net_game.h"
 #endif
 
 
@@ -403,6 +404,9 @@ void bondviewLoadSetupIntroSection(void)
         startpadcount > 0 ? (void *)g_Startpad[0]->stan : NULL);
 #endif
 
+#ifdef GEVR
+    gevrPreloadOnlineLoadouts();
+#endif
     bondinvAddInvItem(ITEM_FIST);
 
     if (set_starting_weapon == 0)
@@ -410,6 +414,13 @@ void bondviewLoadSetupIntroSection(void)
         starting_weapon[GUNRIGHT] = ITEM_FIST;
     }
 
+#ifdef GEVR
+    gevrGiveOnlineLoadout();
+    if (netActiveLoadoutItem(get_cur_playernum(), 0)) {
+        starting_weapon[GUNRIGHT] = netActiveLoadoutItem(get_cur_playernum(), 0);
+        starting_weapon[GUNLEFT] = ITEM_UNARMED;
+    }
+#endif
     g_CurrentPlayer->field_78 = FLOAT_INIT;
     g_CurrentPlayer->field_7C = -0.0001f;
     g_CurrentPlayer->field_80 = FLOAT_INIT;

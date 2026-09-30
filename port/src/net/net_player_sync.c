@@ -130,6 +130,34 @@ void netSpectatorFrame(void) {
     }
 }
 
+static void netSyncCopyHand(struct player *pl, int hand, int weapon, int fire) {
+    ChrRecord *chr = pl->prop->chr;
+    int current = chr->weapons_held[hand] && chr->weapons_held[hand]->weapon ? chr->weapons_held[hand]->weapon->weaponnum : ITEM_UNARMED;
+    if (current != weapon) {
+        chrSetWeaponFlag4(chr, hand);
+        if (chr->weapons_held[hand] && chr->weapons_held[hand]->obj) objFreePermanently(chr->weapons_held[hand]->obj, 1);
+        if (weapon > ITEM_UNARMED && weapon < ITEM_IDS_MAX) {
+            enum PROP prop = getPropForHeldItem((ITEM_IDS)weapon);
+            if ((s32)prop >= 0) chrGiveWeapon(chr, prop, (ITEM_IDS)weapon, hand == GUNLEFT ? PROPFLAG_WEAPON_LEFTHANDED : 0);
+        }
+    }
+    if (pl->hands[hand].weaponnum != weapon) {
+        pl->hands[hand].weaponnum = (ITEM_IDS)weapon;
+        pl->hands[hand].weapon_next_weapon = weapon;
+        pl->hands[hand].weapon_action_state = GUN_ANIM_STATE_IDLE;
+        pl->hands[hand].weapon_current_animation = 0;
+    }
+    if (weapon > ITEM_UNARMED && weapon < ITEM_IDS_MAX) {
+        WeaponStats *stats = get_ptr_item_statistics((ITEM_IDS)weapon);
+        if (stats && stats->AmmoType > 0 && stats->AmmoType < (s32)(sizeof(pl->ammoheldarr)/sizeof(pl->ammoheldarr[0]))) {
+            s32 mag = stats->MagSize > 0 ? stats->MagSize : 1;
+            if (pl->ammoheldarr[stats->AmmoType] < mag) pl->ammoheldarr[stats->AmmoType] = mag;
+            if (pl->hands[hand].weapon_ammo_in_magazine <= 0) pl->hands[hand].weapon_ammo_in_magazine = mag;
+        }
+    }
+    pl->hands[hand].field_87D = fire;
+}
+
 void netPlayerSyncBeforeTick(s32 playernum) {
     if (!netIsActive()) return;
     
@@ -151,7 +179,7 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             if (pl->bonddead) {
                 pl->speedforwards = 0.0f;
                 pl->speedsideways = 0.0f;
-                pl->hands[GUNRIGHT].field_87D = 0;
+                pl->hands[GUNRIGHT].field_87D = pl->hands[GUNLEFT].field_87D = 0;
                 return;
             }
             /* Position: check for huge delta or initial snap */
@@ -206,7 +234,7 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             {
                 coord3d o;
                 coord3d d;
-                if (!pl->bonddead && netGetRemoteAim(playernum, &o, &d)) {
+                if (!pl->bonddead && netGetRemoteAim(playernum, GUNRIGHT, &o, &d)) {
                     f32 theta = pl->vv_theta * (M_PI_F / 180.0f);
                     f32 fx = -sinf(theta), fz = cosf(theta);   /* the view's forward, level */
                     pl->field_2A08 = atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
@@ -222,48 +250,9 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                  * the feet. Using eye height here causes vertical twitching. */
                 pl->prop->chr->ground = pl->prop->pos.y - pl->eyeheight;
 
-                /* Weapon synchronization on remote character */
-                s8 cur_wep = -1;
-                if (pl->prop->chr->weapons_held[GUNRIGHT] && pl->prop->chr->weapons_held[GUNRIGHT]->weapon) {
-                    cur_wep = pl->prop->chr->weapons_held[GUNRIGHT]->weapon->weaponnum;
-                }
-                if (cur_wep != m->weaponnum) {
-                    chrSetWeaponFlag4(pl->prop->chr, GUNRIGHT);
-                    if (pl->prop->chr->weapons_held[GUNRIGHT] && pl->prop->chr->weapons_held[GUNRIGHT]->obj) {
-                        objFreePermanently(pl->prop->chr->weapons_held[GUNRIGHT]->obj, 1);
-                    }
-                    if (m->weaponnum > ITEM_UNARMED && m->weaponnum < ITEM_IDS_MAX) {
-                        enum PROP prop = getPropForHeldItem((ITEM_IDS)m->weaponnum);
-                        if ((s32)prop >= 0) {
-                            chrGiveWeapon(pl->prop->chr, prop, (ITEM_IDS)m->weaponnum, 0);
-                        }
-                    }
-                    pl->hands[GUNRIGHT].weaponnum = (ITEM_IDS)m->weaponnum;
-                }
-
-                /*
-                 * The copy fires on this headset: its shots make the sound,
-                 * the flash and the impacts, while hits on players come only
-                 * from the owner's reports. It never picks anything up here, so
-                 * keep its gun loaded, or every trigger pull was an empty click
-                 * and a reload (and an out-of-ammo weapon swap that the sync
-                 * above swapped straight back). Perfect Dark port-net sends the
-                 * ammo itself (SVC_PLAYER_STATS); a full gun is enough here.
-                 */
-                if (m->weaponnum > ITEM_UNARMED && m->weaponnum < ITEM_IDS_MAX) {
-                    WeaponStats *stats = get_ptr_item_statistics((ITEM_IDS)m->weaponnum);
-                    if (stats && stats->AmmoType > 0 && stats->AmmoType < (s32)(sizeof(pl->ammoheldarr) / sizeof(pl->ammoheldarr[0]))) {
-                        s32 mag = stats->MagSize > 0 ? stats->MagSize : 1;
-                        if (pl->ammoheldarr[stats->AmmoType] < mag)
-                            pl->ammoheldarr[stats->AmmoType] = mag;
-                        if (pl->hands[GUNRIGHT].weapon_ammo_in_magazine <= 0)
-                            pl->hands[GUNRIGHT].weapon_ammo_in_magazine = mag;
-                    }
-                }
+                netSyncCopyHand(pl, GUNRIGHT, netRemoteWeapon(playernum, GUNRIGHT), netRemoteTrigger(playernum, GUNRIGHT));
+                netSyncCopyHand(pl, GUNLEFT, netRemoteWeapon(playernum, GUNLEFT), netRemoteTrigger(playernum, GUNLEFT));
             }
-            
-            /* Firing state */
-            pl->hands[GUNRIGHT].field_87D = (m->ucmd & UCMD_FIRE) ? 1 : 0;
 
             /* Crucial: update player room list so prop renders across portal room boundaries */
             bondviewUpdatePlayerRoom(pl);
@@ -397,22 +386,20 @@ void netPlayerSyncAfterTick(s32 playernum) {
     move.tick = (u32)(sysGetMicroseconds() / 1000);
     move.ucmd = 0;
     {
-        /* The copies fire on this as the game's gun would: not with the
-         * detonator (its blasts come from this headset), and not through a
-         * reload or with an empty gun. The fists and the knife swing on it
-         * too - the trigger, or a swing of either hand (bondview2.c
-         * gevrHandChopTick) - so the others hear the blow, or its miss, from
-         * where this player stands; the hits themselves still come from here. */
         extern s32 gevrHandChopSwinging(s32 ctrl);
-        ITEM_IDS item = getCurrentPlayerWeaponId(GUNRIGHT);
-        if (item == ITEM_FIST || item == ITEM_KNIFE) {
-            if (get_button_state(1, "trigger") || gevrHandChopSwinging(0) || gevrHandChopSwinging(1)) {
-                move.ucmd |= UCMD_FIRE;
-            }
-        } else if (get_button_state(1, "trigger") && item != ITEM_UNARMED && item != ITEM_TRIGGER &&
-                   (pl->hands[GUNRIGHT].weapon_ammo_in_magazine > 0 ||
-                    bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_CLICKY))) {
-            move.ucmd |= UCMD_FIRE;
+        extern int gevrVrTriggerDown[2];
+        extern s32 gevrStereoShotWorld(s32 handnum, coord3d *origin, coord3d *dir);
+        for (int hand = GUNRIGHT; hand <= GUNLEFT; hand++) {
+            int item = getCurrentPlayerWeaponId(hand);
+            bool enabled = hand == GUNRIGHT || netActiveDualWield();
+            bool fire = enabled && !pl->bonddead && !pl->mpmenuon && !lvlGetControlsLockedFlag() && gevrVrTriggerDown[hand];
+            if (enabled && (item == ITEM_FIST || item == ITEM_KNIFE)) fire |= !pl->mpmenuon && gevrHandChopSwinging(hand == GUNRIGHT ? 1 : 0);
+            else if (item == ITEM_UNARMED || item == ITEM_TRIGGER ||
+                     (pl->hands[hand].weapon_ammo_in_magazine <= 0 && !bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_CLICKY))) fire = false;
+            if (fire) move.ucmd |= hand == GUNLEFT ? UCMD_FIRE_LEFT : UCMD_FIRE;
+            if (enabled && gevrStereoShotWorld(hand, hand == GUNLEFT ? &move.aimorigin_l : &move.aimorigin,
+                                                hand == GUNLEFT ? &move.aimdir_l : &move.aimdir))
+                move.ucmd |= hand == GUNLEFT ? UCMD_AIMVALID_LEFT : UCMD_AIMVALID;
         }
     }
     if (pl->crouchpos != CROUCH_STAND) {
@@ -427,6 +414,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
     move.angles[1] = pl->vv_verta;
     
     move.weaponnum = (s8)getCurrentPlayerWeaponId(GUNRIGHT);
+    move.weaponnum_left = netActiveDualWield() ? (s8)getCurrentPlayerWeaponId(GUNLEFT) : ITEM_UNARMED;
     move.crouchpos = (s8)pl->crouchpos;
     
     if (pl->prop) {
@@ -454,16 +442,6 @@ void netPlayerSyncAfterTick(s32 playernum) {
     }
     move.handrot.y = atan2f(2.0f * (hqw * hqy + hqx * hqz), 1.0f - 2.0f * (hqx * hqx + hqy * hqy)) * (180.0f / (float)M_PI);
     move.handrot.z = atan2f(2.0f * (hqw * hqz + hqx * hqy), 1.0f - 2.0f * (hqx * hqx + hqz * hqz)) * (180.0f / (float)M_PI);
-
-    /* The right gun's barrel in world space: this player's copy on the other
-     * headsets fires along it (bondview2.c gevrStereoShot), so its shots land
-     * where this player aimed, not where the head looks. */
-    {
-        extern s32 gevrStereoShotWorld(s32 handnum, coord3d *origin, coord3d *dir);
-        if (gevrStereoShotWorld(GUNRIGHT, &move.aimorigin, &move.aimdir)) {
-            move.ucmd |= UCMD_AIMVALID;
-        }
-    }
 
     netSendLocalPlayerMove(&move);
 }

@@ -1,6 +1,13 @@
 #include <ultra64.h>
 #include <bondconstants.h>
 #include "mp_weapon.h"
+#ifdef GEVR
+#include "net_game.h"
+#include "player.h"
+#include "bondinv.h"
+#include "gun.h"
+#include "bondview.h"
+#endif
 #include "assets/obseg/text/LmpweaponsE.h"
 // data
 //D:80048670
@@ -278,6 +285,46 @@ void mpBuildCustomWeaponSet(const u8 items[4])
     }
 }
 
+
+#ifdef GEVR
+void gevrPreloadOnlineLoadouts(void)
+{
+    extern u32 weaponLoadProjectileModels(ITEM_IDS item);
+    for (int slot = 0; slot < 4; slot++) for (int k = 0; k < 4; k++) {
+        int item = netActiveLoadoutItem(slot, k);
+        if (item) weaponLoadProjectileModels((ITEM_IDS)item);
+    }
+}
+
+void gevrEquipOnlineLoadout(void)
+{
+    int first = netActiveLoadoutItem(get_cur_playernum(), 0);
+    if (!first || netPlayerIsSpectator(get_cur_playernum())) return;
+    currentPlayerEquipWeaponWrapper(GUNRIGHT, first);
+    currentPlayerEquipWeaponWrapper(GUNLEFT, ITEM_UNARMED);
+}
+
+void gevrGiveOnlineLoadout(void)
+{
+    extern s32 get_ammo_type_for_weapon(ITEM_IDS weapon);
+    int slot = get_cur_playernum();
+    int first = netActiveLoadoutItem(slot, 0);
+    if (!first || netPlayerIsSpectator(slot)) return;
+    for (int k = 0; k < 4; k++) {
+        int item = netActiveLoadoutItem(slot, k);
+        if (!item) continue;
+        int duplicate = 0;
+        for (int j = 0; j < k; j++) if (netActiveLoadoutItem(slot, j) == item) duplicate = 1;
+        if (netActiveDualWield() && duplicate &&
+            bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_CAN_DUAL_WIELD)) bondinvAddDoublesInvItem(item, item);
+        bondinvAddInvItem((ITEM_IDS)item);
+        const struct s_mp_weapon_set *preset = mpPresetEntryForItem(item);
+        if (get_ammo_type_for_weapon((ITEM_IDS)item) > 0)
+            add_ammo_to_weapon((ITEM_IDS)item, preset ? preset->ammoamount : 50);
+    }
+    gevrEquipOnlineLoadout();
+}
+#endif
 
 //increment mp_weapon_set by 1, capping at 0xE
 void incrementMPWeaponSet(void)

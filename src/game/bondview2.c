@@ -3168,7 +3168,7 @@ void gevrSetPassAim(s32 hand, const struct coord3d *origin, const struct coord3d
  */
 static s32 gevrRemoteCopyShot(s32 handnum, struct coord3d *origin, struct coord3d *dir)
 {
-    extern int netGetRemoteAim(int slot_id, struct coord3d *origin, struct coord3d *dir);
+    extern int netGetRemoteAim(int slot_id, int hand, struct coord3d *origin, struct coord3d *dir);
     Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
     struct coord3d wo, wd;
 
@@ -3182,7 +3182,7 @@ static s32 gevrRemoteCopyShot(s32 handnum, struct coord3d *origin, struct coord3
         wo = s_gevrPassAimOrigin[handnum];
         wd = s_gevrPassAimDir[handnum];
     }
-    else if (handnum != GUNRIGHT || !netGetRemoteAim(get_cur_playernum(), &wo, &wd))
+    else if (!netGetRemoteAim(get_cur_playernum(), handnum, &wo, &wd))
     {
         wo = g_CurrentPlayer->prop->pos;
         wd = g_CurrentPlayer->field_488.applied_view;
@@ -4613,6 +4613,9 @@ void bondviewSetCameraMode(s32 arg0)
         {
             currentPlayerEquipWeaponWrapper(GUNLEFT, starting_weapon[GUNLEFT]);
             currentPlayerEquipWeaponWrapper(GUNRIGHT, starting_weapon[GUNRIGHT]);
+#ifdef GEVR
+            gevrEquipOnlineLoadout();
+#endif
         }
 
         stop_time_flag = 0;
@@ -12804,6 +12807,9 @@ static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
         }
     }
 
+#ifdef GEVR
+    gevrGiveOnlineLoadout();
+#endif
     g_CurrentPlayer->field_78 = 0.0f;
     g_CurrentPlayer->field_7C = -0.0001f;
     g_CurrentPlayer->field_80 = 0.0f;
@@ -13402,7 +13408,9 @@ static s32 gevrLeftHasGun(s32 item)
 
 s32 gevrLeftPanelAvailable(void)
 {
-    return g_gevrStereo && g_CurrentPlayer != NULL && getPlayerCount() == 1 && !netIsActive()
+    return g_gevrStereo && g_CurrentPlayer != NULL &&
+        ((!netIsActive() && getPlayerCount() == 1) || (netIsActive() && get_cur_playernum() == netGetLocalSlot() && netActiveDualWield() == NET_DUAL_ANY))
+        && g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT] && !gevrSpectating()
         && !g_CurrentPlayer->bonddead
         && gevrLeftGunOk(get_next_weapon_in_cycle_for_hand(GUNRIGHT, 0));
 }

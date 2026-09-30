@@ -1052,6 +1052,8 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
     u8              *buffer_weapon;
     enum ITEM_IDS    item;
 
+    if (!g_CurrentPlayer->ptr_hand_weapon_buffer[hand]) return;
+
     if ((g_CurrentPlayer->hand_invisible[hand] < 0) && (g_CurrentPlayer->lock_hand_model[hand] == 0))
     {
         if ((g_CurrentPlayer->hand_invisible[hand] < -2) || (g_CurrentPlayer->hand_item[hand] == ITEM_UNARMED))

@@ -461,6 +461,10 @@ NetPhase netGetPhase(void) {
     return s_phase;
 }
 
+int netPlayerInRound(int slot) {
+    return slot >= 0 && slot < s_max_players && s_lobby_state.slots[slot].connected && !netSlotIsSpectator(slot);
+}
+
 bool netSlotOccupied(int slot) {
     return slot >= 0 && slot < s_max_players &&
            (slot == s_local_slot || (s_lobby_state.slots[slot].connected &&
@@ -574,6 +578,8 @@ static void netBroadcastLobbyState(void) {
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
 }
 
+static void netTakeSpecialItem(int slot, int item);
+
 static void netSendMatchSnapshot(ENetPeer *peer) {
     u8 raw[512];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -599,6 +605,15 @@ static void netSendMatchSnapshot(ENetPeer *peer) {
         netbufWriteF32(&buf, pl ? pl->vv_verta : 0);
         netbufWriteF32(&buf, pl ? pl->bondhealth : 0);
         netbufWriteF32(&buf, pl ? pl->bondarmour : 0);
+        uint8_t special = 0;
+        if (pl && netPlayerInRound(i)) {
+            int previous = get_cur_playernum();
+            set_cur_player(i);
+            if (bondinvHasInvItem(ITEM_TOKEN)) special |= 1;
+            if (bondinvHasInvItem(ITEM_GOLDENGUN)) special |= 2;
+            set_cur_player(previous);
+        }
+        netbufWriteU8(&buf, special);
     }
     if (buf.error) return;
     ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
@@ -1294,17 +1309,27 @@ bool netIsRemotePlayerActive(int slot_id) {
 
 /* The remote player's right gun barrel in world space, when its owner aims
  * from a tracked controller (bondview2.c gevrStereoShot for a copy). */
-int netGetRemoteAim(int slot_id, coord3d *origin, coord3d *dir) {
-    if (!netIsRemotePlayerActive(slot_id) || !origin || !dir) return 0;
+int netRemoteWeapon(int slot, int hand) {
+    if (!netIsRemotePlayerActive(slot) || !netSlotOccupied(slot) || hand < 0 || hand > 1) return ITEM_UNARMED;
+    if (hand == GUNLEFT && !netActiveDualWield()) return ITEM_UNARMED;
+    int item = hand == GUNLEFT ? s_remote_moves[slot].weaponnum_left : s_remote_moves[slot].weaponnum;
+    return item >= ITEM_UNARMED && item < ITEM_IDS_MAX ? item : ITEM_UNARMED;
+}
+int netRemoteTrigger(int slot, int hand) {
+    return netIsRemotePlayerActive(slot) && netSlotOccupied(slot) && hand >= 0 && hand <= 1 &&
+           (hand != GUNLEFT || netActiveDualWield()) &&
+           (s_remote_moves[slot].ucmd & (hand == GUNLEFT ? UCMD_FIRE_LEFT : UCMD_FIRE)) != 0;
+}
+int netGetRemoteAim(int slot_id, int hand, coord3d *origin, coord3d *dir) {
+    if (!netIsRemotePlayerActive(slot_id) || hand < 0 || hand > 1 || !origin || !dir) return 0;
     const struct netplayermove *m = &s_remote_moves[slot_id];
-    if (!(m->ucmd & UCMD_AIMVALID)) return 0;
-    float len = sqrtf(m->aimdir.x * m->aimdir.x + m->aimdir.y * m->aimdir.y + m->aimdir.z * m->aimdir.z);
-    if (!(len > 0.0001f) || !isfinite(len) ||
-        !isfinite(m->aimorigin.x) || !isfinite(m->aimorigin.y) || !isfinite(m->aimorigin.z)) return 0;
-    *origin = m->aimorigin;
-    dir->x = m->aimdir.x / len;
-    dir->y = m->aimdir.y / len;
-    dir->z = m->aimdir.z / len;
+    if (!(m->ucmd & (hand == GUNLEFT ? UCMD_AIMVALID_LEFT : UCMD_AIMVALID))) return 0;
+    const coord3d *aim = hand == GUNLEFT ? &m->aimdir_l : &m->aimdir;
+    const coord3d *pos = hand == GUNLEFT ? &m->aimorigin_l : &m->aimorigin;
+    float len = sqrtf(aim->x * aim->x + aim->y * aim->y + aim->z * aim->z);
+    if (!(len > 0.0001f) || !isfinite(len) || !isfinite(pos->x) || !isfinite(pos->y) || !isfinite(pos->z)) return 0;
+    *origin = *pos;
+    dir->x = aim->x / len; dir->y = aim->y / len; dir->z = aim->z / len;
     return 1;
 }
 
@@ -1631,6 +1656,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_state = NET_STATE_CLIENT_LOBBY;
             strncpy(s_slot_app_version[s_local_slot], s_local_app_version, sizeof(s_slot_app_version[0]) - 1);
             netSendLocalAppVersion(s_server_peer);
+            uint8_t saved_items[4];
+            for (int k = 0; k < 4; k++) saved_items[k] = netItemIndexOf(VrMpLoadout[k]) >= 0 ? VrMpLoadout[k] : netItem(0)->item;
+            netLobbySetLoadout(saved_items);
             NET_LOG("Connected! Assigned local slot: %d, stage: %d", s_local_slot, s_lobby_state.config.stage);
             break;
         }
@@ -1867,7 +1895,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             u32 clock = netbufReadU32(&buf);
             u32 score_bank[GEVR_MAX_PLAYERS];
             u32 scores[GEVR_MAX_PLAYERS][GEVR_MAX_PLAYERS];
-            uint8_t occupied[GEVR_MAX_PLAYERS];
+            uint8_t occupied[GEVR_MAX_PLAYERS], special[GEVR_MAX_PLAYERS];
             float state[GEVR_MAX_PLAYERS][7];
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
                 score_bank[i] = netbufReadU32(&buf);
@@ -1876,6 +1904,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
                 occupied[i] = netbufReadU8(&buf);
                 for (int j = 0; j < 7; j++) state[i][j] = netbufReadF32(&buf);
+                special[i] = netbufReadU8(&buf);
             }
             if (buf.error || netbufReadLeft(&buf) != 0) break;
             D_80048394 = (s32)clock;
@@ -1895,6 +1924,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 pl->vv_verta = state[i][4];
                 pl->bondhealth = state[i][5];
                 pl->bondarmour = state[i][6];
+                pl->bonddead = pl->bondhealth <= 0;
+                if (special[i] & 1) netTakeSpecialItem(i, ITEM_TOKEN);
+                if (special[i] & 2) netTakeSpecialItem(i, ITEM_GOLDENGUN);
             }
             s_phase = NET_PHASE_IN_PROGRESS;
             s_waiting_for_match_snapshot = false;
@@ -2323,6 +2355,20 @@ static void netResolveVotes(void) {
     netBroadcastAllVotes();
 }
 
+static void netRoundTick(void) {
+    if (netIsHost() && s_state == NET_STATE_INGAME) {
+        uint64_t now = sysGetMicroseconds();
+        if (s_match_ended && s_results_deadline_us && now >= s_results_deadline_us) netHostContinue();
+        if (s_next_round_at_us && now >= s_next_round_at_us &&
+            netGetConnectedPlayerCount() >= 2 && netAllLoaded()) {
+            netResolveVotes();
+            netLatchRoundSettings();
+            netBeginRoundReset(true);
+        }
+        if (s_round_reset_loading) netReadyProgress();
+    }
+}
+
 /* ---- Host migration ---- */
 
 void netSetGameName(const char *name) {
@@ -2626,17 +2672,7 @@ void netPoll(void) {
             }
         }
     }
-    if (netIsHost() && s_state == NET_STATE_INGAME) {
-        uint64_t now = sysGetMicroseconds();
-        if (s_match_ended && s_results_deadline_us && now >= s_results_deadline_us) netHostContinue();
-        if (s_next_round_at_us && now >= s_next_round_at_us &&
-            netGetConnectedPlayerCount() >= 2 && netAllLoaded()) {
-            netResolveVotes();
-            netLatchRoundSettings();
-            netBeginRoundReset(true);
-        }
-        if (s_round_reset_loading) netReadyProgress();
-    }
+    netRoundTick();
     if (s_waiting_for_match_snapshot && s_stage_ready_sent &&
         s_state == NET_STATE_INGAME && !netIsHost() &&
         sysGetMicroseconds() - s_last_stage_ready_us > 3000000) {
