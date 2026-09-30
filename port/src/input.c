@@ -2389,6 +2389,13 @@ PD_CONSTRUCTOR static void inputConfigInit(void)
 /* vr_input.cpp controller_pose: the multiplayer pause menu is up, hold the hands still */
 int gevrMpMenuOpen(void)
 {
+    /*
+     * The local player's menu, by slot: g_CurrentPlayer rotates through the
+     * other slots' copies during their passes, and read there the hold
+     * flickered on and off every frame (user, 2026-09-30).
+     */
     extern bool netIsActive(void);
-    return netIsActive() && g_CurrentPlayer != NULL && g_CurrentPlayer->mpmenuon;
+    extern int netGetLocalSlot(void);
+    int slot = netIsActive() ? netGetLocalSlot() : -1;
+    return slot >= 0 && slot < 4 && g_playerPointers[slot] != NULL && g_playerPointers[slot]->mpmenuon;
 }
