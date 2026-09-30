@@ -101,6 +101,9 @@ void netVoiceReset(void) {
 }
 
 void netVoicePlayersTick(void) { players_ticked = 1; }
+/* The level's players ran since the last netPoll, so g_playerPointers are live
+ * (not a stage pool freed by a level change): events may touch them. */
+int netPlayersWereTicked(void) { return players_ticked; }
 
 void netVoiceTick(void) {
     players_ticked = 0;

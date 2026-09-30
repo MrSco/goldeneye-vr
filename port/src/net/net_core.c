@@ -944,6 +944,68 @@ void netSendFireEvent(uint8_t weapon_id) {
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
 }
 
+/* gun.c gevrNetProjectile: the local player's thrown or launched projectile */
+void netSendProjectile(s32 kind, s32 hand, s32 item, const coord3d *pos, const coord3d *vel,
+                       const f32 *rot9, const coord3d *extra, s32 cooktimer) {
+    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !pos || !vel || !rot9) return;
+
+    u8 raw[128];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    coord3d zero = { 0 };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_PROJECTILE);
+    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)kind);
+    netbufWriteU8(&buf, (uint8_t)hand);
+    netbufWriteU8(&buf, (uint8_t)item);
+    netbufWriteU32(&buf, (uint32_t)cooktimer);
+    netbufWriteCoord(&buf, pos);
+    netbufWriteCoord(&buf, vel);
+    for (int i = 0; i < 9; i++) netbufWriteF32(&buf, rot9[i]);
+    netbufWriteCoord(&buf, extra ? extra : &zero);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    NET_LOG("projectile tx: kind %d item %d at %.0f,%.0f,%.0f", (int)kind, (int)item, pos->x, pos->y, pos->z);
+}
+
+/* explosion.c explosionCreate: a damaging explosion the local player caused */
+void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8) {
+    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !pos) return;
+
+    u8 raw[48];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_EXPLOSION);
+    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)type);
+    netbufWriteU8(&buf, rooms ? rooms[0] : 0xff);
+    netbufWriteU8(&buf, (uint8_t)((ground ? 1 : 0) | (flag8 ? 2 : 0)));
+    netbufWriteCoord(&buf, pos);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    NET_LOG("explosion tx: type %d at %.0f,%.0f,%.0f", (int)type, pos->x, pos->y, pos->z);
+}
+
+/* A world event from player slot: sent by that player's own headset, relayed
+ * by the host, applied only while the level's players are live. */
+static bool netAcceptPlayerEvent(ENetPeer *peer, int slot) {
+    if (s_state != NET_STATE_INGAME || slot < 0 || slot >= s_max_players || slot == s_local_slot ||
+        !s_lobby_state.slots[slot].connected) return false;
+    if (netIsHost()) {
+        if (slot == 0 || s_client_peers[slot] != peer || (int)(intptr_t)peer->data != slot) return false;
+    } else if (peer != s_server_peer) {
+        return false;
+    }
+    return true;
+}
+
+static bool netCoordFinite(const coord3d *c) {
+    return isfinite(c->x) && isfinite(c->y) && isfinite(c->z) &&
+           fabsf(c->x) < 1.0e6f && fabsf(c->y) < 1.0e6f && fabsf(c->z) < 1.0e6f;
+}
+
 void netSendVoipChunk(uint32_t sequence, const uint8_t *opus_data, uint16_t size) {
     if ((s_state != NET_STATE_INGAME && s_state != NET_STATE_HOSTING_LOBBY &&
          s_state != NET_STATE_CLIENT_LOBBY) || s_local_slot < 0 || !opus_data ||
@@ -1462,6 +1524,54 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
 
             if (netIsHost()) {
                 netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+            }
+            break;
+        }
+        case NET_MSG_PROJECTILE: {
+            extern void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3d *pos,
+                                               const coord3d *vel, const f32 *rot9, const coord3d *extra, s32 cooktimer);
+            int slot = slot_id;
+            uint8_t kind = netbufReadU8(&buf);
+            uint8_t hand = netbufReadU8(&buf);
+            uint8_t item = netbufReadU8(&buf);
+            int32_t cooktimer = (int32_t)netbufReadU32(&buf);
+            coord3d pos, vel, extra;
+            f32 rot[9];
+            netbufReadCoord(&buf, &pos);
+            netbufReadCoord(&buf, &vel);
+            for (int i = 0; i < 9; i++) rot[i] = netbufReadF32(&buf);
+            netbufReadCoord(&buf, &extra);
+            if (buf.error || netbufReadLeft(&buf) != 0 || !netAcceptPlayerEvent(peer, slot)) break;
+            if (kind < 1 || kind > 5 || hand > 1 || item >= ITEM_IDS_MAX ||
+                !netCoordFinite(&pos) || !netCoordFinite(&vel) || !netCoordFinite(&extra)) break;
+            bool rotok = true;
+            for (int i = 0; i < 9; i++) rotok = rotok && isfinite(rot[i]) && fabsf(rot[i]) < 100.0f;
+            if (!rotok) break;
+            if (netIsHost()) {
+                netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+            }
+            if (netPlayersWereTicked()) {
+                NET_LOG("projectile rx: slot %d kind %d item %d", slot, kind, item);
+                gevrNetSpawnProjectile(slot, kind, hand, item, &pos, &vel, rot, &extra, cooktimer);
+            }
+            break;
+        }
+        case NET_MSG_EXPLOSION: {
+            extern void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 ground, s32 flag8);
+            int slot = slot_id;
+            uint8_t type = netbufReadU8(&buf);
+            uint8_t room = netbufReadU8(&buf);
+            uint8_t flags = netbufReadU8(&buf);
+            coord3d pos;
+            netbufReadCoord(&buf, &pos);
+            if (buf.error || netbufReadLeft(&buf) != 0 || !netAcceptPlayerEvent(peer, slot) ||
+                !netCoordFinite(&pos)) break;
+            if (netIsHost()) {
+                netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+            }
+            if (netPlayersWereTicked()) {
+                NET_LOG("explosion rx: slot %d type %d at %.0f,%.0f,%.0f", slot, type, pos.x, pos.y, pos.z);
+                gevrNetExplosionReceive(slot, type, &pos, room, (flags & 1) != 0, (flags & 2) != 0);
             }
             break;
         }

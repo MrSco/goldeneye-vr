@@ -232,6 +232,11 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
 
 /*** *************************************************************************************************************/
 
+#ifdef GEVR
+/* set while explosionCreate runs for an explosion received from its owner */
+static s32 g_gevrNetExplosionRx = 0;
+#endif
+
 /**
  * Named same as Perfect Dark.
  * NTSC 0x7F09C250
@@ -252,6 +257,40 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
 
     sp44 = &g_ExplosionTypes[explosion_type];
     sp40 = NULL;
+
+#ifdef GEVR
+    /*
+     * Online, an explosion that can hurt comes from the player who caused it
+     * (Perfect Dark port-net's server decides; here the owner does, as for
+     * hits). The local player's are sent; one caused here by another player's
+     * copy - its grenade's fuse, its rocket's impact, its mine - is dropped,
+     * and the owner's arrives instead, where and when it really happened.
+     * Bullet puffs (no damage) and world explosions stay local.
+     */
+    if (sp44->damage > 0.0f && !g_gevrNetExplosionRx)
+    {
+        extern bool netIsActive(void);
+        extern int netGetLocalSlot(void);
+        extern bool netSlotOccupied(int slot);
+        extern void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8);
+
+        if (netIsActive())
+        {
+            if (player == netGetLocalSlot())
+            {
+                netSendExplosion(explosion_type, target_pos, rooms, arg4, arg7);
+            }
+            else if (player >= 0 && player < 4 && netSlotOccupied(player))
+            {
+#if defined(VERSION_JP) || defined(VERSION_EU)
+                return 0;
+#else
+                return;
+#endif
+            }
+        }
+    }
+#endif
 
 #if defined(VERSION_US)
     if ((explosion_type != 0x10) && (explosion_type != 1))
@@ -380,6 +419,87 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
 #endif
 }
 
+
+#ifdef GEVR
+/*
+ * An explosion caused by another player, sent by that player's headset
+ * (net_core.c NET_MSG_EXPLOSION). It is created as that player's: objects
+ * near it are damaged here too, while hits on players come only from the
+ * owner (explosionInflictDamage). The copy's own projectile nearest to it -
+ * the grenade or rocket this headset was flying for that player - goes, so
+ * nothing is left lying past its explosion.
+ */
+void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 ground, s32 flag8)
+{
+    struct player *pl;
+    StandTile *tile;
+    coord3d probe;
+    f32 y;
+    u8 rooms[2];
+    PropRecord *prop;
+    PropRecord *closest = NULL;
+    f32 closestdist = 300.0f * 300.0f;
+
+    if (slot < 0 || slot >= 4 || type < 0 || type >= (s32)ARRAYCOUNT(g_ExplosionTypes))
+    {
+        return;
+    }
+    pl = g_playerPointers[slot];
+    if (pl == NULL || pl->prop == NULL)
+    {
+        return;
+    }
+
+    for (prop = chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
+    {
+        WeaponObjRecord *wobj;
+        f32 dx, dy, dz, d2;
+
+        if (prop->type != PROP_TYPE_WEAPON || prop->weapon == NULL)
+        {
+            continue;
+        }
+        wobj = prop->weapon;
+        if (!(wobj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) || wobj->projectile == NULL
+            || wobj->projectile->ownerprop != pl->prop)
+        {
+            continue;
+        }
+        dx = prop->pos.x - pos->x;
+        dy = prop->pos.y - pos->y;
+        dz = prop->pos.z - pos->z;
+        d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < closestdist)
+        {
+            closestdist = d2;
+            closest = prop;
+        }
+    }
+    if (closest != NULL)
+    {
+        objFreePermanently((ObjectRecord *) closest->weapon, TRUE);
+    }
+
+    probe = *pos;
+    probe.y += 30.0f;
+    rooms[0] = room;
+    rooms[1] = 0xff;
+    tile = stanFindTileBelowPos(&probe, NULL, &y);
+    if (tile == NULL)
+    {
+        tile = pl->prop->stan;
+        ground = FALSE;
+    }
+    if (tile == NULL)
+    {
+        return;
+    }
+
+    g_gevrNetExplosionRx = TRUE;
+    explosionCreate(NULL, pos, tile, (s16) type, ground, slot, rooms, flag8);
+    g_gevrNetExplosionRx = FALSE;
+}
+#endif
 
 void setSixExplosionAndSmokeEntries(void) {
         g_NumExplosionEntries = 6;
