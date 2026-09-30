@@ -29,13 +29,13 @@ players in view as the same room, SFX volume and mic mute in the launcher
 and the multiplayer pause menu, the multiplayer page fitting the panel, and
 stereo dropping the walk animation's side sway and vertical bob (bondhead.c;
 screen mode keeps them).
-Branch claude/multiplayer-visibility-bug-16b1a8 builds as 0.3.6, versionCode 39,
-protocol 9, for the two-headset test: the full multiplayer punch list (P1–P5),
-including in-level lobby (MENU_LOBBY) and shared row framework, match config and
-restored options, mute chord (hold Menu + right B), single-reload countdown and
-round transitions, late-join spectator camera with isolated spectator voice groups,
-spawn loadouts (4-gun kit) and online dual wielding (doubles & any-two modes with
-left-barrel aiming/view passes), ballots, shuffle and playlist rotation.
+Branch claude/multiplayer-visibility-bug-16b1a8 builds as 0.3.6, versionCode 43
+(installing over vc 42 on the headset), protocol 9, for the two-headset test: the full
+multiplayer punch list (P1–P5), including in-level lobby (MENU_LOBBY) and shared row
+framework, match config and restored options, mute chord (hold Menu + right B), single-reload
+countdown and round transitions, late-join spectator camera with isolated spectator voice groups,
+spawn loadouts (4-gun kit) and online dual wielding (doubles & any-two modes with left-barrel
+aiming/view passes), ballots, shuffle and playlist rotation.
 
 ## What it is
 
