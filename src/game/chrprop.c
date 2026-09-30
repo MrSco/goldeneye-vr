@@ -2904,6 +2904,15 @@ void propsTickPlayer(void)
             }
             propprev = prop->prev; //not sure why rare put this here and not in the for statement
 
+#ifdef GEVR
+            /* online: the other headsets take the pickup away too (net_core.c) */
+            if (isCollected && ((prop->type == PROP_TYPE_OBJ) || (prop->type == PROP_TYPE_WEAPON)))
+            {
+                extern void netSendObjectPickup(ObjectRecord *obj, s32 tickop);
+
+                netSendObjectPickup(prop->obj, isCollected);
+            }
+#endif
             propExecuteTickOperation(prop, isCollected);
         }
     }

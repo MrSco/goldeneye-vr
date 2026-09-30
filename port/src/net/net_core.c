@@ -476,6 +476,69 @@ static bool netSnapshotObjectType(int type) {
     }
 }
 
+/* The world-object index both headsets share: 0x9000+ ammo crates, 0x8000+
+ * multiplayer weapon slots, else the setup command index (the snapshot's). */
+static ObjectRecord *netObjectByIndex(u16 index, u8 type) {
+    ObjectRecord *obj = NULL;
+    if (index >= 0x9000 && index < 0x9000 + MAX_AMMO_CRATES)
+        obj = (ObjectRecord *)&g_AmmoCrates[index - 0x9000];
+    else if (index >= 0x8000 && index < 0x8000 + MAX_WEAPON_SLOTS)
+        obj = (ObjectRecord *)&g_WeaponSlots[index - 0x8000];
+    else if (index < 0x8000 && netSnapshotObjectType(type))
+        obj = setupGetPtrToCommandByIndex(index);
+    if (!obj || obj->type != type) return NULL;
+    return obj;
+}
+
+static int netObjectIndex(ObjectRecord *target) {
+    if (!target) return -1;
+    for (int slot = 0; slot < MAX_AMMO_CRATES; slot++)
+        if ((ObjectRecord *)&g_AmmoCrates[slot] == target) return 0x9000 + slot;
+    for (int slot = 0; slot < MAX_WEAPON_SLOTS; slot++)
+        if ((ObjectRecord *)&g_WeaponSlots[slot] == target) return 0x8000 + slot;
+    PropDefHeaderRecord *def = g_CurrentSetup.propDefs;
+    if (!def) return -1;
+    for (int index = 0; def->type != PROPDEF_END && index < 0x8000; index++) {
+        if ((ObjectRecord *)def == target) return index;
+        def += sizepropdef(def);
+    }
+    return -1;
+}
+
+static void netSendObjectEvent(ObjectRecord *obj, uint8_t action, int8_t value) {
+    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !obj) return;
+    int index = netObjectIndex(obj);
+    if (index < 0) return;
+
+    u8 raw[24];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_OBJECT_STATE);
+    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU16(&buf, (uint16_t)index);
+    netbufWriteU8(&buf, (uint8_t)obj->type);
+    netbufWriteU8(&buf, action);
+    netbufWriteS8(&buf, value);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    NET_LOG("object tx: index 0x%04x type %d action %d value %d", index, obj->type, action, value);
+}
+
+/* chrprop.c propsTickPlayer: the local player collected this (Perfect Dark
+ * port-net SVC_PROP_PICKUP carries the tick operation the same way). */
+void netSendObjectPickup(ObjectRecord *obj, s32 tickop) {
+    if (!netIsActive() || get_cur_playernum() != s_local_slot) return;
+    netSendObjectEvent(obj, NET_OBJECT_PICKUP, (int8_t)tickop);
+}
+
+/* propobj.c propdoorInteract: the local player opened or closed this door
+ * (SVC_PROP_DOOR sends the door's new mode). */
+void netSendDoorState(ObjectRecord *door, s32 state) {
+    if (!netIsActive() || get_cur_playernum() != s_local_slot) return;
+    netSendObjectEvent(door, NET_OBJECT_DOOR, (int8_t)state);
+}
+
 static void netSendWorldSnapshot(ENetPeer *peer) {
     PropDefHeaderRecord *def = g_CurrentSetup.propDefs;
     if (!def) return;
@@ -1387,14 +1450,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 u8 state = netbufReadU8(&buf);
                 u32 regen = netbufReadU32(&buf);
                 if (buf.error) break;
-                ObjectRecord *obj = NULL;
-                if (index >= 0x9000 && index < 0x9000 + MAX_AMMO_CRATES)
-                    obj = (ObjectRecord *)&g_AmmoCrates[index - 0x9000];
-                else if (index >= 0x8000 && index < 0x8000 + MAX_WEAPON_SLOTS)
-                    obj = (ObjectRecord *)&g_WeaponSlots[index - 0x8000];
-                else if (index < 0x8000 && netSnapshotObjectType(type))
-                    obj = setupGetPtrToCommandByIndex(index);
-                if (!obj || obj->type != type) continue;
+                ObjectRecord *obj = netObjectByIndex(index, type);
+                if (!obj) continue;
                 if (!has_prop) {
                     if (obj->prop) objFreePermanently(obj, true);
                     continue;
@@ -1572,6 +1629,41 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (netPlayersWereTicked()) {
                 NET_LOG("explosion rx: slot %d type %d at %.0f,%.0f,%.0f", slot, type, pos.x, pos.y, pos.z);
                 gevrNetExplosionReceive(slot, type, &pos, room, (flags & 1) != 0, (flags & 2) != 0);
+            }
+            break;
+        }
+        case NET_MSG_OBJECT_STATE: {
+            extern void gevrNetDoorApply(PropRecord *prop, PropRecord *byprop, s32 state);
+            int slot = slot_id;
+            uint16_t index = netbufReadU16(&buf);
+            uint8_t type = netbufReadU8(&buf);
+            uint8_t action = netbufReadU8(&buf);
+            int8_t value = netbufReadS8(&buf);
+            if (buf.error || netbufReadLeft(&buf) != 0 || !netAcceptPlayerEvent(peer, slot) ||
+                !g_CurrentSetup.propDefs) break;
+            if (netIsHost()) {
+                netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+            }
+            if (!netPlayersWereTicked()) break;
+            ObjectRecord *obj = netObjectByIndex(index, type);
+            if (!obj || !obj->prop) break;
+            NET_LOG("object rx: slot %d index 0x%04x action %d value %d", slot, index, action, value);
+            if (action == NET_OBJECT_PICKUP) {
+                /* Gone here too, and back on the same regeneration timer. A
+                 * pickup that went into the collector's hands only goes away
+                 * here (it would reparent to whoever is current). */
+                s32 op = value == TICKOP_FREE ? TICKOP_FREE :
+                         (value == TICKOP_GIVETOPLAYER || value == TICKOP_DISABLE) ? TICKOP_DISABLE : TICKOP_NONE;
+                if (op != TICKOP_NONE && (obj->prop->flags & PROPFLAG_ENABLED) && obj->prop->timetoregen <= 0 &&
+                    (obj->prop->type == PROP_TYPE_OBJ || obj->prop->type == PROP_TYPE_WEAPON)) {
+                    propExecuteTickOperation(obj->prop, op);
+                }
+            } else if (action == NET_OBJECT_DOOR) {
+                if (obj->type == PROPDEF_DOOR && obj->prop->type == PROP_TYPE_DOOR &&
+                    (value == DOORSTATE_OPENING || value == DOORSTATE_CLOSING)) {
+                    struct player *by = g_playerPointers[slot];
+                    gevrNetDoorApply(obj->prop, by ? by->prop : NULL, value);
+                }
             }
             break;
         }
