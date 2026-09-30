@@ -247,15 +247,23 @@ extern s32 D_800483A8;
 static void netBroadcastBuf(struct netbuf *buf, uint8_t channel, uint32_t flags, ENetPeer *except);
 static void netHostDropSlot(int slot, ENetPeer *stale);
 
+/*
+ * A player leaves: the kills against them go to their killers' score bank
+ * (gevr_score_bank, counted in the points and the awards with the
+ * per-victim table). The bank was kill_count until 2026-09-30, which the
+ * game's kill message also increments on every kill, so every kill scored
+ * twice (three kills read as six, the cap of five was skipped).
+ */
 static void netForgetPlayerScore(int slot) {
     if (s_state != NET_STATE_INGAME || slot < 0 || slot >= GEVR_MAX_PLAYERS) return;
     for (int shooter = 0; shooter < GEVR_MAX_PLAYERS; shooter++) {
         if (shooter != slot) {
-            g_playerPlayerData[shooter].kill_count += g_playerPlayerData[shooter].kill_counts[slot];
+            g_playerPlayerData[shooter].gevr_score_bank += g_playerPlayerData[shooter].kill_counts[slot];
             g_playerPlayerData[shooter].kill_counts[slot] = 0;
         }
     }
     memset(g_playerPlayerData[slot].kill_counts, 0, sizeof(g_playerPlayerData[slot].kill_counts));
+    g_playerPlayerData[slot].gevr_score_bank = 0;
     g_playerPlayerData[slot].kill_count = 0;
 }
 
@@ -616,7 +624,7 @@ static void netSendMatchSnapshot(ENetPeer *peer) {
     netbufWriteU8(&buf, s_match_ended || g_gameOverFlag != 0);
     netbufWriteU32(&buf, (u32)D_80048394);
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-        netbufWriteU32(&buf, (u32)g_playerPlayerData[i].kill_count);
+        netbufWriteU32(&buf, (u32)g_playerPlayerData[i].gevr_score_bank);
         for (int j = 0; j < GEVR_MAX_PLAYERS; j++)
             netbufWriteU32(&buf, (u32)g_playerPlayerData[i].kill_counts[j]);
     }
@@ -1939,7 +1947,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             D_80048394 = (s32)clock;
             D_800483A8 = (s32)clock;
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-                g_playerPlayerData[i].kill_count = (s32)score_bank[i];
+                g_playerPlayerData[i].gevr_score_bank = (s32)score_bank[i];
                 for (int j = 0; j < GEVR_MAX_PLAYERS; j++)
                     g_playerPlayerData[i].kill_counts[j] = (s32)scores[i][j];
                 if (i == s_local_slot || !occupied[i] || !g_playerPointers[i] ||

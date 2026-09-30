@@ -985,7 +985,7 @@ void mpCalculateAwards(bool gameoverdelay)
             }
         }
 
-        metrics[i].num_kills += g_playerPlayerData[i].kill_count;
+        metrics[i].num_kills += g_playerPlayerData[i].gevr_score_bank;
 
         metrics[i].ks_ratio = metrics[i].num_kills * 100.0f / (metrics[i].num_shots + 1.0f);
         metrics[i].kd_ratio = metrics[i].num_kills * 100.0f / (metrics[i].num_deaths + 1.0f);
@@ -1485,7 +1485,8 @@ s32 get_points_for_mp_player(s32 playernum)
                 }
             }
 
-            points += g_playerPlayerData[playernum].kill_count;
+            /* the score bank: kills against players who have left (net_core.c netForgetPlayerScore) */
+            points += g_playerPlayerData[playernum].gevr_score_bank;
 
             points += g_playerPlayerData[playernum].killed_gg_owner_count * (netMpPlayerCount(player_count) - 2);
             break;

@@ -432,6 +432,9 @@ void lvlStageLoad(s32 stage)
             s32 s3;
             player_data = (struct player_data *)&g_playerPlayerData[i];
             player_data->kill_count = 0;
+#ifdef GEVR
+            player_data->gevr_score_bank = 0;   /* online: banked kills against players who left */
+#endif
 
             if (getPlayerCount() == 1)
             {
