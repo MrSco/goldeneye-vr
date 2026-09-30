@@ -661,6 +661,26 @@ uint64_t netGetCountdownEndUs(void) {
     return s_countdown_end_us;
 }
 
+/* bondview_r.c: the start pad of a slot at stage load, the slot's entry in a
+ * permutation of the pads drawn from the match seed, so every headset puts
+ * every player on the same pad and no two players share one. */
+int netStartPad(int slot, int padcount) {
+    int order[64];
+    uint32_t x = s_rng_seed ^ 0x5bd1e995u;
+    int n = padcount > 64 ? 64 : padcount;
+    if (n <= 0) return 0;
+    for (int i = 0; i < n; i++) order[i] = i;
+    for (int i = n - 1; i > 0; i--) {
+        x = x * 1664525u + 1013904223u;
+        int j = (int)((x >> 16) % (uint32_t)(i + 1));
+        int t = order[i];
+        order[i] = order[j];
+        order[j] = t;
+    }
+    if (slot < 0) slot = 0;
+    return order[slot % n];
+}
+
 /* One fade from black per online stage load (net_player_sync.c). */
 bool netTakeStageFadeIn(void) {
     bool pending = s_stage_fade_in;
