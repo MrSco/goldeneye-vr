@@ -18,6 +18,7 @@
 #include "game/chrai.h"
 #include "game/loadobjectmodel.h"
 #include "game/propobj.h"
+#include "system.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
