@@ -1687,6 +1687,17 @@ s32 gevrStereoWatchGripUpdate(s32 held, f32 *cmOut)
     f32 len2, t, dist;
     s32 i;
 
+    /* A copy's watch item fires as its owner's trigger says (net_player_sync.c):
+     * no hand to test here, and the grip state stays the local player's. */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        if (cmOut != NULL)
+        {
+            *cmOut = 0.0f;
+        }
+        return TRUE;
+    }
+
     if (!held || cm < 1e-6f || !gevrStereoWatchPoint(watch) || !gevrGripAxes(1, pos, right, up, back))
     {
         s_gevrWatchGrip = FALSE;
@@ -3101,9 +3112,14 @@ static s32 gevrRemoteCopyShot(s32 handnum, struct coord3d *origin, struct coord3
 {
     extern int netGetRemoteAim(int slot_id, struct coord3d *origin, struct coord3d *dir);
     Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    s32 local = netGetLocalSlot();
+    struct player *localpl = (local >= 0 && local < 4) ? g_playerPointers[local] : NULL;
     struct coord3d wo, wd;
 
-    if (v2w == NULL || g_CurrentPlayer->prop == NULL)
+    /* Only while the copy borrows the local view's matrices (lv.c, gun.c):
+     * in its own tick it has none of its own (never built online), and the
+     * game's crosshair path serves whatever asks there. */
+    if (v2w == NULL || localpl == NULL || v2w != localpl->viewtoworldmtxf || g_CurrentPlayer->prop == NULL)
     {
         return FALSE;
     }
@@ -3114,6 +3130,22 @@ static s32 gevrRemoteCopyShot(s32 handnum, struct coord3d *origin, struct coord3
     }
     gevrWorldToViewSpace(v2w, &wo, TRUE);
     gevrWorldToViewSpace(v2w, &wd, FALSE);
+    /* The hit tests place a prop impact by the ray's depth (chr.c
+     * chrHandleBulletHit divides by dir.z: a shot from the camera never runs
+     * along its plane). Keep a copy's shot off that plane. */
+    if (wd.z > -0.02f && wd.z < 0.02f)
+    {
+        f32 len;
+
+        wd.z = wd.z < 0.0f ? -0.02f : 0.02f;
+        len = sqrtf(wd.x * wd.x + wd.y * wd.y + wd.z * wd.z);
+        if (len > 0.0001f)
+        {
+            wd.x /= len;
+            wd.y /= len;
+            wd.z /= len;
+        }
+    }
     *origin = wo;
     *dir = wd;
     return TRUE;

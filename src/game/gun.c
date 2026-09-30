@@ -145,7 +145,6 @@ void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3
         s_gevrNetSpawn.rot[i] = rot9[i];
     }
     s_gevrNetSpawn.active = TRUE;
-    g_gevrMotionThrowActive[hand] = 0;
 
     set_cur_player(slot);
 
@@ -2124,7 +2123,7 @@ void generate_player_thrown_knife(s32 hand)
     gevrNetProjectile(GEVR_NETPROJ_KNIFE, hand, &spE0, &throw_speed_vec, &spA0_a, NULL);
 #endif
 
-    guRotateF(&spFC,360.0f / ((randomGetNext() * (0.5f / (f32)INT_MAX)) + 12.1f), spA0_a.m[1][0], spA0_a.m[1][1], spA0_a.m[1][2]);
+    guRotateF(&spFC, 360.0f / ((randomGetNext() * (0.5f / (f32)INT_MAX)) + 12.1f), spA0_a.m[1][0], spA0_a.m[1][1], spA0_a.m[1][2]);
 
     wor = create_new_item_instance_of_model(PROP_CHRKNIFE, ITEM_THROWKNIFE);
 

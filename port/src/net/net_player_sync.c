@@ -60,6 +60,8 @@ static StandTile *netSyncRemoteTile(struct player *pl, const coord3d *from, bool
     }
 
     if (!tile) {
+        /* The highest tile below the eye. A crouch brings the eye down to
+         * 30 units over the floor, so no lower probe: it would go under it. */
         f32 y;
         tile = stanFindTileBelowPos(&to, NULL, &y);
         if (!tile) return NULL;
@@ -280,7 +282,15 @@ void netPlayerSyncAfterTick(s32 playernum) {
     move.tick = (u32)(sysGetMicroseconds() / 1000);
     move.ucmd = 0;
     if (get_button_state(1, "trigger")) {
-        move.ucmd |= UCMD_FIRE;
+        /* The copies fire on this as the game's gun would: not with the
+         * fists, the knife or the detonator (their hits and blasts come from
+         * this headset), and not through a reload or with an empty gun. */
+        ITEM_IDS item = getCurrentPlayerWeaponId(GUNRIGHT);
+        if (item != ITEM_UNARMED && item != ITEM_KNIFE && item != ITEM_TRIGGER &&
+            (pl->hands[GUNRIGHT].weapon_ammo_in_magazine > 0 ||
+             bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_CLICKY))) {
+            move.ucmd |= UCMD_FIRE;
+        }
     }
     if (pl->crouchpos != CROUCH_STAND) {
         move.ucmd |= UCMD_DUCK;

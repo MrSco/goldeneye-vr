@@ -3544,15 +3544,57 @@ void chrobjWeaponTick(struct PropRecord* prop)
             }
             else if (weapon->timer == 1)
             {
-                player_prop = getCurrentPlayerProp();
+#ifdef GEVR
+                extern bool netIsActive(void);
+                extern int netGetLocalSlot(void);
+                extern bool netSlotOccupied(int slot);
 
-                diff_x = player_prop->pos.f[0] - prop->pos.f[0];
-                diff_y = player_prop->pos.f[1] - prop->pos.f[1];
-                diff_z = player_prop->pos.f[2] - prop->pos.f[2];
-
-                if ((diff_x * diff_x) + (diff_y * diff_y) + (diff_z * diff_z) < PROXIMITY_MINE_TRIGGER_DISTANCE)
+                if (netIsActive())
                 {
-                    weapon->timer = 0;
+                    /*
+                     * Online the mine's owner sets it off. This pass runs as
+                     * the local player only, so the owner's headset tests
+                     * every player against its mines; the copies of the other
+                     * players' mines wait for their owner's explosion
+                     * (explosion.c), which also removes them.
+                     */
+                    s32 owner = (obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER;
+                    s32 slot;
+
+                    if (owner == netGetLocalSlot())
+                    {
+                        for (slot = 0; slot < getPlayerCount(); slot++)
+                        {
+                            struct player *victim = g_playerPointers[slot];
+
+                            if (!netSlotOccupied(slot) || victim == NULL || victim->prop == NULL || victim->bonddead)
+                            {
+                                continue;
+                            }
+                            diff_x = victim->prop->pos.f[0] - prop->pos.f[0];
+                            diff_y = victim->prop->pos.f[1] - prop->pos.f[1];
+                            diff_z = victim->prop->pos.f[2] - prop->pos.f[2];
+                            if ((diff_x * diff_x) + (diff_y * diff_y) + (diff_z * diff_z) < PROXIMITY_MINE_TRIGGER_DISTANCE)
+                            {
+                                weapon->timer = 0;
+                                break;
+                            }
+                        }
+                    }
+                }
+                else
+#endif
+                {
+                    player_prop = getCurrentPlayerProp();
+
+                    diff_x = player_prop->pos.f[0] - prop->pos.f[0];
+                    diff_y = player_prop->pos.f[1] - prop->pos.f[1];
+                    diff_z = player_prop->pos.f[2] - prop->pos.f[2];
+
+                    if ((diff_x * diff_x) + (diff_y * diff_y) + (diff_z * diff_z) < PROXIMITY_MINE_TRIGGER_DISTANCE)
+                    {
+                        weapon->timer = 0;
+                    }
                 }
             }
 
@@ -4203,6 +4245,45 @@ s32 glassCalculateOpacity(coord3d *pos, f32 xludist, f32 opadist, f32 arg3)
 }
 
 
+#ifdef GEVR
+/*
+ * Online a thrown knife flies on every headset (gun.c gevrNetSpawnProjectile)
+ * and this pass runs as the local player. Its hit is judged as its thrower's,
+ * so only the thrower's headset reports it (chraction.c), and it never counts
+ * against the thrower's own body.
+ */
+static s32 gevrKnifeHitsActor(ObjectRecord *obj, PropRecord *target, s32 bodypart, void *dir)
+{
+	extern bool netIsActive(void);
+	s32 prev = get_cur_playernum();
+	s32 owner = prev;
+	s32 hit;
+
+	if (netIsActive())
+	{
+		owner = (obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER;
+		if (owner < 0 || owner >= 4 || g_playerPointers[owner] == NULL)
+		{
+			owner = prev;
+		}
+		else if (g_playerPointers[owner]->prop == target)
+		{
+			return 0;
+		}
+	}
+	if (owner != prev)
+	{
+		set_cur_player(owner);
+	}
+	hit = handles_shot_actors(target->chr, bodypart, (struct coord3d *) dir, ((struct WeaponObjRecord *) obj)->weaponnum, 1);
+	if (owner != prev)
+	{
+		set_cur_player(prev);
+	}
+	return hit;
+}
+#endif
+
 s32 objTick(struct PropRecord *prop)
 {
 	Mtxf *mtxs;
@@ -4701,7 +4782,11 @@ s32 objTick(struct PropRecord *prop)
 								temp_v0_40 = obj->projectile;
 								temp_s0_13 = (struct coord3d *) playerProp2->chr;
 
+								#ifdef GEVR
+								if ((((temp_v0_40->flags & PROJECTILEFLAG_AIRBORNE) && (((s32) temp_v0_40->unk90) <= 0)) && (obj->runtime_bitflags & RUNTIMEBITFLAG_THROWING_KNIFE_RELATED)) && (gevrKnifeHitsActor(obj, playerProp2, bodypartshot, &flt_CODE_bss_80075B78) != 0))
+#else
 								if ((((temp_v0_40->flags & PROJECTILEFLAG_AIRBORNE) && (((s32) temp_v0_40->unk90) <= 0)) && (obj->runtime_bitflags & RUNTIMEBITFLAG_THROWING_KNIFE_RELATED)) && (handles_shot_actors((struct ChrRecord *) temp_s0_13, bodypartshot, &flt_CODE_bss_80075B78, ((struct WeaponObjRecord *) obj)->weaponnum, 1) != 0))
+#endif
 								{
 									projectileStopped = 1;
 
@@ -12657,7 +12742,7 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
             extern bool netIsActive(void);
             extern int netGetLocalSlot(void);
 
-            if (netIsActive() && index != netGetLocalSlot())
+            if (netIsActive() && netGetLocalSlot() >= 0 && index != netGetLocalSlot())
             {
                 continue;
             }

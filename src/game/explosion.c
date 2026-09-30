@@ -421,13 +421,30 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
 
 
 #ifdef GEVR
+static s32 gevrIsExplosiveItem(s32 item)
+{
+    switch (item)
+    {
+        case ITEM_GRENADE:
+        case ITEM_GRENADEROUND:
+        case ITEM_ROCKETROUND:
+        case ITEM_REMOTEMINE:
+        case ITEM_PROXIMITYMINE:
+        case ITEM_TIMEDMINE:
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
 /*
  * An explosion caused by another player, sent by that player's headset
  * (net_core.c NET_MSG_EXPLOSION). It is created as that player's: objects
  * near it are damaged here too, while hits on players come only from the
- * owner (explosionInflictDamage). The copy's own projectile nearest to it -
- * the grenade or rocket this headset was flying for that player - goes, so
- * nothing is left lying past its explosion.
+ * owner (explosionInflictDamage). The copy's own explosive nearest to it -
+ * the grenade, rocket or mine this headset was carrying for that player,
+ * flying, settled or stuck - goes, so nothing is left lying past its
+ * explosion to be set off again here.
  */
 void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 ground, s32 flag8)
 {
@@ -460,8 +477,12 @@ void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 grou
             continue;
         }
         wobj = prop->weapon;
-        if (!(wobj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) || wobj->projectile == NULL
-            || wobj->projectile->ownerprop != pl->prop)
+        /* That player's thrown or fired explosive, flying, settled or stuck:
+         * from the weapon pool (a pickup from the setup is nobody's) and
+         * carrying the owner's slot. */
+        if (wobj < &g_WeaponSlots[0] || wobj >= &g_WeaponSlots[MAX_WEAPON_SLOTS]
+            || ((wobj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER) != slot
+            || !gevrIsExplosiveItem(wobj->weaponnum))
         {
             continue;
         }
@@ -482,8 +503,6 @@ void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 grou
 
     probe = *pos;
     probe.y += 30.0f;
-    rooms[0] = room;
-    rooms[1] = 0xff;
     tile = stanFindTileBelowPos(&probe, NULL, &y);
     if (tile == NULL)
     {
@@ -494,6 +513,12 @@ void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 grou
     {
         return;
     }
+    if (room == 0xff || (s32) room >= g_MaxNumRooms)
+    {
+        room = (u8) getTileRoom(tile);
+    }
+    rooms[0] = room;
+    rooms[1] = 0xff;
 
     g_gevrNetExplosionRx = TRUE;
     explosionCreate(NULL, pos, tile, (s16) type, ground, slot, rooms, flag8);

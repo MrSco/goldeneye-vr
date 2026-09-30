@@ -833,7 +833,8 @@ Gfx* lvlRender(Gfx* DL)
                         Mtxf *savedv2w;
                         Mtxf *savedw2v;
 
-                        if (slot == localslot || !netSlotOccupied(slot) || remote == NULL || remote->bonddead)
+                        if (slot == localslot || !netSlotOccupied(slot) || remote == NULL ||
+                            remote->prop == NULL || remote->prop->stan == NULL || remote->bonddead)
                         {
                             continue;
                         }
