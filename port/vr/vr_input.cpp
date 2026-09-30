@@ -1904,6 +1904,13 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
 extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
 {
     ++gCamCtrlSnapshotId;
+    // The multiplayer pause menu holds the hands (the locate above keeps the
+    // poses): the snapshot holds too, since the steadying below re-orients
+    // the held play-space turn against the current head, which pivoted the
+    // hands with every head turn (user, 2026-09-30).
+    if (gevrMpMenuOpen()) {
+        return;
+    }
     for (int h = 0; h < 2; h++) {
         const bool tracked = focused && gControllerStates[h].is_active;
         gCamCtrlTracked[h] = tracked;
