@@ -3101,25 +3101,30 @@ static void gevrWorldToViewSpace(Mtxf *v2w, struct coord3d *p, s32 ispoint)
     }
 }
 
+/* Set by lv.c gevrRemotePlayerPass and gun.c gevrNetSpawnProjectile while a
+ * copy's shot or spawn runs with camera matrices built for it. */
+static s32 s_gevrCopyTrace = FALSE;
+
+void gevrSetCopyTrace(s32 on)
+{
+    s_gevrCopyTrace = on;
+}
+
 /*
- * A remote player's copy firing on this headset (lv.c traces its shots with
- * the local view's matrices, which the on-screen props' hit tests use): the
- * shot leaves the owner's real muzzle along the owner's barrel, sent in world
- * space (net_player_sync.c), or from the copy's eye along its view when the
- * owner does not aim with a controller.
+ * A remote player's copy firing on this headset, in its own view pass (lv.c
+ * gevrRemotePlayerPass, whose camera sits on the owner's barrel): the shot
+ * leaves the owner's real muzzle along the owner's barrel, sent in world
+ * space (net_player_sync.c), or the copy's eye along its view when the owner
+ * does not aim with a controller. Elsewhere (a copy's own tick) the game's
+ * crosshair path serves whatever asks.
  */
 static s32 gevrRemoteCopyShot(s32 handnum, struct coord3d *origin, struct coord3d *dir)
 {
     extern int netGetRemoteAim(int slot_id, struct coord3d *origin, struct coord3d *dir);
     Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
-    s32 local = netGetLocalSlot();
-    struct player *localpl = (local >= 0 && local < 4) ? g_playerPointers[local] : NULL;
     struct coord3d wo, wd;
 
-    /* Only while the copy borrows the local view's matrices (lv.c, gun.c):
-     * in its own tick it has none of its own (never built online), and the
-     * game's crosshair path serves whatever asks there. */
-    if (v2w == NULL || localpl == NULL || v2w != localpl->viewtoworldmtxf || g_CurrentPlayer->prop == NULL)
+    if (!s_gevrCopyTrace || v2w == NULL || g_CurrentPlayer->prop == NULL)
     {
         return FALSE;
     }

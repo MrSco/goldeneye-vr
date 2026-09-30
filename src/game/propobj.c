@@ -4555,17 +4555,24 @@ s32 objTick(struct PropRecord *prop)
 		}
 #ifdef GEVR
 		/*
-		 * Online the local view's pass is the only one each frame, and the
-		 * local slot is first in the shuffle (player.c): it steps every
-		 * object, including the projectiles thrown or fired by the other
-		 * players' copies, which would otherwise hang in the air.
+		 * Online each other player's copy gets its own view pass (lv.c
+		 * gevrRemotePlayerPass), so its projectiles are stepped there as in
+		 * split screen. One whose owner has left falls to the first pass, or
+		 * it would hang in the air.
 		 */
 		{
 			extern bool netIsActive(void);
+			extern bool netSlotOccupied(int slot);
 
-			if (netIsActive())
+			if (netIsActive() && !isSimOwner && (obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE)
+				&& obj->projectile != NULL && obj->projectile->ownerprop != NULL)
 			{
-				isSimOwner = TRUE;
+				s32 owner = getPlayerPointerIndex(obj->projectile->ownerprop);
+
+				if (owner >= 0 && !netSlotOccupied(owner) && get_player_position_in_shuffled(get_cur_playernum()) == 0)
+				{
+					isSimOwner = TRUE;
+				}
 			}
 		}
 #endif
