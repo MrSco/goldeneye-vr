@@ -43,8 +43,13 @@ first stage (net_core.c netClearVotes at init and launch), plus the rotation
 no longer turning before the first round; copies were posed from the barrel
 (bent over, twisting: now the view's pitch and no yaw, as the flat game) and
 had fists re-given every tick (a draw replayed forever); an overlap escape
-lets a player walk out of another's cylinder. The user's Quest ran the first
-build of the branch for the test; the later commits are built, not installed.
+lets a player walk out of another's cylinder. Protocol 10 (090cd6c): the
+owner's health, armour and death ride in PLAYER_STATE and rule its copies (a
+client died on the host only, then stood as a corpse ignoring its moves),
+and a copy's shot ammo boxes and guns fly on every headset (the copy pass was
+caught by the barrel pass's "no projectiles in an extra pass" rule). The
+user's Quest ran the branch's first build (c9910aa) for the test; the later
+commits are built as versionCode 44, not installed.
 
 ## What it is
 
