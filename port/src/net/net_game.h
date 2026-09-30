@@ -32,6 +32,7 @@ void netSpectatorReset(void);
 void gevrGiveOnlineLoadout(void);
 void gevrEquipOnlineLoadout(void);
 void gevrPreloadOnlineLoadouts(void);
+void netTouchLocalActivity(void);
 #ifdef __cplusplus
 }
 #endif

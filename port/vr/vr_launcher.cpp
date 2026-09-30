@@ -963,44 +963,58 @@ static bool favoriteRow(const char *label, int count, const char *(*name)(int), 
 static void gevrMatchOptions()
 {
     bool changed = false;
-    ImGui::Text("Scenario:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
-    changed |= namedCombo("##scenario", netScenarioCount(), netScenarioName, &VrMpScenario);
-    if (VrMpScenario == SCENARIO_YOLT) {
-        ImGui::TextDisabled("Length: last one standing (the scenario's own)");
-    } else {
-        ImGui::Text("Length:");
+    static int optSub = 0; // 0 = Rules, 1 = Favorites
+    auto subHeader = [&](const char *label, int id) -> bool {
+        ImGui::SetNextItemOpen(optSub == id);
+        if (ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_SpanAvailWidth)) optSub = id;
+        else if (optSub == id) optSub = -1;
+        return optSub == id;
+    };
+
+    if (subHeader("Match Rules###opt_rules", 0)) {
+        ImGui::Text("Scenario:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        changed |= namedCombo("##scenario", netScenarioCount(), netScenarioName, &VrMpScenario);
+        if (VrMpScenario == SCENARIO_YOLT) {
+            ImGui::TextDisabled("Length: last one standing (the scenario's own)");
+        } else {
+            ImGui::Text("Length:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+            // The Living Daylights takes the time limits only, as the game's own menu has it
+            changed |= namedCombo("##length", VrMpScenario == SCENARIO_TLD ? 4 : 7, netGameLengthName, &VrMpLength);
+        }
+        ImGui::Text("Health:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-        // The Living Daylights takes the time limits only, as the game's own menu has it
-        changed |= namedCombo("##length", VrMpScenario == SCENARIO_TLD ? 4 : 7, netGameLengthName, &VrMpLength);
+        changed |= namedCombo("##health", netHealthCount(), netHealthName, &VrMpHealth);
+        ImGui::Text("Dual wield:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+        changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
+        ImGui::SameLine();
+        ImGui::TextDisabled(VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair" :
+                            VrMpDual == NET_DUAL_ANY ? "hold X for the left hand's panel" : "");
+        bool loadouts = VrMpLoadouts != 0;
+        if (ImGui::Checkbox("Players spawn with their own four guns (loadouts)", &loadouts)) {
+            VrMpLoadouts = loadouts ? 1 : 0;
+            changed = true;
+        }
+        ImGui::Text("Next round:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+        changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", VrMpNextRound == NET_NEXT_SHUFFLE ? "a random favorite map and set" :
+                                  VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order" : "the players vote in the pause menu");
     }
-    ImGui::Text("Health:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-    changed |= namedCombo("##health", netHealthCount(), netHealthName, &VrMpHealth);
-    ImGui::Text("Dual wield:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-    changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
-    ImGui::SameLine();
-    ImGui::TextDisabled(VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair" :
-                        VrMpDual == NET_DUAL_ANY ? "hold X for the left hand's panel" : "");
-    bool loadouts = VrMpLoadouts != 0;
-    if (ImGui::Checkbox("Players spawn with their own four guns (loadouts)", &loadouts)) {
-        VrMpLoadouts = loadouts ? 1 : 0;
-        changed = true;
+
+    if (subHeader("Favorites (for Shuffle & Playlist)###opt_favs", 1)) {
+        changed |= favoriteRow("Favorite maps:", netStageCount(), netStageName, &VrMpFavStages, 6);
+        changed |= favoriteRow("Favorite sets:", netWeaponSetCount(), netWeaponSetName, &VrMpFavSets, 5);
     }
-    ImGui::Text("Next round:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-    changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
-    ImGui::SameLine();
-    ImGui::TextDisabled("%s", VrMpNextRound == NET_NEXT_SHUFFLE ? "a random favorite map and set" :
-                              VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order" : "the players vote in the pause menu");
-    changed |= favoriteRow("Favorite maps:", netStageCount(), netStageName, &VrMpFavStages, 6);
-    changed |= favoriteRow("Favorite sets:", netWeaponSetCount(), netWeaponSetName, &VrMpFavSets, 4);
+
     if (changed) gevrHostChoiceChanged();
 }
 
@@ -1511,6 +1525,13 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         }
     }
     
+    if (ImGui::GetScrollMaxY() > 8.0f) {
+        if (ImGui::GetScrollY() < ImGui::GetScrollMaxY() - 8.0f) {
+            ImGui::TextColored(gold, "v  Scroll down with stick for more options  v");
+        } else {
+            ImGui::TextColored(gold, "^  Scroll up with stick for earlier options  ^");
+        }
+    }
     ImGui::Spacing();
     ImGui::Separator();
     if (ImGui::Button("Back to Main Menu", ImVec2(-1, 0))) {

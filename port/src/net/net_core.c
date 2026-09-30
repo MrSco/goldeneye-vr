@@ -2355,17 +2355,49 @@ static void netResolveVotes(void) {
     netBroadcastAllVotes();
 }
 
+static uint64_t s_last_local_activity_us = 0;
+static uint32_t s_last_idle_warning_sec = 0;
+
+void netTouchLocalActivity(void) {
+    s_last_local_activity_us = sysGetMicroseconds();
+    s_last_idle_warning_sec = 0;
+}
+
 static void netRoundTick(void) {
-    if (netIsHost() && s_state == NET_STATE_INGAME) {
+    if (s_state == NET_STATE_INGAME) {
         uint64_t now = sysGetMicroseconds();
-        if (s_match_ended && s_results_deadline_us && now >= s_results_deadline_us) netHostContinue();
-        if (s_next_round_at_us && now >= s_next_round_at_us &&
-            netGetConnectedPlayerCount() >= 2 && netAllLoaded()) {
-            netResolveVotes();
-            netLatchRoundSettings();
-            netBeginRoundReset(true);
+        if (s_last_local_activity_us == 0) s_last_local_activity_us = now;
+        uint64_t idle_us = now - s_last_local_activity_us;
+        if (idle_us >= 270ULL * 1000000ULL && idle_us < 300ULL * 1000000ULL) {
+            uint32_t left = (uint32_t)((300ULL * 1000000ULL - idle_us) / 1000000ULL);
+            if (left != s_last_idle_warning_sec) {
+                s_last_idle_warning_sec = left;
+                char msg[48];
+                extern void hudmsgTopShow(char *mess);
+                snprintf(msg, sizeof(msg), "IDLE WARNING: KICK IN %u S", left);
+                hudmsgTopShow(msg);
+            }
+        } else if (idle_us >= 300ULL * 1000000ULL) {
+            NET_LOG("Local player idle for 5 minutes: kicking to launcher");
+            s_last_local_activity_us = 0;
+            s_last_idle_warning_sec = 0;
+            extern void gevrLobbySessionStopped(void);
+            extern void gevrRestartToLauncher(void);
+            gevrLobbySessionStopped();
+            gevrRestartToLauncher();
+            return;
         }
-        if (s_round_reset_loading) netReadyProgress();
+
+        if (netIsHost()) {
+            if (s_match_ended && s_results_deadline_us && now >= s_results_deadline_us) netHostContinue();
+            if (s_next_round_at_us && now >= s_next_round_at_us &&
+                netGetConnectedPlayerCount() >= 2 && netAllLoaded()) {
+                netResolveVotes();
+                netLatchRoundSettings();
+                netBeginRoundReset(true);
+            }
+            if (s_round_reset_loading) netReadyProgress();
+        }
     }
 }
 
