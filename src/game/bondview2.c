@@ -242,6 +242,8 @@ static s32 s_gevrStereoWas;
 static f32 s_gevrBaseYaw;                /* degrees: stick turns plus game-side turns */
 static f32 s_gevrLastTheta;              /* vv_theta as last written here */
 static s32 s_gevrSnapArmed = TRUE;
+static s32 s_gevrSnapVignetteHold;       /* game frames the comfort ring stays shut after a snap turn */
+#define GEVR_SNAP_VIGNETTE_HOLD 6        /* a tenth of a second at 60 Hz */
 static struct coord3d s_gevrCamLook;
 static struct coord3d s_gevrCamUp;
 
@@ -887,6 +889,8 @@ void gevrStereoFrame(s32 inlevel)
             {
                 s_gevrBaseYaw += (x > 0.0f ? 1.0f : -1.0f) * VrUseSnapTurn;
                 s_gevrSnapArmed = FALSE;
+                /* the comfort ring closes on the frame that shows the new heading (gevrStereoVignette) */
+                s_gevrSnapVignetteHold = GEVR_SNAP_VIGNETTE_HOLD;
             }
         }
         else
@@ -3881,6 +3885,7 @@ extern float VrComfortVignette;         /* vr_settings */
 float gevrStereoVignette(void)
 {
     static f32 level;
+    static s32 snapPulse;   /* the ring is shut for a snap turn alone: release it quickly */
     f32 target = 0.0f;
     f32 move;
     f32 turn;
@@ -3896,10 +3901,38 @@ float gevrStereoVignette(void)
             target = 1.0f;
         }
         target *= VrComfortVignette;
+        if (target > 0.0f)
+        {
+            snapPulse = FALSE;
+        }
+
+        /*
+         * A snap turn (gevrStereoFrame) is a one-frame jump of the view: the
+         * ring shuts fully on that frame, holds a tenth of a second, then
+         * clears in a quarter of one. Snapping again keeps it shut.
+         */
+        if (s_gevrSnapVignetteHold > 0)
+        {
+            s_gevrSnapVignetteHold--;
+            if (target < VrComfortVignette)
+            {
+                target = VrComfortVignette;
+                snapPulse = TRUE;
+            }
+            if (level < target)
+            {
+                level = target;
+            }
+        }
+    }
+    else
+    {
+        s_gevrSnapVignetteHold = 0;
+        snapPulse = FALSE;
     }
 
-    /* quick to close, slower to open */
-    level += (target - level) * (target > level ? 0.25f : 0.08f);
+    /* quick to close, slower to open (a snap's pulse opens quickly too) */
+    level += (target - level) * (target > level ? 0.25f : (snapPulse ? 0.25f : 0.08f));
     if (level < 0.002f)
     {
         level = 0.0f;
@@ -13870,7 +13903,16 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
     g_gevrItemModelOverride = gevrWeaponPanelModel(item);
     if (g_gevrItemModelOverride != NULL)
     {
+        /*
+         * Culling off, as the hands in lvlRender (issue #9): the watch's setup
+         * (options.c sub_GAME_7F0A6EE8) culls back faces, and the N64's hand is
+         * an open shell, so the spinning fist read as hollow in the panel while
+         * the same model swung solid in the hand. The panel's layer has its own
+         * depth buffer, so fast3d's back-face rule (#24) holds here too.
+         */
+        gDPNoOpTag(gdl++, 0x565B0000);   /* VR_CULL_OFF_BEGIN */
         gdl = set_enviro_fog_for_items_in_solo_watch_menu(sub_GAME_7F0A6EE8(gdl), item, &rot, 0xFF, 0x64DC6428);
+        gDPNoOpTag(gdl++, 0x565B0001);   /* VR_CULL_OFF_END */
     }
     g_gevrItemModelOverride = NULL;
     return gdl;
@@ -14076,7 +14118,8 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
         if (shown == ITEM_UNARMED)
         {
-            shown = ITEM_FIST;
+            /* the left hand's own arm is the watch arm (gevrRenderLeftWatchArm), not a second fist */
+            shown = gevrWeaponPanelLeft ? ITEM_SUIT_LF_HAND : ITEM_FIST;
         }
         else if (shown == ITEM_TRIGGER || shown == ITEM_WATCHLASER)
         {
