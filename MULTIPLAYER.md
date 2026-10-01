@@ -8,7 +8,8 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
 - Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same four-player lobby.
-- Internet hosting requires the lobby Worker and Cloudflare TURN key described in `services/lobbies/README.md`. If they are unavailable, LAN and direct IP still work.
+- TURN is a fallback, not a gate. A headset publishes its session once STUN has found its public address; a relay candidate is added when the lobby service issues credentials (UDP 3478, with UDP 443 as a second server for networks that block 3478). If the relay is refused or unreachable, the join still goes ahead and only fails against peers that hole punching cannot reach (symmetric or carrier-grade NAT, typically phone hotspots). The log line `net: ice <id>: no relay candidate` records a direct-only session. "No internet path found" means STUN itself failed.
+- Internet hosting requires the lobby Worker described in `services/lobbies/README.md`; the Cloudflare TURN key is optional and capped per month there. If the Worker is unavailable, LAN and direct IP still work.
 - The host picks the stage, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
 - A match supports up to four occupied, consecutive player slots. The host launcher requires at least two players, all ready, and a stage with enough slots before launch.
 

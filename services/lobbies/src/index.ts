@@ -4,6 +4,7 @@ interface Env {
   REGISTRY: DurableObjectNamespace<LobbyRegistry>;
   TURN_KEY_ID: string;
   TURN_KEY_API_TOKEN: string;
+  TURN_MONTHLY_CAP?: string;
   REPORT_TO: string;
   EMAIL: { send(message: {
     from: string; to: string; subject: string; text: string;
@@ -25,6 +26,15 @@ const TTL = 45_000;
 const WAITING_IDLE_TIMEOUT = 15 * 60_000;
 const ALONE_IDLE_TIMEOUT = 30 * 60_000;
 const MAX_LOBBY_LIFESPAN = 2 * 3600_000;
+// Relay credentials issued per calendar month before the Worker stops handing them out.
+// Cloudflare bills TURN egress past 1,000 GB a month; a credential covers at most one
+// two-hour lobby, under 250 MB relayed in the worst case, so 4000 keeps the worst month
+// inside the free tier. Games keep working without a relay: direct connections only.
+const TURN_MONTHLY_CAP_DEFAULT = 4000;
+const msUntilNextUtcMonth = (now = Date.now()) => {
+  const date = new Date(now);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) - now;
+};
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const json = (value: unknown, status = 200, extraHeaders: Record<string, string> = {}) =>
   Response.json(value, { status, headers: { "cache-control": "no-store", ...extraHeaders } });
@@ -383,6 +393,9 @@ export default {
         if (!await registry.mayIssueTurn(code, id, token)) return bad("Not authorized", 403);
         if (!await registry.limit(ip, "turn-hour", 120, 3_600_000))
           return bad("Too many relay requests; try again later", 429);
+        const cap = env.TURN_MONTHLY_CAP === undefined ? TURN_MONTHLY_CAP_DEFAULT : Number(env.TURN_MONTHLY_CAP);
+        if (cap > 0 && !await registry.limit("global", "turn-month", cap, msUntilNextUtcMonth()))
+          return bad("Monthly relay budget used; direct connections only", 503);
         return turnCredentials(env);
       }
       if (path[3] === "joins" && path.length === 4 && request.method === "POST") return registry.join(code, Number((body as Record<string, unknown>)?.version));

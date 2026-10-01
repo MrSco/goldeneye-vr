@@ -165,8 +165,7 @@ final class LobbyClient {
                 joinId = result.getString("id");
                 joinToken = result.getString("joinToken");
                 code = requestedCode;
-                JSONObject turn = http("POST", BASE + "/" + code + "/turn", new JSONObject().put("id", joinId), joinToken);
-                events.add("JOINED|" + joinId + "|" + turn.getString("username") + "|" + turn.getString("credential"));
+                events.add("JOINED|" + joinId + "|" + relayCredentials(new JSONObject().put("id", joinId), joinToken));
                 break;
             }
             case "offer": {
@@ -228,9 +227,8 @@ final class LobbyClient {
                         JSONObject request = requests.getJSONObject(i);
                         String id = request.getString("id");
                         if (seenRequests.contains(id)) continue;
-                        JSONObject turn = http("POST", BASE + "/" + code + "/turn", new JSONObject(), ownerToken);
                         events.add("HOST_PEER|" + id + "|" + encode(request.getString("offer")) + "|"
-                                + turn.getString("username") + "|" + turn.getString("credential"));
+                                + relayCredentials(new JSONObject(), ownerToken));
                         seenRequests.add(id);
                     }
                 }
@@ -246,6 +244,21 @@ final class LobbyClient {
             String message = "Lobby service: " + e.getMessage();
             if (!message.equals(lastError)) error(message);
             lastError = message;
+        }
+    }
+
+    /**
+     * TURN is a fallback for peers that STUN hole punching cannot reach. A refused or
+     * exhausted relay must not block a join that can go direct, so a failure here yields
+     * empty "user|credential" fields and the native ICE layer gathers STUN candidates only.
+     */
+    private String relayCredentials(JSONObject body, String token) {
+        try {
+            JSONObject turn = http("POST", BASE + "/" + code + "/turn", body, token);
+            return clean(turn.getString("username")) + "|" + clean(turn.getString("credential"));
+        } catch (Exception e) {
+            Log.w(TAG, "Relay credentials unavailable; direct connection only: " + e.getMessage());
+            return "|";
         }
     }
 
