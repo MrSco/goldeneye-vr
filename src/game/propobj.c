@@ -9592,6 +9592,12 @@ dummy_label_995911:
                     }
                 }
 
+#ifdef GEVR
+                sysLogPrintf(LOG_NOTE, "shot:  prop hit p%d: objtype %d door %d node3 %d flags2 %s dist %.0f maxdist %.0f counts %d blocks %d",
+                        get_cur_playernum(), obj->type, obj->model->obj->Skeleton == &skeleton_door,
+                        hitnode == obj->model->obj->Switches[3], (obj->flags & PROPFLAG2_00020000) ? "20000" : "-",
+                        -pos.z, hitinfo->maxdist, penetrates, (obj->flags2 & PROPFLAG2_00100000) != FALSE);
+#endif
                 chrpropAddBulletHit(hitinfo, prop, -pos.z, hitpart, node, &hit, mtxindex, (s32) hitnode, model, penetrates, (obj->flags2 & PROPFLAG2_00100000) != FALSE);
             }
         }
@@ -9651,6 +9657,10 @@ void objHit(ShotData *shotdata, BulletHit *hit)
 
     mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &pos);
 
+#ifdef GEVR
+    sysLogPrintf(LOG_NOTE, "shot:  obj impact p%d at %.0f %.0f %.0f objtype %d counts %d dist %.0f", get_cur_playernum(),
+            pos.x, pos.y, pos.z, obj->type, hit->countsAsPenetration, hit->dist);
+#endif
     if (hit->countsAsPenetration != 0)
     {
         gunSetTracerTarget(&pos);
