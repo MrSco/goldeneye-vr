@@ -1523,6 +1523,40 @@ void chraiDefaultWeaponFireHandler(s32 hand)
                 startroom, g_BgRoomInfo[startroom].ptr_expanded_mapping_info != NULL, g_BgRoomInfo[startroom].vtx_batch_bounds != NULL, g_BgRoomInfo[startroom].num_vtx_batch_bounds,
                 lpr, g_BgRoomInfo[lpr].ptr_expanded_mapping_info != NULL, g_BgRoomInfo[lpr].vtx_batch_bounds != NULL, g_BgRoomInfo[lpr].num_vtx_batch_bounds,
                 g_BgPortals[0].offset_portal != 0);
+        {
+            extern bool bgTestRayIntersectsBbox(coord3d *origin, coord3d *dir, s32 *bbox_min, s32 *bbox_max);
+            coord3d alt;
+            s32 r, origpass = 0, altpass = 0, firstalt = -1;
+
+            alt.x = playerpos->x * get_room_data_float1();
+            alt.y = playerpos->y * get_room_data_float1();
+            alt.z = playerpos->z * get_room_data_float1();
+            for (r = 1; r < MAXROOMCOUNT; r++)
+            {
+                s32 mn[3], mx[3], k;
+
+                if (g_BgRoomInfo[r].vtx_batch_bounds == NULL)
+                {
+                    continue;
+                }
+                for (k = 0; k < 3; k++)
+                {
+                    mn[k] = g_BgRoomInfo[r].minbounds.f[k];
+                    mx[k] = g_BgRoomInfo[r].maxbounds.f[k];
+                }
+                if (bgTestRayIntersectsBbox(&scaleddir, &hitdir, mn, mx)) origpass++;
+                if (bgTestRayIntersectsBbox(&alt, &hitdir, mn, mx))
+                {
+                    altpass++;
+                    if (firstalt < 0) firstalt = r;
+                }
+            }
+            sysLogPrintf(LOG_NOTE, "bgshot:  pretest: game start %.0f %.0f %.0f passes %d rooms; room-scale start %.0f %.0f %.0f passes %d (first %d); vis %.2f scale %.3f; room %d box %.0f..%.0f %.0f..%.0f %.0f..%.0f",
+                    scaleddir.x, scaleddir.y, scaleddir.z, origpass, alt.x, alt.y, alt.z, altpass, firstalt,
+                    bgGetLevelVisibilityScale(), get_room_data_float1(), lpr,
+                    g_BgRoomInfo[lpr].minbounds.x, g_BgRoomInfo[lpr].maxbounds.x, g_BgRoomInfo[lpr].minbounds.y, g_BgRoomInfo[lpr].maxbounds.y,
+                    g_BgRoomInfo[lpr].minbounds.z, g_BgRoomInfo[lpr].maxbounds.z);
+        }
     }
 #endif
     if (gotbghit || hitbgstan)
