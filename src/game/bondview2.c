@@ -2766,9 +2766,10 @@ void gevrGrenadeCookHapticTick(s32 hand, s32 cook_tick)
         /* the launcher's Haptics page sets the first pulse (#64); each one
          * after it is a little harder as the fuse runs down, as before */
         extern void vrHapticsGetRumble(int id, float *out_amplitude, float *out_duration, float *out_frequency);
+        extern s32 trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float duration, float frequency);
         f32 amp = 0.0f, dur = 0.0f, freq = 0.0f;
 
-        vrHapticsGetRumble(GEVR_ACTION_GRENADE_COOK, &amp, &dur, &freq);
+        vrHapticsGetRumble(1003 /* GEVR_ACTION_GRENADE_COOK, vr_haptics.h */, &amp, &dur, &freq);
         if (amp <= 0.001f || dur <= 0.001f)
         {
             return;
