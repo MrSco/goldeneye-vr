@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_game.h"
+#include "gevr_scope.h"   /* the per-hand VR scope (issue #40) */
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -7729,8 +7730,7 @@ void gunSetSightVisible(s32 reason, bool visible)
 static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
 {
     extern s32 gevrStereoAimCached(s32 hand, coord3d *out);
-    extern f32 gevrScopeOrigin[3];
-    extern f32 gevrScopeFovDeg;
+    const GevrScopeState *st = &gevrScope[hand];   /* this hand's scope (port/include/gevr_scope.h) */
     coord3d p;
     Mtxf mf;
     Mtx *mv;
@@ -7747,9 +7747,9 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
 
     if (scope)
     {
-        f32 dx = p.x - gevrScopeOrigin[0], dy = p.y - gevrScopeOrigin[1], dz = p.z - gevrScopeOrigin[2];
+        f32 dx = p.x - st->origin[0], dy = p.y - st->origin[1], dz = p.z - st->origin[2];
 
-        half = sqrtf(dx * dx + dy * dy + dz * dz) * tanf(DegToRad(gevrScopeFovDeg * 0.125f));
+        half = sqrtf(dx * dx + dy * dy + dz * dz) * tanf(DegToRad(st->fovDeg * 0.125f));
     }
     else
     {
@@ -8038,7 +8038,6 @@ void gunDrawSight(Gfx **gdl) {
          */
         extern s32 g_gevrStereo;
         extern int vr_button_L_grip;
-        extern s32 gevrScopeOn;
 
         if (g_gevrStereo)
         {
@@ -8048,7 +8047,7 @@ void gunDrawSight(Gfx **gdl) {
                 *gdl = gevrDrawSight3D(*gdl, GUNRIGHT, FALSE);
                 *gdl = gevrHandTag(*gdl, -1);
                 /* issue #40: the same sight in the sniper scope, for the scope only */
-                if (gevrScopeOn)
+                if (gevrScopeOn & (1 << GUNRIGHT))
                 {
                     gDPNoOpTag((*gdl)++, 0x565E0000); /* VR_SCOPE_ONLY_BEGIN */
                     *gdl = gevrDrawSight3D(*gdl, GUNRIGHT, TRUE);
@@ -8067,6 +8066,14 @@ void gunDrawSight(Gfx **gdl) {
                 *gdl = gevrHandTag(*gdl, 0);
                 *gdl = gevrDrawSight3D(*gdl, GUNLEFT, FALSE);
                 *gdl = gevrHandTag(*gdl, -1);
+            }
+            /* the left gun's scope has its sight whatever the grip: a lens without one is no use */
+            if ((gevrScopeOn & (1 << GUNLEFT)) && ((g_CurrentPlayer->gunsightmode & ~GUNSIGHTREASON_NOTAIMING) == 0)
+                && (g_CurrentPlayer->mpmenuon == FALSE))
+            {
+                gDPNoOpTag((*gdl)++, 0x565E0002); /* VR_SCOPE_ONLY_BEGIN_L */
+                *gdl = gevrDrawSight3D(*gdl, GUNLEFT, TRUE);
+                gDPNoOpTag((*gdl)++, 0x565E0001); /* VR_SCOPE_ONLY_END */
             }
             return;
         }

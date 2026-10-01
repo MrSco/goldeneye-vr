@@ -1397,8 +1397,9 @@ Gfx *bgScissorCurrentPlayerView(Gfx *arg0, s32 left, s32 top, s32 width, s32 hei
          * portal test still decides which rooms draw; only the clip goes.
          */
         extern s32 g_gevrStereo;
+        extern s32 gevrZDebugMode;   /* gfx_opengl.cpp, issue #72: mode 3 keeps the scissor in stereo */
 
-        if (g_gevrStereo)
+        if (g_gevrStereo && gevrZDebugMode != 3)
         {
             left = (s32) temp_v0->viewleft;
             top = (s32) temp_v0->viewtop;
