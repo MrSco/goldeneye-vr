@@ -1510,11 +1510,19 @@ void chraiDefaultWeaponFireHandler(s32 hand)
         s32 lnib = lt >= 0 ? (((u8 *) g_Textures)[lt * 8] & 0xf) : -1;
         s32 lsprites = ltype >= 0 ? g_HitTypeSounds[ltype]->thing2_len : -1;
 
+        s32 lpr = getTileRoom(getCurrentPlayerProp()->stan);
+
         sysLogPrintf(LOG_NOTE, "bgshot: p%d hand %d weapon %d bg %d stan %d room %d (player room %d, start %d) tex %d type %d nib %d sprites %d hits %d at %.0f %.0f %.0f dist %.0f from %.0f %.0f %.0f dir %.2f %.2f %.2f",
                 get_cur_playernum(), g_gevrShotHand, shotdata.weapon, gotbghit, hitbgstan, bestroom,
-                getTileRoom(getCurrentPlayerProp()->stan), startroom, lt, ltype, lnib, lsprites, numhits,
+                lpr, startroom, lt, ltype, lnib, lsprites, numhits,
                 visiblehitpos.x, visiblehitpos.y, visiblehitpos.z, negz,
                 shotdata.gunpos.x, shotdata.gunpos.y, shotdata.gunpos.z, shotdata.dir.x, shotdata.dir.y, shotdata.dir.z);
+        sysLogPrintf(LOG_NOTE, "bgshot:  segment to %.0f %.0f %.0f (len %.0f); start room %d: dl %d bounds %d (%d); player room %d: dl %d bounds %d (%d); portals %d",
+                stanhit.x, stanhit.y, stanhit.z,
+                sqrtf((stanhit.x - shotdata.gunpos.x) * (stanhit.x - shotdata.gunpos.x) + (stanhit.y - shotdata.gunpos.y) * (stanhit.y - shotdata.gunpos.y) + (stanhit.z - shotdata.gunpos.z) * (stanhit.z - shotdata.gunpos.z)),
+                startroom, g_BgRoomInfo[startroom].ptr_expanded_mapping_info != NULL, g_BgRoomInfo[startroom].vtx_batch_bounds != NULL, g_BgRoomInfo[startroom].num_vtx_batch_bounds,
+                lpr, g_BgRoomInfo[lpr].ptr_expanded_mapping_info != NULL, g_BgRoomInfo[lpr].vtx_batch_bounds != NULL, g_BgRoomInfo[lpr].num_vtx_batch_bounds,
+                g_BgPortals[0].offset_portal != 0);
     }
 #endif
     if (gotbghit || hitbgstan)
