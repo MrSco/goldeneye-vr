@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "system.h"
+#include "net_objects.h"
 #endif
 #include <ultra64.h>
 #include <memp.h>
@@ -497,6 +498,9 @@ void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex)
             setupUpdateObjectRoomPosition(arg1);
             chrpropActivate(sp60);
             chrpropEnable(sp60);
+#ifdef GEVR
+            gevrAmmoRememberSpawn(arg1, cmdindex);
+#endif
         }
         #ifdef DEBUG
         else
@@ -1254,6 +1258,9 @@ void setupDoor(s32 arg0, struct DoorRecord *door, s32 arg2)
 // Perfect Dark void setupLoadFiles(s32 stagenum)
 void proplvreset2(enum LEVELID stageId)
 {
+#ifdef GEVR
+    gevrAmmoResetSpawns();
+#endif
     ItemModelFileRecord *pitem;
     s32 withchrs;
     s32 withobjs;

@@ -56,6 +56,8 @@ enum { NET_DUAL_OFF = 0, NET_DUAL_DOUBLES = 1, NET_DUAL_ANY = 2 };
 enum { NET_NEXT_VOTE = 0, NET_NEXT_SHUFFLE = 1, NET_NEXT_PLAYLIST = 2 };
 const char *netDualWieldName(int mode);
 const char *netNextRoundName(int mode);
+const char *netVoiceModeName(int mode);
+const char *netTeamName(int team);
 
 #ifdef __cplusplus
 }

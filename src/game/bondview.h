@@ -2758,7 +2758,11 @@ void sub_GAME_7F08976C(f32 param_1);
 
 #ifdef GEVR
 s32 gevrLeftPanelAvailable(void);
-void gevrCycleLeftWeapon(s32 dir);
+void gevrCycleHandWeapon(s32 hand, s32 dir);
+void gevrAutoAdvanceHand(s32 hand);
+s32 gevrWeaponUsesCopies(s32 item);
+s32 gevrWeaponOwned(s32 item);
+void gevrWeaponPickedUp(s32 item, s32 alreadyOwned);
 #endif
 
 #endif

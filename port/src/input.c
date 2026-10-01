@@ -111,7 +111,7 @@ extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue 
 extern f32 gevrWeaponPanelStickY;
 extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
 extern s32 gevrLeftPanelAvailable(void);
-extern void gevrCycleLeftWeapon(s32 dir);
+extern void gevrCycleHandWeapon(s32 hand, s32 dir);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online game */
@@ -1227,18 +1227,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         /* the off hand's upper button is B, unless Menu is held on the other
          * hand: left-handed, that is the microphone chord's B */
         if (get_button_state(0, "y") && !(VrLeftHandedMode && s_menuHeld)) npad->button |= B_BUTTON;
-        // Issue #10: in stereo play the weapon hand's A is held back. A tap sends
-        // A on release (the game's weapon cycle); a hold shows the weapon panel
-        // (bondview2.c gevrDrawWeaponPanel) and letting go equips what it
-        // highlights. Issue #56: the other hand's X does the same for the left
-        // hand's panel (a gun for the left hand alone), while the left hand can
-        // take one (bondview2.c gevrLeftPanelAvailable); otherwise X symmetrically
-        // cycles the primary weapon. Issue #63: a tap of A with the right grip held
-        // goes to the previous weapon, as GoldenEye's own hold A and pull Z (bondview2.c
-        // weaponBackOffset). Holding left grip while tapping X similarly cycles
-        // backward (the left weapon when dual wielding, or primary weapon otherwise).
+        // Logical dominant/off-hand buttons cycle only that hand. Grip reverses;
+        // holding opens that hand's selector. get_button_state handles handedness.
         {
-            static u32 adown = 0, apulse = 0, xdown = 0, xpulse = 0;
+            static u32 adown = 0, xdown = 0;
             static bool apanel = false, aspoilt = false, xpanel = false, xspoilt = false;
             static bool aback = false, xback = false;
             const u32 t = SDL_GetTicks();
@@ -1272,9 +1264,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         gevrWeaponPanelRelease = 1;
                         gevrWeaponPanelOpen = 0;
                     } else if (!aspoilt) {
-                        apulse = t + 100;
                         if (get_button_state(1, "grip")) aback = true;
-                        if (aback) LOGI("input: grip + A -> previous weapon\n");
+                        gevrCycleHandWeapon(0, aback ? -1 : 1);
                     }
                     adown = 0;
                 }
@@ -1293,20 +1284,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         gevrWeaponPanelOpen = 0;
                     } else if (!xspoilt) {
                         if (get_button_state(0, "grip")) xback = true;
-                        if (gevrLeftPanelAvailable()) {
-                            gevrCycleLeftWeapon(xback ? -1 : 1);
-                            if (xback) LOGI("input: grip + X -> previous left weapon\n");
-                            else LOGI("input: tap X -> next left weapon\n");
-                        } else {
-                            xpulse = t + 100;
-                            if (xback) LOGI("input: grip + X -> previous weapon\n");
-                            else LOGI("input: tap X -> next weapon\n");
-                        }
+                        gevrCycleHandWeapon(1, xback ? -1 : 1);
                     }
                     xdown = 0;
                 }
-                if (t < apulse || t < xpulse) npad->button |= A_BUTTON;
-                if ((t < apulse && aback) || (t < xpulse && xback)) npad->button |= Z_TRIG;
             } else {
                 adown = xdown = 0;
                 gevrWeaponPanelOpen = 0;

@@ -2,19 +2,42 @@
 #ifndef GEVR_NET_GAME_H
 #define GEVR_NET_GAME_H
 #include "net_match.h"
+#include "net_rules.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
 enum { CFG_STAGE, CFG_SCENARIO, CFG_WEAPON_SET, CFG_GAME_LENGTH, CFG_HEALTH,
        CFG_DUAL_WIELD, CFG_LOADOUTS, CFG_NEXT_ROUND, CFG_CUSTOM0, CFG_CUSTOM1,
-       CFG_CUSTOM2, CFG_CUSTOM3 };
+       CFG_CUSTOM2, CFG_CUSTOM3, CFG_VOICE_MODE, CFG_FRIENDLY_FIRE, CFG_FUN_FLAGS, CFG_GUN_SIZE };
 int gevrNetConfigGet(int field);
 void gevrNetConfigSet(int field, int value);
 int gevrNetSlotChr(int slot);
+int netGetSlotTeam(int slot);
+int netGetSlotPing(int slot);
+/* Local host policy. Cap is clamped to 0..80 ms. */
+void netSetHostEqualization(int enabled, unsigned cap_ms);
+int netGetHostEqualization(unsigned *cap_ms);
+unsigned netGetSlotHostDelayMs(int slot);
+void netHostEqualizationText(char *text, unsigned size);
+void netBeginLocalShot(void);
+void netEndLocalShot(void);
+int netVoiceSlotSpectating(int slot);
+int netTeamRosterReady(void);
+void netLobbySetTeam(unsigned char team);
+int netTeamScore(int team);
+int netDamageAllowed(int attacker, int target);
+void gevrVoiceListenerBasis(float forward[3], float up[3]);
 int gevrNetSlotLoadout(int slot, int k);
 unsigned char gevrNetItemAt(int idx);
 int netStageEligible(int idx);
 int netActiveDualWield(void);
+int netActiveFunFlags(void);
+int netActiveLineMode(void);
+int netActiveGunSize(void);
+int netLobbyCanLaunch(void);
+int netRoundRosterReady(void);
+int netLocalReady(void);
+void gevrNetSetReady(int ready);
 int netRemoteWeapon(int slot, int hand);
 int netRemoteTrigger(int slot, int hand);
 int netActiveLoadoutItem(int slot, int k);

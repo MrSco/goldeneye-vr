@@ -10,6 +10,7 @@
 #ifdef GEVR
 #include "system.h"
 #include "player.h"
+#include "gevr_collision.h"
 
 /*
  * Online, a player standing inside another player's collision cylinder is
@@ -23,6 +24,16 @@
 extern bool netIsActive(void);
 extern bool netSlotOccupied(int slot);
 extern void chrpropGetCollisionBounds(PropRecord *prop, f32 *collision_radius, f32 *height, f32 *arg3);
+
+/* A closing or late-arriving door can overlap the local player. Allow
+ * moves that reduce that existing overlap while retaining entry collision. */
+static s32 gevrNetInsideDoorProp(PropRecord *prop, rect4f *polygon, s32 edges, f32 x, f32 z) {
+    extern int netGetLocalSlot(void);
+    if (!netIsActive() || get_cur_playernum() != netGetLocalSlot() ||
+        prop->type != PROP_TYPE_DOOR || !g_CurrentPlayer || !g_CurrentPlayer->prop) return 0;
+    return gevrDoorEscape((const float *)polygon, edges, g_CurrentPlayer->field_488.collision_radius,
+        g_CurrentPlayer->field_488.collision_position.x, g_CurrentPlayer->field_488.collision_position.z, x, z);
+}
 
 /*
  * Two players already closer than the sum of their radii (60 units for two
@@ -1780,7 +1791,8 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &spA4, &spA0);
 
 #ifdef GEVR
-                if (gevrNetInsidePlayerProp(prop, dest_x, dest_z, "line"))
+                if (gevrNetInsidePlayerProp(prop, dest_x, dest_z, "line") ||
+                    gevrNetInsideDoorProp(prop, polygon, numvertices0, dest_x, dest_z))
                 {
                     continue;
                 }
@@ -2126,7 +2138,8 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
             {
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &sp94, &sp90);
 #ifdef GEVR
-                if (gevrNetInsidePlayerProp(prop, arg1, arg2, "volume"))
+                if (gevrNetInsidePlayerProp(prop, arg1, arg2, "volume") ||
+                    gevrNetInsideDoorProp(prop, polygon, numvertices0, arg1, arg2))
                 {
                     continue;
                 }
