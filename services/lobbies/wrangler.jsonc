@@ -6,7 +6,7 @@
   "assets": { "directory": "./public" },
   "workers_dev": false,
   "send_email": [{ "name": "EMAIL" }],
-  "vars": { "REPORT_TO": "info@goldeneyevr.com" },
+  "vars": { "REPORT_TO": "info@goldeneyevr.com", "TURN_MONTHLY_CAP": "4000" },
   "observability": { "enabled": true, "traces": { "enabled": true } },
   "durable_objects": {
     "bindings": [{ "name": "REGISTRY", "class_name": "LobbyRegistry" }]
