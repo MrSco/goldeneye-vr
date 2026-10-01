@@ -7,8 +7,12 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-10-01. **Latest release:** v0.3.6 (tag v0.3.6, commit
-081a1ae, versionCode 45, protocol 10): the 2026-09-30 playtest branch (below)
+**Updated:** 2026-10-01. **Latest release:** v0.3.7 (tag v0.3.7, commit
+e17928b, versionCode 47, protocol 15, SHA-256 bc123d08...): the merged
+playtest branch (PR #82: Steam Audio voice, teams, clock sync and life IDs,
+independent hand cycling, launcher tabs), the TURN fallback, and today's
+fixes (#73, #32, #24, #64, #81, shots from the eye's depth). Before it,
+v0.3.6 (tag v0.3.6, commit 081a1ae, versionCode 45, protocol 10): the 2026-09-30 playtest branch (below)
 plus everything unreleased since v0.3.5 (launcher haptics screen #64,
 motion-throw gaze assist, voice falloff by view, SFX volume and mic mute,
 stereo without the walk sway and bob). v0.3.5 (versionCode 32): sniper scope
