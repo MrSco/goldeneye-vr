@@ -121,7 +121,13 @@ void sysInit(void)
     }
 
 #ifdef VERSION_HASH
-    sysLogPrintf(LOG_NOTE, "version: " VERSION_BRANCH " " VERSION_HASH " (" VERSION_TARGET ")");
+    {
+        // The per-build id (port/cmake/buildid.cmake), not the configure-time
+        // VERSION_BRANCH/VERSION_HASH: those are cached with the build directory
+        // and a v0.3.7 release once logged the feature branch it was configured on.
+        extern const char gevrBuildId[], gevrBuildBranch[];
+        sysLogPrintf(LOG_NOTE, "version: %s %s (" VERSION_TARGET ")", gevrBuildBranch, gevrBuildId);
+    }
 #endif
 
     char timestr[256];

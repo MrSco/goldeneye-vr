@@ -6,6 +6,7 @@
 find_package(Git QUIET)
 set(HASH "nogit")
 set(DIRTY "")
+set(BRANCH "")
 if(GIT_FOUND)
   execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --short HEAD
                   WORKING_DIRECTORY "${SRC_DIR}" OUTPUT_VARIABLE HASH
@@ -13,6 +14,11 @@ if(GIT_FOUND)
   if(NOT rc EQUAL 0)
     set(HASH "nogit")
   endif()
+  # The branch too, per build: CMakeLists.txt's VERSION_BRANCH is fixed at
+  # configure time, which is how a v0.3.7 release logged a feature branch.
+  execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse --abbrev-ref HEAD
+                  WORKING_DIRECTORY "${SRC_DIR}" OUTPUT_VARIABLE BRANCH
+                  OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
   execute_process(COMMAND "${GIT_EXECUTABLE}" status --porcelain --untracked-files=no
                   WORKING_DIRECTORY "${SRC_DIR}" OUTPUT_VARIABLE st
                   OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
@@ -20,6 +26,9 @@ if(GIT_FOUND)
     set(DIRTY "+")
   endif()
 endif()
+if(BRANCH STREQUAL "" OR BRANCH STREQUAL "HEAD")
+  set(BRANCH "main")
+endif()
 string(TIMESTAMP WHEN "%Y-%m-%d %H:%M")
-file(WRITE "${OUT}.tmp" "const char gevrBuildId[] = \"${HASH}${DIRTY}  built ${WHEN}\";\n")
+file(WRITE "${OUT}.tmp" "const char gevrBuildId[] = \"${HASH}${DIRTY}  built ${WHEN}\";\nconst char gevrBuildBranch[] = \"${BRANCH}\";\n")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${OUT}.tmp" "${OUT}")
