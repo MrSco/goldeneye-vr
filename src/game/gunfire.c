@@ -6028,6 +6028,7 @@ void gunSetTracerTarget(coord3d* pos)
      * down its own barrel, so the other gun's tracer bent toward this shot's
      * hit. Only the hand that fired takes it.
      */
+    sysLogPrintf(LOG_NOTE, "shot:  tracer target p%d hand %d at %.0f %.0f %.0f", get_cur_playernum(), g_gevrShotHand, pos->x, pos->y, pos->z);
     if (g_gevrStereo && (g_gevrShotHand == GUNRIGHT || g_gevrShotHand == GUNLEFT))
     {
         g_CurrentPlayer->hands[g_gevrShotHand].item_related.x = pos->x;
