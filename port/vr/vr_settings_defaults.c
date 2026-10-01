@@ -30,6 +30,7 @@ bool vr_grip_for_unarmed  = false;  /* the grip button still does something with
 
 int  VrHideArms           = 0;      /* draw no arm models */
 int  VrStickClickToCrouch = 0;      /* crouch on stick click instead of physically ducking */
+int  VrAimNoLean          = 0;      /* aiming keeps the move stick moving: no lean, no duck (issue #81) */
 int  VrMicMuted           = 0;      /* persist multiplayer microphone mute */
 float VrMusicVolume       = 1.0f;   /* music volume (0..1) */
 float VrVoiceVolume       = 1.0f;   /* multiplayer voice chat volume (0..1) */
