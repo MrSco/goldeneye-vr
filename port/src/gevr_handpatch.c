@@ -48,6 +48,38 @@ static const struct gevrHpModel *hpFind(const char *name)
 	return NULL;
 }
 
+/*
+ * Faces dropped from a model (issue #24): GfistZ has one triangle textured
+ * with the white 1x1 0x5ea glued back to back with a skin one on the same
+ * three vertices. The N64 culled it from its one viewpoint. In stereo the
+ * hands draw with culling off (VR_CULL_OFF, #9) and a face the list would
+ * cull is pushed a hair back, which hides the white side from the fist's
+ * modelled side; but from the other side - the way the mirrored left fist
+ * faces the player - the white face is the front one, and it won. It is a
+ * modelling leftover with no job on either side, so the converter drops it.
+ */
+static const struct {
+	const char *name;
+	u32 tex;
+} s_hpDrop[] = {
+	{ "GfistZ", 0x5ea },
+};
+
+s32 gevrHandPatchDropsTexture(const char *name, u32 texnum)
+{
+	s32 i;
+
+	if (name == NULL) {
+		return FALSE;
+	}
+	for (i = 0; i < (s32)(sizeof(s_hpDrop) / sizeof(s_hpDrop[0])); i++) {
+		if (s_hpDrop[i].tex == texnum && strcasecmp(s_hpDrop[i].name, name) == 0) {
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 s32 gevrHandPatchWants(const char *name)
 {
 	s_noted = hpFind(name);

@@ -63,6 +63,7 @@ extern bool VrMatchCharacterHeight;
 extern float VrUseSnapTurn;
 extern bool VrTwoHandAim;       // two-handed weapons aim along the line between both controllers
 extern int VrStickClickToCrouch;
+extern int VrAimNoLean;         // aiming keeps the move stick moving: no lean, no duck (issue #81)
 extern int VrLeftHandedMode;
 extern int VrSwapJoysticks;
 extern int VrAimSteady;         // gun-hand steadying: 0 off, 1 low, 2 high (issue #7)

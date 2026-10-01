@@ -28,8 +28,6 @@ typedef struct ModelGroupMtxBuildArg {
 
 // forward declarations
 void modelSetAnimFrame2WithChrStuff(struct Model *model, f32 framea, f32 frameb, f32 frame2a, f32 frame2b);
-typedef s32 (*GevrModelGroundFn)(Model *model, coord3d *src, coord3d *dst, f32 *ground);
-static GevrModelGroundFn gevrModelGroundFn(Model *model);
 
 
 
@@ -1107,18 +1105,22 @@ void sub_GAME_7F06D490(Model *model, ModelNode *modelNode)
     sp2c.y = sp38.y;
     sp2c.z = sp38.z;
 
-    if (model->unka0)
+    /*
+     * As gepc-ref D92: unka0 is a 32-bit Model field that on the N64 held a
+     * function pointer, always sub_GAME_7F01FC10 (the only value chr.c ever
+     * hands the setter). It stays an s32 so Model keeps the size the slot pool
+     * was built for; the setter stores a flag and the one call is made here.
+     * (Issue #73: a side table keyed by Model* stood in for the pointer, with
+     * 256 entries and nothing ever removing one. Models come from each
+     * stage's pool and from fresh allocations once the slots run out, so a
+     * session of several missions filled it; the characters registered after
+     * that got no callback, so no floor height, no wall or door collision:
+     * guards above the ceiling, Alec on the bottling tanks, Natalya through
+     * her cell bars.)
+     */
+    if (model->unka0 && !sub_GAME_7F01FC10(model, &rw->Header.pos, &sp2c, &rw->Header.ground))
     {
-        /*
-         * unka0 is still an s32 so Model stays the size the slot pool was
-         * built for. The real callback lives in the side table; the field
-         * only records that one was registered.
-         */
-        s32 (*groundfn)(Model *, coord3d *, coord3d *, f32 *) = gevrModelGroundFn(model);
-        if (groundfn != NULL && !groundfn(model, &rw->Header.pos, &sp2c, &rw->Header.ground))
-        {
-            return;
-        }
+        return;
     }
 
     sp38.x = sp2c.x - sp38.x;
@@ -2878,59 +2880,16 @@ void modelSetAnimPlaySpeed(Model *model, f32 animation_rate, f32 startframe) {
 
 
 /*
- * Guard ground callbacks are function pointers. unka0 is an s32 in Model.
- * Model slots used to be allocated at sizeof(ModelSlot), smaller than Model,
- * so widening unka0 to a pointer grew the struct and the last slot wrote into
- * the next stage-pool block (the tank record). ModelSlot is now a whole Model
- * (D53.2, objecthandler.h), but the pointer still lives here and the field
- * still holds only a nonzero flag, so Model keeps its size.
+ * The guard ground callback. unka0 is an s32 in Model: Model slots used to be
+ * allocated at sizeof(ModelSlot), smaller than Model, so widening unka0 to a
+ * pointer grew the struct and the last slot wrote into the next stage-pool
+ * block (the tank record). ModelSlot is now a whole Model (D53.2,
+ * objecthandler.h), but the field still holds only a nonzero flag, so Model
+ * keeps its size. The one callback is called by name in modelUpdateInfo
+ * above (gepc-ref D92; issue #73 for the side table this replaced).
  */
-#define GEVR_MODEL_GROUND_FN_MAX 256
-static struct {
-    Model *model;
-    s32 (*fn)(Model *model, coord3d *src, coord3d *dst, f32 *ground);
-} gevrModelGroundFns[GEVR_MODEL_GROUND_FN_MAX];
-
-static GevrModelGroundFn gevrModelGroundFn(Model *model)
-{
-    s32 i;
-    for (i = 0; i < GEVR_MODEL_GROUND_FN_MAX; i++)
-    {
-        if (gevrModelGroundFns[i].model == model)
-        {
-            return gevrModelGroundFns[i].fn;
-        }
-    }
-    return NULL;
-}
-
 void sub_GAME_7F06FF5C(Model *model, s32 (*groundfn)(Model *model, coord3d *src, coord3d *dst, f32 *ground)) {
-    s32 i;
-    s32 freeSlot = -1;
-
-    for (i = 0; i < GEVR_MODEL_GROUND_FN_MAX; i++)
-    {
-        if (gevrModelGroundFns[i].model == model)
-        {
-            gevrModelGroundFns[i].fn = groundfn;
-            model->unka0 = groundfn != NULL;
-            return;
-        }
-        if (freeSlot < 0 && gevrModelGroundFns[i].model == NULL)
-        {
-            freeSlot = i;
-        }
-    }
-
-    if (freeSlot >= 0)
-    {
-        gevrModelGroundFns[freeSlot].model = model;
-        gevrModelGroundFns[freeSlot].fn = groundfn;
-        model->unka0 = groundfn != NULL;
-        return;
-    }
-
-    model->unka0 = 0;
+    model->unka0 = groundfn != NULL;
 }
 
 
