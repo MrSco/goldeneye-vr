@@ -3295,6 +3295,61 @@ s32 gevrStereoShotWorld(s32 handnum, struct coord3d *origin, struct coord3d *dir
     return TRUE;
 }
 
+/*
+ * The shot itself starts at the eye's depth along the barrel's line, not at
+ * the muzzle: on the N64 every shot left the camera, so a gun poked through
+ * a door hit the door from this side. From the muzzle (beyond the door) the
+ * shot missed the door and hit the far wall (user, 2026-10-01: "2d mode
+ * doesn't allow that"). Same line, so the aim is unchanged; the scope, the
+ * sight and the muzzle flash keep the muzzle (gevrStereoShot). View space:
+ * the eye is the origin, so the point is the ray's foot of the eye's plane.
+ */
+static void gevrShotFromEye(struct coord3d *origin, const struct coord3d *dir)
+{
+    f32 t = origin->x * dir->x + origin->y * dir->y + origin->z * dir->z;
+
+    if (t > 0.0f)
+    {
+        origin->x -= dir->x * t;
+        origin->y -= dir->y * t;
+        origin->z -= dir->z * t;
+    }
+}
+
+s32 gevrStereoShotFromEye(s32 handnum, coord2d *spreadpos, struct coord3d *origin, struct coord3d *dir)
+{
+    if (!gevrStereoShot(handnum, spreadpos, origin, dir))
+    {
+        return FALSE;
+    }
+    /* a copy's shot (gevrRemoteCopyShot) already comes from its owner's rule */
+    if (!(netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        && !(s_gevrCopyTrace && handnum >= 0 && handnum <= 1 && s_gevrPassAimValid[handnum]))
+    {
+        gevrShotFromEye(origin, dir);
+    }
+    return TRUE;
+}
+
+s32 gevrStereoShotWorldFromEye(s32 handnum, struct coord3d *origin, struct coord3d *dir)
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+
+    if (v2w == NULL || !gevrStereoShotFromEye(handnum, NULL, origin, dir))
+    {
+        return FALSE;
+    }
+    if (g_gevrStereo && D_800364CC > 1e-6f)
+    {
+        origin->x /= D_800364CC;
+        origin->y /= D_800364CC;
+        origin->z /= D_800364CC;
+    }
+    mtx4TransformVecInPlace(v2w, origin);
+    mtx4RotateVecInPlace(v2w, dir);
+    return TRUE;
+}
+
 s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, struct coord3d *dir)
 {
     f32 pos[3], right[3], up[3], back[3];
