@@ -20,6 +20,8 @@
 #include "gfx_rendering_api.h"
 #include "gfx_pc.h"
 #include "../vr/vr_log.h"
+#include "../src/net/net_game.h"
+#include "gevr_line_geometry.h"
 #ifdef ANDROID
 #include <android/log.h>
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
@@ -437,8 +439,39 @@ static void gevr_pm_next_segment(void)
 }
 #include <time.h>
 static bool s_uniCacheValid;
+
+// Captures own drawing state, including nested captures on another quad.
+struct HudCaptureState {
+    GLint viewport[4], scissor[4];
+    GLboolean scissorEnabled;
+    bool hudSize, menu, forceFlat, flat;
+};
+static HudCaptureState s_captureStates[4];
+static void gevr_capture_state_save(unsigned target) {
+    HudCaptureState &state = s_captureStates[target];
+    glGetIntegerv(GL_VIEWPORT, state.viewport);
+    glGetIntegerv(GL_SCISSOR_BOX, state.scissor);
+    state.scissorEnabled = glIsEnabled(GL_SCISSOR_TEST);
+    state.hudSize = VrIsTitleLegal;
+    state.menu = vr_dl_is_pause_or_menu;
+    state.forceFlat = gForceFlatShaderForMenu;
+    state.flat = gVrFlatPass;
+    s_uniCacheValid = false;
+}
+static void gevr_capture_state_restore(unsigned target) {
+    const HudCaptureState &state = s_captureStates[target];
+    glViewport(state.viewport[0],state.viewport[1],state.viewport[2],state.viewport[3]);
+    glScissor(state.scissor[0],state.scissor[1],state.scissor[2],state.scissor[3]);
+    if (state.scissorEnabled) glEnable(GL_SCISSOR_TEST); else glDisable(GL_SCISSOR_TEST);
+    VrIsTitleLegal = state.hudSize;
+    vr_dl_is_pause_or_menu = state.menu;
+    gForceFlatShaderForMenu = state.forceFlat;
+    gVrFlatPass = state.flat;
+    s_uniCacheValid = false;
+}
+
 static float s_uniEye[8], s_uniBias;
-static int s_uniFlat, s_uniMenu;
+static int s_uniFlat, s_uniMenu, s_uniHudSize;
 
 /*
  * Issue #40: the state the fast3d frontend last set, so the sniper scope's pass
@@ -452,8 +485,8 @@ static bool s_alphaArgs[2];
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
 static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
-static void gevr_eye_keep(GLint first, GLsizei count);
-static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ);
+static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode);
+static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool lineMode);
 static void gevr_opaque_depth_after_blend(GLint first, GLsizei count);
 
 static std::vector<Framebuffer> framebuffers;
@@ -773,7 +806,17 @@ static void gfx_opengl_unload_shader(struct ShaderProgram* old_prg) {
  * a program is loaded, so the current program's copy is written here too. */
 void gfx_opengl_vr_hud_full_size(bool full)
 {
-    VrIsTitleLegal = !full;
+    // Nested size scopes restore their caller's choice rather than forcing
+    // the ordinary HUD size when an inner timer ends.
+    static bool previous[16];
+    static unsigned depth;
+    if (full) {
+        if (depth < 16) previous[depth++] = VrIsTitleLegal;
+        VrIsTitleLegal = false;
+    } else {
+        VrIsTitleLegal = depth ? previous[--depth] : true;
+    }
+    s_uniCacheValid = false;
     if (s_curPrg != NULL && s_curPrg->IsTitleLegal >= 0) {
         glUniform1i(s_curPrg->IsTitleLegal, VrIsTitleLegal ? 1 : 0);
     }
@@ -1724,6 +1767,7 @@ struct GevrScopeDraw {
     struct ShaderProgram* prg;
     GLint first;
     GLsizei count;
+    bool lineMode;
     GLuint tex[2];
     bool linear[2];
     bool depth[4];
@@ -1807,6 +1851,7 @@ static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_le
     d.prg = s_curPrg;
     d.first = first;
     d.count = (GLsizei)(3 * buf_vbo_num_tris);
+    d.lineMode = netActiveLineMode() != 0;
     for (int t = 0; t < 2; t++) {
         d.tex[t] = s_boundTex[t];
         d.linear[t] = current_textures_linear_filter[t];
@@ -1947,8 +1992,7 @@ void gfx_vr_scope_render(void)
         if (last == NULL || d.alpha[0] != last->alpha[0] || d.alpha[1] != last->alpha[1]) {
             gfx_opengl_set_use_alpha(d.alpha[0], d.alpha[1]);
         }
-        glDrawArrays(GL_TRIANGLES, d.first, d.count);
-        gevr_opaque_depth_after_blend(d.first, d.count);
+        gevr_issue_draw(d.first, d.count, false, d.lineMode);
         last = &d;
     }
 
@@ -2054,6 +2098,8 @@ GLuint gfx_vr_scope_texture(void)
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
 
+    const bool lineMode = netActiveLineMode() && !gForceFlatShaderForMenu && !gVrFlatPass &&
+        !vr_dl_is_pause_or_menu && buf_vbo[3] != 1.0f;
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);   /* the menu overlay and hub setups leave theirs bound */
     GLint first = 0;
     if (s_pmPtr != NULL) {
@@ -2081,7 +2127,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         }
     }
     if (s_eyeRec) {
-        gevr_eye_keep(first, (GLsizei)(3 * buf_vbo_num_tris));   // issue #53
+        gevr_eye_keep(first, (GLsizei)(3 * buf_vbo_num_tris), lineMode);   // issue #53
     }
 
 
@@ -2109,6 +2155,11 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         // GoldenEye: the stereo watch capture turns the menu flag on and off
         // between draws of the same program (bondview2.c bondviewRenderWatch).
         const int isMenu = vr_dl_is_pause_or_menu ? 1 : 0;
+        const int hudSize = VrIsTitleLegal ? 1 : 0;
+        if (!s_uniCacheValid || hudSize != s_uniHudSize) {
+            if (s_curPrg && s_curPrg->IsTitleLegal >= 0) glUniform1i(s_curPrg->IsTitleLegal, hudSize);
+            s_uniHudSize = hudSize;
+        }
         if (!s_uniCacheValid || memcmp(eye, s_uniEye, sizeof(eye)) != 0) {
             if (gCurEyeOffsetLeftLoc  >= 0) glUniform4f(gCurEyeOffsetLeftLoc,  eye[0], eye[1], eye[2], eye[3]);
             if (gCurEyeOffsetRightLoc >= 0) glUniform4f(gCurEyeOffsetRightLoc, eye[4], eye[5], eye[6], eye[7]);
@@ -2133,12 +2184,44 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     }
     s_uniCacheValid = use_multiview;   /* without multiview the eye uniforms are never cached */
 
-    gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ);
+    gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ, lineMode);
 }
 
 /* the draw itself, with the decal band (the eye pass, and its redraw: issue #53) */
-static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ)
+/* Only the optional online Line mode enters this path. Depth-filled faces
+ * hide rear edges while the visible color is restricted to triangle edges.
+ * Save the VAO's element binding and polygon offset so HUD draws remain filled. */
+static void gevr_draw_world_lines(GLint first, GLsizei count) {
+    static GLuint edges = 0;
+    static std::vector<uint32_t> indices;
+    if (!edges) glGenBuffers(1, &edges);
+    indices.resize((size_t)count * 2);
+    gevrTriangleEdgeIndices((uint32_t)first, (uint32_t)count, indices.data());
+    GLint oldElements=0;
+    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING,&oldElements);
+    if (current_depth_mask || s_opaqueDepthWrite) {
+        GLfloat factor, units;
+        GLboolean offset = glIsEnabled(GL_POLYGON_OFFSET_FILL);
+        glGetFloatv(GL_POLYGON_OFFSET_FACTOR,&factor);glGetFloatv(GL_POLYGON_OFFSET_UNITS,&units);
+        glEnable(GL_POLYGON_OFFSET_FILL);glPolygonOffset(1,1);
+        glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);glDepthMask(GL_TRUE);
+        if (s_opaqueDepthWrite && s_curPrg && s_curPrg->opaque_depth_pass_location>=0)
+            glUniform1i(s_curPrg->opaque_depth_pass_location,1);
+        glDrawArrays(GL_TRIANGLES,first,count);
+        if (s_opaqueDepthWrite && s_curPrg && s_curPrg->opaque_depth_pass_location>=0)
+            glUniform1i(s_curPrg->opaque_depth_pass_location,0);
+        glDepthMask(current_depth_mask ? GL_TRUE : GL_FALSE);glColorMask(GL_TRUE,GL_TRUE,GL_TRUE,GL_TRUE);
+        glPolygonOffset(factor,units);if (!offset) glDisable(GL_POLYGON_OFFSET_FILL);
+    }
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,edges);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER,indices.size()*sizeof(uint32_t),indices.data(),GL_STREAM_DRAW);
+    glDrawElements(GL_LINES,count*2,GL_UNSIGNED_INT,nullptr);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,(GLuint)oldElements);
+}
+
+static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool lineMode)
 {
+    if (lineMode) { gevr_draw_world_lines(first,count); return; }
     if (decalZ) {
         /*
          * GoldenEye: the RDP's decal Z mode draws a pixel only where it lies
@@ -2241,6 +2324,7 @@ struct GevrEyeDraw {
     struct ShaderProgram* prg;
     GLint first;
     GLsizei count;
+    bool lineMode;
     GLuint tex[2];
     bool linear[2];
     bool depth[4];
@@ -2290,7 +2374,7 @@ bool gfx_vr_eye_replay_ready(void)
     return s_eyeReady;
 }
 
-static void gevr_eye_keep(GLint first, GLsizei count)
+static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
 {
     // not the HUD captures, which draw into their own targets
     if (s_curPrg == NULL || gForceFlatShaderForMenu || gVrFlatPass) {
@@ -2300,6 +2384,7 @@ static void gevr_eye_keep(GLint first, GLsizei count)
     d.prg = s_curPrg;
     d.first = first;
     d.count = count;
+    d.lineMode = lineMode;
     for (int t = 0; t < 2; t++) {
         d.tex[t] = s_boundTex[t];
         d.linear[t] = current_textures_linear_filter[t];
@@ -2316,16 +2401,11 @@ static void gevr_eye_keep(GLint first, GLsizei count)
     s_eyeDraws.push_back(d);
 }
 
-/*
- * A HUD capture's end puts the eye pass's viewport back, and the scissor to
- * that same box, with glViewport/glScissor directly. The eye pass's draws
- * after it use that box until fast3d next sets one, so the redraw records it
- * too: it kept fast3d's last scissor, a room's or the capture's own.
- */
-static void gevr_eye_capture_restored(const GLint vp[4])
+/* Keep the redraw's cached drawing boxes identical to the restored GL state. */
+static void gevr_eye_capture_restored(const GLint vp[4], const GLint scissor[4])
 {
     memcpy(s_curViewport, vp, sizeof(s_curViewport));
-    memcpy(s_curScissor, vp, sizeof(s_curScissor));
+    memcpy(s_curScissor, scissor, sizeof(s_curScissor));
 }
 
 /* projection x a move in the game frame's camera space */
@@ -2444,7 +2524,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         if (last == NULL || memcmp(d.scissor, last->scissor, sizeof(d.scissor)) != 0) {
             glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
         }
-        gevr_issue_draw(d.first, d.count, d.decalZ);
+        gevr_issue_draw(d.first, d.count, d.decalZ, d.lineMode);
         last = &d;
     }
 
@@ -3009,6 +3089,7 @@ void gfx_vr_hud_capture_begin_L(void)
     if (gVrMenuLCaptureDepth++ > 0) {
         return;
     }
+    gevr_capture_state_save(0);
     gfx_opengl_menu_capture_push();
 
     glGetIntegerv(GL_VIEWPORT, gVrMenuPrevViewport);
@@ -3079,7 +3160,8 @@ void gfx_vr_hud_capture_end_L(void)
             gVrMenuPrevViewport[1],
             gVrMenuPrevViewport[2],
             gVrMenuPrevViewport[3]);
-    gevr_eye_capture_restored(gVrMenuPrevViewport);   // issue #53
+    gevr_eye_capture_restored(gVrMenuPrevViewport, s_captureStates[0].scissor);   // issue #53
+    gevr_capture_state_restore(0);
 }
 
 GLuint gfx_opengl_get_vr_menu_texture(void) {
@@ -3114,6 +3196,7 @@ void gfx_vr_hud_capture_begin_R(void)
 {
     gfx_flush();
     gfx_opengl_vr_menu_R_fb_init();
+    gevr_capture_state_save(1);
     gfx_opengl_menu_capture_push();
 
     glGetIntegerv(GL_VIEWPORT, gVrMenuRPrevViewport);
@@ -3232,9 +3315,10 @@ void gfx_vr_hud_capture_end_R(void)
                gVrMenuRPrevViewport[2], gVrMenuRPrevViewport[3]);
     glScissor (gVrMenuRPrevViewport[0], gVrMenuRPrevViewport[1],
                gVrMenuRPrevViewport[2], gVrMenuRPrevViewport[3]);
-    gevr_eye_capture_restored(gVrMenuRPrevViewport);   // issue #53
+    gevr_eye_capture_restored(gVrMenuRPrevViewport, s_captureStates[1].scissor);   // issue #53
 
 
+    gevr_capture_state_restore(1);
 }
 
 GLuint gfx_opengl_get_vr_menu_texture_R(void)
@@ -3277,9 +3361,13 @@ void gfx_vr_hud_capture_begin_H(void)
     if (gVrMenuHCaptureDepth++ > 0) {
         return;
     }
+    gevr_capture_state_save(2);
     gfx_opengl_menu_capture_push();
 
     glGetIntegerv(GL_VIEWPORT, gVrMenuHPrevViewport);
+    // Every independent capture starts with the same ordinary HUD transform.
+    VrIsTitleLegal = true;
+    s_uniCacheValid = false;
     gVrMenuHFbPrevious = (int)current_framebuffer;
 
     gfx_opengl_start_draw_to_framebuffer(gVrMenuHFb, 0.0f);
@@ -3339,7 +3427,8 @@ void gfx_vr_hud_capture_end_H(void)
             gVrMenuHPrevViewport[1],
             gVrMenuHPrevViewport[2],
             gVrMenuHPrevViewport[3]);
-    gevr_eye_capture_restored(gVrMenuHPrevViewport);   // issue #53
+    gevr_eye_capture_restored(gVrMenuHPrevViewport, s_captureStates[2].scissor);   // issue #53
+    gevr_capture_state_restore(2);
 }
 
 bool gfx_vr_menu_H_dirty_and_clear(void) {
@@ -3388,6 +3477,7 @@ void gfx_vr_hud_capture_begin_P(void)
     if (gVrMenuPCaptureDepth++ > 0) {
         return;
     }
+    gevr_capture_state_save(3);
     gfx_opengl_menu_capture_push();
 
     glGetIntegerv(GL_VIEWPORT, gVrMenuPPrevViewport);
@@ -3436,7 +3526,8 @@ void gfx_vr_hud_capture_end_P(void)
 
     glViewport(gVrMenuPPrevViewport[0], gVrMenuPPrevViewport[1], gVrMenuPPrevViewport[2], gVrMenuPPrevViewport[3]);
     glScissor(gVrMenuPPrevViewport[0], gVrMenuPPrevViewport[1], gVrMenuPPrevViewport[2], gVrMenuPPrevViewport[3]);
-    gevr_eye_capture_restored(gVrMenuPPrevViewport);   // issue #53
+    gevr_eye_capture_restored(gVrMenuPPrevViewport, s_captureStates[3].scissor);   // issue #53
+    gevr_capture_state_restore(3);
 }
 
 bool gfx_vr_menu_P_dirty_and_clear(void) {

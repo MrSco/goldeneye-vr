@@ -220,7 +220,7 @@ endif()
 
 # Source files
 file(GLOB_RECURSE SRC_PORT "${CMAKE_SOURCE_DIR}/port/*.c")
-list(FILTER SRC_PORT EXCLUDE REGEX "port/external/.*")
+list(FILTER SRC_PORT EXCLUDE REGEX "port/(external|tests)/.*")
 # Exclude PD-specific files not used by GoldenEye
 list(FILTER SRC_PORT EXCLUDE REGEX ".*(preprocess|pdmain|pdsched|communityart|mpsetups|optionsmenu).*")
 # Perfect Dark's ROM asset pipeline (romdata.c) and mod loader (mod.c) are written
@@ -230,7 +230,7 @@ list(FILTER SRC_PORT EXCLUDE REGEX ".*(preprocess|pdmain|pdsched|communityart|mp
 list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
 # port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25; port/vr/vr_haptics.cpp 2026-09-29 (touching this line makes the glob re-run)
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
-list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/external/.*")
+list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
 
 # Exclude standalone Windows probe cpp files from port
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX ".*xr_probe\\.cpp$")
@@ -297,8 +297,10 @@ set(SRC_NET
   "${CMAKE_SOURCE_DIR}/port/external/enet.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_core.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_objects.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_match.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_voice.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_spatial.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_discovery.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_player_sync.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_ice.cpp"
@@ -347,7 +349,11 @@ if(ANDROID)
   add_dependencies(gevr gevr_buildid)
   target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
   target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
-  target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus)
+  add_library(steamaudio SHARED IMPORTED)
+  set_target_properties(steamaudio PROPERTIES IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/port/external/steamaudio/lib/android-armv8/libphonon.so")
+  target_include_directories(gevr PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
+  target_compile_definitions(gevr PRIVATE GEVR_STEAMAUDIO=1)
+  target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio)
   target_link_options(gevr PRIVATE -Wl,--error-limit=0)
 
   # Also build pd alias so that any legacy loader references succeed

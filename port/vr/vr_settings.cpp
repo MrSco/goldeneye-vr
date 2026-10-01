@@ -82,6 +82,10 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility);
     fprintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
             VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
+    fprintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
+    fprintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
+    fprintf(f, "HostEqualization=%d\nHostLatencyCapMs=%d\n", VrHostEqualization, VrHostLatencyCapMs);
+    fprintf(f, "MpFunFlags=%d\nMpGunSize=%d\n", VrMpFunFlags, VrMpGunSize);
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
     fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
@@ -220,6 +224,12 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpWeaponSet") == 0) VrMpWeaponSet = ival;
             else if (strcmp(key, "MpChr") == 0) VrMpChr = ival;
             else if (strcmp(key, "MpVisibility") == 0) VrMpVisibility = ival != 0;
+            else if (strcmp(key, "HostEqualization") == 0) VrHostEqualization = ival != 0;
+            else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
+            else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;
+            else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && ival <= 7 ? ival : 0;
+            else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;
+            else if (strcmp(key, "MpVoiceMode") == 0) VrMpVoiceMode = ival == 1 ? 1 : 0;
             else if (strcmp(key, "MpScenario") == 0) VrMpScenario = ival;
             else if (strcmp(key, "MpLength") == 0) VrMpLength = ival;
             else if (strcmp(key, "MpHealth") == 0) VrMpHealth = ival;

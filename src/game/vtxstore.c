@@ -104,7 +104,9 @@ void sub_GAME_7F09B820(void)
         }
     }
 
-    tmp = 0x14;
+    /* These descriptors contain two pointers: 20 bytes on N64, 32 on
+     * ARM64. Reserving the cartridge size corrupts the next stage allocation. */
+    tmp = sizeof(struct unk_09B7A0_struct_parent);
     dword_CODE_bss_8007A0E8 = mempAllocBytesInBank(dword_CODE_bss_8007A0D4 * tmp, MEMPOOL_STAGE);
     dword_CODE_bss_8007A0E0 = mempAllocBytesInBank(dword_CODE_bss_8007A0D0 * 0x10, MEMPOOL_STAGE);
     dword_CODE_bss_8007A0EC = mempAllocBytesInBank(dword_CODE_bss_8007A0DC * tmp, MEMPOOL_STAGE);
@@ -304,12 +306,12 @@ Vertex *vtxstore_allocate(s32 arg0, s32 type, void *arg2, s32 arg3)
         case 0xCCCC:
             var_t0 = dword_CODE_bss_8007A0E8;
             var_t3 = &word_CODE_bss_8007A0F0;
-            var_a2 = ((s16 *)&dword_CODE_bss_8007A0D4)[1];
+            var_a2 = dword_CODE_bss_8007A0D4;
             break;
         case 0xB0B:
             var_t0 = dword_CODE_bss_8007A0EC;
             var_t3 = &word_CODE_bss_8007A0F2;
-            var_a2 = ((s16 *)&dword_CODE_bss_8007A0DC)[1];
+            var_a2 = dword_CODE_bss_8007A0DC;
             break;
         default:
             return NULL;
@@ -447,4 +449,3 @@ void sub_GAME_7F09C044(Vertex* arg0) {
         }
     }
 }
-

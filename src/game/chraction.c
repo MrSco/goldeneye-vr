@@ -32,6 +32,9 @@
 #include "player.h"
 #include "propobj.h"
 #include "stan.h"
+#ifdef GEVR
+extern bool netIsActive(void);
+#endif
 
 
 /* Equipped weapon props hold WeaponObjRecord, not ChrRecord. Retail act_*
@@ -2468,7 +2471,8 @@ void play_sound_for_shot_actor(ChrRecord *self)
         }
     }
 
-    chrobjSndCreatePostEventDefault(sndstate, &self->prop->pos);
+    if (netIsActive()) chrobjSndCreatePostEventDamage(sndstate, &self->prop->pos);
+    else chrobjSndCreatePostEventDefault(sndstate, &self->prop->pos);
 }
 
 
@@ -2481,6 +2485,12 @@ coord3d D_80030A44 = {0, 0, 0};
 */
 bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weaponid, bool isPlayer)
 {
+#ifdef GEVR
+    /* Reject friendly hits before grunts, blood and flinch reactions. */
+    extern int netDamageAllowed(int attacker, int target);
+    if (self->prop->type == PROP_TYPE_VIEWER &&
+        !netDamageAllowed(get_cur_playernum(), getPlayerPointerIndex(self->prop))) return FALSE;
+#endif
     s32 hattype;                     //sp78
     PropRecord *myprop = self->prop; //sp60
     s32 padd;

@@ -1,3 +1,4 @@
+#include "gevr_launcher_ui.h"
 /*
  * GoldenEye VR launcher, inside VR.
  *
@@ -58,6 +59,7 @@ void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if ther
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
 void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
 void vr_apply_refresh_rate(void);     // vr_openxr.cpp
+int gevrVrSessionRunning(void);       // vr_openxr.cpp: includes the unfocused Quest menu
 extern int selected_num_players;      // src/game/front.c
 extern int gamemode;                  // src/game/front.c
 extern int g_StageNum;                 // port/src/main.c
@@ -70,6 +72,7 @@ extern int player_char[];
 extern int player_handicap[];
 }
 #include "net_core.h"
+#include "net_game.h"
 #include "net_voice.h"
 #include "net_discovery.h"
 #include "net_ice.h"
@@ -624,6 +627,10 @@ static void gevrReportPage(bool &open, bool crash, const ImVec4 &gold, const ImV
         status = gevrJavaString("reportStatus");
         lastPoll = now;
     }
+    if (crash && status == "offer") {
+        gevrJavaCommand("reportCommand", "offered");
+        status = "idle";
+    }
     ImGui::TextColored(gold, crash ? "SEND CRASH REPORT" : "SEND DEBUG LOG");
     ImGui::TextWrapped("This sends the game log, available crash data, your player name and headset model. Network addresses and connection details are removed from text logs.");
     ImGui::Spacing();
@@ -832,6 +839,20 @@ extern "C" void gevrSndApplySfxVolume(uint16_t);
 // LAN. A host migration rejoins the same way (gevrLobbyGameTick).
 static bool g_joinedViaInternet = false;
 
+static std::string gevrLobbyName()
+{
+    char name[GEVR_MAX_NAME_LEN];
+    snprintf(name, sizeof(name), "%s's game", VrPlayerName);
+    return name;
+}
+
+static std::string gevrLobbyCreateCommand(const std::string &name, int stage, int set, int max)
+{
+    return std::string("create|") + (VrMpVisibility ? "private" : "public") + "|" + name + "|" +
+        std::to_string(GEVR_NET_VERSION) + "|" + std::to_string(stage) + "|" +
+        std::to_string(set) + "|" + std::to_string(max);
+}
+
 // The multiplayer page's shared widgets. net_match.c is the one list of the
 // stages, sets, scenarios, characters and guns, and the choices live in the
 // settings (VrMp*, goldeneye-vr.ini), so they survive the restart into the
@@ -840,41 +861,30 @@ static bool g_joinedViaInternet = false;
 // A combo over a named list, tall enough to show it whole: the stick steps
 // rows, and a popup that scrolled hid them (user). A long list (the 64
 // characters, the guns) keeps ImGui's larger popup and follows the focus.
-static bool namedCombo(const char *id, int count, const char *(*name)(int), int *sel, bool longList = false)
-{
-    if (*sel < 0 || *sel >= count) *sel = 0;
-    bool changed = false;
-    if (ImGui::BeginCombo(id, name(*sel), longList ? ImGuiComboFlags_HeightLarge : ImGuiComboFlags_HeightLargest)) {
-        for (int n = 0; n < count; n++) {
-            const bool isSelected = *sel == n;
-            if (ImGui::Selectable(name(n), isSelected)) {
-                *sel = n;
-                changed = true;
-            }
-            if (isSelected) ImGui::SetItemDefaultFocus();
-            if (longList && ImGui::IsItemFocused()) ImGui::SetScrollHereY(0.5f);
-        }
-        ImGui::EndCombo();
-    }
-    return changed;
+static bool namedCombo(const char *id, int count, const char *(*name)(int), int *sel, bool longList = false) {
+    return gevrNamedCombo(id, count, name, sel, longList, [&](int n) {
+        return strcmp(id, "##stagecombo") == 0 &&
+               ((netScenarioHasTeams(VrMpScenario) && netStageMaxPlayers(n) < netTeamRequiredPlayers(VrMpScenario)) ||
+                (netIsHost() && !netStageEligible(n)));
+    });
 }
 
 static const char *gunNameAt(int idx) { return netItem(idx)->name; }
 static const char *stageNameById(int levelId) { return netStageName(netStageIndexOf((uint8_t)levelId)); }
 
 // A gun chooser: the value is an ITEM_IDS, the list works in positions.
-static bool gunCombo(const char *id, int *item)
-{
+static bool gunCombo(const char *id, int *item) {
     int idx = netItemIndexOf(*item);
-    if (idx < 0) idx = 0;
+    if (idx < 0)
+        idx = 0;
     const bool changed = namedCombo(id, netItemCount(), gunNameAt, &idx, true);
-    if (changed) *item = netItem(idx)->item;
+    if (changed)
+        *item = netItem(idx)->item;
     return changed;
 }
 
 // The host's match config from the saved choices, clamped to the lists.
-static NetMatchConfig gevrLauncherConfig()
-{
+static NetMatchConfig gevrLauncherConfig() {
     NetMatchConfig c = {};
     auto clampi = [](int v, int n, int dflt) { return v >= 0 && v < n ? v : dflt; };
     c.stage = (uint8_t)(netStageIndexOf((uint8_t)VrMpStage) >= 0 ? VrMpStage : 27);
@@ -885,24 +895,66 @@ static NetMatchConfig gevrLauncherConfig()
     c.dual_wield = (uint8_t)clampi(VrMpDual, 3, 0);
     c.loadouts = VrMpLoadouts ? 1 : 0;
     c.next_round = (uint8_t)clampi(VrMpNextRound, 3, 0);
+    c.friendly_fire = VrMpFriendlyFire != 0;
+    c.voice_mode = (uint8_t)clampi(VrMpVoiceMode, 2, 0);
+    c.fun_flags = (uint8_t)clampi(VrMpFunFlags, 8, 0);
+    c.gun_size = (uint8_t)clampi(VrMpGunSize, 3, 0);
     for (int i = 0; i < 4; i++)
         c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
+    if (netScenarioHasTeams(c.scenario) &&
+        netStageMaxPlayers(netStageIndexOf(c.stage)) < netTeamRequiredPlayers(c.scenario)) {
+        c.stage = 34;
+        VrMpStage = 34; // Facility supports all team formats.
+    }
     return c;
 }
 
+static void gevrTeamChoiceRow(const char *id) {
+    if (!netIsActive() || !netScenarioHasTeams(netGetMatchConfig()->scenario))
+        return;
+    int team = netGetSlotTeam(netGetLocalSlot());
+    ImGui::TextUnformatted("Your team:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+    if (namedCombo(id, 3, netTeamName, &team))
+        netLobbySetTeam((uint8_t)team);
+    if (netGetPhase() == NET_PHASE_IN_PROGRESS)
+        ImGui::SameLine(), ImGui::TextDisabled("next match");
+}
+static std::string gevrPingText(int slot) {
+    int ping = netGetSlotPing(slot);
+    return ping < 0 ? "—" : std::to_string(ping);
+}
+
 // A host choice changed: saved, and told to the lobby when one is up.
-static void gevrHostChoiceChanged()
-{
-    vrSettingsSave();
-    if (!netIsHost()) return;
+static void gevrHostChoiceChanged() {
+    if (!netIsHost()) {
+        vrSettingsSave();
+        return;
+    }
     const NetMatchConfig c = gevrLauncherConfig();
     netLobbySetConfig(&c);
-    const int idx = netStageIndexOf(c.stage);
+    const NetMatchConfig *accepted = netGetMatchConfig();
+    VrMpStage = accepted->stage;
+    VrMpScenario = accepted->scenario;
+    VrMpWeaponSet = accepted->weapon_set;
+    VrMpLength = accepted->game_length;
+    VrMpHealth = accepted->health;
+    VrMpDual = accepted->dual_wield;
+    VrMpLoadouts = accepted->loadouts;
+    VrMpNextRound = accepted->next_round;
+    VrMpVoiceMode = accepted->voice_mode;
+    VrMpFriendlyFire = accepted->friendly_fire;
+    VrMpFunFlags = accepted->fun_flags;
+    VrMpGunSize = accepted->gun_size;
+    for (int k = 0; k < 4; k++)
+        VrMpCustom[k] = accepted->custom_set[k];
+    vrSettingsSave();
+    const int idx = netStageIndexOf(accepted->stage);
     netSetMaxPlayers(idx >= 0 ? netStageMaxPlayers(idx) : GEVR_MAX_PLAYERS);
 }
 
-static void gevrSendLoadout()
-{
+static void gevrSendLoadout() {
     uint8_t items[4];
     for (int i = 0; i < 4; i++)
         items[i] = (uint8_t)(netItemIndexOf(VrMpLoadout[i]) >= 0 ? VrMpLoadout[i] : netItem(0)->item);
@@ -910,21 +962,20 @@ static void gevrSendLoadout()
 }
 
 // This player's character: the one combo for the host, a joiner and a connected client.
-static void characterRow(const char *label, const char *id)
-{
+static void characterRow(const char *label, const char *id) {
     ImGui::TextUnformatted(label);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
     if (namedCombo(id, netCharacterCount(), netCharacterName, &VrMpChr, true)) {
         vrSettingsSave();
-        if (netIsActive()) netLobbySetCharacter((uint8_t)VrMpChr);
+        if (netIsActive())
+            netLobbySetCharacter((uint8_t)VrMpChr);
     }
     netSetPreferredCharacter((uint8_t)VrMpChr);
 }
 
 // This player's four spawn guns, for a match with loadouts on.
-static void loadoutRows(const char *idprefix)
-{
+static void loadoutRows(const char *idprefix) {
     ImGui::TextUnformatted("Your loadout, when the host turns loadouts on:");
     bool changed = false;
     for (int i = 0; i < 4; i++) {
@@ -937,18 +988,19 @@ static void loadoutRows(const char *idprefix)
     }
     if (changed) {
         vrSettingsSave();
-        if (netIsActive()) gevrSendLoadout();
+        if (netIsActive())
+            gevrSendLoadout();
     }
 }
 
 // A row of favorite toggles over a bitmask: the shuffle and the playlist draw from them.
-static bool favoriteRow(const char *label, int count, const char *(*name)(int), unsigned *mask, int perRow)
-{
+static bool favoriteRow(const char *label, int count, const char *(*name)(int), unsigned *mask, int perRow) {
     bool changed = false;
     ImGui::TextUnformatted(label);
     for (int i = 0; i < count; i++) {
         bool on = ((*mask >> i) & 1u) != 0;
-        if (i % perRow != 0) ImGui::SameLine();
+        if (i % perRow != 0)
+            ImGui::SameLine();
         char id[48];
         snprintf(id, sizeof(id), "%s##%s%d", name(i), label, i);
         if (ImGui::Checkbox(id, &on)) {
@@ -960,18 +1012,9 @@ static bool favoriteRow(const char *label, int count, const char *(*name)(int), 
 }
 
 // The host's match options: a section of the Host tab, before and while hosting.
-static void gevrMatchOptions()
-{
+static void gevrMatchOptions(bool favorites = false) {
     bool changed = false;
-    static int optSub = 0; // 0 = Rules, 1 = Favorites
-    auto subHeader = [&](const char *label, int id) -> bool {
-        ImGui::SetNextItemOpen(optSub == id);
-        if (ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_SpanAvailWidth)) optSub = id;
-        else if (optSub == id) optSub = -1;
-        return optSub == id;
-    };
-
-    if (subHeader("Match Rules###opt_rules", 0)) {
+    if (!favorites) {
         ImGui::Text("Scenario:");
         ImGui::SameLine();
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
@@ -994,8 +1037,9 @@ static void gevrMatchOptions()
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
         changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
         ImGui::SameLine();
-        ImGui::TextDisabled(VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair" :
-                            VrMpDual == NET_DUAL_ANY ? "hold X for the left hand's panel" : "");
+        ImGui::TextDisabled(VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
+                            : VrMpDual == NET_DUAL_ANY   ? "hold X for the left hand's panel"
+                                                         : "");
         bool loadouts = VrMpLoadouts != 0;
         if (ImGui::Checkbox("Players spawn with their own four guns (loadouts)", &loadouts)) {
             VrMpLoadouts = loadouts ? 1 : 0;
@@ -1006,21 +1050,90 @@ static void gevrMatchOptions()
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
         changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", VrMpNextRound == NET_NEXT_SHUFFLE ? "a random favorite map and set" :
-                                  VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order" : "the players vote in the pause menu");
+        ImGui::TextDisabled("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
+                                  : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
+                                                                       : "the players vote in the pause menu");
     }
 
-    if (subHeader("Favorites (for Shuffle & Playlist)###opt_favs", 1)) {
+    if (favorites) {
         changed |= favoriteRow("Favorite maps:", netStageCount(), netStageName, &VrMpFavStages, 6);
         changed |= favoriteRow("Favorite sets:", netWeaponSetCount(), netWeaponSetName, &VrMpFavSets, 5);
     }
 
-    if (changed) gevrHostChoiceChanged();
+    if (changed)
+        gevrHostChoiceChanged();
 }
 
-void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
-{
-    static int subTab = 0; // 0 = Host, 1 = Join
+static const char *gevrGunSizeName(int n) {
+    const char *names[] = {"Normal", "Tiny", "Big"};
+    return names[n];
+}
+static void gevrFunOptions(bool hostPage) {
+    int flags = netIsActive() ? netGetMatchConfig()->fun_flags : VrMpFunFlags;
+    int size = netIsActive() ? netGetMatchConfig()->gun_size : VrMpGunSize;
+    ImGui::TextDisabled(netIsActive() && netGetPhase() == NET_PHASE_IN_PROGRESS ? "Pending: applies next round"
+                                                                                : "Applies when the round loads");
+    ImGui::BeginDisabled(netIsActive() ? !netIsHost() : !hostPage);
+    const char *labels[] = {"DK mode", "Paintball", "Line mode"};
+    bool changed = false;
+    for (int n = 0; n < 3; n++) {
+        bool on = (flags & (1 << n)) != 0;
+        if (ImGui::Checkbox(labels[n], &on)) {
+            flags ^= 1 << n;
+            changed = true;
+        }
+    }
+    ImGui::TextUnformatted("Gun size:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9);
+    changed |= namedCombo("##mpgunsize", 3, gevrGunSizeName, &size);
+    ImGui::EndDisabled();
+    if (changed) {
+        VrMpFunFlags = flags;
+        VrMpGunSize = size;
+        if (netIsHost()) {
+            gevrNetConfigSet(CFG_FUN_FLAGS, flags);
+            gevrNetConfigSet(CFG_GUN_SIZE, size);
+        } else
+            vrSettingsSave();
+    }
+}
+static void gevrLobbyRoster(const ImVec4 &gold) {
+    const NetMsgLobbyState *lobby = netGetLobbyState();
+    ImGui::TextColored(gold, "PLAYERS (%d/%d)", netGetConnectedPlayerCount(), netGetMaxPlayers());
+    if (ImGui::BeginTable("##lobbyroster", 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
+        float font = ImGui::GetFontSize();
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthFixed, font * 9);
+        ImGui::TableSetupColumn("Team", ImGuiTableColumnFlags_WidthFixed, font * 5);
+        ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, font * 6);
+        ImGui::TableSetupColumn("Ping (ms)", ImGuiTableColumnFlags_WidthFixed, font * 6);
+        ImGui::TableHeadersRow();
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+            if (!lobby->slots[i].connected)
+                continue;
+            const auto &slot = lobby->slots[i];
+            bool host = i == netGetHostSlot();
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(slot.name);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host.",
+                                  slot.name, netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(netCharacterName(slot.chr_id));
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(netScenarioHasTeams(lobby->config.scenario) ? netTeamName(slot.team) : "—");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(host ? "Host" : slot.ready ? "Ready" : "Waiting");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(gevrPingText(i).c_str());
+        }
+        ImGui::EndTable();
+    }
+}
+void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
+    static int subTab = 0;     // 0 = Host, 1 = Join
     static int joinMethod = 0; // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
     static char directIp[64] = "192.168.1.";
     static char privateCode[16] = "";
@@ -1028,16 +1141,20 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     static std::string onlineMessage;
     static std::string clientJoinId;
     static std::vector<std::string> hostJoinIds;
-    struct OnlineLobby { std::string code, name, phase; int stage, weapons, players, maxPlayers; };
+    struct OnlineLobby {
+        std::string code, name, phase;
+        int stage, weapons, players, maxPlayers;
+    };
     static std::vector<OnlineLobby> onlineLobbies;
     static bool listLoading = false;
     static uint32_t lastListMs = 0;
     static uint32_t lastHeartbeatMs = 0;
 
-    vrEnsurePlayerName();   // here, not at launcher start: the settings load on the first frame
+    vrEnsurePlayerName(); // here, not at launcher start: the settings load on the first frame
     for (int i = 0; i < 32; ++i) {
         const std::string raw = gevrJavaString("lobbyEvent");
-        if (raw.empty()) break;
+        if (raw.empty())
+            break;
         const auto f = gevrSplitLobbyEvent(raw);
         if (f[0] == "CREATED" && f.size() >= 2 && netIsHost()) {
             hostedCode = f[1];
@@ -1045,23 +1162,37 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             // the clients keep the lobby and its token: whoever is elected host
             // if this one leaves resumes the same lobby (net_core.c netHostLost)
             netSetLobbyHandoff(f[1].c_str(), f.size() >= 3 ? f[2].c_str() : "");
+        } else if (f[0] == "LOBBY_LOST" && f.size() >= 3 && netIsHost()) {
+            vr_log("launcher: lobby %s lost (%s); registering again", f[1].c_str(), f[2].c_str());
+            hostedCode.clear();
+            hostJoinIds.clear();
+            onlineMessage = "Registering online lobby...";
+            lastHeartbeatMs = 0;
+            gevrJavaCommand("lobbyCommand", gevrLobbyCreateCommand(gevrLobbyName(), netGetLobbyStage(),
+                                                                   netGetLobbyWeaponSet(), netGetMaxPlayers())
+                                                .c_str());
         } else if (f[0] == "LIST_BEGIN") {
             onlineLobbies.clear();
             listLoading = true;
         } else if (f[0] == "LIST_END") {
             listLoading = false;
         } else if (f[0] == "LOBBY" && f.size() >= 8) {
-            onlineLobbies.push_back({f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())});
+            onlineLobbies.push_back(
+                {f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())});
         } else if (f[0] == "JOINED" && f.size() >= 4) {
             clientJoinId = f[1];
             g_joinedViaInternet = true;
-            if (!netIceStartClient(f[1].c_str(), f[2].c_str(), f[3].c_str())) onlineMessage = "Could not start internet connection";
-            else onlineMessage = "Finding a connection to host...";
+            if (!netIceStartClient(f[1].c_str(), f[2].c_str(), f[3].c_str()))
+                onlineMessage = "Could not start internet connection";
+            else
+                onlineMessage = "Finding a connection to host...";
         } else if (f[0] == "HOST_PEER" && f.size() >= 5 && netIsHost()) {
-            if (netIcePeerCount() < 3 && netIceAddHostPeer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str(), f[3].c_str(), f[4].c_str()))
+            if (netIcePeerCount() < 3 &&
+                netIceAddHostPeer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str(), f[3].c_str(), f[4].c_str()))
                 hostJoinIds.push_back(f[1]);
         } else if (f[0] == "ANSWER" && f.size() >= 3) {
-            if (!netIceApplyAnswer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str())) onlineMessage = "Internet connection failed";
+            if (!netIceApplyAnswer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str()))
+                onlineMessage = "Internet connection failed";
         } else if (f[0] == "ERROR" && f.size() >= 2) {
             listLoading = false;
             onlineMessage = f[1];
@@ -1072,7 +1203,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         gevrJavaCommand("lobbyCommand", ("offer|" + gevrEncodeUrl64(iceSdp)).c_str());
     if (!clientJoinId.empty()) {
         const char *status = netIceStatus(clientJoinId.c_str());
-        if (status) onlineMessage = status;
+        if (status)
+            onlineMessage = status;
     }
     for (const std::string &id : hostJoinIds) {
         if (netIceTakeDescription(id.c_str(), iceSdp, sizeof(iceSdp)))
@@ -1082,489 +1214,468 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             onlineMessage = status;
     }
     netIcePoll();
-    
-    // The panel does not scroll: the title shares the Host/Join row so the
-    // lobby and Back to Main Menu fit below.
-    ImGui::AlignTextToFramePadding();
+
+    if (netIsHost()) {
+        // Launcher idle kick: if host is inactive for 10 minutes, stop hosting
+        static uint32_t s_launcher_host_act_ms = 0;
+        static float s_last_px = 0.0f, s_last_py = 0.0f;
+        const uint32_t actNow = SDL_GetTicks();
+        if (s_launcher_host_act_ms == 0)
+            s_launcher_host_act_ms = actNow;
+        ImGuiIO &io = ImGui::GetIO();
+        bool act =
+            io.MouseDown[0] || fabsf(io.MousePos.x - s_last_px) > 2.0f || fabsf(io.MousePos.y - s_last_py) > 2.0f;
+        s_last_px = io.MousePos.x;
+        s_last_py = io.MousePos.y;
+        if (get_button_state(0, "thumbstick_click") || get_button_state(1, "thumbstick_click") ||
+            get_button_state(0, "a") || get_button_state(0, "b") || get_button_state(0, "x") ||
+            get_button_state(0, "y") || get_button_state(1, "a") || get_button_state(1, "b") ||
+            get_button_state(1, "x") || get_button_state(1, "y") || get_button_state(0, "trigger") ||
+            get_button_state(1, "trigger") || get_button_state(0, "grip") || get_button_state(1, "grip")) {
+            act = true;
+        }
+        if (act) {
+            s_launcher_host_act_ms = actNow;
+        } else if (actNow - s_launcher_host_act_ms >= 10 * 60 * 1000) {
+            gevrJavaCommand("lobbyCommand", "stop");
+            netDiscoveryStopBroadcasting();
+            netDisconnect();
+            netIceStop();
+            hostedCode.clear();
+            hostJoinIds.clear();
+            onlineMessage = "Hosting stopped due to inactivity (10 min idle)";
+            s_launcher_host_act_ms = 0;
+        }
+
+        int pCount = netGetConnectedPlayerCount();
+        int maxP = netGetMaxPlayers();
+        const uint32_t heartbeatNow = SDL_GetTicks();
+        if (netIsHost() && (heartbeatNow - lastHeartbeatMs > 5000 || lastHeartbeatMs == 0)) {
+            lastHeartbeatMs = heartbeatNow;
+            const std::string refresh = "refresh|" + std::to_string(pCount) + "|" + (pCount < maxP ? "1" : "0");
+            gevrJavaCommand("lobbyCommand", refresh.c_str());
+        }
+    }
+    if (netIsActive() && !netIsHost() && netGetState() == NET_STATE_INGAME) {
+        netApplyMatchConfig();
+        bossSetLoadedStage(g_StageNum);
+        startMatch = true;
+        open = false;
+    }
+    static int sentSlot = -1;
+    if (!netIsActive())
+        sentSlot = -1;
+    if (netIsActive() && !netIsHost() && netGetLocalSlot() >= 0) {
+        if (sentSlot != netGetLocalSlot()) {
+            sentSlot = netGetLocalSlot();
+            gevrSendLoadout();
+        }
+    }
+    auto disconnect = [&]() {
+        gevrJavaCommand("lobbyCommand", "stop");
+        netDiscoveryStopBroadcasting();
+        netDisconnect();
+        netIceStop();
+        hostedCode.clear();
+        hostJoinIds.clear();
+        clientJoinId.clear();
+    };
+    auto playerOptions = [&]() {
+        ImGui::TextUnformatted("Your name:");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(netIsActive());
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16);
+        ImGui::InputText("##playername", VrPlayerName, sizeof(VrPlayerName), ImGuiInputTextFlags_CallbackCharFilter,
+                         nameCharFilter);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            size_t n = strlen(VrPlayerName);
+            while (n > 0 && VrPlayerName[n - 1] == ' ')
+                VrPlayerName[--n] = '\0';
+            if (VrPlayerName[0] == ' ')
+                memmove(VrPlayerName, VrPlayerName + strspn(VrPlayerName, " "), n + 1);
+            vrEnsurePlayerName();
+            vrSettingsSave();
+        }
+        ImGui::EndDisabled();
+        characterRow("Character:", "##mpcharacter");
+        loadoutRows("mpplayer");
+        gevrTeamChoiceRow("##playerteam");
+    };
+    auto audioOptions = [&]() {
+        bool micMuted = netVoiceIsMuted() != 0;
+        if (ImGui::Checkbox("Mute microphone", &micMuted))
+            netVoiceSetMuted(micMuted);
+        ImGui::TextDisabled("%s", micMuted                   ? "Mic muted"
+                                  : !netVoiceHasPermission() ? "No mic access (listen only)"
+                                  : netVoiceCaptureFailed()  ? "Mic unavailable (listen only)"
+                                                             : "Mic active");
+        // Persistent Audio Volume controls
+        int musicPct = (int)(((s32)get_mTrack2Vol() * 100 + 16383) / 32767);
+        int voicePct = (int)(VrVoiceVolume * 100.0f + 0.5f);
+        int sfxPct = (int)(VrSfxVolume * 100.0f + 0.5f);
+        ImGui::TextUnformatted("Music Vol:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+        if (ImGui::SliderInt("##mpmusicvol", &musicPct, 0, 100, "%d%%")) {
+            uint16_t vol = (uint16_t)((musicPct * 32767 + 50) / 100);
+            set_mTrack2Vol(vol);
+            musicTrack1ApplySeqpVol(vol);
+            musicTrack3ApplySeqpVol(vol);
+            VrMusicVolume = (float)musicPct / 100.0f;
+            vrSettingsSave();
+        }
+        ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
+        ImGui::TextUnformatted("SFX Vol:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+        if (ImGui::SliderInt("##mpsfxvol", &sfxPct, 0, 100, "%d%%")) {
+            VrSfxVolume = (float)sfxPct / 100.0f;
+            gevrSndApplySfxVolume((uint16_t)((sfxPct * 32767 + 50) / 100));
+            vrSettingsSave();
+        }
+        ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
+        ImGui::TextUnformatted("Voice Vol:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+        if (ImGui::SliderInt("##mpvoicevol", &voicePct, 0, 100, "%d%%")) {
+            VrVoiceVolume = (float)voicePct / 100.0f;
+            vrSettingsSave();
+        }
+        ImGui::Separator();
+
+        ImGui::TextUnformatted("Voice mode:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+        int voiceMode = netIsActive() ? netGetMatchConfig()->voice_mode : VrMpVoiceMode;
+        ImGui::BeginDisabled(netIsActive() ? !netIsHost() : subTab != 0);
+        if (namedCombo("##mpvoicemode", 2, netVoiceModeName, &voiceMode)) {
+            VrMpVoiceMode = voiceMode;
+            if (netIsHost())
+                gevrNetConfigSet(CFG_VOICE_MODE, voiceMode);
+            else
+                vrSettingsSave();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", netIsActive() && !netIsHost() ? "Host chooses"
+                                                                : "Proximity: 10% floor / Couch: full volume");
+
+        if (netScenarioHasTeams(netIsActive() ? netGetMatchConfig()->scenario : VrMpScenario)) {
+            ImGui::TextDisabled("Teams: teammates full volume; opponents proximity.");
+        }
+    };
     ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
-    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
-    if (ImGui::RadioButton("Host Game", subTab == 0)) subTab = 0;
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Join Game", subTab == 1)) subTab = 1;
-    // Your name: in the lobby lists and over your head in a match. Fixed while
-    // in a lobby, where the others already have it.
-    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 2.0f);
-    ImGui::TextUnformatted("Your name:");
-    ImGui::SameLine();
-    ImGui::BeginDisabled(netIsActive());
-    ImGui::SetNextItemWidth(-1);
-    ImGui::InputText("##playername", VrPlayerName, sizeof(VrPlayerName),
-                     ImGuiInputTextFlags_CallbackCharFilter, nameCharFilter);
-    if (ImGui::IsItemDeactivatedAfterEdit()) {
-        size_t n = strlen(VrPlayerName);
-        while (n > 0 && VrPlayerName[n - 1] == ' ') VrPlayerName[--n] = '\0';
-        if (VrPlayerName[0] == ' ') memmove(VrPlayerName, VrPlayerName + strspn(VrPlayerName, " "), n + 1);
-        vrEnsurePlayerName();
-        vrSettingsSave();
-    }
-    ImGui::EndDisabled();
-    ImGui::Separator();
-    
-    // Persistent Audio Volume controls
-    int musicPct = (int)(((s32)get_mTrack2Vol() * 100 + 16383) / 32767);
-    int voicePct = (int)(VrVoiceVolume * 100.0f + 0.5f);
-    int sfxPct = (int)(VrSfxVolume * 100.0f + 0.5f);
-    ImGui::TextUnformatted("Music Vol:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-    if (ImGui::SliderInt("##mpmusicvol", &musicPct, 0, 100, "%d%%")) {
-        uint16_t vol = (uint16_t)((musicPct * 32767 + 50) / 100);
-        set_mTrack2Vol(vol);
-        musicTrack1ApplySeqpVol(vol);
-        musicTrack3ApplySeqpVol(vol);
-        VrMusicVolume = (float)musicPct / 100.0f;
-        vrSettingsSave();
-    }
-    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
-    ImGui::TextUnformatted("SFX Vol:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-    if (ImGui::SliderInt("##mpsfxvol", &sfxPct, 0, 100, "%d%%")) {
-        VrSfxVolume = (float)sfxPct / 100.0f;
-        gevrSndApplySfxVolume((uint16_t)((sfxPct * 32767 + 50) / 100));
-        vrSettingsSave();
-    }
-    ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
-    ImGui::TextUnformatted("Voice Vol:");
-    ImGui::SameLine();
-    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-    if (ImGui::SliderInt("##mpvoicevol", &voicePct, 0, 100, "%d%%")) {
-        VrVoiceVolume = (float)voicePct / 100.0f;
-        vrSettingsSave();
-    }
-    ImGui::Separator();
-    
-    if (subTab == 0) {
-        // Three sections, one open at a time (the panel never scrolls): the
-        // game and its lobby, the match options, and this player.
-        static int hostSection = 0;
-        auto section = [&](const char *label, int id) -> bool {
-            ImGui::SetNextItemOpen(hostSection == id);
-            if (ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_SpanAvailWidth)) hostSection = id;
-            else if (hostSection == id) hostSection = -1;
-            return hostSection == id;
-        };
-        if (section("Game###host_game", 0)) {
-            const bool hosting = netIsHost();
-            if (!hosting) {
-                if (ImGui::RadioButton("Public game", VrMpVisibility == 0)) { VrMpVisibility = 0; vrSettingsSave(); }
-                ImGui::SameLine();
-                if (ImGui::RadioButton("Private game", VrMpVisibility == 1)) { VrMpVisibility = 1; vrSettingsSave(); }
-            }
-            // The stage and the weapons, before hosting and in the lobby too,
-            // where a change reaches everyone (gevrHostChoiceChanged).
-            int stageIdx = netStageIndexOf((uint8_t)VrMpStage);
-            if (stageIdx < 0) stageIdx = 9;
-            ImGui::Text("Stage:");
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-            if (namedCombo("##stagecombo", netStageCount(), netStageName, &stageIdx)) {
-                VrMpStage = netStage(stageIdx)->level_id;
-                gevrHostChoiceChanged();
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(up to %d players)", netStageMaxPlayers(stageIdx));
-            if (VrMpScenario == SCENARIO_MWTGG) {
-                ImGui::TextDisabled("Weapons: Golden Gun (the scenario's own set)");
-            } else {
-                ImGui::Text("Weapons:");
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-                if (namedCombo("##weaponcombo", netWeaponSetCount(), netWeaponSetName, &VrMpWeaponSet)) gevrHostChoiceChanged();
-                if (VrMpWeaponSet == NET_WEAPON_SET_CUSTOM) {
-                    bool changed = false;
-                    for (int i = 0; i < 4; i++) {
-                        char id[24];
-                        snprintf(id, sizeof(id), "##custom%d", i);
-                        if (i) ImGui::SameLine();
-                        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-                        changed |= gunCombo(id, &VrMpCustom[i]);
-                    }
-                    if (changed) gevrHostChoiceChanged();
-                }
-            }
-            if (!hosting) {
-                ImGui::Spacing();
-                if (ImGui::Button("START HOSTING LOBBY", ImVec2(-1, ImGui::GetFrameHeight() * 1.5f))) {
-                    // the game's name in the LAN and internet lists: the host's
-                    char gameName[GEVR_MAX_NAME_LEN];
-                    snprintf(gameName, sizeof(gameName), "%s's game", VrPlayerName);
-                    if (netHostStart(GEVR_DEFAULT_PORT)) {
-                        netSetMaxPlayers(netStageMaxPlayers(stageIdx));
-                        netSetGameName(gameName);   // the clients keep it: the LAN beacon of a migrated host
-                        g_joinedViaInternet = false;
-                        gevrJavaCommand("requestVoicePermission", "");
-                        netIceStartHost();
-                        netDiscoveryInit();
-                        netDiscoveryStartBroadcasting(gameName, GEVR_DEFAULT_PORT);
-                        netLobbySetCharacter((uint8_t)VrMpChr);
-                        gevrSendLoadout();
-                        {
-                            const NetMatchConfig c = gevrLauncherConfig();
-                            netLobbySetConfig(&c);
+    gevrLauncherBeginBody("##mpbody");
+    if (ImGui::BeginTabBar("##mprole")) {
+        for (int role = 0; role < 2; role++) {
+            if (!ImGui::BeginTabItem(role == 0 ? "Host" : "Join"))
+                continue;
+            subTab = role;
+            if (role == 0) {
+                if (netIsActive() && !netIsHost())
+                    ImGui::TextWrapped("Disconnect before hosting another game.");
+                else if (ImGui::BeginTabBar("##hostpages")) {
+                    if (ImGui::BeginTabItem("Lobby")) {
+                        const bool hosting = netIsHost();
+                        if (!hosting) {
+                            if (ImGui::RadioButton("Public game", VrMpVisibility == 0)) {
+                                VrMpVisibility = 0;
+                                vrSettingsSave();
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::RadioButton("Private game", VrMpVisibility == 1)) {
+                                VrMpVisibility = 1;
+                                vrSettingsSave();
+                            }
                         }
-                        hostedCode.clear();
-                        hostJoinIds.clear();
-                        onlineMessage = "Registering online lobby...";
-                        const std::string command = std::string("create|") + (VrMpVisibility ? "private" : "public") + "|" + gameName + "|" +
-                            std::to_string(GEVR_NET_VERSION) + "|" + std::to_string(VrMpStage) + "|" +
-                            std::to_string(VrMpWeaponSet) + "|" + std::to_string(netStageMaxPlayers(stageIdx));
-                        gevrJavaCommand("lobbyCommand", command.c_str());
-                    } else onlineMessage = "Could not start the local game host";
+                        // The stage and the weapons, before hosting and in the lobby too,
+                        // where a change reaches everyone (gevrHostChoiceChanged).
+                        int stageIdx = netStageIndexOf((uint8_t)VrMpStage);
+                        if (stageIdx < 0)
+                            stageIdx = 9;
+                        ImGui::Text("Stage:");
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+                        if (namedCombo("##stagecombo", netStageCount(), netStageName, &stageIdx)) {
+                            VrMpStage = netStage(stageIdx)->level_id;
+                            gevrHostChoiceChanged();
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(up to %d players)", netStageMaxPlayers(stageIdx));
+                        if (VrMpScenario == SCENARIO_MWTGG) {
+                            ImGui::TextDisabled("Weapons: Golden Gun (the scenario's own set)");
+                        } else {
+                            ImGui::Text("Weapons:");
+                            ImGui::SameLine();
+                            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+                            if (namedCombo("##weaponcombo", netWeaponSetCount(), netWeaponSetName, &VrMpWeaponSet))
+                                gevrHostChoiceChanged();
+                            if (VrMpWeaponSet == NET_WEAPON_SET_CUSTOM) {
+                                bool changed = false;
+                                for (int i = 0; i < 4; i++) {
+                                    char id[24];
+                                    snprintf(id, sizeof(id), "##custom%d", i);
+                                    if (i)
+                                        ImGui::SameLine();
+                                    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+                                    changed |= gunCombo(id, &VrMpCustom[i]);
+                                }
+                                if (changed)
+                                    gevrHostChoiceChanged();
+                            }
+                        }
+
+                        if (hosting) {
+                            if (!hostedCode.empty())
+                                ImGui::TextColored(gold, "%s CODE: %s", VrMpVisibility ? "PRIVATE" : "PUBLIC",
+                                                   hostedCode.c_str());
+                            gevrTeamChoiceRow("##hostteam");
+                            gevrLobbyRoster(gold);
+                            if (netScenarioHasTeams(netGetMatchConfig()->scenario) && !netTeamRosterReady())
+                                ImGui::TextDisabled("Complete teams before countdown; warmup remains available.");
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Match")) {
+                        gevrMatchOptions();
+                        ImGui::BeginDisabled(netIsActive() && !netIsHost());
+                        unsigned cap; bool equalized=netGetHostEqualization(&cap)!=0;
+                        if (ImGui::Checkbox("Host hit equalization", &equalized)) netSetHostEqualization(equalized,cap);
+                        int limit=(int)cap;
+                        if (ImGui::SliderInt("Host delay cap (ms)",&limit,0,80)) netSetHostEqualization(equalized,(unsigned)limit);
+                        ImGui::EndDisabled();
+                        char delays[128];netHostEqualizationText(delays,sizeof(delays));
+                        if (delays[0]) ImGui::TextDisabled("%s",delays);
+
+                        if (netScenarioHasTeams(VrMpScenario)) {
+                            bool ff = VrMpFriendlyFire != 0;
+                            if (ImGui::Checkbox("Friendly fire", &ff)) {
+                                VrMpFriendlyFire = ff;
+                                gevrHostChoiceChanged();
+                            }
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Fun")) {
+                        gevrFunOptions(true);
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Player")) {
+                        playerOptions();
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Audio")) {
+                        audioOptions();
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Favorites")) {
+                        gevrMatchOptions(true);
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
                 }
             } else {
-                ImGui::TextColored(good, "LOBBY ACTIVE (Broadcasting on LAN port %d)", GEVR_DEFAULT_PORT);
-                bool micMuted = netVoiceIsMuted() != 0;
-                if (ImGui::Checkbox("Mute Microphone", &micMuted)) netVoiceSetMuted(micMuted);
-                ImGui::SameLine();
-                ImGui::TextDisabled("%s", micMuted ? "Mic muted" :
-                    !netVoiceHasPermission() ? "No mic access (listen only)" :
-                    netVoiceCaptureFailed() ? "Mic unavailable (listen only)" : "Mic active");
-                if (!hostedCode.empty()) {
-                    if (VrMpVisibility) ImGui::TextColored(gold, "PRIVATE JOIN CODE: %s", hostedCode.c_str());
-                    else ImGui::TextColored(good, "Public game listed online: %s", hostedCode.c_str());
-                }
-                if (!onlineMessage.empty()) ImGui::TextWrapped("%s", onlineMessage.c_str());
+                const bool connected = netIsActive() && !netIsHost() && netGetState() != NET_STATE_CONNECTING;
+                if (ImGui::BeginTabBar("##joinpages")) {
+                    const char *titles[] = {connected ? "Lobby###publicpane" : "Public###publicpane",
+                                            "Private",
+                                            "LAN",
+                                            "Direct IP",
+                                            "Player",
+                                            "Audio"};
+                    for (int pane = 0; pane < 6; pane++) {
+                        if (!ImGui::BeginTabItem(titles[pane]))
+                            continue;
+                        joinMethod = pane;
+                        if (pane == 4)
+                            playerOptions();
+                        else if (pane == 5) {
+                            audioOptions();
+                            if (connected)
+                                gevrFunOptions(false);
+                        } else if (netIsHost())
+                            ImGui::TextWrapped("Stop hosting before joining another game.");
+                        else if (netGetState() == NET_STATE_CONNECTING)
+                            ImGui::TextUnformatted("Connecting to host...");
+                        else if (connected) {
+                            const NetMatchConfig *cfg = netGetMatchConfig();
+                            ImGui::Text("%s / %s / %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
+                                        netScenarioName(cfg->scenario));
+                            gevrTeamChoiceRow("##clientteam");
+                            gevrLobbyRoster(gold);
+                            ImGui::TextDisabled("Waiting for the host to launch.");
+                        } else {
+                            const bool joiningOnline = !clientJoinId.empty();
+                            if (!clientJoinId.empty()) {
+                                if (ImGui::SmallButton("Cancel internet join")) {
+                                    gevrJavaCommand("lobbyCommand", "stop");
+                                    netIceStop();
+                                    clientJoinId.clear();
+                                    onlineMessage.clear();
+                                }
+                            }
+                            if (!onlineMessage.empty())
+                                ImGui::TextWrapped("%s", onlineMessage.c_str());
 
-                // Launcher idle kick: if host is inactive for 10 minutes, stop hosting
-                static uint32_t s_launcher_host_act_ms = 0;
-                static float s_last_px = 0.0f, s_last_py = 0.0f;
-                const uint32_t actNow = SDL_GetTicks();
-                if (s_launcher_host_act_ms == 0) s_launcher_host_act_ms = actNow;
-                ImGuiIO &io = ImGui::GetIO();
-                bool act = io.MouseDown[0] || fabsf(io.MousePos.x - s_last_px) > 2.0f || fabsf(io.MousePos.y - s_last_py) > 2.0f;
-                s_last_px = io.MousePos.x;
-                s_last_py = io.MousePos.y;
-                if (get_button_state(0, "thumbstick_click") || get_button_state(1, "thumbstick_click") ||
-                    get_button_state(0, "a") || get_button_state(0, "b") || get_button_state(0, "x") || get_button_state(0, "y") ||
-                    get_button_state(1, "a") || get_button_state(1, "b") || get_button_state(1, "x") || get_button_state(1, "y") ||
-                    get_button_state(0, "trigger") || get_button_state(1, "trigger") ||
-                    get_button_state(0, "grip") || get_button_state(1, "grip")) {
-                    act = true;
-                }
-                if (act) {
-                    s_launcher_host_act_ms = actNow;
-                } else if (actNow - s_launcher_host_act_ms >= 10 * 60 * 1000) {
-                    gevrJavaCommand("lobbyCommand", "stop");
-                    netDiscoveryStopBroadcasting();
-                    netDisconnect();
-                    netIceStop();
-                    hostedCode.clear();
-                    hostJoinIds.clear();
-                    onlineMessage = "Hosting stopped due to inactivity (10 min idle)";
-                    s_launcher_host_act_ms = 0;
-                }
+                            if (joiningOnline)
+                                ImGui::BeginDisabled();
 
-                const NetMsgLobbyState *lobby = netGetLobbyState();
-                int pCount = netGetConnectedPlayerCount();
-                int maxP = netGetMaxPlayers();
-                const uint32_t heartbeatNow = SDL_GetTicks();
-                if (heartbeatNow - lastHeartbeatMs > 5000 || lastHeartbeatMs == 0) {
-                    lastHeartbeatMs = heartbeatNow;
-                    const std::string refresh = "refresh|" + std::to_string(pCount) + "|" + (pCount < maxP ? "1" : "0");
-                    gevrJavaCommand("lobbyCommand", refresh.c_str());
-                }
-                bool slotsReady = true;
-                for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-                    if (lobby->slots[i].connected) {
-                        if (i >= maxP || !lobby->slots[i].ready) slotsReady = false;
-                    }
-                }
-                bool canLaunch = (pCount >= 1 && pCount <= maxP && slotsReady);
+                            // 1. Public Internet Games
+                            if (joinMethod == 0) {
+                                const uint32_t listNow = SDL_GetTicks();
+                                if (listNow - lastListMs > 8000 || lastListMs == 0) {
+                                    lastListMs = listNow;
+                                    listLoading = true;
+                                    gevrJavaCommand("lobbyCommand",
+                                                    ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                                }
+                                if (ImGui::SmallButton("Refresh list")) {
+                                    listLoading = true;
+                                    gevrJavaCommand("lobbyCommand",
+                                                    ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                                }
+                                if (listLoading)
+                                    ImGui::TextDisabled("Loading internet games...");
+                                else if (onlineLobbies.empty())
+                                    ImGui::TextDisabled("No open internet games found.");
+                                for (const OnlineLobby &game : onlineLobbies) {
+                                    char label[180];
+                                    snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##online%s",
+                                             game.name.c_str(), stageNameById(game.stage),
+                                             netWeaponSetName(game.weapons), game.players, game.maxPlayers,
+                                             game.phase == "warmup"        ? " (warmup)"
+                                             : game.phase == "in_progress" ? " (in progress)"
+                                                                           : "",
+                                             game.code.c_str());
+                                    if (ImGui::Button(label, ImVec2(-1, 0))) {
+                                        gevrJavaCommand("requestVoicePermission", "");
+                                        netDisconnect();
+                                        netIceStop();
+                                        clientJoinId.clear();
+                                        onlineMessage = "Joining " + game.name + "...";
+                                        gevrJavaCommand(
+                                            "lobbyCommand",
+                                            ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                                    }
+                                    if (ImGui::IsItemHovered()) {
+                                        ImGui::SetTooltip(
+                                            "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d\nProtocol: %d",
+                                            game.name.c_str(), game.code.c_str(), game.phase.c_str(), game.players,
+                                            game.maxPlayers, GEVR_NET_VERSION);
+                                    }
+                                }
+                            }
 
-                ImGui::TextColored(gold, "PLAYERS IN LOBBY (%d/%d):", pCount, maxP);
-                char openSlots[32] = "";
-                for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-                    if (lobby->slots[i].connected) {
-                        ImGui::BulletText("Slot %d: %s (%s) %s", i + 1,
-                                         lobby->slots[i].name,
-                                         netCharacterName(lobby->slots[i].chr_id),
-                                         (i == 0) ? "[HOST]" : (lobby->slots[i].ready ? "[READY]" : "[WAITING]"));
-                        if (ImGui::IsItemHovered()) {
-                            const char *ver = netGetSlotAppVersion(i);
-                            const char *verStr = (ver && ver[0]) ? ver : "older build (no version announced)";
-                            const char *role = (i == 0) ? "Host (You)" : (lobby->slots[i].ready ? "Ready" : "Waiting");
-                            ImGui::SetTooltip("Player: %s\nRole: %s\nApp Version: %s\nNetwork Protocol: %d\nSlot: %d",
-                                              lobby->slots[i].name, role, verStr, GEVR_NET_VERSION, i + 1);
+                            // 2. Private Room Code
+                            if (joinMethod == 1) {
+                                ImGui::Text("Enter host's private code:");
+                                ImGui::SetNextItemWidth(-1);
+                                ImGui::InputText("##privatecode", privateCode, sizeof(privateCode));
+                                if (ImGui::Button("Join by code", ImVec2(-1, 0))) {
+                                    gevrJavaCommand("requestVoicePermission", "");
+                                    netDisconnect();
+                                    netIceStop();
+                                    clientJoinId.clear();
+                                    onlineMessage = "Looking up private game...";
+                                    gevrJavaCommand("lobbyCommand", ("join|" + std::string(privateCode) + "|" +
+                                                                     std::to_string(GEVR_NET_VERSION))
+                                                                        .c_str());
+                                }
+                            }
+
+                            // 3. LAN Games Discovered
+                            netDiscoveryInit();
+                            int count = netDiscoveryGetServerCount();
+                            char lanLabel[80];
+                            snprintf(lanLabel, sizeof(lanLabel), "LAN Games Discovered (%d)###acc_lan", count);
+                            if (joinMethod == 2) {
+                                if (count == 0) {
+                                    ImGui::TextDisabled("Searching your Wi-Fi network for GoldenEye VR hosts...");
+                                } else {
+                                    for (int i = 0; i < count; i++) {
+                                        const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
+                                        const int cap = srv->max_players;
+                                        const bool full = !srv->joinable;
+                                        char label[160];
+                                        snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##srv%d",
+                                                 srv->server_name, stageNameById(srv->stage_num),
+                                                 netWeaponSetName(srv->weapon_set), srv->player_count, cap,
+                                                 full                                  ? " (full)"
+                                                 : srv->phase == NET_PHASE_WARMUP      ? " (warmup)"
+                                                 : srv->phase == NET_PHASE_IN_PROGRESS ? " (in progress)"
+                                                                                       : "",
+                                                 i);
+                                        if (full)
+                                            ImGui::BeginDisabled();
+                                        if (ImGui::Button(label, ImVec2(-1, 0))) {
+                                            gevrJavaCommand("requestVoicePermission", "");
+                                            gevrJavaCommand("lobbyCommand", "stop");
+                                            netIceStop();
+                                            clientJoinId.clear();
+                                            g_joinedViaInternet = false;
+                                            netConnect(srv->host_ip, srv->port);
+                                        }
+                                        if (full)
+                                            ImGui::EndDisabled();
+                                    }
+                                }
+                            }
+
+                            // 4. Connect Directly via IP
+                            if (joinMethod == 3) {
+                                ImGui::Text("Enter host IP address:");
+                                ImGui::SetNextItemWidth(-1);
+                                ImGui::InputText("##directip", directIp, sizeof(directIp));
+                                if (ImGui::Button("Connect", ImVec2(-1, 0))) {
+                                    gevrJavaCommand("requestVoicePermission", "");
+                                    gevrJavaCommand("lobbyCommand", "stop");
+                                    netIceStop();
+                                    clientJoinId.clear();
+                                    g_joinedViaInternet = false;
+                                    netConnect(directIp, GEVR_DEFAULT_PORT);
+                                }
+                            }
+                            if (joiningOnline)
+                                ImGui::EndDisabled();
                         }
-                    } else if (i < maxP) {
-                        // one line for all the open slots, not one each
-                        const size_t n = strlen(openSlots);
-                        snprintf(openSlots + n, sizeof(openSlots) - n, "%s%d", n ? ", " : "", i + 1);
+                        ImGui::EndTabItem();
                     }
-                }
-                if (openSlots[0]) ImGui::TextDisabled("Open slots: %s", openSlots);
-
-                if (!canLaunch) {
-                    ImGui::Spacing();
-                    if (pCount > maxP) {
-                        ImGui::TextColored(bad, "Stage player limit exceeded! Max %d players for %s (currently %d).",
-                                           maxP, netStageName(stageIdx), pCount);
-                    } else {
-                        ImGui::TextColored(bad, "All connected players must be ready.");
-                    }
-                }
-
-                ImGui::Spacing();
-                // Launch and Stop Hosting share a row (the panel does not scroll).
-                const float stopW = ImGui::CalcTextSize("Stop Hosting").x + ImGui::GetStyle().FramePadding.x * 2.0f;
-                const float launchRowH = ImGui::GetFrameHeight() * 1.8f;
-                if (!canLaunch) ImGui::BeginDisabled();
-                if (ImGui::Button("LAUNCH MULTIPLAYER MATCH!",
-                                  ImVec2(-(stopW + ImGui::GetStyle().ItemSpacing.x), launchRowH))) {
-                    if (!netLobbyHostLaunchMatch()) return;
-                    gevrJavaCommand("lobbyCommand", (std::string("phase|") +
-                        (pCount > 1 ? "in_progress" : "warmup") + "|" + std::to_string(pCount)).c_str());
-                    // the game's globals from the lobby's config, as every headset sets them before a load
-                    netApplyMatchConfig();
-                    bossSetLoadedStage(g_StageNum);
-                    startMatch = true;
-                    open = false;
-                }
-                if (!canLaunch) ImGui::EndDisabled();
-                ImGui::SameLine();
-                if (ImGui::Button("Stop Hosting", ImVec2(stopW, launchRowH))) {
-                    gevrJavaCommand("lobbyCommand", "stop");
-                    netDiscoveryStopBroadcasting();
-                    netDisconnect();
-                    netIceStop();
-                    hostedCode.clear();
-                    hostJoinIds.clear();
+                    ImGui::EndTabBar();
                 }
             }
+            ImGui::EndTabItem();
         }
-        if (section("Match options###host_options", 1)) gevrMatchOptions();
-        if (section("You###host_you", 2)) {
-            characterRow("Character:", "##chrcombo");
-            loadoutRows("host");
-        }
-    } else {
-        if (netIsHost()) {
-            ImGui::TextWrapped("You are hosting. Stop the lobby before joining another game.");
-            if (ImGui::Button("Return to Host Game")) subTab = 0;
-        } else if (!netIsActive()) {
-            characterRow("Your character:", "##chrjoincombo");
-            loadoutRows("join");
-            auto accordionHeader = [&](const char *label, int methodId) -> bool {
-                bool isOpen = (joinMethod == methodId);
-                ImGui::SetNextItemOpen(isOpen);
-                bool headerOpen = ImGui::CollapsingHeader(label, ImGuiTreeNodeFlags_SpanAvailWidth);
-                if (headerOpen) {
-                    if (joinMethod != methodId) joinMethod = methodId;
-                } else {
-                    if (joinMethod == methodId) joinMethod = -1;
-                }
-                return (joinMethod == methodId);
-            };
+        ImGui::EndTabBar();
+    }
+    ImGui::EndChild();
+    ImGui::Separator();
+    // Fixed footer: long rosters, popups and status messages cannot push it away.
+    gevrLauncherStatus(onlineMessage.empty()
+                           ? (netIsHost() ? (netLobbyCanLaunch() ? "Ready to launch warmup."
+                                                                 : "Waiting for joined players to ready up.")
+                                          : "Choose a game or connection method.")
+                           : onlineMessage.c_str());
+    int pCount = netGetConnectedPlayerCount();
+    float h = ImGui::GetFrameHeight() * 1.5f;
+    if (netIsHost()) {
+        ImGui::BeginDisabled(!netLobbyCanLaunch());
+        if (ImGui::Button("Launch", ImVec2(0, h))) {
 
-            const bool joiningOnline = !clientJoinId.empty();
-            if (!clientJoinId.empty()) {
-                if (ImGui::SmallButton("Cancel internet join")) {
-                    gevrJavaCommand("lobbyCommand", "stop");
-                    netIceStop();
-                    clientJoinId.clear();
-                    onlineMessage.clear();
-                }
-            }
-            if (!onlineMessage.empty()) ImGui::TextWrapped("%s", onlineMessage.c_str());
-
-            if (joiningOnline) ImGui::BeginDisabled();
-
-            // 1. Public Internet Games
-            if (accordionHeader("Public Internet Games###acc_public", 0)) {
-                const uint32_t listNow = SDL_GetTicks();
-                if (listNow - lastListMs > 8000 || lastListMs == 0) {
-                    lastListMs = listNow;
-                    listLoading = true;
-                    gevrJavaCommand("lobbyCommand", ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
-                }
-                if (ImGui::SmallButton("Refresh list")) {
-                    listLoading = true;
-                    gevrJavaCommand("lobbyCommand", ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
-                }
-                if (listLoading) ImGui::TextDisabled("Loading internet games...");
-                else if (onlineLobbies.empty()) ImGui::TextDisabled("No open internet games found.");
-                for (const OnlineLobby &game : onlineLobbies) {
-                    char label[180];
-                    snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##online%s",
-                             game.name.c_str(), stageNameById(game.stage), netWeaponSetName(game.weapons),
-                             game.players, game.maxPlayers,
-                             game.phase == "warmup" ? " (warmup)" : game.phase == "in_progress" ? " (in progress)" : "",
-                             game.code.c_str());
-                    if (ImGui::Button(label, ImVec2(-1, 0))) {
-                        gevrJavaCommand("requestVoicePermission", "");
-                        netDisconnect();
-                        netIceStop();
-                        clientJoinId.clear();
-                        onlineMessage = "Joining " + game.name + "...";
-                        gevrJavaCommand("lobbyCommand", ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
-                    }
-                    if (ImGui::IsItemHovered()) {
-                        ImGui::SetTooltip("Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d\nProtocol: %d",
-                                          game.name.c_str(), game.code.c_str(),
-                                          game.phase.c_str(), game.players, game.maxPlayers, GEVR_NET_VERSION);
-                    }
-                }
-            }
-
-            // 2. Private Room Code
-            if (accordionHeader("Private Room Code###acc_private", 1)) {
-                ImGui::Text("Enter host's private code:");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::InputText("##privatecode", privateCode, sizeof(privateCode));
-                if (ImGui::Button("Join by code", ImVec2(-1, 0))) {
-                    gevrJavaCommand("requestVoicePermission", "");
-                    netDisconnect();
-                    netIceStop();
-                    clientJoinId.clear();
-                    onlineMessage = "Looking up private game...";
-                    gevrJavaCommand("lobbyCommand", ("join|" + std::string(privateCode) + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
-                }
-            }
-
-            // 3. LAN Games Discovered
-            netDiscoveryInit();
-            int count = netDiscoveryGetServerCount();
-            char lanLabel[80];
-            snprintf(lanLabel, sizeof(lanLabel), "LAN Games Discovered (%d)###acc_lan", count);
-            if (accordionHeader(lanLabel, 2)) {
-                if (count == 0) {
-                    ImGui::TextDisabled("Searching your Wi-Fi network for GoldenEye VR hosts...");
-                } else {
-                    for (int i = 0; i < count; i++) {
-                        const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
-                        const int cap = srv->max_players;
-                        const bool full = !srv->joinable;
-                        char label[160];
-                        snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##srv%d",
-                                 srv->server_name, stageNameById(srv->stage_num), netWeaponSetName(srv->weapon_set),
-                                 srv->player_count, cap,
-                                 full ? " (full)" : srv->phase == NET_PHASE_WARMUP ? " (warmup)" :
-                                 srv->phase == NET_PHASE_IN_PROGRESS ? " (in progress)" : "", i);
-                        if (full) ImGui::BeginDisabled();
-                        if (ImGui::Button(label, ImVec2(-1, 0))) {
-                            gevrJavaCommand("requestVoicePermission", "");
-                            gevrJavaCommand("lobbyCommand", "stop");
-                            netIceStop();
-                            clientJoinId.clear();
-                            g_joinedViaInternet = false;
-                            netConnect(srv->host_ip, srv->port);
-                        }
-                        if (full) ImGui::EndDisabled();
-                    }
-                }
-            }
-
-            // 4. Connect Directly via IP
-            if (accordionHeader("Connect Directly via IP###acc_direct", 3)) {
-                ImGui::Text("Enter host IP address:");
-                ImGui::SetNextItemWidth(-1);
-                ImGui::InputText("##directip", directIp, sizeof(directIp));
-                if (ImGui::Button("Connect", ImVec2(-1, 0))) {
-                    gevrJavaCommand("requestVoicePermission", "");
-                    gevrJavaCommand("lobbyCommand", "stop");
-                    netIceStop();
-                    clientJoinId.clear();
-                    g_joinedViaInternet = false;
-                    netConnect(directIp, GEVR_DEFAULT_PORT);
-                }
-            }
-
-            if (joiningOnline) ImGui::EndDisabled();
-        } else if (netGetState() == NET_STATE_CONNECTING) {
-            ImGui::TextColored(gold, "Connecting to host...");
-            if (ImGui::Button("Cancel connection")) {
-                netDisconnect();
-                netIceStop();
-                gevrJavaCommand("lobbyCommand", "stop");
-                clientJoinId.clear();
-            }
-        } else {
-            ImGui::TextColored(good, "CONNECTED TO SERVER! You are Player Slot %d", netGetLocalSlot() + 1);
-            bool micMuted = netVoiceIsMuted() != 0;
-            if (ImGui::Checkbox("Mute Microphone", &micMuted)) netVoiceSetMuted(micMuted);
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", micMuted ? "Mic muted" :
-                !netVoiceHasPermission() ? "No mic access (listen only)" :
-                netVoiceCaptureFailed() ? "Mic unavailable (listen only)" : "Mic active");
-            const NetMsgLobbyState *lobby = netGetLobbyState();
-            {
-                const NetMatchConfig *cfg = &lobby->config;
-                ImGui::Text("Stage: %s   Weapons: %s   %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
-                            netScenarioName(cfg->scenario));
-                ImGui::TextDisabled("Length: %s   Health: %s   Dual wield: %s   Loadouts: %s   Next round: %s",
-                                    netGameLengthName(cfg->game_length), netHealthName(cfg->health),
-                                    netDualWieldName(cfg->dual_wield), cfg->loadouts ? "on" : "off", netNextRoundName(cfg->next_round));
-            }
-            characterRow("Choose your character:", "##chrclientcombo");
-            loadoutRows("client");
-            {
-                // the host learns this player's guns once per connection
-                static int loadoutSentSlot = -1;
-                if (loadoutSentSlot != netGetLocalSlot()) {
-                    loadoutSentSlot = netGetLocalSlot();
-                    gevrSendLoadout();
-                }
-            }
-
-            static bool clientReady = false;
-            if (ImGui::Checkbox("I am Ready", &clientReady)) {
-                netLobbySetReady(clientReady);
-            }
-
-            ImGui::TextColored(gold, "PLAYERS IN LOBBY:");
-            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-                if (!lobby->slots[i].connected) continue;
-                ImGui::BulletText("%s (%s) %s", lobby->slots[i].name, netCharacterName(lobby->slots[i].chr_id),
-                                  i == 0 ? "[HOST]" : i == netGetLocalSlot() ? "[YOU]" :
-                                  lobby->slots[i].ready ? "[READY]" : "[WAITING]");
-                if (ImGui::IsItemHovered()) {
-                    const char *ver = netGetSlotAppVersion(i);
-                    const char *verStr = (ver && ver[0]) ? ver : "older build (no version announced)";
-                    const char *role = (i == 0) ? "Host" : (i == netGetLocalSlot() ? "You" : (lobby->slots[i].ready ? "Ready" : "Waiting"));
-                    ImGui::SetTooltip("Player: %s\nRole: %s\nApp Version: %s\nNetwork Protocol: %d\nSlot: %d",
-                                      lobby->slots[i].name, role, verStr, GEVR_NET_VERSION, i + 1);
-                }
-            }
-            ImGui::TextColored(gold, "Waiting for Host to launch match...");
-            if (netGetState() == NET_STATE_INGAME) {
+            if (netLobbyHostLaunchMatch()) {
+                gevrJavaCommand("lobbyCommand", (std::string("phase|") + (pCount > 1 ? "in_progress" : "warmup") + "|" +
+                                                 std::to_string(pCount))
+                                                    .c_str());
                 // the game's globals from the lobby's config, as every headset sets them before a load
                 netApplyMatchConfig();
                 bossSetLoadedStage(g_StageNum);
                 startMatch = true;
                 open = false;
             }
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Stop Hosting", ImVec2(0, h))) {
 
-            if (ImGui::Button("Disconnect")) {
-                netDisconnect();
-                netIceStop();
-                gevrJavaCommand("lobbyCommand", "stop");
-                clientJoinId.clear();
-            }
-        }
-    }
-    
-    if (ImGui::GetScrollMaxY() > 8.0f) {
-        if (ImGui::GetScrollY() < ImGui::GetScrollMaxY() - 8.0f) {
-            ImGui::TextColored(gold, "v  Scroll down with stick for more options  v");
-        } else {
-            ImGui::TextColored(gold, "^  Scroll up with stick for earlier options  ^");
-        }
-    }
-    ImGui::Spacing();
-    ImGui::Separator();
-    if (ImGui::Button("Back to Main Menu", ImVec2(-1, 0))) {
-        if (netIsHost()) {
             gevrJavaCommand("lobbyCommand", "stop");
             netDiscoveryStopBroadcasting();
             netDisconnect();
@@ -1572,6 +1683,58 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             hostedCode.clear();
             hostJoinIds.clear();
         }
+        ImGui::SameLine();
+    } else if (netIsActive()) {
+        int slot = netGetLocalSlot();
+        if (slot >= 0 && netGetState() != NET_STATE_CONNECTING) {
+            bool ready = netGetLobbyState()->slots[slot].ready != 0;
+            ImGui::BeginDisabled(netScenarioHasTeams(netGetMatchConfig()->scenario) &&
+                                 netGetSlotTeam(slot) == NET_TEAM_NONE);
+            if (ImGui::Checkbox("Ready", &ready))
+                netLobbySetReady(ready);
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+        }
+        if (ImGui::Button("Disconnect", ImVec2(0, h)))
+            disconnect();
+        ImGui::SameLine();
+    } else if (!clientJoinId.empty()) {
+        if (ImGui::Button("Cancel Join", ImVec2(0, h))) { disconnect(); onlineMessage.clear(); }
+        ImGui::SameLine();
+    } else if (subTab == 0) {
+        if (ImGui::Button("Start Hosting", ImVec2(0, h))) {
+            int stageIdx = netStageIndexOf((uint8_t)VrMpStage);
+
+            // the game's name in the LAN and internet lists: the host's
+            const std::string gameName = gevrLobbyName();
+            if (netHostStart(GEVR_DEFAULT_PORT)) {
+                netSetMaxPlayers(netStageMaxPlayers(stageIdx));
+                netSetGameName(gameName.c_str()); // the clients keep it: the LAN beacon of a migrated host
+                g_joinedViaInternet = false;
+                gevrJavaCommand("requestVoicePermission", "");
+                netIceStartHost();
+                netDiscoveryInit();
+                netDiscoveryStartBroadcasting(gameName.c_str(), GEVR_DEFAULT_PORT);
+                netLobbySetCharacter((uint8_t)VrMpChr);
+                gevrSendLoadout();
+                {
+                    const NetMatchConfig c = gevrLauncherConfig();
+                    netLobbySetConfig(&c);
+                }
+                hostedCode.clear();
+                hostJoinIds.clear();
+                onlineMessage = "Registering online lobby...";
+                const std::string command =
+                    gevrLobbyCreateCommand(gameName, VrMpStage, VrMpWeaponSet, netGetMaxPlayers());
+                gevrJavaCommand("lobbyCommand", command.c_str());
+            } else
+                onlineMessage = "Could not start the local game host";
+        }
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Back", ImVec2(0, h))) {
+        if (netIsHost())
+            disconnect();
         open = false;
     }
 }
@@ -1584,6 +1747,7 @@ extern "C" void gevrLobbyGameTick(void)
     static Uint32 lastTick = 0;
     static Uint32 lastRefresh = 0;
     static NetPhase lastPhase = NET_PHASE_WAITING;
+    static bool keepalivePaused = false;
     static std::vector<std::string> pendingAnswers;
     const Uint32 now = SDL_GetTicks();
     if (now - lastTick < 250) return;
@@ -1601,7 +1765,7 @@ extern "C" void gevrLobbyGameTick(void)
             if (internet) {
                 gevrJavaCommand("lobbyCommand", (std::string("resume|") + netGetLobbyCode() + "|" + netGetLobbyToken() + "|" +
                     std::to_string(netGetMaxPlayers()) + "|" +
-                    (netGetPhase() == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup") + "|1").c_str());
+                    (netGetPhase() == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup") + "|1|" + gevrLobbyName()).c_str());
             }
             netDiscoveryInit();
             netDiscoveryStartBroadcasting(netGetGameName(), GEVR_DEFAULT_PORT);
@@ -1616,7 +1780,22 @@ extern "C" void gevrLobbyGameTick(void)
             const std::string event = gevrJavaString("lobbyEvent");
             if (event.empty()) break;
             const auto fields = gevrSplitLobbyEvent(event);
-            if (fields[0] == "HOST_PEER" && fields.size() >= 5 && netIcePeerCount() < 3 &&
+            if (fields[0] == "CREATED" && fields.size() >= 3) {
+                netSetLobbyHandoff(fields[1].c_str(), fields[2].c_str());
+                lastPhase = NET_PHASE_WAITING;
+                lastRefresh = 0;
+            } else if (fields[0] == "LOBBY_LOST" && fields.size() >= 3) {
+                pendingAnswers.clear();
+                const int players = netGetLivePlayerCount();
+                if (players < netGetMaxPlayers() &&
+                    (netGetPhase() != NET_PHASE_IN_PROGRESS || players >= 2)) {
+                    vr_log("launcher: lobby %s lost (%s); registering again", fields[1].c_str(), fields[2].c_str());
+                    gevrJavaCommand("lobbyCommand", gevrLobbyCreateCommand(gevrLobbyName(),
+                        netGetLobbyStage(), netGetLobbyWeaponSet(), netGetMaxPlayers()).c_str());
+                } else {
+                    vr_log("launcher: lobby %s lost (%s); match is not joinable", fields[1].c_str(), fields[2].c_str());
+                }
+            } else if (fields[0] == "HOST_PEER" && fields.size() >= 5 && netIcePeerCount() < 3 &&
                 netIceAddHostPeer(fields[1].c_str(), gevrDecodeUrl64(fields[2]).c_str(),
                                   fields[3].c_str(), fields[4].c_str()))
                 pendingAnswers.push_back(fields[1]);
@@ -1631,7 +1810,16 @@ extern "C" void gevrLobbyGameTick(void)
             } else ++it;
         }
         const NetPhase phase = netGetPhase();
-        if (phase != lastPhase || now - lastRefresh >= 5000) {
+        const bool running = gevrVrSessionRunning() != 0;
+        if (!running && !keepalivePaused) {
+            vr_log("launcher: lobby keepalive paused (XR session not running)");
+            keepalivePaused = true;
+        } else if (running && keepalivePaused) {
+            vr_log("launcher: lobby keepalive resumed (XR session running)");
+            keepalivePaused = false;
+            lastRefresh = 0;
+        }
+        if (running && (phase != lastPhase || now - lastRefresh >= 5000 || lastRefresh == 0)) {
             lastRefresh = now;
             const char *phaseName = phase == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup";
             if (phase != lastPhase) {
@@ -1647,6 +1835,7 @@ extern "C" void gevrLobbyGameTick(void)
             }
         }
     } else {
+        keepalivePaused = false;
         lastPhase = NET_PHASE_WAITING;
         lastRefresh = 0;
         pendingAnswers.clear();
@@ -1738,34 +1927,13 @@ extern "C" void gevrLobbySessionStopped(void)
 // a trigger is pulled, and hands back as soon as the stick or a button is
 // used: ImGui hides the gamepad focus on every mouse move, and a controller
 // lying still still jitters, which left A doing nothing.
-bool feedPointer(ImGuiIO &io, bool navUsed)
-{
-    static bool owns = false;
-    static float lu = -1.0f, lv = -1.0f;
-    float u, v;
+bool feedPointer(ImGuiIO &io, bool navUsed) {
+    static GevrPointerOwner owner;
+    float u = 0, v = 0;
     const bool on = gevrVrScreenPointer(&u, &v) != 0;
     const bool trig = get_button_state(1, "trigger") || get_button_state(0, "trigger");
-
-    if (!on) {
-        if (owns) {
-            io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
-        }
-        owns = false;
-        io.AddMouseButtonEvent(0, false);
-        return false;
-    }
-    if (fabsf(u - lu) + fabsf(v - lv) > 0.01f || (trig && !navUsed)) {
-        owns = true;
-        lu = u;
-        lv = v;
-    }
-    if (navUsed && owns) {
-        owns = false;
-        io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
-    }
-    if (owns) {
-        io.AddMousePosEvent(u * kTexW, v * kTexH);
-    }
+    bool owns = owner.update(on, u, v, trig, navUsed);
+    io.AddMousePosEvent(owns ? u * kTexW : -FLT_MAX, owns ? v * kTexH : -FLT_MAX);
     io.AddMouseButtonEvent(0, owns && trig);
     return owns;
 }
@@ -1774,15 +1942,14 @@ bool feedPointer(ImGuiIO &io, bool navUsed)
 // The test hook's START (1000) presses the launcher's Start directly.
 bool s_injectStart = false;
 
-bool feedGamepad(ImGuiIO &io, bool pointing)
-{
+bool feedGamepad(ImGuiIO &io) {
     static Injected inj;
     pollInjected(inj);
     if (inj.mask & 0x1000) {
         s_injectStart = true;
     }
     static bool pickerHookDone = false;
-    if ((inj.mask & 0x0020) && !pickerHookDone) {   // test hook: L opens the file picker
+    if ((inj.mask & 0x0020) && !pickerHookDone) { // test hook: L opens the file picker
         pickerHookDone = true;
         gevrOpenRomPicker();
     }
@@ -1795,20 +1962,22 @@ bool feedGamepad(ImGuiIO &io, bool pointing)
     get_2d_input(1, "thumbstick", &r);
     // whichever stick is pushed further
     XrVector2f s = (l.x * l.x + l.y * l.y > r.x * r.x + r.y * r.y) ? l : r;
-    if (inj.x || inj.y) s = {inj.x / 80.0f, inj.y / 80.0f};
+    if (inj.x || inj.y)
+        s = {inj.x / 80.0f, inj.y / 80.0f};
     const float t = 0.5f;
+    const bool back = get_button_state(1, "b") || get_button_state(0, "y") || (inj.mask & 0x4000);
+    const bool select = get_button_state(1, "a") || get_button_state(0, "x") || (inj.mask & 0x8000);
+    const bool navUsed = fabsf(s.x) > t || fabsf(s.y) > t || back || select;
+    const bool pointing = feedPointer(io, navUsed);
     io.AddKeyEvent(ImGuiKey_GamepadDpadUp, s.y > t);
     io.AddKeyEvent(ImGuiKey_GamepadDpadDown, s.y < -t);
     io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, s.x < -t);
     io.AddKeyEvent(ImGuiKey_GamepadDpadRight, s.x > t);
-    io.AddKeyEvent(ImGuiKey_GamepadFaceDown,
-                   get_button_state(1, "a") || get_button_state(0, "x")
-                   || (!pointing && (get_button_state(1, "trigger") || get_button_state(0, "trigger")))
-                   || (inj.mask & 0x8000));
-    const bool back = get_button_state(1, "b") || get_button_state(0, "y") || (inj.mask & 0x4000);
-    const bool select = get_button_state(1, "a") || get_button_state(0, "x") || (inj.mask & 0x8000);
+    io.AddKeyEvent(
+        ImGuiKey_GamepadFaceDown,
+        gevrGamepadActivate(pointing, select, get_button_state(1, "trigger") || get_button_state(0, "trigger")));
     io.AddKeyEvent(ImGuiKey_GamepadFaceRight, back);
-    return fabsf(s.x) > t || fabsf(s.y) > t || back || select;
+    return navUsed;
 }
 
 // The Quest system keyboard (AndroidManifest: oculus.software.overlay_keyboard).
@@ -1999,19 +2168,35 @@ extern "C" void gevrLauncherRun(void)
     Uint32 lastUpdPoll = 0;
     static bool reportPage = false;
     static bool reportCrash = false;
-    if (gevrJavaString("reportStatus") == "offer") {
-        reportPage = true;
-        reportCrash = true;
-        gevrJavaCommand("reportCommand", "offered");
-    }
-
+    Uint32 lastReportPoll = 0;
     while (!start) {
+        // SDL's native thread may reach the launcher before MainActivity has
+        // finished constructing the reporter. Poll after startup too.
+        Uint32 reportNow = SDL_GetTicks();
+        if (!lastReportPoll || reportNow - lastReportPoll >= 500) {
+            lastReportPoll = reportNow;
+            if (gevrJavaString("reportStatus") == "offer") {
+                reportPage = true;
+                reportCrash = true;
+            }
+        }
         SDL_PumpEvents();
 
         netPoll();
         netDiscoveryUpdate(SDL_GetTicks());
 
         if (!gevrVrPumpBegin()) {
+            // The Quest menu can suppress rendering without stopping XR.
+            // Keep the hosted lobby alive while that session still runs.
+            static Uint32 lastNoFrameRefresh = 0;
+            const Uint32 now = SDL_GetTicks();
+            if (netIsHost() && gevrVrSessionRunning() &&
+                (lastNoFrameRefresh == 0 || now - lastNoFrameRefresh >= 5000)) {
+                lastNoFrameRefresh = now;
+                const int players = netGetConnectedPlayerCount();
+                gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
+                    "|" + (players < netGetMaxPlayers() ? "1" : "0")).c_str());
+            }
             SDL_Delay(5);
             continue;
         }
@@ -2061,16 +2246,15 @@ extern "C" void gevrLauncherRun(void)
             }
         }
         {
-            static bool pointing = false;
             // no stick navigation while the stick is resizing the screen
-            const bool navUsed = grabbing ? false : feedGamepad(io, pointing);
+            if (!grabbing) feedGamepad(io);
             if (grabbing) {
                 io.AddKeyEvent(ImGuiKey_GamepadDpadUp, false);
                 io.AddKeyEvent(ImGuiKey_GamepadDpadDown, false);
                 io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, false);
                 io.AddKeyEvent(ImGuiKey_GamepadDpadRight, false);
             }
-            pointing = feedPointer(io, navUsed);
+            if (grabbing) feedPointer(io, false);
             feedKeyboard(io);
         }
 

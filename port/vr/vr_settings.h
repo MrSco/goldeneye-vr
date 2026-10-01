@@ -34,6 +34,10 @@ extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launche
 // Stage is a LEVELID; sets, scenario, length, health are net_match.c indices;
 // the guns are ITEM_IDS values; the favorites are bitmasks over net_match.c's lists.
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility;
+extern int VrMpVoiceMode;
+extern int VrMpFriendlyFire;
+extern int VrHostEqualization, VrHostLatencyCapMs;
+extern int VrMpFunFlags, VrMpGunSize;
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
 extern int VrMpCustom[4];       // the host's custom set
 extern int VrMpLoadout[4];      // this player's spawn guns

@@ -30,6 +30,13 @@ typedef enum {
 bool netInit(void);
 void netShutdown(void);
 void netPoll(void);
+/* Local host policy, persisted on this headset; no additional wire fields. */
+void netSetHostEqualization(int enabled, unsigned cap_ms);
+int netGetHostEqualization(unsigned *cap_ms);
+unsigned netGetSlotHostDelayMs(int slot);
+void netHostEqualizationText(char *text, unsigned size);
+void netBeginLocalShot(void);
+void netEndLocalShot(void);
 
 /* Session Management */
 bool netHostStart(uint16_t port);
@@ -41,6 +48,7 @@ NetState netGetState(void);
 bool netIsActive(void);
 bool netIsHost(void);
 int netGetLocalSlot(void);
+int netGetHostSlot(void);
 int netGetConnectedPlayerCount(void);
 int netGetMaxPlayers(void);
 void netSetMaxPlayers(int max_players);
@@ -70,6 +78,7 @@ void netLobbySetCharacter(uint8_t chr_id);
 void netSetPreferredCharacter(uint8_t chr_id);
 void netLobbySetLoadout(const uint8_t items[4]);   /* my four spawn guns */
 bool netLobbyHostLaunchMatch(void);
+int netLobbyCanLaunch(void);
 
 /* The match config (net_protocol.h NetMatchConfig) */
 const NetMatchConfig *netGetMatchConfig(void);
@@ -81,6 +90,7 @@ int netMpPlayerCount(int fallback);         /* the game's player_count online: t
 bool netSlotIsSpectator(int slot);
 bool netLocalIsSpectator(void);
 int netVoiceSameGroup(int a, int b);
+int netVoiceModeForPair(int a, int b);
 void netSendSpecialTaken(s32 item);         /* the local player took the flag or the Golden Gun */
 
 /* Gameplay State Sending */

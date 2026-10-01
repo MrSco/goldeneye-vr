@@ -1,4 +1,5 @@
 #include "net_match.h"
+#include "net_rules.h"
 #include <ultra64.h>
 #include <bondtypes.h>
 #include "bondconstants.h"
@@ -18,7 +19,7 @@ static const char *const s_weapon_sets[] = {
 };
 
 static const char *const s_scenarios[] = {
-    "Normal", "You Only Live Twice", "The Living Daylights", "The Man With The Golden Gun", "Licence To Kill",
+    "Normal", "You Only Live Twice", "The Living Daylights", "The Man With The Golden Gun", "Licence To Kill", "Team 2v2", "Team 3v1", "Team 2v1",
 };
 
 /* front.c multi_game_lengths */
@@ -123,3 +124,6 @@ const char *netDualWieldName(int mode) {
 const char *netNextRoundName(int mode) {
     return mode == NET_NEXT_SHUFFLE ? "Shuffle" : mode == NET_NEXT_PLAYLIST ? "Playlist" : "Vote";
 }
+
+const char *netVoiceModeName(int mode) { return mode == NET_VOICE_COUCH ? "Couch" : "Proximity"; }
+const char *netTeamName(int team) { return team == NET_TEAM_RED ? "Red" : team == NET_TEAM_BLUE ? "Blue" : "Unassigned"; }
