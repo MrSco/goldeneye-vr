@@ -1174,7 +1174,7 @@ u32 gevrModelConvert(u8 *data, u32 size, u32 capacity, s32 numSwitches, s32 numT
 			} else if (b->kind == BK_GDL) {
 				Gfx *g = (Gfx *)(out + b->dst);
 				u32 k, n = b->dstSize / sizeof(Gfx);
-				u32 tex = 0;
+				u32 tex = 0, droppedTex = 0;
 				s32 drop = FALSE, dropped = 0;
 
 				for (k = 0; k < n; k++) {
@@ -1188,11 +1188,12 @@ u32 gevrModelConvert(u8 *data, u32 size, u32 capacity, s32 numSwitches, s32 numT
 						/* a face the model should not draw (issue #24): a no-op */
 						g[k].words.w0 = 0;
 						g[k].words.w1 = 0;
+						droppedTex = tex;
 						dropped++;
 					}
 				}
 				if (dropped) {
-					sysLogPrintf(LOG_NOTE, "model %s: dropped %d face command(s) of texture 0x%03x", c.name, dropped, tex);
+					sysLogPrintf(LOG_NOTE, "model %s: dropped %d face command(s) of texture 0x%03x", c.name, dropped, droppedTex);
 				}
 			}
 		}
