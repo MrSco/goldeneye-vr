@@ -48,6 +48,10 @@
 #include "stan.h"
 #ifdef GEVR
 #include "system.h"
+#include "net_objects.h"
+extern bool netIsActive(void);
+extern bool netIsHost(void);
+extern int netGetLocalSlot(void);
 #endif
 #include "stanintersection.h"
 #include "tex.h"
@@ -4598,6 +4602,12 @@ s32 objTick(struct PropRecord *prop)
 #if !defined(VERSION_EU)
 	sp100 = (struct PropRecord *) &obj->nextcol;
 #endif
+#ifdef GEVR
+    if (gevrAmmoNetworked(obj)) {
+        extern s32 g_gevrExtraPass;
+        isSimOwner = netIsHost() && get_cur_playernum() == netGetLocalSlot() && !g_gevrExtraPass;
+    }
+#endif
 	if (isSimOwner)
 	{
 		if (obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE)
@@ -8028,6 +8038,17 @@ void objBounce(ObjectRecord *obj, coord3d *arg1)
     coord3d rot = {0, 0, 0};
     Projectile *projectile = NULL;
 
+#ifdef GEVR
+    if (gevrAmmoNetworked(obj)) {
+        /* Remote shot replay is visual; only the shooter's headset requests a bounce. */
+        if (get_cur_playernum() == netGetLocalSlot()) {
+            coord3d world = *arg1;
+            mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &world);
+            netSendAmmoImpulse(obj, &world);
+        }
+        return;
+    }
+#endif
     sub_GAME_7F03FDA8(obj->prop);
 
     if (obj->runtime_bitflags & RUNTIMEBITFLAG_EMBEDDED) {
@@ -10662,6 +10683,9 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 
             collected = 0;
             wep = (WeaponObjRecord *)prop->obj;
+#ifdef GEVR
+            s32 alreadyOwned = gevrWeaponOwned(wep->weaponnum);
+#endif
 
             set_sound_effect_for_weapontype_collection(wep->weaponnum);
 
@@ -10747,6 +10771,9 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
                 }
             }
 
+#ifdef GEVR
+            gevrWeaponPickedUp(wep->weaponnum, alreadyOwned);
+#endif
             break;
         }
 
@@ -12838,6 +12865,12 @@ s32 sub_GAME_7F0539E4(coord3d *pos)
     return sub_GAME_7F053894(pos, 5000.0f, 6000.0f);
 }
 
+
+void chrobjSndCreatePostEventDamage(ALSoundState *state, coord3d *pos)
+{
+    f32 gain = sub_GAME_7F053894(pos, 200.0f, 500.0f) / 32767.0f;
+    sndCreatePostEvent(state, 8, (s32)(32767.0f * gain * gain));
+}
 
 void chrobjSndCreatePostEventDefault(ALSoundState *state, coord3d *pos)
 {

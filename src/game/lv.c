@@ -404,7 +404,11 @@ void lvlStageLoad(s32 stage)
 
         if ((g_CurrentStageToLoad != LEVELID_TITLE) && (D_80048394 == 0) && (g_ClockTimer > 0))
         {
-            if (g_AppendCheatSinglePlayer != 0)
+            if (g_AppendCheatSinglePlayer != 0
+#ifdef GEVR
+                && !netIsActive()
+#endif
+            )
             {
                 s32 s0 = 1;
 
@@ -1365,7 +1369,11 @@ void lvlManageMpGame(void)
     g_GlobalTimer += g_ClockTimer;
     if ((g_CurrentStageToLoad != LEVELID_TITLE) && (D_80048394 == 0) && (g_ClockTimer > 0))
     {
-        if (g_AppendCheatSinglePlayer != 0)
+        if (g_AppendCheatSinglePlayer != 0
+#ifdef GEVR
+                && !netIsActive()
+#endif
+            )
         {
             s32 i;
             for (i = 1; i != CHEAT_INVALID; i++)

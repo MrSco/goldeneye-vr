@@ -483,11 +483,13 @@ int bondinvAddWeaponByProp(PropRecord *prop)
 
             s8 weaponnum = weapon->weaponnum;
 #ifdef GEVR
-            if (netActiveDualWield() && bondinvHasInvItem(weaponnum) &&
-                bondwalkItemCheckBitflags(weaponnum, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) &&
+            extern s32 g_gevrStereo;
+            if ((g_gevrStereo || netActiveDualWield()) && bondinvHasInvItem(weaponnum) &&
+                (g_gevrStereo ? gevrWeaponUsesCopies(weaponnum) :
+                    bondwalkItemCheckBitflags(weaponnum, WEAPONSTATBITFLAG_CAN_DUAL_WIELD)) &&
                 !bondinvHasDualWeapon(weaponnum, weaponnum)) {
                 added = bondinvAddDoublesInvItem(weaponnum, weaponnum);
-                if (added) {
+                if (added && !g_gevrStereo) {
                     gunRequestHandWeaponChange(GUNRIGHT, weaponnum, 1);
                     gunRequestHandWeaponChange(GUNLEFT, weaponnum, 1);
                 }

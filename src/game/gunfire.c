@@ -22,6 +22,9 @@
 #include "lv.h"
 #include "random.h"
 #include "system.h" /* PORT probe logging */
+#ifdef GEVR
+extern bool netIsActive(void);
+#endif
 /*
  * WeaponStats.RecoilSpeed is initialised as one 32-bit literal per weapon
  * (gunWeaponStats.inc.c: the KF7's is 0x40C0006) and read back as four bytes
@@ -360,11 +363,10 @@ extern void gevrStereoItemPose(s32 item, Mtxf *m);
 extern s32 g_gevrStereo;
 extern int gevrVrTriggerDown[2];   /* port/src/input.c: each controller's trigger, by gun hand */
 
-/* both hands hold a gun (input.c: the left trigger fires instead of aiming) */
+/* An equipped off hand fires independently, even with the dominant hand holstered. */
 s32 gevrDualWielding(void)
 {
     return g_CurrentPlayer != NULL
-        && getCurrentPlayerWeaponId(GUNRIGHT) != ITEM_UNARMED
         && getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED;
 }
 static s32 s_gevrHiddenShown[2];
@@ -3974,31 +3976,48 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 }
                 else
                 {
-                    if (g_CurrentPlayer->trigger_released != 0)
+                    if (
+#ifdef GEVR
+                        g_gevrStereo ? !gevrVrTriggerDown[hand] :
+#endif
+                        g_CurrentPlayer->trigger_released != 0)
                     {
-                        temp_v0_3 = get_item_in_hand_or_watch_menu(1 - hand);
-
-                        sp1BC = (g_CurrentPlayer->hands - hand) + 1;
-
-                        if ((sp1BC->weapon_action_state == GUN_ANIM_STATE_IDLE)
-                            && (sp1BC->weapon_current_animation == 0)
-                            && (
-                                (temp_v0_3 == ITEM_UNARMED)
-                                || ((sp1BC->weapon_ammo_in_magazine == 0)
-                                    && ((get_ammo_type_for_weapon(temp_v0_3) != 0))
-                                    && ((get_ammo_in_hands_weapon(1 - hand) <= 0)))))
+#ifdef GEVR
+                        if (g_gevrStereo)
                         {
-                            autoadvance_on_deplete_all_ammo();
-
+                            gevrAutoAdvanceHand(hand);
                             handptr->field_88C = 0;
                             handptr->field_890 = 0;
                             handptr->weapon_action_state = handptr->weapon_current_animation;
                             handptr->weapon_current_animation = 0;
+                        }
+                        else
+#endif
+                        {
+                            temp_v0_3 = get_item_in_hand_or_watch_menu(1 - hand);
 
-                            sp1BC->field_88C = 0;
-                            sp1BC->field_890 = 0;
-                            sp1BC->weapon_action_state = sp1BC->weapon_current_animation;
-                            sp1BC->weapon_current_animation = 0;
+                            sp1BC = (g_CurrentPlayer->hands - hand) + 1;
+
+                            if ((sp1BC->weapon_action_state == GUN_ANIM_STATE_IDLE)
+                                && (sp1BC->weapon_current_animation == 0)
+                                && (
+                                    (temp_v0_3 == ITEM_UNARMED)
+                                    || ((sp1BC->weapon_ammo_in_magazine == 0)
+                                        && ((get_ammo_type_for_weapon(temp_v0_3) != 0))
+                                        && ((get_ammo_in_hands_weapon(1 - hand) <= 0)))))
+                            {
+                                autoadvance_on_deplete_all_ammo();
+
+                                handptr->field_88C = 0;
+                                handptr->field_890 = 0;
+                                handptr->weapon_action_state = handptr->weapon_current_animation;
+                                handptr->weapon_current_animation = 0;
+
+                                sp1BC->field_88C = 0;
+                                sp1BC->field_890 = 0;
+                                sp1BC->weapon_action_state = sp1BC->weapon_current_animation;
+                                sp1BC->weapon_current_animation = 0;
+                            }
                         }
                     }
                 }
@@ -4673,7 +4692,13 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 temp_v1_5 = (g_CurrentPlayer->hands - hand) + 1;
 
-                if ((temp_v1_5->weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP) && (temp_v1_5->weapon_action_state != GUN_ANIM_STATE_SWITCH_LOWER))
+                /* Stereo hands are independent; native pair validation would
+                 * holster the other hand or reject a carried mixed weapon. */
+                if (
+#ifdef GEVR
+                    !g_gevrStereo &&
+#endif
+                    (temp_v1_5->weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP) && (temp_v1_5->weapon_action_state != GUN_ANIM_STATE_SWITCH_LOWER))
                 {
                     if (
                         (temp_v1_5->weapon_current_animation != 5)
@@ -7798,15 +7823,15 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
  * far off never under ~0.07 degrees, so a name stays readable across a map.
  */
 /* one name, its panel's foot at the world point at */
-static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at)
+static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking)
 {
     extern f32 D_800364CC;
     struct fontchar *chars = ptrFontZurichBoldChars;
     struct font *font = ptrFontZurichBold;
 
     {
-        struct fontchar *glyph[16];
-        s32 gx[16];
+        struct fontchar *glyph[20];
+        s32 gx[20];
         s32 n = 0, x = 0, top = 0x7fff, bottom = 0, prev = 'H', g;
         const char *c;
         coord3d v;
@@ -7846,6 +7871,14 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at)
             return gdl;
         }
 
+        /* Keep x (the name's width), top and bottom unchanged when speaking. */
+        if (speaking) {
+            s32 icon_x=x+6;
+            for (c=">))"; *c && n<20; c++) {
+                struct fontchar *ch=&chars[*c-0x21];
+                glyph[n]=ch; gx[n++]=icon_x; icon_x+=ch->width+1;
+            }
+        }
         v = at;
         mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &v);
         v.x *= D_800364CC;   /* view space is world * D_800364CC (bondviewUpdateCameraMatrices) */
@@ -7979,16 +8012,7 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
          * From the eye alone the tag sat on the head (two-headset test). */
         at = pl->prop->pos;
         at.y = at.y - pl->eyeheight + 205.0f;
-        if (netVoiceSlotSpeaking((unsigned char)i))
-        {
-            char speaking_name[20];
-            snprintf(speaking_name, sizeof(speaking_name), ">)) %.11s", name);
-            gdl = gevrDrawNameTag(gdl, speaking_name, at);
-        }
-        else
-        {
-            gdl = gevrDrawNameTag(gdl, name, at);
-        }
+        gdl = gevrDrawNameTag(gdl, name, at, netVoiceSlotSpeaking((unsigned char)i));
     }
     return gdl;
 }

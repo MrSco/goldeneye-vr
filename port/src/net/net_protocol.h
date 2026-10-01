@@ -3,12 +3,15 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <math.h>
 #include <ultra64.h>
 #include "bondtypes.h"
 #include "net/netbuf.h"
+#include "net_rules.h"
+#include "net_match.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         10  /* 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         15  /* 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
@@ -72,8 +75,51 @@ typedef enum {
     NET_MSG_VOTE = 27,          /* Player -> host: my vote (ballot kind, value; 0xFF none) */
     NET_MSG_VOTES = 28,         /* Host -> all: a ballot's votes, every slot */
     NET_MSG_LOBBY_HANDOFF = 29, /* Host -> client: lobby code, owner token, game name, max players (host migration) */
+    NET_MSG_LOBBY_TEAM = 31,    /* Client -> host: pending team choice */
+    NET_MSG_AMMO_IMPULSE = 32,  /* Shooter -> host: setup crate ID and world direction */
+    NET_MSG_AMMO_STATE = 33,    /* Host -> peers: crate transforms and respawn state */
+    NET_MSG_CLOCK = 34,        /* Host probe -> client reply, four-timestamp clock synchronization */
     NET_MSG_LOBBY_LOADOUT = 30, /* Client -> host: my four spawn guns */
 } NetMsgType;
+
+/* Protocol 15 combat identity. Shot IDs identify one firing action; hit IDs
+ * identify individual pellets/penetrations, so replay protection preserves them. */
+typedef struct {
+    uint64_t epoch, shot_us;
+    uint32_t shooter_life, target_life, shot_id, hit_id;
+    uint8_t target, weapon, part;
+    float hx, hy, hz, damage;
+} NetHitReport;
+#define NET_HIT_REPORT_BYTES 51
+static inline void netbufWriteHitReport(struct netbuf *b,const NetHitReport *h) {
+    netbufWriteU64(b,h->epoch);netbufWriteU64(b,h->shot_us);
+    netbufWriteU32(b,h->shooter_life);netbufWriteU32(b,h->target_life);
+    netbufWriteU32(b,h->shot_id);netbufWriteU32(b,h->hit_id);
+    netbufWriteU8(b,h->target);netbufWriteU8(b,h->weapon);netbufWriteU8(b,h->part);
+    netbufWriteF32(b,h->hx);netbufWriteF32(b,h->hy);netbufWriteF32(b,h->hz);netbufWriteF32(b,h->damage);
+}
+static inline int netbufReadHitReport(struct netbuf *b,NetHitReport *h) {
+    h->epoch=netbufReadU64(b);h->shot_us=netbufReadU64(b);
+    h->shooter_life=netbufReadU32(b);h->target_life=netbufReadU32(b);
+    h->shot_id=netbufReadU32(b);h->hit_id=netbufReadU32(b);
+    h->target=netbufReadU8(b);h->weapon=netbufReadU8(b);h->part=netbufReadU8(b);
+    h->hx=netbufReadF32(b);h->hy=netbufReadF32(b);h->hz=netbufReadF32(b);h->damage=netbufReadF32(b);
+    return !b->error && h->epoch && h->shot_us && h->shooter_life && h->target_life && h->shot_id && h->hit_id
+        && h->target<GEVR_MAX_PLAYERS && h->weapon<ITEM_IDS_MAX && isfinite(h->damage) && h->damage>0
+        && isfinite(h->hx) && isfinite(h->hy) && isfinite(h->hz);
+}
+typedef struct { uint64_t epoch,t0,t1,t2;uint32_t nonce;uint8_t reply; } NetClockExchange;
+#define NET_CLOCK_EXCHANGE_BYTES 37
+static inline void netbufWriteClock(struct netbuf *b,const NetClockExchange *c) {
+    netbufWriteU8(b,c->reply);netbufWriteU64(b,c->epoch);netbufWriteU32(b,c->nonce);
+    netbufWriteU64(b,c->t0);netbufWriteU64(b,c->t1);netbufWriteU64(b,c->t2);
+}
+static inline int netbufReadClock(struct netbuf *b,NetClockExchange *c) {
+    c->reply=netbufReadU8(b);c->epoch=netbufReadU64(b);c->nonce=netbufReadU32(b);
+    c->t0=netbufReadU64(b);c->t1=netbufReadU64(b);c->t2=netbufReadU64(b);
+    return !b->error && c->reply<=1 && c->epoch && c->nonce && c->t0
+        && (c->reply ? c->t1 && c->t2>=c->t1 : !c->t1 && !c->t2);
+}
 
 /* NET_MSG_OBJECT_STATE actions */
 enum {
@@ -96,15 +142,70 @@ enum {
  */
 typedef struct {
     uint8_t stage;          /* LEVELID */
-    uint8_t scenario;       /* MPSCENARIOS, 0..4 */
+    uint8_t scenario;       /* MPSCENARIOS, 0..7 */
     uint8_t weapon_set;     /* 0..13 GoldenEye's, NET_WEAPON_SET_CUSTOM the host's own four */
     uint8_t game_length;    /* front.c multi_game_lengths index, 0..7 */
     uint8_t health;         /* front.c MP_handicap_table index, 0..10, for everyone */
     uint8_t dual_wield;     /* NET_DUAL_OFF / DOUBLES / ANY */
     uint8_t loadouts;       /* 1: every player spawns with its own four guns */
     uint8_t next_round;     /* NET_NEXT_VOTE / SHUFFLE / PLAYLIST (the host's rows show it) */
+    uint8_t friendly_fire;  /* host controlled, applies live; 1 preserves native damage */
+    uint8_t voice_mode;     /* NET_VOICE_PROXIMITY / COUCH, applies live */
+    uint8_t fun_flags;      /* NET_FUN_*: next round only */
+    uint8_t gun_size;       /* NET_GUN_NORMAL / TINY / BIG: visuals only */
     uint8_t custom_set[4];  /* the custom set's guns, ITEM_IDS */
 } NetMatchConfig;
+
+/* No native pointers or structure padding enter the wire format. */
+#define NET_AMMO_STATE_BYTES 116
+typedef struct {
+    u16 index;
+    coord3d pos, runtime_pos, speed;
+    Mtxf mtx, rotation;
+    u32 regen;
+    u8 enabled, moving;
+} NetAmmoState;
+static inline int netAmmoStateValid(const NetAmmoState *s) {
+    if (s->index >= 0x8000 || s->regen > 1200 || s->enabled > 1 || s->moving > 1) return 0;
+    for (int i=0;i<3;i++) {
+        if (!isfinite(s->pos.f[i]) || fabsf(s->pos.f[i]) > 1000000 ||
+            !isfinite(s->runtime_pos.f[i]) || fabsf(s->runtime_pos.f[i]) > 1000000 ||
+            !isfinite(s->speed.f[i]) || fabsf(s->speed.f[i]) > 1000) return 0;
+        for(int j=0;j<3;j++) if (!isfinite(s->mtx.m[i][j]) || fabsf(s->mtx.m[i][j]) > 1000 ||
+            !isfinite(s->rotation.m[i][j]) || fabsf(s->rotation.m[i][j]) > 2) return 0;
+    }
+    return 1;
+}
+static inline void netbufWriteAmmoState(struct netbuf *b, const NetAmmoState *s) {
+    netbufWriteU16(b,s->index); netbufWriteU8(b,s->enabled); netbufWriteU8(b,s->moving);
+    netbufWriteU32(b,s->regen);
+    for(int i=0;i<3;i++) netbufWriteF32(b,s->pos.f[i]);
+    for(int i=0;i<3;i++) netbufWriteF32(b,s->runtime_pos.f[i]);
+    for(int i=0;i<3;i++) for(int j=0;j<3;j++) netbufWriteF32(b,s->mtx.m[i][j]);
+    for(int i=0;i<3;i++) netbufWriteF32(b,s->speed.f[i]);
+    for(int i=0;i<3;i++) for(int j=0;j<3;j++) netbufWriteF32(b,s->rotation.m[i][j]);
+}
+static inline int netbufReadAmmoState(struct netbuf *b, NetAmmoState *s) {
+    *s = (NetAmmoState){0}; s->mtx.m[3][3] = s->rotation.m[3][3] = 1;
+    s->index=netbufReadU16(b);s->enabled=netbufReadU8(b);s->moving=netbufReadU8(b);
+    s->regen=netbufReadU32(b);
+    for(int i=0;i<3;i++) s->pos.f[i]=netbufReadF32(b);
+    for(int i=0;i<3;i++) s->runtime_pos.f[i]=netbufReadF32(b);
+    for(int i=0;i<3;i++) for(int j=0;j<3;j++) s->mtx.m[i][j]=netbufReadF32(b);
+    for(int i=0;i<3;i++) s->speed.f[i]=netbufReadF32(b);
+    for(int i=0;i<3;i++) for(int j=0;j<3;j++) s->rotation.m[i][j]=netbufReadF32(b);
+    return !b->error && netAmmoStateValid(s);
+}
+
+static inline int netMatchConfigValid(const NetMatchConfig *c) {
+    if (!c || netStageIndexOf(c->stage) < 0 || c->scenario >= netScenarioCount() ||
+        c->weapon_set >= netWeaponSetCount() || c->game_length >= netGameLengthCount() ||
+        c->health >= netHealthCount() || c->dual_wield > NET_DUAL_ANY || c->loadouts > 1 ||
+        (c->fun_flags & ~NET_FUN_MASK) != 0 || c->gun_size > NET_GUN_BIG || c->friendly_fire > 1 || c->next_round > NET_NEXT_PLAYLIST || c->voice_mode > NET_VOICE_COUCH ||
+        (netScenarioHasTeams(c->scenario) && netStageMaxPlayers(netStageIndexOf(c->stage)) < netTeamRequiredPlayers(c->scenario))) return 0;
+    for(int k=0;k<4;k++) if(netItemIndexOf(c->custom_set[k]) < 0) return 0;
+    return 1;
+}
 
 static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfig *c) {
     netbufWriteU8(buf, c->stage);
@@ -115,6 +216,10 @@ static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfi
     netbufWriteU8(buf, c->dual_wield);
     netbufWriteU8(buf, c->loadouts);
     netbufWriteU8(buf, c->next_round);
+    netbufWriteU8(buf, c->friendly_fire);
+    netbufWriteU8(buf, c->voice_mode);
+    netbufWriteU8(buf, c->fun_flags);
+    netbufWriteU8(buf, c->gun_size);
     for (int i = 0; i < 4; i++) netbufWriteU8(buf, c->custom_set[i]);
     return buf->error;
 }
@@ -128,6 +233,10 @@ static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
     c->dual_wield = netbufReadU8(buf);
     c->loadouts = netbufReadU8(buf);
     c->next_round = netbufReadU8(buf);
+    c->friendly_fire = netbufReadU8(buf);
+    c->voice_mode = netbufReadU8(buf);
+    c->fun_flags = netbufReadU8(buf);
+    c->gun_size = netbufReadU8(buf);
     for (int i = 0; i < 4; i++) c->custom_set[i] = netbufReadU8(buf);
     return buf->error;
 }
@@ -135,6 +244,8 @@ static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
 /* Player movement & input command struct (serialized via netbuf) */
 struct netplayermove {
     u32 tick;
+    u64 epoch, clock_us, death_us;
+    u32 life_id;
     u32 ucmd;
     f32 movespeed[2];   /* [0]: forward (-1..1), [1]: strafe (-1..1) */
     f32 angles[2];      /* [0]: theta (yaw), [1]: verta (pitch) */
@@ -165,6 +276,7 @@ struct netplayermove {
 /* Serialization for netplayermove */
 static inline u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplayermove *m) {
     netbufWriteU32(buf, m->tick);
+    netbufWriteU64(buf,m->epoch);netbufWriteU64(buf,m->clock_us);netbufWriteU64(buf,m->death_us);netbufWriteU32(buf,m->life_id);
     netbufWriteU32(buf, m->ucmd);
     netbufWriteF32(buf, m->movespeed[0]);
     netbufWriteF32(buf, m->movespeed[1]);
@@ -190,6 +302,7 @@ static inline u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplay
 
 static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove *m) {
     m->tick = netbufReadU32(buf);
+    m->epoch=netbufReadU64(buf);m->clock_us=netbufReadU64(buf);m->death_us=netbufReadU64(buf);m->life_id=netbufReadU32(buf);
     m->ucmd = netbufReadU32(buf);
     m->movespeed[0] = netbufReadF32(buf);
     m->movespeed[1] = netbufReadF32(buf);
@@ -241,10 +354,13 @@ typedef struct {
 /* Lobby Player Slot Info */
 typedef struct {
     uint8_t   connected;
-    uint8_t   ready;
+    uint8_t   ready;        /* consent to pending lobby choices */
+    uint8_t   loaded;       /* active-stage acknowledgement, independent of consent */
     uint8_t   chr_id;       /* mp_chr_setup index, 0..63 */
     uint8_t   spectator;    /* joined a live round: watching until the next one */
     uint8_t   loadout[4];   /* the player's four spawn guns (config.loadouts) */
+    uint8_t   team;         /* pending team, NET_TEAM_NONE until chosen */
+    uint8_t   eliminated;   /* cannot respawn until the next match */
     uint16_t  ping_ms;
     char      name[GEVR_MAX_NAME_LEN];
 } NetLobbySlot;

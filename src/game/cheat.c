@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <os_extension.h>
 #include <ultra64.h>
 #include <bondgame.h>
@@ -1676,6 +1679,15 @@ char *cheatGetMenuTextPointer(CHEAT_ID cheat_id)
  */
 bool cheatIsActive(CHEAT_ID cheat)
 {
+#ifdef GEVR
+    extern bool netIsActive(void);
+    if (netIsActive()) {
+        int flags = netActiveFunFlags();
+        if (cheat == CHEAT_DK_MODE) return (flags & NET_FUN_DK) != 0;
+        if (cheat == CHEAT_PAINTBALL) return (flags & NET_FUN_PAINTBALL) != 0;
+        if (cheat == CHEAT_LINEMODE) return (flags & NET_FUN_LINE) != 0;
+    }
+#endif
     return ((bool) (u8) g_CheatPlayerTextRelated[cheat] >> get_cur_playernum()) & 1;
 }
 

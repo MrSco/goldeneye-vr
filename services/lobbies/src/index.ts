@@ -23,6 +23,7 @@ type Join = { id: string; code: string; token_hash: string; offer: string | null
 
 const TTL = 45_000;
 const WAITING_IDLE_TIMEOUT = 15 * 60_000;
+const ALONE_IDLE_TIMEOUT = 30 * 60_000;
 const MAX_LOBBY_LIFESPAN = 2 * 3600_000;
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const json = (value: unknown, status = 200, extraHeaders: Record<string, string> = {}) =>
@@ -31,6 +32,7 @@ const bad = (message: string, status = 400) => json({ error: message }, status);
 const codeValue = () => Array.from(crypto.getRandomValues(new Uint8Array(8)), n => ALPHABET[n & 31]).join("");
 const digest = async (value: string) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))), b => b.toString(16).padStart(2, "0")).join("");
 const validInt = (value: unknown, min: number, max: number) => Number.isInteger(value) && Number(value) >= min && Number(value) <= max;
+const validName = (value: unknown) => typeof value === "string" && value.length >= 1 && value.length <= 32;
 const validSdp = (value: unknown) => typeof value === "string" && value.length > 0 && value.length <= 4096 && value.startsWith("a=ice-ufrag:");
 
 export class LobbyRegistry extends DurableObject<Env> {
@@ -52,11 +54,10 @@ export class LobbyRegistry extends DurableObject<Env> {
     });
   }
 
-  private cleanup() {
-    const now = Date.now();
+  private cleanup(now = Date.now()) {
     this.ctx.storage.sql.exec(
-      "DELETE FROM lobbies WHERE expires < ? OR (phase = 'waiting' AND players = 1 AND created_at > 0 AND created_at < ?) OR (created_at > 0 AND created_at < ?)",
-      now, now - WAITING_IDLE_TIMEOUT, now - MAX_LOBBY_LIFESPAN
+      "DELETE FROM lobbies WHERE expires < ? OR (phase = 'waiting' AND players = 1 AND created_at > 0 AND created_at < ?) OR (phase <> 'waiting' AND players = 1 AND phase_changed_at > 0 AND phase_changed_at < ?) OR (created_at > 0 AND created_at < ?)",
+      now, now - WAITING_IDLE_TIMEOUT, now - ALONE_IDLE_TIMEOUT, now - MAX_LOBBY_LIFESPAN
     );
     this.ctx.storage.sql.exec("DELETE FROM joins WHERE expires < ? OR code NOT IN (SELECT code FROM lobbies)", now);
     this.ctx.storage.sql.exec("DELETE FROM limits WHERE reset < ?", now);
@@ -82,7 +83,7 @@ export class LobbyRegistry extends DurableObject<Env> {
 
   async create(input: unknown): Promise<Response> {
     const x = input as Record<string, unknown>;
-    if (!x || typeof x.name !== "string" || x.name.length < 1 || x.name.length > 32 || !["public", "private"].includes(String(x.visibility)) || !validInt(x.version, 1, 65535) || !validInt(x.stage, 0, 255) || !validInt(x.weapons, 0, 255) || !validInt(x.maxPlayers, 2, 4)) return bad("Invalid lobby settings");
+    if (!x || !validName(x.name) || !["public", "private"].includes(String(x.visibility)) || !validInt(x.version, 1, 65535) || !validInt(x.stage, 0, 255) || !validInt(x.weapons, 0, 255) || !validInt(x.maxPlayers, 2, 4)) return bad("Invalid lobby settings");
     this.cleanup();
     let code: string;
     do { code = codeValue(); } while (this.lobby(code));
@@ -96,9 +97,16 @@ export class LobbyRegistry extends DurableObject<Env> {
   }
 
   async update(code: string, token: string, input: unknown): Promise<Response> {
-    const lobby = this.lobby(code);
-    if (!lobby || lobby.owner_hash !== await digest(token)) return bad("Lobby unavailable", 404);
+    // Authenticate before cleanup so the owner can receive the timeout reason.
+    const ownerHash = await digest(token);
+    const lobby = this.ctx.storage.sql.exec<Lobby>("SELECT * FROM lobbies WHERE code=?", code).toArray()[0];
+    if (!lobby || lobby.owner_hash !== ownerHash) return bad("Lobby unavailable", 404);
     const now = Date.now();
+    if (lobby.phase !== "waiting" && lobby.players === 1 && lobby.phase_changed_at > 0 && now - lobby.phase_changed_at > ALONE_IDLE_TIMEOUT) {
+      this.ctx.storage.sql.exec("DELETE FROM lobbies WHERE code=?", code);
+      this.ctx.storage.sql.exec("DELETE FROM joins WHERE code=?", code);
+      return bad("Lobby idle timeout", 410);
+    }
     if (lobby.created_at > 0) {
       if (lobby.phase === "waiting" && lobby.players === 1 && now - lobby.created_at > WAITING_IDLE_TIMEOUT) {
         this.ctx.storage.sql.exec("DELETE FROM lobbies WHERE code=?", code);
@@ -111,16 +119,23 @@ export class LobbyRegistry extends DurableObject<Env> {
         return bad("Lobby lifetime expired", 410);
       }
     }
+    if (lobby.expires < now) {
+      this.ctx.storage.sql.exec("DELETE FROM lobbies WHERE code=?", code);
+      this.ctx.storage.sql.exec("DELETE FROM joins WHERE code=?", code);
+      return bad("Lobby unavailable", 404);
+    }
+    this.cleanup(now);
     const x = input as Record<string, unknown>;
     if (!x || !validInt(x.players, 1, lobby.max_players) || typeof x.open !== "boolean" ||
+        (x.name !== undefined && !validName(x.name)) ||
         (x.phase !== undefined && !["waiting", "warmup", "in_progress"].includes(String(x.phase)))) return bad("Invalid lobby state");
     const phase = (x.phase || lobby.phase) as Phase;
     if (phase === "in_progress" && Number(x.players) < 2) return bad("An active match needs two players");
     const phaseChangedAt = (phase !== lobby.phase) ? now : (lobby.phase_changed_at || now);
     const createdAt = lobby.created_at || (lobby.expires - TTL);
     this.ctx.storage.sql.exec(
-      "UPDATE lobbies SET players=?,open=?,phase=?,expires=?,created_at=?,phase_changed_at=? WHERE code=?",
-      x.players, x.open ? 1 : 0, phase, now + TTL, createdAt, phaseChangedAt, code
+      "UPDATE lobbies SET players=?,open=?,phase=?,expires=?,created_at=?,phase_changed_at=?,name=? WHERE code=?",
+      x.players, x.open ? 1 : 0, phase, now + TTL, createdAt, phaseChangedAt, x.name ?? lobby.name, code
     );
     return json({ ok: true });
   }

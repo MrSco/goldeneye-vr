@@ -1186,7 +1186,14 @@ void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDire
 #endif
     }
 
-    if (get_next_weapon_in_cycle_for_hand(hand, 0) != nextWeapon)
+    /* A tap can reverse a queued request before its lowering tick starts. */
+    s32 selected = get_next_weapon_in_cycle_for_hand(hand, 0);
+#ifdef GEVR
+    extern s32 g_gevrStereo;
+    if (g_gevrStereo && g_CurrentPlayer->hands[hand].weapon_animation_trigger)
+        selected = g_CurrentPlayer->hands[hand].weapon_next_weapon;
+#endif
+    if (selected != nextWeapon)
     {
         if ((g_CurrentPlayer->hands[hand].weapon_action_state != GUN_ANIM_STATE_SWITCH_LOWER) && (g_CurrentPlayer->hands[hand].weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP))
         {
@@ -1268,6 +1275,16 @@ void backstep_through_inventory(void)
 
 void autoadvance_on_deplete_all_ammo(void)
 {
+#ifdef GEVR
+    extern s32 g_gevrStereo;
+    if (g_gevrStereo)
+    {
+        gevrAutoAdvanceHand(GUNRIGHT);
+        gevrAutoAdvanceHand(GUNLEFT);
+        return;
+    }
+#endif
+
 	ITEM_IDS nextright;
 	ITEM_IDS nextleft;
 	ITEM_IDS duperight;

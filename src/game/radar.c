@@ -9,6 +9,9 @@
 #include "player.h"
 #include "othermodemicrocode.h"
 #include "image_bank.h"
+#ifdef GEVR
+extern bool netIsActive(void);
+#endif
 
 
 /**
@@ -167,7 +170,11 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
                 temp_f28 = ((atan2f(temp_f20, temp_f22) * 180.0f) / M_PI_F) + g_CurrentPlayer->vv_theta + 180.0f;
                 
                 temp_f24 = 16 * radar_scale;
+#ifdef GEVR
+                temp_f16 = NET_RADAR_BRIGHT_RANGE;
+#else
                 temp_f16 = 4000;
+#endif
 
                 tt1 = (temp_f24 / temp_f16);
                 temp_f2 = sqrtf((temp_f20 * temp_f20) + (temp_f22 * temp_f22)) * tt1;
@@ -229,6 +236,12 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
         }
     }
 
+#ifdef GEVR
+    if (netIsActive()) {
+        extern Gfx *gevrRenderRadarGauges(Gfx *, s32, s32, s32);
+        DL = gevrRenderRadarGauges(DL, start_left, start_top, 16 * radar_scale);
+    }
+#endif
     return combiner_bayer_lod_perspective(DL);
 
     #undef RADAR_TOP_OFFSET

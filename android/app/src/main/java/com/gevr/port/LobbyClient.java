@@ -2,6 +2,7 @@ package com.gevr.port;
 
 import android.util.Base64;
 import android.util.Log;
+import android.os.SystemClock;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -16,8 +17,11 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** Async lobby signaling for the native launcher. Never runs network I/O on its render thread. */
 final class LobbyClient {
@@ -32,6 +36,7 @@ final class LobbyClient {
     private final Set<String> seenRequests = new HashSet<>();
     private String code = "";
     private String ownerToken = "";
+    private String name = "";
     private String joinId = "";
     private String joinToken = "";
     private boolean hosting;
@@ -43,6 +48,8 @@ final class LobbyClient {
     private String phase = "waiting";
     private long nextHeartbeat;
     private long nextRequests;
+    private long lastKeepalive;
+    private boolean heartbeatPaused;
     private String lastError = "";
     private JSONObject pendingCreate;
 
@@ -68,6 +75,8 @@ final class LobbyClient {
             case "create": {
                 if (fields.length != 7) return;
                 stop();
+                name = fields[2];
+                lastKeepalive = SystemClock.elapsedRealtime();
                 players = 1;
                 maxPlayers = Integer.parseInt(fields[6]);
                 open = true;
@@ -84,11 +93,14 @@ final class LobbyClient {
             case "stop": stop(); break;
             case "leave": forget(); break;   // a host leaving players behind: the lobby stays for the one they elect
             case "resume": {
-                // resume|code|ownerToken|maxPlayers|phase|players: the elected host runs the same lobby
-                if (fields.length != 6) return;
+                // resume|code|ownerToken|maxPlayers|phase|players[|name]
+                if (fields.length != 6 && fields.length != 7) return;
                 pendingCreate = null;
                 code = fields[1];
                 ownerToken = fields[2];
+                name = fields.length == 7 ? fields[6] : "";
+                lastKeepalive = SystemClock.elapsedRealtime();
+                heartbeatPaused = false;
                 maxPlayers = Integer.parseInt(fields[3]);
                 phase = fields[4];
                 players = Integer.parseInt(fields[5]);
@@ -105,6 +117,7 @@ final class LobbyClient {
                 break;
             }
             case "refresh":
+                lastKeepalive = SystemClock.elapsedRealtime();
                 if (fields.length == 3) {
                     int newPlayers = Integer.parseInt(fields[1]);
                     boolean newOpen = "1".equals(fields[2]);
@@ -116,6 +129,7 @@ final class LobbyClient {
                 }
                 break;
             case "phase":
+                lastKeepalive = SystemClock.elapsedRealtime();
                 if (fields.length == 3 && ("warmup".equals(fields[1]) || "in_progress".equals(fields[1]))) {
                     phase = fields[1];
                     players = Integer.parseInt(fields[2]);
@@ -173,16 +187,43 @@ final class LobbyClient {
 
     private void poll() {
         try {
-            if (pendingCreate != null) registerPending();
-            if (hosting && !code.isEmpty()) {
-                if (System.currentTimeMillis() >= nextHeartbeat) {
-                    http("PUT", BASE + "/" + code, new JSONObject()
-                            .put("players", players).put("open", open).put("phase", phase), ownerToken);
-                    nextHeartbeat = System.currentTimeMillis() + 15_000;
+            final long now = SystemClock.elapsedRealtime();
+            final boolean keepalive = now - lastKeepalive <= 60_000;
+            if (hosting || pendingCreate != null) {
+                if (!keepalive && !heartbeatPaused) {
+                    Log.i(TAG, "Heartbeat paused for lobby " + code + ": no native keepalive for 60 s");
+                    heartbeatPaused = true;
+                } else if (keepalive && heartbeatPaused) {
+                    Log.i(TAG, "Heartbeat resumed for lobby " + code);
+                    heartbeatPaused = false;
+                    nextHeartbeat = 0;
+                    nextRequests = 0;
                 }
-                if (open && System.currentTimeMillis() >= nextRequests) {
-                    JSONArray requests = http("GET", BASE + "/" + code + "/joins", null, ownerToken).getJSONArray("requests");
-                    nextRequests = System.currentTimeMillis() + ("waiting".equals(phase) ? 4_000 : 10_000);
+            }
+            if (pendingCreate != null && keepalive) registerPending();
+            if (hosting && !code.isEmpty()) {
+                // Pause offer polling too: discovering expiry while asleep must
+                // not make the native loop register a replacement in the background.
+                if (!keepalive) return;
+                if (now >= nextHeartbeat) {
+                    JSONObject state = new JSONObject()
+                            .put("players", players).put("open", open).put("phase", phase);
+                    if (!name.isEmpty()) state.put("name", name);
+                    try { http("PUT", BASE + "/" + code, state, ownerToken); }
+                    catch (HttpException e) {
+                        if (lost(e)) return;
+                        throw e;
+                    }
+                    nextHeartbeat = SystemClock.elapsedRealtime() + 15_000;
+                }
+                if (open && SystemClock.elapsedRealtime() >= nextRequests) {
+                    JSONArray requests;
+                    try { requests = http("GET", BASE + "/" + code + "/joins", null, ownerToken).getJSONArray("requests"); }
+                    catch (HttpException e) {
+                        if (lost(e)) return;
+                        throw e;
+                    }
+                    nextRequests = SystemClock.elapsedRealtime() + ("waiting".equals(phase) ? 4_000 : 10_000);
                     for (int i = 0; i < requests.length(); i++) {
                         JSONObject request = requests.getJSONObject(i);
                         String id = request.getString("id");
@@ -224,7 +265,14 @@ final class LobbyClient {
     private void stop() {
         pendingCreate = null;
         if (hosting && !code.isEmpty()) {
-            try { http("DELETE", BASE + "/" + code, null, ownerToken); }
+            try {
+                http("DELETE", BASE + "/" + code, null, ownerToken);
+                Log.i(TAG, "Removed lobby " + code);
+            }
+            catch (HttpException e) {
+                if (e.status == 404 || e.status == 410) Log.i(TAG, "Lobby " + code + " already gone (HTTP " + e.status + ")");
+                else Log.w(TAG, "Failed to remove lobby", e);
+            }
             catch (Exception e) { Log.w(TAG, "Failed to remove lobby", e); }
         }
         forget();
@@ -237,6 +285,9 @@ final class LobbyClient {
         phase = "waiting";
         code = "";
         ownerToken = "";
+        name = "";
+        lastKeepalive = 0;
+        heartbeatPaused = false;
         joinId = "";
         joinToken = "";
         offerSent = false;
@@ -244,9 +295,43 @@ final class LobbyClient {
         seenRequests.clear();
     }
 
+    /** Wait behind queued stop/leave commands, without holding up relaunch indefinitely. */
+    void stopAndWait(long ms) {
+        try {
+            Future<?> removal = worker.submit(this::stop);
+            removal.get(ms, TimeUnit.MILLISECONDS);
+        } catch (TimeoutException e) {
+            Log.w(TAG, "Lobby removal not confirmed within " + ms + " ms");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            Log.w(TAG, "Lobby removal wait interrupted", e);
+        } catch (RejectedExecutionException e) {
+            Log.i(TAG, "Lobby client already shut down");
+        } catch (Exception e) {
+            Log.w(TAG, "Lobby removal failed", e);
+        }
+    }
+
     void shutdown() {
-        command("stop");
+        stopAndWait(1500);
         worker.shutdown();
+    }
+
+    private boolean lost(HttpException e) {
+        if (!hosting || (e.status != 404 && e.status != 410)) return false;
+        String lostCode = code;
+        Log.i(TAG, "Lobby " + lostCode + " is gone (HTTP " + e.status + ": " + e.getMessage() + ")");
+        forget();
+        events.add("LOBBY_LOST|" + lostCode + "|" + clean(e.getMessage()));
+        return true;
+    }
+
+    private static final class HttpException extends Exception {
+        final int status;
+        HttpException(int status, String message) {
+            super(message);
+            this.status = status;
+        }
     }
 
     private void error(String message) {
@@ -278,8 +363,13 @@ final class LobbyClient {
                 int read;
                 while ((read = input.read(chunk)) != -1 && bytes.size() < 65536) bytes.write(chunk, 0, read);
             }
-            JSONObject response = bytes.size() == 0 ? new JSONObject() : new JSONObject(bytes.toString("UTF-8"));
-            if (status >= 400) throw new Exception(response.optString("error", "HTTP " + status));
+            JSONObject response;
+            try { response = bytes.size() == 0 ? new JSONObject() : new JSONObject(bytes.toString("UTF-8")); }
+            catch (Exception e) {
+                if (status >= 400) throw new HttpException(status, "HTTP " + status);
+                throw e;
+            }
+            if (status >= 400) throw new HttpException(status, response.optString("error", "HTTP " + status));
             return response;
         } finally { connection.disconnect(); }
     }

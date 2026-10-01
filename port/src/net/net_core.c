@@ -12,6 +12,8 @@
 #include "net_ice.h"
 #include "net/netbuf.h"
 #include "net_voice.h"
+#include "net_objects.h"
+#include "net_timing.h"
 #include "bondconstants.h"
 #include "boss.h"
 #include "game/front.h"
@@ -55,6 +57,7 @@ static uint64_t s_results_deadline_us = 0;
 static uint64_t s_next_round_at_us = 0;
 static ENetHost *s_host = NULL;
 static ENetPeer *s_server_peer = NULL; /* Used when we are a client */
+static ENetPeer *s_client_peers[GEVR_MAX_PLAYERS]; /* Host peer-to-slot map. */
 static ENetVirtualSendCallback s_virtual_send = NULL;
 static ENetVirtualReceiveCallback s_virtual_receive = NULL;
 static void *s_virtual_context = NULL;
@@ -107,9 +110,36 @@ int netLastAttacker(int slot) {
     return s_last_attacker[slot] >= 0 ? s_last_attacker[slot] : slot;
 }
 
+#define NET_HOST_HIT_CAPACITY 256
+extern int VrHostEqualization, VrHostLatencyCapMs;
+typedef struct {
+    bool active;
+    uint8_t shooter;
+    unsigned delay_ms;
+    uint64_t queued_us,order;
+    NetHitReport report; /* shot_us has been mapped to host time before queuing */
+} QueuedHostHit;
+static QueuedHostHit s_host_hits[NET_HOST_HIT_CAPACITY];
+static uint64_t s_combat_epoch,s_hit_death_us[GEVR_MAX_PLAYERS],s_hit_order,s_local_death_us;
+static uint32_t s_hit_life[GEVR_MAX_PLAYERS],s_last_hit_id[GEVR_MAX_PLAYERS];
+static uint32_t s_hit_move_tick[GEVR_MAX_PLAYERS],s_local_shot_id,s_local_hit_id;
+static bool s_hit_move_seen[GEVR_MAX_PLAYERS];
+static bool s_hit_overflow_warned,s_local_shot_active;
+static unsigned s_host_hit_cursor;
+static NetHitReport s_local_shot;
+static NetClockSync s_clock_sync[GEVR_MAX_PLAYERS];
+static NetClockExchange s_clock_pending[GEVR_MAX_PLAYERS];
+static uint64_t s_clock_probe_us[GEVR_MAX_PLAYERS];
+static uint32_t s_clock_nonce;
+static void netClearHostHits(void);
+static void netInvalidateHitSlot(int slot);
+static void netDrainHostHits(void);
+static void netReadyProgress(void);
+
 /* Every headset's damage application, logged with the target's accounting (playtest 2026-09-30) */
 static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, float dmg, float vx, float vz) {
     extern s32 s_gevrExplosionDamage;
+    if (!netDamageAllowed(attacker, target)) return;
     struct player *pl = g_playerPointers[target];
     s32 prev = get_cur_playernum();
     f32 h0 = pl->bondhealth, a0 = pl->bondarmour;
@@ -126,7 +156,7 @@ static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, flo
          * hit is still heard from where the copy stands.
          */
         if (pl->prop && !pl->bonddead)
-            chrobjSndCreatePostEventDefault(sndPlaySfx(g_musicSfxBufferPtr, BOND_GET_HIT1_SFX, 0), &pl->prop->pos);
+            chrobjSndCreatePostEventDamage(sndPlaySfx(g_musicSfxBufferPtr, BOND_GET_HIT1_SFX, 0), &pl->prop->pos);
         NET_LOG("damage: player %d took %.2f from %d (weapon %d): a copy, its owner decides", target, dmg, attacker, weapon);
         return;
     }
@@ -135,6 +165,8 @@ static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, flo
     record_damage_kills(dmg, vx, vz, attacker, 1);
     s_gevrExplosionDamage = 0;
     set_cur_player(prev);
+    if (pl->bonddead && !s_hit_death_us[target]) s_hit_death_us[target] = sysGetMicroseconds();
+    if (pl->bonddead && !s_local_death_us) s_local_death_us = s_hit_death_us[target];
     NET_LOG("damage: player %d took %.2f from %d (weapon %d): health %.2f -> %.2f, armour %.2f -> %.2f%s%s",
             target, dmg, attacker, weapon, h0, pl->bondhealth, a0, pl->bondarmour,
             pl->bonddead ? ", dead" : "", target == s_local_slot ? " (me)" : "");
@@ -150,27 +182,204 @@ static NetMsgLobbyState s_lobby_state;
 /* Frozen at match load; pending lobby edits must never change a late join's map or kit. */
 typedef struct {
     NetMatchConfig config;
+    uint32_t world_epoch; /* Reject delayed crate updates after reloading the same map. */
+    uint64_t combat_epoch; /* Snapshot envelope: dynamic life identity is separate from frozen teams/kits. */
+    uint32_t life[GEVR_MAX_PLAYERS];
     uint8_t character[GEVR_MAX_PLAYERS];
     uint8_t loadout[GEVR_MAX_PLAYERS][4];
+    uint8_t team[GEVR_MAX_PLAYERS];
+    int32_t departed_score[2];
 } NetRoundSettings;
 static NetRoundSettings s_round;
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpScenario, VrMpLength, VrMpHealth;
 extern int VrMpDual, VrMpLoadouts, VrMpNextRound, VrMpCustom[4], VrMpLoadout[4];
+extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize;
 extern unsigned VrMpFavStages, VrMpFavSets;
 extern void vrSettingsSave(void);
 
-static bool netValidConfig(const NetMatchConfig *c) {
-    if (netStageIndexOf(c->stage) < 0 || c->scenario >= netScenarioCount() ||
-        c->weapon_set >= netWeaponSetCount() || c->game_length >= netGameLengthCount() ||
-        c->health >= netHealthCount() || c->dual_wield > NET_DUAL_ANY ||
-        c->loadouts > 1 || c->next_round > NET_NEXT_PLAYLIST) return false;
-    for (int k = 0; k < 4; k++) if (netItemIndexOf(c->custom_set[k]) < 0) return false;
-    return true;
+static void netInvalidateHitSlot(int slot)
+{
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS) return;
+    s_hit_death_us[slot] = 0;
+    s_last_hit_id[slot]=0;
+    s_hit_move_seen[slot]=false;
+    if (slot==s_local_slot) {s_local_death_us=0;s_local_shot_active=false;s_local_shot_id=s_local_hit_id=0;}
+    for (int i=0;i<NET_HOST_HIT_CAPACITY;i++)
+        if (s_host_hits[i].active && (s_host_hits[i].report.target == slot || s_host_hits[i].shooter == slot)) s_host_hits[i].active = false;
 }
+
+static void netClearHostHits(void)
+{
+    memset(s_host_hits,0,sizeof(s_host_hits));
+    for (int i=0;i<GEVR_MAX_PLAYERS;i++) s_hit_death_us[i]=0;
+    s_local_death_us=0;s_local_shot_active=false;
+    memset(s_hit_move_seen,0,sizeof(s_hit_move_seen));
+    s_hit_overflow_warned=false;
+    s_host_hit_cursor=0;
+}
+
+void netSetHostEqualization(int enabled, unsigned cap_ms)
+{
+    if (netIsActive() && !netIsHost()) return;
+    VrHostEqualization = enabled != 0;
+    VrHostLatencyCapMs = cap_ms > 80 ? 80 : (int)cap_ms;
+    vrSettingsSave();
+}
+int netGetHostEqualization(unsigned *cap_ms)
+{
+    if (cap_ms) *cap_ms = VrHostLatencyCapMs < 0 ? 0 : VrHostLatencyCapMs > 80 ? 80 : VrHostLatencyCapMs;
+    return VrHostEqualization != 0;
+}
+static int netMapShotTime(int slot,uint64_t stamp,uint64_t *mapped,unsigned *uncertainty)
+{
+    uint64_t now=sysGetMicroseconds();
+    if (slot==s_local_slot) { *mapped=stamp;*uncertainty=0;return stamp && stamp<=INT64_MAX; }
+    return slot>=0 && slot<GEVR_MAX_PLAYERS && netClockMap(&s_clock_sync[slot],stamp,now,mapped,uncertainty);
+}
+static void netObserveHitMove(int slot,const struct netplayermove *move)
+{
+    if (slot<0 || slot>=GEVR_MAX_PLAYERS || move->epoch!=s_combat_epoch || move->life_id!=s_hit_life[slot]) return;
+    if (s_hit_move_seen[slot] && (int32_t)(move->tick-s_hit_move_tick[slot])<=0) return;
+    s_hit_move_seen[slot]=true;s_hit_move_tick[slot]=move->tick;
+    if (!move->dead) return; /* Only an explicit new life can clear an observed death. */
+    uint64_t death;unsigned uncertainty;
+    if (move->death_us && netMapShotTime(slot,move->death_us,&death,&uncertainty)
+        && death<=sysGetMicroseconds()+NET_SHOT_FUTURE_US+uncertainty && !s_hit_death_us[slot])
+        s_hit_death_us[slot]=death>sysGetMicroseconds()?sysGetMicroseconds():death;
+}
+static void netResetCombatEpoch(void)
+{
+    uint64_t next=(sysGetMicroseconds()<<3)|(uint64_t)(s_host_slot+1);
+    if (next==s_combat_epoch) next+=8;
+    s_combat_epoch=next;
+    NET_LOG("Combat clock epoch: %llu",(unsigned long long)s_combat_epoch);
+    netClearHostHits();
+    memset(s_clock_sync,0,sizeof(s_clock_sync));memset(s_clock_pending,0,sizeof(s_clock_pending));
+    memset(s_clock_probe_us,0,sizeof(s_clock_probe_us));memset(s_last_hit_id,0,sizeof(s_last_hit_id));
+    s_local_shot_id=s_local_hit_id=0;
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++)s_hit_life[i]=1;
+}
+static void netWriteCombatIdentity(struct netbuf *b)
+{
+    netbufWriteU64(b,s_combat_epoch);
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++)netbufWriteU32(b,s_hit_life[i]);
+}
+static int netReadCombatIdentity(struct netbuf *b,NetRoundSettings *r)
+{
+    r->combat_epoch=netbufReadU64(b);
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++) {r->life[i]=netbufReadU32(b);if(!r->life[i])return 0;}
+    return !b->error && r->combat_epoch;
+}
+static void netImportCombatIdentity(const NetRoundSettings *r)
+{
+    bool changed=r->combat_epoch!=s_combat_epoch;
+    if(changed) {
+        netClearHostHits();s_combat_epoch=r->combat_epoch;
+        memset(s_clock_sync,0,sizeof(s_clock_sync));memset(s_clock_pending,0,sizeof(s_clock_pending));
+        memset(s_clock_probe_us,0,sizeof(s_clock_probe_us));
+    }
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++)
+        if(changed || (int32_t)(r->life[i]-s_hit_life[i])>0) {netInvalidateHitSlot(i);s_hit_life[i]=r->life[i];}
+}
+static void netSendClockTo(ENetPeer *peer,const NetClockExchange *c)
+{
+    u8 raw[64];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);
+    netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
+    netbufWriteU8(&b,NET_MSG_CLOCK);netbufWriteU8(&b,(uint8_t)s_local_slot);netbufWriteClock(&b,c);
+    if (!b.error) enet_peer_send(peer,NET_CHAN_RELIABLE,enet_packet_create(b.data,b.wp,ENET_PACKET_FLAG_RELIABLE));
+}
+static void netClockTick(void)
+{
+    if(!netIsHost() || !s_combat_epoch) return;
+    uint64_t now=sysGetMicroseconds();
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++) {
+        ENetPeer *peer=s_client_peers[i];
+        if(i==s_local_slot || !peer || peer->state!=ENET_PEER_STATE_CONNECTED)continue;
+        if(s_clock_pending[i].nonce && now-s_clock_pending[i].t0<=NET_CLOCK_MAX_RTT_US)continue;
+        uint64_t interval=netClockBest(&s_clock_sync[i],now)?2000000:250000;
+        if(s_clock_probe_us[i] && now-s_clock_probe_us[i]<interval)continue;
+        s_clock_probe_us[i]=now;
+        if(!++s_clock_nonce)++s_clock_nonce;
+        s_clock_pending[i]=(NetClockExchange){.epoch=s_combat_epoch,.nonce=s_clock_nonce,.t0=now};
+        netSendClockTo(peer,&s_clock_pending[i]);
+    }
+}
+static void netReceiveClock(ENetPeer *peer,int slot,struct netbuf *b)
+{
+    NetClockExchange c;uint64_t received=sysGetMicroseconds();
+    if(!netbufReadClock(b,&c) || netbufReadLeft(b) || c.epoch!=s_combat_epoch) return;
+    if(netIsHost()) {
+        if(!c.reply || slot<0 || slot>=GEVR_MAX_PLAYERS || s_client_peers[slot]!=peer
+            || (int)(intptr_t)peer->data-1!=slot || c.nonce!=s_clock_pending[slot].nonce
+            || c.t0!=s_clock_pending[slot].t0 || c.epoch!=s_clock_pending[slot].epoch)return;
+        bool was_synced=netClockBest(&s_clock_sync[slot],received)!=NULL;
+        if(netClockSample(&s_clock_sync[slot],c.t0,c.t1,c.t2,received)) {
+            if(!was_synced) {
+                const NetClockSample *sample=netClockBest(&s_clock_sync[slot],received);
+                NET_LOG("Clock synced: slot %d offset %lldus RTT %lluus",slot,(long long)sample->offset_us,(unsigned long long)sample->rtt_us);
+            }
+            s_clock_pending[slot].nonce=0;
+            if(s_state==NET_STATE_INGAME)netReadyProgress();
+        }
+    } else if(peer==s_server_peer && slot==s_host_slot && !c.reply) {
+        c.reply=1;c.t1=received;c.t2=sysGetMicroseconds();netSendClockTo(peer,&c);
+    }
+}
+
+static unsigned netHostBaseDelayMs(int slot)
+{
+    if (!netIsHost() || slot < 0 || slot >= GEVR_MAX_PLAYERS || slot == s_local_slot) return 0;
+    ENetPeer *peer = s_client_peers[slot];
+    if (!peer || peer->state != ENET_PEER_STATE_CONNECTED ||
+        netLatencyValue(peer->roundTripTime, peer->lastReceiveTime, enet_time_get()) == NET_PING_UNKNOWN) return 0;
+    return peer->roundTripTime / 2;
+}
+unsigned netGetSlotHostDelayMs(int slot)
+{
+    unsigned cap=0, delay=netHostBaseDelayMs(slot);
+    if (!netGetHostEqualization(&cap)) return 0;
+    return delay < cap ? delay : cap;
+}
+void netHostEqualizationText(char *text, unsigned size)
+{
+    if (!size) return;
+    text[0]=0;
+    if (!netIsHost()) return;
+    unsigned cap; int on=netGetHostEqualization(&cap);
+    int used=snprintf(text,size,"HOST EQ: %s CAP %ums",on ? "ON" : "OFF",cap);
+    for (int i=0;i<GEVR_MAX_PLAYERS && used>=0 && (unsigned)used<size;i++)
+        if (i!=s_local_slot && s_lobby_state.slots[i].connected)
+            used += snprintf(text+used,size-used," P%d=%ums",i+1,netGetSlotHostDelayMs(i));
+}
+
+/* Reset at the actual warmup -> match boundary, after every player has loaded.
+ * A late join's in-progress snapshot must retain the existing round scores. */
+static void netTransitionRoundPhase(NetPhase phase)
+{
+    if (phase == NET_PHASE_IN_PROGRESS && s_phase == NET_PHASE_WARMUP && !s_waiting_for_match_snapshot)
+    {
+        for (int i=0;i<GEVR_MAX_PLAYERS;i++)
+        {
+            g_playerPlayerData[i].kill_count=0;
+            g_playerPlayerData[i].killed_gg_owner_count=0;
+            g_playerPlayerData[i].gevr_score_bank=0;
+            g_playerPlayerData[i].flag_counter=0;
+            g_playerPlayerData[i].order_out_in_yolt=0;
+            memset(g_playerPlayerData[i].kill_counts,0,sizeof(g_playerPlayerData[i].kill_counts));
+        }
+        s_round.departed_score[0]=s_round.departed_score[1]=0;
+    }
+    if (phase != s_phase) netClearHostHits();
+    s_phase=phase;
+}
+
+static bool netValidConfig(const NetMatchConfig *c) { return netMatchConfigValid(c) != 0; }
 
 static void netLatchRoundSettings(void) {
     s_round.config = s_lobby_state.config;
+    s_round.departed_score[0] = s_round.departed_score[1] = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        s_round.team[i] = s_lobby_state.slots[i].team;
         s_round.character[i] = s_lobby_state.slots[i].chr_id;
         memcpy(s_round.loadout[i], s_lobby_state.slots[i].loadout, 4);
     }
@@ -179,16 +388,25 @@ static void netLatchRoundSettings(void) {
 }
 
 static void netWriteRoundSettings(struct netbuf *buf) {
+    netWriteCombatIdentity(buf);
     netbufWriteMatchConfig(buf, &s_round.config);
+    netbufWriteU32(buf, s_round.world_epoch);
+    for (int t=0;t<2;t++) netbufWriteU32(buf, (uint32_t)s_round.departed_score[t]);
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        netbufWriteU8(buf, s_round.team[i]);
         netbufWriteU8(buf, s_round.character[i]);
         for (int k = 0; k < 4; k++) netbufWriteU8(buf, s_round.loadout[i][k]);
     }
 }
 
 static bool netReadRoundSettings(struct netbuf *buf, NetRoundSettings *r) {
+    if(!netReadCombatIdentity(buf,r))return false;
     netbufReadMatchConfig(buf, &r->config);
+    r->world_epoch = netbufReadU32(buf);
+    for (int t=0;t<2;t++) r->departed_score[t] = (int32_t)netbufReadU32(buf);
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        r->team[i] = netbufReadU8(buf);
+        if (r->team[i] > NET_TEAM_NONE) return false;
         r->character[i] = netbufReadU8(buf);
         if (r->character[i] >= netCharacterCount()) return false;
         for (int k = 0; k < 4; k++) {
@@ -205,9 +423,17 @@ int netActiveLoadoutItem(int slot, int k) {
            k >= 0 && k < 4 && netItemIndexOf(s_round.loadout[slot][k]) >= 0 ? s_round.loadout[slot][k] : 0;
 }
 const NetMatchConfig *netGetActiveMatchConfig(void) { return &s_round.config; }
+int netDamageAllowed(int attacker, int target) {
+    if (!netIsActive()) return 1;
+    if (target < 0 || target >= 4 || attacker >= 4) return 0;
+    if (attacker < 0) return 1; /* Environmental damage has no player attacker. */
+    return netTeamDamageAllowed(s_round.config.scenario, s_round.config.friendly_fire,
+        attacker == target, s_round.team[attacker], s_round.team[target]);
+}
 int netStageEligible(int idx) {
     int cap = netStageMaxPlayers(idx);
-    if (cap < 2) return 0;
+    if (cap < 2 || (netScenarioHasTeams(s_lobby_state.config.scenario) &&
+        cap < netTeamRequiredPlayers(s_lobby_state.config.scenario))) return 0;
     /* Spectators join the next round; do not discard a sparse high-numbered slot. */
     for (int i = cap; i < GEVR_MAX_PLAYERS; i++) if (s_lobby_state.slots[i].connected) return 0;
     return 1;
@@ -259,7 +485,6 @@ uint32_t netGetRandomSeed(void) {
 }
 
 /* ENet Peer to slot mapping on host */
-static ENetPeer *s_client_peers[GEVR_MAX_PLAYERS];
 extern s32 D_80048394;
 extern s32 D_800483A8;
 static void netBroadcastBuf(struct netbuf *buf, uint8_t channel, uint32_t flags, ENetPeer *except);
@@ -273,10 +498,21 @@ static void netHostDropSlot(int slot, ENetPeer *stale);
  * twice (three kills read as six, the cap of five was skipped).
  */
 static void netForgetPlayerScore(int slot) {
+    netInvalidateHitSlot(slot);
+    if(netIsHost() && slot>=0 && slot<GEVR_MAX_PLAYERS) {if(!++s_hit_life[slot])++s_hit_life[slot];memset(&s_clock_sync[slot],0,sizeof(s_clock_sync[slot]));s_clock_probe_us[slot]=0;s_clock_pending[slot].nonce=0;}
+    if (slot >= 0 && slot < GEVR_MAX_PLAYERS) s_hit_move_seen[slot]=false;
     if (s_state != NET_STATE_INGAME || slot < 0 || slot >= GEVR_MAX_PLAYERS) return;
+    if (netScenarioHasTeams(s_round.config.scenario) && s_round.team[slot] < 2) {
+        int points = g_playerPlayerData[slot].gevr_score_bank;
+        for (int v=0;v<GEVR_MAX_PLAYERS;v++)
+            points += netTeamKillPoints(s_round.team[slot], s_round.team[v], g_playerPlayerData[slot].kill_counts[v]);
+        s_round.departed_score[s_round.team[slot]] += points;
+    }
     for (int shooter = 0; shooter < GEVR_MAX_PLAYERS; shooter++) {
         if (shooter != slot) {
-            g_playerPlayerData[shooter].gevr_score_bank += g_playerPlayerData[shooter].kill_counts[slot];
+            g_playerPlayerData[shooter].gevr_score_bank += netScenarioHasTeams(s_round.config.scenario) ?
+                netTeamKillPoints(s_round.team[shooter], s_round.team[slot], g_playerPlayerData[shooter].kill_counts[slot]) :
+                g_playerPlayerData[shooter].kill_counts[slot];
             g_playerPlayerData[shooter].kill_counts[slot] = 0;
         }
     }
@@ -286,6 +522,9 @@ static void netForgetPlayerScore(int slot) {
 }
 
 static void netResetLobbyState(void) {
+    netClearHostHits();
+    if(netIsHost())netResetCombatEpoch();
+    else {s_combat_epoch=0;memset(s_hit_life,0,sizeof(s_hit_life));memset(s_clock_sync,0,sizeof(s_clock_sync));}
     memset(&s_lobby_state, 0, sizeof(s_lobby_state));
     s_lobby_state.header.magic = GEVR_NET_MAGIC;
     s_lobby_state.header.version = GEVR_NET_VERSION;
@@ -295,6 +534,7 @@ static void netResetLobbyState(void) {
     s_lobby_state.config.scenario = 0;          /* Normal */
     s_lobby_state.config.weapon_set = 4;        /* Power Weapons */
     s_lobby_state.config.game_length = 2;       /* 10 minutes */
+    s_lobby_state.config.friendly_fire = 1;
     s_lobby_state.config.health = 5;            /* Normal */
     s_lobby_state.config.custom_set[0] = ITEM_TT33;   /* the Rockets set's guns, until the host picks */
     s_lobby_state.config.custom_set[1] = ITEM_SKORPION;
@@ -314,6 +554,8 @@ static void netResetLobbyState(void) {
         s_client_peers[i] = NULL;
         s_slot_app_version[i][0] = '\0';
         s_slot_grace_us[i] = 0;
+        s_lobby_state.slots[i].team = s_round.team[i] = NET_TEAM_NONE;
+        s_lobby_state.slots[i].ping_ms = NET_PING_UNKNOWN;
         memset(&s_remote_moves[i], 0, sizeof(s_remote_moves[i]));
         memset(&s_remote_players[i], 0, sizeof(s_remote_players[i]));
     }
@@ -431,6 +673,7 @@ bool netConnect(const char *host_addr, uint16_t port) {
 }
 
 void netDisconnect(void) {
+    netClearHostHits();s_combat_epoch=0;memset(s_clock_sync,0,sizeof(s_clock_sync));
     netVoiceReset();
     s_waiting_for_match_snapshot = false;
     s_stage_ready_sent = false;
@@ -500,7 +743,8 @@ int netGetConnectedPlayerCount(void) {
 }
 
 int netGetMaxPlayers(void) {
-    return s_max_players;
+    int scenario = (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) ? s_round.config.scenario : s_lobby_state.config.scenario;
+    return netScenarioHasTeams(scenario) ? netTeamRequiredPlayers(scenario) : s_max_players;
 }
 
 void netSetMaxPlayers(int max_players) {
@@ -520,7 +764,7 @@ bool netSlotOccupied(int slot) {
     return slot >= 0 && slot < s_max_players &&
            (slot == s_local_slot || (s_lobby_state.slots[slot].connected &&
             (s_state != NET_STATE_INGAME ||
-             (s_lobby_state.slots[slot].ready && !s_lobby_state.slots[slot].spectator))));
+             (s_lobby_state.slots[slot].loaded && !s_lobby_state.slots[slot].spectator))));
 }
 
 bool netTakeRoundReset(void) {
@@ -542,7 +786,8 @@ static void netBroadcastRoundPhase(NetPhase phase) {
     netbufWriteU8(&buf, 0);
     netbufWriteU8(&buf, (uint8_t)phase);
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
-    s_phase = phase;
+    netTransitionRoundPhase(phase);
+    for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i);
 }
 
 const NetMsgLobbyState *netGetLobbyState(void) {
@@ -605,8 +850,9 @@ static void netBroadcastBuf(struct netbuf *buf, uint8_t channel, uint32_t flags,
     netBroadcastPacket(buf->data, buf->wp, channel, flags, except);
 }
 
+static uint64_t s_lobby_received_us, s_last_latency_us;
 static void netBroadcastLobbyState(void) {
-    u8 raw[256];
+    u8 raw[512];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
@@ -621,8 +867,12 @@ static void netBroadcastLobbyState(void) {
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         netbufWriteU8(&buf, s_lobby_state.slots[i].connected);
         netbufWriteU8(&buf, s_lobby_state.slots[i].ready);
+        netbufWriteU8(&buf, s_lobby_state.slots[i].loaded);
         netbufWriteU8(&buf, s_lobby_state.slots[i].chr_id);
         netbufWriteU8(&buf, s_lobby_state.slots[i].spectator);
+        netbufWriteU8(&buf, s_lobby_state.slots[i].team);
+        netbufWriteU8(&buf, s_lobby_state.slots[i].eliminated);
+        netbufWriteU16(&buf, s_lobby_state.slots[i].ping_ms);
         for (int k = 0; k < 4; k++) netbufWriteU8(&buf, s_lobby_state.slots[i].loadout[k]);
         netbufWriteStr(&buf, s_lobby_state.slots[i].name);
     }
@@ -641,6 +891,14 @@ static void netSendMatchSnapshot(ENetPeer *peer) {
     netbufWriteU8(&buf, 0);
     netbufWriteU8(&buf, s_match_ended || g_gameOverFlag != 0);
     netbufWriteU32(&buf, (u32)D_80048394);
+    netWriteRoundSettings(&buf);
+    netbufWriteMatchConfig(&buf, &s_lobby_state.config);
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        netbufWriteU8(&buf, s_lobby_state.slots[i].team);
+        netbufWriteU8(&buf, s_lobby_state.slots[i].eliminated);
+        netbufWriteU16(&buf, s_lobby_state.slots[i].ping_ms);
+        netbufWriteU8(&buf, (uint8_t)g_playerPlayerData[i].order_out_in_yolt);
+    }
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         netbufWriteU32(&buf, (u32)g_playerPlayerData[i].gevr_score_bank);
         for (int j = 0; j < GEVR_MAX_PLAYERS; j++)
@@ -712,6 +970,66 @@ static int netObjectIndex(ObjectRecord *target) {
         def += sizepropdef(def);
     }
     return -1;
+}
+
+void netSendAmmoImpulse(ObjectRecord *obj, const coord3d *dir) {
+    if (s_state != NET_STATE_INGAME || !gevrAmmoNetworked(obj) || netLocalIsSpectator()) return;
+    if (netIsHost()) { gevrAmmoImpulseWorld(obj, dir); return; }
+    int index = netObjectIndex(obj);
+    if (index < 0 || index >= 0x8000) return;
+    u8 raw[32]; struct netbuf b = {.data=raw,.size=sizeof(raw)};
+    netbufStartWrite(&b);
+    netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
+    netbufWriteU8(&b,NET_MSG_AMMO_IMPULSE);netbufWriteU8(&b,s_local_slot);
+    netbufWriteU8(&b,s_round.config.stage);netbufWriteU32(&b,s_round.world_epoch);netbufWriteU16(&b,index);
+    for(int i=0;i<3;i++) netbufWriteF32(&b,dir->f[i]);
+    netBroadcastBuf(&b,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
+}
+
+/* At 20 Hz the host sends each setup crate's physical state, including
+ * velocity for migration. A loaded late joiner also gets a reliable copy. */
+static void netSendAmmoState(ENetPeer *peer) {
+    u8 raw[512]; struct netbuf b = {.data=raw,.size=sizeof(raw)};
+    for(int ordinal=0;;) {
+        netbufStartWrite(&b);
+        netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
+        netbufWriteU8(&b,NET_MSG_AMMO_STATE);netbufWriteU8(&b,s_host_slot);
+        netbufWriteU8(&b,s_round.config.stage);netbufWriteU32(&b,s_round.world_epoch);netbufWriteU8(&b,0);
+        int count=0,index; ObjectRecord *obj;
+        while(count < 4 && (obj=gevrAmmoAt(ordinal++,&index))) {
+            if (!obj->prop) continue;
+            NetAmmoState s = {0};
+            s.index=index;s.pos=obj->prop->pos;s.runtime_pos=obj->runtime_pos;s.mtx=obj->mtx;
+            s.regen=obj->prop->timetoregen;s.enabled=!!(obj->prop->flags&PROPFLAG_ENABLED);
+            if ((obj->runtime_bitflags&RUNTIMEBITFLAG_HASPROJECTILE) && obj->projectile && !s.regen) {
+                s.moving=1;s.speed=obj->projectile->speed;s.rotation=obj->projectile->mtx;
+            }
+            if (!netAmmoStateValid(&s)) continue;
+            netbufWriteAmmoState(&b,&s);count++;
+        }
+        if (!count) break;
+        raw[13]=count;
+        if (peer) {
+            ENetPacket *packet=enet_packet_create(raw,b.wp,ENET_PACKET_FLAG_RELIABLE);
+            enet_peer_send(peer,NET_CHAN_RELIABLE,packet);
+        } else netBroadcastBuf(&b,NET_CHAN_PLAYER_STATE,0,NULL);
+        if (count < 4) break;
+    }
+}
+
+static bool netApplyAmmoPacket(struct netbuf *b) {
+    int stage=netbufReadU8(b);uint32_t epoch=netbufReadU32(b);int count=netbufReadU8(b);
+    if (stage != s_round.config.stage || epoch != s_round.world_epoch || count < 1 || count > 4 ||
+        netbufReadLeft(b) != count*NET_AMMO_STATE_BYTES) return false;
+    NetAmmoState states[4];
+    /* Validate the entire batch before mutating any world object. */
+    for(int i=0;i<count;i++) if (!netbufReadAmmoState(b,&states[i])) return false;
+    for(int i=0;i<count;i++) {
+        NetAmmoState *s=&states[i]; ObjectRecord *obj=netObjectByIndex(s->index,PROPDEF_AMMO);
+        if (gevrAmmoNetworked(obj)) gevrAmmoApplyTransform(obj,&s->pos,&s->runtime_pos,&s->mtx,
+            s->regen,s->enabled,s->moving,&s->speed,&s->rotation);
+    }
+    return true;
 }
 
 static void netSendObjectEvent(ObjectRecord *obj, uint8_t action, int8_t value) {
@@ -874,9 +1192,16 @@ static void netSendWorldSnapshot(ENetPeer *peer) {
     }
 }
 
+static bool netCombatClocksReady(void) {
+    uint64_t now=sysGetMicroseconds();
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++)
+        if(i!=s_local_slot && netSlotOccupied(i) && s_client_peers[i]
+            && s_client_peers[i]->state==ENET_PEER_STATE_CONNECTED && !netClockBest(&s_clock_sync[i],now))return false;
+    return true;
+}
 static bool netAllLoaded(void) {
     for (int i = 0; i < s_max_players; i++)
-        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].ready) return false;
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].loaded) return false;
     return true;
 }
 
@@ -953,16 +1278,19 @@ static void netResolveVotes(void);
 static bool s_rotate_next;   /* the next round follows a finished match: rotate (see netResolveVotes) */
 
 static void netBeginRoundReset(bool start) {
-    u8 raw[64];
+    netResetCombatEpoch();
+    u8 raw[128];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netCancelRound();
+    s_round.world_epoch++;
     s_results_deadline_us = 0;
     s_match_ended = false;
     s_start_after_load = start;
     s_lobby_open = !start;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-        if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].ready = 0;
+        if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].loaded = 0;
         s_lobby_state.slots[i].spectator = 0;
+        s_lobby_state.slots[i].eliminated = 0;
         s_remote_active[i] = false;
         netVoiceForgetSlot((uint8_t)i);
     }
@@ -982,6 +1310,7 @@ static void netBeginRoundReset(bool start) {
 void netHostRoundEnded(void) {
     if (!netIsHost() || s_state != NET_STATE_INGAME || s_phase != NET_PHASE_IN_PROGRESS || s_match_ended) return;
     s_match_ended = true;
+    for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i);
     s_results_deadline_us = sysGetMicroseconds() + 30000000ull;
     u8 raw[8];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -994,7 +1323,7 @@ void netHostRoundEnded(void) {
 }
 
 void netHostContinue(void) {
-    if (!netIsHost() || s_state != NET_STATE_INGAME || !s_match_ended || s_next_round_at_us) return;
+    if (!netIsHost() || s_state != NET_STATE_INGAME || !s_match_ended || s_next_round_at_us || !netRoundRosterReady()) return;
     s_results_deadline_us = 0;
     NET_LOG("host: continue");
     s_rotate_next = true;
@@ -1011,21 +1340,21 @@ void netHostReturnToLobby(void) {
 void netHostStartRoundNow(void) {
     if (!netIsHost() || s_state != NET_STATE_INGAME || s_next_round_at_us || s_round_reset_loading) return;
     if (s_match_ended) { netHostContinue(); return; }
-    if (s_phase == NET_PHASE_WARMUP && netGetConnectedPlayerCount() >= 2 && netAllLoaded()) netScheduleRound(10);
+    if (s_phase == NET_PHASE_WARMUP && netGetConnectedPlayerCount() >= 2 && netRoundRosterReady() && netAllLoaded() && netCombatClocksReady()) netScheduleRound(10);
 }
 
 static void netReadyProgress(void) {
-    if (!netIsHost() || !netAllLoaded()) return;
+    if (!netIsHost() || !netAllLoaded() || !netCombatClocksReady()) return;
     if (s_round_reset_loading) {
         s_round_reset_loading = false;
-        if (s_start_after_load && netGetConnectedPlayerCount() >= 2) {
+        if (s_start_after_load && netGetConnectedPlayerCount() >= 2 && netRoundRosterReady()) {
             s_start_after_load = false;
             s_lobby_open = false;
             netBroadcastRoundPhase(NET_PHASE_IN_PROGRESS);
         } else s_lobby_open = true;
         netBroadcastLobbyState();
     } else if (s_phase == NET_PHASE_WARMUP && !s_lobby_open && !s_next_round_at_us &&
-               netGetConnectedPlayerCount() >= 2) netScheduleRound(10);
+               netGetConnectedPlayerCount() >= 2 && netRoundRosterReady()) netScheduleRound(10);
 }
 
 void netStageLoaded(void) {
@@ -1033,7 +1362,7 @@ void netStageLoaded(void) {
     netPlayersTickedReset(); /* events queued through the load are for the old stage */
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
     s_stage_fade_in = true;
-    s_lobby_state.slots[s_local_slot].ready = 1;
+    s_lobby_state.slots[s_local_slot].loaded = 1;
     if (!netIsHost()) {
         s_stage_ready_sent = true;
         s_last_stage_ready_us = sysGetMicroseconds();
@@ -1058,6 +1387,9 @@ void netStageLoaded(void) {
 
 void netLobbySetReady(bool ready) {
     if (s_local_slot < 0 || s_local_slot >= GEVR_MAX_PLAYERS) return;
+    if (ready && netScenarioHasTeams(s_lobby_state.config.scenario) &&
+        s_lobby_state.slots[s_local_slot].team == NET_TEAM_NONE &&
+        !(netIsHost() && netGetConnectedPlayerCount() == 1)) return;
     s_lobby_state.slots[s_local_slot].ready = ready ? 1 : 0;
     
     u8 raw[64];
@@ -1128,7 +1460,24 @@ const NetMatchConfig *netGetMatchConfig(void) {
 /* The host's settings (the launcher's pages, the game's lobby page): kept
  * in the lobby state and told to everyone; they take effect at the next load. */
 void netLobbySetConfig(const NetMatchConfig *config) {
-    if (!netIsHost() || !config || !netValidConfig(config) || !netStageEligible(netStageIndexOf(config->stage))) return;
+    if (!netIsHost() || !config || !netValidConfig(config)) return;
+    int cap = netStageMaxPlayers(netStageIndexOf(config->stage));
+    for (int i=cap;i<GEVR_MAX_PLAYERS;i++) if (s_lobby_state.slots[i].connected) return;
+    if (netScenarioHasTeams(config->scenario) && netGetConnectedPlayerCount() > netTeamRequiredPlayers(config->scenario)) return;
+    NetMatchConfig oldRound = s_lobby_state.config, newRound = *config;
+    oldRound.voice_mode = newRound.voice_mode = 0;
+    oldRound.friendly_fire = newRound.friendly_fire = 0;
+    if (memcmp(&oldRound, &newRound, sizeof(oldRound)) != 0) {
+        for (int i=0;i<GEVR_MAX_PLAYERS;i++) s_lobby_state.slots[i].ready = 0;
+        netCancelRound();
+    }
+    if (config->scenario != s_lobby_state.config.scenario)
+        for (int i=0;i<GEVR_MAX_PLAYERS;i++) s_lobby_state.slots[i].team = NET_TEAM_NONE;
+    if (config->voice_mode != s_lobby_state.config.voice_mode) {
+        s_round.config.voice_mode = config->voice_mode;
+        for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i);
+    }
+    s_round.config.friendly_fire = config->friendly_fire;
     s_lobby_state.config = *config;
     netBroadcastLobbyState();
 }
@@ -1174,6 +1523,7 @@ void netApplyMatchConfig(void) {
     for (int p = 0; p < GEVR_MAX_PLAYERS; p++) {
         player_char[p] = s_round.character[p] < netCharacterCount() ? s_round.character[p] : p;
         player_handicap[p] = c->health < netHealthCount() ? c->health : 5;
+        if (netScenarioHasTeams(c->scenario)) set_players_team_or_scenario_item_flag(p, s_round.team[p] == NET_TEAM_BLUE ? 1 : 0);
     }
     NET_LOG("config applied: stage %d scenario %d set %d length %d health %d dual %d loadouts %d next %d",
             c->stage, c->scenario, getMPWeaponSet(), game_length, c->health, c->dual_wield, c->loadouts, c->next_round);
@@ -1200,10 +1550,62 @@ bool netSlotIsSpectator(int slot) {
 
 int netPlayerIsSpectator(int slot) { return netIsActive() && netSlotIsSpectator(slot); }
 int gevrSpectating(void) { return netLocalIsSpectator() && get_cur_playernum() == s_local_slot; }
+int netTeamRosterReady(void) {
+    uint8_t connected[4], team[4];
+    for (int i=0;i<4;i++) { connected[i]=s_lobby_state.slots[i].connected; team[i]=s_lobby_state.slots[i].team; }
+    return netTeamRosterComplete(s_lobby_state.config.scenario, connected, team);
+}
+int netGetSlotTeam(int slot) { return slot >= 0 && slot < 4 ? s_lobby_state.slots[slot].team : NET_TEAM_NONE; }
+int netGetSlotPing(int slot) {
+    if (slot < 0 || slot >= 4 || !s_lobby_state.slots[slot].connected || s_state == NET_STATE_MIGRATING) return -1;
+    if (slot == s_host_slot) return 0;
+    if (!netIsHost() && sysGetMicroseconds() - s_lobby_received_us > 5000000) return -1;
+    return s_lobby_state.slots[slot].ping_ms == NET_PING_UNKNOWN ? -1 : s_lobby_state.slots[slot].ping_ms;
+}
+int netVoiceSlotSpectating(int slot) {
+    return slot >= 0 && slot < 4 && (s_lobby_state.slots[slot].spectator || s_lobby_state.slots[slot].eliminated);
+}
+int netVoiceModeForPair(int a, int b) {
+    if (a < 0 || b < 0 || a >= 4 || b >= 4) return NET_VOICE_PROXIMITY;
+    if (s_phase != NET_PHASE_IN_PROGRESS || s_match_ended ||
+        netVoiceSlotSpectating(a) || netVoiceSlotSpectating(b)) return NET_VOICE_COUCH;
+    return netVoicePairMode(s_round.config.scenario, s_round.config.voice_mode, s_round.team[a], s_round.team[b]);
+}
 int netVoiceSameGroup(int a, int b) {
-    return a >= 0 && b >= 0 && a < GEVR_MAX_PLAYERS && b < GEVR_MAX_PLAYERS &&
-           s_lobby_state.slots[a].connected && s_lobby_state.slots[b].connected &&
-           netSlotIsSpectator(a) == netSlotIsSpectator(b);
+    if (a < 0 || b < 0 || a >= 4 || b >= 4 || !s_lobby_state.slots[a].connected || !s_lobby_state.slots[b].connected) return 0;
+    return netVoiceGroupsMatch(s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS && !s_match_ended,
+        s_round.config.scenario, netVoiceSlotSpectating(a), netVoiceSlotSpectating(b), s_round.team[a], s_round.team[b]);
+}
+int netTeamScore(int team) {
+    if (team < 0 || team > 1) return 0;
+    int points = s_round.departed_score[team];
+    for (int i=0;i<4;i++) if (netPlayerInRound(i) && s_round.team[i] == team) {
+        points += g_playerPlayerData[i].gevr_score_bank;
+        for (int j=0;j<4;j++) points += netTeamKillPoints(team, s_round.team[j], g_playerPlayerData[i].kill_counts[j]);
+    }
+    return points;
+}
+static bool netSetSlotTeam(int slot, uint8_t team) {
+    if (slot < 0 || slot >= 4 || !s_lobby_state.slots[slot].connected || team > NET_TEAM_NONE || !netScenarioHasTeams(s_lobby_state.config.scenario)) return false;
+    if (team < 2) {
+        int count=0;
+        for (int i=0;i<4;i++) if (i != slot && s_lobby_state.slots[i].connected && s_lobby_state.slots[i].team == team) count++;
+        if (count >= netTeamCapacity(s_lobby_state.config.scenario, team)) return false;
+    }
+    if (s_lobby_state.slots[slot].team == team) return true;
+    s_lobby_state.slots[slot].team = team;
+    s_lobby_state.slots[slot].ready = 0; // Next-round consent never changes the loaded active player.
+    netCancelRound();
+    netBroadcastLobbyState();
+    return true;
+}
+void netLobbySetTeam(uint8_t team) {
+    if (netIsHost()) { netSetSlotTeam(s_local_slot, team); return; }
+    if (!s_server_peer || team > NET_TEAM_NONE) return;
+    u8 raw[9]; struct netbuf buf = { .data=raw, .size=sizeof(raw) };
+    netbufStartWrite(&buf); netbufWriteU32(&buf, GEVR_NET_MAGIC); netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_LOBBY_TEAM); netbufWriteU8(&buf, (uint8_t)s_local_slot); netbufWriteU8(&buf, team);
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
 }
 
 bool netLocalIsSpectator(void) {
@@ -1221,6 +1623,10 @@ int gevrNetConfigGet(int field) {
     case CFG_DUAL_WIELD: return c->dual_wield;
     case CFG_LOADOUTS: return c->loadouts;
     case CFG_NEXT_ROUND: return c->next_round;
+    case CFG_FRIENDLY_FIRE: return c->friendly_fire;
+    case CFG_VOICE_MODE: return c->voice_mode;
+    case CFG_FUN_FLAGS: return c->fun_flags;
+    case CFG_GUN_SIZE: return c->gun_size;
     default: return field >= CFG_CUSTOM0 && field <= CFG_CUSTOM3 ? c->custom_set[field-CFG_CUSTOM0] : 0;
     }
 }
@@ -1242,13 +1648,18 @@ void gevrNetConfigSet(int field, int value) {
     case CFG_DUAL_WIELD: c.dual_wield = value; break;
     case CFG_LOADOUTS: c.loadouts = value; break;
     case CFG_NEXT_ROUND: c.next_round = value; break;
+    case CFG_FRIENDLY_FIRE: c.friendly_fire = value; break;
+    case CFG_VOICE_MODE: c.voice_mode = value; break;
+    case CFG_FUN_FLAGS: c.fun_flags = value; break;
+    case CFG_GUN_SIZE: c.gun_size = value; break;
     default: if (field < CFG_CUSTOM0 || field > CFG_CUSTOM3) return; c.custom_set[field-CFG_CUSTOM0] = value; break;
     }
     if (!netValidConfig(&c)) return;
     netLobbySetConfig(&c);
+    c = s_lobby_state.config; // Persist the accepted host settings.
     VrMpStage=c.stage; VrMpScenario=c.scenario; VrMpWeaponSet=c.weapon_set;
     VrMpLength=c.game_length; VrMpHealth=c.health; VrMpDual=c.dual_wield;
-    VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round;
+    VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpVoiceMode=s_lobby_state.config.voice_mode; VrMpFriendlyFire=c.friendly_fire; VrMpFunFlags=c.fun_flags; VrMpGunSize=c.gun_size;
     for (int k=0;k<4;k++) VrMpCustom[k]=c.custom_set[k];
     vrSettingsSave();
 }
@@ -1276,20 +1687,31 @@ static void netSendMatchStartTo(ENetPeer *peer) {
     }
 }
 
-bool netLobbyHostLaunchMatch(void) {
-    if (!netIsHost()) return false;
-
+/* Launch enters warmup. The complete team roster is enforced separately
+ * before a real round starts. The host consents by pressing Launch. */
+int netLocalReady(void) { return s_local_slot >= 0 && s_local_slot < 4 && s_lobby_state.slots[s_local_slot].ready; }
+void gevrNetSetReady(int ready) { netLobbySetReady(ready != 0); }
+int netRoundRosterReady(void) { return netLobbyCanLaunch() && netTeamRosterReady(); }
+int netGetHostSlot(void) { return s_host_slot; }
+int netLobbyCanLaunch(void) {
+    if (!netIsHost()) return 0;
     int connected = 0;
-    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
-        if (s_lobby_state.slots[i].connected) {
-            if (i >= s_max_players || !s_lobby_state.slots[i].ready) return false;
-            connected++;
-        }
+    for (int i=0;i<GEVR_MAX_PLAYERS;i++) if (s_lobby_state.slots[i].connected) {
+        if (i >= s_max_players || (i != s_host_slot && !s_lobby_state.slots[i].ready)) return 0;
+        connected++;
     }
-    if (connected < 1) return false;
+    return connected > 0;
+}
+int netActiveFunFlags(void) { return s_round.config.fun_flags; }
+int netActiveLineMode(void) { return netIsActive() && (s_round.config.fun_flags & NET_FUN_LINE) != 0; }
+int netActiveGunSize(void) { return s_round.config.gun_size; }
+
+bool netLobbyHostLaunchMatch(void) {
+    if (!netLobbyCanLaunch()) return false;
     
     s_rng_seed = (uint32_t)(sysGetMicroseconds());
     if (s_rng_seed == 0) s_rng_seed = 0x12345678;
+    s_round.world_epoch = s_rng_seed;
     
     extern void randomSetSeed(u32);
     randomSetSeed(s_rng_seed);
@@ -1308,12 +1730,19 @@ bool netLobbyHostLaunchMatch(void) {
     netSendMatchStartTo(NULL);
     s_state = NET_STATE_INGAME;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
-        if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].ready = 0;
+        if (s_lobby_state.slots[i].connected) s_lobby_state.slots[i].loaded = 0;
     NET_LOG("Match launched! Stage: %d, Players: %d, Seed: 0x%08X", s_lobby_state.config.stage, netGetConnectedPlayerCount(), s_rng_seed);
     return true;
 }
 
-void netSendLocalPlayerMove(const struct netplayermove *move) {
+void netSendLocalPlayerMove(const struct netplayermove *input) {
+    if(s_local_slot<0 || s_local_slot>=GEVR_MAX_PLAYERS || !s_combat_epoch)return;
+    struct netplayermove local=*input;local.epoch=s_combat_epoch;local.life_id=s_hit_life[s_local_slot];
+    local.clock_us=sysGetMicroseconds();
+    if(local.dead && !s_local_death_us)s_local_death_us=local.clock_us;
+    local.death_us=local.dead?s_local_death_us:0;
+    const struct netplayermove *move=&local;
+    if (netIsHost()) netObserveHitMove(s_local_slot,move);
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
     
     u8 raw[256];
@@ -1394,85 +1823,150 @@ int netGetRemoteAim(int slot_id, int hand, coord3d *origin, coord3d *dir) {
     return 1;
 }
 
-static void netProcessHitReport(uint8_t shooter_slot, uint8_t target, uint8_t weapon, float hx, float hy, float hz, float dmg) {
-    if (!netIsHost()) return;
-    (void)hy;
-    
-    NET_LOG("Hit reported: shooter %d -> target %d weapon %d (dmg: %.1f)", shooter_slot, target, weapon, dmg);
-    
-    float vx = hx;
-    float vz = hz;
-    
-    /* Host resolves damage and broadcasts damage event to all peers */
-    u8 draw[128];
-    struct netbuf dbuf = { .data = draw, .size = sizeof(draw) };
-    netbufStartWrite(&dbuf);
-    netbufWriteU32(&dbuf, GEVR_NET_MAGIC);
-    netbufWriteU16(&dbuf, GEVR_NET_VERSION);
-    netbufWriteU8(&dbuf, NET_MSG_DAMAGE_EVENT);
-    netbufWriteU8(&dbuf, 0);
-    netbufWriteU8(&dbuf, target);
-    netbufWriteU8(&dbuf, shooter_slot);
-    netbufWriteU8(&dbuf, weapon);
-    netbufWriteF32(&dbuf, dmg);
-    netbufWriteF32(&dbuf, vx);
-    netbufWriteF32(&dbuf, vz);
-    
-    netBroadcastBuf(&dbuf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
-    
-    /* Also execute damage on host locally */
-    if (target < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
-        netApplyDamage(target, shooter_slot, weapon, dmg, vx, vz);
+static bool netExplosiveWeapon(int weapon)
+{
+    return weapon==ITEM_GRENADE || weapon==ITEM_GRENADELAUNCH || weapon==ITEM_ROCKETLAUNCH
+        || weapon==ITEM_PROXIMITYMINE || weapon==ITEM_TIMEDMINE || weapon==ITEM_REMOTEMINE || weapon==ITEM_TANKSHELLS;
+}
+static bool netHitReportAllowed(int shooter,const NetHitReport *h,unsigned uncertainty)
+{
+    if (!netIsHost() || s_state!=NET_STATE_INGAME || s_round_reset_loading || s_match_ended
+        || (s_phase!=NET_PHASE_IN_PROGRESS && s_phase!=NET_PHASE_WARMUP)
+        || !netSlotOccupied(shooter) || !netSlotOccupied(h->target)
+        || h->epoch!=s_combat_epoch || h->shooter_life!=s_hit_life[shooter] || h->target_life!=s_hit_life[h->target]
+        || !h->hit_id || !h->shot_id || h->weapon>=ITEM_IDS_MAX || !isfinite(h->damage) || h->damage<=0
+        || !isfinite(h->hx) || !isfinite(h->hy) || !isfinite(h->hz)
+        || !netShotTimeValid(h->shot_us,sysGetMicroseconds(),uncertainty) || !netDamageAllowed(shooter,h->target))return false;
+    struct player *pl=g_playerPointers[shooter];
+    if(shooter==s_local_slot && pl && pl->bonddead && !s_hit_death_us[shooter])s_hit_death_us[shooter]=sysGetMicroseconds();
+    /* Blast time is impact time; a grenade thrown before death remains dangerous. */
+    return netExplosiveWeapon(h->weapon) || netShotTradeValid(h->shot_us,s_hit_death_us[shooter],uncertainty);
+}
+static void netProcessHitReport(int shooter,const NetHitReport *h,unsigned uncertainty)
+{
+    if(!netHitReportAllowed(shooter,h,uncertainty))return;
+    NET_LOG("Hit: P%d life %u shot %u hit %u -> P%d life %u age %lluus",shooter+1,h->shooter_life,h->shot_id,h->hit_id,h->target+1,h->target_life,
+        (unsigned long long)(sysGetMicroseconds()>h->shot_us?sysGetMicroseconds()-h->shot_us:0));
+    u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);
+    netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
+    netbufWriteU8(&b,NET_MSG_DAMAGE_EVENT);netbufWriteU8(&b,(uint8_t)shooter);
+    netbufWriteHitReport(&b,h);
+    netBroadcastBuf(&b,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
+    if(g_playerPointers[h->target])netApplyDamage(h->target,shooter,h->weapon,h->damage,h->hx,h->hz);
+}
+static bool netAcceptHit(int shooter,NetHitReport *h,unsigned *uncertainty)
+{
+    if(shooter<0 || shooter>=GEVR_MAX_PLAYERS)return false;
+    uint64_t mapped;
+    if(!netMapShotTime(shooter,h->shot_us,&mapped,uncertainty))return false;
+    h->shot_us=mapped;
+    if(!netHitReportAllowed(shooter,h,*uncertainty)
+        || (s_last_hit_id[shooter] && (int32_t)(h->hit_id-s_last_hit_id[shooter])<=0))return false;
+    s_last_hit_id[shooter]=h->hit_id;
+    if(h->shot_us>sysGetMicroseconds())h->shot_us=sysGetMicroseconds();
+    return true;
+}
+static void netReceiveHitReport(int shooter,struct netbuf *b)
+{
+    NetHitReport h;unsigned uncertainty;
+    if(netbufReadHitReport(b,&h) && !netbufReadLeft(b) && netAcceptHit(shooter,&h,&uncertainty))
+        netProcessHitReport(shooter,&h,uncertainty);
+}
+static void netExecuteHostHit(QueuedHostHit *hit)
+{
+    if(!hit->active)return;
+    hit->active=false;netProcessHitReport(hit->shooter,&hit->report,0);
+}
+static void netQueueHostHit(NetHitReport h)
+{
+    unsigned uncertainty;
+    if(!netAcceptHit(s_local_slot,&h,&uncertainty))return;
+    unsigned delay=netGetSlotHostDelayMs(h.target);
+    if(!delay) {netProcessHitReport(s_local_slot,&h,0);return;}
+    int free_slot=-1,oldest=0;
+    for(int n=0;n<NET_HOST_HIT_CAPACITY;n++) {
+        int i=(s_host_hit_cursor+n)%NET_HOST_HIT_CAPACITY;
+        if(!s_host_hits[i].active) {free_slot=i;break;}
+        if(s_host_hits[i].order<s_host_hits[oldest].order)oldest=i;
+    }
+    if(free_slot<0) {
+        if(!s_hit_overflow_warned) {NET_LOG("Host hit queue full: dispatching oldest early");s_hit_overflow_warned=true;}
+        netExecuteHostHit(&s_host_hits[oldest]);free_slot=oldest;
+    }
+    s_host_hit_cursor=(free_slot+1)%NET_HOST_HIT_CAPACITY;
+    s_host_hits[free_slot]=(QueuedHostHit){true,(uint8_t)s_local_slot,netHostBaseDelayMs(h.target),sysGetMicroseconds(),++s_hit_order,h};
+}
+static void netDrainHostHits(void)
+{
+    if(s_state!=NET_STATE_INGAME) {netClearHostHits();return;}
+    if(!netIsHost()) return;
+    uint64_t now=sysGetMicroseconds();unsigned cap;int on=netGetHostEqualization(&cap);
+    for(;;) {
+        int next=-1;uint64_t first=UINT64_MAX;
+        for(int i=0;i<NET_HOST_HIT_CAPACITY;i++)if(s_host_hits[i].active) {
+            unsigned delay=on?(s_host_hits[i].delay_ms<cap?s_host_hits[i].delay_ms:cap):0;
+            uint64_t due=s_host_hits[i].queued_us+(uint64_t)delay*1000;
+            if(due<=now && (next<0 || due<first || (due==first && s_host_hits[i].order<s_host_hits[next].order))) {next=i;first=due;}
+        }
+        if(next<0)break;
+        netExecuteHostHit(&s_host_hits[next]);
     }
 }
-
-/* Host only: damage from an explosion no player owns (player -1). It is
- * resolved with the target as its own attacker, so a death counts as a
- * suicide rather than a kill for the host's slot. */
-void netSendWorldHitReport(uint8_t target_slot, uint8_t weapon_id, float hit_x, float hit_y, float hit_z, float dmg) {
-    if (s_state != NET_STATE_INGAME || !netIsHost()) return;
-    netProcessHitReport(target_slot, target_slot, weapon_id, hit_x, hit_y, hit_z, dmg);
+void netBeginLocalShot(void)
+{
+    if(!s_combat_epoch || s_local_slot<0 || s_local_slot>=GEVR_MAX_PLAYERS || get_cur_playernum()!=s_local_slot)return;
+    if(!++s_local_shot_id)++s_local_shot_id;
+    s_local_shot=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[s_local_slot],.shot_id=s_local_shot_id};
+    s_local_shot_active=true;
 }
-
-void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg) {
-    if (s_state != NET_STATE_INGAME) return;
-    
-    if (netIsHost()) {
-        netProcessHitReport((uint8_t)s_local_slot, target_slot, weapon_id, hit_x, hit_y, hit_z, dmg);
-        return;
+void netEndLocalShot(void) {s_local_shot_active=false;}
+static NetHitReport netMakeLocalHit(uint8_t target,uint8_t weapon,uint8_t part,float hx,float hy,float hz,float damage)
+{
+    NetHitReport h=s_local_shot;
+    if(!s_local_shot_active || netExplosiveWeapon(weapon)) {
+        if(!++s_local_shot_id)++s_local_shot_id;
+        h=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[s_local_slot],.shot_id=s_local_shot_id};
     }
-    
-    u8 raw[128];
-    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
-    netbufStartWrite(&buf);
-    netbufWriteU32(&buf, GEVR_NET_MAGIC);
-    netbufWriteU16(&buf, GEVR_NET_VERSION);
-    netbufWriteU8(&buf, NET_MSG_HIT_REPORT);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
-    netbufWriteU8(&buf, target_slot);
-    netbufWriteU8(&buf, weapon_id);
-    netbufWriteU8(&buf, hit_part);
-    netbufWriteF32(&buf, hit_x);
-    netbufWriteF32(&buf, hit_y);
-    netbufWriteF32(&buf, hit_z);
-    netbufWriteF32(&buf, dmg);
-    
-    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    if(!++s_local_hit_id)++s_local_hit_id;
+    h.hit_id=s_local_hit_id;h.target=target;h.target_life=target<GEVR_MAX_PLAYERS?s_hit_life[target]:0;
+    h.weapon=weapon;h.part=part;h.hx=hx;h.hy=hy;h.hz=hz;h.damage=damage;
+    return h;
 }
-
-void netSendRespawnEvent(uint8_t pad_index, float theta) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || pad_index >= startpadcount) return;
-
-    u8 raw[32];
-    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
-    netbufStartWrite(&buf);
-    netbufWriteU32(&buf, GEVR_NET_MAGIC);
-    netbufWriteU16(&buf, GEVR_NET_VERSION);
-    netbufWriteU8(&buf, NET_MSG_RESPAWN);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
-    netbufWriteU8(&buf, pad_index);
-    netbufWriteF32(&buf, theta);
-    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+void netSendWorldHitReport(uint8_t target,uint8_t weapon,float x,float y,float z,float damage)
+{
+    if(s_state!=NET_STATE_INGAME || !netIsHost() || target>=GEVR_MAX_PLAYERS)return;
+    NetHitReport h=netMakeLocalHit(target,weapon,0,x,y,z,damage);
+    h.shooter_life=s_hit_life[target];
+    /* Environmental blasts have no remote clock or player attacker. */
+    netProcessHitReport(target,&h,0);
+}
+void netSendHitReport(uint8_t target,uint8_t weapon,uint8_t part,float x,float y,float z,float damage)
+{
+    if(s_state!=NET_STATE_INGAME || !s_combat_epoch || s_local_slot<0 || get_cur_playernum()!=s_local_slot)return;
+    NetHitReport h=netMakeLocalHit(target,weapon,part,x,y,z,damage);
+    if(netIsHost()) {netQueueHostHit(h);return;}
+    u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);
+    netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
+    netbufWriteU8(&b,NET_MSG_HIT_REPORT);netbufWriteU8(&b,(uint8_t)s_local_slot);netbufWriteHitReport(&b,&h);
+    netBroadcastBuf(&b,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
+}
+static uint32_t netNextLife(uint32_t life) {return life==UINT32_MAX?1:life+1;}
+static bool netAcceptRespawn(int slot,uint64_t epoch,uint32_t previous,uint32_t next)
+{
+    if(slot<0 || slot>=GEVR_MAX_PLAYERS || epoch!=s_combat_epoch || previous!=s_hit_life[slot] || next!=netNextLife(previous))return false;
+    netInvalidateHitSlot(slot);s_hit_life[slot]=next;return true;
+}
+void netSendRespawnEvent(uint8_t pad_index,float theta)
+{
+    if(s_state!=NET_STATE_INGAME || s_local_slot<0 || !s_combat_epoch || pad_index>=startpadcount)return;
+    uint32_t previous=s_hit_life[s_local_slot],next=netNextLife(previous);
+    netAcceptRespawn(s_local_slot,s_combat_epoch,previous,next);
+    u8 raw[40];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);
+    netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
+    netbufWriteU8(&b,NET_MSG_RESPAWN);netbufWriteU8(&b,(uint8_t)s_local_slot);
+    netbufWriteU8(&b,pad_index);netbufWriteF32(&b,theta);netbufWriteU64(&b,s_combat_epoch);
+    netbufWriteU32(&b,previous);netbufWriteU32(&b,next);
+    netBroadcastBuf(&b,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
 }
 
 void netSendFireEvent(uint8_t weapon_id) {
@@ -1574,6 +2068,59 @@ void netSendVoipChunk(uint32_t sequence, const uint8_t *opus_data, uint16_t size
     } else netBroadcastBuf(&buf, NET_CHAN_VOIP, ENET_PACKET_FLAG_UNSEQUENCED, NULL);
 }
 
+static void netReceiveDamageEvent(ENetPeer *peer,int slot,struct netbuf *b)
+{
+    NetHitReport h;
+    if(!netIsHost() && peer==s_server_peer && s_state==NET_STATE_INGAME
+        && (s_phase==NET_PHASE_IN_PROGRESS || s_phase==NET_PHASE_WARMUP)
+        && slot>=0 && slot<GEVR_MAX_PLAYERS && netbufReadHitReport(b,&h) && !netbufReadLeft(b)
+        && h.epoch==s_combat_epoch && h.target_life==s_hit_life[h.target]
+        && netSlotOccupied(h.target) && g_playerPointers[h.target])
+        netApplyDamage(h.target,slot,h.weapon,h.damage,h.hx,h.hz);
+
+}
+static void netReceiveRespawn(ENetPeer *peer,int slot,struct netbuf *b,const u8 *data,size_t size)
+{
+    if (netSlotIsSpectator(slot)) return;
+    uint8_t pad_index = netbufReadU8(b);
+    float theta = netbufReadF32(b);
+    uint64_t epoch=netbufReadU64(b);uint32_t previous_life=netbufReadU32(b),next_life=netbufReadU32(b);
+    /* Applied whether or not this headset saw the player die: the
+     * respawn resets health, armour and position, so it also brings
+     * a copy that drifted back in line with its owner. */
+    if (s_state != NET_STATE_INGAME || b->error || netbufReadLeft(b) || !isfinite(theta) ||
+        slot < 0 || slot >= GEVR_MAX_PLAYERS || slot == s_local_slot ||
+        pad_index >= startpadcount || g_playerPointers[slot] == NULL ||
+        g_playerPointers[slot]->prop == NULL) return;
+    if (netIsHost()) {
+        if (slot == s_host_slot || s_client_peers[slot] != peer ||
+            ((int)(intptr_t)peer->data - 1) != slot) return;
+    } else if (peer != s_server_peer) {
+        return;
+    }
+
+    s32 prev = get_cur_playernum();
+    if(!netAcceptRespawn(slot,epoch,previous_life,next_life))return;
+    set_cur_player(slot);
+    mp_respawn_handler_net(pad_index, theta);
+    s_remote_moves[slot].pos = g_playerPointers[slot]->prop->pos;
+    s_remote_moves[slot].angles[0] = theta;
+    /* A transform from the old life must not restore death or health. */
+    s_remote_moves[slot].epoch = epoch;
+    s_remote_moves[slot].life_id = next_life;
+    s_remote_moves[slot].death_us = 0;
+    s_remote_moves[slot].dead = 0;
+    s_remote_moves[slot].health = g_playerPointers[slot]->bondhealth;
+    s_remote_moves[slot].armour = g_playerPointers[slot]->bondarmour;
+    s_remote_active[slot] = false;
+    set_cur_player(prev);
+
+    if (netIsHost()) {
+        netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+    }
+
+}
+
 static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
     if (size < 8) return;
     
@@ -1593,6 +2140,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
     }
     
     switch (msg_type) {
+        case NET_MSG_CLOCK: netReceiveClock(peer,slot_id,&buf);break;
         case NET_MSG_HELLO: {
             if (!netIsHost()) break;
             if (peer->data) break;
@@ -1631,7 +2179,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 }
             }
             
-            if (assigned < 0) {
+            if (assigned < 0 || (assigned != previous && netGetConnectedPlayerCount() >= netGetMaxPlayers())) {
                 NET_ERR("Rejecting connection: lobby full");
                 enet_peer_disconnect(peer, 0);
                 break;
@@ -1642,8 +2190,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             
             s_lobby_state.slots[assigned].connected = 1;
             s_lobby_state.slots[assigned].ready = 0;
+            s_lobby_state.slots[assigned].loaded = 0;
             s_lobby_state.slots[assigned].chr_id = requested_chr;
             if (!s_slot_grace_us[assigned]) {
+                s_lobby_state.slots[assigned].team = NET_TEAM_NONE;
+                s_lobby_state.slots[assigned].eliminated = 0;
+                s_lobby_state.slots[assigned].ping_ms = NET_PING_UNKNOWN;
+                s_round.team[assigned] = NET_TEAM_NONE;
                 s_lobby_state.slots[assigned].spectator = s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS;
                 s_round.character[assigned] = requested_chr;
                 memset(s_round.loadout[assigned], 0, 4);
@@ -1662,6 +2215,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             netbufWriteU8(&wbuf, (uint8_t)assigned);
             netbufWriteMatchConfig(&wbuf, s_state == NET_STATE_INGAME ? &s_round.config : &s_lobby_state.config);
             netbufWriteU8(&wbuf, (uint8_t)s_host_slot);
+            netWriteCombatIdentity(&wbuf);
 
             ENetPacket *wp = enet_packet_create(wbuf.data, wbuf.wp, ENET_PACKET_FLAG_RELIABLE);
             enet_peer_send(peer, NET_CHAN_RELIABLE, wp);
@@ -1708,6 +2262,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 int host = netbufReadU8(&buf);
                 if (host >= 0 && host < GEVR_MAX_PLAYERS && host != s_local_slot) s_host_slot = host;
             }
+            NetRoundSettings identity;
+            if(!netReadCombatIdentity(&buf,&identity) || netbufReadLeft(&buf))break;
+            netImportCombatIdentity(&identity);
             s_state = NET_STATE_CLIENT_LOBBY;
             strncpy(s_slot_app_version[s_local_slot], s_local_app_version, sizeof(s_slot_app_version[0]) - 1);
             netSendLocalAppVersion(s_server_peer);
@@ -1731,9 +2288,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 NetLobbySlot *slot = &next.slots[i];
                 slot->connected = netbufReadU8(&buf);
                 slot->ready = netbufReadU8(&buf);
+                slot->loaded = netbufReadU8(&buf);
                 slot->chr_id = netbufReadU8(&buf);
                 slot->spectator = netbufReadU8(&buf);
-                if (slot->connected > 1 || slot->ready > 1 || slot->spectator > 1 || slot->chr_id >= netCharacterCount()) valid = false;
+                slot->team = netbufReadU8(&buf);
+                slot->eliminated = netbufReadU8(&buf);
+                slot->ping_ms = netbufReadU16(&buf);
+                if (slot->connected > 1 || slot->ready > 1 || slot->loaded > 1 || slot->spectator > 1 || slot->eliminated > 1 || slot->team > NET_TEAM_NONE || slot->chr_id >= netCharacterCount()) valid = false;
                 for (int k = 0; k < 4; k++) {
                     slot->loadout[k] = netbufReadU8(&buf);
                     if (slot->loadout[k] && netItemIndexOf(slot->loadout[k]) < 0) valid = false;
@@ -1753,8 +2314,12 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             }
             if (s_local_slot >= 0 && s_lobby_state.slots[s_local_slot].spectator != next.slots[s_local_slot].spectator)
                 for (int i = 0; i < GEVR_MAX_PLAYERS; i++) netVoiceForgetSlot((uint8_t)i);
+            bool voice_changed = s_round.config.voice_mode != round.config.voice_mode;
+            for (int i=0;i<4;i++) if (s_lobby_state.slots[i].eliminated != next.slots[i].eliminated || s_round.team[i] != round.team[i]) voice_changed = true;
+            if (voice_changed) for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i);
+            s_lobby_received_us = sysGetMicroseconds();
             s_lobby_state = next;
-            s_round = round;
+            s_round = round;netImportCombatIdentity(&round);
             s_lobby_open = lobby_open;
             s_start_after_load = start_after_load;
             break;
@@ -1766,11 +2331,19 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             uint8_t ready = netbufReadU8(&buf);
             if (slot >= 0 && slot < s_max_players && s_client_peers[slot] == peer &&
                 s_lobby_state.slots[slot].connected && !buf.error && size == 9 &&
-                slot_id == slot && ready <= 1) {
+                slot_id == slot && ready <= 1 && (!ready || !netScenarioHasTeams(s_lobby_state.config.scenario) || s_lobby_state.slots[slot].team < 2)) {
                 s_lobby_state.slots[slot].ready = ready;
+                if (!ready) netCancelRound();
                 
                 netBroadcastLobbyState();
             }
+            break;
+        }
+        case NET_MSG_LOBBY_TEAM: {
+            int slot = (int)(intptr_t)peer->data - 1;
+            uint8_t team = netbufReadU8(&buf);
+            if (netIsHost() && !buf.error && size == 9 && slot >= 0 && slot < 4 &&
+                slot_id == slot && s_client_peers[slot] == peer) netSetSlotTeam(slot, team);
             break;
         }
         case NET_MSG_LOBBY_CHARACTER: {
@@ -1796,7 +2369,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             uint8_t num_players = netbufReadU8(&buf);
             uint8_t phase = netbufReadU8(&buf);
             if (buf.error || netbufReadLeft(&buf) || phase > NET_PHASE_IN_PROGRESS) break;
-            s_round = round;
+            s_round = round;netImportCombatIdentity(&round);
             s_max_players = netStageMaxPlayers(netStageIndexOf(round.config.stage));
             s_rng_seed = seed;
             extern void randomSetSeed(u32);
@@ -1807,7 +2380,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_phase = phase == NET_PHASE_IN_PROGRESS ? NET_PHASE_WARMUP : (NetPhase)phase;
             s_waiting_for_match_snapshot = phase == NET_PHASE_IN_PROGRESS;
             s_stage_ready_sent = false;
-            s_lobby_state.slots[s_local_slot].ready = 0;
+            s_lobby_state.slots[s_local_slot].loaded = 0;
             NET_LOG("Starting match on stage %d! Seed: 0x%08X", s_lobby_state.config.stage, s_rng_seed);
             if (s_rejoining) {
                 /* Back with the new host: the stage is loaded already, so this
@@ -1831,7 +2404,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             float x = netbufReadF32(&buf), y = netbufReadF32(&buf);
             float z = netbufReadF32(&buf), yaw = netbufReadF32(&buf);
             if (buf.error) break;
-            bool was_ready = s_lobby_state.slots[slot].ready != 0;
+            bool was_ready = s_lobby_state.slots[slot].loaded != 0;
             /* back after a host change: still standing where it was, not respawned */
             bool returning = s_slot_grace_us[slot] != 0;
             s_slot_grace_us[slot] = 0;
@@ -1850,8 +2423,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (s_phase == NET_PHASE_IN_PROGRESS) {
                 netSendMatchSnapshot(peer);
                 netSendWorldSnapshot(peer);
+                netSendAmmoState(peer);
             }
-            s_lobby_state.slots[slot].ready = 1;
+            s_lobby_state.slots[slot].loaded = 1;
             netBroadcastLobbyState();
             netReadyProgress();
             break;
@@ -1860,13 +2434,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
             NetRoundSettings round;
             if (!netReadRoundSettings(&buf, &round) || netbufReadLeft(&buf)) break;
-            s_round = round;
+            s_round = round;netImportCombatIdentity(&round);
             s_phase = NET_PHASE_WARMUP;
             s_match_ended = false;
             s_round_reset_pending = true;
             s_countdown_end_us = 0;
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) s_remote_active[i] = false;
-            s_lobby_state.slots[s_local_slot].ready = 0;
+            s_lobby_state.slots[s_local_slot].loaded = 0;
             break;
         }
         case NET_MSG_VOTE: {
@@ -1933,6 +2507,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (netIsHost() || peer != s_server_peer || size != 8 ||
                 s_state != NET_STATE_INGAME || s_phase != NET_PHASE_IN_PROGRESS) break;
             s_match_ended = true;
+            for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i);
             mpCalculateAwards(false);
             break;
         }
@@ -1940,7 +2515,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (netIsHost() || peer != s_server_peer || size != 9) break;
             uint8_t phase = netbufReadU8(&buf);
             if (phase != NET_PHASE_WARMUP && phase != NET_PHASE_IN_PROGRESS) break;
-            s_phase = (NetPhase)phase;
+            netTransitionRoundPhase((NetPhase)phase);
+            for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i);
             break;
         }
         case NET_MSG_MATCH_SNAPSHOT: {
@@ -1948,6 +2524,20 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 s_local_slot < 0) break;
             bool game_over = netbufReadU8(&buf) != 0;
             u32 clock = netbufReadU32(&buf);
+            NetRoundSettings round;
+            NetMatchConfig pending;
+            uint8_t teams[4], eliminated[4], order_out[4];
+            uint16_t ping[4];
+            if (!netReadRoundSettings(&buf, &round)) break;
+            netbufReadMatchConfig(&buf, &pending);
+            if (!netValidConfig(&pending)) break;
+            bool valid_roster = true;
+            for (int i=0;i<4;i++) {
+                teams[i]=netbufReadU8(&buf); eliminated[i]=netbufReadU8(&buf);
+                ping[i]=netbufReadU16(&buf); order_out[i]=netbufReadU8(&buf);
+                if (teams[i]>NET_TEAM_NONE || eliminated[i]>1 || order_out[i]>4) valid_roster=false;
+            }
+            if (!valid_roster || buf.error) break;
             u32 score_bank[GEVR_MAX_PLAYERS];
             u32 scores[GEVR_MAX_PLAYERS][GEVR_MAX_PLAYERS];
             uint8_t occupied[GEVR_MAX_PLAYERS], special[GEVR_MAX_PLAYERS];
@@ -1962,6 +2552,16 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 special[i] = netbufReadU8(&buf);
             }
             if (buf.error || netbufReadLeft(&buf) != 0) break;
+            s_round = round;netImportCombatIdentity(&round);
+            s_lobby_state.config = pending;
+            s_lobby_received_us = sysGetMicroseconds();
+            for (int i=0;i<4;i++) {
+                s_lobby_state.slots[i].team=teams[i];
+                s_lobby_state.slots[i].eliminated=eliminated[i];
+                s_lobby_state.slots[i].ping_ms=ping[i];
+                g_playerPlayerData[i].order_out_in_yolt=order_out[i];
+                netVoiceForgetSlot((uint8_t)i);
+            }
             D_80048394 = (s32)clock;
             D_800483A8 = (s32)clock;
             for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
@@ -1987,6 +2587,23 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_waiting_for_match_snapshot = false;
             s_match_ended = game_over;
             if (game_over) mpCalculateAwards(false);
+            break;
+        }
+        case NET_MSG_AMMO_STATE: {
+            if (!netIsHost() && peer == s_server_peer && s_state == NET_STATE_INGAME &&
+                netPlayersWereTicked()) netApplyAmmoPacket(&buf);
+            break;
+        }
+        case NET_MSG_AMMO_IMPULSE: {
+            if (!netIsHost() || s_state != NET_STATE_INGAME || !netPlayersWereTicked() ||
+                !netAcceptPlayerEvent(peer,slot_id) || netSlotIsSpectator(slot_id)) break;
+            u8 stage=netbufReadU8(&buf);uint32_t epoch=netbufReadU32(&buf);u16 index=netbufReadU16(&buf);coord3d dir;
+            for(int i=0;i<3;i++) dir.f[i]=netbufReadF32(&buf);
+            if (buf.error || netbufReadLeft(&buf) || stage != s_round.config.stage || epoch != s_round.world_epoch || index >= 0x8000) break;
+            float len=dir.x*dir.x+dir.y*dir.y+dir.z*dir.z;
+            if (!isfinite(len) || len < .5f || len > 1.5f) break;
+            ObjectRecord *obj=netObjectByIndex(index,PROPDEF_AMMO);
+            if (gevrAmmoNetworked(obj)) gevrAmmoImpulseWorld(obj,&dir);
             break;
         }
         case NET_MSG_WORLD_SNAPSHOT: {
@@ -2022,6 +2639,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     DoorRecord *door = (DoorRecord *)obj;
                     door->openPosition = position;
                     door->openstate = (s8)state;
+                    doorUpdateBbox(door);
+                    extern void doorBuildClippedVertices(DoorRecord *door);
+                    doorBuildClippedVertices(door);
                 }
             }
             break;
@@ -2030,14 +2650,16 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             int slot = slot_id;
             if (s_state == NET_STATE_INGAME && slot >= 0 && slot < s_max_players &&
                 slot != s_local_slot && s_lobby_state.slots[slot].connected &&
-                s_lobby_state.slots[slot].ready && !s_lobby_state.slots[slot].spectator &&
+                s_lobby_state.slots[slot].loaded && !s_lobby_state.slots[slot].spectator &&
                 ((!netIsHost() && peer == s_server_peer) ||
                  (netIsHost() && slot != s_host_slot && s_client_peers[slot] == peer &&
                   ((int)(intptr_t)peer->data - 1) == slot))) {
                 struct netplayermove move;
                 netbufReadPlayerMove(&buf, &move);
-                if (buf.error || netbufReadLeft(&buf) != 0) break;
+                if (buf.error || netbufReadLeft(&buf) != 0 || move.epoch!=s_combat_epoch || move.life_id!=s_hit_life[slot]) break;
+                if(s_remote_active[slot] && (int32_t)(move.tick-s_remote_moves[slot].tick)<=0)break;
                 s_remote_moves[slot] = move;
+                if (netIsHost()) netObserveHitMove(slot,&move);
                 
                 /* Mirror to legacy NetMsgPlayerState for components that read it */
                 s_remote_players[slot].header.slot_id = (uint8_t)slot;
@@ -2067,72 +2689,12 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_HIT_REPORT: {
-            uint8_t target = netbufReadU8(&buf);
-            uint8_t weapon = netbufReadU8(&buf);
-            uint8_t hit_loc = netbufReadU8(&buf);
-            float hx = netbufReadF32(&buf);
-            float hy = netbufReadF32(&buf);
-            float hz = netbufReadF32(&buf);
-            float dmg = netbufReadF32(&buf);
-            (void)hit_loc;
-            
-            if (netIsHost() && s_phase == NET_PHASE_IN_PROGRESS && !buf.error &&
-                slot_id >= 0 && slot_id < s_max_players && s_client_peers[slot_id] == peer &&
-                ((int)(intptr_t)peer->data - 1) == slot_id && netSlotOccupied(slot_id) &&
-                netSlotOccupied(target)) {
-                netProcessHitReport((uint8_t)slot_id, target, weapon, hx, hy, hz, dmg);
-            }
+            if(netIsHost() && slot_id<GEVR_MAX_PLAYERS && s_client_peers[slot_id]==peer
+                && (int)(intptr_t)peer->data-1==slot_id)netReceiveHitReport(slot_id,&buf);
             break;
         }
-        case NET_MSG_DAMAGE_EVENT: {
-            uint8_t target = netbufReadU8(&buf);
-            uint8_t attacker = netbufReadU8(&buf);
-            uint8_t weapon = netbufReadU8(&buf);
-            float dmg = netbufReadF32(&buf);
-            float vx = netbufReadF32(&buf);
-            float vz = netbufReadF32(&buf);
-            (void)weapon;
-            
-            /* Apply authoritative damage to the target player across all connected headsets */
-            if (!netIsHost() && peer == s_server_peer && !buf.error &&
-                s_phase == NET_PHASE_IN_PROGRESS && netSlotOccupied(target) &&
-                attacker < GEVR_MAX_PLAYERS && g_playerPointers[target] != NULL) {
-                netApplyDamage(target, attacker, weapon, dmg, vx, vz);
-            }
-            break;
-        }
-        case NET_MSG_RESPAWN: {
-            if (netSlotIsSpectator(slot_id)) break;
-            uint8_t pad_index = netbufReadU8(&buf);
-            float theta = netbufReadF32(&buf);
-            int slot = slot_id;
-            /* Applied whether or not this headset saw the player die: the
-             * respawn resets health, armour and position, so it also brings
-             * a copy that drifted back in line with its owner. */
-            if (s_state != NET_STATE_INGAME || buf.error ||
-                slot < 0 || slot >= GEVR_MAX_PLAYERS || slot == s_local_slot ||
-                pad_index >= startpadcount || g_playerPointers[slot] == NULL ||
-                g_playerPointers[slot]->prop == NULL) break;
-            if (netIsHost()) {
-                if (slot == s_host_slot || s_client_peers[slot] != peer ||
-                    ((int)(intptr_t)peer->data - 1) != slot) break;
-            } else if (peer != s_server_peer) {
-                break;
-            }
-
-            s32 prev = get_cur_playernum();
-            set_cur_player(slot);
-            mp_respawn_handler_net(pad_index, theta);
-            s_remote_moves[slot].pos = g_playerPointers[slot]->prop->pos;
-            s_remote_moves[slot].angles[0] = theta;
-            s_remote_active[slot] = true;
-            set_cur_player(prev);
-
-            if (netIsHost()) {
-                netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
-            }
-            break;
-        }
+        case NET_MSG_DAMAGE_EVENT: netReceiveDamageEvent(peer,slot_id,&buf);break;
+        case NET_MSG_RESPAWN: netReceiveRespawn(peer,slot_id,&buf,data,size);break;
         case NET_MSG_PROJECTILE: {
             if (netSlotIsSpectator(slot_id)) break;
             extern void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3d *pos,
@@ -2454,7 +3016,7 @@ static void netRoundTick(void) {
         if (netIsHost()) {
             if (s_match_ended && s_results_deadline_us && now >= s_results_deadline_us) netHostContinue();
             if (s_next_round_at_us && now >= s_next_round_at_us &&
-                netGetConnectedPlayerCount() >= 2 && netAllLoaded()) {
+                netGetConnectedPlayerCount() >= 2 && netRoundRosterReady() && netAllLoaded()) {
                 netResolveVotes();
                 netLatchRoundSettings();
                 netBeginRoundReset(true);
@@ -2546,6 +3108,7 @@ void netMigrationGiveUp(void) {
  * survivor hosts the warmup.
  */
 static void netHostLost(ENetPeer *peer) {
+    netClearHostHits();
     int old = s_host_slot;
     int elected = -1;
     enet_address_get_ip(&peer->address, s_old_host_ip, sizeof(s_old_host_ip));
@@ -2553,6 +3116,7 @@ static void netHostLost(ENetPeer *peer) {
     if (old >= 0 && old < GEVR_MAX_PLAYERS) {
         s_lobby_state.slots[old].connected = 0;
         s_lobby_state.slots[old].ready = 0;
+        s_lobby_state.slots[old].loaded = 0;
         s_remote_active[old] = false;
         netVoiceForgetSlot((uint8_t)old);
         netForgetPlayerScore(old);
@@ -2568,6 +3132,8 @@ static void netHostLost(ENetPeer *peer) {
     if (elected < 0) elected = s_local_slot;
     s_host_slot = elected;
     s_state = NET_STATE_MIGRATING;
+    s_last_latency_us = 0;
+    for (int i=0;i<4;i++) s_lobby_state.slots[i].ping_ms = NET_PING_UNKNOWN;
     s_migrate_deadline_us = sysGetMicroseconds() + 30ull * 1000000;
     s_countdown_end_us = 0;
     s_next_round_at_us = 0;
@@ -2609,6 +3175,7 @@ bool netHostTakeOver(uint16_t port) {
     }
     enet_host_set_virtual_transport(s_host, s_virtual_send, s_virtual_receive, s_virtual_context);
     s_state = NET_STATE_INGAME;
+    netResetCombatEpoch();
     s_takeover_pending = false;
     s_max_players = s_lobby_max_players;
     uint64_t now = sysGetMicroseconds();
@@ -2618,9 +3185,9 @@ bool netHostTakeOver(uint16_t port) {
         s_remote_active[i] = false;
         if (i == s_local_slot) {
             s_lobby_state.slots[i].connected = 1;
-            s_lobby_state.slots[i].ready = 1;
+            s_lobby_state.slots[i].loaded = 1;
         } else if (s_lobby_state.slots[i].connected) {
-            s_lobby_state.slots[i].ready = 0;
+            s_lobby_state.slots[i].loaded = 0;
             s_slot_grace_us[i] = now + 20ull * 1000000;
             waiting++;
         }
@@ -2668,6 +3235,8 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
     netVoiceForgetSlot((uint8_t)slot);
     netForgetPlayerScore(slot);
     memset(&s_lobby_state.slots[slot], 0, sizeof(NetLobbySlot));
+    s_lobby_state.slots[slot].team = NET_TEAM_NONE;
+    s_lobby_state.slots[slot].ping_ms = NET_PING_UNKNOWN;
     s_slot_app_version[slot][0] = '\0';
     s_slot_grace_us[slot] = 0;
     netClearVotes(slot);
@@ -2685,6 +3254,20 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
 }
 
 void netPoll(void) {
+    static uint64_t last_ammo_us;
+    uint64_t ammo_now=sysGetMicroseconds();
+    if (netIsHost() && s_state == NET_STATE_INGAME && !s_round_reset_loading && netPlayersWereTicked() &&
+        ammo_now-last_ammo_us >= 50000) {
+        last_ammo_us=ammo_now;netSendAmmoState(NULL);
+    }
+    if (netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS && netPlayersWereTicked()) {
+        bool changed = false;
+        for (int i=0;i<4;i++) {
+            int eliminated = s_round.config.scenario == SCENARIO_YOLT && netPlayerInRound(i) && (s_lobby_state.slots[i].eliminated || g_playerPlayerData[i].order_out_in_yolt != 0);
+            if (s_lobby_state.slots[i].eliminated != eliminated) { s_lobby_state.slots[i].eliminated = eliminated; changed = true; }
+        }
+        if (changed) { for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i); netBroadcastLobbyState(); }
+    }
     if (!s_host) {
         netVoiceTick();
         return;
@@ -2767,6 +3350,19 @@ void netPoll(void) {
             }
         }
     }
+    uint64_t lobby_now = sysGetMicroseconds();
+    if (netIsHost() && lobby_now - s_last_latency_us >= 1000000) {
+        s_last_latency_us = lobby_now;
+        for (int i=0;i<4;i++) {
+            ENetPeer *peer = s_client_peers[i];
+            s_lobby_state.slots[i].ping_ms = i == s_host_slot ? 0 :
+                (peer && peer->state == ENET_PEER_STATE_CONNECTED ?
+                    netLatencyValue(peer->roundTripTime, peer->lastReceiveTime, enet_time_get()) : NET_PING_UNKNOWN);
+        }
+        netBroadcastLobbyState();
+    }
+    netClockTick();
+    netDrainHostHits();
     netRoundTick();
     if (s_waiting_for_match_snapshot && s_stage_ready_sent &&
         s_state == NET_STATE_INGAME && !netIsHost() &&
