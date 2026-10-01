@@ -1172,13 +1172,30 @@ u32 gevrModelConvert(u8 *data, u32 size, u32 capacity, s32 numSwitches, s32 numT
 			if (b->kind == BK_NODE) {
 				gevrHandPatchNoteNode(b->src, b->dst);
 			} else if (b->kind == BK_GDL) {
-				const Gfx *g = (const Gfx *)(out + b->dst);
+				Gfx *g = (Gfx *)(out + b->dst);
 				u32 k, n = b->dstSize / sizeof(Gfx);
+				u32 tex = 0, droppedTex = 0;
+				s32 drop = FALSE, dropped = 0;
 
 				for (k = 0; k < n; k++) {
-					if ((u8)(g[k].words.w0 >> 24) == 0xc0) {
-						gevrHandPatchNoteMarker((u32)(g[k].words.w1 & 0xfff), (u32)g[k].words.w0);
+					u8 op = (u8)(g[k].words.w0 >> 24);
+
+					if (op == 0xc0) {
+						tex = (u32)(g[k].words.w1 & 0xfff);
+						gevrHandPatchNoteMarker(tex, (u32)g[k].words.w0);
+						drop = gevrHandPatchDropsTexture(c.name, tex);
+					} else if (drop && (op == 0xbf /* G_TRI1 */ || op == 0xb1 /* Rare's G_TRI4 */)) {
+						/* a face the model should not draw (issue #24): an empty
+						 * G_TRI4, which the renderer skips (gfx_pc.cpp gfx_sp_tri4);
+						 * opcode 0x00 is unknown to it and fatal */
+						g[k].words.w0 = 0xb1000000u;
+						g[k].words.w1 = 0;
+						droppedTex = tex;
+						dropped++;
 					}
+				}
+				if (dropped) {
+					sysLogPrintf(LOG_NOTE, "model %s: dropped %d face command(s) of texture 0x%03x", c.name, dropped, droppedTex);
 				}
 			}
 		}

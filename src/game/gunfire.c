@@ -6275,9 +6275,10 @@ void bullet_path_from_screen_center(coord3d* arg0, coord3d* result, enum GUNHAND
 
 #ifdef GEVR
     {
-        extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+        extern s32 gevrStereoShotFromEye(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
 
-        if (gevrStereoShot(arg2, &crosspos, arg0, result))
+        /* the shot leaves at the eye's depth along the barrel (bondview2.c) */
+        if (gevrStereoShotFromEye(arg2, &crosspos, arg0, result))
         {
             return;
         }
@@ -6687,9 +6688,10 @@ void bullet_path_from_screen_center(coord3d* arg0, coord3d* result, enum GUNHAND
 
 #ifdef GEVR
     {
-        extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+        extern s32 gevrStereoShotFromEye(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
 
-        if (gevrStereoShot(arg2, &crosspos, arg0, result))
+        /* the shot leaves at the eye's depth along the barrel (bondview2.c) */
+        if (gevrStereoShotFromEye(arg2, &crosspos, arg0, result))
         {
             return;
         }

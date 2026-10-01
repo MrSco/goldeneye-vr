@@ -6,6 +6,7 @@ extern "C" {
 
 #define GEVR_ACTION_DAMAGE_BULLET    1001
 #define GEVR_ACTION_DAMAGE_EXPLOSION 1002
+#define GEVR_ACTION_GRENADE_COOK     1003   // each pulse while a grenade cooks (bondview2.c)
 
 typedef enum {
     HAPTIC_CAT_PISTOLS = 0,

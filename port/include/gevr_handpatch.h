@@ -52,6 +52,9 @@ struct ModelFileHeader;
 s32 gevrHandPatchWants(const char *name);
 void gevrHandPatchNoteNode(u32 src, u32 dst);
 void gevrHandPatchNoteMarker(u32 texnum, u32 w0);
+/* A face the model should not draw at all: nonzero for a texture whose
+ * triangles the converter turns into no-ops (issue #24). */
+s32 gevrHandPatchDropsTexture(const char *name, u32 texnum);
 
 /* From load_object_fill_header(), once the model's lists are expanded. */
 void gevrHandPatchApply(struct ModelFileHeader *header, const char *name, void *texpool);

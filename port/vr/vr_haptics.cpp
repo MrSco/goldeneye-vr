@@ -80,6 +80,9 @@ static HapticProfile s_profiles[] = {
     { ITEM_TIMEDMINE,   "Timed Mine",                  "Timed_Mine",      HAPTIC_CAT_MELEE_THROWN,   3, 3,  50,  50, 150.0f },
     { ITEM_PROXIMITYMINE, "Proximity Mine",            "Proximity_Mine",  HAPTIC_CAT_MELEE_THROWN,   3, 3,  50,  50, 150.0f },
     { ITEM_REMOTEMINE,  "Remote Mine",                 "Remote_Mine",     HAPTIC_CAT_MELEE_THROWN,   3, 3,  50,  50, 150.0f },
+    // the pulses while a grenade cooks (grip + trigger): they come faster and
+    // a little harder as the fuse runs down; this is the first pulse
+    { GEVR_ACTION_GRENADE_COOK, "Grenade Cooking (pulses)", "Grenade_Cook",  HAPTIC_CAT_MELEE_THROWN,   4, 4,  40,  40, 150.0f },
 
     // === Category: Gadgets ===
     { ITEM_TRIGGER,     "Watch Detonator",             "Detonator",       HAPTIC_CAT_GADGETS,        2, 2,  30,  30, 300.0f },
@@ -230,7 +233,8 @@ extern "C" void vrHapticsDumpCTable(void) {
         const HapticProfile &p = s_profiles[i];
         vr_log("    { %-20s \"%-28s\", \"%-16s\", %d, %2d, %2d, %3d, %3d, %5.1ff },",
                p.id == GEVR_ACTION_DAMAGE_BULLET ? "GEVR_ACTION_DAMAGE_BULLET," :
-               p.id == GEVR_ACTION_DAMAGE_EXPLOSION ? "GEVR_ACTION_DAMAGE_EXPLOSION," : "ITEM_ID,",
+               p.id == GEVR_ACTION_DAMAGE_EXPLOSION ? "GEVR_ACTION_DAMAGE_EXPLOSION," :
+               p.id == GEVR_ACTION_GRENADE_COOK ? "GEVR_ACTION_GRENADE_COOK," : "ITEM_ID,",
                p.name, p.iniKey, (int)p.category,
                p.intensity, p.defaultIntensity,
                p.durationMs, p.defaultDurationMs,
