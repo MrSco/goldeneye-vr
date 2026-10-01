@@ -620,7 +620,7 @@ void chrpropFlagRoomsFromRayTest(s32 arg0, coord3d *from, coord3d *to, u8 *rooms
     f32 scale;
     s32 i;
 
-    scale = get_room_data_float1() * bgGetLevelVisibilityScale();
+    scale = get_room_data_float1();   /* issue #32: room units, as the room boxes are (see chraiCheckUseHeldItem) */
 
     dir.x = to->x - from->x;
     dir.y = to->y - from->y;
@@ -1054,7 +1054,18 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     if (walkTilesBetweenPoints_NoCallback(&fromtile, playerprop->pos.x, playerprop->pos.z, shotdata.gunpos.x, shotdata.gunpos.z))
 #endif
     {
-        distscale = get_room_data_float1() * bgGetLevelVisibilityScale();
+        /*
+         * Issue #32 (Surface: ground patches without impacts). The room-box
+         * pretest of the searches below (chrpropRayIntersectsRoomBbox) takes
+         * this scaled position as the ray's start, and the boxes are in room
+         * units: world x the level scale. The visibility scale (0.2 on Dam and
+         * Surface, 1.0 elsewhere) put the start a fifth of the way to the
+         * origin, thousands of units off, and no room passed: only the room
+         * where the tile walk ended, tested without the pretest, could ever be
+         * hit. Measured on Surface 2: the game's start passed 0 rooms on every
+         * shot, the room-scale start passed the room that held the ground.
+         */
+        distscale = get_room_data_float1();
         playerpos = bondviewGetCurrentPlayersPosition();
 #ifdef GEVR
         if (g_gevrStereo)
@@ -1343,7 +1354,18 @@ void chraiDefaultWeaponFireHandler(s32 hand)
     if (walkTilesBetweenPoints_NoCallback(&fromtile, playerprop->pos.x, playerprop->pos.z, shotdata.gunpos.x, shotdata.gunpos.z))
 #endif
     {
-        distscale = get_room_data_float1() * bgGetLevelVisibilityScale();
+        /*
+         * Issue #32 (Surface: ground patches without impacts). The room-box
+         * pretest of the searches below (chrpropRayIntersectsRoomBbox) takes
+         * this scaled position as the ray's start, and the boxes are in room
+         * units: world x the level scale. The visibility scale (0.2 on Dam and
+         * Surface, 1.0 elsewhere) put the start a fifth of the way to the
+         * origin, thousands of units off, and no room passed: only the room
+         * where the tile walk ended, tested without the pretest, could ever be
+         * hit. Measured on Surface 2: the game's start passed 0 rooms on every
+         * shot, the room-scale start passed the room that held the ground.
+         */
+        distscale = get_room_data_float1();
         playerpos = bondviewGetCurrentPlayersPosition();
 #ifdef GEVR
         if (g_gevrStereo)
