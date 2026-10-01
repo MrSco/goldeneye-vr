@@ -1819,9 +1819,9 @@ static bool gSteadyUsed[2];   // this game frame's snapshot took the steadied tu
  * the hand's tremor.
  */
 #define GEVR_GRIP_STEADY_ALPHA 0.15f
-extern "C" int gevrGripSteadyOn(void);   // bondview2.c
+extern "C" int gevrGripSteadyOnCtrl(int ctrl);   // bondview2.c: 1 the gun hand, 0 the off hand
 extern "C" int gevrStereoTwoHandGrip(void); // bondview2.c
-extern "C" float gevrScopeMagnification(void); // bondview2.c
+extern "C" float gevrScopeMagnificationCtrl(int ctrl); // bondview2.c
 
 static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
 {
@@ -1849,7 +1849,8 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
     float targetA = aMin[lvl];
     float maxA = 1.0f;
 
-    const float mag = gevrScopeMagnification();
+    // the off hand supporting the right gun takes that gun's magnification; a scope of its own, its own
+    const float mag = gevrStereoTwoHandGrip() ? gevrScopeMagnificationCtrl(1) : gevrScopeMagnificationCtrl(gevrPhysHand(h));
     if (grip) {
         // Base alpha respects launcher setting: Low = 0.15f, High = 0.08f, Off = 0.25f
         float baseA = (lvl == 2) ? 0.08f : (lvl == 0 ? 0.25f : 0.15f);
@@ -1893,7 +1894,8 @@ extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
             gCamCtrlPose[h] = gControllerStates[h].controller_pose;
             const XrQuaternionf& pq = gCtrlPosePlay[h].orientation;
             const bool twoHand = gevrStereoTwoHandGrip() != 0;
-            const bool grip = (h == gevrPhysHand(1) || (h == gevrPhysHand(0) && twoHand)) && gevrGripSteadyOn();
+            // each hand by its own scope (gevrPhysHand is its own inverse); two-handed, the off hand too
+            const bool grip = gevrGripSteadyOnCtrl(gevrPhysHand(h)) || (h == gevrPhysHand(0) && twoHand && gevrGripSteadyOnCtrl(1));
             gSteadyUsed[h] = false;
             if ((VrAimSteady > 0 || grip) && !(pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f)) {
                 // steadied play-space orientation, seen from the camera head: head^-1 * s

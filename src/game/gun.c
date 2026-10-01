@@ -1447,9 +1447,22 @@ f32 get_item_in_hand_zoom(void) {
     return get_ptr_item_statistics(get_item_in_hand_or_watch_menu(GUNRIGHT))->Zoom;
 }
 
+#ifdef GEVR
+/* the sniper in either hand: in stereo the left hand can carry it, with its own scope */
+static s32 gevrSniperHeld(void)
+{
+    extern s32 g_gevrStereo;
+
+    return get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE
+        || (g_gevrStereo && get_item_in_hand_or_watch_menu(GUNLEFT) == ITEM_SNIPERRIFLE);
+}
+#else
+#define gevrSniperHeld() (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE)
+#endif
+
 void camera_sniper_zoom_out(f32 zoom)
 {
-	if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE) {
+	if (gevrSniperHeld()) {
 		g_CurrentPlayer->sniper_zoom *= (1.0f + (zoom * 0.1f));
 #ifdef GEVR
 		{
@@ -1483,7 +1496,7 @@ void camera_sniper_zoom_out(f32 zoom)
 
 void camera_sniper_zoom_in(f32 zoom)
 {
-	if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE) {
+	if (gevrSniperHeld()) {
 		g_CurrentPlayer->sniper_zoom /= (1.0f + (zoom * 0.1f));
 #ifdef GEVR
 		{

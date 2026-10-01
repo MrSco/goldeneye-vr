@@ -1,6 +1,7 @@
 #ifdef GEVR
 #include "net_game.h"
 #include "gevr_hud_geometry.h"
+#include "gevr_scope.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -3508,18 +3509,16 @@ s32 gevrStereoAimTarget(struct coord3d *target)
  * files/gevr_scope.txt "right up back diameter K" (metres added to the lens;
  * K) adjusts it while testing.
  */
-s32 gevrScopeOn;                /* this frame's world is kept for the scope */
-f32 gevrScopeVP[16];            /* head camera space to the scope's clip space, column-major */
-f32 gevrScopeHeadP[2];          /* the head projection's x and y scales */
-f32 gevrScopeLens[4];           /* the lens from the gun hand's grip: right, up, back, diameter (m) */
-f32 gevrScopeOrigin[3];         /* the scope camera, camera space (gunfire.c sizes its sight) */
-f32 gevrScopeFovDeg;            /* the angle across the lens */
-f32 gevrScopeGunOrigin[3];      /* gun grip pos in view space (m) */
-f32 gevrScopeGunAxes[3][3];     /* gun right, up, back axes */
-s32 gevrScopeGunValid;          /* whether gevrScopeGunOrigin/Axes valid */
+/*
+ * One scope per hand (port/include/gevr_scope.h): the world is kept for
+ * every hand holding a scoped gun, so a sniper in the left hand, or one in
+ * each, gets its lens. A hand without one costs nothing (gevrScopeBeginHand
+ * leaves at the table scan).
+ */
+GevrScopeState gevrScope[2];
+s32 gevrScopeOn;                /* this frame's world is kept for the scopes: bit (1 << hand) */
 static f32 s_gevrScopeTrim[4];  /* gevr_scope.txt: added to the lens */
 static f32 s_gevrScopeK = 1.0f;    /* the N64's own zoomed view (gevr_scope.txt can change it) */
-extern float gevrScopeLensTan;     /* vr_openxr.cpp: tan of half the lens's angle, as last shown */
 #define GEVR_SCOPE_FLAT_FOVY 60.0f /* the N64's normal view (player.c), the zoom's 1x */
 
 #define GEVR_SCOPE_NEAR_M       0.05f
@@ -3601,7 +3600,7 @@ static f32 gevrScopeZoom(s32 item)
 }
 
 /* The N64's normal view was 60 deg (30 deg half-angle). Magnification = tan(30) / tan(zoom / 2) */
-f32 gevrScopeMagnification(void)
+f32 gevrScopeMagnificationHand(s32 hand)
 {
     s32 item;
     f32 zoom;
@@ -3610,7 +3609,7 @@ f32 gevrScopeMagnification(void)
     {
         return 1.0f;
     }
-    item = getCurrentPlayerWeaponId(GUNRIGHT);
+    item = getCurrentPlayerWeaponId(hand);
     if (gevrScopeFor(item) == NULL)
     {
         return 1.0f;
@@ -3621,7 +3620,19 @@ f32 gevrScopeMagnification(void)
     return tanf(30.0f * (M_PI_F / 180.0f)) / tanf(zoom * 0.5f * (M_PI_F / 180.0f));
 }
 
-static s32 s_gevrScopeEyeNear = 0;
+/* the gun hand's: the two-handed aim (gevrTwoHandAim) steadies the right gun */
+f32 gevrScopeMagnification(void)
+{
+    return gevrScopeMagnificationHand(GUNRIGHT);
+}
+
+/* vr_input.cpp speaks in controllers: 1 the gun hand, 0 the off hand */
+f32 gevrScopeMagnificationCtrl(s32 ctrl)
+{
+    return gevrScopeMagnificationHand(ctrl == 1 ? GUNRIGHT : GUNLEFT);
+}
+
+static s32 s_gevrScopeEyeNear[2];
 
 /*
  * vr_input.cpp gevrVrSnapshotControllers: aiming (the grip) a gun with a
@@ -3630,8 +3641,10 @@ static s32 s_gevrScopeEyeNear = 0;
  * - the scope magnifies the hand's tremor (issue #58, user).
  * Issue #79: Also steadies when two-handed holding or when the scope is raised to the eye.
  */
-s32 gevrGripSteadyOn(void)
+s32 gevrGripSteadyOnCtrl(s32 ctrl)
 {
+    s32 hand = ctrl == 1 ? GUNRIGHT : GUNLEFT;
+
     if (!g_gevrStereo || g_CurrentPlayer == NULL)
     {
         return FALSE;
@@ -3640,11 +3653,16 @@ s32 gevrGripSteadyOn(void)
     {
         return TRUE;
     }
-    if (gevrScopeFor(getCurrentPlayerWeaponId(GUNRIGHT)) != NULL)
+    if (gevrScopeFor(getCurrentPlayerWeaponId(hand)) != NULL)
     {
-        return g_CurrentPlayer->insightaimmode || s_gevrScopeEyeNear;
+        return g_CurrentPlayer->insightaimmode || s_gevrScopeEyeNear[hand];
     }
     return FALSE;
+}
+
+s32 gevrGripSteadyOn(void)
+{
+    return gevrGripSteadyOnCtrl(1);
 }
 
 /*
@@ -3655,7 +3673,8 @@ s32 gevrGripSteadyOn(void)
 s32 gevrScopeZoomStick(void)
 {
     return g_gevrStereo && g_CurrentPlayer != NULL && g_CurrentPlayer->insightaimmode
-        && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_SNIPERRIFLE;
+        && (getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_SNIPERRIFLE
+            || getCurrentPlayerWeaponId(GUNLEFT) == ITEM_SNIPERRIFLE);
 }
 
 static void gevrScopeTune(void)
@@ -3688,8 +3707,8 @@ static void gevrScopeTune(void)
     fclose(f);
 }
 
-/* the lens on the eyepiece, from the gun hand's grip (vr_openxr.cpp places it) */
-static void gevrScopeLensPlace(const struct GevrScope *sc)
+/* the lens on the eyepiece, from the hand's grip (vr_openxr.cpp places it) */
+static void gevrScopeLensPlace(const struct GevrScope *sc, f32 lens[4])
 {
     f32 size = gevrGunSizeFactor();
     f32 unit = GEVR_VIEWMODEL_CM * 0.1f / 100.0f * size;   /* metres a model unit */
@@ -3699,20 +3718,28 @@ static void gevrScopeLensPlace(const struct GevrScope *sc)
     f32 ez = sc->z;
     f32 er = sc->r;
 
-    gevrScopeLens[0] = (VrLeftHandedMode ? -VrGunOffX : VrGunOffX) * size / 100.0f
-                     - left * ex * unit + s_gevrScopeTrim[0];
-    gevrScopeLens[1] = VrGunOffY * size / 100.0f + ey * unit + s_gevrScopeTrim[1];
-    gevrScopeLens[2] = (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * size / 100.0f
-                     - ez * unit + s_gevrScopeTrim[2];
-    gevrScopeLens[3] = 2.0f * er * unit * GEVR_SCOPE_LENS_SCALE + s_gevrScopeTrim[3];
+    lens[0] = (VrLeftHandedMode ? -VrGunOffX : VrGunOffX) * size / 100.0f
+            - left * ex * unit + s_gevrScopeTrim[0];
+    lens[1] = VrGunOffY * size / 100.0f + ey * unit + s_gevrScopeTrim[1];
+    lens[2] = (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * size / 100.0f
+            - ez * unit + s_gevrScopeTrim[2];
+    lens[3] = 2.0f * er * unit * GEVR_SCOPE_LENS_SCALE + s_gevrScopeTrim[3];
 }
 
-/* lvlRender, once the player's view is set up: whether this frame draws the scope */
-s32 gevrScopeBegin(void)
+/*
+ * One hand's scope this frame. The left gun (GUNLEFT, controller 0) is the
+ * same model unmirrored (gevrStereoGunMatrix: none of the scoped guns is
+ * MIRROR_DUAL), so the eyepiece's place on it carries over; only the pose
+ * comes from the other controller.
+ */
+static s32 gevrScopeBeginHand(s32 hand)
 {
     extern f32 g_viProjectionMatrixF[4][4];
     extern void viGetZRange(f32 *zrange);
-    static s32 was = -1;
+    static s32 was[2] = { -1, -1 };
+    static s32 s_near[2];
+    GevrScopeState *st = &gevrScope[hand];
+    s32 ctrl = hand == GUNRIGHT ? 1 : 0;
     f32 pos[3], right[3], up[3], back[3];
     f32 r[3], u[3], f[3];
     f32 vu = GEVR_UNITS_PER_METRE * D_800364CC;
@@ -3720,20 +3747,18 @@ s32 gevrScopeBegin(void)
     f32 zr[2];
     struct coord3d o, d;
     s32 on = FALSE;
-    s32 item = g_CurrentPlayer != NULL ? getCurrentPlayerWeaponId(GUNRIGHT) : ITEM_UNARMED;
+    s32 item = g_CurrentPlayer != NULL ? getCurrentPlayerWeaponId(hand) : ITEM_UNARMED;
     const struct GevrScope *sc = gevrScopeFor(item);
-    static s32 s_near;
     f32 eye = 0.0f;
     s32 i;
 
-    gevrScopeOn = FALSE;
-    gevrScopeGunValid = FALSE;
+    st->gunValid = FALSE;
     if (g_gevrStereo && g_CurrentPlayer != NULL && !gevrVrScreenMode && g_PlayerIsInTank != 1
         && sc != NULL
-        && vu > 1e-6f && gevrGripAxes(1, pos, right, up, back) && gevrStereoShot(GUNRIGHT, NULL, &o, &d))
+        && vu > 1e-6f && gevrGripAxes(ctrl, pos, right, up, back) && gevrStereoShot(hand, NULL, &o, &d))
     {
         gevrScopeTune();
-        gevrScopeLensPlace(sc);
+        gevrScopeLensPlace(sc, st->lens);
         on = TRUE;
         {
             /* the lens from the head (camera space's origin), metres */
@@ -3741,35 +3766,35 @@ s32 gevrScopeBegin(void)
 
             for (i = 0; i < 3; i++)
             {
-                l[i] = pos[i] / vu + right[i] * gevrScopeLens[0] + up[i] * gevrScopeLens[1] + back[i] * gevrScopeLens[2];
+                l[i] = pos[i] / vu + right[i] * st->lens[0] + up[i] * st->lens[1] + back[i] * st->lens[2];
             }
             eye = sqrtf(l[0] * l[0] + l[1] * l[1] + l[2] * l[2]);
-            s_gevrScopeEyeNear = (eye < 0.35f);
+            s_gevrScopeEyeNear[hand] = (eye < 0.35f);
         }
         if (sc->nearOnly)
         {
-            if (eye < GEVR_SCOPE_NEAR_SHOW_M || (s_near && eye < GEVR_SCOPE_NEAR_HIDE_M))
+            if (eye < GEVR_SCOPE_NEAR_SHOW_M || (s_near[hand] && eye < GEVR_SCOPE_NEAR_HIDE_M))
             {
-                if (!s_near)
+                if (!s_near[hand])
                 {
-                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier on (item %d, eye %.1f cm from it)", item, eye * 100.0f);
+                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier on (hand %d item %d, eye %.1f cm from it)", hand, item, eye * 100.0f);
                 }
-                s_near = TRUE;
+                s_near[hand] = TRUE;
             }
             else
             {
-                if (s_near)
+                if (s_near[hand])
                 {
-                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier off (item %d, eye %.1f cm from it)", item, eye * 100.0f);
+                    sysLogPrintf(LOG_NOTE, "stereo: sight magnifier off (hand %d item %d, eye %.1f cm from it)", hand, item, eye * 100.0f);
                 }
-                s_near = FALSE;
+                s_near[hand] = FALSE;
                 on = FALSE;
             }
         }
     }
-    if (on != was)
+    if (on != was[hand])
     {
-        sysLogPrintf(LOG_NOTE, "stereo: scope %s (item %d)", on ? "on" : "off", item);
+        sysLogPrintf(LOG_NOTE, "stereo: scope %s (hand %d item %d)", on ? "on" : "off", hand, item);
         if (on)
         {
             /* the model's scale, checked: its muzzle node (0, 53.2, 804.1)
@@ -3777,27 +3802,27 @@ s32 gevrScopeBegin(void)
             f32 m[3] = { (o.x - pos[0]) / vu * 100.0f, (o.y - pos[1]) / vu * 100.0f, (o.z - pos[2]) / vu * 100.0f };
 
             sysLogPrintf(LOG_NOTE, "stereo: scope lens right %.3f up %.3f back %.3f m, %.3f wide; muzzle right %.1f up %.1f back %.1f cm",
-                         gevrScopeLens[0], gevrScopeLens[1], gevrScopeLens[2], gevrScopeLens[3],
+                         st->lens[0], st->lens[1], st->lens[2], st->lens[3],
                          m[0] * right[0] + m[1] * right[1] + m[2] * right[2],
                          m[0] * up[0] + m[1] * up[1] + m[2] * up[2],
                          m[0] * back[0] + m[1] * back[1] + m[2] * back[2]);
         }
-        was = on;
+        was[hand] = on;
     }
     if (!on)
     {
-        s_gevrScopeEyeNear = FALSE;
+        s_gevrScopeEyeNear[hand] = FALSE;
         return FALSE;
     }
 
     for (i = 0; i < 3; i++)
     {
-        gevrScopeGunOrigin[i] = pos[i] / vu;
-        gevrScopeGunAxes[0][i] = right[i];
-        gevrScopeGunAxes[1][i] = up[i];
-        gevrScopeGunAxes[2][i] = back[i];
+        st->gunOrigin[i] = pos[i] / vu;
+        st->gunAxes[0][i] = right[i];
+        st->gunAxes[1][i] = up[i];
+        st->gunAxes[2][i] = back[i];
     }
-    gevrScopeGunValid = TRUE;
+    st->gunValid = TRUE;
 
     /* the camera: on the shot's line, looking along it, the gun's up as its up */
     f[0] = d.x; f[1] = d.y; f[2] = d.z;
@@ -3817,32 +3842,32 @@ s32 gevrScopeBegin(void)
     zoom = gevrScopeZoom(item);
     fov = zoom * s_gevrScopeK;   /* always zoomed, as a real scope */
     if (fov > 60.0f) fov = 60.0f;
-    if (gevrScopeLensTan > 1e-3f)
+    if (st->lensTan > 1e-3f)
     {
         /* the N64's magnification: its zoomed view over its normal one */
-        f32 t = gevrScopeLensTan * tanf(fov * 0.5f * (M_PI_F / 180.0f))
+        f32 t = st->lensTan * tanf(fov * 0.5f * (M_PI_F / 180.0f))
                 / tanf(GEVR_SCOPE_FLAT_FOVY * 0.5f * (M_PI_F / 180.0f));
 
         fov = 2.0f * atanf(t) * (180.0f / M_PI_F);
     }
     if (fov < 0.5f) fov = 0.5f;
     {
-        static f32 loggedZoom;
-        static u32 n;
+        static f32 loggedZoom[2];
+        static u32 n[2];
 
-        if ((n++ % 240) == 0 || fabsf(zoom - loggedZoom) > 1.0f)
+        if ((n[hand]++ % 240) == 0 || fabsf(zoom - loggedZoom[hand]) > 1.0f)
         {
-            loggedZoom = zoom;
-            sysLogPrintf(LOG_NOTE, "stereo: scope zoom %.1f deg (%.1fx): %.2f deg across a %.1f deg lens",
-                         loggedZoom, tanf(GEVR_SCOPE_FLAT_FOVY * 0.5f * (M_PI_F / 180.0f))
-                                     / tanf(loggedZoom * 0.5f * (M_PI_F / 180.0f)),
-                         fov, 2.0f * atanf(gevrScopeLensTan) * (180.0f / M_PI_F));
+            loggedZoom[hand] = zoom;
+            sysLogPrintf(LOG_NOTE, "stereo: scope (hand %d) zoom %.1f deg (%.1fx): %.2f deg across a %.1f deg lens",
+                         hand, loggedZoom[hand], tanf(GEVR_SCOPE_FLAT_FOVY * 0.5f * (M_PI_F / 180.0f))
+                                     / tanf(loggedZoom[hand] * 0.5f * (M_PI_F / 180.0f)),
+                         fov, 2.0f * atanf(st->lensTan) * (180.0f / M_PI_F));
         }
     }
-    gevrScopeFovDeg = fov;
-    gevrScopeOrigin[0] = o.x;
-    gevrScopeOrigin[1] = o.y;
-    gevrScopeOrigin[2] = o.z;
+    st->fovDeg = fov;
+    st->origin[0] = o.x;
+    st->origin[1] = o.y;
+    st->origin[2] = o.z;
     g = 1.0f / tanf(fov * 0.5f * (M_PI_F / 180.0f));
     n = GEVR_SCOPE_NEAR_M * vu;
     viGetZRange(zr);
@@ -3857,21 +3882,36 @@ s32 gevrScopeBegin(void)
     /* rows: g x right, g x up, the depth row, and w = the distance along f */
     for (i = 0; i < 3; i++)
     {
-        gevrScopeVP[i * 4 + 0] = g * r[i];
-        gevrScopeVP[i * 4 + 1] = g * u[i];
-        gevrScopeVP[i * 4 + 2] = -A * f[i];
-        gevrScopeVP[i * 4 + 3] = f[i];
+        st->vp[i * 4 + 0] = g * r[i];
+        st->vp[i * 4 + 1] = g * u[i];
+        st->vp[i * 4 + 2] = -A * f[i];
+        st->vp[i * 4 + 3] = f[i];
     }
-    gevrScopeVP[12] = -g * ro;
-    gevrScopeVP[13] = -g * uo;
-    gevrScopeVP[14] = A * fo + B;
-    gevrScopeVP[15] = -fo;
+    st->vp[12] = -g * ro;
+    st->vp[13] = -g * uo;
+    st->vp[14] = A * fo + B;
+    st->vp[15] = -fo;
 
     /* the camera space each draw's clip position came from (fr.c, no scale) */
-    gevrScopeHeadP[0] = g_viProjectionMatrixF[0][0];
-    gevrScopeHeadP[1] = g_viProjectionMatrixF[1][1];
-    gevrScopeOn = TRUE;
+    st->headP[0] = g_viProjectionMatrixF[0][0];
+    st->headP[1] = g_viProjectionMatrixF[1][1];
     return TRUE;
+}
+
+/* lvlRender, once the player's view is set up: whether this frame draws a scope */
+s32 gevrScopeBegin(void)
+{
+    s32 hand;
+
+    gevrScopeOn = 0;
+    for (hand = GUNRIGHT; hand <= GUNLEFT; hand++)
+    {
+        if (gevrScopeBeginHand(hand))
+        {
+            gevrScopeOn |= 1 << hand;
+        }
+    }
+    return gevrScopeOn != 0;
 }
 
 /*

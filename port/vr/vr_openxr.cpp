@@ -244,15 +244,8 @@ extern GLuint gfx_opengl_get_vr_menu_texture(void);  // Left-hand HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_R(void);// Right-hand HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_H(void);// Head HUD texture
 extern GLuint gfx_opengl_get_vr_menu_texture_P(void);// weapon panel texture (issue #10)
-extern GLuint gfx_vr_scope_texture(void);            // sniper scope image (issue #40)
-extern "C" float gevrScopeLens[4];                   // bondview2.c: right, up, back, diameter (m)
-extern "C" float gevrScopeGunOrigin[3];              // bondview2.c: gun grip pos in view space (m)
-extern "C" float gevrScopeGunAxes[3][3];             // bondview2.c: right, up, back axes
-extern "C" int   gevrScopeGunValid;                  // bondview2.c: whether gevrScopeGunOrigin/Axes valid
-// Issue #58: the lens's radius over its distance from the eyes, as last shown
-// (tan of half the angle it fills). bondview2.c gevrScopeBegin sizes the
-// scope's view to it, so it magnifies as the N64's zoom did.
-extern "C" { float gevrScopeLensTan = 0.0f; }
+extern GLuint gfx_vr_scope_texture(int hand);        // a hand's scope image (issue #40): GUNRIGHT 0, GUNLEFT 1
+#include "gevr_scope.h"                              // bondview2.c: the per-hand scope (lens, gun pose, lensTan)
 #define GEVR_SCOPE_RES 512                           // gfx_opengl.cpp's scope target
 #define GEVR_SCOPE_MIN_DEPTH_M 0.12f                 // the lens's nearest edge stays this far ahead of the eyes
 #define GEVR_SCOPE_TURN_M 0.08f                      // ... and turns toward them within this of it
@@ -264,20 +257,20 @@ static XrSwapchain g_menuSwapchain  = XR_NULL_HANDLE; // Left-hand HUD
 static XrSwapchain g_menuSwapchainR = XR_NULL_HANDLE; // Right-hand HUD
 static XrSwapchain g_menuSwapchainH = XR_NULL_HANDLE; // Head-locked HUD
 static XrSwapchain g_menuSwapchainP = XR_NULL_HANDLE; // weapon panel (issue #10)
-static XrSwapchain g_scopeSwapchain = XR_NULL_HANDLE; // sniper scope lens (issue #40)
+static XrSwapchain g_scopeSwapchain[2] = { XR_NULL_HANDLE, XR_NULL_HANDLE }; // scope lenses (issue #40), per hand
 
 #ifdef ANDROID
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImages;
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImagesR;
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImagesH;
 static std::vector<XrSwapchainImageOpenGLESKHR> g_menuSwapchainImagesP;
-static std::vector<XrSwapchainImageOpenGLESKHR> g_scopeSwapchainImages;
+static std::vector<XrSwapchainImageOpenGLESKHR> g_scopeSwapchainImages[2];
 #else
 static std::vector<XrSwapchainImageOpenGLKHR> g_menuSwapchainImages;
 static std::vector<XrSwapchainImageOpenGLKHR> g_menuSwapchainImagesR;
 static std::vector<XrSwapchainImageOpenGLKHR> g_menuSwapchainImagesH;
 static std::vector<XrSwapchainImageOpenGLKHR> g_menuSwapchainImagesP;
-static std::vector<XrSwapchainImageOpenGLKHR> g_scopeSwapchainImages;
+static std::vector<XrSwapchainImageOpenGLKHR> g_scopeSwapchainImages[2];
 #endif
 
 // ============================================================================
@@ -1215,23 +1208,25 @@ static bool vr_create_menu_swapchain()
     LOGI("Menu swapchains created L/R/H/P: %u x %u (format=0x%llx)",
          g_menuSwapchainWidth, g_menuSwapchainHeight, (unsigned long long)chosenFormat);
 
-    // The sniper scope's lens (issue #40): the scope target's size. Without it
-    // the scope just doesn't show; the menus above still work.
+    // The scope lenses (issue #40), one per hand: the scope target's size.
+    // Without one that scope just doesn't show; the menus above still work.
     swapchainInfo.width  = GEVR_SCOPE_RES;
     swapchainInfo.height = GEVR_SCOPE_RES;
-    if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &swapchainInfo, &g_scopeSwapchain))) {
-        LOGE("xrCreateSwapchain (scope) failed (format=0x%llx)", (unsigned long long)chosenFormat);
-        g_scopeSwapchain = XR_NULL_HANDLE;
-    } else {
-        imageCount = 0;
-        xrEnumerateSwapchainImages(g_scopeSwapchain, 0, &imageCount, nullptr);
+    for (int hand = 0; hand < 2; hand++) {
+        if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &swapchainInfo, &g_scopeSwapchain[hand]))) {
+            LOGE("xrCreateSwapchain (scope, hand %d) failed (format=0x%llx)", hand, (unsigned long long)chosenFormat);
+            g_scopeSwapchain[hand] = XR_NULL_HANDLE;
+        } else {
+            imageCount = 0;
+            xrEnumerateSwapchainImages(g_scopeSwapchain[hand], 0, &imageCount, nullptr);
 #ifdef ANDROID
-        g_scopeSwapchainImages.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
+            g_scopeSwapchainImages[hand].resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
 #else
-        g_scopeSwapchainImages.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
+            g_scopeSwapchainImages[hand].resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
 #endif
-        xrEnumerateSwapchainImages(g_scopeSwapchain, imageCount, &imageCount,
-                                   reinterpret_cast<XrSwapchainImageBaseHeader*>(g_scopeSwapchainImages.data()));
+            xrEnumerateSwapchainImages(g_scopeSwapchain[hand], imageCount, &imageCount,
+                                       reinterpret_cast<XrSwapchainImageBaseHeader*>(g_scopeSwapchainImages[hand].data()));
+        }
     }
     return true;
 }
@@ -1519,20 +1514,20 @@ static bool vr_scope_copy_init()
 }
 #endif
 
-static void vr_update_scope_swapchain(GLuint srcTex)
+static void vr_update_scope_swapchain(int hand, GLuint srcTex)
 {
     uint32_t imageIndex = 0;
     XrSwapchainImageAcquireInfo acquireInfo = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-    xrAcquireSwapchainImage(g_scopeSwapchain, &acquireInfo, &imageIndex);
+    xrAcquireSwapchainImage(g_scopeSwapchain[hand], &acquireInfo, &imageIndex);
     XrSwapchainImageWaitInfo waitInfo = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
     waitInfo.timeout = XR_INFINITE_DURATION;
-    xrWaitSwapchainImage(g_scopeSwapchain, &waitInfo);
+    xrWaitSwapchainImage(g_scopeSwapchain[hand], &waitInfo);
 
     static GLuint dstFbo = 0;
     if (!dstFbo) glGenFramebuffers(1, &dstFbo);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dstFbo);
     glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D,
-                           g_scopeSwapchainImages[imageIndex].image, 0);
+                           g_scopeSwapchainImages[hand][imageIndex].image, 0);
 
 #ifdef ANDROID
     if (vr_scope_copy_init()) {
@@ -1583,7 +1578,7 @@ static void vr_update_scope_swapchain(GLuint srcTex)
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     XrSwapchainImageReleaseInfo releaseInfo = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-    xrReleaseSwapchainImage(g_scopeSwapchain, &releaseInfo);
+    xrReleaseSwapchainImage(g_scopeSwapchain[hand], &releaseInfo);
 }
 
 // ============================================================================
@@ -3112,7 +3107,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
          * (user).
          */
         static bool warmed;
-        if (!warmed && g_scopeSwapchain != XR_NULL_HANDLE) {
+        if (!warmed && g_scopeSwapchain[0] != XR_NULL_HANDLE) {
             extern void gfx_vr_scope_prepare(void);   // gfx_opengl.cpp
             warmed = true;
             vr_scope_copy_init();
@@ -3324,24 +3319,29 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // so it turns with it. Both eyes see it, as a screen on the scope's back
     // at its own depth: shown to the aiming eye only, the two eyes disagreed
     // and it looked wrong with both open (user).
-    XrCompositionLayerQuad scopeLayer = {XR_TYPE_COMPOSITION_LAYER_QUAD};
-    bool submitScope = false;
-    {
-        const GLuint scopeTex = gfx_vr_scope_texture();
+    // One lens per hand (gevr_scope.h): the game's GUNRIGHT (0) is controller
+    // 1, the gun hand, and GUNLEFT (1) controller 0, the off hand.
+    XrCompositionLayerQuad scopeLayer[2] = {{XR_TYPE_COMPOSITION_LAYER_QUAD}, {XR_TYPE_COMPOSITION_LAYER_QUAD}};
+    bool submitScope[2] = { false, false };
+    for (int hand = 0; hand < 2; hand++) {
+        const int ctrl = hand == 0 ? 1 : 0;
+        const GevrScopeState& sc = gevrScope[hand];
+        XrCompositionLayerQuad& layerQ = scopeLayer[hand];
+        const GLuint scopeTex = gfx_vr_scope_texture(hand);
         float gp[3], gq[4];
         // steadied as the gun is (vr_input.cpp gevrVrGripPoseSteady), or it slides off its eyepiece
-        if (g_scopeSwapchain != XR_NULL_HANDLE && scopeTex != 0 && gevrVrGripPoseSteady(1, gp, gq)) {
-            vr_update_scope_swapchain(scopeTex);
+        if (g_scopeSwapchain[hand] != XR_NULL_HANDLE && scopeTex != 0 && gevrVrGripPoseSteady(ctrl, gp, gq)) {
+            vr_update_scope_swapchain(hand, scopeTex);
             float rx, ry, rz;
             float ux, uy, uz;
             float bx, by, bz;
-            if (gevrScopeGunValid) {
-                gp[0] = gevrScopeGunOrigin[0];
-                gp[1] = gevrScopeGunOrigin[1];
-                gp[2] = gevrScopeGunOrigin[2];
-                rx = gevrScopeGunAxes[0][0]; ry = gevrScopeGunAxes[0][1]; rz = gevrScopeGunAxes[0][2];
-                ux = gevrScopeGunAxes[1][0]; uy = gevrScopeGunAxes[1][1]; uz = gevrScopeGunAxes[1][2];
-                bx = gevrScopeGunAxes[2][0]; by = gevrScopeGunAxes[2][1]; bz = gevrScopeGunAxes[2][2];
+            if (sc.gunValid) {
+                gp[0] = sc.gunOrigin[0];
+                gp[1] = sc.gunOrigin[1];
+                gp[2] = sc.gunOrigin[2];
+                rx = sc.gunAxes[0][0]; ry = sc.gunAxes[0][1]; rz = sc.gunAxes[0][2];
+                ux = sc.gunAxes[1][0]; uy = sc.gunAxes[1][1]; uz = sc.gunAxes[1][2];
+                bx = sc.gunAxes[2][0]; by = sc.gunAxes[2][1]; bz = sc.gunAxes[2][2];
             } else {
                 const float x = gq[0], y = gq[1], z = gq[2], w = gq[3];
                 rx = 1.0f - 2.0f * (y * y + z * z); ry = 2.0f * (x * y + w * z); rz = 2.0f * (x * z - w * y);
@@ -3349,24 +3349,24 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
                 bx = 2.0f * (x * y - w * z);         by = 1.0f - 2.0f * (x * x + z * z); bz = 2.0f * (y * z + w * x);
             }
             // bondview2.c gevrScopeLensPlace: on the model's eyepiece, mirrored with the gun
-            const float side = gevrScopeLens[0], up = gevrScopeLens[1], back = gevrScopeLens[2];
+            const float side = sc.lens[0], up = sc.lens[1], back = sc.lens[2];
             bool lensHidden = false;
-            scopeLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
-            scopeLayer.space = g_vrState.viewSpace;
-            scopeLayer.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
-            scopeLayer.subImage.swapchain = g_scopeSwapchain;
-            scopeLayer.subImage.imageArrayIndex = 0;
-            scopeLayer.subImage.imageRect.offset = {0, 0};
-            scopeLayer.subImage.imageRect.extent = {GEVR_SCOPE_RES, GEVR_SCOPE_RES};
-            scopeLayer.pose.position = { gp[0] + ux * up + bx * back + rx * side,
-                                         gp[1] + uy * up + by * back + ry * side,
-                                         gp[2] + uz * up + bz * back + rz * side };
+            layerQ.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+            layerQ.space = g_vrState.viewSpace;
+            layerQ.eyeVisibility = XR_EYE_VISIBILITY_BOTH;
+            layerQ.subImage.swapchain = g_scopeSwapchain[hand];
+            layerQ.subImage.imageArrayIndex = 0;
+            layerQ.subImage.imageRect.offset = {0, 0};
+            layerQ.subImage.imageRect.extent = {GEVR_SCOPE_RES, GEVR_SCOPE_RES};
+            layerQ.pose.position = { gp[0] + ux * up + bx * back + rx * side,
+                                     gp[1] + uy * up + by * back + ry * side,
+                                     gp[2] + uz * up + bz * back + rz * side };
             // the quad's +X/+Y/+Z onto the gun's right/up/back basis
             const float r_axis[3] = { rx, ry, rz };
             const float u_axis[3] = { ux, uy, uz };
             const float b_axis[3] = { bx, by, bz };
-            scopeLayer.pose.orientation = vr_quat_from_basis(r_axis, u_axis, b_axis);
-            scopeLayer.size = {gevrScopeLens[3], gevrScopeLens[3]};
+            layerQ.pose.orientation = vr_quat_from_basis(r_axis, u_axis, b_axis);
+            layerQ.size = {sc.lens[3], sc.lens[3]};
             /*
              * Near the eyes the compositor clips a layer at its near plane.
              * Held up to the face, tilted along the gun, the lens lost the
@@ -3379,12 +3379,12 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
              * the same size. The gun's up stays its up.
              */
             {
-                XrVector3f c = scopeLayer.pose.position;
-                const float r = gevrScopeLens[3] * 0.5f;
+                XrVector3f c = layerQ.pose.position;
+                const float r = sc.lens[3] * 0.5f;
                 {
                     // moved out and grown below, it fills the same angle
                     const float cd = sqrtf(c.x * c.x + c.y * c.y + c.z * c.z);
-                    gevrScopeLensTan = cd > 0.01f ? r / cd : 0.0f;
+                    gevrScope[hand].lensTan = cd > 0.01f ? r / cd : 0.0f;
                 }
                 float n[3] = { bx, by, bz };
                 const float nearAligned = -c.z - r * sqrtf(fmaxf(0.0f, 1.0f - bz * bz));
@@ -3404,7 +3404,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
                 if (yl > 1e-4f) {
                     yv[0] /= yl; yv[1] /= yl; yv[2] /= yl;
                     const float xv[3] = { yv[1] * n[2] - yv[2] * n[1], yv[2] * n[0] - yv[0] * n[2], yv[0] * n[1] - yv[1] * n[0] };
-                    scopeLayer.pose.orientation = vr_quat_from_basis(xv, yv, n);
+                    layerQ.pose.orientation = vr_quat_from_basis(xv, yv, n);
                 }
                 float nearest = -c.z - r * sqrtf(fmaxf(0.0f, 1.0f - n[2] * n[2]));
                 if (-c.z < 0.02f) {
@@ -3413,18 +3413,18 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
                 if (nearest < GEVR_SCOPE_MIN_DEPTH_M) {
                     if (nearest > 0.005f) {
                         const float k = GEVR_SCOPE_MIN_DEPTH_M / nearest;
-                        scopeLayer.pose.position = {c.x * k, c.y * k, c.z * k};
-                        scopeLayer.size = {gevrScopeLens[3] * k, gevrScopeLens[3] * k};
+                        layerQ.pose.position = {c.x * k, c.y * k, c.z * k};
+                        layerQ.size = {sc.lens[3] * k, sc.lens[3] * k};
                     } else {
                         lensHidden = true;
                     }
                 }
             }
-            submitScope = !lensHidden;
-            static unsigned n;
-            if ((n++ % 180) == 0) {
-                LOGI("scope: lens at (%.3f %.3f %.3f) m, facing (%.2f %.2f %.2f)%s",
-                     scopeLayer.pose.position.x, scopeLayer.pose.position.y, scopeLayer.pose.position.z,
+            submitScope[hand] = !lensHidden;
+            static unsigned n[2];
+            if ((n[hand]++ % 180) == 0) {
+                LOGI("scope: hand %d lens at (%.3f %.3f %.3f) m, facing (%.2f %.2f %.2f)%s", hand,
+                     layerQ.pose.position.x, layerQ.pose.position.y, layerQ.pose.position.z,
                      bx, by, bz, VrLeftHandedMode ? ", left-handed" : "");
             }
         }
@@ -3537,7 +3537,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // beam and its spot show in front of the screen; otherwise the eye
     // buffers are the scene.
     int numLayers = 0;
-    const XrCompositionLayerBaseHeader* layers[8];
+    const XrCompositionLayerBaseHeader* layers[10];   // screen, eyes, four menus, two scopes, room to spare
     if (submitScreen) {
         layers[numLayers++] = screenCurved
             ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
@@ -3550,7 +3550,9 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     if (submitMenuR) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerR);
     if (submitMenuH) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerH);
     if (submitMenuP) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&menuLayerP);
-    if (submitScope) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&scopeLayer);
+    for (int hand = 0; hand < 2; hand++) {
+        if (submitScope[hand]) layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&scopeLayer[hand]);
+    }
 
 #ifndef ANDROID // if PC
     // for miroir PC
@@ -4324,10 +4326,12 @@ extern "C" void vr_shutdown()
         g_menuSwapchainP = XR_NULL_HANDLE;
         g_menuSwapchainImagesP.clear();
     }
-    if (g_scopeSwapchain != XR_NULL_HANDLE) {
-        xrDestroySwapchain(g_scopeSwapchain);
-        g_scopeSwapchain = XR_NULL_HANDLE;
-        g_scopeSwapchainImages.clear();
+    for (int hand = 0; hand < 2; hand++) {
+        if (g_scopeSwapchain[hand] != XR_NULL_HANDLE) {
+            xrDestroySwapchain(g_scopeSwapchain[hand]);
+            g_scopeSwapchain[hand] = XR_NULL_HANDLE;
+            g_scopeSwapchainImages[hand].clear();
+        }
     }
     vr_screen_destroy_swapchain();
     g_screenRecenterTimes.clear();
