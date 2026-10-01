@@ -7,7 +7,7 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-09-30. **Latest release:** v0.3.6 (tag v0.3.6, commit
+**Updated:** 2026-10-01. **Latest release:** v0.3.6 (tag v0.3.6, commit
 081a1ae, versionCode 45, protocol 10): the 2026-09-30 playtest branch (below)
 plus everything unreleased since v0.3.5 (launcher haptics screen #64,
 motion-throw gaze assist, voice falloff by view, SFX volume and mic mute,
@@ -128,6 +128,16 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   #32 Surface ground patches without impacts (the PC port's D313 fix is
   already in bg.c; re-check), #60 laser watch arm changes size. Closed
   2026-09-28: #18 (fixed), #50 (not reproduced), #56, #63, #64.
+- Branch claude/goldeneye-vr-issues-5749bc (2026-10-01, untested): #73 NPCs
+  above the floor and through walls was a port-only 256-entry ground
+  callback table keyed by Model* that nothing emptied (gepc-ref D92 ported:
+  unka0 is a flag, the one callback called by name); #64 the watch laser
+  and detonator rumble the watch arm, and grenade cooking has a Haptics row
+  (Grenade_Cook); #81 launcher "Aim: no lean" (AimNoLean); #24 the fist's
+  white face dropped in the model converter (the mirrored left fist showed
+  it from the other side); the player's beam is depth-tested in stereo
+  (the laser's beam ran through a door it hit, to the wall behind). Not
+  done: the Facility ceiling z-fighting the user circled (needs a spot).
 - Unmerged branches: fix/60-watch-grip-hand (shelved: the laser watch
   gripped with a mirrored hand, which didn't lock to the wrist), plus
   whatever `git worktree list` shows in progress (several worktrees exist
