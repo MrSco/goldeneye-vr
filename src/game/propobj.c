@@ -48,6 +48,7 @@
 #include "stan.h"
 #ifdef GEVR
 #include "system.h"
+#include <stdio.h>   /* snprintf: the #85 cryptdoor probe */
 #include "net_objects.h"
 extern bool netIsActive(void);
 extern bool netIsHost(void);
@@ -6011,6 +6012,39 @@ s32 objTick(struct PropRecord *prop)
 	{
 		var_v1_5 = ((!(obj->runtime_bitflags & RUNTIMEBITFLAG_00000800)) && (!(obj->flags2 & PROPFLAG2_00080000))) ? (posIsOnScreen(prop, &obj->runtime_pos, getinstsize(model), applyFogCull)) : (0);
 	}
+
+#ifdef GEVR
+	/*
+	 * PORT probe (issue #85): the Egypt stone doors, every ~50 ticks each,
+	 * with their rooms and whether each is drawn, the on-screen verdict, the
+	 * door's travel and the flags. The Golden Gun room's exit door showed
+	 * black when shut and vanished while opening; reading says the slab is
+	 * not drawn from that side (its rooms not rendered, its portal shut).
+	 */
+	if (obj->type == PROPDEF_DOOR && obj->obj >= PROP_CRYPTDOOR1A && obj->obj <= PROP_CRYPTDOOR4)
+	{
+		static u32 n;
+
+		if ((n++ % 300) == 0)
+		{
+			struct DoorRecord *dr = (struct DoorRecord *) obj;
+			s32 ids[8];
+			s32 k;
+			char rooms[96];
+			s32 len = 0;
+
+			chraiGetPropRoomIds(prop, ids);
+			for (k = 0; k < 8 && ids[k] >= 0 && len < 80; k++)
+			{
+				len += snprintf(rooms + len, sizeof(rooms) - len, " %d%s", ids[k], getROOMID_isRendered(ids[k]) ? "*" : "");
+			}
+			sysLogPrintf(LOG_NOTE, "cryptdoor: model %d at (%.0f %.0f %.0f) rooms%s onscreen %d open %.2f type %u flags 0x%x propflags 0x%x rt 0x%x player (%.0f %.0f %.0f)",
+			             obj->obj, obj->runtime_pos.x, obj->runtime_pos.y, obj->runtime_pos.z, rooms, var_v1_5,
+			             dr->openPosition, dr->doorType, dr->doorFlags, obj->flags, obj->runtime_bitflags,
+			             bondviewGetCurrentPlayersPosition()->x, bondviewGetCurrentPlayersPosition()->y, bondviewGetCurrentPlayersPosition()->z);
+		}
+	}
+#endif
 
 	if (var_v1_5 != 0)
 	{
