@@ -863,9 +863,16 @@ static void gevrLocalBarrelPlan(void)
         {
             continue;   /* within 35 degrees of the view axis: the head pass sees it */
         }
-        if (!gevrStereoShotWorld(hand, &s_gevrBarrelOrigin[hand], &s_gevrBarrelDir[hand]))
         {
-            continue;
+            /* from the eye's depth along the barrel, as the shot is (bondview2.c
+             * gevrShotFromEye): the pass's apex then sits before a door the
+             * barrel is poked through, so the door is on its screen and hit */
+            extern s32 gevrStereoShotWorldFromEye(s32 handnum, coord3d *origin, coord3d *dir);
+
+            if (!gevrStereoShotWorldFromEye(hand, &s_gevrBarrelOrigin[hand], &s_gevrBarrelDir[hand]))
+            {
+                continue;
+            }
         }
         s_gevrBarrelHand[hand] = TRUE;
     }

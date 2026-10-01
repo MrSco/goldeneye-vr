@@ -9593,6 +9593,8 @@ dummy_label_995911:
                 }
 
 #ifdef GEVR
+                extern s32 g_gevrShotHand;
+                if (g_gevrShotHand >= 0)
                 sysLogPrintf(LOG_NOTE, "shot:  prop hit p%d: objtype %d door %d node3 %d flags2 %s dist %.0f maxdist %.0f counts %d blocks %d",
                         get_cur_playernum(), obj->type, obj->model->obj->Skeleton == &skeleton_door,
                         hitnode == obj->model->obj->Switches[3], (obj->flags & PROPFLAG2_00020000) ? "20000" : "-",
