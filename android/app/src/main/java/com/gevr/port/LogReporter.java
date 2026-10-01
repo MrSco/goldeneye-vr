@@ -43,19 +43,37 @@ final class LogReporter {
     private long crashTimestamp;
     private ApplicationExitInfo crash;
     private boolean unexpectedExit;
+    /** When this APK was installed or updated; exits before it belong to another build. */
+    private long installTime;
+    private long versionCode;
+    /** The exit records as logged at startup, for the report's exit history section. */
+    private final StringBuilder exitHistory = new StringBuilder();
 
     LogReporter(Context context) {
         this.context = context.getApplicationContext();
         prefs = this.context.getSharedPreferences("debug_reports", Context.MODE_PRIVATE);
+        try {
+            android.content.pm.PackageInfo info = this.context.getPackageManager()
+                    .getPackageInfo(this.context.getPackageName(), 0);
+            installTime = info.lastUpdateTime;
+            versionCode = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+        } catch (Exception e) { Log.w(TAG, "Could not read install time", e); }
+        long offered = prefs.getLong("offered_crash", 0);
+        Log.i(TAG, "Install " + CrashExitPolicy.isoUtc(installTime) + " versionCode " + versionCode
+                + (offered != 0 ? ", last offered crash " + CrashExitPolicy.isoUtc(offered) : ""));
         if (Build.VERSION.SDK_INT >= 30) {
             try {
                 ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
                 List<ApplicationExitInfo> exits = manager.getHistoricalProcessExitReasons(null, 0, 32);
                 for (ApplicationExitInfo exit : exits) {
-                    Log.i(TAG, "Previous exit: " + exit.getProcessName() + " reason=" + exit.getReason() + " status=" + exit.getStatus());
-                    if (this.context.getPackageName().equals(exit.getProcessName()) &&
-                            CrashExitPolicy.isCrash(exit.getReason(), exit.getStatus())
-                            && exit.getTimestamp() > prefs.getLong("offered_crash", 0)
+                    String line = CrashExitPolicy.describe(exit.getTimestamp(), exit.getReason(),
+                            exit.getStatus(), exit.getDescription(), installTime);
+                    if (!this.context.getPackageName().equals(exit.getProcessName())) line += " process " + exit.getProcessName();
+                    Log.i(TAG, "Previous exit: " + line);
+                    exitHistory.append(line).append('\n');
+                    if (this.context.getPackageName().equals(exit.getProcessName())
+                            && CrashExitPolicy.qualifies(exit.getReason(), exit.getStatus(),
+                                    exit.getTimestamp(), installTime, offered)
                             && exit.getTimestamp() > crashTimestamp) {
                         crash = exit;
                         crashTimestamp = exit.getTimestamp();
@@ -65,9 +83,10 @@ final class LogReporter {
             } catch (Exception e) { Log.w(TAG, "Could not inspect previous exits", e); }
         }
         // Quest exit records can be missing. Persist only foreground runs and
-        // ignore activity recreation within this same process.
+        // ignore activity recreation within this same process. A marker older
+        // than the install is the install itself killing the running app.
         long previousRun = prefs.getLong("foreground_run", 0);
-        if (crash == null && previousRun > prefs.getLong("offered_crash", 0)
+        if (crash == null && CrashExitPolicy.unexpectedExit(previousRun, installTime, offered)
                 && prefs.getInt("run_pid", 0) != android.os.Process.myPid()) {
             crashTimestamp = previousRun;
             unexpectedExit = true;
@@ -159,6 +178,10 @@ final class LogReporter {
             if (ini.isFile()) {
                 text.append("=== goldeneye-vr.ini ===\n").append(tail(ini, 50_000)).append("\n");
             }
+            text.append("=== exit history ===\n")
+                    .append("install ").append(CrashExitPolicy.isoUtc(installTime))
+                    .append(" versionCode ").append(versionCode).append('\n')
+                    .append(exitHistory.length() > 0 ? exitHistory : "(no records)\n").append('\n');
             text.append("=== previous game run ===\n").append(tail(new File(files, "gevr.prev.log"), 1_200_000));
             text.append("\n=== current game run ===\n").append(tail(new File(files, "gevr.log"), 800_000));
             text.append("\n=== app logcat ===\n").append(logcat());
@@ -178,8 +201,10 @@ final class LogReporter {
             }
             String version = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
             String crashSummary = withCrash && crash != null
-                    ? redact(crash.getTimestamp() + " " + crash.getDescription())
-                    : unexpectedExit ? "Previous foreground run ended unexpectedly at " + crashTimestamp : "";
+                    ? redact(CrashExitPolicy.describe(crash.getTimestamp(), crash.getReason(),
+                            crash.getStatus(), crash.getDescription(), installTime))
+                    : unexpectedExit ? "Previous foreground run ended unexpectedly at "
+                            + CrashExitPolicy.isoUtc(crashTimestamp) : "";
             if (crashSummary.length() > 500) crashSummary = crashSummary.substring(0, 500);
             JSONObject body = new JSONObject()
                     .put("kind", withCrash ? "crash" : "manual")

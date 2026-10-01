@@ -12,6 +12,36 @@ public class CrashExitPolicyTest {
     }
     @Test public void excludesNormalRestartsAndSystemKills() {
         assertFalse(CrashExitPolicy.isCrash(2, 9));
-        for (int reason : new int[]{0,1,3,7,8,10,11,12,13,14}) assertFalse(CrashExitPolicy.isCrash(reason, 0));
+        for (int reason : new int[]{0,1,3,7,8,10,11,12,13,14,15,16}) assertFalse(CrashExitPolicy.isCrash(reason, 0));
+    }
+
+    private static final long INSTALL = 1_790_000_000_000L;
+
+    @Test public void crashBeforeTheInstallIsNotOffered() {
+        // Report 5103ca8b: a v0.1.x SIGSEGV surfaced on the first v0.3.7 launch.
+        assertFalse(CrashExitPolicy.qualifies(2, 11, INSTALL - 5L * 86_400_000, INSTALL, 0));
+        assertFalse(CrashExitPolicy.qualifies(5, 0, INSTALL, INSTALL, 0));
+    }
+    @Test public void crashAfterTheInstallIsOfferedOnce() {
+        long crashAt = INSTALL + 60_000;
+        assertTrue(CrashExitPolicy.qualifies(2, 11, crashAt, INSTALL, 0));
+        assertTrue(CrashExitPolicy.qualifies(5, 0, crashAt, INSTALL, crashAt - 1));
+        assertFalse(CrashExitPolicy.qualifies(5, 0, crashAt, INSTALL, crashAt));
+        assertFalse(CrashExitPolicy.qualifies(13, 0, crashAt, INSTALL, 0));
+    }
+    @Test public void foregroundMarkerFromBeforeTheInstallIsTheInstallKill() {
+        assertFalse(CrashExitPolicy.unexpectedExit(INSTALL - 1, INSTALL, 0));
+        assertFalse(CrashExitPolicy.unexpectedExit(0, INSTALL, 0));
+        assertTrue(CrashExitPolicy.unexpectedExit(INSTALL + 1, INSTALL, 0));
+        assertFalse(CrashExitPolicy.unexpectedExit(INSTALL + 1, INSTALL, INSTALL + 1));
+    }
+    @Test public void describesRecordsReadably() {
+        assertEquals("2026-09-26T14:47:41Z signaled(2) status=11 [before install]",
+                CrashExitPolicy.describe(1790434061432L, 2, 11, null, 1790434061432L + 1));
+        assertEquals("2026-09-26T14:47:41Z crash-native(5) status=0 crash",
+                CrashExitPolicy.describe(1790434061432L, 5, 0, "crash", INSTALL - 1));
+        assertEquals("other", CrashExitPolicy.reasonName(13));
+        assertEquals("package-updated", CrashExitPolicy.reasonName(16));
+        assertEquals("reason99", CrashExitPolicy.reasonName(99));
     }
 }
