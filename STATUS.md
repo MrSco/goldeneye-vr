@@ -125,8 +125,10 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   v0.1.18, gaps left such as the PP7 index finger), #23 multiplayer (kept
   open), #30 water shimmer (open in the PC port too, D245; the blue water
   goes through the same texSelect path #29 fixed, so re-check it),
-  #32 Surface ground patches without impacts (the PC port's D313 fix is
-  already in bg.c; re-check), #60 laser watch arm changes size. Closed
+  #60 laser watch arm changes size (#32 fixed 2026-10-01: the bullet's
+  room-box pretest scaled its start by the visibility scale too, so on Dam
+  and Surface, the 0.2 levels, no room beyond the tile walk's end was ever
+  tested; chrprop.c). Closed
   2026-09-28: #18 (fixed), #50 (not reproduced), #56, #63, #64.
 - 2026-10-01 (branch claude/goldeneye-vr-issues-5749bc, tested, merged):
   #73 NPCs above the floor and through walls was a port-only 256-entry
