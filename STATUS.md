@@ -7,19 +7,22 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-10-01. **Latest release:** v0.3.7 (tag v0.3.7, commit
-e17928b, versionCode 47, protocol 15, SHA-256 bc123d08...): the merged
+**Updated:** 2026-10-01. **Latest release:** v0.3.8 (tag v0.3.8, commit
+41bf7b1, versionCode 48, protocol 15, SHA-256 80e0bed0...): crash reporting
+only. The first anonymous crash report (5103ca8b, 2026-10-01) was a SIGSEGV
+from 2026-09-26 (v0.1.14 era) that v0.3.7's widened exit-history check
+dredged up on its first launch, and the user's own headset was offered a
+"crash" after an install killed the running app. The reporter now offers
+only crashes newer than the APK's install time (a foreground marker older
+than the install is the install, not a crash), the report carries an
+`=== exit history ===` section with ISO times and reason names (how to read
+it and decode a tombstone: services/lobbies/README.md), and the game log's
+`version:` header comes from the per-build id instead of the cached CMake
+configure (the v0.3.7 log claimed a feature branch). Before it, v0.3.7
+(tag v0.3.7, commit e17928b, versionCode 47, protocol 15): the merged
 playtest branch (PR #82: Steam Audio voice, teams, clock sync and life IDs,
-independent hand cycling, launcher tabs), the TURN fallback, and today's
-fixes (#73, #32, #24, #64, #81, shots from the eye's depth). Unreleased on
-main after it: the first anonymous crash report (5103ca8b, 2026-10-01) was a
-SIGSEGV from 2026-09-26 (v0.1.14 era) that v0.3.7's widened exit-history
-check dredged up on its first launch; the reporter now offers only crashes
-newer than the APK's install time (a foreground marker older than the
-install is the install killing the app, not a crash), the report carries an
-`=== exit history ===` section with ISO times and reason names, and the game
-log's `version:` header comes from the per-build id instead of the cached
-CMake configure (the v0.3.7 log claimed a feature branch). Before it,
+independent hand cycling, launcher tabs), the TURN fallback, and that day's
+fixes (#73, #32, #24, #64, #81, shots from the eye's depth). Before it,
 v0.3.6 (tag v0.3.6, commit 081a1ae, versionCode 45, protocol 10): the 2026-09-30 playtest branch (below)
 plus everything unreleased since v0.3.5 (launcher haptics screen #64,
 motion-throw gaze assist, voice falloff by view, SFX volume and mic mute,
