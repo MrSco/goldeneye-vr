@@ -3,7 +3,6 @@
 #endif
 #ifdef GEVR
 #include "net_game.h"
-#include "system.h" /* shot trace logging */
 #endif
 #include <ultra64.h>
 #include <assert.h>
@@ -1497,25 +1496,6 @@ void chraiDefaultWeaponFireHandler(s32 hand)
         }
     }
 
-#ifdef GEVR
-    {
-        extern s32 g_gevrShotHand;
-        s32 li;
-
-        sysLogPrintf(LOG_NOTE, "shot: p%d hand %d weapon %d through %d: bg %d at %.0f (room %d tex %d) stan %d; hits counted %d; gun %.0f %.0f %.0f dir %.2f %.2f %.2f",
-                get_cur_playernum(), g_gevrShotHand, shotdata.weapon, bondwalkItemGetObjectsShootThrough(shotdata.weapon),
-                gotbghit, negz, bestroom, besttexture, hitbgstan, numhits,
-                shotdata.gunpos.x, shotdata.gunpos.y, shotdata.gunpos.z, shotdata.dir.x, shotdata.dir.y, shotdata.dir.z);
-        for (li = 0; li < 10; li++)
-        {
-            if (shotdata.hits[li].prop != NULL)
-            {
-                sysLogPrintf(LOG_NOTE, "shot:  kept hit %d: proptype %d dist %.0f counts %d", li,
-                        shotdata.hits[li].prop->type, shotdata.hits[li].dist, shotdata.hits[li].countsAsPenetration);
-            }
-        }
-    }
-#endif
     if (gotbghit || hitbgstan)
     {
         finalpos = 0;
@@ -1579,9 +1559,6 @@ void chraiDefaultWeaponFireHandler(s32 hand)
             finalpos->y -= 26.0f * shotdata.dir.y;
             finalpos->z -= 26.0f * shotdata.dir.z;
 
-#ifdef GEVR
-            sysLogPrintf(LOG_NOTE, "shot:  bg impact at %.0f %.0f %.0f spark %d (bg %d stan %d)", finalpos->x, finalpos->y, finalpos->z, createSpark, gotbghit, hitbgstan);
-#endif
             gunSetTracerTarget(finalpos);
 
             if (createSpark)
