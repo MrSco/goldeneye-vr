@@ -19,6 +19,7 @@ before(async () => {
     name: "lobby-test", modules: true, script: bundle.outputFiles[0].text,
     compatibilityDate: "2026-09-27",
     durableObjects: { REGISTRY: { className: "LobbyRegistry", useSQLite: true } },
+    bindings: { TURN_MONTHLY_CAP: "1" },
     unsafeInspectDurableObjects: true,
   }));
   // Initialize the real schema before manipulating timestamps locally.
@@ -120,4 +121,20 @@ test("an expired heartbeat TTL cannot be revived by PUT", async () => {
   await age(lobby, { ageMinutes: 1, createdMinutes: 2, expired: true });
   assert.equal((await update(lobby, { phase: "warmup" })).status, 404);
   await gone(lobby);
+});
+
+test("relay credentials stop at the monthly cap and the client is told to go direct", async () => {
+  const lobby = await create();
+  // No TURN secrets in the test runtime: the first request passes the cap and fails at configuration.
+  const first = await request("POST", `/v1/lobbies/${lobby.code}/turn`, {}, lobby.ownerToken);
+  assert.equal(first.status, 503);
+  assert.equal(first.body.error, "Relay is not configured");
+  const second = await request("POST", `/v1/lobbies/${lobby.code}/turn`, {}, lobby.ownerToken);
+  assert.equal(second.status, 503);
+  assert.match(second.body.error, /monthly relay budget/i);
+  const [row] = await storage.exec("SELECT count, reset FROM limits ORDER BY reset DESC LIMIT 1");
+  assert.equal(row.count, 1);
+  const now = Date.now();
+  const nextMonth = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth() + 1, 1);
+  assert.ok(Math.abs(row.reset - nextMonth) < 60_000, "cap window ends at the start of next UTC month");
 });

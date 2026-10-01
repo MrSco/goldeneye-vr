@@ -28,8 +28,8 @@ import static org.junit.Assert.*;
 /** Exercises the real client with fake HTTP; no requests can reach production. */
 public class LobbyClientTest {
     private static final List<FakeConnection> requests = new ArrayList<>();
-    private static int putStatus, getStatus, deleteStatus, postStatus;
-    private static String failureBody;
+    private static int putStatus, getStatus, deleteStatus, postStatus, turnStatus;
+    private static String failureBody, hostRequests;
     private static CountDownLatch removalGate;
     private LobbyClient client;
     private ScheduledExecutorService executor;
@@ -46,8 +46,9 @@ public class LobbyClientTest {
 
     @Before public void setup() throws Exception {
         requests.clear();
-        putStatus = getStatus = deleteStatus = postStatus = 200;
+        putStatus = getStatus = deleteStatus = postStatus = turnStatus = 200;
         failureBody = "{\"error\":\"Lobby idle timeout\"}";
+        hostRequests = "[]";
         removalGate = null;
         client = new LobbyClient();
         ((ScheduledExecutorService) get("worker")).shutdownNow();
@@ -189,6 +190,30 @@ public class LobbyClientTest {
         }
     }
 
+    @Test public void joinProceedsWithoutRelayCredentials() throws Exception {
+        turnStatus = 503;
+        failureBody = "{\"error\":\"Monthly relay budget used; direct connections only\"}";
+        command("join|abcdefgh|10");
+        assertEquals("JOINED|join-1||", client.event());
+        assertEquals("", client.event());
+        assertEquals("/v1/lobbies/ABCDEFGH/turn", requests.get(1).getURL().getPath());
+        turnStatus = 200;
+        command("join|abcdefgh|10");
+        assertEquals("JOINED|join-1|relay-user|relay-pass", client.event());
+    }
+
+    @Test public void hostOffersPeersWithoutRelayCredentials() throws Exception {
+        resume();
+        turnStatus = 503;
+        hostRequests = "[{\"id\":\"req-1\",\"offer\":\"a=ice-ufrag:x\"}]";
+        poll();
+        String event = client.event();
+        assertTrue(event, event.startsWith("HOST_PEER|req-1|"));
+        assertTrue(event, event.endsWith("||"));
+        assertEquals("", client.event());
+        assertEquals(true, get("hosting"));
+    }
+
     @Test public void slowRemovalHasBoundedWaitAndCanFinishAfterTimeout() throws Exception {
         resume();
         removalGate = new CountDownLatch(1);
@@ -213,6 +238,7 @@ public class LobbyClientTest {
                 try { removalGate.await(); }
                 catch (InterruptedException e) { throw new java.io.IOException(e); }
             }
+            if (url.getPath().endsWith("/turn")) return turnStatus;
             return "PUT".equals(method) ? putStatus : "GET".equals(method) ? getStatus :
                 "DELETE".equals(method) ? deleteStatus : postStatus;
         }
@@ -220,7 +246,10 @@ public class LobbyClientTest {
             return new ByteArrayInputStream(failureBody.getBytes(StandardCharsets.UTF_8));
         }
         @Override public InputStream getInputStream() {
-            String json = "GET".equals(method) ? "{\"requests\":[]}" :
+            String path = url.getPath();
+            String json = "GET".equals(method) ? "{\"requests\":" + hostRequests + "}" :
+                path.endsWith("/turn") ? "{\"username\":\"relay-user\",\"credential\":\"relay-pass\"}" :
+                path.endsWith("/joins") ? "{\"id\":\"join-1\",\"joinToken\":\"join-token\"}" :
                 "POST".equals(method) ? "{\"code\":\"ABCDEFGH\",\"ownerToken\":\"owner-token\"}" : "{}";
             return new ByteArrayInputStream(json.getBytes(StandardCharsets.UTF_8));
         }

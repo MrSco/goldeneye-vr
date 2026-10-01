@@ -81,7 +81,10 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   HD + AI pack from the MrSco/GoldenEye-007-HD fork) and the updater.
 - Multiplayer, experimental (#23): host and join on Wi-Fi, by direct IP, or
   through public and private internet lobbies (lobbies.goldeneyevr.com, a
-  Cloudflare Worker in `services/lobbies`, libjuice ICE, Cloudflare TURN).
+  Cloudflare Worker in `services/lobbies`, libjuice ICE, Cloudflare TURN as
+  a fallback only since 2026-10-01: a join publishes on STUN alone, the
+  relay is tried on UDP 3478 and 443, and the Worker caps credentials per
+  month, TURN_MONTHLY_CAP, so the free tier cannot be exceeded).
   Owner-authoritative positions (the copy's stand tile follows them, so
   bodies render in the right room), hit reports relayed by the host, synced
   weapons, deaths and respawns. Protocol 9 (branch

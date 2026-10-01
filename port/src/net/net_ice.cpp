@@ -1,6 +1,7 @@
 #include "net_ice.h"
 #include "net/netenet.h"
 #include "net_core.h"
+#include "system.h"
 #include "juice/juice.h"
 
 #include <array>
@@ -36,6 +37,7 @@ struct Peer {
     bool failed = false;
     bool enetStarted = false;
     bool relayAvailable = false;
+    bool reflexiveAvailable = false;
     std::chrono::steady_clock::time_point created = std::chrono::steady_clock::now();
 };
 
@@ -102,17 +104,26 @@ int virtualReceive(ENetAddress *address, ENetBuffer *buffer, void *) {
 }
 
 bool createPeer(Peer *peer, const char *offer) {
-    juice_turn_server_t turn{};
-    turn.host = "turn.cloudflare.com";
-    turn.port = 3478;
-    turn.username = peer->turnUser.c_str();
-    turn.password = peer->turnPassword.c_str();
+    // TURN is the fallback for peers that STUN hole punching cannot reach (symmetric
+    // and carrier-grade NAT). Cloudflare answers TURN over UDP on 3478 and 443; the
+    // second entry covers networks that block 3478. libjuice speaks UDP only, so
+    // there is no TCP or TLS fallback here. Without credentials (the lobby service
+    // refused or ran out of relay budget) the session gathers STUN candidates only.
+    juice_turn_server_t turn[2]{};
+    for (auto &server : turn) {
+        server.host = "turn.cloudflare.com";
+        server.username = peer->turnUser.c_str();
+        server.password = peer->turnPassword.c_str();
+    }
+    turn[0].port = 3478;
+    turn[1].port = 443;
+    const bool haveTurn = !peer->turnUser.empty() && !peer->turnPassword.empty();
     juice_config_t config{};
     config.concurrency_mode = JUICE_CONCURRENCY_MODE_THREAD;
     config.stun_server_host = "stun.cloudflare.com";
     config.stun_server_port = 3478;
-    config.turn_servers = &turn;
-    config.turn_servers_count = 1;
+    config.turn_servers = haveTurn ? turn : nullptr;
+    config.turn_servers_count = haveTurn ? 2 : 0;
     config.cb_state_changed = onState;
     config.cb_gathering_done = onGathered;
     config.cb_recv = onReceive;
@@ -141,7 +152,7 @@ extern "C" void netIceStartHost(void) {
 }
 
 extern "C" bool netIceStartClient(const char *id, const char *turnUser, const char *turnPassword) {
-    if (!id || !turnUser || !turnPassword || !*turnUser || !*turnPassword) return false;
+    if (!id || !turnUser || !turnPassword) return false;
     destroyPeers();
     g_hosting = false;
     auto peer = std::make_unique<Peer>();
@@ -195,10 +206,22 @@ extern "C" bool netIceTakeDescription(const char *id, char *out, size_t capacity
         peer->descriptionTaken = true;
     }
     if (juice_get_local_description(peer->agent, out, capacity) == JUICE_ERR_SUCCESS) {
-        // Internet games need a TURN allocation even when a direct candidate is available.
-        // Never advertise a session that silently depends on router forwarding.
-        peer->relayAvailable = std::strstr(out, " typ relay") != nullptr;
-        return peer->relayAvailable;
+        // Publish once the peer has some path to the internet: a server-reflexive
+        // candidate (STUN hole punching) or a relay. TURN is a fallback, not a gate,
+        // so a blocked relay port no longer fails a join that could have gone direct.
+        // Host-only candidates mean STUN itself failed; that session would depend on
+        // router forwarding, so it is not advertised.
+        const bool relay = std::strstr(out, " typ relay") != nullptr;
+        const bool reflexive = std::strstr(out, " typ srflx") != nullptr;
+        {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            peer->relayAvailable = relay;
+            peer->reflexiveAvailable = reflexive;
+        }
+        if (!relay)
+            sysLogPrintf(LOG_NOTE, "net: ice %s: no relay candidate, %s", peer->id.c_str(),
+                         reflexive ? "direct path only" : "no internet path");
+        return relay || reflexive;
     }
     std::lock_guard<std::mutex> lock(g_mutex);
     peer->descriptionTaken = false;
@@ -210,8 +233,8 @@ extern "C" const char *netIceStatus(const char *id) {
     if (!peer) return "Internet connection ended";
     std::lock_guard<std::mutex> lock(g_mutex);
     if (peer->failed) return "Internet connection failed";
-    if (peer->gathered && peer->descriptionTaken && !peer->relayAvailable)
-        return "Relay unavailable; check your internet connection";
+    if (peer->gathered && peer->descriptionTaken && !peer->relayAvailable && !peer->reflexiveAvailable)
+        return "No internet path found; check your connection";
     if (!g_hosting && !peer->connected && std::chrono::steady_clock::now() - peer->created > std::chrono::seconds(45))
         return "Internet connection timed out";
     return nullptr;
