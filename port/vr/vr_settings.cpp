@@ -44,6 +44,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "WorldScale=%.4f\n", VrSetWorldScale);
     fprintf(f, "PauseHub=%d\n", VrPauseHub ? 1 : 0);
     fprintf(f, "StickClickToCrouch=%d\n", VrStickClickToCrouch ? 1 : 0);
+    fprintf(f, "; 1 = holding the aim trigger no longer leans or ducks: the move stick keeps moving (issue #81).\n");
+    fprintf(f, "AimNoLean=%d\n", VrAimNoLean ? 1 : 0);
     fprintf(f, "SnapTurn=%.1f\n", VrUseSnapTurn);
     fprintf(f, "TwoHandedAiming=%d\n", VrTwoHandAim ? 1 : 0);
     fprintf(f, "LeftHandedMode=%d\n", VrLeftHandedMode ? 1 : 0);
@@ -207,6 +209,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MotionThrowing") == 0) VrMotionThrowing = ival != 0;
             else if (strcmp(key, "WeaponRecoil") == 0) VrWeaponRecoil = (ival != 0);
             else if (strcmp(key, "StickClickToCrouch") == 0) VrStickClickToCrouch = (ival != 0);
+            else if (strcmp(key, "AimNoLean") == 0) VrAimNoLean = (ival != 0);
             else if (strcmp(key, "PauseHub") == 0) VrPauseHub = (ival != 0);
             else if (strcmp(key, "TwoHandedAiming") == 0) VrTwoHandAim = (ival != 0);
             else if (strcmp(key, "LeftHandedMode") == 0) VrLeftHandedMode = (ival != 0);

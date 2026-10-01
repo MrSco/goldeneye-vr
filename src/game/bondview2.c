@@ -1585,6 +1585,18 @@ s32 gevrAimModeOn(void)
     return g_CurrentPlayer != NULL && g_CurrentPlayer->insightaimmode;
 }
 
+/*
+ * Issue #81: with the aim trigger held the game turns the C buttons (the move
+ * stick, port/src/input.c) into lean and duck and stops them moving. The
+ * launcher's "Aim: no lean" (VrAimNoLean) keeps them moving in stereo: the
+ * headset aims, and the stick click crouches.
+ */
+extern int VrAimNoLean;
+static s32 gevrAimLocksMove(void)
+{
+    return g_CurrentPlayer->insightaimmode && !(g_gevrStereo && VrAimNoLean);
+}
+
 /* gunfire.c: where this frame's muzzle flash node landed, camera space. */
 void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
 {
@@ -2751,7 +2763,22 @@ void gevrGrenadeCookHapticTick(s32 hand, s32 cook_tick)
     }
     if (pulse)
     {
-        trigger_haptic_vibration_c(ctrl, 0.35f + (cook_tick / 500.0f), 0.04f);
+        /* the launcher's Haptics page sets the first pulse (#64); each one
+         * after it is a little harder as the fuse runs down, as before */
+        extern void vrHapticsGetRumble(int id, float *out_amplitude, float *out_duration, float *out_frequency);
+        f32 amp = 0.0f, dur = 0.0f, freq = 0.0f;
+
+        vrHapticsGetRumble(GEVR_ACTION_GRENADE_COOK, &amp, &dur, &freq);
+        if (amp <= 0.001f || dur <= 0.001f)
+        {
+            return;
+        }
+        amp += cook_tick / 500.0f;
+        if (amp > 1.0f)
+        {
+            amp = 1.0f;
+        }
+        trigger_haptic_vibration_freq_c(ctrl, amp, dur, freq);
     }
 }
 
@@ -9045,7 +9072,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                     {
                         if ((buttons & (L_JPAD | L_CBUTTONS)) != 0)
                         {
-                            if (!g_CurrentPlayer->insightaimmode)
+                            if (!gevrAimLocksMove())
                             {
                                 if (g_PlayerIsInTank == 1)
                                 {
@@ -9064,7 +9091,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
                         if ((buttons & (R_JPAD | R_CBUTTONS)) != 0)
                         {
-                            if (!g_CurrentPlayer->insightaimmode)
+                            if (!gevrAimLocksMove())
                             {
                                 if (g_PlayerIsInTank == 1)
                                 {
@@ -9081,10 +9108,10 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                             }
                         }
 
-                        moveData.digitalStepForward = (!g_CurrentPlayer->insightaimmode)
+                        moveData.digitalStepForward = (!gevrAimLocksMove())
                             && ((buttons & (U_JPAD | U_CBUTTONS)) );
 
-                        moveData.digitalStepBack = (!g_CurrentPlayer->insightaimmode)
+                        moveData.digitalStepBack = (!gevrAimLocksMove())
                             && ((buttons & (D_JPAD | D_CBUTTONS)));
 
                         moveData.canNaturalPitch = !g_CurrentPlayer->insightaimmode;
@@ -9208,17 +9235,17 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                     }
 
                     moveData.crouchDown = (bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_DISABLE_CROUCH) == 0)
-                        && (g_CurrentPlayer->insightaimmode)
+                        && (gevrAimLocksMove())
                         && ((buttons & (D_JPAD | D_CBUTTONS)));
 
                     moveData.crouchUp = (bondwalkItemCheckBitflags(getCurrentPlayerWeaponId(GUNRIGHT), WEAPONSTATBITFLAG_DISABLE_CROUCH) == 0)
-                        && (g_CurrentPlayer->insightaimmode)
+                        && (gevrAimLocksMove())
                         && ((~buttons & (U_JPAD | U_CBUTTONS)));
 
-                    moveData.rLeanLeft = (g_CurrentPlayer->insightaimmode)
+                    moveData.rLeanLeft = (gevrAimLocksMove())
                         && ((buttons & (L_JPAD | L_CBUTTONS)));
 
-                    moveData.rLeanRight = (g_CurrentPlayer->insightaimmode)
+                    moveData.rLeanRight = (gevrAimLocksMove())
                         && ((buttons & (R_JPAD | R_CBUTTONS)));
 
                     if (

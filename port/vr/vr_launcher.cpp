@@ -2602,6 +2602,18 @@ extern "C" void gevrLauncherRun(void)
                 if (ImGui::Checkbox("Show stats", &stats)) {
                     VrShowStats = stats ? 1 : 0;
                 }
+                // Issue #81: in the game, holding aim turns the move stick
+                // into lean (sideways) and duck (down). On this line, as the
+                // page has no line to spare (see Swap sticks above).
+                ImGui::SameLine();
+                bool nolean = VrAimNoLean != 0;
+                if (ImGui::Checkbox("Aim: no lean", &nolean)) {
+                    VrAimNoLean = nolean ? 1 : 0;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Stereo: holding the aim trigger no longer leans or ducks with the move stick,\n"
+                                      "which keeps moving you. Click the left stick to crouch.");
+                }
                 // GitHub pre-releases too (UpdateChecker.java): for trying a
                 // fix before it ships. Saved by the updater, not the ini.
                 bool tests = upd.testBuilds;

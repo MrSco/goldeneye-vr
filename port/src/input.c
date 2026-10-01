@@ -46,6 +46,7 @@ static s32 gevrCrouchToggle = 0;
  */
 extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
 extern s32 gevrScopeZoomStick(void);  /* bondview2.c: aiming the sniper, this stick zooms */
+extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator (#31) */
 extern int gevrVrScreenMode;      /* gfx_pc.cpp: this frame is on the virtual screen */
 extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
 extern void vrSettingsSave(void);
@@ -1710,6 +1711,12 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
         // GUNLEFT  = 1 -> OpenXR 0 (left hand)
         s32 targetHand = (hand == 1) ? 0 : 1;
         if (vr_invert_hands) {
+            targetHand = 1 - targetHand;
+        }
+        // Issue #64 (tester): the watch laser and the detonator are the
+        // watch's, on the other wrist (bondview2.c gevrStereoWatchItem), so
+        // their rumble goes to the arm that wears it, not the gun hand.
+        if (hand == 0 && gevrStereoWatchItem(item_id)) {
             targetHand = 1 - targetHand;
         }
 
