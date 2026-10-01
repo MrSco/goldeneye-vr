@@ -2475,23 +2475,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
         if (item != ITEM_WATCHLASER)
         {
-#ifdef GEVR
-            /*
-             * Stereo: the beam against the depth buffer, as the guards' beams
-             * are (propobj.c). The flat game drew the player's without
-             * (zbufferMode 0, like the rest of its viewmodel pass), which only
-             * ever showed along the line of sight; seen from beside the gun,
-             * the laser's beam ran on through a door it had hit, to the wall
-             * behind (its shot goes through one object).
-             */
-            if (g_gevrStereo)
-            {
-                gSPSetGeometryMode(gdl++, G_ZBUFFER);
-            }
-            gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, g_gevrStereo ? 1 : 0);
-#else
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
-#endif
         }
  
         if (item == ITEM_GOLDENGUN || item == ITEM_RUGER || item == ITEM_KNIFE || item == ITEM_THROWKNIFE || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK) 
@@ -2656,15 +2640,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
         if (item == ITEM_WATCHLASER)
         {
-#ifdef GEVR
-            if (g_gevrStereo)
-            {
-                gSPSetGeometryMode(gdl++, G_ZBUFFER);
-            }
-            gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, g_gevrStereo ? 1 : 0);
-#else
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
-#endif
         }
     }
  
