@@ -2973,22 +2973,6 @@ void bgBuildRoomVtxBounds(s32 roomID)
         cmdindex++;
     }
 
-#ifdef GEVR
-    /* issue #32 probe: what the walk saw (to remove) */
-    {
-        s32 lk, lvtx = 0, ltri = 0, lend = -1;
-
-        for (lk = 0; lk < maxcmds; lk++)
-        {
-            u8 lop = (u8)(gdl[lk].words.w0 >> 24);
-            if (lop == (u8)G_VTX) lvtx++;
-            if (lop == 0xbf || lop == 0xb1) ltri++;
-            if (lop == (u8)G_ENDDL && lend < 0) lend = lk;
-        }
-        sysLogPrintf(LOG_NOTE, "bgbounds: room %d cap %d walked %d batches %d; whole list: vtx %d tri cmds %d first enddl %d; bytes %d",
-                roomID, maxcmds, cmdindex, numpoints, lvtx, ltri, lend, g_BgRoomInfo[roomID].usize_primary_DL_binary);
-    }
-#endif
     if (numpoints == 0)
     {
         return;

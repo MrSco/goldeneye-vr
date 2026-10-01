@@ -3,7 +3,6 @@
 #endif
 #ifdef GEVR
 #include "net_game.h"
-#include "system.h" /* issue #32 bgshot logging */
 #endif
 #include <ultra64.h>
 #include <assert.h>
@@ -621,7 +620,7 @@ void chrpropFlagRoomsFromRayTest(s32 arg0, coord3d *from, coord3d *to, u8 *rooms
     f32 scale;
     s32 i;
 
-    scale = get_room_data_float1() * bgGetLevelVisibilityScale();
+    scale = get_room_data_float1();   /* issue #32: room units, as the room boxes are (see chraiCheckUseHeldItem) */
 
     dir.x = to->x - from->x;
     dir.y = to->y - from->y;
@@ -1055,7 +1054,18 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     if (walkTilesBetweenPoints_NoCallback(&fromtile, playerprop->pos.x, playerprop->pos.z, shotdata.gunpos.x, shotdata.gunpos.z))
 #endif
     {
-        distscale = get_room_data_float1() * bgGetLevelVisibilityScale();
+        /*
+         * Issue #32 (Surface: ground patches without impacts). The room-box
+         * pretest of the searches below (chrpropRayIntersectsRoomBbox) takes
+         * this scaled position as the ray's start, and the boxes are in room
+         * units: world x the level scale. The visibility scale (0.2 on Dam and
+         * Surface, 1.0 elsewhere) put the start a fifth of the way to the
+         * origin, thousands of units off, and no room passed: only the room
+         * where the tile walk ended, tested without the pretest, could ever be
+         * hit. Measured on Surface 2: the game's start passed 0 rooms on every
+         * shot, the room-scale start passed the room that held the ground.
+         */
+        distscale = get_room_data_float1();
         playerpos = bondviewGetCurrentPlayersPosition();
 #ifdef GEVR
         if (g_gevrStereo)
@@ -1344,7 +1354,18 @@ void chraiDefaultWeaponFireHandler(s32 hand)
     if (walkTilesBetweenPoints_NoCallback(&fromtile, playerprop->pos.x, playerprop->pos.z, shotdata.gunpos.x, shotdata.gunpos.z))
 #endif
     {
-        distscale = get_room_data_float1() * bgGetLevelVisibilityScale();
+        /*
+         * Issue #32 (Surface: ground patches without impacts). The room-box
+         * pretest of the searches below (chrpropRayIntersectsRoomBbox) takes
+         * this scaled position as the ray's start, and the boxes are in room
+         * units: world x the level scale. The visibility scale (0.2 on Dam and
+         * Surface, 1.0 elsewhere) put the start a fifth of the way to the
+         * origin, thousands of units off, and no room passed: only the room
+         * where the tile walk ended, tested without the pretest, could ever be
+         * hit. Measured on Surface 2: the game's start passed 0 rooms on every
+         * shot, the room-scale start passed the room that held the ground.
+         */
+        distscale = get_room_data_float1();
         playerpos = bondviewGetCurrentPlayersPosition();
 #ifdef GEVR
         if (g_gevrStereo)
@@ -1497,68 +1518,6 @@ void chraiDefaultWeaponFireHandler(s32 hand)
         }
     }
 
-#ifdef GEVR
-    /*
-     * Issue #32 (Surface ground patches without impacts): one line per shot
-     * that gets as far as the background, saying what the trace found and
-     * what the impact code will do with it. Removed once the cause is known.
-     */
-    {
-        extern s32 g_gevrShotHand;
-        s32 lt = gotbghit ? bghit.texturenum : -1;
-        s32 ltype = lt >= 0 ? g_Textures[lt].hitTexture : -1;
-        s32 lnib = lt >= 0 ? (((u8 *) g_Textures)[lt * 8] & 0xf) : -1;
-        s32 lsprites = ltype >= 0 ? g_HitTypeSounds[ltype]->thing2_len : -1;
-
-        s32 lpr = getTileRoom(getCurrentPlayerProp()->stan);
-
-        sysLogPrintf(LOG_NOTE, "bgshot: p%d hand %d weapon %d bg %d stan %d room %d (player room %d, start %d) tex %d type %d nib %d sprites %d hits %d at %.0f %.0f %.0f dist %.0f from %.0f %.0f %.0f dir %.2f %.2f %.2f",
-                get_cur_playernum(), g_gevrShotHand, shotdata.weapon, gotbghit, hitbgstan, bestroom,
-                lpr, startroom, lt, ltype, lnib, lsprites, numhits,
-                visiblehitpos.x, visiblehitpos.y, visiblehitpos.z, negz,
-                shotdata.gunpos.x, shotdata.gunpos.y, shotdata.gunpos.z, shotdata.dir.x, shotdata.dir.y, shotdata.dir.z);
-        sysLogPrintf(LOG_NOTE, "bgshot:  segment to %.0f %.0f %.0f (len %.0f); start room %d: dl %d bounds %d (%d); player room %d: dl %d bounds %d (%d); portals %d",
-                stanhit.x, stanhit.y, stanhit.z,
-                sqrtf((stanhit.x - shotdata.gunpos.x) * (stanhit.x - shotdata.gunpos.x) + (stanhit.y - shotdata.gunpos.y) * (stanhit.y - shotdata.gunpos.y) + (stanhit.z - shotdata.gunpos.z) * (stanhit.z - shotdata.gunpos.z)),
-                startroom, g_BgRoomInfo[startroom].ptr_expanded_mapping_info != NULL, g_BgRoomInfo[startroom].vtx_batch_bounds != NULL, g_BgRoomInfo[startroom].num_vtx_batch_bounds,
-                lpr, g_BgRoomInfo[lpr].ptr_expanded_mapping_info != NULL, g_BgRoomInfo[lpr].vtx_batch_bounds != NULL, g_BgRoomInfo[lpr].num_vtx_batch_bounds,
-                g_BgPortals[0].offset_portal != 0);
-        {
-            extern bool bgTestRayIntersectsBbox(coord3d *origin, coord3d *dir, s32 *bbox_min, s32 *bbox_max);
-            coord3d alt;
-            s32 r, origpass = 0, altpass = 0, firstalt = -1;
-
-            alt.x = playerpos->x * get_room_data_float1();
-            alt.y = playerpos->y * get_room_data_float1();
-            alt.z = playerpos->z * get_room_data_float1();
-            for (r = 1; r < MAXROOMCOUNT; r++)
-            {
-                s32 mn[3], mx[3], k;
-
-                if (g_BgRoomInfo[r].vtx_batch_bounds == NULL)
-                {
-                    continue;
-                }
-                for (k = 0; k < 3; k++)
-                {
-                    mn[k] = g_BgRoomInfo[r].minbounds.f[k];
-                    mx[k] = g_BgRoomInfo[r].maxbounds.f[k];
-                }
-                if (bgTestRayIntersectsBbox(&scaleddir, &hitdir, mn, mx)) origpass++;
-                if (bgTestRayIntersectsBbox(&alt, &hitdir, mn, mx))
-                {
-                    altpass++;
-                    if (firstalt < 0) firstalt = r;
-                }
-            }
-            sysLogPrintf(LOG_NOTE, "bgshot:  pretest: game start %.0f %.0f %.0f passes %d rooms; room-scale start %.0f %.0f %.0f passes %d (first %d); vis %.2f scale %.3f; room %d box %.0f..%.0f %.0f..%.0f %.0f..%.0f",
-                    scaleddir.x, scaleddir.y, scaleddir.z, origpass, alt.x, alt.y, alt.z, altpass, firstalt,
-                    bgGetLevelVisibilityScale(), get_room_data_float1(), lpr,
-                    g_BgRoomInfo[lpr].minbounds.x, g_BgRoomInfo[lpr].maxbounds.x, g_BgRoomInfo[lpr].minbounds.y, g_BgRoomInfo[lpr].maxbounds.y,
-                    g_BgRoomInfo[lpr].minbounds.z, g_BgRoomInfo[lpr].maxbounds.z);
-        }
-    }
-#endif
     if (gotbghit || hitbgstan)
     {
         finalpos = 0;
