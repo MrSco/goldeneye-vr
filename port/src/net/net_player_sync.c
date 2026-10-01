@@ -156,6 +156,10 @@ static void netSyncCopyHand(struct player *pl, int slot, int hand, int weapon, i
         if (chr->weapons_held[hand] && chr->weapons_held[hand]->obj) objFreePermanently(chr->weapons_held[hand]->obj, 1);
         if (has_model) {
             chrGiveWeapon(chr, getPropForHeldItem((ITEM_IDS)weapon), (ITEM_IDS)weapon, hand == GUNLEFT ? PROPFLAG_WEAPON_LEFTHANDED : 0);
+            /* Multiply the newly-created model's native scale once, never the
+             * previous hand model's scale on a tick or weapon swap. */
+            if (chr->weapons_held[hand] && chr->weapons_held[hand]->obj && chr->weapons_held[hand]->obj->model)
+                chr->weapons_held[hand]->obj->model->scale *= netGunSizeFactor(netActiveGunSize());
         }
         s_copy_weapon[slot][hand] = (s8)weapon;
     }

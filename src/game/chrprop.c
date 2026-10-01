@@ -1,4 +1,7 @@
 #ifdef GEVR
+#include "net_objects.h"
+#endif
+#ifdef GEVR
 #include "net_game.h"
 #endif
 #include <ultra64.h>
@@ -2081,6 +2084,11 @@ void chraiCheckUseHeldItem(s32 hand)
 
     if (get_hands_firing_status(hand) != 0)
     {
+#ifdef GEVR
+        extern void netBeginLocalShot(void);
+        extern void netEndLocalShot(void);
+        netBeginLocalShot();
+#endif
         item_id = getCurrentPlayerWeaponId(hand);
 
         if (item_id == ITEM_TRIGGER)
@@ -2136,6 +2144,9 @@ void chraiCheckUseHeldItem(s32 hand)
             inc_curplayer_hitcount_with_weapon(item_id, SHOT_REGISTER_TOTAL);
             chraiDefaultWeaponFireHandler(hand);
         }
+#ifdef GEVR
+        netEndLocalShot();
+#endif
     }
 }
 
@@ -2180,6 +2191,9 @@ void propExecuteTickOperation(PropRecord *prop, TICKOP op)
                 propobj->runtime_bitflags &= ~RUNTIMEBITFLAG_REMOVE;
                 propobj->state &= ~0x80;
                 propobj->maxdamage = 0.0f;
+#ifdef GEVR
+                if (propobj->type == PROPDEF_AMMO) gevrAmmoResetPickup(propobj);
+#endif
                 chrpropDeregisterRooms(prop);
                 chrpropDisable(prop);
                 return;
@@ -2410,6 +2424,9 @@ void chrpropTick(void)
                 }
                 else if ((prop->timetoregen < CHROBJ_TIMETOREGEN) && (!is_under_60))
                 {
+#ifdef GEVR
+                    if (obj->type == PROPDEF_AMMO) gevrAmmoResetPickup(obj);
+#endif
                     if ((obj->maxdamage == 0.0f) && (!(obj->state & PROPSTATE_DESTROYED)))
                     {
                         if (obj->flags & PROPFLAG_INSIDEANOTHEROBJ)

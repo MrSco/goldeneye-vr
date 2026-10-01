@@ -105,6 +105,7 @@ extern "C" bool vr_end_frame_and_submit();
 //static int s_debug_fb_shader = -1;
 extern float vr_get_horizontal_fov_offset_ratio(int eye);
 static float g_vr_internal_scale = 1.0f;
+static unsigned gevr_head_hud_depth;
 
 /*
  * Virtual screen (port/vr/vr_screen.h). While gevrVrScreenMode is set the
@@ -2955,7 +2956,7 @@ static void gfx_calc_and_set_viewport(const Vp_t* viewport) {
     rdp.viewport.width = width;
     rdp.viewport.height = height;
 
-    if (vr_is_initialized() && !gevr_screen_pass) {
+    if (vr_is_initialized() && !gevr_screen_pass && !gevr_head_hud_depth) {
         // The 3D viewport MUST always cover the entire VR framebuffer:
         // the OpenXR projection matrix is already built to map the entire FOV
         // onto fboW x fboH. Resizing it using any arbitrary ratio
@@ -3730,6 +3731,34 @@ static inline void *seg_addr(uintptr_t w1) {
 
 uintptr_t clearMtx;
 
+// Save the interpreter's boxes as well as the renderer's GL state. Otherwise
+// a capture can leave its scissor cached as if it belonged to the eye pass.
+static void gevr_capture_rdp_state(unsigned target, bool begin) {
+    static struct {
+        XYWidthHeight viewport, scissor, appliedViewport, appliedScissor;
+        unsigned depth;
+        float internalScale;
+    } saved[4];
+    auto &state = saved[target];
+    gfx_flush();
+    if (begin) {
+        if (target == 2) ++gevr_head_hud_depth;
+        if (state.depth++ != 0) return;
+        state.internalScale = g_vr_internal_scale;
+        state.viewport = rdp.viewport; state.scissor = rdp.scissor;
+        state.appliedViewport = rendering_state.viewport;
+        state.appliedScissor = rendering_state.scissor;
+    } else {
+        if (target == 2 && gevr_head_hud_depth) --gevr_head_hud_depth;
+        if (!state.depth || --state.depth != 0) return;
+        g_vr_internal_scale = state.internalScale;
+        rdp.viewport = state.viewport; rdp.scissor = state.scissor;
+        rendering_state.viewport = state.appliedViewport;
+        rendering_state.scissor = state.appliedScissor;
+        rdp.viewport_or_scissor_changed = true;
+    }
+}
+
 static void gfx_run_dl(Gfx* cmd) {
     // puts("dl");
     int dummy = 0;
@@ -3774,53 +3803,64 @@ static void gfx_run_dl(Gfx* cmd) {
                 switch (tag_w1) {
                     case 0x56520001: // Menu is open
                     case 0x56520000: // GoldenEye: menu closed
+                        gfx_flush();
                         vr_dl_is_pause_or_menu = (tag_w1 & 0xFFFF) != 0; // VR
                         break;
 
                     case VR_MENU_HUD_CAPTURE_BEGIN_L:
                         is_weapon_hud = false;
+                        gevr_capture_rdp_state(0, true);
                         gfx_vr_hud_capture_begin_L();
                         break;
 
                     case VR_MENU_HUD_CAPTURE_END_L:
                         is_weapon_hud = false;
                         gfx_vr_hud_capture_end_L();
+                        gevr_capture_rdp_state(0, false);
                         break;
 
                     case VR_WEP_HUD_CAPTURE_BEGIN_R:
                         is_weapon_hud = true;
+                        gevr_capture_rdp_state(1, true);
                         gfx_vr_hud_capture_begin_R();
                         break;
 
                     case VR_WEP_HUD_CAPTURE_END_R:
                         is_weapon_hud = true;
                         gfx_vr_hud_capture_end_R();
+                        gevr_capture_rdp_state(1, false);
                         break;
 
                     case VR_WEP_HUD_CAPTURE_BEGIN_L:
                         is_weapon_hud = true;
+                        gevr_capture_rdp_state(0, true);
                         gfx_vr_hud_capture_begin_L();
                         break;
 
                     case VR_WEP_HUD_CAPTURE_END_L:
                         is_weapon_hud = true;
                         gfx_vr_hud_capture_end_L();
+                        gevr_capture_rdp_state(0, false);
                         break;
 
                     case VR_HUD_CAPTURE_BEGIN_H:
+                        gevr_capture_rdp_state(2, true);
                         gfx_vr_hud_capture_begin_H();
                         break;
 
                     case VR_HUD_CAPTURE_END_H:
                         gfx_vr_hud_capture_end_H();
+                        gevr_capture_rdp_state(2, false);
                         break;
 
                     case VR_WEAPON_PANEL_CAPTURE_BEGIN:
+                        gevr_capture_rdp_state(3, true);
                         gfx_vr_hud_capture_begin_P();
                         break;
 
                     case VR_WEAPON_PANEL_CAPTURE_END:
                         gfx_vr_hud_capture_end_P();
+                        gevr_capture_rdp_state(3, false);
                         break;
 
                     case VR_HUD_FULL_SIZE_BEGIN:   // issue #42: the countdown timer

@@ -14,6 +14,7 @@
 #define SCORCH_BUFFER_LEN 20
 #define IMPACT_TYPE_LEN 20
 #define BULLET_IMPACT_BUFFER_LEN 100
+void explosionClearBulletImpactRoomByFlag(PropRecord *prop, s8 flag);
 #define MAX_FLYING_PARTICLES 200
 
 typedef struct s_smoketype {

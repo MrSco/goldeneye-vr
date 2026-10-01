@@ -114,6 +114,9 @@ public class MainActivity extends SDLActivity {
      * a moment later, with the very intent the Library uses.
      */
     public void restartToLauncher() {
+        if (reporter != null) reporter.foreground(false);
+        if (lobbies != null) lobbies.stopAndWait(
+                android.os.Looper.myLooper() == android.os.Looper.getMainLooper() ? 1000 : 2000);
         runOnUiThread(() -> {
             // RelaunchActivity (its own process) kills this one and starts the
             // app again. An exit here hung on native threads until Android's
@@ -300,6 +303,7 @@ public class MainActivity extends SDLActivity {
     @Override
     protected void onResume() {
         Log.i(TAG, "MainActivity onResume - VR mode");
+        if (reporter != null) reporter.foreground(true);
         SDLActivity.mHasFocus = true;
         super.onResume();
         nativeAudioResume();
@@ -330,6 +334,7 @@ public class MainActivity extends SDLActivity {
     @Override
     protected void onPause() {
         Log.i(TAG, "MainActivity onPause - stop audio immediately");
+        if (reporter != null) reporter.foreground(false);
         /* SDLActivity skips pauseNativeThread on API>=24 (multi-window).
          * Our XR pump never waits on Android_PauseSem, so clear/pause SDL
          * audio here or music keeps playing on the Quest home screen. */
@@ -340,6 +345,7 @@ public class MainActivity extends SDLActivity {
     @Override
     protected void onDestroy() {
         Log.i(TAG, "MainActivity onDestroy");
+        if (reporter != null) reporter.foreground(false);
         if (lobbies != null) lobbies.shutdown();
         nativeAudioPause();
         nativeDestroy();

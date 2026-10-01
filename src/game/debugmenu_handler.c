@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <ultra64.h>
 #include "debugmenu_handler.h"
 #include "initgamedata.h"
@@ -1061,6 +1064,10 @@ s32 debugIsRoomStateDebugEnabled(void) {
 
 // Get Current Status of VisCVG (True/False)
 s32 get_debug_VisCVG_flag(void) {
+#ifdef GEVR
+    extern bool netIsActive(void);
+    if (netIsActive()) return (netActiveFunFlags() & NET_FUN_LINE) != 0;
+#endif
     return debug_VisCVG_flag;
 }
 

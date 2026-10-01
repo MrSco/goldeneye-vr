@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_game.h"
+#include "gevr_hud_geometry.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -291,6 +292,15 @@ static void gevrStereoLook(struct coord3d *look, struct coord3d *up)
     up->y = -up->y;
 }
 
+/* Shared with voice: exactly the camera's head + stick/body basis. */
+void gevrVoiceListenerBasis(float forward[3], float up[3])
+{
+    coord3d f, u;
+    gevrStereoLook(&f, &u);
+    forward[0]=f.x; forward[1]=f.y; forward[2]=f.z;
+    up[0]=u.x; up[1]=u.y; up[2]=u.z;
+}
+
 /*
  * Head translation, the "walk" half of Perfect Dark VR's vr_player_pos: each
  * tick the body is moved by the physical head's horizontal motion through
@@ -310,6 +320,9 @@ static void gevrStereoLook(struct coord3d *look, struct coord3d *up)
 static s32 s_gevrHeadValid;
 static f32 s_gevrLastHead[3];
 static f32 s_gevrHeadBaseY;
+static f32 s_gevrMenuHead[3];
+static s32 s_gevrMenuHeadValid;
+static struct coord3d s_gevrMenuOffset;
 
 /* bondview2.c walk path, just before the body's move this tick. */
 void gevrStereoHeadWalk(struct coord3d *move_offset)
@@ -393,6 +406,7 @@ static f32 gevrStereoHeadHeight(void)
 static void gevrStereoRecenter(void)
 {
     s_gevrHeadValid = FALSE;   /* next tick takes this height as standing */
+    s_gevrMenuHeadValid = FALSE;
     vr_align_with_game_angle(0.0f);
     s_gevrBaseYaw = g_CurrentPlayer->vv_theta;
     s_gevrLastTheta = g_CurrentPlayer->vv_theta;
@@ -849,7 +863,7 @@ void gevrStereoFrame(s32 inlevel)
 
     if (want)
     {
-        f32 x = pl->watch_animation_state != 0 ? 0.0f : gevrVrTurnAxis();
+        f32 x = pl->watch_animation_state != 0 || pl->mpmenuon ? 0.0f : gevrVrTurnAxis();
 
         gevrVrSetWorldScale(GEVR_UNITS_PER_METRE * D_800364CC);
 
@@ -881,6 +895,23 @@ void gevrStereoFrame(s32 inlevel)
             s_gevrSnapArmed = TRUE;
         }
         s_gevrBaseYaw = gevrWrapDegrees(s_gevrBaseYaw);
+
+        /* Pausing stops body movement, but never the six-degree head pose.
+         * Keep this view offset separate from the collision/replicated body. */
+        f32 head[3];
+        gevrVrHeadPosCm(head);
+        s_gevrMenuOffset.x = s_gevrMenuOffset.y = s_gevrMenuOffset.z = 0;
+        if (netIsActive() && pl->mpmenuon && s_gevrMenuHeadValid) {
+            s_gevrMenuOffset.x = head[0] - s_gevrMenuHead[0];
+            s_gevrMenuOffset.y = head[1] - s_gevrMenuHead[1];
+            s_gevrMenuOffset.z = head[2] - s_gevrMenuHead[2];
+            f32 half = -s_gevrBaseYaw * (M_PI_F / 180.0f) * 0.5f;
+            f32 body[4] = {0, sinf(half), 0, cosf(half)};
+            gevrRotateByQuat(&s_gevrMenuOffset, body);
+        } else {
+            for (s32 j=0;j<3;j++) s_gevrMenuHead[j] = head[j];
+            s_gevrMenuHeadValid = TRUE;
+        }
 
         /* The camera takes the newest head pose, located after this frame's tick,
          * and the compositor is told which pose that was (vr_openxr.cpp). */
@@ -1174,7 +1205,7 @@ static f32 gevrGunSizeFactor(void)
 {
     extern int VrGunSizeCheat;
 
-    return VrGunSizeCheat == 1 ? 0.2f : VrGunSizeCheat == 2 ? 2.0f : 1.0f;
+    return netGunSizeFactor(netIsActive() ? netActiveGunSize() : VrGunSizeCheat);
 }
 
 s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
@@ -2125,6 +2156,7 @@ void gevrHandChopTick(s32 ctrl)
     }
     /* the off hand on the gun, or either hand at the watch laser, is holding on */
     if (!g_gevrStereo || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
+        || (netIsActive() && g_CurrentPlayer->mpmenuon)
         || g_PlayerIsInTank == 1 || gevrStereoWatchGrip() || (ctrl == 0 && gevrStereoTwoHandGrip())
         || !gevrGripAxesRaw(ctrl, at, right, up, back))
     {
@@ -12276,8 +12308,12 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
                 /* the rise only: a duck is already in the body (issue #48) */
                 f32 rise = gevrStereoHeadHeight();
 
-                if (rise > 0.0f)
-                {
+                if (netIsActive() && g_CurrentPlayer->mpmenuon) {
+                    f32 openedRise = s_gevrMenuHead[1] - s_gevrHeadBaseY;
+                    cam_pos.x += s_gevrMenuOffset.x;
+                    cam_pos.z += s_gevrMenuOffset.z;
+                    cam_pos.y += (openedRise > 0 ? openedRise : 0) + s_gevrMenuOffset.y;
+                } else if (rise > 0.0f) {
                     cam_pos.y += rise;
                 }
             }
@@ -12335,6 +12371,31 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
 }
 
 
+#ifdef GEVR
+static s32 gevrMultiplayerCuff(s32 body)
+{
+    switch (body)
+    {
+        case BODY_Brosnan_Tuxedo:
+#ifdef ALL_BONDS
+        case BODY_Connery_Tuxedo: case BODY_Dalton_Tuxedo: case BODY_Moore_Tuxedo:
+#endif
+            return CUFF_BROSNAN;
+        case BODY_Jungle_Commando: case BODY_Janus_Special_Forces:
+        case BODY_Russian_Soldier: case BODY_Russian_Infantry:
+        case BODY_Jungle_Fatigues: case BODY_Ourumov:
+            return CUFF_JUNGLE;
+        case BODY_Parka: case BODY_Arctic_Commando: case BODY_Baron_Samedi:
+            return CUFF_SNOW;
+        case BODY_Special_Operations_Uniform: case BODY_Trevelyan_006:
+        case BODY_Scientist_1_Male: case BODY_Scientist_2_Female:
+        case BODY_Moonraker_Elite_1_Male: case BODY_Moonraker_Elite_2_Female:
+            return CUFF_BOILER;
+        default: return CUFF_BLUE;
+    }
+}
+#endif
+
 void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
 {
     s32 pad;
@@ -12348,6 +12409,10 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
     s32 visible;
     s32 pad2;
 
+    s32 cuff = g_CurrentPlayer->bondtype;
+#ifdef GEVR
+    if (g_gevrStereo && netIsActive()) cuff = gevrMultiplayerCuff(get_player_mp_char_body(get_cur_playernum()));
+#endif
     local = fileGetBondForCurrentFolder();
     switches = header->Switches;
     offset = switchindex * sizeof(*switches); /* D191: host pointer stride. */
@@ -12360,7 +12425,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
     if (base[0] != NULL)
     {
         rwdata = (s32 *) modelGetNodeRwData(model, base[0]);
-        *rwdata = g_CurrentPlayer->bondtype == CUFF_BOILER;
+        *rwdata = cuff == CUFF_BOILER;
         switches = header->Switches;
         base = (ModelNode **) (((u8 *) switches) + offset);
     }
@@ -12371,16 +12436,16 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
     {
         node = switches[index];
         rwdata = (s32 *) modelGetNodeRwData(model, node);
-        visible = g_CurrentPlayer->bondtype == CUFF_BROSNAN;
+        visible = cuff == CUFF_BROSNAN;
         if (visible == 0)
         {
-            visible = g_CurrentPlayer->bondtype == CUFF_DALTON;
+            visible = cuff == CUFF_DALTON;
             if (visible == 0)
             {
-                visible = g_CurrentPlayer->bondtype == CUFF_MOORE;
+                visible = cuff == CUFF_MOORE;
                 if (visible == 0)
                 {
-                    visible = g_CurrentPlayer->bondtype == CUFF_FOLDER;
+                    visible = cuff == CUFF_FOLDER;
                     if (visible != 0)
                     {
                         visible = local != 1;
@@ -12398,11 +12463,11 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
     if (base[2] != NULL)
     {
         rwdata = (s32 *) modelGetNodeRwData(model, switches[index]);
-        visible = g_CurrentPlayer->bondtype == CUFF_CONNERY;
+        visible = cuff == CUFF_CONNERY;
 
         if (visible == 0)
         {
-            visible = g_CurrentPlayer->bondtype == CUFF_FOLDER;
+            visible = cuff == CUFF_FOLDER;
             if (visible != 0)
             {
                 visible = local == 1;
@@ -12419,7 +12484,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
     if (base[3] != NULL)
     {
         rwdata = (s32 *) modelGetNodeRwData(model, switches[index]);
-        *rwdata = g_CurrentPlayer->bondtype == CUFF_BLUE;
+        *rwdata = cuff == CUFF_BLUE;
         switches = header->Switches;
         base = (ModelNode **) (((u8 *) switches) + offset);
     }
@@ -12429,7 +12494,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
     if (base[4])
     {
         rwdata = (s32 *) modelGetNodeRwData(model, switches[index]);
-        *rwdata = g_CurrentPlayer->bondtype == CUFF_JUNGLE;
+        *rwdata = cuff == CUFF_JUNGLE;
         switches = header->Switches;
         base = (ModelNode **) (((u8 *) switches) + offset);
     }
@@ -12439,7 +12504,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
     if (base[5] != NULL)
     {
         rwdata = (s32 *) modelGetNodeRwData(model, switches[index]);
-        *rwdata = g_CurrentPlayer->bondtype == CUFF_SNOW;
+        *rwdata = cuff == CUFF_SNOW;
     }
 }
 
@@ -12671,6 +12736,55 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
  * Renders the in-game health and armor gauges.
  * The watch menu gauges are handled by trigger_solo_watch_menu().
  */
+#ifdef GEVR
+/* The original red/blue gauge geometry, reduced to a rim around the radar.
+ * Own frame allocations prevent another gauge draw from overwriting it. */
+Gfx *gevrRenderRadarGauges(Gfx *gdl, s32 x, s32 y, s32 radius)
+{
+    struct damage_display_val *v = dynAllocate(92 * sizeof(*v));
+    Gfx *health = dynAllocate(48 * sizeof(Gfx));
+    Gfx *armor = dynAllocate(48 * sizeof(Gfx));
+    Mtx *projection = dynAllocateMatrix(), *identity = dynAllocateMatrix();
+    extern u8 g_ViBackIndex;
+    Vp *viewport = dynAllocate(sizeof(Vp));
+    *viewport = g_CurrentPlayer->viewports[g_ViBackIndex];
+    viewport->vp.vscale[0] = viewport->vp.vtrans[0] = viGetX() * 2;
+    viewport->vp.vscale[1] = viewport->vp.vtrans[1] = viGetY() * 2;
+    Mtxf mtx;
+    hudMakeDamageSegments(v, 46, -1, g_CurrentPlayer->bondhealth);
+    hudMakeDamageSegments(v+46, 46, 1, g_CurrentPlayer->bondarmour);
+    const f32 healthRotation = 17.5f, armorRotation = -17.5f;
+    for (s32 i=0;i<92;i++) {
+        f32 px, py;
+        gevrRadarGaugePoint(v[i].pos.x, v[i].pos.z, radius,
+            i < 46 ? healthRotation : armorRotation, &px, &py);
+        v[i].pos.x = (s16)lroundf(x + px);
+        v[i].pos.y = (s16)lroundf(y + py);
+        v[i].pos.z = 0;
+    }
+    buildGaugeBarDL(health, osVirtualToPhysical(v), 46);
+    buildGaugeBarDL(armor, osVirtualToPhysical(v+46), 46);
+    guOrtho(projection, 0, viGetX(), viGetY(), 0, -100, 100, 1);
+    matrix_4x4_set_identity(&mtx);
+    matrix_4x4_f32_to_s32(mtx.m, (s32 (*)[4])identity);
+    gDPPipeSync(gdl++);
+    gSPViewport(gdl++, osVirtualToPhysical(viewport));
+    gSPMatrix(gdl++, osVirtualToPhysical(projection), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
+    gSPMatrix(gdl++, osVirtualToPhysical(identity), G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
+    gDPSetAlphaCompare(gdl++, G_AC_NONE);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    gSPClearGeometryMode(gdl++, G_CULL_BOTH|G_LIGHTING|G_ZBUFFER);
+    gSPDisplayList(gdl++, osVirtualToPhysical(health));
+    gSPDisplayList(gdl++, osVirtualToPhysical(armor));
+    gDPPipeSync(gdl++);
+    gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
+    gSPViewport(gdl++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
+    return gdl;
+}
+#endif
+
 Gfx *bondviewRenderGaugeBars(Gfx *gdl)
 {
     Mtx *lookatmtx;
@@ -13105,11 +13219,15 @@ static Gfx *gevrDrawStats(Gfx *gdl)
     char buf[520];
     s32 x, y, w = 0, h = 0;
 
-    if (!VrShowStats || getPlayerCount() != 1)
+    if (!VrShowStats || (getPlayerCount() != 1 && (!netIsActive() || get_cur_playernum() != netGetLocalSlot())))
     {
         return gdl;
     }
     snprintf(buf, sizeof(buf), "%s\n%s  LEVEL %d", gevrVrStatsText(), g_gevrStereo ? "STEREO" : "SCREEN", (s32) bossGetStageNum());
+    if (netIsActive()) {
+        char equalization[128];netHostEqualizationText(equalization,sizeof(equalization));
+        if (equalization[0]) snprintf(buf+strlen(buf),sizeof(buf)-strlen(buf),"\n%s",equalization);
+    }
 
     gdl = microcode_constructor(gdl);
     textMeasure(&h, &w, buf, ptrFontBankGothicChars, ptrFontBankGothic, 0);
@@ -13271,12 +13389,7 @@ static void gevrWeaponPanelTune(void)
 }
 static f32 s_gevrWpSpin;
 
-/*
- * Issue #33: the panel's own list. The watch's items, each weapon followed by
- * its dual-wield pairs: the watch never listed pairs, A's cycle reaches them
- * (bondinv.c bondinvCycleForward: the inventory's INV_ITEM_DUAL entries and,
- * with all guns, every gun that can be dual wielded, one player only).
- */
+/* Independent per-hand inventory; no generated pair permutations. */
 extern u16 *bondinvGetNameByIndex(s32 index);
 extern s32 bondinvGetTextbyInvIndex(s32 index);
 
@@ -13339,108 +13452,15 @@ static s32 gevrWpListed(s32 n, s32 right, s32 left)
     return FALSE;
 }
 
-static s32 gevrWpAddPair(s32 n, s32 inv, s32 right, s32 left)
-{
-    GevrWpEntry *e;
-
-    if (n >= GEVR_WP_MAX || gevrWpListed(n, right, left))
-    {
-        return n;
-    }
-    e = &s_gevrWpList[n];
-    e->inv = inv;
-    e->right = right;
-    e->left = left;
-    if (right == left)
-    {
-        gevrWpSetName(e, (const char *) get_ptr_short_watch_text_for_item(right), " x2", NULL);
-    }
-    else
-    {
-        gevrWpSetName(e, (const char *) get_ptr_short_watch_text_for_item(right), NULL,
-                      (const char *) get_ptr_short_watch_text_for_item(left));
-    }
-    return n + 1;
-}
-
-/* the inventory's pairs for this gun (all of them when right < 0) */
-static s32 gevrWpAddInventoryPairs(s32 n, s32 inv, s32 right)
-{
-    InvItem *item = g_CurrentPlayer->ptr_inventory_first_in_cycle;
-
-    while (item)
-    {
-        if (item->type == INV_ITEM_DUAL
-            && (right < 0 || item->type_inv_item.type_dual.weapon_right == right))
-        {
-            n = gevrWpAddPair(n, inv, item->type_inv_item.type_dual.weapon_right,
-                              item->type_inv_item.type_dual.weapon_left);
-        }
-        item = item->next;
-        if (item == g_CurrentPlayer->ptr_inventory_first_in_cycle)
-        {
-            break;
-        }
-    }
-    return n;
-}
-
-static s32 gevrWeaponPanelBuild(void)
-{
-    s32 count = bondinvCountTotalItemsInInv();
-    s32 n = 0;
-    s32 i;
-
-    for (i = 0; i < count && n < GEVR_WP_MAX; i++)
-    {
-        s32 weap = bondinvGetTextbyInvIndex(i);
-        GevrWpEntry *e = &s_gevrWpList[n++];
-
-        e->inv = i;
-        e->right = weap;
-        e->left = ITEM_UNARMED;
-        gevrWpSetName(e, (const char *) bondinvGetNameByIndex(i), NULL, NULL);
-
-        if (weap <= ITEM_UNARMED || weap >= ITEM_BOMBCASE)
-        {
-            continue;
-        }
-        n = gevrWpAddInventoryPairs(n, i, weap);
-
-        /* all guns: the pair A's cycle offers (bondinvCycleForward's equipallguns branch) */
-        if (g_CurrentPlayer->equipallguns && getPlayerCount() == 1
-            && bondwalkItemCheckBitflags(weap, WEAPONSTATBITFLAG_CAN_DUAL_WIELD)
-#ifdef BUGFIX_R1
-            && (!j_text_trigger || weap != ITEM_KNIFE)
-#endif
-        )
-        {
-            n = gevrWpAddPair(n, i, weap, weap);
-        }
-    }
-
-    /* a pair whose gun the watch doesn't list still gets a line */
-    return gevrWpAddInventoryPairs(n, -1, -1);
-}
-
-/*
- * Issue #56: the left hand's panel (hold X). GoldenEye keeps two different
- * guns as one INV_ITEM_DUAL {right, left} (bondinv.c: a guard's linked pair
- * picked up, a level's starting pair, the 2x cheats), and each hand switches
- * on its own (gun.c gunRequestHandWeaponChange). The list is what the left
- * hand can take beside the right's gun: nothing, or a gun that can be doubled
- * (WEAPONSTATBITFLAG_CAN_DUAL_WIELD: no gadgets) that the player carries; the
- * right's own gun only as a pair the game already offers. One player only:
- * the left hand's model buffer exists only then (initBondDATA.c
- * init_player_BONDdata_stats), and the right hand must hold such a gun too.
- */
 extern ITEM_IDS get_next_weapon_in_cycle_for_hand(GUNHAND hand, s32 direction);
 extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);
+extern s32 get_ammo_in_hands_weapon(GUNHAND hand);
 
 static s32 gevrLeftGunOk(s32 item)
 {
+    /* Watch devices, the detonator and mission items belong to the dominant hand. */
     return item > ITEM_UNARMED && item < ITEM_BOMBCASE
-        && bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_CAN_DUAL_WIELD);
+        && item != ITEM_WATCHLASER && item != ITEM_TRIGGER && item != ITEM_TANKSHELLS;
 }
 
 /* the player carries this gun: on its own, in a pair, or through all guns */
@@ -13471,92 +13491,157 @@ static s32 gevrLeftHasGun(s32 item)
 
 s32 gevrLeftPanelAvailable(void)
 {
-    return g_gevrStereo && g_CurrentPlayer != NULL &&
-        ((!netIsActive() && getPlayerCount() == 1) || (netIsActive() && get_cur_playernum() == netGetLocalSlot() && netActiveDualWield() == NET_DUAL_ANY))
+    return g_gevrStereo && g_CurrentPlayer != NULL
+        && ((!netIsActive() && getPlayerCount() == 1)
+            || (netIsActive() && get_cur_playernum() == netGetLocalSlot() && netActiveDualWield() != NET_DUAL_OFF))
         && g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT] && !gevrSpectating()
-        && !g_CurrentPlayer->bonddead
-        && gevrLeftGunOk(get_next_weapon_in_cycle_for_hand(GUNRIGHT, 0));
+        && !g_CurrentPlayer->bonddead;
 }
 
-static s32 gevrWeaponPanelBuildLeft(void)
+/* Include a queued request before the first lowering-animation tick. */
+static s32 gevrHandSelected(s32 hand)
 {
-    s32 right = get_next_weapon_in_cycle_for_hand(GUNRIGHT, 0);
-    s32 n = 0;
-    s32 item;
-    GevrWpEntry *e = &s_gevrWpList[n++];
+    return g_CurrentPlayer->hands[hand].weapon_animation_trigger
+        ? g_CurrentPlayer->hands[hand].weapon_next_weapon
+        : get_next_weapon_in_cycle_for_hand(hand, 0);
+}
 
-    e->inv = -1;
+s32 gevrWeaponUsesCopies(s32 item)
+{
+    return (item >= ITEM_WPPK && item <= ITEM_ROCKETLAUNCH && item != ITEM_WATCHLASER)
+        || item == ITEM_KNIFE || item == ITEM_TASER;
+}
+
+static s32 gevrHandItemAllowed(s32 hand, s32 item)
+{
+    s32 other = gevrHandSelected(1 - hand);
+    if (hand == GUNRIGHT && item == ITEM_UNARMED) return FALSE;
+    if (hand == GUNLEFT && item != ITEM_UNARMED && !gevrLeftGunOk(item)) return FALSE;
+    /* Shared throwable ammo already limits consumption. Firearms need two copies. */
+    if (item == other && gevrWeaponUsesCopies(item)
+        && !bondinvItemAvailableForHand(item, item)) return FALSE;
+    if (!netIsActive() || netActiveDualWield() != NET_DUAL_DOUBLES || item == ITEM_UNARMED) return TRUE;
+    if (hand == GUNRIGHT && other == ITEM_UNARMED) return TRUE;
+    return item == other && bondinvItemAvailableForHand(item, item);
+}
+
+s32 gevrWeaponOwned(s32 item) { return gevrLeftHasGun(item); }
+
+void gevrWeaponPickedUp(s32 item, s32 alreadyOwned)
+{
+    s32 held, i;
+    if (!g_gevrStereo || !g_CurrentPlayer || g_CurrentPlayer->bonddead || alreadyOwned
+        || gevrSpectating() || (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        || item < ITEM_WPPK || item > ITEM_ROCKETLAUNCH || item == ITEM_WATCHLASER
+        || !gevrWeaponOwned(item) || !bondwalkItemHasAmmo(item)
+        || !gevrHandItemAllowed(GUNRIGHT, item)) return;
+    held = gevrHandSelected(GUNRIGHT);
+    if (held != ITEM_FIST && held != ITEM_UNARMED) return;
+    /* Only the first usable firearm: choosing fists later isn't undone by pickups. */
+    for (i = ITEM_WPPK; i <= ITEM_ROCKETLAUNCH; i++)
+        if (i != item && i != ITEM_WATCHLASER && gevrWeaponOwned(i) && bondwalkItemHasAmmo(i)) return;
+    gunRequestHandWeaponChange(GUNRIGHT, item, 1);
+}
+
+static s32 gevrWpAddItem(s32 n, s32 hand, s32 item, s32 inv, const char *name)
+{
+    GevrWpEntry *e;
+    s32 right = hand == GUNRIGHT ? item : gevrHandSelected(GUNRIGHT);
+    s32 left = hand == GUNLEFT ? item : ITEM_UNARMED;
+    if (n >= GEVR_WP_MAX || !gevrHandItemAllowed(hand, item) || gevrWpListed(n, right, left)) return n;
+    e = &s_gevrWpList[n];
+    e->inv = inv;
     e->right = right;
-    e->left = ITEM_UNARMED;
-    gevrWpSetName(e, (const char *) get_ptr_short_watch_text_for_item(ITEM_FIST), NULL, NULL);
+    e->left = left;
+    gevrWpSetName(e, name, NULL, NULL);
+    return n + 1;
+}
 
-    for (item = ITEM_UNARMED + 1; item < ITEM_BOMBCASE && n < GEVR_WP_MAX; item++)
+static s32 gevrWeaponBuildList(s32 hand)
+{
+    s32 i, n = 0;
+    s32 count = bondinvCountTotalItemsInInv();
+    if (hand == GUNLEFT)
+        n = gevrWpAddItem(n, hand, ITEM_UNARMED, -1, "Holstered\n");
+    /* Keep watch ordering and names, including mission text overrides. */
+    for (i = 0; i < count; i++)
     {
-        if (!gevrLeftGunOk(item)
-            || (item == right ? !bondinvItemAvailableForHand(right, right) : !gevrLeftHasGun(item)))
-        {
-            continue;
-        }
-        e = &s_gevrWpList[n++];
-        e->inv = -1;
-        e->right = right;
-        e->left = item;
-        gevrWpSetName(e, (const char *) get_ptr_short_watch_text_for_item(item), NULL, NULL);
+        s32 item = bondinvGetTextbyInvIndex(i);
+        n = gevrWpAddItem(n, hand, item, i, (const char *) bondinvGetNameByIndex(i));
+    }
+    /* Weapons carried only in a native pair still get one distinct entry. */
+    for (i = ITEM_FIST; i < ITEM_BOMBCASE; i++)
+    {
+        if (gevrLeftHasGun(i))
+            n = gevrWpAddItem(n, hand, i, -1, (const char *) get_ptr_short_watch_text_for_item(i));
     }
     return n;
 }
 
-/* the left hand alone; a new pair joins the inventory as the game keeps pairs,
- * so A's cycle and the weapon panel offer it afterwards too */
-static void gevrLeftPanelEquip(s32 right, s32 left, s32 dir)
+static s32 gevrWeaponPanelBuild(void) { return gevrWeaponBuildList(GUNRIGHT); }
+static s32 gevrWeaponPanelBuildLeft(void) { return gevrWeaponBuildList(GUNLEFT); }
+
+/* A selector release and a tap use exactly the same hand-only request. */
+static void gevrWeaponPanelEquip(s32 hand, const GevrWpEntry *e, s32 dir)
 {
-    if (left != ITEM_UNARMED && !bondinvItemAvailableForHand(right, left))
-    {
-        bondinvAddDoublesInvItem(right, left);
-        if (!bondinvItemAvailableForHand(right, left))
-        {
-            sysLogPrintf(LOG_WARNING, "wpanel: no inventory room for the pair %d / %d", right, left);
-            return;
-        }
-        sysLogPrintf(LOG_NOTE, "wpanel: new pair %d / %d", right, left);
-    }
-    gunRequestHandWeaponChange(GUNLEFT, left, dir);
+    gunRequestHandWeaponChange(hand, hand == GUNLEFT ? e->left : e->right, dir);
 }
 
-void gevrCycleLeftWeapon(s32 dir)
+static void gevrCycleHandWeaponInternal(s32 hand, s32 dir, s32 requireAmmo)
 {
-    s32 count;
-    s32 cur_left;
-    s32 right;
-    s32 idx = 0;
-    s32 next_idx;
-    s32 i;
-
-    if (!gevrLeftPanelAvailable())
-    {
-        return;
-    }
-
-    count = gevrWeaponPanelBuildLeft();
-    if (count <= 1)
-    {
-        return;
-    }
-
-    cur_left = getCurrentPlayerWeaponId(GUNLEFT);
-    right = s_gevrWpList[0].right;
-
+    s32 count, current, idx = -1, i;
+    if (!g_gevrStereo || !g_CurrentPlayer || (hand != GUNRIGHT && hand != GUNLEFT)
+        || gevrSpectating() || g_CurrentPlayer->bonddead
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        || (hand == GUNLEFT && !gevrLeftPanelAvailable())) return;
+    if (getPlayerCount() >= 2 && get_scenario() == 2 && bondinvIsAliveWithFlag()) return;
+    dir = dir < 0 ? -1 : 1;
+    count = gevrWeaponBuildList(hand);
+    current = gevrHandSelected(hand);
     for (i = 0; i < count; i++)
     {
-        if (s_gevrWpList[i].left == cur_left)
-        {
-            idx = i;
-            break;
-        }
+        if ((hand == GUNLEFT ? s_gevrWpList[i].left : s_gevrWpList[i].right) == current) idx = i;
     }
+    if (idx < 0) idx = dir > 0 ? count - 1 : 0;
+    for (i = 1; i <= count; i++)
+    {
+        s32 next = (idx + dir * i + count) % count;
+        s32 item = hand == GUNLEFT ? s_gevrWpList[next].left : s_gevrWpList[next].right;
+        if (requireAmmo && (item == ITEM_UNARMED || item == ITEM_FIST || item >= ITEM_BOMBCASE
+            || !bondwalkItemHasAmmo(item))) continue;
+        gevrWeaponPanelEquip(hand, &s_gevrWpList[next], dir);
+        return;
+    }
+    if (requireAmmo) gunRequestHandWeaponChange(hand, hand == GUNLEFT ? ITEM_UNARMED : ITEM_FIST, dir);
+}
 
-    next_idx = (idx + dir + count) % count;
-    gevrLeftPanelEquip(right, s_gevrWpList[next_idx].left, dir);
+void gevrCycleHandWeapon(s32 hand, s32 dir)
+{
+    gevrCycleHandWeaponInternal(hand, dir, FALSE);
+}
+
+void gevrAutoAdvanceHand(s32 hand)
+{
+    s32 item;
+    if (!g_gevrStereo || !g_CurrentPlayer || (hand != GUNRIGHT && hand != GUNLEFT)
+        || gevrSpectating() || g_CurrentPlayer->bonddead
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        || (hand == GUNLEFT && !gevrLeftPanelAvailable())) return;
+    item = getCurrentPlayerWeaponId(hand);
+    /* Leaving the tank removes its shells even if its last magazine was loaded. */
+    if (hand == GUNRIGHT && item == ITEM_TANKSHELLS && !bondinvItemAvailable(item))
+    {
+        gevrCycleHandWeaponInternal(hand, 1, TRUE);
+        return;
+    }
+    /* Ignore a hand already switching and check its own magazine and reserve. */
+    if (gevrHandSelected(hand) != item
+        || get_ammo_type_for_weapon(item) == 0
+        || get_ammo_in_hands_magazine(hand) > 0 || get_ammo_in_hands_weapon(hand) > 0) return;
+    if (hand == GUNRIGHT && item == ITEM_REMOTEMINE && bondinvItemAvailable(ITEM_TRIGGER))
+        gunRequestHandWeaponChange(hand, ITEM_TRIGGER, 1);
+    else
+        gevrCycleHandWeaponInternal(hand, 1, TRUE);
 }
 
 extern u16 *bondinvGetNameByIndex(s32 index);
@@ -13740,11 +13825,6 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     }
     count = gevrWeaponPanelLeft ? gevrWeaponPanelBuildLeft() : gevrWeaponPanelBuild();
 
-    if (s_gevrWpShown && (gevrWeaponPanelRelease || !gevrWeaponPanelOpen))
-    {
-        sub_GAME_7F05DAE4(GUNRIGHT);   /* the preview used the right hand's model slot */
-    }
-
     if (gevrWeaponPanelRelease)
     {
         gevrWeaponPanelRelease = 0;
@@ -13753,20 +13833,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         {
             GevrWpEntry *e = &s_gevrWpList[s_gevrWpIndex];
 
-            if (gevrWeaponPanelLeft)
-            {
-                gevrLeftPanelEquip(e->right, e->left, 1);
-            }
-            else
-            {
-                /* both hands, as A's cycle equips a pair (gun.c) */
-                gunRequestHandWeaponChange(GUNRIGHT, e->right, 1);
-                gunRequestHandWeaponChange(GUNLEFT, e->left, 1);
-                if (e->inv >= 0)
-                {
-                    bondinvSetCurEquippedItem(e->inv);
-                }
-            }
+            gevrWeaponPanelEquip(gevrWeaponPanelLeft ? GUNLEFT : GUNRIGHT, e, 1);
         }
         s_gevrWpShown = FALSE;
     }
@@ -13785,29 +13852,15 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
     if (!s_gevrWpShown)
     {
-        s32 right = getCurrentPlayerWeaponId(GUNRIGHT);
-        s32 left = getCurrentPlayerWeaponId(GUNLEFT);
-        s32 inv;
-
-        bondinvDetermineEquippedItem();
-        inv = bondinvGetCurEquippedItem();
+        s32 hand = gevrWeaponPanelLeft ? GUNLEFT : GUNRIGHT;
+        s32 item = gevrHandSelected(hand);
         s_gevrWpIndex = 0;
-        if (gevrWeaponPanelLeft)
-        {
-            /* every line has the right hand's gun: find the left's, even mid-switch */
-            right = s_gevrWpList[0].right;
-            left = get_next_weapon_in_cycle_for_hand(GUNLEFT, 0);
-        }
         for (i = 0; i < count; i++)
         {
-            if (s_gevrWpList[i].right == right && s_gevrWpList[i].left == left)
+            if ((hand == GUNLEFT ? s_gevrWpList[i].left : s_gevrWpList[i].right) == item)
             {
                 s_gevrWpIndex = i;
                 break;
-            }
-            if (s_gevrWpList[i].inv == inv && s_gevrWpList[i].left == ITEM_UNARMED)
-            {
-                s_gevrWpIndex = i;   /* keep looking: the exact pair wins */
             }
         }
         s_gevrWpTextY = 2 * lh - s_gevrWpIndex * lh;
@@ -14034,14 +14087,14 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         gDPNoOpTag(gdl++, 0x565B0000);
     }
 #endif
-    gunRenderFirstPersonGunModels(&gdl);
+    if (!(netIsActive() && g_CurrentPlayer->mpmenuon)) gunRenderFirstPersonGunModels(&gdl);
 #ifdef GEVR
     if (g_gevrStereo)
     {
         gDPNoOpTag(gdl++, 0x565B0001);
     }
 #endif
-    gdl = bondviewRenderWatch(gdl);
+    if (!(netIsActive() && g_CurrentPlayer->mpmenuon)) gdl = bondviewRenderWatch(gdl);
 
     if (g_CurrentPlayer->mpmenuon != 0)
     {
@@ -14065,12 +14118,20 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
     }
 #endif
-    if (bondviewGetIfCurrentPlayerHealthShowTime() &&
-        (g_CurrentPlayer->watch_animation_state == 0))
+    if (
+#ifdef GEVR
+        !(netIsActive() && !g_CurrentPlayer->mpmenuon && !cheatIsActive(CHEAT_NO_RADAR_MP)) &&
+#endif
+        bondviewGetIfCurrentPlayerHealthShowTime() &&
+        (g_CurrentPlayer->watch_animation_state == 0) && !g_CurrentPlayer->mpmenuon)
     {
         gdl = bondviewRenderGaugeBars(gdl);
     }
-    else if (mpwatchShouldDisplayGauges())
+    else if (mpwatchShouldDisplayGauges()
+#ifdef GEVR
+        && !(netIsActive() && !g_CurrentPlayer->mpmenuon && !cheatIsActive(CHEAT_NO_RADAR_MP))
+#endif
+        )
     {
         gdl = bondviewRenderGaugeBars(gdl);
         if (g_CurrentPlayer->healthdisplaytime > 0)
@@ -14094,6 +14155,16 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         display_objective_status_text_on_status_change();
     }
 
+#ifdef GEVR
+    if (netIsActive() && get_cur_playernum() == netGetLocalSlot() &&
+        g_CurrentPlayer->bonddead && !g_CurrentPlayer->mpmenuon && !g_stopPlayFlag && !g_gameOverFlag &&
+        !netPlayerIsSpectator(get_cur_playernum()) &&
+        joyGetButtonsPressedThisFrame(get_cur_playernum(), A_BUTTON | B_BUTTON | Z_TRIG)) {
+        s32 deaths = 0;
+        for (s32 j=0;j<getPlayerCount();j++) deaths += g_playerPlayerData[j].kill_counts[get_cur_playernum()];
+        if (get_scenario() != SCENARIO_YOLT || deaths < 2) mp_respawn_handler();
+    }
+#endif
     if (g_CurrentPlayer->bonddead != 0)
     {
         if (g_CurrentPlayer->deathanimfinished == 0)
@@ -14370,7 +14441,7 @@ s32 sub_GAME_7F0898E8(void)
  */
 void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor) {
 #ifdef GEVR
-    if (netPlayerIsSpectator(get_cur_playernum())) return;
+    if (netPlayerIsSpectator(get_cur_playernum()) || !netDamageAllowed(playerid, get_cur_playernum())) return;
 #endif
     f32 damage_dealt = g_playerPerm->handicap * damage_amount;
     s32 cur_player_num;
@@ -14541,7 +14612,7 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                      * heard every hit as if it were theirs). */
                     if (g_CurrentPlayer->prop != NULL)
                     {
-                        chrobjSndCreatePostEventDefault(sndPlaySfx(g_musicSfxBufferPtr, BOND_GET_HIT1_SFX, 0), &g_CurrentPlayer->prop->pos);
+                        chrobjSndCreatePostEventDamage(sndPlaySfx(g_musicSfxBufferPtr, BOND_GET_HIT1_SFX, 0), &g_CurrentPlayer->prop->pos);
                     }
                 }
                 else
@@ -15344,7 +15415,7 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
                     if (g_gevrStereo && (getPlayerCount() == 1 || netIsActive()))
                     {
                         msg.x = viGetViewLeft() + (viGetViewWidth() - msg.textwidth) / 2;
-                        msg.y += 120;
+                        msg.y = viGetViewTop() + (viGetViewHeight() * 55) / 100;
                         gDPNoOpTag(gdl++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
                     }
 #endif

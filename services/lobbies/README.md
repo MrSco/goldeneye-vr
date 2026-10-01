@@ -13,7 +13,21 @@ Debug reports use the Worker `send_email` binding. `REPORT_TO` is `info@goldeney
 
 The service uses one SQLite-backed Durable Object for lobby coordination. Lobbies expire after 45 seconds without a host heartbeat; pending joins expire after 90 seconds. Public list responses exclude private games and owner tokens. `/v1/activity` reports private games only as an aggregate count; every other total and the published names, stages, phases, occupancy, and open spots cover public games only. `waiting`, `warmup`, and `in_progress` are independent of occupancy and joinability. The code is an unlisted join key for private games, not an account identity. Turn on Cloudflare request analytics and monitor Worker/DO limits and TURN egress as usage grows.
 
+Heartbeats cannot extend a lobby past these limits:
+
+- A `waiting` lobby with one player expires 15 minutes after creation.
+- A `warmup` or `in_progress` lobby with one player expires 30 minutes after its last phase change.
+- Every lobby expires 2 hours after creation, regardless of phase or occupancy.
+
+An owner heartbeat that encounters an idle or lifetime limit returns HTTP 410 with `Lobby idle timeout` or `Lobby lifetime expired`. A lobby already removed by cleanup or expired by its 45-second heartbeat TTL returns HTTP 404. The app forgets either expired lobby and registers a new code when the host is still accepting players.
+
+Owner-token holders may include an optional `name` in the heartbeat PUT body (1–32 characters, matching creation). A migrated host sends its own name so the dashboard identifies the current host. Omitting `name` preserves the existing name; no schema migration is needed.
+
+The Android client pauses heartbeats and offer polling after 60 seconds without a native `refresh` or `phase` keepalive. In-game keepalives require a running OpenXR session; loss of focus to the Quest menu alone does not pause them. Returning to an expired lobby triggers registration again. Quit/relaunch waits up to 2 seconds for queued removal (1 second on the main looper), and shutdown waits up to 1.5 seconds; failed removal still expires by the heartbeat TTL. A host handing the match to another player queues `leave` first so the successor retains the lobby.
+
 ## Local check
+
+Run `npm ci`, `npm run check`, and `npm test` for local type and runtime checks. The tests use Wrangler's bundled Miniflare and an isolated SQLite registry; they cover renaming, idle/lifetime limits, and heartbeat expiry without contacting production. Android client regression tests run with `android/gradlew.bat -p android testDebugUnitTest` from the repository root and replace all lobby HTTP responses locally.
 
 Run `npm run dev` and make requests to `http://127.0.0.1:8787/v1/lobbies`. TURN credential issuance needs the real server-side secrets and a valid lobby owner or join token. Android builds call the production hostname, so local API checks do not test headset connectivity.
 
@@ -25,7 +39,7 @@ Run `npm run dev` and make requests to `http://127.0.0.1:8787/v1/lobbies`. TURN 
 | GET | `/v1/lobbies?version=6` | Rate-limited | List compatible open public games |
 | GET | `/v1/lobbies/:code?version=6` | Code | Resolve an available game |
 | GET | `/v1/activity` | Rate-limited | Public activity and aggregate private count |
-| PUT, DELETE | `/v1/lobbies/:code` | Owner token | Refresh state or remove game |
+| PUT, DELETE | `/v1/lobbies/:code` | Owner token | Refresh state (optional name) or remove game |
 | POST | `/v1/lobbies/:code/joins` | Code | Start a join and receive a join token |
 | PUT | `/v1/lobbies/:code/joins/:id/offer` | Join token | Submit ICE offer |
 | GET | `/v1/lobbies/:code/joins` | Owner token | Poll offers |

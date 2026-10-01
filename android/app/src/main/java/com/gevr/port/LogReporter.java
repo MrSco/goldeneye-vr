@@ -42,6 +42,7 @@ final class LogReporter {
     private volatile String state = "idle";
     private long crashTimestamp;
     private ApplicationExitInfo crash;
+    private boolean unexpectedExit;
 
     LogReporter(Context context) {
         this.context = context.getApplicationContext();
@@ -49,9 +50,11 @@ final class LogReporter {
         if (Build.VERSION.SDK_INT >= 30) {
             try {
                 ActivityManager manager = (ActivityManager) context.getSystemService(Context.ACTIVITY_SERVICE);
-                List<ApplicationExitInfo> exits = manager.getHistoricalProcessExitReasons(null, 0, 5);
+                List<ApplicationExitInfo> exits = manager.getHistoricalProcessExitReasons(null, 0, 32);
                 for (ApplicationExitInfo exit : exits) {
-                    if (exit.getReason() == ApplicationExitInfo.REASON_CRASH_NATIVE
+                    Log.i(TAG, "Previous exit: " + exit.getProcessName() + " reason=" + exit.getReason() + " status=" + exit.getStatus());
+                    if (this.context.getPackageName().equals(exit.getProcessName()) &&
+                            CrashExitPolicy.isCrash(exit.getReason(), exit.getStatus())
                             && exit.getTimestamp() > prefs.getLong("offered_crash", 0)
                             && exit.getTimestamp() > crashTimestamp) {
                         crash = exit;
@@ -61,6 +64,21 @@ final class LogReporter {
                 if (crash != null) state = "offer";
             } catch (Exception e) { Log.w(TAG, "Could not inspect previous exits", e); }
         }
+        // Quest exit records can be missing. Persist only foreground runs and
+        // ignore activity recreation within this same process.
+        long previousRun = prefs.getLong("foreground_run", 0);
+        if (crash == null && previousRun > prefs.getLong("offered_crash", 0)
+                && prefs.getInt("run_pid", 0) != android.os.Process.myPid()) {
+            crashTimestamp = previousRun;
+            unexpectedExit = true;
+            state = "offer";
+        }
+        foreground(true);
+    }
+
+    void foreground(boolean active) {
+        prefs.edit().putLong("foreground_run", active ? System.currentTimeMillis() : 0)
+                .putInt("run_pid", android.os.Process.myPid()).commit();
     }
 
     String status() { return state; }
@@ -85,7 +103,7 @@ final class LogReporter {
             state = "error:Report details too long";
             return;
         }
-        final boolean withCrash = crash != null;
+        final boolean withCrash = crash != null || unexpectedExit;
         state = "sending";
         worker.execute(() -> send(withCrash, note, player, build));
     }
@@ -160,7 +178,8 @@ final class LogReporter {
             }
             String version = context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
             String crashSummary = withCrash && crash != null
-                    ? redact(crash.getTimestamp() + " " + crash.getDescription()) : "";
+                    ? redact(crash.getTimestamp() + " " + crash.getDescription())
+                    : unexpectedExit ? "Previous foreground run ended unexpectedly at " + crashTimestamp : "";
             if (crashSummary.length() > 500) crashSummary = crashSummary.substring(0, 500);
             JSONObject body = new JSONObject()
                     .put("kind", withCrash ? "crash" : "manual")
