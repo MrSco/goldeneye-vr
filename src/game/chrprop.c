@@ -3,6 +3,7 @@
 #endif
 #ifdef GEVR
 #include "net_game.h"
+#include "system.h" /* issue #32 bgshot logging */
 #endif
 #include <ultra64.h>
 #include <assert.h>
@@ -1496,6 +1497,26 @@ void chraiDefaultWeaponFireHandler(s32 hand)
         }
     }
 
+#ifdef GEVR
+    /*
+     * Issue #32 (Surface ground patches without impacts): one line per shot
+     * that gets as far as the background, saying what the trace found and
+     * what the impact code will do with it. Removed once the cause is known.
+     */
+    {
+        extern s32 g_gevrShotHand;
+        s32 lt = gotbghit ? bghit.texturenum : -1;
+        s32 ltype = lt >= 0 ? g_Textures[lt].hitTexture : -1;
+        s32 lnib = lt >= 0 ? (((u8 *) g_Textures)[lt * 8] & 0xf) : -1;
+        s32 lsprites = ltype >= 0 ? g_HitTypeSounds[ltype]->thing2_len : -1;
+
+        sysLogPrintf(LOG_NOTE, "bgshot: p%d hand %d weapon %d bg %d stan %d room %d (player room %d, start %d) tex %d type %d nib %d sprites %d hits %d at %.0f %.0f %.0f dist %.0f from %.0f %.0f %.0f dir %.2f %.2f %.2f",
+                get_cur_playernum(), g_gevrShotHand, shotdata.weapon, gotbghit, hitbgstan, bestroom,
+                getTileRoom(getCurrentPlayerProp()->stan), startroom, lt, ltype, lnib, lsprites, numhits,
+                visiblehitpos.x, visiblehitpos.y, visiblehitpos.z, negz,
+                shotdata.gunpos.x, shotdata.gunpos.y, shotdata.gunpos.z, shotdata.dir.x, shotdata.dir.y, shotdata.dir.z);
+    }
+#endif
     if (gotbghit || hitbgstan)
     {
         finalpos = 0;
