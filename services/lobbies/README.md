@@ -1,6 +1,8 @@
 # GoldenEye VR lobby service
 
-This Worker supplies the public lobby browser, unlisted codes, ICE signaling, and short-lived Cloudflare TURN credentials. The game traffic never passes through this Worker. Each headset sends its ENet packets through libjuice, which uses direct UDP when possible and Cloudflare TURN when direct connectivity fails.
+This Worker supplies the public lobby browser, unlisted codes, ICE signaling, and short-lived Cloudflare TURN credentials. The game traffic never passes through this Worker. Each headset sends its ENet packets through libjuice, which uses direct UDP when possible and Cloudflare TURN when direct connectivity fails (symmetric or carrier-grade NAT). TURN is a fallback, not a requirement: when `/turn` refuses (secrets missing, rate limit, monthly cap), the headset still joins with STUN candidates only, and the join fails only for the peers that hole punching cannot reach.
+
+Cloudflare's STUN is free and unlimited; TURN egress is free up to 1,000 GB a month and billed past that. `TURN_MONTHLY_CAP` (a `vars` entry in `wrangler.jsonc`, default `4000`) caps the credentials issued per UTC calendar month; past it `/turn` answers 503 `Monthly relay budget used; direct connections only` until the month rolls over. One credential covers at most one two-hour lobby, well under 250 MB relayed even if every packet relays, so the default keeps the worst month inside the free tier. Set it to `0` to remove the cap. The headset asks for TURN over UDP on 3478 and 443; libjuice speaks UDP only, so there is no TCP or TLS relay path.
 
 ## Deploy
 
@@ -27,7 +29,7 @@ The Android client pauses heartbeats and offer polling after 60 seconds without 
 
 ## Local check
 
-Run `npm ci`, `npm run check`, and `npm test` for local type and runtime checks. The tests use Wrangler's bundled Miniflare and an isolated SQLite registry; they cover renaming, idle/lifetime limits, and heartbeat expiry without contacting production. Android client regression tests run with `android/gradlew.bat -p android testDebugUnitTest` from the repository root and replace all lobby HTTP responses locally.
+Run `npm ci`, `npm run check`, and `npm test` for local type and runtime checks. The tests use Wrangler's bundled Miniflare and an isolated SQLite registry; they cover renaming, idle/lifetime limits, heartbeat expiry, and the monthly relay cap without contacting production. Android client regression tests run with `android/gradlew.bat -p android testDebugUnitTest` from the repository root and replace all lobby HTTP responses locally.
 
 Run `npm run dev` and make requests to `http://127.0.0.1:8787/v1/lobbies`. TURN credential issuance needs the real server-side secrets and a valid lobby owner or join token. Android builds call the production hostname, so local API checks do not test headset connectivity.
 
@@ -45,7 +47,7 @@ Run `npm run dev` and make requests to `http://127.0.0.1:8787/v1/lobbies`. TURN 
 | GET | `/v1/lobbies/:code/joins` | Owner token | Poll offers |
 | PUT | `/v1/lobbies/:code/joins/:id/answer` | Owner token | Submit ICE answer |
 | GET | `/v1/lobbies/:code/joins/:id/answer` | Join token | Poll answer |
-| POST | `/v1/lobbies/:code/turn` | Owner or join token; 120 requests per IP per hour | Issue a short-lived TURN credential |
+| POST | `/v1/lobbies/:code/turn` | Owner or join token; 120 requests per IP per hour; `TURN_MONTHLY_CAP` per month | Issue a short-lived TURN credential; 503 when refused, and the headset then connects without a relay |
 | POST | `/v1/reports` | 3 per IP per hour, 100 global per day | Email an explicitly submitted debug report |
 
 Authorization uses `Authorization: Bearer <token>`. The TURN key never leaves the Worker; issued per-peer credentials are short lived.
