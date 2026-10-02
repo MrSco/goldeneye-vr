@@ -10,6 +10,12 @@ ROOT = Path(__file__).resolve().parents[2]
 view = (ROOT / "src/game/bondview2.c").read_text(encoding="utf-8")
 math = (ROOT / "src/game/matrixmath.c").read_text(encoding="utf-8")
 gun = (ROOT / "src/game/gunfire.c").read_text(encoding="utf-8")
+state = (ROOT / "src/game/gun.c").read_text(encoding="utf-8")
+model = (ROOT / "src/game/model.c").read_text(encoding="utf-8")
+
+
+def gu_file(name):
+    return (ROOT / "src/libultra/gu" / name).read_text(encoding="utf-8")
 
 
 def function(source, signature):
@@ -31,9 +37,21 @@ definitions += "\n" + "\n".join(re.search(r"^static (?:const )?f32 " + name + r"
 definitions += "\n" + re.search(r"^#define GEVR_WATCHHAND_DLS[^\n]+", gun, re.M).group()
 production = "\n".join((
     function(math, "void matrix_4x4_set_rotation_around_xyz("),
+    function(math, "void matrix_4x4_set_rotation_around_y("),
+    function(math, "void matrix_4x4_set_position_and_rotation_around_y("),
+    function(math, "void matrix_4x4_set_position("),
+    function(math, "void matrix_4x4_multiply_homogeneous("),
+    function(gu_file("mtxutil.c"), "void guMtxIdentF("),
+    function(gu_file("normalize.c"), "void guNormalize("),
+    function(gu_file("rotate.c"), "void guRotateF("),
+    function(model, "s32 modelFindNodeMtxIndex("),
+    function(state, "f32 get_value_if_watch_is_on_hand_or_not("),
+    function(state, "void sub_GAME_7F05E6B4("),
+    function(gun, "static void gevrWatchHandTickHiddenFinger("),
     function(view, "static s32 gevrWatchFaceFrame("),
     function(view, "s32 gevrStereoWatchHandMatrix("),
-    function(gun, "static void gevrWatchHandHideLeft("),
+    function(gun, "static s32 gevrWatchHandHideLeft("),
+    function(gun, "static void gevrWatchHandAnimateFinger("),
 ))
 # Each side's patches must live on its own DL, so the hidden left model leaves no faces behind.
 patch = json.loads((ROOT / "tools/handpatch/GwatchlaserZ.patch.json").read_text(encoding="utf-8"))
@@ -50,20 +68,28 @@ fixture = r'''
 #undef GAME_TICKRATE
 #include <bondtypes.h>
 #include <bondconstants.h>
+#include <bondgame.h>
+#include "game/bondview.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include "game/matrixmath.h"
 #define sysLogPrintf(...) ((void)0)
 #ifndef M_PI_F
 #define M_PI_F 3.14159265358979323846f
 #endif
 static int g_gevrStereo = 1, VrLeftHandedMode, havePose[2] = {1, 1};
-static float D_800364CC = 1, size = 1;
+float D_800364CC = 1;
+static float size = 1;
 static float VrGunOffX = 2.74f, VrGunOffY = 1.94f, VrGunOffZ = -12.35f;
 static int s_gevrWatchFaceKnown = 1;
 static float s_gevrWatchFaceCm[3] = {1.5f, 0.7f, -0.2f};
 static Mtxf poses[2];
+static struct player player;
+struct player *g_CurrentPlayer = &player;
+static int g_GlobalTimerDelta = 1;
+static ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand) { return player.hands[hand].weaponnum; }
 static float gevrGunSizeFactor(void) { return size; }
 static int gevrGripAxes(int ctrl, float pos[3], float right[3], float up[3], float back[3])
 {
@@ -95,6 +121,51 @@ static Mtxf snap(void)
     assert(gevrStereoWatchHandMatrix(&m));
     return m;
 }
+static void checkFinger(const Mtxf *base)
+{
+    union ModelRoData fingerData = {0};
+    float hinge[6] = {0, 0, 1, 0, 0, 0};
+    ModelNode finger = {.Opcode = MODELNODE_OPCODE_GROUP, .Data = &fingerData};
+    ModelNode axis = {.Data = (union ModelRoData *)hinge};
+    ModelNode *switches[29] = {0};
+    switches[6] = &finger; switches[28] = &axis;
+    ModelFileHeader header = {.Switches = switches, .numSwitches = 29, .numMatrices = 4};
+    fingerData.Group.MatrixID0 = 3;
+    fingerData.Group.Origin = (coord3d){.x = -3, .y = 7, .z = 2};
+    Mtxf rest[4], pressed[4];
+    for (int i = 0; i < 4; i++) rest[i] = pressed[i] = *base;
+    player.hands[GUNRIGHT].weaponnum = ITEM_WATCHLASER;
+    float limit = get_value_if_watch_is_on_hand_or_not(GUNRIGHT);
+    gevrWatchHandAnimateFinger(&header, (Mtxf *)base, rest, 0);
+    gevrWatchHandAnimateFinger(&header, (Mtxf *)base, pressed, limit);
+    for (int m = 0; m < 3; m++) {
+        assert(memcmp(&rest[m], base, sizeof(*base)) == 0);
+        assert(memcmp(&pressed[m], base, sizeof(*base)) == 0);
+    }
+    for (int j = 0; j < 3; j++) {
+        float origin = base->m[3][j];
+        for (int k = 0; k < 3; k++) origin += fingerData.Group.Origin.f[k]*base->m[k][j];
+        closeEnough(rest[3].m[3][j], origin);
+        closeEnough(pressed[3].m[3][j], origin);
+        /* A point along the finger rotates five degrees round the hinge,
+         * independent of the attached frame's handedness and size. */
+        closeEnough(pressed[3].m[0][j], base->m[0][j]);
+        closeEnough(rest[3].m[0][j], cosf(limit)*base->m[0][j] - sinf(limit)*base->m[1][j]);
+    }
+    assert(memcmp(&rest[3], &pressed[3], sizeof(Mtxf)) != 0);
+    /* Repeated rendering reuses the tick's state; it never advances it. */
+    float before = player.hands[GUNRIGHT].field_A84;
+    Mtxf again[4]; memcpy(again, rest, sizeof(rest));
+    gevrWatchHandAnimateFinger(&header, (Mtxf *)base, again, 0);
+    assert(memcmp(again, rest, sizeof(rest)) == 0);
+    assert(player.hands[GUNRIGHT].field_A84 == before);
+    switches[6] = NULL;
+    gevrWatchHandAnimateFinger(&header, (Mtxf *)base, again, limit);
+    assert(memcmp(again, rest, sizeof(rest)) == 0);
+    switches[6] = &finger; fingerData.Group.MatrixID0 = 4;
+    gevrWatchHandAnimateFinger(&header, (Mtxf *)base, again, limit);
+    assert(memcmp(again, rest, sizeof(rest)) == 0);
+}
 int main(void)
 {
     const float scales[] = {0.5f, 1, 2};
@@ -124,6 +195,7 @@ int main(void)
         poses[0].m[3][0] = turn*23; poses[0].m[3][1] = -17; poses[0].m[3][2] = 36;
         poses[1] = poses[0];
         Mtxf attached = snap();
+        checkFinger(&attached);
         float multiplier = size * D_800364CC;
         for (int i = 0; i < 3; i++) {
             float length2 = dot(baseline.m[i], baseline.m[i]) * multiplier * multiplier;
@@ -155,14 +227,19 @@ int main(void)
     union ModelRoData data[GEVR_WATCHHAND_DLS];
     Gfx displayLists[2 * GEVR_WATCHHAND_DLS];
     memset(nodes, 0, sizeof(nodes)); memset(data, 0, sizeof(data));
+    /* Distinct source identities: left=566, right=886, finger=104. The six
+     * sleeves belong to the right arm too. Rotate traversal order each time. */
+    const int counts[GEVR_WATCHHAND_DLS] = {566, 24, 73, 28, 24, 52, 52, 886, 104};
+    for (int order = 0; order < GEVR_WATCHHAND_DLS; order++) {
     for (int i = 0; i < GEVR_WATCHHAND_DLS; i++) {
         lists[i] = &nodes[i]; nodes[i].Data = &data[i];
+        data[i].DisplayList.numVertices = counts[(i + order) % GEVR_WATCHHAND_DLS];
         data[i].DisplayList.Primary = &displayLists[2*i];
         data[i].DisplayList.Secondary = &displayLists[2*i+1];
     }
-    gevrWatchHandHideLeft(lists);
+    assert(gevrWatchHandHideLeft(lists));
     for (int i = 0; i < GEVR_WATCHHAND_DLS; i++) {
-        if (i == 0 || i == 8) {
+        if (data[i].DisplayList.numVertices != 566) {
             assert(data[i].DisplayList.Primary == &displayLists[2*i]);
             assert(data[i].DisplayList.Secondary == &displayLists[2*i+1]);
         } else {
@@ -170,7 +247,44 @@ int main(void)
             assert(data[i].DisplayList.Secondary == NULL);
         }
     }
-    puts("watch grip: original right-hand pose, 72 wrist attachments, scale, handedness, tracking loss and left-model hiding passed");
+    }
+    /* An unexpected model must fail before changing any display lists. */
+    for (int i = 0; i < GEVR_WATCHHAND_DLS; i++) {
+        data[i].DisplayList.numVertices = 1;
+        data[i].DisplayList.Primary = &displayLists[2*i];
+    }
+    assert(!gevrWatchHandHideLeft(lists));
+    data[0].DisplayList.numVertices = data[1].DisplayList.numVertices = 566;
+    assert(!gevrWatchHandHideLeft(lists));
+    for (int i = 0; i < GEVR_WATCHHAND_DLS; i++) assert(data[i].DisplayList.Primary == &displayLists[2*i]);
+    g_gevrStereo = 1;
+    for (int item = 0; item < 2; item++) {
+        int weapon = item ? ITEM_TRIGGER : ITEM_WATCHLASER;
+        player.hands[GUNRIGHT].weaponnum = weapon;
+        player.hands[GUNRIGHT].field_A84 = 0;
+        player.hands[GUNRIGHT].weapon_hold_time = 1;
+        float limit = get_value_if_watch_is_on_hand_or_not(GUNRIGHT);
+        for (int tick = 0; tick < 8; tick++) {
+            float before = player.hands[GUNRIGHT].field_A84;
+            gevrWatchHandTickHiddenFinger(GUNRIGHT, weapon, 0);
+            closeEnough(player.hands[GUNRIGHT].field_A84, fminf(limit, before + 0.029088823f));
+        }
+        closeEnough(player.hands[GUNRIGHT].field_A84, limit);
+        player.hands[GUNRIGHT].weapon_hold_time = 0;
+        for (int tick = 0; tick < 8; tick++) {
+            float before = player.hands[GUNRIGHT].field_A84;
+            gevrWatchHandTickHiddenFinger(GUNRIGHT, weapon, 0);
+            closeEnough(player.hands[GUNRIGHT].field_A84, fmaxf(0, before - 0.017453294f));
+        }
+        assert(player.hands[GUNRIGHT].field_A84 == 0);
+        player.hands[GUNRIGHT].weapon_hold_time = 1;
+        gevrWatchHandTickHiddenFinger(GUNRIGHT, weapon, 1); /* normal model already advances it */
+        gevrWatchHandTickHiddenFinger(GUNRIGHT, ITEM_WPPK, 0);
+        gevrWatchHandTickHiddenFinger(GUNLEFT, weapon, 0);
+        g_gevrStereo = 0; gevrWatchHandTickHiddenFinger(GUNRIGHT, weapon, 0); g_gevrStereo = 1;
+        assert(player.hands[GUNRIGHT].field_A84 == 0);
+    }
+    puts("watch grip: 72 wrist/finger poses, preserved right palm/sleeves, reordered nodes, press/release and tick/render isolation passed");
     return 0;
 }
 '''

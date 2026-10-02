@@ -148,6 +148,7 @@ s32 get_ammo_type_for_weapon(ITEM_IDS weapon);
 f32 gunSetHorizontalOffset(GUNHAND hand);
 f32 get_value_if_watch_is_on_hand_or_not(GUNHAND hand);
 void sub_GAME_7F05DA8C(GUNHAND hand, ITEM_IDS weaponnum_watchmenu);
+void sub_GAME_7F05E6B4(GUNHAND hand, s32 arg1);
 void sub_GAME_7F05E808(GUNHAND hand);
 void sub_GAME_7F05EA94(Model *model, s32 val);
 void sub_GAME_7F0649D8(enum GUNHAND hand);
@@ -375,6 +376,17 @@ static s32 s_gevrHiddenShown[2];
  * throw_item_pos_related is kept a plain rotation as in the flat game, and
  * casing offsets in the model frame are scaled by this instead */
 static f32 s_gevrThrowScale[2] = { 1.0f, 1.0f };
+
+/* The watch's normal weapon model is hidden in stereo. Advance its finger
+ * once in the game tick, even then; the private grip renderer only reads it. */
+static void gevrWatchHandTickHiddenFinger(GUNHAND handnum, s32 item, s32 visible)
+{
+    if (g_gevrStereo && handnum == GUNRIGHT && !visible
+        && (item == ITEM_WATCHLASER || item == ITEM_TRIGGER))
+    {
+        sub_GAME_7F05E6B4(handnum, g_CurrentPlayer->hands[handnum].weapon_hold_time);
+    }
+}
 #endif
 
 void gunUpdateAndFire(GUNHAND handnum)
@@ -793,6 +805,8 @@ void gunUpdateAndFire(GUNHAND handnum)
         && get_itemtype_in_hand(handnum) != 0
         && hand->field_92C == 0
         && !((hand->weapon_ammo_in_magazine <= 0) && (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SINGLE_USE_RELOAD) != 0));
+
+    gevrWatchHandTickHiddenFinger(handnum, item, hand->field_87F != 0 || s_gevrHiddenShown[handnum]);
 
     if (hand->field_87F != 0 || s_gevrHiddenShown[handnum])
 #else
@@ -2233,18 +2247,27 @@ static ModelNode *gevrNextNode(ModelNode *node)
     return node != NULL ? node->Next : NULL;
 }
 
-static void gevrWatchHandHideLeft(ModelNode *lists[GEVR_WATCHHAND_DLS])
+static s32 gevrWatchHandHideLeft(ModelNode *lists[GEVR_WATCHHAND_DLS])
 {
     s32 i;
+    ModelNode *left = NULL;
 
-    /* DL 0 is the original right hand/forearm, DL 8 its pressing finger.
-     * DLs 1-6 are the old left sleeves, DL 7 its fist/watch. Their shell
-     * additions live on those same nodes, so they hide with the geometry. */
-    for (i = 1; i < GEVR_WATCHHAND_DLS - 1; i++)
+    /* GwatchlaserZ's 566-vertex node (cartridge offset 0x01c8) is the LEFT
+     * hand. The 886-vertex node (0x0300), finger and all six outfit sleeves
+     * belong to the RIGHT gripping arm. Do not infer their roles from walk
+     * order. Shell additions live on their respective source nodes. */
+    for (i = 0; i < GEVR_WATCHHAND_DLS; i++)
     {
-        lists[i]->Data->DisplayList.Primary = NULL;
-        lists[i]->Data->DisplayList.Secondary = NULL;
+        if (lists[i]->Data->DisplayList.numVertices == 566)
+        {
+            if (left != NULL) return FALSE;
+            left = lists[i];
+        }
     }
+    if (left == NULL) return FALSE;
+    left->Data->DisplayList.Primary = NULL;
+    left->Data->DisplayList.Secondary = NULL;
+    return TRUE;
 }
 
 static s32 gevrWatchHandLoad(void)
@@ -2310,12 +2333,42 @@ static s32 gevrWatchHandLoad(void)
         return FALSE;
     }
 
-    gevrWatchHandHideLeft(lists);
+    if (!gevrWatchHandHideLeft(lists))
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: watch hand model has no unique left-hand node");
+        return FALSE;
+    }
 
     sysLogPrintf(LOG_NOTE, "stereo: original right watch hand loaded (%s, %d matrices, %d switches)", name,
                  s_gevrWatchHandHeader.numMatrices, s_gevrWatchHandHeader.numSwitches);
     s_gevrWatchHandReady = TRUE;
     return TRUE;
+}
+
+static void gevrWatchHandAnimateFinger(ModelFileHeader *header, Mtxf *base, Mtxf *matrices, f32 angle)
+{
+    ModelNode *finger;
+    Mtxf local;
+    s32 idx;
+
+    if (header->numSwitches <= 6 || (finger = header->Switches[6]) == NULL) return;
+    idx = modelFindNodeMtxIndex(finger, 0);
+    if (idx < 0 || idx >= header->numMatrices) return;
+
+    /* Same hinge and angle as gunUpdateAndFire, in the attached hand's
+     * frame. Rendering must not advance field_A84 a second time. */
+    if (header->numSwitches > 28 && header->Switches[28] != NULL)
+    {
+        f32 *hinge = (f32 *)header->Switches[28]->Data;
+        guRotateF(local.m, ((angle + M_TAU_F - get_value_if_watch_is_on_hand_or_not(GUNRIGHT)) * 360.0f) / M_TAU_F,
+                  hinge[0] - hinge[3], hinge[1] - hinge[4], hinge[2] - hinge[5]);
+        matrix_4x4_set_position(&finger->Data->Group.Origin, &local);
+    }
+    else
+    {
+        matrix_4x4_set_position_and_rotation_around_y((f32 *)&finger->Data->Group.Origin, angle, &local);
+    }
+    matrix_4x4_multiply_homogeneous(base, &local, &matrices[idx]);
 }
 
 static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
@@ -2373,6 +2426,8 @@ static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
             }
         }
     }
+
+    gevrWatchHandAnimateFinger(&s_gevrWatchHandHeader, &base, rwmtx, g_CurrentPlayer->hands[GUNRIGHT].field_A84);
 
     /* as gunUpdateAndFire sets up a weapon's: the hands, then the outfit's sleeve */
     modelInit(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, (s32 *) s_gevrWatchHandRw);

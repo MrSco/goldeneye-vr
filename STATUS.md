@@ -7,12 +7,14 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Active branch (2026-10-02):** `fix/60-watch-grip-hand` now includes current
-main. #60 retains the regular left watch arm, and the original right watch
-hand/pressing finger and pose. The taser-hand substitution was rejected in
-headset review; the corrected candidate restores the primary hand and hides
-only the old model's left side. Native checks and the signed build pass;
-headset recheck pending. See `docs/issue-60-watch-grip-hand.md`.
+**Active branch (2026-10-02):** `fix/60-watch-grip-hand` includes current
+main. #60 keeps the approved regular left watch arm and original right watch
+hand/pose. Headset review caught incorrect part hiding (only the right
+finger remained): now only the old left hand is hidden; the right palm and
+outfit sleeves stay visible. The private grip copy now applies the original
+finger press/release animation, advanced once per game tick. Native checks
+and the signed build pass; headset recheck pending.
+See `docs/issue-60-watch-grip-hand.md`.
 
 **Merged, unreleased (2026-10-02):** #30 water shimmer and Dam truck glass,
 user-verified in the headset on `942e897`. Water keeps projected vertices
