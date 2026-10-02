@@ -1585,18 +1585,20 @@ void chraiDefaultWeaponFireHandler(s32 hand)
                  * the shot, which there is the eye's line of sight. In stereo
                  * the shot line runs from the hand, so that put the spark
                  * below the hole as seen from the head (user, 2026-10-02):
-                 * back it off toward the eye instead.
+                 * back it off toward the eye instead, and only 4 units: two
+                 * eyes see the 26 units the flat game floats it off the wall
+                 * (logged), so it hung in mid-air (explosion.c GEVR_HIT_PULL).
                  */
                 extern coord3d *gevrEyePosition(void);   /* bondview2.c */
                 coord3d *eye = gevrEyePosition();
                 f32 ex = eye->x - finalpos->x, ey = eye->y - finalpos->y, ez = eye->z - finalpos->z;
                 f32 el = sqrtf(ex * ex + ey * ey + ez * ez);
 
-                if (el > 26.0f)
+                if (el > 4.0f)
                 {
-                    finalpos->x += 26.0f * ex / el;
-                    finalpos->y += 26.0f * ey / el;
-                    finalpos->z += 26.0f * ez / el;
+                    finalpos->x += 4.0f * ex / el;
+                    finalpos->y += 4.0f * ey / el;
+                    finalpos->z += 4.0f * ez / el;
                 }
             }
             else
