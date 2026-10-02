@@ -219,6 +219,7 @@ elseif(WIN32)
 endif()
 
 # Source files
+# gevr_surface_probe.c: opt-in issue #30 diagnostics
 file(GLOB_RECURSE SRC_PORT "${CMAKE_SOURCE_DIR}/port/*.c")
 list(FILTER SRC_PORT EXCLUDE REGEX "port/(external|tests)/.*")
 # Exclude PD-specific files not used by GoldenEye
