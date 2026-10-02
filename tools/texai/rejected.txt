@@ -13,9 +13,7 @@ C46658E1  file-select dossier image, 1-bit halftone dither turned to mush
 135DA584  file-select dossier image, halftone dither turned to mush
 2FE8C32C  file-select dossier image, halftone dither turned to mush
 14B20968  file-select dossier image, halftone dither turned to mush
-C654D2CA  dossier photo, dither turned to mush
 CE20C499  dossier photo, dither turned to mush
-CEEB36E2  dossier photo edge, garbled
 52DDC423  signature scribble garbled
 472FBB4B  small GoldenEye 007 logo garbled
 CC50ADDF  boxed logo, lettering at the top garbled
@@ -24,9 +22,6 @@ CC50ADDF  boxed logo, lettering at the top garbled
 34AEC0C9  grate with stencilled letters, letters garbled
 58217FA0  static/noise turned into rock-like blobs
 F1291B59  dark panel turned into a spiky shape
-692BE3C9  dossier frame, white blotches in the transparent part
-452A5E30  dossier frame, white blotch in the transparent part
-7424950E  dossier frame, white shape added top left
 0CC6CA1D  level photo, white blotch top right
 AF0507C3  checker pattern, noise added in the dark squares
 5B8779F6  flat grey strip (Facility), dense crosshatch invented
