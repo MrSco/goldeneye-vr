@@ -8067,8 +8067,8 @@ void gunDrawSight(Gfx **gdl) {
                 *gdl = gevrDrawSight3D(*gdl, GUNLEFT, FALSE);
                 *gdl = gevrHandTag(*gdl, -1);
             }
-            /* the left gun's scope has its sight whatever the grip: a lens without one is no use */
-            if ((gevrScopeOn & (1 << GUNLEFT)) && ((g_CurrentPlayer->gunsightmode & ~GUNSIGHTREASON_NOTAIMING) == 0)
+            /* the left gun's scope has its sight under the same rule as its flat sight: the left grip (user, 2026-10-02) */
+            if (vr_button_L_grip && (gevrScopeOn & (1 << GUNLEFT)) && ((g_CurrentPlayer->gunsightmode & ~GUNSIGHTREASON_NOTAIMING) == 0)
                 && (g_CurrentPlayer->mpmenuon == FALSE))
             {
                 gDPNoOpTag((*gdl)++, 0x565E0002); /* VR_SCOPE_ONLY_BEGIN_L */
