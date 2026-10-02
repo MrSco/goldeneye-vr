@@ -3,6 +3,20 @@
 Diagnostic branch: `codex/issue-30-surface-probe`. Rendering is unchanged.
 The supplied clips use HD textures. Glass is the Dam truck in the tunnel.
 
+## Current evidence and validation
+
+- User retested: odd water animation persists with both HD and original
+  textures. HD replacement alone cannot explain it.
+- A later screenshot shows repeating orange/red/yellow flecks in the water.
+  Whether those colors persist with HD disabled is not yet established.
+- No headset files/settings were changed during this investigation. The
+  installed v0.3.9 package reports last update 2026-10-02 08:30:59; its game
+  log identifies code `5ebcef4`. Existing logs were saved before installing
+  anything.
+- Diagnostic code `263814c`: `assembleRelease` passed (2m 3s); APK signature
+  verification passed with v2 signing. Headset capture is pending install
+  authorization. No rendering fix or visual acceptance is claimed.
+
 The original water setup (`src/game/unk_092E50.c`, `sub_GAME_7F09343C`)
 cross-fades two offset samples with a sine-driven PRIM_LOD_FRAC. That
 animation is intentional. The port's adaptive water coordinate packing and
