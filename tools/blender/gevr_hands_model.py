@@ -282,7 +282,7 @@ def fit_centre(c, pts2d):
 
 def underside(ws, pid, rails, tip, tex, st_box, light, arc=2, roundness=(0.75, 1.15),
               tip_pad=0.35, bone=None, shade=(0.80, 0.20), debug=False, flat=1.0, skin=None, rom_shade=None,
-              over=None, mirror=False):
+              over=None, mirror=False, up_hint=None):
     """The missing palm side of a finger modelled as the top half of a tube.
 
     rails: two lists of ROM vertex names from the finger's base to its tip,
@@ -302,6 +302,11 @@ def underside(ws, pid, rails, tip, tex, st_box, light, arc=2, roundness=(0.75, 1
     (a factor) the rails' own colours across, times it. With mirror, a skin
     (NearMap) is read at each new point's mirror image over the top: the
     underside shows the top's own skin turned under, seamless at the rails.
+
+    Which side is the top comes from the faces along the rails, then the
+    path over the top; up_hint (a direction) says it outright, for shells
+    whose faces at the rails lean the wrong way (the watch arm's fingers
+    wrap below their open edges, so those faces point down).
 
     over (a fraction of the half-width) builds the arcs on the modelled side
     instead, that high above it: a rounded cover over a flat N64 roof (a
@@ -333,14 +338,16 @@ def underside(ws, pid, rails, tip, tex, st_box, light, arc=2, roundness=(0.75, 1
         t_dir = t_dir - xh * t_dir.dot(xh)
         t_dir = t_dir.normalized() if t_dir.length > 1e-9 else Vector((1, 0, 0))
         # towards the modelled top: the ROM faces at the rims, then the path
-        up = ws.outward(a) + ws.outward(b)
+        up = ws.outward(a) + ws.outward(b) if up_hint is None else Vector(up_hint)
         up = up - xh * up.dot(xh) - t_dir * up.dot(t_dir)
         if up.length < 1e-9:
             up = up_prev if up_prev is not None else xh.cross(t_dir)
         up.normalize()
         top = ws.path_over(a, b, 6 * c, rim)
         top = [v for v in top if (v.co - m).length <= 2.4 * c]
-        if top:
+        if up_hint is not None:
+            top = [v for v in top if (v.co - m).dot(up) > 0]
+        elif top:
             if sum((v.co - m).dot(up) for v in top) < 0:
                 up = -up
         elif up_prev is not None and up.dot(up_prev) < 0:
@@ -1190,6 +1197,67 @@ def grow(ws, pid, ring_a, ring_b, joints, count, maps, up, bone, between=0, debu
         print("   grow: %d rings, length %.1f, twist %.0f deg, ends r %.1f / %.1f"
               % (len(rings), total, math.degrees(twist), mean_a, mean_b))
     return rings
+
+
+def extend(ws, pid, ring_a, joints, tip_len, count, band, up, bone, light, shade=(0.9, 0.1), debug=False):
+    """A finger the N64 cut short, grown on into a rounded fingertip: from
+    ring_a (the vertices round its open end, in order) through joints
+    [(centre, radius), ...] (my modelling: the knuckles of the curl), the
+    last of which is the fingertip's last ring, to a tip tip_len times that
+    radius beyond it. The rings blend from the opening's shape to round
+    (grow); the tip is a fan to one point. Texture: band (a BandMap) along
+    the new part. Shade: each new point's normal against light, base +
+    swing * n.light (the open end keeps the shade it has)."""
+    *mid, (tc, tr) = joints
+    tc = Vector(tc)
+    c0 = sum((v.co for v in ring_a), Vector()) / len(ring_a)
+    prev = Vector(mid[-1][0]) if mid else c0
+    d = (tc - prev).normalized()
+    upv = Vector(up)
+    u = upv - d * upv.dot(d)
+    u = u.normalized() if u.length > 1e-6 else d.orthogonal().normalized()
+    w = d.cross(u)
+    t_end = bone(1.0)
+    ring_b = [ws.new_vert(tc + (u * math.cos(2 * math.pi * k / count) + w * math.sin(2 * math.pi * k / count)) * tr,
+                          t_end) for k in range(count)]
+    first = len(ws.made)
+    rings = grow(ws, pid, ring_a, ring_b, mid, count, [(0.0, band)], up, bone, debug=debug)
+    apex = ws.new_vert(tc + d * (tip_len * tr), t_end)
+    cap = []
+    for k in range(count):
+        a, b = ring_b[k], ring_b[(k + 1) % count]
+        uvs = [band(a.co, 1.0, k / count), band(b.co, 1.0, (k + 1) / count), band(apex.co, 1.0, (k + 0.5) / count)]
+        f = ws.face(pid, [a, b, apex], band.tex, uvs, [255.0, 255.0, 255.0])
+        if f is not None:
+            cap.append(f)
+    # turned out by the shape, not by the open end's faces (the N64 may
+    # have wound a cut-off end it never showed either way)
+    centres = [c0] + [Vector(j[0]) for j in joints]
+    ws.bm.normal_update()
+    for group in (ws.made[first:len(ws.made) - len(cap)], cap):
+        out = sum(f.normal.dot(f.calc_center_median() - min(centres, key=lambda q: (q - f.calc_center_median()).length))
+                  * f.calc_area() for f in group)
+        if debug:
+            print("   extend: %d faces, outward %.0f" % (len(group), out))
+        if out < 0:
+            bmesh.ops.reverse_faces(ws.bm, faces=list(group))
+    ws.bm.normal_update()
+    # shade the new points by the way they face (the ROM lights nothing)
+    made = ws.made[first:]
+    ws.bm.normal_update()
+    new = {v for r in rings[1:] for v in r} | {apex}
+    normal = {}
+    for f in made:
+        for v in f.verts:
+            if v in new:
+                normal[v] = normal.get(v, Vector()) + f.normal * f.calc_area()
+    light = Vector(light).normalized()
+    for f in made:
+        for lp in f.loops:
+            if lp.vert in new and normal[lp.vert].length > 1e-9:
+                k = max(0.0, min(1.0, shade[0] + shade[1] * normal[lp.vert].normalized().dot(light)))
+                lp[ws.shade] = (k, k, k, 1.0)
+    return rings, apex
 
 
 def harmonic_uv(ws, faces, tex):

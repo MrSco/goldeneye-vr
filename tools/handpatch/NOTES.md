@@ -321,13 +321,24 @@ the taser/grenade hand are next, the same way.
 ## The watch arm the same way (2026-10-02, built, awaiting the headset)
 Csuit_lf_handZ's hand (0x01c0, one bone, ten times the pistol's units) had
 tubes under the ring and little fingers, pale 0x706 fingertip caps and a
-pale palm fill. Now (Csuit_lf_handZ.authored.json, 211 triangles):
+pale palm fill. Now (Csuit_lf_handZ.authored.json, 325 triangles):
 - The ring and little fingers' palm sides: underside() station by station
-  along their open edges, with fingertip pads, in the top's own skin read
-  at each point's mirror image over the top (mirror=True), so the seams
-  along the edges do not show.
-- The middle fingertip's open end: a domed pad; the index finger's two
-  bends, open inside: closed nearly flat, a little darker.
+  along their open edges, in the top's own skin read at each point's mirror
+  image over the top (mirror=True), so the seams along the edges do not
+  show. The faces along these edges lean down (the shell wraps below
+  them), so up_hint says the top is +y; and the edges double back at the
+  knuckle crease, so the rails skip those vertices and the notches they
+  leave are filled flat. (The first build had half the cross-sections
+  upside down, inside the fingers.)
+- The middle, ring and little fingers grown on past the N64's cut-off ends
+  and curled in towards the palm, a closing fist (the user: "slightly
+  extended so they're closed like a fist"): extend() from each open end,
+  a knuckle out along its normal, then down and back to a rounded tip
+  (CSUIT_CURL), in the PP7's 0x703 finger band, shaded by which way each
+  point faces. The frames use forward-and-up as their reference, which
+  stays off every tangent of the curl (+y alone twisted them 180 degrees).
+- The index finger's two bends, open inside: closed nearly flat, a little
+  darker.
 - The palm: the opening left between the heel, the thumb's root and the
   finger roots, faired into a cushion in 0x705 (the palm side the N64 did
   model) only, mapped with harmonic_uv: the heel and thumb corners keep
