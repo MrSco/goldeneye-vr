@@ -45,6 +45,11 @@ raises them by x times the loop's radius in the middle (a palm's cushion, a
 fingertip). "loop": "largest" / "largest:2" names the largest loops left. Every new
 point is stored as affine weights over four ROM vertices on one bone.
   ribbon  new geometry between two edges round an axis (the watch band).
+  authored  the pieces modelled in Blender for this host (fingers, palms:
+          tools/blender/gevr_hands_author.py), from
+          tools/handpatch/<model>.authored.json, taken as they are: their
+          corners, weights, UVs and per-corner shade. "names": [...] picks
+          pieces; "from": "GwppkZ" borrows another model's (same_as does this).
 Loops and points are named by any ROM vertex on them: 57 (an index in the
 host node's vertex block) or "0x02b8:57" (node and index).
 
@@ -76,6 +81,7 @@ from mathutils.bvhtree import BVHTree
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gevr_hands_import as H  # noqa: E402
+import gevr_hp_common as C  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RECIPES = os.path.join(REPO, "tools", "handpatch")
@@ -321,7 +327,12 @@ def fill_loop(lp, face_of):
     edge_normal = []
     for i in range(n):
         a, b = lp[i], lp[(i + 1) % n]
-        e = next(e for e in a.link_edges if e.other_vert(a) is b)
+        e = next((e for e in a.link_edges if e.other_vert(a) is b), None)
+        if e is None or not e.link_faces:
+            # an edge the fill closes itself (a cycle handed over whole,
+            # open along one side): no face beyond it to follow
+            edge_normal.append(None)
+            continue
         f = e.link_faces[0]
         walks_ab = any(l.vert is a and l.link_loop_next.vert is b for l in f.loops)
         edge_normal.append(-f.normal if walks_ab else f.normal.copy())
@@ -758,17 +769,24 @@ def boundary_chain(bm, R, spec):
     return [bm.verts[u] for u in order], closed
 
 
-def skirt(bm, R, op, tag, target_bvh):
+def skirt(bm, R, op, tag, target_bvh, record=None):
     """Close the gap between a hand's open rim and the thing it holds: from
     each rim vertex to the nearest point on the held object's surface (just
     outside it), joined into a strip. Looking into the fist you then see skin
     meeting the grip instead of the inside of the fingers. Rim vertices
-    further than "reach" from the object are left out."""
+    further than "reach" from the object are left out, and so are those in
+    op["skip"] (vertex indices: a stretch another surface is to close).
+    record, a dict, gets the chain and each vertex's point on the object (or
+    None)."""
     chain, closed = boundary_chain(bm, R, op["chain"])
     gap = op.get("gap", 0.6)
     reach = op.get("reach", 60.0)
+    skip = op.get("skip", ())
     proj = []
     for v in chain:
+        if v.index in skip:
+            proj.append(None)
+            continue
         loc, nrm, idx, dist = target_bvh.find_nearest(v.co, reach)
         if loc is None:
             proj.append(None)
@@ -811,6 +829,8 @@ def skirt(bm, R, op, tag, target_bvh):
                 votes += 1 if ol.vert.index == l.vert.index else -1
     if votes > 0:
         bmesh.ops.reverse_faces(bm, faces=made)
+    if record is not None:
+        record["chain"], record["proj"] = chain, proj
     return made, new, len(chain), closed
 
 
@@ -982,16 +1002,38 @@ def plane_uv(tris, box):
 
 # ---------------------------------------------------------------------------
 
-def fnv_vertices(model, node):
-    """FNV-1a over the node's vertex block, each x, y, z as a little-endian
-    s16 (the game hashes its converted block the same way)."""
-    h = 0x811C9DC5
-    part = next(p for p in model["parts"] if p["node"] == node)
-    for xyz in part["block_xyz"]:
-        for c in xyz:
-            for byte in (c & 0xFF, (c >> 8) & 0xFF):
-                h = ((h ^ byte) * 0x01000193) & 0xFFFFFFFF
-    return "0x%08x" % h
+fnv_vertices = C.fnv_vertices
+
+
+def authored_groups(name, op, host):
+    """The groups modelled in Blender for this host (tools/handpatch/
+    <model>.authored.json, written by gevr_hands_author.py commit), their
+    nodes renamed when they come from another model with the same hand."""
+    src = op.get("from", name)
+    with open(os.path.join(RECIPES, src + ".authored.json"), encoding="utf-8") as f:
+        data = json.load(f)
+    nodemap = op.get("nodemap") or {}
+
+    def m(n):
+        return nodemap.get(n, n)
+
+    out = []
+    for part in data["parts"]:
+        if int(m(part["host"]), 16) != host:
+            continue
+        for g in part["groups"]:
+            if op.get("names") and g.get("name") not in op["names"]:
+                continue
+            g = json.loads(json.dumps(g))
+            for c in g["verts"]:
+                if "mix" in c:
+                    c["mix"] = [[m(n), i, w] for n, i, w in c["mix"]]
+                else:
+                    c["node"] = m(c["node"])
+            out.append(g)
+    if not out:
+        raise SystemExit("authored: nothing in %s.authored.json for host 0x%04x" % (src, host))
+    return out
 
 
 def compare_sheet(out, tag, views):
@@ -1056,8 +1098,11 @@ def borrowed_recipe(model, other, export_dir):
                     # a bare index names a vertex of the host node there
                     op[key] = m(op[key] if isinstance(op[key], str) else "%s:%d" % (a["host"], op[key]))
             for key in ("loops", "from", "to", "anchors"):
-                if key in op and not isinstance(op[key], str):   # "to": "rest" stays as it is
+                if key in op and not isinstance(op[key], (str, type(None))):   # "to": "rest" stays as it is
                     op[key] = [m(x if isinstance(x, str) else "%s:%d" % (a["host"], x)) for x in op[key]]
+            if op["op"] == "authored":
+                op.setdefault("from", other)
+                op["nodemap"] = nodemap
             ops.append(op)
         out["assemblies"].append({"host": nodemap[a["host"]], "nodes": [nodemap[n] for n in a["nodes"]],
                                   "ops": ops})
@@ -1171,6 +1216,8 @@ def main():
         target_bvh = {} # skirt targets (the held object), by node set
         anchored = {}   # ribbon points: their own anchors
         born = {}       # new point -> the op that made it
+        authored = {}   # op -> its modelled groups, emitted as they are
+        lay_tex = bm.faces.layers.int.new("tex")   # an authored face's texture, for the renders
         for k, op in enumerate(ops, 1):
             loops, face_of = directed_loops(bm)
             directed_loops.quiet = True   # said once per assembly is enough
@@ -1259,6 +1306,46 @@ def main():
                     anchored[v.index] = affine_mix(bm, R, v, op["anchors"])
                 print("%s ribbon %s -> %s: %d triangles, %d new points"
                       % (label, op["from"], op["to"], 2 * len(quads), len(new_pts)))
+            elif op["op"] == "authored":
+                authored[k] = authored_groups(name, op, host)
+                tris = []
+                nf = nv = 0
+                # one vertex per point: corners on the same ROM vertex or with
+                # the same weights (a texture seam, two textures) are one
+                point = {}
+                weights = {}
+                for g in authored[k]:
+                    vs = []
+                    for c in g["verts"]:
+                        key = ("m", tuple(tuple(m) for m in c["mix"]), c["mtx"]) if "mix" in c else \
+                            ("r", c["node"], c["ref"])
+                        v = point.get(key)
+                        if v is None and "mix" not in c:
+                            spec = "%s:%d" % (c["node"], c["ref"])
+                            v = next((w for w in bm.verts if R.matches(w, spec)), None)
+                        if v is None:
+                            v = bm.verts.new(C.corner_pos(model, c))
+                            nv += 1
+                            if "mix" in c:
+                                weights[v] = {"mix": c["mix"], "mtx": c["mtx"]}
+                        point[key] = v
+                        vs.append(v)
+                    for t in g["tris"]:
+                        try:
+                            f = bm.faces.new([vs[i] for i in t])
+                        except ValueError:
+                            continue
+                        f[lay_patch] = k
+                        f[lay_tex] = int(g["tex"], 16)
+                        f.smooth = False
+                        nf += 1
+                bm.normal_update()
+                bm.verts.index_update()
+                for v, mw in weights.items():
+                    # the piece's own weights, for any later op that uses it
+                    anchored[v.index] = mw
+                print("%s authored %s: %d pieces, %d triangles, %d new points"
+                      % (label, op.get("from", name), len(authored[k]), nf, nv))
             else:
                 raise SystemExit("unknown op " + op["op"])
             for t in tris:
@@ -1299,6 +1386,11 @@ def main():
                 for v in pts:
                     mixes[v.index] = anchored[v.index]
                 continue
+            if op["op"] == "authored":
+                for v in pts:
+                    if anchored.get(v.index):
+                        mixes[v.index] = anchored[v.index]
+                continue
             anchors = op_anchors(bm, R, [f for f in bm.faces if f[lay_patch] == k], n_orig)
             if anchors is None:
                 raise SystemExit("%s op %d: no four ROM vertices to anchor its new points to" % (label, k))
@@ -1325,6 +1417,31 @@ def main():
 
         for k, op in enumerate(ops, 1):
             faces = [f for f in bm.faces if f[lay_patch] == k]
+            if op["op"] == "authored":
+                for f in faces:
+                    texnum = f[lay_tex]
+                    slot = next((i for i, m in enumerate(ob.data.materials)
+                                 if m.name.startswith("tex_%x" % texnum)), None)
+                    if slot is None:
+                        ob.data.materials.append(H.material_for(texnum, mats))
+                        slot = len(ob.data.materials) - 1
+                    if o["tint"]:
+                        if patch_mat.name not in [m.name for m in ob.data.materials]:
+                            ob.data.materials.append(patch_mat)
+                        slot = [m.name for m in ob.data.materials].index(patch_mat.name)
+                    f.material_index = slot
+                for g in authored[k]:
+                    for c in g["verts"]:
+                        if "mix" in c:
+                            used.update(int(m[0], 16) for m in c["mix"])
+                        else:
+                            used.add(int(c["node"], 16))
+                    g = dict(g, op="authored")
+                    groups.append(g)
+                    print("%s op %d authored %s: %d triangles, %d corners (%d new points)"
+                          % (label, k, g.get("name", ""), len(g["tris"]), len(g["verts"]),
+                             sum(1 for e in g["verts"] if "mix" in e)))
+                continue
             texnum = int(op["tex"], 16)
             info = model["textures"]["0x%x" % texnum]
             if op["op"] == "ribbon":
@@ -1390,9 +1507,7 @@ def main():
             "groups": groups})
 
     out_patch = os.path.join(RECIPES, name + ".patch.json")
-    with open(out_patch, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(patch, f, indent=1)
-        f.write("\n")
+    C.write_json(out_patch, patch)
     print("wrote " + out_patch)
 
     if o["render"]:
