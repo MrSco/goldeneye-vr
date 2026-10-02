@@ -9,6 +9,10 @@ Candidate `2f7aca7` substituted the taser hand and was rejected in
 model but misidentified its sides: it hid the right palm and sleeves,
 leaving only the pressing finger (`com.gevr.port-20261002-113259.jpg`).
 The private renderer also never applied the firing animation to that finger.
+Candidate `cbfd799` restored the palm, sleeves and finger animation. Review
+(`com.gevr.port-20261002-115110.jpg`) confirmed improvement, but exposed the
+smaller watch face/band still embedded in the right palm's display list.
+The user also requested more forgiving close-hand snap activation.
 
 ## Corrected behavior
 
@@ -19,6 +23,16 @@ The private renderer also never applied the firing animation to that finger.
   Hide only its old left hand (0x01c8, 566 vertices) in the private copy.
   The loader identifies that unique vertex block rather than relying on
   traversal position; an unrecognized/ambiguous model fails before hiding it.
+- During only the private grip-model load, omit the embedded dial, bezel
+  and band triangles (textures 0x5dd-0x5e3, 0x648 and 0x809) before texture
+  expansion. Keep the palm, finger, cuffs, matrices, vertices and shell
+  additions. Shared weapon models and the regular watch arm remain intact.
+  Local ROM inspection confirms 244 watch triangles removed from 0x0300
+  with all 414 right-palm skin triangles preserved; no asset was added.
+- Widen the physical snap-entry radius from 10 to 16 cm and retention from
+  14 to 22 cm. The existing 10 cm fingertip segment, firing gate, haptics
+  and multiplayer input routing still use this same grip state. Real-world
+  distances remain independent of level scale and weapon-size cheats.
 - Apply the original switch-6/switch-28 finger hinge to the private model's
   attached matrix, using the game's `field_A84` press/release angle. Advance
   the angle once in the game tick when the ordinary weapon model is hidden;
@@ -33,8 +47,8 @@ The private renderer also never applied the firing animation to that finger.
 - The rejected taser-specific `GripWatch` controls/settings remain removed.
   Saved INI values are ignored; the original `gevr_watchhand.txt` trim applies.
 
-Grip detection/hysteresis, firing rules, laser origin, watch-arm haptics,
-handedness and multiplayer behavior remain unchanged.
+The snap threshold is more forgiving; laser origin, press/release animation,
+handedness, ordinary two-handed holds and multiplayer handling remain intact.
 
 ## Validation
 
@@ -50,6 +64,14 @@ handedness and multiplayer behavior remain unchanged.
 - Press/release checks exercise the production angle update for watch laser
   and detonator, including its original rates/limits and gates for visible
   weapon models, non-watch items, the off hand and non-stereo mode.
+- Production display-list filter checks remove watch triangles only for
+  the selected private header and model name, retaining all skin/cuff/state
+  commands and subsequent skin triangles. The shared watch model and regular
+  watch arm retain all commands. Existing fist texture filtering still applies.
+- Snap checks cover entry at 15.9 cm, retention through 21.9 cm, release at
+  22.1 cm and re-entry, through controller rotation, level scales and weapon
+  size cheats. Held-item/tracking loss reset grip; remote input bypass leaves
+  the local grip state unchanged.
 - Native hand checks pass: pickups/equipment, outfit sleeves, input routing,
   independent cycling and depletion/switching.
 - Android `assembleRelease` passes with the existing release key, NDK
@@ -60,8 +82,9 @@ handedness and multiplayer behavior remain unchanged.
 
 ## Headset recheck
 
-1. Grip the watch laser: the approved left arm should stay unchanged, with
-   the complete original right palm and outfit sleeve visible.
+1. Bring hands together with the watch laser selected: activation should
+   be easier. Verify one watch face/band and the complete original right
+   palm and outfit sleeve, with the approved left arm unchanged.
 2. Fire/release repeatedly: the index finger must press the watch and return.
    Repeat with the detonator; verify beam origin, firing gate and haptics.
 3. Move/rotate the watch and grip/release repeatedly. Check steady attachment,

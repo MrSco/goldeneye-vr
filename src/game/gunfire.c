@@ -1,6 +1,7 @@
 #ifdef GEVR
 #include "net_game.h"
 #include "gevr_scope.h"   /* the per-hand VR scope (issue #40) */
+#include "gevr_model.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -2273,6 +2274,7 @@ static s32 gevrWatchHandHideLeft(ModelNode *lists[GEVR_WATCHHAND_DLS])
 static s32 gevrWatchHandLoad(void)
 {
     ModelFileHeader *tmpl;
+    ModelFileHeader *previousGripHeader;
     s8 *name;
     ModelNode *node;
     s32 dls = 0;
@@ -2308,8 +2310,13 @@ static s32 gevrWatchHandLoad(void)
     s_gevrWatchHandHeader = *tmpl;
     texInitPool(&s_gevrWatchHandPool, s_gevrWatchHandBuf + GEVR_WATCHHAND_MODELSIZE,
                 GEVR_WATCHHAND_BUFSIZE - GEVR_WATCHHAND_MODELSIZE);
+    /* The right palm's DL also contains the old left watch face/band.
+     * Filter only this private load, before texture markers are expanded. */
+    previousGripHeader = gevrModelWatchGripHeader;
+    gevrModelWatchGripHeader = &s_gevrWatchHandHeader;
     load_object_fill_header(&s_gevrWatchHandHeader, (u8 *)name, s_gevrWatchHandBuf, GEVR_WATCHHAND_MODELSIZE,
                             &s_gevrWatchHandPool);
+    gevrModelWatchGripHeader = previousGripHeader;
     modelCalculateRwDataLen(&s_gevrWatchHandHeader);
 
     if (s_gevrWatchHandHeader.RootNode == NULL

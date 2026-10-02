@@ -1843,10 +1843,11 @@ s32 gevrStereoWatchPoint(f32 out[3])
  * beam cut in and out (log: 9.6 fires, 10.3 held, back and forth). Kept each
  * tick while a watch item is out, so the gripping hand (gunfire.c
  * gevrRenderWatchGripHand, #60) shows exactly when a pull would fire (user: a
- * visual sign that firing is possible).
+ * visual sign that firing is possible). #60 headset review: widen entry to
+ * 16 cm and release to 22 cm so bringing the hands together is less exacting.
  */
-#define GEVR_WATCH_PRESS_CM 10.0f
-#define GEVR_WATCH_KEEP_CM 14.0f
+#define GEVR_WATCH_PRESS_CM 16.0f
+#define GEVR_WATCH_KEEP_CM 22.0f
 #define GEVR_WATCH_REACH_CM 10.0f
 
 static s32 s_gevrWatchGrip;
