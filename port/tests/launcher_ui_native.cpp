@@ -73,6 +73,92 @@ static void reset() {
     frame();
     frame();
 }
+static GevrLauncherSession session;
+static bool romReady = false, romError = false, romOpen = false, debugClicked = false;
+static ImVec2 romHeader, debugButton, tabButtons[4];
+static int activeTab = -1, displayRate = 87;
+static void settingsFrame() {
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+    ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings);
+    debugClicked = gevrLauncherDebugButton(session);
+    debugButton = ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax()).GetCenter();
+    romOpen = gevrLauncherRomHeader(session, romReady, romError, "ROM###rom");
+    romHeader = ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax()).GetCenter();
+    if (romOpen) {
+        gevrLauncherBeginRomDetails();
+        ImGui::TextUnformatted("Choose a ROM or fix the selection error.");
+        ImGui::EndChild();
+    }
+    gevrLauncherBeginBody("settings-body");
+    const auto content = [](int tab) {
+        activeTab = tab;
+        if (tab == 3) {
+            const int rates[] = {72, 80, 90, 120};
+            gevrDisplayRateControls(&displayRate, rates, 4);
+            check(ImGui::GetItemRectMax().x <= ImGui::GetWindowPos().x + ImGui::GetWindowWidth(),
+                  "refresh options and unavailable saved rate fit the panel");
+        } else ImGui::TextUnformatted("Settings content");
+    };
+    gevrLauncherMainTabs([&] { content(0); }, [&] { content(1); }, [&] { content(2); },
+                         [&] { content(3); });
+    ImGuiTabBar *bar = ImGui::GetCurrentContext()->TabBars.GetByKey(ImGui::GetID("launcher-settings"));
+    if (bar) for (int i = 0; i < bar->Tabs.Size; ++i)
+        tabButtons[i] = ImVec2(bar->BarRect.Min.x + bar->Tabs[i].Offset + bar->Tabs[i].Width * .5f,
+                               (bar->BarRect.Min.y + bar->BarRect.Max.y) * .5f);
+    ImGui::EndChild();
+    ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f));
+    check(ImGui::GetItemRectMax().y <= ImGui::GetIO().DisplaySize.y - 4,
+          "tabbed launcher keeps START visible");
+    ImGui::End();
+    ImGui::Render();
+}
+static bool settingsClick(ImVec2 p) {
+    auto &io = ImGui::GetIO();
+    io.AddMousePosEvent(p.x, p.y); settingsFrame();
+    io.AddMouseButtonEvent(0, true); settingsFrame();
+    io.AddMouseButtonEvent(0, false); settingsFrame();
+    const bool clicked = debugClicked;
+    settingsFrame();
+    return clicked;
+}
+static void settingsChecks() {
+    reset();
+    ImGui::GetIO().DisplaySize = ImVec2(1280, 960);
+    ImGui::GetIO().FontGlobalScale = 2.2f;
+    ImGui::GetStyle().ScaleAllSizes(2.2f);
+    settingsFrame(); settingsFrame();
+    check(romOpen, "missing ROM expands the section");
+    check(!settingsClick(debugButton), "locked debug button ignores clicks");
+    session.updateDebugCombo(false, false);
+    session.updateDebugCombo(true, false);
+    session.updateDebugCombo(false, true);
+    check(!session.debugUnlocked, "separate stick clicks cannot unlock debug");
+    session.updateDebugCombo(true, true);
+    session.updateDebugCombo(false, false);
+    check(session.debugUnlocked && settingsClick(debugButton), "both stick clicks unlock for this session");
+    romReady = true; settingsFrame();
+    check(!romOpen, "successful ROM validation collapses the section");
+    settingsClick(romHeader); check(romOpen, "valid ROM can be manually expanded");
+    session.romSelectionFinished(); settingsFrame();
+    check(!romOpen, "selecting another valid ROM collapses an expanded section");
+    settingsClick(romHeader); settingsClick(romHeader);
+    check(!romOpen, "valid ROM can be manually collapsed");
+    romError = true; settingsFrame(); check(romOpen, "selection error reopens a valid ROM section");
+    romError = false; settingsFrame(); check(!romOpen, "cleared ROM error collapses the section");
+    for (int tab : {1, 2, 3, 0}) {
+        settingsClick(tabButtons[tab]);
+        check(activeTab == tab, "each settings tab can be selected with the pointer");
+    }
+    check(displayRate == 87, "drawing rates preserves an unavailable saved preference");
+    session = GevrLauncherSession{};
+    session.updateDebugCombo(true, true);
+    check(!session.debugUnlocked, "returning to launcher relocks and requires a fresh combo");
+    settingsFrame(); check(!settingsClick(debugButton), "new session debug button is disabled");
+    session.updateDebugCombo(false, false); session.updateDebugCombo(true, true);
+    check(session.debugUnlocked, "fresh combo unlocks the next launcher session");
+}
 int main() {
     ImGui::CreateContext();
     for (int which = 0; which < 3; which++) {
@@ -150,7 +236,8 @@ int main() {
         ImGui::End();
         ImGui::Render();
     }
+    settingsChecks();
     ImGui::DestroyContext();
-    std::puts("PASS: 8 launcher UI checks (direct clicks, disabled rows, hover stability, stick navigation, pointer "
-              "routing, footer bounds)");
+    std::puts("PASS: launcher UI (combo clicks/navigation, pointer routing, footer bounds, settings tabs, "
+              "ROM collapse/error recovery, saved rates, debug combo and session reset)");
 }

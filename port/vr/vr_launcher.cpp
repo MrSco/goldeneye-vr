@@ -59,6 +59,7 @@ void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if ther
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
 void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
 void vr_apply_refresh_rate(void);     // vr_openxr.cpp
+int vr_get_supported_refresh_rates(int *rates, int capacity);
 int gevrVrSessionRunning(void);       // vr_openxr.cpp: includes the unfocused Quest menu
 extern int selected_num_players;      // src/game/front.c
 extern int gamemode;                  // src/game/front.c
@@ -2093,6 +2094,8 @@ extern "C" void gevrLauncherRun(void)
     RomInfo activeInfo;
     std::vector<RomInfo> others;
     bool pickerPending = false;
+    bool romError = false;
+    GevrLauncherSession launcherSession;
 
     // Find the ROM. A good dump copied into the data folder under any name
     // ("GoldenEye 007 (USA).z64") is renamed to ge.z64, the name the loader
@@ -2104,6 +2107,8 @@ extern "C" void gevrLauncherRun(void)
             const std::string r = gevrTakePickResult();
             if (!r.empty()) {
                 message = r;
+                romError = r.compare(0, 9, "Could not") == 0;
+                launcherSession.romSelectionFinished();
                 pickerPending = false;
             }
         }
@@ -2112,11 +2117,15 @@ extern "C" void gevrLauncherRun(void)
             struct stat st;
             if (stat(picked.c_str(), &st) == 0) {
                 RomInfo r = probeRom(picked);
+                launcherSession.romSelectionFinished();
                 if (r.good && rename(picked.c_str(), (dataDir() + "/ge.z64").c_str()) == 0) {
                     message = "ROM chosen.";
+                    romError = false;
                     vr_log("launcher: picked ROM adopted");
                 } else {
-                    message = "That file is not a GoldenEye 007 (USA) ROM: " + r.status + ".";
+                    message = r.good ? "Could not replace the ROM in the data folder." :
+                        "That file is not a GoldenEye 007 (USA) ROM: " + r.status + ".";
+                    romError = true;
                     remove(picked.c_str());
                 }
                 pickerPending = false;
@@ -2130,6 +2139,8 @@ extern "C" void gevrLauncherRun(void)
                 if (r.path.compare(0, dir.size(), dir) == 0 && r.path.find('/', dir.size()) == std::string::npos
                     && rename(r.path.c_str(), (dir + "ge.z64").c_str()) == 0) {
                     message = "Found " + r.path.substr(dir.size()) + " - using it.";
+                    romError = false;
+                    launcherSession.romSelectionFinished();
                     vr_log("launcher: renamed %s to ge.z64", r.path.c_str());
                     active = activeRomPath();
                     others = findRoms(active);
@@ -2166,8 +2177,9 @@ extern "C" void gevrLauncherRun(void)
     gevrUpdaterCommand("check");
     UpdateStatus upd;
     Uint32 lastUpdPoll = 0;
-    static bool reportPage = false;
-    static bool reportCrash = false;
+    bool reportPage = false;
+    bool reportCrash = false;
+    bool cheatPage = false, modsPage = false, mpPage = false, hapticsPage = false, throwingPage = false;
     Uint32 lastReportPoll = 0;
     while (!start) {
         // SDL's native thread may reach the launcher before MainActivity has
@@ -2211,13 +2223,15 @@ extern "C" void gevrLauncherRun(void)
         }
 
         Uint32 now = SDL_GetTicks();
+        launcherSession.updateDebugCombo(get_button_state(0, "thumbstick_click"),
+                                         get_button_state(1, "thumbstick_click"));
         io.DeltaTime = (now > last) ? (now - last) / 1000.0f : 1.0f / 72.0f;
         last = now;
         // Look for a ROM about once a second while there is none or the file
         // picker is out (copied over USB, or picked).
         {
             static Uint32 lastScan = 0;
-            if ((active.empty() || pickerPending) && now - lastScan > 1000) {
+            if ((!activeInfo.good || pickerPending) && now - lastScan > 1000) {
                 lastScan = now;
                 scan();
             }
@@ -2293,7 +2307,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::TextDisabled("%s", build);
             ImGui::SetCursorPos(ImVec2(right - buttonW,
                 headerY + ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y));
-            if (ImGui::SmallButton("Send debug log")) {
+            if (gevrLauncherDebugButton(launcherSession)) {
                 reportPage = true;
                 reportCrash = false;
             }
@@ -2302,53 +2316,67 @@ extern "C" void gevrLauncherRun(void)
         if (ImGui::GetCursorPosY() < iconBottom) ImGui::SetCursorPosY(iconBottom);
         ImGui::Separator();
 
-        // ROM
-        if (active.empty()) {
-            ImGui::TextColored(bad, "No ROM yet.");
-            ImGui::SameLine();
-            ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or copy it over USB into "
-                               "Android/data/com.gevr.port/files/data (any name).");
-            if (ImGui::Button("Choose ROM file...")) {
-                pickerPending = gevrOpenRomPicker();
-                message = pickerPending ? "Pick the ROM in the window that opened." : "Could not open the file picker.";
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Look again")) {
-                scan();
-                if (active.empty()) message = "Still no ROM in that folder.";
-            }
-        } else {
-            ImGui::TextColored(activeInfo.good ? good : bad, "ROM: %s", activeInfo.status.c_str());
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Change...")) {
-                pickerPending = gevrOpenRomPicker();
-                message = pickerPending ? "Pick the ROM in the window that opened." : "Could not open the file picker.";
-            }
-            ImGui::TextDisabled("%s", active.c_str());
-        }
-        for (size_t i = 0; i < others.size() && i < 2; i++) {
-            ImGui::PushID((int)i);
-            if (ImGui::SmallButton("Use")) {
-                std::string dst = dataDir();
-                if (!dst.empty() && dst.back() != '/') dst += '/';
-                dst += "ge.z64";
-                if (copyFile(others[i].path, dst)) {
-                    scan();
-                    message = "ROM copied in.";
-                } else {
-                    message = "Could not copy that ROM.";
+        // A good ROM starts collapsed. A failed pick opens it even if the old ROM is valid.
+        const bool romReady = !active.empty() && activeInfo.good;
+        const std::string romLabel = romError ? "ROM: selection error###rom" :
+            active.empty() ? "ROM: choose a file###rom" : "ROM: " + activeInfo.status + "###rom";
+        if (gevrLauncherRomHeader(launcherSession, romReady, romError, romLabel.c_str())) {
+            gevrLauncherBeginRomDetails();
+            if (active.empty()) {
+                ImGui::TextColored(bad, "No ROM yet.");
+                ImGui::SameLine();
+                ImGui::TextWrapped("Choose your GoldenEye 007 (USA) ROM, or copy it over USB into "
+                                   "Android/data/com.gevr.port/files/data (any name).");
+                if (ImGui::Button("Choose ROM file...")) {
+                    pickerPending = gevrOpenRomPicker();
+                    romError = !pickerPending;
+                    if (romError) launcherSession.romSelectionFinished();
+                    message = pickerPending ? "Pick the ROM in the window that opened." : "Could not open the file picker.";
                 }
-                ImGui::PopID();
-                break;
+                ImGui::SameLine();
+                if (ImGui::Button("Look again")) {
+                    romError = false;
+                    scan();
+                    if (active.empty()) message = "Still no ROM in that folder.";
+                }
+            } else {
+                ImGui::TextColored(activeInfo.good ? good : bad, "ROM: %s", activeInfo.status.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Change...")) {
+                    pickerPending = gevrOpenRomPicker();
+                    romError = !pickerPending;
+                    if (romError) launcherSession.romSelectionFinished();
+                    message = pickerPending ? "Pick the ROM in the window that opened." : "Could not open the file picker.";
+                }
+                ImGui::TextDisabled("%s", active.c_str());
             }
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", others[i].path.c_str());
-            ImGui::PopID();
+            for (size_t i = 0; i < others.size() && i < 2; i++) {
+                ImGui::PushID((int)i);
+                if (ImGui::SmallButton("Use")) {
+                    launcherSession.romSelectionFinished();
+                    std::string dst = dataDir();
+                    if (!dst.empty() && dst.back() != '/') dst += '/';
+                    dst += "ge.z64";
+                    if (copyFile(others[i].path, dst)) {
+                        romError = false;
+                        scan();
+                        message = "ROM copied in.";
+                    } else {
+                        romError = true;
+                        message = "Could not copy that ROM.";
+                    }
+                    ImGui::PopID();
+                    break;
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("%s", others[i].path.c_str());
+                ImGui::PopID();
+            }
+            if (!message.empty()) ImGui::TextWrapped("%s", message.c_str());
+            ImGui::EndChild();
         }
-        if (!message.empty()) ImGui::TextDisabled("%s", message.c_str());
 
-        // The update line's state (drawn beside the Cheats button, above
-        // START: a line under the ROM pushed the bottom of the panel off).
+        // Poll updater status for the scrollable settings area above START.
         if (now - lastUpdPoll > 250 || lastUpdPoll == 0) {
             lastUpdPoll = now;
             upd = gevrUpdaterStatus();
@@ -2358,11 +2386,6 @@ extern "C" void gevrLauncherRun(void)
         // GoldenEye cheats (issue #1's idea: the tiny guns as a cheat): their
         // own page. Ticked cheats are switched on as each mission starts, the
         // way the game's own cheat menu does (front.c init_menu0B_runstage).
-        static bool cheatPage = false;
-        static bool modsPage = false;
-        static bool mpPage = false;
-        static bool hapticsPage = false;
-        static bool throwingPage = false;
         if (reportPage) {
             gevrReportPage(reportPage, reportCrash, gold, good, bad);
         } else if (hapticsPage) {
@@ -2496,64 +2519,66 @@ extern "C" void gevrLauncherRun(void)
                 cheatPage = false;
             }
         } else {
-        // options, two columns
-        if (ImGui::BeginTable("opts", 2, ImGuiTableFlags_SizingStretchSame)) {
-            ImGui::TableNextColumn();
-            ImGui::TextColored(gold, "DISPLAY");
+        gevrLauncherBeginBody("main-options");
+        gevrLauncherMainTabs(
+        [&]() {
+            ImGui::TextColored(gold, "PLAY MODE");
             ImGui::RadioButton("Stereo VR (3D play)", &mode, 1);
             ImGui::RadioButton("Flat screen", &mode, 0);
             ImGui::Spacing();
-            ImGui::TextColored(gold, "SCREEN");
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Both grips grab the screen; right stick: distance / size.\n"
-                                  "Hold the left stick click to recentre it.");
+            if (ImGui::Button("Multiplayer...")) mpPage = true;
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "MODS & CHEATS");
+            if (ImGui::Button(g_ActiveExtTexPack[0] ? "Mods... (HD textures on)" : "Mods..."))
+                modsPage = true;
+            int n = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
+            for (int b = 0; b < 64; b++) n += (int)((VrCheatMask >> b) & 1ULL);
+            char label[48];
+            snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
+            if (ImGui::Button(label)) cheatPage = true;
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "DIAGNOSTICS & UPDATES");
+            bool stats = VrShowStats != 0;
+            if (ImGui::Checkbox("Show stats", &stats)) VrShowStats = stats ? 1 : 0;
+            bool tests = upd.testBuilds;
+            if (ImGui::Checkbox("Offer test builds", &tests)) {
+                upd.testBuilds = tests;
+                gevrUpdaterCommand(tests ? "testbuilds:1" : "testbuilds:0");
             }
-            {
-                int curved = VrScreenCurved;
-                ImGui::RadioButton("Flat", &curved, 0);
-                ImGui::SameLine();
-                ImGui::BeginDisabled(!vr_screen_curve_supported());
-                ImGui::RadioButton("Curved", &curved, 1);
-                ImGui::EndDisabled();
-                VrScreenCurved = curved;
-                // Live: this page is on the same screen.
-                float size = VrScreenFov, dist = VrScreenDistance;
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-                if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg")) {
-                    vr_screen_resize(VrScreenDistance, size);
-                }
-                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-                if (ImGui::SliderFloat("Distance", &dist, VR_SCREEN_DISTANCE_MIN, VR_SCREEN_DISTANCE_MAX, "%.1f m")) {
-                    vr_screen_resize(dist, VrScreenFov);
-                }
-            }
+        },
+        [&]() {
+            ImGui::TextColored(gold, "HANDS & STICKS");
+            bool lefty = VrLeftHandedMode != 0;
+            if (ImGui::Checkbox("Left-handed", &lefty)) VrLeftHandedMode = lefty ? 1 : 0;
+            bool swap = VrSwapJoysticks != 0;
+            if (ImGui::Checkbox("Swap sticks", &swap)) VrSwapJoysticks = swap ? 1 : 0;
+            bool nolean = VrAimNoLean != 0;
+            if (ImGui::Checkbox("Aim: no lean", &nolean)) VrAimNoLean = nolean ? 1 : 0;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Stereo: keep moving while holding the aim trigger.\nClick the left stick to crouch.");
             ImGui::Spacing();
             ImGui::TextColored(gold, "AIM STEADYING (stereo)");
-            {
-                // Issue #7: smooths hand tremor out of the aim; big moves stay instant.
-                int steady = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
-                ImGui::RadioButton("Off##steady", &steady, 0);
-                ImGui::SameLine();
-                ImGui::RadioButton("Low##steady", &steady, 1);
-                ImGui::SameLine();
-                ImGui::RadioButton("High##steady", &steady, 2);
-                VrAimSteady = steady;
-            }
+            int steady = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
+            ImGui::RadioButton("Off##steady", &steady, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("Low##steady", &steady, 1);
+            ImGui::SameLine();
+            ImGui::RadioButton("High##steady", &steady, 2);
+            VrAimSteady = steady;
             ImGui::Spacing();
-            ImGui::TextColored(gold, "DISPLAY RATE");
-            {
-                // 90 Hz by default; 120 shows each 60 Hz game frame exactly
-                // twice (smoothest hands) but works the headset hardest.
-                int hz = VrRefreshRate >= 110 ? 120 : VrRefreshRate > 0 && VrRefreshRate < 81 ? 72 : 90;
-                ImGui::RadioButton("72 Hz", &hz, 72);
-                ImGui::SameLine();
-                ImGui::RadioButton("90 Hz", &hz, 90);
-                ImGui::SameLine();
-                ImGui::RadioButton("120 Hz", &hz, 120);
-                VrRefreshRate = hz;
-            }
-
-            ImGui::TableNextColumn();
+            if (ImGui::Button(VrGunFitArmed ? "Gun fit: on" : "Gun fit..."))
+                VrGunFitArmed = !VrGunFitArmed;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
+                                  "the gun on your hand. A keeps it, B puts it back.");
+            char throwLabel[64];
+            snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
+            if (ImGui::Button(throwLabel)) throwingPage = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Configure motion throwing, throw strength, pitch trim, and gaze assist.");
+            if (ImGui::Button("Haptics...")) hapticsPage = true;
+        },
+        [&]() {
             ImGui::TextColored(gold, "TURNING (stereo)");
             ImGui::RadioButton("Smooth", &turn, 0);
             ImGui::SameLine();
@@ -2562,72 +2587,37 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SameLine();
             ImGui::RadioButton("Snap 90", &turn, 3);
             ImGui::Spacing();
-            ImGui::TextColored(gold, "COMFORT (stereo)");
+            ImGui::TextColored(gold, "MOVEMENT COMFORT (stereo)");
             ImGui::Checkbox("Darken edges when moving", &vignetteOn);
             ImGui::BeginDisabled(!vignetteOn);
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
             ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
             ImGui::EndDisabled();
-            {
-                char throwLabel[64];
-                snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
-                if (ImGui::Button(throwLabel)) {
-                    throwingPage = true;
-                }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Configure motion throwing, throw strength, pitch trim, and gaze assist");
-                }
-            }
-            {
-                // Issue #6: the gun in the left hand, watch on the right wrist,
-                // move with the right stick. Live: it swaps the pointer hand too.
-                bool lefty = VrLeftHandedMode != 0;
-                if (ImGui::Checkbox("Left-handed", &lefty)) {
-                    VrLeftHandedMode = lefty ? 1 : 0;
-                }
-                // Issue #6 (a left-handed player's request): move with the
-                // other stick, its click (crouch) with it. SwapJoysticks, as
-                // PD VR names it, swaps whichever way the hand setting has them.
-                // On this line, and short: the page does not scroll and has no
-                // line to spare (a line of its own grew it about 9 px), and a
-                // column is about 600 px wide at the 2.2x scale - "Move with
-                // left stick" beside "Left-handed" needed 596 and was cut off.
-                ImGui::SameLine();
-                bool swap = VrSwapJoysticks != 0;
-                if (ImGui::Checkbox("Swap sticks", &swap)) {
-                    VrSwapJoysticks = swap ? 1 : 0;
-                }
-                // Troubleshooting readout in game: fps, refresh rate, resolution, build.
-                bool stats = VrShowStats != 0;
-                if (ImGui::Checkbox("Show stats", &stats)) {
-                    VrShowStats = stats ? 1 : 0;
-                }
-                // Issue #81: in the game, holding aim turns the move stick
-                // into lean (sideways) and duck (down). On this line, as the
-                // page has no line to spare (see Swap sticks above).
-                ImGui::SameLine();
-                bool nolean = VrAimNoLean != 0;
-                if (ImGui::Checkbox("Aim: no lean", &nolean)) {
-                    VrAimNoLean = nolean ? 1 : 0;
-                }
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("Stereo: holding the aim trigger no longer leans or ducks with the move stick,\n"
-                                      "which keeps moving you. Click the left stick to crouch.");
-                }
-                // GitHub pre-releases too (UpdateChecker.java): for trying a
-                // fix before it ships. Saved by the updater, not the ini.
-                bool tests = upd.testBuilds;
-                if (ImGui::Checkbox("Offer test builds", &tests)) {
-                    upd.testBuilds = tests;
-                    gevrUpdaterCommand(tests ? "testbuilds:1" : "testbuilds:0");
-                }
-                // Issue #25: texture packs, on their own page.
-                if (ImGui::Button(g_ActiveExtTexPack[0] ? "Mods... (HD textures on)" : "Mods...")) {
-                    modsPage = true;
-                }
-            }
-            ImGui::EndTable();
-        }
+        },
+        [&]() {
+            ImGui::TextColored(gold, "SCREEN");
+            ImGui::TextWrapped("Both grips grab the screen; right stick: distance / size. "
+                               "Hold the left stick click to recentre it.");
+            int curved = VrScreenCurved;
+            ImGui::RadioButton("Flat", &curved, 0);
+            ImGui::SameLine();
+            ImGui::BeginDisabled(!vr_screen_curve_supported());
+            ImGui::RadioButton("Curved", &curved, 1);
+            ImGui::EndDisabled();
+            VrScreenCurved = curved;
+            float size = VrScreenFov, dist = VrScreenDistance;
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
+            if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg"))
+                vr_screen_resize(VrScreenDistance, size);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
+            if (ImGui::SliderFloat("Distance", &dist, VR_SCREEN_DISTANCE_MIN, VR_SCREEN_DISTANCE_MAX, "%.1f m"))
+                vr_screen_resize(dist, VrScreenFov);
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "DISPLAY RATE");
+            std::vector<int> rates(vr_get_supported_refresh_rates(nullptr, 0));
+            const int count = vr_get_supported_refresh_rates(rates.data(), (int)rates.size());
+            gevrDisplayRateControls(&VrRefreshRate, rates.data(), count);
+        });
         ImGui::Separator();
         // Update line: only when there is something to say, so an
         // up-to-date launcher looks as it always has.
@@ -2674,32 +2664,8 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::PopStyleColor();
             }
         }
-        {
-            int n = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
-            for (int b = 0; b < 64; b++) n += (int)((VrCheatMask >> b) & 1ULL);
-            char label[48];
-            snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
-            if (ImGui::Button(label)) cheatPage = true;
-            // Gun fit (user): the gun's place in the hand, set live in the next
-            // level (port/src/input.c). On this row: the page has no line to
-            // spare, and beside "Mods... (HD textures on)" it would not fit.
-            ImGui::SameLine();
-            if (ImGui::Button(VrGunFitArmed ? "Gun fit: on" : "Gun fit...")) {
-                VrGunFitArmed = !VrGunFitArmed;
-            }
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
-                                  "the gun on your hand. A keeps it, B puts it back.");
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Multiplayer...")) {
-                mpPage = true;
-            }
-            ImGui::SameLine();
-            if (ImGui::Button("Haptics...")) {
-                hapticsPage = true;
-            }
-        }
+        ImGui::EndChild();
+        ImGui::Separator();
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);
         if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))
             || (s_injectStart && !active.empty() && activeInfo.good)) {

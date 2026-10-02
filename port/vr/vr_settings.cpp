@@ -99,9 +99,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ScreenCurved=%d\n", VrScreenCurved);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
     fprintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
-    fprintf(f, "; Display refresh rate in Hz (launcher): 72, 90 (the default) or 120. The game\n");
-    fprintf(f, "; runs at 60 Hz: 120 shows each frame exactly twice (smoothest hands) but works\n");
-    fprintf(f, "; the headset hardest. 0 = the headset's default. Used when the headset offers it.\n");
+    fprintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (no app preference), the\n");
+    fprintf(f, "; Quest default for new settings. The launcher offers this headset's supported\n");
+    fprintf(f, "; rates. Saved choices are retained; the runtime decides the actual rate.\n");
     fprintf(f, "DisplayHz=%d\n", VrRefreshRate);
     fprintf(f, "; Stereo: darken the edges of the view while moving or smooth-turning, to\n");
     fprintf(f, "; ease motion sickness. 0 = off, up to 1 = strongest.\n");
@@ -154,6 +154,7 @@ extern "C" void vrEnsurePlayerName(void)
 
 extern "C" void vrSettingsLoad(void)
 {
+    if (s_settingsLoaded) return;
     s_settingsLoaded = true;   // with no file yet, the defaults are the settings
     vrHapticsInit();
     FILE *f = fopen(VR_INI_PATH, "r");
@@ -244,8 +245,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strncmp(key, "MpCustom", 8) == 0 && key[8] >= '1' && key[8] <= '4') VrMpCustom[key[8] - '1'] = ival;
             else if (strncmp(key, "MpLoadout", 9) == 0 && key[9] >= '1' && key[9] <= '4') VrMpLoadout[key[9] - '1'] = ival;
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
-            /* DisplayHz replaces RefreshRate, whose 120 was only ever the old default
-             * (no option set it): the new default, 90, applies to existing installs. */
+            /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
+             * was never user-selectable and remains ignored. */
             else if (strcmp(key, "DisplayHz") == 0) VrRefreshRate = ival < 0 ? 0 : ival;
             else if (strcmp(key, "MusicVolume") == 0) VrMusicVolume = ival <= 0 ? 0.0f : (ival >= 1 ? 1.0f : (float)ival);
             else if (strcmp(key, "VoiceVolume") == 0) VrVoiceVolume = ival <= 0 ? 0.0f : (ival >= 1 ? 1.0f : (float)ival);

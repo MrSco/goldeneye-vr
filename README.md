@@ -52,7 +52,7 @@
 | Smooth or snap turning, and an optional **comfort vignette** for motion sickness. | |
 
 Also:
-- An **in-VR launcher**: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (72, 90 or 120 Hz), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
+- An **in-VR launcher** with **Play**, **Controls**, **Comfort**, and **Screen** tabs: ROM check, display mode, screen shape and size, turning, comfort, **display rate** (Auto and the headset's supported rates), **aim steadying**, a **left-handed** mode, **swap sticks**, **gun fit** (set where the gun sits in your hand), an in-game **stats** readout for troubleshooting, and a **Cheats** page (the classic cheats, tiny or big guns, and **unlock all missions and cheats**).
 - **HD textures**: the launcher's **Mods** page downloads a fan-made texture pack on request and installs it in the headset:
   - *GoldenEye 007 HD* by intermissionfb and GhostlyDark (evilgames.eu, 129 MB).
   - *GoldenEye 007 HD + AI* (251 MB), our [fork](https://github.com/MrSco/GoldenEye-007-HD). It adds AI upscales of the game's own textures for the ones the pack doesn't cover yet: guards, weapons, parts of levels.
@@ -236,12 +236,32 @@ IP addresses) only while the game is open. Games on your Wi-Fi still work withou
 
 ## ⚙️ Settings
 
-Everything in the launcher is saved for next time. Finer settings live in
+Launcher settings are saved for next time. Finer settings live in
 `Android/data/com.gevr.port/files/data/goldeneye-vr.ini`, which explains each line: gun
 position in your hand, HUD distance, player height and more. Edit it on your
 computer while the headset is plugged in.
 
-**Gun fit...** (beside **Cheats...**) sets where the gun sits in your hand, in the headset.
+The ROM section collapses after validation succeeds and opens when a ROM is missing
+or selection fails. Expand it to change files. **Send debug log** starts disabled;
+click both controller sticks together to enable it for this launcher session. Leaving
+the launcher to play resets the unlock, so quitting and returning requires the combo again.
+
+**Display rate.** **Auto** leaves the refresh rate to the headset and external profiles.
+New Quest settings default to Auto; existing saved choices remain selected. The launcher
+offers the rates supported by your headset, including 80 Hz where available. Explicit
+choices request a rate; **Show stats** reports the rate actually in use.
+
+**Render resolution.** Quest uses the render dimensions recommended by its OpenXR runtime
+when the app starts. These can differ from the panel's physical resolution. The watch's
+resolution setting (`Video.VRRenderScale`) multiplies those dimensions, so an external
+resolution profile and a saved scale compound: a 2400×2600 recommendation at scale 2
+requests 4800×5200 per eye. Use scale 1 when checking an external profile. Device limits
+can reduce the actual size without changing your saved scale; **Show stats** reports the
+actual eye-buffer size. Restart the app after changing an external resolution profile.
+
+Actual QGO profile behavior is awaiting the [device comparison](docs/quest_display_validation.md).
+
+**Gun fit...** (in **Controls**) sets where the gun sits in your hand, in the headset.
 Turn it on, start a mission in stereo with a gun, and move the gun with the sticks until its grip
 is in your hand. Hold the gun with both hands to fit the holding hand as well. **A** keeps it,
 **B** puts it back.
