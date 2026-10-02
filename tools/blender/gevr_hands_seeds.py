@@ -45,15 +45,20 @@ CSUIT_CREASE = 0.8    # inside a finger's bend
 CSUIT_NEAR = 150.0    # how far from a piece's rim the skin it takes may lie (watch arm units)
 CSUIT_BAND = (0x703, 380, 712, 370, 250)   # a fingertip's skin: the 0x703 row the PP7's fingers run in
 # The fingers the N64 cut short, curled on in towards the palm to close the
-# fist (the user's ask). Per finger: its radius r; the first knuckle that
-# many r out of the open end along its normal, at 0.85 r round; then each
-# further joint (down, back) in r from the one before, at that many r
-# round (the last is the fingertip's last ring); how far the tip swells
-# past it, in its radius.
+# fist (the user's ask). A curl starts from the finger's whole end - its
+# last cross-section, the N64's top and our underside together (the N64's
+# sloped end cap ends up inside) - so it carries on in line with the finger
+# and as wide (hung from the underside alone it sat low, set back and thin:
+# "misaligned"). The middle fingertip is closed but for its underside, so
+# its curl leaves that opening at the fingertip's front. Per finger: its
+# radius r there; the first knuckle (forward, down) in r from the end's
+# centre, at that many r round; each further joint (down, back) in r from
+# the one before, at that many r round (the last is the fingertip's last
+# ring); how far the tip swells past it, in its radius.
 CSUIT_CURL = {
-    "ring_finger": (95.0, 0.5, [(1.2, 0.3, 0.8), (0.5, 1.0, 0.68)], 0.55),
-    "little_finger": (85.0, 0.5, [(1.15, 0.3, 0.8), (0.5, 0.95, 0.68)], 0.55),
-    "middle_finger": (100.0, 0.5, [(1.2, 0.35, 0.8), (0.5, 1.05, 0.68)], 0.55),
+    "ring_finger": (100.0, (0.55, 0.0, 0.95), [(1.15, 0.3, 0.85), (0.5, 1.0, 0.72)], 0.55),
+    "little_finger": (92.0, (0.55, 0.0, 0.95), [(1.1, 0.3, 0.85), (0.5, 0.95, 0.72)], 0.55),
+    "middle_finger": (95.0, (0.45, 0.8, 0.95), [(0.95, 0.4, 0.85), (0.5, 1.0, 0.72)], 0.55),
 }
 
 
@@ -63,26 +68,16 @@ def seed_csuit(ws, names):
     def skin(textures, names_, reach=CSUIT_NEAR):
         return M.NearMap(ws, textures, near=[ws.vert(x).co for x in names_], reach=reach)
 
-    def curl(pid, name, opening):
-        """Grow the finger on from its open end into a fingertip curled in
-        towards the palm (CSUIT_CURL)."""
-        r, out, bends, tip_len = CSUIT_CURL[name]
-        c0 = sum((v.co for v in opening), Vector()) / len(opening)
-        # the opening's normal (Newell), turned away from the finger
-        n = Vector()
-        for a, b in zip(opening, opening[1:] + opening[:1]):
-            n += (a.co - c0).cross(b.co - c0)
-        n.normalize()
-        inside = sum((f.calc_center_median() for v in opening for f in ws.rom_faces(v)), Vector())
-        inside /= max(1, sum(len(ws.rom_faces(v)) for v in opening))
-        if n.dot(c0 - inside) < 0:
-            n = -n
-        p = c0 + n * (out * r)
-        joints = [(p, 0.85 * r)]
+    def curl(pid, name, end):
+        """Grow the finger on from end (the vertices round its end, in
+        order) into a fingertip curled in towards the palm (CSUIT_CURL)."""
+        r, (fwd, down0, rad0), bends, tip_len = CSUIT_CURL[name]
+        p = sum((v.co for v in end), Vector()) / len(end) + Vector((fwd * r, -down0 * r, 0.0))
+        joints = [(p, rad0 * r)]
         for down, back, rad in bends:
             p = p + Vector((-back * r, -down * r, 0.0))
             joints.append((p, rad * r))
-        M.extend(ws, pid, opening, joints, tip_len, 8, M.BandMap(CSUIT_BAND[0], 32, 32, *CSUIT_BAND[1:]),
+        M.extend(ws, pid, end, joints, tip_len, 8, M.BandMap(CSUIT_BAND[0], 32, 32, *CSUIT_BAND[1:]),
                  (1, 1, 0), lambda t: 0, (0, 1, 0), shade=(0.95, 0.05))
 
     # the ring and little fingers: the palm side closed round under the N64's
@@ -101,11 +96,15 @@ def seed_csuit(ws, names):
         pid = ws.piece(name, "the %s's palm side, closed round under the N64's top half, then grown on into a "
                        "fingertip curled in towards the palm" % name.replace("_", " "))
         finger = skin(CSUIT_SKIN, rails[0] + rails[1] + notches + [tip])
-        M.underside(ws, pid, rails, None, 0x703, (0, 1, 0, 1), CSUIT_LIGHT, arc=2, skin=finger,
-                    rom_shade=CSUIT_UNDER, mirror=True, up_hint=(0, 1, 0))
+        under = M.underside(ws, pid, rails, None, 0x703, (0, 1, 0, 1), CSUIT_LIGHT, arc=2, skin=finger,
+                            rom_shade=CSUIT_UNDER, mirror=True, up_hint=(0, 1, 0))
         for notch in notches:
             M.fill_palm(ws, pid, notch, 0x703, None, CSUIT_LIGHT, fair=0, dome=0, skin=finger, rom_shade=1.0)
-        curl(pid, name, loop_verts(ws, tip))
+        # the finger's whole end: rail A's last vertex, over the N64's top
+        # (not through its fingertip), rail B's last, back under ours
+        a, b = ws.vert(rails[0][-1]), ws.vert(rails[1][-1])
+        top = ws.path_over(a, b, 1e9, [ws.vert(x) for x in rails[0] + rails[1] + notches + [tip]])
+        curl(pid, name, [a] + list(reversed(top)) + [b] + list(under[-1][1][1:-1]))
 
     # the middle finger: grown on from its open fingertip, curled in
     pid = ws.piece("middle_finger", "the middle finger grown on from its open tip into a fingertip curled in "

@@ -332,11 +332,16 @@ pale palm fill. Now (Csuit_lf_handZ.authored.json, 325 triangles):
   upside down, inside the fingers.)
 - The middle, ring and little fingers grown on past the N64's cut-off ends
   and curled in towards the palm, a closing fist (the user: "slightly
-  extended so they're closed like a fist"): extend() from each open end,
-  a knuckle out along its normal, then down and back to a rounded tip
-  (CSUIT_CURL), in the PP7's 0x703 finger band, shaded by which way each
-  point faces. The frames use forward-and-up as their reference, which
-  stays off every tangent of the curl (+y alone twisted them 180 degrees).
+  extended so they're closed like a fist"): extend() from each finger's
+  whole end, a knuckle ahead on the finger's line, then down and back to a
+  rounded tip (CSUIT_CURL), in the PP7's 0x703 finger band, shaded by which
+  way each point faces. The ring and little fingers' whole end is the N64's
+  top cross-section plus our underside's last arc (the N64's sloped end cap
+  ends up inside the curl); hung from the bottom opening alone the curls sat
+  low, set back and thin ("slightly misaligned"). The middle fingertip is
+  closed but for its underside, so its curl leaves that opening. The frames
+  use forward-and-up as their reference, which stays off every tangent of
+  the curl (+y alone twisted them 180 degrees).
 - The index finger's two bends, open inside: closed nearly flat, a little
   darker.
 - The palm: the opening left between the heel, the thumb's root and the
