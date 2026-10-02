@@ -32,6 +32,7 @@
 #include "system.h"
 #include "gevr_rom_manifest.h"
 #include "gevr_rom_segments.h"
+#include "gevr_texpack_preload.h"
 
 /* Mirrors of the engine's own table; ob.c defines both at file scope. */
 struct gevrFileEntry {
@@ -371,9 +372,15 @@ void gevrRomBindSegments(void)
 	_fontzurichboldSegmentEnd      = _fontzurichboldSegmentStart
 			+ gevrSegSize(GEVR_SEG_FONTZURICHBOLD);
 
+	/* Start warming legal/menu text as soon as the ROM is resident, before
+	 * music binding and stage initialization. Legal-page font goes first. */
+	gevrTexpackPreloadFont(_fontzurichboldSegmentStart, gevrSegSize(GEVR_SEG_FONTZURICHBOLD));
+	gevrTexpackPreloadFont(_fontbankgothicSegmentStart, gevrSegSize(GEVR_SEG_FONTBANKGOTHIC));
+
 	_imagesSegmentRomStart = gevrSegPtr(GEVR_SEG_IMAGES);
 	unknown2 = gevrSegPtr(GEVR_SEG_GUNBARREL);
 	unknown2_end = (u8 *)unknown2 + gevrSegSize(GEVR_SEG_GUNBARREL);
+	gevrTexpackPreloadBackground((const u8 *)unknown2, gevrSegSize(GEVR_SEG_GUNBARREL));
 
 	gevrRomBindMusic();
 }

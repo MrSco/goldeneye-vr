@@ -8,13 +8,16 @@
  * when a palette checksum is given, PAL alone when the CRC is a wildcard, and
  * CRC otherwise; a match also needs F and S.
  *
- * One thread scans the tree, then decodes on request with stb_image, halving
+ * One thread scans the tree, warms a bounded set of boot menus/fonts, then
+ * decodes on request with stb_image, halving
  * anything over 1024 texels on a side (the Quest would only minify it). The
  * render thread takes finished images and uploads them (gfx_pc.cpp).
  */
 
 #include "gevr_texpack.h"
+#include "gevr_texpack_preload.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -46,7 +49,7 @@
 
 namespace gevrtp {
 
-enum { UNLOADED, QUEUED, READY, FAILED };
+enum { UNLOADED, QUEUED, DECODING, READY, FAILED };
 
 struct Entry {
     std::string path;
@@ -55,6 +58,8 @@ struct Entry {
     std::vector<uint8_t> rgba;
     uint32_t w = 0, h = 0;
     uint64_t lastUse = 0;
+    bool bootFont = false;
+    bool bootBackground = false;
 };
 
 static std::vector<Entry> s_entries;                          // fixed once the scan is published
@@ -62,6 +67,11 @@ static std::unordered_map<uint64_t, std::vector<int>> s_index;
 static std::mutex s_mu;
 static std::condition_variable s_cv;
 static std::deque<int> s_queue;
+static std::deque<int> s_bootFonts, s_bootMenu, s_bootBackground;
+static std::vector<uint32_t> s_bootGlyphs;                     // keys requested before indexing finishes
+static std::vector<uint32_t> s_bootBackgroundKeys;
+static size_t s_bootFontBytes = 0, s_bootMenuBytes = 0;
+static size_t s_bootBackgroundBytes = 0;
 static std::vector<int> s_done;
 static std::atomic<bool> s_started{false};
 static std::atomic<bool> s_ready{false};
@@ -71,6 +81,90 @@ static uint64_t s_tick = 0;
 static size_t s_held = 0;                                     // bytes of decoded images
 
 static const int MAX_SIDE = 1024;
+// Speculative warming is bounded independently of the normal 160 MiB cache.
+// Separate allowances keep large menu artwork from crowding out the legal text.
+static const size_t BOOT_FONT_BUDGET = (size_t)8 << 20;
+static const size_t BOOT_MENU_BUDGET = (size_t)8 << 20;
+static const size_t BOOT_BACKGROUND_BUDGET = (size_t)4 << 20;
+static const size_t BOOT_SOURCE_LIMIT = (size_t)16 << 20;
+
+struct BootTexture { uint32_t crc; uint8_t fmt, siz; };
+// Common folder/menu art, independent of pack directory layout. In particular,
+// don't warm all of UI/ or Title and menus. The 299 background scanlines are
+// selected separately from the ROM's gunbarrel image, rather than by folder.
+static const BootTexture BOOT_MENU[] = {
+    {0x551AADB3, 4, 0}, // dossier cover
+    {0xD34954E9, 4, 0}, // paper
+    {0xB6C88513, 4, 0}, // Royal Coat of Arms
+    {0x20AEEE9E, 4, 0}, {0xC97BB1FB, 4, 0}, // Brosnan portrait, top
+    {0xCEEB36E2, 4, 0}, {0xC654D2CA, 4, 0}, // Brosnan portrait, bottom
+    {0x5A516EDA, 0, 3}, {0x63999CD0, 0, 3}, // copy / erase
+    {0x7BFD977B, 3, 1}, // SELECT FILE
+    {0xD1FC843A, 2, 1}, {0xBCE9E819, 2, 1}, // cross / check
+    {0xC06E0D45, 2, 0}, // dot
+    {0xF3286ADF, 3, 1}, {0xBD8ABEF7, 3, 1}, // CLASSIFIED
+    {0xBF6B4224, 3, 1}, {0x8D87559E, 3, 1}, // CONFIDENTIAL
+    {0x8A16827B, 3, 1}, {0xF04D7982, 3, 1}, // EYES ONLY
+    {0x1DEDE94C, 3, 1}, {0x01B6B209, 3, 1}, // FOR YOUR
+    {0xBDEE869C, 3, 1}, {0xD11BA786, 3, 1}, // OHMSS
+};
+
+// s_mu held. Palette variants of the same menu icon are harmless to warm;
+// its texture CRC is the low word of the combined palette/texture index key.
+static void queueBoot(uint32_t crc, uint8_t fmt, uint8_t siz, bool font, bool background = false) {
+    const auto queueMatches = [&](const std::vector<int> &ids) {
+        for (int id : ids) {
+            Entry &e = s_entries[id];
+            if (e.fmt != fmt || e.siz != siz || e.state != UNLOADED) continue;
+            e.state = QUEUED;
+            e.bootFont = font;
+            e.bootBackground = background;
+            (font ? s_bootFonts : background ? s_bootBackground : s_bootMenu).push_back(id);
+        }
+    };
+    if (font || background) {
+        // These I8 textures have no palette. Avoid a full index walk for
+        // every font glyph and each of the 299 background rows.
+        auto it = s_index.find(crc);
+        if (it != s_index.end()) queueMatches(it->second);
+    } else {
+        for (const auto &slot : s_index) {
+            if ((uint32_t)slot.first == crc) queueMatches(slot.second);
+        }
+    }
+}
+
+static uint32_t bootI8Checksum(const uint8_t *pixels, int width, int height) {
+    // Same Rice checksum as gfx_pc.cpp's I8 imports, using local state so
+    // ROM binding can overlap the render thread safely.
+    const uint8_t *base = (const uint8_t *)((uintptr_t)pixels & ~(uintptr_t)3);
+    intptr_t row = pixels - base;
+    uint32_t crc = 0;
+    for (int y = height - 1; y >= 0; --y, row += width) {
+        uint32_t e = 0;
+        for (int x = width - 4; x >= 0; x -= 4) {
+            const intptr_t a = row + x;
+            const uint32_t word = base[a ^ 3] | (uint32_t)base[(a + 1) ^ 3] << 8
+                | (uint32_t)base[(a + 2) ^ 3] << 16 | (uint32_t)base[(a + 3) ^ 3] << 24;
+            e = word ^ (uint32_t)x;
+            crc = ((crc << 4) | (crc >> 28)) + e;
+        }
+        crc += e ^ (uint32_t)y;
+    }
+    return crc;
+}
+
+static void preloadGlyph(uint32_t crc) {
+    if (!s_started) return; // Original textures: no background work
+    std::lock_guard<std::mutex> lk(s_mu);
+    if (!s_scanned) {
+        if (s_bootGlyphs.size() < 188 && std::find(s_bootGlyphs.begin(), s_bootGlyphs.end(), crc) == s_bootGlyphs.end())
+            s_bootGlyphs.push_back(crc);
+    } else {
+        queueBoot(crc, 4, 1, true);
+        s_cv.notify_one();
+    }
+}
 
 // "0123ABCD" or "$" -> value / wildcard; false if neither
 static bool parseHex(const std::string &s, uint32_t *v, bool *wild) {
@@ -213,20 +307,56 @@ static void worker(std::string dir) {
         std::lock_guard<std::mutex> lk(s_mu);
         s_entries.swap(entries);
         s_index.swap(index);
+        for (uint32_t crc : s_bootGlyphs) queueBoot(crc, 4, 1, true);
+        s_bootGlyphs.clear();
+        for (uint32_t crc : s_bootBackgroundKeys) queueBoot(crc, 4, 1, false, true);
+        s_bootBackgroundKeys.clear();
+        for (const BootTexture &t : BOOT_MENU) queueBoot(t.crc, t.fmt, t.siz, false);
+        TPLOG("texpack: boot preload queued %zu font glyphs, %zu menu textures, %zu background rows (8/8/4 MiB)",
+              s_bootFonts.size(), s_bootMenu.size(), s_bootBackground.size());
+        s_ready = !s_entries.empty();
+        s_scanned = true;
     }
-    s_ready = !s_entries.empty();
-    s_scanned = true;
 
     while (true) {
         int id;
+        bool preload;
         {
             std::unique_lock<std::mutex> lk(s_mu);
-            s_cv.wait(lk, [] { return !s_queue.empty(); });
-            id = s_queue.front();
-            s_queue.pop_front();
+            s_cv.wait(lk, [] {
+                return !s_queue.empty() || !s_bootFonts.empty() || !s_bootBackground.empty() || !s_bootMenu.empty();
+            });
+            preload = s_queue.empty();
+            auto &queue = !preload ? s_queue : !s_bootFonts.empty() ? s_bootFonts
+                : !s_bootBackground.empty() ? s_bootBackground : s_bootMenu;
+            id = queue.front();
+            queue.pop_front();
+            s_entries[id].state = DECODING;
         }
         const std::string &path = s_entries[id].path;   // never changes after publishing
         int w = 0, h = 0, n = 0;
+        if (preload) {
+            // Inspect before allocating, so a custom 4K/8K pack cannot turn
+            // a small boot preload into a large temporary allocation.
+            const Entry &e = s_entries[id];
+            size_t &held = e.bootFont ? s_bootFontBytes : e.bootBackground ? s_bootBackgroundBytes : s_bootMenuBytes;
+            const size_t budget = e.bootFont ? BOOT_FONT_BUDGET
+                : e.bootBackground ? BOOT_BACKGROUND_BUDGET : BOOT_MENU_BUDGET;
+            bool fits = stbi_info(path.c_str(), &w, &h, &n) && w > 0 && h > 0
+                && (uint64_t)w * h * 4 <= BOOT_SOURCE_LIMIT;
+            uint32_t pw = (uint32_t)w, ph = (uint32_t)h;
+            while ((pw > MAX_SIDE || ph > MAX_SIDE) && pw >= 2 && ph >= 2) { pw /= 2; ph /= 2; }
+            const uint64_t bytes = (uint64_t)pw * ph * 4;
+            if (!fits || bytes > budget - held) {
+                std::lock_guard<std::mutex> lk(s_mu);
+                s_entries[id].state = UNLOADED; // on-demand decoding remains available
+                // A draw may have requested it while the header was being
+                // inspected. Wake the renderer's pending job so it retries
+                // through the foreground queue rather than waiting forever.
+                s_done.push_back(id);
+                continue;
+            }
+        }
         uint8_t *px = stbi_load(path.c_str(), &w, &h, &n, 4);
         std::vector<uint8_t> rgba;
         uint32_t uw = 0, uh = 0;
@@ -243,6 +373,7 @@ static void worker(std::string dir) {
             std::lock_guard<std::mutex> lk(s_mu);
             Entry &e = s_entries[id];
             if (!rgba.empty()) {
+                if (preload) (e.bootFont ? s_bootFontBytes : e.bootBackground ? s_bootBackgroundBytes : s_bootMenuBytes) += rgba.size();
                 s_held += rgba.size();
                 e.rgba.swap(rgba);
                 e.w = uw;
@@ -306,6 +437,15 @@ const uint8_t *image(int id, uint32_t *w, uint32_t *h) {
         e.state = QUEUED;
         s_queue.push_back(id);
         s_cv.notify_one();
+    } else if (e.state == QUEUED) {
+        // A visible texture always goes ahead of speculative boot warming.
+        auto &queue = e.bootFont ? s_bootFonts : e.bootBackground ? s_bootBackground : s_bootMenu;
+        auto it = std::find(queue.begin(), queue.end(), id);
+        if (it != queue.end()) {
+            queue.erase(it);
+            s_queue.push_back(id);
+            s_cv.notify_one();
+        }
     }
     return nullptr;
 }
@@ -441,3 +581,58 @@ void dump(const char *name, const uint8_t *rgba, uint32_t w, uint32_t h, uint32_
 }
 
 } // namespace gevrtp
+
+extern "C" void gevrTexpackPreloadGlyph(const unsigned char *pixels, int width, int height) {
+    if (!gevrtp::s_started || pixels == nullptr || width < 4 || width > 256 || height <= 0 || height > 256) return;
+    gevrtp::preloadGlyph(gevrtp::bootI8Checksum(pixels, width, height));
+}
+
+extern "C" void gevrTexpackPreloadFont(const unsigned char *data, unsigned int size) {
+    // Cartridge layout shared with gevrRomSwapFont: 13x13 kerning words,
+    // then 94 descriptors of six big-endian words, followed by I8 pixels.
+    const uint32_t chars = 13 * 13 * 4, pixels = chars + 94 * 24;
+    if (!gevrtp::s_started || data == nullptr || size < pixels) return;
+    const auto word = [data](uint32_t ofs) {
+        return (uint32_t)data[ofs] << 24 | (uint32_t)data[ofs + 1] << 16
+            | (uint32_t)data[ofs + 2] << 8 | data[ofs + 3];
+    };
+    for (uint32_t i = 0; i < 94; ++i) {
+        const uint32_t ch = chars + i * 24;
+        const uint32_t h = word(ch + 8), w = word(ch + 12), ofs = word(ch + 20);
+        if (w > 256 || h == 0 || h > 256 || ofs < pixels || ofs > size) continue;
+        const uint32_t width = (w + 7) & 0xF8;
+        if ((uint64_t)width * h > size - ofs) continue;
+        gevrTexpackPreloadGlyph(data + ofs, (int)width, (int)h);
+    }
+}
+
+extern "C" void gevrTexpackPreloadBackground(const unsigned char *data, unsigned int size) {
+    if (!gevrtp::s_started || data == nullptr || size < 10) return;
+    // titleRenderFolderMenuBackgroundLines draws this one static image as
+    // 299 separate 440x1 I8 loads. Decode its RLE once at ROM binding so all
+    // those exact pack keys can be warmed long before file select opens.
+    constexpr size_t width = 440, rows = 299, total = width * rows;
+    if (((data[0] << 8) | data[1]) != width || ((data[2] << 8) | data[3]) != rows) return;
+    std::vector<uint8_t> pixels(total);
+    size_t src = 10, dst = 0;
+    while (dst < total) {
+        if (src + 2 > size) return;
+        const size_t count = data[src];
+        if (count == 0 || count > total - dst) return;
+        std::fill_n(pixels.data() + dst, count, data[src + 1]);
+        src += 2;
+        dst += count;
+    }
+    std::lock_guard<std::mutex> lk(gevrtp::s_mu);
+    for (size_t row = 0; row < rows; ++row) {
+        const uint32_t crc = gevrtp::bootI8Checksum(pixels.data() + row * width, (int)width, 1);
+        if (!gevrtp::s_scanned) {
+            auto &keys = gevrtp::s_bootBackgroundKeys;
+            if (keys.size() < rows && std::find(keys.begin(), keys.end(), crc) == keys.end()) keys.push_back(crc);
+        } else {
+            gevrtp::queueBoot(crc, 4, 1, false, true);
+        }
+    }
+    TPLOG("texpack: file-select background preload queued (%zu row keys, 4 MiB allowance)", rows);
+    gevrtp::s_cv.notify_one();
+}
