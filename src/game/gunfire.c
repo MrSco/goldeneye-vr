@@ -2902,6 +2902,23 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     }
 
     renderdata.zbufferenabled = FALSE;
+#ifdef GEVR
+    if (g_gevrItemModelOverride != NULL)
+    {
+        /*
+         * The weapon panel (bondview2.c): drawn as the hand in play is
+         * (gunRenderFirstPersonGunModels in stereo), with the depth test and
+         * the room's tint on the model, not the watch's green environment
+         * colour and no depth. Without depth the fist's inner faces painted
+         * over its outer ones and it read as a hollow tube (user, 2026-10-02).
+         */
+        renderdata.zbufferenabled = TRUE;
+        renderdata.envcolour.word = g_CurrentPlayer->tileColor.a
+                                  | ((u32)g_CurrentPlayer->tileColor.r << 24)
+                                  | ((u32)g_CurrentPlayer->tileColor.g << 16)
+                                  | ((u32)g_CurrentPlayer->tileColor.b << 8);
+    }
+#endif
     subdraw(&renderdata, (Model *) &model);
     gdl = renderdata.gdl;
     matrix_4x4_7F058C64();

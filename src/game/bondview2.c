@@ -1584,6 +1584,101 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     return gdl;
 }
 
+/*
+ * The weapon panel's "Holstered" entry for the left hand (gevrDrawWeaponPanelModel):
+ * the arm the left hand swings, the watch arm above, posed in the panel's
+ * model space instead of on the controller. The watch's item renderer
+ * cannot draw this skeletal model (it crashed in modelGetNodeRwData), so it
+ * takes the same path as in play: the pause animation's frame, the root
+ * re-posed to a wanted frame, subdraw with the depth test and the room's
+ * tint. `base` is the panel's model-to-view matrix; the forearm is laid along
+ * the panel's +Z (the guns' long axis) with the back of the hand up.
+ */
+#define GEVR_WP_ARM_FOREARM 200.0f   /* panel units, wrist to elbow */
+#define GEVR_WP_ARM_WRIST_Z -40.0f   /* the wrist this far behind the panel's centre */
+static Gfx *gevrDrawWeaponPanelArm(Gfx *gdl, const Mtxf *base, f32 voff, f32 hoff)
+{
+    ModelRenderData renderdata = {0};
+    Mtxf ident, want, view, inv, corr;
+    Mtxf *matrices;
+    f32 frame, len, rs, s;
+    s32 n, i;
+
+    if (!gevrLeftWatchLoad())
+    {
+        return gdl;
+    }
+    n = s_gevrWatchHeader.numMatrices;
+    frame = GEVR_WATCHARM_FRAME;
+    if (s_gevrWatchModel.anim != NULL && frame > (f32)(s_gevrWatchModel.anim->unk04 - 1))
+    {
+        frame = (f32)(s_gevrWatchModel.anim->unk04 - 1);
+    }
+    modelSetAnimFrame2(&s_gevrWatchModel, frame, 0.0f);
+
+    matrix_4x4_set_identity(&ident);
+    matrices = (Mtxf *)dynAllocate(n * (s32)sizeof(Mtxf));
+    renderdata.basemtx = &ident;
+    renderdata.mtxlist = matrices;
+    bondviewSelectCuff(&s_gevrWatchModel, &s_gevrWatchHeader, 4);
+    subcalcmatrices(&renderdata, &s_gevrWatchModel);
+
+    /* the posed forearm's length, and the root's own scale */
+    len = 0.0f;
+    if (n > GEVR_WATCHARM_ELBOW)
+    {
+        f32 dx = matrices[GEVR_WATCHARM_ELBOW].m[3][0] - matrices[0].m[3][0];
+        f32 dy = matrices[GEVR_WATCHARM_ELBOW].m[3][1] - matrices[0].m[3][1];
+        f32 dz = matrices[GEVR_WATCHARM_ELBOW].m[3][2] - matrices[0].m[3][2];
+        len = sqrtf(dx * dx + dy * dy + dz * dz);
+    }
+    if (len < 1e-4f)
+    {
+        return gdl;
+    }
+    rs = sqrtf(matrices[0].m[0][0] * matrices[0].m[0][0] + matrices[0].m[0][1] * matrices[0].m[0][1] + matrices[0].m[0][2] * matrices[0].m[0][2]);
+    s = rs * GEVR_WP_ARM_FOREARM / len;
+
+    /* the wrist frame in the panel's model space: x fingers (+Z), y the back of the hand (+Y), z = x cross y (-X) */
+    matrix_4x4_set_identity(&want);
+    want.m[0][0] = 0.0f; want.m[0][1] = 0.0f; want.m[0][2] = s;
+    want.m[1][0] = 0.0f; want.m[1][1] = s;    want.m[1][2] = 0.0f;
+    want.m[2][0] = -s;   want.m[2][1] = 0.0f; want.m[2][2] = 0.0f;
+    want.m[3][0] = 0.0f; want.m[3][1] = voff; want.m[3][2] = hoff + GEVR_WP_ARM_WRIST_Z;
+    gevrMtxMul(&want, base, &view);
+    if (!gevrMtxInvAffine(&matrices[0], &inv))
+    {
+        return gdl;
+    }
+    gevrMtxMul(&inv, &view, &corr);
+    for (i = 0; i < n; i++)
+    {
+        gevrMtxMul(&matrices[i], &corr, &matrices[i]);
+    }
+    {
+        ModelRwData_SwitchRecord *face = (ModelRwData_SwitchRecord *)modelGetNodeRwData(&s_gevrWatchModel, (ModelNode *)s_gevrWatchHeader.Switches[3]);
+        if (face) face->visible = TRUE;
+    }
+
+    renderdata.flags = 3;
+    renderdata.zbufferenabled = 1;
+    renderdata.gdl = gdl;
+    renderdata.PropType = PROP_TYPE_WEAPON;
+    renderdata.envcolour.word = g_CurrentPlayer->tileColor.a
+                              | ((u32)g_CurrentPlayer->tileColor.r << 24)
+                              | ((u32)g_CurrentPlayer->tileColor.g << 16)
+                              | ((u32)g_CurrentPlayer->tileColor.b << 8);
+    renderdata.cullmode = CULLMODE_NONE;
+    matrix_4x4_7F058C64();
+    gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
+    subdraw(&renderdata, &s_gevrWatchModel);
+    gdl = renderdata.gdl;
+    gSPClearGeometryMode(gdl++, G_CULL_BOTH);
+    bondviewTransformManyPosToViewMatrix(s_gevrWatchModel.render_pos, n);
+    matrix_4x4_7F058C88();
+    return gdl;
+}
+
 /* gfx_opengl.cpp gevr_measure_R_capture: aiming moves the ammo counter */
 s32 gevrAimModeOn(void)
 {
@@ -13938,6 +14033,20 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
     matrix_4x4_set_lookat_target(&cam, cosf(s_gevrWpSpin) * depth, voff, sinf(s_gevrWpSpin) * depth + hoff,
                                  0.0f, voff, hoff, 0.0f, 1.0f, 0.0f);
     matrix_4x4_multiply_in_place(&cam, &rot);
+
+    if (item == ITEM_FIST && gevrWeaponPanelLeft)
+    {
+        /* the left hand's own arm, the watch arm it swings (gevrDrawWeaponPanelArm) */
+        gDPNoOpTag(gdl++, 0x565B0000);   /* VR_CULL_OFF_BEGIN */
+        gdl = sub_GAME_7F0A6EE8(gdl);
+        gSPSetGeometryMode(gdl++, G_ZBUFFER);
+        gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+        gdl = gevrDrawWeaponPanelArm(gdl, &rot, voff, hoff);
+        gSPClearGeometryMode(gdl++, G_ZBUFFER);
+        gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
+        gDPNoOpTag(gdl++, 0x565B0001);   /* VR_CULL_OFF_END */
+        return gdl;
+    }
 
     /* the in-hand HUD's colours (options.c draw_current_hand_item_and_ammo), not the watch's green */
     g_gevrItemModelOverride = gevrWeaponPanelModel(item);
