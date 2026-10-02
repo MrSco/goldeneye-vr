@@ -4,8 +4,9 @@
  * Issue #25: GLideN64 ("Rice") hi-res texture packs. The launcher's Mods page
  * installs a pack into files/texture-packs/<name> (ModManager.java); this
  * indexes its PNGs by the checksum in their names and decodes them on demand
- * on a thread of its own. gfx_pc.cpp computes the checksum of each texture it
- * imports and asks for the match.
+ * on a thread of its own, with a small menu/font preload during boot.
+ * gfx_pc.cpp computes the checksum of each texture it imports and asks for
+ * the match. Font warming's C interface is in gevr_texpack_preload.h.
  */
 
 #include <cstddef>
