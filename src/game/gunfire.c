@@ -2248,26 +2248,44 @@ static ModelNode *gevrNextNode(ModelNode *node)
     return node != NULL ? node->Next : NULL;
 }
 
-static s32 gevrWatchHandHideLeft(ModelNode *lists[GEVR_WATCHHAND_DLS])
+static s32 gevrWatchHandKeepPressingHand(ModelNode *lists[GEVR_WATCHHAND_DLS])
 {
     s32 i;
     ModelNode *left = NULL;
+    ModelNode *palm = NULL;
+    ModelNode *finger = NULL;
 
-    /* GwatchlaserZ's 566-vertex node (cartridge offset 0x01c8) is the LEFT
-     * hand. The 886-vertex node (0x0300), finger and all six outfit sleeves
-     * belong to the RIGHT gripping arm. Do not infer their roles from walk
-     * order. Shell additions live on their respective source nodes. */
+    /* Keep only the original pressing palm (0x0300) and animated finger
+     * (0x0330). The regular watch-arm renderer supplies the complete arm:
+     * neither the old left hand nor any of this model's six small sleeves
+     * should draw. Their shell additions hide on those same source nodes. */
     for (i = 0; i < GEVR_WATCHHAND_DLS; i++)
     {
-        if (lists[i]->Data->DisplayList.numVertices == 566)
+        switch (lists[i]->Data->DisplayList.numVertices)
         {
-            if (left != NULL) return FALSE;
-            left = lists[i];
+            case 566:
+                if (left != NULL) return FALSE;
+                left = lists[i];
+                break;
+            case 886:
+                if (palm != NULL) return FALSE;
+                palm = lists[i];
+                break;
+            case 104:
+                if (finger != NULL) return FALSE;
+                finger = lists[i];
+                break;
         }
     }
-    if (left == NULL) return FALSE;
-    left->Data->DisplayList.Primary = NULL;
-    left->Data->DisplayList.Secondary = NULL;
+    if (left == NULL || palm == NULL || finger == NULL) return FALSE;
+    for (i = 0; i < GEVR_WATCHHAND_DLS; i++)
+    {
+        if (lists[i] != palm && lists[i] != finger)
+        {
+            lists[i]->Data->DisplayList.Primary = NULL;
+            lists[i]->Data->DisplayList.Secondary = NULL;
+        }
+    }
     return TRUE;
 }
 
@@ -2340,9 +2358,9 @@ static s32 gevrWatchHandLoad(void)
         return FALSE;
     }
 
-    if (!gevrWatchHandHideLeft(lists))
+    if (!gevrWatchHandKeepPressingHand(lists))
     {
-        sysLogPrintf(LOG_ERROR, "stereo: watch hand model has no unique left-hand node");
+        sysLogPrintf(LOG_ERROR, "stereo: watch hand model has unexpected hand/finger nodes");
         return FALSE;
     }
 
@@ -2436,14 +2454,11 @@ static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
 
     gevrWatchHandAnimateFinger(&s_gevrWatchHandHeader, &base, rwmtx, g_CurrentPlayer->hands[GUNRIGHT].field_A84);
 
-    /* as gunUpdateAndFire sets up a weapon's: the hands, then the outfit's sleeve */
+    /* Only the pressing hand draws here. Outfit sleeves belong to the
+     * separately rendered regular watch arm. */
     modelInit(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, (s32 *) s_gevrWatchHandRw);
     sub_GAME_7F05E978(&s_gevrWatchHandModel, 1);
     sub_GAME_7F05EA94(&s_gevrWatchHandModel, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
-    if (s_gevrWatchHandHeader.numSwitches >= 0x1E)
-    {
-        bondviewSelectCuff(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, 0x1D);
-    }
     s_gevrWatchHandModel.render_pos = (RenderPosView *) rwmtx;
 
     renderdata = *templ;

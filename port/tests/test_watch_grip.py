@@ -55,7 +55,7 @@ production = "\n".join((
     function(gun, "static void gevrWatchHandTickHiddenFinger("),
     function(view, "static s32 gevrWatchFaceFrame("),
     function(view, "s32 gevrStereoWatchHandMatrix("),
-    function(gun, "static s32 gevrWatchHandHideLeft("),
+    function(gun, "static s32 gevrWatchHandKeepPressingHand("),
     function(gun, "static void gevrWatchHandAnimateFinger("),
     function(view, "s32 gevrStereoWatchGripUpdate("),
     function(handpatch, "s32 gevrHandPatchDropsTexture("),
@@ -313,8 +313,8 @@ int main(void)
     union ModelRoData data[GEVR_WATCHHAND_DLS];
     Gfx displayLists[2 * GEVR_WATCHHAND_DLS];
     memset(nodes, 0, sizeof(nodes)); memset(data, 0, sizeof(data));
-    /* Distinct source identities: left=566, right=886, finger=104. The six
-     * sleeves belong to the right arm too. Rotate traversal order each time. */
+    /* Keep only right palm=886 and finger=104; hide left=566 and every
+     * old sleeve, including their shell DLs, regardless of traversal order. */
     const int counts[GEVR_WATCHHAND_DLS] = {566, 24, 73, 28, 24, 52, 52, 886, 104};
     for (int order = 0; order < GEVR_WATCHHAND_DLS; order++) {
     for (int i = 0; i < GEVR_WATCHHAND_DLS; i++) {
@@ -323,9 +323,9 @@ int main(void)
         data[i].DisplayList.Primary = &displayLists[2*i];
         data[i].DisplayList.Secondary = &displayLists[2*i+1];
     }
-    assert(gevrWatchHandHideLeft(lists));
+    assert(gevrWatchHandKeepPressingHand(lists));
     for (int i = 0; i < GEVR_WATCHHAND_DLS; i++) {
-        if (data[i].DisplayList.numVertices != 566) {
+        if (data[i].DisplayList.numVertices == 886 || data[i].DisplayList.numVertices == 104) {
             assert(data[i].DisplayList.Primary == &displayLists[2*i]);
             assert(data[i].DisplayList.Secondary == &displayLists[2*i+1]);
         } else {
@@ -339,9 +339,9 @@ int main(void)
         data[i].DisplayList.numVertices = 1;
         data[i].DisplayList.Primary = &displayLists[2*i];
     }
-    assert(!gevrWatchHandHideLeft(lists));
+    assert(!gevrWatchHandKeepPressingHand(lists));
     data[0].DisplayList.numVertices = data[1].DisplayList.numVertices = 566;
-    assert(!gevrWatchHandHideLeft(lists));
+    assert(!gevrWatchHandKeepPressingHand(lists));
     for (int i = 0; i < GEVR_WATCHHAND_DLS; i++) assert(data[i].DisplayList.Primary == &displayLists[2*i]);
     g_gevrStereo = 1;
     for (int item = 0; item < 2; item++) {
@@ -372,7 +372,7 @@ int main(void)
     }
     checkWatchFaces();
     checkSnapReach();
-    puts("watch grip: wrist/finger poses, palm/sleeves, press/release, private watch-face filtering and 16/22 cm snap hysteresis passed");
+    puts("watch grip: palm/finger retained, old hand/sleeves hidden, wrist poses, animation, watch filtering and snap hysteresis passed");
     return 0;
 }
 '''
