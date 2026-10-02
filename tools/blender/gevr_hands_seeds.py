@@ -41,8 +41,12 @@ CSUIT_LIGHT = Vector((0.15, 1.0, 0.3)).normalized()
 CSUIT_SKIN = (0x702, 0x703, 0x704, 0x705)   # the back of the hand, fingers, index tip, heel and thumb
 CSUIT_PALM = 0x705    # the palm side the N64 did model (heel, thumb's root): one texture, no seam across
 CSUIT_UNDER = 0.88    # palm side, away from the N64's edges: that much of its 255
+CSUIT_FINGER = 0.8    # the ring and little fingers' palm sides (lighter, they read as a bulge)
 CSUIT_CREASE = 0.8    # inside a finger's bend
 CSUIT_NEAR = 150.0    # how far from a piece's rim the skin it takes may lie (watch arm units)
+CSUIT_FLAT = (0.15, 0.3)  # the ring and little fingers' undersides: this deep, in half-widths (the
+                          # N64's shell already wraps most of the way round; a half-round bottom on
+                          # it made them "a little chubby" next to the middle finger)
 CSUIT_BAND = (0x703, 380, 712, 370, 250)   # a fingertip's skin: the 0x703 row the PP7's fingers run in
 # The fingers the N64 cut short, curled on in towards the palm to close the
 # fist (the user's ask). A curl starts from the finger's whole end - its
@@ -54,10 +58,11 @@ CSUIT_BAND = (0x703, 380, 712, 370, 250)   # a fingertip's skin: the 0x703 row t
 # radius r there; the first knuckle (forward, down) in r from the end's
 # centre, at that many r round; each further joint (down, back) in r from
 # the one before, at that many r round (the last is the fingertip's last
-# ring); how far the tip swells past it, in its radius.
+# ring); how far the tip swells past it, in its radius. r None: the radius
+# of the finger's end itself, so the curl is exactly as thick as the finger.
 CSUIT_CURL = {
-    "ring_finger": (100.0, (0.55, 0.0, 0.95), [(1.15, 0.3, 0.85), (0.5, 1.0, 0.72)], 0.55),
-    "little_finger": (92.0, (0.55, 0.0, 0.95), [(1.1, 0.3, 0.85), (0.5, 0.95, 0.72)], 0.55),
+    "ring_finger": (None, (0.55, 0.0, 0.82), [(1.15, 0.3, 0.75), (0.5, 1.0, 0.64)], 0.55),
+    "little_finger": (None, (0.55, 0.0, 0.78), [(1.1, 0.3, 0.7), (0.5, 0.95, 0.6)], 0.55),
     "middle_finger": (95.0, (0.45, 0.8, 0.95), [(0.95, 0.4, 0.85), (0.5, 1.0, 0.72)], 0.55),
 }
 
@@ -72,7 +77,10 @@ def seed_csuit(ws, names):
         """Grow the finger on from end (the vertices round its end, in
         order) into a fingertip curled in towards the palm (CSUIT_CURL)."""
         r, (fwd, down0, rad0), bends, tip_len = CSUIT_CURL[name]
-        p = sum((v.co for v in end), Vector()) / len(end) + Vector((fwd * r, -down0 * r, 0.0))
+        c0 = sum((v.co for v in end), Vector()) / len(end)
+        if r is None:
+            r = sum((v.co - c0).length for v in end) / len(end)
+        p = c0 + Vector((fwd * r, -down0 * r, 0.0))
         joints = [(p, rad0 * r)]
         for down, back, rad in bends:
             p = p + Vector((-back * r, -down * r, 0.0))
@@ -97,7 +105,7 @@ def seed_csuit(ws, names):
                        "fingertip curled in towards the palm" % name.replace("_", " "))
         finger = skin(CSUIT_SKIN, rails[0] + rails[1] + notches + [tip])
         under = M.underside(ws, pid, rails, None, 0x703, (0, 1, 0, 1), CSUIT_LIGHT, arc=2, skin=finger,
-                            rom_shade=CSUIT_UNDER, mirror=True, up_hint=(0, 1, 0))
+                            rom_shade=CSUIT_FINGER, mirror=True, up_hint=(0, 1, 0), roundness=CSUIT_FLAT)
         for notch in notches:
             M.fill_palm(ws, pid, notch, 0x703, None, CSUIT_LIGHT, fair=0, dome=0, skin=finger, rom_shade=1.0)
         # the finger's whole end: rail A's last vertex, over the N64's top
