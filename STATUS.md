@@ -73,8 +73,10 @@ is goldeneyevr.com, in its own repository.
   fist, index creases, a palm in the heel's skin. The taser/grenade hand:
   back of the hand and forearm in the skin beside them, finger cracks zipped,
   the index knuckle's notch rounded; the grenade's see-through bottom drawn
-  solid. All headset-accepted ("looks good"). Next: the other pistol hands
-  (golden gun, Cougar, DD44, knives). Issue left open.
+  solid. All headset-accepted ("looks good"). On the branch since: the
+  golden gun, Cougar, DD44 and both knives, which are the PP7's hand moved
+  within each model, given the PP7's modelling (built, awaiting the
+  headset). Issue left open.
 - #23: multiplayer stays open/experimental. Remote hands do not animate;
   held guns are the original low-detail third-person models. Host migration
   and mixed-network/four-player cases need broader headset coverage.
