@@ -1,6 +1,7 @@
 # Issue #30: water and Dam truck reflections
 
-Working branch: `codex/issue-30-surface-probe`.
+Working branch: `codex/issue-30-surface-probe`. Water and glass fixes verified
+in the headset by the user on 2026-10-02 and approved for main.
 The supplied clips use HD textures. Glass is the Dam truck in the tunnel.
 
 ## Current evidence and validation
@@ -15,7 +16,7 @@ The supplied clips use HD textures. Glass is the Dam truck in the tunnel.
   anything.
 - Diagnostic code `263814c`: `assembleRelease` passed (2m 3s); APK signature
   verification passed with v2 signing. Headset capture is pending install
-  authorization. No rendering fix or visual acceptance is claimed.
+  authorization at that point. The baseline made no rendering changes.
 
 ## Headset capture and candidate
 
@@ -53,15 +54,25 @@ stereo adjustment, not a new physical reflection model.
 `python port/tests/test_surfaces.py` passes the production water loader's
 full-range position/UV, perspective, texture scale, color, cache bounds and
 aspect checks, plus 2,457 reflection yaw/pitch/roll poses (including vertical views). Maximum residual
-axis error is 0.009216 from the 8-bit LookAt quantization. Headset visual
-acceptance is still required.
+axis error is 0.009216 from the 8-bit LookAt quantization.
+
+Signed candidate `942e897` passed `assembleRelease` and APK v2 signature
+verification, was installed, and was captured in the headset. The final log
+identifies this exact build, visits Frigate (26) and Dam (33), and records
+float water in both stereo (127 samples) and screen mode (111 samples).
+There are no recorded crashes or unknown graphics commands, and no new GL
+errors versus the baseline (the same desktop-function lookup messages occur
+at startup in both). The user confirmed both water and glass look good and
+requested merge, commit and push to main. Capture was stopped and the probe
+marker removed; the app logged capture disabled. The intermittent colored
+lines remain unconfirmed and are not claimed fixed.
 
 The original water setup (`src/game/unk_092E50.c`, `sub_GAME_7F09343C`)
 cross-fades two offset samples with a sine-driven PRIM_LOD_FRAC. That
-animation is intentional. The port's adaptive water coordinate packing and
-its generated reflection coordinates need a live capture before a fix.
+animation is intentional. The fixes address the port's coordinate packing
+and stereo reflection-axis conversion, as established by the captures above.
 
-After the user authorizes installing the signed diagnostic APK, enable:
+For a future authorized diagnostic capture, enable:
 
 ```powershell
 adb shell "touch /sdcard/Android/data/com.gevr.port/files/gevr_surfaceprobe.txt"
@@ -104,4 +115,5 @@ Capture fields:
 All probe messages use the existing game logger. The marker controls logging
 only. With the candidate, `water path=float` records the old packing values
 for comparison; they are no longer the values used to draw water.
-The issue remains open pending headset verification.
+Water and glass are headset-verified. The separate colored-line symptom
+remains unresolved; no GitHub issue closure is implied by these notes.
