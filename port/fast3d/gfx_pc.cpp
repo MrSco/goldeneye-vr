@@ -1502,6 +1502,8 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
 }
 
 static std::vector<uint8_t> s_tpCanvas;
+static size_t s_tpSyncBytes;                        /* this frame's immediate pack uploads (gevr_texpack_import) */
+#define GEVR_TP_SYNC_BUDGET ((size_t)3 << 20)       /* past this a frame's imports defer to the next frame's start */
 
 /* Upload the pack image for a texture uploaded as uw x uh whose checksum covered
  * its top-left hw x hh (a block's padded rows): scaled to fit, edges repeated. */
@@ -1535,12 +1537,27 @@ static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const Texture
     const int id = gevr_texpack_lookup(tile, lt, &hw, &hh);
     if (id < 0 || !s_tpActive) return false;   // (looked up only for the dump: pack switched off)
     const TpJob job = { key, hw, hh, rdp.texture_tile[tile].width, rdp.texture_tile[tile].height };
-    // the native texture now; the pack's goes in at a frame's start (issue #52)
-    if (gevrtp::image(id, &iw, &ih) == nullptr) {
-        s_tpPending[id].push_back(job);   // once it's decoded
-    } else {
-        s_tpUploads.push_back({ id, job });
+    const uint8_t *img = gevrtp::image(id, &iw, &ih);
+    if (img == nullptr) {
+        // not decoded yet: the native texture now, the pack's once it is (gevr_texpack_frame)
+        s_tpPending[id].push_back(job);
+        return false;
     }
+    /*
+     * Decoded already (held up to 160 MB): straight into this texture, in
+     * place of the native upload. Deferred to the next frame's start, every
+     * texture imported again as the game streams rooms in and out of its
+     * pool showed the N64 image for a frame first, and with the HD pack the
+     * walls kept flashing low-res (user, 2026-10-02). A per-frame budget
+     * keeps a level's first frames from stalling (issue #52): past it, the
+     * rest go the deferred way as before.
+     */
+    if (s_tpSyncBytes < GEVR_TP_SYNC_BUDGET && gevr_texpack_upload(img, iw, ih, hw, hh, job.uw, job.uh)) {
+        s_tpSyncBytes += (size_t)iw * ih * 4;
+        s_gevrTcHdUploads++;
+        return true;
+    }
+    s_tpUploads.push_back({ id, job });
     return false;
 }
 
@@ -1581,6 +1598,7 @@ extern "C" void gevrTexpackStartEarly(void) {
 /* Once a frame: start the pack, and swap in images as they finish decoding. */
 static void gevr_texpack_frame(void) {
     static bool started = false;
+    s_tpSyncBytes = 0;
     if (!started) {
         started = true;
         gevrTexpackStartEarly();   // (already running, from the launcher)

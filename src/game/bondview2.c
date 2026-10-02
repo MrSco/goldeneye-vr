@@ -1596,7 +1596,7 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
  */
 /* forearm: panel units wrist to elbow; wristZ: the wrist this far behind the panel's centre
  * (gevrWeaponPanelTune: files/gevr_wpanel.txt's 5th and 6th fields while fitting it) */
-static Gfx *gevrDrawWeaponPanelArm(Gfx *gdl, const Mtxf *base, f32 voff, f32 hoff, f32 forearm, f32 wristZ)
+static Gfx *gevrDrawWeaponPanelArm(Gfx *gdl, const Mtxf *base, f32 voff, f32 hoff, f32 forearm, f32 wristZ, f32 rollDeg)
 {
     ModelRenderData renderdata = {0};
     Mtxf ident, want, view, inv, corr;
@@ -1639,12 +1639,25 @@ static Gfx *gevrDrawWeaponPanelArm(Gfx *gdl, const Mtxf *base, f32 voff, f32 hof
     rs = sqrtf(matrices[0].m[0][0] * matrices[0].m[0][0] + matrices[0].m[0][1] * matrices[0].m[0][1] + matrices[0].m[0][2] * matrices[0].m[0][2]);
     s = rs * forearm / len;
 
-    /* the wrist frame in the panel's model space: x fingers (+Z), y the back of the hand (+Y), z = x cross y (-X) */
-    matrix_4x4_set_identity(&want);
-    want.m[0][0] = 0.0f; want.m[0][1] = 0.0f; want.m[0][2] = s;
-    want.m[1][0] = 0.0f; want.m[1][1] = s;    want.m[1][2] = 0.0f;
-    want.m[2][0] = -s;   want.m[2][1] = 0.0f; want.m[2][2] = 0.0f;
-    want.m[3][0] = 0.0f; want.m[3][1] = voff; want.m[3][2] = hoff + wristZ;
+    /*
+     * The wrist frame in the panel's model space: x the fingers (+Z, the guns'
+     * long axis); y the back of the hand, the watch face, rolled about the
+     * forearm by rollDeg from straight up (0) toward the side (90: the face
+     * meets the orbiting camera instead of the panel's ceiling: user);
+     * z = x cross y.
+     */
+    {
+        f32 c = cosf(rollDeg * (M_PI_F / 180.0f));
+        f32 sn = sinf(rollDeg * (M_PI_F / 180.0f));
+        f32 yv[3] = { sn, c, 0.0f };          /* up rolled toward +X */
+        f32 zv[3] = { -c, sn, 0.0f };         /* (0,0,1) cross yv */
+
+        matrix_4x4_set_identity(&want);
+        want.m[0][0] = 0.0f;     want.m[0][1] = 0.0f;     want.m[0][2] = s;
+        want.m[1][0] = yv[0] * s; want.m[1][1] = yv[1] * s; want.m[1][2] = yv[2] * s;
+        want.m[2][0] = zv[0] * s; want.m[2][1] = zv[1] * s; want.m[2][2] = zv[2] * s;
+        want.m[3][0] = 0.0f;     want.m[3][1] = voff;     want.m[3][2] = hoff + wristZ;
+    }
     gevrMtxMul(&want, base, &view);
     if (!gevrMtxInvAffine(&matrices[0], &inv))
     {
@@ -13613,8 +13626,9 @@ s32 gevrWeaponPanelInFront;   /* vr_openxr.cpp: tuning puts the panel before the
 static f32 s_gevrWpTuneDy = 22.0f;   /* tuned in the headset: the watch frames items high */
 static f32 s_gevrWpTuneFov = 60.0f;  /* the watch's 45 filled the strip */
 static s32 s_gevrWpTuneIndex = -1;
-static f32 s_gevrWpTuneArmLen = 55.0f;   /* the left panel's watch arm: forearm, panel units (200 was huge: user) */
-static f32 s_gevrWpTuneArmZ = -12.0f;    /* ... and its wrist behind the panel's centre */
+static f32 s_gevrWpTuneArmLen = 110.0f;  /* the left panel's watch arm: forearm, panel units (200 huge, 55 tiny: user) */
+static f32 s_gevrWpTuneArmZ = -25.0f;    /* ... its wrist behind the panel's centre */
+static f32 s_gevrWpTuneArmRoll = 90.0f;  /* ... and the watch face rolled from up toward the camera */
 static void gevrWeaponPanelTune(void)
 {
     static u32 tick;
@@ -13624,15 +13638,15 @@ static void gevrWeaponPanelTune(void)
         s32 open = 0;
         s32 index = -1;
         f32 dy = s_gevrWpTuneDy, fov = s_gevrWpTuneFov;
-        f32 armLen = s_gevrWpTuneArmLen, armZ = s_gevrWpTuneArmZ;
+        f32 armLen = s_gevrWpTuneArmLen, armZ = s_gevrWpTuneArmZ, armRoll = s_gevrWpTuneArmRoll;
         if (f)
         {
-            if (fscanf(f, "%d %f %f %d %f %f", &open, &dy, &fov, &index, &armLen, &armZ) < 1) open = 0;
+            if (fscanf(f, "%d %f %f %d %f %f %f", &open, &dy, &fov, &index, &armLen, &armZ, &armRoll) < 1) open = 0;
             fclose(f);
             if (open != s_gevrWpTuneOpen || dy != s_gevrWpTuneDy || fov != s_gevrWpTuneFov
-                || armLen != s_gevrWpTuneArmLen || armZ != s_gevrWpTuneArmZ)
+                || armLen != s_gevrWpTuneArmLen || armZ != s_gevrWpTuneArmZ || armRoll != s_gevrWpTuneArmRoll)
             {
-                sysLogPrintf(LOG_NOTE, "wpanel: open %d dy %.1f fov %.1f arm %.1f at %.1f", open, dy, fov, armLen, armZ);
+                sysLogPrintf(LOG_NOTE, "wpanel: open %d dy %.1f fov %.1f arm %.1f at %.1f roll %.0f", open, dy, fov, armLen, armZ, armRoll);
             }
         }
         s_gevrWpTuneOpen = open;
@@ -13640,8 +13654,9 @@ static void gevrWeaponPanelTune(void)
         s_gevrWpTuneDy = dy;
         s_gevrWpTuneFov = fov > 5.0f ? fov : 60.0f;
         s_gevrWpTuneIndex = index;
-        s_gevrWpTuneArmLen = armLen > 1.0f ? armLen : 55.0f;
+        s_gevrWpTuneArmLen = armLen > 1.0f ? armLen : 110.0f;
         s_gevrWpTuneArmZ = armZ;
+        s_gevrWpTuneArmRoll = armRoll;
     }
 }
 static f32 s_gevrWpSpin;
@@ -14047,7 +14062,7 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
         gdl = sub_GAME_7F0A6EE8(gdl);
         gSPSetGeometryMode(gdl++, G_ZBUFFER);
         gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
-        gdl = gevrDrawWeaponPanelArm(gdl, &rot, voff, hoff, s_gevrWpTuneArmLen, s_gevrWpTuneArmZ);
+        gdl = gevrDrawWeaponPanelArm(gdl, &rot, voff, hoff, s_gevrWpTuneArmLen, s_gevrWpTuneArmZ, s_gevrWpTuneArmRoll);
         gSPClearGeometryMode(gdl++, G_ZBUFFER);
         gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
         gDPNoOpTag(gdl++, 0x565B0001);   /* VR_CULL_OFF_END */
