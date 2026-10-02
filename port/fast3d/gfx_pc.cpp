@@ -81,7 +81,16 @@ uintptr_t gfxFramebuffer;
 #define MAX_VERTICES 128
 #define MAX_VERTEX_COLORS 64
 
-#define TEXTURE_CACHE_MAX_SIZE 1024
+/*
+ * GoldenEye: 1024 was full on a multiplayer stage (texcache log, 2026-10-02:
+ * 1024 entries, every load an eviction, 30 to 60 a second). An evicted
+ * texture drawn again shows the game's own image until the pack's goes in
+ * at a later frame's start (gevr_texpack_frame), so with the HD pack the
+ * walls kept flashing to the low-res originals (user). 4096 holds a
+ * stage's working set; the GL textures are the cost (a 4x pack texture is
+ * 64 KB to 1 MB each).
+ */
+#define TEXTURE_CACHE_MAX_SIZE 4096
 
 #define C0(pos, width) ((cmd->words.w0 >> (pos)) & ((1U << width) - 1))
 #define C1(pos, width) ((cmd->words.w1 >> (pos)) & ((1U << width) - 1))
