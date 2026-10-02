@@ -85,7 +85,6 @@ extern float VrGunOffX;         // grip fit trim in the controller frame, game u
 extern float VrGunOffY;
 extern float VrGunOffZ;
 extern float VrGripTrim[2][6];  // two-handed hold's hand trim: [handgun, long gun][dx dy dz rx ry rz]
-extern float VrWatchGripTrim[6]; // the hand holding the watch for the laser (#60): along, out, thumb cm; rx ry rz
 extern float VrArmElbowTuck;    // 0..1, how tightly the elbow is pinned toward the body
 extern float VrArmBodyFollow;   // how fast the smoothed torso yaw chases the head (spin comfort)
 extern int   VrFistClench;      // close the off-hand while the left grip is squeezed

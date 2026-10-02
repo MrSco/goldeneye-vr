@@ -59,8 +59,6 @@ extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* vr_settings_defaults.c: the g
 extern s32 gevrGunFitAvailable(void);     /* bondview2.c: a gun in hand, in a level, in stereo */
 int gevrGunFitActive;                     /* bondview2.c draws the readout while it is set */
 extern float VrGripTrim[2][6];            /* vr_settings_defaults.c: the two-handed hold's hand (#35) */
-extern float VrWatchGripTrim[6];          /* vr_settings_defaults.c: the hand holding the watch (#60) */
-extern s32 gevrStereoWatchFitting(void);  /* bondview2.c: a watch item out, the hand at the watch */
 extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
@@ -1059,14 +1057,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static bool fitWas = false, aHeld = true, bHeld = true;
             static float savedX, savedY, savedZ;
             static float savedGrip[2][6];
-            static float savedWatch[6];
             static u32 fitLast;
             const u32 now = SDL_GetTicks();
             fitting = VrGunFitArmed && !menu && g_gevrStereo && gevrGunFitAvailable();
             if (fitting && !fitWas) {
                 savedX = VrGunOffX; savedY = VrGunOffY; savedZ = VrGunOffZ;
                 memcpy(savedGrip, VrGripTrim, sizeof(savedGrip));
-                memcpy(savedWatch, VrWatchGripTrim, sizeof(savedWatch));
                 aHeld = bHeld = true;   /* a button already down does not answer */
                 fitLast = now;
                 LOGI("input: gun fit on (%.1f %.1f %.1f)\n", VrGunOffX, VrGunOffY, VrGunOffZ);
@@ -1080,16 +1076,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 float my = fabsf(left.y) < dz ? 0.0f : left.y;
                 float ry = fabsf(right.y) < dz ? 0.0f : right.y;
                 float rx = fabsf(right.x) < dz ? 0.0f : right.x;
-                if (gevrStereoWatchFitting()) {
-                    /* Holding the watch for the laser (#60): that hand on the wrist - [0]
-                     * along the arm, [2] across it (the thumb's way), [1] out of the face,
-                     * [3] its tilt, or with the right grip held [5] its roll. */
-                    float *t = VrWatchGripTrim;
-                    t[0] += my * rate * dt;
-                    t[2] += mx * rate * dt;
-                    t[1] += ry * rate * dt;
-                    t[get_button_state(1, "grip") ? 5 : 3] += rx * 45.0f * dt;
-                } else if (gevrStereoTwoHandGrip()) {
+                if (gevrStereoTwoHandGrip()) {
                     /* Holding with both hands (#35, user): the holding hand instead, for
                      * this class of gun - [0] out to the off hand's side (so the move
                      * stick's right is inward), [1] up, [2] forward, [3] its tilt, about
@@ -1114,7 +1101,6 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 } else if (b && !bHeld) {
                     VrGunOffX = savedX; VrGunOffY = savedY; VrGunOffZ = savedZ;
                     memcpy(VrGripTrim, savedGrip, sizeof(savedGrip));
-                    memcpy(VrWatchGripTrim, savedWatch, sizeof(savedWatch));
                     VrGunFitArmed = 0;
                     LOGI("input: gun fit undone\n");
                 }
