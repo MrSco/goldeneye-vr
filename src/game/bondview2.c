@@ -13788,6 +13788,10 @@ static s32 gevrHandItemAllowed(s32 hand, s32 item)
 {
     s32 other = gevrHandSelected(1 - hand);
     if (hand == GUNRIGHT && item == ITEM_UNARMED) return FALSE;
+    /* the left hand's empty state is ITEM_UNARMED ("Holstered"); the inventory's "Unarmed"
+     * (ITEM_FIST) is the same thing to it (gevrChopHit: both bare; the cycle picks
+     * ITEM_UNARMED for the left), so the panel listed the arm twice (user, 2026-10-02) */
+    if (hand == GUNLEFT && item == ITEM_FIST) return FALSE;
     if (hand == GUNLEFT && item != ITEM_UNARMED && !gevrLeftGunOk(item)) return FALSE;
     /* Shared throwable ammo already limits consumption. Firearms need two copies. */
     if (item == other && gevrWeaponUsesCopies(item)
