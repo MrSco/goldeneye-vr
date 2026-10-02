@@ -60,7 +60,11 @@ int VrPlayMode = 1;
 
 /* GoldenEye: comfort vignette while moving in stereo, 0 = off .. 1. */
 float VrComfortVignette = 0.0f;
-int VrRefreshRate = 90;    /* Hz (launcher: 72, 90, 120), 0 = the runtime's default (vr_openxr.cpp vr_request_refresh_rate) */
+#ifdef ANDROID
+int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
+#else
+int VrRefreshRate = 90;    /* Preserve the desktop default. Saved DisplayHz wins on either platform. */
+#endif
 
 /* --- Physical setup ------------------------------------------------------ */
 

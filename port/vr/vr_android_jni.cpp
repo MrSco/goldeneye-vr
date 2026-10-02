@@ -27,7 +27,7 @@ JavaVM* g_vm = nullptr;
 static bool g_loaderInitialized = false;
 
 // Declared elsewhere (called from your GL thread via vr_initialize())
-extern "C" void openxr_initialize_vr(JavaVM* vm, jobject activity, ANativeWindow* window);
+extern "C" bool openxr_initialize_vr(JavaVM* vm, jobject activity, ANativeWindow* window);
 
 static void setVrJavaContextInternal(JNIEnv* env, jobject activity, jobject surface) {
     LOGI("nativeSetVrJavaContext called (activity=%p, surface=%p)", activity, surface);

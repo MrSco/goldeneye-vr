@@ -325,8 +325,13 @@ s32 videoInitDisplayModes(void)
 
     // Custom modes scaled from the internal render resolution
     for (s32 i = 0; i < (s32)(sizeof(customScales) / sizeof(customScales[0])); ++i) {
+#ifdef ANDROID
+        if (!vr_get_render_dimensions_for_scale(customScales[i], &modeList[numModes].width,
+                                               &modeList[numModes].height)) continue;
+#else
         modeList[numModes].width  = (s32)(VrRecommendedW * customScales[i]) & ~1;
         modeList[numModes].height = (s32)(VrRecommendedH * customScales[i]) & ~1;
+#endif
         scaleList[numModes] = customScales[i];
         ++numModes;
     }

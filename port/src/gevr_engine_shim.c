@@ -412,12 +412,13 @@ static void gevrVrFrameBegin(void)
 			return;
 		}
 #endif
+		/* Load once, before the first session can request a refresh rate. */
+		vrSettingsLoad();
 		vr_initialize();
 		if (!vr_is_initialized()) {
 			return;
 		}
 		vr_poll_events();
-		vrSettingsLoad();
 		gevrVrInitDone = 1;
 		sysLogPrintf(LOG_NOTE, "vr: session driven from the frame pump");
 	}

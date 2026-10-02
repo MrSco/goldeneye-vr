@@ -68,6 +68,9 @@
 #include "vr_log.h"
 #include "vr_hub.h"
 #include "vr_screen.h"
+#include "gevr_render_size.h"
+
+extern "C" void sysFatalError(const char *fmt, ...) __attribute__((noreturn));
 
 extern "C" struct GfxRenderingAPI* gfx_get_current_rendering_api(void);
 
@@ -147,27 +150,23 @@ int VrSmallH = 0;
 int32_t g_internalRenderWidth  = 0;
 int32_t g_internalRenderHeight = 0;
 float RENDER_SCALE = 1.0f;
+static uint32_t g_systemMaxRenderWidth = 0, g_systemMaxRenderHeight = 0;
+static uint32_t g_maxRenderWidth = 0, g_maxRenderHeight = 0;
 extern "C" int vr_get_internal_render_width()  { return g_internalRenderWidth; }
 extern "C" int vr_get_internal_render_height() { return g_internalRenderHeight; }
 extern "C" s32 videoInitDisplayModes(void);
 
 #ifdef ANDROID
 extern "C"
-JNIEXPORT jfloat JNICALL
-Java_org_libsdl_app_SDLSurface_get_1RENDER_1SCALE(JNIEnv* env, jobject thiz) {
-    return RENDER_SCALE;
-}
-
-extern "C"
 JNIEXPORT jint JNICALL
 Java_org_libsdl_app_SDLSurface_get_1targetW(JNIEnv* env, jobject thiz) {
-    return VrRecommendedW;
+    return g_internalRenderWidth;
 }
 
 extern "C"
 JNIEXPORT jint JNICALL
 Java_org_libsdl_app_SDLSurface_get_1targetH(JNIEnv* env, jobject thiz) {
-    return VrRecommendedH;
+    return g_internalRenderHeight;
 }
 #endif
 
@@ -380,9 +379,12 @@ bool is_meta_runtime = false;
 // GoldenEye: the curved virtual screen is a cylinder layer (VrScreenCurved).
 static bool g_cylinderSupported = false;
 static bool g_refreshRateSupported = false;
+static std::vector<float> g_supportedRefreshRates;
+static bool g_refreshRatesEnumerated = false;
+static float g_sessionRefreshPreference = 0.0f;
 /*
  * Display refresh rate (VrRefreshRate, goldeneye-vr.ini; 0 = the runtime's).
- * The game runs at 60 Hz. At the default 72 Hz every sixth displayed frame
+ * The game runs at 60 Hz. At 72 Hz every sixth displayed frame
  * repeats a game frame; head turns are reprojected, but anything moving on
  * its own - the hands and guns above all - judders at that 12 Hz beat. At
  * 120 Hz each game frame is shown exactly twice.
@@ -391,33 +393,89 @@ extern int VrRefreshRate;
 static void vr_request_refresh_rate(void);
 /* the launcher's Start (vr_launcher.cpp): the session began before it was shown */
 extern "C" void vr_apply_refresh_rate(void) { vr_request_refresh_rate(); }
-static void vr_request_refresh_rate(void)
+static bool vr_cache_refresh_rates(void)
 {
-    if (!g_refreshRateSupported || VrRefreshRate <= 0) {
-        return;
-    }
-    PFN_xrEnumerateDisplayRefreshRatesFB enumRates = nullptr;
-    PFN_xrRequestDisplayRefreshRateFB request = nullptr;
-    xrGetInstanceProcAddr(g_vrState.instance, "xrEnumerateDisplayRefreshRatesFB", (PFN_xrVoidFunction *)&enumRates);
-    xrGetInstanceProcAddr(g_vrState.instance, "xrRequestDisplayRefreshRateFB", (PFN_xrVoidFunction *)&request);
-    if (!enumRates || !request) {
-        return;
+    if (g_refreshRatesEnumerated) return true;
+    if (!g_refreshRateSupported || g_vrState.session == XR_NULL_HANDLE) return false;
+    PFN_xrVoidFunction proc = nullptr;
+    XrResult result = xrGetInstanceProcAddr(g_vrState.instance, "xrEnumerateDisplayRefreshRatesFB",
+                                          &proc);
+    const auto enumRates = reinterpret_cast<PFN_xrEnumerateDisplayRefreshRatesFB>(proc);
+    if (XR_FAILED(result) || !enumRates) {
+        LOGE("display: refresh-rate enumeration unavailable (%d)", (int)result);
+        return false;
     }
     uint32_t n = 0;
-    enumRates(g_vrState.session, 0, &n, nullptr);
+    result = enumRates(g_vrState.session, 0, &n, nullptr);
+    if (XR_FAILED(result)) {
+        LOGE("display: enumerating refresh-rate count failed (%d)", (int)result);
+        return false;
+    }
     std::vector<float> rates(n);
-    enumRates(g_vrState.session, n, &n, rates.data());
-    bool have = false;
-    for (float r : rates) {
-        LOGI("display: %.0f Hz available", r);
-        if (fabsf(r - (float)VrRefreshRate) < 0.5f) have = true;
+    result = enumRates(g_vrState.session, n, &n, rates.data());
+    if (XR_FAILED(result) || n > rates.size()) {
+        LOGE("display: enumerating refresh rates failed (%d)", (int)result);
+        return false;
     }
-    if (have) {
-        XrResult res = request(g_vrState.session, (float)VrRefreshRate);
-        LOGI("display: requested %d Hz (%d)", VrRefreshRate, (int)res);
-    } else {
-        LOGI("display: %d Hz not offered, keeping the default", VrRefreshRate);
+    rates.resize(n);
+    g_supportedRefreshRates.clear();
+    for (float rate : rates) {
+        if (std::isfinite(rate) && rate > 0.0f && rate < float(INT32_MAX)) {
+            g_supportedRefreshRates.push_back(rate);
+            LOGI("display: %.2f Hz available", rate);
+        }
     }
+    std::sort(g_supportedRefreshRates.begin(), g_supportedRefreshRates.end());
+    g_refreshRatesEnumerated = true;
+    return true;
+}
+
+extern "C" int vr_get_supported_refresh_rates(int *rates, int capacity)
+{
+    int count = 0, previous = -1;
+    for (float rate : g_supportedRefreshRates) {
+        const int hz = (int)std::lround(rate);
+        if (hz == previous) continue;
+        previous = hz;
+        if (rates && count < capacity) rates[count] = hz;
+        ++count;
+    }
+    return count;
+}
+
+static void vr_request_refresh_rate(void)
+{
+    if (!g_refreshRateSupported || !g_vrState.sessionRunning) return;
+    // Enumerate even in Auto so the launcher can offer the session's real rates.
+    const bool haveRates = vr_cache_refresh_rates();
+    float desired = 0.0f;
+    if (VrRefreshRate > 0) {
+        if (!haveRates) return;
+        const auto rate = std::find_if(g_supportedRefreshRates.begin(), g_supportedRefreshRates.end(),
+                                      [](float hz) { return std::fabs(hz - float(VrRefreshRate)) < 0.5f; });
+        if (rate == g_supportedRefreshRates.end()) {
+            LOGI("display: %d Hz not offered, leaving runtime rate unchanged", VrRefreshRate);
+            return;
+        }
+        desired = *rate;
+    } else if (g_sessionRefreshPreference == 0.0f) {
+        return; // A fresh Auto session must not override an external profile.
+    }
+    PFN_xrVoidFunction proc = nullptr;
+    XrResult result = xrGetInstanceProcAddr(g_vrState.instance, "xrRequestDisplayRefreshRateFB",
+                                          &proc);
+    const auto request = reinterpret_cast<PFN_xrRequestDisplayRefreshRateFB>(proc);
+    if (XR_FAILED(result) || !request) {
+        LOGE("display: refresh-rate request unavailable (%d)", (int)result);
+        return;
+    }
+    result = request(g_vrState.session, desired);
+    if (XR_FAILED(result)) {
+        LOGE("display: requesting %.2f Hz failed (%d)", desired, (int)result);
+        return;
+    }
+    g_sessionRefreshPreference = desired;
+    LOGI("display: requested %.2f Hz%s", desired, desired == 0.0f ? " (Auto, no app preference)" : "");
 }
 
 // XR_SESSION_STATE_FOCUSED: the game has the controllers (not the system menu).
@@ -473,16 +531,28 @@ static void vr_detect_runtime() {
 static std::vector<const char*> vr_enumerate_extensions()
 {
     LOGI("Querying available OpenXR extensions");
+    g_refreshRateSupported = false;
+    g_cylinderSupported = false;
+    g_colorSpaceExtSupported = false;
 
     uint32_t extensionCount = 0;
-    xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr);
+    XrResult result = xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr);
+    if (XR_FAILED(result)) {
+        LOGE("xrEnumerateInstanceExtensionProperties(count) failed: %d", (int)result);
+        return {};
+    }
 
     std::vector<XrExtensionProperties> extensionProperties(
             extensionCount, { XR_TYPE_EXTENSION_PROPERTIES }
     );
-    xrEnumerateInstanceExtensionProperties(
+    result = xrEnumerateInstanceExtensionProperties(
             nullptr, extensionCount, &extensionCount, extensionProperties.data()
     );
+    if (XR_FAILED(result) || extensionCount > extensionProperties.size()) {
+        LOGE("xrEnumerateInstanceExtensionProperties(data) failed: %d", (int)result);
+        return {};
+    }
+    extensionProperties.resize(extensionCount);
 
     LOGI("Found %u OpenXR extensions", extensionCount);
 
@@ -613,6 +683,8 @@ static bool vr_get_system()
     XrSystemProperties sysProps{XR_TYPE_SYSTEM_PROPERTIES};
     XrResult propResult = xrGetSystemProperties(g_vrState.instance, g_vrState.systemId, &sysProps);
     if (XR_SUCCEEDED(propResult)) {
+        g_systemMaxRenderWidth = sysProps.graphicsProperties.maxSwapchainImageWidth;
+        g_systemMaxRenderHeight = sysProps.graphicsProperties.maxSwapchainImageHeight;
         LOGI("HMD model: %s (vendorId=%u)", sysProps.systemName, sysProps.vendorId);
         LOGI("Max swapchain: %u x %u, max layers: %u",
              sysProps.graphicsProperties.maxSwapchainImageWidth,
@@ -620,6 +692,9 @@ static bool vr_get_system()
              sysProps.graphicsProperties.maxLayerCount);
     } else {
         LOGE("xrGetSystemProperties failed: %d", (int)propResult);
+#ifdef ANDROID
+        return false; // Never guess swapchain limits for external profiles.
+#endif
     }
 
     return true;
@@ -652,6 +727,19 @@ extern struct vimode g_ViModes[6];
 extern OSViMode g_ViModes[2];
 #endif
 
+extern "C" bool vr_get_render_dimensions_for_scale(float scale, int32_t *width, int32_t *height) {
+    if (!width || !height) return false;
+#ifdef ANDROID
+    const GevrRenderSize size = gevrQuestRenderSize(VrRecommendedW, VrRecommendedH, scale,
+                                                  g_maxRenderWidth, g_maxRenderHeight);
+    *width = size.width;
+    *height = size.height;
+    return size.width >= 2 && size.height >= 2;
+#else
+    return false; // Desktop display modes retain their existing calculation.
+#endif
+}
+
 extern "C" bool vr_configure_resolution() {
     uint32_t viewCount = 0;
     XrResult r = xrEnumerateViewConfigurationViews(
@@ -660,7 +748,7 @@ extern "C" bool vr_configure_resolution() {
             XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
             0, &viewCount, nullptr);
 
-    if (XR_FAILED(r) || viewCount == 0) {
+    if (XR_FAILED(r) || viewCount != 2) {
         LOGE("xrEnumerateViewConfigurationViews (count) failed: %d", (int)r);
         return false;
     }
@@ -674,47 +762,72 @@ extern "C" bool vr_configure_resolution() {
             XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO,
             viewCount, &viewCount, views.data());
 
-    if (XR_FAILED(r)) {
+    if (XR_FAILED(r) || viewCount != 2) {
         LOGE("xrEnumerateViewConfigurationViews (data) failed: %d", (int)r);
         return false;
     }
 
-// Both eyes normally have the same recommended resolution
-    int VrRealRecommendedW = views[0].recommendedImageRectWidth;
-    int VrRealRecommendedH = views[0].recommendedImageRectHeight;
-    LOGI("HMD recommended resolution: %u x %u", VrRealRecommendedW, VrRealRecommendedH);
-
-    // --- Calculate the actual HMD aspect ratio ---
-    double aspectRatio = (double)VrRealRecommendedW / (double)VrRealRecommendedH;
-    XrAspect = (float)aspectRatio;
-    LOGI("HMD aspect ratio: %.4f", XrAspect);
-
-    // --- Fixed width enforced, height derived from aspect ratio ---
-    constexpr uint32_t VR_FIXED_WIDTH = 1832;
-
-    VrRecommendedW = VR_FIXED_WIDTH & ~1u; // ensures an even width too, for consistency
-    uint32_t derivedH = (uint32_t)std::lround((double)VrRecommendedW / XrAspect);
-    VrRecommendedH = (derivedH + 1u) & ~1u; // rounds up to the nearest even number, instead of truncating down
-
-    // Get correct aspect ratio and size for HUD VR
-    // Add horizontal overscan (~35%) to compensate for the Quest 3's strong "cantingOffset".
-    // This allows the 2D HUD to physically extend beyond the screen and cover the
-    // empty areas on the sides when shifted by parallax.
-    float overscan = 1.0f;
-    VrSmallW = (VrRecommendedW / 4.5f) * overscan;
-    VrSmallH = VrRecommendedH / 4.5f;
-
-    LOGI("VR small resolution (fixed W, derived H): %u x %u", VrSmallW, VrSmallH);
-
-
-    // Set correct aspect ratio and size for VR
+    LOGI("HMD recommended resolution: %u x %u", views[0].recommendedImageRectWidth,
+         views[0].recommendedImageRectHeight);
+#ifdef ANDROID
+    GLint textureLimit = 0, renderbufferLimit = 0, viewportLimits[2] = {};
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &textureLimit);
+    glGetIntegerv(GL_MAX_RENDERBUFFER_SIZE, &renderbufferLimit);
+    glGetIntegerv(GL_MAX_VIEWPORT_DIMS, viewportLimits);
+    if (textureLimit < 2 || renderbufferLimit < 2 || viewportLimits[0] < 2 || viewportLimits[1] < 2 ||
+        g_systemMaxRenderWidth < 2 || g_systemMaxRenderHeight < 2) {
+        LOGE("Invalid runtime/GL render limits");
+        return false;
+    }
+    g_maxRenderWidth = std::min({g_systemMaxRenderWidth, uint32_t(textureLimit),
+                               uint32_t(renderbufferLimit), uint32_t(viewportLimits[0])});
+    g_maxRenderHeight = std::min({g_systemMaxRenderHeight, uint32_t(textureLimit),
+                                uint32_t(renderbufferLimit), uint32_t(viewportLimits[1])});
+    uint32_t recommendedWidth = 0, recommendedHeight = 0;
+    for (uint32_t eye = 0; eye < viewCount; ++eye) {
+        const auto &view = views[eye];
+        LOGI("HMD eye %u recommendation: %u x %u, maximum: %u x %u", eye,
+             view.recommendedImageRectWidth, view.recommendedImageRectHeight,
+             view.maxImageRectWidth, view.maxImageRectHeight);
+        g_maxRenderWidth = std::min(g_maxRenderWidth, view.maxImageRectWidth);
+        g_maxRenderHeight = std::min(g_maxRenderHeight, view.maxImageRectHeight);
+        const bool valid = view.recommendedImageRectWidth >= 2 && view.recommendedImageRectHeight >= 2;
+        recommendedWidth = std::max(recommendedWidth, valid ? view.recommendedImageRectWidth : 1832u);
+        recommendedHeight = std::max(recommendedHeight, valid ? view.recommendedImageRectHeight : 1920u);
+        if (!valid) LOGE("HMD eye %u invalid recommendation; using 1832 x 1920 fallback", eye);
+    }
+    const GevrRenderSize size = gevrQuestRenderSize(recommendedWidth, recommendedHeight, RENDER_SCALE,
+                                                  g_maxRenderWidth, g_maxRenderHeight);
+    if (size.width < 2 || size.height < 2) {
+        LOGE("Invalid view render limits: %u x %u", g_maxRenderWidth, g_maxRenderHeight);
+        return false;
+    }
+    LOGI("HMD render limits: %u x %u", g_maxRenderWidth, g_maxRenderHeight);
+    if (size.limited)
+        LOGI("HMD render scale limited: requested %.4f, effective %.4f (saved preference retained)",
+             RENDER_SCALE, size.effectiveScale);
+#else
+    const GevrRenderSize size = gevrLegacyRenderSize(views[0].recommendedImageRectWidth,
+                                                   views[0].recommendedImageRectHeight, RENDER_SCALE);
+#endif
+    VrRecommendedW = size.baseWidth;
+    VrRecommendedH = size.baseHeight;
+    g_internalRenderWidth = size.width;
+    g_internalRenderHeight = size.height;
+#ifdef ANDROID
+    XrAspect = float(VrRecommendedW) / float(VrRecommendedH);
+#else
+    XrAspect = views[0].recommendedImageRectWidth >= 2 && views[0].recommendedImageRectHeight >= 2
+                   ? float(double(views[0].recommendedImageRectWidth) / views[0].recommendedImageRectHeight)
+                   : 1832.0f / 1920.0f;
+#endif
+    // Initial aspect only: located optical FOV replaces it during frame updates.
+    VrSmallW = int(VrRecommendedW / 4.5f);
+    VrSmallH = int(VrRecommendedH / 4.5f);
     g_ViModes[0].comRegs.width = (u32)VrSmallW;
     g_ViModes[1].comRegs.width = (u32)VrSmallW;
-
-    // --- Internal render resolution: keep the same aspect ratio, fixed width ---
-    g_internalRenderWidth = (uint32_t)(VR_FIXED_WIDTH * RENDER_SCALE);
-    g_internalRenderHeight = (uint32_t)std::lround(g_internalRenderWidth / XrAspect);
-    LOGI("HMD g_internalRenderWidth/Height resolution: %u x %u", g_internalRenderWidth, g_internalRenderHeight);
+    LOGI("HMD g_internalRenderWidth/Height resolution: %d x %d (requested scale %.4f, effective %.4f)",
+         g_internalRenderWidth, g_internalRenderHeight, RENDER_SCALE, size.effectiveScale);
 
     // Set real VR resolution in Display list
     videoInitDisplayModes();
@@ -1124,6 +1237,41 @@ static bool vr_create_swapchains()
 // ============================================================================
 // SWAPCHAINS - MENU Texture Creation
 // ============================================================================
+static void vr_destroy_menu_swapchains()
+{
+    XrSwapchain *handles[] = {&g_menuSwapchain, &g_menuSwapchainR, &g_menuSwapchainH, &g_menuSwapchainP};
+    for (auto handle : handles) {
+        if (*handle != XR_NULL_HANDLE) xrDestroySwapchain(*handle);
+        *handle = XR_NULL_HANDLE;
+    }
+    g_menuSwapchainImages.clear();
+    g_menuSwapchainImagesR.clear();
+    g_menuSwapchainImagesH.clear();
+    g_menuSwapchainImagesP.clear();
+    g_menuSwapchainWidth = g_menuSwapchainHeight = 0;
+}
+
+template <class Images>
+static bool vr_load_swapchain_images(XrSwapchain swapchain, Images &images)
+{
+    uint32_t count = 0;
+    XrResult result = xrEnumerateSwapchainImages(swapchain, 0, &count, nullptr);
+    if (XR_FAILED(result) || count == 0) return false;
+#ifdef ANDROID
+    images.resize(count, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
+#else
+    images.resize(count, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
+#endif
+    result = xrEnumerateSwapchainImages(swapchain, count, &count,
+                                       reinterpret_cast<XrSwapchainImageBaseHeader*>(images.data()));
+    if (XR_FAILED(result) || count == 0 || count > images.size()) {
+        images.clear();
+        return false;
+    }
+    images.resize(count);
+    return true;
+}
+
 static bool vr_create_menu_swapchain()
 {
     g_menuSwapchainWidth  = (uint32_t)g_internalRenderWidth;
@@ -1150,60 +1298,28 @@ static bool vr_create_menu_swapchain()
         LOGE("xrCreateSwapchain (menu L) failed (format=0x%llx)", (unsigned long long)chosenFormat);
         return false;
     }
-    uint32_t imageCount = 0;
-    xrEnumerateSwapchainImages(g_menuSwapchain, 0, &imageCount, nullptr);
-#ifdef ANDROID
-    g_menuSwapchainImages.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
-#else
-    g_menuSwapchainImages.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
-#endif
-    xrEnumerateSwapchainImages(g_menuSwapchain, imageCount, &imageCount,
-                               reinterpret_cast<XrSwapchainImageBaseHeader*>(g_menuSwapchainImages.data()));
+    if (!vr_load_swapchain_images(g_menuSwapchain, g_menuSwapchainImages)) return false;
 
     // Swapchain Right
     if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &swapchainInfo, &g_menuSwapchainR))) {
         LOGE("xrCreateSwapchain (menu R) failed (format=0x%llx)", (unsigned long long)chosenFormat);
         return false;
     }
-    imageCount = 0;
-    xrEnumerateSwapchainImages(g_menuSwapchainR, 0, &imageCount, nullptr);
-#ifdef ANDROID
-    g_menuSwapchainImagesR.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
-#else
-    g_menuSwapchainImagesR.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
-#endif
-    xrEnumerateSwapchainImages(g_menuSwapchainR, imageCount, &imageCount,
-                               reinterpret_cast<XrSwapchainImageBaseHeader*>(g_menuSwapchainImagesR.data()));
+    if (!vr_load_swapchain_images(g_menuSwapchainR, g_menuSwapchainImagesR)) return false;
 
     // Swapchain head-locked
     if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &swapchainInfo, &g_menuSwapchainH))) {
         LOGE("xrCreateSwapchain (menu H) failed (format=0x%llx)", (unsigned long long)chosenFormat);
         return false;
     }
-    imageCount = 0;
-    xrEnumerateSwapchainImages(g_menuSwapchainH, 0, &imageCount, nullptr);
-#ifdef ANDROID
-    g_menuSwapchainImagesH.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
-#else
-    g_menuSwapchainImagesH.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
-#endif
-    xrEnumerateSwapchainImages(g_menuSwapchainH, imageCount, &imageCount,
-                               reinterpret_cast<XrSwapchainImageBaseHeader*>(g_menuSwapchainImagesH.data()));
+    if (!vr_load_swapchain_images(g_menuSwapchainH, g_menuSwapchainImagesH)) return false;
 
     // Swapchain for the weapon panel (issue #10)
     if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &swapchainInfo, &g_menuSwapchainP))) {
         LOGE("xrCreateSwapchain (menu P) failed (format=0x%llx)", (unsigned long long)chosenFormat);
         return false;
     }
-    imageCount = 0;
-    xrEnumerateSwapchainImages(g_menuSwapchainP, 0, &imageCount, nullptr);
-#ifdef ANDROID
-    g_menuSwapchainImagesP.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
-#else
-    g_menuSwapchainImagesP.resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
-#endif
-    xrEnumerateSwapchainImages(g_menuSwapchainP, imageCount, &imageCount,
-                               reinterpret_cast<XrSwapchainImageBaseHeader*>(g_menuSwapchainImagesP.data()));
+    if (!vr_load_swapchain_images(g_menuSwapchainP, g_menuSwapchainImagesP)) return false;
 
     LOGI("Menu swapchains created L/R/H/P: %u x %u (format=0x%llx)",
          g_menuSwapchainWidth, g_menuSwapchainHeight, (unsigned long long)chosenFormat);
@@ -1217,15 +1333,10 @@ static bool vr_create_menu_swapchain()
             LOGE("xrCreateSwapchain (scope, hand %d) failed (format=0x%llx)", hand, (unsigned long long)chosenFormat);
             g_scopeSwapchain[hand] = XR_NULL_HANDLE;
         } else {
-            imageCount = 0;
-            xrEnumerateSwapchainImages(g_scopeSwapchain[hand], 0, &imageCount, nullptr);
-#ifdef ANDROID
-            g_scopeSwapchainImages[hand].resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_ES_KHR});
-#else
-            g_scopeSwapchainImages[hand].resize(imageCount, {XR_TYPE_SWAPCHAIN_IMAGE_OPENGL_KHR});
-#endif
-            xrEnumerateSwapchainImages(g_scopeSwapchain[hand], imageCount, &imageCount,
-                                       reinterpret_cast<XrSwapchainImageBaseHeader*>(g_scopeSwapchainImages[hand].data()));
+            if (!vr_load_swapchain_images(g_scopeSwapchain[hand], g_scopeSwapchainImages[hand])) {
+                xrDestroySwapchain(g_scopeSwapchain[hand]);
+                g_scopeSwapchain[hand] = XR_NULL_HANDLE;
+            }
         }
     }
     return true;
@@ -2392,9 +2503,17 @@ static void vr_stats_xr_frame(void)
     }
     float hz = 0.0f;
     if (g_refreshRateSupported) {
-        PFN_xrGetDisplayRefreshRateFB get = nullptr;
-        xrGetInstanceProcAddr(g_vrState.instance, "xrGetDisplayRefreshRateFB", (PFN_xrVoidFunction *)&get);
-        if (get) get(g_vrState.session, &hz);
+        PFN_xrVoidFunction proc = nullptr;
+        const XrResult lookup = xrGetInstanceProcAddr(g_vrState.instance, "xrGetDisplayRefreshRateFB", &proc);
+        const auto get = reinterpret_cast<PFN_xrGetDisplayRefreshRateFB>(proc);
+        float actual = 0.0f;
+        if (XR_SUCCEEDED(lookup) && get && XR_SUCCEEDED(get(g_vrState.session, &actual)) &&
+            std::isfinite(actual) && actual > 0.0f) {
+            hz = actual;
+            static float lastHz = 0.0f;
+            if (hz != lastHz) LOGI("display: actual %.2f Hz", hz);
+            lastHz = hz;
+        }
     }
     char build[16];
     snprintf(build, sizeof(build), "%s", gevrBuildId);
@@ -2561,17 +2680,65 @@ extern "C" void gevrVrSetWorldScale(float unitsPerMetre) { vr_world_scale = unit
 // FBOs - Render Targets
 // ============================================================================
 
+static bool vr_ensure_swapchain_images();
+
+static bool vr_attach_eye_fbo(GLuint colorTexture, bool validate)
+{
+    if (gfx_msaa_level > 1 && pfnFramebufferTextureMultisampleMultiviewOVR) {
+#ifdef ANDROID
+        const GLsizei samples = std::min(gfx_msaa_level, 4u);
+#else
+        const GLsizei samples = gfx_msaa_level;
+#endif
+        pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                                                    colorTexture, 0, samples, 0, 2);
+        pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                                    g_multiviewDepthArray, 0, samples, 0, 2);
+    } else if (glFramebufferTextureMultiviewOVR) {
+        glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, colorTexture, 0, 0, 2);
+        glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT,
+                                        g_multiviewDepthArray, 0, 0, 2);
+    } else {
+        LOGE("No multiview framebuffer attachment function");
+        return false;
+    }
+    if (!validate) return true;
+    const GLenum error = glGetError();
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (error != GL_NO_ERROR || status != GL_FRAMEBUFFER_COMPLETE) {
+        LOGE("Eye framebuffer incomplete: error=0x%x, status=0x%x", error, status);
+        return false;
+    }
+    return true;
+}
+
 static bool vr_create_eye_fbos()
 {
     if (use_multiview) {
+        if (!vr_ensure_swapchain_images() || g_swapchainImages[0].empty()) return false;
+        // Discard errors from earlier setup before checking this allocation.
+        for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {}
+        GLint previousTexture = 0, previousFbo = 0;
+        glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY, &previousTexture);
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFbo);
         glGenTextures(1, &g_multiviewDepthArray);
         glBindTexture(GL_TEXTURE_2D_ARRAY, g_multiviewDepthArray);
         glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH24_STENCIL8,
                      g_internalRenderWidth, g_internalRenderHeight, 2,
                      0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, nullptr);
-        glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        const GLenum error = glGetError();
+        glBindTexture(GL_TEXTURE_2D_ARRAY, (GLuint)previousTexture);
+        if (!g_multiviewDepthArray || error != GL_NO_ERROR) {
+            LOGE("Eye depth allocation failed: %d x %d, error=0x%x",
+                 g_internalRenderWidth, g_internalRenderHeight, error);
+            return false;
+        }
 
         glGenFramebuffers(1, &g_multiviewFBO);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_multiviewFBO);
+        const bool complete = g_multiviewFBO && vr_attach_eye_fbo(g_swapchainImages[0][0].image, true);
+        glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)previousFbo);
+        if (!complete) return false;
         gfx_opengl_connect_multiview_fbo(g_multiviewFBO, g_internalRenderWidth, g_internalRenderHeight);
         return true;
     }
@@ -2585,13 +2752,15 @@ static bool vr_create_eye_fbos()
 // CONTROLLERS - VR Controller Initialization
 // ============================================================================
 
-static void vr_init_controllers()
+static bool vr_init_controllers()
 {
     LOGI("Initializing VR controllers");
     XrResult result = create_vr_controllers_complete();
     if (XR_FAILED(result)) {
         LOGE("Failed to initialize controllers");
+        return false;
     }
+    return true;
 }
 
 // ============================================================================
@@ -2625,12 +2794,13 @@ static bool vr_ensure_swapchain_images()
             count, &count,
             reinterpret_cast<XrSwapchainImageBaseHeader*>(g_swapchainImages[0].data())
     );
-    if (XR_FAILED(r1)) {
+    if (XR_FAILED(r1) || count == 0 || count > g_swapchainImages[0].size()) {
         LOGE("xrEnumerateSwapchainImages(data) failed: %d", (int)r1);
         g_swapchainImages[0].clear();
         return false;
     }
 
+    g_swapchainImages[0].resize(count);
     g_swapchainImagesInit[0] = true;
     return true;
 }
@@ -3668,37 +3838,42 @@ extern "C" void vr_poll_events(void)
 // ============================================================================
 
 #ifdef ANDROID
-extern "C" void openxr_initialize_vr(JavaVM* vm, jobject activity, ANativeWindow* window)
+extern "C" bool openxr_initialize_vr(JavaVM* vm, jobject activity, ANativeWindow* window)
 {
     LOGI("========== OPENXR INIT (Android) START ==========");
     g_vrState = VRState{};
+    g_sessionRefreshPreference = 0.0f;
+    g_refreshRatesEnumerated = false;
+    g_supportedRefreshRates.clear();
 
     auto extensions = vr_enumerate_extensions();
     if (extensions.size() < 2) {
         LOGE("Missing required extensions");
-        return;
+        return false;
     }
 
-    if (!vr_create_instance(vm, activity, extensions)) return;
-    if (!vr_get_system()) return;
-    if (!vr_configure_resolution()) return;
-    if (!vr_capture_egl_context()) return;
-    if (!vr_verify_graphics_requirements()) return;
-    if (!vr_create_session()) return;
+    if (!vr_create_instance(vm, activity, extensions)) return false;
+    if (!vr_get_system()) return false;
+    if (!vr_capture_egl_context()) return false;
+    if (!vr_verify_graphics_requirements()) return false;
+    if (!vr_configure_resolution()) return false;
+    if (!vr_create_session()) return false;
     vr_setup_color_space();
-    vr_init_controllers();
-    if (!vr_create_play_space()) return;
-    if (!vr_create_view_space()) return;
-    if (!vr_create_swapchains()) return;
-    if (!vr_create_eye_fbos()) return;
+    if (!vr_init_controllers()) return false;
+    if (!vr_create_play_space()) return false;
+    if (!vr_create_view_space()) return false;
+    if (!vr_create_swapchains()) return false;
+    if (!vr_create_eye_fbos()) return false;
 
     // Swapchain dedicated to the menu quad panel
     if (!vr_create_menu_swapchain()) {
         vr_log("vr_create_menu_swapchain failed (non-fatal, menu quad disabled)");
+        vr_destroy_menu_swapchains();
     // non-fatal: continue without the panel
     }
 
     LOGI("========== OPENXR INIT (Android) COMPLETE ==========");
+    return true;
 }
 #else
 
@@ -3707,13 +3882,6 @@ extern "C" bool vrWaitForRuntime(int waitSeconds) {
     return vrEnsureDefaultRuntimeRunning();
 }
 
-
-static void vrDestroyInstanceIfNeeded(void) {
-    if (g_vrState.instance != XR_NULL_HANDLE) {
-        xrDestroyInstance(g_vrState.instance);
-        g_vrState.instance = XR_NULL_HANDLE;
-    }
-}
 
 static bool openxrInitializeVRwindowsInternal(void) {
     auto extensions = vr_enumerate_extensions();
@@ -3724,7 +3892,7 @@ static bool openxrInitializeVRwindowsInternal(void) {
     if (!vr_verify_graphics_requirements()) return false;
     if (!vr_create_session())              return false;
     vr_setup_color_space();
-    vr_init_controllers();
+    if (!vr_init_controllers()) return false;
     if (!vr_create_play_space())            return false;
     if (!vr_create_view_space())            return false;
     if (!vr_create_swapchains())           return false;
@@ -3733,23 +3901,27 @@ static bool openxrInitializeVRwindowsInternal(void) {
     // Swapchain dedicated to the menu quad panel
     if (!vr_create_menu_swapchain()) {
         LOGE("vr_create_menu_swapchain failed (non-fatal, menu quad disabled)");
+        vr_destroy_menu_swapchains();
      // non-fatal: continue without the panel
     }
 
     return true;
 }
 
-extern "C" void openxr_initialize_vr_windows(void) {
+extern "C" bool openxr_initialize_vr_windows(void) {
     LOGI("========== OPENXR INIT (Windows) START ==========");
     g_vrState = VRState{};
+    g_sessionRefreshPreference = 0.0f;
+    g_refreshRatesEnumerated = false;
+    g_supportedRefreshRates.clear();
 
     if (!openxrInitializeVRwindowsInternal()) {
         LOGE("OpenXR init failed, cleanup...");
-        vrDestroyInstanceIfNeeded();
-        return;
+        return false;
     }
 
     LOGI("========== OPENXR INIT (Windows) COMPLETE ==========");
+    return true;
 }
 
 #endif
@@ -3771,17 +3943,21 @@ extern "C" void vr_initialize()
     }
 
     LOGI("Initializing from OpenGL thread (Android)");
-    openxr_initialize_vr(g_vm, g_activity, g_window);
+    const bool initialized = openxr_initialize_vr(g_vm, g_activity, g_window);
 #else
     if (g_vrInitialized) return;
 
     LOGI("Initializing VR (Windows)");
-    openxr_initialize_vr_windows();
+    const bool initialized = openxr_initialize_vr_windows();
 #endif
 
-    if (g_vrState.instance == XR_NULL_HANDLE || g_vrState.session == XR_NULL_HANDLE) {
+    if (!initialized) {
         LOGE("vr_initialize: Failed to initialize OpenXR");
-        return;
+        const int width = g_internalRenderWidth, height = g_internalRenderHeight;
+        vr_shutdown();
+        sysFatalError("OpenXR initialization failed at %d x %d (requested scale %.2f). "
+                      "Check the VR log and lower Video.VRRenderScale or the external resolution profile.",
+                      width, height, RENDER_SCALE);
     }
 
     g_vrInitialized = true;
@@ -4136,18 +4312,9 @@ bool vr_begin_eye_render()
 
     glBindFramebuffer(GL_FRAMEBUFFER, g_multiviewFBO);
 
-    if (gfx_msaa_level > 1 && pfnFramebufferTextureMultisampleMultiviewOVR != nullptr) {
-#ifdef ANDROID
-        GLsizei safe_msaa = (gfx_msaa_level > 4) ? 4 : gfx_msaa_level; // limit to 4x
-#else
-        GLsizei safe_msaa = gfx_msaa_level; // no limit for PC
-
-#endif
-        pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,     swapchainTex,          0, safe_msaa, 0, 2);
-        pfnFramebufferTextureMultisampleMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, g_multiviewDepthArray, 0, safe_msaa, 0, 2);
-    } else if (glFramebufferTextureMultiviewOVR) {
-        glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,        swapchainTex,          0, 0, 2);
-        glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, g_multiviewDepthArray, 0, 0, 2);
+    if (!vr_attach_eye_fbo(swapchainTex, false)) {
+        vr_shutdown();
+        sysFatalError("Could not attach the VR eye framebuffer. Lower the render scale or external resolution profile.");
     }
 
     glViewport(0, 0, g_internalRenderWidth, g_internalRenderHeight);
@@ -4306,26 +4473,7 @@ extern "C" void vr_shutdown()
     g_swapchainImagesInit[0] = false;
     g_swapchainImages[0].clear();
 
-    if (g_menuSwapchain != XR_NULL_HANDLE) {
-        xrDestroySwapchain(g_menuSwapchain);
-        g_menuSwapchain = XR_NULL_HANDLE;
-        g_menuSwapchainImages.clear();
-    }
-    if (g_menuSwapchainR != XR_NULL_HANDLE) {
-        xrDestroySwapchain(g_menuSwapchainR);
-        g_menuSwapchainR = XR_NULL_HANDLE;
-        g_menuSwapchainImagesR.clear();
-    }
-    if (g_menuSwapchainH != XR_NULL_HANDLE) {
-        xrDestroySwapchain(g_menuSwapchainH);
-        g_menuSwapchainH = XR_NULL_HANDLE;
-        g_menuSwapchainImagesH.clear();
-    }
-    if (g_menuSwapchainP != XR_NULL_HANDLE) {
-        xrDestroySwapchain(g_menuSwapchainP);
-        g_menuSwapchainP = XR_NULL_HANDLE;
-        g_menuSwapchainImagesP.clear();
-    }
+    vr_destroy_menu_swapchains();
     for (int hand = 0; hand < 2; hand++) {
         if (g_scopeSwapchain[hand] != XR_NULL_HANDLE) {
             xrDestroySwapchain(g_scopeSwapchain[hand]);
@@ -4363,6 +4511,11 @@ extern "C" void vr_shutdown()
     g_vrInitialized = false;
     g_internalRenderWidth  = 0;
     g_internalRenderHeight = 0;
+    g_systemMaxRenderWidth = g_systemMaxRenderHeight = 0;
+    g_maxRenderWidth = g_maxRenderHeight = 0;
+    g_supportedRefreshRates.clear();
+    g_refreshRatesEnumerated = false;
+    g_sessionRefreshPreference = 0.0f;
     g_frameStarted = false;
 
     LOGI("========== VR SHUTDOWN COMPLETE ==========");
@@ -4406,6 +4559,14 @@ extern "C" bool vr_apply_pending_scale(void) {
     if (scale == RENDER_SCALE) {
         return true;
     }
+#ifdef ANDROID
+    int32_t width = 0, height = 0;
+    if (vr_get_render_dimensions_for_scale(scale, &width, &height) &&
+        width == g_internalRenderWidth && height == g_internalRenderHeight) {
+        RENDER_SCALE = scale; // Different preferences can reach the same device limit.
+        return true;
+    }
+#endif
 
     return vr_restart_with_new_scale(scale);
 }

@@ -86,6 +86,17 @@ extern float vr_world_scale;
 extern uint32_t VrRecommendedW;
 extern uint32_t VrRecommendedH;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+// Final dimensions for a requested Quest scale, including the active device limits.
+bool vr_get_render_dimensions_for_scale(float scale, int32_t *width, int32_t *height);
+// Returns total available rates; copies up to capacity whole-Hz choices from this session.
+int vr_get_supported_refresh_rates(int *rates, int capacity);
+#ifdef __cplusplus
+}
+#endif
+
 
 typedef enum {
     VR_EYEHEIGHT_STAND = 0,
