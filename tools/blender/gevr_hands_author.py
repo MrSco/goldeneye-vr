@@ -112,6 +112,18 @@ MODELS = {
             "palm_q2": ((0.7, -0.6, 0.5), (0, 1, 0)),
         },
     },
+    # the grenade the taser's hand holds (#41): its own model, one node
+    "GgrenadeZ": {
+        "hand": [0x00e4],
+        "host": 0x00e4,
+        "context": [],
+        "views": {
+            "below": ((0, -1, 0.1), (0, 0, 1)),
+            "below_q1": ((0.6, -0.8, 0.3), (0, 1, 0)),
+            "below_q2": ((-0.6, -0.8, -0.3), (0, 1, 0)),
+            "side": ((1, 0, 0), (0, 1, 0)),
+        },
+    },
 }
 SAME_HAND = {"GwppksilZ": "GwppkZ", "GgoldwppkZ": "GwppkZ", "GsilverwppkZ": "GwppkZ"}
 

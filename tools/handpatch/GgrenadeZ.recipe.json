@@ -1,0 +1,12 @@
+{
+ "model": "GgrenadeZ",
+ "note": "The grenade the taser's hand holds (#41), one node. Its flat bottom is drawn blended in an intensity texture and read as a hole; the authored piece draws it solid.",
+ "parts": {
+  "0x00e4": [
+   {
+    "op": "authored",
+    "why": "the flat bottom and its band drawn solid (gevr_hands_author.py; GgrenadeZ.authored.json)"
+   }
+  ]
+ }
+}
