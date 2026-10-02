@@ -106,10 +106,8 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
 
 
     private Handler mResizeRetryHandler = new Handler(Looper.getMainLooper());
-    public native float get_RENDER_SCALE(); // VR
-
-    public native int get_targetW(); // VR Screen Width
-    public native int get_targetH(); // VR Screen Height
+    public native int get_targetW(); // Finalized native render width
+    public native int get_targetH(); // Finalized native render height
 
     // Called when the surface is resized
     @Override
@@ -121,8 +119,13 @@ public class SDLSurface extends SurfaceView implements SurfaceHolder.Callback,
             return;
         }
 
-        int fakeWidth = (int)(get_targetW() * get_RENDER_SCALE() + 0.5f);  // VR
-        int fakeHeight = (int)(get_targetH() * get_RENDER_SCALE() + 0.5f);
+        int fakeWidth = get_targetW();
+        int fakeHeight = get_targetH();
+        // The first Android surface callback may precede OpenXR initialization.
+        if (fakeWidth < 2 || fakeHeight < 2) {
+            fakeWidth = width;
+            fakeHeight = height;
+        }
 
         mWidth = fakeWidth;
         mHeight = fakeHeight;

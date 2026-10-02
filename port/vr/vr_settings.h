@@ -44,7 +44,7 @@ extern int VrMpLoadout[4];      // this player's spawn guns
 extern unsigned VrMpFavStages, VrMpFavSets;
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
-// Display refresh rate in Hz, 0 = the runtime's default (vr_openxr.cpp).
+// Preferred display refresh rate in Hz; 0 = Auto (no app preference).
 extern int VrRefreshRate;
 
 // Your standing EYE height in cm -- where your eyes are off the floor, roughly
