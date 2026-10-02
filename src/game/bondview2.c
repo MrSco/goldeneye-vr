@@ -13951,7 +13951,20 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
          * depth buffer, so fast3d's back-face rule (#24) holds here too.
          */
         gDPNoOpTag(gdl++, 0x565B0000);   /* VR_CULL_OFF_BEGIN */
-        gdl = set_enviro_fog_for_items_in_solo_watch_menu(sub_GAME_7F0A6EE8(gdl), item, &rot, 0xFF, 0x64DC6428);
+        gdl = sub_GAME_7F0A6EE8(gdl);
+        /*
+         * ... and with the depth test, which the watch's setup leaves off
+         * (G_RM_OPA_SURF, no G_ZBUFFER): with the back faces drawn, the
+         * inside of the shell painted over its outside in draw order and the
+         * fist still read as hollow (user, 2026-10-02). The panel's layer has
+         * a cleared depth buffer (gfx_opengl.cpp hud_P capture). Cleared again
+         * after: the bit leaks into later draws (memory note, the sparks).
+         */
+        gSPSetGeometryMode(gdl++, G_ZBUFFER);
+        gDPSetRenderMode(gdl++, G_RM_AA_ZB_OPA_SURF, G_RM_AA_ZB_OPA_SURF2);
+        gdl = set_enviro_fog_for_items_in_solo_watch_menu(gdl, item, &rot, 0xFF, 0x64DC6428);
+        gSPClearGeometryMode(gdl++, G_ZBUFFER);
+        gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
         gDPNoOpTag(gdl++, 0x565B0001);   /* VR_CULL_OFF_END */
     }
     g_gevrItemModelOverride = NULL;

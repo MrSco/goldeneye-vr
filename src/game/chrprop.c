@@ -978,13 +978,10 @@ s32 gevrStereoAimPoint(s32 hand, coord3d *out);
 void gevrStereoAimUpdate(void)
 {
     extern int vr_button_L_grip;   /* port/src/input.c: dual-wielding, the left grip */
-    extern s32 gevrScopeOn;        /* bondview2.c: this frame's scopes, bit (1 << hand) */
 
     s_gevrAimValid[GUNRIGHT] = gevrStereoAimPoint(GUNRIGHT, &s_gevrAimPoint[GUNRIGHT]);
-    /* issue #37: the left gun's sight, traced only while its grip asks for it,
-     * or while its scope shows (gevrScopeBegin runs earlier in lvlRender) */
-    s_gevrAimValid[GUNLEFT] = (vr_button_L_grip || (gevrScopeOn & (1 << GUNLEFT)))
-                           && gevrStereoAimPoint(GUNLEFT, &s_gevrAimPoint[GUNLEFT]);
+    /* issue #37: the left gun's sight (and its scope's), traced only while its grip asks for it */
+    s_gevrAimValid[GUNLEFT] = vr_button_L_grip && gevrStereoAimPoint(GUNLEFT, &s_gevrAimPoint[GUNLEFT]);
 }
 
 s32 gevrStereoAimCached(s32 hand, coord3d *out)
