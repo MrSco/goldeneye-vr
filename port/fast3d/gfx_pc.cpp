@@ -47,6 +47,7 @@ extern "C" {
 }
 #include "gevr_texpack.h"
 #include "gevr_surface_probe.h"
+#include "gevr_surface_math.h"
 
 #include "../vr/vr_hub.h"
 
@@ -2374,6 +2375,26 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
 }
 
 
+/* Water is already projected. Its float payload only bypasses the N64
+ * vertex packing; texturing, perspective interpolation and blending still
+ * use the ordinary triangle pipeline below. */
+static void gfx_sp_sky_vertex(size_t count, const GevrSkyVertex *vertices) {
+    SUPPORT_CHECK(count <= MAX_VERTICES);
+    for (size_t i = 0; i < count; ++i) {
+        auto &d = rsp.loaded_vertices[i];
+        const auto &v = vertices[i];
+        d.x = gfx_adjust_x_for_aspect_ratio(v.x, v.w);
+        d.y = v.y;
+        d.z = 0.0f;
+        d.w = v.w;
+        d.u = v.s * (rsp.texture_scaling_factor.s + 1) / 65536.0f;
+        d.v = v.t * (rsp.texture_scaling_factor.t + 1) / 65536.0f;
+        d.color = {v.rgba[0], v.rgba[1], v.rgba[2], v.rgba[3]};
+        d.fog = rdp.fog_color.a;
+        d.clip_rej = 0; // GPU clips the pre-projected sky at each eye's bounds
+    }
+}
+
 static void gfx_sp_modify_vertex(uint16_t vtx_idx, uint8_t where, uint32_t val) {
     SUPPORT_CHECK(where == G_MWO_POINT_ST);
 
@@ -3996,6 +4017,9 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case (uint8_t)G_TEXTURE:
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
+                break;
+            case G_GEVR_SKY_VTX:
+                gfx_sp_sky_vertex(C0(0, 8), (const GevrSkyVertex*)seg_addr(cmd->words.w1));
                 break;
             case G_VTX: {
                 const uintptr_t vtxp = (uintptr_t)seg_addr(cmd->words.w1);
