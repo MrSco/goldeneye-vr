@@ -42,9 +42,13 @@ CSUIT_SKIN = (0x702, 0x703, 0x704, 0x705)   # the back of the hand, fingers, ind
 CSUIT_PALM = 0x705    # the palm side the N64 did model (heel, thumb's root): one texture, no seam across
 CSUIT_UNDER = 0.88    # palm side, away from the N64's edges: that much of its 255
 CSUIT_FINGER = 0.8    # the ring and little fingers' palm sides (lighter, they read as a bulge)
+CSUIT_PALMSIDE = (0x702, (728, 865, 481, 594))   # the middle finger's own palm side: 0x702, s along,
+                                                 # t across; the ring and little fingers' undersides
+                                                 # wear the same (the top's skin mirrored under them
+                                                 # read as puffy)
 CSUIT_CREASE = 0.8    # inside a finger's bend
 CSUIT_NEAR = 150.0    # how far from a piece's rim the skin it takes may lie (watch arm units)
-CSUIT_FLAT = (0.15, 0.3)  # the ring and little fingers' undersides: this deep, in half-widths (the
+CSUIT_FLAT = (0.05, 0.12)  # the ring and little fingers' undersides: this deep, in half-widths (the
                           # N64's shell already wraps most of the way round; a half-round bottom on
                           # it made them "a little chubby" next to the middle finger)
 CSUIT_BAND = (0x703, 380, 712, 370, 250)   # a fingertip's skin: the 0x703 row the PP7's fingers run in
@@ -61,8 +65,8 @@ CSUIT_BAND = (0x703, 380, 712, 370, 250)   # a fingertip's skin: the 0x703 row t
 # ring); how far the tip swells past it, in its radius. r None: the radius
 # of the finger's end itself, so the curl is exactly as thick as the finger.
 CSUIT_CURL = {
-    "ring_finger": (None, (0.55, 0.0, 0.82), [(1.15, 0.3, 0.75), (0.5, 1.0, 0.64)], 0.55),
-    "little_finger": (None, (0.55, 0.0, 0.78), [(1.1, 0.3, 0.7), (0.5, 0.95, 0.6)], 0.55),
+    "ring_finger": (None, (0.55, 0.0, 0.75), [(1.15, 0.3, 0.68), (0.5, 1.0, 0.58)], 0.5),
+    "little_finger": (None, (0.55, 0.0, 0.7), [(1.1, 0.3, 0.62), (0.5, 0.95, 0.52)], 0.5),
     "middle_finger": (95.0, (0.45, 0.8, 0.95), [(0.95, 0.4, 0.85), (0.5, 1.0, 0.72)], 0.55),
 }
 
@@ -104,8 +108,8 @@ def seed_csuit(ws, names):
         pid = ws.piece(name, "the %s's palm side, closed round under the N64's top half, then grown on into a "
                        "fingertip curled in towards the palm" % name.replace("_", " "))
         finger = skin(CSUIT_SKIN, rails[0] + rails[1] + notches + [tip])
-        under = M.underside(ws, pid, rails, None, 0x703, (0, 1, 0, 1), CSUIT_LIGHT, arc=2, skin=finger,
-                            rom_shade=CSUIT_FINGER, mirror=True, up_hint=(0, 1, 0), roundness=CSUIT_FLAT)
+        under = M.underside(ws, pid, rails, None, CSUIT_PALMSIDE[0], CSUIT_PALMSIDE[1], CSUIT_LIGHT, arc=2,
+                            rom_shade=CSUIT_FINGER, up_hint=(0, 1, 0), roundness=CSUIT_FLAT)
         for notch in notches:
             M.fill_palm(ws, pid, notch, 0x703, None, CSUIT_LIGHT, fair=0, dome=0, skin=finger, rom_shade=1.0)
         # the finger's whole end: rail A's last vertex, over the N64's top

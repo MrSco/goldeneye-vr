@@ -323,13 +323,18 @@ Csuit_lf_handZ's hand (0x01c0, one bone, ten times the pistol's units) had
 tubes under the ring and little fingers, pale 0x706 fingertip caps and a
 pale palm fill. Now (Csuit_lf_handZ.authored.json, 325 triangles):
 - The ring and little fingers' palm sides: underside() station by station
-  along their open edges, in the top's own skin read at each point's mirror
-  image over the top (mirror=True), so the seams along the edges do not
-  show. The faces along these edges lean down (the shell wraps below
-  them), so up_hint says the top is +y; and the edges double back at the
-  knuckle crease, so the rails skip those vertices and the notches they
-  leave are filled flat. (The first build had half the cross-sections
-  upside down, inside the fingers.)
+  along their open edges, nearly flat (CSUIT_FLAT: the N64's shell already
+  wraps most of the way round), in the middle finger's own palm-side skin
+  (0x702 s 728..865 along, t 481..594 across) at 0.8. The headset said
+  "a little chubby" with a half-round bottom and the top's skin mirrored
+  under it, then "better but still too fat" with a shallower one: their
+  width is the N64's shell and cannot shrink, so they now match the middle
+  finger the user likes instead of reading as smooth light tubes. The
+  faces along these edges lean down (the shell wraps below them), so
+  up_hint says the top is +y; and the edges double back at the knuckle
+  crease, so the rails skip those vertices and the notches they leave are
+  filled flat. (The first build had half the cross-sections upside down,
+  inside the fingers.)
 - The middle, ring and little fingers grown on past the N64's cut-off ends
   and curled in towards the palm, a closing fist (the user: "slightly
   extended so they're closed like a fist"): extend() from each finger's
