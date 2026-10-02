@@ -7,13 +7,12 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Active branch (2026-10-02):** `fix/60-watch-grip-hand` includes current
-main. #60 keeps the approved regular left arm and original pressing palm/
-finger animation. The private grip copy now hides every old small sleeve
-and its underside patch as well as the old left hand and embedded watch
-face/band. Only the palm and animated finger remain; the regular watch arm
-supplies the outfit sleeve. Snap entry/retention remain 16/22 cm. Native
-checks and the signed build pass; headset recheck pending.
+**Merged, unreleased (2026-10-02):** #60 / #75 watch-arm and close-hand
+interaction, headset-accepted by the maintainer on `57f00e5`. The regular
+watch arm stays visible during grip. Only the original pressing palm and
+animated finger draw from the old combined model; its small hand, sleeves,
+underside patches and embedded watch face/band are hidden. Snap entry/
+retention are 16/22 cm. Native checks and the signed Android build pass.
 See `docs/issue-60-watch-grip-hand.md`.
 
 **Merged, unreleased (2026-10-02):** #30 water shimmer and Dam truck glass,

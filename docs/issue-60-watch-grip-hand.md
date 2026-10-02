@@ -85,9 +85,16 @@ handedness, ordinary two-handed holds and multiplayer handling remain intact.
   25.1.8937393 and CMake 3.22.1. Build via junction `C:\gvr60` to this worktree.
   The final signed build follows the source commit so its displayed hash
   identifies the changes. Version remains 0.3.9 / versionCode 49 / protocol 15.
-  No headset installation, main merge or publication was done.
+  Candidate delivery involved no headset installation or publication.
 
-## Headset recheck
+## Headset acceptance
+
+On 2026-10-02, the maintainer accepted signed candidate `57f00e5` ("looks
+good") and requested merging into main, pushing, and closing #60 and #75
+with comments. This acceptance covers the reviewed watch-arm/grip changes;
+this continuation does not introduce a separate crosshair/auto-crouch change.
+
+## Regression checklist
 
 1. Bring hands together with the watch laser selected: activation should
    be easier. Verify one watch face/band, the original right palm and pressing finger,
