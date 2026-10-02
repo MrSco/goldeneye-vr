@@ -2038,8 +2038,11 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
      * watch laser's own two-arm viewmodel had replaced both, and popped to
      * its smaller, coarser arm: user).
      */
-    if (((s_gevrHiddenShown[GUNRIGHT] && gevrStereoItemHand(item) == 2) || watchGrip)
-        && gevrTaserHandLoad())
+    if (watchGrip && !gevrTaserHandLoad())
+    {
+        return gdl;     /* no taser-palm attachment on the open fist if loading failed */
+    }
+    if (watchGrip || (s_gevrHiddenShown[GUNRIGHT] && gevrStereoItemHand(item) == 2 && gevrTaserHandLoad()))
     {
         mdl = &s_gevrTaserHandModel;
         hdr = &s_gevrTaserHandHeader;
