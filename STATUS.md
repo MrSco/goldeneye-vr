@@ -21,7 +21,14 @@ walls, in 2D mode too, so the port's depth path, not stereo) a live switch
 Z_CMP-less draws (2) or keeps the room scissor in stereo (3); for #85 (Egypt
 Golden Gun room door black shut, gone while opening; not fixed since v0.3.7,
 no renderer commits) propobj.c logs each cryptdoor's rooms, drawn flags and
-on-screen verdict every ~50 ticks (`cryptdoor:` lines).
+on-screen verdict every ~50 ticks (`cryptdoor:` lines). Also on the
+branch: crash report fa289829 (v0.3.8, Quest 2, a late joiner spectating
+slot 0) was gevrDrawSpectatorLabel's snprintf on a name pointer truncated
+to 32 bits: bondview2.c called netGetSlotName with no prototype in scope
+(implicit int return; the 32-bit-pointer class). Prototype in net_game.h;
+the other 274 implicit declarations all return void, ints or enums. And
+the left panel's Holstered entry briefly showed the watch arm, which
+crashed the watch's item renderer (report 7e40b3c9): the fist again.
 **Latest release:** v0.3.8 (tag v0.3.8, commit
 41bf7b1, versionCode 48, protocol 15, SHA-256 80e0bed0...): crash reporting
 only. The first anonymous crash report (5103ca8b, 2026-10-01) was a SIGSEGV
