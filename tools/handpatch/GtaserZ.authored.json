@@ -1,10 +1,9 @@
 {
  "model": "GtaserZ",
- "note": "Ours: triangles over ROM vertices (node, index), weights over them, our UVs. No ROM data.",
+ "note": "Modelled in Blender (tools/blender/gevr_hands_author.py): corners on ROM vertices (node, index), new points as weights over ROM vertices, our UVs and shade. No ROM data.",
  "parts": [
   {
    "host": "0x0200",
-   "nodes": {"0x01a0": {"numvtx": 71, "fingerprint": "0xc76cf74b"}, "0x0200": {"numvtx": 351, "fingerprint": "0x4b2e3bdc"}, "0x0470": {"numvtx": 168, "fingerprint": "0x8b0babd0"}},
    "groups": [
     {
      "name": "elbow",
@@ -52,8 +51,7 @@
       [10, 9, 11],
       [13, 16, 14],
       [12, 6, 4]
-     ],
-     "op": "authored"
+     ]
     },
     {
      "name": "finger_joints",
@@ -80,8 +78,7 @@
       {"s": 718, "t": 150, "node": "0x0200", "ref": 147, "mtx": 0, "inherit": true},
       {"s": 696, "t": 129, "node": "0x0470", "ref": 140, "mtx": 0, "inherit": true}
      ],
-     "tris": [[0, 1, 2], [0, 3, 1], [4, 5, 6], [7, 8, 9], [8, 10, 11], [10, 12, 13], [14, 15, 16], [15, 17, 18]],
-     "op": "authored"
+     "tris": [[0, 1, 2], [0, 3, 1], [4, 5, 6], [7, 8, 9], [8, 10, 11], [10, 12, 13], [14, 15, 16], [15, 17, 18]]
     },
     {
      "name": "finger_joints",
@@ -143,8 +140,7 @@
       [28, 29, 27],
       [30, 31, 29],
       [31, 32, 29]
-     ],
-     "op": "authored"
+     ]
     },
     {
      "name": "forearm",
@@ -162,8 +158,7 @@
       {"s": 868, "t": 596, "node": "0x01a0", "ref": 13, "mtx": 0, "inherit": true},
       {"s": 1008, "t": 623, "node": "0x01a0", "ref": 63, "mtx": 0, "inherit": true}
      ],
-     "tris": [[0, 1, 2], [2, 1, 3], [2, 3, 4], [4, 3, 5], [4, 6, 7], [4, 5, 6], [7, 8, 9], [7, 6, 8]],
-     "op": "authored"
+     "tris": [[0, 1, 2], [2, 1, 3], [2, 3, 4], [4, 3, 5], [4, 6, 7], [4, 5, 6], [7, 8, 9], [7, 6, 8]]
     },
     {
      "name": "hand_back",
@@ -356,8 +351,7 @@
       [9, 7, 5],
       [73, 5, 4],
       [0, 2, 6]
-     ],
-     "op": "authored"
+     ]
     },
     {
      "name": "knuckles",
@@ -441,8 +435,7 @@
       [35, 31, 29],
       [36, 37, 38],
       [39, 38, 37]
-     ],
-     "op": "authored"
+     ]
     },
     {
      "name": "knuckles",
@@ -495,8 +488,7 @@
       [21, 24, 23],
       [24, 25, 23],
       [25, 26, 23]
-     ],
-     "op": "authored"
+     ]
     },
     {
      "name": "knuckles",
@@ -513,8 +505,7 @@
       {"s": 351, "t": 100, "node": "0x0200", "ref": 270, "mtx": 0, "inherit": true},
       {"s": 536, "t": 176, "node": "0x0200", "ref": 107, "mtx": 0, "inherit": true}
      ],
-     "tris": [[0, 1, 2], [3, 2, 4], [4, 2, 1], [5, 4, 1], [3, 0, 2], [6, 7, 8]],
-     "op": "authored"
+     "tris": [[0, 1, 2], [3, 2, 4], [4, 2, 1], [5, 4, 1], [3, 0, 2], [6, 7, 8]]
     }
    ]
   }

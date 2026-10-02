@@ -9,9 +9,11 @@ tools/gevr_model_export.py knows which texture number every triangle uses,
 but the images themselves sit compressed in the images segment. This ports
 image.c's texLoad() lookup and its zlib path (texInflateZlib): a bit-packed
 header (format, palette size, 16-bit palette), then per level of detail a
-width, a height and a rarezip stream of palette indices. Non-zlib textures
-(texInflateNonZlib: Rare's own huffman/RLE/lookup scheme) are reported and
-skipped for now.
+width, a height and a rarezip stream of palette indices. Of the non-zlib
+textures (texInflateNonZlib: Rare's own huffman/RLE/lookup schemes) only
+run-length 8-bit intensity is decoded (texInflateRle; the grenade's bottom,
+0x5e2), alpha = intensity as the N64's I format has it; the rest are
+reported and skipped.
 
 Offsets: assets/images.def lists each texture's compressed size in texture
 number order; image_entries_load() turns the sizes into running offsets from
@@ -92,6 +94,37 @@ def colour(fmt, c):
     return (i, i, i, a)
 
 
+def inflate_rle(bits, total):
+    """texInflateRle: literals and runs copied from earlier blocks (8 bits or less)."""
+    btsize, rlsize, blocksize = bits.read(3), bits.read(3), bits.read(4)
+    cost, fudge = btsize + rlsize + blocksize + 1, 0
+    while cost > 0:
+        cost -= blocksize + 1
+        fudge += 1
+    out = []
+    while len(out) < total:
+        if bits.read(1) == 0:
+            out.append(bits.read(blocksize))
+        else:
+            start = len(out) - bits.read(btsize) - 1
+            for i in range(start, start + bits.read(rlsize) + fudge):
+                out.append(out[i])
+            out.append(bits.read(blocksize))
+    return out[:total]
+
+
+def decode_nonzlib(src):
+    """texInflateNonZlib's first image, for the one scheme handled here."""
+    bits = Bits(src, 1)
+    fmt, w, h, method = bits.read(4), bits.read(8), bits.read(8), bits.read(4)
+    if fmt != 7 or method != 4:
+        return "not zlib: format %d, method %d" % (fmt, method)
+    px = bytearray()
+    for i in inflate_rle(bits, w * h):
+        px += bytes((i, i, i, i))
+    return w, h, bytes(px)
+
+
 def decode(rom, texnum):
     """(width, height, rgba bytes) for the texture's first image, or a reason string."""
     seg, _ = images_segment()
@@ -101,7 +134,7 @@ def decode(rom, texnum):
     head = src[0]
     iszlib = (head >> 6) & 1
     if not iszlib:
-        return "not zlib (header 0x%02x)" % head
+        return decode_nonzlib(src)
     bits = Bits(src, 1)
     fmt = bits.read(8)
     ncol = bits.read(8) + 1
