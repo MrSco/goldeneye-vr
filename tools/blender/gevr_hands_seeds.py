@@ -48,7 +48,10 @@ CSUIT_PALMSIDE = (0x702, (728, 865, 481, 594))   # the middle finger's own palm 
                                                  # t across; the ring and little fingers' undersides
                                                  # wear the same (the top's skin mirrored under them
                                                  # read as puffy)
-CSUIT_CREASE = 0.8    # inside a finger's bend
+CSUIT_CREASES = (     # the index finger's bends: each crack's two sides, from the end they share
+    ([167, 197, 213, 211, 190], [167, 179, 177, 173, 172]),
+    ([127, 164, 178, 176, 162], [127, 141, 139, 137, 135]),
+)
 CSUIT_NEAR = 150.0    # how far from a piece's rim the skin it takes may lie (watch arm units)
 CSUIT_FLAT = (0.05, 0.12)  # the ring and little fingers' undersides: this deep, in half-widths (the
                           # N64's shell already wraps most of the way round; a half-round bottom on
@@ -125,12 +128,13 @@ def seed_csuit(ws, names):
                    "towards the palm")
     curl(pid, "middle_finger", loop_verts(ws, 87))
 
-    # the index finger's two bends, open on their inside: closed nearly flat
-    # (a crease), a little darker
+    # the index finger's two bends, open on their inside: cracks, not holes
+    # (the two segments' ends run side by side 16-50 units apart, a quarter
+    # of the finger's width at most), zipped shut in the skin either side.
+    # (Filled and domed, as first, the dome sank into the bend.)
     pid = ws.piece("index_creases", "the index finger's two bends, closed inside, in its own skin")
-    for crease in ([167, 197, 213, 211, 190, 172, 173, 177, 179], [127, 164, 178, 176, 162, 135, 137, 139, 141]):
-        M.fill_palm(ws, pid, crease[0], 0x703, None, CSUIT_LIGHT, fair=1, dome=0.1,
-                    skin=skin(CSUIT_SKIN, crease), rom_shade=CSUIT_CREASE)
+    for a, b in CSUIT_CREASES:
+        M.zip_chains(ws, pid, [ws.vert(x) for x in a], [ws.vert(x) for x in b], skin(CSUIT_SKIN, a + b))
 
     # the palm: what is left between the heel, the thumb's root and the
     # finger roots (the fingers' palm sides above close their part), faired
@@ -171,6 +175,8 @@ PPK_UNDER = 1.0       # undersides: the rails' own shade (the N64 shades with 25
 PPK_DEEP = (1.0, 1.45)  # under a flap, deeper than half its width: a finger is thicker than its knuckle roof
 PPK_KNUCKLE = 0.35      # a flap's rounded cover: that much of its half-width above it
 PPK_HEEL = 1.0          # the pad below the butt, between the heel and the little finger: its dome (x its radius)
+PPK_HEEL_OUT = True     # ... rising out of the hand (fill_palm's dome_out: the first pad sank into it)
+PPK_STUMP = (1, 0.1, 0.8)   # the forearm's cut end: fairing, dome, and a little darker than the skin round it
 
 
 def PPK_BAND(tex, s0, s1, t_top, t_bottom):
@@ -343,7 +349,15 @@ def seed_ppk(ws, names):
     pid = ws.piece("heel_pad", "below the grip's butt, between the heel and the little finger's knuckle: "
                    "the palm's pad, domed out to fill the hollow under the knuckle")
     for cycle in left_out(rim["chain"], rim["proj"], below):
-        M.fill_palm(ws, pid, cycle, fist.tex, None, PPK_LIGHT, fair=1, dome=PPK_HEEL, skin=fist, rom_shade=1.0)
+        M.fill_palm(ws, pid, cycle, fist.tex, None, PPK_LIGHT, fair=1, dome=PPK_HEEL, skin=fist, rom_shade=1.0,
+                    dome_out=PPK_HEEL_OUT)
+
+    # the forearm's cut end: in the forearm's own skin, nearly flat, a little
+    # darker than the skin round it (the old recipe's cap at shade 60 read
+    # as a dark band round the end of the arm, as the taser's elbow did)
+    pid = ws.piece("forearm_end", "the forearm's cut end, in the forearm's skin")
+    M.fill_palm(ws, pid, "0x04b0:108", 0x704, None, PPK_LIGHT, fair=PPK_STUMP[0], dome=PPK_STUMP[1],
+                skin=M.NearMap(ws, 0x704, nodes={0x04b0}), rom_shade=PPK_STUMP[2], smooth_uv=True, dome_out=True)
 
     # the trigger finger (0x02b8, its own bone): its first joint is a shell
     # open underneath, at its base and inside the bend into the next joint.

@@ -365,7 +365,7 @@ pale palm fill. Now (Csuit_lf_handZ.authored.json, 325 triangles):
 - The 3-vertex "hole" at 398/399/400 is one N64 triangle hanging off the
   heel by a corner, not a hole.
 
-## The taser/grenade hand and the grenade (2026-10-02, built, awaiting the headset)
+## The taser/grenade hand and the grenade (2026-10-02, headset-accepted)
 The user (watch arm "good for now"): the grenade's flat bottom is a hole,
 the index finger is missing some volume, and the skin is a different
 colour and texture. GtaserZ is also the #41 grenade hand and the off hand
@@ -403,7 +403,34 @@ in two-handed holds.
   pad (0x0468:22) and the watch arm's two index creases. The recipe ops'
   fill (gevr_hands_patch.py) domes the old way too: check the other hands'
   domes before trusting them.
-- Totals: 14 models, 36 parts, 131 groups, 3923 triangles, 5840 weights.
+- The headset (f991772): "good except the dent in the index finger is still
+  there". The index finger's middle joint (a tube, ring 159..173 to ring
+  160..174) has 164 and 166 pulled into the finger at its end (2.9 units off
+  its axis, the rest of the ring and the other fingers' rings 6-10) and 4-5
+  units back along it: seen from the back of the hand its end is a notch
+  with 162 and 168 standing up as two points. The faces round 164 and 166
+  are drawn again with them put back on the ring between 162 and 168
+  (index_knuckle); the notch's own faces end up inside. Accepted (6091470).
+- Totals: 14 models, 36 parts, 132 groups, 3932 triangles, 5848 weights.
+
+## Back to the PP7 and the watch arm with that (2026-10-02, built, awaiting the headset)
+- The PP7's heel pad sank into the hand (dome 1.0 against the fill's own
+  winding): it now rises out of it (PPK_HEEL_OUT), filling the hollow under
+  the little finger's knuckle as it was meant to.
+- The PP7's forearm cut end was the recipe's cap at shade 60, faired twice:
+  from behind and the side a near-black band round the end of the arm, the
+  taser elbow's trouble. Now an authored piece (forearm_end) in the
+  forearm's 0x704, nearly flat, at 0.8 (PPK_STUMP); the recipe op is gone.
+  The siblings follow by same_as.
+- The watch arm's index creases are cracks (the two segments' ends 16-50
+  units apart, a quarter of the finger's width at most): zipped shut
+  instead of filled with a dome that sank (CSUIT_CREASES).
+- A scan for single sunken vertices (dent_scan, below the mean of their
+  neighbours along the surface normal) flagged nothing else that shows: the
+  watch arm's 232 is the palm's own hollow. The taser's two-vertex notch
+  scores low on it (each pulled vertex has the other as a neighbour); the
+  ring-radius check found it.
+- Totals: 14 models, 36 parts, 132 groups, 3748 triangles, 5440 weights.
 
 Tool quirks
 - Bash heredocs with Python inside break here: write edit scripts to the
