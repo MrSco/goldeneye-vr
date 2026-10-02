@@ -3068,7 +3068,7 @@ static void gfx_sp_movemem(uint8_t index, uint8_t offset, const void* data) {
             // I think this is only really used for guLookAtReflect
             index = !((index - G_MV_LOOKATY) / 2);
             rsp.lookat[index] = ((const Light *)data)->l;
-            rsp.lookat_enabled = (index == 0) || (rsp.lookat[1].dir[0] || rsp.lookat[1].dir[1]);
+            rsp.lookat_enabled = (index == 0) || gevrReflectionAxisValid(rsp.lookat[1].dir);
             rsp.lights_changed = true;
             break;
         case G_MV_L0:

@@ -52,8 +52,8 @@ stereo adjustment, not a new physical reflection model.
 
 `python port/tests/test_surfaces.py` passes the production water loader's
 full-range position/UV, perspective, texture scale, color, cache bounds and
-aspect checks, plus 2,079 reflection yaw/pitch/roll poses. Maximum residual
-axis error is 0.009932 from the 8-bit LookAt quantization. Headset visual
+aspect checks, plus 2,457 reflection yaw/pitch/roll poses (including vertical views). Maximum residual
+axis error is 0.009216 from the 8-bit LookAt quantization. Headset visual
 acceptance is still required.
 
 The original water setup (`src/game/unk_092E50.c`, `sub_GAME_7F09343C`)
