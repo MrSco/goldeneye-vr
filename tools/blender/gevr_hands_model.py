@@ -967,14 +967,37 @@ def ring_profile(pts, c, u, w, n, count):
     return out
 
 
+def ring_walk(R, angle):
+    """A ring's vertices (indices into R, in its own order round) from the
+    one of least angle, the way the angle grows, and their angles counted
+    on from there. Sorted by angle when that is the ring's own order (either
+    way round); a ring not star-shaped about the axis (two vertices nearly in
+    line with its centre, which a 1-unit rounding can swap) keeps its own
+    order, its steps wrapped to -pi..pi."""
+    n = len(R)
+    srt = sorted(range(n), key=lambda k: angle(R[k]))
+    k0 = srt[0]
+    fwd = [(k0 + i) % n for i in range(n)]
+    bwd = [(k0 - i) % n for i in range(n)]
+    if srt == fwd or srt == bwd:
+        return srt, [angle(R[k]) for k in srt]
+
+    def step(a, b):
+        return (angle(R[b]) - angle(R[a]) + math.pi) % (2 * math.pi) - math.pi
+    seq = fwd if sum(step(a, b) for a, b in zip(fwd, fwd[1:] + fwd[:1])) >= 0 else bwd
+    cum = [angle(R[seq[0]])]
+    for a, b in zip(seq, seq[1:]):
+        cum.append(cum[-1] + step(a, b))
+    return seq, cum
+
+
 def zip_rings(ws, pid, A, B, angle_a, angle_b, make):
-    """Triangles joining ring A to ring B (lists of verts, closed), walking
-    both by angle (angle_x(v) in 0..2pi round a shared axis), as a strip
-    whose faces all wind the same way. make(tri) builds one."""
-    ia = sorted(range(len(A)), key=lambda k: angle_a(A[k]))
-    ib = sorted(range(len(B)), key=lambda k: angle_b(B[k]))
-    aa = [angle_a(A[k]) for k in ia]
-    bb = [angle_b(B[k]) for k in ib]
+    """Triangles joining ring A to ring B (lists of verts, closed, each in its
+    own order round), walking both by angle (angle_x(v) in 0..2pi round a
+    shared axis: ring_walk), as a strip whose faces all wind the same way.
+    make(tri) builds one."""
+    ia, aa = ring_walk(A, angle_a)
+    ib, bb = ring_walk(B, angle_b)
     # start both at the vertex nearest angle 0 on each, so the walks line up
     i = j = 0
     na, nb = len(ia), len(ib)
