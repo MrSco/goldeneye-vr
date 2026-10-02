@@ -12483,6 +12483,25 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
 /**
  * Address: 7F087A08
  */
+#ifdef GEVR
+/*
+ * Where this frame is seen from. In stereo the camera is the body's position
+ * plus the head's real rise (below), while bondviewGetCurrentPlayersPosition
+ * stays the body's: the hit smoke and explosions pulled toward that, and the
+ * hit spark backed off along the hand's shot line, came out off the hole as
+ * seen from the head (user, 2026-10-02). explosion.c and chrprop.c use this.
+ */
+static coord3d s_gevrEyeWorld;
+coord3d *gevrEyePosition(void)
+{
+    if (g_gevrStereo && g_CurrentPlayer != NULL && g_CurrentPlayer->cameramode != 1)
+    {
+        return &s_gevrEyeWorld;
+    }
+    return bondviewGetCurrentPlayersPosition();
+}
+#endif
+
 Gfx *bondviewRenderDebugBondView(Gfx *gdl)
 {
     coord3d cam_pos;
@@ -12585,6 +12604,9 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
 #endif
     }
 
+#ifdef GEVR
+    s_gevrEyeWorld = cam_pos;   /* gevrEyePosition: where the frame is seen from */
+#endif
     bondviewUpdateCameraMatrices(&cam_pos, &cam_look, &cam_up);
     sub_GAME_7F068190(&zeropos, &vec);
 
