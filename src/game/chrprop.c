@@ -937,10 +937,10 @@ static s32 gevrShotWalkToGun(StandTile **fromtile, PropRecord *playerprop, coord
  * Stereo crosshair (Perfect Dark VR sight.c draws its sight in 3D at the
  * aim ray's hit point, hand->dotpos): where a barrel's ray first meets
  * the world, in camera (view) space. A dry run of the shot below from the same
- * muzzle and direction (gunfire.c gevrStereoShot, no spread): the background
+ * eye-depth barrel origin and direction (gevrStereoShotFromEye, no spread): the background
  * trace, then guards, objects and doors on screen. Nothing is applied - no
- * damage, sparks or sounds - and a guard's near-miss flag, which the hit test
- * sets and which alerts him, is put back. Returns FALSE outside stereo aim.
+ * damage, sparks or sounds - and a guard's near-miss flag and counter are
+ * put back after the hit test. Returns FALSE outside stereo aim.
  */
 /*
  * A view-space point to the world. In stereo the gun and shot origins sit in
@@ -993,6 +993,71 @@ s32 gevrStereoAimCached(s32 hand, coord3d *out)
     return s_gevrAimValid[hand];
 }
 
+/* chrTestHit records a joint's depth for damage, not the body's front face. */
+static f32 gevrStereoAimChrDepth(ShotData *shot, BulletHit *hit)
+{
+    HitThing surface;
+    ModelNode *node;
+    Mtxf *mtx;
+    Mtxf inverse;
+    coord3d pos, dir;
+    f32 enter = 0.0f, leave = M_U32_MAX_VALUE_F;
+    s32 mtxindex;
+    s32 axis;
+
+    if (hit->model == NULL || hit->node == NULL || hit->model->render_pos == NULL)
+    {
+        return hit->dist;
+    }
+    if (propobjFindHit(hit->model, hit->node, &shot->viewOrigin, &shot->viewDir, &surface, &mtxindex, &node))
+    {
+        pos = surface.hitpos;
+        mtx4TransformVecInPlace(&hit->model->render_pos[mtxindex].pos, &pos);
+        return -pos.z;
+    }
+    /* Models without hittable triangles still have the game's body hitbox. */
+    if ((hit->node->Opcode & 0xff) != MODELNODE_OPCODE_BBOX)
+    {
+        return hit->dist;
+    }
+    mtx = modelFindNodeMtx(hit->model, hit->node, 0);
+    matrix_4x4_invert_affine(mtx, &inverse);
+    pos = shot->viewOrigin;
+    dir = shot->viewDir;
+    mtx4TransformVecInPlace(&inverse, &pos);
+    mtx4RotateVecInPlace(&inverse, &dir);
+    for (axis = 0; axis < 3; axis++)
+    {
+        f32 min = hit->node->Data->BoundingBox.Bounds.f[axis][0];
+        f32 max = hit->node->Data->BoundingBox.Bounds.f[axis][1];
+        f32 near, far;
+
+        if (fabsf(dir.f[axis]) < 1e-6f)
+        {
+            if (pos.f[axis] < min || pos.f[axis] > max)
+            {
+                return hit->dist;
+            }
+            continue;
+        }
+        near = (min - pos.f[axis]) / dir.f[axis];
+        far = (max - pos.f[axis]) / dir.f[axis];
+        if (near > far)
+        {
+            f32 swap = near;
+            near = far;
+            far = swap;
+        }
+        if (near > enter) enter = near;
+        if (far < leave) leave = far;
+        if (enter > leave)
+        {
+            return hit->dist;
+        }
+    }
+    return -(shot->viewOrigin.z + shot->viewDir.z * enter);
+}
+
 /*
  * The trace itself: from a view-space origin along a view-space direction,
  * the first thing hit (background, guards, objects, doors), skipping the
@@ -1000,7 +1065,6 @@ s32 gevrStereoAimCached(s32 hand, coord3d *out)
  */
 static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vorigin, const coord3d *vdir, coord3d *out)
 {
-    extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
     ShotData shotdata;
     coord3d *playerpos;
     coord3d dest;
@@ -1013,6 +1077,7 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     PropRecord *prop;
     PropRecord **pp;
     u8 visited[256];
+    f32 viewscale = g_gevrStereo && D_800364CC > 1e-6f ? D_800364CC : 1.0f;
     f32 distscale;
     f32 depth;
     f32 t;
@@ -1041,6 +1106,14 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
 
     shotdata.gunpos = shotdata.viewOrigin;
     gevrViewToWorldPos(&shotdata.gunpos);
+    /* Collision matrices and hit depths are unscaled camera coordinates.
+     * Only the gun and the rendered sight use the level's visibility scale.
+     * Mixing the two put the sight five times beyond a hit on Dam/Surface,
+     * and tested props with a ray starting a fifth of the way to the gun.
+     */
+    shotdata.viewOrigin.x /= viewscale;
+    shotdata.viewOrigin.y /= viewscale;
+    shotdata.viewOrigin.z /= viewscale;
     shotdata.dir = shotdata.viewDir;
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &shotdata.dir);
 
@@ -1129,6 +1202,7 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
         }
     }
 
+    depth = shotdata.maxdist;   /* keep the wall limit before damage hit registration changes it */
     for (pp = g_LastOnScreenProp; (--pp) >= g_OnScreenPropList;)
     {
         prop = *pp;
@@ -1140,6 +1214,7 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
         if ((prop->type == PROP_TYPE_CHR) || (((prop->type == PROP_TYPE_VIEWER) && (prop->chr != 0)) && (getPlayerPointerIndex(prop) != get_cur_playernum())))
         {
             u32 flags = prop->chr->chrflags;
+            s8 closearghs = prop->chr->numclosearghs;
 
             /* the model hit list is only valid where the game traces its own shots */
             if (prop->chr->field_20 == NULL || prop->chr->model == NULL)
@@ -1148,6 +1223,7 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
             }
             chrTestHit(prop, &shotdata);
             prop->chr->chrflags = flags;
+            prop->chr->numclosearghs = closearghs;
         }
         else if (((prop->type == PROP_TYPE_OBJ) || (prop->type == PROP_TYPE_WEAPON)) || (prop->type == PROP_TYPE_DOOR))
         {
@@ -1155,16 +1231,25 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
         }
     }
 
-    /* the nearest thing along the ray, as a camera depth */
-    depth = shotdata.maxdist;
+    /* The nearest surface, rather than the joint used to register damage. */
     for (k = 0; k < 10; k++)
     {
-        if (shotdata.hits[k].prop != 0 && shotdata.hits[k].dist < depth)
+        BulletHit *hit = &shotdata.hits[k];
+        if (hit->prop != NULL)
         {
-            depth = shotdata.hits[k].dist;
+            f32 hitdepth = hit->dist;
+            if (hit->prop->type == PROP_TYPE_CHR || hit->prop->type == PROP_TYPE_VIEWER)
+            {
+                hitdepth = gevrStereoAimChrDepth(&shotdata, hit);
+            }
+            if (hitdepth > 0.0f && hitdepth < depth)
+            {
+                depth = hitdepth;
+            }
         }
     }
 
+    depth *= viewscale;
     /* nothing hit: a point well out along the barrel */
     if (depth > 20000.0f || shotdata.viewDir.z > -0.001f)
     {
@@ -1172,22 +1257,22 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     }
     else
     {
-        t = (-depth - shotdata.viewOrigin.z) / shotdata.viewDir.z;
-        if (t < 1.0f)
+        t = (-depth - vorigin->z) / vdir->z;
+        if (t < 0.0f)
         {
-            t = 1.0f;
+            t = 0.0f;
         }
     }
 
-    out->x = shotdata.viewOrigin.x + shotdata.viewDir.x * t;
-    out->y = shotdata.viewOrigin.y + shotdata.viewDir.y * t;
-    out->z = shotdata.viewOrigin.z + shotdata.viewDir.z * t;
+    out->x = vorigin->x + vdir->x * t;
+    out->y = vorigin->y + vdir->y * t;
+    out->z = vorigin->z + vdir->z * t;
     return TRUE;
 }
 
 s32 gevrStereoAimPoint(s32 hand, coord3d *out)
 {
-    extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+    extern s32 gevrStereoShotFromEye(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
     extern f32 g_TankShellSpeed;
     PropRecord *tankprop = NULL;
     ObjectRecord *tankobj;
@@ -1205,7 +1290,7 @@ s32 gevrStereoAimPoint(s32 hand, coord3d *out)
     }
     if (tankprop == NULL)
     {
-        if (!gevrStereoShot(hand, NULL, &o, &d))
+        if (!gevrStereoShotFromEye(hand, NULL, &o, &d))
         {
             return FALSE;
         }
