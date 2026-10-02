@@ -397,6 +397,14 @@ TASER_CRACKS = {
 TASER_FOREARM = 0.3    # the forearm's back: this deep past its open edges, in half-widths
 TASER_STUMP = (1, 0.1, 0.8)   # the elbow's cut end: fairing, dome, and a little darker than the skin round it
 TASER_BACK = 0.15      # the back of the hand: its dome
+# The index finger's middle joint is a tube from ring 159..173 (odd) to ring
+# 160..174 (even); at its end the N64 pulled 164 and 166 into the finger
+# (2.9 units off its axis, the rest of that ring and the other fingers' 6-10)
+# and 4-5 units back along it: a notch on the back of the last knuckle
+# between 162 and 168, which stand up either side of it as two points (the
+# headset: "the dent in the index finger").
+TASER_INDEX_RINGS = ((159, 161, 163, 165, 167, 169, 171, 173), (160, 162, 164, 166, 168, 170, 172, 174))
+TASER_INDEX_DENT = ((162, 168), (164, 166))   # the corners either side, the points pulled in
 
 
 def seed_taser(ws, names):
@@ -465,6 +473,48 @@ def seed_taser(ws, names):
                    "edges, in the back of the hand's skin")
     M.fill_palm(ws, pid, "largest", 0x702, None, TASER_LIGHT, fair=1, dome=TASER_BACK,
                 skin=M.NearMap(ws, 0x702, nodes={0x0200}), rom_shade=1.0, smooth_uv=True, dome_out=True)
+
+    # the index finger's last knuckle: the faces round the two points pulled
+    # in, drawn again over the notch with those points put back on the ring
+    # (between the corners either side, as far out and along as they are);
+    # the notch's own faces end up inside
+    pid = ws.piece("index_knuckle", "the back of the index finger's last knuckle, rounded over the notch "
+                   "the N64 left in it")
+    pip, dip = ([ws.vert(x) for x in ring] for ring in TASER_INDEX_RINGS)
+    c1 = sum((v.co for v in pip), Vector()) / len(pip)
+    c2 = sum((v.co for v in dip), Vector()) / len(dip)
+    axis = (c2 - c1).normalized()
+
+    def along_and_out(v):
+        d = v.co - c2
+        return d.dot(axis), d - axis * d.dot(axis)
+    (ta, pa), (tb, pb) = (along_and_out(ws.vert(x)) for x in TASER_INDEX_DENT[0])
+    e1 = pa.normalized()
+    e2 = axis.cross(e1)
+
+    def angle(p):
+        return math.atan2(p.dot(e2), p.dot(e1))
+    # from one corner to the other the way round the dent is, not the way
+    # round the rest of the ring
+    turn = angle(pb)
+    others = [angle(along_and_out(v)[1]) for v in dip
+              if ws.R.name(v) not in {str(x) for x in TASER_INDEX_DENT[0] + TASER_INDEX_DENT[1]}]
+    if any(0 < a * math.copysign(1, turn) < abs(turn) for a in others):
+        turn -= math.copysign(2 * math.pi, turn)
+    moved = {}
+    for k, name in enumerate(TASER_INDEX_DENT[1], 1):
+        f = k / (len(TASER_INDEX_DENT[1]) + 1)
+        a = turn * f
+        r = M.lerp(pa.length, pb.length, f)
+        p = c2 + axis * M.lerp(ta, tb, f) + (e1 * math.cos(a) + e2 * math.sin(a)) * r
+        v = ws.vert(name)
+        moved[v] = ws.new_vert(p, ws.bone_of(v))
+    first = len(ws.made)
+    for f in [f for f in ws.bm.faces if f[ws.lay_piece] == 0 and any(v in moved for v in f.verts)]:
+        ws.face(pid, [moved.get(v, v) for v in f.verts], ws.rom_tex(f),
+                [(l[ws.uv].uv.x, 1.0 - l[ws.uv].uv.y) for l in f.loops],
+                [ws.rom_colour(l.vert) if l.vert in moved else None for l in f.loops])
+    ws.settle(pid, faces=ws.made[first:])
 
 
 # ---------------------------------------------------------------------------
