@@ -1139,7 +1139,14 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
     spA0 = g_ExplosionRenderPartDefaultVertex;
 
     sp9C = currentPlayerGetViewToWorldMtxf();
+#ifdef GEVR
+    {
+        extern coord3d *gevrEyePosition(void);   /* bondview2.c: stereo's eye, the head's rise included */
+        sp98 = gevrEyePosition();
+    }
+#else
     sp98 = bondviewGetCurrentPlayersPosition();
+#endif
 
     sp64 = arg0->pos.f[0] - sp98->f[0];
     sp60 = arg0->pos.f[1] - sp98->f[1];
@@ -1259,7 +1266,14 @@ Gfx *explosionSmokeRenderPart(struct Smoke *smoke, struct SmokePart *smoke_part,
     spC0 = g_SmokeRenderPartDefaultVertex;
 
     mtx = currentPlayerGetViewToWorldMtxf();
+#ifdef GEVR
+    {
+        extern coord3d *gevrEyePosition(void);   /* bondview2.c */
+        sp70 = gevrEyePosition();
+    }
+#else
     sp70 = bondviewGetCurrentPlayersPosition();
+#endif
 
     if (g_SmokeTypes[smoke->smoke_type].rateappear >= smoke_part->count)
     {
