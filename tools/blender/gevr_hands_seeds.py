@@ -23,38 +23,69 @@ def wanted(names, piece):
 # ---------------------------------------------------------------------------
 # Csuit_lf_handZ: the left watch arm
 # ---------------------------------------------------------------------------
-# One rigid mesh (node 0x01c0, bone 0). Fingers run along +x, y is the back
-# of the hand, z goes across (thumb at +z). Seen from the palm the N64 left
-# the ring and pinky as top halves, the tips of the index and middle open,
-# and no palm at all. The undersides take the ROM's own mapping for the
-# fingers it did close (the middle finger's underside: 0x702, s 728..865
-# along, t 481..594 across).
+# One rigid mesh (node 0x01c0, bone 0), about ten times the pistol hand's
+# units. Fingers run along +x, y is the back of the hand, z goes across
+# (thumb at +z). The N64 camera saw the back of the hand, so the ring and
+# little fingers are top halves, the middle fingertip is open, the index
+# finger is open inside two of its bends, and the palm is missing between the
+# heel and thumb skin it did model (0x705, facing down) and the finger roots.
+# Every ROM vertex is lit 255 (the textures carry the light). The pieces
+# take the skin beside them, each face in the texture of the N64 skin
+# nearest to it (the finger tops are 0x702 at the root, 0x703 on), and are
+# shaded a little down away from the N64's edges. The palm keeps to 0x705
+# alone (faces switching between it and the finger roots' 0x702 made a
+# ragged seam across it), mapped smoothly from the heel and thumb skin
+# round it (nearest-point lookups folded near the finger roots).
 
 CSUIT_LIGHT = Vector((0.15, 1.0, 0.3)).normalized()
-CSUIT_UNDER = (728, 865, 481, 594)
-CSUIT_SHADE = (0.86, 0.14)
+CSUIT_SKIN = (0x702, 0x703, 0x704, 0x705)   # the back of the hand, fingers, index tip, heel and thumb
+CSUIT_PALM = 0x705    # the palm side the N64 did model (heel, thumb's root): one texture, no seam across
+CSUIT_UNDER = 0.88    # palm side, away from the N64's edges: that much of its 255
+CSUIT_CREASE = 0.8    # inside a finger's bend
+CSUIT_NEAR = 150.0    # how far from a piece's rim the skin it takes may lie (watch arm units)
 
 
 def seed_csuit(ws, names):
-    if wanted(names, "ring_underside"):
-        pid = ws.piece("ring_underside", "the ring finger's palm side, round, with a fingertip pad")
-        M.underside(ws, pid, [[71, 72, 49, 47, 46], [73, 74, 39, 51, 40, 42]], 43, 0x702, CSUIT_UNDER,
-                    CSUIT_LIGHT, arc=2, shade=CSUIT_SHADE)
-    if wanted(names, "pinky_underside"):
-        pid = ws.piece("pinky_underside", "the little finger's palm side, round, with a fingertip pad")
-        M.underside(ws, pid, [[24, 25, 9, 8, 7], [26, 27, 0, 10, 1, 3]], 4, 0x702, CSUIT_UNDER,
-                    CSUIT_LIGHT, arc=2, shade=CSUIT_SHADE)
-    if wanted(names, "middle_tip"):
-        pid = ws.piece("middle_tip", "the middle fingertip's pad")
-        M.cap(ws, pid, 87, 0x702, CSUIT_UNDER, CSUIT_LIGHT, height=0.35, rings=1, shade=CSUIT_SHADE)
-    if wanted(names, "index_joints"):
-        pid = ws.piece("index_joints", "the index finger's two knuckle creases, inside the bend")
-        M.cap(ws, pid, 167, 0x702, CSUIT_UNDER, CSUIT_LIGHT, height=0.12, rings=1, shade=CSUIT_SHADE)
-        M.cap(ws, pid, 127, 0x702, CSUIT_UNDER, CSUIT_LIGHT, height=0.12, rings=1, shade=CSUIT_SHADE)
-    if wanted(names, "palm"):
-        pid = ws.piece("palm", "the palm, a cushion from the heel to the finger roots")
-        M.fill_palm(ws, pid, "largest", 0x706, [0.55, 0.15, 0.95, 0.85], CSUIT_LIGHT, fair=1, dome=0.2,
-                    shade=CSUIT_SHADE)
+    P.directed_loops.quiet = True
+
+    def skin(textures, names_, reach=CSUIT_NEAR):
+        return M.NearMap(ws, textures, near=[ws.vert(x).co for x in names_], reach=reach)
+
+    # the ring and little fingers: the palm side closed round under the N64's
+    # top half, station by station along both open edges, with a pad at the
+    # fingertip; the top's own skin turned under (mirrored), so the seam
+    # along each edge does not show
+    for name, rails, tip in (("ring_finger", [[71, 72, 49, 47, 46], [73, 74, 39, 51, 40, 42]], 43),
+                             ("little_finger", [[24, 25, 9, 8, 7], [26, 27, 0, 10, 1, 3]], 4)):
+        pid = ws.piece(name, "the %s's palm side, closed round under the N64's top half, with a fingertip pad"
+                       % name.replace("_", " "))
+        M.underside(ws, pid, rails, tip, 0x703, (0, 1, 0, 1), CSUIT_LIGHT, arc=2,
+                    skin=skin(CSUIT_SKIN, rails[0] + rails[1] + [tip]), rom_shade=CSUIT_UNDER, mirror=True)
+
+    # the middle fingertip: its open end (facing the palm) closed as a pad
+    tip = [87, 98, 114, 110, 95, 94, 92, 90, 88]
+    pid = ws.piece("middle_tip", "the middle fingertip's pad, in the finger's own skin")
+    M.fill_palm(ws, pid, 87, 0x703, None, CSUIT_LIGHT, fair=1, dome=0.35, skin=skin(CSUIT_SKIN, tip),
+                rom_shade=CSUIT_UNDER)
+
+    # the index finger's two bends, open on their inside: closed nearly flat
+    # (a crease), a little darker
+    pid = ws.piece("index_creases", "the index finger's two bends, closed inside, in its own skin")
+    for crease in ([167, 197, 213, 211, 190, 172, 173, 177, 179], [127, 164, 178, 176, 162, 135, 137, 139, 141]):
+        M.fill_palm(ws, pid, crease[0], 0x703, None, CSUIT_LIGHT, fair=1, dome=0.1,
+                    skin=skin(CSUIT_SKIN, crease), rom_shade=CSUIT_CREASE)
+
+    # the palm: what is left between the heel, the thumb's root and the
+    # finger roots (the fingers' palm sides above close their part), faired
+    # into a cushion. (The 3-vertex "hole" at 398/399/400 is no hole: one
+    # N64 triangle hanging off the heel by a corner.)
+    rim = [0, 27, 26, 11, 67, 71, 73, 57, 109, 111, 115, 99, 210, 212, 214, 245, 243, 242, 241, 398, 424, 423,
+           383, 382, 385, 30, 22, 24]
+    pid = ws.piece("palm", "the palm between the heel, the thumb's root and the finger roots, in the skin "
+                   "beside it")
+    palm = skin(CSUIT_PALM, rim, reach=3 * CSUIT_NEAR)
+    M.fill_palm(ws, pid, 241, 0x705, None, CSUIT_LIGHT, fair=1, dome=0.15, skin=palm, rom_shade=CSUIT_UNDER,
+                smooth_uv=True)
 
 
 # ---------------------------------------------------------------------------

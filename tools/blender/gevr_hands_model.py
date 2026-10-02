@@ -136,6 +136,14 @@ class Workspace:
         None for a ROM vertex: its own colour)."""
         if vs[0] == vs[1] or vs[1] == vs[2] or vs[0] == vs[2]:
             return None
+        if hasattr(tex, "tex_at"):
+            # a skin of several textures (NearMap): this face takes the one
+            # beside it, its corners that texture's coordinates (looked up
+            # where the skin says, e.g. mirrored over a finger's top)
+            skin = tex
+            pts = [skin.where(v) if hasattr(skin, "where") else v.co for v in vs]
+            tex = skin.tex_at(sum(pts, Vector()) / len(pts))
+            uvs = [skin(q, tex=tex) for q in pts]
         try:
             f = self.bm.faces.new(vs)
         except ValueError:
@@ -274,7 +282,7 @@ def fit_centre(c, pts2d):
 
 def underside(ws, pid, rails, tip, tex, st_box, light, arc=2, roundness=(0.75, 1.15),
               tip_pad=0.35, bone=None, shade=(0.80, 0.20), debug=False, flat=1.0, skin=None, rom_shade=None,
-              over=None):
+              over=None, mirror=False):
     """The missing palm side of a finger modelled as the top half of a tube.
 
     rails: two lists of ROM vertex names from the finger's base to its tip,
@@ -291,7 +299,9 @@ def underside(ws, pid, rails, tip, tex, st_box, light, arc=2, roundness=(0.75, 1
     along the finger, t across it, the way the ROM maps the undersides of the
     fingers it did model; or skin (a SkinMap) runs the shell's own mapping on
     underneath. Shade from the completed circle's normal, or with rom_shade
-    (a factor) the rails' own colours across, times it.
+    (a factor) the rails' own colours across, times it. With mirror, a skin
+    (NearMap) is read at each new point's mirror image over the top: the
+    underside shows the top's own skin turned under, seamless at the rails.
 
     over (a fraction of the half-width) builds the arcs on the modelled side
     instead, that high above it: a rounded cover over a flat N64 roof (a
@@ -302,6 +312,7 @@ def underside(ws, pid, rails, tip, tex, st_box, light, arc=2, roundness=(0.75, 1
     B = [ws.vert(x) for x in rails[1]]
     T = ws.vert(tip) if tip is not None else None
     stations = pair_rails(A, B)
+    mirrored = {}   # new point -> its mirror image over the top (mirror)
     rim = A + B + ([T] if T is not None else [])
     info = ws.textures["0x%x" % tex]
     W, Hh = info["w"] * 32.0, info["h"] * 32.0
@@ -351,13 +362,16 @@ def underside(ws, pid, rails, tip, tex, st_box, light, arc=2, roundness=(0.75, 1
             p = m + xh * u + up * v
             nrm = (xh * (math.cos(th) / c) + up * (-math.sin(th) / max(depth, 1e-6))).normalized()
             new.append((ws.new_vert(p, bone if bone is not None else ws.bone_of(a)), nrm))
+            mirrored[new[-1][0]] = m + xh * u - up * v
         if debug:
             print("   station %s-%s half-width %.1f, top %d verts, centre %+.2f c, depth %.2f c"
                   % (ws.R.name(a), ws.R.name(b), c, len(top), v0 / c, depth / c))
         arcs.append((sv, [b] + [p for p, _ in new] + [a], [None] + [n for _, n in new] + [None], c, up, m, xh))
 
     if skin is not None:
-        tex = skin.tex
+        tex = skin.tex if skin.tex is not None else skin   # several textures: picked per face
+        if mirror and skin.tex is None:
+            tex = Mirrored(skin, mirrored)
     colour = {}
     if rom_shade is not None:
         for _, ring, *_ in arcs:
@@ -379,7 +393,9 @@ def underside(ws, pid, rails, tip, tex, st_box, light, arc=2, roundness=(0.75, 1
             f = q / (arc + 1)
             around = (f - 0.5) * 0.5 if over is not None else 0.25 + 0.5 * f
             return skin(v.co if v is not None else None, along=sv, around=around % 1.0)
-        return skin(v.co) if skin is not None and v is not None else st_(sv, q)
+        if skin is not None and v is not None:
+            return skin(mirrored.get(v, v.co)) if mirror else skin(v.co)
+        return st_(sv, q)
 
     def sh(n, v=None):
         if v is not None and v in colour:
@@ -407,6 +423,7 @@ def underside(ws, pid, rails, tip, tex, st_box, light, arc=2, roundness=(0.75, 1
         for q in range(1, arc + 1):
             p = lerp(last[q].co, T.co, 0.5) - up * (tip_pad * c)
             ring.append(ws.new_vert(p, ws.bone_of(last[q])))
+            mirrored[ring[-1]] = lerp(mirrored.get(last[q], last[q].co), T.co, 0.5) + up * (tip_pad * c)
             nr.append((nl[q] * 0.6 - up * 0.4 + (T.co - m).normalized() * 0.3).normalized())
             if last[q] in colour:
                 colour[ring[-1]] = colour[last[q]]
@@ -742,16 +759,23 @@ class NearMap:
     point takes the texture coordinates of the nearest point on the ROM's
     faces in texture tex (not those all on skip's vertices: a flap being
     covered), interpolated across that face. A new surface next to the skin
-    shows the skin that is right beside it."""
+    shows the skin that is right beside it.
+
+    tex may be several textures, for skin that changes texture (a finger
+    whose top is 0x702 at its base and 0x703 further on): each new face then
+    takes the texture of the ROM face nearest to it (tex_at) and its corners
+    that texture's coordinates. .tex is None then, and the primitives hand
+    the map itself to Workspace.face, which picks per face."""
 
     def __init__(self, ws, tex, skip=(), near=None, reach=None, nodes=None):
         from mathutils.bvhtree import BVHTree
         skip = set(skip)
+        texes = tuple(tex) if isinstance(tex, (tuple, list, set, frozenset)) else (tex,)
         self.ws = ws
-        self.tex = tex
+        self.tex = texes[0] if len(texes) == 1 else None
         self.faces = []
         for f in ws.bm.faces:
-            if f[ws.lay_piece] != 0 or ws.rom_tex(f) != tex or all(v in skip for v in f.verts):
+            if f[ws.lay_piece] != 0 or ws.rom_tex(f) not in texes or all(v in skip for v in f.verts):
                 continue
             if nodes is not None and not all(ws.R.primary(v)[0] in nodes for v in f.verts):
                 continue
@@ -760,21 +784,35 @@ class NearMap:
                 continue
             self.faces.append(f)
         if not self.faces:
-            raise SystemExit("NearMap: no ROM faces in texture 0x%x" % tex)
-        verts = []
-        polys = []
-        for f in self.faces:
-            polys.append([len(verts) + k for k in range(len(f.verts))])
-            verts.extend(v.co.copy() for v in f.verts)
-        self.bvh = BVHTree.FromPolygons(verts, polys)
+            raise SystemExit("NearMap: no ROM faces in texture %s" % ", ".join("0x%x" % t for t in texes))
 
-    def _at(self, p):
-        loc, nrm, idx, dist = self.bvh.find_nearest(p)
-        f = self.faces[idx]
+        def tree(faces):
+            verts = []
+            polys = []
+            for f in faces:
+                polys.append([len(verts) + k for k in range(len(f.verts))])
+                verts.extend(v.co.copy() for v in f.verts)
+            return BVHTree.FromPolygons(verts, polys)
+        self.bvh = tree(self.faces)
+        self.by_tex = {}
+        if self.tex is None:
+            for t in texes:
+                fs = [f for f in self.faces if ws.rom_tex(f) == t]
+                if fs:
+                    self.by_tex[t] = (fs, tree(fs))
+
+    def _at(self, p, tex=None):
+        faces, bvh = self.by_tex[tex] if tex is not None and self.tex is None else (self.faces, self.bvh)
+        loc, nrm, idx, dist = bvh.find_nearest(p)
+        f = faces[idx]
         return f, bary(loc, *[l.vert.co for l in f.loops[:3]])
 
-    def __call__(self, p, along=None, around=None):
-        f, w = self._at(p)
+    def tex_at(self, p):
+        """The texture of the ROM skin nearest to p."""
+        return self.tex if self.tex is not None else self.ws.rom_tex(self._at(p)[0])
+
+    def __call__(self, p, along=None, around=None, tex=None):
+        f, w = self._at(p, tex)
         ls = f.loops[:3]
         u = sum(wk * l[self.ws.uv].uv.x for wk, l in zip(w, ls))
         v = sum(wk * (1.0 - l[self.ws.uv].uv.y) for wk, l in zip(w, ls))
@@ -785,6 +823,31 @@ class NearMap:
         it there (255 outside, 190 on the side turned in)."""
         f, w = self._at(p)
         return 255.0 * max(0.0, min(1.0, sum(wk * l[self.ws.shade][0] for wk, l in zip(w, f.loops[:3]))))
+
+
+class Mirrored:
+    """A skin of several textures read at stand-in points (a point under a
+    finger at its mirror image over the top): Workspace.face picks each
+    face's texture and coordinates from where() instead of the corners'
+    own positions."""
+
+    tex = None
+
+    def __init__(self, skin, stand_in):
+        self.skin = skin
+        self.stand_in = stand_in
+
+    def where(self, v):
+        return self.stand_in.get(v, v.co)
+
+    def tex_at(self, p):
+        return self.skin.tex_at(p)
+
+    def __call__(self, p, along=None, around=None, tex=None):
+        return self.skin(p, tex=tex)
+
+    def colour(self, p):
+        return self.skin.colour(p)
 
 
 class Span:
@@ -901,7 +964,7 @@ def zip_chains(ws, pid, A, B, skin, shade=1.0):
 
     def make(tri):
         shs = [None if ws.is_rom(v) else shade * skin.colour(v.co) for v in tri]
-        ws.face(pid, list(tri), skin.tex, [skin(v.co) for v in tri], shs)
+        ws.face(pid, list(tri), skin.tex if skin.tex is not None else skin, [skin(v.co) for v in tri], shs)
     while i < len(A) - 1 or j < len(B) - 1:
         if j >= len(B) - 1 or (i < len(A) - 1 and sa[i + 1] <= sb[j + 1]):
             make((A[i], A[i + 1], B[j]))
@@ -918,13 +981,14 @@ def adopt(ws, pid, faces, skin, shade=1.0):
     beside them, wound like the ROM."""
     faces = list(faces)
     for f in faces:
+        ft = skin.tex if skin.tex is not None else skin.tex_at(f.calc_center_median())
         f[ws.lay_piece] = pid
-        f[ws.lay_tex] = skin.tex
+        f[ws.lay_tex] = ft
         f.smooth = True
         ws.made.append(f)
         for l in f.loops:
             v = l.vert
-            u, w = skin(v.co)
+            u, w = skin(v.co) if skin.tex is not None else skin(v.co, tex=ft)
             l[ws.uv].uv = (u, 1.0 - w)
             s_ = (ws.rom_colour(v) if ws.is_rom(v) else shade * skin.colour(v.co)) / 255.0
             l[ws.shade] = (s_, s_, s_, 1)
@@ -1116,7 +1180,7 @@ def grow(ws, pid, ring_a, ring_b, joints, count, maps, up, bone, between=0, debu
             return lambda v: math.atan2((v.co - c_).dot(ww), (v.co - c_).dot(uu)) % (2 * math.pi)
 
         def make(tri, m=m):
-            ws.face(pid, list(tri), m.tex, [m(v.co, *param.get(v, (0.5, 0.5))) for v in tri],
+            ws.face(pid, list(tri), m.tex if m.tex is not None else m, [m(v.co, *param.get(v, (0.5, 0.5))) for v in tri],
                     [None if ws.is_rom(v) else (m.colour(v.co) if hasattr(m, "colour") else
                                                 gen_cols.get(v, vert_colour(ws, v))) for v in tri])
         zip_rings(ws, pid, rings[i], rings[i + 1], ang(c_i), ang(c_j), make)
@@ -1128,15 +1192,61 @@ def grow(ws, pid, ring_a, ring_b, joints, count, maps, up, bone, between=0, debu
     return rings
 
 
+def harmonic_uv(ws, faces, tex):
+    """Texture coordinates for a new surface in tex, smooth and unfolded: the
+    corners on ROM vertices that tex's faces touch keep those faces'
+    coordinates (the skin runs on without a seam there), and every other
+    point sits at the average of its neighbours (a harmonic map: it stays
+    inside the region those corners cover, so it never reaches the
+    texture's pale surround, and nearest-point jumps cannot fold it).
+    Returns {vertex index: (u, v)}, or None if no corner is held."""
+    import numpy as np
+    verts = sorted({v for f in faces for v in f.verts}, key=lambda v: v.index)
+    at = {v.index: k for k, v in enumerate(verts)}
+    held = {}
+    for v in verts:
+        if not ws.is_rom(v):
+            continue
+        for f in ws.rom_faces(v):
+            if ws.rom_tex(f) == tex:
+                lp = next(l for l in f.loops if l.vert == v)
+                held[v.index] = (lp[ws.uv].uv.x, 1.0 - lp[ws.uv].uv.y)
+                break
+    if not held:
+        return None
+    nbrs = {v.index: set() for v in verts}
+    for f in faces:
+        for e in f.edges:
+            a, b = e.verts
+            nbrs[a.index].add(b.index)
+            nbrs[b.index].add(a.index)
+    n = len(verts)
+    A = np.zeros((n, n))
+    rhs = np.zeros((n, 2))
+    for v in verts:
+        i = at[v.index]
+        if v.index in held:
+            A[i, i] = 1.0
+            rhs[i] = held[v.index]
+        else:
+            A[i, i] = len(nbrs[v.index])
+            for w in nbrs[v.index]:
+                A[i, at[w]] -= 1.0
+    X = np.linalg.solve(A, rhs)
+    return {v.index: (float(X[at[v.index]][0]), float(X[at[v.index]][1])) for v in verts}
+
+
 def fill_palm(ws, pid, loop_spec, tex, uvbox, light, fair=1, dome=0.2, shade=(0.80, 0.20), skin=None,
-              rom_shade=None):
+              rom_shade=None, smooth_uv=False):
     """A palm, or any opening left once the fingers are closed: Liepa's fill
     of the loop (gevr_hands_patch.py's fill), refined, faired and domed into
     a cushion. loop_spec names a vertex on the loop, or is the cycle itself
     (vertices in order, wound as directed_loops winds a hole; its last edge
     may be one the fill closes). Texture: uvbox (a box of tex, planar), or
-    skin (a SkinMap) carrying the ROM's mapping on. Shade: by the faces'
-    normals, or with rom_shade (a factor) the rim's own colours times it."""
+    skin (a SkinMap) carrying the ROM's mapping on; with smooth_uv and a
+    one-texture skin, harmonic_uv in its texture (shade still from the
+    skin). Shade: by the faces' normals, or with rom_shade (a factor) the
+    rim's own colours times it."""
     bm = ws.bm
     first = len(ws.made)
     if isinstance(loop_spec, (list, tuple)):
@@ -1169,9 +1279,12 @@ def fill_palm(ws, pid, loop_spec, tex, uvbox, light, fair=1, dome=0.2, shade=(0.
     if dome:
         P.dome(bm, created, lp, ws.lay_piece, work, dome)
     faces = [f for f in bm.faces if f[ws.lay_piece] == work]
+    multi = skin is not None and getattr(skin, "tex", 0) is None   # several textures: per face
     if skin is not None:
         tex = skin.tex
-        uv = {v.index: skin(v.co) for f in faces for v in f.verts}
+        uv = {} if multi else {v.index: skin(v.co) for f in faces for v in f.verts}
+        if smooth_uv and not multi:
+            uv = harmonic_uv(ws, faces, tex) or uv
     else:
         uv = P.plane_uv([tuple(f.verts) for f in faces], uvbox)
     bm.normal_update()
@@ -1187,13 +1300,15 @@ def fill_palm(ws, pid, loop_spec, tex, uvbox, light, fair=1, dome=0.2, shade=(0.
     rim = [ws.rom_colour(v) for v in lp if ws.is_rom(v)]
     rim_shade = (sum(rim) / len(rim) if rim else 255.0) * (rom_shade or 1.0)
     for f in faces:
+        ft = skin.tex_at(f.calc_center_median()) if multi else tex
         f[ws.lay_piece] = pid
-        f[ws.lay_tex] = tex
+        f[ws.lay_tex] = ft
         f.smooth = True
         ws.made.append(f)
         for l in f.loops:
             v = l.vert
-            l[ws.uv].uv = (uv[v.index][0], 1.0 - uv[v.index][1])
+            u, w = skin(v.co, tex=ft) if multi else uv[v.index]
+            l[ws.uv].uv = (u, 1.0 - w)
             if ws.is_rom(v):
                 s_ = ws.rom_colour(v) / 255.0
             elif rom_shade is not None:
