@@ -14158,8 +14158,13 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
         if (shown == ITEM_UNARMED)
         {
-            /* the left hand's own arm is the watch arm (gevrRenderLeftWatchArm), not a second fist */
-            shown = gevrWeaponPanelLeft ? ITEM_SUIT_LF_HAND : ITEM_FIST;
+            /*
+             * The fist for both panels. The left hand's own arm (the watch
+             * arm, ITEM_SUIT_LF_HAND) is a skeletal pause-animation model:
+             * drawn through the watch's item renderer it crashed in
+             * modelGetNodeRwData (2026-10-02, two headset crashes).
+             */
+            shown = ITEM_FIST;
         }
         else if (shown == ITEM_TRIGGER || shown == ITEM_WATCHLASER)
         {
