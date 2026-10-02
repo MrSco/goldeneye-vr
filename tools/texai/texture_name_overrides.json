@@ -1,0 +1,69 @@
+{
+  "GOLDENEYE#3B30F88F#2#1#00253906_ciByRGBA.png": {
+    "description": "a yellow downward-pointing warning triangle with a thick black border and a black biohazard symbol on a pale background",
+    "category": "symbol",
+    "note": "Identified by inspection. Generative models have distorted the central symbol; review the candidate against the original."
+  },
+  "GOLDENEYE#F3CFD44A#4#0_all.png": {
+    "description": "a small wall switch plate on a plain grey wall",
+    "category": "object"
+  },
+  "GOLDENEYE#CBB6619F#4#0_all.png": {
+    "description": "a grey electronic control panel with a small display and rows of buttons",
+    "category": "screen"
+  },
+  "GOLDENEYE#CF6764BD#3#0_all.png": {
+    "description": "a large white downward arrow on a flat grey background",
+    "category": "symbol"
+  },
+  "GOLDENEYE#C5E386CB#4#0_all.png": {
+    "description": "a grey metal louvered panel with horizontal slats and a frame",
+    "category": "material"
+  },
+  "GOLDENEYE#6ABC24CF#4#0_all.png": {
+    "description": "a repeating grey metal diamond-plate pattern",
+    "category": "material"
+  },
+  "GOLDENEYE#AB6B8916#2#1#F8A99B15_ciByRGBA.png": {
+    "description": "a grey console faceplate with four dark circular controls and green and red indicator lights",
+    "category": "screen"
+  },
+  "GOLDENEYE#82CDB2C0#2#1#BEF2C321_ciByRGBA.png": {
+    "description": "a brown slatted metal vent with a diagonal brace",
+    "category": "material"
+  },
+  "GOLDENEYE#7F7708B1#2#1#6ACC6037_ciByRGBA.png": {
+    "description": "a dark grey control panel with a black rectangular display and three red indicator lamps",
+    "category": "screen"
+  },
+  "GOLDENEYE#A084DC8C#2#1#57EC0E2A_ciByRGBA.png": {
+    "description": "a grey console with three vertical glowing green indicator bars and dark round controls",
+    "category": "screen"
+  },
+  "GOLDENEYE#475DE191#2#1#897FE78D_ciByRGBA.png": {
+    "description": "a red prohibition circle with a diagonal slash over a black hand-like pictogram",
+    "category": "symbol",
+    "review_required": true
+  },
+  "GOLDENEYE#6723818E#2#1#5C4ACA97_ciByRGBA.png": {
+    "description": "a yellow downward-pointing warning triangle with a thick black border and a black biohazard symbol on a pale background",
+    "category": "symbol"
+  },
+  "GOLDENEYE#49D8FCF1#2#1#25A5E791_ciByRGBA.png": {
+    "description": "a yellow downward-pointing warning triangle with a thick black border and a small black pictogram on a pale background",
+    "category": "symbol",
+    "review_required": true
+  },
+  "GOLDENEYE#B6C88513#4#0_all.png": {
+    "description": "the British Royal Coat of Arms crest emblem with lion and unicorn supporters, shield, and ribbon banner",
+    "category": "symbol"
+  },
+  "GOLDENEYE#D34954E9#4#0_all.png": {
+    "description": "a seamless mottled cardstock paper and leatherette folder surface material",
+    "category": "material"
+  },
+  "GOLDENEYE#551AADB3#4#0_all.png": {
+    "description": "a dark aged leatherette dossier folder cover surface with subtle cardstock grain and weathered edges",
+    "category": "material"
+  }
+}
