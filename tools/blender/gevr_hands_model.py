@@ -54,6 +54,7 @@ class Workspace:
         self.pieces = {}
         self.textures = model["textures"]
         self.made = []   # every face built, in order (a primitive settles its own)
+        self.alias = {}  # new vertex -> the ROM vertex (node, idx, mtx) it stands on (a face drawn twice)
 
     # -- ROM access ---------------------------------------------------------
 
@@ -857,6 +858,43 @@ class Mirrored:
         return self.skin.colour(p)
 
 
+class Across:
+    """A skin read straight across a part from the side being built: each
+    point looks along up (into the part) to the far side's ROM faces in the
+    skin's texture and takes the skin there. A missing side wears the skin
+    of the side the N64 did model, mirrored, so both sides of a forearm look
+    alike. A look that passes the far side's edge (a slanted cut end) takes
+    the far side's point nearest to where it would have landed, depth on.
+    Workspace.face reads each corner where() says."""
+
+    tex = None
+
+    def __init__(self, skin, up, depth):
+        from mathutils.bvhtree import BVHTree
+        self.skin = skin
+        self.up = Vector(up).normalized()
+        self.depth = depth
+        verts, polys = [], []
+        for f in skin.faces:
+            polys.append([len(verts) + k for k in range(len(f.verts))])
+            verts.extend(v.co.copy() for v in f.verts)
+        self.bvh = BVHTree.FromPolygons(verts, polys)
+
+    def where(self, v):
+        p = v.co if hasattr(v, "co") else v
+        hit = self.bvh.ray_cast(p + self.up * 1e-3, self.up)[0]
+        return hit if hit is not None else self.bvh.find_nearest(p + self.up * self.depth)[0]
+
+    def tex_at(self, p):
+        return self.skin.tex_at(p)
+
+    def __call__(self, p, along=None, around=None, tex=None):
+        return self.skin(p, tex=tex)
+
+    def colour(self, p):
+        return self.skin.colour(p)
+
+
 class Span:
     """A band map used over part of a finger: along (0..1 of this part) is
     carried to a0..a1 of the whole band, so pieces built one after another
@@ -1305,7 +1343,7 @@ def harmonic_uv(ws, faces, tex):
 
 
 def fill_palm(ws, pid, loop_spec, tex, uvbox, light, fair=1, dome=0.2, shade=(0.80, 0.20), skin=None,
-              rom_shade=None, smooth_uv=False):
+              rom_shade=None, smooth_uv=False, dome_out=False):
     """A palm, or any opening left once the fingers are closed: Liepa's fill
     of the loop (gevr_hands_patch.py's fill), refined, faired and domed into
     a cushion. loop_spec names a vertex on the loop, or is the cycle itself
@@ -1314,7 +1352,10 @@ def fill_palm(ws, pid, loop_spec, tex, uvbox, light, fair=1, dome=0.2, shade=(0.
     skin (a SkinMap) carrying the ROM's mapping on; with smooth_uv and a
     one-texture skin, harmonic_uv in its texture (shade still from the
     skin). Shade: by the faces' normals, or with rom_shade (a factor) the
-    rim's own colours times it."""
+    rim's own colours times it. The dome rises along the fill's own normal,
+    which follows however the loop winds, and can sink into the hand; with
+    dome_out it rises out of it (as the ROM faces round the rim point). The
+    PP7 and watch arm pieces were accepted without it."""
     bm = ws.bm
     first = len(ws.made)
     if isinstance(loop_spec, (list, tuple)):
@@ -1345,7 +1386,13 @@ def fill_palm(ws, pid, loop_spec, tex, uvbox, light, fair=1, dome=0.2, shade=(0.
     if fair:
         P.fair_positions(bm, created)
     if dome:
-        P.dome(bm, created, lp, ws.lay_piece, work, dome)
+        bm.normal_update()
+        n = sum((f.normal for f in bm.faces if f[ws.lay_piece] == work), Vector())
+        sinks = n.dot(sum((ws.outward(v) for v in lp), Vector())) < 0
+        if sinks and not dome_out:
+            at = next((ws.R.name(v) for v in lp if ws.is_rom(v)), "new points")
+            print("   fill at %s: its dome sinks into the hand (dome_out turns it out)" % at)
+        P.dome(bm, created, lp, ws.lay_piece, work, -dome if sinks and dome_out else dome)
     faces = [f for f in bm.faces if f[ws.lay_piece] == work]
     multi = skin is not None and getattr(skin, "tex", 0) is None   # several textures: per face
     if skin is not None:
@@ -1428,8 +1475,8 @@ def extract(ws, collection, materials_for, names=None):
             for v in f.verts:
                 if v.index not in vmap:
                     nv = out.verts.new(v.co)
-                    if ws.is_rom(v):
-                        node, idx, mtx = ws.R.primary(v)
+                    if ws.is_rom(v) or v in ws.alias:
+                        node, idx, mtx = ws.alias[v] if v in ws.alias else ws.R.primary(v)
                         nv[on], nv[oi], nv[om] = node, idx, mtx
                         nv[ob_] = mtx
                     else:

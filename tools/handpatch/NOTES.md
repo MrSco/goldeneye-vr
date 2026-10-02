@@ -365,6 +365,46 @@ pale palm fill. Now (Csuit_lf_handZ.authored.json, 325 triangles):
 - The 3-vertex "hole" at 398/399/400 is one N64 triangle hanging off the
   heel by a corner, not a hole.
 
+## The taser/grenade hand and the grenade (2026-10-02, built, awaiting the headset)
+The user (watch arm "good for now"): the grenade's flat bottom is a hole,
+the index finger is missing some volume, and the skin is a different
+colour and texture. GtaserZ is also the #41 grenade hand and the off hand
+in two-handed holds.
+- The grenade's bottom (GgrenadeZ, a new patched model): a disk and the
+  band round it, in the model's second list in 0x5e2, an 8-bit intensity
+  texture (a clock face's ticks on black; run-length coded, which
+  tools/gevr_tex_decode.py now decodes). First-person models draw that list
+  blended, alpha-tested in stereo, and an intensity texture's alpha is its
+  intensity, so all but the ticks dropped out. The authored piece draws the
+  same 24 triangles with the first, opaque list: corners on the bottom's own
+  vertices (Workspace.alias pins each to them; the band's top ring shares
+  its position with the bevel's darker vertices), the N64's coordinates and
+  colours. The blended copy, drawn after at the same depth, fails GL_LESS.
+- The hand's -x side was never modelled (the N64 camera saw the palm): the
+  back of the hand and the forearm's back. The old recipe closed them in the
+  pale 0x706 at 235 and 0x705 at 215: the different skin. Now
+  (GtaserZ.authored.json, 225 triangles): the forearm's back between the
+  channel's two open edges, a little proud of them, wearing the 0x704 side
+  across from it (M.Across: a look straight across the arm to the far side's
+  skin; at the slanted elbow cut, the far side's nearest point); the back of
+  the hand in 0x702 with harmonic_uv; the elbow's cut end in 0x704, nearly
+  flat (faired twice it grew a lip), at 0.8.
+- The finger "holes" are cracks: where two segments meet (middle joint and
+  fingertip, first segment and knuckle) their ends run side by side 1-6
+  units apart. The old domes over them stood out as pale flaps and dips,
+  the index finger's on its end as seen from behind (the "missing volume").
+  They are zipped shut (zip_chains) in the skin either side; three real
+  openings beside the knuckles are filled.
+- fill_palm's dome rises along the fill's own normal, which follows however
+  the loop happens to wind: here it sank caps into the fingers. dome_out
+  makes it rise out of the hand (as the ROM faces round the rim point); the
+  taser's fills use it. Off by default, so the accepted hands re-seed as
+  they are; a seed now prints the fills whose domes sink: the PP7's heel
+  pad (0x0468:22) and the watch arm's two index creases. The recipe ops'
+  fill (gevr_hands_patch.py) domes the old way too: check the other hands'
+  domes before trusting them.
+- Totals: 14 models, 36 parts, 131 groups, 3923 triangles, 5840 weights.
+
 Tool quirks
 - Bash heredocs with Python inside break here: write edit scripts to the
   scratchpad and run them.
