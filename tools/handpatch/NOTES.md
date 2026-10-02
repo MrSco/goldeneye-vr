@@ -315,9 +315,55 @@ the taser/grenade hand are next, the same way.
 - patch.json and authored.json are written one corner or triangle per line
   (gevr_hp_common.write_json), so a diff shows the corners that changed.
 - Totals: 13 models, 35 parts, 132 groups, 3938 triangles, 5832 weights.
-- Next: the watch arm (Csuit_lf_handZ; seed_csuit is an early try, not in
-  use) and GtaserZ by growing from the skin like this; then the pistols with
+- Next: GtaserZ by growing from the skin like this; then the pistols with
   their own hands (golden gun, Cougar, DD44, knives).
+
+## The watch arm the same way (2026-10-02, built, awaiting the headset)
+Csuit_lf_handZ's hand (0x01c0, one bone, ten times the pistol's units) had
+tubes under the ring and little fingers, pale 0x706 fingertip caps and a
+pale palm fill. Now (Csuit_lf_handZ.authored.json, 325 triangles):
+- The ring and little fingers' palm sides: underside() station by station
+  along their open edges, nearly flat (CSUIT_FLAT: the N64's shell already
+  wraps most of the way round), in the middle finger's own palm-side skin
+  (0x702 s 728..865 along, t 481..594 across) at 0.8. The headset said
+  "a little chubby" with a half-round bottom and the top's skin mirrored
+  under it, then "better but still too fat" with a shallower one: their
+  width is the N64's shell and cannot shrink, so they now match the middle
+  finger the user likes instead of reading as smooth light tubes. The
+  faces along these edges lean down (the shell wraps below them), so
+  up_hint says the top is +y; and the edges double back at the knuckle
+  crease, so the rails skip those vertices and the notches they leave are
+  filled flat. (The first build had half the cross-sections upside down,
+  inside the fingers.)
+- The middle, ring and little fingers grown on past the N64's cut-off ends
+  and curled in towards the palm, a closing fist (the user: "slightly
+  extended so they're closed like a fist"): extend() from each finger's
+  whole end, a knuckle ahead on the finger's line, then down and back to a
+  rounded tip (CSUIT_CURL), in the PP7's 0x703 finger band, shaded by which
+  way each point faces. The ring and little fingers' whole end is the N64's
+  top cross-section plus our underside's last arc (the N64's sloped end cap
+  ends up inside the curl); hung from the bottom opening alone the curls sat
+  low, set back and thin ("slightly misaligned"). The middle fingertip is
+  closed but for its underside, so its curl leaves that opening. The frames
+  use forward-and-up as their reference, which stays off every tangent of
+  the curl (+y alone twisted them 180 degrees).
+- The index finger's two bends, open inside: closed nearly flat, a little
+  darker.
+- The palm: the opening left between the heel, the thumb's root and the
+  finger roots, faired into a cushion in 0x705 (the palm side the N64 did
+  model) only, mapped with harmonic_uv: the heel and thumb corners keep
+  their own coordinates and the rest is smoothed between them.
+- The watch arm's ROM is lit 255 everywhere (the textures carry the light),
+  so the palm side is shaded down to 0.88 (0.8 in the bends) away from the
+  N64's edges.
+- Tool changes: NearMap takes several textures (each new face takes the
+  texture of the ROM skin nearest to it; the finger tops change from 0x702
+  to 0x703); fill_palm takes smooth_uv. Tried and dropped for the palm:
+  per-face textures (a ragged seam between 0x702 and 0x705), nearest-point
+  coordinates (folds near the finger roots), an affine SkinMap (knuckle
+  marks on the palm).
+- The 3-vertex "hole" at 398/399/400 is one N64 triangle hanging off the
+  heel by a corner, not a hole.
 
 Tool quirks
 - Bash heredocs with Python inside break here: write edit scripts to the
