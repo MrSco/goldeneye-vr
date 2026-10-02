@@ -19,6 +19,11 @@
  * fingerprint of its vertex block, and a patch is skipped whole unless every
  * node it uses matches.
  *
+ * Each corner has its own shade (the vertex colour the gun render mode
+ * multiplies the texture by), so modelled fingers can be shaded round; a
+ * corner on a ROM vertex may take that vertex's own colour instead
+ * (HP_CORNER_INHERIT), so the seam does not show.
+ *
  * At load: the converter tells us where each cartridge node landed and the
  * texture marker words of the model's lists (gevrHandPatchWants/Note*); then
  * load_object_fill_header() calls gevrHandPatchApply(), which builds each
@@ -30,9 +35,11 @@
  */
 
 struct gevrHpNode   { u32 ofs; u16 numvtx; u32 fnv; };
-struct gevrHpCorner { u32 node; s16 ref; s16 s, t; u8 mtx; u8 nmix; u16 firstMix; };  /* ref -1: a mix */
+#define HP_CORNER_INHERIT 1   /* a ROM vertex's corner: draw it in that vertex's colour */
+
+struct gevrHpCorner { u32 node; s16 ref; s16 s, t; u8 mtx; u8 nmix; u16 firstMix; u8 cn[4]; u8 flags; };  /* ref -1: a mix */
 struct gevrHpMix    { u32 node; u16 idx; f32 w; };
-struct gevrHpGroup  { u16 tex; u8 shade[4]; u16 firstCorner, numCorners; u16 firstTri, numTris; };
+struct gevrHpGroup  { u16 tex; u16 firstCorner, numCorners; u16 firstTri, numTris; };
 struct gevrHpPart   { u32 host; u16 firstNode, numNodes; u16 firstGroup, numGroups; };
 struct gevrHpModel  { const char *name; u16 firstPart, numParts; };
 

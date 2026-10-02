@@ -9,6 +9,9 @@ DL node (its offset in the cartridge file) and index, weights over ROM
 vertices for new points, our texture coordinates and shade, and a
 fingerprint per node - so the generated file holds no ROM data either.
 
+A corner's shade is its own "c" ([r, g, b, a]), else its group's "shade";
+"inherit": true on a ROM vertex's corner draws it in that vertex's colour.
+
 Usage
 -----
     python tools/gevr_handpatch_gen.py
@@ -40,30 +43,44 @@ def main():
             first_group = len(groups)
             for g in part["groups"]:
                 first_corner = len(corners)
+                shade = g.get("shade", [255, 255, 255, 255])
                 for v in g["verts"]:
+                    cn = tuple(v.get("c", shade))
+                    flags = 1 if v.get("inherit") and "mix" not in v else 0
                     if "mix" in v:
                         first_mix = len(mixes)
                         for node, idx, w in v["mix"]:
                             mixes.append((int(node, 16), idx, w))
-                        corners.append((0, -1, v["s"], v["t"], v["mtx"], len(v["mix"]), first_mix))
+                        corners.append((0, -1, v["s"], v["t"], v["mtx"], len(v["mix"]), first_mix) + cn + (flags,))
                     else:
-                        corners.append((int(v["node"], 16), v["ref"], v["s"], v["t"], v["mtx"], 0, 0))
+                        corners.append((int(v["node"], 16), v["ref"], v["s"], v["t"], v["mtx"], 0, 0) + cn + (flags,))
                 first_tri = len(tris)
                 for t in g["tris"]:
                     tris.append(tuple(t))
-                shade = g["shade"]
-                groups.append((int(g["tex"], 16), shade, first_corner, len(g["verts"]),
-                               first_tri, len(g["tris"])))
+                if len(g["verts"]) > 1024:
+                    # hpEmitGroup's tables hold 1024 corners; a bigger group draws nothing
+                    raise SystemExit("%s: a group of %d corners (at most 1024)" % (patch["model"], len(g["verts"])))
+                groups.append((int(g["tex"], 16), first_corner, len(g["verts"]), first_tri, len(g["tris"])))
             parts.append((int(part["host"], 16), first_node, len(part["nodes"]),
                           first_group, len(part["groups"])))
+        if len(parts) - first_part > 9:
+            # each part takes 5 of a model buffer's 48 allocations (gevr_handpatch.c)
+            raise SystemExit("%s: %d parts (at most 9)" % (patch["model"], len(parts) - first_part))
         models.append((patch["model"], first_part, len(parts) - first_part))
 
     for c in corners:
         if not (-32768 <= c[2] <= 32767 and -32768 <= c[3] <= 32767):
             raise SystemExit("texture coordinate out of range: %s" % (c,))
+        if not (0 <= c[4] <= 255 and 0 <= c[5] <= 255 and all(0 <= x <= 255 for x in c[7:11])):
+            raise SystemExit("matrix, weight count or shade out of range: %s" % (c,))
     for t in tris:
         if max(t) > 65535:
             raise SystemExit("group too large")
+    # first-corner, first-triangle and first-weight indices are u16
+    for what, n in (("corners", len(corners)), ("triangles", len(tris)), ("weights", len(mixes)),
+                    ("groups", len(groups)), ("nodes", len(nodes))):
+        if n > 65535:
+            raise SystemExit("too many %s for u16 indices: %d" % (what, n))
 
     L = []
     w = L.append
@@ -87,7 +104,7 @@ def main():
     w("")
     w("const struct gevrHpCorner g_gevrHpCorners[] = {")
     for c in corners:
-        w("    { 0x%04x, %d, %d, %d, %d, %d, %d }," % c)
+        w("    { 0x%04x, %d, %d, %d, %d, %d, %d, { %d, %d, %d, %d }, %d }," % c)
     w("};")
     w("")
     w("const struct gevrHpMix g_gevrHpMixes[] = {")
@@ -101,8 +118,8 @@ def main():
     w("};")
     w("")
     w("const struct gevrHpGroup g_gevrHpGroups[] = {")
-    for tex, sh, fc, nc, ft, nt in groups:
-        w("    { 0x%03x, { %d, %d, %d, %d }, %d, %d, %d, %d }," % (tex, sh[0], sh[1], sh[2], sh[3], fc, nc, ft, nt))
+    for g in groups:
+        w("    { 0x%03x, %d, %d, %d, %d }," % g)
     w("};")
     w("")
     w("const struct gevrHpPart g_gevrHpParts[] = {")

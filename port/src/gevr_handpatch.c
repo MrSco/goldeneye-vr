@@ -484,8 +484,11 @@ void gevrHandPatchApply(struct ModelFileHeader *header, const char *name, void *
 				v->tc[1] = c->t;
 				if (mode == 2) {
 					v->cn[0] = 255; v->cn[1] = 0; v->cn[2] = 255; v->cn[3] = 255;
+				} else if ((c->flags & HP_CORNER_INHERIT) && c->nmix == 0) {
+					const Vertex *rv = &hpDl(file, c->node)->Vertices[c->ref];   /* checked by hpPosition */
+					v->cn[0] = rv->r; v->cn[1] = rv->g; v->cn[2] = rv->b; v->cn[3] = rv->a;
 				} else {
-					memcpy(v->cn, grp->shade, 4);
+					memcpy(v->cn, c->cn, 4);
 				}
 			}
 

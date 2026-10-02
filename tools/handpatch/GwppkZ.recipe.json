@@ -15,25 +15,8 @@
    ],
    "ops": [
     {
-     "op": "skirt",
-     "chain": "largest",
-     "to": "rest",
-     "gap": 0.6,
-     "reach": 60,
-     "why": "the inside of the fist: skin from the open rim to what it holds",
-     "tex": "0x706",
-     "uvbox": [
-      0.55,
-      0.15,
-      0.95,
-      0.85
-     ],
-     "shade": [
-      200,
-      200,
-      200,
-      255
-     ]
+     "op": "authored",
+     "why": "the middle, ring and little fingers' missing middle joints round the grip's front, modelled in Blender (gevr_hands_author.py; GwppkZ.authored.json)"
     },
     {
      "op": "fill",
@@ -48,46 +31,6 @@
      ],
      "fair": 2,
      "dome": 0.15
-    },
-    {
-     "op": "fill",
-     "loop": "0x0318:24",
-     "why": "the trigger finger's socket (or the knife hand's open knuckle)",
-     "tex": "0x704",
-     "uvbox": [
-      0.1,
-      0.1,
-      0.9,
-      0.9
-     ]
-    },
-    {
-     "op": "fill",
-     "loop": "0x03a8:0",
-     "why": "fingertip",
-     "tex": "0x706",
-     "uvbox": [
-      0.6,
-      0.3,
-      0.9,
-      0.6
-     ],
-     "fair": 1,
-     "dome": 0.3
-    },
-    {
-     "op": "fill",
-     "loop": "0x03c0:0",
-     "why": "fingertip",
-     "tex": "0x706",
-     "uvbox": [
-      0.6,
-      0.3,
-      0.9,
-      0.6
-     ],
-     "fair": 1,
-     "dome": 0.3
     }
    ]
   },
@@ -98,16 +41,8 @@
    ],
    "ops": [
     {
-     "op": "fill",
-     "loop": "0x02b8:0",
-     "why": "the trigger finger's base (its own bone)",
-     "tex": "0x706",
-     "uvbox": [
-      0.6,
-      0.3,
-      0.9,
-      0.6
-     ]
+     "op": "authored",
+     "why": "the trigger finger's first joint closed underneath, at its base and inside the bend, in its own skin (gevr_hands_author.py; GwppkZ.authored.json)"
     }
    ]
   }

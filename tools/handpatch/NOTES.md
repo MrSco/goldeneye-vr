@@ -1,13 +1,11 @@
-# #9 hand shells: working notes (branch feature/9-hand-shells)
+# #9 hand shells: working notes
 
-These notes stay on the branch. STATUS.md (short, rewritten in place) gets a line when the
-branch merges; a number taken earlier raced the gun-fit (112) and two-handed
-hold (113) entries on main.
-
-Worktree: `../gevr-hands`. Keep the main checkout (`goldeneye-vr`) off this
-branch: other agents merge there and in `../gevr-wt`. The ROM and the
-ROM-derived exports stay outside git: pass `../goldeneye-vr/007 - GoldenEye.z64`
-to the tools; exports go to `build/handmodels/` (gitignored).
+Notes for the hand patch work (branches feature/9-hand-shells, then
+claude/hand-models-missing-fingers-15c48f); STATUS.md gets a line when a
+branch merges. Keep the main checkout (`goldeneye-vr`) off a feature branch:
+other agents merge there. The ROM and the ROM-derived exports stay outside
+git: pass `../goldeneye-vr/007 - GoldenEye.z64` to the tools; exports go to
+`build/handmodels/` (gitignored).
 
 ## Phase 0: export, Blender, hole survey (2026-09-26)
 The user asked to patch the hand and arm models' missing walls with Blender.
@@ -153,6 +151,7 @@ What the patches do:
 - Pistols and knives: cap the forearm end (0x704, shade 60), close the
   socket (0x704), the two fingertips (0x706); the trigger finger's base on
   its own bone, drawn with the trigger finger. 47 triangles (32 knives).
+  The PPK family is modelled in Blender now (last section).
 - GfistZ (actually an open hand in a suit sleeve): jacket end cap, jacket
   edge -> shirt sleeve far end, shirt cuff -> forearm (like the tuxedo).
 - GtaserZ (also the grenade hand): finger holes first (two touch the big
@@ -278,6 +277,47 @@ should enter the hand. The finger is its own part on bone 4 (switch table
 entry 6, a position node the game rotates for trigger pulls), so it is
 either drawn inside the gun's grip since the gun fit moved the gun, or not
 placed in stereo. Not a shell problem; test with gevr_handpatch.txt = 0.
+
+## Modelled in Blender: the PP7 hand (2026-10-02, merged)
+Caps and tubes left the PP7's fingers as shells with holes; the user asked
+for the missing fingers, blended into the skin round them, one hand at a
+time. The PPK family (GwppkZ; GwppksilZ, GgoldwppkZ, GsilverwppkZ by
+same_as) is done and headset-checked ("much improved"). The watch arm and
+the taser/grenade hand are next, the same way.
+- tools/blender/gevr_hands_author.py: `seed <model> [pieces]` builds the
+  pieces (gevr_hands_seeds.py, with the primitives in gevr_hands_model.py)
+  and writes tools/handpatch/<model>.authored.json; `open` makes
+  build/handmodels/<m>/<m>_author.blend (ROM locked, pieces editable) and
+  `commit` writes its pieces back; `render` shows the game's look (--groups
+  colours each patch group, --backfaces paints back faces green: holes and
+  pieces turned inside out). gevr_hp_common.py holds what the tools share.
+- authored.json is patch data, no coordinates: corners on ROM vertices
+  (welded within 0.5 units, 4.0 on the watch arm) or new points as weights
+  over four ROM vertices on their own bone (rebuilt within 0.0001), our UVs,
+  a shade per corner. The recipe's "authored" op takes a host's pieces into
+  the patch; same_as maps their nodes like everything else.
+- Runtime: every corner carries its own colour, and HP_CORNER_INHERIT draws
+  a corner on a ROM vertex in that vertex's colour, so a piece shades into
+  the skin it meets. Groups are per texture.
+- The pieces (254 triangles): the middle, ring and little fingers grown from
+  the N64's knuckle flaps and shells into the fingertips (jointed segments
+  round the grip's front, one texture band per finger, the flaps closed
+  underneath and covered on top); the inside of the fist closed onto the
+  grip (the old skirt, in the skin beside it); a domed heel pad below the
+  butt (the skirt's fan there read as a bite out of the pinky's base); the
+  trigger finger's first joint closed in its own skin and colours (it was
+  0x706, the pale palm texture, at full shade).
+- Traps: a cover wound like the roof it sits on faces into the roof (turned
+  out now; no edge is wound both ways); a skin map carried past its faces
+  picks up the texture's white surround (BandMap / NearMap instead); a pale
+  patch in the headset is usually a piece on 0x706 at shade 255; to find
+  what shows through a green pixel, cast a ray from the render's camera.
+- patch.json and authored.json are written one corner or triangle per line
+  (gevr_hp_common.write_json), so a diff shows the corners that changed.
+- Totals: 13 models, 35 parts, 132 groups, 3938 triangles, 5832 weights.
+- Next: the watch arm (Csuit_lf_handZ; seed_csuit is an early try, not in
+  use) and GtaserZ by growing from the skin like this; then the pistols with
+  their own hands (golden gun, Cougar, DD44, knives).
 
 Tool quirks
 - Bash heredocs with Python inside break here: write edit scripts to the
