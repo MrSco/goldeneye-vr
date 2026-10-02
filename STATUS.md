@@ -8,11 +8,11 @@ the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
 **Active branch (2026-10-02):** `fix/60-watch-grip-hand` now includes current
-main. #60 keeps the regular patched watch arm and snaps the regular patched
-gripping hand to its wrist without changing scale; both follow the watch
-controller between game frames. Native attachment/settings and hand checks
-and the signed Android build pass. Headset acceptance is pending; see
-`docs/issue-60-watch-grip-hand.md`.
+main. #60 retains the regular left watch arm, and the original right watch
+hand/pressing finger and pose. The taser-hand substitution was rejected in
+headset review; the corrected candidate restores the primary hand and hides
+only the old model's left side. Native checks and the signed build pass;
+headset recheck pending. See `docs/issue-60-watch-grip-hand.md`.
 
 **Merged, unreleased (2026-10-02):** #30 water shimmer and Dam truck glass,
 user-verified in the headset on `942e897`. Water keeps projected vertices
@@ -205,8 +205,8 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   that side (rooms not rendered, portal shut while closed = black clear
   colour; portal open while opening = the room behind with no slab). The
   `cryptdoor:` log settles it: a door with no `*` room while in view.
-- Unmerged branches: fix/60-watch-grip-hand (active: regular arms snapped
-  together at the watch wrist; headset verification pending), plus
+- Unmerged branches: fix/60-watch-grip-hand (active: regular left watch arm and
+  original right watch hand; corrected candidate awaiting headset review), plus
   whatever `git worktree list` shows in progress (several worktrees exist
   again, including Codex ones).
 
