@@ -7,29 +7,31 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
-**Updated:** 2026-10-01 (evening). **In progress, untested:** branch
-claude/textures-scope-hand-snap-f0eb2c (versionCode 48 kept): the VR scope
-works in either hand or both (gevrScope[2], port/include/gevr_scope.h; a
-second 512x512 target, swapchain and quad layer, used only while that hand
-holds a scoped gun, so one scope costs what it did), the weapon panel's
-unarmed hand draws with culling off (it was the same GfistZ as the swung
-hand, hollow only because the watch's setup culls back faces) and the left
-panel's "Holstered" shows the watch arm, the comfort vignette shuts on a snap
-turn (6 frames, then a quarter-second release). For #72 (geometry through
-walls, in 2D mode too, so the port's depth path, not stereo) a live switch
-`files/gevr_zdebug.txt` tints world draws by depth state (1), depth-tests
-Z_CMP-less draws (2) or keeps the room scissor in stereo (3); for #85 (Egypt
-Golden Gun room door black shut, gone while opening; not fixed since v0.3.7,
-no renderer commits) propobj.c logs each cryptdoor's rooms, drawn flags and
-on-screen verdict every ~50 ticks (`cryptdoor:` lines). Also on the
-branch: crash report fa289829 (v0.3.8, Quest 2, a late joiner spectating
-slot 0) was gevrDrawSpectatorLabel's snprintf on a name pointer truncated
-to 32 bits: bondview2.c called netGetSlotName with no prototype in scope
-(implicit int return; the 32-bit-pointer class). Prototype in net_game.h;
-the other 274 implicit declarations all return void, ints or enums. And
-the left panel's Holstered entry briefly showed the watch arm, which
-crashed the watch's item renderer (report 7e40b3c9): the fist again.
-**Latest release:** v0.3.8 (tag v0.3.8, commit
+**Updated:** 2026-10-02. **Latest release:** v0.3.9 (tag v0.3.9,
+versionCode 49, protocol 15): the branch claude/textures-scope-hand-snap-f0eb2c,
+tested in the headset. Scope view in either hand or both (gevrScope[2],
+port/include/gevr_scope.h; a hand without a scoped gun costs nothing; the
+left scope's sight shows on the left grip, as its flat sight). #72 walls
+seen through walls: room decals (striped walls) drew with the stencil band,
+which left a door-shaped hole where the room behind had nothing within 3
+view units; a room's own lists now take plain polygon offset (bg.c
+VR_ROOM_DL_* 0x5660xxxx; 0x565Fxxxx is the hand-follow prefix), bullet holes
+keep the band. HD texture flashes: the cache (1024) was full and evicting
+30-60 a second, and every re-import drew the N64 image first; cache 4096, and
+a decoded pack image goes in at import (3 MB a frame). The weapon panel's
+fist draws with depth and the room tint (it looked hollow); the left panel
+shows the watch arm (gevrDrawWeaponPanelArm, gevr_wpanel.txt fields 5-7) and
+no "Unarmed" beside "Holstered". Snap turns shut the comfort vignette. In
+stereo the bullet hit's spark sits 4 units off the wall and its smoke 16
+(the game's 26 and 100 show as mid-air with two eyes). Crashes: report
+fa289829 (late joiner spectating: netGetSlotName had no prototype, pointer
+truncated) and the panel's watch-arm crash (7e40b3c9). The HD pack's small
+bullet holes are upstream GhostlyDark art (kept: user); the craters seen
+before were the originals leaking through the cache churn. Test switches
+left in: `files/gevr_zdebug.txt` (1 tint by depth state, 2 force Z_CMP, 3
+room scissor in stereo, 5 deferred pack uploads only) and the `cryptdoor:`
+log for #85 (Egypt door, still open, untested).
+Before it, v0.3.8 (tag v0.3.8, commit
 41bf7b1, versionCode 48, protocol 15, SHA-256 80e0bed0...): crash reporting
 only. The first anonymous crash report (5103ca8b, 2026-10-01) was a SIGSEGV
 from 2026-09-26 (v0.1.14 era) that v0.3.7's widened exit-history check
@@ -180,17 +182,8 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   door hits the door as on the N64. A beam past a door is the game's own
   rule: the laser and AR33 shoot through 2 objects, the RC-P90 3, the
   Magnum and Silver PP7 10, and door windows count as glass.
-- #72 geometry through walls (Depot containers and walls; a doorway shape
-  through a striped wall; the Facility lit cone): reading found three
-  candidates and no proof. Z-less opaque room modes (bg.c
-  DL_LUT_PRIMARY_ADDFOG's G_RM_AA_OPA_SURF2/TERR2, drawn GL_ALWAYS) that
-  the N64 hid with the per-room scissor; the decal band (gfx_opengl.cpp,
-  3 view units either side, `files/gevr_decal.txt` = `1 -2 -2` drops to
-  plain polygon offset); coplanar faces of adjacent rooms decided by
-  GL_LESS order. The gevr_zdebug.txt switch above tells them apart at the
-  spot (mode 1: magenta = Z-less, green = decal). gepc-ref D308 is the
-  same open class. Fix by outcome: map the two Z-less entries to their ZB
-  forms under GEVR; or narrow the band for room (field_10E0) draws.
+- #72 fixed in v0.3.9 (room decals off the stencil band; see the top). The
+  zdebug switch stays for the next see-through report.
 - #85 Egypt Golden Gun room door: the cryptdoor models have no secondary
   list (so #71's blended pass is not it), lighting is off for ILLUMINATED
   props, fog is navy; the likeliest read is that the slab is not drawn from
@@ -236,14 +229,8 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
 ## Next
 
-- Headset session on the branch build: sniper in the left hand (hold X
-  panel) and in both; the panel fist; a snap turn with the vignette on.
-  Then stand at the striped wall, a Depot container and the Egypt door with
-  MQDH casting while the PC flips
-  `adb shell "echo N > /sdcard/Android/data/com.gevr.port/files/gevr_zdebug.txt"`
-  (N = 1, 2, 3, then 0) and `gevr_decal.txt` = `1 -2 -2`, and pull the
-  `cryptdoor:` and `zdebug:` lines from logcat. Fix #72 and #85 by what
-  shows, then merge.
+- #85 Egypt door: stand at the Golden Gun room's exit door and pull the
+  `cryptdoor:` lines (a door in view with no `*` room is the slab not drawn).
 - v0.3.6 is out; both testers should update. The Facility swinging doors
   are the open question: the log line "move: blocked by door" (with the door's box and polygon corners since 66f1613) fired at
   90 degrees open several times, but the players passed through on the
