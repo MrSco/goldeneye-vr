@@ -315,9 +315,34 @@ the taser/grenade hand are next, the same way.
 - patch.json and authored.json are written one corner or triangle per line
   (gevr_hp_common.write_json), so a diff shows the corners that changed.
 - Totals: 13 models, 35 parts, 132 groups, 3938 triangles, 5832 weights.
-- Next: the watch arm (Csuit_lf_handZ; seed_csuit is an early try, not in
-  use) and GtaserZ by growing from the skin like this; then the pistols with
+- Next: GtaserZ by growing from the skin like this; then the pistols with
   their own hands (golden gun, Cougar, DD44, knives).
+
+## The watch arm the same way (2026-10-02, built, awaiting the headset)
+Csuit_lf_handZ's hand (0x01c0, one bone, ten times the pistol's units) had
+tubes under the ring and little fingers, pale 0x706 fingertip caps and a
+pale palm fill. Now (Csuit_lf_handZ.authored.json, 211 triangles):
+- The ring and little fingers' palm sides: underside() station by station
+  along their open edges, with fingertip pads, in the top's own skin read
+  at each point's mirror image over the top (mirror=True), so the seams
+  along the edges do not show.
+- The middle fingertip's open end: a domed pad; the index finger's two
+  bends, open inside: closed nearly flat, a little darker.
+- The palm: the opening left between the heel, the thumb's root and the
+  finger roots, faired into a cushion in 0x705 (the palm side the N64 did
+  model) only, mapped with harmonic_uv: the heel and thumb corners keep
+  their own coordinates and the rest is smoothed between them.
+- The watch arm's ROM is lit 255 everywhere (the textures carry the light),
+  so the palm side is shaded down to 0.88 (0.8 in the bends) away from the
+  N64's edges.
+- Tool changes: NearMap takes several textures (each new face takes the
+  texture of the ROM skin nearest to it; the finger tops change from 0x702
+  to 0x703); fill_palm takes smooth_uv. Tried and dropped for the palm:
+  per-face textures (a ragged seam between 0x702 and 0x705), nearest-point
+  coordinates (folds near the finger roots), an affine SkinMap (knuckle
+  marks on the palm).
+- The 3-vertex "hole" at 398/399/400 is one N64 triangle hanging off the
+  heel by a corner, not a hole.
 
 Tool quirks
 - Bash heredocs with Python inside break here: write edit scripts to the
