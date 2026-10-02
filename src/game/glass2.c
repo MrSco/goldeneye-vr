@@ -8,9 +8,6 @@
 #include "gbi_extension.h"
 #include "glass.h"
 #include "image_bank.h"
-#ifdef GEVR
-#include "system.h"   /* sysLogPrintf: the spark probe */
-#endif
 #include "lv.h"
 #include "objective_status.h"
 #include "random.h"
@@ -565,17 +562,6 @@ void bullet_sparks_init(s_bullet_spark *spark, coord3d *arg1, s32 arg2, f32 arg3
  */
 s_bullet_spark *bullet_spark_create(coord3d *arg0, s32 arg1, f32 arg2, s16 arg3)
 {
-#ifdef GEVR
-    {
-        /* PORT probe (2026-10-02): where hit sparks are made, against the eye and the body */
-        extern coord3d *gevrEyePosition(void);
-        coord3d *eye = gevrEyePosition();
-        coord3d *body = bondviewGetCurrentPlayersPosition();
-        sysLogPrintf(LOG_NOTE, "spark: type %d at (%.1f %.1f %.1f) room %d eye (%.1f %.1f %.1f) body (%.1f %.1f %.1f) caller %p",
-                     arg1, arg0->x, arg0->y, arg0->z, arg3, eye->x, eye->y, eye->z, body->x, body->y, body->z,
-                     __builtin_return_address(0));
-    }
-#endif
     s_bullet_spark *ptr;
 
     for (ptr = &g_BulletSparkArray[0]; ptr < &g_BulletSparkArray[BULLET_SPARKS_MAX]; ptr++)
