@@ -365,7 +365,7 @@ pale palm fill. Now (Csuit_lf_handZ.authored.json, 325 triangles):
 - The 3-vertex "hole" at 398/399/400 is one N64 triangle hanging off the
   heel by a corner, not a hole.
 
-## The taser/grenade hand and the grenade (2026-10-02, headset-accepted)
+## The taser/grenade hand and the grenade (2026-10-02, headset-accepted, merged)
 The user (watch arm "good for now"): the grenade's flat bottom is a hole,
 the index finger is missing some volume, and the skin is a different
 colour and texture. GtaserZ is also the #41 grenade hand and the off hand
@@ -413,7 +413,7 @@ in two-handed holds.
   (index_knuckle); the notch's own faces end up inside. Accepted (6091470).
 - Totals: 14 models, 36 parts, 132 groups, 3932 triangles, 5848 weights.
 
-## Back to the PP7 and the watch arm with that (2026-10-02, built, awaiting the headset)
+## Back to the PP7 and the watch arm with that (2026-10-02, headset-accepted, merged)
 - The PP7's heel pad sank into the hand (dome 1.0 against the fill's own
   winding): it now rises out of it (PPK_HEEL_OUT), filling the hollow under
   the little finger's knuckle as it was meant to.
