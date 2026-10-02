@@ -52,6 +52,11 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
+- VR crosshair depth, headset-accepted 2026-10-02, unreleased: trace in
+  unscaled collision coordinates and scale the hit once for stereo. Enemy
+  sights use the front surface, and the sight shares bullets' eye-depth
+  origin so a muzzle through a wall cannot aim beyond it. Native aim probe,
+  debug and signed release builds passed; release certificate verified.
 - #89 Cradle layering, merged to main 2026-10-02, unreleased: blended room
   surfaces (railings, truss sides) write depth where opaque, and portal-less
   levels draw the blended pass far to near (smoke). Headset-accepted: Cradle
