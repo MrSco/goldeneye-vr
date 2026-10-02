@@ -15,6 +15,7 @@
 #include "gevr_handpatch.h"
 
 struct ModelFileHeader *gevrModelPendingHeader = NULL;
+struct ModelFileHeader *gevrModelWatchGripHeader = NULL;
 
 /* -------------------------------------------------- the cartridge's records */
 
@@ -1099,6 +1100,43 @@ static void convert(struct conv *c, u8 *dstbuf)
 	}
 }
 
+/* #60: the gripping palm shares its DL with the smaller watch's dial,
+ * bezel and band. Keep its skin, finger and outfit textures; omit only
+ * these watch surfaces in the explicitly selected private copy. */
+static s32 gevrModelDropsWatchTexture(const char *name, u32 tex)
+{
+	return gevrModelWatchGripHeader != NULL
+		&& gevrModelPendingHeader == gevrModelWatchGripHeader
+		&& name != NULL && strcmp(name, "GwatchlaserZ") == 0
+		&& ((tex >= 0x5dd && tex <= 0x5e3) || tex == 0x648 || tex == 0x809);
+}
+
+static void gevrModelFilterDisplayList(Gfx *g, u32 n, const char *name)
+{
+	u32 k, tex = 0, droppedTex = 0;
+	s32 drop = FALSE, dropped = 0;
+
+	for (k = 0; k < n; k++) {
+		u8 op = (u8)(g[k].words.w0 >> 24);
+
+		if (op == 0xc0) {
+			tex = (u32)(g[k].words.w1 & 0xfff);
+			gevrHandPatchNoteMarker(tex, (u32)g[k].words.w0);
+			drop = gevrHandPatchDropsTexture(name, tex) || gevrModelDropsWatchTexture(name, tex);
+		} else if (drop && (op == 0xbf /* G_TRI1 */ || op == 0xb1 /* Rare's G_TRI4 */)) {
+			/* Empty G_TRI4 is skipped by the renderer. Keep every matrix,
+			 * vertex load and state command, and the shared vertex block. */
+			g[k].words.w0 = 0xb1000000u;
+			g[k].words.w1 = 0;
+			droppedTex = tex;
+			dropped++;
+		}
+	}
+	if (dropped) {
+		sysLogPrintf(LOG_NOTE, "model %s: dropped %d face command(s) of texture 0x%03x", name, dropped, droppedTex);
+	}
+}
+
 /* ---------------------------------------------------------------- entry */
 
 u32 gevrModelConvert(u8 *data, u32 size, u32 capacity, s32 numSwitches, s32 numTextures, const char *name)
@@ -1173,30 +1211,7 @@ u32 gevrModelConvert(u8 *data, u32 size, u32 capacity, s32 numSwitches, s32 numT
 				gevrHandPatchNoteNode(b->src, b->dst);
 			} else if (b->kind == BK_GDL) {
 				Gfx *g = (Gfx *)(out + b->dst);
-				u32 k, n = b->dstSize / sizeof(Gfx);
-				u32 tex = 0, droppedTex = 0;
-				s32 drop = FALSE, dropped = 0;
-
-				for (k = 0; k < n; k++) {
-					u8 op = (u8)(g[k].words.w0 >> 24);
-
-					if (op == 0xc0) {
-						tex = (u32)(g[k].words.w1 & 0xfff);
-						gevrHandPatchNoteMarker(tex, (u32)g[k].words.w0);
-						drop = gevrHandPatchDropsTexture(c.name, tex);
-					} else if (drop && (op == 0xbf /* G_TRI1 */ || op == 0xb1 /* Rare's G_TRI4 */)) {
-						/* a face the model should not draw (issue #24): an empty
-						 * G_TRI4, which the renderer skips (gfx_pc.cpp gfx_sp_tri4);
-						 * opcode 0x00 is unknown to it and fatal */
-						g[k].words.w0 = 0xb1000000u;
-						g[k].words.w1 = 0;
-						droppedTex = tex;
-						dropped++;
-					}
-				}
-				if (dropped) {
-					sysLogPrintf(LOG_NOTE, "model %s: dropped %d face command(s) of texture 0x%03x", c.name, dropped, droppedTex);
-				}
+				gevrModelFilterDisplayList(g, b->dstSize / sizeof(Gfx), c.name);
 			}
 		}
 	}

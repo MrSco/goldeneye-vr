@@ -7,6 +7,14 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
+**Merged, unreleased (2026-10-02):** #60 / #75 watch-arm and close-hand
+interaction, headset-accepted by the maintainer on `57f00e5`. The regular
+watch arm stays visible during grip. Only the original pressing palm and
+animated finger draw from the old combined model; its small hand, sleeves,
+underside patches and embedded watch face/band are hidden. Snap entry/
+retention are 16/22 cm. Native checks and the signed Android build pass.
+See `docs/issue-60-watch-grip-hand.md`.
+
 **Merged, unreleased (2026-10-02):** #30 water shimmer and Dam truck glass,
 user-verified in the headset on `942e897`. Water keeps projected vertices
 and S/T as floats; stereo reflections convert the body axes to view space.
@@ -198,8 +206,8 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   that side (rooms not rendered, portal shut while closed = black clear
   colour; portal open while opening = the room behind with no slab). The
   `cryptdoor:` log settles it: a door with no `*` room while in view.
-- Unmerged branches: fix/60-watch-grip-hand (shelved: the laser watch
-  gripped with a mirrored hand, which didn't lock to the wrist), plus
+- Unmerged branches: fix/60-watch-grip-hand (active: regular left watch arm and
+  original right watch hand; corrected candidate awaiting headset review), plus
   whatever `git worktree list` shows in progress (several worktrees exist
   again, including Codex ones).
 

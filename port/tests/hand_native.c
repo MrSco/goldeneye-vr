@@ -72,8 +72,8 @@ EXPORT int test_hand_cycles(void) {
     reset();
     int count = gevrWeaponPanelBuild(); CHECK(count == 5);
     for (int i = 0; i < count; i++) CHECK(s_gevrWpList[i].left == ITEM_UNARMED && s_gevrWpList[i].right != ITEM_UNARMED);
-    count = gevrWeaponPanelBuildLeft(); CHECK(count == 4);
-    for (int i = 0; i < count; i++) CHECK(s_gevrWpList[i].left != ITEM_CAMERA);
+    count = gevrWeaponPanelBuildLeft(); CHECK(count == 3);
+    for (int i = 0; i < count; i++) CHECK(s_gevrWpList[i].left != ITEM_CAMERA && s_gevrWpList[i].left != ITEM_FIST);
     gevrCycleHandWeapon(GUNRIGHT, 1);
     CHECK(gevrHandSelected(GUNRIGHT) == ITEM_AK47);
     CHECK(gevrHandSelected(GUNLEFT) == ITEM_GRENADE);
@@ -83,12 +83,12 @@ EXPORT int test_hand_cycles(void) {
     gevrCycleHandWeapon(GUNRIGHT, -1); CHECK(player.hands[GUNRIGHT].weapon_next_weapon == ITEM_WPPK);
     gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(player.hands[GUNRIGHT].weapon_next_weapon == ITEM_AK47);
     settle(); gevrCycleHandWeapon(GUNLEFT, 1);
-    CHECK(gevrHandSelected(GUNLEFT) == ITEM_FIST);
-    settle(); gevrCycleHandWeapon(GUNLEFT, 1);
     CHECK(gevrHandSelected(GUNLEFT) == ITEM_UNARMED);
+    settle(); gevrCycleHandWeapon(GUNLEFT, 1);
+    CHECK(gevrHandSelected(GUNLEFT) == ITEM_WPPK);
     CHECK(gevrHandSelected(GUNRIGHT) == ITEM_AK47);
     settle(); gevrCycleHandWeapon(GUNLEFT, -1);
-    CHECK(gevrHandSelected(GUNLEFT) == ITEM_FIST);
+    CHECK(gevrHandSelected(GUNLEFT) == ITEM_UNARMED);
     settle(); gevrCycleHandWeapon(GUNLEFT, -1);
     CHECK(gevrHandSelected(GUNLEFT) == ITEM_GRENADE);
     CHECK(player.ptr_inventory_first_in_cycle == NULL);
@@ -97,7 +97,7 @@ EXPORT int test_hand_cycles(void) {
     pair.type_inv_item.type_dual.weapon_right = ITEM_SNIPERRIFLE;
     pair.type_inv_item.type_dual.weapon_left = ITEM_SNIPERRIFLE;
     player.ptr_inventory_first_in_cycle = &pair;
-    CHECK(gevrWeaponPanelBuild() == 6); CHECK(gevrWeaponPanelBuildLeft() == 5);
+    CHECK(gevrWeaponPanelBuild() == 6); CHECK(gevrWeaponPanelBuildLeft() == 4);
     CHECK(pair.next == &pair); CHECK(pair.type == INV_ITEM_DUAL);
     // Actual selector equip helper only requests the selected hand.
     GevrWpEntry e = {.right = ITEM_CAMERA, .left = ITEM_SNIPERRIFLE};
@@ -110,7 +110,7 @@ EXPORT int test_hand_cycles(void) {
     reset(); online = 1; mode = NET_DUAL_OFF;
     CHECK(!gevrLeftPanelAvailable()); gevrCycleHandWeapon(GUNLEFT, 1);
     CHECK(!player.hands[GUNLEFT].weapon_animation_trigger);
-    mode = NET_DUAL_ANY; CHECK(gevrLeftPanelAvailable()); CHECK(gevrWeaponPanelBuildLeft() == 4);
+    mode = NET_DUAL_ANY; CHECK(gevrLeftPanelAvailable()); CHECK(gevrWeaponPanelBuildLeft() == 3);
     mode = NET_DUAL_DOUBLES; CHECK(gevrWeaponPanelBuildLeft() == 1);
     pair.type = INV_ITEM_DUAL; pair.next = &pair;
     pair.type_inv_item.type_dual.weapon_right = ITEM_WPPK;
@@ -206,7 +206,7 @@ EXPORT int test_hand_input(void) {
     settle(); rightGrip = 0;
     xDown = 1; inputTime += 80; tickInput(1, 0);
     inputTime += 80; xDown = 0; tickInput(1, 0);
-    CHECK(gevrHandSelected(GUNLEFT) == ITEM_FIST);
+    CHECK(gevrHandSelected(GUNLEFT) == ITEM_UNARMED);
     CHECK(gevrHandSelected(GUNRIGHT) == ITEM_WPPK);
     settle(); leftGrip = 1; xDown = 1; inputTime += 80; tickInput(1, 0);
     inputTime += 80; xDown = 0; tickInput(1, 0);

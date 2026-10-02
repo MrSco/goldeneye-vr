@@ -39,6 +39,11 @@ struct ModelFileHeader;
  */
 extern struct ModelFileHeader *gevrModelPendingHeader;
 
+/* Optional target for the private watch-grip load only. Its embedded watch
+ * faces are omitted; shared weapon models and the regular watch arm retain
+ * their geometry. The caller restores this after load_object_fill_header(). */
+extern struct ModelFileHeader *gevrModelWatchGripHeader;
+
 /*
  * Convert the decompressed model at data (size bytes, in a buffer of capacity
  * bytes) in place. Returns the host-layout size, or 0 if the file could not
