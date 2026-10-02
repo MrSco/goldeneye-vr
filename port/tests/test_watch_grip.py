@@ -12,6 +12,8 @@ math = (ROOT / "src/game/matrixmath.c").read_text(encoding="utf-8")
 gun = (ROOT / "src/game/gunfire.c").read_text(encoding="utf-8")
 state = (ROOT / "src/game/gun.c").read_text(encoding="utf-8")
 model = (ROOT / "src/game/model.c").read_text(encoding="utf-8")
+convert = (ROOT / "port/src/gevr_model.c").read_text(encoding="utf-8")
+handpatch = (ROOT / "port/src/gevr_handpatch.c").read_text(encoding="utf-8")
 
 
 def gu_file(name):
@@ -35,6 +37,9 @@ definitions = "\n".join(re.search(r"^#define " + name + r"\s+[^\n]+", view, re.M
 definitions += "\n" + "\n".join(re.search(r"^static (?:const )?f32 " + name + r"\[[37]\] = [^;]+;", view, re.M).group()
                                       for name in ("s_gevrLaserFace", "s_gevrLaserNormal", "s_gevrLaserForearm", "s_gevrWatchHandTrim"))
 definitions += "\n" + re.search(r"^#define GEVR_WATCHHAND_DLS[^\n]+", gun, re.M).group()
+definitions += "\n" + "\n".join(re.search(r"^#define " + name + r"\s+[^\n]+", view, re.M).group()
+                                    for name in ("GEVR_WATCH_PRESS_CM", "GEVR_WATCH_KEEP_CM", "GEVR_WATCH_REACH_CM"))
+definitions += "\n" + re.search(r"static const struct \{[^}]+\} s_hpDrop\[\] = \{.*?\n\};", handpatch, re.S).group()
 production = "\n".join((
     function(math, "void matrix_4x4_set_rotation_around_xyz("),
     function(math, "void matrix_4x4_set_rotation_around_y("),
@@ -52,6 +57,10 @@ production = "\n".join((
     function(view, "s32 gevrStereoWatchHandMatrix("),
     function(gun, "static s32 gevrWatchHandHideLeft("),
     function(gun, "static void gevrWatchHandAnimateFinger("),
+    function(view, "s32 gevrStereoWatchGripUpdate("),
+    function(handpatch, "s32 gevrHandPatchDropsTexture("),
+    function(convert, "static s32 gevrModelDropsWatchTexture("),
+    function(convert, "static void gevrModelFilterDisplayList("),
 ))
 # Each side's patches must live on its own DL, so the hidden left model leaves no faces behind.
 patch = json.loads((ROOT / "tools/handpatch/GwatchlaserZ.patch.json").read_text(encoding="utf-8"))
@@ -90,6 +99,14 @@ static struct player player;
 struct player *g_CurrentPlayer = &player;
 static int g_GlobalTimerDelta = 1;
 static ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand) { return player.hands[hand].weaponnum; }
+static ModelFileHeader *gevrModelPendingHeader, *gevrModelWatchGripHeader;
+static int s_gevrWatchGrip, online, localSlot, playerSlot, haveWatchPoint = 1;
+static float watchPoint[3];
+static int netIsActive(void) { return online; }
+static int get_cur_playernum(void) { return playerSlot; }
+static int netGetLocalSlot(void) { return localSlot; }
+static int gevrStereoWatchPoint(float out[3]) { memcpy(out, watchPoint, sizeof(watchPoint)); return haveWatchPoint; }
+static void gevrHandPatchNoteMarker(u32 tex, u32 word) { (void)tex; (void)word; }
 static float gevrGunSizeFactor(void) { return size; }
 static int gevrGripAxes(int ctrl, float pos[3], float right[3], float up[3], float back[3])
 {
@@ -165,6 +182,75 @@ static void checkFinger(const Mtxf *base)
     switches[6] = &finger; fingerData.Group.MatrixID0 = 4;
     gevrWatchHandAnimateFinger(&header, (Mtxf *)base, again, limit);
     assert(memcmp(again, rest, sizeof(rest)) == 0);
+}
+static void checkWatchFaces(void)
+{
+    const u32 watch[] = {0x5dd, 0x5de, 0x5df, 0x5e0, 0x5e1, 0x5e3, 0x648, 0x809};
+    const u32 keep[] = {0x701, 0x702, 0x703, 0x704, 0x705, 0x706,
+                       0x63d, 0x63e, 0x645, 0x660, 0x667, 0x66c, 0x69f};
+    ModelFileHeader privateHeader = {0}, sharedHeader = {0};
+    for (int mode = 0; mode < 4; mode++) {
+        gevrModelWatchGripHeader = mode ? &privateHeader : NULL;
+        gevrModelPendingHeader = mode == 2 ? &sharedHeader : &privateHeader;
+        for (int tex = 0; tex < 21; tex++) {
+            Gfx commands[8] = {0}, original[8];
+            commands[0].words.w0 = 0xc0000000; commands[0].words.w1 = tex < 8 ? watch[tex] : keep[tex-8];
+            commands[1].words.w0 = 0x04000030; commands[1].words.w1 = 0x05000100; /* vertices */
+            commands[2].words.w0 = 0xbf000000; commands[2].words.w1 = 0x000a141e;
+            commands[3].words.w0 = 0xb1123456; commands[3].words.w1 = 0x12345678;
+            commands[4].words.w0 = 0xc0000000; commands[4].words.w1 = 0x702; /* back to skin */
+            commands[5].words.w0 = 0x01000040; commands[5].words.w1 = 0x030000c0; /* finger matrix */
+            commands[6].words.w0 = 0xbf000000; commands[6].words.w1 = 0x000a141e;
+            commands[7].words.w0 = 0xb8000000;
+            memcpy(original, commands, sizeof(commands));
+            gevrModelFilterDisplayList(commands, 8, mode == 3 ? "Csuit_lf_handZ" : "GwatchlaserZ");
+            for (int i = 0; i < 8; i++) {
+                if (mode == 1 && tex < 8 && (i == 2 || i == 3)) {
+                    assert(commands[i].words.w0 == 0xb1000000 && commands[i].words.w1 == 0);
+                } else assert(memcmp(&commands[i], &original[i], sizeof(Gfx)) == 0);
+            }
+        }
+    }
+    assert(gevrHandPatchDropsTexture("GfistZ", 0x5ea)); /* existing fist correction */
+    gevrModelWatchGripHeader = gevrModelPendingHeader = NULL;
+    Gfx fist[3] = {0};
+    fist[0].words.w0 = 0xc0000000; fist[0].words.w1 = 0x5ea;
+    fist[1].words.w0 = 0xbf000000; fist[1].words.w1 = 0x000a141e;
+    fist[2].words.w0 = 0xb8000000;
+    gevrModelFilterDisplayList(fist, 3, "GfistZ");
+    assert(fist[1].words.w0 == 0xb1000000 && fist[1].words.w1 == 0);
+    assert(fist[0].words.w1 == 0x5ea && fist[2].words.w0 == 0xb8000000);
+}
+static void checkSnapReach(void)
+{
+    const float levels[] = {0.2f, 1};
+    const float sizes[] = {0.5f, 1, 2};
+    for (int level = 0; level < 2; level++)
+    for (int cheat = 0; cheat < 3; cheat++)
+    for (int turn = 0; turn < 3; turn++) {
+        D_800364CC = levels[level]; size = sizes[cheat];
+        float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100;
+        coord3d angles = {.x = turn * 0.4f, .y = turn * -0.7f, .z = turn * 1.1f};
+        matrix_4x4_set_rotation_around_xyz(&angles, &poses[1]);
+        float distances[] = {16.1f, 15.9f, 18, 21.9f, 22.1f, 18, 15.9f};
+        int expected[] = {0, 1, 1, 1, 0, 0, 1};
+        s_gevrWatchGrip = 0;
+        for (int step = 0; step < 7; step++) {
+            for (int i = 0; i < 3; i++) poses[1].m[3][i] = watchPoint[i] + poses[1].m[0][i] * cm * distances[step];
+            float distance;
+            assert(gevrStereoWatchGripUpdate(1, &distance) == expected[step]);
+            closeEnough(distance, distances[step]);
+        }
+        assert(!gevrStereoWatchGripUpdate(0, NULL));
+        havePose[1] = 0; assert(!gevrStereoWatchGripUpdate(1, NULL)); havePose[1] = 1;
+        haveWatchPoint = 0; assert(!gevrStereoWatchGripUpdate(1, NULL)); haveWatchPoint = 1;
+    }
+    online = 1; playerSlot = 1; localSlot = 0;
+    s_gevrWatchGrip = 0;
+    float distance = -1;
+    assert(gevrStereoWatchGripUpdate(1, &distance)); /* remote firing uses its owner's input */
+    assert(distance == 0 && s_gevrWatchGrip == 0);
+    online = playerSlot = 0;
 }
 int main(void)
 {
@@ -284,7 +370,9 @@ int main(void)
         g_gevrStereo = 0; gevrWatchHandTickHiddenFinger(GUNRIGHT, weapon, 0); g_gevrStereo = 1;
         assert(player.hands[GUNRIGHT].field_A84 == 0);
     }
-    puts("watch grip: 72 wrist/finger poses, preserved right palm/sleeves, reordered nodes, press/release and tick/render isolation passed");
+    checkWatchFaces();
+    checkSnapReach();
+    puts("watch grip: wrist/finger poses, palm/sleeves, press/release, private watch-face filtering and 16/22 cm snap hysteresis passed");
     return 0;
 }
 '''

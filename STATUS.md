@@ -8,13 +8,12 @@ the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
 **Active branch (2026-10-02):** `fix/60-watch-grip-hand` includes current
-main. #60 keeps the approved regular left watch arm and original right watch
-hand/pose. Headset review caught incorrect part hiding (only the right
-finger remained): now only the old left hand is hidden; the right palm and
-outfit sleeves stay visible. The private grip copy now applies the original
-finger press/release animation, advanced once per game tick. Native checks
-and the signed build pass; headset recheck pending.
-See `docs/issue-60-watch-grip-hand.md`.
+main. #60 keeps the approved regular left arm and original right palm,
+sleeves and finger animation. Latest headset review (`cbfd799`) exposed a
+duplicate small watch face/band inside the right palm's display list: now
+filtered only from the private grip copy. Snap entry widened to 16 cm,
+retention to 22 cm for easier activation. Native checks and the signed
+build pass; headset recheck pending. See `docs/issue-60-watch-grip-hand.md`.
 
 **Merged, unreleased (2026-10-02):** #30 water shimmer and Dam truck glass,
 user-verified in the headset on `942e897`. Water keeps projected vertices
