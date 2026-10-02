@@ -620,6 +620,75 @@ s32 bgGet2dBboxByRoomId(s32 room_id, struct bbox2d *result)
 }
 
 
+#ifdef GEVR
+/*
+ * Issue #89: Cradle has no portals, so every room it draws sits at portal
+ * depth 0 and the blended (secondary) pass below ran in list order: room 9,
+ * then 1..36. Explosions and smoke draw in their room's turn of that pass and
+ * write no depth, so a farther room later in the list painted its railings
+ * over the smoke; the longer draw distance (GEVR_FAR_EXTEND) brings in many
+ * more such rooms than the N64 drew. On a level without portals the pass now
+ * runs far to near by the eye's distance to each room's centre. A centre, not
+ * the nearest point: Cradle's long arms and towers have boxes that hold the
+ * eye, and a room drawn too early loses only soft railing edges (its solid
+ * texels write depth, see DL_LUT_SECONDARY_ADDFOG), while one drawn too late
+ * paints over the smoke. Levels with portals keep the game's order.
+ */
+static s32 s_gevrSecondaryOrder[MAXROOMCOUNT];
+
+static void gevrOrderSecondaryPass(void)
+{
+    static f32 dist[MAXROOMCOUNT];
+    s32 n = g_BgNumberOfRoomsDrawn;
+    s32 i;
+    s32 j;
+
+    if (n > MAXROOMCOUNT)
+    {
+        n = MAXROOMCOUNT;
+    }
+
+    for (i = 0; i < n; i++)
+    {
+        s_gevrSecondaryOrder[i] = i;
+    }
+
+    if ((levelentry_index != LEVEL_INDEX_CRAD) && (g_BgPortals->offset_portal != NULL))
+    {
+        return;
+    }
+
+    for (i = 0; i < n; i++)
+    {
+        s_room_info *room = &g_BgRoomInfo[dword_CODE_bss_8007FFA0[i].roomid];
+        coord3d centre;
+
+        /* room units to world, then to the eye, as bgProjectRoomCoordToScreen does */
+        for (j = 0; j < 3; j++)
+        {
+            centre.f[j] = (room->minbounds.f[j] + room->maxbounds.f[j]) * 0.5f * room_data_float2;
+        }
+
+        mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &centre);
+        dist[i] = centre.f[0] * centre.f[0] + centre.f[1] * centre.f[1] + centre.f[2] * centre.f[2];
+    }
+
+    /* farthest first; insertion sort is stable, so ties keep list order */
+    for (i = 1; i < n; i++)
+    {
+        s32 key = s_gevrSecondaryOrder[i];
+
+        for (j = i - 1; j >= 0 && dist[s_gevrSecondaryOrder[j]] < dist[key]; j--)
+        {
+            s_gevrSecondaryOrder[j + 1] = s_gevrSecondaryOrder[j];
+        }
+
+        s_gevrSecondaryOrder[j + 1] = key;
+    }
+}
+#endif
+
+
 /**
  * Address: 7F0B3C8C
  */
@@ -631,6 +700,7 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
     s32 i;
 #endif
     s32 j;
+    s32 k;   /* the entry the secondary pass draws in turn j (issue #89) */
 #ifdef VERSION_EU
     s16 b_max;
     s16 b_min;
@@ -737,6 +807,9 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
  
     if (g_BgNumberOfRoomsDrawn);
     if (dword_CODE_bss_8007FFA0);
+#ifdef GEVR
+    gevrOrderSecondaryPass();
+#endif
  
     for (i = b_max; i >= b_min; i--)
     {
@@ -746,16 +819,21 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
  
         for (j = 0; j < g_BgNumberOfRoomsDrawn; j++)
         {
-            if (i == dword_CODE_bss_8007FFA0[j].unk1)
+#ifdef GEVR
+            k = (j < MAXROOMCOUNT) ? s_gevrSecondaryOrder[j] : j;
+#else
+            k = j;
+#endif
+            if (i == dword_CODE_bss_8007FFA0[k].unk1)
             {
                 gSPMatrix(gdl++, osVirtualToPhysical((void*)get_BONDdata_field_10E0()), (G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION));
                 gdl = fogSetRenderFogColor(
                     bgScissorCurrentPlayerViewF(
                         gdl++,
-                        dword_CODE_bss_8007FFA0[j].bbox.min.x,
-                        dword_CODE_bss_8007FFA0[j].bbox.min.y,
-                        dword_CODE_bss_8007FFA0[j].bbox.max.x,
-                        dword_CODE_bss_8007FFA0[j].bbox.max.y),
+                        dword_CODE_bss_8007FFA0[k].bbox.min.x,
+                        dword_CODE_bss_8007FFA0[k].bbox.min.y,
+                        dword_CODE_bss_8007FFA0[k].bbox.max.x,
+                        dword_CODE_bss_8007FFA0[k].bbox.max.y),
                     1);
  
                 if (get_debug_do_draw_bg())
@@ -765,7 +843,7 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
 #ifdef GEVR
                         gDPNoOpTag(gdl++, 0x56600000);   /* VR_ROOM_DL_BEGIN (issue #72) */
 #endif
-                        gdl = bgRenderRoomSecondary(gdl, dword_CODE_bss_8007FFA0[j].roomid);
+                        gdl = bgRenderRoomSecondary(gdl, dword_CODE_bss_8007FFA0[k].roomid);
 #ifdef GEVR
                         gDPNoOpTag(gdl++, 0x56600001);   /* VR_ROOM_DL_END */
 #endif
@@ -779,7 +857,7 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
                 {
                     if (sub_GAME_7F0BD8F0())
                     {
-                        gdl = chrpropsRenderPass(gdl, dword_CODE_bss_8007FFA0[j].roomid, 1);
+                        gdl = chrpropsRenderPass(gdl, dword_CODE_bss_8007FFA0[k].roomid, 1);
                     }
                 }
  
@@ -2119,7 +2197,12 @@ Gfx DL_LUT_PRIMARY_ADDFOG[] = {
     gsDPSetRenderMode(G_RM_FOG_SHADE_A, G_RM_AA_ZB_XLU_DECAL2),
     //Transparent Surface to FOG Transparent Surface
     gsDPSetRenderMode(G_RM_PASS, G_RM_AA_ZB_XLU_SURF2),
+#ifdef GEVR
+    /* Issue #89: writes depth where opaque, as DL_LUT_SECONDARY_ADDFOG explains */
+    gsDPSetRenderMode(G_RM_FOG_SHADE_A, G_RM_CUSTOM_AA_ZB_XLU_SURF2),
+#else
     gsDPSetRenderMode(G_RM_FOG_SHADE_A, G_RM_AA_ZB_XLU_SURF2),
+#endif
     // Billboard Cut-out to FOG Billboard Cut-out - eg, Mario Tree or Depot lamp
     // See PGDLists\Transparent Textures.htm for more info
     gsDPSetRenderMode(G_RM_PASS, G_RM_AA_ZB_TEX_EDGE2),
@@ -2141,7 +2224,20 @@ Gfx DL_LUT_SECONDARY_ADDFOG[] = {
     gsDPSetRenderMode(G_RM_FOG_SHADE_A, G_RM_AA_ZB_XLU_DECAL2),
     //Transparent Surface to FOG Transparent Surface
     gsDPSetRenderMode(G_RM_PASS, G_RM_AA_ZB_XLU_SURF2),
+#ifdef GEVR
+    /*
+     * Issue #89: Cradle's railings and truss sides are cutout textures in
+     * this blended mode, which writes no depth, so a farther railing drawn
+     * later painted straight over a nearer one. With Z_UPD added, fast3d
+     * keeps the ordinary blend and adds a depth-only draw of the pixels whose
+     * alpha is opaque (issue #71's mode, gfx_opengl.cpp
+     * gevr_opaque_depth_after_blend): solid bars hide what is behind them,
+     * glass and soft edges stay see-through. Decals keep the game's mode.
+     */
+    gsDPSetRenderMode(G_RM_FOG_SHADE_A, G_RM_CUSTOM_AA_ZB_XLU_SURF2),
+#else
     gsDPSetRenderMode(G_RM_FOG_SHADE_A, G_RM_AA_ZB_XLU_SURF2),
+#endif
 
     // Billboard Cut-out to FOG Billboard Cut-out - eg, Mario Tree or Depot lamp
     gsDPSetRenderMode(G_RM_PASS, G_RM_AA_ZB_TEX_EDGE2),
@@ -2179,6 +2275,11 @@ Gfx DL_LUT_SECONDARY_ADDFOG[] = {
 // Loaded once on first time entering level, only once ever
 // Swap all refrences to Shade in Alpha to Environment
 Gfx DL_LUT_PRIMARY[] = {
+#ifdef GEVR
+    /* Issue #89: blended surfaces write depth where opaque, as in the fog LUTs */
+    gsDPSetRenderMode(G_RM_PASS, G_RM_AA_ZB_XLU_SURF2),
+    gsDPSetRenderMode(G_RM_PASS, G_RM_CUSTOM_AA_ZB_XLU_SURF2),
+#endif
     gsDPSetCombineMode(G_CC_TRILERP, G_CC_MODULATEIA2),
     gsDPSetCombineLERP(TEXEL1, TEXEL0, LOD_FRACTION, TEXEL0,  TEXEL1, TEXEL0, LOD_FRACTION, TEXEL0,  COMBINED, 0, SHADE, 0,  COMBINED, 0, ENVIRONMENT, 0),
     gsDPSetCombineLERP(TEXEL0, 0, SHADE, 0,  TEXEL0, 0, SHADE, 0,  TEXEL0, 0, SHADE, 0,  TEXEL0, 0, SHADE, 0),
@@ -2206,6 +2307,11 @@ Gfx DL_LUT_PRIMARY[] = {
 // Loaded once on first time entering level, only once ever
 // Swap all refrences to Shade in Alpha to Environment
 Gfx DL_LUT_SECONDARY[] = {
+#ifdef GEVR
+    /* Issue #89: blended surfaces write depth where opaque, as in the fog LUTs */
+    gsDPSetRenderMode(G_RM_PASS, G_RM_AA_ZB_XLU_SURF2),
+    gsDPSetRenderMode(G_RM_PASS, G_RM_CUSTOM_AA_ZB_XLU_SURF2),
+#endif
     gsDPSetCombineMode(G_CC_TRILERP, G_CC_MODULATEIA2),
     gsDPSetCombineLERP(TEXEL1, TEXEL0, LOD_FRACTION, TEXEL0,  TEXEL1, TEXEL0, LOD_FRACTION, TEXEL0,  COMBINED, 0, SHADE, 0,  COMBINED, 0, ENVIRONMENT, 0),
     gsDPSetCombineLERP(TEXEL0, 0, SHADE, 0,  TEXEL0, 0, SHADE, 0,  TEXEL0, 0, SHADE, 0,  TEXEL0, 0, SHADE, 0),

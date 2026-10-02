@@ -52,6 +52,11 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
+- #89 Cradle layering, branch claude/cradle-layering-fix-review-315311, not
+  merged: blended room surfaces (railings, truss sides) write depth where
+  opaque, and portal-less levels draw the blended pass far to near (smoke).
+  Accepted on the headset at the truss view 2026-10-02 (DRAWS 207); no
+  explosion capture yet. Still to check: glass on Facility/Control.
 - #30: intermittent colored water lines cleared on launcher restart and
   did not recur in final capture; still unresolved. Animation/glass fixed.
 - #85: Egypt Golden Gun room exit door can draw black. The cryptdoor log
