@@ -1842,11 +1842,12 @@ s32 gevrStereoWatchPoint(f32 out[3])
  * the watch, the hand may drift to GEVR_WATCH_KEEP_CM: at one edge a held
  * beam cut in and out (log: 9.6 fires, 10.3 held, back and forth). Kept each
  * tick while a watch item is out, so the gripping hand (gunfire.c
- * gevrRenderWatchGripHand) shows exactly when a pull would fire (user: a
- * visual sign that firing is possible).
+ * gevrRenderWatchGripHand, #60) shows exactly when a pull would fire (user: a
+ * visual sign that firing is possible). #60 headset review: widen entry to
+ * 16 cm and release to 22 cm so bringing the hands together is less exacting.
  */
-#define GEVR_WATCH_PRESS_CM 10.0f
-#define GEVR_WATCH_KEEP_CM 14.0f
+#define GEVR_WATCH_PRESS_CM 16.0f
+#define GEVR_WATCH_KEEP_CM 22.0f
 #define GEVR_WATCH_REACH_CM 10.0f
 
 static s32 s_gevrWatchGrip;
@@ -3175,22 +3176,8 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
     }
 }
 
-/*
- * The watch laser's own two-arm viewmodel at the watch (gunfire.c
- * gevrRenderWatchGripHand), placed so that the model's watch face lies on the
- * tracked arm's: its left fist then takes the tracked hand's place, with its
- * right hand holding it as Bond's does. The model's
- * frame, measured from the ROM (GwatchlaserZ; GtriggerZ is the same model):
- * the face is DL 0x300's dial 0x648 and bezel 0x5e0 (area-weighted centre
- * and normal), and the arm's way is its forearm's: the sleeve's (0x2b8)
- * principal axis, elbow to wrist, in the face's plane. Its fist is bent 88
- * degrees off that axis; laid along the fist, the model's arm pointed ahead
- * with the laser (user: turn it 90 degrees right, twelve o'clock ahead).
- * Drawn at the viewmodel's size, as the fist is.
- * files/gevr_watchhand.txt "dx dy dz rx ry rz scale" trims it in the wrist
- * frame (cm along x fingers, y face, z thumb; degrees about them), re-read
- * every couple of seconds while it exists.
- */
+/* #60: preserve the original primary watch hand's placement and legacy trim.
+ * Its left-hand geometry is hidden; the regular watch arm remains visible. */
 static const f32 s_gevrLaserFace[3] = { -2.89f, 80.96f, 81.51f };
 static const f32 s_gevrLaserNormal[3] = { 0.0062f, 0.8650f, -0.5017f };
 static const f32 s_gevrLaserForearm[3] = { -0.4488f, 0.4508f, 0.7716f };

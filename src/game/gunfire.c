@@ -1,6 +1,7 @@
 #ifdef GEVR
 #include "net_game.h"
 #include "gevr_scope.h"   /* the per-hand VR scope (issue #40) */
+#include "gevr_model.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -148,6 +149,7 @@ s32 get_ammo_type_for_weapon(ITEM_IDS weapon);
 f32 gunSetHorizontalOffset(GUNHAND hand);
 f32 get_value_if_watch_is_on_hand_or_not(GUNHAND hand);
 void sub_GAME_7F05DA8C(GUNHAND hand, ITEM_IDS weaponnum_watchmenu);
+void sub_GAME_7F05E6B4(GUNHAND hand, s32 arg1);
 void sub_GAME_7F05E808(GUNHAND hand);
 void sub_GAME_7F05EA94(Model *model, s32 val);
 void sub_GAME_7F0649D8(enum GUNHAND hand);
@@ -375,6 +377,17 @@ static s32 s_gevrHiddenShown[2];
  * throw_item_pos_related is kept a plain rotation as in the flat game, and
  * casing offsets in the model frame are scaled by this instead */
 static f32 s_gevrThrowScale[2] = { 1.0f, 1.0f };
+
+/* The watch's normal weapon model is hidden in stereo. Advance its finger
+ * once in the game tick, even then; the private grip renderer only reads it. */
+static void gevrWatchHandTickHiddenFinger(GUNHAND handnum, s32 item, s32 visible)
+{
+    if (g_gevrStereo && handnum == GUNRIGHT && !visible
+        && (item == ITEM_WATCHLASER || item == ITEM_TRIGGER))
+    {
+        sub_GAME_7F05E6B4(handnum, g_CurrentPlayer->hands[handnum].weapon_hold_time);
+    }
+}
 #endif
 
 void gunUpdateAndFire(GUNHAND handnum)
@@ -793,6 +806,8 @@ void gunUpdateAndFire(GUNHAND handnum)
         && get_itemtype_in_hand(handnum) != 0
         && hand->field_92C == 0
         && !((hand->weapon_ammo_in_magazine <= 0) && (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SINGLE_USE_RELOAD) != 0));
+
+    gevrWatchHandTickHiddenFinger(handnum, item, hand->field_87F != 0 || s_gevrHiddenShown[handnum]);
 
     if (hand->field_87F != 0 || s_gevrHiddenShown[handnum])
 #else
@@ -2206,21 +2221,7 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     return gdl;
 }
 
-/*
- * Issue #31 (user): at the watch, both arms become the watch laser's own
- * viewmodel - Bond's left fist and watch with his right hand holding it -
- * the sign that a pull fires. Its right hand only reads as a grip round its
- * own left fist (a first try put it on the tracked open hand: it stood
- * beside the wrist), so the whole model is drawn, on the left controller,
- * and the tracked watch arm steps aside until the hand leaves the watch. A
- * private copy of GwatchlaserZ (the detonator's GtriggerZ is the same model)
- * set up as the game sets up a weapon's (hand switches, the outfit's
- * sleeve). Its nine display lists, in walk order, measured from the ROM: 0
- * the right hand (0x1c8), 1-6 the sleeves (one per outfit, switched), 7 the
- * left fist and watch (0x300), 8 the right hand's pressing finger (0x330, on
- * a joint of its own). Placed by bondview2.c gevrStereoWatchHandMatrix: its
- * watch face on the tracked arm's.
- */
+/* #60: retain the original primary watch hand and pose, with its left side hidden. */
 #define GEVR_WATCHHAND_BUFSIZE 0x48000
 #define GEVR_WATCHHAND_MODELSIZE 0x18000
 #define GEVR_WATCHHAND_DLS 9
@@ -2247,12 +2248,55 @@ static ModelNode *gevrNextNode(ModelNode *node)
     return node != NULL ? node->Next : NULL;
 }
 
+static s32 gevrWatchHandKeepPressingHand(ModelNode *lists[GEVR_WATCHHAND_DLS])
+{
+    s32 i;
+    ModelNode *left = NULL;
+    ModelNode *palm = NULL;
+    ModelNode *finger = NULL;
+
+    /* Keep only the original pressing palm (0x0300) and animated finger
+     * (0x0330). The regular watch-arm renderer supplies the complete arm:
+     * neither the old left hand nor any of this model's six small sleeves
+     * should draw. Their shell additions hide on those same source nodes. */
+    for (i = 0; i < GEVR_WATCHHAND_DLS; i++)
+    {
+        switch (lists[i]->Data->DisplayList.numVertices)
+        {
+            case 566:
+                if (left != NULL) return FALSE;
+                left = lists[i];
+                break;
+            case 886:
+                if (palm != NULL) return FALSE;
+                palm = lists[i];
+                break;
+            case 104:
+                if (finger != NULL) return FALSE;
+                finger = lists[i];
+                break;
+        }
+    }
+    if (left == NULL || palm == NULL || finger == NULL) return FALSE;
+    for (i = 0; i < GEVR_WATCHHAND_DLS; i++)
+    {
+        if (lists[i] != palm && lists[i] != finger)
+        {
+            lists[i]->Data->DisplayList.Primary = NULL;
+            lists[i]->Data->DisplayList.Secondary = NULL;
+        }
+    }
+    return TRUE;
+}
+
 static s32 gevrWatchHandLoad(void)
 {
     ModelFileHeader *tmpl;
+    ModelFileHeader *previousGripHeader;
     s8 *name;
     ModelNode *node;
     s32 dls = 0;
+    ModelNode *lists[GEVR_WATCHHAND_DLS];
 
     if (s_gevrWatchHandReady && s_gevrWatchHandStage == bossGetStageNum())
     {
@@ -2284,8 +2328,13 @@ static s32 gevrWatchHandLoad(void)
     s_gevrWatchHandHeader = *tmpl;
     texInitPool(&s_gevrWatchHandPool, s_gevrWatchHandBuf + GEVR_WATCHHAND_MODELSIZE,
                 GEVR_WATCHHAND_BUFSIZE - GEVR_WATCHHAND_MODELSIZE);
+    /* The right palm's DL also contains the old left watch face/band.
+     * Filter only this private load, before texture markers are expanded. */
+    previousGripHeader = gevrModelWatchGripHeader;
+    gevrModelWatchGripHeader = &s_gevrWatchHandHeader;
     load_object_fill_header(&s_gevrWatchHandHeader, (u8 *)name, s_gevrWatchHandBuf, GEVR_WATCHHAND_MODELSIZE,
                             &s_gevrWatchHandPool);
+    gevrModelWatchGripHeader = previousGripHeader;
     modelCalculateRwDataLen(&s_gevrWatchHandHeader);
 
     if (s_gevrWatchHandHeader.RootNode == NULL
@@ -2299,6 +2348,7 @@ static s32 gevrWatchHandLoad(void)
     {
         if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_DL)
         {
+            if (dls < GEVR_WATCHHAND_DLS) lists[dls] = node;
             dls++;
         }
     }
@@ -2308,10 +2358,42 @@ static s32 gevrWatchHandLoad(void)
         return FALSE;
     }
 
-    sysLogPrintf(LOG_NOTE, "stereo: watch hands loaded (%s, %d matrices, %d switches)", name,
+    if (!gevrWatchHandKeepPressingHand(lists))
+    {
+        sysLogPrintf(LOG_ERROR, "stereo: watch hand model has unexpected hand/finger nodes");
+        return FALSE;
+    }
+
+    sysLogPrintf(LOG_NOTE, "stereo: original right watch hand loaded (%s, %d matrices, %d switches)", name,
                  s_gevrWatchHandHeader.numMatrices, s_gevrWatchHandHeader.numSwitches);
     s_gevrWatchHandReady = TRUE;
     return TRUE;
+}
+
+static void gevrWatchHandAnimateFinger(ModelFileHeader *header, Mtxf *base, Mtxf *matrices, f32 angle)
+{
+    ModelNode *finger;
+    Mtxf local;
+    s32 idx;
+
+    if (header->numSwitches <= 6 || (finger = header->Switches[6]) == NULL) return;
+    idx = modelFindNodeMtxIndex(finger, 0);
+    if (idx < 0 || idx >= header->numMatrices) return;
+
+    /* Same hinge and angle as gunUpdateAndFire, in the attached hand's
+     * frame. Rendering must not advance field_A84 a second time. */
+    if (header->numSwitches > 28 && header->Switches[28] != NULL)
+    {
+        f32 *hinge = (f32 *)header->Switches[28]->Data;
+        guRotateF(local.m, ((angle + M_TAU_F - get_value_if_watch_is_on_hand_or_not(GUNRIGHT)) * 360.0f) / M_TAU_F,
+                  hinge[0] - hinge[3], hinge[1] - hinge[4], hinge[2] - hinge[5]);
+        matrix_4x4_set_position(&finger->Data->Group.Origin, &local);
+    }
+    else
+    {
+        matrix_4x4_set_position_and_rotation_around_y((f32 *)&finger->Data->Group.Origin, angle, &local);
+    }
+    matrix_4x4_multiply_homogeneous(base, &local, &matrices[idx]);
 }
 
 static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
@@ -2370,14 +2452,13 @@ static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
         }
     }
 
-    /* as gunUpdateAndFire sets up a weapon's: the hands, then the outfit's sleeve */
+    gevrWatchHandAnimateFinger(&s_gevrWatchHandHeader, &base, rwmtx, g_CurrentPlayer->hands[GUNRIGHT].field_A84);
+
+    /* Only the pressing hand draws here. Outfit sleeves belong to the
+     * separately rendered regular watch arm. */
     modelInit(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, (s32 *) s_gevrWatchHandRw);
     sub_GAME_7F05E978(&s_gevrWatchHandModel, 1);
     sub_GAME_7F05EA94(&s_gevrWatchHandModel, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
-    if (s_gevrWatchHandHeader.numSwitches >= 0x1E)
-    {
-        bondviewSelectCuff(&s_gevrWatchHandModel, &s_gevrWatchHandHeader, 0x1D);
-    }
     s_gevrWatchHandModel.render_pos = (RenderPosView *) rwmtx;
 
     renderdata = *templ;
@@ -2651,16 +2732,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         extern Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
         s32 drawn = FALSE;
 
-        /* also for the watch laser and the detonator: it is their arm (issue #31) */
+        /* also for the watch laser and the detonator: it is their arm (issue #31),
+         * held by the original right watch hand (#60, gevrRenderWatchGripHand) */
         gdl = gevrHandTag(gdl, 0);
-        /* #31: at the watch, the watch laser's own two arms instead (gevrRenderWatchGripHand) */
         /* #35: holding the gun, the hand was drawn before the guns, instead of the watch arm */
         extern s32 gevrStereoTwoHandGrip(void);
 
-        if (gevrStereoTwoHandGrip())
-        {
-        }
-        else if (!(gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && gevrStereoWatchGrip()))
+        if (!gevrStereoTwoHandGrip())
         {
             gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
             if (!drawn)
@@ -6469,7 +6547,7 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
     Mtxf rotmtx;
 #endif
     f32 rand;
-    s32 new_var; /* dead but declared on EU — still reserves its frame slot */
+    s32 new_var; /* dead but declared on EU â€” still reserves its frame slot */
     f32 frac;
 #if VERSION_EU
     s32 randlimit;
@@ -6815,7 +6893,7 @@ void sub_GAME_7F068508(GUNHAND handnum, f32 floor_y_pos)
     Mtxf rotmtx;
 #endif
     f32 rand;
-    s32 new_var; /* dead but declared on EU — still reserves its frame slot */
+    s32 new_var; /* dead but declared on EU â€” still reserves its frame slot */
     f32 frac;
 #if VERSION_EU
     s32 randlimit;
