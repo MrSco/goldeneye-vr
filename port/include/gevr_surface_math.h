@@ -11,6 +11,11 @@ typedef struct GevrSkyVertex {
     uint8_t rgba[4];
 } GevrSkyVertex;
 
+static inline int gevrReflectionAxisValid(const int8_t dir[3])
+{
+    return dir[0] != 0 || dir[1] != 0 || dir[2] != 0;
+}
+
 static inline void gevrSkyVertexPosition(GevrSkyVertex *v,
     float sx, float sy, float w, float s, float t,
     float left, float top, float width, float height)

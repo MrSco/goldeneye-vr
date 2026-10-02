@@ -79,7 +79,11 @@ static void mul(float out[4][4],const float a[4][4],const float b[4][4]) {
 }
 static void reflection() {
     double maxError=0;
-    for(int yaw=-170;yaw<=170;yaw+=17)for(int pitch=-70;pitch<=70;pitch+=14)for(int roll=-60;roll<=60;roll+=15) {
+    int8_t off[3]={0,0,0},vertical[3]={0,0,127};
+    assert(!gevrReflectionAxisValid(off) && gevrReflectionAxisValid(vertical));
+    vertical[2]=-127;
+    assert(gevrReflectionAxisValid(vertical));
+    for(int yaw=-170;yaw<=170;yaw+=17)for(int pitch=-90;pitch<=90;pitch+=15)for(int roll=-60;roll<=60;roll+=15) {
         float y=yaw*0.01745329252f,p=pitch*0.01745329252f,r=roll*0.01745329252f;
         float ry[4][4]={{cosf(y),0,sinf(y),0},{0,1,0,0},{-sinf(y),0,cosf(y),0},{0,0,0,1}};
         float rx[4][4]={{1,0,0,0},{0,cosf(p),sinf(p),0},{0,-sinf(p),cosf(p),0},{0,0,0,1}};
@@ -89,6 +93,7 @@ static void reflection() {
         for (int axis=0;axis<2;++axis) {
             int8_t dir[3]={0,0,0};dir[axis]=127;
             gevrReflectionAxisToView(dir,view);
+            assert(gevrReflectionAxisValid(dir));
             double modelAxis[3]={};
             for(int i=0;i<3;++i)for(int j=0;j<3;++j)modelAxis[i]+=view[i][j]*dir[j]/127.0;
             double len=std::sqrt(modelAxis[0]*modelAxis[0]+modelAxis[1]*modelAxis[1]+modelAxis[2]*modelAxis[2]);
@@ -99,6 +104,6 @@ static void reflection() {
             }
         }
     }
-    std::printf("reflection: 2079 yaw/pitch/roll poses passed; max axis error %.6f\n",maxError);
+    std::printf("reflection: 2457 yaw/pitch/roll poses passed; max axis error %.6f\n",maxError);
 }
 int main() { water(); reflection(); }
