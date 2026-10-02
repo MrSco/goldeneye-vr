@@ -1552,7 +1552,8 @@ static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const Texture
      * keeps a level's first frames from stalling (issue #52): past it, the
      * rest go the deferred way as before.
      */
-    if (s_tpSyncBytes < GEVR_TP_SYNC_BUDGET && gevr_texpack_upload(img, iw, ih, hw, hh, job.uw, job.uh)) {
+    extern int gevrZDebugMode;   // gfx_opengl.cpp: files/gevr_zdebug.txt; 5 = the deferred path only, to compare
+    if (gevrZDebugMode != 5 && s_tpSyncBytes < GEVR_TP_SYNC_BUDGET && gevr_texpack_upload(img, iw, ih, hw, hh, job.uw, job.uh)) {
         s_tpSyncBytes += (size_t)iw * ih * 4;
         s_gevrTcHdUploads++;
         return true;
