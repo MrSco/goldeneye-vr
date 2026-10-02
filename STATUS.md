@@ -7,6 +7,14 @@ not appended to any more. A feature branch keeps its own notes in a file on
 the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
 when it merges.
 
+**Merged, unreleased (2026-10-02):** #30 water shimmer and Dam truck glass,
+user-verified in the headset on `942e897`. Water keeps projected vertices
+and S/T as floats; stereo reflections convert the body axes to view space.
+Native surface checks and the signed Android build pass; final capture has
+no new rendering errors. The intermittent orange/red water lines cleared
+on a launcher restart and did not recur in capture; still unresolved.
+Details: `docs/issue-30-surface-capture.md`.
+
 **Updated:** 2026-10-02. **Latest release:** v0.3.9 (tag v0.3.9,
 versionCode 49, protocol 15): the branch claude/textures-scope-hand-snap-f0eb2c,
 tested in the headset. Scope view in either hand or both (gevrScope[2],
@@ -163,8 +171,8 @@ updater and SideQuest; the site is goldeneyevr.com (its own repo).
   third-person models (no better ones exist).
 - Open issues: #9 hand undersides (work in progress: shells patched in
   v0.1.18, gaps left such as the PP7 index finger), #23 multiplayer (kept
-  open), #30 water shimmer (open in the PC port too, D245; the blue water
-  goes through the same texSelect path #29 fixed, so re-check it),
+  open), #30 intermittent colored water lines (animation and glass fixed
+  and headset-verified 2026-10-02; see the unreleased note above),
   #60 laser watch arm changes size (#32 fixed 2026-10-01: the bullet's
   room-box pretest scaled its start by the visibility scale too, so on Dam
   and Surface, the 0.2 levels, no room beyond the tile walk's end was ever

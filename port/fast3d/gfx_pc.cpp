@@ -46,6 +46,8 @@ extern "C" {
 #include "ext_tex.h"
 }
 #include "gevr_texpack.h"
+#include "gevr_surface_probe.h"
+#include "gevr_surface_math.h"
 
 #include "../vr/vr_hub.h"
 
@@ -398,6 +400,12 @@ int game_framebuffer_msaa_resolved;
 uint32_t gfx_msaa_level = 1;
 
 static bool dropped_frame;
+
+/* First four envmap vertex batches and eight material draws in a sampled
+ * frame (5 Hz). The limit keeps capture from flooding the game log. */
+static bool s_surfaceSampleFrame;
+static unsigned s_surfaceVertexBatches, s_surfaceDraws;
+static uint64_t s_surfaceSampleUs;
 
 static float buf_vbo[MAX_BUFFERED * (32 * 3)]; // 3 vertices in a triangle and 32 floats per vtx
 static size_t buf_vbo_len;
@@ -2162,6 +2170,9 @@ struct GfxVtx {
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
 
+    const bool probe = s_surfaceSampleFrame && (rsp.geometry_mode & G_LIGHTING)
+        && (rsp.geometry_mode & G_TEXTURE_GEN) && s_surfaceVertexBatches < 4;
+    if (probe) ++s_surfaceVertexBatches;
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         const struct GfxVtx* v = (const struct GfxVtx*)&vertices[i];
         struct LoadedVertex* d = &rsp.loaded_vertices[dest_index];
@@ -2272,6 +2283,16 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
 
                 U = (int32_t)(dotx * rsp.texture_scaling_factor.s);
                 V = (int32_t)(doty * rsp.texture_scaling_factor.t);
+                if (probe && i < 3) {
+                    const float (*m)[4] = rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1];
+                    sysLogPrintf(LOG_NOTE, "surface30: reflection us=%llu batch=%u src=%p i=%u normal=%d,%d,%d uv=%.4f,%.4f mode=%08x look=%d scale=%u,%u lookX=%.6g,%.6g,%.6g lookY=%.6g,%.6g,%.6g mv=%.6g,%.6g,%.6g/%.6g,%.6g,%.6g/%.6g,%.6g,%.6g",
+                        (unsigned long long)s_surfaceSampleUs, s_surfaceVertexBatches, (const void*)vertices, (unsigned)i,
+                        vcn->x, vcn->y, vcn->z, U, V, rsp.geometry_mode, rsp.lookat_enabled,
+                        rsp.texture_scaling_factor.s, rsp.texture_scaling_factor.t,
+                        rsp.current_lookat_coeffs[0][0], rsp.current_lookat_coeffs[0][1], rsp.current_lookat_coeffs[0][2],
+                        rsp.current_lookat_coeffs[1][0], rsp.current_lookat_coeffs[1][1], rsp.current_lookat_coeffs[1][2],
+                        m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2]);
+                }
             }
         } else {
             if (vcn != nullptr) {
@@ -2353,6 +2374,26 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
     }
 }
 
+
+/* Water is already projected. Its float payload only bypasses the N64
+ * vertex packing; texturing, perspective interpolation and blending still
+ * use the ordinary triangle pipeline below. */
+static void gfx_sp_sky_vertex(size_t count, const GevrSkyVertex *vertices) {
+    SUPPORT_CHECK(count <= MAX_VERTICES);
+    for (size_t i = 0; i < count; ++i) {
+        auto &d = rsp.loaded_vertices[i];
+        const auto &v = vertices[i];
+        d.x = gfx_adjust_x_for_aspect_ratio(v.x, v.w);
+        d.y = v.y;
+        d.z = 0.0f;
+        d.w = v.w;
+        d.u = v.s * (rsp.texture_scaling_factor.s + 1) / 65536.0f;
+        d.v = v.t * (rsp.texture_scaling_factor.t + 1) / 65536.0f;
+        d.color = {v.rgba[0], v.rgba[1], v.rgba[2], v.rgba[3]};
+        d.fog = rdp.fog_color.a;
+        d.clip_rej = 0; // GPU clips the pre-projected sky at each eye's bounds
+    }
+}
 
 static void gfx_sp_modify_vertex(uint16_t vtx_idx, uint8_t where, uint32_t val) {
     SUPPORT_CHECK(where == G_MWO_POINT_ST);
@@ -2656,6 +2697,22 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                     rendering_state.textures[i]->second.cmt = cmt;
                 }
             }
+        }
+    }
+
+    if (s_surfaceSampleFrame && ((rsp.geometry_mode & G_TEXTURE_GEN)
+        || (!(rsp.geometry_mode & G_ZBUFFER) && comb->used_textures[0] && comb->used_textures[1]))
+        && s_surfaceDraws < 8) {
+        ++s_surfaceDraws;
+        for (int i = 0; i < 2; ++i) {
+            if (!comb->used_textures[i]) continue;
+            const unsigned tile = rdp.first_tile_index + gfx_lod_tile_offset(i);
+            const auto &t = rdp.texture_tile[tile];
+            const auto &lt = rdp.loaded_texture[t.tmem];
+            sysLogPrintf(LOG_NOTE, "surface30: material us=%llu draw=%u tile=%u tex=%p fmt=%u siz=%u wh=%u,%u mask=%u,%u shift=%u,%u offset=%u,%u lod=%u mode=%08x,%08x combine=%016llx",
+                (unsigned long long)s_surfaceSampleUs, s_surfaceDraws, tile, (const void*)lt.addr,
+                t.fmt, t.siz, tex_width[i], tex_height[i], t.masks, t.maskt, t.shifts, t.shiftt, t.uls, t.ult,
+                rdp.prim_lod_fraction, rdp.other_mode_h, rdp.other_mode_l, (unsigned long long)rdp.combine_mode);
         }
     }
 
@@ -3011,7 +3068,7 @@ static void gfx_sp_movemem(uint8_t index, uint8_t offset, const void* data) {
             // I think this is only really used for guLookAtReflect
             index = !((index - G_MV_LOOKATY) / 2);
             rsp.lookat[index] = ((const Light *)data)->l;
-            rsp.lookat_enabled = (index == 0) || (rsp.lookat[1].dir[0] || rsp.lookat[1].dir[1]);
+            rsp.lookat_enabled = (index == 0) || gevrReflectionAxisValid(rsp.lookat[1].dir);
             rsp.lights_changed = true;
             break;
         case G_MV_L0:
@@ -3961,6 +4018,9 @@ static void gfx_run_dl(Gfx* cmd) {
             case (uint8_t)G_TEXTURE:
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
                 break;
+            case G_GEVR_SKY_VTX:
+                gfx_sp_sky_vertex(C0(0, 8), (const GevrSkyVertex*)seg_addr(cmd->words.w1));
+                break;
             case G_VTX: {
                 const uintptr_t vtxp = (uintptr_t)seg_addr(cmd->words.w1);
                 if (vtxp < 0x10000) {
@@ -4395,6 +4455,19 @@ static void gevrMaybeDumpDl(const Gfx*) {}
 
 extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
+    s_surfaceSampleFrame = false;
+    if (gevrSurfaceProbeEnabled()) {
+        static uint64_t nextLog;
+        uint64_t now = sysGetMicroseconds();
+        if (now >= nextLog) {
+            nextLog = now + 200000;
+            s_surfaceSampleFrame = true;
+            s_surfaceSampleUs = now;
+            s_surfaceVertexBatches = s_surfaceDraws = 0;
+            sysLogPrintf(LOG_NOTE, "surface30: frame us=%llu dl=%u screen=%d pack=%d",
+                (unsigned long long)now, num_dls, gevrVrScreenMode, s_tpActive);
+        }
+    }
     gfx_sp_reset();
 
 #ifdef GEVR
