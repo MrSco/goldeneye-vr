@@ -231,6 +231,7 @@ void explosionScorchTick(struct coord3d *pos, f32 explosion_size, s16 room);
 Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *coord);
 #ifdef GEVR
 #define GEVR_HIT_PULL 4.0f              /* stereo pull for the bullet hit (explosionRenderPart) */
+#define GEVR_HIT_SMOKE_PULL 16.0f       /* ... and its smoke, which grows: at 4 it cut into the wall (user) */
 static s32 s_gevrPartExplosionType;
 #endif
 
@@ -1345,8 +1346,8 @@ Gfx *explosionSmokeRenderPart(struct Smoke *smoke, struct SmokePart *smoke_part,
 	{
 		extern s32 g_gevrStereo;
 
-		if (g_gevrStereo && smoke->smoke_type == 7 && range > GEVR_HIT_PULL) {
-			range = GEVR_HIT_PULL;
+		if (g_gevrStereo && smoke->smoke_type == 7 && range > GEVR_HIT_SMOKE_PULL) {
+			range = GEVR_HIT_SMOKE_PULL;
 		}
 	}
 #endif
