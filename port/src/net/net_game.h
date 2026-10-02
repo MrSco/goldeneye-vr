@@ -47,6 +47,13 @@ void netHostReturnToLobby(void);
 void netHostStartRoundNow(void);
 int gevrSpectating(void);
 int netPlayerIsSpectator(int slot);
+/*
+ * A connected slot's name, or NULL. Declared here because bondview2.c called
+ * it with no prototype: C's implicit int return truncated the 64-bit pointer
+ * and sign-extended it (fault address 0xffffffffbda918ee, report fa289829,
+ * a spectator label on a late join), the port's 32-bit-pointer defect class.
+ */
+const char *netGetSlotName(int slot);
 int netPlayerInRound(int slot);
 void gevrSpectatorAim(float yaw);
 int netSpectatorTarget(void);
