@@ -65,13 +65,15 @@ is goldeneyevr.com, in its own repository.
   did not recur in final capture; still unresolved. Animation/glass fixed.
 - #85: Egypt Golden Gun room exit door can draw black. The cryptdoor log
   targets room/portal visibility; no confirmed fix yet.
-- #9 hand shells, merged to main 2026-10-02, unreleased: modelled in Blender
-  (tools/blender/gevr_hands_author.py; tools/handpatch/NOTES.md). The PPK
-  family: missing finger joints, trigger-finger underside, heel pad ("much
-  improved"). The watch arm: ring and little finger palm sides, the middle,
-  ring and little fingers curled into a fist, index bends, a palm in the
-  heel's skin ("good for now"). Next: the taser/grenade hand, then the other
-  pistol hands. Issue left open.
+- #9 hand shells, modelled in Blender (tools/blender/gevr_hands_author.py;
+  tools/handpatch/NOTES.md). Merged 2026-10-02, unreleased: the PPK family
+  ("much improved") and the watch arm ("good for now"). On the branch
+  claude/hand-models-missing-fingers-15c48f: the taser/grenade hand (back of
+  the hand and forearm in the skin beside them, finger cracks zipped, the
+  index knuckle's notch rounded) and the grenade's see-through bottom drawn
+  solid, headset-accepted (6091470); then the PP7's heel pad turned out, its
+  forearm end in skin, the watch arm's index creases zipped (built, awaiting
+  the headset). Next: the other pistol hands. Issue left open.
 - #23: multiplayer stays open/experimental. Remote hands do not animate;
   held guns are the original low-detail third-person models. Host migration
   and mixed-network/four-player cases need broader headset coverage.
