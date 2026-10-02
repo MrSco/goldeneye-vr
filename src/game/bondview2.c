@@ -2,6 +2,7 @@
 #include "net_game.h"
 #include "gevr_hud_geometry.h"
 #include "gevr_scope.h"
+#include "gevr_surface_probe.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -12474,6 +12475,23 @@ void bondviewUpdateCameraMatrices(coord3d* cam_pos, coord3d* cam_look_dir, coord
     currentPlayerSetMatrix10CC(cam64);
     currentPlayerSetViewToWorldMtxf(cam68);
 
+#ifdef GEVR
+    if (gevrSurfaceProbeEnabled())
+    {
+        static u64 nextLog;
+        u64 now = sysGetMicroseconds();
+        if (now >= nextLog)
+        {
+            nextLog = now + 100000;
+            sysLogPrintf(LOG_NOTE, "surface30: camera us=%llu stereo=%d room=%d pos=%.3f,%.3f,%.3f dir=%.6g,%.6g,%.6g up=%.6g,%.6g,%.6g baseYaw=%.3f lookX=%d,%d,%d lookY=%d,%d,%d",
+                (unsigned long long) now, g_gevrStereo, bondviewGetCurrentPlayersRoom(),
+                cam_pos->x, cam_pos->y, cam_pos->z, cam_look_dir->x, cam_look_dir->y, cam_look_dir->z,
+                cam_up->x, cam_up->y, cam_up->z, s_gevrBaseYaw,
+                lookat->l[0].l.dir[0], lookat->l[0].l.dir[1], lookat->l[0].l.dir[2],
+                lookat->l[1].l.dir[0], lookat->l[1].l.dir[1], lookat->l[1].l.dir[2]);
+        }
+    }
+#endif
     sub_GAME_7F078464(lookat);
     bondviewUpdateFrustumPlanes();
     store_BONDdata_curpos_to_previous();

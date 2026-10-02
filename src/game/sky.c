@@ -3,6 +3,8 @@
 #ifdef GEVR
 #include <stdio.h>
 #include <stdlib.h>
+#include "system.h"
+#include "gevr_surface_probe.h"
 #endif
 #include "sky.h"
 #include "player.h"
@@ -26,6 +28,7 @@
  * See the comment above skyPortBeginFan()'s definition. */
 static void skyPortBeginFan(SkyRelated38 *v, s32 n, bool allowShift);
 static void skyPortEndFan(void);
+static void skyPortProbeWater(SkyRelated38 *v, s32 n);
 /* D245 (M-142): same reason -- the water call site (further down) needs to
  * override the adaptive shift picked by skyPortBeginFan() before the
  * definition itself. */
@@ -1015,6 +1018,7 @@ Gfx *skyRender(Gfx *gdl)
                         (double) minS, (double) maxS, (double) minT, (double) maxT,
                         (double) (maxS - minS), (double) (maxT - minT));
             }
+            skyPortProbeWater(sp274, s1);
 #endif
             if (s1 == 4)
             {
@@ -1869,6 +1873,37 @@ static void skyPortBeginFan(SkyRelated38 *v, s32 n, bool allowShift)
 
     s_skyFanShiftS = allowShift ? skyPortPickShift(maxS - minS) : 0;
     s_skyFanShiftT = allowShift ? skyPortPickShift(maxT - minT) : 0;
+}
+
+/* Baseline capture: raw coordinates, packing precision and projection range.
+ * Log at 10 Hz, plus every shift change, so turning can be matched to pops. */
+static void skyPortProbeWater(SkyRelated38 *v, s32 n)
+{
+    static u64 nextLog;
+    static s32 previousS = -1, previousT = -1;
+    u64 now;
+    s32 i;
+    coord3d *eye;
+    if (!gevrSurfaceProbeEnabled()) return;
+    now = sysGetMicroseconds();
+    if (now < nextLog && previousS == s_skyFanShiftS && previousT == s_skyFanShiftT) return;
+    nextLog = now + 100000;
+    eye = bondviewGetCurrentPlayersPosition();
+    sysLogPrintf(LOG_NOTE, "surface30: water us=%llu stage=%d n=%d eye=%.2f,%.2f,%.2f k=%d,%d previous=%d,%d fold=%.1f,%.1f wScale=%.6g image=%d",
+        (unsigned long long) now, g_SkyStageNum, n, eye->x, eye->y, eye->z,
+        s_skyFanShiftS, s_skyFanShiftT, previousS, previousT,
+        s_skyFanFoldS, s_skyFanFoldT, s_skyFanWScale, fogGetCurrentEnvironmentp()->WaterImageId);
+    previousS = s_skyFanShiftS;
+    previousT = s_skyFanShiftT;
+    for (i = 0; i < n; i++)
+        sysLogPrintf(LOG_NOTE, "surface30: water-v us=%llu i=%d st=%.6g,%.6g w=%.6g xy=%.3f,%.3f packed=%.3f,%.3f,%.3f tc=%.3f,%.3f",
+            (unsigned long long) now, i, v[i].unk20, v[i].unk24, v[i].unk0c,
+            v[i].unk28 * 0.25f, v[i].unk2c * 0.25f,
+            (2.0f * ((v[i].unk28 * 0.25f - getPlayer_c_screenleft()) / getPlayer_c_screenwidth()) - 1.0f) * v[i].unk0c / s_skyFanWScale,
+            (1.0f - 2.0f * ((v[i].unk2c * 0.25f - getPlayer_c_screentop()) / getPlayer_c_screenheight())) * v[i].unk0c / s_skyFanWScale,
+            v[i].unk0c / s_skyFanWScale,
+            (v[i].unk20 - s_skyFanFoldS) / (1 << s_skyFanShiftS),
+            (v[i].unk24 - s_skyFanFoldT) / (1 << s_skyFanShiftT));
 }
 
 static void skyPortEndFan(void)
