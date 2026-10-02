@@ -445,6 +445,32 @@ static void gevr_zdebug_poll(void)
 
 /* the class of the next draw under the depth state just set (gfx_opengl_set_depth_mode) */
 static int s_zDebugClass = 5;
+static const float s_zDebugTints[6][4] = {
+    { 1.0f, 0.0f, 0.0f, 0.5f },   // no depth test
+    { 1.0f, 0.0f, 1.0f, 0.5f },   // no Z_CMP
+    { 0.0f, 1.0f, 0.0f, 0.5f },   // decal
+    { 0.0f, 1.0f, 1.0f, 0.5f },   // blended
+    { 1.0f, 1.0f, 0.0f, 0.5f },   // no Z_UPD
+    { 0.0f, 0.0f, 0.0f, 0.0f },   // ordinary opaque
+};
+/* the replays (eye redraw, scope) write the tint per draw: the uniform is per program and the
+ * game frame's last draw of that program would otherwise colour everything (it flickered) */
+static void gevr_zdebug_apply(struct ShaderProgram* prg, bool world)
+{
+    if (prg == NULL || prg->zTintLocation < 0) return;
+    glUniform4fv(prg->zTintLocation, 1, s_zDebugTints[(gevrZDebugMode == 1 && world) ? s_zDebugClass : 5]);
+}
+
+/*
+ * Issue #72: a room's own display list is being drawn (bg.c VR_ROOM_DL_*).
+ * Its decals (the striped walls, trims) take plain polygon offset, not the
+ * stencil band: the band draws a decal only within 3 view units of what is
+ * already in the depth buffer, and on a decal wall over a doorway of the
+ * room behind that left a door-shaped hole with the far room showing
+ * (user, Silo, 2026-10-02; Depot #72). The band stays for the game's own
+ * decals (texSelect: bullet holes, which must not hang over an edge).
+ */
+bool gevrRoomDl;
 
 static uint32_t frame_count;
 /* performance pass: the per-draw uniform cache (draw_triangles) */
@@ -2076,6 +2102,7 @@ void gfx_vr_scope_render(void)
                 // a decal takes the plain polygon offset here, not the eye pass's stencil band
                 gfx_opengl_set_depth_mode(d.depth[0], d.depth[1], d.depth[2], d.depth[3], d.zmode);
             }
+            if (gevrZDebugMode == 1) gevr_zdebug_apply(d.prg, true);
             if (last == NULL || d.alpha[0] != last->alpha[0] || d.alpha[1] != last->alpha[1]) {
                 gfx_opengl_set_use_alpha(d.alpha[0], d.alpha[1]);
             }
@@ -2277,14 +2304,6 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     if (use_multiview) {
         // issue #72 test switch: the world's draws tinted by depth class (gevr_zdebug_poll).
         // Always run, so the tint is written back to none when the switch goes off.
-        static const float tints[6][4] = {
-            { 1.0f, 0.0f, 0.0f, 0.5f },   // no depth test
-            { 1.0f, 0.0f, 1.0f, 0.5f },   // no Z_CMP
-            { 0.0f, 1.0f, 0.0f, 0.5f },   // decal
-            { 0.0f, 1.0f, 1.0f, 0.5f },   // blended
-            { 1.0f, 1.0f, 0.0f, 0.5f },   // no Z_UPD
-            { 0.0f, 0.0f, 0.0f, 0.0f },   // ordinary opaque
-        };
         static int s_uniTint = -1;
         const bool world = !gForceFlatShaderForMenu && !vr_dl_is_pause_or_menu && !gVrFlatPass && buf_vbo[3] != 1.0f;
         const int cls = world ? s_zDebugClass : 5;
@@ -2293,13 +2312,13 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         }
         const int shown = gevrZDebugMode == 1 ? cls : 5;
         if (!s_uniCacheValid || shown != s_uniTint) {
-            if (s_curPrg && s_curPrg->zTintLocation >= 0) glUniform4fv(s_curPrg->zTintLocation, 1, tints[shown]);
+            if (s_curPrg && s_curPrg->zTintLocation >= 0) glUniform4fv(s_curPrg->zTintLocation, 1, s_zDebugTints[shown]);
             s_uniTint = shown;
         }
     }
     s_uniCacheValid = use_multiview;   /* without multiview the eye uniforms are never cached */
 
-    gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ, lineMode);
+    gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ && !gevrRoomDl, lineMode);
 }
 
 /* the draw itself, with the decal band (the eye pass, and its redraw: issue #53) */
@@ -2508,7 +2527,7 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     d.zmode = s_depthZmode;
     d.alpha[0] = s_alphaArgs[0];
     d.alpha[1] = s_alphaArgs[1];
-    d.decalZ = s_decalZ;
+    d.decalZ = s_decalZ && !gevrRoomDl;   // a room's decals take plain offset (issue #72)
     d.isMenu = vr_dl_is_pause_or_menu;
     d.hand = (int8_t)s_eyeHand;
     memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
@@ -2630,6 +2649,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         if (last == NULL || memcmp(d.depth, last->depth, sizeof(d.depth)) != 0 || d.zmode != last->zmode) {
             gfx_opengl_set_depth_mode(d.depth[0], d.depth[1], d.depth[2], d.depth[3], d.zmode);
         }
+        if (gevrZDebugMode == 1) gevr_zdebug_apply(d.prg, !d.isMenu);
         if (last == NULL || d.alpha[0] != last->alpha[0] || d.alpha[1] != last->alpha[1]) {
             gfx_opengl_set_use_alpha(d.alpha[0], d.alpha[1]);
         }
