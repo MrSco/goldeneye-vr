@@ -44,7 +44,7 @@ extern "C" bool VrTwoHandsGun(int weaponnum);
 int gripPressed = false;
 int VrLeftHandedMode = 0;
 int VrSwapJoysticks = 0;
-int VrAimSteady = 1;
+int VrAimSteady = 2;
 int VrShowStats = 0;
 unsigned long long VrCheatMask = 0;
 int VrGunSizeCheat = 0;
@@ -583,8 +583,8 @@ XrResult update_vr_controllers(XrTime predicted_time) {
             if (fullyTracked) {
                 state.controller_pose = loc.pose;
                 gCachedVelocity[hand] = velocity;
-                state.is_active = true;
                 spaceLocation = loc;
+                state.is_active = true;
             } else {
                 // Out of tracking (PSVR2 out of view, empty SteamVR pose, IMU drift):
                 // We do NOT touch controller_pose → last tracked pose is preserved.
@@ -733,7 +733,7 @@ extern "C" bool get_button_state(int hand_index, const char* button_name) {
 
 
 
-/*float get_analog_value(int hand_index, const char* input_name) {
+extern "C" float get_analog_value(int hand_index, const char* input_name) {
     if (hand_index < 0 || hand_index > 1) return 0.0f;
 
     if (VrLeftHandedMode){
@@ -749,7 +749,7 @@ extern "C" bool get_button_state(int hand_index, const char* button_name) {
         return state.grip_value.currentState;
     }
     return 0.0f;
-}*/
+}
 
 
 extern "C" bool get_2d_input(int hand_index, const char* input_name, XrVector2f* value) {
@@ -814,6 +814,10 @@ XrResult stop_haptic_vibration(int hand_index) {
 extern "C" {
 XrResult trigger_haptic_vibration_c(int hand_index, float amplitude, float duration) {
     return trigger_haptic_vibration(hand_index, amplitude, duration);
+}
+
+XrResult trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float duration, float frequency) {
+    return trigger_haptic_vibration(hand_index, amplitude, duration, frequency);
 }
 
 /* True once the OpenXR session and its haptic action exist (screen mode too). */
@@ -1331,7 +1335,6 @@ void controller_pose() {
             continue;
         }
 
-
         // --- Gesture frame: publish the play-space pose/velocity verbatim ---
         // Deliberately none of the conditioning applied below. Gesture maths
         // needs the rotation and the velocity to live in the same basis, and
@@ -1782,6 +1785,8 @@ extern "C" int gevrVrGripPosePlay(int hand, float pos[3], float quat[4])
  */
 static XrPosef gCamCtrlPose[2];
 static bool gCamCtrlValid[2];
+static bool gCamCtrlTracked[2];
+static unsigned gCamCtrlSnapshotId;
 
 /*
  * While the session is not focused (the Quest menu is up) the runtime stops
@@ -1814,7 +1819,9 @@ static bool gSteadyUsed[2];   // this game frame's snapshot took the steadied tu
  * the hand's tremor.
  */
 #define GEVR_GRIP_STEADY_ALPHA 0.15f
-extern "C" int gevrGripSteadyOn(void);   // bondview2.c
+extern "C" int gevrGripSteadyOnCtrl(int ctrl);   // bondview2.c: 1 the gun hand, 0 the off hand
+extern "C" int gevrStereoTwoHandGrip(void); // bondview2.c
+extern "C" float gevrScopeMagnificationCtrl(int ctrl); // bondview2.c
 
 static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
 {
@@ -1836,9 +1843,37 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
     }
     if (dot > 1.0f) dot = 1.0f;
     const float deg = 2.0f * (float)acos((double)dot) * (180.0f / 3.14159265f);
-    float t = (deg - d0[lvl]) / (d1[lvl] - d0[lvl]);
+
+    float eff_d0 = d0[lvl];
+    float eff_d1 = d1[lvl];
+    float targetA = aMin[lvl];
+    float maxA = 1.0f;
+
+    // the off hand supporting the right gun takes that gun's magnification; a scope of its own, its own
+    const float mag = gevrStereoTwoHandGrip() ? gevrScopeMagnificationCtrl(1) : gevrScopeMagnificationCtrl(gevrPhysHand(h));
+    if (grip) {
+        // Base alpha respects launcher setting: Low = 0.15f, High = 0.08f, Off = 0.25f
+        float baseA = (lvl == 2) ? 0.08f : (lvl == 0 ? 0.25f : 0.15f);
+        if (gevrStereoTwoHandGrip()) {
+            baseA *= 0.65f; // two-handed hold steadies the grip
+        }
+        targetA = baseA;
+    }
+    if (mag > 1.05f) {
+        // The scope is zoomed even before the eye-near/aim flag turns on.
+        // Limit the raw-speed branch for every scoped frame, including that transition.
+        targetA /= 1.0f + 0.12f * (mag - 1.0f);
+        if (targetA < 0.015f) targetA = 0.015f;
+        maxA = 0.08f + 0.50f / mag;
+        if (maxA > 0.5f) maxA = 0.5f;
+        eff_d0 = 0.2f;
+        eff_d1 = 3.0f;
+    }
+
+    float t = (deg - eff_d0) / (eff_d1 - eff_d0);
     t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
-    const float a = grip ? GEVR_GRIP_STEADY_ALPHA : aMin[lvl] + (1.0f - aMin[lvl]) * t;
+    const float a = targetA + (maxA - targetA) * t;
+
     XrQuaternionf q = { s.x + (raw.x - s.x) * a, s.y + (raw.y - s.y) * a,
                         s.z + (raw.z - s.z) * a, s.w + (raw.w - s.w) * a };
     const float len = sqrtf(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
@@ -1849,14 +1884,18 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
 
 extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
 {
+    ++gCamCtrlSnapshotId;
     for (int h = 0; h < 2; h++) {
         const bool tracked = focused && gControllerStates[h].is_active;
+        gCamCtrlTracked[h] = tracked;
         if (tracked) {
             const XrQuaternionf& q = gControllerStates[h].controller_pose.orientation;
             gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
             gCamCtrlPose[h] = gControllerStates[h].controller_pose;
             const XrQuaternionf& pq = gCtrlPosePlay[h].orientation;
-            const bool grip = h == gevrPhysHand(1) && gevrGripSteadyOn();
+            const bool twoHand = gevrStereoTwoHandGrip() != 0;
+            // each hand by its own scope (gevrPhysHand is its own inverse); two-handed, the off hand too
+            const bool grip = gevrGripSteadyOnCtrl(gevrPhysHand(h)) || (h == gevrPhysHand(0) && twoHand && gevrGripSteadyOnCtrl(1));
             gSteadyUsed[h] = false;
             if ((VrAimSteady > 0 || grip) && !(pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f)) {
                 // steadied play-space orientation, seen from the camera head: head^-1 * s
@@ -1898,6 +1937,12 @@ extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
         gCamCtrlPose[h] = v;
         gCamCtrlValid[h] = true;
     }
+}
+
+extern "C" unsigned gevrVrGripSnapshotId(void) { return gCamCtrlSnapshotId; }
+extern "C" int gevrVrGripTracked(int hand)
+{
+    return hand >= 0 && hand < 2 && gCamCtrlTracked[gevrPhysHand(hand)];
 }
 
 extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]);

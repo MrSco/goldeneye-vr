@@ -1,3 +1,9 @@
+#ifdef GEVR
+#include "net_objects.h"
+#endif
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <ultra64.h>
 #include <assert.h>
 #include <bondgame.h>
@@ -614,7 +620,7 @@ void chrpropFlagRoomsFromRayTest(s32 arg0, coord3d *from, coord3d *to, u8 *rooms
     f32 scale;
     s32 i;
 
-    scale = get_room_data_float1() * bgGetLevelVisibilityScale();
+    scale = get_room_data_float1();   /* issue #32: room units, as the room boxes are (see chraiCheckUseHeldItem) */
 
     dir.x = to->x - from->x;
     dir.y = to->y - from->y;
@@ -974,7 +980,7 @@ void gevrStereoAimUpdate(void)
     extern int vr_button_L_grip;   /* port/src/input.c: dual-wielding, the left grip */
 
     s_gevrAimValid[GUNRIGHT] = gevrStereoAimPoint(GUNRIGHT, &s_gevrAimPoint[GUNRIGHT]);
-    /* issue #37: the left gun's sight, traced only while its grip asks for it */
+    /* issue #37: the left gun's sight (and its scope's), traced only while its grip asks for it */
     s_gevrAimValid[GUNLEFT] = vr_button_L_grip && gevrStereoAimPoint(GUNLEFT, &s_gevrAimPoint[GUNLEFT]);
 }
 
@@ -997,7 +1003,6 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
     ShotData shotdata;
     coord3d *playerpos;
-    coord3d stanhit;
     coord3d dest;
     coord3d besthitpos;
     coord3d scaleddir;
@@ -1011,8 +1016,6 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     f32 distscale;
     f32 depth;
     f32 t;
-    s32 hitbgstan = 0;
-    s32 gotbghit = 0;
     s32 bestroom = 0;
     s32 startroom;
     s32 k;
@@ -1023,6 +1026,10 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
 
     playerprop = getCurrentPlayerProp();
     fromtile = playerprop->stan;
+    if (fromtile == NULL)
+    {
+        return FALSE;   /* off the floor tiles (a warp onto a tile-less pad): no room to trace from */
+    }
     shotdata.weapon = getCurrentPlayerWeaponId(hand);
     shotdata.maxdist = M_U32_MAX_VALUE_F;
     for (k = 0; k < 10; k++)
@@ -1047,7 +1054,18 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
     if (walkTilesBetweenPoints_NoCallback(&fromtile, playerprop->pos.x, playerprop->pos.z, shotdata.gunpos.x, shotdata.gunpos.z))
 #endif
     {
-        distscale = get_room_data_float1() * bgGetLevelVisibilityScale();
+        /*
+         * Issue #32 (Surface: ground patches without impacts). The room-box
+         * pretest of the searches below (chrpropRayIntersectsRoomBbox) takes
+         * this scaled position as the ray's start, and the boxes are in room
+         * units: world x the level scale. The visibility scale (0.2 on Dam and
+         * Surface, 1.0 elsewhere) put the start a fifth of the way to the
+         * origin, thousands of units off, and no room passed: only the room
+         * where the tile walk ended, tested without the pretest, could ever be
+         * hit. Measured on Surface 2: the game's start passed 0 rooms on every
+         * shot, the room-scale start passed the room that held the ground.
+         */
+        distscale = get_room_data_float1();
         playerpos = bondviewGetCurrentPlayersPosition();
 #ifdef GEVR
         if (g_gevrStereo)
@@ -1057,23 +1075,16 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
 #endif
         stanResetHits();
 
-#ifdef GEVR
-        if (!walkTilesBetweenPoints_NoCallback(&fromtile, s_gevrWalkX, s_gevrWalkZ, dest.x, dest.z))
-#else
-        if (!walkTilesBetweenPoints_NoCallback(&fromtile, shotdata.gunpos.x, shotdata.gunpos.z, dest.x, dest.z))
-#endif
-        {
-            chrlvStanLineDirIntersection(&shotdata.gunpos, &shotdata.dir, &stanhit);
-            hitbgstan = 1;
-        }
-        else
-        {
-            stanhit = dest;
-        }
+        /* The tile walk selects rooms, not a 3D obstruction. Its x/z edge
+         * can be a railing or stairwell with open air above it. Trace the
+         * full barrel ray against geometry instead of stopping at that edge
+         * (or clamping an edge behind the muzzle to the gun tip).
+         */
+        walkTilesBetweenPoints_NoCallback(&fromtile, s_gevrWalkX, s_gevrWalkZ, dest.x, dest.z);
 
-        hitdir.x = stanhit.x - playerpos->x;
-        hitdir.y = stanhit.y - playerpos->y;
-        hitdir.z = stanhit.z - playerpos->z;
+        hitdir.x = dest.x - playerpos->x;
+        hitdir.y = dest.y - playerpos->y;
+        hitdir.z = dest.z - playerpos->z;
         scaleddir.x = playerpos->x * distscale;
         scaleddir.y = playerpos->y * distscale;
         scaleddir.z = playerpos->z * distscale;
@@ -1084,7 +1095,7 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
             visited[i] = 0;
         }
 
-        if (bgTestBulletHitBackground(playerpos, &stanhit, startroom, &bghit))
+        if (bgTestBulletHitBackground(playerpos, &dest, startroom, &bghit))
         {
             bestroom = startroom;
         }
@@ -1094,11 +1105,11 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
         {
             if (g_BgPortals[0].offset_portal != 0)
             {
-                bestroom = chrpropFindFirstBgHitInConnectedRooms(getTileRoom(playerprop->stan), playerpos, &stanhit, &hitdir, &scaleddir, visited, &bghit);
+                bestroom = chrpropFindFirstBgHitInConnectedRooms(getTileRoom(playerprop->stan), playerpos, &dest, &hitdir, &scaleddir, visited, &bghit);
             }
             else
             {
-                bestroom = chrpropFindClosestBgHitRoom(getTileRoom(playerprop->stan), playerpos, &stanhit, &hitdir, &scaleddir, visited, &bghit);
+                bestroom = chrpropFindClosestBgHitRoom(getTileRoom(playerprop->stan), playerpos, &dest, &hitdir, &scaleddir, visited, &bghit);
             }
         }
         if (bestroom > 0)
@@ -1108,20 +1119,11 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
             bghit.hitpos.y *= distscale;
             bghit.hitpos.z *= distscale;
         }
-        bestroom = chrpropFindCloserBgHitInVisibleRooms(playerpos, &stanhit, &hitdir, &scaleddir, visited, &bghit, bestroom);
+        bestroom = chrpropFindCloserBgHitInVisibleRooms(playerpos, &dest, &hitdir, &scaleddir, visited, &bghit, bestroom);
 
         if (bestroom > 0)
         {
-            gotbghit = 1;
             besthitpos = bghit.hitpos;
-        }
-        else
-        {
-            besthitpos = stanhit;
-        }
-
-        if (hitbgstan || gotbghit)
-        {
             mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &besthitpos);
             shotdata.maxdist = -besthitpos.f[2];
         }
@@ -1352,7 +1354,18 @@ void chraiDefaultWeaponFireHandler(s32 hand)
     if (walkTilesBetweenPoints_NoCallback(&fromtile, playerprop->pos.x, playerprop->pos.z, shotdata.gunpos.x, shotdata.gunpos.z))
 #endif
     {
-        distscale = get_room_data_float1() * bgGetLevelVisibilityScale();
+        /*
+         * Issue #32 (Surface: ground patches without impacts). The room-box
+         * pretest of the searches below (chrpropRayIntersectsRoomBbox) takes
+         * this scaled position as the ray's start, and the boxes are in room
+         * units: world x the level scale. The visibility scale (0.2 on Dam and
+         * Surface, 1.0 elsewhere) put the start a fifth of the way to the
+         * origin, thousands of units off, and no room passed: only the room
+         * where the tile walk ended, tested without the pretest, could ever be
+         * hit. Measured on Surface 2: the game's start passed 0 rooms on every
+         * shot, the room-scale start passed the room that held the ground.
+         */
+        distscale = get_room_data_float1();
         playerpos = bondviewGetCurrentPlayersPosition();
 #ifdef GEVR
         if (g_gevrStereo)
@@ -1564,9 +1577,37 @@ void chraiDefaultWeaponFireHandler(s32 hand)
                 }
             }
 
+#ifdef GEVR
+            if (g_gevrStereo)
+            {
+                /*
+                 * The flat game backs the spark off toward the shooter along
+                 * the shot, which there is the eye's line of sight. In stereo
+                 * the shot line runs from the hand, so that put the spark
+                 * below the hole as seen from the head (user, 2026-10-02):
+                 * back it off toward the eye instead, and only 4 units: two
+                 * eyes see the 26 units the flat game floats it off the wall
+                 * (logged), so it hung in mid-air (explosion.c GEVR_HIT_PULL).
+                 */
+                extern coord3d *gevrEyePosition(void);   /* bondview2.c */
+                coord3d *eye = gevrEyePosition();
+                f32 ex = eye->x - finalpos->x, ey = eye->y - finalpos->y, ez = eye->z - finalpos->z;
+                f32 el = sqrtf(ex * ex + ey * ey + ez * ez);
+
+                if (el > 4.0f)
+                {
+                    finalpos->x += 4.0f * ex / el;
+                    finalpos->y += 4.0f * ey / el;
+                    finalpos->z += 4.0f * ez / el;
+                }
+            }
+            else
+#endif
+            {
             finalpos->x -= 26.0f * shotdata.dir.x;
             finalpos->y -= 26.0f * shotdata.dir.y;
             finalpos->z -= 26.0f * shotdata.dir.z;
+            }
 
             gunSetTracerTarget(finalpos);
 
@@ -1835,8 +1876,64 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
         }
     }
 
+#ifdef GEVR
+    /* Online opponents can be absent from the current room's on-screen list
+     * for a tick while their network position crosses a portal. A close punch
+     * should still be able to hit the player, subject to reach, facing and the
+     * same solid-world line test as the normal melee path. */
+    if (!hit)
+    {
+        extern bool netIsActive(void);
+        extern int netGetLocalSlot(void);
+        extern bool netSlotOccupied(int slot);
+        if (netIsActive() && get_cur_playernum() == netGetLocalSlot())
+        {
+            for (s32 slot = 0; slot < getPlayerCount(); slot++)
+            {
+                struct player *target;
+                f32 dx, dy, dz, dist2, facing;
+                if (slot == get_cur_playernum() || !netSlotOccupied(slot)) continue;
+                target = g_playerPointers[slot];
+                if (!target || !target->prop || !target->prop->chr || target->bonddead) continue;
+                prop = target->prop;
+                dx = prop->pos.x - playerprop->pos.x;
+                dy = prop->pos.y - playerprop->pos.y;
+                dz = prop->pos.z - playerprop->pos.z;
+                dist2 = dx * dx + dz * dz;
+                if (dist2 > 100.0f * 100.0f || fabsf(dy) > 100.0f) continue;
+                facing = dx * g_CurrentPlayer->vv_sintheta - dz * g_CurrentPlayer->vv_costheta;
+                if (facing < 0.25f * sqrtf(dist2)) continue;
+                tile = playerprop->stan;
+                if (!stanTestLineUnobstructed(&tile, playerprop->pos.x, playerprop->pos.z,
+                                              prop->pos.x, prop->pos.z,
+                                              CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER,
+                                              ducking, ducking, 0.0f, 1.0f)) continue;
+                vector.x = dx;
+                vector.y = dy;
+                vector.z = dz;
+                if (handles_shot_actors(prop->chr, HIT_CHEST, &vector, item_id, 1))
+                {
+                    recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);
+                    hit = 1;
+                    break;
+                }
+            }
+        }
+    }
+#endif
     if ((!hit) && (item_id == ITEM_FIST))
     {
+#ifdef GEVR
+        extern bool netIsActive(void);
+        extern int netGetLocalSlot(void);
+
+        if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        {
+            /* another player's swing, heard from where they stand */
+            chrobjSndCreatePostEventDefault(sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, 0), &playerprop->pos);
+            return;
+        }
+#endif
         sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, 0);
     }
 }
@@ -1849,15 +1946,27 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
  * above) must come within touch of the segment from..to - the hand, or the
  * sniper club from the hand to its end - not straddle the view's centre line
  * within reach. dir is the blow's direction in view space; item_id is the
- * damage, ITEM_FIST or the knife's, as the fist's caller passes. Returns
- * whether anyone was hit; the whiff is the caller's.
+ * damage, ITEM_FIST or the knife's, as the fist's caller passes.
+ *
+ * A guard is struck only by a hand moving into him at `need` m/s or more: vel
+ * (the hand's, view space, m/s) toward the nearest point of his box, or from
+ * inside it toward his middle across the floor, or down onto him. Lifting the
+ * hand off him after a chop, or pulling it back, is no blow (user: the upswing
+ * chopped). The fastest of those speeds goes to *into.
+ *
+ * Returns 0 with no guard in touch, 1 with one in touch that the hand is not
+ * moving into, 2 moving into one: struck if `land`, else only reported (the
+ * hand is still recovering from its last blow). The whiff is the caller's.
  */
-s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id)
+s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id,
+                const f32 vel[3], f32 need, s32 land, f32 *into)
 {
     PropRecord *playerprop = getCurrentPlayerProp();
     f32 ducking = bondviewGetPlayerDuckingHeightRelated(g_CurrentPlayer);
     PropRecord **propptr;
     s32 hit = 0;
+
+    *into = 0.0f;
 
     for (propptr = g_LastOnScreenProp - 1; propptr >= g_OnScreenPropList; propptr--)
     {
@@ -1939,6 +2048,51 @@ s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3],
             continue;
         }
 
+        /* moving into him: from where the segment first comes in touch */
+        {
+            f32 p[3], n[3], len, speed;
+
+            for (k = 0; k < 3; k++)
+            {
+                p[k] = from[k] + t0 * (to[k] - from[k]);
+            }
+            n[0] = (p[0] < min0 ? min0 : p[0] > max0 ? max0 : p[0]) - p[0];
+            n[1] = (p[1] < min1 ? min1 : p[1] > max1 ? max1 : p[1]) - p[1];
+            n[2] = (p[2] < min2 ? min2 : p[2] > max2 ? max2 : p[2]) - p[2];
+            len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
+            if (len < 1e-3f)
+            {
+                /* inside the box */
+                n[0] = 0.5f * (min0 + max0) - p[0];
+                n[1] = 0.0f;
+                n[2] = 0.5f * (min2 + max2) - p[2];
+                len = sqrtf(n[0] * n[0] + n[2] * n[2]);
+            }
+            speed = len < 1e-3f ? -vel[2] : (vel[0] * n[0] + vel[1] * n[1] + vel[2] * n[2]) / len;
+            if (-vel[1] > speed)
+            {
+                speed = -vel[1];
+            }
+            if (speed > *into)
+            {
+                *into = speed;
+            }
+            if (speed < need)
+            {
+                if (hit == 0)
+                {
+                    hit = 1;
+                }
+                continue;
+            }
+        }
+
+        if (!land)
+        {
+            hit = 2;
+            continue;
+        }
+
         hitpart = HIT_CHEST;
 
         if (currentPlayerGetCrouchPos() == CROUCH_HALF)
@@ -1958,7 +2112,7 @@ s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3],
         if (handles_shot_actors(chr, hitpart, &vector, item_id, 1))
         {
             recall_joy2_hits_edit_detail_edit_flag(item_id, prop, -1);
-            hit = 1;
+            hit = 2;
         }
     }
 
@@ -1980,6 +2134,11 @@ void chraiCheckUseHeldItem(s32 hand)
 
     if (get_hands_firing_status(hand) != 0)
     {
+#ifdef GEVR
+        extern void netBeginLocalShot(void);
+        extern void netEndLocalShot(void);
+        netBeginLocalShot();
+#endif
         item_id = getCurrentPlayerWeaponId(hand);
 
         if (item_id == ITEM_TRIGGER)
@@ -2035,6 +2194,9 @@ void chraiCheckUseHeldItem(s32 hand)
             inc_curplayer_hitcount_with_weapon(item_id, SHOT_REGISTER_TOTAL);
             chraiDefaultWeaponFireHandler(hand);
         }
+#ifdef GEVR
+        netEndLocalShot();
+#endif
     }
 }
 
@@ -2079,6 +2241,9 @@ void propExecuteTickOperation(PropRecord *prop, TICKOP op)
                 propobj->runtime_bitflags &= ~RUNTIMEBITFLAG_REMOVE;
                 propobj->state &= ~0x80;
                 propobj->maxdamage = 0.0f;
+#ifdef GEVR
+                if (propobj->type == PROPDEF_AMMO) gevrAmmoResetPickup(propobj);
+#endif
                 chrpropDeregisterRooms(prop);
                 chrpropDisable(prop);
                 return;
@@ -2156,6 +2321,9 @@ PropRecord *propFindForInteract(void)
 
 bool bond_interact_object(void)
 {
+#ifdef GEVR
+    if (gevrSpectating()) return FALSE;
+#endif
     PropRecord *prop;
     TICKOP tickop;
 
@@ -2306,6 +2474,9 @@ void chrpropTick(void)
                 }
                 else if ((prop->timetoregen < CHROBJ_TIMETOREGEN) && (!is_under_60))
                 {
+#ifdef GEVR
+                    if (obj->type == PROPDEF_AMMO) gevrAmmoResetPickup(obj);
+#endif
                     if ((obj->maxdamage == 0.0f) && (!(obj->state & PROPSTATE_DESTROYED)))
                     {
                         if (obj->flags & PROPFLAG_INSIDEANOTHEROBJ)
@@ -2764,6 +2935,9 @@ void sub_GAME_7F03D058(PropRecord *prop, bool unset) //#MATCH
 */
 void propsTickPlayer(void)
 {
+#ifdef GEVR
+    if (gevrSpectating()) return;
+#endif
     PropRecord *prop;
     PropRecord *propprev;
     bool isCollected = FALSE;
@@ -2798,6 +2972,21 @@ void propsTickPlayer(void)
             }
             propprev = prop->prev; //not sure why rare put this here and not in the for statement
 
+#ifdef GEVR
+            /* online: the other headsets take the pickup away too (net_core.c) */
+            if (isCollected && ((prop->type == PROP_TYPE_OBJ) || (prop->type == PROP_TYPE_WEAPON)))
+            {
+                extern void netSendObjectPickup(ObjectRecord *obj, s32 tickop);
+                extern void netSendSpecialTaken(s32 item);
+
+                netSendObjectPickup(prop->obj, isCollected);
+                if (prop->type == PROP_TYPE_WEAPON && prop->weapon != NULL)
+                {
+                    /* the flag or the Golden Gun: into this player's copy's hands on the others' headsets */
+                    netSendSpecialTaken(prop->weapon->weaponnum);
+                }
+            }
+#endif
             propExecuteTickOperation(prop, isCollected);
         }
     }
@@ -4410,4 +4599,3 @@ ObjectRecord * sub_GAME_7F03FAB0(struct coord3d *pos, s32 RoomID)
 
     return NULL;
 }
-

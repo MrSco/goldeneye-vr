@@ -19,7 +19,10 @@
 /* --- Comfort and control options ---------------------------------------- */
 
 bool VrManualReloading    = false;  /* reload by gesture rather than automatically */
-bool VrMotionThrowing     = false;  /* throw grenades by arm motion */
+bool VrMotionThrowing     = true;   /* throw grenades, knives and mines by arm motion */
+float VrMotionThrowPitch  = 0.0f;   /* vertical pitch offset in degrees for motion throws */
+float VrMotionThrowGazeAssist = 0.50f; /* 0..1 gaze direction assist for overhand throws */
+float VrMotionThrowStrength = 1.0f;   /* throw speed / strength multiplier (0.5 .. 2.0) */
 bool VrSeatedMode         = false;  /* play seated; height is taken from the ini */
 bool VrlaserDotForALL     = false;  /* laser dot on every weapon, not just the ones that have one */
 bool VrTwoHandAim         = false;  /* two-handed weapons aim along the line between both controllers */
@@ -27,6 +30,25 @@ bool vr_grip_for_unarmed  = false;  /* the grip button still does something with
 
 int  VrHideArms           = 0;      /* draw no arm models */
 int  VrStickClickToCrouch = 0;      /* crouch on stick click instead of physically ducking */
+int  VrAimNoLean          = 0;      /* aiming keeps the move stick moving: no lean, no duck (issue #81) */
+int  VrMicMuted           = 0;      /* persist multiplayer microphone mute */
+float VrMusicVolume       = 1.0f;   /* music volume (0..1) */
+float VrVoiceVolume       = 1.0f;   /* multiplayer voice chat volume (0..1) */
+float VrSfxVolume         = 1.0f;   /* multiplayer sound effects volume (0..1) */
+char VrPlayerName[16]     = "";     /* multiplayer name; the launcher makes one up when empty */
+/* The multiplayer page's choices (vr_settings.h): Bunker II, Power Weapons,
+ * Bond, a public game, Normal, 10 minutes, normal health, no dual wielding,
+ * no loadouts, votes; the Rockets set's guns as the custom set, a PP7, a
+ * KF7, a shotgun and grenades as the loadout; no favorites. */
+int VrMpStage = 27, VrMpWeaponSet = 4, VrMpChr = 0, VrMpVisibility = 0;
+int VrMpVoiceMode = 0;
+int VrMpFriendlyFire = 1;
+int VrHostEqualization = 1, VrHostLatencyCapMs = 50;
+int VrMpFunFlags = 0, VrMpGunSize = 0;
+int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts = 0, VrMpNextRound = 0;
+int VrMpCustom[4] = { 6, 7, 8, 25 };    /* ITEM_TT33, ITEM_SKORPION, ITEM_AK47, ITEM_ROCKETLAUNCH */
+int VrMpLoadout[4] = { 4, 8, 15, 26 };  /* ITEM_WPPK, ITEM_AK47, ITEM_SHOTGUN, ITEM_GRENADE */
+unsigned VrMpFavStages = 0, VrMpFavSets = 0;
 int  vr_invert_hands      = 0;      /* swap which hand holds the weapon */
 
 /* 0 turns snap turning off and uses smooth turning; otherwise the snap angle. */

@@ -6,6 +6,11 @@
 #include "unk_092E50.h"
 #include "bondview.h"
 #include "lv.h"
+#ifdef GEVR
+extern bool netIsActive(void);
+extern bool netSlotOccupied(int slot);
+extern int netGetLocalSlot(void);
+#endif
 
 struct player *g_playerPointers[4];
 struct player_data g_playerPlayerData[4];
@@ -615,7 +620,19 @@ void sub_GAME_7F09B398(enum GUNHAND hand)
     {
         wepid = getCurrentPlayerWeaponId(hand);
         prop = getPropForHeldItem(wepid);
+#ifdef GEVR
+        /*
+         * getPropForHeldItem returns -1 for a hand with no held model (the
+         * fist, unarmed, the taser). PROP has no negative enumerator, so Clang
+         * makes it unsigned and drops "prop >= 0" as always true (IDO kept it
+         * signed): modelLoad(-1) read before PitemZ_entries and crashed the
+         * moment a multiplayer match raised an empty hand. Compared signed, as
+         * net_player_sync.c does.
+         */
+        if ((s32)prop >= 0)
+#else
         if (prop >= 0)
+#endif
         {
             flags = ((hand * 4) == 0)
                   ? 0
@@ -640,11 +657,42 @@ void shuffle_player_ids(void) {
         array_PLAYER_IDs[i] = array_PLAYER_IDs[i + random % (4 - i)];
         array_PLAYER_IDs[i + random % (4 - i)] = temp;
     }
+#ifdef GEVR
+    if (netIsActive()) {
+        /*
+         * Online only the local view is drawn, and the world's once-a-frame
+         * work (props, remote bodies, sounds) runs in that one pass when its
+         * player is first in this order (get_player_position_in_shuffled() == 0).
+         * Put the local slot first so it runs every frame, not 1 in N.
+         */
+        PLAYER_ID ordered[4];
+        s32 count = 0;
+        s32 local = netGetLocalSlot();
+        if (local >= 0 && local < 4 && netSlotOccupied(local)) ordered[count++] = local;
+        for (i = 0; i < 4; i++)
+            if (netSlotOccupied(array_PLAYER_IDs[i]) && array_PLAYER_IDs[i] != local) ordered[count++] = array_PLAYER_IDs[i];
+        for (i = 0; i < 4; i++)
+            if (!netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
+        for (i = 0; i < 4; i++) array_PLAYER_IDs[i] = ordered[i];
+    }
+#endif
 }
+
+#ifdef GEVR
+/* lv.c gevrViewPass: an extra view pass (another player's copy, or the local
+ * player's off-view hand) counts as a later pass, so the once-a-frame work
+ * of the first pass does not run again in it. */
+s32 g_gevrExtraPass = 0;
+#endif
 
 s32 get_player_position_in_shuffled(s32 current_player_num) {
     s32 i;
     s32 position = 0;
+#ifdef GEVR
+    if (g_gevrExtraPass) {
+        return 1;
+    }
+#endif
 
     for (i = 0; i < 4; i++) {
         if (current_player_num != array_PLAYER_IDs[i])

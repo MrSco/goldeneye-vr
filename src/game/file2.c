@@ -8,6 +8,9 @@
 #include "file2.h"
 #include "front.h"
 #include "cheat.h"
+#ifdef GEVR
+extern bool netIsActive(void);
+#endif
 
 
 // bss
@@ -1263,8 +1266,21 @@ void fileLoadSettingsForFolder(u32 folder)
     save = fileGetSaveForFoldernum(folder);
     if (save)
     {
-        set_mTrack2Vol((save->music_vol << 7) | (save->music_vol >> 1));
-        sub_GAME_7F0A91A0((save->sfx_vol << 7) | (save->sfx_vol >> 1));
+#ifdef GEVR
+        /* Stage setup reloads the selected folder between online rounds. Keep the
+         * volumes chosen in the launcher and the multiplayer pause menu instead:
+         * music as it stands, effects from the ini (SfxVolume). */
+        if (netIsActive())
+        {
+            extern float VrSfxVolume;
+            sub_GAME_7F0A91A0((u16)(VrSfxVolume * 32767.0f));
+        }
+        else
+#endif
+        {
+            set_mTrack2Vol((save->music_vol << 7) | (save->music_vol >> 1));
+            sub_GAME_7F0A91A0((save->sfx_vol << 7) | (save->sfx_vol >> 1));
+        }
 
         options = save->options;
 

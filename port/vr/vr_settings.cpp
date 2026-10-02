@@ -4,6 +4,7 @@
 
 #include "vr_settings.h"
 #include "vr_screen.h"
+#include "vr_haptics.h"
 
 extern "C" float inputRumbleGetStrength(int playernum);
 extern "C" void inputRumbleSetStrength(int playernum, int strength);
@@ -12,9 +13,19 @@ extern "C" void inputRumbleSetStrength(int playernum, int strength);
 extern char g_ActiveExtTexPack[FS_MAXPATH];
 extern "C" void extTexSetPack(const char *newPackName);
 extern "C" void videoSetExternalTextures(bool enable);
+extern "C" void set_mTrack2Vol(unsigned short);
+extern "C" void musicTrack1ApplySeqpVol(unsigned short);
+extern "C" void musicTrack3ApplySeqpVol(unsigned short);
+extern "C" void gevrSndApplySfxVolume(unsigned short);
+
+// Set once vrSettingsLoad has run (the first VR frame, gevr_engine_shim.c).
+// A save before it writes every default over the player's file: the launcher's
+// first name did, at launcher start, and reset everything it held.
+static bool s_settingsLoaded = false;
 
 extern "C" void vrSettingsSave(void)
 {
+    if (!s_settingsLoaded) return;
     FILE *f = fopen(VR_INI_PATH, "w");
     if (!f) return;
 
@@ -23,6 +34,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "LaserDotForAll=%d\n", VrlaserDotForALL ? 1 : 0);
     fprintf(f, "SeatedMode=%d\n", VrSeatedMode ? 1 : 0);
     fprintf(f, "MotionThrowing=%d\n", VrMotionThrowing ? 1 : 0);
+    fprintf(f, "MotionThrowPitch=%.1f\n", VrMotionThrowPitch);
+    fprintf(f, "MotionThrowGazeAssist=%.2f\n", VrMotionThrowGazeAssist);
+    fprintf(f, "MotionThrowStrength=%.2f\n", VrMotionThrowStrength);
     fprintf(f, "Vibration=%.4f\n", inputRumbleGetStrength(g_ExtMenuPlayer));
     fprintf(f, "StereoCrosshair=%.4f\n", VrStereoCrosshair);
     fprintf(f, "HudDistance=%.4f\n", VrHudDistance);
@@ -30,6 +44,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "WorldScale=%.4f\n", VrSetWorldScale);
     fprintf(f, "PauseHub=%d\n", VrPauseHub ? 1 : 0);
     fprintf(f, "StickClickToCrouch=%d\n", VrStickClickToCrouch ? 1 : 0);
+    fprintf(f, "; 1 = holding the aim trigger no longer leans or ducks: the move stick keeps moving (issue #81).\n");
+    fprintf(f, "AimNoLean=%d\n", VrAimNoLean ? 1 : 0);
     fprintf(f, "SnapTurn=%.1f\n", VrUseSnapTurn);
     fprintf(f, "TwoHandedAiming=%d\n", VrTwoHandAim ? 1 : 0);
     fprintf(f, "LeftHandedMode=%d\n", VrLeftHandedMode ? 1 : 0);
@@ -56,6 +72,25 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; virtual screen), 0 = everything on the virtual screen. Hold the right stick click\n");
     fprintf(f, "; in game to switch.\n");
     fprintf(f, "PlayMode=%d\n", VrPlayMode);
+    fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
+    fprintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
+    fprintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
+    fprintf(f, "SfxVolume=%.2f\n", VrSfxVolume);
+    fprintf(f, "; Your name in multiplayer, up to 15 characters.\n");
+    fprintf(f, "PlayerName=%s\n", VrPlayerName);
+    fprintf(f, "; The multiplayer page's last choices. MpStage is the level id; the sets,\n");
+    fprintf(f, "; scenario, length and health are the launcher's list positions; the guns are\n");
+    fprintf(f, "; item ids; the favorites are bitmasks over the stage and weapon-set lists.\n");
+    fprintf(f, "MpStage=%d\nMpWeaponSet=%d\nMpChr=%d\nMpVisibility=%d\n", VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility);
+    fprintf(f, "MpScenario=%d\nMpLength=%d\nMpHealth=%d\nMpDual=%d\nMpLoadouts=%d\nMpNextRound=%d\n",
+            VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound);
+    fprintf(f, "MpVoiceMode=%d\n", VrMpVoiceMode);
+    fprintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
+    fprintf(f, "HostEqualization=%d\nHostLatencyCapMs=%d\n", VrHostEqualization, VrHostLatencyCapMs);
+    fprintf(f, "MpFunFlags=%d\nMpGunSize=%d\n", VrMpFunFlags, VrMpGunSize);
+    for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
+    for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
+    fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
     fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
     fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
     fprintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
@@ -107,11 +142,25 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 0 = it stays open. Single-handed weapons only, since on two-handers that grip\n");
     fprintf(f, "; already means 'take the two-handed hold'.\n");
     fprintf(f, "FistClench=%d\n", VrFistClench);
+    vrHapticsSaveIni(f);
     fclose(f);
+    vrHapticsDumpCTable();
+}
+
+// A multiplayer name for a player who hasn't chosen one. The Meta account name
+// isn't open to a sideloaded app (the Platform SDK needs a store app and an
+// entitled user), so a number keeps the default apart from everyone else's.
+extern "C" void vrEnsurePlayerName(void)
+{
+    if (VrPlayerName[0] != '\0') return;
+    snprintf(VrPlayerName, sizeof(VrPlayerName), "Agent %u", 1000u + arc4random_uniform(9000u));
+    vrSettingsSave();
 }
 
 extern "C" void vrSettingsLoad(void)
 {
+    s_settingsLoaded = true;   // with no file yet, the defaults are the settings
+    vrHapticsInit();
     FILE *f = fopen(VR_INI_PATH, "r");
     if (!f) return;
 
@@ -145,6 +194,20 @@ extern "C" void vrSettingsLoad(void)
             VrCheatMask = strtoull(line + 7, NULL, 16);
             continue;
         }
+        if (strncmp(line, "PlayerName=", 11) == 0) {   // text, even when it reads as a number ("007")
+            strncpy(VrPlayerName, line + 11, sizeof(VrPlayerName) - 1);
+            VrPlayerName[sizeof(VrPlayerName) - 1] = '\0';
+            VrPlayerName[strcspn(VrPlayerName, "\r\n")] = '\0';
+            continue;
+        }
+
+        // Custom Haptics line (Intensity,Duration)
+        char kbuf[64] = {}, vbuf[128] = {};
+        if (sscanf(line, "%63[^=]=%127[^\r\n]", kbuf, vbuf) == 2) {
+            if (vrHapticsLoadLine(kbuf, vbuf)) {
+                continue;
+            }
+        }
 
         // 1. Is it an integer (%d)? Not if the value has a decimal point: "%d"
         // happily reads the 30 of "SnapTurn=30.0", and the float keys were
@@ -158,6 +221,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MotionThrowing") == 0) VrMotionThrowing = ival != 0;
             else if (strcmp(key, "WeaponRecoil") == 0) VrWeaponRecoil = (ival != 0);
             else if (strcmp(key, "StickClickToCrouch") == 0) VrStickClickToCrouch = (ival != 0);
+            else if (strcmp(key, "AimNoLean") == 0) VrAimNoLean = (ival != 0);
             else if (strcmp(key, "PauseHub") == 0) VrPauseHub = (ival != 0);
             else if (strcmp(key, "TwoHandedAiming") == 0) VrTwoHandAim = (ival != 0);
             else if (strcmp(key, "LeftHandedMode") == 0) VrLeftHandedMode = (ival != 0);
@@ -170,14 +234,38 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
+            else if (strcmp(key, "MicMuted") == 0) VrMicMuted = ival != 0;
+            else if (strcmp(key, "MpStage") == 0) VrMpStage = ival;
+            else if (strcmp(key, "MpWeaponSet") == 0) VrMpWeaponSet = ival;
+            else if (strcmp(key, "MpChr") == 0) VrMpChr = ival;
+            else if (strcmp(key, "MpVisibility") == 0) VrMpVisibility = ival != 0;
+            else if (strcmp(key, "HostEqualization") == 0) VrHostEqualization = ival != 0;
+            else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
+            else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;
+            else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && ival <= 7 ? ival : 0;
+            else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;
+            else if (strcmp(key, "MpVoiceMode") == 0) VrMpVoiceMode = ival == 1 ? 1 : 0;
+            else if (strcmp(key, "MpScenario") == 0) VrMpScenario = ival;
+            else if (strcmp(key, "MpLength") == 0) VrMpLength = ival;
+            else if (strcmp(key, "MpHealth") == 0) VrMpHealth = ival;
+            else if (strcmp(key, "MpDual") == 0) VrMpDual = ival;
+            else if (strcmp(key, "MpLoadouts") == 0) VrMpLoadouts = ival != 0;
+            else if (strcmp(key, "MpNextRound") == 0) VrMpNextRound = ival;
+            else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = (unsigned)ival;
+            else if (strcmp(key, "MpFavSets") == 0) VrMpFavSets = (unsigned)ival;
+            else if (strncmp(key, "MpCustom", 8) == 0 && key[8] >= '1' && key[8] <= '4') VrMpCustom[key[8] - '1'] = ival;
+            else if (strncmp(key, "MpLoadout", 9) == 0 && key[9] >= '1' && key[9] <= '4') VrMpLoadout[key[9] - '1'] = ival;
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
             /* DisplayHz replaces RefreshRate, whose 120 was only ever the old default
              * (no option set it): the new default, 90, applies to existing installs. */
             else if (strcmp(key, "DisplayHz") == 0) VrRefreshRate = ival < 0 ? 0 : ival;
+            else if (strcmp(key, "MusicVolume") == 0) VrMusicVolume = ival <= 0 ? 0.0f : (ival >= 1 ? 1.0f : (float)ival);
+            else if (strcmp(key, "VoiceVolume") == 0) VrVoiceVolume = ival <= 0 ? 0.0f : (ival >= 1 ? 1.0f : (float)ival);
+            else if (strcmp(key, "SfxVolume") == 0) VrSfxVolume = ival <= 0 ? 0.0f : 1.0f;
         }
             // 2. OTHERWISE, is it a floating-point number (%f)?
         else if (sscanf(line, "%63[^=]=%f", key, &fval) == 2) {
-            if (strcmp(key, "Vibration") == 0) inputRumbleGetStrength(fval);
+            if (strcmp(key, "Vibration") == 0) inputRumbleSetStrength(0, fval);
             else if (strcmp(key, "StereoCrosshair") == 0) {
                 if (fval < HUD_STEREO_DEPTH_MIN) fval = HUD_STEREO_DEPTH_MIN;
                 if (fval > HUD_STEREO_DEPTH_MAX) fval = HUD_STEREO_DEPTH_MAX;
@@ -218,6 +306,21 @@ extern "C" void vrSettingsLoad(void)
                 if (fval > 1.0f) fval = 1.0f;
                 VrComfortVignette = fval;
             }
+            else if (strcmp(key, "MotionThrowPitch") == 0) {
+                if (fval < -45.0f) fval = -45.0f;
+                if (fval > 45.0f) fval = 45.0f;
+                VrMotionThrowPitch = fval;
+            }
+            else if (strcmp(key, "MotionThrowGazeAssist") == 0) {
+                if (fval < 0.0f) fval = 0.0f;
+                if (fval > 1.0f) fval = 1.0f;
+                VrMotionThrowGazeAssist = fval;
+            }
+            else if (strcmp(key, "MotionThrowStrength") == 0) {
+                if (fval < 0.2f) fval = 0.2f;
+                if (fval > 3.0f) fval = 3.0f;
+                VrMotionThrowStrength = fval;
+            }
             else if (strcmp(key, "ScreenHeight") == 0) {
                 if (fval < -VR_SCREEN_HEIGHT_MAX) fval = -VR_SCREEN_HEIGHT_MAX;
                 if (fval > VR_SCREEN_HEIGHT_MAX) fval = VR_SCREEN_HEIGHT_MAX;
@@ -227,6 +330,21 @@ extern "C" void vrSettingsLoad(void)
                 if (fval < VR_SCREEN_FOV_MIN) fval = VR_SCREEN_FOV_MIN;
                 if (fval > VR_SCREEN_FOV_MAX) fval = VR_SCREEN_FOV_MAX;
                 VrScreenFov = fval;
+            }
+            else if (strcmp(key, "MusicVolume") == 0) {
+                if (fval < 0.0f) fval = 0.0f;
+                if (fval > 1.0f) fval = 1.0f;
+                VrMusicVolume = fval;
+            }
+            else if (strcmp(key, "VoiceVolume") == 0) {
+                if (fval < 0.0f) fval = 0.0f;
+                if (fval > 1.0f) fval = 1.0f;
+                VrVoiceVolume = fval;
+            }
+            else if (strcmp(key, "SfxVolume") == 0) {
+                if (fval < 0.0f) fval = 0.0f;
+                if (fval > 1.0f) fval = 1.0f;
+                VrSfxVolume = fval;
             }
         }
             // 3. OTHERWISE, is it text (%s)?
@@ -239,6 +357,12 @@ extern "C" void vrSettingsLoad(void)
     }
 
     fclose(f);
+
+    unsigned short mVol = (unsigned short)(VrMusicVolume * 32767.0f);
+    set_mTrack2Vol(mVol);
+    musicTrack1ApplySeqpVol(mVol);
+    musicTrack3ApplySeqpVol(mVol);
+    gevrSndApplySfxVolume((unsigned short)(VrSfxVolume * 32767.0f));
 
     // GunOffX/Y/Z of 0, 0, 0 is the old default, which every install wrote
     // before the launcher's Gun fit existed: it keeps the fitted defaults

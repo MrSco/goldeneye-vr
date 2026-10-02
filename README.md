@@ -10,6 +10,7 @@
 </p>
 
 <p align="center">
+  <a href="https://goldeneyevr.com"><img alt="Website: goldeneyevr.com" src="https://img.shields.io/badge/website-goldeneyevr.com-d4a017?style=for-the-badge"></a>
   <a href="https://github.com/MrSco/goldeneye-vr/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/MrSco/goldeneye-vr?style=for-the-badge&color=d4a017"></a>
   <a href="https://github.com/MrSco/goldeneye-vr/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/MrSco/goldeneye-vr/total?style=for-the-badge&color=8a6d1f"></a>
   <img alt="Meta Quest 2 / 3 / 3S / Pro" src="https://img.shields.io/badge/Meta%20Quest-2%20%7C%203%20%7C%203S%20%7C%20Pro-1c1c1c?style=for-the-badge">
@@ -59,6 +60,7 @@ Also:
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
   In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
+- **Multiplayer** (experimental): deathmatch for up to four players, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
@@ -170,9 +172,11 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Left stick up/down** (aiming the sniper rifle) | Zoom the scope (the stick doesn't strafe then) |
 | **Swing either hand** at a guard | Melee: chop, punch, pistol-whip, stab or club |
 | **Gun hand at the watch** + **right trigger** | Fire the watch laser |
-| **A** / **Y** | Next weapon |
+| **A** / **X** | Next weapon |
+| **Right grip** + **A** | Previous weapon |
 | **Hold A** | Weapon panel above your gun hand: scroll with the other stick, let go to equip (dual-wield pairs included) |
-| **B** / **X** | Action: doors, switches, reload |
+| **Hold X** | Left-hand panel: a second gun for your left hand, any gun you carry that can be dual-wielded (not gadgets). Scroll with the right stick, let go to equip. Solo missions, with such a gun in your right hand |
+| **B** / **Y** | Action: doors, switches, reload |
 | **☰ Menu** (left controller) | Pause / Bond's watch |
 | **Hold ☰ Menu** (1.5 s) | Back to the launcher, to change settings or cheats (asks first: A yes, B no) |
 | **Raise left wrist to your face** | Open Bond's watch |
@@ -198,6 +202,37 @@ To walk with the left stick anyway, tick **Swap sticks** as well.
 | **Hold left stick click** (1 s) | Bring the screen back in front of you |
 | **Hold right stick click** (1 s) | Switch to stereo VR |
 | **Grips** (in Bond's watch) | Turn the watch pages |
+
+## 🌐 Multiplayer (experimental)
+
+Host a deathmatch alone or play with up to four players, each in their own headset, on the game's multiplayer stages.
+It's still experimental: expect rough edges, and please report what you find.
+
+**Everyone needs the same version of GoldenEye VR**, and each player their own ROM.
+
+**Host a game.** In the launcher press **Multiplayer...**, stay on **Host Game**, and pick:
+- **Public game** to appear in the internet browser, or **Private game** to share a join code.
+- a **stage**. Egypt takes 2 players; Caverns, Bunker II and Archives take 3; the rest take 4.
+- your **character**.
+- the **weapons**: the game's own sets, from Slappers only to the Golden Gun, proximity mines included.
+
+Then press **START HOSTING LOBBY**. You can launch alone once everyone currently connected shows **[READY]**. The host can explore in warmup without running the round clock or score. When a guest has loaded the map, the stage and equipment reset and the timed round begins together. If the last guest leaves, the host returns to warmup.
+
+**Join a game.** Press **Multiplayer...** and choose **Join Game**. Pick a public internet game,
+enter a private code, or select a game discovered on your Wi-Fi. Direct IP remains available as a fallback.
+Then choose your character and tick **I am Ready**. Open spots can be joined during warmup or an active round. A late join starts from a fresh spawn with zero score, and reconnecting does not restore a previous score.
+
+**Voice chat.** Allow microphone access to talk. Everyone can hear each other in the lobby;
+in a match, voices get quieter with distance and pan toward the speaker. Mute in the lobby or
+on the watch's Game Options page, or hold left **X + Y** for half a second. Your mute choice is saved.
+If you deny microphone access, you can still hear other players.
+
+**Over the internet.** No IP addresses and no router setup: headsets connect directly when they can,
+and through a Cloudflare relay when they can't. The game list and private codes come from our lobby
+service at [lobbies.goldeneyevr.com](https://lobbies.goldeneyevr.com/), which shows public activity and keeps a game's listing and connection details (including
+IP addresses) only while the game is open. Games on your Wi-Fi still work without it (UDP 27008).
+
+**Not there yet:** You don't see other players' hands move.
 
 ## ⚙️ Settings
 
@@ -275,7 +310,7 @@ Found a bug? Open an [Issue](https://github.com/MrSco/goldeneye-vr/issues) with:
 - the level
 - what happened
 
-For the engineering side, see [STATUS.md](STATUS.md) and the session log in [HANDOFF.md](HANDOFF.md).
+For the engineering side, see [STATUS.md](STATUS.md) (short, kept current) and the archived session log in [docs/archive/HANDOFF.md](docs/archive/HANDOFF.md).
 
 ## 🛠 Building from source
 

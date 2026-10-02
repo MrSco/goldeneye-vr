@@ -48,6 +48,11 @@
 #include "stan.h"
 #ifdef GEVR
 #include "system.h"
+#include <stdio.h>   /* snprintf: the #85 cryptdoor probe */
+#include "net_objects.h"
+extern bool netIsActive(void);
+extern bool netIsHost(void);
+extern int netGetLocalSlot(void);
 #endif
 #include "stanintersection.h"
 #include "tex.h"
@@ -3544,15 +3549,57 @@ void chrobjWeaponTick(struct PropRecord* prop)
             }
             else if (weapon->timer == 1)
             {
-                player_prop = getCurrentPlayerProp();
+#ifdef GEVR
+                extern bool netIsActive(void);
+                extern int netGetLocalSlot(void);
+                extern bool netSlotOccupied(int slot);
 
-                diff_x = player_prop->pos.f[0] - prop->pos.f[0];
-                diff_y = player_prop->pos.f[1] - prop->pos.f[1];
-                diff_z = player_prop->pos.f[2] - prop->pos.f[2];
-
-                if ((diff_x * diff_x) + (diff_y * diff_y) + (diff_z * diff_z) < PROXIMITY_MINE_TRIGGER_DISTANCE)
+                if (netIsActive())
                 {
-                    weapon->timer = 0;
+                    /*
+                     * Online the mine's owner sets it off. This pass runs as
+                     * the local player only, so the owner's headset tests
+                     * every player against its mines; the copies of the other
+                     * players' mines wait for their owner's explosion
+                     * (explosion.c), which also removes them.
+                     */
+                    s32 owner = (obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER;
+                    s32 slot;
+
+                    if (owner == netGetLocalSlot())
+                    {
+                        for (slot = 0; slot < getPlayerCount(); slot++)
+                        {
+                            struct player *victim = g_playerPointers[slot];
+
+                            if (!netSlotOccupied(slot) || victim == NULL || victim->prop == NULL || victim->bonddead)
+                            {
+                                continue;
+                            }
+                            diff_x = victim->prop->pos.f[0] - prop->pos.f[0];
+                            diff_y = victim->prop->pos.f[1] - prop->pos.f[1];
+                            diff_z = victim->prop->pos.f[2] - prop->pos.f[2];
+                            if ((diff_x * diff_x) + (diff_y * diff_y) + (diff_z * diff_z) < PROXIMITY_MINE_TRIGGER_DISTANCE)
+                            {
+                                weapon->timer = 0;
+                                break;
+                            }
+                        }
+                    }
+                }
+                else
+#endif
+                {
+                    player_prop = getCurrentPlayerProp();
+
+                    diff_x = player_prop->pos.f[0] - prop->pos.f[0];
+                    diff_y = player_prop->pos.f[1] - prop->pos.f[1];
+                    diff_z = player_prop->pos.f[2] - prop->pos.f[2];
+
+                    if ((diff_x * diff_x) + (diff_y * diff_y) + (diff_z * diff_z) < PROXIMITY_MINE_TRIGGER_DISTANCE)
+                    {
+                        weapon->timer = 0;
+                    }
                 }
             }
 
@@ -4203,6 +4250,45 @@ s32 glassCalculateOpacity(coord3d *pos, f32 xludist, f32 opadist, f32 arg3)
 }
 
 
+#ifdef GEVR
+/*
+ * Online a thrown knife flies on every headset (gun.c gevrNetSpawnProjectile)
+ * and this pass runs as the local player. Its hit is judged as its thrower's,
+ * so only the thrower's headset reports it (chraction.c), and it never counts
+ * against the thrower's own body.
+ */
+static s32 gevrKnifeHitsActor(ObjectRecord *obj, PropRecord *target, s32 bodypart, void *dir)
+{
+	extern bool netIsActive(void);
+	s32 prev = get_cur_playernum();
+	s32 owner = prev;
+	s32 hit;
+
+	if (netIsActive())
+	{
+		owner = (obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER;
+		if (owner < 0 || owner >= 4 || g_playerPointers[owner] == NULL)
+		{
+			owner = prev;
+		}
+		else if (g_playerPointers[owner]->prop == target)
+		{
+			return 0;
+		}
+	}
+	if (owner != prev)
+	{
+		set_cur_player(owner);
+	}
+	hit = handles_shot_actors(target->chr, bodypart, (struct coord3d *) dir, ((struct WeaponObjRecord *) obj)->weaponnum, 1);
+	if (owner != prev)
+	{
+		set_cur_player(prev);
+	}
+	return hit;
+}
+#endif
+
 s32 objTick(struct PropRecord *prop)
 {
 	Mtxf *mtxs;
@@ -4470,8 +4556,44 @@ s32 objTick(struct PropRecord *prop)
 			)
 			
             isSimOwner = projectile->ownerprop == g_CurrentPlayer->prop;
-			
+
 		}
+#ifdef GEVR
+		/*
+		 * Online each other player's copy gets its own view pass (lv.c
+		 * gevrRemotePlayerPass), so its projectiles are stepped there as in
+		 * split screen. One whose owner has left falls to the first pass, or
+		 * it would hang in the air.
+		 */
+		{
+			extern bool netIsActive(void);
+			extern bool netSlotOccupied(int slot);
+			extern int netGetLocalSlot(void);
+			extern s32 g_gevrExtraPass;
+
+			if (g_gevrExtraPass && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+			{
+				/*
+				 * The local player's own off-view pass: its projectiles step in
+				 * the head pass. A copy's pass is an extra pass too, and this
+				 * once caught it: an ammo box or gun a copy shot was stepped by
+				 * nobody, so it flew only on the shooter's headset (playtest
+				 * 2026-09-30).
+				 */
+				isSimOwner = FALSE;
+			}
+			if (netIsActive() && !isSimOwner && (obj->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE)
+				&& obj->projectile != NULL && obj->projectile->ownerprop != NULL)
+			{
+				s32 owner = getPlayerPointerIndex(obj->projectile->ownerprop);
+
+				if (owner >= 0 && !netSlotOccupied(owner) && get_player_position_in_shuffled(get_cur_playernum()) == 0)
+				{
+					isSimOwner = TRUE;
+				}
+			}
+		}
+#endif
 	}
 
     /**
@@ -4480,6 +4602,12 @@ s32 objTick(struct PropRecord *prop)
      */
 #if !defined(VERSION_EU)
 	sp100 = (struct PropRecord *) &obj->nextcol;
+#endif
+#ifdef GEVR
+    if (gevrAmmoNetworked(obj)) {
+        extern s32 g_gevrExtraPass;
+        isSimOwner = netIsHost() && get_cur_playernum() == netGetLocalSlot() && !g_gevrExtraPass;
+    }
 #endif
 	if (isSimOwner)
 	{
@@ -4685,7 +4813,11 @@ s32 objTick(struct PropRecord *prop)
 								temp_v0_40 = obj->projectile;
 								temp_s0_13 = (struct coord3d *) playerProp2->chr;
 
+								#ifdef GEVR
+								if ((((temp_v0_40->flags & PROJECTILEFLAG_AIRBORNE) && (((s32) temp_v0_40->unk90) <= 0)) && (obj->runtime_bitflags & RUNTIMEBITFLAG_THROWING_KNIFE_RELATED)) && (gevrKnifeHitsActor(obj, playerProp2, bodypartshot, &flt_CODE_bss_80075B78) != 0))
+#else
 								if ((((temp_v0_40->flags & PROJECTILEFLAG_AIRBORNE) && (((s32) temp_v0_40->unk90) <= 0)) && (obj->runtime_bitflags & RUNTIMEBITFLAG_THROWING_KNIFE_RELATED)) && (handles_shot_actors((struct ChrRecord *) temp_s0_13, bodypartshot, &flt_CODE_bss_80075B78, ((struct WeaponObjRecord *) obj)->weaponnum, 1) != 0))
+#endif
 								{
 									projectileStopped = 1;
 
@@ -5880,6 +6012,39 @@ s32 objTick(struct PropRecord *prop)
 	{
 		var_v1_5 = ((!(obj->runtime_bitflags & RUNTIMEBITFLAG_00000800)) && (!(obj->flags2 & PROPFLAG2_00080000))) ? (posIsOnScreen(prop, &obj->runtime_pos, getinstsize(model), applyFogCull)) : (0);
 	}
+
+#ifdef GEVR
+	/*
+	 * PORT probe (issue #85): the Egypt stone doors, every ~50 ticks each,
+	 * with their rooms and whether each is drawn, the on-screen verdict, the
+	 * door's travel and the flags. The Golden Gun room's exit door showed
+	 * black when shut and vanished while opening; reading says the slab is
+	 * not drawn from that side (its rooms not rendered, its portal shut).
+	 */
+	if (obj->type == PROPDEF_DOOR && obj->obj >= PROP_CRYPTDOOR1A && obj->obj <= PROP_CRYPTDOOR4)
+	{
+		static u32 n;
+
+		if ((n++ % 300) == 0)
+		{
+			struct DoorRecord *dr = (struct DoorRecord *) obj;
+			s32 ids[8];
+			s32 k;
+			char rooms[96];
+			s32 len = 0;
+
+			chraiGetPropRoomIds(prop, ids);
+			for (k = 0; k < 8 && ids[k] >= 0 && len < 80; k++)
+			{
+				len += snprintf(rooms + len, sizeof(rooms) - len, " %d%s", ids[k], getROOMID_isRendered(ids[k]) ? "*" : "");
+			}
+			sysLogPrintf(LOG_NOTE, "cryptdoor: model %d at (%.0f %.0f %.0f) rooms%s onscreen %d open %.2f type %u flags 0x%x propflags 0x%x rt 0x%x player (%.0f %.0f %.0f)",
+			             obj->obj, obj->runtime_pos.x, obj->runtime_pos.y, obj->runtime_pos.z, rooms, var_v1_5,
+			             dr->openPosition, dr->doorType, dr->doorFlags, obj->flags, obj->runtime_bitflags,
+			             bondviewGetCurrentPlayersPosition()->x, bondviewGetCurrentPlayersPosition()->y, bondviewGetCurrentPlayersPosition()->z);
+		}
+	}
+#endif
 
 	if (var_v1_5 != 0)
 	{
@@ -7907,6 +8072,17 @@ void objBounce(ObjectRecord *obj, coord3d *arg1)
     coord3d rot = {0, 0, 0};
     Projectile *projectile = NULL;
 
+#ifdef GEVR
+    if (gevrAmmoNetworked(obj)) {
+        /* Remote shot replay is visual; only the shooter's headset requests a bounce. */
+        if (get_cur_playernum() == netGetLocalSlot()) {
+            coord3d world = *arg1;
+            mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), &world);
+            netSendAmmoImpulse(obj, &world);
+        }
+        return;
+    }
+#endif
     sub_GAME_7F03FDA8(obj->prop);
 
     if (obj->runtime_bitflags & RUNTIMEBITFLAG_EMBEDDED) {
@@ -10264,6 +10440,12 @@ void generate_language_specific_text_for_weapon(u8 *finalstring, ITEM_IDS itemty
     u32 morethan2players;
 
     morethan2players = FALSE;
+#ifdef GEVR
+    /* 3+ players skip the "Picked up" strcpy below and strcat onto the
+     * caller's uninitialised stack buffer; online matches allocate every
+     * slot for drop-in, so this runs even when alone. */
+    *finalstring = 0;
+#endif
 
     if (j_text_trigger != 0)
     {
@@ -10535,6 +10717,9 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 
             collected = 0;
             wep = (WeaponObjRecord *)prop->obj;
+#ifdef GEVR
+            s32 alreadyOwned = gevrWeaponOwned(wep->weaponnum);
+#endif
 
             set_sound_effect_for_weapontype_collection(wep->weaponnum);
 
@@ -10620,6 +10805,9 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
                 }
             }
 
+#ifdef GEVR
+            gevrWeaponPickedUp(wep->weaponnum, alreadyOwned);
+#endif
             break;
         }
 
@@ -12406,7 +12594,64 @@ void doorBuildClippedVertices(DoorRecord *inDoor)
             cutoff = door->bbox.Bounds.xmin + 0.5f;
         }
 
-        ((struct ModelRwData_DisplayList_CollisionRecord *)inDoor)->Vertices = dynAllocateVertices(src->numVertices);
+        /* The model retains this pointer between door ticks. The dynamic
+         * vertex arena swaps every rendered frame, so vertices allocated
+         * there can be overwritten before the next door update and make a
+         * moving wall panel flicker or appear transparent. */
+        if (door->unkcc == NULL)
+        {
+            return;
+        }
+        ((struct ModelRwData_DisplayList_CollisionRecord *)inDoor)->Vertices = door->unkcc;
+        for (i = 0; i < src->numVertices; i++)
+        {
+            door->unkcc[i] = src->Vertices[i];
+        }
+
+        if (door->doorType == DOORTYPE_VERTICAL)
+        {
+            /*
+             * The part risen above the frame folds down to the frame line
+             * (the bounding box's top comes down as the door opens, see
+             * doorUpdateBbox), as the original did; left whole, the panel
+             * shows through the wall it slides into (z-fighting, and its top
+             * face in the room above: two-headset test). The original walked
+             * four-vertex quads, which the wall panels are not; each vertex
+             * here finds its own partner below it (same x and z) for the
+             * texture coordinates. The shards seen before came from the
+             * per-frame vertex arena, fixed above.
+             */
+            Vertex *dst = ((struct ModelRwData_DisplayList_CollisionRecord *)inDoor)->Vertices;
+
+            for (i = 0; i < src->numVertices; i++)
+            {
+                Vertex *below = NULL;
+
+                cur = &src->Vertices[i];
+                if (cur->coord.y < cutoff)
+                {
+                    continue;
+                }
+                for (k = 0; k < src->numVertices; k++)
+                {
+                    Vertex *other = &src->Vertices[k];
+
+                    if (other->coord.x == cur->coord.x && other->coord.z == cur->coord.z
+                        && other->coord.y < cur->coord.y
+                        && (below == NULL || other->coord.y > below->coord.y))
+                    {
+                        below = other;
+                    }
+                }
+                if (below != NULL)
+                {
+                    dst[i].s = ((cur->coord.y - cutoff) * (below->s - cur->s) / (cur->coord.y - below->coord.y)) + cur->s;
+                    dst[i].t = ((cur->coord.y - cutoff) * (below->t - cur->t) / (cur->coord.y - below->coord.y)) + cur->t;
+                }
+                dst[i].coord.y = cutoff;
+            }
+            return;
+        }
 
         for (i = 0; i < src->numVertices / 4; i++)
         {
@@ -12420,15 +12665,6 @@ void doorBuildClippedVertices(DoorRecord *inDoor)
                 n1 = &(&src->Vertices[i * 4])[(j + 1) % 4];
                 n2 = &(&src->Vertices[i * 4])[(j + 2) % 4];
                 n3 = &(&src->Vertices[i * 4])[(j + 3) % 4];
-
-                if (j == 0)
-                {
-                    *dcur = *cur;
-                    *d1 = *n1;
-                    *d2 = *n2;
-                    *d3 = *n3;
-                    if (1);
-                }
 
                 // Rebuild the S/T coords for vertically sliding doors to mask the door's resizing.
                 if (door->doorType == DOORTYPE_VERTICAL)
@@ -12614,6 +12850,23 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
 
     for (index = 0; index < count; index++)
     {
+#ifdef GEVR
+        /*
+         * Split screen shares one speaker, so a sound is as loud as it is for
+         * the nearest player. Online each headset hears only its own player:
+         * measured to the other players' copies, a remote gun or explosion
+         * was always as loud as if it were beside you.
+         */
+        {
+            extern bool netIsActive(void);
+            extern int netGetLocalSlot(void);
+
+            if (netIsActive() && netGetLocalSlot() >= 0 && index != netGetLocalSlot())
+            {
+                continue;
+            }
+        }
+#endif
         prop  = g_playerPointers[index]->prop;
         diffx = prop->pos.x - pos->x;
         diffy = prop->pos.y - pos->y;
@@ -12646,6 +12899,12 @@ s32 sub_GAME_7F0539E4(coord3d *pos)
     return sub_GAME_7F053894(pos, 5000.0f, 6000.0f);
 }
 
+
+void chrobjSndCreatePostEventDamage(ALSoundState *state, coord3d *pos)
+{
+    f32 gain = sub_GAME_7F053894(pos, 200.0f, 500.0f) / 32767.0f;
+    sndCreatePostEvent(state, 8, (s32)(32767.0f * gain * gain));
+}
 
 void chrobjSndCreatePostEventDefault(ALSoundState *state, coord3d *pos)
 {
@@ -13909,6 +14168,35 @@ void doorActivateWrapper(PropRecord *prop) //#MATCH
     sub_GAME_7F03E6A0(prop);
 }
 
+#ifdef GEVR
+/*
+ * Online: another player used this door on their headset (net_core.c
+ * NET_MSG_OBJECT_STATE, after Perfect Dark port-net's SVC_PROP_DOOR, which
+ * sets the door's mode). It swings away from that player's copy and takes
+ * the state the owner's door took, as doorActivateWrapper would have.
+ */
+void gevrNetDoorApply(PropRecord *prop, PropRecord *byprop, s32 state)
+{
+    DoorRecord *door = prop->door;
+
+    if (door == NULL)
+    {
+        return;
+    }
+    if (byprop != NULL)
+    {
+        doorsChooseSwingDirection(byprop, door);
+    }
+    if (door->openstate != state)
+    {
+        doorActivate(door, state);
+    }
+    door->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED;
+    door->flags2 &= ~8;
+    sub_GAME_7F03E6A0(prop);
+}
+#endif
+
 
 bool posIsInFrontOfDoor(PropRecord *prop, DoorRecord *door)
 {
@@ -14029,6 +14317,14 @@ TICKOP propdoorInteract(PropRecord* doorprop)
     {
         doorsChooseSwingDirection(playerprop, door);
         doorActivateWrapper(doorprop);
+#ifdef GEVR
+        /* online: the door moves on the other headsets too (net_core.c) */
+        {
+            extern void netSendDoorState(ObjectRecord *door, s32 state);
+
+            netSendDoorState((ObjectRecord *) door, door->openstate);
+        }
+#endif
     }
     else if ((door->openstate == DOORSTATE_STATIONARY) && (door->openPosition < 0.5f))
     {
@@ -14399,7 +14695,12 @@ void drop_inventory(void)
     {
         propid = getPropForHeldItem(item);
 
+#ifdef GEVR
+        /* -1 (no held model) compared signed: PROP is unsigned under Clang (player.c sub_GAME_7F09B398) */
+        if (((s32)propid >= 0) && (bondinvHasInvItem(item) != 0))
+#else
         if ((propid >= 0) && (bondinvHasInvItem(item) != 0))
+#endif
         {
             prop = something_with_generating_object(playerchr, propid, item, 0x20000000, NULL, NULL);
 

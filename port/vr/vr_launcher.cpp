@@ -1,3 +1,4 @@
+#include "gevr_launcher_ui.h"
 /*
  * GoldenEye VR launcher, inside VR.
  *
@@ -46,6 +47,7 @@
 #include "vr_log.h"
 #include "vr_screen.h"
 #include "vr_settings.h"
+#include "vr_haptics.h"
 
 extern "C" {
 int gevrVrPumpBegin(void);            // port/src/gevr_engine_shim.c
@@ -53,9 +55,28 @@ void gevrVrPumpEnd(void);
 const char *fsFullPath(const char *relPath);  // port/src/fs.c
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
+void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
+void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
 void vr_apply_refresh_rate(void);     // vr_openxr.cpp
+int gevrVrSessionRunning(void);       // vr_openxr.cpp: includes the unfocused Quest menu
+extern int selected_num_players;      // src/game/front.c
+extern int gamemode;                  // src/game/front.c
+extern int g_StageNum;                 // port/src/main.c
+void bossSetLoadedStage(int stage);
+void init_mp_options_for_scenario(int numplayers);
+void reset_mp_options_for_scenario(int scenarioid);
+void setMPWeaponSet(int setNUM);
+int getMPWeaponSet(void);
+extern int player_char[];
+extern int player_handicap[];
 }
+#include "net_core.h"
+#include "net_game.h"
+#include "net_voice.h"
+#include "net_discovery.h"
+#include "net_ice.h"
+#include "juice/juice.h"
 bool vr_begin_eye_render();           // vr_openxr.cpp
 void vr_end_eye_render();
 
@@ -434,7 +455,234 @@ static void gevrJavaCommand(const char *method, const char *arg)
     }
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
-    vr_log("launcher: %s %s", method, arg);
+    // Report commands contain the optional private note and player name.
+    if (strcmp(method, "reportCommand") == 0) vr_log("launcher: reportCommand");
+    else vr_log("launcher: %s %s", method, arg);
+}
+
+static std::string gevrEncodeUrl64(const char *input)
+{
+    static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    std::string out;
+    const unsigned char *p = (const unsigned char *)input;
+    const size_t n = strlen(input);
+    for (size_t i = 0; i < n; i += 3) {
+        unsigned value = (unsigned)p[i] << 16;
+        if (i + 1 < n) value |= (unsigned)p[i + 1] << 8;
+        if (i + 2 < n) value |= p[i + 2];
+        out.push_back(alphabet[(value >> 18) & 63]);
+        out.push_back(alphabet[(value >> 12) & 63]);
+        if (i + 1 < n) out.push_back(alphabet[(value >> 6) & 63]);
+        if (i + 2 < n) out.push_back(alphabet[value & 63]);
+    }
+    return out;
+}
+
+static void gevrHapticsPage(bool &open, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
+{
+    static int activeTab = HAPTIC_CAT_PISTOLS;
+
+    ImGui::TextColored(gold, "HAPTIC FEEDBACK SETTINGS");
+    ImGui::TextDisabled("Tune vibration intensity (0-10) and pulse duration (ms) for each weapon and action. Feel real-time vibrations while testing.");
+    ImGui::Spacing();
+
+    // Category Tabs (6 categories, keeping every category to <= 8 items so nothing is cut off)
+    const char *catNames[] = {
+        "Pistols",
+        "Automatics",
+        "Rifles & Heavy",
+        "Melee & Thrown",
+        "Gadgets",
+        "Damage & Actions"
+    };
+
+    for (int i = 0; i < HAPTIC_CAT_COUNT; ++i) {
+        if (i > 0) ImGui::SameLine();
+        bool isSelected = (activeTab == i);
+        if (isSelected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.35f, 0.30f, 0.15f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_Text, gold);
+        }
+        if (ImGui::Button(catNames[i])) {
+            activeTab = i;
+        }
+        if (isSelected) {
+            ImGui::PopStyleColor(2);
+        }
+    }
+
+    ImGui::Separator();
+
+    // Scrollable region for table so the footer is always pinned visible and nothing is ever clipped
+    const float footerH = ImGui::GetFrameHeightWithSpacing() * 2.0f;
+    ImGui::BeginChild("##haptics_scroll", ImVec2(0, -footerH), false, ImGuiWindowFlags_None);
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 3.0f));
+
+    // Table of items for activeTab
+    if (ImGui::BeginTable("haptics_table", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH)) {
+        ImGui::TableSetupColumn("Item / Action", ImGuiTableColumnFlags_WidthFixed, 270.0f);
+        ImGui::TableSetupColumn("Intensity", ImGuiTableColumnFlags_WidthFixed, 330.0f);
+        ImGui::TableSetupColumn("Duration", ImGuiTableColumnFlags_WidthFixed, 390.0f);
+        ImGui::TableSetupColumn("Test Feel", ImGuiTableColumnFlags_WidthFixed, 110.0f);
+        ImGui::TableHeadersRow();
+
+        int count = vrHapticsGetCount();
+        for (int i = 0; i < count; ++i) {
+            HapticProfile *p = vrHapticsGetProfileByIndex(i);
+            if (!p || p->category != (HapticCategory)activeTab) continue;
+
+            ImGui::PushID(p->iniKey);
+
+            // Column 0: Name
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("%s", p->name);
+
+            // Column 1: Intensity Stepper & Slider
+            ImGui::TableNextColumn();
+            bool changed = false;
+            if (ImGui::Button("-##int", ImVec2(34, 0))) {
+                if (p->intensity > 0) {
+                    p->intensity--;
+                    changed = true;
+                }
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(170.0f);
+            if (ImGui::SliderInt("##int_sl", &p->intensity, 0, 10, "%d")) {
+                changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("+##int", ImVec2(34, 0))) {
+                if (p->intensity < 10) {
+                    p->intensity++;
+                    changed = true;
+                }
+            }
+
+            // Column 2: Duration Stepper & Slider
+            ImGui::TableNextColumn();
+            if (ImGui::Button("-##dur", ImVec2(34, 0))) {
+                if (p->durationMs > 10) {
+                    p->durationMs = std::max(10, p->durationMs - 10);
+                    changed = true;
+                } else if (p->durationMs > 0 && p->intensity == 0) {
+                    p->durationMs = 0;
+                    changed = true;
+                }
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(220.0f);
+            if (ImGui::SliderInt("##dur_sl", &p->durationMs, 10, 500, "%d ms")) {
+                changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("+##dur", ImVec2(34, 0))) {
+                if (p->durationMs < 500) {
+                    p->durationMs = std::min(500, p->durationMs + 10);
+                    changed = true;
+                }
+            }
+
+            // Column 3: Test Button
+            ImGui::TableNextColumn();
+            if (ImGui::Button("Test", ImVec2(100, 0)) || changed) {
+                vrHapticsTriggerTest(p->id);
+            }
+
+            ImGui::PopID();
+        }
+
+        ImGui::EndTable();
+    }
+
+    ImGui::PopStyleVar();
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    // Footer actions
+    if (ImGui::Button("Reset Category to Defaults")) {
+        vrHapticsResetCategory((HapticCategory)activeTab);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Reset All to Defaults")) {
+        vrHapticsResetAll();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Back", ImVec2(-1, 0))) {
+        vrSettingsSave();
+        open = false;
+    }
+}
+
+static void gevrReportPage(bool &open, bool crash, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
+{
+    static char note[501] = {};
+    static Uint32 lastPoll = 0;
+    static std::string status;
+    Uint32 now = SDL_GetTicks();
+    if (now - lastPoll > 250 || !lastPoll) {
+        status = gevrJavaString("reportStatus");
+        lastPoll = now;
+    }
+    if (crash && status == "offer") {
+        gevrJavaCommand("reportCommand", "offered");
+        status = "idle";
+    }
+    ImGui::TextColored(gold, crash ? "SEND CRASH REPORT" : "SEND DEBUG LOG");
+    ImGui::TextWrapped("This sends the game log, available crash data, your player name and headset model. Network addresses and connection details are removed from text logs.");
+    ImGui::Spacing();
+    ImGui::TextWrapped("Optional note (what happened just before the problem):");
+    ImGui::InputTextMultiline("##reportnote", note, sizeof(note), ImVec2(-1, ImGui::GetTextLineHeight() * 4));
+    ImGui::Spacing();
+    if (status != "sending" && ImGui::Button("Send", ImVec2(-1, 0))) {
+        vrHapticsDumpCTable();
+        std::string command = "send|" + gevrEncodeUrl64(note) + "|"
+            + gevrEncodeUrl64(VrPlayerName) + "|" + gevrBuildId;
+        gevrJavaCommand("reportCommand", command.c_str());
+        status = "sending";
+    }
+    if (status == "sending") ImGui::TextColored(gold, "Sending...");
+    else if (status == "sent") ImGui::TextColored(good, "Sent. Thank you.");
+    else if (status.rfind("error:", 0) == 0) ImGui::TextColored(bad, "%s", status.c_str() + 6);
+    ImGui::Spacing();
+    if (ImGui::Button("Back", ImVec2(-1, 0))) open = false;
+}
+
+static std::string gevrDecodeUrl64(const std::string &input)
+{
+    std::string out;
+    unsigned value = 0;
+    int bits = -8;
+    for (unsigned char c : input) {
+        int digit = c >= 'A' && c <= 'Z' ? c - 'A' :
+                    c >= 'a' && c <= 'z' ? c - 'a' + 26 :
+                    c >= '0' && c <= '9' ? c - '0' + 52 :
+                    c == '-' ? 62 : c == '_' ? 63 : -1;
+        if (digit < 0) break;
+        value = (value << 6) | (unsigned)digit;
+        bits += 6;
+        if (bits >= 0) {
+            out.push_back((char)((value >> bits) & 255));
+            bits -= 8;
+        }
+    }
+    return out;
+}
+
+static std::vector<std::string> gevrSplitLobbyEvent(const std::string &raw)
+{
+    std::vector<std::string> fields;
+    size_t pos = 0;
+    while (true) {
+        size_t sep = raw.find('|', pos);
+        fields.push_back(raw.substr(pos, sep == std::string::npos ? std::string::npos : sep - pos));
+        if (sep == std::string::npos) break;
+        pos = sep + 1;
+    }
+    return fields;
 }
 
 static std::vector<std::string> gevrSplit(const std::string &s, char sep)
@@ -574,6 +822,1104 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
 }
 
+// Names: printable ASCII, which the game's font can draw over a player's head,
+// less '|', the lobby service's field separator.
+int nameCharFilter(ImGuiInputTextCallbackData *data)
+{
+    return data->EventChar < 0x20 || data->EventChar > 0x7e || data->EventChar == '|';
+}
+
+extern "C" uint16_t get_mTrack2Vol(void);
+extern "C" void set_mTrack2Vol(uint16_t);
+extern "C" void musicTrack1ApplySeqpVol(uint16_t);
+extern "C" void musicTrack3ApplySeqpVol(uint16_t);
+extern "C" void gevrSndApplySfxVolume(uint16_t);
+
+// How this headset reached its game: through the internet lobby (ICE) or the
+// LAN. A host migration rejoins the same way (gevrLobbyGameTick).
+static bool g_joinedViaInternet = false;
+
+static std::string gevrLobbyName()
+{
+    char name[GEVR_MAX_NAME_LEN];
+    snprintf(name, sizeof(name), "%s's game", VrPlayerName);
+    return name;
+}
+
+static std::string gevrLobbyCreateCommand(const std::string &name, int stage, int set, int max)
+{
+    return std::string("create|") + (VrMpVisibility ? "private" : "public") + "|" + name + "|" +
+        std::to_string(GEVR_NET_VERSION) + "|" + std::to_string(stage) + "|" +
+        std::to_string(set) + "|" + std::to_string(max);
+}
+
+// The multiplayer page's shared widgets. net_match.c is the one list of the
+// stages, sets, scenarios, characters and guns, and the choices live in the
+// settings (VrMp*, goldeneye-vr.ini), so they survive the restart into the
+// launcher.
+//
+// A combo over a named list, tall enough to show it whole: the stick steps
+// rows, and a popup that scrolled hid them (user). A long list (the 64
+// characters, the guns) keeps ImGui's larger popup and follows the focus.
+static bool namedCombo(const char *id, int count, const char *(*name)(int), int *sel, bool longList = false) {
+    return gevrNamedCombo(id, count, name, sel, longList, [&](int n) {
+        return strcmp(id, "##stagecombo") == 0 &&
+               ((netScenarioHasTeams(VrMpScenario) && netStageMaxPlayers(n) < netTeamRequiredPlayers(VrMpScenario)) ||
+                (netIsHost() && !netStageEligible(n)));
+    });
+}
+
+static const char *gunNameAt(int idx) { return netItem(idx)->name; }
+static const char *stageNameById(int levelId) { return netStageName(netStageIndexOf((uint8_t)levelId)); }
+
+// A gun chooser: the value is an ITEM_IDS, the list works in positions.
+static bool gunCombo(const char *id, int *item) {
+    int idx = netItemIndexOf(*item);
+    if (idx < 0)
+        idx = 0;
+    const bool changed = namedCombo(id, netItemCount(), gunNameAt, &idx, true);
+    if (changed)
+        *item = netItem(idx)->item;
+    return changed;
+}
+
+// The host's match config from the saved choices, clamped to the lists.
+static NetMatchConfig gevrLauncherConfig() {
+    NetMatchConfig c = {};
+    auto clampi = [](int v, int n, int dflt) { return v >= 0 && v < n ? v : dflt; };
+    c.stage = (uint8_t)(netStageIndexOf((uint8_t)VrMpStage) >= 0 ? VrMpStage : 27);
+    c.scenario = (uint8_t)clampi(VrMpScenario, netScenarioCount(), 0);
+    c.weapon_set = (uint8_t)clampi(VrMpWeaponSet, netWeaponSetCount(), 4);
+    c.game_length = (uint8_t)clampi(VrMpLength, 7, 2);
+    c.health = (uint8_t)clampi(VrMpHealth, netHealthCount(), 5);
+    c.dual_wield = (uint8_t)clampi(VrMpDual, 3, 0);
+    c.loadouts = VrMpLoadouts ? 1 : 0;
+    c.next_round = (uint8_t)clampi(VrMpNextRound, 3, 0);
+    c.friendly_fire = VrMpFriendlyFire != 0;
+    c.voice_mode = (uint8_t)clampi(VrMpVoiceMode, 2, 0);
+    c.fun_flags = (uint8_t)clampi(VrMpFunFlags, 8, 0);
+    c.gun_size = (uint8_t)clampi(VrMpGunSize, 3, 0);
+    for (int i = 0; i < 4; i++)
+        c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
+    if (netScenarioHasTeams(c.scenario) &&
+        netStageMaxPlayers(netStageIndexOf(c.stage)) < netTeamRequiredPlayers(c.scenario)) {
+        c.stage = 34;
+        VrMpStage = 34; // Facility supports all team formats.
+    }
+    return c;
+}
+
+static void gevrTeamChoiceRow(const char *id) {
+    if (!netIsActive() || !netScenarioHasTeams(netGetMatchConfig()->scenario))
+        return;
+    int team = netGetSlotTeam(netGetLocalSlot());
+    ImGui::TextUnformatted("Your team:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9.0f);
+    if (namedCombo(id, 3, netTeamName, &team))
+        netLobbySetTeam((uint8_t)team);
+    if (netGetPhase() == NET_PHASE_IN_PROGRESS)
+        ImGui::SameLine(), ImGui::TextDisabled("next match");
+}
+static std::string gevrPingText(int slot) {
+    int ping = netGetSlotPing(slot);
+    return ping < 0 ? "—" : std::to_string(ping);
+}
+
+// A host choice changed: saved, and told to the lobby when one is up.
+static void gevrHostChoiceChanged() {
+    if (!netIsHost()) {
+        vrSettingsSave();
+        return;
+    }
+    const NetMatchConfig c = gevrLauncherConfig();
+    netLobbySetConfig(&c);
+    const NetMatchConfig *accepted = netGetMatchConfig();
+    VrMpStage = accepted->stage;
+    VrMpScenario = accepted->scenario;
+    VrMpWeaponSet = accepted->weapon_set;
+    VrMpLength = accepted->game_length;
+    VrMpHealth = accepted->health;
+    VrMpDual = accepted->dual_wield;
+    VrMpLoadouts = accepted->loadouts;
+    VrMpNextRound = accepted->next_round;
+    VrMpVoiceMode = accepted->voice_mode;
+    VrMpFriendlyFire = accepted->friendly_fire;
+    VrMpFunFlags = accepted->fun_flags;
+    VrMpGunSize = accepted->gun_size;
+    for (int k = 0; k < 4; k++)
+        VrMpCustom[k] = accepted->custom_set[k];
+    vrSettingsSave();
+    const int idx = netStageIndexOf(accepted->stage);
+    netSetMaxPlayers(idx >= 0 ? netStageMaxPlayers(idx) : GEVR_MAX_PLAYERS);
+}
+
+static void gevrSendLoadout() {
+    uint8_t items[4];
+    for (int i = 0; i < 4; i++)
+        items[i] = (uint8_t)(netItemIndexOf(VrMpLoadout[i]) >= 0 ? VrMpLoadout[i] : netItem(0)->item);
+    netLobbySetLoadout(items);
+}
+
+// This player's character: the one combo for the host, a joiner and a connected client.
+static void characterRow(const char *label, const char *id) {
+    ImGui::TextUnformatted(label);
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+    if (namedCombo(id, netCharacterCount(), netCharacterName, &VrMpChr, true)) {
+        vrSettingsSave();
+        if (netIsActive())
+            netLobbySetCharacter((uint8_t)VrMpChr);
+    }
+    netSetPreferredCharacter((uint8_t)VrMpChr);
+}
+
+// This player's four spawn guns, for a match with loadouts on.
+static void loadoutRows(const char *idprefix) {
+    ImGui::TextUnformatted("Your loadout, when the host turns loadouts on:");
+    bool changed = false;
+    for (int i = 0; i < 4; i++) {
+        char id[32];
+        snprintf(id, sizeof(id), "##%sloadout%d", idprefix, i);
+        ImGui::Text("Gun %d:", i + 1);
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12.0f);
+        changed |= gunCombo(id, &VrMpLoadout[i]);
+    }
+    if (changed) {
+        vrSettingsSave();
+        if (netIsActive())
+            gevrSendLoadout();
+    }
+}
+
+// A row of favorite toggles over a bitmask: the shuffle and the playlist draw from them.
+static bool favoriteRow(const char *label, int count, const char *(*name)(int), unsigned *mask, int perRow) {
+    bool changed = false;
+    ImGui::TextUnformatted(label);
+    for (int i = 0; i < count; i++) {
+        bool on = ((*mask >> i) & 1u) != 0;
+        if (i % perRow != 0)
+            ImGui::SameLine();
+        char id[48];
+        snprintf(id, sizeof(id), "%s##%s%d", name(i), label, i);
+        if (ImGui::Checkbox(id, &on)) {
+            *mask = on ? (*mask | (1u << i)) : (*mask & ~(1u << i));
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+// The host's match options: a section of the Host tab, before and while hosting.
+static void gevrMatchOptions(bool favorites = false) {
+    bool changed = false;
+    if (!favorites) {
+        ImGui::Text("Scenario:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        changed |= namedCombo("##scenario", netScenarioCount(), netScenarioName, &VrMpScenario);
+        if (VrMpScenario == SCENARIO_YOLT) {
+            ImGui::TextDisabled("Length: last one standing (the scenario's own)");
+        } else {
+            ImGui::Text("Length:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+            // The Living Daylights takes the time limits only, as the game's own menu has it
+            changed |= namedCombo("##length", VrMpScenario == SCENARIO_TLD ? 4 : 7, netGameLengthName, &VrMpLength);
+        }
+        ImGui::Text("Health:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+        changed |= namedCombo("##health", netHealthCount(), netHealthName, &VrMpHealth);
+        ImGui::Text("Dual wield:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+        changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
+        ImGui::SameLine();
+        ImGui::TextDisabled(VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
+                            : VrMpDual == NET_DUAL_ANY   ? "hold X for the left hand's panel"
+                                                         : "");
+        bool loadouts = VrMpLoadouts != 0;
+        if (ImGui::Checkbox("Players spawn with their own four guns (loadouts)", &loadouts)) {
+            VrMpLoadouts = loadouts ? 1 : 0;
+            changed = true;
+        }
+        ImGui::Text("Next round:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+        changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
+                                  : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
+                                                                       : "the players vote in the pause menu");
+    }
+
+    if (favorites) {
+        changed |= favoriteRow("Favorite maps:", netStageCount(), netStageName, &VrMpFavStages, 6);
+        changed |= favoriteRow("Favorite sets:", netWeaponSetCount(), netWeaponSetName, &VrMpFavSets, 5);
+    }
+
+    if (changed)
+        gevrHostChoiceChanged();
+}
+
+static const char *gevrGunSizeName(int n) {
+    const char *names[] = {"Normal", "Tiny", "Big"};
+    return names[n];
+}
+static void gevrFunOptions(bool hostPage) {
+    int flags = netIsActive() ? netGetMatchConfig()->fun_flags : VrMpFunFlags;
+    int size = netIsActive() ? netGetMatchConfig()->gun_size : VrMpGunSize;
+    ImGui::TextDisabled(netIsActive() && netGetPhase() == NET_PHASE_IN_PROGRESS ? "Pending: applies next round"
+                                                                                : "Applies when the round loads");
+    ImGui::BeginDisabled(netIsActive() ? !netIsHost() : !hostPage);
+    const char *labels[] = {"DK mode", "Paintball", "Line mode"};
+    bool changed = false;
+    for (int n = 0; n < 3; n++) {
+        bool on = (flags & (1 << n)) != 0;
+        if (ImGui::Checkbox(labels[n], &on)) {
+            flags ^= 1 << n;
+            changed = true;
+        }
+    }
+    ImGui::TextUnformatted("Gun size:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9);
+    changed |= namedCombo("##mpgunsize", 3, gevrGunSizeName, &size);
+    ImGui::EndDisabled();
+    if (changed) {
+        VrMpFunFlags = flags;
+        VrMpGunSize = size;
+        if (netIsHost()) {
+            gevrNetConfigSet(CFG_FUN_FLAGS, flags);
+            gevrNetConfigSet(CFG_GUN_SIZE, size);
+        } else
+            vrSettingsSave();
+    }
+}
+static void gevrLobbyRoster(const ImVec4 &gold) {
+    const NetMsgLobbyState *lobby = netGetLobbyState();
+    ImGui::TextColored(gold, "PLAYERS (%d/%d)", netGetConnectedPlayerCount(), netGetMaxPlayers());
+    if (ImGui::BeginTable("##lobbyroster", 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
+        float font = ImGui::GetFontSize();
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthFixed, font * 9);
+        ImGui::TableSetupColumn("Team", ImGuiTableColumnFlags_WidthFixed, font * 5);
+        ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, font * 6);
+        ImGui::TableSetupColumn("Ping (ms)", ImGuiTableColumnFlags_WidthFixed, font * 6);
+        ImGui::TableHeadersRow();
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+            if (!lobby->slots[i].connected)
+                continue;
+            const auto &slot = lobby->slots[i];
+            bool host = i == netGetHostSlot();
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(slot.name);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host.",
+                                  slot.name, netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(netCharacterName(slot.chr_id));
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(netScenarioHasTeams(lobby->config.scenario) ? netTeamName(slot.team) : "—");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(host ? "Host" : slot.ready ? "Ready" : "Waiting");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(gevrPingText(i).c_str());
+        }
+        ImGui::EndTable();
+    }
+}
+void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
+    static int subTab = 0;     // 0 = Host, 1 = Join
+    static int joinMethod = 0; // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
+    static char directIp[64] = "192.168.1.";
+    static char privateCode[16] = "";
+    static std::string hostedCode;
+    static std::string onlineMessage;
+    static std::string clientJoinId;
+    static std::vector<std::string> hostJoinIds;
+    struct OnlineLobby {
+        std::string code, name, phase;
+        int stage, weapons, players, maxPlayers;
+    };
+    static std::vector<OnlineLobby> onlineLobbies;
+    static bool listLoading = false;
+    static uint32_t lastListMs = 0;
+    static uint32_t lastHeartbeatMs = 0;
+
+    vrEnsurePlayerName(); // here, not at launcher start: the settings load on the first frame
+    for (int i = 0; i < 32; ++i) {
+        const std::string raw = gevrJavaString("lobbyEvent");
+        if (raw.empty())
+            break;
+        const auto f = gevrSplitLobbyEvent(raw);
+        if (f[0] == "CREATED" && f.size() >= 2 && netIsHost()) {
+            hostedCode = f[1];
+            onlineMessage = "Lobby online";
+            // the clients keep the lobby and its token: whoever is elected host
+            // if this one leaves resumes the same lobby (net_core.c netHostLost)
+            netSetLobbyHandoff(f[1].c_str(), f.size() >= 3 ? f[2].c_str() : "");
+        } else if (f[0] == "LOBBY_LOST" && f.size() >= 3 && netIsHost()) {
+            vr_log("launcher: lobby %s lost (%s); registering again", f[1].c_str(), f[2].c_str());
+            hostedCode.clear();
+            hostJoinIds.clear();
+            onlineMessage = "Registering online lobby...";
+            lastHeartbeatMs = 0;
+            gevrJavaCommand("lobbyCommand", gevrLobbyCreateCommand(gevrLobbyName(), netGetLobbyStage(),
+                                                                   netGetLobbyWeaponSet(), netGetMaxPlayers())
+                                                .c_str());
+        } else if (f[0] == "LIST_BEGIN") {
+            onlineLobbies.clear();
+            listLoading = true;
+        } else if (f[0] == "LIST_END") {
+            listLoading = false;
+        } else if (f[0] == "LOBBY" && f.size() >= 8) {
+            onlineLobbies.push_back(
+                {f[1], f[2], f[7], atoi(f[3].c_str()), atoi(f[4].c_str()), atoi(f[5].c_str()), atoi(f[6].c_str())});
+        } else if (f[0] == "JOINED" && f.size() >= 4) {
+            clientJoinId = f[1];
+            g_joinedViaInternet = true;
+            if (!netIceStartClient(f[1].c_str(), f[2].c_str(), f[3].c_str()))
+                onlineMessage = "Could not start internet connection";
+            else
+                onlineMessage = "Finding a connection to host...";
+        } else if (f[0] == "HOST_PEER" && f.size() >= 5 && netIsHost()) {
+            if (netIcePeerCount() < 3 &&
+                netIceAddHostPeer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str(), f[3].c_str(), f[4].c_str()))
+                hostJoinIds.push_back(f[1]);
+        } else if (f[0] == "ANSWER" && f.size() >= 3) {
+            if (!netIceApplyAnswer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str()))
+                onlineMessage = "Internet connection failed";
+        } else if (f[0] == "ERROR" && f.size() >= 2) {
+            listLoading = false;
+            onlineMessage = f[1];
+        }
+    }
+    char iceSdp[JUICE_MAX_SDP_STRING_LEN];
+    if (!clientJoinId.empty() && netIceTakeDescription(clientJoinId.c_str(), iceSdp, sizeof(iceSdp)))
+        gevrJavaCommand("lobbyCommand", ("offer|" + gevrEncodeUrl64(iceSdp)).c_str());
+    if (!clientJoinId.empty()) {
+        const char *status = netIceStatus(clientJoinId.c_str());
+        if (status)
+            onlineMessage = status;
+    }
+    for (const std::string &id : hostJoinIds) {
+        if (netIceTakeDescription(id.c_str(), iceSdp, sizeof(iceSdp)))
+            gevrJavaCommand("lobbyCommand", ("answer|" + id + "|" + gevrEncodeUrl64(iceSdp)).c_str());
+        const char *status = netIceStatus(id.c_str());
+        if (status && strcmp(status, "Internet connection ended") != 0 && netIsHost())
+            onlineMessage = status;
+    }
+    netIcePoll();
+
+    if (netIsHost()) {
+        // Launcher idle kick: if host is inactive for 10 minutes, stop hosting
+        static uint32_t s_launcher_host_act_ms = 0;
+        static float s_last_px = 0.0f, s_last_py = 0.0f;
+        const uint32_t actNow = SDL_GetTicks();
+        if (s_launcher_host_act_ms == 0)
+            s_launcher_host_act_ms = actNow;
+        ImGuiIO &io = ImGui::GetIO();
+        bool act =
+            io.MouseDown[0] || fabsf(io.MousePos.x - s_last_px) > 2.0f || fabsf(io.MousePos.y - s_last_py) > 2.0f;
+        s_last_px = io.MousePos.x;
+        s_last_py = io.MousePos.y;
+        if (get_button_state(0, "thumbstick_click") || get_button_state(1, "thumbstick_click") ||
+            get_button_state(0, "a") || get_button_state(0, "b") || get_button_state(0, "x") ||
+            get_button_state(0, "y") || get_button_state(1, "a") || get_button_state(1, "b") ||
+            get_button_state(1, "x") || get_button_state(1, "y") || get_button_state(0, "trigger") ||
+            get_button_state(1, "trigger") || get_button_state(0, "grip") || get_button_state(1, "grip")) {
+            act = true;
+        }
+        if (act) {
+            s_launcher_host_act_ms = actNow;
+        } else if (actNow - s_launcher_host_act_ms >= 10 * 60 * 1000) {
+            gevrJavaCommand("lobbyCommand", "stop");
+            netDiscoveryStopBroadcasting();
+            netDisconnect();
+            netIceStop();
+            hostedCode.clear();
+            hostJoinIds.clear();
+            onlineMessage = "Hosting stopped due to inactivity (10 min idle)";
+            s_launcher_host_act_ms = 0;
+        }
+
+        int pCount = netGetConnectedPlayerCount();
+        int maxP = netGetMaxPlayers();
+        const uint32_t heartbeatNow = SDL_GetTicks();
+        if (netIsHost() && (heartbeatNow - lastHeartbeatMs > 5000 || lastHeartbeatMs == 0)) {
+            lastHeartbeatMs = heartbeatNow;
+            const std::string refresh = "refresh|" + std::to_string(pCount) + "|" + (pCount < maxP ? "1" : "0");
+            gevrJavaCommand("lobbyCommand", refresh.c_str());
+        }
+    }
+    if (netIsActive() && !netIsHost() && netGetState() == NET_STATE_INGAME) {
+        netApplyMatchConfig();
+        bossSetLoadedStage(g_StageNum);
+        startMatch = true;
+        open = false;
+    }
+    static int sentSlot = -1;
+    if (!netIsActive())
+        sentSlot = -1;
+    if (netIsActive() && !netIsHost() && netGetLocalSlot() >= 0) {
+        if (sentSlot != netGetLocalSlot()) {
+            sentSlot = netGetLocalSlot();
+            gevrSendLoadout();
+        }
+    }
+    auto disconnect = [&]() {
+        gevrJavaCommand("lobbyCommand", "stop");
+        netDiscoveryStopBroadcasting();
+        netDisconnect();
+        netIceStop();
+        hostedCode.clear();
+        hostJoinIds.clear();
+        clientJoinId.clear();
+    };
+    auto playerOptions = [&]() {
+        ImGui::TextUnformatted("Your name:");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(netIsActive());
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16);
+        ImGui::InputText("##playername", VrPlayerName, sizeof(VrPlayerName), ImGuiInputTextFlags_CallbackCharFilter,
+                         nameCharFilter);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            size_t n = strlen(VrPlayerName);
+            while (n > 0 && VrPlayerName[n - 1] == ' ')
+                VrPlayerName[--n] = '\0';
+            if (VrPlayerName[0] == ' ')
+                memmove(VrPlayerName, VrPlayerName + strspn(VrPlayerName, " "), n + 1);
+            vrEnsurePlayerName();
+            vrSettingsSave();
+        }
+        ImGui::EndDisabled();
+        characterRow("Character:", "##mpcharacter");
+        loadoutRows("mpplayer");
+        gevrTeamChoiceRow("##playerteam");
+    };
+    auto audioOptions = [&]() {
+        bool micMuted = netVoiceIsMuted() != 0;
+        if (ImGui::Checkbox("Mute microphone", &micMuted))
+            netVoiceSetMuted(micMuted);
+        ImGui::TextDisabled("%s", micMuted                   ? "Mic muted"
+                                  : !netVoiceHasPermission() ? "No mic access (listen only)"
+                                  : netVoiceCaptureFailed()  ? "Mic unavailable (listen only)"
+                                                             : "Mic active");
+        // Persistent Audio Volume controls
+        int musicPct = (int)(((s32)get_mTrack2Vol() * 100 + 16383) / 32767);
+        int voicePct = (int)(VrVoiceVolume * 100.0f + 0.5f);
+        int sfxPct = (int)(VrSfxVolume * 100.0f + 0.5f);
+        ImGui::TextUnformatted("Music Vol:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+        if (ImGui::SliderInt("##mpmusicvol", &musicPct, 0, 100, "%d%%")) {
+            uint16_t vol = (uint16_t)((musicPct * 32767 + 50) / 100);
+            set_mTrack2Vol(vol);
+            musicTrack1ApplySeqpVol(vol);
+            musicTrack3ApplySeqpVol(vol);
+            VrMusicVolume = (float)musicPct / 100.0f;
+            vrSettingsSave();
+        }
+        ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
+        ImGui::TextUnformatted("SFX Vol:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+        if (ImGui::SliderInt("##mpsfxvol", &sfxPct, 0, 100, "%d%%")) {
+            VrSfxVolume = (float)sfxPct / 100.0f;
+            gevrSndApplySfxVolume((uint16_t)((sfxPct * 32767 + 50) / 100));
+            vrSettingsSave();
+        }
+        ImGui::SameLine(0.0f, ImGui::GetFontSize() * 1.5f);
+        ImGui::TextUnformatted("Voice Vol:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+        if (ImGui::SliderInt("##mpvoicevol", &voicePct, 0, 100, "%d%%")) {
+            VrVoiceVolume = (float)voicePct / 100.0f;
+            vrSettingsSave();
+        }
+        ImGui::Separator();
+
+        ImGui::TextUnformatted("Voice mode:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+        int voiceMode = netIsActive() ? netGetMatchConfig()->voice_mode : VrMpVoiceMode;
+        ImGui::BeginDisabled(netIsActive() ? !netIsHost() : subTab != 0);
+        if (namedCombo("##mpvoicemode", 2, netVoiceModeName, &voiceMode)) {
+            VrMpVoiceMode = voiceMode;
+            if (netIsHost())
+                gevrNetConfigSet(CFG_VOICE_MODE, voiceMode);
+            else
+                vrSettingsSave();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", netIsActive() && !netIsHost() ? "Host chooses"
+                                                                : "Proximity: 10% floor / Couch: full volume");
+
+        if (netScenarioHasTeams(netIsActive() ? netGetMatchConfig()->scenario : VrMpScenario)) {
+            ImGui::TextDisabled("Teams: teammates full volume; opponents proximity.");
+        }
+    };
+    ImGui::TextColored(gold, "ONLINE MULTIPLAYER");
+    gevrLauncherBeginBody("##mpbody");
+    if (ImGui::BeginTabBar("##mprole")) {
+        for (int role = 0; role < 2; role++) {
+            if (!ImGui::BeginTabItem(role == 0 ? "Host" : "Join"))
+                continue;
+            subTab = role;
+            if (role == 0) {
+                if (netIsActive() && !netIsHost())
+                    ImGui::TextWrapped("Disconnect before hosting another game.");
+                else if (ImGui::BeginTabBar("##hostpages")) {
+                    if (ImGui::BeginTabItem("Lobby")) {
+                        const bool hosting = netIsHost();
+                        if (!hosting) {
+                            if (ImGui::RadioButton("Public game", VrMpVisibility == 0)) {
+                                VrMpVisibility = 0;
+                                vrSettingsSave();
+                            }
+                            ImGui::SameLine();
+                            if (ImGui::RadioButton("Private game", VrMpVisibility == 1)) {
+                                VrMpVisibility = 1;
+                                vrSettingsSave();
+                            }
+                        }
+                        // The stage and the weapons, before hosting and in the lobby too,
+                        // where a change reaches everyone (gevrHostChoiceChanged).
+                        int stageIdx = netStageIndexOf((uint8_t)VrMpStage);
+                        if (stageIdx < 0)
+                            stageIdx = 9;
+                        ImGui::Text("Stage:");
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+                        if (namedCombo("##stagecombo", netStageCount(), netStageName, &stageIdx)) {
+                            VrMpStage = netStage(stageIdx)->level_id;
+                            gevrHostChoiceChanged();
+                        }
+                        ImGui::SameLine();
+                        ImGui::TextDisabled("(up to %d players)", netStageMaxPlayers(stageIdx));
+                        if (VrMpScenario == SCENARIO_MWTGG) {
+                            ImGui::TextDisabled("Weapons: Golden Gun (the scenario's own set)");
+                        } else {
+                            ImGui::Text("Weapons:");
+                            ImGui::SameLine();
+                            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+                            if (namedCombo("##weaponcombo", netWeaponSetCount(), netWeaponSetName, &VrMpWeaponSet))
+                                gevrHostChoiceChanged();
+                            if (VrMpWeaponSet == NET_WEAPON_SET_CUSTOM) {
+                                bool changed = false;
+                                for (int i = 0; i < 4; i++) {
+                                    char id[24];
+                                    snprintf(id, sizeof(id), "##custom%d", i);
+                                    if (i)
+                                        ImGui::SameLine();
+                                    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+                                    changed |= gunCombo(id, &VrMpCustom[i]);
+                                }
+                                if (changed)
+                                    gevrHostChoiceChanged();
+                            }
+                        }
+
+                        if (hosting) {
+                            if (!hostedCode.empty())
+                                ImGui::TextColored(gold, "%s CODE: %s", VrMpVisibility ? "PRIVATE" : "PUBLIC",
+                                                   hostedCode.c_str());
+                            gevrTeamChoiceRow("##hostteam");
+                            gevrLobbyRoster(gold);
+                            if (netScenarioHasTeams(netGetMatchConfig()->scenario) && !netTeamRosterReady())
+                                ImGui::TextDisabled("Complete teams before countdown; warmup remains available.");
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Match")) {
+                        gevrMatchOptions();
+                        ImGui::BeginDisabled(netIsActive() && !netIsHost());
+                        unsigned cap; bool equalized=netGetHostEqualization(&cap)!=0;
+                        if (ImGui::Checkbox("Host hit equalization", &equalized)) netSetHostEqualization(equalized,cap);
+                        int limit=(int)cap;
+                        if (ImGui::SliderInt("Host delay cap (ms)",&limit,0,80)) netSetHostEqualization(equalized,(unsigned)limit);
+                        ImGui::EndDisabled();
+                        char delays[128];netHostEqualizationText(delays,sizeof(delays));
+                        if (delays[0]) ImGui::TextDisabled("%s",delays);
+
+                        if (netScenarioHasTeams(VrMpScenario)) {
+                            bool ff = VrMpFriendlyFire != 0;
+                            if (ImGui::Checkbox("Friendly fire", &ff)) {
+                                VrMpFriendlyFire = ff;
+                                gevrHostChoiceChanged();
+                            }
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Fun")) {
+                        gevrFunOptions(true);
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Player")) {
+                        playerOptions();
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Audio")) {
+                        audioOptions();
+                        ImGui::EndTabItem();
+                    }
+                    if (ImGui::BeginTabItem("Favorites")) {
+                        gevrMatchOptions(true);
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
+                }
+            } else {
+                const bool connected = netIsActive() && !netIsHost() && netGetState() != NET_STATE_CONNECTING;
+                if (ImGui::BeginTabBar("##joinpages")) {
+                    const char *titles[] = {connected ? "Lobby###publicpane" : "Public###publicpane",
+                                            "Private",
+                                            "LAN",
+                                            "Direct IP",
+                                            "Player",
+                                            "Audio"};
+                    for (int pane = 0; pane < 6; pane++) {
+                        if (!ImGui::BeginTabItem(titles[pane]))
+                            continue;
+                        joinMethod = pane;
+                        if (pane == 4)
+                            playerOptions();
+                        else if (pane == 5) {
+                            audioOptions();
+                            if (connected)
+                                gevrFunOptions(false);
+                        } else if (netIsHost())
+                            ImGui::TextWrapped("Stop hosting before joining another game.");
+                        else if (netGetState() == NET_STATE_CONNECTING)
+                            ImGui::TextUnformatted("Connecting to host...");
+                        else if (connected) {
+                            const NetMatchConfig *cfg = netGetMatchConfig();
+                            ImGui::Text("%s / %s / %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
+                                        netScenarioName(cfg->scenario));
+                            gevrTeamChoiceRow("##clientteam");
+                            gevrLobbyRoster(gold);
+                            ImGui::TextDisabled("Waiting for the host to launch.");
+                        } else {
+                            const bool joiningOnline = !clientJoinId.empty();
+                            if (!clientJoinId.empty()) {
+                                if (ImGui::SmallButton("Cancel internet join")) {
+                                    gevrJavaCommand("lobbyCommand", "stop");
+                                    netIceStop();
+                                    clientJoinId.clear();
+                                    onlineMessage.clear();
+                                }
+                            }
+                            if (!onlineMessage.empty())
+                                ImGui::TextWrapped("%s", onlineMessage.c_str());
+
+                            if (joiningOnline)
+                                ImGui::BeginDisabled();
+
+                            // 1. Public Internet Games
+                            if (joinMethod == 0) {
+                                const uint32_t listNow = SDL_GetTicks();
+                                if (listNow - lastListMs > 8000 || lastListMs == 0) {
+                                    lastListMs = listNow;
+                                    listLoading = true;
+                                    gevrJavaCommand("lobbyCommand",
+                                                    ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                                }
+                                if (ImGui::SmallButton("Refresh list")) {
+                                    listLoading = true;
+                                    gevrJavaCommand("lobbyCommand",
+                                                    ("list|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                                }
+                                if (listLoading)
+                                    ImGui::TextDisabled("Loading internet games...");
+                                else if (onlineLobbies.empty())
+                                    ImGui::TextDisabled("No open internet games found.");
+                                for (const OnlineLobby &game : onlineLobbies) {
+                                    char label[180];
+                                    snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##online%s",
+                                             game.name.c_str(), stageNameById(game.stage),
+                                             netWeaponSetName(game.weapons), game.players, game.maxPlayers,
+                                             game.phase == "warmup"        ? " (warmup)"
+                                             : game.phase == "in_progress" ? " (in progress)"
+                                                                           : "",
+                                             game.code.c_str());
+                                    if (ImGui::Button(label, ImVec2(-1, 0))) {
+                                        gevrJavaCommand("requestVoicePermission", "");
+                                        netDisconnect();
+                                        netIceStop();
+                                        clientJoinId.clear();
+                                        onlineMessage = "Joining " + game.name + "...";
+                                        gevrJavaCommand(
+                                            "lobbyCommand",
+                                            ("join|" + game.code + "|" + std::to_string(GEVR_NET_VERSION)).c_str());
+                                    }
+                                    if (ImGui::IsItemHovered()) {
+                                        ImGui::SetTooltip(
+                                            "Game: %s\nRoom Code: %s\nPhase: %s\nPlayers: %d/%d\nProtocol: %d",
+                                            game.name.c_str(), game.code.c_str(), game.phase.c_str(), game.players,
+                                            game.maxPlayers, GEVR_NET_VERSION);
+                                    }
+                                }
+                            }
+
+                            // 2. Private Room Code
+                            if (joinMethod == 1) {
+                                ImGui::Text("Enter host's private code:");
+                                ImGui::SetNextItemWidth(-1);
+                                ImGui::InputText("##privatecode", privateCode, sizeof(privateCode));
+                                if (ImGui::Button("Join by code", ImVec2(-1, 0))) {
+                                    gevrJavaCommand("requestVoicePermission", "");
+                                    netDisconnect();
+                                    netIceStop();
+                                    clientJoinId.clear();
+                                    onlineMessage = "Looking up private game...";
+                                    gevrJavaCommand("lobbyCommand", ("join|" + std::string(privateCode) + "|" +
+                                                                     std::to_string(GEVR_NET_VERSION))
+                                                                        .c_str());
+                                }
+                            }
+
+                            // 3. LAN Games Discovered
+                            netDiscoveryInit();
+                            int count = netDiscoveryGetServerCount();
+                            char lanLabel[80];
+                            snprintf(lanLabel, sizeof(lanLabel), "LAN Games Discovered (%d)###acc_lan", count);
+                            if (joinMethod == 2) {
+                                if (count == 0) {
+                                    ImGui::TextDisabled("Searching your Wi-Fi network for GoldenEye VR hosts...");
+                                } else {
+                                    for (int i = 0; i < count; i++) {
+                                        const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
+                                        const int cap = srv->max_players;
+                                        const bool full = !srv->joinable;
+                                        char label[160];
+                                        snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##srv%d",
+                                                 srv->server_name, stageNameById(srv->stage_num),
+                                                 netWeaponSetName(srv->weapon_set), srv->player_count, cap,
+                                                 full                                  ? " (full)"
+                                                 : srv->phase == NET_PHASE_WARMUP      ? " (warmup)"
+                                                 : srv->phase == NET_PHASE_IN_PROGRESS ? " (in progress)"
+                                                                                       : "",
+                                                 i);
+                                        if (full)
+                                            ImGui::BeginDisabled();
+                                        if (ImGui::Button(label, ImVec2(-1, 0))) {
+                                            gevrJavaCommand("requestVoicePermission", "");
+                                            gevrJavaCommand("lobbyCommand", "stop");
+                                            netIceStop();
+                                            clientJoinId.clear();
+                                            g_joinedViaInternet = false;
+                                            netConnect(srv->host_ip, srv->port);
+                                        }
+                                        if (full)
+                                            ImGui::EndDisabled();
+                                    }
+                                }
+                            }
+
+                            // 4. Connect Directly via IP
+                            if (joinMethod == 3) {
+                                ImGui::Text("Enter host IP address:");
+                                ImGui::SetNextItemWidth(-1);
+                                ImGui::InputText("##directip", directIp, sizeof(directIp));
+                                if (ImGui::Button("Connect", ImVec2(-1, 0))) {
+                                    gevrJavaCommand("requestVoicePermission", "");
+                                    gevrJavaCommand("lobbyCommand", "stop");
+                                    netIceStop();
+                                    clientJoinId.clear();
+                                    g_joinedViaInternet = false;
+                                    netConnect(directIp, GEVR_DEFAULT_PORT);
+                                }
+                            }
+                            if (joiningOnline)
+                                ImGui::EndDisabled();
+                        }
+                        ImGui::EndTabItem();
+                    }
+                    ImGui::EndTabBar();
+                }
+            }
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+    ImGui::EndChild();
+    ImGui::Separator();
+    // Fixed footer: long rosters, popups and status messages cannot push it away.
+    gevrLauncherStatus(onlineMessage.empty()
+                           ? (netIsHost() ? (netLobbyCanLaunch() ? "Ready to launch warmup."
+                                                                 : "Waiting for joined players to ready up.")
+                                          : "Choose a game or connection method.")
+                           : onlineMessage.c_str());
+    int pCount = netGetConnectedPlayerCount();
+    float h = ImGui::GetFrameHeight() * 1.5f;
+    if (netIsHost()) {
+        ImGui::BeginDisabled(!netLobbyCanLaunch());
+        if (ImGui::Button("Launch", ImVec2(0, h))) {
+
+            if (netLobbyHostLaunchMatch()) {
+                gevrJavaCommand("lobbyCommand", (std::string("phase|") + (pCount > 1 ? "in_progress" : "warmup") + "|" +
+                                                 std::to_string(pCount))
+                                                    .c_str());
+                // the game's globals from the lobby's config, as every headset sets them before a load
+                netApplyMatchConfig();
+                bossSetLoadedStage(g_StageNum);
+                startMatch = true;
+                open = false;
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Stop Hosting", ImVec2(0, h))) {
+
+            gevrJavaCommand("lobbyCommand", "stop");
+            netDiscoveryStopBroadcasting();
+            netDisconnect();
+            netIceStop();
+            hostedCode.clear();
+            hostJoinIds.clear();
+        }
+        ImGui::SameLine();
+    } else if (netIsActive()) {
+        int slot = netGetLocalSlot();
+        if (slot >= 0 && netGetState() != NET_STATE_CONNECTING) {
+            bool ready = netGetLobbyState()->slots[slot].ready != 0;
+            ImGui::BeginDisabled(netScenarioHasTeams(netGetMatchConfig()->scenario) &&
+                                 netGetSlotTeam(slot) == NET_TEAM_NONE);
+            if (ImGui::Checkbox("Ready", &ready))
+                netLobbySetReady(ready);
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+        }
+        if (ImGui::Button("Disconnect", ImVec2(0, h)))
+            disconnect();
+        ImGui::SameLine();
+    } else if (!clientJoinId.empty()) {
+        if (ImGui::Button("Cancel Join", ImVec2(0, h))) { disconnect(); onlineMessage.clear(); }
+        ImGui::SameLine();
+    } else if (subTab == 0) {
+        if (ImGui::Button("Start Hosting", ImVec2(0, h))) {
+            int stageIdx = netStageIndexOf((uint8_t)VrMpStage);
+
+            // the game's name in the LAN and internet lists: the host's
+            const std::string gameName = gevrLobbyName();
+            if (netHostStart(GEVR_DEFAULT_PORT)) {
+                netSetMaxPlayers(netStageMaxPlayers(stageIdx));
+                netSetGameName(gameName.c_str()); // the clients keep it: the LAN beacon of a migrated host
+                g_joinedViaInternet = false;
+                gevrJavaCommand("requestVoicePermission", "");
+                netIceStartHost();
+                netDiscoveryInit();
+                netDiscoveryStartBroadcasting(gameName.c_str(), GEVR_DEFAULT_PORT);
+                netLobbySetCharacter((uint8_t)VrMpChr);
+                gevrSendLoadout();
+                {
+                    const NetMatchConfig c = gevrLauncherConfig();
+                    netLobbySetConfig(&c);
+                }
+                hostedCode.clear();
+                hostJoinIds.clear();
+                onlineMessage = "Registering online lobby...";
+                const std::string command =
+                    gevrLobbyCreateCommand(gameName, VrMpStage, VrMpWeaponSet, netGetMaxPlayers());
+                gevrJavaCommand("lobbyCommand", command.c_str());
+            } else
+                onlineMessage = "Could not start the local game host";
+        }
+        ImGui::SameLine();
+    }
+    if (ImGui::Button("Back", ImVec2(0, h))) {
+        if (netIsHost())
+            disconnect();
+        open = false;
+    }
+}
+
+/* The launcher is no longer pumping signaling after the stage starts. Keep the
+ * tiny JNI event drain on the game thread; all HTTP work stays on LobbyClient's
+ * background executor. */
+extern "C" void gevrLobbyGameTick(void)
+{
+    static Uint32 lastTick = 0;
+    static Uint32 lastRefresh = 0;
+    static NetPhase lastPhase = NET_PHASE_WAITING;
+    static bool keepalivePaused = false;
+    static std::vector<std::string> pendingAnswers;
+    const Uint32 now = SDL_GetTicks();
+    if (now - lastTick < 250) return;
+    lastTick = now;
+
+    // Host migration (net_core.c netHostLost): elected, this headset serves
+    // the same match. The ICE transport first when there is an internet lobby
+    // to resume (netSetVirtualTransport reaches the ENet host it then makes),
+    // the lobby under its owner token, and the LAN beacon under the old name.
+    if (netTakeHostTakeover()) {
+        const bool internet = netGetLobbyCode()[0] != '\0';
+        netIceStop();
+        if (internet) netIceStartHost();
+        if (netHostTakeOver(GEVR_DEFAULT_PORT)) {
+            if (internet) {
+                gevrJavaCommand("lobbyCommand", (std::string("resume|") + netGetLobbyCode() + "|" + netGetLobbyToken() + "|" +
+                    std::to_string(netGetMaxPlayers()) + "|" +
+                    (netGetPhase() == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup") + "|1|" + gevrLobbyName()).c_str());
+            }
+            netDiscoveryInit();
+            netDiscoveryStartBroadcasting(netGetGameName(), GEVR_DEFAULT_PORT);
+            vr_log("launcher: took the match over%s, beacon '%s'", internet ? " with the internet lobby" : "", netGetGameName());
+            lastPhase = NET_PHASE_WAITING;
+            lastRefresh = 0;
+        }
+    }
+
+    if (netIsHost()) {
+        for (int i = 0; i < 32; ++i) {
+            const std::string event = gevrJavaString("lobbyEvent");
+            if (event.empty()) break;
+            const auto fields = gevrSplitLobbyEvent(event);
+            if (fields[0] == "CREATED" && fields.size() >= 3) {
+                netSetLobbyHandoff(fields[1].c_str(), fields[2].c_str());
+                lastPhase = NET_PHASE_WAITING;
+                lastRefresh = 0;
+            } else if (fields[0] == "LOBBY_LOST" && fields.size() >= 3) {
+                pendingAnswers.clear();
+                const int players = netGetLivePlayerCount();
+                if (players < netGetMaxPlayers() &&
+                    (netGetPhase() != NET_PHASE_IN_PROGRESS || players >= 2)) {
+                    vr_log("launcher: lobby %s lost (%s); registering again", fields[1].c_str(), fields[2].c_str());
+                    gevrJavaCommand("lobbyCommand", gevrLobbyCreateCommand(gevrLobbyName(),
+                        netGetLobbyStage(), netGetLobbyWeaponSet(), netGetMaxPlayers()).c_str());
+                } else {
+                    vr_log("launcher: lobby %s lost (%s); match is not joinable", fields[1].c_str(), fields[2].c_str());
+                }
+            } else if (fields[0] == "HOST_PEER" && fields.size() >= 5 && netIcePeerCount() < 3 &&
+                netIceAddHostPeer(fields[1].c_str(), gevrDecodeUrl64(fields[2]).c_str(),
+                                  fields[3].c_str(), fields[4].c_str()))
+                pendingAnswers.push_back(fields[1]);
+        }
+        for (auto it = pendingAnswers.begin(); it != pendingAnswers.end();) {
+            char sdp[JUICE_MAX_SDP_STRING_LEN];
+            if (netIceTakeDescription(it->c_str(), sdp, sizeof(sdp))) {
+                gevrJavaCommand("lobbyCommand", ("answer|" + *it + "|" + gevrEncodeUrl64(sdp)).c_str());
+                it = pendingAnswers.erase(it);
+            } else if (netIceStatus(it->c_str())) {
+                it = pendingAnswers.erase(it);
+            } else ++it;
+        }
+        const NetPhase phase = netGetPhase();
+        const bool running = gevrVrSessionRunning() != 0;
+        if (!running && !keepalivePaused) {
+            vr_log("launcher: lobby keepalive paused (XR session not running)");
+            keepalivePaused = true;
+        } else if (running && keepalivePaused) {
+            vr_log("launcher: lobby keepalive resumed (XR session running)");
+            keepalivePaused = false;
+            lastRefresh = 0;
+        }
+        if (running && (phase != lastPhase || now - lastRefresh >= 5000 || lastRefresh == 0)) {
+            lastRefresh = now;
+            const char *phaseName = phase == NET_PHASE_IN_PROGRESS ? "in_progress" : "warmup";
+            if (phase != lastPhase) {
+                lastPhase = phase;
+                gevrJavaCommand("lobbyCommand", (std::string("phase|") + phaseName + "|" +
+                                std::to_string(netGetLivePlayerCount())).c_str());
+            } else {
+                // live connections: a player yet to come back after a host
+                // change must find the lobby open
+                const int players = netGetLivePlayerCount();
+                gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
+                                "|" + (players < netGetMaxPlayers() ? "1" : "0")).c_str());
+            }
+        }
+    } else {
+        keepalivePaused = false;
+        lastPhase = NET_PHASE_WAITING;
+        lastRefresh = 0;
+        pendingAnswers.clear();
+
+        // A client whose host left: to the elected one, the way this headset
+        // came in - the internet lobby (the new host resumes it; a join before
+        // its first heartbeat is refused and asked again) or the LAN beacon
+        // under the game's name, skipping the old host's while it lingers.
+        // The ICE peer, once connected, connects ENet itself (net_ice.cpp).
+        static Uint32 attemptMs = 0;
+        static bool wasConnecting = false;
+        static std::string rejoinId;
+        const char *oldIp = "";
+        if (netMigrationWantsRejoin(&oldIp)) {
+            const bool internet = g_joinedViaInternet && netGetLobbyCode()[0] != '\0';
+            const bool connecting = netMigrationConnecting();
+            if (wasConnecting && !connecting) {
+                // the attempt failed: start over
+                rejoinId.clear();
+                attemptMs = 0;
+                if (internet) netIceStop();
+            }
+            wasConnecting = connecting;
+            for (int i = 0; i < 32; ++i) {
+                const std::string event = gevrJavaString("lobbyEvent");
+                if (event.empty()) break;
+                const auto f = gevrSplitLobbyEvent(event);
+                if (f[0] == "JOINED" && f.size() >= 4) {
+                    rejoinId = f[1];
+                    if (!netIceStartClient(f[1].c_str(), f[2].c_str(), f[3].c_str())) rejoinId.clear();
+                } else if (f[0] == "ANSWER" && f.size() >= 3 && !rejoinId.empty()) {
+                    netIceApplyAnswer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str());
+                } else if (f[0] == "ERROR" && f.size() >= 2) {
+                    vr_log("launcher: rejoin: %s", f[1].c_str());
+                    rejoinId.clear();
+                }
+            }
+            char sdp[JUICE_MAX_SDP_STRING_LEN];
+            if (!rejoinId.empty() && netIceTakeDescription(rejoinId.c_str(), sdp, sizeof(sdp)))
+                gevrJavaCommand("lobbyCommand", ("offer|" + gevrEncodeUrl64(sdp)).c_str());
+            if (!connecting && now - attemptMs >= 4000) {
+                if (internet) {
+                    if (rejoinId.empty()) {
+                        attemptMs = now;
+                        netIceStop();
+                        gevrJavaCommand("lobbyCommand", (std::string("join|") + netGetLobbyCode() + "|" +
+                                        std::to_string(GEVR_NET_VERSION)).c_str());
+                        vr_log("launcher: rejoining lobby %s after the host change", netGetLobbyCode());
+                    }
+                } else {
+                    netDiscoveryInit();
+                    for (int i = 0; i < netDiscoveryGetServerCount(); ++i) {
+                        const NetDiscoveredServer *srv = netDiscoveryGetServer(i);
+                        if (strcmp(srv->server_name, netGetGameName()) != 0 || strcmp(srv->host_ip, oldIp) == 0) continue;
+                        attemptMs = now;
+                        vr_log("launcher: rejoining '%s' at %s after the host change", srv->server_name, srv->host_ip);
+                        netConnect(srv->host_ip, srv->port);
+                        break;
+                    }
+                }
+            }
+        } else {
+            rejoinId.clear();
+            attemptMs = 0;
+            wasConnecting = false;
+        }
+    }
+    netIcePoll();
+}
+
+extern "C" void gevrLobbySessionStopped(void)
+{
+    // A host leaving players behind hands the internet lobby to the one they
+    // elect (net_core.c netHostLost): left, not deleted.
+    const bool handover = netIsHost() && netGetState() == NET_STATE_INGAME && netGetLivePlayerCount() > 1;
+    // ENet's goodbye first: over the internet it travels through the ICE
+    // peers, and with those torn down first it was dropped, so the host kept
+    // a stale player until the timeout (the quit-and-rejoin hang, user).
+    netDisconnect();
+    netIceStop();
+    netDiscoveryShutdown();
+    gevrJavaCommand("lobbyCommand", handover ? "leave" : "stop");
+}
+
 // Laser pointer (vr_openxr.cpp gevrVrScreenPointer): a controller pointed at
 // the screen is the mouse, and a trigger clicks. Returns whether it points.
 //
@@ -581,34 +1927,13 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
 // a trigger is pulled, and hands back as soon as the stick or a button is
 // used: ImGui hides the gamepad focus on every mouse move, and a controller
 // lying still still jitters, which left A doing nothing.
-bool feedPointer(ImGuiIO &io, bool navUsed)
-{
-    static bool owns = false;
-    static float lu = -1.0f, lv = -1.0f;
-    float u, v;
+bool feedPointer(ImGuiIO &io, bool navUsed) {
+    static GevrPointerOwner owner;
+    float u = 0, v = 0;
     const bool on = gevrVrScreenPointer(&u, &v) != 0;
     const bool trig = get_button_state(1, "trigger") || get_button_state(0, "trigger");
-
-    if (!on) {
-        if (owns) {
-            io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
-        }
-        owns = false;
-        io.AddMouseButtonEvent(0, false);
-        return false;
-    }
-    if (fabsf(u - lu) + fabsf(v - lv) > 0.01f || (trig && !navUsed)) {
-        owns = true;
-        lu = u;
-        lv = v;
-    }
-    if (navUsed && owns) {
-        owns = false;
-        io.AddMousePosEvent(-FLT_MAX, -FLT_MAX);
-    }
-    if (owns) {
-        io.AddMousePosEvent(u * kTexW, v * kTexH);
-    }
+    bool owns = owner.update(on, u, v, trig, navUsed);
+    io.AddMousePosEvent(owns ? u * kTexW : -FLT_MAX, owns ? v * kTexH : -FLT_MAX);
     io.AddMouseButtonEvent(0, owns && trig);
     return owns;
 }
@@ -617,15 +1942,14 @@ bool feedPointer(ImGuiIO &io, bool navUsed)
 // The test hook's START (1000) presses the launcher's Start directly.
 bool s_injectStart = false;
 
-bool feedGamepad(ImGuiIO &io, bool pointing)
-{
+bool feedGamepad(ImGuiIO &io) {
     static Injected inj;
     pollInjected(inj);
     if (inj.mask & 0x1000) {
         s_injectStart = true;
     }
     static bool pickerHookDone = false;
-    if ((inj.mask & 0x0020) && !pickerHookDone) {   // test hook: L opens the file picker
+    if ((inj.mask & 0x0020) && !pickerHookDone) { // test hook: L opens the file picker
         pickerHookDone = true;
         gevrOpenRomPicker();
     }
@@ -638,20 +1962,81 @@ bool feedGamepad(ImGuiIO &io, bool pointing)
     get_2d_input(1, "thumbstick", &r);
     // whichever stick is pushed further
     XrVector2f s = (l.x * l.x + l.y * l.y > r.x * r.x + r.y * r.y) ? l : r;
-    if (inj.x || inj.y) s = {inj.x / 80.0f, inj.y / 80.0f};
+    if (inj.x || inj.y)
+        s = {inj.x / 80.0f, inj.y / 80.0f};
     const float t = 0.5f;
+    const bool back = get_button_state(1, "b") || get_button_state(0, "y") || (inj.mask & 0x4000);
+    const bool select = get_button_state(1, "a") || get_button_state(0, "x") || (inj.mask & 0x8000);
+    const bool navUsed = fabsf(s.x) > t || fabsf(s.y) > t || back || select;
+    const bool pointing = feedPointer(io, navUsed);
     io.AddKeyEvent(ImGuiKey_GamepadDpadUp, s.y > t);
     io.AddKeyEvent(ImGuiKey_GamepadDpadDown, s.y < -t);
     io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, s.x < -t);
     io.AddKeyEvent(ImGuiKey_GamepadDpadRight, s.x > t);
-    io.AddKeyEvent(ImGuiKey_GamepadFaceDown,
-                   get_button_state(1, "a") || get_button_state(0, "x")
-                   || (!pointing && (get_button_state(1, "trigger") || get_button_state(0, "trigger")))
-                   || (inj.mask & 0x8000));
-    const bool back = get_button_state(1, "b") || get_button_state(0, "y") || (inj.mask & 0x4000);
-    const bool select = get_button_state(1, "a") || get_button_state(0, "x") || (inj.mask & 0x8000);
+    io.AddKeyEvent(
+        ImGuiKey_GamepadFaceDown,
+        gevrGamepadActivate(pointing, select, get_button_state(1, "trigger") || get_button_state(0, "trigger")));
     io.AddKeyEvent(ImGuiKey_GamepadFaceRight, back);
-    return fabsf(s.x) > t || fabsf(s.y) > t || back || select;
+    return navUsed;
+}
+
+// The Quest system keyboard (AndroidManifest: oculus.software.overlay_keyboard).
+// SDL_StartTextInput shows it over the launcher (SDLActivity's DummyEdit), and
+// it types into SDL: text as SDL_TEXTINPUT, Backspace and Return as key
+// presses. Those come on Android's UI thread, so they wait here, '\b' and '\r'
+// standing for the two keys, and go to ImGui with the frame's other input.
+SDL_mutex *s_kbdLock;
+std::string s_kbdQueue;
+
+int SDLCALL keyboardWatch(void *, SDL_Event *e)
+{
+    const bool text = e->type == SDL_TEXTINPUT;
+    const bool key = e->type == SDL_KEYDOWN
+        && (e->key.keysym.sym == SDLK_BACKSPACE || e->key.keysym.sym == SDLK_RETURN);
+    if (!text && !key) return 1;
+    SDL_LockMutex(s_kbdLock);
+    if (key) s_kbdQueue += e->key.keysym.sym == SDLK_BACKSPACE ? '\b' : '\r';
+    else for (const char *c = e->text.text; *c; c++) {
+        if ((unsigned char)*c >= 0x20) s_kbdQueue += *c;   // Return comes as a key too
+    }
+    SDL_UnlockMutex(s_kbdLock);
+    return 1;
+}
+
+void feedKeyboard(ImGuiIO &io)
+{
+    std::string q;
+    SDL_LockMutex(s_kbdLock);
+    q.swap(s_kbdQueue);
+    SDL_UnlockMutex(s_kbdLock);
+    if (!io.WantTextInput) return;   // no text box to type into
+    size_t run = 0;
+    for (size_t i = 0; i <= q.size(); i++) {
+        if (i < q.size() && q[i] != '\b' && q[i] != '\r') continue;
+        if (i > run) io.AddInputCharactersUTF8(q.substr(run, i - run).c_str());
+        if (i < q.size()) {
+            const ImGuiKey k = q[i] == '\b' ? ImGuiKey_Backspace : ImGuiKey_Enter;
+            io.AddKeyEvent(k, true);
+            io.AddKeyEvent(k, false);
+        }
+        run = i + 1;
+    }
+}
+
+// Up while a text box has the focus: shown when one takes it, put away when it
+// lets go (Return, or pointing elsewhere). Closed with its own button, it
+// comes back on pointing at the box again.
+void showKeyboard(const ImGuiIO &io)
+{
+    static bool shown = false;
+    if (io.WantTextInput != shown) {
+        shown = io.WantTextInput;
+        if (shown) SDL_StartTextInput();
+        else SDL_StopTextInput();
+        vr_log("launcher: system keyboard %s", shown ? "up" : "down");
+    } else if (shown && io.MouseClicked[0]) {
+        SDL_StartTextInput();
+    }
 }
 
 }  // namespace
@@ -667,6 +2052,9 @@ extern "C" void gevrLauncherRun(void)
     io.DisplaySize = ImVec2((float)kTexW, (float)kTexH);
     io.FontGlobalScale = 2.2f;
     io.MouseDrawCursor = false;  // the pointer's own spot is drawn in 3D (vr_pointer_draw)
+    s_kbdLock = SDL_CreateMutex();
+    SDL_StopTextInput();         // no keyboard until a text box asks for it
+    SDL_AddEventWatch(keyboardWatch, nullptr);
     ImGui::StyleColorsDark();
     ImGuiStyle &style = ImGui::GetStyle();
     style.ScaleAllSizes(2.2f);
@@ -763,6 +2151,11 @@ extern "C" void gevrLauncherRun(void)
 
     // The app's versionName (android build.gradle), for the header beside the build.
     const std::string appVersion = gevrUpdaterStatus().installed;
+    {
+        char localVerStr[32];
+        snprintf(localVerStr, sizeof(localVerStr), "v%s (%.7s)", appVersion.c_str(), gevrBuildId);
+        netSetLocalAppVersion(localVerStr);
+    }
 
     vr_log("launcher: open, v%s build %s (rom %s)", appVersion.c_str(), gevrBuildId,
            active.empty() ? "none" : active.c_str());
@@ -773,11 +2166,37 @@ extern "C" void gevrLauncherRun(void)
     gevrUpdaterCommand("check");
     UpdateStatus upd;
     Uint32 lastUpdPoll = 0;
-
+    static bool reportPage = false;
+    static bool reportCrash = false;
+    Uint32 lastReportPoll = 0;
     while (!start) {
+        // SDL's native thread may reach the launcher before MainActivity has
+        // finished constructing the reporter. Poll after startup too.
+        Uint32 reportNow = SDL_GetTicks();
+        if (!lastReportPoll || reportNow - lastReportPoll >= 500) {
+            lastReportPoll = reportNow;
+            if (gevrJavaString("reportStatus") == "offer") {
+                reportPage = true;
+                reportCrash = true;
+            }
+        }
         SDL_PumpEvents();
 
+        netPoll();
+        netDiscoveryUpdate(SDL_GetTicks());
+
         if (!gevrVrPumpBegin()) {
+            // The Quest menu can suppress rendering without stopping XR.
+            // Keep the hosted lobby alive while that session still runs.
+            static Uint32 lastNoFrameRefresh = 0;
+            const Uint32 now = SDL_GetTicks();
+            if (netIsHost() && gevrVrSessionRunning() &&
+                (lastNoFrameRefresh == 0 || now - lastNoFrameRefresh >= 5000)) {
+                lastNoFrameRefresh = now;
+                const int players = netGetConnectedPlayerCount();
+                gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
+                    "|" + (players < netGetMaxPlayers() ? "1" : "0")).c_str());
+            }
             SDL_Delay(5);
             continue;
         }
@@ -827,16 +2246,16 @@ extern "C" void gevrLauncherRun(void)
             }
         }
         {
-            static bool pointing = false;
             // no stick navigation while the stick is resizing the screen
-            const bool navUsed = grabbing ? false : feedGamepad(io, pointing);
+            if (!grabbing) feedGamepad(io);
             if (grabbing) {
                 io.AddKeyEvent(ImGuiKey_GamepadDpadUp, false);
                 io.AddKeyEvent(ImGuiKey_GamepadDpadDown, false);
                 io.AddKeyEvent(ImGuiKey_GamepadDpadLeft, false);
                 io.AddKeyEvent(ImGuiKey_GamepadDpadRight, false);
             }
-            pointing = feedPointer(io, navUsed);
+            if (grabbing) feedPointer(io, false);
+            feedKeyboard(io);
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -851,12 +2270,13 @@ extern "C" void gevrLauncherRun(void)
         const ImVec4 good(0.5f, 0.9f, 0.5f, 1.0f);
         const ImVec4 bad(0.95f, 0.5f, 0.4f, 1.0f);
 
-        // header: icon and title left, version and build right
+        // header: icon and title left, build stamp and report button stacked right
+        const float headerY = ImGui::GetCursorPosY();
+        const float headerH = ImGui::GetTextLineHeight() * 2.2f;
         if (iconTex) {
-            const float s = ImGui::GetTextLineHeight() * 2.2f;
-            ImGui::Image((ImTextureID)(intptr_t)iconTex, ImVec2(s, s));
+            ImGui::Image((ImTextureID)(intptr_t)iconTex, ImVec2(headerH, headerH));
             ImGui::SameLine();
-            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (s - ImGui::GetTextLineHeight()) * 0.5f);
+            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (headerH - ImGui::GetTextLineHeight()) * 0.5f);
         }
         ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "GOLDENEYE VR");
         {
@@ -867,9 +2287,19 @@ extern "C" void gevrLauncherRun(void)
                 snprintf(build, sizeof(build), "Build %s", gevrBuildId);
             }
             const float w = ImGui::CalcTextSize(build).x;
-            ImGui::SameLine(ImGui::GetWindowWidth() - w - ImGui::GetStyle().WindowPadding.x);
+            const float buttonW = ImGui::CalcTextSize("Send debug log").x + ImGui::GetStyle().FramePadding.x * 2;
+            const float right = ImGui::GetWindowWidth() - ImGui::GetStyle().WindowPadding.x;
+            ImGui::SetCursorPos(ImVec2(right - w, headerY));
             ImGui::TextDisabled("%s", build);
+            ImGui::SetCursorPos(ImVec2(right - buttonW,
+                headerY + ImGui::GetTextLineHeight() + ImGui::GetStyle().ItemSpacing.y));
+            if (ImGui::SmallButton("Send debug log")) {
+                reportPage = true;
+                reportCrash = false;
+            }
         }
+        const float iconBottom = headerY + headerH + ImGui::GetStyle().ItemSpacing.y;
+        if (ImGui::GetCursorPosY() < iconBottom) ImGui::SetCursorPosY(iconBottom);
         ImGui::Separator();
 
         // ROM
@@ -930,8 +2360,74 @@ extern "C" void gevrLauncherRun(void)
         // way the game's own cheat menu does (front.c init_menu0B_runstage).
         static bool cheatPage = false;
         static bool modsPage = false;
-        if (modsPage) {
+        static bool mpPage = false;
+        static bool hapticsPage = false;
+        static bool throwingPage = false;
+        if (reportPage) {
+            gevrReportPage(reportPage, reportCrash, gold, good, bad);
+        } else if (hapticsPage) {
+            gevrHapticsPage(hapticsPage, gold, good, bad);
+        } else if (mpPage) {
+            gevrMultiplayerPage(mpPage, start, gold, good, bad);
+        } else if (modsPage) {
             gevrModsPage(modsPage, now, gold, good, bad);
+        } else if (throwingPage) {
+            ImGui::TextColored(gold, "MOTION THROWING SETTINGS");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("Hold Grip on throwables (grenades, knives, mines), swing arm, and release Grip to throw.\n"
+                               "Grip + Trigger cooks grenades. Releases instantly at 90%% grip squeeze.");
+            ImGui::PopStyleColor();
+            ImGui::Spacing();
+
+            bool motionThrow = VrMotionThrowing;
+            if (ImGui::Checkbox("Enable motion throwing", &motionThrow)) {
+                VrMotionThrowing = motionThrow;
+            }
+
+            ImGui::BeginDisabled(!VrMotionThrowing);
+
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "THROW STRENGTH & VELOCITY");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
+            ImGui::SliderFloat("##ThrowStrength", &VrMotionThrowStrength, 0.5f, 2.0f, "Strength %.2fx");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Scales throw speed with physical swing speed.\n1.0x = natural realism, higher = longer throws.");
+            }
+
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "TRAJECTORY CALIBRATION");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
+            ImGui::SliderFloat("##ThrowPitch", &VrMotionThrowPitch, -20.0f, 20.0f, "Pitch %+.0f°");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Vertical pitch trim: adjust upward (+) or downward (-) if throws fly too low/high.");
+            }
+
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "GAZE ASSIST (overhand throws)");
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
+            float gazePct = VrMotionThrowGazeAssist * 100.0f;
+            if (ImGui::SliderFloat("##ThrowGaze", &gazePct, 0.0f, 100.0f, "Gaze %.0f%%")) {
+                VrMotionThrowGazeAssist = gazePct / 100.0f;
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Blends overhand throw direction toward where you are looking (0%% = pure hand, 100%% = max gaze pull).\n"
+                                  "Underhand rolls, bowling, and throws behind your back remain 100%% pure hand physics.");
+            }
+
+            ImGui::EndDisabled();
+
+            ImGui::Spacing();
+            ImGui::Separator();
+            if (ImGui::Button("Reset to Defaults")) {
+                VrMotionThrowing = true;
+                VrMotionThrowStrength = 1.0f;
+                VrMotionThrowPitch = 0.0f;
+                VrMotionThrowGazeAssist = 0.50f;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                throwingPage = false;
+            }
         } else if (cheatPage) {
             struct CheatRow { const char *name; int id; bool cosmetic; };
             static const CheatRow fun[] = {
@@ -1008,6 +2504,10 @@ extern "C" void gevrLauncherRun(void)
             ImGui::RadioButton("Flat screen", &mode, 0);
             ImGui::Spacing();
             ImGui::TextColored(gold, "SCREEN");
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Both grips grab the screen; right stick: distance / size.\n"
+                                  "Hold the left stick click to recentre it.");
+            }
             {
                 int curved = VrScreenCurved;
                 ImGui::RadioButton("Flat", &curved, 0);
@@ -1069,6 +2569,16 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
             ImGui::EndDisabled();
             {
+                char throwLabel[64];
+                snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
+                if (ImGui::Button(throwLabel)) {
+                    throwingPage = true;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Configure motion throwing, throw strength, pitch trim, and gaze assist");
+                }
+            }
+            {
                 // Issue #6: the gun in the left hand, watch on the right wrist,
                 // move with the right stick. Live: it swaps the pointer hand too.
                 bool lefty = VrLeftHandedMode != 0;
@@ -1092,6 +2602,18 @@ extern "C" void gevrLauncherRun(void)
                 if (ImGui::Checkbox("Show stats", &stats)) {
                     VrShowStats = stats ? 1 : 0;
                 }
+                // Issue #81: in the game, holding aim turns the move stick
+                // into lean (sideways) and duck (down). On this line, as the
+                // page has no line to spare (see Swap sticks above).
+                ImGui::SameLine();
+                bool nolean = VrAimNoLean != 0;
+                if (ImGui::Checkbox("Aim: no lean", &nolean)) {
+                    VrAimNoLean = nolean ? 1 : 0;
+                }
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("Stereo: holding the aim trigger no longer leans or ducks with the move stick,\n"
+                                      "which keeps moving you. Click the left stick to crouch.");
+                }
                 // GitHub pre-releases too (UpdateChecker.java): for trying a
                 // fix before it ships. Saved by the updater, not the ini.
                 bool tests = upd.testBuilds;
@@ -1107,10 +2629,51 @@ extern "C" void gevrLauncherRun(void)
             ImGui::EndTable();
         }
         ImGui::Separator();
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("Both grips grab the screen; right stick: distance / size. Hold the left stick click to recentre it.");
-        ImGui::PopStyleColor();
-
+        // Update line: only when there is something to say, so an
+        // up-to-date launcher looks as it always has.
+        bool updLine = upd.state == "available" || upd.state == "downloading"
+            || upd.state == "permission" || upd.state == "installing"
+            || upd.state == "error" || !upd.message.empty();
+        if (updLine) {
+            if (upd.state == "available") {
+                ImGui::TextColored(gold, "Update available: v%s", upd.offered.c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
+                if (!upd.message.empty()) {
+                    // wrapped: the row ends at the panel's edge
+                    ImGui::SameLine();
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                    ImGui::TextWrapped("%s", upd.message.c_str());
+                    ImGui::PopStyleColor();
+                }
+            } else if (upd.state == "downloading") {
+                // Cancel on the left of every busy line: a prompt closed from the
+                // shell may never report back, and this is the way out of it.
+                if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+                ImGui::SameLine();
+                if (upd.progress >= 0) {
+                    ImGui::TextColored(gold, "Downloading v%s... %d%%", upd.offered.c_str(), upd.progress);
+                } else {
+                    ImGui::TextColored(gold, "Downloading v%s...", upd.offered.c_str());
+                }
+            } else if (upd.state == "permission" || upd.state == "installing") {
+                if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, gold);
+                ImGui::TextWrapped("%s", upd.message.c_str());
+                ImGui::PopStyleColor();
+            } else if (upd.state == "error") {
+                if (ImGui::SmallButton("Retry##update")) gevrUpdaterCommand("retry");
+                ImGui::SameLine();
+                ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                ImGui::TextWrapped("%s", upd.message.c_str());
+                ImGui::PopStyleColor();
+            } else if (!upd.message.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, good);
+                ImGui::TextWrapped("%s", upd.message.c_str());   // "Updated to v0.1.13."
+                ImGui::PopStyleColor();
+            }
+        }
         {
             int n = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
             for (int b = 0; b < 64; b++) n += (int)((VrCheatMask >> b) & 1ULL);
@@ -1128,52 +2691,13 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
                                   "the gun on your hand. A keeps it, B puts it back.");
             }
-
-            // Update line: only when there is something to say, so an
-            // up-to-date launcher looks as it always has.
-            bool updLine = upd.state == "available" || upd.state == "downloading"
-                || upd.state == "permission" || upd.state == "installing"
-                || upd.state == "error" || !upd.message.empty();
-            if (updLine) {
-                ImGui::SameLine();
-                if (upd.state == "available") {
-                    ImGui::TextColored(gold, "Update available: v%s", upd.offered.c_str());
-                    ImGui::SameLine();
-                    if (ImGui::SmallButton("Update")) gevrUpdaterCommand("update");
-                    if (!upd.message.empty()) {
-                        // wrapped: the row ends at the panel's edge
-                        ImGui::SameLine();
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-                        ImGui::TextWrapped("%s", upd.message.c_str());
-                        ImGui::PopStyleColor();
-                    }
-                } else if (upd.state == "downloading") {
-                    // Cancel on the left of every busy line: a prompt closed from the
-                    // shell may never report back, and this is the way out of it.
-                    if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
-                    ImGui::SameLine();
-                    if (upd.progress >= 0) {
-                        ImGui::TextColored(gold, "Downloading v%s... %d%%", upd.offered.c_str(), upd.progress);
-                    } else {
-                        ImGui::TextColored(gold, "Downloading v%s...", upd.offered.c_str());
-                    }
-                } else if (upd.state == "permission" || upd.state == "installing") {
-                    if (ImGui::SmallButton("Cancel##update")) gevrUpdaterCommand("cancel");
-                    ImGui::SameLine();
-                    ImGui::PushStyleColor(ImGuiCol_Text, gold);
-                    ImGui::TextWrapped("%s", upd.message.c_str());
-                    ImGui::PopStyleColor();
-                } else if (upd.state == "error") {
-                    if (ImGui::SmallButton("Retry##update")) gevrUpdaterCommand("retry");
-                    ImGui::SameLine();
-                    ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                    ImGui::TextWrapped("%s", upd.message.c_str());
-                    ImGui::PopStyleColor();
-                } else if (!upd.message.empty()) {
-                    ImGui::PushStyleColor(ImGuiCol_Text, good);
-                    ImGui::TextWrapped("%s", upd.message.c_str());   // "Updated to v0.1.13."
-                    ImGui::PopStyleColor();
-                }
+            ImGui::SameLine();
+            if (ImGui::Button("Multiplayer...")) {
+                mpPage = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Haptics...")) {
+                hapticsPage = true;
             }
         }
         ImGui::BeginDisabled(active.empty() || !activeInfo.good);
@@ -1192,6 +2716,7 @@ extern "C" void gevrLauncherRun(void)
         ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
         ImGui::End();
         ImGui::Render();
+        showKeyboard(io);
 
         GLint prevFbo = 0;
         glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
@@ -1221,7 +2746,13 @@ extern "C" void gevrLauncherRun(void)
     vr_apply_refresh_rate();
     vr_log("launcher: start (%s, snap %.0f, vignette %.2f)", VrPlayMode ? "stereo" : "screen",
            VrUseSnapTurn, VrComfortVignette);
+    gevrTexpackStartEarly();   // index the chosen pack while the game boots
 
+    SDL_StopTextInput();
+    SDL_DelEventWatch(keyboardWatch, nullptr);
+    SDL_DestroyMutex(s_kbdLock);
+    s_kbdLock = nullptr;
+    s_kbdQueue.clear();
     ImGui_ImplOpenGL3_Shutdown();
     ImGui::DestroyContext();
     if (iconTex) glDeleteTextures(1, &iconTex);

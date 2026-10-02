@@ -173,7 +173,8 @@ typedef enum CHRFLAG
     CHRFLAG_WAS_HIT                      = 0x00200000 , // chr has been hit (even if invincible)
     CHRFLAG_00400000                     = 0x00400000 , // unknown
     CHRFLAG_CULL_USING_HITBOX            = 0x00800000 , // cull chr using hitbox instead of tile/clipping (useful with lock y pos flag)
-    CHRFLAG_01000000                     = 0x01000000 , // unknown
+    CHRFLAG_01000000                     = 0x01000000 , // tank crush sfx played
+    CHRFLAG_TANK_CRUSH_SFX_PLAYED        = CHRFLAG_01000000 ,
     CHRFLAG_02000000                     = 0x02000000 , // unknown
     CHRFLAG_04000000                     = 0x04000000 , // unknown NoFade
     CHRFLAG_08000000                     = 0x08000000 , // unknown
@@ -1909,6 +1910,9 @@ typedef enum MPMENU
     MENU_KILLS,
     MENU_SCORES,
     MENU_PAUSE,
+    MENU_STATUS,
+    MENU_LOBBY,
+    MENU_FUN,
     MENU_EXIT,
     MENU_EXIT_CONFIRM,
     MENU_FINISHED

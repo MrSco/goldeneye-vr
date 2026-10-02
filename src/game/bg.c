@@ -694,7 +694,13 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
                 {
                     if (sub_GAME_7F0BD8F0())
                     {
+#ifdef GEVR
+                        gDPNoOpTag(gdl++, 0x56600000);   /* VR_ROOM_DL_BEGIN (issue #72): plain offset for the room's decals */
+#endif
                         gdl = bgRenderRoomPrimary(gdl, dword_CODE_bss_8007FFA0[j].roomid);
+#ifdef GEVR
+                        gDPNoOpTag(gdl++, 0x56600001);   /* VR_ROOM_DL_END */
+#endif
                     }
                 }
  
@@ -756,7 +762,13 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
                 {
                     if (sub_GAME_7F0BD8F0())
                     {
+#ifdef GEVR
+                        gDPNoOpTag(gdl++, 0x56600000);   /* VR_ROOM_DL_BEGIN (issue #72) */
+#endif
                         gdl = bgRenderRoomSecondary(gdl, dword_CODE_bss_8007FFA0[j].roomid);
+#ifdef GEVR
+                        gDPNoOpTag(gdl++, 0x56600001);   /* VR_ROOM_DL_END */
+#endif
                     }
                 }
  
@@ -1397,8 +1409,9 @@ Gfx *bgScissorCurrentPlayerView(Gfx *arg0, s32 left, s32 top, s32 width, s32 hei
          * portal test still decides which rooms draw; only the clip goes.
          */
         extern s32 g_gevrStereo;
+        extern s32 gevrZDebugMode;   /* gfx_opengl.cpp, issue #72: mode 3 keeps the scissor in stereo */
 
-        if (g_gevrStereo)
+        if (g_gevrStereo && gevrZDebugMode != 3)
         {
             left = (s32) temp_v0->viewleft;
             top = (s32) temp_v0->viewtop;

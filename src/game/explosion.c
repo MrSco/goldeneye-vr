@@ -229,8 +229,18 @@ void explosionInflictDamage(PropRecord *arg0, f32 arg1, f32 arg2);
 void explosionInflictDamage(struct PropRecord *arg0, f32 arg1, f32 arg2);
 void explosionScorchTick(struct coord3d *pos, f32 explosion_size, s16 room);
 Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *coord);
+#ifdef GEVR
+#define GEVR_HIT_PULL 4.0f              /* stereo pull for the bullet hit (explosionRenderPart) */
+#define GEVR_HIT_SMOKE_PULL 16.0f       /* ... and its smoke, which grows: at 4 it cut into the wall (user) */
+static s32 s_gevrPartExplosionType;
+#endif
 
 /*** *************************************************************************************************************/
+
+#ifdef GEVR
+/* set while explosionCreate runs for an explosion received from its owner */
+static s32 g_gevrNetExplosionRx = 0;
+#endif
 
 /**
  * Named same as Perfect Dark.
@@ -252,6 +262,40 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
 
     sp44 = &g_ExplosionTypes[explosion_type];
     sp40 = NULL;
+
+#ifdef GEVR
+    /*
+     * Online, an explosion that can hurt comes from the player who caused it
+     * (Perfect Dark port-net's server decides; here the owner does, as for
+     * hits). The local player's are sent; one caused here by another player's
+     * copy - its grenade's fuse, its rocket's impact, its mine - is dropped,
+     * and the owner's arrives instead, where and when it really happened.
+     * Bullet puffs (no damage) and world explosions stay local.
+     */
+    if (sp44->damage > 0.0f && !g_gevrNetExplosionRx)
+    {
+        extern bool netIsActive(void);
+        extern int netGetLocalSlot(void);
+        extern bool netSlotOccupied(int slot);
+        extern void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8);
+
+        if (netIsActive())
+        {
+            if (player == netGetLocalSlot())
+            {
+                netSendExplosion(explosion_type, target_pos, rooms, arg4, arg7);
+            }
+            else if (player >= 0 && player < 4 && netSlotOccupied(player))
+            {
+#if defined(VERSION_JP) || defined(VERSION_EU)
+                return 0;
+#else
+                return;
+#endif
+            }
+        }
+    }
+#endif
 
 #if defined(VERSION_US)
     if ((explosion_type != 0x10) && (explosion_type != 1))
@@ -380,6 +424,112 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
 #endif
 }
 
+
+#ifdef GEVR
+static s32 gevrIsExplosiveItem(s32 item)
+{
+    switch (item)
+    {
+        case ITEM_GRENADE:
+        case ITEM_GRENADEROUND:
+        case ITEM_ROCKETROUND:
+        case ITEM_REMOTEMINE:
+        case ITEM_PROXIMITYMINE:
+        case ITEM_TIMEDMINE:
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
+/*
+ * An explosion caused by another player, sent by that player's headset
+ * (net_core.c NET_MSG_EXPLOSION). It is created as that player's: objects
+ * near it are damaged here too, while hits on players come only from the
+ * owner (explosionInflictDamage). The copy's own explosive nearest to it -
+ * the grenade, rocket or mine this headset was carrying for that player,
+ * flying, settled or stuck - goes, so nothing is left lying past its
+ * explosion to be set off again here.
+ */
+void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 ground, s32 flag8)
+{
+    struct player *pl;
+    StandTile *tile;
+    coord3d probe;
+    f32 y;
+    u8 rooms[2];
+    PropRecord *prop;
+    PropRecord *closest = NULL;
+    f32 closestdist = 300.0f * 300.0f;
+
+    if (slot < 0 || slot >= 4 || type < 0 || type >= (s32)ARRAYCOUNT(g_ExplosionTypes))
+    {
+        return;
+    }
+    pl = g_playerPointers[slot];
+    if (pl == NULL || pl->prop == NULL)
+    {
+        return;
+    }
+
+    for (prop = chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
+    {
+        WeaponObjRecord *wobj;
+        f32 dx, dy, dz, d2;
+
+        if (prop->type != PROP_TYPE_WEAPON || prop->weapon == NULL)
+        {
+            continue;
+        }
+        wobj = prop->weapon;
+        /* That player's thrown or fired explosive, flying, settled or stuck:
+         * from the weapon pool (a pickup from the setup is nobody's) and
+         * carrying the owner's slot. */
+        if (wobj < &g_WeaponSlots[0] || wobj >= &g_WeaponSlots[MAX_WEAPON_SLOTS]
+            || ((wobj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER) != slot
+            || !gevrIsExplosiveItem(wobj->weaponnum))
+        {
+            continue;
+        }
+        dx = prop->pos.x - pos->x;
+        dy = prop->pos.y - pos->y;
+        dz = prop->pos.z - pos->z;
+        d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < closestdist)
+        {
+            closestdist = d2;
+            closest = prop;
+        }
+    }
+    if (closest != NULL)
+    {
+        objFreePermanently((ObjectRecord *) closest->weapon, TRUE);
+    }
+
+    probe = *pos;
+    probe.y += 30.0f;
+    tile = stanFindTileBelowPos(&probe, NULL, &y);
+    if (tile == NULL)
+    {
+        tile = pl->prop->stan;
+        ground = FALSE;
+    }
+    if (tile == NULL)
+    {
+        return;
+    }
+    if (room == 0xff || (s32) room >= g_MaxNumRooms)
+    {
+        room = (u8) getTileRoom(tile);
+    }
+    rooms[0] = room;
+    rooms[1] = 0xff;
+
+    g_gevrNetExplosionRx = TRUE;
+    explosionCreate(NULL, pos, tile, (s16) type, ground, slot, rooms, flag8);
+    g_gevrNetExplosionRx = FALSE;
+}
+#endif
 
 void setSixExplosionAndSmokeEntries(void) {
         g_NumExplosionEntries = 6;
@@ -632,7 +782,40 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                             }
 
                             sp90 = get_cur_playernum();
-                            set_cur_player(getPlayerPointerIndex(temp_s0));
+                            s32 targetIndex = getPlayerPointerIndex(temp_s0);
+#ifdef GEVR
+                            extern bool netIsActive(void);
+                            extern int netGetLocalSlot(void);
+                            extern bool netIsHost(void);
+                            extern void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg);
+                            extern void netSendWorldHitReport(uint8_t target_slot, uint8_t weapon_id, float hit_x, float hit_y, float hit_z, float dmg);
+                            if (netIsActive())
+                            {
+                                bool should_report = ((s32)temp_s2->player == netGetLocalSlot()) ||
+                                                     (temp_s2->player < 0 && netIsHost());
+                                if (should_report)
+                                {
+                                    if (getPlayerCount() == 1)
+                                    {
+                                        minfrac *= g_SpExplosionDamageMult;
+                                    }
+                                    if (isBondInTank() == 1)
+                                    {
+                                        minfrac *= 2.0f;
+                                    }
+                                    if (temp_s2->player < 0)
+                                    {
+                                        netSendWorldHitReport((uint8_t)targetIndex, ITEM_GRENADE, xdist, 0.0f, zdist, minfrac);
+                                    }
+                                    else
+                                    {
+                                        netSendHitReport((uint8_t)targetIndex, ITEM_GRENADE, 0, xdist, 0.0f, zdist, minfrac);
+                                    }
+                                }
+                                continue;
+                            }
+#endif
+                            set_cur_player(targetIndex);
 
                             if (getPlayerCount() == 1)
                             {
@@ -644,7 +827,10 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                                 minfrac *= 2.0f;
                             }
 
+                            extern s32 s_gevrExplosionDamage;
+                            s_gevrExplosionDamage = 1;
                             record_damage_kills(minfrac, xdist, zdist, (s32) temp_s2->player, 1);
+                            s_gevrExplosionDamage = 0;
                             set_cur_player(sp90);
                         }
                     }
@@ -898,6 +1084,9 @@ Gfx *explosionRenderPropExplosion(PropRecord *prop, Gfx *gdl, s32 withalpha)
                 if (temp_s5->parts[i].frame > 0
                     && var_s2 == (s32)( (f32)(temp_s5->parts[i].frame - 1) / g_ExplosionTypes[temp_s5->explosion_type].flareanimspeed ) )
                 {
+#ifdef GEVR
+                    s_gevrPartExplosionType = temp_s5->explosion_type;
+#endif
                     gdl = explosionRenderPart(&temp_s5->parts[i], gdl, temp_s6);
                 }
             }
@@ -926,6 +1115,16 @@ Gfx *explosionRenderPropExplosion(PropRecord *prop, Gfx *gdl, s32 withalpha)
  *
  * NTSC address 0x7F09D82C.
 */
+#ifdef GEVR
+/*
+ * Stereo: the game pulls its hit effects toward the camera (the explosion and
+ * smoke billboards up to 100 units, the hit spark 26: chrprop.c) so the flat
+ * quads don't cut into the wall. On a screen that depth can't be seen; with
+ * two eyes the bullet hit's flash, puff and spark hung in mid-air in front of
+ * the hole (user, 2026-10-02; logged 26 units off the wall in both modes). For
+ * the bullet hit only (explosion type 1, its smoke type 7) the pull is this.
+ */
+#endif
 Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *coord)
 {
     s32 padding1;
@@ -958,7 +1157,14 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
     spA0 = g_ExplosionRenderPartDefaultVertex;
 
     sp9C = currentPlayerGetViewToWorldMtxf();
+#ifdef GEVR
+    {
+        extern coord3d *gevrEyePosition(void);   /* bondview2.c: stereo's eye, the head's rise included */
+        sp98 = gevrEyePosition();
+    }
+#else
     sp98 = bondviewGetCurrentPlayersPosition();
+#endif
 
     sp64 = arg0->pos.f[0] - sp98->f[0];
     sp60 = arg0->pos.f[1] - sp98->f[1];
@@ -970,6 +1176,16 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
     {
         var_f12 = 100.0f;
     }
+#ifdef GEVR
+    {
+        extern s32 g_gevrStereo;
+
+        if (g_gevrStereo && s_gevrPartExplosionType == 1 && var_f12 > GEVR_HIT_PULL)
+        {
+            var_f12 = GEVR_HIT_PULL;
+        }
+    }
+#endif
 
     if (temp_f0 == 0)
     {
@@ -1078,7 +1294,14 @@ Gfx *explosionSmokeRenderPart(struct Smoke *smoke, struct SmokePart *smoke_part,
     spC0 = g_SmokeRenderPartDefaultVertex;
 
     mtx = currentPlayerGetViewToWorldMtxf();
+#ifdef GEVR
+    {
+        extern coord3d *gevrEyePosition(void);   /* bondview2.c */
+        sp70 = gevrEyePosition();
+    }
+#else
     sp70 = bondviewGetCurrentPlayersPosition();
+#endif
 
     if (g_SmokeTypes[smoke->smoke_type].rateappear >= smoke_part->count)
     {
@@ -1119,6 +1342,15 @@ Gfx *explosionSmokeRenderPart(struct Smoke *smoke, struct SmokePart *smoke_part,
 	if (range > 100.0f) {
 		range = 100.0f;
 	}
+#ifdef GEVR
+	{
+		extern s32 g_gevrStereo;
+
+		if (g_gevrStereo && smoke->smoke_type == 7 && range > GEVR_HIT_SMOKE_PULL) {
+			range = GEVR_HIT_SMOKE_PULL;
+		}
+	}
+#endif
 
 	if (temp_f0 == 0.0f) {
 		mult = 0.0f;

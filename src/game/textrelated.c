@@ -393,6 +393,13 @@ Gfx *textRender(Gfx *gdl, s32 *x, s32 *y, char *text,
             
 			text++;
 			*x = savedx;
+#ifdef GEVR
+		} else if (!j_text_trigger && ((u8)*text < '!' || (u8)*text > '~')) {
+			/* The English font has no glyph cache for high bytes or controls. */
+			gdl = textRenderGlyph(gdl, x, y, &chars['?' - 0x21], &chars[prevchar - 0x21], font, savedx, savedy, width, height, yOffset);
+			prevchar = '?';
+			text++;
+#endif
 		} else if (*text < 0x80) {
 			gdl = textRenderGlyph(gdl, x, y, &chars[*text - 0x21], &chars[prevchar - 0x21], font, savedx, savedy, width, height, yOffset);
 			prevchar = *text;
@@ -620,8 +627,14 @@ Gfx *textRenderOutlined(Gfx *gdl, s32 *x, s32 *y,
 		} else if (*text == '\n') {
 			prevchar = 'H';
 			*x = savedx;
-            *y += lineheight;
+			*y += lineheight;
 			text++;
+#ifdef GEVR
+		} else if (!j_text_trigger && ((u8)*text < '!' || (u8)*text > '~')) {
+			gdl = textRenderGlyphOutlined(gdl, x, y, &chars['?' - 0x21], &chars[prevchar - 0x21], font, savedx, savedy, colour, colour2, width, height, yOffset);
+			prevchar = '?';
+			text++;
+#endif
 		} else if (*text < 0x80) {
             // Render individual characters with outline.
             gdl = textRenderGlyphOutlined(gdl, x, y, &chars[*text - 0x21], &chars[prevchar - 0x21], font, savedx, savedy, colour, colour2, width, height, yOffset);
@@ -703,6 +716,16 @@ void textMeasure(s32 *textheight, s32 *textwidth, char *text, struct fontchar *f
             *textheight += lineheight;
             text++;
         }
+#ifdef GEVR
+        else if (!j_text_trigger && ((u8)*text < '!' || (u8)*text > '~'))
+        {
+            /* Match the replacement glyph used by the renderers above. */
+            tmp = font2->kerning[font1[prevchar - 0x21].kerningindex * 13 + font1['?' - 0x21].kerningindex] + text_spacing - 1;
+            *textwidth = font1['?' - 0x21].width + *textwidth - tmp;
+            prevchar = '?';
+            text++;
+        }
+#endif
         else if (*text < 0x80)
         {
             // Normal single-byte character
@@ -876,5 +899,3 @@ void sub_GAME_7F0AEF0C(s32 arg0, s32 arg1, s32 arg2, s32 arg3) {
 u32 sub_GAME_7F0AEF20(u32 param_1,u32 param_2){
   return param_1;
 }
-
-

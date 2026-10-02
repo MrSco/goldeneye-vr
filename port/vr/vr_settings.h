@@ -10,6 +10,9 @@ extern float VrStereoCrosshair;
 #define HUD_STEREO_DEPTH_MAX 4.0f
 extern bool VrSeatedMode;
 extern bool VrMotionThrowing;
+extern float VrMotionThrowPitch;
+extern float VrMotionThrowGazeAssist;
+extern float VrMotionThrowStrength;
 extern bool VrWeaponRecoil;
 #define WORLDSCALE_MIN    0.50f
 #define WORLDSCALE_MAX    1.50f
@@ -22,6 +25,23 @@ extern int VrPauseHub;
 #define VR_PLAYMODE_SCREEN 0
 #define VR_PLAYMODE_STEREO 1
 extern int VrPlayMode;
+extern int VrMicMuted;
+extern float VrMusicVolume;
+extern float VrVoiceVolume;
+extern float VrSfxVolume;
+extern char VrPlayerName[16];  // multiplayer name, up to 15 characters (launcher "Your name")
+// The multiplayer page's choices, kept between runs (the launcher restarts the app).
+// Stage is a LEVELID; sets, scenario, length, health are net_match.c indices;
+// the guns are ITEM_IDS values; the favorites are bitmasks over net_match.c's lists.
+extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpVisibility;
+extern int VrMpVoiceMode;
+extern int VrMpFriendlyFire;
+extern int VrHostEqualization, VrHostLatencyCapMs;
+extern int VrMpFunFlags, VrMpGunSize;
+extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
+extern int VrMpCustom[4];       // the host's custom set
+extern int VrMpLoadout[4];      // this player's spawn guns
+extern unsigned VrMpFavStages, VrMpFavSets;
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
 // Display refresh rate in Hz, 0 = the runtime's default (vr_openxr.cpp).
@@ -43,6 +63,7 @@ extern bool VrMatchCharacterHeight;
 extern float VrUseSnapTurn;
 extern bool VrTwoHandAim;       // two-handed weapons aim along the line between both controllers
 extern int VrStickClickToCrouch;
+extern int VrAimNoLean;         // aiming keeps the move stick moving: no lean, no duck (issue #81)
 extern int VrLeftHandedMode;
 extern int VrSwapJoysticks;
 extern int VrAimSteady;         // gun-hand steadying: 0 off, 1 low, 2 high (issue #7)

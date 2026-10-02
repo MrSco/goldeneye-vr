@@ -137,9 +137,18 @@ extern void gfx_vr_hud_capture_end_P(void);
 // again from the sniper scope's camera (gfx_opengl.cpp gfx_vr_scope_render).
 #define VR_SCOPE_REC_BEGIN 0x565D0000
 #define VR_SCOPE_REC_END   0x565D0001
-// ... and draws between these go to the scope only, not the eyes (its sight).
-#define VR_SCOPE_ONLY_BEGIN 0x565E0000
-#define VR_SCOPE_ONLY_END   0x565E0001
+// ... and draws between these go to the scope only, not the eyes (its sight):
+// the right hand's scope, or the left's (one per hand, port/include/gevr_scope.h).
+#define VR_SCOPE_ONLY_BEGIN   0x565E0000
+#define VR_SCOPE_ONLY_END     0x565E0001
+#define VR_SCOPE_ONLY_BEGIN_L 0x565E0002
+// GoldenEye (issue #72): a room's own display list (bg.c bgRenderRoomPrimary /
+// Secondary). Its decals take plain polygon offset, not the stencil band:
+// the band left door-shaped holes in a decal wall where the room behind
+// showed through (the band is for the game's bullet holes, texSelect).
+// (0x565Fxxxx is VR_HAND_DRAW, gunfire.c gevrHandTag, matched by prefix.)
+#define VR_ROOM_DL_BEGIN 0x56600000
+#define VR_ROOM_DL_END   0x56600001
 extern void gfx_vr_hud_capture_begin_H(void);
 extern void gfx_vr_hud_capture_end_H(void);
 

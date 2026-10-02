@@ -10,7 +10,7 @@ simply never been carried into this tree. This is the systematic pass.
 `../gepc-ref/{src,port}`, collects the finding ids (`D\d+`, `RC\d`, `M-\d+`)
 named inside the block or in the six lines above it, and checks whether each
 id is mentioned anywhere in our `src/`, `port/`, `assets/`, `docs/`,
-`HANDOFF.md` or `STATUS.md`.
+`STATUS.md` or `docs/archive/`.
 
 ```
 PORT guard sites in gepc-ref : 399

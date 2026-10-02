@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <string.h>
 #include <stddef.h>
 #include <ctype.h>
@@ -15,12 +18,14 @@
 #include "../vr/vr_openxr.h"
 #include "../vr/vr_input.h"
 #include "../vr/vr_screen.h"
+#include "../vr/vr_haptics.h"
 #include <math.h>
 
 #include <gun.h>
 #include <player.h>
 #include <options.h>
 #include <boss.h>
+#include "net/net_core.h"
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -41,6 +46,7 @@ static s32 gevrCrouchToggle = 0;
  */
 extern s32 g_gevrStereo;          /* bondview2.c: this frame is stereo */
 extern s32 gevrScopeZoomStick(void);  /* bondview2.c: aiming the sniper, this stick zooms */
+extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator (#31) */
 extern int gevrVrScreenMode;      /* gfx_pc.cpp: this frame is on the virtual screen */
 extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
 extern void vrSettingsSave(void);
@@ -58,7 +64,8 @@ extern s32 gevrStereoWatchFitting(void);  /* bondview2.c: a watch item out, the 
 extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
-float gevrVrTurnAxis(void) { return gevrTurnAxis; }
+extern float gevrInjectTurn;   /* libultra.c: the PC input hook's turn */
+float gevrVrTurnAxis(void) { return gevrInjectTurn != 0.0f ? gevrInjectTurn : gevrTurnAxis; }
 s32 gevrVrTakeRecenter(void)
 {
     s32 pending = gevrRecenterPending;
@@ -78,6 +85,9 @@ int vr_right_gun_fire;
 int vr_left_gun_fire;
 extern bool vr_grip_for_unarmed;
 extern int VrLeftHandedMode;
+extern int VrSwapJoysticks;
+extern bool netIsActive(void);
+extern void netVoiceToggleMuted(void);
 
 #ifndef HAND_RIGHT
 #define HAND_RIGHT 1
@@ -93,12 +103,45 @@ int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondvie
 extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
 extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
 s32 gevrTexpackToggleMsg;                  /* bondview2.c says it in a level: 2 off, 3 on */
-static bool gevrSwallowX;                  /* X answered the prompt: not use/reload until let go */
+s32 gevrMicToggleMsg;                      /* bondview2.c says it in a level: 1 muted, 2 on */
+static bool s_menuHeld;                    /* the Menu button is down (the microphone chord's other half) */
+extern int VrLeftHandedMode;               /* vr_settings.h: the physical controllers swap roles */
+extern int netVoiceIsMuted(void);
+extern void netVoiceToggleMuted(void);
+extern void mpwatchPlayBeep(void);         /* mpmenu.c */
+static bool gevrSwallowX;                  /* X answered the prompt: no weapon change until let go */
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
 extern f32 gevrWeaponPanelStickY;
+extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
+extern s32 gevrLeftPanelAvailable(void);
+extern void gevrCycleHandWeapon(s32 hand, s32 dir);
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
+extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online game */
+extern bool netIsActive(void);
 extern s32 gevrDualWielding(void);
+extern bool VrMotionThrowing;
+extern ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand);
+
+s32 gevrIsThrowable(s32 item)
+{
+    switch (item)
+    {
+        case ITEM_THROWKNIFE:
+        case ITEM_GRENADE:
+        case ITEM_TIMEDMINE:
+        case ITEM_PROXIMITYMINE:
+        case ITEM_REMOTEMINE:
+        case ITEM_PLASTIQUE:
+        case ITEM_BOMBCASE:
+        case ITEM_BUG:
+        case ITEM_MICROCAMERA:
+        case ITEM_GOLDENEYEKEY:
+            return 1;
+        default:
+            return 0;
+    }
+}
 
 static inline bool bgunIsFiring(s32 hand) {
     return get_button_state(hand, "trigger");
@@ -938,9 +981,33 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     const struct controllercfg *cfg = &padsCfg[idx];
 
 
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    const int localSlot = netIsActive() ? netGetLocalSlot() : 0;
+
+    if (netIsActive() && idx != localSlot) {
+        memset(npad, 0, sizeof(*npad));
+        if (netIsRemotePlayerActive(idx)) {
+            const struct netplayermove *m = netGetRemotePlayerMove(idx);
+            if (m) {
+                /* Remote positions are authoritative. Feeding their movement
+                 * back through the local walk simulation moves them twice and
+                 * makes the character bounce between ticks. */
+                if ((m->ucmd & UCMD_FIRE) && g_playerPointers[idx] &&
+                    !g_playerPointers[idx]->bonddead) {
+                    npad->button |= Z_TRIG;
+                }
+                /* The crouch arrives with the state (net_player_sync.c
+                 * crouchpos). As a C-down press it also stepped the copy
+                 * back, or turned its look up, by control style. */
+            }
+        }
+        return 0;
+    }
+
     /* Quest screen mode: ordinary GoldenEye 1.2 controls, no tracked-hand
      * weapon logic or Perfect Dark extended buttons. */
-    if (idx == 0) {
+    if (idx == localSlot) {
         memset(npad, 0, sizeof(*npad));
         /*
          * This file reads struct player directly but sees <stdbool.h>'s bool,
@@ -976,7 +1043,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
         }
         const bool paused = g_CurrentPlayer && g_CurrentPlayer->pause_state != 0;
-        const bool menu = bossGetStageNum() == LEVELID_TITLE || paused;
+        const bool menu = bossGetStageNum() == LEVELID_TITLE || paused ||
+                          (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon);
         XrVector2f left = {0}, right = {0};
         get_2d_input(0, "thumbstick", &left);
         get_2d_input(1, "thumbstick", &right);
@@ -1094,11 +1162,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static bool consumed = false, aWas = true, bWas = true, xWas = true;
             const u32 t = SDL_GetTicks();
             const bool held = get_button_state(0, "menu");
+            s_menuHeld = held;
             if (gevrReturnPrompt) {
                 const bool a = get_button_state(1, "a"), b = get_button_state(1, "b");
                 const bool x = get_button_state(0, "x");
                 if (a && !aWas) {
                     LOGI("input: menu hold -> back to the launcher\n");
+                    if (netIsActive()) {
+                        gevrLobbySessionStopped();   /* the goodbye: the host frees the slot at once */
+                    }
                     gevrRestartToLauncher();
                 }
                 if (b && !bWas) {
@@ -1120,6 +1192,25 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     downat = t ? t : 1;
                     consumed = false;
                 }
+                /* Menu + the other hand's B (the physical right controller's,
+                 * whichever hand is the gun hand): the multiplayer microphone.
+                 * Two hands, nothing else bound; Menu is consumed (no START on
+                 * release, no prompt) and B held back while Menu is down, so
+                 * nothing leaks into the game (the old X+Y chord sent a reload
+                 * or a weapon change and gave no sign it had worked). */
+                {
+                    static bool micWas = false;
+                    const bool mic = VrLeftHandedMode ? get_button_state(0, "y") : get_button_state(1, "b");
+                    if (mic && !micWas && netIsActive()) {
+                        netVoiceToggleMuted();
+                        gevrMicToggleMsg = netVoiceIsMuted() ? 1 : 2;
+                        mpwatchPlayBeep();
+                        consumed = true;
+                        LOGI("input: menu + B -> microphone %s\n", netVoiceIsMuted() ? "muted" : "on");
+                    }
+                    micWas = mic;
+                }
+                if (!VrLeftHandedMode) npad->button &= ~B_BUTTON;
                 if (!consumed && t - downat >= 1500) {
                     consumed = true;
                     gevrReturnPrompt = 1;
@@ -1132,47 +1223,88 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             if (t < startuntil) npad->button |= START_BUTTON;
         }
-        if (!menu && (get_button_state(1, "grip") || (!stereoplay && get_button_state(0, "grip"))))
+        const bool rightGrip = get_button_state(1, "grip");
+        const bool leftGrip = get_button_state(0, "grip");
+        const bool rightThrowable = g_CurrentPlayer && VrMotionThrowing && gevrIsThrowable(getCurrentPlayerWeaponId(GUNRIGHT));
+        const bool leftThrowable = g_CurrentPlayer && VrMotionThrowing && gevrIsThrowable(getCurrentPlayerWeaponId(GUNLEFT));
+        if (!menu && ((rightGrip && !rightThrowable) || (!stereoplay && leftGrip && !leftThrowable)))
             npad->button |= R_TRIG;
         // Issue #37: dual-wielding, the left grip shows the left gun's sight,
         // as Perfect Dark VR's (sight.c sightDrawLeftHand, on vr_button_L_grip).
         // Not R as well: here R aims and zooms.
-        vr_button_L_grip = stereoplay && gevrDualWielding() && get_button_state(0, "grip");
-        // X is also use/reload; Y cycles weapons, matching the native B/A actions.
-        // (Not the X that just switched the texture pack in the prompt, until let go.)
+        vr_button_L_grip = stereoplay && gevrDualWielding() && leftGrip && !leftThrowable;
+        // The off hand's buttons do what the gun hand's in the same place do, as
+        // in the launcher (user): X (lower) is A, the weapons, and Y (upper) is B,
+        // use/reload. (Not the X that just switched the texture pack in the
+        // prompt, until let go.)
         if (gevrSwallowX && !get_button_state(0, "x")) gevrSwallowX = false;
-        if (get_button_state(0, "x") && !gevrSwallowX) npad->button |= B_BUTTON;
-        if (get_button_state(0, "y")) npad->button |= A_BUTTON;
-        // Issue #10: in stereo play the weapon hand's A is held back. A tap sends
-        // A on release (the game's weapon cycle); a hold shows the weapon panel
-        // (bondview2.c gevrDrawWeaponPanel) and letting go equips what it
-        // highlights. The other hand's Y still cycles at once.
+        if (get_button_state(0, "x") && !gevrSwallowX) npad->button |= A_BUTTON;
+        /* the off hand's upper button is B, unless Menu is held on the other
+         * hand: left-handed, that is the microphone chord's B */
+        if (get_button_state(0, "y") && !(VrLeftHandedMode && s_menuHeld)) npad->button |= B_BUTTON;
+        // Logical dominant/off-hand buttons cycle only that hand. Grip reverses;
+        // holding opens that hand's selector. get_button_state handles handedness.
         {
-            static u32 adown = 0, apulse = 0;
-            static bool apanel = false;
+            static u32 adown = 0, xdown = 0;
+            static bool apanel = false, aspoilt = false, xpanel = false, xspoilt = false;
+            static bool aback = false, xback = false;
             const u32 t = SDL_GetTicks();
-            if (stereoplay && !gevrReturnPrompt && !fitting) {
+            if (stereoplay && !gevrReturnPrompt && !fitting && !gevrSpectating()) {
                 const bool a = get_button_state(1, "a");
-                if (!get_button_state(0, "y")) npad->button &= ~A_BUTTON;
+                const bool x = !gevrSwallowX && get_button_state(0, "x");
+                if (x && !xdown) {
+                    xdown = t ? t : 1;
+                    xpanel = false;
+                    xspoilt = false;
+                    xback = get_button_state(0, "grip");
+                }
+                npad->button &= ~A_BUTTON;
                 if (a) {
                     if (!adown) {
                         adown = t ? t : 1;
                         apanel = false;
+                        aspoilt = false;
+                        aback = get_button_state(1, "grip");
                     }
-                    if (!apanel && t - adown >= GEVR_WEAPON_PANEL_HOLD_MS) {
+                    if (get_button_state(1, "grip")) aback = true;
+                    if (gevrWeaponPanelOpen && !apanel) aspoilt = true;
+                    if (!apanel && !aspoilt && t - adown >= GEVR_WEAPON_PANEL_HOLD_MS) {
                         apanel = true;
+                        gevrWeaponPanelLeft = 0;
                         gevrWeaponPanelOpen = 1;
                         LOGI("input: weapon panel open\n");
                     }
                 } else if (adown) {
-                    if (!apanel) apulse = t + 100;
-                    else gevrWeaponPanelRelease = 1;
-                    gevrWeaponPanelOpen = 0;
+                    if (apanel) {
+                        gevrWeaponPanelRelease = 1;
+                        gevrWeaponPanelOpen = 0;
+                    } else if (!aspoilt) {
+                        if (get_button_state(1, "grip")) aback = true;
+                        gevrCycleHandWeapon(0, aback ? -1 : 1);
+                    }
                     adown = 0;
                 }
-                if (t < apulse) npad->button |= A_BUTTON;
+                if (x) {
+                    if (get_button_state(0, "grip")) xback = true;
+                    if (gevrWeaponPanelOpen && !xpanel) xspoilt = true;
+                    if (gevrLeftPanelAvailable() && !xpanel && !xspoilt && t - xdown >= GEVR_WEAPON_PANEL_HOLD_MS) {
+                        xpanel = true;
+                        gevrWeaponPanelLeft = 1;
+                        gevrWeaponPanelOpen = 1;
+                        LOGI("input: left hand panel open\n");
+                    }
+                } else if (xdown) {
+                    if (xpanel) {
+                        gevrWeaponPanelRelease = 1;
+                        gevrWeaponPanelOpen = 0;
+                    } else if (!xspoilt) {
+                        if (get_button_state(0, "grip")) xback = true;
+                        gevrCycleHandWeapon(1, xback ? -1 : 1);
+                    }
+                    xdown = 0;
+                }
             } else {
-                adown = 0;
+                adown = xdown = 0;
                 gevrWeaponPanelOpen = 0;
             }
         }
@@ -1300,6 +1432,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         XrVector2f look = right;
         if (menu && left.x * left.x + left.y * left.y >= right.x * right.x + right.y * right.y)
             look = left;
+        if (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon) {
+            /* Keep page navigation on the left stick and volume on the right.
+             * A diagonal adjustment must not also change pages. The left
+             * stick's up and down move the LOBBY page's cursor (mpmenu.c), so
+             * a mostly vertical push flips no page either. */
+            look.x = fabsf(left.y) > fabsf(left.x) ? 0.0f : left.x;
+            look.y = right.y;
+        }
         npad->stick_x = inputAxisScale((s32)(look.x * 32767.0f),
                 cfg->deadzone[cfg->axisMap[0][0]], cfg->sens[cfg->axisMap[0][0]]) / 256;
         npad->stick_y = inputAxisScale((s32)(look.y * 32767.0f),
@@ -1311,16 +1451,21 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             npad->stick_x = 0;
             npad->stick_y = 0;
         }
-        if (g_gevrStereo && !menu && !adjusting) {
+        // The weapon panels scroll with the stick on the other hand from their
+        // button - A's (issue #10) the off hand's, X's (#56) the gun hand's - and
+        // that stick neither moves nor turns while one is up. "left" is the move
+        // stick and "right" the turn stick, on whichever hands Swap sticks puts them.
+        const bool panelOnMoveStick = gevrWeaponPanelOpen && ((gevrWeaponPanelLeft != 0) == (VrSwapJoysticks != 0));
+        const bool panelOnTurnStick = gevrWeaponPanelOpen && !panelOnMoveStick;
+        gevrWeaponPanelStickY = panelOnMoveStick ? left.y : panelOnTurnStick ? right.y : 0.0f;
+        if (g_gevrStereo && !menu && !adjusting && !panelOnTurnStick) {
             const float dz = 0.15f;
             float x = right.x;
             if (fabsf(x) < dz) x = 0.0f;
             else x = (x - (x > 0.0f ? dz : -dz)) / (1.0f - dz);
             gevrTurnAxis = x;
         }
-        // The weapon panel (issue #10) takes the other hand's stick while it is up.
-        gevrWeaponPanelStickY = gevrWeaponPanelOpen ? left.y : 0.0f;
-        if (!menu && !gevrWeaponPanelOpen) {
+        if (!menu && !panelOnMoveStick) {
             // Solitaire: C directions move; while aiming down/up crouches/stands,
             // or with the sniper zooms - and then side to side does not strafe
             // the scope off its target (issue #58, user).
@@ -1332,6 +1477,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
     }
 
+    if (gevrSpectating() && g_CurrentPlayer && !g_CurrentPlayer->mpmenuon) {
+        npad->stick_x = npad->stick_y = npad->rstick_x = npad->rstick_y = 0;
+        npad->button &= ~(Z_TRIG | A_BUTTON | B_BUTTON | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS);
+        gevrTurnAxis = 0;
+    }
+    if (npad->button != 0 || npad->stick_x != 0 || npad->stick_y != 0 || npad->rstick_x != 0 || npad->rstick_y != 0) {
+        netTouchLocalActivity();
+    }
     return 0;
 }
 
@@ -1393,6 +1546,9 @@ s32 inputControllerConnected(s32 idx)
 {
     if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS) {
         return 0;
+    }
+    if (netIsActive()) {
+        return (idx == netGetLocalSlot() || netIsRemotePlayerActive(idx)) ? 1 : 0;
     }
     return pads[idx] || (connectedMask & (1 << idx));
 }
@@ -1537,8 +1693,99 @@ void inputRumbleSetStrength(s32 cidx, f32 val)
     padsCfg[cidx].rumbleScale = val;
 }
 
+struct WeaponRumbleProfile {
+    f32 amplitude; // Base amplitude 0..1 (value / 10.0f)
+    f32 duration;  // Seconds
+    f32 frequency; // Hz
+};
+
+static struct WeaponRumbleProfile getWeaponRumbleProfile(s32 item_id) {
+    struct WeaponRumbleProfile p;
+    vrHapticsGetRumble(item_id, &p.amplitude, &p.duration, &p.frequency);
+    return p;
+}
+
+void gevrRumbleGunfire(s32 hand, s32 item_id) {
+    extern int netGetLocalSlot(void);
+    extern s32 get_cur_playernum(void);
+    /* Another player's copy fires on this headset too: only the local
+     * player's own gun reaches the controllers. */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot()) {
+        return;
+    }
+    struct WeaponRumbleProfile p = getWeaponRumbleProfile(item_id);
+    f32 amp = p.amplitude;
+    if (amp <= 0.001f || p.duration <= 0.001f) {
+        return;
+    }
+
+    // VR Haptics
+    if (vr_haptics_ready()) {
+        // GUNRIGHT = 0 -> OpenXR 1 (right hand)
+        // GUNLEFT  = 1 -> OpenXR 0 (left hand)
+        s32 targetHand = (hand == 1) ? 0 : 1;
+        if (vr_invert_hands) {
+            targetHand = 1 - targetHand;
+        }
+        // Issue #64 (tester): the watch laser and the detonator are the
+        // watch's, on the other wrist (bondview2.c gevrStereoWatchItem), so
+        // their rumble goes to the arm that wears it, not the gun hand.
+        if (hand == 0 && gevrStereoWatchItem(item_id)) {
+            targetHand = 1 - targetHand;
+        }
+
+        trigger_haptic_vibration_freq_c(targetHand, amp, p.duration, p.frequency);
+
+        // Two-handed grip support: if gripping with off hand, mirror recoil with 60% strength
+        if (gevrStereoTwoHandGrip() != 0) {
+            s32 supportHand = 1 - targetHand;
+            trigger_haptic_vibration_freq_c(supportHand, amp * 0.6f, p.duration, p.frequency);
+        }
+    }
+
+    // Gamepad controller rumble
+    if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
+        f32 padAmp = amp * padsCfg[0].rumbleScale;
+        SDL_GameControllerRumble(pads[0], (u16)(padAmp * 65535.f), (u16)(padAmp * 65535.f), (u32)(p.duration * 1000.f));
+    }
+}
+
+s32 s_gevrExplosionDamage = 0;
+
+void gevrRumbleDamage(f32 damage_amount, s32 is_explosion) {
+    (void)damage_amount;
+    f32 base_amp = 0.0f, base_dur = 0.0f, freq = 0.0f;
+    s32 action_id = is_explosion ? GEVR_ACTION_DAMAGE_EXPLOSION : GEVR_ACTION_DAMAGE_BULLET;
+    vrHapticsGetRumble(action_id, &base_amp, &base_dur, &freq);
+
+    if (base_amp <= 0.001f || base_dur <= 0.001f) {
+        return;
+    }
+
+    // VR Haptics: pulse both controllers simultaneously for full-body impact
+    if (vr_haptics_ready()) {
+        trigger_haptic_vibration_freq_c(0, base_amp, base_dur, freq);
+        trigger_haptic_vibration_freq_c(1, base_amp, base_dur, freq);
+    }
+
+    // Gamepad controller rumble
+    if (pads[0] && padsCfg[0].rumbleOn && padsCfg[0].rumbleScale > 0.f) {
+        f32 padAmp = base_amp * padsCfg[0].rumbleScale;
+        SDL_GameControllerRumble(pads[0], (u16)(padAmp * 65535.f), (u16)(padAmp * 65535.f), (u32)(base_dur * 1000.f));
+    }
+}
+
 s32 inputControllerMask(void)
 {
+    if (netIsActive()) {
+        s32 mask = 0;
+        for (int i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
+            if (i == netGetLocalSlot() || netIsRemotePlayerActive(i)) {
+                mask |= (1 << i);
+            }
+        }
+        return mask ? mask : 1;
+    }
     return connectedMask;
 }
 
@@ -2139,4 +2386,18 @@ PD_CONSTRUCTOR static void inputConfigInit(void)
             configRegisterString(keyname, bindStrs[c][ck], MAX_BIND_STR);
         }
     }
+}
+
+/* vr_input.cpp controller_pose: the multiplayer pause menu is up, hold the hands still */
+int gevrMpMenuOpen(void)
+{
+    /*
+     * The local player's menu, by slot: g_CurrentPlayer rotates through the
+     * other slots' copies during their passes, and read there the hold
+     * flickered on and off every frame (user, 2026-09-30).
+     */
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    int slot = netIsActive() ? netGetLocalSlot() : -1;
+    return slot >= 0 && slot < 4 && g_playerPointers[slot] != NULL && g_playerPointers[slot]->mpmenuon;
 }

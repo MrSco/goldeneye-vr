@@ -2598,6 +2598,7 @@ extern f32 D_80036AC0;
 extern f32 D_80036AC4;
 
 extern s32 startpadcount;
+void mp_respawn_handler_net(s32 pad_index, f32 theta);
 extern vec3d g_ForceBondMoveOffset;
 extern s32 mission_timer;
 
@@ -2754,5 +2755,14 @@ void bondviewRemovePlayerBody(void);
 void currentPlayerAdjustFade(f32 maxfadetime, s32 r, s32 g, s32 b, f32 frac);
 void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex);
 void sub_GAME_7F08976C(f32 param_1);
+
+#ifdef GEVR
+s32 gevrLeftPanelAvailable(void);
+void gevrCycleHandWeapon(s32 hand, s32 dir);
+void gevrAutoAdvanceHand(s32 hand);
+s32 gevrWeaponUsesCopies(s32 item);
+s32 gevrWeaponOwned(s32 item);
+void gevrWeaponPickedUp(s32 item, s32 alreadyOwned);
+#endif
 
 #endif

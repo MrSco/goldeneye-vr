@@ -38,10 +38,28 @@
 #include "game/stan.h"
 #include "game/textrelated.h"
 #include "game/player.h"
+#include "game/chrai.h"
 #include "game/frametiming.h"
 #include "PR/R4300.h"
 #include "gevr_rom_segments.h"
 #include "gevr_sched.h"
+
+#ifdef GEVR
+extern bool netIsActive(void);
+extern uint32_t netGetRandomSeed(void);
+extern void netPoll(void);
+extern void gevrLobbyGameTick(void);
+extern void gevrLobbySessionStopped(void);
+extern void netDiscoveryUpdate(u32 current_time_ms);
+extern void netPlayerSyncBeforeTick(s32 playernum);
+extern void netPlayerSyncAfterTick(s32 playernum);
+extern u64 sysGetMicroseconds(void);
+extern bool netSlotOccupied(int slot);
+extern bool netTakeRoundReset(void);
+extern void netStageLoaded(void);
+static bool s_net_slot_enabled[4];
+static bool s_net_session_started;
+#endif
 
 /**
  * @file boss.c
@@ -368,21 +386,47 @@ void bossMainloop(void)
 
     if (g_StageNum != LEVELID_TITLE)
     {
-        fileValidateSaves();
-        fileSetCurrentFolder(FOLDER1);
-        set_selected_difficulty(DIFFICULTY_AGENT);
-        set_solo_and_ptr_briefing(g_StageNum);
-
-        if (tokenFind(1, "-hard"))
+        if (gamemode != GAMEMODE_MULTI)
         {
-            // convert ASCII difficulty value to int in set difficulty calls eg '1' = 49, 49-48 = 1
-            set_selected_difficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
-            lvlSetSelectedDifficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
+            fileValidateSaves();
+            fileSetCurrentFolder(FOLDER1);
+            set_selected_difficulty(DIFFICULTY_AGENT);
+            set_solo_and_ptr_briefing(g_StageNum);
+
+            if (tokenFind(1, "-hard"))
+            {
+                // convert ASCII difficulty value to int in set difficulty calls eg '1' = 49, 49-48 = 1
+                set_selected_difficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
+                lvlSetSelectedDifficulty(*(const unsigned char*)tokenFind(1, "-hard") - '0');
+            }
         }
+#ifdef GEVR
+        else
+        {
+            /*
+             * An online match boots here from the launcher, past the legal
+             * screen that reads the saves (front.c). Unread, saves[] was all
+             * zeros, folder 1 matched its first slot, and every stage start
+             * (init_watch_at_start_of_stage) set the music and effects volume
+             * from it: 0, a silent match (#62). Read as the menus do; the
+             * match then takes folder 1's settings, as a menu launch with no
+             * folder chosen would.
+             */
+            fileValidateSaves();
+        }
+#endif
     }
 
     nowCount = osGetCount();
+#ifdef GEVR
+    if (netIsActive()) {
+        randomSetSeed(netGetRandomSeed());
+    } else {
+        randomSetSeed(nowCount);
+    }
+#else
     randomSetSeed(nowCount);
+#endif
 
     // 'done' value never changes, and control never breaks -- infinite loop
     while (!done)
@@ -464,6 +508,13 @@ void bossMainloop(void)
         dynInitMemory();
         joyCheckStatusThreadSafe();
         lvlStageLoad(g_StageNum);
+#ifdef GEVR
+        if (s_net_session_started && g_StageNum == LEVELID_TITLE)
+            gevrLobbySessionStopped();
+        for (int slot = 0; slot < 4; slot++) s_net_slot_enabled[slot] = TRUE;
+        s_net_session_started = netIsActive() && g_StageNum != LEVELID_TITLE;
+        netStageLoaded();
+#endif
         sysLogPrintf(LOG_NOTE, "stage: loading: lvlStageLoad done (stage pool %d bytes left)", mempGetBankSizeLeft(MEMPOOL_STAGE));
         viInitBuffers();
         debmenuRefresh();
@@ -544,6 +595,33 @@ void bossMainloop(void)
 			                	joyButtons = joyGetButtons(0, ANY_BUTTON);
 			                	g_BossIsDebugMenuOpen = debug_menu_processor(joyStickXPos, joyStickYPos, joyButtons, joyGetButtonsPressedThisFrame(0, ANY_BUTTON));
 			                }
+#ifdef GEVR
+                            {
+                                netPoll();
+                                gevrLobbyGameTick();
+                                netDiscoveryUpdate((u32)(sysGetMicroseconds() / 1000));
+                                if (s_net_session_started && !netIsActive())
+                                    bossSetLoadedStage(LEVELID_TITLE);
+                                if (netTakeRoundReset()) {
+                                    /* the next round's settings, the vote's map among them (net_core.c) */
+                                    extern void netApplyMatchConfig(void);
+                                    netApplyMatchConfig();
+                                    bossSetLoadedStage(g_StageNum);
+                                }
+                                if (netIsActive()) {
+                                    for (i = 0; i < getPlayerCount(); i++) {
+                                        if (g_playerPointers[i] && g_playerPointers[i]->prop) {
+                                            bool occupied = netSlotOccupied(i);
+                                            if (occupied != s_net_slot_enabled[i]) {
+                                                if (occupied) chrpropEnable(g_playerPointers[i]->prop);
+                                                else chrpropDisable(g_playerPointers[i]->prop);
+                                                s_net_slot_enabled[i] = occupied;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+#endif
                             gevrSchedTraceMenu(get_currentmenu(), 0);
                             lvlManageMpGame();
                             gevrSchedTraceMenu(get_currentmenu(), 1);
@@ -553,7 +631,9 @@ void bossMainloop(void)
                             {
                                 for (i = 0; i < getPlayerCount(); i++)
                                 {
-                                    set_cur_player(get_nth_player_from_shuffled(i));
+                                    s32 playernum = get_nth_player_from_shuffled(i);
+                                    if (netIsActive() && !netSlotOccupied(playernum)) continue;
+                                    set_cur_player(playernum);
 
                                     localPlayer = g_CurrentPlayer;
                                     viSetViewSize(localPlayer->viewx, localPlayer->viewy);
@@ -561,7 +641,13 @@ void bossMainloop(void)
                                     localPlayer = g_CurrentPlayer;
                                     viSetViewPosition(localPlayer->viewleft, localPlayer->viewtop);
 
+#ifdef GEVR
+                                    netPlayerSyncBeforeTick(playernum);
+#endif
                                     lvlViewMoveTick();
+#ifdef GEVR
+                                    netPlayerSyncAfterTick(playernum);
+#endif
                                 }
                             }
 
@@ -569,7 +655,11 @@ void bossMainloop(void)
 
                             // Lets Visualise the Coverage Value used for Scilohete Anti-Ailising (edges)
                             // (done on the VI), also produces a cool looking linemode - providing AA is working.
-                            if (get_debug_VisCVG_flag())
+                            if (get_debug_VisCVG_flag()
+#ifdef GEVR
+                                && !netIsActive() /* Online Line mode draws world edges in OpenGL. */
+#endif
+                            )
                             {
                                 gDPPipeSync(gdl++); // 0xe7000000, 0x00000000
                                 gDPSetCycleType(gdl++, G_CYC_1CYCLE); // 0xba001402, 0x00000000

@@ -10,13 +10,17 @@ their release included) and our GOLDENEYE/AI/ fill. The zip gets:
     the release has it (their per-texture choice: a quarter of the 4K, half,
     or as is), otherwise a quarter of the 4K but at least 4x native (the size
     ge007.tdb lists);
-  - GOLDENEYE/AI/ as it is;
+  - GOLDENEYE/AI/ at the authors' HD scale beside them: their release sizes
+    come to about 256 px on the long side (a 64-px wall 4x, 32 px 8x, 16 px
+    16x), so each AI texture (8x in the fork) goes to 256 / its native long
+    side as a power of two, 4x to 8x (never above the 8x it has);
   - not GOLDENEYE/Hacks/ (textures for ROM hacks, not the game);
   - a readme crediting the authors.
 The Mods page (ModManager.java) unpacks the PNGs, paths kept.
 """
 
 import io
+import math
 import os
 import sys
 import zipfile
@@ -40,6 +44,14 @@ _ciByRGBA.png.
 """
 
 
+AI_SCALE = 8   # batch.py makes every AI texture 8x native
+
+
+def hd_scale(native_long):
+    """The authors' HD release scale for a texture this long: ~256 px, a power of two, 4x..16x."""
+    return max(4, min(16, 2 ** round(math.log2(256.0 / native_long))))
+
+
 def main():
     if len(sys.argv) != 4:
         print(__doc__)
@@ -53,11 +65,16 @@ def main():
             with Image.open(io.BytesIO(rz.read(info))) as im:
                 rel[os.path.basename(info.filename).upper()] = im.size
     tdb = {}
+    tdb_prefix = {}
     with open(os.path.join(root, 'ge007.tdb'), encoding='utf-8') as f:
         for line in f:
             if ';' in line:
                 n, s = line.strip().split(';')
-                tdb[n.upper() + '.PNG'] = tuple(int(v) for v in s.split('x'))
+                dims = tuple(int(v) for v in s.split('x'))
+                tdb[n.upper() + '.PNG'] = dims
+                parts = n.split('#')
+                if len(parts) >= 4:
+                    tdb_prefix[(parts[0].upper(), parts[1].upper(), parts[2], parts[3].split('_')[0])] = dims
 
     rej = set()
     rpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'rejected.txt')
@@ -65,7 +82,7 @@ def main():
         with open(rpath, encoding='utf-8') as f:
             rej = {l.split()[0].upper() for l in f if l.strip() and not l.startswith('#')}
 
-    counts = dict(authors=0, authors_new=0, resized=0, ai=0, rejected=0)
+    counts = dict(authors=0, authors_new=0, resized=0, ai=0, ai_resized=0, rejected=0)
     tmp = out + '.part'
     with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_STORED) as z:
         z.writestr('readme-ge007-hd-ai.txt', README)
@@ -83,8 +100,25 @@ def main():
                     if name.split('#')[1].upper() in rej:   # reviewed out (rejected.txt)
                         counts['rejected'] += 1
                         continue
-                    z.write(path, arc)
                     counts['ai'] += 1
+                    with Image.open(path) as im:
+                        parts = name.split('#')
+                        nat = tdb.get(name.upper())
+                        if nat is None and len(parts) >= 4:
+                            nat = tdb_prefix.get((parts[0].upper(), parts[1].upper(), parts[2], parts[3].split('_')[0]))
+                        if nat is None:
+                            nat = (im.width // AI_SCALE, im.height // AI_SCALE)
+                        s = min(AI_SCALE, hd_scale(max(nat)))
+                        size = (nat[0] * s, nat[1] * s)
+                        if size[0] >= im.width:
+                            z.write(path, arc)   # already at (or under) the HD size
+                            continue
+                        im.load()
+                        im = im.resize(size, Image.LANCZOS)
+                        counts['ai_resized'] += 1
+                        buf = io.BytesIO()
+                        im.save(buf, 'PNG', optimize=False)
+                        z.writestr(arc, buf.getvalue())
                     continue
                 with Image.open(path) as im:
                     im.load()

@@ -17,6 +17,10 @@ namespace gevrtp {
 void start(const char *dir);
 // True once, the first time it's asked after the scan finished with textures in it.
 bool takeIndexReady();
+// Wait up to ms for a started scan to finish (at once if none was started).
+void waitIndex(int ms);
+// The file name of an entry (for the log), or "".
+const char *name(int id);
 // The entry for a checksum key (see gfx_pc.cpp gevr_texpack_lookup) and the draw
 // tile's format and size, or -1.
 int find(uint64_t key, uint8_t fmt, uint8_t siz);

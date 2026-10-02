@@ -559,6 +559,23 @@ void texSelect(Gfx **gdlptr, struct sImageTableEntry *tconfig, u32 arg2, s32 arg
             }
 
             gDPSetTextureLOD(gdl++, G_TL_LOD);
+#ifdef GEVR
+            /*
+             * Issue #29: the texture detail mode is left over from whatever
+             * drew last, and room display lists leave G_TD_DETAIL on for
+             * their LOD textures (gepc-ref D107). Here tiles 0.. are one mip
+             * chain with no detail tile, so the N64 blended real mip levels
+             * either way. fast3d reads detail mode as "tile 1 is the base"
+             * (right for GE's rooms, where tile 0 is the detail window) and
+             * decodes tile 1 as mip level 0: every bullet hole, from the
+             * positions where a detail-textured room drew just before,
+             * showed a combed crop of its own top rows. Say what this draw
+             * is. (gepc-ref's D107 fix in gfx_lod_tile_offset instead
+             * assumes its own tile import; here it would put every room on
+             * its detail window.)
+             */
+            gDPSetTextureDetail(gdl++, G_TD_CLAMP);
+#endif
 
             // line 417
             switch (format)
