@@ -229,6 +229,10 @@ void explosionInflictDamage(PropRecord *arg0, f32 arg1, f32 arg2);
 void explosionInflictDamage(struct PropRecord *arg0, f32 arg1, f32 arg2);
 void explosionScorchTick(struct coord3d *pos, f32 explosion_size, s16 room);
 Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *coord);
+#ifdef GEVR
+#define GEVR_HIT_PULL 4.0f              /* stereo pull for the bullet hit (explosionRenderPart) */
+static s32 s_gevrPartExplosionType;
+#endif
 
 /*** *************************************************************************************************************/
 
@@ -1079,6 +1083,9 @@ Gfx *explosionRenderPropExplosion(PropRecord *prop, Gfx *gdl, s32 withalpha)
                 if (temp_s5->parts[i].frame > 0
                     && var_s2 == (s32)( (f32)(temp_s5->parts[i].frame - 1) / g_ExplosionTypes[temp_s5->explosion_type].flareanimspeed ) )
                 {
+#ifdef GEVR
+                    s_gevrPartExplosionType = temp_s5->explosion_type;
+#endif
                     gdl = explosionRenderPart(&temp_s5->parts[i], gdl, temp_s6);
                 }
             }
@@ -1107,6 +1114,16 @@ Gfx *explosionRenderPropExplosion(PropRecord *prop, Gfx *gdl, s32 withalpha)
  *
  * NTSC address 0x7F09D82C.
 */
+#ifdef GEVR
+/*
+ * Stereo: the game pulls its hit effects toward the camera (the explosion and
+ * smoke billboards up to 100 units, the hit spark 26: chrprop.c) so the flat
+ * quads don't cut into the wall. On a screen that depth can't be seen; with
+ * two eyes the bullet hit's flash, puff and spark hung in mid-air in front of
+ * the hole (user, 2026-10-02; logged 26 units off the wall in both modes). For
+ * the bullet hit only (explosion type 1, its smoke type 7) the pull is this.
+ */
+#endif
 Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *coord)
 {
     s32 padding1;
@@ -1158,6 +1175,16 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
     {
         var_f12 = 100.0f;
     }
+#ifdef GEVR
+    {
+        extern s32 g_gevrStereo;
+
+        if (g_gevrStereo && s_gevrPartExplosionType == 1 && var_f12 > GEVR_HIT_PULL)
+        {
+            var_f12 = GEVR_HIT_PULL;
+        }
+    }
+#endif
 
     if (temp_f0 == 0)
     {
@@ -1314,6 +1341,15 @@ Gfx *explosionSmokeRenderPart(struct Smoke *smoke, struct SmokePart *smoke_part,
 	if (range > 100.0f) {
 		range = 100.0f;
 	}
+#ifdef GEVR
+	{
+		extern s32 g_gevrStereo;
+
+		if (g_gevrStereo && smoke->smoke_type == 7 && range > GEVR_HIT_PULL) {
+			range = GEVR_HIT_PULL;
+		}
+	}
+#endif
 
 	if (temp_f0 == 0.0f) {
 		mult = 0.0f;
