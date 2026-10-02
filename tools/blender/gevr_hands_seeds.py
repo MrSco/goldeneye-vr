@@ -10,6 +10,8 @@ built before it); the author tool commits all of them or only those named,
 and the others stay as they were committed (edits made in Blender included).
 """
 
+import math
+
 from mathutils import Vector
 
 import gevr_hands_model as M
@@ -46,7 +48,10 @@ CSUIT_PALMSIDE = (0x702, (728, 865, 481, 594))   # the middle finger's own palm 
                                                  # t across; the ring and little fingers' undersides
                                                  # wear the same (the top's skin mirrored under them
                                                  # read as puffy)
-CSUIT_CREASE = 0.8    # inside a finger's bend
+CSUIT_CREASES = (     # the index finger's bends: each crack's two sides, from the end they share
+    ([167, 197, 213, 211, 190], [167, 179, 177, 173, 172]),
+    ([127, 164, 178, 176, 162], [127, 141, 139, 137, 135]),
+)
 CSUIT_NEAR = 150.0    # how far from a piece's rim the skin it takes may lie (watch arm units)
 CSUIT_FLAT = (0.05, 0.12)  # the ring and little fingers' undersides: this deep, in half-widths (the
                           # N64's shell already wraps most of the way round; a half-round bottom on
@@ -123,12 +128,13 @@ def seed_csuit(ws, names):
                    "towards the palm")
     curl(pid, "middle_finger", loop_verts(ws, 87))
 
-    # the index finger's two bends, open on their inside: closed nearly flat
-    # (a crease), a little darker
+    # the index finger's two bends, open on their inside: cracks, not holes
+    # (the two segments' ends run side by side 16-50 units apart, a quarter
+    # of the finger's width at most), zipped shut in the skin either side.
+    # (Filled and domed, as first, the dome sank into the bend.)
     pid = ws.piece("index_creases", "the index finger's two bends, closed inside, in its own skin")
-    for crease in ([167, 197, 213, 211, 190, 172, 173, 177, 179], [127, 164, 178, 176, 162, 135, 137, 139, 141]):
-        M.fill_palm(ws, pid, crease[0], 0x703, None, CSUIT_LIGHT, fair=1, dome=0.1,
-                    skin=skin(CSUIT_SKIN, crease), rom_shade=CSUIT_CREASE)
+    for a, b in CSUIT_CREASES:
+        M.zip_chains(ws, pid, [ws.vert(x) for x in a], [ws.vert(x) for x in b], skin(CSUIT_SKIN, a + b))
 
     # the palm: what is left between the heel, the thumb's root and the
     # finger roots (the fingers' palm sides above close their part), faired
@@ -169,6 +175,8 @@ PPK_UNDER = 1.0       # undersides: the rails' own shade (the N64 shades with 25
 PPK_DEEP = (1.0, 1.45)  # under a flap, deeper than half its width: a finger is thicker than its knuckle roof
 PPK_KNUCKLE = 0.35      # a flap's rounded cover: that much of its half-width above it
 PPK_HEEL = 1.0          # the pad below the butt, between the heel and the little finger: its dome (x its radius)
+PPK_HEEL_OUT = True     # ... rising out of the hand (fill_palm's dome_out: the first pad sank into it)
+PPK_STUMP = (1, 0.1, 0.8)   # the forearm's cut end: fairing, dome, and a little darker than the skin round it
 
 
 def PPK_BAND(tex, s0, s1, t_top, t_bottom):
@@ -341,7 +349,15 @@ def seed_ppk(ws, names):
     pid = ws.piece("heel_pad", "below the grip's butt, between the heel and the little finger's knuckle: "
                    "the palm's pad, domed out to fill the hollow under the knuckle")
     for cycle in left_out(rim["chain"], rim["proj"], below):
-        M.fill_palm(ws, pid, cycle, fist.tex, None, PPK_LIGHT, fair=1, dome=PPK_HEEL, skin=fist, rom_shade=1.0)
+        M.fill_palm(ws, pid, cycle, fist.tex, None, PPK_LIGHT, fair=1, dome=PPK_HEEL, skin=fist, rom_shade=1.0,
+                    dome_out=PPK_HEEL_OUT)
+
+    # the forearm's cut end: in the forearm's own skin, nearly flat, a little
+    # darker than the skin round it (the old recipe's cap at shade 60 read
+    # as a dark band round the end of the arm, as the taser's elbow did)
+    pid = ws.piece("forearm_end", "the forearm's cut end, in the forearm's skin")
+    M.fill_palm(ws, pid, "0x04b0:108", 0x704, None, PPK_LIGHT, fair=PPK_STUMP[0], dome=PPK_STUMP[1],
+                skin=M.NearMap(ws, 0x704, nodes={0x04b0}), rom_shade=PPK_STUMP[2], smooth_uv=True, dome_out=True)
 
     # the trigger finger (0x02b8, its own bone): its first joint is a shell
     # open underneath, at its base and inside the bend into the next joint.
@@ -357,7 +373,203 @@ def seed_ppk(ws, names):
     return [wt]
 
 
+# ---------------------------------------------------------------------------
+# GtaserZ: the taser's hand, also the grenade hand (#41)
+# ---------------------------------------------------------------------------
+# Four nodes on one bone: the forearm 0x01a0, the hand 0x0200, the thumb's
+# tip 0x0440 and the fingertips 0x0470. The hand grips the taser upright:
+# the palm faces +x (onto the grip), the fingers wrap its front (+z) and end
+# on its +x side, the thumb is on top. The N64 camera saw the palm side, so
+# everything facing -x is missing: the back of the hand and the forearm's
+# back (the forearm is a channel open on -x: a 0x704 side and 0x701 walls).
+# Every ROM vertex is lit 255; the textures carry the light. The old recipe
+# closed these in the pale 0x706 and flat shades (the forearm's back 215,
+# the back of the hand 235), which read as a different skin; the pieces now
+# carry the skin beside them on at 255. The finger openings are cracks, not
+# holes: where two segments meet (a finger's middle joint and its tip, its
+# first segment and its knuckle) their ends run side by side 1-6 units
+# apart. Domed over (the old recipe) they stood out as pale flaps and dips -
+# the index finger's on the end of it as seen from behind ("missing some
+# volume"). They are zipped shut.
+
+TASER_LIGHT = Vector((-0.3, 0.8, 0.5)).normalized()
+# each crack: one segment's end and the other's, from the same end of it
+TASER_CRACKS = {
+    "finger_joints": [   # middle joint (0x0200) to fingertip (0x0470): index, middle, ring, little
+        ([168, 170, 172, 174], ["0x0470:9", "0x0470:82", "0x0470:84", "0x0470:86", "0x0470:0"]),
+        ([206, 210, 212, 214], ["0x0470:46", "0x0470:47", "0x0470:50", "0x0470:52", "0x0470:40"]),
+        ([237, 241, 243, 245, 233], ["0x0470:21", "0x0470:109", "0x0470:113", "0x0470:25"]),
+        ([139, 141, 143, 147, 131], ["0x0470:136", "0x0470:138", "0x0470:140", "0x0470:142"]),
+    ],
+    "knuckles": [        # first segment to knuckle, index to little
+        ([64, 68, 70, 72, 161], [167, 169, 171, 173, 161]),
+        ([90, 92, 94, 96, 187], [196, 207, 211, 213, 187]),
+        ([108, 112, 116, 118, 121], [226, 238, 242, 230, 121]),
+        ([30, 146, 142, 140, 138], [46, 44, 42, 40]),
+    ],
+}
+TASER_FOREARM = 0.3    # the forearm's back: this deep past its open edges, in half-widths
+TASER_STUMP = (1, 0.1, 0.8)   # the elbow's cut end: fairing, dome, and a little darker than the skin round it
+TASER_BACK = 0.15      # the back of the hand: its dome
+# The index finger's middle joint is a tube from ring 159..173 (odd) to ring
+# 160..174 (even); at its end the N64 pulled 164 and 166 into the finger
+# (2.9 units off its axis, the rest of that ring and the other fingers' 6-10)
+# and 4-5 units back along it: a notch on the back of the last knuckle
+# between 162 and 168, which stand up either side of it as two points (the
+# headset: "the dent in the index finger").
+TASER_INDEX_RINGS = ((159, 161, 163, 165, 167, 169, 171, 173), (160, 162, 164, 166, 168, 170, 172, 174))
+TASER_INDEX_DENT = ((162, 168), (164, 166))   # the corners either side, the points pulled in
+
+
+def seed_taser(ws, names):
+    P.directed_loops.quiet = True
+
+    def skin(textures, names, reach=12.0):
+        return M.NearMap(ws, textures, near=[ws.vert(x).co for x in names], reach=reach)
+
+    # the small openings first: two of them touch the big one round the
+    # back of the hand, and filling that first could close one of their edges
+    for name, textures, why in (
+            ("finger_joints", (0x703, 0x704), "the crack round the outside of each finger's last bend, zipped "
+             "shut in the skin either side of it"),
+            ("knuckles", (0x702, 0x703), "the crack between each finger's first segment and its knuckle, zipped "
+             "shut, and the openings beside them, in the skin round them")):
+        pid = ws.piece(name, why)
+        for a, b in TASER_CRACKS[name]:
+            M.zip_chains(ws, pid, [ws.vert(x) for x in a], [ws.vert(x) for x in b], skin(textures, a + b))
+    # a gap between the back of the hand's edge and the middle knuckles
+    # (mapped smoothly from the knuckle skin round it: nearest-point lookups
+    # landed in the texture's dark creases), and two small ones under the
+    # little finger: closed, a little rounded
+    for spec, textures, rim in ((83, 0x702, (83, 87, 100, 91)), (12, (0x702, 0x705), (12, 41)),
+                                (31, (0x702, 0x705), (31, 107))):
+        M.fill_palm(ws, pid, spec, None, None, TASER_LIGHT, fair=1, dome=0.15, skin=skin(textures, rim),
+                    rom_shade=1.0, smooth_uv=True, dome_out=True)
+
+    # the forearm's back: closed between the channel's open edges (one ROM
+    # edge each, elbow to wrist) by an arc at each end, a little proud of
+    # them, and textured with the 0x704 side straight across from it
+    pid = ws.piece("forearm", "the forearm's back, closed between its open edges, wearing the skin of "
+                   "the side across from it")
+    rails = [[ws.vert("0x01a0:63"), ws.vert("0x01a0:13")], [ws.vert("0x01a0:69"), ws.vert("0x01a0:14")]]
+    arm = [v for v in ws.bm.verts if ws.is_rom(v) and ws.R.primary(v)[0] == 0x01a0]
+    centre = sum((v.co for v in arm), Vector()) / len(arm)
+    mids = [(a.co + b.co) / 2 for a, b in zip(*rails)]
+    axis = (mids[1] - mids[0]).normalized()
+    arcs = []
+    for (a, b), m in zip(zip(*rails), mids):
+        chord = b.co - a.co
+        c = chord.length / 2
+        xh = chord / (2 * c)
+        up = (centre - m) - xh * (centre - m).dot(xh) - axis * (centre - m).dot(axis)
+        up.normalize()
+        ring = [b]
+        for q in (1, 2, 3):
+            th = math.pi * q / 4
+            ring.append(ws.new_vert(m + xh * (c * math.cos(th)) - up * (TASER_FOREARM * c * math.sin(th)), 0))
+        arcs.append(ring + [a])
+    far = M.NearMap(ws, 0x704, nodes={0x01a0})
+    m = sum(mids, Vector()) / 2
+    across = M.Across(far, up, (far.bvh.ray_cast(m, up)[0] - m).dot(up))
+    first = len(ws.made)
+    for q in range(4):
+        vs = [arcs[0][q], arcs[0][q + 1], arcs[1][q + 1], arcs[1][q]]
+        ws.quad(pid, vs, across, [None] * 4, [None if ws.is_rom(v) else 255.0 for v in vs])
+    ws.settle(pid, faces=ws.made[first:])
+
+    # the elbow's cut end, a rounded stump (seen from behind in a two-handed
+    # hold), and the back of the hand: what is left, in the skin round each
+    pid = ws.piece("elbow", "the elbow's cut end, a rounded stump in the forearm's skin")
+    M.fill_palm(ws, pid, "0x01a0:59", 0x704, None, TASER_LIGHT, fair=TASER_STUMP[0], dome=TASER_STUMP[1],
+                skin=M.NearMap(ws, 0x704, nodes={0x01a0}), rom_shade=TASER_STUMP[2], smooth_uv=True,
+                dome_out=True)
+    pid = ws.piece("hand_back", "the back of the hand, between the wrist, the knuckles and the hand's "
+                   "edges, in the back of the hand's skin")
+    M.fill_palm(ws, pid, "largest", 0x702, None, TASER_LIGHT, fair=1, dome=TASER_BACK,
+                skin=M.NearMap(ws, 0x702, nodes={0x0200}), rom_shade=1.0, smooth_uv=True, dome_out=True)
+
+    # the index finger's last knuckle: the faces round the two points pulled
+    # in, drawn again over the notch with those points put back on the ring
+    # (between the corners either side, as far out and along as they are);
+    # the notch's own faces end up inside
+    pid = ws.piece("index_knuckle", "the back of the index finger's last knuckle, rounded over the notch "
+                   "the N64 left in it")
+    pip, dip = ([ws.vert(x) for x in ring] for ring in TASER_INDEX_RINGS)
+    c1 = sum((v.co for v in pip), Vector()) / len(pip)
+    c2 = sum((v.co for v in dip), Vector()) / len(dip)
+    axis = (c2 - c1).normalized()
+
+    def along_and_out(v):
+        d = v.co - c2
+        return d.dot(axis), d - axis * d.dot(axis)
+    (ta, pa), (tb, pb) = (along_and_out(ws.vert(x)) for x in TASER_INDEX_DENT[0])
+    e1 = pa.normalized()
+    e2 = axis.cross(e1)
+
+    def angle(p):
+        return math.atan2(p.dot(e2), p.dot(e1))
+    # from one corner to the other the way round the dent is, not the way
+    # round the rest of the ring
+    turn = angle(pb)
+    others = [angle(along_and_out(v)[1]) for v in dip
+              if ws.R.name(v) not in {str(x) for x in TASER_INDEX_DENT[0] + TASER_INDEX_DENT[1]}]
+    if any(0 < a * math.copysign(1, turn) < abs(turn) for a in others):
+        turn -= math.copysign(2 * math.pi, turn)
+    moved = {}
+    for k, name in enumerate(TASER_INDEX_DENT[1], 1):
+        f = k / (len(TASER_INDEX_DENT[1]) + 1)
+        a = turn * f
+        r = M.lerp(pa.length, pb.length, f)
+        p = c2 + axis * M.lerp(ta, tb, f) + (e1 * math.cos(a) + e2 * math.sin(a)) * r
+        v = ws.vert(name)
+        moved[v] = ws.new_vert(p, ws.bone_of(v))
+    first = len(ws.made)
+    for f in [f for f in ws.bm.faces if f[ws.lay_piece] == 0 and any(v in moved for v in f.verts)]:
+        ws.face(pid, [moved.get(v, v) for v in f.verts], ws.rom_tex(f),
+                [(l[ws.uv].uv.x, 1.0 - l[ws.uv].uv.y) for l in f.loops],
+                [ws.rom_colour(l.vert) if l.vert in moved else None for l in f.loops])
+    ws.settle(pid, faces=ws.made[first:])
+
+
+# ---------------------------------------------------------------------------
+# GgrenadeZ: the grenade in the taser's hand (#41)
+# ---------------------------------------------------------------------------
+# Its flat bottom (a disk and the short band round it) is in the model's
+# second list, which first-person models draw blended (alpha-tested in
+# stereo, so it writes depth), in 0x5e2: an intensity texture, a ring of
+# clock-face ticks on black. Intensity is its alpha, so all but the ticks
+# drops out and the bottom reads as a hole into the hand (the N64 camera
+# never looked up at it). The same triangles are drawn once more with the
+# model's first, opaque list: the disk and band solid, the ticks on them,
+# the N64's own coordinates and colours. The blended copy, drawn after at
+# the same depth, fails the depth test and adds nothing.
+
+def seed_grenade(ws, names):
+    pid = ws.piece("bottom", "the flat bottom and its band, drawn solid (blended, its black dropped out "
+                   "and it read as a hole)")
+    rom = [f for f in ws.bm.faces if f[ws.lay_piece] == 0 and ws.rom_tex(f) == 0x5e2]
+    # the bottom's own vertices: the band's top ring lies on the body's
+    # bevel, whose vertices there are darker (48 against 68)
+    own = {(t["node"], ws.model["verts"][i]["idx"], ws.model["verts"][i]["mtx"])
+           for t in ws.model["tris"] if t["tex"] == 0x5e2 for i in t["v"]}
+    twin = {}
+    for f in rom:
+        # the same corners again: new points standing on the ROM vertices
+        # (a bmesh holds one face per vertex triple), committed as them
+        vs = []
+        for v in f.verts:
+            if v not in twin:
+                twin[v] = ws.new_vert(v.co.copy(), ws.bone_of(v))
+                ws.alias[twin[v]] = next(r for r in ws.R.of(v) if r in own)
+            vs.append(twin[v])
+        uvs = [(l[ws.uv].uv.x, 1.0 - l[ws.uv].uv.y) for l in f.loops]
+        shs = [255.0 * l[ws.shade][0] for l in f.loops]
+        ws.face(pid, vs, 0x5e2, uvs, shs)
+
+
 SEEDS = {
     "Csuit_lf_handZ": seed_csuit,
     "GwppkZ": seed_ppk,
+    "GtaserZ": seed_taser,
+    "GgrenadeZ": seed_grenade,
 }

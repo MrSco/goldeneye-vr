@@ -1,0 +1,65 @@
+{
+ "model": "GgrenadeZ",
+ "note": "Ours: triangles over ROM vertices (node, index), weights over them, our UVs. No ROM data.",
+ "parts": [
+  {
+   "host": "0x00e4",
+   "nodes": {"0x00e4": {"numvtx": 396, "fingerprint": "0xb971a7bd"}},
+   "groups": [
+    {
+     "name": "bottom",
+     "why": "the flat bottom and its band, drawn solid (blended, its black dropped out and it read as a hole)",
+     "tex": "0x5e2",
+     "verts": [
+      {"s": 1014, "t": 1030, "node": "0x00e4", "ref": 365, "mtx": 0, "inherit": true},
+      {"s": 253, "t": 877, "node": "0x00e4", "ref": 366, "mtx": 0, "inherit": true},
+      {"s": 251, "t": 879, "node": "0x00e4", "ref": 367, "mtx": 0, "inherit": true},
+      {"s": 1014, "t": 1029, "node": "0x00e4", "ref": 368, "mtx": 0, "inherit": true},
+      {"s": 1776, "t": 879, "node": "0x00e4", "ref": 369, "mtx": 0, "inherit": true},
+      {"s": 1777, "t": 879, "node": "0x00e4", "ref": 372, "mtx": 0, "inherit": true},
+      {"s": 2092, "t": 514, "node": "0x00e4", "ref": 373, "mtx": 0, "inherit": true},
+      {"s": 2094, "t": 515, "node": "0x00e4", "ref": 374, "mtx": 0, "inherit": true},
+      {"s": 1775, "t": 149, "node": "0x00e4", "ref": 375, "mtx": 0, "inherit": true},
+      {"s": 1780, "t": 150, "node": "0x00e4", "ref": 376, "mtx": 0, "inherit": true},
+      {"s": 1013, "t": -2, "node": "0x00e4", "ref": 377, "mtx": 0, "inherit": true},
+      {"s": 1018, "t": -2, "node": "0x00e4", "ref": 378, "mtx": 0, "inherit": true},
+      {"s": 251, "t": 149, "node": "0x00e4", "ref": 379, "mtx": 0, "inherit": true},
+      {"s": 256, "t": 148, "node": "0x00e4", "ref": 380, "mtx": 0, "inherit": true},
+      {"s": -65, "t": 514, "node": "0x00e4", "ref": 381, "mtx": 0, "inherit": true},
+      {"s": -61, "t": 513, "node": "0x00e4", "ref": 382, "mtx": 0, "inherit": true},
+      {"s": 1013, "t": 514, "node": "0x00e4", "ref": 386, "mtx": 0, "inherit": true},
+      {"s": 1015, "t": 1029, "node": "0x00e4", "ref": 365, "mtx": 0, "inherit": true},
+      {"s": 252, "t": 878, "node": "0x00e4", "ref": 367, "mtx": 0, "inherit": true}
+     ],
+     "tris": [
+      [0, 1, 2],
+      [3, 1, 0],
+      [4, 3, 0],
+      [5, 3, 4],
+      [6, 5, 4],
+      [7, 5, 6],
+      [8, 7, 6],
+      [9, 7, 8],
+      [10, 9, 8],
+      [11, 9, 10],
+      [12, 11, 10],
+      [13, 11, 12],
+      [14, 13, 12],
+      [15, 13, 14],
+      [2, 15, 14],
+      [1, 15, 2],
+      [12, 16, 14],
+      [4, 16, 6],
+      [6, 16, 8],
+      [0, 16, 4],
+      [8, 16, 10],
+      [2, 16, 17],
+      [10, 16, 12],
+      [14, 16, 18]
+     ],
+     "op": "authored"
+    }
+   ]
+  }
+ ]
+}

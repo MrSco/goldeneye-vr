@@ -16,21 +16,7 @@
    "ops": [
     {
      "op": "authored",
-     "why": "the middle, ring and little fingers' missing middle joints round the grip's front, modelled in Blender (gevr_hands_author.py; GwppkZ.authored.json)"
-    },
-    {
-     "op": "fill",
-     "loop": "0x04b0:108",
-     "why": "the forearm's cut end",
-     "tex": "0x704",
-     "shade": [
-      60,
-      60,
-      60,
-      255
-     ],
-     "fair": 2,
-     "dome": 0.15
+     "why": "the middle, ring and little fingers' missing middle joints round the grip's front, the heel pad and the forearm's cut end, modelled in Blender (gevr_hands_author.py; GwppkZ.authored.json)"
     }
    ]
   },
