@@ -695,11 +695,11 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
                     if (sub_GAME_7F0BD8F0())
                     {
 #ifdef GEVR
-                        gDPNoOpTag(gdl++, 0x565F0000);   /* VR_ROOM_DL_BEGIN (issue #72): plain offset for the room's decals */
+                        gDPNoOpTag(gdl++, 0x56600000);   /* VR_ROOM_DL_BEGIN (issue #72): plain offset for the room's decals */
 #endif
                         gdl = bgRenderRoomPrimary(gdl, dword_CODE_bss_8007FFA0[j].roomid);
 #ifdef GEVR
-                        gDPNoOpTag(gdl++, 0x565F0001);   /* VR_ROOM_DL_END */
+                        gDPNoOpTag(gdl++, 0x56600001);   /* VR_ROOM_DL_END */
 #endif
                     }
                 }
@@ -763,11 +763,11 @@ Gfx *sub_GAME_7F0B3C8C(Gfx *gdl)
                     if (sub_GAME_7F0BD8F0())
                     {
 #ifdef GEVR
-                        gDPNoOpTag(gdl++, 0x565F0000);   /* VR_ROOM_DL_BEGIN (issue #72) */
+                        gDPNoOpTag(gdl++, 0x56600000);   /* VR_ROOM_DL_BEGIN (issue #72) */
 #endif
                         gdl = bgRenderRoomSecondary(gdl, dword_CODE_bss_8007FFA0[j].roomid);
 #ifdef GEVR
-                        gDPNoOpTag(gdl++, 0x565F0001);   /* VR_ROOM_DL_END */
+                        gDPNoOpTag(gdl++, 0x56600001);   /* VR_ROOM_DL_END */
 #endif
                     }
                 }
