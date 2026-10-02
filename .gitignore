@@ -7,6 +7,8 @@
 *.rom
 ge007*
 baserom*
+added-content/
+xbla/
 
 # Audio/video captures of the original game (reference material, not source)
 *.wav
