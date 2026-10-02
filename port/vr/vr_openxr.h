@@ -146,8 +146,9 @@ extern void gfx_vr_hud_capture_end_P(void);
 // Secondary). Its decals take plain polygon offset, not the stencil band:
 // the band left door-shaped holes in a decal wall where the room behind
 // showed through (the band is for the game's bullet holes, texSelect).
-#define VR_ROOM_DL_BEGIN 0x565F0000
-#define VR_ROOM_DL_END   0x565F0001
+// (0x565Fxxxx is VR_HAND_DRAW, gunfire.c gevrHandTag, matched by prefix.)
+#define VR_ROOM_DL_BEGIN 0x56600000
+#define VR_ROOM_DL_END   0x56600001
 extern void gfx_vr_hud_capture_begin_H(void);
 extern void gfx_vr_hud_capture_end_H(void);
 
