@@ -142,6 +142,12 @@ extern void gfx_vr_hud_capture_end_P(void);
 #define VR_SCOPE_ONLY_BEGIN   0x565E0000
 #define VR_SCOPE_ONLY_END     0x565E0001
 #define VR_SCOPE_ONLY_BEGIN_L 0x565E0002
+// GoldenEye (issue #72): a room's own display list (bg.c bgRenderRoomPrimary /
+// Secondary). Its decals take plain polygon offset, not the stencil band:
+// the band left door-shaped holes in a decal wall where the room behind
+// showed through (the band is for the game's bullet holes, texSelect).
+#define VR_ROOM_DL_BEGIN 0x565F0000
+#define VR_ROOM_DL_END   0x565F0001
 extern void gfx_vr_hud_capture_begin_H(void);
 extern void gfx_vr_hud_capture_end_H(void);
 

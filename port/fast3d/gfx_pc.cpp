@@ -3904,6 +3904,14 @@ static void gfx_run_dl(Gfx* cmd) {
                         gfx_flush();
                         gfx_vr_scope_only(tag_w1 == VR_SCOPE_ONLY_BEGIN ? 0 : tag_w1 == VR_SCOPE_ONLY_BEGIN_L ? 1 : -1);
                         break;
+
+                    case VR_ROOM_DL_BEGIN:   // bg.c: a room's own display list (issue #72)
+                    case VR_ROOM_DL_END: {
+                        extern bool gevrRoomDl;   // gfx_opengl.cpp
+                        gfx_flush();
+                        gevrRoomDl = tag_w1 == VR_ROOM_DL_BEGIN;
+                        break;
+                    }
                     default:
                         break;
                 }
