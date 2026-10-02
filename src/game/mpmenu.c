@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <stdio.h>
 #include <music.h>
 #include <bondgame.h>
 #include <bondinv.h>
@@ -15,14 +16,584 @@
 #include "lv.h"
 #include "language.h"
 #include "mp_music.h"
+#include "options.h"
 #include "file.h"
 #include "assets/obseg/text/LmpmenuE.h"
-
 #ifdef REFRESH_PAL
 #define MPMENU_YOFF 8   /* PAL: every text row sits 8 pixels lower */
 #else
 #define MPMENU_YOFF 0
 #endif
+#ifdef GEVR
+extern s32 g_gevrStereo;
+extern bool netIsActive(void);
+extern bool netIsHost(void);
+extern int netGetLocalSlot(void);
+extern void netHostRoundEnded(void);
+extern bool netSlotOccupied(int slot);
+extern const char *netGetSlotName(int slot);
+extern int netVoiceSlotSpeaking(unsigned char slot);
+extern void gevrLobbySessionStopped(void);
+extern void gevrRestartToLauncher(void);
+extern float VrMusicVolume;
+extern float VrVoiceVolume;
+extern void vrSettingsSave(void);
+extern bool get_button_state(int hand, const char *button_name);
+typedef struct { float x, y; } GevrVec2;   /* XrVector2f's layout */
+extern bool get_2d_input(int hand, const char *input_name, GevrVec2 *value);
+extern float VrSfxVolume;
+extern void gevrSndApplySfxVolume(u16 volume);
+extern int netVoiceIsMuted(void);
+extern void netVoiceSetMuted(int muted);
+extern int netVoiceHasPermission(void);
+extern int netVoiceCaptureFailed(void);
+#include "net_game.h"
+void mpwatchPlayBeep(void);
+extern int netMpPlayerCount(int fallback);
+extern int netGetConnectedPlayerCount(void);
+extern int netGetPlayingCount(void);
+extern int netGetPhase(void);
+extern void netSetLocalVote(int kind, int idx);
+extern int netGetVote(int kind, int slot);
+extern void netLobbySetCharacter(u8 chr_id);
+extern void netLobbySetLoadout(const u8 items[4]);
+extern unsigned VrMpFavStages, VrMpFavSets;
+extern s32 g_gameOverFlag;
+enum { NET_SCENARIO_YOLT = 1, NET_SCENARIO_TLD = 2, NET_SCENARIO_MWTGG = 3 };
+enum { NET_WEAPON_SET_CUSTOM_ROW = 14, NET_NEXT_VOTE_ROW = 0 };
+
+/*
+ * The pause menu's pages of rows: PAUSE holds the audio, LOBBY the match
+ * (the settings the host changes, the votes, this player's character and
+ * guns, the host's START MATCH and RETURN TO LOBBY). The left stick moves
+ * the cursor up and down (the right stick click still steps it down), the
+ * right stick changes the value in any direction (repeating after 18
+ * ticks), A fires an action row. The others see a host-only row dim.
+ * (User, 2026-09-30: a click that only went down was no way to navigate.)
+ */
+enum { GEVR_ROW_VALUE, GEVR_ROW_ACTION };
+typedef struct {
+    const char *name;
+    u8 kind;
+    u8 hostonly;
+    s32 (*visible)(void);             /* NULL: always */
+    void (*value)(char *buf, s32 n);  /* the text after the name; NULL: none */
+    void (*step)(s32 dir);            /* -1 down, +1 up; an action row's A is dir 0 */
+    const char *hint;                 /* the legend's stick hint */
+} GevrMenuRow;
+typedef struct {
+    const GevrMenuRow *rows;
+    s32 count;
+    s32 cursor;                       /* a row index */
+    s32 scroll;                       /* the first row drawn, among the visible */
+} GevrMenuPage;
+#define GEVR_MENU_ROWS_SHOWN 8
+
+static void gevrUpper(char *b)
+{
+    for (; *b; b++)
+    {
+        if (*b >= 'a' && *b <= 'z') *b -= 'a' - 'A';
+    }
+}
+
+static s32 gevrCycled(s32 v, s32 dir, s32 count)
+{
+    v += dir;
+    if (v < 0) v = count - 1;
+    if (v >= count) v = 0;
+    return v;
+}
+
+/* ---- PAUSE: the audio rows ---- */
+static void rowMusicValue(char *b, s32 n) { snprintf(b, n, "%d%%", ((s32)get_mTrack2Vol() * 100 + 16383) / 32767); }
+static void rowMusicStep(s32 dir)
+{
+    s32 volume = (s32)get_mTrack2Vol() + dir * 3277;
+    if (volume < 0) volume = 0;
+    if (volume > 32767) volume = 32767;
+    set_mTrack2Vol((u16)volume);
+    musicTrack1ApplySeqpVol((u16)volume);
+    musicTrack3ApplySeqpVol((u16)volume);
+    VrMusicVolume = (float)volume / 32767.0f;
+    vrSettingsSave();
+}
+static void rowSfxValue(char *b, s32 n) { snprintf(b, n, "%d%%", (int)(VrSfxVolume * 100.0f + 0.5f)); }
+static void rowSfxStep(s32 dir)
+{
+    /* Tenths, so the steps land on 0..100% exactly. */
+    s32 tenths = (s32)(VrSfxVolume * 10.0f + 0.5f) + dir;
+    if (tenths < 0) tenths = 0;
+    if (tenths > 10) tenths = 10;
+    VrSfxVolume = (float)tenths / 10.0f;
+    gevrSndApplySfxVolume((u16)(VrSfxVolume * 32767.0f));
+    vrSettingsSave();
+}
+static void rowVoiceValue(char *b, s32 n) { snprintf(b, n, "%d%%", (int)(VrVoiceVolume * 100.0f + 0.5f)); }
+static void rowVoiceStep(s32 dir)
+{
+    VrVoiceVolume += dir * 0.10f;
+    if (VrVoiceVolume < 0.0f) VrVoiceVolume = 0.0f;
+    if (VrVoiceVolume > 1.0f) VrVoiceVolume = 1.0f;
+    vrSettingsSave();
+}
+static void rowMicValue(char *b, s32 n)
+{
+    snprintf(b, n, "%s", netVoiceIsMuted() ? "MUTED" : !netVoiceHasPermission() ? "NO ACCESS" :
+             netVoiceCaptureFailed() ? "UNAVAILABLE" : "ACTIVE");
+}
+static void rowMicStep(s32 dir)
+{
+    /* up = active, down = muted */
+    if ((dir < 0) != (netVoiceIsMuted() != 0)) netVoiceSetMuted(dir < 0);
+}
+static void rowVoiceModeValue(char *b,s32 n) { snprintf(b,n,"%s",netVoiceModeName(gevrNetConfigGet(CFG_VOICE_MODE))); }
+static void rowVoiceModeStep(s32 dir) { gevrNetConfigSet(CFG_VOICE_MODE,gevrCycled(gevrNetConfigGet(CFG_VOICE_MODE),dir,2)); }
+static s32 friendlyFireTeams(void) { return netScenarioHasTeams(gevrNetConfigGet(CFG_SCENARIO)); }
+static void rowFriendlyFireValue(char *b,s32 n) { snprintf(b,n,"%s",gevrNetConfigGet(CFG_FRIENDLY_FIRE) ? "ON" : "OFF"); }
+static void rowFriendlyFireStep(s32 dir) { gevrNetConfigSet(CFG_FRIENDLY_FIRE,gevrCycled(gevrNetConfigGet(CFG_FRIENDLY_FIRE),dir,2)); }
+static s32 rowEqualizationHost(void) { return netIsHost(); }
+static void rowEqualizationValue(char *b,s32 n) { snprintf(b,n,"%s",netGetHostEqualization(NULL) ? "ON" : "OFF"); }
+static void rowEqualizationStep(s32 dir) { unsigned cap; int on=netGetHostEqualization(&cap);netSetHostEqualization(!on,cap); }
+static void rowEqualizationCapValue(char *b,s32 n) { unsigned cap;netGetHostEqualization(&cap);snprintf(b,n,"%ums",cap); }
+static void rowEqualizationCapStep(s32 dir) {
+    const unsigned caps[]={20,40,50,60,80}; unsigned cap;int on=netGetHostEqualization(&cap),i=0;
+    for(int k=0;k<5;k++) if(cap>=caps[k]) i=k;
+    netSetHostEqualization(on,caps[gevrCycled(i,dir,5)]);
+}
+static const GevrMenuRow s_pauseRows[] = {
+    { "HOST EQUALIZATION", GEVR_ROW_VALUE, 1, rowEqualizationHost, rowEqualizationValue, rowEqualizationStep, "R-STICK:ON/OFF" },
+    { "HOST DELAY CAP", GEVR_ROW_VALUE, 1, rowEqualizationHost, rowEqualizationCapValue, rowEqualizationCapStep, "R-STICK:PICK" },
+    { "MUSIC", GEVR_ROW_VALUE, 0, NULL, rowMusicValue, rowMusicStep, "R-STICK:ADJ" },
+    { "SFX",   GEVR_ROW_VALUE, 0, NULL, rowSfxValue,   rowSfxStep,   "R-STICK:ADJ" },
+    { "VOICE", GEVR_ROW_VALUE, 0, NULL, rowVoiceValue, rowVoiceStep, "R-STICK:ADJ" },
+    { "VOICE MODE", GEVR_ROW_VALUE, 1, NULL, rowVoiceModeValue, rowVoiceModeStep, "R-STICK:PICK" },
+    { "FRIENDLY FIRE", GEVR_ROW_VALUE, 1, friendlyFireTeams, rowFriendlyFireValue, rowFriendlyFireStep, "R-STICK:ON/OFF" },
+    { "MIC",   GEVR_ROW_VALUE, 0, NULL, rowMicValue,   rowMicStep,   "R-STICK:ON/OFF" },
+};
+
+/* ---- LOBBY: the match ---- */
+static s32 lobbyVoting(void) { return gevrNetConfigGet(CFG_NEXT_ROUND) == NET_NEXT_VOTE_ROW; }
+static s32 lobbyNotGoldenGun(void) { return gevrNetConfigGet(CFG_SCENARIO) != NET_SCENARIO_MWTGG; }
+static s32 lobbyNotYolt(void) { return gevrNetConfigGet(CFG_SCENARIO) != NET_SCENARIO_YOLT; }
+static s32 lobbyCustomSet(void) { return lobbyNotGoldenGun() && gevrNetConfigGet(CFG_WEAPON_SET) == NET_WEAPON_SET_CUSTOM_ROW; }
+static s32 lobbyWeaponVote(void) { return lobbyVoting() && lobbyNotGoldenGun(); }
+static s32 lobbyLoadouts(void) { return gevrNetConfigGet(CFG_LOADOUTS) != 0; }
+static s32 lobbyCanStart(void) { return netIsHost() && (netGetPhase() == 1 || g_gameOverFlag); }
+static s32 lobbyCanReturn(void) { return netIsHost() && (netGetPhase() == 2 || netCountdownSecondsLeft() > 0); }
+
+/* the vote rows: this player's pick and how many share it, or the host's mode */
+static void lobbyVoteValue(char *b, s32 n, s32 kind, const char *(*name)(int))
+{
+    s32 mode = gevrNetConfigGet(CFG_NEXT_ROUND);
+    if (mode != NET_NEXT_VOTE_ROW)
+    {
+        snprintf(b, n, "%s", netNextRoundName(mode));
+        return;
+    }
+    s32 vote = netGetVote(kind, netGetLocalSlot());
+    s32 tally = 0;
+    s32 slot;
+    for (slot = 0; slot < 4; slot++)
+    {
+        if (vote >= 0 && netGetVote(kind, slot) == vote) tally++;
+    }
+    if (vote < 0) snprintf(b, n, "NO VOTE");
+    else snprintf(b, n, "%s (%d)", name(vote), tally);
+}
+static void rowNextMapValue(char *b, s32 n) { lobbyVoteValue(b, n, 0, netStageName); }
+static void rowNextMapStep(s32 dir)
+{
+    /* through the maps the party fits; past either end is no vote */
+        s32 vote = netGetVote(0, netGetLocalSlot());
+    s32 count = netStageCount();
+    s32 tries = count + 1;
+    if (!lobbyVoting()) return;
+    do
+    {
+        vote += dir;
+        if (vote >= count) vote = -1;
+        if (vote < -1) vote = count - 1;
+    } while (vote >= 0 && !netStageEligible(vote) && --tries > 0);
+    netSetLocalVote(0, vote);
+}
+static void rowNextWeaponsValue(char *b, s32 n) { lobbyVoteValue(b, n, 1, netWeaponSetName); }
+static void rowNextWeaponsStep(s32 dir)
+{
+    s32 vote = netGetVote(1, netGetLocalSlot());
+    s32 count = netWeaponSetCount();
+    if (!lobbyVoting()) return;
+    vote += dir;
+    if (vote >= count) vote = -1;
+    if (vote < -1) vote = count - 1;
+    netSetLocalVote(1, vote);
+}
+static void rowNextRoundValue(char *b, s32 n) { snprintf(b, n, "%s", netNextRoundName(gevrNetConfigGet(CFG_NEXT_ROUND))); }
+static void rowNextRoundStep(s32 dir) { gevrNetConfigSet(CFG_NEXT_ROUND, gevrCycled(gevrNetConfigGet(CFG_NEXT_ROUND), dir, 3)); }
+static void rowScenarioValue(char *b, s32 n) { snprintf(b, n, "%s", netScenarioName(gevrNetConfigGet(CFG_SCENARIO))); }
+static void rowScenarioStep(s32 dir) { gevrNetConfigSet(CFG_SCENARIO, gevrCycled(gevrNetConfigGet(CFG_SCENARIO), dir, netScenarioCount())); }
+static void rowLengthValue(char *b, s32 n) { snprintf(b, n, "%s", netGameLengthName(gevrNetConfigGet(CFG_GAME_LENGTH))); }
+static void rowLengthStep(s32 dir)
+{
+    /* The Living Daylights takes the time limits only, as the game's own menu has it */
+    s32 count = gevrNetConfigGet(CFG_SCENARIO) == NET_SCENARIO_TLD ? 4 : 7;
+    gevrNetConfigSet(CFG_GAME_LENGTH, gevrCycled(gevrNetConfigGet(CFG_GAME_LENGTH), dir, count));
+}
+static void rowHealthValue(char *b, s32 n) { snprintf(b, n, "%s", netHealthName(gevrNetConfigGet(CFG_HEALTH))); }
+static void rowHealthStep(s32 dir) { gevrNetConfigSet(CFG_HEALTH, gevrCycled(gevrNetConfigGet(CFG_HEALTH), dir, netHealthCount())); }
+static void rowDualValue(char *b, s32 n) { snprintf(b, n, "%s", netDualWieldName(gevrNetConfigGet(CFG_DUAL_WIELD))); }
+static void rowDualStep(s32 dir) { gevrNetConfigSet(CFG_DUAL_WIELD, gevrCycled(gevrNetConfigGet(CFG_DUAL_WIELD), dir, 3)); }
+static void rowLoadoutsValue(char *b, s32 n) { snprintf(b, n, "%s", gevrNetConfigGet(CFG_LOADOUTS) ? "ON" : "OFF"); }
+static void rowLoadoutsStep(s32 dir) { gevrNetConfigSet(CFG_LOADOUTS, !gevrNetConfigGet(CFG_LOADOUTS)); }
+static void rowWeaponsValue(char *b, s32 n) { snprintf(b, n, "%s", netWeaponSetName(gevrNetConfigGet(CFG_WEAPON_SET))); }
+static void rowWeaponsStep(s32 dir) { gevrNetConfigSet(CFG_WEAPON_SET, gevrCycled(gevrNetConfigGet(CFG_WEAPON_SET), dir, netWeaponSetCount())); }
+static void rowMapValue(char *b, s32 n) { snprintf(b, n, "%s", netStageName(netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE)))); }
+static void rowMapStep(s32 dir)
+{
+    s32 idx = netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE));
+        s32 tries = netStageCount();
+    do
+    {
+        idx = gevrCycled(idx < 0 ? 0 : idx, dir, netStageCount());
+    } while (!netStageEligible(idx) && --tries > 0);
+    gevrNetConfigSet(CFG_STAGE, idx);   /* the setter takes the list position */
+}
+static void lobbyCustomValue(char *b, s32 n, s32 k) { snprintf(b, n, "%s", netItemName(gevrNetConfigGet(CFG_CUSTOM0 + k))); }
+static void lobbyCustomStep(s32 dir, s32 k)
+{
+    s32 idx = netItemIndexOf(gevrNetConfigGet(CFG_CUSTOM0 + k));
+    idx = gevrCycled(idx < 0 ? 0 : idx, dir, netItemCount());
+    gevrNetConfigSet(CFG_CUSTOM0 + k, gevrNetItemAt(idx));
+}
+static void rowCustom0Value(char *b, s32 n) { lobbyCustomValue(b, n, 0); }
+static void rowCustom1Value(char *b, s32 n) { lobbyCustomValue(b, n, 1); }
+static void rowCustom2Value(char *b, s32 n) { lobbyCustomValue(b, n, 2); }
+static void rowCustom3Value(char *b, s32 n) { lobbyCustomValue(b, n, 3); }
+static void rowCustom0Step(s32 dir) { lobbyCustomStep(dir, 0); }
+static void rowCustom1Step(s32 dir) { lobbyCustomStep(dir, 1); }
+static void rowCustom2Step(s32 dir) { lobbyCustomStep(dir, 2); }
+static void rowCustom3Step(s32 dir) { lobbyCustomStep(dir, 3); }
+static void rowCharacterValue(char *b, s32 n) { snprintf(b, n, "%s", netCharacterName(gevrNetSlotChr(netGetLocalSlot()))); }
+static void rowCharacterStep(s32 dir) { netLobbySetCharacter((u8)gevrCycled(gevrNetSlotChr(netGetLocalSlot()), dir, netCharacterCount())); }
+static void lobbyLoadoutValue(char *b, s32 n, s32 k)
+{
+    s32 item = gevrNetSlotLoadout(netGetLocalSlot(), k);
+    snprintf(b, n, "%s", item ? netItemName(item) : "NONE");
+}
+static void lobbyLoadoutStep(s32 dir, s32 k)
+{
+    u8 items[4];
+    s32 i;
+    s32 idx;
+    for (i = 0; i < 4; i++) items[i] = (u8)gevrNetSlotLoadout(netGetLocalSlot(), i);
+    idx = netItemIndexOf(items[k]);
+    idx = gevrCycled(idx < 0 ? 0 : idx, dir, netItemCount());
+    items[k] = gevrNetItemAt(idx);
+    netLobbySetLoadout(items);
+}
+static void rowLoadout0Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 0); }
+static void rowLoadout1Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 1); }
+static void rowLoadout2Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 2); }
+static void rowLoadout3Value(char *b, s32 n) { lobbyLoadoutValue(b, n, 3); }
+static void rowLoadout0Step(s32 dir) { lobbyLoadoutStep(dir, 0); }
+static void rowLoadout1Step(s32 dir) { lobbyLoadoutStep(dir, 1); }
+static void rowLoadout2Step(s32 dir) { lobbyLoadoutStep(dir, 2); }
+static void rowLoadout3Step(s32 dir) { lobbyLoadoutStep(dir, 3); }
+/* the favorites: this headset's, for the shuffle and the playlist when it hosts;
+ * the toggle is for the map or set the vote row points at (or the current one) */
+static s32 lobbyFavStage(void)
+{
+    s32 v = lobbyVoting() ? netGetVote(0, netGetLocalSlot()) : -1;
+    return v >= 0 ? v : netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE));
+}
+static s32 lobbyFavSet(void)
+{
+    s32 v = lobbyVoting() ? netGetVote(1, netGetLocalSlot()) : -1;
+    return v >= 0 ? v : gevrNetConfigGet(CFG_WEAPON_SET);
+}
+static void rowFavMapValue(char *b, s32 n)
+{
+    s32 i = lobbyFavStage();
+    snprintf(b, n, "%s %s", netStageName(i), i >= 0 && ((VrMpFavStages >> i) & 1u) ? "YES" : "NO");
+}
+static void rowFavMapStep(s32 dir)
+{
+    s32 i = lobbyFavStage();
+    if (i < 0) return;
+    VrMpFavStages ^= 1u << i;
+    vrSettingsSave();
+}
+static void rowFavSetValue(char *b, s32 n)
+{
+    s32 i = lobbyFavSet();
+    snprintf(b, n, "%s %s", netWeaponSetName(i), i >= 0 && ((VrMpFavSets >> i) & 1u) ? "YES" : "NO");
+}
+static void rowFavSetStep(s32 dir)
+{
+    s32 i = lobbyFavSet();
+    if (i < 0) return;
+    VrMpFavSets ^= 1u << i;
+    vrSettingsSave();
+}
+static void rowStartStep(s32 dir) { netHostStartRoundNow(); }
+static void rowReturnStep(s32 dir) { netHostReturnToLobby(); }
+/*
+ * The start's countdown, on the row and in the page's title: pressing START
+ * MATCH used to swap the row for RETURN TO LOBBY with nothing else changing,
+ * so the host had no idea a start was under way, and the natural next press
+ * cancelled it (user, 2026-09-30). The HUD's own "MATCH STARTS IN" is hidden
+ * while this menu is up.
+ */
+static void rowStartValue(char *b, s32 n)
+{
+    s32 secs = netCountdownSecondsLeft();
+    if (secs > 0) snprintf(b, n, "- STARTING IN %d", secs);
+    else snprintf(b,n,"%s",netRoundRosterReady() ? "" : "- TEAMS / READY");
+}
+static void rowReturnValue(char *b, s32 n)
+{
+    snprintf(b, n, "%s", netCountdownSecondsLeft() > 0 ? "- CANCELS THE START" : "");
+}
+static s32 lobbyTeams(void) { return netScenarioHasTeams(gevrNetConfigGet(CFG_SCENARIO)); }
+static void rowTeamValue(char *b,s32 n) { snprintf(b,n,"%s",netTeamName(netGetSlotTeam(netGetLocalSlot()))); }
+static void rowTeamStep(s32 dir) { netLobbySetTeam((u8)gevrCycled(netGetSlotTeam(netGetLocalSlot()),dir,3)); }
+static s32 lobbyClient(void) { return !netIsHost(); }
+static void rowReadyValue(char *b,s32 n) { snprintf(b,n,"%s",netLocalReady() ? "READY" : "WAITING"); }
+static void rowReadyStep(s32 dir) { gevrNetSetReady(!netLocalReady()); }
+static const GevrMenuRow s_lobbyRows[] = {
+    { "NEXT ROUND READY", GEVR_ROW_VALUE, 0, lobbyClient, rowReadyValue, rowReadyStep, "R-STICK:ON/OFF" },
+    { "FRIENDLY FIRE", GEVR_ROW_VALUE, 1, friendlyFireTeams, rowFriendlyFireValue, rowFriendlyFireStep, "R-STICK:ON/OFF" },
+    { "START MATCH",     GEVR_ROW_ACTION, 1, lobbyCanStart,     rowStartValue,      rowStartStep,       "A:START" },
+    { "RETURN TO LOBBY", GEVR_ROW_ACTION, 1, lobbyCanReturn,    rowReturnValue,     rowReturnStep,      "A:RETURN" },
+    { "NEXT ROUND",      GEVR_ROW_VALUE,  1, NULL,              rowNextRoundValue,  rowNextRoundStep,   "R-STICK:PICK" },
+    { "NEXT MAP",        GEVR_ROW_VALUE,  0, lobbyVoting,       rowNextMapValue,    rowNextMapStep,     "R-STICK:VOTE" },
+    { "NEXT WEAPONS",    GEVR_ROW_VALUE,  0, lobbyWeaponVote,       rowNextWeaponsValue, rowNextWeaponsStep, "R-STICK:VOTE" },
+    { "MAP",             GEVR_ROW_VALUE,  1, NULL,              rowMapValue,        rowMapStep,         "R-STICK:PICK" },
+    { "WEAPONS",         GEVR_ROW_VALUE,  1, lobbyNotGoldenGun, rowWeaponsValue,    rowWeaponsStep,     "R-STICK:PICK" },
+    { "CUSTOM 1",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom0Value,    rowCustom0Step,     "R-STICK:PICK" },
+    { "CUSTOM 2",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom1Value,    rowCustom1Step,     "R-STICK:PICK" },
+    { "CUSTOM 3",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom2Value,    rowCustom2Step,     "R-STICK:PICK" },
+    { "CUSTOM 4",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom3Value,    rowCustom3Step,     "R-STICK:PICK" },
+    { "SCENARIO",        GEVR_ROW_VALUE,  1, NULL,              rowScenarioValue,   rowScenarioStep,    "R-STICK:PICK" },
+    { "LENGTH",          GEVR_ROW_VALUE,  1, lobbyNotYolt,      rowLengthValue,     rowLengthStep,      "R-STICK:PICK" },
+    { "HEALTH",          GEVR_ROW_VALUE,  1, NULL,              rowHealthValue,     rowHealthStep,      "R-STICK:PICK" },
+    { "DUAL WIELD",      GEVR_ROW_VALUE,  1, NULL,              rowDualValue,       rowDualStep,        "R-STICK:PICK" },
+    { "LOADOUTS",        GEVR_ROW_VALUE,  1, NULL,              rowLoadoutsValue,   rowLoadoutsStep,    "R-STICK:ON/OFF" },
+    { "YOUR TEAM",       GEVR_ROW_VALUE,  0, lobbyTeams,        rowTeamValue,       rowTeamStep,        "R-STICK:PICK" },
+    { "CHARACTER",       GEVR_ROW_VALUE,  0, NULL,              rowCharacterValue,  rowCharacterStep,   "R-STICK:PICK" },
+    { "LOADOUT 1",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout0Value,   rowLoadout0Step,    "R-STICK:PICK" },
+    { "LOADOUT 2",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout1Value,   rowLoadout1Step,    "R-STICK:PICK" },
+    { "LOADOUT 3",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout2Value,   rowLoadout2Step,    "R-STICK:PICK" },
+    { "LOADOUT 4",       GEVR_ROW_VALUE,  0, lobbyLoadouts,     rowLoadout3Value,   rowLoadout3Step,    "R-STICK:PICK" },
+    { "FAV MAP",         GEVR_ROW_VALUE,  0, NULL,              rowFavMapValue,     rowFavMapStep,      "R-STICK:YES/NO" },
+    { "FAV SET",         GEVR_ROW_VALUE,  0, NULL,              rowFavSetValue,     rowFavSetStep,      "R-STICK:YES/NO" },
+};
+/* The active round uses its latched copy; these controls edit the next round. */
+static void funValue(char *b, s32 n, s32 flag) { snprintf(b,n,"%s",gevrNetConfigGet(CFG_FUN_FLAGS) & flag ? "ON" : "OFF"); }
+static void funStep(s32 flag) { gevrNetConfigSet(CFG_FUN_FLAGS, gevrNetConfigGet(CFG_FUN_FLAGS) ^ flag); }
+static void rowDkValue(char *b,s32 n) { funValue(b,n,NET_FUN_DK); }
+static void rowPaintValue(char *b,s32 n) { funValue(b,n,NET_FUN_PAINTBALL); }
+static void rowLineValue(char *b,s32 n) { funValue(b,n,NET_FUN_LINE); }
+static void rowDkStep(s32 dir) { funStep(NET_FUN_DK); }
+static void rowPaintStep(s32 dir) { funStep(NET_FUN_PAINTBALL); }
+static void rowLineStep(s32 dir) { funStep(NET_FUN_LINE); }
+static void rowGunSizeValue(char *b,s32 n) { const char *names[] = { "NORMAL", "TINY", "BIG" }; snprintf(b,n,"%s",names[gevrNetConfigGet(CFG_GUN_SIZE)]); }
+static void rowGunSizeStep(s32 dir) { gevrNetConfigSet(CFG_GUN_SIZE,gevrCycled(gevrNetConfigGet(CFG_GUN_SIZE),dir,3)); }
+static const GevrMenuRow s_funRows[] = {
+    { "DK MODE", GEVR_ROW_VALUE, 1, NULL, rowDkValue, rowDkStep, "R-STICK:ON/OFF" },
+    { "PAINTBALL", GEVR_ROW_VALUE, 1, NULL, rowPaintValue, rowPaintStep, "R-STICK:ON/OFF" },
+    { "LINE MODE", GEVR_ROW_VALUE, 1, NULL, rowLineValue, rowLineStep, "R-STICK:ON/OFF" },
+    { "GUN SIZE", GEVR_ROW_VALUE, 1, NULL, rowGunSizeValue, rowGunSizeStep, "R-STICK:PICK" },
+};
+static GevrMenuPage s_funPage = { s_funRows, sizeof(s_funRows) / sizeof(s_funRows[0]), 0, 0 };
+static GevrMenuPage s_pausePage = { s_pauseRows, sizeof(s_pauseRows) / sizeof(s_pauseRows[0]), 0, 0 };
+static GevrMenuPage s_lobbyPage = { s_lobbyRows, sizeof(s_lobbyRows) / sizeof(s_lobbyRows[0]), 0, 0 };
+
+static GevrMenuPage *gevrMenuPageFor(s32 mode)
+{
+    return mode == MENU_PAUSE ? &s_pausePage : mode == MENU_LOBBY ? &s_lobbyPage : mode == MENU_FUN ? &s_funPage : NULL;
+}
+static s32 gevrRowVisible(const GevrMenuRow *r) { return r->visible == NULL || r->visible(); }
+static s32 gevrRowEditable(const GevrMenuRow *r) { return !r->hostonly || netIsHost(); }
+
+/* the cursor onto a visible row: dir steps to the next one that way, 0 keeps it or takes the nearest below */
+static void gevrPageMoveCursor(GevrMenuPage *page, s32 dir)
+{
+    s32 tries = page->count;
+    s32 c = page->cursor;
+    if (dir != 0) c = gevrCycled(c, dir, page->count);
+    while (tries-- > 0 && !gevrRowVisible(&page->rows[c]))
+    {
+        c = gevrCycled(c, dir ? dir : 1, page->count);
+    }
+    page->cursor = c;
+}
+
+static void gevrMenuPagesTick(s32 player_num)
+{
+    static int last_rclick = 0;
+    static s32 stick_direction = 0;
+    static s32 stick_held_ticks = 0;
+    GevrMenuPage *page;
+    s32 change = 0;
+    s32 stick_y;
+    s32 stick_x_value = 0;
+    s32 direction;
+    int rclick;
+
+    if (!netIsActive() || player_num != netGetLocalSlot()) return;
+    page = gevrMenuPageFor(g_CurrentPlayer->mpmenumode);
+    if (page == NULL) return;
+
+    rclick = get_button_state(1, "thumbstick_click") ? 1 : 0;
+    /* Right stick click only: A also closes the pause menu. */
+    if (rclick && !last_rclick)
+    {
+        gevrPageMoveCursor(page, 1);
+        mpwatchPlayBeep();
+    }
+    last_rclick = rclick;
+
+    {
+        /*
+         * The left stick's up and down move the cursor (its x flips the
+         * page: input.c gives the game that as stick_x, and drops it while
+         * the stick is mostly vertical); the right stick's left and right
+         * change the value like its up and down below.
+         */
+        static s32 nav_direction = 0;
+        static s32 nav_held_ticks = 0;
+        GevrVec2 lstick = { 0.0f, 0.0f };
+        GevrVec2 rstick = { 0.0f, 0.0f };
+        float lx, ly, rx, ry;
+        s32 nav;
+        get_2d_input(0, "thumbstick", &lstick);
+        get_2d_input(1, "thumbstick", &rstick);
+        lx = lstick.x < 0.0f ? -lstick.x : lstick.x;
+        ly = lstick.y < 0.0f ? -lstick.y : lstick.y;
+        rx = rstick.x < 0.0f ? -rstick.x : rstick.x;
+        ry = rstick.y < 0.0f ? -rstick.y : rstick.y;
+        nav = ly > 0.5f && ly > lx ? (lstick.y > 0.0f ? -1 : 1) : 0;
+        if (nav != nav_direction)
+        {
+            nav_direction = nav;
+            nav_held_ticks = 0;
+            if (nav)
+            {
+                gevrPageMoveCursor(page, nav);
+                mpwatchPlayBeep();
+            }
+        }
+        else if (nav != 0 && ++nav_held_ticks >= 18 && (nav_held_ticks - 18) % 6 == 0)
+        {
+            gevrPageMoveCursor(page, nav);
+            mpwatchPlayBeep();
+        }
+        stick_x_value = rx > 0.5f && rx > ry ? (rstick.x > 0.0f ? 1 : -1) : 0;
+    }
+
+    stick_y = joyGetStickY(player_num);
+    direction = stick_y > 30 ? 1 : stick_y < -30 ? -1 : stick_x_value;
+    if (direction != stick_direction)
+    {
+        stick_direction = direction;
+        stick_held_ticks = 0;
+        change = direction;
+    }
+    else if (direction != 0 && ++stick_held_ticks >= 18 && (stick_held_ticks - 18) % 6 == 0)
+    {
+        change = direction;
+    }
+    gevrPageMoveCursor(page, 0);
+    if (change)
+    {
+        const GevrMenuRow *r = &page->rows[page->cursor];
+        if (gevrRowEditable(r) && r->kind == GEVR_ROW_VALUE && r->step != NULL)
+        {
+            r->step(change);
+            /* After the change, so a volume's beep plays at the new level. */
+            mpwatchPlayBeep();
+        }
+    }
+}
+
+/* A on the LOBBY page: the selected action row */
+static s32 gevrMenuPageAction(void)
+{
+    GevrMenuPage *page = gevrMenuPageFor(g_CurrentPlayer->mpmenumode);
+    const GevrMenuRow *r;
+    if (page == NULL) return 0;
+    gevrPageMoveCursor(page, 0);
+    r = &page->rows[page->cursor];
+    if (!gevrRowVisible(r) || !gevrRowEditable(r) || r->kind != GEVR_ROW_ACTION || r->step == NULL) return 0;
+    r->step(0);
+    mpwatchPlayBeep();
+    return 1;
+}
+
+static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
+{
+    GevrMenuPage *page = gevrMenuPageFor(g_CurrentPlayer->mpmenumode);
+    char label[64];
+    char value[40];
+    s32 vis[32];
+    s32 nvis = 0;
+    s32 ci = 0;
+    s32 i;
+    s32 x;
+    s32 y;
+    s32 textwidth;
+    s32 textheight;
+    s32 shown;
+    s32 y0;
+    const GevrMenuRow *sel;
+
+    if (!netIsActive() || page == NULL) return gdl;
+    /* Scores and status have their own pages; audio and lobby rows start at the top. */
+    shown = g_CurrentPlayer->mpmenumode == MENU_PAUSE ? page->count : GEVR_MENU_ROWS_SHOWN;
+    y0 = 37;
+    gevrPageMoveCursor(page, 0);
+    for (i = 0; i < page->count && nvis < 32; i++)
+    {
+        if (gevrRowVisible(&page->rows[i]))
+        {
+            if (i == page->cursor) ci = nvis;
+            vis[nvis++] = i;
+        }
+    }
+    if (page->scroll > ci) page->scroll = ci;
+    if (page->scroll < ci - shown + 1) page->scroll = ci - shown + 1;
+    if (page->scroll > nvis - shown) page->scroll = nvis - shown;
+    if (page->scroll < 0) page->scroll = 0;
+
+    for (i = 0; i < shown && page->scroll + i < nvis; i++)
+    {
+        const GevrMenuRow *r = &page->rows[vis[page->scroll + i]];
+        const s32 selected = vis[page->scroll + i] == page->cursor;
+        const s32 dim = !gevrRowEditable(r);
+        value[0] = '\0';
+        if (r->value != NULL) r->value(value, sizeof(value));
+        snprintf(label, sizeof(label), "%s%s %s%s", selected ? "> " : "  ", r->name, value, selected ? " <" : "");
+        gevrUpper(label);
+        textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+        x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+        y = menu_top + y0 + i * 13 + MPMENU_YOFF;
+        gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic,
+                         dim ? 0x00ff0080 : selected ? 0xa0ffa0f0 : 0x00ff00b0, viGetX(), viGetY(), 0, 0);
+    }
+    /* the legend: the selected row's hint, the click, and arrows when rows are out of view */
+    sel = &page->rows[page->cursor];
+    snprintf(label, sizeof(label), "%sL-STICK:ROW  %s%s", page->scroll > 0 ? "^ " : "",
+             gevrRowEditable(sel) ? sel->hint : "HOST ONLY", page->scroll + shown < nvis ? " v" : "");
+    textMeasure(&textheight, &textwidth, label, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    x = viGetViewLeft() + two_player_x_offset + 80 - (textwidth >> 1);
+    y = menu_top + y0 + shown * 13 + 2 + MPMENU_YOFF;
+    gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viGetX(), viGetY(), 0, 0);
+    return gdl;
+}
+#endif
+
+
 
 // bss
 s32 g_stopPlayFlag;
@@ -56,12 +627,19 @@ s32 mpwatchMenuCanGoRight(void)
         case MENU_LOSSES:
         case MENU_KILLS:
         case MENU_PAUSE:
+        case MENU_STATUS:
+        case MENU_FUN:
+        case MENU_LOBBY:
             return 1;
         case MENU_EXIT:
         case MENU_EXIT_CONFIRM:
         case MENU_FINISHED:
             return 0;
         case MENU_SCORES:
+#ifdef GEVR
+            /* online the results lead on to the LOBBY page, where the next match is voted */
+            if (netIsActive()) return 1;
+#endif
             return g_gameOverFlag ? 0 : 1;
         default:
             return 0;
@@ -76,6 +654,9 @@ s32 mpwatchMenuCanGoLeft(void)
         case MENU_KILLS:
         case MENU_SCORES:
         case MENU_PAUSE:
+        case MENU_STATUS:
+        case MENU_FUN:
+        case MENU_LOBBY:
         case MENU_EXIT:
             return 1;
         case MENU_GOWOC:
@@ -138,6 +719,15 @@ void mpwatchUnpauseGame(void)
  */
 s32 mpFindMaxInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        s32 values[4] = {value0, value1, value2, value3};
+        s32 best = -1;
+        for (s32 slot = 0; slot < numplayers; slot++)
+            if (netSlotOccupied(slot) && (best < 0 || values[slot] > values[best])) best = slot;
+        return best < 0 ? 0 : best;
+    }
+#endif
     s32 aux;
     s32 result;
  
@@ -178,6 +768,15 @@ s32 mpFindMaxInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
  */
 s32 mpFindMinInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        s32 values[4] = {value0, value1, value2, value3};
+        s32 best = -1;
+        for (s32 slot = 0; slot < numplayers; slot++)
+            if (netSlotOccupied(slot) && (best < 0 || values[slot] < values[best])) best = slot;
+        return best < 0 ? 0 : best;
+    }
+#endif
     s32 aux;
     s32 result;
  
@@ -221,6 +820,15 @@ s32 mpFindMinInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
  */
 s32 mpFindMaxFloat(s32 numplayers, f32 value0, f32 value1, f32 value2, f32 value3)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        f32 values[4] = {value0, value1, value2, value3};
+        s32 best = -1;
+        for (s32 slot = 0; slot < numplayers; slot++)
+            if (netSlotOccupied(slot) && (best < 0 || values[slot] > values[best])) best = slot;
+        return best < 0 ? 0 : best;
+    }
+#endif
     s32 aux;
     s32 result;
  
@@ -263,6 +871,15 @@ s32 mpFindMaxFloat(s32 numplayers, f32 value0, f32 value1, f32 value2, f32 value
  */
 s32 mpFindMinFloat(s32 numplayers, f32 value0, f32 value1, f32 value2, f32 value3)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        f32 values[4] = {value0, value1, value2, value3};
+        s32 best = -1;
+        for (s32 slot = 0; slot < numplayers; slot++)
+            if (netSlotOccupied(slot) && (best < 0 || values[slot] < values[best])) best = slot;
+        return best < 0 ? 0 : best;
+    }
+#endif
     s32 aux;
     s32 result;
  
@@ -335,6 +952,12 @@ void mpwatchSetStopPlayFlag(void)
 
 void mpCalculateAwards(bool gameoverdelay)
 {
+#ifdef GEVR
+    if (netIsActive()) {
+        if (g_gameOverFlag) return;
+        netHostRoundEnded();
+    }
+#endif
     s32 player_count;
     s32 i;
     s32 j;
@@ -343,7 +966,7 @@ void mpCalculateAwards(bool gameoverdelay)
     s32 prev_player_num;
     s32 duration;
 
-    struct AwardMetrics metrics[4];
+    struct AwardMetrics metrics[4] = {0};
 
     player_count = getPlayerCount();
     duration = getMissiontimer();
@@ -378,6 +1001,9 @@ void mpCalculateAwards(bool gameoverdelay)
 
     for (i = 0; i < player_count; i++)
     {
+#ifdef GEVR
+        if (netIsActive() && !netSlotOccupied(i)) continue;
+#endif
 
         set_cur_player(i);
 
@@ -407,6 +1033,8 @@ void mpCalculateAwards(bool gameoverdelay)
                 metrics[i].num_kills += g_playerPlayerData[i].kill_counts[j];
             }
         }
+
+        metrics[i].num_kills += g_playerPlayerData[i].gevr_score_bank;
 
         metrics[i].ks_ratio = metrics[i].num_kills * 100.0f / (metrics[i].num_shots + 1.0f);
         metrics[i].kd_ratio = metrics[i].num_kills * 100.0f / (metrics[i].num_deaths + 1.0f);
@@ -510,6 +1138,9 @@ void mpCalculateAwards(bool gameoverdelay)
 
     for (i = 0; i < player_count; i++)
     {
+#ifdef GEVR
+        if (netIsActive() && !netSlotOccupied(i)) continue;
+#endif
         if (g_playerPlayerData[i].most_killed_one_time == 4)
         {
             metrics[i].awards |= AWARD_QUADKILL;
@@ -531,6 +1162,9 @@ void mpCalculateAwards(bool gameoverdelay)
     // other awards.
     for (i = 0; i < player_count; i++)
     {
+#ifdef GEVR
+        if (netIsActive() && !netSlotOccupied(i)) continue;
+#endif
         s32 numdone = 0;
         s32 awardindex = 16;
 
@@ -638,15 +1272,24 @@ void mpwatchMenuTick(void)
 
             if (g_CurrentPlayer->mpmenuon != FALSE)
             {
+#ifdef GEVR
+                gevrMenuPagesTick(player_num);
+#endif
                 if (mpwatchIsPlayerPressingRight(player_num) && mpwatchMenuCanGoRight())
                 {
                     mpwatchPlayBeep();
                     g_CurrentPlayer->mpmenumode++;
+#ifdef GEVR
+                    while ((g_CurrentPlayer->mpmenumode == MENU_LOBBY || g_CurrentPlayer->mpmenumode == MENU_FUN) && !netIsActive()) g_CurrentPlayer->mpmenumode++;
+#endif
                 }
                 else if (mpwatchIsPlayerPressingLeft(player_num) && mpwatchMenuCanGoLeft())
                 {
                     mpwatchPlayBeep();
                     g_CurrentPlayer->mpmenumode--;
+#ifdef GEVR
+                    while ((g_CurrentPlayer->mpmenumode == MENU_LOBBY || g_CurrentPlayer->mpmenumode == MENU_FUN) && !netIsActive()) g_CurrentPlayer->mpmenumode--;
+#endif
                 }
                 else if (mpwatchIsPlayerPressingRight(player_num) && (g_CurrentPlayer->mpmenumode == MENU_EXIT_CONFIRM))
                 {
@@ -658,7 +1301,11 @@ void mpwatchMenuTick(void)
                     mpwatchPlayBeep();
                     g_CurrentPlayer->mpquitconfirm = 0;
                 }
+#ifdef GEVR
+                else if (!netIsActive() && joyGetButtonsPressedThisFrame(player_num, A_BUTTON) && (g_CurrentPlayer->mpmenumode == MENU_PAUSE))
+#else
                 else if (joyGetButtonsPressedThisFrame(player_num, A_BUTTON) && (g_CurrentPlayer->mpmenumode == MENU_PAUSE))
+#endif
                 {
                     mpwatchPlayBeep();
                     if (!g_pausedFlag)
@@ -682,12 +1329,33 @@ void mpwatchMenuTick(void)
                         g_CurrentPlayer->mpmenumode = MENU_SCORES;
                     }
                 }
+#ifdef GEVR
+                else if (netIsActive() && player_num == netGetLocalSlot() &&
+                         (g_CurrentPlayer->mpmenumode == MENU_LOBBY || g_CurrentPlayer->mpmenumode == MENU_FUN) &&
+                         joyGetButtonsPressedThisFrame(player_num, A_BUTTON) && gevrMenuPageAction())
+                {
+                    /* Selected action consumed A; other buttons use the normal close/results path. */
+                }
+#endif
                 else if (((joyGetButtonsPressedThisFrame(player_num, A_BUTTON | START_BUTTON)) && ((((g_CurrentPlayer->mpmenumode != MENU_EXIT)) && (g_CurrentPlayer->mpmenumode != MENU_EXIT_CONFIRM)) || ((g_CurrentPlayer->mpmenumode == MENU_EXIT_CONFIRM) && (g_CurrentPlayer->mpquitconfirm != 1)))) || (joyGetButtonsPressedThisFrame(player_num, B_BUTTON)))
                 {
                     mpwatchPlayBeep();
 
                     if (g_gameOverFlag)
                     {
+#ifdef GEVR
+                        if (netIsActive()) {
+                            /* The host: A or START goes on to the next match (a
+                             * countdown the LOBBY page votes through), B returns
+                             * everyone to the lobby. The others wait; the header
+                             * says so. Everyone stays on the results meanwhile. */
+                            if (netIsHost() && player_num == netGetLocalSlot()) {
+                                if (joyGetButtonsPressedThisFrame(player_num, B_BUTTON)) netHostReturnToLobby();
+                                else netHostContinue();
+                            }
+                            return;
+                        }
+#endif
                         menu_count = 0;
                         g_CurrentPlayer->mpmenumode = MENU_FINISHED;
 
@@ -727,6 +1395,13 @@ void mpwatchMenuTick(void)
                     if ((g_CurrentPlayer->mpmenumode == MENU_EXIT_CONFIRM) && (g_CurrentPlayer->mpquitconfirm == 1))
                     {
                         mpwatchPlayBeep();
+#ifdef GEVR
+                        if (netIsActive()) {
+                            gevrLobbySessionStopped();
+                            gevrRestartToLauncher();
+                            return;
+                        }
+#endif
                         g_CurrentPlayer->mpmenuon = FALSE;
                         g_CurrentPlayer->healthdisplaytime = 0;
                         mpCalculateAwards(FALSE);
@@ -747,7 +1422,12 @@ void mpwatchMenuTick(void)
             {
                 mpwatchPlayBeep();
                 g_CurrentPlayer->mpmenuon = TRUE;
-                g_CurrentPlayer->mpmenumode = MENU_SCORES;
+                g_CurrentPlayer->mpmenumode =
+#ifdef GEVR
+                    MENU_STATUS;
+#else
+                    MENU_SCORES;
+#endif
                 g_CurrentPlayer->mpjoywascentre = 1;
                 g_CurrentPlayer->apparenthealth = g_CurrentPlayer->bondhealth;
                 g_CurrentPlayer->apparentarmour = g_CurrentPlayer->bondarmour;
@@ -764,13 +1444,13 @@ Gfx *display_text_for_playerdata_on_MP_menu(Gfx *gdl, s32 x, s32 y, s32 points, 
     s32 textwidth;
     s32 textheight;
     s32 unused;
-    u16 *text;
+    char text[32];
     s16 viX;
     s32 viY;
 
-    sprintf(&text, "%d", points);
+    snprintf(text, sizeof(text), "%d", points);
 
-    textMeasure(&textheight, &textwidth, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
+    textMeasure(&textheight, &textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
 
     textX = x - (textwidth >> 1);
     textY = y;
@@ -780,37 +1460,37 @@ Gfx *display_text_for_playerdata_on_MP_menu(Gfx *gdl, s32 x, s32 y, s32 points, 
         case GREEN_NORMAL:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRender(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFF00B0, viX, viY, 0, 0);
+            gdl = textRender(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFF00B0, viX, viY, 0, 0);
             break;
 
         case GREEN_HIGHLIGHT:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRenderOutlined(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0FFA0F0, 0x7000A0, viX, viY, 0, 0);
+            gdl = textRenderOutlined(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0FFA0F0, 0x7000A0, viX, viY, 0, 0);
             break;
 
         case RED_NORMAL:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRender(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFF4040B0, viX, viY, 0, 0);
+            gdl = textRender(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFF4040B0, viX, viY, 0, 0);
             break;
 
         case RED_HIGHLIGHT:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRenderOutlined(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFFA0A0F0, 0x700000A0, viX, viY, 0, 0);
+            gdl = textRenderOutlined(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xFFA0A0F0, 0x700000A0, viX, viY, 0, 0);
             break;
 
         case BLUE_NORMAL:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRender(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0x4040FFB0, viX, viY, 0, 0);
+            gdl = textRender(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x4040FFB0, viX, viY, 0, 0);
             break;
 
         case BLUE_HIGHLIGHT:
             viX = viGetX();
             viY = viGetY();
-            gdl = textRenderOutlined(gdl, &textX, &textY, &text, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0A0FFF0, 0x70A0, viX, viY, 0, 0);
+            gdl = textRenderOutlined(gdl, &textX, &textY, text, ptrFontBankGothicChars, ptrFontBankGothic, 0xA0A0FFF0, 0x70A0, viX, viY, 0, 0);
             break;
     }
 
@@ -859,7 +1539,10 @@ s32 get_points_for_mp_player(s32 playernum)
                 }
             }
 
-            points += g_playerPlayerData[playernum].killed_gg_owner_count * (player_count - 2);
+            /* the score bank: kills against players who have left (net_core.c netForgetPlayerScore) */
+            points += g_playerPlayerData[playernum].gevr_score_bank;
+
+            points += g_playerPlayerData[playernum].killed_gg_owner_count * (netMpPlayerCount(player_count) - 2);
             break;
 
         case SCENARIO_YOLT:
@@ -873,6 +1556,9 @@ s32 get_points_for_mp_player(s32 playernum)
         case SCENARIO_2v2:
         case SCENARIO_3v1:
         case SCENARIO_2v1:
+#ifdef GEVR
+            if (netIsActive()) return netTeamScore(team_or_token);
+#endif
             for (i = 0; i < player_count; i++)
             {
                 if (g_playerPlayerData[i].have_token_or_goldengun == team_or_token)
@@ -955,29 +1641,29 @@ void write_playerrank_to_buffer(char *buffer, s32 playernum)
     switch (j)
     {
         case 0:
-            sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_11_RANK1ST))); /* Rank: 1st */
+            snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_11_RANK1ST))); /* Rank: 1st */
             break;
         case 1:
-            sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
+            snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
             break;
         case 2:
             if ((scenario != SCENARIO_2v2) && (scenario != SCENARIO_2v1))
             {
-                sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_13_RANK3RD))); /* Rank: 3rd */
+                snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_13_RANK3RD))); /* Rank: 3rd */
             }
             else
             {
-                sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
+                snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
             }
             break;
         case 3:
             if (scenario != SCENARIO_3v1)
             {
-                sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_14_RANK4TH))); /* Rank: 4th */
+                snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_14_RANK4TH))); /* Rank: 4th */
             }
             else
             {
-                sprintf(buffer, langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
+                snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
             }
             break;
     }
@@ -1061,8 +1747,9 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
     s32 m;
     s32 h1;
     s32 h2;
-    char rankbuffer[4];
+    char rankbuffer[64];
     s32 two_player_x_offset;
+    s32 menu_top;
     char *text;
     s32 scores[4];
     s32 i;
@@ -1097,7 +1784,21 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
     if (g_CurrentPlayer->mpmenuon)
     {
         gdl = microcode_constructor(gdl);
-    
+        menu_top = viGetViewTop();
+
+#ifdef GEVR
+        if (netIsActive())
+        {
+            /* Online uses four logical slots but one full-width view. The
+             * original watch layout occupies a 160px split-screen region;
+             * centre it in the view in both stereo and 2D mode. */
+            two_player_x_offset = (viGetViewWidth() - 160) / 2;
+            if (two_player_x_offset < 0) two_player_x_offset = 0;
+            menu_top += (viGetViewHeight() - 150) / 2;
+            if (menu_top < viGetViewTop()) menu_top = viGetViewTop();
+        }
+        else
+#endif
         if (player_count == 2)
         {
             two_player_x_offset = 80;
@@ -1117,6 +1818,22 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 {
                     text = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_15_PLAY)); /* PLAY */
                 }
+#ifdef GEVR
+                else if (netIsActive() && (netCountdownSecondsLeft() > 0 || !alt_gameover_msg))
+                {
+                    /* online: the countdown to the next match, or whose move it is */
+                    static char gameover[32];
+                    if (netCountdownSecondsLeft() > 0)
+                    {
+                        snprintf(gameover, sizeof(gameover), "NEXT MATCH IN %d", netCountdownSecondsLeft());
+                    }
+                    else
+                    {
+                        strcpy(gameover, netIsHost() ? "A:CONTINUE  B:LOBBY" : "WAITING FOR HOST");
+                    }
+                    text = gameover;
+                }
+#endif
                 else
                 {
                     if (alt_gameover_msg)
@@ -1132,6 +1849,24 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             case MENU_FINISHED:
                 text = (char *) ascii_MP_watch_menu_BLANK;
                 break;
+#ifdef GEVR
+            case MENU_STATUS:
+                text = "STATUS";
+                break;
+            case MENU_FUN:
+                text = netGetPhase() == 2 ? "FUN - NEXT ROUND" : "FUN";
+                break;
+            case MENU_LOBBY:
+            {
+                /* the start's countdown, for everyone at the menu */
+                static char lobbyTitle[32];
+                s32 secs = netCountdownSecondsLeft();
+                if (secs > 0) snprintf(lobbyTitle, sizeof(lobbyTitle), "STARTING IN %d", secs);
+                else snprintf(lobbyTitle, sizeof(lobbyTitle), "LOBBY");
+                text = lobbyTitle;
+                break;
+            }
+#endif
             case MENU_PAUSE:
                 if (g_pausedFlag)
                 {
@@ -1155,7 +1890,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
  
         textMeasure(&textheight, &textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
         x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 80;
-        y = (viGetViewTop() - (textheight >> 1)) + (22 + MPMENU_YOFF);
+        y = (menu_top - (textheight >> 1)) + (22 + MPMENU_YOFF);
  
         if (self_paused)
         {
@@ -1185,7 +1920,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 x -= 8;
             }
  
-            y = viGetViewTop() + (22 + MPMENU_YOFF);
+            y = menu_top + (22 + MPMENU_YOFF);
  
             if (!chevron_glow)
             {
@@ -1213,7 +1948,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 x += 8;
             }
  
-            y = viGetViewTop() + (22 + MPMENU_YOFF);
+            y = menu_top + (22 + MPMENU_YOFF);
  
             if (!chevron_glow)
             {
@@ -1229,7 +1964,12 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             }
         }
  
-        if ((g_CurrentPlayer->mpmenumode == MENU_SCORES) || (g_CurrentPlayer->mpmenumode == MENU_PAUSE))
+        if ((g_CurrentPlayer->mpmenumode == MENU_SCORES) ||
+#ifdef GEVR
+            (!netIsActive() && g_CurrentPlayer->mpmenumode == MENU_PAUSE))
+#else
+            (g_CurrentPlayer->mpmenumode == MENU_PAUSE))
+#endif
         {
             if (player_count > 0)
             {
@@ -1256,7 +1996,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 textMeasure(&textheight, &textwidth, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0);
  
                 x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 80;
-                y = (viGetViewTop() - (textheight >> 1)) + (37 + MPMENU_YOFF);
+                y = (menu_top - (textheight >> 1)) + (37 + MPMENU_YOFF);
                 viewleft = viGetX(); 
                 h1 = viGetY();
                 gdl = textRender(gdl, &x, &y, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
@@ -1269,13 +2009,17 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 fav_x_offset = (g_stopPlayFlag == 0); 
             }
  
+#ifdef GEVR
+            if (netIsActive() || mpwatchShouldDisplayScore(fav_x_offset))
+#else
             if (mpwatchShouldDisplayScore(fav_x_offset))
+#endif
             {
                 scenario = get_scenario();
                 text = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_1B_SCORES)); /* SCORES */
                 textMeasure(&textheight, &textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
                 x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 80;
-                y = (viGetViewTop() - (textheight >> 1)) + (53 + MPMENU_YOFF);
+                y = (menu_top - (textheight >> 1)) + (53 + MPMENU_YOFF);
                 viewleft = viGetX(); 
                 h1 = viGetY();
                 gdl = textRender(gdl, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
@@ -1302,10 +2046,69 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                     other_team_colour = GREEN_NORMAL;
                 }
  
+#ifdef GEVR
+                if (netIsActive())
+                {
+                    s32 row = 0;
+                    x=(viGetViewLeft()+two_player_x_offset)+5; y=menu_top+65+MPMENU_YOFF;
+                    gdl=textRender(gdl,&x,&y,"NAME",ptrFontBankGothicChars,ptrFontBankGothic,0x00FF00B0,viGetX(),viGetY(),0,0);
+                    x=(viGetViewLeft()+two_player_x_offset)+115; y=menu_top+65+MPMENU_YOFF;
+                    gdl=textRender(gdl,&x,&y,"PTS",ptrFontBankGothicChars,ptrFontBankGothic,0x00FF00B0,viGetX(),viGetY(),0,0);
+                    x=(viGetViewLeft()+two_player_x_offset)+146; y=menu_top+65+MPMENU_YOFF;
+                    gdl=textRender(gdl,&x,&y,"PING MS",ptrFontBankGothicChars,ptrFontBankGothic,0x00FF00B0,viGetX(),viGetY(),0,0);
+                    for (i = 0; i < player_count; i++)
+                    {
+                        if (!netSlotOccupied(i)) continue;
+                        char entry[32];
+                        s32 row_y, name_width, name_height;
+                        const char *name = netGetSlotName(i);
+                        u32 row_colour;
+                        if (!name || !name[0]) name = "Player";
+                        snprintf(entry, sizeof(entry), "%.15s", name);
+                        /* Fit the name independently of speaking and numeric columns. */
+                        textMeasure(&name_height,&name_width,entry,ptrFontBankGothicChars,ptrFontBankGothic,0);
+                        while (name_width > 88 && strlen(entry) > 1) {
+                            entry[strlen(entry)-1]='\0';
+                            textMeasure(&name_height,&name_width,entry,ptrFontBankGothicChars,ptrFontBankGothic,0);
+                        }
+                        x = (viGetViewLeft() + two_player_x_offset) + 5;
+                        y = row_y = menu_top + (80 + MPMENU_YOFF) + row * 15;
+                        viewleft = viGetX();
+                        h1 = viGetY();
+                        colour = i == curplayernum ? current_colour : same_team_colour;
+                        /* TEXTCOLORS is an enum, not a packed RGBA value.
+                         * Passing 0..5 to textRender made every row transparent. */
+                        switch ((TEXTCOLORS)colour)
+                        {
+                            case RED_NORMAL: row_colour = 0xFF4040B0; break;
+                            case RED_HIGHLIGHT: row_colour = 0xFFA0A0F0; break;
+                            case BLUE_NORMAL: row_colour = 0x4040FFB0; break;
+                            case BLUE_HIGHLIGHT: row_colour = 0xA0A0FFF0; break;
+                            case GREEN_HIGHLIGHT: row_colour = 0xA0FFA0F0; break;
+                            default: row_colour = 0x00FF00B0; break;
+                        }
+                        gdl = textRender(gdl, &x, &y, entry, ptrFontBankGothicChars,
+                                         ptrFontBankGothic, row_colour, viewleft, h1, 0, 0);
+                        x=(viGetViewLeft()+two_player_x_offset)+97; y=row_y;
+                        gdl=textRender(gdl,&x,&y,netVoiceSlotSpeaking((unsigned char)i) ? ">))" : "",ptrFontBankGothicChars,ptrFontBankGothic,row_colour,viewleft,h1,0,0);
+                        snprintf(entry,sizeof(entry),"%d",scores[i]);
+                        textMeasure(&name_height,&name_width,entry,ptrFontBankGothicChars,ptrFontBankGothic,0);
+                        x=(viGetViewLeft()+two_player_x_offset)+137-name_width; y=row_y;
+                        gdl=textRender(gdl,&x,&y,entry,ptrFontBankGothicChars,ptrFontBankGothic,row_colour,viewleft,h1,0,0);
+                        int ping=netGetSlotPing(i);
+                        if (ping < 0) snprintf(entry,sizeof(entry),"--"); else snprintf(entry,sizeof(entry),"%d",ping);
+                        textMeasure(&name_height,&name_width,entry,ptrFontBankGothicChars,ptrFontBankGothic,0);
+                        x=(viGetViewLeft()+two_player_x_offset)+181-name_width; y=row_y;
+                        gdl=textRender(gdl,&x,&y,entry,ptrFontBankGothicChars,ptrFontBankGothic,row_colour,viewleft,h1,0,0);
+                        row++;
+                    }
+                }
+                else
+#endif
                 if (player_count == 2)
                 {
                     viewleft = viGetViewLeft();
-                    x2 = viGetViewTop();
+                    x2 = menu_top;
 
                     if (curplayernum == 0)
                     {
@@ -1319,7 +2122,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
  
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 80, x2 + (70 + MPMENU_YOFF), scores[0], colour);
                     viewleft = viGetViewLeft();
-                    x2 = viGetViewTop();
+                    x2 = menu_top;
 
                     curplayernum == 1 ? (colour = current_colour) : (q = g_playerPlayerData[1].have_token_or_goldengun == g_playerPlayerData[curplayernum].have_token_or_goldengun ? same_team_colour : other_team_colour, colour = q);
 
@@ -1328,7 +2131,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 else
                 {
                     viewleft = viGetViewLeft();
-                    x2 = viGetViewTop();
+                    x2 = menu_top;
  
                     if (curplayernum == 0)
                     {
@@ -1342,7 +2145,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
  
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 64, x2 + (70 + MPMENU_YOFF), scores[0], colour);
                     viewleft = viGetViewLeft();
-                    x2 = viGetViewTop();
+                    x2 = menu_top;
  
                     if (curplayernum == 1)
                     {
@@ -1356,7 +2159,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
  
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 96, x2 + (70 + MPMENU_YOFF), scores[1], colour);
                     viewleft = viGetViewLeft();
-                    x2 = viGetViewTop();
+                    x2 = menu_top;
  
                     if (curplayernum == 2)
                     {
@@ -1373,7 +2176,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                     if (player_count == 4)
                     {
                         viewleft = viGetViewLeft();
-                        x2 = viGetViewTop();
+                        x2 = menu_top;
 
                         curplayernum == 3 ? (colour = current_colour) : (q = g_playerPlayerData[3].have_token_or_goldengun == g_playerPlayerData[curplayernum].have_token_or_goldengun ? same_team_colour : other_team_colour, colour = q);
                         gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 96, x2 + (86 + MPMENU_YOFF), scores[3], colour);
@@ -1398,7 +2201,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 write_playerrank_to_buffer(rankbuffer, curplayernum);
                 textMeasure(&textheight, &textwidth, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0);
                 x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 80;
-                y = (viGetViewTop() - (textheight >> 1)) + (37 + MPMENU_YOFF);
+                y = (menu_top - (textheight >> 1)) + (37 + MPMENU_YOFF);
                 viewleft = viGetX(); h1 = viGetY();
                 gdl = textRender(gdl, &x, &y, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
             }
@@ -1412,21 +2215,40 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
  
             textMeasure(&textheight, &textwidth, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 80;
-            y = (viGetViewTop() - (textheight >> 1)) + (53 + MPMENU_YOFF);
+            y = (menu_top - (textheight >> 1)) + (53 + MPMENU_YOFF);
             viewleft = viGetX(); 
             h1 = viGetY();
             gdl = textRender(gdl, &x, &y, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
- 
+#ifdef GEVR
+            if (netIsActive())
+            {
+                s32 row = 0;
+                for (i = 0; i < player_count; i++)
+                {
+                    if (!netSlotOccupied(i) || i == curplayernum) continue;
+                    char entry[32];
+                    snprintf(entry, sizeof(entry), "P%d  %d", i + 1,
+                             g_playerPlayerData[curplayernum].kill_counts[i]);
+                    x = (viGetViewLeft() + two_player_x_offset) + 53;
+                    y = menu_top + (70 + MPMENU_YOFF) + row * 15;
+                    viewleft = viGetX(); h1 = viGetY();
+                    gdl = textRender(gdl, &x, &y, entry, ptrFontBankGothicChars,
+                                     ptrFontBankGothic, GREEN_NORMAL, viewleft, h1, 0, 0);
+                    row++;
+                }
+            }
+            else
+#endif
             if (player_count == 2)
             {
                 if (curplayernum != 0)
                 {
-                    viewleft = viGetViewLeft(); h1 = viGetViewTop();
+                    viewleft = viGetViewLeft(); h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 80, h1 + (70 + MPMENU_YOFF), g_playerPlayerData[curplayernum].kill_counts[0], GREEN_NORMAL);
                 }
                 if (curplayernum != 1)
                 {
-                    viewleft = viGetViewLeft(); h1 = viGetViewTop();
+                    viewleft = viGetViewLeft(); h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 80, h1 + (86 + MPMENU_YOFF), g_playerPlayerData[curplayernum].kill_counts[1], GREEN_NORMAL);
                 }
             }
@@ -1434,22 +2256,22 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             {
                 if (curplayernum != 0)
                 {
-                    viewleft = viGetViewLeft(); h1 = viGetViewTop();
+                    viewleft = viGetViewLeft(); h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 64, h1 + (70 + MPMENU_YOFF), g_playerPlayerData[curplayernum].kill_counts[0], GREEN_NORMAL);
                 }
                 if (curplayernum != 1)
                 {
-                    viewleft = viGetViewLeft(); h1 = viGetViewTop();
+                    viewleft = viGetViewLeft(); h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 96, h1 + (70 + MPMENU_YOFF), g_playerPlayerData[curplayernum].kill_counts[1], GREEN_NORMAL);
                 }
                 if (curplayernum != 2)
                 {
-                    viewleft = viGetViewLeft(); h1 = viGetViewTop();
+                    viewleft = viGetViewLeft(); h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 64, h1 + (86 + MPMENU_YOFF), g_playerPlayerData[curplayernum].kill_counts[2], GREEN_NORMAL);
                 }
                 if ((player_count == 4) && (curplayernum != 3))
                 {
-                    viewleft = viGetViewLeft(); h1 = viGetViewTop();
+                    viewleft = viGetViewLeft(); h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 96, h1 + (86 + MPMENU_YOFF), g_playerPlayerData[curplayernum].kill_counts[3], GREEN_NORMAL);
                 }
             }
@@ -1468,7 +2290,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 write_playerrank_to_buffer(rankbuffer, curplayernum);
                 textMeasure(&textheight, &textwidth, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0);
                 x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 80;
-                y = (viGetViewTop() - (textheight >> 1)) + (37 + MPMENU_YOFF);
+                y = (menu_top - (textheight >> 1)) + (37 + MPMENU_YOFF);
                 viewleft = viGetX(); 
                 h1 = viGetY();
                 gdl = textRender(gdl, &x, &y, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
@@ -1483,35 +2305,56 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
  
             textMeasure(&textheight, &textwidth, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 80;
-            y = (viGetViewTop() - (textheight >> 1)) + (53 + MPMENU_YOFF);
+            y = (menu_top - (textheight >> 1)) + (53 + MPMENU_YOFF);
             viewleft = viGetX(); 
             h1 = viGetY();
             gdl = textRender(gdl, &x, &y, rankbuffer, ptrFontBankGothicChars, ptrFontBankGothic, 0xff4040b0, viewleft, h1, 0, 0);
- 
+#ifdef GEVR
+            if (netIsActive())
+            {
+                s32 row = 0;
+                for (i = 0; i < player_count; i++)
+                {
+                    if (!netSlotOccupied(i)) continue;
+                    s32 losses = g_playerPlayerData[i].kill_counts[curplayernum];
+                    if (i == curplayernum && losses == 0) continue;
+                    char entry[32];
+                    snprintf(entry, sizeof(entry), "P%d  %d", i + 1, losses);
+                    x = (viGetViewLeft() + two_player_x_offset) + 53;
+                    y = menu_top + (70 + MPMENU_YOFF) + row * 15;
+                    viewleft = viGetX(); h1 = viGetY();
+                    gdl = textRender(gdl, &x, &y, entry, ptrFontBankGothicChars,
+                                     ptrFontBankGothic, i == curplayernum ? RED_HIGHLIGHT : GREEN_NORMAL,
+                                     viewleft, h1, 0, 0);
+                    row++;
+                }
+            }
+            else
+#endif
             if (player_count == 2)
             {
                 if (curplayernum != 0)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 80, h1 + (70 + MPMENU_YOFF), g_playerPlayerData[0].kill_counts[curplayernum], GREEN_NORMAL);
                 }
                 else if (g_playerPlayerData[0].kill_counts[0] > 0)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 80, h1 + (70 + MPMENU_YOFF), g_playerPlayerData[0].kill_counts[curplayernum], RED_HIGHLIGHT);
                 }
                 if (curplayernum != 1)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 80, h1 + (86 + MPMENU_YOFF), g_playerPlayerData[1].kill_counts[curplayernum], GREEN_NORMAL);
                 }
                 else if (g_playerPlayerData[1].kill_counts[1] > 0)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 80, h1 + (86 + MPMENU_YOFF), g_playerPlayerData[1].kill_counts[curplayernum], RED_HIGHLIGHT);
                 }
             }
@@ -1520,39 +2363,39 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 if (curplayernum != 0)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 64, h1 + (70 + MPMENU_YOFF), g_playerPlayerData[0].kill_counts[curplayernum], GREEN_NORMAL);
                 }
                 else if (g_playerPlayerData[0].kill_counts[0] > 0)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 64, h1 + (70 + MPMENU_YOFF), g_playerPlayerData[0].kill_counts[curplayernum], RED_HIGHLIGHT);
                 }
 
                 if (curplayernum != 1)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 96, h1 + (70 + MPMENU_YOFF), g_playerPlayerData[1].kill_counts[curplayernum], GREEN_NORMAL);
                 }
                 else if (g_playerPlayerData[1].kill_counts[1] > 0)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 96, h1 + (70 + MPMENU_YOFF), g_playerPlayerData[1].kill_counts[curplayernum], RED_HIGHLIGHT);
                 }
 
                 if (curplayernum != 2)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 64, h1 + (86 + MPMENU_YOFF), g_playerPlayerData[2].kill_counts[curplayernum], GREEN_NORMAL);
                 }
                 else if (g_playerPlayerData[2].kill_counts[2] > 0)
                 {
                     viewleft = viGetViewLeft(); 
-                    h1 = viGetViewTop();
+                    h1 = menu_top;
                     gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 64, h1 + (86 + MPMENU_YOFF), g_playerPlayerData[2].kill_counts[curplayernum], RED_HIGHLIGHT);
                 }
 
@@ -1561,13 +2404,13 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                     if (curplayernum != 3)
                     {
                         viewleft = viGetViewLeft(); 
-                        h1 = viGetViewTop();
+                        h1 = menu_top;
                         gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 96, h1 + (86 + MPMENU_YOFF), g_playerPlayerData[3].kill_counts[curplayernum], GREEN_NORMAL);
                     }
                     else if (g_playerPlayerData[3].kill_counts[3] > 0)
                     {
                         viewleft = viGetViewLeft(); 
-                        h1 = viGetViewTop();
+                        h1 = menu_top;
                         gdl = display_text_for_playerdata_on_MP_menu(gdl, (viewleft + two_player_x_offset) + 96, h1 + (86 + MPMENU_YOFF), g_playerPlayerData[3].kill_counts[curplayernum], RED_HIGHLIGHT);
                     }
                 }
@@ -1592,13 +2435,13 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             text = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_1F_WEAPONOFCHOICE)); /* Weapon of choice: */
             textMeasure(&fav_textheight, &fav_textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = ((viGetViewLeft() + fav_x_offset) - (fav_textwidth >> 1)) + 80;
-            y = (viGetViewTop() - (fav_textheight >> 1)) + (37 + MPMENU_YOFF);
+            y = (menu_top - (fav_textheight >> 1)) + (37 + MPMENU_YOFF);
             viewleft = viGetX(); h1 = viGetY();
             gdl = textRender(gdl, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
             text = frontGetPlayersFavoriteWeaponInHand(curplayernum, 0);
             textMeasure(&fav_textheight, &fav_textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = ((viGetViewLeft() + fav_x_offset) - (fav_textwidth >> 1)) + 80;
-            x2 = viGetViewTop();
+            x2 = menu_top;
  
             if (j_text_trigger) 
             { 
@@ -1620,7 +2463,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 text = (char *) g_CurrentPlayer->ptr_text_first_mp_award;
                 textMeasure(&fav_textheight, &fav_textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
                 x = ((viGetViewLeft() + fav_x_offset) - (fav_textwidth >> 1)) + 80;
-                y = (viGetViewTop() - (fav_textheight >> 1)) + (75 + MPMENU_YOFF);
+                y = (menu_top - (fav_textheight >> 1)) + (75 + MPMENU_YOFF);
                 viewleft = viGetX(); 
                 h1 = viGetY();
                 gdl = textRender(gdl, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
@@ -1631,7 +2474,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 text = (char *) g_CurrentPlayer->ptr_text_second_mp_award;
                 textMeasure(&fav_textheight, &fav_textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
                 x = ((viGetViewLeft() + fav_x_offset) - (fav_textwidth >> 1)) + 80;
-                y = (viGetViewTop() - (fav_textheight >> 1)) + (88 + MPMENU_YOFF);
+                y = (menu_top - (fav_textheight >> 1)) + (88 + MPMENU_YOFF);
                 viewleft = viGetX(); 
                 h1 = viGetY();
                 gdl = textRender(gdl, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
@@ -1643,7 +2486,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             text = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_20_CANCEL)); /* cancel */
             textMeasure(&textheight, &textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 54;
-            y = (viGetViewTop() - (textheight >> 1)) + (54 + MPMENU_YOFF);
+            y = (menu_top - (textheight >> 1)) + (54 + MPMENU_YOFF);
  
             if (g_CurrentPlayer->mpquitconfirm == 0)
             {
@@ -1661,7 +2504,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
             text = (char *) langGet(getStringID(LMPMENU, MPMENU_STR_21_CONFIRM)); /* confirm */
             textMeasure(&textheight, &textwidth, text, ptrFontBankGothicChars, ptrFontBankGothic, 0);
             x = ((viGetViewLeft() + two_player_x_offset) - (textwidth >> 1)) + 104;
-            y = (viGetViewTop() - (textheight >> 1)) + (54 + MPMENU_YOFF);
+            y = (menu_top - (textheight >> 1)) + (54 + MPMENU_YOFF);
  
             if (g_CurrentPlayer->mpquitconfirm == 1)
             {
@@ -1676,6 +2519,9 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                 gdl = textRender(gdl, &x, &y, text, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viewleft, h1, 0, 0);
             }
         }
+#ifdef GEVR
+        gdl = gevrMenuPagesDraw(gdl, menu_top, two_player_x_offset);
+#endif
         gdl = combiner_bayer_lod_perspective(gdl);
     }
     else if (((((g_CurrentPlayer->bonddead) && (g_CurrentPlayer->deathanimfinished)) && (g_CurrentPlayer->redbloodfinished)) && (!g_stopPlayFlag)) && (!g_gameOverFlag))
@@ -1713,6 +2559,9 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
 
 s32 mpwatchShouldDisplayGauges(void)
 {
+#ifdef GEVR
+    if (g_CurrentPlayer->mpmenuon) return !g_gameOverFlag && g_CurrentPlayer->mpmenumode == MENU_STATUS;
+#endif
     return g_gameOverFlag ? FALSE : (g_CurrentPlayer->mpmenuon | (g_CurrentPlayer->healthdisplaytime > 0));
 }
 

@@ -9,9 +9,10 @@ in this repository** - the relationship is where the project came from, not a
 code dependency; see the table near the bottom. GEVR's own player-facing docs
 live in that project: https://github.com/no6969el/GEVR.
 
-Two directories are vendored upstream source rather than our own work, and
-carry their notices beside them: `port/` (Perfect Dark PC port) and
-`port/vr/` (Alex-LeTux's perfect_dark_VR). `src/` is the GoldenEye
+Three directories are vendored upstream source rather than our own work, and
+carry their notices beside them: `port/` (Perfect Dark PC port),
+`port/vr/` (Alex-LeTux's perfect_dark_VR), and `port/external/libjuice`.
+`src/` is the GoldenEye
 decompilation.
 
 Start here instead: [README](README.md) · [STATUS](STATUS.md) · [LICENCE](LICENSE).
@@ -63,6 +64,14 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 ---
 
 ## Adapted or built on (specific credit)
+
+### libjuice - ICE connectivity for internet multiplayer
+
+- **Repo:** https://github.com/paullouisageneau/libjuice (v1.7.4)
+- **What we use it for:** ICE candidate gathering, TURN allocations, and
+  UDP transport for the game's ENet packets.
+- **License:** MPL-2.0; the upstream notice is in
+  [`port/external/libjuice/LICENSE`](port/external/libjuice/LICENSE).
 
 ### GoldenEye PC port - reference and adapted sky renderer
 
@@ -162,6 +171,25 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 - **What for:** Windowing / input host dependency used by the native port stack.
 - **Licence:** zlib (see vendored SDL `LICENSE.txt` / `CREDITS.txt` in the product tree when binaries ship).
 
+### libopus
+
+- **What for:** Encodes and decodes multiplayer voice chat. CMake fetches the pinned 1.6.1 source release.
+- **Source:** https://opus-codec.org/downloads/
+- **Licence:** BSD-style; full copyright notice, conditions and disclaimer in `docs/opus-LICENSE.txt`.
+
+### ENet (zpl-c/enet single-header C99 amalgamation)
+
+- **Author:** Phil Badis and Dominik Madarász (single-header C99 fork); upstream library by Lee Salzman
+- **Repo:** https://github.com/zpl-c/enet (upstream: http://enet.bespin.org / https://github.com/lsalzman/enet)
+- **What for:** Reliable/unreliable UDP networking library used for multiplayer transport (`port/external/enet.c`, `port/include/external/enet.h`).
+- **Licence:** MIT (Copyright (c) 2002-2020 Lee Salzman, Phil Badis).
+
+### Perfect Dark Netplay (fgsfdsfgs/perfect_dark)
+
+- **Repo:** https://github.com/fgsfdsfgs/perfect_dark (branch `port-net`)
+- **What for:** Network protocol design, `netbuf` endian-safe serialization, and server-authoritative state synchronization architecture adapted for GoldenEye VR multiplayer.
+- **Licence:** MIT.
+
 ---
 
 ## Looked at, not adapted into this port
@@ -199,7 +227,7 @@ If you spot a missing credit for something we really used, open an Issue titled 
 
 - [README](README.md) - what this is, how to build and run it
 - [STATUS.md](STATUS.md) - what works and what does not, right now
-- [HANDOFF.md](HANDOFF.md) - current state, what works, what is broken
+- [docs/archive/HANDOFF.md](docs/archive/HANDOFF.md) - the engineering log up to 2026-09-28, archived
 - [docs/RARE-LOGO-AUDIO-HANDOFF.md](docs/RARE-LOGO-AUDIO-HANDOFF.md) - worked
   example of an LP64 porting-defect class
 - [LICENSE](LICENSE) - MIT, for this tree

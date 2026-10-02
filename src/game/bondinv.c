@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <ultra64.h>
 #include "bondview.h"
 #include "chr.h"
@@ -9,6 +12,7 @@
 #include "gun.h"
 #include "lv.h"
 #include <bondtypes.h>
+#include "system.h"
 
 void bondinvReinitInv(void)
 {
@@ -478,6 +482,19 @@ int bondinvAddWeaponByProp(PropRecord *prop)
             WeaponObjRecord *otherweapon;
 
             s8 weaponnum = weapon->weaponnum;
+#ifdef GEVR
+            extern s32 g_gevrStereo;
+            if ((g_gevrStereo || netActiveDualWield()) && bondinvHasInvItem(weaponnum) &&
+                (g_gevrStereo ? gevrWeaponUsesCopies(weaponnum) :
+                    bondwalkItemCheckBitflags(weaponnum, WEAPONSTATBITFLAG_CAN_DUAL_WIELD)) &&
+                !bondinvHasDualWeapon(weaponnum, weaponnum)) {
+                added = bondinvAddDoublesInvItem(weaponnum, weaponnum);
+                if (added && !g_gevrStereo) {
+                    gunRequestHandWeaponChange(GUNRIGHT, weaponnum, 1);
+                    gunRequestHandWeaponChange(GUNLEFT, weaponnum, 1);
+                }
+            } else
+#endif
             added = bondinvAddInvItem(weaponnum);
 
             otherweapon = weapon->dualweapon;
@@ -514,14 +531,62 @@ int bondinvAddWeaponByProp(PropRecord *prop)
     return added;
 }
 
+#ifdef GEVR
+/*
+ * A tester's headset locked up in bondinvCycleForward (watchdog stack,
+ * 2026-09-30: advance_through_inventory from bondviewProcessInput). The
+ * cycle walks the inventory ring until it finds a weapon past the current
+ * one; a ring with no weapon in it, or one the head no longer belongs to,
+ * never ends. Bounded here: after GEVR_INV_CYCLE_MAX steps the ring is
+ * described in the log and the cycle keeps the current weapons.
+ */
+#define GEVR_INV_CYCLE_MAX 256
+
+static void gevrInvCycleStuck(const char *where, InvItem *at, s32 weapon1, s32 weapon2, s32 requireammo)
+{
+    InvItem *first = g_CurrentPlayer->ptr_inventory_first_in_cycle;
+    InvItem *item  = first;
+    s32      n     = 0;
+
+    sysLogPrintf(LOG_ERROR, "inventory: %s cycle stuck (player %d, at %p, weapons %d/%d, requireammo %d, equipallguns %d, first %p)",
+                 where, get_cur_playernum(), (void *)at, weapon1, weapon2, requireammo, g_CurrentPlayer->equipallguns, (void *)first);
+
+    while (item && n < 24)
+    {
+        sysLogPrintf(LOG_ERROR, "inventory:   [%d] %p type %d weapon %d/%d next %p prev %p", n, (void *)item, item->type,
+                     item->type == INV_ITEM_WEAPON ? item->type_inv_item.type_weap.weapon : item->type == INV_ITEM_DUAL ? item->type_inv_item.type_dual.weapon_right : -1,
+                     item->type == INV_ITEM_DUAL ? item->type_inv_item.type_dual.weapon_left : -1,
+                     (void *)item->next, (void *)item->prev);
+        item = item->next;
+        n++;
+        if (item == first)
+        {
+            break;
+        }
+    }
+}
+#endif
+
 void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
 {
     s32      weapon1 = *nextright;
     s32      weapon2 = *nextleft;
     InvItem *item    = g_CurrentPlayer->ptr_inventory_first_in_cycle;
+#ifdef GEVR
+    s32      steps   = 0;
+#endif
 
     while (item)
     {
+#ifdef GEVR
+        if (++steps > GEVR_INV_CYCLE_MAX)
+        {
+            gevrInvCycleStuck("forward", item, weapon1, weapon2, requireammo);
+            weapon1 = *nextright;
+            weapon2 = *nextleft;
+            break;
+        }
+#endif
         if (item->type == INV_ITEM_WEAPON)
         {
             if (item->type_inv_item.type_weap.weapon < ITEM_BOMBCASE && item->type_inv_item.type_weap.weapon > weapon1)
@@ -581,6 +646,15 @@ void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
                 // Find next weapon
                 do
                 {
+#ifdef GEVR
+                    if (++steps > GEVR_INV_CYCLE_MAX)
+                    {
+                        gevrInvCycleStuck("forward all-guns", NULL, weapon1, weapon2, requireammo);
+                        weapon1 = *nextright;
+                        weapon2 = *nextleft;
+                        break;
+                    }
+#endif
                     candidate = (candidate + 1) % ITEM_BOMBCASE;
 
                     if (candidate == ITEM_UNARMED)
@@ -612,12 +686,25 @@ void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
     s32 weapon1 = *nextright;
     s32 weapon2 = *nextleft;
 
+#ifdef GEVR
+    s32 steps = 0;
+#endif
+
     if (g_CurrentPlayer->ptr_inventory_first_in_cycle != NULL)
     {
         InvItem *item = g_CurrentPlayer->ptr_inventory_first_in_cycle->prev;
 
         while (TRUE)
         {
+#ifdef GEVR
+            if (++steps > GEVR_INV_CYCLE_MAX)
+            {
+                gevrInvCycleStuck("backward", item, weapon1, weapon2, requireammo);
+                weapon1 = *nextright;
+                weapon2 = *nextleft;
+                break;
+            }
+#endif
             if (item->type == INV_ITEM_WEAPON)
             {
                 if (item->type_inv_item.type_weap.weapon < ITEM_BOMBCASE && (item->type_inv_item.type_weap.weapon < weapon1 || (weapon1 == item->type_inv_item.type_weap.weapon && weapon2 > 0)))
@@ -673,6 +760,15 @@ void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
 
         while (TRUE)
         {
+#ifdef GEVR
+            if (++steps > GEVR_INV_CYCLE_MAX)
+            {
+                gevrInvCycleStuck("backward all-guns", NULL, weapon1, weapon2, requireammo);
+                weapon1 = *nextright;
+                weapon2 = *nextleft;
+                break;
+            }
+#endif
             if (candidate == weapon1)
             {
                 if (getPlayerCount() == 1 && bondwalkItemCheckBitflags(candidate, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) && (requireammo == FALSE || bondwalkItemHasAmmo(candidate)) && (candidate != *nextright || candidate < *nextleft) && (weapon2 < candidate)

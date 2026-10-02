@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "debugmenu.h"
 #include "vi.h"
+#include "fr.h"   /* viGetX/viGetY return s16: called with no prototype, the upper bits were garbage on AArch64 */
 #include "game/dyn.h"
 
 

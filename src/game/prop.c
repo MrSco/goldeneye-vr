@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "system.h"
+#include "net_objects.h"
 #endif
 #include <ultra64.h>
 #include <memp.h>
@@ -497,6 +498,9 @@ void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex)
             setupUpdateObjectRoomPosition(arg1);
             chrpropActivate(sp60);
             chrpropEnable(sp60);
+#ifdef GEVR
+            gevrAmmoRememberSpawn(arg1, cmdindex);
+#endif
         }
         #ifdef DEBUG
         else
@@ -1254,6 +1258,9 @@ void setupDoor(s32 arg0, struct DoorRecord *door, s32 arg2)
 // Perfect Dark void setupLoadFiles(s32 stagenum)
 void proplvreset2(enum LEVELID stageId)
 {
+#ifdef GEVR
+    gevrAmmoResetSpawns();
+#endif
     ItemModelFileRecord *pitem;
     s32 withchrs;
     s32 withobjs;
@@ -1700,10 +1707,23 @@ void proplvreset2(enum LEVELID stageId)
                         if (getPlayerCount() >= 2)
                         {
                             struct s_mp_weapon_set *mpweapon = &getPtrMPWeaponSetData()[lastmpweaponnum];
-                            
+
+                            /* A multiplayer crate belongs to the selected weapon set.
+                             * The map's original slots must not grant every ammo type. */
+                            for (i9 = 0; i9 < AMMOTYPE_GLOBAL_MAX; i9++)
+                            {
+                                pdef_macr->slots[i9].quantity = 0;
+                            }
                             ammoqty = mpweapon->ammoamount;
-                            if (mpweapon->ammotype);
-                            pdef_macr->slots[mpweapon->ammotype - 1].quantity = ammoqty;
+                            if (mpweapon->ammotype > AMMO_NONE &&
+                                mpweapon->ammotype <= AMMOTYPE_GLOBAL_MAX)
+                            {
+                                pdef_macr->slots[mpweapon->ammotype - 1].quantity = ammoqty;
+                            }
+                            else
+                            {
+                                ammoqty = 0;
+                            }
                         }
 
                         if (((ammoqty > 0) && withobjs) && (!(pdef_macr->flags2 & flags)))

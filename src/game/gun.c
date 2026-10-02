@@ -46,6 +46,139 @@ ALSoundState* g_ImpactSfxStates[NUM_IMPACT_SFX_STATES];
 CasingRecord g_Casings[20];
 s32 dword_CODE_bss_80076A48; // Unused
 
+#ifdef GEVR
+s32 g_gevrMotionThrowActive[2] = { 0, 0 };
+struct coord3d g_gevrMotionThrowVel[2];
+
+/*
+ * Online projectiles, after Perfect Dark port-net's SVC_PROP_SPAWN with
+ * GEVR's owner -> host -> peers relay. The owner's spawner sends its spawn
+ * point, velocity and orientation; the other headsets run the same spawner
+ * for that player's copy and it takes them instead of its own (a copy has
+ * no first-person hand to throw from, and its view matrices are not built
+ * online). The projectile then flies and bounces on every headset; the
+ * explosion itself comes from the owner (explosion.c).
+ */
+static struct {
+    s32 active;
+    coord3d pos, vel, extra;
+    f32 rot[9];
+} s_gevrNetSpawn;
+
+s32 gevrNetProjectile(s32 kind, s32 hand, coord3d *pos, coord3d *vel, Mtxf *rot, coord3d *extra)
+{
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    extern void netSendProjectile(s32 kind, s32 hand, s32 item, const coord3d *pos, const coord3d *vel,
+                                  const f32 *rot9, const coord3d *extra, s32 cooktimer);
+    s32 i;
+
+    if (s_gevrNetSpawn.active)
+    {
+        *pos = s_gevrNetSpawn.pos;
+        *vel = s_gevrNetSpawn.vel;
+        for (i = 0; i < 9; i++)
+        {
+            rot->m[i / 3][i % 3] = s_gevrNetSpawn.rot[i];
+        }
+        if (extra != NULL)
+        {
+            *extra = s_gevrNetSpawn.extra;
+        }
+        return TRUE;
+    }
+
+    if (netIsActive() && get_cur_playernum() == netGetLocalSlot())
+    {
+        f32 rot9[9];
+
+        for (i = 0; i < 9; i++)
+        {
+            rot9[i] = rot->m[i / 3][i % 3];
+        }
+        netSendProjectile(kind, hand, getCurrentPlayerWeaponId(hand), pos, vel, rot9, extra,
+                          g_CurrentPlayer->last_z_trigger_timer);
+    }
+    return FALSE;
+}
+
+void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3d *pos, const coord3d *vel,
+                            const f32 *rot9, const coord3d *extra, s32 cooktimer)
+{
+    extern int netGetLocalSlot(void);
+    extern void gevrSetCopyTrace(s32 on);
+    s32 prev = get_cur_playernum();
+    s32 local = netGetLocalSlot();
+    struct player *pl;
+    struct player *localpl;
+    Mtxf *savedv2w;
+    Mtxf *savedw2v;
+    ITEM_IDS savedweapon;
+    s32 savedcook;
+    s32 i;
+
+    if (slot < 0 || slot >= 4 || slot == local || local < 0 || local >= 4 || hand < 0 || hand > 1)
+    {
+        return;
+    }
+    pl = g_playerPointers[slot];
+    localpl = g_playerPointers[local];
+    if (pl == NULL || pl->prop == NULL || pl->prop->stan == NULL || localpl == NULL || localpl->viewtoworldmtxf == NULL)
+    {
+        return;
+    }
+
+    /* the spawners read the view matrices before taking the sent values */
+    savedv2w = pl->viewtoworldmtxf;
+    savedw2v = pl->field_10CC;
+    savedweapon = pl->hands[hand].weaponnum;
+    savedcook = pl->last_z_trigger_timer;
+    pl->viewtoworldmtxf = localpl->viewtoworldmtxf;
+    pl->field_10CC = localpl->field_10CC;
+    pl->hands[hand].weaponnum = (ITEM_IDS)item;
+    pl->last_z_trigger_timer = cooktimer;
+
+    s_gevrNetSpawn.pos = *pos;
+    s_gevrNetSpawn.vel = *vel;
+    s_gevrNetSpawn.extra = *extra;
+    for (i = 0; i < 9; i++)
+    {
+        s_gevrNetSpawn.rot[i] = rot9[i];
+    }
+    s_gevrNetSpawn.active = TRUE;
+
+    set_cur_player(slot);
+    gevrSetCopyTrace(TRUE);
+
+    switch (kind)
+    {
+        case GEVR_NETPROJ_GRENADE:
+            generate_player_thrown_grenade(hand);
+            break;
+        case GEVR_NETPROJ_KNIFE:
+            generate_player_thrown_knife(hand);
+            break;
+        case GEVR_NETPROJ_OBJECT:
+            generate_player_thrown_object(hand);
+            break;
+        case GEVR_NETPROJ_GLGRENADE:
+            gunSpawnGLGrenade(hand);
+            break;
+        case GEVR_NETPROJ_ROCKET:
+            gunFireTankShell(hand);
+            break;
+    }
+
+    gevrSetCopyTrace(FALSE);
+    set_cur_player(prev);
+    s_gevrNetSpawn.active = FALSE;
+    pl->viewtoworldmtxf = savedv2w;
+    pl->field_10CC = savedw2v;
+    pl->hands[hand].weaponnum = savedweapon;
+    pl->last_z_trigger_timer = savedcook;
+}
+#endif
+
 #ifdef REFRESH_PAL
     /* PAL */
     #define THROWN_ITEM_REFRESH_RATE                   50
@@ -919,6 +1052,8 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
     u8              *buffer_weapon;
     enum ITEM_IDS    item;
 
+    if (!g_CurrentPlayer->ptr_hand_weapon_buffer[hand]) return;
+
     if ((g_CurrentPlayer->hand_invisible[hand] < 0) && (g_CurrentPlayer->lock_hand_model[hand] == 0))
     {
         if ((g_CurrentPlayer->hand_invisible[hand] < -2) || (g_CurrentPlayer->hand_item[hand] == ITEM_UNARMED))
@@ -1051,7 +1186,14 @@ void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDire
 #endif
     }
 
-    if (get_next_weapon_in_cycle_for_hand(hand, 0) != nextWeapon)
+    /* A tap can reverse a queued request before its lowering tick starts. */
+    s32 selected = get_next_weapon_in_cycle_for_hand(hand, 0);
+#ifdef GEVR
+    extern s32 g_gevrStereo;
+    if (g_gevrStereo && g_CurrentPlayer->hands[hand].weapon_animation_trigger)
+        selected = g_CurrentPlayer->hands[hand].weapon_next_weapon;
+#endif
+    if (selected != nextWeapon)
     {
         if ((g_CurrentPlayer->hands[hand].weapon_action_state != GUN_ANIM_STATE_SWITCH_LOWER) && (g_CurrentPlayer->hands[hand].weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP))
         {
@@ -1133,6 +1275,16 @@ void backstep_through_inventory(void)
 
 void autoadvance_on_deplete_all_ammo(void)
 {
+#ifdef GEVR
+    extern s32 g_gevrStereo;
+    if (g_gevrStereo)
+    {
+        gevrAutoAdvanceHand(GUNRIGHT);
+        gevrAutoAdvanceHand(GUNLEFT);
+        return;
+    }
+#endif
+
 	ITEM_IDS nextright;
 	ITEM_IDS nextleft;
 	ITEM_IDS duperight;
@@ -1295,9 +1447,22 @@ f32 get_item_in_hand_zoom(void) {
     return get_ptr_item_statistics(get_item_in_hand_or_watch_menu(GUNRIGHT))->Zoom;
 }
 
+#ifdef GEVR
+/* the sniper in either hand: in stereo the left hand can carry it, with its own scope */
+static s32 gevrSniperHeld(void)
+{
+    extern s32 g_gevrStereo;
+
+    return get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE
+        || (g_gevrStereo && get_item_in_hand_or_watch_menu(GUNLEFT) == ITEM_SNIPERRIFLE);
+}
+#else
+#define gevrSniperHeld() (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE)
+#endif
+
 void camera_sniper_zoom_out(f32 zoom)
 {
-	if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE) {
+	if (gevrSniperHeld()) {
 		g_CurrentPlayer->sniper_zoom *= (1.0f + (zoom * 0.1f));
 #ifdef GEVR
 		{
@@ -1331,7 +1496,7 @@ void camera_sniper_zoom_out(f32 zoom)
 
 void camera_sniper_zoom_in(f32 zoom)
 {
-	if (get_item_in_hand_or_watch_menu(GUNRIGHT) == ITEM_SNIPERRIFLE) {
+	if (gevrSniperHeld()) {
 		g_CurrentPlayer->sniper_zoom /= (1.0f + (zoom * 0.1f));
 #ifdef GEVR
 		{
@@ -1849,9 +2014,21 @@ void generate_player_thrown_grenade(s32 hand)
     bullet_path_from_screen_center(&sp94, &base_speed_vec, hand);
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32*)&base_speed_vec);
 
-    throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
-    throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
-    throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+#ifdef GEVR
+    if (g_gevrMotionThrowActive[hand])
+    {
+        throw_speed_vec.f[0] = g_gevrMotionThrowVel[hand].x;
+        throw_speed_vec.f[1] = g_gevrMotionThrowVel[hand].y;
+        throw_speed_vec.f[2] = g_gevrMotionThrowVel[hand].z;
+        g_gevrMotionThrowActive[hand] = 0;
+    }
+    else
+#endif
+    {
+        throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
+        throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
+        throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+    }
 
     if (g_ClockTimer > 0)
     {
@@ -1870,6 +2047,10 @@ void generate_player_thrown_grenade(s32 hand)
     sp40_f.m[3][1] = 0.0f;
     sp40_f.m[3][2] = 0.0f;
     matrix_4x4_multiply_in_place(&sp40_f, &spA0_a);
+
+#ifdef GEVR
+    gevrNetProjectile(GEVR_NETPROJ_GRENADE, hand, &spE0, &throw_speed_vec, &spA0_a, NULL);
+#endif
 
     wor = create_new_item_instance_of_model(PROP_CHRGRENADE, current_weapon);
 
@@ -1936,9 +2117,21 @@ void generate_player_thrown_knife(s32 hand)
     bullet_path_from_screen_center(&sp94, &base_speed_vec, hand);
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32*)&base_speed_vec);
 
-    throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
-    throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
-    throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+#ifdef GEVR
+    if (g_gevrMotionThrowActive[hand])
+    {
+        throw_speed_vec.f[0] = g_gevrMotionThrowVel[hand].x;
+        throw_speed_vec.f[1] = g_gevrMotionThrowVel[hand].y;
+        throw_speed_vec.f[2] = g_gevrMotionThrowVel[hand].z;
+        g_gevrMotionThrowActive[hand] = 0;
+    }
+    else
+#endif
+    {
+        throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
+        throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
+        throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+    }
 
     if (g_ClockTimer > 0)
     {
@@ -1960,6 +2153,10 @@ void generate_player_thrown_knife(s32 hand)
     sp40_f.m[3][1] = 0.0f;
     sp40_f.m[3][2] = 0.0f;
     matrix_4x4_multiply_in_place(&sp40_f, &spA0_a);
+
+#ifdef GEVR
+    gevrNetProjectile(GEVR_NETPROJ_KNIFE, hand, &spE0, &throw_speed_vec, &spA0_a, NULL);
+#endif
 
     guRotateF(&spFC, 360.0f / ((randomGetNext() * (0.5f / (f32)INT_MAX)) + 12.1f), spA0_a.m[1][0], spA0_a.m[1][1], spA0_a.m[1][2]);
 
@@ -2035,9 +2232,21 @@ void generate_player_thrown_object(s32 hand)
     bullet_path_from_screen_center(&sp94, &base_speed_vec, hand);
     mtx4RotateVecInPlace(currentPlayerGetViewToWorldMtxf(), (f32*)&base_speed_vec);
 
-    throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
-    throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
-    throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+#ifdef GEVR
+    if (g_gevrMotionThrowActive[hand])
+    {
+        throw_speed_vec.f[0] = g_gevrMotionThrowVel[hand].x;
+        throw_speed_vec.f[1] = g_gevrMotionThrowVel[hand].y;
+        throw_speed_vec.f[2] = g_gevrMotionThrowVel[hand].z;
+        g_gevrMotionThrowActive[hand] = 0;
+    }
+    else
+#endif
+    {
+        throw_speed_vec.f[0] = (base_speed_vec.f[0] * base_velocity);
+        throw_speed_vec.f[1] = (base_speed_vec.f[1] * base_velocity) + 5.0f;
+        throw_speed_vec.f[2] = (base_speed_vec.f[2] * base_velocity);
+    }
 
     if (g_ClockTimer > 0)
     {
@@ -2056,6 +2265,10 @@ void generate_player_thrown_object(s32 hand)
     sp40_f.m[3][1] = 0.0f;
     sp40_f.m[3][2] = 0.0f;
     matrix_4x4_multiply_in_place(&sp40_f, &spA0_a);
+
+#ifdef GEVR
+    gevrNetProjectile(GEVR_NETPROJ_OBJECT, hand, &spE0, &throw_speed_vec, &spA0_a, NULL);
+#endif
 
     if (current_weapon == ITEM_GOLDENEYEKEY)
     {
@@ -2234,6 +2447,12 @@ void gunSpawnGLGrenade(s32 handnum)
     launchmtx.m[3][1] = 0.0f;
     launchmtx.m[3][2] = 0.0f;
 
+#ifdef GEVR
+    coord3d glspawn = hand->field_B58;
+
+    gevrNetProjectile(GEVR_NETPROJ_GLGRENADE, handnum, &glspawn, &launchvel, &launchmtx, NULL);
+#endif
+
     grenadeobj = create_new_item_instance_of_model(PROP_CHRGRENADEROUND, ITEM_GRENADEROUND);
 
     if (grenadeobj != NULL)
@@ -2242,7 +2461,11 @@ void gunSpawnGLGrenade(s32 handnum)
         grenadeobj->runtime_bitflags &= ~RUNTIMEBITFLAG_OWNER;
         grenadeobj->runtime_bitflags |= get_cur_playernum() << RUNTIMEBITSHIFT_OWNER;
 
+#ifdef GEVR
+        gunInitProjectileFromPlayer(grenadeobj, &glspawn, &launchmtx, &launchvel, (s32 *)&identitymtx);
+#else
         gunInitProjectileFromPlayer(grenadeobj, &hand->field_B58, &launchmtx, &launchvel, (s32 *)&identitymtx);
+#endif
 
         if (grenadeobj->runtime_bitflags & RUNTIMEBITFLAG_00000080)
         {

@@ -164,6 +164,8 @@ set(GEVR_INCLUDES
   "${CMAKE_SOURCE_DIR}/src/game"
   "${CMAKE_SOURCE_DIR}/src/libultra/audio"
   "${CMAKE_SOURCE_DIR}/OpenXR/Include"
+  "${CMAKE_SOURCE_DIR}/port/include/net"
+  "${CMAKE_SOURCE_DIR}/port/src/net"
 )
 
 # Libraries
@@ -195,7 +197,7 @@ endif()
 if(ANDROID)
   list(APPEND LIBS GLESv3 EGL log android)
 elseif(WIN32)
-  list(APPEND LIBS opengl32 dbghelp -static-libstdc++)
+  list(APPEND LIBS opengl32 dbghelp ws2_32 winmm -static-libstdc++)
 else()
   list(APPEND LIBS GL stdc++ m dl)
 endif()
@@ -217,7 +219,9 @@ elseif(WIN32)
 endif()
 
 # Source files
+# gevr_surface_probe.c: opt-in issue #30 diagnostics
 file(GLOB_RECURSE SRC_PORT "${CMAKE_SOURCE_DIR}/port/*.c")
+list(FILTER SRC_PORT EXCLUDE REGEX "port/(external|tests)/.*")
 # Exclude PD-specific files not used by GoldenEye
 list(FILTER SRC_PORT EXCLUDE REGEX ".*(preprocess|pdmain|pdsched|communityart|mpsetups|optionsmenu).*")
 # Perfect Dark's ROM asset pipeline (romdata.c) and mod loader (mod.c) are written
@@ -225,8 +229,9 @@ list(FILTER SRC_PORT EXCLUDE REGEX ".*(preprocess|pdmain|pdsched|communityart|mp
 # GoldenEye. port/src/gevr_romload.c stands in for them; see that file for what
 # a GoldenEye replacement has to do.
 list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
-# port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25 (touching this line makes the glob re-run)
+# port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25; port/vr/vr_haptics.cpp 2026-09-29 (touching this line makes the glob re-run)
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
+list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
 
 # Exclude standalone Windows probe cpp files from port
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX ".*xr_probe\\.cpp$")
@@ -289,9 +294,37 @@ set(SRC_SEGAUDIO
   "${CMAKE_SOURCE_DIR}/port/src/preprocess/common.c"
 )
 
+set(SRC_NET
+  "${CMAKE_SOURCE_DIR}/port/external/enet.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/netbuf.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_core.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_objects.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_match.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_voice.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_spatial.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_discovery.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_player_sync.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_ice.cpp"
+)
+
+include(FetchContent)
+set(OPUS_BUILD_TESTING OFF CACHE BOOL "Do not build Opus tests" FORCE)
+set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "Do not build Opus tools" FORCE)
+set(OPUS_INSTALL OFF CACHE BOOL "Do not install Opus" FORCE)
+FetchContent_Declare(opus
+  URL https://downloads.xiph.org/releases/opus/opus-1.6.1.tar.gz
+  URL_HASH SHA256=6ffcb593207be92584df15b32466ed64bbec99109f007c82205f0194572411a1)
+FetchContent_MakeAvailable(opus)
+target_compile_options(opus PRIVATE $<$<CONFIG:Debug>:-O2>)
+
+set(NO_SERVER ON CACHE BOOL "Build only the libjuice ICE client" FORCE)
+set(NO_TESTS ON CACHE BOOL "Do not build libjuice tests" FORCE)
+add_subdirectory(port/external/libjuice)
+
 set(SRC
   ${SRC_PORT}
   ${SRC_PORT_CXX}
+  ${SRC_NET}
   ${SRC_GAME}
   ${SRC_ENGINE}
   ${SRC_ASSETS}
@@ -317,7 +350,11 @@ if(ANDROID)
   add_dependencies(gevr gevr_buildid)
   target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
   target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
-  target_link_libraries(gevr ${LIBS} openxr_loader)
+  add_library(steamaudio SHARED IMPORTED)
+  set_target_properties(steamaudio PROPERTIES IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/port/external/steamaudio/lib/android-armv8/libphonon.so")
+  target_include_directories(gevr PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
+  target_compile_definitions(gevr PRIVATE GEVR_STEAMAUDIO=1)
+  target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio)
   target_link_options(gevr PRIVATE -Wl,--error-limit=0)
 
   # Also build pd alias so that any legacy loader references succeed
@@ -326,7 +363,7 @@ else()
   add_executable(gevr ${SRC})
   target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
   target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
-  target_link_libraries(gevr ${LIBS})
+  target_link_libraries(gevr ${LIBS} juice-static opus)
   if(WIN32)
     target_link_libraries(gevr openxr_loader urlmon)
   endif()

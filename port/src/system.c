@@ -17,7 +17,25 @@
 
 #ifdef ANDROID
 #include <android/log.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+extern const char *sysGetDataPath(void);
 #define LOG_TAG "GoldenEye"
+static int gevrLogFd = -1;
+static size_t gevrLogSize;
+#define GEVR_LOG_MAX (16 * 1024 * 1024)
+
+static void gevrOpenLog(void)
+{
+    char current[1024], previous[1024];
+    const char *data = sysGetDataPath();
+    snprintf(current, sizeof(current), "%s/../gevr.log", data);
+    snprintf(previous, sizeof(previous), "%s/../gevr.prev.log", data);
+    rename(current, previous);
+    gevrLogFd = open(current, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+    struct stat st;
+    if (gevrLogFd >= 0 && fstat(gevrLogFd, &st) == 0) gevrLogSize = (size_t)st.st_size;
+}
 #endif
 
 #ifdef PLATFORM_WIN32
@@ -94,12 +112,22 @@ void sysInit(void)
 {
     startTick = sysGetMicroseconds();
 
+#ifdef ANDROID
+    gevrOpenLog();
+#endif
+
     if (sysArgCheck("--log")) {
         sysLogSetPath(LOG_FNAME);
     }
 
 #ifdef VERSION_HASH
-    sysLogPrintf(LOG_NOTE, "version: " VERSION_BRANCH " " VERSION_HASH " (" VERSION_TARGET ")");
+    {
+        // The per-build id (port/cmake/buildid.cmake), not the configure-time
+        // VERSION_BRANCH/VERSION_HASH: those are cached with the build directory
+        // and a v0.3.7 release once logged the feature branch it was configured on.
+        extern const char gevrBuildId[], gevrBuildBranch[];
+        sysLogPrintf(LOG_NOTE, "version: %s %s (" VERSION_TARGET ")", gevrBuildBranch, gevrBuildId);
+    }
 #endif
 
     char timestr[256];
@@ -189,6 +217,22 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
         default: android_level = ANDROID_LOG_INFO; break;
     }
     __android_log_print(android_level, LOG_TAG, "%s%s", prefix[level], logmsg);
+    if (gevrLogFd >= 0 && gevrLogSize < GEVR_LOG_MAX) {
+        char line[2304];
+        time_t now = time(NULL);
+        struct tm tm;
+        localtime_r(&now, &tm);
+        int len = snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d:%02d %s%s\n",
+            tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
+            prefix[level], logmsg);
+        if (len > 0) {
+            size_t count = (size_t)len < sizeof(line) ? (size_t)len : sizeof(line) - 1;
+            if (gevrLogSize + count <= GEVR_LOG_MAX) {
+                ssize_t written = write(gevrLogFd, line, count);
+                if (written > 0) gevrLogSize += (size_t)written;
+            }
+        }
+    }
 #else
     if (logPath[0]) {
 		FILE *f = fopen(logPath, "ab");

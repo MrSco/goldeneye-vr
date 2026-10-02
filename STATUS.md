@@ -1,150 +1,251 @@
-# Status
+# GoldenEye VR: status
 
-**Current state (2026-09-24, v0.1.1; first public release v0.1.0 on 2026-09-23):** the Dam plays
-end to end in true stereo VR (controller-aimed guns firing from the muzzle,
-3D sight, ammo panel on the gun, health HUD, left arm, watch gesture, head
-translation, smooth/snap turning, comfort vignette) and on the virtual screen
-(flat or curved, grab to move, laser-pointer menus), launched from an in-VR
-launcher. The app ships no game content: everything comes from the player's
-ROM. HANDOFF §46-56 has the detail. Known issues for the next release:
-the launcher cursor hides behind a curved screen and the pointer has no beam;
-bullet-hole sprites glitch at some angles; props such as the Dam gate button
-appear late (draw distance). Other levels are less tested.
+Rewrite this file in place and keep it under about 120 lines. It replaced
+HANDOFF.md (5,500 lines of session log) and the old STATUS.md on 2026-09-28;
+both are kept in [docs/archive/](docs/archive/) as the evidence trail and are
+not appended to any more. A feature branch keeps its own notes in a file on
+the branch (MULTIPLAYER.md, tools/handpatch/NOTES.md) and updates this file
+when it merges.
 
-v0.1.1 (HANDOFF §62-71) adds Bond's watch arm on the left hand, gadgets held
-and thrown from the right hand, shell casings (they had never drawn in this
-port), the sniper club posed and swung butt-first, HUD messages on the
-head-locked panel, and a smoother watch (the wrist gesture skips the raise;
-the screen is pinned to the view, then settles into its place in the room).
-Still open: bullet holes and wall decals cropped at oblique angles (both
-modes).
+**Merged, unreleased (2026-10-02):** #30 water shimmer and Dam truck glass,
+user-verified in the headset on `942e897`. Water keeps projected vertices
+and S/T as floats; stereo reflections convert the body axes to view space.
+Native surface checks and the signed Android build pass; final capture has
+no new rendering errors. The intermittent orange/red water lines cleared
+on a launcher restart and did not recur in capture; still unresolved.
+Details: `docs/issue-30-surface-capture.md`.
 
-The tables below are the older ledger (last fully revised 2026-09-22) and are
-kept for their evidence; the paragraph above and HANDOFF supersede them.
+**Updated:** 2026-10-02. **Latest release:** v0.3.9 (tag v0.3.9,
+versionCode 49, protocol 15): the branch claude/textures-scope-hand-snap-f0eb2c,
+tested in the headset. Scope view in either hand or both (gevrScope[2],
+port/include/gevr_scope.h; a hand without a scoped gun costs nothing; the
+left scope's sight shows on the left grip, as its flat sight). #72 walls
+seen through walls: room decals (striped walls) drew with the stencil band,
+which left a door-shaped hole where the room behind had nothing within 3
+view units; a room's own lists now take plain polygon offset (bg.c
+VR_ROOM_DL_* 0x5660xxxx; 0x565Fxxxx is the hand-follow prefix), bullet holes
+keep the band. HD texture flashes: the cache (1024) was full and evicting
+30-60 a second, and every re-import drew the N64 image first; cache 4096, and
+a decoded pack image goes in at import (3 MB a frame). The weapon panel's
+fist draws with depth and the room tint (it looked hollow); the left panel
+shows the watch arm (gevrDrawWeaponPanelArm, gevr_wpanel.txt fields 5-7) and
+no "Unarmed" beside "Holstered". Snap turns shut the comfort vignette. In
+stereo the bullet hit's spark sits 4 units off the wall and its smoke 16
+(the game's 26 and 100 show as mid-air with two eyes). Crashes: report
+fa289829 (late joiner spectating: netGetSlotName had no prototype, pointer
+truncated) and the panel's watch-arm crash (7e40b3c9). The HD pack's small
+bullet holes are upstream GhostlyDark art (kept: user); the craters seen
+before were the originals leaking through the cache churn. Test switches
+left in: `files/gevr_zdebug.txt` (1 tint by depth state, 2 force Z_CMP, 3
+room scissor in stereo, 5 deferred pack uploads only) and the `cryptdoor:`
+log for #85 (Egypt door, still open, untested).
+Before it, v0.3.8 (tag v0.3.8, commit
+41bf7b1, versionCode 48, protocol 15, SHA-256 80e0bed0...): crash reporting
+only. The first anonymous crash report (5103ca8b, 2026-10-01) was a SIGSEGV
+from 2026-09-26 (v0.1.14 era) that v0.3.7's widened exit-history check
+dredged up on its first launch, and the user's own headset was offered a
+"crash" after an install killed the running app. The reporter now offers
+only crashes newer than the APK's install time (a foreground marker older
+than the install is the install, not a crash), the report carries an
+`=== exit history ===` section with ISO times and reason names (how to read
+it and decode a tombstone: services/lobbies/README.md), and the game log's
+`version:` header comes from the per-build id instead of the cached CMake
+configure (the v0.3.7 log claimed a feature branch). Before it, v0.3.7
+(tag v0.3.7, commit e17928b, versionCode 47, protocol 15): the merged
+playtest branch (PR #82: Steam Audio voice, teams, clock sync and life IDs,
+independent hand cycling, launcher tabs), the TURN fallback, and that day's
+fixes (#73, #32, #24, #64, #81, shots from the eye's depth). Before it,
+v0.3.6 (tag v0.3.6, commit 081a1ae, versionCode 45, protocol 10): the 2026-09-30 playtest branch (below)
+plus everything unreleased since v0.3.5 (launcher haptics screen #64,
+motion-throw gaze assist, voice falloff by view, SFX volume and mic mute,
+stereo without the walk sway and bob). v0.3.5 (versionCode 32): sniper scope
+steadiness (#79), motion throwing and grenade cooking, room-aware voice
+falloff, Music and Voice volume, the Dam truck's headlights (#71), bullet
+holes no longer striped (#29). Earlier: v0.3.4 multiplayer testing fixes,
+v0.3.3 HUD text crash guard (#78), v0.3.2 pause controls, rumble, tank audio,
+left-hand weapons, previous weapon, damage handicap, v0.3.1 crash fixes and
+"Send debug log", v0.3.0 drop-in multiplayer with names and tags.
+Main 396dd64 (0.3.6, versionCode 43, protocol 9) carries the full multiplayer
+punch list: in-level lobby (MENU_LOBBY), match config and restored options,
+mute chord (hold Menu + right B), countdown and round transitions, late-join
+spectator camera with its own voice group, spawn loadouts, online dual
+wielding, ballots, shuffle and playlist rotation.
+The 2026-09-30 playtest branch (claude/playtest-logging-feedback-731f59,
+merged as f0c8e74, in v0.3.6) answered the tester report: net log lines now reach the
+debug bundle (they were a separate logcat tag and rotated out); the lockup
+was an unbounded inventory cycle (bondinv.c, now bounded and dumped); the
+Bunker II to Facility switch was the ballots starting at zero, a vote for the
+first stage (net_core.c netClearVotes at init and launch), plus the rotation
+no longer turning before the first round; copies were posed from the barrel
+(bent over, twisting: now the view's pitch and no yaw, as the flat game) and
+had fists re-given every tick (a draw replayed forever); an overlap escape
+lets two overlapping players walk apart (inside 60 units the game's volume
+test refused every move; the copies' lag lets players get inside). Protocol
+10 (090cd6c..9c032d3): the owner's health, armour and death ride in
+PLAYER_STATE; a copy takes no damage of its own and dies when its owner
+reports dead (credited to the last attacker), after grace periods each way
+(a copy respawned in the tick it died once crashed the door tick; a stale
+"dead" packet after a respawn once killed a fresh copy for a second point).
+A copy's shot ammo boxes and guns fly on every headset. Kills scored twice
+since 5974d49 (kill_count was both the game's kill message counter and the
+drop-in score bank): the bank is player_data.gevr_score_bank now. The match
+countdown rewrites its HUD message in place (the queue dropped numbers).
+MP pause menu (3880832..dd5870b): left stick moves the LOBBY cursor, right
+stick changes values any direction, START MATCH counts down on its row and
+in the title, RETURN TO LOBBY says it cancels, hands hold still under the
+menu (locate, camera snapshot and redraw delta all hold; memory note on
+controller pose layers). The weapons panel (hold A) wraps.
+Two-headset sessions 2026-09-30 afternoon (four rounds, both on the branch):
+bodies upright, no more stuck players, ammo boxes move for both, a kill is
+one point, the cap ends the match at 5 on both headsets with the results
+screen for both, the chosen stage holds, the countdown counts. The Quest has
+55c6ce1 (versionCode 44); 66f1613 adds only more door logging.
 
-Evidence is marked, because the difference has bitten this port before — a
-screen can be "working" in the logs while the headset shows black:
+## What it is
 
-- **seen** — a person looked at it in the headset and accepted it
-- **logged** — the code path runs clean, nobody has looked
-- **open** — known broken or unfinished
+A native standalone Quest port of the n64decomp/007 decompilation, with
+Perfect Dark VR's port layer (`port/`: OpenXR, SDL2, OpenGL ES, the fast3d
+renderer) and the GEVR PC port's presentation (true stereo play, a virtual
+screen for menus and cutscenes). The app ships no Rare content; the player
+supplies the NTSC-U ROM. Releases reach players through the in-headset
+updater and SideQuest; the site is goldeneyevr.com (its own repo).
 
----
+## What works
 
-## Works
+- Solo missions in true stereo: the headset drives the camera, guns aim from
+  the controllers and fire from the muzzle, two-handed hold, scopes with real
+  magnification (in either hand, on the branch above), gadgets and the
+  watch on the left arm, hand and arm shells,
+  melee from either hand, casings, HUD on a head-locked panel, snap or smooth
+  turning, comfort vignette, 90 Hz. Or everything on the virtual screen (flat
+  or curved).
+- Weapons in stereo: tap A or X cycles, grip + A goes back (#63, the game's
+  own hold A + Z), hold A is the weapon panel (#10), hold X the left hand's
+  panel (#56): any doubles-capable gun the player carries, kept as the
+  game's INV_ITEM_DUAL pair for the level; the right's own gun only with
+  two of it. Solo only (the left hand's model buffer exists only then).
+- In-VR launcher: ROM pick, play mode, turning and comfort, gun fit, unlock
+  all (RAM only, saves untouched), texture packs (GoldenEye 007 HD and the
+  HD + AI pack from the MrSco/GoldenEye-007-HD fork) and the updater.
+- Multiplayer, experimental (#23): host and join on Wi-Fi, by direct IP, or
+  through public and private internet lobbies (lobbies.goldeneyevr.com, a
+  Cloudflare Worker in `services/lobbies`, libjuice ICE, Cloudflare TURN as
+  a fallback only since 2026-10-01: a join publishes on STUN alone, the
+  relay is tried on UDP 3478 and 443, and the Worker caps credentials per
+  month, TURN_MONTHLY_CAP, so the free tier cannot be exceeded).
+  Owner-authoritative positions (the copy's stand tile follows them, so
+  bodies render in the right room), hit reports relayed by the host, synced
+  weapons, deaths and respawns. Protocol 9 (branch
+  claude/multiplayer-visibility-bug-16b1a8, unreleased): the owner's
+  projectiles, damaging explosions, door use and pickups are mirrored;
+  remote gunfire fires from the owner's barrel and is placed by distance
+  and direction; each copy gets its own view pass (shots, projectiles);
+  seeded start pads; a countdown to each round; NEXT MAP / NEXT WEAPONS ballots in
+  the in-level lobby; host migration (lowest slot takes over, the others rejoin through
+  the same lobby or LAN beacon, 20 s grace); late-join spectator camera with isolated
+  spectator voice groups; spawn loadouts and dual wielding (doubles and any-two). Voice chat: Opus on its own ENet channel, full volume in
+  the lobby, distance and direction in a match: in view (a clear floor-tile
+  walk to the speaker on the same floor; BG rooms are geometry chunks, too
+  small to mean "same room") full to 500 units, easing to 60% at 4000; out
+  of view quadratic to silence at 2500 (net_voice.c, logs "voice: slot ..."
+  every 2 s). Mute: launcher "Mute Microphone", the watch, the pause menu,
+  hold Menu + right B. Music, SFX (the game's own effects volume) and Voice: launcher
+  sliders and pause menu rows (right stick adjusts, click steps MUSIC, SFX,
+  VOICE, MIC; A still closes the menu), saved in goldeneye-vr.ini. The
+  launcher never scrolls; its pages fit. Join Game is an accordion.
+  Drop-in: games stay listed after the start, late joiners get match and
+  world snapshots, slots reused, scores kept. Names: launcher "Your name"
+  (ini PlayerName, default "Agent NNNN"), in the lobby lists and as
+  depth-tested tags over other players (gunfire.c gevrDrawNameTags).
+  Dashboard at lobbies.goldeneyevr.com. Details in MULTIPLAYER.md.
 
-| | What | |
-|---|---|---|
-| **seen** | Boots on Quest standalone, no PC. Loads your `ge.z64` (706 of 727 files bound; the other 21 are PAL-only) | |
-| **seen** | Legal page, Nintendo logo, Rareware logo, gun-barrel intro, GoldenEye logo, cast screens, title reload | |
-| **seen** | Presentation: the game's frame on a world-locked cinema screen, black surround, no flicker | [HANDOFF §7.0](HANDOFF.md) |
-| **seen** | Textures — the halftone/"glitch" grid was a TMEM odd-row swizzle | HANDOFF item 32 |
-| **seen** | Gun-barrel stripes gone; blood drip animates | HANDOFF §9 |
-| **seen** | File select opens on START; START advances through stage and difficulty | HANDOFF §10 |
-| **seen** | Audio — music and SFX through the soft mixer at 22050 Hz | §11 |
-| **seen** | Quitting to the Quest home is clean and immediate | §11 |
-| **seen** | App shows as "GoldenEye VR" with an icon in the Quest library | §12 |
-| **seen** | Mission-select folder background restored; user confirmed after missing-return fix | HANDOFF 12.6 |
-| **logged** | Left thumbstick drives the file-select crosshair; A / trigger / B | HANDOFF §10 |
+## What does not, or is untested
 
-## Open
+- Two headsets, 2026-09-29 night (0.3.6 test builds): players see each
+  other, tags, guns, bullet holes; the v0.3.5 faults (invisible bodies,
+  reload clicks, no explosions, fast walking) are gone. Its report's ten
+  items are fixed on the branch but untested since, as are the NEXT MAP
+  vote and host migration (the rejoin path needs three headsets). Untested:
+  two home networks, a hotspot, four players mixed LAN and internet. Not
+  done: other players' hands do not move; the held guns are the ROM's
+  third-person models (no better ones exist).
+- Open issues: #9 hand undersides (work in progress: shells patched in
+  v0.1.18, gaps left such as the PP7 index finger), #23 multiplayer (kept
+  open), #30 intermittent colored water lines (animation and glass fixed
+  and headset-verified 2026-10-02; see the unreleased note above),
+  #60 laser watch arm changes size (#32 fixed 2026-10-01: the bullet's
+  room-box pretest scaled its start by the visibility scale too, so on Dam
+  and Surface, the 0.2 levels, no room beyond the tile walk's end was ever
+  tested; chrprop.c). Closed
+  2026-09-28: #18 (fixed), #50 (not reproduced), #56, #63, #64.
+- 2026-10-01 (branch claude/goldeneye-vr-issues-5749bc, tested, merged):
+  #73 NPCs above the floor and through walls was a port-only 256-entry
+  ground callback table keyed by Model* that nothing emptied (gepc-ref D92
+  ported: unka0 is a flag, the one callback called by name); #64 the watch
+  laser and detonator rumble the watch arm, grenade cooking has a Haptics
+  row (Grenade_Cook); #81 launcher "Aim: no lean" (AimNoLean); #24 the
+  fist's white face dropped in the model converter (the mirrored left fist
+  showed it from the other side); shots leave at the eye's depth along the
+  barrel's line (bondview2.c gevrShotFromEye), so a gun poked through a
+  door hits the door as on the N64. A beam past a door is the game's own
+  rule: the laser and AR33 shoot through 2 objects, the RC-P90 3, the
+  Magnum and Silver PP7 10, and door windows count as glass.
+- #72 fixed in v0.3.9 (room decals off the stencil band; see the top). The
+  zdebug switch stays for the next see-through report.
+- #85 Egypt Golden Gun room door: the cryptdoor models have no secondary
+  list (so #71's blended pass is not it), lighting is off for ILLUMINATED
+  props, fog is navy; the likeliest read is that the slab is not drawn from
+  that side (rooms not rendered, portal shut while closed = black clear
+  colour; portal open while opening = the room behind with no slab). The
+  `cryptdoor:` log settles it: a door with no `*` room while in view.
+- Unmerged branches: fix/60-watch-grip-hand (shelved: the laser watch
+  gripped with a mirrored hand, which didn't lock to the wrist), plus
+  whatever `git worktree list` shows in progress (several worktrees exist
+  again, including Codex ones).
 
-| | What | |
-|---|---|---|
-| **seen** | **Dam is playable.** Move, shoot, kill guards, take damage, pick up an AK; music and SFX both work | [HANDOFF §18](HANDOFF.md) |
-| **open** | Screen-mode controls replaced with native 1.2 mapping: left move, right look, trigger fire, grip aim, B/X use/reload, A/Y cycle, Menu watch. Grip + left down/up crouches/stands. Built/installed, headset check pending | [HANDOFF §21](HANDOFF.md) |
-| **open** | Aim/watch crash fixes D137/D140/D191 applied from gepc-ref and installed; synthetic aim test passes, headset verification pending | [HANDOFF §21](HANDOFF.md) |
-| **seen/open** | User confirms HUD bullet-ammo texture improved. PP7, smoke, initial bullet impacts and other textures still wrong | [Texture audit](docs/texture-port-audit.md) |
-| **open** | Bullets pass through the guard tower glass; level brightness too high | [HANDOFF §18.4](HANDOFF.md) |
-| **open** | Mission-complete missing-return fix and other menu screens need verification; mission select is now **seen** fixed | HANDOFF 12.6 |
-| **open** | Rest of the level loader unported: stage setups (`U...Z`) and `bg.c`'s segment pointer arithmetic | [HANDOFF §5 step 3](HANDOFF.md) |
-| **open** | True-stereo gameplay camera not started. `gevrVrScreenMode = 0` switches back to the direct path when it is | HANDOFF item 33, §7.2.7 |
-| **open** | Briefing crash fix and the front-end artwork/portrait fixes shipped in the 20:39 build but were never accepted in the headset — treat as unverified | HANDOFF §10 |
-| **open** | Lighting looks dark on the Nintendo logo and on characters. Unexplored; start at `calculate_normal_dir` / lookat | HANDOFF §7.2.8 |
-| **open** | Attract demos unbound. A guard in `src/game/ramromreplay.c` calls `bossRunTitleStage()` instead. Needs the `ramrom_*` segments in the manifest and a byte-swap of `ramromfilestructure` | HANDOFF item 11 |
-| **open** | System recenter leaves the cinema screen left of view. Fix built and installed, **not yet seen on device**: stop recreating the play space on `REFERENCE_SPACE_CHANGE_PENDING` and re-place the screen once frames pass `changeTime`. App recenter is hold-left-stick-click | [HANDOFF §12.7](HANDOFF.md) |
+## How to work on it
 
-## Closed, but not by us
+- Build: `android/gradlew.bat assembleRelease`, signed from the gitignored
+  `android/keystore.properties` and the release .jks (losing that key forces
+  players to uninstall). Debug loop: `tools/gevr_boot_test.ps1`. CMake fetches
+  SDL2 and Opus at configure time, so a clean build needs the internet once.
+- Release: bump versionCode and versionName, tag = the build commit, asset
+  named `GoldenEye-VR-vX.Y.Z.apk`, release-signed; the updater depends on that
+  name.
+- Workflow: one branch per issue or feature, commit before building (the
+  launcher shows the hash), the user tests in the headset and says merge.
+  Never install to the headset unasked. Port what GEVR PC and Perfect Dark
+  VR already do rather than inventing; original game behaviour stays, even
+  where VR makes it feel odd. The ROM sits at the repo root and is never
+  committed.
+- References on disk, beside this repo: `gevr-up` (GEVR PC docs and release
+  notes), `pdvr` (Perfect Dark VR source), `gepc-ref` (its
+  `docs/dev/findings-index.csv` answers most level-data questions),
+  `goldeneyevr.com` (site), `GoldenEye-007-HD` (packs).
+- Code map: `src/` the decomp; `port/src` the platform layer (`main.c`,
+  `audio.c`, `input.c`, `gevr_engine_shim.c`, `net/`); `port/vr` OpenXR,
+  the launcher and settings; `port/fast3d` the renderer; `android/` the app
+  and its Java bridges (updater, lobbies, mods, microphone permission);
+  `tools/` scripts; `services/lobbies` the Worker.
+- Two defect classes explain most crashes: byte order of ROM data, and
+  32-bit pointer slots in N64 structs (docs/RARE-LOGO-AUDIO-HANDOFF.md,
+  docs/gepc-port-guard-sweep.md). Line endings are mixed per file and stored
+  as on disk (`* -text`); edit in place, never rewrite a whole file. Some
+  files mix endings inside (src/game/mpmenu.c), and editors, including
+  Claude's Edit tool, turn them all CRLF: before committing, compare
+  `git diff --stat` with `git diff --stat --ignore-cr-at-eol`.
 
-The universal menu's quit dialog says **"App name unavailable"** and shows no
-icon. This is a Quest limitation for sideloaded apps, not a defect here:
-VirtualBoyGo, installed from the same Unknown Sources list, shows the same
-text. The library list name and icon are correct. Nothing further to do.
+## Next
 
-## If you are picking this up
-
-**Read [HANDOFF §14](HANDOFF.md) first, then §13.** §14 has the reference port
-that should have been used from the start, what it does and does not cover,
-and the next fix already written out. §13 has the defect class behind most of
-this.
-
-The single most useful fact: `../gepc-ref`
-(github.com/jkdansereau/goldeneye-pc-port) is the same decompilation taken to
-64-bit, with 429 `#ifdef PORT` sites indexed in
-[docs/gepc-port-worklist.md](docs/gepc-port-worklist.md). Work that ledger
-rather than the next tombstone - but read §14.3 first, because this port has a
-superset of its defects and its silence about a site is not a clean bill of
-health.
-
-1. **Textures.** User reports D228 alone did not resolve corruption. The
-   [texture audit](docs/texture-port-audit.md) adds D74/RC2/D161/D217 and
-   reconciles upload dimensions with UV normalization, including CI4 HUD
-   rectangles. Synthetic tests and Android build pass; visual check pending.
-   The earlier constant-palette diagnosis was a probe error, not the cause.
-2. **Controls** (§18.3) - no door-switch button means the level cannot be
-   finished. Port GEVR's scheme rather than inventing one.
-3. **Pin the intro camera before comparing two crashes.** Dam picks one of
-   six at random; write an index to
-   `/sdcard/Android/data/com.gevr.port/files/gevr_introcam.txt`. It is set
-   to 0 on the device. Several earlier "it crashed again" rounds were
-   different crashes because of this.
-4. **Do not trust the log over the headset.** `lvlStageLoad done` appeared in
-   the log for several builds while the user saw nothing but a crash to the
-   Quest shell. This session made that mistake in writing and had to correct
-   it.
-5. Known-wrong and waiting: the 12 bad stan pointers, and
-   `bondhead.c` writing into Bond's `Model` through mislabelled `field_*`
-   members. Both are in §13.4.
-
-The working method here has been: probe, capture on device, and let the log
-decide. Every time this session guessed instead, the guess was wrong - and
-each wrong guess is recorded in §12 so the next reader inherits the
-eliminations rather than the dead ends.
-
-## Debug hooks still compiled in
-
-All still present and all owed removal before any release build:
-
-See [HANDOFF §13.5](HANDOFF.md) for the ones added on 2026-09-21 evening -
-two of them change behaviour, not just logging. Earlier hooks:
-
-`menubg:` and the bound-pad / PadID bounds checks (added 2026-09-21) ·
-`gfx:` and `input: pad0` once-a-second stats · `badvtx:` in `gfx_sp_vertex` ·
-four `stage:` logs in `boss.c` · `menu-pump:` / `gevrPumpStage` counters ·
-the stall watchdog (`gevr_watchdog_kill.txt` marker) · the display-list dump
-(`gevr_dumpdl.txt`) · PC input injection (`gevr_input.txt`) · the demo guard.
-
-## How this gets tested
-
-The user tests in the headset and reports; the agent builds, installs and
-reads logs. **Do not run blind launch-and-capture loops from the PC** — log
-evidence cannot tell a rendering frame from a black one, and that mistake cost
-this port several sessions.
-
-```bash
-powershell -File tools\gevr_boot_test.ps1 -Seconds 24
-```
-
-Logs come out under the `GoldenEye`, `GoldenEye-VR` and `GEVR` tags. Guardian
-gates launches when the headset is off-head, so anything past init needs it
-worn. Headset screenshots and PC-driven input exist as fallbacks — see
-[HANDOFF §7.3](HANDOFF.md).
-
-## Reading further
-
-| | |
-|---|---|
-| [HANDOFF.md](HANDOFF.md) | The full log. §11 is newest; §3 is the defect-class table, which is the most reusable thing in it |
-| [docs/RARE-LOGO-AUDIO-HANDOFF.md](docs/RARE-LOGO-AUDIO-HANDOFF.md) | A worked example of one defect class, start to finish |
-| [CREDITS.md](CREDITS.md) | What is vendored from where |
-| [port/README.md](port/README.md), [port/vr/README.md](port/vr/README.md) | Provenance of the host and VR layers |
+- #85 Egypt door: stand at the Golden Gun room's exit door and pull the
+  `cryptdoor:` lines (a door in view with no `*` room is the slab not drawn).
+- v0.3.6 is out; both testers should update. The Facility swinging doors
+  are the open question: the log line "move: blocked by door" (with the door's box and polygon corners since 66f1613) fired at
+  90 degrees open several times, but the players passed through on the
+  next round; possibly a leaf swung across the passage, as the original
+  game's leaves also block. Open oddity: the copies' logged aim pitch
+  printed near 350 where atan2 cannot reach (the barrel is only logged now).
+  The log's own "version:" line prints the CMake-configure-time hash.
+- Then MULTIPLAYER.md step 8 (quit and rejoin, NEXT MAP votes, host
+  migration), the rest of step 7, the older list (mid-round joins, slot
+  reuse, two networks, a hotspot, four players).

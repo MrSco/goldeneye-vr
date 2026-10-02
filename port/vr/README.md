@@ -27,7 +27,7 @@ The files keep upstream's structure so changes stay diffable against it:
   once here or the library does not link.
 - `vr_screen.cpp` / `vr_screen.h` are **new**: GoldenEye's camera never builds
   its projection from `XrFov`/`XrAspect`, so the frame is rendered off-screen
-  at the game's aspect and submitted as a world-locked quad. See HANDOFF.md.
+  at the game's aspect and submitted as a world-locked quad. See docs/archive/HANDOFF.md.
 - Android logging goes to logcat under the `GoldenEye-VR` tag; upstream wrote
   to `vr_debug.txt`, which fails on Android.
 - The in-app updater and HD-texture-pack downloader (`vr_update_dl.cpp`,

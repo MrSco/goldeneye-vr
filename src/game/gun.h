@@ -347,6 +347,29 @@ void sub_GAME_7F068190(coord3d *arg0, coord3d *arg1);
 void inc_curplayer_hitcount_with_weapon(ITEM_IDS item, SHOT_REGISTER shot_register);
 s8 get_hands_firing_status(GUNHAND hand);
 void gunFireTankShell(s32 hand);
+void generate_player_thrown_grenade(s32 hand);
+void generate_player_thrown_knife(s32 hand);
+void generate_player_thrown_object(s32 hand);
+
+#ifdef GEVR
+extern s32 g_gevrMotionThrowActive[2];
+extern struct coord3d g_gevrMotionThrowVel[2];
+s32 gevrIsMotionThrowGripping(s32 hand);
+void gevrGrenadeCookHapticTick(s32 hand, s32 cook_tick);
+
+/* Online projectiles: what each spawner hands to gevrNetProjectile */
+enum GEVR_NETPROJ {
+    GEVR_NETPROJ_GRENADE = 1,   /* generate_player_thrown_grenade */
+    GEVR_NETPROJ_KNIFE,         /* generate_player_thrown_knife */
+    GEVR_NETPROJ_OBJECT,        /* generate_player_thrown_object: mines, bug, plastique... */
+    GEVR_NETPROJ_GLGRENADE,     /* gunSpawnGLGrenade: grenade launcher, flare, piton */
+    GEVR_NETPROJ_ROCKET         /* gunFireTankShell with the rocket launcher */
+};
+void gunSpawnGLGrenade(s32 handnum);
+s32 gevrNetProjectile(s32 kind, s32 hand, coord3d *pos, coord3d *vel, Mtxf *rot, coord3d *extra);
+void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3d *pos, const coord3d *vel,
+                            const f32 *rot9, const coord3d *extra, s32 cooktimer);
+#endif
 void         remove_item_in_hand(GUNHAND hand);
 void currentPlayerUnEquipWeaponWrapper(enum GUNHAND hand, enum ITEM_IDS weapid);
 s32          currentPlayerGetAmmoCount(AMMOTYPE ammotype);

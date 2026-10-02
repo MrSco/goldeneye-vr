@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 
 #include <map>
@@ -45,6 +46,8 @@ extern "C" {
 #include "ext_tex.h"
 }
 #include "gevr_texpack.h"
+#include "gevr_surface_probe.h"
+#include "gevr_surface_math.h"
 
 #include "../vr/vr_hub.h"
 
@@ -80,7 +83,16 @@ uintptr_t gfxFramebuffer;
 #define MAX_VERTICES 128
 #define MAX_VERTEX_COLORS 64
 
-#define TEXTURE_CACHE_MAX_SIZE 1024
+/*
+ * GoldenEye: 1024 was full on a multiplayer stage (texcache log, 2026-10-02:
+ * 1024 entries, every load an eviction, 30 to 60 a second). An evicted
+ * texture drawn again shows the game's own image until the pack's goes in
+ * at a later frame's start (gevr_texpack_frame), so with the HD pack the
+ * walls kept flashing to the low-res originals (user). 4096 holds a
+ * stage's working set; the GL textures are the cost (a 4x pack texture is
+ * 64 KB to 1 MB each).
+ */
+#define TEXTURE_CACHE_MAX_SIZE 4096
 
 #define C0(pos, width) ((cmd->words.w0 >> (pos)) & ((1U << width) - 1))
 #define C1(pos, width) ((cmd->words.w1 >> (pos)) & ((1U << width) - 1))
@@ -104,6 +116,7 @@ extern "C" bool vr_end_frame_and_submit();
 //static int s_debug_fb_shader = -1;
 extern float vr_get_horizontal_fov_offset_ratio(int eye);
 static float g_vr_internal_scale = 1.0f;
+static unsigned gevr_head_hud_depth;
 
 /*
  * Virtual screen (port/vr/vr_screen.h). While gevrVrScreenMode is set the
@@ -126,7 +139,7 @@ void gfx_vr_hud_H_new_frame(void);                  // gfx_opengl.cpp
 void gfx_opengl_draw_vignette(float strength);      // gfx_opengl.cpp
 extern "C" float gevrStereoVignette(void);          // bondview2.c
 void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40)
-void gfx_vr_scope_only(bool on);
+void gfx_vr_scope_only(int hand);                   // GUNRIGHT 0 / GUNLEFT 1, -1 ends
 void gfx_vr_scope_render(void);
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y);   // gfx_opengl.cpp (issue #53)
 void gfx_vr_eye_hand(int ctrl);
@@ -387,6 +400,12 @@ int game_framebuffer_msaa_resolved;
 uint32_t gfx_msaa_level = 1;
 
 static bool dropped_frame;
+
+/* First four envmap vertex batches and eight material draws in a sampled
+ * frame (5 Hz). The limit keeps capture from flooding the game log. */
+static bool s_surfaceSampleFrame;
+static unsigned s_surfaceVertexBatches, s_surfaceDraws;
+static uint64_t s_surfaceSampleUs;
 
 static float buf_vbo[MAX_BUFFERED * (32 * 3)]; // 3 vertices in a triangle and 32 floats per vtx
 static size_t buf_vbo_len;
@@ -696,7 +715,9 @@ struct TpJob {
 static std::unordered_map<int, std::vector<TpJob>> s_tpPending;
 static std::vector<std::pair<int, TpJob>> s_tpUploads;
 /* issue #52: texture cache traffic, logged every 5 s while there is any (gevr_texpack_frame) */
-static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads;
+static unsigned s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads, s_gevrTcRefused;
+/* files/gevr_texprobe.txt: a texture checksum (hex) whose every pack lookup is logged */
+static uint32_t s_tpProbe;
 /*
  * Issue #52: a CI texture's cache key hashes the palette, which keeps one
  * source with a palette rebuilt in place apart. fast3d hashed all 256 TMEM
@@ -1374,7 +1395,7 @@ void gevr_tlut_note(uint32_t palofs, uint32_t count, const void *base) {
     if (at + n > 1024) n = 1024 - at;
     memcpy(s_filterPalette + 8 + at, img, n);
 }
-static uint32_t s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize;
+static uint32_t s_tpSkipLoad, s_tpSkipSize;
 
 extern "C" int g_StageNum;   // src/boss.c
 static std::unordered_set<std::string> s_tdSeen;
@@ -1469,11 +1490,19 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
     if (s_tdOn && id < 0) {
         gevr_packdump_note(tex, pal, ci, t.orig_fmt, (uint8_t)size, w, h, t.orig_cms, t.orig_cmt, t.masks, t.maskt);
     }
+    if (s_tpProbe != 0 && tex == s_tpProbe) {
+        static unsigned lines;
+        if (lines++ < 200) {
+            sysLogPrintf(LOG_NOTE, "texprobe: %08X fmt %u siz %d pal %08X tile %d (first %u, lod %d, detail %d) load %d "
+                         "checksum %dx%d drawn %ux%u -> %d %s", tex, t.orig_fmt, size, pal, tile, rdp.first_tile_index,
+                         (int)rdp.tex_lod, (int)rdp.tex_detail, lt.load_type, w, h, t.width, t.height, id, gevrtp::name(id));
+        }
+    }
     ++s_tpLookups;
     if (id >= 0) ++s_tpHits;
     if ((s_tpLookups % 2000) == 0) {
-        sysLogPrintf(LOG_NOTE, "texpack: %u of %u lookups matched (skipped: %u mip levels, %u unknown loads, %u sizes)",
-                     s_tpHits, s_tpLookups, s_tpSkipLod, s_tpSkipLoad, s_tpSkipSize);
+        sysLogPrintf(LOG_NOTE, "texpack: %u of %u lookups matched (skipped: %u unknown loads, %u sizes)",
+                     s_tpHits, s_tpLookups, s_tpSkipLoad, s_tpSkipSize);
     }
     *hw = (uint32_t)w;
     *hh = (uint32_t)h;
@@ -1481,6 +1510,8 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
 }
 
 static std::vector<uint8_t> s_tpCanvas;
+static size_t s_tpSyncBytes;                        /* this frame's immediate pack uploads (gevr_texpack_import) */
+#define GEVR_TP_SYNC_BUDGET ((size_t)3 << 20)       /* past this a frame's imports defer to the next frame's start */
 
 /* Upload the pack image for a texture uploaded as uw x uh whose checksum covered
  * its top-left hw x hh (a block's padded rows): scaled to fit, edges repeated. */
@@ -1508,23 +1539,34 @@ static bool gevr_texpack_upload(const uint8_t *img, uint32_t iw, uint32_t ih, ui
 static bool gevr_texpack_import(int tile, const LoadedTexture &lt, const TextureCacheKey &key) {
     s_td.pending = false;
     if (!s_tpActive && !s_tdOn) return false;
-    // a mip chain's smaller levels keep their own textures; its base level
-    // (first_tile_index) is the one a pack replaces - GoldenEye mipmaps most of
-    // its world and model textures, so skipping the whole chain skipped them
-    if (rdp.tex_lod && tile > rdp.first_tile_index) {
-        ++s_tpSkipLod;
-        return false;
-    }
+    // LOD can also blend two independent full-size textures. Look up the tile
+    // actually sampled by TEXEL1; the Dam's snowy cliff rock is tile 1.
     uint32_t hw, hh, iw, ih;
     const int id = gevr_texpack_lookup(tile, lt, &hw, &hh);
     if (id < 0 || !s_tpActive) return false;   // (looked up only for the dump: pack switched off)
     const TpJob job = { key, hw, hh, rdp.texture_tile[tile].width, rdp.texture_tile[tile].height };
-    // the native texture now; the pack's goes in at a frame's start (issue #52)
-    if (gevrtp::image(id, &iw, &ih) == nullptr) {
-        s_tpPending[id].push_back(job);   // once it's decoded
-    } else {
-        s_tpUploads.push_back({ id, job });
+    const uint8_t *img = gevrtp::image(id, &iw, &ih);
+    if (img == nullptr) {
+        // not decoded yet: the native texture now, the pack's once it is (gevr_texpack_frame)
+        s_tpPending[id].push_back(job);
+        return false;
     }
+    /*
+     * Decoded already (held up to 160 MB): straight into this texture, in
+     * place of the native upload. Deferred to the next frame's start, every
+     * texture imported again as the game streams rooms in and out of its
+     * pool showed the N64 image for a frame first, and with the HD pack the
+     * walls kept flashing low-res (user, 2026-10-02). A per-frame budget
+     * keeps a level's first frames from stalling (issue #52): past it, the
+     * rest go the deferred way as before.
+     */
+    extern int gevrZDebugMode;   // gfx_opengl.cpp: files/gevr_zdebug.txt; 5 = the deferred path only, to compare
+    if (gevrZDebugMode != 5 && s_tpSyncBytes < GEVR_TP_SYNC_BUDGET && gevr_texpack_upload(img, iw, ih, hw, hh, job.uw, job.uh)) {
+        s_tpSyncBytes += (size_t)iw * ih * 4;
+        s_gevrTcHdUploads++;
+        return true;
+    }
+    s_tpUploads.push_back({ id, job });
     return false;
 }
 
@@ -1548,16 +1590,28 @@ extern "C" int gevrTexpackToggle(void) {
     return (s_tpUserOff ^= 1) ? 0 : 1;
 }
 
+/*
+ * The launcher's Start (vr_launcher.cpp), once the pack is chosen: index it
+ * while the game boots. Started at the first frame on a low-priority thread,
+ * the index was ready only around the file select, and clearing the texture
+ * cache then to look everything up again was a visible hitch (user).
+ */
+extern "C" void gevrTexpackStartEarly(void) {
+    if (g_ActiveExtTexPack[0] != '\0') {
+        char rel[320];
+        snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
+        gevrtp::start(fsFullPath(rel));
+    }
+}
+
 /* Once a frame: start the pack, and swap in images as they finish decoding. */
 static void gevr_texpack_frame(void) {
     static bool started = false;
+    s_tpSyncBytes = 0;
     if (!started) {
         started = true;
-        if (g_ActiveExtTexPack[0] != '\0') {
-            char rel[320];
-            snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
-            gevrtp::start(fsFullPath(rel));
-        }
+        gevrTexpackStartEarly();   // (already running, from the launcher)
+        gevrtp::waitIndex(5000);   // a name scan, normally done by now: nothing drawn needs looking up again
     }
     if (gevrtp::takeIndexReady()) {
         s_tpIndexed = true;
@@ -1595,13 +1649,15 @@ static void gevr_texpack_frame(void) {
 
     /*
      * Issue #52: the decoded images go into their cache entries' textures
-     * here, before the eye pass, about 4 MB of texels a frame (at least one
+     * here, before the eye pass, about 4 MB or 2 ms per frame (at least one
      * image). An entry evicted meanwhile is imported again when next drawn.
      */
     if (!s_tpUploads.empty()) {
         gfx_flush();
-        size_t budget = (size_t)4 << 20, done = 0;
+        const auto uploadStart = std::chrono::steady_clock::now();
+        size_t budget = (size_t)4 << 20, done = 0, uploaded = 0;
         for (; done < s_tpUploads.size() && budget > 0; ++done) {
+            if (uploaded > 0 && std::chrono::steady_clock::now() - uploadStart >= std::chrono::milliseconds(2)) break;
             const int id = s_tpUploads[done].first;
             const TpJob &job = s_tpUploads[done].second;
             auto it = gfx_texture_cache.map.find(job.key);
@@ -1615,8 +1671,23 @@ static void gevr_texpack_frame(void) {
             gfx_rapi->select_texture(0, it->second.texture_id, false);
             if (gevr_texpack_upload(img, iw, ih, job.hw, job.hh, job.uw, job.uh)) {
                 budget -= std::min(budget, (size_t)iw * ih * 4);
+                ++uploaded;
                 s_gevrTcHdUploads++;
+            } else {
+                // matched but not used: the game's own texture stays, which looks like a missing one
+                static std::unordered_set<int> logged;
+                s_gevrTcRefused++;
+                if (logged.size() < 64 && logged.insert(id).second) {
+                    sysLogPrintf(LOG_WARNING, "texpack: not used, sizes don't fit: %s (pack %ux%u, checksum over %ux%u, "
+                                 "drawn %ux%u)", gevrtp::name(id), iw, ih, job.hw, job.hh, job.uw, job.uh);
+                }
             }
+        }
+        const auto uploadUs = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - uploadStart).count();
+        if (uploadUs > 11000) {
+            sysLogPrintf(LOG_WARNING, "texpack: upload loop %lld us, %u images uploaded, %u jobs processed, %u queued",
+                         (long long)uploadUs, (unsigned)uploaded, (unsigned)done, (unsigned)(s_tpUploads.size() - done));
         }
         s_tpUploads.erase(s_tpUploads.begin(), s_tpUploads.begin() + done);
         rendering_state.textures[0] = nullptr;   // unit 0 was rebound
@@ -1628,12 +1699,21 @@ static void gevr_texpack_frame(void) {
         static unsigned frames;
         if (++frames >= 300) {
             frames = 0;
-            if (s_gevrTcMisses || s_gevrTcEvictions || s_gevrTcHdUploads) {
-                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads, %u evicted, %u pack uploads; %u queued, %u decoding",
-                             (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses, s_gevrTcEvictions, s_gevrTcHdUploads,
-                             (unsigned)s_tpUploads.size(), (unsigned)s_tpPending.size());
+            if (s_gevrTcMisses || s_gevrTcEvictions || s_gevrTcHdUploads || s_gevrTcRefused) {
+                sysLogPrintf(LOG_NOTE, "texcache: %u entries; last 5 s: %u loads, %u evicted, %u pack uploads, %u refused; "
+                             "%u queued, %u decoding", (unsigned)gfx_texture_cache.map.size(), s_gevrTcMisses,
+                             s_gevrTcEvictions, s_gevrTcHdUploads, s_gevrTcRefused, (unsigned)s_tpUploads.size(),
+                             (unsigned)s_tpPending.size());
             }
-            s_gevrTcMisses = s_gevrTcEvictions = s_gevrTcHdUploads = 0;
+            s_gevrTcMisses = s_gevrTcEvictions = s_gevrTcHdUploads = s_gevrTcRefused = 0;
+            FILE *pf = fopen(fsFullPath("$S/gevr_texprobe.txt"), "r");
+            unsigned probe = 0;
+            if (pf != nullptr) {
+                if (fscanf(pf, "%x", &probe) != 1) probe = 0;
+                fclose(pf);
+            }
+            if (probe != s_tpProbe) sysLogPrintf(LOG_NOTE, "texprobe: watching %08X", probe);
+            s_tpProbe = probe;
         }
     }
 }
@@ -2090,6 +2170,9 @@ struct GfxVtx {
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
 
+    const bool probe = s_surfaceSampleFrame && (rsp.geometry_mode & G_LIGHTING)
+        && (rsp.geometry_mode & G_TEXTURE_GEN) && s_surfaceVertexBatches < 4;
+    if (probe) ++s_surfaceVertexBatches;
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
         const struct GfxVtx* v = (const struct GfxVtx*)&vertices[i];
         struct LoadedVertex* d = &rsp.loaded_vertices[dest_index];
@@ -2200,6 +2283,16 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
 
                 U = (int32_t)(dotx * rsp.texture_scaling_factor.s);
                 V = (int32_t)(doty * rsp.texture_scaling_factor.t);
+                if (probe && i < 3) {
+                    const float (*m)[4] = rsp.modelview_matrix_stack[rsp.modelview_matrix_stack_size - 1];
+                    sysLogPrintf(LOG_NOTE, "surface30: reflection us=%llu batch=%u src=%p i=%u normal=%d,%d,%d uv=%.4f,%.4f mode=%08x look=%d scale=%u,%u lookX=%.6g,%.6g,%.6g lookY=%.6g,%.6g,%.6g mv=%.6g,%.6g,%.6g/%.6g,%.6g,%.6g/%.6g,%.6g,%.6g",
+                        (unsigned long long)s_surfaceSampleUs, s_surfaceVertexBatches, (const void*)vertices, (unsigned)i,
+                        vcn->x, vcn->y, vcn->z, U, V, rsp.geometry_mode, rsp.lookat_enabled,
+                        rsp.texture_scaling_factor.s, rsp.texture_scaling_factor.t,
+                        rsp.current_lookat_coeffs[0][0], rsp.current_lookat_coeffs[0][1], rsp.current_lookat_coeffs[0][2],
+                        rsp.current_lookat_coeffs[1][0], rsp.current_lookat_coeffs[1][1], rsp.current_lookat_coeffs[1][2],
+                        m[0][0], m[0][1], m[0][2], m[1][0], m[1][1], m[1][2], m[2][0], m[2][1], m[2][2]);
+                }
             }
         } else {
             if (vcn != nullptr) {
@@ -2281,6 +2374,26 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
     }
 }
 
+
+/* Water is already projected. Its float payload only bypasses the N64
+ * vertex packing; texturing, perspective interpolation and blending still
+ * use the ordinary triangle pipeline below. */
+static void gfx_sp_sky_vertex(size_t count, const GevrSkyVertex *vertices) {
+    SUPPORT_CHECK(count <= MAX_VERTICES);
+    for (size_t i = 0; i < count; ++i) {
+        auto &d = rsp.loaded_vertices[i];
+        const auto &v = vertices[i];
+        d.x = gfx_adjust_x_for_aspect_ratio(v.x, v.w);
+        d.y = v.y;
+        d.z = 0.0f;
+        d.w = v.w;
+        d.u = v.s * (rsp.texture_scaling_factor.s + 1) / 65536.0f;
+        d.v = v.t * (rsp.texture_scaling_factor.t + 1) / 65536.0f;
+        d.color = {v.rgba[0], v.rgba[1], v.rgba[2], v.rgba[3]};
+        d.fog = rdp.fog_color.a;
+        d.clip_rej = 0; // GPU clips the pre-projected sky at each eye's bounds
+    }
+}
 
 static void gfx_sp_modify_vertex(uint16_t vtx_idx, uint8_t where, uint32_t val) {
     SUPPORT_CHECK(where == G_MWO_POINT_ST);
@@ -2584,6 +2697,22 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                     rendering_state.textures[i]->second.cmt = cmt;
                 }
             }
+        }
+    }
+
+    if (s_surfaceSampleFrame && ((rsp.geometry_mode & G_TEXTURE_GEN)
+        || (!(rsp.geometry_mode & G_ZBUFFER) && comb->used_textures[0] && comb->used_textures[1]))
+        && s_surfaceDraws < 8) {
+        ++s_surfaceDraws;
+        for (int i = 0; i < 2; ++i) {
+            if (!comb->used_textures[i]) continue;
+            const unsigned tile = rdp.first_tile_index + gfx_lod_tile_offset(i);
+            const auto &t = rdp.texture_tile[tile];
+            const auto &lt = rdp.loaded_texture[t.tmem];
+            sysLogPrintf(LOG_NOTE, "surface30: material us=%llu draw=%u tile=%u tex=%p fmt=%u siz=%u wh=%u,%u mask=%u,%u shift=%u,%u offset=%u,%u lod=%u mode=%08x,%08x combine=%016llx",
+                (unsigned long long)s_surfaceSampleUs, s_surfaceDraws, tile, (const void*)lt.addr,
+                t.fmt, t.siz, tex_width[i], tex_height[i], t.masks, t.maskt, t.shifts, t.shiftt, t.uls, t.ult,
+                rdp.prim_lod_fraction, rdp.other_mode_h, rdp.other_mode_l, (unsigned long long)rdp.combine_mode);
         }
     }
 
@@ -2912,7 +3041,7 @@ static void gfx_calc_and_set_viewport(const Vp_t* viewport) {
     rdp.viewport.width = width;
     rdp.viewport.height = height;
 
-    if (vr_is_initialized() && !gevr_screen_pass) {
+    if (vr_is_initialized() && !gevr_screen_pass && !gevr_head_hud_depth) {
         // The 3D viewport MUST always cover the entire VR framebuffer:
         // the OpenXR projection matrix is already built to map the entire FOV
         // onto fboW x fboH. Resizing it using any arbitrary ratio
@@ -2939,7 +3068,7 @@ static void gfx_sp_movemem(uint8_t index, uint8_t offset, const void* data) {
             // I think this is only really used for guLookAtReflect
             index = !((index - G_MV_LOOKATY) / 2);
             rsp.lookat[index] = ((const Light *)data)->l;
-            rsp.lookat_enabled = (index == 0) || (rsp.lookat[1].dir[0] || rsp.lookat[1].dir[1]);
+            rsp.lookat_enabled = (index == 0) || gevrReflectionAxisValid(rsp.lookat[1].dir);
             rsp.lights_changed = true;
             break;
         case G_MV_L0:
@@ -3687,6 +3816,34 @@ static inline void *seg_addr(uintptr_t w1) {
 
 uintptr_t clearMtx;
 
+// Save the interpreter's boxes as well as the renderer's GL state. Otherwise
+// a capture can leave its scissor cached as if it belonged to the eye pass.
+static void gevr_capture_rdp_state(unsigned target, bool begin) {
+    static struct {
+        XYWidthHeight viewport, scissor, appliedViewport, appliedScissor;
+        unsigned depth;
+        float internalScale;
+    } saved[4];
+    auto &state = saved[target];
+    gfx_flush();
+    if (begin) {
+        if (target == 2) ++gevr_head_hud_depth;
+        if (state.depth++ != 0) return;
+        state.internalScale = g_vr_internal_scale;
+        state.viewport = rdp.viewport; state.scissor = rdp.scissor;
+        state.appliedViewport = rendering_state.viewport;
+        state.appliedScissor = rendering_state.scissor;
+    } else {
+        if (target == 2 && gevr_head_hud_depth) --gevr_head_hud_depth;
+        if (!state.depth || --state.depth != 0) return;
+        g_vr_internal_scale = state.internalScale;
+        rdp.viewport = state.viewport; rdp.scissor = state.scissor;
+        rendering_state.viewport = state.appliedViewport;
+        rendering_state.scissor = state.appliedScissor;
+        rdp.viewport_or_scissor_changed = true;
+    }
+}
+
 static void gfx_run_dl(Gfx* cmd) {
     // puts("dl");
     int dummy = 0;
@@ -3731,53 +3888,64 @@ static void gfx_run_dl(Gfx* cmd) {
                 switch (tag_w1) {
                     case 0x56520001: // Menu is open
                     case 0x56520000: // GoldenEye: menu closed
+                        gfx_flush();
                         vr_dl_is_pause_or_menu = (tag_w1 & 0xFFFF) != 0; // VR
                         break;
 
                     case VR_MENU_HUD_CAPTURE_BEGIN_L:
                         is_weapon_hud = false;
+                        gevr_capture_rdp_state(0, true);
                         gfx_vr_hud_capture_begin_L();
                         break;
 
                     case VR_MENU_HUD_CAPTURE_END_L:
                         is_weapon_hud = false;
                         gfx_vr_hud_capture_end_L();
+                        gevr_capture_rdp_state(0, false);
                         break;
 
                     case VR_WEP_HUD_CAPTURE_BEGIN_R:
                         is_weapon_hud = true;
+                        gevr_capture_rdp_state(1, true);
                         gfx_vr_hud_capture_begin_R();
                         break;
 
                     case VR_WEP_HUD_CAPTURE_END_R:
                         is_weapon_hud = true;
                         gfx_vr_hud_capture_end_R();
+                        gevr_capture_rdp_state(1, false);
                         break;
 
                     case VR_WEP_HUD_CAPTURE_BEGIN_L:
                         is_weapon_hud = true;
+                        gevr_capture_rdp_state(0, true);
                         gfx_vr_hud_capture_begin_L();
                         break;
 
                     case VR_WEP_HUD_CAPTURE_END_L:
                         is_weapon_hud = true;
                         gfx_vr_hud_capture_end_L();
+                        gevr_capture_rdp_state(0, false);
                         break;
 
                     case VR_HUD_CAPTURE_BEGIN_H:
+                        gevr_capture_rdp_state(2, true);
                         gfx_vr_hud_capture_begin_H();
                         break;
 
                     case VR_HUD_CAPTURE_END_H:
                         gfx_vr_hud_capture_end_H();
+                        gevr_capture_rdp_state(2, false);
                         break;
 
                     case VR_WEAPON_PANEL_CAPTURE_BEGIN:
+                        gevr_capture_rdp_state(3, true);
                         gfx_vr_hud_capture_begin_P();
                         break;
 
                     case VR_WEAPON_PANEL_CAPTURE_END:
                         gfx_vr_hud_capture_end_P();
+                        gevr_capture_rdp_state(3, false);
                         break;
 
                     case VR_HUD_FULL_SIZE_BEGIN:   // issue #42: the countdown timer
@@ -3816,10 +3984,19 @@ static void gfx_run_dl(Gfx* cmd) {
                         break;
 
                     case VR_SCOPE_ONLY_BEGIN:   // gunfire.c gunDrawSight: the scope's sight
+                    case VR_SCOPE_ONLY_BEGIN_L:
                     case VR_SCOPE_ONLY_END:
                         gfx_flush();
-                        gfx_vr_scope_only(tag_w1 == VR_SCOPE_ONLY_BEGIN);
+                        gfx_vr_scope_only(tag_w1 == VR_SCOPE_ONLY_BEGIN ? 0 : tag_w1 == VR_SCOPE_ONLY_BEGIN_L ? 1 : -1);
                         break;
+
+                    case VR_ROOM_DL_BEGIN:   // bg.c: a room's own display list (issue #72)
+                    case VR_ROOM_DL_END: {
+                        extern bool gevrRoomDl;   // gfx_opengl.cpp
+                        gfx_flush();
+                        gevrRoomDl = tag_w1 == VR_ROOM_DL_BEGIN;
+                        break;
+                    }
                     default:
                         break;
                 }
@@ -3840,6 +4017,9 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case (uint8_t)G_TEXTURE:
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
+                break;
+            case G_GEVR_SKY_VTX:
+                gfx_sp_sky_vertex(C0(0, 8), (const GevrSkyVertex*)seg_addr(cmd->words.w1));
                 break;
             case G_VTX: {
                 const uintptr_t vtxp = (uintptr_t)seg_addr(cmd->words.w1);
@@ -4275,6 +4455,19 @@ static void gevrMaybeDumpDl(const Gfx*) {}
 
 extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
+    s_surfaceSampleFrame = false;
+    if (gevrSurfaceProbeEnabled()) {
+        static uint64_t nextLog;
+        uint64_t now = sysGetMicroseconds();
+        if (now >= nextLog) {
+            nextLog = now + 200000;
+            s_surfaceSampleFrame = true;
+            s_surfaceSampleUs = now;
+            s_surfaceVertexBatches = s_surfaceDraws = 0;
+            sysLogPrintf(LOG_NOTE, "surface30: frame us=%llu dl=%u screen=%d pack=%d",
+                (unsigned long long)now, num_dls, gevrVrScreenMode, s_tpActive);
+        }
+    }
     gfx_sp_reset();
 
 #ifdef GEVR

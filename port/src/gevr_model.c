@@ -12,6 +12,7 @@
 #include "platform.h"
 #include "system.h"
 #include "gevr_model.h"
+#include "gevr_handpatch.h"
 
 struct ModelFileHeader *gevrModelPendingHeader = NULL;
 
@@ -1157,6 +1158,47 @@ u32 gevrModelConvert(u8 *data, u32 size, u32 capacity, s32 numSwitches, s32 numT
 		if (c.blocks[i].kind == BK_NODE) nodes++;
 		if (c.blocks[i].kind == BK_GDL) gdls++;
 		if (c.blocks[i].kind == BK_DATA) embedded++;
+	}
+
+	/*
+	 * A model with a hand patch (issue #9, gevr_handpatch.h) names its nodes by
+	 * their cartridge offsets, and loads its textures with the model's own
+	 * marker words: both are only known here, before the blocks go.
+	 */
+	if (gevrHandPatchWants(c.name)) {
+		for (i = 0; i < c.numBlocks; i++) {
+			const struct block *b = &c.blocks[i];
+
+			if (b->kind == BK_NODE) {
+				gevrHandPatchNoteNode(b->src, b->dst);
+			} else if (b->kind == BK_GDL) {
+				Gfx *g = (Gfx *)(out + b->dst);
+				u32 k, n = b->dstSize / sizeof(Gfx);
+				u32 tex = 0, droppedTex = 0;
+				s32 drop = FALSE, dropped = 0;
+
+				for (k = 0; k < n; k++) {
+					u8 op = (u8)(g[k].words.w0 >> 24);
+
+					if (op == 0xc0) {
+						tex = (u32)(g[k].words.w1 & 0xfff);
+						gevrHandPatchNoteMarker(tex, (u32)g[k].words.w0);
+						drop = gevrHandPatchDropsTexture(c.name, tex);
+					} else if (drop && (op == 0xbf /* G_TRI1 */ || op == 0xb1 /* Rare's G_TRI4 */)) {
+						/* a face the model should not draw (issue #24): an empty
+						 * G_TRI4, which the renderer skips (gfx_pc.cpp gfx_sp_tri4);
+						 * opcode 0x00 is unknown to it and fatal */
+						g[k].words.w0 = 0xb1000000u;
+						g[k].words.w1 = 0;
+						droppedTex = tex;
+						dropped++;
+					}
+				}
+				if (dropped) {
+					sysLogPrintf(LOG_NOTE, "model %s: dropped %d face command(s) of texture 0x%03x", c.name, dropped, droppedTex);
+				}
+			}
+		}
 	}
 
 	memcpy(data, out, outSize);

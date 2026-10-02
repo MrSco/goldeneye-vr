@@ -769,7 +769,8 @@ Gfx *viSetupScreensForNumPlayers(Gfx *gdl)
         }
     }
 
-    if (getPlayerCount() == 1)
+    extern s32 g_gevrStereo;
+    if (getPlayerCount() == 1 || g_gevrStereo)
     {
         if ((viGetViewTop() + viGetViewHeight()) < viGetY())
         {

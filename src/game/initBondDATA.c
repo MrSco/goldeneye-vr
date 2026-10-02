@@ -6,6 +6,12 @@
 #include "bondview.h"
 #include "gun.h"
 #include "player.h"
+#ifdef GEVR
+#include "net_game.h"
+#include "system.h"
+extern bool netIsActive(void);
+extern int netGetLocalSlot(void);
+#endif
 
 
 #ifdef REFRESH_PAL
@@ -237,10 +243,19 @@ void init_player_BONDdata_stats(void)
 
     g_CurrentPlayer->ptr_hand_weapon_buffer[GUNRIGHT] = mempAllocBytesInBank(size_item_buffer[0], MEMPOOL_STAGE);
 
-    if (getPlayerCount() == 1)
-    {
+    g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT] = NULL;
+    if (getPlayerCount() == 1
+#ifdef GEVR
+        || (netIsActive() && netActiveDualWield() && (get_cur_playernum() == netGetLocalSlot() ||
+            mempGetBankSizeLeft(MEMPOOL_STAGE) > (s32)(size_item_buffer[1] * (getPlayerCount() + 1) + 0x100000)))
+#endif
+    ) {
         g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT] = mempAllocBytesInBank(size_item_buffer[1], MEMPOOL_STAGE);
     }
+#ifdef GEVR
+    if (netIsActive()) sysLogPrintf(LOG_NOTE, "left buffer: slot %d %s, pool left %d", get_cur_playernum(),
+        g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT] ? "allocated" : "copy fallback", mempGetBankSizeLeft(MEMPOOL_STAGE));
+#endif
 
     g_CurrentPlayer->hand_invisible[GUNRIGHT] = 0;
     g_CurrentPlayer->hand_invisible[GUNLEFT] = 0;

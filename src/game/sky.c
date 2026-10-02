@@ -3,6 +3,9 @@
 #ifdef GEVR
 #include <stdio.h>
 #include <stdlib.h>
+#include "system.h"
+#include "gevr_surface_probe.h"
+#include "gevr_surface_math.h"
 #endif
 #include "sky.h"
 #include "player.h"
@@ -26,6 +29,7 @@
  * See the comment above skyPortBeginFan()'s definition. */
 static void skyPortBeginFan(SkyRelated38 *v, s32 n, bool allowShift);
 static void skyPortEndFan(void);
+static void skyPortProbeWater(SkyRelated38 *v, s32 n);
 /* D245 (M-142): same reason -- the water call site (further down) needs to
  * override the adaptive shift picked by skyPortBeginFan() before the
  * definition itself. */
@@ -36,6 +40,7 @@ static void skyPortCaptureTile(Gfx *start, Gfx *end);
  * down) so the D245 water call site's GE_D245_FIXEDSHIFT clamp can use it --
  * same forward-declare reason as the functions above. */
 #define SKY_TC_MAX_SHIFT 5
+static bool s_skyWaterFan;
 /* issue #49: the stereo fill below the horizon, next to the port's sky helpers */
 static Gfx *skyPortRenderPoly(Gfx *gdl, SkyRelated38 **v, s32 nverts);
 static Gfx *skyPortRenderFill(Gfx *gdl, f32 x1, f32 y1, f32 x2, f32 y2);
@@ -977,7 +982,8 @@ Gfx *skyRender(Gfx *gdl)
              * the tc-shift safety valve on the water quad too -- see the
              * comment above skyPortBeginFan() for why this doesn't flatten
              * the cross-fade. */
-            skyPortBeginFan(sp274, s1, TRUE); /* water: see skyPortBeginFan */
+            skyPortBeginFan(sp274, s1, TRUE); /* baseline diagnostics still record the old packing */
+            s_skyWaterFan = TRUE;
 
             /* D245 (M-142): opt-in A/B candidate -- see skyPortForceFanShift's
              * comment. Off by default (unset env => identical to the current
@@ -1015,6 +1021,7 @@ Gfx *skyRender(Gfx *gdl)
                         (double) minS, (double) maxS, (double) minT, (double) maxT,
                         (double) (maxS - minS), (double) (maxT - minT));
             }
+            skyPortProbeWater(sp274, s1);
 #endif
             if (s1 == 4)
             {
@@ -1871,8 +1878,40 @@ static void skyPortBeginFan(SkyRelated38 *v, s32 n, bool allowShift)
     s_skyFanShiftT = allowShift ? skyPortPickShift(maxT - minT) : 0;
 }
 
+/* Baseline capture: raw coordinates, packing precision and projection range.
+ * Log at 10 Hz, plus every shift change, so turning can be matched to pops. */
+static void skyPortProbeWater(SkyRelated38 *v, s32 n)
+{
+    static u64 nextLog;
+    static s32 previousS = -1, previousT = -1;
+    u64 now;
+    s32 i;
+    coord3d *eye;
+    if (!gevrSurfaceProbeEnabled()) return;
+    now = sysGetMicroseconds();
+    if (now < nextLog && previousS == s_skyFanShiftS && previousT == s_skyFanShiftT) return;
+    nextLog = now + 100000;
+    eye = bondviewGetCurrentPlayersPosition();
+    sysLogPrintf(LOG_NOTE, "surface30: water path=float us=%llu stage=%d n=%d eye=%.2f,%.2f,%.2f k=%d,%d previous=%d,%d fold=%.1f,%.1f wScale=%.6g image=%d",
+        (unsigned long long) now, g_SkyStageNum, n, eye->x, eye->y, eye->z,
+        s_skyFanShiftS, s_skyFanShiftT, previousS, previousT,
+        s_skyFanFoldS, s_skyFanFoldT, s_skyFanWScale, fogGetCurrentEnvironmentp()->WaterImageId);
+    previousS = s_skyFanShiftS;
+    previousT = s_skyFanShiftT;
+    for (i = 0; i < n; i++)
+        sysLogPrintf(LOG_NOTE, "surface30: water-v us=%llu i=%d st=%.6g,%.6g w=%.6g xy=%.3f,%.3f packed=%.3f,%.3f,%.3f tc=%.3f,%.3f",
+            (unsigned long long) now, i, v[i].unk20, v[i].unk24, v[i].unk0c,
+            v[i].unk28 * 0.25f, v[i].unk2c * 0.25f,
+            (2.0f * ((v[i].unk28 * 0.25f - getPlayer_c_screenleft()) / getPlayer_c_screenwidth()) - 1.0f) * v[i].unk0c / s_skyFanWScale,
+            (1.0f - 2.0f * ((v[i].unk2c * 0.25f - getPlayer_c_screentop()) / getPlayer_c_screenheight())) * v[i].unk0c / s_skyFanWScale,
+            v[i].unk0c / s_skyFanWScale,
+            (v[i].unk20 - s_skyFanFoldS) / (1 << s_skyFanShiftS),
+            (v[i].unk24 - s_skyFanFoldT) / (1 << s_skyFanShiftT));
+}
+
 static void skyPortEndFan(void)
 {
+    s_skyWaterFan = FALSE;
     s_skyFanWScale = 0.0f;
     s_skyFanFoldSet = FALSE;
     s_skyFanShiftS = 0;
@@ -1926,8 +1965,43 @@ static void skyPortForceFanShift(s32 kS, s32 kT)
  * substitution (same class as the G_TRI4 / dynamic-lighting PORT branches
  * elsewhere in src/): the N64 (#else) path below is byte-for-byte unchanged.
  */
+/* The N64 emits water as RDP triangle coefficients with full S/T and 1/w.
+ * Repacking those into s16 positions and UVs lost up to 9% of near-vertex
+ * w in the headset capture, while the per-frame tile shifts also changed
+ * UV precision. Keep the existing triangle/combiner path, but hand fast3d
+ * the projected vertices directly as floats. Cloud sky keeps its old path. */
+static Gfx *skyPortRenderWaterPoly(Gfx *gdl, SkyRelated38 **v, s32 nverts)
+{
+    GevrSkyVertex *vertices = dynAllocate(nverts * sizeof(*vertices));
+    s32 i;
+    for (i = 0; i < nverts; ++i) {
+        gevrSkyVertexPosition(&vertices[i], v[i]->unk28 * 0.25f, v[i]->unk2c * 0.25f,
+            v[i]->unk0c, v[i]->unk20, v[i]->unk24,
+            getPlayer_c_screenleft(), getPlayer_c_screentop(),
+            getPlayer_c_screenwidth(), getPlayer_c_screenheight());
+        vertices[i].rgba[0] = (u8) v[i]->r;
+        vertices[i].rgba[1] = (u8) v[i]->g;
+        vertices[i].rgba[2] = (u8) v[i]->b;
+        vertices[i].rgba[3] = (u8) v[i]->a;
+    }
+    gSPClearGeometryMode(gdl++, G_LIGHTING | G_CULL_BOTH | G_FOG);
+    gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+    /* Restore the original tiles: full S/T must not inherit packing shifts. */
+    gdl = skyPortEmitTileShift(gdl, 0, 0);
+    gdl->words.w0 = ((u32) G_GEVR_SKY_VTX << 24) | (u32) nverts;
+    gdl->words.w1 = (uintptr_t) vertices;
+    ++gdl;
+    if (nverts >= 4) {
+        gSP2Triangles(gdl++, 0, 1, 3, 0, 3, 2, 0, 0);
+    } else {
+        gSP1Triangle(gdl++, 0, 1, 2, 0);
+    }
+    return gdl;
+}
+
 static Gfx *skyPortRenderPoly(Gfx *gdl, SkyRelated38 **v, s32 nverts)
 {
+    if (s_skyWaterFan) return skyPortRenderWaterPoly(gdl, v, nverts);
     Vtx *vtx = dynAllocateVertices(nverts < 3 ? 3 : nverts);
     Mtxf projf;
     Mtx *proj = dynAllocateMatrix();

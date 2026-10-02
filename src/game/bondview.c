@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include <ultra64.h>
 #include <math.h>
 #include <bondtypes.h>
@@ -1560,6 +1563,9 @@ void bondviewPlayerBeginLife(void)
     {
         currentPlayerEquipWeaponWrapper(GUNLEFT, starting_weapon[GUNLEFT]);
         currentPlayerEquipWeaponWrapper(GUNRIGHT, starting_weapon[GUNRIGHT]);
+#ifdef GEVR
+        gevrEquipOnlineLoadout();
+#endif
 
         if (g_CurrentPlayer->bodyModel == NULL)
         {

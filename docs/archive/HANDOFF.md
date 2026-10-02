@@ -5205,3 +5205,337 @@ tools/texai/NOTES.md.
 - Open: #60 laser watch pop-in (owner asked for screenshots; listed as a
   known issue), #56 akimbo with different guns, #50 (parked), #9 (another
   session), #32 #30 #29 #23 #18.
+
+## 120. fix/60-watch-grip-hand: SHELVED (2026-09-27)
+- #60 (ApeFe): at the watch, the watch laser's own two-arm viewmodel
+  (GwatchlaserZ) replaced the tracked watch arm and popped to a smaller,
+  coarser arm. User: the new HD textures handle it mostly; branch shelved,
+  not merged. Pushed, two commits:
+  - 1fb7ef9: the tracked watch arm stays; the gun hand at the watch is the
+    taser's gripping hand (the #41 grenade hand) on its controller; the
+    GwatchlaserZ copy, loader and gevrStereoWatchHandMatrix removed. Tested:
+    the hand only changed model near the wrist (user: should snap and lock).
+  - 7a07ebb (built, never installed): the gripping hand pinned to the left
+    wrist as #35's is to the gun (bondview2.c gevrStereoWatchGripMatrix:
+    GUNLEFT's matrix, trim turn, palm on the watch face plus a wrist-frame
+    offset; left hand's redraw tag), trim VrWatchGripTrim / ini GripWatch,
+    set in Gun fit while holding the watch ("WATCH GRIP FIT").
+- The headset was left on 1fb7ef9 (this branch), not main.
+
+## 121. Hand and arm shells closed (#9, merged 2026-09-27)
+- User-tested over four rounds on Dam; MERGED as edee89e (user: "as good
+  as we can do for now"). Branch feature/9-hand-shells, worktree
+  ../gevr-hands; the whole story is in tools/handpatch/NOTES.md.
+- The N64 modelled the first-person hands as open shells (fingers and
+  forearms as the top half of a tube, no palm, open sleeve ends). 13 models
+  now get patches at load: Csuit_lf_handZ (watch arm), GwppkZ, GwppksilZ,
+  GgoldwppkZ, GsilverwppkZ, GgoldengunZ, GrugerZ, Gtt33Z, GknifeZ,
+  GthrowknifeZ, GfistZ, GtaserZ (taser, grenade and two-handed grip hand),
+  GwatchlaserZ. 34 parts, 3526 triangles.
+- Pipeline (tools only, nothing ROM-derived committed):
+  - tools/gevr_model_export.py -> build/handmodels/<Model>.json (gitignored),
+    tools/gevr_tex_decode.py for textured renders.
+  - Blender 5.2 headless: tools/blender/gevr_hands_patch.py applies
+    tools/handpatch/<Model>.recipe.json (ours) and writes <Model>.patch.json:
+    corners as ROM vertex refs (node, index) or weights over four ROM
+    vertices on one bone, our s/t and shade, an FNV fingerprint per node.
+    Ops: fill (Liepa), earclip, tube (a finger's or forearm's missing half
+    from its two rails), skirt (fist to grip), bridge, ribbon (watch band),
+    fair/dome. --render/--compare/--view draw before/after sheets.
+  - tools/gevr_handpatch_gen.py -> port/src/gevr_handpatch_data.c
+    (generated, committed). Re-run after any patch change.
+- Runtime: gevr_model.c notes each wanted model's node offsets and texture
+  markers during conversion; load_object_fill_header (objecthandler_2.c)
+  calls gevrHandPatchApply (port/src/gevr_handpatch.c): a part applies only
+  if every node's vertex count and fingerprint match; the host's Primary
+  becomes [own DL, patch DL, END], per model buffer. Log: "handpatch <model>:
+  N of M parts, T triangles". files/gevr_handpatch.txt: 0 off, 2 magenta
+  patch faces, anything else on (the headset has 1).
+- Last test: 10 of the 13 loaded, all parts applied. Not seen in the
+  headset since the final rounds: GwppkZ, GknifeZ, GthrowknifeZ.
+- Open: the PP7's index finger never shows (own bone, switch entry 6, the
+  trigger pivot); likely placement in stereo, not a shell - compare with
+  gevr_handpatch.txt 0. #9 left open to close with a reply at release.
+
+## 122. Texture tour of every level; pack ai-2026.09.27.2; stereo aim crash guard (merged 2026-09-27)
+- **Pack release.** MrSco/GoldenEye-007-HD release ai-2026.09.27.2 (fork
+  8a2011b): 1,847 AI textures, 262 MB. The launcher's Mods page offers it as
+  an update. The whole story is in tools/texai/NOTES.md, "Headset tour".
+- **The tour.** tools/texai/tour.py drives the headset through all 20
+  missions with files/gevr_packdump on. It warps to every pad, spins the
+  view where a texture the fork lacks shows up, and leaves each level
+  through the watch's abort. About 3.5 h unattended; ~380 real gaps.
+- **Game fix.** chrprop.c gevrStereoAimTrace skips its trace when Bond has no
+  floor tile. A warp onto Dam pad 111 (no tile) crashed in
+  getTileRoom(NULL) on the next frame.
+- **Test hooks.**
+  - The warp hook refuses tile-less pads.
+  - gevr_input.txt takes a 5th field, -100..100: the VR right stick's turn
+    for the held frames (libultra.c gevrInjectTurn, input.c
+    gevrVrTurnAxis). In stereo the N64 stick X strafes, so this is the only
+    way to turn from the PC.
+- **Texture tooling.**
+  - Palette-variant names become one `#$` wildcard file.
+  - Grainy art gets Real-ESRGAN where it is 1.5 dB more faithful than
+    SeedVR2 (regrain.py did the same for released textures, 129 swapped).
+  - AI textures are packaged at the authors' HD scale.
+  - comfy.py frees memory every 15 jobs and interrupts any job past 240 s.
+  - 78 rejects are on tools/texai/rejected.txt.
+- **Driving a level from the PC** (see tour.py's docstring):
+  - Abort: START, wait 3.5 s (the watch opens on Mission Status), A, stick
+    right, A; "stage: switching to 90" confirms it. Then A twice through
+    the report, and the level hook fires at mission select.
+  - Pads inside a level's exit zone end the mission (Surface 2's pads 2-9).
+- **Headset traps.**
+  - The "controllers required" launch check wants a controller actually
+    held ("in hand: Y"); a button press alone doesn't clear it.
+  - prox_close lapsed once mid-run, so the headset slept.
+
+## 123. HD pack on blended texture tiles (Dam cliffs); file-select hitch reduced (merged 2026-09-27)
+- **Dam cliffs** (user: "dam walls aren't HD" with the pack on; the pack
+  switch changed nothing).
+  - The cliff blends two full-size I4 64x64 textures. The snowy rock,
+    38C2DA20, is on tile 1 (lod 1, detail 1).
+  - gevr_texpack_import skipped every tile above first_tile_index when
+    tex_lod was set, treating it as a smaller mip level, so the authors' HD
+    rock was never even looked up.
+  - It now looks up every sampled tile, as GLideN64 does (395b8f0, made by a
+    Codex agent on codex/hd-texture-cliffs-menu-hitch, signed build here).
+    User-verified: the cliff is HD. Any surface built the same way benefits.
+- **File-select hitch** with a pack (there since packs were added).
+  - The index is built from the launcher's Start (gevrTexpackStartEarly),
+    and the first frame waits for it (gevrtp::waitIndex). It was ready 15 ms
+    after Start, so there's no cache clear at file select any more (9cbd431).
+  - HD uploads are time-sliced to about 2 ms a frame, at least one image;
+    loops over 11 ms are logged (395b8f0).
+  - That second went from 64/90 frames (45/60 ticks, a 7-frame stall) to
+    79/90 (52/60, 2 frames). The rest is the game's own menu load.
+- **Diagnostics for "served by the pack but not on screen"** (9cbd431):
+  - A pack upload refused because its sizes don't fit is logged once per
+    texture ("texpack: not used, sizes don't fit") and counted in the
+    texcache line.
+  - files/gevr_texprobe.txt holding a hex checksum logs each lookup of it:
+    tile, mip state, sizes, and the entry found.
+  - The gevr_texdump marker writes native PAMs with the tile number in the
+    name (`_t1`).
+- tools/texai/rejected.txt: 49CB30EE, a flat grey Dam strip (99c2f98).
+
+## 124. Online multiplayer, LAN / direct IP (#23, merged 2026-09-27)
+- **Experimental and not yet played on two headsets.** Merged through PR
+  #61 so testers get it in the next release. Built by other agents on
+  feature/online-multiplayer (worktree ../gevr-multiplayer) and reviewed
+  over five rounds. MULTIPLAYER.md has the protocol and the two-headset
+  test list. #23 stays open.
+- **Model.** Each headset runs the whole match. Every player sends its own
+  position, angles, inputs and held weapon each tick
+  (NET_MSG_PLAYER_STATE, port/src/net/net_player_sync.c), and the host
+  relays them. This is not the host-run simulation of upstream PD's netplay
+  (fgsfdsfgs/perfect_dark branch port-net). Only netbuf and the
+  netplayermove/UCMD shape came from there. Merged this way for
+  testing; porting PD's model is still open.
+- **Transport.** zpl-c/enet single header (port/include/external/enet.h,
+  port/external/enet.c) on UDP 27007; LAN beacons on UDP 27008
+  (net_discovery.c). Protocol version 3, so every headset needs the same
+  build.
+- **Lobby.** Launcher -> Multiplayer...: host, or join from the LAN list or
+  by IP; pick a character; ready.
+  - The stages and their player caps are front.c's multi_stage_setups
+    (Cradle is not a multiplayer stage).
+  - Launch needs 2+ ready players in consecutive slots.
+  - Launch boots straight into the stage: gamemode MULTI,
+    init_mp_options_for_scenario and setMPWeaponSet, player_char from the
+    lobby, and the host's random seed. main.c keeps a g_StageNum the
+    launcher set.
+- **Engine hooks** (all #ifdef GEVR and gated on netIsActive()):
+  - Only the local slot renders, full screen in stereo (lv.c, the
+    bondview2.c viewport helpers). The stereo gate allows 2+ players
+    online.
+  - gevrStereoApplyHead, gevrStereoFrame and gun fit act on the local slot
+    only; lvlRender makes the local player current first.
+  - input.c: the VR controller drives the local slot. Remote slots are fed
+    from their netplayermove, and the connected mask is the local slot plus
+    the active remotes.
+  - Remote players get a position lerp (snapping past 512 units),
+    bondviewUpdatePlayerRoom, angles, stance, and the held weapon model
+    (chrGiveWeapon).
+  - Damage: the shooter reports bullet hits (chraction.c
+    handles_shot_actors), and the owner reports explosions (explosion.c;
+    the host reports level explosions). The host broadcasts
+    NET_MSG_DAMAGE_EVENT, and every headset runs record_damage_kills on
+    the target, so health and kills agree.
+  - Respawn: the respawning player sends its pad and facing, and every
+    headset runs mp_respawn_handler_net for that slot, even if it didn't
+    see the death (b87b749). Only the local slot can respawn by button.
+- **Known gaps.**
+  - If the host quits mid-match, the client falls back to local
+    split-screen (netIsActive goes false) instead of returning to the menu.
+  - Match end isn't synced.
+  - Remote hand poses are sent but not drawn.
+  - FIRE_EVENT and VOIP are placeholders.
+- **The desktop (WIN32) build paths are dead Perfect Dark leftovers and
+  don't compile.** A one-headset test peer would have to be a standalone
+  ENet program.
+
+## 125. Melee: blows land only moving into a guard, at GoldenEye's fist pace (#55, merged 2026-09-27)
+- **User-tested: "feels good".** Branch claude/melee-swing-speed-balance-afa827
+  (2bf89da). The user found that the upswing after a chop chopped again,
+  and that left and right back to back were overpowered.
+- **Upswing.** chrprop.c gevrChopHit now takes the hand's velocity (view
+  space, m/s) and lands only on a hand moving into the guard at the old
+  speeds (1 m/s bare or knife, 2 armed). "Into" means toward the nearest
+  point of his box, from inside the box toward his middle across the
+  floor, or down onto him. It returns 0 (no guard in touch), 1 (touching,
+  moving off him) or 2 (moving into him: struck, or only reported while
+  the hand recovers).
+- **Velocity in view space.** bondview2.c gevrHandChopTick turns Perfect
+  Dark's controller-local velocity into view space by the grip's axes from
+  gevrGripAxesRaw (+X right, +Y back, +Z down). Trap: Perfect Dark's
+  "thrust" is the grip's +Y, which on this port runs back to the wrist
+  (the barrel is -Y, HANDOFF 50). So its swing test whiffed on pulling the
+  hand back or lifting it for a chop. The whiff's test is now in view
+  space: 1.2 m/s out ahead, or 1.6 across or down (2 armed), never up or
+  back.
+- **Pace, from the game's own keyframes.** A punch runs to the end before
+  a held trigger starts the next (gunfire.c; gun.c gunSample1PTransform
+  sums keyframes 1..n-3).
+  - fistMeleeKeyframes: 42 ticks, hit at 30.
+  - The knife's slashes: 52. The sniper club's two swings: 60 and 52
+    (52 used).
+  - A hand lands one blow per cycle (GEVR PC's 30-tick cooldown per hand
+    is gone). The other hand then waits half a cycle, so two hands in turn
+    land at most one blow per 21 ticks (was 15, plus the upswing hits).
+  - A blow held back does nothing and makes no whiff.
+- **Tuning.** files/gevr_melee.txt "same other" (ticks) overrides both for
+  every item, re-read every 120 frames; deleting it restores the game's
+  pace. The log reports "melee pace", each landed blow with its speed into
+  the guard and the next waits, "blow held back, N ticks to go", and "hand
+  on a guard, moving off him" (once per touch).
+- Online multiplayer (124): the tick runs for the local slot only, and a
+  blow on a remote player goes through handles_shot_actors like a bullet
+  hit.
+- #55: reply at release.
+
+## 126. Multiplayer: the host picks the weapons; the LAN list shows each game (#23, merged 2026-09-27)
+- fix/mp-weapon-set: MERGED (user checked the host page on one headset; a
+  match itself is still untested on two).
+- **Every online match was Slappers only.** The launcher's launch passed
+  setMPWeaponSet(0) as "standard weapons" (net_core.c's comment too), but
+  set 0 is Slappers only. mp_weapon.c's table order, named from the ROM's
+  LmpweaponsE text bank: 0 Slappers, 1 Pistols, 2 Throwing Knives,
+  3 Automatics, 4 Power Weapons, 5 Sniper Rifles, 6 Grenades, 7 Remote
+  Mines, 8 Grenade Launchers, 9 Timed Mines, 10 Proximity Mines, 11 Rockets,
+  12 Lasers, 13 Golden Gun. The game starts at 0xB (Rockets).
+- Host page: a Weapons choice (vr_launcher.cpp weaponSets), starting at
+  getMPWeaponSet(). netLobbySetMatchConfig carries it; host and clients
+  both apply netGetLobbyWeaponSet() at launch.
+- LAN list (Join tab; user: make it easy to find games): "<host's
+  character>'s game - stage, weapons - n/cap players", a full game greyed
+  out. Players have no names yet ("Host" / "Player"). The beacon adds
+  weapon_set and host_id; a headset ignores beacons with its own host_id
+  (arc4random per run; it listed its own game, user). Protocol version 4.
+- README: "Multiplayer (experimental)" section (host, join, weapons, UDP
+  27007 forwarding for internet play, what's missing).
+- Open: an internet lobby (master server, e.g. on goldeneyevr.com's
+  Cloudflare Workers, plus NAT: port forwarding, hole punching or a relay)
+  is a separate decision. v0.1.18 notes draft in the session scratchpad.
+
+## 127. v0.1.18 published (2026-09-27)
+- Tag v0.1.18 = build commit 49640de (versionCode 19), release key, APK
+  SHA-256 27005e17...7b46f7 (GitHub's digest matches). Installed on the
+  headset with adb.
+- Contents since v0.1.17: online multiplayer, experimental (124, 126: host
+  weapons choice, LAN list), hand and arm shells (#9, 121), texture tour and
+  pack ai-2026.09.27.2 (122), HD pack on blended tiles and the file-select
+  hitch (123), melee pace (125). README: multiplayer section.
+- Multiplayer has still never been played on two headsets.
+- Issues not yet replied to (awaiting the user): #9 close, #23 comment
+  (keep open), #55 pace note.
+- The website's deploy gate (its multiplayer section) is now met.
+- Next multiplayer milestone proposed: game codes and an internet game list
+  on a Cloudflare Worker (step 1), then UDP hole punching (step 2), a relay
+  only if needed (step 3).
+
+## 128. Internet lobbies and TURN (#23); v0.1.19 published (2026-09-27)
+- **Landed without a section of its own** (f1205ce, 65ed5fd; built by the
+  user's agent, branch codex/multiplayer-lobbies): public and private
+  internet lobbies.
+  - Host page: Public game (listed in PUBLIC INTERNET GAMES) or Private
+    game (PRIVATE JOIN CODE shown; Join by code on the Join tab). Wi-Fi
+    list and direct IP stay.
+  - Lobby service: services/lobbies, a Cloudflare Worker with one
+    SQLite-backed Durable Object, at lobbies.goldeneyevr.com (custom
+    domain). Lobbies expire 45 s without a host heartbeat, joins after 90 s.
+    It also carries ICE offers/answers and issues short-lived Cloudflare
+    Realtime TURN credentials (secrets TURN_KEY_ID, TURN_KEY_API_TOKEN).
+    Endpoints in services/lobbies/README.md.
+  - App: android LobbyClient.java (HTTP to the Worker, driven by launcher
+    lobbyCommand strings), port/src/net/net_ice.cpp over vendored libjuice
+    1.7.4 (port/external/libjuice, MPL-2.0, CREDITS.md): ENet datagrams go
+    direct over ICE where possible, through TURN otherwise; enet.h adapted.
+  - TURN cost estimate (from the current packets, 60/s of ~120 B): about
+    26 MB per player-hour per opponent if relayed; Cloudflare gives 1,000 GB
+    a month free, then $0.05/GB egress.
+- **Release checks:** GET /v1/lobbies?version=4 returned {"lobbies":[]};
+  a private test lobby stayed off the public list, got a TURN credential
+  (host/port/username/credential), and was deleted. User: launcher shows
+  v0.1.19; the log showed "lobbyCommand list|4" with no error.
+- **v0.1.19:** tag = build 3759f0f (versionCode 20), release key, APK
+  SHA-256 5b80d397...eec685 (GitHub's digest matches), libjuice.so in the
+  APK. README reworded for players (public list, private codes, no router
+  setup, what the lobby service keeps).
+- Still untested: two headsets on different networks, a phone hotspot, a
+  4-player mixed LAN/internet game (MULTIPLAYER.md's list).
+
+## 129. Multiplayer voice chat (#23; feature/voice-chat merged 2026-09-28)
+- Started by the user's Codex agent in its worktree (.codex/worktrees/f9e0),
+  which ran out of budget mid-pass; reviewed, fixed and finished here
+  (709f8fa, 261a7c6). Branch notes: MULTIPLAYER.md "Voice chat".
+- **Codec and wire:** libopus 1.6.1, fetched by CMake FetchContent from the
+  pinned xiph tarball (SHA-256 in CMakeLists.txt; a clean build needs the
+  internet once), BSD, docs/opus-LICENSE.txt, CREDITS.md. 20 ms mono 16 kHz
+  frames at 24 kb/s, DTX (silence sends nothing), complexity 5 (the codec
+  runs on the game thread). NET_MSG_VOIP_FRAME on NET_CHAN_VOIP, unreliable,
+  with a sequence number; the host checks that the slot matches the sending
+  peer and relays to the others. GEVR_VOIP_MAX_BYTES 200. Protocol version 5:
+  the lobby service lists by version, so v0.1.19 and this build never see
+  each other's games.
+- **Capture:** an SDL capture device (AAudio) opened only while in a lobby or
+  match, unmuted, with permission, not paused. RECORD_AUDIO is requested
+  from the launcher when hosting or joining (MainActivity
+  .requestVoicePermission -> nativeVoicePermissionResult); denied means
+  listen only. The manifest marks the microphone as not required. Stale
+  capture (more than 8 frames queued after a stall) is dropped.
+- **Playback:** port/src/net/net_voice.c mixes into the game's SDL output in
+  audioEndFrame; in the lobby audioVoiceIdleTick feeds the device 20 ms at a
+  time, which needs audioInit BEFORE the launcher (moved in main.c; the draft
+  had it after, so lobby voice was silent). Per player: an Opus decoder, a
+  200 ms ring, 40 ms of buffering before a stream starts, PLC for up to 5
+  lost frames then a reset, linear 16 k -> 22.05 k resampling. Lobby: full
+  volume, centred. Match: 2 m..20 m linear fade, panned with the listener's
+  right = (-cos theta, -sin theta) in x/z, which is how radar.c places a
+  player on the radar's right (the draft had the sign flipped). Positions
+  are read only on a tick where netPlayerSyncAfterTick ran (players_ticked,
+  cleared at each netPoll): player structs live in the stage pool and go
+  stale between levels while the net state stays INGAME. Streams keep
+  draining while a player is out of range.
+- **Mute (MicMuted in goldeneye-vr.ini):** the "Microphone muted" checkbox
+  on the host and client lobby pages (with a mic status line); the watch's
+  Game Options ninth row "Microphone" Off/On, drawn and toggled like
+  game_option_toggle_input (set_controlstick_lr_disabled and the option
+  sound; the draft retoggled every frame the stick was held). The eight
+  toggle rows tighten from YINC to YINC-2 while netIsActive so the row fits
+  the face. In play, hold left X+Y for 0.5 s (input.c swallows B and A for
+  the chord).
+- **Line endings:** the draft's editor had put LF lines into CRLF files
+  (options.c, audio.c, input.c, the manifest) and the tree has LF islands in
+  CRLF files (CMakeLists.txt SRC_NET block, MainActivity.java). Restored per
+  line against HEAD; Git Bash `grep -c $'\r$'` cannot be trusted for this,
+  count b"\r\n" in Python.
+- **Tested 2026-09-28 (Quest 3, release build 261a7c6, one headset):** the
+  permission prompt, then Android's RecordActivityMonitor showed the mic
+  opening and closing with each mute toggle and rehost and closing on the
+  exact lobby stop; no errors. Untested: hearing anyone, distance and
+  direction, the watch row, the X+Y chord, listen-only after a denial: all
+  need the second headset (MULTIPLAYER.md two-headset test, step 6).
+- Unchanged: match end and the host leaving are still not handled. Next
+  release (v0.1.20) carries protocol 5; the README voice paragraph is in.

@@ -52,7 +52,7 @@ for f in sources(OURS, ('src', 'port', 'assets', 'docs')):
         ours_blob.append(f.read_text(errors='replace'))
     except Exception:
         pass
-for extra in ('HANDOFF.md', 'STATUS.md'):
+for extra in ('STATUS.md', 'docs/archive/HANDOFF.md', 'docs/archive/STATUS.md'):
     p = OURS / extra
     if p.exists():
         ours_blob.append(p.read_text(errors='replace'))

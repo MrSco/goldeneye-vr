@@ -1,0 +1,15 @@
+{
+  "name": "gevr-lobbies",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-27",
+  "routes": [{ "pattern": "lobbies.goldeneyevr.com", "custom_domain": true }],
+  "assets": { "directory": "./public" },
+  "workers_dev": false,
+  "send_email": [{ "name": "EMAIL" }],
+  "vars": { "REPORT_TO": "info@goldeneyevr.com", "TURN_MONTHLY_CAP": "4000" },
+  "observability": { "enabled": true, "traces": { "enabled": true } },
+  "durable_objects": {
+    "bindings": [{ "name": "REGISTRY", "class_name": "LobbyRegistry" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["LobbyRegistry"] }]
+}

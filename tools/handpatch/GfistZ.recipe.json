@@ -1,0 +1,61 @@
+{
+ "model": "GfistZ",
+ "note": "The fist (issue #9, Phase 3): no switches, every part always drawn (the four finger parts sit under BSP nodes, which only order them). Sleeve like the watch arm's tuxedo: jacket, shirt sleeve with its cuff, bare forearm.",
+ "assemblies": [
+  {
+   "host": "0x0228",
+   "nodes": [
+    "0x0180",
+    "0x01c8",
+    "0x01e0",
+    "0x01f8",
+    "0x0210",
+    "0x0228"
+   ],
+   "ops": [
+    {
+     "op": "fill",
+     "loop": "0x0228:81",
+     "why": "the jacket's elbow end (the shirt sleeve ends inside it)",
+     "tex": "0x666",
+     "shade": [
+      60,
+      60,
+      60,
+      255
+     ]
+    },
+    {
+     "op": "bridge",
+     "loops": [
+      "0x0228:80",
+      "0x0228:59"
+     ],
+     "why": "jacket edge to the shirt sleeve's far end inside it",
+     "tex": "0x666",
+     "shade": [
+      90,
+      90,
+      90,
+      255
+     ]
+    },
+    {
+     "op": "bridge",
+     "loops": [
+      "0x0228:58",
+      "0x0228:35"
+     ],
+     "why": "shirt cuff edge to the forearm inside it",
+     "tex": "0x645",
+     "shade": [
+      110,
+      110,
+      110,
+      255
+     ]
+    }
+   ]
+  }
+ ]
+}

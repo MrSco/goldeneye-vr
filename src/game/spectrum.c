@@ -4,6 +4,7 @@
 #include "spectrum.h"
 #include "spectrum_hw.h"
 #include <bondconstants.h>
+#include <joy.h>   /* joyGetButtons returns u16: called with no prototype, the upper bits were garbage on AArch64 */
 #include "ob.h"
 
 // bss

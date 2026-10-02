@@ -51,11 +51,27 @@ def upload(img, name):
     return json.loads(call('/upload/image', body, {'Content-Type': 'multipart/form-data; boundary=' + b}))['name']
 
 
+JOB_LIMIT = 240   # seconds; a job past this has spilled out of VRAM (minutes a texture) or hung
+
+
+def free():
+    """Unload ComfyUI's models and cached memory. Its VRAM use crept up over a
+    batch until a 33x33 texture that takes 11 s ran for minutes, spilling."""
+    call('/free', json.dumps({'unload_models': True, 'free_memory': True}).encode(),
+         {'Content-Type': 'application/json'})
+
+
 def run(graph, save_node):
     pid = json.loads(call('/prompt', json.dumps({'prompt': graph, 'client_id': uuid.uuid4().hex}).encode(),
                           {'Content-Type': 'application/json'}))['prompt_id']
     t0 = time.time()
     while True:
+        if time.time() - t0 > JOB_LIMIT:
+            call('/interrupt', b'{}', {'Content-Type': 'application/json'})
+            while pid not in json.loads(call('/history/' + pid)):   # let it stop before the next job
+                time.sleep(1)
+            free()
+            raise RuntimeError('ComfyUI job ran past %d s; interrupted, memory freed' % JOB_LIMIT)
         h = json.loads(call('/history/' + pid))
         if pid in h:
             st = h[pid].get('status', {})
@@ -98,6 +114,50 @@ def esrgan_graph(name):
         '3': {'class_type': 'ImageUpscaleWithModel', 'inputs': {'upscale_model': ['2', 0], 'image': ['1', 0]}},
         '4': {'class_type': 'SaveImage', 'inputs': {'images': ['3', 0], 'filename_prefix': 'texai/esrgan'}},
     }, '4'
+
+
+def flux2_graph(name, prompt, megapixels=0.25):
+    """Reference-guided FLUX.2 Klein 4B candidate, sized for a 12 GB card.
+
+    Real-ESRGAN supplies a clearer reference. The text prompt supplies meaning;
+    FLUX can still redraw small symbols or text, so callers must review output.
+    The caller's post step restores original alpha, colour and tiling constraints.
+    """
+    return {
+        '1': {'class_type': 'LoadImage', 'inputs': {'image': name}},
+        '2': {'class_type': 'UpscaleModelLoader', 'inputs': {'model_name': 'RealESRGAN_x4plus.safetensors'}},
+        '3': {'class_type': 'ImageUpscaleWithModel', 'inputs': {'upscale_model': ['2', 0], 'image': ['1', 0]}},
+        '4': {'class_type': 'ImageScaleToTotalPixels', 'inputs': {
+            'image': ['3', 0], 'upscale_method': 'nearest-exact', 'megapixels': megapixels,
+            'resolution_steps': 1}},
+        '5': {'class_type': 'GetImageSize', 'inputs': {'image': ['4', 0]}},
+        '6': {'class_type': 'UNETLoader', 'inputs': {
+            'unet_name': 'flux-2-klein-4b-fp8.safetensors', 'weight_dtype': 'default'}},
+        '7': {'class_type': 'CLIPLoader', 'inputs': {
+            'clip_name': 'qwen_3_4b_fp4_flux2.safetensors', 'type': 'flux2', 'device': 'default'}},
+        '8': {'class_type': 'VAELoader', 'inputs': {'vae_name': 'flux2-vae.safetensors'}},
+        '9': {'class_type': 'CLIPTextEncode', 'inputs': {'clip': ['7', 0], 'text': prompt}},
+        '10': {'class_type': 'ConditioningZeroOut', 'inputs': {'conditioning': ['9', 0]}},
+        '11': {'class_type': 'VAEEncode', 'inputs': {'pixels': ['4', 0], 'vae': ['8', 0]}},
+        '12': {'class_type': 'ReferenceLatent', 'inputs': {
+            'conditioning': ['9', 0], 'latent': ['11', 0]}},
+        '13': {'class_type': 'ReferenceLatent', 'inputs': {
+            'conditioning': ['10', 0], 'latent': ['11', 0]}},
+        '14': {'class_type': 'CFGGuider', 'inputs': {
+            'model': ['6', 0], 'positive': ['12', 0], 'negative': ['13', 0], 'cfg': 1.0}},
+        '15': {'class_type': 'RandomNoise', 'inputs': {'noise_seed': 42}},
+        '16': {'class_type': 'KSamplerSelect', 'inputs': {'sampler_name': 'euler'}},
+        '17': {'class_type': 'Flux2Scheduler', 'inputs': {
+            'steps': 4, 'width': ['5', 0], 'height': ['5', 1]}},
+        '18': {'class_type': 'EmptyFlux2LatentImage', 'inputs': {
+            'width': ['5', 0], 'height': ['5', 1], 'batch_size': 1}},
+        '19': {'class_type': 'SamplerCustomAdvanced', 'inputs': {
+            'noise': ['15', 0], 'guider': ['14', 0], 'sampler': ['16', 0],
+            'sigmas': ['17', 0], 'latent_image': ['18', 0]}},
+        '20': {'class_type': 'VAEDecode', 'inputs': {'samples': ['19', 0], 'vae': ['8', 0]}},
+        '21': {'class_type': 'SaveImage', 'inputs': {
+            'images': ['20', 0], 'filename_prefix': 'texai/flux2-contextual'}},
+    }, '21'
 
 
 def native_input(orig_dir, tex, m):
@@ -153,6 +213,11 @@ def seedvr2(img, longer, tag):
 
 def esrgan(img, tag):
     graph, save = esrgan_graph(upload(img, 'texai_%s.png' % tag))
+    return run(graph, save)
+
+
+def flux2(img, prompt, tag, megapixels=0.25):
+    graph, save = flux2_graph(upload(img, 'texai_flux2_%s.png' % tag), prompt, megapixels)
     return run(graph, save)
 
 

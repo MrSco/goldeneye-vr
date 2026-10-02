@@ -1,0 +1,48 @@
+name: Announce Release to Discord
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to announce (leave blank for the latest release)"
+        required: false
+
+jobs:
+  discord-announcement:
+    runs-on: ubuntu-latest
+    steps:
+      # Manual runs have no release payload, so look the release up and pass it in.
+      - name: Look up release for manual run
+        id: release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          release() { gh release view ${TAG:+"$TAG"} -R "$GITHUB_REPOSITORY" --json name,tagName,body,url --jq "$1"; }
+          delim="EOF_$(openssl rand -hex 8)"
+          {
+            echo "name=$(release 'if .name == "" then .tagName else .name end')"
+            echo "url=$(release .url)"
+            echo "body<<$delim"
+            release .body
+            echo "$delim"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Github Releases To Discord
+        uses: SethCohen/github-releases-to-discord@v1.20.0
+        with:
+          # This pulls your webhook URL securely from GitHub Repository Secrets
+          webhook_url: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+          # Only used on manual runs; release events use the release payload.
+          release_name: ${{ steps.release.outputs.name }}
+          release_body: ${{ steps.release.outputs.body }}
+          release_html_url: ${{ steps.release.outputs.url }}
+
+          # Optional Customizations:
+          # color: "3066993"                         # Decimal color code for the embed sidebar
+          # username: "Deploy Bot"                    # Overrides the webhook name
+          # avatar_url: "https://example.com" # Overrides the webhook profile picture

@@ -72,12 +72,67 @@ def rejected():
 
 
 def fork_names(fork_dir):
-    names = set()
+    """every texture name in the fork -> its path"""
+    names = {}
     for root, _, files in os.walk(os.path.join(fork_dir, 'GOLDENEYE')):
         for n in files:
             if n.lower().endswith('.png'):
-                names.add(n)
+                names[n] = os.path.join(root, n)
     return names
+
+
+def sibling_key(r):
+    """Palette siblings: a CI texture's texels (and size) under other palette
+    checksums. Mostly the very same image: the palette checksum takes in bytes
+    the texture does not use, which change from load to load, so a Silo console
+    dumps as 5-8 names with identical pixels (see wildcards)."""
+    f = r['name'].split('#')
+    return (f[1].upper(), r['fmt'], r['siz'], r['w'], r['h']) if len(f) > 4 else None
+
+
+def wildcard_name(name):
+    """GOLDENEYE#CRC#F#S#$_ciByRGBA.png: any palette (gevr_texpack.cpp looks it up
+    last, by the texel checksum alone, after the exact names miss)"""
+    return '#'.join(name.split('#')[:4]) + '#$_ciByRGBA.png'
+
+
+def wildcards(dump_dir, groups):
+    """exact name -> wildcard name, for the palette variants that are one image:
+    the largest set of pixel-identical siblings, when there are two or more.
+    One texture then covers them and the variants nobody has dumped yet."""
+    import hashlib
+    out = {}
+    for g in groups.values():
+        if len(g) < 2:
+            continue
+        by = {}
+        for r in g:
+            with Image.open(os.path.join(dump_dir, r['name'])) as im:
+                by.setdefault(hashlib.md5(im.convert('RGBA').tobytes()).hexdigest(), []).append(r)
+        big = max(by.values(), key=len)
+        if len(big) >= 2:
+            for r in big:
+                out[r['name']] = wildcard_name(r['name'])
+    return out
+
+
+def make_sibling(dump_dir, src_row, src_hd, r, m, dst):
+    """r from the HD texture of its palette sibling src_row, with no AI run: the
+    sibling's HD (at 8x) plus the upsampled difference of the two originals, then
+    the usual soft colour lock. Where the originals agree the detail is the same
+    texel for texel, so the variants do not shimmer as the game swaps them."""
+    import numpy as np
+    w, h = r['w'], r['h']
+    o_src = np.asarray(Image.open(os.path.join(dump_dir, src_row['name'])).convert('RGBA')).astype(np.float64)
+    o_sib = np.asarray(Image.open(os.path.join(dump_dir, r['name'])).convert('RGBA')).astype(np.float64)
+    hd = Image.open(src_hd).convert('RGBA')
+    if hd.size != (w * texai.SCALE, h * texai.SCALE):
+        hd = hd.resize((w * texai.SCALE, h * texai.SCALE), Image.LANCZOS)   # the authors' 4K master
+    hd = np.asarray(hd).astype(np.float64) + texai.up(o_sib - o_src, texai.SCALE, m['wrap'])
+    opaque = o_sib[:, :, 3] > 0
+    rgb = texai.ibp(np.clip(hd[:, :, :3], 0, 255), o_sib[:, :, :3], opaque, 4, m['wrap'])
+    out = np.dstack([np.clip(rgb, 0, 255), np.clip(hd[:, :, 3], 0, 255)])
+    Image.fromarray(out.round().astype(np.uint8), 'RGBA').save(dst)
 
 
 def manifest_entry(r, img):
@@ -97,7 +152,9 @@ def upscale(tool, src):
     # the texture's longer side at 16x (at least 256, at most 1024 pixels), padding
     # included: twice the pack texture's 8x, which the post step averages down
     side = max(src.size[0] - 2 * comfy.PAD, src.size[1] - 2 * comfy.PAD)
-    final = min(1024, max(256, side * 16)) * max(src.size) / side
+    # 1024 pixels in all, padding included: a 1280-pixel pass (a 128-texel strip's
+    # 1024 plus its padding) overflowed the 12 GB card and ran 15+ minutes a texture
+    final = min(1024, min(1024, max(256, side * 16)) * max(src.size) / side)
     if tool == 'esrgan':
         return comfy.esrgan(src, 'batch')[0]
     if tool == 'esrgan-seedvr2':
@@ -121,13 +178,36 @@ def alpha_answer(dump_dir, tex, m, work, name):
     return path
 
 
-def pick_tool(tool, r):
+GRAINY = 0.15   # flat share under this: a grainy, photo-like texture
+ESRGAN_MARGIN = 1.5   # dB at native resolution Real-ESRGAN must win by to replace SeedVR2 on one
+# (under ~1 dB it was a coin toss by eye: faces, foliage, camouflage looked better from SeedVR2)
+
+
+def flat_share(img):
+    """The share of texels whose 3x3 neighbourhood is flat (luma range under 20).
+    Signs, crates, panels ~0.3; the Statue Park statue, stone, camouflage <= 0.1."""
+    import numpy as np
+    a = np.asarray(img.convert('L')).astype(np.int16)
+    h, w = a.shape
+    if h < 3 or w < 3:
+        return 1.0
+    st = np.stack([a[dy:h - 2 + dy, dx:w - 2 + dx] for dy in range(3) for dx in range(3)])
+    return float(((st.max(0) - st.min(0)) < 20).mean())
+
+
+def pick_tool(tool, r, img=None):
     """--tool auto: IA textures (lettering, decals, signatures) and RGBA ones
     (glow sprites) go to Real-ESRGAN, which keeps shapes as drawn - SeedVR2
-    redraws letters. Everything else (paletted art, greyscale photos) to SeedVR2."""
+    redraws letters. So do grainy, photo-like textures: on the Statue Park
+    statue's tiles SeedVR2 drew chrome ornaments and faces, a different one
+    each tile. Clean graphic art (signs, crates, panels, maps) to SeedVR2."""
     if tool != 'auto':
         return tool
-    return 'esrgan' if r['fmt'] in (FMT_IA, FMT_RGBA) else 'seedvr2'
+    if r['fmt'] in (FMT_IA, FMT_RGBA):
+        return 'esrgan'
+    if img is not None and flat_share(img) < GRAINY:
+        return 'esrgan'
+    return 'seedvr2'
 
 
 def keep_grey(path, orig):
@@ -174,34 +254,77 @@ def main():
 
     os.makedirs(os.path.join(a.work, 'answer'), exist_ok=True)
     log = open(os.path.join(a.work, 'log.tsv'), 'a', encoding='utf-8')
+    siblings = {}   # sibling_key -> dumped rows
+    for r in rows:
+        if sibling_key(r) and os.path.exists(os.path.join(a.dump_dir, r['name'])):
+            siblings.setdefault(sibling_key(r), []).append(r)
+    wild = wildcards(a.dump_dir, siblings)
+    print('%d palette variants go to %d any-palette ($) textures'
+          % (sum(r['name'] in wild for r in todo), len({wild[r['name']] for r in todo if r['name'] in wild})))
+
+    def hd_of(s):
+        """the fork's HD texture for a dumped row: its own name's, or its wildcard's"""
+        return have.get(s['name']) or have.get(wild.get(s['name'], ''))
+
+    todo.sort(key=lambda r: sibling_key(r) or ('', r['name']))   # a group's first gets the AI, the rest follow
     done = 0
+    ai_runs = 0
     t0 = time.time()
     for r in todo:
         if a.limit and done >= a.limit:
             break
         tex = r['name'][:-4]
+        out_name = wild.get(r['name'], r['name'])
+        if out_name in have:
+            continue   # another variant made the wildcard already
         dst_dir = os.path.join(a.fork_dir, 'GOLDENEYE', 'AI', level_folder(r['stage']))
-        dst = os.path.join(dst_dir, r['name'])
+        dst = os.path.join(dst_dir, out_name)
         if os.path.exists(dst):
             continue
         img = Image.open(os.path.join(a.dump_dir, r['name'])).convert('RGBA')
         m = manifest_entry(r, img)
         ans_path = os.path.join(a.work, 'answer', r['name'])
-        tool = pick_tool(a.tool, r)
+        tool = pick_tool(a.tool, r, img)
+        src = next((s for s in siblings.get(sibling_key(r), ()) if s is not r and hd_of(s)), None)
+        if src is not None:
+            os.makedirs(dst_dir, exist_ok=True)
+            make_sibling(a.dump_dir, src, hd_of(src), r, m, dst)
+            have[out_name] = dst
+            log.write('%s\tsibling:%s\t%d\t%d\t\t\t%s\n' % (out_name, src['name'], r['w'], r['h'],
+                                                          level_folder(r['stage'])))
+            log.flush()
+            done += 1
+            print('%d/%d %s %dx%d from palette sibling %s' % (done, len(todo), out_name, r['w'], r['h'], src['name']))
+            continue
+        # grainy art gets both: Real-ESRGAN only where it is clearly more faithful
+        both = tool == 'esrgan' and a.tool == 'auto' and r['fmt'] not in (FMT_IA, FMT_RGBA)
         try:
-            answer = upscale(tool, comfy.native_input(a.dump_dir, tex, m))
-            comfy.framed(answer, m).save(ans_path)
-            if m['alpha']:
-                alpha_answer(a.dump_dir, tex, m, a.work, r['name'])
-            s = texai.post_one(a.dump_dir, ans_path, tex, m, os.path.join(a.work, 'final', tex))
-            if r['fmt'] in (FMT_IA, FMT_I):
-                keep_grey(os.path.join(a.work, 'final', tex + '_soft.png'), img)
+            made = {}
+            for t in (('esrgan', 'seedvr2') if both else (tool,)):
+                ai_runs += 1
+                if ai_runs % 15 == 0:
+                    comfy.free()   # VRAM creeps up over a batch until jobs spill and crawl
+                answer = upscale(t, comfy.native_input(a.dump_dir, tex, m))
+                path = ans_path if t == tool else ans_path[:-4] + '_' + t + '.png'
+                comfy.framed(answer, m).save(path)
+                if m['alpha'] and 'alpha_answer' not in m:
+                    alpha_answer(a.dump_dir, tex, m, a.work, r['name'])
+                base = os.path.join(a.work, 'final', tex + ('' if t == tool else '_' + t))
+                s = texai.post_one(a.dump_dir, path, tex, m, base)
+                if r['fmt'] in (FMT_IA, FMT_I):
+                    keep_grey(base + '_soft.png', img)
+                made[t] = (base + '_soft.png', s, texai.native_psnr(base + '_soft.png', img))
+            if both:
+                gain = made['esrgan'][2] - made['seedvr2'][2]
+                tool = 'esrgan' if gain >= ESRGAN_MARGIN else 'seedvr2'
+            final, s, _ = made[tool]
         except Exception as e:   # one bad texture must not stop an overnight run
             print('%s: %s: %s' % (r['name'], type(e).__name__, e))
             continue
         os.makedirs(dst_dir, exist_ok=True)
-        os.replace(os.path.join(a.work, 'final', tex + '_soft.png'), dst)
-        log.write('%s\t%s\t%d\t%d\t%.1f\t%.1f\t%s\n' % (r['name'], tool, r['w'], r['h'], s['drift'], s['drift4'],
+        os.replace(final, dst)
+        have[out_name] = dst
+        log.write('%s\t%s\t%d\t%d\t%.1f\t%.1f\t%s\n' % (out_name, tool, r['w'], r['h'], s['drift'], s['drift4'],
                                                        level_folder(r['stage'])))
         log.flush()
         done += 1

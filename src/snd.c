@@ -1117,6 +1117,18 @@ void sndSetScalerApplyVolumeAllSfxSlot(f32 volumeScale)
     sndApplyVolumeAllSfxSlot(sndGetSfxSlotFirstNaturalVolume());
 }
 
+#ifdef GEVR
+/* The launcher and the settings file set the effects volume before
+ * sndNewPlayerInit allocates the slot tables; music.c applies it then. */
+void gevrSndApplySfxVolume(u16 volume)
+{
+    if (g_sndSfxSlotVolume && g_sndSfxSlotNaturalVolume)
+    {
+        sndApplyVolumeAllSfxSlot(volume);
+    }
+}
+#endif
+
 /**
  * 9E64    70009264
  *     V0= halfword A0 in table at [80063BA8]; fries T6,T7,T8,T9

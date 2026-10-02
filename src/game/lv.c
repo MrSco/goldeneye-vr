@@ -1,3 +1,6 @@
+#ifdef GEVR
+#include "net_game.h"
+#endif
 #include "system.h"
 #include <ultra64.h>
 #include <math.h>
@@ -62,6 +65,11 @@
 #include "frametiming.h"
 #include "chr.h"
 #include "gevr_rom_segments.h"
+#ifdef GEVR
+extern bool netIsActive(void);
+extern int netGetPhase(void);
+#include "options.h"
+#endif
 
 // bss
 //CODE.bss:8008C260
@@ -353,9 +361,21 @@ void lvlStageLoad(s32 stage)
     g_MpSoundStateRelated = 0;
 
     sndSetScalerApplyVolumeAllSfxSlot(1.0f);
-    musicTrack1ApplySeqpVol(VOLUME_MAX);
-    musicTrack2ApplySeqpVol(VOLUME_MAX);
-    musicTrack3ApplySeqpVol(VOLUME_MAX);
+#ifdef GEVR
+    if (netIsActive())
+    {
+        u16 volume = get_mTrack2Vol();
+        musicTrack1ApplySeqpVol(volume);
+        musicTrack2ApplySeqpVol(volume);
+        musicTrack3ApplySeqpVol(volume);
+    }
+    else
+#endif
+    {
+        musicTrack1ApplySeqpVol(VOLUME_MAX);
+        musicTrack2ApplySeqpVol(VOLUME_MAX);
+        musicTrack3ApplySeqpVol(VOLUME_MAX);
+    }
     sub_GAME_7F0C1364();
     modelmgrSetLevelResetting(TRUE);
     set_mt_tex_alloc();
@@ -384,7 +404,11 @@ void lvlStageLoad(s32 stage)
 
         if ((g_CurrentStageToLoad != LEVELID_TITLE) && (D_80048394 == 0) && (g_ClockTimer > 0))
         {
-            if (g_AppendCheatSinglePlayer != 0)
+            if (g_AppendCheatSinglePlayer != 0
+#ifdef GEVR
+                && !netIsActive()
+#endif
+            )
             {
                 s32 s0 = 1;
 
@@ -411,6 +435,10 @@ void lvlStageLoad(s32 stage)
         {
             s32 s3;
             player_data = (struct player_data *)&g_playerPlayerData[i];
+            player_data->kill_count = 0;
+#ifdef GEVR
+            player_data->gevr_score_bank = 0;   /* online: banked kills against players who left */
+#endif
 
             if (getPlayerCount() == 1)
             {
@@ -666,10 +694,205 @@ Gfx *lvlPortalDebug7F0BDF10(Gfx *gdl)
  * Address 0x7F0BE30C (VERSION_US).
  */
 
+#ifdef GEVR
+/*
+ * Online only the local view is drawn, but the game traces each player's
+ * shots, tests their hits and steps their projectiles in that player's own
+ * view pass: with its camera, its room visibility, its on-screen prop list
+ * and the props' matrices in its camera's space. Split screen runs one such
+ * pass per player, and it is what every hit test assumes. The other players'
+ * copies get that pass here, minus the drawing: the camera sits on the
+ * owner's gun barrel (the shot then runs straight down the camera's axis),
+ * or at the copy's eye along its view when the owner does not aim with a
+ * controller; the commands the viewport setup writes go to a scratch buffer;
+ * and what only the local player does (collecting pickups, the sight, the
+ * HUD) stays out.
+ *
+ * The local player gets the same pass for a hand firing well outside the
+ * head's view (gevrLocalBarrelPlan): in stereo the gun is not the head, and
+ * the head pass's on-screen list holds nothing beside or behind the player.
+ */
+static s32 s_gevrBarrelHand[2];         /* the local hands a pass traces this frame */
+static coord3d s_gevrBarrelOrigin[2];   /* and their barrels, world space */
+static coord3d s_gevrBarrelDir[2];
+
+static void gevrViewPass(s32 playernum, s32 hand)
+{
+    extern int netGetRemoteAim(int slot_id, int hand, coord3d *origin, coord3d *dir);
+    extern int netGetLocalSlot(void);
+    extern void gevrSetCopyTrace(s32 on);
+    extern void gevrSetPassAim(s32 hand, const coord3d *origin, const coord3d *dir);
+    extern void chraiCheckUseHeldItem(s32 hand);
+    extern s32 g_gevrShotHand;
+    extern s32 g_gevrExtraPass;
+    s32 islocal = netIsActive() && playernum == netGetLocalSlot();
+    s32 aimed;
+    extern void bondviewUpdateCameraMatrices(coord3d *cam_pos, coord3d *cam_look_dir, coord3d *cam_up);
+    extern s32 g_gevrStereo;
+    extern float gevrVrFov(void);
+    extern float gevrVrAspect(void);
+    static Gfx scratch[64];
+    struct player *pl = g_playerPointers[playernum];
+    s32 prev = get_cur_playernum();
+    coord3d pos;
+    coord3d look;
+    coord3d up;
+
+    if (pl == NULL || pl->prop == NULL || pl->prop->stan == NULL || hand < 0 || hand > 1)
+    {
+        return;
+    }
+    if (islocal && !s_gevrBarrelHand[hand])
+    {
+        return;
+    }
+    set_cur_player(playernum);
+    g_gevrExtraPass = TRUE;
+
+    viSetViewSize(g_CurrentPlayer->viewx, g_CurrentPlayer->viewy);
+    viSetViewPosition(g_CurrentPlayer->viewleft, g_CurrentPlayer->viewtop);
+    viSetFovY(g_CurrentPlayer->fovy);
+    viSetAspect(g_CurrentPlayer->aspect);
+    if (g_gevrStereo)
+    {
+        viSetFovY(gevrVrFov());
+        viSetAspect(gevrVrAspect());
+    }
+    /* the projection (projmatrixf) and the viewport; the commands are dropped */
+    viSetupCurrentPlayerView(scratch);
+
+    if (islocal)
+    {
+        pos = s_gevrBarrelOrigin[hand];
+        look = s_gevrBarrelDir[hand];
+        aimed = TRUE;
+    }
+    else if (pl->bonddead || !netGetRemoteAim(playernum, hand, &pos, &look))
+    {
+        pos = pl->field_488.pos;
+        look = pl->field_488.applied_view;
+        aimed = FALSE;
+    }
+    else
+    {
+        aimed = TRUE;
+    }
+    if (aimed)
+    {
+        /*
+         * With the muzzle as the frustum's apex the shot runs down the axis
+         * exactly. A gun poked through a doorway or a wall (a VR habit: shoot
+         * round the frame without looking) puts the apex past the portal,
+         * which then culls the room beyond. When the muzzle is off the copy's
+         * own floor chunk, the apex goes back to the eye, along the same
+         * barrel; the portal is then in front of it.
+         */
+        extern s32 walkTilesBetweenPoints_NoCallback(StandTile **tileStack, f32 start_x, f32 start_z, f32 dest_x, f32 dest_z);
+        extern s32 getTileRoom(StandTile *tile);
+        StandTile *tile = pl->prop->stan;
+
+        if (!walkTilesBetweenPoints_NoCallback(&tile, pl->prop->pos.x, pl->prop->pos.z, pos.x, pos.z)
+            || tile == NULL || getTileRoom(tile) != getTileRoom(pl->prop->stan))
+        {
+            pos = pl->field_488.pos;
+        }
+    }
+    up.x = 0.0f;
+    up.y = 1.0f;
+    up.z = 0.0f;
+    if (look.y * look.y > 0.98f * (look.x * look.x + look.y * look.y + look.z * look.z))
+    {
+        /* straight up or down: any level up vector will do */
+        up.y = 0.0f;
+        up.z = 1.0f;
+    }
+    bondviewUpdateCameraMatrices(&pos, &look, &up);
+    bgRoomVisibilityRelated();
+    propsTick();
+    chraiUpdateOnscreenPropCount();
+    gevrSetCopyTrace(TRUE);
+    if (islocal)
+    {
+        gevrSetPassAim(hand, &s_gevrBarrelOrigin[hand], &s_gevrBarrelDir[hand]);
+        g_gevrShotHand = hand;
+        chraiCheckUseHeldItem(hand);
+        g_gevrShotHand = -1;
+        gevrSetPassAim(hand, NULL, NULL);
+    }
+    else
+    {
+        g_gevrShotHand = hand;
+        chraiCheckUseHeldItem(hand);
+        g_gevrShotHand = -1;
+    }
+    gevrSetCopyTrace(FALSE);
+
+    g_gevrExtraPass = FALSE;
+    set_cur_player(prev);
+}
+
+/*
+ * In stereo the gun is not the head: a shot fired well outside the head's
+ * view (round a corner, beside or behind, without looking) finds no targets
+ * in the head pass's on-screen list, and past 90 degrees its depth maths
+ * inverts. Online such a hand gets its own pass, camera on its barrel, before
+ * the head pass, which then leaves that hand's trace to it. Solo keeps the
+ * head pass alone, as Perfect Dark VR does (its shotCalculateHits tests the
+ * on-screen props too): guards' ticks are not pass-gated. Called as the local
+ * player before its camera is built, so the barrel's world direction takes
+ * the previous frame's head transform.
+ */
+static void gevrLocalBarrelPlan(void)
+{
+    extern s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, coord3d *origin, coord3d *dir);
+    extern s32 gevrStereoShotWorld(s32 handnum, coord3d *origin, coord3d *dir);
+    extern s32 g_gevrStereo;
+    s32 hand;
+
+    for (hand = 0; hand < 2; hand++)
+    {
+        coord3d o;
+        coord3d d;
+
+        s_gevrBarrelHand[hand] = FALSE;
+        if (!g_gevrStereo || !netIsActive() || get_hands_firing_status(hand) == 0)
+        {
+            continue;
+        }
+        if (!gevrStereoShot(hand, NULL, &o, &d) || -d.z >= 0.819f)
+        {
+            continue;   /* within 35 degrees of the view axis: the head pass sees it */
+        }
+        {
+            /* from the eye's depth along the barrel, as the shot is (bondview2.c
+             * gevrShotFromEye): the pass's apex then sits before a door the
+             * barrel is poked through, so the door is on its screen and hit */
+            extern s32 gevrStereoShotWorldFromEye(s32 handnum, coord3d *origin, coord3d *dir);
+
+            if (!gevrStereoShotWorldFromEye(hand, &s_gevrBarrelOrigin[hand], &s_gevrBarrelDir[hand]))
+            {
+                continue;
+            }
+        }
+        s_gevrBarrelHand[hand] = TRUE;
+    }
+}
+#endif
+
 Gfx* lvlRender(Gfx* DL)
 {
 #ifdef GEVR
-    { extern void gevrStereoFrame(s32 inlevel); gevrStereoFrame(g_CurrentStageToLoad != LEVELID_TITLE); }
+    {
+        extern void gevrStereoFrame(s32 inlevel);
+        extern bool netIsActive(void);
+        extern int netGetLocalSlot(void);
+        if (netIsActive() && netGetLocalSlot() >= 0)
+        {
+            set_cur_player(netGetLocalSlot());
+        }
+        gevrStereoFrame(g_CurrentStageToLoad != LEVELID_TITLE);
+        if (g_CurrentStageToLoad != LEVELID_TITLE) netSpectatorFrame();
+    }
 #endif
     gSPSegment(DL++, SPSEGMENT_PHYSICAL, NULL);
     gSPSegment(DL++, SPSEGMENT_UNKNOWN, osVirtualToPhysical(ptr_font_DL));
@@ -698,7 +921,25 @@ Gfx* lvlRender(Gfx* DL)
 
         for(i = 0; i < pcount; i++)
         {
-            set_cur_player(get_nth_player_from_shuffled(i));
+            s32 playernum = get_nth_player_from_shuffled(i);
+#ifdef GEVR
+            {
+                extern int netGetLocalSlot(void);
+                extern bool netSlotOccupied(int slot);
+                if (netIsActive() && playernum != netGetLocalSlot())
+                {
+                    /* Online only the local player's view is drawn; the other
+                     * players' copies get their view pass without the drawing. */
+                    if (netSlotOccupied(playernum))
+                    {
+                        gevrViewPass(playernum, GUNRIGHT);
+                        if (netRemoteWeapon(playernum, GUNLEFT) != ITEM_UNARMED) gevrViewPass(playernum, GUNLEFT);
+                    }
+                    continue;
+                }
+            }
+#endif
+            set_cur_player(playernum);
 
             viSetViewSize(g_CurrentPlayer->viewx, g_CurrentPlayer->viewy);
             viSetViewPosition(g_CurrentPlayer->viewleft, g_CurrentPlayer->viewtop);
@@ -726,6 +967,19 @@ Gfx* lvlRender(Gfx* DL)
                 {
                     viSetFovY(gevrVrFov());
                     viSetAspect(gevrVrAspect());
+                }
+            }
+            /* a hand firing well off the head's view gets its own pass first */
+            gevrLocalBarrelPlan();
+            {
+                s32 hand;
+
+                for (hand = 0; hand < 2; hand++)
+                {
+                    if (s_gevrBarrelHand[hand])
+                    {
+                        gevrViewPass(playernum, hand);
+                    }
                 }
             }
 #endif
@@ -766,9 +1020,29 @@ Gfx* lvlRender(Gfx* DL)
             propsTick();
             chraiUpdateOnscreenPropCount();
             chrpropUpdateAutoaimTarget();
-            chraiCheckUseHeldItems();
 #ifdef GEVR
+            {
+                /* the hands a barrel pass traced this frame stay out (gevrLocalBarrelPlan) */
+                extern void chraiCheckUseHeldItem(s32 hand);
+                extern s32 g_gevrShotHand;
+                s32 hand;
+
+                for (hand = 0; hand < 2; hand++)
+                {
+                    if (s_gevrBarrelHand[hand])
+                    {
+                        continue;
+                    }
+                    g_gevrShotHand = hand;
+                    chraiCheckUseHeldItem(hand);
+                }
+                g_gevrShotHand = -1;
+            }
             { extern void gevrStereoAimUpdate(void); gevrStereoAimUpdate(); }
+#else
+            chraiCheckUseHeldItems();
+#endif
+#ifdef GEVR
             /*
              * Issue #55: a blow of either hand (bondview2.c gevrHandChopTick),
              * here with the game's own fist: the guards' matrices are this
@@ -873,6 +1147,16 @@ Gfx* lvlRender(Gfx* DL)
             {
                 gDPNoOpTag(DL++, 0x565D0001); /* VR_SCOPE_REC_END */
             }
+            {
+                /*
+                 * Online: the other players' names (gunfire.c), while the depth
+                 * buffer still holds the level, before the gun and the HUD, and
+                 * out of the scope's copy, which is drawn from another camera.
+                 */
+                extern Gfx *gevrDrawNameTags(Gfx *gdl);
+
+                DL = gevrDrawNameTags(DL);
+            }
 #endif
             if (get_debug_render_raster() == DEB_BOND_VIEW)
             {
@@ -883,7 +1167,27 @@ Gfx* lvlRender(Gfx* DL)
                 DL = bondviewRemoved7F08BCB8(DL);
             }
 
+#ifdef GEVR
+            /* The MP watch menu is 2D text. In stereo it must share the
+             * head-locked HUD quad, not the two eye buffers. */
+            {
+                extern s32 g_gevrStereo;
+                s32 capture_mp_menu = g_gevrStereo && netIsActive() && g_CurrentPlayer->mpmenuon;
+                if (capture_mp_menu)
+                {
+                    gDPNoOpTag(DL++, 0x56570000); /* VR_HUD_CAPTURE_BEGIN_H */
+                    gDPNoOpTag(DL++, 0x56590000); /* VR_HUD_FULL_SIZE_BEGIN */
+                }
+                DL = mp_watch_menu_display(DL);
+                if (capture_mp_menu)
+                {
+                    gDPNoOpTag(DL++, 0x56590001); /* VR_HUD_FULL_SIZE_END */
+                    gDPNoOpTag(DL++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+                }
+            }
+#else
             DL = mp_watch_menu_display(DL);
+#endif
         }
     }
 
@@ -1027,6 +1331,11 @@ void lvlSetMultipliersForDifficulty(void)
 void lvlManageMpGame(void)
 {
     tlbmanageResetCurrentEntriesCount();
+#ifdef GEVR
+    const s32 netWarmup = netIsActive() && netGetPhase() == 1; /* NET_PHASE_WARMUP */
+#else
+    const s32 netWarmup = FALSE;
+#endif
 
     if (g_ControlsLockedFlag != 0)
     {
@@ -1067,7 +1376,11 @@ void lvlManageMpGame(void)
     g_GlobalTimer += g_ClockTimer;
     if ((g_CurrentStageToLoad != LEVELID_TITLE) && (D_80048394 == 0) && (g_ClockTimer > 0))
     {
-        if (g_AppendCheatSinglePlayer != 0)
+        if (g_AppendCheatSinglePlayer != 0
+#ifdef GEVR
+                && !netIsActive()
+#endif
+            )
         {
             s32 i;
             for (i = 1; i != CHEAT_INVALID; i++)
@@ -1080,6 +1393,9 @@ void lvlManageMpGame(void)
         }
     }
 
+    /* Warmup runs no clock, point limit or YOLT tracking, but a death in it
+     * still sets MISSION_STATE_6 (level music out, death sting on track 2);
+     * the state-6 check below must run to bring the music back. */
     if ((getPlayerCount() >= 2) && (g_CurrentStageToLoad != LEVELID_TITLE))
     {
         if (get_mission_state() == MISSION_STATE_6)
@@ -1109,7 +1425,7 @@ void lvlManageMpGame(void)
             }
         }
 
-        if (g_MpTime > 0)
+        if (!netWarmup && g_MpTime > 0)
         {
             s32 current_time;
             s32 sp180;
@@ -1160,7 +1476,7 @@ void lvlManageMpGame(void)
         }
 
         // when playing with a kill limit, g_MpPoint is not zero
-        if ((g_MpPoint > 0) && (g_ClockTimer != 0))
+        if (!netWarmup && (g_MpPoint > 0) && (g_ClockTimer != 0))
         {
             s32 var_player_count1;
             s32 i;
@@ -1203,7 +1519,7 @@ void lvlManageMpGame(void)
 
 
         // YOLT scenario: end-of-game tracking.
-        if ((get_scenario() == SCENARIO_YOLT) && (g_ClockTimer != 0))
+        if (!netWarmup && (get_scenario() == SCENARIO_YOLT) && (g_ClockTimer != 0))
         {
             s32 player_count;
             s32 killed_count;
@@ -1219,11 +1535,17 @@ void lvlManageMpGame(void)
 
             for (i = 0; i < player_count; i++)
             {
+#ifdef GEVR
+                if (netIsActive() && !netPlayerInRound(i)) continue;
+#endif
                 killed_count = 0;
                 not_dead_count = 0;
 
                 for (j = 0; j < player_count; j++)
                 {
+#ifdef GEVR
+                    if (netIsActive() && !netPlayerInRound(j)) continue;
+#endif
                     if (g_playerPointers[j]->bonddead == 0)
                     {
                         not_dead_count++;
@@ -1249,11 +1571,13 @@ void lvlManageMpGame(void)
                 }
             }
 
-            if (fully_dead_total >= player_count - 1)
+            /* online: the humans in the round, not the stage's slots (net_core.c) */
+            extern int netMpPlayerCount(int fallback);
+            if (fully_dead_total >= netMpPlayerCount(player_count) - 1)
             {
                 mpCalculateAwards(FALSE);
             }
-            else if (killed_total >= player_count - 1)
+            else if (killed_total >= netMpPlayerCount(player_count) - 1)
             {
                 mpwatchSetStopPlayFlag();
             }
@@ -1266,13 +1590,13 @@ void lvlManageMpGame(void)
         }
     }
 
-    D_80048394 = D_80048394 + g_ClockTimer;
+    D_80048394 = D_80048394 + (netWarmup ? 0 : g_ClockTimer);
 #ifdef VERSION_EU
     g_CurrentMultiPlayerSec = (f32) (D_80048394) / 50.0f;
 #else
     g_CurrentMultiPlayerSec = (f32) (D_80048394) / 60.0f;
 #endif
-    D_800483A8 = D_800483A8 + g_ClockTimer;
+    D_800483A8 = D_800483A8 + (netWarmup ? 0 : g_ClockTimer);
 #ifdef VERSION_EU
     g_CurrentMultiPlayerMin = (f32) (D_800483A8) / 50.0f;
 #else
@@ -1754,5 +2078,3 @@ f32 lvlGetPowerOnTimeSec(void)
 {
     return g_PowerOnTimeSec;
 }
-
-

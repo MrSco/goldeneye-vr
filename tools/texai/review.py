@@ -50,7 +50,7 @@ def main():
         for line in f:
             p = line.rstrip('\n').split('\t')
             if len(p) >= 7:
-                rows.append((float(p[5]), p[0], p[6]))
+                rows.append((float(p[5]) if p[5] else 99.0, p[0], p[6]))   # palette siblings have no score
     rows.sort(reverse=a.best)
     per = COLS * ROWS // 2
     for page in range((len(rows) + per - 1) // per):
@@ -58,7 +58,11 @@ def main():
         dr = ImageDraw.Draw(sheet)
         for i, (d4, name, folder) in enumerate(rows[page * per:(page + 1) * per]):
             x, y = (i % (COLS // 2)) * 2 * CELL, (i // (COLS // 2)) * (CELL + 14)
-            orig = Image.open(os.path.join(a.dump_dir, name))
+            src = name
+            if '#$_' in name:   # any-palette: the dumped variants are one image, show the first
+                pre = name.split('#$_')[0] + '#'
+                src = next(n for n in sorted(os.listdir(a.dump_dir)) if n.startswith(pre))
+            orig = Image.open(os.path.join(a.dump_dir, src))
             ai = Image.open(os.path.join(a.fork_dir, 'GOLDENEYE', 'AI', folder, name))
             sheet.paste(fit(orig, True), (x + 4, y + 4))
             sheet.paste(fit(ai, False), (x + CELL + 4, y + 4))

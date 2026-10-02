@@ -139,11 +139,6 @@ bool get_button_state(int hand_index, const char* button_name);
  */
 bool get_2d_input(int hand_index, const char* input_name, XrVector2f* value);
 
-#ifdef __cplusplus
-}
-#endif
-
-
 /**
  * @brief Gets the analog value of an input
  * @param hand_index Controller index (0 = left, 1 = right)
@@ -151,6 +146,10 @@ bool get_2d_input(int hand_index, const char* input_name, XrVector2f* value);
  * @return Value between 0.0 and 1.0
  */
 float get_analog_value(int hand_index, const char* input_name);
+
+#ifdef __cplusplus
+}
+#endif
 
 
 
@@ -173,6 +172,7 @@ extern "C" {
 #endif
 // Wrapper version for C (without default parameter)
 XrResult trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
+XrResult trigger_haptic_vibration_freq_c(int hand_index, float amplitude, float duration, float frequency);
 XrResult stop_haptic_vibration_c(int hand_index);
 int vr_haptics_ready(void);
 #ifdef __cplusplus

@@ -113,10 +113,21 @@ void sets_a_bunch_of_BONDdata_values_to_default(void)
      * Give the gait model its own storage. numRecords is under 0x1F (the
      * assert above), and rwdata is numRecords 4-byte slots, so 64 words is
      * ample headroom.
+     *
+     * One buffer per player, as field_654 was: the walk's root motion lives
+     * here (bondhead.c), and a single shared buffer let every other player's
+     * tick reset it with its own frame fraction, so online the local player
+     * walked forward too fast whenever a second slot was occupied.
      */
-    static u32 gevrBondGaitRwData[64];
+    static u32 gevrBondGaitRwData[4][64];
+    s32 gaitslot = get_cur_playernum();
 
-    animInit(&g_CurrentPlayer->model, &player_gait_object_header, gevrBondGaitRwData);
+    if (gaitslot < 0 || gaitslot >= 4)
+    {
+        gaitslot = 0;
+    }
+
+    animInit(&g_CurrentPlayer->model, &player_gait_object_header, gevrBondGaitRwData[gaitslot]);
 #else
     animInit(&g_CurrentPlayer->model, &player_gait_object_header, &g_CurrentPlayer->field_654);
 #endif

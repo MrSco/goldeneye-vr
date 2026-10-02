@@ -64,6 +64,8 @@ public class MainActivity extends SDLActivity {
             Log.w(TAG, "no versionName", e);
         }
         mods = new ModManager(this, version);
+        lobbies = new LobbyClient();
+        reporter = new LogReporter(this);
 
         Log.i(TAG, "Starting GEVR VR mode");
         initializeGame();
@@ -86,6 +88,14 @@ public class MainActivity extends SDLActivity {
 
     // --- Mods page (texture packs from their authors' sites), driven by the in-VR launcher ---
     private ModManager mods;
+    private LobbyClient lobbies;
+    private LogReporter reporter;
+
+    public String reportStatus() { return reporter != null ? reporter.status() : "idle"; }
+    public void reportCommand(String cmd) { if (reporter != null) reporter.command(cmd); }
+
+    public String lobbyEvent() { return lobbies != null ? lobbies.event() : ""; }
+    public void lobbyCommand(String cmd) { if (lobbies != null) lobbies.command(cmd); }
 
     /** One tab-separated line per pack for port/vr/vr_launcher.cpp; see ModManager.status. */
     public String modsStatus() {
@@ -104,6 +114,9 @@ public class MainActivity extends SDLActivity {
      * a moment later, with the very intent the Library uses.
      */
     public void restartToLauncher() {
+        if (reporter != null) reporter.foreground(false);
+        if (lobbies != null) lobbies.stopAndWait(
+                android.os.Looper.myLooper() == android.os.Looper.getMainLooper() ? 1000 : 2000);
         runOnUiThread(() -> {
             // RelaunchActivity (its own process) kills this one and starts the
             // app again. An exit here hung on native threads until Android's
@@ -290,6 +303,7 @@ public class MainActivity extends SDLActivity {
     @Override
     protected void onResume() {
         Log.i(TAG, "MainActivity onResume - VR mode");
+        if (reporter != null) reporter.foreground(true);
         SDLActivity.mHasFocus = true;
         super.onResume();
         nativeAudioResume();
@@ -320,6 +334,7 @@ public class MainActivity extends SDLActivity {
     @Override
     protected void onPause() {
         Log.i(TAG, "MainActivity onPause - stop audio immediately");
+        if (reporter != null) reporter.foreground(false);
         /* SDLActivity skips pauseNativeThread on API>=24 (multi-window).
          * Our XR pump never waits on Android_PauseSem, so clear/pause SDL
          * audio here or music keeps playing on the Quest home screen. */
@@ -330,9 +345,33 @@ public class MainActivity extends SDLActivity {
     @Override
     protected void onDestroy() {
         Log.i(TAG, "MainActivity onDestroy");
+        if (reporter != null) reporter.foreground(false);
+        if (lobbies != null) lobbies.shutdown();
         nativeAudioPause();
         nativeDestroy();
         super.onDestroy();
+    }
+
+    private static final int VOICE_PERMISSION_REQUEST = 4137;
+
+    public void requestVoicePermission(String ignored) {
+        runOnUiThread(() -> {
+            if (android.os.Build.VERSION.SDK_INT < 23 ||
+                checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                nativeVoicePermissionResult(true);
+            } else {
+                requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, VOICE_PERMISSION_REQUEST);
+            }
+        });
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == VOICE_PERMISSION_REQUEST) {
+            nativeVoicePermissionResult(grantResults.length > 0 &&
+                grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED);
+        }
     }
 
     // Native methods
@@ -341,4 +380,5 @@ public class MainActivity extends SDLActivity {
     public native void nativeDestroy();
     public native void nativeAudioPause();
     public native void nativeAudioResume();
+    public native void nativeVoicePermissionResult(boolean granted);
 }

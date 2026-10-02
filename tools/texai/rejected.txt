@@ -13,9 +13,62 @@ C46658E1  file-select dossier image, 1-bit halftone dither turned to mush
 135DA584  file-select dossier image, halftone dither turned to mush
 2FE8C32C  file-select dossier image, halftone dither turned to mush
 14B20968  file-select dossier image, halftone dither turned to mush
-C654D2CA  dossier photo, dither turned to mush
 CE20C499  dossier photo, dither turned to mush
-CEEB36E2  dossier photo edge, garbled
 52DDC423  signature scribble garbled
 472FBB4B  small GoldenEye 007 logo garbled
 CC50ADDF  boxed logo, lettering at the top garbled
+# 2026-09-27 review of the non-zlib ROM batch (rareimg.py):
+6113B32E  layout with text blocks turned to invented squiggly text
+34AEC0C9  grate with stencilled letters, letters garbled
+58217FA0  static/noise turned into rock-like blobs
+F1291B59  dark panel turned into a spiky shape
+0CC6CA1D  level photo, white blotch top right
+AF0507C3  checker pattern, noise added in the dark squares
+5B8779F6  flat grey strip (Facility), dense crosshatch invented
+8FD987F5  flat grey strip (Facility), dense crosshatch invented
+815A8D5A  dark panel, two white eyes added
+CB2352A7  dark blue noise, bubbles added
+EDA4B17B  warning triangle, pictogram mangled
+8BF0E252  computer screen text, gibberish
+6B8EDF8F  computer screen text, gibberish
+0BD392EA  static noise, smoothed into blobs
+35A29628  warning triangle, pictogram mangled
+C7AF4210  helicopter blueprint, gibberish caption
+80226D12  helicopter blueprint, gibberish caption
+69E3100F  screen overlay, invented text
+530CEDDE  screen overlay, invented text
+07CEE918  dial panel, contour swirls invented
+EA4EB818  dial panel, contour swirls invented
+15FE0971  dial panel, contour swirls invented
+BB2F0990  dial panel, contour swirls invented
+0D3E1168  light panel, fake letters in the red box
+4F9A951A  dark panel, two white eyes added
+7849822A  dark panel, two white eyes added
+879A951A  dark panel, two white eyes added
+969A8FFA  dark panel, two white eyes added
+6771E819  flat grey strip, dense crosshatch invented
+68862E11  flat grey strip, dense crosshatch invented
+0BE54909  map tile, coastline turned stringy
+29653A1A  map tile, coastline turned stringy
+3E689737  map tile, coastline turned stringy
+F2289732  map tile, coastline turned stringy
+0D75A5EA  map tile, coastline turned stringy
+EC85A5EA  map tile, coastline turned stringy
+14AFC4DE  map tile, coastline turned stringy
+D5FFC4DF  map tile, coastline turned stringy
+5F27E7A0  map tile, coastline turned stringy
+64BDF3B9  fire, emblem invented
+BA178014  fire, creature shape invented
+47AA6DE2  face poster, invented eyes
+6F3BB7C7  face poster, invented eyes
+A2A6E7DB  Silo console, fake text or eyes in the screen
+A2B6E7DB  Silo console, fake text or eyes in the screen
+0F3AAB38  Silo console, fake text or eyes in the screen
+2C3ABC66  Silo console, fake text or eyes in the screen
+4D0CC62C  Silo console, fake text or eyes in the screen
+514CC62C  Silo console, fake text or eyes in the screen
+0F6BD703  Silo console, fake text or eyes in the screen
+37CBD523  Silo console, fake text or eyes in the screen
+061EE845  dial panel, contour swirls invented
+EB5E0862  dial panel, contour swirls invented
+49CB30EE  flat grey strip (Dam), nothing to upscale; SeedVR2 invents crosshatch on these

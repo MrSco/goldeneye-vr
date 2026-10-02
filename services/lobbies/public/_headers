@@ -1,0 +1,17 @@
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Cache-Control: no-store
+
+/favicon.ico
+  ! Cache-Control
+  Cache-Control: public, max-age=604800
+
+/favicon-64.png
+  ! Cache-Control
+  Cache-Control: public, max-age=604800
+
+/apple-touch-icon.png
+  ! Cache-Control
+  Cache-Control: public, max-age=604800
