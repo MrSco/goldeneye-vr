@@ -360,6 +360,24 @@
      "op": "authored"
     },
     {
+     "name": "index_knuckle",
+     "why": "the back of the index finger's last knuckle, rounded over the notch the N64 left in it",
+     "tex": "0x703",
+     "verts": [
+      {"s": 617, "t": 762, "mix": [["0x0200", 162, 1.071331], ["0x0200", 170, 0.379642], ["0x0470", 10, -0.61755], ["0x0470", 7, 0.166577]], "mtx": 0, "c": [255, 255, 255, 255]},
+      {"s": 631, "t": 811, "node": "0x0200", "ref": 162, "mtx": 0, "inherit": true},
+      {"s": 433, "t": 799, "node": "0x0200", "ref": 163, "mtx": 0, "inherit": true},
+      {"s": 424, "t": 736, "node": "0x0200", "ref": 165, "mtx": 0, "inherit": true},
+      {"s": 610, "t": 712, "mix": [["0x0200", 168, 1.011123], ["0x0470", 3, 0.511055], ["0x0470", 76, -0.271602], ["0x0470", 5, -0.250575]], "mtx": 0, "c": [255, 255, 255, 255]},
+      {"s": 441, "t": 707, "node": "0x0200", "ref": 167, "mtx": 0, "inherit": true},
+      {"s": 623, "t": 688, "node": "0x0200", "ref": 168, "mtx": 0, "inherit": true},
+      {"s": 708, "t": 742, "node": "0x0470", "ref": 4, "mtx": 0, "inherit": true},
+      {"s": 692, "t": 694, "node": "0x0470", "ref": 6, "mtx": 0, "inherit": true}
+     ],
+     "tris": [[0, 1, 2], [3, 0, 2], [4, 0, 3], [5, 4, 3], [6, 4, 5], [7, 1, 0], [8, 7, 0], [8, 0, 4], [4, 6, 8]],
+     "op": "authored"
+    },
+    {
      "name": "knuckles",
      "why": "the crack between each finger's first segment and its knuckle, zipped shut, and the openings beside them, in the skin round them",
      "tex": "0x702",
