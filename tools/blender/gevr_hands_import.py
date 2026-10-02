@@ -112,6 +112,7 @@ def build_part(model, node, mats, name=None):
     lay_idx = bm.verts.layers.int.new("rom_idx")
     lay_mtx = bm.verts.layers.int.new("rom_mtx")
     uv = bm.loops.layers.uv.new("UVMap")
+    shade = bm.loops.layers.color.new("shade")   # the vertex colour the game multiplies in
     welded = {}
     slot = {}
     refs = {}
@@ -143,6 +144,7 @@ def build_part(model, node, mats, name=None):
         w = model["textures"].get("0x%x" % tex, {"w": 32, "h": 32}) if tex is not None else {"w": 32, "h": 32}
         for loop, (_, v) in zip(f.loops, vs):
             loop[uv].uv = (v["st"][0] / 32.0 / max(w["w"], 1), 1 - v["st"][1] / 32.0 / max(w["h"], 1))
+            loop[shade] = [c / 255.0 for c in v["rgba"]]
     bm.normal_update()
     bm.verts.index_update()
     ALLREFS[ob.name] = {bv.index: r for bv, r in refs.items()}
