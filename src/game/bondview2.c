@@ -1099,6 +1099,7 @@ static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[
  * "item left up fwd rx ry rz scale fist" (item as the ITEM_IDS number).
  */
 #include <stdio.h>
+#include <string.h>
 
 typedef struct
 {
@@ -1122,19 +1123,77 @@ static GevrItemPose s_gevrItemPoses[] = {
      * 2, gunfire.c gevrTaserHandLoad) where the taser's body was: its centre
      * in GtaserZ, x 1 y 79.5 z 57.5 model units at 0.085 cm each. (In the
      * open fist it sat at 2.5, 1, 15, off the palm: #22.) */
-    { ITEM_GRENADE,       { 0.0f, 6.8f, 4.9f }, { 0.0f, 0.0f, 0.0f }, 0.2f, 2 },
+    { ITEM_GRENADE,       { 1.51f, 4.45f, 4.71f }, { 0.0f, 0.0f, 0.0f }, 0.193f, 2 },   /* gadget fit (user) */
     { ITEM_PLASTIQUE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.4f, TRUE },
+    /* mission devices (no stats of their own, has_no_model). Unturned, the key
+     * analyzer and datathief face the eye across the arm, the fist through
+     * them (user): turned to lie along the palm. The safecracker case is the
+     * bomb case's model. */
+    { ITEM_KEYANALYSERCASE, { -0.01f, -13.57f, 13.51f }, { -0.9f, 79.1f, -0.8f }, 2.174f, TRUE },   /* gadget fit (user) */
+    { ITEM_SAFECRACKERCASE, { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },
+    { ITEM_DATATHIEF,     { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.7f, TRUE },   /* huge at 2; along the palm, set in the headset (user) */
+    { ITEM_BOMBDEFUSER,   { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },
+    { ITEM_DOORDECODER,   { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },
+    /* every other item the flat game holds without drawing (has_no_model, but a
+     * G model of its own), first guesses for Gun fit: the cases as the key
+     * analyzer, flat things as the datathief, sizes from each model's radius.
+     * Not the watch's own gadgets: they are worn, not held. */
+    { ITEM_BRIEFCASE,     { 4.0f, 1.0f, 16.0f }, { 0.0f, 90.0f, 0.0f }, 2.0f, TRUE },
+    { ITEM_WEAPONCASE,    { 4.0f, 1.0f, 16.0f }, { 0.0f, 90.0f, 0.0f }, 2.0f, TRUE },
+    { ITEM_KEYCARD,       { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_CREDITCARD,    { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_CIRCUITBOARD,  { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_EXPLOSIVEFLOPPY, { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 1.3f, TRUE },
+    { ITEM_MICROFILM,     { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.5f, TRUE },
+    { ITEM_CLIPBOARD,     { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.7f, TRUE },
+    { ITEM_STAFFLIST,     { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_DOSSIERRED,    { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.7f, TRUE },
+    { ITEM_PLANS,         { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 1.5f, TRUE },
+    { ITEM_SPYFILE,       { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.9f, TRUE },
+    { ITEM_BLUEPRINTS,    { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_MAP,           { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_MONEY,         { 0.0f, 1.0f, 17.0f }, { 90.0f, 90.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_AUDIOTAPE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.8f, TRUE },
+    { ITEM_VIDEOTAPE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.7f, TRUE },
+    { ITEM_DATTAPE,       { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
+    { ITEM_SPOOLTAPE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_MICROCODE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_BLACKBOX,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.85f, TRUE },
+    { ITEM_BUGDETECTOR,   { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_POLARIZEDGLASSES, { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 1.3f, TRUE },
+    { ITEM_DARKGLASSES,   { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_GASKEYRING,    { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.45f, TRUE },
+    { ITEM_KEYYALE,       { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.12f, TRUE },
+    { ITEM_KEYBOLT,       { -0.02f, 0.20f, 14.83f }, { -35.1f, -5.2f, -79.6f }, 0.084f, TRUE },   /* gadget fit (user) */
+    { ITEM_GOLDBAR,       { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_HEROIN,        { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_LECTRE,        { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_BUNGEE,        { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_LOCKEXPLODER,  { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
+    { ITEM_DOOREXPLODER,  { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
 };
+static GevrItemPose s_gevrItemPoseDefaults[ARRAYCOUNT(s_gevrItemPoses)];
+static GevrItemPose s_gevrItemPoseFitSaved[ARRAYCOUNT(s_gevrItemPoses)];
+static s32 s_gevrGadgetFitting;   /* Gun fit is moving a gadget: the file must not undo it */
+
+#define GEVR_ITEMPOSE_FILE "/sdcard/Android/data/com.gevr.port/files/gevr_itempose.txt"
 
 static GevrItemPose *gevrItemPoseFind(s32 item)
 {
     static u32 tick;
+    static s32 copied;
     u32 i;
 
-    /* the tuning file, re-read every couple of seconds while it exists */
-    if ((tick++ % 120) == 0)
+    if (!copied)
     {
-        FILE *f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_itempose.txt", "r");
+        memcpy(s_gevrItemPoseDefaults, s_gevrItemPoses, sizeof(s_gevrItemPoses));
+        copied = TRUE;
+    }
+
+    /* Gun fit's saved poses (and hand edits), re-read every couple of seconds */
+    if ((tick++ % 120) == 0 && !s_gevrGadgetFitting)
+    {
+        FILE *f = fopen(GEVR_ITEMPOSE_FILE, "r");
 
         if (f != NULL)
         {
@@ -1145,7 +1204,7 @@ static GevrItemPose *gevrItemPoseFind(s32 item)
             {
                 for (i = 0; i < ARRAYCOUNT(s_gevrItemPoses); i++)
                 {
-                    if (s_gevrItemPoses[i].item == p.item)
+                    if (s_gevrItemPoses[i].item == p.item && memcmp(&s_gevrItemPoses[i], &p, sizeof(p)) != 0)
                     {
                         s_gevrItemPoses[i] = p;
                         sysLogPrintf(LOG_NOTE, "stereo: item %d pose %.1f %.1f %.1f cm, %.0f %.0f %.0f deg, x%.2f, fist %d",
@@ -1185,6 +1244,113 @@ s32 gevrStereoItemHand(s32 item)
     GevrItemPose *p = gevrItemPoseFind(item);
 
     return p != NULL ? p->fist : 0;
+}
+
+/*
+ * Gadget fit: the launcher's Gun fit with a listed gadget in the gun hand
+ * (port/src/input.c). The sticks nudge its pose; A writes every pose that
+ * differs from the table above to files/gevr_itempose.txt (read back at
+ * start), B puts them all back as they were when the fit began.
+ */
+extern s32 gevrHandGadgetShown(s32 hand);   /* gunfire.c: the hand draws a listed gadget */
+
+s32 gevrGadgetFitItem(void)
+{
+    s32 item;
+
+    if (!g_gevrStereo || g_CurrentPlayer == NULL)
+    {
+        return -1;
+    }
+    item = getCurrentPlayerWeaponId(GUNRIGHT);
+    return gevrHandGadgetShown(GUNRIGHT) && gevrItemPoseFind(item) != NULL ? item : -1;
+}
+
+void gevrGadgetFitBegin(void)
+{
+    gevrItemPoseFind(ITEM_UNARMED);   /* the defaults are copied on first use */
+    memcpy(s_gevrItemPoseFitSaved, s_gevrItemPoses, sizeof(s_gevrItemPoses));
+    s_gevrGadgetFitting = TRUE;
+}
+
+/* cm along the model's left, up, forward; degrees about its X, Y, Z; size times (1 + dscale) */
+void gevrGadgetFitNudge(s32 item, f32 left, f32 up, f32 fwd, f32 rx, f32 ry, f32 rz, f32 dscale)
+{
+    GevrItemPose *p = gevrItemPoseFind(item);
+    s32 i;
+
+    if (p == NULL)
+    {
+        return;
+    }
+    p->ofs[0] += left;
+    p->ofs[1] += up;
+    p->ofs[2] += fwd;
+    p->rot[0] += rx;
+    p->rot[1] += ry;
+    p->rot[2] += rz;
+    for (i = 0; i < 3; i++)
+    {
+        if (p->rot[i] > 180.0f) p->rot[i] -= 360.0f;
+        if (p->rot[i] < -180.0f) p->rot[i] += 360.0f;
+    }
+    p->scale *= 1.0f + dscale;
+    if (p->scale < 0.02f) p->scale = 0.02f;
+    if (p->scale > 8.0f) p->scale = 8.0f;
+}
+
+/* keep: 1 saves, 0 puts them back, -1 only stops (the fit is paused or left; its edits stay) */
+void gevrGadgetFitEnd(s32 keep)
+{
+    u32 i;
+
+    s_gevrGadgetFitting = FALSE;
+    if (keep < 0)
+    {
+        return;
+    }
+    if (!keep)
+    {
+        memcpy(s_gevrItemPoses, s_gevrItemPoseFitSaved, sizeof(s_gevrItemPoses));
+        return;
+    }
+    {
+        FILE *f = fopen(GEVR_ITEMPOSE_FILE, "w");
+
+        if (f == NULL)
+        {
+            sysLogPrintf(LOG_WARNING, "stereo: gadget fit not saved, %s won't open", GEVR_ITEMPOSE_FILE);
+            return;
+        }
+        for (i = 0; i < ARRAYCOUNT(s_gevrItemPoses); i++)
+        {
+            const GevrItemPose *p = &s_gevrItemPoses[i];
+
+            if (memcmp(p, &s_gevrItemPoseDefaults[i], sizeof(*p)) != 0)
+            {
+                fprintf(f, "%d %.2f %.2f %.2f %.1f %.1f %.1f %.3f %d\n", p->item, p->ofs[0], p->ofs[1], p->ofs[2],
+                        p->rot[0], p->rot[1], p->rot[2], p->scale, p->fist);
+                sysLogPrintf(LOG_NOTE, "stereo: gadget fit kept item %d: %.2f %.2f %.2f cm, %.1f %.1f %.1f deg, x%.3f",
+                             p->item, p->ofs[0], p->ofs[1], p->ofs[2], p->rot[0], p->rot[1], p->rot[2], p->scale);
+            }
+        }
+        fclose(f);
+    }
+}
+
+/* the readout's numbers for the gadget being fit */
+s32 gevrGadgetFitPose(s32 item, f32 ofs[3], f32 rot[3], f32 *scale)
+{
+    GevrItemPose *p = gevrItemPoseFind(item);
+
+    if (p == NULL)
+    {
+        return FALSE;
+    }
+    memcpy(ofs, p->ofs, sizeof(p->ofs));
+    memcpy(rot, p->rot, sizeof(p->rot));
+    *scale = p->scale;
+    return TRUE;
 }
 
 /* m: the stereo gun matrix (rows the model's left/up/forward times the
@@ -1826,11 +1992,29 @@ void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
  * the tracked one on the left controller (gevrRenderLeftWatchArm), the item's
  * own model is not drawn (gunfire.c), and the right hand is the fist. The
  * laser leaves the watch and aims along the left hand; the right trigger
- * still fires it (user).
+ * still fires it (user). The other watch gadgets (magnet, Geiger counter,
+ * identifier, communicator) are the same arm and press the watch the same
+ * way (user: like the detonator, for immersion).
  */
 s32 gevrStereoWatchItem(s32 item)
 {
-    return g_gevrStereo && (item == ITEM_WATCHLASER || item == ITEM_TRIGGER);
+    if (!g_gevrStereo)
+    {
+        return FALSE;
+    }
+    switch (item)
+    {
+        case ITEM_WATCHLASER:
+        case ITEM_TRIGGER:
+        case ITEM_WATCHIDENTIFIER:
+        case ITEM_WATCHCOMMUNICATOR:
+        case ITEM_WATCHGEIGERCOUNTER:
+        case ITEM_WATCHMAGNETREPEL:
+        case ITEM_WATCHMAGNETATTRACT:
+            return TRUE;
+        default:
+            return FALSE;
+    }
 }
 
 /* the controller a hand's shots leave from: the watch items aim with the left */
@@ -14017,7 +14201,8 @@ s32 gevrGunFitAvailable(void)
     extern int netGetLocalSlot(void);
     struct player *pl = (netIsActive() && netGetLocalSlot() >= 0 && g_playerPointers[netGetLocalSlot()]) ? g_playerPointers[netGetLocalSlot()] : g_CurrentPlayer;
     return g_gevrStereo && pl != NULL && (getPlayerCount() == 1 || netIsActive()) && !pl->bonddead
-        && pl->watch_animation_state == 0 && pl->hands[GUNRIGHT].field_87F != 0;
+        && pl->watch_animation_state == 0
+        && (pl->hands[GUNRIGHT].field_87F != 0 || (pl == g_CurrentPlayer && gevrGadgetFitItem() >= 0));
 }
 
 static Gfx *gevrDrawSpectatorLabel(Gfx *gdl)
@@ -14045,19 +14230,42 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     {
         return gdl;
     }
-    if (gevrStereoTwoHandGrip())
+    if (gevrGunFitActive == 2)
+    {
+        snprintf(buf, sizeof(buf), "GUN FIT\nHOLD A GUN OR GADGET TO FIT IT\nMENU + A: DONE");
+    }
+    else if (gevrGadgetFitItem() >= 0)
+    {
+        s32 item = gevrGadgetFitItem();
+        const char *name = (const char *) get_ptr_short_watch_text_for_item(item);
+        char label[32];
+        f32 ofs[3], rot[3], scale;
+        s32 n = 0;
+
+        while (name != NULL && name[n] != 0 && name[n] != '\n' && n < (s32) sizeof(label) - 1)
+        {
+            label[n] = name[n];
+            n++;
+        }
+        label[n] = 0;
+        gevrGadgetFitPose(item, ofs, rot, &scale);
+        snprintf(buf, sizeof(buf),
+                 "GADGET FIT: %s (%d)\nFORWARD %.1f  LEFT %.1f  UP %.1f CM\nTURN X %.0f  Y %.0f  Z %.0f   SIZE %.2f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\nHOLD RIGHT GRIP: STICKS TURN IT\nA: SAVE   B: UNDO   MENU + A: DONE",
+                 label, item, ofs[2], ofs[0], ofs[1], rot[0], rot[1], rot[2], scale);
+    }
+    else if (gevrStereoTwoHandGrip())
     {
         /* holding with both hands: the sticks move the holding hand (input.c) */
         const float *t = VrGripTrim[gevrStereoTwoHandClass()];
 
         snprintf(buf, sizeof(buf),
-                 "GRIP FIT (%s)\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nA: KEEP IT   B: PUT IT BACK",
+                 "GRIP FIT (%s)\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nA: SAVE   B: UNDO   MENU + A: DONE",
                  gevrStereoTwoHandClass() ? "RIFLE" : "PISTOL", t[2], -t[0], t[1], t[3], t[5]);
     }
     else
     {
         snprintf(buf, sizeof(buf),
-                 "GUN FIT\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\nA: KEEP IT   B: PUT IT BACK",
+                 "GUN FIT\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\nA: SAVE   B: UNDO   MENU + A: DONE",
                  -VrGunOffZ, VrGunOffX, VrGunOffY);
     }
 

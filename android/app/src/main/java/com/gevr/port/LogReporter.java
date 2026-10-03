@@ -182,6 +182,11 @@ final class LogReporter {
             if (ini.isFile()) {
                 text.append("=== goldeneye-vr.ini ===\n").append(tail(ini, 50_000)).append("\n");
             }
+            /* Gun fit's gadget poses (bondview2.c gevrGadgetFitEnd): "item left up fwd rx ry rz scale fist" */
+            File poses = new File(files, "gevr_itempose.txt");
+            if (poses.isFile()) {
+                text.append("=== gevr_itempose.txt ===\n").append(tail(poses, 20_000)).append("\n");
+            }
             text.append("=== exit history ===\n")
                     .append("install ").append(CrashExitPolicy.isoUtc(installTime))
                     .append(" versionCode ").append(versionCode).append('\n')

@@ -3,8 +3,17 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-03, v0.4.2; versionCode 55, protocol 17.
+**Updated / current build:** 2026-10-03, v0.4.4; versionCode 57, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
+
+**v0.4.4:** mission gadgets and items held in the hand in stereo, with a
+per-item pose table (bondview2.c s_gevrItemPoses); Gun fit fits gadgets too,
+stays on across saves, and Menu + A toggles it in single player; debug logs
+carry gevr_itempose.txt; the watch magnet and other watch gadgets need the
+hand at the watch, like the detonator. Notes: docs/releases/v0.4.4.md.
+
+**v0.4.3:** wrist status on the watch face, independent per-hand reloads,
+handed ammo counters, and multiplayer ready/warmup/kick flow (#106).
 
 **v0.4.2:** hold A/X opens a round weapon category wheel (#10: stick picks a
 wedge, triggers step within it); a laser-pointer pause window for deathmatch

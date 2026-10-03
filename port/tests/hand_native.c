@@ -237,7 +237,7 @@ static u32 inputTime;
 static int aDown, xDown, rightGrip, leftGrip, rightTrigger, leftTrigger;
 static unsigned padExtra;
 s32 gevrWeaponPanelOpen, gevrWeaponPanelLeft, gevrWeaponPanelRelease, gevrWeaponPanelStep;
-static int gevrReturnPrompt, gevrSwallowX;
+static int gevrReturnPrompt, gevrSwallowX, gevrSwallowA;
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 #define LOGI(...) ((void) 0)
 static u32 SDL_GetTicks(void) { return inputTime; }
