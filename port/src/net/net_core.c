@@ -793,6 +793,12 @@ bool netSlotOccupied(int slot) {
              (s_lobby_state.slots[slot].loaded && !s_lobby_state.slots[slot].spectator))));
 }
 
+/* The stage a round reset loads: the config's, the party's menus being the title stage (co-op, #94) */
+int netRoundLoadStage(void) {
+    if (s_round.config.mode == NET_MODE_COOP && s_round.config.stage == NET_COOP_FRONT_STAGE) return LEVELID_TITLE;
+    return s_round.config.stage;
+}
+
 bool netTakeRoundReset(void) {
     bool pending = s_round_reset_pending;
     s_round_reset_pending = false;

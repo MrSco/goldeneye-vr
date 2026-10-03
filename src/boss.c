@@ -65,6 +65,7 @@ extern void netCoopMissionEnded(int result);
 extern int netGetLocalSlot(void);
 static bool s_net_slot_enabled[4];
 static bool s_net_session_started;
+static bool s_net_config_on_load;   /* a round reset's settings wait for its stage's load */
 #endif
 
 /**
@@ -616,10 +617,16 @@ void bossMainloop(void)
                                 if (s_net_session_started && !netIsActive())
                                     bossSetLoadedStage(LEVELID_TITLE);
                                 if (netTakeRoundReset()) {
-                                    /* the next round's settings, the vote's map among them (net_core.c) */
-                                    extern void netApplyMatchConfig(void);
-                                    netApplyMatchConfig();
-                                    bossSetLoadedStage(g_StageNum);
+                                    /*
+                                     * The next round's stage, the vote's map among them
+                                     * (net_core.c). Its settings apply as it loads (below):
+                                     * this frame finishes the stage it began, and a co-op
+                                     * party's menus (the title stage) and missions must not
+                                     * see each other's globals (#94).
+                                     */
+                                    extern int netRoundLoadStage(void);
+                                    s_net_config_on_load = TRUE;
+                                    bossSetLoadedStage(netRoundLoadStage());
                                 }
                                 if (netIsActive()) {
                                     for (i = 0; i < getPlayerCount(); i++) {
@@ -780,6 +787,18 @@ void bossMainloop(void)
 
         g_StageNum = g_MainStageNum;
         g_MainStageNum = LEVELID_NONE;
+#ifdef GEVR
+        /* a round reset's settings, now that its stage is the one to load (above) */
+        if (s_net_config_on_load)
+        {
+            extern void netApplyMatchConfig(void);
+            s_net_config_on_load = FALSE;
+            if (netIsActive())
+            {
+                netApplyMatchConfig();
+            }
+        }
+#endif
         sysLogPrintf(LOG_NOTE, "stage: switching to %d", g_StageNum);
     }
 

@@ -1282,7 +1282,10 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     }
     if (netIsActive() && !netIsHost() && netGetState() == NET_STATE_INGAME) {
         netApplyMatchConfig();
-        bossSetLoadedStage(g_StageNum);
+        // the boot loads g_StageNum (main.c); a co-op party's menus loaded twice so,
+        // and the Rare logo and folder music played twice over (#94)
+        if (netGetMatchConfig()->mode != NET_MODE_COOP)
+            bossSetLoadedStage(g_StageNum);
         startMatch = true;
         open = false;
     }
@@ -1724,7 +1727,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                                     .c_str());
                 // the game's globals from the lobby's config, as every headset sets them before a load
                 netApplyMatchConfig();
-                bossSetLoadedStage(g_StageNum);
+                if (netGetMatchConfig()->mode != NET_MODE_COOP) // the boot loads it (above)
+                    bossSetLoadedStage(g_StageNum);
                 startMatch = true;
                 open = false;
             }
