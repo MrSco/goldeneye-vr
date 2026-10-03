@@ -57,7 +57,7 @@ extern u64 sysGetMicroseconds(void);
 extern bool netSlotOccupied(int slot);
 extern bool netTakeRoundReset(void);
 extern void netStageLoaded(void);
-static bool s_net_slot_enabled[4];
+static bool s_net_slot_enabled[MAX_PLAYER_COUNT];
 static bool s_net_session_started;
 #endif
 
@@ -511,7 +511,7 @@ void bossMainloop(void)
 #ifdef GEVR
         if (s_net_session_started && g_StageNum == LEVELID_TITLE)
             gevrLobbySessionStopped();
-        for (int slot = 0; slot < 4; slot++) s_net_slot_enabled[slot] = TRUE;
+        for (int slot = 0; slot < MAX_PLAYER_COUNT; slot++) s_net_slot_enabled[slot] = TRUE;
         s_net_session_started = netIsActive() && g_StageNum != LEVELID_TITLE;
         netStageLoaded();
 #endif

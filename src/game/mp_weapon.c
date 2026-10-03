@@ -290,7 +290,7 @@ void mpBuildCustomWeaponSet(const u8 items[4])
 void gevrPreloadOnlineLoadouts(void)
 {
     extern u32 weaponLoadProjectileModels(ITEM_IDS item);
-    for (int slot = 0; slot < 4; slot++) for (int k = 0; k < 4; k++) {
+    for (int slot = 0; slot < MAX_PLAYER_COUNT; slot++) for (int k = 0; k < 4; k++) {
         int item = netActiveLoadoutItem(slot, k);
         if (item) weaponLoadProjectileModels((ITEM_IDS)item);
     }

@@ -8,7 +8,9 @@
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 EXPORT float test_gain(int mode,float distance) { return netVoiceDistanceGain(mode,distance); }
 EXPORT int test_group(int running,int mode,int a_spec,int b_spec,int a_team,int b_team) { return netVoiceGroupsMatch(running,mode,a_spec,b_spec,a_team,b_team); }
-EXPORT int test_roster(int mode,const uint8_t *connected,const uint8_t *teams) { return netTeamRosterComplete(mode,connected,teams); }
+EXPORT int test_roster(int mode,const uint8_t *connected,const uint8_t *teams) { return netTeamRosterComplete(mode,GEVR_MAX_PLAYERS,connected,teams); }
+EXPORT int test_max_players(void) { return GEVR_MAX_PLAYERS; }
+EXPORT int test_game_scenario(int mode) { return netGameScenario(mode); }
 EXPORT int test_capacity(int mode,int team) { return netTeamCapacity(mode,team); }
 EXPORT int test_points(int a,int b,int kills) { return netTeamKillPoints(a,b,kills); }
 EXPORT int test_damage(int mode,int enabled,int self,int a,int b) { return netTeamDamageAllowed(mode,enabled,self,a,b); }
@@ -40,15 +42,16 @@ EXPORT int test_protocol(void) {
     original.fun_flags=7;original.gun_size=2;
     original.health=10;original.dual_wield=2;original.loadouts=1;original.next_round=2;original.voice_mode=1;original.friendly_fire=1;
     for (int i=0;i<4;i++) original.custom_set[i]=(uint8_t)(10+i);
+    original.max_players=6;
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 16 || GEVR_NET_VERSION != 15) return 1;
+    if (b.error || b.wp != 17 || GEVR_NET_VERSION != 16 || GEVR_MAX_PLAYERS != 8) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
-    for(int size=0;size<16;size++) {
+    for(int size=0;size<17;size++) {
         netbufStartReadData(&b,raw,size); netbufReadMatchConfig(&b,&received); if(!b.error) return 3;
     }
-    netbufStartReadData(&b,raw,16); netbufReadMatchConfig(&b,&received);
-    netbufStartWrite(&b); b.size=15; netbufWriteMatchConfig(&b,&original); if(!b.error) return 4;
+    netbufStartReadData(&b,raw,17); netbufReadMatchConfig(&b,&received);
+    netbufStartWrite(&b); b.size=16; netbufWriteMatchConfig(&b,&original); if(!b.error) return 4;
     return 0;
 }
 EXPORT int test_spatial_init(void) { return netSpatialInit(); }
@@ -59,14 +62,18 @@ EXPORT void test_spatial_render(unsigned slot,const float *input,unsigned frames
 }
 
 EXPORT int test_config_validation(void) {
-    NetMatchConfig c={0}; c.stage=34; c.health=5;
+    NetMatchConfig c={0}; c.stage=34; c.health=5; c.max_players=4;
     for(int i=0;i<4;i++) c.custom_set[i]=netItem(0)->item;
     if(!netMatchConfigValid(&c)) return 1;
     c.voice_mode=2; if(netMatchConfigValid(&c)) return 2; c.voice_mode=0;
-    c.scenario=5; c.stage=27; if(netMatchConfigValid(&c)) return 3;
-    c.scenario=7; if(!netMatchConfigValid(&c)) return 4;
-    c.stage=32; if(netMatchConfigValid(&c)) return 5;
-    c.stage=34; c.scenario=8; if(netMatchConfigValid(&c)) return 6;
+    /* the host's count, two to eight, on any stage: eight on Egypt (the game's two) */
+    c.stage=32; c.max_players=8; if(!netMatchConfigValid(&c) || netConfigMaxPlayers(&c)!=8) return 3;
+    c.max_players=1; if(netMatchConfigValid(&c)) return 4;
+    c.max_players=9; if(netMatchConfigValid(&c)) return 5;
+    /* a team scenario takes its own size whatever the count */
+    c.max_players=2; c.scenario=9; if(!netMatchConfigValid(&c) || netConfigMaxPlayers(&c)!=8) return 14;
+    c.stage=27; c.scenario=8; if(!netMatchConfigValid(&c) || netConfigMaxPlayers(&c)!=6) return 15;
+    c.stage=34; c.max_players=4; c.scenario=10; if(netMatchConfigValid(&c)) return 6;
     c.scenario=0; c.custom_set[0]=255; if(netMatchConfigValid(&c)) return 7;
     c.custom_set[0]=netItem(0)->item; c.loadouts=2; if(netMatchConfigValid(&c)) return 8;
     c.loadouts=0;c.friendly_fire=2;if(netMatchConfigValid(&c)) return 9;

@@ -181,15 +181,15 @@ extern u8 g_CheatActivated[];
 
 
 //CODE.bss:800696F0
-extern s32 array_favweapon[4][2];
+extern s32 array_favweapon[MAX_PLAYER_COUNT][2];
 //CODE.bss:80069710
-extern s32 mp_char_cur_select_player[4];
+extern s32 mp_char_cur_select_player[MAX_PLAYER_COUNT];
 
 //CODE.bss:80069720
-extern s32 mp_char_prev_select_player[4];
+extern s32 mp_char_prev_select_player[MAX_PLAYER_COUNT];
 
 //CODE.bss:80069730
-extern s32 mp_char_select_scroll_offset[4];
+extern s32 mp_char_select_scroll_offset[MAX_PLAYER_COUNT];
 
 //CODE.bss:80069740
 extern s32 player_has_selected_char[];

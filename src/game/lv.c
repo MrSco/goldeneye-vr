@@ -431,7 +431,7 @@ void lvlStageLoad(s32 stage)
 
         sub_GAME_7F0C11FC(stage);
 
-        for (i=0; i<4; i++)
+        for (i=0; i<MAX_PLAYER_COUNT; i++)
         {
             s32 s3;
             player_data = (struct player_data *)&g_playerPlayerData[i];
@@ -453,7 +453,7 @@ void lvlStageLoad(s32 stage)
 
                 // why is this looping from g_playerPlayerData again, this inner block
                 // gets executed 16 times in multiplayer.
-                for (s3 = 0; s3 < 4; s3++)
+                for (s3 = 0; s3 < MAX_PLAYER_COUNT; s3++)
                 {
                     if (get_scenario() == SCENARIO_LTK)
                     {
@@ -487,7 +487,7 @@ void lvlStageLoad(s32 stage)
             player_data->body_armor_pickups = 0.f; // a different kind of float zero
 
             // g_playerPlayerData s2, different than above
-            for (s3 = 0; s3 < 4; s3++)
+            for (s3 = 0; s3 < MAX_PLAYER_COUNT; s3++)
             {
                 player_data->kill_counts[s3] = 0;
             }

@@ -38,6 +38,7 @@ extern int VrMpVoiceMode;
 extern int VrMpFriendlyFire;
 extern int VrHostEqualization, VrHostLatencyCapMs;
 extern int VrMpFunFlags, VrMpGunSize;
+extern int VrMpMaxPlayers; // the host's player count, 2..8 on any stage
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
 extern int VrMpCustom[4];       // the host's custom set
 extern int VrMpLoadout[4];      // this player's spawn guns

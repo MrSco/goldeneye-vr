@@ -16,11 +16,10 @@ extern "C" {
 #endif
 
 /* Stages, in the launcher's order: name, LEVELID, the players the map takes */
-typedef struct { const char *name; uint8_t level_id; uint8_t max_players; } NetMatchStage;
+typedef struct { const char *name; uint8_t level_id; } NetMatchStage;
 int netStageCount(void);
 const NetMatchStage *netStage(int idx);
 const char *netStageName(int idx);
-int netStageMaxPlayers(int idx);
 int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
 
 /* Weapon sets: GoldenEye's fourteen (mp_weapon.c) and the host's custom one */
@@ -28,7 +27,8 @@ int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
 int netWeaponSetCount(void);
 const char *netWeaponSetName(int idx);
 
-/* Scenarios: the five for any party size, SCENARIO_NORMAL..SCENARIO_LTK */
+/* Scenarios: the five for any party size, SCENARIO_NORMAL..SCENARIO_LTK, then
+ * the team ones: the game's 2v2, 3v1 and 2v1 and online 3v3 and 4v4 (net_rules.h) */
 int netScenarioCount(void);
 const char *netScenarioName(int idx);
 
