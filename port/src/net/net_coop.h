@@ -15,6 +15,7 @@ struct netbuf;
 struct ChrRecord;
 struct AIRecord;
 struct coord3d;
+struct ObjectRecord;
 
 /* The net layer (net_core.c) */
 void netCoopHostTick(void);                 /* netPoll: the guards' state, ten times a second */
@@ -35,6 +36,8 @@ void gevrCoopGuardHitPlayer(int target, float damage, float vx, float vz);
 int gevrCoopGuardHitElsewhere(struct ChrRecord *chr, int hitpart, struct coord3d *vector, int weaponid);   /* 2 reported */
 void gevrCoopChrSpawned(struct ChrRecord *chr, struct AIRecord *ailist, int spawnflags);   /* chraction.c chrSpawnAtCoord */
 void gevrCoopChrRemoved(struct ChrRecord *chr);   /* chr.c chrTick, CHRHIDDEN_REMOVE */
+void gevrCoopGuardLaunched(struct ObjectRecord *obj);   /* chraction.c: a guard's grenade or rocket, on the host */
+int gevrCoopGuardExplosive(struct ObjectRecord *obj);   /* explosion.c explosionCreate: one of those, going off */
 int gevrCoopDowned(int player);             /* revive (#94): the player is down, not dead */
 
 #ifdef __cplusplus

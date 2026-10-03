@@ -300,6 +300,38 @@ void gevrCoopGuardProvoked(ChrRecord *chr, s32 player)
     s_target[slot].until60 = g_GlobalTimer + 600;
 }
 
+/*
+ * The host's guards' grenades and rockets (chraction.c, as one is thrown or
+ * launched). The game gives such an object player 0's owner bits; online
+ * that would make the host's guard's blast player 0's, dropped on the host
+ * when player 0 is someone else and kept from hurting teammates when it is
+ * the host. explosion.c explosionCreate asks gevrCoopGuardExplosive.
+ */
+#define COOP_GUARD_EXPLOSIVES 32
+static ObjectRecord *s_guard_explosive[COOP_GUARD_EXPLOSIVES];
+static u32 s_guard_explosive_next;
+
+void gevrCoopGuardLaunched(ObjectRecord *obj)
+{
+    if (!obj || !netCoopActive() || !netIsHost()) return;
+    for (int i = 0; i < COOP_GUARD_EXPLOSIVES; i++)
+        if (s_guard_explosive[i] == obj) return;
+    s_guard_explosive[s_guard_explosive_next++ % COOP_GUARD_EXPLOSIVES] = obj;
+}
+
+/* One of them is going off: TRUE once (it is forgotten) */
+s32 gevrCoopGuardExplosive(ObjectRecord *obj)
+{
+    if (!obj || !netCoopActive() || !netIsHost()) return FALSE;
+    for (int i = 0; i < COOP_GUARD_EXPLOSIVES; i++) {
+        if (s_guard_explosive[i] == obj) {
+            s_guard_explosive[i] = NULL;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
 /* ---- Damage between guards and players ---- */
 
 static void coopSendGuardDamage(s32 target, f32 damage, f32 vx, f32 vz)
@@ -463,6 +495,7 @@ void netCoopStageLoaded(void)
         s_host_of[i] = (s16)i;
         s_target[i].player = -1;
     }
+    memset(s_guard_explosive, 0, sizeof(s_guard_explosive));
     s_last_send_us = 0;
     g_gevrCoopGuardTick = FALSE;
     g_gevrCoopApplyingHit = FALSE;
