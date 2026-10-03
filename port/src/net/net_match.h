@@ -22,6 +22,36 @@ const NetMatchStage *netStage(int idx);
 const char *netStageName(int idx);
 int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
 
+/*
+ * The match's mode (NetMatchConfig.mode). Co-op plays a solo mission, the
+ * config's stage then being the mission's LEVELID and its difficulty the
+ * solo difficulty (DIFFICULTY_AGENT .. DIFFICULTY_007).
+ */
+enum { NET_MODE_DEATHMATCH = 0, NET_MODE_COOP = 1 };
+#define NET_COOP_MAX_PLAYERS 4
+#define NET_LOBBY_COOP_STAGE 0x80   /* a game list's stage byte: 0x80 | the co-op mission's LEVELID */
+#define NET_DIFFICULTY_COUNT 4
+
+/* Co-op missions, in the game's mission folder order (front.c mission_folder_setup_entries) */
+typedef struct { const char *name; uint8_t level_id; } NetCoopMission;
+int netCoopMissionCount(void);
+const NetCoopMission *netCoopMission(int idx);
+const char *netCoopMissionName(int idx);
+int netCoopMissionIndexOf(uint8_t level_id);   /* -1 not a co-op mission */
+/*
+ * A co-op party plays the solo campaign through the game's own menus: the
+ * config's stage is then the title stage (LEVELID_TITLE), and Cradle's
+ * success leads to Cuba (LEVELID_CUBA, the credits), as front.c's
+ * statistics page has it.
+ */
+#define NET_COOP_FRONT_STAGE 90
+#define NET_COOP_CUBA_STAGE 54
+int netCoopStageValid(uint8_t level_id);       /* a mission, the menus or Cuba */
+const char *netCoopStageName(uint8_t level_id); /* where the party is: "in the menus", a mission */
+/* How a co-op mission ended (NET_MSG_COOP_END), for the debrief (front.c) */
+enum { NET_COOP_RESULT_FAILED = 0, NET_COOP_RESULT_COMPLETE = 1, NET_COOP_RESULT_ALL_DOWN = 2, NET_COOP_RESULT_ABORTED = 3 };
+const char *netDifficultyName(int difficulty);
+
 /* Weapon sets: GoldenEye's fourteen (mp_weapon.c) and the host's custom one */
 #define NET_WEAPON_SET_CUSTOM 14
 int netWeaponSetCount(void);

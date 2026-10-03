@@ -18,6 +18,8 @@
 #ifdef GEVR
 #include "system.h"
 #include "net_game.h"
+#include "net_coop.h"
+extern int netGetLocalSlot(void);
 #endif
 
 
@@ -419,6 +421,16 @@ void bondviewLoadSetupIntroSection(void)
     g_ExplodeTankOnDeathFlag = 0;
     is_timer_active = 1;
     g_PlayerInvincible = FALSE;
+#ifdef GEVR
+    /*
+     * Co-op (#94): every slot loads its intro (lv.c lvlStageLoad), and these
+     * are the mission's one intro: its camera list (linked by the first
+     * player only, below), its clock and its mode. The first player's load
+     * sets them; the others keep them.
+     */
+    if (!gevrCoopActive() || get_cur_playernum() == 0)
+#endif
+    {
     g_CameraMode = 0;
     g_CameraAfterCinema = 0;
     camera_fade_active = 0;
@@ -430,6 +442,7 @@ void bondviewLoadSetupIntroSection(void)
     g_CurrentSetupIntroCamera = NULL;
     g_SetupIntroCameraCount = 0;
     mission_timer = 0;
+    }
     watch_time_0 = 0;
     g_IntroAnimationIndex = 0;
     watch_transition_time = 0.9090909f;
@@ -512,11 +525,23 @@ void bondviewLoadSetupIntroSection(void)
                         g_IntroSwirl = intro_swirl;
                     }
 
+#ifdef GEVR
+                    /*
+                     * The records are converted in place, and this runs for
+                     * every player at a load (lv.c lvlStageLoad): a second
+                     * player read the floats back as integers. Retail loads a
+                     * swirl only with one player; an online co-op mission has
+                     * one with several (GoldenEye 007 Plus found this; #94).
+                     */
+                    if (get_cur_playernum() == 0)
+#endif
+                    {
                     intro_swirl->unk08.fval = intro_swirl->unk08.ival / M_U16_MAX_VALUE_F;
                     intro_swirl->unk0C.fval = intro_swirl->unk0C.ival / M_U16_MAX_VALUE_F;
                     intro_swirl->unk10.fval = intro_swirl->unk10.ival / M_U16_MAX_VALUE_F;
                     intro_swirl->unk14.fval = intro_swirl->unk14.ival / M_U16_MAX_VALUE_F;
                     intro_swirl->unk18.fval = intro_swirl->unk18.ival / M_U16_MAX_VALUE_F;
+                    }
 
                     intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroSwirl));
                 }
@@ -622,9 +647,22 @@ void bondviewLoadSetupIntroSection(void)
         }
     }
 
-    if (g_CurrentSetupIntroCamera != NULL)
+    if (g_CurrentSetupIntroCamera != NULL
+#ifdef GEVR
+        /* co-op: picked once, with the first player */
+        && (!gevrCoopActive() || get_cur_playernum() == 0)
+#endif
+        )
     {
         ptr_random06cam_entry = g_CurrentSetupIntroCamera;
+#ifdef GEVR
+        /* co-op (#94): the same camera on every headset, from the party's seed */
+        if (gevrCoopActive())
+        {
+            rand_camera_index = (s32)(gevrCoopIntroSeed() % (u32) g_SetupIntroCameraCount);
+        }
+        else
+#endif
         rand_camera_index = (s32)(randomGetNext() % (u32) g_SetupIntroCameraCount);
 #ifdef GEVR
         /*
@@ -727,7 +765,43 @@ void bondviewLoadSetupIntroSection(void)
 
         start_stan = g_Startpad[rand_pad_index]->stan;
 #ifdef GEVR
-        if (getPlayerCount() >= 2)
+        /*
+         * An online co-op mission (#94): a solo setup has a start pad for one,
+         * so the party would start inside each other. Every slot but the
+         * first stands beside it instead, to the pad's right, its left or
+         * behind it, where the floor reaches; the same on every headset.
+         */
+        if (gevrCoopActive() && get_cur_playernum() > 0 && start_stan)
+        {
+            static const f32 side[4] = { 0.0f, 1.0f, -1.0f, 0.0f };
+            static const f32 back[4] = { 0.0f, 0.0f, 0.0f, -1.0f };
+            const s32 k = get_cur_playernum() & 3;
+            f32 lx = g_Startpad[rand_pad_index]->look.f[0];
+            f32 lz = g_Startpad[rand_pad_index]->look.f[2];
+            f32 len = sqrtf(lx * lx + lz * lz);
+            StandTile *tile = start_stan;
+            f32 x;
+            f32 z;
+
+            if (len < 0.001f)
+            {
+                lx = 0.0f;
+                lz = 1.0f;
+                len = 1.0f;
+            }
+            lx /= len;
+            lz /= len;
+            x = start_pos.f[0] + 70.0f * (side[k] * lz + back[k] * lx);
+            z = start_pos.f[2] + 70.0f * (-side[k] * lx + back[k] * lz);
+            if (walkTilesBetweenPoints_NoCallback(&tile, start_pos.f[0], start_pos.f[2], x, z) &&
+                tile && stanTestPointWithinTileBoundsMaybe(tile, x, z))
+            {
+                start_pos.f[0] = x;
+                start_pos.f[2] = z;
+                start_stan = tile;
+            }
+        }
+        else if (getPlayerCount() >= 2)
         {
             extern bool netIsActive(void);
             extern int netStartPadShare(int slot, int padcount);
@@ -807,6 +881,21 @@ void bondviewLoadSetupIntroSection(void)
     g_CurrentPlayer->field_3B8.f[1] = (g_CurrentPlayer->field_488.pos.f[1] / FIELD_3B8_FACTOR);
     g_CurrentPlayer->field_3B8.f[2] = (g_CurrentPlayer->field_488.pos.f[2] / FIELD_3B8_FACTOR);
 
+#ifdef GEVR
+    if (gevrCoopActive())
+    {
+        /*
+         * Co-op (#94): the solo intro, the mode being the mission's one: set
+         * with this headset's own player, so its fade and fog are this
+         * player's; the other copies' loads leave it as it is.
+         */
+        if (get_cur_playernum() == netGetLocalSlot())
+        {
+            bondviewSetCameraMode(CAMERAMODE_INTRO);
+        }
+    }
+    else
+#endif
     if (getPlayerCount() == 1)
     {
         bondviewSetCameraMode(CAMERAMODE_INTRO);

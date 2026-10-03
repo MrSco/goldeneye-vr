@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_game.h"
+#include "net_coop.h"
 #include "gevr_hud_geometry.h"
 #include "gevr_scope.h"
 #include "gevr_surface_probe.h"
@@ -330,9 +331,66 @@ static s32 s_gevrMenuHeadValid;
 static struct coord3d s_gevrMenuOffset;
 
 /* bondview2.c walk path, just before the body's move this tick. */
+/*
+ * Co-op (#94): a player joining a mission under way starts beside a
+ * teammate, not at the mission's start (net_coop.c, the host's word). It is
+ * placed as chrai.c AI_TRYTeleportingChrToPad places a chr: a clear spot a
+ * step from the teammate (chrAdjustPosForSpawn), its tile, the collision
+ * position the movement code carries on from.
+ */
+s32 gevrCoopPlaceBeside(s32 target)
+{
+    struct player *them = (target >= 0 && target < 4) ? g_playerPointers[target] : NULL;
+    PropRecord *prop = g_CurrentPlayer != NULL ? g_CurrentPlayer->prop : NULL;
+    ChrRecord *chr = prop != NULL ? prop->chr : NULL;
+    coord3d pos;
+    StandTile *stan;
+    f32 facing;
+
+    if (chr == NULL || them == NULL || them == g_CurrentPlayer || them->prop == NULL)
+    {
+        return FALSE;
+    }
+    pos = them->prop->pos;
+    stan = them->prop->stan;
+    if (stan == NULL)
+    {
+        coord3d probe = pos;
+        f32 y;
+
+        probe.y += 50.0f;
+        stan = stanFindTileBelowPos(&probe, NULL, &y);
+        if (stan == NULL)
+        {
+            return FALSE;
+        }
+    }
+    facing = them->vv_theta * (M_TAU_F / 360.0f) + M_PI_F;   /* behind them first, then round */
+    if (facing >= M_TAU_F)
+    {
+        facing -= M_TAU_F;
+    }
+    sub_GAME_7F03D058(prop, FALSE);
+    if (!chrAdjustPosForSpawn(&pos, &stan, facing, TRUE))
+    {
+        sub_GAME_7F03D058(prop, TRUE);
+        return FALSE;
+    }
+    prop->pos = pos;
+    prop->stan = stan;
+    g_CurrentPlayer->field_488.collision_position.x = pos.x;
+    g_CurrentPlayer->field_488.collision_position.y = pos.y;
+    g_CurrentPlayer->field_488.collision_position.z = pos.z;
+    g_CurrentPlayer->field_488.current_tile_ptr = stan;
+    chrDetectRooms(chr);
+    gevrNotifyTeleport();
+    sub_GAME_7F03D058(prop, TRUE);
+    return TRUE;
+}
+
 void gevrStereoHeadWalk(struct coord3d *move_offset)
 {
-    if (gevrSpectating()) return;
+    if (gevrSpectating() || gevrCoopLocalDowned()) return;
     f32 head[3];
     f32 body[4];
     f32 half;
@@ -2229,7 +2287,7 @@ static s32 s_gevrChopSwing[2];   /* ticks left of "a swing began" (gevrHandChopS
 
 void gevrHandChopTick(s32 ctrl)
 {
-    if (gevrSpectating()) return;
+    if (gevrSpectating() || gevrCoopLocalDowned()) return;
     extern float vr_ctrl_quat_play[2][4];     /* vr_input.cpp: the gesture frame, play space */
     extern float vr_ctrl_velocity_play[2][3];
     extern float vr_head_velocity_play[3];    /* vr_openxr.cpp */
@@ -4889,7 +4947,12 @@ void bondviewSetCameraMode(s32 arg0)
             currentPlayerSetFadeFrac(60.0f, 0.0f);
         }
 
+#ifdef GEVR
+        /* co-op (#94): the solo mission's fog stays */
+        if (gevrMpRules())
+#else
         if (getPlayerCount() >= 2)
+#endif
         {
             fogLoadLevelEnvironment(bossGetStageNum(), 0);
         }
@@ -5257,10 +5320,25 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
     f32 zero = 0.0f;
     void *p;
     struct PadRecord *setupPad;
+#ifdef GEVR
+    /*
+     * Co-op (#94): the intro's clock is one for the mission (g_CameraMode,
+     * camera_transition_timer), and every slot ticks on every headset: only
+     * this headset's own player runs it, reads its skips and shows its
+     * captions. The other copies still take the camera's place each frame.
+     */
+    s32 introdriver = !gevrCoopActive() || get_cur_playernum() == netGetLocalSlot();
+#else
+    s32 introdriver = TRUE;
+#endif
 
     if ((g_CameraMode == CAMERAMODE_INTRO) || (g_CameraMode == CAMERAMODE_FADESWIRL))
     {
-        if (g_CameraMode == CAMERAMODE_INTRO)
+        if (!introdriver)
+        {
+            /* another player's copy: the camera's place only (below) */
+        }
+        else if (g_CameraMode == CAMERAMODE_INTRO)
         {
             /* The new player starts with no previous buttons. Sample the first
              * intro frame so a held menu-selection trigger is not a new skip. */
@@ -5414,9 +5492,12 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
     }
     else if (g_CameraMode == CAMERAMODE_SWIRL)
     {
+        if (introdriver)
+        {
         camera_transition_timer += g_GlobalTimerDelta;
+        }
 
-        while (g_IntroSwirl[intro_camera_index].unk18.fval <= camera_transition_timer)
+        while (introdriver && g_IntroSwirl[intro_camera_index].unk18.fval <= camera_transition_timer)
         {
             if (!(g_IntroSwirl[intro_camera_index + 3].unk04 & 1))
             {
@@ -5439,12 +5520,12 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
         }
 
         // Fade player body from opaque to transparent just before the player takes control.
-        if ((sp30 < 30.0f) && ((sp30 + g_GlobalTimerDelta) >= 30.0f))
+        if (introdriver && (sp30 < 30.0f) && ((sp30 + g_GlobalTimerDelta) >= 30.0f))
         {
             currentPlayerStartChrFade(30.0f, 0.0f);
         }
 
-        if (camera_fade_active != 0)
+        if (introdriver && camera_fade_active != 0)
         {
             if (currentPlayerIsFadeComplete() != 0)
             {
@@ -5452,7 +5533,7 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
             }
         }
 
-        if ((sp30 > 60.0f) && (camera_fade_active == 0))
+        if (introdriver && (sp30 > 60.0f) && (camera_fade_active == 0))
         {
             if ((lvlGetControlsLockedFlag() == 0)
                 && (buttons & ~oldbuttons & (A_BUTTON | B_BUTTON | Z_TRIG | START_BUTTON | L_TRIG | R_TRIG)))
@@ -7835,6 +7916,23 @@ void bondviewWatchAnimationTick(void)
         bondviewUpdateWatchZoomIn();
     }
 
+#ifdef GEVR
+    /*
+     * Co-op (#94): the watch stops nobody's clock: the lock (lv.c) would stop
+     * the guards the host runs for everyone. This player stands still instead
+     * (MoveBond), and the watch's own input reads this headset's controller
+     * (options.c).
+     */
+    if (gevrCoopActive())
+    {
+        if (g_CurrentPlayer->watch_animation_state == WATCH_ANIMATION_0x5)
+        {
+            sub_GAME_7F0A6A80();
+        }
+        lvlSetControlsLockedFlag(FALSE);
+    }
+    else
+#endif
     if (g_CurrentPlayer->watch_animation_state == WATCH_ANIMATION_0x5)
     {
         lvlSetControlsLockedFlag(TRUE);
@@ -8988,7 +9086,12 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             (g_CurrentPlayer->watch_animation_state == WATCH_ANIMATION_0x5
                 && g_CurrentPlayer->open_close_solo_watch_menu)
         )
+#ifdef GEVR
+        /* co-op (#94): the solo watch, not the deathmatch menu */
+        && gevrSoloRules())
+#else
         && (getPlayerCount() == 1))
+#endif
     {
         trigger_solo_watch_menu(0);
     }
@@ -10564,7 +10667,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
 #ifdef GEVR
     if (netIsActive() && get_cur_playernum() == netGetLocalSlot() &&
-        g_CurrentPlayer->mpmenuon)
+        (g_CurrentPlayer->mpmenuon ||
+         /* co-op (#94): the watch is up and the mission goes on: this player stands */
+         (gevrCoopActive() && g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0x0)))
     {
         g_CurrentPlayer->speedforwards = 0.0f;
         g_CurrentPlayer->speedsideways = 0.0f;
@@ -12242,7 +12347,12 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
 
     if ((g_CameraMode == CAMERAMODE_NONE) || ((g_CameraMode == CAMERAMODE_FP) && (is_timer_active != 0)) || (g_CameraMode == CAMERAMODE_FADE_TO_TITLE))
     {
+#ifdef GEVR
+        /* co-op (#94): the mission's time is this headset's player's, as solo's is player one's */
+        if (get_cur_playernum() == (gevrCoopActive() ? netGetLocalSlot() : 0))
+#else
         if (get_cur_playernum() == 0)
+#endif
         {
             mission_timer += g_ClockTimer;
         }
@@ -12290,7 +12400,12 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
         }
     }
 
-    if (g_CameraAfterCinema)
+    if (g_CameraAfterCinema
+#ifdef GEVR
+        /* co-op (#94): the next camera mode's fades and guns are this headset's player's */
+        && (!gevrCoopActive() || get_cur_playernum() == netGetLocalSlot())
+#endif
+        )
     {
         bondviewAdvanceCameraMode();
     }
@@ -13062,7 +13177,15 @@ Gfx *gevrRenderRadarGauges(Gfx *gdl, s32 x, s32 y, s32 radius)
     buildGaugeBarDL(armor, osVirtualToPhysical(v+46), 46);
     guOrtho(projection, 0, viGetX(), viGetY(), 0, -100, 100, 1);
     matrix_4x4_set_identity(&mtx);
+    /*
+     * The level's world scale off (matrixmath.c, as the watch's pages do): the
+     * conversion multiplies by it, and on a level whose scale is not 1 (the
+     * solo Dam; co-op shows the radar there, #94) the "identity" shrank the
+     * arcs towards the corner in stereo and off the screen in 2D.
+     */
+    matrix_4x4_7F058C64();
     matrix_4x4_f32_to_s32(mtx.m, (s32 (*)[4])identity);
+    matrix_4x4_7F058C88();
     gDPPipeSync(gdl++);
     gSPViewport(gdl++, osVirtualToPhysical(viewport));
     gSPMatrix(gdl++, osVirtualToPhysical(projection), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
@@ -14500,7 +14623,11 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     }
 #endif
 
+#ifdef GEVR
+    if (getPlayerCount() == 1 || gevrCoopActive())
+#else
     if (getPlayerCount() == 1)
+#endif
     {
         display_objective_status_text_on_status_change();
     }
@@ -14741,6 +14868,10 @@ void bondviewKillCurrentPlayer(void)
             trigger_solo_watch_menu(1);
         }
 
+#ifdef GEVR
+        /* co-op: one player down does not end the mission (#94) */
+        if (!gevrCoopActive())
+#endif
         g_isBondKIA = 1;
         g_CurrentPlayer->bonddead = 1;
 
@@ -14792,6 +14923,21 @@ s32 sub_GAME_7F0898E8(void)
 void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor) {
 #ifdef GEVR
     if (netPlayerIsSpectator(get_cur_playernum()) || !netDamageAllowed(playerid, get_cur_playernum())) return;
+    /* co-op (#94): the host's guard hurting another player's copy: that player's headset takes it */
+    if (gevrCoopForwardGuardDamage(damage_amount, vectorx, vectorz)) return;
+    /* co-op revive: a downed player takes no more until a teammate brings them back */
+    if (gevrCoopDowned(get_cur_playernum())) return;
+    /*
+     * A guard, an autogun or gas has no player (-1), and the bookkeeping
+     * below indexes the players with it: g_playerPlayerData[-1] and
+     * set_cur_player(-1) with two or more players. Such a death counts as
+     * the victim's own, as SubDrag and Zoinkity's co-op patch has it
+     * (GoldenEye 007 Plus; #94, #95).
+     */
+    if (playerid < 0 || playerid >= getPlayerCount())
+    {
+        playerid = get_cur_playernum();
+    }
 #endif
     f32 damage_dealt = g_playerPerm->handicap * damage_amount;
     s32 cur_player_num;
@@ -14835,12 +14981,22 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
         if (g_CurrentPlayer->cheatBondInvincible == FALSE && g_CurrentPlayer->bonddead == FALSE && g_PlayerInvincible == FALSE &&
             (g_CurrentPlayer->damageshowtime < 0 || (getPlayerCount() >= 2 && g_CurrentPlayer->damageshowtime == 0)))
         {
+#ifdef GEVR
+            /* co-op (#94): the mission goes on while the watch is up, the guards' fire too */
+            if (gevrCoopActive() ||
+                (g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0x5 && g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0xc))
+#else
             if (g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0x5 && g_CurrentPlayer->watch_animation_state != WATCH_ANIMATION_0xc)
+#endif
             {
                 g_CurrentPlayer->oldhealth = g_CurrentPlayer->bondhealth;
                 g_CurrentPlayer->oldarmour = g_CurrentPlayer->bondarmour;
 
+#ifdef GEVR
+                if (gevrMpRules())
+#else
                 if (getPlayerCount() >= 2)
+#endif
                 {
                     cur_player_num = get_cur_playernum();
                     angle = g_playerPointers[cur_player_num]->vv_theta - (360.0f - ((atan2f(vectorx, vectorz) * 180.0f) / 3.1415927f));
@@ -14875,7 +15031,12 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
 
                     if (g_CurrentPlayer->bondhealth <= 0.0f)
                     {
+#ifdef GEVR
+                        /* co-op: no match score or drop; the mission decides (#94) */
+                        if (gevrMpRules())
+#else
                         if (getPlayerCount() >= 2)
+#endif
                         {
                             sp2C = get_cur_playernum();
                             sp28 = 0;
@@ -14928,6 +15089,10 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
 #endif
                         }
 
+#ifdef GEVR
+                        /* co-op (#94): down, not dead: a teammate beside them revives them */
+                        if (!gevrCoopGoDown())
+#endif
                         bondviewKillCurrentPlayer();
                     }
                 }
@@ -15503,7 +15668,8 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             captionfont = gevrBottomCaptionFont(status_bar_text_buffer_index);
             textMeasure(&view_top_offset, &view_left_offset ,(u8* ) stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, 0);
 
-            if (getPlayerCount() < 3)
+            /* co-op (#94): one player's view, laid out as solo's, not a quarter of four */
+            if (getPlayerCount() < 3 || gevrCoopActive())
             {
                 view_left = viGetViewLeft() + 0x1E;
             }
@@ -15518,7 +15684,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
 
             view_horiz = view_left + view_left_offset;
 
-            if (getPlayerCount() < 3)
+            if (getPlayerCount() < 3 || gevrCoopActive())
             {
                 if ((get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNLEFT)) == 0) && (is_clock_drawn_onscreen() == 0))
                 {
@@ -15529,7 +15695,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                     view_top = (viGetViewTop() + viGetViewHeight()) - BONDVIEW_VIEW_TOP_OFFSET_2;
                 }
 #if !defined(VERSION_EU)
-                if (get_cur_playernum() == 1)
+                if (get_cur_playernum() == 1 && !gevrCoopActive())
                 {
                     view_top -= 8;
                 }

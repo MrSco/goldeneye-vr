@@ -7,6 +7,11 @@
 #include "PR/os.h"
 #include "str.h"
 #include "bondview.h"
+#ifdef GEVR
+#include "net_coop.h"
+#include "net_game.h"
+#include "player.h"
+#endif
 
 #ifdef GEVR
 /*
@@ -189,6 +194,14 @@ OBJECTIVESTATUS get_status_of_objective(s32 objectiveNum) //#MATCH
     OBJECTIVESTATUS         currentstatus;
     OBJECTIVESTATUS         status = OBJECTIVESTATUS_COMPLETE;
 
+#ifdef GEVR
+    /* co-op (#94): a teammate's headset shows the host's mission (net_coop.c) */
+    if (gevrCoopPuppets() && objectiveNum >= 0 && objectiveNum < 10)
+    {
+        return (OBJECTIVESTATUS)gevrCoopHostObjectiveStatus(objectiveNum);
+    }
+#endif
+
     if (objectiveNum < 10)
     {
         if (!&objective_ptrs[objectiveNum]->id)
@@ -236,7 +249,12 @@ OBJECTIVESTATUS get_status_of_objective(s32 objectiveNum) //#MATCH
                             {
                                 currentstatus = OBJECTIVESTATUS_FAILED;
                             }
+#ifdef GEVR
+                            /* co-op: a teammate holding it has it for the team */
+                            else if (!bondinvHasPropInInv(obj->prop) && !gevrCoopTeammateHolds(objective->ObjRefID))
+#else
                             else if (!bondinvHasPropInInv(obj->prop))
+#endif
                             {
                                 currentstatus = OBJECTIVESTATUS_INCOMPLETE;
                             }
@@ -245,7 +263,11 @@ OBJECTIVESTATUS get_status_of_objective(s32 objectiveNum) //#MATCH
                         case PROPDEF_OBJECTIVE_DEPOSIT_OBJECT:
                         {
                             ObjectRecord *obj = objFindByTagId(objective->ObjRefID);
+#ifdef GEVR
+                            if (obj && obj->prop && (bondinvHasPropInInv(obj->prop) || gevrCoopTeammateHolds(objective->ObjRefID)))
+#else
                             if (obj && obj->prop && bondinvHasPropInInv(obj->prop))
+#endif
                             {
                                 currentstatus = OBJECTIVESTATUS_INCOMPLETE;
                             }
@@ -285,7 +307,11 @@ OBJECTIVESTATUS get_status_of_objective(s32 objectiveNum) //#MATCH
                         }
                         case PROPDEF_OBJECTIVE_COPY_ITEM:
                         {
+#ifdef GEVR
+                            if (!get_keyanalyzer_flag() && !gevrCoopAnyCopiedKey())
+#else
                             if (!get_keyanalyzer_flag())
+#endif
                             {
                                 currentstatus = OBJECTIVESTATUS_INCOMPLETE;
                             }
@@ -443,6 +469,9 @@ void objectivestatusCheckRoomEntered(s32 roomid)
             if ((stan != NULL) && (roomid == stan->room))
             {
                 var_v0->status = 1;
+#ifdef GEVR
+                gevrCoopReportRoom(roomid);   /* co-op: a teammate's room counts on the host */
+#endif
             }
         }
 
@@ -481,6 +510,9 @@ void objectivestatusCheckDeposit(s32 weaponnum, s32 roomid)
             if (pad->stan != NULL && roomid == pad->stan->room)
             {
                 dep->flag = 1;
+#ifdef GEVR
+                gevrCoopReportDeposit(weaponnum, roomid);
+#endif
             }
         }
     }
@@ -532,6 +564,9 @@ void objectiveTakePictureHandler(void)
                                     if (sp64.up < (getPlayer_c_screentop() + getPlayer_c_screenheight()))
                                     {
                                         criteria->flag = 1;
+#ifdef GEVR
+                                        gevrCoopReportPhoto(criteria->tag_id);
+#endif
                                     }
                                 }
                             }
@@ -543,5 +578,100 @@ void objectiveTakePictureHandler(void)
     }
 }
 
+
+#ifdef GEVR
+/*
+ * Co-op (#94). The host runs the mission: its guards, its scripts and so its
+ * stage flags. A teammate's headset shows the host's objectives
+ * (get_status_of_objective) and reports what its own player does that the
+ * objectives count: a room entered, an item deposited, a photograph, the key
+ * copied, the objective items it holds (net_coop.c).
+ */
+
+/* Any player's key analyzer copied the GoldenEye key (a teammate's, as reported) */
+s32 gevrCoopAnyCopiedKey(void)
+{
+    s32 i;
+
+    if (!gevrCoopActive())
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 4; i++)
+    {
+        if (g_playerPointers[i] != NULL && g_playerPointers[i]->copiedgoldeneye)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* The host: every objective's status, as its own player's inventory has it */
+s32 gevrCoopObjectiveSnapshot(u8 *statuses, s32 max, s32 localslot)
+{
+    s32 prev = get_cur_playernum();
+    s32 count = objectiveGetCount();
+    s32 i;
+
+    if (count > max)
+    {
+        count = max;
+    }
+    set_cur_player(localslot);
+    for (i = 0; i < count; i++)
+    {
+        statuses[i] = (u8)get_status_of_objective(i);
+    }
+    set_cur_player(prev);
+    return count;
+}
+
+/* A teammate's headset: the objective items (collect, deposit) its player holds */
+s32 gevrCoopHeldObjectiveTags(s32 *tags, s32 max, s32 localslot)
+{
+    MissionObjectiveRecord *objective;
+    s32 prev = get_cur_playernum();
+    s32 n = 0;
+    s32 i;
+
+    set_cur_player(localslot);
+    for (i = 0; i < objectiveGetCount() && i < OBJECTIVES_MAX; i++)
+    {
+        if (objective_ptrs[i] == NULL)
+        {
+            continue;
+        }
+        for (objective = &objective_ptrs[i]->id; objective->type != PROPDEF_OBJECTIVE_END; objective = sizepropdef(objective) + (PropDefHeaderRecord *)objective)
+        {
+            if (objective->type == PROPDEF_OBJECTIVE_COLLECT_OBJECT || objective->type == PROPDEF_OBJECTIVE_DEPOSIT_OBJECT)
+            {
+                ObjectRecord *obj = objFindByTagId(objective->ObjRefID);
+
+                if (obj != NULL && obj->prop != NULL && bondinvHasPropInInv(obj->prop) && n < max)
+                {
+                    tags[n++] = objective->ObjRefID;
+                }
+            }
+        }
+    }
+    set_cur_player(prev);
+    return n;
+}
+
+/* The host: a teammate photographed this */
+void gevrCoopApplyPhoto(s32 tag)
+{
+    struct criteria_picture *criteria;
+
+    for (criteria = ptr_last_photo_obj_in_room_subobject_entry_type1E; criteria != NULL; criteria = criteria->next)
+    {
+        if (criteria->flag == 0 && criteria->tag_id == tag)
+        {
+            criteria->flag = 1;
+        }
+    }
+}
+#endif
 
 //filebreak

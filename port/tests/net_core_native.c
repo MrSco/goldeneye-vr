@@ -49,6 +49,7 @@ void sysLogPrintf(s32 level,const char *fmt,...) { (void)level;(void)fmt; }
 u64 sysGetMicroseconds(void) { return clock_us; }
 void vrSettingsSave(void) {}
 void netVoiceForgetSlot(uint8_t slot) { (void)slot;voice_resets++; }
+void netCoopHostLost(int oldhost,int elected) { (void)oldhost;(void)elected; }
 ENetPacket *enet_packet_create(const void *data,size_t size,uint32_t flags) { (void)flags;if(size<=sizeof(sent_data)) { memcpy(sent_data,data,size);sent_size=size; }return NULL; }
 int enet_peer_send(ENetPeer *peer,uint8_t channel,ENetPacket *packet) { (void)peer;(void)channel;(void)packet;return 0; }
 int enet_address_get_ip(const ENetAddress *address,char *buffer,size_t size) { (void)address;snprintf(buffer,size,"127.0.0.1");return 0; }
@@ -511,11 +512,11 @@ EXPORT int test_core_eight_slots(void) {
     g_playerPlayerData[7].kill_counts[0]=2;g_playerPlayerData[4].kill_counts[5]=1;
     CHECK(netTeamScore(NET_TEAM_BLUE)==1 && netTeamScore(NET_TEAM_RED)==0);
 
-    /* the late-join snapshot: 67 + 49N + 4N^2 bytes, past the old 512 */
+    /* the late-join snapshot: 71 + 49N + 4N^2 bytes (two match configs with co-op's mode and difficulty), past the old 512 */
     s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
     g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
     sent_size=0;netSendMatchSnapshot(NULL);
-    CHECK(sent_size==67+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    CHECK(sent_size==71+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
     struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
     netbufStartReadData(&b,sent_data,sent_size);
     netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);

@@ -50,6 +50,7 @@
 #include "system.h"
 #include <stdio.h>   /* snprintf: the #85 cryptdoor probe */
 #include "net_objects.h"
+#include "net_coop.h"
 extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern int netGetLocalSlot(void);
@@ -3310,6 +3311,11 @@ void propExplode(PropRecord *prop, s32 /* enum EXPLOSION_DEF */ explosionType)
 
     prop_obj = prop->obj;
     playernum = RUNTIME_OWNER(prop_obj->runtime_bitflags);
+#ifdef GEVR
+    /* explosion.c explosionCreate: which object this is (co-op, a guard's grenade) */
+    extern ObjectRecord *g_gevrExplodingObj;
+    g_gevrExplodingObj = prop_obj;
+#endif
 
     if (prop->parent)
     {
@@ -3371,6 +3377,9 @@ void propExplode(PropRecord *prop, s32 /* enum EXPLOSION_DEF */ explosionType)
             (prop->flags & PROPFLAG_00000008) != 0);
     }
 
+#ifdef GEVR
+    g_gevrExplodingObj = NULL;
+#endif
 #if defined(VERSION_JP) || defined(VERSION_EU)
     return ret;
 #endif
@@ -4550,7 +4559,12 @@ s32 objTick(struct PropRecord *prop)
 			projectile = obj->projectile;
 
 			if (projectile->ownerprop != NULL
-#if defined(VERSION_JP) || defined(VERSION_EU)
+#if defined(VERSION_JP) || defined(VERSION_EU) || defined(GEVR)
+				/*
+				 * GEVR: as JP/EU. In US a projectile a guard threw or
+				 * dropped had no simulation owner with two or more
+				 * players, and hung in the air (GoldenEye 007 Plus; #94).
+				 */
 				&& getPlayerPointerIndex(projectile->ownerprop) >= 0
 #endif
 			)
@@ -9940,6 +9954,9 @@ TICKOP propobjInteract(PropRecord *prop)
         {
             alarmActivate();
         }
+#ifdef GEVR
+        gevrCoopReportAlarm(alarmIsActive());   /* co-op (#94): the host's alarm is the mission's */
+#endif
     }
 
     if (obj->flags & PROPFLAG_00080000)
@@ -10393,7 +10410,11 @@ s32 get_ammo_in_magazine(AmmoCrateRecord *crate)
         case AMMO_DARTS:   qty =  4; break;
     }
 
+#ifdef GEVR
+    if (qty > 1 && gevrSoloRules())
+#else
     if (qty > 1 && getPlayerCount() == 1)
+#endif
     {
         qty *= g_SoloAmmoMultiplier;
     }
@@ -10426,7 +10447,11 @@ s32 ammo_collected_from_weapon(WeaponObjRecord *weapon)
         case AMMO_GRENADEROUND: qty =  3; break;
     }
 
+#ifdef GEVR
+    if (qty > 1 && gevrSoloRules())
+#else
     if (qty > 1 && getPlayerCount() == 1)
+#endif
     {
         qty *= g_SoloAmmoMultiplier;
     }
@@ -10694,7 +10719,11 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 
                 ammoquantity = multicrate->slots[i].quantity;
 
+#ifdef GEVR
+                if (gevrSoloRules())
+#else
                 if (getPlayerCount() == 1)
+#endif
                 {
                     ammoquantity *= g_SoloAmmoMultiplier;
                 }
@@ -13460,6 +13489,10 @@ void doorActivate(DoorRecord *door, DOORSTATE State) //#MATCH
         doorSetOpenState(linkeddoor, LinkedState);
         linkeddoor = linkeddoor->linkedDoor;
     };
+#ifdef GEVR
+    /* co-op (#94): a door the host's guards, scripts or timers move moves on every headset */
+    netSendHostDoorState((ObjectRecord *)door, State);
+#endif
 }
 
 

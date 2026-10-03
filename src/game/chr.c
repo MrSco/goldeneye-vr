@@ -28,6 +28,9 @@
 #include "matrixmath.h"
 #include "objecthandler.h"
 #include "player.h"
+#ifdef GEVR
+#include "net_coop.h"
+#endif
 #include "propobj.h"
 #include "stan.h"
 #include "model.h"
@@ -2348,13 +2351,51 @@ s32 chrTick(PropRecord *prop)
     s32 headVisible;
     s32 tickamount;
 
+#ifdef GEVR
+    /*
+     * Online every other player's copy, and a hand firing well off the view,
+     * gets a view pass of its own (lv.c gevrViewPass), and each pass ticks
+     * the props for its camera. A guard advances once a frame, in the head
+     * pass: its AI, animation, aim, flinch, shading and firing. An extra pass
+     * only places it for that camera (on screen, matrices), so a shot traced
+     * there hits it where it stands. A player's copy (PROP_TYPE_VIEWER) has
+     * its own extra-pass rules in playerTick. Not chrUpdateAnim with a zero
+     * tick: that resets prevpos, which the AI's arrival tests read (#94).
+     */
+    extern s32 g_gevrExtraPass;
+    const s32 gevrStill = g_gevrExtraPass && prop->type == PROP_TYPE_CHR;
+    /*
+     * Co-op (#94): on a client a guard is the host's puppet (net_coop.c),
+     * which stands, moves, animates, aims and fires as the host's does, in
+     * place of its AI and animation here; on the host each guard acts on
+     * one player, its AI and fire run as that player (set_cur_player).
+     */
+    const s32 gevrPuppet = !gevrStill && prop->type == PROP_TYPE_CHR && gevrCoopPuppets();
+    s32 gevrTarget = -1;
+    s32 gevrPrevPlayer = 0;
+#endif
+
     renderdata = D_8002CC6C;
     chr = prop->chr;
     model = chr->model;
     headVisible = 1;
     tickamount = g_ClockTimer;
 
+#ifdef GEVR
+    if (!gevrStill && prop->type == PROP_TYPE_CHR && gevrCoopHostGuards())
+    {
+        gevrTarget = gevrCoopGuardTarget(chr);
+    }
+
+    if (gevrPuppet)
+    {
+        /* hidden or not: the host's state may show it again */
+        netCoopPuppetTick(chr, tickamount);
+    }
+    else if (!gevrStill && ((!(chr->chrflags & CHRFLAG_HIDDEN)) || (chr->chrflags & CHRFLAG_00040000)))
+#else
     if ((!(chr->chrflags & CHRFLAG_HIDDEN)) || (chr->chrflags & CHRFLAG_00040000))
+#endif
     {
         if (D_8002C904)
         {
@@ -2368,6 +2409,18 @@ s32 chrTick(PropRecord *prop)
         }
         else
         {
+#ifdef GEVR
+            if (gevrTarget >= 0)
+            {
+                gevrPrevPlayer = get_cur_playernum();
+                set_cur_player(gevrTarget);
+                g_gevrCoopGuardTick = TRUE;
+                chrlvActionTick(chr);
+                g_gevrCoopGuardTick = FALSE;
+                set_cur_player(gevrPrevPlayer);
+            }
+            else
+#endif
             chrlvActionTick(chr);
 
             if (chr->model == NULL)
@@ -2392,6 +2445,12 @@ s32 chrTick(PropRecord *prop)
 
     if (chr->hidden & CHRHIDDEN_REMOVE)
     {
+#ifdef GEVR
+        if (prop->type == PROP_TYPE_CHR)
+        {
+            gevrCoopChrRemoved(chr);
+        }
+#endif
         chrpropCleanupForRemoval(prop);
         return TICKOP_FREE;
     }
@@ -2418,6 +2477,14 @@ s32 chrTick(PropRecord *prop)
     }
     else
     {
+#ifdef GEVR
+        if (gevrStill || gevrPuppet)
+        {
+            /* a puppet has moved already (netCoopPuppetTick) */
+            headSwitchVisible = (chr->chrflags & CHRFLAG_CULL_USING_HITBOX) ? 1 : posIsOnScreen(prop, &prop->pos, getinstsize(model), 1);
+            goto after_position_update;
+        }
+#endif
         if (((prop->type == PROP_TYPE_VIEWER) && (g_playerPointers[getPlayerPointerIndex(prop)]->cameramode == 1)) || (chr->chrflags & CHRFLAG_CULL_USING_HITBOX))
         {
             headSwitchVisible = 1;
@@ -2518,6 +2585,9 @@ after_position_update:
         chr->hidden |= CHRHIDDEN_BACKGROUND_AI;
     }
 
+#ifdef GEVR
+    if (!gevrStill)
+#endif
     chrUpdateAimProperties(chr);
 
     if (chr->field_20 != NULL)
@@ -2560,7 +2630,11 @@ after_position_update:
         renderdata.basemtx = camGetWorldToScreenMtxf();
         renderdata.mtxlist = dynAllocate(model->obj->numMatrices * (sizeof(Mtxf)));
 
+#ifdef GEVR
+        if (g_CurModelChr->flinchcnt >= 0 && !gevrStill)
+#else
         if (g_CurModelChr->flinchcnt >= 0)
+#endif
         {
             g_CurModelChr->flinchcnt += g_ClockTimer;
 
@@ -2579,6 +2653,9 @@ after_position_update:
         g_ModelJointPositionedFunc = NULL;
         modelSetDistanceScale(1.0f);
 
+#ifdef GEVR
+        if (!gevrStill)
+#endif
         update_color_shading(&chr->shadecol, &chr->nextcol);
 
         prop->zDepth = sub_GAME_7F06C768(model);
@@ -2777,10 +2854,15 @@ after_position_update:
 
         prop->flags &= ~PROPFLAG_ONSCREEN;
 
+#ifdef GEVR
+        if (!gevrStill)
+#endif
+        {
         chr->shadecol.r = chr->nextcol.r;
         chr->shadecol.g = chr->nextcol.g;
         chr->shadecol.b = chr->nextcol.b;
         chr->shadecol.a = chr->nextcol.a;
+        }
     }
 
     if (!(chr->chrflags & CHRFLAG_HIDDEN))
@@ -2802,6 +2884,18 @@ after_position_update:
             chr->hidden &= ~CHRHIDDEN_DROP_HELD_ITEMS;
         }
 
+#ifdef GEVR
+        if (gevrTarget >= 0)
+        {
+            gevrPrevPlayer = get_cur_playernum();
+            set_cur_player(gevrTarget);
+            g_gevrCoopGuardTick = TRUE;
+            chrlvTriggerFireWeapon(chr);
+            g_gevrCoopGuardTick = FALSE;
+            set_cur_player(gevrPrevPlayer);
+        }
+        else if (!gevrStill && !gevrPuppet)
+#endif
         chrlvTriggerFireWeapon(chr);
     }
 

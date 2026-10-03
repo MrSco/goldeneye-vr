@@ -2899,9 +2899,21 @@ void modelSetAnimFrame(Model* model, f32 frame)
     s32 frameb;
     bool forwards;
 
+#ifdef GEVR
+    /*
+     * Played backwards, the frame lies between ceil(frame) and the frame
+     * below it, as modelSetAnimFrame2WithChrStuff (the chr root-motion path)
+     * already takes it. Retail took floor(frame) and the frame below that,
+     * so the blend fraction went negative and the pose was extrapolated
+     * past framea instead of blended (GoldenEye 007 Plus found this; #95).
+     */
+    forwards = (model->speed >= 0);
+    framea = forwards ? floorFloatToInt(frame) : ceilFloatToInt(frame);
+#else
     framea = floorFloatToInt(frame);
 
     forwards = (model->speed >= 0);
+#endif
     frameb = (forwards ? framea + 1 : framea - 1);
 
     model->framea = modelConstrainOrWrapAnimFrame(framea, model->anim, model->endframe);
@@ -2920,7 +2932,12 @@ void modelSetAnimFrame(Model* model, f32 frame)
     }
     else
     {
+#ifdef GEVR
+        /* the way back from framea; animframe1 stays the frame, wrapped as retail wraps it */
+        f32 tmp = (f32) framea - frame;
+#else
         f32 tmp = 1.0f - (frame - (f32) frameb);
+#endif
         model->unk2c = tmp;
         model->animframe1 = model->frameb + (1.0f - tmp);
     }
@@ -2937,9 +2954,15 @@ void modelSetAnimFrame2(Model* model, f32 frame1, f32 frame2)
 
     if (model->anim2 != NULL)
     {
+#ifdef GEVR
+        /* backwards from ceil(frame2), as in modelSetAnimFrame */
+        forwards = (model->speed2 >= 0.0f);
+        framea = forwards ? floorFloatToInt(frame2) : ceilFloatToInt(frame2);
+#else
         framea = floorFloatToInt(frame2);
 
         forwards = (model->speed2 >= 0.0f);
+#endif
         frameb = forwards ? (framea + 1) : (framea - 1);
 
         model->frame2a = modelConstrainOrWrapAnimFrame(framea, model->anim2, model->unk6c);
@@ -2958,7 +2981,11 @@ void modelSetAnimFrame2(Model* model, f32 frame1, f32 frame2)
         }
         else
         {
+#ifdef GEVR
+            f32 tmp = (f32) framea - frame2;
+#else
             f32 tmp = 1.0f - (frame2 - (f32) frameb);
+#endif
             model->unk5c = tmp;
             model->animframe2 = model->frame2b + (1.0f - tmp);
         }

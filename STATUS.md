@@ -94,6 +94,12 @@ is goldeneyevr.com, in its own repository.
   them at ammo spots, farthest-first; respawns use them. Checked on one
   headset only (8 slots on Facility/Egypt, 90 Hz): measure frame time and
   host upload with 5+ headsets (MULTIPLAYER.md "Eight players").
+- #94 online co-op, merged to main 2026-10-03, unreleased (protocol 16, up to
+  four players): the solo campaign through the game's own menus, the host
+  driving (each player's own folder and save), solo intro, solo watch with
+  the world running, revive, host-run guards, teammate radar, team kill
+  tally. Accepted on one headset as host (621058a); two-headset play and
+  host-only scripted/ending cutscenes remain. Notes: docs/issue-94-coop.md.
 - #32 room-box shot pretest, #73 NPC ground callback table, #64 watch-arm
   haptics, #24 mirrored fist white face, #81 AimNoLean and #72 decals were
   corrected before this release. Laser/AR33 and other penetrating weapons

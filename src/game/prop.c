@@ -161,7 +161,11 @@ void domakedefaultobj(s32 arg0, ObjectRecord *arg1, s32 cmdindex)
 
     arg1->damage = *(s32*)&arg1->damage / 65536.0f;
 
+#ifdef GEVR
+    if (gevrMpRules())
+#else
     if (getPlayerCount() >= 2)
+#endif
     {
         sp74 = 1;
 
@@ -581,7 +585,11 @@ void weaponAssignToHome(s32 arg0, WeaponObjRecord* weapon, s32 cmdindex)
         hastoken = 1;
         giveweapon = 1;
 
+#ifdef GEVR
+        if (gevrMpRules())
+#else
         if (getPlayerCount() >= 2)
+#endif
         {
             lastmpweaponnum = -1;
 
@@ -832,7 +840,11 @@ void setupSingleMonitor(s32 stageID, MonitorObjRecord *monitor, s32 cmdindex)
         scale = monitor->extrascale * (1.0f / 256.0f);
         monitor->damage = *(s32*)&monitor->damage / M_U16_MAX_VALUE_F;
 
+#ifdef GEVR
+        if (gevrMpRules())
+#else
         if (getPlayerCount() >= 2)
+#endif
         {
             monitor->state |= PROPSTATE_RESPAWN;
         }
@@ -1302,7 +1314,11 @@ void proplvreset2(enum LEVELID stageId)
          * There are no slots for the mp stages in setup_text_pointers. The name is created
          * by adding "mp_" after the "U" e.g. "Ump_setuparchZ"
          */
+#ifdef GEVR
+        if (gevrMpRules())
+#else
         if (getPlayerCount() >= 2)
+#endif
         {
             strcat(strResource, "mp_"); // -> "Ump_"
         }
@@ -1547,7 +1563,11 @@ void proplvreset2(enum LEVELID stageId)
              * - don't load on 4 players
              * - don't load in multiplayer
              */
+#ifdef GEVR
+            if (gevrMpRules())
+#else
             if (getPlayerCount() >= 2)
+#endif
             {
 #ifdef GEVR
                 /* the setup files' bits stop at four players; past four
@@ -1710,7 +1730,11 @@ void proplvreset2(enum LEVELID stageId)
                         s32 ammoqty = 1;
                         s32 i9;
 
+#ifdef GEVR
+                        if (gevrMpRules())
+#else
                         if (getPlayerCount() >= 2)
+#endif
                         {
                             struct s_mp_weapon_set *mpweapon = &getPtrMPWeaponSetData()[lastmpweaponnum];
 

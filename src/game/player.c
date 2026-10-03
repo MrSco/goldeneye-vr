@@ -151,6 +151,26 @@ s32 getPlayerCount(void)
     return count;
 }
 
+#ifdef GEVR
+/*
+ * Two or more players under the multiplayer match's rules: what retail means
+ * by getPlayerCount() >= 2 (the multiplayer setup and weapon sets, respawning
+ * objects, the match's fog and limits). An online co-op mission has several
+ * players and the solo mission's rules (#94).
+ */
+s32 gevrMpRules(void)
+{
+    return getPlayerCount() >= 2 && !gevrCoopActive();
+}
+
+/* The solo mission's rules, retail's getPlayerCount() == 1: alone, or an
+ * online co-op mission (difficulty multipliers, objective messages; #94). */
+s32 gevrSoloRules(void)
+{
+    return getPlayerCount() == 1 || gevrCoopActive();
+}
+#endif
+
 void initBONDdataforPlayer(s32 player_num)
 {
     s32 i;

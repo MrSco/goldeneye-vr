@@ -13,6 +13,7 @@
 #include "net/netbuf.h"
 #include "net_voice.h"
 #include "net_objects.h"
+#include "net_coop.h"
 #include "net_timing.h"
 #include "bondconstants.h"
 #include "boss.h"
@@ -94,6 +95,8 @@ static int netBallotSize(int kind);
 static int8_t s_vote[NET_BALLOT_COUNT][GEVR_MAX_PLAYERS];
 static void netSendLobbyHandoffTo(ENetPeer *peer);
 static void netMigrationGiveUpNow(void);
+static bool s_coop_ended;                /* co-op: this mission has ended (every headset; netCoopApplyEnd) */
+static void netCoopApplyEnd(bool success);
 
 static uint8_t s_preferred_chr_id = 0;
 
@@ -384,11 +387,21 @@ static bool netValidConfig(const NetMatchConfig *c) { return netMatchConfigValid
  * team match keeps working with a gap a departed player left in the slots. */
 static int netConfigSlots(const NetMatchConfig *c) {
     int players = netConfigMaxPlayers(c);
+    /* a co-op party: the campaign's four, never the deathmatch count riding along (#94) */
+    if (c->mode == NET_MODE_COOP) return players;
     return c->max_players > players ? c->max_players : players;
 }
 
 static void netLatchRoundSettings(void) {
     s_round.config = s_lobby_state.config;
+    if (s_round.config.mode == NET_MODE_COOP) {
+        /* the solo mission's rules, not the host's deathmatch settings riding
+         * along: no spawn kits, a second gun of a kind pairs as in solo (#94) */
+        s_round.config.scenario = SCENARIO_NORMAL;
+        s_round.config.loadouts = 0;
+        s_round.config.dual_wield = NET_DUAL_DOUBLES;
+        s_round.config.game_length = 0;
+    }
     s_round.departed_score[0] = s_round.departed_score[1] = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         s_round.team[i] = s_lobby_state.slots[i].team;
@@ -439,6 +452,8 @@ int netDamageAllowed(int attacker, int target) {
     if (!netIsActive()) return 1;
     if (target < 0 || target >= GEVR_MAX_PLAYERS || attacker >= GEVR_MAX_PLAYERS) return 0;
     if (attacker < 0) return 1; /* Environmental damage has no player attacker. */
+    /* co-op: the guards are the enemy; a teammate hurts only with friendly fire on */
+    if (s_round.config.mode == NET_MODE_COOP) return attacker == target || s_round.config.friendly_fire;
     return netTeamDamageAllowed(s_round.config.scenario, s_round.config.friendly_fire,
         attacker == target, s_round.team[attacker], s_round.team[target]);
 }
@@ -736,12 +751,24 @@ int netGetLocalSlot(void) {
     return s_local_slot;
 }
 
+/*
+ * The stage and weapons as the game lists show them (the lobby service's
+ * entry, the LAN beacon): one byte each, so a co-op game lists its mission's
+ * LEVELID with the top bit set (NET_LOBBY_COOP_STAGE) and its difficulty in
+ * the weapons' place. Level ids stay under 0x80.
+ */
+static const NetMatchConfig *netListedConfig(void) {
+    return s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING ? &s_round.config : &s_lobby_state.config;
+}
+
 uint8_t netGetLobbyStage(void) {
-    return s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING ? s_round.config.stage : s_lobby_state.config.stage;
+    const NetMatchConfig *c = netListedConfig();
+    return c->mode == NET_MODE_COOP ? (uint8_t)(NET_LOBBY_COOP_STAGE | c->stage) : c->stage;
 }
 
 uint8_t netGetLobbyWeaponSet(void) {
-    return s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING ? s_round.config.weapon_set : s_lobby_state.config.weapon_set;
+    const NetMatchConfig *c = netListedConfig();
+    return c->mode == NET_MODE_COOP ? c->difficulty : c->weapon_set;
 }
 
 int netGetConnectedPlayerCount(void) {
@@ -781,6 +808,12 @@ bool netSlotOccupied(int slot) {
            (slot == s_local_slot || (s_lobby_state.slots[slot].connected &&
             (s_state != NET_STATE_INGAME ||
              (s_lobby_state.slots[slot].loaded && !s_lobby_state.slots[slot].spectator))));
+}
+
+/* The stage a round reset loads: the config's, the party's menus being the title stage (co-op, #94) */
+int netRoundLoadStage(void) {
+    if (s_round.config.mode == NET_MODE_COOP && s_round.config.stage == NET_COOP_FRONT_STAGE) return LEVELID_TITLE;
+    return s_round.config.stage;
 }
 
 bool netTakeRoundReset(void) {
@@ -1086,6 +1119,20 @@ void netSendDoorState(ObjectRecord *door, s32 state) {
     netSendObjectEvent(door, NET_OBJECT_DOOR, (int8_t)state);
 }
 
+/* Co-op (#94), the host: a door its guards, scripts or timers moved, and a
+ * script's lock (propobj.c doorActivate, chrai.c AI_DoorSetLock): the same
+ * on every headset. A player's own door still goes as netSendDoorState. */
+void netSendHostDoorState(ObjectRecord *door, s32 state) {
+    if (!netIsHost() || !netCoopActive() || !netPlayersWereTicked()) return;
+    if (state != DOORSTATE_OPENING && state != DOORSTATE_CLOSING && state != DOORSTATE_WAITING) return;
+    netSendObjectEvent(door, NET_OBJECT_DOOR, (int8_t)state);
+}
+
+void netSendHostDoorLock(ObjectRecord *door) {
+    if (!netIsHost() || !netCoopActive() || !netPlayersWereTicked() || !door || door->type != PROPDEF_DOOR) return;
+    netSendObjectEvent(door, NET_OBJECT_DOOR_LOCK, (int8_t)(uint8_t)((DoorRecord *)door)->keyflags);
+}
+
 /* chrprop.c: the local player now holds the flag or the Golden Gun, from the
  * setup or a dropped one. The others put it in that copy's inventory
  * (netTakeSpecialItem), so the holder rules (lv.c) and the drop on death run
@@ -1369,6 +1416,17 @@ void netHostStartRoundNow(void) {
 
 static void netReadyProgress(void) {
     if (!netIsHost() || !netAllLoaded() || !netCombatClocksReady()) return;
+    if (s_round.config.mode == NET_MODE_COOP) {
+        /* the next mission (netCoopTick) is under way once everyone has loaded it, alone too */
+        if (s_round_reset_loading) {
+            s_round_reset_loading = false;
+            s_start_after_load = false;
+            s_lobby_open = false;
+            netBroadcastRoundPhase(NET_PHASE_IN_PROGRESS);
+            netBroadcastLobbyState();
+        }
+        return;
+    }
     if (s_round_reset_loading) {
         s_round_reset_loading = false;
         if (s_start_after_load && netGetConnectedPlayerCount() >= 2 && netRoundRosterReady()) {
@@ -1382,6 +1440,8 @@ static void netReadyProgress(void) {
 }
 
 void netStageLoaded(void) {
+    s_coop_ended = false;
+    netCoopMenuReset();
     netSpectatorReset();
     netPlayersTickedReset(); /* events queued through the load are for the old stage */
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
@@ -1411,7 +1471,7 @@ void netStageLoaded(void) {
 
 void netLobbySetReady(bool ready) {
     if (s_local_slot < 0 || s_local_slot >= GEVR_MAX_PLAYERS) return;
-    if (ready && netScenarioHasTeams(s_lobby_state.config.scenario) &&
+    if (ready && s_lobby_state.config.mode != NET_MODE_COOP && netScenarioHasTeams(s_lobby_state.config.scenario) &&
         s_lobby_state.slots[s_local_slot].team == NET_TEAM_NONE &&
         !(netIsHost() && netGetConnectedPlayerCount() == 1)) return;
     s_lobby_state.slots[s_local_slot].ready = ready ? 1 : 0;
@@ -1511,6 +1571,144 @@ void netLobbySetConfig(const NetMatchConfig *config) {
     netBroadcastLobbyState();
 }
 
+/* Online with a co-op mission loaded or loading: the game's code asks this
+ * where retail reads "two or more players" as a deathmatch (gevrCoopActive). */
+int netCoopActive(void) {
+    /* the stage loaded, not the config's: a mission keeps its rules until the menus replace it */
+    return netCoopSession() && bossGetStageNum() != LEVELID_TITLE;
+}
+int gevrCoopActive(void) { return netCoopActive(); }
+
+/* Co-op (#94): a number every headset shares for this mission (the launch's seed, the round's epoch): the intro's camera */
+unsigned int gevrCoopIntroSeed(void) {
+    uint32_t x = s_rng_seed ^ (s_round.world_epoch * 2654435761u);
+    x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15;
+    return x;
+}
+
+/* A co-op party, in its menus or a mission: the session lasts through the title stage */
+int netCoopSession(void) {
+    return (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) && s_round.config.mode == NET_MODE_COOP;
+}
+int gevrCoopSession(void) { return netCoopSession(); }
+
+/*
+ * The party's tally, for the statistics page (front.c): each player's guard
+ * kills and hits as the host counted them. A teammate's hits on the host's
+ * guards are the host's to count (net_coop.c coopApplyHit); its shots fired
+ * are its own.
+ */
+#define NET_COOP_TALLY_REGS 6   /* shot_count[1..6]: head, body, limb, gun, hat, object */
+static bool s_coop_tally_valid;
+static bool s_coop_tally_in[GEVR_MAX_PLAYERS];
+static uint16_t s_coop_tally_kills[GEVR_MAX_PLAYERS];
+static uint16_t s_coop_tally_hits[GEVR_MAX_PLAYERS][NET_COOP_TALLY_REGS];
+static char s_coop_tally_name[GEVR_MAX_PLAYERS][16];
+
+static void netCoopTallyName(int slot) {
+    const char *name = netGetSlotName(slot);
+    snprintf(s_coop_tally_name[slot], sizeof(s_coop_tally_name[slot]), "%s", name && name[0] ? name : "Player");
+}
+
+/* The host: every player's count, as the mission ends */
+static void netCoopTallyCollect(void) {
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        const struct player_data *d = &g_playerPlayerData[i];
+        s_coop_tally_in[i] = netSlotOccupied(i) && !netSlotIsSpectator(i);
+        s_coop_tally_kills[i] = (uint16_t)(d->kill_count < 0 ? 0 : d->kill_count > 0xFFFF ? 0xFFFF : d->kill_count);
+        for (int r = 0; r < NET_COOP_TALLY_REGS; r++) {
+            s32 v = d->shot_count[r + 1];
+            s_coop_tally_hits[i][r] = (uint16_t)(v < 0 ? 0 : v > 0xFFFF ? 0xFFFF : v);
+        }
+        if (s_coop_tally_in[i]) netCoopTallyName(i);
+    }
+    s_coop_tally_valid = true;
+}
+
+/* Every headset: this player's kills and hits as the host counted them */
+static void netCoopTallyApplyLocal(void) {
+    int me = s_local_slot;
+    if (!s_coop_tally_valid || netIsHost() || me < 0 || me >= GEVR_MAX_PLAYERS) return;
+    g_playerPlayerData[me].kill_count = s_coop_tally_kills[me];
+    for (int r = 0; r < NET_COOP_TALLY_REGS; r++) g_playerPlayerData[me].shot_count[r + 1] = s_coop_tally_hits[me][r];
+}
+
+int gevrCoopTallyCount(void) { return s_coop_tally_valid && netCoopSession() ? GEVR_MAX_PLAYERS : 0; }
+int gevrCoopTallyPlayed(int slot) { return s_coop_tally_valid && slot >= 0 && slot < GEVR_MAX_PLAYERS && s_coop_tally_in[slot]; }
+int gevrCoopTallyKills(int slot) { return gevrCoopTallyPlayed(slot) ? s_coop_tally_kills[slot] : 0; }
+const char *gevrCoopTallyName(int slot) { return gevrCoopTallyPlayed(slot) ? s_coop_tally_name[slot] : ""; }
+
+/*
+ * Every headset, back in the menus: the debrief and statistics pages read
+ * player one's stats (front.c), on a teammate's headset the host's copy:
+ * this headset's own player's take their place.
+ */
+static void netCoopStatsToPlayerOne(void) {
+    int me = s_local_slot;
+    if (me <= 0 || me >= GEVR_MAX_PLAYERS) return;
+    g_playerPlayerData[0] = g_playerPlayerData[me];
+    array_favweapon[0][0] = array_favweapon[me][0];
+    array_favweapon[0][1] = array_favweapon[me][1];
+}
+
+/*
+ * A co-op mission, as the solo game starts one (file.c set_solo_and_ptr_briefing,
+ * front.c init_menu0B_runstage) but with a player struct for every slot: the
+ * game mode stays GAMEMODE_MULTI, which is what sizes the players
+ * (front.c get_selected_num_players, boss.c), and the code that reads two or
+ * more players as a deathmatch asks gevrCoopActive() instead.
+ */
+static void netApplyCoopConfig(const NetMatchConfig *c) {
+    extern void init_mp_options_for_scenario(s32 numplayers);
+    extern void do_extended_cast_display(s32 arg0);
+    extern s32 g_StageNum;
+    s_max_players = NET_COOP_MAX_PLAYERS;
+    s_lobby_max_players = NET_COOP_MAX_PLAYERS;
+    if (c->stage == NET_COOP_FRONT_STAGE) {
+        /*
+         * The party's menus: the solo front end on every headset, each player
+         * with their own save folder (front.c). The first time in, the folder
+         * screen; back from a mission, the debrief its launch chose.
+         */
+        gamemode = GAMEMODE_SOLO;
+        selected_num_players = 1;
+        g_StageNum = LEVELID_TITLE;
+        if (menu_update == MENU_INVALID && current_menu == MENU_INVALID)
+            menu_update = MENU_FILE_SELECT;
+        if (menu_update == MENU_MISSION_FAILED)
+            netCoopStatsToPlayerOne();
+        NET_LOG("co-op config applied: the party's menus");
+        return;
+    }
+    gamemode = GAMEMODE_MULTI;
+    selected_num_players = NET_COOP_MAX_PLAYERS;
+    s_coop_tally_valid = false;   /* the statistics page's tally is the next end's */
+    g_StageNum = c->stage;
+    selected_stage = c->stage;
+    /* the mission's folder entry (the save's index): the co-op table is in the solo mission order */
+    if (netCoopMissionIndexOf(c->stage) >= 0)
+        briefingpage = pull_and_display_text_for_folder_a0(netCoopMissionIndexOf(c->stage));
+    selected_difficulty = (DIFFICULTY)(c->difficulty < NET_DIFFICULTY_COUNT ? c->difficulty : DIFFICULTY_AGENT);
+    lvlSetSelectedDifficulty(selected_difficulty);
+    /* back in the menus afterwards, the debrief (Cuba: the cast), as front.c's MENU_RUN_STAGE picks it */
+    if (c->stage == NET_COOP_CUBA_STAGE) {
+        do_extended_cast_display(TRUE);
+        menu_update = MENU_DISPLAY_CAST;
+    } else {
+        menu_update = MENU_MISSION_FAILED;
+    }
+    init_mp_options_for_scenario(selected_num_players);
+    reset_mp_options_for_scenario(SCENARIO_NORMAL);
+    game_length = 0;   /* no time or point limit: the mission ends the round */
+    for (int p = 0; p < GEVR_MAX_PLAYERS; p++) {
+        player_char[p] = s_round.character[p] < netCharacterCount() ? s_round.character[p] : p;
+        player_handicap[p] = 5;   /* normal: the difficulty sets the damage */
+    }
+    NET_LOG("co-op config applied: mission %s (level %d) difficulty %s",
+            c->stage == NET_COOP_CUBA_STAGE ? "Cuba" : netCoopMissionName(netCoopMissionIndexOf(c->stage)),
+            c->stage, netDifficultyName(c->difficulty));
+}
+
 _Static_assert(NET_WEAPON_SET_CUSTOM == MP_WEAPON_SET_CUSTOM, "the custom set's index must agree between net_match.h and mp_weapon.h");
 
 /*
@@ -1525,6 +1723,10 @@ void netApplyMatchConfig(void) {
     extern void init_mp_options_for_scenario(s32 numplayers);
     extern s32 g_StageNum;
     const NetMatchConfig *c = &s_round.config;
+    if (c->mode == NET_MODE_COOP) {
+        netApplyCoopConfig(c);
+        return;
+    }
     int cap = netConfigSlots(c);
 
     gamemode = GAMEMODE_MULTI;
@@ -1579,6 +1781,7 @@ bool netSlotIsSpectator(int slot) {
 int netPlayerIsSpectator(int slot) { return netIsActive() && netSlotIsSpectator(slot); }
 int gevrSpectating(void) { return netLocalIsSpectator() && get_cur_playernum() == s_local_slot; }
 int netTeamRosterReady(void) {
+    if (s_lobby_state.config.mode == NET_MODE_COOP) return 1;
     uint8_t connected[GEVR_MAX_PLAYERS], team[GEVR_MAX_PLAYERS];
     for (int i=0;i<GEVR_MAX_PLAYERS;i++) { connected[i]=s_lobby_state.slots[i].connected; team[i]=s_lobby_state.slots[i].team; }
     return netTeamRosterComplete(s_lobby_state.config.scenario, GEVR_MAX_PLAYERS, connected, team);
@@ -1756,7 +1959,8 @@ bool netLobbyHostLaunchMatch(void) {
      */
     netClearVotes(-1);
     s_lobby_open = false;
-    s_phase = NET_PHASE_WARMUP;
+    /* a co-op mission is under way from the load: the party plays as it arrives (#94) */
+    s_phase = s_round.config.mode == NET_MODE_COOP ? NET_PHASE_IN_PROGRESS : NET_PHASE_WARMUP;
     netSendMatchStartTo(NULL);
     s_state = NET_STATE_INGAME;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
@@ -2227,7 +2431,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 s_lobby_state.slots[assigned].eliminated = 0;
                 s_lobby_state.slots[assigned].ping_ms = NET_PING_UNKNOWN;
                 s_round.team[assigned] = NET_TEAM_NONE;
-                s_lobby_state.slots[assigned].spectator = s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS;
+                /* a deathmatch's late joiner watches until the next round; a co-op one drops in (#94) */
+                s_lobby_state.slots[assigned].spectator = s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS &&
+                    s_round.config.mode != NET_MODE_COOP;
                 s_round.character[assigned] = requested_chr;
                 memset(s_round.loadout[assigned], 0, 4);
             }
@@ -2362,7 +2568,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             uint8_t ready = netbufReadU8(&buf);
             if (slot >= 0 && slot < s_max_players && s_client_peers[slot] == peer &&
                 s_lobby_state.slots[slot].connected && !buf.error && size == 9 &&
-                slot_id == slot && ready <= 1 && (!ready || !netScenarioHasTeams(s_lobby_state.config.scenario) || s_lobby_state.slots[slot].team < 2)) {
+                slot_id == slot && ready <= 1 && (!ready || s_lobby_state.config.mode == NET_MODE_COOP ||
+                    !netScenarioHasTeams(s_lobby_state.config.scenario) || s_lobby_state.slots[slot].team < 2)) {
                 s_lobby_state.slots[slot].ready = ready;
                 if (!ready) netCancelRound();
                 
@@ -2439,7 +2646,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             /* back after a host change: still standing where it was, not respawned */
             bool returning = s_slot_grace_us[slot] != 0;
             s_slot_grace_us[slot] = 0;
-            if (!was_ready && !returning && s_phase == NET_PHASE_IN_PROGRESS) {
+            if (!was_ready && !returning && s_phase == NET_PHASE_IN_PROGRESS && s_round.config.mode != NET_MODE_COOP) {
                 s_lobby_state.slots[slot].spectator = 1;
                 netVoiceForgetSlot((uint8_t)slot);
             }
@@ -2459,6 +2666,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_lobby_state.slots[slot].loaded = 1;
             netBroadcastLobbyState();
             netReadyProgress();
+            /* co-op: its guards and where to start (a mission under way), or the new host's slots */
+            if (!was_ready || returning) netCoopPlayerJoined(slot, returning);
             break;
         }
         case NET_MSG_ROUND_RESET: {
@@ -2528,6 +2737,54 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             NET_LOG("Lobby handoff kept: code %s, game '%s', %d players", s_lobby_code[0] ? "yes" : "none", s_game_name, max_players);
             break;
         }
+        case NET_MSG_COOP_END: {
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME || size < 14) break;
+            uint8_t result = netbufReadU8(&buf);
+            uint8_t next = netbufReadU8(&buf);
+            uint32_t delay = netbufReadU32(&buf);
+            bool in[GEVR_MAX_PLAYERS];
+            uint16_t kills[GEVR_MAX_PLAYERS], hits[GEVR_MAX_PLAYERS][NET_COOP_TALLY_REGS];
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                in[i] = netbufReadU8(&buf) != 0;
+                kills[i] = netbufReadU16(&buf);
+                for (int r = 0; r < NET_COOP_TALLY_REGS; r++) hits[i][r] = netbufReadU16(&buf);
+            }
+            if (buf.error || netbufReadLeft(&buf) || result > NET_COOP_RESULT_ABORTED || !netCoopStageValid(next) ||
+                !netCoopActive()) break;
+            (void)delay;
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                s_coop_tally_in[i] = in[i];
+                s_coop_tally_kills[i] = kills[i];
+                memcpy(s_coop_tally_hits[i], hits[i], sizeof(hits[i]));
+                if (in[i]) netCoopTallyName(i);
+            }
+            s_coop_tally_valid = true;
+            netCoopApplyEnd(result);
+            break;
+        }
+        case NET_MSG_COOP_MENU:
+            /* the party's menus: the host's screen (net_coop_menu.c) */
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
+            netCoopReceiveMenu(&buf);
+            break;
+        case NET_MSG_CHR_STATE:
+        case NET_MSG_CHR_SPAWN:
+        case NET_MSG_CHR_REMOVE:
+        case NET_MSG_COOP_DAMAGE:
+        case NET_MSG_COOP_MISSION:
+        case NET_MSG_COOP_TEXT:
+        case NET_MSG_CHR_AI:
+        case NET_MSG_CHR_REMAP:
+        case NET_MSG_COOP_JOIN:
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
+            netCoopReceive(msg_type, slot_id, 1, &buf);
+            break;
+        case NET_MSG_COOP_HIT:
+        case NET_MSG_COOP_EVENT:
+            if (!netIsHost() || s_state != NET_STATE_INGAME || slot_id >= GEVR_MAX_PLAYERS ||
+                s_client_peers[slot_id] != peer || (int)(intptr_t)peer->data - 1 != slot_id) break;
+            netCoopReceive(msg_type, slot_id, 0, &buf);
+            break;
         case NET_MSG_COUNTDOWN: {
             if (netIsHost() || peer != s_server_peer || size != 12) break;
             uint32_t ms = netbufReadU32(&buf);
@@ -2816,6 +3073,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     /* freed for good there (objFree in propPickupByPlayer) */
                     objFreePermanently(obj, TRUE);
                 }
+            } else if (action == NET_OBJECT_DOOR_LOCK) {
+                /* co-op: the host's script locked or unlocked it */
+                if (!netIsHost() && slot == s_host_slot && obj->type == PROPDEF_DOOR && obj->prop->type == PROP_TYPE_DOOR)
+                    ((DoorRecord *)obj)->keyflags = (((DoorRecord *)obj)->keyflags & ~0xFFu) | (u8)value;
             } else if (action == NET_OBJECT_DOOR) {
                 if (value == DOORSTATE_WAITING) value = DOORSTATE_OPENING; /* opened, held for its sibling door */
                 if (obj->type == PROPDEF_DOOR && obj->prop->type == PROP_TYPE_DOOR &&
@@ -2916,7 +3177,7 @@ static void netBroadcastAllVotes(void) {
 void netSetLocalVote(int kind, int idx) {
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || s_local_slot >= GEVR_MAX_PLAYERS ||
         kind < 0 || kind >= NET_BALLOT_COUNT) return;
-    if (s_lobby_state.config.next_round != NET_NEXT_VOTE ||
+    if (s_lobby_state.config.next_round != NET_NEXT_VOTE || s_lobby_state.config.mode == NET_MODE_COOP ||
         (kind == NET_BALLOT_WEAPONS && s_lobby_state.config.scenario == SCENARIO_MWTGG)) return;
     if (idx < -1 || idx >= netBallotSize(kind)) idx = -1;
     s_vote[kind][s_local_slot] = (int8_t)idx;
@@ -3011,6 +3272,105 @@ static void netResolveVotes(void) {
     netBroadcastAllVotes();
 }
 
+/* ---- Co-op (#94) ---- */
+
+/* The host: one player only (a joiner's roster) */
+void netCoopSendTo(int slot, const u8 *data, u32 size) {
+    if (!netIsHost() || slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_client_peers[slot] || !data || !size) return;
+    enet_peer_send(s_client_peers[slot], NET_CHAN_RELIABLE, enet_packet_create(data, size, ENET_PACKET_FLAG_RELIABLE));
+}
+
+/* net_coop.c's messages: the host's go to every headset, a client's to the host */
+void netCoopBroadcast(const u8 *data, u32 size, int reliable) {
+    if (!data || !size) return;
+    if (reliable) netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    else netBroadcastPacket(data, size, NET_CHAN_PLAYER_STATE, 0, NULL);
+}
+
+/* The mission's end */
+
+static uint64_t s_coop_next_at_us;       /* host: the party's menus load at this time */
+static uint8_t s_coop_next_stage;        /* host: the stage it loads (the menus) */
+#define NET_COOP_END_DELAY_MS 4000
+
+static void netCoopApplyEnd(int result) {
+    extern void gevrCoopMissionEndLocal(s32 result);
+    if (s_coop_ended) return;
+    netCoopTallyApplyLocal();
+    s_coop_ended = true;
+    NET_LOG("co-op: mission %s", result == NET_COOP_RESULT_COMPLETE ? "complete" :
+            result == NET_COOP_RESULT_ALL_DOWN ? "failed, every player down" :
+            result == NET_COOP_RESULT_ABORTED ? "aborted" : "failed");
+    gevrCoopMissionEndLocal(result);
+}
+
+/*
+ * boss.c bossReturnTitleStage in a co-op mission: the mission's end (the AI's
+ * EndLevel, the exit's fade). The host's ends it for everyone: each headset
+ * saves the completion to its own save and shows it, and the host loads the
+ * next mission after a pause (the same one after a failure). Another
+ * headset's own end is only logged: its guards are the host's to run.
+ */
+void netCoopMissionEnded(int result) {
+    if (!netCoopActive() || s_coop_ended || result < 0 || result > NET_COOP_RESULT_ABORTED) return;
+    if (!netIsHost()) {
+        NET_LOG("co-op: this headset reached the mission's end (%d); the host's decides", result);
+        return;
+    }
+    /* everyone back to the menus: the debrief, then the host's next choice (front.c) */
+    s_coop_next_stage = NET_COOP_FRONT_STAGE;
+    s_coop_next_at_us = sysGetMicroseconds() + NET_COOP_END_DELAY_MS * 1000ull;
+    netCoopTallyCollect();
+    u8 raw[16 + GEVR_MAX_PLAYERS * (3 + 2 * NET_COOP_TALLY_REGS)];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&buf);
+    netbufWriteU32(&buf, GEVR_NET_MAGIC);
+    netbufWriteU16(&buf, GEVR_NET_VERSION);
+    netbufWriteU8(&buf, NET_MSG_COOP_END);
+    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)result);
+    netbufWriteU8(&buf, s_coop_next_stage);
+    netbufWriteU32(&buf, NET_COOP_END_DELAY_MS);
+    /* the party's tally: who played, their kills and their hits */
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        netbufWriteU8(&buf, s_coop_tally_in[i] ? 1 : 0);
+        netbufWriteU16(&buf, s_coop_tally_kills[i]);
+        for (int r = 0; r < NET_COOP_TALLY_REGS; r++) netbufWriteU16(&buf, s_coop_tally_hits[i][r]);
+    }
+    if (buf.error) return;
+    netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    netCoopApplyEnd(result);
+}
+
+/*
+ * The host's front end (front.c init_menu0B_runstage): the briefing's Start,
+ * 007's Start or the statistics page's Next to Cuba. Every headset loads the
+ * mission as a round reset (netTakeRoundReset, boss.c).
+ */
+void netCoopHostStartMission(int stage, int difficulty) {
+    if (!netIsHost() || !netCoopSession() || s_round_reset_loading || !netCoopStageValid((uint8_t)stage) ||
+        stage == NET_COOP_FRONT_STAGE) return;
+    s_coop_next_at_us = 0;
+    s_lobby_state.config.stage = (uint8_t)stage;
+    s_lobby_state.config.difficulty = (uint8_t)(difficulty >= 0 && difficulty < NET_DIFFICULTY_COUNT ? difficulty : 0);
+    NET_LOG("co-op: the host starts %s, %s", stage == NET_COOP_CUBA_STAGE ? "Cuba" :
+            netCoopMissionName(netCoopMissionIndexOf((uint8_t)stage)), netDifficultyName(s_lobby_state.config.difficulty));
+    netLatchRoundSettings();
+    netBeginRoundReset(true);
+}
+
+/* The host, each frame: the next mission once the pause is over */
+static void netCoopTick(void) {
+    if (!netIsHost() || s_state != NET_STATE_INGAME || s_round.config.mode != NET_MODE_COOP) return;
+    if (s_coop_next_at_us && sysGetMicroseconds() >= s_coop_next_at_us && !s_round_reset_loading) {
+        s_coop_next_at_us = 0;
+        s_lobby_state.config.stage = s_coop_next_stage;
+        NET_LOG("co-op: back to the party's menus");
+        netLatchRoundSettings();
+        netBeginRoundReset(true);
+    }
+}
+
 static uint64_t s_last_local_activity_us = 0;
 static uint32_t s_last_idle_warning_sec = 0;
 
@@ -3022,7 +3382,9 @@ void netTouchLocalActivity(void) {
 static void netRoundTick(void) {
     if (s_state == NET_STATE_INGAME) {
         uint64_t now = sysGetMicroseconds();
-        if (s_last_local_activity_us == 0) s_last_local_activity_us = now;
+        /* co-op (#94): the party's menus are no place to idle out (a teammate follows the host's, input-less) */
+        if (s_last_local_activity_us == 0 || (netCoopSession() && bossGetStageNum() == LEVELID_TITLE))
+            s_last_local_activity_us = now;
         uint64_t idle_us = now - s_last_local_activity_us;
         if (idle_us >= 270ULL * 1000000ULL && idle_us < 300ULL * 1000000ULL) {
             uint32_t left = (uint32_t)((300ULL * 1000000ULL - idle_us) / 1000000ULL);
@@ -3044,6 +3406,7 @@ static void netRoundTick(void) {
             return;
         }
 
+        netCoopTick();
         if (netIsHost()) {
             if (s_match_ended && s_results_deadline_us && now >= s_results_deadline_us) netHostContinue();
             if (s_next_round_at_us && now >= s_next_round_at_us &&
@@ -3161,6 +3524,7 @@ static void netHostLost(ENetPeer *peer) {
         }
     }
     if (elected < 0) elected = s_local_slot;
+    netCoopHostLost(old, elected == s_local_slot);
     s_host_slot = elected;
     s_state = NET_STATE_MIGRATING;
     s_last_latency_us = 0;
@@ -3223,12 +3587,13 @@ bool netHostTakeOver(uint16_t port) {
             waiting++;
         }
     }
-    if (!waiting) netBeginRoundReset(false);
+    if (!waiting && s_round.config.mode != NET_MODE_COOP) netBeginRoundReset(false);
     else if (s_match_ended || g_gameOverFlag) {
         s_match_ended = true;
         s_results_deadline_us = now + 30000000ull;
     }
     NET_LOG("Hosting the match from slot %d on port %d; %d player(s) have 20 s to come back", s_local_slot, address.port, waiting);
+    netCoopBecameHost();   /* co-op: the guards' AI resumes here */
     return true;
 }
 
@@ -3265,6 +3630,7 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
     s_remote_active[slot] = false;
     netVoiceForgetSlot((uint8_t)slot);
     netForgetPlayerScore(slot);
+    netCoopSlotLeft(slot);
     memset(&s_lobby_state.slots[slot], 0, sizeof(NetLobbySlot));
     s_lobby_state.slots[slot].team = NET_TEAM_NONE;
     s_lobby_state.slots[slot].ping_ms = NET_PING_UNKNOWN;
@@ -3274,7 +3640,9 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
 
     netBroadcastLobbyState();
     netBroadcastAllVotes();
-    if (s_state == NET_STATE_INGAME && netGetConnectedPlayerCount() == 1 &&
+    if (s_round.config.mode == NET_MODE_COOP) {
+        /* co-op: the mission goes on for whoever is left, alone too (#94) */
+    } else if (s_state == NET_STATE_INGAME && netGetConnectedPlayerCount() == 1 &&
         s_phase == NET_PHASE_IN_PROGRESS) {
         s_start_after_load = false;
         s_next_round_at_us = 0;
@@ -3291,6 +3659,12 @@ void netPoll(void) {
         ammo_now-last_ammo_us >= 50000) {
         last_ammo_us=ammo_now;netSendAmmoState(NULL);
     }
+    if (netIsHost() && s_state == NET_STATE_INGAME && !s_round_reset_loading && netPlayersWereTicked())
+        netCoopHostTick();
+    else if (!netIsHost() && s_state == NET_STATE_INGAME && netPlayersWereTicked())
+        netCoopClientTick();
+    if (s_state == NET_STATE_INGAME && !s_round_reset_loading && netPlayersWereTicked())
+        netCoopReviveTick();
     if (netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS && netPlayersWereTicked()) {
         bool changed = false;
         for (int i=0;i<GEVR_MAX_PLAYERS;i++) {

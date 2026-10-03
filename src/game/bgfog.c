@@ -7,6 +7,9 @@
 #include "bondview.h"
 #include "bgfog.h"
 #include <limits.h>
+#ifdef GEVR
+#include "player.h"
+#endif
 
 /**
  * Address 0x800825C0.
@@ -433,7 +436,12 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
 
     num_players = getPlayerCount();
 
+#ifdef GEVR
+    /* an online co-op mission has the solo mission's fog (#94) */
+    if (num_players == 1 || gevrCoopActive())
+#else
     if (num_players == 1)
+#endif
     {
         num_players = 0;
     }

@@ -91,6 +91,8 @@ extern "C" void vrSettingsSave(void)
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
     fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
+    fprintf(f, "; Co-op: MpMode 1, the mission's level id and the difficulty (0 Agent .. 3 007).\n");
+    fprintf(f, "MpMode=%d\nMpMission=%d\nMpDifficulty=%d\n", VrMpMode, VrMpMission, VrMpDifficulty);
     fprintf(f, "; The virtual screen: metres in front of you, and the degrees of view it spans.\n");
     fprintf(f, "; Hold both grips and use the right stick while the screen is up to change them.\n");
     fprintf(f, "ScreenDistance=%.2f\n", VrScreenDistance);
@@ -243,6 +245,9 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpNextRound") == 0) VrMpNextRound = ival;
             else if (strcmp(key, "MpFavStages") == 0) VrMpFavStages = (unsigned)ival;
             else if (strcmp(key, "MpFavSets") == 0) VrMpFavSets = (unsigned)ival;
+            else if (strcmp(key, "MpMode") == 0) VrMpMode = ival == 1 ? 1 : 0;
+            else if (strcmp(key, "MpMission") == 0) VrMpMission = ival;
+            else if (strcmp(key, "MpDifficulty") == 0) VrMpDifficulty = ival >= 0 && ival <= 3 ? ival : 0;
             else if (strncmp(key, "MpCustom", 8) == 0 && key[8] >= '1' && key[8] <= '4') VrMpCustom[key[8] - '1'] = ival;
             else if (strncmp(key, "MpLoadout", 9) == 0 && key[9] >= '1' && key[9] <= '4') VrMpLoadout[key[9] - '1'] = ival;
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;

@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_game.h"
+#include "net_coop.h"
 #include "gevr_scope.h"   /* the per-hand VR scope (issue #40) */
 #include "gevr_model.h"
 #endif
@@ -5663,6 +5664,9 @@ void analyzeGEKey(void)
     {
    	    HUDMESSAGEBOTTOM(langGet(getStringID(LGUN, GUN_STR_D8_ANALYZINGTHEGOLDENEYEKEY_LF))); //Analyzing the GoldenEye key...
     	g_CurrentPlayer->copiedgoldeneye = TRUE;
+#ifdef GEVR
+    	gevrCoopReportKeyCopy();   /* co-op (#94): the copy counts for the team, on the host */
+#endif
     	sndPlaySfx(g_musicSfxBufferPtr, KEY_ANALYSER_SFX, 0x0);
     	currentPlayerEquipWeaponWrapper(GUNRIGHT, ITEM_GOLDENEYEKEY);
     	currentPlayerEquipWeaponWrapper(GUNLEFT, ITEM_UNARMED);
@@ -7636,7 +7640,12 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
             weapon_left = getCurrentPlayerWeaponId(GUNLEFT);
             weapon_right = getCurrentPlayerWeaponId(GUNRIGHT);
 
+#ifdef GEVR
+            /* co-op (#94): one player's view, laid out as solo's, not a quarter of four */
+            if (getPlayerCount() < 3 || gevrCoopActive())
+#else
             if (getPlayerCount() < 3)
+#endif
             {
                 leftx = 59;
                 rightx = 59;
