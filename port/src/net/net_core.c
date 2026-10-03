@@ -1558,6 +1558,65 @@ int netCoopSession(void) {
 int gevrCoopSession(void) { return netCoopSession(); }
 
 /*
+ * The party's tally, for the statistics page (front.c): each player's guard
+ * kills and hits as the host counted them. A teammate's hits on the host's
+ * guards are the host's to count (net_coop.c coopApplyHit); its shots fired
+ * are its own.
+ */
+#define NET_COOP_TALLY_REGS 6   /* shot_count[1..6]: head, body, limb, gun, hat, object */
+static bool s_coop_tally_valid;
+static bool s_coop_tally_in[GEVR_MAX_PLAYERS];
+static uint16_t s_coop_tally_kills[GEVR_MAX_PLAYERS];
+static uint16_t s_coop_tally_hits[GEVR_MAX_PLAYERS][NET_COOP_TALLY_REGS];
+static char s_coop_tally_name[GEVR_MAX_PLAYERS][16];
+
+static void netCoopTallyName(int slot) {
+    const char *name = netGetSlotName(slot);
+    snprintf(s_coop_tally_name[slot], sizeof(s_coop_tally_name[slot]), "%s", name && name[0] ? name : "Player");
+}
+
+/* The host: every player's count, as the mission ends */
+static void netCoopTallyCollect(void) {
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        const struct player_data *d = &g_playerPlayerData[i];
+        s_coop_tally_in[i] = netSlotOccupied(i) && !netSlotIsSpectator(i);
+        s_coop_tally_kills[i] = (uint16_t)(d->kill_count < 0 ? 0 : d->kill_count > 0xFFFF ? 0xFFFF : d->kill_count);
+        for (int r = 0; r < NET_COOP_TALLY_REGS; r++) {
+            s32 v = d->shot_count[r + 1];
+            s_coop_tally_hits[i][r] = (uint16_t)(v < 0 ? 0 : v > 0xFFFF ? 0xFFFF : v);
+        }
+        if (s_coop_tally_in[i]) netCoopTallyName(i);
+    }
+    s_coop_tally_valid = true;
+}
+
+/* Every headset: this player's kills and hits as the host counted them */
+static void netCoopTallyApplyLocal(void) {
+    int me = s_local_slot;
+    if (!s_coop_tally_valid || netIsHost() || me < 0 || me >= GEVR_MAX_PLAYERS) return;
+    g_playerPlayerData[me].kill_count = s_coop_tally_kills[me];
+    for (int r = 0; r < NET_COOP_TALLY_REGS; r++) g_playerPlayerData[me].shot_count[r + 1] = s_coop_tally_hits[me][r];
+}
+
+int gevrCoopTallyCount(void) { return s_coop_tally_valid && netCoopSession() ? GEVR_MAX_PLAYERS : 0; }
+int gevrCoopTallyPlayed(int slot) { return s_coop_tally_valid && slot >= 0 && slot < GEVR_MAX_PLAYERS && s_coop_tally_in[slot]; }
+int gevrCoopTallyKills(int slot) { return gevrCoopTallyPlayed(slot) ? s_coop_tally_kills[slot] : 0; }
+const char *gevrCoopTallyName(int slot) { return gevrCoopTallyPlayed(slot) ? s_coop_tally_name[slot] : ""; }
+
+/*
+ * Every headset, back in the menus: the debrief and statistics pages read
+ * player one's stats (front.c), on a teammate's headset the host's copy:
+ * this headset's own player's take their place.
+ */
+static void netCoopStatsToPlayerOne(void) {
+    int me = s_local_slot;
+    if (me <= 0 || me >= GEVR_MAX_PLAYERS) return;
+    g_playerPlayerData[0] = g_playerPlayerData[me];
+    array_favweapon[0][0] = array_favweapon[me][0];
+    array_favweapon[0][1] = array_favweapon[me][1];
+}
+
+/*
  * A co-op mission, as the solo game starts one (file.c set_solo_and_ptr_briefing,
  * front.c init_menu0B_runstage) but with a player struct for every slot: the
  * game mode stays GAMEMODE_MULTI, which is what sizes the players
@@ -1581,11 +1640,14 @@ static void netApplyCoopConfig(const NetMatchConfig *c) {
         g_StageNum = LEVELID_TITLE;
         if (menu_update == MENU_INVALID && current_menu == MENU_INVALID)
             menu_update = MENU_FILE_SELECT;
+        if (menu_update == MENU_MISSION_FAILED)
+            netCoopStatsToPlayerOne();
         NET_LOG("co-op config applied: the party's menus");
         return;
     }
     gamemode = GAMEMODE_MULTI;
     selected_num_players = NET_COOP_MAX_PLAYERS;
+    s_coop_tally_valid = false;   /* the statistics page's tally is the next end's */
     g_StageNum = c->stage;
     selected_stage = c->stage;
     /* the mission's folder entry (the save's index): the co-op table is in the solo mission order */
@@ -2639,12 +2701,27 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             break;
         }
         case NET_MSG_COOP_END: {
-            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME || size != 14) break;
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME || size < 14) break;
             uint8_t result = netbufReadU8(&buf);
             uint8_t next = netbufReadU8(&buf);
             uint32_t delay = netbufReadU32(&buf);
-            if (buf.error || result > NET_COOP_RESULT_ABORTED || !netCoopStageValid(next) || !netCoopActive()) break;
+            bool in[GEVR_MAX_PLAYERS];
+            uint16_t kills[GEVR_MAX_PLAYERS], hits[GEVR_MAX_PLAYERS][NET_COOP_TALLY_REGS];
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                in[i] = netbufReadU8(&buf) != 0;
+                kills[i] = netbufReadU16(&buf);
+                for (int r = 0; r < NET_COOP_TALLY_REGS; r++) hits[i][r] = netbufReadU16(&buf);
+            }
+            if (buf.error || netbufReadLeft(&buf) || result > NET_COOP_RESULT_ABORTED || !netCoopStageValid(next) ||
+                !netCoopActive()) break;
             (void)delay;
+            for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+                s_coop_tally_in[i] = in[i];
+                s_coop_tally_kills[i] = kills[i];
+                memcpy(s_coop_tally_hits[i], hits[i], sizeof(hits[i]));
+                if (in[i]) netCoopTallyName(i);
+            }
+            s_coop_tally_valid = true;
             netCoopApplyEnd(result);
             break;
         }
@@ -3182,6 +3259,7 @@ static uint8_t s_coop_next_stage;        /* host: the stage it loads (the menus)
 static void netCoopApplyEnd(int result) {
     extern void gevrCoopMissionEndLocal(s32 result);
     if (s_coop_ended) return;
+    netCoopTallyApplyLocal();
     s_coop_ended = true;
     NET_LOG("co-op: mission %s", result == NET_COOP_RESULT_COMPLETE ? "complete" :
             result == NET_COOP_RESULT_ALL_DOWN ? "failed, every player down" :
@@ -3205,7 +3283,8 @@ void netCoopMissionEnded(int result) {
     /* everyone back to the menus: the debrief, then the host's next choice (front.c) */
     s_coop_next_stage = NET_COOP_FRONT_STAGE;
     s_coop_next_at_us = sysGetMicroseconds() + NET_COOP_END_DELAY_MS * 1000ull;
-    u8 raw[16];
+    netCoopTallyCollect();
+    u8 raw[16 + GEVR_MAX_PLAYERS * (3 + 2 * NET_COOP_TALLY_REGS)];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
@@ -3215,6 +3294,13 @@ void netCoopMissionEnded(int result) {
     netbufWriteU8(&buf, (uint8_t)result);
     netbufWriteU8(&buf, s_coop_next_stage);
     netbufWriteU32(&buf, NET_COOP_END_DELAY_MS);
+    /* the party's tally: who played, their kills and their hits */
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        netbufWriteU8(&buf, s_coop_tally_in[i] ? 1 : 0);
+        netbufWriteU16(&buf, s_coop_tally_kills[i]);
+        for (int r = 0; r < NET_COOP_TALLY_REGS; r++) netbufWriteU16(&buf, s_coop_tally_hits[i][r]);
+    }
+    if (buf.error) return;
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
     netCoopApplyEnd(result);
 }
