@@ -13983,7 +13983,7 @@ static s32 s_gevrWpMoved;
 static s32 s_gevrWpIndex;
 static s32 s_gevrWpShownItem;
 #define GEVR_WP_W 232        /* the wheel's box, screen units: the ring and two lines under it */
-#define GEVR_WP_H 264
+#define GEVR_WP_H 236        /* within the 240-line screen: the layer's crop can't leave the image */
 #define GEVR_WP_MODEL_W 64   /* the spinning item in the ring's hole */
 #define GEVR_WP_MODEL_H 52
 /* tuning (files/gevr_wpanel.txt "open dy fov", re-read every second): force the panel
@@ -14645,9 +14645,9 @@ static const u8 s_gevrWcTint[GEVR_WC_COUNT][3] = {
     { 0xD8, 0x40, 0x40 },   /* thrown: red */
 };
 #define GEVR_WC_R0 34       /* the ring's hole, for the spinning item */
-#define GEVR_WC_R1 106      /* its outer edge: the band is as wide as a label (GEVR_WC_TEXTW) and a margin */
-#define GEVR_WC_POP 6       /* the highlighted wedge stands out by this much */
-#define GEVR_WC_TEXTW 66    /* a wedge's lines are cut to this, so they stay inside it */
+#define GEVR_WC_R1 96       /* its outer edge: the band is as wide as a label (GEVR_WC_TEXTW) and a margin */
+#define GEVR_WC_POP 5       /* the highlighted wedge stands out by this much */
+#define GEVR_WC_TEXTW 60    /* a wedge's lines are cut to this, so they stay inside it */
 #define GEVR_WC_SEGS 8      /* quads along each wedge's arc */
 #define GEVR_WC_GAP 1.5f    /* degrees left dark between wedges */
 
@@ -14874,6 +14874,8 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     /* centred in the screen, so the layer's crop is the same whichever way the image is read */
     bx0 = (viGetX() - GEVR_WP_W) / 2;
     by0 = (viGetY() - GEVR_WP_H) / 2;
+    if (bx0 < 0) bx0 = 0;
+    if (by0 < 0) by0 = 0;
     cx = bx0 + GEVR_WP_W / 2;
     cy = by0 + GEVR_WC_R1 + GEVR_WC_POP + 4;
     gevrWeaponPanelRect[0] = (float) bx0 / (float) viGetX();

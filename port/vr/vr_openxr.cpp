@@ -3443,13 +3443,16 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         // only the panel's box of the capture (the game draws it in screen space)
         float x0 = gevrWeaponPanelRect[0], y0 = gevrWeaponPanelRect[1];
         float x1 = gevrWeaponPanelRect[2], y1 = gevrWeaponPanelRect[3];
+        // a rect outside the swapchain makes the runtime drop the whole frame (black)
+        x0 = std::clamp(x0, 0.f, 1.f); y0 = std::clamp(y0, 0.f, 1.f);
+        x1 = std::clamp(x1, 0.f, 1.f); y1 = std::clamp(y1, 0.f, 1.f);
         if (!(x1 > x0 && y1 > y0)) { x0 = 0.f; y0 = 0.f; x1 = 1.f; y1 = 1.f; }
         menuLayerP.subImage.imageRect.offset = {(int32_t)(x0 * W), (int32_t)((1.0f - y1) * H)};
         menuLayerP.subImage.imageRect.extent = {(int32_t)((x1 - x0) * W), (int32_t)((y1 - y0) * H)};
 
         const float boxW = (x1 - x0) * W, boxH = (y1 - y0) * H;
-        // the wheel's 264 screen units: the old list's 118 were 14 cm, so the text keeps its size
-        const float hgt = 0.30f;   // metres
+        // the wheel's 236 screen units: the old list's 118 were 14 cm, so the text keeps its size
+        const float hgt = 0.28f;   // metres
         menuLayerP.size = {hgt * boxW / (boxH > 1.f ? boxH : 1.f), hgt};
 
         // 27 cm above the controller (head space), turned to face the eyes
