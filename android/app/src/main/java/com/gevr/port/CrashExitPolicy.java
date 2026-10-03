@@ -25,9 +25,15 @@ final class CrashExitPolicy {
         return isCrash(reason, status) && exitAt > installAt && exitAt > offeredAt;
     }
 
-    /** Same install rule for the app's own foreground marker: a marker left from before the install was the install killing the app. */
-    static boolean unexpectedExit(long markerAt, long installAt, long offeredAt) {
-        return markerAt > installAt && markerAt > offeredAt;
+    /**
+     * Same install rule for the app's own foreground marker: a marker left from
+     * before the install was the install killing the app. The marker only stands
+     * in for missing exit records, so a record at or after it means the system
+     * logged how that run ended and it was not a crash (report 8bb89f82 was a
+     * user-requested force stop one second after launch).
+     */
+    static boolean unexpectedExit(long markerAt, long installAt, long offeredAt, long lastExitAt) {
+        return markerAt > installAt && markerAt > offeredAt && lastExitAt < markerAt;
     }
 
     /** ApplicationExitInfo.REASON_* names (android-34). */

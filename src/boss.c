@@ -675,11 +675,8 @@ void bossMainloop(void)
 
                             // Lets Visualise the Coverage Value used for Scilohete Anti-Ailising (edges)
                             // (done on the VI), also produces a cool looking linemode - providing AA is working.
-                            if (get_debug_VisCVG_flag()
-#ifdef GEVR
-                                && !netIsActive() /* Online Line mode draws world edges in OpenGL. */
-#endif
-                            )
+#ifndef GEVR /* GEVR draws Line mode world edges in OpenGL (gfx_opengl.cpp). */
+                            if (get_debug_VisCVG_flag())
                             {
                                 gDPPipeSync(gdl++); // 0xe7000000, 0x00000000
                                 gDPSetCycleType(gdl++, G_CYC_1CYCLE); // 0xba001402, 0x00000000
@@ -689,6 +686,7 @@ void bossMainloop(void)
                                 gDPSetRenderMode(gdl++, G_RM_VISCVG, G_RM_VISCVG2); // 0xb900031d, 0x0fa54040
                                 gDPFillRectangle(gdl++, 0, 0, viGetX() - 1, viGetY() - 1);
                             }
+#endif
 
                             gdl = debmenuDraw(gdl);
 
