@@ -22,6 +22,19 @@ async function main() {
     const rosterBox=await page.locator(".type-scoreboard").boundingBox(), lastRow=await rows.at(-1).boundingBox();
     assert.ok(lastRow.y+lastRow.height <= rosterBox.y+rosterBox.height+1,"Full eight-player scoreboard fits");
     await page.screenshot({path:path.join(OUT,"starter.png")});
+    for(const screen of initial.screens) {
+      await page.locator('[data-screen="'+screen.id+'"]').click();
+      const vitals=screen.nodes.filter(n=>n.binding==='gevrPauseLocalVitals');
+      assert.equal(vitals.length,4);
+      for(const node of vitals) {
+        const item=page.locator('[data-id="'+node.id+'"]');
+        assert.equal(await item.isVisible(),true);
+        assert.ok(node.y+node.h<98,'vitals fit above the shared header divider');
+      }
+      assert.equal(await page.locator('.type-progress').count(),2,'only header vital bars are shown');
+    }
+    await page.locator('[data-screen="'+initial.screens[0].id+'"]').click();
+    console.log('PASS: compact health and armour are visible in every tab header');
     const title=initial.screens[0].nodes.find(n => n.name === "Screen title");
     await page.locator('[data-id="' + title.id + '"]').click();
     await page.locator('[data-prop="text"]').fill("ASSEMBLE THE SQUAD.");
