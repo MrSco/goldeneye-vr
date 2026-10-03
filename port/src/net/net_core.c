@@ -3412,6 +3412,7 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
     s_remote_active[slot] = false;
     netVoiceForgetSlot((uint8_t)slot);
     netForgetPlayerScore(slot);
+    netCoopSlotLeft(slot);
     memset(&s_lobby_state.slots[slot], 0, sizeof(NetLobbySlot));
     s_lobby_state.slots[slot].team = NET_TEAM_NONE;
     s_lobby_state.slots[slot].ping_ms = NET_PING_UNKNOWN;
@@ -3444,6 +3445,8 @@ void netPoll(void) {
         netCoopHostTick();
     else if (!netIsHost() && s_state == NET_STATE_INGAME && netPlayersWereTicked())
         netCoopClientTick();
+    if (s_state == NET_STATE_INGAME && !s_round_reset_loading && netPlayersWereTicked())
+        netCoopReviveTick();
     if (netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS && netPlayersWereTicked()) {
         bool changed = false;
         for (int i=0;i<4;i++) {

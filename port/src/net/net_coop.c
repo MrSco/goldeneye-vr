@@ -29,6 +29,7 @@
 #include "net_voice.h"
 #include "net/netbuf.h"
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 #include "system.h"
 #include "game/chr.h"
@@ -66,6 +67,11 @@ extern bool netSlotIsSpectator(int slot);
 
 static void coopHostMission(u64 now);
 static void coopMissionReset(void);
+static bool s_downed[4];                  /* revive: each player down, not dead (every headset's view) */
+static int s_host_sees_me_down = -1;      /* a teammate's headset: the host's last word on its player, -1 none */
+static u64 s_down_sent_us;
+static void coopReviveReset(void);
+static void coopAnnounceDowned(int slot, bool down);
 
 /* ---- The animation's identity ---- */
 
@@ -415,13 +421,6 @@ s32 gevrCoopGuardHitElsewhere(ChrRecord *chr, s32 hitpart, coord3d *vector, s32 
     return 1;
 }
 
-/* Revive (#94) is still to come: until then a player is never down, only dead */
-s32 gevrCoopDowned(s32 player)
-{
-    (void)player;
-    return FALSE;
-}
-
 /* chraction.c chrlvExplosionDamage: a client's explosions hurt no guard (the host's copy of each does) */
 s32 gevrCoopPuppets(void)
 {
@@ -502,6 +501,7 @@ void netCoopStageLoaded(void)
     }
     memset(s_guard_explosive, 0, sizeof(s_guard_explosive));
     coopMissionReset();
+    coopReviveReset();
     s_last_send_us = 0;
     g_gevrCoopGuardTick = FALSE;
     g_gevrCoopApplyingHit = FALSE;
@@ -746,6 +746,7 @@ static u8 s_sent_status[COOP_OBJECTIVES];
 static u8 s_sent_status_count;
 static s32 s_sent_flags;
 static u8 s_sent_mission_bits;   /* COOP_MISSION_* */
+static u8 s_sent_downed;         /* the downed players, a bit each */
 static u64 s_mission_check_us, s_mission_sent_us;
 static s32 s_sent_held[NET_COOP_HELD_MAX];   /* a teammate's headset: what it last reported */
 static u8 s_sent_held_count;
@@ -775,6 +776,7 @@ static void coopMissionReset(void)
     s_sent_status_count = 0;
     s_sent_flags = 0;
     s_sent_mission_bits = 0;
+    s_sent_downed = 0;
     s_mission_check_us = s_mission_sent_us = 0;
     s_sent_held_count = 0;
     s_held_check_us = s_held_sent_us = 0;
@@ -794,7 +796,7 @@ static void coopHostMission(u64 now)
 {
     u8 statuses[COOP_OBJECTIVES];
     s32 count;
-    u8 bits;
+    u8 bits, downed = 0;
     u8 raw[32];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
 
@@ -803,12 +805,14 @@ static void coopHostMission(u64 now)
     count = gevrCoopObjectiveSnapshot(statuses, COOP_OBJECTIVES, netGetLocalSlot());
     if (count < 0) count = 0;
     bits = alarmIsActive() ? COOP_MISSION_ALARM : 0;
+    for (int i = 0; i < 4; i++) if (s_downed[i]) downed |= (u8)(1 << i);
     if (count == s_sent_status_count && !memcmp(statuses, s_sent_status, (size_t)count) &&
-        objectiveregisters1 == s_sent_flags && bits == s_sent_mission_bits &&
+        objectiveregisters1 == s_sent_flags && bits == s_sent_mission_bits && downed == s_sent_downed &&
         now - s_mission_sent_us < COOP_MISSION_REFRESH_US) return;
     coopHeader(&buf, NET_MSG_COOP_MISSION);
     netbufWriteS32(&buf, objectiveregisters1);
     netbufWriteU8(&buf, bits);
+    netbufWriteU8(&buf, downed);
     netbufWriteU8(&buf, (u8)count);
     for (s32 i = 0; i < count; i++) netbufWriteU8(&buf, statuses[i]);
     netCoopBroadcast(buf.data, buf.wp, true);
@@ -816,6 +820,7 @@ static void coopHostMission(u64 now)
     s_sent_status_count = (u8)count;
     s_sent_flags = objectiveregisters1;
     s_sent_mission_bits = bits;
+    s_sent_downed = downed;
     s_mission_sent_us = now;
 }
 
@@ -823,6 +828,7 @@ static void coopReceiveMission(struct netbuf *b)
 {
     s32 flags = netbufReadS32(b);
     u8 bits = netbufReadU8(b);
+    u8 downed = netbufReadU8(b);
     u8 count = netbufReadU8(b);
     u8 statuses[COOP_OBJECTIVES];
     if (b->error || count > COOP_OBJECTIVES || netbufReadLeft(b) != count) return;
@@ -834,6 +840,14 @@ static void coopReceiveMission(struct netbuf *b)
     /* the host's alarm: on or off here as there */
     if ((bits & COOP_MISSION_ALARM) && !alarmIsActive()) alarmActivate();
     else if (!(bits & COOP_MISSION_ALARM) && alarmIsActive()) alarmDeactivate();
+    /* the others' down or up (this headset's own player is its own to say) */
+    for (int i = 0; i < 4; i++) {
+        bool down = (downed & (1 << i)) != 0;
+        if (i == netGetLocalSlot()) s_host_sees_me_down = down;
+        if (i == netGetLocalSlot() || down == s_downed[i]) continue;
+        s_downed[i] = down;
+        coopAnnounceDowned(i, down);
+    }
     memset(s_host_status, 0, sizeof(s_host_status));
     memcpy(s_host_status, statuses, count);
 }
@@ -867,6 +881,15 @@ void netCoopClientTick(void)
 
     if (!gevrCoopPuppets() || now - s_held_check_us < COOP_MISSION_CHECK_US * 2) return;
     s_held_check_us = now;
+    /* the host has this player down or up wrongly (a lost event, a rejoin): say again */
+    {
+        s32 me = netGetLocalSlot();
+        if (me >= 0 && me < 4 && s_host_sees_me_down >= 0 && s_host_sees_me_down != (int)s_downed[me] &&
+            now - s_down_sent_us > 1000000ull) {
+            s_down_sent_us = now;
+            coopSendEvent(NET_COOP_EVENT_DOWNED, s_downed[me] ? 1 : 0, 0, 1);
+        }
+    }
     n = gevrCoopHeldObjectiveTags(tags, NET_COOP_HELD_MAX, netGetLocalSlot());
     if (n < 0) n = 0;
     if (n == s_sent_held_count && !memcmp(tags, s_sent_held, (size_t)n * sizeof(s32)) &&
@@ -906,6 +929,14 @@ static void coopReceiveEvent(int slot, struct netbuf *b)
         case NET_COOP_EVENT_KEYCOPY:
             if (!netbufReadLeft(b)) pl->copiedgoldeneye = TRUE;
             break;
+        case NET_COOP_EVENT_DOWNED: {
+            s32 down = netbufReadS32(b);
+            if (b->error || netbufReadLeft(b) || (down != 0 && down != 1) || s_downed[slot] == (down != 0)) break;
+            s_downed[slot] = down != 0;
+            s_mission_check_us = 0;   /* to the others at once */
+            coopAnnounceDowned(slot, down != 0);
+            break;
+        }
         case NET_COOP_EVENT_HELD: {
             u8 n = netbufReadU8(b);
             s32 tags[NET_COOP_HELD_MAX];
@@ -920,6 +951,168 @@ static void coopReceiveEvent(int slot, struct netbuf *b)
             break;
     }
     COOP_LOG("event rx: slot %d kind %d", slot, kind);
+}
+
+/* ---- Revive (#94): down, not dead, until a teammate stands beside you ---- */
+
+#define COOP_REVIVE_RANGE 160.0f            /* a teammate this close (and on the same floor) */
+#define COOP_REVIVE_US 3000000ull           /* for three seconds */
+#define COOP_DOWNED_HEALTH 0.001f           /* alive: nothing that reads health or bonddead takes it for dead */
+#define COOP_REVIVED_HEALTH 0.5f
+
+static u64 s_revive_since_us;               /* this headset's player down: a teammate beside it since */
+static bool s_reviving_shown[4];            /* this headset's player beside a downed teammate: said so */
+static bool s_all_down_ended;               /* the host: the mission failed for it */
+
+static void coopReviveReset(void)
+{
+    memset(s_downed, 0, sizeof(s_downed));
+    memset(s_reviving_shown, 0, sizeof(s_reviving_shown));
+    s_host_sees_me_down = -1;
+    s_down_sent_us = 0;
+    s_revive_since_us = 0;
+    s_all_down_ended = false;
+}
+
+s32 gevrCoopDowned(s32 player)
+{
+    return player >= 0 && player < 4 && s_downed[player] && netCoopActive();
+}
+
+int gevrCoopLocalDowned(void)
+{
+    return get_cur_playernum() == netGetLocalSlot() && gevrCoopDowned(netGetLocalSlot());
+}
+
+static void coopShowLocal(int top, const char *text)
+{
+    s32 prev = get_cur_playernum();
+    s32 me = netGetLocalSlot();
+    if (me < 0 || me >= 4 || !g_playerPointers[me]) return;
+    set_cur_player(me);
+    if (top) hudmsgTopShow((char *)text);
+    else hudmsgBottomShow((char *)text);
+    set_cur_player(prev);
+}
+
+static void coopAnnounceDowned(int slot, bool down)
+{
+    char msg[64];
+    const char *name = netGetSlotName(slot);
+    snprintf(msg, sizeof(msg), down ? "%s IS DOWN" : "%s IS BACK UP", name && name[0] ? name : "A TEAMMATE");
+    coopShowLocal(0, msg);
+    COOP_LOG("slot %d %s", slot, down ? "down" : "up");
+}
+
+/* This headset's player is down or up: the host's mission packet tells the others */
+static void coopSetLocalDowned(bool down)
+{
+    s32 me = netGetLocalSlot();
+    if (me < 0 || me >= 4 || s_downed[me] == down) return;
+    s_downed[me] = down;
+    s_revive_since_us = 0;
+    if (netIsHost()) s_mission_check_us = 0;
+    else {
+        coopSendEvent(NET_COOP_EVENT_DOWNED, down ? 1 : 0, 0, 1);
+        s_down_sent_us = sysGetMicroseconds();
+    }
+    COOP_LOG("this player is %s", down ? "down" : "up");
+}
+
+void netCoopSlotLeft(int slot)
+{
+    if (slot < 0 || slot >= 4) return;
+    s_downed[slot] = false;
+    s_held_count[slot] = 0;
+    s_mission_check_us = 0;
+}
+
+/* bondview2.c record_damage_kills: this headset's player's health ran out */
+int gevrCoopGoDown(void)
+{
+    struct player *pl = g_CurrentPlayer;
+    if (!netCoopActive() || get_cur_playernum() != netGetLocalSlot() || !pl) return FALSE;
+    pl->bondhealth = COOP_DOWNED_HEALTH;
+    if (!gevrCoopDowned(netGetLocalSlot())) {
+        coopSetLocalDowned(true);
+        coopShowLocal(1, "YOU ARE DOWN");
+        coopShowLocal(0, "A TEAMMATE BESIDE YOU REVIVES YOU");
+    }
+    return TRUE;
+}
+
+static bool coopBeside(struct player *a, struct player *b)
+{
+    f32 dx, dy, dz;
+    if (!a || !b || !a->prop || !b->prop) return false;
+    dx = a->prop->pos.x - b->prop->pos.x;
+    dy = a->prop->pos.y - b->prop->pos.y;
+    dz = a->prop->pos.z - b->prop->pos.z;
+    return dx * dx + dz * dz < COOP_REVIVE_RANGE * COOP_REVIVE_RANGE && dy * dy < 150.0f * 150.0f;
+}
+
+static bool coopTeammateUp(int i)
+{
+    struct player *pl = i >= 0 && i < 4 ? g_playerPointers[i] : NULL;
+    return pl && pl->prop && !pl->bonddead && netSlotOccupied(i) && !netSlotIsSpectator(i) && !s_downed[i];
+}
+
+/*
+ * Each frame (netPoll). Down: a teammate who is up and beside this player
+ * for three seconds brings it back on half health. Up: standing beside a
+ * downed teammate says so (their headset keeps the time). The host: when
+ * every player in the mission is down, the mission has failed.
+ */
+void netCoopReviveTick(void)
+{
+    s32 me = netGetLocalSlot();
+    struct player *pl = me >= 0 && me < 4 ? g_playerPointers[me] : NULL;
+    u64 now = sysGetMicroseconds();
+
+    if (!netCoopActive() || !pl || !pl->prop) return;
+    if (s_downed[me]) {
+        int by = -1;
+        pl->bondhealth = COOP_DOWNED_HEALTH;
+        for (int i = 0; i < 4 && by < 0; i++)
+            if (i != me && coopTeammateUp(i) && coopBeside(pl, g_playerPointers[i])) by = i;
+        if (by < 0) {
+            s_revive_since_us = 0;
+        } else if (!s_revive_since_us) {
+            char msg[64];
+            const char *name = netGetSlotName(by);
+            s_revive_since_us = now;
+            snprintf(msg, sizeof(msg), "%s IS REVIVING YOU", name && name[0] ? name : "A TEAMMATE");
+            coopShowLocal(0, msg);
+        } else if (now - s_revive_since_us >= COOP_REVIVE_US) {
+            pl->bondhealth = COOP_REVIVED_HEALTH;
+            coopSetLocalDowned(false);
+            coopShowLocal(1, "REVIVED");
+        }
+    } else {
+        for (int i = 0; i < 4; i++) {
+            bool beside = i != me && s_downed[i] && netSlotOccupied(i) && coopBeside(pl, g_playerPointers[i]);
+            if (beside && !s_reviving_shown[i]) {
+                char msg[64];
+                const char *name = netGetSlotName(i);
+                snprintf(msg, sizeof(msg), "REVIVING %s: STAY CLOSE", name && name[0] ? name : "A TEAMMATE");
+                coopShowLocal(0, msg);
+            }
+            s_reviving_shown[i] = beside;
+        }
+    }
+    if (netIsHost() && !s_all_down_ended) {
+        int playing = 0, down = 0;
+        for (int i = 0; i < 4; i++) {
+            if (!netSlotOccupied(i) || netSlotIsSpectator(i) || !g_playerPointers[i] || !g_playerPointers[i]->prop) continue;
+            playing++;
+            if (s_downed[i]) down++;
+        }
+        if (playing > 0 && down == playing) {
+            s_all_down_ended = true;
+            COOP_LOG("every player is down: the mission has failed");
+            netCoopMissionEnded(0);
+        }
+    }
 }
 
 static void coopShowText(int top, int textid)

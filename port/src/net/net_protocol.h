@@ -113,6 +113,7 @@ enum {
     NET_COOP_EVENT_PHOTO = 3,   /* s32 tag: photographed */
     NET_COOP_EVENT_KEYCOPY = 4, /* the GoldenEye key copied */
     NET_COOP_EVENT_HELD = 5,    /* u8 count, s32 tags: the objective items my player holds */
+    NET_COOP_EVENT_DOWNED = 6,  /* s32 0/1: my player is down (revive) or back up */
 };
 #define NET_COOP_HELD_MAX 8
 #define NET_CHR_NO_ANIM 0xFFFF

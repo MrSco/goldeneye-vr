@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_game.h"
+#include "net_coop.h"
 #endif
 #include <string.h>
 #include <stddef.h>
@@ -1463,10 +1464,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
     }
 
-    if (gevrSpectating() && g_CurrentPlayer && !g_CurrentPlayer->mpmenuon) {
+    /* a spectator, or (co-op, #94) a downed player waiting for a teammate: looks, no more */
+    if ((gevrSpectating() || gevrCoopLocalDowned()) && g_CurrentPlayer && !g_CurrentPlayer->mpmenuon) {
         npad->stick_x = npad->stick_y = npad->rstick_x = npad->rstick_y = 0;
         npad->button &= ~(Z_TRIG | A_BUTTON | B_BUTTON | L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS);
         gevrTurnAxis = 0;
+        if (gevrCoopLocalDowned()) gevrVrTriggerDown[0] = gevrVrTriggerDown[1] = 0;
     }
     if (npad->button != 0 || npad->stick_x != 0 || npad->stick_y != 0 || npad->rstick_x != 0 || npad->rstick_y != 0) {
         netTouchLocalActivity();

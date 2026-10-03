@@ -2408,7 +2408,7 @@ PropRecord *propFindForInteract(void)
 bool bond_interact_object(void)
 {
 #ifdef GEVR
-    if (gevrSpectating()) return FALSE;
+    if (gevrSpectating() || gevrCoopLocalDowned()) return FALSE;
 #endif
     PropRecord *prop;
     TICKOP tickop;
@@ -3026,7 +3026,7 @@ void sub_GAME_7F03D058(PropRecord *prop, bool unset) //#MATCH
 void propsTickPlayer(void)
 {
 #ifdef GEVR
-    if (gevrSpectating()) return;
+    if (gevrSpectating() || gevrCoopLocalDowned()) return;
 #endif
     PropRecord *prop;
     PropRecord *propprev;
