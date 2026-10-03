@@ -2681,7 +2681,9 @@ extern "C" void gevrLauncherRun(void)
                     VrGunFitArmed = !VrGunFitArmed;
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
-                                      "the gun on your hand. A keeps it, B puts it back.");
+                                      "the gun on your hand. With a gadget in hand they move, turn\n"
+                                      "(hold the right grip) and size the gadget. A saves, B undoes.\n"
+                                      "In single player, Menu + A starts and ends it during play.");
                 char throwLabel[64];
                 snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
                 if (ImGui::Button(throwLabel)) throwingPage = true;

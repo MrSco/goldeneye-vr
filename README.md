@@ -271,8 +271,16 @@ Actual QGO profile behavior is awaiting the [device comparison](docs/quest_displ
 
 **Gun fit...** (in **Controls**) sets where the gun sits in your hand, in the headset.
 Turn it on, start a mission in stereo with a gun, and move the gun with the sticks until its grip
-is in your hand. Hold the gun with both hands to fit the holding hand as well. **A** keeps it,
-**B** puts it back.
+is in your hand. Hold the gun with both hands to fit the holding hand as well. **A** saves,
+**B** undoes back to the last save; the fit stays on for the next gun or gadget. In single
+player, **Menu + A** starts and ends it during play, so you can leave it, switch weapons and
+come back.
+
+With a gadget in hand instead (a mine, keycard, key analyzer, document and so on), the same
+fit moves that gadget: the move stick forward and sideways, the turn stick up and down and
+(sideways) its size. Hold the right grip and the sticks turn it. **A** saves every gadget's fit
+to `files/gevr_itempose.txt` on the headset. **Send debug log** includes it and
+`goldeneye-vr.ini` (the gun fit), so fits can be made the defaults.
 
 The launcher's first line shows the build, for example `Build 4526b62 built 2026-09-23 15:10`.
 Mention it when you report a bug.

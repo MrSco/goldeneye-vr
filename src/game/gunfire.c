@@ -375,6 +375,7 @@ s32 gevrDualWielding(void)
         && getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED;
 }
 static s32 s_gevrHiddenShown[2];
+s32 gevrHandGadgetShown(s32 hand) { return s_gevrHiddenShown[hand]; }
 /* the stereo gun matrix's row length (the viewmodel scale), 1 when flat:
  * throw_item_pos_related is kept a plain rotation as in the flat game, and
  * casing offsets in the model frame are scaled by this instead */
@@ -853,7 +854,9 @@ void gunUpdateAndFire(GUNHAND handnum)
          * chosen while the sniper rifle was still out showed with it (#19) */
         && getCurrentPlayerWeaponId(handnum) == item
         && get_ptr_weapon_model_header_line(item) != 0
-        && bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SHOW_FIRST_PERSON) != 0
+        /* mission devices have only the default stats, which never set the flag */
+        && (gitem_structs[item].has_no_model != 0
+            || bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SHOW_FIRST_PERSON) != 0)
         && hand->weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP
         && hand->weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
         && Gun_hand_without_item(handnum) != 0
