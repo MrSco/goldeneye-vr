@@ -1,6 +1,6 @@
 {
  "model": "GgoldengunZ",
- "note": "Gun hand (issue #9, Phase 3). The hand's parts on bone 0 are welded into one mesh; the patch draws with the host, a part on the hand switches (8-13, switched together). Loops are named node:index.",
+ "note": "Gun hand (issue #9, Phase 3). The hand is the PP7's (GwppkZ) moved within the model; its pieces are the PP7's modelling run on it (gevr_hands_seeds.py PISTOLS).",
  "assemblies": [
   {
    "host": "0x0324",
@@ -14,79 +14,8 @@
    ],
    "ops": [
     {
-     "op": "skirt",
-     "chain": "largest",
-     "to": "rest",
-     "gap": 0.6,
-     "reach": 60,
-     "why": "the inside of the fist: skin from the open rim to what it holds",
-     "tex": "0x706",
-     "uvbox": [
-      0.55,
-      0.15,
-      0.95,
-      0.85
-     ],
-     "shade": [
-      200,
-      200,
-      200,
-      255
-     ]
-    },
-    {
-     "op": "fill",
-     "loop": "0x0324:205",
-     "why": "the forearm's cut end",
-     "tex": "0x704",
-     "shade": [
-      60,
-      60,
-      60,
-      255
-     ],
-     "fair": 2,
-     "dome": 0.15
-    },
-    {
-     "op": "fill",
-     "loop": "0x024c:24",
-     "why": "the trigger finger's socket (or the knife hand's open knuckle)",
-     "tex": "0x704",
-     "uvbox": [
-      0.1,
-      0.1,
-      0.9,
-      0.9
-     ]
-    },
-    {
-     "op": "fill",
-     "loop": "0x02f4:0",
-     "why": "fingertip",
-     "tex": "0x706",
-     "uvbox": [
-      0.6,
-      0.3,
-      0.9,
-      0.6
-     ],
-     "fair": 1,
-     "dome": 0.3
-    },
-    {
-     "op": "fill",
-     "loop": "0x030c:0",
-     "why": "fingertip",
-     "tex": "0x706",
-     "uvbox": [
-      0.6,
-      0.3,
-      0.9,
-      0.6
-     ],
-     "fair": 1,
-     "dome": 0.3
+     "op": "authored",
+     "why": "the middle, ring and little fingers' missing middle joints round the grip's front, the inside of the fist, the pad below the butt and the forearm's cut end, the PP7's modelling carried over (the same hand; gevr_hands_author.py; GgoldengunZ.authored.json)"
     }
    ]
   },
@@ -97,16 +26,8 @@
    ],
    "ops": [
     {
-     "op": "fill",
-     "loop": "0x021c:0",
-     "why": "the trigger finger's base (its own bone)",
-     "tex": "0x706",
-     "uvbox": [
-      0.6,
-      0.3,
-      0.9,
-      0.6
-     ]
+     "op": "authored",
+     "why": "the trigger finger's first joint closed underneath, in its own skin (gevr_hands_author.py; GgoldengunZ.authored.json)"
     }
    ]
   }
