@@ -1096,6 +1096,20 @@ void netSendDoorState(ObjectRecord *door, s32 state) {
     netSendObjectEvent(door, NET_OBJECT_DOOR, (int8_t)state);
 }
 
+/* Co-op (#94), the host: a door its guards, scripts or timers moved, and a
+ * script's lock (propobj.c doorActivate, chrai.c AI_DoorSetLock): the same
+ * on every headset. A player's own door still goes as netSendDoorState. */
+void netSendHostDoorState(ObjectRecord *door, s32 state) {
+    if (!netIsHost() || !netCoopActive() || !netPlayersWereTicked()) return;
+    if (state != DOORSTATE_OPENING && state != DOORSTATE_CLOSING && state != DOORSTATE_WAITING) return;
+    netSendObjectEvent(door, NET_OBJECT_DOOR, (int8_t)state);
+}
+
+void netSendHostDoorLock(ObjectRecord *door) {
+    if (!netIsHost() || !netCoopActive() || !netPlayersWereTicked() || !door || door->type != PROPDEF_DOOR) return;
+    netSendObjectEvent(door, NET_OBJECT_DOOR_LOCK, (int8_t)(uint8_t)((DoorRecord *)door)->keyflags);
+}
+
 /* chrprop.c: the local player now holds the flag or the Golden Gun, from the
  * setup or a dropped one. The others put it in that copy's inventory
  * (netTakeSpecialItem), so the holder rules (lv.c) and the drop on death run
@@ -2900,6 +2914,10 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                     /* freed for good there (objFree in propPickupByPlayer) */
                     objFreePermanently(obj, TRUE);
                 }
+            } else if (action == NET_OBJECT_DOOR_LOCK) {
+                /* co-op: the host's script locked or unlocked it */
+                if (!netIsHost() && slot == s_host_slot && obj->type == PROPDEF_DOOR && obj->prop->type == PROP_TYPE_DOOR)
+                    ((DoorRecord *)obj)->keyflags = (((DoorRecord *)obj)->keyflags & ~0xFFu) | (u8)value;
             } else if (action == NET_OBJECT_DOOR) {
                 if (value == DOORSTATE_WAITING) value = DOORSTATE_OPENING; /* opened, held for its sibling door */
                 if (obj->type == PROPDEF_DOOR && obj->prop->type == PROP_TYPE_DOOR &&

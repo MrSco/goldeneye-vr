@@ -52,6 +52,10 @@ void netCoopPlayerJoined(int slot, int returning);   /* the host: a player loade
 void netCoopHostLost(int oldhost, int elected);      /* netHostLost */
 void netCoopBecameHost(void);               /* netHostTakeOver: the AI resumes here */
 
+/* Doors the host's guards, scripts and timers move or lock (net_core.c) */
+void netSendHostDoorState(struct ObjectRecord *door, int state);   /* propobj.c doorActivate */
+void netSendHostDoorLock(struct ObjectRecord *door);               /* chrai.c AI_DoorSetLock / UnsetLock */
+
 /* The mission: the host's, shown everywhere (objective_status.c, chrai.c, gunfire.c) */
 int gevrCoopHostObjectiveStatus(int objective);   /* a teammate's headset: the host's status */
 int gevrCoopTeammateHolds(int tag);         /* the host: a teammate's player holds this objective item */

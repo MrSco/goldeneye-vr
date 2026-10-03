@@ -2535,6 +2535,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                         DoorRecord *door = (DoorRecord *)obj;
                         u8          bits = ai->LOCK_FLAG;
                         door->keyflags   = door->keyflags | bits;
+    #ifdef GEVR
+                        netSendHostDoorLock(obj);   /* co-op (#94): locked on every headset */
+    #endif
                     }
                     Offset += sizeof(AiDoorSetLockRecord);
                     break;
@@ -2548,6 +2551,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                         DoorRecord *door = (DoorRecord *)obj;
                         u8          bits = ai->LOCK_FLAG;
                         door->keyflags &= ~bits;
+    #ifdef GEVR
+                        netSendHostDoorLock(obj);
+    #endif
                     }
                     Offset += sizeof(AiDoorUnsetLockRecord);
                     break;
@@ -4269,6 +4275,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                         doorUpdateBbox(door);
                         doorActivatePortal(door); // doorActivatePortal
                         door7F053B10(door);
+    #ifdef GEVR
+                        netSendHostDoorState((ObjectRecord *)door, DOORSTATE_OPENING);   /* co-op: open everywhere */
+    #endif
                     }
                     Offset += sizeof(AiDoorOpenInstantRecord);
                     break;
