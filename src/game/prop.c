@@ -1569,7 +1569,13 @@ void proplvreset2(enum LEVELID stageId)
             if (getPlayerCount() >= 2)
 #endif
             {
+#ifdef GEVR
+                /* the setup files' bits stop at four players; past four
+                 * (online) the stage loads as it does for four */
+                flags |= 1 << (MIN(getPlayerCount(), 4) + 20);
+#else
                 flags |= 1 << (getPlayerCount() + 20);
+#endif
             }
 
             phead = g_CurrentSetup.propDefs;

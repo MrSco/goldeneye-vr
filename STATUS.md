@@ -15,7 +15,7 @@ request. No separate close-wall crosshair/auto-crouch adjustment was made.
 See docs/issue-60-watch-grip-hand.md. Water preserves projected positions
 and UVs as floats, and stereo reflections transform the body axes into
 view space; water and Dam truck glass accepted on `942e897`. See
-docs/issue-30-surface-capture.md. HD + AI pack catalog: 2026.09.29.2.
+docs/issue-30-surface-capture.md. HD + AI pack catalog: 2026.10.03.1.
 
 **Recent releases:** v0.3.9 added scopes in either/both hands, snap-turn
 vignette, watch arm in the left weapon panel, solid panel hands, corrected
@@ -61,23 +61,39 @@ is goldeneyevr.com, in its own repository.
   surfaces (railings, truss sides) write depth where opaque, and portal-less
   levels draw the blended pass far to near (smoke). Headset-accepted: Cradle
   truss view (DRAWS 207), Dam glass, explosions fine. Issue left open.
+- #74 ammo crates, merged to main 2026-10-02, unreleased: the setup converter
+  copied a multi-ammo crate's {u16 model, u16 quantity} slots as words,
+  swapping each pair, so every solo crate gave every ammo type (mines,
+  knives, grenades). Slots now swap as halfwords; tools/gevr_setup_probe.py
+  covers it. The v0.3.4 multiplayer slot clearing stays. Headset-accepted on
+  the signed `bce26d2` build: Runway's start crates give only their own ammo.
+  The issue is closed on GitHub; the reporter's reopen request was not acted on.
 - #30: intermittent colored water lines cleared on launcher restart and
   did not recur in final capture; still unresolved. Animation/glass fixed.
 - #85: Egypt Golden Gun room exit door can draw black. The cryptdoor log
   targets room/portal visibility; no confirmed fix yet.
-- #9 hand shells, merged to main 2026-10-02, unreleased: modelled in Blender
-  (tools/blender/gevr_hands_author.py; tools/handpatch/NOTES.md). The PPK
-  family: missing finger joints, trigger-finger underside, a heel pad filling
-  the hollow under the little finger, the forearm's cut end in skin. The
-  watch arm: ring and little finger palm sides, the fingers curled into a
-  fist, index creases, a palm in the heel's skin. The taser/grenade hand:
-  back of the hand and forearm in the skin beside them, finger cracks zipped,
-  the index knuckle's notch rounded; the grenade's see-through bottom drawn
-  solid. All headset-accepted ("looks good"). Next: the other pistol hands
-  (golden gun, Cougar, DD44, knives). Issue left open.
+- #9 hand shells, merged to main 2026-10-02/03, unreleased: modelled in
+  Blender (tools/blender/gevr_hands_author.py; tools/handpatch/NOTES.md).
+  The PPK family: missing finger joints, trigger-finger underside, a heel
+  pad filling the hollow under the little finger, the forearm's cut end in
+  skin; the golden gun, Cougar, DD44 and both knives are the PP7's hand
+  moved within each model and carry the same modelling. The watch arm: ring
+  and little finger palm sides, the fingers curled into a fist, index
+  creases, a palm in the heel's skin. The taser/grenade hand: back of the
+  hand and forearm in the skin beside them, finger cracks zipped, the index
+  knuckle's notch rounded; the grenade's see-through bottom drawn solid. A
+  grenade or mine in the left hand (#56 panel) is held in the right's hand
+  mirrored, the gadget mirrored with it. All headset-accepted. Issue left
+  open.
 - #23: multiplayer stays open/experimental. Remote hands do not animate;
   held guns are the original low-detail third-person models. Host migration
   and mixed-network/four-player cases need broader headset coverage.
+- #88 eight players, merged to main 2026-10-03, unreleased (protocol 16,
+  bump at release): host picks 2..8 players on any stage (launcher Players,
+  lobby page PLAYERS; lobby Worker deployed). Stages short of start pads gain
+  them at ammo spots, farthest-first; respawns use them. Checked on one
+  headset only (8 slots on Facility/Egypt, 90 Hz): measure frame time and
+  host upload with 5+ headsets (MULTIPLAYER.md "Eight players").
 - #32 room-box shot pretest, #73 NPC ground callback table, #64 watch-arm
   haptics, #24 mirrored fist white face, #81 AimNoLean and #72 decals were
   corrected before this release. Laser/AR33 and other penetrating weapons

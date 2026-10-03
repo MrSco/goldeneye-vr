@@ -305,7 +305,7 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
             {
                 netSendExplosion(explosion_type, target_pos, rooms, arg4, arg7);
             }
-            else if (player >= 0 && player < 4 && netSlotOccupied(player))
+            else if (player >= 0 && player < MAX_PLAYER_COUNT && netSlotOccupied(player))
             {
 #if defined(VERSION_JP) || defined(VERSION_EU)
                 return 0;
@@ -482,7 +482,7 @@ void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 grou
     PropRecord *closest = NULL;
     f32 closestdist = 300.0f * 300.0f;
 
-    if (slot < 0 || slot >= 4 || type < 0 || type >= (s32)ARRAYCOUNT(g_ExplosionTypes))
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || type < 0 || type >= (s32)ARRAYCOUNT(g_ExplosionTypes))
     {
         return;
     }
@@ -506,7 +506,7 @@ void gevrNetExplosionReceive(s32 slot, s32 type, coord3d *pos, u8 room, s32 grou
          * from the weapon pool (a pickup from the setup is nobody's) and
          * carrying the owner's slot. */
         if (wobj < &g_WeaponSlots[0] || wobj >= &g_WeaponSlots[MAX_WEAPON_SLOTS]
-            || ((wobj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER) != slot
+            || RUNTIME_OWNER(wobj->runtime_bitflags) != slot
             || !gevrIsExplosiveItem(wobj->weaponnum))
         {
             continue;

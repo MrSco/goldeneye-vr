@@ -953,7 +953,12 @@ static inline s32 inputAxisScale(s32 x, const s32 deadzone, const f32 scale)
 
 s32 inputReadController(s32 idx, OSContPad *npad)
 {
-    if (idx < 0 || idx >= INPUT_MAX_CONTROLLERS  || !npad) {
+    extern bool netIsActive(void);
+    /* An online-only slot (4..7, src/joy.c gevrReadSlotPads) has no port, binds
+     * or settings of its own; the online branches below fill its pad. */
+    const bool slotPad = idx >= INPUT_MAX_CONTROLLERS && idx < INPUT_MAX_SLOT_PADS && netIsActive();
+
+    if (idx < 0 || (idx >= INPUT_MAX_CONTROLLERS && !slotPad) || !npad) {
         return -1;
     }
 
@@ -967,21 +972,23 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         return 0;
     }
 
-    for (u32 i = 0; i < CONT_NUM_BUTTONS; ++i) {
-        if (inputBindPressed(idx, i)) {
-            npad->button |= 1U << i;
+    if (!slotPad) {
+        for (u32 i = 0; i < CONT_NUM_BUTTONS; ++i) {
+            if (inputBindPressed(idx, i)) {
+                npad->button |= 1U << i;
+            }
         }
+
+        const s32 xdiff = (inputBindPressed(idx, CK_STICK_XPOS) - inputBindPressed(idx, CK_STICK_XNEG));
+        const s32 ydiff = (inputBindPressed(idx, CK_STICK_YPOS) - inputBindPressed(idx, CK_STICK_YNEG));
+        npad->stick_x = xdiff < 0 ? -0x80 : (xdiff > 0 ? 0x7F : 0);
+        npad->stick_y = ydiff < 0 ? -0x80 : (ydiff > 0 ? 0x7F : 0);
     }
 
-    const s32 xdiff = (inputBindPressed(idx, CK_STICK_XPOS) - inputBindPressed(idx, CK_STICK_XNEG));
-    const s32 ydiff = (inputBindPressed(idx, CK_STICK_YPOS) - inputBindPressed(idx, CK_STICK_YNEG));
-    npad->stick_x = xdiff < 0 ? -0x80 : (xdiff > 0 ? 0x7F : 0);
-    npad->stick_y = ydiff < 0 ? -0x80 : (ydiff > 0 ? 0x7F : 0);
-
-    const struct controllercfg *cfg = &padsCfg[idx];
+    /* the first port's settings for the headset's own slot when it has no port */
+    const struct controllercfg *cfg = &padsCfg[slotPad ? 0 : idx];
 
 
-    extern bool netIsActive(void);
     extern int netGetLocalSlot(void);
     extern int bossGetStageNum(void);
     extern int gevrCoopMenuFollowing(void);
@@ -2405,5 +2412,5 @@ int gevrMpMenuOpen(void)
     extern bool netIsActive(void);
     extern int netGetLocalSlot(void);
     int slot = netIsActive() ? netGetLocalSlot() : -1;
-    return slot >= 0 && slot < 4 && g_playerPointers[slot] != NULL && g_playerPointers[slot]->mpmenuon;
+    return slot >= 0 && slot < INPUT_MAX_SLOT_PADS && g_playerPointers[slot] != NULL && g_playerPointers[slot]->mpmenuon;
 }

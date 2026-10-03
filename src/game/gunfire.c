@@ -311,8 +311,8 @@ void gunFireTankShell(s32 handnum)
     }
 
     obj->timer = -1;
-    obj->runtime_bitflags &= ~RUNTIMEBITFLAG_OWNER;
-    obj->runtime_bitflags |= get_cur_playernum() << RUNTIMEBITSHIFT_OWNER;
+    obj->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+    obj->runtime_bitflags |= RUNTIME_OWNER_BITS(get_cur_playernum());
 
     gunInitProjectileFromPlayer(obj, &spawnpos, &shellmtx, &velocity, (s32 *) &identitymtx);
 
@@ -364,6 +364,7 @@ extern s32 gevrStereoMirrored(void);
 extern s32 gevrHandsMirrored(void);
 extern s32 gevrStereoItemShown(s32 item);
 extern void gevrStereoItemPose(s32 item, Mtxf *m);
+extern s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out);
 extern s32 g_gevrStereo;
 extern int gevrVrTriggerDown[2];   /* port/src/input.c: each controller's trigger, by gun hand */
 
@@ -378,6 +379,58 @@ static s32 s_gevrHiddenShown[2];
  * throw_item_pos_related is kept a plain rotation as in the flat game, and
  * casing offsets in the model frame are scaled by this instead */
 static f32 s_gevrThrowScale[2] = { 1.0f, 1.0f };
+
+/*
+ * A gadget in the left hand (#56) is held as in the right, mirrored: the hand
+ * round it is the right's own mirrored into a left hand (gevrRenderItemHand),
+ * so the gadget is mirrored with it, as GoldenEye mirrors a dual-wielded left
+ * gun (WEAPONSTATBITFLAG_MIRROR_DUAL, whose own cull modes then apply).
+ */
+static s32 gevrLeftGadgetMirrored(GUNHAND handnum, s32 item)
+{
+    return g_gevrStereo && handnum == GUNLEFT && s_gevrHiddenShown[handnum]
+        && bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) == 0;
+}
+
+/*
+ * The mirror is taken across the hand's mirror plane (the gun matrix's model
+ * x = 0), not in the gadget's own frame: negating the posed gadget's row 0
+ * flips it about its own x, which turns an item posed with a turn (a mine,
+ * -90 degrees about z) the other way, its top into the palm.
+ */
+static void gevrLeftGadgetMirror(Mtxf *m)
+{
+    Mtxf g;
+    f32 u[3], v[3], len, d;
+    s32 i, j;
+
+    if (!gevrStereoGunMatrix(GUNLEFT, &g))
+    {
+        return;
+    }
+    len = sqrtf(g.m[0][0] * g.m[0][0] + g.m[0][1] * g.m[0][1] + g.m[0][2] * g.m[0][2]);
+    if (len < 1e-6f)
+    {
+        return;
+    }
+    for (j = 0; j < 3; j++)
+    {
+        u[j] = g.m[0][j] / len;
+    }
+    for (i = 0; i < 4; i++)
+    {
+        /* the rows are directions; the position is taken about the hand's origin */
+        for (j = 0; j < 3; j++)
+        {
+            v[j] = m->m[i][j] - (i == 3 ? g.m[3][j] : 0.0f);
+        }
+        d = v[0] * u[0] + v[1] * u[1] + v[2] * u[2];
+        for (j = 0; j < 3; j++)
+        {
+            m->m[i][j] -= 2.0f * d * u[j];
+        }
+    }
+}
 
 /* The watch's normal weapon model is hidden in stereo. Advance its finger
  * once in the game tick, even then; the private grip renderer only reads it. */
@@ -861,6 +914,12 @@ void gunUpdateAndFire(GUNHAND handnum)
         hand->mtxlist = rwmtx;
         hand->weaponModel.render_pos = (RenderPosView *)rwmtx;
 
+#ifdef GEVR
+        if (gevrLeftGadgetMirrored(handnum, item))
+        {
+            gevrLeftGadgetMirror(&gunmtx);
+        }
+#endif
         if ((bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0) && (handnum == GUNLEFT))
         {
             matrix_column_1_scalar_multiply(-1.0f, gunmtx.m[0]);
@@ -1997,6 +2056,11 @@ static s32 gevrTaserHandLoad(void)
  * the game draws nothing there: a hand-held item with no model (keycards),
  * the empty hand after a mine or grenade leaves it, and the hand holding a
  * gadget whose model is only the object. Not during a weapon switch.
+ *
+ * The same for the left hand when it holds a gadget (#56: picked on its
+ * panel): the right's hand mirrored into a left hand, as the two-handed
+ * hold's (gevrRenderLeftArm), round the mirrored gadget
+ * (gevrLeftGadgetMirrored). Its empty hand is that arm's.
  */
 extern s32 gevrStereoItemNeedsFist(s32 item);
 extern s32 gevrStereoItemHand(s32 item);   /* bondview2.c: GEVR_ITEM_HAND_* */
@@ -2004,25 +2068,27 @@ extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the 
 extern s32 gevrStereoWatchGrip(void);      /* bondview2.c: the gun hand is at the watch (#31) */
 extern s32 gevrStereoWatchHandMatrix(Mtxf *out);
 
-static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
+static Gfx *gevrRenderItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND handnum)
 {
     ModelRenderData renderdata;
     Mtxf armmtx;
     Mtxf *rwmtx;
-    s32 item = get_item_in_hand_or_watch_menu(GUNRIGHT);
+    s32 item = get_item_in_hand_or_watch_menu(handnum);
     s32 j;
     Model *mdl = &s_gevrFistModel;
     ModelFileHeader *hdr = &s_gevrFistHeader;
     u32 *rw = s_gevrFistRw;
+    /* left-handed mode mirrors the gun matrix too: the left hand's then cancels */
+    s32 mirror = gevrStereoMirrored() != (handnum == GUNLEFT);
 
     if (!g_gevrStereo
         || g_CurrentPlayer->bonddead
         || g_CurrentPlayer->watch_animation_state != 0
-        || item == ITEM_UNARMED || item == ITEM_TANKSHELLS)
+        || item == ITEM_UNARMED || item == ITEM_TANKSHELLS || item == ITEM_SUIT_LF_HAND)
     {
         return gdl;
     }
-    if (g_CurrentPlayer->hands[GUNRIGHT].field_87F != 0 && !gevrStereoWatchItem(item))
+    if (g_CurrentPlayer->hands[handnum].field_87F != 0 && !gevrStereoWatchItem(item))
     {
         return gdl;     /* the game draws the weapon (with its hand) */
     }
@@ -2030,7 +2096,7 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     {
         return gdl;     /* the hand is holding the watch (gevrRenderWatchGripHand) */
     }
-    switch (g_CurrentPlayer->hands[GUNRIGHT].weapon_action_state)
+    switch (g_CurrentPlayer->hands[handnum].weapon_action_state)
     {
         case GUN_ANIM_STATE_SWITCH_LOWER:
         case GUN_ANIM_STATE_SWITCH_SWAP:
@@ -2040,16 +2106,16 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
         default:
             break;
     }
-    if (s_gevrHiddenShown[GUNRIGHT] && !gevrStereoItemNeedsFist(item))
+    if (s_gevrHiddenShown[handnum] && !gevrStereoItemNeedsFist(item))
     {
         return gdl;     /* the gadget's model has its own hand */
     }
-    if (!gevrStereoGunMatrix(GUNRIGHT, &armmtx))
+    if (!gevrStereoGunMatrix(handnum, &armmtx))
     {
         return gdl;
     }
     /* issue #41: a grenade in the taser's gripping hand, not the open fist */
-    if (s_gevrHiddenShown[GUNRIGHT] && gevrStereoItemHand(item) == 2 && gevrTaserHandLoad())
+    if (s_gevrHiddenShown[handnum] && gevrStereoItemHand(item) == 2 && gevrTaserHandLoad())
     {
         mdl = &s_gevrTaserHandModel;
         hdr = &s_gevrTaserHandHeader;
@@ -2060,6 +2126,11 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
         return gdl;
     }
 
+    if (handnum == GUNLEFT)
+    {
+        /* a left hand: mirrored in the model's own frame */
+        matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
+    }
     matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
 
     rwmtx = (Mtxf *) dynAllocate(hdr->numMatrices * ((s32) sizeof(Mtxf)));
@@ -2071,7 +2142,7 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
 
     modelInit(mdl, hdr, (s32 *) rw);
     sub_GAME_7F05E978(mdl, 1);
-    sub_GAME_7F05EA94(mdl, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    sub_GAME_7F05EA94(mdl, g_CurrentPlayer->hands[handnum].field_87E);
     if (hdr->numSwitches >= 0x1E)
     {
         bondviewSelectCuff(mdl, hdr, 0x1D);
@@ -2094,13 +2165,13 @@ static Gfx *gevrRenderRightFist(Gfx *gdl, ModelRenderData *templ)
     renderdata.zbufferenabled = 1;
 
     matrix_4x4_7F058C64();
-    if (gevrStereoMirrored())
+    if (mirror)
     {
         gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
     }
     subdraw(&renderdata, mdl);
     gdl = renderdata.gdl;
-    if (gevrStereoMirrored())
+    if (mirror)
     {
         gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
     }
@@ -2513,8 +2584,10 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
      * (VR_HAND_DRAW_BEGIN | controller + 1, gevrHandTag), so the XR frames
      * between game frames move it by that controller's own motion.
      */
+    gdl = gevrHandTag(gdl, 0);
+    gdl = gevrRenderItemHand(gdl, &renderdata, GUNLEFT);   /* a gadget in the left hand (#56) */
     gdl = gevrHandTag(gdl, 1);
-    gdl = gevrRenderRightFist(gdl, &renderdata);
+    gdl = gevrRenderItemHand(gdl, &renderdata, GUNRIGHT);
     /*
      * #35: the hand holding the gun goes first too, for the same reason: the
      * gun's wooden parts (its second display list, drawn without writing
@@ -2687,8 +2760,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gDPNoOpTag(renderdata.gdl++, 0x565B0001); /* VR_CULL_OFF_END */
         }
-        /* left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen: gunUpdateAndFire) */
-        if (gevrHandsMirrored())
+        /* left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen: gunUpdateAndFire),
+         * and a left-hand gadget is mirrored once more (gevrLeftGadgetMirrored) */
+        if (gevrHandsMirrored() != gevrLeftGadgetMirrored(handnum, item))
         {
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
@@ -2698,7 +2772,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         subdraw(&renderdata, &handptr->weaponModel);
         gdl = renderdata.gdl;
 #ifdef GEVR
-        if (gevrHandsMirrored())
+        if (gevrHandsMirrored() != gevrLeftGadgetMirrored(handnum, item))
         {
             gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
         }
@@ -6025,7 +6099,7 @@ void gunTickGameplay(s32 triggerOn)
 #ifdef GEVR
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot() && !g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT]) {
         /* A low-memory copy needs shot timing and its third-person gun, never a 1P model. */
-        static s32 next_fire[4];
+        static s32 next_fire[MAX_PLAYER_COUNT];
         int slot = get_cur_playernum(), item = netRemoteWeapon(slot, GUNLEFT);
         struct hand *left = &g_CurrentPlayer->hands[GUNLEFT];
         left->weapon_firing_status = left->field_87D = 0;

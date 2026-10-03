@@ -4,11 +4,15 @@
 #include <bondtypes.h>
 #include "bondconstants.h"
 
-/* The launcher's order; the level ids are the ROM's LEVELID values. */
+/* The launcher's order; the level ids are the ROM's LEVELID values. Online
+ * every stage takes the host's player count, two to eight (issue #88; the
+ * game's front.c multi_stage_setups capped the smaller maps at 3 or 2 for
+ * split screen). A map with fewer start pads than players stands the extra
+ * ones beside a pad (bondview_r.c gevrSpreadStartPad). */
 static const NetMatchStage s_stages[] = {
-    { "Facility",  34, 4 }, { "Complex",   31, 4 }, { "Temple",    38, 4 }, { "Stack",    46, 4 },
-    { "Caverns",   39, 3 }, { "Library",   48, 4 }, { "Basement",  45, 4 }, { "Caves",    50, 4 },
-    { "Egypt",     32, 2 }, { "Bunker II", 27, 3 }, { "Archives",  24, 3 },
+    { "Facility",  34 }, { "Complex",   31 }, { "Temple",    38 }, { "Stack",    46 },
+    { "Caverns",   39 }, { "Library",   48 }, { "Basement",  45 }, { "Caves",    50 },
+    { "Egypt",     32 }, { "Bunker II", 27 }, { "Archives",  24 },
 };
 
 /* The twenty missions (front.c mission_folder_setup_entries), the ROM's LEVELID values */
@@ -30,6 +34,7 @@ static const char *const s_weapon_sets[] = {
 
 static const char *const s_scenarios[] = {
     "Normal", "You Only Live Twice", "The Living Daylights", "The Man With The Golden Gun", "Licence To Kill", "Team 2v2", "Team 3v1", "Team 2v1",
+    "Team 3v3", "Team 4v4",   /* net_rules.h: online only, by the game's 2v2 rules */
 };
 
 /* front.c multi_game_lengths */
@@ -93,7 +98,6 @@ static const NetMatchItem s_items[] = {
 int netStageCount(void) { return COUNT(s_stages); }
 const NetMatchStage *netStage(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? &s_stages[idx] : &s_stages[0]; }
 const char *netStageName(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? s_stages[idx].name : ""; }
-int netStageMaxPlayers(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? s_stages[idx].max_players : 0; }
 int netStageIndexOf(uint8_t level_id) {
     for (int i = 0; i < COUNT(s_stages); i++)
         if (s_stages[i].level_id == level_id) return i;

@@ -499,6 +499,24 @@ typedef enum RUNTIMEBITFLAG
 
 #define RUNTIMEBITFLAG_OWNER          0x60000
 #define RUNTIMEBITSHIFT_OWNER         0x11
+#ifdef GEVR
+/*
+ * Online player numbers run to 7 (MAX_PLAYER_COUNT), one bit more than the
+ * two-bit owner field holds, and the bit above it is HASOWNER: player 4
+ * would have marked the object as carried. The owner's third bit lives in
+ * bit 20, which the game never uses; players 0..3 keep the original bits,
+ * and a negative owner (chrai.c's -1) is shifted in as the game always did.
+ */
+#define RUNTIMEBITFLAG_OWNER_HI       0x00100000
+#define RUNTIMEBITFLAG_OWNER_ALL      (RUNTIMEBITFLAG_OWNER | RUNTIMEBITFLAG_OWNER_HI)
+#define RUNTIME_OWNER(flags)          ((s32)(((((u32)(flags)) & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER) | ((((u32)(flags)) & RUNTIMEBITFLAG_OWNER_HI) ? 4 : 0)))
+#define RUNTIME_OWNER_BITS(n)         ((s32)(n) < 0 ? ((u32)(n) << RUNTIMEBITSHIFT_OWNER) : \
+                                       (((((u32)(n)) & 3) << RUNTIMEBITSHIFT_OWNER) | ((((u32)(n)) & 4) ? RUNTIMEBITFLAG_OWNER_HI : 0)))
+#else
+#define RUNTIMEBITFLAG_OWNER_ALL      RUNTIMEBITFLAG_OWNER
+#define RUNTIME_OWNER(flags)          ((s32)((((u32)(flags)) & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER))
+#define RUNTIME_OWNER_BITS(n)         ((u32)(n) << RUNTIMEBITSHIFT_OWNER)
+#endif
 #define RUNTIMEBITFLAG_00000001       0x1
 #define RUNTIMEBITFLAG_00000002       0x00000002
 #define RUNTIMEBITFLAG_00000080       0x00000080
@@ -2076,7 +2094,13 @@ typedef enum PLAYER_ID
     PLAYER_1,
     PLAYER_2,
     PLAYER_3,
-    PLAYER_4
+    PLAYER_4,
+#ifdef GEVR
+    PLAYER_5,   /* online only: split screen stays at four */
+    PLAYER_6,
+    PLAYER_7,
+    PLAYER_8
+#endif
 } PLAYER_ID;
 
 typedef enum PORTALFLAGS
@@ -2101,7 +2125,14 @@ typedef enum PORTALFLAGS
 
 #define BLANKSAVEDATA {0, 0, SAVEFLAGS_SET(0,0,BOND_BROSNAN,1), 0x00, 0xFF, 0xFF, DEFAULT_OPTIONS, 0x00, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 
+#ifdef GEVR
+/* Online every headset runs one player per slot, eight of them (issue #88:
+ * net_protocol.h GEVR_MAX_PLAYERS). Split screen keeps its four: the front
+ * end counts controllers, and its menus and HUD lay out a 2x2 grid. */
+#define MAX_PLAYER_COUNT 8
+#else
 #define MAX_PLAYER_COUNT 4
+#endif
 
 #define FOLDER_INVALID -1
 #define FOLDER1 0x0

@@ -11,10 +11,10 @@
 #include "net_match.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         16  /* 16: co-op mode (mode, difficulty in the match config; guard, mission and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         16  /* 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
-#define GEVR_MAX_PLAYERS         4
+#define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
 #define GEVR_MAX_NAME_LEN        24
 #define GEVR_VOIP_MAX_BYTES      200 /* a 20 ms Opus frame at 24 kb/s averages ~60 bytes; VBR peaks higher */
 
@@ -221,7 +221,7 @@ enum {
  */
 typedef struct {
     uint8_t stage;          /* LEVELID */
-    uint8_t scenario;       /* MPSCENARIOS, 0..7 */
+    uint8_t scenario;       /* MPSCENARIOS 0..7, then NET_SCENARIO_3V3/4V4 (net_rules.h) */
     uint8_t weapon_set;     /* 0..13 GoldenEye's, NET_WEAPON_SET_CUSTOM the host's own four */
     uint8_t game_length;    /* front.c multi_game_lengths index, 0..7 */
     uint8_t health;         /* front.c MP_handicap_table index, 0..10, for everyone */
@@ -233,6 +233,7 @@ typedef struct {
     uint8_t fun_flags;      /* NET_FUN_*: next round only */
     uint8_t gun_size;       /* NET_GUN_NORMAL / TINY / BIG: visuals only */
     uint8_t custom_set[4];  /* the custom set's guns, ITEM_IDS */
+    uint8_t max_players;    /* the host's choice, 2..GEVR_MAX_PLAYERS on any stage; team scenarios take their own size */
     uint8_t mode;           /* NET_MODE_DEATHMATCH / NET_MODE_COOP (protocol 16) */
     uint8_t difficulty;     /* co-op: DIFFICULTY_AGENT .. DIFFICULTY_007 */
 } NetMatchConfig;
@@ -278,13 +279,6 @@ static inline int netbufReadAmmoState(struct netbuf *b, NetAmmoState *s) {
     return !b->error && netAmmoStateValid(s);
 }
 
-/* The players a config's stage takes: a co-op mission takes the party's four */
-static inline int netConfigMaxPlayers(const NetMatchConfig *c) {
-    if (!c) return 0;
-    if (c->mode == NET_MODE_COOP) return netCoopStageValid(c->stage) ? NET_COOP_MAX_PLAYERS : 0;
-    return netStageMaxPlayers(netStageIndexOf(c->stage));
-}
-
 static inline int netMatchConfigValid(const NetMatchConfig *c) {
     if (!c || c->mode > NET_MODE_COOP) return 0;
     if (c->mode == NET_MODE_COOP) {
@@ -297,9 +291,19 @@ static inline int netMatchConfigValid(const NetMatchConfig *c) {
         c->weapon_set >= netWeaponSetCount() || c->game_length >= netGameLengthCount() ||
         c->health >= netHealthCount() || c->dual_wield > NET_DUAL_ANY || c->loadouts > 1 ||
         (c->fun_flags & ~NET_FUN_MASK) != 0 || c->gun_size > NET_GUN_BIG || c->friendly_fire > 1 || c->next_round > NET_NEXT_PLAYLIST || c->voice_mode > NET_VOICE_COUCH ||
-        (netScenarioHasTeams(c->scenario) && netStageMaxPlayers(netStageIndexOf(c->stage)) < netTeamRequiredPlayers(c->scenario))) return 0;
+        c->max_players < 2 || c->max_players > GEVR_MAX_PLAYERS) return 0;
     for(int k=0;k<4;k++) if(netItemIndexOf(c->custom_set[k]) < 0) return 0;
     return 1;
+}
+
+/* The players a match takes: the host's count, or a team scenario's own size.
+ * Any stage takes any count; a stage with fewer start pads than players
+ * stands the extra ones beside a pad (bondview_r.c gevrSpreadStartPad). */
+static inline int netConfigMaxPlayers(const NetMatchConfig *c) {
+    if (!c) return 0;
+    /* a co-op party is the campaign's four, whatever the deathmatch fields say (#94) */
+    if (c->mode == NET_MODE_COOP) return netCoopStageValid(c->stage) ? NET_COOP_MAX_PLAYERS : 0;
+    return netScenarioHasTeams(c->scenario) ? netTeamRequiredPlayers(c->scenario) : c->max_players;
 }
 
 static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfig *c) {
@@ -316,6 +320,7 @@ static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfi
     netbufWriteU8(buf, c->fun_flags);
     netbufWriteU8(buf, c->gun_size);
     for (int i = 0; i < 4; i++) netbufWriteU8(buf, c->custom_set[i]);
+    netbufWriteU8(buf, c->max_players);
     netbufWriteU8(buf, c->mode);
     netbufWriteU8(buf, c->difficulty);
     return buf->error;
@@ -335,6 +340,7 @@ static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
     c->fun_flags = netbufReadU8(buf);
     c->gun_size = netbufReadU8(buf);
     for (int i = 0; i < 4; i++) c->custom_set[i] = netbufReadU8(buf);
+    c->max_players = netbufReadU8(buf);
     c->mode = netbufReadU8(buf);
     c->difficulty = netbufReadU8(buf);
     return buf->error;
@@ -432,7 +438,7 @@ typedef struct {
     uint32_t magic;     /* GEVR_NET_MAGIC */
     uint16_t version;   /* GEVR_NET_VERSION */
     uint8_t  msg_type;  /* NetMsgType */
-    uint8_t  slot_id;   /* Sender player slot (0..3) */
+    uint8_t  slot_id;   /* Sender player slot (0..GEVR_MAX_PLAYERS-1) */
 } NetHeader;
 
 /* Client hello */
@@ -473,7 +479,7 @@ typedef struct {
     NetLobbySlot  slots[GEVR_MAX_PLAYERS];
 } NetMsgLobbyState;
 
-/* Match Launch (on the wire: config, seed, player count, chr_id[4], phase) */
+/* Match Launch (on the wire: round settings, seed, player count, phase) */
 typedef struct {
     NetHeader header;
     NetMatchConfig config;

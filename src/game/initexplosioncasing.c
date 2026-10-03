@@ -65,7 +65,12 @@ void alloc_explosion_smoke_casing_scorch_impact_buffers(void)
         g_BulletImpactBuffer[i].room = -1;
     }
 
+#ifdef GEVR
+    /* as the glass: one view online keeps four players' share of the debris */
+    max_particles = MAX_FLYING_PARTICLES / MIN(getPlayerCount(), 4);
+#else
     max_particles = MAX_FLYING_PARTICLES / getPlayerCount();
+#endif
 
     if ((lvlGetCurrentStageToLoad() == LEVELID_STREETS) || (lvlGetCurrentStageToLoad() == LEVELID_DEPOT))
     {

@@ -12,8 +12,8 @@ extern bool netSlotOccupied(int slot);
 extern int netGetLocalSlot(void);
 #endif
 
-struct player *g_playerPointers[4];
-struct player_data g_playerPlayerData[4];
+struct player *g_playerPointers[MAX_PLAYER_COUNT];
+struct player_data g_playerPlayerData[MAX_PLAYER_COUNT];
 
 /**
  * Address 0x8007a0b0.
@@ -23,7 +23,7 @@ struct player_data *g_playerPerm;
 
 s32 player_num;
 s32 random_byte;
-PLAYER_ID array_PLAYER_IDs[4];
+PLAYER_ID array_PLAYER_IDs[MAX_PLAYER_COUNT];
 //s32 dword_CODE_bss_8007A0C4;
 //s32 dword_CODE_bss_8007A0C8;
 //s32 dword_CODE_bss_8007A0CC;
@@ -65,6 +65,17 @@ void default_player_perspective_and_height(void)
   g_playerPlayerData[PLAYER_3].handicap = value;
   g_playerPlayerData[PLAYER_4].player_perspective_height = value;
   g_playerPlayerData[PLAYER_4].handicap = value;
+#ifdef GEVR
+  {
+      s32 i;
+
+      for (i = PLAYER_5; i < MAX_PLAYER_COUNT; i++)
+      {
+          g_playerPlayerData[i].player_perspective_height = value;
+          g_playerPlayerData[i].handicap = value;
+      }
+  }
+#endif
 }
 
 void reset_play_data_ptrs(void)
@@ -81,6 +92,17 @@ void reset_play_data_ptrs(void)
     array_PLAYER_IDs[PLAYER_2] = 1;
     array_PLAYER_IDs[PLAYER_3] = 2;
     array_PLAYER_IDs[PLAYER_4] = 3;
+#ifdef GEVR
+    {
+        s32 i;
+
+        for (i = PLAYER_5; i < MAX_PLAYER_COUNT; i++)
+        {
+            g_playerPointers[i] = NULL;
+            array_PLAYER_IDs[i] = i;
+        }
+    }
+#endif
 }
 
 void init_player_data_ptrs_construct_viewports(s32 playercount)
@@ -91,6 +113,16 @@ void init_player_data_ptrs_construct_viewports(s32 playercount)
     g_playerPointers[PLAYER_2] = NULL;
     g_playerPointers[PLAYER_3] = NULL;
     g_playerPointers[PLAYER_4] = NULL;
+#ifdef GEVR
+    for (i = PLAYER_5; i < MAX_PLAYER_COUNT; i++)
+    {
+        g_playerPointers[i] = NULL;
+    }
+    if (playercount > MAX_PLAYER_COUNT)
+    {
+        playercount = MAX_PLAYER_COUNT;
+    }
+#endif
     random_byte = (s32) (randomGetNext() & 0xFF);
     if (playercount > 0)
     {
@@ -111,7 +143,7 @@ s32 getPlayerCount(void)
 {
     s32 count = 0;
     s32 i;
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < MAX_PLAYER_COUNT; i++) {
         if (g_playerPointers[i] != NULL) {
             count++;
         }
@@ -516,7 +548,7 @@ void set_cur_player(s32 playernum)
 {
 #ifdef DEBUG
     assert(num>=0);
-    assert(num<4);
+    assert(num<MAX_PLAYER_COUNT);
     assert(players[num]!=NULL); //player.c
 #endif
 
@@ -667,10 +699,13 @@ void shuffle_player_ids(void) {
     u32 random;
     PLAYER_ID temp;
 
-    for (i = 0; i < 4; i ++) {
+    for (i = 0; i < MAX_PLAYER_COUNT; i ++) {
         array_PLAYER_IDs[i] = i;
     }
 
+    /* The first four shuffle as the game always did, drawing the same random
+     * numbers; slots 4..7 exist online only, where the order below puts the
+     * local slot first and the other players' passes may run in any order. */
     for (i = 0; i < 3; i ++) {
         random = randomGetNext();
         temp = array_PLAYER_IDs[i];
@@ -685,15 +720,15 @@ void shuffle_player_ids(void) {
          * player is first in this order (get_player_position_in_shuffled() == 0).
          * Put the local slot first so it runs every frame, not 1 in N.
          */
-        PLAYER_ID ordered[4];
+        PLAYER_ID ordered[MAX_PLAYER_COUNT];
         s32 count = 0;
         s32 local = netGetLocalSlot();
-        if (local >= 0 && local < 4 && netSlotOccupied(local)) ordered[count++] = local;
-        for (i = 0; i < 4; i++)
+        if (local >= 0 && local < MAX_PLAYER_COUNT && netSlotOccupied(local)) ordered[count++] = local;
+        for (i = 0; i < MAX_PLAYER_COUNT; i++)
             if (netSlotOccupied(array_PLAYER_IDs[i]) && array_PLAYER_IDs[i] != local) ordered[count++] = array_PLAYER_IDs[i];
-        for (i = 0; i < 4; i++)
+        for (i = 0; i < MAX_PLAYER_COUNT; i++)
             if (!netSlotOccupied(array_PLAYER_IDs[i])) ordered[count++] = array_PLAYER_IDs[i];
-        for (i = 0; i < 4; i++) array_PLAYER_IDs[i] = ordered[i];
+        for (i = 0; i < MAX_PLAYER_COUNT; i++) array_PLAYER_IDs[i] = ordered[i];
     }
 #endif
 }
@@ -714,7 +749,7 @@ s32 get_player_position_in_shuffled(s32 current_player_num) {
     }
 #endif
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < MAX_PLAYER_COUNT; i++) {
         if (current_player_num != array_PLAYER_IDs[i])
         {
             if (g_playerPointers[array_PLAYER_IDs[i]] != NULL)
@@ -735,7 +770,7 @@ s32 get_nth_player_from_shuffled(PLAYER_ID id)
 {
     s32 i;
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < MAX_PLAYER_COUNT; i++) {
         if (g_playerPointers[array_PLAYER_IDs[i]] != NULL) {
             if (id == 0) {
                return array_PLAYER_IDs[i];

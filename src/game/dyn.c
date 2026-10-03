@@ -4,6 +4,9 @@
 #include <str.h>
 #include <memp.h>
 #include <macro.h>
+#ifdef GEVR
+#include <bondconstants.h>
+#endif
 
 /**
  * This file handles memory usage for graphics related tasks.
@@ -34,8 +37,14 @@ u8 *g_GfxMemPos;
 u8 g_GfxActiveBufferIndex;
 s32 g_GfxRequestedDisplayList;
 s32 D_800482E0 = 0;
+#ifdef GEVR
+/* indexed by getPlayerCount() - 1, to eight online (MAX_PLAYER_COUNT) */
+s32 g_GfxSizesByPlayerCount[MAX_PLAYER_COUNT] = {0x10000, 0x18000, 0x20000, 0x28000, 0x28000, 0x28000, 0x28000, 0x28000};
+s32 g_VtxSizesByPlayerCount[MAX_PLAYER_COUNT] = {0x10000, 0x18000, 0x20000, 0x28000, 0x30000, 0x38000, 0x40000, 0x48000};
+#else
 s32 g_GfxSizesByPlayerCount[] = {0x10000, 0x18000, 0x20000, 0x28000};
 s32 g_VtxSizesByPlayerCount[] = {0x10000, 0x18000, 0x20000, 0x28000};
+#endif
 
 char membars_string1[] = ">>>>>>>>>>>>>>>>>>>>>>>>>";
 char membars_string2[] = "=========================";
@@ -51,6 +60,18 @@ void dynInitMemory(void) {
     }
     if (tokenFind(1, "-mvtx")) {
         g_VtxSizesByPlayerCount[getPlayerCount() - 1] = strtol(tokenFind(1, "-mvtx"), NULL, 0) * 1024;
+#ifdef GEVR
+        /*
+         * The stages' -mvtx budgets are the N64's, for four players. Every
+         * player past four adds view passes online (lv.c gevrViewPass) whose
+         * prop matrices come from this buffer, and nothing bounds-checks it:
+         * grow it by the same share per player.
+         */
+        if (getPlayerCount() > 4)
+        {
+            g_VtxSizesByPlayerCount[getPlayerCount() - 1] = g_VtxSizesByPlayerCount[getPlayerCount() - 1] / 4 * getPlayerCount();
+        }
+#endif
     }
 
 #ifdef GEVR

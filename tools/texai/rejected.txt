@@ -15,8 +15,8 @@ C46658E1  file-select dossier image, 1-bit halftone dither turned to mush
 14B20968  file-select dossier image, halftone dither turned to mush
 CE20C499  dossier photo, dither turned to mush
 52DDC423  signature scribble garbled
-472FBB4B  small GoldenEye 007 logo garbled
-CC50ADDF  boxed logo, lettering at the top garbled
+# 472FBB4B hand upscale is in Title and menus; the SeedVR2 result stayed out
+# CC50ADDF hand upscale is in Title and menus; the SeedVR2 result stayed out
 # 2026-09-27 review of the non-zlib ROM batch (rareimg.py):
 6113B32E  layout with text blocks turned to invented squiggly text
 34AEC0C9  grate with stencilled letters, letters garbled

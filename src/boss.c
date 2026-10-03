@@ -63,7 +63,7 @@ extern int netCoopActive(void);
 extern int netCoopSession(void);
 extern void netCoopMissionEnded(int result);
 extern int netGetLocalSlot(void);
-static bool s_net_slot_enabled[4];
+static bool s_net_slot_enabled[MAX_PLAYER_COUNT];
 static bool s_net_session_started;
 static bool s_net_config_on_load;   /* a round reset's settings wait for its stage's load */
 #endif
@@ -524,7 +524,7 @@ void bossMainloop(void)
         /* a co-op party's menus are the title stage: the session goes on (#94) */
         if (s_net_session_started && g_StageNum == LEVELID_TITLE && !netCoopSession())
             gevrLobbySessionStopped();
-        for (int slot = 0; slot < 4; slot++) s_net_slot_enabled[slot] = TRUE;
+        for (int slot = 0; slot < MAX_PLAYER_COUNT; slot++) s_net_slot_enabled[slot] = TRUE;
         s_net_session_started = netIsActive() && (g_StageNum != LEVELID_TITLE || netCoopSession());
         netCoopStageLoaded();   /* a load, which netStageLoaded's other calls are not */
         netStageLoaded();
