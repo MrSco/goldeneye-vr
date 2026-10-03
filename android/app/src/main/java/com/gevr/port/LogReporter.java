@@ -59,6 +59,7 @@ final class LogReporter {
             versionCode = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
         } catch (Exception e) { Log.w(TAG, "Could not read install time", e); }
         long offered = prefs.getLong("offered_crash", 0);
+        long lastExit = 0;
         Log.i(TAG, "Install " + CrashExitPolicy.isoUtc(installTime) + " versionCode " + versionCode
                 + (offered != 0 ? ", last offered crash " + CrashExitPolicy.isoUtc(offered) : ""));
         if (Build.VERSION.SDK_INT >= 30) {
@@ -71,6 +72,8 @@ final class LogReporter {
                     if (!this.context.getPackageName().equals(exit.getProcessName())) line += " process " + exit.getProcessName();
                     Log.i(TAG, "Previous exit: " + line);
                     exitHistory.append(line).append('\n');
+                    if (this.context.getPackageName().equals(exit.getProcessName()))
+                        lastExit = Math.max(lastExit, exit.getTimestamp());
                     if (this.context.getPackageName().equals(exit.getProcessName())
                             && CrashExitPolicy.qualifies(exit.getReason(), exit.getStatus(),
                                     exit.getTimestamp(), installTime, offered)
@@ -84,9 +87,10 @@ final class LogReporter {
         }
         // Quest exit records can be missing. Persist only foreground runs and
         // ignore activity recreation within this same process. A marker older
-        // than the install is the install itself killing the running app.
+        // than the install is the install itself killing the running app, and
+        // one followed by an exit record already has its non-crash reason.
         long previousRun = prefs.getLong("foreground_run", 0);
-        if (crash == null && CrashExitPolicy.unexpectedExit(previousRun, installTime, offered)
+        if (crash == null && CrashExitPolicy.unexpectedExit(previousRun, installTime, offered, lastExit)
                 && prefs.getInt("run_pid", 0) != android.os.Process.myPid()) {
             crashTimestamp = previousRun;
             unexpectedExit = true;
