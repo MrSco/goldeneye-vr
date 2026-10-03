@@ -3,8 +3,14 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / latest release:** 2026-10-03, v0.4.0; versionCode 51, protocol 17.
+**Updated / latest release:** 2026-10-03, v0.4.1; versionCode 52, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
+
+**v0.4.1:** co-op teammates watch the host's scripted and ending cutscenes
+through the host's camera and fades (#94, NET_MSG_COOP_CINEMA; protocol 17
+unchanged, v0.4.0 ignores the new message and still plays with v0.4.1). A
+force-stopped run is no longer reported as a crash (#96); the single-player
+Line mode cheat no longer crashes on a level's first frame (#97).
 
 **v0.4.0:** online co-op campaign for up to four players (#94: the solo
 campaign through the game's own menus, the host driving; each player's own
@@ -53,11 +59,9 @@ is goldeneyevr.com, in its own repository.
 ## Outstanding issues / limits
 
 - #94 co-op: accepted on one headset as host; two-headset play (menus
-  followed, revive, debrief on a teammate) is untested. Merged after
-  v0.4.0, also untested on two headsets: teammates watch the host's
-  scripted/ending cutscenes through the host's camera and fades
-  (NET_MSG_COOP_CINEMA); Bond's cinema animations and script music stay on
-  the host. Notes: docs/issue-94-coop.md.
+  followed, revive, debrief on a teammate, and v0.4.1's cutscenes through
+  the host's camera) is untested. Bond's cinema animations and script music
+  stay on the host. Notes: docs/issue-94-coop.md.
 - #88 eight players: checked on one headset (8 slots on Facility/Egypt,
   90 Hz). Measure frame time and host upload with 5+ headsets before relay
   batching or culling the other players' view passes (MULTIPLAYER.md).
