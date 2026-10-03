@@ -21,7 +21,7 @@ family, golden gun, Cougar, DD44, knives, watch arm and taser/grenade hand,
 and left-hand gadgets held mirrored (#9). Guards hold rifles two-handed
 (#93). Cradle and smoke layering (#89), solo ammo crates give only their own
 ammo (#74), VR crosshair depth, Quest runtime render size and Auto refresh
-(#90), four GE Plus fixes (#95), HD + AI pack 2026.10.03.2 and boot preload
+(#90), four GE Plus fixes (#95), HD + AI pack 2026.10.03.3 and boot preload
 of HD menu art. Protocol 17: 16 was only the unreleased test builds, whose
 packet layout changed under that number.
 
