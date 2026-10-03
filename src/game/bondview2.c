@@ -13982,15 +13982,15 @@ static s32 s_gevrWpShown;
 static s32 s_gevrWpMoved;
 static s32 s_gevrWpIndex;
 static s32 s_gevrWpShownItem;
-#define GEVR_WP_W 196        /* the wheel's box, screen units: the ring and two lines under it */
-#define GEVR_WP_H 226
+#define GEVR_WP_W 232        /* the wheel's box, screen units: the ring and two lines under it */
+#define GEVR_WP_H 264
 #define GEVR_WP_MODEL_W 64   /* the spinning item in the ring's hole */
 #define GEVR_WP_MODEL_H 52
 /* tuning (files/gevr_wpanel.txt "open dy fov", re-read every second): force the panel
  * open from the PC, move the model down by dy screen units, widen the model's view */
 static s32 s_gevrWpTuneOpen;
 s32 gevrWeaponPanelInFront;   /* vr_openxr.cpp: tuning puts the panel before the eyes (the hands may be asleep) */
-static f32 s_gevrWpTuneDy = 22.0f;   /* tuned in the headset: the watch frames items high */
+static f32 s_gevrWpTuneDy = 0.0f;    /* the old list's strip wanted 22: the wheel's hole sat the gun that far low */
 static f32 s_gevrWpTuneFov = 60.0f;  /* the watch's 45 filled the strip */
 static s32 s_gevrWpTuneIndex = -1;
 static f32 s_gevrWpTuneArmLen = 110.0f;  /* the left panel's watch arm: forearm, panel units (200 huge, 55 tiny: user) */
@@ -14018,7 +14018,8 @@ static void gevrWeaponPanelTune(void)
         }
         s_gevrWpTuneOpen = open;
         gevrWeaponPanelInFront = open;
-        s_gevrWpTuneDy = dy;
+        /* only while tuning: the file left on the headset still says the strip's 22 */
+        s_gevrWpTuneDy = open ? dy : 0.0f;
         s_gevrWpTuneFov = fov > 5.0f ? fov : 60.0f;
         s_gevrWpTuneIndex = index;
         s_gevrWpTuneArmLen = armLen > 1.0f ? armLen : 110.0f;
@@ -14643,9 +14644,10 @@ static const u8 s_gevrWcTint[GEVR_WC_COUNT][3] = {
     { 0x9C, 0x5C, 0xD8 },   /* gadgets: purple */
     { 0xD8, 0x40, 0x40 },   /* thrown: red */
 };
-#define GEVR_WC_R0 36       /* the ring's hole, for the spinning item */
-#define GEVR_WC_R1 82       /* its outer edge */
-#define GEVR_WC_POP 8       /* the highlighted wedge stands out by this much */
+#define GEVR_WC_R0 34       /* the ring's hole, for the spinning item */
+#define GEVR_WC_R1 106      /* its outer edge: the band is as wide as a label (GEVR_WC_TEXTW) and a margin */
+#define GEVR_WC_POP 6       /* the highlighted wedge stands out by this much */
+#define GEVR_WC_TEXTW 66    /* a wedge's lines are cut to this, so they stay inside it */
 #define GEVR_WC_SEGS 8      /* quads along each wedge's arc */
 #define GEVR_WC_GAP 1.5f    /* degrees left dark between wedges */
 
@@ -14894,12 +14896,12 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
         if (s_gevrWc.n[i] == 0)
         {
-            gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lh / 2, 0x707780FF, lh, 70, NULL);
+            gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lh / 2, 0x707780FF, lh, GEVR_WC_TEXTW, NULL);
             continue;
         }
-        gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lh, i == active ? 0xFFF080FF : 0xD0D6DEFF, lh, 70, NULL);
+        gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lh, i == active ? 0xFFF080FF : 0xD0D6DEFF, lh, GEVR_WC_TEXTW, NULL);
         gdl = gevrWpText(gdl, s_gevrWpList[i == active ? s_gevrWpIndex : gevrWheelPick(hand, i)].name,
-                         tx, ty, i == active ? 0xFFFFFFFF : 0xA8B0BCFF, lh, 70, NULL);
+                         tx, ty, i == active ? 0xFFFFFFFF : 0xA8B0BCFF, lh, GEVR_WC_TEXTW, NULL);
     }
 
     /* under the wheel: the highlighted item in full, and how many its wedge holds */
