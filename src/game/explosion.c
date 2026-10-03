@@ -1209,7 +1209,10 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
     vertices[1] = spA0;
     vertices[2] = spA0;
     vertices[3] = spA0;
+#ifndef GEVR
+    /* retail writes a fifth vertex into this four-vertex allocation; it is never loaded (#95) */
     vertices[4] = spA0;
+#endif
 
     sp8C.f[0] = sp9C->m[0][0] * sp54;
     sp8C.f[1] = sp9C->m[0][1] * sp54;
