@@ -14688,12 +14688,21 @@ static u32 gevrWheelShade(s32 cat, s32 empty, s32 lit, s32 outer)
     return (r << 24) | (g << 16) | (b << 8) | a;
 }
 
-/* The five wedges as shaded triangles, in the screen (gevrRenderRadarGauges' setup). */
+/*
+ * The five wedges as shaded triangles, in the screen (gevrRenderRadarGauges' setup).
+ * Their vertices and list are static, one set per frame buffer: from the vtx
+ * pool (the stage's -mvtx, unchecked) they were 4 KB more on a frame already
+ * near its end, and the headset aborted on a corrupt list as the wheel opened.
+ */
+#define GEVR_WC_QUADS (GEVR_WC_COUNT * GEVR_WC_SEGS)
+static struct damage_display_val s_gevrWcVtx[2][GEVR_WC_QUADS * 4];
+static Gfx s_gevrWcDl[2][GEVR_WC_QUADS * 2 + 1];
+
 static Gfx *gevrWheelDrawRing(Gfx *gdl, s32 cx, s32 cy, s32 active)
 {
-    const s32 quads = GEVR_WC_COUNT * GEVR_WC_SEGS;
-    struct damage_display_val *v = dynAllocate(quads * 4 * sizeof(*v));
-    Gfx *ring = dynAllocate((quads * 2 + 1) * sizeof(Gfx));
+    extern u8 g_GfxActiveBufferIndex;
+    struct damage_display_val *v = s_gevrWcVtx[g_GfxActiveBufferIndex & 1];
+    Gfx *ring = s_gevrWcDl[g_GfxActiveBufferIndex & 1];
     Gfx *rp = ring;
     Mtx *projection = dynAllocateMatrix(), *identity = dynAllocateMatrix();
     extern u8 g_ViBackIndex;
@@ -14747,6 +14756,9 @@ static Gfx *gevrWheelDrawRing(Gfx *gdl, s32 cx, s32 cy, s32 active)
     gSPViewport(gdl++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
     return gdl;
 }
+
+extern s32 dynGetFreeGfx(Gfx *gdl);
+extern s32 dynGetFreeVtx(void);
 
 Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 {
@@ -14817,6 +14829,8 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
             }
         }
         gevrWheelOpen(hand, count, s_gevrWpIndex);
+        sysLogPrintf(LOG_NOTE, "wheel: open hand %d, %d items; free gfx %d cmds, vtx %d bytes",
+                     hand, count, dynGetFreeGfx(gdl), dynGetFreeVtx());
         gevrWeaponPanelStep = 0;
         s_gevrWpMoved = FALSE;
         s_gevrWpShown = TRUE;
