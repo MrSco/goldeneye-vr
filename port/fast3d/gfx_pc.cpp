@@ -4268,6 +4268,11 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_flush();
                 gfx_rapi->clear_framebuffer(false, true);
                 break;
+            case G_SETBLENDCOLOR:
+            case G_SETPRIMDEPTH:
+                /* RDP blend colour / primitive depth are not modelled; the only
+                   emitter is the N64 coverage (Line mode) pass, now drawn in GL. */
+                break;
             case G_RDPPIPESYNC:
             case G_RDPFULLSYNC:
             case G_RDPLOADSYNC:
