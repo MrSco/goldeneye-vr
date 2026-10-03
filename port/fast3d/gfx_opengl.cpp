@@ -22,6 +22,9 @@
 #include "../vr/vr_log.h"
 #include "../src/net/net_game.h"
 #include "gevr_line_geometry.h"
+/* Line mode, online (host fun flag) or offline (cheat/debug toggle): the
+   N64 coverage visualization has no GL equivalent, so world edges are drawn here. */
+extern "C" int get_debug_VisCVG_flag(void);
 #ifdef ANDROID
 #include <android/log.h>
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,  "GoldenEye-VR", __VA_ARGS__)
@@ -1950,7 +1953,7 @@ static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_le
     d.prg = s_curPrg;
     d.first = first;
     d.count = (GLsizei)(3 * buf_vbo_num_tris);
-    d.lineMode = netActiveLineMode() != 0;
+    d.lineMode = get_debug_VisCVG_flag() != 0;
     for (int t = 0; t < 2; t++) {
         d.tex[t] = s_boundTex[t];
         d.linear[t] = current_textures_linear_filter[t];
@@ -2217,7 +2220,7 @@ GLuint gfx_vr_scope_texture(int hand)
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
 
-    const bool lineMode = netActiveLineMode() && !gForceFlatShaderForMenu && !gVrFlatPass &&
+    const bool lineMode = get_debug_VisCVG_flag() && !gForceFlatShaderForMenu && !gVrFlatPass &&
         !vr_dl_is_pause_or_menu && buf_vbo[3] != 1.0f;
     glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);   /* the menu overlay and hub setups leave theirs bound */
     GLint first = 0;
