@@ -15,7 +15,9 @@ struct GevrPausePlayerView {
 };
 struct GevrPauseView {
     bool coop=false,host=false,canStart=false,canReturn=false,localReady=false;
-    int count=0,capacity=8,countdown=0,health=100,armour=0;
+    int count=0,capacity=8,countdown=0;
+    GevrPauseGaugeVertex gauges[92]{};
+    GevrPauseRadarView radar{};
     GevrPausePlayerView players[8];
     char session[160]="", status[128]="";
 };
@@ -24,6 +26,31 @@ struct GevrPauseUi {
     bool focusResume=true,confirmLeave=false,confirmAbort=false;
 };
 enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT };
+inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
+    if(!radar.visible)return;
+    auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
+    const ImVec2 center(origin.x+500,origin.y+52);
+    draw->AddCircleFilled(center,34,IM_COL32(0,0,0,160),48);
+    for(int i=0;i<radar.count;i++) {
+        const auto& b=radar.blips[i];const ImVec2 p(center.x+b.x*32,center.y+b.y*32);
+        draw->AddRectFilled(ImVec2(p.x-4,p.y-4),ImVec2(p.x+4,p.y+4),IM_COL32(0,0,0,64));
+        draw->AddRectFilled(ImVec2(p.x-2,p.y-2),ImVec2(p.x+2,p.y+2),IM_COL32(b.r,b.g,b.b,b.a));
+    }
+}
+inline void gevrPauseGaugeWidget(const GevrPauseGaugeVertex* vertices) {
+    auto* draw=ImGui::GetWindowDrawList();
+    const ImVec2 origin=ImGui::GetWindowPos(),uv=ImGui::GetFontTexUvWhitePixel();
+    draw->PrimReserve(84,46);
+    const unsigned base=draw->_VtxCurrentIdx;
+    for(int i=0;i<46;i++) {
+        const auto& v=vertices[i];
+        draw->PrimWriteVtx(ImVec2(origin.x+500+(v.x-1)*42/520.f,origin.y+52+v.y*42/520.f),uv,IM_COL32(v.r,v.g,v.b,v.a));
+    }
+    // Same pairs and gaps as buildGaugeBarDL; preserve the original gradients.
+    for(int i=0;i<22;i++)if(i<9?(i&1)==0:(i+3)%4!=0) {
+        for(unsigned index:{0u,1u,2u,1u,2u,3u})draw->PrimWriteIdx((ImDrawIdx)(base+i*2+index));
+    }
+}
 inline void gevrPauseFieldWidget(const GevrPauseField& f,float x,float y,float width) {
     ImGui::PushID(f.id);
     ImGui::SetCursorPos(ImVec2(x,y+7));ImGui::TextUnformatted(f.label);
@@ -65,6 +92,9 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     ImGui::Begin("##match-window",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoScrollbar);
     if(icon){ImGui::SetCursorPos(ImVec2(18,18));ImGui::Image(icon,ImVec2(64,64));}
     ImGui::SetCursorPos(ImVec2(100,32));ImGui::TextColored(ImVec4(1,.84f,.47f,1),"GOLDENEYE VR");
+    gevrPauseRadarWidget(model.radar);
+    gevrPauseGaugeWidget(model.gauges);
+    gevrPauseGaugeWidget(model.gauges+46);
     ImGui::SetCursorPos(ImVec2(742,22));ImGui::TextColored(gold,"%s",model.session);
     ImGui::SetCursorPos(ImVec2(742,60));ImGui::TextDisabled("%s",model.status);
     ImGui::SetCursorPos(ImVec2(18,98));ImGui::Separator();
@@ -134,14 +164,6 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         for(int i=0;gevrPauseReadField(ui.tab,i,&field);i++) {
             const bool audio=ui.tab==GEVR_PAUSE_AUDIO;
             gevrPauseFieldWidget(field,audio?18:18+(i%2)*642,212+(audio?i:i/2)*76,audio?1100:602);
-        }
-        if(ui.tab==GEVR_PAUSE_PLAYER) {
-            for(int i=0;i<2;i++) {
-                char label[64];snprintf(label,sizeof(label),"%s  %d%%",i?"ARMOUR":"HEALTH",i?model.armour:model.health);
-                ImGui::SetCursorPos(ImVec2(18+i*642,660));ImGui::TextColored(gold,"%s",label);
-                ImGui::SetCursorPos(ImVec2(18+i*642,704));ImGui::PushStyleColor(ImGuiCol_PlotHistogram,i?ImVec4(.2f,.4f,.68f,1):ImVec4(.95f,.25f,.08f,1));
-                ImGui::ProgressBar((i?model.armour:model.health)/100.f,ImVec2(602,32),"");ImGui::PopStyleColor();
-            }
         }
         ImGui::SetCursorPos(ImVec2(18,816));
         ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Host settings. Round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
