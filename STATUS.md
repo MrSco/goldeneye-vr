@@ -3,8 +3,13 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / latest release:** 2026-10-03, v0.4.1; versionCode 52, protocol 17.
+**Updated / latest release:** 2026-10-03, v0.4.2; versionCode 53, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
+
+**v0.4.2:** fix co-op joiner crash on launching the party's menus (reports
+253b6b4f, e8d14102: in the solo title stage only player 0 exists, so teammate
+slots 1-3 fell back to player 0 instead of selecting a NULL player and crashing
+in viSetupCurrentPlayerView).
 
 **v0.4.1:** co-op teammates watch the host's scripted and ending cutscenes
 through the host's camera and fades (#94, NET_MSG_COOP_CINEMA; protocol 17

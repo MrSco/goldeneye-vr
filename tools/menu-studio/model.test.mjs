@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { clone, createNode, History, moveNodes, alignNodes, distributeNodes, validateProject, parseOBJ, parseGameModel, auditProject, handoffMarkdown } from "./model.js";
 import { starterProject, stages } from "./templates.js";
-import { interpolate, visibleNode } from "./render.js";
+import { interpolate, visibleNode, nodeContent } from "./render.js";
 
 test("starter project preserves game player limits and has valid links", () => {
   const p = validateProject(starterProject());
@@ -76,5 +76,32 @@ test("shared launcher window changes mode without mixing scores and objectives",
  const ballots=match.nodes.filter(n=>n.sampleKey.endsWith("Vote"));assert.equal(ballots.length,2);
  assert.ok(ballots.every(n=>n.editableBy==="everyone" && n.options.startsWith("No vote|")));
  assert.ok(p.screens.every(s=>s.nodes.find(n=>n.type==="tabs").tabTargets.length===4));
+ p.sample.health=35;p.sample.armour=80;
+ for(const screen of p.screens) {
+   const vitals=screen.nodes.filter(n=>n.type==="gauge");
+   assert.equal(vitals.length,2);
+   assert.equal(screen.nodes.filter(n=>n.type==="progress").length,0,"starter has no rectangular vital bars");
+   const radar=screen.nodes.find(n=>n.type==="radar");
+   assert.ok(radar && radar.y+radar.h<98);
+   assert.equal(radar.x+radar.w/2,500,"radar is centered between the arcs");
+   assert.equal([...nodeContent(p,radar).matchAll(/data-blip="true"/g)].length,4);
+   assert.ok(vitals.every(n=>n.y+n.h<98),"vitals are shared header content, with no Player footer copy");
+   for(const n of vitals) {
+     const content=nodeContent(p,n);
+     assert.match(content,n.sampleKey==="health"?/Health 35%/:/Armour 80%/);
+     assert.deepEqual([...content.matchAll(/data-segment="(\d+)"/g)].map(m=>Number(m[1])),[0,2,4,6,8,10,11,12,14,15,16,18,19,20],"original game segment gaps are preserved");
+     assert.match(content,/stop-opacity="0.18823529411764706"/,"empty portions use the game's alpha 48");
+     assert.match(content,/stop-opacity="1"/,"filled portions use the game's alpha 255");
+     assert.ok(!content.includes("c-progress"));
+   }
+ }
  assert.equal(auditProject(p).length,0);
+});
+test("radar preview follows editable samples and survives portable round trips",()=>{
+ const p=validateProject(starterProject()),radar=p.screens[0].nodes.find(n=>n.type==="radar");
+ p.sample.radar.blips=[{x:.6,y:-.25,r:255,g:0,b:0,a:160}];
+ assert.match(nodeContent(p,radar),/x="17.2" y="-10" width="4"/);
+ assert.deepEqual(validateProject(JSON.parse(JSON.stringify(p))).sample.radar,p.sample.radar);
+ p.sample.radar.visible=false;assert.equal(nodeContent(p,radar),"");
+ p.sample.radar.blips[0].x=2;assert.throws(()=>validateProject(p),/sample radar/);
 });

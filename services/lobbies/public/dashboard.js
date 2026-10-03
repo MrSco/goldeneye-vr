@@ -98,6 +98,83 @@ async function refresh() {
   }
 }
 
+const SVG_NS = "http://www.w3.org/2000/svg";
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const formatCount = n => Math.round(n).toLocaleString();
+const shortDay = day => new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", timeZone: "UTC" });
+const longDay = day => new Date(`${day}T00:00:00Z`).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+let statsShown = false;
+
+function countUp(element, value) {
+  if (statsShown || reduceMotion || value === 0) {
+    element.textContent = formatCount(value);
+    return;
+  }
+  const start = performance.now();
+  const step = now => {
+    const progress = Math.min(1, (now - start) / 900);
+    element.textContent = formatCount(value * (1 - Math.pow(1 - progress, 3)));
+    if (progress < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function drawBars(daily) {
+  const svg = byId("record-bars");
+  svg.querySelectorAll("rect").forEach(rect => rect.remove());
+  const max = Math.max(1, ...daily.map(d => d.lobbies));
+  const slot = 700 / daily.length;
+  const width = slot * 0.62;
+  daily.forEach((d, i) => {
+    const height = d.lobbies ? Math.max(4, (d.lobbies / max) * 116) : 2;
+    const rect = document.createElementNS(SVG_NS, "rect");
+    rect.setAttribute("x", (i * slot + (slot - width) / 2).toFixed(1));
+    rect.setAttribute("y", (120 - height).toFixed(1));
+    rect.setAttribute("width", width.toFixed(1));
+    rect.setAttribute("height", height.toFixed(1));
+    rect.setAttribute("rx", "2");
+    if (i === daily.length - 1) rect.classList.add("today");
+    else if (!d.lobbies) rect.classList.add("empty");
+    const title = document.createElementNS(SVG_NS, "title");
+    title.textContent = `${shortDay(d.day)}: ${d.lobbies} ${d.lobbies === 1 ? "lobby" : "lobbies"}, ${d.matches} ${d.matches === 1 ? "match" : "matches"}`;
+    rect.append(title);
+    svg.append(rect);
+  });
+}
+
+async function loadStats() {
+  try {
+    const response = await fetch("/v1/stats");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const stats = await response.json();
+    if (!stats.since) {
+      byId("record").hidden = true;
+      return;
+    }
+    byId("record").hidden = false;
+    countUp(byId("stat-lobbies"), stats.allTime.lobbies);
+    countUp(byId("stat-matches"), stats.allTime.matches);
+    countUp(byId("stat-joins"), stats.allTime.joinsConnected);
+    countUp(byId("stat-peak"), stats.allTime.peakPlayers);
+    byId("record-since").textContent = `Tracking since ${longDay(stats.since)}`;
+    byId("record-today").textContent = `Today: ${stats.today.lobbies} ${stats.today.lobbies === 1 ? "lobby" : "lobbies"} · ${stats.today.matches} ${stats.today.matches === 1 ? "match" : "matches"}`;
+    byId("record-first-day").textContent = shortDay(stats.daily[0].day);
+    drawBars(stats.daily);
+    const top = byId("record-top");
+    if (stats.topStage) {
+      const name = document.createElement("strong");
+      name.textContent = stages[stats.topStage.stage] || `Stage ${stats.topStage.stage}`;
+      top.replaceChildren("Most played: ", name, ` · ${formatCount(stats.topStage.matches)} ${stats.topStage.matches === 1 ? "match" : "matches"}`);
+    } else top.textContent = "No matches played yet. Be the first.";
+    statsShown = true;
+  } catch {
+    byId("record").hidden = true;
+  }
+}
+
+loadStats();
+setInterval(() => { if (!document.hidden) loadStats(); }, 300_000);
+
 byId("refresh").addEventListener("click", refresh);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 setInterval(() => { if (!document.hidden) refresh(); }, 30_000);

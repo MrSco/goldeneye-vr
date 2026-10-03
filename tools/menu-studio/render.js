@@ -45,6 +45,27 @@ export function meshSVG(mesh, yaw = -25, pitch = 10, color = "#e0b040") {
   const polygons = faces.map(f => '<polygon points="' + f.points.map(v => v[0].toFixed(2) + ',' + v[1].toFixed(2)).join(" ") + '" fill="' + color + '" fill-opacity="' + clamp(0.15 + (f.depth + 80) / 220, 0.12, 0.7).toFixed(2) + '" stroke="' + color + '" stroke-width=".35"/>').join("");
   return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 288" role="img" aria-label="Imported 3D model geometry">' + polygons + '</svg>';
 }
+// Mirror glass2.c's original pause/watch vertices and display-list gaps.
+// The runtime itself calls hudMakeDamageSegments rather than duplicating it.
+function gaugeSVG(project,n) {
+  const armour=n.sampleKey==="armour" || n.text==="ARMOUR";
+  const value=clamp(n.sampleKey ? project.sample[n.sampleKey] ?? n.value : n.value,0,100), health=value*8/100;
+  const vertices=Array.from({length:23},(_,i)=>{
+    const a=Math.trunc(142.5-i*5)*Math.PI/180,c=Math.cos(a);
+    const alpha=i<10 ? (i<=Math.trunc(health)*2-1 ? 255 : i<Math.trunc(health*2) ? Math.trunc((health-Math.trunc(health))*207)+48 : 48)
+      : i<=9+(health-5)*4 ? 255 : i<=Math.trunc((health-5)*4+.5)+9 && i>Math.trunc(health-5)*2+8 ? Math.trunc((health-Math.trunc(health))*207)+48 : 48;
+    return {points:[0,1].map(pair=>[Math.trunc(Math.sin(a)*520*(6-pair)/5)*(armour?1:-1)*42/520,-Math.trunc(c*520*(6-pair)/5)*42/520]),color:armour?[Math.trunc(96-c*96),Math.trunc(127-c*127),255]:[255,Math.trunc(127-c*127),Math.trunc(32-c*32)],alpha};
+  });
+  const gradients=[],polygons=[];
+  for(let i=0;i<22;i++)if(i<9?i%2===0:(i+3)%4!==0) {
+    const a=vertices[i],b=vertices[i+1],id='gauge-'+n.id+'-'+i;
+    const middle=v=>v.points[0].map((p,k)=>(p+v.points[1][k])/2);
+    const from=middle(a),to=middle(b);
+    gradients.push('<linearGradient id="'+e(id)+'" gradientUnits="userSpaceOnUse" x1="'+from[0]+'" y1="'+from[1]+'" x2="'+to[0]+'" y2="'+to[1]+'"><stop stop-color="rgb('+a.color.join(',')+')" stop-opacity="'+a.alpha/255+'"/><stop offset="1" stop-color="rgb('+b.color.join(',')+')" stop-opacity="'+b.alpha/255+'"/></linearGradient>');
+    polygons.push('<polygon data-segment="'+i+'" points="'+[a.points[0],a.points[1],b.points[1],b.points[0]].map(p=>p.join(',')).join(' ')+'" fill="url(#'+e(id)+')"/>');
+  }
+  return '<svg class="c-gauge" xmlns="http://www.w3.org/2000/svg" viewBox="'+(armour?'0':'-60')+' -44 60 86" preserveAspectRatio="none" role="img" aria-label="'+(armour?'Armour':'Health')+' '+value+'%"><defs>'+gradients.join('')+'</defs>'+polygons.join('')+'</svg>';
+}
 export function nodeContent(project, n) {
   const text = e(interpolate(n.text, project)), sub = e(interpolate(n.sampleKey ? project.sample[n.sampleKey] ?? n.subtext : n.subtext, project)), a = asset(project, n);
   switch (n.type) {
@@ -71,7 +92,13 @@ export function nodeContent(project, n) {
     case "slider": return '<div class="c-slider"><label>' + text + '<span>' + n.value + '%</span></label><input data-interact="slider" type="range" min="0" max="100" value="' + n.value + '"></div>';
     case "select": if(n.options) return '<label class="c-choice"><span>'+text+'</span><select data-interact="choose">'+n.options.split('|').map(o=>'<option '+(e(o)===sub?'selected':'')+'>'+e(o)+'</option>').join('')+'</select></label>'; return '<button class="c-select" data-interact="cycle"><small>' + text + '</small><b>' + (sub || "Power Weapons") + '</b><span>⌄</span></button>';
     case "input": return '<label class="c-input"><small>' + text + '</small><input data-interact="input" placeholder="Type here…" value="' + e(n.subtext) + '"></label>';
-    case "progress": return '<div class="c-progress"><div style="width:' + clamp(n.value, 0, 100) + '%"></div></div>';
+    case "progress": return '<div class="c-progress"><div style="width:' + clamp(n.sampleKey ? project.sample[n.sampleKey] ?? n.value : n.value, 0, 100) + '%"></div></div>';
+    case "gauge": return gaugeSVG(project,n);
+    case "radar": {
+      const radar=project.sample.radar;
+      if(!radar?.visible)return "";
+      return '<svg class="c-gauge" xmlns="http://www.w3.org/2000/svg" viewBox="-34 -34 68 68" role="img" aria-label="Live radar preview"><circle r="34" fill="black" fill-opacity="'+160/255+'"/>'+radar.blips.map(b=>'<g data-blip="true"><rect x="'+(b.x*32-4)+'" y="'+(b.y*32-4)+'" width="8" height="8" fill="black" fill-opacity="'+64/255+'"/><rect x="'+(b.x*32-2)+'" y="'+(b.y*32-2)+'" width="4" height="4" fill="rgb('+[b.r,b.g,b.b].join(',')+')" fill-opacity="'+b.a/255+'"/></g>').join('')+'</svg>';
+    }
     case "server-list": return '<div class="c-component-heading">' + text + '<span>3 SESSIONS FOUND</span></div><table class="c-table c-servers"><thead><tr><th>SESSION</th><th>MAP</th><th>MODE</th><th>PLAYERS</th><th>PING</th></tr></thead><tbody>' + [["Bond's game", "Facility", "Normal", "3 / 4", "24"], ["Sunday operatives", "Complex", "Team 2v2", "2 / 4", "38"], ["Golden hour", "Temple", "Golden Gun", "1 / 4", "52"]].map((row, i) => '<tr data-interact="server" data-index="' + i + '" tabindex="0"><td><b>' + e(row[0]) + '</b>' + (i === 0 ? '<small>WARMUP</small>' : "") + '</td>' + row.slice(1).map(c => '<td>' + e(c) + '</td>').join("") + '</tr>').join("") + '</tbody></table>';
     default: return text;
   }
