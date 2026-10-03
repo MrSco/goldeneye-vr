@@ -1396,7 +1396,6 @@ static void netReadyProgress(void) {
 
 void netStageLoaded(void) {
     s_coop_ended = false;
-    netCoopStageLoaded();
     netSpectatorReset();
     netPlayersTickedReset(); /* events queued through the load are for the old stage */
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
@@ -2514,6 +2513,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_lobby_state.slots[slot].loaded = 1;
             netBroadcastLobbyState();
             netReadyProgress();
+            /* co-op: its guards and where to start (a mission under way), or the new host's slots */
+            if (!was_ready || returning) netCoopPlayerJoined(slot, returning);
             break;
         }
         case NET_MSG_ROUND_RESET: {
@@ -2599,6 +2600,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_COOP_DAMAGE:
         case NET_MSG_COOP_MISSION:
         case NET_MSG_COOP_TEXT:
+        case NET_MSG_CHR_AI:
+        case NET_MSG_CHR_REMAP:
+        case NET_MSG_COOP_JOIN:
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
             netCoopReceive(msg_type, slot_id, 1, &buf);
             break;
@@ -3093,6 +3097,12 @@ static void netResolveVotes(void) {
 
 /* ---- Co-op (#94) ---- */
 
+/* The host: one player only (a joiner's roster) */
+void netCoopSendTo(int slot, const u8 *data, u32 size) {
+    if (!netIsHost() || slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_client_peers[slot] || !data || !size) return;
+    enet_peer_send(s_client_peers[slot], NET_CHAN_RELIABLE, enet_packet_create(data, size, ENET_PACKET_FLAG_RELIABLE));
+}
+
 /* net_coop.c's messages: the host's go to every headset, a client's to the host */
 void netCoopBroadcast(const u8 *data, u32 size, int reliable) {
     if (!data || !size) return;
@@ -3308,6 +3318,7 @@ static void netHostLost(ENetPeer *peer) {
         }
     }
     if (elected < 0) elected = s_local_slot;
+    netCoopHostLost(old, elected == s_local_slot);
     s_host_slot = elected;
     s_state = NET_STATE_MIGRATING;
     s_last_latency_us = 0;
@@ -3376,6 +3387,7 @@ bool netHostTakeOver(uint16_t port) {
         s_results_deadline_us = now + 30000000ull;
     }
     NET_LOG("Hosting the match from slot %d on port %d; %d player(s) have 20 s to come back", s_local_slot, address.port, waiting);
+    netCoopBecameHost();   /* co-op: the guards' AI resumes here */
     return true;
 }
 
