@@ -3,7 +3,7 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / latest release:** 2026-10-03, v0.4.1; versionCode 52, protocol 17.
+**Updated / current build:** 2026-10-03, v0.4.2; versionCode 53, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
 
 **v0.4.1:** co-op teammates watch the host's scripted and ending cutscenes
@@ -32,14 +32,15 @@ decal fixes (#72). v0.3.8 fixed crash reporting. v0.3.7 added clock/life-ID
 combat sync (protocol 15), hand cycling and the TURN fallback. Earlier
 evidence is in docs/playtest-* and Git history.
 
-**Unreleased pause/editor work (2026-10-03):** a shared opaque launcher-style
+**v0.4.2 pause/editor work (PR #102):** a shared opaque launcher-style
 Quest pause window, direct ray controls, Match/Rules/Player/Audio tabs,
 eight-player scores and independent votes, four-player co-op party/objectives,
-health/armour, host restrictions and confirmed leave/end mission. The mobile
+original health/armour arcs with live radar in the header, Start toggling,
+host restrictions and confirmed leave/end mission. The mobile
 Menu Studio starter matches that window; JSON exports guide native rearrangement.
-Android debug build and desktop/phone browser + production ImGui/input checks
-pass. Quest interaction and multiplayer headset testing remain outstanding.
-No version or protocol change; this is not a new signed release.
+Signed local release builds and desktop/phone browser + production ImGui/input
+checks pass. Quest interaction and multiplayer headset testing remain
+outstanding. Protocol is unchanged; this build is not published as a release.
 
 ## What it is and what works
 
