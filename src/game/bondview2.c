@@ -13966,7 +13966,7 @@ extern int gevrReturnPrompt;
  * inventory (its names and order) above the weapon hand as a wheel of
  * categories around the spinning item, on its own layer
  * (VR_WEAPON_PANEL_CAPTURE, vr_openxr.cpp). The other hand's stick points at a
- * category and an item in it (gevrWheelStep); letting go equips the
+ * category, the triggers step through its guns (gevrWheelStep, gevrWheelCycle); letting go equips the
  * highlighted item with the game's animated weapon switch (as A's cycle does,
  * gun.c gunRequestHandWeaponChange). A tap still cycles (port/src/input.c).
  */
@@ -13974,6 +13974,7 @@ s32 gevrWeaponPanelOpen;       /* input.c: the button is held */
 s32 gevrWeaponPanelRelease;    /* input.c: let go while open: equip */
 f32 gevrWeaponPanelStickX;     /* input.c: the other hand's stick, right positive */
 f32 gevrWeaponPanelStickY;     /* ... up positive */
+s32 gevrWeaponPanelStep;       /* input.c: trigger presses while open, the button hand's +1, the other's -1 */
 s32 gevrWeaponPanelLeft;       /* input.c: the left hand's panel, opened with X (#56) */
 float gevrWeaponPanelRect[4];  /* the panel's box in the game's screen, 0..1 (vr_openxr.cpp crops to it) */
 
@@ -13981,10 +13982,10 @@ static s32 s_gevrWpShown;
 static s32 s_gevrWpMoved;
 static s32 s_gevrWpIndex;
 static s32 s_gevrWpShownItem;
-#define GEVR_WP_W 280        /* the wheel's box, screen units */
-#define GEVR_WP_H 176
-#define GEVR_WP_MODEL_W 96   /* the spinning item in the middle */
-#define GEVR_WP_MODEL_H 56
+#define GEVR_WP_W 196        /* the wheel's box, screen units: the ring and two lines under it */
+#define GEVR_WP_H 226
+#define GEVR_WP_MODEL_W 64   /* the spinning item in the ring's hole */
+#define GEVR_WP_MODEL_H 52
 /* tuning (files/gevr_wpanel.txt "open dy fov", re-read every second): force the panel
  * open from the PC, move the model down by dy screen units, widen the model's view */
 static s32 s_gevrWpTuneOpen;
@@ -14287,18 +14288,16 @@ void gevrAutoAdvanceHand(s32 hand)
 }
 
 /*
- * The panel is a wheel of categories (issue #10, ApeFe 2026-09-25: the list got
- * too long in a fight). The other hand's stick points at a category; within its
- * wedge the angle picks the item. Wedges are shared out among the categories
- * the hand has, each reaching halfway to its neighbours, so an empty one gives
- * its room away and the rest keep their compass points.
+ * The panel is a wheel of categories (issue #10), as GTA V's: the other hand's
+ * stick picks a category's wedge, and the triggers step through the guns in
+ * it (input.c gevrWeaponPanelStep). Wedges sit at fixed compass points, so a
+ * flick finds the same one every time; Perfect Dark's quick menu (pdvr
+ * activemenutick.c) is as coarse, eight slots off the stick's direction.
  */
 enum { GEVR_WC_PISTOLS, GEVR_WC_RIFLES, GEVR_WC_HEAVY, GEVR_WC_GADGETS, GEVR_WC_THROWN, GEVR_WC_COUNT };
-/* degrees clockwise from up: pistols up, rifles right, heavy down-right, gadgets down, thrown left */
-static const f32 s_gevrWcAngle[GEVR_WC_COUNT] = { 0.0f, 80.0f, 140.0f, 200.0f, 280.0f };
-#define GEVR_WC_DEAD 0.35f      /* stick radius under which the highlight stays put */
-#define GEVR_WC_HYST 8.0f       /* degrees past a wedge's edge before it lets go */
-#define GEVR_WC_SLOT_HYST 5.0f  /* ... and past an item's slot, at most a quarter of the slot */
+#define GEVR_WC_SPAN (360.0f / GEVR_WC_COUNT)   /* each wedge's degrees, clockwise from up */
+#define GEVR_WC_DEAD 0.5f       /* stick radius under which the highlight stays put (PD's returntimer) */
+#define GEVR_WC_HYST 6.0f       /* degrees past a wedge's edge before it lets go */
 
 s32 gevrWeaponCategory(s32 item)
 {
@@ -14325,10 +14324,9 @@ s32 gevrWeaponCategory(s32 item)
 typedef struct
 {
     s32 n[GEVR_WC_COUNT];
-    s32 idx[GEVR_WC_COUNT][GEVR_WP_MAX];   /* list indices, in list order (clockwise) */
+    s32 idx[GEVR_WC_COUNT][GEVR_WP_MAX];   /* list indices, in list order */
     s32 last[2][GEVR_WC_COUNT];            /* per hand: the category's last highlight, item + 1 */
     s32 cat;                               /* the wedge under the stick, -1 in the dead zone */
-    s32 slot;
 } GevrWheel;
 static GevrWheel s_gevrWc;
 
@@ -14348,70 +14346,13 @@ static void gevrWheelGroup(s32 hand, s32 count)
     }
 }
 
-/* deg - centre, in -180..180 */
-static f32 gevrWheelRel(f32 deg, f32 centre)
+/* deg - the wedge's centre, in -180..180 */
+static f32 gevrWheelRel(f32 deg, s32 cat)
 {
-    f32 r = deg - centre;
+    f32 r = deg - cat * GEVR_WC_SPAN;
     while (r >= 180.0f) r -= 360.0f;
     while (r < -180.0f) r += 360.0f;
     return r;
-}
-
-/* the wedge's edges about its centre: halfway to the nearest held category each way */
-static void gevrWheelBounds(s32 cat, f32 *lo, f32 *hi)
-{
-    s32 i, prev = -1, next = -1;
-    for (i = 1; i < GEVR_WC_COUNT; i++)
-    {
-        s32 c = (cat + i) % GEVR_WC_COUNT;
-        if (s_gevrWc.n[c] > 0) { if (next < 0) next = c; prev = c; }
-    }
-    if (next < 0) { *lo = -180.0f; *hi = 180.0f; return; }
-    {
-        f32 dn = s_gevrWcAngle[next] - s_gevrWcAngle[cat];
-        f32 dp = s_gevrWcAngle[cat] - s_gevrWcAngle[prev];
-        if (dn <= 0.0f) dn += 360.0f;
-        if (dp <= 0.0f) dp += 360.0f;
-        *lo = -dp * 0.5f;
-        *hi = dn * 0.5f;
-    }
-}
-
-static s32 gevrWheelCatAt(f32 deg)
-{
-    s32 c, best = -1;
-    f32 bestd = 1000.0f;
-    for (c = 0; c < GEVR_WC_COUNT; c++)
-    {
-        f32 d = fabsf(gevrWheelRel(deg, s_gevrWcAngle[c]));
-        if (s_gevrWc.n[c] > 0 && d < bestd) { bestd = d; best = c; }
-    }
-    return best;
-}
-
-static s32 gevrWheelInWedge(s32 cat, f32 deg, f32 hyst)
-{
-    f32 lo, hi, r = gevrWheelRel(deg, s_gevrWcAngle[cat]);
-    gevrWheelBounds(cat, &lo, &hi);
-    return s_gevrWc.n[cat] > 0 && r >= lo - hyst && r < hi + hyst;
-}
-
-static s32 gevrWheelSlotAt(s32 cat, f32 deg)
-{
-    f32 lo, hi, r = gevrWheelRel(deg, s_gevrWcAngle[cat]);
-    s32 s;
-    gevrWheelBounds(cat, &lo, &hi);
-    s = (s32) ((r - lo) / ((hi - lo) / (f32) s_gevrWc.n[cat]));
-    return s < 0 ? 0 : s >= s_gevrWc.n[cat] ? s_gevrWc.n[cat] - 1 : s;
-}
-
-static s32 gevrWheelInSlot(s32 cat, s32 slot, f32 deg)
-{
-    f32 lo, hi, w, h, r = gevrWheelRel(deg, s_gevrWcAngle[cat]);
-    gevrWheelBounds(cat, &lo, &hi);
-    w = (hi - lo) / (f32) s_gevrWc.n[cat];
-    h = w * 0.25f < GEVR_WC_SLOT_HYST ? w * 0.25f : GEVR_WC_SLOT_HYST;
-    return r >= lo + w * slot - h && r < lo + w * (slot + 1) + h;
 }
 
 static s32 gevrWheelRemember(s32 hand, s32 index)
@@ -14421,47 +14362,59 @@ static s32 gevrWheelRemember(s32 hand, s32 index)
     return index;
 }
 
+/* the category's last highlight if it is still listed, else its first item */
+static s32 gevrWheelPick(s32 hand, s32 cat)
+{
+    s32 i;
+    for (i = 0; i < s_gevrWc.n[cat]; i++)
+    {
+        if (gevrWpItem(hand, s_gevrWc.idx[cat][i]) + 1 == s_gevrWc.last[hand][cat]) return s_gevrWc.idx[cat][i];
+    }
+    return gevrWheelRemember(hand, s_gevrWc.idx[cat][0]);
+}
+
 /* on opening: the stick is idle and the equipped item is its category's highlight */
 static void gevrWheelOpen(s32 hand, s32 count, s32 index)
 {
     gevrWheelGroup(hand, count);
     s_gevrWc.cat = -1;
-    s_gevrWc.slot = -1;
     if (index >= 0 && index < count) gevrWheelRemember(hand, index);
 }
 
-/* The other stick (right and up positive) over the list grouped by gevrWheelGroup: the new highlight. */
+/* The other stick (right and up positive): the new highlight. Empty wedges are dead. */
 static s32 gevrWheelStep(s32 hand, s32 index, f32 x, f32 y)
 {
     f32 deg;
-    s32 cat, i;
+    s32 cat;
 
     if (x * x + y * y < GEVR_WC_DEAD * GEVR_WC_DEAD)
     {
         s_gevrWc.cat = -1;
-        s_gevrWc.slot = -1;
         return index;
     }
     deg = atan2f(x, y) * (360.0f / M_TAU_F);
     if (deg < 0.0f) deg += 360.0f;
     cat = s_gevrWc.cat;
-    if (cat < 0 || !gevrWheelInWedge(cat, deg, GEVR_WC_HYST))
+    if (cat >= 0 && fabsf(gevrWheelRel(deg, cat)) <= GEVR_WC_SPAN * 0.5f + GEVR_WC_HYST) return index;
+    cat = (s32) (deg / GEVR_WC_SPAN + 0.5f) % GEVR_WC_COUNT;
+    s_gevrWc.cat = cat;
+    if (s_gevrWc.n[cat] == 0 || gevrWeaponCategory(gevrWpItem(hand, index)) == cat) return index;
+    return gevrWheelPick(hand, cat);
+}
+
+/* A trigger while the wheel is up: the next (dir 1) or previous gun in the highlighted category. */
+static s32 gevrWheelCycle(s32 hand, s32 index, s32 dir)
+{
+    s32 cat = gevrWeaponCategory(gevrWpItem(hand, index));
+    s32 n = s_gevrWc.n[cat];
+    s32 i;
+
+    for (i = 0; i < n; i++)
     {
-        /* a new wedge: what it last showed, so a flick back finds the same grenade */
-        cat = gevrWheelCatAt(deg);
-        if (cat < 0) return index;
-        s_gevrWc.cat = cat;
-        s_gevrWc.slot = gevrWheelSlotAt(cat, deg);
-        for (i = 0; i < s_gevrWc.n[cat]; i++)
+        if (s_gevrWc.idx[cat][i] == index)
         {
-            if (gevrWpItem(hand, s_gevrWc.idx[cat][i]) + 1 == s_gevrWc.last[hand][cat]) return s_gevrWc.idx[cat][i];
+            return gevrWheelRemember(hand, s_gevrWc.idx[cat][((i + dir) % n + n) % n]);
         }
-        return gevrWheelRemember(hand, s_gevrWc.idx[cat][s_gevrWc.slot]);
-    }
-    if (!gevrWheelInSlot(cat, s_gevrWc.slot, deg))
-    {
-        s_gevrWc.slot = gevrWheelSlotAt(cat, deg);
-        index = gevrWheelRemember(hand, s_gevrWc.idx[cat][s_gevrWc.slot]);
     }
     return index;
 }
@@ -14651,7 +14604,7 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
     return gdl;
 }
 
-/* one centred line of the wheel, shortened to maxw */
+/* one centred line of the wheel, shortened to maxw; with outw, only measured */
 static Gfx *gevrWpText(Gfx *gdl, const char *text, s32 cx, s32 y, u32 colour, s32 lh, s32 maxw, s32 *outw)
 {
     char line[56];
@@ -14682,6 +14635,118 @@ static Gfx *gevrWpText(Gfx *gdl, const char *text, s32 cx, s32 y, u32 colour, s3
 }
 
 static const char *s_gevrWcLabel[GEVR_WC_COUNT] = { "PISTOLS", "RIFLES", "HEAVY", "GADGETS", "THROWN" };
+/* each category's tint, so weapons and gadgets read apart at a glance (ApeFe, #10) */
+static const u8 s_gevrWcTint[GEVR_WC_COUNT][3] = {
+    { 0x3C, 0x78, 0xD8 },   /* pistols: blue */
+    { 0x3C, 0xB4, 0x50 },   /* rifles: green */
+    { 0xE0, 0x80, 0x28 },   /* heavy: orange */
+    { 0x9C, 0x5C, 0xD8 },   /* gadgets: purple */
+    { 0xD8, 0x40, 0x40 },   /* thrown: red */
+};
+#define GEVR_WC_R0 36       /* the ring's hole, for the spinning item */
+#define GEVR_WC_R1 82       /* its outer edge */
+#define GEVR_WC_POP 8       /* the highlighted wedge stands out by this much */
+#define GEVR_WC_SEGS 8      /* quads along each wedge's arc */
+#define GEVR_WC_GAP 1.5f    /* degrees left dark between wedges */
+
+static void gevrWheelVtx(struct damage_display_val *v, f32 cx, f32 cy, f32 r, f32 deg, u32 rgba)
+{
+    f32 a = deg * (M_TAU_F / 360.0f);
+    v->pos.x = (s16) lroundf(cx + sinf(a) * r);
+    v->pos.y = (s16) lroundf(cy - cosf(a) * r);
+    v->pos.z = 0;
+    v->normal.x = v->normal.y = v->normal.z = 0;
+    v->colour.r = rgba >> 24;
+    v->colour.g = rgba >> 16;
+    v->colour.b = rgba >> 8;
+    v->colour.a = rgba;
+}
+
+static u32 gevrWheelShade(s32 cat, s32 empty, s32 lit, s32 outer)
+{
+    u32 r, g, b, a;
+    if (empty)
+    {
+        return outer ? 0x3A3E44A0 : 0x24272CA0;
+    }
+    r = s_gevrWcTint[cat][0];
+    g = s_gevrWcTint[cat][1];
+    b = s_gevrWcTint[cat][2];
+    if (!lit)
+    {
+        r = r * 2 / 5; g = g * 2 / 5; b = b * 2 / 5;
+        a = 0xC8;
+    }
+    else
+    {
+        a = 0xF0;
+    }
+    if (!outer)
+    {
+        r = r * 3 / 5; g = g * 3 / 5; b = b * 3 / 5;
+    }
+    return (r << 24) | (g << 16) | (b << 8) | a;
+}
+
+/* The five wedges as shaded triangles, in the screen (gevrRenderRadarGauges' setup). */
+static Gfx *gevrWheelDrawRing(Gfx *gdl, s32 cx, s32 cy, s32 active)
+{
+    const s32 quads = GEVR_WC_COUNT * GEVR_WC_SEGS;
+    struct damage_display_val *v = dynAllocate(quads * 4 * sizeof(*v));
+    Gfx *ring = dynAllocate((quads * 2 + 1) * sizeof(Gfx));
+    Gfx *rp = ring;
+    Mtx *projection = dynAllocateMatrix(), *identity = dynAllocateMatrix();
+    extern u8 g_ViBackIndex;
+    Vp *viewport = dynAllocate(sizeof(Vp));
+    Mtxf mtx;
+    s32 c, s, q = 0;
+
+    for (c = 0; c < GEVR_WC_COUNT; c++)
+    {
+        s32 empty = s_gevrWc.n[c] == 0;
+        s32 lit = c == active;
+        f32 r1 = (f32) (lit ? GEVR_WC_R1 + GEVR_WC_POP : GEVR_WC_R1);
+        f32 a0 = c * GEVR_WC_SPAN - GEVR_WC_SPAN * 0.5f + GEVR_WC_GAP;
+        f32 step = (GEVR_WC_SPAN - 2.0f * GEVR_WC_GAP) / GEVR_WC_SEGS;
+        u32 in = gevrWheelShade(c, empty, lit, FALSE);
+        u32 out = gevrWheelShade(c, empty, lit, TRUE);
+
+        for (s = 0; s < GEVR_WC_SEGS; s++, q++)
+        {
+            struct damage_display_val *qv = &v[q * 4];
+            gevrWheelVtx(&qv[0], cx, cy, GEVR_WC_R0, a0 + step * s, in);
+            gevrWheelVtx(&qv[1], cx, cy, r1, a0 + step * s, out);
+            gevrWheelVtx(&qv[2], cx, cy, GEVR_WC_R0, a0 + step * (s + 1), in);
+            gevrWheelVtx(&qv[3], cx, cy, r1, a0 + step * (s + 1), out);
+            gSPVertex(rp++, osVirtualToPhysical(qv), 4, 0);
+            gSP2Triangles(rp++, 0, 1, 2, 0, 1, 2, 3, 0);
+        }
+    }
+    gSPEndDisplayList(rp++);
+
+    *viewport = g_CurrentPlayer->viewports[g_ViBackIndex];
+    viewport->vp.vscale[0] = viewport->vp.vtrans[0] = viGetX() * 2;
+    viewport->vp.vscale[1] = viewport->vp.vtrans[1] = viGetY() * 2;
+    guOrtho(projection, 0, viGetX(), viGetY(), 0, -100, 100, 1);
+    matrix_4x4_set_identity(&mtx);
+    matrix_4x4_7F058C64();
+    matrix_4x4_f32_to_s32(mtx.m, (s32 (*)[4])identity);
+    matrix_4x4_7F058C88();
+    gDPPipeSync(gdl++);
+    gSPViewport(gdl++, osVirtualToPhysical(viewport));
+    gSPMatrix(gdl++, osVirtualToPhysical(projection), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
+    gSPMatrix(gdl++, osVirtualToPhysical(identity), G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
+    gDPSetAlphaCompare(gdl++, G_AC_NONE);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    gSPClearGeometryMode(gdl++, G_CULL_BOTH|G_LIGHTING|G_ZBUFFER);
+    gSPDisplayList(gdl++, osVirtualToPhysical(ring));
+    gDPPipeSync(gdl++);
+    gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
+    gSPViewport(gdl++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
+    return gdl;
+}
 
 Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 {
@@ -14695,18 +14760,12 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     s32 cy;
     s32 active;
     s32 pos = 0;
-    s32 first;
-    s32 lines;
-    s32 lx[GEVR_WC_COUNT];
-    s32 ly[GEVR_WC_COUNT];
-    s32 lw[GEVR_WC_COUNT];
-    const s32 listY = 86;   /* the active category's names, under the model */
-    const s32 listW = 150;
 
     if (!g_gevrStereo || g_CurrentPlayer == NULL)
     {
         gevrWeaponPanelOpen = 0;
         gevrWeaponPanelRelease = 0;
+        gevrWeaponPanelStep = 0;
         s_gevrWpShown = FALSE;
         return gdl;
     }
@@ -14740,6 +14799,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
     if (!gevrWeaponPanelOpen || count <= 0)
     {
+        gevrWeaponPanelStep = 0;
         s_gevrWpShown = FALSE;
         return gdl;
     }
@@ -14757,6 +14817,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
             }
         }
         gevrWheelOpen(hand, count, s_gevrWpIndex);
+        gevrWeaponPanelStep = 0;
         s_gevrWpMoved = FALSE;
         s_gevrWpShown = TRUE;
     }
@@ -14770,6 +14831,11 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     {
         s32 next = gevrWheelStep(hand, s_gevrWpIndex, gevrWeaponPanelStickX, gevrWeaponPanelStickY);
 
+        if (gevrWeaponPanelStep != 0)
+        {
+            next = gevrWheelCycle(hand, next, gevrWeaponPanelStep);
+            gevrWeaponPanelStep = 0;
+        }
         if (next != s_gevrWpIndex)
         {
             s_gevrWpIndex = next;
@@ -14787,70 +14853,50 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     {
         if (s_gevrWc.idx[active][i] == s_gevrWpIndex) pos = i;
     }
-    lines = s_gevrWc.n[active] < 3 ? s_gevrWc.n[active] : 3;
-    first = pos - 1;
-    if (first > s_gevrWc.n[active] - lines) first = s_gevrWc.n[active] - lines;
-    if (first < 0) first = 0;
-
-    gdl = microcode_constructor(gdl);
 
     /* centred in the screen, so the layer's crop is the same whichever way the image is read */
     bx0 = (viGetX() - GEVR_WP_W) / 2;
     by0 = (viGetY() - GEVR_WP_H) / 2;
     cx = bx0 + GEVR_WP_W / 2;
-    cy = by0 + GEVR_WP_H / 2 - 6;
+    cy = by0 + GEVR_WC_R1 + GEVR_WC_POP + 4;
     gevrWeaponPanelRect[0] = (float) bx0 / (float) viGetX();
     gevrWeaponPanelRect[1] = (float) by0 / (float) viGetY();
     gevrWeaponPanelRect[2] = (float) (bx0 + GEVR_WP_W) / (float) viGetX();
     gevrWeaponPanelRect[3] = (float) (by0 + GEVR_WP_H) / (float) viGetY();
 
-    /* each held category's label at its compass point, on an ellipse around the model */
-    for (i = 0; i < GEVR_WC_COUNT; i++)
-    {
-        f32 a = s_gevrWcAngle[i] * (M_TAU_F / 360.0f);
-
-        lx[i] = cx + (s32) (sinf(a) * 106.0f);
-        ly[i] = cy - (s32) (cosf(a) * 70.0f) - lh / 2;
-        lw[i] = 0;
-        if (s_gevrWc.n[i] > 0)
-        {
-            gevrWpText(gdl, s_gevrWcLabel[i], 0, 0, 0, lh, 80, &lw[i]);
-        }
-    }
-
     gDPNoOpTag(gdl++, 0x565C0000); /* VR_WEAPON_PANEL_CAPTURE_BEGIN */
 
-    gdl = microcode_constructor_related_to_menus(gdl, bx0, by0, bx0 + GEVR_WP_W, by0 + GEVR_WP_H, 0x8898B4F4);
-    gdl = microcode_constructor_related_to_menus(gdl, lx[active] - lw[active] / 2 - 4, ly[active] - 1,
-                                                 lx[active] + lw[active] / 2 + 4, ly[active] + lh - 1, 0x141C28E0);
-    if (lines > 1)
-    {
-        s32 hy = by0 + listY + (pos - first) * lh;
-        gdl = microcode_constructor_related_to_menus(gdl, cx - listW / 2 - 4, hy - 1, cx + listW / 2 + 4, hy + lh - 1, 0x141C28E0);
-    }
-    if (gevrWeaponPanelStickX * gevrWeaponPanelStickX + gevrWeaponPanelStickY * gevrWeaponPanelStickY >= GEVR_WC_DEAD * GEVR_WC_DEAD)
-    {
-        /* where the stick points, between the model and the labels */
-        f32 l = sqrtf(gevrWeaponPanelStickX * gevrWeaponPanelStickX + gevrWeaponPanelStickY * gevrWeaponPanelStickY);
-        s32 px = cx + (s32) (gevrWeaponPanelStickX / l * 70.0f);
-        s32 py = cy - (s32) (gevrWeaponPanelStickY / l * 46.0f);
-        gdl = microcode_constructor_related_to_menus(gdl, px - 2, py - 2, px + 2, py + 2, 0xFFF080FF);
-    }
+    gdl = gevrWheelDrawRing(gdl, cx, cy, active);
 
     gdl = microcode_constructor(gdl);
     for (i = 0; i < GEVR_WC_COUNT; i++)
     {
-        if (s_gevrWc.n[i] > 0)
+        /* each wedge: its category, and the gun it gives */
+        f32 a = i * GEVR_WC_SPAN * (M_TAU_F / 360.0f);
+        f32 r = (GEVR_WC_R0 + GEVR_WC_R1) * 0.5f + (i == active ? GEVR_WC_POP * 0.5f : 0.0f);
+        s32 tx = cx + (s32) lroundf(sinf(a) * r);
+        s32 ty = cy - (s32) lroundf(cosf(a) * r);
+
+        if (s_gevrWc.n[i] == 0)
         {
-            /* brighter than the watch's 0xAA00B0: the panel floats over the world (user: hard to read) */
-            gdl = gevrWpText(gdl, s_gevrWcLabel[i], lx[i], ly[i], i == active ? 0xFFF080FF : 0xE0E6EEFF, lh, 80, NULL);
+            gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lh / 2, 0x707780FF, lh, 70, NULL);
+            continue;
         }
+        gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lh, i == active ? 0xFFF080FF : 0xD0D6DEFF, lh, 70, NULL);
+        gdl = gevrWpText(gdl, s_gevrWpList[i == active ? s_gevrWpIndex : gevrWheelPick(hand, i)].name,
+                         tx, ty, i == active ? 0xFFFFFFFF : 0xA8B0BCFF, lh, 70, NULL);
     }
-    for (i = first; i < first + lines; i++)
+
+    /* under the wheel: the highlighted item in full, and how many its wedge holds */
     {
-        s32 idx = s_gevrWc.idx[active][i];
-        gdl = gevrWpText(gdl, s_gevrWpList[idx].name, cx, by0 + listY + (i - first) * lh,
-                         idx == s_gevrWpIndex ? 0xFFF080FF : 0xE0E6EEFF, lh, listW, NULL);
+        s32 y = cy + GEVR_WC_R1 + GEVR_WC_POP + 4;
+        gdl = gevrWpText(gdl, s_gevrWpList[s_gevrWpIndex].name, cx, y, 0xFFF080FF, lh, GEVR_WP_W - 8, NULL);
+        if (s_gevrWc.n[active] > 1)
+        {
+            char more[32];
+            sprintf(more, "TRIGGER  %d / %d\n", pos + 1, s_gevrWc.n[active]);
+            gdl = gevrWpText(gdl, more, cx, y + lh, 0xD0D6DEFF, lh, GEVR_WP_W - 8, NULL);
+        }
     }
 
     {
@@ -14879,7 +14925,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         s_gevrWpShownItem = shown;
     }
     gdl = gevrDrawWeaponPanelModel(gdl, s_gevrWpShownItem,
-                                   cx - GEVR_WP_MODEL_W / 2, by0 + 24, GEVR_WP_MODEL_W, GEVR_WP_MODEL_H);
+                                   cx - GEVR_WP_MODEL_W / 2, cy - GEVR_WP_MODEL_H / 2, GEVR_WP_MODEL_W, GEVR_WP_MODEL_H);
 
     gdl = combiner_bayer_lod_perspective(gdl);
     gDPNoOpTag(gdl++, 0x565C0001); /* VR_WEAPON_PANEL_CAPTURE_END */

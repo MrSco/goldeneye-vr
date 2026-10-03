@@ -114,6 +114,7 @@ extern void mpwatchPlayBeep(void);         /* mpmenu.c */
 static bool gevrSwallowX;                  /* X answered the prompt: no weapon change until let go */
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
 extern f32 gevrWeaponPanelStickX, gevrWeaponPanelStickY;
+extern s32 gevrWeaponPanelStep;            /* bondview2.c: trigger steps through the wheel's category */
 extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
 extern s32 gevrLeftPanelAvailable(void);
 extern void gevrCycleHandWeapon(s32 hand, s32 dir);
@@ -1317,6 +1318,28 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         gevrCycleHandWeapon(1, xback ? -1 : 1);
                     }
                     xdown = 0;
+                }
+                /* While a wheel is up the triggers step through its category, as
+                 * GTA's d-pad does - the button hand's forward, the other's back -
+                 * and fire nothing until both are let go after it closes. */
+                {
+                    static bool trig[2], wheelfire;
+                    const bool t0 = get_button_state(0, "trigger"), t1 = get_button_state(1, "trigger");
+                    if (gevrWeaponPanelOpen) {
+                        const bool fwd = gevrWeaponPanelLeft ? t0 : t1, back = gevrWeaponPanelLeft ? t1 : t0;
+                        const bool fwdWas = gevrWeaponPanelLeft ? trig[0] : trig[1], backWas = gevrWeaponPanelLeft ? trig[1] : trig[0];
+                        if (fwd && !fwdWas) gevrWeaponPanelStep++;
+                        if (back && !backWas) gevrWeaponPanelStep--;
+                        wheelfire = true;
+                    } else if (!t0 && !t1) {
+                        wheelfire = false;
+                    }
+                    trig[0] = t0;
+                    trig[1] = t1;
+                    if (wheelfire) {
+                        npad->button &= ~(Z_TRIG | (rightGrip ? 0 : R_TRIG));   /* the right grip's R still aims */
+                        gevrVrTriggerDown[0] = gevrVrTriggerDown[1] = 0;
+                    }
                 }
             } else {
                 adown = xdown = 0;

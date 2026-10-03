@@ -143,40 +143,32 @@ EXPORT int test_weapon_wheel(void) {
     CHECK(s_gevrWc.n[GEVR_WC_PISTOLS] == 1 && s_gevrWc.n[GEVR_WC_RIFLES] == 1 && s_gevrWc.n[GEVR_WC_HEAVY] == 0);
     CHECK(s_gevrWc.n[GEVR_WC_THROWN] == 2 && s_gevrWc.n[GEVR_WC_GADGETS] == 1);
     // The dead zone keeps the highlight.
-    CHECK(gevrWheelStep(GUNRIGHT, 3, 0.2f, 0.2f) == 3);
-    CHECK(gevrWpItem(GUNRIGHT, wheelAt(GUNRIGHT, idx, 0.0f)) == ITEM_WPPK);
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 90.0f)) == ITEM_AK47);
-    // Heavy is empty: its room goes to its neighbours, so straight down and down-right are gadgets.
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 180.0f)) == ITEM_CAMERA);
+    CHECK(gevrWheelStep(GUNRIGHT, 3, 0.3f, 0.3f) == 3);
+    // Fixed wedges, 72 degrees each: pistols up, rifles 72, heavy 144, gadgets 216, thrown 288.
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 0.0f)) == ITEM_WPPK);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 72.0f)) == ITEM_AK47);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 100.0f)) == ITEM_AK47);
+    // An empty wedge is dead: the highlight stays where it was.
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 144.0f)) == ITEM_AK47);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 216.0f)) == ITEM_CAMERA);
+    // A wedge holds 6 degrees past its edge (gadgets' is 252).
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 256.0f)) == ITEM_CAMERA);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 260.0f)) == ITEM_GRENADE);
+    // Within a wedge the stick changes nothing; the triggers step, wrapping.
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 310.0f)) == ITEM_GRENADE);
+    CHECK(gevrWpItem(GUNRIGHT, idx = gevrWheelCycle(GUNRIGHT, idx, 1)) == ITEM_FIST);
+    CHECK(gevrWpItem(GUNRIGHT, idx = gevrWheelCycle(GUNRIGHT, idx, 1)) == ITEM_GRENADE);
+    CHECK(gevrWpItem(GUNRIGHT, idx = gevrWheelCycle(GUNRIGHT, idx, -1)) == ITEM_FIST);
+    // Coming back to a wedge restores its last pick.
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 72.0f)) == ITEM_AK47);
+    CHECK(gevrWpItem(GUNRIGHT, idx = gevrWheelCycle(GUNRIGHT, idx, 1)) == ITEM_AK47); // one gun: nothing to step to
     gevrWheelStep(GUNRIGHT, idx, 0, 0);
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 150.0f)) == ITEM_CAMERA);
-    CHECK(gevrWpItem(GUNRIGHT, wheelAt(GUNRIGHT, idx, 135.0f)) == ITEM_CAMERA); // 5 degrees past gadgets' edge
-    CHECK(gevrWpItem(GUNRIGHT, wheelAt(GUNRIGHT, idx, 125.0f)) == ITEM_AK47);
-    // Thrown spans 240..320: the first half is the grenade, the second the fists.
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 270.0f)) == ITEM_GRENADE);
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 290.0f)) == ITEM_FIST);
-    // Item slots hold a few degrees past their edge before letting go.
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 277.0f)) == ITEM_FIST);
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 273.0f)) == ITEM_GRENADE);
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 300.0f)) == ITEM_FIST);
-    // Wedges hold past their edge too (thrown's lower edge is 240), on their end slot.
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 236.0f)) == ITEM_GRENADE);
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 300.0f)) == ITEM_FIST);
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 228.0f)) == ITEM_CAMERA);
-    // Coming back to a wedge restores its last highlight, wherever in the wedge the stick lands.
-    gevrWheelStep(GUNRIGHT, idx, 0, 0);
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 262.0f)) == ITEM_FIST);
-    // A heavy weapon takes its own wedge back.
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 288.0f)) == ITEM_FIST);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 350.0f)) == ITEM_WPPK);
+    // A heavy weapon fills its wedge.
     inventoryItems[inventoryCount++] = ITEM_SNIPERRIFLE; owned[ITEM_SNIPERRIFLE] = 1;
     count = gevrWeaponPanelBuild(); gevrWheelGroup(GUNRIGHT, count);
-    gevrWheelStep(GUNRIGHT, idx, 0, 0);
-    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 150.0f)) == ITEM_SNIPERRIFLE);
-    CHECK(gevrWpItem(GUNRIGHT, wheelAt(GUNRIGHT, idx, 185.0f)) == ITEM_CAMERA);
-    // One category owns the whole wheel.
-    reset(); memset(&s_gevrWc, 0, sizeof(s_gevrWc));
-    memset(owned, 0, sizeof(owned)); inventoryCount = 1; inventoryItems[0] = ITEM_WPPK; owned[ITEM_WPPK] = 1;
-    count = gevrWeaponPanelBuild(); gevrWheelOpen(GUNRIGHT, count, 0);
-    CHECK(count == 1 && wheelAt(GUNRIGHT, 0, 200.0f) == 0);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 144.0f)) == ITEM_SNIPERRIFLE);
     // The left hand's wheel: holstered with the thrown, never a gadget.
     reset(); memset(&s_gevrWc, 0, sizeof(s_gevrWc));
     count = gevrWeaponPanelBuildLeft(); gevrWheelOpen(GUNLEFT, count, 0);
@@ -186,7 +178,7 @@ EXPORT int test_weapon_wheel(void) {
         CHECK(item != ITEM_CAMERA && item != ITEM_FIST);
     }
     gevrWheelStep(GUNLEFT, 0, 0, 0);
-    CHECK(gevrWeaponCategory(gevrWpItem(GUNLEFT, wheelAt(GUNLEFT, 0, 280.0f))) == GEVR_WC_THROWN);
+    CHECK(gevrWeaponCategory(gevrWpItem(GUNLEFT, wheelAt(GUNLEFT, 0, 288.0f))) == GEVR_WC_THROWN);
     return 0;
 }
 s32 currentPlayerEquipWeaponWrapper(GUNHAND hand, s32 item) { player.hands[hand].weapon_next_weapon = item; return 0; }
@@ -242,8 +234,9 @@ EXPORT int test_hand_depletion(void) {
 }
 
 static u32 inputTime;
-static int aDown, xDown, rightGrip, leftGrip;
-s32 gevrWeaponPanelOpen, gevrWeaponPanelLeft, gevrWeaponPanelRelease;
+static int aDown, xDown, rightGrip, leftGrip, rightTrigger, leftTrigger;
+static unsigned padExtra;
+s32 gevrWeaponPanelOpen, gevrWeaponPanelLeft, gevrWeaponPanelRelease, gevrWeaponPanelStep;
 static int gevrReturnPrompt, gevrSwallowX;
 #define GEVR_WEAPON_PANEL_HOLD_MS 350
 #define LOGI(...) ((void) 0)
@@ -251,10 +244,11 @@ static u32 SDL_GetTicks(void) { return inputTime; }
 static int get_button_state(int hand, const char *name) {
     if (!strcmp(name, "a")) return aDown;
     if (!strcmp(name, "x")) return xDown;
+    if (!strcmp(name, "trigger")) return hand ? rightTrigger : leftTrigger;
     return hand ? rightGrip : leftGrip;
 }
 static unsigned tickInput(int stereoplay, int fitting) {
-    struct { unsigned button; } pad = {.button = A_BUTTON}, *npad = &pad;
+    struct { unsigned button; } pad = {.button = A_BUTTON | padExtra}, *npad = &pad;
     /* INSERT_CYCLING_INPUT */
     return pad.button;
 }
@@ -291,6 +285,23 @@ EXPORT int test_hand_input(void) {
     xDown = 0; tickInput(1, 0);
     CHECK(gevrWeaponPanelRelease && !gevrWeaponPanelOpen);
     CHECK(!player.hands[GUNLEFT].weapon_animation_trigger);
+    // The wheel's triggers step its category instead of firing: the button hand's forward.
+    gevrWeaponPanelRelease = 0; gevrWeaponPanelStep = 0; padExtra = Z_TRIG | R_TRIG;
+    aDown = 1; inputTime += 80; tickInput(1, 0);
+    inputTime += 351; tickInput(1, 0); CHECK(gevrWeaponPanelOpen);
+    rightTrigger = 1; gevrVrTriggerDown[0] = 1;
+    CHECK(!(tickInput(1, 0) & (Z_TRIG | R_TRIG))); CHECK(gevrWeaponPanelStep == 1 && !gevrVrTriggerDown[0]);
+    tickInput(1, 0); CHECK(gevrWeaponPanelStep == 1);   // held, not repeated
+    rightTrigger = 0; tickInput(1, 0); leftTrigger = 1; tickInput(1, 0);
+    CHECK(gevrWeaponPanelStep == 0);                     // the other hand's steps back
+    leftTrigger = 0; rightTrigger = 1; tickInput(1, 0); CHECK(gevrWeaponPanelStep == 1);
+    rightGrip = 1; CHECK(tickInput(1, 0) & R_TRIG); rightGrip = 0;   // the grip still aims
+    // Let go of A with the trigger held: still no shot until it is released.
+    aDown = 0; CHECK(!(tickInput(1, 0) & Z_TRIG)); CHECK(!gevrWeaponPanelOpen);
+    CHECK(!(tickInput(1, 0) & Z_TRIG));
+    rightTrigger = 0; tickInput(1, 0);
+    rightTrigger = 1; CHECK(tickInput(1, 0) & Z_TRIG);
+    rightTrigger = 0; padExtra = 0; gevrWeaponPanelRelease = 0; gevrWeaponPanelStep = 0;
     // Disabled off hand never falls back to native A or changes the right hand.
     reset(); online = 1; mode = NET_DUAL_OFF;
     xDown = 1; inputTime += 80; tickInput(1, 0);
