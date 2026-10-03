@@ -136,6 +136,8 @@ static inline float gevr_target_width(void) { return gevr_target_w ? (float)gevr
 static inline float gevr_target_height(void) { return gevr_target_h ? (float)gevr_target_h : (float)vr_get_internal_render_height(); }
 extern bool gVrFlatPass; // gfx_opengl.cpp
 bool is_weapon_hud = false;
+/* inside VR_WEAPON_PANEL_CAPTURE: its rectangles (the wheel's text) span the target as its triangles do */
+static bool s_gevrWeaponPanelCapture = false;
 extern "C" void vr_get_eye_view_proj_gl(int eye, float outVP[16]);
 extern "C" void gevrVrMarkEyesRendered(int stereo); // vr_openxr.cpp
 void gfx_vr_hud_H_new_frame(void);                  // gfx_opengl.cpp
@@ -3552,7 +3554,13 @@ static void gfx_draw_rectangle(int32_t ulx, int32_t uly, int32_t lrx, int32_t lr
     uint32_t geometry_mode_saved = rsp.geometry_mode;
 
 
-    gfx_adjust_viewport_or_scissor(&default_viewport, false);
+    if (vr_is_initialized() && s_gevrWeaponPanelCapture) {
+        // the wheel's ring is drawn over the whole target (gfx_calc_and_set_viewport); the
+        // uniform fit below would stretch its text sideways by (4:3 / the target's aspect)
+        default_viewport = { 0, 0, (uint32_t)vr_get_internal_render_width(), (uint32_t)vr_get_internal_render_height() };
+    } else {
+        gfx_adjust_viewport_or_scissor(&default_viewport, false);
+    }
     rdp.viewport = default_viewport;
     rdp.viewport_or_scissor_changed = true;
     rsp.geometry_mode = 0;
@@ -3944,9 +3952,11 @@ static void gfx_run_dl(Gfx* cmd) {
                     case VR_WEAPON_PANEL_CAPTURE_BEGIN:
                         gevr_capture_rdp_state(3, true);
                         gfx_vr_hud_capture_begin_P();
+                        s_gevrWeaponPanelCapture = true;
                         break;
 
                     case VR_WEAPON_PANEL_CAPTURE_END:
+                        s_gevrWeaponPanelCapture = false;
                         gfx_vr_hud_capture_end_P();
                         gevr_capture_rdp_state(3, false);
                         break;

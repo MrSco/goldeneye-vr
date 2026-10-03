@@ -14606,7 +14606,7 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
     return gdl;
 }
 
-#define GEVR_WC_TEXTS 0.64f /* the wheel's glyphs, against the font's own size: its names fit their wedges */
+#define GEVR_WC_TEXTS 0.70f /* the wheel's glyphs, against the font's own size: its names fit their wedges */
 extern f32 text_scale;
 extern s32 text_scale_ox;
 extern s32 text_scale_oy;
@@ -14719,7 +14719,7 @@ static const u8 s_gevrWcTint[GEVR_WC_COUNT][3] = {
 #define GEVR_WC_R0 30       /* the ring's hole, for the spinning item */
 #define GEVR_WC_R1 110      /* its outer edge: R1 + POP + 4 is half of GEVR_WP_H */
 #define GEVR_WC_POP 4       /* the highlighted wedge stands out by this much */
-#define GEVR_WC_TEXTR 76    /* the radius a wedge's lines are centred on (each cut to its row: gevrWheelRow) */
+#define GEVR_WC_TEXTR 70    /* the radius a wedge's lines are centred on (each cut to its row: gevrWheelRow) */
 #define GEVR_WC_ROWS 3      /* the guns listed in a wedge: the one it gives, with the one before and after */
 #define GEVR_WC_SEGS 8      /* quads along each wedge's arc */
 #define GEVR_WC_GAP 1.5f    /* degrees left dark between wedges */
@@ -14805,7 +14805,7 @@ static s32 gevrWheelRow(s32 cat, s32 dy, s32 pop, s32 *mid)
  * three commands: a vertex load and two G_TRI1s (this file's gSP2Triangles is
  * gbi.h's pair of gSP1Triangles, which bumps a `rp++` argument twice).
  */
-#define GEVR_WC_HOLE_SEGS 20   /* the dark disc behind the spinning item */
+#define GEVR_WC_HOLE_SEGS 20   /* the disc behind the spinning item */
 #define GEVR_WC_QUADS (GEVR_WC_COUNT * GEVR_WC_SEGS + GEVR_WC_HOLE_SEGS)
 static struct damage_display_val s_gevrWcVtx[2][GEVR_WC_QUADS * 4];
 static Gfx s_gevrWcDl[2][GEVR_WC_QUADS * 3 + 1];
@@ -14826,10 +14826,11 @@ static Gfx *gevrWheelDrawRing(Gfx *gdl, s32 cx, s32 cy, s32 active)
     {
         struct damage_display_val *qv = &v[q * 4];
         f32 step = 360.0f / GEVR_WC_HOLE_SEGS;
-        gevrWheelVtx(&qv[0], cx, cy, 0.0f, step * s, 0x101216F0);
-        gevrWheelVtx(&qv[1], cx, cy, GEVR_WC_R0, step * s, 0x1C1F24F0);
-        gevrWheelVtx(&qv[2], cx, cy, 0.0f, step * (s + 1), 0x101216F0);
-        gevrWheelVtx(&qv[3], cx, cy, GEVR_WC_R0, step * (s + 1), 0x1C1F24F0);
+        /* light, so the guns' dark metal stands out against it */
+        gevrWheelVtx(&qv[0], cx, cy, 0.0f, step * s, 0xB4BCC6F4);
+        gevrWheelVtx(&qv[1], cx, cy, GEVR_WC_R0, step * s, 0x8A929EF4);
+        gevrWheelVtx(&qv[2], cx, cy, 0.0f, step * (s + 1), 0xB4BCC6F4);
+        gevrWheelVtx(&qv[3], cx, cy, GEVR_WC_R0, step * (s + 1), 0x8A929EF4);
         gSPVertex(rp++, osVirtualToPhysical(qv), 4, 0);
         gSP1Triangle(rp++, 0, 1, 2, 0);
         gSP1Triangle(rp++, 1, 2, 3, 0);
