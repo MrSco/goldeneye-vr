@@ -432,6 +432,47 @@ in two-handed holds.
   ring-radius check found it.
 - Totals: 14 models, 36 parts, 132 groups, 3748 triangles, 5440 weights.
 
+## The other pistols and the knives: the PP7's hand (2026-10-02, headset-accepted, merged)
+The golden gun (GgoldengunZ), Cougar (GrugerZ) and DD44 (Gtt33Z) were still
+on the old generic recipe (pale skirt and fingertip caps, the forearm end at
+60). Fitting each PP7 node onto their hands (a rigid motion per node:
+piece_match in the session scratch) found them all to be the PP7's hand:
+every piece the same mesh in the same pose, the whole hand moved by one
+offset in the gun's model (golden gun (0, -8.5, -80.7), Cougar (0, -26.4,
+-70.2), DD44 (0, -8.1, -182.6)); only the golden gun's forearm is its own.
+The knives' hand (GknifeZ, GthrowknifeZ) is the PP7's middle, ring and
+little fingers and heel 3.1 units higher, its index finger the PP7's trigger
+finger curled round the handle on bone 0, its own thumb and forearm.
+- seed_pistol is the PP7's seed with its vertex names carried over: each
+  PP7 vertex it names is the gun's ROM vertex at its place (offset on,
+  within 2 units: the meshes match to their rounding), its joints move with
+  the hand. Per gun (PISTOLS): the offset, the trigger finger's node (its
+  own bone; none on the knives), the forearm's cut end, the nodes whose 0x702
+  lines the fist, and the ring and little fingers' knuckle shifts where the
+  grip stands further forward than the PP7's (the golden gun's +z 7.8 and
+  9.6, the Cougar's 6.2 and 2.6: measured by how deep the grown fingers went
+  into the grip, kept 1 unit off). The inside of the fist and the pad below
+  the butt are built against each gun's own grip (the Cougar's grip runs
+  below the heel: no pad). The PP7 re-seeds byte-identical through it.
+- zip_rings sorted each ring by angle round the finger; the Cougar's ring
+  fingertip is the PP7's with its N64 integers rounded a unit differently,
+  which swapped two of its vertices in that order and folded the strip (an
+  edge wound both ways, a hole). ring_walk keeps a ring's own order unless
+  sorting gives that order anyway, so every accepted hand re-seeds the same.
+- The user asked whether the grenade hand's fingers could be reused instead
+  of grown. They are Rare's own, complete, and in the same skin textures,
+  so their shape and mapping could be copied into another hand's patch as
+  weights; but they are curled round the taser body (thicker than a pistol
+  grip) and the pistol hands already draw each finger's knuckle flap and
+  tip, which a copied finger would overlap unless the runtime learned to
+  hide those triangles. Prototyped as renders (the whole grenade hand cut
+  at the wrist, mirrored onto the watch arm; fitted to the PP7's grip, with
+  its own forearm or the PP7's): on the PP7 its taser-sized grip and wrist
+  angle dropped the forearm and left the trigger finger floating. The user:
+  "a bad idea. You were doing better before". Not pursued; nothing of it is
+  in the tools.
+- Totals: 14 models, 36 parts, 144 groups, 4046 triangles, 6176 weights.
+
 Tool quirks
 - Bash heredocs with Python inside break here: write edit scripts to the
   scratchpad and run them.
