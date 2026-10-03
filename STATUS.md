@@ -6,9 +6,13 @@ logs are in docs/archive/; feature investigations keep their own notes.
 **Updated / current build:** 2026-10-03, v0.4.2; versionCode 55, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
 
-**v0.4.2:** co-op joiners fall back to player 0 in party title menus when their
-own slot has no player, preventing the viSetupCurrentPlayerView NULL-player
-crash (reports 253b6b4f, e8d14102).
+**v0.4.2:** hold A/X opens a round weapon category wheel (#10: stick picks a
+wedge, triggers step within it); a laser-pointer pause window for deathmatch
+and co-op with health/armour arcs and live radar in its header (PR #102);
+bullet hit flash, smoke and spark pools sized to the bullet hole pool (#91).
+Co-op joiners fall back to player 0 in party title menus, preventing the
+viSetupCurrentPlayerView NULL-player crash (reports 253b6b4f, e8d14102).
+Protocol 17 unchanged: v0.4.0 and v0.4.1 still play with v0.4.2.
 
 **v0.4.1:** co-op teammates watch the host's scripted and ending cutscenes
 through the host's camera and fades (#94, NET_MSG_COOP_CINEMA; protocol 17
@@ -44,7 +48,7 @@ host restrictions and confirmed leave/end mission. The mobile
 Menu Studio starter matches that window; JSON exports guide native rearrangement.
 Signed local release builds and desktop/phone browser + production ImGui/input
 checks pass. The user accepted the pause layout; multiplayer headset testing
-remains outstanding. Protocol is unchanged; no new release is published here.
+remains outstanding. Protocol is unchanged; shipped in v0.4.2.
 
 ## What it is and what works
 
