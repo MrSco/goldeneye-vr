@@ -3448,11 +3448,12 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         menuLayerP.subImage.imageRect.extent = {(int32_t)((x1 - x0) * W), (int32_t)((y1 - y0) * H)};
 
         const float boxW = (x1 - x0) * W, boxH = (y1 - y0) * H;
-        const float hgt = 0.14f;   // metres
+        // the wheel's 176 screen units: the old list's 118 were 14 cm, so the text keeps its size
+        const float hgt = 0.20f;   // metres
         menuLayerP.size = {hgt * boxW / (boxH > 1.f ? boxH : 1.f), hgt};
 
-        // 18 cm above the controller (head space), turned to face the eyes
-        float px = gCtrlPos[hand][0] / 100.f, py = gCtrlPos[hand][1] / 100.f + 0.18f, pz = gCtrlPos[hand][2] / 100.f;
+        // 21 cm above the controller (head space), turned to face the eyes
+        float px = gCtrlPos[hand][0] / 100.f, py = gCtrlPos[hand][1] / 100.f + 0.21f, pz = gCtrlPos[hand][2] / 100.f;
         if (gevrWeaponPanelInFront) { px = 0.f; py = -0.05f; pz = -0.45f; }
         menuLayerP.pose.position = {px, py, pz};
         float fx = -px, fy = -py, fz = -pz;

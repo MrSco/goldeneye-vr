@@ -53,7 +53,7 @@ is goldeneyevr.com, in its own repository.
   patched hand shells, melee, HUD, snap/smooth turning and comfort at 90 Hz.
   Menus/cutscenes can use the flat or curved virtual screen.
 - Weapon controls: A/X cycles, grip + A goes back, hold A opens the weapon
-  panel, hold X the left panel. Solo dual guns use the game's inventory pair.
+  category wheel, hold X the left wheel. Solo dual guns use the game's inventory pair.
 - Launcher: ROM picker, play mode, turning/comfort, gun fit, unlock-all
   (RAM only), textures, updater, music/SFX/voice and microphone settings.
 - Multiplayer is experimental: LAN/direct IP and public/private internet

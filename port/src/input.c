@@ -113,7 +113,7 @@ extern void netVoiceToggleMuted(void);
 extern void mpwatchPlayBeep(void);         /* mpmenu.c */
 static bool gevrSwallowX;                  /* X answered the prompt: no weapon change until let go */
 extern s32 gevrWeaponPanelOpen, gevrWeaponPanelRelease;   /* bondview2.c, issue #10 */
-extern f32 gevrWeaponPanelStickY;
+extern f32 gevrWeaponPanelStickX, gevrWeaponPanelStickY;
 extern s32 gevrWeaponPanelLeft;            /* bondview2.c, issue #56: the left hand's panel */
 extern s32 gevrLeftPanelAvailable(void);
 extern void gevrCycleHandWeapon(s32 hand, s32 dir);
@@ -1466,12 +1466,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             npad->stick_x = 0;
             npad->stick_y = 0;
         }
-        // The weapon panels scroll with the stick on the other hand from their
+        // The weapon wheels point with the stick on the other hand from their
         // button - A's (issue #10) the off hand's, X's (#56) the gun hand's - and
         // that stick neither moves nor turns while one is up. "left" is the move
         // stick and "right" the turn stick, on whichever hands Swap sticks puts them.
         const bool panelOnMoveStick = gevrWeaponPanelOpen && ((gevrWeaponPanelLeft != 0) == (VrSwapJoysticks != 0));
         const bool panelOnTurnStick = gevrWeaponPanelOpen && !panelOnMoveStick;
+        gevrWeaponPanelStickX = panelOnMoveStick ? left.x : panelOnTurnStick ? right.x : 0.0f;
         gevrWeaponPanelStickY = panelOnMoveStick ? left.y : panelOnTurnStick ? right.y : 0.0f;
         if (g_gevrStereo && !menu && !adjusting && !panelOnTurnStick) {
             const float dz = 0.15f;
