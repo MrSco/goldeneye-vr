@@ -284,7 +284,7 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
      * headset is sent it to see, as the host's, which hurts no player there.
      */
     if (sp44->damage > 0.0f && !g_gevrNetExplosionRx &&
-        gevrCoopGuardExplosive(arg0 != NULL ? arg0->obj : g_gevrExplodingObj))
+        (gevrCoopGuardExplosive(arg0 != NULL ? arg0->obj : g_gevrExplodingObj) || gevrCoopGuardBlastNow()))
     {
         extern void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8);
 

@@ -74,3 +74,7 @@ each player keeps their own save, GE Plus findings go to #95.
 - Guards a host spawned show the old chrnum on clients for a clone (cosmetic).
 - Saves go to folder 1 on each headset; there is no folder choice yet.
 - Pickups from dead guards are per headset (each player can take the gun).
+- Shooting a gun out of a guard's hand, or its held grenade, does nothing
+  (the hit is the host's to apply, and that path skips it).
+- After a host change, a script's world changes other than doors, text,
+  stage flags and the alarm (objects moved, gas) stay as each headset had them.
