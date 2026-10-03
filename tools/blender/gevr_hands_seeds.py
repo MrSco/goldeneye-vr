@@ -247,31 +247,141 @@ def loop_verts(ws, spec):
     return list(P.find_loop(loops, ws.R, spec))
 
 
+# The other pistols' hands (golden gun, Cougar, DD44) are the PP7's: fitted
+# node by node (a rigid motion each), every piece is the same mesh in the
+# same pose, the whole hand moved by one offset in the gun's model (the
+# golden gun's forearm alone is its own). So they are modelled by the PP7's
+# seed: each PP7 vertex it names is the gun's ROM vertex at the same place
+# (offset on), its joints move with the hand, and what depends on the gun -
+# the inside of the fist closed onto the grip, the pad below the butt - is
+# built against the gun's own grip. Per gun: the hand's offset from the
+# PP7's, the trigger finger's node (its own bone), the forearm's cut end
+# (and the nodes whose skin it takes), the nodes whose 0x702 lines the fist,
+# and how far the ring and little fingers' knuckles round the grip move
+# forward where the gun's grip stands further forward than the PP7's (found
+# by measuring how deep the grown fingers went into it; kept 1 unit off).
+PISTOLS = {
+    "GwppkZ": {"offset": (0.0, 0.0, 0.0), "trigger": 0x02b8, "forearm_end": ("0x04b0:108", {0x04b0}),
+               "fist": {0x0318, 0x0468, 0x04b0}},
+    "GgoldengunZ": {"offset": (0.0, -8.5, -80.7), "trigger": 0x021c, "forearm_end": ("0x0324:205", {0x0324}),
+                    "fist": {0x024c, 0x0324},
+                    "knuckles": {"ring_finger": (0.0, 0.0, 7.8), "little_finger": (0.0, 0.0, 9.6)}},
+    "GrugerZ": {"offset": (0.0, -26.4, -70.2), "trigger": 0x02b8, "forearm_end": ("0x0468:55", {0x0468}),
+                "fist": {0x0240, 0x02d0, 0x0450, 0x0468},
+                "knuckles": {"ring_finger": (0.0, 0.0, 6.2), "little_finger": (0.0, 0.0, 2.6)}},
+    "Gtt33Z": {"offset": (0.0, -8.1, -182.6), "trigger": 0x03b4, "forearm_end": ("0x0564:47", {0x0564}),
+               "fist": {0x0384, 0x0414, 0x054c, 0x0564}},
+    # the knives' hand: the PP7's middle, ring and little fingers and heel,
+    # 3.1 units higher; its index finger (the PP7's trigger finger, curled
+    # round the handle on bone 0), thumb and forearm are its own
+    "GknifeZ": {"offset": (0.0, 3.1, 0.0), "trigger": None, "forearm_end": ("0x01a4:104", {0x01a4}),
+                "fist": {0x01a4, 0x03b4}},
+    "GthrowknifeZ": {"offset": (0.0, 3.1, 0.0), "trigger": None, "forearm_end": ("0x015c:92", {0x015c}),
+                     "fist": {0x015c, 0x0384}},
+}
+SKIN_TEXTURES = (0x701, 0x702, 0x703, 0x704, 0x705, 0x706)
+
+
+class PistolLayout:
+    """The PP7's names carried over to another gun's hand: its ROM vertex at
+    the PP7 vertex's place, offset on (within 2 units: the meshes match to
+    their rounding); the PP7 itself maps to itself."""
+
+    def __init__(self, ws, gun):
+        import os
+        import gevr_hp_common as C
+        self.ws = ws
+        self.cfg = PISTOLS[gun]
+        self.offset = Vector(self.cfg["offset"])
+        self.same = gun == "GwppkZ"
+        self.ppk = None
+        if not self.same:
+            here = os.path.dirname(os.path.abspath(__file__))
+            path = os.path.join(os.path.dirname(os.path.dirname(here)), "build", "handmodels", "GwppkZ.json")
+            ppk = C.load_model(path)
+            self.ppk = {(v["node"], v["idx"]): Vector(v["pos"]) for v in ppk["verts"]}
+        self.memo = {}
+
+    def __call__(self, name):
+        """A PP7 vertex name ("0x0318:12") as this gun's."""
+        if self.same:
+            return name
+        if name not in self.memo:
+            node, idx = name.split(":")
+            p = self.ppk[(int(node, 16), int(idx))] + self.offset
+            v = min((v for v in self.ws.bm.verts[:self.ws.n_orig]), key=lambda v: (v.co - p).length)
+            if (v.co - p).length > 2.0:
+                raise SystemExit("%s: no ROM vertex at PP7 %s (nearest %.1f away)" % (self.ws.model["model"], name,
+                                                                                  (v.co - p).length))
+            self.memo[name] = "0x%04x:%d" % self.ws.R.primary(v)[:2]
+        return self.memo[name]
+
+    def at(self, p):
+        """A PP7 position (a joint) in this gun's hand."""
+        return tuple(Vector(p) + self.offset)
+
+
+def grip_tree(model):
+    """What a hand model holds (every part not in the skin textures), as a
+    BVH, and its lowest point (the grip's butt)."""
+    import bmesh
+    from mathutils.bvhtree import BVHTree
+    import gevr_hands_import as H
+    hand = {t["node"] for t in model["tris"] if t["tex"] in SKIN_TEXTURES}
+    held = [p_["node"] for p_ in model["parts"] if p_["node"] not in hand
+            and any(t["node"] == p_["node"] for t in model["tris"])]
+    tob = H.build_part(model, held, {}, name="fist_target")
+    tbm = bmesh.new()
+    tbm.from_mesh(tob.data)
+    tree = BVHTree.FromBMesh(tbm)
+    butt = min(v.co.y for v in tbm.verts)
+    tbm.free()
+    return tree, butt
+
+
 def seed_ppk(ws, names):
+    return seed_pistol(ws, names, "GwppkZ")
+
+
+def seed_pistol(ws, names, gun):
     P.directed_loops.quiet = True
     bone0 = lambda t: 0   # noqa: E731 - every part here is on bone 0
+    L = PistolLayout(ws, gun)
+    N = L
+    import bmesh
+    # what the hand holds (the gun), for the inside of the fist and, on the
+    # other guns, the knuckles round the grip
+    target, butt = grip_tree(ws.model)
+
+    def clear(name, joints):
+        """The PP7's knuckles round its grip (given in the PP7's frame), on
+        this gun: moved with the hand, and off this gun's grip by the
+        finger's shift (PISTOLS "knuckles": the golden gun's and Cougar's
+        grips stand further forward than the PP7's)."""
+        shift = Vector(L.cfg.get("knuckles", {}).get(name, (0.0, 0.0, 0.0)))
+        return [(tuple(Vector(L.at(p)) + shift), r) for p, r in joints]
 
     # the middle finger: under its first joint, under the plate, joined
     pid = ws.piece("middle_finger", "the middle finger: its first joint and the plate across the grip closed "
                    "underneath, joined to each other and into the fingertip")
-    shell = near_skin(ws, ("0x0318:12", "0x0318:19", "0x0318:15", "0x0318:11", "0x0318:5"))
-    first = M.underside(ws, pid, [["0x0318:13", "0x0318:12", "0x0318:19"], ["0x0318:14", "0x0318:18", "0x0318:15"]],
+    shell = near_skin(ws, (N("0x0318:12"), N("0x0318:19"), N("0x0318:15"), N("0x0318:11"), N("0x0318:5")))
+    first = M.underside(ws, pid, [[N("0x0318:13"), N("0x0318:12"), N("0x0318:19")], [N("0x0318:14"), N("0x0318:18"), N("0x0318:15")]],
                         None, shell.tex, (0, 1, 0, 1), PPK_LIGHT, arc=2, skin=shell, rom_shade=PPK_UNDER)
-    plate = near_skin(ws, ("0x0318:29", "0x0318:28", "0x0318:26", "0x0318:27"))
-    top = M.underside(ws, pid, [["0x0318:29", "0x0318:28"], ["0x0318:26", "0x0318:27"]],
+    plate = near_skin(ws, (N("0x0318:29"), N("0x0318:28"), N("0x0318:26"), N("0x0318:27")))
+    top = M.underside(ws, pid, [[N("0x0318:29"), N("0x0318:28")], [N("0x0318:26"), N("0x0318:27")]],
                       None, plate.tex, (0, 1, 0, 1), PPK_LIGHT, arc=2, skin=plate, rom_shade=PPK_UNDER,
                       roundness=PPK_DEEP)
     # the joint's front opening to the plate's right end (they nearly touch)
-    a = front_ring(ws, first[-1][1], "0x0318:11", "0x0318:5", "0x0318:6")
-    b = front_ring(ws, top[0][1], "0x0318:25")
+    a = front_ring(ws, first[-1][1], N("0x0318:11"), N("0x0318:5"), N("0x0318:6"))
+    b = front_ring(ws, top[0][1], N("0x0318:25"))
     M.grow(ws, pid, a, b, [], 8, [(0.0, shell), (0.5, plate)], (0, 1, 0), bone0)
     # the bend into the fingertip: the plate's end (its left corner, then
     # under it back to front) zipped to the fingertip's open end (round its
     # inner side, underneath and its outer side): they start and end at the
     # corners the N64 already joins across the top, so the two
     # cross-sections meet as a mitre
-    ring = ["0x0390:1", "0x0390:20", "0x0390:18", "0x0390:14", "0x0390:12", "0x0390:10", "0x0390:8", "0x0390:3"]
-    M.zip_chains(ws, pid, [ws.vert("0x0318:24")] + list(top[-1][1]), [ws.vert(x) for x in ring],
+    ring = [N("0x0390:1"), N("0x0390:20"), N("0x0390:18"), N("0x0390:14"), N("0x0390:12"), N("0x0390:10"), N("0x0390:8"), N("0x0390:3")]
+    M.zip_chains(ws, pid, [ws.vert(N("0x0318:24"))] + list(top[-1][1]), [ws.vert(x) for x in ring],
                  near_skin(ws, ring))
 
     # the ring and little fingers: each grown from its knuckle flap (closed
@@ -282,16 +392,17 @@ def seed_ppk(ws, names):
     # fingertip at the left corner. One texture band runs the whole finger,
     # in the row of 0x703 the N64's own ring fingertip continues.
     for name, flap_names, joints, tip_loop in (
-            ("ring_finger", ("0x0318:3", "0x0318:4", "0x0318:1", "0x0318:2", "0x0318:0"),
-             [((-17.5, -94, -14), 8.8), ((0, -94, -11.5), 8.8)], "0x03a8:0"),
-            ("little_finger", ("0x0468:20", "0x0468:42", "0x0468:40", "0x0468:22", "0x0468:39"),
-             [((-18, -112.5, -17), 8.4), ((0, -112.5, -14.5), 8.4)], "0x03c0:0")):
+            ("ring_finger", (N("0x0318:3"), N("0x0318:4"), N("0x0318:1"), N("0x0318:2"), N("0x0318:0")),
+             [((-17.5, -94, -14), 8.8), ((0, -94, -11.5), 8.8)], N("0x03a8:0")),
+            ("little_finger", (N("0x0468:20"), N("0x0468:42"), N("0x0468:40"), N("0x0468:22"), N("0x0468:39")),
+             [((-18, -112.5, -17), 8.4), ((0, -112.5, -14.5), 8.4)], N("0x03c0:0"))):
         pid = ws.piece(name, "the %s: its knuckle flap closed underneath and rounded over, then its "
                        "middle joint round the grip's front, grown from the knuckle into the fingertip's "
                        "open end" % name.replace("_", " "))
         back_a, front_a, front_mid, back_b, front_b = flap_names
         rails = [[back_a, front_a], [back_b, front_b]]
         tipring = loop_verts(ws, tip_loop)
+        joints = clear(name, joints)
         # the band's share for the knuckle, by length
         back = (ws.vert(back_a).co + ws.vert(back_b).co) / 2
         front = (ws.vert(front_a).co + ws.vert(front_b).co) / 2
@@ -315,20 +426,8 @@ def seed_ppk(ws, names):
     # it (a strip from each rim vertex to just outside the grip), built
     # after the fingers so it only closes what they leave, and in the skin
     # beside it, not a texture of its own
-    hand = {0x0318, 0x0390, 0x03a8, 0x03c0, 0x0408, 0x0468, 0x04b0, 0x02b8}
-    held = [p_["node"] for p_ in ws.model["parts"] if p_["node"] not in hand
-            and any(t["node"] == p_["node"] for t in ws.model["tris"])]
     pid = ws.piece("fist_inside", "the inside of the fist round the fingers, closed onto the grip")
     work = 200000 + pid
-    import bmesh
-    from mathutils.bvhtree import BVHTree
-    import gevr_hands_import as H
-    tob = H.build_part(ws.model, held, {}, name="fist_target")
-    tbm = bmesh.new()
-    tbm.from_mesh(tob.data)
-    target = BVHTree.FromBMesh(tbm)
-    butt = min(v.co.y for v in tbm.verts)
-    tbm.free()
     ws.bm.verts.index_update()
     ws.bm.verts.ensure_lookup_table()
     # below the grip's butt the heel and the little finger's knuckle hang
@@ -344,7 +443,7 @@ def seed_ppk(ws, names):
         v[ws.lay_bone] = 0
     print("   fist inside: a rim of %d (%s), %d faces, %d below the butt"
           % (nchain, "ring" if closed else "open", len(made), len(below)))
-    fist = M.NearMap(ws, 0x0702, nodes={0x0318, 0x0468, 0x04b0})
+    fist = M.NearMap(ws, 0x0702, nodes=L.cfg["fist"])
     M.adopt(ws, pid, made, fist)
     pid = ws.piece("heel_pad", "below the grip's butt, between the heel and the little finger's knuckle: "
                    "the palm's pad, domed out to fill the hollow under the knuckle")
@@ -356,8 +455,9 @@ def seed_ppk(ws, names):
     # darker than the skin round it (the old recipe's cap at shade 60 read
     # as a dark band round the end of the arm, as the taser's elbow did)
     pid = ws.piece("forearm_end", "the forearm's cut end, in the forearm's skin")
-    M.fill_palm(ws, pid, "0x04b0:108", 0x704, None, PPK_LIGHT, fair=PPK_STUMP[0], dome=PPK_STUMP[1],
-                skin=M.NearMap(ws, 0x704, nodes={0x04b0}), rom_shade=PPK_STUMP[2], smooth_uv=True, dome_out=True)
+    end, end_nodes = L.cfg["forearm_end"]
+    M.fill_palm(ws, pid, end, 0x704, None, PPK_LIGHT, fair=PPK_STUMP[0], dome=PPK_STUMP[1],
+                skin=M.NearMap(ws, 0x704, nodes=end_nodes), rom_shade=PPK_STUMP[2], smooth_uv=True, dome_out=True)
 
     # the trigger finger (0x02b8, its own bone): its first joint is a shell
     # open underneath, at its base and inside the bend into the next joint.
@@ -365,11 +465,14 @@ def seed_ppk(ws, names):
     # finger's own skin - its texture carried on from the faces beside each
     # corner and the N64's own colours at them (255 on top, 190 underneath)
     # instead of the pale palm texture at full brightness.
-    wt = M.Workspace(ws.model, [0x02b8], 0x02b8)
+    trig = L.cfg["trigger"]   # the PP7's 0x02b8, the same mesh: the same indices
+    if trig is None:
+        return []             # no trigger finger of its own (the knife hand's index wraps the handle)
+    wt = M.Workspace(ws.model, [trig], trig)
     pid = wt.piece("trigger_finger", "the trigger finger's first joint closed underneath, at its base and "
                    "inside the bend, in its own skin")
-    skin = M.NearMap(wt, 0x0703, nodes={0x02b8})
-    M.fill_palm(wt, pid, "0x02b8:0", skin.tex, None, PPK_LIGHT, fair=0, dome=0, skin=skin, rom_shade=1.0)
+    skin = M.NearMap(wt, 0x0703, nodes={trig})
+    M.fill_palm(wt, pid, "0x%04x:0" % trig, skin.tex, None, PPK_LIGHT, fair=0, dome=0, skin=skin, rom_shade=1.0)
     return [wt]
 
 
@@ -570,6 +673,11 @@ def seed_grenade(ws, names):
 SEEDS = {
     "Csuit_lf_handZ": seed_csuit,
     "GwppkZ": seed_ppk,
+    "GgoldengunZ": lambda ws, names: seed_pistol(ws, names, "GgoldengunZ"),
+    "GrugerZ": lambda ws, names: seed_pistol(ws, names, "GrugerZ"),
+    "Gtt33Z": lambda ws, names: seed_pistol(ws, names, "Gtt33Z"),
+    "GknifeZ": lambda ws, names: seed_pistol(ws, names, "GknifeZ"),
+    "GthrowknifeZ": lambda ws, names: seed_pistol(ws, names, "GthrowknifeZ"),
     "GtaserZ": seed_taser,
     "GgrenadeZ": seed_grenade,
 }

@@ -72,16 +72,19 @@ is goldeneyevr.com, in its own repository.
   did not recur in final capture; still unresolved. Animation/glass fixed.
 - #85: Egypt Golden Gun room exit door can draw black. The cryptdoor log
   targets room/portal visibility; no confirmed fix yet.
-- #9 hand shells, merged to main 2026-10-02, unreleased: modelled in Blender
-  (tools/blender/gevr_hands_author.py; tools/handpatch/NOTES.md). The PPK
-  family: missing finger joints, trigger-finger underside, a heel pad filling
-  the hollow under the little finger, the forearm's cut end in skin. The
-  watch arm: ring and little finger palm sides, the fingers curled into a
-  fist, index creases, a palm in the heel's skin. The taser/grenade hand:
-  back of the hand and forearm in the skin beside them, finger cracks zipped,
-  the index knuckle's notch rounded; the grenade's see-through bottom drawn
-  solid. All headset-accepted ("looks good"). Next: the other pistol hands
-  (golden gun, Cougar, DD44, knives). Issue left open.
+- #9 hand shells, merged to main 2026-10-02/03, unreleased: modelled in
+  Blender (tools/blender/gevr_hands_author.py; tools/handpatch/NOTES.md).
+  The PPK family: missing finger joints, trigger-finger underside, a heel
+  pad filling the hollow under the little finger, the forearm's cut end in
+  skin; the golden gun, Cougar, DD44 and both knives are the PP7's hand
+  moved within each model and carry the same modelling. The watch arm: ring
+  and little finger palm sides, the fingers curled into a fist, index
+  creases, a palm in the heel's skin. The taser/grenade hand: back of the
+  hand and forearm in the skin beside them, finger cracks zipped, the index
+  knuckle's notch rounded; the grenade's see-through bottom drawn solid. A
+  grenade or mine in the left hand (#56 panel) is held in the right's hand
+  mirrored, the gadget mirrored with it. All headset-accepted. Issue left
+  open.
 - #23: multiplayer stays open/experimental. Remote hands do not animate;
   held guns are the original low-detail third-person models. Host migration
   and mixed-network/four-player cases need broader headset coverage.
