@@ -30,10 +30,18 @@ public class CrashExitPolicyTest {
         assertFalse(CrashExitPolicy.qualifies(13, 0, crashAt, INSTALL, 0));
     }
     @Test public void foregroundMarkerFromBeforeTheInstallIsTheInstallKill() {
-        assertFalse(CrashExitPolicy.unexpectedExit(INSTALL - 1, INSTALL, 0));
-        assertFalse(CrashExitPolicy.unexpectedExit(0, INSTALL, 0));
-        assertTrue(CrashExitPolicy.unexpectedExit(INSTALL + 1, INSTALL, 0));
-        assertFalse(CrashExitPolicy.unexpectedExit(INSTALL + 1, INSTALL, INSTALL + 1));
+        assertFalse(CrashExitPolicy.unexpectedExit(INSTALL - 1, INSTALL, 0, 0));
+        assertFalse(CrashExitPolicy.unexpectedExit(0, INSTALL, 0, 0));
+        assertTrue(CrashExitPolicy.unexpectedExit(INSTALL + 1, INSTALL, 0, 0));
+        assertFalse(CrashExitPolicy.unexpectedExit(INSTALL + 1, INSTALL, INSTALL + 1, 0));
+    }
+    @Test public void foregroundMarkerWithAnExitRecordIsNotUnexpected() {
+        // Report 8bb89f82: resumed at 09:05:11, user-requested force stop at 09:05:12.
+        long markerAt = INSTALL + 432_000;
+        assertFalse(CrashExitPolicy.unexpectedExit(markerAt, INSTALL, 0, markerAt + 1_000));
+        assertFalse(CrashExitPolicy.unexpectedExit(markerAt, INSTALL, 0, markerAt));
+        // Only an earlier run's record: this run's own record is missing.
+        assertTrue(CrashExitPolicy.unexpectedExit(markerAt, INSTALL, 0, markerAt - 60_000));
     }
     @Test public void describesRecordsReadably() {
         assertEquals("2026-09-26T14:47:41Z signaled(2) status=11 [before install]",
