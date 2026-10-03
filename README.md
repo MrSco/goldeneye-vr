@@ -174,8 +174,8 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Gun hand at the watch** + **right trigger** | Fire the watch laser |
 | **A** / **X** | Next weapon |
 | **Right grip** + **A** | Previous weapon |
-| **Hold A** | Weapon panel above your gun hand: scroll with the other stick, let go to equip (dual-wield pairs included) |
-| **Hold X** | Left-hand panel: a second gun for your left hand, any gun you carry that can be dual-wielded (not gadgets). Scroll with the right stick, let go to equip. Solo missions, with such a gun in your right hand |
+| **Hold A** | Weapon wheel above your gun hand: push the other stick toward a category (pistols up, rifles right, heavy down-right, gadgets down, thrown left), turn it within the category to pick an item, let go to equip (dual-wield pairs included) |
+| **Hold X** | Left-hand wheel: a second gun for your left hand, any gun you carry that can be dual-wielded (not gadgets). Point with the right stick, let go to equip. Solo missions, with such a gun in your right hand |
 | **B** / **Y** | Action: doors, switches, reload |
 | **☰ Menu** (left controller) | Pause / Bond's watch |
 | **Hold ☰ Menu** (1.5 s) | Back to the launcher, to change settings or cheats (asks first: A yes, B no) |

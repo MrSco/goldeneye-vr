@@ -7,6 +7,7 @@
 #include "gun.h"
 #include "bondinv.h"
 #include <string.h>
+#include <math.h>
 #define false 0
 #define true 1
 int gevrVrTriggerDown[2];
@@ -121,6 +122,71 @@ EXPORT int test_hand_cycles(void) {
     CHECK(!player.hands[GUNRIGHT].weapon_animation_trigger);
     remote = 0; spectator = 1; gevrCycleHandWeapon(GUNRIGHT, 1);
     CHECK(!player.hands[GUNRIGHT].weapon_animation_trigger);
+    return 0;
+}
+static int wheelAt(int hand, int index, float deg) {
+    float a = deg * (M_TAU_F / 360.0f);
+    return gevrWheelStep(hand, index, sinf(a), cosf(a));
+}
+EXPORT int test_weapon_wheel(void) {
+    CHECK(gevrWeaponCategory(ITEM_WPPK) == GEVR_WC_PISTOLS && gevrWeaponCategory(ITEM_GOLDENGUN) == GEVR_WC_PISTOLS);
+    CHECK(gevrWeaponCategory(ITEM_AK47) == GEVR_WC_RIFLES && gevrWeaponCategory(ITEM_FNP90) == GEVR_WC_RIFLES);
+    CHECK(gevrWeaponCategory(ITEM_SNIPERRIFLE) == GEVR_WC_HEAVY && gevrWeaponCategory(ITEM_ROCKETLAUNCH) == GEVR_WC_HEAVY);
+    CHECK(gevrWeaponCategory(ITEM_GRENADE) == GEVR_WC_THROWN && gevrWeaponCategory(ITEM_FIST) == GEVR_WC_THROWN);
+    CHECK(gevrWeaponCategory(ITEM_UNARMED) == GEVR_WC_THROWN && gevrWeaponCategory(ITEM_REMOTEMINE) == GEVR_WC_THROWN);
+    CHECK(gevrWeaponCategory(ITEM_CAMERA) == GEVR_WC_GADGETS && gevrWeaponCategory(ITEM_WATCHLASER) == GEVR_WC_GADGETS);
+    CHECK(gevrWeaponCategory(ITEM_TRIGGER) == GEVR_WC_GADGETS);
+    // Fixture list: PP7, KF7, grenade, camera, fists. No heavy weapon.
+    reset(); memset(&s_gevrWc, 0, sizeof(s_gevrWc));
+    int count = gevrWeaponPanelBuild(), idx = 0;
+    gevrWheelOpen(GUNRIGHT, count, idx);
+    CHECK(s_gevrWc.n[GEVR_WC_PISTOLS] == 1 && s_gevrWc.n[GEVR_WC_RIFLES] == 1 && s_gevrWc.n[GEVR_WC_HEAVY] == 0);
+    CHECK(s_gevrWc.n[GEVR_WC_THROWN] == 2 && s_gevrWc.n[GEVR_WC_GADGETS] == 1);
+    // The dead zone keeps the highlight.
+    CHECK(gevrWheelStep(GUNRIGHT, 3, 0.2f, 0.2f) == 3);
+    CHECK(gevrWpItem(GUNRIGHT, wheelAt(GUNRIGHT, idx, 0.0f)) == ITEM_WPPK);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 90.0f)) == ITEM_AK47);
+    // Heavy is empty: its room goes to its neighbours, so straight down and down-right are gadgets.
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 180.0f)) == ITEM_CAMERA);
+    gevrWheelStep(GUNRIGHT, idx, 0, 0);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 150.0f)) == ITEM_CAMERA);
+    CHECK(gevrWpItem(GUNRIGHT, wheelAt(GUNRIGHT, idx, 135.0f)) == ITEM_CAMERA); // 5 degrees past gadgets' edge
+    CHECK(gevrWpItem(GUNRIGHT, wheelAt(GUNRIGHT, idx, 125.0f)) == ITEM_AK47);
+    // Thrown spans 240..320: the first half is the grenade, the second the fists.
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 270.0f)) == ITEM_GRENADE);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 290.0f)) == ITEM_FIST);
+    // Item slots hold a few degrees past their edge before letting go.
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 277.0f)) == ITEM_FIST);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 273.0f)) == ITEM_GRENADE);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 300.0f)) == ITEM_FIST);
+    // Wedges hold past their edge too (thrown's lower edge is 240), on their end slot.
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 236.0f)) == ITEM_GRENADE);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 300.0f)) == ITEM_FIST);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 228.0f)) == ITEM_CAMERA);
+    // Coming back to a wedge restores its last highlight, wherever in the wedge the stick lands.
+    gevrWheelStep(GUNRIGHT, idx, 0, 0);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 262.0f)) == ITEM_FIST);
+    // A heavy weapon takes its own wedge back.
+    inventoryItems[inventoryCount++] = ITEM_SNIPERRIFLE; owned[ITEM_SNIPERRIFLE] = 1;
+    count = gevrWeaponPanelBuild(); gevrWheelGroup(GUNRIGHT, count);
+    gevrWheelStep(GUNRIGHT, idx, 0, 0);
+    CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 150.0f)) == ITEM_SNIPERRIFLE);
+    CHECK(gevrWpItem(GUNRIGHT, wheelAt(GUNRIGHT, idx, 185.0f)) == ITEM_CAMERA);
+    // One category owns the whole wheel.
+    reset(); memset(&s_gevrWc, 0, sizeof(s_gevrWc));
+    memset(owned, 0, sizeof(owned)); inventoryCount = 1; inventoryItems[0] = ITEM_WPPK; owned[ITEM_WPPK] = 1;
+    count = gevrWeaponPanelBuild(); gevrWheelOpen(GUNRIGHT, count, 0);
+    CHECK(count == 1 && wheelAt(GUNRIGHT, 0, 200.0f) == 0);
+    // The left hand's wheel: holstered with the thrown, never a gadget.
+    reset(); memset(&s_gevrWc, 0, sizeof(s_gevrWc));
+    count = gevrWeaponPanelBuildLeft(); gevrWheelOpen(GUNLEFT, count, 0);
+    CHECK(s_gevrWc.n[GEVR_WC_GADGETS] == 0);
+    for (float d = 0.0f; d < 360.0f; d += 5.0f) {
+        int item = gevrWpItem(GUNLEFT, wheelAt(GUNLEFT, 0, d));
+        CHECK(item != ITEM_CAMERA && item != ITEM_FIST);
+    }
+    gevrWheelStep(GUNLEFT, 0, 0, 0);
+    CHECK(gevrWeaponCategory(gevrWpItem(GUNLEFT, wheelAt(GUNLEFT, 0, 280.0f))) == GEVR_WC_THROWN);
     return 0;
 }
 s32 currentPlayerEquipWeaponWrapper(GUNHAND hand, s32 item) { player.hands[hand].weapon_next_weapon = item; return 0; }
