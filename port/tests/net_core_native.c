@@ -53,6 +53,17 @@ void netCoopHostLost(int oldhost,int elected) { (void)oldhost;(void)elected; }
 ENetPacket *enet_packet_create(const void *data,size_t size,uint32_t flags) { (void)flags;if(size<=sizeof(sent_data)) { memcpy(sent_data,data,size);sent_size=size; }return NULL; }
 int enet_peer_send(ENetPeer *peer,uint8_t channel,ENetPacket *packet) { (void)peer;(void)channel;(void)packet;return 0; }
 int enet_address_get_ip(const ENetAddress *address,char *buffer,size_t size) { (void)address;snprintf(buffer,size,"127.0.0.1");return 0; }
+static ENetPeer *disconnected_peer;
+static uint32_t disconnect_reason;
+static int launcher_stops,launcher_restarts;
+void enet_peer_disconnect(ENetPeer *peer,uint32_t reason) { disconnected_peer=peer;disconnect_reason=reason; }
+void netCoopSlotLeft(int slot) { (void)slot; }
+void netCoopMenuReset(void) {}
+void netSpectatorReset(void) {}
+void netPlayersTickedReset(void) {}
+void netVoiceReset(void) { voice_resets++; }
+void gevrLobbySessionStopped(void) { launcher_stops++; }
+void gevrRestartToLauncher(void) { launcher_restarts++; }
 static void fixture(int scenario) {
     memset(&s_round,0,sizeof(s_round)); memset(g_playerPlayerData,0,sizeof(g_playerPlayerData));
     s_state=NET_STATE_HOSTING_LOBBY;s_local_slot=s_host_slot=0;netResetLobbyState();
@@ -60,6 +71,8 @@ static void fixture(int scenario) {
     s_lobby_state.config.voice_mode=NET_VOICE_PROXIMITY; s_phase=NET_PHASE_WAITING;
     s_server_peer=NULL;s_host=NULL;s_match_ended=false;s_next_round_at_us=0;s_countdown_end_us=0;voice_resets=0;
     s_round_reset_loading=false;s_waiting_for_match_snapshot=false;
+    s_round_reset_pending=s_start_after_load=s_stage_ready_sent=false;s_results_deadline_us=0;
+    clock_us=10000000;
     memset(g_playerPointers,0,sizeof(g_playerPointers));memset(s_client_peers,0,sizeof(s_client_peers));
     for(int i=0;i<4;i++) {s_lobby_state.slots[i].connected=1;s_lobby_state.slots[i].ready=1;s_lobby_state.slots[i].loaded=1;}
 }
@@ -239,7 +252,7 @@ EXPORT int test_core_launch_consent(void) {
     if(s_next_round_at_us || s_round.config.health==6 || s_lobby_state.slots[1].loaded!=1) return 10;
     netHostStartRoundNow();if(s_next_round_at_us) return 11;
     s_lobby_state.slots[1].ready=s_lobby_state.slots[2].ready=1;
-    netHostStartRoundNow();if(!s_next_round_at_us) return 12;
+    netHostStartRoundNow();if(!s_round_reset_loading || s_next_round_at_us || s_phase!=NET_PHASE_WARMUP) return 12;
     s_host_slot=s_local_slot=2;s_lobby_state.slots[2].ready=0;s_lobby_state.slots[0].ready=1;
     if(!netLobbyCanLaunch()) return 13;
     s_lobby_state.slots[0].ready=0;if(netLobbyCanLaunch()) return 14;
@@ -247,6 +260,207 @@ EXPORT int test_core_launch_consent(void) {
 }
 
 #define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
+static void readyPacket(ENetPeer *peer,int slot,int ready,int length) {
+    u8 raw[2]={(u8)ready,0};struct netbuf b={.data=raw,.size=sizeof(raw)};
+    netbufStartReadData(&b,raw,length);
+    netReceiveLobbyReady(peer,slot,&b,8+length);
+}
+EXPORT int test_core_menu_ready(void) {
+    fixture(0);s_max_players=4;netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    for(int i=2;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
+    memset(hit_peers,0,sizeof(hit_peers));
+    hit_peers[1].data=(void*)(intptr_t)2;s_client_peers[1]=&hit_peers[1];
+    s_lobby_state.slots[1].ready=0;
+    CHECK(netHostCanStartRound());
+    netHostStartRoundNow();CHECK(s_start_requested && !s_next_round_at_us);
+    readyPacket(&hit_peers[1],1,1,1);
+    CHECK(s_lobby_state.slots[1].ready && netHostCanStartRound());
+    netBroadcastLobbyState();CHECK(s_lobby_state.slots[1].ready);
+    netHostStartRoundNow();CHECK(s_next_round_at_us);
+    readyPacket(&hit_peers[1],1,0,1);
+    CHECK(!s_next_round_at_us && !s_lobby_state.slots[1].ready);
+    readyPacket(&hit_peers[1],1,2,1);CHECK(!s_lobby_state.slots[1].ready);
+    readyPacket(&hit_peers[1],0,1,1);CHECK(!s_lobby_state.slots[1].ready);
+    readyPacket(&hit_peers[2],1,1,1);CHECK(!s_lobby_state.slots[1].ready);
+    readyPacket(&hit_peers[1],1,1,0);CHECK(!s_lobby_state.slots[1].ready);
+    readyPacket(&hit_peers[1],1,1,2);CHECK(!s_lobby_state.slots[1].ready);
+    s_phase=NET_PHASE_IN_PROGRESS;readyPacket(&hit_peers[1],1,1,1);
+    CHECK(s_lobby_state.slots[1].ready && netHostCanStartRound());
+    NetMatchConfig c=s_lobby_state.config;c.stage=31;netLobbySetConfig(&c);
+    CHECK(!s_lobby_state.slots[1].ready && netHostCanStartRound());
+    readyPacket(&hit_peers[1],1,1,1);netHostStartRoundNow();
+    CHECK(s_round_reset_loading && s_phase==NET_PHASE_WARMUP && !s_next_round_at_us);
+    s_round_reset_loading=false;for(int i=0;i<2;i++)s_lobby_state.slots[i].loaded=1;
+    netCancelRound();c.scenario=5;netLobbySetConfig(&c);
+    readyPacket(&hit_peers[1],1,1,1);CHECK(!s_lobby_state.slots[1].ready);
+    s_lobby_state.slots[1].team=NET_TEAM_BLUE;readyPacket(&hit_peers[1],1,1,1);
+    CHECK(s_lobby_state.slots[1].ready && netHostCanStartRound() && !netRoundRosterReady());
+    s_lobby_state.slots[0].team=NET_TEAM_RED;
+    for(int i=2;i<4;i++) {
+        s_lobby_state.slots[i].connected=s_lobby_state.slots[i].ready=s_lobby_state.slots[i].loaded=1;
+        s_lobby_state.slots[i].team=i==2?NET_TEAM_RED:NET_TEAM_BLUE;
+    }
+    CHECK(netHostCanStartRound());
+    s_lobby_state.slots[1].loaded=0;netHostStartRoundNow();CHECK(netHostCanStartRound() && !s_next_round_at_us);
+    s_lobby_state.slots[1].loaded=1;s_local_slot=1;CHECK(!netHostCanStartRound());
+    s_local_slot=0;s_round_reset_loading=true;CHECK(!netHostCanStartRound());
+    return 0;
+}
+EXPORT int test_core_solo_restart(void) {
+    fixture(7);s_max_players=4;netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    for(int i=1;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
+    s_round_reset_pending=false;s_rotate_next=true;
+    NetMatchConfig c=s_lobby_state.config;c.stage=31;c.weapon_set=4;c.health=6;netLobbySetConfig(&c);
+    CHECK(netHostCanStartRound() && !netRoundRosterReady());
+    uint32_t epoch=s_round.world_epoch;
+    netHostStartRoundNow();
+    CHECK(s_round_reset_pending && s_round_reset_loading && !s_start_after_load && s_lobby_open);
+    CHECK(s_phase==NET_PHASE_WARMUP && s_round.config.stage==31 && s_round.config.weapon_set==4 && s_round.config.health==6);
+    CHECK(s_round.world_epoch==epoch+1 && !s_rotate_next && !s_next_round_at_us);
+    CHECK(!netHostCanStartRound() && !s_lobby_state.slots[0].loaded);
+    s_lobby_state.slots[0].loaded=1;netReadyProgress();
+    CHECK(!s_round_reset_loading && s_phase==NET_PHASE_WARMUP && netHostCanStartRound());
+    s_phase=NET_PHASE_IN_PROGRESS;s_match_ended=true;netHostStartRoundNow();
+    CHECK(s_round_reset_loading && !s_match_ended && s_phase==NET_PHASE_WARMUP);
+    return 0;
+}
+EXPORT int test_core_connected_roster(void) {
+    fixture(0);s_max_players=8;netLatchRoundSettings();s_state=NET_STATE_INGAME;
+    for(int i=0;i<8;i++) {
+        s_lobby_state.slots[i].connected=1;
+        s_lobby_state.slots[i].loaded=i%2;
+        s_lobby_state.slots[i].spectator=i>=4;
+        CHECK(netLobbySlotConnected(i));
+        if(i!=s_local_slot && (!s_lobby_state.slots[i].loaded || i>=4))CHECK(!netSlotOccupied(i));
+    }
+    CHECK(!netLobbySlotConnected(-1) && !netLobbySlotConnected(8));
+    s_lobby_state.slots[3].connected=0;CHECK(!netLobbySlotConnected(3));
+    /* A spectator sends STAGE_READY and is included in loading gates. */
+    s_local_slot=6;s_host=(ENetHost*)1;s_server_peer=&hit_peers[0];
+    netStageLoaded();CHECK(s_stage_ready_sent && s_lobby_state.slots[6].loaded);
+    CHECK(sent_size==24 && sent_data[6]==NET_MSG_STAGE_READY && sent_data[7]==6);
+    CHECK(s_lobby_state.slots[6].spectator && !s_remote_active[6]);
+    s_host=NULL;
+    return 0;
+}
+EXPORT int test_core_warmup_lifecycle(void) {
+    fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    s_lobby_state.slots[3].loaded=0;netHostRoundTick(clock_us);CHECK(!s_warmup_end_us);
+    s_lobby_state.slots[3].loaded=1;netHostRoundTick(clock_us);
+    CHECK(netWarmupSecondsLeft()==120 && !s_next_round_at_us);
+    uint64_t end=s_warmup_end_us;clock_us=end-1;netHostRoundTick(clock_us);
+    CHECK(netWarmupSecondsLeft()==1 && !s_next_round_at_us);
+    s_lobby_state.slots[3].ready=0;clock_us=end;netHostRoundTick(clock_us);
+    CHECK(s_start_requested && !s_next_round_at_us);
+    s_lobby_state.slots[3].ready=1;netHostRoundTick(clock_us);
+    CHECK(s_next_round_at_us==clock_us+10000000ull && !s_round_reset_loading);
+    clock_us=s_next_round_at_us;netHostRoundTick(clock_us);
+    CHECK(s_round_reset_loading && s_start_after_load && s_phase==NET_PHASE_WARMUP);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();CHECK(s_phase==NET_PHASE_IN_PROGRESS && !s_round_reset_loading && !s_warmup_end_us);
+    g_playerPlayerData[1].kill_counts[2]=5;netHostRoundEnded();
+    CHECK(s_match_ended && !s_lobby_state.slots[1].ready && s_start_requested);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].ready=1;
+    uint32_t epoch=s_round.world_epoch;netHostContinue();
+    CHECK(s_round_reset_loading && !s_start_after_load && s_phase==NET_PHASE_WARMUP);
+    CHECK(s_round.world_epoch==epoch+1 && !s_match_ended && !s_next_round_at_us);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();CHECK(netWarmupSecondsLeft()==120);
+    /* Host can shorten the next warmup, with exactly ten seconds' notice. */
+    netHostStartRoundNow();CHECK(s_next_round_at_us==clock_us+10000000ull);
+    netHostReturnToLobby();CHECK(!s_next_round_at_us && !s_start_requested && !s_warmup_end_us);
+    clock_us+=180000000ull;netHostRoundTick(clock_us);CHECK(!s_next_round_at_us);
+    /* A lone host never auto-starts a match. */
+    for(int i=1;i<4;i++)s_lobby_state.slots[i].connected=0;
+    s_warmup_started=false;netHostRoundTick(clock_us);clock_us+=120000000ull;netHostRoundTick(clock_us);
+    CHECK(!s_next_round_at_us && s_phase==NET_PHASE_WARMUP);
+    return 0;
+}
+EXPORT int test_core_warmup_join_and_votes(void) {
+    fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    s_lobby_state.slots[3].connected=0;netReadyProgress();
+    netHostStartRoundNow();CHECK(s_next_round_at_us);
+    s_lobby_state.slots[3].connected=1;s_lobby_state.slots[3].ready=0;s_lobby_state.slots[3].loaded=0;
+    netHostRoundTick(clock_us);CHECK(!s_next_round_at_us && s_start_requested);
+    CHECK(netLobbySlotConnected(3) && !netSlotOccupied(3));
+    s_lobby_state.slots[3].ready=1;netHostRoundTick(clock_us);CHECK(!s_next_round_at_us);
+    s_lobby_state.slots[3].loaded=1;netHostRoundTick(clock_us);CHECK(s_next_round_at_us==clock_us+10000000ull);
+    netHostReturnToLobby();CHECK(!s_next_round_at_us);
+    /* A voted map is available during warmup, rather than loading only at
+     * the end of the countdown and bypassing the next warmup entirely. */
+    s_lobby_state.config.next_round=NET_NEXT_VOTE;netClearVotes(-1);
+    int choice=netStageIndexOf(31);CHECK(choice>=0 && netStageEligible(choice));
+    for(int i=0;i<4;i++){s_vote[0][i]=choice;s_vote[1][i]=4;}
+    netHostStartRoundNow();
+    CHECK(s_round.config.stage==31 && s_round.config.weapon_set==4);
+    CHECK(s_phase==NET_PHASE_WARMUP && s_round_reset_loading && !s_start_after_load && !s_next_round_at_us);
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].loaded=1;
+    netReadyProgress();CHECK(netWarmupSecondsLeft()==120);
+    netHostStartRoundNow();CHECK(s_next_round_at_us==clock_us+10000000ull);
+    return 0;
+}
+static void roundNoticePacket(ENetPeer*peer,unsigned flags,uint32_t ms,int length) {
+    u8 raw[6];struct netbuf b={.data=raw,.size=sizeof(raw)};
+    netbufStartWrite(&b);netbufWriteU8(&b,flags);netbufWriteU32(&b,ms);netbufWriteU8(&b,0);
+    netbufStartReadData(&b,raw,length);netReceiveRoundNotice(peer,&b,8+length);
+}
+EXPORT int test_core_round_prompts(void) {
+    fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    s_lobby_state.slots[3].ready=0;netHostStartRoundNow();
+    CHECK(s_start_requested && !s_next_round_at_us);
+    char message[128];s_local_slot=3;netRoundNoticeText(message,sizeof(message));CHECK(strstr(message,"READY"));
+    s_lobby_state.slots[3].spectator=1;netRoundNoticeText(message,sizeof(message));CHECK(strstr(message,"READY"));
+    s_lobby_state.config.scenario=5;s_lobby_state.slots[3].team=NET_TEAM_NONE;
+    netRoundNoticeText(message,sizeof(message));CHECK(strstr(message,"CHOOSE TEAM"));
+    s_lobby_state.config.scenario=0;s_lobby_state.slots[3].ready=1;
+    s_vote_requested=true;s_lobby_state.config.next_round=NET_NEXT_VOTE;netClearVotes(-1);
+    netRoundNoticeText(message,sizeof(message));CHECK(strstr(message,"VOTES"));
+    s_vote[0][3]=0;s_vote[1][3]=4;netRoundNoticeText(message,sizeof(message));CHECK(!strstr(message,"VOTES"));
+    s_countdown_end_us=clock_us+10000000;netRoundNoticeText(message,sizeof(message));CHECK(!message[0]);
+    s_countdown_end_us=0;s_server_peer=&hit_peers[0];s_start_requested=s_vote_requested=false;
+    roundNoticePacket(&hit_peers[1],7,10000,5);CHECK(!s_start_requested && !s_warmup_end_us);
+    for(int length=0;length<5;length++){roundNoticePacket(s_server_peer,7,10000,length);CHECK(!s_start_requested);}
+    roundNoticePacket(s_server_peer,8,10000,5);CHECK(!s_start_requested);
+    roundNoticePacket(s_server_peer,7,120001,5);CHECK(!s_start_requested);
+    roundNoticePacket(s_server_peer,3,10000,5);CHECK(!s_start_requested);
+    roundNoticePacket(s_server_peer,7,10000,6);CHECK(!s_start_requested);
+    roundNoticePacket(s_server_peer,7,10000,5);CHECK(s_start_requested && s_vote_requested && netWarmupSecondsLeft()==10);
+    roundNoticePacket(s_server_peer,0,0,5);CHECK(!s_start_requested && !s_vote_requested && !s_warmup_end_us);
+    s_local_slot=0;s_server_peer=NULL;netHostRequestVotes();CHECK(s_vote_requested);
+    s_vote_requested=false;s_lobby_state.config.next_round=NET_NEXT_SHUFFLE;netHostRequestVotes();CHECK(!s_vote_requested);
+    return 0;
+}
+EXPORT int test_core_host_kick(void) {
+    fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
+    disconnected_peer=NULL;disconnect_reason=0;
+    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);}
+    s_lobby_state.slots[1].spectator=1;s_lobby_state.slots[1].loaded=0;s_vote[0][1]=2;
+    CHECK(!netHostKickPlayer(-1) && !netHostKickPlayer(0) && !netHostKickPlayer(8));
+    /* Older protocol-17 guests interpret a server disconnect as host loss.
+     * Require their authenticated capability before using the kick reason. */
+    CHECK(!netHostCanKickPlayer(1) && !netHostKickPlayer(1));
+    u8 raw[2]={NET_CLIENT_CAP_KICK,0};struct netbuf b={.data=raw,.size=sizeof(raw)};
+    netbufStartReadData(&b,raw,1);netReceiveClientCaps(&hit_peers[2],1,&b,9);CHECK(!netHostCanKickPlayer(1));
+    netbufStartReadData(&b,raw,0);netReceiveClientCaps(&hit_peers[1],1,&b,8);CHECK(!netHostCanKickPlayer(1));
+    netbufStartReadData(&b,raw,2);netReceiveClientCaps(&hit_peers[1],1,&b,10);CHECK(!netHostCanKickPlayer(1));
+    netbufStartReadData(&b,raw,1);netReceiveClientCaps(&hit_peers[1],1,&b,9);CHECK(netHostCanKickPlayer(1));
+    CHECK(netHostKickPlayer(1));
+    CHECK(disconnected_peer==&hit_peers[1] && disconnect_reason==NET_DISCONNECT_KICKED);
+    CHECK(!netLobbySlotConnected(1) && !s_client_peers[1] && !hit_peers[1].data && s_vote[0][1]<0);
+    CHECK(!s_client_can_be_kicked[1]);
+    CHECK(netLobbySlotConnected(2) && netLobbySlotConnected(3));
+    CHECK(!netHostKickPlayer(1));s_local_slot=2;CHECK(!netHostKickPlayer(3));
+    /* Only the current host's intentional disconnect exits to the launcher. */
+    s_server_peer=&hit_peers[0];launcher_stops=launcher_restarts=0;
+    s_host=(ENetHost*)1;netSendClientCaps();
+    CHECK(sent_size==9 && sent_data[6]==NET_MSG_CLIENT_CAPS && sent_data[7]==2 && sent_data[8]==NET_CLIENT_CAP_KICK);
+    s_host=NULL;
+    CHECK(!netClientKickDisconnected(&hit_peers[1],NET_DISCONNECT_KICKED));
+    CHECK(!netClientKickDisconnected(s_server_peer,0) && s_state==NET_STATE_INGAME);
+    CHECK(netClientKickDisconnected(s_server_peer,NET_DISCONNECT_KICKED));
+    CHECK(s_state==NET_STATE_OFFLINE && !s_server_peer && launcher_stops==1 && launcher_restarts==1);
+    return 0;
+}
 static void hitFixture(void) {
     fixture(0);netLatchRoundSettings();s_max_players=4;s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
     clock_us=10000000;damage_count=kill_on_damage=0;VrHostEqualization=1;VrHostLatencyCapMs=50;

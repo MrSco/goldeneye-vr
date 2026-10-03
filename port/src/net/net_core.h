@@ -63,6 +63,13 @@ void netHostContinue(void);
 void netHostReturnToLobby(void);
 void netHostStartRoundNow(void);
 int netCountdownSecondsLeft(void);
+void netHostRequestVotes(void);
+int netHostStartRequested(void);
+int netWarmupSecondsLeft(void);
+void netRoundNoticeText(char *text, unsigned size);
+int netHostKickPlayer(int slot);
+int netHostCanKickPlayer(int slot);
+int netLobbySlotConnected(int slot);
 void netTouchLocalActivity(void);
 const NetMsgLobbyState *netGetLobbyState(void);
 const char *netGetSlotName(int slot);   /* NULL for an empty slot */

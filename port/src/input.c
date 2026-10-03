@@ -3,6 +3,8 @@
 #include "net_coop.h"
 #include "../vr/gevr_pause_menu.h"
 #include "../vr/gevr_pause_input.h"
+#include "gevr_reload_input.h"
+#include "gevr_watch_status.h"
 #endif
 #include <string.h>
 #include <stddef.h>
@@ -28,6 +30,7 @@
 #include <player.h>
 #include <options.h>
 #include <boss.h>
+#include <lv.h>
 #include "net/net_core.h"
 
 #ifdef ANDROID
@@ -101,6 +104,10 @@ extern void netVoiceToggleMuted(void);
 #endif
 
 int gevrVrTriggerDown[2];   /* by gun hand (0 right, 1 left); gunfire.c gunTickGameplay */
+static GevrReloadInput s_gevrReloadInput;
+int gevrVrReloadPressedMask(void) { return s_gevrReloadInput.pending; }
+int gevrVrReloadHeldMask(void) { return s_gevrReloadInput.held; }
+int gevrVrTakeReloadMask(void) { return gevrReloadInputTake(&s_gevrReloadInput); }
 int gevrReturnPrompt;       /* menu held: "back to the launcher?" is up (bondview2.c draws it) */
 extern int gevrTexpackToggle(void);        /* gfx_pc.cpp: 1 on now, 0 off now, -1 no pack */
 extern int gevrTexpackState(void);         /* gfx_pc.cpp: 1 on, 0 off, -1 no pack */
@@ -968,6 +975,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     npad->button = 0;
 
     if (textInput) {
+        s_gevrReloadInput.context = s_gevrReloadInput.pending = 0;
         npad->stick_x = 0;
         npad->stick_y = 0;
         npad->rstick_x = 0;
@@ -1002,8 +1010,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
      */
     const int inMenus = bossGetStageNum() == 90; /* LEVELID_TITLE */
     const int localSlot = netIsActive() && !inMenus ? netGetLocalSlot() : 0;
+    bool reloadGameplay = false;
 
     if (inMenus && netIsActive() && gevrCoopMenuFollowing()) {
+        s_gevrReloadInput.context = s_gevrReloadInput.pending = 0;
         memset(npad, 0, sizeof(*npad));
         return 0;
     }
@@ -1348,6 +1358,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
         if (gevrReturnPrompt) npad->button &= ~(A_BUTTON | B_BUTTON | START_BUTTON);
         if (fitting) npad->button &= ~(A_BUTTON | B_BUTTON | R_TRIG);   /* gun fit keeps them (the right grip rolls the grip hand) */
+        reloadGameplay = !menu && !fitting && !gevrReturnPrompt && !gevrWeaponPanelOpen
+            && !lvlGetControlsLockedFlag();
         const bool lclick = get_button_state(0, "thumbstick_click");
         const bool rclick = get_button_state(1, "thumbstick_click");
         const u32 now = SDL_GetTicks();
@@ -1387,28 +1399,18 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // The pose must hold briefly, presses START once, and re-arms only after
         // the arm comes down again (vr_input.cpp gevrVrWatchGesture).
         {
-            static u32 heldsince = 0;
-            static u32 pressuntil = 0;
-            static bool armed = true;
+            static GevrWatchGestureState gesture = {0, 0, 1};
             // Issue #31 (user): not while the gun hand holds the watch for the
             // watch laser or the detonator - aiming them raises the wrist too.
             // It re-arms only once the arm comes down, as after a press.
-            if (gevrStereoWatchGrip() || gevrStereoTwoHandGrip()) {
-                heldsince = 0;
-                if (gevrVrWatchGesture()) armed = false;
-            } else if (!menu && g_gevrStereo && gevrVrWatchGesture()) {
-                if (!heldsince) heldsince = now ? now : 1;
-                if (armed && now - heldsince >= 500) {
-                    pressuntil = now + 100;
-                    armed = false;
-                    LOGI("input: watch gesture -> pause\n");
-                    g_gevrWatchGesturePending = 1; /* bondview2.c: skip the raise on screen */
-                }
-            } else {
-                heldsince = 0;
-                if (!gevrVrWatchGesture()) armed = true;
+            const bool reading = gevrVrWatchGesture() != 0;
+            const bool blocked = menu || !g_gevrStereo || gevrStereoWatchGrip() || gevrStereoTwoHandGrip();
+            if (!VrWatchGesturePause) g_gevrWatchGesturePending = 0;
+            if (gevrWatchGestureTick(&gesture, now, VrWatchGesturePause, reading, blocked)) {
+                LOGI("input: watch gesture -> pause\n");
+                g_gevrWatchGesturePending = 1; /* bondview2.c: skip the raise on screen */
             }
-            if (now < pressuntil) npad->button |= START_BUTTON;
+            if (gesture.pressUntil && (s32)(gesture.pressUntil - now) > 0) npad->button |= START_BUTTON;
         }
         // Hold the right stick click for a second: switch stereo gameplay and the
         // virtual screen, and remember the choice in goldeneye-vr.ini.
@@ -1552,6 +1554,21 @@ s32 inputReadController(s32 idx, OSContPad *npad)
     }
     if (npad->button != 0 || npad->stick_x != 0 || npad->stick_y != 0 || npad->rstick_x != 0 || npad->rstick_y != 0) {
         netTouchLocalActivity();
+    }
+    if (idx == localSlot) {
+        const unsigned held = (get_button_state(1, "b") ? 1u : 0u)
+                            | (get_button_state(0, "y") ? 2u : 0u);
+        unsigned allowed = reloadGameplay
+            && g_playerPointers[localSlot] && !g_playerPointers[localSlot]->bonddead
+            && !gevrSpectating() && !gevrCoopLocalDowned() ? 3u : 0u;
+#ifdef ANDROID
+        if (gevrNativePauseOpen()) allowed = 0;
+#endif
+        /* Menu + physical B belongs to the microphone, in either handedness. */
+        if (s_menuHeld) allowed &= ~(VrLeftHandedMode ? 2u : 1u);
+        const unsigned context = 1u + (unsigned)bossGetStageNum() * 32u
+            + (unsigned)localSlot * 4u + (VrLeftHandedMode ? 2u : 0u) + (VrPlayMode ? 1u : 0u);
+        gevrReloadInputUpdate(&s_gevrReloadInput, held, allowed, context);
     }
     return 0;
 }

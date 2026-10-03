@@ -48,7 +48,15 @@ int netActiveLoadoutItem(int slot, int k);
 int netCountdownSecondsLeft(void);
 void netHostContinue(void);
 void netHostReturnToLobby(void);
+int netHostCanStartRound(void);
 void netHostStartRoundNow(void);
+void netHostRequestVotes(void);
+int netHostStartRequested(void);
+int netWarmupSecondsLeft(void);
+void netRoundNoticeText(char *text, unsigned size);
+int netHostKickPlayer(int slot);
+int netHostCanKickPlayer(int slot);
+int netLobbySlotConnected(int slot);
 int gevrSpectating(void);
 int netPlayerIsSpectator(int slot);
 /*

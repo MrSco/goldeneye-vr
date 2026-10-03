@@ -45,6 +45,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
     cpp.write_text(fixture, encoding="utf-8")
     exe = temp / "vr_display_native.exe"
     subprocess.run([compiler, "-std=c++17", "-O2", "-DANDROID", "-I" + str(root / "port/vr"),
+                    "-I" + str(root / "port/include"),
                     "-I" + str(root / "OpenXR/Include"), str(cpp), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], cwd=temp, check=True)
 
@@ -54,6 +55,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         subprocess.run([compiler, "-std=c++17", "-O2", "-D_LANGUAGE_C", *(["-DANDROID"] if android else []),
                         "-include", str(root / "port/tests/vr_display_settings_stubs.h"),
                         "-I" + str(root / "include"), "-I" + str(root / "port/vr"),
+                        "-I" + str(root / "port/include"),
                         str(root / "port/tests/vr_display_settings_native.cpp"),
                         str(root / "port/vr/vr_settings.cpp"), str(root / "port/vr/vr_settings_defaults.c"),
                         "-o", str(exe)], check=True)
@@ -67,4 +69,12 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
             subprocess.run([str(exe), "read", str(rate)], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         ini.write_text("DisplayHz=-10\n", encoding="utf-8")
         subprocess.run([str(exe), "read", "0"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
+        for choice in (0, 1, 2):
+            for gesture in (0, 1):
+                subprocess.run([str(exe), "watch_write", str(choice), str(gesture)], cwd=temp, check=True)
+                subprocess.run([str(exe), "watch_read", str(choice), str(gesture)], cwd=temp, check=True)
+        for invalid in ("-1", "3", "999", "garbage", "", "0.5", "2junk"):
+            ini.write_text("WatchFaceStatus=" + invalid + "\n", encoding="utf-8")
+            subprocess.run([str(exe), "watch_read", "1", "1"], cwd=temp, check=True)
         print("PASS: " + ("Quest" if android else "desktop") + " defaults, saved rates, Auto round trips, missing/legacy keys, load-once")
+        print("PASS: watch defaults On, all status/gesture round trips, invalid settings and load-once")

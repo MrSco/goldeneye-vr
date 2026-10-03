@@ -7621,6 +7621,15 @@ Gfx *gunDrawHudInteger(Gfx *gdl, s32 value, s32 x, s32 halign, s32 y, s32 valign
  */
 Gfx *generate_ammo_total_microcode(Gfx *gdl)
 {
+    GUNHAND rightDisplayHand = GUNRIGHT;
+    GUNHAND leftDisplayHand = GUNLEFT;
+#ifdef GEVR
+    extern int VrLeftHandedMode;
+    if (VrLeftHandedMode) {
+        rightDisplayHand = GUNLEFT;
+        leftDisplayHand = GUNRIGHT;
+    }
+#endif
     ITEM_IDS weapon_left;
     ITEM_IDS weapon_right;
     s32 ammotype;
@@ -7637,8 +7646,8 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
     {
         if (g_CurrentPlayer->mpmenuon == 0)
         {
-            weapon_left = getCurrentPlayerWeaponId(GUNLEFT);
-            weapon_right = getCurrentPlayerWeaponId(GUNRIGHT);
+            weapon_left = getCurrentPlayerWeaponId(leftDisplayHand);
+            weapon_right = getCurrentPlayerWeaponId(rightDisplayHand);
 
 #ifdef GEVR
             /* co-op (#94): one player's view, laid out as solo's, not a quarter of four */
@@ -7666,8 +7675,8 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                 ammotype = get_ammo_type_for_weapon(weapon_right);
 
                 if (ammotype != 0
-                    && g_CurrentPlayer->hands[0].weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP
-                    && g_CurrentPlayer->hands[0].weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
+                    && g_CurrentPlayer->hands[rightDisplayHand].weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP
+                    && g_CurrentPlayer->hands[rightDisplayHand].weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
                     && !bondwalkItemCheckBitflags(weapon_right, WEAPONSTATBITFLAG_HIDE_AMMO_DISPLAY))
                 {
                     imageoffset_r = texGetAmmoIcon(ammo_related[ammotype].IconImage);
@@ -7690,15 +7699,15 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                     if (bondwalkItemCheckBitflags(weapon_right, WEAPONSTATBITFLAG_NO_CLIP_RELOADS))
                     {
                         magammo = 0;
-                        reserveammo = g_CurrentPlayer->ammoheldarr[ammotype] + g_CurrentPlayer->hands[0].weapon_ammo_in_magazine;
+                        reserveammo = g_CurrentPlayer->ammoheldarr[ammotype] + g_CurrentPlayer->hands[rightDisplayHand].weapon_ammo_in_magazine;
                         if (weapon_left == weapon_right)
                         {
-                            reserveammo += g_CurrentPlayer->hands[1].weapon_ammo_in_magazine;
+                            reserveammo += g_CurrentPlayer->hands[leftDisplayHand].weapon_ammo_in_magazine;
                         }
                     }
                     else
                     {
-                        magammo = g_CurrentPlayer->hands[0].weapon_ammo_in_magazine;
+                        magammo = g_CurrentPlayer->hands[rightDisplayHand].weapon_ammo_in_magazine;
                         reserveammo = g_CurrentPlayer->ammoheldarr[ammotype];
                     }
 
@@ -7731,8 +7740,8 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                 ammotype = get_ammo_type_for_weapon(weapon_left);
 
                 if (ammotype != 0
-                    && g_CurrentPlayer->hands[1].weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP
-                    && g_CurrentPlayer->hands[1].weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
+                    && g_CurrentPlayer->hands[leftDisplayHand].weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP
+                    && g_CurrentPlayer->hands[leftDisplayHand].weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
                     && !bondwalkItemCheckBitflags(weapon_left, WEAPONSTATBITFLAG_HIDE_AMMO_DISPLAY))
                 {
                     imageoffset_l = texGetAmmoIcon(ammo_related[ammotype].IconImage);
@@ -7755,15 +7764,15 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
                     if (bondwalkItemCheckBitflags(weapon_left, WEAPONSTATBITFLAG_NO_CLIP_RELOADS))
                     {
                         magammo = 0;
-                        reserveammo = g_CurrentPlayer->ammoheldarr[ammotype] + g_CurrentPlayer->hands[1].weapon_ammo_in_magazine;
+                        reserveammo = g_CurrentPlayer->ammoheldarr[ammotype] + g_CurrentPlayer->hands[leftDisplayHand].weapon_ammo_in_magazine;
                         if (weapon_left == weapon_right)
                         {
-                            reserveammo += g_CurrentPlayer->hands[0].weapon_ammo_in_magazine;
+                            reserveammo += g_CurrentPlayer->hands[rightDisplayHand].weapon_ammo_in_magazine;
                         }
                     }
                     else
                     {
-                        magammo = g_CurrentPlayer->hands[1].weapon_ammo_in_magazine;
+                        magammo = g_CurrentPlayer->hands[leftDisplayHand].weapon_ammo_in_magazine;
                         reserveammo = g_CurrentPlayer->ammoheldarr[ammotype];
                     }
 

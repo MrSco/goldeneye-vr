@@ -195,7 +195,7 @@ static s32 lobbyNotYolt(void) { return gevrNetConfigGet(CFG_SCENARIO) != NET_SCE
 static s32 lobbyCustomSet(void) { return lobbyNotGoldenGun() && gevrNetConfigGet(CFG_WEAPON_SET) == NET_WEAPON_SET_CUSTOM_ROW; }
 static s32 lobbyWeaponVote(void) { return lobbyVoting() && lobbyNotGoldenGun(); }
 static s32 lobbyLoadouts(void) { return gevrNetConfigGet(CFG_LOADOUTS) != 0; }
-static s32 lobbyCanStart(void) { return netIsHost() && (netGetPhase() == 1 || g_gameOverFlag); }
+static s32 lobbyCanStart(void) { return netHostCanStartRound(); }
 static s32 lobbyCanReturn(void) { return netIsHost() && (netGetPhase() == 2 || netCountdownSecondsLeft() > 0); }
 
 /* the vote rows: this player's pick and how many share it, or the host's mode */
@@ -376,7 +376,7 @@ static void rowStartValue(char *b, s32 n)
 {
     s32 secs = netCountdownSecondsLeft();
     if (secs > 0) snprintf(b, n, "- STARTING IN %d", secs);
-    else snprintf(b,n,"%s",netRoundRosterReady() ? "" : "- TEAMS / READY");
+    else snprintf(b,n,"%s",netGetConnectedPlayerCount() == 1 ? "- RESTART WARMUP" : netHostStartRequested() ? "- WAITING FOR READY" : netRoundRosterReady() ? "" : "- REQUEST READY");
 }
 static void rowReturnValue(char *b, s32 n)
 {
@@ -2290,7 +2290,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                     gdl=textRender(gdl,&x,&y,"PING MS",ptrFontBankGothicChars,ptrFontBankGothic,0x00FF00B0,viGetX(),viGetY(),0,0);
                     for (i = 0; i < player_count; i++)
                     {
-                        if (!netSlotOccupied(i)) continue;
+                        if (!netLobbySlotConnected(i)) continue;
                         char entry[32];
                         s32 row_y, name_width, name_height;
                         const char *name = netGetSlotName(i);

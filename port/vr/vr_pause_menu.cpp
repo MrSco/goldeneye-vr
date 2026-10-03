@@ -53,15 +53,24 @@ extern "C" void gevrNativePauseRender(void) {
     gevrFeedPauseInput(!wasOpen);wasOpen=true;
     ImGui_ImplOpenGL3_NewFrame();ImGui::NewFrame();
     GevrPauseView view;view.coop=netCoopActive()!=0;view.host=netIsHost();view.capacity=view.coop?4:netGetMaxPlayers();
-    view.canStart=!view.coop&&gevrPauseActionAvailable("START MATCH")&&netRoundRosterReady();
+    view.canStart=!view.coop&&gevrPauseActionAvailable("START MATCH");
+    view.soloWarmup=!view.coop&&netGetConnectedPlayerCount()==1;
+    view.startRequested=netHostStartRequested()!=0;view.rosterReady=netRoundRosterReady()!=0;
+    view.voting=gevrNetConfigGet(CFG_NEXT_ROUND)==NET_NEXT_VOTE;view.warmup=netGetPhase()==NET_PHASE_WARMUP;
     view.canReturn=!view.coop&&gevrPauseActionAvailable("RETURN TO LOBBY");view.countdown=netCountdownSecondsLeft();view.localReady=netLocalReady()!=0;
     snprintf(view.session,sizeof(view.session),"%s",view.coop?netCoopStageName(bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
+    if(!view.coop && !view.countdown) {
+        int seconds=netWarmupSecondsLeft();
+        if(view.startRequested)snprintf(view.status,sizeof(view.status),"Waiting for ready / loading players");
+        else if(seconds>0)snprintf(view.status,sizeof(view.status),"Warmup %d:%02d - host can start early",seconds/60,seconds%60);
+    }
     gevrPauseLocalGauges(view.gauges);
     gevrPauseLocalRadar(&view.radar);
     const NetMsgLobbyState*lobby=netGetLobbyState();
-    for(int slot=0;slot<(view.coop?4:8);slot++)if(netSlotOccupied(slot)) {
+    for(int slot=0;slot<(view.coop?4:8);slot++)if(netLobbySlotConnected(slot)) {
         auto&p=view.players[view.count++];snprintf(p.name,sizeof(p.name),"%s",netGetSlotName(slot)?netGetSlotName(slot):"Player");
+        p.slot=slot;p.loaded=lobby->slots[slot].loaded!=0;p.spectator=lobby->slots[slot].spectator!=0;p.canKick=netHostCanKickPlayer(slot)!=0;
         snprintf(p.character,sizeof(p.character),"%s",netCharacterName(gevrNetSlotChr(slot)));p.host=slot==netGetHostSlot();
         p.ready=lobby->slots[slot].ready!=0;p.down=view.coop&&gevrCoopDowned(slot);p.ping=netGetSlotPing(slot);
         if(!view.coop)gevrPausePlayerStats(slot,&p.points,&p.kills,&p.losses);
@@ -84,5 +93,7 @@ extern "C" void gevrNativePauseRender(void) {
     if(action==GEVR_PAUSE_RESUME)gevrNativePauseResume();
     if(action==GEVR_PAUSE_LEAVE){gevrNativePauseResume();gevrLobbySessionStopped();gevrRestartToLauncher();}
     if(action==GEVR_PAUSE_ABORT&&netIsHost()&&netCoopActive()){gevrNativePauseResume();netCoopMissionEnded(NET_COOP_RESULT_ABORTED);}
+    if(action==GEVR_PAUSE_REQUEST_VOTES)netHostRequestVotes();
+    if(action>=GEVR_PAUSE_KICK_BASE && action<GEVR_PAUSE_KICK_BASE+8)netHostKickPlayer(action-GEVR_PAUSE_KICK_BASE);
 }
 #endif

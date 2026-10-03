@@ -1,5 +1,6 @@
 
 #define VR_INI_PATH "goldeneye-vr.ini"
+#include "gevr_watch_status.h"
 extern bool VrManualReloading;
 extern bool VrlaserDotForALL;
 extern bool inputRumbleSupported(int playernum);
