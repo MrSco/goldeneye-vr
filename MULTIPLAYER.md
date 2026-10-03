@@ -4,7 +4,7 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 ## Network setup
 
-- Use the same APK version on every headset. The current game and discovery protocol version is `16`; the lobby service lists and joins only games on the same protocol, so an earlier test build or release (four player slots) cannot join a protocol 16 game.
+- Use the same APK version on every headset. The current game and discovery protocol version is `17` (v0.4.0; `16` named only unreleased test builds); the lobby service lists and joins only games on the same protocol, so an earlier release or test build cannot join a v0.4.0 game.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
 - Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same lobby of up to eight.
