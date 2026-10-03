@@ -3310,6 +3310,11 @@ void propExplode(PropRecord *prop, s32 /* enum EXPLOSION_DEF */ explosionType)
 
     prop_obj = prop->obj;
     playernum = (prop_obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER;
+#ifdef GEVR
+    /* explosion.c explosionCreate: which object this is (co-op, a guard's grenade) */
+    extern ObjectRecord *g_gevrExplodingObj;
+    g_gevrExplodingObj = prop_obj;
+#endif
 
     if (prop->parent)
     {
@@ -3371,6 +3376,9 @@ void propExplode(PropRecord *prop, s32 /* enum EXPLOSION_DEF */ explosionType)
             (prop->flags & PROPFLAG_00000008) != 0);
     }
 
+#ifdef GEVR
+    g_gevrExplodingObj = NULL;
+#endif
 #if defined(VERSION_JP) || defined(VERSION_EU)
     return ret;
 #endif

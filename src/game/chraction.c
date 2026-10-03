@@ -6762,6 +6762,9 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                             sp208 = (struct WeaponObjRecord *)create_new_item_instance_of_model(PROP_CHRROCKET, 0x56);
                             if (sp208 != NULL)
                             {
+#ifdef GEVR
+                                gevrCoopGuardLaunched((ObjectRecord *)sp208);
+#endif
                                 matrix_4x4_set_identity(&sp1C8);
                                 matrix_4x4_set_rotation_around_x(sp24C, &sp16C);
                                 matrix_4x4_set_rotation_around_y(subroty, &sp12C);
@@ -6816,6 +6819,9 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                             sp128 = (struct WeaponObjRecord *)create_new_item_instance_of_model(PROP_CHRGRENADEROUND, 0x57);
                             if (sp128 != NULL)
                             {
+#ifdef GEVR
+                                gevrCoopGuardLaunched((ObjectRecord *)sp128);
+#endif
                                 matrix_4x4_set_identity(&spE8);
                                 spDC.f[0] = sp220.f[0] * 33.333332f;
                                 spDC.f[1] = sp220.f[1] * 33.333332f;
@@ -7671,6 +7677,9 @@ void chrlvTickThrowGrenade(ChrRecord *self)
 
     if ((temp_f2 >= 119.0f) && (held_prop != NULL))
     {
+#ifdef GEVR
+        gevrCoopGuardLaunched(held_prop->obj);   /* co-op: its explosion is the host's to report */
+#endif
         propobjSetDropped(self->weapons_held[gunhand], 3);
         self->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
     }
