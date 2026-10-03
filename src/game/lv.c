@@ -887,9 +887,22 @@ Gfx* lvlRender(Gfx* DL)
         extern void gevrStereoFrame(s32 inlevel);
         extern bool netIsActive(void);
         extern int netGetLocalSlot(void);
-        if (netIsActive() && netGetLocalSlot() >= 0)
+        /*
+         * The local slot's player, when it has one. A co-op party's menus are
+         * the solo title stage with player 0 alone (net_core.c
+         * netApplyCoopConfig), so a teammate's slot 1-3 has no player there:
+         * selecting it left g_CurrentPlayer NULL and viSetupCurrentPlayerView
+         * crashed on the first frame (reports 253b6b4f, e8d14102).
+         */
+        s32 gevrLocal = netIsActive() ? netGetLocalSlot() : -1;
+
+        if (gevrLocal >= 0 && gevrLocal < MAX_PLAYER_COUNT && g_playerPointers[gevrLocal] != NULL)
         {
-            set_cur_player(netGetLocalSlot());
+            set_cur_player(gevrLocal);
+        }
+        else if (netIsActive() && g_playerPointers[0] != NULL)
+        {
+            set_cur_player(0);
         }
         gevrStereoFrame(g_CurrentStageToLoad != LEVELID_TITLE);
         if (g_CurrentStageToLoad != LEVELID_TITLE) netSpectatorFrame();
