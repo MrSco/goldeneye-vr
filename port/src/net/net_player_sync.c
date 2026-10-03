@@ -181,6 +181,29 @@ static void netSyncCopyHand(struct player *pl, int slot, int hand, int weapon, i
     pl->hands[hand].field_87D = fire;
 }
 
+/* The copy's simulation has no local stick or headset. Restore its owner pose
+ * after that simulation as well as before it, before any body/aim render pass. */
+static void netSyncCopyOrientation(struct player *pl, const struct netplayermove *move) {
+    pl->vv_theta = move->angles[0];
+    pl->vv_verta = move->angles[1];
+    pl->vv_verta360 = move->angles[1] < 0 ? move->angles[1] + 360.0f : move->angles[1];
+    pl->vv_costheta = cosf(pl->vv_theta * (M_PI_F / 180.0f));
+    pl->vv_sintheta = sinf(pl->vv_theta * (M_PI_F / 180.0f));
+    pl->vv_cosverta = cosf(pl->vv_verta * (M_PI_F / 180.0f));
+    pl->vv_sinverta = sinf(pl->vv_verta * (M_PI_F / 180.0f));
+    pl->field_488.theta_transform.x = -pl->vv_sintheta;
+    pl->field_488.theta_transform.y = 0;
+    pl->field_488.theta_transform.z = pl->vv_costheta;
+    pl->field_488.applied_view.x = -pl->vv_sintheta * pl->vv_cosverta;
+    pl->field_488.applied_view.y = pl->vv_sinverta;
+    pl->field_488.applied_view.z = pl->vv_costheta * pl->vv_cosverta;
+    pl->field_488.applied_view2.x = pl->vv_sintheta * pl->vv_sinverta;
+    pl->field_488.applied_view2.y = pl->vv_cosverta;
+    pl->field_488.applied_view2.z = -pl->vv_costheta * pl->vv_sinverta;
+    pl->field_2A08 = pl->vv_verta * (M_PI_F / 180.0f);
+    pl->field_2A0C = 0;
+}
+
 void netPlayerSyncBeforeTick(s32 playernum) {
     if (!netIsActive()) return;
     
@@ -302,11 +325,7 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             pl->speedsideways = m->movespeed[1];
             
             /* Orientation */
-            pl->vv_theta = m->angles[0];
-            pl->vv_verta = m->angles[1];
-            pl->vv_verta360 = m->angles[1];
-            pl->vv_costheta = cosf(m->angles[0] * (M_PI_F / 180.0f));
-            pl->vv_sintheta = sinf(m->angles[0] * (M_PI_F / 180.0f));
+            netSyncCopyOrientation(pl, m);
             
             /* Crouch / Stance; co-op: a downed player crouches (#94, revive) */
             pl->crouchpos = gevrCoopDowned(playernum) ? CROUCH_SQUAT : m->crouchpos;
@@ -422,6 +441,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
             if (m) {
                 remote->speedforwards = m->movespeed[0];
                 remote->speedsideways = m->movespeed[1];
+                if (!remote->bonddead) netSyncCopyOrientation(remote, m);
             }
             if (remote->prop->chr)
                 remote->prop->chr->ground = remote->prop->pos.y - remote->eyeheight;
@@ -455,6 +475,21 @@ void netPlayerSyncAfterTick(s32 playernum) {
         int phase = netGetPhase();
         for (int slot = 0; slot < GEVR_MAX_PLAYERS; slot++)
             if (lobby->slots[slot].connected) connected |= 1u << slot;
+        /* Runs for the local spectator too, before the movement-send guard.
+         * Repeat reminders while menus are closed; a transient join notice
+         * must not hide the host's request for the rest of warmup. */
+        {
+            static char last_notice[128];
+            static u64 next_notice_us;
+            char notice[128];u64 now=sysGetMicroseconds();
+            netRoundNoticeText(notice,sizeof(notice));
+            if(notice[0] && (strcmp(notice,last_notice) || now>=next_notice_us)) {
+                extern void gevrHudTopReplace(const char *mess, const char *prefix);
+                gevrHudTopReplace(notice,last_notice[0]?last_notice:notice);
+                next_notice_us=now+5000000ull;
+            }
+            snprintf(last_notice,sizeof(last_notice),"%s",notice);
+        }
         /* The host's countdown to the next round (net_core.c
          * netScheduleRound): a top message each second, a fade to black over
          * its last second, and a fade in once the new stage has loaded. */

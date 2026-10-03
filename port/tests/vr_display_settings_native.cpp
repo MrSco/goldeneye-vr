@@ -41,8 +41,24 @@ int main(int argc, char **argv) {
     assert(initial == 90);
 #endif
     vrSettingsLoad();
+    if (argc > 1 && std::strcmp(argv[1], "watch_write") == 0) {
+        VrWatchFaceStatus = std::atoi(argv[2]);
+        VrWatchGesturePause = std::atoi(argv[3]);
+        vrSettingsSave();
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "watch_read") == 0) {
+        assert(VrWatchFaceStatus == std::atoi(argv[2]));
+        assert(VrWatchGesturePause == std::atoi(argv[3]));
+        VrWatchFaceStatus = GEVR_WATCH_FACE_ONLY;
+        VrWatchGesturePause = 0;
+        vrSettingsLoad();
+        assert(VrWatchFaceStatus == GEVR_WATCH_FACE_ONLY && !VrWatchGesturePause);
+        return 0;
+    }
     if (argc == 1) {
         assert(VrRefreshRate == initial); // No DisplayHz, including the obsolete RefreshRate key.
+        assert(VrWatchFaceStatus == GEVR_WATCH_FACE_ON && VrWatchGesturePause == 1);
     } else if (std::strcmp(argv[1], "write") == 0) {
         VrRefreshRate = std::atoi(argv[2]);
         vrSettingsSave();

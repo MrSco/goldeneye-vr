@@ -15,6 +15,7 @@
 
 #include <stdbool.h>
 #include <PR/ultratypes.h>
+#include "gevr_watch_status.h"
 
 /* --- Comfort and control options ---------------------------------------- */
 
@@ -59,6 +60,8 @@ float VrUseSnapTurn = 0.0f;
 /* GoldenEye: 1 = true stereo in first-person play, 0 = everything on the virtual
  * screen. See vr_settings.h. */
 int VrPlayMode = 1;
+int VrWatchFaceStatus = GEVR_WATCH_FACE_ON;
+int VrWatchGesturePause = 1;
 
 /* GoldenEye: comfort vignette while moving in stereo, 0 = off .. 1. */
 float VrComfortVignette = 0.0f;

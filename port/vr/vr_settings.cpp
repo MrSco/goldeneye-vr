@@ -49,6 +49,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "SnapTurn=%.1f\n", VrUseSnapTurn);
     fprintf(f, "TwoHandedAiming=%d\n", VrTwoHandAim ? 1 : 0);
     fprintf(f, "LeftHandedMode=%d\n", VrLeftHandedMode ? 1 : 0);
+    fprintf(f, "; Watch face: 0 Off, 1 On (also standard HUD), 2 Only (gameplay).\n");
+    fprintf(f, "WatchFaceStatus=%d\n", gevrWatchStatusChoice(VrWatchFaceStatus));
+    fprintf(f, "WatchGesturePause=%d\n", VrWatchGesturePause ? 1 : 0);
     fprintf(f, "SwapJoysticks=%d\n", VrSwapJoysticks ? 1 : 0);
     fprintf(f, "AimSteadying=%d\n", VrAimSteady);
     fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
@@ -173,6 +176,16 @@ extern "C" void vrSettingsLoad(void)
     bool gunOffRead = false;
     while (fgets(line, sizeof(line), f)) {
         if (line[0] == '[' || line[0] == '\n' || line[0] == ';' || line[0] == '#') continue;
+        if (strncmp(line, "WatchFaceStatus=", 16) == 0) {
+            char *end;
+            const char *value = line + 16;
+            const long choice = strtol(value, &end, 10);
+            const bool haveValue = end != value;
+            while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') end++;
+            VrWatchFaceStatus = haveValue && !*end && choice >= GEVR_WATCH_FACE_OFF && choice <= GEVR_WATCH_FACE_ONLY
+                ? (int)choice : GEVR_WATCH_FACE_ON;
+            continue;
+        }
         if (strncmp(line, "GripPistol=", 11) == 0 || strncmp(line, "GripRifle=", 10) == 0) {
             const int cls = line[4] == 'P' ? 0 : 1;
             float t[6];
@@ -216,6 +229,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "PauseHub") == 0) VrPauseHub = (ival != 0);
             else if (strcmp(key, "TwoHandedAiming") == 0) VrTwoHandAim = (ival != 0);
             else if (strcmp(key, "LeftHandedMode") == 0) VrLeftHandedMode = (ival != 0);
+            else if (strcmp(key, "WatchGesturePause") == 0) VrWatchGesturePause = (ival != 0);
             else if (strcmp(key, "SwapJoysticks") == 0) VrSwapJoysticks = (ival != 0);
             else if (strcmp(key, "AimSteadying") == 0) VrAimSteady = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);

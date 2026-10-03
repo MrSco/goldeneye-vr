@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_game.h"
+#include "gevr_watch_status.h"
 #include "../../port/vr/gevr_pause_menu.h"
 #endif
 #include <ultra64.h>
@@ -70,6 +71,10 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
     {
         return DL;
     }
+#ifdef GEVR
+    extern s32 g_gevrStereo;
+    if (!gevrWatchShowsStandard(g_gevrStereo, FALSE, VrWatchFaceStatus)) return DL;
+#endif
     
     if (cheatIsActive(CHEAT_NO_RADAR_MP) != 0)
     {
