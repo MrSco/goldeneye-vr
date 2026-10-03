@@ -76,7 +76,9 @@ is goldeneyevr.com, in its own repository.
   solid. All headset-accepted ("looks good"). On the branch since: the
   golden gun, Cougar, DD44 and both knives, which are the PP7's hand moved
   within each model, given the PP7's modelling (built, awaiting the
-  headset). Issue left open.
+  headset). Also there: a grenade or mine in the left hand (#56 panel) is
+  held in the right's hand mirrored (taser hand, fist), the gadget mirrored
+  with it; it floated alone before. Issue left open.
 - #23: multiplayer stays open/experimental. Remote hands do not animate;
   held guns are the original low-detail third-person models. Host migration
   and mixed-network/four-player cases need broader headset coverage.
