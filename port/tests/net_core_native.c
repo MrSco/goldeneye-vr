@@ -49,6 +49,7 @@ void sysLogPrintf(s32 level,const char *fmt,...) { (void)level;(void)fmt; }
 u64 sysGetMicroseconds(void) { return clock_us; }
 void vrSettingsSave(void) {}
 void netVoiceForgetSlot(uint8_t slot) { (void)slot;voice_resets++; }
+void netCoopHostLost(int oldhost,int elected) { (void)oldhost;(void)elected; }
 ENetPacket *enet_packet_create(const void *data,size_t size,uint32_t flags) { (void)flags;if(size<=sizeof(sent_data)) { memcpy(sent_data,data,size);sent_size=size; }return NULL; }
 int enet_peer_send(ENetPeer *peer,uint8_t channel,ENetPacket *packet) { (void)peer;(void)channel;(void)packet;return 0; }
 int enet_address_get_ip(const ENetAddress *address,char *buffer,size_t size) { (void)address;snprintf(buffer,size,"127.0.0.1");return 0; }
