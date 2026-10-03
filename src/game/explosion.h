@@ -7,13 +7,23 @@
 // applied that compiler factors out.
 #define EXPLOSION_DAMAGE_SCALER 1.0f
 
+#define BULLET_IMPACT_BUFFER_LEN 100
+#ifdef GEVR
+/*
+ * Every bullet hit takes an explosion (its flash) and later a smoke (its
+ * puff). Retail's 6 explosions dropped the flash past about 5 holes at once
+ * (#91): as many can show as there are holes.
+ */
+#define EXPLOSION_BUFFER_LEN BULLET_IMPACT_BUFFER_LEN
+#define SMOKE_BUFFER_LEN BULLET_IMPACT_BUFFER_LEN
+#else
 #define EXPLOSION_BUFFER_LEN 6
-#define EXPLOSION_PARTS_LEN 40
 #define SMOKE_BUFFER_LEN 20
+#endif
+#define EXPLOSION_PARTS_LEN 40
 #define SMOKE_PARTS_LEN 10
 #define SCORCH_BUFFER_LEN 20
 #define IMPACT_TYPE_LEN 20
-#define BULLET_IMPACT_BUFFER_LEN 100
 void explosionClearBulletImpactRoomByFlag(PropRecord *prop, s8 flag);
 #define MAX_FLYING_PARTICLES 200
 

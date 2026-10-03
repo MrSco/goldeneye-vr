@@ -1482,7 +1482,7 @@ void explosionCreateSmoke(coord3d *pos, StandTile *stan, s16 smoke_type, u8 *roo
     smoke = NULL;
     player_count = getPlayerCount();
 
-    for (i = 0; i < 20; i++)
+    for (i = 0; i < SMOKE_BUFFER_LEN; i++)
     {
         if (g_SmokeBuffer[i].prop == NULL)
         {
