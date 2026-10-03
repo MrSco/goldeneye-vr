@@ -61,11 +61,13 @@ is goldeneyevr.com, in its own repository.
   surfaces (railings, truss sides) write depth where opaque, and portal-less
   levels draw the blended pass far to near (smoke). Headset-accepted: Cradle
   truss view (DRAWS 207), Dam glass, explosions fine. Issue left open.
-- #74 ammo crates, unreleased, awaiting headset test: the setup converter
+- #74 ammo crates, merged to main 2026-10-02, unreleased: the setup converter
   copied a multi-ammo crate's {u16 model, u16 quantity} slots as words,
   swapping each pair, so every solo crate gave every ammo type (mines,
   knives, grenades). Slots now swap as halfwords; tools/gevr_setup_probe.py
-  covers it. The v0.3.4 multiplayer slot clearing stays.
+  covers it. The v0.3.4 multiplayer slot clearing stays. Headset-accepted on
+  the signed `bce26d2` build: Runway's start crates give only their own ammo.
+  The issue is closed on GitHub; the reporter's reopen request was not acted on.
 - #30: intermittent colored water lines cleared on launcher restart and
   did not recur in final capture; still unresolved. Animation/glass fixed.
 - #85: Egypt Golden Gun room exit door can draw black. The cryptdoor log
