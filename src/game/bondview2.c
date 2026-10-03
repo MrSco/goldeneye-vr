@@ -13177,7 +13177,15 @@ Gfx *gevrRenderRadarGauges(Gfx *gdl, s32 x, s32 y, s32 radius)
     buildGaugeBarDL(armor, osVirtualToPhysical(v+46), 46);
     guOrtho(projection, 0, viGetX(), viGetY(), 0, -100, 100, 1);
     matrix_4x4_set_identity(&mtx);
+    /*
+     * The level's world scale off (matrixmath.c, as the watch's pages do): the
+     * conversion multiplies by it, and on a level whose scale is not 1 (the
+     * solo Dam; co-op shows the radar there, #94) the "identity" shrank the
+     * arcs towards the corner in stereo and off the screen in 2D.
+     */
+    matrix_4x4_7F058C64();
     matrix_4x4_f32_to_s32(mtx.m, (s32 (*)[4])identity);
+    matrix_4x4_7F058C88();
     gDPPipeSync(gdl++);
     gSPViewport(gdl++, osVirtualToPhysical(viewport));
     gSPMatrix(gdl++, osVirtualToPhysical(projection), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
@@ -15660,7 +15668,8 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
             captionfont = gevrBottomCaptionFont(status_bar_text_buffer_index);
             textMeasure(&view_top_offset, &view_left_offset ,(u8* ) stringbuffer_lowerleft[status_bar_text_buffer_index], captionchars, captionfont, 0);
 
-            if (getPlayerCount() < 3)
+            /* co-op (#94): one player's view, laid out as solo's, not a quarter of four */
+            if (getPlayerCount() < 3 || gevrCoopActive())
             {
                 view_left = viGetViewLeft() + 0x1E;
             }
@@ -15675,7 +15684,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
 
             view_horiz = view_left + view_left_offset;
 
-            if (getPlayerCount() < 3)
+            if (getPlayerCount() < 3 || gevrCoopActive())
             {
                 if ((get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNLEFT)) == 0) && (is_clock_drawn_onscreen() == 0))
                 {
@@ -15686,7 +15695,7 @@ Gfx* hudmsgBottomRender(Gfx* arg0)
                     view_top = (viGetViewTop() + viGetViewHeight()) - BONDVIEW_VIEW_TOP_OFFSET_2;
                 }
 #if !defined(VERSION_EU)
-                if (get_cur_playernum() == 1)
+                if (get_cur_playernum() == 1 && !gevrCoopActive())
                 {
                     view_top -= 8;
                 }
