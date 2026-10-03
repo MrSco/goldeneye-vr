@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>GoldenEye VR · Menu Studio</title>
+  <link rel="icon" href="/repo-assets/icon.png">
+  <link rel="stylesheet" href="studio.css">
+</head>
+<body>
+  <div id="app"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <dialog id="dialog"></dialog>
+  <input id="project-file" type="file" accept="application/json,.json" hidden>
+  <input id="asset-files" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.ttf,.otf,.woff,.woff2,.obj,.json" multiple hidden>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
