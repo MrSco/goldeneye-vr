@@ -29,9 +29,24 @@ The Android client pauses heartbeats and offer polling after 60 seconds without 
 
 ## Local check
 
-Run `npm ci`, `npm run check`, and `npm test` for local type and runtime checks. The tests use Wrangler's bundled Miniflare and an isolated SQLite registry; they cover renaming, idle/lifetime limits, heartbeat expiry, and the monthly relay cap without contacting production. Android client regression tests run with `android/gradlew.bat -p android testDebugUnitTest` from the repository root and replace all lobby HTTP responses locally.
+Run `npm ci`, `npm run check`, and `npm test` for local type and runtime checks. The tests use Wrangler's bundled Miniflare and an isolated SQLite registry; they cover renaming, idle/lifetime limits, heartbeat expiry, the monthly relay cap, the stats counters and `/v1/stats`, and the usage report (formatting, thresholds, and a cron run in workerd with GraphQL mocked and the email captured) without contacting production. Android client regression tests run with `android/gradlew.bat -p android testDebugUnitTest` from the repository root and replace all lobby HTTP responses locally.
 
 Run `npm run dev` and make requests to `http://127.0.0.1:8787/v1/lobbies`. TURN credential issuance needs the real server-side secrets and a valid lobby owner or join token. Android builds call the production hostname, so local API checks do not test headset connectivity.
+
+## Usage report, alerts and public stats
+
+The registry counts activity per UTC day in its `stats` table: lobbies created (public and private), join attempts, joins connected (the host stored an ICE answer; the peers may still fail to connect), matches started and the stage of each, TURN credentials issued and refused at the cap, debug reports, and the day's peak concurrent lobbies and players. Counting began with this change, so totals start from its deployment.
+
+A cron trigger (`0 14 * * *`) emails `REPORT_TO` from `reports@goldeneyevr.com`:
+
+- **Daily digest** for the previous UTC day: those counters, plus Cloudflare GraphQL figures for the `goldeneyevr.com` zone (requests, transfer, cache share, visitors, 4xx/5xx, top countries), the `gevr-lobbies` Worker (invocations, errors, subrequests, median CPU), all Workers and Durable Object requests on the account, and TURN egress/ingress. It adds month-to-date TURN egress with a month-end projection and the month's TURN credentials. Mondays add the last 7 days against the 7 before. A failed GraphQL dataset is listed under `CLOUDFLARE ANALYTICS UNAVAILABLE` and the rest of the report still goes out.
+- **Alerts** (`[GEVR ALERT] ...`) at 50%, 80% and 100% of: TURN egress month to date and its projection (projection only after a fifth of the month) against `TURN_FREE_GB`; TURN credentials against `TURN_MONTHLY_CAP`; account Worker requests and Durable Object requests for the day against `WORKERS_DAILY_LIMIT` and `DO_DAILY_LIMIT` (Workers Free limits by default; raise them on a Paid plan). A website 5xx rate over 1% (at least 100 requests) alerts too. Each level is sent once per month or day; the registry's `alerts` table records it after the email goes out.
+
+Configuration: `CF_ACCOUNT_ID` and `CF_ZONE_ID` (the zone's Overview page, API section) are `vars` in `wrangler.jsonc`. The GraphQL token is a secret: create an API token with **Account Analytics: Read** and **Zone Analytics: Read** for `goldeneyevr.com`, then `npx wrangler secret put CF_ANALYTICS_TOKEN`. Without it the report still sends the Worker's own counts.
+
+To run the job locally: `npx wrangler dev --test-scheduled`, then `curl "http://127.0.0.1:8787/__scheduled?cron=0+14+*+*+*"`. Local `send_email` writes the message to a file and logs its path instead of sending it.
+
+`GET /v1/stats` publishes aggregates for the lobby page's **Service record** panel: totals since tracking began, the last 30 days, today, the most played stage and lobbies/matches per day for 14 days. It carries no TURN, bandwidth, report, lobby name, code or token data, and is cacheable for 5 minutes.
 
 ## Endpoints
 
@@ -41,6 +56,7 @@ Run `npm run dev` and make requests to `http://127.0.0.1:8787/v1/lobbies`. TURN 
 | GET | `/v1/lobbies?version=6` | Rate-limited | List compatible open public games |
 | GET | `/v1/lobbies/:code?version=6` | Code | Resolve an available game |
 | GET | `/v1/activity` | Rate-limited | Public activity and aggregate private count |
+| GET | `/v1/stats` | Rate-limited | Public lobby totals for the Service record panel |
 | PUT, DELETE | `/v1/lobbies/:code` | Owner token | Refresh state (optional name) or remove game |
 | POST | `/v1/lobbies/:code/joins` | Code | Start a join and receive a join token |
 | PUT | `/v1/lobbies/:code/joins/:id/offer` | Join token | Submit ICE offer |

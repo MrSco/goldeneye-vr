@@ -22,7 +22,10 @@ export const componentTypes = [
   ["badge", "Status badge", "Multiplayer"], ["tabs", "Navigation tabs", "Controls"],
   ["toggle", "Toggle", "Controls"], ["slider", "Slider", "Controls"], ["select", "Option selector", "Controls"],
   ["input", "Text field", "Controls"], ["progress", "Progress bar", "Controls"],
+  ["gauge", "Health / armour arc", "Multiplayer"],
+  ["radar", "Live radar", "Multiplayer"],
 ];
+export const defaultRadar = {visible:true,blips:[{x:0,y:0,r:255,g:255,b:255,a:160},{x:-.45,y:-.35,r:255,g:255,b:0,a:160},{x:.3,y:.6,r:255,g:255,b:0,a:160},{x:.8,y:-.6,r:255,g:255,b:0,a:96}]};
 export const defaultPlayers = [
   { name: "MrSco", character: "James Bond", team: "Red", ready: true, host: true, ping: 0, kills: 12, deaths: 4, score: 12, voice: true },
   { name: "Natalya", character: "Natalya", team: "Red", ready: true, host: false, ping: 32, kills: 9, deaths: 6, score: 9, voice: true },
@@ -45,6 +48,8 @@ export function createNode(type, x = 80, y = 160, overrides = {}) {
     toggle: [280, 52, "Voice chat"], slider: [320, 60, "Voice volume"],
     select: [320, 64, "Weapon set"], input: [320, 64, "Lobby name"],
     objectives: [1244, 222, "MISSION OBJECTIVES"], progress: [320, 36, "Loading"],
+    gauge: [60, 86, "HEALTH"],
+    radar: [68, 68, "LIVE RADAR"],
   }[type];
   if (!defaults) throw new Error("Unknown component type: " + type);
   return {
@@ -160,7 +165,9 @@ export function validateProject(input) {
     if (a.kind === "font" && !/^data:(font\/[a-z0-9.-]+|application\/[a-z0-9.-]+);base64,/i.test(a.data || "") && a.data !== "/repo-assets/native-ui.ttf") throw new Error("Fonts must be embedded font files.");
     if (a.kind === "model") validateMesh(a.mesh);
   }
-  project.sample = { players: clone(defaultPlayers), map: "Facility", weaponSet: "Power Weapons", scenario: "Normal", phase: "waiting", mode: "deathmatch", objectives: [], ...project.sample };
+  project.sample = { players: clone(defaultPlayers), health: 100, armour: 50, radar:clone(defaultRadar), map: "Facility", weaponSet: "Power Weapons", scenario: "Normal", phase: "waiting", mode: "deathmatch", objectives: [], ...project.sample };
+  const radar=project.sample.radar;
+  if(!radar || typeof radar.visible!=="boolean" || !Array.isArray(radar.blips) || radar.blips.length>8 || !radar.blips.every(b=>b && Number.isFinite(b.x) && Number.isFinite(b.y) && Math.hypot(b.x,b.y)<=1.001 && ["r","g","b","a"].every(k=>Number.isInteger(b[k]) && b[k]>=0 && b[k]<=255)))throw new Error("Invalid sample radar.");
   if (!["deathmatch","coop"].includes(project.sample.mode)) throw new Error("Invalid sample mode.");
   if (!Array.isArray(project.sample.objectives) || project.sample.objectives.length > 10 || !project.sample.objectives.every(o => o && typeof o.text === "string" && ["Incomplete","Complete","Failed"].includes(o.status))) throw new Error("Invalid objectives.");
   if (!Array.isArray(project.sample.players) || project.sample.players.length > 16) throw new Error("Invalid sample roster.");

@@ -22,6 +22,23 @@ async function main() {
     const rosterBox=await page.locator(".type-scoreboard").boundingBox(), lastRow=await rows.at(-1).boundingBox();
     assert.ok(lastRow.y+lastRow.height <= rosterBox.y+rosterBox.height+1,"Full eight-player scoreboard fits");
     await page.screenshot({path:path.join(OUT,"starter.png")});
+    for(const screen of initial.screens) {
+      await page.locator('[data-screen="'+screen.id+'"]').click();
+      const vitals=screen.nodes.filter(n=>n.type==='gauge');
+      assert.equal(vitals.length,2);
+      for(const node of vitals) {
+        const item=page.locator('[data-id="'+node.id+'"]');
+        assert.equal(await item.isVisible(),true);
+        assert.ok(node.y+node.h<98,'vitals fit above the shared header divider');
+        assert.equal(await item.locator('svg polygon').count(),14,'original segmented arc geometry renders');
+      }
+      assert.equal(await page.locator('.type-progress').count(),0,'rectangular vital bars are removed');
+      const radar=screen.nodes.find(n=>n.type==='radar');
+      assert.equal(await page.locator('[data-id="'+radar.id+'"] [data-blip]').count(),4,'sample live radar is visible between the arcs on every tab');
+      assert.equal(radar.x+radar.w/2,500);
+    }
+    await page.locator('[data-screen="'+initial.screens[0].id+'"]').click();
+    console.log('PASS: original health and armour arcs with center radar are visible in every tab header, with no straight bars');
     const title=initial.screens[0].nodes.find(n => n.name === "Screen title");
     await page.locator('[data-id="' + title.id + '"]').click();
     await page.locator('[data-prop="text"]').fill("ASSEMBLE THE SQUAD.");

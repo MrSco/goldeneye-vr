@@ -174,3 +174,44 @@ test("the host's heartbeat changes the player count; heartbeats without one keep
   assert.equal((await update(lobby, { players: 1, maxPlayers: 2 })).status, 200);   // full lobbies leave the list
   assert.equal((await listed()).maxPlayers, 2);
 });
+
+test("lobby activity feeds the public service record", async () => {
+  const before = (await request("GET", "/v1/stats")).body;
+  const lobby = await create();
+  const secret = await request("POST", "/v1/lobbies", { name: "Hidden", visibility: "private", version: 6, stage: 34, weapons: 2, maxPlayers: 4 });
+  assert.equal(secret.status, 201);
+  const join = (await request("POST", `/v1/lobbies/${lobby.code}/joins`, { version: 6 })).body;
+  const answer = () => request("PUT", `/v1/lobbies/${lobby.code}/joins/${join.id}/answer`, { sdp: "a=ice-ufrag:y" }, lobby.ownerToken);
+  assert.equal((await answer()).status, 200);
+  assert.equal((await answer()).status, 200);   // a repeated answer is still one connection
+  assert.equal((await update(lobby, { phase: "in_progress", players: 2 })).status, 200);
+  assert.equal((await update(lobby, { phase: "in_progress", players: 2 })).status, 200);   // heartbeats in a match are not new matches
+
+  const stats = await request("GET", "/v1/stats");
+  assert.equal(stats.status, 200);
+  const after = stats.body;
+  assert.equal(after.today.lobbies - before.today.lobbies, 2);
+  assert.equal(after.today.joins - before.today.joins, 1);
+  assert.equal(after.today.matches - before.today.matches, 1);
+  assert.equal(after.last30.joinsConnected - before.last30.joinsConnected, 1);
+  assert.equal(after.allTime.lobbies - before.allTime.lobbies, 2);
+  assert.ok(after.allTime.peakPlayers >= 2);
+  assert.equal(after.since, new Date().toISOString().slice(0, 10));
+  assert.equal(after.daily.length, 14);
+  assert.equal(after.daily.at(-1).day, after.since);
+  assert.equal(after.daily.at(-1).lobbies, after.today.lobbies);
+  assert.deepEqual(after.topStage, { stage: 1, matches: after.allTime.matches });
+});
+
+test("the service record is public aggregates only", async () => {
+  const response = await runtime.dispatchFetch("http://localhost/v1/stats", { headers: { "cf-connecting-ip": "stats-reader" } });
+  assert.equal(response.headers.get("cache-control"), "public, max-age=300");
+  assert.equal(response.headers.get("access-control-allow-origin"), "*");
+  const body = await response.json();
+  assert.deepEqual(Object.keys(body).sort(), ["allTime", "daily", "last30", "since", "today", "topStage"]);
+  const text = JSON.stringify(body);
+  for (const word of ["turn", "report", "private", "egress", "code", "token", "name"])
+    assert.ok(!text.toLowerCase().includes(`"${word}`), `no ${word} field`);
+  const [refused] = await storage.exec("SELECT SUM(value) AS n FROM stats WHERE key='turn_refused'");
+  assert.ok(refused.n >= 1, "TURN refusals are counted privately for the email report");
+});

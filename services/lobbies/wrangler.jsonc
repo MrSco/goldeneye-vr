@@ -6,7 +6,12 @@
   "assets": { "directory": "./public" },
   "workers_dev": false,
   "send_email": [{ "name": "EMAIL" }],
-  "vars": { "REPORT_TO": "info@goldeneyevr.com", "TURN_MONTHLY_CAP": "4000" },
+  "vars": {
+    "REPORT_TO": "info@goldeneyevr.com", "TURN_MONTHLY_CAP": "4000",
+    "CF_ACCOUNT_ID": "d632607471973d7da5cc88ff208d44a4", "CF_ZONE_ID": "a43b77e6292e06f7b27e588f9ac8bd68",
+    "TURN_FREE_GB": "1000", "WORKERS_DAILY_LIMIT": "100000", "DO_DAILY_LIMIT": "100000"
+  },
+  "triggers": { "crons": ["0 14 * * *"] },
   "observability": { "enabled": true, "traces": { "enabled": true } },
   "durable_objects": {
     "bindings": [{ "name": "REGISTRY", "class_name": "LobbyRegistry" }]

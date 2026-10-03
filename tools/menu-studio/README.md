@@ -85,11 +85,18 @@ own hosting headers.
 The starter project has four views of the shared pause window: Match, Rules,
 Player and Audio. Deathmatch and co-op use mode-specific content in those views. The map IDs, player limits, scenarios and weapon
 sets come from `port/src/net/net_match.c`.
+The header contains the original segmented health and armour arcs beside the
+branding on every tab. Their shapes, colors and fill mirror the game's pause
+gauges; they do not change the radar gauges. The Player footer has no vitals.
+The live radar sits between the arcs. The game reads current player positions
+every frame while the menu is open, using the existing radar's range, heading,
+colors and player visibility rules. The studio shows editable sample blips.
 
 - **Screens:** add templates or a blank canvas, duplicate/remove screens.
 - **Add:** reusable text, buttons, panels, images, models, player rosters,
   game lists, player cards, ballots, scoreboards, loadouts, comms, countdowns,
-  tabs, toggles, sliders, selectors, fields, and progress bars.
+  tabs, toggles, sliders, selectors, fields, progress bars, health/armour arcs,
+  and radar.
 - **Canvas:** drag, resize, Shift-click to multi-select, group, align,
   distribute, and snap to an eight-pixel grid. Alt-drag bypasses snapping.
   Alt-click selects an individual member of a group.
@@ -204,7 +211,9 @@ The starter matches `port/vr/gevr_pause_widgets.h`: an opaque 1280×960
 launcher window with the same ProggyClean font, icon, gold values, white
 labels and blue square controls. Four views are tabs of one window:
 **Match**, **Rules**, **Player** and **Audio**. No separate exit or kill/loss
-pages are needed. Match shows eight deathmatch players and independent map
+pages are needed. Compact health and armour readouts sit beside the branding
+in the shared header on every tab; the Player tab has no bottom vital bars.
+Match shows eight deathmatch players and independent map
 and weapon ballots. The **4-player co-op** mode replaces those with party
 status and mission objectives. Switch modes in the canvas toolbar; use Play
 flow's Host/Client selector to check authority. Sample fields remain local.
@@ -218,8 +227,10 @@ Native Quest implementation is in `port/vr/vr_pause_menu.cpp`, with a C bridge
 in `src/game/mpmenu.c`. It uses existing configuration setters, votes,
 visibility and host restrictions. Raw controller rays feed the same pointer
 ownership logic as the launcher. A trigger interacts; either stick and A/X
-provide a fallback. B/Y or Resume closes the panel. Opening with a held
-trigger requires release before clicking; closing with a held trigger requires
+provide a fallback. B/Y or Resume closes the panel.
+Start/Menu toggles the panel open and closed once per press in deathmatch and
+co-op. Opening with a held trigger requires release before clicking;
+closing with a held trigger requires
 release before firing. Both grips move/resize the surface. Co-op opens this
 panel without pausing teammates; the host can confirm ending the mission.
 Leave requires confirmation and disconnects this headset to the launcher.

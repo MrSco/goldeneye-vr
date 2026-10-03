@@ -44,6 +44,27 @@
       <div id="games" class="games" aria-live="polite"></div>
       <p class="note">A game disappears if its host disconnects or stops sending updates. Open the multiplayer page in your headset to join.</p>
     </section>
+    <section id="record" class="record" aria-labelledby="record-title" hidden>
+      <div class="board-heading">
+        <div>
+          <p class="eyebrow">Service record</p>
+          <h2 id="record-title">Since launch</h2>
+        </div>
+        <p id="record-since" class="record-since"></p>
+      </div>
+      <div class="summary record-tiles" aria-label="Lobby totals since launch">
+        <div><strong id="stat-lobbies">—</strong><span>Lobbies hosted</span></div>
+        <div><strong id="stat-matches">—</strong><span>Matches played</span></div>
+        <div><strong id="stat-joins">—</strong><span>Players connected</span></div>
+        <div><strong id="stat-peak">—</strong><span>Most players at once</span></div>
+      </div>
+      <figure class="record-chart">
+        <figcaption><span>Lobbies hosted per day · last 14 days</span><span id="record-today"></span></figcaption>
+        <svg id="record-bars" viewBox="0 0 700 120" preserveAspectRatio="none" role="img" aria-labelledby="record-bars-label"><title id="record-bars-label">Lobbies hosted per day</title></svg>
+        <div class="record-axis"><span id="record-first-day"></span><span>Today</span></div>
+      </figure>
+      <p id="record-top" class="record-top"></p>
+    </section>
   </main>
   <footer class="wrap footer">
     <span>GoldenEye VR · Experimental multiplayer</span>
