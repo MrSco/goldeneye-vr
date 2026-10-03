@@ -1689,7 +1689,12 @@ s32 mpwatchShouldDisplayRank(s32 param_1)
 #ifdef DEBUG
             osSyncPrintf("Invalid scenario %d!", get_scenario());
 #endif
+#ifdef GEVR
+            /* retail hangs here; a scenario added later shows no rank (#95) */
+            return 0;
+#else
         do {} while (1);
+#endif
     }
 }
 
@@ -1713,7 +1718,12 @@ s32 mpwatchShouldDisplayScore(s32 param_1)
 #ifdef DEBUG
             osSyncPrintf("Invalid scenario %d!", get_scenario());
 #endif
+#ifdef GEVR
+            /* retail hangs here; a scenario added later shows no score (#95) */
+            return 0;
+#else
             do {} while (1);
+#endif
     }
 }
 
