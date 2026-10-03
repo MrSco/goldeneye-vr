@@ -214,6 +214,106 @@ static int coopChanged(const NetChrState *a, const NetChrState *b)
         a->weapon[1] != b->weapon[1] || a->fade != b->fade || a->damage != b->damage;
 }
 
+/* ---- The host's scripted cutscenes, on every headset ---- */
+
+/*
+ * A level's scripts (chrai.c) run on the host only: a cutscene's camera
+ * (CameraSwitch, CameraOrbitPad, CameraLookAtBondFromPad), its fades and its
+ * "Bond has no control" would play on the host alone. While one runs, the
+ * host sends twenty times a second the camera it sees (eye and target), the
+ * pad that places it among the rooms, and its screen's fade; a change of
+ * state goes reliably. The other headsets watch it (bondview2.c
+ * gevrCoopCinemaTick): their player stands, their screen fades with the
+ * host's, and their camera is the host's. Bond is the host's player, whom
+ * they see there; the other players' copies stay out of the shot.
+ */
+#define COOP_CINEMA_SEND_US 50000ull
+#define COOP_CINEMA_STALE_US 2000000ull
+
+typedef struct {
+    u8 flags;                   /* NET_COOP_CINEMA_*: 0 none */
+    f32 pos[3], pos2[3];        /* the camera's eye and target */
+    s16 pad;                    /* the pad that places the camera, -1 none */
+    u8 rgb[3];                  /* the host's screen fade */
+    f32 frac;
+} CoopCinema;
+
+static CoopCinema s_cinema_sent, s_cinema_seen;
+static u64 s_cinema_sent_us, s_cinema_seen_us;
+
+static void coopCinemaHostTick(u64 now)
+{
+    CoopCinema c;
+    s32 pad = -1;
+    u8 raw[16 + 40];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    bool changed;
+
+    memset(&c, 0, sizeof(c));
+    c.flags = (u8)gevrCoopCinemaCollect(c.pos, c.pos2, &pad, c.rgb, &c.frac);
+    c.pad = (s16)(pad >= -1 && pad < 0x7FFF ? pad : -1);
+    if (!c.flags && !s_cinema_sent.flags) return;
+    changed = c.flags != s_cinema_sent.flags || c.pad != s_cinema_sent.pad;
+    if (!changed && now - s_cinema_sent_us < COOP_CINEMA_SEND_US) return;
+    coopHeader(&buf, NET_MSG_COOP_CINEMA);
+    netbufWriteU8(&buf, c.flags);
+    for (int i = 0; i < 3; i++) netbufWriteF32(&buf, c.pos[i]);
+    for (int i = 0; i < 3; i++) netbufWriteF32(&buf, c.pos2[i]);
+    netbufWriteU16(&buf, (u16)c.pad);
+    for (int i = 0; i < 3; i++) netbufWriteU8(&buf, c.rgb[i]);
+    netbufWriteF32(&buf, c.frac);
+    if (buf.error) return;
+    netCoopBroadcast(raw, buf.wp, changed);
+    if (changed) COOP_LOG("cutscene %s (camera %s, pad %d)", c.flags ? "on" : "off",
+                          (c.flags & NET_COOP_CINEMA_CAMERA) ? "the host's" : "own", c.pad);
+    s_cinema_sent = c;
+    s_cinema_sent_us = now;
+}
+
+static void coopReceiveCinema(struct netbuf *b)
+{
+    CoopCinema c;
+    memset(&c, 0, sizeof(c));
+    c.flags = netbufReadU8(b);
+    for (int i = 0; i < 3; i++) c.pos[i] = netbufReadF32(b);
+    for (int i = 0; i < 3; i++) c.pos2[i] = netbufReadF32(b);
+    c.pad = (s16)netbufReadU16(b);
+    for (int i = 0; i < 3; i++) c.rgb[i] = netbufReadU8(b);
+    c.frac = netbufReadF32(b);
+    if (b->error || netbufReadLeft(b) || (c.flags & ~NET_COOP_CINEMA_MASK) || c.pad < -1) return;
+    for (int i = 0; i < 3; i++)
+        if (!isfinite(c.pos[i]) || !isfinite(c.pos2[i])) return;
+    if (!isfinite(c.frac) || c.frac < 0.0f || c.frac > 1.0f) return;
+    if (c.flags != s_cinema_seen.flags)
+        COOP_LOG("the host's cutscene %s (camera %s, pad %d)", c.flags ? "on" : "off",
+                 (c.flags & NET_COOP_CINEMA_CAMERA) ? "the host's" : "own", c.pad);
+    s_cinema_seen = c;
+    s_cinema_seen_us = sysGetMicroseconds();
+}
+
+/* bondview2.c, a teammate's headset: the host's cutscene now, 0 none (or the host gone quiet) */
+int netCoopCinemaState(float *pos, float *pos2, int *pad, unsigned char *rgb, float *frac)
+{
+    if (!gevrCoopPuppets() || !s_cinema_seen.flags || sysGetMicroseconds() - s_cinema_seen_us > COOP_CINEMA_STALE_US)
+        return 0;
+    for (int i = 0; i < 3; i++) {
+        pos[i] = s_cinema_seen.pos[i];
+        pos2[i] = s_cinema_seen.pos2[i];
+        rgb[i] = s_cinema_seen.rgb[i];
+    }
+    *pad = s_cinema_seen.pad;
+    *frac = s_cinema_seen.frac;
+    return s_cinema_seen.flags;
+}
+
+static void coopCinemaReset(void)
+{
+    gevrCoopCinemaReset();
+    memset(&s_cinema_sent, 0, sizeof(s_cinema_sent));
+    memset(&s_cinema_seen, 0, sizeof(s_cinema_seen));
+    s_cinema_sent_us = s_cinema_seen_us = 0;
+}
+
 void netCoopHostTick(void)
 {
     u8 raw[16 + NET_CHR_STATES_PER_PACKET * NET_CHR_STATE_BYTES];
@@ -224,6 +324,7 @@ void netCoopHostTick(void)
     if (!netCoopActive() || !netIsHost()) return;
     coopHostMission(now);
     coopHostDropIn(now);
+    coopCinemaHostTick(now);
     if (!g_ChrSlots || now - s_last_send_us < COOP_SEND_INTERVAL_US) return;
     s_last_send_us = now;
     s_state_seq++;
@@ -534,6 +635,7 @@ void netCoopStageLoaded(void)
     coopMissionReset();
     coopReviveReset();
     coopDropInReset();
+    coopCinemaReset();
     s_last_send_us = 0;
     g_gevrCoopGuardTick = FALSE;
     g_gevrCoopApplyingHit = FALSE;
@@ -1635,6 +1737,7 @@ void netCoopReceive(int type, int slot, int from_host, struct netbuf *b)
         case NET_MSG_CHR_AI: if (from_host && !netIsHost()) coopReceiveAi(b); break;
         case NET_MSG_CHR_REMAP: if (from_host && !netIsHost()) coopReceiveRemap(b); break;
         case NET_MSG_COOP_JOIN: if (from_host && !netIsHost()) coopReceiveJoin(b); break;
+        case NET_MSG_COOP_CINEMA: if (from_host && !netIsHost()) coopReceiveCinema(b); break;
         case NET_MSG_CHR_STATE: if (from_host && !netIsHost()) coopReceiveStates(b); break;
         case NET_MSG_CHR_SPAWN: if (from_host && !netIsHost()) coopReceiveSpawn(b); break;
         case NET_MSG_CHR_REMOVE: if (from_host && !netIsHost()) coopReceiveRemove(b); break;

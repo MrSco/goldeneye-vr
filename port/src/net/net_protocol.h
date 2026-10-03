@@ -95,6 +95,7 @@ typedef enum {
     NET_MSG_CHR_REMAP = 45,     /* New host -> a returning player: the old host's guard slots -> the new host's */
     NET_MSG_COOP_JOIN = 46,     /* Host -> a joiner: start beside this teammate */
     NET_MSG_COOP_MENU = 47,     /* Host -> all, unreliable: the host's menu screen and choices (the others follow) */
+    NET_MSG_COOP_CINEMA = 48,   /* Host -> all: a scripted cutscene's camera and fade, controls off (the others watch it) */
 } NetMsgType;
 
 /*

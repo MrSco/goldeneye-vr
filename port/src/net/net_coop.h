@@ -76,6 +76,15 @@ int gevrCoopSession(void);                  /* a co-op party, in its menus or a 
 int gevrCoopIsHost(void);                   /* ...and this headset hosts it */
 unsigned int gevrCoopIntroSeed(void);       /* the mission's intro camera, the same on every headset */
 int gevrWatchController(void);              /* options.c: the solo watch reads this headset's controller */
+/* The host's scripted cutscenes on every headset (net_coop.c, bondview2.c) */
+enum { NET_COOP_CINEMA_NOCONTROL = 1, NET_COOP_CINEMA_CAMERA = 2, NET_COOP_CINEMA_MASK = 3 };
+int gevrCoopCinemaCollect(float *pos, float *pos2, int *pad, unsigned char *rgb, float *frac);   /* the host */
+int netCoopCinemaState(float *pos, float *pos2, int *pad, unsigned char *rgb, float *frac);     /* a teammate */
+void gevrCoopCinemaTick(void);              /* bondview2.c: this headset's player follows the host's */
+int gevrCoopCinemaCamera(float *pos, float *pos2, void **stan, float *arg6);   /* its camera, the host's */
+int gevrCoopCinemaHides(int player);        /* another player's copy stays out of the shot */
+void gevrCoopCinemaReset(void);             /* a stage's load */
+
 /* The party's tally of the last mission, for the statistics page (front.c; net_core.c) */
 int gevrCoopTallyCount(void);               /* slots to look at, 0 none */
 int gevrCoopTallyPlayed(int slot);

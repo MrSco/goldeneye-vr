@@ -5310,6 +5310,206 @@ void bondviewCalcIntroSwirlCamera(s32 index, f32 time, coord3d *pos, coord3d *lo
  * JP address 7F07BB8C.
  * EU address 7F07B604.
 */
+#ifdef GEVR
+/*
+ * Co-op (#94): the host's scripted cutscenes on every headset (net_coop.c).
+ * The host runs the level's scripts, so its camera, fades and "Bond has no
+ * control" are the cutscene's; another headset watches it through the host's
+ * camera, its own player standing and the other players' copies out of the
+ * shot. AI_CameraLookAtBondFromPad keeps a pointer to its pad; chrai.c keeps
+ * the pad's number here for the others.
+ */
+s32 g_gevrCameraLookAtBondPadNum = -1;
+static s32 s_gevrCinemaOn;      /* this headset follows the host's cutscene */
+
+/* The host: the cutscene its player sees, NET_COOP_CINEMA_* (0 none) */
+int gevrCoopCinemaCollect(float *pos, float *pos2, int *pad, unsigned char *rgb, float *frac)
+{
+    s32 slot = netGetLocalSlot();
+    struct player *pl = (slot >= 0 && slot < 4) ? g_playerPointers[slot] : NULL;
+    s32 flags = 0;
+    s32 i;
+
+    if (pl == NULL || !gevrCoopActive())
+    {
+        return 0;
+    }
+    if (g_CameraMode == CAMERAMODE_POSEND)
+    {
+        flags = NET_COOP_CINEMA_NOCONTROL | NET_COOP_CINEMA_CAMERA;
+    }
+    else if (!is_timer_active && (g_CameraMode == CAMERAMODE_FP || g_CameraMode == CAMERAMODE_NONE))
+    {
+        flags = NET_COOP_CINEMA_NOCONTROL;
+    }
+    if (!flags)
+    {
+        return 0;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        pos[i] = pl->pos.f[i];
+        pos2[i] = pl->pos2.f[i];
+    }
+    *pad = -1;
+    if (flags & NET_COOP_CINEMA_CAMERA)
+    {
+        if (g_CameraLookAtBondPad != NULL)
+        {
+            *pad = g_gevrCameraLookAtBondPadNum;
+        }
+        else if (gBondViewCutscene != NULL)
+        {
+            *pad = gBondViewCutscene->pad;
+        }
+        else
+        {
+            *pad = dword_CODE_bss_80079A14;
+        }
+    }
+    rgb[0] = (u8)pl->colourscreenred;
+    rgb[1] = (u8)pl->colourscreengreen;
+    rgb[2] = (u8)pl->colourscreenblue;
+    *frac = pl->colourscreenfrac;
+    return flags;
+}
+
+/* A new stage: no cutscene of the last one carries over */
+void gevrCoopCinemaReset(void)
+{
+    s_gevrCinemaOn = FALSE;
+}
+
+/* A teammate's headset, its own player's tick: follow the host's cutscene */
+void gevrCoopCinemaTick(void)
+{
+    f32 pos[3];
+    f32 pos2[3];
+    f32 frac;
+    s32 pad;
+    u8 rgb[3];
+    s32 flags;
+
+    if (!gevrCoopPuppets() || get_cur_playernum() != netGetLocalSlot())
+    {
+        return;
+    }
+    flags = netCoopCinemaState(pos, pos2, &pad, rgb, &frac);
+    if (flags)
+    {
+        if (!s_gevrCinemaOn)
+        {
+            /* as AI_BondDisableControl: no control, no sight or ammo */
+            s_gevrCinemaOn = TRUE;
+            is_timer_active = FALSE;
+            gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, FALSE);
+            gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, FALSE);
+        }
+        if ((flags & NET_COOP_CINEMA_CAMERA) && (g_CameraMode == CAMERAMODE_FP || g_CameraMode == CAMERAMODE_NONE))
+        {
+            /* not bondviewSetCameraMode: this headset's Bond takes no part */
+            g_CameraMode = CAMERAMODE_POSEND;
+            g_CurrentPlayer->cameratile = NULL;
+        }
+        else if (!(flags & NET_COOP_CINEMA_CAMERA) && g_CameraMode == CAMERAMODE_POSEND)
+        {
+            bondviewSetCameraMode(CAMERAMODE_FP_NOINPUT);
+        }
+        /*
+         * The host's fade, eased over a few ticks between its packets; only
+         * when it differs, so a fade of this headset's own (its intro's) can
+         * finish, and only once this player is in the mission's own camera.
+         */
+        if ((g_CameraMode == CAMERAMODE_FP || g_CameraMode == CAMERAMODE_NONE || g_CameraMode == CAMERAMODE_POSEND)
+            && (frac != g_CurrentPlayer->colourscreenfrac || rgb[0] != g_CurrentPlayer->colourscreenred
+                || rgb[1] != g_CurrentPlayer->colourscreengreen || rgb[2] != g_CurrentPlayer->colourscreenblue))
+        {
+            currentPlayerAdjustFade(4.0f, rgb[0], rgb[1], rgb[2], frac);
+        }
+    }
+    else if (s_gevrCinemaOn)
+    {
+        /* as AI_BondEnableControl and AI_CameraReturnToBond */
+        s_gevrCinemaOn = FALSE;
+        is_timer_active = TRUE;
+        gunSetSightVisible(GUNSIGHTREASON_NOCONTROL, TRUE);
+        gunSetGunAmmoVisible(GUNAMMOREASON_NOCONTROL, TRUE);
+        if (g_CameraMode == CAMERAMODE_POSEND)
+        {
+            bondviewSetCameraMode(CAMERAMODE_FP_NOINPUT);
+        }
+        if (g_CurrentPlayer->colourscreenfrac > 0.0f)
+        {
+            currentPlayerAdjustFade(15.0f, 0, 0, 0, 0.0f);
+        }
+    }
+}
+
+/* The cutscene camera on a teammate's headset: the host's eye and target, placed by the host's pad */
+int gevrCoopCinemaCamera(float *pos, float *pos2, void **stan, float *arg6)
+{
+    f32 eye[3];
+    f32 target[3];
+    f32 frac;
+    s32 pad;
+    u8 rgb[3];
+    s32 i;
+
+    if (!s_gevrCinemaOn || !(netCoopCinemaState(eye, target, &pad, rgb, &frac) & NET_COOP_CINEMA_CAMERA))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        pos[i] = eye[i];
+        pos2[i] = target[i];
+    }
+    if (pad >= 0)
+    {
+        void *p;
+        struct PadRecord *setupPad;
+
+        if (isNotBoundPad(pad))
+        {
+            p = &g_CurrentSetup.pads[pad];
+        }
+        else
+        {
+            p = &g_CurrentSetup.boundpads[getBoundPadNum(pad)];
+        }
+        setupPad = p;
+        *stan = setupPad->stan;
+        arg6[0] = setupPad->pos.f[0];
+        arg6[1] = setupPad->pos.f[1];
+        arg6[2] = setupPad->pos.f[2];
+    }
+    else
+    {
+        *stan = g_CurrentPlayer->field_488.current_tile_ptr;
+        arg6[0] = g_CurrentPlayer->field_488.collision_position.f[0];
+        arg6[1] = g_CurrentPlayer->field_488.collision_position.f[1];
+        arg6[2] = g_CurrentPlayer->field_488.collision_position.f[2];
+    }
+    return TRUE;
+}
+
+/* Another player's copy, out of a cutscene's shot: on the host every teammate; elsewhere all but the host's Bond */
+int gevrCoopCinemaHides(int player)
+{
+    extern int netGetHostSlot(void);
+
+    if (!gevrCoopActive() || g_CameraMode != CAMERAMODE_POSEND)
+    {
+        return FALSE;
+    }
+    if (gevrCoopIsHost())
+    {
+        return TRUE;
+    }
+    return s_gevrCinemaOn && player != netGetHostSlot();
+}
+#endif
+
 void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, struct coord3d *pos2, struct coord3d *offset, StandTile **stan, struct coord3d *arg6)
 {
     s32 i;
@@ -5643,6 +5843,13 @@ void bondviewFrozenCameraTick(u16 buttons, u16 oldbuttons, struct coord3d *pos, 
     }
     else if (g_CameraMode == CAMERAMODE_POSEND)
     {
+#ifdef GEVR
+        /* co-op (#94): a teammate's headset sees the host's cutscene through the host's camera */
+        if (gevrCoopCinemaCamera(pos->f, pos2->f, (void **)stan, arg6->f))
+        {
+            return;
+        }
+#endif
         if (g_CameraLookAtBondPad != NULL)
         {
             pos->f[0] = g_CameraLookAtBondPad->pos.f[0];
@@ -12345,6 +12552,9 @@ void bondviewMovePlayerUpdateViewport(s8 stick_x, s8 stick_y, u16 buttons)
     if (1);
 #endif
 
+#ifdef GEVR
+    gevrCoopCinemaTick();   /* co-op (#94): a teammate follows the host's scripted cutscene */
+#endif
     if ((g_CameraMode == CAMERAMODE_NONE) || ((g_CameraMode == CAMERAMODE_FP) && (is_timer_active != 0)) || (g_CameraMode == CAMERAMODE_FADE_TO_TITLE))
     {
 #ifdef GEVR
@@ -16160,7 +16370,8 @@ s32 playerTick(PropRecord *prop)
     }
  
 #ifdef GEVR
-    if (netPlayerIsSpectator(index) || (gevrSpectating() && index == netSpectatorTarget() && !g_gevrExtraPass))
+    if (netPlayerIsSpectator(index) || (gevrSpectating() && index == netSpectatorTarget() && !g_gevrExtraPass)
+        || gevrCoopCinemaHides(index))   /* co-op (#94): out of a scripted cutscene's shot */
         goto clear_and_return;
 #endif
     anim = 0;
