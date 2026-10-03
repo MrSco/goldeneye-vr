@@ -51,7 +51,7 @@ def build(output):
         text = re.sub(r"^export ", "", text, flags=re.MULTILINE)
         # Keep modules scoped: helpers with short names must not collide.
         if filename == "model.js":
-            exports = "FORMAT, VERSION, uid, clone, clamp, escapeHTML, palettes, componentTypes, defaultPlayers, createNode, createScreen, bounds, moveNodes, alignNodes, distributeNodes, History, validateProject, validateMesh, parseOBJ, parseGameModel, auditProject, handoffMarkdown"
+            exports = "FORMAT, VERSION, uid, clone, clamp, escapeHTML, palettes, componentTypes, defaultPlayers, defaultRadar, createNode, createScreen, bounds, moveNodes, alignNodes, distributeNodes, History, validateProject, validateMesh, parseOBJ, parseGameModel, auditProject, handoffMarkdown"
             sources.append("const StudioModel = (() => {\n" + text + "\nreturn {" + exports + "};\n})();\n")
         else:
             # Convert destructuring aliases from ES module syntax to object syntax.
