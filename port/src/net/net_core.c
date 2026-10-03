@@ -101,9 +101,13 @@ void netSetPreferredCharacter(uint8_t chr_id) {
     if (chr_id < netCharacterCount()) s_preferred_chr_id = chr_id;
 }
 
+/* The host's ENet peers: every client slot, plus room for a player back on a
+ * new connection while the old one drains and for a joiner being turned away. */
+#define NET_HOST_PEERS (GEVR_MAX_PLAYERS + 1)
+
 /* Remote player state cache */
 static struct netplayermove s_remote_moves[GEVR_MAX_PLAYERS];
-static int8_t s_last_attacker[GEVR_MAX_PLAYERS] = { -1, -1, -1, -1 };   /* per target: who last damaged it here */
+static int8_t s_last_attacker[GEVR_MAX_PLAYERS] = { [0 ... GEVR_MAX_PLAYERS - 1] = -1 };   /* per target: who last damaged it here */
 
 int netLastAttacker(int slot) {
     if (slot < 0 || slot >= GEVR_MAX_PLAYERS) return slot;
@@ -249,8 +253,8 @@ static void netObserveHitMove(int slot,const struct netplayermove *move)
 }
 static void netResetCombatEpoch(void)
 {
-    uint64_t next=(sysGetMicroseconds()<<3)|(uint64_t)(s_host_slot+1);
-    if (next==s_combat_epoch) next+=8;
+    uint64_t next=(sysGetMicroseconds()<<4)|(uint64_t)(s_host_slot+1);   /* slot+1 fits four bits */
+    if (next==s_combat_epoch) next+=16;
     s_combat_epoch=next;
     NET_LOG("Combat clock epoch: %llu",(unsigned long long)s_combat_epoch);
     netClearHostHits();
@@ -425,7 +429,7 @@ int netActiveLoadoutItem(int slot, int k) {
 const NetMatchConfig *netGetActiveMatchConfig(void) { return &s_round.config; }
 int netDamageAllowed(int attacker, int target) {
     if (!netIsActive()) return 1;
-    if (target < 0 || target >= 4 || attacker >= 4) return 0;
+    if (target < 0 || target >= GEVR_MAX_PLAYERS || attacker >= GEVR_MAX_PLAYERS) return 0;
     if (attacker < 0) return 1; /* Environmental damage has no player attacker. */
     return netTeamDamageAllowed(s_round.config.scenario, s_round.config.friendly_fire,
         attacker == target, s_round.team[attacker], s_round.team[target]);
@@ -596,7 +600,7 @@ bool netHostStart(uint16_t port) {
     enet_address_set_ip(&address, "0.0.0.0");
     address.port = port ? port : GEVR_DEFAULT_PORT;
     
-    s_host = enet_host_create(&address, GEVR_MAX_PLAYERS, NET_CHAN_MAX, 0, 0, 0);
+    s_host = enet_host_create(&address, NET_HOST_PEERS, NET_CHAN_MAX, 0, 0, 0);
     if (!s_host) {
         NET_ERR("Failed to create ENet host on port %d!", address.port);
         return false;
@@ -882,7 +886,7 @@ static void netBroadcastLobbyState(void) {
 static void netTakeSpecialItem(int slot, int item);
 
 static void netSendMatchSnapshot(ENetPeer *peer) {
-    u8 raw[512];
+    u8 raw[1024];   /* 65 + 49N + 4N^2 bytes: 713 at eight players */
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
@@ -924,7 +928,7 @@ static void netSendMatchSnapshot(ENetPeer *peer) {
         }
         netbufWriteU8(&buf, special);
     }
-    if (buf.error) return;
+    if (buf.error) { NET_LOG("Match snapshot does not fit its buffer"); return; }
     ENetPacket *packet = enet_packet_create(buf.data, buf.wp, ENET_PACKET_FLAG_RELIABLE);
     enet_peer_send(peer, NET_CHAN_RELIABLE, packet);
 }
@@ -1267,6 +1271,14 @@ int netStartPad(int slot, int padcount) {
     return order[slot % n];
 }
 
+/* The slots before this one that netStartPad gave its pad: a stage with fewer
+ * start pads than players hands them out again (bondview_r.c then stands the
+ * player beside the pad). 0 when the pad is the slot's own. */
+int netStartPadShare(int slot, int padcount) {
+    int n = padcount > 64 ? 64 : padcount;
+    return n > 0 && slot > 0 ? slot / n : 0;
+}
+
 /* One fade from black per online stage load (net_player_sync.c). */
 bool netTakeStageFadeIn(void) {
     bool pending = s_stage_fade_in;
@@ -1279,7 +1291,7 @@ static bool s_rotate_next;   /* the next round follows a finished match: rotate 
 
 static void netBeginRoundReset(bool start) {
     netResetCombatEpoch();
-    u8 raw[128];
+    u8 raw[256];   /* 44 + 10N bytes: 124 at eight players */
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netCancelRound();
     s_round.world_epoch++;
@@ -1310,7 +1322,7 @@ static void netBeginRoundReset(bool start) {
 void netHostRoundEnded(void) {
     if (!netIsHost() || s_state != NET_STATE_INGAME || s_phase != NET_PHASE_IN_PROGRESS || s_match_ended) return;
     s_match_ended = true;
-    for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i);
+    for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i);
     s_results_deadline_us = sysGetMicroseconds() + 30000000ull;
     u8 raw[8];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -1505,7 +1517,7 @@ void netApplyMatchConfig(void) {
     selected_num_players = cap;   /* a slot for every player who may join */
     g_StageNum = c->stage;
     init_mp_options_for_scenario(selected_num_players);
-    reset_mp_options_for_scenario((MPSCENARIOS)(c->scenario < netScenarioCount() ? c->scenario : 0));
+    reset_mp_options_for_scenario((MPSCENARIOS)netGameScenario(c->scenario < netScenarioCount() ? c->scenario : 0));
     if (c->scenario == SCENARIO_YOLT) {
         game_length = 7;   /* last one standing, as reset_mp_options_for_scenario forces */
     } else {
@@ -1551,45 +1563,45 @@ bool netSlotIsSpectator(int slot) {
 int netPlayerIsSpectator(int slot) { return netIsActive() && netSlotIsSpectator(slot); }
 int gevrSpectating(void) { return netLocalIsSpectator() && get_cur_playernum() == s_local_slot; }
 int netTeamRosterReady(void) {
-    uint8_t connected[4], team[4];
-    for (int i=0;i<4;i++) { connected[i]=s_lobby_state.slots[i].connected; team[i]=s_lobby_state.slots[i].team; }
-    return netTeamRosterComplete(s_lobby_state.config.scenario, connected, team);
+    uint8_t connected[GEVR_MAX_PLAYERS], team[GEVR_MAX_PLAYERS];
+    for (int i=0;i<GEVR_MAX_PLAYERS;i++) { connected[i]=s_lobby_state.slots[i].connected; team[i]=s_lobby_state.slots[i].team; }
+    return netTeamRosterComplete(s_lobby_state.config.scenario, GEVR_MAX_PLAYERS, connected, team);
 }
-int netGetSlotTeam(int slot) { return slot >= 0 && slot < 4 ? s_lobby_state.slots[slot].team : NET_TEAM_NONE; }
+int netGetSlotTeam(int slot) { return slot >= 0 && slot < GEVR_MAX_PLAYERS ? s_lobby_state.slots[slot].team : NET_TEAM_NONE; }
 int netGetSlotPing(int slot) {
-    if (slot < 0 || slot >= 4 || !s_lobby_state.slots[slot].connected || s_state == NET_STATE_MIGRATING) return -1;
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected || s_state == NET_STATE_MIGRATING) return -1;
     if (slot == s_host_slot) return 0;
     if (!netIsHost() && sysGetMicroseconds() - s_lobby_received_us > 5000000) return -1;
     return s_lobby_state.slots[slot].ping_ms == NET_PING_UNKNOWN ? -1 : s_lobby_state.slots[slot].ping_ms;
 }
 int netVoiceSlotSpectating(int slot) {
-    return slot >= 0 && slot < 4 && (s_lobby_state.slots[slot].spectator || s_lobby_state.slots[slot].eliminated);
+    return slot >= 0 && slot < GEVR_MAX_PLAYERS && (s_lobby_state.slots[slot].spectator || s_lobby_state.slots[slot].eliminated);
 }
 int netVoiceModeForPair(int a, int b) {
-    if (a < 0 || b < 0 || a >= 4 || b >= 4) return NET_VOICE_PROXIMITY;
+    if (a < 0 || b < 0 || a >= GEVR_MAX_PLAYERS || b >= GEVR_MAX_PLAYERS) return NET_VOICE_PROXIMITY;
     if (s_phase != NET_PHASE_IN_PROGRESS || s_match_ended ||
         netVoiceSlotSpectating(a) || netVoiceSlotSpectating(b)) return NET_VOICE_COUCH;
     return netVoicePairMode(s_round.config.scenario, s_round.config.voice_mode, s_round.team[a], s_round.team[b]);
 }
 int netVoiceSameGroup(int a, int b) {
-    if (a < 0 || b < 0 || a >= 4 || b >= 4 || !s_lobby_state.slots[a].connected || !s_lobby_state.slots[b].connected) return 0;
+    if (a < 0 || b < 0 || a >= GEVR_MAX_PLAYERS || b >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[a].connected || !s_lobby_state.slots[b].connected) return 0;
     return netVoiceGroupsMatch(s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS && !s_match_ended,
         s_round.config.scenario, netVoiceSlotSpectating(a), netVoiceSlotSpectating(b), s_round.team[a], s_round.team[b]);
 }
 int netTeamScore(int team) {
     if (team < 0 || team > 1) return 0;
     int points = s_round.departed_score[team];
-    for (int i=0;i<4;i++) if (netPlayerInRound(i) && s_round.team[i] == team) {
+    for (int i=0;i<GEVR_MAX_PLAYERS;i++) if (netPlayerInRound(i) && s_round.team[i] == team) {
         points += g_playerPlayerData[i].gevr_score_bank;
-        for (int j=0;j<4;j++) points += netTeamKillPoints(team, s_round.team[j], g_playerPlayerData[i].kill_counts[j]);
+        for (int j=0;j<GEVR_MAX_PLAYERS;j++) points += netTeamKillPoints(team, s_round.team[j], g_playerPlayerData[i].kill_counts[j]);
     }
     return points;
 }
 static bool netSetSlotTeam(int slot, uint8_t team) {
-    if (slot < 0 || slot >= 4 || !s_lobby_state.slots[slot].connected || team > NET_TEAM_NONE || !netScenarioHasTeams(s_lobby_state.config.scenario)) return false;
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected || team > NET_TEAM_NONE || !netScenarioHasTeams(s_lobby_state.config.scenario)) return false;
     if (team < 2) {
         int count=0;
-        for (int i=0;i<4;i++) if (i != slot && s_lobby_state.slots[i].connected && s_lobby_state.slots[i].team == team) count++;
+        for (int i=0;i<GEVR_MAX_PLAYERS;i++) if (i != slot && s_lobby_state.slots[i].connected && s_lobby_state.slots[i].team == team) count++;
         if (count >= netTeamCapacity(s_lobby_state.config.scenario, team)) return false;
     }
     if (s_lobby_state.slots[slot].team == team) return true;
@@ -1689,7 +1701,7 @@ static void netSendMatchStartTo(ENetPeer *peer) {
 
 /* Launch enters warmup. The complete team roster is enforced separately
  * before a real round starts. The host consents by pressing Launch. */
-int netLocalReady(void) { return s_local_slot >= 0 && s_local_slot < 4 && s_lobby_state.slots[s_local_slot].ready; }
+int netLocalReady(void) { return s_local_slot >= 0 && s_local_slot < GEVR_MAX_PLAYERS && s_lobby_state.slots[s_local_slot].ready; }
 void gevrNetSetReady(int ready) { netLobbySetReady(ready != 0); }
 int netRoundRosterReady(void) { return netLobbyCanLaunch() && netTeamRosterReady(); }
 int netGetHostSlot(void) { return s_host_slot; }
@@ -2205,7 +2217,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             netSetJoinerName(assigned, name, name_end);
             
             /* Send welcome to client */
-            u8 wraw[64];
+            u8 wraw[128];   /* 34 + 4N bytes: 66 at eight players */
             struct netbuf wbuf = { .data = wraw, .size = sizeof(wraw) };
             netbufStartWrite(&wbuf);
             netbufWriteU32(&wbuf, GEVR_NET_MAGIC);
@@ -2216,6 +2228,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             netbufWriteMatchConfig(&wbuf, s_state == NET_STATE_INGAME ? &s_round.config : &s_lobby_state.config);
             netbufWriteU8(&wbuf, (uint8_t)s_host_slot);
             netWriteCombatIdentity(&wbuf);
+            if (wbuf.error) { NET_ERR("WELCOME does not fit its buffer; turning %s away", clean); netHostDropSlot(assigned, peer); break; }
 
             ENetPacket *wp = enet_packet_create(wbuf.data, wbuf.wp, ENET_PACKET_FLAG_RELIABLE);
             enet_peer_send(peer, NET_CHAN_RELIABLE, wp);
@@ -2315,8 +2328,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (s_local_slot >= 0 && s_lobby_state.slots[s_local_slot].spectator != next.slots[s_local_slot].spectator)
                 for (int i = 0; i < GEVR_MAX_PLAYERS; i++) netVoiceForgetSlot((uint8_t)i);
             bool voice_changed = s_round.config.voice_mode != round.config.voice_mode;
-            for (int i=0;i<4;i++) if (s_lobby_state.slots[i].eliminated != next.slots[i].eliminated || s_round.team[i] != round.team[i]) voice_changed = true;
-            if (voice_changed) for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i);
+            for (int i=0;i<GEVR_MAX_PLAYERS;i++) if (s_lobby_state.slots[i].eliminated != next.slots[i].eliminated || s_round.team[i] != round.team[i]) voice_changed = true;
+            if (voice_changed) for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i);
             s_lobby_received_us = sysGetMicroseconds();
             s_lobby_state = next;
             s_round = round;netImportCombatIdentity(&round);
@@ -2342,7 +2355,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_LOBBY_TEAM: {
             int slot = (int)(intptr_t)peer->data - 1;
             uint8_t team = netbufReadU8(&buf);
-            if (netIsHost() && !buf.error && size == 9 && slot >= 0 && slot < 4 &&
+            if (netIsHost() && !buf.error && size == 9 && slot >= 0 && slot < GEVR_MAX_PLAYERS &&
                 slot_id == slot && s_client_peers[slot] == peer) netSetSlotTeam(slot, team);
             break;
         }
@@ -2507,7 +2520,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             if (netIsHost() || peer != s_server_peer || size != 8 ||
                 s_state != NET_STATE_INGAME || s_phase != NET_PHASE_IN_PROGRESS) break;
             s_match_ended = true;
-            for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i);
+            for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i);
             mpCalculateAwards(false);
             break;
         }
@@ -2516,7 +2529,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             uint8_t phase = netbufReadU8(&buf);
             if (phase != NET_PHASE_WARMUP && phase != NET_PHASE_IN_PROGRESS) break;
             netTransitionRoundPhase((NetPhase)phase);
-            for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i);
+            for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i);
             break;
         }
         case NET_MSG_MATCH_SNAPSHOT: {
@@ -2526,16 +2539,16 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             u32 clock = netbufReadU32(&buf);
             NetRoundSettings round;
             NetMatchConfig pending;
-            uint8_t teams[4], eliminated[4], order_out[4];
-            uint16_t ping[4];
+            uint8_t teams[GEVR_MAX_PLAYERS], eliminated[GEVR_MAX_PLAYERS], order_out[GEVR_MAX_PLAYERS];
+            uint16_t ping[GEVR_MAX_PLAYERS];
             if (!netReadRoundSettings(&buf, &round)) break;
             netbufReadMatchConfig(&buf, &pending);
             if (!netValidConfig(&pending)) break;
             bool valid_roster = true;
-            for (int i=0;i<4;i++) {
+            for (int i=0;i<GEVR_MAX_PLAYERS;i++) {
                 teams[i]=netbufReadU8(&buf); eliminated[i]=netbufReadU8(&buf);
                 ping[i]=netbufReadU16(&buf); order_out[i]=netbufReadU8(&buf);
-                if (teams[i]>NET_TEAM_NONE || eliminated[i]>1 || order_out[i]>4) valid_roster=false;
+                if (teams[i]>NET_TEAM_NONE || eliminated[i]>1 || order_out[i]>GEVR_MAX_PLAYERS) valid_roster=false;
             }
             if (!valid_roster || buf.error) break;
             u32 score_bank[GEVR_MAX_PLAYERS];
@@ -2555,7 +2568,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_round = round;netImportCombatIdentity(&round);
             s_lobby_state.config = pending;
             s_lobby_received_us = sysGetMicroseconds();
-            for (int i=0;i<4;i++) {
+            for (int i=0;i<GEVR_MAX_PLAYERS;i++) {
                 s_lobby_state.slots[i].team=teams[i];
                 s_lobby_state.slots[i].eliminated=eliminated[i];
                 s_lobby_state.slots[i].ping_ms=ping[i];
@@ -2865,7 +2878,7 @@ int netGetVote(int kind, int slot) {
 
 static void netBroadcastVotes(int kind) {
     if (!netIsHost() || s_state != NET_STATE_INGAME || kind < 0 || kind >= NET_BALLOT_COUNT) return;
-    u8 raw[16];
+    u8 raw[9 + GEVR_MAX_PLAYERS];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
@@ -3133,7 +3146,7 @@ static void netHostLost(ENetPeer *peer) {
     s_host_slot = elected;
     s_state = NET_STATE_MIGRATING;
     s_last_latency_us = 0;
-    for (int i=0;i<4;i++) s_lobby_state.slots[i].ping_ms = NET_PING_UNKNOWN;
+    for (int i=0;i<GEVR_MAX_PLAYERS;i++) s_lobby_state.slots[i].ping_ms = NET_PING_UNKNOWN;
     s_migrate_deadline_us = sysGetMicroseconds() + 30ull * 1000000;
     s_countdown_end_us = 0;
     s_next_round_at_us = 0;
@@ -3167,7 +3180,7 @@ bool netHostTakeOver(uint16_t port) {
     ENetAddress address;
     enet_address_set_ip(&address, "0.0.0.0");
     address.port = port ? port : GEVR_DEFAULT_PORT;
-    s_host = enet_host_create(&address, GEVR_MAX_PLAYERS, NET_CHAN_MAX, 0, 0, 0);
+    s_host = enet_host_create(&address, NET_HOST_PEERS, NET_CHAN_MAX, 0, 0, 0);
     if (!s_host) {
         NET_ERR("Failed to create the ENet host for the takeover on port %d", address.port);
         netMigrationGiveUpNow();
@@ -3262,11 +3275,11 @@ void netPoll(void) {
     }
     if (netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS && netPlayersWereTicked()) {
         bool changed = false;
-        for (int i=0;i<4;i++) {
+        for (int i=0;i<GEVR_MAX_PLAYERS;i++) {
             int eliminated = s_round.config.scenario == SCENARIO_YOLT && netPlayerInRound(i) && (s_lobby_state.slots[i].eliminated || g_playerPlayerData[i].order_out_in_yolt != 0);
             if (s_lobby_state.slots[i].eliminated != eliminated) { s_lobby_state.slots[i].eliminated = eliminated; changed = true; }
         }
-        if (changed) { for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i); netBroadcastLobbyState(); }
+        if (changed) { for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i); netBroadcastLobbyState(); }
     }
     if (!s_host) {
         netVoiceTick();
@@ -3353,7 +3366,7 @@ void netPoll(void) {
     uint64_t lobby_now = sysGetMicroseconds();
     if (netIsHost() && lobby_now - s_last_latency_us >= 1000000) {
         s_last_latency_us = lobby_now;
-        for (int i=0;i<4;i++) {
+        for (int i=0;i<GEVR_MAX_PLAYERS;i++) {
             ENetPeer *peer = s_client_peers[i];
             s_lobby_state.slots[i].ping_ms = i == s_host_slot ? 0 :
                 (peer && peer->state == ENET_PEER_STATE_CONNECTED ?

@@ -4,14 +4,14 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 ## Network setup
 
-- Use the same APK version on every headset. The current game and discovery protocol version is `10`; the lobby service lists and joins only games on the same protocol, so an earlier test build or release cannot join a protocol 10 game.
+- Use the same APK version on every headset. The current game and discovery protocol version is `16`; the lobby service lists and joins only games on the same protocol, so an earlier test build or release (four player slots) cannot join a protocol 16 game.
 - The host listens for ENet game traffic on UDP `27007`.
 - LAN discovery broadcasts on UDP `27008`. If discovery does not work on the Wi-Fi network, connect to the host's local IP directly.
-- Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same four-player lobby.
+- Internet games use the lobby service at `lobbies.goldeneyevr.com` for discovery and ICE signaling. Native libjuice carries ENet datagrams directly where possible and through Cloudflare TURN when needed, so players do not configure router forwarding. The host can have a mix of LAN and internet players in the same lobby of up to eight.
 - TURN is a fallback, not a gate. A headset publishes its session once STUN has found its public address; a relay candidate is added when the lobby service issues credentials (UDP 3478, with UDP 443 as a second server for networks that block 3478). If the relay is refused or unreachable, the join still goes ahead and only fails against peers that hole punching cannot reach (symmetric or carrier-grade NAT, typically phone hotspots). The log line `net: ice <id>: no relay candidate` records a direct-only session. "No internet path found" means STUN itself failed.
 - Internet hosting requires the lobby Worker described in `services/lobbies/README.md`; the Cloudflare TURN key is optional and capped per month there. If the Worker is unavailable, LAN and direct IP still work.
 - The host picks the stage, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
-- A match supports up to four occupied, consecutive player slots. The host launcher requires at least two players, all ready, and a stage with enough slots before launch.
+- A match supports up to eight player slots (protocol 16, issue #88). Each stage takes twice the players the game's own menu allows: eight on Facility, Complex, Temple, Stack, Library, Basement and Caves, six on Caverns, Bunker II and Archives, four on Egypt (`port/src/net/net_match.c`). The host launcher requires at least two players, all ready, and a stage with enough slots before launch.
 
 ## Implemented messages
 
@@ -51,6 +51,18 @@ Known limits of protocol 8: guns dropped by a dying player and picked up are not
 
 **Host migration.** If the host quits (the pause menu's exit, or holding Menu) or vanishes (about 6 s of silence), the match goes on: the lowest remaining slot becomes the host and serves the same match from its own slot; the others rejoin it the way they came in, through the same internet lobby or LAN beacon. Slots, characters and scores are preserved for 20 s.
 
+## Eight players (protocol 16)
+
+Issue #88 raises the slots from four to eight. Every slot is still a game player number on every headset (`MAX_PLAYER_COUNT` 8 under `GEVR`; split screen keeps its four, since the front end counts controllers and lays its menus out 2x2).
+
+- **Packets.** WELCOME, the ballot tally (VOTES) and the late-join MATCH_SNAPSHOT outgrew their buffers at eight (66, 17 and 713 bytes); the buffers are larger and a WELCOME or snapshot that does not fit is logged instead of sent short. The combat epoch keeps the host's slot in four low bits. The host's ENet peer pool has one spare for a rejoin, and an internet host takes seven ICE peers.
+- **Start pads.** Every headset still deals the start pads from the match seed. A stage with fewer pads than players gives a later slot a pad an earlier one has; that player stands a metre off the pad per earlier sharer, on floor reached in a straight line from it at the pad's height (`bondview_r.c gevrSpreadStartPad`, log `spawn: slot N shares its start pad`). The pads each stage has are logged at load (`stage: intro cams=... pads=...`).
+- **Teams.** Team 3v3 and Team 4v4 (scenarios 8 and 9) play by the game's 2v2 rules with our team sizes. A team is ranked first or second whatever its size.
+- **Thrown objects.** An object's owner had two bits (players 0..3); the owner's third bit is bit 20 of the runtime flags (`RUNTIME_OWNER` in `bondconstants.h`), so grenades, mines and rockets of players 5..8 credit and detonate correctly.
+- **Controllers.** The N64 had four ports, and the ramrom demos record four. Slots 4..7 read their pads once a frame through `src/joy.c gevrReadSlotPads` (the local headset's controllers, or a copy's trigger), so a headset in slot 5..8 has its controls.
+- **Stage look.** Past four players a stage loads its objects, fog, glass and debris budgets as for four (the setup files and fog tables stop at four). Each player past four adds a share to the vertex/matrix buffer that the view passes draw from.
+- **Not yet done** (from the issue's plan): batching the host's relayed player states into one packet per client, running the other players' view passes only when they fire, spawn protection, and binaural voice for only the nearest speakers. At eight players the host relays about 6 Mbit/s of player state at 90 Hz, and every headset runs up to fourteen view passes a frame; measure both on a Quest before deciding.
+
 ## Voice chat
 
 Allow microphone access when hosting or joining to talk. Denying it leaves voice receive available. The lobby uses full-volume voice; in a match voices pan with direction and fade from 2 m to silence at 20 m. Spectators speak and hear only other spectators, without positional attenuation. In play, hold **Menu + physical right B** to toggle microphone mute (displays "MIC MUTED" / "MIC ON"). The mute choice is remembered. Leaving the game or opening the Quest system menu stops capture and transmission.
@@ -89,4 +101,4 @@ Allow microphone access when hosting or joining to talk. Denying it leaves voice
    - Dual wielding: with dual wield enabled (doubles or any-two), both hands fire with independent aim and view passes, and gunfire sounds originate from the firing hand.
    - Loadouts: players spawn with their selected 4-gun kit, equipped with their primary weapon.
 
-The mode still needs a two-headset playtest of steps 8 and 9. Also test two separate home networks, a phone hotspot, a four-player game with mixed LAN and internet joins, private code visibility, and reconnecting after a disconnect. Confirm that damage and respawn state agree on all headsets after several kills.
+The mode still needs a two-headset playtest of steps 8 and 9. Also test two separate home networks, a phone hotspot, a four-player and an eight-player game with mixed LAN and internet joins, private code visibility, and reconnecting after a disconnect. Confirm that damage and respawn state agree on all headsets after several kills.

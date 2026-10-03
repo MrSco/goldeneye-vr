@@ -28,7 +28,8 @@ int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
 int netWeaponSetCount(void);
 const char *netWeaponSetName(int idx);
 
-/* Scenarios: the five for any party size, SCENARIO_NORMAL..SCENARIO_LTK */
+/* Scenarios: the five for any party size, SCENARIO_NORMAL..SCENARIO_LTK, then
+ * the team ones: the game's 2v2, 3v1 and 2v1 and online 3v3 and 4v4 (net_rules.h) */
 int netScenarioCount(void);
 const char *netScenarioName(int idx);
 

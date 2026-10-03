@@ -107,12 +107,13 @@ static void test_settings_and_wire(void) {
 static void test_ballots_roles_rotation(void) {
     session();
     s_vote[0][0]=1; s_vote[0][1]=0; assert(netTallyBallot(0)==1); /* lowest-slot tie */
-    s_lobby_state.slots[3].connected=1; s_lobby_state.slots[3].spectator=1;
+    /* slot 6 is past Egypt's four and Bunker II's six (net_match.c), not Facility's eight */
+    s_lobby_state.slots[6].connected=1; s_lobby_state.slots[6].spectator=1;
     assert(!netStageEligible(9) && !netStageEligible(8) && netStageEligible(0));
     assert(netGetPlayingCount()==2 && netGetConnectedPlayerCount()==3);
-    assert(!netVoiceSameGroup(0,3) && netVoiceSameGroup(0,1));
+    assert(!netVoiceSameGroup(0,6) && netVoiceSameGroup(0,1));
     assert(netRotationPick(0,0,1u<<9,NET_NEXT_PLAYLIST)==1); /* favorites too small: all eligible */
-    s_lobby_state.slots[3].connected=0;
+    s_lobby_state.slots[6].connected=0;
     assert(netRotationPick(0,0,(1u<<0)|(1u<<9),NET_NEXT_PLAYLIST)==9);
     assert(netRotationPick(0,9,(1u<<0)|(1u<<9),NET_NEXT_PLAYLIST)==0);
     for (int i=0;i<100;i++) { test_now++; assert(netRotationPick(0,9,(1u<<0)|(1u<<9),NET_NEXT_SHUFFLE)==0); }

@@ -29,7 +29,7 @@ static float freshBodyScale(void) {
     /* INSERT_BODY_SCALE */
     return scale;
 }
-static s8 s_copy_weapon[4][2];
+static s8 s_copy_weapon[MAX_PLAYER_COUNT][2];   /* net_player_sync.c sizes it by GEVR_MAX_PLAYERS */
 static struct Model heldModels[2];
 static WeaponObjRecord heldWeapons[2];
 static PropRecord heldProps[2];

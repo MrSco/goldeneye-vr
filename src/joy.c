@@ -1,6 +1,9 @@
 #include <ultra64.h>
 #include "joy.h"
 #include <PR/os.h>
+#ifdef GEVR
+#include <bondconstants.h>
+#endif
 
 #define JOY_CLAMP_MIN          0
 #define JOY_CLAMP_MAX        120
@@ -68,6 +71,47 @@ struct contdata *g_ContDataPtr = &g_ContData[CONTDATA_REGULAR];
 s32 g_ContBusy = 0;
 s32 g_ContPollDisableCount = 0;
 u8 g_ConnectedControllers = 0;
+
+#ifdef GEVR
+/*
+ * Online player slots 4..7 (MAX_PLAYER_COUNT) have no controller port: the
+ * cartridge's pad samples, and the ramrom demos recorded from them, hold
+ * four. A slot's pad is the local headset's controllers when it sits there,
+ * or a remote copy's trigger (port/src/input.c inputReadController); these
+ * slots' pads are read once a frame, as the four ports' samples are consumed.
+ */
+#define GEVR_SLOT_PADS (MAX_PLAYER_COUNT - MAXCONTROLLERS)
+static OSContPad g_GevrSlotPads[GEVR_SLOT_PADS];
+static u16 g_GevrSlotPadsPressed[GEVR_SLOT_PADS];
+
+static void gevrReadSlotPads(void)
+{
+    extern s32 netIsActive(void);   /* the game's bool */
+    extern s32 inputReadController(s32 idx, OSContPad *npad);
+    s32 i;
+
+    for (i = 0; i < GEVR_SLOT_PADS; i++)
+    {
+        OSContPad pad = {0};
+        u16 held = g_GevrSlotPads[i].button;
+
+        if (!netIsActive() || inputReadController(MAXCONTROLLERS + i, &pad) < 0)
+        {
+            OSContPad none = {0};
+
+            pad = none;
+        }
+        g_GevrSlotPads[i] = pad;
+        g_GevrSlotPadsPressed[i] = pad.button & ~held;
+    }
+}
+
+/* the pad of an online-only slot, or NULL for the four ports (and anything else) */
+static OSContPad *gevrSlotPad(s8 contpadnum)
+{
+    return contpadnum >= MAXCONTROLLERS && contpadnum < MAX_PLAYER_COUNT ? &g_GevrSlotPads[contpadnum - MAXCONTROLLERS] : NULL;
+}
+#endif
 
 /**
  * Uses 1 bit per controller.
@@ -421,6 +465,9 @@ void joyConsumeSamplesWrapper(void)
     }
 
     joyConsumeSamples(&g_ContData[CONTDATA_REGULAR]);
+#ifdef GEVR
+    gevrReadSlotPads();
+#endif
 
     if (g_ContRecordFunc)
     {
@@ -539,6 +586,12 @@ void joyPoll(void)
 
 s8 joyGetStickX(s8 contpadnum)
 {
+#ifdef GEVR
+    if (gevrSlotPad(contpadnum) != NULL)
+    {
+        return gevrSlotPad(contpadnum)->stick_x;
+    }
+#endif
     //this assert is on ALL stick functions below
 #ifdef DEBUG
     assert(contpadnum > 0); //j
@@ -566,6 +619,12 @@ s8 joyGetStickX(s8 contpadnum)
 //duplicate?
 s8 joy7000C174(s8 contpadnum)
 {
+#ifdef GEVR
+    if (gevrSlotPad(contpadnum) != NULL)
+    {
+        return gevrSlotPad(contpadnum)->stick_x;
+    }
+#endif
     /*
      * PORT: a pad number outside 0..3 came from a player with no controller
      * assigned. The cartridge let the bad-read counter below index straight
@@ -588,6 +647,12 @@ s8 joy7000C174(s8 contpadnum)
 
 s8 joyGetStickY(s8 contpadnum)
 {
+#ifdef GEVR
+    if (gevrSlotPad(contpadnum) != NULL)
+    {
+        return gevrSlotPad(contpadnum)->stick_y;
+    }
+#endif
     /*
      * PORT: a pad number outside 0..3 came from a player with no controller
      * assigned. The cartridge let the bad-read counter below index straight
@@ -610,6 +675,12 @@ s8 joyGetStickY(s8 contpadnum)
 
 s8 joy7000C284(s8 contpadnum)
 {
+#ifdef GEVR
+    if (gevrSlotPad(contpadnum) != NULL)
+    {
+        return gevrSlotPad(contpadnum)->stick_y;
+    }
+#endif
     /*
      * PORT: a pad number outside 0..3 came from a player with no controller
      * assigned. The cartridge let the bad-read counter below index straight
@@ -632,6 +703,12 @@ s8 joy7000C284(s8 contpadnum)
 
 u16 joyGetButtons(s8 contpadnum, u16 mask)
 {
+#ifdef GEVR
+    if (gevrSlotPad(contpadnum) != NULL)
+    {
+        return gevrSlotPad(contpadnum)->button & mask;
+    }
+#endif
     /*
      * PORT: a pad number outside 0..3 came from a player with no controller
      * assigned. The cartridge let the bad-read counter below index straight
@@ -654,6 +731,12 @@ u16 joyGetButtons(s8 contpadnum, u16 mask)
 
 u16 joyGetButtonsPressedThisFrame(s8 contpadnum, u16 mask)
 {
+#ifdef GEVR
+    if (gevrSlotPad(contpadnum) != NULL)
+    {
+        return g_GevrSlotPadsPressed[contpadnum - MAXCONTROLLERS] & mask;
+    }
+#endif
     /*
      * PORT: a pad number outside 0..3 came from a player with no controller
      * assigned. The cartridge let the bad-read counter below index straight

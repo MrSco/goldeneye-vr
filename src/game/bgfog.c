@@ -437,6 +437,13 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
     {
         num_players = 0;
     }
+#ifdef GEVR
+    /* the fog tables stop at four players (+400); online past four uses those */
+    if (num_players > 4)
+    {
+        num_players = 4;
+    }
+#endif
 
     g_ScaledFarFogIntensity = FLT_MAX;
     g_ScaledDifferenceFromFarFogIntensity = 0.0f;

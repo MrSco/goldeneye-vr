@@ -4,11 +4,15 @@
 #include <bondtypes.h>
 #include "bondconstants.h"
 
-/* The launcher's order; the level ids are the ROM's LEVELID values. */
+/* The launcher's order; the level ids are the ROM's LEVELID values. The
+ * players a map takes online are twice the game's own (front.c
+ * multi_stage_setups: 4, or 3 and 2 on the smaller maps), up to eight
+ * (issue #88). A map with fewer start pads than players stands the extra
+ * ones beside a pad (bondview_r.c gevrSpreadStartPad). */
 static const NetMatchStage s_stages[] = {
-    { "Facility",  34, 4 }, { "Complex",   31, 4 }, { "Temple",    38, 4 }, { "Stack",    46, 4 },
-    { "Caverns",   39, 3 }, { "Library",   48, 4 }, { "Basement",  45, 4 }, { "Caves",    50, 4 },
-    { "Egypt",     32, 2 }, { "Bunker II", 27, 3 }, { "Archives",  24, 3 },
+    { "Facility",  34, 8 }, { "Complex",   31, 8 }, { "Temple",    38, 8 }, { "Stack",    46, 8 },
+    { "Caverns",   39, 6 }, { "Library",   48, 8 }, { "Basement",  45, 8 }, { "Caves",    50, 8 },
+    { "Egypt",     32, 4 }, { "Bunker II", 27, 6 }, { "Archives",  24, 6 },
 };
 
 /* mp_weapon.c mp_weapon_set_text_table's order, as the ROM's LmpweaponsE names them */
@@ -20,6 +24,7 @@ static const char *const s_weapon_sets[] = {
 
 static const char *const s_scenarios[] = {
     "Normal", "You Only Live Twice", "The Living Daylights", "The Man With The Golden Gun", "Licence To Kill", "Team 2v2", "Team 3v1", "Team 2v1",
+    "Team 3v3", "Team 4v4",   /* net_rules.h: online only, by the game's 2v2 rules */
 };
 
 /* front.c multi_game_lengths */
