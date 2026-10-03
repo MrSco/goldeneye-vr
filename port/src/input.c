@@ -1500,13 +1500,14 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         static GevrPauseInputState pauseInput;
         if(netIsActive() && !inMenus && idx==localSlot) {
             const int start=(npad->button & START_BUTTON)!=0;
-            const int panel=gevrNativePauseOpen();
-            if(start && !startHeld && (netCoopActive() || panel) && g_playerPointers[localSlot]) {
+            if(start && !startHeld && g_playerPointers[localSlot]) {
                 g_playerPointers[localSlot]->mpmenuon=!g_playerPointers[localSlot]->mpmenuon;
                 g_gevrWatchGesturePending=0;
             }
             startHeld=start;
-            if(netCoopActive() || panel)npad->button&=~START_BUTTON;
+            /* Own the whole synthesized pulse, including after closing. A
+             * later poll must not send its remaining START to the old menu. */
+            npad->button&=~START_BUTTON;
         } else startHeld=0;
         const int open=gevrNativePauseOpen();
         const int fire=get_button_state(0,"trigger") || get_button_state(1,"trigger");
