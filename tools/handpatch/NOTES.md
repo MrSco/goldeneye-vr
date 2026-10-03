@@ -465,7 +465,12 @@ finger curled round the handle on bone 0, its own thumb and forearm.
   weights; but they are curled round the taser body (thicker than a pistol
   grip) and the pistol hands already draw each finger's knuckle flap and
   tip, which a copied finger would overlap unless the runtime learned to
-  hide those triangles. Offered as a prototype on the PP7 to compare.
+  hide those triangles. Prototyped as renders (the whole grenade hand cut
+  at the wrist, mirrored onto the watch arm; fitted to the PP7's grip, with
+  its own forearm or the PP7's): on the PP7 its taser-sized grip and wrist
+  angle dropped the forearm and left the trigger finger floating. The user:
+  "a bad idea. You were doing better before". Not pursued; nothing of it is
+  in the tools.
 - Totals: 14 models, 36 parts, 144 groups, 4046 triangles, 6176 weights.
 
 Tool quirks
