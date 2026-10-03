@@ -14606,7 +14606,7 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
     return gdl;
 }
 
-#define GEVR_WC_TEXTS 0.72f /* the wheel's glyphs, against the font's own size: its names fit their wedges */
+#define GEVR_WC_TEXTS 0.64f /* the wheel's glyphs, against the font's own size: its names fit their wedges */
 extern f32 text_scale;
 extern s32 text_scale_ox;
 extern s32 text_scale_oy;
@@ -14639,13 +14639,72 @@ static Gfx *gevrWpText(Gfx *gdl, const char *text, s32 cx, s32 y, u32 colour, s3
         *outw = (s32) (w * GEVR_WC_TEXTS);
         return gdl;
     }
-    x = cx - w / 2;
     text_scale = GEVR_WC_TEXTS;
+    {
+        /* a dark shadow a unit down and right, so the line reads on any wedge */
+        s32 sx = cx + 1 - w / 2, sy = y + 1;
+        text_scale_ox = cx + 1;
+        text_scale_oy = y + 1;
+        gdl = textRender(gdl, &sx, &sy, line, ptrFontBankGothicChars, ptrFontBankGothic, 0x000000E0, viGetX(), viGetY(), 0, lh);
+    }
+    x = cx - w / 2;
     text_scale_ox = cx;
     text_scale_oy = y;
     gdl = textRender(gdl, &x, &y, line, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, lh);
     text_scale = 1.0f;
     return gdl;
+}
+
+/* the wheel's short forms of the longest names, matched without case */
+static const char *s_gevrWcShort[][2] = {
+    { "Automatic Shotgun", "Auto Shotgun" },
+    { "AR33 Assault Rifle", "AR33" },
+    { "Grenade Launcher", "G. Launcher" },
+    { "Rocket Launcher", "R. Launcher" },
+    { "Moonraker Laser", "Moonraker" },
+    { "Proximity Mine", "Prox. Mine" },
+    { "Throwing Knife", "Throw Knife" },
+    { "Hunting Knife", "Knife" },
+    { "DD44 Dostovei", "DD44" },
+    { "Cougar Magnum", "Magnum" },
+    { "D5K Deutsche", "D5K" },
+    { "KF7 Soviet", "KF7" },
+    { "(Silenced)", "Sil." },
+    { "Hand Grenade", "Grenade" },
+};
+
+static void gevrWcShorten(const char *in, char *out, s32 size)
+{
+    s32 o = 0;
+
+    while (*in != 0 && *in != '\n' && o < size - 1)
+    {
+        s32 k, len = 0;
+
+        for (k = 0; k < (s32) ARRAYCOUNT(s_gevrWcShort); k++)
+        {
+            const char *f = s_gevrWcShort[k][0];
+            for (len = 0; f[len] != 0; len++)
+            {
+                u8 a = (u8) in[len], b = (u8) f[len];
+                if (a >= 'a' && a <= 'z') a -= 32;
+                if (b >= 'a' && b <= 'z') b -= 32;
+                if (a != b) break;
+            }
+            if (f[len] == 0) break;
+        }
+        if (k < (s32) ARRAYCOUNT(s_gevrWcShort))
+        {
+            const char *t = s_gevrWcShort[k][1];
+            while (*t != 0 && o < size - 1) out[o++] = *t++;
+            in += len;
+        }
+        else
+        {
+            out[o++] = *in++;
+        }
+    }
+    out[o] = 0;
 }
 
 static const char *s_gevrWcLabel[GEVR_WC_COUNT] = { "PISTOLS", "RIFLES", "HEAVY", "GADGETS", "THROWN" };
@@ -14660,8 +14719,7 @@ static const u8 s_gevrWcTint[GEVR_WC_COUNT][3] = {
 #define GEVR_WC_R0 30       /* the ring's hole, for the spinning item */
 #define GEVR_WC_R1 110      /* its outer edge: R1 + POP + 4 is half of GEVR_WP_H */
 #define GEVR_WC_POP 4       /* the highlighted wedge stands out by this much */
-#define GEVR_WC_TEXTR 74    /* the radius a wedge's lines are centred on */
-#define GEVR_WC_TEXTW 80    /* a wedge's lines are cut to this, so they stay inside it */
+#define GEVR_WC_TEXTR 76    /* the radius a wedge's lines are centred on (each cut to its row: gevrWheelRow) */
 #define GEVR_WC_ROWS 3      /* the guns listed in a wedge: the one it gives, with the one before and after */
 #define GEVR_WC_SEGS 8      /* quads along each wedge's arc */
 #define GEVR_WC_GAP 1.5f    /* degrees left dark between wedges */
@@ -14685,14 +14743,14 @@ static u32 gevrWheelShade(s32 cat, s32 empty, s32 lit, s32 outer)
     /* near opaque: the world and the gun behind it made the names hard to read (user) */
     if (empty)
     {
-        return outer ? 0x3A3E44EC : 0x24272CEC;
+        return outer ? 0x4A4E56EC : 0x3A3E44EC;
     }
     r = s_gevrWcTint[cat][0];
     g = s_gevrWcTint[cat][1];
     b = s_gevrWcTint[cat][2];
     if (!lit)
     {
-        r = r * 2 / 5; g = g * 2 / 5; b = b * 2 / 5;
+        r = r * 3 / 5; g = g * 3 / 5; b = b * 3 / 5;
         a = 0xF4;
     }
     else
@@ -14701,9 +14759,44 @@ static u32 gevrWheelShade(s32 cat, s32 empty, s32 lit, s32 outer)
     }
     if (!outer)
     {
-        r = r * 3 / 5; g = g * 3 / 5; b = b * 3 / 5;
+        r = r * 4 / 5; g = g * 4 / 5; b = b * 4 / 5;
     }
     return (r << 24) | (g << 16) | (b << 8) | a;
+}
+
+/*
+ * The widest run of wedge cat along the screen row dy below the ring's
+ * centre, inset by a margin: its width, and its middle's x in *mid.
+ * A line of text is centred there and cut to it, so it stays in its wedge.
+ */
+static s32 gevrWheelRow(s32 cat, s32 dy, s32 pop, s32 *mid)
+{
+    const f32 margin = 3.0f;
+    f32 r0 = GEVR_WC_R0 + margin, r1 = GEVR_WC_R1 + pop - margin;
+    f32 half = GEVR_WC_SPAN * 0.5f - GEVR_WC_GAP - 2.0f;
+    s32 x, run = 0, best = 0, end = 0;
+
+    for (x = -(s32) r1; x <= (s32) r1; x++)
+    {
+        f32 rr = sqrtf((f32) (x * x + dy * dy));
+        f32 deg = atan2f((f32) x, (f32) -dy) * (360.0f / M_TAU_F);
+
+        if (deg < 0.0f) deg += 360.0f;
+        if (rr >= r0 && rr <= r1 && fabsf(gevrWheelRel(deg, cat)) <= half)
+        {
+            if (++run > best)
+            {
+                best = run;
+                end = x;
+            }
+        }
+        else
+        {
+            run = 0;
+        }
+    }
+    *mid = end - (best - 1) / 2;
+    return best;
 }
 
 /*
@@ -14922,15 +15015,18 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
          */
         f32 a = i * GEVR_WC_SPAN * (M_TAU_F / 360.0f);
         f32 r = GEVR_WC_TEXTR + (i == active ? GEVR_WC_POP * 0.5f : 0.0f);
-        s32 tx = cx + (s32) lroundf(sinf(a) * r);
         s32 ty = cy - (s32) lroundf(cosf(a) * r);
+        s32 pop = i == active ? GEVR_WC_POP : 0;
         s32 n = s_gevrWc.n[i];
-        s32 at = 0, rows, k, y;
+        s32 at = 0, rows, k, y, mid, w;
         s32 given;
+        char name[48];
 
         if (n == 0)
         {
-            gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lp / 2, 0x707780FF, lh, GEVR_WC_TEXTW, NULL);
+            y = ty - lp / 2;
+            w = gevrWheelRow(i, y + lp / 2 - cy, pop, &mid);
+            gdl = gevrWpText(gdl, s_gevrWcLabel[i], cx + mid, y, 0x9098A0FF, lh, w, NULL);
             continue;
         }
         given = i == active ? s_gevrWpIndex : gevrWheelPick(hand, i);
@@ -14940,22 +15036,17 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         }
         rows = n < GEVR_WC_ROWS ? n : GEVR_WC_ROWS;
         y = ty - (rows + 1) * lp / 2;
-        gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, y, i == active ? 0xFFF080FF : 0xD0D6DEFF, lh, GEVR_WC_TEXTW, NULL);
+        w = gevrWheelRow(i, y + lp / 2 - cy, pop, &mid);
+        gdl = gevrWpText(gdl, s_gevrWcLabel[i], cx + mid, y, i == active ? 0xFFE65AFF : 0xFFFFFFFF, lh, w, NULL);
         for (k = 0; k < rows; k++)
         {
             /* three or more: before, given, after (wrapping, as the trigger does); fewer: in list order */
             s32 j = rows == GEVR_WC_ROWS ? ((at + k - 1) % n + n) % n : k;
-            u32 colour;
+            s32 ly = y + (k + 1) * lp;
 
-            if (j == at)
-            {
-                colour = i == active ? 0xFFFFFFFF : 0xB8C0CCFF;
-            }
-            else
-            {
-                colour = i == active ? 0x98A0ACFF : 0x6C727CFF;
-            }
-            gdl = gevrWpText(gdl, s_gevrWpList[s_gevrWc.idx[i][j]].name, tx, y + (k + 1) * lp, colour, lh, GEVR_WC_TEXTW, NULL);
+            gevrWcShorten(s_gevrWpList[s_gevrWc.idx[i][j]].name, name, sizeof(name));
+            w = gevrWheelRow(i, ly + lp / 2 - cy, pop, &mid);
+            gdl = gevrWpText(gdl, name, cx + mid, ly, j == at ? 0xFFFFFFFF : 0xC0C8D2FF, lh, w, NULL);
         }
     }
 
