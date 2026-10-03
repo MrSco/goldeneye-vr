@@ -65,6 +65,15 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     ImGui::Begin("##match-window",nullptr,ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize|ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoSavedSettings|ImGuiWindowFlags_NoScrollbar);
     if(icon){ImGui::SetCursorPos(ImVec2(18,18));ImGui::Image(icon,ImVec2(64,64));}
     ImGui::SetCursorPos(ImVec2(100,32));ImGui::TextColored(ImVec4(1,.84f,.47f,1),"GOLDENEYE VR");
+    ImGui::SetWindowFontScale(.75f);
+    for(int i=0;i<2;i++) {
+        const int value=i?model.armour:model.health;
+        ImGui::SetCursorPos(ImVec2(352+i*190,22));ImGui::TextColored(gold,"%s  %d%%",i?"ARMOUR":"HEALTH",value);
+        ImGui::SetCursorPos(ImVec2(352+i*190,60));
+        ImGui::PushStyleColor(ImGuiCol_PlotHistogram,i?ImVec4(.2f,.4f,.68f,1):ImVec4(.95f,.25f,.08f,1));
+        ImGui::ProgressBar(value/100.f,ImVec2(170,14),"");ImGui::PopStyleColor();
+    }
+    ImGui::SetWindowFontScale(1.f);
     ImGui::SetCursorPos(ImVec2(742,22));ImGui::TextColored(gold,"%s",model.session);
     ImGui::SetCursorPos(ImVec2(742,60));ImGui::TextDisabled("%s",model.status);
     ImGui::SetCursorPos(ImVec2(18,98));ImGui::Separator();
@@ -134,14 +143,6 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         for(int i=0;gevrPauseReadField(ui.tab,i,&field);i++) {
             const bool audio=ui.tab==GEVR_PAUSE_AUDIO;
             gevrPauseFieldWidget(field,audio?18:18+(i%2)*642,212+(audio?i:i/2)*76,audio?1100:602);
-        }
-        if(ui.tab==GEVR_PAUSE_PLAYER) {
-            for(int i=0;i<2;i++) {
-                char label[64];snprintf(label,sizeof(label),"%s  %d%%",i?"ARMOUR":"HEALTH",i?model.armour:model.health);
-                ImGui::SetCursorPos(ImVec2(18+i*642,660));ImGui::TextColored(gold,"%s",label);
-                ImGui::SetCursorPos(ImVec2(18+i*642,704));ImGui::PushStyleColor(ImGuiCol_PlotHistogram,i?ImVec4(.2f,.4f,.68f,1):ImVec4(.95f,.25f,.08f,1));
-                ImGui::ProgressBar((i?model.armour:model.health)/100.f,ImVec2(602,32),"");ImGui::PopStyleColor();
-            }
         }
         ImGui::SetCursorPos(ImVec2(18,816));
         ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Host settings. Round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
