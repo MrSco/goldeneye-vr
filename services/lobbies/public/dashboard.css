@@ -21,7 +21,7 @@ h3 { font-size:27px; margin:0; }
 .summary div { padding:22px 25px; background:var(--panel); display:flex; flex-direction:column; }
 .summary strong { font:700 43px/1 "Arial Narrow",system-ui,sans-serif; color:var(--gold); }
 .summary span { color:var(--muted); margin-top:7px; font-size:14px; }
-.record { padding:35px 0 60px; border-top:1px solid var(--line); }
+.record { padding:35px 0 70px; border-top:1px solid var(--line); }
 .record-since { margin:0; color:var(--muted); font:600 12px/1.4 ui-monospace,monospace; letter-spacing:.08em; text-transform:uppercase; text-align:right; }
 .record-tiles { margin-top:0; }
 .record-tiles strong { font-variant-numeric:tabular-nums; }
@@ -35,7 +35,7 @@ h3 { font-size:27px; margin:0; }
 .record-axis { display:flex; justify-content:space-between; margin-top:8px; padding-top:8px; border-top:1px solid var(--line); color:var(--muted); font:12px/1.4 ui-monospace,monospace; }
 .record-top { margin:18px 0 0; color:var(--muted); font-size:15px; }
 .record-top strong { color:var(--text); }
-.board { padding:35px 0 70px; border-top:1px solid var(--line); }
+.board { padding:35px 0 60px; border-top:1px solid var(--line); }
 .board-heading { display:flex; align-items:end; justify-content:space-between; gap:20px; margin-bottom:26px; }
 button { min-width:110px; padding:10px 17px; border:1px solid var(--gold); border-radius:7px; background:transparent; color:var(--gold); font:700 15px system-ui,sans-serif; cursor:pointer; }
 button:hover { background:var(--gold); color:#1b1403; }
