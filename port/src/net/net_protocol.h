@@ -94,6 +94,7 @@ typedef enum {
     NET_MSG_CHR_AI = 44,        /* Host -> all, unreliable: each guard's and background list's AI state (a new host resumes it) */
     NET_MSG_CHR_REMAP = 45,     /* New host -> a returning player: the old host's guard slots -> the new host's */
     NET_MSG_COOP_JOIN = 46,     /* Host -> a joiner: start beside this teammate */
+    NET_MSG_COOP_MENU = 47,     /* Host -> all, unreliable: the host's menu screen and choices (the others follow) */
 } NetMsgType;
 
 /*
@@ -280,7 +281,7 @@ static inline int netbufReadAmmoState(struct netbuf *b, NetAmmoState *s) {
 /* The players a config's stage takes: a co-op mission takes the party's four */
 static inline int netConfigMaxPlayers(const NetMatchConfig *c) {
     if (!c) return 0;
-    if (c->mode == NET_MODE_COOP) return netCoopMissionIndexOf(c->stage) >= 0 ? NET_COOP_MAX_PLAYERS : 0;
+    if (c->mode == NET_MODE_COOP) return netCoopStageValid(c->stage) ? NET_COOP_MAX_PLAYERS : 0;
     return netStageMaxPlayers(netStageIndexOf(c->stage));
 }
 
@@ -288,7 +289,7 @@ static inline int netMatchConfigValid(const NetMatchConfig *c) {
     if (!c || c->mode > NET_MODE_COOP) return 0;
     if (c->mode == NET_MODE_COOP) {
         /* the deathmatch fields ride along unused; the mission and difficulty decide */
-        if (netCoopMissionIndexOf(c->stage) < 0 || c->difficulty >= NET_DIFFICULTY_COUNT ||
+        if (!netCoopStageValid(c->stage) || c->difficulty >= NET_DIFFICULTY_COUNT ||
             c->voice_mode > NET_VOICE_COUCH || c->friendly_fire > 1 || c->gun_size > NET_GUN_BIG) return 0;
         return 1;
     }

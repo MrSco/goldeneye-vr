@@ -85,6 +85,7 @@ int vr_left_gun_fire;
 extern bool vr_grip_for_unarmed;
 extern int VrLeftHandedMode;
 extern int VrSwapJoysticks;
+extern int bossGetStageNum(void);
 extern bool netIsActive(void);
 extern void netVoiceToggleMuted(void);
 
@@ -982,7 +983,20 @@ s32 inputReadController(s32 idx, OSContPad *npad)
 
     extern bool netIsActive(void);
     extern int netGetLocalSlot(void);
-    const int localSlot = netIsActive() ? netGetLocalSlot() : 0;
+    extern int bossGetStageNum(void);
+    extern int gevrCoopMenuFollowing(void);
+    /*
+     * Co-op (#94): the party's menus are the title stage, which has no player
+     * slots and reads the first controller: this headset's, wherever its slot.
+     * A headset following the host's menus takes no input of its own there.
+     */
+    const int inMenus = bossGetStageNum() == 90; /* LEVELID_TITLE */
+    const int localSlot = netIsActive() && !inMenus ? netGetLocalSlot() : 0;
+
+    if (inMenus && netIsActive() && gevrCoopMenuFollowing()) {
+        memset(npad, 0, sizeof(*npad));
+        return 0;
+    }
 
     if (netIsActive() && idx != localSlot) {
         memset(npad, 0, sizeof(*npad));
@@ -1537,6 +1551,8 @@ s32 inputControllerConnected(s32 idx)
         return 0;
     }
     if (netIsActive()) {
+        /* co-op (#94): the party's menus read this headset's controller as the first */
+        if (bossGetStageNum() == 90 /* LEVELID_TITLE */) return idx == 0;
         return (idx == netGetLocalSlot() || netIsRemotePlayerActive(idx)) ? 1 : 0;
     }
     return pads[idx] || (connectedMask & (1 << idx));
@@ -1768,6 +1784,7 @@ s32 inputControllerMask(void)
 {
     if (netIsActive()) {
         s32 mask = 0;
+        if (bossGetStageNum() == 90 /* LEVELID_TITLE: the party's menus */) return 1;
         for (int i = 0; i < INPUT_MAX_CONTROLLERS; ++i) {
             if (i == netGetLocalSlot() || netIsRemotePlayerActive(i)) {
                 mask |= (1 << i);

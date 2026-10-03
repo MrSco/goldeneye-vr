@@ -49,6 +49,9 @@
 #include "ob.h"
 #include "gbi_extension.h"
 #include "model.h"
+#ifdef GEVR
+#include "net_coop.h"   /* co-op (#94): the party's menus, the host driving */
+#endif
 
 
 /**
@@ -1382,6 +1385,12 @@ void frontUpdateControlStickPosition(void) {
         f32 u, v;
         s32 hit = gevrVrScreenPointer(&u, &v);
 
+        /* co-op (#94): a headset following the host's menus shows the host's cursor */
+        if (gevrCoopMenuFollowing())
+        {
+            hit = 0;
+        }
+
         if (stickx != 0 || sticky != 0 || hit == 0)
         {
             pointing = FALSE;
@@ -2337,6 +2346,13 @@ void init_menu05_fileselect(void)
 
     prev_keypresses = FALSE;
 
+#ifdef GEVR
+    /* co-op (#94): the party arrives here past the legal screen, which reads the saves */
+    if (gevrCoopSession())
+    {
+        fileValidateSaves();
+    }
+#endif
 
     if (selected_folder_num < FOLDER1)
     {
@@ -2625,6 +2641,20 @@ void interface_menu05_fileselect(void)
 
     if (selected_folder_num >= FOLDER1)
     {
+#ifdef GEVR
+        /*
+         * Co-op (#94): the party plays the solo missions, so the folder leads
+         * to mission select, as mode select's "Solo" does; the host drives
+         * from there (net_coop_menu.c).
+         */
+        if (gevrCoopSession())
+        {
+            gamemode = GAMEMODE_SOLO;
+            frontChangeMenu(MENU_MISSION_SELECT, FALSE);
+            set_cursor_to_stage_solo(0);
+            return;
+        }
+#endif
         frontChangeMenu(MENU_MODE_SELECT, FALSE);
         setCursorPOSforMode(0);
 
@@ -2636,6 +2666,10 @@ void interface_menu05_fileselect(void)
     if (g_MenuTimer >= 1501) // PAL (50fps): 30 seconds + 1 frame
 #else
     if (g_MenuTimer >= 1801) // NTSC (60fps): 30 seconds + 1 frame
+#endif
+#ifdef GEVR
+    /* not with a co-op party waiting on this player's folder */
+    if (!gevrCoopSession())
 #endif
     {
         frontChangeMenu(MENU_LEGAL_SCREEN, TRUE);
@@ -3554,6 +3588,14 @@ void interface_menu07_missionsel(void)
     }
     else if (tab_prev_selected != 0)
     {
+#ifdef GEVR
+        /* co-op (#94): no mode select; back to the folders */
+        if (gevrCoopSession())
+        {
+            frontChangeMenu(MENU_FILE_SELECT, 0);
+            return;
+        }
+#endif
         frontChangeMenu(MENU_MODE_SELECT, 0);
         setCursorPOSforMode(0);
     }
@@ -7183,6 +7225,19 @@ void init_menu0B_runstage(void)
     {
         gevrApplyLauncherCheats();
     }
+    /*
+     * Co-op (#94): the host's Start loads the mission on every headset
+     * (net_core.c, a round reset); another headset never gets here, as it
+     * follows the host's screens and takes no input of its own.
+     */
+    if (gevrCoopSession())
+    {
+        if (gevrCoopIsHost())
+        {
+            netCoopHostStartMission(selected_stage, selected_difficulty);
+        }
+        return;
+    }
 #endif
     bossSetLoadedStage(selected_stage);
     lvlSetSelectedDifficulty(selected_difficulty);
@@ -8830,6 +8885,7 @@ void menu_init(void)
 
 #ifdef GEVR
     gevrLevelJumpProbe();
+    gevrCoopMenuTick();   /* co-op (#94): the host's screen out, the others' in */
 #endif
     if (
         ((menu_update > MENU_INVALID) || (maybe_prev_menu > MENU_INVALID))

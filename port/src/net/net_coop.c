@@ -1234,7 +1234,7 @@ void netCoopReviveTick(void)
         if (playing > 0 && down == playing) {
             s_all_down_ended = true;
             COOP_LOG("every player is down: the mission has failed");
-            netCoopMissionEnded(0);
+            netCoopMissionEnded(NET_COOP_RESULT_ALL_DOWN);
         }
     }
 }

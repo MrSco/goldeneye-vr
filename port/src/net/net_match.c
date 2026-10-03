@@ -108,6 +108,14 @@ int netCoopMissionIndexOf(uint8_t level_id) {
         if (s_coop_missions[i].level_id == level_id) return i;
     return -1;
 }
+int netCoopStageValid(uint8_t level_id) {
+    return netCoopMissionIndexOf(level_id) >= 0 || level_id == NET_COOP_FRONT_STAGE || level_id == NET_COOP_CUBA_STAGE;
+}
+const char *netCoopStageName(uint8_t level_id) {
+    if (level_id == NET_COOP_FRONT_STAGE) return "in the menus";
+    if (level_id == NET_COOP_CUBA_STAGE) return "Cuba";
+    return netCoopMissionName(netCoopMissionIndexOf(level_id));
+}
 const char *netDifficultyName(int difficulty) {
     return difficulty >= 0 && difficulty < COUNT(s_difficulties) ? s_difficulties[difficulty] : "";
 }

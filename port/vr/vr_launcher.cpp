@@ -874,12 +874,15 @@ static const char *gunNameAt(int idx) { return netItem(idx)->name; }
 static const char *stageNameById(int levelId) { return netStageName(netStageIndexOf((uint8_t)levelId)); }
 
 // A game list's entry (the lobby service, a LAN beacon): a co-op game lists
-// 0x80 | its mission's level id, and its difficulty in the weapons' place
-// (net_core.c netGetLobbyStage).
+// 0x80 | where the party is (its menus or a mission's level id), and its
+// difficulty in the weapons' place (net_core.c netGetLobbyStage).
 static std::string listedGameLabel(int stage, int weapons) {
-    if (stage & NET_LOBBY_COOP_STAGE)
-        return std::string("Co-op: ") + netCoopMissionName(netCoopMissionIndexOf((uint8_t)(stage & 0x7F))) + ", " +
-               netDifficultyName(weapons);
+    if (stage & NET_LOBBY_COOP_STAGE) {
+        const uint8_t where = (uint8_t)(stage & 0x7F);
+        if (where == NET_COOP_FRONT_STAGE)
+            return "Co-op campaign, in the menus";
+        return std::string("Co-op campaign: ") + netCoopStageName(where) + ", " + netDifficultyName(weapons);
+    }
     return std::string(stageNameById(stage)) + ", " + netWeaponSetName(weapons);
 }
 
@@ -913,10 +916,11 @@ static NetMatchConfig gevrLauncherConfig() {
     for (int i = 0; i < 4; i++)
         c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
     if (VrMpMode == NET_MODE_COOP) {
-        // a solo mission for the party: the stage is the mission, the deathmatch fields ride along
+        // the solo campaign for the party: it starts in the game's menus, where the
+        // host picks each mission and difficulty; the deathmatch fields ride along
         c.mode = NET_MODE_COOP;
-        c.stage = (uint8_t)(netCoopMissionIndexOf((uint8_t)VrMpMission) >= 0 ? VrMpMission : 33);
-        c.difficulty = (uint8_t)clampi(VrMpDifficulty, NET_DIFFICULTY_COUNT, 0);
+        c.stage = NET_COOP_FRONT_STAGE;
+        c.difficulty = 0;
         return c;
     }
     if (netScenarioHasTeams(c.scenario) &&
@@ -954,12 +958,8 @@ static void gevrHostChoiceChanged() {
     netLobbySetConfig(&c);
     const NetMatchConfig *accepted = netGetMatchConfig();
     VrMpMode = accepted->mode;
-    if (accepted->mode == NET_MODE_COOP) {
-        VrMpMission = accepted->stage;
-        VrMpDifficulty = accepted->difficulty;
-    } else {
+    if (accepted->mode != NET_MODE_COOP)
         VrMpStage = accepted->stage;
-    }
     VrMpScenario = accepted->scenario;
     VrMpWeaponSet = accepted->weapon_set;
     VrMpLength = accepted->game_length;
@@ -1425,24 +1425,10 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                             gevrHostChoiceChanged();
                         }
                         if (VrMpMode == NET_MODE_COOP) {
-                            int missionIdx = netCoopMissionIndexOf((uint8_t)VrMpMission);
-                            if (missionIdx < 0)
-                                missionIdx = 0;
-                            ImGui::Text("Mission:");
-                            ImGui::SameLine();
-                            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-                            if (namedCombo("##coopmission", netCoopMissionCount(), netCoopMissionName, &missionIdx)) {
-                                VrMpMission = netCoopMission(missionIdx)->level_id;
-                                gevrHostChoiceChanged();
-                            }
-                            ImGui::SameLine();
-                            ImGui::TextDisabled("(up to %d players)", NET_COOP_MAX_PLAYERS);
-                            ImGui::Text("Difficulty:");
-                            ImGui::SameLine();
-                            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-                            if (namedCombo("##coopdifficulty", NET_DIFFICULTY_COUNT, netDifficultyName, &VrMpDifficulty))
-                                gevrHostChoiceChanged();
-                            ImGui::TextDisabled("Players can join or leave during the mission.");
+                            // the game's own menus decide the rest: each player's folder, then
+                            // the host's mission, difficulty and briefing (net_coop_menu.c)
+                            ImGui::TextDisabled("The campaign, up to %d players. Each player picks a folder;", NET_COOP_MAX_PLAYERS);
+                            ImGui::TextDisabled("the host picks missions. Players can join or leave any time.");
                         }
                         // The stage and the weapons, before hosting and in the lobby too,
                         // where a change reaches everyone (gevrHostChoiceChanged).
@@ -1566,9 +1552,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                         else if (connected) {
                             const NetMatchConfig *cfg = netGetMatchConfig();
                             if (cfg->mode == NET_MODE_COOP)
-                                ImGui::Text("Co-op mission: %s / %s",
-                                            netCoopMissionName(netCoopMissionIndexOf(cfg->stage)),
-                                            netDifficultyName(cfg->difficulty));
+                                ImGui::Text("Co-op campaign: the host picks the missions");
                             else
                                 ImGui::Text("%s / %s / %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
                                             netScenarioName(cfg->scenario));
@@ -1734,9 +1718,8 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         if (ImGui::Button("Launch", ImVec2(0, h))) {
 
             if (netLobbyHostLaunchMatch()) {
-                // a co-op mission is under way from the start (players join it in progress)
-                const bool coop = netGetMatchConfig()->mode == NET_MODE_COOP;
-                gevrJavaCommand("lobbyCommand", (std::string("phase|") + (pCount > 1 || coop ? "in_progress" : "warmup") + "|" +
+                // the lobby service lists one player as warming up (it refuses "in progress" alone)
+                gevrJavaCommand("lobbyCommand", (std::string("phase|") + (pCount > 1 ? "in_progress" : "warmup") + "|" +
                                                  std::to_string(pCount))
                                                     .c_str());
                 // the game's globals from the lobby's config, as every headset sets them before a load
