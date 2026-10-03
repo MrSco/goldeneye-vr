@@ -1,0 +1,12 @@
+{
+  "name": "gevr-menu-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "python3 build.py",
+    "build:site": "python3 build.py --site",
+    "start": "python3 serve.py",
+    "test": "node model.test.mjs"
+  }
+}
