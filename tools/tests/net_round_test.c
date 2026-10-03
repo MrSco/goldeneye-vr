@@ -11,6 +11,7 @@ static u64 test_now;
 static int resets, starts, voice_clears;
 s32 g_gameOverFlag;
 struct player_data g_playerPlayerData[MAX_PLAYER_COUNT]; /* round scores reset at warmup -> match */
+LEVELID bossGetStageNum(void) { return (LEVELID)s_round.config.stage; }   /* in a match the round's stage is loaded */
 unsigned VrMpFavStages, VrMpFavSets;
 u64 sysGetMicroseconds(void) { return test_now; }
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
