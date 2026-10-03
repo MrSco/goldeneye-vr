@@ -1188,7 +1188,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             else
                 onlineMessage = "Finding a connection to host...";
         } else if (f[0] == "HOST_PEER" && f.size() >= 5 && netIsHost()) {
-            if (netIcePeerCount() < 3 &&
+            if (netIcePeerCount() < netIceMaxPeers() &&
                 netIceAddHostPeer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str(), f[3].c_str(), f[4].c_str()))
                 hostJoinIds.push_back(f[1]);
         } else if (f[0] == "ANSWER" && f.size() >= 3) {
@@ -1796,7 +1796,7 @@ extern "C" void gevrLobbyGameTick(void)
                 } else {
                     vr_log("launcher: lobby %s lost (%s); match is not joinable", fields[1].c_str(), fields[2].c_str());
                 }
-            } else if (fields[0] == "HOST_PEER" && fields.size() >= 5 && netIcePeerCount() < 3 &&
+            } else if (fields[0] == "HOST_PEER" && fields.size() >= 5 && netIcePeerCount() < netIceMaxPeers() &&
                 netIceAddHostPeer(fields[1].c_str(), gevrDecodeUrl64(fields[2]).c_str(),
                                   fields[3].c_str(), fields[4].c_str()))
                 pendingAnswers.push_back(fields[1]);

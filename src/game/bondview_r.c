@@ -77,6 +77,49 @@ u32 weaponLoadProjectileModels(ITEM_IDS modelid)
     return 0;
 }
 
+#ifdef GEVR
+/*
+ * Online a stage can have fewer start pads than players (issue #88: eight
+ * slots on maps made for four), and netStartPad then gives a later slot a pad
+ * an earlier one stands on. share counts those earlier slots. Stand this one
+ * a metre per share off the pad instead: the first of eight directions (from
+ * the slot, so two sharers part ways) whose floor is reached in a straight
+ * line from the pad, a player's width beyond it too, at about the pad's
+ * height. With no such floor the player keeps the pad, as before.
+ */
+static void gevrSpreadStartPad(coord3d *pos, StandTile **stan, s32 share, s32 slot)
+{
+    f32 base = bondviewYPositionRelated(*stan, pos->f[0], pos->f[2]);
+    f32 dist = 100.0f * share;
+    s32 k;
+
+    for (k = 0; k < 8; k++)
+    {
+        /* 3 is coprime to 8: k = 0..7 visits every direction once */
+        f32 angle = (f32)((slot + k * 3) % 8) * (M_TAU_F / 8.0f);
+        f32 dx = sinf(angle);
+        f32 dz = cosf(angle);
+        StandTile *edge = *stan;
+        StandTile *tile = *stan;
+
+        if (!walkTilesBetweenPoints_NoCallback(&edge, pos->f[0], pos->f[2], pos->f[0] + dx * (dist + 40.0f), pos->f[2] + dz * (dist + 40.0f))
+            || edge == NULL
+            || !walkTilesBetweenPoints_NoCallback(&tile, pos->f[0], pos->f[2], pos->f[0] + dx * dist, pos->f[2] + dz * dist)
+            || tile == NULL
+            || fabsf(bondviewYPositionRelated(tile, pos->f[0] + dx * dist, pos->f[2] + dz * dist) - base) > 30.0f)
+        {
+            continue;
+        }
+        pos->f[0] += dx * dist;
+        pos->f[2] += dz * dist;
+        *stan = tile;
+        sysLogPrintf(LOG_NOTE, "spawn: slot %d shares its start pad (%d before it), standing %.0f off it", slot, share, dist);
+        return;
+    }
+    sysLogPrintf(LOG_NOTE, "spawn: slot %d shares its start pad (%d before it) with no floor beside it", slot, share);
+}
+#endif
+
 void bondviewLoadSetupIntroSection(void)
 {
 
@@ -464,6 +507,19 @@ void bondviewLoadSetupIntroSection(void)
 
 
         start_stan = g_Startpad[rand_pad_index]->stan;
+#ifdef GEVR
+        if (getPlayerCount() >= 2)
+        {
+            extern bool netIsActive(void);
+            extern int netStartPadShare(int slot, int padcount);
+            s32 share = netIsActive() ? netStartPadShare(get_cur_playernum(), startpadcount) : 0;
+
+            if (share > 0)
+            {
+                gevrSpreadStartPad(&start_pos, &start_stan, share, get_cur_playernum());
+            }
+        }
+#endif
 
         stan_height = bondviewYPositionRelated(start_stan, start_pos.f[0], start_pos.f[2]);
         start_pos.f[1] = g_CurrentPlayer->eyeheight + stan_height;

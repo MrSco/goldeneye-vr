@@ -8,7 +8,9 @@
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 EXPORT float test_gain(int mode,float distance) { return netVoiceDistanceGain(mode,distance); }
 EXPORT int test_group(int running,int mode,int a_spec,int b_spec,int a_team,int b_team) { return netVoiceGroupsMatch(running,mode,a_spec,b_spec,a_team,b_team); }
-EXPORT int test_roster(int mode,const uint8_t *connected,const uint8_t *teams) { return netTeamRosterComplete(mode,connected,teams); }
+EXPORT int test_roster(int mode,const uint8_t *connected,const uint8_t *teams) { return netTeamRosterComplete(mode,GEVR_MAX_PLAYERS,connected,teams); }
+EXPORT int test_max_players(void) { return GEVR_MAX_PLAYERS; }
+EXPORT int test_game_scenario(int mode) { return netGameScenario(mode); }
 EXPORT int test_capacity(int mode,int team) { return netTeamCapacity(mode,team); }
 EXPORT int test_points(int a,int b,int kills) { return netTeamKillPoints(a,b,kills); }
 EXPORT int test_damage(int mode,int enabled,int self,int a,int b) { return netTeamDamageAllowed(mode,enabled,self,a,b); }
@@ -41,7 +43,7 @@ EXPORT int test_protocol(void) {
     original.health=10;original.dual_wield=2;original.loadouts=1;original.next_round=2;original.voice_mode=1;original.friendly_fire=1;
     for (int i=0;i<4;i++) original.custom_set[i]=(uint8_t)(10+i);
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 16 || GEVR_NET_VERSION != 15) return 1;
+    if (b.error || b.wp != 16 || GEVR_NET_VERSION != 16 || GEVR_MAX_PLAYERS != 8) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
     for(int size=0;size<16;size++) {
@@ -63,10 +65,13 @@ EXPORT int test_config_validation(void) {
     for(int i=0;i<4;i++) c.custom_set[i]=netItem(0)->item;
     if(!netMatchConfigValid(&c)) return 1;
     c.voice_mode=2; if(netMatchConfigValid(&c)) return 2; c.voice_mode=0;
-    c.scenario=5; c.stage=27; if(netMatchConfigValid(&c)) return 3;
-    c.scenario=7; if(!netMatchConfigValid(&c)) return 4;
+    /* Bunker II takes six, Egypt four, Facility eight (net_match.c) */
+    c.scenario=9; c.stage=27; if(netMatchConfigValid(&c)) return 3;
+    c.scenario=8; if(!netMatchConfigValid(&c)) return 4;
     c.stage=32; if(netMatchConfigValid(&c)) return 5;
-    c.stage=34; c.scenario=8; if(netMatchConfigValid(&c)) return 6;
+    c.scenario=5; if(!netMatchConfigValid(&c)) return 14;
+    c.stage=34; c.scenario=9; if(!netMatchConfigValid(&c)) return 15;
+    c.scenario=10; if(netMatchConfigValid(&c)) return 6;
     c.scenario=0; c.custom_set[0]=255; if(netMatchConfigValid(&c)) return 7;
     c.custom_set[0]=netItem(0)->item; c.loadouts=2; if(netMatchConfigValid(&c)) return 8;
     c.loadouts=0;c.friendly_fire=2;if(netMatchConfigValid(&c)) return 9;

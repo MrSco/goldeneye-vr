@@ -60,7 +60,7 @@ Also:
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
   In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
-- **Multiplayer** (experimental): deathmatch for up to four players, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
+- **Multiplayer** (experimental): deathmatch for up to eight players, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
@@ -205,7 +205,7 @@ To walk with the left stick anyway, tick **Swap sticks** as well.
 
 ## 🌐 Multiplayer (experimental)
 
-Host a deathmatch alone or play with up to four players, each in their own headset, on the game's multiplayer stages.
+Host a deathmatch alone or play with up to eight players, each in their own headset, on the game's multiplayer stages.
 It's still experimental: expect rough edges, and please report what you find.
 
 **Everyone needs the same version of GoldenEye VR**, and each player their own ROM.

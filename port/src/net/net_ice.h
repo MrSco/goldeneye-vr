@@ -17,6 +17,7 @@ const char *netIceStatus(const char *join_id);
 void netIcePoll(void);
 void netIceStop(void);
 int netIcePeerCount(void);
+int netIceMaxPeers(void);     /* the host's internet peers: every client slot */
 void netIceForgetPeer(const char *virtual_ip);
 
 #ifdef __cplusplus

@@ -138,3 +138,24 @@ test("relay credentials stop at the monthly cap and the client is told to go dir
   const nextMonth = Date.UTC(new Date(now).getUTCFullYear(), new Date(now).getUTCMonth() + 1, 1);
   assert.ok(Math.abs(row.reset - nextMonth) < 60_000, "cap window ends at the start of next UTC month");
 });
+
+test("an eight-player lobby takes seven joiners at once; nine players are refused", async () => {
+  const settings = { name: "A's game", visibility: "public", version: 6, stage: 1, weapons: 2 };
+  assert.equal((await request("POST", "/v1/lobbies", { ...settings, maxPlayers: 9 })).status, 400);
+  const created = await request("POST", "/v1/lobbies", { ...settings, maxPlayers: 8 });
+  assert.equal(created.status, 201);
+  const lobby = created.body;
+  assert.equal((await update(lobby, { players: 8 })).status, 200);
+  assert.equal((await update(lobby, { players: 9 })).status, 400);
+  assert.equal((await update(lobby, { players: 1 })).status, 200);
+  const joins = [];
+  for (let i = 0; i < 7; i++) {
+    const join = await request("POST", `/v1/lobbies/${lobby.code}/joins`, { version: 6 });
+    assert.equal(join.status, 201, `joiner ${i + 1}`);
+    joins.push(join.body);
+  }
+  for (const join of joins)
+    assert.equal((await request("PUT", `/v1/lobbies/${lobby.code}/joins/${join.id}/offer`, { sdp: "a=ice-ufrag:x" }, join.joinToken)).status, 200);
+  const pending = await request("GET", `/v1/lobbies/${lobby.code}/joins`, undefined, lobby.ownerToken);
+  assert.equal(pending.body.requests.length, 7);
+});

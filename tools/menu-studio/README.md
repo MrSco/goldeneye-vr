@@ -165,7 +165,7 @@ It preserves explicit geometry and semantic references rather than inferring
 them from a screenshot. Group membership is flat: grouped elements retain
 absolute canvas coordinates. Draw order is the array order, back to front.
 An action is design intent; the implementation must respect the native
-voting rules, four-player protocol, authority and host migration.
+voting rules, eight-player protocol, authority and host migration.
 
 Autosave uses IndexedDB in the current browser/origin. Export before clearing
 browser data, changing browser, moving machines or making a separate design.

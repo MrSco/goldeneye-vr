@@ -4,11 +4,11 @@
 static void fixtureDamage(uint8_t,uint8_t,uint8_t,float,float,float);
 #include "../src/net/net_core.c"
 #define EXPORT __declspec(dllexport)
-struct player_data g_playerPlayerData[4];
+struct player_data g_playerPlayerData[MAX_PLAYER_COUNT];
 s32 g_gameOverFlag, D_80048394;
-struct player *g_playerPointers[4];
+struct player *g_playerPointers[MAX_PLAYER_COUNT];
 s32 startpadcount=8;
-static unsigned char sent_data[512];
+static unsigned char sent_data[1024];   /* an eight-player match snapshot is 713 bytes */
 static size_t sent_size;
 s32 get_cur_playernum(void) { return s_local_slot; }
 static int respawn_calls;
@@ -23,8 +23,8 @@ unsigned VrMpFavStages,VrMpFavSets;
 char VrPlayerName[16]="Test";
 static uint64_t clock_us=10000000;
 static int voice_resets;
-static struct player hit_players[4];
-static ENetPeer hit_peers[4];
+static struct player hit_players[GEVR_MAX_PLAYERS];
+static ENetPeer hit_peers[GEVR_MAX_PLAYERS];
 static int damage_count,damage_target[2048],kill_on_damage;
 static uint64_t damage_time[2048];
 static void fixtureDamage(uint8_t target,uint8_t attacker,uint8_t weapon,float dmg,float vx,float vz) {
@@ -81,13 +81,13 @@ EXPORT int test_core_teams(void) {
     if(!netVoiceSameGroup(0,1) || netTeamRosterReady() || netVoiceModeForPair(0,1)!=NET_VOICE_COUCH) return 8;
     s_lobby_state.slots[0].eliminated=1;s_lobby_state.slots[2].spectator=1;
     if(!netVoiceSameGroup(0,2) || netVoiceSameGroup(0,1)) return 9;
-    voice_resets=0;netHostRoundEnded();if(!netVoiceSameGroup(0,1) || voice_resets!=4) return 10;
+    voice_resets=0;netHostRoundEnded();if(!netVoiceSameGroup(0,1) || voice_resets!=GEVR_MAX_PLAYERS) return 10;
     return 0;
 }
 EXPORT int test_core_live_voice(void) {
     fixture(0);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
     NetMatchConfig c=s_lobby_state.config;c.voice_mode=1;c.stage=31;netLobbySetConfig(&c);
-    if(s_round.config.voice_mode != 1 || s_round.config.stage != 34 || s_lobby_state.config.stage != 31 || voice_resets != 4) return 1;
+    if(s_round.config.voice_mode != 1 || s_round.config.stage != 34 || s_lobby_state.config.stage != 31 || voice_resets != GEVR_MAX_PLAYERS) return 1;
     c.voice_mode=2;netLobbySetConfig(&c);if(s_lobby_state.config.voice_mode != 1) return 2;
     u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};NetRoundSettings restored;
     s_round.team[1]=1;s_round.departed_score[1]=-3;
@@ -457,5 +457,66 @@ EXPORT int test_core_owner_packets(void) {
     netReadyProgress();CHECK(s_round_reset_loading);
     netClockTick();NetClockExchange c=s_clock_pending[1];c.reply=1;c.t1=c.t0+1000;c.t2=c.t1;clock_us+=2000;
     receiveClockBody(1,&hit_peers[1],c);CHECK(!s_round_reset_loading && s_phase==NET_PHASE_IN_PROGRESS);
+    return 0;
+}
+
+/* Issue #88: slots 4..7 through the packets that grew with the player count,
+ * the team rules, damage, voice, start pads and the combat epoch. */
+static ENetHost eight_host;
+EXPORT int test_core_eight_slots(void) {
+    fixture(NET_SCENARIO_4V4);
+    for(int i=4;i<GEVR_MAX_PLAYERS;i++) {s_lobby_state.slots[i].connected=1;s_lobby_state.slots[i].ready=1;s_lobby_state.slots[i].loaded=1;}
+    CHECK(netGetConnectedPlayerCount()==GEVR_MAX_PLAYERS);
+    /* four a side, and no fifth */
+    for(int i=0;i<4;i++) CHECK(netSetSlotTeam(i,NET_TEAM_RED));
+    CHECK(!netTeamRosterReady());
+    for(int i=4;i<7;i++) CHECK(netSetSlotTeam(i,NET_TEAM_BLUE));
+    CHECK(!netSetSlotTeam(7,NET_TEAM_RED));
+    CHECK(netSetSlotTeam(7,NET_TEAM_BLUE) && netTeamRosterReady() && netGetSlotTeam(7)==NET_TEAM_BLUE);
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;s_round.config.friendly_fire=0;
+    CHECK(netDamageAllowed(7,0) && !netDamageAllowed(7,6) && !netDamageAllowed(0,GEVR_MAX_PLAYERS));
+    CHECK(netVoiceSameGroup(0,7) && netVoiceModeForPair(4,7)==NET_VOICE_COUCH && netVoiceModeForPair(0,7)==NET_VOICE_PROXIMITY);
+    g_playerPlayerData[7].kill_counts[0]=2;g_playerPlayerData[4].kill_counts[5]=1;
+    CHECK(netTeamScore(NET_TEAM_BLUE)==1 && netTeamScore(NET_TEAM_RED)==0);
+
+    /* the late-join snapshot: 65 + 49N + 4N^2 bytes, past the old 512 */
+    s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
+    g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
+    sent_size=0;netSendMatchSnapshot(NULL);
+    CHECK(sent_size==65+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
+    netbufStartReadData(&b,sent_data,sent_size);
+    netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);
+    CHECK(netReadRoundSettings(&b,&r) && r.team[7]==NET_TEAM_BLUE);
+    netbufReadMatchConfig(&b,&pending);CHECK(pending.scenario==NET_SCENARIO_4V4);
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++) {
+        int team=netbufReadU8(&b),eliminated=netbufReadU8(&b),ping=netbufReadU16(&b),order=netbufReadU8(&b);
+        if(i==7) CHECK(team==NET_TEAM_BLUE && eliminated && ping==77 && order==GEVR_MAX_PLAYERS);
+    }
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++) {
+        u32 bank=netbufReadU32(&b);
+        for(int j=0;j<GEVR_MAX_PLAYERS;j++) {u32 k=netbufReadU32(&b);if(i==6&&j==7) CHECK(k==5);}
+        if(i==7) CHECK(bank==9);
+    }
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++) {netbufReadU8(&b);for(int j=0;j<7;j++)netbufReadF32(&b);netbufReadU8(&b);}
+    CHECK(!b.error && !netbufReadLeft(&b));
+
+    /* a ballot carries every slot's vote: 9 + N bytes, past the old 16 */
+    s_host=&eight_host;s_client_peers[7]=&hit_peers[7];
+    netClearVotes(-1);s_vote[NET_BALLOT_STAGE][7]=3;
+    sent_size=0;netBroadcastVotes(NET_BALLOT_STAGE);
+    CHECK(sent_size==9+GEVR_MAX_PLAYERS && sent_data[sent_size-1]==3);
+    s_host=NULL;s_client_peers[7]=NULL;
+
+    /* start pads: past the pads a slot shares one, and stands beside it */
+    CHECK(netStartPadShare(3,5)==0 && netStartPadShare(5,5)==1 && netStartPadShare(7,5)==1);
+    CHECK(netStartPadShare(7,3)==2 && netStartPadShare(7,0)==0 && netStartPadShare(0,1)==0);
+    for(int slot=0;slot<GEVR_MAX_PLAYERS;slot++) CHECK(netStartPad(slot,GEVR_MAX_PLAYERS)>=0 && netStartPad(slot,GEVR_MAX_PLAYERS)<GEVR_MAX_PLAYERS);
+    for(int a=0;a<GEVR_MAX_PLAYERS;a++) for(int c=a+1;c<GEVR_MAX_PLAYERS;c++) CHECK(netStartPad(a,GEVR_MAX_PLAYERS)!=netStartPad(c,GEVR_MAX_PLAYERS));
+
+    /* the combat epoch keeps host slot 7 apart from the clock */
+    s_host_slot=7;netResetCombatEpoch();CHECK((s_combat_epoch&15)==8);
+    uint64_t epoch=s_combat_epoch;netResetCombatEpoch();CHECK(s_combat_epoch!=epoch && (s_combat_epoch&15)==8);
+    s_host_slot=0;
     return 0;
 }

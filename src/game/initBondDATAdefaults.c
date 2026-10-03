@@ -119,10 +119,10 @@ void sets_a_bunch_of_BONDdata_values_to_default(void)
      * tick reset it with its own frame fraction, so online the local player
      * walked forward too fast whenever a second slot was occupied.
      */
-    static u32 gevrBondGaitRwData[4][64];
+    static u32 gevrBondGaitRwData[MAX_PLAYER_COUNT][64];
     s32 gaitslot = get_cur_playernum();
 
-    if (gaitslot < 0 || gaitslot >= 4)
+    if (gaitslot < 0 || gaitslot >= MAX_PLAYER_COUNT)
     {
         gaitslot = 0;
     }

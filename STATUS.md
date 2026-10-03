@@ -78,6 +78,10 @@ is goldeneyevr.com, in its own repository.
 - #23: multiplayer stays open/experimental. Remote hands do not animate;
   held guns are the original low-detail third-person models. Host migration
   and mixed-network/four-player cases need broader headset coverage.
+- #88 eight players, branch claude/88-eight-players, not yet headset-tested:
+  protocol 16, stage caps doubled, Team 3v3/4v4, shared start pads spread,
+  pads for slots 4..7 (MULTIPLAYER.md "Eight players"). Measure frame time
+  and host upload with 5+ headsets before relay batching or pass culling.
 - #32 room-box shot pretest, #73 NPC ground callback table, #64 watch-arm
   haptics, #24 mirrored fist white face, #81 AimNoLean and #72 decals were
   corrected before this release. Laser/AR33 and other penetrating weapons

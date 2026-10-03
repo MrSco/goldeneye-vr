@@ -35,6 +35,7 @@ typedef struct {
 } VoiceStream;
 
 static VoiceStream streams[GEVR_MAX_PLAYERS];
+_Static_assert(NET_SPATIAL_SLOTS >= GEVR_MAX_PLAYERS, "a binaural effect per player slot");
 static SDL_AudioDeviceID capture;
 static OpusEncoder *encoder;
 static SDL_atomic_t permission;
@@ -118,7 +119,7 @@ void netPlayersTickedReset(void) { players_ticked = 0; }
 
 void netVoiceTick(void) {
     players_ticked = 0;
-    if (SDL_AtomicGet(&paused)) for (int i=0;i<4;i++) netVoiceForgetSlot((uint8_t)i);
+    if (SDL_AtomicGet(&paused)) for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i);
     static int spatial_warned;
     if (voiceSession() && !netSpatialInit() && !spatial_warned) {
         spatial_warned = 1;
@@ -258,13 +259,13 @@ static int16_t clampSample(float value) {
 
 void netVoiceMix(int16_t *stereo, size_t frames) {
     if (!stereo || !voiceSession() || SDL_AtomicGet(&paused)) return;
-    float gain[4], step[4], direction[4][3];
-    int positioned[4] = {0};
+    float gain[GEVR_MAX_PLAYERS], step[GEVR_MAX_PLAYERS], direction[GEVR_MAX_PLAYERS][3];
+    int positioned[GEVR_MAX_PLAYERS] = {0};
     float forward[3], up[3];
     gevrVoiceListenerBasis(forward, up);
     /* Cross(forward, up) is the listener's right in the game's coordinate frame. */
     float right[3] = {forward[1]*up[2]-forward[2]*up[1], forward[2]*up[0]-forward[0]*up[2], forward[0]*up[1]-forward[1]*up[0]};
-    for (unsigned slot=0;slot<4;slot++) {
+    for (unsigned slot=0;slot<GEVR_MAX_PLAYERS;slot++) {
         gain[slot]=0; direction[slot][0]=direction[slot][1]=0; direction[slot][2]=-1;
         if ((int)slot == netGetLocalSlot()) continue;
         if (!netVoiceSameGroup(slot,netGetLocalSlot())) {
@@ -296,7 +297,7 @@ void netVoiceMix(int16_t *stereo, size_t frames) {
     }
     for (size_t i=0;i<frames;i++) {
         float l=stereo[2*i],r=stereo[2*i+1];
-        for (unsigned slot=0;slot<4;slot++) {
+        for (unsigned slot=0;slot<GEVR_MAX_PLAYERS;slot++) {
             if ((int)slot == netGetLocalSlot()) continue;
             float vl,vr;
             netSpatialSample(slot,streamSample(&streams[slot]),direction[slot],positioned[slot],&vl,&vr);
@@ -305,5 +306,5 @@ void netVoiceMix(int16_t *stereo, size_t frames) {
         }
         stereo[2*i]=clampSample(l);stereo[2*i+1]=clampSample(r);
     }
-    for(unsigned slot=0;slot<4;slot++) streams[slot].applied_gain=gain[slot];
+    for(unsigned slot=0;slot<GEVR_MAX_PLAYERS;slot++) streams[slot].applied_gain=gain[slot];
 }

@@ -2,12 +2,12 @@ import { FORMAT, VERSION, uid, clone, palettes, createNode, createScreen, defaul
 
 // These IDs and names follow port/src/net/net_match.c, rather than inventing maps.
 export const stages = [
-  ["Facility", 34, 4], ["Complex", 31, 4], ["Temple", 38, 4], ["Stack", 46, 4],
-  ["Caverns", 39, 3], ["Library", 48, 4], ["Basement", 45, 4], ["Caves", 50, 4],
-  ["Egypt", 32, 2], ["Bunker II", 27, 3], ["Archives", 24, 3],
+  ["Facility", 34, 8], ["Complex", 31, 8], ["Temple", 38, 8], ["Stack", 46, 8],
+  ["Caverns", 39, 6], ["Library", 48, 8], ["Basement", 45, 8], ["Caves", 50, 8],
+  ["Egypt", 32, 4], ["Bunker II", 27, 6], ["Archives", 24, 6],
 ];
 export const weapons = ["Slappers only", "Pistols", "Throwing Knives", "Automatics", "Power Weapons", "Sniper Rifles", "Grenades", "Remote Mines", "Grenade Launchers", "Timed Mines", "Proximity Mines", "Rockets", "Lasers", "Golden Gun", "Custom"];
-export const scenarios = ["Normal", "You Only Live Twice", "The Living Daylights", "The Man With The Golden Gun", "Licence To Kill", "Team 2v2", "Team 3v1", "Team 2v1"];
+export const scenarios = ["Normal", "You Only Live Twice", "The Living Daylights", "The Man With The Golden Gun", "Licence To Kill", "Team 2v2", "Team 3v1", "Team 2v1", "Team 3v3", "Team 4v4"];
 export const screenKinds = [
   ["lobby", "Pre-match lobby", "Get the squad together"],
   ["vote", "Map & weapon voting", "Decide the next operation"],
@@ -40,7 +40,7 @@ export function template(kind) {
   if (kind === "blank") return s;
   if (kind === "lobby") {
     header(s, "YOUR NEXT OPERATION.", "Facility · Normal · Power Weapons · 10 minutes");
-    add("roster", 48, 278, { w: 780, h: 280, binding: "netGetLobbyState().slots", notes: "Four slots maximum. Host migration keeps player identity. Include empty-slot and disconnected states." });
+    add("roster", 48, 278, { w: 780, h: 280, binding: "netGetLobbyState().slots", notes: "Eight slots maximum (protocol 16). Host migration keeps player identity. Include empty-slot and disconnected states." });
     add("chat", 852, 278, { w: 380, h: 280, subtext: "Bond: One more round?\nNatalya: Ready when you are.\nSystem: Xenia joined the lobby.", binding: "voice + lobby events" });
     add("badge", 48, 598, { text: "3 / 4 READY", w: 160, h: 40, binding: "netLobbyCanLaunch()" });
     add("text", 228, 606, { text: "{{waitingPlayers}}", fontSize: 17, w: 500, h: 28, color: "muted" });
