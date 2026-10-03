@@ -60,7 +60,12 @@ is goldeneyevr.com, in its own repository.
 - #89 Cradle layering, merged to main 2026-10-02, unreleased: blended room
   surfaces (railings, truss sides) write depth where opaque, and portal-less
   levels draw the blended pass far to near (smoke). Headset-accepted: Cradle
-  truss view (DRAWS 207), Dam glass, explosions fine. Issue left open.
+  truss view (DRAWS 207), Dam glass, explosions fine. Closed 2026-10-03.
+- #93 guard aim, merged to main 2026-10-03, unreleased: firing animations'
+  aim limits were read at N64 float offsets, one field late on the host, so
+  guards swung rifles one-handed; read by name. Headset-accepted on the
+  signed d874697 build. Closed. #90 (QGO: runtime render size, Auto refresh,
+  ca02add) closed the same day.
 - #74 ammo crates, merged to main 2026-10-02, unreleased: the setup converter
   copied a multi-ammo crate's {u16 model, u16 quantity} slots as words,
   swapping each pair, so every solo crate gave every ammo type (mines,
@@ -93,7 +98,7 @@ is goldeneyevr.com, in its own repository.
   lobby page PLAYERS; lobby Worker deployed). Stages short of start pads gain
   them at ammo spots, farthest-first; respawns use them. Checked on one
   headset only (8 slots on Facility/Egypt, 90 Hz): measure frame time and
-  host upload with 5+ headsets (MULTIPLAYER.md "Eight players").
+  host upload with 5+ headsets (MULTIPLAYER.md "Eight players"). Closed.
 - #94 online co-op, merged to main 2026-10-03, unreleased (protocol 16, up to
   four players): the solo campaign through the game's own menus, the host
   driving (each player's own folder and save), solo intro, solo watch with
