@@ -1,5 +1,7 @@
 #ifndef GEVR_NET_SPATIAL_H
 #define GEVR_NET_SPATIAL_H
+/* One binaural voice per player slot (net_protocol.h GEVR_MAX_PLAYERS) */
+#define NET_SPATIAL_SLOTS 8
 int netSpatialInit(void);
 int netSpatialLastError(void);
 void netSpatialShutdown(void);

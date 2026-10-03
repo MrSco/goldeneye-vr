@@ -51,6 +51,19 @@ extern int netVoiceCaptureFailed(void);
 void mpwatchPlayBeep(void);
 extern int netMpPlayerCount(int fallback);
 extern int netGetConnectedPlayerCount(void);
+/* The online score and kill tables' row pitch: the original 15 pixels up to
+ * four players, closer past four so eight rows fit the watch's panel. */
+static s32 gevrScoreRowStep(void)
+{
+    s32 occupied = 0;
+    s32 slot;
+
+    for (slot = 0; slot < MAX_PLAYER_COUNT; slot++)
+    {
+        if (netSlotOccupied(slot)) occupied++;
+    }
+    return occupied > 4 ? 12 : 15;
+}
 extern int netGetPlayingCount(void);
 extern int netGetPhase(void);
 extern void netSetLocalVote(int kind, int idx);
@@ -194,7 +207,7 @@ static void lobbyVoteValue(char *b, s32 n, s32 kind, const char *(*name)(int))
     s32 vote = netGetVote(kind, netGetLocalSlot());
     s32 tally = 0;
     s32 slot;
-    for (slot = 0; slot < 4; slot++)
+    for (slot = 0; slot < MAX_PLAYER_COUNT; slot++)
     {
         if (vote >= 0 && netGetVote(kind, slot) == vote) tally++;
     }
@@ -231,7 +244,19 @@ static void rowNextWeaponsStep(s32 dir)
 static void rowNextRoundValue(char *b, s32 n) { snprintf(b, n, "%s", netNextRoundName(gevrNetConfigGet(CFG_NEXT_ROUND))); }
 static void rowNextRoundStep(s32 dir) { gevrNetConfigSet(CFG_NEXT_ROUND, gevrCycled(gevrNetConfigGet(CFG_NEXT_ROUND), dir, 3)); }
 static void rowScenarioValue(char *b, s32 n) { snprintf(b, n, "%s", netScenarioName(gevrNetConfigGet(CFG_SCENARIO))); }
-static void rowScenarioStep(s32 dir) { gevrNetConfigSet(CFG_SCENARIO, gevrCycled(gevrNetConfigGet(CFG_SCENARIO), dir, netScenarioCount())); }
+static void rowScenarioStep(s32 dir)
+{
+    /* past the scenarios the stage or the party cannot take, which the setter refuses */
+    s32 next = gevrNetConfigGet(CFG_SCENARIO);
+    s32 k;
+
+    for (k = 1; k < netScenarioCount(); k++)
+    {
+        next = gevrCycled(next, dir, netScenarioCount());
+        gevrNetConfigSet(CFG_SCENARIO, next);
+        if (gevrNetConfigGet(CFG_SCENARIO) == next) return;
+    }
+}
 static void rowLengthValue(char *b, s32 n) { snprintf(b, n, "%s", netGameLengthName(gevrNetConfigGet(CFG_GAME_LENGTH))); }
 static void rowLengthStep(s32 dir)
 {
@@ -355,6 +380,22 @@ static void rowReturnValue(char *b, s32 n)
     snprintf(b, n, "%s", netCountdownSecondsLeft() > 0 ? "- CANCELS THE START" : "");
 }
 static s32 lobbyTeams(void) { return netScenarioHasTeams(gevrNetConfigGet(CFG_SCENARIO)); }
+static s32 lobbyNoTeams(void) { return !lobbyTeams(); }   /* a team scenario takes its own size */
+static void rowPlayersValue(char *b,s32 n) { snprintf(b,n,"%d",gevrNetConfigGet(CFG_MAX_PLAYERS)); }
+static void rowPlayersStep(s32 dir)
+{
+    /* 2..8 on any map; past the counts below the lobby's connected slots, which the setter refuses */
+    s32 count = MAX_PLAYER_COUNT - 1;
+    s32 next = gevrNetConfigGet(CFG_MAX_PLAYERS) - 2;
+    s32 k;
+
+    for (k = 1; k < count; k++)
+    {
+        next = gevrCycled(next, dir, count);
+        gevrNetConfigSet(CFG_MAX_PLAYERS, next + 2);
+        if (gevrNetConfigGet(CFG_MAX_PLAYERS) == next + 2) return;
+    }
+}
 static void rowTeamValue(char *b,s32 n) { snprintf(b,n,"%s",netTeamName(netGetSlotTeam(netGetLocalSlot()))); }
 static void rowTeamStep(s32 dir) { netLobbySetTeam((u8)gevrCycled(netGetSlotTeam(netGetLocalSlot()),dir,3)); }
 static s32 lobbyClient(void) { return !netIsHost(); }
@@ -369,6 +410,7 @@ static const GevrMenuRow s_lobbyRows[] = {
     { "NEXT MAP",        GEVR_ROW_VALUE,  0, lobbyVoting,       rowNextMapValue,    rowNextMapStep,     "R-STICK:VOTE" },
     { "NEXT WEAPONS",    GEVR_ROW_VALUE,  0, lobbyWeaponVote,       rowNextWeaponsValue, rowNextWeaponsStep, "R-STICK:VOTE" },
     { "MAP",             GEVR_ROW_VALUE,  1, NULL,              rowMapValue,        rowMapStep,         "R-STICK:PICK" },
+    { "PLAYERS",         GEVR_ROW_VALUE,  1, lobbyNoTeams,      rowPlayersValue,    rowPlayersStep,     "R-STICK:PICK" },
     { "WEAPONS",         GEVR_ROW_VALUE,  1, lobbyNotGoldenGun, rowWeaponsValue,    rowWeaponsStep,     "R-STICK:PICK" },
     { "CUSTOM 1",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom0Value,    rowCustom0Step,     "R-STICK:PICK" },
     { "CUSTOM 2",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom1Value,    rowCustom1Step,     "R-STICK:PICK" },
@@ -719,15 +761,6 @@ void mpwatchUnpauseGame(void)
  */
 s32 mpFindMaxInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
 {
-#ifdef GEVR
-    if (netIsActive()) {
-        s32 values[4] = {value0, value1, value2, value3};
-        s32 best = -1;
-        for (s32 slot = 0; slot < numplayers; slot++)
-            if (netSlotOccupied(slot) && (best < 0 || values[slot] > values[best])) best = slot;
-        return best < 0 ? 0 : best;
-    }
-#endif
     s32 aux;
     s32 result;
  
@@ -768,15 +801,6 @@ s32 mpFindMaxInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
  */
 s32 mpFindMinInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
 {
-#ifdef GEVR
-    if (netIsActive()) {
-        s32 values[4] = {value0, value1, value2, value3};
-        s32 best = -1;
-        for (s32 slot = 0; slot < numplayers; slot++)
-            if (netSlotOccupied(slot) && (best < 0 || values[slot] < values[best])) best = slot;
-        return best < 0 ? 0 : best;
-    }
-#endif
     s32 aux;
     s32 result;
  
@@ -820,15 +844,6 @@ s32 mpFindMinInt(s32 numplayers, s32 value0, s32 value1, s32 value2, s32 value3)
  */
 s32 mpFindMaxFloat(s32 numplayers, f32 value0, f32 value1, f32 value2, f32 value3)
 {
-#ifdef GEVR
-    if (netIsActive()) {
-        f32 values[4] = {value0, value1, value2, value3};
-        s32 best = -1;
-        for (s32 slot = 0; slot < numplayers; slot++)
-            if (netSlotOccupied(slot) && (best < 0 || values[slot] > values[best])) best = slot;
-        return best < 0 ? 0 : best;
-    }
-#endif
     s32 aux;
     s32 result;
  
@@ -871,15 +886,6 @@ s32 mpFindMaxFloat(s32 numplayers, f32 value0, f32 value1, f32 value2, f32 value
  */
 s32 mpFindMinFloat(s32 numplayers, f32 value0, f32 value1, f32 value2, f32 value3)
 {
-#ifdef GEVR
-    if (netIsActive()) {
-        f32 values[4] = {value0, value1, value2, value3};
-        s32 best = -1;
-        for (s32 slot = 0; slot < numplayers; slot++)
-            if (netSlotOccupied(slot) && (best < 0 || values[slot] < values[best])) best = slot;
-        return best < 0 ? 0 : best;
-    }
-#endif
     s32 aux;
     s32 result;
  
@@ -950,6 +956,49 @@ void mpwatchSetStopPlayFlag(void)
 
 
 
+#ifdef GEVR
+/*
+ * Online up to eight players take part (MAX_PLAYER_COUNT), past the four
+ * values the finders above take: the award goes to the occupied slot with the
+ * highest (sign 1) or lowest (sign -1) value, the lowest slot on a tie. first
+ * is the metric's field in metrics[0]; the others follow a struct apart.
+ */
+static s32 gevrAwardPickInt(s32 numplayers, const s32 *first, s32 sign)
+{
+    s32 best = -1;
+    s32 slot;
+
+    for (slot = 0; slot < numplayers; slot++)
+    {
+        s32 value = *(const s32 *)((const u8 *)first + slot * sizeof(struct AwardMetrics));
+        s32 held = best < 0 ? 0 : *(const s32 *)((const u8 *)first + best * sizeof(struct AwardMetrics));
+
+        if (netSlotOccupied(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
+    }
+    return best < 0 ? 0 : best;
+}
+
+static s32 gevrAwardPickFloat(s32 numplayers, const f32 *first, s32 sign)
+{
+    s32 best = -1;
+    s32 slot;
+
+    for (slot = 0; slot < numplayers; slot++)
+    {
+        f32 value = *(const f32 *)((const u8 *)first + slot * sizeof(struct AwardMetrics));
+        f32 held = best < 0 ? 0 : *(const f32 *)((const u8 *)first + best * sizeof(struct AwardMetrics));
+
+        if (netSlotOccupied(slot) && (best < 0 || (sign > 0 ? value > held : value < held))) best = slot;
+    }
+    return best < 0 ? 0 : best;
+}
+
+#define MP_AWARD(find, kind, sign, field) (netIsActive() ? gevrAwardPick##kind(player_count, &metrics[0].field, sign) \
+    : find(player_count, metrics[0].field, metrics[1].field, metrics[2].field, metrics[3].field))
+#else
+#define MP_AWARD(find, kind, sign, field) find(player_count, metrics[0].field, metrics[1].field, metrics[2].field, metrics[3].field)
+#endif
+
 void mpCalculateAwards(bool gameoverdelay)
 {
 #ifdef GEVR
@@ -966,7 +1015,7 @@ void mpCalculateAwards(bool gameoverdelay)
     s32 prev_player_num;
     s32 duration;
 
-    struct AwardMetrics metrics[4] = {0};
+    struct AwardMetrics metrics[MAX_PLAYER_COUNT] = {0};
 
     player_count = getPlayerCount();
     duration = getMissiontimer();
@@ -1050,86 +1099,86 @@ void mpCalculateAwards(bool gameoverdelay)
     set_cur_player(prev_player_num);
 
     // Choose which players are eligible for which awards
-    i = mpFindMaxInt(player_count, metrics[0].num_suicides, metrics[1].num_suicides, metrics[2].num_suicides, metrics[3].num_suicides);
+    i = MP_AWARD(mpFindMaxInt, Int, 1, num_suicides);
 
     if (metrics[i].num_suicides > 0)
     {
         metrics[i].awards |= AWARD_MOSTSUICIDAL;
     }
 
-    i = mpFindMinInt(player_count, metrics[0].num_shots, metrics[1].num_shots, metrics[2].num_shots, metrics[3].num_shots);
+    i = MP_AWARD(mpFindMinInt, Int, -1, num_shots);
 
     if (metrics[i].num_shots < 100)
     {
         metrics[i].awards |= AWARD_WHONEEDSAMMO;
     }
 
-    i = mpFindMinFloat(player_count, metrics[0].body_armor_pickups, metrics[1].body_armor_pickups, metrics[2].body_armor_pickups, metrics[3].body_armor_pickups);
+    i = MP_AWARD(mpFindMinFloat, Float, -1, body_armor_pickups);
 
     if (metrics[i].body_armor_pickups <= 2.0f)
     {
         metrics[i].awards |= AWARD_WHERESTHEARMOUR;
     }
 
-    i = mpFindMaxFloat(player_count, metrics[0].body_armor_pickups, metrics[1].body_armor_pickups, metrics[2].body_armor_pickups, metrics[3].body_armor_pickups);
+    i = MP_AWARD(mpFindMaxFloat, Float, 1, body_armor_pickups);
 
     if (metrics[i].body_armor_pickups > 6.0f)
     {
         metrics[i].awards |= AWARD_ACNEGATIVE10;
     }
 
-    i = mpFindMaxInt(player_count, metrics[0].num_headshots, metrics[1].num_headshots, metrics[2].num_headshots, metrics[3].num_headshots);
+    i = MP_AWARD(mpFindMaxInt, Int, 1, num_headshots);
 
     if (metrics[i].num_headshots > 0)
     {
         metrics[i].awards |= AWARD_MARKSMANSHIP;
     }
 
-    i = mpFindMaxFloat(player_count, metrics[0].ks_ratio, metrics[1].ks_ratio, metrics[2].ks_ratio, metrics[3].ks_ratio);
+    i = MP_AWARD(mpFindMaxFloat, Float, 1, ks_ratio);
 
     if (metrics[i].ks_ratio > 0.0f)
     {
         metrics[i].awards |= AWARD_MOSTPROFESSIONAL;
     }
 
-    i = mpFindMaxFloat(player_count, metrics[0].kd_ratio, metrics[1].kd_ratio, metrics[2].kd_ratio, metrics[3].kd_ratio);
+    i = MP_AWARD(mpFindMaxFloat, Float, 1, kd_ratio);
 
     if (metrics[i].kd_ratio > 0.0f)
     {
         metrics[i].awards |= AWARD_MOSTDEADLY;
     }
 
-    i = mpFindMinFloat(player_count, metrics[0].kd_ratio, metrics[1].kd_ratio, metrics[2].kd_ratio, metrics[3].kd_ratio);
+    i = MP_AWARD(mpFindMinFloat, Float, -1, kd_ratio);
     metrics[i].awards |= AWARD_MOSTHARMLESS;
 
-    i = mpFindMinInt(player_count, metrics[0].time_other_players_on_screen, metrics[1].time_other_players_on_screen, metrics[2].time_other_players_on_screen, metrics[3].time_other_players_on_screen);
+    i = MP_AWARD(mpFindMinInt, Int, -1, time_other_players_on_screen);
     metrics[i].awards |= AWARD_MOSTCOWARDLY;
 
-    i = mpFindMaxFloat(player_count, metrics[0].avg_km_per_hour, metrics[1].avg_km_per_hour, metrics[2].avg_km_per_hour, metrics[3].avg_km_per_hour);
+    i = MP_AWARD(mpFindMaxFloat, Float, 1, avg_km_per_hour);
 
     if (metrics[i].avg_km_per_hour > 10.0f)
     {
         metrics[i].awards |= AWARD_MOSTFRANTIC;
     }
 
-    i = mpFindMinInt(player_count, metrics[0].damage_to_backside, metrics[1].damage_to_backside, metrics[2].damage_to_backside, metrics[3].damage_to_backside);
+    i = MP_AWARD(mpFindMinInt, Int, -1, damage_to_backside);
     metrics[i].awards |= AWARD_MOSTHONORABLE;
 
-    i = mpFindMaxInt(player_count, metrics[0].damage_to_backside, metrics[1].damage_to_backside, metrics[2].damage_to_backside, metrics[3].damage_to_backside);
+    i = MP_AWARD(mpFindMaxInt, Int, 1, damage_to_backside);
 
     if (metrics[i].damage_to_backside > 0 && (metrics[i].awards & AWARD_MOSTHONORABLE) == 0)
     {
         metrics[i].awards |= AWARD_MOSTDISHONORABLE;
     }
 
-    i = mpFindMaxInt(player_count, metrics[0].longest_inning, metrics[1].longest_inning, metrics[2].longest_inning, metrics[3].longest_inning);
+    i = MP_AWARD(mpFindMaxInt, Int, 1, longest_inning);
 
     if (metrics[i].longest_inning > 0)
     {
         metrics[i].awards |= AWARD_LONGESTINNINGS;
     }
 
-    i = mpFindMinInt(player_count, metrics[0].shortest_inning, metrics[1].shortest_inning, metrics[2].shortest_inning, metrics[3].shortest_inning);
+    i = MP_AWARD(mpFindMinInt, Int, -1, shortest_inning);
 
     if (metrics[i].shortest_inning > 0)
     {
@@ -1546,7 +1595,13 @@ s32 get_points_for_mp_player(s32 playernum)
             break;
 
         case SCENARIO_YOLT:
+#ifdef GEVR
+            /* the game's four as the base, so two to four players score as they
+             * always did; past four, the party size keeps the scores positive */
+            points = MAX(4, netMpPlayerCount(player_count)) - g_playerPlayerData[playernum].order_out_in_yolt;
+#else
             points = MAX_PLAYER_COUNT - g_playerPlayerData[playernum].order_out_in_yolt;
+#endif
             break;
 
         case SCENARIO_TLD:
@@ -1590,8 +1645,8 @@ void write_playerrank_to_buffer(char *buffer, s32 playernum)
 {
     s32 scenario;
     s32 count;
-    s32 scores[4];
-    s32 players[4];
+    s32 scores[MAX_PLAYER_COUNT];
+    s32 players[MAX_PLAYER_COUNT];
     s32 tmp;
     s32 i;
     s32 j;
@@ -1638,6 +1693,18 @@ void write_playerrank_to_buffer(char *buffer, s32 playernum)
         }
     }
 
+#ifdef GEVR
+    /*
+     * Teammates share their team's score, so a team is first or second; the
+     * cases below say so by the game's team sizes. Online 3v3 and 4v4 play as
+     * its 2v2 (net_rules.h netGameScenario), where a third or fifth place
+     * would read "4th" or past the ROM's ranks.
+     */
+    if (netIsActive() && j > 0 && ((scenario == SCENARIO_2v2) || (scenario == SCENARIO_3v1) || (scenario == SCENARIO_2v1)))
+    {
+        j = 1;
+    }
+#endif
     switch (j)
     {
         case 0:
@@ -1666,6 +1733,12 @@ void write_playerrank_to_buffer(char *buffer, s32 playernum)
                 snprintf(buffer, 64, "%s", langGet(getStringID(LMPMENU, MPMENU_STR_12_RANK2ND))); /* Rank: 2nd */
             }
             break;
+#ifdef GEVR
+        default:
+            /* online past four players: the ROM's text stops at 4th */
+            snprintf(buffer, 64, "Rank: %dth", j + 1);
+            break;
+#endif
     }
 
 }
@@ -1751,7 +1824,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
     s32 two_player_x_offset;
     s32 menu_top;
     char *text;
-    s32 scores[4];
+    s32 scores[MAX_PLAYER_COUNT];
     s32 i;
     TEXTCOLORS current_colour;
     TEXTCOLORS same_team_colour;
@@ -2072,7 +2145,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                             textMeasure(&name_height,&name_width,entry,ptrFontBankGothicChars,ptrFontBankGothic,0);
                         }
                         x = (viGetViewLeft() + two_player_x_offset) + 5;
-                        y = row_y = menu_top + (80 + MPMENU_YOFF) + row * 15;
+                        y = row_y = menu_top + (80 + MPMENU_YOFF) + row * gevrScoreRowStep();
                         viewleft = viGetX();
                         h1 = viGetY();
                         colour = i == curplayernum ? current_colour : same_team_colour;
@@ -2230,7 +2303,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                     snprintf(entry, sizeof(entry), "P%d  %d", i + 1,
                              g_playerPlayerData[curplayernum].kill_counts[i]);
                     x = (viGetViewLeft() + two_player_x_offset) + 53;
-                    y = menu_top + (70 + MPMENU_YOFF) + row * 15;
+                    y = menu_top + (70 + MPMENU_YOFF) + row * gevrScoreRowStep();
                     viewleft = viGetX(); h1 = viGetY();
                     gdl = textRender(gdl, &x, &y, entry, ptrFontBankGothicChars,
                                      ptrFontBankGothic, GREEN_NORMAL, viewleft, h1, 0, 0);
@@ -2321,7 +2394,7 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
                     char entry[32];
                     snprintf(entry, sizeof(entry), "P%d  %d", i + 1, losses);
                     x = (viGetViewLeft() + two_player_x_offset) + 53;
-                    y = menu_top + (70 + MPMENU_YOFF) + row * 15;
+                    y = menu_top + (70 + MPMENU_YOFF) + row * gevrScoreRowStep();
                     viewleft = viGetX(); h1 = viGetY();
                     gdl = textRender(gdl, &x, &y, entry, ptrFontBankGothicChars,
                                      ptrFontBankGothic, i == curplayernum ? RED_HIGHLIGHT : GREEN_NORMAL,

@@ -366,7 +366,7 @@ void netPlayerSyncBeforeTick(s32 playernum) {
              */
             {
                 static u64 next_pose_log_us[GEVR_MAX_PLAYERS];
-                static s8 last_aim[GEVR_MAX_PLAYERS] = { -1, -1, -1, -1 };
+                static s8 last_aim[GEVR_MAX_PLAYERS] = { [0 ... GEVR_MAX_PLAYERS - 1] = -1 };
                 s8 aim = (m->ucmd & UCMD_AIMVALID) ? 1 : 0;
                 u64 now = sysGetMicroseconds();
                 if (aim != last_aim[playernum] || now >= next_pose_log_us[playernum]) {

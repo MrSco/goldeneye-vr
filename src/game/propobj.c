@@ -3309,7 +3309,7 @@ void propExplode(PropRecord *prop, s32 /* enum EXPLOSION_DEF */ explosionType)
     Mtxf *mtx;
 
     prop_obj = prop->obj;
-    playernum = (prop_obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER;
+    playernum = RUNTIME_OWNER(prop_obj->runtime_bitflags);
 
     if (prop->parent)
     {
@@ -3477,7 +3477,7 @@ void chrobjWeaponTick(struct PropRecord* prop)
         {
             if (g_RemoteMineOwnerTriggerFlag)
             {
-                owner_player_number = (obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER;
+                owner_player_number = RUNTIME_OWNER(obj->runtime_bitflags);
                 owner_player_as_bitflag = (1 << owner_player_number);
                 if (g_RemoteMineOwnerTriggerFlag & owner_player_as_bitflag)
                 {
@@ -3563,7 +3563,7 @@ void chrobjWeaponTick(struct PropRecord* prop)
                      * players' mines wait for their owner's explosion
                      * (explosion.c), which also removes them.
                      */
-                    s32 owner = (obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER;
+                    s32 owner = RUNTIME_OWNER(obj->runtime_bitflags);
                     s32 slot;
 
                     if (owner == netGetLocalSlot())
@@ -4266,8 +4266,8 @@ static s32 gevrKnifeHitsActor(ObjectRecord *obj, PropRecord *target, s32 bodypar
 
 	if (netIsActive())
 	{
-		owner = (obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER) >> RUNTIMEBITSHIFT_OWNER;
-		if (owner < 0 || owner >= 4 || g_playerPointers[owner] == NULL)
+		owner = RUNTIME_OWNER(obj->runtime_bitflags);
+		if (owner < 0 || owner >= MAX_PLAYER_COUNT || g_playerPointers[owner] == NULL)
 		{
 			owner = prev;
 		}
@@ -4874,7 +4874,7 @@ s32 objTick(struct PropRecord *prop)
 							else if ((var_v0_3 == 1) || (var_v0_3 == 4))
 							{
 								var_a0 = obj->runtime_bitflags;
-								objApplyDamage(playerProp2->obj, 100.0f, &obj->runtime_pos, ITEM_ROCKETROUND, (s32) (((u32) (var_a0 & RUNTIMEBITFLAG_OWNER)) >> RUNTIMEBITSHIFT_OWNER));
+								objApplyDamage(playerProp2->obj, 100.0f, &obj->runtime_pos, ITEM_ROCKETROUND, RUNTIME_OWNER(var_a0));
 							}
 
 							((struct WeaponObjRecord *) obj)->timer = 0;
@@ -6460,7 +6460,7 @@ s32 objTick(struct PropRecord *prop)
 	if (obj->runtime_bitflags & RUNTIMEBITFLAG_00000100)
 	{
 		obj->runtime_bitflags &= ~RUNTIMEBITFLAG_00000100;
-		objApplyDamage(obj, (U32_TO_F32(randomGetNext()) * 4.0f) + 2.0f, &prop->pos, 0, (s32) (((u32) (obj->runtime_bitflags & RUNTIMEBITFLAG_OWNER)) >> RUNTIMEBITSHIFT_OWNER));
+		objApplyDamage(obj, (U32_TO_F32(randomGetNext()) * 4.0f) + 2.0f, &prop->pos, 0, RUNTIME_OWNER(obj->runtime_bitflags));
 	}
 
 	if (isSimOwner)
@@ -8380,8 +8380,8 @@ s32 objDrop(PropRecord *prop)
  */
 void objFall(ObjectRecord *obj, s32 playernum)
 {
-    obj->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER);
-    obj->runtime_bitflags |= (playernum << RUNTIMEBITSHIFT_OWNER);
+    obj->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+    obj->runtime_bitflags |= RUNTIME_OWNER_BITS(playernum);
 
     if ((obj->flags2 & PROPFLAG2_NOFALL) == 0
             && (obj->flags & PROPFLAG_RENDERPOSTBG)
@@ -9121,8 +9121,8 @@ void maybe_detonate_object_and_its_children(PropRecord *prop, f32 damage, struct
 
     prop_obj = prop->obj;
 
-    prop_obj->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER);
-    prop_obj->runtime_bitflags |= (owner << RUNTIMEBITSHIFT_OWNER);
+    prop_obj->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+    prop_obj->runtime_bitflags |= RUNTIME_OWNER_BITS(owner);
 
     if ((s32)(prop_obj->runtime_bitflags << 0xc) >= 0)
     {
@@ -9265,8 +9265,8 @@ void objApplyDamage(ObjectRecord *obj, f32 damage, coord3d *pos, ITEM_IDS itemnu
      * Set the OWNER field (bits 17-18) to the player index; clear-then-set, equivalent to obj->owner = playernum.
      * Used to record which player is responsible for the damage.
      */ 
-    obj->runtime_bitflags &= ~RUNTIMEBITFLAG_OWNER;
-    obj->runtime_bitflags |= playernum << RUNTIMEBITSHIFT_OWNER;
+    obj->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+    obj->runtime_bitflags |= RUNTIME_OWNER_BITS(playernum);
 
     if (obj->type == PROPDEF_GAS_RELEASING)
     {

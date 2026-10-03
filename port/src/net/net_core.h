@@ -51,7 +51,7 @@ int netGetLocalSlot(void);
 int netGetHostSlot(void);
 int netGetConnectedPlayerCount(void);
 int netGetMaxPlayers(void);
-void netSetMaxPlayers(int max_players);
+int netLobbyMinPlayers(void);   /* the fewest players the host can pick with this lobby */
 NetPhase netGetPhase(void);
 bool netSlotOccupied(int slot);
 bool netTakeRoundReset(void);

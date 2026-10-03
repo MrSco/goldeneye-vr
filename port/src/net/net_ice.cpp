@@ -17,8 +17,8 @@
 extern "C" void netSetVirtualTransport(ENetVirtualSendCallback, ENetVirtualReceiveCallback, void *);
 
 namespace {
-constexpr int kMaxInternetPeers = 3;
-constexpr size_t kMaxQueuedPackets = 256;
+constexpr int kMaxInternetPeers = GEVR_MAX_PLAYERS - 1;   /* every client slot can join over the internet */
+constexpr size_t kMaxQueuedPackets = 512;                /* shared by all peers: seven players' states a frame */
 constexpr uint16_t kGamePort = 27007;
 
 struct Incoming {
@@ -275,6 +275,8 @@ extern "C" void netIceStop(void) {
     destroyPeers();
     g_hosting = false;
 }
+
+extern "C" int netIceMaxPeers(void) { return kMaxInternetPeers; }
 
 extern "C" int netIcePeerCount(void) {
     int count = 0;

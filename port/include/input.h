@@ -5,6 +5,8 @@
 #include <PR/os.h>
 
 #define INPUT_MAX_CONTROLLERS MAXCONTROLLERS
+/* Online player slots (MAX_PLAYER_COUNT): pads 4..7 have no port of their own (src/joy.c) */
+#define INPUT_MAX_SLOT_PADS 8
 #define INPUT_MAX_CONNECTED_CONTROLLERS 8
 #define INPUT_MAX_CONTROLLER_BUTTONS 32
 #define INPUT_MAX_BINDS 4

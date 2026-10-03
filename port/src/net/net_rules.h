@@ -14,18 +14,27 @@ static inline uint16_t netLatencyValue(uint32_t rtt, uint32_t last_receive, uint
     if (!last_receive || (uint32_t)(now-last_receive) > 5000) return NET_PING_UNKNOWN;
     return rtt >= NET_PING_UNKNOWN ? NET_PING_UNKNOWN-1 : (uint16_t)rtt;
 }
-static inline int netScenarioHasTeams(int scenario) { return scenario >= 5 && scenario <= 7; }
+/* The scenarios: the game's own eight (MPSCENARIOS, 0..7: 5..7 its 2v2, 3v1
+ * and 2v1), then two online team sizes past four players (protocol 16). */
+enum { NET_SCENARIO_3V3 = 8, NET_SCENARIO_4V4 = 9 };
+static inline int netScenarioHasTeams(int scenario) { return scenario >= 5 && scenario <= NET_SCENARIO_4V4; }
+/* The game's scenario for a net one: 3v3 and 4v4 play by its 2v2 rules (teams
+ * set per player, set_players_team_or_scenario_item_flag); the sizes are ours. */
+static inline int netGameScenario(int scenario) {
+    return scenario == NET_SCENARIO_3V3 || scenario == NET_SCENARIO_4V4 ? 5 : scenario;
+}
 static inline int netTeamCapacity(int scenario, int team) {
+    static const unsigned char caps[][2] = { {2,2}, {3,1}, {2,1}, {3,3}, {4,4} };   /* red, blue */
     if (!netScenarioHasTeams(scenario) || team < 0 || team > 1) return 0;
-    return team == NET_TEAM_RED ? (scenario == 6 ? 3 : 2) : (scenario == 5 ? 2 : 1);
+    return caps[scenario - 5][team];
 }
 static inline int netTeamRequiredPlayers(int scenario) {
     return netTeamCapacity(scenario, 0) + netTeamCapacity(scenario, 1);
 }
-static inline int netTeamRosterComplete(int scenario, const uint8_t connected[4], const uint8_t team[4]) {
+static inline int netTeamRosterComplete(int scenario, int slots, const uint8_t *connected, const uint8_t *team) {
     int counts[2] = {0,0};
     if (!netScenarioHasTeams(scenario)) return 1;
-    for (int i=0;i<4;i++) if (connected[i]) {
+    for (int i=0;i<slots;i++) if (connected[i]) {
         if (team[i] > 1) return 0;
         counts[team[i]]++;
     }

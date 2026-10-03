@@ -310,8 +310,8 @@ void gunFireTankShell(s32 handnum)
     }
 
     obj->timer = -1;
-    obj->runtime_bitflags &= ~RUNTIMEBITFLAG_OWNER;
-    obj->runtime_bitflags |= get_cur_playernum() << RUNTIMEBITSHIFT_OWNER;
+    obj->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+    obj->runtime_bitflags |= RUNTIME_OWNER_BITS(get_cur_playernum());
 
     gunInitProjectileFromPlayer(obj, &spawnpos, &shellmtx, &velocity, (s32 *) &identitymtx);
 
@@ -6095,7 +6095,7 @@ void gunTickGameplay(s32 triggerOn)
 #ifdef GEVR
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot() && !g_CurrentPlayer->ptr_hand_weapon_buffer[GUNLEFT]) {
         /* A low-memory copy needs shot timing and its third-person gun, never a 1P model. */
-        static s32 next_fire[4];
+        static s32 next_fire[MAX_PLAYER_COUNT];
         int slot = get_cur_playernum(), item = netRemoteWeapon(slot, GUNLEFT);
         struct hand *left = &g_CurrentPlayer->hands[GUNLEFT];
         left->weapon_firing_status = left->field_87D = 0;

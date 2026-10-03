@@ -54,6 +54,8 @@ def build_core():
     keep={"netResetLobbyState","netIsHost","netGetState","netGetConnectedPlayerCount","netGetMaxPlayers","netPlayerInRound","netVoiceSameGroup","netVoiceModeForPair","netTeamRosterReady","netGetSlotTeam","netGetSlotPing","netSlotIsSpectator","netVoiceSlotSpectating","netTeamScore","netSetSlotTeam","netLobbySetConfig","netLobbySetReady","netHostRoundEnded","netStageEligible","netLatchRoundSettings","netValidConfig","netWriteRoundSettings","netReadRoundSettings","netSendMatchSnapshot","netHostLost","netForgetPlayerScore","netClearVotes","netBroadcastBuf","netBroadcastPacket","netBroadcastLobbyState","netCancelRound","netSendCountdown"}
     keep.update({"netLobbyCanLaunch","netRoundRosterReady","netLocalReady","gevrNetSetReady","netActiveFunFlags","netActiveLineMode","netActiveGunSize","gevrNetConfigGet","gevrNetConfigSet","netScheduleRound","netAllLoaded","netReadyProgress","netHostStartRoundNow","netHostContinue","netIsActive","netDamageAllowed","netApplyAmmoPacket","netObjectByIndex","netSnapshotObjectType","netSendAmmoState"})
     keep.update({"netInvalidateHitSlot","netClearHostHits","netSetHostEqualization","netGetHostEqualization","netHostBaseDelayMs","netGetSlotHostDelayMs","netHostEqualizationText","netTransitionRoundPhase","netBroadcastRoundPhase","netObserveHitMove","netHitReportAllowed","netProcessHitReport","netExecuteHostHit","netQueueHostHit","netDrainHostHits","netSlotOccupied","netSendHitReport"})
+    keep.update({"netStartPad","netStartPadShare","netBroadcastVotes","netClearVotes","netTeamScore","netGetSlotTeam","netSetSlotTeam","netVoiceModeForPair"})
+    keep.update({"netConfigSlots","netLobbyMinPlayers"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
@@ -214,13 +216,15 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_ammo_batches_are_atomic_and_stage_scoped(self): self.assertEqual(self.core.test_core_ammo_packets(),0)
     def test_live_friendly_fire_and_round_teams(self): self.assertEqual(self.core.test_core_friendly_fire(),0)
     def test_friendly_fire_rules(self):
-        for scenario in range(8):
+        for scenario in range(10):
             with self.subTest(scenario=scenario):
                 self.assertEqual(self.lib.test_damage(scenario,0,0,0,0),scenario<5)
                 self.assertEqual(self.lib.test_damage(scenario,1,0,0,0),1)
                 self.assertEqual(self.lib.test_damage(scenario,0,1,0,0),1)
                 self.assertEqual(self.lib.test_damage(scenario,0,0,0,1),1)
     def test_late_join_snapshot(self): self.assertEqual(self.core.test_core_late_join_snapshot(),0)
+    def test_eight_slots_packets_teams_and_pads(self): self.assertEqual(self.core.test_core_eight_slots(),0)
+    def test_host_player_count_any_stage(self): self.assertEqual(self.core.test_core_player_count(),0)
     def test_live_config_and_round_snapshot(self): self.assertEqual(self.core.test_core_live_voice(),0)
     def test_scores_survive_departures(self): self.assertEqual(self.core.test_core_scores_after_departure(),0)
     def test_ping_measurements_age_and_wrap(self):
@@ -231,7 +235,7 @@ class MultiplayerNativeTests(unittest.TestCase):
         self.assertEqual(self.lib.test_ping(42,0xfffffffe,2),42)
     def test_latency_expiry_and_host_migration(self): self.assertEqual(self.core.test_core_latency_and_migration(),0)
     def test_packet_roundtrip_and_all_truncations(self): self.assertEqual(self.lib.test_protocol(),0)
-    def test_invalid_config_and_stage_limits(self): self.assertEqual(self.lib.test_config_validation(),0)
+    def test_invalid_config_and_player_counts(self): self.assertEqual(self.lib.test_config_validation(),0)
     def test_proximity_bright_dot_and_floor(self):
         for distance,gain in ((0,1),(3000,1),(4000,.3666666667),(4500,.2125),(5000,.1333333333),(6000,.10),(8000,.10),(100000,.10)):
             with self.subTest(distance=distance): self.assertAlmostEqual(self.lib.test_gain(0,distance),gain,places=6)
@@ -249,16 +253,22 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_lobby_and_results_allow_everyone(self):
         self.assertEqual(self.lib.test_group(0,5,1,0,0,1),1)
     def test_exact_rosters_and_unassigned(self):
-        for mode,teams in ((5,[0,0,1,1]),(6,[0,0,0,1]),(7,[0,0,1,2])):
-            connected = (C.c_uint8*4)(1,1,1,mode!=7)
-            chosen = (C.c_uint8*4)(*teams)
+        slots = self.lib.test_max_players()
+        self.assertEqual(slots, 8)
+        for mode,teams in ((5,[0,0,1,1]),(6,[0,0,0,1]),(7,[0,0,1]),(8,[0,0,0,1,1,1]),(9,[0,0,0,0,1,1,1,1])):
+            connected = (C.c_uint8*slots)(*([1]*len(teams)+[0]*(slots-len(teams))))
+            chosen = (C.c_uint8*slots)(*(teams+[2]*(slots-len(teams))))
             self.assertEqual(self.lib.test_roster(mode,connected,chosen),1)
             chosen[0]=2; self.assertEqual(self.lib.test_roster(mode,connected,chosen),0)
             chosen[0]=1; self.assertEqual(self.lib.test_roster(mode,connected,chosen),0)
     def test_team_capacity_and_friendly_fire(self):
-        for mode,red,blue in ((5,2,2),(6,3,1),(7,2,1)):
+        for mode,red,blue in ((5,2,2),(6,3,1),(7,2,1),(8,3,3),(9,4,4)):
             self.assertEqual(self.lib.test_capacity(mode,0),red); self.assertEqual(self.lib.test_capacity(mode,1),blue)
+        for mode in (0,4,10): self.assertEqual(self.lib.test_capacity(mode,0),0)
         self.assertEqual(self.lib.test_points(0,1,3),3); self.assertEqual(self.lib.test_points(0,0,3),-3)
+    def test_online_team_sizes_play_the_games_2v2(self):
+        for mode,game in ((0,0),(5,5),(6,6),(7,7),(8,5),(9,5)):
+            self.assertEqual(self.lib.test_game_scenario(mode),game)
     def test_binaural_front_back_and_elevation(self):
         outputs=[self.render(d)[1][512:] for d in ((0,0,-1),(0,0,1),(0,1,0),(0,-1,0))]
         for i in range(4):

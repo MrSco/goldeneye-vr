@@ -8,7 +8,10 @@ test("starter project preserves game player limits and has valid links", () => {
   const p = validateProject(starterProject());
   assert.equal(p.screens.length, 9);
   assert.equal(p.sample.players.length, 4);
-  assert.equal(stages.find(s => s[0] === "Egypt")[2], 2);
+  // port/src/net/net_match.c: twice the game's own limits, eight at most (protocol 16)
+  assert.equal(stages.find(s => s[0] === "Egypt")[2], 4);
+  assert.equal(stages.find(s => s[0] === "Facility")[2], 8);
+  assert.ok(stages.every(s => s[2] >= 4 && s[2] <= 8));
   const ids = new Set(p.screens.map(s => s.id));
   assert.ok(p.screens.flatMap(s => s.nodes).every(n => !n.targetScreen || ids.has(n.targetScreen)));
 });

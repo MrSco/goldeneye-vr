@@ -79,20 +79,20 @@ struct player_data {
 #endif
 };
 
-extern struct player *g_playerPointers[4];
+extern struct player *g_playerPointers[MAX_PLAYER_COUNT];
 
 // extern struct player_data player1_player_data;
 // extern struct player_data player2_player_data;
 // extern struct player_data player3_player_data;
 // extern struct player_data player4_player_data;
 
-extern struct player_data g_playerPlayerData[4];
+extern struct player_data g_playerPlayerData[MAX_PLAYER_COUNT];
 
 extern struct player *g_CurrentPlayer;
 extern struct player_data *g_playerPerm;
 extern s32 player_num;
 extern s32 random_byte;
-extern PLAYER_ID array_PLAYER_IDs[4];
+extern PLAYER_ID array_PLAYER_IDs[MAX_PLAYER_COUNT];
 
 
 void reset_play_data_ptrs(void);
