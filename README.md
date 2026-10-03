@@ -60,7 +60,7 @@ Also:
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
   In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
-- **Multiplayer** (experimental): deathmatch for up to eight players, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
+- **Multiplayer** (experimental): deathmatch for up to eight players, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
@@ -205,12 +205,13 @@ To walk with the left stick anyway, tick **Swap sticks** as well.
 
 ## 🌐 Multiplayer (experimental)
 
-Host a deathmatch alone or play with up to eight players, each in their own headset, on the game's multiplayer stages.
+Host a deathmatch alone or play with up to eight players, each in their own headset, on the game's multiplayer stages. Or play the campaign together: up to four players in co-op, the host picking the missions.
 It's still experimental: expect rough edges, and please report what you find.
 
 **Everyone needs the same version of GoldenEye VR**, and each player their own ROM.
 
 **Host a game.** In the launcher press **Multiplayer...**, stay on **Host Game**, and pick:
+- the **Mode**: **Deathmatch**, or **Co-op mission** for the campaign (each player picks their own save folder, then the host picks missions, difficulty and briefings for everyone).
 - **Public game** to appear in the internet browser, or **Private game** to share a join code.
 - a **stage** and how many **players** it takes, from 2 to 8 on any stage.
 - your **character**.
