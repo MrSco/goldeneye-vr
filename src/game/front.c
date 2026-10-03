@@ -7779,6 +7779,25 @@ Gfx *constructor_menu0D_missioncomplete(Gfx *DL)
     y = y2 + 0xF4;
     DL = frontPrintText(DL, &x, &y, stagename, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
 
+#ifdef GEVR
+    /* co-op (#94): the party's kills, as the host counted them */
+    if (gevrCoopTallyCount() > 0)
+    {
+        s32 slot;
+        s32 len = sprintf(stagename, "Team kills:");
+
+        for (slot = 0; slot < gevrCoopTallyCount() && len < 200; slot++)
+        {
+            if (gevrCoopTallyPlayed(slot))
+            {
+                len += sprintf(&stagename[len], "  %.15s %d", gevrCoopTallyName(slot), gevrCoopTallyKills(slot));
+            }
+        }
+        x = 0x37;
+        y = (y2 * 4) + 0xF4;
+        DL = frontPrintText(DL, &x, &y, stagename, ptrFontZurichBoldChars, ptrFontZurichBold, 0xFF, viGetX(), viGetY(), 0, 0);
+    }
+#endif
 
     DL = frontAddNextTabText(DL);
     DL = frontAddPreviousTabText(DL);

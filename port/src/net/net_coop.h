@@ -76,6 +76,11 @@ int gevrCoopSession(void);                  /* a co-op party, in its menus or a 
 int gevrCoopIsHost(void);                   /* ...and this headset hosts it */
 unsigned int gevrCoopIntroSeed(void);       /* the mission's intro camera, the same on every headset */
 int gevrWatchController(void);              /* options.c: the solo watch reads this headset's controller */
+/* The party's tally of the last mission, for the statistics page (front.c; net_core.c) */
+int gevrCoopTallyCount(void);               /* slots to look at, 0 none */
+int gevrCoopTallyPlayed(int slot);
+int gevrCoopTallyKills(int slot);
+const char *gevrCoopTallyName(int slot);
 void netCoopMissionEnded(int result);       /* net_core.c: the mission ended here (NET_COOP_RESULT_*) */
 void gevrCoopMenuTick(void);                /* front.c menu_init: the host's screen out, the others' in */
 int gevrCoopMenuFollowing(void);            /* this headset shows the host's screen: no input of its own */
