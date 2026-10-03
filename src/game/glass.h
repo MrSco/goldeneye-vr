@@ -2,6 +2,14 @@
 #define _UNK_0A1DA0_H_
 #include <ultra64.h>
 #include <bondtypes.h>
+#include "explosion.h"
+
+#ifdef GEVR
+/* a spark for every bullet hole that can show at once (#91) */
+#define BULLET_SPARKS_MAX BULLET_IMPACT_BUFFER_LEN
+#else
+#define BULLET_SPARKS_MAX 20
+#endif
 
 typedef struct s_shattered_window_piece {
     s32 active;
