@@ -1126,14 +1126,18 @@ static void gevrFunOptions(bool hostPage) {
 }
 static void gevrLobbyRoster(const ImVec4 &gold) {
     const NetMsgLobbyState *lobby = netGetLobbyState();
+    static int kickSlot = -1;
+    static char kickName[GEVR_MAX_NAME_LEN] = "";
+    const bool canKick = netIsHost();
     ImGui::TextColored(gold, "PLAYERS (%d/%d)", netGetConnectedPlayerCount(), netGetMaxPlayers());
-    if (ImGui::BeginTable("##lobbyroster", 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
+    if (ImGui::BeginTable("##lobbyroster", canKick ? 6 : 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
         float font = ImGui::GetFontSize();
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("Character", ImGuiTableColumnFlags_WidthFixed, font * 9);
         ImGui::TableSetupColumn("Team", ImGuiTableColumnFlags_WidthFixed, font * 5);
         ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthFixed, font * 6);
         ImGui::TableSetupColumn("Ping (ms)", ImGuiTableColumnFlags_WidthFixed, font * 6);
+        if (canKick) ImGui::TableSetupColumn("Host", ImGuiTableColumnFlags_WidthFixed, font * 3.2f);
         ImGui::TableHeadersRow();
         for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
             if (!lobby->slots[i].connected)
@@ -1154,8 +1158,34 @@ static void gevrLobbyRoster(const ImVec4 &gold) {
             ImGui::TextUnformatted(host ? "Host" : slot.ready ? "Ready" : "Waiting");
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(gevrPingText(i).c_str());
+            if (canKick) {
+                ImGui::TableNextColumn();ImGui::PushID(i);
+                if (!host) {
+                    const bool supported=netHostCanKickPlayer(i)!=0;
+                    ImGui::BeginDisabled(!supported);
+                    if (ImGui::Button("Kick")) {
+                        kickSlot = i;snprintf(kickName,sizeof(kickName),"%s",slot.name);
+                    }
+                    ImGui::EndDisabled();
+                    if (!supported && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                        ImGui::SetTooltip("This player needs the updated build for host removal.");
+                }
+                ImGui::PopID();
+            }
         }
         ImGui::EndTable();
+    }
+    if (kickSlot >= 0 && !ImGui::IsPopupOpen("Kick from lobby?")) ImGui::OpenPopup("Kick from lobby?");
+    if (ImGui::BeginPopupModal("Kick from lobby?",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool present = netHostCanKickPlayer(kickSlot) &&
+            !strcmp(netGetSlotName(kickSlot),kickName);
+        ImGui::Text("Remove %s from this session?",kickName);
+        if (ImGui::Button("Cancel",ImVec2(220,52))) { kickSlot=-1;ImGui::CloseCurrentPopup(); }
+        ImGui::SameLine();ImGui::BeginDisabled(!canKick || !present);
+        if (ImGui::Button("Kick player",ImVec2(220,52))) {
+            netHostKickPlayer(kickSlot);kickSlot=-1;ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();ImGui::EndPopup();
     }
 }
 void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
@@ -2625,36 +2655,55 @@ extern "C" void gevrLauncherRun(void)
             }
         },
         [&]() {
-            ImGui::TextColored(gold, "HANDS & STICKS");
-            bool lefty = VrLeftHandedMode != 0;
-            if (ImGui::Checkbox("Left-handed", &lefty)) VrLeftHandedMode = lefty ? 1 : 0;
-            bool swap = VrSwapJoysticks != 0;
-            if (ImGui::Checkbox("Swap sticks", &swap)) VrSwapJoysticks = swap ? 1 : 0;
-            bool nolean = VrAimNoLean != 0;
-            if (ImGui::Checkbox("Aim: no lean", &nolean)) VrAimNoLean = nolean ? 1 : 0;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Stereo: keep moving while holding the aim trigger.\nClick the left stick to crouch.");
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "AIM STEADYING (stereo)");
-            int steady = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
-            ImGui::RadioButton("Off##steady", &steady, 0);
-            ImGui::SameLine();
-            ImGui::RadioButton("Low##steady", &steady, 1);
-            ImGui::SameLine();
-            ImGui::RadioButton("High##steady", &steady, 2);
-            VrAimSteady = steady;
-            ImGui::Spacing();
-            if (ImGui::Button(VrGunFitArmed ? "Gun fit: on" : "Gun fit..."))
-                VrGunFitArmed = !VrGunFitArmed;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
-                                  "the gun on your hand. A keeps it, B puts it back.");
-            char throwLabel[64];
-            snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
-            if (ImGui::Button(throwLabel)) throwingPage = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Configure motion throwing, throw strength, pitch trim, and gaze assist.");
-            if (ImGui::Button("Haptics...")) hapticsPage = true;
+            if (ImGui::BeginTable("controls-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
+                ImGui::TableNextColumn();
+                ImGui::TextColored(gold, "HANDS & STICKS");
+                bool lefty = VrLeftHandedMode != 0;
+                if (ImGui::Checkbox("Left-handed", &lefty)) VrLeftHandedMode = lefty ? 1 : 0;
+                bool swap = VrSwapJoysticks != 0;
+                if (ImGui::Checkbox("Swap sticks", &swap)) VrSwapJoysticks = swap ? 1 : 0;
+                bool nolean = VrAimNoLean != 0;
+                if (ImGui::Checkbox("Aim: no lean", &nolean)) VrAimNoLean = nolean ? 1 : 0;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Stereo: keep moving while holding the aim trigger.\nClick the left stick to crouch.");
+                ImGui::Spacing();
+                ImGui::TextColored(gold, "AIM STEADYING (stereo)");
+                int steady = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
+                ImGui::RadioButton("Off##steady", &steady, 0);
+                ImGui::SameLine();
+                ImGui::RadioButton("Low##steady", &steady, 1);
+                ImGui::SameLine();
+                ImGui::RadioButton("High##steady", &steady, 2);
+                VrAimSteady = steady;
+                ImGui::Spacing();
+                ImGui::TextColored(gold, "WEAPON CONTROLS (stereo)");
+                if (ImGui::Button(VrGunFitArmed ? "Gun fit: on" : "Gun fit..."))
+                    VrGunFitArmed = !VrGunFitArmed;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("In the next level, with a gun in hand (stereo): the sticks move\n"
+                                      "the gun on your hand. A keeps it, B puts it back.");
+                char throwLabel[64];
+                snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
+                if (ImGui::Button(throwLabel)) throwingPage = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Configure motion throwing, throw strength, pitch trim, and gaze assist.");
+                ImGui::TableNextColumn();
+                ImGui::TextColored(gold, "FEEDBACK");
+                if (ImGui::Button("Haptics...")) hapticsPage = true;
+                ImGui::Spacing();
+                ImGui::TextColored(gold, "WATCH (stereo)");
+                bool gesture = VrWatchGesturePause != 0;
+                if (ImGui::Checkbox("Watch gesture to pause", &gesture)) VrWatchGesturePause = gesture ? 1 : 0;
+                ImGui::TextUnformatted("Watch face status");
+                ImGui::RadioButton("Off##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_OFF);
+                ImGui::SameLine();
+                ImGui::RadioButton("On##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_ON);
+                ImGui::SameLine();
+                ImGui::RadioButton("Only##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_ONLY);
+                ImGui::TextWrapped("On: wrist and normal displays. Only: wrist during play. "
+                                   "Holster the offhand to see the watch. Pause-menu status stays visible.");
+                ImGui::EndTable();
+            }
         },
         [&]() {
             ImGui::TextColored(gold, "TURNING (stereo)");

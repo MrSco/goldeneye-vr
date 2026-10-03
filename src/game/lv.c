@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_game.h"
+#include "gevr_reload_input.h"
 #endif
 #include "system.h"
 #include <ultra64.h>
@@ -1068,10 +1069,26 @@ Gfx* lvlRender(Gfx* DL)
             { extern void gevrHandChopTick(s32 ctrl); gevrHandChopTick(0); gevrHandChopTick(1); }
 #endif
 
+#ifdef GEVR
+            /* Drain even when a door/tank/menu consumes the activation. Never
+             * apply the headset's hand request to a simulated remote player. */
+            unsigned reloadMask = 0;
+            extern int netGetLocalSlot(void);
+            if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+                reloadMask = gevrVrTakeReloadMask();
+#endif
             if (bond_pressed_reload_activate() && bond_interact_object())
             {
+#ifdef GEVR
+                reloadMask = gevrReloadTargets(reloadMask,
+                    getCurrentPlayerWeaponId(GUNRIGHT) != ITEM_UNARMED,
+                    getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED);
+                if (reloadMask & 1) attempt_reload_item_in_hand(GUNRIGHT);
+                if (reloadMask & 2) attempt_reload_item_in_hand(GUNLEFT);
+#else
                 attempt_reload_item_in_hand(GUNRIGHT);
                 attempt_reload_item_in_hand(GUNLEFT);
+#endif
             }
 
             propsTickPlayer();
