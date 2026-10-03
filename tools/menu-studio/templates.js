@@ -15,7 +15,11 @@ export function template(kind="match") {
   const add=(type,x,y,p={})=>{const n=createNode(type,x,y,p);s.nodes.push(n);return n;};
   if(kind==="blank")return s;
   add("image",18,18,{w:64,h:64,assetId:"brand-icon",runtimeAsset:"launcher_icon.rgba",text:"Launcher icon",border:"transparent",state:"selected"});
-  add("text",100,32,{w:500,h:40,text:"GOLDENEYE VR",name:"Screen title",color:"heading"});
+  add("text",100,32,{w:240,h:40,text:"GOLDENEYE VR",name:"Screen title",color:"heading"});
+  ["health","armour"].forEach((key,i)=>{
+    add("text",352+i*190,22,{w:170,h:30,text:key.toUpperCase()+"  {{"+key+"}}%",name:key+" header",fontSize:21.45,color:"accent",binding:"gevrPauseLocalVitals"});
+    add("progress",352+i*190,60,{w:170,h:14,name:key+" bar",value:i?50:100,sampleKey:key,color:i?"#3366ad":"#f23f14",binding:"gevrPauseLocalVitals"});
+  });
   add("text",742,22,{w:518,h:36,text:"{{map}}",color:"accent",binding:"netGetLobbyStage() / netCoopStageName()"});
   add("text",742,60,{w:518,h:36,text:"{{sessionStatus}}",color:"muted"});
   add("divider",18,98,{w:1244,h:2});
@@ -68,9 +72,6 @@ export function template(kind="match") {
     control("VOICE MODE","Couch",["Couch","Proximity"],"gevrNetConfigSet(CFG_VOICE_MODE)",18,440,1100,{sampleKey:""});
     add("toggle",18,516,{w:1100,h:48,text:"MIC",value:100,binding:"netVoiceSetMuted",action:"toggle"});
   }
-  if(kind==="player") {
-    ["HEALTH","ARMOUR"].forEach((label,i)=>{add("text",18+i*642,660,{w:602,h:40,text:label+"  "+(i?50:100)+"%",color:"accent",binding:"gevrPauseLocalVitals"});add("progress",18+i*642,704,{w:602,h:32,value:i?50:100,color:i?"#3368ad":"#f24014",binding:"gevrPauseLocalVitals"});});
-  }
   if(kind!=="match")add("text",18,816,{w:1244,h:40,text:kind==="audio"?"Volumes and microphone are yours. The host chooses voice mode.":kind==="rules"?"Host settings. Round rules and fun options apply on the next load.":"Your character, team and loadout. The match continues while this window is open.",color:"muted"});
   add("divider",18,864,{w:1244,h:2});
   add("button",18,886,{w:244,h:52,text:"Resume",action:"custom",binding:"gevrNativePauseResume",notes:"Close the window. A held trigger must be released before firing."});
@@ -87,5 +88,5 @@ export function starterProject() {
   for(const s of screens)for(const n of s.nodes)if(n.type==="tabs")n.tabTargets=screens.map(s=>s.id);
   return {format:FORMAT,version:VERSION,uiStyle:"launcher",name:"GoldenEye VR · Shared pause window",notes:"One launcher-style window for eight-player deathmatch and four-player co-op. Direct laser targets; scores, independent ballots and host actions on Match. Co-op replaces ballots with party status and objectives. Match continues while the window is open. JSON exports describe layout for native implementation; they are not loaded by the game automatically.",theme:clone(palettes.launcher),screens,
     assets:[{id:"brand-icon",name:"Native launcher icon",kind:"image",data:"/repo-assets/launcher-icon.png",runtimeAsset:"launcher_icon.rgba",source:"android/app/src/main/assets/launcher_icon.rgba"},{id:"native-font",name:"ProggyClean · native launcher",kind:"font",data:"/repo-assets/native-ui.ttf",runtimeAsset:"ImGui default bitmap font",source:"port/vr/imgui/imgui_draw.cpp",license:"MIT / Tristan Grimmer"}],
-    sample:{mode:"deathmatch",players:clone(defaultPlayers),localPlayer:"MrSco",map:"Facility",weaponSet:"Lasers",scenario:"Normal",phase:"warmup",sessionStatus:"Warmup / next round",mission:"Dam",difficulty:"Agent",mapVote:"No vote",weaponVote:"No vote",nextRound:"Vote",objectives:[{text:"Neutralize all alarms",status:"Complete"},{text:"Bungee jump from platform",status:"Incomplete"}]}};
+    sample:{mode:"deathmatch",players:clone(defaultPlayers),localPlayer:"MrSco",health:100,armour:50,map:"Facility",weaponSet:"Lasers",scenario:"Normal",phase:"warmup",sessionStatus:"Warmup / next round",mission:"Dam",difficulty:"Agent",mapVote:"No vote",weaponVote:"No vote",nextRound:"Vote",objectives:[{text:"Neutralize all alarms",status:"Complete"},{text:"Bungee jump from platform",status:"Incomplete"}]}};
 }
