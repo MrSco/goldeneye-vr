@@ -14606,11 +14606,18 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
     return gdl;
 }
 
-/* one centred line of the wheel, shortened to maxw; with outw, only measured */
+#define GEVR_WC_TEXTS 0.72f /* the wheel's glyphs, against the font's own size: its names fit their wedges */
+extern f32 text_scale;
+extern s32 text_scale_ox;
+extern s32 text_scale_oy;
+
+/* one centred line of the wheel at GEVR_WC_TEXTS, shortened to maxw; with outw, only measured */
 static Gfx *gevrWpText(Gfx *gdl, const char *text, s32 cx, s32 y, u32 colour, s32 lh, s32 maxw, s32 *outw)
 {
     char line[56];
     s32 n = 0, w = 0, h = 0, x;
+
+    maxw = (s32) (maxw / GEVR_WC_TEXTS);
 
     while (text[n] != 0 && text[n] != '\n' && n < (s32) sizeof(line) - 2)
     {
@@ -14629,11 +14636,16 @@ static Gfx *gevrWpText(Gfx *gdl, const char *text, s32 cx, s32 y, u32 colour, s3
     }
     if (outw != NULL)
     {
-        *outw = w;
+        *outw = (s32) (w * GEVR_WC_TEXTS);
         return gdl;
     }
     x = cx - w / 2;
-    return textRender(gdl, &x, &y, line, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, lh);
+    text_scale = GEVR_WC_TEXTS;
+    text_scale_ox = cx;
+    text_scale_oy = y;
+    gdl = textRender(gdl, &x, &y, line, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, lh);
+    text_scale = 1.0f;
+    return gdl;
 }
 
 static const char *s_gevrWcLabel[GEVR_WC_COUNT] = { "PISTOLS", "RIFLES", "HEAVY", "GADGETS", "THROWN" };
@@ -14670,9 +14682,10 @@ static void gevrWheelVtx(struct damage_display_val *v, f32 cx, f32 cy, f32 r, f3
 static u32 gevrWheelShade(s32 cat, s32 empty, s32 lit, s32 outer)
 {
     u32 r, g, b, a;
+    /* near opaque: the world and the gun behind it made the names hard to read (user) */
     if (empty)
     {
-        return outer ? 0x3A3E44A0 : 0x24272CA0;
+        return outer ? 0x3A3E44EC : 0x24272CEC;
     }
     r = s_gevrWcTint[cat][0];
     g = s_gevrWcTint[cat][1];
@@ -14680,11 +14693,11 @@ static u32 gevrWheelShade(s32 cat, s32 empty, s32 lit, s32 outer)
     if (!lit)
     {
         r = r * 2 / 5; g = g * 2 / 5; b = b * 2 / 5;
-        a = 0xC8;
+        a = 0xF4;
     }
     else
     {
-        a = 0xF0;
+        a = 0xFF;
     }
     if (!outer)
     {
@@ -14699,7 +14712,8 @@ static u32 gevrWheelShade(s32 cat, s32 empty, s32 lit, s32 outer)
  * three commands: a vertex load and two G_TRI1s (this file's gSP2Triangles is
  * gbi.h's pair of gSP1Triangles, which bumps a `rp++` argument twice).
  */
-#define GEVR_WC_QUADS (GEVR_WC_COUNT * GEVR_WC_SEGS)
+#define GEVR_WC_HOLE_SEGS 20   /* the dark disc behind the spinning item */
+#define GEVR_WC_QUADS (GEVR_WC_COUNT * GEVR_WC_SEGS + GEVR_WC_HOLE_SEGS)
 static struct damage_display_val s_gevrWcVtx[2][GEVR_WC_QUADS * 4];
 static Gfx s_gevrWcDl[2][GEVR_WC_QUADS * 3 + 1];
 
@@ -14715,6 +14729,18 @@ static Gfx *gevrWheelDrawRing(Gfx *gdl, s32 cx, s32 cy, s32 active)
     Mtxf mtx;
     s32 c, s, q = 0;
 
+    for (s = 0; s < GEVR_WC_HOLE_SEGS; s++, q++)
+    {
+        struct damage_display_val *qv = &v[q * 4];
+        f32 step = 360.0f / GEVR_WC_HOLE_SEGS;
+        gevrWheelVtx(&qv[0], cx, cy, 0.0f, step * s, 0x101216F0);
+        gevrWheelVtx(&qv[1], cx, cy, GEVR_WC_R0, step * s, 0x1C1F24F0);
+        gevrWheelVtx(&qv[2], cx, cy, 0.0f, step * (s + 1), 0x101216F0);
+        gevrWheelVtx(&qv[3], cx, cy, GEVR_WC_R0, step * (s + 1), 0x1C1F24F0);
+        gSPVertex(rp++, osVirtualToPhysical(qv), 4, 0);
+        gSP1Triangle(rp++, 0, 1, 2, 0);
+        gSP1Triangle(rp++, 1, 2, 3, 0);
+    }
     for (c = 0; c < GEVR_WC_COUNT; c++)
     {
         s32 empty = s_gevrWc.n[c] == 0;
@@ -14772,6 +14798,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     s32 hand;
     s32 i;
     s32 lh = j_text_trigger ? 14 : 12;
+    s32 lp = (s32) lroundf(lh * GEVR_WC_TEXTS) + 1;   /* the scaled lines' pitch */
     s32 bx0;
     s32 by0;
     s32 cx;
@@ -14903,7 +14930,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
         if (n == 0)
         {
-            gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lh / 2, 0x707780FF, lh, GEVR_WC_TEXTW, NULL);
+            gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lp / 2, 0x707780FF, lh, GEVR_WC_TEXTW, NULL);
             continue;
         }
         given = i == active ? s_gevrWpIndex : gevrWheelPick(hand, i);
@@ -14912,7 +14939,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
             if (s_gevrWc.idx[i][k] == given) at = k;
         }
         rows = n < GEVR_WC_ROWS ? n : GEVR_WC_ROWS;
-        y = ty - (rows + 1) * lh / 2;
+        y = ty - (rows + 1) * lp / 2;
         gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, y, i == active ? 0xFFF080FF : 0xD0D6DEFF, lh, GEVR_WC_TEXTW, NULL);
         for (k = 0; k < rows; k++)
         {
@@ -14928,7 +14955,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
             {
                 colour = i == active ? 0x98A0ACFF : 0x6C727CFF;
             }
-            gdl = gevrWpText(gdl, s_gevrWpList[s_gevrWc.idx[i][j]].name, tx, y + (k + 1) * lh, colour, lh, GEVR_WC_TEXTW, NULL);
+            gdl = gevrWpText(gdl, s_gevrWpList[s_gevrWc.idx[i][j]].name, tx, y + (k + 1) * lp, colour, lh, GEVR_WC_TEXTW, NULL);
         }
     }
 
