@@ -28,6 +28,9 @@
 #include "matrixmath.h"
 #include "objecthandler.h"
 #include "player.h"
+#ifdef GEVR
+#include "net_coop.h"
+#endif
 #include "propobj.h"
 #include "stan.h"
 #include "model.h"
@@ -2361,6 +2364,15 @@ s32 chrTick(PropRecord *prop)
      */
     extern s32 g_gevrExtraPass;
     const s32 gevrStill = g_gevrExtraPass && prop->type == PROP_TYPE_CHR;
+    /*
+     * Co-op (#94): on a client a guard is the host's puppet (net_coop.c),
+     * which stands, moves, animates, aims and fires as the host's does, in
+     * place of its AI and animation here; on the host each guard acts on
+     * one player, its AI and fire run as that player (set_cur_player).
+     */
+    const s32 gevrPuppet = !gevrStill && prop->type == PROP_TYPE_CHR && gevrCoopPuppets();
+    s32 gevrTarget = -1;
+    s32 gevrPrevPlayer = 0;
 #endif
 
     renderdata = D_8002CC6C;
@@ -2370,7 +2382,17 @@ s32 chrTick(PropRecord *prop)
     tickamount = g_ClockTimer;
 
 #ifdef GEVR
-    if (!gevrStill && ((!(chr->chrflags & CHRFLAG_HIDDEN)) || (chr->chrflags & CHRFLAG_00040000)))
+    if (!gevrStill && prop->type == PROP_TYPE_CHR && gevrCoopHostGuards())
+    {
+        gevrTarget = gevrCoopGuardTarget(chr);
+    }
+
+    if (gevrPuppet)
+    {
+        /* hidden or not: the host's state may show it again */
+        netCoopPuppetTick(chr, tickamount);
+    }
+    else if (!gevrStill && ((!(chr->chrflags & CHRFLAG_HIDDEN)) || (chr->chrflags & CHRFLAG_00040000)))
 #else
     if ((!(chr->chrflags & CHRFLAG_HIDDEN)) || (chr->chrflags & CHRFLAG_00040000))
 #endif
@@ -2387,6 +2409,18 @@ s32 chrTick(PropRecord *prop)
         }
         else
         {
+#ifdef GEVR
+            if (gevrTarget >= 0)
+            {
+                gevrPrevPlayer = get_cur_playernum();
+                set_cur_player(gevrTarget);
+                g_gevrCoopGuardTick = TRUE;
+                chrlvActionTick(chr);
+                g_gevrCoopGuardTick = FALSE;
+                set_cur_player(gevrPrevPlayer);
+            }
+            else
+#endif
             chrlvActionTick(chr);
 
             if (chr->model == NULL)
@@ -2411,6 +2445,12 @@ s32 chrTick(PropRecord *prop)
 
     if (chr->hidden & CHRHIDDEN_REMOVE)
     {
+#ifdef GEVR
+        if (prop->type == PROP_TYPE_CHR)
+        {
+            gevrCoopChrRemoved(chr);
+        }
+#endif
         chrpropCleanupForRemoval(prop);
         return TICKOP_FREE;
     }
@@ -2438,8 +2478,9 @@ s32 chrTick(PropRecord *prop)
     else
     {
 #ifdef GEVR
-        if (gevrStill)
+        if (gevrStill || gevrPuppet)
         {
+            /* a puppet has moved already (netCoopPuppetTick) */
             headSwitchVisible = (chr->chrflags & CHRFLAG_CULL_USING_HITBOX) ? 1 : posIsOnScreen(prop, &prop->pos, getinstsize(model), 1);
             goto after_position_update;
         }
@@ -2844,7 +2885,16 @@ after_position_update:
         }
 
 #ifdef GEVR
-        if (!gevrStill)
+        if (gevrTarget >= 0)
+        {
+            gevrPrevPlayer = get_cur_playernum();
+            set_cur_player(gevrTarget);
+            g_gevrCoopGuardTick = TRUE;
+            chrlvTriggerFireWeapon(chr);
+            g_gevrCoopGuardTick = FALSE;
+            set_cur_player(gevrPrevPlayer);
+        }
+        else if (!gevrStill && !gevrPuppet)
 #endif
         chrlvTriggerFireWeapon(chr);
     }

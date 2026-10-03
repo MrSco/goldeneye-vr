@@ -83,7 +83,65 @@ typedef enum {
 
     /* Co-op (protocol 16, #94) */
     NET_MSG_COOP_END = 35,      /* Host -> all: the mission ended (success, the next mission, the delay) */
+    NET_MSG_CHR_STATE = 36,     /* Host -> all, unreliable: guards as the host runs them (NetChrState) */
+    NET_MSG_CHR_SPAWN = 37,     /* Host -> all: a guard the host's AI spawned */
+    NET_MSG_CHR_REMOVE = 38,    /* Host -> all: a guard the host removed */
+    NET_MSG_COOP_DAMAGE = 39,   /* Host -> all: a guard hurt a player (the target slot, the damage, its direction) */
+    NET_MSG_COOP_HIT = 40,      /* Client -> host: my player hit a guard (its host slot, the part, the gun, the direction) */
 } NetMsgType;
+
+/*
+ * A guard as the host runs it (co-op, #94): what a puppet on another headset
+ * needs to stand, move, animate, aim and fire where the host's does. slot is
+ * the guard's index in g_ChrSlots on the host. The animation is its offset
+ * in the animation segment (ptr_animation_table), the same on every headset.
+ */
+enum {
+    NET_CHR_HIDDEN = 1,         /* CHRFLAG_HIDDEN */
+    NET_CHR_FIRE_RIGHT = 2,     /* its right gun's fire shows (weaponIsGunfireVisible) */
+    NET_CHR_FIRE_LEFT = 4,
+    NET_CHR_FLIP = 8,           /* the animation is mirrored (model gunhand) */
+    NET_CHR_NO_TRANSLATE = 16,  /* CHRFLAG_IGNORE_ANIM_TRANSLATION */
+    NET_CHR_INVINCIBLE = 32,    /* CHRFLAG_INVINCIBLE */
+};
+#define NET_CHR_NO_ANIM 0xFFFF
+#define NET_CHR_STATE_BYTES 44
+#define NET_CHR_STATES_PER_PACKET 24
+typedef struct {
+    u16 slot;
+    u8 flags;                   /* NET_CHR_* */
+    u8 actiontype;              /* ACT_TYPE */
+    coord3d pos;                /* prop->pos */
+    f32 ground;
+    u16 yaw;                    /* the model's subroty, 0..65535 for 0..2 pi */
+    u16 anim;                   /* the animation's offset, NET_CHR_NO_ANIM none */
+    f32 frame;                  /* animframe1 */
+    f32 speed;                  /* the model's speed (negative backwards) */
+    s16 aim[4];                 /* aimendlshoulder, aimendrshoulder, aimendback, aimendsideback, x 10000 */
+    u8 weapon[2];               /* the held guns' ITEM_IDS, 0 none */
+    u8 fade;                    /* fadealpha */
+    u8 damage;                  /* damage / maxdamage, x 100 (0 unhurt .. 100 dead) */
+} NetChrState;
+static inline void netbufWriteChrState(struct netbuf *b, const NetChrState *c) {
+    netbufWriteU16(b,c->slot);netbufWriteU8(b,c->flags);netbufWriteU8(b,c->actiontype);
+    netbufWriteCoord(b,&c->pos);netbufWriteF32(b,c->ground);
+    netbufWriteU16(b,c->yaw);netbufWriteU16(b,c->anim);
+    netbufWriteF32(b,c->frame);netbufWriteF32(b,c->speed);
+    for(int i=0;i<4;i++)netbufWriteS16(b,c->aim[i]);
+    netbufWriteU8(b,c->weapon[0]);netbufWriteU8(b,c->weapon[1]);netbufWriteU8(b,c->fade);netbufWriteU8(b,c->damage);
+}
+static inline int netbufReadChrState(struct netbuf *b, NetChrState *c) {
+    c->slot=netbufReadU16(b);c->flags=netbufReadU8(b);c->actiontype=netbufReadU8(b);
+    netbufReadCoord(b,&c->pos);c->ground=netbufReadF32(b);
+    c->yaw=netbufReadU16(b);c->anim=netbufReadU16(b);
+    c->frame=netbufReadF32(b);c->speed=netbufReadF32(b);
+    for(int i=0;i<4;i++)c->aim[i]=netbufReadS16(b);
+    c->weapon[0]=netbufReadU8(b);c->weapon[1]=netbufReadU8(b);c->fade=netbufReadU8(b);c->damage=netbufReadU8(b);
+    return !b->error && isfinite(c->pos.x) && isfinite(c->pos.y) && isfinite(c->pos.z) && fabsf(c->pos.x) < 1.0e6f &&
+        fabsf(c->pos.y) < 1.0e6f && fabsf(c->pos.z) < 1.0e6f && isfinite(c->ground) && fabsf(c->ground) < 1.0e6f &&
+        isfinite(c->frame) && fabsf(c->frame) < 1.0e5f && isfinite(c->speed) && fabsf(c->speed) < 100.0f &&
+        c->weapon[0] < ITEM_IDS_MAX && c->weapon[1] < ITEM_IDS_MAX && c->damage <= 100;
+}
 
 /* Protocol 15 combat identity. Shot IDs identify one firing action; hit IDs
  * identify individual pellets/penetrations, so replay protection preserves them. */

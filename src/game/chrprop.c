@@ -3,6 +3,7 @@
 #endif
 #ifdef GEVR
 #include "net_game.h"
+#include "net_coop.h"
 #endif
 #include <ultra64.h>
 #include <assert.h>
@@ -2501,6 +2502,10 @@ void chrpropTick(void)
     ObjectRecord *setupobj;
 
     // Advance AI states e.g. attacking, walking, dying, etc...
+#ifdef GEVR
+    /* co-op (#94): a client's background AI is the host's to run */
+    if (!gevrCoopPuppets())
+#endif
     chrlvAllChrTick();
 
     prop = chrpropGetActiveTail();
@@ -3275,6 +3280,13 @@ void chrpropUpdateAutoaimTarget(void)
             {
                 continue;
             }
+#ifdef GEVR
+            /* co-op (#94): the auto-aim leaves teammates alone */
+            if (candidate_prop->type == PROP_TYPE_VIEWER && gevrCoopActive())
+            {
+                continue;
+            }
+#endif
 
             candidate_chr = candidate_prop->chr;
 

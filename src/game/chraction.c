@@ -34,6 +34,7 @@
 #include "stan.h"
 #ifdef GEVR
 extern bool netIsActive(void);
+#include "net_coop.h"
 #endif
 
 
@@ -2490,6 +2491,22 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
     extern int netDamageAllowed(int attacker, int target);
     if (self->prop->type == PROP_TYPE_VIEWER &&
         !netDamageAllowed(get_cur_playernum(), getPlayerPointerIndex(self->prop))) return FALSE;
+    /* Co-op (#94): a guard is hurt on the host, which runs it (net_coop.c) */
+    if (self->prop->type == PROP_TYPE_CHR && isPlayer)
+    {
+        s32 elsewhere = gevrCoopGuardHitElsewhere(self, hitpart, vector, weaponid);
+        if (elsewhere)
+        {
+            /* reported: the shooter hears the guard's grunt now, sees its hurt from the host */
+            if (elsewhere == 2 && hitpart != HIT_HAT && hitpart != HIT_GUN && !(self->chrflags & CHRFLAG_INVINCIBLE) &&
+                self->actiontype != ACT_DIE && self->actiontype != ACT_DEAD)
+            {
+                play_sound_for_shot_actor(self);
+            }
+            return FALSE;
+        }
+        gevrCoopGuardProvoked(self, get_cur_playernum());
+    }
 #endif
     s32 hattype;                     //sp78
     PropRecord *myprop = self->prop; //sp60
@@ -2739,6 +2756,14 @@ s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3)
 
     self_model = self->model;
     self_prop = self->prop;
+
+#ifdef GEVR
+    /* co-op (#94): a client's guards are hurt on the host, by its own copy of the blast */
+    if (self_prop->type == PROP_TYPE_CHR && gevrCoopPuppets())
+    {
+        return 0;
+    }
+#endif
 
     if ((self->actiontype == ACT_DEAD) || (self->actiontype == ACT_DIE))
     {
@@ -10746,6 +10771,10 @@ PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *s
                     chr          = chrprop->chr;
                     chr->headnum = headnum;
                     chr->bodynum = bodynum;
+#ifdef GEVR
+                    /* co-op (#94): the host's spawn, made on every headset */
+                    gevrCoopChrSpawned(chr, ailist, spawnflags);
+#endif
 
                     return chrprop;
                 }
