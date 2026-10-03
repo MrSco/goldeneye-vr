@@ -333,7 +333,7 @@ static struct coord3d s_gevrMenuOffset;
 /* bondview2.c walk path, just before the body's move this tick. */
 void gevrStereoHeadWalk(struct coord3d *move_offset)
 {
-    if (gevrSpectating()) return;
+    if (gevrSpectating() || gevrCoopLocalDowned()) return;
     f32 head[3];
     f32 body[4];
     f32 half;
@@ -2230,7 +2230,7 @@ static s32 s_gevrChopSwing[2];   /* ticks left of "a swing began" (gevrHandChopS
 
 void gevrHandChopTick(s32 ctrl)
 {
-    if (gevrSpectating()) return;
+    if (gevrSpectating() || gevrCoopLocalDowned()) return;
     extern float vr_ctrl_quat_play[2][4];     /* vr_input.cpp: the gesture frame, play space */
     extern float vr_ctrl_velocity_play[2][3];
     extern float vr_head_velocity_play[3];    /* vr_openxr.cpp */
@@ -14803,6 +14803,8 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
     if (netPlayerIsSpectator(get_cur_playernum()) || !netDamageAllowed(playerid, get_cur_playernum())) return;
     /* co-op (#94): the host's guard hurting another player's copy: that player's headset takes it */
     if (gevrCoopForwardGuardDamage(damage_amount, vectorx, vectorz)) return;
+    /* co-op revive: a downed player takes no more until a teammate brings them back */
+    if (gevrCoopDowned(get_cur_playernum())) return;
     /*
      * A guard, an autogun or gas has no player (-1), and the bookkeeping
      * below indexes the players with it: g_playerPlayerData[-1] and
@@ -14959,6 +14961,10 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
 #endif
                         }
 
+#ifdef GEVR
+                        /* co-op (#94): down, not dead: a teammate beside them revives them */
+                        if (!gevrCoopGoDown())
+#endif
                         bondviewKillCurrentPlayer();
                     }
                 }
