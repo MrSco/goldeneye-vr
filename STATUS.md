@@ -3,13 +3,12 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / latest release:** 2026-10-03, v0.4.2; versionCode 53, protocol 17.
+**Updated / current build:** 2026-10-03, v0.4.2; versionCode 55, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
 
-**v0.4.2:** fix co-op joiner crash on launching the party's menus (reports
-253b6b4f, e8d14102: in the solo title stage only player 0 exists, so teammate
-slots 1-3 fell back to player 0 instead of selecting a NULL player and crashing
-in viSetupCurrentPlayerView).
+**v0.4.2:** co-op joiners fall back to player 0 in party title menus when their
+own slot has no player, preventing the viSetupCurrentPlayerView NULL-player
+crash (reports 253b6b4f, e8d14102).
 
 **v0.4.1:** co-op teammates watch the host's scripted and ending cutscenes
 through the host's camera and fades (#94, NET_MSG_COOP_CINEMA; protocol 17
@@ -37,14 +36,15 @@ decal fixes (#72). v0.3.8 fixed crash reporting. v0.3.7 added clock/life-ID
 combat sync (protocol 15), hand cycling and the TURN fallback. Earlier
 evidence is in docs/playtest-* and Git history.
 
-**Unreleased pause/editor work (2026-10-03):** a shared opaque launcher-style
+**v0.4.2 pause/editor work (PR #102):** a shared opaque launcher-style
 Quest pause window, direct ray controls, Match/Rules/Player/Audio tabs,
 eight-player scores and independent votes, four-player co-op party/objectives,
-health/armour, host restrictions and confirmed leave/end mission. The mobile
+original health/armour arcs with live radar in the header, Start toggling,
+host restrictions and confirmed leave/end mission. The mobile
 Menu Studio starter matches that window; JSON exports guide native rearrangement.
-Android debug build and desktop/phone browser + production ImGui/input checks
-pass. Quest interaction and multiplayer headset testing remain outstanding.
-No version or protocol change; this is not a new signed release.
+Signed local release builds and desktop/phone browser + production ImGui/input
+checks pass. The user accepted the pause layout; multiplayer headset testing
+remains outstanding. Protocol is unchanged; no new release is published here.
 
 ## What it is and what works
 
