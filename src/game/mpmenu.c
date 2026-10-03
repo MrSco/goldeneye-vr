@@ -49,6 +49,7 @@ extern int netVoiceHasPermission(void);
 extern int netVoiceCaptureFailed(void);
 #include "net_game.h"
 #include "../../port/vr/gevr_pause_menu.h"
+#include "glass.h"
 #include <stdlib.h>
 void mpwatchPlayBeep(void);
 extern int netMpPlayerCount(int fallback);
@@ -2791,6 +2792,10 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
 s32 mpwatchShouldDisplayGauges(void)
 {
 #ifdef GEVR
+#ifdef ANDROID
+    /* The native pause window owns these gauges while it is visible. */
+    if (gevrNativePauseOpen()) return FALSE;
+#endif
     if (g_CurrentPlayer->mpmenuon) return !g_gameOverFlag && g_CurrentPlayer->mpmenumode == MENU_STATUS;
 #endif
     return g_gameOverFlag ? FALSE : (g_CurrentPlayer->mpmenuon | (g_CurrentPlayer->healthdisplaytime > 0));
@@ -2803,15 +2808,26 @@ s32 checkGamePaused(void)
 }
 
 #ifdef GEVR
-void gevrPauseLocalVitals(int *health,int *armour)
+void gevrPauseLocalGauges(GevrPauseGaugeVertex vertices[92])
 {
     int slot=netGetLocalSlot();
-    *health=*armour=0;
-    if(slot<0 || slot>=MAX_PLAYER_COUNT || !g_playerPointers[slot])return;
-    *health=(int)(g_playerPointers[slot]->bondhealth*100.f+.5f);
-    *armour=(int)(g_playerPointers[slot]->bondarmour*100.f+.5f);
-    if(*health<0)*health=0;if(*health>100)*health=100;
-    if(*armour<0)*armour=0;if(*armour>100)*armour=100;
+    struct damage_display_val gauges[92];
+    f32 health=0,armour=0;
+    if(slot>=0 && slot<MAX_PLAYER_COUNT && g_playerPointers[slot]) {
+        health=g_playerPointers[slot]->bondhealth;
+        armour=g_playerPointers[slot]->bondarmour;
+    }
+    /* Reuse the original pause/watch arcs, including shading and fill. */
+    hudMakeDamageSegments(gauges,46,-1,health);
+    hudMakeDamageSegments(gauges+46,46,1,armour);
+    for(int i=0;i<92;i++) {
+        vertices[i].x=gauges[i].pos.x;
+        vertices[i].y=gauges[i].pos.z;
+        vertices[i].r=gauges[i].colour.r;
+        vertices[i].g=gauges[i].colour.g;
+        vertices[i].b=gauges[i].colour.b;
+        vertices[i].a=gauges[i].colour.a;
+    }
 }
 void gevrPausePlayerStats(int slot,int*points,int*kills,int*losses)
 {

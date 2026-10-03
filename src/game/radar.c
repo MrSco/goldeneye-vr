@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_game.h"
+#include "../../port/vr/gevr_pause_menu.h"
 #endif
 #include <ultra64.h>
 #include "math_atan2f.h"
@@ -249,3 +250,51 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
     #undef RADAR_RECT1_D
     #undef RADAR_VERT_SCALE
 }
+
+#ifdef GEVR
+/* A read-only view for the pause header. The gameplay radar above is unchanged.
+ * Read the local slot each frame: g_CurrentPlayer rotates through remote slots.
+ * Keep the gameplay radar's range, heading, colors and remote-player filters,
+ * but allow this view while mpmenuon is set because the match keeps running. */
+void gevrPauseLocalRadar(GevrPauseRadarView *radar)
+{
+    extern int netGetLocalSlot(void);
+    extern bool netSlotOccupied(int slot);
+    extern bool netIsRemotePlayerActive(int slot);
+    int slot=netGetLocalSlot();
+    radar->visible=radar->count=0;
+    if(!netIsActive() || slot<0 || slot>=MAX_PLAYER_COUNT ||
+        !g_playerPointers[slot] || !g_playerPointers[slot]->prop ||
+        g_playerPointers[slot]->bonddead || cheatIsActive(CHEAT_NO_RADAR_MP))return;
+    struct player *local=g_playerPointers[slot];
+    enum MPSCENARIOS scenario=get_scenario();
+    int teams=scenario==SCENARIO_2v2 || scenario==SCENARIO_3v1 ||
+        scenario==SCENARIO_2v1 || scenario==SCENARIO_TLD || scenario==SCENARIO_MWTGG;
+    radar->visible=1;
+    GevrPauseRadarBlip *center=&radar->blips[radar->count++];
+    center->x=center->y=0;
+    center->r=center->g=center->b=255;center->a=160;
+    if(teams) {
+        int token=g_playerPlayerData[slot].have_token_or_goldengun;
+        center->r=token?136:255;center->g=token?136:119;center->b=token?255:119;center->a=255;
+    }
+    for(int i=0;i<getPlayerCount() && i<MAX_PLAYER_COUNT;i++) {
+        struct player *other=g_playerPointers[i];
+        if(i==slot || i==netSpectatorTarget() || !netSlotOccupied(i) ||
+            !netIsRemotePlayerActive(i) || !other || !other->prop || other->bonddead)continue;
+        f32 dx=other->prop->pos.f[0]-local->prop->pos.f[0];
+        f32 dz=other->prop->pos.f[2]-local->prop->pos.f[2];
+        f32 angle=(((atan2f(dx,dz)*180.f)/M_PI_F)+local->vv_theta+180.f)*0.017453292f;
+        f32 distance=sqrtf(dx*dx+dz*dz)/NET_RADAR_BRIGHT_RANGE;
+        int far=distance>=1.f;if(far)distance=1.f;
+        GevrPauseRadarBlip *blip=&radar->blips[radar->count++];
+        blip->x=sinf(angle)*distance;blip->y=cosf(angle)*distance;
+        blip->r=255;blip->g=255;blip->b=0;blip->a=far?96:160;
+        if(teams) {
+            int token=g_playerPlayerData[i].have_token_or_goldengun;
+            blip->r=token?40:255;blip->g=token?40:0;blip->b=token?255:0;
+            blip->a=token?(far?176:255):(far?96:160);
+        }
+    }
+}
+#endif
