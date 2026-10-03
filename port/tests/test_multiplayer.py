@@ -200,6 +200,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_character_sleeve_selection(self): self.assertEqual(self.hands.test_character_sleeves(),0)
     def test_tap_hold_grip_and_menu_input_routing(self): self.assertEqual(self.hands.test_hand_input(),0)
     def test_independent_hand_lists_and_cycling(self): self.assertEqual(self.hands.test_hand_cycles(),0)
+    def test_weapon_wheel_categories_and_stick(self): self.assertEqual(self.hands.test_weapon_wheel(),0)
     def test_per_hand_depletion_and_switch_animation(self): self.assertEqual(self.hands.test_hand_depletion(),0)
     def test_native_fun_preferences_and_scaling(self): self.assertEqual(self.fun.test_fun_visuals(),0)
     def test_fun_pending_authority_late_join_migration(self): self.assertEqual(self.core.test_core_fun(),0)

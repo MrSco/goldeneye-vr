@@ -3202,6 +3202,7 @@ extern bool gfx_vr_menu_H_dirty_and_clear(void);
 extern bool gfx_vr_menu_P_dirty_and_clear(void);
 /* bondview2.c gevrDrawWeaponPanel: the panel's box in the game's screen, 0..1 */
 extern "C" float gevrWeaponPanelRect[4];
+extern "C" float gevrWeaponPanelAspect;   /* bondview2.c: its width over height in screen units */
 extern "C" int gevrWeaponPanelInFront;   /* bondview2.c tuning: before the eyes */
 extern "C" int gevrWeaponPanelLeft;      /* bondview2.c: the left hand's panel (#56) */
 
@@ -3443,27 +3444,40 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         // only the panel's box of the capture (the game draws it in screen space)
         float x0 = gevrWeaponPanelRect[0], y0 = gevrWeaponPanelRect[1];
         float x1 = gevrWeaponPanelRect[2], y1 = gevrWeaponPanelRect[3];
+        // a rect outside the swapchain makes the runtime drop the whole frame (black)
+        x0 = std::clamp(x0, 0.f, 1.f); y0 = std::clamp(y0, 0.f, 1.f);
+        x1 = std::clamp(x1, 0.f, 1.f); y1 = std::clamp(y1, 0.f, 1.f);
         if (!(x1 > x0 && y1 > y0)) { x0 = 0.f; y0 = 0.f; x1 = 1.f; y1 = 1.f; }
         menuLayerP.subImage.imageRect.offset = {(int32_t)(x0 * W), (int32_t)((1.0f - y1) * H)};
         menuLayerP.subImage.imageRect.extent = {(int32_t)((x1 - x0) * W), (int32_t)((y1 - y0) * H)};
 
-        const float boxW = (x1 - x0) * W, boxH = (y1 - y0) * H;
-        const float hgt = 0.14f;   // metres
-        menuLayerP.size = {hgt * boxW / (boxH > 1.f ? boxH : 1.f), hgt};
+        // the shape in the game's screen units: the capture's pixels aren't square (an oval)
+        const float hgt = 0.30f;   // metres (bondview2.c draws the wheel's text at 0.64)
+        menuLayerP.size = {hgt * (gevrWeaponPanelAspect > 0.f ? gevrWeaponPanelAspect : 1.f), hgt};
 
-        // 18 cm above the controller (head space), turned to face the eyes
-        float px = gCtrlPos[hand][0] / 100.f, py = gCtrlPos[hand][1] / 100.f + 0.18f, pz = gCtrlPos[hand][2] / 100.f;
+        // the world's up in head space, so tilting the head doesn't swing the panel round the hand
+        const XrQuaternionf hq = views[0].pose.orientation;
+        float wx = 0.f, wy = 1.f, wz = 0.f;
+        rotvec(&wx, &wy, &wz, hq.w, -hq.x, -hq.y, -hq.z);
+
+        // 22 cm above the controller and 6 cm beyond it from the eyes, turned to face them
+        const float cx = gCtrlPos[hand][0] / 100.f, cy = gCtrlPos[hand][1] / 100.f, cz = gCtrlPos[hand][2] / 100.f;
+        float cl = sqrtf(cx * cx + cy * cy + cz * cz);
+        if (cl < 1e-4f) cl = 1e-4f;
+        float px = cx + wx * 0.22f + cx / cl * 0.06f;
+        float py = cy + wy * 0.22f + cy / cl * 0.06f;
+        float pz = cz + wz * 0.22f + cz / cl * 0.06f;
         if (gevrWeaponPanelInFront) { px = 0.f; py = -0.05f; pz = -0.45f; }
         menuLayerP.pose.position = {px, py, pz};
         float fx = -px, fy = -py, fz = -pz;
         float fl = sqrtf(fx * fx + fy * fy + fz * fz);
         if (fl < 1e-4f) fl = 1e-4f;
         fx /= fl; fy /= fl; fz /= fl;
-        // right = up x forward, up' = forward x right (the panel stays upright)
-        float rx = fz, ry = 0.f, rz = -fx;
-        float rl = sqrtf(rx * rx + rz * rz);
-        if (rl < 1e-4f) { rx = 1.f; rz = 0.f; rl = 1.f; }
-        rx /= rl; rz /= rl;
+        // right = world up x forward, up' = forward x right (the panel stays upright)
+        float rx = wy * fz - wz * fy, ry = wz * fx - wx * fz, rz = wx * fy - wy * fx;
+        float rl = sqrtf(rx * rx + ry * ry + rz * rz);
+        if (rl < 1e-4f) { rx = 1.f; ry = 0.f; rz = 0.f; rl = 1.f; }
+        rx /= rl; ry /= rl; rz /= rl;
         float ux = fy * rz - fz * ry, uy = fz * rx - fx * rz, uz = fx * ry - fy * rx;
         // rotation matrix columns (right, up, forward) -> quaternion
         float m00 = rx, m01 = ux, m02 = fx;

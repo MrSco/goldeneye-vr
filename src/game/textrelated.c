@@ -24,6 +24,12 @@ s32 text_x = 0;
 s32 text_y = 0;
 s32 text_s = 0;
 s32 text_t = 0;
+#ifdef GEVR
+/* bondview2.c's weapon wheel: glyphs drawn this much smaller, about (text_scale_ox, text_scale_oy) */
+f32 text_scale = 1.0f;
+s32 text_scale_ox = 0;
+s32 text_scale_oy = 0;
+#endif
 s32 g_JpnTextTlutNeedsLoad = 0;
 struct font * ptrFontBankGothic = NULL;
 struct fontchar * ptrFontBankGothicChars = NULL;
@@ -278,6 +284,25 @@ Gfx *textRenderGlyph(Gfx *gdl, s32 *x, s32 *y, struct fontchar *curchar, struct 
                                 /* dsdx */ 0x400,
                                 /* dsdy */ 0xfc00);
                         }
+#ifdef GEVR
+                        else if (text_scale != 1.0f)
+                        {
+                            f32 sx = text_scale_ox + (*x - text_scale_ox) * text_scale;
+                            f32 sy = text_scale_oy + (drawY + curchar->baseline - text_scale_oy) * text_scale;
+                            s32 step = (s32) (0x400 / text_scale);
+
+                            gSPTextureRectangle(gdl++,
+                                /* xl */ (s32) (sx * 4) + text_x,
+                                /* yl */ (s32) (sy * 4) + text_y,
+                                /* xh */ (s32) ((sx + curchar->width * text_scale) * 4) + text_x,
+                                /* yh */ (s32) ((sy + curchar->height * text_scale) * 4) + text_y,
+                                /* tile */  G_TX_RENDERTILE,
+                                /* s */ text_s,
+                                /* t */ text_t,
+                                /* dsdx */ step,
+                                /* dsdy */ step);
+                        }
+#endif
                         else
                         {
                             // E4000000 --------:
