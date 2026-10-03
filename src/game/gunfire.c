@@ -7566,7 +7566,12 @@ Gfx *generate_ammo_total_microcode(Gfx *gdl)
             weapon_left = getCurrentPlayerWeaponId(GUNLEFT);
             weapon_right = getCurrentPlayerWeaponId(GUNRIGHT);
 
+#ifdef GEVR
+            /* co-op (#94): one player's view, laid out as solo's, not a quarter of four */
+            if (getPlayerCount() < 3 || gevrCoopActive())
+#else
             if (getPlayerCount() < 3)
+#endif
             {
                 leftx = 59;
                 rightx = 59;
