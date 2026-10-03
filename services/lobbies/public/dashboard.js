@@ -1,5 +1,26 @@
 const stages = { 34:"Facility",31:"Complex",38:"Temple",46:"Stack",39:"Caverns",48:"Library",45:"Basement",50:"Caves",32:"Egypt",27:"Bunker II",24:"Archives" };
 const weapons = ["Slappers only","Pistols","Throwing Knives","Automatics","Power Weapons","Sniper Rifles","Grenades","Remote Mines","Grenade Launchers","Timed Mines","Proximity Mines","Rockets","Lasers","Golden Gun"];
+const missions = { 33:"Dam",34:"Facility",35:"Runway",36:"Surface I",9:"Bunker I",20:"Silo",26:"Frigate",43:"Surface II",27:"Bunker II",22:"Statue",24:"Archives",29:"Streets",30:"Depot",25:"Train",37:"Jungle",23:"Control",39:"Caverns",41:"Cradle",28:"Aztec",32:"Egyptian" };
+const difficulties = ["Agent","Secret Agent","00 Agent","007"];
+// A co-op game lists 0x80 | where the party is (90: its menus, else a mission's level id),
+// and its difficulty in the weapons' place (the game's net_core.c netGetLobbyStage).
+const COOP_STAGE = 0x80, COOP_MENUS = 90;
+
+function stageLabel(stage) {
+  if (stage & COOP_STAGE) {
+    const where = stage & 0x7F;
+    if (where === COOP_MENUS) return "Co-op campaign";
+    if (missions[where]) return `Co-op: ${missions[where]}`;
+  }
+  return stages[stage] || `Stage ${stage}`;
+}
+
+function settingsLabel(stage, set) {
+  if (stage & COOP_STAGE)
+    return [(stage & 0x7F) === COOP_MENUS ? "Co-op campaign, in the menus" : stageLabel(stage), difficulties[set] || `Difficulty ${set}`];
+  return [stageLabel(stage), weapons[set] || `Weapons ${set}`];
+}
+
 const byId = id => document.getElementById(id);
 let loading = false;
 
@@ -36,7 +57,7 @@ function gameCard(game) {
   top.append(title, badge);
   const meta = document.createElement("p");
   meta.className = "meta";
-  for (const value of [stages[game.stage] || `Stage ${game.stage}`, weapons[game.weapons] || `Weapons ${game.weapons}`, `Protocol ${game.version}`]) {
+  for (const value of [...settingsLabel(game.stage, game.weapons), `Protocol ${game.version}`]) {
     const label = document.createElement("span");
     label.textContent = value;
     meta.append(label);
@@ -163,7 +184,7 @@ async function loadStats() {
     const top = byId("record-top");
     if (stats.topStage) {
       const name = document.createElement("strong");
-      name.textContent = stages[stats.topStage.stage] || `Stage ${stats.topStage.stage}`;
+      name.textContent = stageLabel(stats.topStage.stage);
       top.replaceChildren("Most played: ", name, ` · ${formatCount(stats.topStage.matches)} ${stats.topStage.matches === 1 ? "match" : "matches"}`);
     } else top.textContent = "No matches played yet. Be the first.";
     statsShown = true;

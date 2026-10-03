@@ -8,6 +8,22 @@ const STAGES: Record<number, string> = {
   34: "Facility", 31: "Complex", 38: "Temple", 46: "Stack", 39: "Caverns", 48: "Library",
   45: "Basement", 50: "Caves", 32: "Egypt", 27: "Bunker II", 24: "Archives",
 };
+const MISSIONS: Record<number, string> = {
+  33: "Dam", 34: "Facility", 35: "Runway", 36: "Surface I", 9: "Bunker I", 20: "Silo", 26: "Frigate",
+  43: "Surface II", 27: "Bunker II", 22: "Statue", 24: "Archives", 29: "Streets", 30: "Depot", 25: "Train",
+  37: "Jungle", 23: "Control", 39: "Caverns", 41: "Cradle", 28: "Aztec", 32: "Egyptian",
+};
+// A co-op game lists 0x80 | where the party is (90: its menus, else a mission's level id).
+const COOP_STAGE = 0x80, COOP_MENUS = 90;
+
+export function stageName(id: number): string {
+  if (id & COOP_STAGE) {
+    const where = id & 0x7F;
+    if (where === COOP_MENUS) return "Co-op campaign";
+    if (MISSIONS[where]) return `Co-op: ${MISSIONS[where]}`;
+  }
+  return STAGES[id] ?? `Stage ${id}`;
+}
 
 export type Website = { requests: number; bytes: number; cachedBytes: number; uniques: number; status4xx: number; status5xx: number; countries: Array<{ name: string; requests: number }> };
 export type Workers = { lobbyRequests: number; lobbyErrors: number; lobbySubrequests: number; lobbyCpuP50Us: number; accountRequests: number };
@@ -176,7 +192,7 @@ function topStage(t: LobbyTotals): string {
   const best = Object.entries(t).filter(([key]) => key.startsWith("stage:")).sort((a, b) => b[1] - a[1])[0];
   if (!best) return "none";
   const id = Number(best[0].slice(6));
-  return `${STAGES[id] ?? `Stage ${id}`} (${num(best[1])})`;
+  return `${stageName(id)} (${num(best[1])})`;
 }
 
 function periodLines(p: Period): string[] {

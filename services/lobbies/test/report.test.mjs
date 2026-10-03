@@ -70,6 +70,15 @@ test("the daily report reads cleanly", () => {
   assert.ok(!text.includes("UNAVAILABLE"));
 });
 
+test("co-op stages read as the campaign or its mission", () => {
+  const m = month(0);
+  const { text } = report.buildReport({ day: day({}, { "stage:218": 9 }), month: m, limits, alerts: [], newAlerts: [] });
+  assert.ok(text.includes("  Most played             Co-op campaign (9)"), text);
+  assert.equal(report.stageName(0x80 | 33), "Co-op: Dam");
+  assert.equal(report.stageName(34), "Facility");
+  assert.equal(report.stageName(200), "Stage 200");
+});
+
 test("Mondays add a week-over-week section; missing analytics are reported, not fatal", () => {
   const current = { ...day(), from: "2026-09-28", to: "2026-10-04" };
   const previous = { ...day({}, { lobbies_public: 6, lobbies_private: 2 }), from: "2026-09-21", to: "2026-09-27" };
