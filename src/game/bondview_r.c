@@ -18,6 +18,8 @@
 #ifdef GEVR
 #include "system.h"
 #include "net_game.h"
+#include "net_coop.h"
+extern int netGetLocalSlot(void);
 #endif
 
 
@@ -158,6 +160,16 @@ void bondviewLoadSetupIntroSection(void)
     g_ExplodeTankOnDeathFlag = 0;
     is_timer_active = 1;
     g_PlayerInvincible = FALSE;
+#ifdef GEVR
+    /*
+     * Co-op (#94): every slot loads its intro (lv.c lvlStageLoad), and these
+     * are the mission's one intro: its camera list (linked by the first
+     * player only, below), its clock and its mode. The first player's load
+     * sets them; the others keep them.
+     */
+    if (!gevrCoopActive() || get_cur_playernum() == 0)
+#endif
+    {
     g_CameraMode = 0;
     g_CameraAfterCinema = 0;
     camera_fade_active = 0;
@@ -169,6 +181,7 @@ void bondviewLoadSetupIntroSection(void)
     g_CurrentSetupIntroCamera = NULL;
     g_SetupIntroCameraCount = 0;
     mission_timer = 0;
+    }
     watch_time_0 = 0;
     g_IntroAnimationIndex = 0;
     watch_transition_time = 0.9090909f;
@@ -373,9 +386,22 @@ void bondviewLoadSetupIntroSection(void)
         }
     }
 
-    if (g_CurrentSetupIntroCamera != NULL)
+    if (g_CurrentSetupIntroCamera != NULL
+#ifdef GEVR
+        /* co-op: picked once, with the first player */
+        && (!gevrCoopActive() || get_cur_playernum() == 0)
+#endif
+        )
     {
         ptr_random06cam_entry = g_CurrentSetupIntroCamera;
+#ifdef GEVR
+        /* co-op (#94): the same camera on every headset, from the party's seed */
+        if (gevrCoopActive())
+        {
+            rand_camera_index = (s32)(gevrCoopIntroSeed() % (u32) g_SetupIntroCameraCount);
+        }
+        else
+#endif
         rand_camera_index = (s32)(randomGetNext() % (u32) g_SetupIntroCameraCount);
 #ifdef GEVR
         /*
@@ -582,6 +608,21 @@ void bondviewLoadSetupIntroSection(void)
     g_CurrentPlayer->field_3B8.f[1] = (g_CurrentPlayer->field_488.pos.f[1] / FIELD_3B8_FACTOR);
     g_CurrentPlayer->field_3B8.f[2] = (g_CurrentPlayer->field_488.pos.f[2] / FIELD_3B8_FACTOR);
 
+#ifdef GEVR
+    if (gevrCoopActive())
+    {
+        /*
+         * Co-op (#94): the solo intro, the mode being the mission's one: set
+         * with this headset's own player, so its fade and fog are this
+         * player's; the other copies' loads leave it as it is.
+         */
+        if (get_cur_playernum() == netGetLocalSlot())
+        {
+            bondviewSetCameraMode(CAMERAMODE_INTRO);
+        }
+    }
+    else
+#endif
     if (getPlayerCount() == 1)
     {
         bondviewSetCameraMode(CAMERAMODE_INTRO);

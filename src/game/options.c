@@ -22,6 +22,16 @@
 #include "assets/obseg/text/LoptionE.h"
 
 #ifdef GEVR
+#include "net_coop.h"
+#include "net_match.h"   /* NET_COOP_RESULT_* */
+/*
+ * Co-op (#94): the watch reads this headset's own controller. Online the
+ * first controller is player one's copy, on a teammate's headset the host's
+ * (port/src/input.c); every PLAYER_1 in this file is a controller read.
+ */
+#define PLAYER_1 gevrWatchController()
+extern void gevrLobbySessionStopped(void);
+extern void gevrRestartToLauncher(void);
 extern bool netIsActive(void);
 static void gevrMicOptionInput(void);
 static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y);
@@ -758,6 +768,26 @@ void watch_screen0_navigation(void)
     else if ((D_800409A4) && (joyGetButtonsPressedThisFrame(PLAYER_1, Z_TRIG|A_BUTTON)))
     {
         D_800409A4 = 0;
+#ifdef GEVR
+        /*
+         * Co-op (#94): the host's abort ends the mission for the party, whose
+         * debrief reads it as aborted (net_core.c); a teammate's leaves the
+         * party, as the deathmatch menu's Exit does (mpmenu.c).
+         */
+        if (gevrCoopActive())
+        {
+            if (gevrCoopIsHost())
+            {
+                netCoopMissionEnded(NET_COOP_RESULT_ABORTED);
+            }
+            else
+            {
+                gevrLobbySessionStopped();
+                gevrRestartToLauncher();
+            }
+            return;
+        }
+#endif
         set_missionstate(MISSION_STATE_0);
         bossRunTitleStage();
         mission_failed_or_aborted = TRUE;
