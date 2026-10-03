@@ -6,10 +6,10 @@ import { interpolate, visibleNode } from "./render.js";
 
 test("starter project preserves game player limits and has valid links", () => {
   const p = validateProject(starterProject());
-  assert.equal(p.screens.length, 9);
-  assert.equal(p.sample.players.length, 4);
-  // port/src/net/net_match.c: twice the game's own limits, eight at most (protocol 16)
-  assert.equal(stages.find(s => s[0] === "Egypt")[2], 4);
+  assert.equal(p.screens.length, 4);
+  assert.equal(p.sample.players.length, 8);
+  // port/src/net/net_match.c: all deathmatch maps support eight (protocol 17)
+  assert.equal(stages.find(s => s[0] === "Egypt")[2], 8);
   assert.equal(stages.find(s => s[0] === "Facility")[2], 8);
   assert.ok(stages.every(s => s[2] >= 4 && s[2] <= 8));
   const ids = new Set(p.screens.map(s => s.id));
@@ -59,8 +59,22 @@ test("handoff includes implementation bindings, asset references and direction",
 });
 test("prototype text and host/client/phase visibility match sample data", () => {
   const p=starterProject();
-  assert.equal(interpolate("{{readyCount}} of {{playerCount}} · {{map}}",p),"3 of 4 · Facility");
+  assert.equal(interpolate("{{readyCount}} of {{playerCount}} · {{map}}",p),"7 of 8 · Facility");
   assert.equal(visibleNode({visibleWhen:"client",hidden:false},p,"host"),false);
-  assert.equal(visibleNode({visibleWhen:"waiting",hidden:false},p,"host"),true);
+  assert.equal(visibleNode({visibleWhen:"warmup",hidden:false},p,"host"),true);
   assert.equal(visibleNode({visibleWhen:"always",hidden:true},p,"host"),false);
+});
+
+test("shared launcher window changes mode without mixing scores and objectives",()=>{
+ const p=validateProject(starterProject());const match=p.screens[0];
+ const scores=match.nodes.find(n=>n.type==="scoreboard"),objectives=match.nodes.find(n=>n.type==="objectives");
+ assert.equal(visibleNode(scores,p,"host"),true);assert.equal(visibleNode(objectives,p,"host"),false);
+ p.sample.mode="coop";assert.equal(visibleNode(scores,p,"host"),false);assert.equal(visibleNode(objectives,p,"host"),true);
+ assert.equal(interpolate("{{playerCount}}",p),"4");
+ assert.ok(p.screens.every(s=>s.width===1280 && s.height===960));
+ assert.ok(p.screens.flatMap(s=>s.nodes).every(n=>n.font==="native-font"));
+ const ballots=match.nodes.filter(n=>n.sampleKey.endsWith("Vote"));assert.equal(ballots.length,2);
+ assert.ok(ballots.every(n=>n.editableBy==="everyone" && n.options.startsWith("No vote|")));
+ assert.ok(p.screens.every(s=>s.nodes.find(n=>n.type==="tabs").tabTargets.length===4));
+ assert.equal(auditProject(p).length,0);
 });

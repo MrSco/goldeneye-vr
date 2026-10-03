@@ -49,7 +49,7 @@ function shell() {
     [["screens","Screens"],["library","Add"],["assets","Assets"],["layers","Layers"]].map(([id,title]) => '<button data-dock="' + id + '" class="' + (dockTab === id ? "active" : "") + '">' + title + '</button>').join("") +
     '</nav><div id="dock-content" class="dock-content"></div><div class="dock-footer"><button data-do="add-screen">＋ Screen</button><button data-do="flow">Flow ↗</button></div></aside>' +
     '<section class="main-area"><div class="canvas-toolbar"><div class="canvas-title">' + e(screen().name) + '<small>' + (preview ? "PROTOTYPE" : "DESIGN") + '</small></div>' +
-    '<div class="canvas-tools">' + (preview ? '<select id="preview-role" aria-label="Preview role"><option value="host">Host</option><option value="client">Client</option></select><select id="preview-phase" aria-label="Preview phase">' + ["waiting","warmup","in_progress","results"].map(p => '<option ' + (currentProject().sample.phase === p ? "selected" : "") + '>' + p + '</option>').join("") + '</select>' : "") +
+    '<div class="canvas-tools"><select id="sample-mode" aria-label="Game mode"><option value="deathmatch" '+(currentProject().sample.mode === 'deathmatch' ? 'selected':'')+'>8-player deathmatch</option><option value="coop" '+(currentProject().sample.mode === 'coop' ? 'selected':'')+'>4-player co-op</option></select><button data-do="new-project">Launcher starter</button>' + (preview ? '<select id="preview-role" aria-label="Preview role"><option value="host">Host</option><option value="client">Client</option></select><select id="preview-phase" aria-label="Preview phase">' + ["waiting","warmup","in_progress","results"].map(p => '<option ' + (currentProject().sample.phase === p ? "selected" : "") + '>' + p + '</option>').join("") + '</select>' : "") +
     '<button data-do="grid" class="' + (grid ? "active" : "") + '" title="Toggle 16 pixel grid">Grid</button><button data-do="safe" class="' + (safeArea ? "active" : "") + '" title="Show canvas safe area">Safe area</button><button data-do="preview" class="' + (preview ? "active" : "") + '">' + (preview ? "← Back to edit" : "▷ Play flow") + '</button></div></div>' +
     '<div class="edit-tools"><div class="tool-cluster"><button data-do="undo" title="Undo (Ctrl/⌘ Z)" ' + (history.index === 0 || preview ? "disabled" : "") + '>↶</button><button data-do="redo" title="Redo (Ctrl/⌘ Shift Z)" ' + (history.index === history.items.length - 1 || preview ? "disabled" : "") + '>↷</button><span class="tool-divider"></span>' +
     '<button class="mobile-only" data-do="multi-select" aria-pressed="' + multiSelect + '">Select many</button><button data-do="pan" aria-pressed="' + pan + '">' + (pan ? 'Pan ✓' : 'Pan') + '</button><button data-do="duplicate" title="Duplicate selection (Ctrl/⌘ D)">Duplicate</button><button data-do="group" title="Group selected elements">Group</button><button data-do="delete" title="Delete selection">Delete</button></div><div class="tool-cluster">' +
@@ -67,7 +67,7 @@ function render() {
 }
 function paintScene() {
   const scene = document.querySelector("#scene"), p = currentProject(), s = screen();
-  scene.className = "scene" + (grid ? " show-grid" : "") + (safeArea ? " show-safe" : "") + (preview ? " preview" : "");
+  scene.className = "scene" + (p.uiStyle === "launcher" ? " launcher-style" : "") + (grid ? " show-grid" : "") + (safeArea ? " show-safe" : "") + (preview ? " preview" : "");
   scene.style.width = s.width + "px"; scene.style.height = s.height + "px";
   for (const [key,value] of Object.entries(p.theme)) scene.style.setProperty("--" + key, value);
   scene.replaceChildren(renderScene(p, s, { preview, role }));
@@ -134,7 +134,7 @@ function renderInspector() {
   const target = document.querySelector("#inspector-content"), s = screen(), nodes = selectedNodes(), n = nodes[0];
   if (inspectorTab === "project") {
     target.innerHTML = '<section class="inspector-section"><h3>Art direction</h3><label><span class="form-label">Project notes</span><textarea id="project-notes">' + e(project.notes) + '</textarea></label><p class="help-text">Describe the purpose, priorities and mood. These notes are included in the handoff.</p></section>' +
-      '<section class="inspector-section"><h3>Shared palette</h3><select id="palette-preset" aria-label="Palette preset"><option value="">Choose a preset…</option>' + options([["dossier","GoldenEye dossier"],["mi6","MI6 blue"],["terminal","Operations green"]],"") + '</select><div class="theme-swatches">' + Object.entries(project.theme).map(([key,value]) => '<label>' + key + '<input data-theme="' + e(key) + '" type="color" value="' + value + '"></label>').join("") + '</div></section>' +
+      '<section class="inspector-section"><h3>Shared palette</h3><select id="palette-preset" aria-label="Palette preset"><option value="">Choose a preset…</option>' + options([["launcher","Native launcher"],["dossier","GoldenEye dossier"],["mi6","MI6 blue"],["terminal","Operations green"]],"") + '</select><div class="theme-swatches">' + Object.entries(project.theme).map(([key,value]) => '<label>' + key + '<input data-theme="' + e(key) + '" type="color" value="' + value + '"></label>').join("") + '</div></section>' +
       '<section class="inspector-section"><h3>This screen</h3><label><span class="form-label">Name</span><input id="screen-name" value="' + e(s.name) + '"></label><div class="form-row"><label><span class="form-label">Width</span><input data-screen-size="width" type="number" min="240" max="4096" value="' + s.width + '"></label><label><span class="form-label">Height</span><input data-screen-size="height" type="number" min="240" max="4096" value="' + s.height + '"></label></div><label><span class="form-label">Design & behavior notes</span><textarea id="screen-notes">' + e(s.notes) + '</textarea></label></section>' +
       '<section class="inspector-section"><h3>Preview data & handoff</h3><button data-do="sample-data" class="full-width">Edit sample players & match</button><div class="button-row"><button data-do="review">Review layout</button><button data-do="export-notes">Export notes</button></div><div class="button-row"><button data-do="export-image">Export PNG</button><button data-do="export-svg">Export SVG</button></div><div class="button-row"><button data-do="new-project" class="danger">New project</button></div></section>';
     return;
@@ -143,7 +143,7 @@ function renderInspector() {
     target.innerHTML = '<div class="empty-inspector"><span class="empty-icon">↖</span><b>Select something to shape it.</b><p>Click an element on the canvas or pick it from Layers.</p></div><section class="inspector-section"><h3>A useful starting point</h3><p class="help-text">Move a player roster, resize a ballot card, change the headlines. Play the flow to try ready states and votes.</p><button data-do="inspector-tab" class="full-width">Edit theme & screen notes</button><div class="button-row"><button data-do="review">Review</button><button data-do="export-image">Export PNG</button></div></section>';
     return;
   }
-  const colors = ["text","accent","muted","success","danger","background","panel","line","transparent"];
+  const colors = ["button","frame","selected","heading","hover","text","accent","muted","success","danger","background","panel","line","transparent"];
   const fonts = [["sans","UI sans (preview)"],["mono","UI monospace (preview)"],["serif","Serif (preview)"], ...project.assets.filter(a => a.kind === "font").map(a => [a.id,a.name])];
   target.innerHTML = (nodes.length > 1 ? '<p class="help-text">Editing ' + nodes.length + ' elements. Shared property changes apply to the selection.</p>' : "") +
     '<section class="inspector-section"><h3>' + e(titleFor(n.type)) + '</h3>' + field("name","Layer name",n.name) +
@@ -158,8 +158,9 @@ function renderInspector() {
     field("runtimeAsset","Game asset / texture / font reference",n.runtimeAsset) + (n.type === "model" ? '<div class="form-row">' + field("yaw","Model yaw",n.yaw,"number") + field("pitch","Model pitch",n.pitch,"number") + '</div>' : "") +
     '<button data-do="browse-assets" class="full-width" style="margin-top:12px">Browse / import assets</button></section>' +
     '<section class="inspector-section"><h3>Behavior & implementation</h3>' + field("targetScreen","On click → screen",n.targetScreen,"text",[["","Stay on this screen"], ...project.screens.map(s => [s.id,s.name])]) +
-    field("action","Action",n.action,"text",[["","No action"],["navigate","Navigate"],["ready","Toggle ready"],["vote","Cast a vote"],["toggle","Toggle option"],["cycle","Cycle option"],["adjust","Adjust value"],["refresh","Refresh games"],["custom","Custom native action"]]) +
-    field("binding","Native data / function binding",n.binding) + field("visibleWhen","Show when",n.visibleWhen,"text",["always","host","client","waiting","warmup","in_progress","results"]) +
+    (n.type === "tabs" ? n.text.split("|").map((label,i)=>'<label><span class="form-label">Tab: '+e(label)+'</span><select data-tab-target="'+i+'">'+options([["","Stay here"],...project.screens.map(s=>[s.id,s.name])],n.tabTargets[i]||"")+'</select></label>').join(""):"") +
+    field("action","Action",n.action,"text",[["choose","Choose from dropdown"],["tab","Switch tab"],["","No action"],["navigate","Navigate"],["ready","Toggle ready"],["vote","Cast a vote"],["toggle","Toggle option"],["cycle","Cycle option"],["adjust","Adjust value"],["refresh","Refresh games"],["custom","Custom native action"]]) +
+    field("options","Dropdown choices (separate with |)",n.options,"textarea") + field("sampleKey","Sample data field",n.sampleKey) + field("editableBy","Who can change it",n.editableBy,"text",["everyone","host","client"]) + field("binding","Native data / function binding",n.binding) + field("visibleWhen","Show when",n.visibleWhen,"text",["always","host","client","waiting","warmup","in_progress","results","deathmatch","coop","host-deathmatch","client-deathmatch","host-coop","client-coop"]) +
     field("notes","Purpose & implementation notes",n.notes,"textarea") +
     '<label class="form-label"><input data-prop="locked" type="checkbox" ' + (n.locked ? "checked" : "") + '> Lock position</label><label class="form-label"><input data-prop="hidden" type="checkbox" ' + (n.hidden ? "checked" : "") + '> Hide element</label></section>';
 }
@@ -230,7 +231,7 @@ async function sceneSVG() {
   const p = await portableProject(), s = p.screens.find(s => s.id === activeId) || p.screens[0];
   const wrapper = document.createElement("div");
   wrapper.setAttribute("xmlns","http://www.w3.org/1999/xhtml");
-  wrapper.className = "scene preview"; wrapper.style.width = s.width + "px"; wrapper.style.height = s.height + "px"; wrapper.style.position = "relative";
+  wrapper.className = "scene preview" + (p.uiStyle === "launcher" ? " launcher-style" : ""); wrapper.style.width = s.width + "px"; wrapper.style.height = s.height + "px"; wrapper.style.position = "relative";
   for (const [key,value] of Object.entries(p.theme)) wrapper.style.setProperty("--" + key,value);
   wrapper.append(renderScene(p,s,{ preview:true,role }));
   const css = globalThis.STUDIO_CSS || await fetch("studio.css").then(r => { if (!r.ok) throw new Error("Cannot load export styles."); return r.text(); });
@@ -287,14 +288,15 @@ function useAsset(id, x, y, forceNew = false) {
 }
 function previewAction(n, target) {
   const p = currentProject();
+  if(n.editableBy && n.editableBy !== "everyone" && n.editableBy !== role) return;
   if (n.state === "disabled" || n.state === "loading") return;
   const action = n.action || target.dataset.interact;
   if (action === "ready") {
-    const me = p.sample.players.find(player => player.name === p.sample.localPlayer) || p.sample.players[0]; if (me) me.ready = !me.ready;
+    const me = p.sample.players.find(player => player.name === p.sample.localPlayer && Boolean(player.host)===(role==="host")) || p.sample.players.find(player => Boolean(player.host)===(role==="host")); if (me) me.ready = !me.ready;
     const count = p.sample.players.filter(player => player.ready).length;
-    for (const node of screen().nodes) {
+    for (const node of p.screens.flatMap(s=>s.nodes)) {
       if (node.binding === "netLobbyCanLaunch()") node.text = count + " / " + p.sample.players.length + " READY";
-      if (node.action === "ready") node.text = me?.ready ? "UNREADY" : "READY UP";
+      if (node.action === "ready") { node.value=me?.ready?100:0; if(node.type === "button")node.text=me?.ready?"Unready":"Ready up"; }
     }
   } else if (action === "vote") {
     for (const node of screen().nodes.filter(node => node.type === "vote" && node.binding === n.binding)) {
@@ -308,7 +310,7 @@ function previewAction(n, target) {
     const choices = /map/i.test(n.text) ? stages.map(s => s[0]) : /scenario/i.test(n.text) ? scenarios : /character/i.test(n.text) ? p.sample.players.map(player => player.character) : /length/i.test(n.text) ? ["5 minutes","10 minutes","20 minutes"] : weapons;
     n.subtext = choices[(choices.indexOf(n.subtext) + 1) % choices.length];
     if (/WEAPON/i.test(n.binding)) p.sample.weaponSet = n.subtext;
-  } else if (target.dataset.interact === "tab") n.value = Number(target.dataset.index);
+  } else if (target.dataset.interact === "tab") { n.value = Number(target.dataset.index); if(n.tabTargets[n.value]) {activeId=n.tabTargets[n.value];return render();} }
   else if (action === "custom") toast(n.notes || n.binding || "Custom action: add its behavior in Properties.");
   else if (action === "refresh") toast("Local mock data refreshed. This prototype does not contact the live lobby service.");
   if (n.targetScreen) { activeId = n.targetScreen; render(); }
@@ -319,7 +321,7 @@ function showFlow() {
   modal("The experience, screen by screen", '<p class="dialog-copy">Destinations and actions are editable in each element’s Properties. Play flow runs a local simulation.</p>' + links);
 }
 function showHelp() {
-  modal("A workspace for your multiplayer direction", '<p class="dialog-copy">Start with the lobby → vote → results screens, or add your own. The aim is to give the native redesign a clear layout, behavior and visual direction.</p><ol class="dialog-list"><li>Select and drag anything. Shift-click for multiple elements; Alt-click selects one member of a group. Resize with the gold corner handle.</li><li>Add reusable components from <b>Add</b>. Use <b>Layers</b> to reorder, lock and hide elements. Undo/redo and copy/paste work across screens.</li><li>Set titles, colors, fonts, preview states and visibility in Properties. Add bindings and notes to explain what each element should do.</li><li>Use <b>Assets</b> for local PNG/JPEG/WebP/GIF images, TTF/OTF/WOFF fonts, OBJ models, or model JSON from <code>tools/gevr_model_export.py</code>. Models preview geometry; materials and animation stay native.</li><li>Game assets that are loaded from the ROM are listed as references. Import your own captures or exports to preview them. No ROM is uploaded to a server.</li><li>Try <b>Play flow</b> to click between screens, toggle ready, vote and test controls. Sample data is editable from Project Properties.</li><li><b>Export project</b> saves a portable JSON with layout, imported previews, theme, actions and notes. Send that file back for implementation. Export PNG/SVG for discussion and Markdown for a written brief.</li></ol><p class="dialog-copy">Shortcuts: Ctrl/⌘ Z undo · Shift Z redo · D duplicate · C/V copy/paste · G group · Shift G ungroup · arrows nudge · Shift arrows move 8px · Delete remove · Esc clear selection.</p><p class="dialog-copy">On phones, use the bottom tabs for screens, components, layers and properties. Zoom in for precise changes; Pan lets you scroll the enlarged canvas. Select many works by tapping elements. Landscape gives you more room.<br><br>Autosave uses this browser’s storage. Export your work before clearing browser data or moving to another device.</p>');
+  modal("A workspace for your multiplayer direction", '<p class="dialog-copy">Start with the shared Match / Rules / Player / Audio window. Use the game mode selector to switch between eight-player deathmatch and four-player co-op. The aim is to give the native redesign a clear layout, behavior and visual direction.</p><ol class="dialog-list"><li>Select and drag anything. Shift-click for multiple elements; Alt-click selects one member of a group. Resize with the gold corner handle.</li><li>Add reusable components from <b>Add</b>. Use <b>Layers</b> to reorder, lock and hide elements. Undo/redo and copy/paste work across screens.</li><li>Set titles, colors, fonts, preview states and visibility in Properties. Add bindings and notes to explain what each element should do.</li><li>Use <b>Assets</b> for local PNG/JPEG/WebP/GIF images, TTF/OTF/WOFF fonts, OBJ models, or model JSON from <code>tools/gevr_model_export.py</code>. Models preview geometry; materials and animation stay native.</li><li>Game assets that are loaded from the ROM are listed as references. Import your own captures or exports to preview them. No ROM is uploaded to a server.</li><li>Try <b>Play flow</b> to click between screens, toggle ready, vote and test controls. Sample data is editable from Project Properties.</li><li><b>Export project</b> saves a portable JSON with layout, imported previews, theme, actions and notes. Send that file back for implementation. Export PNG/SVG for discussion and Markdown for a written brief.</li></ol><p class="dialog-copy">Shortcuts: Ctrl/⌘ Z undo · Shift Z redo · D duplicate · C/V copy/paste · G group · Shift G ungroup · arrows nudge · Shift arrows move 8px · Delete remove · Esc clear selection.</p><p class="dialog-copy">On phones, use the bottom tabs for screens, components, layers and properties. Zoom in for precise changes; Pan lets you scroll the enlarged canvas. Select many works by tapping elements. Landscape gives you more room.<br><br>Autosave uses this browser’s storage. Export your work before clearing browser data or moving to another device.</p>');
 }
 async function doAction(action) {
   if (action === "preview") return setPreview(!preview);
@@ -411,21 +413,25 @@ app.addEventListener("click", event => attempt(async () => {
     commit(); return;
   }
   if (preview && target.dataset.interact) {
-    if (["input","slider"].includes(target.dataset.interact)) return;
+    if (["input","slider","choose"].includes(target.dataset.interact)) return;
     const n = screen().nodes.find(n => n.id === target.closest(".scene-node")?.dataset.id);
     if (n) previewAction(n,target);
   }
 }));
 app.addEventListener("change", event => attempt(async () => {
   const target = event.target;
+  if (target.id === "sample-mode") { currentProject().sample.mode=target.value; if(!preview)commit(); else render(); return; }
   if (target.id === "preview-role") { role = target.value; return paintScene(); }
   if (target.id === "preview-phase") { previewProject.sample.phase = target.value; return paintScene(); }
   if (preview) {
     const n = screen().nodes.find(n => n.id === target.closest(".scene-node")?.dataset.id);
     if (n && target.dataset.interact === "slider") { n.value = Number(target.value); paintScene(); }
+    if (n && n.editableBy !== "everyone" && n.editableBy && n.editableBy !== role) return;
+    if (n && target.dataset.interact === "choose") { n.subtext = target.value; if(n.sampleKey) previewProject.sample[n.sampleKey]=target.value; paintScene(); }
     if (n && target.dataset.interact === "input") n.subtext = target.value;
     return;
   }
+  if (target.dataset.tabTarget !== undefined) { for(const n of selectedNodes())n.tabTargets[Number(target.dataset.tabTarget)]=target.value; commit(); return; }
   if (target.dataset.prop) {
     const key = target.dataset.prop, numeric = target.type === "number";
     const value = target.type === "checkbox" ? target.checked : numeric ? Number(target.value) : target.value;
@@ -550,7 +556,7 @@ dialog.addEventListener("click", event => attempt(async () => {
     for (const s of project.screens) for (const n of s.nodes) if (n.targetScreen === removed) n.targetScreen = "";
     activeId = project.screens[0].id; selected.clear(); dialog.close(); commit();
   }
-  if (target.hasAttribute("data-confirm-new")) { project = starterProject(); activeId = project.screens[0].id; selected.clear(); dialog.close(); commit(); }
+  if (target.hasAttribute("data-confirm-new")) { project = starterProject(); role="host"; activeId = project.screens[0].id; selected.clear(); dialog.close(); commit(); }
 }));
 document.querySelector("#asset-files").addEventListener("change", event => attempt(async () => { await importAssets(event.target.files); event.target.value = ""; }));
 document.querySelector("#project-file").addEventListener("change", event => attempt(async () => {
@@ -569,3 +575,5 @@ history = new History(project); activeId = project.screens[0].id; render();
 try { catalog = globalThis.STUDIO_CATALOG || await fetch("catalog.json").then(r => r.ok ? r.json() : []); if (dockTab === "assets") renderDock(); } catch { catalog = []; }
 // Useful for automated tests and local design inspection; contains no live game state.
 globalThis.MenuStudio = { getProject:() => clone(project), getScreen:() => clone(screen()), select:id => select(id), addComponent, setPreview, exportProject, exportVisual, audit:() => auditProject(project) };
+
+if(project.uiStyle !== "launcher") toast("Your saved design is preserved. Tap Launcher starter for the new native window.");

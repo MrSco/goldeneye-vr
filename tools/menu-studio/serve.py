@@ -11,6 +11,7 @@ ROOT = HERE.parents[1]
 ALLOWED = {"index.html", "studio.css", "app.js", "model.js", "templates.js",
            "render.js", "storage.js", "catalog.json"}
 ASSETS = {
+    "/repo-assets/launcher-icon.png": HERE / "assets/launcher-icon.png",
     "/repo-assets/icon.png": ROOT / "services/lobbies/public/favicon-64.png",
     "/repo-assets/banner.png": ROOT / "docs/banner.png",
     "/repo-assets/native-ui.ttf": HERE / "assets/native-ui.ttf",
