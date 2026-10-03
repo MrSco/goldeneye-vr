@@ -117,7 +117,7 @@ void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3
     s32 savedcook;
     s32 i;
 
-    if (slot < 0 || slot >= 4 || slot == local || local < 0 || local >= 4 || hand < 0 || hand > 1)
+    if (slot < 0 || slot >= MAX_PLAYER_COUNT || slot == local || local < 0 || local >= MAX_PLAYER_COUNT || hand < 0 || hand > 1)
     {
         return;
     }
@@ -2063,8 +2063,8 @@ void generate_player_thrown_grenade(s32 hand)
             wor->timer = 0;
         }
 
-        wor->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER);
-        wor->runtime_bitflags |= get_cur_playernum() << RUNTIMEBITSHIFT_OWNER;
+        wor->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+        wor->runtime_bitflags |= RUNTIME_OWNER_BITS(get_cur_playernum());
 
         gunInitProjectileFromPlayer(wor, &spE0, &spA0_a, &throw_speed_vec, &spFC);
 
@@ -2164,8 +2164,8 @@ void generate_player_thrown_knife(s32 hand)
 
     if (wor != NULL)
     {
-        wor->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER);
-        wor->runtime_bitflags |= get_cur_playernum() << RUNTIMEBITSHIFT_OWNER;
+        wor->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+        wor->runtime_bitflags |= RUNTIME_OWNER_BITS(get_cur_playernum());
 
         gunInitProjectileFromPlayer(wor, &spE0, &spA0_a, &throw_speed_vec, &spFC);
 
@@ -2380,8 +2380,8 @@ void generate_player_thrown_object(s32 hand)
             break;
         }
 
-        wor->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER);
-        wor->runtime_bitflags |= get_cur_playernum() << RUNTIMEBITSHIFT_OWNER;
+        wor->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+        wor->runtime_bitflags |= RUNTIME_OWNER_BITS(get_cur_playernum());
 
         gunInitProjectileFromPlayer(wor, &spE0, &spA0_a, &throw_speed_vec, &unk_mtxf);
 
@@ -2458,8 +2458,8 @@ void gunSpawnGLGrenade(s32 handnum)
     if (grenadeobj != NULL)
     {
         grenadeobj->timer = GLGRENADE_TIMER;
-        grenadeobj->runtime_bitflags &= ~RUNTIMEBITFLAG_OWNER;
-        grenadeobj->runtime_bitflags |= get_cur_playernum() << RUNTIMEBITSHIFT_OWNER;
+        grenadeobj->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+        grenadeobj->runtime_bitflags |= RUNTIME_OWNER_BITS(get_cur_playernum());
 
 #ifdef GEVR
         gunInitProjectileFromPlayer(grenadeobj, &glspawn, &launchmtx, &launchvel, (s32 *)&identitymtx);
@@ -2703,8 +2703,8 @@ void gunFireTankShell(s32 handnum)
     }
 
     obj->timer = -1;
-    obj->runtime_bitflags &= ~RUNTIMEBITFLAG_OWNER;
-    obj->runtime_bitflags |= get_cur_playernum() << RUNTIMEBITSHIFT_OWNER;
+    obj->runtime_bitflags &= ~(RUNTIMEBITFLAG_OWNER_ALL);
+    obj->runtime_bitflags |= RUNTIME_OWNER_BITS(get_cur_playernum());
 
     gunInitProjectileFromPlayer(obj, &spawnpos, &shellmtx, &velocity, (s32 *) &identitymtx);
 

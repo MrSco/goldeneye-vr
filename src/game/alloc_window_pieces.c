@@ -11,7 +11,12 @@ void alloc_shattered_window_pieces(void)
     s32 i;
     s32 level = lvlGetCurrentStageToLoad();
 
+#ifdef GEVR
+    /* split screen shares 200 shards out; one view online keeps four players' share */
+    SHATTERED_WINDOW_PIECES_BUFFER_LEN = (200 / MIN(getPlayerCount(), 4));
+#else
     SHATTERED_WINDOW_PIECES_BUFFER_LEN = (200 / getPlayerCount());
+#endif
     if ((level == LEVELID_STREETS) || (level == LEVELID_DEPOT))
     {
         SHATTERED_WINDOW_PIECES_BUFFER_LEN = (SHATTERED_WINDOW_PIECES_BUFFER_LEN >> 1);

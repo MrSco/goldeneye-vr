@@ -23,13 +23,19 @@ type Lobby = {
 type Join = { id: string; code: string; token_hash: string; offer: string | null; answer: string | null; expires: number };
 
 const TTL = 45_000;
+// The game's player slots (net_protocol.h GEVR_MAX_PLAYERS, protocol 16).
+const MAX_PLAYERS = 8;
+// Join rows live 90 seconds: room for every client slot twice (a retry, a rejoin after a host change).
+const MAX_PENDING_JOINS = 2 * (MAX_PLAYERS - 1);
 const WAITING_IDLE_TIMEOUT = 15 * 60_000;
 const ALONE_IDLE_TIMEOUT = 30 * 60_000;
 const MAX_LOBBY_LIFESPAN = 2 * 3600_000;
 // Relay credentials issued per calendar month before the Worker stops handing them out.
 // Cloudflare bills TURN egress past 1,000 GB a month; a credential covers at most one
-// two-hour lobby, under 250 MB relayed in the worst case, so 4000 keeps the worst month
-// inside the free tier. Games keep working without a relay: direct connections only.
+// two-hour lobby, under 250 MB relayed in the worst case of four players, so 4000 keeps
+// the worst month inside the free tier. A client's relayed traffic grows with the other
+// players it hears: an eight-player lobby relays up to about 7/3 as much per credential.
+// Games keep working without a relay: direct connections only.
 const TURN_MONTHLY_CAP_DEFAULT = 4000;
 const msUntilNextUtcMonth = (now = Date.now()) => {
   const date = new Date(now);
@@ -93,7 +99,7 @@ export class LobbyRegistry extends DurableObject<Env> {
 
   async create(input: unknown): Promise<Response> {
     const x = input as Record<string, unknown>;
-    if (!x || !validName(x.name) || !["public", "private"].includes(String(x.visibility)) || !validInt(x.version, 1, 65535) || !validInt(x.stage, 0, 255) || !validInt(x.weapons, 0, 255) || !validInt(x.maxPlayers, 2, 4)) return bad("Invalid lobby settings");
+    if (!x || !validName(x.name) || !["public", "private"].includes(String(x.visibility)) || !validInt(x.version, 1, 65535) || !validInt(x.stage, 0, 255) || !validInt(x.weapons, 0, 255) || !validInt(x.maxPlayers, 2, MAX_PLAYERS)) return bad("Invalid lobby settings");
     this.cleanup();
     let code: string;
     do { code = codeValue(); } while (this.lobby(code));
@@ -136,7 +142,11 @@ export class LobbyRegistry extends DurableObject<Env> {
     }
     this.cleanup(now);
     const x = input as Record<string, unknown>;
-    if (!x || !validInt(x.players, 1, lobby.max_players) || typeof x.open !== "boolean" ||
+    // The host may change the player count after registering (any stage takes 2..8).
+    // Clients before protocol 16 do not send it and keep the count they created with.
+    if (x && x.maxPlayers !== undefined && !validInt(x.maxPlayers, 2, MAX_PLAYERS)) return bad("Invalid lobby state");
+    const maxPlayers = x && x.maxPlayers !== undefined ? Number(x.maxPlayers) : lobby.max_players;
+    if (!x || !validInt(x.players, 1, maxPlayers) || typeof x.open !== "boolean" ||
         (x.name !== undefined && !validName(x.name)) ||
         (x.phase !== undefined && !["waiting", "warmup", "in_progress"].includes(String(x.phase)))) return bad("Invalid lobby state");
     const phase = (x.phase || lobby.phase) as Phase;
@@ -144,8 +154,8 @@ export class LobbyRegistry extends DurableObject<Env> {
     const phaseChangedAt = (phase !== lobby.phase) ? now : (lobby.phase_changed_at || now);
     const createdAt = lobby.created_at || (lobby.expires - TTL);
     this.ctx.storage.sql.exec(
-      "UPDATE lobbies SET players=?,open=?,phase=?,expires=?,created_at=?,phase_changed_at=?,name=? WHERE code=?",
-      x.players, x.open ? 1 : 0, phase, now + TTL, createdAt, phaseChangedAt, x.name ?? lobby.name, code
+      "UPDATE lobbies SET players=?,open=?,phase=?,expires=?,created_at=?,phase_changed_at=?,name=?,max_players=? WHERE code=?",
+      x.players, x.open ? 1 : 0, phase, now + TTL, createdAt, phaseChangedAt, x.name ?? lobby.name, maxPlayers, code
     );
     return json({ ok: true });
   }
@@ -195,7 +205,7 @@ export class LobbyRegistry extends DurableObject<Env> {
     const lobby = this.lobby(code);
     if (!lobby || lobby.version !== version || !lobby.open || lobby.players >= lobby.max_players) return bad("Lobby unavailable", 404);
     const count = this.ctx.storage.sql.exec<{ n: number }>("SELECT COUNT(*) AS n FROM joins WHERE code=?", code).one().n;
-    if (count >= 6) return bad("Lobby is busy", 429);
+    if (count >= MAX_PENDING_JOINS) return bad("Lobby is busy", 429);
     const id = crypto.randomUUID();
     const joinToken = crypto.randomUUID() + crypto.randomUUID();
     this.ctx.storage.sql.exec("INSERT INTO joins VALUES(?,?,?,?,?,?)", id, code, await digest(joinToken), null, null, Date.now() + 90_000);
@@ -218,7 +228,7 @@ export class LobbyRegistry extends DurableObject<Env> {
 
   async requests(code: string, token: string): Promise<Response> {
     if (this.lobby(code)?.owner_hash !== await digest(token)) return bad("Lobby unavailable", 404);
-    const rows = this.ctx.storage.sql.exec<Join>("SELECT * FROM joins WHERE code=? AND offer IS NOT NULL AND answer IS NULL AND expires>? LIMIT 6", code, Date.now()).toArray();
+    const rows = this.ctx.storage.sql.exec<Join>("SELECT * FROM joins WHERE code=? AND offer IS NOT NULL AND answer IS NULL AND expires>? LIMIT ?", code, Date.now(), MAX_PENDING_JOINS).toArray();
     return json({ requests: rows.map(({ id, offer }) => ({ id, offer })) });
   }
 

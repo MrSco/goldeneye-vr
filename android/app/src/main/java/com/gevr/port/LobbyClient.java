@@ -117,13 +117,16 @@ final class LobbyClient {
                 break;
             }
             case "refresh":
+                // refresh|players|open[|maxPlayers]: the host may change the count after registering
                 lastKeepalive = SystemClock.elapsedRealtime();
-                if (fields.length == 3) {
+                if (fields.length == 3 || fields.length == 4) {
                     int newPlayers = Integer.parseInt(fields[1]);
                     boolean newOpen = "1".equals(fields[2]);
-                    if (newPlayers != players || newOpen != open) {
+                    int newMax = fields.length == 4 ? Integer.parseInt(fields[3]) : maxPlayers;
+                    if (newPlayers != players || newOpen != open || newMax != maxPlayers) {
                         players = newPlayers;
                         open = newOpen;
+                        maxPlayers = newMax;
                         nextHeartbeat = 0;
                     }
                 }
@@ -206,7 +209,8 @@ final class LobbyClient {
                 if (!keepalive) return;
                 if (now >= nextHeartbeat) {
                     JSONObject state = new JSONObject()
-                            .put("players", players).put("open", open).put("phase", phase);
+                            .put("players", players).put("open", open).put("phase", phase)
+                            .put("maxPlayers", maxPlayers);
                     if (!name.isEmpty()) state.put("name", name);
                     try { http("PUT", BASE + "/" + code, state, ownerToken); }
                     catch (HttpException e) {

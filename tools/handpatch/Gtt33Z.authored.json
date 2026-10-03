@@ -1,19 +1,39 @@
 {
  "model": "Gtt33Z",
- "note": "Ours: triangles over ROM vertices (node, index), weights over them, our UVs. No ROM data.",
+ "note": "Modelled in Blender (tools/blender/gevr_hands_author.py): corners on ROM vertices (node, index), new points as weights over ROM vertices, our UVs and shade. No ROM data.",
  "parts": [
   {
+   "host": "0x03b4",
+   "groups": [
+    {
+     "name": "trigger_finger",
+     "why": "the trigger finger's first joint closed underneath, at its base and inside the bend, in its own skin",
+     "tex": "0x703",
+     "verts": [
+      {"s": 451, "t": 859, "node": "0x03b4", "ref": 0, "mtx": 5, "inherit": true},
+      {"s": 478, "t": 880, "node": "0x03b4", "ref": 2, "mtx": 5, "inherit": true},
+      {"s": 433, "t": 799, "node": "0x03b4", "ref": 4, "mtx": 5, "inherit": true},
+      {"s": 494, "t": 851, "node": "0x03b4", "ref": 12, "mtx": 5, "inherit": true},
+      {"s": 490, "t": 787, "node": "0x03b4", "ref": 8, "mtx": 5, "inherit": true},
+      {"s": 468, "t": 728, "node": "0x03b4", "ref": 10, "mtx": 5, "inherit": true},
+      {"s": 424, "t": 736, "node": "0x03b4", "ref": 6, "mtx": 5, "inherit": true},
+      {"s": 644, "t": 705, "node": "0x03b4", "ref": 9, "mtx": 5, "inherit": true},
+      {"s": 635, "t": 706, "node": "0x03b4", "ref": 40, "mtx": 5, "inherit": true},
+      {"s": 623, "t": 688, "node": "0x03b4", "ref": 22, "mtx": 5, "inherit": true},
+      {"s": 610, "t": 712, "node": "0x03b4", "ref": 7, "mtx": 5, "inherit": true},
+      {"s": 658, "t": 680, "node": "0x03b4", "ref": 23, "mtx": 5, "inherit": true},
+      {"s": 687, "t": 819, "node": "0x03b4", "ref": 14, "mtx": 5, "inherit": true},
+      {"s": 654, "t": 810, "node": "0x03b4", "ref": 44, "mtx": 5, "inherit": true},
+      {"s": 639, "t": 747, "node": "0x03b4", "ref": 42, "mtx": 5, "inherit": true},
+      {"s": 662, "t": 753, "node": "0x03b4", "ref": 11, "mtx": 5, "inherit": true},
+      {"s": 665, "t": 804, "node": "0x03b4", "ref": 13, "mtx": 5, "inherit": true}
+     ],
+     "tris": [[0, 1, 2], [1, 3, 2], [3, 4, 2], [4, 5, 2], [5, 6, 2], [5, 7, 6], [7, 8, 6], [8, 9, 6], [9, 10, 6], [8, 11, 9], [7, 12, 8], [12, 13, 8], [13, 14, 8], [7, 15, 12], [15, 16, 12]]
+    }
+   ]
+  },
+  {
    "host": "0x0564",
-   "nodes": {
-    "0x0384": {"numvtx": 30, "fingerprint": "0x3bf81e3f"},
-    "0x0414": {"numvtx": 40, "fingerprint": "0x2ae05f9e"},
-    "0x045c": {"numvtx": 30, "fingerprint": "0x55f48099"},
-    "0x0474": {"numvtx": 42, "fingerprint": "0x20f27c93"},
-    "0x048c": {"numvtx": 42, "fingerprint": "0x050514e8"},
-    "0x054c": {"numvtx": 87, "fingerprint": "0xdd5eb6c9"},
-    "0x0564": {"numvtx": 104, "fingerprint": "0x10775352"},
-    "0x0594": {"numvtx": 71, "fingerprint": "0x2b3b5b4f"}
-   },
    "groups": [
     {
      "name": "fist_inside",
@@ -165,8 +185,7 @@
       [67, 70, 68],
       [69, 71, 72],
       [69, 72, 70]
-     ],
-     "op": "authored"
+     ]
     },
     {
      "name": "forearm_end",
@@ -187,8 +206,7 @@
       {"s": 1010, "t": 468, "node": "0x0564", "ref": 49, "mtx": 0, "inherit": true},
       {"s": 1011, "t": 382, "node": "0x0564", "ref": 98, "mtx": 0, "inherit": true}
      ],
-     "tris": [[0, 1, 2], [3, 2, 1], [4, 5, 3], [6, 7, 4], [8, 7, 9], [10, 6, 11], [11, 4, 3], [11, 3, 1], [0, 11, 1], [3, 5, 2], [4, 12, 5], [4, 11, 6], [6, 9, 7], [7, 12, 4], [8, 12, 7], [10, 9, 6]],
-     "op": "authored"
+     "tris": [[0, 1, 2], [3, 2, 1], [4, 5, 3], [6, 7, 4], [8, 7, 9], [10, 6, 11], [11, 4, 3], [11, 3, 1], [0, 11, 1], [3, 5, 2], [4, 12, 5], [4, 11, 6], [6, 9, 7], [7, 12, 4], [8, 12, 7], [10, 9, 6]]
     },
     {
      "name": "heel_pad",
@@ -199,8 +217,7 @@
       {"s": 663, "t": 27, "node": "0x054c", "ref": 26, "mtx": 0, "inherit": true},
       {"s": 701, "t": 209, "mix": [["0x054c", 66, 1.221752], ["0x054c", 27, -0.090349], ["0x054c", 84, 0.081005], ["0x054c", 40, -0.212408]], "mtx": 0, "c": [255, 255, 255, 255]}
      ],
-     "tris": [[0, 1, 2]],
-     "op": "authored"
+     "tris": [[0, 1, 2]]
     },
     {
      "name": "little_finger",
@@ -313,8 +330,7 @@
       [32, 33, 42],
       [33, 35, 42],
       [33, 26, 35]
-     ],
-     "op": "authored"
+     ]
     },
     {
      "name": "middle_finger",
@@ -334,8 +350,7 @@
       {"s": 879, "t": 547, "mix": [["0x0384", 19, 0.79367], ["0x0384", 0, 0.042753], ["0x0414", 9, -0.367833], ["0x0384", 17, 0.53141]], "mtx": 0, "c": [255, 255, 255, 255]},
       {"s": 879, "t": 547, "node": "0x0384", "ref": 19, "mtx": 0, "inherit": true}
      ],
-     "tris": [[0, 1, 2], [2, 1, 3], [2, 3, 4], [4, 3, 5], [4, 5, 6], [6, 5, 7], [1, 8, 3], [1, 9, 8], [3, 10, 5], [3, 8, 10], [5, 10, 7], [7, 10, 11]],
-     "op": "authored"
+     "tris": [[0, 1, 2], [2, 1, 3], [2, 3, 4], [4, 3, 5], [4, 5, 6], [6, 5, 7], [1, 8, 3], [1, 9, 8], [3, 10, 5], [3, 8, 10], [5, 10, 7], [7, 10, 11]]
     },
     {
      "name": "middle_finger",
@@ -378,8 +393,7 @@
       [14, 15, 0],
       [14, 8, 15],
       [8, 7, 15]
-     ],
-     "op": "authored"
+     ]
     },
     {
      "name": "middle_finger",
@@ -400,8 +414,7 @@
       {"s": 116, "t": 580, "node": "0x0384", "ref": 28, "mtx": 0, "inherit": true},
       {"s": 176, "t": 602, "node": "0x045c", "ref": 3, "mtx": 0, "inherit": true}
      ],
-     "tris": [[0, 1, 2], [0, 2, 3], [3, 2, 4], [3, 4, 5], [3, 5, 6], [6, 5, 7], [6, 7, 8], [8, 7, 9], [8, 9, 10], [8, 10, 11], [11, 10, 12]],
-     "op": "authored"
+     "tris": [[0, 1, 2], [0, 2, 3], [3, 2, 4], [3, 4, 5], [3, 5, 6], [6, 5, 7], [6, 7, 8], [8, 7, 9], [8, 9, 10], [8, 10, 11], [11, 10, 12]]
     },
     {
      "name": "ring_finger",
@@ -514,40 +527,7 @@
       [32, 33, 42],
       [33, 35, 42],
       [33, 26, 35]
-     ],
-     "op": "authored"
-    }
-   ]
-  },
-  {
-   "host": "0x03b4",
-   "nodes": {"0x03b4": {"numvtx": 57, "fingerprint": "0x328c0a0e"}},
-   "groups": [
-    {
-     "name": "trigger_finger",
-     "why": "the trigger finger's first joint closed underneath, at its base and inside the bend, in its own skin",
-     "tex": "0x703",
-     "verts": [
-      {"s": 451, "t": 859, "node": "0x03b4", "ref": 0, "mtx": 5, "inherit": true},
-      {"s": 478, "t": 880, "node": "0x03b4", "ref": 2, "mtx": 5, "inherit": true},
-      {"s": 433, "t": 799, "node": "0x03b4", "ref": 4, "mtx": 5, "inherit": true},
-      {"s": 494, "t": 851, "node": "0x03b4", "ref": 12, "mtx": 5, "inherit": true},
-      {"s": 490, "t": 787, "node": "0x03b4", "ref": 8, "mtx": 5, "inherit": true},
-      {"s": 468, "t": 728, "node": "0x03b4", "ref": 10, "mtx": 5, "inherit": true},
-      {"s": 424, "t": 736, "node": "0x03b4", "ref": 6, "mtx": 5, "inherit": true},
-      {"s": 644, "t": 705, "node": "0x03b4", "ref": 9, "mtx": 5, "inherit": true},
-      {"s": 635, "t": 706, "node": "0x03b4", "ref": 40, "mtx": 5, "inherit": true},
-      {"s": 623, "t": 688, "node": "0x03b4", "ref": 22, "mtx": 5, "inherit": true},
-      {"s": 610, "t": 712, "node": "0x03b4", "ref": 7, "mtx": 5, "inherit": true},
-      {"s": 658, "t": 680, "node": "0x03b4", "ref": 23, "mtx": 5, "inherit": true},
-      {"s": 687, "t": 819, "node": "0x03b4", "ref": 14, "mtx": 5, "inherit": true},
-      {"s": 654, "t": 810, "node": "0x03b4", "ref": 44, "mtx": 5, "inherit": true},
-      {"s": 639, "t": 747, "node": "0x03b4", "ref": 42, "mtx": 5, "inherit": true},
-      {"s": 662, "t": 753, "node": "0x03b4", "ref": 11, "mtx": 5, "inherit": true},
-      {"s": 665, "t": 804, "node": "0x03b4", "ref": 13, "mtx": 5, "inherit": true}
-     ],
-     "tris": [[0, 1, 2], [1, 3, 2], [3, 4, 2], [4, 5, 2], [5, 6, 2], [5, 7, 6], [7, 8, 6], [8, 9, 6], [9, 10, 6], [8, 11, 9], [7, 12, 8], [12, 13, 8], [13, 14, 8], [7, 15, 12], [15, 16, 12]],
-     "op": "authored"
+     ]
     }
    ]
   }

@@ -6,10 +6,10 @@
 #define SPATIAL_BLOCK (BLOCK * 2)
 static IPLContext context;
 static IPLHRTF hrtf;
-static IPLBinauralEffect effects[4];
+static IPLBinauralEffect effects[NET_SPATIAL_SLOTS];
 static int attempted;
 static int last_error;
-static struct { float input[SPATIAL_BLOCK], native_output[2][SPATIAL_BLOCK], output[2][BLOCK], previous; unsigned frame; } blocks[4];
+static struct { float input[SPATIAL_BLOCK], native_output[2][SPATIAL_BLOCK], output[2][BLOCK], previous; unsigned frame; } blocks[NET_SPATIAL_SLOTS];
 int netSpatialInit(void) {
     if (attempted) return context && hrtf;
     attempted = 1;
@@ -23,25 +23,25 @@ int netSpatialInit(void) {
     err=iplHRTFCreate(context, &audio, &settings, &hrtf);
     if (err != IPL_STATUS_SUCCESS) { last_error=20+err; goto failed; }
     IPLBinauralEffectSettings effect = {0}; effect.hrtf = hrtf;
-    for (int i=0;i<4;i++) { err=iplBinauralEffectCreate(context, &audio, &effect, &effects[i]); if (err != IPL_STATUS_SUCCESS) { last_error=30+err; goto failed; } }
+    for (int i=0;i<NET_SPATIAL_SLOTS;i++) { err=iplBinauralEffectCreate(context, &audio, &effect, &effects[i]); if (err != IPL_STATUS_SUCCESS) { last_error=30+err; goto failed; } }
     return 1;
 failed:
     netSpatialShutdown(); attempted = 1; return 0;
 }
 int netSpatialLastError(void) { return last_error; }
 void netSpatialResetSlot(unsigned slot) {
-    if (slot >= 4) return;
+    if (slot >= NET_SPATIAL_SLOTS) return;
     memset(&blocks[slot], 0, sizeof(blocks[slot]));
     if (effects[slot]) iplBinauralEffectReset(effects[slot]);
 }
 void netSpatialShutdown(void) {
-    for (int i=0;i<4;i++) { if (effects[i]) iplBinauralEffectRelease(&effects[i]); netSpatialResetSlot(i); }
+    for (int i=0;i<NET_SPATIAL_SLOTS;i++) { if (effects[i]) iplBinauralEffectRelease(&effects[i]); netSpatialResetSlot(i); }
     if (hrtf) iplHRTFRelease(&hrtf);
     if (context) iplContextRelease(&context);
     attempted = 0;
 }
 void netSpatialSample(unsigned slot, float sample, const float direction[3], int positioned, float *left, float *right) {
-    if (slot >= 4 || !effects[slot]) {
+    if (slot >= NET_SPATIAL_SLOTS || !effects[slot]) {
         float pan = positioned ? direction[0] * 0.7f : 0;
         *left = sample * (1-pan); *right = sample * (1+pan); return;
     }

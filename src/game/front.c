@@ -861,7 +861,11 @@ struct MP_sight_aim_settings mp_sight_adjust_table[] = {
 };
 
 s32 selected_num_players = 0;
+#ifdef GEVR
+s32 player_char[MAX_PLAYER_COUNT] = { [0 ... MAX_PLAYER_COUNT - 1] = -1 };
+#else
 s32 player_char[MAX_PLAYER_COUNT] = { -1, -1, -1, -1 };
+#endif
 s32 MP_stage_selected = MP_STAGE_TEMPLE;
 s32 game_length = LEN_10MIN; //10minutes
 s32 aim_sight_adjustment = 3; //"Sight ON, Auto Aim ON"
@@ -4424,7 +4428,7 @@ void copy_aim_settings_to_playerdata(void)
     s32 i;
     struct player_data * p;
 
-    for (i = 0; i < 4; i++)
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
     {
         p = &g_playerPlayerData[i];
         p->autoaim = mp_sight_adjust_table[aim_sight_adjustment].autoaim;

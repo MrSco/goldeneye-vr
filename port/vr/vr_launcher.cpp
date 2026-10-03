@@ -863,11 +863,15 @@ static std::string gevrLobbyCreateCommand(const std::string &name, int stage, in
 // rows, and a popup that scrolled hid them (user). A long list (the 64
 // characters, the guns) keeps ImGui's larger popup and follows the focus.
 static bool namedCombo(const char *id, int count, const char *(*name)(int), int *sel, bool longList = false) {
-    return gevrNamedCombo(id, count, name, sel, longList, [&](int n) {
-        return strcmp(id, "##stagecombo") == 0 &&
-               ((netScenarioHasTeams(VrMpScenario) && netStageMaxPlayers(n) < netTeamRequiredPlayers(VrMpScenario)) ||
-                (netIsHost() && !netStageEligible(n)));
-    });
+    return gevrNamedCombo(id, count, name, sel, longList, [](int) { return false; });
+}
+
+// The host's player count, 2..8 on any stage (VrMpMaxPlayers).
+static const char *playerCountName(int idx) {
+    static const char *const names[] = { "2 players", "3 players", "4 players", "5 players",
+                                         "6 players", "7 players", "8 players" };
+    static_assert(sizeof(names) / sizeof(names[0]) == GEVR_MAX_PLAYERS - 1, "a name for every count");
+    return idx >= 0 && idx < GEVR_MAX_PLAYERS - 1 ? names[idx] : names[2];
 }
 
 static const char *gunNameAt(int idx) { return netItem(idx)->name; }
@@ -915,18 +919,16 @@ static NetMatchConfig gevrLauncherConfig() {
     c.gun_size = (uint8_t)clampi(VrMpGunSize, 3, 0);
     for (int i = 0; i < 4; i++)
         c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
+    c.max_players = (uint8_t)(VrMpMaxPlayers >= 2 && VrMpMaxPlayers <= GEVR_MAX_PLAYERS ? VrMpMaxPlayers : 4);
     if (VrMpMode == NET_MODE_COOP) {
         // the solo campaign for the party: it starts in the game's menus, where the
-        // host picks each mission and difficulty; the deathmatch fields ride along
+        // host picks each mission and difficulty; four players at most (the deathmatch
+        // fields ride along unused)
         c.mode = NET_MODE_COOP;
         c.stage = NET_COOP_FRONT_STAGE;
         c.difficulty = 0;
+        c.max_players = NET_COOP_MAX_PLAYERS;
         return c;
-    }
-    if (netScenarioHasTeams(c.scenario) &&
-        netStageMaxPlayers(netStageIndexOf(c.stage)) < netTeamRequiredPlayers(c.scenario)) {
-        c.stage = 34;
-        VrMpStage = 34; // Facility supports all team formats.
     }
     return c;
 }
@@ -971,11 +973,11 @@ static void gevrHostChoiceChanged() {
     VrMpFriendlyFire = accepted->friendly_fire;
     VrMpFunFlags = accepted->fun_flags;
     VrMpGunSize = accepted->gun_size;
+    if (accepted->mode != NET_MODE_COOP) // co-op's four is not the deathmatch count
+        VrMpMaxPlayers = accepted->max_players;
     for (int k = 0; k < 4; k++)
         VrMpCustom[k] = accepted->custom_set[k];
     vrSettingsSave();
-    const int cap = netConfigMaxPlayers(accepted);
-    netSetMaxPlayers(cap > 0 ? cap : GEVR_MAX_PLAYERS);
 }
 
 static void gevrSendLoadout() {
@@ -1211,7 +1213,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             else
                 onlineMessage = "Finding a connection to host...";
         } else if (f[0] == "HOST_PEER" && f.size() >= 5 && netIsHost()) {
-            if (netIcePeerCount() < 3 &&
+            if (netIcePeerCount() < netIceMaxPeers() &&
                 netIceAddHostPeer(f[1].c_str(), gevrDecodeUrl64(f[2]).c_str(), f[3].c_str(), f[4].c_str()))
                 hostJoinIds.push_back(f[1]);
         } else if (f[0] == "ANSWER" && f.size() >= 3) {
@@ -1276,7 +1278,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         const uint32_t heartbeatNow = SDL_GetTicks();
         if (netIsHost() && (heartbeatNow - lastHeartbeatMs > 5000 || lastHeartbeatMs == 0)) {
             lastHeartbeatMs = heartbeatNow;
-            const std::string refresh = "refresh|" + std::to_string(pCount) + "|" + (pCount < maxP ? "1" : "0");
+            // the count too: the host may change it after registering the lobby
+            const std::string refresh = "refresh|" + std::to_string(pCount) + "|" + (pCount < maxP ? "1" : "0") +
+                                        "|" + std::to_string(maxP);
             gevrJavaCommand("lobbyCommand", refresh.c_str());
         }
     }
@@ -1446,8 +1450,23 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                 VrMpStage = netStage(stageIdx)->level_id;
                                 gevrHostChoiceChanged();
                             }
+                            // The player count beside it: any stage takes 2..8, the host's
+                            // call; a team scenario takes its own size.
                             ImGui::SameLine();
-                            ImGui::TextDisabled("(up to %d players)", netStageMaxPlayers(stageIdx));
+                            if (netScenarioHasTeams(VrMpScenario)) {
+                                ImGui::TextDisabled("Players: %d (teams)", netTeamRequiredPlayers(VrMpScenario));
+                            } else {
+                                ImGui::Text("Players:");
+                                ImGui::SameLine();
+                                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+                                int countIdx = VrMpMaxPlayers - 2;
+                                const int minPlayers = hosting ? netLobbyMinPlayers() : 2;
+                                if (gevrNamedCombo("##playerscombo", GEVR_MAX_PLAYERS - 1, playerCountName, &countIdx, false,
+                                                   [&](int n) { return n + 2 < minPlayers; })) {
+                                    VrMpMaxPlayers = countIdx + 2;
+                                    gevrHostChoiceChanged();
+                                }
+                            }
                             if (VrMpScenario == SCENARIO_MWTGG) {
                                 ImGui::TextDisabled("Weapons: Golden Gun (the scenario's own set)");
                             } else {
@@ -1470,7 +1489,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                         gevrHostChoiceChanged();
                                 }
                             }
-                        } // deathmatch: stage and weapons
+                        } // deathmatch: stage, players and weapons
 
                         if (hosting) {
                             if (!hostedCode.empty())
@@ -1764,16 +1783,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         ImGui::SameLine();
     } else if (subTab == 0) {
         if (ImGui::Button("Start Hosting", ImVec2(0, h))) {
-            int stageIdx = netStageIndexOf((uint8_t)VrMpStage);
-
             // the game's name in the LAN and internet lists: the host's
             const std::string gameName = gevrLobbyName();
             if (netHostStart(GEVR_DEFAULT_PORT)) {
-                {
-                    const NetMatchConfig c = gevrLauncherConfig();
-                    const int cap = netConfigMaxPlayers(&c);
-                    netSetMaxPlayers(cap > 0 ? cap : netStageMaxPlayers(stageIdx));
-                }
                 netSetGameName(gameName.c_str()); // the clients keep it: the LAN beacon of a migrated host
                 g_joinedViaInternet = false;
                 gevrJavaCommand("requestVoicePermission", "");
@@ -1860,7 +1872,7 @@ extern "C" void gevrLobbyGameTick(void)
                 } else {
                     vr_log("launcher: lobby %s lost (%s); match is not joinable", fields[1].c_str(), fields[2].c_str());
                 }
-            } else if (fields[0] == "HOST_PEER" && fields.size() >= 5 && netIcePeerCount() < 3 &&
+            } else if (fields[0] == "HOST_PEER" && fields.size() >= 5 && netIcePeerCount() < netIceMaxPeers() &&
                 netIceAddHostPeer(fields[1].c_str(), gevrDecodeUrl64(fields[2]).c_str(),
                                   fields[3].c_str(), fields[4].c_str()))
                 pendingAnswers.push_back(fields[1]);
@@ -1896,7 +1908,8 @@ extern "C" void gevrLobbyGameTick(void)
                 // change must find the lobby open
                 const int players = netGetLivePlayerCount();
                 gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
-                                "|" + (players < netGetMaxPlayers() ? "1" : "0")).c_str());
+                                "|" + (players < netGetMaxPlayers() ? "1" : "0") +
+                                "|" + std::to_string(netGetMaxPlayers())).c_str());
             }
         }
     } else {
@@ -2271,7 +2284,8 @@ extern "C" void gevrLauncherRun(void)
                 lastNoFrameRefresh = now;
                 const int players = netGetConnectedPlayerCount();
                 gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
-                    "|" + (players < netGetMaxPlayers() ? "1" : "0")).c_str());
+                    "|" + (players < netGetMaxPlayers() ? "1" : "0") +
+                    "|" + std::to_string(netGetMaxPlayers())).c_str());
             }
             SDL_Delay(5);
             continue;

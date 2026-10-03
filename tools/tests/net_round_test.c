@@ -10,6 +10,7 @@
 static u64 test_now;
 static int resets, starts, voice_clears;
 s32 g_gameOverFlag;
+struct player_data g_playerPlayerData[MAX_PLAYER_COUNT]; /* round scores reset at warmup -> match */
 unsigned VrMpFavStages, VrMpFavSets;
 u64 sysGetMicroseconds(void) { return test_now; }
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
@@ -32,6 +33,22 @@ int enet_peer_send(ENetPeer *peer, uint8_t channel, ENetPacket *packet) {
     return 0;
 }
 
+static ENetPeer peer1;
+
+/* The host's clock probe answered (net_core.c netReceiveClock): rounds wait
+ * for every connected client's clock since v0.3.7, and a sample stays fresh
+ * for NET_CLOCK_FRESH_US, which the host's 2 s probe keeps up in a match. */
+static void clock_sync(void) {
+    assert(netClockSample(&s_clock_sync[1], test_now - 400, test_now - 300, test_now - 200, test_now));
+}
+
+/* A round reset reloads the stage under a new combat epoch: every headset
+ * reports STAGE_READY and slot 1 answers the new epoch's clock probe. */
+static void stage_reloaded(void) {
+    for (int i=0;i<2;i++) s_lobby_state.slots[i].loaded = 1;
+    clock_sync();
+}
+
 static void session(void) {
     test_now = 1000000;
     s_state = NET_STATE_INGAME; s_local_slot = s_host_slot = 0;
@@ -39,10 +56,14 @@ static void session(void) {
     netResetLobbyState();
     for (int i=0;i<2;i++) {
         s_lobby_state.slots[i].connected = s_lobby_state.slots[i].ready = 1;
+        s_lobby_state.slots[i].loaded = 1;
         s_lobby_state.slots[i].chr_id = i;
         for (int k=0;k<4;k++) s_lobby_state.slots[i].loadout[k] = ITEM_TT33;
     }
-    s_client_peers[1] = (ENetPeer *)1;
+    memset(&peer1, 0, sizeof(peer1));
+    peer1.state = ENET_PEER_STATE_CONNECTED; peer1.data = (void *)(intptr_t)2; /* slot 1 */
+    s_client_peers[1] = &peer1;
+    memset(s_clock_sync, 0, sizeof(s_clock_sync));
     netLatchRoundSettings(); netClearVotes(-1);
     s_round_reset_pending = s_round_reset_loading = s_start_after_load = false;
     s_next_round_at_us = s_countdown_end_us = 0;
@@ -52,13 +73,15 @@ static void session(void) {
 
 static void test_round_flow(void) {
     session();
-    netReadyProgress();
+    netReadyProgress(); assert(netCountdownSecondsLeft() == 0); /* no clock from slot 1 yet */
+    clock_sync(); netReadyProgress();
     assert(netCountdownSecondsLeft() == 10 && resets == 0);
     test_now += 9999999; netRoundTick(); assert(resets == 0);
     test_now++; netRoundTick(); assert(resets == 1 && netTakeRoundReset());
     netRoundTick(); assert(resets == 1 && !netTakeRoundReset());
     s_lobby_state.slots[0].ready = s_lobby_state.slots[1].ready = 1;
-    netReadyProgress(); assert(s_phase == NET_PHASE_IN_PROGRESS && starts == 1);
+    netReadyProgress(); assert(s_phase == NET_PHASE_WARMUP && starts == 0); /* still loading */
+    stage_reloaded(); netReadyProgress(); assert(s_phase == NET_PHASE_IN_PROGRESS && starts == 1);
     netHostRoundEnded(); u64 deadline = s_results_deadline_us;
     netHostRoundEnded(); assert(s_results_deadline_us == deadline);
     test_now = deadline-1; netRoundTick(); assert(!s_next_round_at_us);
@@ -69,10 +92,10 @@ static void test_round_flow(void) {
     test_now = end-1; netRoundTick(); assert(s_round.config.stage == 27);
     test_now++; netRoundTick(); assert(resets == 2 && s_round.config.stage == 31 && s_round.config.weapon_set == 5);
     s_lobby_state.slots[0].ready = s_lobby_state.slots[1].ready = 1;
-    netReadyProgress(); assert(starts == 2);
+    stage_reloaded(); netReadyProgress(); assert(starts == 2);
     netHostReturnToLobby(); assert(resets == 3 && s_lobby_open && s_round.config.stage == 31);
     s_lobby_state.slots[0].ready = s_lobby_state.slots[1].ready = 1;
-    netReadyProgress(); netReadyProgress(); assert(!s_next_round_at_us && starts == 2);
+    stage_reloaded(); netReadyProgress(); netReadyProgress(); assert(!s_next_round_at_us && starts == 2);
     netHostStartRoundNow(); assert(netCountdownSecondsLeft() == 10);
     s_local_slot = 1; end = s_next_round_at_us; netHostReturnToLobby();
     assert(s_next_round_at_us == end && resets == 3); /* client cannot control rounds */
@@ -92,7 +115,10 @@ static void test_settings_and_wire(void) {
     assert(netReadRoundSettings(&buf,&read) && !netbufReadLeft(&buf));
     assert(read.config.stage == 27 && read.loadout[1][0] == ITEM_TT33);
     for (u32 n=0;n<size;n++) { netbufStartReadData(&buf,raw,n); assert(!netReadRoundSettings(&buf,&read)); }
-    raw[0]=255; netbufStartReadData(&buf,raw,size); assert(!netReadRoundSettings(&buf,&read));
+    /* the stage byte follows the combat identity (epoch and every slot's life) */
+    u8 idraw[64]; struct netbuf id = {.data=idraw,.size=sizeof(idraw)};
+    netbufStartWrite(&id); netWriteCombatIdentity(&id); assert(!id.error && id.wp < size);
+    raw[id.wp]=255; netbufStartReadData(&buf,raw,size); assert(!netReadRoundSettings(&buf,&read));
     netLatchRoundSettings();
     assert(netActiveLoadoutItem(1,0) == ITEM_LASER && s_round.character[1] == 63 && netActiveDualWield() == NET_DUAL_ANY);
     struct netplayermove sent={0}, received={0};
@@ -107,12 +133,18 @@ static void test_settings_and_wire(void) {
 static void test_ballots_roles_rotation(void) {
     session();
     s_vote[0][0]=1; s_vote[0][1]=0; assert(netTallyBallot(0)==1); /* lowest-slot tie */
-    s_lobby_state.slots[3].connected=1; s_lobby_state.slots[3].spectator=1;
-    assert(!netStageEligible(9) && !netStageEligible(8) && netStageEligible(0));
+    /* slot 6 is past Egypt's four and Bunker II's six (net_match.c), not Facility's eight */
+    s_lobby_state.slots[6].connected=1; s_lobby_state.slots[6].spectator=1;
+    /* every stage takes the host's count: slot 6 rules none out */
+    assert(netStageEligible(8) && netStageEligible(9) && netStageEligible(0) && !netStageEligible(netStageCount()));
     assert(netGetPlayingCount()==2 && netGetConnectedPlayerCount()==3);
-    assert(!netVoiceSameGroup(0,3) && netVoiceSameGroup(0,1));
-    assert(netRotationPick(0,0,1u<<9,NET_NEXT_PLAYLIST)==1); /* favorites too small: all eligible */
-    s_lobby_state.slots[3].connected=0;
+    assert(netVoiceSameGroup(0,6)); /* warmup: everyone hears everyone (v0.3.7) */
+    s_phase = NET_PHASE_IN_PROGRESS;
+    assert(!netVoiceSameGroup(0,6) && netVoiceSameGroup(0,1));
+    s_phase = NET_PHASE_WARMUP;
+    assert(netRotationPick(0,0,1u<<9,NET_NEXT_PLAYLIST)==9); /* Bunker II takes slot 6 too */
+    assert(netRotationPick(0,0,1u<<20,NET_NEXT_PLAYLIST)==1); /* no favorite on the list: all eligible */
+    s_lobby_state.slots[6].connected=0;
     assert(netRotationPick(0,0,(1u<<0)|(1u<<9),NET_NEXT_PLAYLIST)==9);
     assert(netRotationPick(0,9,(1u<<0)|(1u<<9),NET_NEXT_PLAYLIST)==0);
     for (int i=0;i<100;i++) { test_now++; assert(netRotationPick(0,9,(1u<<0)|(1u<<9),NET_NEXT_SHUFFLE)==0); }
