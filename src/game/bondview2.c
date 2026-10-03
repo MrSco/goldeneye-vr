@@ -13977,15 +13977,16 @@ f32 gevrWeaponPanelStickY;     /* ... up positive */
 s32 gevrWeaponPanelStep;       /* input.c: trigger presses while open, the button hand's +1, the other's -1 */
 s32 gevrWeaponPanelLeft;       /* input.c: the left hand's panel, opened with X (#56) */
 float gevrWeaponPanelRect[4];  /* the panel's box in the game's screen, 0..1 (vr_openxr.cpp crops to it) */
+float gevrWeaponPanelAspect = 1.0f;   /* its width over height in screen units (the capture's pixels aren't square) */
 
 static s32 s_gevrWpShown;
 static s32 s_gevrWpMoved;
 static s32 s_gevrWpIndex;
 static s32 s_gevrWpShownItem;
-#define GEVR_WP_W 232        /* the wheel's box, screen units: the ring and two lines under it */
+#define GEVR_WP_W 236        /* the wheel's box, screen units */
 #define GEVR_WP_H 236        /* within the 240-line screen: the layer's crop can't leave the image */
-#define GEVR_WP_MODEL_W 64   /* the spinning item in the ring's hole */
-#define GEVR_WP_MODEL_H 52
+#define GEVR_WP_MODEL_W 58   /* the spinning item in the ring's hole */
+#define GEVR_WP_MODEL_H 48
 /* tuning (files/gevr_wpanel.txt "open dy fov", re-read every second): force the panel
  * open from the PC, move the model down by dy screen units, widen the model's view */
 static s32 s_gevrWpTuneOpen;
@@ -14644,10 +14645,12 @@ static const u8 s_gevrWcTint[GEVR_WC_COUNT][3] = {
     { 0x9C, 0x5C, 0xD8 },   /* gadgets: purple */
     { 0xD8, 0x40, 0x40 },   /* thrown: red */
 };
-#define GEVR_WC_R0 34       /* the ring's hole, for the spinning item */
-#define GEVR_WC_R1 96       /* its outer edge: the band is as wide as a label (GEVR_WC_TEXTW) and a margin */
-#define GEVR_WC_POP 5       /* the highlighted wedge stands out by this much */
-#define GEVR_WC_TEXTW 60    /* a wedge's lines are cut to this, so they stay inside it */
+#define GEVR_WC_R0 30       /* the ring's hole, for the spinning item */
+#define GEVR_WC_R1 110      /* its outer edge: R1 + POP + 4 is half of GEVR_WP_H */
+#define GEVR_WC_POP 4       /* the highlighted wedge stands out by this much */
+#define GEVR_WC_TEXTR 74    /* the radius a wedge's lines are centred on */
+#define GEVR_WC_TEXTW 80    /* a wedge's lines are cut to this, so they stay inside it */
+#define GEVR_WC_ROWS 3      /* the guns listed in a wedge: the one it gives, with the one before and after */
 #define GEVR_WC_SEGS 8      /* quads along each wedge's arc */
 #define GEVR_WC_GAP 1.5f    /* degrees left dark between wedges */
 
@@ -14774,7 +14777,6 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     s32 cx;
     s32 cy;
     s32 active;
-    s32 pos = 0;
 
     if (!g_gevrStereo || g_CurrentPlayer == NULL)
     {
@@ -14866,10 +14868,6 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     }
 
     active = gevrWeaponCategory(gevrWpItem(hand, s_gevrWpIndex));
-    for (i = 0; i < s_gevrWc.n[active]; i++)
-    {
-        if (s_gevrWc.idx[active][i] == s_gevrWpIndex) pos = i;
-    }
 
     /* centred in the screen, so the layer's crop is the same whichever way the image is read */
     bx0 = (viGetX() - GEVR_WP_W) / 2;
@@ -14877,11 +14875,12 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     if (bx0 < 0) bx0 = 0;
     if (by0 < 0) by0 = 0;
     cx = bx0 + GEVR_WP_W / 2;
-    cy = by0 + GEVR_WC_R1 + GEVR_WC_POP + 4;
+    cy = by0 + GEVR_WP_H / 2;
     gevrWeaponPanelRect[0] = (float) bx0 / (float) viGetX();
     gevrWeaponPanelRect[1] = (float) by0 / (float) viGetY();
     gevrWeaponPanelRect[2] = (float) (bx0 + GEVR_WP_W) / (float) viGetX();
     gevrWeaponPanelRect[3] = (float) (by0 + GEVR_WP_H) / (float) viGetY();
+    gevrWeaponPanelAspect = (float) GEVR_WP_W / (float) GEVR_WP_H;
 
     gDPNoOpTag(gdl++, 0x565C0000); /* VR_WEAPON_PANEL_CAPTURE_BEGIN */
 
@@ -14890,31 +14889,46 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
     gdl = microcode_constructor(gdl);
     for (i = 0; i < GEVR_WC_COUNT; i++)
     {
-        /* each wedge: its category, and the gun it gives */
+        /*
+         * each wedge: its category over a short list of its guns, the one it
+         * gives in the middle with the trigger's previous and next around it
+         */
         f32 a = i * GEVR_WC_SPAN * (M_TAU_F / 360.0f);
-        f32 r = (GEVR_WC_R0 + GEVR_WC_R1) * 0.5f + (i == active ? GEVR_WC_POP * 0.5f : 0.0f);
+        f32 r = GEVR_WC_TEXTR + (i == active ? GEVR_WC_POP * 0.5f : 0.0f);
         s32 tx = cx + (s32) lroundf(sinf(a) * r);
         s32 ty = cy - (s32) lroundf(cosf(a) * r);
+        s32 n = s_gevrWc.n[i];
+        s32 at = 0, rows, k, y;
+        s32 given;
 
-        if (s_gevrWc.n[i] == 0)
+        if (n == 0)
         {
             gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lh / 2, 0x707780FF, lh, GEVR_WC_TEXTW, NULL);
             continue;
         }
-        gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, ty - lh, i == active ? 0xFFF080FF : 0xD0D6DEFF, lh, GEVR_WC_TEXTW, NULL);
-        gdl = gevrWpText(gdl, s_gevrWpList[i == active ? s_gevrWpIndex : gevrWheelPick(hand, i)].name,
-                         tx, ty, i == active ? 0xFFFFFFFF : 0xA8B0BCFF, lh, GEVR_WC_TEXTW, NULL);
-    }
-
-    /* under the wheel: the highlighted item in full, and how many its wedge holds */
-    {
-        s32 y = cy + GEVR_WC_R1 + GEVR_WC_POP + 4;
-        gdl = gevrWpText(gdl, s_gevrWpList[s_gevrWpIndex].name, cx, y, 0xFFF080FF, lh, GEVR_WP_W - 8, NULL);
-        if (s_gevrWc.n[active] > 1)
+        given = i == active ? s_gevrWpIndex : gevrWheelPick(hand, i);
+        for (k = 0; k < n; k++)
         {
-            char more[32];
-            sprintf(more, "TRIGGER  %d / %d\n", pos + 1, s_gevrWc.n[active]);
-            gdl = gevrWpText(gdl, more, cx, y + lh, 0xD0D6DEFF, lh, GEVR_WP_W - 8, NULL);
+            if (s_gevrWc.idx[i][k] == given) at = k;
+        }
+        rows = n < GEVR_WC_ROWS ? n : GEVR_WC_ROWS;
+        y = ty - (rows + 1) * lh / 2;
+        gdl = gevrWpText(gdl, s_gevrWcLabel[i], tx, y, i == active ? 0xFFF080FF : 0xD0D6DEFF, lh, GEVR_WC_TEXTW, NULL);
+        for (k = 0; k < rows; k++)
+        {
+            /* three or more: before, given, after (wrapping, as the trigger does); fewer: in list order */
+            s32 j = rows == GEVR_WC_ROWS ? ((at + k - 1) % n + n) % n : k;
+            u32 colour;
+
+            if (j == at)
+            {
+                colour = i == active ? 0xFFFFFFFF : 0xB8C0CCFF;
+            }
+            else
+            {
+                colour = i == active ? 0x98A0ACFF : 0x6C727CFF;
+            }
+            gdl = gevrWpText(gdl, s_gevrWpList[s_gevrWc.idx[i][j]].name, tx, y + (k + 1) * lh, colour, lh, GEVR_WC_TEXTW, NULL);
         }
     }
 
