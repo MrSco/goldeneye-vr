@@ -45,6 +45,7 @@
 #include "gevr_sched.h"
 
 #ifdef GEVR
+#include "net_match.h"   /* NET_COOP_RESULT_* (integer-only) */
 extern bool netIsActive(void);
 extern uint32_t netGetRandomSeed(void);
 extern void netPoll(void);
@@ -59,7 +60,8 @@ extern bool netTakeRoundReset(void);
 extern void netStageLoaded(void);
 extern void netCoopStageLoaded(void);   /* co-op (#94): a new mission's guards (net_coop.c) */
 extern int netCoopActive(void);
-extern void netCoopMissionEnded(int success);
+extern int netCoopSession(void);
+extern void netCoopMissionEnded(int result);
 extern int netGetLocalSlot(void);
 static bool s_net_slot_enabled[4];
 static bool s_net_session_started;
@@ -518,10 +520,11 @@ void bossMainloop(void)
         joyCheckStatusThreadSafe();
         lvlStageLoad(g_StageNum);
 #ifdef GEVR
-        if (s_net_session_started && g_StageNum == LEVELID_TITLE)
+        /* a co-op party's menus are the title stage: the session goes on (#94) */
+        if (s_net_session_started && g_StageNum == LEVELID_TITLE && !netCoopSession())
             gevrLobbySessionStopped();
         for (int slot = 0; slot < 4; slot++) s_net_slot_enabled[slot] = TRUE;
-        s_net_session_started = netIsActive() && g_StageNum != LEVELID_TITLE;
+        s_net_session_started = netIsActive() && (g_StageNum != LEVELID_TITLE || netCoopSession());
         netCoopStageLoaded();   /* a load, which netStageLoaded's other calls are not */
         netStageLoaded();
 #endif
@@ -803,13 +806,24 @@ void bossRunTitleStage(void) {
  * net_core.c netCoopApplyEnd, on every headset: the co-op mission's end, as
  * the host saw it. A completion goes to this player's own save (the solo
  * mission's unlock and time, file.c end_of_mission_briefing); the players
- * stop where they are until the host loads the next mission.
+ * stop where they are until the host loads the party's menus, where the
+ * debrief reads the end as solo's would: killed in action when every player
+ * went down, aborted when the host aborted (front.c).
  */
-void gevrCoopMissionEndLocal(s32 success)
+void gevrCoopMissionEndLocal(s32 result)
 {
     extern void mpwatchSetStopPlayFlag(void);
+    s32 success = result == NET_COOP_RESULT_COMPLETE;
     s32 i;
 
+    if (result == NET_COOP_RESULT_ALL_DOWN)
+    {
+        g_isBondKIA = TRUE;
+    }
+    else if (result == NET_COOP_RESULT_ABORTED)
+    {
+        mission_failed_or_aborted = TRUE;
+    }
     if (success && bossGetStageNum() != LEVELID_CUBA)
     {
         end_of_mission_briefing();
@@ -860,11 +874,11 @@ void bossReturnTitleStage(void) {
     /*
      * An online co-op mission (#94): the title screen would end the session.
      * The mission's end goes to the host instead, which ends it on every
-     * headset (gevrCoopMissionEndLocal) and loads the next one.
+     * headset (gevrCoopMissionEndLocal) and takes the party to its debrief.
      */
     if (netCoopActive())
     {
-        netCoopMissionEnded(objectiveIsAllComplete() != 0 && !g_isBondKIA);
+        netCoopMissionEnded(objectiveIsAllComplete() != 0 && !g_isBondKIA ? NET_COOP_RESULT_COMPLETE : NET_COOP_RESULT_FAILED);
         return;
     }
 #endif

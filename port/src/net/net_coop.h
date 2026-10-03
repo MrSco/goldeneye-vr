@@ -71,6 +71,18 @@ void gevrCoopApplyPhoto(int tag);
 int gevrCoopAnyCopiedKey(void);
 void netCoopClientTick(void);               /* netPoll, a teammate's headset: the items its player holds */
 
+/* The party's menus: the solo front end, the host driving (net_coop_menu.c) */
+int gevrCoopSession(void);                  /* a co-op party, in its menus or a mission */
+int gevrCoopIsHost(void);                   /* ...and this headset hosts it */
+unsigned int gevrCoopIntroSeed(void);       /* the mission's intro camera, the same on every headset */
+int gevrWatchController(void);              /* options.c: the solo watch reads this headset's controller */
+void netCoopMissionEnded(int result);       /* net_core.c: the mission ended here (NET_COOP_RESULT_*) */
+void gevrCoopMenuTick(void);                /* front.c menu_init: the host's screen out, the others' in */
+int gevrCoopMenuFollowing(void);            /* this headset shows the host's screen: no input of its own */
+void netCoopReceiveMenu(struct netbuf *b);  /* net_core.c: NET_MSG_COOP_MENU */
+void netCoopMenuReset(void);                /* a stage's load: wait for the host's word again */
+void netCoopHostStartMission(int stage, int difficulty);   /* front.c init_menu0B_runstage, the host */
+
 #ifdef __cplusplus
 }
 #endif

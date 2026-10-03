@@ -1410,6 +1410,7 @@ static void netReadyProgress(void) {
 
 void netStageLoaded(void) {
     s_coop_ended = false;
+    netCoopMenuReset();
     netSpectatorReset();
     netPlayersTickedReset(); /* events queued through the load are for the old stage */
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
@@ -1538,9 +1539,23 @@ void netLobbySetConfig(const NetMatchConfig *config) {
 /* Online with a co-op mission loaded or loading: the game's code asks this
  * where retail reads "two or more players" as a deathmatch (gevrCoopActive). */
 int netCoopActive(void) {
-    return (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) && s_round.config.mode == NET_MODE_COOP;
+    /* the stage loaded, not the config's: a mission keeps its rules until the menus replace it */
+    return netCoopSession() && bossGetStageNum() != LEVELID_TITLE;
 }
 int gevrCoopActive(void) { return netCoopActive(); }
+
+/* Co-op (#94): a number every headset shares for this mission (the launch's seed, the round's epoch): the intro's camera */
+unsigned int gevrCoopIntroSeed(void) {
+    uint32_t x = s_rng_seed ^ (s_round.world_epoch * 2654435761u);
+    x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15;
+    return x;
+}
+
+/* A co-op party, in its menus or a mission: the session lasts through the title stage */
+int netCoopSession(void) {
+    return (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) && s_round.config.mode == NET_MODE_COOP;
+}
+int gevrCoopSession(void) { return netCoopSession(); }
 
 /*
  * A co-op mission, as the solo game starts one (file.c set_solo_and_ptr_briefing,
@@ -1551,16 +1566,40 @@ int gevrCoopActive(void) { return netCoopActive(); }
  */
 static void netApplyCoopConfig(const NetMatchConfig *c) {
     extern void init_mp_options_for_scenario(s32 numplayers);
+    extern void do_extended_cast_display(s32 arg0);
     extern s32 g_StageNum;
-    gamemode = GAMEMODE_MULTI;
     s_max_players = NET_COOP_MAX_PLAYERS;
     s_lobby_max_players = NET_COOP_MAX_PLAYERS;
+    if (c->stage == NET_COOP_FRONT_STAGE) {
+        /*
+         * The party's menus: the solo front end on every headset, each player
+         * with their own save folder (front.c). The first time in, the folder
+         * screen; back from a mission, the debrief its launch chose.
+         */
+        gamemode = GAMEMODE_SOLO;
+        selected_num_players = 1;
+        g_StageNum = LEVELID_TITLE;
+        if (menu_update == MENU_INVALID && current_menu == MENU_INVALID)
+            menu_update = MENU_FILE_SELECT;
+        NET_LOG("co-op config applied: the party's menus");
+        return;
+    }
+    gamemode = GAMEMODE_MULTI;
     selected_num_players = NET_COOP_MAX_PLAYERS;
     g_StageNum = c->stage;
     selected_stage = c->stage;
-    briefingpage = pull_and_display_text_for_folder_a0(c->stage);
+    /* the mission's folder entry (the save's index): the co-op table is in the solo mission order */
+    if (netCoopMissionIndexOf(c->stage) >= 0)
+        briefingpage = pull_and_display_text_for_folder_a0(netCoopMissionIndexOf(c->stage));
     selected_difficulty = (DIFFICULTY)(c->difficulty < NET_DIFFICULTY_COUNT ? c->difficulty : DIFFICULTY_AGENT);
     lvlSetSelectedDifficulty(selected_difficulty);
+    /* back in the menus afterwards, the debrief (Cuba: the cast), as front.c's MENU_RUN_STAGE picks it */
+    if (c->stage == NET_COOP_CUBA_STAGE) {
+        do_extended_cast_display(TRUE);
+        menu_update = MENU_DISPLAY_CAST;
+    } else {
+        menu_update = MENU_MISSION_FAILED;
+    }
     init_mp_options_for_scenario(selected_num_players);
     reset_mp_options_for_scenario(SCENARIO_NORMAL);
     game_length = 0;   /* no time or point limit: the mission ends the round */
@@ -1569,7 +1608,8 @@ static void netApplyCoopConfig(const NetMatchConfig *c) {
         player_handicap[p] = 5;   /* normal: the difficulty sets the damage */
     }
     NET_LOG("co-op config applied: mission %s (level %d) difficulty %s",
-            netCoopMissionName(netCoopMissionIndexOf(c->stage)), c->stage, netDifficultyName(c->difficulty));
+            c->stage == NET_COOP_CUBA_STAGE ? "Cuba" : netCoopMissionName(netCoopMissionIndexOf(c->stage)),
+            c->stage, netDifficultyName(c->difficulty));
 }
 
 _Static_assert(NET_WEAPON_SET_CUSTOM == MP_WEAPON_SET_CUSTOM, "the custom set's index must agree between net_match.h and mp_weapon.h");
@@ -2600,14 +2640,19 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         }
         case NET_MSG_COOP_END: {
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME || size != 14) break;
-            uint8_t success = netbufReadU8(&buf);
+            uint8_t result = netbufReadU8(&buf);
             uint8_t next = netbufReadU8(&buf);
             uint32_t delay = netbufReadU32(&buf);
-            if (buf.error || success > 1 || netCoopMissionIndexOf(next) < 0 || !netCoopActive()) break;
+            if (buf.error || result > NET_COOP_RESULT_ABORTED || !netCoopStageValid(next) || !netCoopActive()) break;
             (void)delay;
-            netCoopApplyEnd(success != 0);
+            netCoopApplyEnd(result);
             break;
         }
+        case NET_MSG_COOP_MENU:
+            /* the party's menus: the host's screen (net_coop_menu.c) */
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
+            netCoopReceiveMenu(&buf);
+            break;
         case NET_MSG_CHR_STATE:
         case NET_MSG_CHR_SPAWN:
         case NET_MSG_CHR_REMOVE:
@@ -3130,16 +3175,18 @@ void netCoopBroadcast(const u8 *data, u32 size, int reliable) {
 
 /* The mission's end */
 
-static uint64_t s_coop_next_at_us;       /* host: the next mission loads at this time */
-static uint8_t s_coop_next_stage;        /* host: the mission it loads */
-#define NET_COOP_END_DELAY_MS 8000
+static uint64_t s_coop_next_at_us;       /* host: the party's menus load at this time */
+static uint8_t s_coop_next_stage;        /* host: the stage it loads (the menus) */
+#define NET_COOP_END_DELAY_MS 4000
 
-static void netCoopApplyEnd(bool success) {
-    extern void gevrCoopMissionEndLocal(s32 success);
+static void netCoopApplyEnd(int result) {
+    extern void gevrCoopMissionEndLocal(s32 result);
     if (s_coop_ended) return;
     s_coop_ended = true;
-    NET_LOG("co-op: mission %s", success ? "complete" : "failed");
-    gevrCoopMissionEndLocal(success);
+    NET_LOG("co-op: mission %s", result == NET_COOP_RESULT_COMPLETE ? "complete" :
+            result == NET_COOP_RESULT_ALL_DOWN ? "failed, every player down" :
+            result == NET_COOP_RESULT_ABORTED ? "aborted" : "failed");
+    gevrCoopMissionEndLocal(result);
 }
 
 /*
@@ -3149,15 +3196,14 @@ static void netCoopApplyEnd(bool success) {
  * next mission after a pause (the same one after a failure). Another
  * headset's own end is only logged: its guards are the host's to run.
  */
-void netCoopMissionEnded(int success) {
-    if (!netCoopActive() || s_coop_ended) return;
+void netCoopMissionEnded(int result) {
+    if (!netCoopActive() || s_coop_ended || result < 0 || result > NET_COOP_RESULT_ABORTED) return;
     if (!netIsHost()) {
-        NET_LOG("co-op: this headset reached the mission's end (%s); the host's decides", success ? "complete" : "failed");
+        NET_LOG("co-op: this headset reached the mission's end (%d); the host's decides", result);
         return;
     }
-    int idx = netCoopMissionIndexOf(s_round.config.stage);
-    s_coop_next_stage = success && idx >= 0 && idx + 1 < netCoopMissionCount() ?
-        netCoopMission(idx + 1)->level_id : s_round.config.stage;
+    /* everyone back to the menus: the debrief, then the host's next choice (front.c) */
+    s_coop_next_stage = NET_COOP_FRONT_STAGE;
     s_coop_next_at_us = sysGetMicroseconds() + NET_COOP_END_DELAY_MS * 1000ull;
     u8 raw[16];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -3166,11 +3212,28 @@ void netCoopMissionEnded(int success) {
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_COOP_END);
     netbufWriteU8(&buf, (uint8_t)s_local_slot);
-    netbufWriteU8(&buf, success ? 1 : 0);
+    netbufWriteU8(&buf, (uint8_t)result);
     netbufWriteU8(&buf, s_coop_next_stage);
     netbufWriteU32(&buf, NET_COOP_END_DELAY_MS);
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
-    netCoopApplyEnd(success);
+    netCoopApplyEnd(result);
+}
+
+/*
+ * The host's front end (front.c init_menu0B_runstage): the briefing's Start,
+ * 007's Start or the statistics page's Next to Cuba. Every headset loads the
+ * mission as a round reset (netTakeRoundReset, boss.c).
+ */
+void netCoopHostStartMission(int stage, int difficulty) {
+    if (!netIsHost() || !netCoopSession() || s_round_reset_loading || !netCoopStageValid((uint8_t)stage) ||
+        stage == NET_COOP_FRONT_STAGE) return;
+    s_coop_next_at_us = 0;
+    s_lobby_state.config.stage = (uint8_t)stage;
+    s_lobby_state.config.difficulty = (uint8_t)(difficulty >= 0 && difficulty < NET_DIFFICULTY_COUNT ? difficulty : 0);
+    NET_LOG("co-op: the host starts %s, %s", stage == NET_COOP_CUBA_STAGE ? "Cuba" :
+            netCoopMissionName(netCoopMissionIndexOf((uint8_t)stage)), netDifficultyName(s_lobby_state.config.difficulty));
+    netLatchRoundSettings();
+    netBeginRoundReset(true);
 }
 
 /* The host, each frame: the next mission once the pause is over */
@@ -3179,7 +3242,7 @@ static void netCoopTick(void) {
     if (s_coop_next_at_us && sysGetMicroseconds() >= s_coop_next_at_us && !s_round_reset_loading) {
         s_coop_next_at_us = 0;
         s_lobby_state.config.stage = s_coop_next_stage;
-        NET_LOG("co-op: next mission %s", netCoopMissionName(netCoopMissionIndexOf(s_coop_next_stage)));
+        NET_LOG("co-op: back to the party's menus");
         netLatchRoundSettings();
         netBeginRoundReset(true);
     }
