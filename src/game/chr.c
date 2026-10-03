@@ -2348,13 +2348,32 @@ s32 chrTick(PropRecord *prop)
     s32 headVisible;
     s32 tickamount;
 
+#ifdef GEVR
+    /*
+     * Online every other player's copy, and a hand firing well off the view,
+     * gets a view pass of its own (lv.c gevrViewPass), and each pass ticks
+     * the props for its camera. A guard advances once a frame, in the head
+     * pass: its AI, animation, aim, flinch, shading and firing. An extra pass
+     * only places it for that camera (on screen, matrices), so a shot traced
+     * there hits it where it stands. A player's copy (PROP_TYPE_VIEWER) has
+     * its own extra-pass rules in playerTick. Not chrUpdateAnim with a zero
+     * tick: that resets prevpos, which the AI's arrival tests read (#94).
+     */
+    extern s32 g_gevrExtraPass;
+    const s32 gevrStill = g_gevrExtraPass && prop->type == PROP_TYPE_CHR;
+#endif
+
     renderdata = D_8002CC6C;
     chr = prop->chr;
     model = chr->model;
     headVisible = 1;
     tickamount = g_ClockTimer;
 
+#ifdef GEVR
+    if (!gevrStill && ((!(chr->chrflags & CHRFLAG_HIDDEN)) || (chr->chrflags & CHRFLAG_00040000)))
+#else
     if ((!(chr->chrflags & CHRFLAG_HIDDEN)) || (chr->chrflags & CHRFLAG_00040000))
+#endif
     {
         if (D_8002C904)
         {
@@ -2418,6 +2437,13 @@ s32 chrTick(PropRecord *prop)
     }
     else
     {
+#ifdef GEVR
+        if (gevrStill)
+        {
+            headSwitchVisible = (chr->chrflags & CHRFLAG_CULL_USING_HITBOX) ? 1 : posIsOnScreen(prop, &prop->pos, getinstsize(model), 1);
+            goto after_position_update;
+        }
+#endif
         if (((prop->type == PROP_TYPE_VIEWER) && (g_playerPointers[getPlayerPointerIndex(prop)]->cameramode == 1)) || (chr->chrflags & CHRFLAG_CULL_USING_HITBOX))
         {
             headSwitchVisible = 1;
@@ -2518,6 +2544,9 @@ after_position_update:
         chr->hidden |= CHRHIDDEN_BACKGROUND_AI;
     }
 
+#ifdef GEVR
+    if (!gevrStill)
+#endif
     chrUpdateAimProperties(chr);
 
     if (chr->field_20 != NULL)
@@ -2560,7 +2589,11 @@ after_position_update:
         renderdata.basemtx = camGetWorldToScreenMtxf();
         renderdata.mtxlist = dynAllocate(model->obj->numMatrices * (sizeof(Mtxf)));
 
+#ifdef GEVR
+        if (g_CurModelChr->flinchcnt >= 0 && !gevrStill)
+#else
         if (g_CurModelChr->flinchcnt >= 0)
+#endif
         {
             g_CurModelChr->flinchcnt += g_ClockTimer;
 
@@ -2579,6 +2612,9 @@ after_position_update:
         g_ModelJointPositionedFunc = NULL;
         modelSetDistanceScale(1.0f);
 
+#ifdef GEVR
+        if (!gevrStill)
+#endif
         update_color_shading(&chr->shadecol, &chr->nextcol);
 
         prop->zDepth = sub_GAME_7F06C768(model);
@@ -2777,10 +2813,15 @@ after_position_update:
 
         prop->flags &= ~PROPFLAG_ONSCREEN;
 
+#ifdef GEVR
+        if (!gevrStill)
+#endif
+        {
         chr->shadecol.r = chr->nextcol.r;
         chr->shadecol.g = chr->nextcol.g;
         chr->shadecol.b = chr->nextcol.b;
         chr->shadecol.a = chr->nextcol.a;
+        }
     }
 
     if (!(chr->chrflags & CHRFLAG_HIDDEN))
@@ -2802,6 +2843,9 @@ after_position_update:
             chr->hidden &= ~CHRHIDDEN_DROP_HELD_ITEMS;
         }
 
+#ifdef GEVR
+        if (!gevrStill)
+#endif
         chrlvTriggerFireWeapon(chr);
     }
 

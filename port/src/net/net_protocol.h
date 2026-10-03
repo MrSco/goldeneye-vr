@@ -11,7 +11,7 @@
 #include "net_match.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         15  /* 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         16  /* 16: co-op mode (mode, difficulty in the match config; guard, mission and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         4
@@ -80,6 +80,9 @@ typedef enum {
     NET_MSG_AMMO_STATE = 33,    /* Host -> peers: crate transforms and respawn state */
     NET_MSG_CLOCK = 34,        /* Host probe -> client reply, four-timestamp clock synchronization */
     NET_MSG_LOBBY_LOADOUT = 30, /* Client -> host: my four spawn guns */
+
+    /* Co-op (protocol 16, #94) */
+    NET_MSG_COOP_END = 35,      /* Host -> all: the mission ended (success, the next mission, the delay) */
 } NetMsgType;
 
 /* Protocol 15 combat identity. Shot IDs identify one firing action; hit IDs
@@ -154,6 +157,8 @@ typedef struct {
     uint8_t fun_flags;      /* NET_FUN_*: next round only */
     uint8_t gun_size;       /* NET_GUN_NORMAL / TINY / BIG: visuals only */
     uint8_t custom_set[4];  /* the custom set's guns, ITEM_IDS */
+    uint8_t mode;           /* NET_MODE_DEATHMATCH / NET_MODE_COOP (protocol 16) */
+    uint8_t difficulty;     /* co-op: DIFFICULTY_AGENT .. DIFFICULTY_007 */
 } NetMatchConfig;
 
 /* No native pointers or structure padding enter the wire format. */
@@ -197,8 +202,22 @@ static inline int netbufReadAmmoState(struct netbuf *b, NetAmmoState *s) {
     return !b->error && netAmmoStateValid(s);
 }
 
+/* The players a config's stage takes: a co-op mission takes the party's four */
+static inline int netConfigMaxPlayers(const NetMatchConfig *c) {
+    if (!c) return 0;
+    if (c->mode == NET_MODE_COOP) return netCoopMissionIndexOf(c->stage) >= 0 ? NET_COOP_MAX_PLAYERS : 0;
+    return netStageMaxPlayers(netStageIndexOf(c->stage));
+}
+
 static inline int netMatchConfigValid(const NetMatchConfig *c) {
-    if (!c || netStageIndexOf(c->stage) < 0 || c->scenario >= netScenarioCount() ||
+    if (!c || c->mode > NET_MODE_COOP) return 0;
+    if (c->mode == NET_MODE_COOP) {
+        /* the deathmatch fields ride along unused; the mission and difficulty decide */
+        if (netCoopMissionIndexOf(c->stage) < 0 || c->difficulty >= NET_DIFFICULTY_COUNT ||
+            c->voice_mode > NET_VOICE_COUCH || c->friendly_fire > 1 || c->gun_size > NET_GUN_BIG) return 0;
+        return 1;
+    }
+    if (netStageIndexOf(c->stage) < 0 || c->scenario >= netScenarioCount() ||
         c->weapon_set >= netWeaponSetCount() || c->game_length >= netGameLengthCount() ||
         c->health >= netHealthCount() || c->dual_wield > NET_DUAL_ANY || c->loadouts > 1 ||
         (c->fun_flags & ~NET_FUN_MASK) != 0 || c->gun_size > NET_GUN_BIG || c->friendly_fire > 1 || c->next_round > NET_NEXT_PLAYLIST || c->voice_mode > NET_VOICE_COUCH ||
@@ -221,6 +240,8 @@ static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfi
     netbufWriteU8(buf, c->fun_flags);
     netbufWriteU8(buf, c->gun_size);
     for (int i = 0; i < 4; i++) netbufWriteU8(buf, c->custom_set[i]);
+    netbufWriteU8(buf, c->mode);
+    netbufWriteU8(buf, c->difficulty);
     return buf->error;
 }
 
@@ -238,6 +259,8 @@ static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
     c->fun_flags = netbufReadU8(buf);
     c->gun_size = netbufReadU8(buf);
     for (int i = 0; i < 4; i++) c->custom_set[i] = netbufReadU8(buf);
+    c->mode = netbufReadU8(buf);
+    c->difficulty = netbufReadU8(buf);
     return buf->error;
 }
 

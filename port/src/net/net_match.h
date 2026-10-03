@@ -23,6 +23,24 @@ const char *netStageName(int idx);
 int netStageMaxPlayers(int idx);
 int netStageIndexOf(uint8_t level_id);      /* -1 unknown */
 
+/*
+ * The match's mode (NetMatchConfig.mode). Co-op plays a solo mission, the
+ * config's stage then being the mission's LEVELID and its difficulty the
+ * solo difficulty (DIFFICULTY_AGENT .. DIFFICULTY_007).
+ */
+enum { NET_MODE_DEATHMATCH = 0, NET_MODE_COOP = 1 };
+#define NET_COOP_MAX_PLAYERS 4
+#define NET_LOBBY_COOP_STAGE 0x80   /* a game list's stage byte: 0x80 | the co-op mission's LEVELID */
+#define NET_DIFFICULTY_COUNT 4
+
+/* Co-op missions, in the game's mission folder order (front.c mission_folder_setup_entries) */
+typedef struct { const char *name; uint8_t level_id; } NetCoopMission;
+int netCoopMissionCount(void);
+const NetCoopMission *netCoopMission(int idx);
+const char *netCoopMissionName(int idx);
+int netCoopMissionIndexOf(uint8_t level_id);   /* -1 not a co-op mission */
+const char *netDifficultyName(int difficulty);
+
 /* Weapon sets: GoldenEye's fourteen (mp_weapon.c) and the host's custom one */
 #define NET_WEAPON_SET_CUSTOM 14
 int netWeaponSetCount(void);

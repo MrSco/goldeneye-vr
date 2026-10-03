@@ -57,6 +57,9 @@ extern u64 sysGetMicroseconds(void);
 extern bool netSlotOccupied(int slot);
 extern bool netTakeRoundReset(void);
 extern void netStageLoaded(void);
+extern int netCoopActive(void);
+extern void netCoopMissionEnded(int success);
+extern int netGetLocalSlot(void);
 static bool s_net_slot_enabled[4];
 static bool s_net_session_started;
 #endif
@@ -441,7 +444,12 @@ void bossMainloop(void)
         {
             stringIndex = -1;
 
+#ifdef GEVR
+            /* an online co-op mission takes its solo memory split (#94) */
+            if (g_StageNum != LEVELID_TITLE && get_selected_num_players() >= 2 && !gevrCoopActive())
+#else
             if (g_StageNum != LEVELID_TITLE && get_selected_num_players() >= 2)
+#endif
             {
                 stringIndex = 0;
 
@@ -788,6 +796,36 @@ void bossRunTitleStage(void) {
     bossSetLoadedStage(LEVELID_TITLE);
 }
 
+#ifdef GEVR
+/*
+ * net_core.c netCoopApplyEnd, on every headset: the co-op mission's end, as
+ * the host saw it. A completion goes to this player's own save (the solo
+ * mission's unlock and time, file.c end_of_mission_briefing); the players
+ * stop where they are until the host loads the next mission.
+ */
+void gevrCoopMissionEndLocal(s32 success)
+{
+    extern void mpwatchSetStopPlayFlag(void);
+    s32 i;
+
+    if (success && bossGetStageNum() != LEVELID_CUBA)
+    {
+        end_of_mission_briefing();
+    }
+    mpwatchSetStopPlayFlag();
+    for (i = 0; i < getPlayerCount(); i++)
+    {
+        if (g_playerPointers[i] && i == netGetLocalSlot())
+        {
+            s32 prev = get_cur_playernum();
+            set_cur_player(i);
+            hudmsgTopShow(success ? "MISSION COMPLETE" : "MISSION FAILED");
+            set_cur_player(prev);
+        }
+    }
+}
+#endif
+
 /**
  * 7550    70006950
  *     A0->loaded stage# [800242FC]; fry AT
@@ -815,6 +853,18 @@ void bossReturnTitleStage(void) {
 #ifdef BUGFIX_R1
     display_objective_status_text_on_status_change();
     objectivestatusDisableStatusDisplay();
+#endif
+#ifdef GEVR
+    /*
+     * An online co-op mission (#94): the title screen would end the session.
+     * The mission's end goes to the host instead, which ends it on every
+     * headset (gevrCoopMissionEndLocal) and loads the next one.
+     */
+    if (netCoopActive())
+    {
+        netCoopMissionEnded(objectiveIsAllComplete() != 0 && !g_isBondKIA);
+        return;
+    }
 #endif
     if ((bossGetStageNum() != LEVELID_CUBA) && (objectiveIsAllComplete() != 0x0)) {
         end_of_mission_briefing();

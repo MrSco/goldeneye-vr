@@ -873,6 +873,16 @@ static bool namedCombo(const char *id, int count, const char *(*name)(int), int 
 static const char *gunNameAt(int idx) { return netItem(idx)->name; }
 static const char *stageNameById(int levelId) { return netStageName(netStageIndexOf((uint8_t)levelId)); }
 
+// A game list's entry (the lobby service, a LAN beacon): a co-op game lists
+// 0x80 | its mission's level id, and its difficulty in the weapons' place
+// (net_core.c netGetLobbyStage).
+static std::string listedGameLabel(int stage, int weapons) {
+    if (stage & NET_LOBBY_COOP_STAGE)
+        return std::string("Co-op: ") + netCoopMissionName(netCoopMissionIndexOf((uint8_t)(stage & 0x7F))) + ", " +
+               netDifficultyName(weapons);
+    return std::string(stageNameById(stage)) + ", " + netWeaponSetName(weapons);
+}
+
 // A gun chooser: the value is an ITEM_IDS, the list works in positions.
 static bool gunCombo(const char *id, int *item) {
     int idx = netItemIndexOf(*item);
@@ -902,6 +912,13 @@ static NetMatchConfig gevrLauncherConfig() {
     c.gun_size = (uint8_t)clampi(VrMpGunSize, 3, 0);
     for (int i = 0; i < 4; i++)
         c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
+    if (VrMpMode == NET_MODE_COOP) {
+        // a solo mission for the party: the stage is the mission, the deathmatch fields ride along
+        c.mode = NET_MODE_COOP;
+        c.stage = (uint8_t)(netCoopMissionIndexOf((uint8_t)VrMpMission) >= 0 ? VrMpMission : 33);
+        c.difficulty = (uint8_t)clampi(VrMpDifficulty, NET_DIFFICULTY_COUNT, 0);
+        return c;
+    }
     if (netScenarioHasTeams(c.scenario) &&
         netStageMaxPlayers(netStageIndexOf(c.stage)) < netTeamRequiredPlayers(c.scenario)) {
         c.stage = 34;
@@ -911,7 +928,7 @@ static NetMatchConfig gevrLauncherConfig() {
 }
 
 static void gevrTeamChoiceRow(const char *id) {
-    if (!netIsActive() || !netScenarioHasTeams(netGetMatchConfig()->scenario))
+    if (!netIsActive() || netGetMatchConfig()->mode == NET_MODE_COOP || !netScenarioHasTeams(netGetMatchConfig()->scenario))
         return;
     int team = netGetSlotTeam(netGetLocalSlot());
     ImGui::TextUnformatted("Your team:");
@@ -936,7 +953,13 @@ static void gevrHostChoiceChanged() {
     const NetMatchConfig c = gevrLauncherConfig();
     netLobbySetConfig(&c);
     const NetMatchConfig *accepted = netGetMatchConfig();
-    VrMpStage = accepted->stage;
+    VrMpMode = accepted->mode;
+    if (accepted->mode == NET_MODE_COOP) {
+        VrMpMission = accepted->stage;
+        VrMpDifficulty = accepted->difficulty;
+    } else {
+        VrMpStage = accepted->stage;
+    }
     VrMpScenario = accepted->scenario;
     VrMpWeaponSet = accepted->weapon_set;
     VrMpLength = accepted->game_length;
@@ -951,8 +974,8 @@ static void gevrHostChoiceChanged() {
     for (int k = 0; k < 4; k++)
         VrMpCustom[k] = accepted->custom_set[k];
     vrSettingsSave();
-    const int idx = netStageIndexOf(accepted->stage);
-    netSetMaxPlayers(idx >= 0 ? netStageMaxPlayers(idx) : GEVR_MAX_PLAYERS);
+    const int cap = netConfigMaxPlayers(accepted);
+    netSetMaxPlayers(cap > 0 ? cap : GEVR_MAX_PLAYERS);
 }
 
 static void gevrSendLoadout() {
@@ -1389,42 +1412,76 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                 vrSettingsSave();
                             }
                         }
+                        // Deathmatch or co-op: a solo mission played by the party (#94).
+                        ImGui::Text("Mode:");
+                        ImGui::SameLine();
+                        if (ImGui::RadioButton("Deathmatch", VrMpMode != NET_MODE_COOP)) {
+                            VrMpMode = NET_MODE_DEATHMATCH;
+                            gevrHostChoiceChanged();
+                        }
+                        ImGui::SameLine();
+                        if (ImGui::RadioButton("Co-op mission", VrMpMode == NET_MODE_COOP)) {
+                            VrMpMode = NET_MODE_COOP;
+                            gevrHostChoiceChanged();
+                        }
+                        if (VrMpMode == NET_MODE_COOP) {
+                            int missionIdx = netCoopMissionIndexOf((uint8_t)VrMpMission);
+                            if (missionIdx < 0)
+                                missionIdx = 0;
+                            ImGui::Text("Mission:");
+                            ImGui::SameLine();
+                            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+                            if (namedCombo("##coopmission", netCoopMissionCount(), netCoopMissionName, &missionIdx)) {
+                                VrMpMission = netCoopMission(missionIdx)->level_id;
+                                gevrHostChoiceChanged();
+                            }
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("(up to %d players)", NET_COOP_MAX_PLAYERS);
+                            ImGui::Text("Difficulty:");
+                            ImGui::SameLine();
+                            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+                            if (namedCombo("##coopdifficulty", NET_DIFFICULTY_COUNT, netDifficultyName, &VrMpDifficulty))
+                                gevrHostChoiceChanged();
+                            ImGui::TextDisabled("Players can join or leave during the mission.");
+                        }
                         // The stage and the weapons, before hosting and in the lobby too,
                         // where a change reaches everyone (gevrHostChoiceChanged).
                         int stageIdx = netStageIndexOf((uint8_t)VrMpStage);
                         if (stageIdx < 0)
                             stageIdx = 9;
-                        ImGui::Text("Stage:");
-                        ImGui::SameLine();
-                        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-                        if (namedCombo("##stagecombo", netStageCount(), netStageName, &stageIdx)) {
-                            VrMpStage = netStage(stageIdx)->level_id;
-                            gevrHostChoiceChanged();
-                        }
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("(up to %d players)", netStageMaxPlayers(stageIdx));
-                        if (VrMpScenario == SCENARIO_MWTGG) {
-                            ImGui::TextDisabled("Weapons: Golden Gun (the scenario's own set)");
-                        } else {
-                            ImGui::Text("Weapons:");
+                        if (VrMpMode != NET_MODE_COOP) {
+                            ImGui::Text("Stage:");
                             ImGui::SameLine();
                             ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-                            if (namedCombo("##weaponcombo", netWeaponSetCount(), netWeaponSetName, &VrMpWeaponSet))
+                            if (namedCombo("##stagecombo", netStageCount(), netStageName, &stageIdx)) {
+                                VrMpStage = netStage(stageIdx)->level_id;
                                 gevrHostChoiceChanged();
-                            if (VrMpWeaponSet == NET_WEAPON_SET_CUSTOM) {
-                                bool changed = false;
-                                for (int i = 0; i < 4; i++) {
-                                    char id[24];
-                                    snprintf(id, sizeof(id), "##custom%d", i);
-                                    if (i)
-                                        ImGui::SameLine();
-                                    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-                                    changed |= gunCombo(id, &VrMpCustom[i]);
-                                }
-                                if (changed)
-                                    gevrHostChoiceChanged();
                             }
-                        }
+                            ImGui::SameLine();
+                            ImGui::TextDisabled("(up to %d players)", netStageMaxPlayers(stageIdx));
+                            if (VrMpScenario == SCENARIO_MWTGG) {
+                                ImGui::TextDisabled("Weapons: Golden Gun (the scenario's own set)");
+                            } else {
+                                ImGui::Text("Weapons:");
+                                ImGui::SameLine();
+                                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+                                if (namedCombo("##weaponcombo", netWeaponSetCount(), netWeaponSetName, &VrMpWeaponSet))
+                                    gevrHostChoiceChanged();
+                                if (VrMpWeaponSet == NET_WEAPON_SET_CUSTOM) {
+                                    bool changed = false;
+                                    for (int i = 0; i < 4; i++) {
+                                        char id[24];
+                                        snprintf(id, sizeof(id), "##custom%d", i);
+                                        if (i)
+                                            ImGui::SameLine();
+                                        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+                                        changed |= gunCombo(id, &VrMpCustom[i]);
+                                    }
+                                    if (changed)
+                                        gevrHostChoiceChanged();
+                                }
+                            }
+                        } // deathmatch: stage and weapons
 
                         if (hosting) {
                             if (!hostedCode.empty())
@@ -1438,6 +1495,14 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Match")) {
+                        if (VrMpMode == NET_MODE_COOP) {
+                            // co-op: the mission and difficulty decide the rest (Lobby tab)
+                            bool ff = VrMpFriendlyFire != 0;
+                            if (ImGui::Checkbox("Friendly fire", &ff)) {
+                                VrMpFriendlyFire = ff;
+                                gevrHostChoiceChanged();
+                            }
+                        } else
                         gevrMatchOptions();
                         ImGui::BeginDisabled(netIsActive() && !netIsHost());
                         unsigned cap; bool equalized=netGetHostEqualization(&cap)!=0;
@@ -1448,7 +1513,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                         char delays[128];netHostEqualizationText(delays,sizeof(delays));
                         if (delays[0]) ImGui::TextDisabled("%s",delays);
 
-                        if (netScenarioHasTeams(VrMpScenario)) {
+                        if (VrMpMode != NET_MODE_COOP && netScenarioHasTeams(VrMpScenario)) {
                             bool ff = VrMpFriendlyFire != 0;
                             if (ImGui::Checkbox("Friendly fire", &ff)) {
                                 VrMpFriendlyFire = ff;
@@ -1500,8 +1565,13 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                             ImGui::TextUnformatted("Connecting to host...");
                         else if (connected) {
                             const NetMatchConfig *cfg = netGetMatchConfig();
-                            ImGui::Text("%s / %s / %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
-                                        netScenarioName(cfg->scenario));
+                            if (cfg->mode == NET_MODE_COOP)
+                                ImGui::Text("Co-op mission: %s / %s",
+                                            netCoopMissionName(netCoopMissionIndexOf(cfg->stage)),
+                                            netDifficultyName(cfg->difficulty));
+                            else
+                                ImGui::Text("%s / %s / %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
+                                            netScenarioName(cfg->scenario));
                             gevrTeamChoiceRow("##clientteam");
                             gevrLobbyRoster(gold);
                             ImGui::TextDisabled("Waiting for the host to launch.");
@@ -1541,9 +1611,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                     ImGui::TextDisabled("No open internet games found.");
                                 for (const OnlineLobby &game : onlineLobbies) {
                                     char label[180];
-                                    snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##online%s",
-                                             game.name.c_str(), stageNameById(game.stage),
-                                             netWeaponSetName(game.weapons), game.players, game.maxPlayers,
+                                    snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s##online%s",
+                                             game.name.c_str(), listedGameLabel(game.stage, game.weapons).c_str(),
+                                             game.players, game.maxPlayers,
                                              game.phase == "warmup"        ? " (warmup)"
                                              : game.phase == "in_progress" ? " (in progress)"
                                                                            : "",
@@ -1598,9 +1668,10 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                         const int cap = srv->max_players;
                                         const bool full = !srv->joinable;
                                         char label[160];
-                                        snprintf(label, sizeof(label), "%s  -  %s, %s  -  %d/%d players%s##srv%d",
-                                                 srv->server_name, stageNameById(srv->stage_num),
-                                                 netWeaponSetName(srv->weapon_set), srv->player_count, cap,
+                                        snprintf(label, sizeof(label), "%s  -  %s  -  %d/%d players%s##srv%d",
+                                                 srv->server_name,
+                                                 listedGameLabel(srv->stage_num, srv->weapon_set).c_str(),
+                                                 srv->player_count, cap,
                                                  full                                  ? " (full)"
                                                  : srv->phase == NET_PHASE_WARMUP      ? " (warmup)"
                                                  : srv->phase == NET_PHASE_IN_PROGRESS ? " (in progress)"
@@ -1663,7 +1734,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         if (ImGui::Button("Launch", ImVec2(0, h))) {
 
             if (netLobbyHostLaunchMatch()) {
-                gevrJavaCommand("lobbyCommand", (std::string("phase|") + (pCount > 1 ? "in_progress" : "warmup") + "|" +
+                // a co-op mission is under way from the start (players join it in progress)
+                const bool coop = netGetMatchConfig()->mode == NET_MODE_COOP;
+                gevrJavaCommand("lobbyCommand", (std::string("phase|") + (pCount > 1 || coop ? "in_progress" : "warmup") + "|" +
                                                  std::to_string(pCount))
                                                     .c_str());
                 // the game's globals from the lobby's config, as every headset sets them before a load
@@ -1709,7 +1782,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
             // the game's name in the LAN and internet lists: the host's
             const std::string gameName = gevrLobbyName();
             if (netHostStart(GEVR_DEFAULT_PORT)) {
-                netSetMaxPlayers(netStageMaxPlayers(stageIdx));
+                {
+                    const NetMatchConfig c = gevrLauncherConfig();
+                    const int cap = netConfigMaxPlayers(&c);
+                    netSetMaxPlayers(cap > 0 ? cap : netStageMaxPlayers(stageIdx));
+                }
                 netSetGameName(gameName.c_str()); // the clients keep it: the LAN beacon of a migrated host
                 g_joinedViaInternet = false;
                 gevrJavaCommand("requestVoicePermission", "");
@@ -1726,7 +1803,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                 hostJoinIds.clear();
                 onlineMessage = "Registering online lobby...";
                 const std::string command =
-                    gevrLobbyCreateCommand(gameName, VrMpStage, VrMpWeaponSet, netGetMaxPlayers());
+                    gevrLobbyCreateCommand(gameName, netGetLobbyStage(), netGetLobbyWeaponSet(), netGetMaxPlayers());
                 gevrJavaCommand("lobbyCommand", command.c_str());
             } else
                 onlineMessage = "Could not start the local game host";

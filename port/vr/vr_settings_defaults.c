@@ -49,6 +49,7 @@ int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts
 int VrMpCustom[4] = { 6, 7, 8, 25 };    /* ITEM_TT33, ITEM_SKORPION, ITEM_AK47, ITEM_ROCKETLAUNCH */
 int VrMpLoadout[4] = { 4, 8, 15, 26 };  /* ITEM_WPPK, ITEM_AK47, ITEM_SHOTGUN, ITEM_GRENADE */
 unsigned VrMpFavStages = 0, VrMpFavSets = 0;
+int VrMpMode = 0, VrMpMission = 33, VrMpDifficulty = 0;   /* deathmatch; co-op: Dam, Agent */
 int  vr_invert_hands      = 0;      /* swap which hand holds the weapon */
 
 /* 0 turns snap turning off and uses smooth turning; otherwise the snap angle. */

@@ -795,7 +795,11 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                                                      (temp_s2->player < 0 && netIsHost());
                                 if (should_report)
                                 {
+#ifdef GEVR
+                                    if (gevrSoloRules())
+#else
                                     if (getPlayerCount() == 1)
+#endif
                                     {
                                         minfrac *= g_SpExplosionDamageMult;
                                     }
@@ -817,7 +821,11 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
 #endif
                             set_cur_player(targetIndex);
 
+#ifdef GEVR
+                            if (gevrSoloRules())
+#else
                             if (getPlayerCount() == 1)
+#endif
                             {
                                 minfrac *= g_SpExplosionDamageMult;
                             }

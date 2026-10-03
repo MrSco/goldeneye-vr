@@ -251,11 +251,23 @@ void bondviewLoadSetupIntroSection(void)
                         g_IntroSwirl = intro_swirl;
                     }
 
+#ifdef GEVR
+                    /*
+                     * The records are converted in place, and this runs for
+                     * every player at a load (lv.c lvlStageLoad): a second
+                     * player read the floats back as integers. Retail loads a
+                     * swirl only with one player; an online co-op mission has
+                     * one with several (GoldenEye 007 Plus found this; #94).
+                     */
+                    if (get_cur_playernum() == 0)
+#endif
+                    {
                     intro_swirl->unk08.fval = intro_swirl->unk08.ival / M_U16_MAX_VALUE_F;
                     intro_swirl->unk0C.fval = intro_swirl->unk0C.ival / M_U16_MAX_VALUE_F;
                     intro_swirl->unk10.fval = intro_swirl->unk10.ival / M_U16_MAX_VALUE_F;
                     intro_swirl->unk14.fval = intro_swirl->unk14.ival / M_U16_MAX_VALUE_F;
                     intro_swirl->unk18.fval = intro_swirl->unk18.ival / M_U16_MAX_VALUE_F;
+                    }
 
                     intro_record = (struct SetupIntroEmpty*)((uintptr_t)intro_record + sizeof(struct SetupIntroSwirl));
                 }
@@ -464,6 +476,44 @@ void bondviewLoadSetupIntroSection(void)
 
 
         start_stan = g_Startpad[rand_pad_index]->stan;
+#ifdef GEVR
+        /*
+         * An online co-op mission (#94): a solo setup has a start pad for one,
+         * so the party would start inside each other. Every slot but the
+         * first stands beside it instead, to the pad's right, its left or
+         * behind it, where the floor reaches; the same on every headset.
+         */
+        if (gevrCoopActive() && get_cur_playernum() > 0 && start_stan)
+        {
+            static const f32 side[4] = { 0.0f, 1.0f, -1.0f, 0.0f };
+            static const f32 back[4] = { 0.0f, 0.0f, 0.0f, -1.0f };
+            const s32 k = get_cur_playernum() & 3;
+            f32 lx = g_Startpad[rand_pad_index]->look.f[0];
+            f32 lz = g_Startpad[rand_pad_index]->look.f[2];
+            f32 len = sqrtf(lx * lx + lz * lz);
+            StandTile *tile = start_stan;
+            f32 x;
+            f32 z;
+
+            if (len < 0.001f)
+            {
+                lx = 0.0f;
+                lz = 1.0f;
+                len = 1.0f;
+            }
+            lx /= len;
+            lz /= len;
+            x = start_pos.f[0] + 70.0f * (side[k] * lz + back[k] * lx);
+            z = start_pos.f[2] + 70.0f * (-side[k] * lx + back[k] * lz);
+            if (walkTilesBetweenPoints_NoCallback(&tile, start_pos.f[0], start_pos.f[2], x, z) &&
+                tile && stanTestPointWithinTileBoundsMaybe(tile, x, z))
+            {
+                start_pos.f[0] = x;
+                start_pos.f[2] = z;
+                start_stan = tile;
+            }
+        }
+#endif
 
         stan_height = bondviewYPositionRelated(start_stan, start_pos.f[0], start_pos.f[2]);
         start_pos.f[1] = g_CurrentPlayer->eyeheight + stan_height;
