@@ -21,6 +21,20 @@ h3 { font-size:27px; margin:0; }
 .summary div { padding:22px 25px; background:var(--panel); display:flex; flex-direction:column; }
 .summary strong { font:700 43px/1 "Arial Narrow",system-ui,sans-serif; color:var(--gold); }
 .summary span { color:var(--muted); margin-top:7px; font-size:14px; }
+.record { padding:35px 0 60px; border-top:1px solid var(--line); }
+.record-since { margin:0; color:var(--muted); font:600 12px/1.4 ui-monospace,monospace; letter-spacing:.08em; text-transform:uppercase; text-align:right; }
+.record-tiles { margin-top:0; }
+.record-tiles strong { font-variant-numeric:tabular-nums; }
+.record-chart { margin:16px 0 0; padding:20px 24px 16px; background:var(--panel); border:1px solid var(--line); border-radius:10px; }
+.record-chart figcaption { display:flex; justify-content:space-between; gap:12px; margin-bottom:14px; color:var(--muted); font-size:14px; }
+.record-chart figcaption span:last-child { color:var(--gold); font-weight:600; }
+.record-chart svg { display:block; width:100%; height:120px; }
+.record-chart rect { fill:#8a6a1f; }
+.record-chart rect.empty { fill:var(--line); }
+.record-chart rect.today { fill:var(--gold); }
+.record-axis { display:flex; justify-content:space-between; margin-top:8px; padding-top:8px; border-top:1px solid var(--line); color:var(--muted); font:12px/1.4 ui-monospace,monospace; }
+.record-top { margin:18px 0 0; color:var(--muted); font-size:15px; }
+.record-top strong { color:var(--text); }
 .board { padding:35px 0 70px; border-top:1px solid var(--line); }
 .board-heading { display:flex; align-items:end; justify-content:space-between; gap:20px; margin-bottom:26px; }
 button { min-width:110px; padding:10px 17px; border:1px solid var(--gold); border-radius:7px; background:transparent; color:var(--gold); font:700 15px system-ui,sans-serif; cursor:pointer; }
@@ -44,5 +58,5 @@ button:disabled { opacity:.6; cursor:wait; }
 .empty strong { display:block; color:var(--text); font-size:22px; margin-bottom:8px; }
 .note { color:var(--muted); margin-top:26px; font-size:14px; }
 .footer { border-top:1px solid var(--line); display:flex; justify-content:space-between; gap:14px; padding-top:25px; padding-bottom:35px; color:var(--muted); font-size:14px; }
-@media(max-width:760px) { .summary { grid-template-columns:repeat(2,1fr); } .games { grid-template-columns:1fr; } }
+@media(max-width:760px) { .summary { grid-template-columns:repeat(2,1fr); } .games { grid-template-columns:1fr; } .record .board-heading { flex-wrap:wrap; align-items:start; } .record-since { text-align:left; } .record-chart { padding:16px; } }
 @media(max-width:480px) { .masthead-inner,.footer { flex-wrap:wrap; } .brand { font-size:18px; } .summary div { padding:17px; } .summary strong { font-size:35px; } .game-top { flex-wrap:wrap; } }
