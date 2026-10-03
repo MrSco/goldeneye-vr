@@ -197,7 +197,7 @@ typedef struct {
 static NetRoundSettings s_round;
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpScenario, VrMpLength, VrMpHealth;
 extern int VrMpDual, VrMpLoadouts, VrMpNextRound, VrMpCustom[4], VrMpLoadout[4];
-extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize;
+extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers;
 extern unsigned VrMpFavStages, VrMpFavSets;
 extern void vrSettingsSave(void);
 
@@ -379,6 +379,14 @@ static void netTransitionRoundPhase(NetPhase phase)
 
 static bool netValidConfig(const NetMatchConfig *c) { return netMatchConfigValid(c) != 0; }
 
+/* The slots a match opens: the host's count, or a team scenario's size when
+ * that is larger. Joins stop at netConfigMaxPlayers (netGetMaxPlayers), so a
+ * team match keeps working with a gap a departed player left in the slots. */
+static int netConfigSlots(const NetMatchConfig *c) {
+    int players = netConfigMaxPlayers(c);
+    return c->max_players > players ? c->max_players : players;
+}
+
 static void netLatchRoundSettings(void) {
     s_round.config = s_lobby_state.config;
     s_round.departed_score[0] = s_round.departed_score[1] = 0;
@@ -387,7 +395,7 @@ static void netLatchRoundSettings(void) {
         s_round.character[i] = s_lobby_state.slots[i].chr_id;
         memcpy(s_round.loadout[i], s_lobby_state.slots[i].loadout, 4);
     }
-    s_max_players = netStageMaxPlayers(netStageIndexOf(s_round.config.stage));
+    s_max_players = netConfigSlots(&s_round.config);
     s_lobby_max_players = (uint8_t)s_max_players;
 }
 
@@ -434,13 +442,10 @@ int netDamageAllowed(int attacker, int target) {
     return netTeamDamageAllowed(s_round.config.scenario, s_round.config.friendly_fire,
         attacker == target, s_round.team[attacker], s_round.team[target]);
 }
+/* Every stage takes the host's player count (net_match.c), so any listed stage
+ * can be picked, voted for or rotated to whoever is in the lobby. */
 int netStageEligible(int idx) {
-    int cap = netStageMaxPlayers(idx);
-    if (cap < 2 || (netScenarioHasTeams(s_lobby_state.config.scenario) &&
-        cap < netTeamRequiredPlayers(s_lobby_state.config.scenario))) return 0;
-    /* Spectators join the next round; do not discard a sparse high-numbered slot. */
-    for (int i = cap; i < GEVR_MAX_PLAYERS; i++) if (s_lobby_state.slots[i].connected) return 0;
-    return 1;
+    return idx >= 0 && idx < netStageCount();
 }
 static char s_slot_app_version[GEVR_MAX_PLAYERS][32];
 static char s_local_app_version[32] = "";
@@ -540,6 +545,7 @@ static void netResetLobbyState(void) {
     s_lobby_state.config.game_length = 2;       /* 10 minutes */
     s_lobby_state.config.friendly_fire = 1;
     s_lobby_state.config.health = 5;            /* Normal */
+    s_lobby_state.config.max_players = 4;       /* the host picks 2..8 */
     s_lobby_state.config.custom_set[0] = ITEM_TT33;   /* the Rockets set's guns, until the host picks */
     s_lobby_state.config.custom_set[1] = ITEM_SKORPION;
     s_lobby_state.config.custom_set[2] = ITEM_AK47;
@@ -746,14 +752,20 @@ int netGetConnectedPlayerCount(void) {
     return count;
 }
 
-int netGetMaxPlayers(void) {
-    int scenario = (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) ? s_round.config.scenario : s_lobby_state.config.scenario;
-    return netScenarioHasTeams(scenario) ? netTeamRequiredPlayers(scenario) : s_max_players;
+/* The fewest players the host can pick now: every connected slot must stay
+ * inside the count (netLobbySetConfig refuses less), at least two. */
+int netLobbyMinPlayers(void) {
+    int min = 2;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
+        if (s_lobby_state.slots[i].connected && i + 1 > min) min = i + 1;
+    return min;
 }
 
-void netSetMaxPlayers(int max_players) {
-    if (max_players >= 2 && max_players <= GEVR_MAX_PLAYERS)
-        s_max_players = max_players;
+/* The players who may be in the match: the loaded round's count in a match,
+ * the host's current choice in the lobby (LAN beacon, internet lobby, roster). */
+int netGetMaxPlayers(void) {
+    const bool ingame = s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING;
+    return netConfigMaxPlayers(ingame ? &s_round.config : &s_lobby_state.config);
 }
 
 NetPhase netGetPhase(void) {
@@ -886,7 +898,7 @@ static void netBroadcastLobbyState(void) {
 static void netTakeSpecialItem(int slot, int item);
 
 static void netSendMatchSnapshot(ENetPeer *peer) {
-    u8 raw[1024];   /* 65 + 49N + 4N^2 bytes: 713 at eight players */
+    u8 raw[1024];   /* 67 + 49N + 4N^2 bytes: 715 at eight players */
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
@@ -1291,7 +1303,7 @@ static bool s_rotate_next;   /* the next round follows a finished match: rotate 
 
 static void netBeginRoundReset(bool start) {
     netResetCombatEpoch();
-    u8 raw[256];   /* 44 + 10N bytes: 124 at eight players */
+    u8 raw[256];   /* 45 + 10N bytes: 125 at eight players */
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netCancelRound();
     s_round.world_epoch++;
@@ -1473,9 +1485,10 @@ const NetMatchConfig *netGetMatchConfig(void) {
  * in the lobby state and told to everyone; they take effect at the next load. */
 void netLobbySetConfig(const NetMatchConfig *config) {
     if (!netIsHost() || !config || !netValidConfig(config)) return;
-    int cap = netStageMaxPlayers(netStageIndexOf(config->stage));
+    /* Fewer players than are connected (or a slot past the new count) is refused. */
+    int cap = netConfigSlots(config);
     for (int i=cap;i<GEVR_MAX_PLAYERS;i++) if (s_lobby_state.slots[i].connected) return;
-    if (netScenarioHasTeams(config->scenario) && netGetConnectedPlayerCount() > netTeamRequiredPlayers(config->scenario)) return;
+    if (netGetConnectedPlayerCount() > netConfigMaxPlayers(config)) return;
     NetMatchConfig oldRound = s_lobby_state.config, newRound = *config;
     oldRound.voice_mode = newRound.voice_mode = 0;
     oldRound.friendly_fire = newRound.friendly_fire = 0;
@@ -1491,6 +1504,10 @@ void netLobbySetConfig(const NetMatchConfig *config) {
     }
     s_round.config.friendly_fire = config->friendly_fire;
     s_lobby_state.config = *config;
+    if (s_state != NET_STATE_INGAME && s_state != NET_STATE_MIGRATING) {
+        s_max_players = cap;
+        s_lobby_max_players = (uint8_t)cap;
+    }
     netBroadcastLobbyState();
 }
 
@@ -1508,8 +1525,7 @@ void netApplyMatchConfig(void) {
     extern void init_mp_options_for_scenario(s32 numplayers);
     extern s32 g_StageNum;
     const NetMatchConfig *c = &s_round.config;
-    int idx = netStageIndexOf(c->stage);
-    int cap = idx >= 0 ? netStageMaxPlayers(idx) : GEVR_MAX_PLAYERS;
+    int cap = netConfigSlots(c);
 
     gamemode = GAMEMODE_MULTI;
     s_max_players = cap;
@@ -1639,6 +1655,7 @@ int gevrNetConfigGet(int field) {
     case CFG_VOICE_MODE: return c->voice_mode;
     case CFG_FUN_FLAGS: return c->fun_flags;
     case CFG_GUN_SIZE: return c->gun_size;
+    case CFG_MAX_PLAYERS: return c->max_players;
     default: return field >= CFG_CUSTOM0 && field <= CFG_CUSTOM3 ? c->custom_set[field-CFG_CUSTOM0] : 0;
     }
 }
@@ -1664,6 +1681,7 @@ void gevrNetConfigSet(int field, int value) {
     case CFG_VOICE_MODE: c.voice_mode = value; break;
     case CFG_FUN_FLAGS: c.fun_flags = value; break;
     case CFG_GUN_SIZE: c.gun_size = value; break;
+    case CFG_MAX_PLAYERS: c.max_players = value; break;
     default: if (field < CFG_CUSTOM0 || field > CFG_CUSTOM3) return; c.custom_set[field-CFG_CUSTOM0] = value; break;
     }
     if (!netValidConfig(&c)) return;
@@ -1671,7 +1689,7 @@ void gevrNetConfigSet(int field, int value) {
     c = s_lobby_state.config; // Persist the accepted host settings.
     VrMpStage=c.stage; VrMpScenario=c.scenario; VrMpWeaponSet=c.weapon_set;
     VrMpLength=c.game_length; VrMpHealth=c.health; VrMpDual=c.dual_wield;
-    VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpVoiceMode=s_lobby_state.config.voice_mode; VrMpFriendlyFire=c.friendly_fire; VrMpFunFlags=c.fun_flags; VrMpGunSize=c.gun_size;
+    VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpVoiceMode=s_lobby_state.config.voice_mode; VrMpFriendlyFire=c.friendly_fire; VrMpFunFlags=c.fun_flags; VrMpGunSize=c.gun_size; VrMpMaxPlayers=c.max_players;
     for (int k=0;k<4;k++) VrMpCustom[k]=c.custom_set[k];
     vrSettingsSave();
 }
@@ -2217,7 +2235,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             netSetJoinerName(assigned, name, name_end);
             
             /* Send welcome to client */
-            u8 wraw[128];   /* 34 + 4N bytes: 66 at eight players */
+            u8 wraw[128];   /* 35 + 4N bytes: 67 at eight players */
             struct netbuf wbuf = { .data = wraw, .size = sizeof(wraw) };
             netbufStartWrite(&wbuf);
             netbufWriteU32(&wbuf, GEVR_NET_MAGIC);
@@ -2383,7 +2401,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             uint8_t phase = netbufReadU8(&buf);
             if (buf.error || netbufReadLeft(&buf) || phase > NET_PHASE_IN_PROGRESS) break;
             s_round = round;netImportCombatIdentity(&round);
-            s_max_players = netStageMaxPlayers(netStageIndexOf(round.config.stage));
+            s_max_players = netConfigSlots(&round.config);
             s_rng_seed = seed;
             extern void randomSetSeed(u32);
             randomSetSeed(s_rng_seed);

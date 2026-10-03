@@ -4,15 +4,15 @@
 #include <bondtypes.h>
 #include "bondconstants.h"
 
-/* The launcher's order; the level ids are the ROM's LEVELID values. The
- * players a map takes online are twice the game's own (front.c
- * multi_stage_setups: 4, or 3 and 2 on the smaller maps), up to eight
- * (issue #88). A map with fewer start pads than players stands the extra
+/* The launcher's order; the level ids are the ROM's LEVELID values. Online
+ * every stage takes the host's player count, two to eight (issue #88; the
+ * game's front.c multi_stage_setups capped the smaller maps at 3 or 2 for
+ * split screen). A map with fewer start pads than players stands the extra
  * ones beside a pad (bondview_r.c gevrSpreadStartPad). */
 static const NetMatchStage s_stages[] = {
-    { "Facility",  34, 8 }, { "Complex",   31, 8 }, { "Temple",    38, 8 }, { "Stack",    46, 8 },
-    { "Caverns",   39, 6 }, { "Library",   48, 8 }, { "Basement",  45, 8 }, { "Caves",    50, 8 },
-    { "Egypt",     32, 4 }, { "Bunker II", 27, 6 }, { "Archives",  24, 6 },
+    { "Facility",  34 }, { "Complex",   31 }, { "Temple",    38 }, { "Stack",    46 },
+    { "Caverns",   39 }, { "Library",   48 }, { "Basement",  45 }, { "Caves",    50 },
+    { "Egypt",     32 }, { "Bunker II", 27 }, { "Archives",  24 },
 };
 
 /* mp_weapon.c mp_weapon_set_text_table's order, as the ROM's LmpweaponsE names them */
@@ -88,7 +88,6 @@ static const NetMatchItem s_items[] = {
 int netStageCount(void) { return COUNT(s_stages); }
 const NetMatchStage *netStage(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? &s_stages[idx] : &s_stages[0]; }
 const char *netStageName(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? s_stages[idx].name : ""; }
-int netStageMaxPlayers(int idx) { return idx >= 0 && idx < COUNT(s_stages) ? s_stages[idx].max_players : 0; }
 int netStageIndexOf(uint8_t level_id) {
     for (int i = 0; i < COUNT(s_stages); i++)
         if (s_stages[i].level_id == level_id) return i;

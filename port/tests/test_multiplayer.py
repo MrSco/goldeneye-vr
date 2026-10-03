@@ -55,6 +55,7 @@ def build_core():
     keep.update({"netLobbyCanLaunch","netRoundRosterReady","netLocalReady","gevrNetSetReady","netActiveFunFlags","netActiveLineMode","netActiveGunSize","gevrNetConfigGet","gevrNetConfigSet","netScheduleRound","netAllLoaded","netReadyProgress","netHostStartRoundNow","netHostContinue","netIsActive","netDamageAllowed","netApplyAmmoPacket","netObjectByIndex","netSnapshotObjectType","netSendAmmoState"})
     keep.update({"netInvalidateHitSlot","netClearHostHits","netSetHostEqualization","netGetHostEqualization","netHostBaseDelayMs","netGetSlotHostDelayMs","netHostEqualizationText","netTransitionRoundPhase","netBroadcastRoundPhase","netObserveHitMove","netHitReportAllowed","netProcessHitReport","netExecuteHostHit","netQueueHostHit","netDrainHostHits","netSlotOccupied","netSendHitReport"})
     keep.update({"netStartPad","netStartPadShare","netBroadcastVotes","netClearVotes","netTeamScore","netGetSlotTeam","netSetSlotTeam","netVoiceModeForPair"})
+    keep.update({"netConfigSlots","netLobbyMinPlayers"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
@@ -223,6 +224,7 @@ class MultiplayerNativeTests(unittest.TestCase):
                 self.assertEqual(self.lib.test_damage(scenario,0,0,0,1),1)
     def test_late_join_snapshot(self): self.assertEqual(self.core.test_core_late_join_snapshot(),0)
     def test_eight_slots_packets_teams_and_pads(self): self.assertEqual(self.core.test_core_eight_slots(),0)
+    def test_host_player_count_any_stage(self): self.assertEqual(self.core.test_core_player_count(),0)
     def test_live_config_and_round_snapshot(self): self.assertEqual(self.core.test_core_live_voice(),0)
     def test_scores_survive_departures(self): self.assertEqual(self.core.test_core_scores_after_departure(),0)
     def test_ping_measurements_age_and_wrap(self):
@@ -233,7 +235,7 @@ class MultiplayerNativeTests(unittest.TestCase):
         self.assertEqual(self.lib.test_ping(42,0xfffffffe,2),42)
     def test_latency_expiry_and_host_migration(self): self.assertEqual(self.core.test_core_latency_and_migration(),0)
     def test_packet_roundtrip_and_all_truncations(self): self.assertEqual(self.lib.test_protocol(),0)
-    def test_invalid_config_and_stage_limits(self): self.assertEqual(self.lib.test_config_validation(),0)
+    def test_invalid_config_and_player_counts(self): self.assertEqual(self.lib.test_config_validation(),0)
     def test_proximity_bright_dot_and_floor(self):
         for distance,gain in ((0,1),(3000,1),(4000,.3666666667),(4500,.2125),(5000,.1333333333),(6000,.10),(8000,.10),(100000,.10)):
             with self.subTest(distance=distance): self.assertAlmostEqual(self.lib.test_gain(0,distance),gain,places=6)
