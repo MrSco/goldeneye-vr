@@ -1,6 +1,8 @@
 #ifdef GEVR
 #include "net_game.h"
 #include "net_coop.h"
+#include "../vr/gevr_pause_menu.h"
+#include "../vr/gevr_pause_input.h"
 #endif
 #include <string.h>
 #include <stddef.h>
@@ -1062,8 +1064,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             cur_player_set_control_type(CONTROLLER_CONFIG_SOLITARE);
         }
+#ifdef ANDROID
+        const bool nativePause=gevrNativePauseOpen()!=0;
+#else
+        const bool nativePause=false;
+#endif
         const bool paused = g_CurrentPlayer && g_CurrentPlayer->pause_state != 0;
-        const bool menu = bossGetStageNum() == LEVELID_TITLE || paused ||
+        const bool menu = nativePause || bossGetStageNum() == LEVELID_TITLE || paused ||
                           (netIsActive() && g_CurrentPlayer && g_CurrentPlayer->mpmenuon);
         XrVector2f left = {0}, right = {0};
         get_2d_input(0, "thumbstick", &left);
@@ -1349,7 +1356,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static bool both = false;
             if (lclick && rclick && !both) {
                 gevrRecenterPending = 1;
-                if (gevrVrScreenMode) vr_screen_recenter();
+                if (gevrVrScreenMode || nativePause) vr_screen_recenter();
             }
             both = lclick && rclick;
         }
@@ -1412,7 +1419,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             float dt = last ? (float)(now - last) / 1000.0f : 0.0f;
             if (dt > 0.1f) dt = 0.1f;
             last = now;
-            adjusting = gevrVrScreenMode && get_button_state(0, "grip") && get_button_state(1, "grip");
+            adjusting = (gevrVrScreenMode || nativePause) && get_button_state(0, "grip") && get_button_state(1, "grip");
             vr_screen_grab(adjusting);
             if (adjusting) {
                 changed = true;
@@ -1485,6 +1492,32 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         }
     }
 
+#ifdef ANDROID
+    /* Menu owns A/B, triggers and sticks. Co-op uses this panel without
+     * entering the campaign watch or pausing the other three headsets. */
+    {
+        static int startHeld;
+        static GevrPauseInputState pauseInput;
+        if(netIsActive() && !inMenus && idx==localSlot) {
+            const int start=(npad->button & START_BUTTON)!=0;
+            const int panel=gevrNativePauseOpen();
+            if(start && !startHeld && (netCoopActive() || panel) && g_playerPointers[localSlot]) {
+                g_playerPointers[localSlot]->mpmenuon=!g_playerPointers[localSlot]->mpmenuon;
+                g_gevrWatchGesturePending=0;
+            }
+            startHeld=start;
+            if(netCoopActive() || panel)npad->button&=~START_BUTTON;
+        } else startHeld=0;
+        const int open=gevrNativePauseOpen();
+        const int fire=get_button_state(0,"trigger") || get_button_state(1,"trigger");
+        const int blockFire=gevrPauseBlocksFire(&pauseInput,open,fire);
+        if(open) {
+            npad->button&=START_BUTTON;
+            npad->stick_x=npad->stick_y=npad->rstick_x=npad->rstick_y=0;
+            gevrTurnAxis=0;gevrVrTriggerDown[0]=gevrVrTriggerDown[1]=0;
+        } else if(blockFire) {npad->button&=~(Z_TRIG|R_TRIG);gevrVrTriggerDown[0]=gevrVrTriggerDown[1]=0;}
+    }
+#endif
     /* a spectator, or (co-op, #94) a downed player waiting for a teammate: looks, no more */
     if ((gevrSpectating() || gevrCoopLocalDowned()) && g_CurrentPlayer && !g_CurrentPlayer->mpmenuon) {
         npad->stick_x = npad->stick_y = npad->rstick_x = npad->rstick_y = 0;
@@ -2414,3 +2447,14 @@ int gevrMpMenuOpen(void)
     int slot = netIsActive() ? netGetLocalSlot() : -1;
     return slot >= 0 && slot < INPUT_MAX_SLOT_PADS && g_playerPointers[slot] != NULL && g_playerPointers[slot]->mpmenuon;
 }
+
+#ifdef ANDROID
+int gevrNativePauseOpen(void) {
+    int slot=netIsActive()?netGetLocalSlot():-1;
+    return bossGetStageNum()!=90 && slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot] && g_playerPointers[slot]->mpmenuon;
+}
+void gevrNativePauseResume(void) {
+    int slot=netIsActive()?netGetLocalSlot():-1;
+    if(slot>=0 && slot<INPUT_MAX_SLOT_PADS && g_playerPointers[slot])g_playerPointers[slot]->mpmenuon=0;
+}
+#endif

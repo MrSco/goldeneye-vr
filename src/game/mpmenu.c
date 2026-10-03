@@ -48,6 +48,8 @@ extern void netVoiceSetMuted(int muted);
 extern int netVoiceHasPermission(void);
 extern int netVoiceCaptureFailed(void);
 #include "net_game.h"
+#include "../../port/vr/gevr_pause_menu.h"
+#include <stdlib.h>
 void mpwatchPlayBeep(void);
 extern int netMpPlayerCount(int fallback);
 extern int netGetConnectedPlayerCount(void);
@@ -473,6 +475,9 @@ static void gevrPageMoveCursor(GevrMenuPage *page, s32 dir)
 
 static void gevrMenuPagesTick(s32 player_num)
 {
+#ifdef ANDROID
+    if(gevrNativePauseOpen())return;
+#endif
     static int last_rclick = 0;
     static s32 stick_direction = 0;
     static s32 stick_held_ticks = 0;
@@ -632,6 +637,136 @@ static Gfx *gevrMenuPagesDraw(Gfx *gdl, s32 menu_top, s32 two_player_x_offset)
     y = menu_top + y0 + shown * 13 + 2 + MPMENU_YOFF;
     gdl = textRender(gdl, &x, &y, label, ptrFontBankGothicChars, ptrFontBankGothic, 0x00ff00b0, viGetX(), viGetY(), 0, 0);
     return gdl;
+}
+/* Native launcher-style pause window: reuse the watch's exact callbacks and authority. */
+static const GevrMenuRow *gevrPauseRow(int id)
+{
+    if (id >= 200 && id < 200 + (int)(sizeof(s_funRows)/sizeof(s_funRows[0]))) return &s_funRows[id-200];
+    if (id >= 100 && id < 100 + (int)(sizeof(s_pauseRows)/sizeof(s_pauseRows[0]))) return &s_pauseRows[id-100];
+    if (id >= 0 && id < (int)(sizeof(s_lobbyRows)/sizeof(s_lobbyRows[0]))) return &s_lobbyRows[id];
+    return NULL;
+}
+static int gevrPauseGroup(const GevrMenuRow *r)
+{
+    const char *n=r->name;
+    if (!strcmp(n,"NEXT ROUND") || !strcmp(n,"NEXT MAP") || !strcmp(n,"NEXT WEAPONS") || !strcmp(n,"MAP") || !strcmp(n,"WEAPONS") || !strcmp(n,"SCENARIO")) return GEVR_PAUSE_MATCH;
+    if (!strcmp(n,"NEXT ROUND READY") || !strcmp(n,"YOUR TEAM") || !strcmp(n,"CHARACTER") || !strncmp(n,"LOADOUT ",8) || !strcmp(n,"FAV MAP") || !strcmp(n,"FAV SET")) return GEVR_PAUSE_PLAYER;
+    if (!strcmp(n,"MUSIC") || !strcmp(n,"SFX") || !strcmp(n,"VOICE") || !strcmp(n,"VOICE MODE") || !strcmp(n,"MIC")) return GEVR_PAUSE_AUDIO;
+    return GEVR_PAUSE_RULES;
+}
+/* field, choice count, and current index for the game's own named choices */
+static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
+{
+    const char *n=r->name; int field=-1,count=0;
+    if (!strcmp(n,"MAP")) { *selected=netStageIndexOf((u8)gevrNetConfigGet(CFG_STAGE)); return netStageCount(); }
+    if (!strcmp(n,"NEXT MAP")) { *selected=netGetVote(0,netGetLocalSlot())+1; return netStageCount()+1; }
+    if (!strcmp(n,"NEXT WEAPONS")) { *selected=netGetVote(1,netGetLocalSlot())+1; return netWeaponSetCount()+1; }
+    if (!strcmp(n,"PLAYERS")) { *selected=gevrNetConfigGet(CFG_MAX_PLAYERS)-2; return 7; }
+    if (!strcmp(n,"CHARACTER")) { *selected=gevrNetSlotChr(netGetLocalSlot()); return netCharacterCount(); }
+    if (!strcmp(n,"YOUR TEAM")) { *selected=netGetSlotTeam(netGetLocalSlot()); return 3; }
+    if (!strncmp(n,"LOADOUT ",8)) { *selected=netItemIndexOf(gevrNetSlotLoadout(netGetLocalSlot(),n[8]-'1')); return netItemCount(); }
+    if (!strncmp(n,"CUSTOM ",7)) { *selected=netItemIndexOf(gevrNetConfigGet(CFG_CUSTOM0+n[7]-'1')); return netItemCount(); }
+    if (!strcmp(n,"WEAPONS")) {field=CFG_WEAPON_SET;count=netWeaponSetCount();}
+    if (!strcmp(n,"SCENARIO")) {field=CFG_SCENARIO;count=netScenarioCount();}
+    if (!strcmp(n,"LENGTH")) {field=CFG_GAME_LENGTH;count=gevrNetConfigGet(CFG_SCENARIO)==NET_SCENARIO_TLD?4:7;}
+    if (!strcmp(n,"HEALTH")) {field=CFG_HEALTH;count=netHealthCount();}
+    if (!strcmp(n,"DUAL WIELD")) {field=CFG_DUAL_WIELD;count=3;}
+    if (!strcmp(n,"NEXT ROUND")) {field=CFG_NEXT_ROUND;count=3;}
+    if (!strcmp(n,"VOICE MODE")) {field=CFG_VOICE_MODE;count=2;}
+    if (!strcmp(n,"GUN SIZE")) {field=CFG_GUN_SIZE;count=3;}
+    if (!strcmp(n,"HOST DELAY CAP")) {
+        unsigned cap;const unsigned caps[]={20,40,50,60,80};netGetHostEqualization(&cap);*selected=0;
+        for(int i=0;i<5;i++) if(cap>=caps[i]) *selected=i;
+        return 5;
+    }
+    if(field>=0) *selected=gevrNetConfigGet(field);
+    return count;
+}
+int gevrPauseReadField(int tab,int index,GevrPauseField *out)
+{
+    int seen=0;
+    for(int id=0;id<204;id++) {
+        const GevrMenuRow *r=gevrPauseRow(id);if(!r || r->kind==GEVR_ROW_ACTION || gevrPauseGroup(r)!=tab || !gevrRowVisible(r)) continue;
+        if(gevrCoopActive()) {
+            /* Campaign rules come from the mission: no deathmatch ballots, teams or kits. */
+            if(tab==GEVR_PAUSE_MATCH || (tab==GEVR_PAUSE_PLAYER && strcmp(r->name,"CHARACTER")) ||
+               (tab==GEVR_PAUSE_RULES && id<100)) continue;
+        }
+        /* FRIENDLY FIRE is in both old pages; show it once under Rules. */
+        if(id>=100 && !strcmp(r->name,"FRIENDLY FIRE")) continue;
+        if(seen++!=index) continue;
+        memset(out,0,sizeof(*out));out->id=id;out->editable=gevrRowEditable(r);
+        snprintf(out->label,sizeof(out->label),"%s",r->name);
+        if(r->value) r->value(out->value,sizeof(out->value));
+        out->count=gevrPauseChoiceInfo(r,&out->selected);
+        out->kind=out->count?GEVR_PAUSE_CHOICE:(!strcmp(r->name,"MUSIC") || !strcmp(r->name,"SFX") || !strcmp(r->name,"VOICE"))?GEVR_PAUSE_SLIDER:
+            (!strcmp(out->value,"ON") || !strcmp(out->value,"OFF") || !strcmp(r->name,"MIC") || !strcmp(r->name,"NEXT ROUND READY") || !strcmp(r->name,"FAV MAP") || !strcmp(r->name,"FAV SET"))?GEVR_PAUSE_TOGGLE:GEVR_PAUSE_STEP;
+        if(out->kind==GEVR_PAUSE_TOGGLE) out->selected=!strcmp(out->value,"ON") || !strcmp(out->value,"ACTIVE") || !strcmp(out->value,"READY") || strstr(out->value," YES")!=NULL;
+        if(out->kind==GEVR_PAUSE_SLIDER) out->selected=atoi(out->value);
+        return 1;
+    }
+    return 0;
+}
+const char *gevrPauseChoice(int id,int index)
+{
+    const GevrMenuRow *r=gevrPauseRow(id);if(!r)return ""; const char*n=r->name;int selected,count=gevrPauseChoiceInfo(r,&selected);
+    if(index<0 || index>=count)return "";
+    if(!strcmp(n,"NEXT MAP") || !strcmp(n,"NEXT WEAPONS")) {if(!index)return "No vote";index--;return !strcmp(n,"NEXT MAP")?netStageName(index):netWeaponSetName(index);}
+    if(!strcmp(n,"PLAYERS")) { const char*names[]={"2","3","4","5","6","7","8"};return names[index]; }
+    if(!strcmp(n,"MAP"))return netStageName(index);
+    if(!strcmp(n,"WEAPONS"))return netWeaponSetName(index);
+    if(!strcmp(n,"SCENARIO"))return netScenarioName(index);
+    if(!strcmp(n,"LENGTH"))return netGameLengthName(index);
+    if(!strcmp(n,"HEALTH"))return netHealthName(index);
+    if(!strcmp(n,"DUAL WIELD"))return netDualWieldName(index);
+    if(!strcmp(n,"NEXT ROUND"))return netNextRoundName(index);
+    if(!strcmp(n,"VOICE MODE"))return netVoiceModeName(index);
+    if(!strcmp(n,"CHARACTER"))return netCharacterName(index);
+    if(!strcmp(n,"YOUR TEAM"))return netTeamName(index);
+    if(!strncmp(n,"CUSTOM ",7) || !strncmp(n,"LOADOUT ",8))return netItemName(gevrNetItemAt(index));
+    if(!strcmp(n,"GUN SIZE")) {const char*names[]={"Normal","Tiny","Big"};return names[index];}
+    if(!strcmp(n,"HOST DELAY CAP")) {const char*names[]={"20 ms","40 ms","50 ms","60 ms","80 ms"};return names[index];}
+    return "";
+}
+void gevrPauseSelect(int id,int index)
+{
+    const GevrMenuRow*r=gevrPauseRow(id);int current,count;
+    if(!r || !gevrRowVisible(r) || !gevrRowEditable(r) || !r->step)return;
+    count=gevrPauseChoiceInfo(r,&current);if(index<0 || index>=count || index==current)return;
+    if(!strcmp(r->name,"MAP") && !netStageEligible(index))return;
+    if(!strcmp(r->name,"NEXT MAP")) {if(index && !netStageEligible(index-1))return;netSetLocalVote(0,index-1);return;}
+    if(!strcmp(r->name,"NEXT WEAPONS")) {netSetLocalVote(1,index-1);return;}
+    if(!strcmp(r->name,"SCENARIO"))gevrNetConfigSet(CFG_SCENARIO,index);
+    else if(!strcmp(r->name,"PLAYERS"))gevrNetConfigSet(CFG_MAX_PLAYERS,index+2);
+    else r->step(index-current);
+    mpwatchPlayBeep();
+}
+void gevrPauseStep(int id,int direction)
+{
+    const GevrMenuRow*r=gevrPauseRow(id);
+    if(r && gevrRowVisible(r) && gevrRowEditable(r) && r->kind==GEVR_ROW_VALUE && r->step) {r->step(direction<0?-1:1);mpwatchPlayBeep();}
+}
+void gevrPauseVolume(int id,int percent)
+{
+    const GevrMenuRow*r=gevrPauseRow(id);if(!r || !gevrRowEditable(r))return;
+    if(percent<0)percent=0;if(percent>100)percent=100;
+    if(!strcmp(r->name,"MUSIC")) {set_mTrack2Vol((u16)((percent*32767+50)/100));musicTrack1ApplySeqpVol(get_mTrack2Vol());musicTrack3ApplySeqpVol(get_mTrack2Vol());VrMusicVolume=(float)percent/100;}
+    else if(!strcmp(r->name,"SFX")) {VrSfxVolume=(float)percent/100;gevrSndApplySfxVolume((u16)((percent*32767+50)/100));}
+    else if(!strcmp(r->name,"VOICE"))VrVoiceVolume=(float)percent/100;
+    else return;
+    vrSettingsSave();
+}
+int gevrPauseActionAvailable(const char*label)
+{
+    for(int i=0;i<(int)(sizeof(s_lobbyRows)/sizeof(s_lobbyRows[0]));i++) {
+        const GevrMenuRow*r=&s_lobbyRows[i];if(!strcmp(r->name,label))return gevrRowVisible(r)&&gevrRowEditable(r);
+    }
+    return 0;
+}
+void gevrPauseAction(const char*label)
+{
+    if(!gevrPauseActionAvailable(label))return;
+    for(int i=0;i<(int)(sizeof(s_lobbyRows)/sizeof(s_lobbyRows[0]));i++) if(!strcmp(s_lobbyRows[i].name,label)) {s_lobbyRows[i].step(0);mpwatchPlayBeep();return;}
 }
 #endif
 
@@ -1825,6 +1960,10 @@ s32 mpwatchShouldDisplayScore(s32 param_1)
  */
 Gfx *mp_watch_menu_display(Gfx *gdl)
 {
+#if defined(GEVR) && defined(ANDROID)
+    if (gevrNativePauseOpen()) return gdl;
+#endif
+
     s32 curplayernum;
     s32 player_count;
     s32 x;
@@ -2662,3 +2801,26 @@ s32 checkGamePaused(void)
 {
     return g_pausedFlag;
 }
+
+#ifdef GEVR
+void gevrPauseLocalVitals(int *health,int *armour)
+{
+    int slot=netGetLocalSlot();
+    *health=*armour=0;
+    if(slot<0 || slot>=MAX_PLAYER_COUNT || !g_playerPointers[slot])return;
+    *health=(int)(g_playerPointers[slot]->bondhealth*100.f+.5f);
+    *armour=(int)(g_playerPointers[slot]->bondarmour*100.f+.5f);
+    if(*health<0)*health=0;if(*health>100)*health=100;
+    if(*armour<0)*armour=0;if(*armour>100)*armour=100;
+}
+void gevrPausePlayerStats(int slot,int*points,int*kills,int*losses)
+{
+    *points=*kills=*losses=0;
+    if(slot<0 || slot>=MAX_PLAYER_COUNT || !netSlotOccupied(slot))return;
+    *points=get_points_for_mp_player(slot);
+    for(int i=0;i<MAX_PLAYER_COUNT;i++) {
+        if(i!=slot)*kills+=g_playerPlayerData[slot].kill_counts[i];
+        *losses+=g_playerPlayerData[i].kill_counts[slot];
+    }
+}
+#endif

@@ -2005,11 +2005,11 @@ extern "C" void gevrLobbySessionStopped(void)
 // a trigger is pulled, and hands back as soon as the stick or a button is
 // used: ImGui hides the gamepad focus on every mouse move, and a controller
 // lying still still jitters, which left A doing nothing.
-bool feedPointer(ImGuiIO &io, bool navUsed) {
+bool feedPointer(ImGuiIO &io, bool navUsed, bool blockClick=false) {
     static GevrPointerOwner owner;
     float u = 0, v = 0;
     const bool on = gevrVrScreenPointer(&u, &v) != 0;
-    const bool trig = get_button_state(1, "trigger") || get_button_state(0, "trigger");
+    const bool trig = !blockClick && (get_button_state(1, "trigger") || get_button_state(0, "trigger"));
     bool owns = owner.update(on, u, v, trig, navUsed);
     io.AddMousePosEvent(owns ? u * kTexW : -FLT_MAX, owns ? v * kTexH : -FLT_MAX);
     io.AddMouseButtonEvent(0, owns && trig);
@@ -2803,3 +2803,27 @@ extern "C" void gevrLauncherRun(void)
     glDeleteFramebuffers(1, &fbo);
     glDeleteTextures(1, &tex);
 }
+
+#ifdef ANDROID
+// The same ownership rules and ray coordinates as the boot launcher, with
+// no launch/ROM-picker test hooks in a running match.
+extern "C" void gevrFeedPauseInput(int opening) {
+    static bool waitRelease=false;
+    const bool trigger=get_button_state(1,"trigger") || get_button_state(0,"trigger");
+    const bool grabbing=get_button_state(1,"grip") && get_button_state(0,"grip");
+    if(opening)waitRelease=trigger;
+    if(!trigger)waitRelease=false;
+    ImGuiIO&io=ImGui::GetIO();XrVector2f l={0,0},r={0,0};
+    get_2d_input(0,"thumbstick",&l);get_2d_input(1,"thumbstick",&r);
+    XrVector2f stick=l.x*l.x+l.y*l.y>r.x*r.x+r.y*r.y?l:r;
+    const bool back=get_button_state(1,"b") || get_button_state(0,"y");
+    const bool select=get_button_state(1,"a") || get_button_state(0,"x");
+    const bool nav=fabsf(stick.x)>.5f || fabsf(stick.y)>.5f || back || select;
+    if(grabbing){stick={0,0};}
+    const bool pointing=feedPointer(io,nav,waitRelease || grabbing);
+    io.AddKeyEvent(ImGuiKey_GamepadDpadUp,stick.y>.5f);io.AddKeyEvent(ImGuiKey_GamepadDpadDown,stick.y<-.5f);
+    io.AddKeyEvent(ImGuiKey_GamepadDpadLeft,stick.x<-.5f);io.AddKeyEvent(ImGuiKey_GamepadDpadRight,stick.x>.5f);
+    io.AddKeyEvent(ImGuiKey_GamepadFaceDown,gevrGamepadActivate(pointing,select,!waitRelease && !grabbing && trigger));
+    io.AddKeyEvent(ImGuiKey_GamepadFaceRight,back);
+}
+#endif

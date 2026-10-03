@@ -32,6 +32,15 @@ decal fixes (#72). v0.3.8 fixed crash reporting. v0.3.7 added clock/life-ID
 combat sync (protocol 15), hand cycling and the TURN fallback. Earlier
 evidence is in docs/playtest-* and Git history.
 
+**Unreleased pause/editor work (2026-10-03):** a shared opaque launcher-style
+Quest pause window, direct ray controls, Match/Rules/Player/Audio tabs,
+eight-player scores and independent votes, four-player co-op party/objectives,
+health/armour, host restrictions and confirmed leave/end mission. The mobile
+Menu Studio starter matches that window; JSON exports guide native rearrangement.
+Android debug build and desktop/phone browser + production ImGui/input checks
+pass. Quest interaction and multiplayer headset testing remain outstanding.
+No version or protocol change; this is not a new signed release.
+
 ## What it is and what works
 
 Native standalone Quest port of n64decomp/007, with Perfect Dark VR's port
