@@ -38,7 +38,21 @@ void gevrCoopChrSpawned(struct ChrRecord *chr, struct AIRecord *ailist, int spaw
 void gevrCoopChrRemoved(struct ChrRecord *chr);   /* chr.c chrTick, CHRHIDDEN_REMOVE */
 void gevrCoopGuardLaunched(struct ObjectRecord *obj);   /* chraction.c: a guard's grenade or rocket, on the host */
 int gevrCoopGuardExplosive(struct ObjectRecord *obj);   /* explosion.c explosionCreate: one of those, going off */
-int gevrCoopDowned(int player);             /* revive (#94): the player is down, not dead */
+int gevrCoopDowned(int player);
+
+/* The mission: the host's, shown everywhere (objective_status.c, chrai.c, gunfire.c) */
+int gevrCoopHostObjectiveStatus(int objective);   /* a teammate's headset: the host's status */
+int gevrCoopTeammateHolds(int tag);         /* the host: a teammate's player holds this objective item */
+void gevrCoopReportRoom(int room);          /* a teammate's headset: its player's objective events */
+void gevrCoopReportDeposit(int item, int room);
+void gevrCoopReportPhoto(int tag);
+void gevrCoopReportKeyCopy(void);
+void gevrCoopAiText(int top, int textid);   /* the host: a mission script's message, for everyone */
+int gevrCoopObjectiveSnapshot(unsigned char *statuses, int max, int localslot);   /* objective_status.c */
+int gevrCoopHeldObjectiveTags(int *tags, int max, int localslot);
+void gevrCoopApplyPhoto(int tag);
+int gevrCoopAnyCopiedKey(void);
+void netCoopClientTick(void);               /* netPoll, a teammate's headset: the items its player holds */             /* revive (#94): the player is down, not dead */
 
 #ifdef __cplusplus
 }
