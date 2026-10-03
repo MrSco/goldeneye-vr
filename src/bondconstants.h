@@ -4670,7 +4670,12 @@ typedef enum PROJECTILES
 #define getBGAIListID(ID)         ((ID) - 4096)
 
     /* language file to slot allocation */
+#ifdef GEVR
+    /* arguments parenthesised: an expression argument (a ternary bank) read the wrong bank (#95) */
+#define getStringID(TEXTBANK, TEXTSLOT) (((TEXTBANK) * 0x0400U) + (TEXTSLOT))
+#else
 #define getStringID(TEXTBANK, TEXTSLOT) ((TEXTBANK * 0x0400U) + TEXTSLOT)
+#endif
 
     /* Image ID to RAM allocation */
 #define IMAGESEG(id)             0xABCD0000 | id
