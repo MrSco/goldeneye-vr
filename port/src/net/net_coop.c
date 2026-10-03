@@ -63,6 +63,7 @@ extern void objFreePermanently(ObjectRecord *obj, s32 freeprop);
 extern Model *retrieve_header_for_body_and_head(s32 body, s32 head, u32 bitflags);
 extern void chrlvMergeKneelToStand(ChrRecord *self, f32 mergetime);
 extern bool netSlotOccupied(int slot);
+extern s32 chrGetNumFree(void);
 extern bool netSlotIsSpectator(int slot);
 
 static void coopHostMission(u64 now);
@@ -106,6 +107,9 @@ static u64 s_stage_loaded_us;
 static u64 s_roster_at_us[4];
 static u8 s_roster_left[4];
 static bool s_roster_remap[4];
+static bool s_roster_join[4];               /* a fresh joiner's first roster: start it beside a teammate */
+static bool s_remap_valid;                  /* the host took over: its remap is the guards' names for anyone */
+static u64 s_await_since_us;
 static bool s_await_remap;                   /* a client between hosts: the new host's slots are not yet known */
 static u16 s_remap_old[COOP_MAX_SLOTS], s_remap_new[COOP_MAX_SLOTS];   /* the new host: old host's slot -> its own */
 static int s_remap_count;
@@ -290,6 +294,7 @@ void gevrCoopChrRemoved(ChrRecord *chr)
     netbufWriteU8(&buf, NET_MSG_CHR_REMOVE);
     netbufWriteU8(&buf, (uint8_t)netGetLocalSlot());
     netbufWriteU16(&buf, (u16)slot);
+    netbufWriteU8(&buf, 0);   /* not a roster's */
     netCoopBroadcast(buf.data, buf.wp, true);
 }
 
@@ -358,6 +363,17 @@ void gevrCoopGuardLaunched(ObjectRecord *obj)
     s_guard_explosive[s_guard_explosive_next++ % COOP_GUARD_EXPLOSIVES] = obj;
 }
 
+/*
+ * Anything blown up while the host runs a guard (chr.c, set_cur_player to
+ * its target): its fire hitting a drum, its script destroying an object.
+ * The target's slot would make it that player's blast, dropped on the host
+ * (explosion.c) when the target is another headset's.
+ */
+s32 gevrCoopGuardBlastNow(void)
+{
+    return g_gevrCoopGuardTick && netCoopActive() && netIsHost();
+}
+
 /* One of them is going off: TRUE once (it is forgotten) */
 s32 gevrCoopGuardExplosive(ObjectRecord *obj)
 {
@@ -403,20 +419,6 @@ s32 gevrCoopForwardGuardDamage(f32 damage, f32 vx, f32 vz)
     return TRUE;
 }
 
-/* chraction.c handles_shot_actors: a guard's bullet hit a player's body */
-void gevrCoopGuardHitPlayer(s32 target, f32 damage, f32 vx, f32 vz)
-{
-    s32 prev = get_cur_playernum();
-    if (!netIsHost() || target < 0 || target >= 4 || !g_playerPointers[target]) return;
-    if (target != netGetLocalSlot()) {
-        if (netSlotOccupied(target)) coopSendGuardDamage(target, damage, vx, vz);
-        return;
-    }
-    set_cur_player(target);
-    record_damage_kills(damage, vx, vz, -1, 1);
-    set_cur_player(prev);
-}
-
 /*
  * chraction.c handles_shot_actors, for a guard hit by a player: nonzero when
  * the hit is not this headset's to apply. On a client the local player's hit
@@ -431,6 +433,7 @@ s32 gevrCoopGuardHitElsewhere(ChrRecord *chr, s32 hitpart, coord3d *vector, s32 
     s32 slot = coopSlotOf(chr);
     if (!netCoopActive() || slot < 0) return FALSE;
     if (netIsHost()) return shooter != netGetLocalSlot() && !g_gevrCoopApplyingHit;
+    if (s_await_remap) return 1;   /* this headset's slots are not the new host's yet */
     if (shooter == netGetLocalSlot() && vector) {
         u8 raw[40];
         struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -562,46 +565,51 @@ static void coopReceiveStates(struct netbuf *b)
     }
 }
 
-static void coopReceiveSpawn(struct netbuf *b)
-{
-    u16 hostslot = netbufReadU16(b);
-    s16 chrnum = netbufReadS16(b);
-    s8 body = netbufReadS8(b);
-    s8 head = netbufReadS8(b);
-    u32 flags = netbufReadU32(b);
-    s32 listid = netbufReadS32(b);
+/* A guard the host has, to make here (NET_MSG_CHR_SPAWN) */
+typedef struct {
+    u16 hostslot;
+    s16 chrnum;
+    s8 body, head;
+    u32 flags;
+    s32 listid;
     coord3d pos;
     f32 angle;
-    netbufReadCoord(b, &pos);
-    angle = netbufReadF32(b);
-    if (s_await_remap) return;   /* its roster, after the remap, has it */
-    if (b->error || netbufReadLeft(b) || hostslot >= COOP_MAX_SLOTS || !isfinite(pos.x) || !isfinite(pos.y) ||
-        !isfinite(pos.z) || !isfinite(angle) || !g_ChrSlots) return;
+    u64 until_us;          /* waiting for a free slot until then */
+} CoopSpawn;
+#define COOP_PENDING_SPAWNS 16
+static CoopSpawn s_pending_spawn[COOP_PENDING_SPAWNS];
+static int s_pending_spawns;
+
+/* 1 made (or here already), 0 no free slot yet, -1 cannot be made here */
+static int coopMakeSpawn(const CoopSpawn *sp)
+{
+    u16 hostslot = sp->hostslot;
     ChrRecord *existing = coopLocalChr(hostslot);
     if (existing && coopChrLive(existing) && !(existing->hidden & CHRHIDDEN_REMOVE) &&
-        existing->bodynum == body && existing->headnum == head) {
-        existing->chrnum = chrnum;   /* already here: the setup's, or made before */
-        return;
+        existing->bodynum == sp->body && existing->headnum == sp->head) {
+        existing->chrnum = sp->chrnum;   /* already here: the setup's, or made before */
+        return 1;
     }
-    Model *header = retrieve_header_for_body_and_head(body, head, flags);
-    coord3d at = pos;
+    /* chrAllocate takes the first free slot unchecked (chr.c): none, no call.
+     * A roster's removals free theirs at the guards' next chrTick. */
+    if (chrGetNumFree() < 1) return 0;
+    coord3d at = sp->pos, pos = sp->pos;
     f32 y;
     StandTile *stan = stanFindTileBelowPos(&at, NULL, &y);
-    AIRecord *ailist = listid >= 0 ? ailistFindById(listid) : NULL;
-    PropRecord *prop = header && stan ? chrAllocate(header, &pos, angle, stan, ailist) : NULL;
-    if (!prop || !prop->chr) {
-        COOP_LOG("spawn rx: slot %d body %d head %d: could not be made here", hostslot, body, head);
-        return;
-    }
+    if (!stan) return -1;
+    Model *header = retrieve_header_for_body_and_head(sp->body, sp->head, sp->flags);
+    AIRecord *ailist = sp->listid >= 0 ? ailistFindById(sp->listid) : NULL;
+    PropRecord *prop = header ? chrAllocate(header, &pos, sp->angle, stan, ailist) : NULL;
+    if (!prop || !prop->chr) return -1;
     chrpropActivateThisFrame(prop);
     chrpropEnable(prop);
-    prop->chr->headnum = head;
-    prop->chr->bodynum = body;
-    prop->chr->chrnum = chrnum;
+    prop->chr->headnum = sp->head;
+    prop->chr->bodynum = sp->body;
+    prop->chr->chrnum = sp->chrnum;
     s32 local = coopSlotOf(prop->chr);
     if (local >= 0 && local < COOP_MAX_SLOTS) {
         s_spawned[local] = true;
-        s_spawn_flags[local] = (s32)flags;
+        s_spawn_flags[local] = (s32)sp->flags;
     }
     if (s_local_of[hostslot] >= 0 && s_local_of[hostslot] < COOP_MAX_SLOTS && s_host_of[s_local_of[hostslot]] == hostslot)
         s_host_of[s_local_of[hostslot]] = -1;
@@ -612,17 +620,76 @@ static void coopReceiveSpawn(struct netbuf *b)
             s_local_of[s_host_of[local]] = -1;
         s_host_of[local] = (s16)hostslot;
     }
-    COOP_LOG("spawn rx: host slot %d is slot %d here (chrnum %d)", hostslot, local, chrnum);
+    /* a new guard: nothing of the slot's last one (a late dying state, its AI) */
+    memset(&s_puppet[hostslot], 0, sizeof(s_puppet[hostslot]));
+    s_ai[hostslot].valid = false;
+    COOP_LOG("spawn rx: host slot %d is slot %d here (chrnum %d)", hostslot, local, sp->chrnum);
+    return 1;
 }
 
+static void coopForgetPendingSpawn(u16 hostslot)
+{
+    for (int i = 0; i < s_pending_spawns; i++) {
+        if (s_pending_spawn[i].hostslot != hostslot) continue;
+        s_pending_spawn[i--] = s_pending_spawn[--s_pending_spawns];
+    }
+}
+
+/* A client, each frame: spawns waiting for a slot */
+static void coopRetrySpawns(void)
+{
+    u64 now = sysGetMicroseconds();
+    for (int i = 0; i < s_pending_spawns; i++) {
+        int made = coopMakeSpawn(&s_pending_spawn[i]);
+        if (made == 0 && now < s_pending_spawn[i].until_us) continue;
+        if (made <= 0)
+            COOP_LOG("spawn rx: host slot %d body %d head %d: could not be made here",
+                     s_pending_spawn[i].hostslot, s_pending_spawn[i].body, s_pending_spawn[i].head);
+        s_pending_spawn[i--] = s_pending_spawn[--s_pending_spawns];
+    }
+}
+
+static void coopReceiveSpawn(struct netbuf *b)
+{
+    CoopSpawn sp;
+    sp.hostslot = netbufReadU16(b);
+    sp.chrnum = netbufReadS16(b);
+    sp.body = netbufReadS8(b);
+    sp.head = netbufReadS8(b);
+    sp.flags = netbufReadU32(b);
+    sp.listid = netbufReadS32(b);
+    netbufReadCoord(b, &sp.pos);
+    sp.angle = netbufReadF32(b);
+    if (s_await_remap) return;   /* its roster, after the remap, has it */
+    if (b->error || netbufReadLeft(b) || sp.hostslot >= COOP_MAX_SLOTS || !isfinite(sp.pos.x) || !isfinite(sp.pos.y) ||
+        !isfinite(sp.pos.z) || !isfinite(sp.angle) || !g_ChrSlots) return;
+    coopForgetPendingSpawn(sp.hostslot);
+    int made = coopMakeSpawn(&sp);
+    if (made == 0 && s_pending_spawns < COOP_PENDING_SPAWNS) {
+        sp.until_us = sysGetMicroseconds() + 10000000ull;
+        s_pending_spawn[s_pending_spawns++] = sp;
+    } else if (made <= 0) {
+        COOP_LOG("spawn rx: host slot %d body %d head %d: could not be made here", sp.hostslot, sp.body, sp.head);
+    }
+}
+
+/*
+ * A guard the host freed. A roster's (roster 1) names a setup guard gone
+ * on the host: only while this headset's slot still holds that setup guard,
+ * so a second roster, or one after a remap, takes no guard it has made since.
+ */
 static void coopReceiveRemove(struct netbuf *b)
 {
     u16 hostslot = netbufReadU16(b);
-    if (s_await_remap || b->error || netbufReadLeft(b) || hostslot >= COOP_MAX_SLOTS) return;
-    ChrRecord *chr = coopLocalChr(hostslot);
+    u8 roster = netbufReadU8(b);
+    if (s_await_remap || b->error || netbufReadLeft(b) || hostslot >= COOP_MAX_SLOTS || roster > 1) return;
     s32 local = s_local_of[hostslot];
+    if (roster && (local != hostslot || s_spawned[local])) return;
+    ChrRecord *chr = coopLocalChr(hostslot);
+    coopForgetPendingSpawn(hostslot);
     if (chr && coopChrLive(chr)) chr->hidden |= CHRHIDDEN_REMOVE;   /* freed at its next chrTick */
     s_puppet[hostslot].valid = false;
+    s_ai[hostslot].valid = false;
     /* the host may fill its slot again before then: a spawn there is a new guard */
     s_local_of[hostslot] = -1;
     if (local >= 0 && local < COOP_MAX_SLOTS && s_host_of[local] == hostslot) s_host_of[local] = -1;
@@ -684,6 +751,8 @@ void netCoopPuppetTick(ChrRecord *chr, s32 tickamount)
             memset(&chr->act_die, 0, sizeof(chr->act_die));
             chr->actiontype = st->actiontype;
             chrStopFiring(chr);
+        } else if (!dying && (chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD)) {
+            chr->actiontype = ACT_STAND;   /* up on the host (a late dying state for a slot used again) */
         }
         if (anim && (model->anim != anim || model->gunhand != flip)) {
             modelSetAnimation(model, anim, flip, st->frame, st->speed, dying ? 0.0f : 8.0f);
@@ -903,6 +972,7 @@ static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs)
 void gevrCoopReportRoom(int room) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_ROOM, room, 0, 1); }
 void gevrCoopReportDeposit(int item, int room) { coopSendEvent(NET_COOP_EVENT_DEPOSIT, item, room, 2); }
 void gevrCoopReportPhoto(int tag) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_PHOTO, tag, 0, 1); }
+void gevrCoopReportAlarm(int on) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_ALARM, on ? 1 : 0, 0, 1); }
 void gevrCoopReportKeyCopy(void) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_KEYCOPY, 0, 0, 0); }
 
 /* netPoll, a teammate's headset: the objective items its player holds, when that changes */
@@ -959,6 +1029,15 @@ static void coopReceiveEvent(int slot, struct netbuf *b)
         case NET_COOP_EVENT_PHOTO: {
             s32 tag = netbufReadS32(b);
             if (!b->error && !netbufReadLeft(b)) gevrCoopApplyPhoto(tag);
+            break;
+        }
+        case NET_COOP_EVENT_ALARM: {
+            /* a teammate's alarm switch: the host's alarm, sent to all with the mission */
+            s32 on = netbufReadS32(b);
+            if (b->error || netbufReadLeft(b)) break;
+            if (on && !alarmIsActive()) alarmActivate();
+            else if (!on && alarmIsActive()) alarmDeactivate();
+            s_mission_check_us = 0;
             break;
         }
         case NET_COOP_EVENT_KEYCOPY:
@@ -1106,6 +1185,14 @@ void netCoopReviveTick(void)
 
     if (!netCoopActive()) return;
     coopRecordSetup();
+    if (gevrCoopPuppets()) {
+        coopRetrySpawns();
+        if (s_await_remap && now - s_await_since_us > 15000000ull) {
+            /* no remap came (the new host never took over this mission?): its slots as ours */
+            s_await_remap = false;
+            COOP_LOG("no remap from the new host in 15 s: taking its guard slots as this headset's");
+        }
+    }
     if (!pl || !pl->prop) return;
     if (s_downed[me]) {
         int by = -1;
@@ -1182,7 +1269,9 @@ static void coopDropInReset(void)
     s_ai_sent_us = 0;
     s_stage_loaded_us = sysGetMicroseconds();
     s_await_remap = false;
+    s_remap_valid = false;
     s_remap_count = 0;
+    s_pending_spawns = 0;
 }
 
 /* The first tick after a load: the setup's guards */
@@ -1213,6 +1302,7 @@ static void coopWriteRemove(struct netbuf *buf, s32 slot)
 {
     coopHeader(buf, NET_MSG_CHR_REMOVE);
     netbufWriteU16(buf, (u16)slot);
+    netbufWriteU8(buf, 1);    /* a roster's: a setup guard gone on the host */
 }
 
 /* The host: a player loaded the mission (fresh, or back after a host change) */
@@ -1221,7 +1311,8 @@ void netCoopPlayerJoined(int slot, int returning)
     if (!netCoopActive() || !netIsHost() || slot < 0 || slot >= 4 || slot == netGetLocalSlot()) return;
     s_roster_at_us[slot] = sysGetMicroseconds() + COOP_ROSTER_DELAY_US;
     s_roster_left[slot] = 2;   /* and once more, a few seconds on */
-    s_roster_remap[slot] = returning != 0;
+    s_roster_remap[slot] = s_remap_valid;   /* returning or not: one that came back late is not "returning" */
+    s_roster_join[slot] = !returning;
     for (int i = 0; i < COOP_MAX_SLOTS; i++) s_sent[i].sent = false;   /* every guard's state, at once */
     s_mission_check_us = s_mission_sent_us = 0;
     s_ai_sent_us = 0;
@@ -1268,7 +1359,7 @@ static void coopSendRoster(int slot)
             spawns++;
         }
     }
-    if (!s_roster_remap[slot] && sysGetMicroseconds() - s_stage_loaded_us > COOP_PLACE_AFTER_US) {
+    if (s_roster_join[slot] && sysGetMicroseconds() - s_stage_loaded_us > COOP_PLACE_AFTER_US) {
         int beside = coopBesideWhom(slot);
         if (beside >= 0) {
             coopHeader(&buf, NET_MSG_COOP_JOIN);
@@ -1293,6 +1384,7 @@ static void coopHostDropIn(u64 now)
         s_roster_left[i]--;
         s_roster_at_us[i] = now + 3500000ull;
         s_roster_remap[i] = false;   /* the second time, the maps are right */
+        s_roster_join[i] = false;    /* and it has moved since */
     }
     if (now - s_ai_sent_us < COOP_AI_INTERVAL_US) return;
     s_ai_sent_us = now;
@@ -1401,7 +1493,11 @@ void netCoopHostLost(int oldhost, int elected)
 {
     if (!netCoopActive()) return;
     netCoopSlotLeft(oldhost);
-    if (!elected) s_await_remap = true;   /* the new host's slots, from its remap */
+    if (!elected) {
+        s_await_remap = true;   /* the new host's slots, from its remap */
+        s_await_since_us = sysGetMicroseconds();
+    }
+    s_pending_spawns = 0;       /* the old host's slots */
     for (int i = 0; i < COOP_MAX_SLOTS; i++) s_puppet[i].valid = false;
     COOP_LOG("the host (slot %d) left: %s", oldhost, elected ? "taking the mission over" : "waiting for the new host");
 }
@@ -1452,6 +1548,7 @@ void netCoopBecameHost(void)
     s_mission_check_us = s_mission_sent_us = 0;
     s_ai_sent_us = 0;
     s_await_remap = false;
+    s_remap_valid = true;
     COOP_LOG("now the host: %d guards and %d background lists take up their AI; %d guards in the remap",
              applied, bgapplied, s_remap_count);
 }
@@ -1462,6 +1559,7 @@ static void coopReceiveRemap(struct netbuf *b)
     u16 n = netbufReadU16(b);
     static s16 local_of[COOP_MAX_SLOTS], host_of[COOP_MAX_SLOTS];
     if (b->error || n > COOP_MAX_SLOTS || netbufReadLeft(b) != n * 4u) return;
+    if (!s_await_remap) return;   /* a fresh joiner: its setup's slots are the new host's already */
     for (int i = 0; i < COOP_MAX_SLOTS; i++) local_of[i] = host_of[i] = -1;
     for (int i = 0; i < n; i++) {
         u16 oldh = netbufReadU16(b), newh = netbufReadU16(b);

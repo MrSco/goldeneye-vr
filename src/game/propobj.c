@@ -9954,6 +9954,9 @@ TICKOP propobjInteract(PropRecord *prop)
         {
             alarmActivate();
         }
+#ifdef GEVR
+        gevrCoopReportAlarm(alarmIsActive());   /* co-op (#94): the host's alarm is the mission's */
+#endif
     }
 
     if (obj->flags & PROPFLAG_00080000)

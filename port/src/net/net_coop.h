@@ -32,12 +32,12 @@ int gevrCoopGuardTarget(struct ChrRecord *chr);                   /* the host: t
 void gevrCoopGuardProvoked(struct ChrRecord *chr, int player);
 extern int g_gevrCoopGuardTick;             /* the host is running a guard as its target player */
 int gevrCoopForwardGuardDamage(float damage, float vx, float vz); /* bondview2.c record_damage_kills */
-void gevrCoopGuardHitPlayer(int target, float damage, float vx, float vz);
 int gevrCoopGuardHitElsewhere(struct ChrRecord *chr, int hitpart, struct coord3d *vector, int weaponid);   /* 2 reported */
 void gevrCoopChrSpawned(struct ChrRecord *chr, struct AIRecord *ailist, int spawnflags);   /* chraction.c chrSpawnAtCoord */
 void gevrCoopChrRemoved(struct ChrRecord *chr);   /* chr.c chrTick, CHRHIDDEN_REMOVE */
 void gevrCoopGuardLaunched(struct ObjectRecord *obj);   /* chraction.c: a guard's grenade or rocket, on the host */
 int gevrCoopGuardExplosive(struct ObjectRecord *obj);   /* explosion.c explosionCreate: one of those, going off */
+int gevrCoopGuardBlastNow(void);            /* explosion.c: the host is running a guard: its blast is the world's */
 
 /* Revive: down, not dead, until a teammate stands beside you (net_coop.c) */
 int gevrCoopDowned(int player);             /* the player is down */
@@ -63,6 +63,7 @@ void gevrCoopReportRoom(int room);          /* a teammate's headset: its player'
 void gevrCoopReportDeposit(int item, int room);
 void gevrCoopReportPhoto(int tag);
 void gevrCoopReportKeyCopy(void);
+void gevrCoopReportAlarm(int on);           /* propobj.c propobjInteract: an alarm switch */
 void gevrCoopAiText(int top, int textid);   /* the host: a mission script's message, for everyone */
 int gevrCoopObjectiveSnapshot(unsigned char *statuses, int max, int localslot);   /* objective_status.c */
 int gevrCoopHeldObjectiveTags(int *tags, int max, int localslot);
