@@ -12,6 +12,21 @@ host driving them; the pause is the solo watch and the world keeps running
 (that player stands, can be shot); each player skips their own intro,
 scripted and ending cutscenes follow the host; keep the teammate radar.
 
+Headset-accepted, host alone (2026-10-03, build 1a2808d): Launch to the
+folders, mission select, briefing, Start; the Dam intro (captions at the
+bottom) and its skip; the watch; the radar with its health and armour arcs
+in stereo and 2D; the menus' music. Not yet played: two headsets (menus
+followed, Start, debrief and statistics on a teammate's headset, revive),
+and scripted/ending cutscenes on a teammate's headset (host only so far).
+
+Lessons from that test: a stage's network settings must apply at its load
+(boss.c), not when the reset arrives, or the frame under way runs the next
+stage's code in the old one (the Dam start crashed in the title stage);
+matrix_4x4_f32_to_s32 multiplies by the level's world scale, so an
+unscaled HUD matrix needs matrix_4x4_7F058C64/C88 round it (the radar arcs
+on solo Dam); four player slots lay out the HUD as a four-way split screen
+unless co-op asks for solo's layout.
+
 ## How it works
 
 - **Lobby.** Host Lobby > Mode: Co-op mission. Friendly fire is the only
