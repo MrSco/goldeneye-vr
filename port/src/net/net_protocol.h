@@ -202,6 +202,7 @@ enum {
     NET_OBJECT_PICKUP = 1,      /* value: the collector's tick operation */
     NET_OBJECT_DOOR = 2,        /* value: the door's new DOORSTATE */
     NET_OBJECT_SPECIAL_TAKEN = 3, /* value: the item (the Golden Gun, the flag) the player now holds; index unused */
+    NET_OBJECT_DOOR_LOCK = 4,   /* co-op, host -> all: value: the door's keyflags, as a mission script set them */
 };
 
 /* The ballots of NET_MSG_VOTE / NET_MSG_VOTES */

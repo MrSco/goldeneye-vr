@@ -50,6 +50,7 @@
 #include "system.h"
 #include <stdio.h>   /* snprintf: the #85 cryptdoor probe */
 #include "net_objects.h"
+#include "net_coop.h"
 extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern int netGetLocalSlot(void);
@@ -13485,6 +13486,10 @@ void doorActivate(DoorRecord *door, DOORSTATE State) //#MATCH
         doorSetOpenState(linkeddoor, LinkedState);
         linkeddoor = linkeddoor->linkedDoor;
     };
+#ifdef GEVR
+    /* co-op (#94): a door the host's guards, scripts or timers move moves on every headset */
+    netSendHostDoorState((ObjectRecord *)door, State);
+#endif
 }
 
 
