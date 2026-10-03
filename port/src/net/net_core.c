@@ -13,6 +13,7 @@
 #include "net/netbuf.h"
 #include "net_voice.h"
 #include "net_objects.h"
+#include "net_coop.h"
 #include "net_timing.h"
 #include "bondconstants.h"
 #include "boss.h"
@@ -1395,6 +1396,7 @@ static void netReadyProgress(void) {
 
 void netStageLoaded(void) {
     s_coop_ended = false;
+    netCoopStageLoaded();
     netSpectatorReset();
     netPlayersTickedReset(); /* events queued through the load are for the old stage */
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
@@ -2591,6 +2593,18 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             netCoopApplyEnd(success != 0);
             break;
         }
+        case NET_MSG_CHR_STATE:
+        case NET_MSG_CHR_SPAWN:
+        case NET_MSG_CHR_REMOVE:
+        case NET_MSG_COOP_DAMAGE:
+            if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
+            netCoopReceive(msg_type, slot_id, 1, &buf);
+            break;
+        case NET_MSG_COOP_HIT:
+            if (!netIsHost() || s_state != NET_STATE_INGAME || slot_id >= GEVR_MAX_PLAYERS ||
+                s_client_peers[slot_id] != peer || (int)(intptr_t)peer->data - 1 != slot_id) break;
+            netCoopReceive(msg_type, slot_id, 0, &buf);
+            break;
         case NET_MSG_COUNTDOWN: {
             if (netIsHost() || peer != s_server_peer || size != 12) break;
             uint32_t ms = netbufReadU32(&buf);
@@ -3074,7 +3088,16 @@ static void netResolveVotes(void) {
     netBroadcastAllVotes();
 }
 
-/* ---- Co-op mission end (#94) ---- */
+/* ---- Co-op (#94) ---- */
+
+/* net_coop.c's messages: the host's go to every headset, a client's to the host */
+void netCoopBroadcast(const u8 *data, u32 size, int reliable) {
+    if (!data || !size) return;
+    if (reliable) netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
+    else netBroadcastPacket(data, size, NET_CHAN_PLAYER_STATE, 0, NULL);
+}
+
+/* The mission's end */
 
 static uint64_t s_coop_next_at_us;       /* host: the next mission loads at this time */
 static uint8_t s_coop_next_stage;        /* host: the mission it loads */
@@ -3414,6 +3437,8 @@ void netPoll(void) {
         ammo_now-last_ammo_us >= 50000) {
         last_ammo_us=ammo_now;netSendAmmoState(NULL);
     }
+    if (netIsHost() && s_state == NET_STATE_INGAME && !s_round_reset_loading && netPlayersWereTicked())
+        netCoopHostTick();
     if (netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS && netPlayersWereTicked()) {
         bool changed = false;
         for (int i=0;i<4;i++) {

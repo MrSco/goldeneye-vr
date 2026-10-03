@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "net_game.h"
+#include "net_coop.h"
 #include "gevr_hud_geometry.h"
 #include "gevr_scope.h"
 #include "gevr_surface_probe.h"
@@ -14800,6 +14801,8 @@ s32 sub_GAME_7F0898E8(void)
 void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor) {
 #ifdef GEVR
     if (netPlayerIsSpectator(get_cur_playernum()) || !netDamageAllowed(playerid, get_cur_playernum())) return;
+    /* co-op (#94): the host's guard hurting another player's copy: that player's headset takes it */
+    if (gevrCoopForwardGuardDamage(damage_amount, vectorx, vectorz)) return;
     /*
      * A guard, an autogun or gas has no player (-1), and the bookkeeping
      * below indexes the players with it: g_playerPlayerData[-1] and
