@@ -166,7 +166,7 @@ PadRecord * chrlvGetPatrolStepPad             (ChrRecord *self, s32 numsteps);
 
 // unknown type for arg1, reads offsets 0x30,0x34,0x40,0x44
 // arg2 is only used to compare to zero, either flag or pointer
-void chrlvUpdateAimendbackShoulders           (ChrRecord *, void *, s32, s32, f32);
+void chrlvUpdateAimendbackShoulders           (ChrRecord *, struct weapon_firing_animation_table *, s32, s32, f32);
 
 
 // end forward declarations
@@ -2178,7 +2178,7 @@ void triggered_on_shot_hit(ChrRecord *self, coord3d *arg1, f32 arg2, s32 req_ani
 
                     modelSetAnimationWithMerge(model, struck_anib->struck_anim, struck_anib->flip, 0.0f, struck_anib->speed, 16.0f, flag1 == 0);
 
-                    if ((s32)struck_anib->struck_anim == ((uintptr_t)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_death_neck]) && ((randomGetNext() % (u32)0x64) != 0))
+                    if ((uintptr_t)struck_anib->struck_anim == ((uintptr_t)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_death_neck]) && ((randomGetNext() % (u32)0x64) != 0))
                     {
                         modelSetAnimEndFrame(model, 241.0f);
                     }
@@ -5739,7 +5739,10 @@ f32 chrlvGetSubrotySideback(ChrRecord *self)
     {
         if (self->act_bondmulti.unk2c != NULL)
         {
-            phi_f12 = self->act_bondmulti.unk2c[3];
+            /* unk2c is a weapon_firing_animation_table (bondview2.c). Float 3
+               was angle_offset on the N64; the host's 8-byte anim slot moves
+               it to float 4, so read it by name. */
+            phi_f12 = ((struct weapon_firing_animation_table *)self->act_bondmulti.unk2c)->angle_offset;
         }
     }
 
@@ -6199,7 +6202,8 @@ s32 chrlvUpdateAimendsideback(ChrRecord *self, struct weapon_firing_animation_ta
  * rshoulder defaults to 0.0f, lshoulder defaults to @param next.
  *
  * @param self:
- * @param arg1: todo/fixme/hack: unsure of arg1 type.
+ * @param arg1: the attack's firing animation entry; its aim limits and free
+ *     arm fractions bound the shoulders and the back.
  * @param same: When set, both shoulders will receive lshoulder value. Only
  *     applies with @param swap is set.
  * @param swap: When set, aimendrshoulder will get the calculated lshoulder value,
@@ -6209,7 +6213,7 @@ s32 chrlvUpdateAimendsideback(ChrRecord *self, struct weapon_firing_animation_ta
  *
  * Address 0x7F02D048.
 */
-void chrlvUpdateAimendbackShoulders(ChrRecord *self, void *arg1, s32 same, s32 swap, f32 next)
+void chrlvUpdateAimendbackShoulders(ChrRecord *self, struct weapon_firing_animation_table *arg1, s32 same, s32 swap, f32 next)
 {
     f32 next_lshoulder;
     f32 next_rshoulder;
@@ -6219,27 +6223,37 @@ void chrlvUpdateAimendbackShoulders(ChrRecord *self, void *arg1, s32 same, s32 s
     next_aimendback = 0.0f;
     next_lshoulder = next;
 
+    /*
+     * The decomp read these as floats 12, 13, 16 and 17 of the entry: max_up,
+     * max_down and the two free arm fractions on the N64, where the anim slot
+     * at its head is four bytes. On the host that slot is a pointer, every
+     * float after it moves along by one, and the raw indices picked up
+     * aim_end_frame, max_up, max_right and free_arm_frac_up instead. A guard
+     * aiming a rifle a few degrees up then raised one shoulder 50 degrees,
+     * dropped the other, and bent his back about 45 degrees: his support hand
+     * came off the gun (issue #93). Read the fields by name.
+     */
     if (arg1 != NULL)
     {
-        if (((f32*)arg1)[12] < next)
+        if (arg1->max_up < next)
         {
-            next_aimendback = next - ((f32*)arg1)[12];
-            next_lshoulder = ((f32*)arg1)[12];
+            next_aimendback = next - arg1->max_up;
+            next_lshoulder = arg1->max_up;
         }
 
-        else if (next < ((f32*)arg1)[13])
+        else if (next < arg1->max_down)
         {
-            next_aimendback = next - ((f32*)arg1)[13];
-            next_lshoulder = ((f32*)arg1)[13];
+            next_aimendback = next - arg1->max_down;
+            next_lshoulder = arg1->max_down;
         }
 
         if (next_lshoulder > 0.0f)
         {
-            next_rshoulder = ((f32*)arg1)[16] * next_lshoulder;
+            next_rshoulder = arg1->free_arm_frac_up * next_lshoulder;
         }
         else
         {
-            next_rshoulder = ((f32*)arg1)[17] * next_lshoulder;
+            next_rshoulder = arg1->free_arm_frac_down * next_lshoulder;
         }
     }
 
