@@ -41,13 +41,13 @@ EXPORT int test_protocol(void) {
     original.health=10;original.dual_wield=2;original.loadouts=1;original.next_round=2;original.voice_mode=1;original.friendly_fire=1;
     for (int i=0;i<4;i++) original.custom_set[i]=(uint8_t)(10+i);
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 16 || GEVR_NET_VERSION != 15) return 1;
+    if (b.error || b.wp != 18 || GEVR_NET_VERSION != 16) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
-    for(int size=0;size<16;size++) {
+    for(int size=0;size<18;size++) {
         netbufStartReadData(&b,raw,size); netbufReadMatchConfig(&b,&received); if(!b.error) return 3;
     }
-    netbufStartReadData(&b,raw,16); netbufReadMatchConfig(&b,&received);
+    netbufStartReadData(&b,raw,18); netbufReadMatchConfig(&b,&received);
     netbufStartWrite(&b); b.size=15; netbufWriteMatchConfig(&b,&original); if(!b.error) return 4;
     return 0;
 }

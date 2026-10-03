@@ -4550,7 +4550,12 @@ s32 objTick(struct PropRecord *prop)
 			projectile = obj->projectile;
 
 			if (projectile->ownerprop != NULL
-#if defined(VERSION_JP) || defined(VERSION_EU)
+#if defined(VERSION_JP) || defined(VERSION_EU) || defined(GEVR)
+				/*
+				 * GEVR: as JP/EU. In US a projectile a guard threw or
+				 * dropped had no simulation owner with two or more
+				 * players, and hung in the air (GoldenEye 007 Plus; #94).
+				 */
 				&& getPlayerPointerIndex(projectile->ownerprop) >= 0
 #endif
 			)
@@ -10393,7 +10398,11 @@ s32 get_ammo_in_magazine(AmmoCrateRecord *crate)
         case AMMO_DARTS:   qty =  4; break;
     }
 
+#ifdef GEVR
+    if (qty > 1 && gevrSoloRules())
+#else
     if (qty > 1 && getPlayerCount() == 1)
+#endif
     {
         qty *= g_SoloAmmoMultiplier;
     }
@@ -10426,7 +10435,11 @@ s32 ammo_collected_from_weapon(WeaponObjRecord *weapon)
         case AMMO_GRENADEROUND: qty =  3; break;
     }
 
+#ifdef GEVR
+    if (qty > 1 && gevrSoloRules())
+#else
     if (qty > 1 && getPlayerCount() == 1)
+#endif
     {
         qty *= g_SoloAmmoMultiplier;
     }
@@ -10694,7 +10707,11 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 
                 ammoquantity = multicrate->slots[i].quantity;
 
+#ifdef GEVR
+                if (gevrSoloRules())
+#else
                 if (getPlayerCount() == 1)
+#endif
                 {
                     ammoquantity *= g_SoloAmmoMultiplier;
                 }

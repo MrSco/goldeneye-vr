@@ -86,6 +86,8 @@ const NetMatchConfig *netGetActiveMatchConfig(void);
 void netLobbySetConfig(const NetMatchConfig *config);   /* host: kept and told to everyone */
 void netApplyMatchConfig(void);             /* every headset, before each stage load */
 int netGetPlayingCount(void);               /* connected and not spectating */
+int netCoopActive(void);                    /* online in a co-op mission (NetMatchConfig.mode) */
+void netCoopMissionEnded(int success);      /* boss.c bossReturnTitleStage: the mission ended here */
 int netMpPlayerCount(int fallback);         /* the game's player_count online: the humans in the round */
 bool netSlotIsSpectator(int slot);
 bool netLocalIsSpectator(void);

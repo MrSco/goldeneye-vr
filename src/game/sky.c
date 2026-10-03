@@ -388,7 +388,11 @@ Gfx *skyRender(Gfx *gdl)
 
     if (!fogGetCurrentEnvironmentp()->Clouds)
     {
+#ifdef GEVR
+        if (getPlayerCount() == 1 || gevrCoopActive())
+#else
         if (getPlayerCount() == 1)
+#endif
         {
             gDPSetCycleType(gdl++, G_CYC_FILL);
 

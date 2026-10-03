@@ -14500,7 +14500,11 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     }
 #endif
 
+#ifdef GEVR
+    if (getPlayerCount() == 1 || gevrCoopActive())
+#else
     if (getPlayerCount() == 1)
+#endif
     {
         display_objective_status_text_on_status_change();
     }
@@ -14741,6 +14745,10 @@ void bondviewKillCurrentPlayer(void)
             trigger_solo_watch_menu(1);
         }
 
+#ifdef GEVR
+        /* co-op: one player down does not end the mission (#94) */
+        if (!gevrCoopActive())
+#endif
         g_isBondKIA = 1;
         g_CurrentPlayer->bonddead = 1;
 
@@ -14792,6 +14800,17 @@ s32 sub_GAME_7F0898E8(void)
 void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor) {
 #ifdef GEVR
     if (netPlayerIsSpectator(get_cur_playernum()) || !netDamageAllowed(playerid, get_cur_playernum())) return;
+    /*
+     * A guard, an autogun or gas has no player (-1), and the bookkeeping
+     * below indexes the players with it: g_playerPlayerData[-1] and
+     * set_cur_player(-1) with two or more players. Such a death counts as
+     * the victim's own, as SubDrag and Zoinkity's co-op patch has it
+     * (GoldenEye 007 Plus; #94, #95).
+     */
+    if (playerid < 0 || playerid >= getPlayerCount())
+    {
+        playerid = get_cur_playernum();
+    }
 #endif
     f32 damage_dealt = g_playerPerm->handicap * damage_amount;
     s32 cur_player_num;
@@ -14840,7 +14859,11 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
                 g_CurrentPlayer->oldhealth = g_CurrentPlayer->bondhealth;
                 g_CurrentPlayer->oldarmour = g_CurrentPlayer->bondarmour;
 
+#ifdef GEVR
+                if (gevrMpRules())
+#else
                 if (getPlayerCount() >= 2)
+#endif
                 {
                     cur_player_num = get_cur_playernum();
                     angle = g_playerPointers[cur_player_num]->vv_theta - (360.0f - ((atan2f(vectorx, vectorz) * 180.0f) / 3.1415927f));
@@ -14875,7 +14898,12 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
 
                     if (g_CurrentPlayer->bondhealth <= 0.0f)
                     {
+#ifdef GEVR
+                        /* co-op: no match score or drop; the mission decides (#94) */
+                        if (gevrMpRules())
+#else
                         if (getPlayerCount() >= 2)
+#endif
                         {
                             sp2C = get_cur_playernum();
                             sp28 = 0;

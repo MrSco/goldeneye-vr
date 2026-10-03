@@ -2571,7 +2571,11 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
 
         damageToCause = gunItemGetDestructionAmount(weaponid);
 
+#ifdef GEVR
+        if (isPlayer && (gevrSoloRules()))
+#else
         if (isPlayer && (getPlayerCount() == 1))
+#endif
         {
             damageToCause *= g_AiHealthModifier;
         }
