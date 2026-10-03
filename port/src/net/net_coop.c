@@ -64,6 +64,9 @@ extern void chrlvMergeKneelToStand(ChrRecord *self, f32 mergetime);
 extern bool netSlotOccupied(int slot);
 extern bool netSlotIsSpectator(int slot);
 
+static void coopHostMission(u64 now);
+static void coopMissionReset(void);
+
 /* ---- The animation's identity ---- */
 
 static u16 coopAnimId(const ModelAnimation *anim)
@@ -171,7 +174,9 @@ void netCoopHostTick(void)
     u64 now = sysGetMicroseconds();
     int count = 0;
 
-    if (!netCoopActive() || !netIsHost() || !g_ChrSlots || now - s_last_send_us < COOP_SEND_INTERVAL_US) return;
+    if (!netCoopActive() || !netIsHost()) return;
+    coopHostMission(now);
+    if (!g_ChrSlots || now - s_last_send_us < COOP_SEND_INTERVAL_US) return;
     s_last_send_us = now;
     s_state_seq++;
     for (s32 slot = 0; slot < g_NumChrSlots && slot < COOP_MAX_SLOTS; slot++) {
@@ -496,6 +501,7 @@ void netCoopStageLoaded(void)
         s_target[i].player = -1;
     }
     memset(s_guard_explosive, 0, sizeof(s_guard_explosive));
+    coopMissionReset();
     s_last_send_us = 0;
     g_gevrCoopGuardTick = FALSE;
     g_gevrCoopApplyingHit = FALSE;
@@ -716,11 +722,248 @@ void netCoopPuppetTick(ChrRecord *chr, s32 tickamount)
     }
 }
 
+/* ---- The mission: the host's, shown everywhere ---- */
+
+extern s32 objectiveregisters1;   /* chr.c: the stage flags */
+extern void hudmsgBottomShow(char *mess);
+extern void hudmsgTopShow(char *mess);
+extern u8 *langGet(s32 slotID);
+extern void objectivestatusCheckRoomEntered(s32 roomid);
+extern void objectivestatusCheckDeposit(s32 weaponnum, s32 roomid);
+extern s32 alarmIsActive(void);   /* propobj.c; bool there is s32 */
+extern void alarmActivate(void);
+extern void alarmDeactivate(void);
+#define COOP_MISSION_ALARM 1
+
+#define COOP_OBJECTIVES 10
+#define COOP_MISSION_CHECK_US 250000ull      /* the host looks for a change four times a second */
+#define COOP_MISSION_REFRESH_US 2000000ull   /* and sends it all every two seconds (a joiner, a lost packet) */
+
+static u8 s_host_status[COOP_OBJECTIVES];    /* a teammate's headset: the host's objectives */
+static s32 s_held[4][NET_COOP_HELD_MAX];     /* the host: the objective items each teammate holds */
+static u8 s_held_count[4];
+static u8 s_sent_status[COOP_OBJECTIVES];
+static u8 s_sent_status_count;
+static s32 s_sent_flags;
+static u8 s_sent_mission_bits;   /* COOP_MISSION_* */
+static u64 s_mission_check_us, s_mission_sent_us;
+static s32 s_sent_held[NET_COOP_HELD_MAX];   /* a teammate's headset: what it last reported */
+static u8 s_sent_held_count;
+static u64 s_held_check_us, s_held_sent_us;
+
+int gevrCoopHostObjectiveStatus(int objective)
+{
+    return objective >= 0 && objective < COOP_OBJECTIVES ? s_host_status[objective] : 0;
+}
+
+int gevrCoopTeammateHolds(int tag)
+{
+    if (!netCoopActive() || !netIsHost()) return FALSE;
+    for (int i = 0; i < 4; i++) {
+        if (i == netGetLocalSlot() || !netSlotOccupied(i)) continue;
+        for (int k = 0; k < s_held_count[i]; k++)
+            if (s_held[i][k] == tag) return TRUE;
+    }
+    return FALSE;
+}
+
+static void coopMissionReset(void)
+{
+    memset(s_host_status, 0, sizeof(s_host_status));
+    memset(s_held, 0, sizeof(s_held));
+    memset(s_held_count, 0, sizeof(s_held_count));
+    s_sent_status_count = 0;
+    s_sent_flags = 0;
+    s_sent_mission_bits = 0;
+    s_mission_check_us = s_mission_sent_us = 0;
+    s_sent_held_count = 0;
+    s_held_check_us = s_held_sent_us = 0;
+}
+
+static void coopHeader(struct netbuf *b, u8 type)
+{
+    netbufStartWrite(b);
+    netbufWriteU32(b, GEVR_NET_MAGIC);
+    netbufWriteU16(b, GEVR_NET_VERSION);
+    netbufWriteU8(b, type);
+    netbufWriteU8(b, (uint8_t)netGetLocalSlot());
+}
+
+/* The host, from netCoopHostTick: the stage flags and the objectives, when they change */
+static void coopHostMission(u64 now)
+{
+    u8 statuses[COOP_OBJECTIVES];
+    s32 count;
+    u8 bits;
+    u8 raw[32];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+
+    if (now - s_mission_check_us < COOP_MISSION_CHECK_US) return;
+    s_mission_check_us = now;
+    count = gevrCoopObjectiveSnapshot(statuses, COOP_OBJECTIVES, netGetLocalSlot());
+    if (count < 0) count = 0;
+    bits = alarmIsActive() ? COOP_MISSION_ALARM : 0;
+    if (count == s_sent_status_count && !memcmp(statuses, s_sent_status, (size_t)count) &&
+        objectiveregisters1 == s_sent_flags && bits == s_sent_mission_bits &&
+        now - s_mission_sent_us < COOP_MISSION_REFRESH_US) return;
+    coopHeader(&buf, NET_MSG_COOP_MISSION);
+    netbufWriteS32(&buf, objectiveregisters1);
+    netbufWriteU8(&buf, bits);
+    netbufWriteU8(&buf, (u8)count);
+    for (s32 i = 0; i < count; i++) netbufWriteU8(&buf, statuses[i]);
+    netCoopBroadcast(buf.data, buf.wp, true);
+    memcpy(s_sent_status, statuses, (size_t)count);
+    s_sent_status_count = (u8)count;
+    s_sent_flags = objectiveregisters1;
+    s_sent_mission_bits = bits;
+    s_mission_sent_us = now;
+}
+
+static void coopReceiveMission(struct netbuf *b)
+{
+    s32 flags = netbufReadS32(b);
+    u8 bits = netbufReadU8(b);
+    u8 count = netbufReadU8(b);
+    u8 statuses[COOP_OBJECTIVES];
+    if (b->error || count > COOP_OBJECTIVES || netbufReadLeft(b) != count) return;
+    for (int i = 0; i < count; i++) {
+        statuses[i] = netbufReadU8(b);
+        if (statuses[i] > 2) return;   /* OBJECTIVESTATUS_INCOMPLETE .. FAILED */
+    }
+    objectiveregisters1 = flags;
+    /* the host's alarm: on or off here as there */
+    if ((bits & COOP_MISSION_ALARM) && !alarmIsActive()) alarmActivate();
+    else if (!(bits & COOP_MISSION_ALARM) && alarmIsActive()) alarmDeactivate();
+    memset(s_host_status, 0, sizeof(s_host_status));
+    memcpy(s_host_status, statuses, count);
+}
+
+static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs)
+{
+    u8 raw[24];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    if (!gevrCoopPuppets()) return;
+    coopHeader(&buf, NET_MSG_COOP_EVENT);
+    netbufWriteU8(&buf, kind);
+    if (nargs > 0) netbufWriteS32(&buf, a);
+    if (nargs > 1) netbufWriteS32(&buf, b2);
+    netCoopBroadcast(buf.data, buf.wp, true);
+}
+
+/* objective_status.c and gunfire.c, on a teammate's headset: its own player's */
+void gevrCoopReportRoom(int room) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_ROOM, room, 0, 1); }
+void gevrCoopReportDeposit(int item, int room) { coopSendEvent(NET_COOP_EVENT_DEPOSIT, item, room, 2); }
+void gevrCoopReportPhoto(int tag) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_PHOTO, tag, 0, 1); }
+void gevrCoopReportKeyCopy(void) { if (get_cur_playernum() == netGetLocalSlot()) coopSendEvent(NET_COOP_EVENT_KEYCOPY, 0, 0, 0); }
+
+/* netPoll, a teammate's headset: the objective items its player holds, when that changes */
+void netCoopClientTick(void)
+{
+    s32 tags[NET_COOP_HELD_MAX];
+    s32 n;
+    u64 now = sysGetMicroseconds();
+    u8 raw[16 + NET_COOP_HELD_MAX * 4];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+
+    if (!gevrCoopPuppets() || now - s_held_check_us < COOP_MISSION_CHECK_US * 2) return;
+    s_held_check_us = now;
+    n = gevrCoopHeldObjectiveTags(tags, NET_COOP_HELD_MAX, netGetLocalSlot());
+    if (n < 0) n = 0;
+    if (n == s_sent_held_count && !memcmp(tags, s_sent_held, (size_t)n * sizeof(s32)) &&
+        now - s_held_sent_us < COOP_MISSION_REFRESH_US * 2) return;
+    coopHeader(&buf, NET_MSG_COOP_EVENT);
+    netbufWriteU8(&buf, NET_COOP_EVENT_HELD);
+    netbufWriteU8(&buf, (u8)n);
+    for (s32 i = 0; i < n; i++) netbufWriteS32(&buf, tags[i]);
+    netCoopBroadcast(buf.data, buf.wp, true);
+    memcpy(s_sent_held, tags, (size_t)n * sizeof(s32));
+    s_sent_held_count = (u8)n;
+    s_held_sent_us = now;
+}
+
+/* The host: a teammate's event */
+static void coopReceiveEvent(int slot, struct netbuf *b)
+{
+    u8 kind = netbufReadU8(b);
+    struct player *pl = slot >= 0 && slot < 4 ? g_playerPointers[slot] : NULL;
+    if (b->error || !pl || slot == netGetLocalSlot()) return;
+    switch (kind) {
+        case NET_COOP_EVENT_ROOM: {
+            s32 room = netbufReadS32(b);
+            if (!b->error && !netbufReadLeft(b)) objectivestatusCheckRoomEntered(room);
+            break;
+        }
+        case NET_COOP_EVENT_DEPOSIT: {
+            s32 item = netbufReadS32(b), room = netbufReadS32(b);
+            if (!b->error && !netbufReadLeft(b) && item > 0 && item < ITEM_IDS_MAX) objectivestatusCheckDeposit(item, room);
+            break;
+        }
+        case NET_COOP_EVENT_PHOTO: {
+            s32 tag = netbufReadS32(b);
+            if (!b->error && !netbufReadLeft(b)) gevrCoopApplyPhoto(tag);
+            break;
+        }
+        case NET_COOP_EVENT_KEYCOPY:
+            if (!netbufReadLeft(b)) pl->copiedgoldeneye = TRUE;
+            break;
+        case NET_COOP_EVENT_HELD: {
+            u8 n = netbufReadU8(b);
+            s32 tags[NET_COOP_HELD_MAX];
+            if (b->error || n > NET_COOP_HELD_MAX || netbufReadLeft(b) != n * 4u) break;
+            for (int i = 0; i < n; i++) tags[i] = netbufReadS32(b);
+            if (b->error) break;
+            memcpy(s_held[slot], tags, n * sizeof(s32));
+            s_held_count[slot] = n;
+            break;
+        }
+        default:
+            break;
+    }
+    COOP_LOG("event rx: slot %d kind %d", slot, kind);
+}
+
+static void coopShowText(int top, int textid)
+{
+    s32 prev = get_cur_playernum();
+    char *text = (char *)langGet(textid);
+    if (!text) return;
+    set_cur_player(netGetLocalSlot());
+    if (top) hudmsgTopShow(text);
+    else hudmsgBottomShow(text);
+    set_cur_player(prev);
+}
+
+/* chrai.c AI_TextPrintBottom / AI_TextPrintTop on the host: shown to the
+ * player the script ran as; every other headset is sent it, and the host's
+ * own player sees it too when the script ran as another. */
+void gevrCoopAiText(int top, int textid)
+{
+    u8 raw[16];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    if (!netCoopActive() || !netIsHost() || textid < 0 || textid > 0xFFFF) return;
+    coopHeader(&buf, NET_MSG_COOP_TEXT);
+    netbufWriteU8(&buf, top ? 1 : 0);
+    netbufWriteU16(&buf, (u16)textid);
+    netCoopBroadcast(buf.data, buf.wp, true);
+    if (get_cur_playernum() != netGetLocalSlot()) coopShowText(top, textid);
+}
+
+static void coopReceiveText(struct netbuf *b)
+{
+    u8 top = netbufReadU8(b);
+    u16 textid = netbufReadU16(b);
+    if (b->error || netbufReadLeft(b) || top > 1) return;
+    coopShowText(top, textid);
+}
+
 /* net_core.c netHandlePacket: the co-op messages */
 void netCoopReceive(int type, int slot, int from_host, struct netbuf *b)
 {
     if (!netCoopActive() || !netPlayersWereTicked()) return;
     switch (type) {
+        case NET_MSG_COOP_MISSION: if (from_host && !netIsHost()) coopReceiveMission(b); break;
+        case NET_MSG_COOP_TEXT: if (from_host && !netIsHost()) coopReceiveText(b); break;
+        case NET_MSG_COOP_EVENT: if (netIsHost()) coopReceiveEvent(slot, b); break;
         case NET_MSG_CHR_STATE: if (from_host && !netIsHost()) coopReceiveStates(b); break;
         case NET_MSG_CHR_SPAWN: if (from_host && !netIsHost()) coopReceiveSpawn(b); break;
         case NET_MSG_CHR_REMOVE: if (from_host && !netIsHost()) coopReceiveRemove(b); break;

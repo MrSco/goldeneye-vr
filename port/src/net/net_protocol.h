@@ -88,6 +88,9 @@ typedef enum {
     NET_MSG_CHR_REMOVE = 38,    /* Host -> all: a guard the host removed */
     NET_MSG_COOP_DAMAGE = 39,   /* Host -> all: a guard hurt a player (the target slot, the damage, its direction) */
     NET_MSG_COOP_HIT = 40,      /* Client -> host: my player hit a guard (its host slot, the part, the gun, the direction) */
+    NET_MSG_COOP_MISSION = 41,  /* Host -> all: the stage flags, the alarm and every objective's status */
+    NET_MSG_COOP_EVENT = 42,    /* Client -> host: what my player did that the objectives count (NET_COOP_EVENT_*) */
+    NET_MSG_COOP_TEXT = 43,     /* Host -> all: a mission script's message (top or bottom, the text id) */
 } NetMsgType;
 
 /*
@@ -104,6 +107,14 @@ enum {
     NET_CHR_NO_TRANSLATE = 16,  /* CHRFLAG_IGNORE_ANIM_TRANSLATION */
     NET_CHR_INVINCIBLE = 32,    /* CHRFLAG_INVINCIBLE */
 };
+enum {
+    NET_COOP_EVENT_ROOM = 1,    /* s32 room: entered */
+    NET_COOP_EVENT_DEPOSIT = 2, /* s32 item, s32 room: thrown or placed there */
+    NET_COOP_EVENT_PHOTO = 3,   /* s32 tag: photographed */
+    NET_COOP_EVENT_KEYCOPY = 4, /* the GoldenEye key copied */
+    NET_COOP_EVENT_HELD = 5,    /* u8 count, s32 tags: the objective items my player holds */
+};
+#define NET_COOP_HELD_MAX 8
 #define NET_CHR_NO_ANIM 0xFFFF
 #define NET_CHR_STATE_BYTES 44
 #define NET_CHR_STATES_PER_PACKET 24

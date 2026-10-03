@@ -33,6 +33,9 @@
 #include <random.h>
 #include <snd.h>
 #include <ultra64.h>
+#ifdef GEVR
+#include "net_coop.h"
+#endif
 
 // hack? used to match as called with 2 args, but decompiled code takes 1
 extern s32 objectiveGetStatus_WEAK(s32 objectiveNum, s32);
@@ -3740,6 +3743,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
     #else
                     hudmsgBottomShow(text);
     #endif
+    #ifdef GEVR
+                    gevrCoopAiText(0, ntohs(ai->txt));   /* co-op (#94): every player reads it */
+    #endif
                     Offset += sizeof(AiTextPrintBottomRecord);
                     break;
                 }
@@ -3755,6 +3761,9 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
     #endif
 
                     hudmsgTopShow(text);
+    #ifdef GEVR
+                    gevrCoopAiText(1, ntohs(ai->txt));
+    #endif
                     Offset += sizeof(AiTextPrintTopRecord);
                     break;
                 }

@@ -2597,10 +2597,13 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_CHR_SPAWN:
         case NET_MSG_CHR_REMOVE:
         case NET_MSG_COOP_DAMAGE:
+        case NET_MSG_COOP_MISSION:
+        case NET_MSG_COOP_TEXT:
             if (netIsHost() || peer != s_server_peer || s_state != NET_STATE_INGAME) break;
             netCoopReceive(msg_type, slot_id, 1, &buf);
             break;
         case NET_MSG_COOP_HIT:
+        case NET_MSG_COOP_EVENT:
             if (!netIsHost() || s_state != NET_STATE_INGAME || slot_id >= GEVR_MAX_PLAYERS ||
                 s_client_peers[slot_id] != peer || (int)(intptr_t)peer->data - 1 != slot_id) break;
             netCoopReceive(msg_type, slot_id, 0, &buf);
@@ -3439,6 +3442,8 @@ void netPoll(void) {
     }
     if (netIsHost() && s_state == NET_STATE_INGAME && !s_round_reset_loading && netPlayersWereTicked())
         netCoopHostTick();
+    else if (!netIsHost() && s_state == NET_STATE_INGAME && netPlayersWereTicked())
+        netCoopClientTick();
     if (netIsHost() && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS && netPlayersWereTicked()) {
         bool changed = false;
         for (int i=0;i<4;i++) {
