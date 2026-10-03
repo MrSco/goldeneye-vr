@@ -118,6 +118,222 @@ static void gevrSpreadStartPad(coord3d *pos, StandTile **stan, s32 share, s32 sl
     }
     sysLogPrintf(LOG_NOTE, "spawn: slot %d shares its start pad (%d before it) with no floor beside it", slot, share);
 }
+
+/*
+ * More online players than a stage has start pads (Egypt has six, the
+ * host may pick eight): the stage gains start pads at its ammo spots, the
+ * farthest from every start pad so far, enough for one each. Rare put the
+ * multiplayer ammo on open floor inside the play area, and standing on a box
+ * only collects ammo (a weapon or armour spot would hand a player a gun).
+ * The ROM's maps put these 6 to 14 m from every other start, where their own
+ * pads can be 3.4 m apart. Respawns pick among them too (bondview.c
+ * bondviewGetRandomSpawnPadIndex keeps players 10 m apart where it can).
+ * Every headset derives the same pads from the setup, so the match seed's
+ * permutation (netStartPad) still agrees.
+ */
+extern s32 sizepropdef(PropDefHeaderRecord *pdef);   /* loadobjectmodel.c */
+#define GEVR_START_PADS_MAX 16                       /* bondview2.c g_Startpad */
+static PadRecord s_gevrExtraStartPads[MAX_PLAYER_COUNT];
+
+/* a setup object with a body, which a player cannot share a spot with */
+static s32 gevrSolidObjectNear(f32 x, f32 z, f32 radius)
+{
+    PropDefHeaderRecord *def;
+
+    for (def = g_CurrentSetup.propDefs; def->type != PROPDEF_END; def = sizepropdef(def) + def)
+    {
+        ObjectRecord *obj = (ObjectRecord *) def;
+        PadRecord *pad;
+
+        switch (def->type)
+        {
+            case PROPDEF_DOOR: case PROPDEF_PROP: case PROPDEF_ALARM: case PROPDEF_CCTV:
+            case PROPDEF_MONITOR: case PROPDEF_MULTI_MONITOR: case PROPDEF_RACK: case PROPDEF_AUTOGUN:
+            case PROPDEF_DEBRIS: case PROPDEF_GAS_RELEASING: case PROPDEF_VEHICHLE: case PROPDEF_AIRCRAFT:
+            case PROPDEF_GLASS: case PROPDEF_SAFE: case PROPDEF_TANK: case PROPDEF_TINTED_GLASS:
+                break;
+            default:
+                continue;
+        }
+        if (obj->pad < 0)
+        {
+            continue;
+        }
+        pad = isNotBoundPad(obj->pad) ? &g_CurrentSetup.pads[obj->pad]
+                                      : (PadRecord *) &g_CurrentSetup.boundpads[getBoundPadNum(obj->pad)];
+        if (sqrtf((pad->pos.x - x) * (pad->pos.x - x) + (pad->pos.z - z) * (pad->pos.z - z)) < radius)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* room for a player at (x, z): floor at base under a player's width every way, reached in a straight line */
+static s32 gevrSpawnRoom(f32 x, f32 z, StandTile *stan, f32 base)
+{
+    s32 k;
+
+    if (fabsf(bondviewYPositionRelated(stan, x, z) - base) > 30.0f || gevrSolidObjectNear(x, z, 150.0f))
+    {
+        return FALSE;
+    }
+    for (k = 0; k < 8; k++)
+    {
+        f32 angle = (f32) k * (M_TAU_F / 8.0f);
+        f32 ex = x + sinf(angle) * 40.0f;
+        f32 ez = z + cosf(angle) * 40.0f;
+        StandTile *tile = stan;
+
+        if (!walkTilesBetweenPoints_NoCallback(&tile, x, z, ex, ez) || tile == NULL
+            || fabsf(bondviewYPositionRelated(tile, ex, ez) - base) > 30.0f)
+        {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+/*
+ * A spot for a player at an ammo pad: the pad itself, or as Perfect Dark's
+ * chrAdjustPosForSpawn does, 60 cm off it in one of eight directions. The
+ * pad must sit on its floor as the start pads do (not on a table or crate).
+ */
+static s32 gevrAmmoSpawnSpot(PadRecord *pad, f32 lift, coord3d *pos, StandTile **stan)
+{
+    f32 base;
+    s32 k;
+
+    if (pad->stan == NULL)
+    {
+        return FALSE;
+    }
+    base = bondviewYPositionRelated(pad->stan, pad->pos.x, pad->pos.z);
+    if (fabsf(pad->pos.y - base - lift) > 40.0f)
+    {
+        return FALSE;
+    }
+    if (gevrSpawnRoom(pad->pos.x, pad->pos.z, pad->stan, base))
+    {
+        *pos = pad->pos;
+        *stan = pad->stan;
+        return TRUE;
+    }
+    for (k = 0; k < 8; k++)
+    {
+        f32 angle = (f32) k * (M_TAU_F / 8.0f);
+        f32 x = pad->pos.x + sinf(angle) * 60.0f;
+        f32 z = pad->pos.z + cosf(angle) * 60.0f;
+        StandTile *tile = pad->stan;
+
+        if (walkTilesBetweenPoints_NoCallback(&tile, pad->pos.x, pad->pos.z, x, z) && tile != NULL
+            && gevrSpawnRoom(x, z, tile, base))
+        {
+            pos->x = x;
+            pos->y = pad->pos.y;
+            pos->z = z;
+            *stan = tile;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static void gevrAddOnlineStartPads(void)
+{
+    extern bool netIsActive(void);
+    s32 need = getPlayerCount() - startpadcount;
+    s32 original = startpadcount;
+    f32 lift;
+    f32 cx = 0.0f;
+    f32 cz = 0.0f;
+    s32 i;
+
+    if (!netIsActive() || need <= 0 || startpadcount == 0 || g_Startpad[0]->stan == NULL || g_CurrentSetup.propDefs == NULL)
+    {
+        return;
+    }
+    if (startpadcount + need > GEVR_START_PADS_MAX)
+    {
+        need = GEVR_START_PADS_MAX - startpadcount;
+    }
+    /* how high a start pad sits over its floor; and the middle of the start pads, to face */
+    lift = g_Startpad[0]->pos.y - bondviewYPositionRelated(g_Startpad[0]->stan, g_Startpad[0]->pos.x, g_Startpad[0]->pos.z);
+    for (i = 0; i < startpadcount; i++)
+    {
+        cx += g_Startpad[i]->pos.x / (f32) startpadcount;
+        cz += g_Startpad[i]->pos.z / (f32) startpadcount;
+    }
+    for (i = 0; i < need; i++)
+    {
+        PropDefHeaderRecord *def;
+        PadRecord *extra = &s_gevrExtraStartPads[i];
+        coord3d bestpos;
+        StandTile *beststan = NULL;
+        s32 bestpad = -1;
+        f32 bestdist = 0.0f;
+        f32 dx;
+        f32 dz;
+        f32 len;
+
+        for (def = g_CurrentSetup.propDefs; def->type != PROPDEF_END; def = sizepropdef(def) + def)
+        {
+            ObjectRecord *obj = (ObjectRecord *) def;
+            PadRecord *pad;
+            coord3d pos;
+            StandTile *stan;
+            f32 nearest = 1e30f;
+            s32 j;
+
+            if (def->type != PROPDEF_AMMO || obj->pad < 0 || !(isNotBoundPad(obj->pad)))
+            {
+                continue;
+            }
+            pad = &g_CurrentSetup.pads[obj->pad];
+            for (j = 0; j < startpadcount; j++)
+            {
+                f32 jx = g_Startpad[j]->pos.x - pad->pos.x;
+                f32 jz = g_Startpad[j]->pos.z - pad->pos.z;
+                f32 d = sqrtf(jx * jx + jz * jz);
+
+                if (d < nearest) nearest = d;
+            }
+            /* the farthest; a tie keeps the earlier record, the same on every headset */
+            if (nearest <= bestdist || !gevrAmmoSpawnSpot(pad, lift, &pos, &stan))
+            {
+                continue;
+            }
+            bestpad = obj->pad;
+            bestdist = nearest;
+            bestpos = pos;
+            beststan = stan;
+        }
+        if (bestpad < 0)
+        {
+            break;
+        }
+        *extra = g_CurrentSetup.pads[bestpad];
+        extra->pos = bestpos;
+        extra->stan = beststan;
+        dx = cx - bestpos.x;
+        dz = cz - bestpos.z;
+        len = sqrtf(dx * dx + dz * dz);
+        extra->look.x = len > 1.0f ? dx / len : 0.0f;
+        extra->look.y = 0.0f;
+        extra->look.z = len > 1.0f ? dz / len : 1.0f;
+        g_Startpad[startpadcount++] = extra;
+    }
+    if (get_cur_playernum() == 0)
+    {
+        sysLogPrintf(LOG_NOTE, "spawn: %d players, %d start pads; %d more at ammo spots",
+                     getPlayerCount(), original, startpadcount - original);
+        for (i = original; i < startpadcount; i++)
+        {
+            sysLogPrintf(LOG_NOTE, "spawn: start pad %d at %.0f %.0f %.0f", i,
+                         g_Startpad[i]->pos.x, g_Startpad[i]->pos.y, g_Startpad[i]->pos.z);
+        }
+    }
+}
 #endif
 
 void bondviewLoadSetupIntroSection(void)
@@ -441,6 +657,7 @@ void bondviewLoadSetupIntroSection(void)
     }
 
 #ifdef GEVR
+    gevrAddOnlineStartPads();
     sysLogPrintf(LOG_NOTE, "stage: intro cams=%d pads=%d swirl=%p cam0=%p spawnstan=%p",
         g_SetupIntroCameraCount, startpadcount, (void *)g_IntroSwirl,
         (void *)ptr_random06cam_entry,
