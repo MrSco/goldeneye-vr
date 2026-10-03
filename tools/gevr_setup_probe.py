@@ -43,10 +43,24 @@ def main():
             assert struct.unpack_from("=Q", result, intro + 40)[0] == 0x5678
             assert struct.unpack_from("=Q", result, intro + 48)[0] == 0
             assert struct.unpack_from("=I", result, intro + 56)[0] == 9
+
+        # A multi-ammo crate's slots are {u16 modelnum, u16 quantity} pairs.
+        # Copying them as words swapped each pair: quantity read the model
+        # number (0xFFFF when empty) and every crate gave every ammo type.
+        slots = [0xFFFF, 0] * 13
+        slots[0:2] = [0x00B0, 40]   # 9mm
+        slots[18:20] = [0x00C5, 2]  # knives
+        header = struct.pack(">10I", 0, 0, 0, 40, 0, 0, 0, 0, 0, 0)
+        crate = struct.pack(">HBB", 0, 0, 20) + bytes(0x7c) + struct.pack(">26H", *slots)
+        data = header + crate + bytes([0, 0, 0, 48])
+        buffer = C.create_string_buffer(data, 8192)
+        assert convert(buffer, len(data), len(buffer)), lib.gevrSetupFailCode()
+        props = struct.unpack_from("=Q", buffer.raw, 24)[0]
+        assert struct.unpack_from("=26H", buffer.raw, props + 0x90) == tuple(slots)
         if os.name == "nt":
             import _ctypes
             _ctypes.FreeLibrary(lib._handle)
-        print("PASS: tag IDs, signed object offsets, camera caption IDs and host strides")
+        print("PASS: tag IDs, signed object offsets, camera caption IDs, ammo crate slots and host strides")
 
 
 if __name__ == "__main__":
