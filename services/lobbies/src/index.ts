@@ -1,11 +1,18 @@
 import { DurableObject } from "cloudflare:workers";
+import { runReport, utcDay } from "./report";
 
-interface Env {
+export interface Env {
   REGISTRY: DurableObjectNamespace<LobbyRegistry>;
   TURN_KEY_ID: string;
   TURN_KEY_API_TOKEN: string;
   TURN_MONTHLY_CAP?: string;
   REPORT_TO: string;
+  CF_ACCOUNT_ID?: string;
+  CF_ZONE_ID?: string;
+  CF_ANALYTICS_TOKEN?: string;
+  TURN_FREE_GB?: string;
+  WORKERS_DAILY_LIMIT?: string;
+  DO_DAILY_LIMIT?: string;
   EMAIL: { send(message: {
     from: string; to: string; subject: string; text: string;
     attachments: Array<{ content: string; filename: string; type: string; disposition: "attachment" }>;
@@ -37,6 +44,9 @@ const MAX_LOBBY_LIFESPAN = 2 * 3600_000;
 // players it hears: an eight-player lobby relays up to about 7/3 as much per credential.
 // Games keep working without a relay: direct connections only.
 const TURN_MONTHLY_CAP_DEFAULT = 4000;
+const turnMonthlyCap = (env: Env) => env.TURN_MONTHLY_CAP === undefined ? TURN_MONTHLY_CAP_DEFAULT : Number(env.TURN_MONTHLY_CAP);
+const addDays = (day: string, days: number) => utcDay(Date.parse(day + "T00:00:00Z") + days * 86_400_000);
+export type StatsRow = { day: string; key: string; value: number };
 const msUntilNextUtcMonth = (now = Date.now()) => {
   const date = new Date(now);
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1) - now;
@@ -67,7 +77,101 @@ export class LobbyRegistry extends DurableObject<Env> {
       this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, count INTEGER NOT NULL, reset INTEGER NOT NULL)");
       this.ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS lobbies_expires ON lobbies(expires)");
       this.ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS joins_code ON joins(code)");
+      this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS stats (day TEXT NOT NULL, key TEXT NOT NULL, value INTEGER NOT NULL, PRIMARY KEY(day, key))");
+      this.ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS alerts (metric TEXT PRIMARY KEY, period TEXT NOT NULL, level INTEGER NOT NULL)");
     });
+  }
+
+  // Today's daily maximums, cached so that sampling them on every request writes a row only when one rises.
+  private peaks = new Map<string, number>();
+
+  private bump(key: string, now = Date.now()) {
+    this.ctx.storage.sql.exec(
+      "INSERT INTO stats(day,key,value) VALUES(?,?,1) ON CONFLICT(day,key) DO UPDATE SET value=value+1", utcDay(now), key);
+  }
+
+  private peak(key: string, value: number, now = Date.now()) {
+    const day = utcDay(now);
+    const cacheKey = day + ":" + key;
+    let known = this.peaks.get(cacheKey);
+    if (known === undefined) {
+      if (this.peaks.size > 16) this.peaks.clear();
+      known = this.ctx.storage.sql.exec<{ value: number }>("SELECT value FROM stats WHERE day=? AND key=?", day, key).toArray()[0]?.value ?? -1;
+      this.peaks.set(cacheKey, known);
+    }
+    if (value <= known) return;
+    this.peaks.set(cacheKey, value);
+    this.ctx.storage.sql.exec(
+      "INSERT INTO stats(day,key,value) VALUES(?,?,?) ON CONFLICT(day,key) DO UPDATE SET value=MAX(value, excluded.value)", day, key, value);
+  }
+
+  async record(key: "turn_issued" | "turn_refused" | "reports"): Promise<void> {
+    this.bump(key);
+  }
+
+  async statsRange(fromDay: string, toDay: string): Promise<StatsRow[]> {
+    return this.ctx.storage.sql.exec<StatsRow>("SELECT day, key, value FROM stats WHERE day>=? AND day<=? ORDER BY day", fromDay, toDay).toArray();
+  }
+
+  /** Relay credentials issued this UTC month under TURN_MONTHLY_CAP. */
+  async turnCredentialsThisMonth(): Promise<number> {
+    const row = this.ctx.storage.sql.exec<{ count: number; reset: number }>(
+      "SELECT count, reset FROM limits WHERE key=?", await digest("global:turn-month")).toArray()[0];
+    return row && row.reset >= Date.now() ? row.count : 0;
+  }
+
+  /** The highest alert level already emailed for a metric in this period, 0 if none. */
+  async alertLevelSent(metric: string, period: string): Promise<number> {
+    const row = this.ctx.storage.sql.exec<{ period: string; level: number }>("SELECT period, level FROM alerts WHERE metric=?", metric).toArray()[0];
+    return row && row.period === period ? row.level : 0;
+  }
+
+  async recordAlert(metric: string, period: string, level: number): Promise<void> {
+    this.ctx.storage.sql.exec(
+      "INSERT INTO alerts(metric,period,level) VALUES(?,?,?) ON CONFLICT(metric) DO UPDATE SET period=excluded.period, level=excluded.level", metric, period, level);
+  }
+
+  async publicStats(now = Date.now()): Promise<Response> {
+    const today = utcDay(now);
+    const from30 = addDays(today, -29);
+    const from14 = addDays(today, -13);
+    const sum = (where: string, ...args: (string | number)[]) =>
+      this.ctx.storage.sql.exec<{ key: string; total: number }>(`SELECT key, SUM(value) AS total FROM stats WHERE ${where} GROUP BY key`, ...args).toArray()
+        .reduce((totals, row) => (totals[row.key] = row.total, totals), {} as Record<string, number>);
+    const max = (key: string, fromDay = "") =>
+      this.ctx.storage.sql.exec<{ peak: number | null }>("SELECT MAX(value) AS peak FROM stats WHERE key=? AND day>=?", key, fromDay).one().peak ?? 0;
+    const lobbies = (t: Record<string, number>) => (t.lobbies_public ?? 0) + (t.lobbies_private ?? 0);
+    const all = sum("1=1");
+    const last30 = sum("day>=?", from30);
+    const day = sum("day=?", today);
+    const since = this.ctx.storage.sql.exec<{ since: string | null }>("SELECT MIN(day) AS since FROM stats").one().since;
+    const top = this.ctx.storage.sql.exec<{ key: string; total: number }>(
+      "SELECT key, SUM(value) AS total FROM stats WHERE key LIKE 'stage:%' GROUP BY key ORDER BY total DESC, key LIMIT 1").toArray()[0];
+    const byDay = new Map<string, Record<string, number>>();
+    for (const row of this.ctx.storage.sql.exec<StatsRow>(
+      "SELECT day, key, value FROM stats WHERE day>=? AND key IN ('lobbies_public','lobbies_private','matches_started')", from14).toArray()) {
+      const entry = byDay.get(row.day) ?? {};
+      entry[row.key] = row.value;
+      byDay.set(row.day, entry);
+    }
+    const daily = Array.from({ length: 14 }, (_, i) => {
+      const d = addDays(from14, i);
+      const t = byDay.get(d) ?? {};
+      return { day: d, lobbies: lobbies(t), matches: t.matches_started ?? 0 };
+    });
+    return json({
+      since,
+      today: { lobbies: lobbies(day), joins: day.join_attempts ?? 0, matches: day.matches_started ?? 0 },
+      last30: {
+        lobbies: lobbies(last30), joinAttempts: last30.join_attempts ?? 0, joinsConnected: last30.joins_connected ?? 0,
+        matches: last30.matches_started ?? 0, peakPlayers: max("peak_players", from30),
+      },
+      allTime: {
+        lobbies: lobbies(all), matches: all.matches_started ?? 0, joinsConnected: all.joins_connected ?? 0, peakPlayers: max("peak_players"),
+      },
+      topStage: top ? { stage: Number(top.key.slice(6)), matches: top.total } : null,
+      daily,
+    }, 200, { "cache-control": "public, max-age=300", "access-control-allow-origin": "*" });
   }
 
   private cleanup(now = Date.now()) {
@@ -77,6 +181,13 @@ export class LobbyRegistry extends DurableObject<Env> {
     );
     this.ctx.storage.sql.exec("DELETE FROM joins WHERE expires < ? OR code NOT IN (SELECT code FROM lobbies)", now);
     this.ctx.storage.sql.exec("DELETE FROM limits WHERE reset < ?", now);
+    this.samplePeaks(now);
+  }
+
+  private samplePeaks(now = Date.now()) {
+    const live = this.ctx.storage.sql.exec<{ lobbies: number; players: number | null }>("SELECT COUNT(*) AS lobbies, SUM(players) AS players FROM lobbies").one();
+    this.peak("peak_lobbies", live.lobbies, now);
+    this.peak("peak_players", live.players ?? 0, now);
   }
 
   async limit(ip: string, action: string, ceiling: number, windowMs = 60_000): Promise<boolean> {
@@ -109,6 +220,8 @@ export class LobbyRegistry extends DurableObject<Env> {
       "INSERT INTO lobbies(code,owner_hash,name,visibility,version,stage,weapons,players,max_players,open,expires,phase,created_at,phase_changed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
       code, await digest(ownerToken), x.name, x.visibility, x.version, x.stage, x.weapons, 1, x.maxPlayers, 1, now + TTL, "waiting", now, now
     );
+    this.bump(x.visibility === "private" ? "lobbies_private" : "lobbies_public", now);
+    this.samplePeaks(now);
     return json({ code, ownerToken, ttlSeconds: TTL / 1000 }, 201);
   }
 
@@ -157,6 +270,11 @@ export class LobbyRegistry extends DurableObject<Env> {
       "UPDATE lobbies SET players=?,open=?,phase=?,expires=?,created_at=?,phase_changed_at=?,name=?,max_players=? WHERE code=?",
       x.players, x.open ? 1 : 0, phase, now + TTL, createdAt, phaseChangedAt, x.name ?? lobby.name, maxPlayers, code
     );
+    if (phase === "in_progress" && lobby.phase !== "in_progress") {
+      this.bump("matches_started", now);
+      this.bump("stage:" + lobby.stage, now);
+    }
+    this.samplePeaks(now);
     return json({ ok: true });
   }
 
@@ -209,6 +327,7 @@ export class LobbyRegistry extends DurableObject<Env> {
     const id = crypto.randomUUID();
     const joinToken = crypto.randomUUID() + crypto.randomUUID();
     this.ctx.storage.sql.exec("INSERT INTO joins VALUES(?,?,?,?,?,?)", id, code, await digest(joinToken), null, null, Date.now() + 90_000);
+    this.bump("join_attempts");
     return json({ id, joinToken }, 201);
   }
 
@@ -233,9 +352,11 @@ export class LobbyRegistry extends DurableObject<Env> {
   }
 
   async answer(code: string, id: string, token: string, sdp: unknown): Promise<Response> {
-    if (!await this.authorized(code, id, token, true)) return bad("Join unavailable", 404);
+    const join = await this.authorized(code, id, token, true);
+    if (!join) return bad("Join unavailable", 404);
     if (!validSdp(sdp)) return bad("Invalid answer");
     this.ctx.storage.sql.exec("UPDATE joins SET answer=? WHERE id=?", sdp, id);
+    if (join.answer === null) this.bump("joins_connected");
     return json({ ok: true });
   }
 
@@ -361,6 +482,7 @@ async function report(request: Request, env: Env, registry: DurableObjectStub<Lo
     console.error(JSON.stringify({ event: "report_email_error", code: (error as { code?: string }).code, message: String(error) }));
     return bad("Report delivery unavailable", 503);
   }
+  await registry.record("reports");
   return json({ ok: true, id }, 201);
 }
 
@@ -390,6 +512,7 @@ export default {
       const token = request.headers.get("Authorization")?.replace(/^Bearer /i, "") || "";
       const body = request.method === "GET" || request.method === "DELETE" ? null : await request.json().catch(() => null);
       if (path.length === 2 && path[1] === "activity" && request.method === "GET") return registry.activity();
+      if (path.length === 2 && path[1] === "stats" && request.method === "GET") return registry.publicStats();
       if (path[1] !== "lobbies") return bad("Not found", 404);
       if (path.length === 2 && request.method === "POST") return registry.create(body);
       if (path.length === 2 && request.method === "GET") return registry.list(Number(url.searchParams.get("version")));
@@ -403,10 +526,14 @@ export default {
         if (!await registry.mayIssueTurn(code, id, token)) return bad("Not authorized", 403);
         if (!await registry.limit(ip, "turn-hour", 120, 3_600_000))
           return bad("Too many relay requests; try again later", 429);
-        const cap = env.TURN_MONTHLY_CAP === undefined ? TURN_MONTHLY_CAP_DEFAULT : Number(env.TURN_MONTHLY_CAP);
-        if (cap > 0 && !await registry.limit("global", "turn-month", cap, msUntilNextUtcMonth()))
+        const cap = turnMonthlyCap(env);
+        if (cap > 0 && !await registry.limit("global", "turn-month", cap, msUntilNextUtcMonth())) {
+          await registry.record("turn_refused");
           return bad("Monthly relay budget used; direct connections only", 503);
-        return turnCredentials(env);
+        }
+        const credentials = await turnCredentials(env);
+        if (credentials.ok) await registry.record("turn_issued");
+        return credentials;
       }
       if (path[3] === "joins" && path.length === 4 && request.method === "POST") return registry.join(code, Number((body as Record<string, unknown>)?.version));
       if (path[3] === "joins" && path.length === 4 && request.method === "GET") return registry.requests(code, token);
@@ -418,5 +545,9 @@ export default {
       console.error(JSON.stringify({ event: "lobby_error", message: String(error) }));
       return bad("Service unavailable", 503);
     }
+  },
+
+  async scheduled(controller: ScheduledController, env: Env): Promise<void> {
+    await runReport(env, env.REGISTRY.getByName("global-v1"), new Date(controller.scheduledTime), turnMonthlyCap(env));
   }
 } satisfies ExportedHandler<Env>;
