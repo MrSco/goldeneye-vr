@@ -6,6 +6,10 @@ logs are in docs/archive/; feature investigations keep their own notes.
 **Updated / current build:** 2026-10-03, v0.4.2; versionCode 55, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
 
+**v0.4.2:** co-op joiners fall back to player 0 in party title menus when their
+own slot has no player, preventing the viSetupCurrentPlayerView NULL-player
+crash (reports 253b6b4f, e8d14102).
+
 **v0.4.1:** co-op teammates watch the host's scripted and ending cutscenes
 through the host's camera and fades (#94, NET_MSG_COOP_CINEMA; protocol 17
 unchanged, v0.4.0 ignores the new message and still plays with v0.4.1). A
@@ -39,8 +43,8 @@ original health/armour arcs with live radar in the header, Start toggling,
 host restrictions and confirmed leave/end mission. The mobile
 Menu Studio starter matches that window; JSON exports guide native rearrangement.
 Signed local release builds and desktop/phone browser + production ImGui/input
-checks pass. Quest interaction and multiplayer headset testing remain
-outstanding. Protocol is unchanged; this build is not published as a release.
+checks pass. The user accepted the pause layout; multiplayer headset testing
+remains outstanding. Protocol is unchanged; no new release is published here.
 
 ## What it is and what works
 
