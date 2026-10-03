@@ -432,7 +432,7 @@ in two-handed holds.
   ring-radius check found it.
 - Totals: 14 models, 36 parts, 132 groups, 3748 triangles, 5440 weights.
 
-## The other pistols and the knives: the PP7's hand (2026-10-02, built, awaiting the headset)
+## The other pistols and the knives: the PP7's hand (2026-10-02, headset-accepted, merged)
 The golden gun (GgoldengunZ), Cougar (GrugerZ) and DD44 (Gtt33Z) were still
 on the old generic recipe (pale skirt and fingertip caps, the forearm end at
 60). Fitting each PP7 node onto their hands (a rigid motion per node:
