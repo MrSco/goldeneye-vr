@@ -160,7 +160,7 @@ export function validateProject(input) {
     if (a.kind === "font" && !/^data:(font\/[a-z0-9.-]+|application\/[a-z0-9.-]+);base64,/i.test(a.data || "") && a.data !== "/repo-assets/native-ui.ttf") throw new Error("Fonts must be embedded font files.");
     if (a.kind === "model") validateMesh(a.mesh);
   }
-  project.sample = { players: clone(defaultPlayers), map: "Facility", weaponSet: "Power Weapons", scenario: "Normal", phase: "waiting", mode: "deathmatch", objectives: [], ...project.sample };
+  project.sample = { players: clone(defaultPlayers), health: 100, armour: 50, map: "Facility", weaponSet: "Power Weapons", scenario: "Normal", phase: "waiting", mode: "deathmatch", objectives: [], ...project.sample };
   if (!["deathmatch","coop"].includes(project.sample.mode)) throw new Error("Invalid sample mode.");
   if (!Array.isArray(project.sample.objectives) || project.sample.objectives.length > 10 || !project.sample.objectives.every(o => o && typeof o.text === "string" && ["Incomplete","Complete","Failed"].includes(o.status))) throw new Error("Invalid objectives.");
   if (!Array.isArray(project.sample.players) || project.sample.players.length > 16) throw new Error("Invalid sample roster.");

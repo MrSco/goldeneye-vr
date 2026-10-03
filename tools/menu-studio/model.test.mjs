@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { clone, createNode, History, moveNodes, alignNodes, distributeNodes, validateProject, parseOBJ, parseGameModel, auditProject, handoffMarkdown } from "./model.js";
 import { starterProject, stages } from "./templates.js";
-import { interpolate, visibleNode } from "./render.js";
+import { interpolate, visibleNode, nodeContent } from "./render.js";
 
 test("starter project preserves game player limits and has valid links", () => {
   const p = validateProject(starterProject());
@@ -76,5 +76,15 @@ test("shared launcher window changes mode without mixing scores and objectives",
  const ballots=match.nodes.filter(n=>n.sampleKey.endsWith("Vote"));assert.equal(ballots.length,2);
  assert.ok(ballots.every(n=>n.editableBy==="everyone" && n.options.startsWith("No vote|")));
  assert.ok(p.screens.every(s=>s.nodes.find(n=>n.type==="tabs").tabTargets.length===4));
+ p.sample.health=35;p.sample.armour=80;
+ for(const screen of p.screens) {
+   const vitals=screen.nodes.filter(n=>n.binding==="gevrPauseLocalVitals");
+   assert.equal(vitals.length,4);
+   assert.ok(vitals.every(n=>n.y+n.h<98),"vitals are shared header content, with no Player footer copy");
+   assert.match(nodeContent(p,vitals.find(n=>n.name==="health header")),/HEALTH  35%/);
+   assert.match(nodeContent(p,vitals.find(n=>n.name==="armour header")),/ARMOUR  80%/);
+   assert.match(nodeContent(p,vitals.find(n=>n.name==="health bar")),/width:35%/);
+   assert.match(nodeContent(p,vitals.find(n=>n.name==="armour bar")),/width:80%/);
+ }
  assert.equal(auditProject(p).length,0);
 });
