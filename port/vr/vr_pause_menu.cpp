@@ -57,7 +57,8 @@ extern "C" void gevrNativePauseRender(void) {
     view.canReturn=!view.coop&&gevrPauseActionAvailable("RETURN TO LOBBY");view.countdown=netCountdownSecondsLeft();view.localReady=netLocalReady()!=0;
     snprintf(view.session,sizeof(view.session),"%s",view.coop?netCoopStageName(bossGetStageNum()):netStageName(netStageIndexOf((uint8_t)netGetLobbyStage())));
     snprintf(view.status,sizeof(view.status),"%s",view.coop?netDifficultyName(netGetMatchConfig()->difficulty):view.countdown>0?"Match is starting":netGetPhase()==NET_PHASE_IN_PROGRESS?"Match continues while this menu is open":"Warmup / next round");
-    gevrPauseLocalVitals(&view.health,&view.armour);
+    gevrPauseLocalGauges(view.gauges);
+    gevrPauseLocalRadar(&view.radar);
     const NetMsgLobbyState*lobby=netGetLobbyState();
     for(int slot=0;slot<(view.coop?4:8);slot++)if(netSlotOccupied(slot)) {
         auto&p=view.players[view.count++];snprintf(p.name,sizeof(p.name),"%s",netGetSlotName(slot)?netGetSlotName(slot):"Player");
