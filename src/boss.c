@@ -57,6 +57,7 @@ extern u64 sysGetMicroseconds(void);
 extern bool netSlotOccupied(int slot);
 extern bool netTakeRoundReset(void);
 extern void netStageLoaded(void);
+extern void netCoopStageLoaded(void);   /* co-op (#94): a new mission's guards (net_coop.c) */
 extern int netCoopActive(void);
 extern void netCoopMissionEnded(int success);
 extern int netGetLocalSlot(void);
@@ -521,6 +522,7 @@ void bossMainloop(void)
             gevrLobbySessionStopped();
         for (int slot = 0; slot < 4; slot++) s_net_slot_enabled[slot] = TRUE;
         s_net_session_started = netIsActive() && g_StageNum != LEVELID_TITLE;
+        netCoopStageLoaded();   /* a load, which netStageLoaded's other calls are not */
         netStageLoaded();
 #endif
         sysLogPrintf(LOG_NOTE, "stage: loading: lvlStageLoad done (stage pool %d bytes left)", mempGetBankSizeLeft(MEMPOOL_STAGE));

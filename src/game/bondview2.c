@@ -331,6 +331,63 @@ static s32 s_gevrMenuHeadValid;
 static struct coord3d s_gevrMenuOffset;
 
 /* bondview2.c walk path, just before the body's move this tick. */
+/*
+ * Co-op (#94): a player joining a mission under way starts beside a
+ * teammate, not at the mission's start (net_coop.c, the host's word). It is
+ * placed as chrai.c AI_TRYTeleportingChrToPad places a chr: a clear spot a
+ * step from the teammate (chrAdjustPosForSpawn), its tile, the collision
+ * position the movement code carries on from.
+ */
+s32 gevrCoopPlaceBeside(s32 target)
+{
+    struct player *them = (target >= 0 && target < 4) ? g_playerPointers[target] : NULL;
+    PropRecord *prop = g_CurrentPlayer != NULL ? g_CurrentPlayer->prop : NULL;
+    ChrRecord *chr = prop != NULL ? prop->chr : NULL;
+    coord3d pos;
+    StandTile *stan;
+    f32 facing;
+
+    if (chr == NULL || them == NULL || them == g_CurrentPlayer || them->prop == NULL)
+    {
+        return FALSE;
+    }
+    pos = them->prop->pos;
+    stan = them->prop->stan;
+    if (stan == NULL)
+    {
+        coord3d probe = pos;
+        f32 y;
+
+        probe.y += 50.0f;
+        stan = stanFindTileBelowPos(&probe, NULL, &y);
+        if (stan == NULL)
+        {
+            return FALSE;
+        }
+    }
+    facing = them->vv_theta * (M_TAU_F / 360.0f) + M_PI_F;   /* behind them first, then round */
+    if (facing >= M_TAU_F)
+    {
+        facing -= M_TAU_F;
+    }
+    sub_GAME_7F03D058(prop, FALSE);
+    if (!chrAdjustPosForSpawn(&pos, &stan, facing, TRUE))
+    {
+        sub_GAME_7F03D058(prop, TRUE);
+        return FALSE;
+    }
+    prop->pos = pos;
+    prop->stan = stan;
+    g_CurrentPlayer->field_488.collision_position.x = pos.x;
+    g_CurrentPlayer->field_488.collision_position.y = pos.y;
+    g_CurrentPlayer->field_488.collision_position.z = pos.z;
+    g_CurrentPlayer->field_488.current_tile_ptr = stan;
+    chrDetectRooms(chr);
+    gevrNotifyTeleport();
+    sub_GAME_7F03D058(prop, TRUE);
+    return TRUE;
+}
+
 void gevrStereoHeadWalk(struct coord3d *move_offset)
 {
     if (gevrSpectating() || gevrCoopLocalDowned()) return;

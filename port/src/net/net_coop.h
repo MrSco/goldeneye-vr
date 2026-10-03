@@ -46,6 +46,12 @@ int gevrCoopGoDown(void);                   /* bondview2.c record_damage_kills: 
 void netCoopReviveTick(void);               /* netPoll: being revived; the host: everyone down fails the mission */
 void netCoopSlotLeft(int slot);             /* the host: a player left; not down, holding nothing */
 
+/* Drop-in and a host change (net_core.c) */
+void netCoopSendTo(int slot, const unsigned char *data, unsigned int size);   /* the host: to one player, reliably */
+void netCoopPlayerJoined(int slot, int returning);   /* the host: a player loaded in (STAGE_READY) */
+void netCoopHostLost(int oldhost, int elected);      /* netHostLost */
+void netCoopBecameHost(void);               /* netHostTakeOver: the AI resumes here */
+
 /* The mission: the host's, shown everywhere (objective_status.c, chrai.c, gunfire.c) */
 int gevrCoopHostObjectiveStatus(int objective);   /* a teammate's headset: the host's status */
 int gevrCoopTeammateHolds(int tag);         /* the host: a teammate's player holds this objective item */

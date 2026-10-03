@@ -72,6 +72,43 @@ static int s_host_sees_me_down = -1;      /* a teammate's headset: the host's la
 static u64 s_down_sent_us;
 static void coopReviveReset(void);
 static void coopAnnounceDowned(int slot, bool down);
+static void coopDropInReset(void);
+static void coopRecordSetup(void);
+static void coopHostDropIn(u64 now);
+struct netbuf;
+static void coopHeader(struct netbuf *b, u8 type);
+static void coopWriteSpawn(struct netbuf *buf, ChrRecord *chr, s32 slot, AIRecord *ailist, s32 spawnflags);
+static bool coopTeammateUp(int i);
+
+/* Drop-in and a host change (below, "Drop-in, drop-out and a host change") */
+#define COOP_BACKGROUND_MAX 64
+typedef struct {
+    s16 ailist;            /* its AI list's id, -1 none */
+    u16 aioffset;
+    s16 aireturnlist;
+    u8 morale, alertness, flags2, random;
+    s32 timer60;
+    s16 padpreset1, chrpreset1, chrseeshot, chrseedie;
+    u32 chrflags;
+    u16 hidden;
+    s8 sleep;
+    bool valid;
+} CoopAi;
+
+static bool s_setup[COOP_MAX_SLOTS];
+static bool s_setup_recorded;
+static bool s_spawned[COOP_MAX_SLOTS];
+static s32 s_spawn_flags[COOP_MAX_SLOTS];
+static CoopAi s_ai[COOP_MAX_SLOTS];          /* a client: the host's guards' AI, by the host's slot */
+static CoopAi s_ai_bg[COOP_BACKGROUND_MAX];  /* and its background lists (g_ActiveChrs) */
+static u64 s_ai_sent_us;
+static u64 s_stage_loaded_us;
+static u64 s_roster_at_us[4];
+static u8 s_roster_left[4];
+static bool s_roster_remap[4];
+static bool s_await_remap;                   /* a client between hosts: the new host's slots are not yet known */
+static u16 s_remap_old[COOP_MAX_SLOTS], s_remap_new[COOP_MAX_SLOTS];   /* the new host: old host's slot -> its own */
+static int s_remap_count;
 
 /* ---- The animation's identity ---- */
 
@@ -182,6 +219,7 @@ void netCoopHostTick(void)
 
     if (!netCoopActive() || !netIsHost()) return;
     coopHostMission(now);
+    coopHostDropIn(now);
     if (!g_ChrSlots || now - s_last_send_us < COOP_SEND_INTERVAL_US) return;
     s_last_send_us = now;
     s_state_seq++;
@@ -224,25 +262,14 @@ void gevrCoopChrSpawned(ChrRecord *chr, AIRecord *ailist, s32 spawnflags)
 {
     u8 raw[48];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
-    s32 global = FALSE;
     s32 slot = coopSlotOf(chr);
-    s32 listid = ailist ? chraiGetAIListID(ailist, &global) : -1;
 
-    if (!netCoopActive() || !netIsHost() || slot < 0 || !chr->prop || !chr->model) return;
-    netbufStartWrite(&buf);
-    netbufWriteU32(&buf, GEVR_NET_MAGIC);
-    netbufWriteU16(&buf, GEVR_NET_VERSION);
-    netbufWriteU8(&buf, NET_MSG_CHR_SPAWN);
-    netbufWriteU8(&buf, (uint8_t)netGetLocalSlot());
-    netbufWriteU16(&buf, (u16)slot);
-    netbufWriteS16(&buf, chr->chrnum);
-    netbufWriteS8(&buf, chr->bodynum);
-    netbufWriteS8(&buf, chr->headnum);
-    netbufWriteU32(&buf, (u32)spawnflags);
-    netbufWriteS32(&buf, listid);
-    netbufWriteCoord(&buf, &chr->prop->pos);
-    netbufWriteF32(&buf, getsubroty(chr->model));
-    s_sent[slot < COOP_MAX_SLOTS ? slot : 0].sent = false;
+    if (!netCoopActive() || slot < 0 || slot >= COOP_MAX_SLOTS) return;
+    s_spawned[slot] = true;   /* not the setup's: a joiner's roster has it */
+    s_spawn_flags[slot] = spawnflags;
+    if (!netIsHost() || !chr->prop || !chr->model) return;
+    coopWriteSpawn(&buf, chr, slot, ailist, spawnflags);
+    s_sent[slot].sent = false;
     netCoopBroadcast(buf.data, buf.wp, true);
     COOP_LOG("spawn tx: slot %d chrnum %d body %d head %d", slot, chr->chrnum, chr->bodynum, chr->headnum);
 }
@@ -254,6 +281,7 @@ void gevrCoopChrRemoved(ChrRecord *chr)
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     s32 slot = coopSlotOf(chr);
 
+    if (slot >= 0 && slot < COOP_MAX_SLOTS) s_spawned[slot] = false;
     if (!netCoopActive() || !netIsHost() || slot < 0) return;
     if (slot < COOP_MAX_SLOTS) s_sent[slot].sent = false;
     netbufStartWrite(&buf);
@@ -502,6 +530,7 @@ void netCoopStageLoaded(void)
     memset(s_guard_explosive, 0, sizeof(s_guard_explosive));
     coopMissionReset();
     coopReviveReset();
+    coopDropInReset();
     s_last_send_us = 0;
     g_gevrCoopGuardTick = FALSE;
     g_gevrCoopApplyingHit = FALSE;
@@ -518,6 +547,7 @@ static void coopReceiveStates(struct netbuf *b)
 {
     u32 seq = netbufReadU32(b);
     u8 count = netbufReadU8(b);
+    if (s_await_remap) return;   /* the new host's slots, not yet known */
     if (b->error || count == 0 || count > NET_CHR_STATES_PER_PACKET || netbufReadLeft(b) != count * NET_CHR_STATE_BYTES) return;
     for (int i = 0; i < count; i++) {
         NetChrState st;
@@ -544,6 +574,7 @@ static void coopReceiveSpawn(struct netbuf *b)
     f32 angle;
     netbufReadCoord(b, &pos);
     angle = netbufReadF32(b);
+    if (s_await_remap) return;   /* its roster, after the remap, has it */
     if (b->error || netbufReadLeft(b) || hostslot >= COOP_MAX_SLOTS || !isfinite(pos.x) || !isfinite(pos.y) ||
         !isfinite(pos.z) || !isfinite(angle) || !g_ChrSlots) return;
     ChrRecord *existing = coopLocalChr(hostslot);
@@ -568,6 +599,10 @@ static void coopReceiveSpawn(struct netbuf *b)
     prop->chr->bodynum = body;
     prop->chr->chrnum = chrnum;
     s32 local = coopSlotOf(prop->chr);
+    if (local >= 0 && local < COOP_MAX_SLOTS) {
+        s_spawned[local] = true;
+        s_spawn_flags[local] = (s32)flags;
+    }
     if (s_local_of[hostslot] >= 0 && s_local_of[hostslot] < COOP_MAX_SLOTS && s_host_of[s_local_of[hostslot]] == hostslot)
         s_host_of[s_local_of[hostslot]] = -1;
     s_local_of[hostslot] = (s16)local;
@@ -583,7 +618,7 @@ static void coopReceiveSpawn(struct netbuf *b)
 static void coopReceiveRemove(struct netbuf *b)
 {
     u16 hostslot = netbufReadU16(b);
-    if (b->error || netbufReadLeft(b) || hostslot >= COOP_MAX_SLOTS) return;
+    if (s_await_remap || b->error || netbufReadLeft(b) || hostslot >= COOP_MAX_SLOTS) return;
     ChrRecord *chr = coopLocalChr(hostslot);
     s32 local = s_local_of[hostslot];
     if (chr && coopChrLive(chr)) chr->hidden |= CHRHIDDEN_REMOVE;   /* freed at its next chrTick */
@@ -1069,7 +1104,9 @@ void netCoopReviveTick(void)
     struct player *pl = me >= 0 && me < 4 ? g_playerPointers[me] : NULL;
     u64 now = sysGetMicroseconds();
 
-    if (!netCoopActive() || !pl || !pl->prop) return;
+    if (!netCoopActive()) return;
+    coopRecordSetup();
+    if (!pl || !pl->prop) return;
     if (s_downed[me]) {
         int by = -1;
         pl->bondhealth = COOP_DOWNED_HEALTH;
@@ -1115,6 +1152,346 @@ void netCoopReviveTick(void)
     }
 }
 
+/* ---- Drop-in, drop-out and a host change ---- */
+
+/*
+ * Every headset knows which guard slots its mission's setup filled
+ * (s_setup, at the first tick) and which hold a spawned guard (s_spawned:
+ * the host's own spawns, or a client's from the host's NET_MSG_CHR_SPAWN).
+ * A player joining a mission under way loads it fresh, with the setup's
+ * guards; the host sends it a roster, only to it: the setup guards gone
+ * here, and the guards spawned since. After a host change the new host's
+ * slots are not the old host's: a returning player first gets the remap.
+ */
+#define COOP_AI_INTERVAL_US 2000000ull       /* the guards' AI state, every two seconds */
+#define COOP_AI_RECORD_BYTES 32
+#define COOP_AI_PER_PACKET 32
+#define COOP_ROSTER_DELAY_US 1500000ull      /* after its STAGE_READY: it has ticked by then */
+#define COOP_PLACE_AFTER_US 15000000ull      /* a mission older than this: a joiner starts beside a teammate */
+
+
+static void coopDropInReset(void)
+{
+    memset(s_setup, 0, sizeof(s_setup));
+    memset(s_spawned, 0, sizeof(s_spawned));
+    memset(s_spawn_flags, 0, sizeof(s_spawn_flags));
+    memset(s_ai, 0, sizeof(s_ai));
+    memset(s_ai_bg, 0, sizeof(s_ai_bg));
+    memset(s_roster_left, 0, sizeof(s_roster_left));
+    s_setup_recorded = false;
+    s_ai_sent_us = 0;
+    s_stage_loaded_us = sysGetMicroseconds();
+    s_await_remap = false;
+    s_remap_count = 0;
+}
+
+/* The first tick after a load: the setup's guards */
+static void coopRecordSetup(void)
+{
+    if (s_setup_recorded || !g_ChrSlots) return;
+    s_setup_recorded = true;
+    for (s32 slot = 0; slot < g_NumChrSlots && slot < COOP_MAX_SLOTS; slot++)
+        s_setup[slot] = coopChrLive(&g_ChrSlots[slot]) && !s_spawned[slot];
+}
+
+static void coopWriteSpawn(struct netbuf *buf, ChrRecord *chr, s32 slot, AIRecord *ailist, s32 spawnflags)
+{
+    s32 global = FALSE;
+    s32 listid = ailist ? chraiGetAIListID(ailist, &global) : -1;
+    coopHeader(buf, NET_MSG_CHR_SPAWN);
+    netbufWriteU16(buf, (u16)slot);
+    netbufWriteS16(buf, chr->chrnum);
+    netbufWriteS8(buf, chr->bodynum);
+    netbufWriteS8(buf, chr->headnum);
+    netbufWriteU32(buf, (u32)spawnflags);
+    netbufWriteS32(buf, listid);
+    netbufWriteCoord(buf, &chr->prop->pos);
+    netbufWriteF32(buf, getsubroty(chr->model));
+}
+
+static void coopWriteRemove(struct netbuf *buf, s32 slot)
+{
+    coopHeader(buf, NET_MSG_CHR_REMOVE);
+    netbufWriteU16(buf, (u16)slot);
+}
+
+/* The host: a player loaded the mission (fresh, or back after a host change) */
+void netCoopPlayerJoined(int slot, int returning)
+{
+    if (!netCoopActive() || !netIsHost() || slot < 0 || slot >= 4 || slot == netGetLocalSlot()) return;
+    s_roster_at_us[slot] = sysGetMicroseconds() + COOP_ROSTER_DELAY_US;
+    s_roster_left[slot] = 2;   /* and once more, a few seconds on */
+    s_roster_remap[slot] = returning != 0;
+    for (int i = 0; i < COOP_MAX_SLOTS; i++) s_sent[i].sent = false;   /* every guard's state, at once */
+    s_mission_check_us = s_mission_sent_us = 0;
+    s_ai_sent_us = 0;
+    COOP_LOG("slot %d %s: roster in %.1f s", slot, returning ? "is back" : "joined", COOP_ROSTER_DELAY_US / 1000000.0);
+}
+
+static int coopBesideWhom(int joiner)
+{
+    s32 me = netGetLocalSlot();
+    if (me >= 0 && me < 4 && me != joiner && coopTeammateUp(me)) return me;
+    for (int i = 0; i < 4; i++)
+        if (i != joiner && coopTeammateUp(i)) return i;
+    return -1;
+}
+
+static void coopSendRoster(int slot)
+{
+    u8 raw[64];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    int removes = 0, spawns = 0;
+
+    if (s_roster_remap[slot]) {
+        u8 big[16 + COOP_MAX_SLOTS * 4];
+        struct netbuf rb = { .data = big, .size = sizeof(big) };
+        coopHeader(&rb, NET_MSG_CHR_REMAP);
+        netbufWriteU16(&rb, (u16)s_remap_count);
+        for (int i = 0; i < s_remap_count; i++) {
+            netbufWriteU16(&rb, s_remap_old[i]);
+            netbufWriteU16(&rb, s_remap_new[i]);
+        }
+        if (!rb.error) netCoopSendTo(slot, rb.data, rb.wp);
+    }
+    for (s32 s = 0; g_ChrSlots && s < g_NumChrSlots && s < COOP_MAX_SLOTS; s++) {
+        ChrRecord *chr = &g_ChrSlots[s];
+        bool live = coopChrLive(chr) && !(chr->hidden & CHRHIDDEN_REMOVE);
+        if (s_setup[s] && (!live || s_spawned[s])) {
+            coopWriteRemove(&buf, s);
+            netCoopSendTo(slot, buf.data, buf.wp);
+            removes++;
+        }
+        if (live && s_spawned[s]) {
+            coopWriteSpawn(&buf, chr, s, chr->ailist, s_spawn_flags[s]);
+            if (!buf.error) netCoopSendTo(slot, buf.data, buf.wp);
+            spawns++;
+        }
+    }
+    if (!s_roster_remap[slot] && sysGetMicroseconds() - s_stage_loaded_us > COOP_PLACE_AFTER_US) {
+        int beside = coopBesideWhom(slot);
+        if (beside >= 0) {
+            coopHeader(&buf, NET_MSG_COOP_JOIN);
+            netbufWriteU8(&buf, (u8)slot);
+            netbufWriteU8(&buf, (u8)beside);
+            netCoopSendTo(slot, buf.data, buf.wp);
+        }
+    }
+    COOP_LOG("roster to slot %d: %d gone, %d spawned%s", slot, removes, spawns, s_roster_remap[slot] ? ", with the remap" : "");
+}
+
+/* The host, from netCoopHostTick: rosters due, and the AI state */
+static void coopHostDropIn(u64 now)
+{
+    for (int i = 0; i < 4; i++) {
+        if (!s_roster_left[i] || now < s_roster_at_us[i]) continue;
+        if (!netSlotOccupied(i)) {
+            s_roster_left[i] = 0;
+            continue;
+        }
+        coopSendRoster(i);
+        s_roster_left[i]--;
+        s_roster_at_us[i] = now + 3500000ull;
+        s_roster_remap[i] = false;   /* the second time, the maps are right */
+    }
+    if (now - s_ai_sent_us < COOP_AI_INTERVAL_US) return;
+    s_ai_sent_us = now;
+    {
+        u8 raw[16 + COOP_AI_PER_PACKET * COOP_AI_RECORD_BYTES];
+        struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+        int count = 0;
+        s32 total = (g_ChrSlots ? (g_NumChrSlots < COOP_MAX_SLOTS ? g_NumChrSlots : COOP_MAX_SLOTS) : 0);
+        s32 bg = g_ActiveChrs ? (g_ActiveChrsCount < COOP_BACKGROUND_MAX ? g_ActiveChrsCount : COOP_BACKGROUND_MAX) : 0;
+        for (s32 n = 0; n < total + bg; n++) {
+            ChrRecord *chr = n < total ? &g_ChrSlots[n] : &g_ActiveChrs[n - total];
+            u16 id = n < total ? (u16)n : (u16)(0x8000 | (n - total));
+            s32 global = FALSE;
+            if (n < total && !coopChrLive(chr)) continue;
+            if (!count) {
+                coopHeader(&buf, NET_MSG_CHR_AI);
+                netbufWriteU8(&buf, 0);   /* the count, filled in below */
+            }
+            netbufWriteU16(&buf, id);
+            netbufWriteS16(&buf, chr->ailist ? (s16)chraiGetAIListID(chr->ailist, &global) : -1);
+            netbufWriteU16(&buf, chr->aioffset);
+            netbufWriteS16(&buf, chr->aireturnlist);
+            netbufWriteU8(&buf, chr->morale);
+            netbufWriteU8(&buf, chr->alertness);
+            netbufWriteU8(&buf, chr->flags2);
+            netbufWriteU8(&buf, chr->random);
+            netbufWriteS32(&buf, chr->timer60);
+            netbufWriteS16(&buf, chr->padpreset1);
+            netbufWriteS16(&buf, chr->chrpreset1);
+            netbufWriteS16(&buf, chr->chrseeshot);
+            netbufWriteS16(&buf, chr->chrseedie);
+            netbufWriteU32(&buf, (u32)chr->chrflags);
+            netbufWriteU16(&buf, chr->hidden);
+            netbufWriteS8(&buf, chr->sleep);
+            netbufWriteU8(&buf, 0);
+            if (++count == COOP_AI_PER_PACKET) {
+                raw[8] = (u8)count;
+                netCoopBroadcast(buf.data, buf.wp, false);
+                count = 0;
+            }
+        }
+        if (count) {
+            raw[8] = (u8)count;
+            netCoopBroadcast(buf.data, buf.wp, false);
+        }
+    }
+}
+
+static void coopReceiveAi(struct netbuf *b)
+{
+    u8 count = netbufReadU8(b);
+    if (b->error || count == 0 || count > COOP_AI_PER_PACKET || netbufReadLeft(b) != count * (u32)COOP_AI_RECORD_BYTES) return;
+    for (int i = 0; i < count; i++) {
+        CoopAi a;
+        u16 id = netbufReadU16(b);
+        a.ailist = netbufReadS16(b);
+        a.aioffset = netbufReadU16(b);
+        a.aireturnlist = netbufReadS16(b);
+        a.morale = netbufReadU8(b);
+        a.alertness = netbufReadU8(b);
+        a.flags2 = netbufReadU8(b);
+        a.random = netbufReadU8(b);
+        a.timer60 = netbufReadS32(b);
+        a.padpreset1 = netbufReadS16(b);
+        a.chrpreset1 = netbufReadS16(b);
+        a.chrseeshot = netbufReadS16(b);
+        a.chrseedie = netbufReadS16(b);
+        a.chrflags = netbufReadU32(b);
+        a.hidden = netbufReadU16(b);
+        a.sleep = netbufReadS8(b);
+        (void)netbufReadU8(b);
+        a.valid = true;
+        if (b->error) return;
+        if (id & 0x8000) {
+            if ((id & 0x7FFF) < COOP_BACKGROUND_MAX) s_ai_bg[id & 0x7FFF] = a;
+        } else if (id < COOP_MAX_SLOTS) {
+            s_ai[id] = a;
+        }
+    }
+}
+
+static void coopApplyAi(ChrRecord *chr, const CoopAi *a)
+{
+    AIRecord *list = a->ailist >= 0 ? ailistFindById(a->ailist) : NULL;
+    if (list) {
+        chr->ailist = list;
+        chr->aioffset = a->aioffset;
+    }
+    chr->aireturnlist = a->aireturnlist;
+    chr->morale = a->morale;
+    chr->alertness = a->alertness;
+    chr->flags2 = a->flags2;
+    chr->random = a->random;
+    chr->timer60 = a->timer60;
+    chr->padpreset1 = a->padpreset1;
+    chr->chrpreset1 = a->chrpreset1;
+    chr->chrseeshot = a->chrseeshot;
+    chr->chrseedie = a->chrseedie;
+    chr->chrflags = (CHRFLAG)a->chrflags;
+    chr->hidden = (u16)((chr->hidden & ~CHRHIDDEN_TIMER_ACTIVE) | (a->hidden & CHRHIDDEN_TIMER_ACTIVE));
+    chr->sleep = 0;   /* its AI runs at the next tick */
+}
+
+/* A client whose host left (net_core.c netHostLost): elected, or rejoining another */
+void netCoopHostLost(int oldhost, int elected)
+{
+    if (!netCoopActive()) return;
+    netCoopSlotLeft(oldhost);
+    if (!elected) s_await_remap = true;   /* the new host's slots, from its remap */
+    for (int i = 0; i < COOP_MAX_SLOTS; i++) s_puppet[i].valid = false;
+    COOP_LOG("the host (slot %d) left: %s", oldhost, elected ? "taking the mission over" : "waiting for the new host");
+}
+
+/*
+ * net_core.c netHostTakeOver: this headset runs the mission now. Its guards
+ * were the old host's puppets; each takes up the old host's AI where the
+ * last AI state (at most two seconds old) left it, its background lists
+ * too, and plays on from where it stands. Its slots are the guards' names
+ * from now on: the remap for the others, who knew the old host's.
+ */
+void netCoopBecameHost(void)
+{
+    int applied = 0, bgapplied = 0;
+    if (!netCoopActive() || !g_ChrSlots) return;
+    s_remap_count = 0;
+    for (int h = 0; h < COOP_MAX_SLOTS; h++) {
+        int local = s_local_of[h];
+        if (local < 0 || local >= g_NumChrSlots) continue;
+        ChrRecord *chr = &g_ChrSlots[local];
+        if (!coopChrLive(chr)) continue;
+        s_remap_old[s_remap_count] = (u16)h;
+        s_remap_new[s_remap_count] = (u16)local;
+        s_remap_count++;
+        if (s_ai[h].valid) {
+            coopApplyAi(chr, &s_ai[h]);
+            applied++;
+        }
+        if (chr->actiontype == ACT_DIE) {
+            /* mid-fall on the old host: down for good here */
+            memset(&chr->act_dead, 0, sizeof(chr->act_dead));
+            chr->actiontype = ACT_DEAD;
+        }
+        chrStopFiring(chr);
+        chr->sleep = 0;
+    }
+    for (int i = 0; g_ActiveChrs && i < g_ActiveChrsCount && i < COOP_BACKGROUND_MAX; i++) {
+        if (s_ai_bg[i].valid) {
+            coopApplyAi(&g_ActiveChrs[i], &s_ai_bg[i]);
+            bgapplied++;
+        }
+    }
+    for (int i = 0; i < COOP_MAX_SLOTS; i++) {
+        s_sent[i].sent = false;
+        s_target[i].player = -1;
+        s_target[i].until60 = 0;
+    }
+    s_mission_check_us = s_mission_sent_us = 0;
+    s_ai_sent_us = 0;
+    s_await_remap = false;
+    COOP_LOG("now the host: %d guards and %d background lists take up their AI; %d guards in the remap",
+             applied, bgapplied, s_remap_count);
+}
+
+/* A client back with the new host: its slots for the old host's */
+static void coopReceiveRemap(struct netbuf *b)
+{
+    u16 n = netbufReadU16(b);
+    static s16 local_of[COOP_MAX_SLOTS], host_of[COOP_MAX_SLOTS];
+    if (b->error || n > COOP_MAX_SLOTS || netbufReadLeft(b) != n * 4u) return;
+    for (int i = 0; i < COOP_MAX_SLOTS; i++) local_of[i] = host_of[i] = -1;
+    for (int i = 0; i < n; i++) {
+        u16 oldh = netbufReadU16(b), newh = netbufReadU16(b);
+        if (oldh >= COOP_MAX_SLOTS || newh >= COOP_MAX_SLOTS) continue;
+        int local = s_local_of[oldh];
+        if (local < 0 || local >= COOP_MAX_SLOTS) continue;
+        local_of[newh] = (s16)local;
+        host_of[local] = (s16)newh;
+    }
+    if (b->error) return;
+    memcpy(s_local_of, local_of, sizeof(s_local_of));
+    memcpy(s_host_of, host_of, sizeof(s_host_of));
+    memset(s_puppet, 0, sizeof(s_puppet));
+    s_await_remap = false;
+    COOP_LOG("remap from the new host: %d guards", n);
+}
+
+/* A joiner: the host's word to start beside a teammate */
+static void coopReceiveJoin(struct netbuf *b)
+{
+    extern s32 gevrCoopPlaceBeside(s32 target);
+    u8 joiner = netbufReadU8(b), beside = netbufReadU8(b);
+    s32 prev;
+    if (b->error || netbufReadLeft(b) || joiner != netGetLocalSlot() || beside >= 4 || beside == joiner) return;
+    prev = get_cur_playernum();
+    set_cur_player(joiner);
+    if (gevrCoopPlaceBeside(beside)) COOP_LOG("joined beside slot %d", beside);
+    set_cur_player(prev);
+}
+
 static void coopShowText(int top, int textid)
 {
     s32 prev = get_cur_playernum();
@@ -1157,6 +1534,9 @@ void netCoopReceive(int type, int slot, int from_host, struct netbuf *b)
         case NET_MSG_COOP_MISSION: if (from_host && !netIsHost()) coopReceiveMission(b); break;
         case NET_MSG_COOP_TEXT: if (from_host && !netIsHost()) coopReceiveText(b); break;
         case NET_MSG_COOP_EVENT: if (netIsHost()) coopReceiveEvent(slot, b); break;
+        case NET_MSG_CHR_AI: if (from_host && !netIsHost()) coopReceiveAi(b); break;
+        case NET_MSG_CHR_REMAP: if (from_host && !netIsHost()) coopReceiveRemap(b); break;
+        case NET_MSG_COOP_JOIN: if (from_host && !netIsHost()) coopReceiveJoin(b); break;
         case NET_MSG_CHR_STATE: if (from_host && !netIsHost()) coopReceiveStates(b); break;
         case NET_MSG_CHR_SPAWN: if (from_host && !netIsHost()) coopReceiveSpawn(b); break;
         case NET_MSG_CHR_REMOVE: if (from_host && !netIsHost()) coopReceiveRemove(b); break;

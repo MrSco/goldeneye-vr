@@ -91,6 +91,9 @@ typedef enum {
     NET_MSG_COOP_MISSION = 41,  /* Host -> all: the stage flags, the alarm and every objective's status */
     NET_MSG_COOP_EVENT = 42,    /* Client -> host: what my player did that the objectives count (NET_COOP_EVENT_*) */
     NET_MSG_COOP_TEXT = 43,     /* Host -> all: a mission script's message (top or bottom, the text id) */
+    NET_MSG_CHR_AI = 44,        /* Host -> all, unreliable: each guard's and background list's AI state (a new host resumes it) */
+    NET_MSG_CHR_REMAP = 45,     /* New host -> a returning player: the old host's guard slots -> the new host's */
+    NET_MSG_COOP_JOIN = 46,     /* Host -> a joiner: start beside this teammate */
 } NetMsgType;
 
 /*
