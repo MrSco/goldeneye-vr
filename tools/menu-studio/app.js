@@ -14,7 +14,7 @@ const screen = () => currentProject().screens.find(s => s.id === activeId) || cu
 const selectedNodes = () => screen().nodes.filter(n => selected.has(n.id));
 const isTyping = target => target.closest("input,textarea,select,[contenteditable]");
 const titleFor = type => componentTypes.find(t => t[0] === type)?.[1] || type;
-const symbols = { text:"T", button:"↗", panel:"▣", image:"▧", model:"◇", divider:"—", roster:"♙", player:"♟", "server-list":"☷", vote:"✓", scoreboard:"≡", loadout:"⌑", chat:"☏", countdown:"◷", badge:"●", tabs:"⊟", toggle:"◐", slider:"⊸", select:"⌄", input:"▤", progress:"▰" };
+const symbols = { text:"T", button:"↗", panel:"▣", image:"▧", model:"◇", divider:"—", roster:"♙", player:"♟", "server-list":"☷", vote:"✓", scoreboard:"≡", loadout:"⌑", chat:"☏", countdown:"◷", badge:"●", tabs:"⊟", toggle:"◐", slider:"⊸", select:"⌄", input:"▤", progress:"▰", gauge:"◖", radar:"◉" };
 const safeName = value => String(value).replace(/[^a-z0-9-]+/gi, "-").toLowerCase().replace(/^-|-$/g, "") || "menu-project";
 
 function toast(message) {
@@ -153,7 +153,7 @@ function renderInspector() {
     field("font","Font",n.font,"text",fonts) + '<div class="form-row">' + field("fontSize","Size",n.fontSize,"number") + field("align","Alignment",n.align,"text",["left","center","right"]) + '</div>' +
     '<div class="form-row">' + field("color","Text color",n.color,"text",colors) + field("fill","Fill",n.fill,"text",colors) + '</div><div class="form-row">' + field("border","Border",n.border,"text",colors) + field("radius","Corner radius",n.radius,"number") + '</div>' +
     '<div class="form-row">' + field("opacity","Opacity 0–1",n.opacity,"number") + field("state","Visual state",n.state,"text",["default","hover","focused","selected","disabled","loading","error"]) + '</div>' +
-    (["vote","countdown","slider","toggle","progress","tabs"].includes(n.type) ? field(n.type === "vote" ? "votes" : n.type === "countdown" ? "count" : "value", n.type === "vote" ? "Sample votes" : n.type === "countdown" ? "Seconds" : "Value", n.type === "vote" ? n.votes : n.type === "countdown" ? n.count : n.value,"number") : "") + '</section>' +
+    (["vote","countdown","slider","toggle","progress","gauge","tabs"].includes(n.type) ? field(n.type === "vote" ? "votes" : n.type === "countdown" ? "count" : "value", n.type === "vote" ? "Sample votes" : n.type === "countdown" ? "Seconds" : "Value", n.type === "vote" ? n.votes : n.type === "countdown" ? n.count : n.value,"number") : "") + '</section>' +
     '<section class="inspector-section"><h3>Assets & native references</h3>' + field("assetId","Preview asset",n.assetId,"text",[["","None"], ...project.assets.filter(a => n.type === "model" ? a.kind === "model" : a.kind === "image").map(a => [a.id,a.name])]) +
     field("runtimeAsset","Game asset / texture / font reference",n.runtimeAsset) + (n.type === "model" ? '<div class="form-row">' + field("yaw","Model yaw",n.yaw,"number") + field("pitch","Model pitch",n.pitch,"number") + '</div>' : "") +
     '<button data-do="browse-assets" class="full-width" style="margin-top:12px">Browse / import assets</button></section>' +
