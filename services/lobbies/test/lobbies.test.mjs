@@ -159,3 +159,18 @@ test("an eight-player lobby takes seven joiners at once; nine players are refuse
   const pending = await request("GET", `/v1/lobbies/${lobby.code}/joins`, undefined, lobby.ownerToken);
   assert.equal(pending.body.requests.length, 7);
 });
+
+test("the host's heartbeat changes the player count; heartbeats without one keep it", async () => {
+  const lobby = await create();   // four players
+  const listed = async () => (await request("GET", "/v1/lobbies?version=6")).body.lobbies.find(l => l.code === lobby.code);
+  assert.equal((await update(lobby, { players: 5 })).status, 400);
+  assert.equal((await update(lobby, { players: 5, maxPlayers: 8 })).status, 200);
+  assert.equal((await listed()).maxPlayers, 8);
+  assert.equal((await update(lobby, { players: 5 })).status, 200);   // an older client's heartbeat
+  assert.equal((await listed()).maxPlayers, 8);
+  assert.equal((await update(lobby, { players: 5, maxPlayers: 4 })).status, 400);   // fewer than are in it
+  assert.equal((await update(lobby, { players: 2, maxPlayers: 9 })).status, 400);
+  assert.equal((await update(lobby, { players: 2, maxPlayers: 1 })).status, 400);
+  assert.equal((await update(lobby, { players: 1, maxPlayers: 2 })).status, 200);   // full lobbies leave the list
+  assert.equal((await listed()).maxPlayers, 2);
+});

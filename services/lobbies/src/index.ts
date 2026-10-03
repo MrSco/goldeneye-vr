@@ -142,7 +142,11 @@ export class LobbyRegistry extends DurableObject<Env> {
     }
     this.cleanup(now);
     const x = input as Record<string, unknown>;
-    if (!x || !validInt(x.players, 1, lobby.max_players) || typeof x.open !== "boolean" ||
+    // The host may change the player count after registering (any stage takes 2..8).
+    // Clients before protocol 16 do not send it and keep the count they created with.
+    if (x && x.maxPlayers !== undefined && !validInt(x.maxPlayers, 2, MAX_PLAYERS)) return bad("Invalid lobby state");
+    const maxPlayers = x && x.maxPlayers !== undefined ? Number(x.maxPlayers) : lobby.max_players;
+    if (!x || !validInt(x.players, 1, maxPlayers) || typeof x.open !== "boolean" ||
         (x.name !== undefined && !validName(x.name)) ||
         (x.phase !== undefined && !["waiting", "warmup", "in_progress"].includes(String(x.phase)))) return bad("Invalid lobby state");
     const phase = (x.phase || lobby.phase) as Phase;
@@ -150,8 +154,8 @@ export class LobbyRegistry extends DurableObject<Env> {
     const phaseChangedAt = (phase !== lobby.phase) ? now : (lobby.phase_changed_at || now);
     const createdAt = lobby.created_at || (lobby.expires - TTL);
     this.ctx.storage.sql.exec(
-      "UPDATE lobbies SET players=?,open=?,phase=?,expires=?,created_at=?,phase_changed_at=?,name=? WHERE code=?",
-      x.players, x.open ? 1 : 0, phase, now + TTL, createdAt, phaseChangedAt, x.name ?? lobby.name, code
+      "UPDATE lobbies SET players=?,open=?,phase=?,expires=?,created_at=?,phase_changed_at=?,name=?,max_players=? WHERE code=?",
+      x.players, x.open ? 1 : 0, phase, now + TTL, createdAt, phaseChangedAt, x.name ?? lobby.name, maxPlayers, code
     );
     return json({ ok: true });
   }

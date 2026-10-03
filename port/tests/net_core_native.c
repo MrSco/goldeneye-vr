@@ -8,7 +8,7 @@ struct player_data g_playerPlayerData[MAX_PLAYER_COUNT];
 s32 g_gameOverFlag, D_80048394;
 struct player *g_playerPointers[MAX_PLAYER_COUNT];
 s32 startpadcount=8;
-static unsigned char sent_data[1024];   /* an eight-player match snapshot is 713 bytes */
+static unsigned char sent_data[1024];   /* an eight-player match snapshot is 715 bytes */
 static size_t sent_size;
 s32 get_cur_playernum(void) { return s_local_slot; }
 static int respawn_calls;
@@ -17,7 +17,7 @@ void mp_respawn_handler_net(s32 pad,float theta) { (void)pad;(void)theta;respawn
 
 int bondinvHasInvItem(ITEM_IDS item) { (void)item; return 0; }
 int VrMpStage,VrMpWeaponSet,VrMpChr,VrMpScenario,VrMpLength,VrMpHealth;
-int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize;
+int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize,VrMpMaxPlayers;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 unsigned VrMpFavStages,VrMpFavSets;
 char VrPlayerName[16]="Test";
@@ -462,6 +462,38 @@ EXPORT int test_core_owner_packets(void) {
 
 /* Issue #88: slots 4..7 through the packets that grew with the player count,
  * the team rules, damage, voice, start pads and the combat epoch. */
+/* The host's player count: any stage, never below who is connected, a team
+ * scenario's own size, and in a match from the next load. */
+EXPORT int test_core_player_count(void) {
+    fixture(0);   /* hosting the lobby, slots 0..3 connected */
+    NetMatchConfig c=s_lobby_state.config;
+    CHECK(c.max_players==4);
+    c.stage=32;c.max_players=8;netLobbySetConfig(&c);   /* eight on Egypt */
+    CHECK(s_lobby_state.config.max_players==8 && s_max_players==8 && netGetMaxPlayers()==8);
+    CHECK(netLobbyMinPlayers()==4);
+    c.max_players=3;netLobbySetConfig(&c);CHECK(s_lobby_state.config.max_players==8);
+    /* a departed player's gap at slot 3, a player in slot 5: six or more */
+    s_lobby_state.slots[3].connected=0;s_lobby_state.slots[5].connected=1;
+    CHECK(netLobbyMinPlayers()==6);
+    c.max_players=5;netLobbySetConfig(&c);CHECK(s_lobby_state.config.max_players==8);
+    c.max_players=6;netLobbySetConfig(&c);CHECK(s_lobby_state.config.max_players==6 && s_max_players==6);
+    /* 2v2 takes its four, its slots stay open to slot 5; 2v1 cannot take four */
+    c.scenario=5;netLobbySetConfig(&c);
+    CHECK(s_lobby_state.config.scenario==5 && netGetMaxPlayers()==4 && s_max_players==6);
+    c.scenario=7;netLobbySetConfig(&c);CHECK(s_lobby_state.config.scenario==5);
+    /* in a match the count changes at the next load */
+    c.scenario=0;c.max_players=8;netLobbySetConfig(&c);
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;
+    c.max_players=7;netLobbySetConfig(&c);
+    CHECK(s_lobby_state.config.max_players==7 && s_max_players==8 && netGetMaxPlayers()==8);
+    netLatchRoundSettings();CHECK(s_max_players==7 && netGetMaxPlayers()==7);
+    /* the lobby page's row, saved for the next session */
+    gevrNetConfigSet(CFG_MAX_PLAYERS,6);CHECK(s_lobby_state.config.max_players==6 && VrMpMaxPlayers==6);
+    gevrNetConfigSet(CFG_MAX_PLAYERS,9);CHECK(s_lobby_state.config.max_players==6);
+    s_state=NET_STATE_HOSTING_LOBBY;
+    return 0;
+}
+
 static ENetHost eight_host;
 EXPORT int test_core_eight_slots(void) {
     fixture(NET_SCENARIO_4V4);
@@ -479,11 +511,11 @@ EXPORT int test_core_eight_slots(void) {
     g_playerPlayerData[7].kill_counts[0]=2;g_playerPlayerData[4].kill_counts[5]=1;
     CHECK(netTeamScore(NET_TEAM_BLUE)==1 && netTeamScore(NET_TEAM_RED)==0);
 
-    /* the late-join snapshot: 65 + 49N + 4N^2 bytes, past the old 512 */
+    /* the late-join snapshot: 67 + 49N + 4N^2 bytes, past the old 512 */
     s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
     g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
     sent_size=0;netSendMatchSnapshot(NULL);
-    CHECK(sent_size==65+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    CHECK(sent_size==67+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
     struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
     netbufStartReadData(&b,sent_data,sent_size);
     netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);

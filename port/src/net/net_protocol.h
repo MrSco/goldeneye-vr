@@ -154,6 +154,7 @@ typedef struct {
     uint8_t fun_flags;      /* NET_FUN_*: next round only */
     uint8_t gun_size;       /* NET_GUN_NORMAL / TINY / BIG: visuals only */
     uint8_t custom_set[4];  /* the custom set's guns, ITEM_IDS */
+    uint8_t max_players;    /* the host's choice, 2..GEVR_MAX_PLAYERS on any stage; team scenarios take their own size */
 } NetMatchConfig;
 
 /* No native pointers or structure padding enter the wire format. */
@@ -202,9 +203,16 @@ static inline int netMatchConfigValid(const NetMatchConfig *c) {
         c->weapon_set >= netWeaponSetCount() || c->game_length >= netGameLengthCount() ||
         c->health >= netHealthCount() || c->dual_wield > NET_DUAL_ANY || c->loadouts > 1 ||
         (c->fun_flags & ~NET_FUN_MASK) != 0 || c->gun_size > NET_GUN_BIG || c->friendly_fire > 1 || c->next_round > NET_NEXT_PLAYLIST || c->voice_mode > NET_VOICE_COUCH ||
-        (netScenarioHasTeams(c->scenario) && netStageMaxPlayers(netStageIndexOf(c->stage)) < netTeamRequiredPlayers(c->scenario))) return 0;
+        c->max_players < 2 || c->max_players > GEVR_MAX_PLAYERS) return 0;
     for(int k=0;k<4;k++) if(netItemIndexOf(c->custom_set[k]) < 0) return 0;
     return 1;
+}
+
+/* The players a match takes: the host's count, or a team scenario's own size.
+ * Any stage takes any count; a stage with fewer start pads than players
+ * stands the extra ones beside a pad (bondview_r.c gevrSpreadStartPad). */
+static inline int netConfigMaxPlayers(const NetMatchConfig *c) {
+    return netScenarioHasTeams(c->scenario) ? netTeamRequiredPlayers(c->scenario) : c->max_players;
 }
 
 static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfig *c) {
@@ -221,6 +229,7 @@ static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfi
     netbufWriteU8(buf, c->fun_flags);
     netbufWriteU8(buf, c->gun_size);
     for (int i = 0; i < 4; i++) netbufWriteU8(buf, c->custom_set[i]);
+    netbufWriteU8(buf, c->max_players);
     return buf->error;
 }
 
@@ -238,6 +247,7 @@ static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
     c->fun_flags = netbufReadU8(buf);
     c->gun_size = netbufReadU8(buf);
     for (int i = 0; i < 4; i++) c->custom_set[i] = netbufReadU8(buf);
+    c->max_players = netbufReadU8(buf);
     return buf->error;
 }
 

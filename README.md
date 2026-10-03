@@ -212,7 +212,7 @@ It's still experimental: expect rough edges, and please report what you find.
 
 **Host a game.** In the launcher press **Multiplayer...**, stay on **Host Game**, and pick:
 - **Public game** to appear in the internet browser, or **Private game** to share a join code.
-- a **stage**. Egypt takes 2 players; Caverns, Bunker II and Archives take 3; the rest take 4.
+- a **stage** and how many **players** it takes, from 2 to 8 on any stage.
 - your **character**.
 - the **weapons**: the game's own sets, from Slappers only to the Golden Gun, proximity mines included.
 

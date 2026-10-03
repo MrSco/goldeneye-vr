@@ -135,13 +135,15 @@ static void test_ballots_roles_rotation(void) {
     s_vote[0][0]=1; s_vote[0][1]=0; assert(netTallyBallot(0)==1); /* lowest-slot tie */
     /* slot 6 is past Egypt's four and Bunker II's six (net_match.c), not Facility's eight */
     s_lobby_state.slots[6].connected=1; s_lobby_state.slots[6].spectator=1;
-    assert(!netStageEligible(9) && !netStageEligible(8) && netStageEligible(0));
+    /* every stage takes the host's count: slot 6 rules none out */
+    assert(netStageEligible(8) && netStageEligible(9) && netStageEligible(0) && !netStageEligible(netStageCount()));
     assert(netGetPlayingCount()==2 && netGetConnectedPlayerCount()==3);
     assert(netVoiceSameGroup(0,6)); /* warmup: everyone hears everyone (v0.3.7) */
     s_phase = NET_PHASE_IN_PROGRESS;
     assert(!netVoiceSameGroup(0,6) && netVoiceSameGroup(0,1));
     s_phase = NET_PHASE_WARMUP;
-    assert(netRotationPick(0,0,1u<<9,NET_NEXT_PLAYLIST)==1); /* favorites too small: all eligible */
+    assert(netRotationPick(0,0,1u<<9,NET_NEXT_PLAYLIST)==9); /* Bunker II takes slot 6 too */
+    assert(netRotationPick(0,0,1u<<20,NET_NEXT_PLAYLIST)==1); /* no favorite on the list: all eligible */
     s_lobby_state.slots[6].connected=0;
     assert(netRotationPick(0,0,(1u<<0)|(1u<<9),NET_NEXT_PLAYLIST)==9);
     assert(netRotationPick(0,9,(1u<<0)|(1u<<9),NET_NEXT_PLAYLIST)==0);

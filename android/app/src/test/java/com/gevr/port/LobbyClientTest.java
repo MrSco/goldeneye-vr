@@ -114,6 +114,22 @@ public class LobbyClientTest {
         assertEquals("GET", requests.get(1).getRequestMethod());
     }
 
+    @Test public void refreshCarriesTheHostsPlayerCountToTheHeartbeat() throws Exception {
+        resume();   // registered for four
+        poll();
+        assertEquals(4, new JSONObject(requests.get(0).body.toString("UTF-8")).getInt("maxPlayers"));
+        requests.clear();
+        command("refresh|3|1|8");   // the host picked eight after registering
+        poll();
+        assertEquals("PUT", requests.get(0).getRequestMethod());
+        JSONObject state = new JSONObject(requests.get(0).body.toString("UTF-8"));
+        assertEquals(8, state.getInt("maxPlayers"));
+        assertEquals(3, state.getInt("players"));
+        requests.clear();
+        command("refresh|3|1");   // without a count the last one stays
+        assertEquals(8, get("maxPlayers"));
+    }
+
     @Test public void unchangedPhaseAlsoRenewsKeepalive() throws Exception {
         resume();
         set("lastKeepalive", -60_001L);

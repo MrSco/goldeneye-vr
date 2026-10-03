@@ -380,6 +380,22 @@ static void rowReturnValue(char *b, s32 n)
     snprintf(b, n, "%s", netCountdownSecondsLeft() > 0 ? "- CANCELS THE START" : "");
 }
 static s32 lobbyTeams(void) { return netScenarioHasTeams(gevrNetConfigGet(CFG_SCENARIO)); }
+static s32 lobbyNoTeams(void) { return !lobbyTeams(); }   /* a team scenario takes its own size */
+static void rowPlayersValue(char *b,s32 n) { snprintf(b,n,"%d",gevrNetConfigGet(CFG_MAX_PLAYERS)); }
+static void rowPlayersStep(s32 dir)
+{
+    /* 2..8 on any map; past the counts below the lobby's connected slots, which the setter refuses */
+    s32 count = MAX_PLAYER_COUNT - 1;
+    s32 next = gevrNetConfigGet(CFG_MAX_PLAYERS) - 2;
+    s32 k;
+
+    for (k = 1; k < count; k++)
+    {
+        next = gevrCycled(next, dir, count);
+        gevrNetConfigSet(CFG_MAX_PLAYERS, next + 2);
+        if (gevrNetConfigGet(CFG_MAX_PLAYERS) == next + 2) return;
+    }
+}
 static void rowTeamValue(char *b,s32 n) { snprintf(b,n,"%s",netTeamName(netGetSlotTeam(netGetLocalSlot()))); }
 static void rowTeamStep(s32 dir) { netLobbySetTeam((u8)gevrCycled(netGetSlotTeam(netGetLocalSlot()),dir,3)); }
 static s32 lobbyClient(void) { return !netIsHost(); }
@@ -394,6 +410,7 @@ static const GevrMenuRow s_lobbyRows[] = {
     { "NEXT MAP",        GEVR_ROW_VALUE,  0, lobbyVoting,       rowNextMapValue,    rowNextMapStep,     "R-STICK:VOTE" },
     { "NEXT WEAPONS",    GEVR_ROW_VALUE,  0, lobbyWeaponVote,       rowNextWeaponsValue, rowNextWeaponsStep, "R-STICK:VOTE" },
     { "MAP",             GEVR_ROW_VALUE,  1, NULL,              rowMapValue,        rowMapStep,         "R-STICK:PICK" },
+    { "PLAYERS",         GEVR_ROW_VALUE,  1, lobbyNoTeams,      rowPlayersValue,    rowPlayersStep,     "R-STICK:PICK" },
     { "WEAPONS",         GEVR_ROW_VALUE,  1, lobbyNotGoldenGun, rowWeaponsValue,    rowWeaponsStep,     "R-STICK:PICK" },
     { "CUSTOM 1",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom0Value,    rowCustom0Step,     "R-STICK:PICK" },
     { "CUSTOM 2",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom1Value,    rowCustom1Step,     "R-STICK:PICK" },
