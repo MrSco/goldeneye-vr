@@ -240,13 +240,24 @@ static size_t convert_one_prop(uint8_t *dst, const uint8_t *src, uint8_t type) {
         for (int i = 0; i < 5; i++) put32(dst + HOST_OBJ + i * 4, read32(src + N64_OBJ + i * 4));
         break;
     /*
-     * CCTV, ammo crate and multi-ammo crate: all 4-byte fields after the
-     * object, in the same order on both sides (the host structs only add
-     * runtime fields and tail padding), so a word copy lines up.
+     * CCTV and ammo crate: all 4-byte fields after the object, in the same
+     * order on both sides (the host structs only add runtime fields and tail
+     * padding), so a word copy lines up.
      */
-    case 6: case 7: case 20:
+    case 6: case 7:
         conv_object(dst, src);
         conv_words(dst + HOST_OBJ, src + N64_OBJ, n64b - N64_OBJ);
+        break;
+    /*
+     * MULTI_AMMO_CRATE: thirteen {u16 modelnum, u16 quantity} slots. The word
+     * copy swapped each pair, so quantity read the model number (0xFFFF for an
+     * empty slot) and every crate gave every ammo type, mines and throwing
+     * knives included (issue #74).
+     */
+    case 20:
+        conv_object(dst, src);
+        for (size_t i = 0; i + 2 <= n64b - N64_OBJ; i += 2)
+            put16(dst + HOST_OBJ + i, read16(src + N64_OBJ + i));
         break;
     /*
      * TANK: N64 0xE0 -> host 248. The tail starts with the collision pointer
