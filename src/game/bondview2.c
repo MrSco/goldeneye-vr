@@ -2,6 +2,9 @@
 #include "net_game.h"
 #include "net_coop.h"
 #include "gevr_hud_geometry.h"
+#include "gevr_reload_input.h"
+#include "gevr_watch_status.h"
+#include "../../port/vr/gevr_pause_menu.h"
 #include "gevr_scope.h"
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
@@ -1365,6 +1368,37 @@ static s32 s_gevrWatchReady;
 static f32 s_gevrWatchScale;               /* 0 until calibrated */
 static f32 s_gevrWatchFaceCm[3];           /* the face's centre from the wrist, in the wrist frame (#31) */
 static s32 s_gevrWatchFaceKnown;
+static f32 s_gevrWatchStatusRadius, s_gevrWatchStatusPlane;
+
+/* Measure the dial from the loaded model, never from a second arm or guessed
+ * world offset. The clock pivot is in the root wrist's model coordinates. */
+static void gevrWatchStatusFit(void)
+{
+    ModelNode *face = s_gevrWatchHeader.Switches[3]->Data->Switch.Controls;
+    const f32 *pivot = (const f32 *)s_gevrWatchHeader.Switches[0]->Data;
+    s_gevrWatchStatusRadius = 0;
+    if (!face || (face->Opcode & 0xff) != 4 || !face->Data) return;
+    ModelRoData_DisplayListRecord *dl = &face->Data->DisplayList;
+    if (!dl->Vertices || !dl->numVertices) return;
+    f32 minx = 32767, maxx = -32768, minz = 32767, maxz = -32768, top = -32768;
+    for (s32 i = 0; i < dl->numVertices; i++) {
+        coord16 p = dl->Vertices[i].coord;
+        if (p.x < minx) minx = p.x;
+        if (p.x > maxx) maxx = p.x;
+        if (p.z < minz) minz = p.z;
+        if (p.z > maxz) maxz = p.z;
+        if (p.y > top) top = p.y;
+    }
+    f32 radius = fminf(fminf(pivot[0] - minx, maxx - pivot[0]),
+                       fminf(pivot[2] - minz, maxz - pivot[2]));
+    if (radius > 0) {
+        s_gevrWatchStatusRadius = radius * 0.94f;
+        /* Above the dial, below even the second hand: keep the clock visible. */
+        s_gevrWatchStatusPlane = top + 0.25f;
+    }
+}
+
+static Gfx *gevrRenderWatchStatus(Gfx *gdl, const Mtxf *wrist);
 
 static s32 gevrLeftWatchLoad(void)
 {
@@ -1396,7 +1430,8 @@ static s32 gevrLeftWatchLoad(void)
     texInitPool(&s_gevrWatchPool, s_gevrWatchBuf + GEVR_WATCHARM_MODELSIZE, GEVR_WATCHARM_BUFSIZE - GEVR_WATCHARM_MODELSIZE);
     load_object_fill_header(&s_gevrWatchHeader, (u8 *)name, s_gevrWatchBuf, GEVR_WATCHARM_MODELSIZE, &s_gevrWatchPool);
     modelCalculateRwDataLen(&s_gevrWatchHeader);
-    if (s_gevrWatchHeader.RootNode == NULL || s_gevrWatchHeader.numRecords > 0x32 || s_gevrWatchHeader.numMatrices < 4)
+    if (s_gevrWatchHeader.RootNode == NULL || s_gevrWatchHeader.numRecords > 0x32 || s_gevrWatchHeader.numMatrices < 4
+        || s_gevrWatchHeader.numSwitches < 4 || !s_gevrWatchHeader.Switches)
     {
         sysLogPrintf(LOG_ERROR, "stereo: watch arm did not load (%d records, %d matrices)",
                      s_gevrWatchHeader.numRecords, s_gevrWatchHeader.numMatrices);
@@ -1407,6 +1442,7 @@ static s32 gevrLeftWatchLoad(void)
     modelSetScale(&s_gevrWatchModel, c_item_entries[41].scale * 0.10000001f);
     modelSetAnimation(&s_gevrWatchModel, (ModelAnimation *)&ptr_animation_table->data[(uintptr_t)&ANIM_DATA_bond_watch], 0, 0.0f, 0.0f, 0.0f);
     s_gevrWatchScale = 0.0f;
+    gevrWatchStatusFit();
     sysLogPrintf(LOG_NOTE, "stereo: watch arm loaded (%s, %d matrices, %d anim frames)",
                  name, s_gevrWatchHeader.numMatrices, s_gevrWatchModel.anim ? s_gevrWatchModel.anim->unk04 : -1);
     s_gevrWatchReady = TRUE;
@@ -1638,6 +1674,7 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     {
         gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
     }
+    gdl = gevrRenderWatchStatus(gdl, &matrices[0]);
     bondviewTransformManyPosToViewMatrix(s_gevrWatchModel.render_pos, n);
     matrix_4x4_7F058C88();
     *drawn = TRUE;
@@ -9833,6 +9870,18 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         }
     }
 
+#ifdef GEVR
+    /* OR of B/Y loses a second press while the other is held. Feed each new
+     * VR press through the same activation/tank path, only for the local slot. */
+    if (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) {
+        if (!lvlGetControlsLockedFlag() && disablePlayerActionsWhenPausedOrInMpMenu()) {
+            if (gevrVrReloadHeldMask() || gevrVrReloadPressedMask())
+                moveData.btap = gevrVrReloadPressedMask() != 0;
+        } else {
+            gevrVrTakeReloadMask();
+        }
+    }
+#endif
     g_CurrentPlayer->field_D0 = 0;
 
     if (moveData.btap)
@@ -13363,8 +13412,9 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
 Gfx *gevrRenderRadarGauges(Gfx *gdl, s32 x, s32 y, s32 radius)
 {
     struct damage_display_val *v = dynAllocate(92 * sizeof(*v));
-    Gfx *health = dynAllocate(48 * sizeof(Gfx));
-    Gfx *armor = dynAllocate(48 * sizeof(Gfx));
+    /* Each vertex pair can emit a load and two triangle commands, plus END. */
+    Gfx *health = dynAllocate(67 * sizeof(Gfx));
+    Gfx *armor = dynAllocate(67 * sizeof(Gfx));
     Mtx *projection = dynAllocateMatrix(), *identity = dynAllocateMatrix();
     extern u8 g_ViBackIndex;
     Vp *viewport = dynAllocate(sizeof(Vp));
@@ -13410,6 +13460,78 @@ Gfx *gevrRenderRadarGauges(Gfx *gdl, s32 x, s32 y, s32 radius)
     gDPPipeSync(gdl++);
     gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
     gSPViewport(gdl++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
+    return gdl;
+}
+
+/* Shaded geometry on the real dial, in the eye scene. Transparent blips leave
+ * the mission clock visible; no compositor layer or head-locked capture. */
+static Gfx *gevrRenderWatchStatus(Gfx *gdl, const Mtxf *wrist)
+{
+    if (!g_gevrStereo || gevrWatchStatusChoice(VrWatchFaceStatus) == GEVR_WATCH_FACE_OFF
+        || s_gevrWatchStatusRadius <= 0 || gevrSpectating() || gevrCoopLocalDowned()) return gdl;
+    struct player *player = g_CurrentPlayer;
+    if (netIsActive()) {
+        s32 slot = netGetLocalSlot();
+        if (slot < 0 || slot >= MAX_PLAYER_COUNT) return gdl;
+        player = g_playerPointers[slot];
+    }
+    if (!player || player->bonddead) return gdl;
+    struct damage_display_val *v = dynAllocate(92 * sizeof(*v));
+    Gfx *health = dynAllocate(67 * sizeof(Gfx));
+    Gfx *armor = dynAllocate(67 * sizeof(Gfx));
+    Mtx *matrix = dynAllocateMatrix();
+    Mtxf transform;
+    const f32 *pivot = (const f32 *)s_gevrWatchHeader.Switches[0]->Data;
+    gevrWatchStatusMatrix(wrist->m, pivot, s_gevrWatchStatusPlane,
+                         s_gevrWatchStatusRadius, VrLeftHandedMode, transform.m);
+    guMtxF2L(transform.m, matrix); /* wrist already carries stage/view-model scale */
+    hudMakeDamageSegments(v, 46, -1, player->bondhealth);
+    hudMakeDamageSegments(v + 46, 46, 1, player->bondarmour);
+    const f32 radarRadius = GEVR_WATCH_STATUS_UNITS * 0.64f;
+    const s16 dotRadius = (s16)lroundf(GEVR_WATCH_STATUS_UNITS * 0.032f);
+    for (s32 i = 0; i < 92; i++) {
+        f32 x, y;
+        gevrRadarGaugePoint(v[i].pos.x, v[i].pos.z, radarRadius,
+                           i < 46 ? 17.5f : -17.5f, &x, &y);
+        v[i].pos.x = (s16)lroundf(x);
+        v[i].pos.y = (s16)lroundf(-y); /* gauge helper uses screen-down Y */
+        v[i].pos.z = 0;
+    }
+    buildGaugeBarDL(health, osVirtualToPhysical(v), 46);
+    buildGaugeBarDL(armor, osVirtualToPhysical(v + 46), 46);
+    gDPPipeSync(gdl++);
+    gSPMatrix(gdl++, osVirtualToPhysical(matrix), G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+    gSPClearGeometryMode(gdl++, G_CULL_BOTH | G_LIGHTING | G_FOG | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+    gSPSetGeometryMode(gdl++, G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH);
+    gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+    gDPSetAlphaCompare(gdl++, G_AC_NONE);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    gSPDisplayList(gdl++, osVirtualToPhysical(health));
+    gSPDisplayList(gdl++, osVirtualToPhysical(armor));
+    GevrPauseRadarView radar;
+    gevrPauseLocalRadar(&radar); /* same live range, colors, heading and exclusions */
+    if (radar.visible) {
+        for (s32 i = 0; i < radar.count; i++) {
+            GevrPauseRadarBlip *blip = &radar.blips[i];
+            struct damage_display_val *dot = dynAllocate(4 * sizeof(*dot));
+            for (s32 j = 0; j < 4; j++) {
+                dot[j].pos.x = (s16)lroundf(blip->x * radarRadius) + (j == 1 || j == 2 ? dotRadius : -dotRadius);
+                dot[j].pos.y = (s16)lroundf(-blip->y * radarRadius) + (j >= 2 ? dotRadius : -dotRadius);
+                dot[j].pos.z = 0;
+                dot[j].normal.x = dot[j].normal.y = dot[j].normal.z = 0;
+                dot[j].colour.r = blip->r;
+                dot[j].colour.g = blip->g;
+                dot[j].colour.b = blip->b;
+                dot[j].colour.a = blip->a;
+            }
+            gSPVertex(gdl++, osVirtualToPhysical(dot), 4, 0);
+            gSP1Triangle(gdl++, 0, 1, 2, 0);
+            gSP1Triangle(gdl++, 0, 2, 3, 0);
+        }
+    }
+    gDPPipeSync(gdl++);
     return gdl;
 }
 #endif
@@ -15122,6 +15244,17 @@ Gfx *gevrDrawReturnPrompt(Gfx *gdl)
 }
 #endif
 
+/* Respawn may skip the subsequent blood/fade wait, but the falling body must
+ * have time to play. Otherwise an owner can respawn before sending a dead pose. */
+#ifdef GEVR
+static s32 gevrOnlineRespawnReady(struct player *pl)
+{
+    return pl->bonddead && !pl->startnewbonddie
+        && modelGetAnimEndFrame(&pl->model) > 0
+        && modelGetAnimFrame(&pl->model) >= modelGetAnimEndFrame(&pl->model);
+}
+#endif
+
 Gfx *maybe_mp_interface(Gfx *gdl)
 {
     s32 ulx;
@@ -15200,7 +15333,13 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         bondviewGetIfCurrentPlayerHealthShowTime() &&
         (g_CurrentPlayer->watch_animation_state == 0) && !g_CurrentPlayer->mpmenuon)
     {
-        gdl = bondviewRenderGaugeBars(gdl);
+        if (
+#ifdef GEVR
+            gevrWatchShowsStandard(g_gevrStereo, FALSE, VrWatchFaceStatus)
+#else
+            TRUE
+#endif
+            ) gdl = bondviewRenderGaugeBars(gdl);
     }
     else if (mpwatchShouldDisplayGauges()
 #ifdef GEVR
@@ -15208,7 +15347,13 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 #endif
         )
     {
-        gdl = bondviewRenderGaugeBars(gdl);
+        if (
+#ifdef GEVR
+            gevrWatchShowsStandard(g_gevrStereo, g_CurrentPlayer->mpmenuon, VrWatchFaceStatus)
+#else
+            TRUE
+#endif
+            ) gdl = bondviewRenderGaugeBars(gdl);
         if (g_CurrentPlayer->healthdisplaytime > 0)
         {
             g_CurrentPlayer->healthdisplaytime -= g_ClockTimer;
@@ -15236,7 +15381,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 
 #ifdef GEVR
     if (netIsActive() && get_cur_playernum() == netGetLocalSlot() &&
-        g_CurrentPlayer->bonddead && !g_CurrentPlayer->mpmenuon && !g_stopPlayFlag && !g_gameOverFlag &&
+        gevrOnlineRespawnReady(g_CurrentPlayer) && !g_CurrentPlayer->mpmenuon && !g_stopPlayFlag && !g_gameOverFlag &&
         !netPlayerIsSpectator(get_cur_playernum()) &&
         joyGetButtonsPressedThisFrame(get_cur_playernum(), A_BUTTON | B_BUTTON | Z_TRIG)) {
         s32 deaths = 0;
@@ -16629,6 +16774,16 @@ Gfx *sub_GAME_7F08AAE8(Gfx *gdl)
 /* player.c: a view pass past the frame's first (lv.c gevrViewPass) */
 extern s32 g_gevrExtraPass;
 
+#ifdef GEVR
+static s32 gevrPlayerModelTickOwner(void)
+{
+    /* Online renders one local viewport. Shuffle order belongs to retail's
+     * split-screen passes; using it here leaves copies frozen on other frames. */
+    if (netIsActive()) return get_cur_playernum() == netGetLocalSlot() && !g_gevrExtraPass;
+    return get_player_position_in_shuffled(get_cur_playernum()) == 0;
+}
+#endif
+
 s32 playerTick(PropRecord *prop)
 {
     s32 index;
@@ -16676,7 +16831,13 @@ s32 playerTick(PropRecord *prop)
  
     if (chr != NULL)
     {
-        if (get_player_position_in_shuffled(get_cur_playernum()) == 0)
+        if (
+#ifdef GEVR
+            gevrPlayerModelTickOwner()
+#else
+            get_player_position_in_shuffled(get_cur_playernum()) == 0
+#endif
+            )
         {
             chr->hidden &= ~CHRHIDDEN_FREEZE;
         }
@@ -16788,7 +16949,13 @@ s32 playerTick(PropRecord *prop)
  
     ppointers = g_playerPointers;
  
-    if (get_player_position_in_shuffled(get_cur_playernum()) == 0)
+    if (
+#ifdef GEVR
+        gevrPlayerModelTickOwner()
+#else
+        get_player_position_in_shuffled(get_cur_playernum()) == 0
+#endif
+        )
     {
         g_PlayerTickCount = g_PlayerTickCount + 1;
     }

@@ -56,6 +56,9 @@ def build_core():
     keep.update({"netInvalidateHitSlot","netClearHostHits","netSetHostEqualization","netGetHostEqualization","netHostBaseDelayMs","netGetSlotHostDelayMs","netHostEqualizationText","netTransitionRoundPhase","netBroadcastRoundPhase","netObserveHitMove","netHitReportAllowed","netProcessHitReport","netExecuteHostHit","netQueueHostHit","netDrainHostHits","netSlotOccupied","netSendHitReport"})
     keep.update({"netStartPad","netStartPadShare","netBroadcastVotes","netClearVotes","netTeamScore","netGetSlotTeam","netSetSlotTeam","netVoiceModeForPair"})
     keep.update({"netConfigSlots","netLobbyMinPlayers"})
+    keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase"})
+    keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
+    keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
@@ -205,6 +208,13 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_native_fun_preferences_and_scaling(self): self.assertEqual(self.fun.test_fun_visuals(),0)
     def test_fun_pending_authority_late_join_migration(self): self.assertEqual(self.core.test_core_fun(),0)
     def test_launch_consent_and_scenario_transition(self): self.assertEqual(self.core.test_core_launch_consent(),0)
+    def test_in_game_ready_packets_and_start(self): self.assertEqual(self.core.test_core_menu_ready(),0)
+    def test_solo_warmup_pending_options_restart(self): self.assertEqual(self.core.test_core_solo_restart(),0)
+    def test_connected_roster_and_spectator_load_ack(self): self.assertEqual(self.core.test_core_connected_roster(),0)
+    def test_first_and_next_round_warmup_timers(self): self.assertEqual(self.core.test_core_warmup_lifecycle(),0)
+    def test_late_join_countdown_and_voted_map_warmup(self): self.assertEqual(self.core.test_core_warmup_join_and_votes(),0)
+    def test_ready_vote_prompts_and_authenticated_notices(self): self.assertEqual(self.core.test_core_round_prompts(),0)
+    def test_host_kick_and_client_launcher_exit(self): self.assertEqual(self.core.test_core_host_kick(),0)
     def test_line_renderer_restores_gl_state(self): self.assertEqual(self.line_renderer.test_line_renderer(),0)
     def test_line_edges_and_vertex_ring_offset(self): self.assertEqual(self.lib.test_line_indices(),0)
     def test_gauge_clearance_and_symmetry(self): self.assertEqual(self.lib.test_gauge_geometry(),0)

@@ -70,11 +70,27 @@ int main(){
     view.radar.blips[0]={0,0,255,255,255,160};view.radar.blips[1]={.25f,-.5f,255,255,0,160};
     check(view.gauges[0].x<0 && view.gauges[46].x>0,"local slot seven has original left health and right armour geometry");
     check(view.gauges[0].r==255 && view.gauges[46].b==255,"original red health and blue armour colors");
-    for(int i=0;i<8;i++){snprintf(view.players[i].name,64,"Player %d",i+1);snprintf(view.players[i].character,64,"James Bond");}
+    for(int i=0;i<8;i++){snprintf(view.players[i].name,64,"Player %d",i+1);snprintf(view.players[i].character,64,"James Bond");view.players[i].slot=i;view.players[i].host=i==0;view.players[i].canKick=i!=0;}
+    view.players[6].spectator=true;view.players[7].loaded=false;
     frame();frame();
     auto*window=ImGui::FindWindowByName("##match-window");auto*table=ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID("players"));
-    check(table && table->CurrentRow==8,"all eight deathmatch rows rendered");
+    check(table && table->CurrentRow==8 && table->ColumnsCount==8,"host sees eight connected rows, including spectators/loading, plus kick column");
     check(table->RowPosY2<=table->InnerClipRect.Max.y,"last player fits without scrolling");
+    check(table->Columns[6].WorkMaxX-table->Columns[6].WorkMinX>=ImGui::CalcTextSize("Spectator").x,"ready/loading/spectator status fits at headset font scale");
+    check(table->Columns[7].WorkMaxX-table->Columns[7].WorkMinX>=88,"host kick buttons fit inside their column");
+    float kickX=table->Columns[7].WorkMinX+40,kickY=table->RowPosY1+16;
+    click(kickX,kickY);frame();
+    auto*kickModal=ImGui::FindWindowByName("Kick player?");
+    check(kickModal && kickModal->Active && ui.kickSlot==7 && action==0,"host kick requires confirmation and retains the loading player's slot");
+    click(kickModal->Pos.x+100,kickModal->Pos.y+kickModal->Size.y-40);
+    check(action==0 && ui.kickSlot<0,"cancel preserves connected player");
+    click(kickX,kickY);frame();
+    click(kickModal->Pos.x+kickModal->Size.x-100,kickModal->Pos.y+kickModal->Size.y-40);
+    check(action==GEVR_PAUSE_KICK_BASE+7,"confirmed kick targets the correct slot");action=0;
+    view.host=false;frame();frame();table=ImGui::GetCurrentContext()->Tables.GetByKey(window->GetID("players"));
+    check(table->ColumnsCount==7,"clients have no kick controls");view.host=true;
+    view.voting=true;frame();frame();click(500,736);
+    check(action==GEVR_PAUSE_REQUEST_VOTES,"host can request votes without opening players' menus");action=0;view.voting=false;
     for(bool coop:{false,true})for(float health:{0.f,.125f,.35f,.75f,1.f}) {
         view.coop=coop;testPauseGauges(health,1-health,coop?3:7);gevrPauseLocalGauges(view.gauges);
         for(int tab=0;tab<4;tab++){ui.tab=tab;frame();frame();checkHeaderVitals();}

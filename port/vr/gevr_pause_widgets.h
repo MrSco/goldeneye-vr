@@ -10,11 +10,12 @@
 // starter uses the same 1280x960 window and stable field labels/bindings.
 struct GevrPausePlayerView {
     char name[64], character[64];
-    int points=0,kills=0,losses=0,ping=0;
-    bool host=false,ready=false,down=false;
+    int slot=-1,points=0,kills=0,losses=0,ping=0;
+    bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false;
 };
 struct GevrPauseView {
-    bool coop=false,host=false,canStart=false,canReturn=false,localReady=false;
+    bool coop=false,host=false,canStart=false,canReturn=false,localReady=false,soloWarmup=false;
+    bool startRequested=false,rosterReady=false,voting=false,warmup=true;
     int count=0,capacity=8,countdown=0;
     GevrPauseGaugeVertex gauges[92]{};
     GevrPauseRadarView radar{};
@@ -24,8 +25,10 @@ struct GevrPauseView {
 struct GevrPauseUi {
     int tab=0;
     bool focusResume=true,confirmLeave=false,confirmAbort=false;
+    int kickSlot=-1;
+    char kickName[64]="";
 };
-enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT };
+enum { GEVR_PAUSE_NONE,GEVR_PAUSE_RESUME,GEVR_PAUSE_LEAVE,GEVR_PAUSE_ABORT,GEVR_PAUSE_REQUEST_VOTES,GEVR_PAUSE_KICK_BASE=100 };
 inline void gevrPauseRadarWidget(const GevrPauseRadarView& radar) {
     if(!radar.visible)return;
     auto* draw=ImGui::GetWindowDrawList();const ImVec2 origin=ImGui::GetWindowPos();
@@ -121,15 +124,28 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                 else if(!strcmp(field.label,"NEXT WEAPONS"))gevrPauseFieldWidget(field,660,772,602);
             }
             ImGui::SetCursorPos(ImVec2(18,722));ImGui::TextColored(gold,"NEXT ROUND");
-            ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("Votes are independent; the host starts the next round.");
+            if(model.host && model.voting) {
+                ImGui::SetCursorPos(ImVec2(340,712));ImGui::BeginDisabled(model.countdown>0 || !model.canStart);
+                if(ImGui::Button("Request votes",ImVec2(350,48)))action=GEVR_PAUSE_REQUEST_VOTES;
+                ImGui::EndDisabled();
+            }
+            ImGui::SetCursorPos(ImVec2(18,832));ImGui::TextDisabled("Ready players start after warmup; the host can start early.");
         }
         ImGui::SetCursorPos(ImVec2(18,276));ImGui::TextColored(gold,"%s  (%d / %d)",model.coop?"PARTY":"PLAYERS & SCORES",model.count,model.capacity);
         ImGui::SetCursorPos(ImVec2(18,320));
-        if(ImGui::BeginTable("players",model.coop?4:7,ImGuiTableFlags_RowBg|ImGuiTableFlags_BordersInnerH|ImGuiTableFlags_SizingStretchProp|ImGuiTableFlags_ScrollY,ImVec2(1244,model.coop?224:382))) {
+        const bool kicks=model.host && !model.coop;
+        if(ImGui::BeginTable("players",model.coop?4:kicks?8:7,ImGuiTableFlags_RowBg|ImGuiTableFlags_BordersInnerH|ImGuiTableFlags_SizingStretchProp|ImGuiTableFlags_ScrollY,ImVec2(1244,model.coop?224:382))) {
             ImGui::TableSetupColumn("PLAYER",ImGuiTableColumnFlags_WidthStretch,2.2f);
-            ImGui::TableSetupColumn("CHARACTER",ImGuiTableColumnFlags_WidthStretch,2.5f);
+            ImGui::TableSetupColumn("CHARACTER",ImGuiTableColumnFlags_WidthStretch,1.8f);
             if(model.coop) {ImGui::TableSetupColumn("STATUS");ImGui::TableSetupColumn("PING MS");}
-            else {for(const char*name:{"PTS","KILLS","LOSSES","PING MS","READY"})ImGui::TableSetupColumn(name);}
+            else {
+                ImGui::TableSetupColumn("PTS",ImGuiTableColumnFlags_WidthFixed,68);
+                ImGui::TableSetupColumn("KILLS",ImGuiTableColumnFlags_WidthFixed,94);
+                ImGui::TableSetupColumn("LOSSES",ImGuiTableColumnFlags_WidthFixed,110);
+                ImGui::TableSetupColumn("PING MS",ImGuiTableColumnFlags_WidthFixed,128);
+                ImGui::TableSetupColumn("STATUS",ImGuiTableColumnFlags_WidthStretch,1.7f);
+            }
+            if(kicks)ImGui::TableSetupColumn("HOST",ImGuiTableColumnFlags_WidthFixed,104);
             ImGui::TableHeadersRow();
             for(int i=0;i<model.count;i++) {
                 const auto&p=model.players[i];ImGui::TableNextRow(0,40);
@@ -142,7 +158,19 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                     ImGui::TableNextColumn();ImGui::Text("%d",p.kills);
                     ImGui::TableNextColumn();ImGui::Text("%d",p.losses);
                     ImGui::TableNextColumn();ImGui::Text("%d",p.ping);
-                    ImGui::TableNextColumn();ImGui::TextColored(p.ready?good:ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),"%s",p.ready?"Ready":"Waiting");
+                    ImGui::TableNextColumn();ImGui::TextColored(p.ready?good:ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),"%s",!p.loaded?"Loading":p.host?"Host":p.ready?(p.spectator?"Ready (S)":"Ready"):(p.spectator?"Spectator":"Waiting"));
+                }
+                if(kicks) {
+                    ImGui::TableNextColumn();ImGui::PushID(p.slot);
+                    if(!p.host && p.slot>=0) {
+                        ImGui::BeginDisabled(!p.canKick);
+                        if(ImGui::Button("Kick",ImVec2(88,32))) {
+                            ui.kickSlot=p.slot;snprintf(ui.kickName,sizeof(ui.kickName),"%s",p.name);
+                        }
+                        ImGui::EndDisabled();
+                        if(!p.canKick && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))ImGui::SetTooltip("This player needs the updated build for host removal.");
+                    }
+                    ImGui::PopID();
                 }
             }
             ImGui::EndTable();
@@ -174,16 +202,27 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
     if(ui.focusResume){ImGui::SetItemDefaultFocus();ImGui::SetKeyboardFocusHere(-1);ui.focusResume=false;}
     if(!model.coop) {
         ImGui::SetCursorPos(ImVec2(282,886));
-        if(model.host) {char start[64];snprintf(start,sizeof(start),model.countdown>0?"Starting in %d":"Start match",model.countdown);ImGui::BeginDisabled(!model.canStart || model.countdown>0);if(ImGui::Button(start,ImVec2(300,52)))gevrPauseAction("START MATCH");ImGui::EndDisabled();}
+        if(model.host) {char start[64];snprintf(start,sizeof(start),model.countdown>0?"Starting in %d":model.soloWarmup?"Restart warmup":model.startRequested?"Waiting for ready":!model.rosterReady?"Request ready":model.warmup?"Start match":"Next warmup",model.countdown);ImGui::BeginDisabled(!model.canStart || model.countdown>0);if(ImGui::Button(start,ImVec2(300,52)))gevrPauseAction("START MATCH");ImGui::EndDisabled();}
         else if(ImGui::Button(model.localReady?"Unready":"Ready up",ImVec2(300,52))) {
             GevrPauseField f;for(int i=0;gevrPauseReadField(GEVR_PAUSE_PLAYER,i,&f);i++)if(!strcmp(f.label,"NEXT ROUND READY"))gevrPauseStep(f.id,1);
         }
         ImGui::SetCursorPos(ImVec2(600,886));ImGui::BeginDisabled(!model.canReturn);
-        if(ImGui::Button(model.countdown>0?"Cancel start":"Return to lobby",ImVec2(330,52)))gevrPauseAction("RETURN TO LOBBY");ImGui::EndDisabled();
+        if(ImGui::Button(model.countdown>0 || model.startRequested?"Cancel start":"Return to lobby",ImVec2(330,52)))gevrPauseAction("RETURN TO LOBBY");ImGui::EndDisabled();
     } else if(model.host) {ImGui::SetCursorPos(ImVec2(600,886));if(ImGui::Button("End mission...",ImVec2(330,52))) {ui.confirmAbort=true;ImGui::OpenPopup("End mission?");}}
     ImGui::SetCursorPos(ImVec2(948,886));ImGui::PushStyleColor(ImGuiCol_Text,bad);
     if(ImGui::Button(model.coop?"Leave party...":"Leave match...",ImVec2(314,52))) {ui.confirmLeave=true;ImGui::OpenPopup("Leave session?");}
     ImGui::PopStyleColor();
+    if(ui.kickSlot>=0 && !ImGui::IsPopupOpen("Kick player?"))ImGui::OpenPopup("Kick player?");
+    if(ImGui::BeginPopupModal("Kick player?",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+        bool present=false;
+        for(int i=0;i<model.count;i++)if(model.players[i].slot==ui.kickSlot && !model.players[i].host && model.players[i].canKick &&
+            !strcmp(model.players[i].name,ui.kickName))present=true;
+        ImGui::Text("Remove %s from this session?",ui.kickName);
+        if(ImGui::Button("Cancel",ImVec2(220,52))){ui.kickSlot=-1;ImGui::CloseCurrentPopup();}
+        ImGui::SameLine();ImGui::BeginDisabled(!model.host || !present);
+        if(ImGui::Button("Kick player",ImVec2(220,52))){action=GEVR_PAUSE_KICK_BASE+ui.kickSlot;ui.kickSlot=-1;ImGui::CloseCurrentPopup();}
+        ImGui::EndDisabled();ImGui::EndPopup();
+    }
     for(int i=0;i<2;i++) {
         const char*title=i?"End mission?":"Leave session?";
         if(ImGui::BeginPopupModal(title,nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {

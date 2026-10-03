@@ -1,8 +1,15 @@
 #include "gevr_launcher_ui.h"
+#include "gevr_watch_status.h"
 #include "imgui/imgui_internal.h"
 #include <cstdio>
 #include <vector>
 #include <cstdlib>
+static ImVec4 gold(1,1,0,1);
+int VrLeftHandedMode,VrSwapJoysticks,VrAimNoLean,VrAimSteady,VrGunFitArmed,VrMotionThrowing;
+int VrWatchFaceStatus=GEVR_WATCH_FACE_ON,VrWatchGesturePause=1;
+bool throwingPage,hapticsPage;
+static ImRect watchControlsRect;
+/* INSERT_CONTROLS */
 static int selected = 20, disabledRow = -1;
 static std::vector<std::pair<int, ImVec2>> visible;
 static ImVec2 combo;
@@ -94,7 +101,16 @@ static void settingsFrame() {
     gevrLauncherBeginBody("settings-body");
     const auto content = [](int tab) {
         activeTab = tab;
-        if (tab == 3) {
+        if (tab == 1) {
+            gevrTestControls();
+            const auto *window=ImGui::GetCurrentWindow();
+            check(watchControlsRect.Min.x > window->Pos.x+window->Size.x*.45f,
+                  "watch options use the right controls column");
+            check(window->DC.CursorMaxPos.y <= window->ClipRect.Max.y,
+                  "both production controls columns fit without scrolling");
+            check(watchControlsRect.Max.x <= window->ClipRect.Max.x,
+                  "watch description wraps within its column");
+        } else if (tab == 3) {
             const int rates[] = {72, 80, 90, 120};
             gevrDisplayRateControls(&displayRate, rates, 4);
             check(ImGui::GetItemRectMax().x <= ImGui::GetWindowPos().x + ImGui::GetWindowWidth(),

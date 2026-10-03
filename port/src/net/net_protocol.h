@@ -96,7 +96,14 @@ typedef enum {
     NET_MSG_COOP_JOIN = 46,     /* Host -> a joiner: start beside this teammate */
     NET_MSG_COOP_MENU = 47,     /* Host -> all, unreliable: the host's menu screen and choices (the others follow) */
     NET_MSG_COOP_CINEMA = 48,   /* Host -> all: a scripted cutscene's camera and fade, controls off (the others watch it) */
+    /* Optional advisory extension of protocol 17; older clients ignore it.
+     * No existing packet layout or gameplay authority changes. */
+    NET_MSG_ROUND_NOTICE = 49,  /* Host -> all: ready/vote requests and remaining warmup time */
+    NET_MSG_CLIENT_CAPS = 50,   /* Client -> host: optional feature support after WELCOME */
 } NetMsgType;
+
+#define NET_DISCONNECT_KICKED 0x47454b49u
+#define NET_CLIENT_CAP_KICK 1u
 
 /*
  * A guard as the host runs it (co-op, #94): what a puppet on another headset

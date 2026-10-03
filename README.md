@@ -42,7 +42,7 @@
 | Real 3D first-person play. Look around with your head, lean and step with your body. | The whole game on a cinema-sized screen floating in front of you. |
 | Aim the gun with your **right hand**. Shots leave the muzzle and go where the barrel points. | **Flat or curved** screen, any size and distance. |
 | A 3D sight where your shot will land. Your ammo counter sits on the gun. | **Grab the screen** with both grips to move it anywhere. |
-| Your **left arm** is Bond's own suit sleeve with his watch, keeping mission time. Raise your wrist and look at it to open the watch. | The classic experience, with no motion at all. |
+| Your **left arm** is Bond's own suit sleeve with his watch, keeping mission time and showing live health, armor, and multiplayer radar. The launcher offers **Off / On / Only** for wrist status and a separate **watch gesture to pause** toggle. | The classic experience, with no motion at all. |
 | Gadgets are **in your hand**: mines, the covert modem, cameras and more, thrown from where you hold them. | |
 | The **sniper rifle's scope** shows the zoomed view in its lens, 4.4x up to 25x, with a red sight when you aim. The **Moonraker laser** has a 3x scope, and the **KF7** and **AR33** show a magnifier when you bring your eye to their sights. | |
 | **Melee with either hand**: swing your hand, a gun, the knife or the sniper rifle's butt at a guard. Sneak up on one and chop him. | |
@@ -176,10 +176,10 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Right grip** + **A** | Previous weapon |
 | **Hold A** | Weapon wheel above your gun hand: push the other stick toward a category (pistols top, rifles upper right, heavy lower right, gadgets lower left, thrown upper left), pull a trigger to step through the guns in it (gun hand forward, other hand back), let go of A to equip (dual-wield pairs included) |
 | **Hold X** | Left-hand wheel: a second gun for your left hand, any gun you carry that can be dual-wielded (not gadgets). Point with the right stick, step with the triggers, let go to equip. Solo missions, with such a gun in your right hand |
-| **B** / **Y** | Action: doors, switches, reload |
+| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it |
 | **☰ Menu** (left controller) | Pause / Bond's watch |
 | **Hold ☰ Menu** (1.5 s) | Back to the launcher, to change settings or cheats (asks first: A yes, B no) |
-| **Raise left wrist to your face** | Open Bond's watch |
+| **Raise left wrist to your face** | Open Bond's watch when **Watch gesture to pause** is enabled |
 | **Both stick clicks** | Recenter the view |
 | **Hold right stick click** (1 s) | Switch to the virtual screen |
 
@@ -187,6 +187,13 @@ Real-world movement works too: lean around corners, duck, and step. Ducking behi
 
 **Left-handed?** Tick **Left-handed** in the launcher. The gun goes in your left hand and the watch on your right wrist, and the sticks and face buttons swap sides. The **☰ Menu** button stays on the left controller: the right one is Meta's system button.
 To walk with the left stick anyway, tick **Swap sticks** as well.
+
+**Watch face status** is on the launcher's **Controls** tab: **Off** keeps the standard
+displays, **On** (the default) shows both wrist and standard status, and **Only** shows
+wrist status during stereo gameplay. Holster the offhand to see the watch; its clock
+hands still show mission time. Pause-menu status stays visible in every setting,
+and virtual-screen mode keeps its standard displays. Disable **Watch gesture to pause**
+to read your wrist without opening the pause menu; the Menu button still pauses.
 
 ### Virtual screen (flat play, menus and cutscenes)
 
