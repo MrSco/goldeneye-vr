@@ -15,7 +15,7 @@ request. No separate close-wall crosshair/auto-crouch adjustment was made.
 See docs/issue-60-watch-grip-hand.md. Water preserves projected positions
 and UVs as floats, and stereo reflections transform the body axes into
 view space; water and Dam truck glass accepted on `942e897`. See
-docs/issue-30-surface-capture.md. HD + AI pack catalog: 2026.09.29.2.
+docs/issue-30-surface-capture.md. HD + AI pack catalog: 2026.10.03.1.
 
 **Recent releases:** v0.3.9 added scopes in either/both hands, snap-turn
 vignette, watch arm in the left weapon panel, solid panel hands, corrected
