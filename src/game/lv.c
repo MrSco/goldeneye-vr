@@ -362,7 +362,8 @@ void lvlStageLoad(s32 stage)
 
     sndSetScalerApplyVolumeAllSfxSlot(1.0f);
 #ifdef GEVR
-    if (netIsActive())
+    /* co-op (#94): the party's menus (the title stage) take solo's volumes */
+    if (netIsActive() && stage != LEVELID_TITLE)
     {
         u16 volume = get_mTrack2Vol();
         musicTrack1ApplySeqpVol(volume);
