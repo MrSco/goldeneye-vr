@@ -3452,7 +3452,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         menuLayerP.subImage.imageRect.extent = {(int32_t)((x1 - x0) * W), (int32_t)((y1 - y0) * H)};
 
         // the shape in the game's screen units: the capture's pixels aren't square (an oval)
-        const float hgt = 0.22f;   // metres
+        const float hgt = 0.27f;   // metres
         menuLayerP.size = {hgt * (gevrWeaponPanelAspect > 0.f ? gevrWeaponPanelAspect : 1.f), hgt};
 
         // the world's up in head space, so tilting the head doesn't swing the panel round the hand
@@ -3460,13 +3460,13 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         float wx = 0.f, wy = 1.f, wz = 0.f;
         rotvec(&wx, &wy, &wz, hq.w, -hq.x, -hq.y, -hq.z);
 
-        // 19 cm above the controller and 6 cm beyond it from the eyes, turned to face them
+        // 21 cm above the controller and 6 cm beyond it from the eyes, turned to face them
         const float cx = gCtrlPos[hand][0] / 100.f, cy = gCtrlPos[hand][1] / 100.f, cz = gCtrlPos[hand][2] / 100.f;
         float cl = sqrtf(cx * cx + cy * cy + cz * cz);
         if (cl < 1e-4f) cl = 1e-4f;
-        float px = cx + wx * 0.19f + cx / cl * 0.06f;
-        float py = cy + wy * 0.19f + cy / cl * 0.06f;
-        float pz = cz + wz * 0.19f + cz / cl * 0.06f;
+        float px = cx + wx * 0.21f + cx / cl * 0.06f;
+        float py = cy + wy * 0.21f + cy / cl * 0.06f;
+        float pz = cz + wz * 0.21f + cz / cl * 0.06f;
         if (gevrWeaponPanelInFront) { px = 0.f; py = -0.05f; pz = -0.45f; }
         menuLayerP.pose.position = {px, py, pz};
         float fx = -px, fy = -py, fz = -pz;
