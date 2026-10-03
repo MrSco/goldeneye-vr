@@ -117,8 +117,14 @@ unless co-op asks for solo's layout.
 - After a host change, objective events only the old host had (a client's
   photo or deposit) are not carried over; the stage flags are.
 - Guards a host spawned show the old chrnum on clients for a clone (cosmetic).
-- Scripted and ending cutscenes (AI camera commands) play on the host
-  only; the others see the end message, then the debrief.
+- Scripted and ending cutscenes (branch coop-cutscenes, not yet played on
+  two headsets): the host streams its cutscene camera (eye, target, the pad
+  that places it among the rooms), its screen fade and "no control"
+  (NET_MSG_COOP_CINEMA, 20 Hz, a change of state reliable). The others watch
+  through the host's camera, their own player standing; every other
+  player's copy is out of the shot except the host's, who is Bond. Bond's
+  cinema animations reach the others only as the host's moving copy; script
+  music plays on the host only.
 - Pickups from dead guards are per headset (each player can take the gun).
 - Shooting a gun out of a guard's hand, or its held grenade, does nothing
   (the hit is the host's to apply, and that path skips it).
