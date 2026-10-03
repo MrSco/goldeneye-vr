@@ -1,16 +1,37 @@
 # Issue #94: online co-op campaign missions (2-4 players)
 
 Branch `issue-94-coop`, on `issue-95-ge-plus-fixes` (the four #95 fixes).
-Protocol 16. Compile-checked per file on the host only: not yet built for
-the Quest or played. Decisions recorded on #94: downed players are revived,
-each player keeps their own save, GE Plus findings go to #95.
+Protocol 16. Built and signed (2026-10-02); first headset test, the host
+alone, played Dam from the launcher. Decisions recorded on #94: downed
+players are revived, each player keeps their own save, GE Plus findings go
+to #95.
+
+User decisions after that test (2026-10-03): co-op is the solo campaign
+through the game's own menus (mission select, briefings, cutscenes), the
+host driving them; the pause is the solo watch and the world keeps running
+(that player stands, can be shot); each player skips their own intro,
+scripted and ending cutscenes follow the host; keep the teammate radar.
 
 ## How it works
 
-- **Lobby.** Host Lobby > Mode: Co-op mission, then a mission and a
-  difficulty. Friendly fire is the only Match option. A listed co-op game
-  shows "Co-op mission: <name> / <difficulty>"; its stage byte is
-  `0x80 | LEVELID`. Up to four players.
+- **Lobby.** Host Lobby > Mode: Co-op mission. Friendly fire is the only
+  Match option. A listed co-op game shows "Co-op campaign, in the menus" or
+  "Co-op campaign: <mission>, <difficulty>"; its stage byte is
+  `0x80 | LEVELID` (90 = the menus). Up to four players.
+- **Menus** (port/src/net/net_coop_menu.c). Launch takes every headset into
+  the solo front end (the title stage; the session lasts through it). Each
+  player picks their own folder, which leads straight to mission select.
+  From there the host drives: mission, difficulty, 007 options, briefing,
+  debrief, statistics. The others show the host's screen, cursor and
+  choices (NET_MSG_COOP_MENU, 10 Hz, a screen change reliable) drawn from
+  their own saves, and take no input of their own. The host's Start loads
+  the mission everywhere as a round reset (netCoopHostStartMission).
+- **Intro.** Each headset plays the solo intro (the same camera everywhere,
+  from the party's seed), driven by its own player: its own skip, then the
+  swirl and first person. The mission timer is each headset's own.
+- **Pause.** START opens the solo watch. Nothing freezes: that player
+  stands still and can be shot. The host's Abort ends the mission for the
+  party; a teammate's leaves the party.
 - **Mission.** Every headset loads the solo mission (solo memory split, fog,
   sky, ammo, AI health and damage rules) with `gamemode` still MULTI so all
   four player structs exist. `gevrMpRules()` and `gevrSoloRules()` replace
@@ -32,9 +53,12 @@ each player keeps their own save, GE Plus findings go to #95.
   rooms entered, deposits, photographs, the key copy and the objective items
   they hold (a teammate's key counts for the team). Script messages and doors
   that guards or scripts move or lock reach every headset.
-- **End.** The host's mission end (complete or failed) ends it for everyone.
-  Each headset saves a completion to its own save (folder 1), then the host
-  loads the next mission after 8 s, or the same one after a failure.
+- **End.** The host's mission end (complete, failed, everyone down,
+  aborted) ends it for everyone, with every player's kills and hits as the
+  host counted them. Each headset saves a completion to its own folder;
+  after 4 s the party is back in the menus at the debrief (KIA when everyone
+  went down), then statistics (each player's own, plus a team kill line),
+  and the host's Next goes on as solo does (Cradle to Cuba).
 - **Revive.** At zero health a player is down, not dead: they can look but
   not move, fire or use, and take no damage; guards ignore them and the
   others see them crouched. A teammate within 160 units for 3 s revives
@@ -49,7 +73,13 @@ each player keeps their own save, GE Plus findings go to #95.
 
 ## Headset test plan
 
-1. Two headsets: host Co-op / Dam / Agent; the other joins. Both spawn near
+0. One headset, the host alone: Launch shows the folders; pick one, then
+   Dam / Agent / briefing / Start. The intro plays and skips; START opens
+   the watch (objectives, abort) while guards keep shooting; the radar and
+   its health/armour arcs sit together. Abort: debrief "aborted",
+   statistics, Next.
+1. Two headsets: host Co-op; the other joins. Each picks a folder, then
+   follows the host's mission select, briefing and Start. Both spawn near
    the start; guards move, shoot and die the same on both.
 2. Client shoots, punches and grenades guards; host does the same. Guards
    fire at whichever player is nearest; both players take damage.
@@ -72,7 +102,8 @@ each player keeps their own save, GE Plus findings go to #95.
 - After a host change, objective events only the old host had (a client's
   photo or deposit) are not carried over; the stage flags are.
 - Guards a host spawned show the old chrnum on clients for a clone (cosmetic).
-- Saves go to folder 1 on each headset; there is no folder choice yet.
+- Scripted and ending cutscenes (AI camera commands) play on the host
+  only; the others see the end message, then the debrief.
 - Pickups from dead guards are per headset (each player can take the gun).
 - Shooting a gun out of a guard's hand, or its held grenade, does nothing
   (the hit is the host's to apply, and that path skips it).
