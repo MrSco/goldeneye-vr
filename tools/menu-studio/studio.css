@@ -1467,3 +1467,42 @@ dialog::backdrop {
   dialog { max-width:calc(100vw - 24px); max-height:calc(100dvh - 32px); padding:18px }
   #toast { bottom:calc(76px + env(safe-area-inset-bottom)); max-width:calc(100vw - 24px); z-index:400000 }
 }
+
+/* Native launcher surface: default ImGui font, square controls and opaque window. */
+.launcher-style .scene-node {border-width:0; overflow:hidden}
+.launcher-style .scene-node *, .launcher-style button, .launcher-style input, .launcher-style select {font-family:inherit; font-size:inherit; letter-spacing:0; font-weight:normal}
+.launcher-style .c-text {line-height:1.15}
+.launcher-style .c-button {justify-content:center; padding:0; line-height:1; background:transparent}
+.launcher-style .c-tabs {gap:14px; justify-content:flex-start; height:100%}
+.launcher-style .c-tabs button {width:184px; flex:none; padding:0; background:var(--button); color:var(--text); border:0; border-radius:0}
+.launcher-style .c-tabs button.active {background:var(--selected); color:var(--text); border:0}
+.launcher-style .c-tabs button:hover, .launcher-style .c-button:hover {background:var(--hover)}
+.launcher-style .c-choice {display:flex;align-items:center;gap:18px;height:100%;white-space:nowrap}
+.launcher-style .c-choice select {min-width:0; flex:1; height:100%;padding:4px 8px; border:0; border-radius:0; color:var(--accent);background:var(--frame)}
+.launcher-style .c-choice select option {background:var(--frame);color:var(--accent)}
+.launcher-style .type-select, .launcher-style .type-toggle, .launcher-style .type-slider {background:transparent!important}
+.launcher-style .c-toggle {padding:0;justify-content:flex-start;gap:18px}
+.launcher-style .c-toggle i {width:32px;height:32px; border:0; border-radius:0;background:var(--frame)}
+.launcher-style .c-toggle i b {display:none}
+.launcher-style .c-toggle i.on {background:var(--selected)}
+.launcher-style .c-toggle i.on::after {content:'✓';color:var(--accent);position:absolute;inset:0;text-align:center;line-height:32px}
+.launcher-style .c-slider {display:flex;align-items:center;gap:18px;padding:0;height:100%}
+.launcher-style .c-slider label {margin:0;display:contents}
+.launcher-style .c-slider label span {order:3;color:var(--accent);min-width:92px}
+.launcher-style .c-slider input {flex:1;accent-color:var(--selected);height:30px}
+.launcher-style .c-table {width:100%;border-collapse:collapse;table-layout:fixed; font-size:28.6px;line-height:1}
+.launcher-style .c-table thead {background:var(--frame);color:var(--text);font-size:inherit}
+.launcher-style .c-table th,.launcher-style .c-table td {height:40px;padding:4px 8px;border-bottom:1px solid var(--line);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.launcher-style .c-table td:first-child {display:table-cell}
+.launcher-style .c-table th:first-child {width:24%}
+.launcher-style .c-table th:nth-child(2) {width:25%}
+.launcher-style .c-table tr:nth-child(even) {background:#ffffff0a}
+.launcher-style .c-good {color:var(--success)}
+.launcher-style .c-bad {color:var(--danger)}
+.launcher-style .c-muted {color:var(--muted)}
+.launcher-style .c-objectives {height:100%;overflow:auto}
+.launcher-style .c-objectives>div {display:flex;justify-content:space-between;gap:20px;min-height:48px}
+.launcher-style .c-objectives b {min-width:180px}
+.launcher-style button:disabled,.launcher-style select:disabled,.launcher-style input:disabled {opacity:.5}
+
+.scene.launcher-style::before {background:none}

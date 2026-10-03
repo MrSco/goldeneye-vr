@@ -5,6 +5,9 @@ export const clone = value => structuredClone(value);
 export const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 export const escapeHTML = text => String(text ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 export const palettes = {
+  // vr_launcher.cpp: StyleColorsDark(), gold/good/bad, with opaque WindowBg.
+  // Frame/Button alpha is composited over #0f0f0f from imgui_draw.cpp.
+  launcher: { accent: "#e0b040", heading: "#ffd678", background: "#0f0f0f", panel: "#0f0f0f", text: "#ffffff", muted: "#808080", line: "#3e3e47", frame: "#1d2f49", button: "#23456d", selected: "#3368ad", hover: "#4296fa", success: "#80e680", danger: "#f28066" },
   dossier: { accent: "#e0b040", background: "#0b0a08", panel: "#181612", text: "#ede7da", muted: "#a89f8c", line: "#393125", success: "#93d6a5", danger: "#ef806c" },
   mi6: { accent: "#74aecb", background: "#0a1119", panel: "#131f2a", text: "#e4edf2", muted: "#92a4af", line: "#2b4152", success: "#93d6a5", danger: "#ef806c" },
   terminal: { accent: "#9ecb88", background: "#0b110c", panel: "#162018", text: "#e0ebdc", muted: "#93a38e", line: "#334532", success: "#a6dc93", danger: "#ef806c" },
@@ -14,17 +17,21 @@ export const componentTypes = [
   ["image", "Image / texture", "Assets"], ["model", "3D model", "Assets"], ["divider", "Divider", "Layout"],
   ["roster", "Player roster", "Multiplayer"], ["player", "Player card", "Multiplayer"],
   ["server-list", "Game browser", "Multiplayer"], ["vote", "Map / weapon ballot", "Multiplayer"],
-  ["scoreboard", "Scoreboard", "Multiplayer"], ["loadout", "Weapon loadout", "Multiplayer"],
+  ["objectives", "Mission objectives", "Multiplayer"], ["scoreboard", "Scoreboard", "Multiplayer"], ["loadout", "Weapon loadout", "Multiplayer"],
   ["chat", "Chat / voice panel", "Multiplayer"], ["countdown", "Countdown", "Multiplayer"],
   ["badge", "Status badge", "Multiplayer"], ["tabs", "Navigation tabs", "Controls"],
   ["toggle", "Toggle", "Controls"], ["slider", "Slider", "Controls"], ["select", "Option selector", "Controls"],
   ["input", "Text field", "Controls"], ["progress", "Progress bar", "Controls"],
 ];
 export const defaultPlayers = [
-  { name: "James Bond", character: "James Bond", team: "MI6", ready: true, host: true, ping: 18, kills: 12, deaths: 4, score: 1200, voice: true },
-  { name: "Natalya", character: "Natalya", team: "MI6", ready: true, host: false, ping: 32, kills: 9, deaths: 6, score: 900, voice: true },
-  { name: "Trevelyan", character: "Trevelyan", team: "Janus", ready: true, host: false, ping: 24, kills: 7, deaths: 8, score: 700, voice: false },
-  { name: "Xenia", character: "Xenia", team: "Janus", ready: false, host: false, ping: 46, kills: 4, deaths: 10, score: 400, voice: true },
+  { name: "MrSco", character: "James Bond", team: "Red", ready: true, host: true, ping: 0, kills: 12, deaths: 4, score: 12, voice: true },
+  { name: "Natalya", character: "Natalya", team: "Red", ready: true, host: false, ping: 32, kills: 9, deaths: 6, score: 9, voice: true },
+  { name: "Trevelyan", character: "Trevelyan", team: "Blue", ready: true, host: false, ping: 24, kills: 7, deaths: 8, score: 7, voice: false },
+  { name: "Oddjob", character: "Oddjob", team: "Red", ready: true, host: false, ping: 41, kills: 6, deaths: 7, score: 6, voice: true },
+  { name: "Boris", character: "Boris", team: "Blue", ready: true, host: false, ping: 57, kills: 5, deaths: 8, score: 5, voice: false },
+  { name: "Ourumov", character: "Ourumov", team: "Red", ready: true, host: false, ping: 28, kills: 3, deaths: 6, score: 3, voice: true },
+  { name: "Mayday", character: "Mayday", team: "Blue", ready: true, host: false, ping: 36, kills: 2, deaths: 5, score: 2, voice: false },
+  { name: "Xenia", character: "Xenia", team: "Blue", ready: false, host: false, ping: 46, kills: 4, deaths: 10, score: 4, voice: true },
 ];
 export function createNode(type, x = 80, y = 160, overrides = {}) {
   const defaults = {
@@ -37,17 +44,18 @@ export function createNode(type, x = 80, y = 160, overrides = {}) {
     badge: [176, 36, "PUBLIC LOBBY"], tabs: [500, 48, "LOBBY | LOADOUT | SETTINGS"],
     toggle: [280, 52, "Voice chat"], slider: [320, 60, "Voice volume"],
     select: [320, 64, "Weapon set"], input: [320, 64, "Lobby name"],
-    progress: [320, 36, "Loading"],
+    objectives: [1244, 222, "MISSION OBJECTIVES"], progress: [320, 36, "Loading"],
   }[type];
   if (!defaults) throw new Error("Unknown component type: " + type);
   return {
     id: uid(), type, name: componentTypes.find(t => t[0] === type)[1], x, y,
-    w: defaults[0], h: defaults[1], text: defaults[2], subtext: "", fontSize: type === "text" ? 42 : 20,
-    font: "sans", color: "text", fill: type === "text" || type === "divider" ? "transparent" : "panel",
-    border: type === "text" ? "transparent" : "line", radius: 4, opacity: 1, align: "left",
+    w: defaults[0], h: defaults[1], text: defaults[2], subtext: "", fontSize: 28.6,
+    font: "native-font", color: "text", fill: type === "text" || type === "divider" ? "transparent" : type === "button" ? "button" : "panel",
+    border: type === "text" ? "transparent" : "line", radius: 0, opacity: 1, align: "left",
     assetId: "", runtimeAsset: "", targetScreen: "", action: "", binding: "",
     visibleWhen: "always", state: "default", locked: false, hidden: false, group: "",
-    notes: "", value: 70, votes: 2, yaw: -25, pitch: 10, count: 15, ...overrides,
+    notes: "", options: "", sampleKey: "", editableBy: "everyone", tabTargets: [], min: 0, max: 100, unit: "%",
+    value: 70, votes: 2, yaw: -25, pitch: 10, count: 15, ...overrides,
   };
 }
 export function createScreen(name = "Untitled screen", kind = "blank") {
@@ -109,6 +117,8 @@ export function validateProject(input) {
   if (!input || input.format !== FORMAT || input.version !== VERSION) throw new Error("This is not a supported Menu Studio project (version 1).");
   if (!Array.isArray(input.screens) || !input.screens.length || input.screens.length > 60) throw new Error("A project must have 1–60 screens.");
   const project = clone(input), ids = new Set(), types = new Set(componentTypes.map(t => t[0]));
+  project.uiStyle = project.uiStyle || "legacy";
+  if (!["legacy", "launcher"].includes(project.uiStyle)) throw new Error("Invalid UI style.");
   for (const screen of project.screens) {
     if (typeof screen.id !== "string" || ids.has(screen.id)) throw new Error("Screen IDs must be unique.");
     ids.add(screen.id);
@@ -122,6 +132,13 @@ export function validateProject(input) {
       for (const key of ["x", "y", "w", "h"]) if (!Number.isFinite(n[key])) throw new Error("Invalid element geometry.");
       if (n.w < 1 || n.h < 1 || n.w > 8192 || n.h > 8192 || Math.abs(n.x) > 8192 || Math.abs(n.y) > 8192) throw new Error("Element dimensions are out of range.");
       screen.nodes[i] = { ...createNode(n.type), ...n };
+      if (typeof screen.nodes[i].options !== "string" || screen.nodes[i].options.length > 12000) throw new Error("Invalid option list.");
+      if (!Array.isArray(screen.nodes[i].tabTargets) || screen.nodes[i].tabTargets.length > 60 || !screen.nodes[i].tabTargets.every(t => typeof t === "string" && t.length < 200)) throw new Error("Invalid tab destinations.");
+      if (!["everyone","host","client"].includes(screen.nodes[i].editableBy)) throw new Error("Invalid control authority.");
+      const key = screen.nodes[i].sampleKey;
+      if (typeof key !== "string" || (key && (!/^[a-z][a-z0-9_]{0,63}$/i.test(key) || ["__proto__","prototype","constructor"].includes(key)))) throw new Error("Invalid sample field.");
+      for (const key of ["min","max"]) if (!Number.isFinite(screen.nodes[i][key])) throw new Error("Invalid slider range.");
+      if (screen.nodes[i].max < screen.nodes[i].min) throw new Error("Invalid slider range.");
       for (const [key, low, high, fallback] of [["opacity",0,1,1],["fontSize",8,200,20],["radius",0,100,4],["value",0,100,70],["votes",0,16,2],["yaw",-360,360,-25],["pitch",-180,180,10],["count",0,3600,15]]) {
         const value = Number(n[key] ?? fallback);
         if (!Number.isFinite(value)) throw new Error("Invalid element property: " + key);
@@ -129,7 +146,7 @@ export function validateProject(input) {
       }
     }
   }
-  project.theme = { ...palettes.dossier, ...project.theme };
+  project.theme = { ...(project.uiStyle === "launcher" ? palettes.launcher : palettes.dossier), ...project.theme };
   for (const [key, value] of Object.entries(project.theme)) {
     if (!/^#[0-9a-f]{6}$/i.test(value)) throw new Error("Invalid theme color: " + key);
   }
@@ -139,11 +156,13 @@ export function validateProject(input) {
   for (const a of project.assets) {
     if (!a || typeof a.id !== "string" || assetIds.has(a.id) || !["image", "font", "model"].includes(a.kind)) throw new Error("Invalid or duplicate asset.");
     assetIds.add(a.id);
-    if (a.kind === "image" && a.data && !/^data:image\/(png|jpeg|webp|gif);base64,/i.test(a.data) && !/^\/repo-assets\/(banner|icon)\.png$/.test(a.data)) throw new Error("Images must be embedded PNG, JPEG, WebP or GIF previews.");
+    if (a.kind === "image" && a.data && !/^data:image\/(png|jpeg|webp|gif);base64,/i.test(a.data) && !/^\/repo-assets\/(banner|icon|launcher-icon)\.png$/.test(a.data)) throw new Error("Images must be embedded PNG, JPEG, WebP or GIF previews.");
     if (a.kind === "font" && !/^data:(font\/[a-z0-9.-]+|application\/[a-z0-9.-]+);base64,/i.test(a.data || "") && a.data !== "/repo-assets/native-ui.ttf") throw new Error("Fonts must be embedded font files.");
     if (a.kind === "model") validateMesh(a.mesh);
   }
-  project.sample = { players: clone(defaultPlayers), map: "Facility", weaponSet: "Power Weapons", scenario: "Normal", phase: "waiting", ...project.sample };
+  project.sample = { players: clone(defaultPlayers), map: "Facility", weaponSet: "Power Weapons", scenario: "Normal", phase: "waiting", mode: "deathmatch", objectives: [], ...project.sample };
+  if (!["deathmatch","coop"].includes(project.sample.mode)) throw new Error("Invalid sample mode.");
+  if (!Array.isArray(project.sample.objectives) || project.sample.objectives.length > 10 || !project.sample.objectives.every(o => o && typeof o.text === "string" && ["Incomplete","Complete","Failed"].includes(o.status))) throw new Error("Invalid objectives.");
   if (!Array.isArray(project.sample.players) || project.sample.players.length > 16) throw new Error("Invalid sample roster.");
   for (const p of project.sample.players) {
     if (!p || typeof p.name !== "string") throw new Error("Every sample player needs a name.");
@@ -187,6 +206,7 @@ export function auditProject(project) {
     for (const n of s.nodes) {
       const label = s.name + " / " + n.name;
       if (n.x < 0 || n.y < 0 || n.x + n.w > s.width || n.y + n.h > s.height) warnings.push(label + ": extends outside the canvas.");
+      if (n.tabTargets?.some(t=>t && !screens.has(t))) warnings.push(label + ": tab destination screen is missing.");
       if (n.targetScreen && !screens.has(n.targetScreen)) warnings.push(label + ": destination screen is missing.");
       if (n.type === "button" && !n.targetScreen && !n.action) warnings.push(label + ": choose a destination or describe its action.");
       if (n.type === "image" || n.type === "model") if (!n.assetId && !n.runtimeAsset) warnings.push(label + ": choose an asset or add a runtime reference.");
@@ -210,6 +230,7 @@ export function handoffMarkdown(project) {
         "  - Rectangle: x " + n.x + ", y " + n.y + ", width " + n.w + ", height " + n.h,
         "  - Content: " + n.text + (n.subtext ? " / " + n.subtext : ""),
         "  - Binding: " + (n.binding || "static") + "; visibility: " + n.visibleWhen + "; state: " + n.state,
+        "  - Options: " + (n.options || "none") + "; editable by: " + n.editableBy + "; sample field: " + (n.sampleKey || "none"),
         "  - Interaction: " + (n.action || "none") + (n.targetScreen ? " → " + (project.screens.find(s => s.id === n.targetScreen)?.name || n.targetScreen) : ""),
         "  - Runtime asset: " + (n.runtimeAsset || project.assets.find(a => a.id === n.assetId)?.runtimeAsset || "none"),
         "  - Notes: " + (n.notes || "none"));

@@ -11,24 +11,25 @@ export function fontCSS(project) {
   return project.assets.map((a, i) => a.kind === "font" ? '@font-face{font-family:"studio-font-' + i + '";src:url("' + a.data.replace(/["\\]/g, "") + '")}' : "").join("\n");
 }
 export function interpolate(text, project) {
-  const waiting = project.sample.players.filter(p => !p.ready).map(p => p.name);
-  const data = { ...project.sample, playerCount: project.sample.players.length, readyCount: project.sample.players.filter(p => p.ready).length, waitingPlayers: waiting.length ? "Waiting for " + waiting.join(", ") : "All operatives ready" };
+  const players=shownPlayers(project);
+  const waiting = players.filter(p => !p.ready).map(p => p.name);
+  const data = { ...project.sample, map: project.sample.mode === "coop" ? project.sample.mission : project.sample.map, sessionStatus: project.sample.mode === "coop" ? project.sample.difficulty : project.sample.sessionStatus, playerCount: players.length, readyCount: players.filter(p => p.ready).length, waitingPlayers: waiting.length ? "Waiting for " + waiting.join(", ") : "All operatives ready" };
   return String(text || "").replace(/\{\{(\w+)\}\}/g, (match, key) => Object.hasOwn(data, key) ? String(data[key]) : match);
 }
 function asset(project, node) { return project.assets.find(a => a.id === node.assetId); }
 function badge(text, tone = "accent") { return '<span class="c-badge" style="color:var(--' + tone + ')">' + e(text) + '</span>'; }
 function initials(name) { return e(String(name).split(/\s+/).map(s => s[0]).slice(0, 2).join("")); }
+export function shownPlayers(project) { return project.sample.mode === "coop" ? project.sample.players.slice(0,4) : project.sample.players.slice(0,8); }
 function roster(project, scoreboard = false) {
+  if(project.uiStyle === "launcher") {
+    const coop=project.sample.mode === "coop";
+    const head=coop?["PLAYER","CHARACTER","STATUS","PING MS"]:["PLAYER","CHARACTER","PTS","KILLS","LOSSES","PING MS","READY"];
+    const rows=shownPlayers(project).map(p=>'<tr><td>'+e(p.name)+(p.host?' *':'')+'</td><td>'+e(p.character)+'</td>'+ (coop?'<td class="'+(p.down?'c-bad':'c-good')+'">'+(p.down?'Down / revive':'Active')+'</td><td>'+p.ping+'</td>':'<td class="c-gold">'+p.score+'</td><td>'+p.kills+'</td><td>'+p.deaths+'</td><td>'+p.ping+'</td><td class="'+(p.ready?'c-good':'c-muted')+'">'+(p.ready?'Ready':'Waiting')+'</td>')+'</tr>');
+    return '<table class="c-table"><thead><tr>'+head.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+rows.join('')+'</tbody></table>';
+  }
   const players = project.sample.players;
   const head = scoreboard ? ["OPERATIVE", "TEAM", "K", "D", "SCORE", "PING"] : ["OPERATIVE", "CHARACTER", "TEAM", "STATE", "PING"];
-  const rows = players.map((p, index) => {
-    const first = '<td><span class="c-avatar">' + (scoreboard ? String(index + 1).padStart(2, "0") : initials(p.name)) + '</span><span><b>' + e(p.name) + '</b>' + (p.host ? '<small>HOST</small>' : "") + '</span></td>';
-    return '<tr>' + first + (scoreboard
-      ? '<td>' + e(p.team) + '</td><td>' + e(p.kills) + '</td><td>' + e(p.deaths) + '</td><td class="c-gold"><b>' + e(p.score) + '</b></td>'
-      : '<td>' + e(p.character) + '</td><td>' + e(p.team) + '</td><td>' + badge(p.ready ? "● READY" : "○ WAITING", p.ready ? "success" : "muted") + '</td>') + '<td class="c-mono">' + e(p.ping) + ' <small>ms</small></td></tr>';
-  });
-  if (!scoreboard) for (let i = players.length; i < 4; i++) rows.push('<tr class="c-empty"><td colspan="5">＋ Open operative slot</td></tr>');
-  return '<table class="c-table"><thead><tr>' + head.map(h => '<th>' + h + '</th>').join("") + '</tr></thead><tbody>' + rows.join("") + '</tbody></table>';
+  return '<table class="c-table"><thead><tr>'+head.map(h=>'<th>'+h+'</th>').join('')+'</tr></thead><tbody>'+players.map(p=>'<tr><td>'+e(p.name)+'</td><td>'+e(scoreboard?p.team:p.character)+'</td><td>'+e(scoreboard?p.kills:p.team)+'</td><td>'+e(scoreboard?p.deaths:p.ready?'Ready':'Waiting')+'</td><td>'+e(scoreboard?p.score:p.ping)+'</td>'+ (scoreboard?'<td>'+e(p.ping)+'</td>':'')+'</tr>').join('')+'</tbody></table>';
 }
 export function meshSVG(mesh, yaw = -25, pitch = 10, color = "#e0b040") {
   if (!mesh) return "";
@@ -45,16 +46,17 @@ export function meshSVG(mesh, yaw = -25, pitch = 10, color = "#e0b040") {
   return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 288" role="img" aria-label="Imported 3D model geometry">' + polygons + '</svg>';
 }
 export function nodeContent(project, n) {
-  const text = e(interpolate(n.text, project)), sub = e(interpolate(n.subtext, project)), a = asset(project, n);
+  const text = e(interpolate(n.text, project)), sub = e(interpolate(n.sampleKey ? project.sample[n.sampleKey] ?? n.subtext : n.subtext, project)), a = asset(project, n);
   switch (n.type) {
     case "text": return '<div class="c-text">' + text.replace(/\n/g, "<br>") + '</div>';
     case "panel": return '<div class="c-panel-label">' + (n.text === "Panel" ? "" : text) + '</div>';
     case "divider": return '<div class="c-divider"></div>';
     case "image": return a?.kind === "image" ? '<img class="c-image" src="' + e(a.data) + '" alt="' + e(a.name) + '" style="object-fit:' + (n.state === "selected" ? "contain" : "cover") + '">' : '<div class="c-asset-empty"><span>▧</span><b>' + text + '</b><small>' + e(n.runtimeAsset || "Choose an image or texture") + '</small></div>';
     case "model": return '<div class="c-model">' + (a?.kind === "model" ? meshSVG(a.mesh, n.yaw, n.pitch, project.theme.accent) : '<svg viewBox="0 0 240 230" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="1"><circle cx="120" cy="48" r="23"/><path d="M97 78L70 100L60 150L85 158L95 120L98 166L90 222M143 78L170 100L180 150L155 158L145 120L142 166L150 222M97 78L143 78L142 166L120 178L98 166M120 178L120 220"/></g></svg>') + '<div class="c-model-title">' + text + '</div><small>' + e(a?.name || n.runtimeAsset || "Assign a model preview") + '</small></div>';
-    case "button": return '<button class="c-button" data-interact="button" ' + (n.state === "disabled" || n.state === "loading" ? "disabled" : "") + '>' + (n.state === "loading" ? "◌  " : "") + text + '<span>↗</span></button>';
-    case "roster": return '<div class="c-component-heading">' + text + '<span>' + project.sample.players.length + ' / 4</span></div>' + roster(project);
-    case "scoreboard": return '<div class="c-component-heading">' + text + '<span>FINAL STANDINGS</span></div>' + roster(project, true);
+    case "objectives": return '<div class="c-objectives">'+project.sample.objectives.map((o,i)=>'<div><span>'+String.fromCharCode(65+i)+'. '+e(o.text)+'</span><b class="'+(o.status==="Complete"?"c-good":o.status==="Failed"?"c-bad":"c-gold")+'">'+e(o.status)+'</b></div>').join('')+'</div>';
+    case "button": return '<button class="c-button" data-interact="button" ' + (n.state === "disabled" || n.state === "loading" ? "disabled" : "") + '>' + (n.state === "loading" ? "◌  " : "") + text + '</button>';
+    case "roster": if(project.uiStyle === "launcher") return roster(project); return '<div class="c-component-heading">' + text + '<span>' + project.sample.players.length + ' / 4</span></div>' + roster(project);
+    case "scoreboard": if(project.uiStyle === "launcher") return roster(project,true); return '<div class="c-component-heading">' + text + '<span>FINAL STANDINGS</span></div>' + roster(project, true);
     case "player": {
       const player = project.sample.players.find(p => p.name === n.text) || project.sample.players[0];
       return '<div class="c-player"><div class="c-player-portrait">' + (a?.kind === "image" ? '<img src="' + e(a.data) + '" alt="">' : '<span>' + initials(n.text) + '</span>') + '</div><b>' + text + '</b><small>' + e(player?.character || "Operative") + '</small>' + badge(player?.ready ? "READY" : "WAITING", player?.ready ? "success" : "muted") + '</div>';
@@ -67,7 +69,7 @@ export function nodeContent(project, n) {
     case "tabs": return '<div class="c-tabs">' + n.text.split("|").map((t, i) => '<button data-interact="tab" data-index="' + i + '" class="' + (Number(n.value || 0) === i ? "active" : "") + '">' + e(t.trim()) + '</button>').join("") + '</div>';
     case "toggle": return '<button class="c-toggle" data-interact="toggle"><span>' + text + '</span><i class="' + (n.value > 0 ? "on" : "") + '"><b></b></i></button>';
     case "slider": return '<div class="c-slider"><label>' + text + '<span>' + n.value + '%</span></label><input data-interact="slider" type="range" min="0" max="100" value="' + n.value + '"></div>';
-    case "select": return '<button class="c-select" data-interact="cycle"><small>' + text + '</small><b>' + (sub || "Power Weapons") + '</b><span>⌄</span></button>';
+    case "select": if(n.options) return '<label class="c-choice"><span>'+text+'</span><select data-interact="choose">'+n.options.split('|').map(o=>'<option '+(e(o)===sub?'selected':'')+'>'+e(o)+'</option>').join('')+'</select></label>'; return '<button class="c-select" data-interact="cycle"><small>' + text + '</small><b>' + (sub || "Power Weapons") + '</b><span>⌄</span></button>';
     case "input": return '<label class="c-input"><small>' + text + '</small><input data-interact="input" placeholder="Type here…" value="' + e(n.subtext) + '"></label>';
     case "progress": return '<div class="c-progress"><div style="width:' + clamp(n.value, 0, 100) + '%"></div></div>';
     case "server-list": return '<div class="c-component-heading">' + text + '<span>3 SESSIONS FOUND</span></div><table class="c-table c-servers"><thead><tr><th>SESSION</th><th>MAP</th><th>MODE</th><th>PLAYERS</th><th>PING</th></tr></thead><tbody>' + [["Bond's game", "Facility", "Normal", "3 / 4", "24"], ["Sunday operatives", "Complex", "Team 2v2", "2 / 4", "38"], ["Golden hour", "Temple", "Golden Gun", "1 / 4", "52"]].map((row, i) => '<tr data-interact="server" data-index="' + i + '" tabindex="0"><td><b>' + e(row[0]) + '</b>' + (i === 0 ? '<small>WARMUP</small>' : "") + '</td>' + row.slice(1).map(c => '<td>' + e(c) + '</td>').join("") + '</tr>').join("") + '</tbody></table>';
@@ -75,7 +77,8 @@ export function nodeContent(project, n) {
   }
 }
 export function visibleNode(n, project, role) {
-  return !n.hidden && (n.visibleWhen === "always" || !n.visibleWhen || n.visibleWhen === role || n.visibleWhen === project.sample.phase);
+  const mode=project.sample.mode || "deathmatch";
+  return !n.hidden && (!n.visibleWhen || n.visibleWhen === "always" || [role,mode,role+"-"+mode,project.sample.phase].includes(n.visibleWhen));
 }
 export function nodeStyle(project, n) {
   return {
@@ -88,7 +91,7 @@ export function nodeStyle(project, n) {
 export function renderScene(project, screen, { preview = false, role = "host" } = {}) {
   const fragment = document.createDocumentFragment();
   for (const n of screen.nodes) {
-    if (preview && !visibleNode(n, project, role)) continue;
+    if ((preview || project.uiStyle === "launcher") && !visibleNode(n, project, role)) continue;
     const element = document.createElement("div");
     element.className = "scene-node type-" + n.type + " state-" + n.state + (n.locked ? " locked" : "") + (n.hidden ? " hidden-node" : "");
     element.dataset.id = n.id;
@@ -96,6 +99,7 @@ export function renderScene(project, screen, { preview = false, role = "host" } 
     element.setAttribute("aria-label", n.name);
     Object.assign(element.style, nodeStyle(project, n));
     element.innerHTML = nodeContent(project, n);
+    if(preview && n.editableBy && n.editableBy !== "everyone" && n.editableBy !== role) element.querySelectorAll("button,input,select").forEach(c=>c.disabled=true);
     fragment.append(element);
   }
   return fragment;

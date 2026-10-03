@@ -82,9 +82,8 @@ own hosting headers.
 
 ## Shape the experience
 
-The starter project has nine screens: pre-match lobby, map/weapon voting,
-round results, game browser, host setup, character/loadout, pause menu, HUD,
-and multiplayer settings. The map IDs, player limits, scenarios and weapon
+The starter project has four views of the shared pause window: Match, Rules,
+Player and Audio. Deathmatch and co-op use mode-specific content in those views. The map IDs, player limits, scenarios and weapon
 sets come from `port/src/net/net_match.c`.
 
 - **Screens:** add templates or a blank canvas, duplicate/remove screens.
@@ -108,7 +107,7 @@ test an empty or full roster, different scores, teams, pings and readiness.
 Dynamic copy supports `{{map}}`, `{{weaponSet}}`, `{{playerCount}}`,
 `{{readyCount}}`, `{{waitingPlayers}}` and `{{phase}}`.
 
-The canvas defaults to 1280 × 720 logical pixels. Coordinates use a top-left
+The starter canvas uses the native window’s 1280 × 960 logical pixels. Coordinates use a top-left
 origin. They describe design intent; actual VR panel size, angular readability,
 controller navigation, focus and pointer hit testing still need native
 implementation and headset testing.
@@ -198,3 +197,39 @@ The touch suite uses iPhone and Pixel profiles in Chromium to exercise
 portrait/landscape layouts, actual touch drag/resize, panels that survive
 property changes, component insertion, voting, undo and project downloads.
 These are browser simulations; real iOS Safari still needs device testing.
+
+## Shared native pause window
+
+The starter matches `port/vr/gevr_pause_widgets.h`: an opaque 1280×960
+launcher window with the same ProggyClean font, icon, gold values, white
+labels and blue square controls. Four views are tabs of one window:
+**Match**, **Rules**, **Player** and **Audio**. No separate exit or kill/loss
+pages are needed. Match shows eight deathmatch players and independent map
+and weapon ballots. The **4-player co-op** mode replaces those with party
+status and mission objectives. Switch modes in the canvas toolbar; use Play
+flow's Host/Client selector to check authority. Sample fields remain local.
+
+Older saved projects are preserved. **Launcher starter** opens a confirmation
+to replace the current design; export the old design first if you want both.
+The source icon is converted from the launcher's `launcher_icon.rgba` without
+changing its artwork. ROM visuals remain references or user-imported captures.
+
+Native Quest implementation is in `port/vr/vr_pause_menu.cpp`, with a C bridge
+in `src/game/mpmenu.c`. It uses existing configuration setters, votes,
+visibility and host restrictions. Raw controller rays feed the same pointer
+ownership logic as the launcher. A trigger interacts; either stick and A/X
+provide a fallback. B/Y or Resume closes the panel. Opening with a held
+trigger requires release before clicking; closing with a held trigger requires
+release before firing. Both grips move/resize the surface. Co-op opens this
+panel without pausing teammates; the host can confirm ending the mission.
+Leave requires confirmation and disconnects this headset to the launcher.
+
+JSON exports contain layout, bindings, dropdown choices, tab destinations,
+authority and mode visibility. Send an export back to rearrange the native
+widgets. The game does **not** load these JSON files automatically.
+
+Run `python3 port/tests/test_pause_ui.py` for production ImGui widget and
+trigger-gate checks. An Android build verifies compilation and linkage;
+headset checks still require a Quest and your own ROM. Check opening/closing,
+either-hand rays, held triggers, grip movement, host/client permissions,
+eight-player scores, independent votes and four-player co-op objectives.

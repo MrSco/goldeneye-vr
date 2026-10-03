@@ -12,6 +12,7 @@ import zipfile
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 BRANDING = {
+    "launcher-icon.png": HERE / "assets/launcher-icon.png",
     "icon.png": ROOT / "services/lobbies/public/favicon-64.png",
     "banner.png": ROOT / "docs/banner.png",
     "native-ui.ttf": HERE / "assets/native-ui.ttf",
@@ -63,7 +64,7 @@ def build(output):
             else:
                 name, exports = {
                     "templates.js": ("StudioTemplates", "stages, weapons, scenarios, screenKinds, template, starterProject"),
-                    "render.js": ("StudioRender", "cssColor, fontFamily, fontCSS, interpolate, meshSVG, nodeContent, visibleNode, nodeStyle, renderScene"),
+                    "render.js": ("StudioRender", "cssColor, fontFamily, fontCSS, interpolate, meshSVG, nodeContent, visibleNode, nodeStyle, renderScene, shownPlayers"),
                     "storage.js": ("StudioStorage", "loadSaved, saveProject, downloadFile, embedAssets, readDataURL"),
                 }[filename]
                 sources.append("const " + name + " = (() => {\n" + "\n".join(bindings) + "\n" + text + "\nreturn {" + exports + "};\n})();")
