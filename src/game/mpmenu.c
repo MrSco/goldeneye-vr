@@ -1277,7 +1277,12 @@ void mpwatchMenuTick(void)
         }
     }
 
+#ifdef GEVR
+    /* co-op (#94): the solo watch is the pause menu (bondview2.c) */
+    if (player_count != 1 && !gevrCoopActive())
+#else
     if (player_count != 1)
+#endif
     {
         // If a player has their pause menu up when they die and the game isn't over, turn their menu off. 
         if ((g_CurrentPlayer->bonddead) && (!g_gameOverFlag))
@@ -1762,7 +1767,12 @@ s32 mpwatchShouldDisplayRank(s32 param_1)
 #ifdef DEBUG
             osSyncPrintf("Invalid scenario %d!", get_scenario());
 #endif
+#ifdef GEVR
+            /* retail hangs here; a scenario added later shows no rank (#95) */
+            return 0;
+#else
         do {} while (1);
+#endif
     }
 }
 
@@ -1786,7 +1796,12 @@ s32 mpwatchShouldDisplayScore(s32 param_1)
 #ifdef DEBUG
             osSyncPrintf("Invalid scenario %d!", get_scenario());
 #endif
+#ifdef GEVR
+            /* retail hangs here; a scenario added later shows no score (#95) */
+            return 0;
+#else
             do {} while (1);
+#endif
     }
 }
 
@@ -1849,7 +1864,11 @@ Gfx *mp_watch_menu_display(Gfx *gdl)
     player_count = getPlayerCount();
     self_paused = 0;
  
+#ifdef GEVR
+    if (player_count == 1 || gevrCoopActive())   /* co-op (#94): the solo watch instead */
+#else
     if (player_count == 1)
+#endif
     {
         return gdl;
     }

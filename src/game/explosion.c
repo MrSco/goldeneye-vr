@@ -20,6 +20,9 @@
 #include "matrixmath.h"
 #include "music.h"
 #include "player.h"
+#ifdef GEVR
+#include "net_coop.h"
+#endif
 #include "random.h"
 #include "snd.h"
 #include "stan.h"
@@ -240,6 +243,8 @@ static s32 s_gevrPartExplosionType;
 #ifdef GEVR
 /* set while explosionCreate runs for an explosion received from its owner */
 static s32 g_gevrNetExplosionRx = 0;
+/* the object propobj.c propExplode is blowing up (its explosion has no source prop) */
+ObjectRecord *g_gevrExplodingObj = NULL;
 #endif
 
 /**
@@ -272,6 +277,21 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
      * and the owner's arrives instead, where and when it really happened.
      * Bullet puffs (no damage) and world explosions stay local.
      */
+    /*
+     * Co-op (#94): a guard's grenade or rocket goes off on the host, the only
+     * headset that has it. It is nobody's explosion, as the world's are: the
+     * host reports its hits on players (explosionInflictDamage). Every other
+     * headset is sent it to see, as the host's, which hurts no player there.
+     */
+    if (sp44->damage > 0.0f && !g_gevrNetExplosionRx &&
+        (gevrCoopGuardExplosive(arg0 != NULL ? arg0->obj : g_gevrExplodingObj) || gevrCoopGuardBlastNow()))
+    {
+        extern void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8);
+
+        player = -1;
+        netSendExplosion(explosion_type, target_pos, rooms, arg4, arg7);
+    }
+
     if (sp44->damage > 0.0f && !g_gevrNetExplosionRx)
     {
         extern bool netIsActive(void);
@@ -795,7 +815,11 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                                                      (temp_s2->player < 0 && netIsHost());
                                 if (should_report)
                                 {
+#ifdef GEVR
+                                    if (gevrSoloRules())
+#else
                                     if (getPlayerCount() == 1)
+#endif
                                     {
                                         minfrac *= g_SpExplosionDamageMult;
                                     }
@@ -817,7 +841,11 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
 #endif
                             set_cur_player(targetIndex);
 
+#ifdef GEVR
+                            if (gevrSoloRules())
+#else
                             if (getPlayerCount() == 1)
+#endif
                             {
                                 minfrac *= g_SpExplosionDamageMult;
                             }
@@ -1209,7 +1237,10 @@ Gfx *explosionRenderPart(struct ExplosionPart *arg0, Gfx *gdl, struct coord3d *c
     vertices[1] = spA0;
     vertices[2] = spA0;
     vertices[3] = spA0;
+#ifndef GEVR
+    /* retail writes a fifth vertex into this four-vertex allocation; it is never loaded (#95) */
     vertices[4] = spA0;
+#endif
 
     sp8C.f[0] = sp9C->m[0][0] * sp54;
     sp8C.f[1] = sp9C->m[0][1] * sp54;

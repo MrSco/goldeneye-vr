@@ -34,6 +34,7 @@
 #include "stan.h"
 #ifdef GEVR
 extern bool netIsActive(void);
+#include "net_coop.h"
 #endif
 
 
@@ -2490,6 +2491,22 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
     extern int netDamageAllowed(int attacker, int target);
     if (self->prop->type == PROP_TYPE_VIEWER &&
         !netDamageAllowed(get_cur_playernum(), getPlayerPointerIndex(self->prop))) return FALSE;
+    /* Co-op (#94): a guard is hurt on the host, which runs it (net_coop.c) */
+    if (self->prop->type == PROP_TYPE_CHR && isPlayer)
+    {
+        s32 elsewhere = gevrCoopGuardHitElsewhere(self, hitpart, vector, weaponid);
+        if (elsewhere)
+        {
+            /* reported: the shooter hears the guard's grunt now, sees its hurt from the host */
+            if (elsewhere == 2 && hitpart != HIT_HAT && hitpart != HIT_GUN && !(self->chrflags & CHRFLAG_INVINCIBLE) &&
+                self->actiontype != ACT_DIE && self->actiontype != ACT_DEAD)
+            {
+                play_sound_for_shot_actor(self);
+            }
+            return FALSE;
+        }
+        gevrCoopGuardProvoked(self, get_cur_playernum());
+    }
 #endif
     s32 hattype;                     //sp78
     PropRecord *myprop = self->prop; //sp60
@@ -2571,7 +2588,11 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
 
         damageToCause = gunItemGetDestructionAmount(weaponid);
 
+#ifdef GEVR
+        if (isPlayer && (gevrSoloRules()))
+#else
         if (isPlayer && (getPlayerCount() == 1))
+#endif
         {
             damageToCause *= g_AiHealthModifier;
         }
@@ -2735,6 +2756,14 @@ s32 chrlvExplosionDamage(ChrRecord *self, coord3d *arg1, f32 damage, s32 arg3)
 
     self_model = self->model;
     self_prop = self->prop;
+
+#ifdef GEVR
+    /* co-op (#94): a client's guards are hurt on the host, by its own copy of the blast */
+    if (self_prop->type == PROP_TYPE_CHR && gevrCoopPuppets())
+    {
+        return 0;
+    }
+#endif
 
     if ((self->actiontype == ACT_DEAD) || (self->actiontype == ACT_DIE))
     {
@@ -6747,6 +6776,9 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                             sp208 = (struct WeaponObjRecord *)create_new_item_instance_of_model(PROP_CHRROCKET, 0x56);
                             if (sp208 != NULL)
                             {
+#ifdef GEVR
+                                gevrCoopGuardLaunched((ObjectRecord *)sp208);
+#endif
                                 matrix_4x4_set_identity(&sp1C8);
                                 matrix_4x4_set_rotation_around_x(sp24C, &sp16C);
                                 matrix_4x4_set_rotation_around_y(subroty, &sp12C);
@@ -6801,6 +6833,9 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                             sp128 = (struct WeaponObjRecord *)create_new_item_instance_of_model(PROP_CHRGRENADEROUND, 0x57);
                             if (sp128 != NULL)
                             {
+#ifdef GEVR
+                                gevrCoopGuardLaunched((ObjectRecord *)sp128);
+#endif
                                 matrix_4x4_set_identity(&spE8);
                                 spDC.f[0] = sp220.f[0] * 33.333332f;
                                 spDC.f[1] = sp220.f[1] * 33.333332f;
@@ -7656,6 +7691,9 @@ void chrlvTickThrowGrenade(ChrRecord *self)
 
     if ((temp_f2 >= 119.0f) && (held_prop != NULL))
     {
+#ifdef GEVR
+        gevrCoopGuardLaunched(held_prop->obj);   /* co-op: its explosion is the host's to report */
+#endif
         propobjSetDropped(self->weapons_held[gunhand], 3);
         self->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
     }
@@ -10756,6 +10794,10 @@ PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *s
                     chr          = chrprop->chr;
                     chr->headnum = headnum;
                     chr->bodynum = bodynum;
+#ifdef GEVR
+                    /* co-op (#94): the host's spawn, made on every headset */
+                    gevrCoopChrSpawned(chr, ailist, spawnflags);
+#endif
 
                     return chrprop;
                 }

@@ -11,7 +11,7 @@
 #include "net_match.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         16  /* 16: eight player slots; 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         16  /* 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
@@ -80,7 +80,85 @@ typedef enum {
     NET_MSG_AMMO_STATE = 33,    /* Host -> peers: crate transforms and respawn state */
     NET_MSG_CLOCK = 34,        /* Host probe -> client reply, four-timestamp clock synchronization */
     NET_MSG_LOBBY_LOADOUT = 30, /* Client -> host: my four spawn guns */
+
+    /* Co-op (protocol 16, #94) */
+    NET_MSG_COOP_END = 35,      /* Host -> all: the mission ended (success, the next mission, the delay) */
+    NET_MSG_CHR_STATE = 36,     /* Host -> all, unreliable: guards as the host runs them (NetChrState) */
+    NET_MSG_CHR_SPAWN = 37,     /* Host -> all: a guard the host's AI spawned */
+    NET_MSG_CHR_REMOVE = 38,    /* Host -> all: a guard the host removed */
+    NET_MSG_COOP_DAMAGE = 39,   /* Host -> all: a guard hurt a player (the target slot, the damage, its direction) */
+    NET_MSG_COOP_HIT = 40,      /* Client -> host: my player hit a guard (its host slot, the part, the gun, the direction) */
+    NET_MSG_COOP_MISSION = 41,  /* Host -> all: the stage flags, the alarm and every objective's status */
+    NET_MSG_COOP_EVENT = 42,    /* Client -> host: what my player did that the objectives count (NET_COOP_EVENT_*) */
+    NET_MSG_COOP_TEXT = 43,     /* Host -> all: a mission script's message (top or bottom, the text id) */
+    NET_MSG_CHR_AI = 44,        /* Host -> all, unreliable: each guard's and background list's AI state (a new host resumes it) */
+    NET_MSG_CHR_REMAP = 45,     /* New host -> a returning player: the old host's guard slots -> the new host's */
+    NET_MSG_COOP_JOIN = 46,     /* Host -> a joiner: start beside this teammate */
+    NET_MSG_COOP_MENU = 47,     /* Host -> all, unreliable: the host's menu screen and choices (the others follow) */
 } NetMsgType;
+
+/*
+ * A guard as the host runs it (co-op, #94): what a puppet on another headset
+ * needs to stand, move, animate, aim and fire where the host's does. slot is
+ * the guard's index in g_ChrSlots on the host. The animation is its offset
+ * in the animation segment (ptr_animation_table), the same on every headset.
+ */
+enum {
+    NET_CHR_HIDDEN = 1,         /* CHRFLAG_HIDDEN */
+    NET_CHR_FIRE_RIGHT = 2,     /* its right gun's fire shows (weaponIsGunfireVisible) */
+    NET_CHR_FIRE_LEFT = 4,
+    NET_CHR_FLIP = 8,           /* the animation is mirrored (model gunhand) */
+    NET_CHR_NO_TRANSLATE = 16,  /* CHRFLAG_IGNORE_ANIM_TRANSLATION */
+    NET_CHR_INVINCIBLE = 32,    /* CHRFLAG_INVINCIBLE */
+};
+enum {
+    NET_COOP_EVENT_ROOM = 1,    /* s32 room: entered */
+    NET_COOP_EVENT_DEPOSIT = 2, /* s32 item, s32 room: thrown or placed there */
+    NET_COOP_EVENT_PHOTO = 3,   /* s32 tag: photographed */
+    NET_COOP_EVENT_KEYCOPY = 4, /* the GoldenEye key copied */
+    NET_COOP_EVENT_HELD = 5,    /* u8 count, s32 tags: the objective items my player holds */
+    NET_COOP_EVENT_DOWNED = 6,  /* s32 0/1: my player is down (revive) or back up */
+    NET_COOP_EVENT_ALARM = 7,   /* s32 0/1: my player switched the alarm off or on */
+};
+#define NET_COOP_HELD_MAX 8
+#define NET_CHR_NO_ANIM 0xFFFF
+#define NET_CHR_STATE_BYTES 44
+#define NET_CHR_STATES_PER_PACKET 24
+typedef struct {
+    u16 slot;
+    u8 flags;                   /* NET_CHR_* */
+    u8 actiontype;              /* ACT_TYPE */
+    coord3d pos;                /* prop->pos */
+    f32 ground;
+    u16 yaw;                    /* the model's subroty, 0..65535 for 0..2 pi */
+    u16 anim;                   /* the animation's offset, NET_CHR_NO_ANIM none */
+    f32 frame;                  /* animframe1 */
+    f32 speed;                  /* the model's speed (negative backwards) */
+    s16 aim[4];                 /* aimendlshoulder, aimendrshoulder, aimendback, aimendsideback, x 10000 */
+    u8 weapon[2];               /* the held guns' ITEM_IDS, 0 none */
+    u8 fade;                    /* fadealpha */
+    u8 damage;                  /* damage / maxdamage, x 100 (0 unhurt .. 100 dead) */
+} NetChrState;
+static inline void netbufWriteChrState(struct netbuf *b, const NetChrState *c) {
+    netbufWriteU16(b,c->slot);netbufWriteU8(b,c->flags);netbufWriteU8(b,c->actiontype);
+    netbufWriteCoord(b,&c->pos);netbufWriteF32(b,c->ground);
+    netbufWriteU16(b,c->yaw);netbufWriteU16(b,c->anim);
+    netbufWriteF32(b,c->frame);netbufWriteF32(b,c->speed);
+    for(int i=0;i<4;i++)netbufWriteS16(b,c->aim[i]);
+    netbufWriteU8(b,c->weapon[0]);netbufWriteU8(b,c->weapon[1]);netbufWriteU8(b,c->fade);netbufWriteU8(b,c->damage);
+}
+static inline int netbufReadChrState(struct netbuf *b, NetChrState *c) {
+    c->slot=netbufReadU16(b);c->flags=netbufReadU8(b);c->actiontype=netbufReadU8(b);
+    netbufReadCoord(b,&c->pos);c->ground=netbufReadF32(b);
+    c->yaw=netbufReadU16(b);c->anim=netbufReadU16(b);
+    c->frame=netbufReadF32(b);c->speed=netbufReadF32(b);
+    for(int i=0;i<4;i++)c->aim[i]=netbufReadS16(b);
+    c->weapon[0]=netbufReadU8(b);c->weapon[1]=netbufReadU8(b);c->fade=netbufReadU8(b);c->damage=netbufReadU8(b);
+    return !b->error && isfinite(c->pos.x) && isfinite(c->pos.y) && isfinite(c->pos.z) && fabsf(c->pos.x) < 1.0e6f &&
+        fabsf(c->pos.y) < 1.0e6f && fabsf(c->pos.z) < 1.0e6f && isfinite(c->ground) && fabsf(c->ground) < 1.0e6f &&
+        isfinite(c->frame) && fabsf(c->frame) < 1.0e5f && isfinite(c->speed) && fabsf(c->speed) < 100.0f &&
+        c->weapon[0] < ITEM_IDS_MAX && c->weapon[1] < ITEM_IDS_MAX && c->damage <= 100;
+}
 
 /* Protocol 15 combat identity. Shot IDs identify one firing action; hit IDs
  * identify individual pellets/penetrations, so replay protection preserves them. */
@@ -126,6 +204,7 @@ enum {
     NET_OBJECT_PICKUP = 1,      /* value: the collector's tick operation */
     NET_OBJECT_DOOR = 2,        /* value: the door's new DOORSTATE */
     NET_OBJECT_SPECIAL_TAKEN = 3, /* value: the item (the Golden Gun, the flag) the player now holds; index unused */
+    NET_OBJECT_DOOR_LOCK = 4,   /* co-op, host -> all: value: the door's keyflags, as a mission script set them */
 };
 
 /* The ballots of NET_MSG_VOTE / NET_MSG_VOTES */
@@ -155,6 +234,8 @@ typedef struct {
     uint8_t gun_size;       /* NET_GUN_NORMAL / TINY / BIG: visuals only */
     uint8_t custom_set[4];  /* the custom set's guns, ITEM_IDS */
     uint8_t max_players;    /* the host's choice, 2..GEVR_MAX_PLAYERS on any stage; team scenarios take their own size */
+    uint8_t mode;           /* NET_MODE_DEATHMATCH / NET_MODE_COOP (protocol 16) */
+    uint8_t difficulty;     /* co-op: DIFFICULTY_AGENT .. DIFFICULTY_007 */
 } NetMatchConfig;
 
 /* No native pointers or structure padding enter the wire format. */
@@ -199,7 +280,14 @@ static inline int netbufReadAmmoState(struct netbuf *b, NetAmmoState *s) {
 }
 
 static inline int netMatchConfigValid(const NetMatchConfig *c) {
-    if (!c || netStageIndexOf(c->stage) < 0 || c->scenario >= netScenarioCount() ||
+    if (!c || c->mode > NET_MODE_COOP) return 0;
+    if (c->mode == NET_MODE_COOP) {
+        /* the deathmatch fields ride along unused; the mission and difficulty decide */
+        if (!netCoopStageValid(c->stage) || c->difficulty >= NET_DIFFICULTY_COUNT ||
+            c->voice_mode > NET_VOICE_COUCH || c->friendly_fire > 1 || c->gun_size > NET_GUN_BIG) return 0;
+        return 1;
+    }
+    if (netStageIndexOf(c->stage) < 0 || c->scenario >= netScenarioCount() ||
         c->weapon_set >= netWeaponSetCount() || c->game_length >= netGameLengthCount() ||
         c->health >= netHealthCount() || c->dual_wield > NET_DUAL_ANY || c->loadouts > 1 ||
         (c->fun_flags & ~NET_FUN_MASK) != 0 || c->gun_size > NET_GUN_BIG || c->friendly_fire > 1 || c->next_round > NET_NEXT_PLAYLIST || c->voice_mode > NET_VOICE_COUCH ||
@@ -212,6 +300,9 @@ static inline int netMatchConfigValid(const NetMatchConfig *c) {
  * Any stage takes any count; a stage with fewer start pads than players
  * stands the extra ones beside a pad (bondview_r.c gevrSpreadStartPad). */
 static inline int netConfigMaxPlayers(const NetMatchConfig *c) {
+    if (!c) return 0;
+    /* a co-op party is the campaign's four, whatever the deathmatch fields say (#94) */
+    if (c->mode == NET_MODE_COOP) return netCoopStageValid(c->stage) ? NET_COOP_MAX_PLAYERS : 0;
     return netScenarioHasTeams(c->scenario) ? netTeamRequiredPlayers(c->scenario) : c->max_players;
 }
 
@@ -230,6 +321,8 @@ static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfi
     netbufWriteU8(buf, c->gun_size);
     for (int i = 0; i < 4; i++) netbufWriteU8(buf, c->custom_set[i]);
     netbufWriteU8(buf, c->max_players);
+    netbufWriteU8(buf, c->mode);
+    netbufWriteU8(buf, c->difficulty);
     return buf->error;
 }
 
@@ -248,6 +341,8 @@ static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
     c->gun_size = netbufReadU8(buf);
     for (int i = 0; i < 4; i++) c->custom_set[i] = netbufReadU8(buf);
     c->max_players = netbufReadU8(buf);
+    c->mode = netbufReadU8(buf);
+    c->difficulty = netbufReadU8(buf);
     return buf->error;
 }
 

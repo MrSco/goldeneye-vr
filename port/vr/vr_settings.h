@@ -41,6 +41,8 @@ extern int VrMpFunFlags, VrMpGunSize;
 extern int VrMpMaxPlayers; // the host's player count, 2..8 on any stage
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
 extern int VrMpCustom[4];       // the host's custom set
+// Co-op (NET_MODE_COOP): the mode, the mission's LEVELID and the solo difficulty (0..3).
+extern int VrMpMode, VrMpMission, VrMpDifficulty;
 extern int VrMpLoadout[4];      // this player's spawn guns
 extern unsigned VrMpFavStages, VrMpFavSets;
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.

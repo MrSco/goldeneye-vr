@@ -4,6 +4,7 @@
 #include "../vr/vr_openxr.h"
 #include "net_player_sync.h"
 #include "net_core.h"
+#include "net_coop.h"
 #include "net_game.h"
 #include "net_protocol.h"
 #include "net_voice.h"
@@ -307,8 +308,8 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             pl->vv_costheta = cosf(m->angles[0] * (M_PI_F / 180.0f));
             pl->vv_sintheta = sinf(m->angles[0] * (M_PI_F / 180.0f));
             
-            /* Crouch / Stance */
-            pl->crouchpos = m->crouchpos;
+            /* Crouch / Stance; co-op: a downed player crouches (#94, revive) */
+            pl->crouchpos = gevrCoopDowned(playernum) ? CROUCH_SQUAT : m->crouchpos;
             
             /*
              * The body's aim, as bondviewRenderDebugBondView finds it for a

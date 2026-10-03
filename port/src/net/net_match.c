@@ -15,6 +15,16 @@ static const NetMatchStage s_stages[] = {
     { "Egypt",     32 }, { "Bunker II", 27 }, { "Archives",  24 },
 };
 
+/* The twenty missions (front.c mission_folder_setup_entries), the ROM's LEVELID values */
+static const NetCoopMission s_coop_missions[] = {
+    { "Dam", 33 }, { "Facility", 34 }, { "Runway", 35 }, { "Surface I", 36 }, { "Bunker I", 9 },
+    { "Silo", 20 }, { "Frigate", 26 }, { "Surface II", 43 }, { "Bunker II", 27 }, { "Statue", 22 },
+    { "Archives", 24 }, { "Streets", 29 }, { "Depot", 30 }, { "Train", 25 }, { "Jungle", 37 },
+    { "Control", 23 }, { "Caverns", 39 }, { "Cradle", 41 }, { "Aztec", 28 }, { "Egyptian", 32 },
+};
+
+static const char *const s_difficulties[] = { "Agent", "Secret Agent", "00 Agent", "007" };
+
 /* mp_weapon.c mp_weapon_set_text_table's order, as the ROM's LmpweaponsE names them */
 static const char *const s_weapon_sets[] = {
     "Slappers only", "Pistols", "Throwing Knives", "Automatics", "Power Weapons",
@@ -92,6 +102,26 @@ int netStageIndexOf(uint8_t level_id) {
     for (int i = 0; i < COUNT(s_stages); i++)
         if (s_stages[i].level_id == level_id) return i;
     return -1;
+}
+
+int netCoopMissionCount(void) { return COUNT(s_coop_missions); }
+const NetCoopMission *netCoopMission(int idx) { return idx >= 0 && idx < COUNT(s_coop_missions) ? &s_coop_missions[idx] : &s_coop_missions[0]; }
+const char *netCoopMissionName(int idx) { return idx >= 0 && idx < COUNT(s_coop_missions) ? s_coop_missions[idx].name : ""; }
+int netCoopMissionIndexOf(uint8_t level_id) {
+    for (int i = 0; i < COUNT(s_coop_missions); i++)
+        if (s_coop_missions[i].level_id == level_id) return i;
+    return -1;
+}
+int netCoopStageValid(uint8_t level_id) {
+    return netCoopMissionIndexOf(level_id) >= 0 || level_id == NET_COOP_FRONT_STAGE || level_id == NET_COOP_CUBA_STAGE;
+}
+const char *netCoopStageName(uint8_t level_id) {
+    if (level_id == NET_COOP_FRONT_STAGE) return "in the menus";
+    if (level_id == NET_COOP_CUBA_STAGE) return "Cuba";
+    return netCoopMissionName(netCoopMissionIndexOf(level_id));
+}
+const char *netDifficultyName(int difficulty) {
+    return difficulty >= 0 && difficulty < COUNT(s_difficulties) ? s_difficulties[difficulty] : "";
 }
 
 int netWeaponSetCount(void) { return COUNT(s_weapon_sets); }

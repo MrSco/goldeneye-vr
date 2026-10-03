@@ -300,6 +300,8 @@ set(SRC_NET
   "${CMAKE_SOURCE_DIR}/port/src/net/net_core.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_objects.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_match.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_coop.c"
+  "${CMAKE_SOURCE_DIR}/port/src/net/net_coop_menu.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_voice.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_spatial.c"
   "${CMAKE_SOURCE_DIR}/port/src/net/net_discovery.c"

@@ -45,6 +45,7 @@
 #include "gevr_sched.h"
 
 #ifdef GEVR
+#include "net_match.h"   /* NET_COOP_RESULT_* (integer-only) */
 extern bool netIsActive(void);
 extern uint32_t netGetRandomSeed(void);
 extern void netPoll(void);
@@ -57,8 +58,14 @@ extern u64 sysGetMicroseconds(void);
 extern bool netSlotOccupied(int slot);
 extern bool netTakeRoundReset(void);
 extern void netStageLoaded(void);
+extern void netCoopStageLoaded(void);   /* co-op (#94): a new mission's guards (net_coop.c) */
+extern int netCoopActive(void);
+extern int netCoopSession(void);
+extern void netCoopMissionEnded(int result);
+extern int netGetLocalSlot(void);
 static bool s_net_slot_enabled[MAX_PLAYER_COUNT];
 static bool s_net_session_started;
+static bool s_net_config_on_load;   /* a round reset's settings wait for its stage's load */
 #endif
 
 /**
@@ -441,7 +448,12 @@ void bossMainloop(void)
         {
             stringIndex = -1;
 
+#ifdef GEVR
+            /* an online co-op mission takes its solo memory split (#94) */
+            if (g_StageNum != LEVELID_TITLE && get_selected_num_players() >= 2 && !gevrCoopActive())
+#else
             if (g_StageNum != LEVELID_TITLE && get_selected_num_players() >= 2)
+#endif
             {
                 stringIndex = 0;
 
@@ -509,10 +521,12 @@ void bossMainloop(void)
         joyCheckStatusThreadSafe();
         lvlStageLoad(g_StageNum);
 #ifdef GEVR
-        if (s_net_session_started && g_StageNum == LEVELID_TITLE)
+        /* a co-op party's menus are the title stage: the session goes on (#94) */
+        if (s_net_session_started && g_StageNum == LEVELID_TITLE && !netCoopSession())
             gevrLobbySessionStopped();
         for (int slot = 0; slot < MAX_PLAYER_COUNT; slot++) s_net_slot_enabled[slot] = TRUE;
-        s_net_session_started = netIsActive() && g_StageNum != LEVELID_TITLE;
+        s_net_session_started = netIsActive() && (g_StageNum != LEVELID_TITLE || netCoopSession());
+        netCoopStageLoaded();   /* a load, which netStageLoaded's other calls are not */
         netStageLoaded();
 #endif
         sysLogPrintf(LOG_NOTE, "stage: loading: lvlStageLoad done (stage pool %d bytes left)", mempGetBankSizeLeft(MEMPOOL_STAGE));
@@ -603,10 +617,16 @@ void bossMainloop(void)
                                 if (s_net_session_started && !netIsActive())
                                     bossSetLoadedStage(LEVELID_TITLE);
                                 if (netTakeRoundReset()) {
-                                    /* the next round's settings, the vote's map among them (net_core.c) */
-                                    extern void netApplyMatchConfig(void);
-                                    netApplyMatchConfig();
-                                    bossSetLoadedStage(g_StageNum);
+                                    /*
+                                     * The next round's stage, the vote's map among them
+                                     * (net_core.c). Its settings apply as it loads (below):
+                                     * this frame finishes the stage it began, and a co-op
+                                     * party's menus (the title stage) and missions must not
+                                     * see each other's globals (#94).
+                                     */
+                                    extern int netRoundLoadStage(void);
+                                    s_net_config_on_load = TRUE;
+                                    bossSetLoadedStage(netRoundLoadStage());
                                 }
                                 if (netIsActive()) {
                                     for (i = 0; i < getPlayerCount(); i++) {
@@ -767,6 +787,18 @@ void bossMainloop(void)
 
         g_StageNum = g_MainStageNum;
         g_MainStageNum = LEVELID_NONE;
+#ifdef GEVR
+        /* a round reset's settings, now that its stage is the one to load (above) */
+        if (s_net_config_on_load)
+        {
+            extern void netApplyMatchConfig(void);
+            s_net_config_on_load = FALSE;
+            if (netIsActive())
+            {
+                netApplyMatchConfig();
+            }
+        }
+#endif
         sysLogPrintf(LOG_NOTE, "stage: switching to %d", g_StageNum);
     }
 
@@ -787,6 +819,47 @@ void bossMainloop(void)
 void bossRunTitleStage(void) {
     bossSetLoadedStage(LEVELID_TITLE);
 }
+
+#ifdef GEVR
+/*
+ * net_core.c netCoopApplyEnd, on every headset: the co-op mission's end, as
+ * the host saw it. A completion goes to this player's own save (the solo
+ * mission's unlock and time, file.c end_of_mission_briefing); the players
+ * stop where they are until the host loads the party's menus, where the
+ * debrief reads the end as solo's would: killed in action when every player
+ * went down, aborted when the host aborted (front.c).
+ */
+void gevrCoopMissionEndLocal(s32 result)
+{
+    extern void mpwatchSetStopPlayFlag(void);
+    s32 success = result == NET_COOP_RESULT_COMPLETE;
+    s32 i;
+
+    if (result == NET_COOP_RESULT_ALL_DOWN)
+    {
+        g_isBondKIA = TRUE;
+    }
+    else if (result == NET_COOP_RESULT_ABORTED)
+    {
+        mission_failed_or_aborted = TRUE;
+    }
+    if (success && bossGetStageNum() != LEVELID_CUBA)
+    {
+        end_of_mission_briefing();
+    }
+    mpwatchSetStopPlayFlag();
+    for (i = 0; i < getPlayerCount(); i++)
+    {
+        if (g_playerPointers[i] && i == netGetLocalSlot())
+        {
+            s32 prev = get_cur_playernum();
+            set_cur_player(i);
+            hudmsgTopShow(success ? "MISSION COMPLETE" : "MISSION FAILED");
+            set_cur_player(prev);
+        }
+    }
+}
+#endif
 
 /**
  * 7550    70006950
@@ -815,6 +888,18 @@ void bossReturnTitleStage(void) {
 #ifdef BUGFIX_R1
     display_objective_status_text_on_status_change();
     objectivestatusDisableStatusDisplay();
+#endif
+#ifdef GEVR
+    /*
+     * An online co-op mission (#94): the title screen would end the session.
+     * The mission's end goes to the host instead, which ends it on every
+     * headset (gevrCoopMissionEndLocal) and takes the party to its debrief.
+     */
+    if (netCoopActive())
+    {
+        netCoopMissionEnded(objectiveIsAllComplete() != 0 && !g_isBondKIA ? NET_COOP_RESULT_COMPLETE : NET_COOP_RESULT_FAILED);
+        return;
+    }
 #endif
     if ((bossGetStageNum() != LEVELID_CUBA) && (objectiveIsAllComplete() != 0x0)) {
         end_of_mission_briefing();

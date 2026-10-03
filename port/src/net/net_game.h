@@ -11,6 +11,9 @@ enum { CFG_STAGE, CFG_SCENARIO, CFG_WEAPON_SET, CFG_GAME_LENGTH, CFG_HEALTH,
        CFG_CUSTOM2, CFG_CUSTOM3, CFG_VOICE_MODE, CFG_FRIENDLY_FIRE, CFG_FUN_FLAGS, CFG_GUN_SIZE,
        CFG_MAX_PLAYERS };
 int gevrNetConfigGet(int field);
+/* Online in a co-op mission: where retail reads two or more players as a
+ * deathmatch, the game asks this and plays the solo mission's rules. */
+int gevrCoopActive(void);
 void gevrNetConfigSet(int field, int value);
 int gevrNetSlotChr(int slot);
 int netGetSlotTeam(int slot);
