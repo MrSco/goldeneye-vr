@@ -14444,12 +14444,7 @@ extern GunModelFileRecord gitem_structs[];
  */
 #define GEVR_WP_MODELSIZE 0x40000
 #define GEVR_WP_BUFSIZE   0x70000
-/*
- * Static, not malloc'd: the headset aborted in the first load as the wheel
- * opened, copying into 0xbf000000 - the pointer had been replaced with a
- * 32-bit value before it was used (2026-10-03).
- */
-static u8 s_gevrWpModelBuf[GEVR_WP_BUFSIZE] __attribute__((aligned(16)));
+static u8 *s_gevrWpModelBuf;
 static struct texpool s_gevrWpModelPool;
 static ModelFileHeader s_gevrWpModelHeader;
 static s32 s_gevrWpModelItem = -1;
@@ -14479,7 +14474,15 @@ static ModelFileHeader *gevrWeaponPanelModel(s32 item)
     {
         return NULL;
     }
-    sysLogPrintf(LOG_NOTE, "wpanel: loading item %d (%s)", item, name);
+    if (s_gevrWpModelBuf == NULL)
+    {
+        s_gevrWpModelBuf = malloc(GEVR_WP_BUFSIZE);
+        if (s_gevrWpModelBuf == NULL)
+        {
+            return NULL;
+        }
+    }
+
     s_gevrWpModelHeader = *tmpl;
     texInitPool(&s_gevrWpModelPool, s_gevrWpModelBuf + GEVR_WP_MODELSIZE, GEVR_WP_BUFSIZE - GEVR_WP_MODELSIZE);
     load_object_fill_header(&s_gevrWpModelHeader, (u8 *) name, s_gevrWpModelBuf, GEVR_WP_MODELSIZE, &s_gevrWpModelPool);
