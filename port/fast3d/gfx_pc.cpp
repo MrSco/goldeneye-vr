@@ -1,3 +1,6 @@
+#ifdef ANDROID
+#include "../vr/gevr_pause_menu.h"
+#endif
 #define NOMINMAX
 // gfx_pc.cpp
 
@@ -4521,7 +4524,13 @@ extern "C" void gfx_run(Gfx* commands) {
         const uint32_t eyeH = (uint32_t)vr_get_internal_render_height();
         const bool screenMode = gevrVrScreenMode != 0;
         // Stereo gameplay frames go to the eye buffers; the screen quad must not cover them.
+#ifdef ANDROID
+        const bool pauseOverlay=gevrNativePauseOpen()!=0;
+        vr_screen_set_overlay(pauseOverlay);
+        vr_screen_set_visible(screenMode || pauseOverlay);
+#else
         vr_screen_set_visible(screenMode ? 1 : 0);
+#endif
         gfx_vr_hud_H_new_frame();
 
         // The screen target keeps the game's own aspect so its 2D and 3D agree,
@@ -4682,7 +4691,11 @@ extern "C" void gfx_run(Gfx* commands) {
             vr_end_eye_render();
 
             // 6) The finished game frame goes to the compositor as a quad layer.
-            if (screenRendered) {
+            if (screenRendered
+#ifdef ANDROID
+                && !gevrNativePauseOpen()
+#endif
+            ) {
                 vr_screen_present(vr_screen_target_tex(), (int)targetW, (int)targetH);
             }
         }

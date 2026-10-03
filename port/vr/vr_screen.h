@@ -24,6 +24,8 @@ bool vr_screen_present_tex2d(unsigned int srcTex, int w, int h);
 void vr_screen_recenter(void);
 /* false while the game renders true stereo gameplay: the quad is not submitted. */
 void vr_screen_set_visible(int visible);
+/* In-game pause: place this quad over the stereo scene, not behind it. */
+void vr_screen_set_overlay(int overlay);
 
 /* Both grips held: the screen follows the hands (0 releases it). */
 void vr_screen_grab(int active);

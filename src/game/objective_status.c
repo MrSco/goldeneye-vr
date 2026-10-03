@@ -9,6 +9,7 @@
 #include "bondview.h"
 #ifdef GEVR
 #include "net_coop.h"
+#include "../../port/vr/gevr_pause_menu.h"
 #include "net_game.h"
 #include "player.h"
 #endif
@@ -675,3 +676,14 @@ void gevrCoopApplyPhoto(s32 tag)
 #endif
 
 //filebreak
+
+#ifdef GEVR
+/* Text/status come from each ROM; the co-op status getter follows the host. */
+int gevrPauseObjective(int index,char *text,unsigned size) {
+    extern DIFFICULTY lvlGetSelectedDifficulty(void);
+    if(index<0 || index>=objectiveGetCount() || get_difficulty_for_objective(index)>lvlGetSelectedDifficulty())return -1;
+    const unsigned char *source=get_text_for_objective(index);if(!source)return -1;
+    if(size) {unsigned i=0;while(source[i] && i+1<size){text[i]=source[i]=='\n'?' ':source[i];i++;}text[i]=0;}
+    return get_status_of_objective(index);
+}
+#endif

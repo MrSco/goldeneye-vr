@@ -1,3 +1,6 @@
+#ifdef ANDROID
+#include "gevr_pause_menu.h"
+#endif
 // ============================================================================
 // VR OpenXR - Perfect Dark VR By Alex_Le_Tux
 // Unified: Android (OpenGL ES + OpenXR) / Windows (OpenGL + OpenXR)
@@ -1715,6 +1718,7 @@ static float    g_screenYaw     = 0.0f;   // radians; the quad's +Z (its face) p
 // Cleared while the game draws true stereo into the eye buffers (bondview2.c
 // gevrStereoFrame): the screen must not hang in front of the stereo view.
 static bool     g_screenVisible = true;
+static bool g_screenOverlay = false;
 // GoldenEye: while the watch holds the screen in stereo play (bondview2.c
 // gevrStereoFrame) it is pinned to the view, at its usual distance, until
 // the player looks toward its place in the room (below).
@@ -2442,6 +2446,7 @@ static bool vr_screen_present_common(unsigned int srcArrayTex, bool is2d, int w,
 // C and cannot see the C++ globals, so they come through here.
 
 extern "C" void vr_screen_set_visible(int visible) { g_screenVisible = visible != 0; }
+extern "C" void vr_screen_set_overlay(int overlay) { g_screenOverlay = overlay != 0; }
 extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4]); // vr_input.cpp
 extern "C" bool gfx_vr_menu_R_bbox(float out[4]);                     // gfx_opengl.cpp
 
@@ -3708,7 +3713,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // buffers are the scene.
     int numLayers = 0;
     const XrCompositionLayerBaseHeader* layers[10];   // screen, eyes, four menus, two scopes, room to spare
-    if (submitScreen) {
+    if (submitScreen && !g_screenOverlay) {
         layers[numLayers++] = screenCurved
             ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
             : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
@@ -3738,6 +3743,11 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     XrFrameEndInfo endInfo = {XR_TYPE_FRAME_END_INFO};
     endInfo.displayTime          = frameState.predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    if(submitScreen && g_screenOverlay) {
+        layers[numLayers++] = screenCurved
+            ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
+            : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
+    }
     endInfo.layerCount           = numLayers;
     endInfo.layers               = layers;
 
@@ -4329,7 +4339,7 @@ bool vr_begin_eye_render()
     glDepthMask(GL_TRUE);
     GLfloat clearCol[4];
     glGetFloatv(GL_COLOR_CLEAR_VALUE, clearCol);
-    if (g_screenVisible) {
+    if (g_screenVisible && !g_screenOverlay) {
         // The eye buffers go over the virtual screen (vr_end_frame's layer
         // order) and carry only the pointer: clear to transparent.
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -4347,6 +4357,9 @@ void vr_end_eye_render()
 {
     if (!gfx_get_current_rendering_api()->is_multiview()) return;
     if (!g_swapchainImageAcquired) return;
+#ifdef ANDROID
+    gevrNativePauseRender();
+#endif
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
