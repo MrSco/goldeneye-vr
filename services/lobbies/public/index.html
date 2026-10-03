@@ -32,6 +32,18 @@
         <div><strong id="private-count">—</strong><span>Private games</span></div>
       </div>
     </section>
+    <section class="board" aria-labelledby="board-title">
+      <div class="board-heading">
+        <div>
+          <p class="eyebrow">Public games</p>
+          <h2 id="board-title">Live board</h2>
+        </div>
+        <button id="refresh" type="button">Refresh</button>
+      </div>
+      <p id="status" class="status" role="status" aria-live="polite">Loading live activity…</p>
+      <div id="games" class="games" aria-live="polite"></div>
+      <p class="note">A game disappears if its host disconnects or stops sending updates. Open the multiplayer page in your headset to join.</p>
+    </section>
     <section id="record" class="record" aria-labelledby="record-title" hidden>
       <div class="board-heading">
         <div>
@@ -52,18 +64,6 @@
         <div class="record-axis"><span id="record-first-day"></span><span>Today</span></div>
       </figure>
       <p id="record-top" class="record-top"></p>
-    </section>
-    <section class="board" aria-labelledby="board-title">
-      <div class="board-heading">
-        <div>
-          <p class="eyebrow">Public games</p>
-          <h2 id="board-title">Live board</h2>
-        </div>
-        <button id="refresh" type="button">Refresh</button>
-      </div>
-      <p id="status" class="status" role="status" aria-live="polite">Loading live activity…</p>
-      <div id="games" class="games" aria-live="polite"></div>
-      <p class="note">A game disappears if its host disconnects or stops sending updates. Open the multiplayer page in your headset to join.</p>
     </section>
   </main>
   <footer class="wrap footer">
