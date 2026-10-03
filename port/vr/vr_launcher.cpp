@@ -1252,7 +1252,9 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         const uint32_t heartbeatNow = SDL_GetTicks();
         if (netIsHost() && (heartbeatNow - lastHeartbeatMs > 5000 || lastHeartbeatMs == 0)) {
             lastHeartbeatMs = heartbeatNow;
-            const std::string refresh = "refresh|" + std::to_string(pCount) + "|" + (pCount < maxP ? "1" : "0");
+            // the count too: the host may change it after registering the lobby
+            const std::string refresh = "refresh|" + std::to_string(pCount) + "|" + (pCount < maxP ? "1" : "0") +
+                                        "|" + std::to_string(maxP);
             gevrJavaCommand("lobbyCommand", refresh.c_str());
         }
     }
