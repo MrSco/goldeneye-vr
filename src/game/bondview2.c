@@ -14690,13 +14690,13 @@ static u32 gevrWheelShade(s32 cat, s32 empty, s32 lit, s32 outer)
 
 /*
  * The five wedges as shaded triangles, in the screen (gevrRenderRadarGauges' setup).
- * Their vertices and list are static, one set per frame buffer: from the vtx
- * pool (the stage's -mvtx, unchecked) they were 4 KB more on a frame already
- * near its end, and the headset aborted on a corrupt list as the wheel opened.
+ * Their vertices and list are static, one set per frame buffer. Each quad is
+ * three commands: a vertex load and two G_TRI1s (this file's gSP2Triangles is
+ * gbi.h's pair of gSP1Triangles, which bumps a `rp++` argument twice).
  */
 #define GEVR_WC_QUADS (GEVR_WC_COUNT * GEVR_WC_SEGS)
 static struct damage_display_val s_gevrWcVtx[2][GEVR_WC_QUADS * 4];
-static Gfx s_gevrWcDl[2][GEVR_WC_QUADS * 2 + 1];
+static Gfx s_gevrWcDl[2][GEVR_WC_QUADS * 3 + 1];
 
 static Gfx *gevrWheelDrawRing(Gfx *gdl, s32 cx, s32 cy, s32 active)
 {
@@ -14728,7 +14728,8 @@ static Gfx *gevrWheelDrawRing(Gfx *gdl, s32 cx, s32 cy, s32 active)
             gevrWheelVtx(&qv[2], cx, cy, GEVR_WC_R0, a0 + step * (s + 1), in);
             gevrWheelVtx(&qv[3], cx, cy, r1, a0 + step * (s + 1), out);
             gSPVertex(rp++, osVirtualToPhysical(qv), 4, 0);
-            gSP2Triangles(rp++, 0, 1, 2, 0, 1, 2, 3, 0);
+            gSP1Triangle(rp++, 0, 1, 2, 0);
+            gSP1Triangle(rp++, 1, 2, 3, 0);
         }
     }
     gSPEndDisplayList(rp++);
