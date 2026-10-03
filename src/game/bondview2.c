@@ -13962,33 +13962,36 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
 extern int gevrReturnPrompt;
 
 /*
- * Issue #10: the weapon panel. Holding the weapon button (A) shows a copy of
- * the watch's inventory list (options.c draw_watch_inventory_page: the same
- * joined name list, five lines, highlight bar and colours) above the weapon
- * hand, on its own layer (VR_WEAPON_PANEL_CAPTURE, vr_openxr.cpp). The other
- * hand's stick scrolls it; letting go equips the highlighted item with the
- * game's animated weapon switch (as A's cycle does, gun.c
- * gunRequestHandWeaponChange). A tap still cycles (port/src/input.c).
+ * Issue #10: the weapon panel. Holding the weapon button (A) shows the watch's
+ * inventory (its names and order) above the weapon hand as a wheel of
+ * categories around the spinning item, on its own layer
+ * (VR_WEAPON_PANEL_CAPTURE, vr_openxr.cpp). The other hand's stick points at a
+ * category, the triggers step through its guns (gevrWheelStep, gevrWheelCycle); letting go equips the
+ * highlighted item with the game's animated weapon switch (as A's cycle does,
+ * gun.c gunRequestHandWeaponChange). A tap still cycles (port/src/input.c).
  */
 s32 gevrWeaponPanelOpen;       /* input.c: the button is held */
 s32 gevrWeaponPanelRelease;    /* input.c: let go while open: equip */
-f32 gevrWeaponPanelStickY;     /* input.c: the other hand's stick, up positive */
+f32 gevrWeaponPanelStickX;     /* input.c: the other hand's stick, right positive */
+f32 gevrWeaponPanelStickY;     /* ... up positive */
+s32 gevrWeaponPanelStep;       /* input.c: trigger presses while open, the button hand's +1, the other's -1 */
 s32 gevrWeaponPanelLeft;       /* input.c: the left hand's panel, opened with X (#56) */
 float gevrWeaponPanelRect[4];  /* the panel's box in the game's screen, 0..1 (vr_openxr.cpp crops to it) */
+float gevrWeaponPanelAspect = 1.0f;   /* its width over height in screen units (the capture's pixels aren't square) */
 
 static s32 s_gevrWpShown;
 static s32 s_gevrWpMoved;
 static s32 s_gevrWpIndex;
-static s32 s_gevrWpTextY;
-static s32 s_gevrWpRepeat;
-static s32 s_gevrWpHeld;
 static s32 s_gevrWpShownItem;
-#define GEVR_WP_MODEL_H 46   /* the model's strip above the list, screen units */
+#define GEVR_WP_W 236        /* the wheel's box, screen units */
+#define GEVR_WP_H 236        /* within the 240-line screen: the layer's crop can't leave the image */
+#define GEVR_WP_MODEL_W 58   /* the spinning item in the ring's hole */
+#define GEVR_WP_MODEL_H 48
 /* tuning (files/gevr_wpanel.txt "open dy fov", re-read every second): force the panel
  * open from the PC, move the model down by dy screen units, widen the model's view */
 static s32 s_gevrWpTuneOpen;
 s32 gevrWeaponPanelInFront;   /* vr_openxr.cpp: tuning puts the panel before the eyes (the hands may be asleep) */
-static f32 s_gevrWpTuneDy = 22.0f;   /* tuned in the headset: the watch frames items high */
+static f32 s_gevrWpTuneDy = 0.0f;    /* the old list's strip wanted 22: the wheel's hole sat the gun that far low */
 static f32 s_gevrWpTuneFov = 60.0f;  /* the watch's 45 filled the strip */
 static s32 s_gevrWpTuneIndex = -1;
 static f32 s_gevrWpTuneArmLen = 110.0f;  /* the left panel's watch arm: forearm, panel units (200 huge, 55 tiny: user) */
@@ -14016,7 +14019,8 @@ static void gevrWeaponPanelTune(void)
         }
         s_gevrWpTuneOpen = open;
         gevrWeaponPanelInFront = open;
-        s_gevrWpTuneDy = dy;
+        /* only while tuning: the file left on the headset still says the strip's 22 */
+        s_gevrWpTuneDy = open ? dy : 0.0f;
         s_gevrWpTuneFov = fov > 5.0f ? fov : 60.0f;
         s_gevrWpTuneIndex = index;
         s_gevrWpTuneArmLen = armLen > 1.0f ? armLen : 110.0f;
@@ -14285,6 +14289,138 @@ void gevrAutoAdvanceHand(s32 hand)
         gevrCycleHandWeaponInternal(hand, 1, TRUE);
 }
 
+/*
+ * The panel is a wheel of categories (issue #10), as GTA V's: the other hand's
+ * stick picks a category's wedge, and the triggers step through the guns in
+ * it (input.c gevrWeaponPanelStep). Wedges sit at fixed compass points, so a
+ * flick finds the same one every time; Perfect Dark's quick menu (pdvr
+ * activemenutick.c) is as coarse, eight slots off the stick's direction.
+ */
+enum { GEVR_WC_PISTOLS, GEVR_WC_RIFLES, GEVR_WC_HEAVY, GEVR_WC_GADGETS, GEVR_WC_THROWN, GEVR_WC_COUNT };
+#define GEVR_WC_SPAN (360.0f / GEVR_WC_COUNT)   /* each wedge's degrees, clockwise from up */
+#define GEVR_WC_DEAD 0.5f       /* stick radius under which the highlight stays put (PD's returntimer) */
+#define GEVR_WC_HYST 6.0f       /* degrees past a wedge's edge before it lets go */
+
+s32 gevrWeaponCategory(s32 item)
+{
+    switch (item)
+    {
+        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33: case ITEM_RUGER:
+        case ITEM_GOLDENGUN: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK:
+            return GEVR_WC_PISTOLS;
+        case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K:
+        case ITEM_MP5KSIL: case ITEM_SPECTRE: case ITEM_M16: case ITEM_FNP90:
+            return GEVR_WC_RIFLES;
+        case ITEM_SHOTGUN: case ITEM_AUTOSHOT: case ITEM_SNIPERRIFLE: case ITEM_LASER:
+        case ITEM_GRENADELAUNCH: case ITEM_ROCKETLAUNCH: case ITEM_TANKSHELLS:
+            return GEVR_WC_HEAVY;
+        case ITEM_UNARMED: case ITEM_FIST: case ITEM_KNIFE: case ITEM_THROWKNIFE:
+        case ITEM_GRENADE: case ITEM_TIMEDMINE: case ITEM_PROXIMITYMINE:
+        case ITEM_REMOTEMINE: case ITEM_PLASTIQUE:
+            return GEVR_WC_THROWN;
+        default:
+            return GEVR_WC_GADGETS;
+    }
+}
+
+typedef struct
+{
+    s32 n[GEVR_WC_COUNT];
+    s32 idx[GEVR_WC_COUNT][GEVR_WP_MAX];   /* list indices, in list order */
+    s32 last[2][GEVR_WC_COUNT];            /* per hand: the category's last highlight, item + 1 */
+    s32 cat;                               /* the wedge under the stick, -1 in the dead zone */
+} GevrWheel;
+static GevrWheel s_gevrWc;
+
+static s32 gevrWpItem(s32 hand, s32 i)
+{
+    return hand == GUNLEFT ? s_gevrWpList[i].left : s_gevrWpList[i].right;
+}
+
+static void gevrWheelGroup(s32 hand, s32 count)
+{
+    s32 i;
+    for (i = 0; i < GEVR_WC_COUNT; i++) s_gevrWc.n[i] = 0;
+    for (i = 0; i < count; i++)
+    {
+        s32 c = gevrWeaponCategory(gevrWpItem(hand, i));
+        s_gevrWc.idx[c][s_gevrWc.n[c]++] = i;
+    }
+}
+
+/* deg - the wedge's centre, in -180..180 */
+static f32 gevrWheelRel(f32 deg, s32 cat)
+{
+    f32 r = deg - cat * GEVR_WC_SPAN;
+    while (r >= 180.0f) r -= 360.0f;
+    while (r < -180.0f) r += 360.0f;
+    return r;
+}
+
+static s32 gevrWheelRemember(s32 hand, s32 index)
+{
+    s32 item = gevrWpItem(hand, index);
+    s_gevrWc.last[hand][gevrWeaponCategory(item)] = item + 1;
+    return index;
+}
+
+/* the category's last highlight if it is still listed, else its first item */
+static s32 gevrWheelPick(s32 hand, s32 cat)
+{
+    s32 i;
+    for (i = 0; i < s_gevrWc.n[cat]; i++)
+    {
+        if (gevrWpItem(hand, s_gevrWc.idx[cat][i]) + 1 == s_gevrWc.last[hand][cat]) return s_gevrWc.idx[cat][i];
+    }
+    return gevrWheelRemember(hand, s_gevrWc.idx[cat][0]);
+}
+
+/* on opening: the stick is idle and the equipped item is its category's highlight */
+static void gevrWheelOpen(s32 hand, s32 count, s32 index)
+{
+    gevrWheelGroup(hand, count);
+    s_gevrWc.cat = -1;
+    if (index >= 0 && index < count) gevrWheelRemember(hand, index);
+}
+
+/* The other stick (right and up positive): the new highlight. Empty wedges are dead. */
+static s32 gevrWheelStep(s32 hand, s32 index, f32 x, f32 y)
+{
+    f32 deg;
+    s32 cat;
+
+    if (x * x + y * y < GEVR_WC_DEAD * GEVR_WC_DEAD)
+    {
+        s_gevrWc.cat = -1;
+        return index;
+    }
+    deg = atan2f(x, y) * (360.0f / M_TAU_F);
+    if (deg < 0.0f) deg += 360.0f;
+    cat = s_gevrWc.cat;
+    if (cat >= 0 && fabsf(gevrWheelRel(deg, cat)) <= GEVR_WC_SPAN * 0.5f + GEVR_WC_HYST) return index;
+    cat = (s32) (deg / GEVR_WC_SPAN + 0.5f) % GEVR_WC_COUNT;
+    s_gevrWc.cat = cat;
+    if (s_gevrWc.n[cat] == 0 || gevrWeaponCategory(gevrWpItem(hand, index)) == cat) return index;
+    return gevrWheelPick(hand, cat);
+}
+
+/* A trigger while the wheel is up: the next (dir 1) or previous gun in the highlighted category. */
+static s32 gevrWheelCycle(s32 hand, s32 index, s32 dir)
+{
+    s32 cat = gevrWeaponCategory(gevrWpItem(hand, index));
+    s32 n = s_gevrWc.n[cat];
+    s32 i;
+
+    for (i = 0; i < n; i++)
+    {
+        if (s_gevrWc.idx[cat][i] == index)
+        {
+            return gevrWheelRemember(hand, s_gevrWc.idx[cat][((i + dir) % n + n) % n]);
+        }
+    }
+    return index;
+}
+
 extern u16 *bondinvGetNameByIndex(s32 index);
 extern s32 bondinvGetTextbyInvIndex(s32 index);
 extern void bondinvSetCurEquippedItem(int current_item);
@@ -14470,27 +14606,304 @@ static Gfx *gevrDrawWeaponPanelModel(Gfx *gdl, s32 item, s32 x0, s32 y0, s32 w, 
     return gdl;
 }
 
+#define GEVR_WC_TEXTS 0.70f /* the wheel's glyphs, against the font's own size: its names fit their wedges */
+extern f32 text_scale;
+extern s32 text_scale_ox;
+extern s32 text_scale_oy;
+
+/* one centred line of the wheel at GEVR_WC_TEXTS, shortened to maxw; with outw, only measured */
+static Gfx *gevrWpText(Gfx *gdl, const char *text, s32 cx, s32 y, u32 colour, s32 lh, s32 maxw, s32 *outw)
+{
+    char line[56];
+    s32 n = 0, w = 0, h = 0, x;
+
+    maxw = (s32) (maxw / GEVR_WC_TEXTS);
+
+    while (text[n] != 0 && text[n] != '\n' && n < (s32) sizeof(line) - 2)
+    {
+        line[n] = text[n];
+        n++;
+    }
+    line[n] = '\n';
+    line[n + 1] = 0;
+    textMeasure(&h, &w, line, ptrFontBankGothicChars, ptrFontBankGothic, lh);
+    while (w > maxw && n > 3)
+    {
+        n--;
+        line[n] = '\n';
+        line[n + 1] = 0;
+        textMeasure(&h, &w, line, ptrFontBankGothicChars, ptrFontBankGothic, lh);
+    }
+    if (outw != NULL)
+    {
+        *outw = (s32) (w * GEVR_WC_TEXTS);
+        return gdl;
+    }
+    text_scale = GEVR_WC_TEXTS;
+    {
+        /* a dark shadow a unit down and right, so the line reads on any wedge */
+        s32 sx = cx + 1 - w / 2, sy = y + 1;
+        text_scale_ox = cx + 1;
+        text_scale_oy = y + 1;
+        gdl = textRender(gdl, &sx, &sy, line, ptrFontBankGothicChars, ptrFontBankGothic, 0x000000E0, viGetX(), viGetY(), 0, lh);
+    }
+    x = cx - w / 2;
+    text_scale_ox = cx;
+    text_scale_oy = y;
+    gdl = textRender(gdl, &x, &y, line, ptrFontBankGothicChars, ptrFontBankGothic, colour, viGetX(), viGetY(), 0, lh);
+    text_scale = 1.0f;
+    return gdl;
+}
+
+/* the wheel's short forms of the longest names, matched without case */
+static const char *s_gevrWcShort[][2] = {
+    { "Automatic Shotgun", "Auto Shotgun" },
+    { "AR33 Assault Rifle", "AR33" },
+    { "Grenade Launcher", "G. Launcher" },
+    { "Rocket Launcher", "R. Launcher" },
+    { "Moonraker Laser", "Moonraker" },
+    { "Proximity Mine", "Prox. Mine" },
+    { "Throwing Knife", "Throw Knife" },
+    { "Hunting Knife", "Knife" },
+    { "DD44 Dostovei", "DD44" },
+    { "Cougar Magnum", "Magnum" },
+    { "D5K Deutsche", "D5K" },
+    { "KF7 Soviet", "KF7" },
+    { "(Silenced)", "Sil." },
+    { "Hand Grenade", "Grenade" },
+};
+
+static void gevrWcShorten(const char *in, char *out, s32 size)
+{
+    s32 o = 0;
+
+    while (*in != 0 && *in != '\n' && o < size - 1)
+    {
+        s32 k, len = 0;
+
+        for (k = 0; k < (s32) ARRAYCOUNT(s_gevrWcShort); k++)
+        {
+            const char *f = s_gevrWcShort[k][0];
+            for (len = 0; f[len] != 0; len++)
+            {
+                u8 a = (u8) in[len], b = (u8) f[len];
+                if (a >= 'a' && a <= 'z') a -= 32;
+                if (b >= 'a' && b <= 'z') b -= 32;
+                if (a != b) break;
+            }
+            if (f[len] == 0) break;
+        }
+        if (k < (s32) ARRAYCOUNT(s_gevrWcShort))
+        {
+            const char *t = s_gevrWcShort[k][1];
+            while (*t != 0 && o < size - 1) out[o++] = *t++;
+            in += len;
+        }
+        else
+        {
+            out[o++] = *in++;
+        }
+    }
+    out[o] = 0;
+}
+
+static const char *s_gevrWcLabel[GEVR_WC_COUNT] = { "PISTOLS", "RIFLES", "HEAVY", "GADGETS", "THROWN" };
+/* each category's tint, so weapons and gadgets read apart at a glance (ApeFe, #10) */
+static const u8 s_gevrWcTint[GEVR_WC_COUNT][3] = {
+    { 0x3C, 0x78, 0xD8 },   /* pistols: blue */
+    { 0x3C, 0xB4, 0x50 },   /* rifles: green */
+    { 0xE0, 0x80, 0x28 },   /* heavy: orange */
+    { 0x9C, 0x5C, 0xD8 },   /* gadgets: purple */
+    { 0xD8, 0x40, 0x40 },   /* thrown: red */
+};
+#define GEVR_WC_R0 30       /* the ring's hole, for the spinning item */
+#define GEVR_WC_R1 110      /* its outer edge: R1 + POP + 4 is half of GEVR_WP_H */
+#define GEVR_WC_POP 4       /* the highlighted wedge stands out by this much */
+#define GEVR_WC_TEXTR 70    /* the radius a wedge's lines are centred on (each cut to its row: gevrWheelRow) */
+#define GEVR_WC_ROWS 3      /* the guns listed in a wedge: the one it gives, with the one before and after */
+#define GEVR_WC_SEGS 8      /* quads along each wedge's arc */
+#define GEVR_WC_GAP 1.5f    /* degrees left dark between wedges */
+
+static void gevrWheelVtx(struct damage_display_val *v, f32 cx, f32 cy, f32 r, f32 deg, u32 rgba)
+{
+    f32 a = deg * (M_TAU_F / 360.0f);
+    v->pos.x = (s16) lroundf(cx + sinf(a) * r);
+    v->pos.y = (s16) lroundf(cy - cosf(a) * r);
+    v->pos.z = 0;
+    v->normal.x = v->normal.y = v->normal.z = 0;
+    v->colour.r = rgba >> 24;
+    v->colour.g = rgba >> 16;
+    v->colour.b = rgba >> 8;
+    v->colour.a = rgba;
+}
+
+static u32 gevrWheelShade(s32 cat, s32 empty, s32 lit, s32 outer)
+{
+    u32 r, g, b, a;
+    /* near opaque: the world and the gun behind it made the names hard to read (user) */
+    if (empty)
+    {
+        return outer ? 0x4A4E56EC : 0x3A3E44EC;
+    }
+    r = s_gevrWcTint[cat][0];
+    g = s_gevrWcTint[cat][1];
+    b = s_gevrWcTint[cat][2];
+    if (!lit)
+    {
+        r = r * 3 / 5; g = g * 3 / 5; b = b * 3 / 5;
+        a = 0xF4;
+    }
+    else
+    {
+        a = 0xFF;
+    }
+    if (!outer)
+    {
+        r = r * 4 / 5; g = g * 4 / 5; b = b * 4 / 5;
+    }
+    return (r << 24) | (g << 16) | (b << 8) | a;
+}
+
+/*
+ * The widest run of wedge cat along the screen row dy below the ring's
+ * centre, inset by a margin: its width, and its middle's x in *mid.
+ * A line of text is centred there and cut to it, so it stays in its wedge.
+ */
+static s32 gevrWheelRow(s32 cat, s32 dy, s32 pop, s32 *mid)
+{
+    const f32 margin = 3.0f;
+    f32 r0 = GEVR_WC_R0 + margin, r1 = GEVR_WC_R1 + pop - margin;
+    f32 half = GEVR_WC_SPAN * 0.5f - GEVR_WC_GAP - 2.0f;
+    s32 x, run = 0, best = 0, end = 0;
+
+    for (x = -(s32) r1; x <= (s32) r1; x++)
+    {
+        f32 rr = sqrtf((f32) (x * x + dy * dy));
+        f32 deg = atan2f((f32) x, (f32) -dy) * (360.0f / M_TAU_F);
+
+        if (deg < 0.0f) deg += 360.0f;
+        if (rr >= r0 && rr <= r1 && fabsf(gevrWheelRel(deg, cat)) <= half)
+        {
+            if (++run > best)
+            {
+                best = run;
+                end = x;
+            }
+        }
+        else
+        {
+            run = 0;
+        }
+    }
+    *mid = end - (best - 1) / 2;
+    return best;
+}
+
+/*
+ * The five wedges as shaded triangles, in the screen (gevrRenderRadarGauges' setup).
+ * Their vertices and list are static, one set per frame buffer. Each quad is
+ * three commands: a vertex load and two G_TRI1s (this file's gSP2Triangles is
+ * gbi.h's pair of gSP1Triangles, which bumps a `rp++` argument twice).
+ */
+#define GEVR_WC_HOLE_SEGS 20   /* the disc behind the spinning item */
+#define GEVR_WC_QUADS (GEVR_WC_COUNT * GEVR_WC_SEGS + GEVR_WC_HOLE_SEGS)
+static struct damage_display_val s_gevrWcVtx[2][GEVR_WC_QUADS * 4];
+static Gfx s_gevrWcDl[2][GEVR_WC_QUADS * 3 + 1];
+
+static Gfx *gevrWheelDrawRing(Gfx *gdl, s32 cx, s32 cy, s32 active)
+{
+    extern u8 g_GfxActiveBufferIndex;
+    struct damage_display_val *v = s_gevrWcVtx[g_GfxActiveBufferIndex & 1];
+    Gfx *ring = s_gevrWcDl[g_GfxActiveBufferIndex & 1];
+    Gfx *rp = ring;
+    Mtx *projection = dynAllocateMatrix(), *identity = dynAllocateMatrix();
+    extern u8 g_ViBackIndex;
+    Vp *viewport = dynAllocate(sizeof(Vp));
+    Mtxf mtx;
+    s32 c, s, q = 0;
+
+    for (s = 0; s < GEVR_WC_HOLE_SEGS; s++, q++)
+    {
+        struct damage_display_val *qv = &v[q * 4];
+        f32 step = 360.0f / GEVR_WC_HOLE_SEGS;
+        /* light, so the guns' dark metal stands out against it */
+        gevrWheelVtx(&qv[0], cx, cy, 0.0f, step * s, 0xB4BCC6F4);
+        gevrWheelVtx(&qv[1], cx, cy, GEVR_WC_R0, step * s, 0x8A929EF4);
+        gevrWheelVtx(&qv[2], cx, cy, 0.0f, step * (s + 1), 0xB4BCC6F4);
+        gevrWheelVtx(&qv[3], cx, cy, GEVR_WC_R0, step * (s + 1), 0x8A929EF4);
+        gSPVertex(rp++, osVirtualToPhysical(qv), 4, 0);
+        gSP1Triangle(rp++, 0, 1, 2, 0);
+        gSP1Triangle(rp++, 1, 2, 3, 0);
+    }
+    for (c = 0; c < GEVR_WC_COUNT; c++)
+    {
+        s32 empty = s_gevrWc.n[c] == 0;
+        s32 lit = c == active;
+        f32 r1 = (f32) (lit ? GEVR_WC_R1 + GEVR_WC_POP : GEVR_WC_R1);
+        f32 a0 = c * GEVR_WC_SPAN - GEVR_WC_SPAN * 0.5f + GEVR_WC_GAP;
+        f32 step = (GEVR_WC_SPAN - 2.0f * GEVR_WC_GAP) / GEVR_WC_SEGS;
+        u32 in = gevrWheelShade(c, empty, lit, FALSE);
+        u32 out = gevrWheelShade(c, empty, lit, TRUE);
+
+        for (s = 0; s < GEVR_WC_SEGS; s++, q++)
+        {
+            struct damage_display_val *qv = &v[q * 4];
+            gevrWheelVtx(&qv[0], cx, cy, GEVR_WC_R0, a0 + step * s, in);
+            gevrWheelVtx(&qv[1], cx, cy, r1, a0 + step * s, out);
+            gevrWheelVtx(&qv[2], cx, cy, GEVR_WC_R0, a0 + step * (s + 1), in);
+            gevrWheelVtx(&qv[3], cx, cy, r1, a0 + step * (s + 1), out);
+            gSPVertex(rp++, osVirtualToPhysical(qv), 4, 0);
+            gSP1Triangle(rp++, 0, 1, 2, 0);
+            gSP1Triangle(rp++, 1, 2, 3, 0);
+        }
+    }
+    gSPEndDisplayList(rp++);
+
+    *viewport = g_CurrentPlayer->viewports[g_ViBackIndex];
+    viewport->vp.vscale[0] = viewport->vp.vtrans[0] = viGetX() * 2;
+    viewport->vp.vscale[1] = viewport->vp.vtrans[1] = viGetY() * 2;
+    guOrtho(projection, 0, viGetX(), viGetY(), 0, -100, 100, 1);
+    matrix_4x4_set_identity(&mtx);
+    matrix_4x4_7F058C64();
+    matrix_4x4_f32_to_s32(mtx.m, (s32 (*)[4])identity);
+    matrix_4x4_7F058C88();
+    gDPPipeSync(gdl++);
+    gSPViewport(gdl++, osVirtualToPhysical(viewport));
+    gSPMatrix(gdl++, osVirtualToPhysical(projection), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
+    gSPMatrix(gdl++, osVirtualToPhysical(identity), G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
+    gDPSetAlphaCompare(gdl++, G_AC_NONE);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    gSPClearGeometryMode(gdl++, G_CULL_BOTH|G_LIGHTING|G_ZBUFFER);
+    gSPDisplayList(gdl++, osVirtualToPhysical(ring));
+    gDPPipeSync(gdl++);
+    gSPMatrix(gdl++, osVirtualToPhysical(currentPlayerGetProjectionMatrix()), G_MTX_PROJECTION|G_MTX_LOAD|G_MTX_NOPUSH);
+    gSPViewport(gdl++, osVirtualToPhysical(&g_CurrentPlayer->viewports[g_ViBackIndex]));
+    return gdl;
+}
+
+extern s32 dynGetFreeGfx(Gfx *gdl);
+extern s32 dynGetFreeVtx(void);
+
 Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 {
-    char list[GEVR_WP_MAX * 48];
     s32 count;
+    s32 hand;
     s32 i;
     s32 lh = j_text_trigger ? 14 : 12;
-    s32 target;
-    s32 tw = 0;
-    s32 th = 0;
-    s32 bw;
-    s32 bh;
+    s32 lp = (s32) lroundf(lh * GEVR_WC_TEXTS) + 1;   /* the scaled lines' pitch */
     s32 bx0;
     s32 by0;
-    s32 x;
-    s32 y;
-    s32 midy;
+    s32 cx;
+    s32 cy;
+    s32 active;
 
     if (!g_gevrStereo || g_CurrentPlayer == NULL)
     {
         gevrWeaponPanelOpen = 0;
         gevrWeaponPanelRelease = 0;
+        gevrWeaponPanelStep = 0;
         s_gevrWpShown = FALSE;
         return gdl;
     }
@@ -14500,6 +14913,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         gevrWeaponPanelOpen = 0;
         gevrWeaponPanelRelease = 0;
     }
+    hand = gevrWeaponPanelLeft ? GUNLEFT : GUNRIGHT;
     count = gevrWeaponPanelLeft ? gevrWeaponPanelBuildLeft() : gevrWeaponPanelBuild();
 
     if (gevrWeaponPanelRelease)
@@ -14510,7 +14924,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         {
             GevrWpEntry *e = &s_gevrWpList[s_gevrWpIndex];
 
-            gevrWeaponPanelEquip(gevrWeaponPanelLeft ? GUNLEFT : GUNRIGHT, e, 1);
+            gevrWeaponPanelEquip(hand, e, 1);
         }
         s_gevrWpShown = FALSE;
     }
@@ -14523,139 +14937,117 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 
     if (!gevrWeaponPanelOpen || count <= 0)
     {
+        gevrWeaponPanelStep = 0;
         s_gevrWpShown = FALSE;
         return gdl;
     }
 
     if (!s_gevrWpShown)
     {
-        s32 hand = gevrWeaponPanelLeft ? GUNLEFT : GUNRIGHT;
         s32 item = gevrHandSelected(hand);
         s_gevrWpIndex = 0;
         for (i = 0; i < count; i++)
         {
-            if ((hand == GUNLEFT ? s_gevrWpList[i].left : s_gevrWpList[i].right) == item)
+            if (gevrWpItem(hand, i) == item)
             {
                 s_gevrWpIndex = i;
                 break;
             }
         }
-        s_gevrWpTextY = 2 * lh - s_gevrWpIndex * lh;
-        s_gevrWpRepeat = 0;
-        s_gevrWpHeld = FALSE;
+        gevrWheelOpen(hand, count, s_gevrWpIndex);
+        sysLogPrintf(LOG_NOTE, "wheel: open hand %d, %d items; free gfx %d cmds, vtx %d bytes",
+                     hand, count, dynGetFreeGfx(gdl), dynGetFreeVtx());
+        gevrWeaponPanelStep = 0;
         s_gevrWpMoved = FALSE;
         s_gevrWpShown = TRUE;
     }
 
-    /* the other stick: a step on a push, then repeating, as the watch's fast step */
-    if (gevrWeaponPanelStickY > 0.5f || gevrWeaponPanelStickY < -0.5f)
-    {
-        s32 step = FALSE;
-
-        if (!s_gevrWpHeld)
-        {
-            step = TRUE;
-            s_gevrWpHeld = TRUE;
-            s_gevrWpRepeat = 15;
-        }
-        else if (--s_gevrWpRepeat <= 0)
-        {
-            step = TRUE;
-            s_gevrWpRepeat = 6;
-        }
-
-        if (step)
-        {
-            s32 next = s_gevrWpIndex + (gevrWeaponPanelStickY > 0.0f ? -1 : 1);
-
-            /* the list wraps: past the bottom is the top again, and the reverse (user, 2026-09-30) */
-            if (count > 0)
-            {
-                next = (next + count) % count;
-            }
-            if (next >= 0 && next < count && next != s_gevrWpIndex)
-            {
-                s_gevrWpIndex = next;
-                s_gevrWpMoved = TRUE;
-            }
-        }
-    }
-    else if (gevrWeaponPanelStickY < 0.3f && gevrWeaponPanelStickY > -0.3f)
-    {
-        s_gevrWpHeld = FALSE;
-    }
-
-    if (s_gevrWpTuneOpen && s_gevrWpTuneIndex >= 0)
-    {
-        s_gevrWpIndex = s_gevrWpTuneIndex;
-    }
+    /* the list is rebuilt every frame (a pickup can join it while the wheel is up) */
+    gevrWheelGroup(hand, count);
     if (s_gevrWpIndex >= count)
     {
         s_gevrWpIndex = count - 1;
     }
-
-    /* the list scrolls to put the highlighted item on the middle line, as the watch's */
-    target = 2 * lh - s_gevrWpIndex * lh;
-    if (target < s_gevrWpTextY)
     {
-        s_gevrWpTextY = s_gevrWpTextY - (s_gevrWpTextY - target) / 3 - 1;
-        if (s_gevrWpTextY < target) s_gevrWpTextY = target;
-    }
-    else if (s_gevrWpTextY < target)
-    {
-        s_gevrWpTextY = s_gevrWpTextY + (target - s_gevrWpTextY) / 3 + 1;
-        if (s_gevrWpTextY > target) s_gevrWpTextY = target;
-    }
+        s32 next = gevrWheelStep(hand, s_gevrWpIndex, gevrWeaponPanelStickX, gevrWeaponPanelStickY);
 
-    list[0] = 0;
-    for (i = 0; i < count; i++)
-    {
-        char *name = s_gevrWpList[i].name;
-
-        if (strlen(list) + strlen(name) < sizeof(list) - 1)
+        if (gevrWeaponPanelStep != 0)
         {
-            strcat(list, name);
+            next = gevrWheelCycle(hand, next, gevrWeaponPanelStep);
+            gevrWeaponPanelStep = 0;
+        }
+        if (next != s_gevrWpIndex)
+        {
+            s_gevrWpIndex = next;
+            s_gevrWpMoved = TRUE;
         }
     }
 
-    gdl = microcode_constructor(gdl);
-    textMeasure(&th, &tw, list, ptrFontBankGothicChars, ptrFontBankGothic, lh);
+    if (s_gevrWpTuneOpen && s_gevrWpTuneIndex >= 0)
+    {
+        s_gevrWpIndex = s_gevrWpTuneIndex < count ? s_gevrWpTuneIndex : count - 1;
+    }
+
+    active = gevrWeaponCategory(gevrWpItem(hand, s_gevrWpIndex));
 
     /* centred in the screen, so the layer's crop is the same whichever way the image is read */
-    bw = tw + 20;
-    bh = GEVR_WP_MODEL_H + lh * 5 + 12;
-    bx0 = (viGetX() - bw) / 2;
-    by0 = (viGetY() - bh) / 2;
+    bx0 = (viGetX() - GEVR_WP_W) / 2;
+    by0 = (viGetY() - GEVR_WP_H) / 2;
+    if (bx0 < 0) bx0 = 0;
+    if (by0 < 0) by0 = 0;
+    cx = bx0 + GEVR_WP_W / 2;
+    cy = by0 + GEVR_WP_H / 2;
     gevrWeaponPanelRect[0] = (float) bx0 / (float) viGetX();
     gevrWeaponPanelRect[1] = (float) by0 / (float) viGetY();
-    gevrWeaponPanelRect[2] = (float) (bx0 + bw) / (float) viGetX();
-    gevrWeaponPanelRect[3] = (float) (by0 + bh) / (float) viGetY();
+    gevrWeaponPanelRect[2] = (float) (bx0 + GEVR_WP_W) / (float) viGetX();
+    gevrWeaponPanelRect[3] = (float) (by0 + GEVR_WP_H) / (float) viGetY();
+    gevrWeaponPanelAspect = (float) GEVR_WP_W / (float) GEVR_WP_H;
 
     gDPNoOpTag(gdl++, 0x565C0000); /* VR_WEAPON_PANEL_CAPTURE_BEGIN */
 
-    gdl = microcode_constructor_related_to_menus(gdl, bx0, by0, bx0 + bw, by0 + bh, 0x8898B4F4);
+    gdl = gevrWheelDrawRing(gdl, cx, cy, active);
 
-    x = bx0 + 10;
-    y = by0 + GEVR_WP_MODEL_H + 6;
-    /* brighter than the watch's 0xAA00B0: the panel floats over the world (user: hard to read) */
-    gdl = textRender(gdl, &x, &y, list, ptrFontBankGothicChars, ptrFontBankGothic, 0xE0E6EEFF, tw + 1, lh * 5, s_gevrWpTextY, lh);
-
-    midy = by0 + GEVR_WP_MODEL_H + 6 + lh * 2 + 1;
-    gdl = microcode_constructor_related_to_menus(gdl, bx0 + 7, midy, bx0 + bw - 7, midy + lh - 2, 0x141C28E0);
-
-    if (s_gevrWpTextY == target)
+    gdl = microcode_constructor(gdl);
+    for (i = 0; i < GEVR_WC_COUNT; i++)
     {
-        char *name = s_gevrWpList[s_gevrWpIndex].name;
+        /*
+         * each wedge: its category over a short list of its guns, the one it
+         * gives in the middle with the trigger's previous and next around it
+         */
+        f32 a = i * GEVR_WC_SPAN * (M_TAU_F / 360.0f);
+        f32 r = GEVR_WC_TEXTR + (i == active ? GEVR_WC_POP * 0.5f : 0.0f);
+        s32 ty = cy - (s32) lroundf(cosf(a) * r);
+        s32 pop = i == active ? GEVR_WC_POP : 0;
+        s32 n = s_gevrWc.n[i];
+        s32 at = 0, rows, k, y, mid, w;
+        s32 given;
+        char name[48];
 
+        if (n == 0)
         {
-            s32 nw = 0;
-            s32 nh = 0;
+            y = ty - lp / 2;
+            w = gevrWheelRow(i, y + lp / 2 - cy, pop, &mid);
+            gdl = gevrWpText(gdl, s_gevrWcLabel[i], cx + mid, y, 0x9098A0FF, lh, w, NULL);
+            continue;
+        }
+        given = i == active ? s_gevrWpIndex : gevrWheelPick(hand, i);
+        for (k = 0; k < n; k++)
+        {
+            if (s_gevrWc.idx[i][k] == given) at = k;
+        }
+        rows = n < GEVR_WC_ROWS ? n : GEVR_WC_ROWS;
+        y = ty - (rows + 1) * lp / 2;
+        w = gevrWheelRow(i, y + lp / 2 - cy, pop, &mid);
+        gdl = gevrWpText(gdl, s_gevrWcLabel[i], cx + mid, y, i == active ? 0xFFE65AFF : 0xFFFFFFFF, lh, w, NULL);
+        for (k = 0; k < rows; k++)
+        {
+            /* three or more: before, given, after (wrapping, as the trigger does); fewer: in list order */
+            s32 j = rows == GEVR_WC_ROWS ? ((at + k - 1) % n + n) % n : k;
+            s32 ly = y + (k + 1) * lp;
 
-            gdl = microcode_constructor(gdl);
-            textMeasure(&nh, &nw, name, ptrFontBankGothicChars, ptrFontBankGothic, lh);
-            x = bx0 + 10;
-            y = by0 + GEVR_WP_MODEL_H + 6 + lh * 2;
-            gdl = textRender(gdl, &x, &y, name, ptrFontBankGothicChars, ptrFontBankGothic, 0xFFF080FF, nw, 0x64, 0, lh);
+            gevrWcShorten(s_gevrWpList[s_gevrWc.idx[i][j]].name, name, sizeof(name));
+            w = gevrWheelRow(i, ly + lp / 2 - cy, pop, &mid);
+            gdl = gevrWpText(gdl, name, cx + mid, ly, j == at ? 0xFFFFFFFF : 0xC0C8D2FF, lh, w, NULL);
         }
     }
 
@@ -14666,7 +15058,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
          * own mapping for the trigger and watch laser.
          */
         /* a pair shows its right gun; the left hand's panel, the left one */
-        s32 shown = gevrWeaponPanelLeft ? s_gevrWpList[s_gevrWpIndex].left : s_gevrWpList[s_gevrWpIndex].right;
+        s32 shown = gevrWpItem(hand, s_gevrWpIndex);
 
         if (shown == ITEM_UNARMED)
         {
@@ -14685,7 +15077,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
         s_gevrWpShownItem = shown;
     }
     gdl = gevrDrawWeaponPanelModel(gdl, s_gevrWpShownItem,
-                                   bx0 + 4, by0 + 2, bw - 8, GEVR_WP_MODEL_H - 2);
+                                   cx - GEVR_WP_MODEL_W / 2, cy - GEVR_WP_MODEL_H / 2, GEVR_WP_MODEL_W, GEVR_WP_MODEL_H);
 
     gdl = combiner_bayer_lod_perspective(gdl);
     gDPNoOpTag(gdl++, 0x565C0001); /* VR_WEAPON_PANEL_CAPTURE_END */
