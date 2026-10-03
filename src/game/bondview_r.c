@@ -125,8 +125,10 @@ static void gevrSpreadStartPad(coord3d *pos, StandTile **stan, s32 share, s32 sl
  * farthest from every start pad so far, enough for one each. Rare put the
  * multiplayer ammo on open floor inside the play area, and standing on a box
  * only collects ammo (a weapon or armour spot would hand a player a gun).
- * The ROM's maps put these 6 to 14 m from every other start, where their own
- * pads can be 3.4 m apart. Respawns pick among them too (bondview.c
+ * On the ROM's maps that need them these land 11 to 40 m from every other
+ * start (Rare's own nearest pads: 10 to 68 m on those maps, 2.2 m on
+ * Archives; world units are centimetres at the level's scale, bg.c
+ * levelinfotable). Respawns pick among them too (bondview.c
  * bondviewGetRandomSpawnPadIndex keeps players 10 m apart where it can).
  * Every headset derives the same pads from the setup, so the match seed's
  * permutation (netStartPad) still agrees.
