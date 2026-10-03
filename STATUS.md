@@ -53,8 +53,11 @@ is goldeneyevr.com, in its own repository.
 ## Outstanding issues / limits
 
 - #94 co-op: accepted on one headset as host; two-headset play (menus
-  followed, revive, debrief on a teammate) is untested, and scripted/ending
-  cutscenes play on the host only. Notes: docs/issue-94-coop.md.
+  followed, revive, debrief on a teammate) is untested. Merged after
+  v0.4.0, also untested on two headsets: teammates watch the host's
+  scripted/ending cutscenes through the host's camera and fades
+  (NET_MSG_COOP_CINEMA); Bond's cinema animations and script music stay on
+  the host. Notes: docs/issue-94-coop.md.
 - #88 eight players: checked on one headset (8 slots on Facility/Egypt,
   90 Hz). Measure frame time and host upload with 5+ headsets before relay
   batching or culling the other players' view passes (MULTIPLAYER.md).

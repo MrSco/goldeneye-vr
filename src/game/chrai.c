@@ -4052,6 +4052,13 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                     {
                         g_CameraLookAtBondPad = (PadRecord *)&g_CurrentSetup.boundpads[getBoundPadNum(padnum)];
                     }
+#ifdef GEVR
+                    {
+                        /* co-op (#94): the pad's number, for the other headsets (bondview2.c) */
+                        extern s32 g_gevrCameraLookAtBondPadNum;
+                        g_gevrCameraLookAtBondPadNum = padnum;
+                    }
+#endif
                     bondviewSetCameraMode(CAMERAMODE_POSEND);
                     Offset += sizeof(AiCameraLookAtBondFromPadRecord);
                     break;
