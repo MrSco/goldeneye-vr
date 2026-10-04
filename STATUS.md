@@ -3,32 +3,27 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-04, v0.4.5; versionCode 58, protocol 17.
+**Updated / current build:** 2026-10-04, v0.4.6; versionCode 59, protocol 18.
 The release tag identifies the signed build commit. No game data is shipped.
 
-**Unreleased on main (#110, 2026-10-04):** #95 round 2. Launcher Cheats gain
-2x/10x Health, 2x Armor, Max ammo, Extra weapons; Comfort WHEN HIT has no
-knockback (default on), keep firing when hit, red flash toggle. Statue and
-Cradle online (ROM MP setups, MP memory strings). Perfect Dark's cylinder
-floor finder (stan.c stanFindGroundAtCyl) for remote bodies and Bond's tile
-recovery. Guards and other players hold the detailed first-person guns,
-launchers with their rocket (gevr_heldgun.c; ini DetailedGuns). Stage guns'
-HD textures decoded at load; MP death music fix. Release needs protocol 18
-(v0.4.5 rejects stages 22/41). Notes: docs/issue-95-round2.md.
-
-**Unreleased on main (#111, 2026-10-04):** upstream GEVR PC features. Watch
-Game Options ends in a VR settings page; smooth-turn speed slider; grip
-gestures on Controls > Gestures... (hip holster WIP, grip use, grip to hand
-WIP and off, mine re-grab); hand reload (WIP, off); Perfect Dark VR per-gun
-recoil (off; a two-handed hold leaves almost no kick and tightens the
-spread); Play > Game rules... (mines stick to guards, bodies stay 12/24/48,
-both off). Room decals draw one pass pulled by a reach of 3 x D_800364CC
-(v0.4.5's 80 drew the Dam bridge's shadows through it; bisected live with
-gevr_decal.txt mode 4) and are no longer cut in front (#72/#84). The watch
-pause sits on the room's virtual screen, not pinned to the view. Notes:
-docs/upstream-vr453-features.md. Then (#112): free-hand melee measures the
-hand in the guards' units, so blows on the Dam and Surface reach as far as
-in Facility.
+**v0.4.6:** #95 round 2 (#110): launcher cheats (2x/10x Health, 2x Armor,
+Max ammo, Extra weapons); Comfort WHEN HIT (no knockback, default on; keep
+firing when hit; red flash switch); Statue and Cradle online; Perfect Dark's
+cylinder floor finder (stan.c stanFindGroundAtCyl) for remote bodies and
+Bond's tile recovery; guards and other players hold the detailed
+first-person guns (gevr_heldgun.c, ini DetailedGuns); stage guns' HD
+textures at load; MP death music fix. Upstream GEVR PC features (#111): a
+watch VR settings page, smooth-turn speed, grip gestures (hip holster WIP,
+grip use, grip to hand WIP and off, mine re-grab), hand reload (WIP, off),
+Perfect Dark VR per-gun recoil (off; two hands: almost no kick, tighter
+spread), game rules (mines stick to guards, bodies stay; off). Room decals
+draw one pass pulled by a reach of 3 x D_800364CC (v0.4.5's 80 drew the Dam
+bridge's shadows through it; bisected live with gevr_decal.txt mode 4) and
+are no longer cut in front (#72/#84); the watch pause sits on the room's
+virtual screen. Melee on the Dam and Surface measures the hand in the
+guards' units (#112). Non-USA ROMs refused in every byte order (#108).
+Protocol 18: v0.4.5 rejects stages 22/41. Notes: docs/releases/v0.4.6.md,
+docs/issue-95-round2.md, docs/upstream-vr453-features.md.
 
 **v0.4.5:** optional Meta Quest passthrough behind the 2D virtual screen,
 saved in goldeneye-vr.ini and toggled in the SCREEN tab; Frigate hull "06"
