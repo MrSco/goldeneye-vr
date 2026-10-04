@@ -2402,11 +2402,17 @@ PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
  * on-screen object, door or weapon to p, whatever its flags, so a switch the
  * grip skipped says why.
  */
+s32 g_gevrHandNearestScanned;   /* the last gevrHandNearestAny's props looked at, and those with a box */
+s32 g_gevrHandNearestBoxed;
+
 PropRecord *gevrHandNearestAny(const f32 p[3], f32 *distOut)
 {
     PropRecord **ptr;
     PropRecord *best = NULL;
     f32 bestdist = 1e30f;
+
+    g_gevrHandNearestScanned = 0;
+    g_gevrHandNearestBoxed = 0;
 
     for (ptr = g_LastOnScreenProp - 1; ptr >= g_OnScreenPropList; ptr--)
     {
@@ -2419,6 +2425,11 @@ PropRecord *gevrHandNearestAny(const f32 p[3], f32 *distOut)
             continue;
         }
         dist = gevrHandModelDistance(prop->type == PROP_TYPE_DOOR ? prop->door->model : prop->obj->model, p);
+        g_gevrHandNearestScanned++;
+        if (dist < 1e29f)
+        {
+            g_gevrHandNearestBoxed++;
+        }
         if (dist < bestdist)
         {
             bestdist = dist;
