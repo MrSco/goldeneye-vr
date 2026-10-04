@@ -11,7 +11,8 @@ misbehaves can be reverted alone.
 |---|---|---|
 | Smooth-turn speed, 45..240 deg/s | Launcher Comfort tab; watch VR page | 120 (as before) |
 | Watch "VR settings" page | Watch > Game Options, last row | n/a |
-| Hip holster / grip use / grip pickup / mine re-grab | Controls > Gestures...; watch VR page | on |
+| Hip holster / grip use / mine re-grab | Controls > Gestures...; watch VR page | on |
+| Grip to hand (a gun on the floor into that hand) | Controls > Gestures...; watch VR page | off |
 | Hand reload | Controls > Gestures...; watch VR page | off |
 | Per-gun recoil | Controls > Gestures...; watch VR page | off |
 | Mines stick to guards | Play > Game rules... | off |
@@ -46,8 +47,11 @@ Grip gestures (all on by default):
   Squeeze there again: it comes back. The left hand works the same at the
   left hip. Seated play counts too (the zone is 40 cm below the eye, 12 cm
   out to the side).
-- **Kill a guard, look down at his gun, reach and squeeze with the left
-  hand:** it should go into the left hand. Walk-over pickup is unchanged.
+- **Grip to hand (turn it on):** walking over a gun still picks it up, so
+  this is for the guns left on the floor (full ammo, or the pair already
+  carried) and for choosing the hand. Reach to one and squeeze with the left
+  hand: that gun goes into the left hand (the floor one stays if the game
+  wouldn't take it). Upstream calls it grip pickup.
 - **Cheats > All guns, throw a remote mine at a wall, reach and squeeze at
   it:** it comes back (ammo +1). A proximity mine can be taken back only
   while it is still arming.
@@ -57,7 +61,8 @@ Hand reload (turn it on):
 - KF7: empty the magazine. It does not reload, and B does not reload.
   Squeeze the left hand under the gun in front of the trigger, then pull
   down about 8 cm: it reloads.
-- PP7: sweep the gun hand across your chest to the other side: it reloads.
+- PP7, Cougar, shotguns, rocket and grenade launchers: sweep the gun hand
+  across your chest to the other side: it reloads.
 - Dual PP7s: each hand's sweep reloads its own gun.
 - Grenades and mines still come back by themselves.
 

@@ -14698,7 +14698,9 @@ void gevrAutoAdvanceHand(s32 hand)
  *  - at its own hip holsters what that hand holds, and again draws it (vr451),
  *  - at the player's own stuck remote mine, or a proximity mine still arming,
  *    takes it back (vr450.2),
- *  - at something on the floor picks it up, a gun into that hand (vr451),
+ *  - at a gun on the floor puts that gun in that hand ("Grip to hand", vr451,
+ *    off by default: walking over guns already picks them up, user): it is
+ *    picked up if the game would, else the one the player carries is used,
  *  - at a door, switch or console uses it as B would (vr450, #90).
  * Anything else aims as before. port/src/input.c reports the press
  * (gevrGripGestureInput) and holds the aim back while it is pending; lv.c
@@ -14912,7 +14914,7 @@ static s32 gevrGripGestureTry(s32 ctrl)
 {
     extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
     extern int vr_haptics_ready(void);
-    static const char *names[] = { "holster", "mine back", "pickup", "use" };
+    static const char *names[] = { "holster", "mine back", "to hand", "use" };
     s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 at[3], right[3], up[3], back[3], p[3];

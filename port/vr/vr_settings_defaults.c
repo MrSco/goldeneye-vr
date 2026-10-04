@@ -66,7 +66,7 @@ int VrSmoothTurnSpeed = 120;
  * press aims as before (port/src/input.c gevrGripArbiter). */
 int VrGestureHolster  = 1;   /* grip at the hip holsters the gun, again draws it (vr451) */
 int VrGestureGripUse  = 1;   /* grip with the hand at a door or switch uses it (vr450, #90) */
-int VrGesturePickup   = 1;   /* grip at a gun on the floor picks it up into that hand (vr451) */
+int VrGesturePickup   = 0;   /* Grip to hand: grip at a gun on the floor puts it in that hand (vr451); off by default (user) */
 int VrGestureMineGrab = 1;   /* grip at your own stuck mine takes it back (vr450.2) */
 /* PD VR's per-weapon recoil table instead of the one generic kick. */
 int VrPerWeaponRecoil = 0;
