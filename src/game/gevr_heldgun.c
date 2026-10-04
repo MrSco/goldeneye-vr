@@ -52,7 +52,7 @@ extern s32 g_gevrExtraPass;            /* lv.c: an extra view pass (the copies' 
 #define HG_BUFSIZE    0x23000          /* the game's per-hand gun buffer (gun.c size_item_buffer) */
 #define HG_MODELSIZE  0xF000           /* and its model region (gun.c D_80032464) */
 #define HG_RW         256              /* rwdata words per instance */
-#define HG_RANGE_M    10.0f            /* farther off, the Pchr model: draw calls are the cost */
+#define HG_RANGE_M    50.0f            /* farther off, the Pchr model: draw calls are the cost (10 m swapped in sight, user) */
 #define HG_ROCKET_US  1600000          /* the launcher's reload, after its owner fires */
 
 typedef struct
