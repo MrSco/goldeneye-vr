@@ -15,6 +15,8 @@ unsigned long long VrCheatMask = 0;
 extern "C" {
 float VrScreenDistance = 2, VrScreenFov = 70, VrScreenHeight = 0;
 int VrScreenCurved = 1;
+int VrScreenPassthrough = 0;
+int vr_passthrough_supported(void) { return 1; }
 float inputRumbleGetStrength(int) { return 1; }
 void inputRumbleSetStrength(int, int) {}
 void extTexSetPack(const char *) {}
@@ -59,6 +61,7 @@ int main(int argc, char **argv) {
     if (argc == 1) {
         assert(VrRefreshRate == initial); // No DisplayHz, including the obsolete RefreshRate key.
         assert(VrWatchFaceStatus == GEVR_WATCH_FACE_ON && VrWatchGesturePause == 1);
+        assert(VrScreenPassthrough == 0);
     } else if (std::strcmp(argv[1], "write") == 0) {
         VrRefreshRate = std::atoi(argv[2]);
         vrSettingsSave();

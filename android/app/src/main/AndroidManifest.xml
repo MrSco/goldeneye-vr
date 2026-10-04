@@ -30,6 +30,11 @@
         android:name="oculus.software.overlay_keyboard"
         android:required="false" />
 
+    <!-- Optional passthrough behind the 2D screen (launcher SCREEN setting). -->
+    <uses-feature
+        android:name="com.oculus.feature.PASSTHROUGH"
+        android:required="false" />
+
     <!--
         No hand-tracking declaration, as Perfect Dark VR has none: the game is
         played with controllers. With one (it was here to get past Quest's

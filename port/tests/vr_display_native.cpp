@@ -147,6 +147,8 @@ bool vr_create_session() { g_vrState.session = allocate<XrSession>(); return tru
 bool vr_create_play_space() { g_vrState.playSpace = allocate<XrSpace>(); return true; }
 bool vr_create_view_space() { g_vrState.viewSpace = allocate<XrSpace>(); return true; }
 void vr_setup_color_space() {}
+void vr_passthrough_create() {}
+void vr_passthrough_destroy() {}
 bool vr_init_controllers() { return !controllerFailure; }
 bool vr_create_menu_swapchain() {
     if (menuFailure) {

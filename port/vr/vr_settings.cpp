@@ -102,6 +102,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "ScreenFov=%.1f\n", VrScreenFov);
     fprintf(f, "; 1 = a curved screen (a section of a cylinder around you), 0 = flat.\n");
     fprintf(f, "ScreenCurved=%d\n", VrScreenCurved);
+    fprintf(f, "; 1 = passthrough background behind the 2D screen, 0 = black void.\n");
+    fprintf(f, "ScreenPassthrough=%d\n", VrScreenPassthrough);
     fprintf(f, "; Metres above (+) or below (-) eye level; set by grabbing the screen with both grips.\n");
     fprintf(f, "ScreenHeight=%.2f\n", VrScreenHeight);
     fprintf(f, "; Preferred display refresh rate in Hz. 0 = Auto (no app preference), the\n");
@@ -265,6 +267,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strncmp(key, "MpCustom", 8) == 0 && key[8] >= '1' && key[8] <= '4') VrMpCustom[key[8] - '1'] = ival;
             else if (strncmp(key, "MpLoadout", 9) == 0 && key[9] >= '1' && key[9] <= '4') VrMpLoadout[key[9] - '1'] = ival;
             else if (strcmp(key, "ScreenCurved") == 0) VrScreenCurved = ival != 0;
+            else if (strcmp(key, "ScreenPassthrough") == 0) VrScreenPassthrough = ival != 0;
             /* Keep saved DisplayHz preferences. The obsolete RefreshRate key
              * was never user-selectable and remains ignored. */
             else if (strcmp(key, "DisplayHz") == 0) VrRefreshRate = ival < 0 ? 0 : ival;
