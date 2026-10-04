@@ -1064,8 +1064,12 @@ s32 g_gevrGexHand[2];
  * own data/gex.z64 and rebuilt as a GoldenEye file (gevr_gexmodel.c); the
  * load below then takes it in place of the cartridge's (ob.c). The KF7
  * only, for now. The header takes the model's matrix and texture counts;
- * switch 1, the muzzle flash, is PD part 90.
+ * switch 1, the muzzle flash, is PD part 90; slots the gun code leaves
+ * alone take the KF7's magazines: 30 the one in the gun (part 42), 31 the
+ * one its reload brings in (part 40), hidden at rest as in Perfect Dark.
  */
+#define GEVR_GEX_SW_MAG     30
+#define GEVR_GEX_SW_NEWMAG  31
 static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
 {
     s32 parts[64];
@@ -1086,6 +1090,11 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     {
         parts[1] = 90;
     }
+    if (hdr->numSwitches > GEVR_GEX_SW_NEWMAG)
+    {
+        parts[GEVR_GEX_SW_MAG] = 42;
+        parts[GEVR_GEX_SW_NEWMAG] = 40;
+    }
     gevrGexPendingFile = gevrGexBuildModel("Gak47Z", hdr->numSwitches, parts, &len, &mtx, &tex);
     g_gevrGexHand[hand] = gevrGexPendingFile != NULL;
     if (gevrGexPendingFile != NULL)
@@ -1104,11 +1113,22 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
  * gun's own matrix (rwmtx[0]), each group's matrix is its parent group's
  * (or that gun matrix, for the root) times its offset: the rest pose.
  */
-void gevrGexPoseGun(ModelFileHeader *hdr, Mtxf *rwmtx)
+void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
 {
     ModelNode *node = hdr->RootNode;
     Mtxf base;
     Mtxf offset;
+
+    /* the spare magazine shows only during the reload */
+    if (hdr->numSwitches > GEVR_GEX_SW_NEWMAG && hdr->Switches[GEVR_GEX_SW_NEWMAG] != NULL)
+    {
+        s32 *visible = (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_NEWMAG]);
+
+        if (visible != NULL)
+        {
+            *visible = FALSE;
+        }
+    }
 
     matrix_4x4_copy(&rwmtx[0], &base);
 
