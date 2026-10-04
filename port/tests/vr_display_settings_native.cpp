@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "fit_read") == 0) {
-        assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -12.35f && VrGunOffX == 2.74f);
+        assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -15.4419f && VrGunOffX == 2.74f);
         assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 90.1f);
         assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);
         assert(VrGexGuns == 0);   // GexGuns is not read as a Gex-prefixed fit

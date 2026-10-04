@@ -136,14 +136,19 @@ float VrGripTrim[2][6] = {
     { 0.02f, -4.72f, 5.23f, 90.1f, 0.0f, 83.1f },    /* long guns: underhand below the fore-end */
 };
 /* GoldenEye X's models (launcher MODS) sit differently in the hand, so Gun
- * fit keeps theirs apart (user); they start from GoldenEye's. */
-float VrGexGunOff[3] = { 2.74f, 1.94f, -12.35f };
+ * fit keeps theirs apart (user). The gun's is the user's, fitted to the KF7
+ * in the headset (2026-10-04); the grips start from GoldenEye's. */
+float VrGexGunOff[3] = { 2.946f, 1.94f, -15.4419f };
 float VrGexGripTrim[2][6] = {
     { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },
     { 0.02f, -4.72f, 5.23f, 90.1f, 0.0f, 83.1f },
 };
-/* Gun fit's scope trims (port/include/gevr_scope.h), none to start */
-float VrScopeFit[2][4][4];
+/* Gun fit's scope trims (port/include/gevr_scope.h): GoldenEye X's KF7 sight
+ * as the user fitted it (2026-10-04), the others none */
+float VrScopeFit[2][4][4] = {
+    { { 0 } },
+    { { 0 }, { 0 }, { -2.86f, 4.01f, 2.76f, 0.59f }, { 0 } },
+};
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
 float VrArmBodyFollow = 0.0f;  /* how fast the smoothed torso yaw chases the head */
 int   VrFistClench    = 0;     /* close the off hand while the left grip is squeezed */
