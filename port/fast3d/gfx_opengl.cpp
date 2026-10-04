@@ -2457,14 +2457,24 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
          */
         /* Rooms use a wide band so a fixture over an alcove still draws
          * (Frigate's recessed box). Bullet holes stay at 3 so they clip at
-         * an edge. The colour pass of a room decal does not use that pull:
-         * the hull "06" is a white face (opaque, writes depth) with a black
-         * shadow decal, and an 80-unit pull drew the shadow in front of the
-         * face. Mode 4 sets the room colour pull in view units (0 = real
-         * depth). Mode 3 sets the bullet-hole band. */
+         * an edge. Mode 4 sets the room colour pull in view units (0 = real
+         * depth). Mode 3 sets the bullet-hole band.
+         *
+         * The colour pass must NOT clear the marks as it draws. A decal never
+         * writes depth, so on the RDP overlapping decal primitives resolve by
+         * submission order: the later one wins. Zeroing the stencil on each
+         * colour write made the first primitive in the draw win and reject
+         * every later one at that pixel. The Frigate hull "06" is a black
+         * shadow followed by a white face in the same batch, and it came out
+         * black over white. Marks are cleared by a separate pass after the
+         * colour pass. */
         const float bandD = decalDepth ? 80.0f
             : ((s_decalMode == 3 && s_decalA > 0.0f) ? s_decalA : 3.0f);
-        const float colorPull = (decalDepth && s_decalMode == 4) ? s_decalA : 0.0f;
+        /* Room colour pass: the same pull as the band, so every marked pixel
+         * passes depth (pull 0 cut the recessed fixture as you walked). The
+         * marks already hold the decal to its surface; overlapping decals
+         * then resolve by draw order. Mode 4 overrides the pull. */
+        const float colorPull = (decalDepth && s_decalMode == 4) ? s_decalA : bandD;
         GLboolean prevDepthMask = current_depth_mask ? GL_TRUE : GL_FALSE;
         glEnable(GL_STENCIL_TEST);
         glStencilMask(0xff);
@@ -2485,19 +2495,30 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
             /* Drop marks that hang in front of empty space. No colour yet. */
             glStencilOp(GL_KEEP, GL_ZERO, GL_KEEP);
             glDrawArrays(GL_TRIANGLES, first, count);
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-            glDepthMask(prevDepthMask);
-            glPolygonOffset(-2.0f, -2.0f);
             gevr_set_decal_bias(gfx_decal_proj_z * colorPull);
-            glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
-            glDrawArrays(GL_TRIANGLES, first, count);
-        } else {
-            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-            glDepthMask(prevDepthMask);
-            glPolygonOffset(-2.0f, -2.0f);
-            glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
-            glDrawArrays(GL_TRIANGLES, first, count);
         }
+        /* Colour: marks are kept, so every primitive of the draw can land on
+         * a marked pixel and the last one submitted wins. */
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glDepthMask(prevDepthMask);
+        glPolygonOffset(-2.0f, -2.0f);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
+        glDrawArrays(GL_TRIANGLES, first, count);
+
+        /* Clear the marks: same push as the marking pass, so the same pixels
+         * are covered; depth and colour untouched. */
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+        glDepthMask(GL_FALSE);
+        glDepthFunc(GL_ALWAYS);
+        glPolygonOffset(0.0f, 0.0f);
+        gevr_set_decal_bias(-gfx_decal_proj_z * bandD);
+        glStencilFunc(GL_ALWAYS, 0, 0xff);
+        glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+        glDrawArrays(GL_TRIANGLES, first, count);
+        glDepthFunc(GL_LEQUAL);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glDepthMask(prevDepthMask);
+        glPolygonOffset(-2.0f, -2.0f);
 
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
         glDisable(GL_STENCIL_TEST);
