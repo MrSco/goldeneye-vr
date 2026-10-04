@@ -1201,11 +1201,13 @@ static WeaponRecoilProfile GetRecoilProfileForWeapon(int wnum)
 /*
  * GoldenEye's guns on Perfect Dark VR's profiles above (launcher "Per-gun
  * recoil", VrPerWeaponRecoil), by the nearest PD gun (gevr_recoil.h; the
- * game side names the class and its share, port/src/input.c gevrRecoilFor). A two-handed
- * hold (issue #35) takes PD's two-handed profile where it has one. Knives,
- * throwables and gadgets do not kick.
+ * game side names the class and its share, port/src/input.c gevrRecoilFor).
+ * Knives, throwables and gadgets do not kick. PD's own two-handed profiles
+ * (rifle, shotgun, sniper, launcher) gave way to one rule for every gun,
+ * GEVR_RECOIL_TWOHAND_SHARE in vrRecoilKick (user: the pistols and SMGs
+ * ignored the hold).
  */
-static WeaponRecoilProfile GetRecoilProfileForGEClass(int cls, bool twoHands)
+static WeaponRecoilProfile GetRecoilProfileForGEClass(int cls)
 {
     switch (cls) {
         case GEVR_RECOIL_PISTOL:
@@ -1215,17 +1217,13 @@ static WeaponRecoilProfile GetRecoilProfileForGEClass(int cls, bool twoHands)
         case GEVR_RECOIL_SMG:
             return { 0.003f, 0.004f, -0.500f, 130.0f, 18.0f };
         case GEVR_RECOIL_RIFLE:
-            return twoHands ? WeaponRecoilProfile{ 0.001f, 0.001f, -0.150f, 140.0f, 20.0f }
-                            : WeaponRecoilProfile{ 0.030f, 0.015f, -1.000f, 95.0f, 13.0f };
+            return { 0.030f, 0.015f, -1.000f, 95.0f, 13.0f };
         case GEVR_RECOIL_SHOTGUN:
-            return twoHands ? WeaponRecoilProfile{ 0.045f, 0.005f, -3.500f, 75.0f, 13.0f }
-                            : WeaponRecoilProfile{ 0.140f, 0.020f, -7.000f, 33.0f, 6.0f };
+            return { 0.140f, 0.020f, -7.000f, 33.0f, 6.0f };
         case GEVR_RECOIL_SNIPER:
-            return twoHands ? WeaponRecoilProfile{ 0.01f, 0.01f, -0.150f, 100.0f, 15.0f }
-                            : WeaponRecoilProfile{ 0.140f, 0.020f, -7.000f, 33.0f, 6.0f };
+            return { 0.140f, 0.020f, -7.000f, 33.0f, 6.0f };
         case GEVR_RECOIL_LAUNCHER:
-            return twoHands ? WeaponRecoilProfile{ 0.050f, 0.0f, -5.000f, 35.0f, 5.5f }
-                            : WeaponRecoilProfile{ 0.190f, 0.180f, -7.000f, 25.0f, 3.0f };
+            return { 0.190f, 0.180f, -7.000f, 25.0f, 3.0f };
         case GEVR_RECOIL_LASER:
             return { 0.002f, 0.002f, -0.05f, 180.0f, 90.0f };
         case GEVR_RECOIL_TASER:
@@ -1278,12 +1276,19 @@ extern "C" void vrRecoilNotifyShotFired(int handnum)
  * through the grip poses the game reads (gevrRecoilGripPose).
  */
 extern "C" int gevrStereoTwoHandGrip(void);   // bondview2.c: issue #35's hold
+// Held with both hands, every gun keeps only this share of its kick: next to
+// none, as in the original game (user).
+#define GEVR_RECOIL_TWOHAND_SHARE 0.1f
 extern "C" void vrRecoilKick(int gunhand, int recoilClass, float strength)
 {
     if (!VrPerWeaponRecoil || (gunhand != 0 && gunhand != 1)) return;
     const int ctrl = 1 - gunhand;
-    WeaponRecoilProfile p = GetRecoilProfileForGEClass(recoilClass, gunhand == 0 && gevrStereoTwoHandGrip() != 0);
-    // the gun's own share of its class's kick (port/src/input.c gevrRecoilFor)
+    WeaponRecoilProfile p = GetRecoilProfileForGEClass(recoilClass);
+    // the gun's own share of its class's kick (port/src/input.c gevrRecoilFor),
+    // and the two-handed hold's
+    if (gunhand == 0 && gevrStereoTwoHandGrip() != 0) {
+        strength *= GEVR_RECOIL_TWOHAND_SHARE;
+    }
     p.kickPitch *= strength;
     p.kickYaw *= strength;
     p.kickPush *= strength;
