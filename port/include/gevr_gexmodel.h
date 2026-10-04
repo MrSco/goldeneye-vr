@@ -33,6 +33,11 @@ const u8 *gevrGexTextureForId(s32 id, u32 *len);
  * file in place of the cartridge's one it just inflated. */
 extern u8 *gevrGexPendingFile;
 extern u32 gevrGexPendingLen;
+extern u32 gevrGexPendingGeTextures;   /* the cartridge model's own texture count */
+
+/* The built file (gex) takes the cartridge's texture ids (ge, inflated)
+ * where a texture of the same size sits at the same place in both tables. */
+void gevrGexAdoptGeTextures(u8 *gex, u32 gexLen, const u8 *ge, u32 geLen, u32 numSwitches, u32 geTextures);
 
 #ifdef __cplusplus
 }

@@ -1097,6 +1097,7 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
         parts[GEVR_GEX_SW_MAG] = 42;
         parts[GEVR_GEX_SW_NEWMAG] = 40;
     }
+    gevrGexPendingGeTextures = hdr->numtextures;
     gevrGexPendingFile = gevrGexBuildModel("Gak47Z", hdr->numSwitches, parts, &len, &mtx, &tex);
     g_gevrGexHand[hand] = gevrGexPendingFile != NULL;
     if (gevrGexPendingFile != NULL)

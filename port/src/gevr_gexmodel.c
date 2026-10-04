@@ -49,6 +49,10 @@ static void wr16(u8 *p, u16 v) { p[0] = v >> 8; p[1] = v; }
 
 u8 *gevrGexPendingFile;
 u32 gevrGexPendingLen;
+u32 gevrGexPendingGeTextures;
+
+/* the last build's display lists' start and texture count (gevrGexAdoptGeTextures) */
+static u32 s_dlStart, s_lastTextures;
 
 /* --------------------------------------------------- texture id mapping */
 
@@ -455,6 +459,49 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 	return b->failed ? 0 : pos;
 }
 
+/*
+ * GE-X's textures for GoldenEye's own guns are GoldenEye's, re-encoded in
+ * Perfect Dark's format: the KF7's 18 pair with the cartridge's 18 one for
+ * one, in order and size. Re-encoded, they no longer match the HD packs'
+ * checksums (user: the trigger lost its HD look). So where the cartridge's
+ * file, just inflated, has a texture of the same size at the same place in
+ * its table, the built file takes that id, in its table and its display
+ * lists' texture commands. Others keep their GE-X ids.
+ */
+void gevrGexAdoptGeTextures(u8 *gex, u32 gexLen, const u8 *ge, u32 geLen, u32 numSwitches, u32 geTextures)
+{
+	const u32 table = 4 * numSwitches;
+	const u32 gexTextures = s_lastTextures;
+	u32 i, p, adopted = 0;
+	u32 from[64], to[64];
+
+	for (i = 0; i < gexTextures && i < geTextures && i < 64 && table + 12 * (i + 1) <= geLen; i++) {
+		u8 *d = gex + table + 12 * i;
+		const u8 *s = ge + table + 12 * i;
+
+		if (d[4] == s[4] && d[5] == s[5] && (rd32(s) & 0xffff0000u) == 0) {
+			from[adopted] = rd32(d);
+			to[adopted] = rd32(s);
+			wr32(d, to[adopted]);
+			adopted++;
+		}
+	}
+	for (p = s_dlStart; p + 8 <= gexLen; p += 8) {
+		u32 w1 = rd32(gex + p + 4);
+
+		if (gex[p] != 0xc0) {
+			continue;
+		}
+		for (i = 0; i < adopted; i++) {
+			if ((w1 & 0xfff) == from[i]) {
+				wr32(gex + p + 4, (w1 & ~0xfffu) | (to[i] & 0xfff));
+				break;
+			}
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "gexmodel: %u of %u textures are the cartridge's own (HD packs apply)", adopted, gexTextures);
+}
+
 u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchParts,
 		u32 *outLen, u16 *outMatrices, u16 *outTextures)
 {
@@ -526,6 +573,8 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
 		}
 	}
 	if (out != NULL) {
+		s_dlStart = b->numDls > 0 ? b->dls[0].dst : len;
+		s_lastTextures = rd16(pd + 0x16);
 		*outLen = len;
 		*outMatrices = rd16(pd + 0xe);
 		*outTextures = rd16(pd + 0x16);
