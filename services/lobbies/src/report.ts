@@ -6,7 +6,7 @@ const GRAPHQL = "https://api.cloudflare.com/client/v4/graphql";
 const LEVELS = [50, 80, 100];
 const STAGES: Record<number, string> = {
   34: "Facility", 31: "Complex", 38: "Temple", 46: "Stack", 39: "Caverns", 48: "Library",
-  45: "Basement", 50: "Caves", 32: "Egypt", 27: "Bunker II", 24: "Archives",
+  45: "Basement", 50: "Caves", 32: "Egypt", 27: "Bunker II", 24: "Archives", 22: "Statue", 41: "Cradle",
 };
 const MISSIONS: Record<number, string> = {
   33: "Dam", 34: "Facility", 35: "Runway", 36: "Surface I", 9: "Bunker I", 20: "Silo", 26: "Frigate",
