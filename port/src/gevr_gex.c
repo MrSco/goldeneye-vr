@@ -53,6 +53,29 @@ s32 gevrGexInflate(const u8 *src, u32 srclen, u8 *dst, u32 dstlen)
 	return got == TINFL_DECOMPRESS_MEM_TO_MEM_FAILED ? -1 : (s32)got;
 }
 
+const u8 *gevrGexInflateRzip(const u8 *src, u8 *dst, u32 dstlen)
+{
+	tinfl_decompressor inf;
+	size_t inlen = 0x4000, outlen = dstlen;
+	u32 len;
+
+	if (src[0] != 0x11 || src[1] != 0x73) {
+		return NULL;
+	}
+	len = be24(src + 2);
+	if (len > dstlen) {
+		return NULL;
+	}
+	tinfl_init(&inf);
+	/* without TINFL_FLAG_HAS_MORE_INPUT tinfl hands back the bytes it read
+	 * past the stream's end, so inlen is where the next field starts */
+	if (tinfl_decompress(&inf, src + 5, &inlen, dst, dst, &outlen, TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF) != TINFL_STATUS_DONE
+			|| outlen != len) {
+		return NULL;
+	}
+	return src + 5 + inlen;
+}
+
 /* a 1173 blob: the 24-bit length, then raw deflate */
 static u8 *gexInflate1173(const u8 *src, u32 srclen, u32 *outSize)
 {
