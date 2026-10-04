@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "vr_settings.h"
+#include "gevr_scope.h"
 #include "vr_screen.h"
 #include "vr_haptics.h"
 
@@ -43,6 +44,22 @@ int main(int argc, char **argv) {
     assert(initial == 90);
 #endif
     vrSettingsLoad();
+    // Gun fit: GoldenEye X's models' own trims and the scopes'
+    if (argc > 1 && std::strcmp(argv[1], "fit_write") == 0) {
+        VrGexGunOff[0] = 1.5f;
+        VrGexGripTrim[1][3] = 45.0f;
+        VrScopeFit[0][0][0] = 0.5f;
+        VrScopeFit[1][2][3] = -1.25f;
+        vrSettingsSave();
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "fit_read") == 0) {
+        assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -12.35f && VrGunOffX == 2.74f);
+        assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 90.1f);
+        assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);
+        assert(VrGexGuns == 0);   // GexGuns is not read as a Gex-prefixed fit
+        return 0;
+    }
     if (argc > 1 && std::strcmp(argv[1], "watch_write") == 0) {
         VrWatchFaceStatus = std::atoi(argv[2]);
         VrWatchGesturePause = std::atoi(argv[3]);
