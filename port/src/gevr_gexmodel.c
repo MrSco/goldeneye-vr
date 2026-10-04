@@ -17,7 +17,9 @@
  *    points into them);
  *  - a position record has no child-group pointer and no radius (drawdist);
  *  - texture numbers name GE-X's table: they are mapped to free ids from
- *    GEVR_GEX_TEX_FIRST, which image.c texLoad serves from the GE-X ROM.
+ *    GEVR_GEX_TEX_FIRST, which image.c texLoad serves from the GE-X ROM,
+ *    except GE-X's copies of GoldenEye's textures, which take GoldenEye's
+ *    ids (the caller's pairs).
  * The display lists go last, in the order modelIterateDisplayLists visits
  * them, as the texture expansion (objecthandler_2.c) needs.
  */
@@ -49,10 +51,6 @@ static void wr16(u8 *p, u16 v) { p[0] = v >> 8; p[1] = v; }
 
 u8 *gevrGexPendingFile;
 u32 gevrGexPendingLen;
-u32 gevrGexPendingGeTextures;
-
-/* the last build's display lists' start and texture count (gevrGexAdoptGeTextures) */
-static u32 s_dlStart, s_lastTextures;
 
 /* --------------------------------------------------- texture id mapping */
 
@@ -104,6 +102,8 @@ struct build {
 	struct pdDl dls[MAX_DLS];
 	s32 numDls;
 	const char *name;
+	const u16 *texPairs;   /* GE-X number, GoldenEye id, ..., 0 */
+	s32 cartridgeTextures; /* table entries that took a GoldenEye id */
 	s32 failed;
 };
 
@@ -144,6 +144,25 @@ static void collectNodes(struct build *b, u32 ofs)
 		}
 		ofs = rd32(b->pd + ofs + 0x0c) ? OFS(rd32(b->pd + ofs + 0x0c)) : 0;
 	}
+}
+
+/*
+ * GE-X's textures for GoldenEye's own guns are GoldenEye's, re-encoded in
+ * Perfect Dark's format, and re-encoded they miss the HD packs' checksums
+ * (user: the KF7's trigger lost its HD look). The ones the caller pairs
+ * with a GoldenEye texture take its id, which texLoad reads from the
+ * cartridge; the rest are mapped to GE-X ids.
+ */
+static u32 mapTexture(struct build *b, u32 gexnum)
+{
+	const u16 *p;
+
+	for (p = b->texPairs; p != NULL && p[0] != 0; p += 2) {
+		if (p[0] == gexnum) {
+			return p[1];
+		}
+	}
+	return gexMapTexture(gexnum);
 }
 
 static u32 rodataSize(u8 type)
@@ -301,7 +320,10 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 
 			memcpy(out + pos, s, 12);
 			if (SEGOF(id) == 0) {
-				wr32(out + pos, gexMapTexture(id & 0xfff));
+				u32 mapped = mapTexture(b, id & 0xfff);
+
+				wr32(out + pos, mapped);
+				b->cartridgeTextures += mapped < GEVR_GEX_TEX_FIRST;
 			} else {
 				fail(b, "embedded textures are not handled", id);
 			}
@@ -446,7 +468,7 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 					w1 = (w1 & 0xff000000) | (OFS(w1) / 12 * 16);
 				}
 			} else if (op == 0xc0 && (w1 & 0xfff) != 0) {   /* texture: GE-X's number to ours */
-				w1 = (w1 & ~0xfffu) | (gexMapTexture(w1 & 0xfff) & 0xfff);
+				w1 = (w1 & ~0xfffu) | (mapTexture(b, w1 & 0xfff) & 0xfff);
 			} else if (op == 0xfd && SEGOF(w1) == 5) {
 				fail(b, "embedded texture image", w1);
 			}
@@ -459,51 +481,8 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 	return b->failed ? 0 : pos;
 }
 
-/*
- * GE-X's textures for GoldenEye's own guns are GoldenEye's, re-encoded in
- * Perfect Dark's format: the KF7's 18 pair with the cartridge's 18 one for
- * one, in order and size. Re-encoded, they no longer match the HD packs'
- * checksums (user: the trigger lost its HD look). So where the cartridge's
- * file, just inflated, has a texture of the same size at the same place in
- * its table, the built file takes that id, in its table and its display
- * lists' texture commands. Others keep their GE-X ids.
- */
-void gevrGexAdoptGeTextures(u8 *gex, u32 gexLen, const u8 *ge, u32 geLen, u32 numSwitches, u32 geTextures)
-{
-	const u32 table = 4 * numSwitches;
-	const u32 gexTextures = s_lastTextures;
-	u32 i, p, adopted = 0;
-	u32 from[64], to[64];
-
-	for (i = 0; i < gexTextures && i < geTextures && i < 64 && table + 12 * (i + 1) <= geLen; i++) {
-		u8 *d = gex + table + 12 * i;
-		const u8 *s = ge + table + 12 * i;
-
-		if (d[4] == s[4] && d[5] == s[5] && (rd32(s) & 0xffff0000u) == 0) {
-			from[adopted] = rd32(d);
-			to[adopted] = rd32(s);
-			wr32(d, to[adopted]);
-			adopted++;
-		}
-	}
-	for (p = s_dlStart; p + 8 <= gexLen; p += 8) {
-		u32 w1 = rd32(gex + p + 4);
-
-		if (gex[p] != 0xc0) {
-			continue;
-		}
-		for (i = 0; i < adopted; i++) {
-			if ((w1 & 0xfff) == from[i]) {
-				wr32(gex + p + 4, (w1 & ~0xfffu) | (to[i] & 0xfff));
-				break;
-			}
-		}
-	}
-	sysLogPrintf(LOG_NOTE, "gexmodel: %u of %u textures are the cartridge's own (HD packs apply)", adopted, gexTextures);
-}
-
 u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchParts,
-		u32 *outLen, u16 *outMatrices, u16 *outTextures)
+		const u16 *texturePairs, u32 *outLen, u16 *outMatrices, u16 *outTextures)
 {
 	struct build *b;
 	u32 pdLen = 0, root, len, i, k;
@@ -519,6 +498,7 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
 	b->pd = pd;
 	b->pdLen = pdLen;
 	b->name = pdname;
+	b->texPairs = texturePairs;
 
 	root = OFS(rd32(pd));
 	collectNodes(b, root);
@@ -573,13 +553,11 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
 		}
 	}
 	if (out != NULL) {
-		s_dlStart = b->numDls > 0 ? b->dls[0].dst : len;
-		s_lastTextures = rd16(pd + 0x16);
 		*outLen = len;
 		*outMatrices = rd16(pd + 0xe);
 		*outTextures = rd16(pd + 0x16);
-		sysLogPrintf(LOG_NOTE, "gexmodel: %s: %d nodes, %d vertex arrays, %d display lists, %u bytes, %d textures mapped",
-				pdname, b->numNodes, b->numArrays, b->numDls, len, s_texCount);
+		sysLogPrintf(LOG_NOTE, "gexmodel: %s: %d nodes, %d vertex arrays, %d display lists, %u bytes, %d of %u textures GoldenEye's own, %d GE-X ids mapped",
+				pdname, b->numNodes, b->numArrays, b->numDls, len, b->cartridgeTextures, rd16(pd + 0x16), s_texCount);
 	}
 	for (k = 0; k < (u32)b->numArrays; k++) {
 		free(b->arrays[k].colours);
