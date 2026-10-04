@@ -50,6 +50,9 @@ int main(int argc, char **argv) {
         VrGexGripTrim[1][3] = 45.0f;
         VrScopeFit[0][0][0] = 0.5f;
         VrScopeFit[1][2][3] = -1.25f;
+        VrReloadGrab[1][2] = -9.5f;
+        VrReloadBelt[0] = 55.0f;
+        VrGexHeldMag[1] = 2.25f;
         vrSettingsSave();
         return 0;
     }
@@ -58,6 +61,8 @@ int main(int argc, char **argv) {
         assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 90.1f);
         assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);
         assert(VrGexGuns == 0);   // GexGuns is not read as a Gex-prefixed fit
+        assert(VrReloadGrab[1][2] == -9.5f && VrReloadGrab[0][2] == -8.0f);
+        assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 19.0f && VrGexHeldMag[1] == 2.25f);
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "watch_write") == 0) {

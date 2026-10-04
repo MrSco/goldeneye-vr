@@ -143,6 +143,21 @@ float VrGexGripTrim[2][6] = {
     { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },
     { 0.02f, -4.72f, 5.23f, 90.1f, 0.0f, 83.1f },
 };
+/*
+ * Hand reload's places, set with Gun fit's reload mode (user):
+ *  - where the off hand takes a magazine, cm right, up and back from the
+ *    gun hand's grip pose along its own axes, GoldenEye's guns [0] and
+ *    GoldenEye X's [1] (8 ahead and 7 below was the guess for both);
+ *  - the belt, cm below the eye, out to the hand's own side and ahead
+ *    (the user's reaches, 2026-10-04: 45-75 below, 17-22 out, -10-0 ahead);
+ *  - where a GoldenEye X magazine sits in the off hand, its palm, cm right,
+ *    up and back from the off hand's grip pose (the watch arm's palm is
+ *    some 14 cm ahead of it).
+ */
+float VrReloadGrab[2][3] = { { 0.0f, -7.0f, -8.0f }, { 0.0f, -7.0f, -11.0f } };
+float VrReloadBelt[3] = { 62.0f, 19.0f, -5.0f };
+float VrGexHeldMag[3] = { 0.0f, 0.0f, -14.0f };
+
 /* Gun fit's scope trims (port/include/gevr_scope.h): GoldenEye X's KF7 sight
  * as the user fitted it (2026-10-04), the others none */
 float VrScopeFit[2][4][4] = {

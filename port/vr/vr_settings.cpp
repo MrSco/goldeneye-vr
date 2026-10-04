@@ -160,6 +160,14 @@ extern "C" void vrSettingsSave(void)
             VrGexGripTrim[0][2], VrGexGripTrim[0][3], VrGexGripTrim[0][4], VrGexGripTrim[0][5]);
     fprintf(f, "GexGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[1][0], VrGexGripTrim[1][1],
             VrGexGripTrim[1][2], VrGexGripTrim[1][3], VrGexGripTrim[1][4], VrGexGripTrim[1][5]);
+    fprintf(f, "; Hand reload, set with Gun fit's reload mode (X): where the off hand takes the\n");
+    fprintf(f, "; magazine, cm right, up and back from the gun hand's grip (Gex* for GoldenEye X);\n");
+    fprintf(f, "; the belt, cm below the eye, out to the side and ahead; and where a GoldenEye X\n");
+    fprintf(f, "; magazine sits in the off hand, cm right, up and back from its grip.\n");
+    fprintf(f, "ReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[0][0], VrReloadGrab[0][1], VrReloadGrab[0][2]);
+    fprintf(f, "GexReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[1][0], VrReloadGrab[1][1], VrReloadGrab[1][2]);
+    fprintf(f, "ReloadBelt=%.2f %.2f %.2f\n", VrReloadBelt[0], VrReloadBelt[1], VrReloadBelt[2]);
+    fprintf(f, "GexHeldMag=%.2f %.2f %.2f\n", VrGexHeldMag[0], VrGexHeldMag[1], VrGexHeldMag[2]);
     fprintf(f, "; A scope's lens, set with Gun fit holding the gun (X switches to its scope):\n");
     fprintf(f, "; cm right, up and back from the eyepiece, then cm wider. GexScope* for\n");
     fprintf(f, "; GoldenEye X's models.\n");
@@ -236,6 +244,16 @@ extern "C" void vrSettingsLoad(void)
             float t[6];
             if (sscanf(strchr(fit, '=') + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 6) {
                 for (int i = 0; i < 6; i++) (gexFit ? VrGexGripTrim : VrGripTrim)[cls][i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(fit, "ReloadGrab=", 11) == 0 || strncmp(line, "ReloadBelt=", 11) == 0
+            || strncmp(line, "GexHeldMag=", 11) == 0) {
+            float t[3];
+            float *to = strncmp(fit, "ReloadGrab=", 11) == 0 ? VrReloadGrab[gexFit ? 1 : 0]
+                      : line[0] == 'R' ? VrReloadBelt : VrGexHeldMag;
+            if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
+                for (int i = 0; i < 3; i++) to[i] = t[i];
             }
             continue;
         }
