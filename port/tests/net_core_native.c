@@ -265,6 +265,19 @@ static void readyPacket(ENetPeer *peer,int slot,int ready,int length) {
     netbufStartReadData(&b,raw,length);
     netReceiveLobbyReady(peer,slot,&b,8+length);
 }
+EXPORT int test_core_coop_team_scenario_ready(void) {
+    fixture(NET_SCENARIO_4V4);s_max_players=4;
+    for(int i=2;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
+    memset(hit_peers,0,sizeof(hit_peers));
+    hit_peers[1].data=(void*)(intptr_t)2;s_client_peers[1]=&hit_peers[1];
+    s_lobby_state.slots[1].team=NET_TEAM_NONE;s_lobby_state.slots[1].ready=0;
+    readyPacket(&hit_peers[1],1,1,1);
+    CHECK(!s_lobby_state.slots[1].ready && !netLobbyCanLaunch());
+    s_lobby_state.config.mode=NET_MODE_COOP;
+    readyPacket(&hit_peers[1],1,1,1);
+    CHECK(s_lobby_state.slots[1].ready && netLobbyCanLaunch());
+    return 0;
+}
 EXPORT int test_core_menu_ready(void) {
     fixture(0);s_max_players=4;netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_WARMUP;
     for(int i=2;i<GEVR_MAX_PLAYERS;i++)s_lobby_state.slots[i].connected=0;
