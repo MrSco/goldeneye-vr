@@ -1053,6 +1053,7 @@ int getCurrentWeaponOrItem(void)
 #ifdef GEVR
 #include <stdlib.h>
 #include "gevr_gexmodel.h"
+#include "gevr_pdanim.h"
 extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
 extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
 
@@ -1106,18 +1107,27 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     }
 }
 
+/* the animation a GE-X gun is held in at rest: its fire animation's first
+ * frame (the KF7's, 1017; tools/gex/gexguns.py lists them) */
+#define GEVR_GEX_KF7_IDLE_ANIM 1017
+
 /*
  * A GE-X gun's joints. GoldenEye's gun code sets each of its own models'
  * few matrices by hand (gunfire.c); Perfect Dark derives every joint from
- * its parent and its position record. So, once the gun code has set the
+ * its parent, its position record and the animation playing (pdvr
+ * model.c modelPositionJointUsingVecRot): once the gun code has set the
  * gun's own matrix (rwmtx[0]), each group's matrix is its parent group's
- * (or that gun matrix, for the root) times its offset: the rest pose.
+ * (or that gun matrix, for the root) times the animation's rotation at
+ * the joint's offset plus the animation's translation; the root takes the
+ * animation's translation alone.
  */
 void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
 {
     ModelNode *node = hdr->RootNode;
     Mtxf base;
     Mtxf offset;
+    const s32 anim = GEVR_GEX_KF7_IDLE_ANIM;
+    const s32 frame = 0;
 
     /* the spare magazine shows only during the reload */
     if (hdr->numSwitches > GEVR_GEX_SW_NEWMAG && hdr->Switches[GEVR_GEX_SW_NEWMAG] != NULL)
@@ -1150,7 +1160,22 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
             }
             if (group->MatrixID0 >= 0 && group->MatrixID0 < hdr->numMatrices)
             {
-                matrix_4x4_set_identity_and_position(&group->Origin, &offset);
+                f32 rot[3], trans[3], scale[3], pos[3];
+
+                gevrPdAnimPart(anim, frame, group->JointID, rot, trans, scale);
+                if (up == NULL)
+                {
+                    pos[0] = trans[0];
+                    pos[1] = trans[1];
+                    pos[2] = trans[2];
+                }
+                else
+                {
+                    pos[0] = trans[0] + group->Origin.x;
+                    pos[1] = trans[1] + group->Origin.y;
+                    pos[2] = trans[2] + group->Origin.z;
+                }
+                gevrPdMtxRotTrans(rot, pos, offset.m);
                 matrix_4x4_multiply(parent, &offset, &rwmtx[group->MatrixID0]);
             }
         }

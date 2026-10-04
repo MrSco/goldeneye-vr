@@ -209,6 +209,15 @@ u8 *gevrGexFileLoad(const char *name, u32 *outSize)
 	return NULL;
 }
 
+const u8 *gevrGexRom(u32 *size)
+{
+	if (!gevrGexOpen()) {
+		return NULL;
+	}
+	*size = s_romSize;
+	return s_rom;
+}
+
 const u8 *gevrGexTextureData(s32 texnum, u32 *outSize)
 {
 	u32 a, b;
