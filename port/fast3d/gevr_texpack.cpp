@@ -60,6 +60,7 @@ struct Entry {
     uint64_t lastUse = 0;
     bool bootFont = false;
     bool bootBackground = false;
+    bool stageGun = false;       // queued by preloadStage (#95)
 };
 
 static std::vector<Entry> s_entries;                          // fixed once the scan is published
@@ -68,6 +69,8 @@ static std::mutex s_mu;
 static std::condition_variable s_cv;
 static std::deque<int> s_queue;
 static std::deque<int> s_bootFonts, s_bootMenu, s_bootBackground;
+static std::deque<int> s_stageGuns;                            // after the boot warming, before nothing visible
+static size_t s_stageGunBytes = 0;
 static std::vector<uint32_t> s_bootGlyphs;                     // keys requested before indexing finishes
 static std::vector<uint32_t> s_bootBackgroundKeys;
 static size_t s_bootFontBytes = 0, s_bootMenuBytes = 0;
@@ -87,6 +90,8 @@ static const size_t BOOT_FONT_BUDGET = (size_t)8 << 20;
 static const size_t BOOT_MENU_BUDGET = (size_t)8 << 20;
 static const size_t BOOT_BACKGROUND_BUDGET = (size_t)4 << 20;
 static const size_t BOOT_SOURCE_LIMIT = (size_t)16 << 20;
+// A stage's guns: about a dozen small textures each, at 4x a few MiB a gun.
+static const size_t STAGE_GUN_BUDGET = (size_t)32 << 20;
 
 struct BootTexture { uint32_t crc; uint8_t fmt, siz; };
 // Common folder/menu art, independent of pack directory layout. In particular,
@@ -119,6 +124,7 @@ static void queueBoot(uint32_t crc, uint8_t fmt, uint8_t siz, bool font, bool ba
             e.state = QUEUED;
             e.bootFont = font;
             e.bootBackground = background;
+            e.stageGun = false;
             (font ? s_bootFonts : background ? s_bootBackground : s_bootMenu).push_back(id);
         }
     };
@@ -324,11 +330,12 @@ static void worker(std::string dir) {
         {
             std::unique_lock<std::mutex> lk(s_mu);
             s_cv.wait(lk, [] {
-                return !s_queue.empty() || !s_bootFonts.empty() || !s_bootBackground.empty() || !s_bootMenu.empty();
+                return !s_queue.empty() || !s_bootFonts.empty() || !s_bootBackground.empty() || !s_bootMenu.empty()
+                    || !s_stageGuns.empty();
             });
             preload = s_queue.empty();
             auto &queue = !preload ? s_queue : !s_bootFonts.empty() ? s_bootFonts
-                : !s_bootBackground.empty() ? s_bootBackground : s_bootMenu;
+                : !s_bootBackground.empty() ? s_bootBackground : !s_bootMenu.empty() ? s_bootMenu : s_stageGuns;
             id = queue.front();
             queue.pop_front();
             s_entries[id].state = DECODING;
@@ -339,8 +346,9 @@ static void worker(std::string dir) {
             // Inspect before allocating, so a custom 4K/8K pack cannot turn
             // a small boot preload into a large temporary allocation.
             const Entry &e = s_entries[id];
-            size_t &held = e.bootFont ? s_bootFontBytes : e.bootBackground ? s_bootBackgroundBytes : s_bootMenuBytes;
-            const size_t budget = e.bootFont ? BOOT_FONT_BUDGET
+            size_t &held = e.stageGun ? s_stageGunBytes : e.bootFont ? s_bootFontBytes
+                : e.bootBackground ? s_bootBackgroundBytes : s_bootMenuBytes;
+            const size_t budget = e.stageGun ? STAGE_GUN_BUDGET : e.bootFont ? BOOT_FONT_BUDGET
                 : e.bootBackground ? BOOT_BACKGROUND_BUDGET : BOOT_MENU_BUDGET;
             bool fits = stbi_info(path.c_str(), &w, &h, &n) && w > 0 && h > 0
                 && (uint64_t)w * h * 4 <= BOOT_SOURCE_LIMIT;
@@ -373,7 +381,8 @@ static void worker(std::string dir) {
             std::lock_guard<std::mutex> lk(s_mu);
             Entry &e = s_entries[id];
             if (!rgba.empty()) {
-                if (preload) (e.bootFont ? s_bootFontBytes : e.bootBackground ? s_bootBackgroundBytes : s_bootMenuBytes) += rgba.size();
+                if (preload) (e.stageGun ? s_stageGunBytes : e.bootFont ? s_bootFontBytes
+                    : e.bootBackground ? s_bootBackgroundBytes : s_bootMenuBytes) += rgba.size();
                 s_held += rgba.size();
                 e.rgba.swap(rgba);
                 e.w = uw;
@@ -439,7 +448,8 @@ const uint8_t *image(int id, uint32_t *w, uint32_t *h) {
         s_cv.notify_one();
     } else if (e.state == QUEUED) {
         // A visible texture always goes ahead of speculative boot warming.
-        auto &queue = e.bootFont ? s_bootFonts : e.bootBackground ? s_bootBackground : s_bootMenu;
+        auto &queue = e.stageGun ? s_stageGuns : e.bootFont ? s_bootFonts
+            : e.bootBackground ? s_bootBackground : s_bootMenu;
         auto it = std::find(queue.begin(), queue.end(), id);
         if (it != queue.end()) {
             queue.erase(it);
@@ -459,6 +469,28 @@ int takeDone(int *ids, int max) {
         s_done.pop_back();
     }
     return n;
+}
+
+void stageBegin() {
+    if (!s_ready) return;
+    std::lock_guard<std::mutex> lk(s_mu);
+    for (int id : s_stageGuns) {
+        if (s_entries[id].state == QUEUED) s_entries[id].state = UNLOADED;   // decoded on demand as before
+    }
+    s_stageGuns.clear();
+    s_stageGunBytes = 0;
+}
+
+void preloadStage(int id) {
+    if (!s_ready || id < 0 || id >= (int)s_entries.size()) return;
+    std::lock_guard<std::mutex> lk(s_mu);
+    Entry &e = s_entries[id];
+    if (e.state != UNLOADED) return;   // decoded, decoding or queued already
+    e.state = QUEUED;
+    e.stageGun = true;
+    e.bootFont = e.bootBackground = false;
+    s_stageGuns.push_back(id);
+    s_cv.notify_one();
 }
 
 void trim(size_t budget) {

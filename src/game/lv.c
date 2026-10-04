@@ -387,6 +387,13 @@ void lvlStageLoad(s32 stage)
     bullet_sparks_reset_all();
 #endif
     texReset();
+#ifdef GEVR
+    {
+        extern void gevrStageGunsReset(void);   /* bondview_r.c, #95 */
+
+        gevrStageGunsReset();
+    }
+#endif
     load_font_tables();
 
     /* If title screen, initialize screen and folder setup.
@@ -536,6 +543,13 @@ void lvlStageLoad(s32 stage)
         }
 
         set_cur_player(0);
+#ifdef GEVR
+        {
+            extern void gevrPreloadStageGuns(void);   /* bondview_r.c: the HD textures of the guns met above (#95) */
+
+            gevrPreloadStageGuns();
+        }
+#endif
     }
 
     /**
