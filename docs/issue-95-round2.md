@@ -9,14 +9,14 @@ e431819 (v0.4.5).
 |---|---|---|
 | 048cfab | Launcher cheats: 2x/10x Health, 2x Armor, Max ammo, Extra weapons | not yet |
 | e935b73 | Comfort tab WHEN HIT: no knockback (on by default), keep firing when hit, red flash toggle | not yet |
-| 6118db9 | Statue and Cradle online (ROM MP setups, MP memory strings, Statue keeps its solo fog) | not yet |
+| 6118db9 | Statue and Cradle online (ROM MP setups, MP memory strings, Statue keeps its solo fog) | Cradle hosted alone 2026-10-04 09:49: Ump_setupcradZ, 8 start pads, played; two-headset match not yet |
 | 556eecf | Cylinder floor finder from Perfect Dark (remote bodies' tile and feet, Bond's tile recovery) | not yet |
 | ba01477 | MP: the level music returns after the death sting when someone else is dead too | not yet |
 | 844140e | HD pack: the stage's gun textures decoded at load | not yet |
 | 0c5cbd4 | MP: other players hold the first-person gun models; launchers carry the rocket | hqguards on the Dam 2026-10-04: launcher fit (scale 1.02) and rocket look fine; range too short |
 | 688d10e | Detailed guns out to 50 m (10 m swapped in sight) | better; user asked for 100 m |
 | 6871745 | Detailed guns out to 100 m | user: detailed always, at any distance |
-| 9b01e1c | No distance limit | installed 09:46, to check |
+| 9b01e1c | No distance limit | user 2026-10-04: guards' detailed guns "look good" (tried a couple) |
 | 8249f70 | Every guard holds the detailed guns too, solo and co-op (DetailedGuns=0 turns them all off; hqguards flips guards back to compare) | to check |
 
 ## Release notes for whoever releases this
