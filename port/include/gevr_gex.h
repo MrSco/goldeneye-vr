@@ -1,0 +1,33 @@
+#ifndef GEVR_GEX_H
+#define GEVR_GEX_H
+
+/*
+ * GoldenEye X (a Perfect Dark NTSC 1.1 ROM hack) read from the player's own
+ * patched ROM, data/gex.z64, for its first-person guns (docs/gex-weapons.md).
+ * Nothing from it ships with the port.
+ */
+#include <PR/ultratypes.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/* Loads and checks the ROM on first use; 0 when it is missing or not GE-X 6a. */
+s32 gevrGexOpen(void);
+
+/* A model or other file from PD's file table by name, inflated if it is
+ * 1173-compressed. The caller frees it. NULL if absent. */
+u8 *gevrGexFileLoad(const char *name, u32 *outSize);
+
+/* A texture's compressed bytes as PD stores them (first byte: bit 7 LOD data,
+ * bit 6 zlib, low 6 bits the LOD count). Points into the resident ROM. */
+const u8 *gevrGexTextureData(s32 texnum, u32 *outSize);
+
+/* Inflates a raw deflate stream (PD's 1173 files, zlib-coded textures). */
+s32 gevrGexInflate(const u8 *src, u32 srclen, u8 *dst, u32 dstlen);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif
