@@ -491,15 +491,15 @@ static void gevrStereoRecenter(void)
  * zoom-in have already been done by the player's own arm, so they run in
  * stereo, unseen and GEVR_WATCH_OPEN_SPEED times faster, with the real watch
  * arm on the controller; the screen comes up with the pages. Closing always
- * plays the game's animation. While the watch holds the screen it is pinned
- * to the view (gevrVrScreenHeadLock), not hung in the world.
+ * plays the game's animation. The watch shows on the virtual screen at its
+ * place in the room, as menus and cutscenes do (pinned to the view and
+ * gliding into place, it was nauseating: user, 2026-10-04).
  */
 #define GEVR_WATCH_OPEN_SPEED 4.0f
 s32 g_gevrWatchGesturePending;
 static s32 s_gevrWatchByGesture;
 static s32 s_gevrGestureWait;
 extern f32 watch_transition_time;
-extern void gevrVrScreenHeadLock(s32 on);
 
 static s32 gevrWatchOpeningByGesture(s32 inlevel)
 {
@@ -920,9 +920,6 @@ void gevrStereoFrame(s32 inlevel)
         && pl->cameramode != 1
         && (pl->pause_state == 0 || opening)
         && !pl->bonddead;
-
-    gevrVrScreenHeadLock(!want && inlevel && VrPlayMode != 0 && pl != NULL
-                         && pl->watch_animation_state != 0);
 
     if (want && !s_gevrStereoWas)
     {
