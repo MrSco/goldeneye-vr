@@ -1,4 +1,4 @@
-const stages = { 34:"Facility",31:"Complex",38:"Temple",46:"Stack",39:"Caverns",48:"Library",45:"Basement",50:"Caves",32:"Egypt",27:"Bunker II",24:"Archives" };
+const stages = { 34:"Facility",31:"Complex",38:"Temple",46:"Stack",39:"Caverns",48:"Library",45:"Basement",50:"Caves",32:"Egypt",27:"Bunker II",24:"Archives",22:"Statue",41:"Cradle" };
 const weapons = ["Slappers only","Pistols","Throwing Knives","Automatics","Power Weapons","Sniper Rifles","Grenades","Remote Mines","Grenade Launchers","Timed Mines","Proximity Mines","Rockets","Lasers","Golden Gun"];
 const missions = { 33:"Dam",34:"Facility",35:"Runway",36:"Surface I",9:"Bunker I",20:"Silo",26:"Frigate",43:"Surface II",27:"Bunker II",22:"Statue",24:"Archives",29:"Streets",30:"Depot",25:"Train",37:"Jungle",23:"Control",39:"Caverns",41:"Cradle",28:"Aztec",32:"Egyptian" };
 const difficulties = ["Agent","Secret Agent","00 Agent","007"];

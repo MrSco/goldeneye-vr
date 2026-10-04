@@ -1466,6 +1466,14 @@ s32 sub_GAME_7F01FC10(Model *model, coord3d *src, coord3d *dst, f32 *ground_y)
         if (!(chr->chrflags & CHRFLAG_LOCK_Y_POS))
         {
             ground = stanGetPositionYValue(chr->prop->stan, groundpos->x, groundpos->z);
+#ifdef GEVR
+            {
+                /* another headset's player stands on its owner's ground (#95) */
+                extern f32 gevrNetRemoteGround(PropRecord *prop, f32 ground);
+
+                ground = gevrNetRemoteGround(chr->prop, ground);
+            }
+#endif
             chr->ground = ground;
 
             if (chr->chrflags & CHRFLAG_INIT)
@@ -3101,6 +3109,14 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
 
             g_playerPerm->time_other_players_on_screen += 1;
             drawjointlist(&mrData, chr->field_20);
+#ifdef GEVR
+            {
+                /* other players' first-person gun models (gevr_heldgun.c) */
+                extern Gfx *gevrHeldGunDraw(ChrRecord *chr, ModelRenderData *body, Gfx *gdl, s32 withalpha);
+
+                mrData.gdl = gevrHeldGunDraw(chr, &mrData, mrData.gdl, withalpha);
+            }
+#endif
 
             gdl = mrData.gdl;
 

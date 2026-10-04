@@ -6778,6 +6778,12 @@ void chrlvFireWeaponRelated(ChrRecord *self, s32 hand)
                             {
 #ifdef GEVR
                                 gevrCoopGuardLaunched((ObjectRecord *)sp208);
+                                {
+                                    /* the rocket leaves the launcher in its hand (gevr_heldgun.c) */
+                                    extern void gevrHeldGunGuardFired(ChrRecord *chr);
+
+                                    gevrHeldGunGuardFired(self);
+                                }
 #endif
                                 matrix_4x4_set_identity(&sp1C8);
                                 matrix_4x4_set_rotation_around_x(sp24C, &sp16C);
