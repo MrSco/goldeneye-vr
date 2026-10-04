@@ -1440,6 +1440,18 @@ void lvlManageMpGame(void)
 
             for (i=0; i<getPlayerCount(); i++)
             {
+#ifdef GEVR
+                /* Online the other players' copies run no blood drip on this
+                 * headset (only the local view is drawn), so their
+                 * redbloodfinished never comes: with anyone else dead too,
+                 * the level music stayed out after the sting. */
+                extern int netGetLocalSlot(void);
+
+                if (netIsActive() && i != netGetLocalSlot())
+                {
+                    continue;
+                }
+#endif
                 if (g_playerPointers[i]->bonddead != FALSE)
                 {
                     mp_alive_count++;
