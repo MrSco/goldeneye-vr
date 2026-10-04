@@ -36,6 +36,7 @@ int getCurrentPlayerWeaponId(int h) { return g_CurrentPlayer->hands[h].weapon; }
 int get_ammo_type_for_weapon(int weapon) { return weapon; }
 int bond_pressed_reload_activate() { return g_CurrentPlayer->field_D0; }
 bool bond_interact_object() { interactionCount++; return !interact; }
+int gevrManualReloadOn(int) { return 0; }   /* Hand reload (WIP) off: B/Y reload as before */
 struct Pad { unsigned button; } pad, *npad = &pad;
 int idx;
 void vr_log(const char *, ...) {}
