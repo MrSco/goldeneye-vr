@@ -1050,6 +1050,57 @@ int getCurrentWeaponOrItem(void)
 }
 
 
+#ifdef GEVR
+#include <stdlib.h>
+#include "gevr_gexmodel.h"
+extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
+extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
+
+/*
+ * GoldenEye X's first-person model for this gun, read from the player's
+ * own data/gex.z64 and rebuilt as a GoldenEye file (gevr_gexmodel.c); the
+ * load below then takes it in place of the cartridge's (ob.c). The KF7
+ * only, for now. The header takes the model's matrix and texture counts;
+ * switch 1, the muzzle flash, is PD part 90.
+ */
+static void gevrGexGunPrepare(ITEM_IDS item, ModelFileHeader *hdr)
+{
+    s32 parts[64];
+    u32 len = 0;
+    u16 mtx = 0, tex = 0;
+    s32 i;
+
+    if (!VrGexGuns || item != ITEM_AK47 || hdr->numSwitches > 64)
+    {
+        return;
+    }
+    for (i = 0; i < 64; i++)
+    {
+        parts[i] = -1;
+    }
+    if (hdr->numSwitches > 1)
+    {
+        parts[1] = 90;
+    }
+    gevrGexPendingFile = gevrGexBuildModel("Gak47Z", hdr->numSwitches, parts, &len, &mtx, &tex);
+    if (gevrGexPendingFile != NULL)
+    {
+        gevrGexPendingLen = len;
+        hdr->numMatrices = mtx;
+        hdr->numtextures = tex;
+        g_gevrHandPatchSkip = TRUE;
+    }
+}
+
+static void gevrGexGunDone(void)
+{
+    free(gevrGexPendingFile);
+    gevrGexPendingFile = NULL;
+    gevrGexPendingLen = 0;
+    g_gevrHandPatchSkip = FALSE;
+}
+#endif
+
 void used_to_load_1st_person_model_on_demand(GUNHAND hand)
 {
     u32              size_buffer_weapon;
@@ -1100,7 +1151,13 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
                 else
                 {
                     texInitPool(&g_CurrentPlayer->item_related[hand], &buffer_weapon[D_80032464[hand]], size_buffer_weapon - D_80032464[hand]);
+#ifdef GEVR
+                    gevrGexGunPrepare(item, &g_CurrentPlayer->copy_of_body_obj_header[hand]);
+#endif
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, D_80032464[hand], &g_CurrentPlayer->item_related[hand]);
+#ifdef GEVR
+                    gevrGexGunDone();
+#endif
                 }
             }
 
