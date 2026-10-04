@@ -2601,7 +2601,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Squeeze the grip with the hand in place. Anywhere else the grip aims as before.");
             ImGui::PopStyleColor();
-            toggle("Hip holster", &VrGestureHolster,
+            toggle("Hip holster (WIP)", &VrGestureHolster,
                    "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.");
             toggle("Grip use", &VrGestureGripUse,
                    "The hand at a door, switch or console: use it, as B does.");
