@@ -4043,6 +4043,9 @@ static const struct GevrScope s_gevrScopes[] = {
 typedef char gevrScopeFitsMatchTheTable[(sizeof(s_gevrScopes) / sizeof(s_gevrScopes[0]) == GEVR_SCOPE_FITS) ? 1 : -1];
 
 extern int gevrScopeFitting;   /* port/src/input.c: Gun fit is moving the gun hand's scope */
+extern int gevrReloadFitting;  /* port/src/input.c: Gun fit is setting Hand reload's places */
+s32 gevrReloadFitAvailable(void);
+void gevrReloadFitDistances(f32 *grab, f32 *belt);
 
 /* the held gun's scope, if it has one */
 static const struct GevrScope *gevrScopeFor(s32 item)
@@ -14433,6 +14436,19 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
                  "GADGET FIT: %s (%d)\nFORWARD %.1f  LEFT %.1f  UP %.1f CM\nTURN X %.0f  Y %.0f  Z %.0f   SIZE %.2f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\nHOLD RIGHT GRIP: STICKS TURN IT\nA: SAVE   B: UNDO   MENU + A: DONE",
                  label, item, ofs[2], ofs[0], ofs[1], rot[0], rot[1], rot[2], scale);
     }
+    else if (gevrReloadFitting)
+    {
+        /* Hand reload's places (X switches to it, input.c) */
+        f32 grab, belt;
+        char gs[16], bs[16];
+
+        gevrReloadFitDistances(&grab, &belt);
+        snprintf(gs, sizeof(gs), grab < 0.0f ? "?" : "%.0f CM", grab);
+        snprintf(bs, sizeof(bs), belt < 0.0f ? "?" : "%.0f CM", belt);
+        snprintf(buf, sizeof(buf),
+                 "RELOAD FIT%s\nOFF HAND ON THE MAGAZINE\n  LEFT TRIGGER: SET IT  (%s AWAY)\nOFF HAND AT YOUR BELT\n  Y: SET IT  (%s AWAY)\nHOLDING A MAGAZINE: STICKS MOVE IT\nX: FIT THE GUN   A: SAVE   B: UNDO\nMENU + A: DONE",
+                 gex, gs, bs);
+    }
     else if (gevrScopeFitting && gevrScopeFitIndex() >= 0)
     {
         /* the gun's scope (X switches to it, input.c) */
@@ -14441,8 +14457,8 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
 
         gevrItemLabel(getCurrentPlayerWeaponId(GUNRIGHT), label, sizeof(label));
         snprintf(buf, sizeof(buf),
-                 "SCOPE FIT: %s%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nWIDER %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\nX: FIT THE GUN\nA: SAVE   B: UNDO   MENU + A: DONE",
-                 label, gex, -s[2], s[0], s[1], s[3]);
+                 "SCOPE FIT: %s%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nWIDER %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 label, gex, -s[2], s[0], s[1], s[3], gevrReloadFitAvailable() ? "X: FIT THE RELOAD\n" : "X: FIT THE GUN\n");
     }
     else if (gevrStereoTwoHandGrip())
     {
@@ -14460,7 +14476,8 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         gevrGunOff(GUNRIGHT, off);
         snprintf(buf, sizeof(buf),
                  "GUN FIT%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\n%sA: SAVE   B: UNDO   MENU + A: DONE",
-                 gex, -off[2], off[0], off[1], gevrScopeFitIndex() >= 0 ? "X: FIT THE SCOPE\n" : "");
+                 gex, -off[2], off[0], off[1], gevrScopeFitIndex() >= 0 ? "X: FIT THE SCOPE\n"
+                                              : gevrReloadFitAvailable() ? "X: FIT THE RELOAD\n" : "");
     }
 
     gdl = microcode_constructor(gdl);
@@ -15253,22 +15270,21 @@ void gevrGripGestureTick(void)
  * Both start the game's own reload, as B did (gun.c attempt_reload_item_in_hand).
  * Throwables, knives and gadgets keep the game's own reload.
  * files/gevr_reload.txt overrides the zones while tuning:
- * "magfwd magdown magradius pull crossside crossahead seat beltdrop
- * beltahead", centimetres.
+ * "magradius pull crossside crossahead seat beltradius", centimetres.
+ * Where the magazine and the belt are is the player's, set with Gun fit's
+ * reload mode (VrReloadGrab, VrReloadBelt).
  */
-enum { GEVR_RT_MAGFWD, GEVR_RT_MAGDOWN, GEVR_RT_MAGRADIUS, GEVR_RT_PULL, GEVR_RT_CROSSSIDE, GEVR_RT_CROSSAHEAD,
-       GEVR_RT_SEAT, GEVR_RT_BELTDROP, GEVR_RT_BELTAHEAD, GEVR_RT_COUNT };
+enum { GEVR_RT_MAGRADIUS, GEVR_RT_PULL, GEVR_RT_CROSSSIDE, GEVR_RT_CROSSAHEAD,
+       GEVR_RT_SEAT, GEVR_RT_BELTRADIUS, GEVR_RT_COUNT };
 static f32 s_gevrReloadTune[GEVR_RT_COUNT] = {
-    8.0f,    /* the magazine: this far ahead of the gun hand's grip */
-    7.0f,    /* and this far below it */
-    10.0f,   /* the off hand within this of it to take hold */
+    10.0f,   /* the off hand within this of the magazine (VrReloadGrab) to take hold */
     8.0f,    /* and pulled this far down the gun to reload */
     10.0f,   /* the chest cross: this far over the middle to the other side */
     35.0f,   /* no further ahead of the eye than this (aiming across is further out) */
     6.0f,    /* GoldenEye X: a magazine within this of the magazine well seats */
-    45.0f,   /* the belt: the hand at least this far below the eye */
-    15.0f,   /* and no further ahead of it than this (a gun held low is further out) */
+    18.0f,   /* a hand within this of the belt (VrReloadBelt) is at it */
 };
+extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3];   /* vr_settings_defaults.c: Gun fit's reload mode */
 
 extern int VrManualReloading;
 
@@ -15315,12 +15331,12 @@ static void gevrReloadTuneRead(void)
     {
         return;
     }
-    if (fscanf(f, "%f %f %f %f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6], &v[7], &v[8]) == GEVR_RT_COUNT
+    if (fscanf(f, "%f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == GEVR_RT_COUNT
         && memcmp(v, s_gevrReloadTune, sizeof(v)) != 0)
     {
         memcpy(s_gevrReloadTune, v, sizeof(v));
-        sysLogPrintf(LOG_NOTE, "stereo: reload zones magazine %.0f ahead %.0f below r %.0f pull %.0f, cross %.0f ahead %.0f, seat %.0f, belt %.0f below %.0f ahead cm",
-                     v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8]);
+        sysLogPrintf(LOG_NOTE, "stereo: reload zones magazine r %.0f pull %.0f, cross %.0f ahead %.0f, seat %.0f, belt r %.0f cm",
+                     v[0], v[1], v[2], v[3], v[4], v[5]);
     }
     fclose(f);
 }
@@ -15418,45 +15434,42 @@ static void gevrGexMagIn(s32 hand, const char *how)
 }
 
 /*
- * The belt: a hand low and not out ahead, round the waist and the hip
- * (where the user reached: 45-75 cm below the eye, -10 to 0 ahead, 17-22
- * out). The hip's holster gesture gives way while a gun waits for a
- * magazine (gevrGexClaimsOffHand).
+ * The belt: within GEVR_RT_BELTRADIUS of where the player set it (Gun
+ * fit's reload mode), round the waist or the hip. The hip's holster
+ * gesture gives way while a gun waits for a magazine
+ * (gevrGexClaimsOffHand). Squared distance, cm.
  */
+static f32 gevrBeltDist2(s32 ctrl, const f32 at[3])
+{
+    f32 b[3];
+
+    if (!gevrHandOnBody(ctrl, at, &b[0], &b[1], &b[2]))
+    {
+        return 1e9f;
+    }
+    return (b[0] - VrReloadBelt[0]) * (b[0] - VrReloadBelt[0]) + (b[1] - VrReloadBelt[1]) * (b[1] - VrReloadBelt[1])
+         + (b[2] - VrReloadBelt[2]) * (b[2] - VrReloadBelt[2]);
+}
+
 static s32 gevrGexAtBelt(s32 ctrl, const f32 at[3])
 {
-    f32 drop, side, ahead;
-
-    return gevrHandOnBody(ctrl, at, &drop, &side, &ahead)
-        && drop >= s_gevrReloadTune[GEVR_RT_BELTDROP] && ahead <= s_gevrReloadTune[GEVR_RT_BELTAHEAD];
+    return gevrBeltDist2(ctrl, at) <= s_gevrReloadTune[GEVR_RT_BELTRADIUS] * s_gevrReloadTune[GEVR_RT_BELTRADIUS];
 }
 
 /* gun.c: the gun's magazine (centre, and its top at the well) and the one in the hand (its top) */
 extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
-/* gun.c: the player's off hand, its palm, as the gun fit places the hands */
-extern s32 gevrGexOffPalm(f32 out[3]);
 
-/* the square of a point's distance from the gun's magazine, top to bottom */
-static f32 gevrGexMagDist2(const f32 p[3], const f32 centre[3], const f32 top[3])
+/* the magazine, where the player set it: VrReloadGrab from the gun hand's grip */
+static void gevrReloadMagPoint(const f32 gun[3], const f32 gr[3], const f32 gu[3], const f32 gb[3], f32 cm, s32 gex,
+                               f32 mag[3])
 {
-    f32 ab[3], ap[3], t, l2 = 0.0f, d2 = 0.0f;
+    const f32 *g = VrReloadGrab[gex ? 1 : 0];
     s32 i;
 
     for (i = 0; i < 3; i++)
     {
-        ab[i] = 2.0f * (centre[i] - top[i]);   /* the top to the bottom */
-        ap[i] = p[i] - top[i];
-        l2 += ab[i] * ab[i];
+        mag[i] = gun[i] + (g[0] * gr[i] + g[1] * gu[i] + g[2] * gb[i]) * cm;
     }
-    t = l2 > 1e-6f ? (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / l2 : 0.0f;
-    t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
-    for (i = 0; i < 3; i++)
-    {
-        f32 d = ap[i] - t * ab[i];
-
-        d2 += d * d;
-    }
-    return d2;
 }
 
 /* the off hand's grip belongs to the GoldenEye X magazine: holding it, or taking one at the belt */
@@ -15480,12 +15493,20 @@ s32 gevrGexClaimsOffHand(void)
     {
         /* at the magazine, before the two-handed hold can take the press */
         f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
-        f32 mag[3], well[3], held[3];
+        f32 gun[3], gr[3], gu[3], gb[3], mag[3], d2 = 0.0f;
         const f32 rr = s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm;
+        s32 i;
 
-        f32 palm[3];
-
-        return (gevrGexMagPoints(mag, well, held) & 1) && gevrGexMagDist2(gevrGexOffPalm(palm) ? palm : off, mag, well) <= rr * rr;
+        if (!gevrGripAxesRaw(1, gun, gr, gu, gb))
+        {
+            return FALSE;
+        }
+        gevrReloadMagPoint(gun, gr, gu, gb, cm, TRUE, mag);
+        for (i = 0; i < 3; i++)
+        {
+            d2 += (off[i] - mag[i]) * (off[i] - mag[i]);
+        }
+        return d2 <= rr * rr;
     }
     return s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && gevrGexAtBelt(0, off);
 }
@@ -15535,6 +15556,98 @@ s32 gevrReloadHoldsHand(s32 ctrl)
     return s_gevrGexMag[hand] == GEVR_GEXMAG_OUT;
 }
 
+/*
+ * Gun fit's reload mode (port/src/input.c; user: the guessed places were
+ * off): with Hand reload on and a magazine-fed gun alone in the gun hand,
+ * the player shows where the magazine is taken (the off hand at it, the
+ * left trigger) and where the belt is (the off hand at it, Y); the
+ * readout gives how far the hand is from each.
+ */
+s32 gevrReloadFitAvailable(void)
+{
+    s32 right;
+
+    if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL)
+    {
+        return FALSE;
+    }
+    right = getCurrentPlayerWeaponId(GUNRIGHT);
+    return gevrReloadGun(right) && gevrReloadMagazineFed(right) && !gevrReloadGun(getCurrentPlayerWeaponId(GUNLEFT));
+}
+
+void gevrReloadFitSetGrab(void)
+{
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 gun[3], gr[3], gu[3], gb[3], off[3], r[3], u[3], b[3], d[3];
+    f32 *g = VrReloadGrab[gevrGexHeld(GUNRIGHT) ? 1 : 0];
+    s32 i;
+
+    if (cm < 1e-6f || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, r, u, b))
+    {
+        return;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        d[i] = (off[i] - gun[i]) / cm;
+    }
+    g[0] = d[0] * gr[0] + d[1] * gr[1] + d[2] * gr[2];
+    g[1] = d[0] * gu[0] + d[1] * gu[1] + d[2] * gu[2];
+    g[2] = d[0] * gb[0] + d[1] * gb[1] + d[2] * gb[2];
+    sysLogPrintf(LOG_NOTE, "stereo: reload fit, the magazine at %.1f right %.1f up %.1f back of the grip (%s)",
+                 g[0], g[1], g[2], gevrGexHeld(GUNRIGHT) ? "GoldenEye X" : "GoldenEye");
+}
+
+void gevrReloadFitSetBelt(void)
+{
+    f32 off[3], r[3], u[3], b[3];
+
+    if (gevrGripAxesRaw(0, off, r, u, b)
+        && gevrHandOnBody(0, off, &VrReloadBelt[0], &VrReloadBelt[1], &VrReloadBelt[2]))
+    {
+        sysLogPrintf(LOG_NOTE, "stereo: reload fit, the belt %.0f below %.0f out %.0f ahead",
+                     VrReloadBelt[0], VrReloadBelt[1], VrReloadBelt[2]);
+    }
+}
+
+/* the readout: the off hand from the magazine's place and the belt, cm, or -1 */
+void gevrReloadFitDistances(f32 *grab, f32 *belt)
+{
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 gun[3], gr[3], gu[3], gb[3], off[3], r[3], u[3], b[3], mag[3], d2 = 0.0f;
+    s32 i;
+
+    *grab = *belt = -1.0f;
+    if (cm < 1e-6f || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, r, u, b))
+    {
+        return;
+    }
+    gevrReloadMagPoint(gun, gr, gu, gb, cm, gevrGexHeld(GUNRIGHT), mag);
+    for (i = 0; i < 3; i++)
+    {
+        d2 += (off[i] - mag[i]) * (off[i] - mag[i]);
+    }
+    *grab = sqrtf(d2) / cm;
+    *belt = sqrtf(gevrBeltDist2(0, off));
+}
+
+/* gun.c: where a GoldenEye X magazine in the off hand has its palm (VrGexHeldMag), camera space */
+s32 gevrGexHeldPalm(f32 out[3])
+{
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 off[3], r[3], u[3], b[3];
+    s32 i;
+
+    if (!gevrGripAxesRaw(0, off, r, u, b))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = off[i] + (VrGexHeldMag[0] * r[i] + VrGexHeldMag[1] * u[i] + VrGexHeldMag[2] * b[i]) * cm;
+    }
+    return TRUE;
+}
+
 /* lv.c: B or Y where the game would have reloaded: a GoldenEye X gun drops its magazine out */
 void gevrGexDropMagazine(s32 hand)
 {
@@ -15544,17 +15657,6 @@ void gevrGexDropMagazine(s32 hand)
         return;
     }
     gevrGexMagOut(hand, GEVR_GEXMAG_OUT, "dropped out (button)");
-}
-
-/* the magazine: GEVR_RT_MAGFWD ahead of the gun hand's grip and GEVR_RT_MAGDOWN below it */
-static void gevrReloadMagPoint(const f32 gun[3], const f32 gu[3], const f32 gb[3], f32 cm, f32 mag[3])
-{
-    s32 i;
-
-    for (i = 0; i < 3; i++)
-    {
-        mag[i] = gun[i] - gb[i] * s_gevrReloadTune[GEVR_RT_MAGFWD] * cm - gu[i] * s_gevrReloadTune[GEVR_RT_MAGDOWN] * cm;
-    }
 }
 
 /*
@@ -15586,7 +15688,7 @@ s32 gevrReloadClaimsOffHand(void)
     {
         return FALSE;
     }
-    gevrReloadMagPoint(gun, gu, gb, cm, mag);
+    gevrReloadMagPoint(gun, gr, gu, gb, cm, gevrGexHeld(GUNRIGHT), mag);
     for (i = 0; i < 3; i++)
     {
         dist2 += (off[i] - mag[i]) * (off[i] - mag[i]);
@@ -15635,33 +15737,23 @@ void gevrHandReloadTick(void)
     grip = get_button_state(0, "grip");
     if (gevrGexByHand(GUNRIGHT) && !gevrReloadGun(left))
     {
-        /* the gun's magazine as drawn (gun.c), else GoldenEye's guess for it */
-        f32 mag[3], well[3], held[3], dist2 = 0.0f, seatd2 = 0.0f, upnow = 0.0f, pulled;
+        /* the magazine where the player set it (Gun fit's reload mode); the seat as drawn (gun.c) */
+        f32 mag[3], centre[3], well[3], held[3], dist2 = 0.0f, seatd2 = 0.0f, upnow = 0.0f, pulled;
         const f32 seat2 = s_gevrReloadTune[GEVR_RT_SEAT] * cm * s_gevrReloadTune[GEVR_RT_SEAT] * cm;
-        const s32 have = gevrGexMagPoints(mag, well, held);
+        const s32 have = gevrGexMagPoints(centre, well, held);
         s32 *st = &s_gevrGexMag[GUNRIGHT];
 
-        if (!(have & 1))
-        {
-            gevrReloadMagPoint(gun, gu, gb, cm, mag);
-        }
+        gevrReloadMagPoint(gun, gr, gu, gb, cm, TRUE, mag);
         for (i = 0; i < 3; i++)
         {
             dist2 += (off[i] - mag[i]) * (off[i] - mag[i]);
             upnow += (off[i] - gun[i]) * gu[i];
             seatd2 += (have & 2) ? (held[i] - well[i]) * (held[i] - well[i]) : 1e9f;
         }
-        if (have & 1)
-        {
-            f32 palm[3];
-
-            dist2 = gevrGexMagDist2(gevrGexOffPalm(palm) ? palm : off, mag, well);
-        }
         if (grip && !s_gripWas)
         {
-            sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip %.1f cm from the magazine (%s; the grip pose %.1f), state %d",
-                         sqrtf(dist2) / cm, (have & 1) ? "drawn" : "guessed",
-                         (have & 1) ? sqrtf(gevrGexMagDist2(off, mag, well)) / cm : -1.0f, *st);
+            sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip %.1f cm from the magazine, %.1f from the belt, state %d",
+                         sqrtf(dist2) / cm, sqrtf(gevrBeltDist2(0, off)), *st);
         }
         pulled = (s_magGrabUp - upnow) / (s_gevrReloadTune[GEVR_RT_PULL] * cm);
         switch (*st)
@@ -15717,7 +15809,7 @@ void gevrHandReloadTick(void)
     {
         f32 mag[3], d[3], dist2 = 0.0f, upnow = 0.0f;
 
-        gevrReloadMagPoint(gun, gu, gb, cm, mag);
+        gevrReloadMagPoint(gun, gr, gu, gb, cm, FALSE, mag);
         for (i = 0; i < 3; i++)
         {
             d[i] = off[i] - mag[i];
