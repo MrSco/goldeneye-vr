@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "vr_settings.h"
+#include "gevr_scope.h"
 #include "vr_screen.h"
 #include "vr_haptics.h"
 
@@ -10,6 +11,9 @@ extern "C" float inputRumbleGetStrength(int playernum);
 extern "C" void inputRumbleSetStrength(int playernum, int strength);
 
 #define FS_MAXPATH 256
+
+// goldeneye-vr.ini's names for VrScopeFit's guns, in its order (gevr_scope.h)
+static const char *const kScopeFitNames[GEVR_SCOPE_FITS] = { "Sniper", "Laser", "KF7", "AR33" };
 extern char g_ActiveExtTexPack[FS_MAXPATH];
 extern "C" void extTexSetPack(const char *newPackName);
 extern "C" void videoSetExternalTextures(bool enable);
@@ -149,6 +153,22 @@ extern "C" void vrSettingsSave(void)
             VrGripTrim[0][2], VrGripTrim[0][3], VrGripTrim[0][4], VrGripTrim[0][5]);
     fprintf(f, "GripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGripTrim[1][0], VrGripTrim[1][1],
             VrGripTrim[1][2], VrGripTrim[1][3], VrGripTrim[1][4], VrGripTrim[1][5]);
+    fprintf(f, "; GoldenEye X's models (MODS) sit differently in the hand, so Gun fit keeps\n");
+    fprintf(f, "; theirs apart: GexGunOff is GunOffX, Y and Z; GexGrip* as above.\n");
+    fprintf(f, "GexGunOff=%.4f %.4f %.4f\n", VrGexGunOff[0], VrGexGunOff[1], VrGexGunOff[2]);
+    fprintf(f, "GexGripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[0][0], VrGexGripTrim[0][1],
+            VrGexGripTrim[0][2], VrGexGripTrim[0][3], VrGexGripTrim[0][4], VrGexGripTrim[0][5]);
+    fprintf(f, "GexGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[1][0], VrGexGripTrim[1][1],
+            VrGexGripTrim[1][2], VrGexGripTrim[1][3], VrGexGripTrim[1][4], VrGexGripTrim[1][5]);
+    fprintf(f, "; A scope's lens, set with Gun fit holding the gun (X switches to its scope):\n");
+    fprintf(f, "; cm right, up and back from the eyepiece, then cm wider. GexScope* for\n");
+    fprintf(f, "; GoldenEye X's models.\n");
+    for (int m = 0; m < 2; m++) {
+        for (int s = 0; s < GEVR_SCOPE_FITS; s++) {
+            const float *t = VrScopeFit[m][s];
+            fprintf(f, "%sScope%s=%.2f %.2f %.2f %.2f\n", m ? "Gex" : "", kScopeFitNames[s], t[0], t[1], t[2], t[3]);
+        }
+    }
     fprintf(f, "\n");
     fprintf(f, "; 0..1. How tightly the elbows are pulled in toward your body. 0 leaves them at the\n");
     fprintf(f, "; animation's rest pose (they splay outward), 1 pins them hard against the torso.\n");
@@ -208,13 +228,37 @@ extern "C" void vrSettingsLoad(void)
                 ? (int)choice : GEVR_WATCH_FACE_ON;
             continue;
         }
-        if (strncmp(line, "GripPistol=", 11) == 0 || strncmp(line, "GripRifle=", 10) == 0) {
-            const int cls = line[4] == 'P' ? 0 : 1;
+        // Gun fit: Gex* are GoldenEye X's models' own
+        const bool gexFit = strncmp(line, "Gex", 3) == 0;
+        const char *fit = gexFit ? line + 3 : line;
+        if (strncmp(fit, "GripPistol=", 11) == 0 || strncmp(fit, "GripRifle=", 10) == 0) {
+            const int cls = fit[4] == 'P' ? 0 : 1;
             float t[6];
-            if (sscanf(strchr(line, '=') + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 6) {
-                for (int i = 0; i < 6; i++) VrGripTrim[cls][i] = t[i];
+            if (sscanf(strchr(fit, '=') + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 6) {
+                for (int i = 0; i < 6; i++) (gexFit ? VrGexGripTrim : VrGripTrim)[cls][i] = t[i];
             }
             continue;
+        }
+        if (strncmp(line, "GexGunOff=", 10) == 0) {
+            float t[3];
+            if (sscanf(line + 10, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
+                for (int i = 0; i < 3; i++) VrGexGunOff[i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(fit, "Scope", 5) == 0) {
+            int s = 0;
+            while (s < GEVR_SCOPE_FITS && !(strncmp(fit + 5, kScopeFitNames[s], strlen(kScopeFitNames[s])) == 0
+                                            && fit[5 + strlen(kScopeFitNames[s])] == '=')) {
+                s++;
+            }
+            if (s < GEVR_SCOPE_FITS) {
+                float t[4];
+                if (sscanf(strchr(fit, '=') + 1, "%f %f %f %f", &t[0], &t[1], &t[2], &t[3]) == 4) {
+                    for (int i = 0; i < 4; i++) VrScopeFit[gexFit ? 1 : 0][s][i] = t[i];
+                }
+                continue;
+            }
         }
         if (strncmp(line, "Cheats=", 7) == 0) {        // hex bitmask of CHEAT_IDS
             VrCheatMask = strtoull(line + 7, NULL, 16);

@@ -1058,8 +1058,27 @@ int getCurrentWeaponOrItem(void)
 extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
 extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
 
-/* the hand whose model is GoldenEye X's (gevrGexGunPrepare), for gunfire.c */
-s32 g_gevrGexHand[2];
+/* each player's hands whose model is GoldenEye X's (gevrGexGunPrepare) */
+static s32 s_gevrGexHand[MAX_PLAYER_COUNT][2];
+
+static void gevrGexHandSet(GUNHAND hand, s32 on)
+{
+    s32 p = get_cur_playernum();
+
+    if (p >= 0 && p < MAX_PLAYER_COUNT && (hand == GUNRIGHT || hand == GUNLEFT))
+    {
+        s_gevrGexHand[p][hand] = on;
+    }
+}
+
+/* the current player's hand holds a GoldenEye X model: gunfire.c poses it,
+ * bondview2.c and input.c give it its own gun fit */
+s32 gevrGexHeld(s32 hand)
+{
+    s32 p = get_cur_playernum();
+
+    return p >= 0 && p < MAX_PLAYER_COUNT && (hand == GUNRIGHT || hand == GUNLEFT) && s_gevrGexHand[p][hand];
+}
 
 /*
  * GoldenEye X's first-person model for this gun, read from the player's
@@ -1112,7 +1131,6 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     s32 i;
     const s32 n = hdr->numSwitches;
 
-    g_gevrGexHand[hand] = FALSE;
     if (!VrGexGuns || item != ITEM_AK47 || n + GEVR_GEX_SW_ADDED > 64)
     {
         return;
@@ -1128,7 +1146,7 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     parts[n] = 42;
     parts[n + 1] = 40;
     gevrGexPendingFile = gevrGexBuildModel("Gak47Z", n + GEVR_GEX_SW_ADDED, parts, s_gevrGexKf7Textures, &len, &mtx, &tex);
-    g_gevrGexHand[hand] = gevrGexPendingFile != NULL;
+    gevrGexHandSet(hand, gevrGexPendingFile != NULL);
     if (gevrGexPendingFile != NULL)
     {
         gevrGexPendingLen = len;
@@ -1270,6 +1288,9 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
         if ((g_CurrentPlayer->hand_invisible[hand] < -2) || (g_CurrentPlayer->hand_item[hand] == ITEM_UNARMED))
         {
             item             = g_CurrentPlayer->field_2A44[hand];
+#ifdef GEVR
+            gevrGexHandSet(hand, FALSE);   /* until gevrGexGunPrepare says otherwise */
+#endif
             ptr_item_text    = (s8 *)get_ptr_item_text_call_line(item);
             ptr_weapon_model = get_ptr_weapon_model_header_line(item);
 

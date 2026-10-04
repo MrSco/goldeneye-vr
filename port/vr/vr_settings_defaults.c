@@ -135,6 +135,15 @@ float VrGripTrim[2][6] = {
     { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },   /* handguns: under the gun hand */
     { 0.02f, -4.72f, 5.23f, 90.1f, 0.0f, 83.1f },    /* long guns: underhand below the fore-end */
 };
+/* GoldenEye X's models (launcher MODS) sit differently in the hand, so Gun
+ * fit keeps theirs apart (user); they start from GoldenEye's. */
+float VrGexGunOff[3] = { 2.74f, 1.94f, -12.35f };
+float VrGexGripTrim[2][6] = {
+    { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },
+    { 0.02f, -4.72f, 5.23f, 90.1f, 0.0f, 83.1f },
+};
+/* Gun fit's scope trims (port/include/gevr_scope.h), none to start */
+float VrScopeFit[2][4][4];
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
 float VrArmBodyFollow = 0.0f;  /* how fast the smoothed torso yaw chases the head */
 int   VrFistClench    = 0;     /* close the off hand while the left grip is squeezed */

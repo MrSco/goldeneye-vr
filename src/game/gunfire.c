@@ -1256,10 +1256,10 @@ void gunUpdateAndFire(GUNHAND handnum)
 #ifdef GEVR
         {
             /* a GoldenEye X model: every joint from its parent (gun.c) */
-            extern s32 g_gevrGexHand[2];
+            extern s32 gevrGexHeld(s32 hand);
             extern void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx);
 
-            if (g_gevrGexHand[handnum])
+            if (gevrGexHeld(handnum))
             {
                 gevrGexPoseGun(mdlhdr, model, rwmtx);
             }

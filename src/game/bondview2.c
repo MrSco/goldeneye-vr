@@ -246,6 +246,8 @@ extern int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);
 extern unsigned gevrVrGripSnapshotId(void);
 extern int gevrVrGripTracked(int hand);
 extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* goldeneye-vr.ini grip trim, cm */
+extern float VrGexGunOff[3];        /* the same for GoldenEye X's models (GexGunOff) */
+extern s32 gevrGexHeld(s32 hand);   /* gun.c: the hand's gun is a GoldenEye X model */
 extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;   /* launcher Comfort: being hit in stereo (#95) */
 
 s32 g_gevrStereo;                       /* this frame is drawn in stereo (fr.c, input.c) */
@@ -1453,6 +1455,27 @@ static f32 gevrGunSizeFactor(void)
     return netGunSizeFactor(netIsActive() ? netActiveGunSize() : VrGunSizeCheat);
 }
 
+/*
+ * The gun's fit in the hand (Gun fit), cm right, up and back: GoldenEye's,
+ * or for a GoldenEye X model its own, since those sit differently in the
+ * hand (user): fitting one leaves the other.
+ */
+static void gevrGunOff(s32 hand, f32 off[3])
+{
+    if (gevrGexHeld(hand))
+    {
+        off[0] = VrGexGunOff[0];
+        off[1] = VrGexGunOff[1];
+        off[2] = VrGexGunOff[2];
+    }
+    else
+    {
+        off[0] = VrGunOffX;
+        off[1] = VrGunOffY;
+        off[2] = VrGunOffZ;
+    }
+}
+
 s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
 {
     f32 pos[3], right[3], up[3], back[3];
@@ -1461,6 +1484,7 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
     f32 k = GEVR_VIEWMODEL_CM * cm * size;   /* 0.17 view units on the Dam at normal size */
     s32 ctrl = handnum == GUNRIGHT ? 1 : 0;
     s32 i;
+    f32 off[3];
 
     if (!g_gevrStereo || (handnum != GUNRIGHT && handnum != GUNLEFT))
     {
@@ -1491,14 +1515,15 @@ s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)
      * face culling to match (VR_CULL_MIRROR, gevrStereoMirrored), and the
      * sideways trim mirrors with it.
      */
+    gevrGunOff(handnum, off);
     for (i = 0; i < 3; i++)
     {
         out->m[0][i] = (VrLeftHandedMode ? right[i] : -right[i]) * k;   /* model +X: the gun's left */
         out->m[1][i] = up[i] * k;
         out->m[2][i] = -back[i] * k;    /* model +Z: along the barrel */
         /* fist on the controller, then the ini trim, in the gun's own right/up/back */
-        out->m[3][i] = pos[i] + ((VrLeftHandedMode ? -VrGunOffX : VrGunOffX) * right[i] + VrGunOffY * up[i]
-                                 + (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * back[i]) * cm * size;
+        out->m[3][i] = pos[i] + ((VrLeftHandedMode ? -off[0] : off[0]) * right[i] + off[1] * up[i]
+                                 + (GEVR_GRIP_TO_ORIGIN_CM + off[2]) * back[i]) * cm * size;
     }
     out->m[0][3] = out->m[1][3] = out->m[2][3] = 0.0f;
     out->m[3][3] = 1.0f;
@@ -3214,11 +3239,13 @@ void gevrGrenadeCookHapticTick(s32 hand, s32 cook_tick)
  * side, up and forward; degrees about the model's X, Y and Z (Z is along the
  * barrel). It is a setting (VrGripTrim, goldeneye-vr.ini GripPistol and
  * GripRifle), set in game with the launcher's Gun fit while holding with both
- * hands (port/src/input.c; user). files/gevr_twohand.txt "class dx dy dz rx
+ * hands (port/src/input.c; user); GoldenEye X's models keep their own
+ * (GexGripPistol, GexGripRifle). files/gevr_twohand.txt "class dx dy dz rx
  * ry rz" (a line each) overrides it too, re-read every couple of seconds.
  */
-extern float VrGripTrim[2][6];   /* vr_settings_defaults.c */
-#define s_gevrTwoHandTrim VrGripTrim
+extern float VrGripTrim[2][6];      /* vr_settings_defaults.c */
+extern float VrGexGripTrim[2][6];
+#define s_gevrTwoHandTrim (gevrGexHeld(GUNRIGHT) ? VrGexGripTrim : VrGripTrim)
 
 /* the trim's class for the gun in hand: 0 handgun, 1 long gun */
 s32 gevrStereoTwoHandClass(void)
@@ -3968,6 +3995,11 @@ static const struct GevrScope s_gevrScopes[] = {
     { ITEM_M16,          0.5f, 140.0f,   -5.0f, 16.0f, TRUE },
 };
 
+/* Gun fit's scope trims (VrScopeFit) follow the table's order */
+typedef char gevrScopeFitsMatchTheTable[(sizeof(s_gevrScopes) / sizeof(s_gevrScopes[0]) == GEVR_SCOPE_FITS) ? 1 : -1];
+
+extern int gevrScopeFitting;   /* port/src/input.c: Gun fit is moving the gun hand's scope */
+
 /* the held gun's scope, if it has one */
 static const struct GevrScope *gevrScopeFor(s32 item)
 {
@@ -3984,6 +4016,19 @@ static const struct GevrScope *gevrScopeFor(s32 item)
 }
 
 /* the scope's zoom, degrees: the sniper's own, the laser's, a rifle's aim zoom */
+/* Gun fit (port/src/input.c): the gun hand's scope, its place in VrScopeFit, or -1 */
+s32 gevrScopeFitIndex(void)
+{
+    const struct GevrScope *sc;
+
+    if (g_CurrentPlayer == NULL)
+    {
+        return -1;
+    }
+    sc = gevrScopeFor(getCurrentPlayerWeaponId(GUNRIGHT));
+    return sc != NULL ? (s32) (sc - s_gevrScopes) : -1;
+}
+
 static f32 gevrScopeZoom(s32 item)
 {
     f32 zoom;
@@ -4112,8 +4157,9 @@ static void gevrScopeTune(void)
     fclose(f);
 }
 
-/* the lens on the eyepiece, from the hand's grip (vr_openxr.cpp places it) */
-static void gevrScopeLensPlace(const struct GevrScope *sc, f32 lens[4])
+/* the lens on the eyepiece, from the hand's grip (vr_openxr.cpp places it),
+ * moved and sized by Gun fit's scope trim (user) */
+static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4])
 {
     f32 size = gevrGunSizeFactor();
     f32 unit = GEVR_VIEWMODEL_CM * 0.1f / 100.0f * size;   /* metres a model unit */
@@ -4122,13 +4168,20 @@ static void gevrScopeLensPlace(const struct GevrScope *sc, f32 lens[4])
     f32 ey = sc->y;
     f32 ez = sc->z;
     f32 er = sc->r;
+    const f32 *fit = VrScopeFit[gevrGexHeld(hand) ? 1 : 0][sc - s_gevrScopes];
+    f32 off[3];
 
-    lens[0] = (VrLeftHandedMode ? -VrGunOffX : VrGunOffX) * size / 100.0f
+    gevrGunOff(hand, off);
+    lens[0] = (VrLeftHandedMode ? -(off[0] + fit[0]) : off[0] + fit[0]) * size / 100.0f
             - left * ex * unit + s_gevrScopeTrim[0];
-    lens[1] = VrGunOffY * size / 100.0f + ey * unit + s_gevrScopeTrim[1];
-    lens[2] = (GEVR_GRIP_TO_ORIGIN_CM + VrGunOffZ) * size / 100.0f
+    lens[1] = (off[1] + fit[1]) * size / 100.0f + ey * unit + s_gevrScopeTrim[1];
+    lens[2] = (GEVR_GRIP_TO_ORIGIN_CM + off[2] + fit[2]) * size / 100.0f
             - ez * unit + s_gevrScopeTrim[2];
-    lens[3] = 2.0f * er * unit * GEVR_SCOPE_LENS_SCALE + s_gevrScopeTrim[3];
+    lens[3] = 2.0f * er * unit * GEVR_SCOPE_LENS_SCALE + fit[3] * size / 100.0f + s_gevrScopeTrim[3];
+    if (lens[3] < 0.005f)
+    {
+        lens[3] = 0.005f;
+    }
 }
 
 /*
@@ -4163,7 +4216,7 @@ static s32 gevrScopeBeginHand(s32 hand)
         && vu > 1e-6f && gevrGripAxes(ctrl, pos, right, up, back) && gevrStereoShot(hand, NULL, &o, &d))
     {
         gevrScopeTune();
-        gevrScopeLensPlace(sc, st->lens);
+        gevrScopeLensPlace(hand, sc, st->lens);
         on = TRUE;
         {
             /* the lens from the head (camera space's origin), metres */
@@ -4176,7 +4229,8 @@ static s32 gevrScopeBeginHand(s32 hand)
             eye = sqrtf(l[0] * l[0] + l[1] * l[1] + l[2] * l[2]);
             s_gevrScopeEyeNear[hand] = (eye < 0.35f);
         }
-        if (sc->nearOnly)
+        /* a sight magnifier shows while Gun fit moves it, wherever the eye is */
+        if (sc->nearOnly && !(hand == GUNRIGHT && gevrScopeFitting))
         {
             if (eye < GEVR_SCOPE_NEAR_SHOW_M || (s_near[hand] && eye < GEVR_SCOPE_NEAR_HIDE_M))
             {
@@ -14294,11 +14348,26 @@ static Gfx *gevrDrawSpectatorLabel(Gfx *gdl)
     return combiner_bayer_lod_perspective(gdl);
 }
 
+/* an item's name from the watch, its first line, for the fit readouts */
+static void gevrItemLabel(s32 item, char *label, s32 size)
+{
+    const char *name = (const char *) get_ptr_short_watch_text_for_item(item);
+    s32 n = 0;
+
+    while (name != NULL && name[n] != 0 && name[n] != '\n' && n < size - 1)
+    {
+        label[n] = name[n];
+        n++;
+    }
+    label[n] = 0;
+}
+
 static Gfx *gevrDrawGunFit(Gfx *gdl)
 {
-    char buf[256];
+    char buf[320];
     s32 x, y, w = 0, h = 0;
     extern bool netIsActive(void);
+    const char *gex = gevrGexHeld(GUNRIGHT) ? " (GOLDENEYE X)" : "";
 
     if (!gevrGunFitActive || !g_gevrStereo || (!netIsActive() && getPlayerCount() != 1))
     {
@@ -14311,36 +14380,43 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     else if (gevrGadgetFitItem() >= 0)
     {
         s32 item = gevrGadgetFitItem();
-        const char *name = (const char *) get_ptr_short_watch_text_for_item(item);
         char label[32];
         f32 ofs[3], rot[3], scale;
-        s32 n = 0;
 
-        while (name != NULL && name[n] != 0 && name[n] != '\n' && n < (s32) sizeof(label) - 1)
-        {
-            label[n] = name[n];
-            n++;
-        }
-        label[n] = 0;
+        gevrItemLabel(item, label, sizeof(label));
         gevrGadgetFitPose(item, ofs, rot, &scale);
         snprintf(buf, sizeof(buf),
                  "GADGET FIT: %s (%d)\nFORWARD %.1f  LEFT %.1f  UP %.1f CM\nTURN X %.0f  Y %.0f  Z %.0f   SIZE %.2f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\nHOLD RIGHT GRIP: STICKS TURN IT\nA: SAVE   B: UNDO   MENU + A: DONE",
                  label, item, ofs[2], ofs[0], ofs[1], rot[0], rot[1], rot[2], scale);
     }
+    else if (gevrScopeFitting && gevrScopeFitIndex() >= 0)
+    {
+        /* the gun's scope (X switches to it, input.c) */
+        const f32 *s = VrScopeFit[gevrGexHeld(GUNRIGHT) ? 1 : 0][gevrScopeFitIndex()];
+        char label[32];
+
+        gevrItemLabel(getCurrentPlayerWeaponId(GUNRIGHT), label, sizeof(label));
+        snprintf(buf, sizeof(buf),
+                 "SCOPE FIT: %s%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nWIDER %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\nX: FIT THE GUN\nA: SAVE   B: UNDO   MENU + A: DONE",
+                 label, gex, -s[2], s[0], s[1], s[3]);
+    }
     else if (gevrStereoTwoHandGrip())
     {
         /* holding with both hands: the sticks move the holding hand (input.c) */
-        const float *t = VrGripTrim[gevrStereoTwoHandClass()];
+        const float *t = s_gevrTwoHandTrim[gevrStereoTwoHandClass()];
 
         snprintf(buf, sizeof(buf),
-                 "GRIP FIT (%s)\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nA: SAVE   B: UNDO   MENU + A: DONE",
-                 gevrStereoTwoHandClass() ? "RIFLE" : "PISTOL", t[2], -t[0], t[1], t[3], t[5]);
+                 "GRIP FIT (%s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nA: SAVE   B: UNDO   MENU + A: DONE",
+                 gevrStereoTwoHandClass() ? "RIFLE" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
     }
     else
     {
+        f32 off[3];
+
+        gevrGunOff(GUNRIGHT, off);
         snprintf(buf, sizeof(buf),
-                 "GUN FIT\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\nA: SAVE   B: UNDO   MENU + A: DONE",
-                 -VrGunOffZ, VrGunOffX, VrGunOffY);
+                 "GUN FIT%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -off[2], off[0], off[1], gevrScopeFitIndex() >= 0 ? "X: FIT THE SCOPE\n" : "");
     }
 
     gdl = microcode_constructor(gdl);
