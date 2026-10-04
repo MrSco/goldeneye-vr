@@ -387,6 +387,7 @@ static bool s_decalZ;
  *   1  polygon offset a,b
  *   2  offset -2,-2 plus a fixed pull of a view units toward the eye
  *   3  the two-pass stencil band (HANDOFF 57/60), half-width a view units
+ *   4  room decal colour pull of a view units (0 = the decal's own depth)
  */
 static bool s_isDecal;
 static int s_decalMode = 0;
@@ -475,6 +476,68 @@ static void gevr_zdebug_apply(struct ShaderProgram* prg, bool world)
  */
 bool gevrRoomDl;
 
+static bool s_alphaArgs[2];
+/*
+ * Frigate's walls: an opaque room decal writes depth. The RDP's decal modes
+ * don't, and where the wall's base mesh has an opening under the decal the
+ * depth there stays far, so props and rooms drawn after it (behind the wall)
+ * painted over the decal - a hole that came and went as the room order
+ * changed. Not for blended decals or cutouts, whose clear pixels would hide
+ * what is behind.
+ */
+static bool gevr_decal_writes_depth(void)
+{
+    return s_isDecal && gevrRoomDl && !s_alphaArgs[0];
+}
+
+/* Room decals sit a little off their walls. A global polygon offset strong
+ * enough to hold Frigate's recessed fixtures makes the hull number ("06")
+ * flicker; a pull applied in draw_triangles only (mode 2) is missing on the
+ * 90 Hz redraw, so every surface fights. Small room decals get a 1-unit pull
+ * in the draw itself (eye pass and redraw). Large ones (hull numbers) get
+ * depth write only — pulling them fights the hull at 72 Hz. Mode 4 sets the
+ * pull to a for every room decal (0 to turn it off).
+ */
+static float s_drawDecalPull;
+static unsigned s_rdDraws, s_rdPulled, s_rdLarge, s_rdLogN;
+static float s_rdMaxSpan;
+
+static float gevr_vbo_span(const float* vbo, size_t ntris, size_t nfloats)
+{
+    if (vbo == NULL || ntris == 0 || nfloats < 3) return 0.0f;
+    const size_t n = ntris * 3;
+    float mn[3] = { vbo[0], vbo[1], vbo[2] };
+    float mx[3] = { mn[0], mn[1], mn[2] };
+    for (size_t i = 1; i < n; i++) {
+        const float* p = vbo + i * nfloats;
+        for (int k = 0; k < 3; k++) {
+            if (p[k] < mn[k]) mn[k] = p[k];
+            if (p[k] > mx[k]) mx[k] = p[k];
+        }
+    }
+    const float dx = mx[0] - mn[0], dy = mx[1] - mn[1], dz = mx[2] - mn[2];
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+static float gevr_room_decal_pull_for_span(float span)
+{
+    if (s_decalMode == 4) return s_decalA;
+    return (span > 64.0f) ? 0.0f : 1.0f;
+}
+
+static void gevr_room_decal_log(float span, float pull)
+{
+    s_rdDraws++;
+    if (pull > 0.0f) s_rdPulled++;
+    else if (span > 64.0f) s_rdLarge++;
+    if (span > s_rdMaxSpan) s_rdMaxSpan = span;
+    if ((++s_rdLogN % 240) != 0) return;
+    sysLogPrintf(LOG_NOTE, "roomdecal: draws %u band %u large %u maxspan %.1f",
+                 s_rdDraws, s_rdPulled, s_rdLarge, s_rdMaxSpan);
+    s_rdDraws = s_rdPulled = s_rdLarge = 0;
+    s_rdMaxSpan = 0.0f;
+}
+
 static uint32_t frame_count;
 /* performance pass: the per-draw uniform cache (draw_triangles) */
 /*
@@ -550,12 +613,11 @@ static struct ShaderProgram* s_curPrg;
 static bool s_depthArgs[4];
 static uint16_t s_depthZmode;
 static bool s_opaqueDepthWrite;
-static bool s_alphaArgs[2];
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
 static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode);
-static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool lineMode);
+static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode);
 static void gevr_opaque_depth_after_blend(GLint first, GLsizei count);
 
 static std::vector<Framebuffer> framebuffers;
@@ -1852,6 +1914,8 @@ struct GevrScopeDraw {
     bool depth[4];
     uint16_t zmode;
     bool alpha[2];
+    bool decalDepth;
+    float decalPull;
     uint8_t mask;   // which scopes see it: bit (1 << hand)
 };
 
@@ -1962,6 +2026,8 @@ static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_le
     d.zmode = s_depthZmode;
     d.alpha[0] = s_alphaArgs[0];
     d.alpha[1] = s_alphaArgs[1];
+    d.decalDepth = gevr_decal_writes_depth();
+    d.decalPull = s_drawDecalPull;
     s_scopeDraws.push_back(d);
 }
 
@@ -2109,7 +2175,7 @@ void gfx_vr_scope_render(void)
             if (last == NULL || d.alpha[0] != last->alpha[0] || d.alpha[1] != last->alpha[1]) {
                 gfx_opengl_set_use_alpha(d.alpha[0], d.alpha[1]);
             }
-            gevr_issue_draw(d.first, d.count, false, d.lineMode);
+            gevr_issue_draw(d.first, d.count, false, d.decalDepth, d.decalPull, d.lineMode);
             last = &d;
         }
         s_scopeDrawn[hand] = true;
@@ -2242,6 +2308,12 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     } else {
         glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     }
+    s_drawDecalPull = 0.0f;
+    if (gevrRoomDl && s_isDecal && s_curPrg != NULL) {
+        const float span = gevr_vbo_span(buf_vbo, buf_vbo_num_tris, s_curPrg->num_floats);
+        gevr_room_decal_log(span, 80.0f);
+    }
+
     if (s_scopeRec || s_scopeOnlyMask) {
         gevr_scope_keep(first, buf_vbo, buf_vbo_len, buf_vbo_num_tris);   // issue #40
         if (s_scopeOnlyMask) {
@@ -2321,7 +2393,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     }
     s_uniCacheValid = use_multiview;   /* without multiview the eye uniforms are never cached */
 
-    gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ && !gevrRoomDl, lineMode);
+    gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ, gevrRoomDl && s_isDecal, 0.0f, lineMode);
 }
 
 /* the draw itself, with the decal band (the eye pass, and its redraw: issue #53) */
@@ -2356,7 +2428,7 @@ static void gevr_draw_world_lines(GLint first, GLsizei count) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,(GLuint)oldElements);
 }
 
-static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool lineMode)
+static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode)
 {
     if (lineMode) { gevr_draw_world_lines(first,count); return; }
     if (decalZ) {
@@ -2383,7 +2455,16 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool lineMo
          * polygon-offset slopes tiny - decals were cut along a diagonal as
          * you walked up to them. The N64's own decal test had coarse depth.
          */
-        const float bandD = (s_decalMode == 3 && s_decalA > 0.0f) ? s_decalA : 3.0f;   // view units either side (x0.3 by the depth-clamp hack: ~4.5 cm at the Dam's scale)
+        /* Rooms use a wide band so a fixture over an alcove still draws
+         * (Frigate's recessed box). Bullet holes stay at 3 so they clip at
+         * an edge. The colour pass of a room decal does not use that pull:
+         * the hull "06" is a white face (opaque, writes depth) with a black
+         * shadow decal, and an 80-unit pull drew the shadow in front of the
+         * face. Mode 4 sets the room colour pull in view units (0 = real
+         * depth). Mode 3 sets the bullet-hole band. */
+        const float bandD = decalDepth ? 80.0f
+            : ((s_decalMode == 3 && s_decalA > 0.0f) ? s_decalA : 3.0f);
+        const float colorPull = (decalDepth && s_decalMode == 4) ? s_decalA : 0.0f;
         GLboolean prevDepthMask = current_depth_mask ? GL_TRUE : GL_FALSE;
         glEnable(GL_STENCIL_TEST);
         glStencilMask(0xff);
@@ -2397,19 +2478,43 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool lineMo
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
         glDrawArrays(GL_TRIANGLES, first, count);
 
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glDepthMask(prevDepthMask);
         glDepthFunc(GL_LEQUAL);
-        glPolygonOffset(-2.0f, -2.0f);
         gevr_set_decal_bias(gfx_decal_proj_z * bandD);   // pulled near
         glStencilFunc(GL_EQUAL, 1, 0xff);
-        glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
-        glDrawArrays(GL_TRIANGLES, first, count);
+        if (decalDepth) {
+            /* Drop marks that hang in front of empty space. No colour yet. */
+            glStencilOp(GL_KEEP, GL_ZERO, GL_KEEP);
+            glDrawArrays(GL_TRIANGLES, first, count);
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glDepthMask(prevDepthMask);
+            glPolygonOffset(-2.0f, -2.0f);
+            gevr_set_decal_bias(gfx_decal_proj_z * colorPull);
+            glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
+            glDrawArrays(GL_TRIANGLES, first, count);
+        } else {
+            glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+            glDepthMask(prevDepthMask);
+            glPolygonOffset(-2.0f, -2.0f);
+            glStencilOp(GL_KEEP, GL_ZERO, GL_ZERO);
+            glDrawArrays(GL_TRIANGLES, first, count);
+        }
 
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
         glDisable(GL_STENCIL_TEST);
         gevr_set_decal_bias(0.0f);
         s_uniCacheValid = false;   /* the band wrote the bias */
+        return;
+    }
+
+    if (decalDepth) {
+        if (decalPull != 0.0f) gevr_set_decal_bias(gfx_decal_proj_z * decalPull);
+        if (!current_depth_mask) glDepthMask(GL_TRUE);
+        glDrawArrays(GL_TRIANGLES, first, count);
+        if (!current_depth_mask) glDepthMask(GL_FALSE);
+        if (decalPull != 0.0f) {
+            gevr_set_decal_bias(0.0f);
+            s_uniCacheValid = false;
+        }
         return;
     }
 
@@ -2468,6 +2573,8 @@ struct GevrEyeDraw {
     uint16_t zmode;
     bool alpha[2];
     bool decalZ;
+    bool decalDepth;
+    float decalPull;
     bool isMenu;
     int8_t hand;       // the controller it follows (gunfire.c gevrHandTag), or -1: the world
     GLint viewport[4];
@@ -2530,7 +2637,9 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     d.zmode = s_depthZmode;
     d.alpha[0] = s_alphaArgs[0];
     d.alpha[1] = s_alphaArgs[1];
-    d.decalZ = s_decalZ && !gevrRoomDl;   // a room's decals take plain offset (issue #72)
+    d.decalZ = s_decalZ;   // rooms use the wide stencil band (Frigate crop / 06 flicker)
+    d.decalDepth = gevrRoomDl && s_isDecal;
+    d.decalPull = 0.0f;
     d.isMenu = vr_dl_is_pause_or_menu;
     d.hand = (int8_t)s_eyeHand;
     memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
@@ -2662,7 +2771,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         if (last == NULL || memcmp(d.scissor, last->scissor, sizeof(d.scissor)) != 0) {
             glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
         }
-        gevr_issue_draw(d.first, d.count, d.decalZ, d.lineMode);
+        gevr_issue_draw(d.first, d.count, d.decalZ, d.decalDepth, d.decalPull, d.lineMode);
         last = &d;
     }
 
