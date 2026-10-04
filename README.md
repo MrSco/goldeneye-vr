@@ -166,8 +166,12 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Right grip** | Aim / zoom, and shows the 3D sight. Steadies a gun with a scope |
 | **Left grip** | Dual-wielding: shows the left gun's sight (blue) |
 | **Left hand on the gun** + **left grip** | Hold it with both hands |
+| **Hand at its own hip** + **grip** | Holster what that hand holds; squeeze there again to draw it |
+| **Hand at a door, switch or console** + **grip** | Use it, as B does |
+| **Hand at a gun on the floor** + **grip** | Pick it up into that hand |
+| **Hand at your own stuck mine** + **grip** | Take it back (remote mines, and proximity mines still arming; single player) |
 | **Left stick** | Walk and strafe |
-| **Right stick** | Turn: smooth or snap, set in the launcher |
+| **Right stick** | Turn: smooth (with its speed) or snap, set in the launcher |
 | **Left stick click** | Crouch (toggle) |
 | **Left stick up/down** (aiming the sniper rifle) | Zoom the scope (the stick doesn't strafe then) |
 | **Swing either hand** at a guard | Melee: chop, punch, pistol-whip, stab or club |
@@ -176,7 +180,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Right grip** + **A** | Previous weapon |
 | **Hold A** | Weapon wheel above your gun hand: push the other stick toward a category (pistols top, rifles upper right, heavy lower right, gadgets lower left, thrown upper left), pull a trigger to step through the guns in it (gun hand forward, other hand back), let go of A to equip (dual-wield pairs included) |
 | **Hold X** | Left-hand wheel: a second gun for your left hand, any gun you carry that can be dual-wielded (not gadgets). Point with the right stick, step with the triggers, let go to equip. Solo missions, with such a gun in your right hand |
-| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it |
+| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload** on) |
 | **☰ Menu** (left controller) | Pause / Bond's watch |
 | **Hold ☰ Menu** (1.5 s) | Back to the launcher, to change settings or cheats (asks first: A yes, B no) |
 | **Raise left wrist to your face** | Open Bond's watch when **Watch gesture to pause** is enabled |
@@ -184,6 +188,20 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Hold right stick click** (1 s) | Switch to the virtual screen |
 
 Real-world movement works too: lean around corners, duck, and step. Ducking behind cover hides you from guards.
+
+**Gestures...** on the launcher's **Controls** tab turns each grip gesture on or off. Anywhere
+else the grip aims as before. It also holds two options that are off by default:
+- **Hand reload**: guns stop reloading themselves, and B/Y stop reloading. Pull an SMG's or
+  rifle's magazine down with your off hand, or sweep a pistol, shotgun or dual-wielded gun
+  across your chest.
+- **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
+
+**Game rules...** on the **Play** tab holds two changes to the original game, off by default
+and for single player only: mines stick to guards, and bodies stay (the newest 12, 24 or 48).
+
+**VR settings**, at the bottom of the watch's Game Options page, changes these settings
+mid-mission: turning, turn speed, the vignette, the watch face, aim steadying, aim: no lean,
+motion throwing, the gestures, hand reload and per-gun recoil.
 
 **Left-handed?** Tick **Left-handed** in the launcher. The gun goes in your left hand and the watch on your right wrist, and the sticks and face buttons swap sides. The **☰ Menu** button stays on the left controller: the right one is Meta's system button.
 To walk with the left stick anyway, tick **Swap sticks** as well.
