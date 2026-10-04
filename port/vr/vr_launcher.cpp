@@ -2315,6 +2315,7 @@ extern "C" void gevrLauncherRun(void)
     bool reportPage = false;
     bool reportCrash = false;
     bool cheatPage = false, modsPage = false, mpPage = false, hapticsPage = false, throwingPage = false;
+    bool gesturesPage = false, rulesPage = false;
     Uint32 lastReportPoll = 0;
     while (!start) {
         // SDL's native thread may reach the launcher before MainActivity has
@@ -2587,6 +2588,83 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::Button("Done", ImVec2(-1, 0))) {
                 throwingPage = false;
             }
+        } else if (gesturesPage) {
+            // GEVR PC's grip gestures (its CONTROLS.md, vr450..vr453), Perfect
+            // Dark VR's hand reload and per-weapon recoil; also on the watch's
+            // VR settings page (options.c).
+            auto toggle = [](const char *label, int *v, const char *tip) {
+                bool on = *v != 0;
+                if (ImGui::Checkbox(label, &on)) *v = on ? 1 : 0;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+            };
+            ImGui::TextColored(gold, "GRIP GESTURES (stereo)");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("Squeeze the grip with the hand in place. Anywhere else the grip aims as before.");
+            ImGui::PopStyleColor();
+            toggle("Hip holster (WIP)", &VrGestureHolster,
+                   "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.");
+            toggle("Grip use", &VrGestureGripUse,
+                   "The hand at a door, switch or console: use it, as B does.");
+            toggle("Grip to hand (WIP)", &VrGesturePickup,
+                   "The hand at a gun on the floor: that gun goes into that hand\n"
+                   "(picked up if the game would, else the one you carry).\n"
+                   "Walking over guns still picks them up. Off by default.");
+            toggle("Mine re-grab", &VrGestureMineGrab,
+                   "The hand at your own stuck remote mine, or a proximity mine\nstill arming: take it back. Single player and co-op host.");
+            toggle("Watch gesture to pause", &VrWatchGesturePause,
+                   "Raise your left wrist to your face to open Bond's watch.\nThe Menu button pauses either way.");
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "RELOAD & RECOIL (stereo)");
+            toggle("Hand reload (WIP)", &VrManualReloading,
+                   "No auto-reload, and B/Y no longer reload. Squeeze the off hand at the\n"
+                   "gun's magazine and pull down; or sweep a pistol, shotgun or a\n"
+                   "dual-wielded gun across your chest.");
+            toggle("Per-gun recoil", &VrPerWeaponRecoil,
+                   "Each gun kicks with its own recoil (Perfect Dark VR's table)\ninstead of one kick for all.");
+            ImGui::Spacing();
+            ImGui::Separator();
+            if (ImGui::Button("Defaults")) {
+                VrGestureHolster = VrGestureGripUse = VrGestureMineGrab = 1;
+                VrGesturePickup = 0;
+                VrManualReloading = 0;
+                VrWatchGesturePause = 1;
+                VrPerWeaponRecoil = 0;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                gesturesPage = false;
+            }
+        } else if (rulesPage) {
+            // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps
+            // the original game's rule. Single player.
+            ImGui::TextColored(gold, "GAME RULES (single player)");
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            ImGui::TextWrapped("These change the original game. Off keeps its rules.");
+            ImGui::PopStyleColor();
+            bool stick = VrMinesStickToGuards != 0;
+            if (ImGui::Checkbox("Mines stick to guards", &stick)) VrMinesStickToGuards = stick ? 1 : 0;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A thrown mine that hits a guard sticks to him and goes where he goes.");
+            ImGui::Spacing();
+            ImGui::TextUnformatted("Bodies stay");
+            ImGui::RadioButton("Off (fade)##bodies", &VrBodiesStay, 0);
+            ImGui::SameLine();
+            ImGui::RadioButton("12##bodies", &VrBodiesStay, 12);
+            ImGui::SameLine();
+            ImGui::RadioButton("24##bodies", &VrBodiesStay, 24);
+            ImGui::SameLine();
+            ImGui::RadioButton("48##bodies", &VrBodiesStay, 48);
+            ImGui::TextWrapped("The newest bodies stay on the floor; the oldest goes when a new guard needs its place.");
+            ImGui::Spacing();
+            ImGui::Separator();
+            if (ImGui::Button("Original rules")) {
+                VrMinesStickToGuards = 0;
+                VrBodiesStay = 0;
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                rulesPage = false;
+            }
         } else if (cheatPage) {
             // excl: a cheat ticking this one unticks (2x and 10x Health both
             // set the health ceiling; cheat.c applies only the first)
@@ -2684,6 +2762,10 @@ extern "C" void gevrLauncherRun(void)
             char label[48];
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
+            ImGui::SameLine();
+            const int rules = (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0);
+            snprintf(label, sizeof(label), rules ? "Game rules... (%d changed)" : "Game rules...", rules);
+            if (ImGui::Button(label)) rulesPage = true;
             ImGui::Spacing();
             ImGui::TextColored(gold, "DIAGNOSTICS & UPDATES");
             bool stats = VrShowStats != 0;
@@ -2724,6 +2806,10 @@ extern "C" void gevrLauncherRun(void)
                                       "the gun on your hand. With a gadget in hand they move, turn\n"
                                       "(hold the right grip) and size the gadget. A saves, B undoes.\n"
                                       "In single player, Menu + A starts and ends it during play.");
+                ImGui::SameLine();
+                if (ImGui::Button("Gestures...")) gesturesPage = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Grip gestures (holster, use, pickup, mine re-grab),\nhand reload and per-gun recoil.");
                 char throwLabel[64];
                 snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
                 if (ImGui::Button(throwLabel)) throwingPage = true;
@@ -2734,8 +2820,6 @@ extern "C" void gevrLauncherRun(void)
                 if (ImGui::Button("Haptics...")) hapticsPage = true;
                 ImGui::Spacing();
                 ImGui::TextColored(gold, "WATCH (stereo)");
-                bool gesture = VrWatchGesturePause != 0;
-                if (ImGui::Checkbox("Watch gesture to pause", &gesture)) VrWatchGesturePause = gesture ? 1 : 0;
                 ImGui::TextUnformatted("Watch face status");
                 ImGui::RadioButton("Off##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_OFF);
                 ImGui::SameLine();
@@ -2755,6 +2839,13 @@ extern "C" void gevrLauncherRun(void)
             ImGui::RadioButton("Snap 45", &turn, 2);
             ImGui::SameLine();
             ImGui::RadioButton("Snap 90", &turn, 3);
+            ImGui::BeginDisabled(turn != 0);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
+            if (ImGui::SliderInt("Turn speed", &VrSmoothTurnSpeed, SMOOTHTURN_MIN, SMOOTHTURN_MAX, "%d deg/s")) {
+                // steps of 15, as the watch's VR settings page steps it
+                VrSmoothTurnSpeed = (VrSmoothTurnSpeed + SMOOTHTURN_STEP / 2) / SMOOTHTURN_STEP * SMOOTHTURN_STEP;
+            }
+            ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::TextColored(gold, "MOVEMENT COMFORT (stereo)");
             ImGui::Checkbox("Darken edges when moving", &vignetteOn);

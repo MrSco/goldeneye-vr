@@ -2350,6 +2350,78 @@ void chrUpdateAnim(ChrRecord *chr, s32 tickamount)
  * - Drop held items
  * - Fire held weapons
  */
+#ifdef GEVR
+/*
+ * Mines stuck to a guard (propobj.c gevrMineSticksToGuard, objEmbed on his
+ * body part). An object's embedded children are placed on their node and
+ * ticked by the object's own tick (propobj.c sub_GAME_7F0442DC) and drawn
+ * after it (sub_GAME_7F04AC20); a guard only ever placed his guns and hat,
+ * so a mine on him was never drawn (user: they disappeared inside him), and
+ * a timed or remote one never ticked toward its blast. These do for his
+ * embedded children what the object code does for its own.
+ */
+extern void sub_GAME_7F0442DC(PropRecord *prop);
+extern void sub_GAME_7F04424C(PropRecord *prop);
+extern void sub_GAME_7F04AC20(PropRecord *prop, ModelRenderData *mrData, s32 arg2);
+
+static s32 gevrChrEmbeddedChild(ChrRecord *chr, PropRecord *child)
+{
+    ObjectRecord *obj;
+
+    if (child == chr->weapons_held[GUNRIGHT] || child == chr->weapons_held[GUNLEFT]
+        || child == chr->handle_positiondata_hat
+        || (child->type != PROP_TYPE_OBJ && child->type != PROP_TYPE_WEAPON))
+    {
+        return FALSE;
+    }
+    obj = child->obj;
+    return obj != NULL && obj->model != NULL && (obj->runtime_bitflags & RUNTIMEBITFLAG_EMBEDDED)
+        && obj->model->attachedto_objinst != NULL;
+}
+
+/* chrTick, once his matrices are this frame's (or, off screen, without them) */
+static void gevrChrEmbeddedTick(ChrRecord *chr, s32 onscreen)
+{
+    PropRecord *child;
+    PropRecord *prev;
+
+    for (child = chr->prop->child; child != NULL; child = prev)
+    {
+        prev = child->prev;
+        if (gevrChrEmbeddedChild(chr, child))
+        {
+            if (onscreen)
+            {
+                sub_GAME_7F0442DC(child);   /* frees a mine that has gone off */
+            }
+            else
+            {
+                sub_GAME_7F04424C(child);
+            }
+        }
+    }
+}
+
+/* chrRenderProp, after his body: drawn as objects are (chrobjRenderProp's PropType) */
+static Gfx *gevrChrEmbeddedRender(ChrRecord *chr, ModelRenderData *body, s32 fadealpha, s32 withalpha)
+{
+    ModelRenderData objdata;
+    PropRecord *child;
+
+    objdata = *body;
+    objdata.PropType = fadealpha < 0xFF ? 5 : 9;
+    objdata.envcolour.word = fadealpha < 0xFF ? (u32) fadealpha : 0;
+    for (child = chr->prop->child; child != NULL; child = child->prev)
+    {
+        if (gevrChrEmbeddedChild(chr, child))
+        {
+            sub_GAME_7F04AC20(child, &objdata, withalpha);   /* on screen only; converts at withalpha */
+        }
+    }
+    return objdata.gdl;
+}
+#endif
+
 s32 chrTick(PropRecord *prop)
 {
     ModelRenderData renderdata;
@@ -2842,9 +2914,15 @@ after_position_update:
 
         sub_GAME_7F06B29C(chr->field_20);
         chr->field_20 = sub_GAME_7F06BB28(chr->field_20);
+#ifdef GEVR
+        gevrChrEmbeddedTick(chr, TRUE);
+#endif
     }
     else
     {
+#ifdef GEVR
+        gevrChrEmbeddedTick(chr, FALSE);
+#endif
         if (chr->weapons_held[GUNRIGHT] != NULL)
         {
             chr->weapons_held[GUNRIGHT]->flags &= ~PROPFLAG_ONSCREEN;
@@ -3116,6 +3194,8 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
 
                 mrData.gdl = gevrHeldGunDraw(chr, &mrData, mrData.gdl, withalpha);
             }
+            /* mines stuck to him */
+            mrData.gdl = gevrChrEmbeddedRender(chr, &mrData, chrfadealpha, withalpha);
 #endif
 
             gdl = mrData.gdl;

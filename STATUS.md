@@ -16,6 +16,18 @@ launchers with their rocket (gevr_heldgun.c; ini DetailedGuns). Stage guns'
 HD textures decoded at load; MP death music fix. Release needs protocol 18
 (v0.4.5 rejects stages 22/41). Notes: docs/issue-95-round2.md.
 
+**Unreleased on main (#111, 2026-10-04):** upstream GEVR PC features. Watch
+Game Options ends in a VR settings page; smooth-turn speed slider; grip
+gestures on Controls > Gestures... (hip holster WIP, grip use, grip to hand
+WIP and off, mine re-grab); hand reload (WIP, off); Perfect Dark VR per-gun
+recoil (off; a two-handed hold leaves almost no kick and tightens the
+spread); Play > Game rules... (mines stick to guards, bodies stay 12/24/48,
+both off). Room decals draw one pass pulled by a reach of 3 x D_800364CC
+(v0.4.5's 80 drew the Dam bridge's shadows through it; bisected live with
+gevr_decal.txt mode 4) and are no longer cut in front (#72/#84). The watch
+pause sits on the room's virtual screen, not pinned to the view. Notes:
+docs/upstream-vr453-features.md.
+
 **v0.4.5:** optional Meta Quest passthrough behind the 2D virtual screen,
 saved in goldeneye-vr.ini and toggled in the SCREEN tab; Frigate hull "06"
 marking restored (white face over black drop shadow) and recessed fixtures
@@ -65,16 +77,6 @@ decal fixes (#72). v0.3.8 fixed crash reporting. v0.3.7 added clock/life-ID
 combat sync (protocol 15), hand cycling and the TURN fallback. Earlier
 evidence is in docs/playtest-* and Git history.
 
-**v0.4.2 pause/editor work (PR #102):** a shared opaque launcher-style
-Quest pause window, direct ray controls, Match/Rules/Player/Audio tabs,
-eight-player scores and independent votes, four-player co-op party/objectives,
-original health/armour arcs with live radar in the header, Start toggling,
-host restrictions and confirmed leave/end mission. The mobile
-Menu Studio starter matches that window; JSON exports guide native rearrangement.
-Signed local release builds and desktop/phone browser + production ImGui/input
-checks pass. The user accepted the pause layout; multiplayer headset testing
-remains outstanding. Protocol is unchanged; shipped in v0.4.2.
-
 ## What it is and what works
 
 Native standalone Quest port of n64decomp/007, with Perfect Dark VR's port
@@ -118,8 +120,15 @@ is goldeneyevr.com, in its own repository.
   targets room/portal visibility; no confirmed fix yet.
 - Laser/AR33 and other penetrating weapons keep the original game's object
   penetration rules.
-- Debug controls remain: files/gevr_zdebug.txt and cryptdoor logging; the
-  optional surface probe is disabled unless its marker is present.
+- Debug controls remain: files/gevr_zdebug.txt, gevr_decal.txt (mode 4 a:
+  room decal reach) and cryptdoor logging; the optional surface probe is
+  disabled unless its marker is present.
+- #111 WIP: hand reload, hip holster and grip to hand need refining; grip to
+  hand and the game rules are untested in real play / on two headsets. The
+  free-hand melee may compare the hand in view units with unscaled guard
+  boxes on the Dam and Surface (D_800364CC 0.2), as the grip gestures did.
+- GoldenEye X guns and reloads (port Dab's Mod's GE-X import): planned
+  2026-10-04, not started; the player's own patched ROM, nothing committed.
 - Use `git worktree list` for active checkouts. Unmerged: feature/xbla-hd,
   fix/30-water-sky.
 

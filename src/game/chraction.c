@@ -5304,11 +5304,115 @@ void chrlvTickSurrender(ChrRecord *self)
 
 
 
+#ifdef GEVR
+/*
+ * Bodies stay (launcher Play > Game rules..., VrBodiesStay; GEVR PC's
+ * CORPSEKEEP, vr441): in single player the newest 12, 24 or 48 bodies stay
+ * on the floor instead of fading once their death is over (the AI's RemoveMe,
+ * chrlvActorFadeAway). A dead guard already has no collision and takes no
+ * shots (chr.c), so a kept body is only drawn. Kept bodies count as gone for
+ * the AI's "does not exist" test (chrai.c), as the faded body would be: GEVR
+ * PC's kept bodies left Frigate's hostages waiting for their guards to go
+ * (its #78). They give way, fading as before, oldest first, past the count
+ * or whenever fewer than GEVR_BODY_SLOT_RESERVE guard slots are free, so a
+ * spawn (chrSpawnAtCoord wants 3) still finds room.
+ */
+extern int VrBodiesStay;
+extern bool netIsActive(void);
+#define GEVR_BODIES_MAX 48
+#define GEVR_BODY_SLOT_RESERVE 4
+static ChrRecord *s_gevrBodies[GEVR_BODIES_MAX];   /* kept, oldest first */
+static s32 s_gevrBodyCount;
+
+void gevrBodiesReset(void)
+{
+    s_gevrBodyCount = 0;
+}
+
+s32 gevrBodyKept(ChrRecord *chr)
+{
+    s32 i;
+
+    for (i = 0; i < s_gevrBodyCount; i++)
+    {
+        if (s_gevrBodies[i] == chr)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* the body at i fades as the game would have faded it */
+static void gevrBodyRelease(s32 i)
+{
+    ChrRecord *chr = s_gevrBodies[i];
+
+    s_gevrBodyCount--;
+    for (; i < s_gevrBodyCount; i++)
+    {
+        s_gevrBodies[i] = s_gevrBodies[i + 1];
+    }
+    if (chr->model != NULL && chr->actiontype == ACT_DEAD)
+    {
+        chr->act_init.padding[0] = 1;   /* chrlvTickDead's fade, begun: not taken again */
+    }
+}
+
+/* chrlvTickDead: TRUE while the body is kept */
+static s32 gevrBodyKeepTick(ChrRecord *self)
+{
+    s32 keep = VrBodiesStay > 0 && !netIsActive() && getPlayerCount() == 1;
+    s32 limit = VrBodiesStay > GEVR_BODIES_MAX ? GEVR_BODIES_MAX : VrBodiesStay;
+    s32 i;
+
+    /* forget any that are no longer dead bodies (a cutscene's removal) */
+    for (i = s_gevrBodyCount - 1; i >= 0; i--)
+    {
+        if (s_gevrBodies[i]->model == NULL || s_gevrBodies[i]->actiontype != ACT_DEAD
+            || (s_gevrBodies[i]->hidden & CHRHIDDEN_REMOVE))
+        {
+            gevrBodyRelease(i);
+        }
+    }
+    while (s_gevrBodyCount > 0 && (!keep || s_gevrBodyCount > limit || chrGetNumFree() < GEVR_BODY_SLOT_RESERVE))
+    {
+        gevrBodyRelease(0);
+    }
+    if (!keep)
+    {
+        return FALSE;
+    }
+    if (gevrBodyKept(self))
+    {
+        self->fadealpha = 0xFF;
+        return TRUE;
+    }
+    if (self->act_init.padding[0] > 0 || chrGetNumFree() < GEVR_BODY_SLOT_RESERVE)
+    {
+        return FALSE;   /* already fading */
+    }
+    if (s_gevrBodyCount >= limit)
+    {
+        gevrBodyRelease(0);
+    }
+    s_gevrBodies[s_gevrBodyCount++] = self;
+    self->fadealpha = 0xFF;
+    return TRUE;
+}
+#endif
+
 /**
  * Address 0x7F02B774.
 */
 void chrlvTickDead(ChrRecord *self)
 {
+#ifdef GEVR
+    if (gevrBodyKeepTick(self))
+    {
+        return;
+    }
+#endif
     if (self->act_init.padding[0] >= 0)
     {
         self->act_init.padding[0] += g_ClockTimer;

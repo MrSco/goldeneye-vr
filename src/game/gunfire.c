@@ -4144,9 +4144,17 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
                 if (get_ammo_in_hands_weapon(hand) > 0)
                 {
-                    handptr->weapon_action_state = GUN_ANIM_STATE_RELOAD_START;
-                    handptr->field_890 = 0;
-                    handptr->field_88C = 0;
+#ifdef GEVR
+                    /* hand reload (bondview2.c gevrHandReloadTick): the gesture reloads, not the empty magazine */
+                    extern s32 gevrManualReloadOn(s32 hand);
+
+                    if (!gevrManualReloadOn(hand))
+#endif
+                    {
+                        handptr->weapon_action_state = GUN_ANIM_STATE_RELOAD_START;
+                        handptr->field_890 = 0;
+                        handptr->field_88C = 0;
+                    }
                 }
                 else
                 {

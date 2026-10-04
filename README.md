@@ -166,8 +166,12 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Right grip** | Aim / zoom, and shows the 3D sight. Steadies a gun with a scope |
 | **Left grip** | Dual-wielding: shows the left gun's sight (blue) |
 | **Left hand on the gun** + **left grip** | Hold it with both hands |
+| **Hand at its own hip** + **grip** | Holster what that hand holds; squeeze there again to draw it (**Hip holster (WIP)**) |
+| **Hand at a door, switch or console** + **grip** | Use it, as B does |
+| **Hand at a gun on the floor** + **grip** | With **Grip to hand (WIP)** on (off by default): that gun goes into that hand. Walking over guns still picks them up |
+| **Hand at your own stuck mine** + **grip** | Take it back (remote mines, and proximity mines still arming; single player) |
 | **Left stick** | Walk and strafe |
-| **Right stick** | Turn: smooth or snap, set in the launcher |
+| **Right stick** | Turn: smooth (with its speed) or snap, set in the launcher |
 | **Left stick click** | Crouch (toggle) |
 | **Left stick up/down** (aiming the sniper rifle) | Zoom the scope (the stick doesn't strafe then) |
 | **Swing either hand** at a guard | Melee: chop, punch, pistol-whip, stab or club |
@@ -176,7 +180,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Right grip** + **A** | Previous weapon |
 | **Hold A** | Weapon wheel above your gun hand: push the other stick toward a category (pistols top, rifles upper right, heavy lower right, gadgets lower left, thrown upper left), pull a trigger to step through the guns in it (gun hand forward, other hand back), let go of A to equip (dual-wield pairs included) |
 | **Hold X** | Left-hand wheel: a second gun for your left hand, any gun you carry that can be dual-wielded (not gadgets). Point with the right stick, step with the triggers, let go to equip. Solo missions, with such a gun in your right hand |
-| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it |
+| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload (WIP)** on) |
 | **☰ Menu** (left controller) | Pause / Bond's watch |
 | **Hold ☰ Menu** (1.5 s) | Back to the launcher, to change settings or cheats (asks first: A yes, B no) |
 | **Raise left wrist to your face** | Open Bond's watch when **Watch gesture to pause** is enabled |
@@ -185,6 +189,21 @@ the same way as the first time. Your ROM and settings stay where they are.
 
 Real-world movement works too: lean around corners, duck, and step. Ducking behind cover hides you from guards.
 
+**Gestures...** on the launcher's **Controls** tab turns each grip gesture on or off, and holds
+**Watch gesture to pause**. Anywhere else the grip aims as before. It also holds two options
+that are off by default:
+- **Hand reload (WIP)**: guns stop reloading themselves, and B/Y stop reloading. Pull an SMG's or
+  rifle's magazine down with your off hand, or sweep a pistol, shotgun or dual-wielded gun
+  across your chest.
+- **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
+
+**Game rules...** on the **Play** tab holds two changes to the original game, off by default
+and for single player only: mines stick to guards, and bodies stay (the newest 12, 24 or 48).
+
+**VR settings**, at the bottom of the watch's Game Options page, changes these settings
+mid-mission: turning, turn speed, the vignette, the watch face, aim steadying, aim: no lean,
+motion throwing, the gestures, hand reload and per-gun recoil.
+
 **Left-handed?** Tick **Left-handed** in the launcher. The gun goes in your left hand and the watch on your right wrist, and the sticks and face buttons swap sides. The **☰ Menu** button stays on the left controller: the right one is Meta's system button.
 To walk with the left stick anyway, tick **Swap sticks** as well.
 
@@ -192,7 +211,7 @@ To walk with the left stick anyway, tick **Swap sticks** as well.
 displays, **On** (the default) shows both wrist and standard status, and **Only** shows
 wrist status during stereo gameplay. Holster the offhand to see the watch; its clock
 hands still show mission time. Pause-menu status stays visible in every setting,
-and virtual-screen mode keeps its standard displays. Disable **Watch gesture to pause**
+and virtual-screen mode keeps its standard displays. Disable **Watch gesture to pause** (under **Gestures...**)
 to read your wrist without opening the pause menu; the Menu button still pauses.
 
 ### Virtual screen (flat play, menus and cutscenes)
@@ -232,7 +251,7 @@ Then choose your character and tick **I am Ready**. Open spots can be joined dur
 
 **Voice chat.** Allow microphone access to talk. Everyone can hear each other in the lobby;
 in a match, voices get quieter with distance and pan toward the speaker. Mute in the lobby or
-on the watch's Game Options page, or hold left **X + Y** for half a second. Your mute choice is saved.
+on the watch's Game Options page, or press **Menu + B**. Your mute choice is saved.
 If you deny microphone access, you can still hear other players.
 
 **Over the internet.** No IP addresses and no router setup: headsets connect directly when they can,
@@ -260,8 +279,8 @@ offers the rates supported by your headset, including 80 Hz where available. Exp
 choices request a rate; **Show stats** reports the rate actually in use.
 
 **Render resolution.** Quest uses the render dimensions recommended by its OpenXR runtime
-when the app starts. These can differ from the panel's physical resolution. The watch's
-resolution setting (`Video.VRRenderScale`) multiplies those dimensions, so an external
+when the app starts. These can differ from the panel's physical resolution. The
+`Video.VRRenderScale` line in `goldeneye.ini` multiplies those dimensions, so an external
 resolution profile and a saved scale compound: a 2400×2600 recommendation at scale 2
 requests 4800×5200 per eye. Use scale 1 when checking an external profile. Device limits
 can reduce the actual size without changing your saved scale; **Show stats** reports the
