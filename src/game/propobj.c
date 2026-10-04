@@ -271,9 +271,11 @@ static void gevrMineToBodySurface(ObjectRecord *obj, PropRecord *prop, coord3d *
     }
     if (texit > 1e29f || texit < 0.0f)
     {
+        sysLogPrintf(LOG_NOTE, "mine: already outside the body part (%.1f)", texit);
         return;   /* not inside the box along the normal: leave it */
     }
     /* t is in world units along the world normal (the inverse is affine) */
+    sysLogPrintf(LOG_NOTE, "mine: out of the body part by %.1f (+%.1f)", texit, 0.5f * getinstsize(obj->model));
     texit += 0.5f * getinstsize(obj->model);
     obj->runtime_pos.x += normal->x * texit;
     obj->runtime_pos.y += normal->y * texit;
@@ -4920,12 +4922,27 @@ s32 objTick(struct PropRecord *prop)
 						if (D_80030B0C != NULL)
 						{
 							temp_s2 = prop->stan;
+#ifdef GEVR
+							s32 gevrOnGuard = D_80030B0C->type == PROP_TYPE_CHR;
+#endif
 							if (objEmbed(prop, D_80030B0C, g_CurrentProjectileModel, dword_CODE_bss_80075B74) != 0)
 							{
 								prop->stan = temp_s2;
 								tickop = TICKOP_CHANGEDLIST;
 								projectileStopped = 1;
+#ifdef GEVR
+								if (gevrOnGuard)
+								{
+									sysLogPrintf(LOG_NOTE, "mine: item %d stuck to a guard (part %d)", airborneWeapon->weaponnum, bodypartshot);
+								}
+#endif
 							}
+#ifdef GEVR
+							else if (gevrOnGuard)
+							{
+								sysLogPrintf(LOG_NOTE, "mine: item %d hit a guard but did not stick (he was off screen)", airborneWeapon->weaponnum);
+							}
+#endif
 						}
 					}
 				}
