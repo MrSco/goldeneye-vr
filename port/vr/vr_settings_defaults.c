@@ -47,6 +47,7 @@ int VrMpFriendlyFire = 1;
 int VrHostEqualization = 1, VrHostLatencyCapMs = 50;
 int VrMpFunFlags = 0, VrMpGunSize = 0;
 int VrMpMaxPlayers = 4;
+int VrMpDetailedGuns = 1;   /* other players hold the first-person gun models (gevr_heldgun.c) */
 int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts = 0, VrMpNextRound = 0;
 int VrMpCustom[4] = { 6, 7, 8, 25 };    /* ITEM_TT33, ITEM_SKORPION, ITEM_AK47, ITEM_ROCKETLAUNCH */
 int VrMpLoadout[4] = { 4, 8, 15, 26 };  /* ITEM_WPPK, ITEM_AK47, ITEM_SHOTGUN, ITEM_GRENADE */

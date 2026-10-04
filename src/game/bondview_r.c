@@ -43,6 +43,10 @@ extern void texInitPool(struct texpool *pool, u8 *start, s32 len);
 extern void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8 *dst, s32 size, struct texpool *buffer);
 extern void modelIterateDisplayLists(ModelFileHeader *fileheader, ModelNode **nodeptr, Gfx **gdlptr);
 extern int gevrTexpackWarmDl(const void *dl, const void *seg5);
+extern bool netIsActive(void);
+extern ModelFileHeader *gevrHeldGunPreload(s32 item);   /* gevr_heldgun.c */
+extern void gevrHeldGunReset(void);
+extern s32 g_gevrHandPatchSkip;                         /* gevr_handpatch.c */
 static u8 s_gevrStageGuns[(ITEM_IDS_MAX + 7) / 8];
 
 static void gevrStageGunNote(ITEM_IDS item)
@@ -57,25 +61,30 @@ void gevrStageGunsReset(void)
 {
     memset(s_gevrStageGuns, 0, sizeof(s_gevrStageGuns));
     gevrTexpackWarmDl(NULL, NULL);
+    gevrHeldGunReset();
 }
 
 /*
  * Each noted gun's model, loaded into a scratch buffer as the weapon panel
- * loads its own (bondview2.c gevrWeaponPanelModel), its display lists warmed,
- * then dropped. Nothing of the game's own gun slots is touched.
+ * loads its own (bondview2.c gevrWeaponPanelModel), its display lists warmed.
+ * Online they load into the cache other players' guns are drawn from
+ * (gevr_heldgun.c) instead, and stay. The scratch buffer is kept: the hand
+ * patch's slots are per buffer address (and skipped here anyway, the hands
+ * being hidden). Nothing of the game's own gun slots is touched.
  */
 #define GEVR_SG_MODELSIZE 0x40000
 #define GEVR_SG_BUFSIZE   0x70000
 
 void gevrPreloadStageGuns(void)
 {
-    u8 *buf = NULL;
+    static u8 *s_buf;
+    static ModelFileHeader s_header;
     s32 item, guns = 0, textures = 0;
     u64 start = sysGetMicroseconds();
 
     for (item = ITEM_UNARMED + 1; item < ITEM_IDS_MAX; item++)
     {
-        ModelFileHeader header;
+        ModelFileHeader *header = NULL;
         struct texpool pool;
         ModelNode *node = NULL;
         Gfx *gdl = NULL;
@@ -86,16 +95,26 @@ void gevrPreloadStageGuns(void)
             continue;
         }
 
-        if (buf == NULL && (buf = malloc(GEVR_SG_BUFSIZE)) == NULL)
+        if (netIsActive())
         {
-            return;
+            header = gevrHeldGunPreload(item);
+        }
+        else
+        {
+            if (s_buf == NULL && (s_buf = malloc(GEVR_SG_BUFSIZE)) == NULL)
+            {
+                return;
+            }
+
+            s_header = *gitem_structs[item].item_header;
+            texInitPool(&pool, s_buf + GEVR_SG_MODELSIZE, GEVR_SG_BUFSIZE - GEVR_SG_MODELSIZE);
+            g_gevrHandPatchSkip = TRUE;
+            load_object_fill_header(&s_header, (u8 *)gitem_structs[item].item_file_name, s_buf, GEVR_SG_MODELSIZE, &pool);
+            g_gevrHandPatchSkip = FALSE;
+            header = s_header.RootNode != NULL ? &s_header : NULL;
         }
 
-        header = *gitem_structs[item].item_header;
-        texInitPool(&pool, buf + GEVR_SG_MODELSIZE, GEVR_SG_BUFSIZE - GEVR_SG_MODELSIZE);
-        load_object_fill_header(&header, (u8 *)gitem_structs[item].item_file_name, buf, GEVR_SG_MODELSIZE, &pool);
-
-        if (header.RootNode == NULL)
+        if (header == NULL)
         {
             continue;
         }
@@ -104,17 +123,15 @@ void gevrPreloadStageGuns(void)
 
         do
         {
-            modelIterateDisplayLists(&header, &node, &gdl);
+            modelIterateDisplayLists(header, &node, &gdl);
 
             if (gdl != NULL)
             {
-                textures += gevrTexpackWarmDl((u8 *)header.Switches + ((uintptr_t)gdl & 0xffffff), header.Switches);
+                textures += gevrTexpackWarmDl((u8 *)header->Switches + ((uintptr_t)gdl & 0xffffff), header->Switches);
             }
         }
         while (node != NULL);
     }
-
-    free(buf);
 
     if (guns > 0)
     {

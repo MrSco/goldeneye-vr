@@ -3109,6 +3109,14 @@ Gfx *chrRenderProp(PropRecord *prop, Gfx *gdl, s32 withalpha)
 
             g_playerPerm->time_other_players_on_screen += 1;
             drawjointlist(&mrData, chr->field_20);
+#ifdef GEVR
+            {
+                /* other players' first-person gun models (gevr_heldgun.c) */
+                extern Gfx *gevrHeldGunDraw(ChrRecord *chr, ModelRenderData *body, Gfx *gdl, s32 withalpha);
+
+                mrData.gdl = gevrHeldGunDraw(chr, &mrData, mrData.gdl, withalpha);
+            }
+#endif
 
             gdl = mrData.gdl;
 
