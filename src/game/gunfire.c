@@ -2226,10 +2226,10 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
      * launcher's Gun fit, holding with both hands.
      */
     {
-        extern s32 gevrGexReloadByHand(f32 *t, f32 off[3]);
-        const s32 bh = gevrGexReloadByHand(NULL, NULL);
+        extern s32 gevrGexMagState(s32 hand, f32 off[3]);
+        const s32 mag = gevrGexMagState(GUNRIGHT, NULL);
 
-        if (bh == 1 || bh == 3)
+        if (mag == 1 || mag == 2)   /* GEVR_GEXMAG_GRIPPED, _INHAND */
         {
             return gdl;   /* GoldenEye X's left hand has the magazine (gun.c) */
         }
@@ -5244,13 +5244,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             }
         }
 
-#ifdef GEVR
-        extern s32 gevrReloadMagazineHeld(GUNHAND hand);   /* bondview2.c: a magazine on its way in by hand */
-
-        if ((handptr->field_890 >= handptr->field_8B0) && !(((handptr->field_88C < 2))) && !gevrReloadMagazineHeld(hand))
-#else
         if ((handptr->field_890 >= handptr->field_8B0) && !(((handptr->field_88C < 2))))
-#endif
         {
             handptr->weapon_action_state = GUN_ANIM_STATE_RELOAD_RAISE;
             handptr->field_890 = 0.0f;
