@@ -377,7 +377,11 @@ int main(int argc, const char **argv)
     }
 #endif
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit starting");
-    romdataInit();
+    if (romdataInit() != 0) {
+        /* Booting on without a ROM only dies later in memp with nothing to say why. */
+        sysFatalError("rom: no usable GoldenEye ROM (the rom: line above says why). "
+                "GoldenEye VR needs a USA (NGEE) cartridge dump.");
+    }
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "romdataInit complete");
     extTexInit();
     __android_log_print(ANDROID_LOG_INFO, "GoldenEye", "extTexInit complete");
@@ -567,7 +571,10 @@ int main(int argc, const char** argv)
 		videoInit();
 		inputInit();
 		audioInit();
-		romdataInit();
+		if (romdataInit() != 0) {
+				sysFatalError("rom: no usable GoldenEye ROM (the rom: line above says why). "
+						"GoldenEye VR needs a USA (NGEE) cartridge dump.");
+		}
         extTexInit();
 
 		g_ValidGbcRomFound = romdataCheckGbcRom();
