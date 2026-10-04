@@ -2226,6 +2226,7 @@ s32 gevrStereoWatchGrip(void)
 #define GEVR_TWOHAND_SEP_MAX 12.0f
 #define GEVR_TWOHAND_EASE 0.15f
 #define GEVR_TWOHAND_BARREL_CM 40.0f
+#define GEVR_TWOHAND_SPREAD 0.4f   /* the game's bullet spread held with both hands (gevrStereoShot) */
 
 static s32 s_gevrTwoHand;
 static s32 s_gevrTwoHandResetDir;
@@ -3806,8 +3807,14 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
     far.z = origin->z - back[2] * 1000.0f;
     if (far.z < -1.0f && spreadpos != NULL)
     {
-        f32 dpx = spreadpos->x - g_CurrentPlayer->crosshair_angle.f[0];
-        f32 dpy = spreadpos->y - g_CurrentPlayer->crosshair_angle.f[1];
+        /* the two-handed hold (#35) steadies the aim and the kick, so it
+         * tightens the game's spread too (user); not a shotgun's, whose
+         * spread is its pellets' pattern */
+        s32 item = getCurrentPlayerWeaponId(handnum);
+        f32 hold = handnum == GUNRIGHT && gevrStereoTwoHandGrip() && item != ITEM_SHOTGUN && item != ITEM_AUTOSHOT
+            ? GEVR_TWOHAND_SPREAD : 1.0f;
+        f32 dpx = (spreadpos->x - g_CurrentPlayer->crosshair_angle.f[0]) * hold;
+        f32 dpy = (spreadpos->y - g_CurrentPlayer->crosshair_angle.f[1]) * hold;
         f32 depth = -far.z;
 
         far.x += dpx * g_CurrentPlayer->c_scalex * depth;
