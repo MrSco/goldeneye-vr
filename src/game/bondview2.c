@@ -2399,7 +2399,11 @@ s32 gevrStereoTwoHandUpdate(void)
         }
         else if (gevrTwoHandBarrel(opos, snap, &dist, FALSE))
         {
-            if (dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM))
+            extern s32 gevrReloadClaimsOffHand(void);
+
+            /* Hand reload: the off hand at the magazine is reloading, not holding (user) */
+            if (dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM)
+                && (s_gevrTwoHand || !gevrReloadClaimsOffHand()))
             {
                 s_gevrTwoHand = TRUE;
                 s_farFrames = 0;
@@ -14968,6 +14972,19 @@ static s32 gevrGripGestureTry(s32 ctrl)
             done = 2;
             gevrGripEquip(hand, got);
         }
+        else if (got >= 0 && gevrLeftHasGun(got))
+        {
+            /* the game leaves it (full ammo, the pair already carried), as walking
+             * over it does; the hand still takes the gun the player carries */
+            sysLogPrintf(LOG_NOTE, "stereo: grip pickup: item %d left on the floor (nothing to gain), carried one to hand", got);
+            gevrGripEquip(hand, got);
+            done = 2;
+        }
+        else
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: grip pickup: %s %d refused by the game's pickup rules",
+                         got >= 0 ? "item" : "object type", got >= 0 ? got : (s32) prop->obj->type);
+        }
         s_gevrGripGrabbing = FALSE;
     }
     if (done < 0 && VrGestureGripUse
@@ -14979,6 +14996,43 @@ static s32 gevrGripGestureTry(s32 ctrl)
 
     if (done < 0)
     {
+        /* tuning: a grip that took nothing, with something near the hand */
+        extern f32 g_gevrHandFindDist;
+        f32 near = 0.0f;
+        s32 what = -1;
+
+        if (gevrHandFindProp(p, 60.0f * cm, GEVR_HAND_PICKUP) != NULL)
+        {
+            near = g_gevrHandFindDist / cm;
+            what = GEVR_HAND_PICKUP;
+        }
+        else if (gevrHandFindProp(p, 60.0f * cm, GEVR_HAND_USE) != NULL)
+        {
+            near = g_gevrHandFindDist / cm;
+            what = GEVR_HAND_USE;
+        }
+        if (what >= 0)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: grip (%s) took nothing: nearest %s %.0f cm away (reach %.0f)",
+                         ctrl ? "gun hand" : "off hand", what == GEVR_HAND_PICKUP ? "pickup" : "door/switch", near,
+                         s_gevrGestureTune[what == GEVR_HAND_PICKUP ? GEVR_GT_PICKUP : GEVR_GT_USE]);
+        }
+        else
+        {
+            extern PropRecord *gevrHandNearestAny(const f32 p[3], f32 *distOut);
+            f32 any;
+            PropRecord *nearest = gevrHandNearestAny(p, &any);
+
+            /* nothing the grip could take: what is there, and why it was skipped */
+            if (nearest != NULL && any < 60.0f * cm)
+            {
+                ObjectRecord *o = nearest->type == PROP_TYPE_DOOR ? (ObjectRecord *) nearest->door : nearest->obj;
+
+                sysLogPrintf(LOG_NOTE, "stereo: grip (%s) took nothing: nearest prop type %d obj %d %.0f cm, flags 0x%x 0x%x rt 0x%x",
+                             ctrl ? "gun hand" : "off hand", nearest->type, o->type, any / cm,
+                             o->flags, o->flags2, o->runtime_bitflags);
+            }
+        }
         return FALSE;
     }
     sysLogPrintf(LOG_NOTE, "stereo: grip gesture %s (%s)", names[done], ctrl ? "gun hand" : "off hand");
@@ -15102,10 +15156,59 @@ static void gevrHandReloadFire(s32 hand, const char *how)
     }
 }
 
+static s32 s_gevrMagGrab;     /* 0 free, 1 holding the magazine, 2 reloaded until let go */
+
+/* the magazine: GEVR_RT_MAGFWD ahead of the gun hand's grip and GEVR_RT_MAGDOWN below it */
+static void gevrReloadMagPoint(const f32 gun[3], const f32 gu[3], const f32 gb[3], f32 cm, f32 mag[3])
+{
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        mag[i] = gun[i] - gb[i] * s_gevrReloadTune[GEVR_RT_MAGFWD] * cm - gu[i] * s_gevrReloadTune[GEVR_RT_MAGDOWN] * cm;
+    }
+}
+
+/*
+ * gevrStereoTwoHandUpdate: with Hand reload on, the off hand gripping at a
+ * magazine-fed gun's magazine is taking the magazine, not holding the gun
+ * (user: the KF7's pull took the two-handed hold instead). It leaves that
+ * press to the reload, from the press until the grip is let go.
+ */
+s32 gevrReloadClaimsOffHand(void)
+{
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 gun[3], gr[3], gu[3], gb[3], off[3], orr[3], ou[3], ob[3], mag[3];
+    f32 dist2 = 0.0f;
+    s32 right;
+    s32 i;
+
+    if (s_gevrMagGrab != 0)
+    {
+        return TRUE;
+    }
+    if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || cm < 1e-6f
+        || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, orr, ou, ob))
+    {
+        return FALSE;
+    }
+    right = getCurrentPlayerWeaponId(GUNRIGHT);
+    if (!gevrReloadGun(right) || !gevrReloadMagazineFed(right) || gevrReloadGun(getCurrentPlayerWeaponId(GUNLEFT)))
+    {
+        return FALSE;
+    }
+    gevrReloadMagPoint(gun, gu, gb, cm, mag);
+    for (i = 0; i < 3; i++)
+    {
+        dist2 += (off[i] - mag[i]) * (off[i] - mag[i]);
+    }
+    return dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm;
+}
+
 void gevrHandReloadTick(void)
 {
     extern _Bool get_button_state(int hand_index, const char *button_name);
-    static s32 s_magGrab;        /* 0 free, 1 holding the magazine, 2 reloaded until let go */
     static f32 s_magGrabUp;      /* where along the gun's up it was taken, view units */
     static s32 s_gripWas;
     static s32 s_crossArmed[2];  /* per controller: on its own side since its last cross */
@@ -15120,7 +15223,7 @@ void gevrHandReloadTick(void)
         || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || cm < 1e-6f
         || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, orr, ou, ob))
     {
-        s_magGrab = 0;
+        s_gevrMagGrab = 0;
         s_crossArmed[0] = s_crossArmed[1] = FALSE;
         return;
     }
@@ -15133,9 +15236,9 @@ void gevrHandReloadTick(void)
     {
         f32 mag[3], d[3], dist2 = 0.0f, upnow = 0.0f;
 
+        gevrReloadMagPoint(gun, gu, gb, cm, mag);
         for (i = 0; i < 3; i++)
         {
-            mag[i] = gun[i] - gb[i] * s_gevrReloadTune[GEVR_RT_MAGFWD] * cm - gu[i] * s_gevrReloadTune[GEVR_RT_MAGDOWN] * cm;
             d[i] = off[i] - mag[i];
             dist2 += d[i] * d[i];
             upnow += (off[i] - gun[i]) * gu[i];
@@ -15143,22 +15246,22 @@ void gevrHandReloadTick(void)
         if (grip && !s_gripWas
             && dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm)
         {
-            s_magGrab = 1;
+            s_gevrMagGrab = 1;
             s_magGrabUp = upnow;
         }
-        else if (grip && s_magGrab == 1 && s_magGrabUp - upnow >= s_gevrReloadTune[GEVR_RT_PULL] * cm)
+        else if (grip && s_gevrMagGrab == 1 && s_magGrabUp - upnow >= s_gevrReloadTune[GEVR_RT_PULL] * cm)
         {
-            s_magGrab = 2;
+            s_gevrMagGrab = 2;
             gevrHandReloadFire(GUNRIGHT, "magazine pulled");
         }
     }
     else
     {
-        s_magGrab = 0;
+        s_gevrMagGrab = 0;
     }
     if (!grip)
     {
-        s_magGrab = 0;
+        s_gevrMagGrab = 0;
     }
     s_gripWas = grip;
 
