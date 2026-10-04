@@ -205,6 +205,82 @@ static s32 gevrMineSticksToGuard(WeaponObjRecord *weapon, PropRecord *hit)
             || weapon->weaponnum == ITEM_TIMEDMINE)
         && g_CurrentProjectileModel != NULL && dword_CODE_bss_80075B74 != NULL;
 }
+
+/*
+ * A guard's hit (sub_GAME_7F041BB8) puts the collision point where the ray
+ * passes the hit body part's centre, its bone: a mine embedded there sat
+ * inside him, out of sight (user, 2026-10-04). Perfect Dark finds the hit on
+ * the part's surface (its g_EmbedProp search). Here the mine backs out along
+ * the hit's normal (toward the thrower, level) to where that line leaves the
+ * part's bounding box, plus about half the mine, before objEmbed fixes it to
+ * the part. The box's world frame is objEmbed's: view-to-world times the
+ * node's matrix.
+ */
+extern f32 getinstsize(Model *model);
+
+static void gevrMineToBodySurface(ObjectRecord *obj, PropRecord *prop, coord3d *normal)
+{
+    ModelNode *node = dword_CODE_bss_80075B74;
+    Mtxf *nodemtx;
+    Mtxf world;
+    Mtxf inv;
+    struct bbox *b;
+    coord3d p;
+    coord3d d;
+    f32 lo[3];
+    f32 hi[3];
+    f32 texit = 1e30f;
+    f32 t;
+    s32 k;
+
+    if (node == NULL || (node->Opcode & 0xFF) != MODELNODE_OPCODE_BBOX
+        || (nodemtx = modelFindNodeMtx(g_CurrentProjectileModel, node, 0)) == NULL)
+    {
+        return;
+    }
+    b = &node->Data->BoundingBox.Bounds;
+    matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), nodemtx, &world);
+    matrix_4x4_invert_affine(&world, &inv);
+
+    p = obj->runtime_pos;
+    d = *normal;
+    mtx4TransformVecInPlace(&inv, &p);
+    mtx4RotateVecInPlace(&inv, &d);
+
+    lo[0] = b->xmin; hi[0] = b->xmax;
+    lo[1] = b->ymin; hi[1] = b->ymax;
+    lo[2] = b->zmin; hi[2] = b->zmax;
+    for (k = 0; k < 3; k++)
+    {
+        if (d.f[k] > 1e-6f)
+        {
+            t = (hi[k] - p.f[k]) / d.f[k];
+        }
+        else if (d.f[k] < -1e-6f)
+        {
+            t = (lo[k] - p.f[k]) / d.f[k];
+        }
+        else
+        {
+            continue;
+        }
+        if (t < texit)
+        {
+            texit = t;
+        }
+    }
+    if (texit > 1e29f || texit < 0.0f)
+    {
+        return;   /* not inside the box along the normal: leave it */
+    }
+    /* t is in world units along the world normal (the inverse is affine) */
+    texit += 0.5f * getinstsize(obj->model);
+    obj->runtime_pos.x += normal->x * texit;
+    obj->runtime_pos.y += normal->y * texit;
+    obj->runtime_pos.z += normal->z * texit;
+    prop->pos = obj->runtime_pos;
+    chrobjCollisionRelated(obj);   /* as sub_GAME_7F0439B8 ends */
+}
 #endif
 /* 0x80030AF8 */ s32 g_NextWeaponSlot = 0; // numbers between 0 and 30
 /* 0x80030AFC */ s32 g_NextHatSlot = 0;
@@ -4835,6 +4911,12 @@ s32 objTick(struct PropRecord *prop)
 						chrobjSndCreatePostEventDefault(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, ATTACH_MINE_SFX, NULL), &prop->pos);
 						objectivestatusCheckDeposit(((struct WeaponObjRecord *) obj)->weaponnum, prop->stan->room);
 						sub_GAME_7F0439B8(obj, &collisionPoint, prop->stan, &collisionNormal);
+#ifdef GEVR
+						if (gevrMineSticksToGuard(airborneWeapon, D_80030B0C))
+						{
+							gevrMineToBodySurface(obj, prop, &collisionNormal);
+						}
+#endif
 						if (D_80030B0C != NULL)
 						{
 							temp_s2 = prop->stan;
