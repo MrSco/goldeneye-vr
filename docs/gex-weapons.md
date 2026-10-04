@@ -23,6 +23,15 @@ for the weapon animations, SubDrag and others) and Dab's Mod
   (as the Falcon 2). Node types used: 0x02 position, 0x04 gun display list,
   0x12 toggle, 0x16 star gunfire, 0x11 (`tools/gex/pdmodel.py`).
 
+- Textures moved: PD's list (ROM 0x1ff7ca0) and data (0x1d65f40) are blank
+  in GE-X. Its list is at ROM 0x1e77400 (3504 8-byte entries, the low 24 bits
+  of the first word an offset into the data, the second word zero) and its
+  data starts at 0x1b449a2, only 2-byte aligned (found by texture 0's bytes,
+  which GE-X kept). Model texture configs name these numbers. Both of PD's
+  codecs occur (first byte: bit 7 LOD data, bit 6 zlib, low 6 the LOD
+  count): the KF7 has zlib and non-zlib textures, so PD's texdecompress.c is
+  needed whole.
+
 ## The guns (GE-X slot: model file)
 
 knife 2 GknifeZ; PP7 3 and silenced PP7 4 GwppkZ; DD44 5 Gtt33Z; Klobb 6
