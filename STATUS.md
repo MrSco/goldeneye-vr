@@ -6,6 +6,16 @@ logs are in docs/archive/; feature investigations keep their own notes.
 **Updated / current build:** 2026-10-04, v0.4.5; versionCode 58, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
 
+**Unreleased on main (#110, 2026-10-04):** #95 round 2. Launcher Cheats gain
+2x/10x Health, 2x Armor, Max ammo, Extra weapons; Comfort WHEN HIT has no
+knockback (default on), keep firing when hit, red flash toggle. Statue and
+Cradle online (ROM MP setups, MP memory strings). Perfect Dark's cylinder
+floor finder (stan.c stanFindGroundAtCyl) for remote bodies and Bond's tile
+recovery. Guards and other players hold the detailed first-person guns,
+launchers with their rocket (gevr_heldgun.c; ini DetailedGuns). Stage guns'
+HD textures decoded at load; MP death music fix. Release needs protocol 18
+(v0.4.5 rejects stages 22/41). Notes: docs/issue-95-round2.md.
+
 **v0.4.5:** optional Meta Quest passthrough behind the 2D virtual screen,
 saved in goldeneye-vr.ini and toggled in the SCREEN tab; Frigate hull "06"
 marking restored (white face over black drop shadow) and recessed fixtures
@@ -98,9 +108,9 @@ is goldeneyevr.com, in its own repository.
 - #88 eight players: checked on one headset (8 slots on Facility/Egypt,
   90 Hz). Measure frame time and host upload with 5+ headsets before relay
   batching or culling the other players' view passes (MULTIPLAYER.md).
-- #23: multiplayer stays open/experimental. Remote hands do not animate;
-  held guns are the original low-detail third-person models.
-- #95: GE Plus survey; four fixes shipped, the rest of its list is open.
+- #23: multiplayer stays open/experimental. Remote hands do not animate.
+- #95: GE Plus survey; 14 of 21 items done (#110 untested on two
+  headsets: Statue/Cradle matches, remote bodies at ledges, remote guns).
 - #9: the issue stays open for any hands not yet patched.
 - #30: intermittent colored water lines cleared on launcher restart and
   did not recur in final capture; still unresolved.

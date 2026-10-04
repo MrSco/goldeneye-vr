@@ -32,6 +32,11 @@ const uint8_t *image(int id, uint32_t *w, uint32_t *h);
 int takeDone(int *ids, int max);
 // Free the least recently used images while more than budget bytes are held.
 void trim(size_t budget);
+// Issue #95: a stage's gun textures (gfx_pc.cpp gevrTexpackWarmDl), decoded
+// behind everything visible within a budget of their own. stageBegin drops
+// the last stage's queue and starts a new budget.
+void stageBegin();
+void preloadStage(int id);
 
 // Texture dump (tools/texai): write w x h RGBA texels (rows stride bytes apart)
 // as <dir>/<name>, and indexLine to <dir>/index.tsv, on a thread of its own.

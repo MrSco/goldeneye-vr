@@ -246,8 +246,9 @@ extern int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);
 extern unsigned gevrVrGripSnapshotId(void);
 extern int gevrVrGripTracked(int hand);
 extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* goldeneye-vr.ini grip trim, cm */
+extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;   /* launcher Comfort: being hit in stereo (#95) */
 
-s32 g_gevrStereo;                        /* this frame is drawn in stereo (fr.c, input.c) */
+s32 g_gevrStereo;                       /* this frame is drawn in stereo (fr.c, input.c) */
 static s32 s_gevrStereoWas;
 static f32 s_gevrBaseYaw;                /* degrees: stick turns plus game-side turns */
 static f32 s_gevrLastTheta;              /* vv_theta as last written here */
@@ -613,6 +614,16 @@ static void gevrCheatProbe(s32 inlevel)
             countdownTimerSetVisible(1, TRUE);
             countdownTimerSetRunning(TRUE);
             sysLogPrintf(LOG_NOTE, "cheathook: countdown timer on");
+            continue;
+        }
+        /* "hqguards": guards' guns between the detailed models (gevr_heldgun.c,
+         * the default) and the game's own, to compare */
+        if (strcasecmp(word, "hqguards") == 0)
+        {
+            extern s32 g_gevrHeldGunGuards;
+
+            g_gevrHeldGunGuards = !g_gevrHeldGunGuards;
+            sysLogPrintf(LOG_NOTE, "cheathook: guards' detailed guns %s", g_gevrHeldGunGuards ? "on" : "off");
             continue;
         }
         /* "hold<N>": give item N and draw it in the gun hand, e.g. hold17 = sniper rifle */
@@ -7302,6 +7313,39 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
             g_CurrentPlayer->field_488.collision_position.f[0],
             g_CurrentPlayer->field_488.collision_position.f[2]) == 0)
     {
+#ifdef GEVR
+        /*
+         * #95: retail tried up to five random linked tiles here, testing each
+         * by its three extreme points at any height (and took % 0 on a tile
+         * with no links). The floor under Bond's centre instead, room by room,
+         * as Perfect Dark finds it (stan.c stanFindGroundAtCyl), from the eye
+         * down; kept only when a tile holds the centre, as the walk code
+         * starts from the tile Bond is on.
+         */
+        {
+            StandTile *cur = g_CurrentPlayer->field_488.current_tile_ptr;
+            u8 rooms[PROPRECORD_STAN_ROOM_LEN + 2];
+            s32 nrooms = 0;
+            s32 incentre;
+            f32 groundy;
+            StandTile *found;
+
+            rooms[nrooms++] = cur->room;
+
+            for (i = 0; i < PROPRECORD_STAN_ROOM_LEN && g_CurrentPlayer->prop->rooms[i] != 0xff; i++)
+            {
+                rooms[nrooms++] = g_CurrentPlayer->prop->rooms[i];
+            }
+
+            rooms[nrooms] = 0xff;
+            found = stanFindGroundAtCyl(&g_CurrentPlayer->field_488.collision_position, 0.0f, rooms, cur, &groundy, &incentre);
+
+            if (found != NULL && incentre)
+            {
+                g_CurrentPlayer->field_488.current_tile_ptr = found;
+            }
+        }
+#else
         if(1);
 
         stan = g_CurrentPlayer->field_488.current_tile_ptr;
@@ -7350,6 +7394,7 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
                 break;
             }
         }
+#endif
     }
 
     bondviewUpdatePlayerRoom(g_CurrentPlayer);
@@ -10161,7 +10206,13 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         moveData.speedVertaUp = ftemp_nostack_spE8;
     }
 
+#ifdef GEVR
+    /* the launcher's "Keep firing when hit" (#95): in VR the dropped trigger
+     * reads as a lost input */
+    if (bondviewGetIfCurrentPlayerDamageShowTime() && getPlayerCount() == 1 && !(g_gevrStereo && VrNoHitstun))
+#else
     if (bondviewGetIfCurrentPlayerDamageShowTime() && getPlayerCount() == 1)
+#endif
     {
         moveData.triggerOn = 0;
     }
@@ -10913,6 +10964,11 @@ void bondviewPlayerTickDamageAndHealth(void)
                     frac = (g_DamageTypes[g_CurrentPlayer->damagetype].maxAlpha * (f32)(totalframes - flashdoneframes)) / (f32)(totalframes - flashfullframe);
                 }
 
+#ifdef GEVR
+                /* the launcher's "Red flash when hit" (#95); the show time
+                 * still runs, as it also spaces out the hits taken */
+                if (!(g_gevrStereo && !VrDamageFlash))
+#endif
                 currentPlayerSetFadeColour(
                     g_DamageTypes[g_CurrentPlayer->damagetype].red,
                     g_DamageTypes[g_CurrentPlayer->damagetype].green,
@@ -16571,7 +16627,13 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
 #else
     #define ZERO_7F08991C 0
 #endif
-                if (g_CurrentPlayer->damageshowtime < ZERO_7F08991C)
+                if (g_CurrentPlayer->damageshowtime < ZERO_7F08991C
+#ifdef GEVR
+                    /* the launcher's "No knockback" (#95): the push is motion
+                     * the player didn't make */
+                    && !(g_gevrStereo && VrNoKnockback)
+#endif
+                    )
                 {
                     g_CurrentPlayer->bondshotspeed.x = g_CurrentPlayer->bondshotspeed.x + 2.0f * vectorx;
                     g_CurrentPlayer->bondshotspeed.z = g_CurrentPlayer->bondshotspeed.z + 2.0f * vectorz;
