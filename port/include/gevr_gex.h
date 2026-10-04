@@ -23,6 +23,9 @@ u8 *gevrGexFileLoad(const char *name, u32 *outSize);
  * bit 6 zlib, low 6 bits the LOD count). Points into the resident ROM. */
 const u8 *gevrGexTextureData(s32 texnum, u32 *outSize);
 
+/* The resident ROM, for the animation reader (gevr_pdanim.c); NULL if not open. */
+const u8 *gevrGexRom(u32 *size);
+
 /* Inflates a raw deflate stream (PD's 1173 files, zlib-coded textures). */
 s32 gevrGexInflate(const u8 *src, u32 srclen, u8 *dst, u32 dstlen);
 

@@ -50,7 +50,8 @@ kind, flag, keyframe, word), which plays a row of PD's animation table and
 shows or hides model parts, plays sounds and moves the ammo on its frames.
 Addresses are PD NTSC 1.1's, which GE-X keeps: data segment at 0x80059fe0,
 g_Weapons at 0x8006ff18 (0x50-byte rows: ammo at +0x1c, the ammo's script at
-+0xc), the animations segment at ROM 0x1a15c0 with its table (a count, then
++0xc), GE-X's animations segment at ROM 0x157810 (moved from PD's 0x1a15c0; found
+by animation 1's bytes, which GE-X kept) with its table (a count, then
 12-byte rows: frames, bytes per frame, data offset, header length, frame
 length, flags) at ROM 0x7cd1a0, 1207 rows. GE-X rewrote 86 of them.
 `tools/gex/gexguns.py gex.z64 7` prints a gun's scripts.
