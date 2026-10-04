@@ -2923,6 +2923,16 @@ Gfx *draw_options_labels(Gfx *gdl, s32 x, s32 y, char *text, u32 colour, s32 out
     chars = ptrFontBankGothicChars;
 
     textMeasure(&textheight, &textwidth, text, chars, font, 10);
+#ifdef GEVR
+    /* textMeasure adds a line's height at its '\n', and the game's own strings
+     * all end in one. The port's labels ("VR settings", the VR page, the
+     * Microphone row) don't: measured 0 tall, textRender clipped every glyph
+     * and the rows never showed. Count the unfinished last line too. */
+    if (text[0] != '\0' && text[strlen(text) - 1] != '\n')
+    {
+        textheight += 10;
+    }
+#endif
 
     if (centre)
     {
