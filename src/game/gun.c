@@ -1054,6 +1054,7 @@ int getCurrentWeaponOrItem(void)
 #include <stdlib.h>
 #include "gevr_gexmodel.h"
 #include "gevr_pdanim.h"
+#include "system.h"
 extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
 extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
 
@@ -1191,6 +1192,25 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
                 node = node->Parent;
             }
             node = node != NULL ? node->Next : NULL;
+        }
+    }
+
+    /* tuning: the joints and the magazine switches, every 2 s or so */
+    {
+        static s32 tick;
+
+        if ((tick++ % 120) == 0 && hdr->numMatrices > 40 && hdr->numSwitches > GEVR_GEX_SW_NEWMAG)
+        {
+            s32 *mag = hdr->Switches[GEVR_GEX_SW_MAG] ? (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_MAG]) : NULL;
+            s32 *newmag = hdr->Switches[GEVR_GEX_SW_NEWMAG] ? (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_NEWMAG]) : NULL;
+
+            sysLogPrintf(LOG_NOTE, "gexpose: mtx0 %.1f %.1f %.1f, 33 %.1f %.1f %.1f, 39 %.1f %.1f %.1f, 40 %.1f %.1f %.1f; mag sw %p vis %d, new sw %p vis %d",
+                    rwmtx[0].m[3][0], rwmtx[0].m[3][1], rwmtx[0].m[3][2],
+                    rwmtx[33].m[3][0], rwmtx[33].m[3][1], rwmtx[33].m[3][2],
+                    rwmtx[39].m[3][0], rwmtx[39].m[3][1], rwmtx[39].m[3][2],
+                    rwmtx[40].m[3][0], rwmtx[40].m[3][1], rwmtx[40].m[3][2],
+                    (void *) hdr->Switches[GEVR_GEX_SW_MAG], mag ? *mag : -1,
+                    (void *) hdr->Switches[GEVR_GEX_SW_NEWMAG], newmag ? *newmag : -1);
         }
     }
 }
