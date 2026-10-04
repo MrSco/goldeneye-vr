@@ -94,7 +94,12 @@ def build_fixture(name, source=None):
         panel=(ROOT/'src/game/bondview2.c').read_text(encoding='utf8')
         start=panel.index('#define GEVR_WP_MAX 96')
         end=panel.index('extern u16 *bondinvGetNameByIndex',start)
-        fixture=fixture.replace('/* INSERT_HAND_INVENTORY */',panel[start:end])
+        region=panel[start:end]
+        # The grip gestures and hand reload (#111) sit in this range; the fixture does not use them.
+        cut=region.find("/*\n * GEVR PC's grip gestures")
+        if cut>=0:
+            region=region[:cut]+region[region.index("/*\n * The panel is a wheel of categories",cut):]
+        fixture=fixture.replace('/* INSERT_HAND_INVENTORY */',region)
         inventory=(ROOT/'src/game/bondinv.c').read_text(encoding='utf8')
         start=inventory.index('int bondinvAddWeaponByProp(')
         end=inventory.index('#ifdef GEVR',inventory.index('    return added;',start))

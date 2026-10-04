@@ -28,6 +28,7 @@ int netGetLocalSlot(void) { return 0; }
 s32 get_cur_playernum(void) { return remote; }
 s32 getPlayerCount(void) { return online ? 3 : 1; }
 s32 gevrSpectating(void) { return spectator; }
+s32 gevrManualReloadOn(s32 hand) { (void)hand; return 0; }   /* Hand reload (WIP) off: guns reload themselves */
 s32 bondinvCountTotalItemsInInv(void) { return inventoryCount; }
 s32 bondinvGetTextbyInvIndex(s32 i) { return inventoryItems[i]; }
 u16 *bondinvGetNameByIndex(s32 i) { return (u16 *) "Carried item\n"; }
