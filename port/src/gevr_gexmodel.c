@@ -12,7 +12,9 @@
  *  - PD's vertices are 12 bytes (x, y, z, flags, a colour byte offset, s, t)
  *    with colours in a table loaded by G_COL; GE's are 16 with the colour
  *    inline. Each vertex takes the colour of the table loaded before the
- *    G_VTX that reads it, G_VTX lengths become 16 per vertex, G_COL a no-op;
+ *    G_VTX that reads it, G_VTX lengths become 16 per vertex, and the G_COLs
+ *    go (fast3d has no no-op for them; the lists don't branch, so nothing
+ *    points into them);
  *  - a position record has no child-group pointer and no radius (drawdist);
  *  - texture numbers name GE-X's table: they are mapped to free ids from
  *    GEVR_GEX_TEX_FIRST, which image.c texLoad serves from the GE-X ROM.
@@ -86,7 +88,7 @@ struct pdArray {      /* a vertex array of the source and its place in the outpu
 	s32 star;          /* star gunfire: read through segment 4, not segment 5 */
 };
 
-struct pdDl { u32 src, dst, len; struct pdArray *arr; };
+struct pdDl { u32 src, dst, len, outLen; struct pdArray *arr; };   /* outLen: less the G_COLs */
 
 struct build {
 	const u8 *pd;
@@ -209,6 +211,16 @@ static void addDl(struct build *b, u32 addr, struct pdArray *arr)
 	}
 	b->dls[b->numDls].src = OFS(addr);
 	b->dls[b->numDls].len = dlLength(b, OFS(addr));
+	b->dls[b->numDls].outLen = b->dls[b->numDls].len;
+	{
+		u32 p;
+
+		for (p = 0; p < b->dls[b->numDls].len; p += 8) {
+			if (b->pd[OFS(addr) + p] == 0x07) {
+				b->dls[b->numDls].outLen -= 8;
+			}
+		}
+	}
 	b->dls[b->numDls].arr = arr;
 	b->numDls++;
 }
@@ -314,7 +326,7 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 	/* the display lists, last, in iteration order */
 	for (k = 0; k < (u32)b->numDls; k++) {
 		b->dls[k].dst = pos;
-		pos += b->dls[k].len;
+		pos += b->dls[k].outLen;
 	}
 
 	if (out == NULL || b->failed) {
@@ -412,15 +424,14 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 
 	for (k = 0; k < (u32)b->numDls; k++) {
 		const struct pdDl *dl = &b->dls[k];
+		u8 *d = out + dl->dst;
 
 		for (i = 0; i < dl->len; i += 8) {
 			u32 w0 = rd32(pd + dl->src + i), w1 = rd32(pd + dl->src + i + 4);
 			u8 op = w0 >> 24;
-			u8 *d = out + dl->dst + i;
 
-			if (op == 0x07) {                      /* G_COL: colours are inline now */
-				w0 = 0;
-				w1 = 0;
+			if (op == 0x07) {                      /* G_COL: the colours are inline now */
+				continue;
 			} else if (op == 0x04 && dl->arr != NULL) {   /* G_VTX: 12 -> 16 bytes a vertex */
 				u32 n = (w0 & 0xffff) / 12;
 
@@ -437,6 +448,7 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 			}
 			wr32(d, w0);
 			wr32(d + 4, w1);
+			d += 8;
 		}
 	}
 
