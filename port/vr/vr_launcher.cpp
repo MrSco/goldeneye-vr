@@ -54,6 +54,7 @@ extern "C" {
 int gevrVrPumpBegin(void);            // port/src/gevr_engine_shim.c
 void gevrVrPumpEnd(void);
 const char *fsFullPath(const char *relPath);  // port/src/fs.c
+int fsFileSize(const char *name);             // port/src/fs.c: -1 when absent
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
 void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
@@ -840,6 +841,18 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
         }
     }
+    ImGui::Separator();
+
+    // GoldenEye X's first-person guns, read from the player's own patched ROM
+    // (port/src/gevr_gex.c, docs/gex-weapons.md); nothing of it ships
+    static int s_gexRom = -1;
+    if (s_gexRom < 0) s_gexRom = fsFileSize("data/gex.z64") > 0 ? 1 : 0;
+    bool gex = VrGexGuns != 0;
+    if (ImGui::Checkbox("GoldenEye X guns (KF7, experimental)", &gex)) VrGexGuns = gex ? 1 : 0;
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped(s_gexRom ? "Uses your GoldenEye X ROM, data/gex.z64."
+                                : "Needs your own GoldenEye X ROM in the data folder as gex.z64.");
+    ImGui::PopStyleColor();
     ImGui::Spacing();
     if (ImGui::Button("Done", ImVec2(-1, 0))) {
         open = false;

@@ -8,6 +8,10 @@
 #include "ramrom.h"
 #include "decompress.h"
 #include <inflate/inflate.h>
+#ifdef GEVR
+#include <string.h>
+#include "gevr_gexmodel.h"
+#endif
 #include "gevr_rom_segments.h"
 
 
@@ -2465,6 +2469,10 @@ void texLoad(uintptr_t *updateword, struct texpool *pool)
     s32 nextoffset;
     s16 *texnumptr;
     s32 bytesout;
+#ifdef GEVR
+    const u8 *gevrgex = NULL;
+    u32 gevrgexlen = 0;
+#endif
 
     if (pool == NULL)
     {
@@ -2499,11 +2507,42 @@ void texLoad(uintptr_t *updateword, struct texpool *pool)
 
         /* The first word is a bitfield laid out for big-endian: on this host its
            bits pack from the other end, so read the field, not the raw word. */
+#ifdef GEVR
+        /*
+         * GoldenEye X's textures (ids from GEVR_GEX_TEX_FIRST, past this
+         * table; gevr_gexmodel.c) come from the player's GE-X ROM. Perfect
+         * Dark's texture codec is this one.
+         */
+        gevrgex = gevrGexTextureForId(g_TexNumToLoad, &gevrgexlen);
+        if (gevrgex != NULL && gevrgexlen + 0x10 > sizeof(compbuffer))
+        {
+            gevrgex = NULL;
+        }
+        if (gevrgex != NULL)
+        {
+            thisoffset = 0;
+            nextoffset = 0;
+        }
+        else if (g_TexNumToLoad >= MAX_TEXTURES)
+        {
+            return;
+        }
+        else
+#endif
+        {
         thisoffset = g_Textures[g_TexNumToLoad].dataoffset;
         nextoffset = g_Textures[g_TexNumToLoad + 1].dataoffset;
+        }
 
         if (TRUE)
         {
+#ifdef GEVR
+            if (gevrgex != NULL)
+            {
+                memcpy(alignedcompbuffer, gevrgex, gevrgexlen);
+            }
+            else
+#endif
             // Copy the compressed texture to RAM
             romCopy(alignedcompbuffer,
                     (void *) ((uintptr_t) _imagesSegmentRomStart
