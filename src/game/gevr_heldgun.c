@@ -53,7 +53,6 @@ extern s32 g_gevrExtraPass;            /* lv.c: an extra view pass (the copies' 
 #define HG_BUFSIZE    0x23000          /* the game's per-hand gun buffer (gun.c size_item_buffer) */
 #define HG_MODELSIZE  0xF000           /* and its model region (gun.c D_80032464) */
 #define HG_RW         256              /* rwdata words per instance */
-#define HG_RANGE_M    100.0f           /* farther off, the Pchr model: draw calls are the cost (10 and 50 m swapped in sight, user) */
 #define HG_ROCKET_US  1600000          /* the launcher's reload, after its owner fires */
 
 typedef struct
@@ -479,12 +478,6 @@ s32 gevrHeldGunCompute(ChrRecord *chr, PropRecord *weapon, GUNHAND hand, Mtxf *b
 
     if (inst == NULL || !VrDetailedGuns || weapon == NULL || weapon->weapon == NULL || pchr == NULL
         || chr->fadealpha < 0xff || g_gevrExtraPass)
-    {
-        return FALSE;
-    }
-
-    /* the view's depth of the hand, in metres (view units are 1 / D_800364CC cm) */
-    if (D_800364CC > 1e-6f && -base->m[3][2] / (100.0f * D_800364CC) > HG_RANGE_M)
     {
         return FALSE;
     }
