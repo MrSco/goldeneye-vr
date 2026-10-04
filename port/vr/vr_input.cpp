@@ -1201,7 +1201,7 @@ static WeaponRecoilProfile GetRecoilProfileForWeapon(int wnum)
 /*
  * GoldenEye's guns on Perfect Dark VR's profiles above (launcher "Per-gun
  * recoil", VrPerWeaponRecoil), by the nearest PD gun (gevr_recoil.h; the
- * game side names the class, port/src/input.c gevrRecoilClass). A two-handed
+ * game side names the class and its share, port/src/input.c gevrRecoilFor). A two-handed
  * hold (issue #35) takes PD's two-handed profile where it has one. Knives,
  * throwables and gadgets do not kick.
  */
@@ -1278,11 +1278,15 @@ extern "C" void vrRecoilNotifyShotFired(int handnum)
  * through the grip poses the game reads (gevrRecoilGripPose).
  */
 extern "C" int gevrStereoTwoHandGrip(void);   // bondview2.c: issue #35's hold
-extern "C" void vrRecoilKick(int gunhand, int recoilClass)
+extern "C" void vrRecoilKick(int gunhand, int recoilClass, float strength)
 {
     if (!VrPerWeaponRecoil || (gunhand != 0 && gunhand != 1)) return;
     const int ctrl = 1 - gunhand;
-    const WeaponRecoilProfile p = GetRecoilProfileForGEClass(recoilClass, gunhand == 0 && gevrStereoTwoHandGrip() != 0);
+    WeaponRecoilProfile p = GetRecoilProfileForGEClass(recoilClass, gunhand == 0 && gevrStereoTwoHandGrip() != 0);
+    // the gun's own share of its class's kick (port/src/input.c gevrRecoilFor)
+    p.kickPitch *= strength;
+    p.kickYaw *= strength;
+    p.kickPush *= strength;
     sRecoilProfile[ctrl] = p;
     RecoilFireImpulse(ctrl, p);
 }
