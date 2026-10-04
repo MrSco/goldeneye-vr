@@ -4471,6 +4471,115 @@ static void gevrMaybeDumpDl(const Gfx* commands) {
 static void gevrMaybeDumpDl(const Gfx*) {}
 #endif
 
+#ifdef GEVR
+/*
+ * Issue #95: warm the pack images of a model the stage can put in Bond's
+ * hand (bondview_r.c gevrPreloadStageGuns), so a weapon switch finds them
+ * decoded instead of showing the N64 textures while the worker catches up.
+ * The model's display lists go through the same texture state handlers and
+ * checksum (gevr_texpack_lookup) a real draw uses, at each triangle whose
+ * textures changed, and nothing is drawn or uploaded. Runs on the game
+ * thread during a stage load, which is also the render thread, so the RDP
+ * state it borrows is saved and put back around it.
+ */
+static int gevr_warm_dl(const Gfx* cmd, std::unordered_set<int>& ids, int depth) {
+    int found = 0;
+    for (int n = 0; n < 4096 && depth < 8; ++n, ++cmd) {
+        switch (cmd->words.w0 >> 24) {
+            case G_DL: {
+                const Gfx* sub = (const Gfx*)seg_addr(cmd->words.w1);
+                if (sub == nullptr) break;
+                if (C0(16, 1) == 0) {
+                    found += gevr_warm_dl(sub, ids, depth + 1);
+                } else {
+                    cmd = sub - 1;
+                }
+                break;
+            }
+            case (uint8_t)G_ENDDL:
+                return found;
+            case (uint8_t)G_TEXTURE:
+                if (rdp.first_tile_index != C0(8, 3)) {
+                    rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+                    rdp.first_tile_index = C0(8, 3);
+                }
+                break;
+            case (uint8_t)G_SETOTHERMODE_L:
+                gfx_sp_set_other_mode(C0(8, 8), C0(0, 8), cmd->words.w1);
+                break;
+            case (uint8_t)G_SETOTHERMODE_H:
+                gfx_sp_set_other_mode(C0(8, 8) + 32, C0(0, 8), (uint64_t)cmd->words.w1 << 32);
+                break;
+            case G_SETTIMG:
+                gfx_dp_set_texture_image(C0(21, 3), C0(19, 2), C0(0, 10), 0, seg_addr(cmd->words.w1));
+                break;
+            case G_SETTILE:
+                gfx_dp_set_tile(C0(21, 3), C0(19, 2), C0(9, 9), C0(0, 9), C1(24, 3), C1(20, 4), C1(18, 2), C1(14, 4),
+                                C1(10, 4), C1(8, 2), C1(4, 4), C1(0, 4));
+                break;
+            case G_SETTILESIZE:
+                gfx_dp_set_tile_size(C1(24, 3), C0(12, 12), C0(0, 12), C1(12, 12), C1(0, 12));
+                break;
+            case G_LOADBLOCK:
+                gfx_dp_load_block(C1(24, 3), C0(12, 12), C0(0, 12), C1(12, 12), C1(0, 12));
+                break;
+            case G_LOADTILE:
+                gfx_dp_load_tile(C1(24, 3), C0(12, 12), C0(0, 12), C1(12, 12), C1(0, 12));
+                break;
+            case G_LOADTLUT:
+                gfx_dp_load_tlut(C1(24, 3), C0(14, 10), C0(2, 10), C1(14, 10), C1(2, 10));
+                break;
+            case (uint8_t)G_TRI1:
+            case (uint8_t)G_TRI4:
+                for (int i = 0; i < 2; ++i) {
+                    if (!rdp.textures_changed[i]) continue;
+                    rdp.textures_changed[i] = false;
+                    const int tile = rdp.first_tile_index + gfx_lod_tile_offset(i);
+                    const LoadedTexture& lt = rdp.loaded_texture[rdp.texture_tile[tile].tmem];
+                    uint32_t hw, hh;
+                    const int id = gevr_texpack_lookup(tile, lt, &hw, &hh);
+                    if (id >= 0 && ids.insert(id).second) {
+                        gevrtp::preloadStage(id);
+                        ++found;
+                    }
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return found;
+}
+
+/* seg5: the model file the lists' segment-5 references are offsets into */
+extern "C" int gevrTexpackWarmDl(const void* dl, const void* seg5) {
+    static std::unordered_set<int> s_ids;
+    if (dl == nullptr) {   /* a new stage */
+        s_ids.clear();
+        gevrtp::stageBegin();
+        return 0;
+    }
+    if (!s_tpActive) return 0;
+    static RDP saved;
+    saved = rdp;
+    uint8_t palette[sizeof(s_filterPalette)];
+    memcpy(palette, s_filterPalette, sizeof(palette));
+    const uint32_t tlutEnd = s_gevrTlutEnd;
+    const uintptr_t seg = segmentPointers[5];
+    const bool dump = s_tdOn;
+    s_tdOn = false;   /* the lookup notes dump names for the next upload, which is not this */
+    segmentPointers[5] = (uintptr_t)seg5;
+    rdp.textures_changed[0] = rdp.textures_changed[1] = true;
+    const int found = gevr_warm_dl((const Gfx*)dl, s_ids, 0);
+    segmentPointers[5] = seg;
+    s_tdOn = dump;
+    s_gevrTlutEnd = tlutEnd;
+    memcpy(s_filterPalette, palette, sizeof(palette));
+    rdp = saved;
+    return found;
+}
+#endif
+
 extern "C" void gfx_run(Gfx* commands) {
     ++num_dls;
     s_surfaceSampleFrame = false;
