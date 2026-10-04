@@ -76,6 +76,7 @@ extern s32 gevrGexHeld(s32 hand);         /* gun.c: the hand's gun is a GoldenEy
 extern s32 gevrScopeFitIndex(void);       /* bondview2.c: the gun hand's scope in VrScopeFit, or -1 */
 int gevrScopeFitting;                     /* Gun fit is moving the gun's scope (X), for bondview2.c */
 int gevrReloadFitting;                    /* Gun fit is setting Hand reload's places (X), for bondview2.c */
+int gevrOffHandFitting;                   /* Gun fit is moving GE-X's off hand (X), for bondview2.c */
 extern s32 gevrReloadFitAvailable(void);  /* bondview2.c */
 extern void gevrReloadFitSetGrab(void);
 extern void gevrReloadFitSetBelt(void);
@@ -1166,6 +1167,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             if (scope < 0) gevrScopeFitting = 0;
             if (!fitting || !gevrReloadFitAvailable()) gevrReloadFitting = 0;
+            if (!gex) gevrOffHandFitting = 0;
             if (fitting && !fitWas) {
                 gevrGunFitSaved(false);
                 gevrGadgetFitBegin();
@@ -1183,21 +1185,20 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 float ry = fabsf(right.y) < dz ? 0.0f : right.y;
                 float rx = fabsf(right.x) < dz ? 0.0f : right.x;
                 const s32 gadget = gevrGadgetFitItem();
-                /* X: the gun, its scope, Hand reload's places, round again */
+                /* X: the gun, its scope, Hand reload's places, GE-X's off hand, round again
+                 * (bondview2.c gevrFitNextLine says which is next) */
                 const bool x = get_button_state(0, "x");
                 if (x && !xHeld && gadget < 0) {
-                    const bool canReload = gevrReloadFitAvailable();
-                    if (gevrScopeFitting) {
-                        gevrScopeFitting = 0;
-                        gevrReloadFitting = canReload;
-                    } else if (gevrReloadFitting) {
-                        gevrReloadFitting = 0;
-                    } else if (scope >= 0) {
-                        gevrScopeFitting = 1;
-                    } else {
-                        gevrReloadFitting = canReload;
-                    }
-                    LOGI("input: gun fit on the %s\n", gevrScopeFitting ? "scope" : gevrReloadFitting ? "reload" : "gun");
+                    static const char *const names[4] = { "gun", "scope", "reload", "off hand" };
+                    const bool can[4] = { true, scope >= 0, gevrReloadFitAvailable() != 0, gex != 0 };
+                    int mode = gevrScopeFitting ? 1 : gevrReloadFitting ? 2 : gevrOffHandFitting ? 3 : 0;
+                    do {
+                        mode = (mode + 1) % 4;
+                    } while (!can[mode]);
+                    gevrScopeFitting = mode == 1;
+                    gevrReloadFitting = mode == 2;
+                    gevrOffHandFitting = mode == 3;
+                    LOGI("input: gun fit on the %s\n", names[mode]);
                 }
                 xHeld = x;
                 /* the reload mode: the off hand where the magazine is taken (the left
@@ -1219,13 +1220,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         gevrGadgetFitNudge(gadget, mx * rate * dt * side, ry * rate * dt, my * rate * dt, 0, 0, 0, rx * 0.5f * dt);
                     }
                 } else if (gevrReloadFitting) {
-                    /* a GoldenEye X magazine in the off hand: the sticks move it
-                     * there, as the gun is moved on its hand */
-                    if (gevrGexMagState(GUNRIGHT, NULL) == 2) {   /* GEVR_GEXMAG_INHAND */
-                        VrGexHeldMag[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
-                        VrGexHeldMag[2] -= my * rate * dt;
-                        VrGexHeldMag[1] += ry * rate * dt;
-                    }
+                    /* the places are shown with the off hand (above): the sticks rest */
+                } else if (gevrOffHandFitting) {
+                    /* GE-X's off hand, empty or holding a magazine (user: it sat
+                     * ahead of the hand): the sticks move it, as the gun on its hand */
+                    VrGexHeldMag[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
+                    VrGexHeldMag[2] -= my * rate * dt;
+                    VrGexHeldMag[1] += ry * rate * dt;
                 } else if (gevrScopeFitting) {
                     /* the scope's lens, as the gun moves, and the turn stick's
                      * sideways makes it wider or narrower */
@@ -1278,7 +1279,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 left.x = left.y = right.x = right.y = 0.0f;
             }
             if (fitWas && !fitting) gevrGadgetFitEnd(-1);   /* paused, put away or switched off: the edits stay, unsaved */
-            if (!fitting) gevrScopeFitting = 0;
+            if (!fitting) gevrScopeFitting = gevrOffHandFitting = 0;
             fitWas = fitting;
             /* 1 fitting; 2 on in a level with nothing that fits in hand (bondview2.c says so) */
             gevrGunFitActive = fitting ? 1 : (VrGunFitArmed && !menu && g_gevrStereo) ? 2 : 0;

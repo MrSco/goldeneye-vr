@@ -2640,8 +2640,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
      */
     {
         extern s32 gevrStereoTwoHandGrip(void);
+        extern s32 gevrGexLeftHandShown(void);   /* gun.c: GoldenEye X's own left hand holds it */
 
-        if (gevrStereoTwoHandGrip())
+        if (gevrStereoTwoHandGrip() && !gevrGexLeftHandShown())
         {
             gdl = gevrRenderLeftArm(gdl, &renderdata);
         }
@@ -2840,8 +2841,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
             if (hands != NULL)
             {
+                extern Gfx *gevrGexDrawWatch(Gfx *gdl, ModelRenderData *templ, GUNHAND hand);
+
                 hands->render_pos = handptr->weaponModel.render_pos;
                 subdraw(&renderdata, hands);
+                renderdata.gdl = gevrGexDrawWatch(renderdata.gdl, &renderdata, handnum);
             }
         }
 #endif
@@ -2890,7 +2894,14 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
         if (!gevrStereoTwoHandGrip())
         {
-            gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
+            /* GoldenEye X's left arm with the watch (gun.c), else the watch arm */
+            extern Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn);
+
+            gdl = gevrGexDrawOffHand(gdl, &renderdata, &drawn);
+            if (!drawn)
+            {
+                gdl = gevrRenderLeftWatchArm(gdl, &renderdata, &drawn);
+            }
             if (!drawn)
             {
                 gdl = gevrRenderLeftArm(gdl, &renderdata);
