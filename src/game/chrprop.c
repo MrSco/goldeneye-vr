@@ -2299,6 +2299,21 @@ static f32 gevrHandModelDistance(Model *model, const f32 p[3])
     return best;
 }
 
+/*
+ * The hand is in view units, world units times D_800364CC in stereo (0.2 on
+ * the Dam), but the props' camera-space matrices carry no scale (see
+ * gevrViewToWorldPos): the hand point is divided by it before the props are
+ * measured, and their distances multiplied back, so callers keep the hand's
+ * units. Without it a touched console measured 1.2 m away on the Dam (user).
+ */
+static f32 gevrHandViewScale(void)
+{
+    extern s32 g_gevrStereo;
+    extern f32 D_800364CC;
+
+    return g_gevrStereo && D_800364CC > 1e-6f ? D_800364CC : 1.0f;
+}
+
 /* a door's own box (projectileLineTestModel's door test) on its root matrix, when its model has none */
 static f32 gevrHandDoorDistance(DoorRecord *door, const f32 p[3])
 {
@@ -2333,6 +2348,12 @@ PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
     f32 bestdist = kind == GEVR_HAND_PICKUP ? 1.4f * reach : reach;   /* a pickup may be under the hand (below) */
     coord3d up = { 0.0f, 1.0f, 0.0f };
     f32 len;
+    f32 s = gevrHandViewScale();
+    f32 q[3];
+
+    q[0] = p[0] / s;   /* the props' units */
+    q[1] = p[1] / s;
+    q[2] = p[2] / s;
 
     /* the room's up in view space, for a pickup the hand is held over */
     mtx4RotateVecInPlace(camGetWorldToScreenMtxf(), &up);
@@ -2415,7 +2436,7 @@ PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
             continue;
         }
 
-        dist = (prop->type == PROP_TYPE_DOOR ? gevrHandDoorDistance(prop->door, p) : gevrHandModelDistance(prop->obj->model, p));
+        dist = s * (prop->type == PROP_TYPE_DOOR ? gevrHandDoorDistance(prop->door, q) : gevrHandModelDistance(prop->obj->model, q));
         if (kind == GEVR_HAND_PICKUP && dist >= bestdist && prop->obj->model->render_pos != NULL)
         {
             /*
@@ -2429,14 +2450,14 @@ PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
 
             for (k = 0; k < 3; k++)
             {
-                d[k] = m0->m[3][k] - p[k];
+                d[k] = m0->m[3][k] - q[k];
             }
             vert = d[0] * up.x + d[1] * up.y + d[2] * up.z;
             for (k = 0; k < 3; k++)
             {
                 d[k] -= vert * up.f[k];
             }
-            horiz = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+            horiz = s * sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
             if (vert < 0.0f && horiz < bestdist)
             {
                 dist = horiz;
@@ -2466,7 +2487,12 @@ PropRecord *gevrHandNearestAny(const f32 p[3], f32 *distOut)
     PropRecord **ptr;
     PropRecord *best = NULL;
     f32 bestdist = 1e30f;
+    f32 s = gevrHandViewScale();
+    f32 q[3];
 
+    q[0] = p[0] / s;
+    q[1] = p[1] / s;
+    q[2] = p[2] / s;
     g_gevrHandNearestScanned = 0;
     g_gevrHandNearestBoxed = 0;
 
@@ -2480,9 +2506,9 @@ PropRecord *gevrHandNearestAny(const f32 p[3], f32 *distOut)
         {
             continue;
         }
-        dist = (prop->type == PROP_TYPE_DOOR ? gevrHandDoorDistance(prop->door, p) : gevrHandModelDistance(prop->obj->model, p));
+        dist = s * (prop->type == PROP_TYPE_DOOR ? gevrHandDoorDistance(prop->door, q) : gevrHandModelDistance(prop->obj->model, q));
         g_gevrHandNearestScanned++;
-        if (dist < 1e29f)
+        if (dist < 1e29f * s)
         {
             g_gevrHandNearestBoxed++;
         }
@@ -2503,7 +2529,15 @@ f32 gevrHandPropDistance(PropRecord *prop, const f32 p[3])
     {
         return 1e30f;
     }
-    return (prop->type == PROP_TYPE_DOOR ? gevrHandDoorDistance(prop->door, p) : gevrHandModelDistance(prop->obj->model, p));
+    {
+        f32 s = gevrHandViewScale();
+        f32 q[3];
+
+        q[0] = p[0] / s;
+        q[1] = p[1] / s;
+        q[2] = p[2] / s;
+        return s * (prop->type == PROP_TYPE_DOOR ? gevrHandDoorDistance(prop->door, q) : gevrHandModelDistance(prop->obj->model, q));
+    }
 }
 
 /* B's own use of one prop (bond_interact_object): the door or the object's rules. */
