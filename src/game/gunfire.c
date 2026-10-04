@@ -2225,6 +2225,15 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
      * pivoted with the off-hand controller). Its turn is set with the
      * launcher's Gun fit, holding with both hands.
      */
+    {
+        extern s32 gevrGexReloadByHand(f32 *t, f32 off[3]);
+        const s32 bh = gevrGexReloadByHand(NULL, NULL);
+
+        if (bh == 1 || bh == 3)
+        {
+            return gdl;   /* GoldenEye X's left hand has the magazine (gun.c) */
+        }
+    }
     held = gevrStereoTwoHandGrip();
     if (!gevrStereoGunMatrix(held ? GUNRIGHT : GUNLEFT, &armmtx))
     {
@@ -3067,6 +3076,19 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     }
 
     modelUpdateNodeRelations((Model *) &model);
+#ifdef GEVR
+    {
+        /* a GoldenEye X gun sets every joint itself (gun.c; user: the KF7 was missing here) */
+        extern s32 gevrGexHeld(s32 hand);
+        extern void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx);
+
+        if (g_gevrItemModelOverride == NULL && bodymodel == &g_CurrentPlayer->copy_of_body_obj_header[GUNRIGHT]
+            && gevrGexHeld(GUNRIGHT))
+        {
+            gevrGexPoseStill(bodymodel, (Model *) &model, matrices);
+        }
+    }
+#endif
 
     if ((((((itemid == ITEM_GOLDENGUN) || (itemid == ITEM_RUGER)) || (itemid == ITEM_KNIFE)) || (itemid == ITEM_THROWKNIFE)) || (itemid == ITEM_SILVERWPPK)) || (itemid == ITEM_GOLDWPPK))
     {
@@ -5222,7 +5244,13 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             }
         }
 
+#ifdef GEVR
+        extern s32 gevrReloadMagazineHeld(GUNHAND hand);   /* bondview2.c: a magazine on its way in by hand */
+
+        if ((handptr->field_890 >= handptr->field_8B0) && !(((handptr->field_88C < 2))) && !gevrReloadMagazineHeld(hand))
+#else
         if ((handptr->field_890 >= handptr->field_8B0) && !(((handptr->field_88C < 2))))
+#endif
         {
             handptr->weapon_action_state = GUN_ANIM_STATE_RELOAD_RAISE;
             handptr->field_890 = 0.0f;
