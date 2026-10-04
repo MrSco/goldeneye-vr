@@ -2595,6 +2595,8 @@ static const f32 s_gevrClubButt[3] = { -13.0f, 26.75f, -320.0f };
 /* lv.c lvlRender, each frame: ctrl 0 the off hand, 1 the gun hand */
 static s32 s_gevrChopSwing[2];   /* ticks left of "a swing began" (gevrHandChopSwinging) */
 
+s32 gevrReloadHoldsHand(s32 ctrl);   /* below: the hand is reloading, it does not swing */
+
 void gevrHandChopTick(s32 ctrl)
 {
     if (gevrSpectating() || gevrCoopLocalDowned()) return;
@@ -2654,6 +2656,7 @@ void gevrHandChopTick(s32 ctrl)
     if (!g_gevrStereo || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
         || (netIsActive() && g_CurrentPlayer->mpmenuon)
         || g_PlayerIsInTank == 1 || gevrStereoWatchGrip() || (ctrl == 0 && gevrStereoTwoHandGrip())
+        || gevrReloadHoldsHand(ctrl)
         || !gevrGripAxesRaw(ctrl, at, right, up, back))
     {
         s_whiff[ctrl] = 0;
@@ -15503,6 +15506,33 @@ s32 gevrGexMagState(s32 hand, f32 off[3])
         st = st == GEVR_GEXMAG_GRIPPED ? GEVR_GEXMAG_IN : GEVR_GEXMAG_OUT;
     }
     return st;
+}
+
+/*
+ * Hand reload (user: melee swings sounded while reloading): a hand that is
+ * reloading does not swing - the off hand with the magazine, or on its way
+ * to the belt for one; either hand with its grip held while a gun is out
+ * to reload; a gun whose magazine is out, on its way to the belt. Bare
+ * hands still punch, fists clenched or not.
+ */
+s32 gevrReloadHoldsHand(s32 ctrl)
+{
+    extern _Bool get_button_state(int hand_index, const char *button_name);
+    s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
+
+    if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL || ctrl < 0 || ctrl > 1)
+    {
+        return FALSE;
+    }
+    if (ctrl == 0 && (s_gevrMagGrab != 0 || s_gevrGexMag[GUNRIGHT] != GEVR_GEXMAG_IN))
+    {
+        return TRUE;
+    }
+    if (get_button_state(ctrl, "grip") && gevrReloadGun(getCurrentPlayerWeaponId(GUNRIGHT)))
+    {
+        return TRUE;
+    }
+    return s_gevrGexMag[hand] == GEVR_GEXMAG_OUT;
 }
 
 /* lv.c: B or Y where the game would have reloaded: a GoldenEye X gun drops its magazine out */
