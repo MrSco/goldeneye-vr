@@ -2701,6 +2701,24 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             {
                 renderdata.zbufferenabled = 1;
             }
+            else
+            {
+                /*
+                 * A GoldenEye X gun on the screen: its model is Perfect
+                 * Dark's, whose parts come in no order for one viewpoint,
+                 * so undepthed it looked hollow (user). Drawn as Perfect
+                 * Dark draws its guns (bondgun.c bgunRender: viPrepareZbuf):
+                 * depth-tested, on a depth buffer cleared first, so it
+                 * never sinks into a wall (gfx_pc.h G_CLEAR_DEPTH_EXT).
+                 */
+                extern s32 gevrGexHeld(s32 hand);
+
+                if (gevrGexHeld(handnum))
+                {
+                    renderdata.zbufferenabled = 1;
+                    gDPParam(renderdata.gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
+                }
+            }
         }
 #endif
  
