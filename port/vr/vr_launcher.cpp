@@ -2611,9 +2611,11 @@ extern "C" void gevrLauncherRun(void)
                    "Walking over guns still picks them up. Off by default.");
             toggle("Mine re-grab", &VrGestureMineGrab,
                    "The hand at your own stuck remote mine, or a proximity mine\nstill arming: take it back. Single player and co-op host.");
+            toggle("Watch gesture to pause", &VrWatchGesturePause,
+                   "Raise your left wrist to your face to open Bond's watch.\nThe Menu button pauses either way.");
             ImGui::Spacing();
             ImGui::TextColored(gold, "RELOAD & RECOIL (stereo)");
-            toggle("Hand reload", &VrManualReloading,
+            toggle("Hand reload (WIP)", &VrManualReloading,
                    "No auto-reload, and B/Y no longer reload. Squeeze the off hand at the\n"
                    "gun's magazine and pull down; or sweep a pistol, shotgun or a\n"
                    "dual-wielded gun across your chest.");
@@ -2625,6 +2627,7 @@ extern "C" void gevrLauncherRun(void)
                 VrGestureHolster = VrGestureGripUse = VrGestureMineGrab = 1;
                 VrGesturePickup = 0;
                 VrManualReloading = 0;
+                VrWatchGesturePause = 1;
                 VrPerWeaponRecoil = 0;
             }
             ImGui::SameLine();
@@ -2817,8 +2820,6 @@ extern "C" void gevrLauncherRun(void)
                 if (ImGui::Button("Haptics...")) hapticsPage = true;
                 ImGui::Spacing();
                 ImGui::TextColored(gold, "WATCH (stereo)");
-                bool gesture = VrWatchGesturePause != 0;
-                if (ImGui::Checkbox("Watch gesture to pause", &gesture)) VrWatchGesturePause = gesture ? 1 : 0;
                 ImGui::TextUnformatted("Watch face status");
                 ImGui::RadioButton("Off##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_OFF);
                 ImGui::SameLine();

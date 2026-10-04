@@ -180,7 +180,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Right grip** + **A** | Previous weapon |
 | **Hold A** | Weapon wheel above your gun hand: push the other stick toward a category (pistols top, rifles upper right, heavy lower right, gadgets lower left, thrown upper left), pull a trigger to step through the guns in it (gun hand forward, other hand back), let go of A to equip (dual-wield pairs included) |
 | **Hold X** | Left-hand wheel: a second gun for your left hand, any gun you carry that can be dual-wielded (not gadgets). Point with the right stick, step with the triggers, let go to equip. Solo missions, with such a gun in your right hand |
-| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload** on) |
+| **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload (WIP)** on) |
 | **☰ Menu** (left controller) | Pause / Bond's watch |
 | **Hold ☰ Menu** (1.5 s) | Back to the launcher, to change settings or cheats (asks first: A yes, B no) |
 | **Raise left wrist to your face** | Open Bond's watch when **Watch gesture to pause** is enabled |
@@ -189,9 +189,10 @@ the same way as the first time. Your ROM and settings stay where they are.
 
 Real-world movement works too: lean around corners, duck, and step. Ducking behind cover hides you from guards.
 
-**Gestures...** on the launcher's **Controls** tab turns each grip gesture on or off. Anywhere
-else the grip aims as before. It also holds two options that are off by default:
-- **Hand reload**: guns stop reloading themselves, and B/Y stop reloading. Pull an SMG's or
+**Gestures...** on the launcher's **Controls** tab turns each grip gesture on or off, and holds
+**Watch gesture to pause**. Anywhere else the grip aims as before. It also holds two options
+that are off by default:
+- **Hand reload (WIP)**: guns stop reloading themselves, and B/Y stop reloading. Pull an SMG's or
   rifle's magazine down with your off hand, or sweep a pistol, shotgun or dual-wielded gun
   across your chest.
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
@@ -210,7 +211,7 @@ To walk with the left stick anyway, tick **Swap sticks** as well.
 displays, **On** (the default) shows both wrist and standard status, and **Only** shows
 wrist status during stereo gameplay. Holster the offhand to see the watch; its clock
 hands still show mission time. Pause-menu status stays visible in every setting,
-and virtual-screen mode keeps its standard displays. Disable **Watch gesture to pause**
+and virtual-screen mode keeps its standard displays. Disable **Watch gesture to pause** (under **Gestures...**)
 to read your wrist without opening the pause menu; the Menu button still pauses.
 
 ### Virtual screen (flat play, menus and cutscenes)
