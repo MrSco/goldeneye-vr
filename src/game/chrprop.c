@@ -2044,14 +2044,32 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
  * Returns 0 with no guard in touch, 1 with one in touch that the hand is not
  * moving into, 2 moving into one: struck if `land`, else only reported (the
  * hand is still recovering from its last blow). The whiff is the caller's.
+ *
+ * The hand comes in view units, world units times D_800364CC (0.2 on the Dam
+ * and Surface), but a guard's box from his model's matrices carries no scale:
+ * the segment and touch are divided by it first, as the grip gestures do
+ * (gevrHandViewScale). Without it a blow on the Dam reached a fifth as far
+ * as in Facility (user, 2026-10-04: harder to melee on the Dam).
  */
-s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id,
+static f32 gevrHandViewScale(void);
+
+s32 gevrChopHit(const f32 fromview[3], const f32 toview[3], f32 touchview, const f32 dir[3], s32 item_id,
                 const f32 vel[3], f32 need, s32 land, f32 *into)
 {
     PropRecord *playerprop = getCurrentPlayerProp();
     f32 ducking = bondviewGetPlayerDuckingHeightRelated(g_CurrentPlayer);
     PropRecord **propptr;
     s32 hit = 0;
+    f32 s = gevrHandViewScale();
+    f32 from[3], to[3];
+    f32 touch = touchview / s;
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        from[i] = fromview[i] / s;
+        to[i] = toview[i] / s;
+    }
 
     *into = 0.0f;
 
@@ -2305,6 +2323,7 @@ static f32 gevrHandModelDistance(Model *model, const f32 p[3])
  * gevrViewToWorldPos): the hand point is divided by it before the props are
  * measured, and their distances multiplied back, so callers keep the hand's
  * units. Without it a touched console measured 1.2 m away on the Dam (user).
+ * gevrChopHit measures the guards the same way.
  */
 static f32 gevrHandViewScale(void)
 {

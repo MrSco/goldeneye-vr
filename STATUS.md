@@ -26,7 +26,9 @@ both off). Room decals draw one pass pulled by a reach of 3 x D_800364CC
 (v0.4.5's 80 drew the Dam bridge's shadows through it; bisected live with
 gevr_decal.txt mode 4) and are no longer cut in front (#72/#84). The watch
 pause sits on the room's virtual screen, not pinned to the view. Notes:
-docs/upstream-vr453-features.md.
+docs/upstream-vr453-features.md. Then (#112): free-hand melee measures the
+hand in the guards' units, so blows on the Dam and Surface reach as far as
+in Facility.
 
 **v0.4.5:** optional Meta Quest passthrough behind the 2D virtual screen,
 saved in goldeneye-vr.ini and toggled in the SCREEN tab; Frigate hull "06"
@@ -124,9 +126,7 @@ is goldeneyevr.com, in its own repository.
   room decal reach) and cryptdoor logging; the optional surface probe is
   disabled unless its marker is present.
 - #111 WIP: hand reload, hip holster and grip to hand need refining; grip to
-  hand and the game rules are untested in real play / on two headsets. The
-  free-hand melee may compare the hand in view units with unscaled guard
-  boxes on the Dam and Surface (D_800364CC 0.2), as the grip gestures did.
+  hand and the game rules are untested in real play / on two headsets.
 - GoldenEye X guns and reloads (port Dab's Mod's GE-X import): planned
   2026-10-04, not started; the player's own patched ROM, nothing committed.
 - Use `git worktree list` for active checkouts. Unmerged: feature/xbla-hd,
