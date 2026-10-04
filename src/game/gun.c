@@ -1248,6 +1248,108 @@ static void gevrGexAnimPart(s32 anim, f32 frame, s32 part, f32 rot[3], f32 trans
     }
 }
 
+/* each joint from its parent (the description below), the root from base */
+static void gevrGexPoseWalk(ModelFileHeader *hdr, const Mtxf *base, s32 anim, f32 frame, Mtxf *rwmtx)
+{
+    ModelNode *node = hdr->RootNode;
+    Mtxf offset;
+
+    while (node != NULL)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
+        {
+            ModelRoData_GroupRecord *group = &node->Data->Group;
+            ModelNode *up = node->Parent;
+            const Mtxf *parent = base;
+
+            while (up != NULL && (up->Opcode & 0xff) != MODELNODE_OPCODE_GROUP)
+            {
+                up = up->Parent;
+            }
+            if (up != NULL && up->Data->Group.MatrixID0 < hdr->numMatrices)
+            {
+                parent = &rwmtx[up->Data->Group.MatrixID0];
+            }
+            if (group->MatrixID0 >= 0 && group->MatrixID0 < hdr->numMatrices)
+            {
+                f32 rot[3], trans[3], pos[3];
+
+                gevrGexAnimPart(anim, frame, group->JointID, rot, trans);
+                if (up == NULL)
+                {
+                    pos[0] = trans[0];
+                    pos[1] = trans[1];
+                    pos[2] = trans[2];
+                }
+                else
+                {
+                    pos[0] = trans[0] + group->Origin.x;
+                    pos[1] = trans[1] + group->Origin.y;
+                    pos[2] = trans[2] + group->Origin.z;
+                }
+                gevrPdMtxRotTrans(rot, pos, offset.m);
+                matrix_4x4_multiply((Mtxf *) parent, &offset, &rwmtx[group->MatrixID0]);
+            }
+        }
+
+        if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+            node = node != NULL ? node->Next : NULL;
+        }
+    }
+}
+
+/*
+ * On the screen (user: it did not look right) the gun body sits where
+ * GoldenEye's KF7 did. GE-X's KF7 is GoldenEye's mesh on Perfect Dark's
+ * skeleton: its vertices are GoldenEye's in the gun joint's frame (33),
+ * 22 units lower (measured from both ROMs), where GoldenEye drew them in
+ * the gun matrix's own. So the root goes where that joint, at rest, lands
+ * on the gun matrix 22 units up: the gun matrix, the 22 units, then the
+ * rest pose's joint undone. The animation then moves the gun from there,
+ * hands and all. The headset keeps the root on the controller, as
+ * Perfect Dark VR does, where Gun fit places it (the user fitted it so).
+ */
+#define GEVR_GEX_KF7_GUN_JOINT  33
+#define GEVR_GEX_KF7_GE_DY      22.0f
+
+static void gevrGexScreenAnchor(ModelFileHeader *hdr, Mtxf *anchor)
+{
+    static Mtxf rest[64];
+    Mtxf ident, up, inv;
+    const Mtxf *g;
+    s32 i, j;
+
+    matrix_4x4_set_identity(&ident);
+    gevrGexPoseWalk(hdr, &ident, GEVR_GEX_KF7_FIRE_ANIM, 0.0f, rest);
+    g = &rest[GEVR_GEX_KF7_GUN_JOINT];
+
+    /* the joint undone: rotation transposed, translation turned back */
+    matrix_4x4_set_identity(&inv);
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            inv.m[i][j] = g->m[j][i];
+        }
+    }
+    for (j = 0; j < 3; j++)
+    {
+        inv.m[3][j] = -(g->m[3][0] * g->m[j][0] + g->m[3][1] * g->m[j][1] + g->m[3][2] * g->m[j][2]);
+    }
+    matrix_4x4_set_identity(&up);
+    up.m[3][1] = GEVR_GEX_KF7_GE_DY;
+    matrix_4x4_multiply(&up, &inv, anchor);
+}
+
 /*
  * A GE-X gun's joints. GoldenEye's gun code sets each of its own models'
  * few matrices by hand (gunfire.c); Perfect Dark derives every joint from
@@ -1260,9 +1362,8 @@ static void gevrGexAnimPart(s32 anim, f32 frame, s32 part, f32 rot[3], f32 trans
  */
 void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND hand)
 {
-    ModelNode *node = hdr->RootNode;
+    extern s32 g_gevrStereo;
     Mtxf base;
-    Mtxf offset;
     s32 p = get_cur_playernum();
     f32 phase = gevrReloadPhase(hand);
     f32 fire = (p >= 0 && p < MAX_PLAYER_COUNT) ? s_gevrGexFire[p][hand] : -1.0f;
@@ -1304,58 +1405,14 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     }
 
     matrix_4x4_copy(&rwmtx[0], &base);
-
-    while (node != NULL)
+    if (!g_gevrStereo && hdr->numMatrices > GEVR_GEX_KF7_GUN_JOINT && hdr->numMatrices <= 64)
     {
-        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
-        {
-            ModelRoData_GroupRecord *group = &node->Data->Group;
-            ModelNode *up = node->Parent;
-            Mtxf *parent = &base;
+        Mtxf anchor;
 
-            while (up != NULL && (up->Opcode & 0xff) != MODELNODE_OPCODE_GROUP)
-            {
-                up = up->Parent;
-            }
-            if (up != NULL && up->Data->Group.MatrixID0 < hdr->numMatrices)
-            {
-                parent = &rwmtx[up->Data->Group.MatrixID0];
-            }
-            if (group->MatrixID0 >= 0 && group->MatrixID0 < hdr->numMatrices)
-            {
-                f32 rot[3], trans[3], pos[3];
-
-                gevrGexAnimPart(anim, frame, group->JointID, rot, trans);
-                if (up == NULL)
-                {
-                    pos[0] = trans[0];
-                    pos[1] = trans[1];
-                    pos[2] = trans[2];
-                }
-                else
-                {
-                    pos[0] = trans[0] + group->Origin.x;
-                    pos[1] = trans[1] + group->Origin.y;
-                    pos[2] = trans[2] + group->Origin.z;
-                }
-                gevrPdMtxRotTrans(rot, pos, offset.m);
-                matrix_4x4_multiply(parent, &offset, &rwmtx[group->MatrixID0]);
-            }
-        }
-
-        if (node->Child != NULL)
-        {
-            node = node->Child;
-        }
-        else
-        {
-            while (node != NULL && node->Next == NULL)
-            {
-                node = node->Parent;
-            }
-            node = node != NULL ? node->Next : NULL;
-        }
+        gevrGexScreenAnchor(hdr, &anchor);
+        matrix_4x4_multiply(&rwmtx[0], &anchor, &base);
     }
+    gevrGexPoseWalk(hdr, &base, anim, frame, rwmtx);
 }
 
 static void gevrGexGunDone(void)
@@ -1364,6 +1421,120 @@ static void gevrGexGunDone(void)
     gevrGexPendingFile = NULL;
     gevrGexPendingLen = 0;
     g_gevrHandPatchSkip = FALSE;
+}
+
+/*
+ * GoldenEye X's hands (docs/gex-weapons.md, Hands). Perfect Dark draws a
+ * hand model - per outfit; GE-X's Bond wears Ghand_jowetsuitZ - with the
+ * gun model's own matrices (pdvr bondgun.c: handmodel.matrices =
+ * gunmodel.matrices), every first-person gun carrying the same hand
+ * skeleton: 0 the root, 1-16 the right hand, 17-32 the left. So it
+ * follows the gun's animation. Built as the gun is and loaded into its
+ * own buffer through the KF7's file (ob.c takes it in that one's place),
+ * a stage at a time as the taser hand is (gunfire.c). Its two meshes are
+ * its switches: the left hand (PD part 53) and the right (54).
+ * In the headset the left one stays hidden, as Perfect Dark VR hides it:
+ * the player's own off hand is there.
+ */
+#define GEVR_GEX_HAND_BUFSIZE   0x50000
+#define GEVR_GEX_HAND_MODELSIZE 0x20000
+#define GEVR_GEX_HAND_SW_LEFT   0
+#define GEVR_GEX_HAND_SW_RIGHT  1
+
+/* the hand's one GoldenEye texture (the others are GE-X's own), by pixels */
+static const u16 s_gevrGexHandTextures[] = {
+    1273, 1921,
+    0
+};
+
+extern LEVELID bossGetStageNum(void);
+extern s32 g_gevrStereo;
+
+static u8 *s_gevrGexHandBuf;
+static struct texpool s_gevrGexHandPool;
+static ModelFileHeader s_gevrGexHandHeader;
+static Model s_gevrGexHandModel;
+static u32 s_gevrGexHandRw[128];
+static s32 s_gevrGexHandStage = -1;
+static s32 s_gevrGexHandReady;
+
+static s32 gevrGexHandLoad(void)
+{
+    const s32 parts[2] = { 53, 54 };
+    ModelFileHeader *tmpl = gitem_structs[ITEM_AK47].item_header;
+    const char *carrier = (const char *) gitem_structs[ITEM_AK47].item_file_name;
+    u32 len = 0;
+    u16 mtx = 0, tex = 0;
+
+    if (s_gevrGexHandStage == bossGetStageNum())
+    {
+        return s_gevrGexHandReady;
+    }
+    s_gevrGexHandStage = bossGetStageNum();
+    s_gevrGexHandReady = FALSE;
+    if (tmpl == NULL || carrier == NULL)
+    {
+        return FALSE;
+    }
+    if (s_gevrGexHandBuf == NULL)
+    {
+        s_gevrGexHandBuf = malloc(GEVR_GEX_HAND_BUFSIZE);
+        if (s_gevrGexHandBuf == NULL)
+        {
+            return FALSE;
+        }
+    }
+    gevrGexPendingFile = gevrGexBuildModel("Ghand_jowetsuitZ", 2, parts, s_gevrGexHandTextures, &len, &mtx, &tex);
+    if (gevrGexPendingFile == NULL)
+    {
+        return FALSE;
+    }
+    gevrGexPendingLen = len;
+    s_gevrGexHandHeader = *tmpl;
+    s_gevrGexHandHeader.numSwitches = 2;
+    s_gevrGexHandHeader.numMatrices = mtx;
+    s_gevrGexHandHeader.numtextures = tex;
+    g_gevrHandPatchSkip = TRUE;
+    texInitPool(&s_gevrGexHandPool, s_gevrGexHandBuf + GEVR_GEX_HAND_MODELSIZE,
+                GEVR_GEX_HAND_BUFSIZE - GEVR_GEX_HAND_MODELSIZE);
+    load_object_fill_header(&s_gevrGexHandHeader, (u8 *) carrier, s_gevrGexHandBuf, GEVR_GEX_HAND_MODELSIZE,
+                            &s_gevrGexHandPool);
+    gevrGexGunDone();
+    modelCalculateRwDataLen(&s_gevrGexHandHeader);
+    if (s_gevrGexHandHeader.RootNode == NULL
+        || (u32) s_gevrGexHandHeader.numRecords > ARRAYCOUNT(s_gevrGexHandRw)
+        || s_gevrGexHandHeader.Switches[GEVR_GEX_HAND_SW_RIGHT] == NULL)
+    {
+        sysLogPrintf(LOG_ERROR, "gex: hand model did not load (%d records)", s_gevrGexHandHeader.numRecords);
+        return FALSE;
+    }
+    sysLogPrintf(LOG_NOTE, "gex: hands loaded (%u bytes, %d matrices)", len, s_gevrGexHandHeader.numMatrices);
+    s_gevrGexHandReady = TRUE;
+    return TRUE;
+}
+
+/* gunfire.c, after a GoldenEye X gun: its hands, ready for the gun's
+ * matrices, or NULL */
+Model *gevrGexHands(GUNHAND hand)
+{
+    ModelFileHeader *hdr = &s_gevrGexHandHeader;
+    s32 i;
+
+    if (!gevrGexHandLoad())
+    {
+        return NULL;
+    }
+    modelInit(&s_gevrGexHandModel, hdr, s_gevrGexHandRw);
+    for (i = 0; i < hdr->numSwitches; i++)
+    {
+        s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(&s_gevrGexHandModel, hdr->Switches[i]) : NULL;
+
+        if (visible != NULL)
+        {
+            *visible = i == GEVR_GEX_HAND_SW_RIGHT || !g_gevrStereo;
+        }
+    }
+    return &s_gevrGexHandModel;
 }
 #endif
 
