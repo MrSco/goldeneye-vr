@@ -16,7 +16,7 @@ e431819 (v0.4.5).
 | 0c5cbd4 | MP: other players hold the first-person gun models; launchers carry the rocket | hqguards on the Dam 2026-10-04: launcher fit (scale 1.02) and rocket look fine; range too short |
 | 688d10e | Detailed guns out to 50 m (10 m swapped in sight) | better; user asked for 100 m |
 | 6871745 | Detailed guns out to 100 m | to check |
-| (next) | Every guard holds the detailed guns too, solo and co-op (DetailedGuns=0 turns them all off; hqguards flips guards back to compare) | to check |
+| 8249f70 | Every guard holds the detailed guns too, solo and co-op (DetailedGuns=0 turns them all off; hqguards flips guards back to compare) | to check |
 
 ## Release notes for whoever releases this
 
