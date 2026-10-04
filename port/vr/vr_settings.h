@@ -1,7 +1,7 @@
 
 #define VR_INI_PATH "goldeneye-vr.ini"
 #include "gevr_watch_status.h"
-extern bool VrManualReloading;
+extern int VrManualReloading;
 extern bool VrlaserDotForALL;
 extern bool inputRumbleSupported(int playernum);
 extern int g_ExtMenuPlayer;
@@ -10,7 +10,7 @@ extern float VrStereoCrosshair;
 #define HUD_STEREO_DEPTH_MIN 0.0f
 #define HUD_STEREO_DEPTH_MAX 4.0f
 extern bool VrSeatedMode;
-extern bool VrMotionThrowing;
+extern int VrMotionThrowing;
 extern float VrMotionThrowPitch;
 extern float VrMotionThrowGazeAssist;
 extern float VrMotionThrowStrength;
@@ -70,6 +70,16 @@ extern float VrPlayerHeight;
 // character you are playing, so Elvis is short and Mr Blonde towers.
 extern bool VrMatchCharacterHeight;
 extern float VrUseSnapTurn;
+// Smooth turning, degrees per second (GEVR PC vr443's turn speed).
+#define SMOOTHTURN_MIN  45
+#define SMOOTHTURN_MAX  240
+#define SMOOTHTURN_STEP 15
+extern int VrSmoothTurnSpeed;
+// GEVR PC's grip gestures, one toggle each (vr_settings_defaults.c).
+extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+extern int VrPerWeaponRecoil;   // PD VR's per-weapon recoil table
+extern int VrMinesStickToGuards; // thrown mines stick to guards (GEVR PC vr450.2)
+extern int VrBodiesStay;        // bodies kept: 0 (original fade), 12, 24 or 48
 extern bool VrTwoHandAim;       // two-handed weapons aim along the line between both controllers
 extern int VrStickClickToCrouch;
 extern int VrAimNoLean;         // aiming keeps the move stick moving: no lean, no duck (issue #81)

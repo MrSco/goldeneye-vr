@@ -28,6 +28,13 @@ void alloc_init_GUARDdata_entries(s32 count)
     s32 i;
     
     g_NumChrSlots = count + 10; //special guards?
+#ifdef GEVR
+    {
+        /* chraction.c: the kept bodies were the last stage's */
+        extern void gevrBodiesReset(void);
+        gevrBodiesReset();
+    }
+#endif
 
     g_ChrSlots = mempAllocBytesInBank(align_addr_zero(g_NumChrSlots * sizeof(ChrRecord)), MEMPOOL_STAGE);
     for(i = 0; g_NumChrSlots > i; i++)

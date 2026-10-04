@@ -19,8 +19,8 @@
 
 /* --- Comfort and control options ---------------------------------------- */
 
-bool VrManualReloading    = false;  /* reload by gesture rather than automatically */
-bool VrMotionThrowing     = true;   /* throw grenades, knives and mines by arm motion */
+int  VrManualReloading    = 0;      /* reload by gesture rather than automatically (int: game code reads it) */
+int  VrMotionThrowing     = 1;      /* throw grenades, knives and mines by arm motion (int: game code reads it) */
 float VrMotionThrowPitch  = 0.0f;   /* vertical pitch offset in degrees for motion throws */
 float VrMotionThrowGazeAssist = 0.50f; /* 0..1 gaze direction assist for overhand throws */
 float VrMotionThrowStrength = 1.0f;   /* throw speed / strength multiplier (0.5 .. 2.0) */
@@ -57,6 +57,22 @@ int  vr_invert_hands      = 0;      /* swap which hand holds the weapon */
 
 /* 0 turns snap turning off and uses smooth turning; otherwise the snap angle. */
 float VrUseSnapTurn = 0.0f;
+/* Smooth turning speed in degrees per second (GEVR PC vr443's turn speed;
+ * 120 is PD VR's fixed VR_JOY_TURN_SPEED). */
+int VrSmoothTurnSpeed = 120;
+
+/* GEVR PC's grip gestures (CONTROLS.md, vr450..vr453), one toggle each. A
+ * gesture claims a fresh grip press only with the hand in its zone; any other
+ * press aims as before (port/src/input.c gevrGripArbiter). */
+int VrGestureHolster  = 1;   /* grip at the hip holsters the gun, again draws it (vr451) */
+int VrGestureGripUse  = 1;   /* grip with the hand at a door or switch uses it (vr450, #90) */
+int VrGesturePickup   = 0;   /* Grip to hand: grip at a gun on the floor puts it in that hand (vr451); off by default (user) */
+int VrGestureMineGrab = 1;   /* grip at your own stuck mine takes it back (vr450.2) */
+/* PD VR's per-weapon recoil table instead of the one generic kick. */
+int VrPerWeaponRecoil = 0;
+/* Game rules GEVR PC changed; off keeps the original game's rule. */
+int VrMinesStickToGuards = 0; /* thrown mines stick to guards (vr450.2) */
+int VrBodiesStay = 0;         /* keep this many bodies (0, 12, 24 or 48) instead of fading them */
 
 /* GoldenEye: 1 = true stereo in first-person play, 0 = everything on the virtual
  * screen. See vr_settings.h. */

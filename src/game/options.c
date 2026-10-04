@@ -37,6 +37,20 @@ static void gevrMicOptionInput(void);
 static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y);
 /* Row pitch while the Microphone row shares the eight toggles' space. */
 #define GEVR_MIC_YINC (YINC - 2)
+/*
+ * VR settings (GEVR PC vr453 continues Game Options past ratio with its VR
+ * rows; PD VR has a Virtual Reality page in its pause options). One "VR
+ * settings" row after ratio, or after Microphone in a network game, opens the
+ * rows on this page in place of the retail ones (gevrDrawVrPage).
+ */
+#define GEVR_VR_ROW (netIsActive() ? GAME_OPTIONS_INDEX_MIC + 1 : GAME_OPTIONS_INDEX_MIC)
+/* Row pitch with the extra rows: nine rows solo, ten in a network game. */
+#define GEVR_OPTIONS_YINC (netIsActive() ? (YINC - 3) : GEVR_MIC_YINC)
+static s32 s_gevrVrPage = 0;    /* the Game Options page shows the VR settings */
+static s32 s_gevrVrIndex = 0;   /* the highlighted VR row */
+static void gevrVrPageNavigation(void);
+static Gfx *gevrDrawVrPage(Gfx *gdl);
+static Gfx *gevrDrawVrRow(Gfx *gdl, s32 y);
 #endif
 
 #define WATCH_BACKGROUND_VERTEX_COUNT 30
@@ -330,6 +344,9 @@ void init_watch_at_start_of_stage(int stage)
     watch_screen_index = WATCH_INDEX_MISSION_STATUS;
     controller_options_index = CONTROLLER_OPTIONS_INDEX_STYLE;
     game_options_index = GAME_OPTIONS_INDEX_MUSIC;
+#ifdef GEVR
+    s_gevrVrPage = 0;
+#endif
     mission_brief_index = BRIEF_INDEX_OBJECTIVES;
     D_800409A4 = 0;
     watch_item_is_actively_selected = 0;
@@ -1015,7 +1032,7 @@ void sub_GAME_7F0A5998(void)
 
     if (aux >=
 #ifdef GEVR
-        (netIsActive() ? 11 : 10)
+        GEVR_VR_ROW + 1
 #else
         10
 #endif
@@ -1029,7 +1046,7 @@ void sub_GAME_7F0A5998(void)
     {
         game_options_index =
 #ifdef GEVR
-            netIsActive() ? GAME_OPTIONS_INDEX_MIC : GAME_OPTIONS_INDEX_RATIO;
+            GEVR_VR_ROW;
 #else
             GAME_OPTIONS_INDEX_RATIO;
 #endif
@@ -1041,7 +1058,11 @@ void game_options_music_volume_navigation(void)
 {
     if (joyGetButtonsPressedThisFrame(PLAYER_1, U_CBUTTONS|U_JPAD) || sub_GAME_7F0A5088())
     {
+#ifdef GEVR
+        game_options_index = GEVR_VR_ROW;   /* up from the top wraps to the last row */
+#else
         game_options_index = GAME_OPTIONS_INDEX_RATIO;
+#endif
         disable_watch_stick_y_nav_ready();
         reset_watch_item_is_actively_selected();
         return;
@@ -1532,6 +1553,9 @@ void sub_GAME_7F0A69A8(void)
     }
     reset_watch_item_is_actively_selected();
     watch_screen_index = WATCH_INDEX_MISSION_STATUS;
+#ifdef GEVR
+    s_gevrVrPage = 0;   /* the watch opens on its retail pages */
+#endif
     mission_brief_index = BRIEF_INDEX_OBJECTIVES;
     D_800409C8 = 0.999f;
     D_800409CC = 0.9999f;
@@ -1685,6 +1709,14 @@ void sub_GAME_7F0A6A80(void)
             break;
 
         case WATCH_INDEX_GAME_OPTIONS:
+#ifdef GEVR
+            if (s_gevrVrPage)
+            {
+                /* its own rows; left/right change values, so no page turning */
+                gevrVrPageNavigation();
+                break;
+            }
+#endif
             switch (game_options_index)
             {
                 case GAME_OPTIONS_INDEX_MUSIC:
@@ -1710,8 +1742,24 @@ void sub_GAME_7F0A6A80(void)
                     sub_GAME_7F0A5998();
                     gevrMicOptionInput();
                     break;
+                default:
+                    /* the VR settings row in a network game */
+                    sub_GAME_7F0A5998();
+                    break;
 #endif
             }
+#ifdef GEVR
+            /* A (or fire) on the VR settings row opens its page */
+            if (game_options_index == GEVR_VR_ROW && watch_item_is_actively_selected)
+            {
+                reset_watch_item_is_actively_selected();
+                s_gevrVrPage = 1;
+                s_gevrVrIndex = 0;
+                disable_watch_stick_y_nav_ready();
+                set_controlstick_lr_disabled();
+                break;
+            }
+#endif
             watch_screen3_navigation();
             break;
 
@@ -2875,6 +2923,16 @@ Gfx *draw_options_labels(Gfx *gdl, s32 x, s32 y, char *text, u32 colour, s32 out
     chars = ptrFontBankGothicChars;
 
     textMeasure(&textheight, &textwidth, text, chars, font, 10);
+#ifdef GEVR
+    /* textMeasure adds a line's height at its '\n', and the game's own strings
+     * all end in one. The port's labels ("VR settings", the VR page, the
+     * Microphone row) don't: measured 0 tall, textRender clipped every glyph
+     * and the rows never showed. Count the unfinished last line too. */
+    if (text[0] != '\0' && text[strlen(text) - 1] != '\n')
+    {
+        textheight += 10;
+    }
+#endif
 
     if (centre)
     {
@@ -3762,6 +3820,271 @@ static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y)
 
     return gdl;
 }
+
+
+/*
+ * The VR settings page. The values are the launcher's own (port/vr,
+ * goldeneye-vr.ini), changed live and saved on each change. Up/down picks a
+ * row, left/right steps its value, A steps it forward (wrapping) and A on
+ * Back returns to Game Options. Closing the watch leaves the page too.
+ */
+extern float VrUseSnapTurn;          /* 0 smooth, else the snap angle */
+extern int VrSmoothTurnSpeed;        /* degrees per second, 45..240 */
+extern float VrComfortVignette;      /* 0 off, 0.1..1 */
+extern int VrWatchFaceStatus;        /* 0 off, 1 on, 2 only */
+extern int VrAimSteady;              /* 0 off, 1 low, 2 high */
+extern int VrAimNoLean;
+extern int VrMotionThrowing;
+extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+extern int VrManualReloading;
+extern int VrPerWeaponRecoil;
+extern void vrSettingsSave(void);
+/* port/vr/vr_settings.h's range (that header is C++-side) */
+#define SMOOTHTURN_MIN  45
+#define SMOOTHTURN_MAX  240
+#define SMOOTHTURN_STEP 15
+
+enum {
+    GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_WATCHFACE, GEVR_VR_STEADY,
+    GEVR_VR_NOLEAN, GEVR_VR_THROW, GEVR_VR_HOLSTER, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP,
+    GEVR_VR_MINEGRAB, GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_BACK, GEVR_VR_ROWS
+};
+
+static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
+    "Turning", "Turn speed", "Vignette", "Watch face", "Aim steady",
+    "Aim: no lean", "Motion throw", "Holster WIP", "Grip use", "Grip hand WIP",
+    "Mine re-grab", "Reload WIP", "Gun recoil", "Back"
+};
+
+/* Rows on screen at once; the list scrolls to keep the highlight in view. */
+#define GEVR_VR_VISIBLE 11
+#define GEVR_VR_PITCH   (YINC - 2)
+
+static s32 *gevrVrToggle(s32 row)
+{
+    switch (row)
+    {
+        case GEVR_VR_NOLEAN:   return &VrAimNoLean;
+        case GEVR_VR_THROW:    return &VrMotionThrowing;
+        case GEVR_VR_HOLSTER:  return &VrGestureHolster;
+        case GEVR_VR_GRIPUSE:  return &VrGestureGripUse;
+        case GEVR_VR_PICKUP:   return &VrGesturePickup;
+        case GEVR_VR_MINEGRAB: return &VrGestureMineGrab;
+        case GEVR_VR_RELOAD:   return &VrManualReloading;
+        case GEVR_VR_RECOIL:   return &VrPerWeaponRecoil;
+    }
+    return NULL;
+}
+
+static void gevrVrValueText(s32 row, char *buf)
+{
+    s32 *toggle = gevrVrToggle(row);
+    s32 tenths;
+
+    if (toggle != NULL)
+    {
+        if (row == GEVR_VR_RECOIL)
+        {
+            sprintf(buf, "%s", *toggle ? "PER GUN" : "GENERIC");
+        }
+        else
+        {
+            sprintf(buf, "%s", *toggle ? "ON" : "OFF");
+        }
+        return;
+    }
+
+    switch (row)
+    {
+        case GEVR_VR_TURN:
+            if (VrUseSnapTurn == 0.0f)
+            {
+                sprintf(buf, "%s", "SMOOTH");
+            }
+            else
+            {
+                sprintf(buf, "SNAP %d", (s32) VrUseSnapTurn);
+            }
+            break;
+        case GEVR_VR_TURNSPEED:
+            sprintf(buf, "%d", VrSmoothTurnSpeed);
+            break;
+        case GEVR_VR_VIGNETTE:
+            tenths = (s32) (VrComfortVignette * 10.0f + 0.5f);
+            if (tenths <= 0)
+            {
+                sprintf(buf, "%s", "OFF");
+            }
+            else
+            {
+                sprintf(buf, "%d.%d", tenths / 10, tenths % 10);
+            }
+            break;
+        case GEVR_VR_WATCHFACE:
+            sprintf(buf, "%s", VrWatchFaceStatus == 0 ? "OFF" : VrWatchFaceStatus == 2 ? "ONLY" : "ON");
+            break;
+        case GEVR_VR_STEADY:
+            sprintf(buf, "%s", VrAimSteady <= 0 ? "OFF" : VrAimSteady == 1 ? "LOW" : "HIGH");
+            break;
+        default:
+            buf[0] = '\0';
+            break;
+    }
+}
+
+static s32 gevrVrClampStep(s32 value, s32 dir, s32 lo, s32 hi)
+{
+    if (dir == 2)
+    {
+        return value >= hi ? lo : value + 1;   /* A: next value, wrapping */
+    }
+    value += dir;
+    return value < lo ? lo : value > hi ? hi : value;
+}
+
+/* dir: -1 left, +1 right, 2 = A (next value, wrapping). */
+static void gevrVrStep(s32 row, s32 dir)
+{
+    static const f32 snaps[] = { 0.0f, 30.0f, 45.0f, 90.0f };
+    s32 *toggle = gevrVrToggle(row);
+    s32 i;
+    s32 steps;
+
+    if (toggle != NULL)
+    {
+        *toggle = dir == 2 ? !*toggle : dir > 0;
+        return;
+    }
+
+    switch (row)
+    {
+        case GEVR_VR_TURN:
+            for (i = 0; i < 3 && snaps[i] < VrUseSnapTurn; i++)
+            {
+            }
+            VrUseSnapTurn = snaps[gevrVrClampStep(i, dir, 0, 3)];
+            break;
+        case GEVR_VR_TURNSPEED:
+            steps = (SMOOTHTURN_MAX - SMOOTHTURN_MIN) / SMOOTHTURN_STEP;
+            i = (VrSmoothTurnSpeed - SMOOTHTURN_MIN + SMOOTHTURN_STEP / 2) / SMOOTHTURN_STEP;
+            VrSmoothTurnSpeed = SMOOTHTURN_MIN + gevrVrClampStep(i, dir, 0, steps) * SMOOTHTURN_STEP;
+            break;
+        case GEVR_VR_VIGNETTE:
+            i = (s32) (VrComfortVignette * 10.0f + 0.5f);
+            VrComfortVignette = gevrVrClampStep(i, dir, 0, 10) / 10.0f;
+            break;
+        case GEVR_VR_WATCHFACE:
+            VrWatchFaceStatus = gevrVrClampStep(VrWatchFaceStatus, dir, 0, 2);
+            break;
+        case GEVR_VR_STEADY:
+            VrAimSteady = gevrVrClampStep(VrAimSteady, dir, 0, 2);
+            break;
+    }
+}
+
+static void gevrVrPageNavigation(void)
+{
+    s32 dir = 0;
+
+    if (joyGetButtonsPressedThisFrame(PLAYER_1, U_JPAD) || sub_GAME_7F0A5088())
+    {
+        s_gevrVrIndex = s_gevrVrIndex > 0 ? s_gevrVrIndex - 1 : GEVR_VR_ROWS - 1;
+        disable_watch_stick_y_nav_ready();
+    }
+    else if (joyGetButtonsPressedThisFrame(PLAYER_1, D_JPAD) || sub_GAME_7F0A50C4())
+    {
+        s_gevrVrIndex = s_gevrVrIndex < GEVR_VR_ROWS - 1 ? s_gevrVrIndex + 1 : 0;
+        disable_watch_stick_y_nav_ready();
+    }
+
+    if (joyGetButtonsPressedThisFrame(PLAYER_1, L_JPAD) || sub_GAME_7F0A4FB0())
+    {
+        dir = -1;
+    }
+    else if (joyGetButtonsPressedThisFrame(PLAYER_1, R_JPAD) || sub_GAME_7F0A4FEC())
+    {
+        dir = 1;
+    }
+
+    /* A or fire, through watch_play_beep_sound's selection flag */
+    if (watch_item_is_actively_selected)
+    {
+        reset_watch_item_is_actively_selected();
+        if (s_gevrVrIndex == GEVR_VR_BACK)
+        {
+            s_gevrVrPage = 0;
+            game_options_index = GEVR_VR_ROW;
+            disable_watch_stick_y_nav_ready();
+            set_controlstick_lr_disabled();
+            return;
+        }
+        dir = 2;
+    }
+
+    if (dir != 0 && s_gevrVrIndex != GEVR_VR_BACK)
+    {
+        gevrVrStep(s_gevrVrIndex, dir);
+        set_controlstick_lr_disabled();
+        sndPlaySfx(g_musicSfxBufferPtr, OPTION_CHOOSE_SFX, NULL);
+        vrSettingsSave();
+    }
+}
+
+/* The row on Game Options that opens the page: drawn like the Microphone row's label. */
+static Gfx *gevrDrawVrRow(Gfx *gdl, s32 y)
+{
+    s32 selected = game_options_index == GEVR_VR_ROW;
+
+    gdl = draw_options_labels(gdl, XOFFSET_1, y, "VR settings", selected ? 0xA0FFA0F0 : 0xFF00B0, 0, -1, 0, 0, 0x3000B0, 0);
+    gdl = draw_options_labels(gdl, 0xFA, y, ">>", selected ? 0xA0FFA0F0 : 0x00800080, 0, -1, 1, 0, 0x3000B0, 0);
+
+    return gdl;
+}
+
+static Gfx *gevrDrawVrPage(Gfx *gdl)
+{
+    char value[24];
+    s32 first;
+    s32 i;
+    s32 y;
+    s32 lit;
+
+    gdl = microcode_constructor(gdl);
+    gdl = draw_options_labels(gdl, XOFFSET_1, YOFFSET_8, "VR SETTINGS", 0xA0FFA0F0, 0, -1, 0, 0, 0x3000B0, 0);
+
+    first = s_gevrVrIndex - (GEVR_VR_VISIBLE - 1);
+    if (first < 0)
+    {
+        first = 0;
+    }
+    if (first > GEVR_VR_ROWS - GEVR_VR_VISIBLE)
+    {
+        first = GEVR_VR_ROWS - GEVR_VR_VISIBLE;
+    }
+
+    for (i = first, y = YOFFSET_8 + GEVR_VR_PITCH + 4; i < first + GEVR_VR_VISIBLE; i++, y += GEVR_VR_PITCH)
+    {
+        lit = i == s_gevrVrIndex;
+        gdl = draw_options_labels(gdl, XOFFSET_1, y, (char *) s_gevrVrLabels[i], lit ? 0xA0FFA0F0 : 0xFF00B0, 0, -1, 0, 0, 0x3000B0, 0);
+        gevrVrValueText(i, value);
+        if (value[0] != '\0')
+        {
+            gdl = draw_options_labels(gdl, 0xD7, y, value, lit ? 0xA0FFA0F0 : 0x00FF00B0, 0, -1, 1, 0, 0x3000B0, 0);
+        }
+    }
+
+    /* more rows above or below */
+    if (first > 0)
+    {
+        gdl = draw_options_labels(gdl, 0x10E, YOFFSET_8, "^", 0x00800080, 0, -1, 1, 0, 0x3000B0, 0);
+    }
+    if (first + GEVR_VR_VISIBLE < GEVR_VR_ROWS)
+    {
+        gdl = draw_options_labels(gdl, 0x10E, y - GEVR_VR_PITCH, "v", 0x00800080, 0, -1, 1, 0, 0x3000B0, 0);
+    }
+
+    return gdl;
+}
 #endif
 
 
@@ -3922,12 +4245,9 @@ Gfx *draw_toggle_options(Gfx *gdl)
     s32 yinc = YINC;
 
 #ifdef GEVR
-    /* In a multiplayer game the Microphone row (gevrDrawMicOption) shares
-     * the eight rows' space. */
-    if (netIsActive())
-    {
-        yinc = GEVR_MIC_YINC;
-    }
+    /* The VR settings row, and in a multiplayer game the Microphone row
+     * (gevrDrawMicOption), share the eight rows' space. */
+    yinc = GEVR_OPTIONS_YINC;
 #endif
 
     gdl = microcode_constructor(gdl);
@@ -3971,6 +4291,13 @@ Gfx *draw_watch_game_options_page(Gfx *gdl, Mtx *param_2) {
     struct fontchar *pFontChars;
 
     gdl = draw_background_health_and_armor(gdl, param_2, 0);
+
+#ifdef GEVR
+    if (s_gevrVrPage && check_watch_page_transistion_running() != 1)
+    {
+        return gevrDrawVrPage(gdl);
+    }
+#endif
 
     if (check_watch_page_transistion_running() != 1)
     {
@@ -4038,8 +4365,9 @@ Gfx *draw_watch_game_options_page(Gfx *gdl, Mtx *param_2) {
 #ifdef GEVR
         if (netIsActive())
         {
-            gdl = gevrDrawMicOption(gdl, YOFFSET_1 + 8 * GEVR_MIC_YINC);
+            gdl = gevrDrawMicOption(gdl, YOFFSET_1 + 8 * GEVR_OPTIONS_YINC);
         }
+        gdl = gevrDrawVrRow(gdl, YOFFSET_1 + (GEVR_VR_ROW - GAME_OPTIONS_INDEX_LOOK_UPDOWN) * GEVR_OPTIONS_YINC);
 #endif
     }
 

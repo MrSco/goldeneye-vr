@@ -179,6 +179,111 @@ extern int netGetLocalSlot(void);
 /* 0x80030AEC */ s32 clock_enable = 0;
 /* 0x80030AF0 */ f32 clock_time = 0;
 /* 0x80030AF4 */ s32 g_RemoteMineOwnerTriggerFlag = 0;
+#ifdef GEVR
+/* chrprop.c gevrHandPickup: the prop the hand is collecting, and whether it is
+ * the player's own thrown mine being taken back (objTickPlayer) */
+PropRecord *g_gevrHandGrabProp = NULL;
+s32 g_gevrHandGrabMine = 0;
+
+/*
+ * Mines stick to guards (launcher Play > Game rules..., VrMinesStickToGuards;
+ * GEVR PC vr450.2), single player: the original lets a thrown mine stick to
+ * anything but a guard or a player (the projectile tick below). With the rule
+ * on a mine (remote, proximity or timed) that hits a guard embeds on the body
+ * part the hit found (sub_GAME_7F041BB8's model and node), as Perfect Dark's
+ * mines do (its objEmbed on g_EmbedProp), and goes where he goes. A hit with
+ * no body part (the box test) bounces off as before.
+ */
+extern int VrMinesStickToGuards;
+extern bool netIsActive(void);
+
+static s32 gevrMineSticksToGuard(WeaponObjRecord *weapon, PropRecord *hit)
+{
+    return VrMinesStickToGuards && !netIsActive() && getPlayerCount() == 1
+        && hit != NULL && hit->type == PROP_TYPE_CHR
+        && (weapon->weaponnum == ITEM_REMOTEMINE || weapon->weaponnum == ITEM_PROXIMITYMINE
+            || weapon->weaponnum == ITEM_TIMEDMINE)
+        && g_CurrentProjectileModel != NULL && dword_CODE_bss_80075B74 != NULL;
+}
+
+/*
+ * A guard's hit (sub_GAME_7F041BB8) puts the collision point where the ray
+ * passes the hit body part's centre, its bone: a mine embedded there sat
+ * inside him, out of sight (user, 2026-10-04). Perfect Dark finds the hit on
+ * the part's surface (its g_EmbedProp search). Here the mine backs out along
+ * the hit's normal (toward the thrower, level) to where that line leaves the
+ * part's bounding box, plus about half the mine, before objEmbed fixes it to
+ * the part. The box's world frame is objEmbed's: view-to-world times the
+ * node's matrix.
+ */
+extern f32 getinstsize(Model *model);
+
+static void gevrMineToBodySurface(ObjectRecord *obj, PropRecord *prop, coord3d *normal)
+{
+    ModelNode *node = dword_CODE_bss_80075B74;
+    Mtxf *nodemtx;
+    Mtxf world;
+    Mtxf inv;
+    struct bbox *b;
+    coord3d p;
+    coord3d d;
+    f32 lo[3];
+    f32 hi[3];
+    f32 texit = 1e30f;
+    f32 t;
+    s32 k;
+
+    if (node == NULL || (node->Opcode & 0xFF) != MODELNODE_OPCODE_BBOX
+        || (nodemtx = modelFindNodeMtx(g_CurrentProjectileModel, node, 0)) == NULL)
+    {
+        return;
+    }
+    b = &node->Data->BoundingBox.Bounds;
+    matrix_4x4_multiply_homogeneous(currentPlayerGetViewToWorldMtxf(), nodemtx, &world);
+    matrix_4x4_invert_affine(&world, &inv);
+
+    p = obj->runtime_pos;
+    d = *normal;
+    mtx4TransformVecInPlace(&inv, &p);
+    mtx4RotateVecInPlace(&inv, &d);
+
+    lo[0] = b->xmin; hi[0] = b->xmax;
+    lo[1] = b->ymin; hi[1] = b->ymax;
+    lo[2] = b->zmin; hi[2] = b->zmax;
+    for (k = 0; k < 3; k++)
+    {
+        if (d.f[k] > 1e-6f)
+        {
+            t = (hi[k] - p.f[k]) / d.f[k];
+        }
+        else if (d.f[k] < -1e-6f)
+        {
+            t = (lo[k] - p.f[k]) / d.f[k];
+        }
+        else
+        {
+            continue;
+        }
+        if (t < texit)
+        {
+            texit = t;
+        }
+    }
+    if (texit > 1e29f || texit < 0.0f)
+    {
+        sysLogPrintf(LOG_NOTE, "mine: already outside the body part (%.1f)", texit);
+        return;   /* not inside the box along the normal: leave it */
+    }
+    /* t is in world units along the world normal (the inverse is affine) */
+    sysLogPrintf(LOG_NOTE, "mine: out of the body part by %.1f (+%.1f)", texit, 0.5f * getinstsize(obj->model));
+    texit += 0.5f * getinstsize(obj->model);
+    obj->runtime_pos.x += normal->x * texit;
+    obj->runtime_pos.y += normal->y * texit;
+    obj->runtime_pos.z += normal->z * texit;
+    prop->pos = obj->runtime_pos;
+    chrobjCollisionRelated(obj);   /* as sub_GAME_7F0439B8 ends */
+}
+#endif
 /* 0x80030AF8 */ s32 g_NextWeaponSlot = 0; // numbers between 0 and 30
 /* 0x80030AFC */ s32 g_NextHatSlot = 0;
 /* 0x80030B00 */ ObjectRecord *g_LevelLoadPropSwitch = NULL;
@@ -4777,10 +4882,20 @@ s32 objTick(struct PropRecord *prop)
 
 				objMovedThisFrame = 1;
 
-				if ((moveResult == 2) && (((temp_v1_11 = (struct coord3d *) D_80030B0C) == NULL) || ((((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_CHR) && (((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_VIEWER))))
+				if ((moveResult == 2) && (((temp_v1_11 = (struct coord3d *) D_80030B0C) == NULL) || ((((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_CHR) && (((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_VIEWER))
+#ifdef GEVR
+					/* mines stick to guards (game rules): on the body part the hit found */
+					|| gevrMineSticksToGuard(airborneWeapon, (struct PropRecord *) temp_v1_11)
+#endif
+					))
 				{
 					sp548 = 0;
-					if ((temp_v1_11 != NULL) && ((temp_v0_31 = ((struct PropRecord *) temp_v1_11)->obj)->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE))
+					if ((temp_v1_11 != NULL)
+#ifdef GEVR
+						/* a guard (gevrMineSticksToGuard) has no object flags to read */
+						&& (((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_CHR)
+#endif
+						&& ((temp_v0_31 = ((struct PropRecord *) temp_v1_11)->obj)->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE))
 					{
 						sp548 = 1;
 					}
@@ -4798,15 +4913,36 @@ s32 objTick(struct PropRecord *prop)
 						chrobjSndCreatePostEventDefault(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, ATTACH_MINE_SFX, NULL), &prop->pos);
 						objectivestatusCheckDeposit(((struct WeaponObjRecord *) obj)->weaponnum, prop->stan->room);
 						sub_GAME_7F0439B8(obj, &collisionPoint, prop->stan, &collisionNormal);
+#ifdef GEVR
+						if (gevrMineSticksToGuard(airborneWeapon, D_80030B0C))
+						{
+							gevrMineToBodySurface(obj, prop, &collisionNormal);
+						}
+#endif
 						if (D_80030B0C != NULL)
 						{
 							temp_s2 = prop->stan;
+#ifdef GEVR
+							s32 gevrOnGuard = D_80030B0C->type == PROP_TYPE_CHR;
+#endif
 							if (objEmbed(prop, D_80030B0C, g_CurrentProjectileModel, dword_CODE_bss_80075B74) != 0)
 							{
 								prop->stan = temp_s2;
 								tickop = TICKOP_CHANGEDLIST;
 								projectileStopped = 1;
+#ifdef GEVR
+								if (gevrOnGuard)
+								{
+									sysLogPrintf(LOG_NOTE, "mine: item %d stuck to a guard (part %d)", airborneWeapon->weaponnum, bodypartshot);
+								}
+#endif
 							}
+#ifdef GEVR
+							else if (gevrOnGuard)
+							{
+								sysLogPrintf(LOG_NOTE, "mine: item %d hit a guard but did not stick (he was off screen)", airborneWeapon->weaponnum);
+							}
+#endif
 						}
 					}
 				}
@@ -11021,7 +11157,12 @@ TICKOP objTickPlayer(struct PropRecord* prop)
                 || (weaponObj->weaponnum == ITEM_BUG)
                 || (weaponObj->weaponnum == ITEM_MICROCAMERA)
                 || (weaponObj->weaponnum == ITEM_PLASTIQUE))
-            && ((weaponObj->timer >= 0) || (obj->runtime_bitflags & 4)))
+            && ((weaponObj->timer >= 0) || (obj->runtime_bitflags & 4))
+#ifdef GEVR
+            /* the hand taking back its own mine (chrprop.c gevrHandFindProp chose it) */
+            && !(prop == g_gevrHandGrabProp && g_gevrHandGrabMine)
+#endif
+            )
         {
             return TICKOP_NONE;
         }
@@ -11177,6 +11318,15 @@ TICKOP objTickPlayer(struct PropRecord* prop)
             return TICKOP_NONE;
         }
     }
+
+#ifdef GEVR
+    /* in the hand (chrprop.c gevrHandPickup): the hand is at it, so no reach,
+     * line of sight or looking-down rule */
+    if (prop == g_gevrHandGrabProp)
+    {
+        return propPickupByPlayer(prop, TRUE);
+    }
+#endif
 
     if ((bondviewGetPlayerPitchRadians() < -0.7853982f) && (g_CurrentPlayer->magnetattracttime < 0))
     {
