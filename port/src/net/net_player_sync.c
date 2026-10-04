@@ -47,38 +47,63 @@ void netPlayerSyncInit(void) {
  * from this tile (chrprop.c chrpropUpdateRoomList) and its model stands on it
  * (chr.c sub_GAME_7F01FC10): a stale tile files the body in a room the view
  * never draws, which hid every other player from v0.3.4.
+ *
+ * Issue #95: the tile is the floor under the body's whole cylinder, room by
+ * room (stan.c stanFindGroundAtCyl, Perfect Dark's cdFindGroundInfoAtCyl),
+ * probed from the eye: a crouch brings the eye down to 30 units over the
+ * floor, so no lower. The centre-only lookup this replaces took the floor
+ * below a body at a ledge, and tested many-sided tiles by three points.
+ * *floory is that floor, or -FLT_MAX with no tile.
  */
-static StandTile *netSyncRemoteTile(struct player *pl, const coord3d *from, bool snapped) {
-    extern s32 walkTilesBetweenPoints_NoCallback(StandTile **tileStack, f32 start_x, f32 start_z, f32 dest_x, f32 dest_z);
-    extern s32 stanTestPointWithinTileBoundsMaybe(StandTile *tile, f32 p_x, f32 p_z);
-    extern StandTile *stanFindTileBelowPos(coord3d *pos, u8 *rooms, f32 *yRtn);
+static StandTile *netSyncRemoteTile(struct player *pl, bool snapped, f32 *floory) {
+    extern StandTile *stanFindGroundAtCyl(coord3d *pos, f32 radius, u8 *rooms, StandTile *prefer, f32 *groundy, s32 *incentre);
     coord3d to = pl->prop->pos;
-    StandTile *tile = pl->field_488.current_tile_ptr;
+    StandTile *prev = snapped ? NULL : pl->field_488.current_tile_ptr;
+    u8 rooms[PROPRECORD_STAN_ROOM_LEN + 2];
+    StandTile *tile;
+    s32 n = 0, incentre;
 
-    if (tile && !snapped) {
-        StandTile *walked = tile;
-        if (walkTilesBetweenPoints_NoCallback(&walked, from->x, from->z, to.x, to.z) &&
-            walked && stanTestPointWithinTileBoundsMaybe(walked, to.x, to.z)) {
-            tile = walked;
-        } else if (!stanTestPointWithinTileBoundsMaybe(tile, to.x, to.z)) {
-            tile = NULL;
-        }
-    } else {
-        tile = NULL;
-    }
+    *floory = -3.4028235e38f;
+    if (prev) rooms[n++] = prev->room;
+    for (int i = 0; i < PROPRECORD_STAN_ROOM_LEN && pl->prop->rooms[i] != 0xff; i++)
+        rooms[n++] = pl->prop->rooms[i];
+    rooms[n] = 0xff;
 
-    if (!tile) {
-        /* The highest tile below the eye. A crouch brings the eye down to
-         * 30 units over the floor, so no lower probe: it would go under it. */
-        f32 y;
-        tile = stanFindTileBelowPos(&to, NULL, &y);
-        if (!tile) return NULL;
-    }
+    tile = stanFindGroundAtCyl(&to, pl->field_488.collision_radius, n ? rooms : NULL, prev, floory, &incentre);
+    if (!tile) return NULL;
 
     pl->field_488.current_tile_ptr = tile;
     pl->field_488.current_tile_ptr_for_portals = tile;
     pl->prop->stan = tile;
     return tile;
+}
+
+/*
+ * Where a copy's feet go (#95): its owner's own ground. The owner's eye is
+ * its ground plus the eye height (bondview2.c
+ * bondviewUpdatePlayerCollisionPositionFields), so the eye less the copy's
+ * eye height is that ground standing, falling or on a ledge, and lower
+ * when crouched; then the floor under the body holds it up. chrTick took
+ * the tile's floor instead (chr.c sub_GAME_7F01FC10), every frame, as
+ * playerTick sets CHRFLAG_INIT: other players dropped to the floor below
+ * at ledges and stood on the ground mid-fall.
+ */
+static f32 s_remote_ground[GEVR_MAX_PLAYERS];
+static bool s_remote_ground_valid[GEVR_MAX_PLAYERS];
+
+static void netSyncRemoteGround(int slot, struct player *pl, f32 floory) {
+    f32 feet = pl->prop->pos.y - pl->eyeheight;
+    s_remote_ground[slot] = feet > floory ? feet : floory;
+    s_remote_ground_valid[slot] = true;
+    if (pl->prop->chr) pl->prop->chr->ground = s_remote_ground[slot];
+}
+
+/* chr.c's tile floor, or another headset's player's feet */
+f32 gevrNetRemoteGround(PropRecord *prop, f32 ground) {
+    if (!netIsActive() || !prop || prop->type != PROP_TYPE_VIEWER) return ground;
+    int slot = getPlayerPointerIndex(prop);
+    if (slot < 0 || slot >= GEVR_MAX_PLAYERS || slot == netGetLocalSlot() || !s_remote_ground_valid[slot]) return ground;
+    return s_remote_ground[slot];
 }
 
 static int s_follow_slot = -1;
@@ -124,10 +149,12 @@ void netSpectatorFrame(void) {
     pl->speedforwards = pl->speedsideways = 0;
     if (s_follow_slot < 0) return; /* retain a safe camera until somebody is alive */
     struct player *target = g_playerPointers[s_follow_slot];
-    coord3d from = pl->prop->pos;
     pl->prop->pos = target->prop->pos;
     pl->pos = pl->field_488.collision_position = pl->field_488.pos = pl->prop->pos;
-    netSyncRemoteTile(pl, &from, old != s_follow_slot);
+    {
+        f32 floory;
+        netSyncRemoteTile(pl, old != s_follow_slot, &floory);
+    }
     bondviewUpdatePlayerRoom(pl);
     if (old != s_follow_slot) {
         char label[64];
@@ -213,6 +240,7 @@ void netPlayerSyncBeforeTick(s32 playernum) {
     }
     if (playernum < 0 || playernum >= GEVR_MAX_PLAYERS) return;
     s_remote_render_valid[playernum] = false;
+    s_remote_ground_valid[playernum] = false;
     
     if (netIsRemotePlayerActive(playernum) && g_playerPointers[playernum]) {
         const struct netplayermove *m = netGetRemotePlayerMove(playernum);
@@ -297,7 +325,6 @@ void netPlayerSyncBeforeTick(s32 playernum) {
                 return;
             }
             /* Position: check for huge delta or initial snap */
-            coord3d from = pl->prop->pos;
             bool snapped = false;
             float dx = m->pos.x - pl->prop->pos.x;
             float dy = m->pos.y - pl->prop->pos.y;
@@ -318,7 +345,8 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             pl->pos = pl->prop->pos;
             pl->field_488.collision_position = pl->prop->pos;
             pl->field_488.pos = pl->prop->pos;
-            s_remote_render_tile[playernum] = netSyncRemoteTile(pl, &from, snapped);
+            f32 floory;
+            s_remote_render_tile[playernum] = netSyncRemoteTile(pl, snapped, &floory);
 
             /* Forward movement speeds for third-person animations */
             pl->speedforwards = m->movespeed[0];
@@ -369,7 +397,7 @@ void netPlayerSyncBeforeTick(s32 playernum) {
             if (pl->prop->chr) {
                 /* Network position is at the eye; the model's ground is at
                  * the feet. Using eye height here causes vertical twitching. */
-                pl->prop->chr->ground = pl->prop->pos.y - pl->eyeheight;
+                netSyncRemoteGround(playernum, pl, floory);
 
                 netSyncCopyHand(pl, playernum, GUNRIGHT, netRemoteWeapon(playernum, GUNRIGHT), netRemoteTrigger(playernum, GUNRIGHT));
                 netSyncCopyHand(pl, playernum, GUNLEFT, netRemoteWeapon(playernum, GUNLEFT), netRemoteTrigger(playernum, GUNLEFT));
@@ -443,8 +471,8 @@ void netPlayerSyncAfterTick(s32 playernum) {
                 remote->speedsideways = m->movespeed[1];
                 if (!remote->bonddead) netSyncCopyOrientation(remote, m);
             }
-            if (remote->prop->chr)
-                remote->prop->chr->ground = remote->prop->pos.y - remote->eyeheight;
+            if (remote->prop->chr && s_remote_ground_valid[playernum])
+                remote->prop->chr->ground = s_remote_ground[playernum];
             bondviewUpdatePlayerRoom(remote);
 
             {

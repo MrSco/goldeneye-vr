@@ -7300,6 +7300,39 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
             g_CurrentPlayer->field_488.collision_position.f[0],
             g_CurrentPlayer->field_488.collision_position.f[2]) == 0)
     {
+#ifdef GEVR
+        /*
+         * #95: retail tried up to five random linked tiles here, testing each
+         * by its three extreme points at any height (and took % 0 on a tile
+         * with no links). The floor under Bond's centre instead, room by room,
+         * as Perfect Dark finds it (stan.c stanFindGroundAtCyl), from the eye
+         * down; kept only when a tile holds the centre, as the walk code
+         * starts from the tile Bond is on.
+         */
+        {
+            StandTile *cur = g_CurrentPlayer->field_488.current_tile_ptr;
+            u8 rooms[PROPRECORD_STAN_ROOM_LEN + 2];
+            s32 nrooms = 0;
+            s32 incentre;
+            f32 groundy;
+            StandTile *found;
+
+            rooms[nrooms++] = cur->room;
+
+            for (i = 0; i < PROPRECORD_STAN_ROOM_LEN && g_CurrentPlayer->prop->rooms[i] != 0xff; i++)
+            {
+                rooms[nrooms++] = g_CurrentPlayer->prop->rooms[i];
+            }
+
+            rooms[nrooms] = 0xff;
+            found = stanFindGroundAtCyl(&g_CurrentPlayer->field_488.collision_position, 0.0f, rooms, cur, &groundy, &incentre);
+
+            if (found != NULL && incentre)
+            {
+                g_CurrentPlayer->field_488.current_tile_ptr = found;
+            }
+        }
+#else
         if(1);
 
         stan = g_CurrentPlayer->field_488.current_tile_ptr;
@@ -7348,6 +7381,7 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
                 break;
             }
         }
+#endif
     }
 
     bondviewUpdatePlayerRoom(g_CurrentPlayer);
