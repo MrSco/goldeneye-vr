@@ -9,7 +9,7 @@
  */
 enum GevrRecoilClass {
     GEVR_RECOIL_NONE,      /* knives, throwables, gadgets */
-    GEVR_RECOIL_PISTOL,    /* PD's Falcon 2: the PP7 family (silenced a little stronger) */
+    GEVR_RECOIL_PISTOL,    /* PD's Falcon 2: the PP7 family (silenced a little weaker) */
     GEVR_RECOIL_MAGNUM,    /* PD's DY357: the Cougar, the Golden Gun; the DD44 at half */
     GEVR_RECOIL_SMG,       /* PD's light machine guns: the SMGs */
     GEVR_RECOIL_RIFLE,     /* PD's AR34: the KF7, the AR33 */
