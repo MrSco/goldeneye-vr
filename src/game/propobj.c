@@ -184,6 +184,27 @@ extern int netGetLocalSlot(void);
  * the player's own thrown mine being taken back (objTickPlayer) */
 PropRecord *g_gevrHandGrabProp = NULL;
 s32 g_gevrHandGrabMine = 0;
+
+/*
+ * Mines stick to guards (launcher Play > Game rules..., VrMinesStickToGuards;
+ * GEVR PC vr450.2), single player: the original lets a thrown mine stick to
+ * anything but a guard or a player (the projectile tick below). With the rule
+ * on a mine (remote, proximity or timed) that hits a guard embeds on the body
+ * part the hit found (sub_GAME_7F041BB8's model and node), as Perfect Dark's
+ * mines do (its objEmbed on g_EmbedProp), and goes where he goes. A hit with
+ * no body part (the box test) bounces off as before.
+ */
+extern int VrMinesStickToGuards;
+extern bool netIsActive(void);
+
+static s32 gevrMineSticksToGuard(WeaponObjRecord *weapon, PropRecord *hit)
+{
+    return VrMinesStickToGuards && !netIsActive() && getPlayerCount() == 1
+        && hit != NULL && hit->type == PROP_TYPE_CHR
+        && (weapon->weaponnum == ITEM_REMOTEMINE || weapon->weaponnum == ITEM_PROXIMITYMINE
+            || weapon->weaponnum == ITEM_TIMEDMINE)
+        && g_CurrentProjectileModel != NULL && dword_CODE_bss_80075B74 != NULL;
+}
 #endif
 /* 0x80030AF8 */ s32 g_NextWeaponSlot = 0; // numbers between 0 and 30
 /* 0x80030AFC */ s32 g_NextHatSlot = 0;
@@ -4783,10 +4804,20 @@ s32 objTick(struct PropRecord *prop)
 
 				objMovedThisFrame = 1;
 
-				if ((moveResult == 2) && (((temp_v1_11 = (struct coord3d *) D_80030B0C) == NULL) || ((((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_CHR) && (((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_VIEWER))))
+				if ((moveResult == 2) && (((temp_v1_11 = (struct coord3d *) D_80030B0C) == NULL) || ((((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_CHR) && (((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_VIEWER))
+#ifdef GEVR
+					/* mines stick to guards (game rules): on the body part the hit found */
+					|| gevrMineSticksToGuard(airborneWeapon, (struct PropRecord *) temp_v1_11)
+#endif
+					))
 				{
 					sp548 = 0;
-					if ((temp_v1_11 != NULL) && ((temp_v0_31 = ((struct PropRecord *) temp_v1_11)->obj)->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE))
+					if ((temp_v1_11 != NULL)
+#ifdef GEVR
+						/* a guard (gevrMineSticksToGuard) has no object flags to read */
+						&& (((struct PropRecord *) temp_v1_11)->type != PROP_TYPE_CHR)
+#endif
+						&& ((temp_v0_31 = ((struct PropRecord *) temp_v1_11)->obj)->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE))
 					{
 						sp548 = 1;
 					}
