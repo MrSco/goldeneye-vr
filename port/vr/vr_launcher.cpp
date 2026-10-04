@@ -2743,6 +2743,13 @@ extern "C" void gevrLauncherRun(void)
             ImGui::RadioButton("Snap 45", &turn, 2);
             ImGui::SameLine();
             ImGui::RadioButton("Snap 90", &turn, 3);
+            ImGui::BeginDisabled(turn != 0);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
+            if (ImGui::SliderInt("Turn speed", &VrSmoothTurnSpeed, SMOOTHTURN_MIN, SMOOTHTURN_MAX, "%d deg/s")) {
+                // steps of 15, as the watch's VR settings page steps it
+                VrSmoothTurnSpeed = (VrSmoothTurnSpeed + SMOOTHTURN_STEP / 2) / SMOOTHTURN_STEP * SMOOTHTURN_STEP;
+            }
+            ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::TextColored(gold, "MOVEMENT COMFORT (stereo)");
             ImGui::Checkbox("Darken edges when moving", &vignetteOn);
