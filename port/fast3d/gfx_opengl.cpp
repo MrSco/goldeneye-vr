@@ -519,16 +519,19 @@ static float gevr_vbo_span(const float* vbo, size_t ntris, size_t nfloats)
 
 /*
  * How far behind the surface in front a room decal still draws, in view
- * units. 80 holds Frigate's recessed hull fixture (df71b5ce). A view unit is
- * 1 / D_800364CC cm, 5 cm on the Dam and Surface, so a fixed 80 reached five
- * times as far there and the start bridge's shadows drew through its beams.
- * The reach is kept at Frigate's real size on every stage: 80 at scale 1,
- * 16 on the Dam. Mode 4 sets the 80.
+ * units at scale 1. A view unit is 1 / D_800364CC cm (5 cm on the Dam and
+ * Surface), so the reach is held at one real size on every stage. Frigate's
+ * decals sit a little off their walls: with none, the hull "06" flickered
+ * and the port windows were cut. Too much draws a decal through whatever
+ * lies just in front of it: at v0.4.5's 80 the Dam's start bridge showed the
+ * shadows under it through its beams, and at 10 the ground's edge strip
+ * still came through the end ramp. 3 held both (headset, 2026-10-04,
+ * gevr_decal.txt mode 4, which sets it).
  */
 extern "C" float D_800364CC;
 static float gevr_room_decal_reach(void)
 {
-    const float reach = (s_decalMode == 4) ? s_decalA : 80.0f;
+    const float reach = (s_decalMode == 4) ? s_decalA : 3.0f;
     return reach * D_800364CC;
 }
 
