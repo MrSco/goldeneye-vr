@@ -4,6 +4,7 @@
 #ifdef GEVR
 #include "net_game.h"
 #include "net_coop.h"
+#include "gevr_grip_gesture.h"
 #endif
 #include <ultra64.h>
 #include <assert.h>
@@ -2203,6 +2204,257 @@ s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3],
     }
 
     return hit;
+}
+
+
+/*
+ * GEVR PC's grip gestures (CONTROLS.md, vr450..vr453; bondview2.c
+ * gevrGripGestureTry): what the hand is touching. Like gevrChopHit above, in
+ * view space, among this frame's on-screen props, whose model matrices are
+ * this frame's floats here (lv.c runs it beside the chop): the distance from
+ * the point to the nearest bounding box of the model, each box taken in its
+ * own node's frame (an axis-aligned box in view space would reach far past a
+ * door seen at an angle). View units; a large number with no box.
+ */
+static f32 gevrHandModelDistance(Model *model, const f32 p[3])
+{
+    ModelNode *node;
+    f32 best = 1e30f;
+
+    if (model == NULL || model->obj == NULL)
+    {
+        return best;
+    }
+
+    node = model->obj->RootNode;
+
+    while (node)
+    {
+        if ((node->Opcode & 0xFF) == MODELNODE_OPCODE_BBOX)
+        {
+            struct bbox *b = &node->Data->BoundingBox.Bounds;
+            Mtxf *m = modelFindNodeMtx(model, node, 0);
+
+            if (m != NULL)
+            {
+                /* solve p = m[3] + x m[0] + y m[1] + z m[2] for the box's own x, y, z */
+                f32 d[3], loc[3], c[3], q[3], det;
+                f32 a00 = m->m[0][0], a01 = m->m[1][0], a02 = m->m[2][0];
+                f32 a10 = m->m[0][1], a11 = m->m[1][1], a12 = m->m[2][1];
+                f32 a20 = m->m[0][2], a21 = m->m[1][2], a22 = m->m[2][2];
+                s32 k;
+
+                for (k = 0; k < 3; k++)
+                {
+                    d[k] = p[k] - m->m[3][k];
+                }
+                det = a00 * (a11 * a22 - a12 * a21) - a01 * (a10 * a22 - a12 * a20) + a02 * (a10 * a21 - a11 * a20);
+                if (det > 1e-12f || det < -1e-12f)
+                {
+                    loc[0] = (d[0] * (a11 * a22 - a12 * a21) - a01 * (d[1] * a22 - a12 * d[2]) + a02 * (d[1] * a21 - a11 * d[2])) / det;
+                    loc[1] = (a00 * (d[1] * a22 - a12 * d[2]) - d[0] * (a10 * a22 - a12 * a20) + a02 * (a10 * d[2] - d[1] * a20)) / det;
+                    loc[2] = (a00 * (a11 * d[2] - d[1] * a21) - a01 * (a10 * d[2] - d[1] * a20) + d[0] * (a10 * a21 - a11 * a20)) / det;
+
+                    /* the box's nearest point, back in view space */
+                    c[0] = loc[0] < b->xmin ? b->xmin : loc[0] > b->xmax ? b->xmax : loc[0];
+                    c[1] = loc[1] < b->ymin ? b->ymin : loc[1] > b->ymax ? b->ymax : loc[1];
+                    c[2] = loc[2] < b->zmin ? b->zmin : loc[2] > b->zmax ? b->zmax : loc[2];
+                    for (k = 0; k < 3; k++)
+                    {
+                        q[k] = m->m[3][k] + c[0] * m->m[0][k] + c[1] * m->m[1][k] + c[2] * m->m[2][k] - p[k];
+                    }
+                    det = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+                    if (det < best)
+                    {
+                        best = det;
+                    }
+                }
+            }
+        }
+
+        if (node->Child)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node)
+            {
+                if (node->Next)
+                {
+                    node = node->Next;
+                    break;
+                }
+                node = node->Parent;
+            }
+        }
+    }
+
+    return best;
+}
+
+static s32 gevrIsMineItem(s32 item)
+{
+    return item == ITEM_REMOTEMINE || item == ITEM_PROXIMITYMINE || item == ITEM_TIMEDMINE;
+}
+
+/*
+ * The nearest on-screen prop of a kind within reach of p (view space):
+ * GEVR_HAND_USE a door, switch or console B would use (doorTestForInteract's
+ * and objTestForInteract's rules, less their reach and facing), GEVR_HAND_PICKUP
+ * something to collect off the floor, GEVR_HAND_MINE one of the player's own
+ * remote mines, or a proximity mine still arming (GEVR PC vr450.2: not live
+ * grenades or armed traps).
+ */
+PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
+{
+    PropRecord **ptr;
+    PropRecord *best = NULL;
+    f32 bestdist = reach;
+
+    for (ptr = g_LastOnScreenProp - 1; ptr >= g_OnScreenPropList; ptr--)
+    {
+        PropRecord *prop = *ptr;
+        ObjectRecord *obj;
+        f32 dist;
+
+        if (prop == NULL || !(prop->flags & PROPFLAG_ONSCREEN))
+        {
+            continue;
+        }
+
+        if (kind == GEVR_HAND_USE)
+        {
+            if (prop->type == PROP_TYPE_DOOR)
+            {
+                DoorRecord *door = prop->door;
+
+                if ((door->flags & PROPFLAG_CANNOT_ACTIVATE) || !(door->maxFrac > 0))
+                {
+                    continue;
+                }
+            }
+            else if (prop->type == PROP_TYPE_OBJ || prop->type == PROP_TYPE_WEAPON)
+            {
+                obj = prop->obj;
+                if (!((obj->type == PROP_TYPE_PLAYER) || (obj->flags & PROPFLAG_00080000)
+                      || (obj->runtime_bitflags & (RUNTIMEBITFLAG_00000001 | RUNTIMEBITFLAG_00000002 | RUNTIMEBITFLAG_TAGGED)))
+                    || !objIsHealthy(obj) || (obj->flags & PROPFLAG_CANNOT_ACTIVATE))
+                {
+                    continue;
+                }
+            }
+            else
+            {
+                continue;
+            }
+        }
+        else if (prop->type == PROP_TYPE_WEAPON || prop->type == PROP_TYPE_OBJ)
+        {
+            obj = prop->obj;
+            if (!objIsCollectable((PropDefHeaderRecord *) obj) || (obj->flags & PROPFLAG_UNCOLLECTABLE))
+            {
+                continue;
+            }
+            if (kind == GEVR_HAND_MINE)
+            {
+                WeaponObjRecord *wep = (WeaponObjRecord *) obj;
+
+                if (prop->type != PROP_TYPE_WEAPON || obj->type != PROPDEF_COLLECTABLE
+                    || RUNTIME_OWNER(obj->runtime_bitflags) != get_cur_playernum()
+                    || !((wep->weaponnum == ITEM_REMOTEMINE && wep->timer >= 1)
+                         || (wep->weaponnum == ITEM_PROXIMITYMINE && wep->timer > 1)))
+                {
+                    continue;
+                }
+            }
+            else if (prop->parent != NULL || obj->type == PROPDEF_HAT)
+            {
+                continue;   /* a guard's own gun or hat, or a thing fixed to another */
+            }
+            else if (prop->type == PROP_TYPE_WEAPON && gevrIsMineItem(((WeaponObjRecord *) obj)->weaponnum)
+                     && ((WeaponObjRecord *) obj)->timer >= 0)
+            {
+                continue;   /* a thrown mine is the re-grab's, not a pickup */
+            }
+        }
+        else
+        {
+            continue;
+        }
+
+        dist = gevrHandModelDistance(prop->type == PROP_TYPE_DOOR ? prop->door->model : prop->obj->model, p);
+        if (dist < bestdist)
+        {
+            bestdist = dist;
+            best = prop;
+        }
+    }
+
+    return best;
+}
+
+/* B's own use of one prop (bond_interact_object): the door or the object's rules. */
+s32 gevrHandInteract(PropRecord *prop)
+{
+    TICKOP tickop = TICKOP_NONE;
+
+    if (prop == NULL || gevrSpectating() || gevrCoopLocalDowned())
+    {
+        return FALSE;
+    }
+    switch (prop->type)
+    {
+        case PROP_TYPE_OBJ:
+        case PROP_TYPE_WEAPON:
+            tickop = propobjInteract(prop);
+            break;
+        case PROP_TYPE_DOOR:
+            tickop = propdoorInteract(prop);
+            break;
+        default:
+            return FALSE;
+    }
+    propExecuteTickOperation(prop, tickop);
+    return TRUE;
+}
+
+/*
+ * Collect one prop as walking over it does (propsTickPlayer): objTickPlayer's
+ * rules (full ammo, the safe, the dual pairs, armour) and the online pickup
+ * message, without its reach, its line of sight or its look-down cutoff:
+ * propobj.c lets g_gevrHandGrabProp through those, and with mine set also
+ * through the thrown-mine rule. Returns whether it was collected.
+ */
+s32 gevrHandPickup(PropRecord *prop, s32 mine)
+{
+    extern PropRecord *g_gevrHandGrabProp;
+    extern s32 g_gevrHandGrabMine;
+    extern void netSendObjectPickup(ObjectRecord *obj, s32 tickop);
+    extern void netSendSpecialTaken(s32 item);
+    TICKOP op;
+
+    if (prop == NULL || isBondInTank() || g_PlayerInvincible || gevrSpectating() || gevrCoopLocalDowned())
+    {
+        return FALSE;
+    }
+    g_gevrHandGrabProp = prop;
+    g_gevrHandGrabMine = mine;
+    op = prop->type == PROP_TYPE_WEAPON ? weaponTickPlayer(prop) : objTickPlayer(prop);
+    g_gevrHandGrabProp = NULL;
+    g_gevrHandGrabMine = FALSE;
+    if (op == TICKOP_NONE)
+    {
+        return FALSE;
+    }
+    /* as propsTickPlayer: the other headsets take it away too */
+    netSendObjectPickup(prop->obj, op);
+    if (prop->type == PROP_TYPE_WEAPON && prop->weapon != NULL)
+    {
+        netSendSpecialTaken(prop->weapon->weaponnum);
+    }
+    propExecuteTickOperation(prop, op);
+    return TRUE;
 }
 
 #endif

@@ -179,6 +179,12 @@ extern int netGetLocalSlot(void);
 /* 0x80030AEC */ s32 clock_enable = 0;
 /* 0x80030AF0 */ f32 clock_time = 0;
 /* 0x80030AF4 */ s32 g_RemoteMineOwnerTriggerFlag = 0;
+#ifdef GEVR
+/* chrprop.c gevrHandPickup: the prop the hand is collecting, and whether it is
+ * the player's own thrown mine being taken back (objTickPlayer) */
+PropRecord *g_gevrHandGrabProp = NULL;
+s32 g_gevrHandGrabMine = 0;
+#endif
 /* 0x80030AF8 */ s32 g_NextWeaponSlot = 0; // numbers between 0 and 30
 /* 0x80030AFC */ s32 g_NextHatSlot = 0;
 /* 0x80030B00 */ ObjectRecord *g_LevelLoadPropSwitch = NULL;
@@ -11021,7 +11027,12 @@ TICKOP objTickPlayer(struct PropRecord* prop)
                 || (weaponObj->weaponnum == ITEM_BUG)
                 || (weaponObj->weaponnum == ITEM_MICROCAMERA)
                 || (weaponObj->weaponnum == ITEM_PLASTIQUE))
-            && ((weaponObj->timer >= 0) || (obj->runtime_bitflags & 4)))
+            && ((weaponObj->timer >= 0) || (obj->runtime_bitflags & 4))
+#ifdef GEVR
+            /* the hand taking back its own mine (chrprop.c gevrHandFindProp chose it) */
+            && !(prop == g_gevrHandGrabProp && g_gevrHandGrabMine)
+#endif
+            )
         {
             return TICKOP_NONE;
         }
@@ -11177,6 +11188,15 @@ TICKOP objTickPlayer(struct PropRecord* prop)
             return TICKOP_NONE;
         }
     }
+
+#ifdef GEVR
+    /* in the hand (chrprop.c gevrHandPickup): the hand is at it, so no reach,
+     * line of sight or looking-down rule */
+    if (prop == g_gevrHandGrabProp)
+    {
+        return propPickupByPlayer(prop, TRUE);
+    }
+#endif
 
     if ((bondviewGetPlayerPitchRadians() < -0.7853982f) && (g_CurrentPlayer->magnetattracttime < 0))
     {
