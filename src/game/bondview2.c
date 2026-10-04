@@ -14731,6 +14731,7 @@ static f32 s_gevrGestureTune[GEVR_GT_COUNT] = {
 
 static s32 s_gevrGripGesture[2];   /* per controller: 0 idle, 1 a press to decide, 2 taken until let go, 3 aims */
 static s32 s_gevrGripPendAge[2];
+#define GEVR_GRIP_PEND_POLLS 30   /* pad reads, about half a second */
 static s32 s_gevrHolsterItem[2] = { -1, -1 };   /* per hand: what the hip holds, -1 nothing */
 
 void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
@@ -14748,10 +14749,17 @@ void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
     {
         s_gevrGripGesture[ctrl] = (VrGestureHolster || VrGestureGripUse || VrGesturePickup || VrGestureMineGrab) ? 1 : 3;
         s_gevrGripPendAge[ctrl] = 0;
+        sysLogPrintf(LOG_NOTE, "stereo: grip (%s) pressed%s", ctrl ? "gun hand" : "off hand",
+                     s_gevrGripGesture[ctrl] == 1 ? "" : ", every gesture off");
     }
-    else if (s_gevrGripGesture[ctrl] == 1 && ++s_gevrGripPendAge[ctrl] > 3)
+    /* The pad is read every retrace, the game ticks once a game frame: in a
+     * busy room three or four retraces (user: three polls let the gate switch's
+     * and the floor AK's presses aim before any tick saw them). The next tick
+     * always decides first; the limit only covers a tick that never comes. */
+    else if (s_gevrGripGesture[ctrl] == 1 && ++s_gevrGripPendAge[ctrl] > GEVR_GRIP_PEND_POLLS)
     {
         s_gevrGripGesture[ctrl] = 3;   /* no tick decided it (paused, a menu): it aims */
+        sysLogPrintf(LOG_NOTE, "stereo: grip (%s): no game tick took the press, it aims", ctrl ? "gun hand" : "off hand");
     }
 }
 
@@ -14928,25 +14936,43 @@ static s32 gevrGripGestureTry(s32 ctrl)
         || g_PlayerIsInTank == 1 || gevrSpectating() || gevrCoopLocalDowned()
         || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || cm < 1e-6f)
     {
+        sysLogPrintf(LOG_NOTE, "stereo: grip try (%s): not in play", ctrl ? "gun hand" : "off hand");
         return FALSE;
     }
     /* the grips' own jobs first */
     if ((ctrl == 0 && gevrStereoTwoHandGrip()) || (ctrl == 1 && gevrStereoWatchGrip()))
     {
+        sysLogPrintf(LOG_NOTE, "stereo: grip try (%s): two-handed hold or watch", ctrl ? "gun hand" : "off hand");
         return FALSE;
     }
     item = getCurrentPlayerWeaponId(hand);
     if (VrMotionThrowing && gevrIsThrowable(item))
     {
+        sysLogPrintf(LOG_NOTE, "stereo: grip try (%s): throwable %d", ctrl ? "gun hand" : "off hand", item);
         return FALSE;   /* the grip winds up a throw */
     }
     if (!gevrGripAxesRaw(ctrl, at, right, up, back))
     {
+        sysLogPrintf(LOG_NOTE, "stereo: grip try (%s): hand not tracked", ctrl ? "gun hand" : "off hand");
         return FALSE;
     }
     for (i = 0; i < 3; i++)
     {
         p[i] = at[i] - back[i] * GEVR_GESTURE_FINGERS_CM * cm;
+    }
+    {
+        /* tuning, one line a press: where the hand is and what is nearest it */
+        extern PropRecord *gevrHandNearestAny(const f32 p[3], f32 *distOut);
+        extern s32 g_gevrHandNearestScanned, g_gevrHandNearestBoxed;
+        f32 drop = 0.0f, side = 0.0f, ahead = 0.0f, any = 0.0f;
+        PropRecord *nearest = gevrHandNearestAny(p, &any);
+        ObjectRecord *o = nearest == NULL ? NULL : nearest->type == PROP_TYPE_DOOR ? (ObjectRecord *) nearest->door : nearest->obj;
+
+        gevrHandOnBody(ctrl, at, &drop, &side, &ahead);
+        sysLogPrintf(LOG_NOTE, "stereo: grip try (%s) item %d: hand %.0f below, %.0f out, %.0f ahead; %d props, %d boxed; nearest type %d obj %d %.0f cm, flags 0x%x 0x%x rt 0x%x",
+                     ctrl ? "gun hand" : "off hand", item, drop, side, ahead, g_gevrHandNearestScanned, g_gevrHandNearestBoxed,
+                     nearest ? nearest->type : -1, o ? o->type : -1, nearest ? any / cm : -1.0f,
+                     o ? o->flags : 0, o ? o->flags2 : 0, o ? o->runtime_bitflags : 0);
     }
 
     if (VrGestureHolster && gevrHipZone(ctrl, at) && gevrHolsterTry(hand))
