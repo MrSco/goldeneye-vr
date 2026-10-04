@@ -1853,9 +1853,9 @@ struct WeaponRumbleProfile {
 
 /* Perfect Dark VR's recoil profile for a GoldenEye gun, by the nearest PD gun
  * (gevr_recoil.h), and its share of that kick: the DD44 takes the magnum's at
- * half strength, and a silenced gun kicks a little more than its plain one
+ * half strength, and a silenced gun kicks a little less than its plain one
  * (user). The watch's items fire from the other arm and do not kick. */
-#define GEVR_RECOIL_SILENCED 1.15f
+#define GEVR_RECOIL_SILENCED 0.85f
 
 static int gevrRecoilFor(s32 item, f32 *strength)
 {
