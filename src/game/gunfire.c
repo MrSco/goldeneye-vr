@@ -394,6 +394,20 @@ static s32 gevrLeftGadgetMirrored(GUNHAND handnum, s32 item)
 }
 
 /*
+ * A GoldenEye X gun in the left hand is mirrored, its hands with it (they
+ * share its matrices), as Perfect Dark flips a dual-wielded left gun
+ * (WEAPONFLAG_DUALFLIP; user: the left KF7 was held in a right hand).
+ * Its display lists set their own culling, so the mirror swaps the faces
+ * in the renderer (VR_CULL_MIRROR) rather than by GoldenEye's cull modes.
+ */
+static s32 gevrGexLeftMirrored(GUNHAND handnum)
+{
+    extern s32 gevrGexHeld(s32 hand);
+
+    return handnum == GUNLEFT && gevrGexHeld(GUNLEFT);
+}
+
+/*
  * The mirror is taken across the hand's mirror plane (the gun matrix's model
  * x = 0), not in the gadget's own frame: negating the posed gadget's row 0
  * flips it about its own x, which turns an item posed with a turn (a mine,
@@ -923,7 +937,12 @@ void gunUpdateAndFire(GUNHAND handnum)
             gevrLeftGadgetMirror(&gunmtx);
         }
 #endif
+#ifdef GEVR
+        if (((bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0) && (handnum == GUNLEFT))
+            || gevrGexLeftMirrored(handnum))
+#else
         if ((bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0) && (handnum == GUNLEFT))
+#endif
         {
             matrix_column_1_scalar_multiply(-1.0f, gunmtx.m[0]);
         }
@@ -2804,7 +2823,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         }
         /* left-handed mode mirrors the gun matrix (stereo: bondview2.c, screen: gunUpdateAndFire),
          * and a left-hand gadget is mirrored once more (gevrLeftGadgetMirrored) */
-        if (gevrHandsMirrored() != gevrLeftGadgetMirrored(handnum, item))
+        if ((gevrHandsMirrored() != gevrLeftGadgetMirrored(handnum, item)) != gevrGexLeftMirrored(handnum))
         {
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
@@ -2828,7 +2847,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 #endif
         gdl = renderdata.gdl;
 #ifdef GEVR
-        if (gevrHandsMirrored() != gevrLeftGadgetMirrored(handnum, item))
+        if ((gevrHandsMirrored() != gevrLeftGadgetMirrored(handnum, item)) != gevrGexLeftMirrored(handnum))
         {
             gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
         }
