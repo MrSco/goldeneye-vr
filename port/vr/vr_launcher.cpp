@@ -2762,6 +2762,14 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
             ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
             ImGui::EndDisabled();
+            // #95, from GE Plus's comfort options: the push of a hit, the
+            // trigger dropped while the hit shows, the red flash
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "WHEN HIT (stereo)");
+            bool noPush = VrNoKnockback != 0, noStun = VrNoHitstun != 0, flash = VrDamageFlash != 0;
+            if (ImGui::Checkbox("No knockback", &noPush)) VrNoKnockback = noPush ? 1 : 0;
+            if (ImGui::Checkbox("Keep firing when hit (no hitstun)", &noStun)) VrNoHitstun = noStun ? 1 : 0;
+            if (ImGui::Checkbox("Red flash when hit", &flash)) VrDamageFlash = flash ? 1 : 0;
         },
         [&]() {
             ImGui::TextColored(gold, "SCREEN");

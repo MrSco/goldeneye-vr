@@ -65,6 +65,11 @@ int VrWatchGesturePause = 1;
 
 /* GoldenEye: comfort vignette while moving in stereo, 0 = off .. 1. */
 float VrComfortVignette = 0.0f;
+/* Being hit in stereo (issue #95): no push (on: motion you didn't make),
+ * hitstun kept, the red flash kept. */
+int VrNoKnockback = 1;
+int VrNoHitstun = 0;
+int VrDamageFlash = 1;
 #ifdef ANDROID
 int VrRefreshRate = 0;     /* Auto: no app preference; runtime / external profile manages the rate. */
 #else

@@ -113,6 +113,10 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Stereo: darken the edges of the view while moving or smooth-turning, to\n");
     fprintf(f, "; ease motion sickness. 0 = off, up to 1 = strongest.\n");
     fprintf(f, "ComfortVignette=%.2f\n", VrComfortVignette);
+    fprintf(f, "; Stereo, when you're hit: 1 = the hit doesn't push you, 1 = the trigger still\n");
+    fprintf(f, "; fires while the hit shows (no hitstun), 0 = no red flash.\n");
+    fprintf(f, "NoKnockback=%d\nNoHitstun=%d\nDamageFlash=%d\n", VrNoKnockback ? 1 : 0, VrNoHitstun ? 1 : 0,
+            VrDamageFlash ? 1 : 0);
 
     // --- VR hand placement (no menu UI; edit here) --------------------------------------------
     fprintf(f, "\n");
@@ -228,6 +232,9 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "WeaponRecoil") == 0) VrWeaponRecoil = (ival != 0);
             else if (strcmp(key, "StickClickToCrouch") == 0) VrStickClickToCrouch = (ival != 0);
             else if (strcmp(key, "AimNoLean") == 0) VrAimNoLean = (ival != 0);
+            else if (strcmp(key, "NoKnockback") == 0) VrNoKnockback = (ival != 0);
+            else if (strcmp(key, "NoHitstun") == 0) VrNoHitstun = (ival != 0);
+            else if (strcmp(key, "DamageFlash") == 0) VrDamageFlash = (ival != 0);
             else if (strcmp(key, "PauseHub") == 0) VrPauseHub = (ival != 0);
             else if (strcmp(key, "TwoHandedAiming") == 0) VrTwoHandAim = (ival != 0);
             else if (strcmp(key, "LeftHandedMode") == 0) VrLeftHandedMode = (ival != 0);
