@@ -3843,7 +3843,7 @@ enum {
 static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Turning", "Turn speed", "Vignette", "Watch face", "Aim steady",
     "Aim: no lean", "Motion throw", "Hip holster", "Grip use", "Grip to hand",
-    "Mine re-grab", "Hand reload", "Gun recoil", "Back"
+    "Mine re-grab", "Reload WIP", "Gun recoil", "Back"
 };
 
 /* Rows on screen at once; the list scrolls to keep the highlight in view. */

@@ -14728,6 +14728,7 @@ static f32 s_gevrGestureTune[GEVR_GT_COUNT] = {
     20.0f,   /* mine: to the mine */
 };
 #define GEVR_GESTURE_FINGERS_CM 6.0f   /* the touch point: ahead of the grip, at the fingers */
+#define GEVR_GRIP_B_REACH_CM 50.0f     /* grip use: the hand this near to what B would use */
 
 static s32 s_gevrGripGesture[2];   /* per controller: 0 idle, 1 a press to decide, 2 taken until let go, 3 aims */
 static s32 s_gevrGripPendAge[2];
@@ -15020,6 +15021,30 @@ static s32 gevrGripGestureTry(s32 ctrl)
         && gevrHandInteract(prop))
     {
         done = 3;
+    }
+    if (done < 0 && VrGestureGripUse)
+    {
+        /*
+         * What B would use here (in reach and in front, propFindForInteract),
+         * with the hand reaching toward it: GEVR PC's grip uses a door in
+         * range with the same squeeze. The Dam's gates didn't answer a
+         * touch (user); within GEVR_GRIP_B_REACH_CM of the hand they do.
+         */
+        extern PropRecord *propFindForInteract(void);
+        extern f32 gevrHandPropDistance(PropRecord *prop, const f32 p[3]);
+        PropRecord *target = propFindForInteract();
+        f32 tdist = gevrHandPropDistance(target, p) / cm;
+
+        if (target != NULL)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: grip (%s): B would use prop type %d, %.0f cm from the hand",
+                         ctrl ? "gun hand" : "off hand", target->type, tdist);
+        }
+        if (target != NULL && (target->type == PROP_TYPE_DOOR || target->type == PROP_TYPE_OBJ)
+            && tdist <= GEVR_GRIP_B_REACH_CM && gevrHandInteract(target))
+        {
+            done = 3;
+        }
     }
 
     if (done < 0)

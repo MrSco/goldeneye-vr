@@ -13,7 +13,7 @@ misbehaves can be reverted alone.
 | Watch "VR settings" page | Watch > Game Options, last row | n/a |
 | Hip holster / grip use / mine re-grab | Controls > Gestures...; watch VR page | on |
 | Grip to hand (a gun on the floor into that hand) | Controls > Gestures...; watch VR page | off |
-| Hand reload | Controls > Gestures...; watch VR page | off |
+| Hand reload (WIP) | Controls > Gestures...; watch VR page | off |
 | Per-gun recoil | Controls > Gestures...; watch VR page | off |
 | Mines stick to guards | Play > Game rules... | off |
 | Bodies stay 12/24/48 | Play > Game rules... | off |
@@ -57,7 +57,7 @@ Grip gestures (all on by default):
   while it is still arming.
 - Each toggle off: that gesture stops, and the grip aims there.
 
-Hand reload (turn it on):
+Hand reload, work in progress (turn it on):
 - KF7: empty the magazine. It does not reload, and B does not reload.
   Squeeze the left hand under the gun in front of the trigger, then pull
   down about 8 cm: it reloads.
