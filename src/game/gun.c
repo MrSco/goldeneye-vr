@@ -1092,8 +1092,6 @@ s32 gevrGexHeld(s32 hand)
  * the one its reload brings in (part 40), hidden at rest as in Perfect Dark.
  */
 #define GEVR_GEX_SW_ADDED       2
-#define GEVR_GEX_SW_MAG(hdr)    ((hdr)->numSwitches - 2)
-#define GEVR_GEX_SW_NEWMAG(hdr) ((hdr)->numSwitches - 1)
 
 /*
  * The KF7's textures in GE-X are GoldenEye's, re-encoded: GE-X's number,
@@ -1157,9 +1155,98 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     }
 }
 
-/* the animation a GE-X gun is held in at rest: its fire animation's first
- * frame (the KF7's, 1017; tools/gex/gexguns.py lists them) */
-#define GEVR_GEX_KF7_IDLE_ANIM 1017
+/*
+ * A GoldenEye X gun plays Perfect Dark's animations (docs/gex-weapons.md;
+ * tools/gex/gexguns.py lists each gun's scripts), driven by this hand's
+ * state:
+ *  - the reload plays its reload animation (the KF7's 1018, 90 frames)
+ *    across GoldenEye's reload, with its ammo frame (50) where GoldenEye
+ *    moves the ammo (the raise's start), so the game's timing stands; the
+ *    magazines swap on the script's frames (18 out, 50 in);
+ *  - a burst plays the fire animation (1017) once from the trigger, a
+ *    frame a 60th, as Perfect Dark starts it per attack
+ *    (bgunTickIncAttackingShoot);
+ *  - at rest the gun holds the fire animation's first frame.
+ * GoldenEye's own reload tilt stands down for it (gunfire.c).
+ */
+#define GEVR_GEX_KF7_FIRE_ANIM    1017
+#define GEVR_GEX_KF7_RELOAD_ANIM  1018
+#define GEVR_GEX_KF7_MAG_OUT      18.0f
+#define GEVR_GEX_KF7_MAG_IN       50.0f
+
+extern f32 gevrReloadPhase(GUNHAND hand);   /* gunfire.c */
+
+/* each player's hands' fire animation frame, or -1 when it is not playing */
+static f32 s_gevrGexFire[MAX_PLAYER_COUNT][2] = {
+    { -1.0f, -1.0f }, { -1.0f, -1.0f }, { -1.0f, -1.0f }, { -1.0f, -1.0f },
+#if MAX_PLAYER_COUNT > 4
+    { -1.0f, -1.0f }, { -1.0f, -1.0f }, { -1.0f, -1.0f }, { -1.0f, -1.0f },
+#endif
+};
+static s32 s_gevrGexFiring[MAX_PLAYER_COUNT][2];
+static s32 s_gevrGexReloading[MAX_PLAYER_COUNT][2];
+
+/* gunfire.c gunTickHandState, each tick: the fire animation's clock */
+void gevrGexTick(GUNHAND hand, s32 firing)
+{
+    s32 p = get_cur_playernum();
+    f32 *fire;
+
+    if (p < 0 || p >= MAX_PLAYER_COUNT || (hand != GUNRIGHT && hand != GUNLEFT))
+    {
+        return;
+    }
+    fire = &s_gevrGexFire[p][hand];
+    if (!gevrGexHeld(hand))
+    {
+        *fire = -1.0f;
+    }
+    else if (firing && !s_gevrGexFiring[p][hand])
+    {
+        *fire = 0.0f;
+    }
+    else if (*fire >= 0.0f)
+    {
+        *fire += g_ClockTimer;
+        if (*fire >= gevrPdAnimNumFrames(GEVR_GEX_KF7_FIRE_ANIM) - 1)
+        {
+            *fire = -1.0f;
+        }
+    }
+    s_gevrGexFiring[p][hand] = firing;
+}
+
+/* a joint at a fractional frame, blended between the two either side as
+ * Perfect Dark's models are (rotations the short way round) */
+static void gevrGexAnimPart(s32 anim, f32 frame, s32 part, f32 rot[3], f32 trans[3])
+{
+    s32 f0 = (s32) frame;
+    f32 t = frame - f0;
+    f32 rot1[3], trans1[3], scale[3];
+    s32 i;
+
+    gevrPdAnimPart(anim, f0, part, rot, trans, scale);
+    if (t <= 0.0f || f0 + 1 >= gevrPdAnimNumFrames(anim))
+    {
+        return;
+    }
+    gevrPdAnimPart(anim, f0 + 1, part, rot1, trans1, scale);
+    for (i = 0; i < 3; i++)
+    {
+        f32 d = rot1[i] - rot[i];
+
+        if (d > M_PI_F)
+        {
+            d -= 2.0f * M_PI_F;
+        }
+        else if (d < -M_PI_F)
+        {
+            d += 2.0f * M_PI_F;
+        }
+        rot[i] += d * t;
+        trans[i] += (trans1[i] - trans[i]) * t;
+    }
+}
 
 /*
  * A GE-X gun's joints. GoldenEye's gun code sets each of its own models'
@@ -1171,22 +1258,48 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
  * the joint's offset plus the animation's translation; the root takes the
  * animation's translation alone.
  */
-void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
+void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND hand)
 {
     ModelNode *node = hdr->RootNode;
     Mtxf base;
     Mtxf offset;
-    const s32 anim = GEVR_GEX_KF7_IDLE_ANIM;
-    const s32 frame = 0;
+    s32 p = get_cur_playernum();
+    f32 phase = gevrReloadPhase(hand);
+    f32 fire = (p >= 0 && p < MAX_PLAYER_COUNT) ? s_gevrGexFire[p][hand] : -1.0f;
+    s32 anim = GEVR_GEX_KF7_FIRE_ANIM;
+    f32 frame = 0.0f;
+    s32 swapped = FALSE;
+    s32 i;
 
-    /* the spare magazine shows only during the reload */
-    if (hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)] != NULL)
+    if (phase >= 0.0f)
     {
-        s32 *visible = (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)]);
+        /* lowering and swapping up to the ammo frame, raising after it */
+        f32 last = (f32) (gevrPdAnimNumFrames(GEVR_GEX_KF7_RELOAD_ANIM) - 1);
+
+        anim = GEVR_GEX_KF7_RELOAD_ANIM;
+        frame = phase < 2.0f ? phase * 0.5f * GEVR_GEX_KF7_MAG_IN
+                             : GEVR_GEX_KF7_MAG_IN + (phase - 2.0f) * (last - GEVR_GEX_KF7_MAG_IN);
+        swapped = frame >= GEVR_GEX_KF7_MAG_OUT && frame < GEVR_GEX_KF7_MAG_IN;
+    }
+    else if (fire >= 0.0f)
+    {
+        frame = fire;
+    }
+    if (p >= 0 && p < MAX_PLAYER_COUNT && (phase >= 0.0f) != s_gevrGexReloading[p][hand])
+    {
+        s_gevrGexReloading[p][hand] = phase >= 0.0f;
+        sysLogPrintf(LOG_NOTE, "gexanim: hand %d reload %s", hand, phase >= 0.0f ? "starts" : "ends");
+    }
+
+    /* the magazine in the gun, or the one the reload brings in */
+    for (i = 0; i < GEVR_GEX_SW_ADDED; i++)
+    {
+        ModelNode *sw = hdr->Switches[hdr->numSwitches - GEVR_GEX_SW_ADDED + i];
+        s32 *visible = sw != NULL ? (s32 *) modelGetNodeRwData(model, sw) : NULL;
 
         if (visible != NULL)
         {
-            *visible = FALSE;
+            *visible = (i == 1) == swapped;
         }
     }
 
@@ -1210,9 +1323,9 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
             }
             if (group->MatrixID0 >= 0 && group->MatrixID0 < hdr->numMatrices)
             {
-                f32 rot[3], trans[3], scale[3], pos[3];
+                f32 rot[3], trans[3], pos[3];
 
-                gevrPdAnimPart(anim, frame, group->JointID, rot, trans, scale);
+                gevrGexAnimPart(anim, frame, group->JointID, rot, trans);
                 if (up == NULL)
                 {
                     pos[0] = trans[0];
@@ -1241,25 +1354,6 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
                 node = node->Parent;
             }
             node = node != NULL ? node->Next : NULL;
-        }
-    }
-
-    /* tuning: the joints and the magazine switches, every 2 s or so */
-    {
-        static s32 tick;
-
-        if ((tick++ % 120) == 0 && hdr->numMatrices > 40)
-        {
-            s32 *mag = hdr->Switches[GEVR_GEX_SW_MAG(hdr)] ? (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_MAG(hdr)]) : NULL;
-            s32 *newmag = hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)] ? (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)]) : NULL;
-
-            sysLogPrintf(LOG_NOTE, "gexpose: mtx0 %.1f %.1f %.1f, 33 %.1f %.1f %.1f, 39 %.1f %.1f %.1f, 40 %.1f %.1f %.1f; mag sw %p vis %d, new sw %p vis %d",
-                    rwmtx[0].m[3][0], rwmtx[0].m[3][1], rwmtx[0].m[3][2],
-                    rwmtx[33].m[3][0], rwmtx[33].m[3][1], rwmtx[33].m[3][2],
-                    rwmtx[39].m[3][0], rwmtx[39].m[3][1], rwmtx[39].m[3][2],
-                    rwmtx[40].m[3][0], rwmtx[40].m[3][1], rwmtx[40].m[3][2],
-                    (void *) hdr->Switches[GEVR_GEX_SW_MAG(hdr)], mag ? *mag : -1,
-                    (void *) hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)], newmag ? *newmag : -1);
         }
     }
 }

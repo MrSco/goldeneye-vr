@@ -1257,11 +1257,11 @@ void gunUpdateAndFire(GUNHAND handnum)
         {
             /* a GoldenEye X model: every joint from its parent (gun.c) */
             extern s32 gevrGexHeld(s32 hand);
-            extern void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx);
+            extern void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND hand);
 
             if (gevrGexHeld(handnum))
             {
-                gevrGexPoseGun(mdlhdr, model, rwmtx);
+                gevrGexPoseGun(mdlhdr, model, rwmtx, handnum);
             }
         }
 #endif
@@ -3918,6 +3918,36 @@ static void gevrPlaceRemoteGunSound(ALSoundState *state, s32 hand)
 /**
  * Address: 7F064B28
  */
+#ifdef GEVR
+/*
+ * How far this hand's reload has got, for a GoldenEye X gun's reload
+ * animation (gun.c gevrGexPoseGun): 0..1 lowering, 1..2 swapping, 2..3
+ * raising (the ammo moves at 2), or -1 when not reloading.
+ */
+f32 gevrReloadPhase(GUNHAND hand)
+{
+    struct hand *h = &g_CurrentPlayer->hands[hand];
+    f32 t;
+
+    switch (h->weapon_action_state)
+    {
+    case GUN_ANIM_STATE_RELOAD_START:
+        return 0.0f;
+    case GUN_ANIM_STATE_RELOAD_LOWER:
+        t = (f32) h->field_890 / WHEN_A_FLD890;
+        return t < 1.0f ? t : 1.0f;
+    case GUN_ANIM_STATE_RELOAD_SWAP:
+        t = h->field_8B0 > 0 ? (f32) h->field_890 / h->field_8B0 : 1.0f;
+        return 1.0f + (t < 1.0f ? t : 1.0f);
+    case GUN_ANIM_STATE_RELOAD_RAISE:
+        t = (f32) h->field_890 / WHEN_C_FLD890;
+        return 2.0f + (t < 1.0f ? t : 1.0f);
+    default:
+        return -1.0f;
+    }
+}
+#endif
+
 void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 {
 #if defined(VERSION_US)
@@ -5659,6 +5689,22 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             handptr->field_88C = 0;
         }
     }
+#ifdef GEVR
+    {
+        /* a GoldenEye X gun animates itself (gun.c): its fire animation's
+         * clock, and its reload animation in place of the reload tilt */
+        extern s32 gevrGexHeld(s32 hand);
+        extern void gevrGexTick(GUNHAND hand, s32 firing);
+        const s32 st = handptr->weapon_action_state;
+
+        gevrGexTick(hand, st == GUN_ANIM_STATE_TRIGGER_PRESS || st == GUN_ANIM_STATE_FIRE
+                || st == GUN_ANIM_STATE_RECOIL1 || st == GUN_ANIM_STATE_RECOIL2);
+        if (gevrGexHeld(hand) && gevrReloadPhase(hand) >= 0.0f)
+        {
+            handptr->field_92C = 0;
+        }
+    }
+#endif
 }
 
 #undef WEAPON_1P_ANIM_TIME
