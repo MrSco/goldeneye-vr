@@ -31,6 +31,7 @@
 #include <cfloat>
 #include <cstring>
 #include <string>
+#include <utility>
 #include <vector>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -93,9 +94,10 @@ struct RomInfo {
     bool good = false;
 };
 
-// The same checks as gevr_romload.c: size, header name, NTSC-U cartridge id.
-// .z64 byte order is checked; .v64/.n64 are accepted by the loader and
-// reported here by size and extension alone.
+// The same checks as gevr_romload.c: size, byte order, header name, NTSC-U
+// cartridge id. The loader converts .v64/.n64 dumps to .z64 order before it
+// checks them, so the header is converted here too: a byte-swapped PAL dump
+// used to pass on its size alone, enable START and then abort the game.
 RomInfo probeRom(const std::string &path)
 {
     RomInfo r;
@@ -115,20 +117,41 @@ RomInfo probeRom(const std::string &path)
         r.status = "not a 12 MB GoldenEye ROM (" + std::to_string(size / 1024) + " KB)";
         return r;
     }
-    if (n == sizeof(hdr) && hdr[0] == 0x80 && hdr[1] == 0x37) {
-        if (memcmp(hdr + 0x20, "GOLDENEYE", 9) != 0) {
-            r.status = "header name is not GOLDENEYE";
-            return r;
-        }
-        if (memcmp(hdr + 0x3b, "NGEE", 4) != 0) {
-            r.status = "not the USA (NGEE) cartridge";
-            return r;
-        }
-        r.status = "GoldenEye 007 (USA) - OK";
-        r.good = true;
+    if (n != sizeof(hdr)) {
+        r.status = "cannot be read";
         return r;
     }
-    r.status = "12 MB, byte-swapped dump (the loader converts it)";
+
+    const char *order;
+    if (hdr[0] == 0x80 && hdr[1] == 0x37 && hdr[2] == 0x12 && hdr[3] == 0x40) {
+        order = "";
+    } else if (hdr[0] == 0x37 && hdr[1] == 0x80 && hdr[2] == 0x40 && hdr[3] == 0x12) {
+        for (size_t i = 0; i + 1 < sizeof(hdr); i += 2) {     // .v64
+            std::swap(hdr[i], hdr[i + 1]);
+        }
+        order = ", byte-swapped";
+    } else if (hdr[0] == 0x40 && hdr[1] == 0x12 && hdr[2] == 0x37 && hdr[3] == 0x80) {
+        for (size_t i = 0; i + 3 < sizeof(hdr); i += 4) {     // .n64
+            std::swap(hdr[i], hdr[i + 3]);
+            std::swap(hdr[i + 1], hdr[i + 2]);
+        }
+        order = ", byte-swapped";
+    } else {
+        r.status = "not an N64 ROM image";
+        return r;
+    }
+
+    if (memcmp(hdr + 0x20, "GOLDENEYE", 9) != 0) {
+        r.status = "header name is not GOLDENEYE";
+        return r;
+    }
+    if (memcmp(hdr + 0x3b, "NGEE", 4) != 0) {
+        const char *region = hdr[0x3e] == 'P' ? "PAL" : hdr[0x3e] == 'J' ? "Japanese" : "non-USA";
+        r.status = std::string(region) + " cartridge (" + std::string((const char *)hdr + 0x3b, 4)
+            + ") - needs the USA one (NGEE)";
+        return r;
+    }
+    r.status = std::string("GoldenEye 007 (USA)") + order + " - OK";
     r.good = true;
     return r;
 }
