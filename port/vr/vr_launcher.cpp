@@ -2739,6 +2739,12 @@ extern "C" void gevrLauncherRun(void)
             ImGui::RadioButton("Curved", &curved, 1);
             ImGui::EndDisabled();
             VrScreenCurved = curved;
+            bool pass = VrScreenPassthrough != 0;
+            ImGui::BeginDisabled(!vr_passthrough_supported());
+            if (ImGui::Checkbox("Passthrough background", &pass)) VrScreenPassthrough = pass ? 1 : 0;
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Show your room behind the 2D screen instead of black.");
             float size = VrScreenFov, dist = VrScreenDistance;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
             if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg"))

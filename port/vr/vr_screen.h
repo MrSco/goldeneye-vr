@@ -37,11 +37,14 @@ int gevrVrScreenPointer(float *u, float *v);
 void vr_pointer_draw(void);
 /* Whether the runtime offers the cylinder layer VrScreenCurved needs. */
 int vr_screen_curve_supported(void);
+/* Whether Meta passthrough is available (Quest). */
+int vr_passthrough_supported(void);
 
 /* Tunables, metres and degrees; saved in goldeneye-vr.ini. */
 extern float VrScreenDistance;
 extern float VrScreenFov;
 extern int VrScreenCurved;
+extern int VrScreenPassthrough;
 extern float VrScreenHeight;
 #define VR_SCREEN_HEIGHT_MAX 3.0f
 #define VR_SCREEN_DISTANCE_MIN 1.0f

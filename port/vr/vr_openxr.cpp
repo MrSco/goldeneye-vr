@@ -381,6 +381,12 @@ static XrRuntimeType gActiveRuntime = XrRuntimeType::Unknown;
 bool is_meta_runtime = false;
 // GoldenEye: the curved virtual screen is a cylinder layer (VrScreenCurved).
 static bool g_cylinderSupported = false;
+// GoldenEye: the room's passthrough feed behind the virtual screen
+// (VrScreenPassthrough). Cleared again if creating it fails.
+static bool g_passthroughSupported = false;
+static XrPassthroughFB g_passthrough = XR_NULL_HANDLE;
+static XrPassthroughLayerFB g_passthroughLayer = XR_NULL_HANDLE;
+static bool g_passthroughRunning = false;
 static bool g_refreshRateSupported = false;
 static std::vector<float> g_supportedRefreshRates;
 static bool g_refreshRatesEnumerated = false;
@@ -537,6 +543,7 @@ static std::vector<const char*> vr_enumerate_extensions()
     g_refreshRateSupported = false;
     g_cylinderSupported = false;
     g_colorSpaceExtSupported = false;
+    g_passthroughSupported = false;
 
     uint32_t extensionCount = 0;
     XrResult result = xrEnumerateInstanceExtensionProperties(nullptr, 0, &extensionCount, nullptr);
@@ -596,6 +603,11 @@ static std::vector<const char*> vr_enumerate_extensions()
             enabledExts.push_back("XR_FB_color_space");
             g_colorSpaceExtSupported = true;
             LOGI("Extension enabled: XR_FB_color_space");
+        }
+        if (std::strcmp(ext.extensionName, XR_FB_PASSTHROUGH_EXTENSION_NAME) == 0) {
+            enabledExts.push_back(XR_FB_PASSTHROUGH_EXTENSION_NAME);
+            g_passthroughSupported = true;
+            LOGI("Extension enabled: %s", XR_FB_PASSTHROUGH_EXTENSION_NAME);
         }
     }
 
@@ -1017,6 +1029,106 @@ static void vr_setup_color_space()
         LOGE("xrSetColorSpaceFB failed: %d", (int)cr);
     } else {
         LOGI("Color space set to XR_COLOR_SPACE_REC709_FB (sRGB)");
+    }
+}
+
+// ============================================================================
+// PASSTHROUGH - Meta Quest Room Passthrough (XR_FB_passthrough)
+// ============================================================================
+
+static PFN_xrCreatePassthroughFB pfnCreatePassthroughFB = nullptr;
+static PFN_xrDestroyPassthroughFB pfnDestroyPassthroughFB = nullptr;
+static PFN_xrPassthroughStartFB pfnPassthroughStartFB = nullptr;
+static PFN_xrPassthroughPauseFB pfnPassthroughPauseFB = nullptr;
+static PFN_xrCreatePassthroughLayerFB pfnCreatePassthroughLayerFB = nullptr;
+static PFN_xrDestroyPassthroughLayerFB pfnDestroyPassthroughLayerFB = nullptr;
+static PFN_xrPassthroughLayerPauseFB pfnPassthroughLayerPauseFB = nullptr;
+static PFN_xrPassthroughLayerResumeFB pfnPassthroughLayerResumeFB = nullptr;
+
+static void vr_passthrough_create()
+{
+    if (!g_passthroughSupported) return;
+
+    auto load = [](const char* name) -> PFN_xrVoidFunction {
+        PFN_xrVoidFunction fn = nullptr;
+        xrGetInstanceProcAddr(g_vrState.instance, name, &fn);
+        return fn;
+    };
+
+    pfnCreatePassthroughFB = (PFN_xrCreatePassthroughFB)load("xrCreatePassthroughFB");
+    pfnDestroyPassthroughFB = (PFN_xrDestroyPassthroughFB)load("xrDestroyPassthroughFB");
+    pfnPassthroughStartFB = (PFN_xrPassthroughStartFB)load("xrPassthroughStartFB");
+    pfnPassthroughPauseFB = (PFN_xrPassthroughPauseFB)load("xrPassthroughPauseFB");
+    pfnCreatePassthroughLayerFB = (PFN_xrCreatePassthroughLayerFB)load("xrCreatePassthroughLayerFB");
+    pfnDestroyPassthroughLayerFB = (PFN_xrDestroyPassthroughLayerFB)load("xrDestroyPassthroughLayerFB");
+    pfnPassthroughLayerPauseFB = (PFN_xrPassthroughLayerPauseFB)load("xrPassthroughLayerPauseFB");
+    pfnPassthroughLayerResumeFB = (PFN_xrPassthroughLayerResumeFB)load("xrPassthroughLayerResumeFB");
+
+    if (!pfnCreatePassthroughFB || !pfnDestroyPassthroughFB || !pfnPassthroughStartFB ||
+        !pfnPassthroughPauseFB || !pfnCreatePassthroughLayerFB || !pfnDestroyPassthroughLayerFB ||
+        !pfnPassthroughLayerPauseFB || !pfnPassthroughLayerResumeFB) {
+        LOGE("passthrough: failed to resolve OpenXR entry points");
+        g_passthroughSupported = false;
+        return;
+    }
+
+    XrPassthroughCreateInfoFB pci{XR_TYPE_PASSTHROUGH_CREATE_INFO_FB};
+    pci.flags = 0;
+    XrResult r = pfnCreatePassthroughFB(g_vrState.session, &pci, &g_passthrough);
+    if (XR_FAILED(r) || g_passthrough == XR_NULL_HANDLE) {
+        LOGE("passthrough: xrCreatePassthroughFB failed: %d", (int)r);
+        g_passthroughSupported = false;
+        g_passthrough = XR_NULL_HANDLE;
+        return;
+    }
+
+    XrPassthroughLayerCreateInfoFB plci{XR_TYPE_PASSTHROUGH_LAYER_CREATE_INFO_FB};
+    plci.passthrough = g_passthrough;
+    plci.flags = 0;
+    plci.purpose = XR_PASSTHROUGH_LAYER_PURPOSE_RECONSTRUCTION_FB;
+    r = pfnCreatePassthroughLayerFB(g_vrState.session, &plci, &g_passthroughLayer);
+    if (XR_FAILED(r) || g_passthroughLayer == XR_NULL_HANDLE) {
+        LOGE("passthrough: xrCreatePassthroughLayerFB failed: %d", (int)r);
+        pfnDestroyPassthroughFB(g_passthrough);
+        g_passthrough = XR_NULL_HANDLE;
+        g_passthroughLayer = XR_NULL_HANDLE;
+        g_passthroughSupported = false;
+        return;
+    }
+
+    g_passthroughRunning = false;
+    LOGI("passthrough: initialized successfully (idle)");
+}
+
+static void vr_passthrough_destroy()
+{
+    if (g_passthroughLayer != XR_NULL_HANDLE) {
+        if (pfnDestroyPassthroughLayerFB) pfnDestroyPassthroughLayerFB(g_passthroughLayer);
+        g_passthroughLayer = XR_NULL_HANDLE;
+    }
+    if (g_passthrough != XR_NULL_HANDLE) {
+        if (pfnDestroyPassthroughFB) pfnDestroyPassthroughFB(g_passthrough);
+        g_passthrough = XR_NULL_HANDLE;
+    }
+    g_passthroughRunning = false;
+}
+
+static void vr_passthrough_set_active(bool active)
+{
+    if (!g_passthroughSupported || g_passthrough == XR_NULL_HANDLE || g_passthroughLayer == XR_NULL_HANDLE) {
+        return;
+    }
+    if (active == g_passthroughRunning) return;
+    if (active) {
+        if (pfnPassthroughStartFB) pfnPassthroughStartFB(g_passthrough);
+        if (pfnPassthroughLayerResumeFB) pfnPassthroughLayerResumeFB(g_passthroughLayer);
+        g_passthroughRunning = true;
+        LOGI("passthrough: started/resumed");
+    } else {
+        if (pfnPassthroughLayerPauseFB) pfnPassthroughLayerPauseFB(g_passthroughLayer);
+        if (pfnPassthroughPauseFB) pfnPassthroughPauseFB(g_passthrough);
+        g_passthroughRunning = false;
+        LOGI("passthrough: paused");
     }
 }
 
@@ -1701,7 +1813,12 @@ static void vr_update_scope_swapchain(int hand, GLuint srcTex)
 float VrScreenDistance = 2.5f;  // metres in front of the eyes when (re)centred
 float VrScreenFov      = 60.0f; // degrees of horizontal view the screen spans at that distance
 int   VrScreenCurved   = 0;     // 1 = a cylinder section around the viewer instead of a flat quad
+int   VrScreenPassthrough = 0;  // 1 = room passthrough feed behind the 2D screen, 0 = black void
 float VrScreenHeight   = 0.0f;  // metres above (+) or below eye level when (re)centred
+
+extern "C" int vr_passthrough_supported(void) {
+    return (g_passthroughSupported && g_passthroughLayer != XR_NULL_HANDLE) ? 1 : 0;
+}
 
 static XrSwapchain g_screenSwapchain = XR_NULL_HANDLE;
 #ifdef ANDROID
@@ -2542,9 +2659,12 @@ static void vr_stats_xr_frame(void)
 static std::array<XrView, 2> g_recordedViews = { XrView{XR_TYPE_VIEW}, XrView{XR_TYPE_VIEW} };
 static bool g_haveRecordedViews = false;
 
+static bool g_eyesHoldStereo = false;
+
 extern "C" void gevrVrMarkEyesRendered(int stereo)
 {
     vr_stats_game_frame();
+    g_eyesHoldStereo = (stereo != 0);
     if (stereo && g_haveCameraViews) {
         g_renderedViews = g_cameraViews;
         g_haveRenderedViews = true;
@@ -2554,6 +2674,11 @@ extern "C" void gevrVrMarkEyesRendered(int stereo)
         g_haveRenderedViews = false;
         g_haveRecordedViews = false;
     }
+}
+
+// A 2D virtual screen drawn over an empty void (launcher, menus, 2D play, 2D pause).
+static inline bool vr_screen_on_void(void) {
+    return g_screenVisible && (!g_screenOverlay || !g_eyesHoldStereo);
 }
 
 /*
@@ -3725,12 +3850,30 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     // (cleared transparent, holding only the laser pointer) over it, so the
     // beam and its spot show in front of the screen; otherwise the eye
     // buffers are the scene.
+    // If passthrough is active behind the screen, the passthrough layer is placed
+    // at the very bottom (first layer).
     int numLayers = 0;
-    const XrCompositionLayerBaseHeader* layers[10];   // screen, eyes, four menus, two scopes, room to spare
-    if (submitScreen && !g_screenOverlay) {
+    const XrCompositionLayerBaseHeader* layers[12];   // passthrough, screen, eyes, four menus, two scopes, room to spare
+
+    const bool isScreenOnVoid = vr_screen_on_void();
+    const bool usePassthrough = VrScreenPassthrough && g_passthroughSupported && isScreenOnVoid && (g_passthroughLayer != XR_NULL_HANDLE);
+    vr_passthrough_set_active(usePassthrough);
+
+    XrCompositionLayerPassthroughFB passLayer{XR_TYPE_COMPOSITION_LAYER_PASSTHROUGH_FB};
+    if (usePassthrough) {
+        passLayer.flags = 0;
+        passLayer.space = XR_NULL_HANDLE;
+        passLayer.layerHandle = g_passthroughLayer;
+        layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&passLayer);
+    }
+
+    const bool screenAsOverlay = submitScreen && g_screenOverlay && g_eyesHoldStereo;
+    if (submitScreen && !screenAsOverlay) {
         layers[numLayers++] = screenCurved
             ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
             : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
+        layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+    } else if (isScreenOnVoid) {
         layer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
     }
     layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader *>(&layer);
@@ -3757,7 +3900,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     XrFrameEndInfo endInfo = {XR_TYPE_FRAME_END_INFO};
     endInfo.displayTime          = frameState.predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-    if(submitScreen && g_screenOverlay) {
+    if (submitScreen && screenAsOverlay) {
         layers[numLayers++] = screenCurved
             ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
             : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
@@ -3883,6 +4026,7 @@ extern "C" bool openxr_initialize_vr(JavaVM* vm, jobject activity, ANativeWindow
     if (!vr_configure_resolution()) return false;
     if (!vr_create_session()) return false;
     vr_setup_color_space();
+    vr_passthrough_create();
     if (!vr_init_controllers()) return false;
     if (!vr_create_play_space()) return false;
     if (!vr_create_view_space()) return false;
@@ -3916,6 +4060,7 @@ static bool openxrInitializeVRwindowsInternal(void) {
     if (!vr_verify_graphics_requirements()) return false;
     if (!vr_create_session())              return false;
     vr_setup_color_space();
+    vr_passthrough_create();
     if (!vr_init_controllers()) return false;
     if (!vr_create_play_space())            return false;
     if (!vr_create_view_space())            return false;
@@ -4353,7 +4498,7 @@ bool vr_begin_eye_render()
     glDepthMask(GL_TRUE);
     GLfloat clearCol[4];
     glGetFloatv(GL_COLOR_CLEAR_VALUE, clearCol);
-    if (g_screenVisible && !g_screenOverlay) {
+    if (vr_screen_on_void()) {
         // The eye buffers go over the virtual screen (vr_end_frame's layer
         // order) and carry only the pointer: clear to transparent.
         glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
@@ -4510,6 +4655,7 @@ extern "C" void vr_shutdown()
     }
     vr_screen_destroy_swapchain();
     g_screenRecenterTimes.clear();
+    vr_passthrough_destroy();
 
     // 4. Reference spaces
     if (g_vrState.viewSpace != XR_NULL_HANDLE) {
