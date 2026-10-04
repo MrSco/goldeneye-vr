@@ -3,7 +3,7 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-03, v0.4.4; versionCode 57, protocol 17.
+**Updated / current build:** 2026-10-03, v0.4.5; versionCode 58, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
 
 **v0.4.4:** mission gadgets and items held in the hand in stereo, with a
