@@ -13,7 +13,8 @@ e431819 (v0.4.5).
 | 556eecf | Cylinder floor finder from Perfect Dark (remote bodies' tile and feet, Bond's tile recovery) | not yet |
 | ba01477 | MP: the level music returns after the death sting when someone else is dead too | not yet |
 | 844140e | HD pack: the stage's gun textures decoded at load | not yet |
-| 0c5cbd4 | MP: other players hold the first-person gun models; launchers carry the rocket (MpDetailedGuns=0 turns it off) | not yet |
+| 0c5cbd4 | MP: other players hold the first-person gun models; launchers carry the rocket (MpDetailedGuns=0 turns it off) | hqguards on the Dam 2026-10-04: launcher fit (scale 1.02) and rocket look fine; range too short |
+| 688d10e | Detailed guns out to 50 m (10 m swapped in sight) | installed 09:31, to check |
 
 ## Release notes for whoever releases this
 
