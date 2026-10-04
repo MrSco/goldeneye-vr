@@ -14735,16 +14735,18 @@ static void gevrGestureTuneRead(void)
 }
 
 /*
- * The hand at its own hip: below the eye, out to its side and not ahead, in
- * the room's level frame turned to the head's heading (the view's own axes
- * pitch with the head). at is the grip in view space, the eye at its origin.
+ * Where a hand is on the body, in centimetres: how far below the eye, how far
+ * out to its own side (the gun hand's right, the off hand's left, mirrored
+ * left-handed; negative across the middle) and how far ahead, in the room's
+ * level frame turned to the head's heading (the view's own axes pitch with
+ * the head). at is the grip in view space, the eye at its origin.
  */
-static s32 gevrHipZone(s32 ctrl, const f32 at[3])
+static s32 gevrHandOnBody(s32 ctrl, const f32 at[3], f32 *dropOut, f32 *sideOut, f32 *aheadOut)
 {
     Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
     struct coord3d hand, fwd, right;
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
-    f32 len, drop, side, ahead;
+    f32 len, side;
 
     if (cm < 1e-6f || v2w == NULL)
     {
@@ -14771,15 +14773,25 @@ static s32 gevrHipZone(s32 ctrl, const f32 at[3])
     }
     right.x /= len;
     right.z /= len;
-    drop = -hand.y / cm;
-    ahead = (hand.x * fwd.x + hand.z * fwd.z) / cm;
     side = (hand.x * right.x + hand.z * right.z) / cm;
-    /* the gun hand's hip is the right one, the off hand's the left (mirrored left-handed) */
+    /* the gun hand's side is the right, the off hand's the left (mirrored left-handed) */
     if ((ctrl == 0) != (VrLeftHandedMode != 0))
     {
         side = -side;
     }
-    return drop >= s_gevrGestureTune[GEVR_GT_HIPDROP] && side >= s_gevrGestureTune[GEVR_GT_HIPSIDE]
+    *dropOut = -hand.y / cm;
+    *sideOut = side;
+    *aheadOut = (hand.x * fwd.x + hand.z * fwd.z) / cm;
+    return TRUE;
+}
+
+/* The hand at its own hip: below the eye, out to its side and not ahead. */
+static s32 gevrHipZone(s32 ctrl, const f32 at[3])
+{
+    f32 drop, side, ahead;
+
+    return gevrHandOnBody(ctrl, at, &drop, &side, &ahead)
+        && drop >= s_gevrGestureTune[GEVR_GT_HIPDROP] && side >= s_gevrGestureTune[GEVR_GT_HIPSIDE]
         && ahead <= s_gevrGestureTune[GEVR_GT_HIPAHEAD];
 }
 
@@ -14931,6 +14943,192 @@ void gevrGripGestureTick(void)
         if (s_gevrGripGesture[ctrl] == 1)
         {
             s_gevrGripGesture[ctrl] = gevrGripGestureTry(ctrl) ? 2 : 3;
+        }
+    }
+}
+
+/*
+ * Hand reload (launcher "Hand reload", VrManualReloading), GEVR PC vr453's
+ * reload gesture: guns no longer reload themselves when the magazine runs
+ * dry (gunfire.c) and B/Y no longer reload (lv.c). Instead
+ *  - a magazine-fed gun (the SMGs and rifles, the sniper rifle) reloads when
+ *    the off hand grips at its magazine and pulls it down: Perfect Dark VR's
+ *    Falcon 2 reload (bondgun.c vrReloadZone, vrEjectMag) as one pull, its
+ *    zone a point under the gun in the gun hand's frame;
+ *  - any other gun (pistols, revolvers, the shotguns, the launchers), or
+ *    either gun while dual-wielding, reloads when its hand sweeps across the
+ *    chest to the other side (GEVR PC's "chest cross").
+ * Both start the game's own reload, as B did (gun.c attempt_reload_item_in_hand).
+ * Throwables, knives and gadgets keep the game's own reload.
+ * files/gevr_reload.txt overrides the zones while tuning:
+ * "magfwd magdown magradius pull crossside crossahead", centimetres.
+ */
+enum { GEVR_RT_MAGFWD, GEVR_RT_MAGDOWN, GEVR_RT_MAGRADIUS, GEVR_RT_PULL, GEVR_RT_CROSSSIDE, GEVR_RT_CROSSAHEAD, GEVR_RT_COUNT };
+static f32 s_gevrReloadTune[GEVR_RT_COUNT] = {
+    8.0f,    /* the magazine: this far ahead of the gun hand's grip */
+    7.0f,    /* and this far below it */
+    10.0f,   /* the off hand within this of it to take hold */
+    8.0f,    /* and pulled this far down the gun to reload */
+    10.0f,   /* the chest cross: this far over the middle to the other side */
+    35.0f,   /* no further ahead of the eye than this (aiming across is further out) */
+};
+
+extern int VrManualReloading;
+
+static s32 gevrReloadGun(s32 item)
+{
+    return item >= ITEM_WPPK && item <= ITEM_ROCKETLAUNCH && item != ITEM_WATCHLASER && item != ITEM_LASER;
+}
+
+/* the weapon wheel's rifles (gevrWeaponCategory) and the sniper rifle */
+static s32 gevrReloadMagazineFed(s32 item)
+{
+    switch (item)
+    {
+        case ITEM_SKORPION: case ITEM_AK47: case ITEM_UZI: case ITEM_MP5K:
+        case ITEM_MP5KSIL: case ITEM_SPECTRE: case ITEM_M16: case ITEM_FNP90:
+        case ITEM_SNIPERRIFLE:
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
+/* gunfire.c and lv.c: the local player reloads by hand */
+s32 gevrManualReloadOn(s32 hand)
+{
+    return g_gevrStereo && VrManualReloading && g_CurrentPlayer != NULL
+        && (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+        && gevrReloadGun(getCurrentPlayerWeaponId(hand));
+}
+
+static void gevrReloadTuneRead(void)
+{
+    static u32 s_read;
+    FILE *f;
+    f32 v[GEVR_RT_COUNT];
+    s32 i;
+
+    if ((s_read++ % 120) != 0)
+    {
+        return;
+    }
+    f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_reload.txt", "r");
+    if (f == NULL)
+    {
+        return;
+    }
+    if (fscanf(f, "%f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == GEVR_RT_COUNT
+        && memcmp(v, s_gevrReloadTune, sizeof(v)) != 0)
+    {
+        memcpy(s_gevrReloadTune, v, sizeof(v));
+        sysLogPrintf(LOG_NOTE, "stereo: reload zones magazine %.0f ahead %.0f below r %.0f pull %.0f, cross %.0f ahead %.0f cm",
+                     v[0], v[1], v[2], v[3], v[4], v[5]);
+    }
+    fclose(f);
+}
+
+static void gevrHandReloadFire(s32 hand, const char *how)
+{
+    extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
+    extern int vr_haptics_ready(void);
+
+    if (get_ammo_in_hands_weapon(hand) <= 0)
+    {
+        return;   /* nothing to load: no click, no animation */
+    }
+    attempt_reload_item_in_hand(hand);
+    sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s (%s gun)", how, hand == GUNRIGHT ? "right" : "left");
+    if (vr_haptics_ready())
+    {
+        trigger_haptic_vibration_c(0, 0.5f, 0.05f);
+        trigger_haptic_vibration_c(1, 0.5f, 0.05f);
+    }
+}
+
+void gevrHandReloadTick(void)
+{
+    extern _Bool get_button_state(int hand_index, const char *button_name);
+    static s32 s_magGrab;        /* 0 free, 1 holding the magazine, 2 reloaded until let go */
+    static f32 s_magGrabUp;      /* where along the gun's up it was taken, view units */
+    static s32 s_gripWas;
+    static s32 s_crossArmed[2];  /* per controller: on its own side since its last cross */
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 gun[3], gr[3], gu[3], gb[3], off[3], orr[3], ou[3], ob[3];
+    s32 right, left, grip, ctrl, i;
+
+    gevrReloadTuneRead();
+    if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
+        || g_CurrentPlayer->watch_animation_state != 0 || g_CurrentPlayer->mpmenuon
+        || g_PlayerIsInTank == 1 || gevrSpectating() || gevrCoopLocalDowned()
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || cm < 1e-6f
+        || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, orr, ou, ob))
+    {
+        s_magGrab = 0;
+        s_crossArmed[0] = s_crossArmed[1] = FALSE;
+        return;
+    }
+    right = getCurrentPlayerWeaponId(GUNRIGHT);
+    left = getCurrentPlayerWeaponId(GUNLEFT);
+
+    /* the magazine: a single magazine-fed gun, the off hand free to take it */
+    grip = get_button_state(0, "grip");
+    if (gevrReloadGun(right) && gevrReloadMagazineFed(right) && !gevrReloadGun(left))
+    {
+        f32 mag[3], d[3], dist2 = 0.0f, upnow = 0.0f;
+
+        for (i = 0; i < 3; i++)
+        {
+            mag[i] = gun[i] - gb[i] * s_gevrReloadTune[GEVR_RT_MAGFWD] * cm - gu[i] * s_gevrReloadTune[GEVR_RT_MAGDOWN] * cm;
+            d[i] = off[i] - mag[i];
+            dist2 += d[i] * d[i];
+            upnow += (off[i] - gun[i]) * gu[i];
+        }
+        if (grip && !s_gripWas
+            && dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm)
+        {
+            s_magGrab = 1;
+            s_magGrabUp = upnow;
+        }
+        else if (grip && s_magGrab == 1 && s_magGrabUp - upnow >= s_gevrReloadTune[GEVR_RT_PULL] * cm)
+        {
+            s_magGrab = 2;
+            gevrHandReloadFire(GUNRIGHT, "magazine pulled");
+        }
+    }
+    else
+    {
+        s_magGrab = 0;
+    }
+    if (!grip)
+    {
+        s_magGrab = 0;
+    }
+    s_gripWas = grip;
+
+    /* the chest cross: each gun that has no magazine to pull, or both while dual-wielding */
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
+        s32 item = ctrl ? right : left;
+        s32 other = ctrl ? left : right;
+        f32 drop, side, ahead;
+
+        if (!gevrReloadGun(item) || (gevrReloadMagazineFed(item) && !gevrReloadGun(other))
+            || !gevrHandOnBody(ctrl, ctrl ? gun : off, &drop, &side, &ahead))
+        {
+            s_crossArmed[ctrl] = FALSE;
+            continue;
+        }
+        if (side >= 0.0f)
+        {
+            s_crossArmed[ctrl] = TRUE;
+        }
+        else if (s_crossArmed[ctrl] && -side >= s_gevrReloadTune[GEVR_RT_CROSSSIDE]
+                 && ahead <= s_gevrReloadTune[GEVR_RT_CROSSAHEAD] && drop >= 10.0f && drop <= 65.0f)
+        {
+            s_crossArmed[ctrl] = FALSE;
+            gevrHandReloadFire(hand, "chest cross");
         }
     }
 }
