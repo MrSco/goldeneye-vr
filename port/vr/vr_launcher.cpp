@@ -2605,7 +2605,7 @@ extern "C" void gevrLauncherRun(void)
                    "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.");
             toggle("Grip use", &VrGestureGripUse,
                    "The hand at a door, switch or console: use it, as B does.");
-            toggle("Grip to hand", &VrGesturePickup,
+            toggle("Grip to hand (WIP)", &VrGesturePickup,
                    "The hand at a gun on the floor: that gun goes into that hand\n"
                    "(picked up if the game would, else the one you carry).\n"
                    "Walking over guns still picks them up. Off by default.");
