@@ -1852,16 +1852,29 @@ struct WeaponRumbleProfile {
 };
 
 /* Perfect Dark VR's recoil profile for a GoldenEye gun, by the nearest PD gun
- * (gevr_recoil.h); the watch's items fire from the other arm and do not kick */
-static int gevrRecoilClass(s32 item)
+ * (gevr_recoil.h), and its share of that kick: the DD44 takes the magnum's at
+ * half strength, and a silenced gun kicks a little more than its plain one
+ * (user). The watch's items fire from the other arm and do not kick. */
+#define GEVR_RECOIL_SILENCED 1.15f
+
+static int gevrRecoilFor(s32 item, f32 *strength)
 {
+    *strength = 1.0f;
     switch (item) {
-        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33:
-        case ITEM_SILVERWPPK: case ITEM_GOLDWPPK:
+        case ITEM_TT33:
+            *strength = 0.5f;
+            return GEVR_RECOIL_MAGNUM;
+        case ITEM_WPPKSIL:
+            *strength = GEVR_RECOIL_SILENCED;
+            return GEVR_RECOIL_PISTOL;
+        case ITEM_MP5KSIL:
+            *strength = GEVR_RECOIL_SILENCED;
+            return GEVR_RECOIL_SMG;
+        case ITEM_WPPK: case ITEM_SILVERWPPK: case ITEM_GOLDWPPK:
             return GEVR_RECOIL_PISTOL;
         case ITEM_RUGER: case ITEM_GOLDENGUN:
             return GEVR_RECOIL_MAGNUM;
-        case ITEM_SKORPION: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL:
+        case ITEM_SKORPION: case ITEM_UZI: case ITEM_MP5K:
         case ITEM_SPECTRE: case ITEM_FNP90:
             return GEVR_RECOIL_SMG;
         case ITEM_AK47: case ITEM_M16:
@@ -1897,7 +1910,9 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
     }
     /* per-gun recoil: the shot kicks this hand's grip pose (vr_input.cpp vrRecoilKick) */
     if (g_gevrStereo && VrPerWeaponRecoil) {
-        vrRecoilKick(hand, gevrRecoilClass(item_id));
+        f32 strength;
+        const int cls = gevrRecoilFor(item_id, &strength);
+        vrRecoilKick(hand, cls, strength);
     }
     struct WeaponRumbleProfile p = getWeaponRumbleProfile(item_id);
     f32 amp = p.amplitude;

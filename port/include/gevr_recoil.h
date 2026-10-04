@@ -9,8 +9,8 @@
  */
 enum GevrRecoilClass {
     GEVR_RECOIL_NONE,      /* knives, throwables, gadgets */
-    GEVR_RECOIL_PISTOL,    /* PD's Falcon 2: the PP7 family, the DD44 */
-    GEVR_RECOIL_MAGNUM,    /* PD's DY357: the Cougar, the Golden Gun */
+    GEVR_RECOIL_PISTOL,    /* PD's Falcon 2: the PP7 family (silenced a little stronger) */
+    GEVR_RECOIL_MAGNUM,    /* PD's DY357: the Cougar, the Golden Gun; the DD44 at half */
     GEVR_RECOIL_SMG,       /* PD's light machine guns: the SMGs */
     GEVR_RECOIL_RIFLE,     /* PD's AR34: the KF7, the AR33 */
     GEVR_RECOIL_SHOTGUN,   /* the shotguns */
@@ -23,7 +23,8 @@ enum GevrRecoilClass {
 #ifdef __cplusplus
 extern "C" {
 #endif
-void vrRecoilKick(int gunhand, int recoilClass);   /* gunhand: GUNRIGHT 0, GUNLEFT 1 */
+/* gunhand: GUNRIGHT 0, GUNLEFT 1; strength scales the class's kick (1 = PD's) */
+void vrRecoilKick(int gunhand, int recoilClass, float strength);
 #ifdef __cplusplus
 }
 #endif
