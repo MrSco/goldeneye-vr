@@ -1253,6 +1253,18 @@ void gunUpdateAndFire(GUNHAND handnum)
         }
 
         modelUpdateNodeRelations(model);
+#ifdef GEVR
+        {
+            /* a GoldenEye X model: every joint from its parent (gun.c) */
+            extern s32 g_gevrGexHand[2];
+            extern void gevrGexPoseGun(ModelFileHeader *hdr, Mtxf *rwmtx);
+
+            if (g_gevrGexHand[handnum])
+            {
+                gevrGexPoseGun(mdlhdr, rwmtx);
+            }
+        }
+#endif
 
         if (hand->weapon_firing_status != 0)
         {
