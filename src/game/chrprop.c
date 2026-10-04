@@ -2306,6 +2306,8 @@ static s32 gevrIsMineItem(s32 item)
  * remote mines, or a proximity mine still arming (GEVR PC vr450.2: not live
  * grenades or armed traps).
  */
+f32 g_gevrHandFindDist;   /* the last find's distance, view units (bondview2.c logs it) */
+
 PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
 {
     PropRecord **ptr;
@@ -2391,6 +2393,39 @@ PropRecord *gevrHandFindProp(const f32 p[3], f32 reach, s32 kind)
         }
     }
 
+    g_gevrHandFindDist = bestdist;
+    return best;
+}
+
+/*
+ * Tuning (bondview2.c logs it when a grip takes nothing): the nearest
+ * on-screen object, door or weapon to p, whatever its flags, so a switch the
+ * grip skipped says why.
+ */
+PropRecord *gevrHandNearestAny(const f32 p[3], f32 *distOut)
+{
+    PropRecord **ptr;
+    PropRecord *best = NULL;
+    f32 bestdist = 1e30f;
+
+    for (ptr = g_LastOnScreenProp - 1; ptr >= g_OnScreenPropList; ptr--)
+    {
+        PropRecord *prop = *ptr;
+        f32 dist;
+
+        if (prop == NULL || !(prop->flags & PROPFLAG_ONSCREEN)
+            || (prop->type != PROP_TYPE_OBJ && prop->type != PROP_TYPE_WEAPON && prop->type != PROP_TYPE_DOOR))
+        {
+            continue;
+        }
+        dist = gevrHandModelDistance(prop->type == PROP_TYPE_DOOR ? prop->door->model : prop->obj->model, p);
+        if (dist < bestdist)
+        {
+            bestdist = dist;
+            best = prop;
+        }
+    }
+    *distOut = bestdist;
     return best;
 }
 
