@@ -13,6 +13,7 @@ e431819 (v0.4.5).
 | 556eecf | Cylinder floor finder from Perfect Dark (remote bodies' tile and feet, Bond's tile recovery) | not yet |
 | ba01477 | MP: the level music returns after the death sting when someone else is dead too | not yet |
 | 844140e | HD pack: the stage's gun textures decoded at load | not yet |
+| 0c5cbd4 | MP: other players hold the first-person gun models; launchers carry the rocket (MpDetailedGuns=0 turns it off) | not yet |
 
 ## Release notes for whoever releases this
 
@@ -44,13 +45,25 @@ Solo (one headset):
    misses at seams are worth a look; the second count is the old
    centre-only lookup, for comparison).
 
+5. Detailed guns on one headset: launcher Cheats > Enemy rockets, start
+   a mission, then `echo hqguards > files/gevr_cheat.txt` (chmod 666).
+   Guards should hold the detailed launcher with a rocket in its mouth;
+   no hollow tube. Without Enemy rockets, check the KF7 and D5K guards
+   on Dam/Facility, and flip `hqguards` again to compare with the game's
+   models. Log: `heldgun: item N ... fitted: scale S offset X,Y,Z` per
+   gun; a "kept the Pchr model" line names a gun whose fit failed.
+
 Two headsets:
 
-5. Statue and Cradle in the stage list (last), 2-8 players: spawns on
+6. Statue and Cradle in the stage list (last), 2-8 players: spawns on
    distinct pads, pickups for a few weapon sets, the stage music, Statue
    with its orange clouds, frame rate with as many players as possible.
-6. Watch the other player on stairs, at a ledge edge, dropping off a
+7. Watch the other player on stairs, at a ledge edge, dropping off a
    ledge, crouched on stairs: the body never snaps to the floor below,
    follows the drop, keeps its feet on the floor when crouched.
-7. Trade kill (both die together): after your death sting the level
+8. Trade kill (both die together): after your death sting the level
    music comes back before you respawn.
+9. Other players' guns: each weapon set, dual wielding, tiny/big guns;
+   the launcher's rocket gone when its owner fires and back after the
+   reload; the gun fits the hand (left hand too); frame time with as
+   many players as possible.
