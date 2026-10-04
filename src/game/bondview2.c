@@ -223,11 +223,14 @@ extern void netSendRespawnEvent(u8 pad_index, f32 theta);
  */
 #define GEVR_UNITS_PER_METRE 100.0f
 extern f32 D_800364CC;
-#define GEVR_TURN_DEG_PER_TICK 2.0f      /* PD VR_JOY_TURN_SPEED: 120 deg/s at 60 Hz */
+/* smooth turning per 60 Hz tick: PD VR_JOY_TURN_SPEED is 120 deg/s, now the
+ * player's SmoothTurnSpeed (GEVR PC vr443's turn speed) */
+#define GEVR_TURN_DEG_PER_TICK ((f32) VrSmoothTurnSpeed / 60.0f)
 
 extern int gevrVrScreenMode;             /* gfx_pc.cpp: the frame goes to the virtual screen */
 extern int VrPlayMode;                   /* vr_settings: 1 = stereo gameplay */
 extern float VrUseSnapTurn;              /* vr_settings: snap angle, 0 = smooth */
+extern int VrSmoothTurnSpeed;            /* vr_settings: smooth turning, degrees per second */
 extern int gevrVrReady(void);            /* vr_openxr.cpp */
 extern void gevrVrHeadQuat(float out[4]);
 extern void gevrVrSetWorldScale(float unitsPerMetre);
@@ -2725,7 +2728,7 @@ void gevrMotionThrowTick(s32 hand)
     extern float vr_ctrl_velocity_play[2][3];
     extern float vr_head_velocity_play[3];
     extern float vr_ctrl_quat_play[2][4];
-    extern bool VrMotionThrowing;
+    extern int VrMotionThrowing;   /* vr_settings_defaults.c; int on both sides */
     extern float VrMotionThrowPitch;
     extern float VrMotionThrowGazeAssist;
     extern float VrMotionThrowStrength;

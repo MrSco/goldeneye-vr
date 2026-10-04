@@ -135,7 +135,7 @@ extern void gevrRestartToLauncher(void);   /* vr_launcher.cpp */
 extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online game */
 extern bool netIsActive(void);
 extern s32 gevrDualWielding(void);
-extern bool VrMotionThrowing;
+extern int VrMotionThrowing;
 extern ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand);
 
 s32 gevrIsThrowable(s32 item)

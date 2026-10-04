@@ -37,7 +37,7 @@ extern int weaponnum;
 extern bool VR_FUNC_SECONDARY;
 extern int vr_button_R_grip;
 extern int vr_button_L_grip;
-extern bool VrMotionThrowing;
+extern int VrMotionThrowing;
 bool WepCanZoom = false;
 bool VrWeaponRecoil = true;
 extern "C" bool VrTwoHandsGun(int weaponnum);

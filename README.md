@@ -232,7 +232,7 @@ Then choose your character and tick **I am Ready**. Open spots can be joined dur
 
 **Voice chat.** Allow microphone access to talk. Everyone can hear each other in the lobby;
 in a match, voices get quieter with distance and pan toward the speaker. Mute in the lobby or
-on the watch's Game Options page, or hold left **X + Y** for half a second. Your mute choice is saved.
+on the watch's Game Options page, or press **Menu + B**. Your mute choice is saved.
 If you deny microphone access, you can still hear other players.
 
 **Over the internet.** No IP addresses and no router setup: headsets connect directly when they can,
@@ -260,8 +260,8 @@ offers the rates supported by your headset, including 80 Hz where available. Exp
 choices request a rate; **Show stats** reports the rate actually in use.
 
 **Render resolution.** Quest uses the render dimensions recommended by its OpenXR runtime
-when the app starts. These can differ from the panel's physical resolution. The watch's
-resolution setting (`Video.VRRenderScale`) multiplies those dimensions, so an external
+when the app starts. These can differ from the panel's physical resolution. The
+`Video.VRRenderScale` line in `goldeneye.ini` multiplies those dimensions, so an external
 resolution profile and a saved scale compound: a 2400×2600 recommendation at scale 2
 requests 4800×5200 per eye. Use scale 1 when checking an external profile. Device limits
 can reduce the actual size without changing your saved scale; **Show stats** reports the
