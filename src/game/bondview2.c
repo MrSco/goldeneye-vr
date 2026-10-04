@@ -613,6 +613,17 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: countdown timer on");
             continue;
         }
+        /* "hqguards": guards hold the detailed models other players do online
+         * (gevr_heldgun.c), to check them on one headset; with Enemy Rockets
+         * their launchers carry the rocket */
+        if (strcasecmp(word, "hqguards") == 0)
+        {
+            extern s32 g_gevrHeldGunGuards;
+
+            g_gevrHeldGunGuards = !g_gevrHeldGunGuards;
+            sysLogPrintf(LOG_NOTE, "cheathook: guards' detailed guns %s", g_gevrHeldGunGuards ? "on" : "off");
+            continue;
+        }
         /* "hold<N>": give item N and draw it in the gun hand, e.g. hold17 = sniper rifle */
         if (strncasecmp(word, "hold", 4) == 0)
         {
