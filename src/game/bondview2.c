@@ -15430,6 +15430,8 @@ static s32 gevrGexAtBelt(s32 ctrl, const f32 at[3])
 
 /* gun.c: the gun's magazine (centre, and its top at the well) and the one in the hand (its top) */
 extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
+/* gun.c: the player's off hand, its palm, as the gun fit places the hands */
+extern s32 gevrGexOffPalm(f32 out[3]);
 
 /* the square of a point's distance from the gun's magazine, top to bottom */
 static f32 gevrGexMagDist2(const f32 p[3], const f32 centre[3], const f32 top[3])
@@ -15478,7 +15480,9 @@ s32 gevrGexClaimsOffHand(void)
         f32 mag[3], well[3], held[3];
         const f32 rr = s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm;
 
-        return (gevrGexMagPoints(mag, well, held) & 1) && gevrGexMagDist2(off, mag, well) <= rr * rr;
+        f32 palm[3];
+
+        return (gevrGexMagPoints(mag, well, held) & 1) && gevrGexMagDist2(gevrGexOffPalm(palm) ? palm : off, mag, well) <= rr * rr;
     }
     return s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && gevrGexAtBelt(0, off);
 }
@@ -15619,12 +15623,15 @@ void gevrHandReloadTick(void)
         }
         if (have & 1)
         {
-            dist2 = gevrGexMagDist2(off, mag, well);
+            f32 palm[3];
+
+            dist2 = gevrGexMagDist2(gevrGexOffPalm(palm) ? palm : off, mag, well);
         }
         if (grip && !s_gripWas)
         {
-            sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip %.1f cm from the magazine (%s), state %d",
-                         sqrtf(dist2) / cm, (have & 1) ? "drawn" : "guessed", *st);
+            sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip %.1f cm from the magazine (%s; the grip pose %.1f), state %d",
+                         sqrtf(dist2) / cm, (have & 1) ? "drawn" : "guessed",
+                         (have & 1) ? sqrtf(gevrGexMagDist2(off, mag, well)) / cm : -1.0f, *st);
         }
         pulled = (s_magGrabUp - upnow) / (s_gevrReloadTune[GEVR_RT_PULL] * cm);
         switch (*st)

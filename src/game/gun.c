@@ -1532,6 +1532,28 @@ static void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3])
     }
 }
 
+/*
+ * Where the player's off hand is, its palm: the grip pose is not the hand
+ * (the gun fit moves a model hand on its controller ~12 cm), so the
+ * reload measured from the wrong place (user: it took hold way off). The
+ * fit puts GE-X's right hand on the player's, so its palm on the gun,
+ * mirrored into the off hand's gun matrix, is the off hand's palm.
+ */
+#define GEVR_GEX_RHAND_WRIST 2
+static f32 s_gevrGexOffPalmAt[3];
+static s32 s_gevrGexOffPalmValid;
+
+s32 gevrGexOffPalm(f32 out[3])
+{
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = s_gevrGexOffPalmAt[i];
+    }
+    return s_gevrGexOffPalmValid;
+}
+
 s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3])
 {
     s32 i;
@@ -1568,18 +1590,48 @@ static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv)
 enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT };
 extern s32 gevrGexMagState(s32 hand, f32 off[3]);
 
+/* the off hand's palm this frame (gevrGexOffPalm), from the gun at rest */
+static void gevrGexOffPalmUpdate(ModelFileHeader *hdr)
+{
+    extern s32 gevrStereoOffHandMatrix(Mtxf *out);   /* bondview2.c */
+    static Mtxf rest[64];
+    Mtxf ident, goff;
+    f32 p[3];
+    const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+
+    s_gevrGexOffPalmValid = FALSE;
+    if (hdr->numMatrices <= GEVR_GEX_RHAND_WRIST || hdr->numMatrices > 64 || !gevrStereoOffHandMatrix(&goff))
+    {
+        return;
+    }
+    matrix_4x4_set_identity(&ident);
+    gevrGexPoseWalk(hdr, &ident, GEVR_GEX_KF7_FIRE_ANIM, 0.0f, rest);
+    gevrGexMtxPoint(&rest[GEVR_GEX_RHAND_WRIST], palmLocal, p);
+    p[0] = -p[0];   /* into a left hand */
+    gevrGexMtxPoint(&goff, p, s_gevrGexOffPalmAt);
+    s_gevrGexOffPalmValid = TRUE;
+}
+
 static void gevrGexLeftHandTo(ModelFileHeader *hdr, Mtxf *rwmtx, const f32 off[3])
 {
     extern s32 gevrStereoOffHandMatrix(Mtxf *out);   /* bondview2.c */
     static Mtxf rest[64], held[64];
     Mtxf ident, goff, mag, inv, rel;
-    f32 palm[3], d[3];
+    f32 palm[3], d[3], at[3];
     const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
     s32 i, j;
 
     if (hdr->numMatrices <= GEVR_GEX_NEWMAG_JOINT || hdr->numMatrices > 64 || !gevrStereoOffHandMatrix(&goff))
     {
         return;
+    }
+    /* the player's palm, else the grip pose */
+    if (!gevrGexOffPalm(at))
+    {
+        for (i = 0; i < 3; i++)
+        {
+            at[i] = off[i];
+        }
     }
     /* each joint from the gun's own frame: at rest, and holding the magazine */
     matrix_4x4_set_identity(&ident);
@@ -1596,11 +1648,11 @@ static void gevrGexLeftHandTo(ModelFileHeader *hdr, Mtxf *rwmtx, const f32 off[3
         matrix_4x4_multiply(&inv, &held[j], &rel);
         matrix_4x4_multiply(&mag, &rel, &rwmtx[j]);
     }
-    /* all of it moved so the palm is on the off hand */
+    /* all of it moved so the palm is on the player's */
     gevrGexMtxPoint(&rwmtx[GEVR_GEX_LHAND_WRIST], palmLocal, palm);
     for (i = 0; i < 3; i++)
     {
-        d[i] = off[i] - palm[i];
+        d[i] = at[i] - palm[i];
     }
     for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_NEWMAG_JOINT; j++)
     {
@@ -1656,6 +1708,10 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         s_gevrGexFall[hand].on = FALSE;   /* the hand has a new one: the old one's joint is its */
     }
     gevrGexPoseFrom(hdr, rwmtx, !g_gevrStereo, anim, frame);
+    if (g_gevrStereo && hand == GUNRIGHT)
+    {
+        gevrGexOffPalmUpdate(hdr);
+    }
     if (offHolds)
     {
         gevrGexLeftHandTo(hdr, rwmtx, off);
