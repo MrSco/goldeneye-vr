@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
         assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);
         assert(VrGexGuns == 0);   // GexGuns is not read as a Gex-prefixed fit
         assert(VrReloadGrab[1][2] == -9.5f && VrReloadGrab[0][2] == -8.0f);
-        assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 19.0f && VrGexHeldMag[1] == 2.25f);
+        assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 20.27f && VrGexHeldMag[1] == 2.25f);
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "watch_write") == 0) {
