@@ -3,8 +3,14 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-03, v0.4.5; versionCode 58, protocol 17.
+**Updated / current build:** 2026-10-04, v0.4.5; versionCode 58, protocol 17.
 The release tag identifies the signed build commit. No game data is shipped.
+
+**v0.4.5:** optional Meta Quest passthrough behind the 2D virtual screen,
+saved in goldeneye-vr.ini and toggled in the SCREEN tab; Frigate hull "06"
+marking restored (white face over black drop shadow) and recessed fixtures
+fixed; co-op joiner ready button fixed (#107); sniper aim with no-lean zooms
+without movement. Notes: docs/releases/v0.4.5.md.
 
 **v0.4.4:** mission gadgets and items held in the hand in stereo, with a
 per-item pose table (bondview2.c s_gevrItemPoses); Gun fit fits gadgets too,
