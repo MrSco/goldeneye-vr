@@ -1973,6 +1973,13 @@ static s32 gevrAimLocksMove(void)
     return g_CurrentPlayer->insightaimmode && !(g_gevrStereo && VrAimNoLean);
 }
 
+/* Aiming the sniper, the move stick's up/down zooms, so it never steps Bond too. */
+s32 gevrScopeZoomStick(void);
+static s32 gevrAimLocksStep(void)
+{
+    return gevrAimLocksMove() || gevrScopeZoomStick();
+}
+
 /* gunfire.c: where this frame's muzzle flash node landed, camera space. */
 void gevrStereoNoteMuzzle(s32 handnum, f32 x, f32 y, f32 z)
 {
@@ -9865,10 +9872,10 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                             }
                         }
 
-                        moveData.digitalStepForward = (!gevrAimLocksMove())
+                        moveData.digitalStepForward = (!gevrAimLocksStep())
                             && ((buttons & (U_JPAD | U_CBUTTONS)) );
 
-                        moveData.digitalStepBack = (!gevrAimLocksMove())
+                        moveData.digitalStepBack = (!gevrAimLocksStep())
                             && ((buttons & (D_JPAD | D_CBUTTONS)));
 
                         moveData.canNaturalPitch = !g_CurrentPlayer->insightaimmode;
