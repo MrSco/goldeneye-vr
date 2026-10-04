@@ -50,8 +50,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Smooth turning speed in degrees per second, %d..%d.\n", SMOOTHTURN_MIN, SMOOTHTURN_MAX);
     fprintf(f, "SmoothTurnSpeed=%d\n", VrSmoothTurnSpeed);
     fprintf(f, "; Grip gestures (stereo), 1 = on: holster at the hip, use a door or switch\n");
-    fprintf(f, "; at the hand, pick a gun up off the floor, take back your own mine.\n");
-    fprintf(f, "GestureHolster=%d\nGestureGripUse=%d\nGesturePickup=%d\nGestureMineGrab=%d\n",
+    fprintf(f, "; at the hand, put a gun on the floor in that hand (grip to hand), take back your own mine.\n");
+    fprintf(f, "GestureHolster=%d\nGestureGripUse=%d\nGestureGripToHand=%d\nGestureMineGrab=%d\n",
             VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab);
     fprintf(f, "; 1 = each gun kicks with its own recoil (Perfect Dark VR's table), 0 = one generic kick.\n");
     fprintf(f, "PerWeaponRecoil=%d\n", VrPerWeaponRecoil);
@@ -259,7 +259,7 @@ extern "C" void vrSettingsLoad(void)
                 VrSmoothTurnSpeed = ival < SMOOTHTURN_MIN ? SMOOTHTURN_MIN : ival > SMOOTHTURN_MAX ? SMOOTHTURN_MAX : ival;
             else if (strcmp(key, "GestureHolster") == 0) VrGestureHolster = ival != 0;
             else if (strcmp(key, "GestureGripUse") == 0) VrGestureGripUse = ival != 0;
-            else if (strcmp(key, "GesturePickup") == 0) VrGesturePickup = ival != 0;
+            else if (strcmp(key, "GestureGripToHand") == 0) VrGesturePickup = ival != 0;
             else if (strcmp(key, "GestureMineGrab") == 0) VrGestureMineGrab = ival != 0;
             else if (strcmp(key, "PerWeaponRecoil") == 0) VrPerWeaponRecoil = ival != 0;
             else if (strcmp(key, "MinesStickToGuards") == 0) VrMinesStickToGuards = ival != 0;

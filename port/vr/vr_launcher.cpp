@@ -2605,8 +2605,10 @@ extern "C" void gevrLauncherRun(void)
                    "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.");
             toggle("Grip use", &VrGestureGripUse,
                    "The hand at a door, switch or console: use it, as B does.");
-            toggle("Grip pickup", &VrGesturePickup,
-                   "The hand at a gun on the floor: pick it up into that hand.");
+            toggle("Grip to hand", &VrGesturePickup,
+                   "The hand at a gun on the floor: that gun goes into that hand\n"
+                   "(picked up if the game would, else the one you carry).\n"
+                   "Walking over guns still picks them up. Off by default.");
             toggle("Mine re-grab", &VrGestureMineGrab,
                    "The hand at your own stuck remote mine, or a proximity mine\nstill arming: take it back. Single player and co-op host.");
             ImGui::Spacing();
@@ -2620,7 +2622,8 @@ extern "C" void gevrLauncherRun(void)
             ImGui::Spacing();
             ImGui::Separator();
             if (ImGui::Button("Defaults")) {
-                VrGestureHolster = VrGestureGripUse = VrGesturePickup = VrGestureMineGrab = 1;
+                VrGestureHolster = VrGestureGripUse = VrGestureMineGrab = 1;
+                VrGesturePickup = 0;
                 VrManualReloading = 0;
                 VrPerWeaponRecoil = 0;
             }
