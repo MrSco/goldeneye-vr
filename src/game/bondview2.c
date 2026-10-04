@@ -15383,6 +15383,9 @@ static void gevrGexBuzz(f32 amp)
     }
 }
 
+/* gun.c: a magazine that leaves the gun (or the hand) falls */
+extern void gevrGexMagazineFalls(s32 hand, s32 fromHand);
+
 /* the magazine out of the gun, its rounds back to the reserve */
 static void gevrGexMagOut(s32 hand, s32 state, const char *how)
 {
@@ -15393,6 +15396,10 @@ static void gevrGexMagOut(s32 hand, s32 state, const char *how)
     h->weapon_ammo_in_magazine = 0;
     s_gevrGexMag[hand] = state;
     s_gevrGexSeatArmed = FALSE;
+    if (state == GEVR_GEXMAG_OUT)
+    {
+        gevrGexMagazineFalls(hand, FALSE);   /* out of the gun: it drops (user) */
+    }
     gevrGexBuzz(0.5f);
     sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s gun's magazine %s", hand == GUNRIGHT ? "right" : "left", how);
 }
@@ -15424,6 +15431,29 @@ static s32 gevrGexAtBelt(s32 ctrl, const f32 at[3])
 /* gun.c: the gun's magazine (centre, and its top at the well) and the one in the hand (its top) */
 extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
 
+/* the square of a point's distance from the gun's magazine, top to bottom */
+static f32 gevrGexMagDist2(const f32 p[3], const f32 centre[3], const f32 top[3])
+{
+    f32 ab[3], ap[3], t, l2 = 0.0f, d2 = 0.0f;
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        ab[i] = 2.0f * (centre[i] - top[i]);   /* the top to the bottom */
+        ap[i] = p[i] - top[i];
+        l2 += ab[i] * ab[i];
+    }
+    t = l2 > 1e-6f ? (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / l2 : 0.0f;
+    t = t < 0.0f ? 0.0f : t > 1.0f ? 1.0f : t;
+    for (i = 0; i < 3; i++)
+    {
+        f32 d = ap[i] - t * ab[i];
+
+        d2 += d * d;
+    }
+    return d2;
+}
+
 /* the off hand's grip belongs to the GoldenEye X magazine: holding it, or taking one at the belt */
 s32 gevrGexClaimsOffHand(void)
 {
@@ -15437,7 +15467,20 @@ s32 gevrGexClaimsOffHand(void)
     {
         return TRUE;
     }
-    return s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && gevrGripAxesRaw(0, off, r, u, b) && gevrGexAtBelt(0, off);
+    if (!gevrGripAxesRaw(0, off, r, u, b))
+    {
+        return FALSE;
+    }
+    if (s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN)
+    {
+        /* at the magazine, before the two-handed hold can take the press */
+        f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+        f32 mag[3], well[3], held[3];
+        const f32 rr = s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm;
+
+        return (gevrGexMagPoints(mag, well, held) & 1) && gevrGexMagDist2(off, mag, well) <= rr * rr;
+    }
+    return s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && gevrGexAtBelt(0, off);
 }
 
 /* gun.c: where a GoldenEye X gun's magazine is (GEVR_GEXMAG_*), and the off hand's grip, camera space */
@@ -15574,6 +15617,15 @@ void gevrHandReloadTick(void)
             upnow += (off[i] - gun[i]) * gu[i];
             seatd2 += (have & 2) ? (held[i] - well[i]) * (held[i] - well[i]) : 1e9f;
         }
+        if (have & 1)
+        {
+            dist2 = gevrGexMagDist2(off, mag, well);
+        }
+        if (grip && !s_gripWas)
+        {
+            sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip %.1f cm from the magazine (%s), state %d",
+                         sqrtf(dist2) / cm, (have & 1) ? "drawn" : "guessed", *st);
+        }
         pulled = (s_magGrabUp - upnow) / (s_gevrReloadTune[GEVR_RT_PULL] * cm);
         switch (*st)
         {
@@ -15583,6 +15635,7 @@ void gevrHandReloadTick(void)
                 {
                     *st = GEVR_GEXMAG_GRIPPED;
                     s_magGrabUp = upnow;
+                    sysLogPrintf(LOG_NOTE, "stereo: hand reload, the magazine taken hold of");
                 }
                 break;
             case GEVR_GEXMAG_GRIPPED:
@@ -15603,6 +15656,7 @@ void gevrHandReloadTick(void)
                 if (!grip)
                 {
                     *st = GEVR_GEXMAG_OUT;
+                    gevrGexMagazineFalls(GUNRIGHT, TRUE);
                     sysLogPrintf(LOG_NOTE, "stereo: hand reload, the magazine dropped");
                 }
                 else if (s_gevrGexSeatArmed && seatd2 <= seat2)

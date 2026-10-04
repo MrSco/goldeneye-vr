@@ -1186,6 +1186,8 @@ static f32 s_gevrGexFire[MAX_PLAYER_COUNT][2] = {
 static s32 s_gevrGexFiring[MAX_PLAYER_COUNT][2];
 static s32 s_gevrGexReloading[MAX_PLAYER_COUNT][2];
 
+static void gevrGexFallTick(s32 hand);   /* a dropped magazine's clock, below */
+
 /* gunfire.c gunTickHandState, each tick: the fire animation's clock */
 void gevrGexTick(GUNHAND hand, s32 firing)
 {
@@ -1214,6 +1216,7 @@ void gevrGexTick(GUNHAND hand, s32 firing)
         }
     }
     s_gevrGexFiring[p][hand] = firing;
+    gevrGexFallTick(hand);
 }
 
 /* a joint at a fractional frame, blended between the two either side as
@@ -1431,6 +1434,94 @@ static const f32 s_gevrGexMagTop[3] = { 0.0f, -10.0f, 73.0f };
 static f32 s_gevrGexMagAt[3], s_gevrGexWellAt[3], s_gevrGexHeldAt[3];
 static s32 s_gevrGexMagPointsValid;   /* 1 the gun's magazine and well, 2 the held one */
 
+/*
+ * A magazine that leaves the gun by button, or the hand when let go,
+ * falls (user: it just vanished): from where it was last drawn, taken
+ * into the world as the casings' throw matrix is (gunfire.c: view units
+ * over D_800364CC, then view to world), it drops under gravity (980
+ * world units, cm, a second squared) until it passes the floor or a
+ * second is up, drawn by its joint through the world-to-view matrix each
+ * frame, so it falls in the room, not with the head.
+ */
+extern f32 D_800364CC;
+
+static Mtxf s_gevrGexLastMag[2], s_gevrGexLastHeld;   /* joint 39 per gun hand, joint 40 */
+static s32 s_gevrGexLastValid[2], s_gevrGexLastHeldValid;
+
+static struct
+{
+    s32 on;
+    s32 joint;
+    f32 t;        /* seconds */
+    Mtxf world;
+} s_gevrGexFall[2];
+
+static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv);
+
+void gevrGexMagazineFalls(s32 hand, s32 fromHand)
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    const Mtxf *last = fromHand ? &s_gevrGexLastHeld : &s_gevrGexLastMag[hand];
+    Mtxf unit;
+    f32 inv = D_800364CC > 1e-6f ? 1.0f / D_800364CC : 1.0f;
+    s32 r, c;
+
+    if (hand < 0 || hand > 1 || v2w == NULL || !(fromHand ? s_gevrGexLastHeldValid : s_gevrGexLastValid[hand]))
+    {
+        return;
+    }
+    for (r = 0; r < 4; r++)
+    {
+        for (c = 0; c < 3; c++)
+        {
+            unit.m[r][c] = last->m[r][c] * inv;
+        }
+        unit.m[r][3] = r == 3 ? 1.0f : 0.0f;
+    }
+    matrix_4x4_multiply(v2w, &unit, &s_gevrGexFall[hand].world);
+    s_gevrGexFall[hand].on = TRUE;
+    s_gevrGexFall[hand].joint = fromHand ? 40 : 39;
+    s_gevrGexFall[hand].t = 0.0f;
+}
+
+static void gevrGexFallTick(s32 hand)
+{
+    if (hand >= 0 && hand < 2 && s_gevrGexFall[hand].on)
+    {
+        s_gevrGexFall[hand].t += g_ClockTimer / 60.0f;
+    }
+}
+
+/* the falling magazine's joint this frame, in view units; FALSE once it is gone */
+static s32 gevrGexFallAt(s32 hand, Mtxf *out)
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    Mtxf world, w2v;
+    s32 r, c;
+
+    if (!s_gevrGexFall[hand].on || v2w == NULL)
+    {
+        return FALSE;
+    }
+    world = s_gevrGexFall[hand].world;
+    world.m[3][1] -= 490.0f * s_gevrGexFall[hand].t * s_gevrGexFall[hand].t;
+    if (s_gevrGexFall[hand].t > 1.0f || world.m[3][1] < bondviewGetPlayerStanHeight(g_CurrentPlayer))
+    {
+        s_gevrGexFall[hand].on = FALSE;
+        return FALSE;
+    }
+    gevrGexRigidInverse(v2w, &w2v);
+    matrix_4x4_multiply(&w2v, &world, out);
+    for (r = 0; r < 4; r++)
+    {
+        for (c = 0; c < 3; c++)
+        {
+            out->m[r][c] *= D_800364CC;
+        }
+    }
+    return TRUE;
+}
+
 static void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3])
 {
     s32 i;
@@ -1556,19 +1647,42 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         sysLogPrintf(LOG_NOTE, "gexanim: hand %d reload %s", hand, phase >= 0.0f ? "starts" : "ends");
     }
 
-    if (mag == GEVR_GEXMAG_IN)
+    s32 inGun = mag == GEVR_GEXMAG_IN ? !swapped : mag == GEVR_GEXMAG_GRIPPED;
+    s32 inHand = mag == GEVR_GEXMAG_IN ? swapped : (mag == GEVR_GEXMAG_INHAND && hand == GUNRIGHT);
+    Mtxf falling;
+
+    if (offHolds && s_gevrGexFall[hand].on && s_gevrGexFall[hand].joint == 40)
     {
-        gevrGexShowMagazines(hdr, model, !swapped, swapped);
-    }
-    else
-    {
-        gevrGexShowMagazines(hdr, model, mag == GEVR_GEXMAG_GRIPPED, mag == GEVR_GEXMAG_INHAND && hand == GUNRIGHT);
+        s_gevrGexFall[hand].on = FALSE;   /* the hand has a new one: the old one's joint is its */
     }
     gevrGexPoseFrom(hdr, rwmtx, !g_gevrStereo, anim, frame);
     if (offHolds)
     {
         gevrGexLeftHandTo(hdr, rwmtx, off);
     }
+    if (g_gevrStereo && hdr->numMatrices > GEVR_GEX_NEWMAG_JOINT && (hand == GUNRIGHT || hand == GUNLEFT))
+    {
+        s_gevrGexLastMag[hand] = rwmtx[GEVR_GEX_MAG_JOINT];
+        s_gevrGexLastValid[hand] = TRUE;
+        if (hand == GUNRIGHT && offHolds)
+        {
+            s_gevrGexLastHeld = rwmtx[GEVR_GEX_NEWMAG_JOINT];
+            s_gevrGexLastHeldValid = TRUE;
+        }
+        if (gevrGexFallAt(hand, &falling))
+        {
+            rwmtx[s_gevrGexFall[hand].joint] = falling;
+            if (s_gevrGexFall[hand].joint == 40)
+            {
+                inHand = TRUE;
+            }
+            else
+            {
+                inGun = TRUE;
+            }
+        }
+    }
+    gevrGexShowMagazines(hdr, model, inGun, inHand);
     if (g_gevrStereo && hand == GUNRIGHT && hdr->numMatrices > GEVR_GEX_NEWMAG_JOINT)
     {
         gevrGexMtxPoint(&rwmtx[GEVR_GEX_MAG_JOINT], s_gevrGexMagCentre, s_gevrGexMagAt);
@@ -1684,6 +1798,7 @@ Model *gevrGexHands(GUNHAND hand)
     const s32 mag = hand == GUNRIGHT ? gevrGexMagState(hand, NULL) : GEVR_GEXMAG_IN;
     const s32 leftShown = mag == GEVR_GEXMAG_GRIPPED || mag == GEVR_GEXMAG_INHAND;   /* it holds the magazine */
     const s32 dual = getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED;
+    const s32 watch = g_CurrentPlayer->watch_animation_state != 0;   /* its arm is up */
     s32 i;
 
     if (!gevrGexHandLoad())
@@ -1697,7 +1812,7 @@ Model *gevrGexHands(GUNHAND hand)
 
         if (visible != NULL)
         {
-            *visible = i == GEVR_GEX_HAND_SW_RIGHT || (!g_gevrStereo && !dual) || leftShown;
+            *visible = i == GEVR_GEX_HAND_SW_RIGHT || (!g_gevrStereo && !dual && !watch) || leftShown;
         }
     }
     return &s_gevrGexHandModel;
