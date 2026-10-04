@@ -10,6 +10,7 @@
 #include <inflate/inflate.h>
 #ifdef GEVR
 #include <string.h>
+#include "gevr_gex.h"
 #include "gevr_gexmodel.h"
 #endif
 #include "gevr_rom_segments.h"
@@ -210,6 +211,9 @@ s32 texInflateZlib(u8 *src, u8 *dst, s32 arg2, s32 forcenumimages, struct texpoo
     u8 scratch2[0x800];
     u8 scratch[HUFT_SCRATCH_BYTES];
     u16 palette[0x100];
+#ifdef GEVR
+    const u8 *gevrnext;
+#endif
 
     totalbytesout = 0;
     writetocache = FALSE;
@@ -276,9 +280,30 @@ s32 texInflateZlib(u8 *src, u8 *dst, s32 arg2, s32 forcenumimages, struct texpoo
             return j * 0;
         }
 
+#ifdef GEVR
+        /*
+         * Perfect Dark's rarezip, as GoldenEye X's textures carry it
+         * (gevr_gexmodel.c): 0x11 0x73 and a 24-bit length before the
+         * deflate stream, where GoldenEye's 0x11 0x72 has none.
+         */
+        gevrnext = NULL;
+        if (img_curpos[0] == 0x11 && img_curpos[1] == 0x73)
+        {
+            gevrnext = gevrGexInflateRzip(img_curpos, scratch2, sizeof(scratch2));
+            if (gevrnext == NULL)
+            {
+                return 0;
+            }
+        }
+        else
+#endif
         decompressdata(img_curpos, &scratch2, (struct huft *)&scratch);
         imagebytesout = texAlignIndices(scratch2, width, height, format, &dst[totalbytesout]);
+#ifdef GEVR
+        texSetBitstring(gevrnext != NULL ? (u8 *)gevrnext : rzipGetSomething());
+#else
         texSetBitstring(rzipGetSomething());
+#endif
 
         if ((arg2 == 1) && (forcenumimages > 0))
         {

@@ -26,6 +26,11 @@ const u8 *gevrGexTextureData(s32 texnum, u32 *outSize);
 /* Inflates a raw deflate stream (PD's 1173 files, zlib-coded textures). */
 s32 gevrGexInflate(const u8 *src, u32 srclen, u8 *dst, u32 dstlen);
 
+/* Inflates one of Perfect Dark's rarezip blobs (0x11 0x73, a 24-bit length,
+ * raw deflate) as its texture images carry them; returns where the bytes
+ * after the stream start, or NULL. GoldenEye's own blobs have no length. */
+const u8 *gevrGexInflateRzip(const u8 *src, u8 *dst, u32 dstlen);
+
 #ifdef __cplusplus
 }
 #endif
