@@ -18,6 +18,7 @@
 #include "vr_input.h"
 #include "vr_log.h"
 #include "vr_openxr.h"
+#include "gevr_recoil.h"
 
 
 #ifdef ANDROID
@@ -38,6 +39,7 @@ extern bool VR_FUNC_SECONDARY;
 extern int vr_button_R_grip;
 extern int vr_button_L_grip;
 extern int VrMotionThrowing;
+extern int VrPerWeaponRecoil;   // vr_settings_defaults.c: launcher "Per-gun recoil"
 bool WepCanZoom = false;
 bool VrWeaponRecoil = true;
 extern "C" bool VrTwoHandsGun(int weaponnum);
@@ -1196,11 +1198,51 @@ static WeaponRecoilProfile GetRecoilProfileForWeapon(int wnum)
 }
 
 
+/*
+ * GoldenEye's guns on Perfect Dark VR's profiles above (launcher "Per-gun
+ * recoil", VrPerWeaponRecoil), by the nearest PD gun (gevr_recoil.h; the
+ * game side names the class, port/src/input.c gevrRecoilClass). A two-handed
+ * hold (issue #35) takes PD's two-handed profile where it has one. Knives,
+ * throwables and gadgets do not kick.
+ */
+static WeaponRecoilProfile GetRecoilProfileForGEClass(int cls, bool twoHands)
+{
+    switch (cls) {
+        case GEVR_RECOIL_PISTOL:
+            return { 0.025f, 0.010f, -0.60f, 75.0f, 50.0f };
+        case GEVR_RECOIL_MAGNUM:
+            return { 0.090f, 0.020f, -1.20f, 60.0f, 15.0f };
+        case GEVR_RECOIL_SMG:
+            return { 0.003f, 0.004f, -0.500f, 130.0f, 18.0f };
+        case GEVR_RECOIL_RIFLE:
+            return twoHands ? WeaponRecoilProfile{ 0.001f, 0.001f, -0.150f, 140.0f, 20.0f }
+                            : WeaponRecoilProfile{ 0.030f, 0.015f, -1.000f, 95.0f, 13.0f };
+        case GEVR_RECOIL_SHOTGUN:
+            return twoHands ? WeaponRecoilProfile{ 0.045f, 0.005f, -3.500f, 75.0f, 13.0f }
+                            : WeaponRecoilProfile{ 0.140f, 0.020f, -7.000f, 33.0f, 6.0f };
+        case GEVR_RECOIL_SNIPER:
+            return twoHands ? WeaponRecoilProfile{ 0.01f, 0.01f, -0.150f, 100.0f, 15.0f }
+                            : WeaponRecoilProfile{ 0.140f, 0.020f, -7.000f, 33.0f, 6.0f };
+        case GEVR_RECOIL_LAUNCHER:
+            return twoHands ? WeaponRecoilProfile{ 0.050f, 0.0f, -5.000f, 35.0f, 5.5f }
+                            : WeaponRecoilProfile{ 0.190f, 0.180f, -7.000f, 25.0f, 3.0f };
+        case GEVR_RECOIL_LASER:
+            return { 0.002f, 0.002f, -0.05f, 180.0f, 90.0f };
+        case GEVR_RECOIL_TASER:
+            return { 0.010f, 0.005f, -0.15f, 100.0f, 60.0f };
+        default:
+            return { 0.0f, 0.0f, 0.0f, 100.0f, 10.0f };
+    }
+}
+
 static float sRecoilQuat[2][4]  = { {1,0,0,0}, {1,0,0,0} };
 static float sRecoilVelPitch[2] = { 0.0f, 0.0f };
 static float sRecoilVelYaw[2]   = { 0.0f, 0.0f };
 static float sRecoilPosOffset[2][3] = { {0,0,0}, {0,0,0} };
 static float sRecoilVelPush[2]  = { 0.0f, 0.0f };
+/* the spring each hand settles with: its last shot's gun (vrRecoilKick) */
+static WeaponRecoilProfile sRecoilProfile[2] = { { 0.010f, 0.0f, -0.15f, 50.0f, 9.0f },
+                                                 { 0.010f, 0.0f, -0.15f, 50.0f, 9.0f } };
 
 static float RecoilRandf()
 {
@@ -1227,6 +1269,59 @@ extern "C" void vrRecoilNotifyShotFired(int handnum)
 
     WeaponRecoilProfile profile = GetRecoilProfileForWeapon(weaponnum);
     RecoilFireImpulse(ctrlIndex, profile);
+}
+
+/*
+ * GoldenEye: a shot from the local player's gun (port/src/input.c
+ * gevrRumbleGunfire), gunhand GUNRIGHT 0 or GUNLEFT 1; the logical controller
+ * is the other way round, as vrRecoilNotifyShotFired has it. The kick shows
+ * through the grip poses the game reads (gevrRecoilGripPose).
+ */
+extern "C" int gevrStereoTwoHandGrip(void);   // bondview2.c: issue #35's hold
+extern "C" void vrRecoilKick(int gunhand, int recoilClass)
+{
+    if (!VrPerWeaponRecoil || (gunhand != 0 && gunhand != 1)) return;
+    const int ctrl = 1 - gunhand;
+    const WeaponRecoilProfile p = GetRecoilProfileForGEClass(recoilClass, gunhand == 0 && gevrStereoTwoHandGrip() != 0);
+    sRecoilProfile[ctrl] = p;
+    RecoilFireImpulse(ctrl, p);
+}
+
+/*
+ * The spring's offset on a grip pose the game reads (gevrVrGripPoseCamera,
+ * gevrVrGripPoseSteady): pos in metres, quat x y z w, view space. In the
+ * grip's own frame the barrel is -Y, up is -Z and back +Y (bondview2.c
+ * gevrGripAxesRaw), so the muzzle lifts about +X, swings about Z, and the
+ * push (PD's centimetres) goes along +Y.
+ */
+static void gevrRecoilGripPose(int hand, float pos[3], float quat[4])
+{
+    if (!VrPerWeaponRecoil || hand < 0 || hand > 1) return;
+    const float lift = -2.0f * sRecoilQuat[hand][1];   // PD kicks its pitch negative: muzzle up
+    const float swing = 2.0f * sRecoilQuat[hand][2];
+    const float push = sRecoilPosOffset[hand][2] / 100.0f;
+    if (fabsf(lift) < 1e-5f && fabsf(swing) < 1e-5f && fabsf(push) < 1e-6f) return;
+
+    // q * rot(+X, lift) * rot(Z, swing), Hamilton products in x y z w
+    const float sx = sinf(lift * 0.5f), cx = cosf(lift * 0.5f);
+    const float sz = sinf(swing * 0.5f), cz = cosf(swing * 0.5f);
+    const float lx = sx * cz, ly = -sx * sz, lz = cx * sz, lw = cx * cz;   // rot(X) * rot(Z)
+    const float qx = quat[0], qy = quat[1], qz = quat[2], qw = quat[3];
+    float nx = qw * lx + qx * lw + qy * lz - qz * ly;
+    float ny = qw * ly - qx * lz + qy * lw + qz * lx;
+    float nz = qw * lz + qx * ly - qy * lx + qz * lw;
+    float nw = qw * lw - qx * lx - qy * ly - qz * lz;
+    const float len = sqrtf(nx * nx + ny * ny + nz * nz + nw * nw);
+    if (len > 1e-6f) { nx /= len; ny /= len; nz /= len; nw /= len; }
+
+    // the grip's +Y in view space: column 1 of q's rotation
+    const float bx = 2.0f * (qx * qy - qw * qz);
+    const float by = 1.0f - 2.0f * (qx * qx + qz * qz);
+    const float bz = 2.0f * (qy * qz + qw * qx);
+    pos[0] += bx * push;
+    pos[1] += by * push;
+    pos[2] += bz * push;
+    quat[0] = nx; quat[1] = ny; quat[2] = nz; quat[3] = nw;
 }
 
 static void RecoilUpdate(int handIndex, float dt, const WeaponRecoilProfile& p)
@@ -1556,7 +1651,7 @@ void controller_pose() {
         if (VrWeaponRecoil) {
             static float sRecoilLastTime = 0.0f;
             float dt = 1.0f / 90.0f; // approx VR frametime, or retrieve via XrTime delta if available
-            RecoilUpdate(i, dt, GetRecoilProfileForWeapon(weaponnum));
+            RecoilUpdate(i, dt, VrPerWeaponRecoil ? sRecoilProfile[i] : GetRecoilProfileForWeapon(weaponnum));
             RecoilApplyToControllerPose(i, gCtrlQuat[i], gCtrlPos[i]);
         }
 
@@ -1985,7 +2080,9 @@ extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4])
         return 1;
     }
     if (!gCamCtrlValid[gevrPhysHand(hand)]) {
-        return gevrVrGripPose(hand, pos, quat);
+        if (!gevrVrGripPose(hand, pos, quat)) return 0;
+        gevrRecoilGripPose(hand, pos, quat);
+        return 1;
     }
     const XrPosef& pose = gCamCtrlPose[gevrPhysHand(hand)];
     pos[0] = pose.position.x;
@@ -1995,6 +2092,7 @@ extern "C" int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4])
     quat[1] = pose.orientation.y;
     quat[2] = pose.orientation.z;
     quat[3] = pose.orientation.w;
+    gevrRecoilGripPose(hand, pos, quat);
     return 1;
 }
 
@@ -2014,6 +2112,7 @@ extern "C" int gevrVrGripPoseSteady(int hand, float pos[3], float quat[4])
     const int h = gevrPhysHand(hand);
     const XrQuaternionf& rp = gCtrlPosePlay[h].orientation;
     if (!gSteadyUsed[h] || !gSteadyInit[h] || (rp.x == 0.0f && rp.y == 0.0f && rp.z == 0.0f && rp.w == 0.0f)) {
+        gevrRecoilGripPose(hand, pos, quat);
         return 1;
     }
     // a = raw_view * conj(raw_play), then a * steady_play (Hamilton products)
@@ -2035,6 +2134,7 @@ extern "C" int gevrVrGripPoseSteady(int hand, float pos[3], float quat[4])
         quat[2] = r.z / len;
         quat[3] = r.w / len;
     }
+    gevrRecoilGripPose(hand, pos, quat);
     return 1;
 }
 

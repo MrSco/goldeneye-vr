@@ -136,6 +136,8 @@ extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online 
 extern bool netIsActive(void);
 extern s32 gevrDualWielding(void);
 extern int VrMotionThrowing;
+extern int VrPerWeaponRecoil;   /* launcher "Per-gun recoil" */
+#include "gevr_recoil.h"
 /* bondview2.c: GEVR PC's grip gestures (src/game/gevr_grip_gesture.h) */
 extern void gevrGripGestureInput(int ctrl, int pressed, int held);
 extern int gevrGripGestureTaken(int ctrl);
@@ -1849,6 +1851,36 @@ struct WeaponRumbleProfile {
     f32 frequency; // Hz
 };
 
+/* Perfect Dark VR's recoil profile for a GoldenEye gun, by the nearest PD gun
+ * (gevr_recoil.h); the watch's items fire from the other arm and do not kick */
+static int gevrRecoilClass(s32 item)
+{
+    switch (item) {
+        case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33:
+        case ITEM_SILVERWPPK: case ITEM_GOLDWPPK:
+            return GEVR_RECOIL_PISTOL;
+        case ITEM_RUGER: case ITEM_GOLDENGUN:
+            return GEVR_RECOIL_MAGNUM;
+        case ITEM_SKORPION: case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL:
+        case ITEM_SPECTRE: case ITEM_FNP90:
+            return GEVR_RECOIL_SMG;
+        case ITEM_AK47: case ITEM_M16:
+            return GEVR_RECOIL_RIFLE;
+        case ITEM_SHOTGUN: case ITEM_AUTOSHOT:
+            return GEVR_RECOIL_SHOTGUN;
+        case ITEM_SNIPERRIFLE:
+            return GEVR_RECOIL_SNIPER;
+        case ITEM_ROCKETLAUNCH: case ITEM_GRENADELAUNCH:
+            return GEVR_RECOIL_LAUNCHER;
+        case ITEM_LASER:
+            return GEVR_RECOIL_LASER;
+        case ITEM_TASER:
+            return GEVR_RECOIL_TASER;
+        default:
+            return GEVR_RECOIL_NONE;
+    }
+}
+
 static struct WeaponRumbleProfile getWeaponRumbleProfile(s32 item_id) {
     struct WeaponRumbleProfile p;
     vrHapticsGetRumble(item_id, &p.amplitude, &p.duration, &p.frequency);
@@ -1862,6 +1894,10 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
      * player's own gun reaches the controllers. */
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot()) {
         return;
+    }
+    /* per-gun recoil: the shot kicks this hand's grip pose (vr_input.cpp vrRecoilKick) */
+    if (g_gevrStereo && VrPerWeaponRecoil) {
+        vrRecoilKick(hand, gevrRecoilClass(item_id));
     }
     struct WeaponRumbleProfile p = getWeaponRumbleProfile(item_id);
     f32 amp = p.amplitude;
