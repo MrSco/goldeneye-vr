@@ -174,6 +174,13 @@ struct memallocstring memallocstringtable[] = {
 { LEVELID_CAVERNS_MP ,  "-ml0 -me0 -mgfx130 -mvtx100 -mt440 -ma220"},
 { LEVELID_FACILITY_MP , "-ml0 -me0 -mgfx90  -mvtx100 -mt550 -ma230"},
 { LEVELID_EGYPT_MP ,    "-ml0 -me0 -mgfx110 -mvtx100 -mt350 -ma400"},
+#ifdef GEVR
+/* Statue and Cradle online (#95; Rare cut them from the MP menu, front.c
+ * multi_stage_setups): the MP stages' display list buffers, the solo
+ * missions' texture and room budgets */
+{ LEVELID_STATUE_MP ,   "-ml0 -me0 -mgfx130 -mvtx100 -mt750 -ma220"},
+{ LEVELID_CRADLE_MP ,   "-ml0 -me0 -mgfx130 -mvtx100 -mt650 -ma250"},
+#endif
 { LEVELID_DEFAULT,      "-ml0 -me0 -mgfx100 -mvtx50 -mt700 -ma400"},
 { 0x0, },
 { 0x0, },

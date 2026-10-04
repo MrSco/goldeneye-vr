@@ -104,4 +104,9 @@ struct StandTilePoint *stanMatchTileName(char *id);
 s32 isPointInsideTriStandTileUnscaled_Maybe(struct StandTile *tile, f32 p_x, f32 p_z);
 s32 sub_GAME_7F0B21B0(StandTile **tileStack, f32 target_x, f32 target_z, f32 radius, s32 *rooms, s32 *count_rtn, s32 bufMax);
 StandTile *stanFindTileBelowPos(coord3d *pos, u8 *rooms, f32 *yRtn);
+#ifdef GEVR
+/* Perfect Dark's cdFindGroundInfoAtCyl on stan tiles (#95): the floor under a body's whole cylinder */
+StandTile *stanFindGroundAtCyl(coord3d *pos, f32 radius, u8 *rooms, StandTile *prefer, f32 *groundy, s32 *incentre);
+void gevrStanCylSelfTest(void);   /* files/gevr_stancyl_selftest.txt */
+#endif
 #endif

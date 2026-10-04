@@ -12353,6 +12353,11 @@ ModelRenderData D_800322A4 = {
 };
 
 
+#ifdef GEVR
+extern void gevrHeldGunBegin(ChrRecord *chr, GUNHAND hand);
+extern s32 gevrHeldGunCompute(ChrRecord *chr, PropRecord *weapon, GUNHAND hand, Mtxf *base, Model *pchr);
+#endif
+
 /**
  * Render the weapon(s) characters are holding including the muzzle flash.
  * Address: 0x7f0523f8
@@ -12370,6 +12375,9 @@ void chrRenderHeldWeapon(void *renderContext, GUNHAND hand, Gfx **gdl)
 
     chr = ((ChrRenderContext *)renderContext)->chr;
     prop = chrGetEquippedWeaponProp(chr, hand);
+#ifdef GEVR
+    gevrHeldGunBegin(chr, hand);
+#endif
 
     if (prop != NULL) {
 
@@ -12401,6 +12409,10 @@ void chrRenderHeldWeapon(void *renderContext, GUNHAND hand, Gfx **gdl)
                 {
                     if (!(weaponObj->runtime_bitflags & RUNTIMEBITFLAG_00000080)) 
                     {
+#ifdef GEVR
+                        /* other players online hold the first-person model (gevr_heldgun.c, chr.c draws it) */
+                        if (!gevrHeldGunCompute(chr, prop, hand, renderData.basemtx, heldModel))
+#endif
                         *gdl = sub_GAME_7F06B120(*gdl, heldModel);
                     }
                 }

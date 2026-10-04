@@ -8,11 +8,15 @@
  * every stage takes the host's player count, two to eight (issue #88; the
  * game's front.c multi_stage_setups capped the smaller maps at 3 or 2 for
  * split screen). A map with fewer start pads than players stands the extra
- * ones beside a pad (bondview_r.c gevrSpreadStartPad). */
+ * ones beside a pad (bondview_r.c gevrSpreadStartPad). Statue and Cradle
+ * (#95) are the ROM's own MP setups (Ump_setupstatueZ, Ump_setupcradZ),
+ * eight pads each, cut from the game's menu; they stay last, as favorites
+ * and ballots are list positions. */
 static const NetMatchStage s_stages[] = {
     { "Facility",  34 }, { "Complex",   31 }, { "Temple",    38 }, { "Stack",    46 },
     { "Caverns",   39 }, { "Library",   48 }, { "Basement",  45 }, { "Caves",    50 },
-    { "Egypt",     32 }, { "Bunker II", 27 }, { "Archives",  24 },
+    { "Egypt",     32 }, { "Bunker II", 27 }, { "Archives",  24 }, { "Statue",    22 },
+    { "Cradle",    41 },
 };
 
 /* The twenty missions (front.c mission_folder_setup_entries), the ROM's LEVELID values */

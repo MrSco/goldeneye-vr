@@ -166,6 +166,12 @@ void gevrNetSpawnProjectile(s32 slot, s32 kind, s32 hand, s32 item, const coord3
             break;
         case GEVR_NETPROJ_ROCKET:
             gunFireTankShell(hand);
+            {
+                /* the rocket leaves the copy's launcher until its reload (gevr_heldgun.c) */
+                extern void gevrHeldGunRocketFired(s32 slot, s32 hand);
+
+                gevrHeldGunRocketFired(slot, hand);
+            }
             break;
     }
 

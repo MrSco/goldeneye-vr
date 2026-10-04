@@ -40,6 +40,7 @@ extern int VrMpFriendlyFire;
 extern int VrHostEqualization, VrHostLatencyCapMs;
 extern int VrMpFunFlags, VrMpGunSize;
 extern int VrMpMaxPlayers; // the host's player count, 2..8 on any stage
+extern int VrDetailedGuns;   // guards and other players hold the first-person gun models (#95); 0 = the game's own
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
 extern int VrMpCustom[4];       // the host's custom set
 // Co-op (NET_MODE_COOP): the mode, the mission's LEVELID and the solo difficulty (0..3).
@@ -48,6 +49,10 @@ extern int VrMpLoadout[4];      // this player's spawn guns
 extern unsigned VrMpFavStages, VrMpFavSets;
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
+// Being hit in stereo (issue #95). VrNoKnockback: 1 = a hit doesn't push you
+// (the default). VrNoHitstun: 1 = the trigger still fires while the hit
+// shows. VrDamageFlash: 0 = no red flash.
+extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
 // Preferred display refresh rate in Hz; 0 = Auto (no app preference).
 extern int VrRefreshRate;
 

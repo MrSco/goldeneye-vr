@@ -2660,14 +2660,23 @@ extern "C" void gevrLauncherRun(void)
                 rulesPage = false;
             }
         } else if (cheatPage) {
-            struct CheatRow { const char *name; int id; bool cosmetic; };
+            // excl: a cheat ticking this one unticks (2x and 10x Health both
+            // set the health ceiling; cheat.c applies only the first)
+            struct CheatRow { const char *name; int id; bool cosmetic; int excl; };
             static const CheatRow fun[] = {
                 { "DK mode (big heads)", 12, true }, { "Paintball mode", 15, true }, { "Line mode", 7, true },
                 { "Tiny Bond", 14, false }, { "Turbo mode", 24, false }, { "Invisibility", 10, false },
                 { "Fast animation", 26, false }, { "Slow animation", 27, false }, { "Enemy rockets", 28, false },
             };
+            // with the retail game's hidden cheats (#95): 2x/10x Health,
+            // 2x Armor, Max ammo, Extra weapons are in cheat.c but have no
+            // unlock in the game's Cheat Options
+            static const CheatRow health[] = {
+                { "Invincibility", 2, false }, { "2x Health", 8, false, 16 }, { "10x Health", 16, false, 8 },
+                { "2x Armor", 9, false }, { "Infinite ammo", 11, false }, { "Max ammo", 4, false },
+            };
             static const CheatRow arms[] = {
-                { "Invincibility", 2, false }, { "All guns", 3, false }, { "Infinite ammo", 11, false },
+                { "All guns", 3, false }, { "Extra weapons", 13, false },
                 { "Golden Gun", 19, false }, { "Silver PP7", 20, false }, { "Gold PP7", 21, false },
                 { "Magnum", 17, false }, { "Laser", 18, false }, { "2x Rocket launcher", 29, false },
                 { "2x Grenade launcher", 30, false }, { "2x RC-P90", 31, false }, { "2x Throwing knife", 32, false },
@@ -2680,6 +2689,7 @@ extern "C" void gevrLauncherRun(void)
                 if (ImGui::Checkbox(label, &on)) {
                     if (on) VrCheatMask |= 1ULL << c.id;
                     else VrCheatMask &= ~(1ULL << c.id);
+                    if (on && c.excl) VrCheatMask &= ~(1ULL << c.excl);
                 }
             };
             ImGui::TextColored(gold, "CHEATS");
@@ -2694,13 +2704,15 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::RadioButton("Big guns", &VrGunSizeCheat, 2);
                 // three even columns: the launcher page does not scroll
                 ImGui::TextColored(gold, "FUN");
-                for (int i = 0; i < 5; i++) row(fun[i]);
+                for (int i = 0; i < 7; i++) row(fun[i]);
                 ImGui::TableNextColumn();
-                for (int i = 5; i < 9; i++) row(fun[i]);
+                for (int i = 7; i < 9; i++) row(fun[i]);
+                ImGui::TextColored(gold, "HEALTH & AMMO");
+                for (const CheatRow& c : health) row(c);
                 ImGui::TextColored(gold, "WEAPONS");
-                for (int i = 0; i < 5; i++) row(arms[i]);
+                for (int i = 0; i < 2; i++) row(arms[i]);
                 ImGui::TableNextColumn();
-                for (int i = 5; i < (int)(sizeof(arms) / sizeof(arms[0])); i++) row(arms[i]);
+                for (int i = 2; i < (int)(sizeof(arms) / sizeof(arms[0])); i++) row(arms[i]);
                 ImGui::EndTable();
             }
             if (ImGui::Button("All off")) {
@@ -2837,6 +2849,14 @@ extern "C" void gevrLauncherRun(void)
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
             ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
             ImGui::EndDisabled();
+            // #95, from GE Plus's comfort options: the push of a hit, the
+            // trigger dropped while the hit shows, the red flash
+            ImGui::Spacing();
+            ImGui::TextColored(gold, "WHEN HIT (stereo)");
+            bool noPush = VrNoKnockback != 0, noStun = VrNoHitstun != 0, flash = VrDamageFlash != 0;
+            if (ImGui::Checkbox("No knockback", &noPush)) VrNoKnockback = noPush ? 1 : 0;
+            if (ImGui::Checkbox("Keep firing when hit (no hitstun)", &noStun)) VrNoHitstun = noStun ? 1 : 0;
+            if (ImGui::Checkbox("Red flash when hit", &flash)) VrDamageFlash = flash ? 1 : 0;
         },
         [&]() {
             ImGui::TextColored(gold, "SCREEN");

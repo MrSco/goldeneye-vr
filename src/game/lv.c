@@ -387,6 +387,13 @@ void lvlStageLoad(s32 stage)
     bullet_sparks_reset_all();
 #endif
     texReset();
+#ifdef GEVR
+    {
+        extern void gevrStageGunsReset(void);   /* bondview_r.c, #95 */
+
+        gevrStageGunsReset();
+    }
+#endif
     load_font_tables();
 
     /* If title screen, initialize screen and folder setup.
@@ -536,6 +543,13 @@ void lvlStageLoad(s32 stage)
         }
 
         set_cur_player(0);
+#ifdef GEVR
+        {
+            extern void gevrPreloadStageGuns(void);   /* bondview_r.c: the HD textures of the guns met above (#95) */
+
+            gevrPreloadStageGuns();
+        }
+#endif
     }
 
     /**
@@ -1447,6 +1461,18 @@ void lvlManageMpGame(void)
 
             for (i=0; i<getPlayerCount(); i++)
             {
+#ifdef GEVR
+                /* Online the other players' copies run no blood drip on this
+                 * headset (only the local view is drawn), so their
+                 * redbloodfinished never comes: with anyone else dead too,
+                 * the level music stayed out after the sting. */
+                extern int netGetLocalSlot(void);
+
+                if (netIsActive() && i != netGetLocalSlot())
+                {
+                    continue;
+                }
+#endif
                 if (g_playerPointers[i]->bonddead != FALSE)
                 {
                     mp_alive_count++;
