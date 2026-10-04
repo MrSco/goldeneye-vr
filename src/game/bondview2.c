@@ -243,8 +243,9 @@ extern int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);
 extern unsigned gevrVrGripSnapshotId(void);
 extern int gevrVrGripTracked(int hand);
 extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* goldeneye-vr.ini grip trim, cm */
+extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;   /* launcher Comfort: being hit in stereo (#95) */
 
-s32 g_gevrStereo;                        /* this frame is drawn in stereo (fr.c, input.c) */
+s32 g_gevrStereo;                       /* this frame is drawn in stereo (fr.c, input.c) */
 static s32 s_gevrStereoWas;
 static f32 s_gevrBaseYaw;                /* degrees: stick turns plus game-side turns */
 static f32 s_gevrLastTheta;              /* vv_theta as last written here */
@@ -10158,7 +10159,13 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         moveData.speedVertaUp = ftemp_nostack_spE8;
     }
 
+#ifdef GEVR
+    /* the launcher's "Keep firing when hit" (#95): in VR the dropped trigger
+     * reads as a lost input */
+    if (bondviewGetIfCurrentPlayerDamageShowTime() && getPlayerCount() == 1 && !(g_gevrStereo && VrNoHitstun))
+#else
     if (bondviewGetIfCurrentPlayerDamageShowTime() && getPlayerCount() == 1)
+#endif
     {
         moveData.triggerOn = 0;
     }
@@ -10910,6 +10917,11 @@ void bondviewPlayerTickDamageAndHealth(void)
                     frac = (g_DamageTypes[g_CurrentPlayer->damagetype].maxAlpha * (f32)(totalframes - flashdoneframes)) / (f32)(totalframes - flashfullframe);
                 }
 
+#ifdef GEVR
+                /* the launcher's "Red flash when hit" (#95); the show time
+                 * still runs, as it also spaces out the hits taken */
+                if (!(g_gevrStereo && !VrDamageFlash))
+#endif
                 currentPlayerSetFadeColour(
                     g_DamageTypes[g_CurrentPlayer->damagetype].red,
                     g_DamageTypes[g_CurrentPlayer->damagetype].green,
@@ -16064,7 +16076,13 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
 #else
     #define ZERO_7F08991C 0
 #endif
-                if (g_CurrentPlayer->damageshowtime < ZERO_7F08991C)
+                if (g_CurrentPlayer->damageshowtime < ZERO_7F08991C
+#ifdef GEVR
+                    /* the launcher's "No knockback" (#95): the push is motion
+                     * the player didn't make */
+                    && !(g_gevrStereo && VrNoKnockback)
+#endif
+                    )
                 {
                     g_CurrentPlayer->bondshotspeed.x = g_CurrentPlayer->bondshotspeed.x + 2.0f * vectorx;
                     g_CurrentPlayer->bondshotspeed.z = g_CurrentPlayer->bondshotspeed.z + 2.0f * vectorz;

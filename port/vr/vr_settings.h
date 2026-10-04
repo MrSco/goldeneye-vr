@@ -48,6 +48,10 @@ extern int VrMpLoadout[4];      // this player's spawn guns
 extern unsigned VrMpFavStages, VrMpFavSets;
 // GoldenEye comfort vignette strength while moving in stereo, 0 = off .. 1.
 extern float VrComfortVignette;
+// Being hit in stereo (issue #95). VrNoKnockback: 1 = a hit doesn't push you
+// (the default). VrNoHitstun: 1 = the trigger still fires while the hit
+// shows. VrDamageFlash: 0 = no red flash.
+extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
 // Preferred display refresh rate in Hz; 0 = Auto (no app preference).
 extern int VrRefreshRate;
 
