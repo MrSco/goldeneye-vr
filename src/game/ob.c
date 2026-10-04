@@ -83,10 +83,7 @@ void load_resource(u8 *ptrdata, s32 bytes,  fileentry *srcfile,  resource_lookup
          */
         if (gevrModelPendingHeader != NULL && gevrGexPendingFile != NULL && gevrGexPendingLen <= (u32)bytes)
         {
-            /* GoldenEye X's model for this gun, built in gun.c (gevr_gexmodel.c),
-             * with the cartridge's own textures where GE-X's are their copies */
-            gevrGexAdoptGeTextures(gevrGexPendingFile, gevrGexPendingLen, ptrdata, lookupdata->poolRemaining,
-                    gevrModelPendingHeader->numSwitches, gevrGexPendingGeTextures);
+            /* GoldenEye X's model for this gun, built in gun.c (gevr_gexmodel.c) */
             memcpy(ptrdata, gevrGexPendingFile, gevrGexPendingLen);
             lookupdata->poolRemaining = gevrGexPendingLen;
             sysLogPrintf(LOG_NOTE, "gex: %s replaced by GoldenEye X's model (%u bytes)", srcfile->filename, gevrGexPendingLen);

@@ -1066,21 +1066,54 @@ s32 g_gevrGexHand[2];
  * own data/gex.z64 and rebuilt as a GoldenEye file (gevr_gexmodel.c); the
  * load below then takes it in place of the cartridge's (ob.c). The KF7
  * only, for now. The header takes the model's matrix and texture counts;
- * switch 1, the muzzle flash, is PD part 90; slots the gun code leaves
- * alone take the KF7's magazines: 30 the one in the gun (part 42), 31 the
- * one its reload brings in (part 40), hidden at rest as in Perfect Dark.
+ * switch 1, the muzzle flash, is PD part 90. The KF7's magazines take two
+ * slots added past the end of the table, since the gun code uses the
+ * free-looking ones (29-34 are the cuffs bondviewSelectCuff shows one of,
+ * hiding the rest: it hid the magazine): the one in the gun (part 42) and
+ * the one its reload brings in (part 40), hidden at rest as in Perfect Dark.
  */
-#define GEVR_GEX_SW_MAG     30
-#define GEVR_GEX_SW_NEWMAG  31
+#define GEVR_GEX_SW_ADDED       2
+#define GEVR_GEX_SW_MAG(hdr)    ((hdr)->numSwitches - 2)
+#define GEVR_GEX_SW_NEWMAG(hdr) ((hdr)->numSwitches - 1)
+
+/*
+ * The KF7's textures in GE-X are GoldenEye's, re-encoded: GE-X's number,
+ * then GoldenEye's, paired by their decoded pixels (equal but for 3271,
+ * 2444 and the trigger, 2414, which GE-X re-encoded in another format).
+ * They take GoldenEye's ids so the HD packs apply (gevr_gexmodel.c).
+ */
+static const u16 s_gevrGexKf7Textures[] = {
+    3271, 26,
+    3285, 28,
+    3286, 27,
+    3287, 2673,
+    1014, 2672,
+    1, 1514,
+    3288, 2674,
+    2444, 870,
+    3289, 2675,
+    2414, 887,
+    3290, 2120,
+    3291, 2121,
+    3292, 2122,
+    3293, 2123,
+    3294, 2124,
+    3295, 2125,
+    3296, 2126,
+    3297, 2127,
+    0
+};
+
 static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
 {
     s32 parts[64];
     u32 len = 0;
     u16 mtx = 0, tex = 0;
     s32 i;
+    const s32 n = hdr->numSwitches;
 
     g_gevrGexHand[hand] = FALSE;
-    if (!VrGexGuns || item != ITEM_AK47 || hdr->numSwitches > 64)
+    if (!VrGexGuns || item != ITEM_AK47 || n + GEVR_GEX_SW_ADDED > 64)
     {
         return;
     }
@@ -1088,21 +1121,18 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     {
         parts[i] = -1;
     }
-    if (hdr->numSwitches > 1)
+    if (n > 1)
     {
         parts[1] = 90;
     }
-    if (hdr->numSwitches > GEVR_GEX_SW_NEWMAG)
-    {
-        parts[GEVR_GEX_SW_MAG] = 42;
-        parts[GEVR_GEX_SW_NEWMAG] = 40;
-    }
-    gevrGexPendingGeTextures = hdr->numtextures;
-    gevrGexPendingFile = gevrGexBuildModel("Gak47Z", hdr->numSwitches, parts, &len, &mtx, &tex);
+    parts[n] = 42;
+    parts[n + 1] = 40;
+    gevrGexPendingFile = gevrGexBuildModel("Gak47Z", n + GEVR_GEX_SW_ADDED, parts, s_gevrGexKf7Textures, &len, &mtx, &tex);
     g_gevrGexHand[hand] = gevrGexPendingFile != NULL;
     if (gevrGexPendingFile != NULL)
     {
         gevrGexPendingLen = len;
+        hdr->numSwitches = n + GEVR_GEX_SW_ADDED;
         hdr->numMatrices = mtx;
         hdr->numtextures = tex;
         g_gevrHandPatchSkip = TRUE;
@@ -1132,9 +1162,9 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
     const s32 frame = 0;
 
     /* the spare magazine shows only during the reload */
-    if (hdr->numSwitches > GEVR_GEX_SW_NEWMAG && hdr->Switches[GEVR_GEX_SW_NEWMAG] != NULL)
+    if (hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)] != NULL)
     {
-        s32 *visible = (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_NEWMAG]);
+        s32 *visible = (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)]);
 
         if (visible != NULL)
         {
@@ -1200,18 +1230,18 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
     {
         static s32 tick;
 
-        if ((tick++ % 120) == 0 && hdr->numMatrices > 40 && hdr->numSwitches > GEVR_GEX_SW_NEWMAG)
+        if ((tick++ % 120) == 0 && hdr->numMatrices > 40)
         {
-            s32 *mag = hdr->Switches[GEVR_GEX_SW_MAG] ? (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_MAG]) : NULL;
-            s32 *newmag = hdr->Switches[GEVR_GEX_SW_NEWMAG] ? (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_NEWMAG]) : NULL;
+            s32 *mag = hdr->Switches[GEVR_GEX_SW_MAG(hdr)] ? (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_MAG(hdr)]) : NULL;
+            s32 *newmag = hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)] ? (s32 *) modelGetNodeRwData(model, hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)]) : NULL;
 
             sysLogPrintf(LOG_NOTE, "gexpose: mtx0 %.1f %.1f %.1f, 33 %.1f %.1f %.1f, 39 %.1f %.1f %.1f, 40 %.1f %.1f %.1f; mag sw %p vis %d, new sw %p vis %d",
                     rwmtx[0].m[3][0], rwmtx[0].m[3][1], rwmtx[0].m[3][2],
                     rwmtx[33].m[3][0], rwmtx[33].m[3][1], rwmtx[33].m[3][2],
                     rwmtx[39].m[3][0], rwmtx[39].m[3][1], rwmtx[39].m[3][2],
                     rwmtx[40].m[3][0], rwmtx[40].m[3][1], rwmtx[40].m[3][2],
-                    (void *) hdr->Switches[GEVR_GEX_SW_MAG], mag ? *mag : -1,
-                    (void *) hdr->Switches[GEVR_GEX_SW_NEWMAG], newmag ? *newmag : -1);
+                    (void *) hdr->Switches[GEVR_GEX_SW_MAG(hdr)], mag ? *mag : -1,
+                    (void *) hdr->Switches[GEVR_GEX_SW_NEWMAG(hdr)], newmag ? *newmag : -1);
         }
     }
 }
