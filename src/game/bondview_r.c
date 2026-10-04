@@ -16,6 +16,8 @@
 #include "game/ramromreplay.h"
 #include "game/stan.h"
 #ifdef GEVR
+#include <stdlib.h>
+#include <string.h>
 #include "system.h"
 #include "net_game.h"
 #include "net_coop.h"
@@ -28,10 +30,124 @@ extern int netGetLocalSlot(void);
 */
 struct coord3d default_start_position = { 0 };
 
+#ifdef GEVR
+/*
+ * Issue #95: the guns a stage can put in a player's hand, as the stage load
+ * meets them here (the start items, the pickups after the MP weapon set's
+ * substitution, the guards' guns they drop, online loadouts), so their HD
+ * pack textures can be decoded before the first switch to each
+ * (gevrPreloadStageGuns, gfx_pc.cpp gevrTexpackWarmDl).
+ */
+extern GunModelFileRecord gitem_structs[];
+extern void texInitPool(struct texpool *pool, u8 *start, s32 len);
+extern void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8 *dst, s32 size, struct texpool *buffer);
+extern void modelIterateDisplayLists(ModelFileHeader *fileheader, ModelNode **nodeptr, Gfx **gdlptr);
+extern int gevrTexpackWarmDl(const void *dl, const void *seg5);
+extern int VrDetailedGuns;                              /* goldeneye-vr.ini DetailedGuns */
+extern ModelFileHeader *gevrHeldGunPreload(s32 item);   /* gevr_heldgun.c */
+extern void gevrHeldGunReset(void);
+extern s32 g_gevrHandPatchSkip;                         /* gevr_handpatch.c */
+static u8 s_gevrStageGuns[(ITEM_IDS_MAX + 7) / 8];
+
+static void gevrStageGunNote(ITEM_IDS item)
+{
+    if (item > ITEM_UNARMED && item < ITEM_IDS_MAX)
+    {
+        s_gevrStageGuns[item >> 3] |= 1 << (item & 7);
+    }
+}
+
+void gevrStageGunsReset(void)
+{
+    memset(s_gevrStageGuns, 0, sizeof(s_gevrStageGuns));
+    gevrTexpackWarmDl(NULL, NULL);
+    gevrHeldGunReset();
+}
+
+/*
+ * Each noted gun's model, loaded into a scratch buffer as the weapon panel
+ * loads its own (bondview2.c gevrWeaponPanelModel), its display lists warmed.
+ * With the detailed held guns on they load into the cache guards' and other
+ * players' guns are drawn from (gevr_heldgun.c) instead, and stay. The scratch buffer is kept: the hand
+ * patch's slots are per buffer address (and skipped here anyway, the hands
+ * being hidden). Nothing of the game's own gun slots is touched.
+ */
+#define GEVR_SG_MODELSIZE 0x40000
+#define GEVR_SG_BUFSIZE   0x70000
+
+void gevrPreloadStageGuns(void)
+{
+    static u8 *s_buf;
+    static ModelFileHeader s_header;
+    s32 item, guns = 0, textures = 0;
+    u64 start = sysGetMicroseconds();
+
+    for (item = ITEM_UNARMED + 1; item < ITEM_IDS_MAX; item++)
+    {
+        ModelFileHeader *header = NULL;
+        struct texpool pool;
+        ModelNode *node = NULL;
+        Gfx *gdl = NULL;
+
+        if (!(s_gevrStageGuns[item >> 3] & (1 << (item & 7)))
+            || gitem_structs[item].item_header == NULL || gitem_structs[item].item_file_name == NULL)
+        {
+            continue;
+        }
+
+        if (VrDetailedGuns)
+        {
+            header = gevrHeldGunPreload(item);
+        }
+        else
+        {
+            if (s_buf == NULL && (s_buf = malloc(GEVR_SG_BUFSIZE)) == NULL)
+            {
+                return;
+            }
+
+            s_header = *gitem_structs[item].item_header;
+            texInitPool(&pool, s_buf + GEVR_SG_MODELSIZE, GEVR_SG_BUFSIZE - GEVR_SG_MODELSIZE);
+            g_gevrHandPatchSkip = TRUE;
+            load_object_fill_header(&s_header, (u8 *)gitem_structs[item].item_file_name, s_buf, GEVR_SG_MODELSIZE, &pool);
+            g_gevrHandPatchSkip = FALSE;
+            header = s_header.RootNode != NULL ? &s_header : NULL;
+        }
+
+        if (header == NULL)
+        {
+            continue;
+        }
+
+        guns++;
+
+        do
+        {
+            modelIterateDisplayLists(header, &node, &gdl);
+
+            if (gdl != NULL)
+            {
+                textures += gevrTexpackWarmDl((u8 *)header->Switches + ((uintptr_t)gdl & 0xffffff), header->Switches);
+            }
+        }
+        while (node != NULL);
+    }
+
+    if (guns > 0)
+    {
+        sysLogPrintf(LOG_NOTE, "gunpreload: %d stage guns, %d pack textures queued (%u us)", guns, textures,
+                     (u32)(sysGetMicroseconds() - start));
+    }
+}
+#endif
+
 u32 weaponLoadProjectileModels(ITEM_IDS modelid)
 {
     s32 model;
 
+#ifdef GEVR
+    gevrStageGunNote(modelid);
+#endif
     model = -1;
     switch(modelid)
     {

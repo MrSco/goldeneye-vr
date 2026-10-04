@@ -145,6 +145,7 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 - **Why here:** both `port/` and `port/vr/` descend from it, so its MIT line
   (`Copyright (c) 2022 Ryan Dwyer`) is the notice those directories carry.
 - **Also:** same Rare N64 FPS family, so it doubles as an architecture and feel reference (menus, aim/sway family, Fast3D ancestry).
+- **Ported:** the cylinder floor finder in `src/game/stan.c` (`stanFindGroundAtCyl`, #95) is `src/lib/collision.c`'s `cdFindGroundInfoAtCyl` family (`cdCollectGeoForCylFromList`, `cd0002709cIntTile`, `cdIs2dPointInIntTile`, `cdFindGroundFromList`) on GoldenEye's stan tiles.
 
 ### Emill / n64-fast3d-engine - renderer ancestry
 

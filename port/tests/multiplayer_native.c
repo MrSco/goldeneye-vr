@@ -81,6 +81,9 @@ EXPORT int test_config_validation(void) {
     c.fun_flags=255;if(netMatchConfigValid(&c)) return 11;
     c.fun_flags=7;c.gun_size=3;if(netMatchConfigValid(&c)) return 12;
     c.gun_size=2;if(!netMatchConfigValid(&c)) return 13;
+    /* Statue and Cradle (#95): the ROM's cut MP setups, eight players, last in the list */
+    c.stage=22;c.max_players=8;if(!netMatchConfigValid(&c) || netStageIndexOf(22)!=11) return 16;
+    c.stage=41;if(!netMatchConfigValid(&c) || netStageIndexOf(41)!=12 || netStageIndexOf(34)!=0) return 17;
     return 0;
 }
 

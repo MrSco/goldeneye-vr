@@ -11,6 +11,8 @@
 #include "system.h"
 #include "player.h"
 #include "gevr_collision.h"
+#include <stdio.h>
+#include "fs.h"
 
 /*
  * Online, a player standing inside another player's collision cylinder is
@@ -591,6 +593,9 @@ void stanLoadFile(struct StanPrefixRecord *file)
 
     stanBuildRoomData();
     setLevelScale(1.0f);
+#ifdef GEVR
+    gevrStanCylSelfTest();
+#endif
 }
 
 
@@ -3520,3 +3525,289 @@ void sub_GAME_7F0B31A4(s32 arg0, StandTile *arg1, f32 arg2, f32 arg3, f32 arg4, 
 
 
 
+#ifdef GEVR
+/*
+ * Issue #95: the floor under a body's whole cylinder, room by room, as
+ * Perfect Dark finds it (MIT, n64decomp/perfect_dark src/lib/collision.c:
+ * cdFindGroundInfoAtCyl gathers the tiles with cdCollectGeoForCyl,
+ * cdCollectGeoForCylFromList and cd0002709cIntTile, and cdFindGroundFromList
+ * chooses). GoldenEye's own lookups test the tile's three extreme points
+ * only and the body's centre only (stanFindTileBelowPos,
+ * stanTestPointWithinTileBoundsMaybe), so a body at a ledge or on a
+ * many-sided tile could get the floor below.
+ *
+ * PD's choice: of the tiles holding the centre, the highest floor below
+ * the probe; with none, the floor at the nearest edge of a tile the circle
+ * overlaps. Floors are GoldenEye's tile planes (stanGetPositionYValue),
+ * held to the tile's height range. PD's tile flags (step, slope, die) and
+ * prop geometry have no STAN counterpart.
+ */
+
+/* cdIs2dPointInIntTile: every edge's cross product has one sign (either winding) */
+static bool gevrStanPointInTile(StandTile *tile, s32 n, f32 x, f32 z)
+{
+    s32 result = -1;
+    s32 i;
+
+    for (i = 0; i < n; i++)
+    {
+        s32 next = (i + 1) % n;
+        f32 value = ((f32)tile->points[next].z - (f32)tile->points[i].z) * (x - (f32)tile->points[i].x)
+                  - ((f32)tile->points[next].x - (f32)tile->points[i].x) * (z - (f32)tile->points[i].z);
+
+        if (value != 0.0f)
+        {
+            if (i == 0 || result < 0)
+            {
+                result = value > 0.0f;
+            }
+            else if ((result != 0 && value < 0.0f) || (result == 0 && value > 0.0f))
+            {
+                return FALSE;
+            }
+        }
+    }
+
+    return result >= 0;
+}
+
+/* the tile's floor at a world x/z, within the tile's own height range */
+static f32 gevrStanFloorAt(StandTile *tile, s32 n, f32 x, f32 z)
+{
+    f32 y = stanGetPositionYValue(tile, x, z);
+    s32 lo = tile->points[0].y;
+    s32 hi = lo;
+    s32 i;
+
+    for (i = 1; i < n; i++)
+    {
+        if (tile->points[i].y < lo) lo = tile->points[i].y;
+        if (tile->points[i].y > hi) hi = tile->points[i].y;
+    }
+
+    if (y < lo * inv_level_scale) y = lo * inv_level_scale;
+    if (y > hi * inv_level_scale) y = hi * inv_level_scale;
+    return y;
+}
+
+/*
+ * pos is world space, its y the probe: floors above it don't count. rooms
+ * is a 0xff-terminated list to search, or NULL for every room the
+ * cylinder's bounds touch; a list with no tile under the centre falls back
+ * to that.
+ * prefer (the body's tile, or NULL) wins a tie. *incentre says the tile
+ * holds the centre, not just the circle's edge.
+ */
+StandTile *stanFindGroundAtCyl(coord3d *pos, f32 radius, u8 *rooms, StandTile *prefer, f32 *groundy, s32 *incentre)
+{
+    f32 sx = pos->x * level_scale;
+    f32 sz = pos->z * level_scale;
+    f32 sr = radius * level_scale;
+    StandTile *best = NULL;
+    f32 besty = -3.4028235e38f;
+    StandTile *edgebest = NULL;
+    f32 edgey = 0.0f;
+    f32 edgedist = 3.4028235e38f;
+    s32 room;
+
+    for (room = 0; room < dword_CODE_bss_8007B9DC && room < 139; room++)
+    {
+        StanRoomBounds *b = &g_StanRoomBounds[room];
+        StandTile *tile = firststaninroom[room];
+
+        if (tile == NULL)
+        {
+            continue;
+        }
+
+        if (rooms != NULL)
+        {
+            s32 i;
+
+            for (i = 0; rooms[i] != 0xff && rooms[i] != room; i++);
+
+            if (rooms[i] == 0xff)
+            {
+                continue;
+            }
+        }
+
+        if (sx < b->minX - sr || sx > b->maxX + sr || sz < b->minZ - sr || sz > b->maxZ + sr
+            || b->minY * inv_level_scale > pos->y)
+        {
+            continue;
+        }
+
+        for (; *(u32 *)tile != 0 && tile->room == room;
+             tile = (StandTile *)((u8 *)tile + list_of_tilesizes[(tile->tail.half >> 12) & 0xf]))
+        {
+            s32 n = (tile->tail.half >> 12) & 0xf;
+            f32 minx, maxx, minz, maxz, miny;
+            f32 y;
+            s32 i;
+
+            if (n < 3 || stanTileHasZeroArea(tile))
+            {
+                continue;
+            }
+
+            minx = maxx = tile->points[0].x;
+            minz = maxz = tile->points[0].z;
+            miny = tile->points[0].y;
+
+            for (i = 1; i < n; i++)
+            {
+                if (tile->points[i].x < minx) minx = tile->points[i].x;
+                if (tile->points[i].x > maxx) maxx = tile->points[i].x;
+                if (tile->points[i].z < minz) minz = tile->points[i].z;
+                if (tile->points[i].z > maxz) maxz = tile->points[i].z;
+                if (tile->points[i].y < miny) miny = tile->points[i].y;
+            }
+
+            /* cdCollectGeoForCylFromList's box test, widened by the radius */
+            if (sx < minx - sr || sx > maxx + sr || sz < minz - sr || sz > maxz + sr || miny * inv_level_scale >= pos->y)
+            {
+                continue;
+            }
+
+            if (gevrStanPointInTile(tile, n, sx, sz))
+            {
+                /* cdFindGroundFromList's first pass */
+                y = gevrStanFloorAt(tile, n, pos->x, pos->z);
+
+                if (y < pos->y && (y > besty + 0.5f || (tile == prefer && y >= besty - 0.5f)))
+                {
+                    besty = y;
+                    best = tile;
+                }
+
+                continue;
+            }
+
+            /* cd0002709cIntTile's edge test, then the second pass's nearest edge point */
+            for (i = 0; i < n; i++)
+            {
+                s32 next = (i + 1) % n;
+                f32 ax = tile->points[i].x, az = tile->points[i].z;
+                f32 ex = tile->points[next].x - ax, ez = tile->points[next].z - az;
+                f32 len2 = ex * ex + ez * ez;
+                f32 t = len2 > 0.0f ? ((sx - ax) * ex + (sz - az) * ez) / len2 : 0.0f;
+                f32 cx, cz, dist;
+
+                if (t < 0.0f) t = 0.0f;
+                if (t > 1.0f) t = 1.0f;
+
+                cx = ax + ex * t;
+                cz = az + ez * t;
+                dist = sqrtf((sx - cx) * (sx - cx) + (sz - cz) * (sz - cz));
+
+                if (dist > sr)
+                {
+                    continue;
+                }
+
+                y = gevrStanFloorAt(tile, n, cx * inv_level_scale, cz * inv_level_scale);
+
+                if (y < pos->y && (dist < edgedist - 0.5f || (dist <= edgedist + 0.5f && y > edgey)))
+                {
+                    edgedist = dist;
+                    edgey = y;
+                    edgebest = tile;
+                }
+            }
+        }
+    }
+
+    /* a body that has just crossed into a room its list doesn't have yet */
+    if (best == NULL && rooms != NULL)
+    {
+        return stanFindGroundAtCyl(pos, radius, NULL, prefer, groundy, incentre);
+    }
+
+    if (incentre != NULL)
+    {
+        *incentre = best != NULL;
+    }
+
+    if (best != NULL)
+    {
+        *groundy = besty;
+        return best;
+    }
+
+    if (edgebest != NULL)
+    {
+        *groundy = edgey;
+    }
+
+    return edgebest;
+}
+
+/*
+ * files/gevr_stancyl_selftest.txt present at a level load: each tile's
+ * centre, probed from just above its own floor, must find that tile or a
+ * tile at the same height (a seam or an overlap). Logs the misses.
+ */
+void gevrStanCylSelfTest(void)
+{
+    FILE *f = fopen(fsFullPath("$S/gevr_stancyl_selftest.txt"), "r");
+    StandTile *tile;
+    s32 tiles = 0, misses = 0, retailmisses = 0;
+
+    if (f == NULL || stan_prefix == NULL)
+    {
+        if (f != NULL) fclose(f);
+        return;
+    }
+
+    fclose(f);
+
+    for (tile = stan_prefix->ptr_firstroom; *(u32 *)tile != 0;
+         tile = (StandTile *)((u8 *)tile + list_of_tilesizes[(tile->tail.half >> 12) & 0xf]))
+    {
+        s32 n = (tile->tail.half >> 12) & 0xf;
+        coord3d pos;
+        f32 y, rety;
+        s32 incentre, i;
+        StandTile *found;
+
+        if (n < 3 || stanTileHasZeroArea(tile))
+        {
+            continue;
+        }
+
+        pos.x = pos.z = 0.0f;
+
+        for (i = 0; i < n; i++)
+        {
+            pos.x += tile->points[i].x;
+            pos.z += tile->points[i].z;
+        }
+
+        pos.x = pos.x / n * inv_level_scale;
+        pos.z = pos.z / n * inv_level_scale;
+        pos.y = gevrStanFloorAt(tile, n, pos.x, pos.z) + 10.0f;
+        tiles++;
+
+        found = stanFindGroundAtCyl(&pos, 0.0f, NULL, tile, &y, &incentre);
+
+        if (found != tile && (found == NULL || !incentre || fabsf(y - (pos.y - 10.0f)) > 2.0f))
+        {
+            if (misses++ < 12)
+            {
+                sysLogPrintf(LOG_NOTE, "stancyl: tile %p room %d (%d points) at %.0f,%.0f,%.0f -> %p room %d y %.1f%s",
+                             (void *)tile, tile->room, n, pos.x, pos.y - 10.0f, pos.z, (void *)found,
+                             found ? found->room : -1, found ? y : 0.0f, incentre ? "" : " (edge)");
+            }
+        }
+
+        if (stanFindTileBelowPos(&pos, NULL, &rety) != tile)
+        {
+            retailmisses++;
+        }
+    }
+
+    sysLogPrintf(LOG_NOTE, "stancyl: self-test: %d tiles, %d not found at their centre (the centre-only lookup: %d)",
+                 tiles, misses, retailmisses);
+}
+#endif

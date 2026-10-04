@@ -386,13 +386,20 @@ static u32 hpMarker(u32 texnum)
 	return 0;
 }
 
+/*
+ * Loads that hide the hands (#95: the stage's guns warmed for the texture
+ * pack, other players' guns, gevr_heldgun.c) skip the patch, which would
+ * hold one of the slots above for good.
+ */
+s32 g_gevrHandPatchSkip;
+
 void gevrHandPatchApply(struct ModelFileHeader *header, const char *name, void *texpool)
 {
 	const struct gevrHpModel *model = hpFind(name);
 	u8 *file;
 	s32 slot, p, mode, applied = 0, triangles = 0, skipped = 0;
 
-	if (model == NULL) {
+	if (model == NULL || g_gevrHandPatchSkip) {
 		return;
 	}
 
