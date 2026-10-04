@@ -1070,6 +1070,7 @@ Gfx* lvlRender(Gfx* DL)
             /* GEVR PC's grip gestures: what a fresh grip press touches, with
              * the same frame's matrices (bondview2.c gevrGripGestureTry) */
             { extern void gevrGripGestureTick(void); gevrGripGestureTick(); }
+            { extern void gevrHandReloadTick(void); gevrHandReloadTick(); }
 #endif
 
 #ifdef GEVR
@@ -1083,11 +1084,14 @@ Gfx* lvlRender(Gfx* DL)
             if (bond_pressed_reload_activate() && bond_interact_object())
             {
 #ifdef GEVR
+                extern s32 gevrManualReloadOn(s32 hand);
+
                 reloadMask = gevrReloadTargets(reloadMask,
                     getCurrentPlayerWeaponId(GUNRIGHT) != ITEM_UNARMED,
                     getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED);
-                if (reloadMask & 1) attempt_reload_item_in_hand(GUNRIGHT);
-                if (reloadMask & 2) attempt_reload_item_in_hand(GUNLEFT);
+                /* hand reload: a gun reloads by gesture only (bondview2.c gevrHandReloadTick) */
+                if ((reloadMask & 1) && !gevrManualReloadOn(GUNRIGHT)) attempt_reload_item_in_hand(GUNRIGHT);
+                if ((reloadMask & 2) && !gevrManualReloadOn(GUNLEFT)) attempt_reload_item_in_hand(GUNLEFT);
 #else
                 attempt_reload_item_in_hand(GUNRIGHT);
                 attempt_reload_item_in_hand(GUNLEFT);
