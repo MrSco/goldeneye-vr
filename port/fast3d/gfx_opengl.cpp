@@ -387,7 +387,7 @@ static bool s_decalZ;
  *   1  polygon offset a,b
  *   2  offset -2,-2 plus a fixed pull of a view units toward the eye
  *   3  the two-pass stencil band (HANDOFF 57/60), half-width a view units
- *   4  room decal colour pull of a view units (0 = the decal's own depth)
+ *   4  room decals reach a view units (at scale 1) behind the surface in front
  */
 static bool s_isDecal;
 static int s_decalMode = 0;
@@ -490,13 +490,11 @@ static bool gevr_decal_writes_depth(void)
     return s_isDecal && gevrRoomDl && !s_alphaArgs[0];
 }
 
-/* Room decals sit a little off their walls. A global polygon offset strong
- * enough to hold Frigate's recessed fixtures makes the hull number ("06")
- * flicker; a pull applied in draw_triangles only (mode 2) is missing on the
- * 90 Hz redraw, so every surface fights. Small room decals get a 1-unit pull
- * in the draw itself (eye pass and redraw). Large ones (hull numbers) get
- * depth write only — pulling them fights the hull at 72 Hz. Mode 4 sets the
- * pull to a for every room decal (0 to turn it off).
+/* Room decals sit a little off their walls: -2,-2 alone cut Frigate's
+ * recessed fixtures. They draw pulled toward the eye by a reach
+ * (gevr_room_decal_reach), in the draw itself so the eye pass and the 90 Hz
+ * redraw match (a pull set only in draw_triangles, mode 2, made every
+ * surface fight on the redraw).
  */
 static float s_drawDecalPull;
 static unsigned s_rdDraws, s_rdPulled, s_rdLarge, s_rdLogN;
@@ -519,10 +517,19 @@ static float gevr_vbo_span(const float* vbo, size_t ntris, size_t nfloats)
     return sqrtf(dx * dx + dy * dy + dz * dz);
 }
 
-static float gevr_room_decal_pull_for_span(float span)
+/*
+ * How far behind the surface in front a room decal still draws, in view
+ * units. 80 holds Frigate's recessed hull fixture (df71b5ce). A view unit is
+ * 1 / D_800364CC cm, 5 cm on the Dam and Surface, so a fixed 80 reached five
+ * times as far there and the start bridge's shadows drew through its beams.
+ * The reach is kept at Frigate's real size on every stage: 80 at scale 1,
+ * 16 on the Dam. Mode 4 sets the 80.
+ */
+extern "C" float D_800364CC;
+static float gevr_room_decal_reach(void)
 {
-    if (s_decalMode == 4) return s_decalA;
-    return (span > 64.0f) ? 0.0f : 1.0f;
+    const float reach = (s_decalMode == 4) ? s_decalA : 80.0f;
+    return reach * D_800364CC;
 }
 
 static void gevr_room_decal_log(float span, float pull)
@@ -532,8 +539,8 @@ static void gevr_room_decal_log(float span, float pull)
     else if (span > 64.0f) s_rdLarge++;
     if (span > s_rdMaxSpan) s_rdMaxSpan = span;
     if ((++s_rdLogN % 240) != 0) return;
-    sysLogPrintf(LOG_NOTE, "roomdecal: draws %u band %u large %u maxspan %.1f",
-                 s_rdDraws, s_rdPulled, s_rdLarge, s_rdMaxSpan);
+    sysLogPrintf(LOG_NOTE, "roomdecal: draws %u band %u large %u maxspan %.1f reach %.1f",
+                 s_rdDraws, s_rdPulled, s_rdLarge, s_rdMaxSpan, pull);
     s_rdDraws = s_rdPulled = s_rdLarge = 0;
     s_rdMaxSpan = 0.0f;
 }
@@ -1802,7 +1809,7 @@ static void gfx_opengl_set_depth_mode(bool depth_test, bool depth_update, bool d
     // fully opaque fragments. The color draw keeps ordinary XLU blending.
     s_opaqueDepthWrite = depth_test && depth_compare && depth_update && zmode == ZMODE_XLU;
     s_isDecal = depth_test && depth_compare && zmode == ZMODE_DEC;
-    s_decalZ = ((GEVR_DECAL_BAND && s_decalMode == 0) || s_decalMode == 3) && s_isDecal;
+    s_decalZ = ((GEVR_DECAL_BAND && (s_decalMode == 0 || s_decalMode == 4)) || s_decalMode == 3) && s_isDecal;
     if (depth_test) {
         glEnable(GL_DEPTH_TEST);
         glDepthMask(depth_update && !s_opaqueDepthWrite ? GL_TRUE : GL_FALSE);
@@ -2311,7 +2318,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
     s_drawDecalPull = 0.0f;
     if (gevrRoomDl && s_isDecal && s_curPrg != NULL) {
         const float span = gevr_vbo_span(buf_vbo, buf_vbo_num_tris, s_curPrg->num_floats);
-        gevr_room_decal_log(span, 80.0f);
+        gevr_room_decal_log(span, gevr_room_decal_reach());
     }
 
     if (s_scopeRec || s_scopeOnlyMask) {
@@ -2431,6 +2438,21 @@ static void gevr_draw_world_lines(GLint first, GLsizei count) {
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode)
 {
     if (lineMode) { gevr_draw_world_lines(first,count); return; }
+    if (decalZ && decalDepth) {
+        /*
+         * A room's decals (bg.c VR_ROOM_DL_*): one pass at the game's depth
+         * state (LEQUAL, -2,-2), pulled toward the eye by the reach. Nothing
+         * cuts them in front, so a decal wall over a doorway still draws
+         * (#72, #84: Depot, Silo, Bunker 2), and a fixture over an alcove
+         * too. Overlapping decals pass alike, so the later primitive wins, as
+         * on the RDP (Frigate's hull "06": shadow, then face).
+         */
+        gevr_set_decal_bias(gfx_decal_proj_z * gevr_room_decal_reach());
+        glDrawArrays(GL_TRIANGLES, first, count);
+        gevr_set_decal_bias(0.0f);
+        s_uniCacheValid = false;   /* the pass wrote the bias */
+        return;
+    }
     if (decalZ) {
         /*
          * GoldenEye: the RDP's decal Z mode draws a pixel only where it lies
@@ -2455,10 +2477,7 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
          * polygon-offset slopes tiny - decals were cut along a diagonal as
          * you walked up to them. The N64's own decal test had coarse depth.
          */
-        /* Rooms use a wide band so a fixture over an alcove still draws
-         * (Frigate's recessed box). Bullet holes stay at 3 so they clip at
-         * an edge. Mode 4 sets the room colour pull in view units (0 = real
-         * depth). Mode 3 sets the bullet-hole band.
+        /* Mode 3 sets the band. Room decals take the pass above.
          *
          * The colour pass must NOT clear the marks as it draws. A decal never
          * writes depth, so on the RDP overlapping decal primitives resolve by
@@ -2468,13 +2487,7 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
          * shadow followed by a white face in the same batch, and it came out
          * black over white. Marks are cleared by a separate pass after the
          * colour pass. */
-        const float bandD = decalDepth ? 80.0f
-            : ((s_decalMode == 3 && s_decalA > 0.0f) ? s_decalA : 3.0f);
-        /* Room colour pass: the same pull as the band, so every marked pixel
-         * passes depth (pull 0 cut the recessed fixture as you walked). The
-         * marks already hold the decal to its surface; overlapping decals
-         * then resolve by draw order. Mode 4 overrides the pull. */
-        const float colorPull = (decalDepth && s_decalMode == 4) ? s_decalA : bandD;
+        const float bandD = (s_decalMode == 3 && s_decalA > 0.0f) ? s_decalA : 3.0f;
         GLboolean prevDepthMask = current_depth_mask ? GL_TRUE : GL_FALSE;
         glEnable(GL_STENCIL_TEST);
         glStencilMask(0xff);
@@ -2491,12 +2504,6 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
         glDepthFunc(GL_LEQUAL);
         gevr_set_decal_bias(gfx_decal_proj_z * bandD);   // pulled near
         glStencilFunc(GL_EQUAL, 1, 0xff);
-        if (decalDepth) {
-            /* Drop marks that hang in front of empty space. No colour yet. */
-            glStencilOp(GL_KEEP, GL_ZERO, GL_KEEP);
-            glDrawArrays(GL_TRIANGLES, first, count);
-            gevr_set_decal_bias(gfx_decal_proj_z * colorPull);
-        }
         /* Colour: marks are kept, so every primitive of the draw can land on
          * a marked pixel and the last one submitted wins. */
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -2658,7 +2665,7 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     d.zmode = s_depthZmode;
     d.alpha[0] = s_alphaArgs[0];
     d.alpha[1] = s_alphaArgs[1];
-    d.decalZ = s_decalZ;   // rooms use the wide stencil band (Frigate crop / 06 flicker)
+    d.decalZ = s_decalZ;   // a room's decals take the reach pass, the game's own the band
     d.decalDepth = gevrRoomDl && s_isDecal;
     d.decalPull = 0.0f;
     d.isMenu = vr_dl_is_pause_or_menu;
