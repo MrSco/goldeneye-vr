@@ -10,7 +10,7 @@ e431819 (v0.4.5).
 | 048cfab | Launcher cheats: 2x/10x Health, 2x Armor, Max ammo, Extra weapons | not yet |
 | e935b73 | Comfort tab WHEN HIT: no knockback (on by default), keep firing when hit, red flash toggle | not yet |
 | 6118db9 | Statue and Cradle online (ROM MP setups, MP memory strings, Statue keeps its solo fog) | Cradle hosted alone 2026-10-04 09:49: Ump_setupcradZ, 8 start pads, played; two-headset match not yet |
-| 556eecf | Cylinder floor finder from Perfect Dark (remote bodies' tile and feet, Bond's tile recovery) | not yet |
+| 556eecf | Cylinder floor finder from Perfect Dark (remote bodies' tile and feet, Bond's tile recovery) | self-test on Facility 2026-10-04: 2227 tiles, 0 misses; remote bodies need two headsets |
 | ba01477 | MP: the level music returns after the death sting when someone else is dead too | not yet |
 | 844140e | HD pack: the stage's gun textures decoded at load | not yet |
 | 0c5cbd4 | MP: other players hold the first-person gun models; launchers carry the rocket | hqguards on the Dam 2026-10-04: launcher fit (scale 1.02) and rocket look fine; range too short |
