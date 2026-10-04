@@ -1056,6 +1056,9 @@ int getCurrentWeaponOrItem(void)
 extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
 extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
 
+/* the hand whose model is GoldenEye X's (gevrGexGunPrepare), for gunfire.c */
+s32 g_gevrGexHand[2];
+
 /*
  * GoldenEye X's first-person model for this gun, read from the player's
  * own data/gex.z64 and rebuilt as a GoldenEye file (gevr_gexmodel.c); the
@@ -1063,13 +1066,14 @@ extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are Golde
  * only, for now. The header takes the model's matrix and texture counts;
  * switch 1, the muzzle flash, is PD part 90.
  */
-static void gevrGexGunPrepare(ITEM_IDS item, ModelFileHeader *hdr)
+static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
 {
     s32 parts[64];
     u32 len = 0;
     u16 mtx = 0, tex = 0;
     s32 i;
 
+    g_gevrGexHand[hand] = FALSE;
     if (!VrGexGuns || item != ITEM_AK47 || hdr->numSwitches > 64)
     {
         return;
@@ -1083,12 +1087,66 @@ static void gevrGexGunPrepare(ITEM_IDS item, ModelFileHeader *hdr)
         parts[1] = 90;
     }
     gevrGexPendingFile = gevrGexBuildModel("Gak47Z", hdr->numSwitches, parts, &len, &mtx, &tex);
+    g_gevrGexHand[hand] = gevrGexPendingFile != NULL;
     if (gevrGexPendingFile != NULL)
     {
         gevrGexPendingLen = len;
         hdr->numMatrices = mtx;
         hdr->numtextures = tex;
         g_gevrHandPatchSkip = TRUE;
+    }
+}
+
+/*
+ * A GE-X gun's joints. GoldenEye's gun code sets each of its own models'
+ * few matrices by hand (gunfire.c); Perfect Dark derives every joint from
+ * its parent and its position record. So, once the gun code has set the
+ * gun's own matrix (rwmtx[0]), each group's matrix is its parent group's
+ * (or that gun matrix, for the root) times its offset: the rest pose.
+ */
+void gevrGexPoseGun(ModelFileHeader *hdr, Mtxf *rwmtx)
+{
+    ModelNode *node = hdr->RootNode;
+    Mtxf base;
+    Mtxf offset;
+
+    matrix_4x4_copy(&rwmtx[0], &base);
+
+    while (node != NULL)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
+        {
+            ModelRoData_GroupRecord *group = &node->Data->Group;
+            ModelNode *up = node->Parent;
+            Mtxf *parent = &base;
+
+            while (up != NULL && (up->Opcode & 0xff) != MODELNODE_OPCODE_GROUP)
+            {
+                up = up->Parent;
+            }
+            if (up != NULL && up->Data->Group.MatrixID0 < hdr->numMatrices)
+            {
+                parent = &rwmtx[up->Data->Group.MatrixID0];
+            }
+            if (group->MatrixID0 >= 0 && group->MatrixID0 < hdr->numMatrices)
+            {
+                matrix_4x4_set_identity_and_position(&group->Origin, &offset);
+                matrix_4x4_multiply(parent, &offset, &rwmtx[group->MatrixID0]);
+            }
+        }
+
+        if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+            node = node != NULL ? node->Next : NULL;
+        }
     }
 }
 
@@ -1152,7 +1210,7 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
                 {
                     texInitPool(&g_CurrentPlayer->item_related[hand], &buffer_weapon[D_80032464[hand]], size_buffer_weapon - D_80032464[hand]);
 #ifdef GEVR
-                    gevrGexGunPrepare(item, &g_CurrentPlayer->copy_of_body_obj_header[hand]);
+                    gevrGexGunPrepare(hand, item, &g_CurrentPlayer->copy_of_body_obj_header[hand]);
 #endif
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, D_80032464[hand], &g_CurrentPlayer->item_related[hand]);
 #ifdef GEVR
