@@ -44,7 +44,7 @@ EXPORT int test_protocol(void) {
     for (int i=0;i<4;i++) original.custom_set[i]=(uint8_t)(10+i);
     original.max_players=6;original.mode=1;original.difficulty=2;
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 19 || GEVR_NET_VERSION != 17 || GEVR_MAX_PLAYERS != 8) return 1;
+    if (b.error || b.wp != 19 || GEVR_NET_VERSION != 18 || GEVR_MAX_PLAYERS != 8) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
     for(int size=0;size<19;size++) {
