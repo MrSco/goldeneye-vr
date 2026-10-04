@@ -1257,11 +1257,11 @@ void gunUpdateAndFire(GUNHAND handnum)
         {
             /* a GoldenEye X model: every joint from its parent (gun.c) */
             extern s32 g_gevrGexHand[2];
-            extern void gevrGexPoseGun(ModelFileHeader *hdr, Mtxf *rwmtx);
+            extern void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx);
 
             if (g_gevrGexHand[handnum])
             {
-                gevrGexPoseGun(mdlhdr, rwmtx);
+                gevrGexPoseGun(mdlhdr, model, rwmtx);
             }
         }
 #endif
