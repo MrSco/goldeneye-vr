@@ -43,7 +43,7 @@ extern void texInitPool(struct texpool *pool, u8 *start, s32 len);
 extern void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8 *dst, s32 size, struct texpool *buffer);
 extern void modelIterateDisplayLists(ModelFileHeader *fileheader, ModelNode **nodeptr, Gfx **gdlptr);
 extern int gevrTexpackWarmDl(const void *dl, const void *seg5);
-extern bool netIsActive(void);
+extern int VrDetailedGuns;                              /* goldeneye-vr.ini DetailedGuns */
 extern ModelFileHeader *gevrHeldGunPreload(s32 item);   /* gevr_heldgun.c */
 extern void gevrHeldGunReset(void);
 extern s32 g_gevrHandPatchSkip;                         /* gevr_handpatch.c */
@@ -67,8 +67,8 @@ void gevrStageGunsReset(void)
 /*
  * Each noted gun's model, loaded into a scratch buffer as the weapon panel
  * loads its own (bondview2.c gevrWeaponPanelModel), its display lists warmed.
- * Online they load into the cache other players' guns are drawn from
- * (gevr_heldgun.c) instead, and stay. The scratch buffer is kept: the hand
+ * With the detailed held guns on they load into the cache guards' and other
+ * players' guns are drawn from (gevr_heldgun.c) instead, and stay. The scratch buffer is kept: the hand
  * patch's slots are per buffer address (and skipped here anyway, the hands
  * being hidden). Nothing of the game's own gun slots is touched.
  */
@@ -95,7 +95,7 @@ void gevrPreloadStageGuns(void)
             continue;
         }
 
-        if (netIsActive())
+        if (VrDetailedGuns)
         {
             header = gevrHeldGunPreload(item);
         }

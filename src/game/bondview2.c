@@ -613,9 +613,8 @@ static void gevrCheatProbe(s32 inlevel)
             sysLogPrintf(LOG_NOTE, "cheathook: countdown timer on");
             continue;
         }
-        /* "hqguards": guards hold the detailed models other players do online
-         * (gevr_heldgun.c), to check them on one headset; with Enemy Rockets
-         * their launchers carry the rocket */
+        /* "hqguards": guards' guns between the detailed models (gevr_heldgun.c,
+         * the default) and the game's own, to compare */
         if (strcasecmp(word, "hqguards") == 0)
         {
             extern s32 g_gevrHeldGunGuards;
