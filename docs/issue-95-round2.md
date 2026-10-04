@@ -13,9 +13,10 @@ e431819 (v0.4.5).
 | 556eecf | Cylinder floor finder from Perfect Dark (remote bodies' tile and feet, Bond's tile recovery) | not yet |
 | ba01477 | MP: the level music returns after the death sting when someone else is dead too | not yet |
 | 844140e | HD pack: the stage's gun textures decoded at load | not yet |
-| 0c5cbd4 | MP: other players hold the first-person gun models; launchers carry the rocket (MpDetailedGuns=0 turns it off) | hqguards on the Dam 2026-10-04: launcher fit (scale 1.02) and rocket look fine; range too short |
+| 0c5cbd4 | MP: other players hold the first-person gun models; launchers carry the rocket | hqguards on the Dam 2026-10-04: launcher fit (scale 1.02) and rocket look fine; range too short |
 | 688d10e | Detailed guns out to 50 m (10 m swapped in sight) | better; user asked for 100 m |
-| (next) | Detailed guns out to 100 m | to check |
+| 6871745 | Detailed guns out to 100 m | to check |
+| (next) | Every guard holds the detailed guns too, solo and co-op (DetailedGuns=0 turns them all off; hqguards flips guards back to compare) | to check |
 
 ## Release notes for whoever releases this
 
@@ -47,12 +48,11 @@ Solo (one headset):
    misses at seams are worth a look; the second count is the old
    centre-only lookup, for comparison).
 
-5. Detailed guns on one headset: launcher Cheats > Enemy rockets, start
-   a mission, then `echo hqguards > files/gevr_cheat.txt` (chmod 666).
-   Guards should hold the detailed launcher with a rocket in its mouth;
-   no hollow tube. Without Enemy rockets, check the KF7 and D5K guards
-   on Dam/Facility, and flip `hqguards` again to compare with the game's
-   models. Log: `heldgun: item N ... fitted: scale S offset X,Y,Z` per
+5. Detailed guns (one headset): guards hold them by default. With Enemy
+   rockets their launchers carry a rocket that leaves when they fire and
+   returns 1.6 s later. Check the KF7 and D5K guards on Dam/Facility;
+   `echo hqguards > files/gevr_cheat.txt` (chmod 666) flips guards back
+   to the game's models to compare. Log: `heldgun: item N ... fitted: scale S offset X,Y,Z` per
    gun; a "kept the Pchr model" line names a gun whose fit failed.
 
 Two headsets:

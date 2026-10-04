@@ -1,15 +1,16 @@
 /*
- * Other players' guns, online, as the first-person models (user, 2026-10-04,
- * with #95's rocket launcher): the third-person Pchr* models a chr holds are a
- * few dozen triangles each, and the launcher's is an open tube with no rocket.
+ * The guns guards and other players hold, as the first-person models (user,
+ * 2026-10-04, with #95's rocket launcher): the third-person Pchr* models a chr
+ * holds are a few dozen triangles each, and the launcher's is an open tube
+ * with no rocket.
  * The first-person G* models the watch and the weapon wheel show are three to
  * six times the detail, authored in the same units. Each is drawn in the hand
  * the Pchr model would be (propobj.c chrRenderHeldWeapon), fitted once to the
  * Pchr model's box, posed as the watch poses it (gunfire.c
  * set_enviro_fog_for_items_in_solo_watch_menu: hands and sleeve hidden), and a
  * launcher carries the rocket the first-person view shows (gun.c
- * gunUpdateAttachedRocket's PROP_CHRROCKET at the muzzle) until its owner
- * fires. Network copies only; guards keep the game's models.
+ * gunUpdateAttachedRocket's PROP_CHRROCKET at the muzzle) until its holder
+ * fires. Guards (solo, and co-op's host-run ones) and other players online.
  *
  * Drawn after the body (chr.c) as the first-person gun is drawn, PropType 4
  * with the body's shade as its tint: under the body's PropType 7 a gun-lit
@@ -44,11 +45,11 @@ extern void sub_GAME_7F05E978(Model *model, s32 val);
 extern void sub_GAME_7F05EA94(Model *model, s32 val);
 extern PROP getPropForHeldItem(ITEM_IDS item);
 extern s32 modelLoad(s32 modelid);
-extern int VrMpDetailedGuns;           /* goldeneye-vr.ini MpDetailedGuns */
+extern int VrDetailedGuns;             /* goldeneye-vr.ini DetailedGuns */
 extern s32 g_gevrHandPatchSkip;        /* gevr_handpatch.c: the hands are hidden here */
 extern s32 g_gevrExtraPass;            /* lv.c: an extra view pass (the copies' own views) */
 
-#define HG_FILES      16
+#define HG_FILES      24
 #define HG_BUFSIZE    0x23000          /* the game's per-hand gun buffer (gun.c size_item_buffer) */
 #define HG_MODELSIZE  0xF000           /* and its model region (gun.c D_80032464) */
 #define HG_RW         256              /* rwdata words per instance */
@@ -83,12 +84,16 @@ typedef struct
 static HeldGunFile s_files[HG_FILES];
 static HeldGunInst s_inst[MAX_PLAYER_COUNT][2];
 
-/* gevr_cheat.txt "hqguards" (bondview2.c): guards too, for a one-headset check */
-#define HG_GUARDS 12
-s32 g_gevrHeldGunGuards;
+/*
+ * Guards' instances, by chr: the least recently posed is reused, so a pool
+ * this size outlasts every guard drawn in one frame. gevr_cheat.txt
+ * "hqguards" (bondview2.c) flips guards back to the game's models to compare.
+ */
+#define HG_GUARDS 48
+s32 g_gevrHeldGunGuards = TRUE;
 static HeldGunInst s_guardinst[HG_GUARDS][2];
 static ChrRecord *s_guardchr[HG_GUARDS];
-static s32 s_guardnext;
+static u64 s_guardused[HG_GUARDS];
 
 /* ------------------------------------------------------------- the files */
 
@@ -162,6 +167,7 @@ void gevrHeldGunReset(void)
     for (i = 0; i < HG_GUARDS; i++)
     {
         s_guardchr[i] = NULL;
+        s_guardused[i] = 0;
         s_guardinst[i][0].file = s_guardinst[i][1].file = NULL;
         s_guardinst[i][0].pending = s_guardinst[i][1].pending = FALSE;
     }
@@ -407,17 +413,26 @@ static HeldGunInst *gevrHeldGunInstFor(ChrRecord *chr, GUNHAND hand)
     if (g_gevrHeldGunGuards && chr != NULL && chr->prop != NULL && chr->prop->type == PROP_TYPE_CHR
         && hand >= 0 && hand <= 1)
     {
+        s32 oldest = 0;
+
         for (slot = 0; slot < HG_GUARDS; slot++)
         {
             if (s_guardchr[slot] == chr)
             {
+                s_guardused[slot] = sysGetMicroseconds();
                 return &s_guardinst[slot][hand];
             }
+            if (s_guardused[slot] < s_guardused[oldest])
+            {
+                oldest = slot;
+            }
         }
-        slot = s_guardnext++ % HG_GUARDS;
+        slot = oldest;
         s_guardchr[slot] = chr;
+        s_guardused[slot] = sysGetMicroseconds();
         s_guardinst[slot][0].file = s_guardinst[slot][1].file = NULL;
         s_guardinst[slot][0].pending = s_guardinst[slot][1].pending = FALSE;
+        s_guardinst[slot][0].rockethideuntil = s_guardinst[slot][1].rockethideuntil = 0;
         return &s_guardinst[slot][hand];
     }
 
@@ -462,7 +477,7 @@ s32 gevrHeldGunCompute(ChrRecord *chr, PropRecord *weapon, GUNHAND hand, Mtxf *b
     union ModelRwData *rw;
     f32 size;
 
-    if (inst == NULL || !VrMpDetailedGuns || weapon == NULL || weapon->weapon == NULL || pchr == NULL
+    if (inst == NULL || !VrDetailedGuns || weapon == NULL || weapon->weapon == NULL || pchr == NULL
         || chr->fadealpha < 0xff || g_gevrExtraPass)
     {
         return FALSE;
@@ -579,6 +594,21 @@ void gevrHeldGunRocketFired(s32 slot, s32 hand)
     if (slot >= 0 && slot < MAX_PLAYER_COUNT && hand >= 0 && hand <= 1)
     {
         s_inst[slot][hand].rockethideuntil = sysGetMicroseconds() + HG_ROCKET_US;
+    }
+}
+
+/* chraction.c: a guard fired its rocket (either hand's launcher) */
+void gevrHeldGunGuardFired(ChrRecord *chr)
+{
+    s32 slot;
+
+    for (slot = 0; slot < HG_GUARDS; slot++)
+    {
+        if (s_guardchr[slot] == chr)
+        {
+            s_guardinst[slot][0].rockethideuntil = s_guardinst[slot][1].rockethideuntil
+                = sysGetMicroseconds() + HG_ROCKET_US;
+        }
     }
 }
 
