@@ -166,7 +166,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 | **Right grip** | Aim / zoom, and shows the 3D sight. Steadies a gun with a scope |
 | **Left grip** | Dual-wielding: shows the left gun's sight (blue) |
 | **Left hand on the gun** + **left grip** | Hold it with both hands |
-| **Hand at its own hip** + **grip** | Holster what that hand holds; squeeze there again to draw it |
+| **Hand at its own hip** + **grip** | Holster what that hand holds; squeeze there again to draw it (**Hip holster (WIP)**) |
 | **Hand at a door, switch or console** + **grip** | Use it, as B does |
 | **Hand at a gun on the floor** + **grip** | With **Grip to hand (WIP)** on (off by default): that gun goes into that hand. Walking over guns still picks them up |
 | **Hand at your own stuck mine** + **grip** | Take it back (remote mines, and proximity mines still arming; single player) |

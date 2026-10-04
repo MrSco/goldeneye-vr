@@ -11,7 +11,7 @@ misbehaves can be reverted alone.
 |---|---|---|
 | Smooth-turn speed, 45..240 deg/s | Launcher Comfort tab; watch VR page | 120 (as before) |
 | Watch "VR settings" page | Watch > Game Options, last row | n/a |
-| Hip holster / grip use / mine re-grab | Controls > Gestures...; watch VR page | on |
+| Hip holster (WIP) / grip use / mine re-grab | Controls > Gestures...; watch VR page | on |
 | Grip to hand (WIP; a gun on the floor into that hand) | Controls > Gestures...; watch VR page | off |
 | Hand reload (WIP) | Controls > Gestures...; watch VR page | off |
 | Per-gun recoil | Controls > Gestures...; watch VR page | off |

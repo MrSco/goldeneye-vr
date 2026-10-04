@@ -3852,7 +3852,7 @@ enum {
 
 static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Turning", "Turn speed", "Vignette", "Watch face", "Aim steady",
-    "Aim: no lean", "Motion throw", "Hip holster", "Grip use", "Grip hand WIP",
+    "Aim: no lean", "Motion throw", "Holster WIP", "Grip use", "Grip hand WIP",
     "Mine re-grab", "Reload WIP", "Gun recoil", "Back"
 };
 
