@@ -1067,6 +1067,9 @@ Gfx* lvlRender(Gfx* DL)
              * landing from afar (user).
              */
             { extern void gevrHandChopTick(s32 ctrl); gevrHandChopTick(0); gevrHandChopTick(1); }
+            /* GEVR PC's grip gestures: what a fresh grip press touches, with
+             * the same frame's matrices (bondview2.c gevrGripGestureTry) */
+            { extern void gevrGripGestureTick(void); gevrGripGestureTick(); }
 #endif
 
 #ifdef GEVR

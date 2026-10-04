@@ -136,6 +136,9 @@ extern void gevrLobbySessionStopped(void); /* vr_launcher.cpp: leave the online 
 extern bool netIsActive(void);
 extern s32 gevrDualWielding(void);
 extern int VrMotionThrowing;
+/* bondview2.c: GEVR PC's grip gestures (src/game/gevr_grip_gesture.h) */
+extern void gevrGripGestureInput(int ctrl, int pressed, int held);
+extern int gevrGripGestureTaken(int ctrl);
 extern ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand);
 
 s32 gevrIsThrowable(s32 item)
@@ -1296,12 +1299,28 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         const bool leftGrip = get_button_state(0, "grip");
         const bool rightThrowable = g_CurrentPlayer && VrMotionThrowing && gevrIsThrowable(getCurrentPlayerWeaponId(GUNRIGHT));
         const bool leftThrowable = g_CurrentPlayer && VrMotionThrowing && gevrIsThrowable(getCurrentPlayerWeaponId(GUNLEFT));
-        if (!menu && ((rightGrip && !rightThrowable) || (!stereoplay && leftGrip && !leftThrowable)))
+        // GEVR PC's grip gestures (bondview2.c gevrGripGestureTry): a fresh
+        // press waits one game tick while it decides whether the hand is at
+        // the hip, a mine, a pickup or a door; one it takes neither aims nor
+        // shows the sight until let go. Not in Gun fit, where the grip turns
+        // the gadget.
+        bool gripTaken[2] = { false, false };
+        {
+            static bool gripWas[2];
+            const bool grips[2] = { leftGrip, rightGrip };
+            for (int c = 0; c < 2; c++) {
+                const bool on = grips[c] && stereoplay && !fitting;
+                gevrGripGestureInput(c, on && !gripWas[c], on);
+                gripWas[c] = on;
+                gripTaken[c] = on && gevrGripGestureTaken(c);
+            }
+        }
+        if (!menu && ((rightGrip && !rightThrowable && !gripTaken[1]) || (!stereoplay && leftGrip && !leftThrowable)))
             npad->button |= R_TRIG;
         // Issue #37: dual-wielding, the left grip shows the left gun's sight,
         // as Perfect Dark VR's (sight.c sightDrawLeftHand, on vr_button_L_grip).
         // Not R as well: here R aims and zooms.
-        vr_button_L_grip = stereoplay && gevrDualWielding() && leftGrip && !leftThrowable;
+        vr_button_L_grip = stereoplay && gevrDualWielding() && leftGrip && !leftThrowable && !gripTaken[0];
         // The off hand's buttons do what the gun hand's in the same place do, as
         // in the launcher (user): X (lower) is A, the weapons, and Y (upper) is B,
         // use/reload. (Not the X that just switched the texture pack in the

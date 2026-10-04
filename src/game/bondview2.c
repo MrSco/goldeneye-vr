@@ -14512,10 +14512,13 @@ static s32 gevrHandItemAllowed(s32 hand, s32 item)
 
 s32 gevrWeaponOwned(s32 item) { return gevrLeftHasGun(item); }
 
+/* a grip gesture is picking something up into a hand: it chooses the hand (gevrGripEquip) */
+static s32 s_gevrGripGrabbing;
+
 void gevrWeaponPickedUp(s32 item, s32 alreadyOwned)
 {
     s32 held, i;
-    if (!g_gevrStereo || !g_CurrentPlayer || g_CurrentPlayer->bonddead || alreadyOwned
+    if (!g_gevrStereo || !g_CurrentPlayer || g_CurrentPlayer->bonddead || alreadyOwned || s_gevrGripGrabbing
         || gevrSpectating() || (netIsActive() && get_cur_playernum() != netGetLocalSlot())
         || item < ITEM_WPPK || item > ITEM_ROCKETLAUNCH || item == ITEM_WATCHLASER
         || !gevrWeaponOwned(item) || !bondwalkItemHasAmmo(item)
@@ -14627,6 +14630,309 @@ void gevrAutoAdvanceHand(s32 hand)
         gunRequestHandWeaponChange(hand, ITEM_TRIGGER, 1);
     else
         gevrCycleHandWeaponInternal(hand, 1, TRUE);
+}
+
+/*
+ * GEVR PC's grip gestures (its docs/CONTROLS.md, vr450..vr453), each with its
+ * own launcher toggle: a fresh grip press with the hand
+ *  - at its own hip holsters what that hand holds, and again draws it (vr451),
+ *  - at the player's own stuck remote mine, or a proximity mine still arming,
+ *    takes it back (vr450.2),
+ *  - at something on the floor picks it up, a gun into that hand (vr451),
+ *  - at a door, switch or console uses it as B would (vr450, #90).
+ * Anything else aims as before. port/src/input.c reports the press
+ * (gevrGripGestureInput) and holds the aim back while it is pending; lv.c
+ * ticks this after propsTick, where the props' matrices are this frame's
+ * (as gevrHandChopTick). A taken press shows no sight until let go. The
+ * other grips keep their jobs first: the off hand's two-handed hold, the gun
+ * hand at the watch, and the throwables' wind-up.
+ *
+ * Zones are in real centimetres. files/gevr_gesture.txt overrides them while
+ * tuning: "hipdrop hipside hipahead use pickup mine" (defaults below).
+ */
+#include "gevr_grip_gesture.h"
+
+extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+extern int VrMotionThrowing;
+extern s32 gevrIsThrowable(s32 item);   /* port/src/input.c */
+
+enum { GEVR_GT_HIPDROP, GEVR_GT_HIPSIDE, GEVR_GT_HIPAHEAD, GEVR_GT_USE, GEVR_GT_PICKUP, GEVR_GT_MINE, GEVR_GT_COUNT };
+static f32 s_gevrGestureTune[GEVR_GT_COUNT] = {
+    40.0f,   /* the hand at least this far below the eye */
+    12.0f,   /* and this far out to its own side */
+    20.0f,   /* and no further ahead of the eye than this */
+    15.0f,   /* use: the hand this close to the door or switch */
+    25.0f,   /* pickup: to the thing on the floor */
+    20.0f,   /* mine: to the mine */
+};
+#define GEVR_GESTURE_FINGERS_CM 6.0f   /* the touch point: ahead of the grip, at the fingers */
+
+static s32 s_gevrGripGesture[2];   /* per controller: 0 idle, 1 a press to decide, 2 taken until let go, 3 aims */
+static s32 s_gevrGripPendAge[2];
+static s32 s_gevrHolsterItem[2] = { -1, -1 };   /* per hand: what the hip holds, -1 nothing */
+
+void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
+{
+    if (ctrl < 0 || ctrl > 1)
+    {
+        return;
+    }
+    if (!held)
+    {
+        s_gevrGripGesture[ctrl] = 0;
+        return;
+    }
+    if (pressed)
+    {
+        s_gevrGripGesture[ctrl] = (VrGestureHolster || VrGestureGripUse || VrGesturePickup || VrGestureMineGrab) ? 1 : 3;
+        s_gevrGripPendAge[ctrl] = 0;
+    }
+    else if (s_gevrGripGesture[ctrl] == 1 && ++s_gevrGripPendAge[ctrl] > 3)
+    {
+        s_gevrGripGesture[ctrl] = 3;   /* no tick decided it (paused, a menu): it aims */
+    }
+}
+
+s32 gevrGripGestureTaken(s32 ctrl)
+{
+    return ctrl >= 0 && ctrl < 2 && (s_gevrGripGesture[ctrl] == 1 || s_gevrGripGesture[ctrl] == 2);
+}
+
+static void gevrGestureTuneRead(void)
+{
+    static u32 s_read;
+    FILE *f;
+    f32 v[GEVR_GT_COUNT];
+    s32 i;
+
+    if ((s_read++ % 120) != 0)
+    {
+        return;
+    }
+    f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_gesture.txt", "r");
+    if (f == NULL)
+    {
+        return;
+    }
+    if (fscanf(f, "%f %f %f %f %f %f", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) == GEVR_GT_COUNT)
+    {
+        for (i = 0; i < GEVR_GT_COUNT; i++)
+        {
+            if (s_gevrGestureTune[i] != v[i])
+            {
+                s_gevrGestureTune[i] = v[i];
+                sysLogPrintf(LOG_NOTE, "stereo: gesture zones hip %.0f/%.0f/%.0f, use %.0f, pickup %.0f, mine %.0f cm",
+                             v[0], v[1], v[2], v[3], v[4], v[5]);
+                break;
+            }
+        }
+        for (i = 0; i < GEVR_GT_COUNT; i++)
+        {
+            s_gevrGestureTune[i] = v[i];
+        }
+    }
+    fclose(f);
+}
+
+/*
+ * The hand at its own hip: below the eye, out to its side and not ahead, in
+ * the room's level frame turned to the head's heading (the view's own axes
+ * pitch with the head). at is the grip in view space, the eye at its origin.
+ */
+static s32 gevrHipZone(s32 ctrl, const f32 at[3])
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    struct coord3d hand, fwd, right;
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 len, drop, side, ahead;
+
+    if (cm < 1e-6f || v2w == NULL)
+    {
+        return FALSE;
+    }
+    hand.x = at[0]; hand.y = at[1]; hand.z = at[2];
+    fwd.x = 0.0f; fwd.y = 0.0f; fwd.z = -1.0f;
+    right.x = 1.0f; right.y = 0.0f; right.z = 0.0f;
+    mtx4RotateVecInPlace(v2w, &hand);
+    mtx4RotateVecInPlace(v2w, &fwd);
+    mtx4RotateVecInPlace(v2w, &right);
+    len = sqrtf(fwd.x * fwd.x + fwd.z * fwd.z);
+    if (len < 1e-3f)
+    {
+        return FALSE;   /* looking straight up or down: no heading */
+    }
+    fwd.x /= len;
+    fwd.z /= len;
+    /* the view's right, levelled */
+    len = sqrtf(right.x * right.x + right.z * right.z);
+    if (len < 1e-3f)
+    {
+        return FALSE;
+    }
+    right.x /= len;
+    right.z /= len;
+    drop = -hand.y / cm;
+    ahead = (hand.x * fwd.x + hand.z * fwd.z) / cm;
+    side = (hand.x * right.x + hand.z * right.z) / cm;
+    /* the gun hand's hip is the right one, the off hand's the left (mirrored left-handed) */
+    if ((ctrl == 0) != (VrLeftHandedMode != 0))
+    {
+        side = -side;
+    }
+    return drop >= s_gevrGestureTune[GEVR_GT_HIPDROP] && side >= s_gevrGestureTune[GEVR_GT_HIPSIDE]
+        && ahead <= s_gevrGestureTune[GEVR_GT_HIPAHEAD];
+}
+
+/* the hand's item to the hip, or back out of it */
+static s32 gevrHolsterTry(s32 hand)
+{
+    s32 cur = gevrHandSelected(hand);
+    s32 empty = hand == GUNLEFT ? ITEM_UNARMED : ITEM_FIST;
+    s32 item;
+
+    if (hand == GUNLEFT && !gevrLeftPanelAvailable())
+    {
+        return FALSE;
+    }
+    if (getPlayerCount() >= 2 && get_scenario() == 2 && bondinvIsAliveWithFlag())
+    {
+        return FALSE;   /* the flag's carrier keeps it (gevrCycleHandWeaponInternal) */
+    }
+    if (cur != ITEM_FIST && cur != ITEM_UNARMED)
+    {
+        if (gevrStereoWatchItem(cur) || cur == ITEM_TANKSHELLS || cur == ITEM_TOKEN)
+        {
+            return FALSE;
+        }
+        s_gevrHolsterItem[hand] = cur;
+        gunRequestHandWeaponChange(hand, empty, 1);
+        return TRUE;
+    }
+    item = s_gevrHolsterItem[hand];
+    s_gevrHolsterItem[hand] = -1;
+    if (item < 0 || !gevrLeftHasGun(item) || !gevrHandItemAllowed(hand, item))
+    {
+        return FALSE;   /* nothing there, or no longer carried */
+    }
+    gunRequestHandWeaponChange(hand, item, 1);
+    return TRUE;
+}
+
+/* a gun just picked up goes into the hand that took it, where the rules allow */
+static void gevrGripEquip(s32 hand, s32 item)
+{
+    if (!((item >= ITEM_WPPK && item <= ITEM_ROCKETLAUNCH && item != ITEM_WATCHLASER) || item == ITEM_KNIFE)
+        || !gevrLeftHasGun(item))
+    {
+        return;
+    }
+    if (hand == GUNLEFT && (!gevrLeftPanelAvailable() || !gevrHandItemAllowed(GUNLEFT, item)))
+    {
+        hand = GUNRIGHT;
+    }
+    if (gevrHandItemAllowed(hand, item))
+    {
+        gunRequestHandWeaponChange(hand, item, 1);
+    }
+}
+
+static s32 gevrGripGestureTry(s32 ctrl)
+{
+    extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
+    extern int vr_haptics_ready(void);
+    static const char *names[] = { "holster", "mine back", "pickup", "use" };
+    s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 at[3], right[3], up[3], back[3], p[3];
+    PropRecord *prop;
+    s32 done = -1;
+    s32 item;
+    s32 i;
+
+    if (!g_gevrStereo || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
+        || g_CurrentPlayer->watch_animation_state != 0 || g_CurrentPlayer->mpmenuon
+        || g_PlayerIsInTank == 1 || gevrSpectating() || gevrCoopLocalDowned()
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || cm < 1e-6f)
+    {
+        return FALSE;
+    }
+    /* the grips' own jobs first */
+    if ((ctrl == 0 && gevrStereoTwoHandGrip()) || (ctrl == 1 && gevrStereoWatchGrip()))
+    {
+        return FALSE;
+    }
+    item = getCurrentPlayerWeaponId(hand);
+    if (VrMotionThrowing && gevrIsThrowable(item))
+    {
+        return FALSE;   /* the grip winds up a throw */
+    }
+    if (!gevrGripAxesRaw(ctrl, at, right, up, back))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        p[i] = at[i] - back[i] * GEVR_GESTURE_FINGERS_CM * cm;
+    }
+
+    if (VrGestureHolster && gevrHipZone(ctrl, at) && gevrHolsterTry(hand))
+    {
+        done = 0;
+    }
+    else if (VrGestureMineGrab && (!netIsActive() || (gevrCoopActive() && gevrCoopIsHost()))
+             && (prop = gevrHandFindProp(p, s_gevrGestureTune[GEVR_GT_MINE] * cm, GEVR_HAND_MINE)) != NULL)
+    {
+        s_gevrGripGrabbing = TRUE;
+        if (gevrHandPickup(prop, TRUE))
+        {
+            done = 1;
+        }
+        s_gevrGripGrabbing = FALSE;
+    }
+    if (done < 0 && VrGesturePickup
+        && (prop = gevrHandFindProp(p, s_gevrGestureTune[GEVR_GT_PICKUP] * cm, GEVR_HAND_PICKUP)) != NULL)
+    {
+        s32 got = prop->type == PROP_TYPE_WEAPON && prop->weapon != NULL ? prop->weapon->weaponnum : -1;
+
+        s_gevrGripGrabbing = TRUE;
+        if (gevrHandPickup(prop, FALSE))
+        {
+            done = 2;
+            gevrGripEquip(hand, got);
+        }
+        s_gevrGripGrabbing = FALSE;
+    }
+    if (done < 0 && VrGestureGripUse
+        && (prop = gevrHandFindProp(p, s_gevrGestureTune[GEVR_GT_USE] * cm, GEVR_HAND_USE)) != NULL
+        && gevrHandInteract(prop))
+    {
+        done = 3;
+    }
+
+    if (done < 0)
+    {
+        return FALSE;
+    }
+    sysLogPrintf(LOG_NOTE, "stereo: grip gesture %s (%s)", names[done], ctrl ? "gun hand" : "off hand");
+    if (vr_haptics_ready())
+    {
+        trigger_haptic_vibration_c(ctrl, 0.6f, 0.06f);
+    }
+    return TRUE;
+}
+
+void gevrGripGestureTick(void)
+{
+    s32 ctrl;
+
+    gevrGestureTuneRead();
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        if (s_gevrGripGesture[ctrl] == 1)
+        {
+            s_gevrGripGesture[ctrl] = gevrGripGestureTry(ctrl) ? 2 : 3;
+        }
+    }
 }
 
 /*
