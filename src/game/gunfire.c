@@ -2785,6 +2785,20 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         if (!gevrStereoWatchItem(item))
 #endif
         subdraw(&renderdata, &handptr->weaponModel);
+#ifdef GEVR
+        {
+            /* a GoldenEye X gun's hands, on its matrices (gun.c) */
+            extern s32 gevrGexHeld(s32 hand);
+            extern Model *gevrGexHands(GUNHAND hand);
+            Model *hands = gevrGexHeld(handnum) ? gevrGexHands(handnum) : NULL;
+
+            if (hands != NULL)
+            {
+                hands->render_pos = handptr->weaponModel.render_pos;
+                subdraw(&renderdata, hands);
+            }
+        }
+#endif
         gdl = renderdata.gdl;
 #ifdef GEVR
         if (gevrHandsMirrored() != gevrLeftGadgetMirrored(handnum, item))
