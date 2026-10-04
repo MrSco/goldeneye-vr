@@ -933,8 +933,14 @@ static NetMatchConfig gevrLauncherConfig() {
     return c;
 }
 
+// Co-op carries the host's deathmatch scenario along unused: never teams.
+static bool gevrConfigHasTeams(int mode, int scenario) {
+    return mode != NET_MODE_COOP && netScenarioHasTeams(scenario);
+}
+static bool gevrLobbyHasTeams(const NetMatchConfig *c) { return gevrConfigHasTeams(c->mode, c->scenario); }
+
 static void gevrTeamChoiceRow(const char *id) {
-    if (!netIsActive() || netGetMatchConfig()->mode == NET_MODE_COOP || !netScenarioHasTeams(netGetMatchConfig()->scenario))
+    if (!netIsActive() || !gevrLobbyHasTeams(netGetMatchConfig()))
         return;
     int team = netGetSlotTeam(netGetLocalSlot());
     ImGui::TextUnformatted("Your team:");
@@ -1153,7 +1159,7 @@ static void gevrLobbyRoster(const ImVec4 &gold) {
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(netCharacterName(slot.chr_id));
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(netScenarioHasTeams(lobby->config.scenario) ? netTeamName(slot.team) : "—");
+            ImGui::TextUnformatted(gevrLobbyHasTeams(&lobby->config) ? netTeamName(slot.team) : "—");
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(host ? "Host" : slot.ready ? "Ready" : "Waiting");
             ImGui::TableNextColumn();
@@ -1421,7 +1427,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         ImGui::TextDisabled("%s", netIsActive() && !netIsHost() ? "Host chooses"
                                                                 : "Proximity: 10% floor / Couch: full volume");
 
-        if (netScenarioHasTeams(netIsActive() ? netGetMatchConfig()->scenario : VrMpScenario)) {
+        if (netIsActive() ? gevrLobbyHasTeams(netGetMatchConfig()) : gevrConfigHasTeams(VrMpMode, VrMpScenario)) {
             ImGui::TextDisabled("Teams: teammates full volume; opponents proximity.");
         }
     };
@@ -1527,7 +1533,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                                                    hostedCode.c_str());
                             gevrTeamChoiceRow("##hostteam");
                             gevrLobbyRoster(gold);
-                            if (netScenarioHasTeams(netGetMatchConfig()->scenario) && !netTeamRosterReady())
+                            if (gevrLobbyHasTeams(netGetMatchConfig()) && !netTeamRosterReady())
                                 ImGui::TextDisabled("Complete teams before countdown; warmup remains available.");
                         }
                         ImGui::EndTabItem();
@@ -1798,8 +1804,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         int slot = netGetLocalSlot();
         if (slot >= 0 && netGetState() != NET_STATE_CONNECTING) {
             bool ready = netGetLobbyState()->slots[slot].ready != 0;
-            ImGui::BeginDisabled(netScenarioHasTeams(netGetMatchConfig()->scenario) &&
-                                 netGetSlotTeam(slot) == NET_TEAM_NONE);
+            ImGui::BeginDisabled(gevrLobbyHasTeams(netGetMatchConfig()) && netGetSlotTeam(slot) == NET_TEAM_NONE);
             if (ImGui::Checkbox("Ready", &ready))
                 netLobbySetReady(ready);
             ImGui::EndDisabled();

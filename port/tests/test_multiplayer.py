@@ -209,6 +209,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_fun_pending_authority_late_join_migration(self): self.assertEqual(self.core.test_core_fun(),0)
     def test_launch_consent_and_scenario_transition(self): self.assertEqual(self.core.test_core_launch_consent(),0)
     def test_in_game_ready_packets_and_start(self): self.assertEqual(self.core.test_core_menu_ready(),0)
+    def test_coop_ignores_team_scenario_for_ready(self): self.assertEqual(self.core.test_core_coop_team_scenario_ready(),0)
     def test_solo_warmup_pending_options_restart(self): self.assertEqual(self.core.test_core_solo_restart(),0)
     def test_connected_roster_and_spectator_load_ack(self): self.assertEqual(self.core.test_core_connected_roster(),0)
     def test_first_and_next_round_warmup_timers(self): self.assertEqual(self.core.test_core_warmup_lifecycle(),0)

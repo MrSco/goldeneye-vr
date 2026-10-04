@@ -1392,7 +1392,8 @@ void netRoundNoticeText(char *text, unsigned size) {
     if (s_state != NET_STATE_INGAME || s_round.config.mode == NET_MODE_COOP ||
         s_local_slot < 0 || s_local_slot >= GEVR_MAX_PLAYERS || s_countdown_end_us || s_round_reset_loading) return;
     bool need_ready = s_start_requested && s_local_slot != s_host_slot && !netLocalReady();
-    bool need_team = need_ready && netScenarioHasTeams(s_lobby_state.config.scenario) &&
+    bool need_team = need_ready && s_lobby_state.config.mode != NET_MODE_COOP &&
+        netScenarioHasTeams(s_lobby_state.config.scenario) &&
         s_lobby_state.slots[s_local_slot].team == NET_TEAM_NONE;
     bool need_vote = s_vote_requested && s_lobby_state.config.next_round == NET_NEXT_VOTE &&
         (netGetVote(NET_BALLOT_STAGE, s_local_slot) < 0 || netGetVote(NET_BALLOT_WEAPONS, s_local_slot) < 0);
