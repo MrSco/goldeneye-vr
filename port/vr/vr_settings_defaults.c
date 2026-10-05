@@ -183,9 +183,12 @@ int   VrFistClench    = 0;     /* close the off hand while the left grip is sque
 /*
  * Muzzle / barrel tip trim in cm, set with Gun fit's barrel tip mode (X):
  * cm right (side), up, forward along the gun from the default barrel tip.
- * [0] GoldenEye's guns, [1] GoldenEye X's. Defaults are all 0.
+ * [0] GoldenEye's guns, [1] GoldenEye X's. The KF7 default is the user's
+ * headset calibration (2026-10-05). Saved INI fits override these defaults.
  */
-float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3];
+float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3] = {
+    [1] = { [8] = { 4.07f, 2.87f, -7.23f } }, /* GE-X ITEM_AK47 / KF7 */
+};
 int gevrMuzzleFitting = 0;
 
 /* --- Runtime state ------------------------------------------------------- */

@@ -8,12 +8,13 @@
 #include "gevr_scope.h"
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
+#include "gevr_locomotion.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
 #include "system.h"
 static u32 g_gevrTeleportEpoch; /* bumped by gevrNotifyTeleport (chrai.c) */
-void gevrNotifyTeleport(void) { g_gevrTeleportEpoch++; }
+void gevrNotifyTeleport(void) { g_gevrTeleportEpoch++; gevrVrLocomotionReset(); }
 extern s32 gevrCrouchToggled(void); // port/src/input.c
 #endif
 #include <math.h>
@@ -338,6 +339,10 @@ static f32 s_gevrHeadBaseY;
 static f32 s_gevrMenuHead[3];
 static s32 s_gevrMenuHeadValid;
 static struct coord3d s_gevrMenuOffset;
+/* Physical displacement is kept out of the delayed locomotion snapshots.
+ * Accumulate in world space because smooth turning changes the walk basis. */
+static f32 s_gevrPhysicalWalk[3];
+static f32 s_gevrPhysicalStep[3];
 
 /* bondview2.c walk path, just before the body's move this tick. */
 /*
@@ -399,6 +404,7 @@ s32 gevrCoopPlaceBeside(s32 target)
 
 void gevrStereoHeadWalk(struct coord3d *move_offset)
 {
+    s_gevrPhysicalStep[0] = s_gevrPhysicalStep[1] = s_gevrPhysicalStep[2] = 0;
     if (gevrSpectating() || gevrCoopLocalDowned()) return;
     f32 head[3];
     f32 body[4];
@@ -450,6 +456,11 @@ void gevrStereoHeadWalk(struct coord3d *move_offset)
     body[0] = 0.0f; body[1] = sinf(half); body[2] = 0.0f; body[3] = cosf(half);
     gevrRotateByQuat(&d, body);
 
+    s_gevrPhysicalStep[0] = d.x;
+    s_gevrPhysicalStep[2] = d.z;
+    s_gevrPhysicalWalk[0] += d.x;
+    s_gevrPhysicalWalk[2] += d.z;
+
     move_offset->x += d.x;
     move_offset->z += d.z;
 }
@@ -477,6 +488,8 @@ static f32 gevrStereoHeadHeight(void)
 /* Face the way the body faces: the current view becomes straight ahead. */
 static void gevrStereoRecenter(void)
 {
+    gevrVrLocomotionReset();
+    s_gevrPhysicalWalk[0] = s_gevrPhysicalWalk[1] = s_gevrPhysicalWalk[2] = 0;
     s_gevrHeadValid = FALSE;   /* next tick takes this height as standing */
     s_gevrMenuHeadValid = FALSE;
     vr_align_with_game_angle(0.0f);
@@ -965,6 +978,7 @@ void gevrStereoFrame(s32 inlevel)
             if (s_gevrSnapArmed && fabsf(x) > 0.5f)
             {
                 s_gevrBaseYaw += (x > 0.0f ? 1.0f : -1.0f) * VrUseSnapTurn;
+                gevrVrLocomotionReset(); /* a comfort snap must remain instantaneous */
                 s_gevrSnapArmed = FALSE;
                 /* the comfort ring closes on the frame that shows the new heading (gevrStereoVignette) */
                 s_gevrSnapVignetteHold = GEVR_SNAP_VIGNETTE_HOLD;
@@ -998,7 +1012,28 @@ void gevrStereoFrame(s32 inlevel)
          * and the compositor is told which pose that was (vr_openxr.cpp). */
         gevrVrSnapshotCameraPose();
         gevrStereoLook(&s_gevrCamLook, &s_gevrCamUp);
+        {
+            static struct player *lastPlayer;
+            static s32 lastStage = -1, lastPaused = -1, lastTank = -1;
+            static u32 lastTeleport;
+            const s32 stage = bossGetStageNum();
+            const s32 paused = g_ClockTimer == 0 || pl->watch_animation_state != 0 || pl->mpmenuon;
+            f32 tracking[3] = {s_gevrPhysicalWalk[0], 0, s_gevrPhysicalWalk[2]};
+            f32 height = gevrStereoHeadHeight();
+            /* Physical ducking is already carried by the body's Y; rising is
+             * added to the camera later. Neither should acquire extra delay. */
+            if (height < 0) tracking[1] = height;
+            if (lastPlayer != pl || lastStage != stage || lastPaused != paused ||
+                lastTank != g_PlayerIsInTank || lastTeleport != g_gevrTeleportEpoch)
+                gevrVrLocomotionReset();
+            lastPlayer = pl; lastStage = stage; lastPaused = paused;
+            lastTank = g_PlayerIsInTank; lastTeleport = g_gevrTeleportEpoch;
+            if (gevrSpectating() || gevrCoopLocalDowned()) gevrVrLocomotionReset();
+            else gevrVrLocomotionSnapshot(pl->field_488.pos.f, tracking, s_gevrBaseYaw,
+                                         (u32)currentFrameCounter);
+        }
     }
+    else gevrVrLocomotionReset();
 
     s_gevrStereoWas = want;
     g_gevrStereo = want;
@@ -12570,6 +12605,14 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
         ftemp_col_x = g_CurrentPlayer->field_488.collision_position.f[0] - start_collision_pos_x;
         ftemp_col_z = g_CurrentPlayer->field_488.collision_position.f[2] - start_collision_pos_z;
+#ifdef GEVR
+        /* Do not smooth the collision compensation for physical head motion:
+         * otherwise a blocked room-scale step could briefly lean through a wall. */
+        if ((s_gevrPhysicalStep[0] != 0 || s_gevrPhysicalStep[2] != 0) &&
+            (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) &&
+            (fabsf(ftemp_col_x - move_offset.x) > 0.1f || fabsf(ftemp_col_z - move_offset.z) > 0.1f))
+            gevrVrLocomotionReset();
+#endif
         sp240 = (move_offset.f[0] * move_offset.f[0]) + (move_offset.f[2] * move_offset.f[2]);
         if (sp240 != 0.0f)
         {
@@ -13559,6 +13602,9 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
 
 #ifdef GEVR
     s_gevrEyeWorld = cam_pos;   /* gevrEyePosition: where the frame is seen from */
+    if (g_gevrStereo && !s_gevrCopyTrace &&
+        (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+        gevrVrCameraWorld(cam_pos.f, cam_look.f, cam_up.f);
 #endif
     bondviewUpdateCameraMatrices(&cam_pos, &cam_look, &cam_up);
     sub_GAME_7F068190(&zeropos, &vec);
@@ -14268,6 +14314,11 @@ static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
 
     change_player_pos_to_target(&g_CurrentPlayer->field_488, &start_pos, start_stan);
 
+#ifdef GEVR
+    if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+        gevrNotifyTeleport(); /* authoritative spawn, including a network respawn */
+#endif
+
     g_CurrentPlayer->field_488.theta_transform.x = -sinf(start_look_angle);
     g_CurrentPlayer->field_488.theta_transform.y = 0.0f;
     g_CurrentPlayer->field_488.theta_transform.z = cosf(start_look_angle);
@@ -14572,7 +14623,7 @@ extern int VrShowStats;
 extern const char *gevrVrStatsText(void);
 static Gfx *gevrDrawStats(Gfx *gdl)
 {
-    char buf[520];
+    char buf[640];
     s32 x, y, w = 0, h = 0;
 
     if (!VrShowStats || (getPlayerCount() != 1 && (!netIsActive() || get_cur_playernum() != netGetLocalSlot())))

@@ -10,6 +10,7 @@
 #define LOGI(...) ((void)0)
 #define LOGE(...) ((void)0)
 void vr_log(const char *, ...) {}
+extern "C" void gevrVrLocomotionReset(void) {}
 struct Fatal {};
 extern "C" __attribute__((noreturn)) void sysFatalError(const char *, ...) { throw Fatal{}; }
 using GLuint = unsigned;
