@@ -2654,6 +2654,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
     {
         struct hand *handptr = &g_CurrentPlayer->hands[handnum];
         s32 item = get_item_in_hand_or_watch_menu(handnum);
+#ifdef GEVR
+        extern s32 gevrGexWatchArmSwap(Model *arm, s32 begin);              /* gun.c */
+        extern Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w);
+        s32 gexWatchArm = FALSE;
+#endif
 
 #ifdef GEVR
         if (handptr->field_87F == 0 && !s_gevrHiddenShown[handnum])
@@ -2828,11 +2833,18 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
+        /* the screen's watch: its arm GE-X's (gun.c) */
+        gexWatchArm = !g_gevrStereo && item == ITEM_SUIT_LF_HAND && gevrGexWatchArmSwap(&handptr->weaponModel, TRUE);
         /* issue #31: the watch items' arm is the tracked watch arm (bondview2.c gevrStereoWatchItem) */
         if (!gevrStereoWatchItem(item))
 #endif
         subdraw(&renderdata, &handptr->weaponModel);
 #ifdef GEVR
+        if (gexWatchArm)
+        {
+            renderdata.gdl = gevrGexArmOnWatch(renderdata.gdl, &renderdata, (Mtxf *) handptr->weaponModel.render_pos);
+            gevrGexWatchArmSwap(&handptr->weaponModel, FALSE);
+        }
         {
             /* a GoldenEye X gun's hands, on its matrices (gun.c) */
             extern s32 gevrGexHeld(s32 hand);
