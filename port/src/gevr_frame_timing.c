@@ -59,18 +59,19 @@ void gevrFrameTimingTracePoll(const char *marker) {
         if (!out) ok=0;
         else {
             fprintf(out, "# gevr-profile-v2 label=%s rows=%u overflow=%u detail=%u\n", recording.label, recording.rows, recording.overflow, recording.detail);
-            fprintf(out, "start_ns,submit_ns,display_ns,period_ns,kind,body_valid,camera_valid,reset,detailed,errors,work_ns,pre_ns,draws,vertices,tex_cache_allocs,upload_bytes,cache_hits,cache_misses,image_lifetime_ns,input_buttons,input_x,input_y,input_turn");
+            fprintf(out, "start_ns,submit_ns,display_ns,period_ns,kind,body_valid,camera_valid,reset,detailed,errors,work_ns,pre_ns,draws,vertices,tex_cache_allocs,upload_bytes,cache_hits,cache_misses,image_lifetime_ns,input_buttons,input_x,input_y,input_turn,collision,move_attempted,move_accepted,requested_x,requested_z,actual_x,actual_z");
             for (unsigned j=0;j<GEVR_TIME_COUNT;j++) fprintf(out, ",%s_ns,%s_self_ns,%s_pre_ns",gevrFrameTimingSectionName(j),gevrFrameTimingSectionName(j),gevrFrameTimingSectionName(j));
             fputc('\n',out);
             for (unsigned i=0;i<recording.rows;i++) {
                 const GevrFrameTimingSample *s=&trace[i];
                 uint64_t pre=0;for(unsigned j=0;j<GEVR_TIME_COUNT;j++) pre+=s->pre[j];
-                fprintf(out,"%llu,%llu,%lld,%lld,%u,%u,%u,%u,%u,%u,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%x,%d,%d,%d",
+                fprintf(out,"%llu,%llu,%lld,%lld,%u,%u,%u,%u,%u,%u,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%x,%d,%d,%d,%u,%x,%x,%.4f,%.4f,%.4f,%.4f",
                     (unsigned long long)s->start,(unsigned long long)s->submit,(long long)s->display,(long long)s->period,
                     s->kind,s->bodyValid,s->cameraValid,s->resetReason,s->detailed,s->timingErrors,
                     (unsigned long long)s->work,(unsigned long long)pre,(unsigned long long)s->draws,(unsigned long long)s->vertices,
                     (unsigned long long)s->allocations,(unsigned long long)s->uploadBytes,(unsigned long long)s->cacheHits,(unsigned long long)s->cacheMisses,(unsigned long long)s->imageLifetime,
-                    s->inputButtons,s->inputX,s->inputY,s->inputTurn);
+                    s->inputButtons,s->inputX,s->inputY,s->inputTurn,
+                    s->collision,s->moveAttempted,s->moveAccepted,s->requested[0],s->requested[2],s->actual[0],s->actual[2]);
                 for(unsigned j=0;j<GEVR_TIME_COUNT;j++) fprintf(out,",%llu,%llu,%llu",(unsigned long long)s->cpu[j],(unsigned long long)s->self[j],(unsigned long long)s->pre[j]);
                 fputc('\n',out);
             }

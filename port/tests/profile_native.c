@@ -75,8 +75,8 @@ int main(void) {
     static char header[8192], row[8192];
     assert(fgets(header,sizeof(header),f) && fgets(row,sizeof(row),f));fclose(f);
     assert(strstr(header,",tex_cache_allocs,") && !strstr(header,",allocations,"));
-    assert(strstr(header,"image_lifetime_ns,input_buttons,input_x,input_y,input_turn,wait_ns,"));
-    assert(strstr(row,",0,0,-80,0,"));   /* input columns follow image_lifetime_ns */
+    assert(strstr(header,"image_lifetime_ns,input_buttons,input_x,input_y,input_turn,collision,move_attempted,move_accepted,requested_x,requested_z,actual_x,actual_z,wait_ns,"));
+    assert(strstr(row,",0,0,-80,0,0,0,0,0.0000,0.0000,0.0000,0.0000,"));   /* input, then collision columns */
     f=fopen("profile.marker.status","r");assert(f);assert(fgets(text,sizeof(text),f));fclose(f);
     assert(!strcmp(text,"done test 8192 2"));
     remove("profile.marker.test.csv");remove("profile.marker.test.csv.gpu.csv");
