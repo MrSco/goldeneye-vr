@@ -69,6 +69,10 @@ int main(int argc, char **argv) {
         VrGexHeldMag[1] = 2.25f;
         VrGexWatch[3] = 1.5f;
         VrGexForeHold[0] = 3.5f;
+        VrMuzzleTrim[0][8][0] = 0.5f;
+        VrMuzzleTrim[0][8][2] = 2.0f;
+        VrMuzzleTrim[1][8][1] = -1.5f;
+        VrMuzzleTrim[1][8][2] = 4.25f;
         vrSettingsSave();
         return 0;
     }
@@ -80,6 +84,9 @@ int main(int argc, char **argv) {
         assert(VrReloadGrab[1][2] == -9.5f && VrReloadGrab[0][2] == -8.0f);
         assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 20.61f && VrGexHeldMag[1] == 2.25f);
         assert(VrGexWatch[3] == 1.5f && VrGexWatch[0] == 5.0f && VrGexForeHold[0] == 3.5f);
+        assert(VrMuzzleTrim[0][8][0] == 0.5f && VrMuzzleTrim[0][8][2] == 2.0f);
+        assert(VrMuzzleTrim[1][8][1] == -1.5f && VrMuzzleTrim[1][8][2] == 4.25f);
+        assert(VrMuzzleTrim[0][4][0] == 0.0f);
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "watch_write") == 0) {

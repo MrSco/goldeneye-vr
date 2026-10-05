@@ -927,6 +927,18 @@ void gunUpdateAndFire(GUNHAND handnum)
         {
             flashdata = (f32 *) mdlhdr->Switches[3]->Data;
         }
+#ifdef GEVR
+        else if (gevrGexHeld(handnum))
+        {
+            /* Keep the calibration origin stable: saved GexMuzzleKF7 trims
+             * are relative to this point, including the user's fitted tip. */
+            static coord3d s_gexMuzzleKf7 = { 0.0f, 23.27f, 705.74f };
+            if (item == ITEM_AK47)
+            {
+                flashdata = (f32 *) &s_gexMuzzleKf7;
+            }
+        }
+#endif
 
         hand->mtxlist = rwmtx;
         hand->weaponModel.render_pos = (RenderPosView *)rwmtx;
@@ -1045,22 +1057,47 @@ void gunUpdateAndFire(GUNHAND handnum)
             flashscale = ((rndf * (1.0f / M_U32_MAX_VALUE_F)) * 0.25f) + 1.0f;
             flashext = itemstats->MuzzleFlashExtension;
 
+            flashpos = *(coord3d *) flashdata;
+#ifdef GEVR
+            {
+                extern float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3];
+                const int gex = gevrGexHeld(handnum) ? 1 : 0;
+                if (item >= 0 && item < GEVR_MAX_WEAPONS)
+                {
+                    flashpos.x += VrMuzzleTrim[gex][item][0] * 10.0f;
+                    flashpos.y += VrMuzzleTrim[gex][item][1] * 10.0f;
+                    flashpos.z += VrMuzzleTrim[gex][item][2] * 10.0f;
+                }
+            }
+#endif
             if (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_00000001) != 0)
             {
                 rnd = randomGetNext();
                 rndf = (f32) ((u32) rnd);
                 matrix_4x4_set_rotation_around_z((rndf * (1.0f / M_U32_MAX_VALUE_F)) * M_TAU_F, &flashmtx);
-                matrix_4x4_set_position((coord3d *) flashdata, &flashmtx);
+                matrix_4x4_set_position(&flashpos, &flashmtx);
             }
             else
             {
-                matrix_4x4_set_identity_and_position((coord3d *) flashdata, &flashmtx);
+                matrix_4x4_set_identity_and_position(&flashpos, &flashmtx);
             }
 
             matrix_scalar_multiply(flashscale, flashmtx.m[0]);
             matrix_column_3_scalar_multiply(flashext, flashmtx.m[0]);
             matrix_4x4_multiply_in_place(&gunmtx, &flashmtx);
-            matrix_4x4_copy(&flashmtx, &rwmtx[1]);
+#ifdef GEVR
+            if (gevrGexHeld(handnum))
+            {
+                /* The converter appends a matrix for both flash lists. PD's
+                 * joint 1 belongs to the forearm, and its animation matrices
+                 * are filled later by gevrGexPoseGun. */
+                matrix_4x4_copy(&flashmtx, &rwmtx[mdlhdr->numMatrices - 1]);
+            }
+            else
+#endif
+            {
+                matrix_4x4_copy(&flashmtx, &rwmtx[1]);
+            }
 
 #ifdef GEVR
             {

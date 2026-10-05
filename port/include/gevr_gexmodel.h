@@ -20,7 +20,10 @@ extern "C" {
  * Builds the cartridge-layout GoldenEye file for GE-X model pdname: the
  * switch table (numSwitches slots; slot i is the node of PD part
  * switchParts[i], or none for -1), the texture table, nodes, records,
- * vertices and display lists. texturePairs (GE-X texture number, GoldenEye
+ * vertices and display lists.
+ * When switch 1 maps to PD flash part 90, outMatrices includes one extra
+ * matrix at the end; gunfire.c supplies the fitted muzzle transform there.
+ * texturePairs (GE-X texture number, GoldenEye
  * texture id, ..., 0) name GE-X's re-encoded copies of GoldenEye's
  * textures, which take the original's id so the HD packs apply. NULL when
  * the ROM is missing or the model has something not handled; the caller

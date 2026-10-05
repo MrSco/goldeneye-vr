@@ -119,3 +119,14 @@ extern float VrArmElbowTuck;    // 0..1, how tightly the elbow is pinned toward 
 extern float VrArmBodyFollow;   // how fast the smoothed torso yaw chases the head (spin comfort)
 extern int   VrFistClench;      // close the off-hand while the left grip is squeezed
 extern float VrFistClenchAmt;   // runtime 0..1 clench amount (not persisted)
+#ifndef GEVR_MAX_WEAPONS
+#define GEVR_MAX_WEAPONS 64
+#endif
+#ifdef __cplusplus
+extern "C" {
+#endif
+extern float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3]; // Muzzle / barrel tip trim in cm: [0 = GE, 1 = GE-X][item][side, up, forward]
+extern int   gevrMuzzleFitting; // Live Gun Fit mode for barrel tip (not persisted)
+#ifdef __cplusplus
+}
+#endif
