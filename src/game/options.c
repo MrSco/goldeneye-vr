@@ -48,6 +48,7 @@ static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y);
 #define GEVR_OPTIONS_YINC (netIsActive() ? (YINC - 3) : GEVR_MIC_YINC)
 static s32 s_gevrVrPage = 0;    /* the Game Options page shows the VR settings */
 static s32 s_gevrVrIndex = 0;   /* the highlighted VR row */
+static s32 s_gevrVrSection = -1; /* the open section, or -1 for the sections' list */
 static void gevrVrPageNavigation(void);
 static Gfx *gevrDrawVrPage(Gfx *gdl);
 static Gfx *gevrDrawVrRow(Gfx *gdl, s32 y);
@@ -1755,6 +1756,7 @@ void sub_GAME_7F0A6A80(void)
                 reset_watch_item_is_actively_selected();
                 s_gevrVrPage = 1;
                 s_gevrVrIndex = 0;
+                s_gevrVrSection = -1;
                 disable_watch_stick_y_nav_ready();
                 set_controlstick_lr_disabled();
                 break;
@@ -3824,9 +3826,14 @@ static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y)
 
 /*
  * The VR settings page. The values are the launcher's own (port/vr,
- * goldeneye-vr.ini), changed live and saved on each change. Up/down picks a
- * row, left/right steps its value, A steps it forward (wrapping) and A on
- * Back returns to Game Options. Closing the watch leaves the page too.
+ * goldeneye-vr.ini), changed live and saved on each change. It opens on
+ * its sections (user: all the launcher's options that are safe to change
+ * in a level, so they can be tried in play, organised); A opens one. In a
+ * section up/down picks a row, left/right steps its value, A steps it
+ * forward (wrapping); Back returns to the sections, and their Back to Game
+ * Options. Closing the watch leaves the page too. Not here, as they only
+ * take effect on starting: the display rate, the texture pack, the play
+ * mode (holding the right stick click switches it in a level).
  */
 extern float VrUseSnapTurn;          /* 0 smooth, else the snap angle */
 extern int VrSmoothTurnSpeed;        /* degrees per second, 45..240 */
@@ -3835,26 +3842,77 @@ extern int VrWatchFaceStatus;        /* 0 off, 1 on, 2 only */
 extern int VrAimSteady;              /* 0 off, 1 low, 2 high */
 extern int VrAimNoLean;
 extern int VrMotionThrowing;
+extern float VrMotionThrowStrength, VrMotionThrowPitch, VrMotionThrowGazeAssist;
 extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+extern int VrWatchGesturePause;
 extern int VrManualReloading;
 extern int VrPerWeaponRecoil;
+extern int VrNoKnockback, VrNoHitstun, VrDamageFlash;
+extern int VrLeftHandedMode, VrSwapJoysticks, VrGunFitArmed, VrShowStats, VrGunSizeCheat;
+extern int VrMinesStickToGuards, VrBodiesStay;
+extern int VrGexGuns, VrGexArms;
+extern float VrScreenDistance, VrScreenFov;
+extern int VrScreenCurved, VrScreenPassthrough;
+extern void vr_screen_resize(float dist, float fov);   /* port/vr/vr_screen.h */
+extern int vr_screen_curve_supported(void);
+extern int vr_passthrough_supported(void);
 extern void vrSettingsSave(void);
 /* port/vr/vr_settings.h's range (that header is C++-side) */
 #define SMOOTHTURN_MIN  45
 #define SMOOTHTURN_MAX  240
 #define SMOOTHTURN_STEP 15
+/* port/vr/vr_screen.h's */
+#define GEVR_SCREEN_FOV_MIN  25.0f
+#define GEVR_SCREEN_FOV_MAX  110.0f
+#define GEVR_SCREEN_DIST_MIN 1.0f
+#define GEVR_SCREEN_DIST_MAX 8.0f
 
 enum {
-    GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_WATCHFACE, GEVR_VR_STEADY,
-    GEVR_VR_NOLEAN, GEVR_VR_THROW, GEVR_VR_HOLSTER, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP,
-    GEVR_VR_MINEGRAB, GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_BACK, GEVR_VR_ROWS
+    GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH,
+    GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_STEADY, GEVR_VR_GUNFIT,
+    GEVR_VR_WATCHPAUSE, GEVR_VR_HOLSTER, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB,
+    GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE,
+    GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
+    GEVR_VR_MINESTICK, GEVR_VR_BODIES,
+    GEVR_VR_GEXGUNS, GEVR_VR_GEXARMS, GEVR_VR_GUNSIZE,
+    GEVR_VR_ROWS
 };
 
 static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
-    "Turning", "Turn speed", "Vignette", "Watch face", "Aim steady",
-    "Aim: no lean", "Motion throw", "Holster WIP", "Grip use", "Grip hand WIP",
-    "Mine re-grab", "Reload WIP", "Gun recoil", "Back"
+    "Turning", "Turn speed", "Vignette", "No knockback", "No hitstun", "Hit flash",
+    "Left-handed", "Swap sticks", "Aim: no lean", "Aim steady", "Gun fit",
+    "Watch gesture", "Holster WIP", "Grip use", "Grip hand WIP", "Mine re-grab",
+    "Reload WIP", "Gun recoil", "Motion throw", "Throw power", "Throw pitch", "Throw gaze",
+    "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
+    "Mines stick", "Bodies stay",
+    "GE-X guns", "GE-X arms", "Gun size",
 };
+
+/* the sections, as the launcher groups them */
+static const s32 s_gevrVrComfort[] = { GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH };
+static const s32 s_gevrVrControls[] = { GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_STEADY, GEVR_VR_GUNFIT };
+static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_HOLSTER, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB };
+static const s32 s_gevrVrWeapons[] = { GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE };
+static const s32 s_gevrVrDisplay[] = { GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
+static const s32 s_gevrVrRules[] = { GEVR_VR_MINESTICK, GEVR_VR_BODIES };
+static const s32 s_gevrVrMods[] = { GEVR_VR_GEXGUNS, GEVR_VR_GEXARMS, GEVR_VR_GUNSIZE };
+
+static const struct
+{
+    const char *name;    /* the sections' list */
+    const char *title;   /* the section's own page */
+    const s32 *rows;
+    s32 count;
+} s_gevrVrSections[] = {
+    { "Comfort",     "VR: COMFORT",     s_gevrVrComfort,  ARRAYCOUNT(s_gevrVrComfort) },
+    { "Controls",    "VR: CONTROLS",    s_gevrVrControls, ARRAYCOUNT(s_gevrVrControls) },
+    { "Gestures",    "VR: GESTURES",    s_gevrVrGestures, ARRAYCOUNT(s_gevrVrGestures) },
+    { "Weapons",     "VR: WEAPONS",     s_gevrVrWeapons,  ARRAYCOUNT(s_gevrVrWeapons) },
+    { "Display",     "VR: DISPLAY",     s_gevrVrDisplay,  ARRAYCOUNT(s_gevrVrDisplay) },
+    { "Game rules",  "VR: GAME RULES",  s_gevrVrRules,    ARRAYCOUNT(s_gevrVrRules) },
+    { "Mods and fun", "VR: MODS AND FUN", s_gevrVrMods,     ARRAYCOUNT(s_gevrVrMods) },
+};
+#define GEVR_VR_SECTIONS ((s32) ARRAYCOUNT(s_gevrVrSections))
 
 /* Rows on screen at once; the list scrolls to keep the highlight in view. */
 #define GEVR_VR_VISIBLE 11
@@ -3864,14 +3922,27 @@ static s32 *gevrVrToggle(s32 row)
 {
     switch (row)
     {
-        case GEVR_VR_NOLEAN:   return &VrAimNoLean;
-        case GEVR_VR_THROW:    return &VrMotionThrowing;
-        case GEVR_VR_HOLSTER:  return &VrGestureHolster;
-        case GEVR_VR_GRIPUSE:  return &VrGestureGripUse;
-        case GEVR_VR_PICKUP:   return &VrGesturePickup;
-        case GEVR_VR_MINEGRAB: return &VrGestureMineGrab;
-        case GEVR_VR_RELOAD:   return &VrManualReloading;
-        case GEVR_VR_RECOIL:   return &VrPerWeaponRecoil;
+        case GEVR_VR_NOPUSH:      return &VrNoKnockback;
+        case GEVR_VR_NOSTUN:      return &VrNoHitstun;
+        case GEVR_VR_FLASH:       return &VrDamageFlash;
+        case GEVR_VR_LEFTY:       return &VrLeftHandedMode;
+        case GEVR_VR_SWAP:        return &VrSwapJoysticks;
+        case GEVR_VR_NOLEAN:      return &VrAimNoLean;
+        case GEVR_VR_GUNFIT:      return &VrGunFitArmed;
+        case GEVR_VR_WATCHPAUSE:  return &VrWatchGesturePause;
+        case GEVR_VR_HOLSTER:     return &VrGestureHolster;
+        case GEVR_VR_GRIPUSE:     return &VrGestureGripUse;
+        case GEVR_VR_PICKUP:      return &VrGesturePickup;
+        case GEVR_VR_MINEGRAB:    return &VrGestureMineGrab;
+        case GEVR_VR_RELOAD:      return &VrManualReloading;
+        case GEVR_VR_RECOIL:      return &VrPerWeaponRecoil;
+        case GEVR_VR_THROW:       return &VrMotionThrowing;
+        case GEVR_VR_STATS:       return &VrShowStats;
+        case GEVR_VR_CURVED:      return &VrScreenCurved;
+        case GEVR_VR_PASSTHROUGH: return &VrScreenPassthrough;
+        case GEVR_VR_MINESTICK:   return &VrMinesStickToGuards;
+        case GEVR_VR_GEXGUNS:     return &VrGexGuns;
+        case GEVR_VR_GEXARMS:     return &VrGexArms;
     }
     return NULL;
 }
@@ -3886,6 +3957,11 @@ static void gevrVrValueText(s32 row, char *buf)
         if (row == GEVR_VR_RECOIL)
         {
             sprintf(buf, "%s", *toggle ? "PER GUN" : "GENERIC");
+        }
+        else if ((row == GEVR_VR_CURVED && !vr_screen_curve_supported())
+                 || (row == GEVR_VR_PASSTHROUGH && !vr_passthrough_supported()))
+        {
+            sprintf(buf, "%s", "N/A");
         }
         else
         {
@@ -3926,6 +4002,36 @@ static void gevrVrValueText(s32 row, char *buf)
         case GEVR_VR_STEADY:
             sprintf(buf, "%s", VrAimSteady <= 0 ? "OFF" : VrAimSteady == 1 ? "LOW" : "HIGH");
             break;
+        case GEVR_VR_THROWPOWER:
+            tenths = (s32) (VrMotionThrowStrength * 10.0f + 0.5f);
+            sprintf(buf, "%d.%dX", tenths / 10, tenths % 10);
+            break;
+        case GEVR_VR_THROWPITCH:
+            sprintf(buf, "%d", (s32) (VrMotionThrowPitch + (VrMotionThrowPitch < 0.0f ? -0.5f : 0.5f)));
+            break;
+        case GEVR_VR_THROWGAZE:
+            sprintf(buf, "%d", (s32) (VrMotionThrowGazeAssist * 100.0f + 0.5f));   /* percent */
+            break;
+        case GEVR_VR_SCREENSIZE:
+            sprintf(buf, "%d", (s32) (VrScreenFov + 0.5f));
+            break;
+        case GEVR_VR_SCREENDIST:
+            tenths = (s32) (VrScreenDistance * 10.0f + 0.5f);
+            sprintf(buf, "%d.%dM", tenths / 10, tenths % 10);
+            break;
+        case GEVR_VR_BODIES:
+            if (VrBodiesStay <= 0)
+            {
+                sprintf(buf, "%s", "FADE");
+            }
+            else
+            {
+                sprintf(buf, "%d", VrBodiesStay);
+            }
+            break;
+        case GEVR_VR_GUNSIZE:
+            sprintf(buf, "%s", VrGunSizeCheat == 1 ? "TINY" : VrGunSizeCheat == 2 ? "BIG" : "NORMAL");
+            break;
         default:
             buf[0] = '\0';
             break;
@@ -3946,12 +4052,18 @@ static s32 gevrVrClampStep(s32 value, s32 dir, s32 lo, s32 hi)
 static void gevrVrStep(s32 row, s32 dir)
 {
     static const f32 snaps[] = { 0.0f, 30.0f, 45.0f, 90.0f };
+    static const s32 bodies[] = { 0, 12, 24, 48 };
     s32 *toggle = gevrVrToggle(row);
     s32 i;
     s32 steps;
 
     if (toggle != NULL)
     {
+        if ((row == GEVR_VR_CURVED && !vr_screen_curve_supported())
+            || (row == GEVR_VR_PASSTHROUGH && !vr_passthrough_supported()))
+        {
+            return;
+        }
         *toggle = dir == 2 ? !*toggle : dir > 0;
         return;
     }
@@ -3979,21 +4091,60 @@ static void gevrVrStep(s32 row, s32 dir)
         case GEVR_VR_STEADY:
             VrAimSteady = gevrVrClampStep(VrAimSteady, dir, 0, 2);
             break;
+        case GEVR_VR_THROWPOWER:   /* the launcher's 0.5x..2.0x, in tenths */
+            i = (s32) (VrMotionThrowStrength * 10.0f + 0.5f);
+            VrMotionThrowStrength = gevrVrClampStep(i - 5, dir, 0, 15) / 10.0f + 0.5f;
+            break;
+        case GEVR_VR_THROWPITCH:   /* -20..+20 degrees, in 2s */
+            i = (s32) ((VrMotionThrowPitch + 20.0f) / 2.0f + 0.5f);
+            VrMotionThrowPitch = gevrVrClampStep(i, dir, 0, 20) * 2.0f - 20.0f;
+            break;
+        case GEVR_VR_THROWGAZE:    /* 0..100%, in 10s */
+            i = (s32) (VrMotionThrowGazeAssist * 10.0f + 0.5f);
+            VrMotionThrowGazeAssist = gevrVrClampStep(i, dir, 0, 10) / 10.0f;
+            break;
+        case GEVR_VR_SCREENSIZE:   /* in 5 degrees */
+            i = (s32) ((VrScreenFov - GEVR_SCREEN_FOV_MIN) / 5.0f + 0.5f);
+            vr_screen_resize(VrScreenDistance,
+                             GEVR_SCREEN_FOV_MIN + gevrVrClampStep(i, dir, 0, (s32) ((GEVR_SCREEN_FOV_MAX - GEVR_SCREEN_FOV_MIN) / 5.0f)) * 5.0f);
+            break;
+        case GEVR_VR_SCREENDIST:   /* in quarter metres */
+            i = (s32) ((VrScreenDistance - GEVR_SCREEN_DIST_MIN) * 4.0f + 0.5f);
+            vr_screen_resize(GEVR_SCREEN_DIST_MIN + gevrVrClampStep(i, dir, 0, (s32) ((GEVR_SCREEN_DIST_MAX - GEVR_SCREEN_DIST_MIN) * 4.0f)) / 4.0f,
+                             VrScreenFov);
+            break;
+        case GEVR_VR_BODIES:
+            for (i = 0; i < 3 && bodies[i] < VrBodiesStay; i++)
+            {
+            }
+            VrBodiesStay = bodies[gevrVrClampStep(i, dir, 0, 3)];
+            break;
+        case GEVR_VR_GUNSIZE:
+            VrGunSizeCheat = gevrVrClampStep(VrGunSizeCheat, dir, 0, 2);
+            break;
     }
+}
+
+/* the rows on the page now: the sections' or the open section's, and Back last */
+static s32 gevrVrCount(void)
+{
+    return (s_gevrVrSection < 0 ? GEVR_VR_SECTIONS : s_gevrVrSections[s_gevrVrSection].count) + 1;
 }
 
 static void gevrVrPageNavigation(void)
 {
+    const s32 count = gevrVrCount();
+    const s32 back = count - 1;
     s32 dir = 0;
 
     if (joyGetButtonsPressedThisFrame(PLAYER_1, U_JPAD) || sub_GAME_7F0A5088())
     {
-        s_gevrVrIndex = s_gevrVrIndex > 0 ? s_gevrVrIndex - 1 : GEVR_VR_ROWS - 1;
+        s_gevrVrIndex = s_gevrVrIndex > 0 ? s_gevrVrIndex - 1 : count - 1;
         disable_watch_stick_y_nav_ready();
     }
     else if (joyGetButtonsPressedThisFrame(PLAYER_1, D_JPAD) || sub_GAME_7F0A50C4())
     {
-        s_gevrVrIndex = s_gevrVrIndex < GEVR_VR_ROWS - 1 ? s_gevrVrIndex + 1 : 0;
+        s_gevrVrIndex = s_gevrVrIndex < count - 1 ? s_gevrVrIndex + 1 : 0;
         disable_watch_stick_y_nav_ready();
     }
 
@@ -4010,10 +4161,27 @@ static void gevrVrPageNavigation(void)
     if (watch_item_is_actively_selected)
     {
         reset_watch_item_is_actively_selected();
-        if (s_gevrVrIndex == GEVR_VR_BACK)
+        if (s_gevrVrIndex == back)
         {
-            s_gevrVrPage = 0;
-            game_options_index = GEVR_VR_ROW;
+            if (s_gevrVrSection >= 0)
+            {
+                /* back to the sections, on the one just left */
+                s_gevrVrIndex = s_gevrVrSection;
+                s_gevrVrSection = -1;
+            }
+            else
+            {
+                s_gevrVrPage = 0;
+                game_options_index = GEVR_VR_ROW;
+            }
+            disable_watch_stick_y_nav_ready();
+            set_controlstick_lr_disabled();
+            return;
+        }
+        if (s_gevrVrSection < 0)
+        {
+            s_gevrVrSection = s_gevrVrIndex;
+            s_gevrVrIndex = 0;
             disable_watch_stick_y_nav_ready();
             set_controlstick_lr_disabled();
             return;
@@ -4021,9 +4189,9 @@ static void gevrVrPageNavigation(void)
         dir = 2;
     }
 
-    if (dir != 0 && s_gevrVrIndex != GEVR_VR_BACK)
+    if (dir != 0 && s_gevrVrSection >= 0 && s_gevrVrIndex != back)
     {
-        gevrVrStep(s_gevrVrIndex, dir);
+        gevrVrStep(s_gevrVrSections[s_gevrVrSection].rows[s_gevrVrIndex], dir);
         set_controlstick_lr_disabled();
         sndPlaySfx(g_musicSfxBufferPtr, OPTION_CHOOSE_SFX, NULL);
         vrSettingsSave();
@@ -4044,29 +4212,48 @@ static Gfx *gevrDrawVrRow(Gfx *gdl, s32 y)
 static Gfx *gevrDrawVrPage(Gfx *gdl)
 {
     char value[24];
+    const s32 count = gevrVrCount();
+    const char *label;
     s32 first;
+    s32 last;
     s32 i;
     s32 y;
     s32 lit;
 
     gdl = microcode_constructor(gdl);
-    gdl = draw_options_labels(gdl, XOFFSET_1, YOFFSET_8, "VR SETTINGS", 0xA0FFA0F0, 0, -1, 0, 0, 0x3000B0, 0);
+    gdl = draw_options_labels(gdl, XOFFSET_1, YOFFSET_8, s_gevrVrSection < 0 ? "VR SETTINGS" : (char *) s_gevrVrSections[s_gevrVrSection].title,
+                              0xA0FFA0F0, 0, -1, 0, 0, 0x3000B0, 0);
 
     first = s_gevrVrIndex - (GEVR_VR_VISIBLE - 1);
+    if (first > count - GEVR_VR_VISIBLE)
+    {
+        first = count - GEVR_VR_VISIBLE;
+    }
     if (first < 0)
     {
         first = 0;
     }
-    if (first > GEVR_VR_ROWS - GEVR_VR_VISIBLE)
-    {
-        first = GEVR_VR_ROWS - GEVR_VR_VISIBLE;
-    }
+    last = first + GEVR_VR_VISIBLE < count ? first + GEVR_VR_VISIBLE : count;
 
-    for (i = first, y = YOFFSET_8 + GEVR_VR_PITCH + 4; i < first + GEVR_VR_VISIBLE; i++, y += GEVR_VR_PITCH)
+    for (i = first, y = YOFFSET_8 + GEVR_VR_PITCH + 4; i < last; i++, y += GEVR_VR_PITCH)
     {
         lit = i == s_gevrVrIndex;
-        gdl = draw_options_labels(gdl, XOFFSET_1, y, (char *) s_gevrVrLabels[i], lit ? 0xA0FFA0F0 : 0xFF00B0, 0, -1, 0, 0, 0x3000B0, 0);
-        gevrVrValueText(i, value);
+        value[0] = '\0';
+        if (i == count - 1)
+        {
+            label = "Back";
+        }
+        else if (s_gevrVrSection < 0)
+        {
+            label = s_gevrVrSections[i].name;
+            sprintf(value, "%s", ">>");
+        }
+        else
+        {
+            label = s_gevrVrLabels[s_gevrVrSections[s_gevrVrSection].rows[i]];
+            gevrVrValueText(s_gevrVrSections[s_gevrVrSection].rows[i], value);
+        }
+        gdl = draw_options_labels(gdl, XOFFSET_1, y, (char *) label, lit ? 0xA0FFA0F0 : 0xFF00B0, 0, -1, 0, 0, 0x3000B0, 0);
         if (value[0] != '\0')
         {
             gdl = draw_options_labels(gdl, 0xD7, y, value, lit ? 0xA0FFA0F0 : 0x00FF00B0, 0, -1, 1, 0, 0x3000B0, 0);
@@ -4078,7 +4265,7 @@ static Gfx *gevrDrawVrPage(Gfx *gdl)
     {
         gdl = draw_options_labels(gdl, 0x10E, YOFFSET_8, "^", 0x00800080, 0, -1, 1, 0, 0x3000B0, 0);
     }
-    if (first + GEVR_VR_VISIBLE < GEVR_VR_ROWS)
+    if (last < count)
     {
         gdl = draw_options_labels(gdl, 0x10E, y - GEVR_VR_PITCH, "v", 0x00800080, 0, -1, 1, 0, 0x3000B0, 0);
     }
