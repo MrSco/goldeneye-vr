@@ -3,45 +3,32 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-04, v0.4.7, versionCode 60, protocol 18.
+**Updated / current build:** 2026-10-05, v0.4.8, versionCode 61, protocol 18.
 The changes below are included in this build. Building it does not publish
 a GitHub release. No game data is shipped.
 
-## v0.4.7
+## v0.4.8
 
-- #115 / #114: co-op clients prepare dead guards' hand weapons for normal
-  drop/detach/activation. Pickups stay individual; live weapon changes stay
-  intact. Native regressions pass; two-headset acceptance is pending.
-- #116: co-op start preserves a local save folder or falls back to folder 1
-  when its picker was bypassed. Missing saves no longer crash Statistics
-  (a16b05b5). The invisible Bunker ending cutscene remains unresolved.
-- #117: optional GE-X 6a KF7 and animations from the player's own patched
-  Perfect Dark USA v1.1 ROM; removable magazines in stereo (rounds retained
-  or returned to reserve when dropped), belt reloads and dual-wield support.
-  Optional GE-X arms wear GoldenEye's live/pause watch. Both toggles off.
-  Separate gun/grip/scope fits; X cycles gun/scope/reload/off-hand modes.
-  Reload grab/belt points, palm/watch and supporting-hand fits are saved.
-- #117: watch VR settings in Comfort, Controls, Gestures, Weapons, Display,
-  Game rules, Mods and fun; includes handedness, screen/passthrough and
-  immediate refresh requests. Texture packs stay in the launcher.
-- #118: Facility command-buffer overruns (4bde84c2, 76717e5d) get larger
-  frame pools, auxiliary allocation guards, completed-list validation and
-  usage telemetry. About 1.13 MiB more of Facility's existing heap;
-  individual command writes remain unchecked. Heavy Quest 2 combat pending.
-- Body retention preserves original script timing and tracked replacement
-  IDs across levels. Optional Fast reinforcements allows multiple living
-  reinforcements, defaults off, works at any body count, and is host-controlled
-  in co-op. 40-guard burst passes across simulated clients.
-- Validation: multiplayer, frame pools, debrief, watch, ammo/input/wrist,
-  pause UI, display/settings, NTSC/PAL reinforcement/baseline and co-op burst
-  checks. ARM64 release builds; combined headset play remains pending.
+- #113: launcher settings persist immediately on change across all tabs
+  and subpages without requiring the player to click START or have a valid
+  ROM loaded. Recovers write permissions if goldeneye-vr.ini is stuck read-only
+  and performs atomic temporary file replacement. Flushes settings on app exit.
+- #121: co-op players can pass through each other in narrow mission starts
+  (such as Facility's vent) without getting trapped. Competitive and world
+  collisions remain intact.
+- Validation: 12 native test suites pass (including co-op collision, read-only
+  INI recovery, multiplayer 64 tests). ARM64 release builds cleanly.
 
-Player guide: [GE-X setup](docs/gex-setup.md). Implementation:
-[GE-X weapons](docs/gex-weapons.md). Full changes and remaining checks:
-[v0.4.7 notes](docs/releases/v0.4.7.md), [co-op notes](docs/issue-94-coop.md),
-[debrief crash](docs/crash-a16b05b5-coop-debrief.md), [Facility crash](docs/crash-4bde84c2.md).
+Full changes and notes: [v0.4.8 notes](docs/releases/v0.4.8.md).
 
 ## Release baseline
+
+**v0.4.7:** GE-X 6a KF7 and animations from patched Perfect Dark ROM; physical
+hand reload in stereo; GE-X arms with live watch; watch VR settings groups;
+co-op gun drops detach on joiners (#114, #115); debrief folder fix (#116);
+Facility frame-buffer overruns fixed (#118); body retention script fade timing
+and replacement IDs preserved; optional host-controlled Fast reinforcements.
+Notes: [v0.4.7](docs/releases/v0.4.7.md).
 
 **v0.4.6:** #95 round 2 (#110): extra launcher cheats, Comfort WHEN HIT,
 Statue/Cradle online, cylinder floor finder for remote bodies/tile recovery,
