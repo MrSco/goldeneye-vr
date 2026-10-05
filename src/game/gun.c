@@ -1050,6 +1050,1366 @@ int getCurrentWeaponOrItem(void)
 }
 
 
+#ifdef GEVR
+#include <stdlib.h>
+#include "gevr_gexmodel.h"
+#include "gevr_pdanim.h"
+#include "system.h"
+extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
+extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
+
+/* each player's hands whose model is GoldenEye X's (gevrGexGunPrepare) */
+static s32 s_gevrGexHand[MAX_PLAYER_COUNT][2];
+
+static void gevrGexHandSet(GUNHAND hand, s32 on)
+{
+    s32 p = get_cur_playernum();
+
+    if (p >= 0 && p < MAX_PLAYER_COUNT && (hand == GUNRIGHT || hand == GUNLEFT))
+    {
+        s_gevrGexHand[p][hand] = on;
+    }
+}
+
+/* the current player's hand holds a GoldenEye X model: gunfire.c poses it,
+ * bondview2.c and input.c give it its own gun fit */
+s32 gevrGexHeld(s32 hand)
+{
+    s32 p = get_cur_playernum();
+
+    return p >= 0 && p < MAX_PLAYER_COUNT && (hand == GUNRIGHT || hand == GUNLEFT) && s_gevrGexHand[p][hand];
+}
+
+/*
+ * GoldenEye X's first-person model for this gun, read from the player's
+ * own data/gex.z64 and rebuilt as a GoldenEye file (gevr_gexmodel.c); the
+ * load below then takes it in place of the cartridge's (ob.c). The KF7
+ * only, for now. The header takes the model's matrix and texture counts;
+ * switch 1, the muzzle flash, is PD part 90. The KF7's magazines take two
+ * slots added past the end of the table, since the gun code uses the
+ * free-looking ones (29-34 are the cuffs bondviewSelectCuff shows one of,
+ * hiding the rest: it hid the magazine): the one in the gun (part 42) and
+ * the one its reload brings in (part 40), hidden at rest as in Perfect Dark.
+ */
+#define GEVR_GEX_SW_ADDED       2
+
+/*
+ * The KF7's textures in GE-X are GoldenEye's, re-encoded: GE-X's number,
+ * then GoldenEye's, paired by their decoded pixels (equal but for 3271,
+ * 2444 and the trigger, 2414, which GE-X re-encoded in another format).
+ * They take GoldenEye's ids so the HD packs apply (gevr_gexmodel.c).
+ */
+static const u16 s_gevrGexKf7Textures[] = {
+    3271, 26,
+    3285, 28,
+    3286, 27,
+    3287, 2673,
+    1014, 2672,
+    1, 1514,
+    3288, 2674,
+    2444, 870,
+    3289, 2675,
+    2414, 887,
+    3290, 2120,
+    3291, 2121,
+    3292, 2122,
+    3293, 2123,
+    3294, 2124,
+    3295, 2125,
+    3296, 2126,
+    3297, 2127,
+    0
+};
+
+static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
+{
+    s32 parts[64];
+    u32 len = 0;
+    u16 mtx = 0, tex = 0;
+    s32 i;
+    const s32 n = hdr->numSwitches;
+
+    if (!VrGexGuns || item != ITEM_AK47 || n + GEVR_GEX_SW_ADDED > 64)
+    {
+        return;
+    }
+    for (i = 0; i < 64; i++)
+    {
+        parts[i] = -1;
+    }
+    if (n > 1)
+    {
+        parts[1] = 90;
+    }
+    parts[n] = 42;
+    parts[n + 1] = 40;
+    gevrGexPendingFile = gevrGexBuildModel("Gak47Z", n + GEVR_GEX_SW_ADDED, parts, s_gevrGexKf7Textures, &len, &mtx, &tex);
+    gevrGexHandSet(hand, gevrGexPendingFile != NULL);
+    if (gevrGexPendingFile != NULL)
+    {
+        gevrGexPendingLen = len;
+        hdr->numSwitches = n + GEVR_GEX_SW_ADDED;
+        hdr->numMatrices = mtx;
+        hdr->numtextures = tex;
+        g_gevrHandPatchSkip = TRUE;
+    }
+}
+
+/*
+ * A GoldenEye X gun plays Perfect Dark's animations (docs/gex-weapons.md;
+ * tools/gex/gexguns.py lists each gun's scripts), driven by this hand's
+ * state:
+ *  - the reload plays its reload animation (the KF7's 1018, 90 frames)
+ *    across GoldenEye's reload, with its ammo frame (50) where GoldenEye
+ *    moves the ammo (the raise's start), so the game's timing stands; the
+ *    magazines swap on the script's frames (18 out, 50 in);
+ *  - a burst plays the fire animation (1017) once from the trigger, a
+ *    frame a 60th, as Perfect Dark starts it per attack
+ *    (bgunTickIncAttackingShoot);
+ *  - at rest the gun holds the fire animation's first frame.
+ * GoldenEye's own reload tilt stands down for it (gunfire.c).
+ */
+#define GEVR_GEX_KF7_FIRE_ANIM    1017
+#define GEVR_GEX_KF7_RELOAD_ANIM  1018
+#define GEVR_GEX_KF7_MAG_OUT      18.0f
+#define GEVR_GEX_KF7_MAG_IN       50.0f
+
+extern f32 gevrReloadPhase(GUNHAND hand);   /* gunfire.c */
+
+/* each player's hands' fire animation frame, or -1 when it is not playing */
+static f32 s_gevrGexFire[MAX_PLAYER_COUNT][2] = {
+    { -1.0f, -1.0f }, { -1.0f, -1.0f }, { -1.0f, -1.0f }, { -1.0f, -1.0f },
+#if MAX_PLAYER_COUNT > 4
+    { -1.0f, -1.0f }, { -1.0f, -1.0f }, { -1.0f, -1.0f }, { -1.0f, -1.0f },
+#endif
+};
+static s32 s_gevrGexFiring[MAX_PLAYER_COUNT][2];
+static s32 s_gevrGexReloading[MAX_PLAYER_COUNT][2];
+
+static void gevrGexFallTick(s32 hand);   /* a dropped magazine's clock, below */
+
+/* gunfire.c gunTickHandState, each tick: the fire animation's clock */
+void gevrGexTick(GUNHAND hand, s32 firing)
+{
+    s32 p = get_cur_playernum();
+    f32 *fire;
+
+    if (p < 0 || p >= MAX_PLAYER_COUNT || (hand != GUNRIGHT && hand != GUNLEFT))
+    {
+        return;
+    }
+    fire = &s_gevrGexFire[p][hand];
+    if (!gevrGexHeld(hand))
+    {
+        *fire = -1.0f;
+    }
+    else if (firing && !s_gevrGexFiring[p][hand])
+    {
+        *fire = 0.0f;
+    }
+    else if (*fire >= 0.0f)
+    {
+        *fire += g_ClockTimer;
+        if (*fire >= gevrPdAnimNumFrames(GEVR_GEX_KF7_FIRE_ANIM) - 1)
+        {
+            *fire = -1.0f;
+        }
+    }
+    s_gevrGexFiring[p][hand] = firing;
+    gevrGexFallTick(hand);
+}
+
+/* a joint at a fractional frame, blended between the two either side as
+ * Perfect Dark's models are (rotations the short way round) */
+static void gevrGexAnimPart(s32 anim, f32 frame, s32 part, f32 rot[3], f32 trans[3])
+{
+    s32 f0 = (s32) frame;
+    f32 t = frame - f0;
+    f32 rot1[3], trans1[3], scale[3];
+    s32 i;
+
+    gevrPdAnimPart(anim, f0, part, rot, trans, scale);
+    if (t <= 0.0f || f0 + 1 >= gevrPdAnimNumFrames(anim))
+    {
+        return;
+    }
+    gevrPdAnimPart(anim, f0 + 1, part, rot1, trans1, scale);
+    for (i = 0; i < 3; i++)
+    {
+        f32 d = rot1[i] - rot[i];
+
+        if (d > M_PI_F)
+        {
+            d -= 2.0f * M_PI_F;
+        }
+        else if (d < -M_PI_F)
+        {
+            d += 2.0f * M_PI_F;
+        }
+        rot[i] += d * t;
+        trans[i] += (trans1[i] - trans[i]) * t;
+    }
+}
+
+/* each joint from its parent (the description below), the root from base */
+static void gevrGexPoseWalk(ModelFileHeader *hdr, const Mtxf *base, s32 anim, f32 frame, Mtxf *rwmtx)
+{
+    ModelNode *node = hdr->RootNode;
+    Mtxf offset;
+
+    while (node != NULL)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
+        {
+            ModelRoData_GroupRecord *group = &node->Data->Group;
+            ModelNode *up = node->Parent;
+            const Mtxf *parent = base;
+
+            while (up != NULL && (up->Opcode & 0xff) != MODELNODE_OPCODE_GROUP)
+            {
+                up = up->Parent;
+            }
+            if (up != NULL && up->Data->Group.MatrixID0 < hdr->numMatrices)
+            {
+                parent = &rwmtx[up->Data->Group.MatrixID0];
+            }
+            if (group->MatrixID0 >= 0 && group->MatrixID0 < hdr->numMatrices)
+            {
+                f32 rot[3], trans[3], pos[3];
+
+                gevrGexAnimPart(anim, frame, group->JointID, rot, trans);
+                if (up == NULL)
+                {
+                    pos[0] = trans[0];
+                    pos[1] = trans[1];
+                    pos[2] = trans[2];
+                }
+                else
+                {
+                    pos[0] = trans[0] + group->Origin.x;
+                    pos[1] = trans[1] + group->Origin.y;
+                    pos[2] = trans[2] + group->Origin.z;
+                }
+                gevrPdMtxRotTrans(rot, pos, offset.m);
+                matrix_4x4_multiply((Mtxf *) parent, &offset, &rwmtx[group->MatrixID0]);
+            }
+        }
+
+        if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+            node = node != NULL ? node->Next : NULL;
+        }
+    }
+}
+
+/*
+ * On the screen (user: it did not look right) the gun body sits where
+ * GoldenEye's KF7 did. GE-X's KF7 is GoldenEye's mesh on Perfect Dark's
+ * skeleton: its vertices are GoldenEye's in the gun joint's frame (33),
+ * 22 units lower (measured from both ROMs), where GoldenEye drew them in
+ * the gun matrix's own. So the root goes where that joint, at rest, lands
+ * on the gun matrix 22 units up: the gun matrix, the 22 units, then the
+ * rest pose's joint undone. The animation then moves the gun from there,
+ * hands and all. The headset keeps the root on the controller, as
+ * Perfect Dark VR does, where Gun fit places it (the user fitted it so).
+ */
+#define GEVR_GEX_KF7_GUN_JOINT  33
+#define GEVR_GEX_KF7_GE_DY      22.0f
+
+static void gevrGexScreenAnchor(ModelFileHeader *hdr, Mtxf *anchor)
+{
+    static Mtxf rest[64];
+    Mtxf ident, up, inv;
+    const Mtxf *g;
+    s32 i, j;
+
+    matrix_4x4_set_identity(&ident);
+    gevrGexPoseWalk(hdr, &ident, GEVR_GEX_KF7_FIRE_ANIM, 0.0f, rest);
+    g = &rest[GEVR_GEX_KF7_GUN_JOINT];
+
+    /* the joint undone: rotation transposed, translation turned back */
+    matrix_4x4_set_identity(&inv);
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            inv.m[i][j] = g->m[j][i];
+        }
+    }
+    for (j = 0; j < 3; j++)
+    {
+        inv.m[3][j] = -(g->m[3][0] * g->m[j][0] + g->m[3][1] * g->m[j][1] + g->m[3][2] * g->m[j][2]);
+    }
+    matrix_4x4_set_identity(&up);
+    up.m[3][1] = GEVR_GEX_KF7_GE_DY;
+    matrix_4x4_multiply(&up, &inv, anchor);
+}
+
+/*
+ * A GE-X gun's joints. GoldenEye's gun code sets each of its own models'
+ * few matrices by hand (gunfire.c); Perfect Dark derives every joint from
+ * its parent, its position record and the animation playing (pdvr
+ * model.c modelPositionJointUsingVecRot): once the gun code has set the
+ * gun's own matrix (rwmtx[0]), each group's matrix is its parent group's
+ * (or that gun matrix, for the root) times the animation's rotation at
+ * the joint's offset plus the animation's translation; the root takes the
+ * animation's translation alone.
+ */
+/* the magazines: the one in the gun and the one in the left hand */
+static void gevrGexShowMagazines(ModelFileHeader *hdr, Model *model, s32 inGun, s32 inHand)
+{
+    s32 i;
+
+    for (i = 0; i < GEVR_GEX_SW_ADDED; i++)
+    {
+        ModelNode *sw = hdr->Switches[hdr->numSwitches - GEVR_GEX_SW_ADDED + i];
+        s32 *visible = sw != NULL ? (s32 *) modelGetNodeRwData(model, sw) : NULL;
+
+        if (visible != NULL)
+        {
+            *visible = i == 1 ? inHand : inGun;
+        }
+    }
+}
+
+/* every joint from the gun matrix (rwmtx[0]), anchored as on the screen or not */
+static void gevrGexPoseFrom(ModelFileHeader *hdr, Mtxf *rwmtx, s32 anchored, s32 anim, f32 frame)
+{
+    Mtxf base;
+
+    matrix_4x4_copy(&rwmtx[0], &base);
+    if (anchored && hdr->numMatrices > GEVR_GEX_KF7_GUN_JOINT && hdr->numMatrices <= 64)
+    {
+        Mtxf anchor;
+
+        gevrGexScreenAnchor(hdr, &anchor);
+        matrix_4x4_multiply(&rwmtx[0], &anchor, &base);
+    }
+    gevrGexPoseWalk(hdr, &base, anim, frame, rwmtx);
+}
+
+/* gunfire.c, the watch's weapon pages: at rest, where GoldenEye's KF7 shows */
+void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
+{
+    gevrGexShowMagazines(hdr, model, TRUE, FALSE);
+    gevrGexPoseFrom(hdr, rwmtx, TRUE, GEVR_GEX_KF7_FIRE_ANIM, 0.0f);
+}
+
+/*
+ * The headset's reload by hand (bondview2.c gevrGexMagState; user): the
+ * player does the magazine's moves, so nothing animates. The gun stays at
+ * rest, its magazine shown where it is - in the gun, in the left hand, or
+ * gone - and while the off hand holds it, GE-X's left hand is the
+ * player's, in its pose holding the magazine (the reload animation's
+ * GEVR_GEX_HOLD_FRAME; joint 40, the magazine, hangs from the hand). The
+ * magazine turns with the off hand as the gun's own is turned in the gun
+ * (user: it followed the gun and would not line up), so with the hands
+ * held alike it lines up with the well; the hand is placed round it, and
+ * all moved so its palm, GEVR_GEX_PALM_Z along the hand from the wrist,
+ * is on the off hand's grip, as Perfect Dark VR moves its left hand to the
+ * real one (vrApplyReloadOffset).
+ */
+#define GEVR_GEX_RHAND_ARM   1    /* the right forearm: GE-X's sleeve (Ghand_jowetsuitZ) */
+#define GEVR_GEX_RHAND_WRIST 2
+#define GEVR_GEX_LHAND_ARM   17
+#define GEVR_GEX_LHAND_FIRST 17
+#define GEVR_GEX_LHAND_LAST  32
+#define GEVR_GEX_LHAND_WRIST 18
+#define GEVR_GEX_NEWMAG_JOINT 40
+#define GEVR_GEX_PALM_Z      50.0f
+#define GEVR_GEX_HOLD_FRAME  40.0f
+#define GEVR_GEX_MAG_JOINT   39
+
+/* the magazine's centre and the middle of its top, in its joint's frame
+ * (its mesh: x -12..13, y -236..-7, z -5..151; the top is at the well) */
+static const f32 s_gevrGexMagCentre[3] = { 0.0f, -121.0f, 73.0f };
+static const f32 s_gevrGexMagTop[3] = { 0.0f, -10.0f, 73.0f };
+
+/* the right gun's, from its last draw, for bondview2.c */
+static f32 s_gevrGexMagAt[3], s_gevrGexWellAt[3], s_gevrGexHeldAt[3];
+static s32 s_gevrGexMagPointsValid;   /* 1 the gun's magazine and well, 2 the held one */
+
+/*
+ * A magazine that leaves the gun by button, or the hand when let go,
+ * falls (user: it just vanished): from where it was last drawn, taken
+ * into the world as the casings' throw matrix is (gunfire.c: view units
+ * over D_800364CC, then view to world), it drops under gravity (980
+ * world units, cm, a second squared) until it passes the floor or a
+ * second is up, drawn by its joint through the world-to-view matrix each
+ * frame, so it falls in the room, not with the head.
+ */
+extern f32 D_800364CC;
+
+static Mtxf s_gevrGexLastMag[2], s_gevrGexLastHeld;   /* joint 39 per gun hand, joint 40 */
+static s32 s_gevrGexLastValid[2], s_gevrGexLastHeldValid;
+
+static struct
+{
+    s32 on;
+    s32 joint;
+    f32 t;        /* seconds */
+    Mtxf world;
+} s_gevrGexFall[2];
+
+static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv);
+
+void gevrGexMagazineFalls(s32 hand, s32 fromHand)
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    const Mtxf *last = fromHand ? &s_gevrGexLastHeld : &s_gevrGexLastMag[hand];
+    Mtxf unit;
+    f32 inv = D_800364CC > 1e-6f ? 1.0f / D_800364CC : 1.0f;
+    s32 r, c;
+
+    if (hand < 0 || hand > 1 || v2w == NULL || !(fromHand ? s_gevrGexLastHeldValid : s_gevrGexLastValid[hand]))
+    {
+        return;
+    }
+    for (r = 0; r < 4; r++)
+    {
+        for (c = 0; c < 3; c++)
+        {
+            unit.m[r][c] = last->m[r][c] * inv;
+        }
+        unit.m[r][3] = r == 3 ? 1.0f : 0.0f;
+    }
+    matrix_4x4_multiply(v2w, &unit, &s_gevrGexFall[hand].world);
+    s_gevrGexFall[hand].on = TRUE;
+    s_gevrGexFall[hand].joint = fromHand ? 40 : 39;
+    s_gevrGexFall[hand].t = 0.0f;
+}
+
+static void gevrGexFallTick(s32 hand)
+{
+    if (hand >= 0 && hand < 2 && s_gevrGexFall[hand].on)
+    {
+        s_gevrGexFall[hand].t += g_ClockTimer / 60.0f;
+    }
+}
+
+/* the falling magazine's joint this frame, in view units; FALSE once it is gone */
+static s32 gevrGexFallAt(s32 hand, Mtxf *out)
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    Mtxf world, w2v;
+    s32 r, c;
+
+    if (!s_gevrGexFall[hand].on || v2w == NULL)
+    {
+        return FALSE;
+    }
+    world = s_gevrGexFall[hand].world;
+    world.m[3][1] -= 490.0f * s_gevrGexFall[hand].t * s_gevrGexFall[hand].t;
+    if (s_gevrGexFall[hand].t > 1.0f || world.m[3][1] < bondviewGetPlayerStanHeight(g_CurrentPlayer))
+    {
+        s_gevrGexFall[hand].on = FALSE;
+        return FALSE;
+    }
+    gevrGexRigidInverse(v2w, &w2v);
+    matrix_4x4_multiply(&w2v, &world, out);
+    for (r = 0; r < 4; r++)
+    {
+        for (c = 0; c < 3; c++)
+        {
+            out->m[r][c] *= D_800364CC;
+        }
+    }
+    return TRUE;
+}
+
+static void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3])
+{
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = local[0] * m->m[0][i] + local[1] * m->m[1][i] + local[2] * m->m[2][i] + m->m[3][i];
+    }
+}
+
+s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3])
+{
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        centre[i] = s_gevrGexMagAt[i];
+        well[i] = s_gevrGexWellAt[i];
+        held[i] = s_gevrGexHeldAt[i];
+    }
+    return s_gevrGexMagPointsValid;
+}
+
+/* a joint's matrix without scale, undone: rotation transposed, translation turned back */
+static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv)
+{
+    s32 i, j;
+
+    matrix_4x4_set_identity(inv);
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            inv->m[i][j] = g->m[j][i];
+        }
+    }
+    for (j = 0; j < 3; j++)
+    {
+        inv->m[3][j] = -(g->m[3][0] * g->m[j][0] + g->m[3][1] * g->m[j][1] + g->m[3][2] * g->m[j][2]);
+    }
+}
+
+/* bondview2.c gevrGexMagState */
+enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT };
+extern s32 gevrGexMagState(s32 hand, f32 off[3]);
+
+static void gevrGexLeftHandTo(ModelFileHeader *hdr, Mtxf *rwmtx, const f32 off[3])
+{
+    extern s32 gevrStereoOffHandMatrix(Mtxf *out);   /* bondview2.c */
+    extern s32 gevrGexHeldPalm(f32 out[3]);           /* bondview2.c */
+    static Mtxf rest[64], held[64];
+    Mtxf ident, goff, mag, inv, rel;
+    f32 palm[3], d[3], at[3];
+    const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+    s32 i, j;
+
+    if (hdr->numMatrices <= GEVR_GEX_NEWMAG_JOINT || hdr->numMatrices > 64 || !gevrStereoOffHandMatrix(&goff))
+    {
+        return;
+    }
+    /* each joint from the gun's own frame: at rest, and holding the magazine */
+    matrix_4x4_set_identity(&ident);
+    gevrGexPoseWalk(hdr, &ident, GEVR_GEX_KF7_FIRE_ANIM, 0.0f, rest);
+    gevrGexPoseWalk(hdr, &ident, GEVR_GEX_KF7_RELOAD_ANIM, GEVR_GEX_HOLD_FRAME, held);
+
+    /* the magazine as the gun's own sits in a gun held by the off hand */
+    matrix_4x4_multiply(&goff, &rest[GEVR_GEX_MAG_JOINT], &mag);
+    rwmtx[GEVR_GEX_NEWMAG_JOINT] = mag;
+    /* the hand round it, as it holds it */
+    gevrGexRigidInverse(&held[GEVR_GEX_NEWMAG_JOINT], &inv);
+    for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_LHAND_LAST; j++)
+    {
+        matrix_4x4_multiply(&inv, &held[j], &rel);
+        matrix_4x4_multiply(&mag, &rel, &rwmtx[j]);
+    }
+    /* all of it moved so the palm is where the player set it (Gun fit's
+     * reload mode: VrGexHeldMag from the off hand's grip), else on the grip */
+    if (!gevrGexHeldPalm(at))
+    {
+        for (i = 0; i < 3; i++)
+        {
+            at[i] = off[i];
+        }
+    }
+    gevrGexMtxPoint(&rwmtx[GEVR_GEX_LHAND_WRIST], palmLocal, palm);
+    for (i = 0; i < 3; i++)
+    {
+        d[i] = at[i] - palm[i];
+    }
+    for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_NEWMAG_JOINT; j++)
+    {
+        if (j <= GEVR_GEX_LHAND_LAST || j == GEVR_GEX_NEWMAG_JOINT)
+        {
+            for (i = 0; i < 3; i++)
+            {
+                rwmtx[j].m[3][i] += d[i];
+            }
+        }
+    }
+}
+
+/*
+ * The headset's arms (user: one arm look and size for every hand, the gun
+ * hands keep their animated fingers, and the watch must not shrink - its
+ * health, armor and radar would be too small to read): with VrGexArms on,
+ * GoldenEye X's own arms are every arm, as GE-X made them, and GoldenEye's
+ * watch is drawn at its own size on the left one's wrist, at the end of its
+ * sleeve (bondview2.c gevrRenderGexWatch): the two-handed grip hand, the
+ * hand holding a magazine, the empty off hand, and a left gun's mirrored
+ * hand. Holding the gun with both hands, GE-X's left hand grips it where
+ * its animation has it, in place of the grip hand.
+ */
+#define GEVR_GEX_CUFF_Z 330.0f   /* where the hand model's sleeves end, on their arm joints' z */
+extern int VrGexArms;   /* vr_settings_defaults.c */
+static void gevrGexOffCache(ModelFileHeader *gunhdr);
+extern s32 gevrStereoTwoHandGrip(void);   /* bondview2.c */
+extern float VrGexWatch[4];   /* vr_settings_defaults.c: the watch's place and size (Gun fit) */
+
+static struct
+{
+    s32 on;
+    f32 pos[3], x[3], y[3];   /* the watch arm's wrist: its place, toward the hand, the back of the wrist */
+} s_gevrGexWatch[2];          /* per gun hand */
+
+static s32 gevrGexArmsOn(void)
+{
+    extern s32 g_gevrStereo;
+
+    return g_gevrStereo && VrGexArms;
+}
+
+/* gunfire.c, bondview2.c: GE-X's left hand holds the gun with both hands */
+s32 gevrGexLeftHandShown(void)
+{
+    return gevrGexArmsOn() && gevrGexHeld(GUNRIGHT) && gevrStereoTwoHandGrip();
+}
+
+/*
+ * The watch on a left forearm joint (+Z from the elbow toward the hand, +Y
+ * its back): from its axis where the sleeve ends, the fitted cm ahead, up
+ * and out. The joint's rows carry the gun's size, 0.085 cm a unit at size 1
+ * (bondview2.c GEVR_VIEWMODEL_CM x 0.1), which turns the cm into its units.
+ */
+static s32 gevrGexWatchFrame(const Mtxf *forearm, f32 pos[3], f32 x[3], f32 y[3])
+{
+    const f32 *t = VrGexWatch;
+    const f32 cuff[3] = { 0.0f, 0.0f, GEVR_GEX_CUFF_Z };
+    f32 lx = 0.0f, ly = 0.0f, z[3], at[3], u;
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        lx += forearm->m[2][i] * forearm->m[2][i];
+        ly += forearm->m[1][i] * forearm->m[1][i];
+    }
+    lx = sqrtf(lx);
+    ly = sqrtf(ly);
+    if (lx < 1e-6f || ly < 1e-6f)
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = forearm->m[2][i] / lx;
+        y[i] = forearm->m[1][i] / ly;
+    }
+    z[0] = x[1] * y[2] - x[2] * y[1];
+    z[1] = x[2] * y[0] - x[0] * y[2];
+    z[2] = x[0] * y[1] - x[1] * y[0];
+    gevrGexMtxPoint(forearm, cuff, at);
+    u = lx / 0.085f;   /* units a cm */
+    for (i = 0; i < 3; i++)
+    {
+        pos[i] = at[i] + (t[0] * x[i] + t[1] * y[i] + t[2] * z[i]) * u;
+    }
+    return TRUE;
+}
+
+static void gevrGexWatchAt(s32 hand, const Mtxf *forearm)
+{
+    s_gevrGexWatch[hand].on = gevrGexWatchFrame(forearm, s_gevrGexWatch[hand].pos, s_gevrGexWatch[hand].x,
+                                                s_gevrGexWatch[hand].y);
+}
+
+/*
+ * Where GE-X's left hand holds the gun with both hands (user: the hold was
+ * taken too near the magazine): its palm as the gun's animation has it,
+ * moved VrGexForeHold cm forward, up and out along the gun (Gun fit's grip
+ * mode), which moves the drawn hand too. bondview2.c gevrTwoHandBarrel
+ * takes hold there.
+ */
+extern float VrGexForeHold[3];   /* vr_settings_defaults.c */
+static f32 s_gevrGexForeAt[3], s_gevrGexForeOff[3];
+static s32 s_gevrGexForeValid;
+
+static void gevrGexForeFrom(const Mtxf *rwmtx)
+{
+    const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+    const Mtxf *g = &rwmtx[GEVR_GEX_KF7_GUN_JOINT];
+    f32 l[3], u;
+    s32 i, r;
+
+    for (r = 0; r < 3; r++)
+    {
+        l[r] = sqrtf(g->m[r][0] * g->m[r][0] + g->m[r][1] * g->m[r][1] + g->m[r][2] * g->m[r][2]);
+        if (l[r] < 1e-6f)
+        {
+            s_gevrGexForeValid = FALSE;
+            return;
+        }
+    }
+    u = l[2] / 0.085f;   /* units a cm */
+    gevrGexMtxPoint(&rwmtx[GEVR_GEX_LHAND_WRIST], palmLocal, s_gevrGexForeAt);
+    for (i = 0; i < 3; i++)
+    {
+        s_gevrGexForeOff[i] = (VrGexForeHold[0] * g->m[2][i] / l[2] + VrGexForeHold[1] * g->m[1][i] / l[1]
+                              + VrGexForeHold[2] * g->m[0][i] / l[0]) * u;
+        s_gevrGexForeAt[i] += s_gevrGexForeOff[i];
+    }
+    s_gevrGexForeValid = TRUE;
+}
+
+/* bondview2.c: where GE-X's left hand holds the gun, camera space */
+s32 gevrGexForePoint(f32 out[3])
+{
+    s32 i;
+
+    if (!s_gevrGexForeValid || !gevrGexHeld(GUNRIGHT))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = s_gevrGexForeAt[i];
+    }
+    return TRUE;
+}
+
+/*
+ * The off hand, empty (user: GE-X's hand for the off hand all the time,
+ * so changing grips does not jar): GE-X's left hand and arm on the off
+ * controller as its right hand sits on the gun, mirrored, its palm where
+ * the player set the held magazine's (VrGexHeldMag, so taking one does
+ * not move it; Gun fit's off hand mode), with the watch. The hands are
+ * drawn with the gun's skeleton (Perfect Dark's way; the hand model's own
+ * puts the forearm elsewhere), so the KF7's resting pose is kept from its
+ * last draw: the right wrist in the gun's frame, and the left hand's
+ * joints from its wrist. The watch arm stays for the pause's watch and
+ * until a GE-X gun has been held.
+ */
+static Mtxf s_gevrGexOffR2;
+static Mtxf s_gevrGexOffChain[GEVR_GEX_LHAND_LAST + 1];
+static ModelNode *s_gevrGexOffFrom;
+
+static void gevrGexOffCache(ModelFileHeader *gunhdr)
+{
+    static Mtxf rest[64];
+    Mtxf ident, inv;
+    s32 j;
+
+    if (gunhdr->RootNode == s_gevrGexOffFrom || gunhdr->numMatrices <= GEVR_GEX_LHAND_LAST || gunhdr->numMatrices > 64)
+    {
+        return;
+    }
+    matrix_4x4_set_identity(&ident);
+    gevrGexPoseWalk(gunhdr, &ident, GEVR_GEX_KF7_FIRE_ANIM, 0.0f, rest);
+    s_gevrGexOffR2 = rest[GEVR_GEX_RHAND_WRIST];
+    gevrGexRigidInverse(&rest[GEVR_GEX_LHAND_WRIST], &inv);
+    for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_LHAND_LAST; j++)
+    {
+        matrix_4x4_multiply(&inv, &rest[j], &s_gevrGexOffChain[j]);
+    }
+    s_gevrGexOffFrom = gunhdr->RootNode;
+}
+
+/* the empty off hand's n joints (the right hand's on its wrist), its palm where
+ * the held magazine's goes; FALSE until a GE-X gun has been posed */
+static s32 gevrGexOffHandPose(Mtxf *m, s32 n)
+{
+    extern s32 gevrStereoOffHandMatrix(Mtxf *out);   /* bondview2.c */
+    extern s32 gevrGexHeldPalm(f32 out[3]);           /* bondview2.c */
+    Mtxf goff, mx, a, b, wrist;
+    f32 palm[3], at[3], d[3];
+    const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+    s32 i, j;
+
+    if (s_gevrGexOffFrom == NULL || n <= GEVR_GEX_LHAND_LAST || !gevrStereoOffHandMatrix(&goff))
+    {
+        return FALSE;
+    }
+    /* the left wrist: the right one on the gun, mirrored into the off hand */
+    matrix_4x4_set_identity(&mx);
+    mx.m[0][0] = -1.0f;
+    matrix_4x4_multiply(&mx, &s_gevrGexOffR2, &a);
+    matrix_4x4_multiply(&a, &mx, &b);
+    matrix_4x4_multiply(&goff, &b, &wrist);
+    for (j = 0; j < n; j++)
+    {
+        if (j >= GEVR_GEX_LHAND_FIRST && j <= GEVR_GEX_LHAND_LAST)
+        {
+            matrix_4x4_multiply(&wrist, &s_gevrGexOffChain[j], &m[j]);
+        }
+        else
+        {
+            m[j] = wrist;   /* the right hand's joints: its mesh is switched off */
+        }
+    }
+    /* its palm where the held magazine's is */
+    if (gevrGexHeldPalm(at))
+    {
+        gevrGexMtxPoint(&m[GEVR_GEX_LHAND_WRIST], palmLocal, palm);
+        for (i = 0; i < 3; i++)
+        {
+            d[i] = at[i] - palm[i];
+        }
+        for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_LHAND_LAST; j++)
+        {
+            for (i = 0; i < 3; i++)
+            {
+                m[j].m[3][i] += d[i];
+            }
+        }
+    }
+    return TRUE;
+}
+
+/*
+ * Taking a magazine, the off hand's arm stays where the empty hand's was
+ * (user: the hand may snap round it, the arm should not jump): the hand
+ * holding it moves so its wrist is the empty hand's, and its forearm is
+ * the empty hand's.
+ */
+static Mtxf s_gevrGexOffEmpty[GEVR_GEX_LHAND_LAST + 1];
+
+static s32 gevrGexOffSteady(ModelFileHeader *hdr, Mtxf *rwmtx)
+{
+    f32 d[3];
+    s32 i, j;
+
+    gevrGexOffCache(hdr);
+    if (!gevrGexOffHandPose(s_gevrGexOffEmpty, GEVR_GEX_LHAND_LAST + 1))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        d[i] = s_gevrGexOffEmpty[GEVR_GEX_LHAND_WRIST].m[3][i] - rwmtx[GEVR_GEX_LHAND_WRIST].m[3][i];
+    }
+    for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_NEWMAG_JOINT; j++)
+    {
+        if (j <= GEVR_GEX_LHAND_LAST || j == GEVR_GEX_NEWMAG_JOINT)
+        {
+            for (i = 0; i < 3; i++)
+            {
+                rwmtx[j].m[3][i] += d[i];
+            }
+        }
+    }
+    rwmtx[GEVR_GEX_LHAND_ARM] = s_gevrGexOffEmpty[GEVR_GEX_LHAND_ARM];
+    return TRUE;
+}
+
+/* gunfire.c, after the hands: the watch where this frame's pose put it */
+Gfx *gevrGexDrawWatch(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
+{
+    extern Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], const f32 x[3],
+                                   const f32 y[3]);   /* bondview2.c */
+
+    if ((hand == GUNRIGHT || hand == GUNLEFT) && s_gevrGexWatch[hand].on)
+    {
+        gdl = gevrRenderGexWatch(gdl, templ, s_gevrGexWatch[hand].pos, s_gevrGexWatch[hand].x, s_gevrGexWatch[hand].y);
+    }
+    return gdl;
+}
+
+void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND hand)
+{
+    extern s32 g_gevrStereo;
+    f32 off[3];
+    const s32 mag = g_gevrStereo ? gevrGexMagState(hand, off) : GEVR_GEXMAG_IN;
+    const s32 offHolds = hand == GUNRIGHT && (mag == GEVR_GEXMAG_GRIPPED || mag == GEVR_GEXMAG_INHAND);
+    s32 p = get_cur_playernum();
+    f32 phase = gevrReloadPhase(hand);
+    f32 fire = (p >= 0 && p < MAX_PLAYER_COUNT) ? s_gevrGexFire[p][hand] : -1.0f;
+    s32 anim = GEVR_GEX_KF7_FIRE_ANIM;
+    f32 frame = 0.0f;
+    s32 swapped = FALSE;
+
+    if (phase >= 0.0f)
+    {
+        /* lowering and swapping up to the ammo frame, raising after it */
+        f32 last = (f32) (gevrPdAnimNumFrames(GEVR_GEX_KF7_RELOAD_ANIM) - 1);
+
+        anim = GEVR_GEX_KF7_RELOAD_ANIM;
+        frame = phase < 2.0f ? phase * 0.5f * GEVR_GEX_KF7_MAG_IN
+                             : GEVR_GEX_KF7_MAG_IN + (phase - 2.0f) * (last - GEVR_GEX_KF7_MAG_IN);
+        swapped = frame >= GEVR_GEX_KF7_MAG_OUT && frame < GEVR_GEX_KF7_MAG_IN;
+    }
+    else if (fire >= 0.0f)
+    {
+        frame = fire;
+    }
+    if (p >= 0 && p < MAX_PLAYER_COUNT && (phase >= 0.0f) != s_gevrGexReloading[p][hand])
+    {
+        s_gevrGexReloading[p][hand] = phase >= 0.0f;
+        sysLogPrintf(LOG_NOTE, "gexanim: hand %d reload %s", hand, phase >= 0.0f ? "starts" : "ends");
+    }
+
+    s32 inGun = mag == GEVR_GEXMAG_IN ? !swapped : mag == GEVR_GEXMAG_GRIPPED;
+    s32 inHand = mag == GEVR_GEXMAG_IN ? swapped : (mag == GEVR_GEXMAG_INHAND && hand == GUNRIGHT);
+    s32 offSteady = FALSE;
+    Mtxf falling;
+
+    if (offHolds && s_gevrGexFall[hand].on && s_gevrGexFall[hand].joint == 40)
+    {
+        s_gevrGexFall[hand].on = FALSE;   /* the hand has a new one: the old one's joint is its */
+    }
+    gevrGexPoseFrom(hdr, rwmtx, !g_gevrStereo, anim, frame);
+    if (g_gevrStereo && hand == GUNRIGHT && hdr->numMatrices > GEVR_GEX_KF7_GUN_JOINT)
+    {
+        gevrGexForeFrom(rwmtx);   /* before a magazine in the hand moves the left hand */
+    }
+    if (offHolds)
+    {
+        gevrGexLeftHandTo(hdr, rwmtx, off);
+        offSteady = gevrGexArmsOn() && gevrGexOffSteady(hdr, rwmtx);
+    }
+    if (g_gevrStereo && hdr->numMatrices > GEVR_GEX_NEWMAG_JOINT && (hand == GUNRIGHT || hand == GUNLEFT))
+    {
+        s_gevrGexLastMag[hand] = rwmtx[GEVR_GEX_MAG_JOINT];
+        s_gevrGexLastValid[hand] = TRUE;
+        if (hand == GUNRIGHT && offHolds)
+        {
+            s_gevrGexLastHeld = rwmtx[GEVR_GEX_NEWMAG_JOINT];
+            s_gevrGexLastHeldValid = TRUE;
+        }
+        if (gevrGexFallAt(hand, &falling))
+        {
+            rwmtx[s_gevrGexFall[hand].joint] = falling;
+            if (s_gevrGexFall[hand].joint == 40)
+            {
+                inHand = TRUE;
+            }
+            else
+            {
+                inGun = TRUE;
+            }
+        }
+    }
+    gevrGexShowMagazines(hdr, model, inGun, inHand);
+
+    /* the headset's arms: the watch on the left one (a left gun's hand is mirrored into a left) */
+    if (hand == GUNRIGHT || hand == GUNLEFT)
+    {
+        s_gevrGexWatch[hand].on = FALSE;
+        if (gevrGexArmsOn() && hdr->numMatrices > GEVR_GEX_LHAND_WRIST)
+        {
+            if (hand == GUNRIGHT && !offHolds && s_gevrGexForeValid && gevrGexLeftHandShown())
+            {
+                /* the holding hand where Gun fit's grip mode put it */
+                s32 i, j;
+
+                for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_LHAND_LAST; j++)
+                {
+                    for (i = 0; i < 3; i++)
+                    {
+                        rwmtx[j].m[3][i] += s_gevrGexForeOff[i];
+                    }
+                }
+            }
+            if (hand == GUNLEFT)
+            {
+                gevrGexWatchAt(hand, &rwmtx[GEVR_GEX_RHAND_ARM]);
+            }
+            else if (offHolds || gevrGexLeftHandShown())
+            {
+                gevrGexWatchAt(hand, &rwmtx[GEVR_GEX_LHAND_ARM]);
+            }
+            if (hand == GUNRIGHT)
+            {
+                gevrGexOffCache(hdr);
+            }
+        }
+    }
+    if (g_gevrStereo && hand == GUNRIGHT && hdr->numMatrices > GEVR_GEX_NEWMAG_JOINT)
+    {
+        gevrGexMtxPoint(&rwmtx[GEVR_GEX_MAG_JOINT], s_gevrGexMagCentre, s_gevrGexMagAt);
+        gevrGexMtxPoint(&rwmtx[GEVR_GEX_MAG_JOINT], s_gevrGexMagTop, s_gevrGexWellAt);
+        gevrGexMtxPoint(&rwmtx[GEVR_GEX_NEWMAG_JOINT], s_gevrGexMagTop, s_gevrGexHeldAt);
+        s_gevrGexMagPointsValid = 1 | (offHolds ? 2 : 0);
+    }
+}
+
+static void gevrGexGunDone(void)
+{
+    free(gevrGexPendingFile);
+    gevrGexPendingFile = NULL;
+    gevrGexPendingLen = 0;
+    g_gevrHandPatchSkip = FALSE;
+}
+
+/*
+ * GoldenEye X's hands (docs/gex-weapons.md, Hands). Perfect Dark draws a
+ * hand model - per outfit; GE-X's Bond wears Ghand_jowetsuitZ - with the
+ * gun model's own matrices (pdvr bondgun.c: handmodel.matrices =
+ * gunmodel.matrices), every first-person gun carrying the same hand
+ * skeleton: 0 the root, 1-16 the right hand, 17-32 the left. So it
+ * follows the gun's animation. Built as the gun is and loaded into its
+ * own buffer through the KF7's file (ob.c takes it in that one's place),
+ * a stage at a time as the taser hand is (gunfire.c). Its two meshes are
+ * its switches: the left hand (PD part 53) and the right (54).
+ * In the headset the left one stays hidden, as Perfect Dark VR hides it:
+ * the player's own off hand is there.
+ */
+#define GEVR_GEX_HAND_BUFSIZE   0x50000
+#define GEVR_GEX_HAND_MODELSIZE 0x20000
+#define GEVR_GEX_HAND_SW_LEFT   0
+#define GEVR_GEX_HAND_SW_RIGHT  1
+
+/* the hand's one GoldenEye texture (the others are GE-X's own), by pixels */
+static const u16 s_gevrGexHandTextures[] = {
+    1273, 1921,
+    0
+};
+
+extern LEVELID bossGetStageNum(void);
+extern s32 g_gevrStereo;
+
+static u8 *s_gevrGexHandBuf;
+static struct texpool s_gevrGexHandPool;
+static ModelFileHeader s_gevrGexHandHeader;
+static Model s_gevrGexHandModel;
+static u32 s_gevrGexHandRw[128];
+static s32 s_gevrGexHandStage = -1;
+static s32 s_gevrGexHandReady;
+
+static s32 gevrGexHandLoad(void)
+{
+    const s32 parts[2] = { 53, 54 };
+    ModelFileHeader *tmpl = gitem_structs[ITEM_AK47].item_header;
+    const char *carrier = (const char *) gitem_structs[ITEM_AK47].item_file_name;
+    u32 len = 0;
+    u16 mtx = 0, tex = 0;
+
+    if (s_gevrGexHandStage == bossGetStageNum())
+    {
+        return s_gevrGexHandReady;
+    }
+    s_gevrGexHandStage = bossGetStageNum();
+    s_gevrGexHandReady = FALSE;
+    if (tmpl == NULL || carrier == NULL)
+    {
+        return FALSE;
+    }
+    if (s_gevrGexHandBuf == NULL)
+    {
+        s_gevrGexHandBuf = malloc(GEVR_GEX_HAND_BUFSIZE);
+        if (s_gevrGexHandBuf == NULL)
+        {
+            return FALSE;
+        }
+    }
+    gevrGexPendingFile = gevrGexBuildModel("Ghand_jowetsuitZ", 2, parts, s_gevrGexHandTextures, &len, &mtx, &tex);
+    if (gevrGexPendingFile == NULL)
+    {
+        return FALSE;
+    }
+    gevrGexPendingLen = len;
+    s_gevrGexHandHeader = *tmpl;
+    s_gevrGexHandHeader.numSwitches = 2;
+    s_gevrGexHandHeader.numMatrices = mtx;
+    s_gevrGexHandHeader.numtextures = tex;
+    g_gevrHandPatchSkip = TRUE;
+    texInitPool(&s_gevrGexHandPool, s_gevrGexHandBuf + GEVR_GEX_HAND_MODELSIZE,
+                GEVR_GEX_HAND_BUFSIZE - GEVR_GEX_HAND_MODELSIZE);
+    load_object_fill_header(&s_gevrGexHandHeader, (u8 *) carrier, s_gevrGexHandBuf, GEVR_GEX_HAND_MODELSIZE,
+                            &s_gevrGexHandPool);
+    gevrGexGunDone();
+    modelCalculateRwDataLen(&s_gevrGexHandHeader);
+    if (s_gevrGexHandHeader.RootNode == NULL
+        || (u32) s_gevrGexHandHeader.numRecords > ARRAYCOUNT(s_gevrGexHandRw)
+        || s_gevrGexHandHeader.Switches[GEVR_GEX_HAND_SW_RIGHT] == NULL)
+    {
+        sysLogPrintf(LOG_ERROR, "gex: hand model did not load (%d records)", s_gevrGexHandHeader.numRecords);
+        return FALSE;
+    }
+    sysLogPrintf(LOG_NOTE, "gex: hands loaded (%u bytes, %d matrices)", len, s_gevrGexHandHeader.numMatrices);
+    s_gevrGexHandReady = TRUE;
+    return TRUE;
+}
+
+/* gunfire.c, after a GoldenEye X gun: its hands, ready for the gun's
+ * matrices, or NULL */
+Model *gevrGexHands(GUNHAND hand)
+{
+    ModelFileHeader *hdr = &s_gevrGexHandHeader;
+    const s32 mag = hand == GUNRIGHT ? gevrGexMagState(hand, NULL) : GEVR_GEXMAG_IN;
+    const s32 leftShown = mag == GEVR_GEXMAG_GRIPPED || mag == GEVR_GEXMAG_INHAND   /* it holds the magazine */
+                       || (hand == GUNRIGHT && gevrGexLeftHandShown());          /* or the gun */
+    const s32 dual = getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED;
+    const s32 watch = g_CurrentPlayer->watch_animation_state != 0;   /* its arm is up */
+    s32 i;
+
+    if (!gevrGexHandLoad())
+    {
+        return NULL;
+    }
+    modelInit(&s_gevrGexHandModel, hdr, s_gevrGexHandRw);
+    for (i = 0; i < hdr->numSwitches; i++)
+    {
+        s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(&s_gevrGexHandModel, hdr->Switches[i]) : NULL;
+
+        if (visible != NULL)
+        {
+            *visible = i == GEVR_GEX_HAND_SW_RIGHT || (!g_gevrStereo && !dual && !watch) || leftShown;
+        }
+    }
+    return &s_gevrGexHandModel;
+}
+
+/* the log, when what happened to an arm through the watch changes (user: it still showed GoldenEye's) */
+static void gevrGexWatchNote(s32 *last, s32 code, const char *what)
+{
+    extern s32 g_gevrStereo;
+
+    if (*last != code)
+    {
+        *last = code;
+        sysLogPrintf(LOG_NOTE, "gex: watch %s (%d, watch state %d, stereo %d)", what, code,
+                     g_CurrentPlayer != NULL ? g_CurrentPlayer->watch_animation_state : -1, g_gevrStereo);
+    }
+}
+
+/* gunfire.c, where the watch arm goes: the off hand, empty (gevrGexOffCache above) */
+Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
+{
+    extern void matrix_4x4_7F058C64(void);
+    extern void matrix_4x4_7F058C88(void);
+    extern Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], const f32 x[3],
+                                   const f32 y[3]);   /* bondview2.c */
+    extern s32 gevrStereoWatchItem(s32 item);   /* bondview2.c: the watch laser's and detonator's arm */
+    ModelFileHeader *hdr = &s_gevrGexHandHeader;
+    ModelRenderData renderdata;
+    Mtxf *m;
+    f32 pos[3], x[3], y[3];
+    s32 mag, i, n, watch;
+    const s32 left = g_CurrentPlayer != NULL ? get_item_in_hand_or_watch_menu(GUNLEFT) : ITEM_UNARMED;
+    static s32 s_note = -1;
+
+    *drawn = FALSE;
+    /* through the watch's pages too (user: keep GE-X's arm), but the watch's own
+     * items fire from the watch arm's face (bondview2.c gevrStereoWatchPoint) */
+    if (!gevrGexArmsOn() || !VrGexGuns || s_gevrGexOffFrom == NULL || g_CurrentPlayer == NULL
+        || g_CurrentPlayer->bonddead || (left != ITEM_UNARMED && left != ITEM_SUIT_LF_HAND)
+        || gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) || gevrStereoTwoHandGrip())
+    {
+        if (g_CurrentPlayer != NULL && g_CurrentPlayer->watch_animation_state != 0)
+        {
+            gevrGexWatchNote(&s_note, !gevrGexArmsOn() ? 11 : s_gevrGexOffFrom == NULL ? 12
+                                      : (left != ITEM_UNARMED && left != ITEM_SUIT_LF_HAND) ? 13 : 14,
+                             "arm in the headset stays GoldenEye's");
+        }
+        return gdl;
+    }
+    if (g_CurrentPlayer->watch_animation_state != 0)
+    {
+        gevrGexWatchNote(&s_note, 10, "arm in the headset is GE-X's");
+    }
+    mag = gevrGexMagState(GUNRIGHT, NULL);
+    if (mag == GEVR_GEXMAG_GRIPPED || mag == GEVR_GEXMAG_INHAND)
+    {
+        return gdl;   /* the gun's hands have it, with the magazine */
+    }
+    if (!gevrGexHandLoad() || hdr->numMatrices <= GEVR_GEX_LHAND_LAST)
+    {
+        return gdl;
+    }
+    n = hdr->numMatrices;
+    m = (Mtxf *) dynAllocate(n * (s32) sizeof(Mtxf));
+    if (!gevrGexOffHandPose(m, n))
+    {
+        return gdl;
+    }
+    watch = gevrGexWatchFrame(&m[GEVR_GEX_LHAND_ARM], pos, x, y);
+
+    modelInit(&s_gevrGexHandModel, hdr, s_gevrGexHandRw);
+    for (i = 0; i < hdr->numSwitches; i++)
+    {
+        s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(&s_gevrGexHandModel, hdr->Switches[i]) : NULL;
+
+        if (visible != NULL)
+        {
+            *visible = i == GEVR_GEX_HAND_SW_LEFT;
+        }
+    }
+    s_gevrGexHandModel.render_pos = (RenderPosView *) m;
+
+    renderdata = *templ;
+    renderdata.gdl = gdl;
+    renderdata.PropType = 4;
+    renderdata.envcolour.word = g_CurrentPlayer->tileColor.a
+                              | ((u32)g_CurrentPlayer->tileColor.r << 24)
+                              | ((u32)g_CurrentPlayer->tileColor.g << 16)
+                              | ((u32)g_CurrentPlayer->tileColor.b << 8);
+    renderdata.zbufferenabled = 1;
+    matrix_4x4_7F058C64();
+    subdraw(&renderdata, &s_gevrGexHandModel);
+    gdl = watch ? gevrRenderGexWatch(renderdata.gdl, &renderdata, pos, x, y) : renderdata.gdl;
+    bondviewTransformManyPosToViewMatrix(s_gevrGexHandModel.render_pos, n);
+    matrix_4x4_7F058C88();
+    *drawn = TRUE;
+    return gdl;
+}
+
+/*
+ * The screen's watch (the pause button's raise, and every close; user: keep
+ * GE-X's arm through the watch; bondview2.c bondviewRenderWatch draws the
+ * pause's own watch arm): GoldenEye's arm keeps its watch, which the
+ * pages are drawn on, without its hand or sleeve, and GE-X's left arm is
+ * drawn under it, where the watch sits on it in the headset
+ * (gevrGexWatchFrame, the other way round), in the KF7's resting grip (the
+ * off hand's cache). In the headset's game only (VrPlayMode); the screen
+ * game keeps GoldenEye's watch arm.
+ */
+extern int VrPlayMode;   /* vr_settings_defaults.c: 1 = the headset's game */
+static ModelNode *s_gevrGexSwapDl;
+static Gfx *s_gevrGexSwapSaved[2];
+static s32 s_gevrGexSwapCuff[10];
+
+/* bondview2.c, round the pause's watch arm: begin hides its hand and sleeve (TRUE if it did), end puts them back */
+s32 gevrGexWatchArmSwap(Model *arm, s32 begin)
+{
+    static s32 s_note = -1;
+    ModelFileHeader *hdr = arm != NULL ? arm->obj : NULL;
+    ModelNode *node;
+    s32 i;
+
+    if (!begin)
+    {
+        if (s_gevrGexSwapDl != NULL)
+        {
+            s_gevrGexSwapDl->Data->DisplayList.Primary = s_gevrGexSwapSaved[0];
+            s_gevrGexSwapDl->Data->DisplayList.Secondary = s_gevrGexSwapSaved[1];
+            s_gevrGexSwapDl = NULL;
+        }
+        for (i = 4; hdr != NULL && i < hdr->numSwitches && i < 10; i++)
+        {
+            s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(arm, hdr->Switches[i]) : NULL;
+
+            if (visible != NULL)
+            {
+                *visible = s_gevrGexSwapCuff[i];
+            }
+        }
+        return FALSE;
+    }
+    if (hdr == NULL || !VrGexArms || !VrPlayMode || !VrGexGuns || s_gevrGexOffFrom == NULL || hdr->numSwitches < 4
+        || !gevrGexHandLoad())
+    {
+        gevrGexWatchNote(&s_note, hdr == NULL ? 1 : !VrGexArms ? 2 : !VrPlayMode ? 3 : !VrGexGuns ? 4
+                                  : s_gevrGexOffFrom == NULL ? 5 : hdr->numSwitches < 4 ? 6 : 7,
+                         "arm on the screen stays GoldenEye's");
+        return FALSE;
+    }
+    /* its hand: the first display list right under a joint, not under a switch */
+    for (node = hdr->RootNode; node != NULL && s_gevrGexSwapDl == NULL;)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_DL && node->Parent != NULL
+            && (node->Parent->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
+        {
+            s_gevrGexSwapDl = node;
+        }
+        else if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+            node = node != NULL ? node->Next : NULL;
+        }
+    }
+    if (s_gevrGexSwapDl == NULL)
+    {
+        gevrGexWatchNote(&s_note, 8, "arm on the screen: no hand list found");
+        return FALSE;
+    }
+    gevrGexWatchNote(&s_note, 0, "arm on the screen is GE-X's");
+    s_gevrGexSwapSaved[0] = s_gevrGexSwapDl->Data->DisplayList.Primary;
+    s_gevrGexSwapSaved[1] = s_gevrGexSwapDl->Data->DisplayList.Secondary;
+    s_gevrGexSwapDl->Data->DisplayList.Primary = NULL;
+    s_gevrGexSwapDl->Data->DisplayList.Secondary = NULL;
+    for (i = 4; i < hdr->numSwitches && i < 10; i++)
+    {
+        s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(arm, hdr->Switches[i]) : NULL;
+
+        s_gevrGexSwapCuff[i] = visible != NULL ? *visible : 0;
+        if (visible != NULL)
+        {
+            *visible = 0;
+        }
+    }
+    return TRUE;
+}
+
+/* bondview2.c, before the pause's watch arm: GE-X's left arm under its watch (w: its wrist, the watch's frame) */
+Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w)
+{
+    ModelFileHeader *hdr = &s_gevrGexHandHeader;
+    ModelRenderData renderdata;
+    Mtxf f, inv, wrist;
+    Mtxf *m;
+    const f32 *t = VrGexWatch;
+    f32 x[3], y[3], z[3], lx = 0.0f, ly = 0.0f, k, u;
+    s32 i, j, n;
+
+    for (i = 0; i < 3; i++)
+    {
+        lx += w->m[0][i] * w->m[0][i];
+        ly += w->m[1][i] * w->m[1][i];
+    }
+    lx = sqrtf(lx);
+    ly = sqrtf(ly);
+    if (lx < 1e-6f || ly < 1e-6f || hdr->numMatrices <= GEVR_GEX_LHAND_LAST)
+    {
+        return gdl;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = w->m[0][i] / lx;
+        y[i] = w->m[1][i] / ly;
+    }
+    z[0] = x[1] * y[2] - x[2] * y[1];
+    z[1] = x[2] * y[0] - x[0] * y[2];
+    z[2] = x[0] * y[1] - x[1] * y[0];
+    /* GE-X's units against the watch's: 0.085 cm, and 26 cm to 2392 (bondview2.c), at the watch's size */
+    k = lx * (0.085f * 2392.0f / 26.0f) / (t[3] > 0.1f ? t[3] : 1.0f);
+    u = k / 0.085f;
+    for (i = 0; i < 3; i++)
+    {
+        f.m[0][i] = -z[i] * k;
+        f.m[1][i] = y[i] * k;
+        f.m[2][i] = x[i] * k;
+        f.m[3][i] = w->m[3][i] - (t[0] * x[i] + t[1] * y[i] + t[2] * z[i]) * u - GEVR_GEX_CUFF_Z * x[i] * k;
+    }
+    f.m[0][3] = f.m[1][3] = f.m[2][3] = 0.0f;
+    f.m[3][3] = 1.0f;
+    gevrGexRigidInverse(&s_gevrGexOffChain[GEVR_GEX_LHAND_ARM], &inv);
+    matrix_4x4_multiply(&f, &inv, &wrist);
+
+    n = hdr->numMatrices;
+    m = (Mtxf *) dynAllocate(n * (s32) sizeof(Mtxf));
+    for (j = 0; j < n; j++)
+    {
+        if (j >= GEVR_GEX_LHAND_FIRST && j <= GEVR_GEX_LHAND_LAST)
+        {
+            matrix_4x4_multiply(&wrist, &s_gevrGexOffChain[j], &m[j]);
+        }
+        else
+        {
+            m[j] = wrist;   /* the right hand's joints: its mesh is switched off */
+        }
+    }
+    modelInit(&s_gevrGexHandModel, hdr, s_gevrGexHandRw);
+    for (i = 0; i < hdr->numSwitches; i++)
+    {
+        s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(&s_gevrGexHandModel, hdr->Switches[i]) : NULL;
+
+        if (visible != NULL)
+        {
+            *visible = i == GEVR_GEX_HAND_SW_LEFT;
+        }
+    }
+    s_gevrGexHandModel.render_pos = (RenderPosView *) m;
+    renderdata = *templ;
+    renderdata.gdl = gdl;
+    subdraw(&renderdata, &s_gevrGexHandModel);
+    bondviewTransformManyPosToViewMatrix(s_gevrGexHandModel.render_pos, n);
+    return renderdata.gdl;
+}
+#endif
+
 void used_to_load_1st_person_model_on_demand(GUNHAND hand)
 {
     u32              size_buffer_weapon;
@@ -1065,6 +2425,9 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
         if ((g_CurrentPlayer->hand_invisible[hand] < -2) || (g_CurrentPlayer->hand_item[hand] == ITEM_UNARMED))
         {
             item             = g_CurrentPlayer->field_2A44[hand];
+#ifdef GEVR
+            gevrGexHandSet(hand, FALSE);   /* until gevrGexGunPrepare says otherwise */
+#endif
             ptr_item_text    = (s8 *)get_ptr_item_text_call_line(item);
             ptr_weapon_model = get_ptr_weapon_model_header_line(item);
 
@@ -1100,7 +2463,13 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
                 else
                 {
                     texInitPool(&g_CurrentPlayer->item_related[hand], &buffer_weapon[D_80032464[hand]], size_buffer_weapon - D_80032464[hand]);
+#ifdef GEVR
+                    gevrGexGunPrepare(hand, item, &g_CurrentPlayer->copy_of_body_obj_header[hand]);
+#endif
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, D_80032464[hand], &g_CurrentPlayer->item_related[hand]);
+#ifdef GEVR
+                    gevrGexGunDone();
+#endif
                 }
             }
 

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "vr_settings.h"
+#include "gevr_scope.h"
 #include "vr_screen.h"
 #include "vr_haptics.h"
 
@@ -10,6 +11,9 @@ extern "C" float inputRumbleGetStrength(int playernum);
 extern "C" void inputRumbleSetStrength(int playernum, int strength);
 
 #define FS_MAXPATH 256
+
+// goldeneye-vr.ini's names for VrScopeFit's guns, in its order (gevr_scope.h)
+static const char *const kScopeFitNames[GEVR_SCOPE_FITS] = { "Sniper", "Laser", "KF7", "AR33" };
 extern char g_ActiveExtTexPack[FS_MAXPATH];
 extern "C" void extTexSetPack(const char *newPackName);
 extern "C" void videoSetExternalTextures(bool enable);
@@ -105,6 +109,10 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MpFunFlags=%d\nMpGunSize=%d\nMpMaxPlayers=%d\n", VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers);
     fprintf(f, "; 1 = guards and other players hold the detailed first-person gun models, 0 = the game's own.\n");
     fprintf(f, "DetailedGuns=%d\n", VrDetailedGuns ? 1 : 0);
+    fprintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
+    fprintf(f, "GexGuns=%d\n", VrGexGuns ? 1 : 0);
+    fprintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
+    fprintf(f, "GexArms=%d\n", VrGexArms ? 1 : 0);
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
     fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
@@ -147,6 +155,36 @@ extern "C" void vrSettingsSave(void)
             VrGripTrim[0][2], VrGripTrim[0][3], VrGripTrim[0][4], VrGripTrim[0][5]);
     fprintf(f, "GripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGripTrim[1][0], VrGripTrim[1][1],
             VrGripTrim[1][2], VrGripTrim[1][3], VrGripTrim[1][4], VrGripTrim[1][5]);
+    fprintf(f, "; GoldenEye X's models (MODS) sit differently in the hand, so Gun fit keeps\n");
+    fprintf(f, "; theirs apart: GexGunOff is GunOffX, Y and Z; GexGrip* as above.\n");
+    fprintf(f, "GexGunOff=%.4f %.4f %.4f\n", VrGexGunOff[0], VrGexGunOff[1], VrGexGunOff[2]);
+    fprintf(f, "GexGripPistol=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[0][0], VrGexGripTrim[0][1],
+            VrGexGripTrim[0][2], VrGexGripTrim[0][3], VrGexGripTrim[0][4], VrGexGripTrim[0][5]);
+    fprintf(f, "GexGripRifle=%.2f %.2f %.2f %.1f %.1f %.1f\n", VrGexGripTrim[1][0], VrGexGripTrim[1][1],
+            VrGexGripTrim[1][2], VrGexGripTrim[1][3], VrGexGripTrim[1][4], VrGexGripTrim[1][5]);
+    fprintf(f, "; Hand reload, set with Gun fit's reload mode (X): where the off hand takes the\n");
+    fprintf(f, "; magazine, cm right, up and back from the gun hand's grip (Gex* for GoldenEye X);\n");
+    fprintf(f, "; the belt, cm below the eye, out to the side and ahead; and where a GoldenEye X\n");
+    fprintf(f, "; magazine sits in the off hand, cm right, up and back from its grip.\n");
+    fprintf(f, "ReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[0][0], VrReloadGrab[0][1], VrReloadGrab[0][2]);
+    fprintf(f, "GexReloadGrab=%.2f %.2f %.2f\n", VrReloadGrab[1][0], VrReloadGrab[1][1], VrReloadGrab[1][2]);
+    fprintf(f, "ReloadBelt=%.2f %.2f %.2f\n", VrReloadBelt[0], VrReloadBelt[1], VrReloadBelt[2]);
+    fprintf(f, "GexHeldMag=%.2f %.2f %.2f\n", VrGexHeldMag[0], VrGexHeldMag[1], VrGexHeldMag[2]);
+    fprintf(f, "; The watch on GoldenEye X's left wrist (Gun fit's off hand mode, right grip):\n");
+    fprintf(f, "; cm ahead of the sleeve's end, up and out, and its size.\n");
+    fprintf(f, "GexWatch=%.2f %.2f %.2f %.2f\n", VrGexWatch[0], VrGexWatch[1], VrGexWatch[2], VrGexWatch[3]);
+    fprintf(f, "; Where GoldenEye X's left hand holds a gun with both hands (Gun fit, both hands):\n");
+    fprintf(f, "; cm forward, up and out along the gun.\n");
+    fprintf(f, "GexForeHold=%.2f %.2f %.2f\n", VrGexForeHold[0], VrGexForeHold[1], VrGexForeHold[2]);
+    fprintf(f, "; A scope's lens, set with Gun fit holding the gun (X switches to its scope):\n");
+    fprintf(f, "; cm right, up and back from the eyepiece, then cm wider. GexScope* for\n");
+    fprintf(f, "; GoldenEye X's models.\n");
+    for (int m = 0; m < 2; m++) {
+        for (int s = 0; s < GEVR_SCOPE_FITS; s++) {
+            const float *t = VrScopeFit[m][s];
+            fprintf(f, "%sScope%s=%.2f %.2f %.2f %.2f\n", m ? "Gex" : "", kScopeFitNames[s], t[0], t[1], t[2], t[3]);
+        }
+    }
     fprintf(f, "\n");
     fprintf(f, "; 0..1. How tightly the elbows are pulled in toward your body. 0 leaves them at the\n");
     fprintf(f, "; animation's rest pose (they splay outward), 1 pins them hard against the torso.\n");
@@ -206,13 +244,61 @@ extern "C" void vrSettingsLoad(void)
                 ? (int)choice : GEVR_WATCH_FACE_ON;
             continue;
         }
-        if (strncmp(line, "GripPistol=", 11) == 0 || strncmp(line, "GripRifle=", 10) == 0) {
-            const int cls = line[4] == 'P' ? 0 : 1;
+        // Gun fit: Gex* are GoldenEye X's models' own
+        const bool gexFit = strncmp(line, "Gex", 3) == 0;
+        const char *fit = gexFit ? line + 3 : line;
+        if (strncmp(fit, "GripPistol=", 11) == 0 || strncmp(fit, "GripRifle=", 10) == 0) {
+            const int cls = fit[4] == 'P' ? 0 : 1;
             float t[6];
-            if (sscanf(strchr(line, '=') + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 6) {
-                for (int i = 0; i < 6; i++) VrGripTrim[cls][i] = t[i];
+            if (sscanf(strchr(fit, '=') + 1, "%f %f %f %f %f %f", &t[0], &t[1], &t[2], &t[3], &t[4], &t[5]) == 6) {
+                for (int i = 0; i < 6; i++) (gexFit ? VrGexGripTrim : VrGripTrim)[cls][i] = t[i];
             }
             continue;
+        }
+        if (strncmp(fit, "ReloadGrab=", 11) == 0 || strncmp(line, "ReloadBelt=", 11) == 0
+            || strncmp(line, "GexHeldMag=", 11) == 0) {
+            float t[3];
+            float *to = strncmp(fit, "ReloadGrab=", 11) == 0 ? VrReloadGrab[gexFit ? 1 : 0]
+                      : line[0] == 'R' ? VrReloadBelt : VrGexHeldMag;
+            if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
+                for (int i = 0; i < 3; i++) to[i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(line, "GexForeHold=", 12) == 0) {
+            float t[3];
+            if (sscanf(line + 12, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
+                for (int i = 0; i < 3; i++) VrGexForeHold[i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(line, "GexWatch=", 9) == 0) {
+            float t[4];
+            if (sscanf(line + 9, "%f %f %f %f", &t[0], &t[1], &t[2], &t[3]) == 4 && t[3] > 0.1f) {
+                for (int i = 0; i < 4; i++) VrGexWatch[i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(line, "GexGunOff=", 10) == 0) {
+            float t[3];
+            if (sscanf(line + 10, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
+                for (int i = 0; i < 3; i++) VrGexGunOff[i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(fit, "Scope", 5) == 0) {
+            int s = 0;
+            while (s < GEVR_SCOPE_FITS && !(strncmp(fit + 5, kScopeFitNames[s], strlen(kScopeFitNames[s])) == 0
+                                            && fit[5 + strlen(kScopeFitNames[s])] == '=')) {
+                s++;
+            }
+            if (s < GEVR_SCOPE_FITS) {
+                float t[4];
+                if (sscanf(strchr(fit, '=') + 1, "%f %f %f %f", &t[0], &t[1], &t[2], &t[3]) == 4) {
+                    for (int i = 0; i < 4; i++) VrScopeFit[gexFit ? 1 : 0][s][i] = t[i];
+                }
+                continue;
+            }
         }
         if (strncmp(line, "Cheats=", 7) == 0) {        // hex bitmask of CHEAT_IDS
             VrCheatMask = strtoull(line + 7, NULL, 16);
@@ -284,6 +370,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "MpMaxPlayers") == 0) VrMpMaxPlayers = ival >= 2 && ival <= 8 ? ival : 4;
             else if (strcmp(key, "DetailedGuns") == 0) VrDetailedGuns = ival != 0;
+            else if (strcmp(key, "GexGuns") == 0) VrGexGuns = ival != 0;
+            else if (strcmp(key, "GexArms") == 0) VrGexArms = ival != 0;
             else if (strcmp(key, "MpVoiceMode") == 0) VrMpVoiceMode = ival == 1 ? 1 : 0;
             else if (strcmp(key, "MpScenario") == 0) VrMpScenario = ival;
             else if (strcmp(key, "MpLength") == 0) VrMpLength = ival;

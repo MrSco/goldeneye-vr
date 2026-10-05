@@ -1103,9 +1103,20 @@ Gfx* lvlRender(Gfx* DL)
                 reloadMask = gevrReloadTargets(reloadMask,
                     getCurrentPlayerWeaponId(GUNRIGHT) != ITEM_UNARMED,
                     getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED);
-                /* hand reload: a gun reloads by gesture only (bondview2.c gevrHandReloadTick) */
-                if ((reloadMask & 1) && !gevrManualReloadOn(GUNRIGHT)) attempt_reload_item_in_hand(GUNRIGHT);
-                if ((reloadMask & 2) && !gevrManualReloadOn(GUNLEFT)) attempt_reload_item_in_hand(GUNLEFT);
+                /* hand reload: a gun reloads by gesture only (bondview2.c gevrHandReloadTick);
+                 * there a GoldenEye X gun drops its magazine out instead (user) */
+                extern void gevrGexDropMagazine(s32 hand);
+
+                if (reloadMask & 1)
+                {
+                    if (!gevrManualReloadOn(GUNRIGHT)) attempt_reload_item_in_hand(GUNRIGHT);
+                    else gevrGexDropMagazine(GUNRIGHT);
+                }
+                if (reloadMask & 2)
+                {
+                    if (!gevrManualReloadOn(GUNLEFT)) attempt_reload_item_in_hand(GUNLEFT);
+                    else gevrGexDropMagazine(GUNLEFT);
+                }
 #else
                 attempt_reload_item_in_hand(GUNRIGHT);
                 attempt_reload_item_in_hand(GUNLEFT);

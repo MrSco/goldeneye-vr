@@ -41,6 +41,8 @@ extern int VrHostEqualization, VrHostLatencyCapMs;
 extern int VrMpFunFlags, VrMpGunSize;
 extern int VrMpMaxPlayers; // the host's player count, 2..8 on any stage
 extern int VrDetailedGuns;   // guards and other players hold the first-person gun models (#95); 0 = the game's own
+extern int VrGexGuns;        // GoldenEye X's first-person guns from the player's data/gex.z64 (experimental)
+extern int VrGexArms;        // stereo: GoldenEye X's arms for every hand, the left wearing the watch
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
 extern int VrMpCustom[4];       // the host's custom set
 // Co-op (NET_MODE_COOP): the mode, the mission's LEVELID and the solo difficulty (0..3).
@@ -104,6 +106,13 @@ extern float VrGunOffX;         // grip fit trim in the controller frame, game u
 extern float VrGunOffY;
 extern float VrGunOffZ;
 extern float VrGripTrim[2][6];  // two-handed hold's hand trim: [handgun, long gun][dx dy dz rx ry rz]
+extern float VrGexGunOff[3];    // the same two for GoldenEye X's models, which sit differently
+extern float VrGexGripTrim[2][6];
+extern float VrReloadGrab[2][3];   // Hand reload: the magazine from the gun hand's grip, GE / GE-X
+extern float VrReloadBelt[3];      // the belt: below the eye, out, ahead
+extern float VrGexHeldMag[3];      // a GE-X magazine's palm from the off hand's grip
+extern float VrGexWatch[4];        // the watch on GE-X's left wrist: cm ahead, up, out; its size
+extern float VrGexForeHold[3];     // GE-X's two-handed hold on the gun: cm forward, up, out
 extern float VrArmElbowTuck;    // 0..1, how tightly the elbow is pinned toward the body
 extern float VrArmBodyFollow;   // how fast the smoothed torso yaw chases the head (spin comfort)
 extern int   VrFistClench;      // close the off-hand while the left grip is squeezed
