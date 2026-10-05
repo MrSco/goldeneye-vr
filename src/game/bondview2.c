@@ -14626,6 +14626,19 @@ s32 gevrGunFitAvailable(void)
         && (pl->hands[GUNRIGHT].field_87F != 0 || (pl == g_CurrentPlayer && gevrGadgetFitItem() >= 0));
 }
 
+s32 gevrMuzzleFitAvailable(void)
+{
+    s32 item;
+    ModelFileHeader *hdr;
+
+    if (g_CurrentPlayer == NULL) return FALSE;
+    item = getCurrentPlayerWeaponId(GUNRIGHT);
+    if (item <= ITEM_FIST || item >= GEVR_MAX_WEAPONS) return FALSE;
+    hdr = get_ptr_itemheader_in_hand(GUNRIGHT);
+    return (gevrGexHeld(GUNRIGHT) && item == ITEM_AK47)
+        || (hdr != NULL && hdr->Switches != NULL && hdr->numSwitches > 3 && hdr->Switches[3] != NULL);
+}
+
 static Gfx *gevrDrawSpectatorLabel(Gfx *gdl)
 {
     char label[80];
@@ -14655,17 +14668,17 @@ static void gevrItemLabel(s32 item, char *label, s32 size)
     label[n] = 0;
 }
 
-/* X's next fit, as input.c goes round: the gun, its scope, Hand reload's places, GE-X's off hand */
+/* X's next fit, as input.c goes round: the gun, its scope, Hand reload's places, GE-X's off hand, barrel tip */
 static const char *gevrFitNextLine(s32 from)
 {
-    static const char *const lines[4] = { "X: FIT THE GUN\n", "X: FIT THE SCOPE\n", "X: FIT THE RELOAD\n",
-                                          "X: FIT THE OFF HAND\n" };
-    const s32 can[4] = { TRUE, gevrScopeFitIndex() >= 0, gevrReloadFitAvailable(), gevrGexHeld(GUNRIGHT) };
+    static const char *const lines[5] = { "X: FIT THE GUN\n", "X: FIT THE SCOPE\n", "X: FIT THE RELOAD\n",
+                                          "X: FIT THE OFF HAND\n", "X: FIT THE BARREL TIP\n" };
+    const s32 can[5] = { TRUE, gevrScopeFitIndex() >= 0, gevrReloadFitAvailable(), gevrGexHeld(GUNRIGHT), gevrMuzzleFitAvailable() };
     s32 k = from;
 
     do
     {
-        k = (k + 1) % 4;
+        k = (k + 1) % 5;
     } while (!can[k]);
     return k == from ? "" : lines[k];
 }
@@ -14732,6 +14745,19 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
                  "SCOPE FIT: %s%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nWIDER %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  label, gex, -s[2], s[0], s[1], s[3], gevrFitNextLine(1));
     }
+    else if (gevrMuzzleFitting)
+    {
+        /* barrel tip / muzzle fit (X switches to it, input.c) */
+        s32 item = getCurrentPlayerWeaponId(GUNRIGHT);
+        const int gexIdx = gevrGexHeld(GUNRIGHT) ? 1 : 0;
+        char label[32];
+        const f32 *t = (item >= 0 && item < GEVR_MAX_WEAPONS) ? VrMuzzleTrim[gexIdx][item] : NULL;
+
+        gevrItemLabel(item, label, sizeof(label));
+        snprintf(buf, sizeof(buf),
+                 "BARREL TIP FIT: %s%s\nFORWARD: %.1f CM  SIDE: %.1f CM  UP: %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 label, gex, t ? t[2] : 0.0f, t ? t[0] : 0.0f, t ? t[1] : 0.0f, gevrFitNextLine(4));
+    }
     else if (gevrStereoTwoHandGrip() && gevrGexHeld(GUNRIGHT) && VrGexArms)
     {
         /* GoldenEye X's own left hand holding: where it holds (input.c) */
@@ -14769,6 +14795,89 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     gdl = textRender(gdl, &x, &y, buf, ptrFontBankGothicChars, ptrFontBankGothic, -1, viGetX(), viGetY(), 0, 0);
     gdl = combiner_bayer_lod_perspective(gdl);
     gDPNoOpTag(gdl++, 0x56570001); /* VR_HUD_CAPTURE_END_H */
+    return gdl;
+}
+
+static void gevrSetVtx(Vtx *v, s16 x, s16 y, u8 r, u8 g, u8 b, u8 a)
+{
+    v->v.ob[0] = x;
+    v->v.ob[1] = y;
+    v->v.ob[2] = 0;
+    v->v.flag = 0;
+    v->v.tc[0] = 0;
+    v->v.tc[1] = 0;
+    v->v.cn[0] = r;
+    v->v.cn[1] = g;
+    v->v.cn[2] = b;
+    v->v.cn[3] = a;
+}
+
+static Gfx *gevrDrawMuzzleMarker(Gfx *gdl)
+{
+    extern Vtx *dynAllocateVertices(s32 count);
+    extern Mtx *dynAllocateMatrix(void);
+    Mtxf mf;
+    Mtx *mv;
+    Vtx *v;
+
+    if (!gevrMuzzleFitting || gevrGunFitActive != 1 || !gevrMuzzleFitAvailable()
+        || !s_gevrMuzzleValid[GUNRIGHT] || !g_gevrStereo
+        || s_gevrMuzzleItem[GUNRIGHT] != getCurrentPlayerWeaponId(GUNRIGHT))
+    {
+        return gdl;
+    }
+
+    matrix_4x4_set_identity(&mf);
+    /* Marker vertices are millimetres; camera units vary by level. */
+    mf.m[0][0] = 0.1f * D_800364CC;
+    mf.m[1][1] = 0.1f * D_800364CC;
+    mf.m[2][2] = 0.1f * D_800364CC;
+    mf.m[3][0] = s_gevrMuzzle[GUNRIGHT][0];
+    mf.m[3][1] = s_gevrMuzzle[GUNRIGHT][1];
+    mf.m[3][2] = s_gevrMuzzle[GUNRIGHT][2];
+
+    mv = dynAllocateMatrix();
+    guMtxF2L(mf.m, mv);
+
+    v = dynAllocateVertices(12);
+
+    /* Horizontal cyan bar (24mm x 4mm) */
+    gevrSetVtx(&v[0], -12, -2, 0, 255, 255, 220);
+    gevrSetVtx(&v[1],  12, -2, 0, 255, 255, 220);
+    gevrSetVtx(&v[2],  12,  2, 0, 255, 255, 220);
+    gevrSetVtx(&v[3], -12,  2, 0, 255, 255, 220);
+
+    /* Vertical cyan bar (4mm x 24mm) */
+    gevrSetVtx(&v[4], -2, -12, 0, 255, 255, 220);
+    gevrSetVtx(&v[5],  2, -12, 0, 255, 255, 220);
+    gevrSetVtx(&v[6],  2,  12, 0, 255, 255, 220);
+    gevrSetVtx(&v[7], -2,  12, 0, 255, 255, 220);
+
+    /* Center green diamond / box (6mm x 6mm) */
+    gevrSetVtx(&v[8],  -3, -3, 50, 255, 50, 255);
+    gevrSetVtx(&v[9],   3, -3, 50, 255, 50, 255);
+    gevrSetVtx(&v[10],  3,  3, 50, 255, 50, 255);
+    gevrSetVtx(&v[11], -3,  3, 50, 255, 50, 255);
+
+    gSPMatrix(gdl++, osVirtualToPhysical((void *)currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+    gSPMatrix(gdl++, osVirtualToPhysical(mv), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gDPPipeSync(gdl++);
+    gSPClearGeometryMode(gdl++, G_ZBUFFER | G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+    gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    gSPVertex(gdl++, osVirtualToPhysical(v), 12, 0);
+    gSP1Triangle(gdl++, 0, 1, 2, 0);
+    gSP1Triangle(gdl++, 0, 2, 3, 0);
+    gSP1Triangle(gdl++, 4, 5, 6, 0);
+    gSP1Triangle(gdl++, 4, 6, 7, 0);
+    gSP1Triangle(gdl++, 8, 9, 10, 0);
+    gSP1Triangle(gdl++, 8, 10, 11, 0);
+    gDPPipeSync(gdl++);
+    gSPSetGeometryMode(gdl++, G_ZBUFFER);
+
     return gdl;
 }
 #endif
@@ -17446,6 +17555,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
 #endif
     gunDrawSight(&gdl);
 #ifdef GEVR
+    gdl = gevrDrawMuzzleMarker(gdl);
     /*
      * Stereo: the ammo count goes on a small panel at the right controller,
      * Perfect Dark VR's weapon HUD (VR_WEP_HUD_CAPTURE_*_R round its ammo

@@ -16,6 +16,7 @@
 #include <stdbool.h>
 #include <PR/ultratypes.h>
 #include "gevr_watch_status.h"
+#include "vr_settings.h"
 
 /* --- Comfort and control options ---------------------------------------- */
 
@@ -179,6 +180,13 @@ float VrScopeFit[2][4][4] = {
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
 float VrArmBodyFollow = 0.0f;  /* how fast the smoothed torso yaw chases the head */
 int   VrFistClench    = 0;     /* close the off hand while the left grip is squeezed */
+/*
+ * Muzzle / barrel tip trim in cm, set with Gun fit's barrel tip mode (X):
+ * cm right (side), up, forward along the gun from the default barrel tip.
+ * [0] GoldenEye's guns, [1] GoldenEye X's. Defaults are all 0.
+ */
+float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3];
+int gevrMuzzleFitting = 0;
 
 /* --- Runtime state ------------------------------------------------------- */
 
