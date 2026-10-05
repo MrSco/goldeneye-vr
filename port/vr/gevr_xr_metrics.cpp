@@ -65,5 +65,5 @@ void gevrXrMetricsPoll(bool active) {
             vr_log("xr-metric: time=%llu path=%s unit=%d float=%.6f",(unsigned long long)now,counter.second.c_str(),value.counterUnit,value.floatValue);
         }
     }
-}
     gevrFrameTimingOutside(GEVR_TIME_METRICS,gevrFrameTimingNow()-pollStart);
+}
