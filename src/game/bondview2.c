@@ -2603,6 +2603,18 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     return TRUE;
 }
 
+/* the off hand takes hold - of the gun with both hands, or a magazine: a short buzz in it (user) */
+static void gevrOffHandGripBuzz(void)
+{
+    extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
+    extern int vr_haptics_ready(void);   /* vr_input.cpp */
+
+    if (vr_haptics_ready())
+    {
+        trigger_haptic_vibration_c(0, 0.35f, 0.04f);
+    }
+}
+
 /* gunfire.c gunTickGameplay, each tick */
 s32 gevrStereoTwoHandUpdate(void)
 {
@@ -2673,6 +2685,10 @@ s32 gevrStereoTwoHandUpdate(void)
     }
     if (s_gevrTwoHand != was)
     {
+        if (s_gevrTwoHand)
+        {
+            gevrOffHandGripBuzz();
+        }
         sysLogPrintf(LOG_NOTE, "stereo: two-handed hold %s (item %d, off hand %.1f cm from the barrel%s)",
                      s_gevrTwoHand ? "on" : "off", item, dist, s_gevrTwoHand ? "" : why);
     }
@@ -16058,6 +16074,7 @@ void gevrHandReloadTick(void)
                 {
                     *st = GEVR_GEXMAG_GRIPPED;
                     s_magGrabUp = upnow;
+                    gevrOffHandGripBuzz();
                     sysLogPrintf(LOG_NOTE, "stereo: hand reload, the magazine taken hold of");
                 }
                 break;
@@ -16120,6 +16137,7 @@ void gevrHandReloadTick(void)
             && gevrMagNearerThanFore(sqrtf(dist2) / cm))
         {
             s_gevrMagGrab = 1;
+            gevrOffHandGripBuzz();
             s_magGrabUp = upnow;
         }
         else if (grip && s_gevrMagGrab == 1 && s_magGrabUp - upnow >= s_gevrReloadTune[GEVR_RT_PULL] * cm)
