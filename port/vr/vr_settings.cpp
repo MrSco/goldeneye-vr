@@ -1,7 +1,23 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <errno.h>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <io.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+#include "vr_log.h"
 #include "vr_settings.h"
 #include "gevr_scope.h"
 #include "vr_screen.h"
@@ -27,11 +43,41 @@ extern "C" void gevrSndApplySfxVolume(unsigned short);
 // first name did, at launcher start, and reset everything it held.
 static bool s_settingsLoaded = false;
 
+static void gevrEnsureWritable(const char *path)
+{
+#ifdef _WIN32
+    DWORD attrs = GetFileAttributesA(path);
+    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_READONLY)) {
+        SetFileAttributesA(path, attrs & ~FILE_ATTRIBUTE_READONLY);
+    }
+#else
+    chmod(path, 0666);
+#endif
+}
+
 extern "C" void vrSettingsSave(void)
 {
     if (!s_settingsLoaded) return;
-    FILE *f = fopen(VR_INI_PATH, "w");
-    if (!f) return;
+
+    const char *tmpPath = "goldeneye-vr.ini.tmp";
+    gevrEnsureWritable(tmpPath);
+    gevrEnsureWritable(VR_INI_PATH);
+    remove(tmpPath);
+
+    bool useTmp = true;
+    FILE *f = fopen(tmpPath, "w");
+    if (!f) {
+        useTmp = false;
+        f = fopen(VR_INI_PATH, "w");
+        if (!f) {
+            remove(VR_INI_PATH);
+            f = fopen(VR_INI_PATH, "w");
+        }
+    }
+    if (!f) {
+        vr_log("vrSettingsSave: failed to open %s for writing: %s", VR_INI_PATH, strerror(errno));
+        return;
+    }
 
     fprintf(f, "[VR]\n");
     fprintf(f, "ManualReloading=%d\n", VrManualReloading ? 1 : 0);
@@ -205,8 +251,28 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; already means 'take the two-handed hold'.\n");
     fprintf(f, "FistClench=%d\n", VrFistClench);
     vrHapticsSaveIni(f);
+    fflush(f);
     fclose(f);
     vrHapticsDumpCTable();
+
+    if (useTmp) {
+#ifdef _WIN32
+        gevrEnsureWritable(VR_INI_PATH);
+        remove(VR_INI_PATH);
+        if (rename(tmpPath, VR_INI_PATH) != 0) {
+            vr_log("vrSettingsSave: rename failed: %s", strerror(errno));
+        }
+#else
+        gevrEnsureWritable(tmpPath);
+        if (rename(tmpPath, VR_INI_PATH) != 0) {
+            gevrEnsureWritable(VR_INI_PATH);
+            remove(VR_INI_PATH);
+            if (rename(tmpPath, VR_INI_PATH) != 0) {
+                vr_log("vrSettingsSave: rename failed: %s", strerror(errno));
+            }
+        }
+#endif
+    }
 }
 
 // A multiplayer name for a player who hasn't chosen one. The Meta account name

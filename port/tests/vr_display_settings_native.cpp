@@ -30,6 +30,7 @@ void vrHapticsInit() {}
 void vrHapticsSaveIni(void *) {}
 int vrHapticsLoadLine(const char *, const char *) { return 0; }
 void vrHapticsDumpCTable() {}
+void vr_log(const char *, ...) {}
 void vrSettingsLoad();
 void vrSettingsSave();
 }

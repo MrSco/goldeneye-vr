@@ -184,6 +184,8 @@ static void gameInit(void)
     }
 }
 
+extern void vrSettingsSave(void);
+
 static void cleanup(void)
 {
 
@@ -191,6 +193,7 @@ static void cleanup(void)
 
     inputSaveBinds();
     configSave(CONFIG_PATH);
+    vrSettingsSave();
     videoShutdown();
     crashShutdown();
 
@@ -236,6 +239,7 @@ Java_com_gevr_port_MainActivity_nativeStartGame(JNIEnv* env, jobject thiz) {
 JNIEXPORT void JNICALL
 Java_com_gevr_port_MainActivity_nativeDestroy(JNIEnv* env, jobject thiz) {
     extern void audioShutdown(void);
+    vrSettingsSave();
     audioShutdown();
     g_initialized = 0;
 }
@@ -553,6 +557,7 @@ static void cleanup(void)
 		sysLogPrintf(LOG_NOTE, "shutdown");
 		inputSaveBinds();
 		configSave(CONFIG_PATH);
+		vrSettingsSave();
 		videoShutdown();
 		crashShutdown();
 		// TODO: actually shut down all subsystems
