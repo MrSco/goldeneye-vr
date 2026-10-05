@@ -14,7 +14,7 @@
 #ifdef GEVR
 #include "system.h"
 static u32 g_gevrTeleportEpoch; /* bumped by gevrNotifyTeleport (chrai.c) */
-void gevrNotifyTeleport(void) { g_gevrTeleportEpoch++; gevrVrLocomotionReset(); }
+void gevrNotifyTeleport(void) { g_gevrTeleportEpoch++; gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TELEPORT); }
 extern s32 gevrCrouchToggled(void); // port/src/input.c
 #endif
 #include <math.h>
@@ -488,7 +488,7 @@ static f32 gevrStereoHeadHeight(void)
 /* Face the way the body faces: the current view becomes straight ahead. */
 static void gevrStereoRecenter(void)
 {
-    gevrVrLocomotionReset();
+    gevrVrLocomotionResetReason(GEVR_LOCO_RESET_RECENTER);
     s_gevrPhysicalWalk[0] = s_gevrPhysicalWalk[1] = s_gevrPhysicalWalk[2] = 0;
     s_gevrHeadValid = FALSE;   /* next tick takes this height as standing */
     s_gevrMenuHeadValid = FALSE;
@@ -978,7 +978,7 @@ void gevrStereoFrame(s32 inlevel)
             if (s_gevrSnapArmed && fabsf(x) > 0.5f)
             {
                 s_gevrBaseYaw += (x > 0.0f ? 1.0f : -1.0f) * VrUseSnapTurn;
-                gevrVrLocomotionReset(); /* a comfort snap must remain instantaneous */
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SNAP); /* a comfort snap must remain instantaneous */
                 s_gevrSnapArmed = FALSE;
                 /* the comfort ring closes on the frame that shows the new heading (gevrStereoVignette) */
                 s_gevrSnapVignetteHold = GEVR_SNAP_VIGNETTE_HOLD;
@@ -1023,17 +1023,22 @@ void gevrStereoFrame(s32 inlevel)
             /* Physical ducking is already carried by the body's Y; rising is
              * added to the camera later. Neither should acquire extra delay. */
             if (height < 0) tracking[1] = height;
-            if (lastPlayer != pl || lastStage != stage || lastPaused != paused ||
-                lastTank != g_PlayerIsInTank || lastTeleport != g_gevrTeleportEpoch)
-                gevrVrLocomotionReset();
+            if (lastPlayer != pl || lastStage != stage)
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_CONTEXT);
+            else if (lastPaused != paused)
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_PAUSE);
+            else if (lastTank != g_PlayerIsInTank)
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TANK);
+            else if (lastTeleport != g_gevrTeleportEpoch)
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TELEPORT);
             lastPlayer = pl; lastStage = stage; lastPaused = paused;
             lastTank = g_PlayerIsInTank; lastTeleport = g_gevrTeleportEpoch;
-            if (gevrSpectating() || gevrCoopLocalDowned()) gevrVrLocomotionReset();
+            if (gevrSpectating() || gevrCoopLocalDowned()) gevrVrLocomotionResetReason(GEVR_LOCO_RESET_CONTEXT);
             else gevrVrLocomotionSnapshot(pl->field_488.pos.f, tracking, s_gevrBaseYaw,
                                          (u32)currentFrameCounter);
         }
     }
-    else gevrVrLocomotionReset();
+    else gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SCREEN);
 
     s_gevrStereoWas = want;
     g_gevrStereo = want;
@@ -12458,6 +12463,7 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
 #ifdef GEVR
         gevrStereoHeadWalk(&move_offset);
+        const f32 gevrPhysicalRequest[3] = {move_offset.x, move_offset.y, move_offset.z};
 #endif
         bondviewCalcUpdatePlayerCollision(&move_offset, (g_CurrentPlayer->swaytarget == 0.0f));
 
@@ -12608,10 +12614,12 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 #ifdef GEVR
         /* Do not smooth the collision compensation for physical head motion:
          * otherwise a blocked room-scale step could briefly lean through a wall. */
-        if ((s_gevrPhysicalStep[0] != 0 || s_gevrPhysicalStep[2] != 0) &&
-            (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) &&
-            (fabsf(ftemp_col_x - move_offset.x) > 0.1f || fabsf(ftemp_col_z - move_offset.z) > 0.1f))
-            gevrVrLocomotionReset();
+        {
+            const f32 actual[3] = {ftemp_col_x, 0, ftemp_col_z};
+            if ((!netIsActive() || get_cur_playernum() == netGetLocalSlot()) &&
+                gevrLocomotionPhysicalBlocked(s_gevrPhysicalStep, gevrPhysicalRequest, actual))
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_PHYSICAL);
+        }
 #endif
         sp240 = (move_offset.f[0] * move_offset.f[0]) + (move_offset.f[2] * move_offset.f[2]);
         if (sp240 != 0.0f)
@@ -14623,7 +14631,7 @@ extern int VrShowStats;
 extern const char *gevrVrStatsText(void);
 static Gfx *gevrDrawStats(Gfx *gdl)
 {
-    char buf[640];
+    char buf[896];
     s32 x, y, w = 0, h = 0;
 
     if (!VrShowStats || (getPlayerCount() != 1 && (!netIsActive() || get_cur_playernum() != netGetLocalSlot())))

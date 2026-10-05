@@ -74,6 +74,11 @@ and solo/co-op mode were not specified, and no timing capture accompanied the
 report. The original stutter was not apparent in this test; the full comparison
 matrix below remains unverified.
 
+In follow-up testing of v0.4.9 (`6c1b304`), the user reported a tremendous
+smoothness improvement but occasional stutters at 90 and 120 Hz. Screenshots
+show clamp counts of 0/41 at 90 Hz and 51/120 at 120 Hz. The stutter report is
+still open; see [clamp investigation](vr-locomotion-clamps.md).
+
 ## Remaining Quest acceptance
 
 Use the same scene, resolution, settings, and saved position for baseline and
@@ -84,8 +89,8 @@ For each rate below, repeat with QGO enabled and disabled, and in solo and co-op
 | --- | --- | --- |
 | 72 Hz | 27.8 ms | Pending |
 | 80 Hz | 25.0 ms | Pending |
-| 90 Hz | 22.2 ms | Pending |
-| 120 Hz | 16.7 ms | Pending |
+| 90 Hz | 22.2 ms | Improved, intermittent stutters reported |
+| 120 Hz | 16.7 ms | Improved, intermittent stutters reported |
 
 Exercise forward/backward movement, strafing, smooth turning, combined movement
 and head motion, abrupt stops at walls, stairs, doorways, scopes, current hands

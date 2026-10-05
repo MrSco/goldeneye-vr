@@ -14,6 +14,7 @@ static bool g_frameStarted = true, positionValid = true, orientationValid = true
 static bool g_haveCameraViews = true, g_haveRecordedViews = true, g_haveRenderedViews, g_eyesHoldStereo;
 static bool s_haveSourceCamera, s_haveRecordedCamera;
 static GevrLocomotionHistory s_locomotion;
+static GevrLocomotionStats s_locomotionStats;
 static GevrPresentationCamera s_sourceCamera, s_recordedCamera, s_presentedCamera, s_recordedPresentation;
 static GevrLocomotionPose s_recordedLocomotion, s_evaluatedLocomotion;
 static XrTime s_lastPresentationTime;
@@ -131,6 +132,7 @@ static void runtimeFrame(uint64_t tick, int64_t time, float z) {
 
 static void runtimeIntegration() {
     gevrVrLocomotionReset();
+    s_locomotionStats={};
     float fresh[16], replay[16];
     runtimeFrame(0,1000000000,0); assert(gevrVrPresentationDelta(fresh));
     gevrVrMarkEyesRendered(1);
@@ -163,14 +165,71 @@ static void runtimeIntegration() {
     newHandP[0]=0.05f; assert(gevrVrRedrawHandDelta(1,hand)); near(hand[12],5);
     newHandP[0]=0;
     gevrNotifyTeleport(); assert(g_gevrTeleportEpoch==1); assert(s_locomotion.count==0);
+    assert(s_locomotionStats.resets[GEVR_LOCO_RESET_TELEPORT]==1);
+    gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TELEPORT);
+    assert(s_locomotionStats.resets[GEVR_LOCO_RESET_TELEPORT]==1); // no history to clear twice
     assert(!gevrVrPresentationDelta(fresh));
     for (auto &v:g_frameViews) v.pose.position={0,0,0};
     runtimeFrame(0,1100000000,1000); assert(gevrVrPresentationDelta(fresh)); near(fresh[14],0);
     gevrVrMarkEyesRendered(0); assert(!s_haveRecordedCamera); assert(s_locomotion.count==0);
+    assert(s_locomotionStats.resets[GEVR_LOCO_RESET_SCREEN]==1);
     runtimeFrame(1,1116666667,1000); positionValid=false;
     const float pos[3]={0,0,0}; gevrVrLocomotionSnapshot(pos,pos,0,2); assert(s_locomotion.count==0);
+    assert(s_locomotionStats.resets[GEVR_LOCO_RESET_TRACKING]==1);
     positionValid=true;
     assert(freshRenders==4);
+}
+
+static void clampDiagnosticsAndPhysicalCollision() {
+    const float wall[3]={10,0,0}, stopped[3]={0,0,0};
+    for (float jitter:{-0.05f,-0.005f,0.f,0.005f,0.05f}) {
+        const float step[3]={jitter,0,jitter};
+        assert(!gevrLocomotionPhysicalBlocked(step,wall,stopped));
+    }
+    const float parallel[3]={0,0,0.5f}, request[3]={10,0,0.5f}, slide[3]={0,0,0.5f};
+    assert(!gevrLocomotionPhysicalBlocked(parallel,request,slide));
+    const float away[3]={-0.5f,0,0}, into[3]={0.5f,0,0};
+    assert(!gevrLocomotionPhysicalBlocked(away,wall,stopped));
+    assert(gevrLocomotionPhysicalBlocked(into,into,stopped));
+
+    for (int hz:{72,80,90,120}) {
+        GevrLocomotionHistory h{};
+        GevrLocomotionPose q{};
+        const int64_t period=std::llround(1e9/hz), start=1000000000;
+        assert(!gevrLocomotionQuery(&h,start,&q));
+        assert(h.clampReason==GEVR_LOCO_CLAMP_MISSING);
+        gevrLocomotionSnapshot(&h,stopped,stopped,0,0,start,period);
+        gevrLocomotionQuery(&h,start,&q);
+        assert(h.clampReason==GEVR_LOCO_CLAMP_EARLY);
+        assert(h.targetLead==-gevrLocomotionDelay(period));
+        for (uint64_t tick=1;tick<8;tick++) {
+            const int64_t time=start+(int64_t)(tick*1000000000/60);
+            gevrLocomotionSnapshot(&h,stopped,stopped,0,tick,time,period);
+            gevrLocomotionQuery(&h,time,&q);
+            if (tick>=2) assert(h.clampReason==GEVR_LOCO_CLAMP_NONE);
+        }
+        /* Interrupted scheduling can leave the logical anchor behind even
+         * with regular subsequent arrivals. Report that separately from a
+         * reset/early-history clamp; do not silently shift the camera timeline. */
+        for (uint64_t tick=8;tick<38;tick++) {
+            const int64_t time=start+(int64_t)(tick*1000000000/60)+40000000;
+            assert(gevrLocomotionSnapshot(&h,stopped,stopped,0,tick,time,period)==1);
+            gevrLocomotionQuery(&h,time,&q);
+            assert(h.clampReason==GEVR_LOCO_CLAMP_LATE);
+            assert(h.targetLead==40000000-gevrLocomotionDelay(period));
+            assert(h.resetReason==GEVR_LOCO_RESET_NONE);
+        }
+        gevrLocomotionQuery(&h,h.lastDisplayTime+101000000,&q);
+        assert(h.clampReason==GEVR_LOCO_CLAMP_STALE);
+        const int64_t resume=h.lastDisplayTime+101000000;
+        assert(gevrLocomotionSnapshot(&h,stopped,stopped,0,38,resume,period)==2);
+        assert(h.resetReason==GEVR_LOCO_RESET_GAP);
+        assert(gevrLocomotionSnapshot(&h,stopped,stopped,0,39,resume+16666667,period+2000)==2);
+        assert(h.resetReason==GEVR_LOCO_RESET_REFRESH);
+        assert(gevrLocomotionSnapshot(&h,stopped,stopped,0,1,resume+33333334,period+2000)==2);
+        assert(h.resetReason==GEVR_LOCO_RESET_CLOCK);
+    }
+    assert(std::strcmp(gevrLocomotionResetName(GEVR_LOCO_RESET_PHYSICAL),"PHYSICAL")==0);
 }
 
 static void matricesAndUniforms() {
@@ -249,8 +308,9 @@ int main() {
         cadence(hz,{0,0,120}); cadence(hz,{0,0,-120}); cadence(hz,{120,0,0});
         cadence(hz,{120,30,-120});
     }
-    stopsAndResets(); runtimeIntegration(); combinedHeadAndBody(); matricesAndUniforms();
+    stopsAndResets(); clampDiagnosticsAndPhysicalCollision(); runtimeIntegration(); combinedHeadAndBody(); matricesAndUniforms();
     std::puts("PASS: 72/80/90/120 Hz cadence, physical/head separation, yaw wrap, stops/stalls/resets");
     std::puts("PASS: production XR fresh/redraw continuity, current head/hands, teleport and screen reset");
     std::puts("PASS: production fresh-draw uniforms, controller/HUD exclusion, scope-state cleanup, C linkage");
+    std::puts("PASS: clamp/reset reasons, timeline lag, wall jitter/sliding/retreat and blocked physical movement");
 }

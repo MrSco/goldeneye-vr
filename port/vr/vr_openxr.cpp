@@ -2574,8 +2574,9 @@ static uint32_t s_statXr, s_statGame, s_statSim, s_statRedraw, s_statClamps;
 static double s_statWorstMs, s_statWorstXrMs;
 static std::chrono::steady_clock::time_point s_statT0, s_statLastGame, s_statLastXr;
 static bool s_statInit, s_statHaveGame;
-static char s_statText[512] = "";
+static char s_statText[768] = "";
 static GevrLocomotionHistory s_locomotion;
+static GevrLocomotionStats s_locomotionStats;
 static GevrPresentationCamera s_sourceCamera, s_recordedCamera, s_presentedCamera, s_recordedPresentation;
 static GevrLocomotionPose s_recordedLocomotion;
 static bool s_haveSourceCamera, s_haveRecordedCamera;
@@ -2585,6 +2586,14 @@ static GevrLocomotionPose s_evaluatedLocomotion;
 extern "C" void gevrVrStatsSimulation(unsigned ticks) { s_statSim += ticks; }
 extern "C" void gevrVrLocomotionReset(void)
 {
+    gevrVrLocomotionResetReason(GEVR_LOCO_RESET_OTHER);
+}
+
+extern "C" void gevrVrLocomotionResetReason(GevrLocomotionResetReason reason)
+{
+    /* Count effective history resets, not repeated calls while on a screen. */
+    if (s_locomotion.count && reason > GEVR_LOCO_RESET_NONE && reason < GEVR_LOCO_RESET_COUNT)
+        s_locomotionStats.resets[reason]++;
     gevrLocomotionReset(&s_locomotion);
     s_haveSourceCamera = s_haveRecordedCamera = false;
     s_lastPresentationTime = 0;
@@ -2594,11 +2603,19 @@ extern "C" void gevrVrLocomotionSnapshot(const float position[3], const float tr
                                         float yaw, uint64_t sequence)
 {
     if (!g_frameStarted || !g_frameState.shouldRender || !positionValid || !orientationValid) {
-        gevrVrLocomotionReset();
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TRACKING);
         return;
     }
+    const bool hadHistory = s_locomotion.count != 0;
     const int result = gevrLocomotionSnapshot(&s_locomotion, position, tracking, yaw, sequence,
         g_frameState.predictedDisplayTime, g_frameState.predictedDisplayPeriod);
+    if (hadHistory && s_locomotion.resetReason != GEVR_LOCO_RESET_NONE)
+        s_locomotionStats.resets[s_locomotion.resetReason]++;
+    if (result && s_locomotion.count) {
+        if (!hadHistory || result == 2) s_locomotionStats.seeds++;
+        s_locomotionStats.lastPhase = g_frameState.predictedDisplayTime - s_locomotion.poses[s_locomotion.count - 1].time;
+        s_locomotionStats.maxPhase = std::max(s_locomotionStats.maxPhase, s_locomotionStats.lastPhase);
+    }
     if (result == 2) s_haveRecordedCamera = false;
     if (result) s_lastPresentationTime = 0;
     s_haveSourceCamera = false; // supplied only by the local head's world-camera pass
@@ -2684,16 +2701,38 @@ static void vr_stats_xr_frame(void)
     if (g_screenVisible && g_screenW) {
         snprintf(screen, sizeof(screen), "\nSCREEN %uX%u", (unsigned)g_screenW, (unsigned)g_screenH);
     }
+    unsigned resets = 0;
+    GevrLocomotionResetReason topReset = GEVR_LOCO_RESET_NONE;
+    for (int i = 1; i < GEVR_LOCO_RESET_COUNT; i++) {
+        resets += s_locomotionStats.resets[i];
+        if (s_locomotionStats.resets[i] > s_locomotionStats.resets[topReset])
+            topReset = (GevrLocomotionResetReason)i;
+    }
     snprintf(s_statText, sizeof(s_statText),
-             "BUILD %s\nSIM %.0f HZ  RENDER %.0f FPS\nWORST RENDER GAP %.1f MS\nDISPLAY %.0f HZ  XR %.0f FPS\nWORST XR GAP %.1f MS\nREDRAW %.0f/S  LOCO %.1f MS  CLAMP %u\nEYE %dX%d%s\n%s",
+             "BUILD %s\nSIM %.0f HZ  RENDER %.0f FPS\nWORST RENDER GAP %.1f MS\nDISPLAY %.0f HZ  XR %.0f FPS\nWORST XR GAP %.1f MS\nREDRAW %.0f/S  LOCO %.1f MS\nCLAMP %u E %u L %u S %u\nRESET %u %s %u\nAHEAD %.1f PHASE %.1f MS\nEYE %dX%d%s\n%s",
              build, s_statSim * 1000.0 / el, s_statGame * 1000.0 / el, s_statWorstMs,
              hz, s_statXr * 1000.0 / el, s_statWorstXrMs, s_statRedraw * 1000.0 / el,
              s_locomotion.delay / 1e6, s_statClamps,
+             s_locomotionStats.clamps[GEVR_LOCO_CLAMP_EARLY], s_locomotionStats.clamps[GEVR_LOCO_CLAMP_LATE],
+             s_locomotionStats.clamps[GEVR_LOCO_CLAMP_STALE], resets, gevrLocomotionResetName(topReset),
+             s_locomotionStats.resets[topReset], s_locomotionStats.maxLead / 1e6, s_locomotionStats.maxPhase / 1e6,
              (int)g_internalRenderWidth, (int)g_internalRenderHeight, screen, gevrPerfText());
-    if (VrShowStats) LOGI("cadence: %s", s_statText);
+    if (VrShowStats) {
+        LOGI("cadence: %s", s_statText);
+        LOGI("loco: samples=%u seeds=%u lead_last_ms=%.3f lead_max_ms=%.3f phase_last_ms=%.3f phase_max_ms=%.3f display=%lld newest=%lld delay_ms=%.3f",
+            s_locomotion.count, s_locomotionStats.seeds, s_locomotionStats.lastLead / 1e6,
+            s_locomotionStats.maxLead / 1e6, s_locomotionStats.lastPhase / 1e6, s_locomotionStats.maxPhase / 1e6,
+            (long long)g_frameState.predictedDisplayTime,
+            (long long)(s_locomotion.count ? s_locomotion.poses[s_locomotion.count - 1].time : 0), s_locomotion.delay / 1e6);
+        for (int i = 1; i < GEVR_LOCO_RESET_COUNT; i++) {
+            if (s_locomotionStats.resets[i]) LOGI("loco-reset: %s %u",
+                gevrLocomotionResetName((GevrLocomotionResetReason)i), s_locomotionStats.resets[i]);
+        }
+    }
     s_statT0 = now;
     s_statXr = s_statGame = s_statSim = s_statRedraw = s_statClamps = 0;
     s_statWorstMs = s_statWorstXrMs = 0.0;
+    s_locomotionStats = {};
 }
 
 // The views the last stereo game frame's camera was built from (issue #53).
@@ -2720,7 +2759,7 @@ extern "C" void gevrVrMarkEyesRendered(int stereo)
     } else {
         g_haveRenderedViews = false;
         g_haveRecordedViews = false;
-        gevrVrLocomotionReset();
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SCREEN);
     }
 }
 
@@ -2758,6 +2797,9 @@ static bool vr_locomotion_camera(const GevrPresentationCamera& source,
         const unsigned before = s_locomotion.clamps;
         if (!gevrLocomotionQuery(&s_locomotion, g_frameState.predictedDisplayTime, &s_evaluatedLocomotion)) return false;
         s_statClamps += s_locomotion.clamps - before;
+        s_locomotionStats.clamps[s_locomotion.clampReason]++;
+        s_locomotionStats.lastLead = s_locomotion.targetLead;
+        s_locomotionStats.maxLead = std::max(s_locomotionStats.maxLead, s_locomotion.targetLead);
         s_lastPresentationTime = g_frameState.predictedDisplayTime;
     }
     float oldR[9], newR[9], headR[9], headT[3] = {0};
@@ -3988,7 +4030,7 @@ extern "C" void vr_poll_events(void)
                 if (ssEvent->session != g_vrState.session) break;
                 LOGI("Session state changed: %d", (int)ssEvent->state);
                 g_sessionFocused = ssEvent->state == XR_SESSION_STATE_FOCUSED;
-                if (!g_sessionFocused) gevrVrLocomotionReset();
+                if (!g_sessionFocused) gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
 
                 switch (ssEvent->state) {
                     case XR_SESSION_STATE_READY:
@@ -4315,7 +4357,7 @@ static void vr_idle_pace()
 extern "C" bool vr_begin_frame_and_update_poses()
 {
     if (!g_vrState.sessionRunning || g_vrState.session == XR_NULL_HANDLE) {
-        gevrVrLocomotionReset();
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
         vr_idle_pace();
         return false;
     }
@@ -4325,7 +4367,7 @@ extern "C" bool vr_begin_frame_and_update_poses()
     XrResult r = xrWaitFrame(g_vrState.session, &waitInfo, &g_frameState);
     if (XR_FAILED(r)) {
         LOGE("xrWaitFrame failed: %d", (int)r);
-        gevrVrLocomotionReset();
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
         return false;
     }
 
@@ -4334,14 +4376,14 @@ extern "C" bool vr_begin_frame_and_update_poses()
     r = xrBeginFrame(g_vrState.session, &beginInfo);
     if (XR_FAILED(r)) {
         LOGE("xrBeginFrame failed: %d", (int)r);
-        gevrVrLocomotionReset();
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
         return false;
     }
 
     g_frameStarted = true;
 
     if (!g_frameState.shouldRender) {
-        gevrVrLocomotionReset();
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
         vr_end_empty_frame(g_frameState.predictedDisplayTime);
         g_frameStarted = false;
         return false;
@@ -4358,7 +4400,7 @@ extern "C" bool vr_begin_frame_and_update_poses()
     uint32_t viewCount = 2;
     r = xrLocateViews(g_vrState.session, &viewLocate, &viewState, 2, &viewCount, g_frameViews.data());
     if (XR_FAILED(r) || viewCount < 2) {
-        gevrVrLocomotionReset();
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TRACKING);
         LOGE("xrLocateViews failed: %d", (int)r);
         vr_end_empty_frame(g_frameState.predictedDisplayTime);
         g_frameStarted = false;
@@ -4367,7 +4409,7 @@ extern "C" bool vr_begin_frame_and_update_poses()
 
     const XrViewStateFlags needed = XR_VIEW_STATE_POSITION_VALID_BIT | XR_VIEW_STATE_ORIENTATION_VALID_BIT;
     if ((viewState.viewStateFlags & needed) != needed) {
-        gevrVrLocomotionReset();
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TRACKING);
         LOGE("viewStateFlags missing position/orientation");
         vr_end_empty_frame(g_frameState.predictedDisplayTime);
         g_frameStarted = false;
@@ -4377,7 +4419,7 @@ extern "C" bool vr_begin_frame_and_update_poses()
     for (auto it = g_screenRecenterTimes.begin(); it != g_screenRecenterTimes.end();) {
         if (g_frameState.predictedDisplayTime >= *it) {
             g_screenPlaced = false;
-            gevrVrLocomotionReset();
+            gevrVrLocomotionResetReason(GEVR_LOCO_RESET_RECENTER);
             it = g_screenRecenterTimes.erase(it);
         } else {
             ++it;
@@ -4461,9 +4503,10 @@ extern "C" bool vr_begin_frame_and_update_poses()
 
 
     vr_update_head_tracking(g_frameState.predictedDisplayTime);
-    if (!positionValid || !orientationValid || (s_locomotion.count &&
-        std::abs(g_frameState.predictedDisplayPeriod - s_locomotion.period) > 1000))
-        gevrVrLocomotionReset();
+    if (!positionValid || !orientationValid)
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TRACKING);
+    else if (s_locomotion.count && std::abs(g_frameState.predictedDisplayPeriod - s_locomotion.period) > 1000)
+        gevrVrLocomotionResetReason(GEVR_LOCO_RESET_REFRESH);
     update_vr_controllers(g_frameState.predictedDisplayTime);
     controller_pose();
     vr_pointer_update();
@@ -4658,7 +4701,7 @@ extern "C" bool vr_end_frame_and_submit()
 // ============================================================================
 extern "C" void vr_shutdown()
 {
-    gevrVrLocomotionReset();
+    gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
     LOGI("========== VR SHUTDOWN START ==========");
 
     // 1. Ensure no frame is currently in progress

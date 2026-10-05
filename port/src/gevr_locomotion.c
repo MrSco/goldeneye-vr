@@ -16,6 +16,25 @@ void gevrLocomotionReset(GevrLocomotionHistory *h)
     memset(h, 0, sizeof(*h));
 }
 
+const char *gevrLocomotionResetName(GevrLocomotionResetReason reason)
+{
+    static const char *names[] = {"NONE", "OTHER", "CONTEXT", "TELEPORT", "RECENTER",
+        "SNAP", "PAUSE", "TANK", "TRACKING", "SESSION", "REFRESH", "GAP", "CLOCK",
+        "INVALID", "SCREEN", "PHYSICAL"};
+    return reason >= 0 && reason < GEVR_LOCO_RESET_COUNT ? names[reason] : "INVALID";
+}
+
+int gevrLocomotionPhysicalBlocked(const float step[3], const float requested[3],
+    const float actual[3])
+{
+    /* Ignore sub-millimetre tracking jitter and collision loss perpendicular
+     * to the head's movement (e.g. strafing along a wall while pushing into it).
+     * This gates presentation resets only; physical input is never discarded. */
+    const float lengthSquared = step[0]*step[0] + step[2]*step[2];
+    const float blocked = step[0]*(requested[0]-actual[0]) + step[2]*(requested[2]-actual[2]);
+    return lengthSquared > 0.01f && blocked > 0.1f * sqrtf(lengthSquared);
+}
+
 int64_t gevrLocomotionDelay(int64_t period)
 {
     if (period <= 0 || period > 100000000) return 16666667;
@@ -30,20 +49,27 @@ int gevrLocomotionSnapshot(GevrLocomotionHistory *h, const float position[3],
     const float tracking[3], float yaw, uint64_t sequence, int64_t now, int64_t period)
 {
     int reset = 0;
+    h->resetReason = GEVR_LOCO_RESET_NONE;
     for (int i = 0; i < 3; i++) {
         if (!isfinite(position[i]) || !isfinite(tracking[i])) {
             gevrLocomotionReset(h);
+            h->resetReason = GEVR_LOCO_RESET_INVALID;
             return 0;
         }
     }
     if (!isfinite(yaw) || now <= 0 || period <= 0 || period > 100000000) {
         gevrLocomotionReset(h);
+        h->resetReason = GEVR_LOCO_RESET_INVALID;
         return 0;
     }
     if (h->count && (llabs(period - h->period) > 1000 || now < h->lastDisplayTime ||
         now - h->lastDisplayTime > 100000000 || sequence < h->poses[h->count - 1].sequence ||
         sequence - h->poses[h->count - 1].sequence > 6)) {
+        const GevrLocomotionResetReason reason = llabs(period - h->period) > 1000
+            ? GEVR_LOCO_RESET_REFRESH : now < h->lastDisplayTime || sequence < h->poses[h->count - 1].sequence
+            ? GEVR_LOCO_RESET_CLOCK : GEVR_LOCO_RESET_GAP;
         gevrLocomotionReset(h);
+        h->resetReason = reason;
         reset = 1;
     }
     if (h->count && sequence == h->poses[h->count - 1].sequence) return 0;
@@ -70,20 +96,29 @@ int gevrLocomotionSnapshot(GevrLocomotionHistory *h, const float position[3],
 
 int gevrLocomotionQuery(GevrLocomotionHistory *h, int64_t now, GevrLocomotionPose *p)
 {
-    if (!h->count) return 0;
+    h->clampReason = GEVR_LOCO_CLAMP_NONE;
+    h->targetLead = 0;
+    if (!h->count) {
+        h->clampReason = GEVR_LOCO_CLAMP_MISSING;
+        return 0;
+    }
     const int64_t target = now - h->delay;
     *p = h->poses[h->count - 1];
+    h->targetLead = target - p->time;
     if (now < h->lastDisplayTime || now - h->lastDisplayTime > 100000000) {
         h->clamps++;
+        h->clampReason = GEVR_LOCO_CLAMP_STALE;
         return 1; /* a stall holds the latest confirmed position, never predicts */
     }
     if (target < h->poses[0].time) {
         *p = h->poses[0];
         h->clamps++;
+        h->clampReason = GEVR_LOCO_CLAMP_EARLY;
         return 1;
     }
     if (target > p->time) {
         h->clamps++;
+        h->clampReason = GEVR_LOCO_CLAMP_LATE;
         return 1;
     }
     for (unsigned i = 1; i < h->count; i++) {
