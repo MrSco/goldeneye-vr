@@ -19,6 +19,8 @@ static GevrLocomotionStats s_locomotionStats;
 static GevrPresentationCamera s_sourceCamera, s_recordedCamera, s_presentedCamera, s_recordedPresentation;
 static GevrLocomotionPose s_recordedLocomotion, s_evaluatedLocomotion;
 static XrTime s_lastPresentationTime;
+static bool s_collisionContact;
+static float s_collisionNormal[3], s_collisionHead[3];
 static unsigned s_statClamps, s_statRedraw, freshRenders;
 static float vr_world_scale = 100;
 static XrFrameState g_frameState{};
@@ -183,15 +185,25 @@ static void runtimeIntegration() {
 
 static void clampDiagnosticsAndPhysicalCollision() {
     const float wall[3]={10,0,0}, stopped[3]={0,0,0};
+    float correction[3], normal[3];
     for (float jitter:{-0.05f,-0.005f,0.f,0.005f,0.05f}) {
         const float step[3]={jitter,0,jitter};
-        assert(!gevrLocomotionPhysicalBlocked(step,wall,stopped));
+        assert(gevrLocomotionCollision(step,wall,stopped,correction,normal));
+        near(correction[0],-std::max(0.f,jitter)); near(correction[2],0);
     }
     const float parallel[3]={0,0,0.5f}, request[3]={10,0,0.5f}, slide[3]={0,0,0.5f};
-    assert(!gevrLocomotionPhysicalBlocked(parallel,request,slide));
+    assert(gevrLocomotionCollision(parallel,request,slide,correction,normal));
+    near(correction[0],0); near(correction[2],0);
     const float away[3]={-0.5f,0,0}, into[3]={0.5f,0,0};
-    assert(!gevrLocomotionPhysicalBlocked(away,wall,stopped));
-    assert(gevrLocomotionPhysicalBlocked(into,into,stopped));
+    assert(gevrLocomotionCollision(away,wall,stopped,correction,normal)); near(correction[0],0);
+    assert(gevrLocomotionCollision(into,into,stopped,correction,normal)); near(correction[0],-0.5f);
+    const float partly[3]={0.3f,0,0};
+    assert(gevrLocomotionCollision(into,into,partly,correction,normal)); near(correction[0],-0.2f);
+    assert(!gevrLocomotionCollision(into,into,into,correction,normal));
+    const float rotated[9]={0,0,1,0,1,0,-1,0,0}, contact[3]={0.2f,0.1f,0.3f}, axis[3]={1,0,0};
+    float total[3]={1,2,3};
+    gevrLocomotionClipHead(rotated,contact,axis,total);
+    near(total[0],1); near(total[1],2); near(total[2],2.7f); // only post-contact motion in rotated camera basis
 
     for (int hz:{72,80,90,120}) {
         GevrLocomotionHistory h{};
@@ -203,12 +215,19 @@ static void clampDiagnosticsAndPhysicalCollision() {
         gevrLocomotionQuery(&h,start,&q);
         assert(h.clampReason==GEVR_LOCO_CLAMP_EARLY);
         assert(h.targetLead==-gevrLocomotionDelay(period));
+        gevrLocomotionQuery(&h,start+h.delay-999,&q);
+        assert(h.clampReason==GEVR_LOCO_CLAMP_NONE && q.time==h.poses[0].time);
         for (uint64_t tick=1;tick<8;tick++) {
             const int64_t time=start+(int64_t)(tick*1000000000/60);
             gevrLocomotionSnapshot(&h,stopped,stopped,0,tick,time,period);
             gevrLocomotionQuery(&h,time,&q);
             if (tick>=2) assert(h.clampReason==GEVR_LOCO_CLAMP_NONE);
         }
+        const int64_t edge = h.poses[h.count-1].time + h.delay;
+        gevrLocomotionQuery(&h,edge+999,&q);
+        assert(h.clampReason==GEVR_LOCO_CLAMP_NONE && q.time==h.poses[h.count-1].time);
+        gevrLocomotionQuery(&h,edge+1001,&q);
+        assert(h.clampReason==GEVR_LOCO_CLAMP_LATE);
         /* Interrupted scheduling can leave the logical anchor behind even
          * with regular subsequent arrivals. Report that separately from a
          * reset/early-history clamp; do not silently shift the camera timeline. */
@@ -304,6 +323,98 @@ static void combinedHeadAndBody() {
     for (int i=0;i<9;i++) near(s_presentedCamera.rotation[i],redraw.rotation[i]);
 }
 
+/* Blocked physical motion, diagonal joystick wall sliding and current tangential
+ * head travel must agree across retained geometry and fresh game cameras. */
+static void collisionContinuity(int hz, float joystickSlide, float headSlide) {
+    gevrVrLocomotionReset(); s_locomotionStats={}; s_statClamps=0;
+    for (auto &v:g_frameViews) { v.pose.position={0,0,0}; v.pose.orientation={0,0,0,1}; }
+    g_frameState.predictedDisplayPeriod=std::llround(1e9/hz);
+    g_frameState.predictedDisplayTime=3000000000;
+    g_cameraViews=g_frameViews;
+    const float zero[3]={0,0,0}, seed[3]={0,175,0}, look[3]={0,0,1}, up[3]={0,1,0};
+    gevrVrLocomotionSnapshot(seed,zero,0,0); gevrVrCameraWorld(seed,look,up);
+    float delta[16]; assert(gevrVrPresentationDelta(delta)); gevrVrMarkEyesRendered(1);
+    for (uint64_t tick=1;tick<40;tick++) {
+        /* Simulate exact logical arrivals here; cadence tests independently
+         * cover XR-scheduled game ticks at all four rates. */
+        g_frameState.predictedDisplayTime=3000000000+(int64_t)(tick*1000000000/60);
+        const float tracking[3]={tick*0.6f,0,tick*headSlide};
+        for (auto &v:g_frameViews) v.pose.position={-tracking[0]/100,0,-tracking[2]/100};
+        const float step[3]={0.6f,0,headSlide}, requested[3]={6.6f,0,joystickSlide+headSlide};
+        const float actual[3]={0,0,joystickSlide+headSlide};
+        gevrVrLocomotionCollision(step,requested,actual);
+        assert(s_collisionContact);
+        assert(gevrVrRedrawDelta(delta));
+        const GevrPresentationCamera boundary=s_presentedCamera;
+        const float body[3]={0,175,tick*(joystickSlide+headSlide)};
+        gevrVrLocomotionSnapshot(body,tracking,0,tick);
+        g_cameraViews=g_frameViews; gevrVrCameraWorld(body,look,up);
+        assert(gevrVrPresentationDelta(delta));
+        for (int i=0;i<3;i++) near(s_presentedCamera.position[i],boundary.position[i]);
+        near(s_presentedCamera.position[0],0);
+        gevrVrMarkEyesRendered(1);
+        g_frameState.predictedDisplayTime+=8333333;
+        for (auto &v:g_frameViews) {
+            v.pose.position.x-=0.003f; v.pose.position.z-=headSlide/200;
+        }
+        assert(gevrVrRedrawDelta(delta)); near(s_presentedCamera.position[0],0);
+        if (tick>=2) {
+            const float t=(float)(g_frameState.predictedDisplayTime-3000000000-s_locomotion.delay)/1e9f;
+            near(s_presentedCamera.position[2],t*60*joystickSlide+(tick+0.5f)*headSlide);
+        }
+        float hand[16]; assert(gevrVrRedrawHandDelta(0,hand));
+        for (int i=0;i<16;i++) near(hand[i],identity4[i]);
+    }
+    assert(s_locomotion.count==8 && s_locomotionStats.seeds==1);
+    assert(s_locomotionStats.resets[GEVR_LOCO_RESET_PHYSICAL]==0);
+    for (int i=1;i<GEVR_LOCO_RESET_COUNT;i++) assert(s_locomotionStats.resets[i]==0);
+    /* Late head retreat/tangential motion is free, as is movement after contact clears. */
+    for (auto &v:g_frameViews) v.pose.position.x+=0.009f;
+    assert(gevrVrRedrawDelta(delta)); near(s_presentedCamera.position[0],-0.6f);
+    gevrVrLocomotionCollision(zero,zero,zero); assert(!s_collisionContact);
+    gevrVrLocomotionResetReason(GEVR_LOCO_RESET_RECENTER); assert(!s_collisionContact);
+}
+
+static void collisionCadence(int hz, float origin=0) {
+    gevrVrLocomotionReset(); s_locomotionStats={};
+    const int64_t anchor=4000000000, period=std::llround(1e9/hz);
+    const float up[3]={0,1,0}, look[3]={0,0,1};
+    const float zero[3]={0,0,0};
+    uint64_t tick=0; int64_t due=anchor; float previousHead[3]={0,0,0};
+    float delta[16];
+    g_frameState.predictedDisplayPeriod=period;
+    for (int frame=0;frame<hz*3;frame++) {
+        const int64_t now=anchor+frame*period;
+        g_frameState.predictedDisplayTime=now;
+        const float seconds=(float)(now-anchor)/1e9f;
+        const float head[3]={seconds*36,0,seconds*18};
+        for (auto &v:g_frameViews) { v.pose.position={-head[0]/100,0,-head[2]/100}; v.pose.orientation={0,0,0,1}; }
+        if (now+2000000>=due) {
+            const float step[3]={head[0]-previousHead[0],0,head[2]-previousHead[2]};
+            const float request[3]={6+step[0],0,2+step[2]}, actual[3]={0,0,2+step[2]};
+            gevrVrLocomotionCollision(step,request,actual);
+            const bool cached=tick>2 && gevrVrRedrawDelta(delta);
+            const GevrPresentationCamera boundary=s_presentedCamera;
+            const float body[3]={origin,175,origin+tick*2+head[2]};
+            gevrVrLocomotionSnapshot(body,head,0,tick);
+            gevrVrCameraWorld(body,look,up); g_cameraViews=g_frameViews;
+            assert(gevrVrPresentationDelta(delta));
+            if (cached) for (int i=0;i<3;i++) near(boundary.position[i],s_presentedCamera.position[i],origin ? 0.03f : 0.002f);
+            gevrVrMarkEyesRendered(1);
+            std::memcpy(previousHead,head,sizeof(head));
+            due=anchor+(int64_t)(++tick*1000000000/60);
+        } else assert(gevrVrRedrawDelta(delta));
+        near(s_presentedCamera.position[0],origin,origin ? 0.03f : 0.002f);
+        if (now-anchor > s_locomotion.delay+33333334) {
+            const float expected=origin+(float)(now-anchor-s_locomotion.delay)/1e9f*120+head[2];
+            near(s_presentedCamera.position[2],expected,origin ? 0.03f : 0.002f);
+        }
+    }
+    assert(s_locomotion.count==8 && s_locomotionStats.seeds==1);
+    for (int i=1;i<GEVR_LOCO_RESET_COUNT;i++) assert(s_locomotionStats.resets[i]==0);
+    gevrVrLocomotionCollision(zero,zero,zero);
+}
+
 int main() {
     /* Runtime periods can differ by a few ns from the rounded nominal period.
      * 8,333,332 ns must still select two 120 Hz frames, not three. */
@@ -316,8 +427,11 @@ int main() {
         cadence(hz,{120,30,-120});
     }
     stopsAndResets(); clampDiagnosticsAndPhysicalCollision(); runtimeIntegration(); combinedHeadAndBody(); matricesAndUniforms();
+    for (int hz:{72,80,90,120}) for (float speed:{-2.f,0.f,2.f}) collisionContinuity(hz,speed,0.3f);
+    for (int hz:{72,80,90,120}) { collisionCadence(hz); collisionCadence(hz,-30000); }
     std::puts("PASS: 72/80/90/120 Hz cadence, physical/head separation, yaw wrap, stops/stalls/resets");
     std::puts("PASS: production XR fresh/redraw continuity, current head/hands, teleport and screen reset");
     std::puts("PASS: production fresh-draw uniforms, controller/HUD exclusion, scope-state cleanup, C linkage");
     std::puts("PASS: clamp/reset reasons, timeline lag, wall jitter/sliding/retreat and blocked physical movement");
+    std::puts("PASS: physical collision rebase, late contact clipping, retreat, forward/back wall slides and fresh/redraw continuity at all rates");
 }

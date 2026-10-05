@@ -115,7 +115,7 @@ void gevrFrameTimingTake(GevrFrameTimingWindow *out)
 void gevrFrameTimingFormatSample(const GevrFrameTimingSample *s, char *out, size_t size)
 {
     snprintf(out, size,
-        "kind=%s work=%.3f between=%.3f predict_step=%.3f wait=%.3f begin=%.3f poses=%.3f acquire=%.3f image_wait=%.3f setup=%.3f fresh=%.3f redraw=%.3f vertex_wait=%.3f layers=%.3f release=%.3f submit=%.3f throttle=%.3f draw_batch=%.3f draw_issue=%.3f shader_bind=%.3f shader_compile=%.3f texture_upload=%.3f",
+        "kind=%s work=%.3f between=%.3f predict_step=%.3f wait=%.3f begin=%.3f poses=%.3f acquire=%.3f image_wait=%.3f setup=%.3f fresh=%.3f redraw=%.3f vertex_wait=%.3f layers=%.3f release=%.3f submit=%.3f throttle=%.3f draw_batch=%.3f draw_issue=%.3f shader_bind=%.3f shader_compile=%.3f texture_upload=%.3f gpu_poll=%.3f hud_readback=%.3f",
         s->kind == 1 ? "fresh" : s->kind == 2 ? "redraw" : "other",
         s->work / 1e6, s->between / 1e6, s->predictedStep / 1e6,
         s->cpu[GEVR_TIME_WAIT] / 1e6, s->cpu[GEVR_TIME_BEGIN] / 1e6, s->cpu[GEVR_TIME_POSES] / 1e6,
@@ -124,7 +124,8 @@ void gevrFrameTimingFormatSample(const GevrFrameTimingSample *s, char *out, size
         s->cpu[GEVR_TIME_LAYERS] / 1e6, s->cpu[GEVR_TIME_RELEASE] / 1e6, s->cpu[GEVR_TIME_SUBMIT] / 1e6,
         s->cpu[GEVR_TIME_THROTTLE] / 1e6, s->cpu[GEVR_TIME_DRAW_BATCH] / 1e6,
         s->cpu[GEVR_TIME_DRAW_ISSUE] / 1e6, s->cpu[GEVR_TIME_SHADER_BIND] / 1e6,
-        s->cpu[GEVR_TIME_SHADER_COMPILE] / 1e6, s->cpu[GEVR_TIME_TEXTURE_UPLOAD] / 1e6);
+        s->cpu[GEVR_TIME_SHADER_COMPILE] / 1e6, s->cpu[GEVR_TIME_TEXTURE_UPLOAD] / 1e6,
+        s->cpu[GEVR_TIME_GPU_POLL] / 1e6, s->cpu[GEVR_TIME_HUD_READBACK] / 1e6);
 }
 
 void gevrFrameTimingCollision(const float physical[3], const float requested[3], const float actual[3], int reset)

@@ -3587,6 +3587,7 @@ static void gevr_measure_R_capture(void)
     if (aim != lastAim) { lastAim = aim; burst = 4; }
     if (burst > 0) burst--;
     else if ((n++ % 30) != 0) return;
+    GevrCpuSection timing(GEVR_TIME_HUD_READBACK);
 
     const int S = 128;
     if (s_gevrRBoxFbo == 0) {

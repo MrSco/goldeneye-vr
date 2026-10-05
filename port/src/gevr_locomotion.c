@@ -24,15 +24,43 @@ const char *gevrLocomotionResetName(GevrLocomotionResetReason reason)
     return reason >= 0 && reason < GEVR_LOCO_RESET_COUNT ? names[reason] : "INVALID";
 }
 
-int gevrLocomotionPhysicalBlocked(const float step[3], const float requested[3],
-    const float actual[3])
+int gevrLocomotionCollision(const float step[3], const float requested[3],
+    const float actual[3], float correction[3], float normal[3])
 {
-    /* Ignore sub-millimetre tracking jitter and collision loss perpendicular
-     * to the head's movement (e.g. strafing along a wall while pushing into it).
-     * This gates presentation resets only; physical input is never discarded. */
-    const float lengthSquared = step[0]*step[0] + step[2]*step[2];
-    const float blocked = step[0]*(requested[0]-actual[0]) + step[2]*(requested[2]-actual[2]);
-    return lengthSquared > 0.01f && blocked > 0.1f * sqrtf(lengthSquared);
+    float loss[3] = {requested[0] - actual[0], 0, requested[2] - actual[2]};
+    memset(correction, 0, sizeof(float) * 3);
+    memset(normal, 0, sizeof(float) * 3);
+    for (int i = 0; i < 3; i++) if (!isfinite(step[i]) || !isfinite(loss[i])) return 0;
+    const float length = sqrtf(loss[0]*loss[0] + loss[2]*loss[2]);
+    if (length <= 0.01f) return 0; /* 0.1 mm: float-coordinate noise, not contact */
+    normal[0] = loss[0] / length; normal[2] = loss[2] / length;
+    /* Remove only physical travel toward contact, bounded by both the head
+     * step and the observed collision loss. Tangential/retreat travel stays
+     * current; joystick loss must not become an immediate body correction. */
+    const float rejected = fminf(length, fmaxf(0, step[0]*normal[0] + step[2]*normal[2]));
+    correction[0] = -normal[0] * rejected;
+    correction[2] = -normal[2] * rejected;
+    return 1;
+}
+
+void gevrLocomotionRebase(GevrLocomotionHistory *h, const float correction[3])
+{
+    /* Re-express every retained root in the new physical-collision reference.
+     * Recorded render cameras keep their original reference, so the absolute
+     * redraw transform includes this correction exactly once. */
+    for (unsigned i = 0; i < h->count; i++)
+        for (int j = 0; j < 3; j++) h->poses[i].position[j] += correction[j];
+}
+
+void gevrLocomotionClipHead(const float rotation[9], const float contactDelta[3],
+    const float normal[3], float translation[3])
+{
+    float toward = 0;
+    for (int y = 0; y < 3; y++) for (int x = 0; x < 3; x++)
+        toward += normal[y] * rotation[y*3+x] * contactDelta[x];
+    if (toward <= 0) return;
+    for (int x = 0; x < 3; x++) for (int y = 0; y < 3; y++)
+        translation[x] -= rotation[y*3+x] * normal[y] * toward;
 }
 
 int64_t gevrLocomotionDelay(int64_t period)
@@ -115,13 +143,17 @@ int gevrLocomotionQuery(GevrLocomotionHistory *h, int64_t now, GevrLocomotionPos
     }
     if (target < h->poses[0].time) {
         *p = h->poses[0];
-        h->clamps++;
-        h->clampReason = GEVR_LOCO_CLAMP_EARLY;
+        if (h->poses[0].time - target > 1000) {
+            h->clamps++;
+            h->clampReason = GEVR_LOCO_CLAMP_EARLY;
+        }
         return 1;
     }
     if (target > p->time) {
-        h->clamps++;
-        h->clampReason = GEVR_LOCO_CLAMP_LATE;
+        if (target - p->time > 1000) {
+            h->clamps++;
+            h->clampReason = GEVR_LOCO_CLAMP_LATE;
+        }
         return 1;
     }
     for (unsigned i = 1; i < h->count; i++) {
