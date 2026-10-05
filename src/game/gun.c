@@ -2214,6 +2214,169 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     *drawn = TRUE;
     return gdl;
 }
+
+/*
+ * The screen's watch (the pause button's raise, and every close; user: keep
+ * GE-X's arm through the watch): GoldenEye's arm keeps its watch, which the
+ * pages are drawn on, without its hand or sleeve, and GE-X's left arm is
+ * drawn under it, where the watch sits on it in the headset
+ * (gevrGexWatchFrame, the other way round), in the KF7's resting grip (the
+ * off hand's cache). In the headset's game only (VrPlayMode); the screen
+ * game keeps GoldenEye's watch arm.
+ */
+extern int VrPlayMode;   /* vr_settings_defaults.c: 1 = the headset's game */
+static ModelNode *s_gevrGexSwapDl;
+static Gfx *s_gevrGexSwapSaved[2];
+static s32 s_gevrGexSwapCuff[10];
+
+/* gunfire.c, round the watch arm's draw: begin hides its hand and sleeve (TRUE if it did), end puts them back */
+s32 gevrGexWatchArmSwap(Model *arm, s32 begin)
+{
+    ModelFileHeader *hdr = arm != NULL ? arm->obj : NULL;
+    ModelNode *node;
+    s32 i;
+
+    if (!begin)
+    {
+        if (s_gevrGexSwapDl != NULL)
+        {
+            s_gevrGexSwapDl->Data->DisplayList.Primary = s_gevrGexSwapSaved[0];
+            s_gevrGexSwapDl->Data->DisplayList.Secondary = s_gevrGexSwapSaved[1];
+            s_gevrGexSwapDl = NULL;
+        }
+        for (i = 4; hdr != NULL && i < hdr->numSwitches && i < 10; i++)
+        {
+            s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(arm, hdr->Switches[i]) : NULL;
+
+            if (visible != NULL)
+            {
+                *visible = s_gevrGexSwapCuff[i];
+            }
+        }
+        return FALSE;
+    }
+    if (hdr == NULL || !VrGexArms || !VrPlayMode || !VrGexGuns || s_gevrGexOffFrom == NULL || hdr->numSwitches < 4
+        || !gevrGexHandLoad())
+    {
+        return FALSE;
+    }
+    /* its hand: the first display list right under a joint, not under a switch */
+    for (node = hdr->RootNode; node != NULL && s_gevrGexSwapDl == NULL;)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_DL && node->Parent != NULL
+            && (node->Parent->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
+        {
+            s_gevrGexSwapDl = node;
+        }
+        else if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+            node = node != NULL ? node->Next : NULL;
+        }
+    }
+    if (s_gevrGexSwapDl == NULL)
+    {
+        return FALSE;
+    }
+    s_gevrGexSwapSaved[0] = s_gevrGexSwapDl->Data->DisplayList.Primary;
+    s_gevrGexSwapSaved[1] = s_gevrGexSwapDl->Data->DisplayList.Secondary;
+    s_gevrGexSwapDl->Data->DisplayList.Primary = NULL;
+    s_gevrGexSwapDl->Data->DisplayList.Secondary = NULL;
+    for (i = 4; i < hdr->numSwitches && i < 10; i++)
+    {
+        s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(arm, hdr->Switches[i]) : NULL;
+
+        s_gevrGexSwapCuff[i] = visible != NULL ? *visible : 0;
+        if (visible != NULL)
+        {
+            *visible = 0;
+        }
+    }
+    return TRUE;
+}
+
+/* gunfire.c, after the watch arm's draw: GE-X's left arm under its watch (w: its wrist, the watch's frame) */
+Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w)
+{
+    ModelFileHeader *hdr = &s_gevrGexHandHeader;
+    ModelRenderData renderdata;
+    Mtxf f, inv, wrist;
+    Mtxf *m;
+    const f32 *t = VrGexWatch;
+    f32 x[3], y[3], z[3], lx = 0.0f, ly = 0.0f, k, u;
+    s32 i, j, n;
+
+    for (i = 0; i < 3; i++)
+    {
+        lx += w->m[0][i] * w->m[0][i];
+        ly += w->m[1][i] * w->m[1][i];
+    }
+    lx = sqrtf(lx);
+    ly = sqrtf(ly);
+    if (lx < 1e-6f || ly < 1e-6f || hdr->numMatrices <= GEVR_GEX_LHAND_LAST)
+    {
+        return gdl;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = w->m[0][i] / lx;
+        y[i] = w->m[1][i] / ly;
+    }
+    z[0] = x[1] * y[2] - x[2] * y[1];
+    z[1] = x[2] * y[0] - x[0] * y[2];
+    z[2] = x[0] * y[1] - x[1] * y[0];
+    /* GE-X's units against the watch's: 0.085 cm, and 26 cm to 2392 (bondview2.c), at the watch's size */
+    k = lx * (0.085f * 2392.0f / 26.0f) / (t[3] > 0.1f ? t[3] : 1.0f);
+    u = k / 0.085f;
+    for (i = 0; i < 3; i++)
+    {
+        f.m[0][i] = -z[i] * k;
+        f.m[1][i] = y[i] * k;
+        f.m[2][i] = x[i] * k;
+        f.m[3][i] = w->m[3][i] - (t[0] * x[i] + t[1] * y[i] + t[2] * z[i]) * u - GEVR_GEX_CUFF_Z * x[i] * k;
+    }
+    f.m[0][3] = f.m[1][3] = f.m[2][3] = 0.0f;
+    f.m[3][3] = 1.0f;
+    gevrGexRigidInverse(&s_gevrGexOffChain[GEVR_GEX_LHAND_ARM], &inv);
+    matrix_4x4_multiply(&f, &inv, &wrist);
+
+    n = hdr->numMatrices;
+    m = (Mtxf *) dynAllocate(n * (s32) sizeof(Mtxf));
+    for (j = 0; j < n; j++)
+    {
+        if (j >= GEVR_GEX_LHAND_FIRST && j <= GEVR_GEX_LHAND_LAST)
+        {
+            matrix_4x4_multiply(&wrist, &s_gevrGexOffChain[j], &m[j]);
+        }
+        else
+        {
+            m[j] = wrist;   /* the right hand's joints: its mesh is switched off */
+        }
+    }
+    modelInit(&s_gevrGexHandModel, hdr, s_gevrGexHandRw);
+    for (i = 0; i < hdr->numSwitches; i++)
+    {
+        s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(&s_gevrGexHandModel, hdr->Switches[i]) : NULL;
+
+        if (visible != NULL)
+        {
+            *visible = i == GEVR_GEX_HAND_SW_LEFT;
+        }
+    }
+    s_gevrGexHandModel.render_pos = (RenderPosView *) m;
+    renderdata = *templ;
+    renderdata.gdl = gdl;
+    subdraw(&renderdata, &s_gevrGexHandModel);
+    bondviewTransformManyPosToViewMatrix(s_gevrGexHandModel.render_pos, n);
+    return renderdata.gdl;
+}
 #endif
 
 void used_to_load_1st_person_model_on_demand(GUNHAND hand)
