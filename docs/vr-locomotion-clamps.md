@@ -418,3 +418,61 @@ A live, read-only logcat capture is now writing directly into ignored
 `android/app/build/locomotion-device/curb-live-capture.log` for a repeat, rather
 than relying on a later dump of the headset's rolling log buffer. Do not adjust
 collision based on the screenshot's zero clip/stop counts alone.
+
+## Completed live curb/open-ground comparison
+
+The user completed the requested repeat. The live logger was stopped and its
+output retained as ignored `curb-live-completed.log`; it contains the complete
+18:01:33-58 movement sequence. During sustained curb contact, the local game
+repeatedly accepts zero movement while input continues. The 18:01:46.357 window
+has 16 stopped ticks out of 60 moving ticks. Its trace includes:
+
+| Tick | Requested X/Z (cm) | Accepted X/Z (cm) | Edge tangent | Tried/accepted masks |
+| --- | --- | --- | --- | --- |
+| 5 | 2.504, 8.187 | -3.027, 4.096 | 0.595, -0.804 | 7/6 |
+| 6 | 1.943, 8.442 | 0, 0 | 0.595, -0.804 | f/2 |
+| 7 | 1.588, 8.762 | 0, 0 | 0.595, -0.804 | f/2 |
+
+Scoot is enabled throughout and there is only one collision call per tick.
+The zero-distance fraction move reports success, but edge slide and end-hop
+both fail. Other straight-edge runs have 2-15 stopped ticks per second. Changes
+to different edge tangents near endpoints can represent legitimate corners;
+those are not evidence that collision should be bypassed. Later open-ground
+windows (18:01:54-58) have no clipped or stopped moving ticks.
+
+The actual edge-slide function computes its projection using floats and adds
+it to float world coordinates. Native tests with strict plane collision and
+large coordinates reproduce rejected tangential destinations: their rounding
+puts them slightly on the blocked side of the touching edge. Add a retry only
+after a failed local stereo edge slide: compute the tangent in double and add
+0.01 cm (0.1 mm) clearance toward the player's current side of the edge. The
+existing full `bondviewTryMoveToStan` test still accepts/rejects that target.
+Head-on pushes, ambiguous/degenerate edges, remote players and virtual-screen
+play retain the original behavior; a second real blocker still rejects the
+retry. This is a plausible targeted fix for the captured straight-edge failures,
+not proof that every blocked tick is a numerical fault. Trace bit `10` (hex)
+records precision retries so the next run can measure their effect.
+
+Production edge-slide tests recover 524 rounding failures among 3,200 cases
+across both sides/directions, axis/oblique edges and large coordinates; the
+remaining 2,676 successes need no retry. All second-blocker cases reject both
+attempts. Tangential motion is preserved, clearance is bounded after float
+quantization, and unused retail target/edge Y fields are not read.
+
+This capture also contains a larger, separate presentation failure. Following
+session resume and 72-to-120 Hz refresh transitions at 18:01:29-30, history phase
+stays 58-75 ms and positive query lead stays 40-67 ms throughout the comparison.
+Eight samples and stable average FPS do not prevent clamping every frame when
+the anchor is this far behind. These leads are not the 7-9 microsecond offsets
+in the earlier capture. A predicted-time interruption below the old 100 ms
+arrival-gap reset threshold can lose clock alignment while simulation sequences
+remain consecutive. Re-seed with explicit CLOCK reason when a new confirmed
+sample's predicted time lies outside the normal display-rounded game interval
+plus the pump's 2 ms slack. Retained samples still use exact 60 Hz spacing and
+missing data is never extrapolated. Native scheduling tests at all four rates
+cover short interruptions, one-time recovery and the recorded ~75 ms phase.
+
+Measured rendering gaps remain independent: movement windows have worst gaps
+11.970-22.955 ms and image waits reach 6.614 ms, while worst-frame ammo readback
+is 0.006-0.046 ms. This patch targets both collision binding and the persistent
+clock misalignment; Quest confirmation and release acceptance remain pending.

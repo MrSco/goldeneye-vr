@@ -196,6 +196,7 @@ set_target_properties(openxr_loader PROPERTIES
 # Source files
 # gevr_frame_timing.c / gevr_gpu_timer.cpp: per-XR CPU and asynchronous GPU diagnostics
 # gevr_hud_bounds.cpp: fenced ammo-crop readback without render-thread pixel waits
+# gevr_collision_slide.c: collision-checked clearance retry for local VR edge slides
 # gevr_surface_probe.c: opt-in issue #30 diagnostics; gevr_locomotion.c: presentation interpolation
 file(GLOB_RECURSE SRC_PORT "${CMAKE_SOURCE_DIR}/port/*.c")
 list(FILTER SRC_PORT EXCLUDE REGEX "port/(external|tests)/.*")

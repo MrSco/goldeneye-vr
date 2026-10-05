@@ -31,6 +31,15 @@
   curb binding and runtime image waits remain. Add per-tick requested/accepted
   movement and collision fallback traces to distinguish player sticking from
   presentation pacing. Native checks preserve the game's collision call order.
+- Live curb traces show intermittent stopped simulation movement while the
+  same edge usually allows sliding. Retry rejected local stereo edge slides
+  with 0.1 mm outward clearance, still subject to the full collision test.
+  Native checks reproduce/recover oblique contact rounding without bypassing
+  corners or changing head-on, remote-player or virtual-screen behavior.
+- Recover interpolation when a short session/refresh interruption leaves its
+  logical timeline tens of milliseconds behind predicted display time. Reset
+  the misaligned presentation history explicitly; retain 60 Hz simulation,
+  normal sample spacing and no extrapolation. Quest retest remains pending.
 
 - On-screen characters still get a model hit list after the cartridge's
   600 entries are in use. Report ee07735d: firing on solo Bunker 2

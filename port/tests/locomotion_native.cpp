@@ -228,16 +228,17 @@ static void clampDiagnosticsAndPhysicalCollision() {
         assert(h.clampReason==GEVR_LOCO_CLAMP_NONE && q.time==h.poses[h.count-1].time);
         gevrLocomotionQuery(&h,edge+1001,&q);
         assert(h.clampReason==GEVR_LOCO_CLAMP_LATE);
-        /* Interrupted scheduling can leave the logical anchor behind even
-         * with regular subsequent arrivals. Report that separately from a
-         * reset/early-history clamp; do not silently shift the camera timeline. */
+        /* A short interruption used to leave the anchor permanently behind
+         * even with regular subsequent arrivals. Re-seed once, then retain
+         * exact 60 Hz spacing and recover interpolation without extrapolation. */
         for (uint64_t tick=8;tick<38;tick++) {
             const int64_t time=start+(int64_t)(tick*1000000000/60)+40000000;
-            assert(gevrLocomotionSnapshot(&h,stopped,stopped,0,tick,time,period)==1);
+            assert(gevrLocomotionSnapshot(&h,stopped,stopped,0,tick,time,period)==(tick==8 ? 2 : 1));
             gevrLocomotionQuery(&h,time,&q);
-            assert(h.clampReason==GEVR_LOCO_CLAMP_LATE);
-            assert(h.targetLead==40000000-gevrLocomotionDelay(period));
-            assert(h.resetReason==GEVR_LOCO_RESET_NONE);
+            assert(h.clampReason!=GEVR_LOCO_CLAMP_LATE);
+            assert(h.resetReason==(tick==8 ? GEVR_LOCO_RESET_CLOCK : GEVR_LOCO_RESET_NONE));
+            assert(h.count==std::min<uint64_t>(tick-7,8));
+            if (tick>=10) assert(h.clampReason==GEVR_LOCO_CLAMP_NONE);
         }
         gevrLocomotionQuery(&h,h.lastDisplayTime+101000000,&q);
         assert(h.clampReason==GEVR_LOCO_CLAMP_STALE);
@@ -248,6 +249,20 @@ static void clampDiagnosticsAndPhysicalCollision() {
         assert(h.resetReason==GEVR_LOCO_RESET_REFRESH);
         assert(gevrLocomotionSnapshot(&h,stopped,stopped,0,1,resume+33333334,period+2000)==2);
         assert(h.resetReason==GEVR_LOCO_RESET_CLOCK);
+        /* Retained Quest trace: stable 120 Hz after refresh with ~75 ms phase.
+         * Replaying it must not produce 40-67 ms late clamps forever. */
+        gevrLocomotionReset(&h);
+        gevrLocomotionSnapshot(&h,stopped,stopped,0,63879,169960830323128ll,8333333);
+        assert(gevrLocomotionSnapshot(&h,stopped,stopped,0,63880,
+            169960830323128ll+16666667+75000000,8333333)==2);
+        assert(h.resetReason==GEVR_LOCO_RESET_CLOCK && h.count==1);
+        const int64_t recovered=h.anchorTime;
+        for (uint64_t tick=1;tick<60;tick++) {
+            const int64_t now=recovered+(int64_t)(tick*1000000000/60);
+            assert(gevrLocomotionSnapshot(&h,stopped,stopped,0,63880+tick,now,8333333)==1);
+            gevrLocomotionQuery(&h,now+8333333,&q);
+            assert(h.clampReason!=GEVR_LOCO_CLAMP_LATE);
+        }
     }
     assert(std::strcmp(gevrLocomotionResetName(GEVR_LOCO_RESET_PHYSICAL),"PHYSICAL")==0);
 }

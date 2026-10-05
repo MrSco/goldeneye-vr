@@ -10,6 +10,7 @@
 #include "gevr_surface_math.h"
 #include "gevr_locomotion.h"
 #include "gevr_frame_timing.h"
+#include "gevr_collision_slide.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -7389,6 +7390,24 @@ s32 bondviewTryEdgeMovePlayerCollision(struct coord3d *prior_next_pos, struct co
 
             return 1;
         }
+
+#ifdef GEVR
+        /* Retry only a rejected local VR slide, on the current side of this
+         * edge. The full retail collision test still decides whether it can
+         * move: corners and other blockers must reject this target too. */
+        if (g_gevrStereo && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) &&
+            gevrCollisionSlideRetry(g_CurrentPlayer->field_488.collision_position.f,
+                prior_next_pos->f, collision_pt0->f, collision_pt1->f, try_next_pos.f)) {
+            const s32 accepted = bondviewTryMoveToStan(&try_next_pos, &stan);
+            gevrFrameTimingMoveResult(GEVR_MOVE_PRECISION, accepted, collision_pt0->f, collision_pt1->f);
+            if (accepted) {
+                g_CurrentPlayer->field_488.current_tile_ptr = stan;
+                g_CurrentPlayer->field_488.collision_position.f[0] = try_next_pos.f[0];
+                g_CurrentPlayer->field_488.collision_position.f[2] = try_next_pos.f[2];
+                return 1;
+            }
+        }
+#endif
 
         return 0;
     }
