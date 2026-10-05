@@ -122,10 +122,13 @@ is goldeneyevr.com, in its own repository.
   disabled unless its marker is present.
 - #111 WIP: hand reload, hip holster and grip to hand need refining; grip to
   hand and the game rules are untested in real play / on two headsets.
-- GoldenEye X guns and reloads (port Dab's Mod's GE-X import): planned
-  2026-10-04, not started; the player's own patched ROM, nothing committed.
+- GoldenEye X (claude/gex-weapons, WIP toggles): the KF7 from the player's
+  own GE-X ROM with its animations, reloaded by hand in the headset (clips
+  keep their rounds), GE-X's arms with GoldenEye's watch, Gun fit's reload,
+  off hand and grip modes; the watch's VR settings now hold the launcher's
+  options in sections. Other guns next. Notes: docs/gex-weapons.md.
 - Use `git worktree list` for active checkouts. Unmerged: feature/xbla-hd,
-  fix/30-water-sky.
+  fix/30-water-sky; claude/gex-watch-sleeves is parked, not for merge.
 
 ## How to work on it
 

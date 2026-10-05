@@ -84,12 +84,32 @@ Bond) with the gun model's matrices and animation: every first-person gun
 carries the same hand skeleton. Placement comes from the weapon's position
 fields (KF7 13, -23, -27; PP7 8, -19, -26).
 
-## Plan in this port
+## In this port (2026-10-04)
 
-1. Done: tools/gex reads the ROM (file table, models, scripts, animation rows).
-2. Load data/gex.z64 when present; convert one PD gun model (Gak47Z) to this
-   port's model format with its GE-X textures and the hand model; draw it in
-   place of the KF7 behind a launcher toggle, static.
-3. Port PD's animation decoder for the gun's joints; play the fire and
-   reload animations from the scripts, parts and ammo on their frames.
-4. Then the other guns.
+- tools/gex reads the ROM (file table, models, scripts, animation rows).
+- port/src/gevr_gex.c loads data/gex.z64; gevr_gexmodel.c rebuilds a PD
+  gun model as a GoldenEye file; gevr_pdanim.c is PD's animation reader.
+  The KF7's GE-X textures are paired with GoldenEye's own ids where the
+  pixels match, so the HD packs apply (gun.c s_gevrGexKf7Textures).
+- The KF7 (launcher MODS "Its guns (KF7, WIP)", ini GexGuns, off by
+  default; also the watch's VR settings, from the next weapon drawn). On
+  the screen it fires and reloads with GE-X's animations; its hands are
+  the hand model on the gun's skeleton, as PD draws them.
+- In the headset there is no reload animation (hand reload): the off hand
+  pulls the magazine (or B/Y drops it; it falls), takes one at the belt
+  and pushes it into the well. A magazine keeps its rounds while out;
+  dropped, they go back to the reserve; one from the belt is full. Either
+  gun can take one at the belt by itself. A left KF7 is mirrored.
+- Gun fit keeps GE-X's own gun, grip and scope fits, and adds modes (X):
+  reload (where the magazine is taken, the belt), off hand (its palm;
+  holding the right grip, the watch) and, holding with both hands, where
+  GE-X's left hand holds the gun (ini GexForeHold), which is also where the
+  two-handed hold is taken; the nearer of it and the magazine wins.
+- Arms (MODS "Its arms, wearing the watch (VR, WIP)", ini GexArms):
+  GE-X's own arms are every arm in the headset, as GE-X made them, and
+  GoldenEye's watch is drawn at its own size or larger (ini GexWatch) at
+  the end of the left sleeve - never smaller, for the status on its face.
+  The pause's own watch arm (bondview2.c bondviewRenderWatch) keeps its
+  watch and GE-X's arm is drawn under it. The rejected alternative, the
+  watch arm's sleeve on GE-X's hands, is parked on claude/gex-watch-sleeves.
+- Next: the other guns; then GoldenEye's own guns' arms.
