@@ -1264,7 +1264,35 @@ f32 sub_GAME_7F06C010(ModelFileHeader *head, s32 unused, s32 unused2, s32 *arg3,
  */
 s32 sub_GAME_7F06C010(ModelHitEntry **entryptr, coord3d *modelRayStart, coord3d *modelRayDir, Model **outModel, ModelNode **outNode)
 {
-    ModelHitEntry *entry = *entryptr;
+    ModelHitEntry *entry;
+
+    /*
+     * Report ee07735d: a shot (chrTestHit from chraiDefaultWeaponFireHandler)
+     * SIGSEGV'd at entry->next. On arm64 that field is 0x18 into ModelHitEntry
+     * (the pool comment above: 40-byte entries), and the fault address was
+     * 0x18 with the base register clear: *entryptr was NULL. chrTick marks a
+     * chr on screen, then sub_GAME_7F06B120 leaves field_20 NULL when the
+     * 600-entry pool is empty or the model adds no hit nodes. The stereo aim
+     * trace skips that chr (chrprop.c); this walk did not, so the shot died
+     * in the same NULL+0x18 fault as the old aim-at-draw crash. No list is a
+     * miss, which is what the search below already returns.
+     */
+    if (entryptr == NULL || *entryptr == NULL)
+    {
+        if (outModel != NULL)
+        {
+            *outModel = NULL;
+        }
+
+        if (outNode != NULL)
+        {
+            *outNode = NULL;
+        }
+
+        return 0;
+    }
+
+    entry = *entryptr;
 
     while (entry->next != NULL) 
     {
