@@ -11,6 +11,7 @@
 #include "system.h"
 #include "player.h"
 #include "gevr_collision.h"
+#include "net_coop.h"
 #include <stdio.h>
 #include "fs.h"
 
@@ -38,7 +39,9 @@ static s32 gevrNetInsideDoorProp(PropRecord *prop, rect4f *polygon, s32 edges, f
 }
 
 /*
- * Two players already closer than the sum of their radii (60 units for two
+ * Co-op teammates pass through each other so narrow mission starts and
+ * corridors cannot trap the party. In competitive play, two players
+ * already closer than the sum of their radii (60 units for two
  * Bonds): the volume test refuses every destination whose circle overlaps
  * the other's cylinder, in every direction, so both stood locked at 34
  * apart until one died (both headsets' logs, 2026-09-30). The copies lag
@@ -63,6 +66,15 @@ static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, f32 dest_x, f32 dest
     if (!netSlotOccupied(slot))
     {
         return 0;
+    }
+
+    /* Co-op (#121): Facility's start vent cannot fit the party side by
+     * side. Teammates may share its floor and pass each other, including
+     * while already overlapping at spawn. World/guard collision still
+     * runs normally; competitive players retain the escape rule below. */
+    if (gevrCoopActive())
+    {
+        return 1;
     }
 
     dx = prop->pos.x - g_CurrentPlayer->field_488.collision_position.x;
