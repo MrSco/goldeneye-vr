@@ -66,6 +66,10 @@ bool chrCanSeeBond(ChrRecord *self);
 bool check_if_position_in_same_room(ChrRecord *self, coord3d *pos, StandTile *stan);
 s32 chrSawTargetRecently(ChrRecord *);
 s32 chrIsDead(ChrRecord *chr);
+#ifdef GEVR
+s32 gevrBodyRetireForAi(ChrRecord *chr);
+s32 gevrFastReinforcements(void);
+#endif
 bool actor_steps_sideways(ChrRecord *self);
 bool actor_hops_sideways(ChrRecord *self);
 bool actor_jogs_sideways(ChrRecord *self);

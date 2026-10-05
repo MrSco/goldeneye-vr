@@ -2718,10 +2718,15 @@ extern "C" void gevrLauncherRun(void)
             ImGui::RadioButton("48##bodies", &VrBodiesStay, 48);
             ImGui::TextWrapped("The newest bodies stay on the floor; the oldest goes when a new guard needs its place.");
             ImGui::Spacing();
+            bool fast = VrFastReinforcements != 0;
+            if (ImGui::Checkbox("Fast reinforcements", &fast)) VrFastReinforcements = fast ? 1 : 0;
+            ImGui::TextWrapped("Harder: alerted guards can call more reinforcements while earlier ones are still alive. Works with any body count.");
+            ImGui::Spacing();
             ImGui::Separator();
             if (ImGui::Button("Original rules")) {
                 VrMinesStickToGuards = 0;
                 VrBodiesStay = 0;
+                VrFastReinforcements = 0;
             }
             ImGui::SameLine();
             if (ImGui::Button("Done", ImVec2(-1, 0))) {
@@ -2825,7 +2830,7 @@ extern "C" void gevrLauncherRun(void)
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
             ImGui::SameLine();
-            const int rules = (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0);
+            const int rules = (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0) + (VrFastReinforcements ? 1 : 0);
             snprintf(label, sizeof(label), rules ? "Game rules... (%d changed)" : "Game rules...", rules);
             if (ImGui::Button(label)) rulesPage = true;
             ImGui::Spacing();

@@ -62,6 +62,11 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         ini = temp / "goldeneye-vr.ini"
         ini.unlink(missing_ok=True)
         subprocess.run([str(exe)], cwd=temp, check=True, stdout=subprocess.DEVNULL)
+        for fast in (0, 1):
+            for bodies in (0, 12, 24, 48):
+                subprocess.run([str(exe), "rules_write", str(fast), str(bodies)], cwd=temp, check=True)
+                subprocess.run([str(exe), "rules_read", str(fast), str(bodies)], cwd=temp, check=True)
+        ini.unlink(missing_ok=True)
         ini.write_text("[VR]\nRefreshRate=120\n", encoding="utf-8")
         subprocess.run([str(exe)], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         for rate in (0, 72, 80, 90, 120, 87):
@@ -82,3 +87,4 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         print("PASS: " + ("Quest" if android else "desktop") + " defaults, saved rates, Auto round trips, missing/legacy keys, load-once")
         print("PASS: gun fit, GoldenEye X's own and the scopes' trims round trip")
         print("PASS: watch defaults On, all status/gesture round trips, invalid settings and load-once")
+        print("PASS: Fast reinforcements defaults off and round trips independently of every body count")
