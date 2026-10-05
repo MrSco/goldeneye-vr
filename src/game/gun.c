@@ -2145,6 +2145,19 @@ Model *gevrGexHands(GUNHAND hand)
     return &s_gevrGexHandModel;
 }
 
+/* the log, when what happened to an arm through the watch changes (user: it still showed GoldenEye's) */
+static void gevrGexWatchNote(s32 *last, s32 code, const char *what)
+{
+    extern s32 g_gevrStereo;
+
+    if (*last != code)
+    {
+        *last = code;
+        sysLogPrintf(LOG_NOTE, "gex: watch %s (%d, watch state %d, stereo %d)", what, code,
+                     g_CurrentPlayer != NULL ? g_CurrentPlayer->watch_animation_state : -1, g_gevrStereo);
+    }
+}
+
 /* gunfire.c, where the watch arm goes: the off hand, empty (gevrGexOffCache above) */
 Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
 {
@@ -2159,6 +2172,7 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     f32 pos[3], x[3], y[3];
     s32 mag, i, n, watch;
     const s32 left = g_CurrentPlayer != NULL ? get_item_in_hand_or_watch_menu(GUNLEFT) : ITEM_UNARMED;
+    static s32 s_note = -1;
 
     *drawn = FALSE;
     /* through the watch's pages too (user: keep GE-X's arm), but the watch's own
@@ -2167,7 +2181,17 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
         || g_CurrentPlayer->bonddead || (left != ITEM_UNARMED && left != ITEM_SUIT_LF_HAND)
         || gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) || gevrStereoTwoHandGrip())
     {
+        if (g_CurrentPlayer != NULL && g_CurrentPlayer->watch_animation_state != 0)
+        {
+            gevrGexWatchNote(&s_note, !gevrGexArmsOn() ? 11 : s_gevrGexOffFrom == NULL ? 12
+                                      : (left != ITEM_UNARMED && left != ITEM_SUIT_LF_HAND) ? 13 : 14,
+                             "arm in the headset stays GoldenEye's");
+        }
         return gdl;
+    }
+    if (g_CurrentPlayer->watch_animation_state != 0)
+    {
+        gevrGexWatchNote(&s_note, 10, "arm in the headset is GE-X's");
     }
     mag = gevrGexMagState(GUNRIGHT, NULL);
     if (mag == GEVR_GEXMAG_GRIPPED || mag == GEVR_GEXMAG_INHAND)
@@ -2232,6 +2256,7 @@ static s32 s_gevrGexSwapCuff[10];
 /* gunfire.c, round the watch arm's draw: begin hides its hand and sleeve (TRUE if it did), end puts them back */
 s32 gevrGexWatchArmSwap(Model *arm, s32 begin)
 {
+    static s32 s_note = -1;
     ModelFileHeader *hdr = arm != NULL ? arm->obj : NULL;
     ModelNode *node;
     s32 i;
@@ -2258,6 +2283,9 @@ s32 gevrGexWatchArmSwap(Model *arm, s32 begin)
     if (hdr == NULL || !VrGexArms || !VrPlayMode || !VrGexGuns || s_gevrGexOffFrom == NULL || hdr->numSwitches < 4
         || !gevrGexHandLoad())
     {
+        gevrGexWatchNote(&s_note, hdr == NULL ? 1 : !VrGexArms ? 2 : !VrPlayMode ? 3 : !VrGexGuns ? 4
+                                  : s_gevrGexOffFrom == NULL ? 5 : hdr->numSwitches < 4 ? 6 : 7,
+                         "arm on the screen stays GoldenEye's");
         return FALSE;
     }
     /* its hand: the first display list right under a joint, not under a switch */
@@ -2283,8 +2311,10 @@ s32 gevrGexWatchArmSwap(Model *arm, s32 begin)
     }
     if (s_gevrGexSwapDl == NULL)
     {
+        gevrGexWatchNote(&s_note, 8, "arm on the screen: no hand list found");
         return FALSE;
     }
+    gevrGexWatchNote(&s_note, 0, "arm on the screen is GE-X's");
     s_gevrGexSwapSaved[0] = s_gevrGexSwapDl->Data->DisplayList.Primary;
     s_gevrGexSwapSaved[1] = s_gevrGexSwapDl->Data->DisplayList.Secondary;
     s_gevrGexSwapDl->Data->DisplayList.Primary = NULL;
@@ -2323,6 +2353,15 @@ Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w)
     if (lx < 1e-6f || ly < 1e-6f || hdr->numMatrices <= GEVR_GEX_LHAND_LAST)
     {
         return gdl;
+    }
+    {
+        static u32 s_logs;
+
+        if ((s_logs++ % 60) == 0)
+        {
+            sysLogPrintf(LOG_NOTE, "gex: watch arm on the screen at %.1f %.1f %.1f, %.4f a watch unit",
+                         w->m[3][0], w->m[3][1], w->m[3][2], lx);
+        }
     }
     for (i = 0; i < 3; i++)
     {
