@@ -725,6 +725,8 @@ void bossMainloop(void)
                                 dynDrawMembars(gdl);
                             }
 
+                            /* GEVR also validates the completed master list here,
+                             * before its active buffer changes or the task runs. */
                             freeGfx = dynGetFreeGfx2(gdl);
                             dynSwapBuffers();
                             video_related_8();
