@@ -5310,8 +5310,9 @@ void chrlvTickSurrender(ChrRecord *self)
  * Bodies stay (launcher Play > Game rules..., VrBodiesStay; GEVR PC's
  * CORPSEKEEP, vr441): in single player the newest 12, 24 or 48 bodies stay
  * on the floor instead of fading once their death is over (the AI's RemoveMe,
- * chrlvActorFadeAway). A dead guard already has no collision and takes no
- * shots (chr.c), so a kept body is only drawn. Kept bodies count as gone for
+ * chrlvActorFadeAway). A dead guard takes no shots (chrTestHit returns on
+ * ACT_DEAD). A visible body still builds field_20, and drawjointlist draws
+ * that same list, so a kept corpse still spends hit entries. Kept bodies count as gone for
  * scripts only after the original fade's 90 NTSC / 75 PAL ticks, and release their script
  * IDs then so a replacement clone can acquire its parent's tracked ID. GEVR
  * PC's kept bodies left Frigate's hostages waiting for their guards to go
