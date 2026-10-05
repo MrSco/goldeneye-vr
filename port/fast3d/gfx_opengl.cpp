@@ -24,6 +24,7 @@
 #include "gevr_line_geometry.h"
 #include "gevr_frame_timing.h"
 #include "gevr_hud_bounds.h"
+#include "gevr_vertex_ownership.h"
 /* Inclusive CPU timings, only with Show stats. RAII balances early returns;
  * draw_issue is nested in draw_batch, shader_bind may nest in shader_compile. */
 class GevrCpuSection {
@@ -575,17 +576,36 @@ static GLsizeiptr s_pmSegSize, s_pmOff;
 static int s_pmSeg = -1;
 static uint32_t s_pmFrame = 0xffffffffu;
 static GLsync s_pmFence[GEVR_PM_SEGMENTS];
+static unsigned s_pmFallbacks;
+static unsigned gevr_pm_poll(void *context, uint64_t timeout) {
+    return glClientWaitSync(*(GLsync *)context, GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
+}
+static void gevr_pm_finish(void *) { glFinish(); }
+/* Fallbacks drain the GPU; log the 1st, 2nd, 4th, 8th... so a broken driver
+ * cannot turn the warning itself into a per-frame cost. */
+static void gevr_pm_fallback(const char *what, unsigned result) {
+    s_pmFallbacks++;
+    if (!(s_pmFallbacks & (s_pmFallbacks - 1)))
+        sysLogPrintf(LOG_WARNING, "vertex-ring: %s (0x%x); completed outstanding GPU work (%u so far)",
+                     what, result, s_pmFallbacks);
+}
 static void gevr_pm_next_segment(void)
 {
     if (s_pmSeg >= 0) {
         if (s_pmFence[s_pmSeg]) glDeleteSync(s_pmFence[s_pmSeg]);
         s_pmFence[s_pmSeg] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        if (!s_pmFence[s_pmSeg]) {
+            glFinish();   /* nothing to wait on later: the segment must be free now */
+            gevr_pm_fallback("fence creation failed", 0);
+        }
     }
     s_pmSeg = (s_pmSeg + 1) % GEVR_PM_SEGMENTS;
     if (s_pmFence[s_pmSeg]) {
         const uint64_t timingStart = gevrFrameTimingNow();
-        glClientWaitSync(s_pmFence[s_pmSeg], GL_SYNC_FLUSH_COMMANDS_BIT, 100000000ull);
+        const unsigned result = gevrVertexAwaitOwnership(&s_pmFence[s_pmSeg], gevr_pm_poll, gevr_pm_finish);
         gevrFrameTimingAdd(GEVR_TIME_VERTEX_WAIT, timingStart);
+        if (result != GEVR_FENCE_ALREADY && result != GEVR_FENCE_SATISFIED)
+            gevr_pm_fallback("fence wait did not signal", result);
         glDeleteSync(s_pmFence[s_pmSeg]);
         s_pmFence[s_pmSeg] = 0;
     }
