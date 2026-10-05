@@ -112,6 +112,7 @@ extern float VrReloadGrab[2][3];   // Hand reload: the magazine from the gun han
 extern float VrReloadBelt[3];      // the belt: below the eye, out, ahead
 extern float VrGexHeldMag[3];      // a GE-X magazine's palm from the off hand's grip
 extern float VrGexWatch[4];        // the watch on GE-X's left wrist: cm ahead, up, out; its size
+extern float VrGexForeHold[3];     // GE-X's two-handed hold on the gun: cm forward, up, out
 extern float VrArmElbowTuck;    // 0..1, how tightly the elbow is pinned toward the body
 extern float VrArmBodyFollow;   // how fast the smoothed torso yaw chases the head (spin comfort)
 extern int   VrFistClench;      // close the off-hand while the left grip is squeezed

@@ -81,12 +81,13 @@ extern s32 gevrReloadFitAvailable(void);  /* bondview2.c */
 extern void gevrReloadFitSetGrab(void);
 extern void gevrReloadFitSetBelt(void);
 extern s32 gevrGexMagState(s32 hand, f32 off[3]);
-extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3], VrGexWatch[4];   /* vr_settings_defaults.c */
+extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3], VrGexWatch[4], VrGexForeHold[3];   /* vr_settings_defaults.c */
+extern int VrGexArms;                     /* vr_settings_defaults.c: GE-X's arms in the headset */
 
 /* Gun fit's values as last saved, which B goes back to: both models' sets */
 static struct {
     float gun[3], gexGun[3], grip[2][6], gexGrip[2][6], scope[2][GEVR_SCOPE_FITS][4];
-    float reloadGrab[2][3], reloadBelt[3], gexHeld[3], gexWatch[4];
+    float reloadGrab[2][3], reloadBelt[3], gexHeld[3], gexWatch[4], gexFore[3];
 } s_gunFitSaved;
 
 static void gevrGunFitSaved(bool restore)
@@ -103,6 +104,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(VrReloadBelt, s_gunFitSaved.reloadBelt, sizeof(VrReloadBelt));
         memcpy(VrGexHeldMag, s_gunFitSaved.gexHeld, sizeof(VrGexHeldMag));
         memcpy(VrGexWatch, s_gunFitSaved.gexWatch, sizeof(VrGexWatch));
+        memcpy(VrGexForeHold, s_gunFitSaved.gexFore, sizeof(VrGexForeHold));
     } else {
         s_gunFitSaved.gun[0] = VrGunOffX;
         s_gunFitSaved.gun[1] = VrGunOffY;
@@ -115,6 +117,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(s_gunFitSaved.reloadBelt, VrReloadBelt, sizeof(VrReloadBelt));
         memcpy(s_gunFitSaved.gexHeld, VrGexHeldMag, sizeof(VrGexHeldMag));
         memcpy(s_gunFitSaved.gexWatch, VrGexWatch, sizeof(VrGexWatch));
+        memcpy(s_gunFitSaved.gexFore, VrGexForeHold, sizeof(VrGexForeHold));
     }
 }
 extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
@@ -1247,6 +1250,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     s[2] -= my * rate * dt;
                     s[1] += ry * rate * dt;
                     s[3] += rx * rate * dt;
+                } else if (gevrStereoTwoHandGrip() && gex && VrGexArms) {
+                    /* GoldenEye X's own left hand holds it (gun.c): where, cm forward,
+                     * up and out along the gun (user: the hold was taken too near the
+                     * magazine); the hold is taken there too */
+                    VrGexForeHold[0] += my * rate * dt;
+                    VrGexForeHold[2] += mx * rate * dt;
+                    VrGexForeHold[1] += ry * rate * dt;
                 } else if (gevrStereoTwoHandGrip()) {
                     /* Holding with both hands (#35, user): the holding hand instead, for
                      * this class of gun - [0] out to the off hand's side (so the move

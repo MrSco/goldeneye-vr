@@ -2525,6 +2525,10 @@ static const f32 s_gevrTwoHandPalm[3] = { 1.0f, 79.5f, 57.5f };
  * a gap between the hand and the pistol's grip (user). Taking hold measures
  * from the controller (the player's hands); drawing uses the model.
  */
+extern s32 gevrGexForePoint(f32 out[3]);   /* gun.c: where GE-X's left hand holds the gun */
+s32 gevrGexHeldPalm(f32 out[3]);            /* below */
+extern int VrGexArms, VrGexGuns;            /* vr_settings_defaults.c */
+
 static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
 {
     f32 gpos[3], right[3], up[3], back[3], ignore[3];
@@ -2536,6 +2540,21 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     if (cm < 1e-6f || !gevrGripAxes(1, gpos, right, up, back) || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
     {
         return FALSE;
+    }
+    if (!drawn && gevrGexForePoint(snap))
+    {
+        /* GoldenEye X: where its own left hand holds (gun.c; Gun fit's grip mode
+         * moves it), from the off hand as drawn (user: it was taken too near
+         * the magazine) */
+        f32 palm[3];
+        const f32 *from = VrGexArms && gevrGexHeldPalm(palm) ? palm : opos;
+
+        for (i = 0; i < 3; i++)
+        {
+            d[i] = from[i] - snap[i];
+        }
+        *distcm = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) / cm;
+        return TRUE;
     }
     if (drawn)
     {
@@ -14660,6 +14679,15 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         snprintf(buf, sizeof(buf),
                  "SCOPE FIT: %s%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nWIDER %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  label, gex, -s[2], s[0], s[1], s[3], gevrFitNextLine(1));
+    }
+    else if (gevrStereoTwoHandGrip() && gevrGexHeld(GUNRIGHT) && VrGexArms)
+    {
+        /* GoldenEye X's own left hand holding: where it holds (input.c) */
+        extern float VrGexForeHold[3];   /* vr_settings_defaults.c */
+
+        snprintf(buf, sizeof(buf),
+                 "GRIP FIT (GOLDENEYE X)\nWHERE THE LEFT HAND HOLDS\nFORWARD %.1f  UP %.1f  SIDE %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nA: SAVE   B: UNDO   MENU + A: DONE",
+                 VrGexForeHold[0], VrGexForeHold[1], VrGexForeHold[2]);
     }
     else if (gevrStereoTwoHandGrip())
     {
