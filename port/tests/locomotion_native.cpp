@@ -1,4 +1,5 @@
 #include "gevr_locomotion.h"
+#include "gevr_frame_timing.h"
 #include <openxr/openxr.h>
 #include <algorithm>
 #include <array>
