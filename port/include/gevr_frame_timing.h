@@ -14,6 +14,10 @@ typedef enum {
     GEVR_TIME_THROTTLE, GEVR_TIME_DRAW_BATCH, GEVR_TIME_DRAW_ISSUE,
     GEVR_TIME_SHADER_BIND, GEVR_TIME_SHADER_COMPILE, GEVR_TIME_TEXTURE_UPLOAD,
     GEVR_TIME_GPU_POLL, GEVR_TIME_HUD_READBACK,
+    GEVR_TIME_FRAME, GEVR_TIME_GAME, GEVR_TIME_INPUT, GEVR_TIME_AUDIO,
+    GEVR_TIME_FINALIZE, GEVR_TIME_METRICS, GEVR_TIME_DL, GEVR_TIME_VERTEX, GEVR_TIME_CLIP,
+    GEVR_TIME_TEX_LOOKUP, GEVR_TIME_TEX_CONVERT, GEVR_TIME_CAPTURE,
+    GEVR_TIME_SCOPE, GEVR_TIME_TEX_READY,
     GEVR_TIME_COUNT
 } GevrFrameTimingSection;
 
@@ -30,7 +34,11 @@ typedef struct {
  * sections; they must not be summed with those sections. No clock conversion
  * between OpenXR time and the CPU monotonic clock is assumed. */
 typedef struct {
-    uint64_t start, submit, cpu[GEVR_TIME_COUNT];
+    uint64_t start, submit, cpu[GEVR_TIME_COUNT], self[GEVR_TIME_COUNT];
+    uint64_t pre[GEVR_TIME_COUNT];
+    uint64_t draws, vertices, allocations, uploadBytes, cacheHits, cacheMisses;
+    unsigned detailed, timingErrors;
+    uint64_t imageLifetime;
     int64_t display, period, predictedStep;
     uint64_t between, work;
     unsigned kind; /* 0 = no game eye pass, 1 = fresh, 2 = redraw */
@@ -69,10 +77,29 @@ void gevrFrameTimingFormatMotion(const GevrFrameTimingSample *s, char *out, size
 void gevrFrameTimingMoveBegin(int allowScoot);
 void gevrFrameTimingMoveResult(GevrMoveAttempt kind, int result, const float edge0[3], const float edge1[3]);
 void gevrFrameTimingFormatCollision(const GevrFrameTimingWindow *w, unsigned first, char *out, size_t size);
+uint64_t gevrFrameTimingEnter(GevrFrameTimingSection section);
+void gevrFrameTimingLeave(uint64_t token);
+void gevrFrameTimingImageLifetime(uint64_t ns);
+void gevrFrameTimingOutside(GevrFrameTimingSection section, uint64_t ns);
+void gevrFrameTimingCounters(uint64_t draws, uint64_t vertices, uint64_t allocations,
+    uint64_t uploadBytes, uint64_t cacheHits, uint64_t cacheMisses);
+/* record LABEL WARMUP_SECONDS MEASURE_SECONDS DETAIL(0/1) in an opt-in marker.
+ * The completed CSV is written next to the marker, after the measured interval. */
+void gevrFrameTimingTracePoll(const char *marker);
+int gevrFrameTimingTracing(void);
+const char *gevrFrameTimingSectionName(unsigned section);
 void gfx_vr_gpu_begin(int redraw);
 void gfx_vr_gpu_end(void);
 void gfx_vr_gpu_reset(void);
 #ifdef __cplusplus
 }
+class GevrProfileSection {
+    uint64_t token;
+public:
+    explicit GevrProfileSection(GevrFrameTimingSection section) : token(gevrFrameTimingEnter(section)) {}
+    ~GevrProfileSection() { gevrFrameTimingLeave(token); }
+    GevrProfileSection(const GevrProfileSection&) = delete;
+    GevrProfileSection& operator=(const GevrProfileSection&) = delete;
+};
 #endif
 #endif

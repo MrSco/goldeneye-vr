@@ -10,6 +10,82 @@ static GevrFrameTimingSample frame, previous;
 static GevrFrameTimingWindow window;
 static float lastBody[3], lastRoot[3], lastCamera[3];
 static int haveBody, haveCamera, sampledBody, sampledCamera;
+static uint64_t pending[GEVR_TIME_COUNT], serial;
+static unsigned depth, frameIndex;
+static struct { GevrFrameTimingSection section; uint64_t start, child, token; } spans[32];
+#define GEVR_TRACE_CAPACITY 8192
+static GevrFrameTimingSample trace[GEVR_TRACE_CAPACITY];
+static struct { uint64_t ready, ns; unsigned kind; } gpuTrace[GEVR_TRACE_CAPACITY];
+static unsigned gpuRows, gpuOverflow;
+static struct {
+    unsigned active, detail, rows, overflow;
+    uint64_t measureStart, measureEnd;
+    char path[768], label[64];
+} recording;
+static uint64_t rawNow(void) {
+#ifdef GEVR_TIMING_TEST_CLOCK
+    extern uint64_t gevrTimingTestClock;
+    return gevrTimingTestClock;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec*1000000000ull + (uint64_t)ts.tv_nsec;
+#endif
+}
+const char *gevrFrameTimingSectionName(unsigned i) {
+    static const char *names[] = {"wait", "begin", "poses", "acquire", "image_wait", "eye_setup",
+        "fresh", "redraw", "vertex_wait", "layers", "release", "submit", "throttle", "draw_batch",
+        "draw_issue", "shader_bind", "shader_compile", "texture_upload", "gpu_poll", "hud_readback",
+        "frame", "game", "input", "audio", "finalize", "metrics", "dl", "vertex", "clip", "tex_lookup",
+        "tex_convert", "capture", "scope", "tex_ready"};
+    return i < GEVR_TIME_COUNT ? names[i] : "invalid";
+}
+int gevrFrameTimingTracing(void) { return recording.active != 0; }
+void gevrFrameTimingTracePoll(const char *marker) {
+    static unsigned polls;
+    if(recording.active==1 && rawNow()>=recording.measureEnd) recording.active=2;
+    if (recording.active == 2) {
+        FILE *out = fopen(recording.path, "w");
+        if (out) {
+            fprintf(out, "# gevr-profile-v1 label=%s rows=%u overflow=%u detail=%u\n", recording.label, recording.rows, recording.overflow, recording.detail);
+            fprintf(out, "start_ns,submit_ns,display_ns,period_ns,kind,body_valid,camera_valid,reset,detailed,errors,work_ns,pre_ns,draws,vertices,allocations,upload_bytes,cache_hits,cache_misses,image_lifetime_ns");
+            for (unsigned j=0;j<GEVR_TIME_COUNT;j++) fprintf(out, ",%s_ns,%s_self_ns,%s_pre_ns",gevrFrameTimingSectionName(j),gevrFrameTimingSectionName(j),gevrFrameTimingSectionName(j));
+            fputc('\n',out);
+            for (unsigned i=0;i<recording.rows;i++) {
+                const GevrFrameTimingSample *s=&trace[i];
+                uint64_t pre=0;for(unsigned j=0;j<GEVR_TIME_COUNT;j++) pre+=s->pre[j];
+                fprintf(out,"%llu,%llu,%lld,%lld,%u,%u,%u,%u,%u,%u,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu",
+                    (unsigned long long)s->start,(unsigned long long)s->submit,(long long)s->display,(long long)s->period,
+                    s->kind,s->bodyValid,s->cameraValid,s->resetReason,s->detailed,s->timingErrors,
+                    (unsigned long long)s->work,(unsigned long long)pre,(unsigned long long)s->draws,(unsigned long long)s->vertices,
+                    (unsigned long long)s->allocations,(unsigned long long)s->uploadBytes,(unsigned long long)s->cacheHits,(unsigned long long)s->cacheMisses,(unsigned long long)s->imageLifetime);
+                for(unsigned j=0;j<GEVR_TIME_COUNT;j++) fprintf(out,",%llu,%llu,%llu",(unsigned long long)s->cpu[j],(unsigned long long)s->self[j],(unsigned long long)s->pre[j]);
+                fputc('\n',out);
+            }
+            fclose(out);
+        }
+        recording.active=0;
+        return;
+    }
+    if (recording.active || (++polls % 60)) return;
+    FILE *in=fopen(marker,"r");
+    if(!in) return;
+    char command[16], label[64]; unsigned warm=15, seconds=60, detail=1;
+    const int fields=fscanf(in,"%15s %63s %u %u %u",command,label,&warm,&seconds,&detail);
+    fclose(in);remove(marker);
+    if(fields!=5 || strcmp(command,"record") || warm>120 || seconds<1 || seconds>60 || detail>1) return;
+    for(unsigned i=0;label[i];i++) if(!((label[i]>='a'&&label[i]<='z')||(label[i]>='A'&&label[i]<='Z')||(label[i]>='0'&&label[i]<='9')||label[i]=='-'||label[i]=='_')) return;
+    memset(&recording,0,sizeof(recording));
+    if(snprintf(recording.path,sizeof(recording.path),"%s.%s.csv",marker,label)>=(int)sizeof(recording.path)) return;
+    memcpy(recording.label,label,strlen(label)+1);
+    recording.detail=detail;recording.active=1;
+    recording.measureStart=rawNow()+(uint64_t)warm*1000000000ull;
+    recording.measureEnd=recording.measureStart+(uint64_t)seconds*1000000000ull;
+    gpuRows=gpuOverflow=0;
+    char status[800];snprintf(status,sizeof(status),"%s.status",marker);
+    FILE *ack=fopen(status,"w");
+    if(ack) { fprintf(ack,"%s %llu %llu",label,(unsigned long long)recording.measureStart,(unsigned long long)recording.measureEnd);fclose(ack); }
+}
 
 void gevrFrameTimingEnable(int value)
 {
@@ -20,19 +96,52 @@ void gevrFrameTimingEnable(int value)
     memset(&previous, 0, sizeof(previous));
     memset(&window, 0, sizeof(window));
     haveBody = haveCamera = sampledBody = sampledCamera = 0;
+    depth=0;memset(pending,0,sizeof(pending));
 }
 uint64_t gevrFrameTimingNow(void)
 {
-    struct timespec ts;
     if (!enabled) return 0;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
+    return rawNow();
 }
 void gevrFrameTimingBegin(uint64_t now)
 {
     memset(&frame, 0, sizeof(frame));
     sampledBody = sampledCamera = 0;
-    if (enabled) frame.start = now;
+    depth=0;
+    if (enabled) {
+        frame.start = now;
+        memcpy(frame.pre,pending,sizeof(pending));memset(pending,0,sizeof(pending));
+        frame.detailed = ((frameIndex++ % 16)==0) && (!recording.active || recording.detail);
+        spans[depth].section=GEVR_TIME_FRAME;spans[depth].start=now;spans[depth].child=0;spans[depth++].token=++serial;
+    }
+}
+uint64_t gevrFrameTimingEnter(GevrFrameTimingSection section) {
+    if(!enabled || !frame.start || section<0 || section>=GEVR_TIME_COUNT) return 0;
+    if(section>=GEVR_TIME_DL && !frame.detailed) return 0;
+    if(depth==32) { frame.timingErrors++;return 0; }
+    spans[depth].section=section;spans[depth].start=rawNow();spans[depth].child=0;
+    spans[depth].token=++serial;
+    return spans[depth++].token;
+}
+void gevrFrameTimingLeave(uint64_t token) {
+    if(!token || !enabled || !frame.start) return;
+    if(!depth || spans[depth-1].token!=token) { frame.timingErrors++;return; }
+    const unsigned i=--depth;
+    const uint64_t now=rawNow(), ns=now>=spans[i].start ? now-spans[i].start : 0;
+    frame.cpu[spans[i].section]+=ns;
+    if(spans[i].section==GEVR_TIME_FRESH) frame.kind=1;
+    if(spans[i].section==GEVR_TIME_REDRAW) frame.kind=2;
+    frame.self[spans[i].section]+=ns>spans[i].child ? ns-spans[i].child : 0;
+    if(depth) spans[depth-1].child+=ns;
+}
+void gevrFrameTimingImageLifetime(uint64_t ns) { if(enabled && frame.start) frame.imageLifetime=ns; }
+void gevrFrameTimingOutside(GevrFrameTimingSection section,uint64_t ns) {
+    if(enabled && section>=0 && section<GEVR_TIME_COUNT) pending[section]+=ns;
+}
+void gevrFrameTimingCounters(uint64_t draws,uint64_t vertices,uint64_t allocations,uint64_t bytes,uint64_t hits,uint64_t misses) {
+    if(!enabled || !frame.start) return;
+    frame.draws+=draws;frame.vertices+=vertices;frame.allocations+=allocations;
+    frame.uploadBytes+=bytes;frame.cacheHits+=hits;frame.cacheMisses+=misses;
 }
 void gevrFrameTimingPredicted(int64_t display, int64_t period)
 {
@@ -44,6 +153,8 @@ void gevrFrameTimingDuration(GevrFrameTimingSection section, uint64_t ns)
 {
     if (!enabled || !frame.start || section < 0 || section >= GEVR_TIME_COUNT) return;
     frame.cpu[section] += ns;
+    frame.self[section] += ns;
+    if(depth) spans[depth-1].child+=ns;
     if (section == GEVR_TIME_FRESH) frame.kind = 1;
     if (section == GEVR_TIME_REDRAW) frame.kind = 2;
 }
@@ -60,9 +171,16 @@ void gevrFrameTimingSubmit(uint64_t now, int success)
         memset(&previous, 0, sizeof(previous));
         haveBody = haveCamera = 0;
         frame.start = 0;
+        depth=0;
         return;
     }
     frame.submit = now;
+    if(depth!=1) frame.timingErrors++;
+    if(depth) {
+        frame.cpu[GEVR_TIME_FRAME]=now-frame.start;
+        frame.self[GEVR_TIME_FRAME]=now-frame.start>spans[0].child ? now-frame.start-spans[0].child : 0;
+    }
+    depth=0;
     const uint64_t total = now - frame.start;
     frame.work = total > frame.cpu[GEVR_TIME_WAIT] ? total - frame.cpu[GEVR_TIME_WAIT] : 0;
     /* Explicit session/visibility aborts clear previous; long active-frame
@@ -110,6 +228,11 @@ void gevrFrameTimingSubmit(uint64_t now, int success)
         } else window.collisionOverflow++;
     }
     window.frames++;
+    if(recording.active==1 && now>=recording.measureStart) {
+        if(now>=recording.measureEnd) recording.active=2;
+        else if(recording.rows<GEVR_TRACE_CAPACITY) trace[recording.rows++]=frame;
+        else recording.overflow++;
+    }
     previous = frame;
     frame.start = 0;
 }
@@ -117,6 +240,11 @@ void gevrFrameTimingGpu(double ms, int redraw)
 {
     if (!enabled || !isfinite(ms) || ms < 0) return;
     const int kind = redraw != 0;
+    const uint64_t now=rawNow();
+    if(recording.active==1 && now>=recording.measureStart && now<recording.measureEnd) {
+        if(gpuRows<GEVR_TRACE_CAPACITY) { gpuTrace[gpuRows].ready=now;gpuTrace[gpuRows].ns=(uint64_t)(ms*1e6);gpuTrace[gpuRows++].kind=kind?2:1; }
+        else gpuOverflow++;
+    }
     window.gpuCount[kind]++;
     if (ms > window.gpuPeak[kind]) window.gpuPeak[kind] = ms;
 }
