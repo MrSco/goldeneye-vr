@@ -92,6 +92,7 @@ int gevrCoopTallyKills(int slot);
 const char *gevrCoopTallyName(int slot);
 void netCoopMissionEnded(int result);       /* net_core.c: the mission ended here (NET_COOP_RESULT_*) */
 void gevrCoopMenuTick(void);                /* front.c menu_init: the host's screen out, the others' in */
+void gevrCoopPrepareSaveFolder(void);       /* stage load: keep a local folder even when its picker was skipped */
 int gevrCoopMenuFollowing(void);            /* this headset shows the host's screen: no input of its own */
 void netCoopReceiveMenu(struct netbuf *b);  /* net_core.c: NET_MSG_COOP_MENU */
 void netCoopMenuReset(void);                /* a stage's load: wait for the host's word again */

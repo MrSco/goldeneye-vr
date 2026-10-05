@@ -36,6 +36,12 @@ counterpart — ROM binding and the runtime file table (`gevr_romload.c`,
 scheduler shim. Also ours: `menuimage.c`, and in `vr/`, `vr_screen.cpp` and
 `vr_settings_defaults.c` (see [vr/README.md](vr/README.md)).
 
+The optional GE-X 6a reader (`gevr_gex.c`), gun-model converter
+(`gevr_gexmodel.c`) and animation reader (`gevr_pdanim.c`) load the player's
+own patched Perfect Dark ROM alongside the normal GoldenEye ROM. Current
+support is the KF7 and VR arms. See [GE-X setup](../docs/gex-setup.md) for
+ROM preparation and [format notes](../docs/gex-weapons.md) for implementation.
+
 ## What upstream code is disabled
 
 Some of Perfect Dark's host layer does not apply to GoldenEye and is excluded

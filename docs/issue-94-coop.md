@@ -108,6 +108,46 @@ unless co-op asks for solo's layout.
 7. The host quits mid-fight: a client takes over within seconds, and guards
    carry on (patrols may restart their list from where they stand).
 
+## Enemy gun drops (#114, 2026-10-04)
+
+The joining player could not see or collect a dead guard's gun. Client
+guards bypass the host's death code, which calls `propobjSetDropped` to
+prepare a projectile before `chrTick` detaches the weapon. `coopSyncHand`
+only set `CHRHIDDEN_DROP_HELD_ITEMS`; without that preparation, `objDrop`
+returned false and left the gun attached to the guard.
+
+The client now calls `propobjSetDropped(prop, DROPTYPE_DEFAULT)` before
+queuing the drop for each disappearing hand weapon on a dying/dead guard.
+The normal character tick detaches and activates it, using the held gun's
+world position when visible, or the guard's position when off screen.
+Ordinary pickups remain per headset, and protocol 18 is unchanged. Live
+guards putting away or replacing a gun still use the existing paths.
+
+Validation at code commit `88c978e`:
+
+- The new native regression failed on the original code: the client gun
+  stayed attached after the drop tick. It passes with the preparation call.
+- `python port/tests/test_multiplayer.py`: all 63 tests pass. The drop
+  fixture extracts the production hand sync, projectile preparation,
+  `objDrop`, detach/active-list functions and the character's drop loop.
+  It covers both hands and dual guns, dying/dead states, visible/off-screen
+  placement, repeated updates, local removal without recreation, separate
+  host/client copies, and live hand removal/replacement. World services and
+  collection removal are stubbed; this does not test inventory awards or
+  headset rendering.
+- `android/gradlew.bat :app:assembleDebug --console=plain`: successful,
+  arm64-v8a with NDK 25.1.8937393; the APK identifies code commit `88c978e`.
+
+**Pending acceptance:** two headsets, Dam or Facility. Have the host and
+client each kill guards with bullets and explosions; both should see the
+guns fall and collect their own weapon/ammo. Picking up one headset's copy
+must leave the other's available. Repeat with a guard dying outside the
+client's view, then look back and collect the drop. Watch through several
+guard updates to confirm a collected gun does not reappear.
+
+Historical drops from guards already removed, or dynamically spawned
+guards that died before joining, are not reconstructed by this fix.
+
 ## Known limits (best effort)
 
 - Guard shots show muzzle flash and sound on clients, but no tracers or
