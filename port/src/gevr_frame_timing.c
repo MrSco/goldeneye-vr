@@ -163,7 +163,7 @@ void gevrFrameTimingMoveBegin(int allowScoot)
 }
 void gevrFrameTimingMoveResult(GevrMoveAttempt kind, int result, const float edge0[3], const float edge1[3])
 {
-    if (!enabled || !frame.start || kind < GEVR_MOVE_SIMPLE || kind > GEVR_MOVE_END) return;
+    if (!enabled || !frame.start || kind < GEVR_MOVE_SIMPLE || kind > GEVR_MOVE_PRECISION) return;
     const unsigned bit = 1u << kind;
     /* A successful simple move never initialized its output collision edge. */
     if (kind == GEVR_MOVE_SIMPLE && result == 0 &&

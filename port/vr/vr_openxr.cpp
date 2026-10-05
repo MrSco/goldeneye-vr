@@ -2767,7 +2767,7 @@ static void vr_stats_xr_frame(void)
         LOGI("xr-work-motion: %s", sample);
         gevrFrameTimingFormatMotion(&timing.motionFrame, sample, sizeof(sample));
         LOGI("xr-motion-max: kind=%s %s", timing.motionFrame.kind == 1 ? "fresh" : timing.motionFrame.kind == 2 ? "redraw" : "other", sample);
-        LOGI("xr-collision-summary: ticks=%u moving=%u clipped=%u stop=%u overflow=%u; trace=[index dt_ms requested_x,z actual_x,z edge_x,z paths_tried/accepted calls/scoot] paths_hex=1:simple,2:fraction,4:edge,8:end",
+        LOGI("xr-collision-summary: ticks=%u moving=%u clipped=%u stop=%u overflow=%u; trace=[index dt_ms requested_x,z actual_x,z edge_x,z paths_tried/accepted calls/scoot] paths_hex=1:simple,2:fraction,4:edge,8:end,10:precision",
             timing.collisionCount, timing.moveTicks, timing.clippedTicks, timing.stoppedTicks, timing.collisionOverflow);
         for (unsigned i = 0; i < timing.collisionCount; i += 8) {
             gevrFrameTimingFormatCollision(&timing, i, sample, sizeof(sample));

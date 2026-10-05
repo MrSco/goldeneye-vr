@@ -18,7 +18,7 @@ typedef enum {
 } GevrFrameTimingSection;
 
 typedef enum {
-    GEVR_MOVE_SIMPLE, GEVR_MOVE_FRACTION, GEVR_MOVE_EDGE, GEVR_MOVE_END
+    GEVR_MOVE_SIMPLE, GEVR_MOVE_FRACTION, GEVR_MOVE_EDGE, GEVR_MOVE_END, GEVR_MOVE_PRECISION
 } GevrMoveAttempt;
 typedef struct {
     int64_t display;

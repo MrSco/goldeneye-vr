@@ -104,6 +104,22 @@ int gevrLocomotionSnapshot(GevrLocomotionHistory *h, const float position[3],
         reset = 1;
     }
     if (h->count && sequence == h->poses[h->count - 1].sequence) return 0;
+    if (h->count) {
+        const uint64_t ticks = sequence - h->anchorSequence;
+        const int64_t expected = h->anchorTime + (int64_t)(ticks / 60) * 1000000000LL
+            + (int64_t)(ticks % 60) * 1000000000LL / 60;
+        /* A session/refresh interruption can advance predicted display time
+         * without a >100 ms arrival gap or a missing simulation sequence.
+         * The old anchor then stays late indefinitely. Normal 60 Hz scheduling
+         * fits within the display-rounded interval plus the pump's 2 ms slack.
+         * Outside that bound, explicitly re-seed instead of changing sample
+         * spacing or extrapolating an empty future. */
+        if (llabs(now - expected) > h->delay + 2000000) {
+            gevrLocomotionReset(h);
+            h->resetReason = GEVR_LOCO_RESET_CLOCK;
+            reset = 1;
+        }
+    }
     if (!h->count) {
         h->anchorTime = now;
         h->anchorSequence = sequence;
