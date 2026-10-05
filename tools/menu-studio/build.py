@@ -13,7 +13,7 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 BRANDING = {
     "launcher-icon.png": HERE / "assets/launcher-icon.png",
-    "icon.png": ROOT / "services/lobbies/public/favicon-64.png",
+    "icon.png": HERE / "assets/favicon-64.png",
     "banner.png": ROOT / "docs/banner.png",
     "native-ui.ttf": HERE / "assets/native-ui.ttf",
 }
