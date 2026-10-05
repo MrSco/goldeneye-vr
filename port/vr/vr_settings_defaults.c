@@ -159,6 +159,11 @@ float VrGexGripTrim[2][6] = {
 float VrReloadGrab[2][3] = { { 0.0f, -7.0f, -8.0f }, { -2.0f, -2.48f, -18.03f } };
 float VrReloadBelt[3] = { 68.34f, 20.61f, -13.15f };
 float VrGexHeldMag[3] = { -1.47f, 1.44f, 4.08f };
+/* GoldenEye's watch on GE-X's left wrist (gun.c): cm ahead of the end of the
+ * sleeve, up and out from its axis there, and its size (Gun fit's off hand
+ * mode, holding the right grip). Over the wrist and a fifth larger, to go
+ * round GE-X's sleeve (user; measured offline on the KF7). */
+float VrGexWatch[4] = { 5.0f, 1.0f, 0.22f, 1.2f };
 
 /* Gun fit's scope trims (port/include/gevr_scope.h): GoldenEye X's KF7 sight
  * as the user fitted it (2026-10-04), the others none */

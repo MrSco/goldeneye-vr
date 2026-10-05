@@ -1641,7 +1641,7 @@ static void gevrGexLeftHandTo(ModelFileHeader *hdr, Mtxf *rwmtx, const f32 off[3
 extern int VrGexArms;   /* vr_settings_defaults.c */
 static void gevrGexOffCache(ModelFileHeader *gunhdr);
 extern s32 gevrStereoTwoHandGrip(void);   /* bondview2.c */
-extern const f32 *gevrGexArmTune(void);   /* bondview2.c: the watch's place, files/gevr_gexarm.txt */
+extern float VrGexWatch[4];   /* vr_settings_defaults.c: the watch's place and size (Gun fit) */
 
 static struct
 {
@@ -1664,13 +1664,13 @@ s32 gevrGexLeftHandShown(void)
 
 /*
  * The watch on a left forearm joint (+Z from the elbow toward the hand, +Y
- * its back): from its axis where the sleeve ends, the tuned cm ahead, up
+ * its back): from its axis where the sleeve ends, the fitted cm ahead, up
  * and out. The joint's rows carry the gun's size, 0.085 cm a unit at size 1
  * (bondview2.c GEVR_VIEWMODEL_CM x 0.1), which turns the cm into its units.
  */
 static s32 gevrGexWatchFrame(const Mtxf *forearm, f32 pos[3], f32 x[3], f32 y[3])
 {
-    const f32 *t = gevrGexArmTune();
+    const f32 *t = VrGexWatch;
     const f32 cuff[3] = { 0.0f, 0.0f, GEVR_GEX_CUFF_Z };
     f32 lx = 0.0f, ly = 0.0f, z[3], at[3], u;
     s32 i;

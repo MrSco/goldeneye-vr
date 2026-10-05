@@ -1802,34 +1802,12 @@ static void gevrWatchArmHands(Mtxf *matrices, s32 mirrored)
  * hand, the gun hands keep their animated fingers, and the watch must not
  * shrink - its health, armor and radar would be too small to read): GE-X's
  * arms as GE-X made them (user: not cut up or widened), and the watch at
- * its own size on the left one's wrist (gun.c), where its sleeve ends.
- * files/gevr_gexarm.txt "fwd up side" (cm) moves the watch from the
- * sleeve's axis there while testing. The defaults are measured offline on
- * the KF7 (the sleeve is 6.6 x 5.8 cm under the watch, which is 8 across):
- * its front edge 0.3 cm behind the sleeve's end and its face just clear
- * of the sleeve's top.
+ * its own size or larger on the left one's wrist (gun.c; VrGexWatch, Gun
+ * fit's off hand mode holding the right grip). GoldenEye's band is shallow
+ * and wide, made for its flatter arm: on GE-X's rounder sleeve it goes
+ * over the wrist, where the sleeve ends, a fifth larger.
  */
-static f32 s_gevrGexArmTune[3] = { 1.66f, 1.4f, 0.22f };
-
-/* gun.c: the tuning above, read again every couple of seconds */
-const f32 *gevrGexArmTune(void)
-{
-    static u32 s_read;
-    FILE *f;
-    f32 v[3];
-
-    if ((s_read++ % 120) == 0 && (f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_gexarm.txt", "r")) != NULL)
-    {
-        memcpy(v, s_gevrGexArmTune, sizeof(v));
-        if (fscanf(f, "%f %f %f", &v[0], &v[1], &v[2]) == 3 && memcmp(v, s_gevrGexArmTune, sizeof(v)) != 0)
-        {
-            memcpy(s_gevrGexArmTune, v, sizeof(v));
-            sysLogPrintf(LOG_NOTE, "stereo: GE-X watch %.1f ahead %.1f up %.1f out cm", v[0], v[1], v[2]);
-        }
-        fclose(f);
-    }
-    return s_gevrGexArmTune;
-}
+extern float VrGexWatch[4];   /* vr_settings_defaults.c */
 
 static ModelNode *s_gevrWatchHandDl;   /* the watch arm's hand: its first unswitched list */
 
@@ -1893,7 +1871,7 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
     z[2] = x[0] * y[1] - x[1] * y[0];
     rs = sqrtf(matrices[0].m[0][0] * matrices[0].m[0][0] + matrices[0].m[0][1] * matrices[0].m[0][1]
                + matrices[0].m[0][2] * matrices[0].m[0][2]);
-    s = rs * s_gevrWatchScale * cm * gevrGunSizeFactor();
+    s = rs * s_gevrWatchScale * cm * gevrGunSizeFactor() * (VrGexWatch[3] > 0.1f ? VrGexWatch[3] : 1.0f);
     for (i = 0; i < 3; i++)
     {
         want.m[0][i] = x[i] * s;
@@ -14648,12 +14626,14 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     }
     else if (gevrOffHandFitting)
     {
-        /* GE-X's off hand, empty or holding a magazine: its palm from the grip pose (input.c) */
+        /* GE-X's off hand, empty or holding a magazine: its palm from the grip pose;
+         * holding the right grip, the watch on its wrist (input.c) */
         extern float VrGexHeldMag[3];   /* vr_settings_defaults.c */
 
         snprintf(buf, sizeof(buf),
-                 "OFF HAND FIT%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\n%sA: SAVE   B: UNDO   MENU + A: DONE",
-                 gex, -VrGexHeldMag[2], VrGexHeldMag[0], VrGexHeldMag[1], gevrFitNextLine(3));
+                 "OFF HAND FIT%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nWATCH: FORWARD %.1f  SIDE %.1f  UP %.1f  SIZE %.2f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN (SIDEWAYS: WATCH SIZE)\nHOLD RIGHT GRIP: STICKS MOVE THE WATCH\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -VrGexHeldMag[2], VrGexHeldMag[0], VrGexHeldMag[1], VrGexWatch[0], VrGexWatch[2], VrGexWatch[1],
+                 VrGexWatch[3], gevrFitNextLine(3));
     }
     else if (gevrScopeFitting && gevrScopeFitIndex() >= 0)
     {
