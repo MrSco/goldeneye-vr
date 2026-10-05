@@ -73,6 +73,7 @@
 #include "vr_screen.h"
 #include "gevr_render_size.h"
 #include "gevr_locomotion.h"
+#include "gevr_frame_timing.h"
 
 extern "C" void sysFatalError(const char *fmt, ...) __attribute__((noreturn));
 
@@ -365,6 +366,7 @@ static inline void vr_end_empty_frame(XrTime t)
     endInfo.layerCount             = 0;
     endInfo.layers                 = nullptr;
     xrEndFrame(g_vrState.session, &endInfo);
+    gevrFrameTimingSubmit(0, 0);
 }
 
 // ============================================================================
@@ -2574,7 +2576,7 @@ static uint32_t s_statXr, s_statGame, s_statSim, s_statRedraw, s_statClamps;
 static double s_statWorstMs, s_statWorstXrMs;
 static std::chrono::steady_clock::time_point s_statT0, s_statLastGame, s_statLastXr;
 static bool s_statInit, s_statHaveGame;
-static char s_statText[768] = "";
+static char s_statText[896] = "";
 static GevrLocomotionHistory s_locomotion;
 static GevrLocomotionStats s_locomotionStats;
 static GevrPresentationCamera s_sourceCamera, s_recordedCamera, s_presentedCamera, s_recordedPresentation;
@@ -2708,17 +2710,35 @@ static void vr_stats_xr_frame(void)
         if (s_locomotionStats.resets[i] > s_locomotionStats.resets[topReset])
             topReset = (GevrLocomotionResetReason)i;
     }
+    GevrFrameTimingWindow timing = {};
+    gevrFrameTimingTake(&timing);
+    char gpuFresh[20] = "N/A", gpuRedraw[20] = "N/A";
+    if (timing.gpuCount[0]) snprintf(gpuFresh, sizeof(gpuFresh), "%.1f", timing.gpuPeak[0]);
+    if (timing.gpuCount[1]) snprintf(gpuRedraw, sizeof(gpuRedraw), "%.1f", timing.gpuPeak[1]);
+    char timingText[128];
+    snprintf(timingText, sizeof(timingText), "XR CPU WORK MAX %.1f MS\nGPU EYE MAX F %s R %s MS",
+        timing.workFrame.work / 1e6, gpuFresh, gpuRedraw);
     snprintf(s_statText, sizeof(s_statText),
-             "BUILD %s\nSIM %.0f HZ  RENDER %.0f FPS\nWORST RENDER GAP %.1f MS\nDISPLAY %.0f HZ  XR %.0f FPS\nWORST XR GAP %.1f MS\nREDRAW %.0f/S  LOCO %.1f MS\nCLAMP %u E %u L %u S %u\nRESET %u %s %u\nAHEAD %.1f PHASE %.1f MS\nEYE %dX%d%s\n%s",
+             "BUILD %s\nSIM %.0f HZ  RENDER %.0f FPS\nWORST RENDER GAP %.1f MS\nDISPLAY %.0f HZ  XR %.0f FPS\nWORST XR GAP %.1f MS\nREDRAW %.0f/S  LOCO %.1f MS\nCLAMP %u E %u L %u S %u\nRESET %u %s %u\nAHEAD %.1f PHASE %.1f MS\nEYE %dX%d%s\n%s\n%s",
              build, s_statSim * 1000.0 / el, s_statGame * 1000.0 / el, s_statWorstMs,
              hz, s_statXr * 1000.0 / el, s_statWorstXrMs, s_statRedraw * 1000.0 / el,
              s_locomotion.delay / 1e6, s_statClamps,
              s_locomotionStats.clamps[GEVR_LOCO_CLAMP_EARLY], s_locomotionStats.clamps[GEVR_LOCO_CLAMP_LATE],
              s_locomotionStats.clamps[GEVR_LOCO_CLAMP_STALE], resets, gevrLocomotionResetName(topReset),
              s_locomotionStats.resets[topReset], s_locomotionStats.maxLead / 1e6, s_locomotionStats.maxPhase / 1e6,
-             (int)g_internalRenderWidth, (int)g_internalRenderHeight, screen, gevrPerfText());
+             (int)g_internalRenderWidth, (int)g_internalRenderHeight, screen, timingText, gevrPerfText());
     if (VrShowStats) {
         LOGI("cadence: %s", s_statText);
+        char sample[640];
+        gevrFrameTimingFormatSample(&timing.gapFrame, sample, sizeof(sample));
+        LOGI("xr-gap: max_ms=%.3f %s", timing.worstGap / 1e6, sample);
+        gevrFrameTimingFormatSample(&timing.gapPrevious, sample, sizeof(sample));
+        LOGI("xr-gap-prev: %s", sample);
+        gevrFrameTimingFormatSample(&timing.workFrame, sample, sizeof(sample));
+        LOGI("xr-work: %s", sample);
+        LOGI("xr-timing: frames=%u predicted_skips=%u GPU_eye_fresh_max_ms=%s n=%u GPU_eye_redraw_max_ms=%s n=%u disjoint=%u busy=%u",
+            timing.frames, timing.predictedSkips, gpuFresh, timing.gpuCount[0],
+            gpuRedraw, timing.gpuCount[1], timing.gpuDisjoint, timing.gpuBusy);
         LOGI("loco: samples=%u seeds=%u lead_last_ms=%.3f lead_max_ms=%.3f phase_last_ms=%.3f phase_max_ms=%.3f display=%lld newest=%lld delay_ms=%.3f",
             s_locomotion.count, s_locomotionStats.seeds, s_locomotionStats.lastLead / 1e6,
             s_locomotionStats.maxLead / 1e6, s_locomotionStats.lastPhase / 1e6, s_locomotionStats.maxPhase / 1e6,
@@ -3537,6 +3557,7 @@ static XrCompositionLayerQuad vr_init_menu_quad(XrSwapchain swapchain) {
 }
 
 static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2>& views) {
+    const uint64_t layerTimingStart = gevrFrameTimingNow();
 #ifdef ANDROID
     {
         /*
@@ -3992,7 +4013,11 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     endInfo.layerCount           = numLayers;
     endInfo.layers               = layers;
 
+    gevrFrameTimingAdd(GEVR_TIME_LAYERS, layerTimingStart);
+    const uint64_t timingStart = gevrFrameTimingNow();
     XrResult re = xrEndFrame(g_vrState.session, &endInfo);
+    gevrFrameTimingAdd(GEVR_TIME_SUBMIT, timingStart);
+    gevrFrameTimingSubmit(gevrFrameTimingNow(), XR_SUCCEEDED(re));
     if (XR_SUCCEEDED(re)) vr_stats_xr_frame();
     if (XR_FAILED(re))
         LOGE("xrEndFrame failed %d", (int)re);
@@ -4358,24 +4383,34 @@ extern "C" bool vr_begin_frame_and_update_poses()
 {
     if (!g_vrState.sessionRunning || g_vrState.session == XR_NULL_HANDLE) {
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
+        gevrFrameTimingEnable(0);
         vr_idle_pace();
         return false;
     }
 
+    gevrFrameTimingEnable(VrShowStats);
+    uint64_t timingStart = gevrFrameTimingNow();
+    gevrFrameTimingBegin(timingStart);
     XrFrameWaitInfo waitInfo{ XR_TYPE_FRAME_WAIT_INFO };
     g_frameState = { XR_TYPE_FRAME_STATE };
     XrResult r = xrWaitFrame(g_vrState.session, &waitInfo, &g_frameState);
+    gevrFrameTimingAdd(GEVR_TIME_WAIT, timingStart);
+    gevrFrameTimingPredicted(g_frameState.predictedDisplayTime, g_frameState.predictedDisplayPeriod);
     if (XR_FAILED(r)) {
         LOGE("xrWaitFrame failed: %d", (int)r);
+        gevrFrameTimingSubmit(0, 0);
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
         return false;
     }
 
 
     XrFrameBeginInfo beginInfo{ XR_TYPE_FRAME_BEGIN_INFO };
+    timingStart = gevrFrameTimingNow();
     r = xrBeginFrame(g_vrState.session, &beginInfo);
+    gevrFrameTimingAdd(GEVR_TIME_BEGIN, timingStart);
     if (XR_FAILED(r)) {
         LOGE("xrBeginFrame failed: %d", (int)r);
+        gevrFrameTimingSubmit(0, 0);
         gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
         return false;
     }
@@ -4389,6 +4424,7 @@ extern "C" bool vr_begin_frame_and_update_poses()
         return false;
     }
 
+    timingStart = gevrFrameTimingNow();
     for (auto& v : g_frameViews) { v.type = XR_TYPE_VIEW; v.next = nullptr; }
 
     XrViewLocateInfo viewLocate{ XR_TYPE_VIEW_LOCATE_INFO };
@@ -4510,6 +4546,7 @@ extern "C" bool vr_begin_frame_and_update_poses()
     update_vr_controllers(g_frameState.predictedDisplayTime);
     controller_pose();
     vr_pointer_update();
+    gevrFrameTimingAdd(GEVR_TIME_POSES, timingStart);
 
     return true;
 }
@@ -4558,14 +4595,19 @@ bool vr_begin_eye_render()
     if (!vr_ensure_swapchain_images()) return false;
 
 
+    uint64_t timingStart = gevrFrameTimingNow();
     XrSwapchainImageAcquireInfo acquireInfo = { XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO };
     if (XR_FAILED(xrAcquireSwapchainImage(g_vrState.swapchains[0], &acquireInfo, &g_acquiredSwapchainImageIndex))) {
         return false;
     }
     g_swapchainImageAcquired = true;
+    gevrFrameTimingAdd(GEVR_TIME_ACQUIRE, timingStart);
+    timingStart = gevrFrameTimingNow();
 
     XrSwapchainImageWaitInfo waitInfo = { XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO, nullptr, XR_INFINITE_DURATION };
     xrWaitSwapchainImage(g_vrState.swapchains[0], &waitInfo);
+    gevrFrameTimingAdd(GEVR_TIME_IMAGE_WAIT, timingStart);
+    timingStart = gevrFrameTimingNow();
 
 
     GLuint swapchainTex = g_swapchainImages[0][g_acquiredSwapchainImageIndex].image;
@@ -4605,6 +4647,7 @@ bool vr_begin_eye_render()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);   // stencil: fast3d's decal test
     glClearColor(clearCol[0], clearCol[1], clearCol[2], clearCol[3]);
     glDepthMask(depthMask);
+    gevrFrameTimingAdd(GEVR_TIME_EYE_SETUP, timingStart);
     return true;
 }
 
@@ -4613,14 +4656,18 @@ void vr_end_eye_render()
 {
     if (!gfx_get_current_rendering_api()->is_multiview()) return;
     if (!g_swapchainImageAcquired) return;
+    uint64_t timingStart = gevrFrameTimingNow();
 #ifdef ANDROID
     gevrNativePauseRender();
 #endif
+    gevrFrameTimingAdd(GEVR_TIME_LAYERS, timingStart);
+    timingStart = gevrFrameTimingNow();
 
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(g_vrState.swapchains[0], &releaseInfo);
+    gevrFrameTimingAdd(GEVR_TIME_RELEASE, timingStart);
     g_swapchainImageAcquired = false;
 
 }
@@ -4703,6 +4750,8 @@ extern "C" void vr_shutdown()
 {
     gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
     LOGI("========== VR SHUTDOWN START ==========");
+    gfx_vr_gpu_reset();
+    gevrFrameTimingEnable(0);
 
     // 1. Ensure no frame is currently in progress
     // (if we are between begin/end, we cannot destroy cleanly)

@@ -79,6 +79,13 @@ smoothness improvement but occasional stutters at 90 and 120 Hz. Screenshots
 show clamp counts of 0/41 at 90 Hz and 51/120 at 120 Hz. The stutter report is
 still open; see [clamp investigation](vr-locomotion-clamps.md).
 
+The user subsequently tested diagnostic build `f4548c4` at both rates and felt
+stutters might be less frequent, without a confident visual conclusion. Its
+90/120 Hz screenshots show zero clamps and resets; 55 retained 120 Hz cadence
+windows also show zero clamps and resets. Render/submission gaps remain in those
+captures. This is evidence of healthy history in the measured windows, not full
+stutter acceptance; detailed measurements are in the clamp investigation.
+
 ## Remaining Quest acceptance
 
 Use the same scene, resolution, settings, and saved position for baseline and

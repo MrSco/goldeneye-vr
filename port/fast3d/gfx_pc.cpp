@@ -32,6 +32,7 @@
 #include "platform.h"
 
 #include "gfx_pc.h"
+#include "gevr_frame_timing.h"
 #include "gfx_cc.h"
 #include "gfx_window_manager_api.h"
 #include "gfx_rendering_api.h"
@@ -4786,6 +4787,7 @@ extern "C" void gfx_run(Gfx* commands) {
         // session): rendering the display list anyway would just dump a full scene into
         // whatever framebuffer happened to be bound.
         if (vr_begin_eye_render()) {         // bind g_multiviewFBO, attache color+depth, clear
+            gfx_vr_gpu_begin(0);
 
             // 2) Tell the backend that "current FBO = index 0"
             gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
@@ -4850,6 +4852,7 @@ extern "C" void gfx_run(Gfx* commands) {
 #endif
 
             // 5) Release + submit
+            gfx_vr_gpu_end();
             vr_end_eye_render();
 
             // 6) The finished game frame goes to the compositor as a quad layer.
@@ -4888,6 +4891,7 @@ extern "C" int gfx_vr_redraw_frame(void) {
     if (!vr_begin_eye_render()) {
         return 0;
     }
+    gfx_vr_gpu_begin(1);
     gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
     {
         float hand[2][16];
@@ -4896,6 +4900,7 @@ extern "C" int gfx_vr_redraw_frame(void) {
         gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr);
     }
     gfx_opengl_draw_vignette(s_gevrLastVignette);
+    gfx_vr_gpu_end();
     vr_end_eye_render();
     gevrVrMarkRedrawn();
     return 1;

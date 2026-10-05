@@ -1,0 +1,50 @@
+#ifndef GEVR_FRAME_TIMING_H
+#define GEVR_FRAME_TIMING_H
+#include <stdint.h>
+#include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef enum {
+    GEVR_TIME_WAIT, GEVR_TIME_BEGIN, GEVR_TIME_POSES,
+    GEVR_TIME_ACQUIRE, GEVR_TIME_IMAGE_WAIT, GEVR_TIME_EYE_SETUP,
+    GEVR_TIME_FRESH, GEVR_TIME_REDRAW, GEVR_TIME_VERTEX_WAIT,
+    GEVR_TIME_LAYERS, GEVR_TIME_RELEASE, GEVR_TIME_SUBMIT,
+    GEVR_TIME_THROTTLE, GEVR_TIME_COUNT
+} GevrFrameTimingSection;
+
+/* Durations are CPU wall time. FRESH/REDRAW include their nested eye/driver
+ * sections; they must not be summed with those sections. No clock conversion
+ * between OpenXR time and the CPU monotonic clock is assumed. */
+typedef struct {
+    uint64_t start, submit, cpu[GEVR_TIME_COUNT];
+    int64_t display, period, predictedStep;
+    uint64_t between, work;
+    unsigned kind; /* 0 = no game eye pass, 1 = fresh, 2 = redraw */
+} GevrFrameTimingSample;
+typedef struct {
+    unsigned frames, predictedSkips, gpuCount[2], gpuDisjoint, gpuBusy;
+    uint64_t peak[GEVR_TIME_COUNT], worstGap;
+    double gpuPeak[2];
+    GevrFrameTimingSample gapFrame, gapPrevious, workFrame;
+} GevrFrameTimingWindow;
+
+void gevrFrameTimingEnable(int enabled);
+uint64_t gevrFrameTimingNow(void); /* zero when disabled */
+void gevrFrameTimingBegin(uint64_t now);
+void gevrFrameTimingPredicted(int64_t display, int64_t period);
+void gevrFrameTimingAdd(GevrFrameTimingSection section, uint64_t start);
+void gevrFrameTimingDuration(GevrFrameTimingSection section, uint64_t ns);
+void gevrFrameTimingSubmit(uint64_t now, int success);
+void gevrFrameTimingGpu(double ms, int redraw);
+void gevrFrameTimingGpuDiscard(int busy);
+void gevrFrameTimingTake(GevrFrameTimingWindow *out);
+void gevrFrameTimingFormatSample(const GevrFrameTimingSample *s, char *out, size_t size);
+void gfx_vr_gpu_begin(int redraw);
+void gfx_vr_gpu_end(void);
+void gfx_vr_gpu_reset(void);
+#ifdef __cplusplus
+}
+#endif
+#endif

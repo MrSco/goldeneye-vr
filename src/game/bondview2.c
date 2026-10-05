@@ -14631,7 +14631,7 @@ extern int VrShowStats;
 extern const char *gevrVrStatsText(void);
 static Gfx *gevrDrawStats(Gfx *gdl)
 {
-    char buf[896];
+    char buf[1024];
     s32 x, y, w = 0, h = 0;
 
     if (!VrShowStats || (getPlayerCount() != 1 && (!netIsActive() || get_cur_playernum() != netGetLocalSlot())))
