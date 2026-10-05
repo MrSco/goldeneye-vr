@@ -112,10 +112,48 @@ int main(void)
     gevrFrameTimingSubmit(1432000000, 1);
     gevrFrameTimingTake(&w);
     assert(!w.workFrame.cameraValid && !w.workFrame.bodyValid && w.worstGap == 0);
+    /* Preserve each simulation tick, including the stopped interval between
+     * slides; a reporting rollover must not synthesize a movement event. */
+    const float slide[3] = {0,0,3}, diagonal[3] = {4,0,3};
+    const float edge0[3] = {1,0,1}, edge1[3] = {1,0,5};
+    for (unsigned i = 0; i < 66; i++) {
+        gevrFrameTimingBegin(2000000000ull + i*16666667ull);
+        gevrFrameTimingPredicted(3000000000ll + i*16666667ll, 8333333);
+        gevrFrameTimingMoveBegin(1);
+        /* Success does not initialize an edge: never read these null pointers. */
+        gevrFrameTimingMoveResult(GEVR_MOVE_SIMPLE, 1, NULL, NULL);
+        gevrFrameTimingMoveBegin(0); /* height recheck */
+        gevrFrameTimingMoveResult(GEVR_MOVE_SIMPLE, 0, edge0, edge1);
+        gevrFrameTimingMoveResult(GEVR_MOVE_FRACTION, -1, edge0, edge1);
+        gevrFrameTimingMoveResult(GEVR_MOVE_EDGE, 1, edge0, edge1);
+        gevrFrameTimingCollision(zero, diagonal, i == 1 ? zero : slide, 0);
+        gevrFrameTimingDuration(GEVR_TIME_FRESH, 1000000);
+        gevrFrameTimingSubmit(2002000000ull + i*16666667ull, 1);
+    }
+    gevrFrameTimingTake(&w);
+    assert(w.moveTicks == 66 && w.stoppedTicks == 1 && w.clippedTicks == 65);
+    assert(w.collisionCount == 64 && w.collisionOverflow == 2);
+    assert(w.collisionTicks[0].edge[0] == 0 && w.collisionTicks[0].edge[1] == 1);
+    assert(w.collisionTicks[1].actual[1] == 0 && w.collisionTicks[2].actual[1] == 3);
+    assert(w.collisionTicks[0].attempted == 7 && w.collisionTicks[0].accepted == 5);
+    assert(w.collisionTicks[0].calls == 2 && w.collisionTicks[0].scoot == 1);
+    gevrFrameTimingFormatCollision(&w, 0, text, sizeof(text));
+    assert(strstr(text, "[0 0.00") && strstr(text, "[7 116.67") && !strstr(text, "[8 "));
+    assert(strstr(text, "r 4.000,3.000 a 0.000,0.000") && strstr(text, "p 7/5 c 2/1"));
+    char tiny[8]; memset(tiny, 'x', sizeof(tiny));
+    gevrFrameTimingFormatCollision(&w, 0, tiny, sizeof(tiny));
+    assert(tiny[7] == 0);
+    gevrFrameTimingTake(&w);
+    assert(!w.collisionCount && !w.moveTicks);
+    gevrFrameTimingBegin(4000000000ull);
+    gevrFrameTimingCollision(zero, diagonal, zero, 0);
+    gevrFrameTimingSubmit(4002000000ull, 0);
+    gevrFrameTimingTake(&w);
+    assert(!w.collisionCount && !w.stoppedTicks);
     gevrFrameTimingEnable(0);
     sample(1500000000, 1505000000, 1, 1, 0, 1000000, 0);
     gevrFrameTimingGpu(99, 0);
     gevrFrameTimingTake(&w);
     assert(!w.frames && !w.gpuCount[0]);
-    puts("PASS: per-XR gap pairing, CPU sections, 72/80/90/120 predictions, refresh/session/window resets and GPU accounting");
+    puts("PASS: per-XR gap pairing, CPU sections, 72/80/90/120 predictions, collision traces/overflow/rollover, refresh/session/window resets and GPU accounting");
 }

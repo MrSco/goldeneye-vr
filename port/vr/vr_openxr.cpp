@@ -2738,9 +2738,9 @@ static void vr_stats_xr_frame(void)
     char gpuFresh[20] = "N/A", gpuRedraw[20] = "N/A";
     if (timing.gpuCount[0]) snprintf(gpuFresh, sizeof(gpuFresh), "%.1f", timing.gpuPeak[0]);
     if (timing.gpuCount[1]) snprintf(gpuRedraw, sizeof(gpuRedraw), "%.1f", timing.gpuPeak[1]);
-    char timingText[128];
-    snprintf(timingText, sizeof(timingText), "XR CPU WORK MAX %.1f MS\nGPU EYE MAX F %s R %s MS",
-        timing.workFrame.work / 1e6, gpuFresh, gpuRedraw);
+    char timingText[192];
+    snprintf(timingText, sizeof(timingText), "XR CPU WORK MAX %.1f MS\nGPU EYE MAX F %s R %s MS\nMOVE CLIP %u STOP %u / %u",
+        timing.workFrame.work / 1e6, gpuFresh, gpuRedraw, timing.clippedTicks, timing.stoppedTicks, timing.moveTicks);
     snprintf(s_statText, sizeof(s_statText),
              "BUILD %s\nSIM %.0f HZ  RENDER %.0f FPS\nWORST RENDER GAP %.1f MS\nDISPLAY %.0f HZ  XR %.0f FPS\nWORST XR GAP %.1f MS\nREDRAW %.0f/S  LOCO %.1f MS\nCLAMP %u E %u L %u S %u\nRESET %u %s %u\nAHEAD %.1f PHASE %.1f MS\nEYE %dX%d%s\n%s\n%s",
              build, s_statSim * 1000.0 / el, s_statGame * 1000.0 / el, s_statWorstMs,
@@ -2767,6 +2767,12 @@ static void vr_stats_xr_frame(void)
         LOGI("xr-work-motion: %s", sample);
         gevrFrameTimingFormatMotion(&timing.motionFrame, sample, sizeof(sample));
         LOGI("xr-motion-max: kind=%s %s", timing.motionFrame.kind == 1 ? "fresh" : timing.motionFrame.kind == 2 ? "redraw" : "other", sample);
+        LOGI("xr-collision-summary: ticks=%u moving=%u clipped=%u stop=%u overflow=%u; trace=[index dt_ms requested_x,z actual_x,z edge_x,z paths_tried/accepted calls/scoot] paths_hex=1:simple,2:fraction,4:edge,8:end",
+            timing.collisionCount, timing.moveTicks, timing.clippedTicks, timing.stoppedTicks, timing.collisionOverflow);
+        for (unsigned i = 0; i < timing.collisionCount; i += 8) {
+            gevrFrameTimingFormatCollision(&timing, i, sample, sizeof(sample));
+            LOGI("xr-collision: %s", sample);
+        }
         LOGI("xr-timing: frames=%u predicted_skips=%u GPU_eye_fresh_max_ms=%s n=%u GPU_eye_redraw_max_ms=%s n=%u disjoint=%u busy=%u",
             timing.frames, timing.predictedSkips, gpuFresh, timing.gpuCount[0],
             gpuRedraw, timing.gpuCount[1], timing.gpuDisjoint, timing.gpuBusy);

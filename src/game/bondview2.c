@@ -7520,6 +7520,21 @@ struct dummy_struct {
     s32 unk04;
 };
 
+#ifdef GEVR
+/* Keep every retail collision call and its short-circuit order intact. The
+ * diagnostic records which fallback actually ran for the local stereo player. */
+static s32 gevrBondMoveResult(GevrMoveAttempt kind, s32 result,
+    const struct coord3d *edge0, const struct coord3d *edge1)
+{
+    if (g_gevrStereo && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+        gevrFrameTimingMoveResult(kind, result, edge0->f, edge1->f);
+    return result;
+}
+#define GEVR_MOVE_RESULT(kind, result, edge0, edge1) gevrBondMoveResult(kind, result, edge0, edge1)
+#else
+#define GEVR_MOVE_RESULT(kind, result, edge0, edge1) (result)
+#endif
+
 /**
  * Sets Bond bondprevpos, attempts to move by `offset`.
  *
@@ -7551,6 +7566,11 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
     s32 temp_a3; // no stack
     s32 phi_a0_3; // sp3c
     s32 temp_v0_7; // no stack
+
+#ifdef GEVR
+    if (g_gevrStereo && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+        gevrFrameTimingMoveBegin(allow_scoot);
+#endif
 
 
     g_CurrentPlayer->bondprevpos.f[0] = g_CurrentPlayer->field_488.collision_position.f[0];
@@ -7633,33 +7653,33 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
     }
 
     // This `if` block looks like Perfect Dark bbike0f0d3c60
-    if (bondviewTrySimpleMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1) == 0)
+    if (GEVR_MOVE_RESULT(GEVR_MOVE_SIMPLE, bondviewTrySimpleMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1) == 0)
     {
         // return values are:
         //   1 if able to update stan and collision position
         //   zero if still unable to move by failing on the same collision edge
         //   -1 otherwise (still unable to move).
-        temp_v0_7 = bondviewTryFractionMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1, &collision2_pt0, &collision2_pt1);
+        temp_v0_7 = GEVR_MOVE_RESULT(GEVR_MOVE_FRACTION, bondviewTryFractionMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1, &collision2_pt0, &collision2_pt1), &collision1_pt0, &collision1_pt1);
 
         if ((temp_v0_7 > 0) || (temp_v0_7 < 0))
         {
             if ((allow_scoot != 0)
-                && (bondviewTryEdgeMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1) <= 0)
-                && (bondviewTryEndHopPlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1) == 0))
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_EDGE, bondviewTryEdgeMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1) <= 0)
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_END, bondviewTryEndHopPlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1) == 0))
             {
                 // empty
             }
         }
         else if (temp_v0_7 == 0)
         {
-            bondviewTryFractionMovePlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1, &collision3_pt0, &collision3_pt1);
+            GEVR_MOVE_RESULT(GEVR_MOVE_FRACTION, bondviewTryFractionMovePlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1, &collision3_pt0, &collision3_pt1), &collision2_pt0, &collision2_pt1);
 
             if ((allow_scoot != 0)
-                && (bondviewTryEdgeMovePlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1) <= 0)
-                && (bondviewTryEdgeMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1) <= 0)
-                && (bondviewTryEndHopPlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1) == 0))
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_EDGE, bondviewTryEdgeMovePlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1), &collision2_pt0, &collision2_pt1) <= 0)
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_EDGE, bondviewTryEdgeMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1) <= 0)
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_END, bondviewTryEndHopPlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1), &collision2_pt0, &collision2_pt1) == 0))
             {
-                bondviewTryEndHopPlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1);
+                GEVR_MOVE_RESULT(GEVR_MOVE_END, bondviewTryEndHopPlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1);
             }
         }
     }

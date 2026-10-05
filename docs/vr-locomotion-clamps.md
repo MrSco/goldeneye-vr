@@ -357,3 +357,51 @@ Locomotion, GPU/replay and surface regressions pass. No gameplay, collision,
 head/hand tracking, interpolation delay or eye-pass changes are included here.
 The next headset test should repeat the same angled curb and also inspect ammo
 placement when entering/leaving aim; release acceptance remains pending.
+
+## Curb binding after asynchronous readback
+
+The user reports uncertain overall improvement on `2114837`, but definite
+binding while strafing against the Dam curb. The 17:32:21/25 screenshots show
+13.0/13.8 ms worst XR gaps, 12.2/10.9 ms CPU work peaks, no resets and 60/54
+late clamps. Those are separate windows and cannot establish a matched
+before/after performance gain.
+
+Read-only capture `android/app/build/locomotion-device/curb-async-1732.log`
+retains 12 stereo windows from 17:32:25.170 onward (the exact screenshot windows
+have already rolled out of logcat). Worst-frame ammo readback is usually
+0.007-0.012 ms; its maximum among the retained work frames is 0.247 ms. The
+previous 5-6 ms crop stall is absent in this capture. Remaining worst gaps reach
+20.676 ms, work reaches 16.523 ms, and one redraw contains a 14.644 ms runtime
+image wait. Low timed eye GPU duration does not identify the cause of that wait.
+History stays populated; positive target leads are only 0.007-0.009 ms.
+
+The 17:32:28.187 work sample requested (-9.3210, +0.2593) cm horizontally and
+accepted (0, 0), despite a physical head step of only (-0.0029, -0.0041) cm.
+Its root/camera steps are almost zero and it has no history reset. Other samples
+slide along a consistent oblique direction. A stopped collision tick is real,
+but isolated worst-frame samples do not establish whether steady tangential
+input alternates between stop and slide. Nor do they distinguish a legitimate
+corner stop from a collision defect or a presentation pacing hitch.
+
+Add a bounded per-window trace of up to 64 submitted local movement ticks,
+including small/released inputs. Each trace records time since the first tick,
+requested/accepted X/Z centimetres, the first failed simple-move edge's unit
+tangent, attempted/accepted fallback bit masks (1 simple, 2 fraction, 4 edge,
+8 end-hop), and total collision calls/calls allowing scoot. A second collision
+call exposes height rechecks. The overlay counts `MOVE CLIP` and `STOP` among
+ticks requesting at least 1 cm: CLIP is any nonzero movement with at least
+0.01 cm loss, not necessarily an accepted edge slide. STOP accepts at most
+0.01 cm. Logs preserve all the vectors to evaluate those thresholds separately.
+Overflow is explicit, aborted frames are discarded, and stats-off/remote players
+do not record paths. Trace rows are grouped eight ticks per log line once per
+reporting window, with no disk I/O or per-tick logging.
+
+Production-code tests compare the diagnostic and uninstrumented collision
+fallback block across 26,244 result/scoot scenarios, verifying identical calls
+and short-circuit order. Collector regressions cover stopped ticks between
+slides, multiple calls, successful moves with uninitialized edge outputs,
+overflow, reporting rollover, failed submissions and bounded formatting.
+This build changes diagnostics only; it does not adjust gameplay collision,
+movement speed, interpolation delay, or the frame pump. Repeat a steady angled
+push along the same straight curb section and then ordinary open-ground strafe
+to identify how the binding corresponds to the game's collision decisions.

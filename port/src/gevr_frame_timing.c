@@ -91,6 +91,24 @@ void gevrFrameTimingSubmit(uint64_t now, int success)
     }
     for (int i = 0; i < GEVR_TIME_COUNT; i++)
         if (frame.cpu[i] > window.peak[i]) window.peak[i] = frame.cpu[i];
+    if (frame.collision) {
+        const float rx = frame.requested[0], rz = frame.requested[2];
+        const float ax = frame.actual[0], az = frame.actual[2];
+        if (rx*rx + rz*rz >= 1.0f) {
+            window.moveTicks++;
+            if (ax*ax + az*az <= 0.0001f) window.stoppedTicks++;
+            else if ((rx-ax)*(rx-ax) + (rz-az)*(rz-az) > 0.0001f) window.clippedTicks++;
+        }
+        if (window.collisionCount < 64) {
+            GevrCollisionTick *tick = &window.collisionTicks[window.collisionCount++];
+            tick->display = frame.display;
+            tick->requested[0] = rx; tick->requested[1] = rz;
+            tick->actual[0] = ax; tick->actual[1] = az;
+            memcpy(tick->edge, frame.collisionEdge, sizeof(tick->edge));
+            tick->attempted = frame.moveAttempted; tick->accepted = frame.moveAccepted;
+            tick->calls = frame.moveCalls; tick->scoot = frame.scootCalls;
+        } else window.collisionOverflow++;
+    }
     window.frames++;
     previous = frame;
     frame.start = 0;
@@ -136,6 +154,45 @@ void gevrFrameTimingCollision(const float physical[3], const float requested[3],
     memcpy(frame.actual, actual, sizeof(frame.actual));
     frame.collision = 1;
     frame.physicalReset = reset != 0;
+}
+void gevrFrameTimingMoveBegin(int allowScoot)
+{
+    if (!enabled || !frame.start) return;
+    frame.moveCalls++;
+    frame.scootCalls += allowScoot != 0;
+}
+void gevrFrameTimingMoveResult(GevrMoveAttempt kind, int result, const float edge0[3], const float edge1[3])
+{
+    if (!enabled || !frame.start || kind < GEVR_MOVE_SIMPLE || kind > GEVR_MOVE_END) return;
+    const unsigned bit = 1u << kind;
+    /* A successful simple move never initialized its output collision edge. */
+    if (kind == GEVR_MOVE_SIMPLE && result == 0 &&
+        frame.collisionEdge[0] == 0 && frame.collisionEdge[1] == 0) {
+        const float x = edge1[0] - edge0[0], z = edge1[2] - edge0[2];
+        const float length = sqrtf(x*x + z*z);
+        if (isfinite(length) && length > 0.0001f) {
+            frame.collisionEdge[0] = x / length;
+            frame.collisionEdge[1] = z / length;
+        }
+    }
+    frame.moveAttempted |= bit;
+    if (result > 0) frame.moveAccepted |= bit;
+}
+void gevrFrameTimingFormatCollision(const GevrFrameTimingWindow *w, unsigned first, char *out, size_t size)
+{
+    if (!size) return;
+    size_t used = 0;
+    out[0] = 0;
+    for (unsigned i = first; i < w->collisionCount && i < first + 8; i++) {
+        const GevrCollisionTick *t = &w->collisionTicks[i];
+        const int n = snprintf(out + used, size - used,
+            "%s[%u %.2f r %.3f,%.3f a %.3f,%.3f e %.3f,%.3f p %x/%x c %u/%u]",
+            used ? " " : "", i, (t->display - w->collisionTicks[0].display) / 1e6,
+            t->requested[0], t->requested[1], t->actual[0], t->actual[1],
+            t->edge[0], t->edge[1], t->attempted, t->accepted, t->calls, t->scoot);
+        if (n < 0 || (size_t)n >= size - used) return;
+        used += (size_t)n;
+    }
 }
 void gevrFrameTimingSnapshot(const float body[3], const float root[3])
 {

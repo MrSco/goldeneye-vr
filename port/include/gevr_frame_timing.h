@@ -17,6 +17,15 @@ typedef enum {
     GEVR_TIME_COUNT
 } GevrFrameTimingSection;
 
+typedef enum {
+    GEVR_MOVE_SIMPLE, GEVR_MOVE_FRACTION, GEVR_MOVE_EDGE, GEVR_MOVE_END
+} GevrMoveAttempt;
+typedef struct {
+    int64_t display;
+    float requested[2], actual[2], edge[2]; /* horizontal game centimetres; edge is a unit tangent */
+    unsigned attempted, accepted, calls, scoot;
+} GevrCollisionTick;
+
 /* Durations are CPU wall time. FRESH/REDRAW include their nested eye/driver
  * sections; they must not be summed with those sections. No clock conversion
  * between OpenXR time and the CPU monotonic clock is assumed. */
@@ -29,12 +38,16 @@ typedef struct {
      * excludes the first sample after a tracking/context discontinuity. */
     float physical[3], requested[3], actual[3], bodyStep[3], rootStep[3], cameraStep[3];
     unsigned collision, physicalReset, bodyValid, cameraValid, resetReason;
+    unsigned moveCalls, scootCalls, moveAttempted, moveAccepted;
+    float collisionEdge[2];
 } GevrFrameTimingSample;
 typedef struct {
     unsigned frames, predictedSkips, gpuCount[2], gpuDisjoint, gpuBusy;
     uint64_t peak[GEVR_TIME_COUNT], worstGap;
     double gpuPeak[2];
     GevrFrameTimingSample gapFrame, gapPrevious, workFrame, motionFrame;
+    unsigned moveTicks, stoppedTicks, clippedTicks, collisionCount, collisionOverflow;
+    GevrCollisionTick collisionTicks[64];
 } GevrFrameTimingWindow;
 
 void gevrFrameTimingEnable(int enabled);
@@ -53,6 +66,9 @@ void gevrFrameTimingSnapshot(const float body[3], const float root[3]);
 void gevrFrameTimingCamera(const float position[3]);
 void gevrFrameTimingResetMotion(unsigned reason, int discontinuity);
 void gevrFrameTimingFormatMotion(const GevrFrameTimingSample *s, char *out, size_t size);
+void gevrFrameTimingMoveBegin(int allowScoot);
+void gevrFrameTimingMoveResult(GevrMoveAttempt kind, int result, const float edge0[3], const float edge1[3]);
+void gevrFrameTimingFormatCollision(const GevrFrameTimingWindow *w, unsigned first, char *out, size_t size);
 void gfx_vr_gpu_begin(int redraw);
 void gfx_vr_gpu_end(void);
 void gfx_vr_gpu_reset(void);
