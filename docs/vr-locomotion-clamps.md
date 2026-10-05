@@ -71,7 +71,37 @@ rather than C++ (which rejected the v0.4.9 designated initializer).
 
 The Android ARM64 release variant builds using JDK 20. The diagnostic APK stays
 at version 0.4.9 / versionCode 62 and uses the release signing certificate.
-It is a local test build; it has not been published or visually validated.
+It is a local test build; it has not been published. The user tested it on Quest
+at 90 and 120 Hz and reported that stutters seemed less frequent, but was unsure.
+
+## Diagnostic Quest results, 2026-10-05
+
+Two new screenshots were pulled directly from `/sdcard/Oculus/Screenshots`.
+Both show build `f4548c4`, Dam, and eye resolution 1680x1760:
+
+| Screenshot time | Display | XR FPS | Worst render gap | Worst XR gap | CLAMP | RESET | AHEAD | PHASE | CPU draw peak |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 16:07:41 | 90 Hz | 90 | 34.8 ms | 29.9 ms | 0 | 0 | 0.0 ms | 16.7 ms | 8.0 ms |
+| 16:08:25 | 120 Hz | 121 | 30.1 ms | 17.7 ms | 0 | 0 | 0.0 ms | 0.5 ms | 16.2 ms |
+
+The retained log covers 55 cadence windows at 120 Hz, from 16:08:47.840 through
+16:09:42.056. All report zero clamps, zero effective resets, zero seeds and eight
+history samples. Maximum positive target lead is zero; maximum positive phase
+is 4.5 ms. Worst render gap reaches 34.5 ms, worst XR submission gap 22.6 ms,
+and peak individual CPU drawing duration 16.6 ms. The captured log begins after
+both screenshots and contains no 90 Hz cadence windows, so the 90 Hz result is
+limited to its screenshot. Evidence is preserved in ignored
+`android/app/build/locomotion-device/clamp-tests-90-120.log` and the two
+`com.gevr.port-20261005-160741.jpg` / `...160825.jpg` files beside it.
+
+These windows show healthy interpolation history despite submission/render
+gaps. They do not establish that the collision gate caused the improvement,
+exclude clamping elsewhere, or prove that stutters are resolved. There is no
+measured sustained late-history condition here to justify changing the timeline
+or increasing interpolation delay. Frame pacing, CPU rendering/driver waits,
+swapchain waits and compositor timing are the next investigation targets.
+CPU draw peak is not a GPU timer and cannot identify the cause of a particular
+submission gap by itself; report windows are also independently timed.
 
 Compare open-ground locomotion with pushing into the same barrier, keeping the
 head relatively still, at 90 and 120 Hz with the same other settings. Then try
@@ -79,3 +109,53 @@ physical head movement parallel to, away from, and into the barrier. Record the
 new fields during stutters. Rising PHYSICAL resets with early clamps identifies
 collision-history churn; late clamps with large AHEAD/PHASE indicate timing;
 large CPU PEAK/render/XR gaps also warrant rendering/driver investigation.
+
+## Frame-gap investigation build
+
+The follow-up keeps locomotion history, delay, camera math, game timing and eye
+pass count unchanged. Cached eye redraws skip repeated texture bindings and
+filtering uniform writes; filtering is invalidated on program changes, while
+texture bindings remain valid across them. Draw order, geometry and restoration
+of the frontend's GL state are preserved. A production replay test exercises
+104 draws, mixed one/two-texture shaders, A/B/A program switches, filter changes
+and texture changes: texture binds fall from 208 to 5 including restoration.
+That is a mocked call-count result, not a measured headset frame-time gain.
+Room-decal span scanning and repetitive logs now run only with a decal/depth
+debug marker active; the actual decal rendering is unchanged.
+
+With Show stats enabled, a new per-XR collector times `xrWaitFrame`,
+`xrBeginFrame`, pose/input location, eye image acquisition/wait, eye setup,
+fresh rendering, redraws, vertex-ring fence waits, layer preparation/copies,
+image release, `xrEndFrame` and any SDL framerate throttle. Its `xr-gap` and
+`xr-gap-prev` logs retain the actual two frames around the largest submission
+gap; `xr-work` records the largest CPU duration excluding `xrWaitFrame`.
+`between` includes work after the preceding submission and before the next wait
+(including logging, events, input and frame finalization). Durations are ms.
+Fresh/redraw durations include nested eye/driver sections: do not sum those
+columns. Long active-frame stalls are retained; explicit session/empty-frame
+aborts reset the pair. `predicted_skips` counts prediction-time steps that were
+skipped, not measured compositor drops. No CPU/OpenXR clock conversion is used.
+
+The former `END` field timed `videoEndFrame`, outside actual XR submission. It
+is relabeled `FINISH`; actual `xrEndFrame` is now measured as `submit` in the
+per-XR log. The HUD adds `XR CPU WORK MAX` and `GPU EYE MAX F/R`.
+
+GPU eye timing uses an eight-query asynchronous pool when the driver supports
+[EXT_disjoint_timer_query](https://registry.khronos.org/OpenGL/extensions/EXT/EXT_disjoint_timer_query.txt).
+Results are read only after availability, with disjoint checks; a full pool
+skips measurement, and unavailable/invalid results show N/A. Queries are
+balanced and destroyed at XR shutdown. F/R distinguish fresh/redraw eye passes;
+the query starts after eye acquisition/setup/clear and ends before release,
+excluding submission-time layer copies and compositor work. Results arrive in
+later reporting windows and cannot be directly assigned to the window's worst
+CPU gap. GPU timing adds no blocking wait, finish or extra render pass, but can
+affect driver scheduling; compare perceived smoothness with Show stats off too.
+
+`python port/tests/test_frame_timing.py` exercises real production CPU/GPU code,
+unsupported/zero-bit GPU timers, unavailable results, full pools, disjoint
+changes before/after collection, stats toggles, query cleanup, long stalls,
+failed/empty frames, report rollover and predictions at all four display rates.
+It also executes the extracted production eye replay against a GL state mock.
+Locomotion, display, surface, reload and co-op collision regressions pass.
+The build still needs Quest timing capture and visual verification before the
+remaining stutter report can be called resolved.

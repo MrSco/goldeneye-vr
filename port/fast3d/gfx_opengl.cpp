@@ -22,6 +22,7 @@
 #include "../vr/vr_log.h"
 #include "../src/net/net_game.h"
 #include "gevr_line_geometry.h"
+#include "gevr_frame_timing.h"
 /* Line mode, online (host fun flag) or offline (cheat/debug toggle): the
    N64 coverage visualization has no GL equivalent, so world edges are drawn here. */
 extern "C" int get_debug_VisCVG_flag(void);
@@ -537,6 +538,7 @@ static float gevr_room_decal_reach(void)
 
 static void gevr_room_decal_log(float span, float pull)
 {
+    if (s_decalMode == 0 && gevrZDebugMode == 0) return;
     s_rdDraws++;
     if (pull > 0.0f) s_rdPulled++;
     else if (span > 64.0f) s_rdLarge++;
@@ -573,7 +575,9 @@ static void gevr_pm_next_segment(void)
     }
     s_pmSeg = (s_pmSeg + 1) % GEVR_PM_SEGMENTS;
     if (s_pmFence[s_pmSeg]) {
+        const uint64_t timingStart = gevrFrameTimingNow();
         glClientWaitSync(s_pmFence[s_pmSeg], GL_SYNC_FLUSH_COMMANDS_BIT, 100000000ull);
+        gevrFrameTimingAdd(GEVR_TIME_VERTEX_WAIT, timingStart);
         glDeleteSync(s_pmFence[s_pmSeg]);
         s_pmFence[s_pmSeg] = 0;
     }
@@ -2342,7 +2346,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     }
     s_drawDecalPull = 0.0f;
-    if (gevrRoomDl && s_isDecal && s_curPrg != NULL) {
+    if ((s_decalMode != 0 || gevrZDebugMode != 0) && gevrRoomDl && s_isDecal && s_curPrg != NULL) {
         const float span = gevr_vbo_span(buf_vbo, buf_vbo_num_tris, s_curPrg->num_floats);
         gevr_room_decal_log(span, gevr_room_decal_reach());
     }
@@ -2790,6 +2794,9 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     const GevrEyeDraw* last = NULL;
     int lastMenu = -1;
     int lastMove = -2;
+    GLuint replayTex[2] = {};
+    bool haveTexture[2] = {};
+    int replayFilter[2] = { -1, -1 };
     for (const GevrEyeDraw& d : s_eyeDraws) {
         if (last == NULL || d.prg != bound) {
             if (last != NULL || d.prg != bound) {
@@ -2804,6 +2811,8 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
             if (d.prg->reprojLocation >= 0) glUniform1i(d.prg->reprojLocation, 1);
             if (d.prg->scopeHeadPLocation >= 0) glUniform2f(d.prg->scopeHeadPLocation, s_eyeHeadP[0], s_eyeHeadP[1]);
             lastMove = -2;
+            // Filtering uniforms belong to the program; texture bindings do not.
+            replayFilter[0] = replayFilter[1] = -1;
         }
         if (d.hand != lastMove) {
             if (d.prg->reprojVPLocation >= 0) glUniformMatrix4fv(d.prg->reprojVPLocation, 1, GL_FALSE, Ms[d.hand + 1]);
@@ -2815,10 +2824,15 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         }
         for (int t = 0; t < 2; t++) {
             if (d.prg->used_textures[t]) {
-                glActiveTexture(GL_TEXTURE0 + t);
-                glBindTexture(GL_TEXTURE_2D, d.tex[t]);
-                if (d.prg->three_point_filter_locations[t] >= 0) {
+                if (!haveTexture[t] || replayTex[t] != d.tex[t]) {
+                    glActiveTexture(GL_TEXTURE0 + t);
+                    glBindTexture(GL_TEXTURE_2D, d.tex[t]);
+                    replayTex[t] = d.tex[t];
+                    haveTexture[t] = true;
+                }
+                if (d.prg->three_point_filter_locations[t] >= 0 && replayFilter[t] != (int)d.linear[t]) {
                     glUniform1i(d.prg->three_point_filter_locations[t], d.linear[t]);
+                    replayFilter[t] = (int)d.linear[t];
                 }
             }
         }

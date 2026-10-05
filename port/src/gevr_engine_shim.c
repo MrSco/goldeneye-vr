@@ -27,6 +27,7 @@
 #include "input.h"
 #include "video.h"
 #include "gevr_sched.h"
+#include "gevr_frame_timing.h"
 #include "gevr_rom_segments.h"
 #include <music.h> /* musicFadeTick: the retrace-driven music cross-fade */
 
@@ -268,6 +269,7 @@ s32 gevrSchedSend(OSMesgQueue *mq, OSMesg msg)
 			const u64 t0 = gevrPerfNs();
 			videoSubmitCommands((Gfx *)t->list.t.data_ptr);
 			gevrPerfAdd(1, gevrPerfNs() - t0);
+			gevrFrameTimingDuration(GEVR_TIME_FRESH, gevrPerfNs() - t0);
 		}
 		gevrTasksThisFrame++;
 	}
@@ -387,7 +389,7 @@ static void gevrPerfFrameDone(void)
 			if (now - gevrPerfSecStart >= 1000000000ull && gevrPerfFrames) {
 				const double n = (double)gevrPerfFrames;
 				snprintf(gevrPerfBuf, sizeof(gevrPerfBuf),
-					"CPU GAME %.1f MAX %.1f MS\nDRAW/TICK %.1f PEAK %.1f MS\nEND %.1f WAIT %.1f MS\nDRAWS %u TRIS %uK",
+					"CPU GAME %.1f MAX %.1f MS\nDRAW/TICK %.1f PEAK %.1f MS\nFINISH %.1f WAIT %.1f MS\nDRAWS %u TRIS %uK",
 					gameAcc / n / 1e6, gevrPerfWorstGame / 1e6, gevrPerfAcc[1] / n / 1e6,
 					gevrPerfPeakDraw / 1e6, gevrPerfAcc[2] / n / 1e6, gevrPerfAcc[0] / n / 1e6,
 					(unsigned)(gevr_perf_draws / gevrPerfFrames), (unsigned)(gevr_perf_tris / gevrPerfFrames / 1000));
@@ -544,8 +546,10 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 				extern int gfx_vr_redraw_frame(void);
 				const u64 t0 = gevrPerfNs();
 
-				gevrRedraws += gfx_vr_redraw_frame();
+				const int redrawn = gfx_vr_redraw_frame();
+				gevrRedraws += redrawn;
 				gevrPerfAdd(1, gevrPerfNs() - t0);
+				if (redrawn) gevrFrameTimingDuration(GEVR_TIME_REDRAW, gevrPerfNs() - t0);
 			}
 			gevrVrFrameEnd();
 		}
