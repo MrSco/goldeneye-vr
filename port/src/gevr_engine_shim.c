@@ -356,12 +356,15 @@ static u64 gevrPerfNs(void)
 }
 static u64 gevrPerfAcc[3], gevrPerfFrameStart, gevrPerfSecStart, gevrPerfWorstGame;
 static u64 gevrPerfFrameAcc[3];
+static u64 gevrPerfPeakDraw;
 static u32 gevrPerfFrames;
-static char gevrPerfBuf[160];
+static char gevrPerfBuf[192];
 const char *gevrPerfText(void) { return gevrPerfBuf; }
 void gevrPerfAdd(int section, u64 ns)
 {
 	gevrPerfFrameAcc[section] += ns;
+	/* Peak duration of a single fresh-render/redraw CPU call, not GPU time. */
+	if (section == 1 && ns > gevrPerfPeakDraw) gevrPerfPeakDraw = ns;
 }
 u64 gevrPerfNow(void) { return gevrPerfNs(); }
 /* at the end of each presented frame */
@@ -384,15 +387,16 @@ static void gevrPerfFrameDone(void)
 			if (now - gevrPerfSecStart >= 1000000000ull && gevrPerfFrames) {
 				const double n = (double)gevrPerfFrames;
 				snprintf(gevrPerfBuf, sizeof(gevrPerfBuf),
-					"GAME %.1f MAX %.1f  DRAW %.1f  END %.1f  WAIT %.1f\nDRAWS %u  TRIS %uK",
+					"CPU GAME %.1f MAX %.1f MS\nDRAW/TICK %.1f PEAK %.1f MS\nEND %.1f WAIT %.1f MS\nDRAWS %u TRIS %uK",
 					gameAcc / n / 1e6, gevrPerfWorstGame / 1e6, gevrPerfAcc[1] / n / 1e6,
-					gevrPerfAcc[2] / n / 1e6, gevrPerfAcc[0] / n / 1e6,
+					gevrPerfPeakDraw / 1e6, gevrPerfAcc[2] / n / 1e6, gevrPerfAcc[0] / n / 1e6,
 					(unsigned)(gevr_perf_draws / gevrPerfFrames), (unsigned)(gevr_perf_tris / gevrPerfFrames / 1000));
 				if (VrShowStats) {
 					sysLogPrintf(LOG_NOTE, "perf: %s", gevrPerfBuf);
 				}
 				gameAcc = 0;
 				gevrPerfWorstGame = 0;
+				gevrPerfPeakDraw = 0;
 				gevrPerfFrames = 0;
 				gevr_perf_draws = gevr_perf_tris = 0;
 				for (i = 0; i < 3; i++) gevrPerfAcc[i] = 0;
