@@ -201,3 +201,54 @@ be reconstructed; the reproduced bug matches its unexpected delay.
 The rounding correction needs a new headset check. Remaining gaps are not
 declared resolved, and the measured eye GPU time alone does not justify GPU
 quality reductions or speculative changes to simulation timing.
+
+## Repeatable Dam curb trigger, 2026-10-05
+
+The user can reproduce stutter by continuously pushing into the curbs at Dam's
+start, rather than stepping up/down. The 16:46:09 screenshot is `39e6916`, not
+the subsequent PR #127 combined build. Its delay is now correctly 16.7 ms at
+120 Hz. The matching 16:46:08.801 log window has zero clamps/resets and eight
+samples. Its worst XR gap is 17.917 ms: the fresh frame contains 17.222 ms CPU
+work, including 4.709 ms eye-image wait and 15.134 ms inclusive fresh rendering.
+The preceding redraw contains 3.853 ms work and 2.511 ms image wait. GPU eye
+peaks are 2.1/1.9 ms, with no prediction skips. The 30.0 ms render gap is a
+separate measurement; average XR 120 FPS does not establish even submission
+spacing. That screenshot's stutter cannot be attributed to a history reset.
+
+The fuller retained log (`android/app/build/locomotion-device/curb-stutter-1646.log`)
+contains 36 cadence windows, 16:45:42.664-16:46:17.847. Eight contain resets,
+totalling 136 PHYSICAL resets; clamp counts total 288. The exact screenshot
+window misses that intermittent reset activity. These counts are not dropped
+frames, and the retained data does not identify which windows correspond to
+each deliberate curb push. The physical-reset gate still uses combined requested
+movement, so blocked joystick movement can contribute to its projected loss
+when head movement exceeds the jitter threshold. Changing that gate without
+separating actual physical collision compensation could smooth a head through
+a wall; additional motion evidence is needed.
+
+The next combined test build retains PR #127 and adds measurements only:
+
+- `xr-gap-motion` / `xr-gap-prev-motion` / `xr-work-motion` pair requested versus
+  actual movement, physical head step, body/root step and presented-camera step
+  with the frames already retained by the CPU collector. Vectors are game cm,
+  with explicit validity flags and reset reason numbers matching the existing
+  locomotion enum. `body_step` spans simulation snapshots; `camera_step` spans
+  XR presentation evaluations, so those intervals differ.
+- `xr-motion-max` retains the largest valid camera displacement in the window,
+  including whether it was a fresh render or redraw. Physical resets preserve
+  diagnostic continuity so their jumps remain measurable; context/tracking/
+  clock discontinuities and aborted submissions invalidate the delta baseline.
+- CPU sections add inclusive `draw_batch` (vertex upload, draw setup and issued
+  drawing), `draw_issue` (GL draw submission/state), `shader_bind`,
+  `shader_compile` and `texture_upload`. `draw_issue` nests in `draw_batch` on
+  fresh draws, and shader binding can nest in compilation. Do not sum them.
+
+All measurements run with Show stats enabled and add clock reads/logging;
+compare perception with stats off as well. They change neither collision rules
+nor presentation interpolation. Native tests exercise paired motion retention,
+window rollover, reset/abort validity, repeated-query handling and the new CPU
+fields; locomotion and rendering regressions remain green. Repeat 120 Hz open
+movement, then a stationary-head joystick push into the same curb, then an
+equivalent push against a tall wall. Keep each segment long enough to capture
+multiple windows and note its time. This distinguishes ordinary CPU/driver
+pacing from curb-induced movement changes and physical-history resets.

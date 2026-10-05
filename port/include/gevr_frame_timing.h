@@ -11,7 +11,9 @@ typedef enum {
     GEVR_TIME_ACQUIRE, GEVR_TIME_IMAGE_WAIT, GEVR_TIME_EYE_SETUP,
     GEVR_TIME_FRESH, GEVR_TIME_REDRAW, GEVR_TIME_VERTEX_WAIT,
     GEVR_TIME_LAYERS, GEVR_TIME_RELEASE, GEVR_TIME_SUBMIT,
-    GEVR_TIME_THROTTLE, GEVR_TIME_COUNT
+    GEVR_TIME_THROTTLE, GEVR_TIME_DRAW_BATCH, GEVR_TIME_DRAW_ISSUE,
+    GEVR_TIME_SHADER_BIND, GEVR_TIME_SHADER_COMPILE, GEVR_TIME_TEXTURE_UPLOAD,
+    GEVR_TIME_COUNT
 } GevrFrameTimingSection;
 
 /* Durations are CPU wall time. FRESH/REDRAW include their nested eye/driver
@@ -22,12 +24,16 @@ typedef struct {
     int64_t display, period, predictedStep;
     uint64_t between, work;
     unsigned kind; /* 0 = no game eye pass, 1 = fresh, 2 = redraw */
+    /* Game centimetres, paired with this submitted frame. Delta validity
+     * excludes the first sample after a tracking/context discontinuity. */
+    float physical[3], requested[3], actual[3], bodyStep[3], rootStep[3], cameraStep[3];
+    unsigned collision, physicalReset, bodyValid, cameraValid, resetReason;
 } GevrFrameTimingSample;
 typedef struct {
     unsigned frames, predictedSkips, gpuCount[2], gpuDisjoint, gpuBusy;
     uint64_t peak[GEVR_TIME_COUNT], worstGap;
     double gpuPeak[2];
-    GevrFrameTimingSample gapFrame, gapPrevious, workFrame;
+    GevrFrameTimingSample gapFrame, gapPrevious, workFrame, motionFrame;
 } GevrFrameTimingWindow;
 
 void gevrFrameTimingEnable(int enabled);
@@ -41,6 +47,11 @@ void gevrFrameTimingGpu(double ms, int redraw);
 void gevrFrameTimingGpuDiscard(int busy);
 void gevrFrameTimingTake(GevrFrameTimingWindow *out);
 void gevrFrameTimingFormatSample(const GevrFrameTimingSample *s, char *out, size_t size);
+void gevrFrameTimingCollision(const float physical[3], const float requested[3], const float actual[3], int reset);
+void gevrFrameTimingSnapshot(const float body[3], const float root[3]);
+void gevrFrameTimingCamera(const float position[3]);
+void gevrFrameTimingResetMotion(unsigned reason, int discontinuity);
+void gevrFrameTimingFormatMotion(const GevrFrameTimingSample *s, char *out, size_t size);
 void gfx_vr_gpu_begin(int redraw);
 void gfx_vr_gpu_end(void);
 void gfx_vr_gpu_reset(void);

@@ -14,7 +14,11 @@
   swapchain waits warrant further investigation. Diagnostic builds are unpublished.
 - Fix nanosecond rounding that could select 25 ms interpolation delay at 120 Hz;
   retain the intended 16.7 ms delay despite tiny runtime-period variations.
-  Native regressions pass; headset verification of this correction is pending.
+  Native regressions pass; the latest 120 Hz screenshot confirms 16.7 ms.
+- Quest screenshot confirms the corrected 16.7 ms delay at 120 Hz. Pushing into
+  Dam's starting curbs reproduces stutter, including a zero-clamp/reset window.
+  Add paired motion and detailed renderer CPU diagnostics to separate movement
+  jumps, physical-history resets and submission pacing; the report remains open.
 
 - On-screen characters still get a model hit list after the cartridge's
   600 entries are in use. Report ee07735d: firing on solo Bunker 2

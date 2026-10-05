@@ -2596,6 +2596,7 @@ extern "C" void gevrVrLocomotionResetReason(GevrLocomotionResetReason reason)
     /* Count effective history resets, not repeated calls while on a screen. */
     if (s_locomotion.count && reason > GEVR_LOCO_RESET_NONE && reason < GEVR_LOCO_RESET_COUNT)
         s_locomotionStats.resets[reason]++;
+    gevrFrameTimingResetMotion((unsigned)reason, reason != GEVR_LOCO_RESET_PHYSICAL);
     gevrLocomotionReset(&s_locomotion);
     s_haveSourceCamera = s_haveRecordedCamera = false;
     s_lastPresentationTime = 0;
@@ -2613,7 +2614,9 @@ extern "C" void gevrVrLocomotionSnapshot(const float position[3], const float tr
         g_frameState.predictedDisplayTime, g_frameState.predictedDisplayPeriod);
     if (hadHistory && s_locomotion.resetReason != GEVR_LOCO_RESET_NONE)
         s_locomotionStats.resets[s_locomotion.resetReason]++;
+    if (result == 2) gevrFrameTimingResetMotion((unsigned)s_locomotion.resetReason, 1);
     if (result && s_locomotion.count) {
+        gevrFrameTimingSnapshot(position, s_locomotion.poses[s_locomotion.count - 1].position);
         if (!hadHistory || result == 2) s_locomotionStats.seeds++;
         s_locomotionStats.lastPhase = g_frameState.predictedDisplayTime - s_locomotion.poses[s_locomotion.count - 1].time;
         s_locomotionStats.maxPhase = std::max(s_locomotionStats.maxPhase, s_locomotionStats.lastPhase);
@@ -2729,13 +2732,21 @@ static void vr_stats_xr_frame(void)
              (int)g_internalRenderWidth, (int)g_internalRenderHeight, screen, timingText, gevrPerfText());
     if (VrShowStats) {
         LOGI("cadence: %s", s_statText);
-        char sample[640];
+        char sample[1024];
         gevrFrameTimingFormatSample(&timing.gapFrame, sample, sizeof(sample));
         LOGI("xr-gap: max_ms=%.3f %s", timing.worstGap / 1e6, sample);
         gevrFrameTimingFormatSample(&timing.gapPrevious, sample, sizeof(sample));
         LOGI("xr-gap-prev: %s", sample);
         gevrFrameTimingFormatSample(&timing.workFrame, sample, sizeof(sample));
         LOGI("xr-work: %s", sample);
+        gevrFrameTimingFormatMotion(&timing.gapFrame, sample, sizeof(sample));
+        LOGI("xr-gap-motion: %s", sample);
+        gevrFrameTimingFormatMotion(&timing.gapPrevious, sample, sizeof(sample));
+        LOGI("xr-gap-prev-motion: %s", sample);
+        gevrFrameTimingFormatMotion(&timing.workFrame, sample, sizeof(sample));
+        LOGI("xr-work-motion: %s", sample);
+        gevrFrameTimingFormatMotion(&timing.motionFrame, sample, sizeof(sample));
+        LOGI("xr-motion-max: kind=%s %s", timing.motionFrame.kind == 1 ? "fresh" : timing.motionFrame.kind == 2 ? "redraw" : "other", sample);
         LOGI("xr-timing: frames=%u predicted_skips=%u GPU_eye_fresh_max_ms=%s n=%u GPU_eye_redraw_max_ms=%s n=%u disjoint=%u busy=%u",
             timing.frames, timing.predictedSkips, gpuFresh, timing.gpuCount[0],
             gpuRedraw, timing.gpuCount[1], timing.gpuDisjoint, timing.gpuBusy);
@@ -2841,6 +2852,7 @@ static bool vr_locomotion_camera(const GevrPresentationCamera& source,
         }
     }
     gevrLocomotionCamera(&source, &confirmed, &s_evaluatedLocomotion, headR, headT, &s_presentedCamera);
+    gevrFrameTimingCamera(s_presentedCamera.position);
     return true;
 }
 

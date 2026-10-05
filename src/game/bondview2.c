@@ -9,6 +9,7 @@
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
 #include "gevr_locomotion.h"
+#include "gevr_frame_timing.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -12616,9 +12617,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
          * otherwise a blocked room-scale step could briefly lean through a wall. */
         {
             const f32 actual[3] = {ftemp_col_x, 0, ftemp_col_z};
-            if ((!netIsActive() || get_cur_playernum() == netGetLocalSlot()) &&
-                gevrLocomotionPhysicalBlocked(s_gevrPhysicalStep, gevrPhysicalRequest, actual))
-                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_PHYSICAL);
+            if (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) {
+                const s32 reset = gevrLocomotionPhysicalBlocked(s_gevrPhysicalStep, gevrPhysicalRequest, actual);
+                gevrFrameTimingCollision(s_gevrPhysicalStep, gevrPhysicalRequest, actual, reset);
+                if (reset) gevrVrLocomotionResetReason(GEVR_LOCO_RESET_PHYSICAL);
+            }
         }
 #endif
         sp240 = (move_offset.f[0] * move_offset.f[0]) + (move_offset.f[2] * move_offset.f[2]);

@@ -23,6 +23,15 @@
 #include "../src/net/net_game.h"
 #include "gevr_line_geometry.h"
 #include "gevr_frame_timing.h"
+/* Inclusive CPU timings, only with Show stats. RAII balances early returns;
+ * draw_issue is nested in draw_batch, shader_bind may nest in shader_compile. */
+class GevrCpuSection {
+    GevrFrameTimingSection section;
+    uint64_t start;
+public:
+    explicit GevrCpuSection(GevrFrameTimingSection value) : section(value), start(gevrFrameTimingNow()) {}
+    ~GevrCpuSection() { gevrFrameTimingAdd(section, start); }
+};
 /* Line mode, online (host fun flag) or offline (cheat/debug toggle): the
    N64 coverage visualization has no GL equivalent, so world edges are drawn here. */
 extern "C" int get_debug_VisCVG_flag(void);
@@ -972,6 +981,7 @@ void gfx_opengl_vr_hud_full_size(bool full)
 }
 
 static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
+    GevrCpuSection timing(GEVR_TIME_SHADER_BIND);
     // if (!new_prg) return;
     s_curPrg = new_prg;
     glUseProgram(new_prg->opengl_program_id);
@@ -1172,6 +1182,7 @@ gl_Position = mvPos;
 
 
 static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shader_id0, uint32_t shader_id1) {
+    GevrCpuSection timing(GEVR_TIME_SHADER_COMPILE);
     struct CCFeatures cc_features = { 0 };
     gfx_cc_get_features(shader_id0, shader_id1, &cc_features);
 
@@ -1731,6 +1742,7 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_f
 }
 
 static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
+    GevrCpuSection timing(GEVR_TIME_TEXTURE_UPLOAD);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
     // a name that held a pack image keeps its old mip levels: sample level 0 only
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
@@ -1742,6 +1754,7 @@ static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width,
 }
 
 static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
+    GevrCpuSection timing(GEVR_TIME_TEXTURE_UPLOAD);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
     // before generating: the cache reuses names, and a native upload left this
     // one at MAX_LEVEL 0 - glGenerateMipmap stops there, and raising it after
@@ -2322,6 +2335,7 @@ static void gevr_eye_present_draw(void) {
 }
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
+    GevrCpuSection timing(GEVR_TIME_DRAW_BATCH);
 
     const bool lineMode = get_debug_VisCVG_flag() && !gForceFlatShaderForMenu && !gVrFlatPass &&
         !vr_dl_is_pause_or_menu && buf_vbo[3] != 1.0f;
@@ -2468,6 +2482,7 @@ static void gevr_draw_world_lines(GLint first, GLsizei count) {
 
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode)
 {
+    GevrCpuSection timing(GEVR_TIME_DRAW_ISSUE);
     if (lineMode) { gevr_draw_world_lines(first,count); return; }
     if (decalZ && decalDepth) {
         /*
