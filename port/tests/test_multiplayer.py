@@ -83,7 +83,34 @@ def build_core():
 
 def build_fixture(name, source=None):
     fixture=(ROOT/f"port/tests/{name}.c").read_text(encoding="utf-8")
-    if name == "inventory_native":
+    if name == "coop_drop_native":
+        def function(path, signature):
+            text=(ROOT/path).read_text(encoding="utf-8")
+            start=text.index(signature);brace=text.index("{",start);depth=1;end=brace+1
+            while depth:
+                if text[end]=="{":depth+=1
+                elif text[end]=="}":depth-=1
+                end+=1
+            return text[start:end]
+        functions=[]
+        for path, signatures in (
+            ("src/game/matrixmath.c", ("void matrix_4x4_set_identity(", "void matrix_4x4_copy(",
+                "void matrix_4x4_set_position(", "void matrix_scalar_multiply(", "void matrix_4x4_multiply_homogeneous(")),
+            ("src/game/chrprop.c", ("void chrpropReparent(", "void chrpropDetach(", "void chrpropDelist(",
+                "void chrpropActivate(", "void chrpropEnable(")),
+            ("src/game/chr.c", ("PropRecord *chrGetEquippedWeaponProp(",)),
+            ("src/game/propobj.c", ("void sub_GAME_7F03FDA8(", "void propobjSetDropped(", "void objDetach(", "s32 objDrop(")),
+            ("port/src/net/net_coop.c", ("static u8 coopWeaponOf(", "static void coopSyncHand(")),
+        ):
+            functions.extend(function(path, signature) for signature in signatures)
+        fixture=fixture.replace("/* INSERT_PRODUCTION_DROP_FUNCTIONS */", "\n\n".join(functions))
+        fixture=fixture.replace("/* INSERT_PRODUCTION_DROP_TICK */", function("src/game/chr.c", "        if (chr->hidden & CHRHIDDEN_DROP_HELD_ITEMS)"))
+        puppet=function("port/src/net/net_coop.c", "void netCoopPuppetTick(")
+        dying=next(line.strip() for line in puppet.splitlines() if "bool dying =" in line)
+        hands="\n".join(line.strip() for line in puppet.splitlines() if "coopSyncHand(chr," in line)
+        fixture=fixture.replace("/* INSERT_PRODUCTION_DYING */", dying)
+        fixture=fixture.replace("/* INSERT_PRODUCTION_SYNC_HANDS */", hands)
+    elif name == "inventory_native":
         init_source=source if source is not None else (ROOT/'src/game/inititemslots.c').read_text(encoding='utf-8')
         init_path=NATIVE/f"{name}_source.c";init_path.write_text(init_source,encoding='utf-8')
         fixture=fixture.replace('../../src/game/inititemslots.c',init_path.as_posix())
@@ -182,6 +209,7 @@ class MultiplayerNativeTests(unittest.TestCase):
         cls.core = build_core()
         cls.allocator = build_fixture("vtxstore_native")
         cls.objects = build_fixture("objects_native")
+        cls.coop_drops = build_fixture("coop_drop_native")
         cls.inventory = build_fixture("inventory_native")
         cls.fun = build_fixture("fun_native")
         cls.hands = build_fixture("hand_native")
@@ -215,6 +243,9 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_launch_consent_and_scenario_transition(self): self.assertEqual(self.core.test_core_launch_consent(),0)
     def test_in_game_ready_packets_and_start(self): self.assertEqual(self.core.test_core_menu_ready(),0)
     def test_coop_ignores_team_scenario_for_ready(self): self.assertEqual(self.core.test_core_coop_team_scenario_ready(),0)
+    def test_coop_guard_drops_detach_and_activate(self): self.assertEqual(self.coop_drops.test_coop_guard_drops(),0)
+    def test_coop_guard_hand_removal_and_replacement(self): self.assertEqual(self.coop_drops.test_coop_guard_hand_changes(),0)
+    def test_coop_guard_pickups_remain_individual(self): self.assertEqual(self.coop_drops.test_coop_guard_pickups_are_local(),0)
     def test_solo_warmup_pending_options_restart(self): self.assertEqual(self.core.test_core_solo_restart(),0)
     def test_connected_roster_and_spectator_load_ack(self): self.assertEqual(self.core.test_core_connected_roster(),0)
     def test_first_and_next_round_warmup_timers(self): self.assertEqual(self.core.test_core_warmup_lifecycle(),0)

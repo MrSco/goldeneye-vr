@@ -60,6 +60,7 @@ extern void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32
 extern s32 chraiGetAIListID(AIRecord *AIList, s32 *isGlobalAIList);
 extern s32 handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weaponid, s32 isPlayer);
 extern void objFreePermanently(ObjectRecord *obj, s32 freeprop);
+extern void propobjSetDropped(PropRecord *prop, DROPTYPE droptype);
 extern Model *retrieve_header_for_body_and_head(s32 body, s32 head, u32 bitflags);
 extern void chrlvMergeKneelToStand(ChrRecord *self, f32 mergetime);
 extern bool netSlotOccupied(int slot);
@@ -803,7 +804,11 @@ static void coopSyncHand(ChrRecord *chr, s32 hand, u8 want, bool dying)
     if (have == want) return;
     if (!want) {
         /* gone on the host: dropped as the guard fell, or put away */
-        if (dying) chr->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
+        if (dying) {
+            /* chrTick's objDrop needs a projectile before it can detach the gun (#114). */
+            propobjSetDropped(chr->weapons_held[hand], DROPTYPE_DEFAULT);
+            chr->hidden |= CHRHIDDEN_DROP_HELD_ITEMS;
+        }
         else if (chr->weapons_held[hand] && chr->weapons_held[hand]->obj) objFreePermanently(chr->weapons_held[hand]->obj, 1);
         return;
     }
