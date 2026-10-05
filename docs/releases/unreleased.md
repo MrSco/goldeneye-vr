@@ -27,6 +27,10 @@
   5-6 ms on hitch frames) with fenced asynchronous transfers and later bounds
   updates. Preserve GL state and aim/layout generations; native driver tests
   pass. Headset pacing and ammo-panel transition checks remain pending.
+- The next Quest capture shows the 5-6 ms ammo readback stall is absent, but
+  curb binding and runtime image waits remain. Add per-tick requested/accepted
+  movement and collision fallback traces to distinguish player sticking from
+  presentation pacing. Native checks preserve the game's collision call order.
 
 - On-screen characters still get a model hit list after the cartridge's
   600 entries are in use. Report ee07735d: firing on solo Bunker 2
