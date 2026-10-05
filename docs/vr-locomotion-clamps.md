@@ -405,3 +405,16 @@ This build changes diagnostics only; it does not adjust gameplay collision,
 movement speed, interpolation delay, or the frame pump. Repeat a steady angled
 push along the same straight curb section and then ordinary open-ground strafe
 to identify how the binding corresponds to the game's collision decisions.
+
+The user repeated both strafe tests twice on `d6c1929` and supplied a 17:44:33
+screenshot (22 moving ticks, no clipping/stops, no resets). The subsequent
+read-only `curb-traces-1744.log` starts at 17:44:36.805, after that screenshot's
+window. Its only retained moving window is 17:44:39.834: 24 moving ticks, all
+simple moves accepted with request/actual differences below the 0.01 cm contact
+threshold. The remaining retained windows are stationary. This evidence cannot
+classify the earlier curb repeats, which rolled out of the short logcat buffer.
+Worst gaps still occur without movement, independently of gameplay collision.
+A live, read-only logcat capture is now writing directly into ignored
+`android/app/build/locomotion-device/curb-live-capture.log` for a repeat, rather
+than relying on a later dump of the headset's rolling log buffer. Do not adjust
+collision based on the screenshot's zero clip/stop counts alone.
