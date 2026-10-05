@@ -2618,6 +2618,7 @@ extern "C" void gevrLauncherRun(void)
             bool motionThrow = VrMotionThrowing;
             if (ImGui::Checkbox("Enable motion throwing", &motionThrow)) {
                 VrMotionThrowing = motionThrow;
+                vrSettingsSave();
             }
 
             ImGui::BeginDisabled(!VrMotionThrowing);
@@ -2625,7 +2626,9 @@ extern "C" void gevrLauncherRun(void)
             ImGui::Spacing();
             ImGui::TextColored(gold, "THROW STRENGTH & VELOCITY");
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
-            ImGui::SliderFloat("##ThrowStrength", &VrMotionThrowStrength, 0.5f, 2.0f, "Strength %.2fx");
+            if (ImGui::SliderFloat("##ThrowStrength", &VrMotionThrowStrength, 0.5f, 2.0f, "Strength %.2fx")) {
+                vrSettingsSave();
+            }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Scales throw speed with physical swing speed.\n1.0x = natural realism, higher = longer throws.");
             }
@@ -2633,7 +2636,9 @@ extern "C" void gevrLauncherRun(void)
             ImGui::Spacing();
             ImGui::TextColored(gold, "TRAJECTORY CALIBRATION");
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.70f);
-            ImGui::SliderFloat("##ThrowPitch", &VrMotionThrowPitch, -20.0f, 20.0f, "Pitch %+.0f°");
+            if (ImGui::SliderFloat("##ThrowPitch", &VrMotionThrowPitch, -20.0f, 20.0f, "Pitch %+.0f°")) {
+                vrSettingsSave();
+            }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Vertical pitch trim: adjust upward (+) or downward (-) if throws fly too low/high.");
             }
@@ -2644,6 +2649,7 @@ extern "C" void gevrLauncherRun(void)
             float gazePct = VrMotionThrowGazeAssist * 100.0f;
             if (ImGui::SliderFloat("##ThrowGaze", &gazePct, 0.0f, 100.0f, "Gaze %.0f%%")) {
                 VrMotionThrowGazeAssist = gazePct / 100.0f;
+                vrSettingsSave();
             }
             if (ImGui::IsItemHovered()) {
                 ImGui::SetTooltip("Blends overhand throw direction toward where you are looking (0%% = pure hand, 100%% = max gaze pull).\n"
@@ -2659,9 +2665,11 @@ extern "C" void gevrLauncherRun(void)
                 VrMotionThrowStrength = 1.0f;
                 VrMotionThrowPitch = 0.0f;
                 VrMotionThrowGazeAssist = 0.50f;
+                vrSettingsSave();
             }
             ImGui::SameLine();
             if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                vrSettingsSave();
                 throwingPage = false;
             }
         } else if (gesturesPage) {
@@ -2670,7 +2678,10 @@ extern "C" void gevrLauncherRun(void)
             // VR settings page (options.c).
             auto toggle = [](const char *label, int *v, const char *tip) {
                 bool on = *v != 0;
-                if (ImGui::Checkbox(label, &on)) *v = on ? 1 : 0;
+                if (ImGui::Checkbox(label, &on)) {
+                    *v = on ? 1 : 0;
+                    vrSettingsSave();
+                }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
             };
             ImGui::TextColored(gold, "GRIP GESTURES (stereo)");
@@ -2705,9 +2716,11 @@ extern "C" void gevrLauncherRun(void)
                 VrManualReloading = 0;
                 VrWatchGesturePause = 1;
                 VrPerWeaponRecoil = 0;
+                vrSettingsSave();
             }
             ImGui::SameLine();
             if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                vrSettingsSave();
                 gesturesPage = false;
             }
         } else if (rulesPage) {
@@ -2718,11 +2731,15 @@ extern "C" void gevrLauncherRun(void)
             ImGui::TextWrapped("Off keeps the original rules. Mines and body retention are solo options. Fast reinforcements also works in co-op, controlled by the host.");
             ImGui::PopStyleColor();
             bool stick = VrMinesStickToGuards != 0;
-            if (ImGui::Checkbox("Mines stick to guards", &stick)) VrMinesStickToGuards = stick ? 1 : 0;
+            if (ImGui::Checkbox("Mines stick to guards", &stick)) {
+                VrMinesStickToGuards = stick ? 1 : 0;
+                vrSettingsSave();
+            }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("A thrown mine that hits a guard sticks to him and goes where he goes.");
             ImGui::Spacing();
             ImGui::TextUnformatted("Bodies stay");
+            int prevBodies = VrBodiesStay;
             ImGui::RadioButton("Off (fade)##bodies", &VrBodiesStay, 0);
             ImGui::SameLine();
             ImGui::RadioButton("12##bodies", &VrBodiesStay, 12);
@@ -2730,6 +2747,7 @@ extern "C" void gevrLauncherRun(void)
             ImGui::RadioButton("24##bodies", &VrBodiesStay, 24);
             ImGui::SameLine();
             ImGui::RadioButton("48##bodies", &VrBodiesStay, 48);
+            if (VrBodiesStay != prevBodies) vrSettingsSave();
             ImGui::TextWrapped("The newest bodies stay on the floor; the oldest goes when a new guard needs its place.");
             ImGui::Spacing();
             const bool online = netIsActive();
@@ -2739,7 +2757,10 @@ extern "C" void gevrLauncherRun(void)
             ImGui::BeginDisabled(online && (!coop || !netIsHost()));
             if (ImGui::Checkbox("Fast reinforcements", &fast)) {
                 if (online) gevrNetConfigSet(CFG_FAST_REINFORCEMENTS, fast ? 1 : 0);
-                else VrFastReinforcements = fast ? 1 : 0;
+                else {
+                    VrFastReinforcements = fast ? 1 : 0;
+                    vrSettingsSave();
+                }
             }
             ImGui::EndDisabled();
             ImGui::TextWrapped("Harder: alerted guards can call more reinforcements while earlier ones are still alive. Works with any body count; co-op follows the host.");
@@ -2750,9 +2771,11 @@ extern "C" void gevrLauncherRun(void)
                 VrBodiesStay = 0;
                 if (online) gevrNetConfigSet(CFG_FAST_REINFORCEMENTS, 0);
                 else VrFastReinforcements = 0;
+                vrSettingsSave();
             }
             ImGui::SameLine();
             if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                vrSettingsSave();
                 rulesPage = false;
             }
         } else if (cheatPage) {
@@ -2786,6 +2809,7 @@ extern "C" void gevrLauncherRun(void)
                     if (on) VrCheatMask |= 1ULL << c.id;
                     else VrCheatMask &= ~(1ULL << c.id);
                     if (on && c.excl) VrCheatMask &= ~(1ULL << c.excl);
+                    vrSettingsSave();
                 }
             };
             ImGui::TextColored(gold, "CHEATS");
@@ -2795,9 +2819,13 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::BeginTable("cheats", 3, ImGuiTableFlags_SizingStretchSame)) {
                 ImGui::TableNextColumn();
                 ImGui::TextColored(gold, "VR");
+                int prevGunCheat = VrGunSizeCheat;
                 ImGui::RadioButton("Normal guns", &VrGunSizeCheat, 0);
                 ImGui::RadioButton("Tiny guns", &VrGunSizeCheat, 1);
                 ImGui::RadioButton("Big guns", &VrGunSizeCheat, 2);
+                if (VrGunSizeCheat != prevGunCheat) {
+                    vrSettingsSave();
+                }
                 // three even columns: the launcher page does not scroll
                 ImGui::TextColored(gold, "FUN");
                 for (int i = 0; i < 7; i++) row(fun[i]);
@@ -2814,6 +2842,7 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::Button("All off")) {
                 VrCheatMask = 0;
                 VrGunSizeCheat = 0;
+                vrSettingsSave();
             }
             ImGui::SameLine();
             // Issue #54, as gepc-ref D257 Game.AllUnlocked: the game's own mission
@@ -2823,6 +2852,7 @@ extern "C" void gevrLauncherRun(void)
                 bool unlock = VrUnlockAll != 0;
                 if (ImGui::Checkbox("Unlock all missions and cheats", &unlock)) {
                     VrUnlockAll = unlock ? 1 : 0;
+                    vrSettingsSave();
                 }
                 if (ImGui::IsItemHovered()) {
                     ImGui::SetTooltip("Every mission at every difficulty, 007 mode, and every cheat\n"
@@ -2832,6 +2862,7 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::SameLine();
             if (ImGui::Button("Done", ImVec2(-1, 0))) {
+                vrSettingsSave();
                 cheatPage = false;
             }
         } else {
@@ -2839,8 +2870,14 @@ extern "C" void gevrLauncherRun(void)
         gevrLauncherMainTabs(
         [&]() {
             ImGui::TextColored(gold, "PLAY MODE");
-            ImGui::RadioButton("Stereo VR (3D play)", &mode, 1);
-            ImGui::RadioButton("Flat screen", &mode, 0);
+            if (ImGui::RadioButton("Stereo VR (3D play)", &mode, 1)) {
+                VrPlayMode = VR_PLAYMODE_STEREO;
+                vrSettingsSave();
+            }
+            if (ImGui::RadioButton("Flat screen", &mode, 0)) {
+                VrPlayMode = VR_PLAYMODE_SCREEN;
+                vrSettingsSave();
+            }
             ImGui::Spacing();
             if (ImGui::Button("Multiplayer...")) mpPage = true;
             ImGui::Spacing();
@@ -2859,7 +2896,10 @@ extern "C" void gevrLauncherRun(void)
             ImGui::Spacing();
             ImGui::TextColored(gold, "DIAGNOSTICS & UPDATES");
             bool stats = VrShowStats != 0;
-            if (ImGui::Checkbox("Show stats", &stats)) VrShowStats = stats ? 1 : 0;
+            if (ImGui::Checkbox("Show stats", &stats)) {
+                VrShowStats = stats ? 1 : 0;
+                vrSettingsSave();
+            }
             bool tests = upd.testBuilds;
             if (ImGui::Checkbox("Offer test builds", &tests)) {
                 upd.testBuilds = tests;
@@ -2871,22 +2911,35 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::TableNextColumn();
                 ImGui::TextColored(gold, "HANDS & STICKS");
                 bool lefty = VrLeftHandedMode != 0;
-                if (ImGui::Checkbox("Left-handed", &lefty)) VrLeftHandedMode = lefty ? 1 : 0;
+                if (ImGui::Checkbox("Left-handed", &lefty)) {
+                    VrLeftHandedMode = lefty ? 1 : 0;
+                    vrSettingsSave();
+                }
                 bool swap = VrSwapJoysticks != 0;
-                if (ImGui::Checkbox("Swap sticks", &swap)) VrSwapJoysticks = swap ? 1 : 0;
+                if (ImGui::Checkbox("Swap sticks", &swap)) {
+                    VrSwapJoysticks = swap ? 1 : 0;
+                    vrSettingsSave();
+                }
                 bool nolean = VrAimNoLean != 0;
-                if (ImGui::Checkbox("Aim: no lean", &nolean)) VrAimNoLean = nolean ? 1 : 0;
+                if (ImGui::Checkbox("Aim: no lean", &nolean)) {
+                    VrAimNoLean = nolean ? 1 : 0;
+                    vrSettingsSave();
+                }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Stereo: keep moving while holding the aim trigger.\nClick the left stick to crouch.");
                 ImGui::Spacing();
                 ImGui::TextColored(gold, "AIM STEADYING (stereo)");
                 int steady = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
-                ImGui::RadioButton("Off##steady", &steady, 0);
+                bool steadyChanged = false;
+                steadyChanged |= ImGui::RadioButton("Off##steady", &steady, 0);
                 ImGui::SameLine();
-                ImGui::RadioButton("Low##steady", &steady, 1);
+                steadyChanged |= ImGui::RadioButton("Low##steady", &steady, 1);
                 ImGui::SameLine();
-                ImGui::RadioButton("High##steady", &steady, 2);
-                VrAimSteady = steady;
+                steadyChanged |= ImGui::RadioButton("High##steady", &steady, 2);
+                if (steadyChanged) {
+                    VrAimSteady = steady;
+                    vrSettingsSave();
+                }
                 ImGui::Spacing();
                 ImGui::TextColored(gold, "WEAPON CONTROLS (stereo)");
                 if (ImGui::Button(VrGunFitArmed ? "Gun fit: on" : "Gun fit..."))
@@ -2911,11 +2964,15 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::Spacing();
                 ImGui::TextColored(gold, "WATCH (stereo)");
                 ImGui::TextUnformatted("Watch face status");
-                ImGui::RadioButton("Off##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_OFF);
+                bool watchChanged = false;
+                watchChanged |= ImGui::RadioButton("Off##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_OFF);
                 ImGui::SameLine();
-                ImGui::RadioButton("On##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_ON);
+                watchChanged |= ImGui::RadioButton("On##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_ON);
                 ImGui::SameLine();
-                ImGui::RadioButton("Only##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_ONLY);
+                watchChanged |= ImGui::RadioButton("Only##watch", &VrWatchFaceStatus, GEVR_WATCH_FACE_ONLY);
+                if (watchChanged) {
+                    vrSettingsSave();
+                }
                 ImGui::TextWrapped("On: wrist and normal displays. Only: wrist during play. "
                                    "Holster the offhand to see the watch. Pause-menu status stays visible.");
                 ImGui::EndTable();
@@ -2923,64 +2980,101 @@ extern "C" void gevrLauncherRun(void)
         },
         [&]() {
             ImGui::TextColored(gold, "TURNING (stereo)");
-            ImGui::RadioButton("Smooth", &turn, 0);
+            static const float snaps[] = {0.0f, 30.0f, 45.0f, 90.0f};
+            bool turnChanged = false;
+            turnChanged |= ImGui::RadioButton("Smooth", &turn, 0);
             ImGui::SameLine();
-            ImGui::RadioButton("Snap 30", &turn, 1);
-            ImGui::RadioButton("Snap 45", &turn, 2);
+            turnChanged |= ImGui::RadioButton("Snap 30", &turn, 1);
+            turnChanged |= ImGui::RadioButton("Snap 45", &turn, 2);
             ImGui::SameLine();
-            ImGui::RadioButton("Snap 90", &turn, 3);
+            turnChanged |= ImGui::RadioButton("Snap 90", &turn, 3);
+            if (turnChanged) {
+                VrUseSnapTurn = snaps[turn < 0 ? 0 : turn > 3 ? 3 : turn];
+                vrSettingsSave();
+            }
             ImGui::BeginDisabled(turn != 0);
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
             if (ImGui::SliderInt("Turn speed", &VrSmoothTurnSpeed, SMOOTHTURN_MIN, SMOOTHTURN_MAX, "%d deg/s")) {
                 // steps of 15, as the watch's VR settings page steps it
                 VrSmoothTurnSpeed = (VrSmoothTurnSpeed + SMOOTHTURN_STEP / 2) / SMOOTHTURN_STEP * SMOOTHTURN_STEP;
+                vrSettingsSave();
             }
             ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::TextColored(gold, "MOVEMENT COMFORT (stereo)");
-            ImGui::Checkbox("Darken edges when moving", &vignetteOn);
+            if (ImGui::Checkbox("Darken edges when moving", &vignetteOn)) {
+                VrComfortVignette = vignetteOn ? vignette : 0.0f;
+                vrSettingsSave();
+            }
             ImGui::BeginDisabled(!vignetteOn);
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-            ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f");
+            if (ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f")) {
+                VrComfortVignette = vignette;
+                vrSettingsSave();
+            }
             ImGui::EndDisabled();
             // #95, from GE Plus's comfort options: the push of a hit, the
             // trigger dropped while the hit shows, the red flash
             ImGui::Spacing();
             ImGui::TextColored(gold, "WHEN HIT (stereo)");
             bool noPush = VrNoKnockback != 0, noStun = VrNoHitstun != 0, flash = VrDamageFlash != 0;
-            if (ImGui::Checkbox("No knockback", &noPush)) VrNoKnockback = noPush ? 1 : 0;
-            if (ImGui::Checkbox("Keep firing when hit (no hitstun)", &noStun)) VrNoHitstun = noStun ? 1 : 0;
-            if (ImGui::Checkbox("Red flash when hit", &flash)) VrDamageFlash = flash ? 1 : 0;
+            if (ImGui::Checkbox("No knockback", &noPush)) {
+                VrNoKnockback = noPush ? 1 : 0;
+                vrSettingsSave();
+            }
+            if (ImGui::Checkbox("Keep firing when hit (no hitstun)", &noStun)) {
+                VrNoHitstun = noStun ? 1 : 0;
+                vrSettingsSave();
+            }
+            if (ImGui::Checkbox("Red flash when hit", &flash)) {
+                VrDamageFlash = flash ? 1 : 0;
+                vrSettingsSave();
+            }
         },
         [&]() {
             ImGui::TextColored(gold, "SCREEN");
             ImGui::TextWrapped("Both grips grab the screen; right stick: distance / size. "
                                "Hold the left stick click to recentre it.");
             int curved = VrScreenCurved;
-            ImGui::RadioButton("Flat", &curved, 0);
+            bool curvedChanged = false;
+            curvedChanged |= ImGui::RadioButton("Flat", &curved, 0);
             ImGui::SameLine();
             ImGui::BeginDisabled(!vr_screen_curve_supported());
-            ImGui::RadioButton("Curved", &curved, 1);
+            curvedChanged |= ImGui::RadioButton("Curved", &curved, 1);
             ImGui::EndDisabled();
-            VrScreenCurved = curved;
+            if (curvedChanged) {
+                VrScreenCurved = curved;
+                vrSettingsSave();
+            }
             bool pass = VrScreenPassthrough != 0;
             ImGui::BeginDisabled(!vr_passthrough_supported());
-            if (ImGui::Checkbox("Passthrough background", &pass)) VrScreenPassthrough = pass ? 1 : 0;
+            if (ImGui::Checkbox("Passthrough background", &pass)) {
+                VrScreenPassthrough = pass ? 1 : 0;
+                vrSettingsSave();
+            }
             ImGui::EndDisabled();
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Show your room behind the 2D screen instead of black.");
             float size = VrScreenFov, dist = VrScreenDistance;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-            if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg"))
+            if (ImGui::SliderFloat("Size", &size, VR_SCREEN_FOV_MIN, VR_SCREEN_FOV_MAX, "%.0f deg")) {
                 vr_screen_resize(VrScreenDistance, size);
+                vrSettingsSave();
+            }
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-            if (ImGui::SliderFloat("Distance", &dist, VR_SCREEN_DISTANCE_MIN, VR_SCREEN_DISTANCE_MAX, "%.1f m"))
+            if (ImGui::SliderFloat("Distance", &dist, VR_SCREEN_DISTANCE_MIN, VR_SCREEN_DISTANCE_MAX, "%.1f m")) {
                 vr_screen_resize(dist, VrScreenFov);
+                vrSettingsSave();
+            }
             ImGui::Spacing();
             ImGui::TextColored(gold, "DISPLAY RATE");
             std::vector<int> rates(vr_get_supported_refresh_rates(nullptr, 0));
             const int count = vr_get_supported_refresh_rates(rates.data(), (int)rates.size());
+            const int prevRate = VrRefreshRate;
             gevrDisplayRateControls(&VrRefreshRate, rates.data(), count);
+            if (VrRefreshRate != prevRate) {
+                vrSettingsSave();
+            }
         });
         ImGui::Separator();
         // Update line: only when there is something to say, so an

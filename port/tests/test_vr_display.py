@@ -73,6 +73,11 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         for rate in (0, 72, 80, 90, 120, 87):
             subprocess.run([str(exe), "write", str(rate)], cwd=temp, check=True, stdout=subprocess.DEVNULL)
             subprocess.run([str(exe), "read", str(rate)], cwd=temp, check=True, stdout=subprocess.DEVNULL)
+        # Stuck read-only INI write recovery check
+        import stat
+        ini.chmod(stat.S_IREAD)
+        subprocess.run([str(exe), "write", "72"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run([str(exe), "read", "72"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         ini.write_text("DisplayHz=-10\n", encoding="utf-8")
         subprocess.run([str(exe), "read", "0"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         for choice in (0, 1, 2):

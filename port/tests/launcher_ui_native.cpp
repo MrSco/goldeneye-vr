@@ -9,6 +9,7 @@ int VrLeftHandedMode,VrSwapJoysticks,VrAimNoLean,VrAimSteady,VrGunFitArmed,VrMot
 int VrWatchFaceStatus=GEVR_WATCH_FACE_ON,VrWatchGesturePause=1;
 bool throwingPage,hapticsPage,gesturesPage;
 static ImRect watchControlsRect;
+extern "C" void vrSettingsSave(void) {}
 /* INSERT_CONTROLS */
 static int selected = 20, disabledRow = -1;
 static std::vector<std::pair<int, ImVec2>> visible;
