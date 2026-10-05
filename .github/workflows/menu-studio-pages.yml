@@ -8,7 +8,7 @@ on:
       - assets/images.def
       - assets/obseg/file_resource_table.inc.c
       - docs/banner.png
-      - services/lobbies/public/favicon-64.png
+      - tools/menu-studio/assets/favicon-64.png
       - .github/workflows/menu-studio-pages.yml
   workflow_dispatch:
 
