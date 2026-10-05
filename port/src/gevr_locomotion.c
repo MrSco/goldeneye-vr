@@ -38,11 +38,14 @@ int gevrLocomotionPhysicalBlocked(const float step[3], const float requested[3],
 int64_t gevrLocomotionDelay(int64_t period)
 {
     if (period <= 0 || period > 100000000) return 16666667;
-    /* ceil(display Hz / 60) display intervals. Allow rounding of runtime ns
-     * periods at integer divisors (120 Hz is 2 intervals, not 3). */
-    int64_t intervals = (1000000000LL + 60 * period - 61) / (60 * period);
-    if (intervals < 1) intervals = 1;
-    return intervals * period;
+    /* Runtime periods vary by a few ns even without a refresh change. Near
+     * an integer divisor, ceil() could turn two 120 Hz intervals into three
+     * (25 ms). Use the exact logical tick when the nearest display multiple
+     * differs by at most 1 us; otherwise cover the full normal game interval. */
+    const int64_t tick = 16666667;
+    const int64_t nearest = (tick + period / 2) / period;
+    if (nearest >= 1 && llabs(nearest * period - tick) <= 1000) return tick;
+    return ((tick + period - 1) / period) * period;
 }
 
 int gevrLocomotionSnapshot(GevrLocomotionHistory *h, const float position[3],

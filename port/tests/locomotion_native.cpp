@@ -59,9 +59,9 @@ static const float identity3[9] = {1,0,0,0,1,0,0,0,1};
 static const float identity4[16] = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
 static void near(float a, float b, float tolerance=0.002f) { assert(std::fabs(a-b) < tolerance); }
 
-static void cadence(int hz, const std::array<float,3>& velocity) {
+static void cadence(int hz, const std::array<float,3>& velocity, int64_t periodJitter=0) {
     GevrLocomotionHistory h{};
-    const int64_t period = std::llround(1e9 / hz), anchor=1000000000;
+    const int64_t period = std::llround(1e9 / hz) + periodJitter, anchor=1000000000;
     const int64_t delay=gevrLocomotionDelay(period);
     near((float)delay/1e6f, hz==120 ? 16.666667f : hz==90 ? 22.222222f : hz==80 ? 25.f : 27.777778f);
     uint64_t tick=0;
@@ -304,6 +304,12 @@ static void combinedHeadAndBody() {
 }
 
 int main() {
+    /* Runtime periods can differ by a few ns from the rounded nominal period.
+     * 8,333,332 ns must still select two 120 Hz frames, not three. */
+    for (int64_t jitter : {-100LL, -2LL, -1LL, 0LL, 1LL, 2LL, 100LL}) {
+        assert(gevrLocomotionDelay(8333333+jitter)==16666667);
+        for (int hz : {72,80,90,120}) cadence(hz,{120,0,-120},jitter);
+    }
     for (int hz:{72,80,90,120}) {
         cadence(hz,{0,0,120}); cadence(hz,{0,0,-120}); cadence(hz,{120,0,0});
         cadence(hz,{120,30,-120});

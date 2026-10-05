@@ -86,6 +86,14 @@ windows also show zero clamps and resets. Render/submission gaps remain in those
 captures. This is evidence of healthy history in the measured windows, not full
 stutter acceptance; detailed measurements are in the clamp investigation.
 
+The user tested `d21b4dc` at 120 Hz with 45-degree snap turns and smooth turning
+and reported that it seemed pretty smooth. Its screenshot shows zero clamps
+and resets and 2.7/2.4 ms GPU eye peaks. The subsequent log contains a SESSION
+reset and 11 clamps in its first two windows, then 12 clean windows. CPU work
+and swapchain waits remain investigation targets. A separate delay-rounding
+bug reproduced in native tests is corrected in the follow-up build; headset
+verification of that correction remains pending.
+
 ## Remaining Quest acceptance
 
 Use the same scene, resolution, settings, and saved position for baseline and
@@ -97,7 +105,7 @@ For each rate below, repeat with QGO enabled and disabled, and in solo and co-op
 | 72 Hz | 27.8 ms | Pending |
 | 80 Hz | 25.0 ms | Pending |
 | 90 Hz | 22.2 ms | Improved, intermittent stutters reported |
-| 120 Hz | 16.7 ms | Improved, intermittent stutters reported |
+| 120 Hz | 16.7 ms | Snap 45 and smooth turning felt smooth on d21b4dc; follow-up rounding fix pending |
 
 Exercise forward/backward movement, strafing, smooth turning, combined movement
 and head motion, abrupt stops at walls, stairs, doorways, scopes, current hands

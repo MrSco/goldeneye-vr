@@ -9,8 +9,12 @@
   gate room-decal diagnostic scanning/logging behind its debug markers.
 - Add timings for the actual frames around submission gaps, swapchain/fence
   waits, XR submission and asynchronous GPU eye passes. See
-  [investigation](../vr-locomotion-clamps.md); further headset timing/visual
-  comparison is pending, and the diagnostic builds have not been published.
+  [investigation](../vr-locomotion-clamps.md). The user reports smooth 120 Hz
+  snap/smooth turning; measured eye GPU time is under 3 ms, while CPU work and
+  swapchain waits warrant further investigation. Diagnostic builds are unpublished.
+- Fix nanosecond rounding that could select 25 ms interpolation delay at 120 Hz;
+  retain the intended 16.7 ms delay despite tiny runtime-period variations.
+  Native regressions pass; headset verification of this correction is pending.
 
 See [v0.4.9](v0.4.9.md) for smooth VR locomotion and fitted muzzles,
 [v0.4.8](v0.4.8.md) for settings persistence and co-op spawn unclogging,
