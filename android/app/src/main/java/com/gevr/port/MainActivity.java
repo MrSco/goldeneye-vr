@@ -136,8 +136,21 @@ public class MainActivity extends SDLActivity {
     /** What happened to the last pick, for the launcher to show; it reads and clears it. */
     public static volatile String pickResult = null;
 
+    /** Where the next pick is copied in data/: the launcher checks and adopts it. */
+    private volatile String pickTarget = "picked.z64";
+
     /** Opens the system file picker; the chosen file is copied to data/picked.z64. */
     public void openRomPicker() {
+        openPicker("picked.z64");
+    }
+
+    /** The Mods page: the player's GoldenEye X ROM, copied to data/picked-gex.z64. */
+    public void openGexPicker() {
+        openPicker("picked-gex.z64");
+    }
+
+    private void openPicker(String target) {
+        pickTarget = target;
         runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
@@ -235,9 +248,10 @@ public class MainActivity extends SDLActivity {
     // Copies through a .part file so the launcher never sees half a ROM; it
     // checks the header and adopts or rejects the file.
     private void copyPickedRom(Uri uri) {
+        final String target = pickTarget;
         File dir = new File(getExternalFilesDir(null), "data");
         dir.mkdirs();
-        File part = new File(dir, "picked.z64.part");
+        File part = new File(dir, target + ".part");
         long total = 0;
         try (java.io.InputStream in = getContentResolver().openInputStream(uri);
              java.io.OutputStream out = new java.io.FileOutputStream(part)) {
@@ -255,7 +269,7 @@ public class MainActivity extends SDLActivity {
             pickResult = "Could not copy that file: " + e.getMessage();
             return;
         }
-        if (!part.renameTo(new File(dir, "picked.z64"))) {
+        if (!part.renameTo(new File(dir, target))) {
             Log.e(TAG, "ROM copy: rename failed");
             part.delete();
             pickResult = "Could not copy that file.";

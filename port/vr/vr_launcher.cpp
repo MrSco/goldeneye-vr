@@ -54,6 +54,7 @@ extern "C" {
 int gevrVrPumpBegin(void);            // port/src/gevr_engine_shim.c
 void gevrVrPumpEnd(void);
 const char *fsFullPath(const char *relPath);  // port/src/fs.c
+int fsFileSize(const char *name);             // port/src/fs.c: -1 when absent
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
 void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
@@ -293,7 +294,9 @@ extern "C" void gevrRestartToLauncher(void)
     env->DeleteLocalRef(activity);
 }
 
-bool gevrOpenRomPicker()
+// MainActivity.openRomPicker / openGexPicker: the system file picker,
+// copying the pick to data/picked.z64 or data/picked-gex.z64
+static bool gevrOpenPicker(const char *method)
 {
     JNIEnv *env = (JNIEnv *)SDL_AndroidGetJNIEnv();
     jobject activity = (jobject)SDL_AndroidGetActivity();
@@ -301,7 +304,7 @@ bool gevrOpenRomPicker()
         return false;
     }
     jclass cls = env->GetObjectClass(activity);
-    jmethodID m = env->GetMethodID(cls, "openRomPicker", "()V");
+    jmethodID m = env->GetMethodID(cls, method, "()V");
     bool ok = false;
     if (m != nullptr) {
         env->CallVoidMethod(activity, m);
@@ -312,8 +315,13 @@ bool gevrOpenRomPicker()
     }
     env->DeleteLocalRef(cls);
     env->DeleteLocalRef(activity);
-    vr_log("launcher: file picker %s", ok ? "opened" : "failed");
+    vr_log("launcher: file picker (%s) %s", method, ok ? "opened" : "failed");
     return ok;
+}
+
+bool gevrOpenRomPicker()
+{
+    return gevrOpenPicker("openRomPicker");
 }
 
 // MainActivity.pickResult: a message about a failed or cancelled pick (a
@@ -840,6 +848,60 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
         }
     }
+    ImGui::Separator();
+
+    // GoldenEye X's first-person guns, read from the player's own patched ROM
+    // (port/src/gevr_gex.c, docs/gex-weapons.md); nothing of it ships. The
+    // picker copies the file to data/picked-gex.z64, adopted as gex.z64 when
+    // its header names GoldenEye X.
+    static int s_gexRom = -1;
+    static bool s_gexPicking = false;
+    static std::string s_gexMessage;
+    if (s_gexRom < 0) s_gexRom = fsFileSize("data/gex.z64") > 0 ? 1 : 0;
+    if (s_gexPicking) {
+        const std::string r = gevrTakePickResult();
+        if (!r.empty()) {
+            s_gexMessage = r;
+            s_gexPicking = false;
+        }
+    }
+    {
+        const std::string picked = dataDir() + "/picked-gex.z64";
+        struct stat st;
+        if (stat(picked.c_str(), &st) == 0) {
+            char head[0x40] = {0};
+            FILE *f = fopen(picked.c_str(), "rb");
+            const bool read = f != nullptr && fread(head, 1, sizeof(head), f) == sizeof(head);
+            if (f) fclose(f);
+            const bool isGex = read && st.st_size == 0x2000000 && (unsigned char)head[0] == 0x80
+                && (unsigned char)head[1] == 0x37 && memcmp(head + 0x20, "GoldenEye X", 11) == 0;
+            if (isGex && rename(picked.c_str(), (dataDir() + "/gex.z64").c_str()) == 0) {
+                s_gexMessage = "GoldenEye X ROM chosen.";
+                s_gexRom = 1;
+                vr_log("launcher: GoldenEye X ROM adopted");
+            } else {
+                s_gexMessage = "That is not a GoldenEye X .z64 ROM (Perfect Dark 1.1 with the GE-X 6a patch).";
+                remove(picked.c_str());
+            }
+            s_gexPicking = false;
+        }
+    }
+    ImGui::TextColored(gold, "GOLDENEYE X");
+    bool gex = VrGexGuns != 0;
+    if (ImGui::Checkbox("Its guns (KF7, WIP)", &gex)) VrGexGuns = gex ? 1 : 0;
+    bool arms = VrGexArms != 0;
+    if (ImGui::Checkbox("Its arms, wearing the watch (VR, WIP)", &arms)) VrGexArms = arms ? 1 : 0;
+    ImGui::SameLine();
+    if (ImGui::SmallButton(s_gexRom ? "Change ROM..." : "Choose ROM...")) {
+        s_gexPicking = gevrOpenPicker("openGexPicker");
+        s_gexMessage = s_gexPicking ? "Pick the GoldenEye X ROM in the window that opened."
+                                    : "Could not open the file picker.";
+    }
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    ImGui::TextWrapped("%s", !s_gexMessage.empty() ? s_gexMessage.c_str()
+                       : s_gexRom ? "Uses your GoldenEye X ROM (data/gex.z64)."
+                                  : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
+    ImGui::PopStyleColor();
     ImGui::Spacing();
     if (ImGui::Button("Done", ImVec2(-1, 0))) {
         open = false;

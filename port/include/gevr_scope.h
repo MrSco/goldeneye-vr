@@ -33,6 +33,15 @@ typedef struct GevrScopeState
 extern GevrScopeState gevrScope[2];
 extern int gevrScopeOn;   /* this frame's scopes: bit (1 << hand) */
 
+/*
+ * Gun fit's scope trims (user), one per scoped gun in bondview2.c
+ * s_gevrScopes' order (sniper rifle, Moonraker laser, KF7, AR33), for
+ * GoldenEye's models [0] and GoldenEye X's [1]: cm right, up and back from
+ * the eyepiece, then cm wider (goldeneye-vr.ini Scope*, GexScope*).
+ */
+#define GEVR_SCOPE_FITS 4
+extern float VrScopeFit[2][GEVR_SCOPE_FITS][4];
+
 #ifdef __cplusplus
 }
 #endif

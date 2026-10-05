@@ -8,6 +8,9 @@
 #include <assets/obseg/obseg.h>
 #include "decompress.h"
 #include <inflate/inflate.h>
+#ifdef GEVR
+#include "gevr_gexmodel.h"
+#endif
 #include "indy_comms.h"
 #ifdef GEVR
 #include <bondtypes.h> /* ModelFileHeader, for the model hook below */
@@ -78,6 +81,13 @@ void load_resource(u8 *ptrdata, s32 bytes,  fileentry *srcfile,  resource_lookup
          * (bytes) is still free to grow into: the compressed copy at its far
          * end has been consumed. See gevr_model.h.
          */
+        if (gevrModelPendingHeader != NULL && gevrGexPendingFile != NULL && gevrGexPendingLen <= (u32)bytes)
+        {
+            /* GoldenEye X's model for this gun, built in gun.c (gevr_gexmodel.c) */
+            memcpy(ptrdata, gevrGexPendingFile, gevrGexPendingLen);
+            lookupdata->poolRemaining = gevrGexPendingLen;
+            sysLogPrintf(LOG_NOTE, "gex: %s replaced by GoldenEye X's model (%u bytes)", srcfile->filename, gevrGexPendingLen);
+        }
         if (gevrModelPendingHeader != NULL)
         {
             u32 converted = gevrModelConvert(ptrdata, lookupdata->poolRemaining, (u32)bytes,
