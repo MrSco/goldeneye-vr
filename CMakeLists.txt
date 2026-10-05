@@ -3,6 +3,13 @@ list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 project(gevr C CXX)
 
+# The application targets Meta Quest. Native regression tests use their own
+# compiler commands in port/tests and do not need a desktop game target.
+if(NOT ANDROID)
+  message(FATAL_ERROR
+    "GoldenEye VR targets Android/Meta Quest only. Build through android/gradlew.bat assembleRelease (or assembleDebug).")
+endif()
+
 include(TargetArch)
 include(FindPkgConfig)
 include(AssetUtils)
@@ -42,15 +49,7 @@ endif()
 
 message(STATUS "Target arch: ${TARGET_ARCH}")
 
-if(WIN32)
-  set(TARGET_OS "windows")
-elseif(ANDROID)
-  set(TARGET_OS "android")
-elseif(APPLE)
-  set(TARGET_OS "osx")
-elseif(UNIX)
-  set(TARGET_OS "linux")
-endif()
+set(TARGET_OS "android")
 
 set(TARGET_PLATFORM "${TARGET_ARCH}-${TARGET_OS}")
 message(STATUS "Target platform: ${TARGET_PLATFORM}")
@@ -110,18 +109,11 @@ if(TARGET_IS_64BIT)
   add_definitions(-DPLATFORM_64BIT=1)
 endif()
 
-if(ANDROID)
-  add_definitions(
-    -DANDROID=1
-    -DXR_USE_PLATFORM_ANDROID=1
-    -DXR_USE_GRAPHICS_API_OPENGL_ES=1
-  )
-elseif(WIN32)
-  add_definitions(
-    -DXR_USE_PLATFORM_WIN32=1
-    -DXR_USE_GRAPHICS_API_OPENGL=1
-  )
-endif()
+add_definitions(
+  -DANDROID=1
+  -DXR_USE_PLATFORM_ANDROID=1
+  -DXR_USE_GRAPHICS_API_OPENGL_ES=1
+)
 
 # Compiler options
 add_compile_options(
@@ -146,10 +138,7 @@ add_compile_options(
 
 add_compile_options($<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>)
 add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wno-unused-function>)
-
-if(ANDROID)
-  add_compile_options(-Wno-format-security -Wno-invalid-token-paste)
-endif()
+add_compile_options(-Wno-format-security -Wno-invalid-token-paste)
 
 # Include directories
 set(GEVR_INCLUDES
@@ -194,29 +183,15 @@ elseif(ZLIB_LIBRARY)
 endif()
 
 # Graphics
-if(ANDROID)
-  list(APPEND LIBS GLESv3 EGL log android)
-elseif(WIN32)
-  list(APPEND LIBS opengl32 dbghelp ws2_32 winmm -static-libstdc++)
-else()
-  list(APPEND LIBS GL stdc++ m dl)
-endif()
+list(APPEND LIBS GLESv3 EGL log android)
 
 # OpenXR Loader
-if(ANDROID)
-  message(STATUS "OpenXR: Using bundled Quest Android loader")
-  add_library(openxr_loader SHARED IMPORTED)
-  set_target_properties(openxr_loader PROPERTIES
-    IMPORTED_LOCATION
-    ${CMAKE_SOURCE_DIR}/OpenXR/Libs/Android/arm64-v8a/Release/libopenxr_loader.so
-  )
-elseif(WIN32)
-  add_library(openxr_loader SHARED IMPORTED)
-  set_target_properties(openxr_loader PROPERTIES
-    IMPORTED_LOCATION ${CMAKE_SOURCE_DIR}/OpenXR/Libs/Windows/x64/openxr_loader.dll
-    IMPORTED_IMPLIB   ${CMAKE_SOURCE_DIR}/OpenXR/Libs/Windows/x64/openxr_loader.lib
-  )
-endif()
+message(STATUS "OpenXR: Using bundled Quest Android loader")
+add_library(openxr_loader SHARED IMPORTED)
+set_target_properties(openxr_loader PROPERTIES
+  IMPORTED_LOCATION
+  ${CMAKE_SOURCE_DIR}/OpenXR/Libs/Android/arm64-v8a/Release/libopenxr_loader.so
+)
 
 # Source files
 # gevr_surface_probe.c: opt-in issue #30 diagnostics
@@ -232,9 +207,6 @@ list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
 # port/vr/vr_pause_menu.cpp added 2026-10-03; port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25; port/vr/vr_haptics.cpp 2026-09-29; src/game/gevr_heldgun.c 2026-10-04; port/src/gevr_gex.c, gevr_gexmodel.c, gevr_pdanim.c 2026-10-04 (touching this line makes the glob re-run)
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
-
-# Exclude standalone Windows probe cpp files from port
-list(FILTER SRC_PORT_CXX EXCLUDE REGEX ".*xr_probe\\.cpp$")
 
 file(GLOB_RECURSE SRC_GAME "${CMAKE_SOURCE_DIR}/src/game/*.c")
 
@@ -347,26 +319,16 @@ add_custom_target(gevr_buildid
 list(APPEND SRC "${GEVR_BUILDID_C}")
 
 # Output target
-if(ANDROID)
-  add_library(gevr SHARED ${SRC})
-  add_dependencies(gevr gevr_buildid)
-  target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
-  target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
-  add_library(steamaudio SHARED IMPORTED)
-  set_target_properties(steamaudio PROPERTIES IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/port/external/steamaudio/lib/android-armv8/libphonon.so")
-  target_include_directories(gevr PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
-  target_compile_definitions(gevr PRIVATE GEVR_STEAMAUDIO=1)
-  target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio)
-  target_link_options(gevr PRIVATE -Wl,--error-limit=0)
+add_library(gevr SHARED ${SRC})
+add_dependencies(gevr gevr_buildid)
+target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
+target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
+add_library(steamaudio SHARED IMPORTED)
+set_target_properties(steamaudio PROPERTIES IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/port/external/steamaudio/lib/android-armv8/libphonon.so")
+target_include_directories(gevr PRIVATE "${CMAKE_SOURCE_DIR}/port/external/steamaudio/include")
+target_compile_definitions(gevr PRIVATE GEVR_STEAMAUDIO=1)
+target_link_libraries(gevr ${LIBS} openxr_loader juice-static opus steamaudio)
+target_link_options(gevr PRIVATE -Wl,--error-limit=0)
 
-  # Also build pd alias so that any legacy loader references succeed
-  add_library(pd ALIAS gevr)
-else()
-  add_executable(gevr ${SRC})
-  target_include_directories(gevr PRIVATE ${GEVR_INCLUDES})
-  target_compile_options(gevr PRIVATE -include "${CMAKE_BINARY_DIR}/port/include/versioninfo.h")
-  target_link_libraries(gevr ${LIBS} juice-static opus)
-  if(WIN32)
-    target_link_libraries(gevr openxr_loader urlmon)
-  endif()
-endif()
+# Alias for legacy Android loader references.
+add_library(pd ALIAS gevr)

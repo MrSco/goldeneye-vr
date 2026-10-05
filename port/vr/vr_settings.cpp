@@ -30,6 +30,43 @@ extern "C" void inputRumbleSetStrength(int playernum, int strength);
 
 // goldeneye-vr.ini's names for VrScopeFit's guns, in its order (gevr_scope.h)
 static const char *const kScopeFitNames[GEVR_SCOPE_FITS] = { "Sniper", "Laser", "KF7", "AR33" };
+
+struct MuzzleWeaponEntry {
+    int item;
+    const char *name;
+};
+static const MuzzleWeaponEntry kMuzzleWeapons[] = {
+    { 2, "Knife" },
+    { 3, "ThrowKnife" },
+    { 4, "PP7" },
+    { 5, "PP7Sil" },
+    { 6, "DD44" },
+    { 7, "Klobb" },
+    { 8, "KF7" },
+    { 9, "ZMG" },
+    { 10, "D5K" },
+    { 11, "D5KSil" },
+    { 12, "Phantom" },
+    { 13, "AR33" },
+    { 14, "RCP90" },
+    { 15, "Shotgun" },
+    { 16, "AutoShot" },
+    { 17, "Sniper" },
+    { 18, "Cougar" },
+    { 19, "GoldenGun" },
+    { 20, "SilverPP7" },
+    { 21, "GoldPP7" },
+    { 22, "Laser" },
+    { 23, "WatchLaser" },
+    { 24, "GrenadeLaunch" },
+    { 25, "RocketLaunch" },
+    { 26, "Grenade" },
+    { 27, "TimedMine" },
+    { 28, "ProxMine" },
+    { 29, "RemoteMine" },
+    { 31, "Taser" },
+    { 32, "TankShells" },
+};
 extern char g_ActiveExtTexPack[FS_MAXPATH];
 extern "C" void extTexSetPack(const char *newPackName);
 extern "C" void videoSetExternalTextures(bool enable);
@@ -236,6 +273,21 @@ extern "C" void vrSettingsSave(void)
         }
     }
     fprintf(f, "\n");
+    fprintf(f, "; Barrel tip / muzzle fit, set with Gun fit holding the gun (X switches to barrel tip):\n");
+    fprintf(f, "; cm right (side), up and forward from the default barrel tip. GexMuzzle* for\n");
+    fprintf(f, "; GoldenEye X's models.\n");
+    for (int m = 0; m < 2; m++) {
+        for (const auto &w : kMuzzleWeapons) {
+            const float *t = VrMuzzleTrim[m][w.item];
+            if (t[0] != 0.0f || t[1] != 0.0f || t[2] != 0.0f) {
+                fprintf(f, "%sMuzzle%s=%.2f %.2f %.2f\n", m ? "Gex" : "", w.name, t[0], t[1], t[2]);
+            }
+        }
+    }
+
+
+
+    fprintf(f, "\n");
     fprintf(f, "; 0..1. How tightly the elbows are pulled in toward your body. 0 leaves them at the\n");
     fprintf(f, "; animation's rest pose (they splay outward), 1 pins them hard against the torso.\n");
     fprintf(f, "ArmElbowTuck=%.4f\n", VrArmElbowTuck);
@@ -369,6 +421,19 @@ extern "C" void vrSettingsLoad(void)
                 }
                 continue;
             }
+        }
+        if (strncmp(fit, "Muzzle", 6) == 0) {
+            for (const auto &w : kMuzzleWeapons) {
+                const size_t nameLen = strlen(w.name);
+                if (strncmp(fit + 6, w.name, nameLen) == 0 && fit[6 + nameLen] == '=') {
+                    float t[3];
+                    if (sscanf(fit + 6 + nameLen + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
+                        for (int i = 0; i < 3; i++) VrMuzzleTrim[gexFit ? 1 : 0][w.item][i] = t[i];
+                    }
+                    break;
+                }
+            }
+            continue;
         }
         if (strncmp(line, "Cheats=", 7) == 0) {        // hex bitmask of CHEAT_IDS
             VrCheatMask = strtoull(line + 7, NULL, 16);
