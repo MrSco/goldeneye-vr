@@ -476,3 +476,44 @@ Measured rendering gaps remain independent: movement windows have worst gaps
 11.970-22.955 ms and image waits reach 6.614 ms, while worst-frame ammo readback
 is 0.006-0.046 ms. This patch targets both collision binding and the persistent
 clock misalignment; Quest confirmation and release acceptance remain pending.
+
+## Quest follow-up on 346c909
+
+The user completed the next run and reports "i think its better". The live
+logger was stopped and preserved as ignored `curb-slide-clock-completed.log`.
+The APK identifies itself as `346c909`, PID 7130. The complete movement segment
+runs 18:14:28-57 at 120 Hz. There are 2,349 retained local movement ticks, of
+which 1,734 request at least 1 cm; 1,156 of those take collision fallback paths.
+The precision retry runs 36 times and is accepted 28 times. Its trace contains
+real recovered slides rather than merely lower aggregate STOP counts.
+
+Only five moving ticks accept at most 0.01 cm, compared with repeated windows
+of 2-16 stopped ticks per second in the prior run. Four consecutive stops at
+18:14:37.749 follow a change from the usual oblique edge to tangent
+(-0.814, -0.581); all collision-checked retries fail there. The fifth at
+18:14:54.836 accepts (0.004, -0.006) cm with an ordinary successful slide,
+between oppositely signed tangential movement on adjacent ticks. That is a
+direction reversal, not a rejected rounding retry. These runs were manually
+driven rather than a matched deterministic benchmark, and the four different-
+edge stops cannot be classified conclusively without exact scene positions.
+Most sustained curb-contact windows have no stopped ticks. The open-ground
+windows at 18:14:46-49 have no clipped/stopped moving ticks.
+
+There is no persistent positive timeline lag: maximum positive lead is
+0.004 ms and maximum phase is 8.338 ms, with eight samples throughout gameplay.
+The retained run starts a new session/game; it does not reproduce the same
+resume/refresh interruption that caused the earlier 40-67 ms leads, so this
+confirms alignment in this run rather than independently validating that exact
+recovery trigger. No CLOCK resets occur. Pause/screen resets occur at the end.
+
+An initial 42.960 ms gap occurs on the first stereo frame with 15.717 ms texture
+upload and a new context; keep it separate from steady gameplay. Subsequent
+18:14:29-57 reporting windows have worst submission gaps of 12.587-21.401 ms,
+CPU work peaks 5.920-14.846 ms, image waits up to 6.706 ms, and worst-frame ammo
+readback at most 0.305 ms. The two largest active submission-gap frames spend
+15.594/15.208 ms in xrWaitFrame, with only 5.787/4.952 ms CPU work. These remain
+runtime/presentation timing evidence, not proof of compositor dropped frames.
+
+Record this as a supported curb-binding improvement with additional Quest play
+still useful. Keep the existing signed 346c909 test APK and PR #127 inclusion;
+do not merge/publish a release until the user gives final release acceptance.
