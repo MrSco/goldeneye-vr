@@ -1,6 +1,8 @@
 #include "gevr_xr_metrics.h"
 #include "gevr_frame_timing.h"
 #include "vr_log.h"
+#include <cstdio>
+#include <cstring>
 #include <vector>
 #include <string>
 
@@ -53,17 +55,25 @@ void gevrXrMetricsPoll(bool active) {
         if(XR_FAILED(setState(session,&state))) { vr_log("xr-metrics: unavailable enable");return; }
         changed=true;
     }
+    /* Every discovered counter (app, compositor and device paths), packed
+     * into as few log lines as possible: logging is part of the cost. */
+    std::string line;
     for(const auto &counter:counters) {
-        if(counter.second.find("/app_")==std::string::npos && counter.second.find("/compositor_")==std::string::npos) continue;
         XrPerformanceMetricsCounterMETA value{XR_TYPE_PERFORMANCE_METRICS_COUNTER_META};
         const XrResult result=query(session,counter.first,&value);
-        if(XR_FAILED(result)||!(value.counterFlags&XR_PERFORMANCE_METRICS_COUNTER_ANY_VALUE_VALID_BIT_META)) {
-            vr_log("xr-metric: time=%llu path=%s unavailable result=%d",(unsigned long long)now,counter.second.c_str(),(int)result);
-        } else if(value.counterFlags&XR_PERFORMANCE_METRICS_COUNTER_UINT_VALUE_VALID_BIT_META) {
-            vr_log("xr-metric: time=%llu path=%s unit=%d uint=%u",(unsigned long long)now,counter.second.c_str(),value.counterUnit,value.uintValue);
-        } else if(value.counterFlags&XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META) {
-            vr_log("xr-metric: time=%llu path=%s unit=%d float=%.6f",(unsigned long long)now,counter.second.c_str(),value.counterUnit,value.floatValue);
+        char item[320];
+        if(XR_FAILED(result)||!(value.counterFlags&XR_PERFORMANCE_METRICS_COUNTER_ANY_VALUE_VALID_BIT_META))
+            snprintf(item,sizeof(item)," %s=unavailable(%d)",counter.second.c_str(),(int)result);
+        else if(value.counterFlags&XR_PERFORMANCE_METRICS_COUNTER_UINT_VALUE_VALID_BIT_META)
+            snprintf(item,sizeof(item)," %s=%u/u%d",counter.second.c_str(),value.uintValue,(int)value.counterUnit);
+        else if(value.counterFlags&XR_PERFORMANCE_METRICS_COUNTER_FLOAT_VALUE_VALID_BIT_META)
+            snprintf(item,sizeof(item)," %s=%.4f/u%d",counter.second.c_str(),value.floatValue,(int)value.counterUnit);
+        else snprintf(item,sizeof(item)," %s=untyped",counter.second.c_str());
+        if(!line.empty() && line.size()+strlen(item)>900) {
+            vr_log("xr-metric: time=%llu%s",(unsigned long long)now,line.c_str());line.clear();
         }
+        line+=item;
     }
+    if(!line.empty()) vr_log("xr-metric: time=%llu%s",(unsigned long long)now,line.c_str());
     gevrFrameTimingOutside(GEVR_TIME_METRICS,gevrFrameTimingNow()-pollStart);
 }

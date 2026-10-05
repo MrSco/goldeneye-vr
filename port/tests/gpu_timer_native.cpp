@@ -67,6 +67,13 @@ int main() {
     VrShowStats=0; gfx_vr_gpu_begin(0); gfx_vr_gpu_end();
     VrShowStats=1; gfx_vr_gpu_begin(0); gfx_vr_gpu_end();
     gevrFrameTimingTake(&w); assert(!w.gpuCount[0]);
+    /* An opt-in profiling trace times the GPU with the stats readout off. */
+    VrShowStats=0;
+    FILE *marker=std::fopen("gpu.marker","w"); std::fputs("record gpu 0 1 0",marker); std::fclose(marker);
+    for (int i=0;i<60;i++) gevrFrameTimingTracePoll("gpu.marker");
+    assert(gevrFrameTimingTracing());
+    const int before=began; gfx_vr_gpu_begin(0); gfx_vr_gpu_end(); assert(began==before+1);
+    VrShowStats=1;
     gfx_vr_gpu_begin(0); /* reset also balances a currently active query */
     gfx_vr_gpu_reset(); assert(destroyed==8 && !activeQuery && began==ended);
     std::puts("PASS: real GPU timer never reads unavailable results, full pool skips, disjoint/toggle results discarded, queries cleaned up");

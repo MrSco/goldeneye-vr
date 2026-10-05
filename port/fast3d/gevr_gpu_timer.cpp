@@ -84,7 +84,9 @@ void poll()
 }
 extern "C" void gfx_vr_gpu_begin(int redraw)
 {
-    if (!VrShowStats) {
+    /* Stats readout or an opt-in profiling trace; benchmarks run with the
+     * readout (and its once-a-second log burst) off. */
+    if (!VrShowStats && !gevrFrameTimingTracing()) {
         for (auto &s : slots) if (s.pending) s.discard = true;
         return;
     }

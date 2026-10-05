@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-frame-timing-") as temp:
                     "-I" + str(ROOT / "port/fast3d"),
                     str(ROOT / "port/tests/gpu_timer_native.cpp"),
                     str(ROOT / "port/fast3d/gevr_gpu_timer.cpp"), str(obj), "-o", str(exe)], check=True)
-    subprocess.run([str(exe)], check=True)
+    subprocess.run([str(exe)], check=True, cwd=temp)
     gl = (ROOT / "port/fast3d/gfx_opengl.cpp").read_text(encoding="utf-8")
     fixture = (ROOT / "port/tests/replay_state_native.cpp").read_text(encoding="utf-8")
     fixture = fixture.replace("/* INSERT_DRAW_STRUCT */", extract(gl, "struct GevrEyeDraw") + ";")
