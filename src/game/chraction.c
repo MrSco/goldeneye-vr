@@ -5311,17 +5311,20 @@ void chrlvTickSurrender(ChrRecord *self)
  * on the floor instead of fading once their death is over (the AI's RemoveMe,
  * chrlvActorFadeAway). A dead guard already has no collision and takes no
  * shots (chr.c), so a kept body is only drawn. Kept bodies count as gone for
- * the AI's "does not exist" test (chrai.c), as the faded body would be: GEVR
+ * scripts only after the original fade's 90 NTSC / 75 PAL ticks, and release their script
+ * IDs then so a replacement clone can acquire its parent's tracked ID. GEVR
  * PC's kept bodies left Frigate's hostages waiting for their guards to go
  * (its #78). They give way, fading as before, oldest first, past the count
  * or whenever fewer than GEVR_BODY_SLOT_RESERVE guard slots are free, so a
  * spawn (chrSpawnAtCoord wants 3) still finds room.
  */
 extern int VrBodiesStay;
+extern int VrFastReinforcements;
 extern bool netIsActive(void);
 #define GEVR_BODIES_MAX 48
 #define GEVR_BODY_SLOT_RESERVE 4
 static ChrRecord *s_gevrBodies[GEVR_BODIES_MAX];   /* kept, oldest first */
+static s32 s_gevrBodyAge[GEVR_BODIES_MAX];       /* original fade clock, not visible alpha */
 static s32 s_gevrBodyCount;
 
 void gevrBodiesReset(void)
@@ -5343,19 +5346,59 @@ s32 gevrBodyKept(ChrRecord *chr)
     return FALSE;
 }
 
+/* Match removal from script lookups while leaving the corpse drawable. -1
+ * is the same unused ID chr cleanup assigns; retiring it also prevents an
+ * old body from reserving the +10000 ID used by AI_TRYCloningChr. A retired
+ * ID stays retired if retention is switched off. */
+s32 gevrBodyRetireForAi(ChrRecord *chr)
+{
+    s32 i;
+
+    if (chr == NULL || chr->model == NULL || chr->actiontype != ACT_DEAD)
+    {
+        return FALSE;
+    }
+    if (chr->chrnum == -1)
+    {
+        return TRUE;
+    }
+    for (i = 0; i < s_gevrBodyCount; i++)
+    {
+        if (s_gevrBodies[i] == chr && s_gevrBodyAge[i] >= CHRLV_TICK_DEAD_CHECK)
+        {
+            chr->chrnum = -1;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* Opt into repeated reinforcements from alerted guards, independently of
+ * corpse visuals. Network and split-screen retain the original AI rules. */
+s32 gevrFastReinforcements(void)
+{
+    return VrFastReinforcements && !netIsActive() && getPlayerCount() == 1;
+}
+
 /* the body at i fades as the game would have faded it */
 static void gevrBodyRelease(s32 i)
 {
     ChrRecord *chr = s_gevrBodies[i];
+    s32 age = s_gevrBodyAge[i];
+
+    gevrBodyRetireForAi(chr);
 
     s_gevrBodyCount--;
     for (; i < s_gevrBodyCount; i++)
     {
         s_gevrBodies[i] = s_gevrBodies[i + 1];
+        s_gevrBodyAge[i] = s_gevrBodyAge[i + 1];
     }
     if (chr->model != NULL && chr->actiontype == ACT_DEAD)
     {
-        chr->act_init.padding[0] = 1;   /* chrlvTickDead's fade, begun: not taken again */
+        /* Before logical removal, resume the original clock. Afterwards
+         * fade the visible body, retaining its already retired identity. */
+        chr->act_init.padding[0] = age < CHRLV_TICK_DEAD_CHECK ? age : 1;
     }
 }
 
@@ -5383,12 +5426,21 @@ static s32 gevrBodyKeepTick(ChrRecord *self)
     {
         return FALSE;
     }
-    if (gevrBodyKept(self))
+    for (i = 0; i < s_gevrBodyCount; i++)
     {
-        self->fadealpha = 0xFF;
-        return TRUE;
+        if (s_gevrBodies[i] == self)
+        {
+            if (s_gevrBodyAge[i] < CHRLV_TICK_DEAD_CHECK && g_ClockTimer > 0)
+            {
+                s_gevrBodyAge[i] += g_ClockTimer < CHRLV_TICK_DEAD_CHECK - s_gevrBodyAge[i]
+                    ? g_ClockTimer : CHRLV_TICK_DEAD_CHECK - s_gevrBodyAge[i];
+            }
+            gevrBodyRetireForAi(self);
+            self->fadealpha = 0xFF;
+            return TRUE;
+        }
     }
-    if (self->act_init.padding[0] > 0 || chrGetNumFree() < GEVR_BODY_SLOT_RESERVE)
+    if (self->act_init.padding[0] >= 0 || chrGetNumFree() < GEVR_BODY_SLOT_RESERVE)
     {
         return FALSE;   /* already fading */
     }
@@ -5396,6 +5448,7 @@ static s32 gevrBodyKeepTick(ChrRecord *self)
     {
         gevrBodyRelease(0);
     }
+    s_gevrBodyAge[s_gevrBodyCount] = 0;
     s_gevrBodies[s_gevrBodyCount++] = self;
     self->fadealpha = 0xFF;
     return TRUE;

@@ -44,6 +44,17 @@ int main(int argc, char **argv) {
     assert(initial == 90);
 #endif
     vrSettingsLoad();
+    if (argc > 1 && std::strcmp(argv[1], "rules_write") == 0) {
+        VrFastReinforcements = std::atoi(argv[2]);
+        VrBodiesStay = std::atoi(argv[3]);
+        vrSettingsSave();
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "rules_read") == 0) {
+        assert(VrFastReinforcements == std::atoi(argv[2]));
+        assert(VrBodiesStay == std::atoi(argv[3]));
+        return 0;
+    }
     // Gun fit: GoldenEye X's models' own trims and the scopes'
     if (argc > 1 && std::strcmp(argv[1], "fit_write") == 0) {
         VrGexGunOff[0] = 1.5f;
@@ -84,6 +95,7 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (argc == 1) {
+        assert(VrFastReinforcements == 0);
         assert(VrRefreshRate == initial); // No DisplayHz, including the obsolete RefreshRate key.
         assert(VrWatchFaceStatus == GEVR_WATCH_FACE_ON && VrWatchGesturePause == 1);
         assert(VrScreenPassthrough == 0);

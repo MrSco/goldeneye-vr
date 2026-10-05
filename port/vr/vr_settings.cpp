@@ -63,6 +63,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MinesStickToGuards=%d\n", VrMinesStickToGuards);
     fprintf(f, "; Bodies kept on the floor: 0 = they fade as in the original game, or 12, 24, 48.\n");
     fprintf(f, "BodiesStay=%d\n", VrBodiesStay);
+    fprintf(f, "; 1 = alerted guards can call multiple reinforcements (solo, default off; any body count).\n");
+    fprintf(f, "FastReinforcements=%d\n", VrFastReinforcements ? 1 : 0);
     fprintf(f, "TwoHandedAiming=%d\n", VrTwoHandAim ? 1 : 0);
     fprintf(f, "LeftHandedMode=%d\n", VrLeftHandedMode ? 1 : 0);
     fprintf(f, "; Watch face: 0 Off, 1 On (also standard HUD), 2 Only (gameplay).\n");
@@ -349,6 +351,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "GestureMineGrab") == 0) VrGestureMineGrab = ival != 0;
             else if (strcmp(key, "PerWeaponRecoil") == 0) VrPerWeaponRecoil = ival != 0;
             else if (strcmp(key, "MinesStickToGuards") == 0) VrMinesStickToGuards = ival != 0;
+            else if (strcmp(key, "FastReinforcements") == 0) VrFastReinforcements = ival != 0;
             else if (strcmp(key, "BodiesStay") == 0)
                 VrBodiesStay = ival >= 48 ? 48 : ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);

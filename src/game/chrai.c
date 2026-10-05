@@ -1189,14 +1189,10 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiIFChrDoesNotExistRecord *ai  = AiListp + Offset;
                     ChrRecord                 *chr = chrFindById(ChrEntityp, ai->CHR_NUM);
-#ifdef GEVR
-                    /* a body kept on the floor (bodies stay) is gone, as its fade would have left it */
-                    extern s32 gevrBodyKept(ChrRecord *chr);
-#endif
-
                     if (!chr || !chr->model
 #ifdef GEVR
-                        || gevrBodyKept(chr)
+                        || gevrBodyRetireForAi(chr)
+                        || (ai->CHR_NUM == (u8)CHR_CLONE && gevrFastReinforcements())
 #endif
                         )
                     {
@@ -3687,7 +3683,19 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                         {
                             clone  = cloneprop->chr;
                             chrnum = chr->chrnum + 10000;
-                            if (!chrFindById(ChrEntityp, chrnum))
+                            ChrRecord *previous = chrFindById(ChrEntityp, chrnum);
+#ifdef GEVR
+                            if (previous && gevrFastReinforcements())
+                            {
+                                /* Fast mode permits several reinforcements per
+                                 * guard. Keep every ID unique, and make CHR_CLONE
+                                 * point at the newest one so script commands
+                                 * following the spawn address that guard. */
+                                previous->chrnum = clone->chrnum;
+                                previous = NULL;
+                            }
+#endif
+                            if (!previous)
                             {
                                 clone->chrnum = chrnum;
                             }

@@ -28,10 +28,12 @@ a GitHub release. No game data is shipped.
   frame pools, auxiliary allocation guards, completed-list validation and
   usage telemetry. About 1.13 MiB more of Facility's existing heap;
   individual command writes remain unchecked. Heavy Quest 2 combat pending.
-- Combined validation: 63 multiplayer tests, seven frame-pool regression
-  groups, co-op debrief/baseline regressions, watch, ammo/input/wrist,
-  pause UI and display/settings checks; Android ARM64 debug APK builds.
-  The combined build has not been installed or played on a headset.
+- Body retention preserves original script timing and tracked replacement
+  IDs across levels. Optional Fast reinforcements allows multiple living
+  reinforcements, defaults off, works at any body count and is solo only.
+- Validation: multiplayer, frame pools, debrief, watch, ammo/input/wrist,
+  pause UI, display/settings and NTSC/PAL reinforcement/baseline checks.
+  ARM64 debug builds; combined headset play and Fast mode remain pending.
 
 Player guide: [GE-X setup](docs/gex-setup.md). Implementation:
 [GE-X weapons](docs/gex-weapons.md). Full changes and remaining checks:
