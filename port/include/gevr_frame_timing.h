@@ -36,8 +36,13 @@ typedef struct {
 typedef struct {
     uint64_t start, submit, cpu[GEVR_TIME_COUNT], self[GEVR_TIME_COUNT];
     uint64_t pre[GEVR_TIME_COUNT];
+    /* allocations counts texture-cache node allocations only (one per miss),
+     * not heap activity in general; the CSV calls it tex_cache_allocs. */
     uint64_t draws, vertices, allocations, uploadBytes, cacheHits, cacheMisses;
     unsigned detailed, timingErrors;
+    /* Test-hook input (libultra.c gevr_input.txt) active at submit; zero otherwise. */
+    unsigned inputButtons;
+    int inputX, inputY, inputTurn;
     uint64_t imageLifetime;
     int64_t display, period, predictedStep;
     uint64_t between, work;
@@ -83,8 +88,13 @@ void gevrFrameTimingImageLifetime(uint64_t ns);
 void gevrFrameTimingOutside(GevrFrameTimingSection section, uint64_t ns);
 void gevrFrameTimingCounters(uint64_t draws, uint64_t vertices, uint64_t allocations,
     uint64_t uploadBytes, uint64_t cacheHits, uint64_t cacheMisses);
+/* A redraw span marks the frame as a redraw; report a redraw that drew nothing. */
+void gevrFrameTimingRedrawResult(int redrawn);
+void gevrFrameTimingInput(unsigned buttons, int x, int y, int turn);
 /* record LABEL WARMUP_SECONDS MEASURE_SECONDS DETAIL(0/1) in an opt-in marker.
- * The completed CSV is written next to the marker, after the measured interval. */
+ * The completed CSV is written next to the marker, after the measured interval.
+ * <marker>.status holds "LABEL START END" while recording, then
+ * "done LABEL ROWS OVERFLOW" or "failed LABEL REASON" after export. */
 void gevrFrameTimingTracePoll(const char *marker);
 int gevrFrameTimingTracing(void);
 const char *gevrFrameTimingSectionName(unsigned section);

@@ -22,6 +22,7 @@ static struct {
     uint64_t measureStart, measureEnd;
     char path[768], label[64];
 } recording;
+static struct { unsigned buttons; int x, y, turn; } injected;
 static uint64_t rawNow(void) {
 #ifdef GEVR_TIMING_TEST_CLOCK
     extern uint64_t gevrTimingTestClock;
@@ -41,36 +42,52 @@ const char *gevrFrameTimingSectionName(unsigned i) {
     return i < GEVR_TIME_COUNT ? names[i] : "invalid";
 }
 int gevrFrameTimingTracing(void) { return recording.active != 0; }
+static void traceStatus(const char *marker, const char *text) {
+    char status[800];snprintf(status,sizeof(status),"%s.status",marker);
+    FILE *f=fopen(status,"w");
+    if(f) { fputs(text,f);fclose(f); }
+}
 void gevrFrameTimingTracePoll(const char *marker) {
     static unsigned polls;
     if(recording.active==1 && rawNow()>=recording.measureEnd) recording.active=2;
     if (recording.active == 2) {
+        /* Exported once, after measuring; the status line tells the runner the
+         * outcome so a failed export is never mistaken for a missing run. */
+        char result[160];
+        int ok=1;
         FILE *out = fopen(recording.path, "w");
-        if (out) {
-            fprintf(out, "# gevr-profile-v1 label=%s rows=%u overflow=%u detail=%u\n", recording.label, recording.rows, recording.overflow, recording.detail);
-            fprintf(out, "start_ns,submit_ns,display_ns,period_ns,kind,body_valid,camera_valid,reset,detailed,errors,work_ns,pre_ns,draws,vertices,allocations,upload_bytes,cache_hits,cache_misses,image_lifetime_ns");
+        if (!out) ok=0;
+        else {
+            fprintf(out, "# gevr-profile-v2 label=%s rows=%u overflow=%u detail=%u\n", recording.label, recording.rows, recording.overflow, recording.detail);
+            fprintf(out, "start_ns,submit_ns,display_ns,period_ns,kind,body_valid,camera_valid,reset,detailed,errors,work_ns,pre_ns,draws,vertices,tex_cache_allocs,upload_bytes,cache_hits,cache_misses,image_lifetime_ns,input_buttons,input_x,input_y,input_turn");
             for (unsigned j=0;j<GEVR_TIME_COUNT;j++) fprintf(out, ",%s_ns,%s_self_ns,%s_pre_ns",gevrFrameTimingSectionName(j),gevrFrameTimingSectionName(j),gevrFrameTimingSectionName(j));
             fputc('\n',out);
             for (unsigned i=0;i<recording.rows;i++) {
                 const GevrFrameTimingSample *s=&trace[i];
                 uint64_t pre=0;for(unsigned j=0;j<GEVR_TIME_COUNT;j++) pre+=s->pre[j];
-                fprintf(out,"%llu,%llu,%lld,%lld,%u,%u,%u,%u,%u,%u,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu",
+                fprintf(out,"%llu,%llu,%lld,%lld,%u,%u,%u,%u,%u,%u,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%llu,%x,%d,%d,%d",
                     (unsigned long long)s->start,(unsigned long long)s->submit,(long long)s->display,(long long)s->period,
                     s->kind,s->bodyValid,s->cameraValid,s->resetReason,s->detailed,s->timingErrors,
                     (unsigned long long)s->work,(unsigned long long)pre,(unsigned long long)s->draws,(unsigned long long)s->vertices,
-                    (unsigned long long)s->allocations,(unsigned long long)s->uploadBytes,(unsigned long long)s->cacheHits,(unsigned long long)s->cacheMisses,(unsigned long long)s->imageLifetime);
+                    (unsigned long long)s->allocations,(unsigned long long)s->uploadBytes,(unsigned long long)s->cacheHits,(unsigned long long)s->cacheMisses,(unsigned long long)s->imageLifetime,
+                    s->inputButtons,s->inputX,s->inputY,s->inputTurn);
                 for(unsigned j=0;j<GEVR_TIME_COUNT;j++) fprintf(out,",%llu,%llu,%llu",(unsigned long long)s->cpu[j],(unsigned long long)s->self[j],(unsigned long long)s->pre[j]);
                 fputc('\n',out);
             }
-            fclose(out);
+            ok=!ferror(out);
+            ok&=fclose(out)==0;
         }
         char gpuPath[800];snprintf(gpuPath,sizeof(gpuPath),"%s.gpu.csv",recording.path);
-        FILE *gpu=fopen(gpuPath,"w");
+        FILE *gpu=ok ? fopen(gpuPath,"w") : NULL;
         if(gpu) {
             fprintf(gpu,"# gpu async arrival-time samples; overflow=%u\nready_ns,kind,gpu_ns\n",gpuOverflow);
             for(unsigned i=0;i<gpuRows;i++) fprintf(gpu,"%llu,%u,%llu\n",(unsigned long long)gpuTrace[i].ready,gpuTrace[i].kind,(unsigned long long)gpuTrace[i].ns);
-            fclose(gpu);
-        }
+            ok&=!ferror(gpu);
+            ok&=fclose(gpu)==0;
+        } else if(ok) ok=0;
+        if(ok) snprintf(result,sizeof(result),"done %s %u %u",recording.label,recording.rows,recording.overflow);
+        else snprintf(result,sizeof(result),"failed %s csv-write",recording.label);
+        traceStatus(marker,result);
         recording.active=0;
         return;
     }
@@ -89,9 +106,15 @@ void gevrFrameTimingTracePoll(const char *marker) {
     recording.measureStart=rawNow()+(uint64_t)warm*1000000000ull;
     recording.measureEnd=recording.measureStart+(uint64_t)seconds*1000000000ull;
     gpuRows=gpuOverflow=0;
-    char status[800];snprintf(status,sizeof(status),"%s.status",marker);
-    FILE *ack=fopen(status,"w");
-    if(ack) { fprintf(ack,"%s %llu %llu",label,(unsigned long long)recording.measureStart,(unsigned long long)recording.measureEnd);fclose(ack); }
+    char ack[160];
+    snprintf(ack,sizeof(ack),"%s %llu %llu",label,(unsigned long long)recording.measureStart,(unsigned long long)recording.measureEnd);
+    traceStatus(marker,ack);
+}
+void gevrFrameTimingInput(unsigned buttons, int x, int y, int turn) {
+    injected.buttons=buttons;injected.x=x;injected.y=y;injected.turn=turn;
+}
+void gevrFrameTimingRedrawResult(int redrawn) {
+    if(!redrawn && frame.kind==2) frame.kind=0;
 }
 
 void gevrFrameTimingEnable(int value)
@@ -182,6 +205,7 @@ void gevrFrameTimingSubmit(uint64_t now, int success)
         return;
     }
     frame.submit = now;
+    frame.inputButtons=injected.buttons;frame.inputX=injected.x;frame.inputY=injected.y;frame.inputTurn=injected.turn;
     if(depth!=1) frame.timingErrors++;
     if(depth) {
         frame.cpu[GEVR_TIME_FRAME]=now-frame.start;

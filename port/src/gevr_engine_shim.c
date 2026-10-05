@@ -560,6 +560,7 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 
                 const int redrawn = gfx_vr_redraw_frame();
                 gevrFrameTimingLeave(redrawSpan);
+                gevrFrameTimingRedrawResult(redrawn);
 				gevrRedraws += redrawn;
 				gevrPerfAdd(1, gevrPerfNs() - t0);
 			}
