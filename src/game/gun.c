@@ -2081,16 +2081,20 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     extern void matrix_4x4_7F058C88(void);
     extern Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], const f32 x[3],
                                    const f32 y[3]);   /* bondview2.c */
+    extern s32 gevrStereoWatchItem(s32 item);   /* bondview2.c: the watch laser's and detonator's arm */
     ModelFileHeader *hdr = &s_gevrGexHandHeader;
     ModelRenderData renderdata;
     Mtxf *m;
     f32 pos[3], x[3], y[3];
     s32 mag, i, n, watch;
+    const s32 left = g_CurrentPlayer != NULL ? get_item_in_hand_or_watch_menu(GUNLEFT) : ITEM_UNARMED;
 
     *drawn = FALSE;
+    /* through the watch's pages too (user: keep GE-X's arm), but the watch's own
+     * items fire from the watch arm's face (bondview2.c gevrStereoWatchPoint) */
     if (!gevrGexArmsOn() || !VrGexGuns || s_gevrGexOffFrom == NULL || g_CurrentPlayer == NULL
-        || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
-        || get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED || gevrStereoTwoHandGrip())
+        || g_CurrentPlayer->bonddead || (left != ITEM_UNARMED && left != ITEM_SUIT_LF_HAND)
+        || gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) || gevrStereoTwoHandGrip())
     {
         return gdl;
     }
