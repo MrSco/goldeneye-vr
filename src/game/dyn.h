@@ -6,6 +6,7 @@
 void dynInit(void);
 void dynInitMemory(void);
 Gfx *dynGetMasterDisplayList(void);
+/* GEVR: validate/log the completed frame before dynSwapBuffers and submission. */
 s32 dynGetFreeGfx2(Gfx *gdl);
 Vtx *dynAllocateVertices(s32 count);
 Mtx *dynAllocateMatrix(void);

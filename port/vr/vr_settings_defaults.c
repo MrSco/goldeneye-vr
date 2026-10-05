@@ -48,6 +48,8 @@ int VrHostEqualization = 1, VrHostLatencyCapMs = 50;
 int VrMpFunFlags = 0, VrMpGunSize = 0;
 int VrMpMaxPlayers = 4;
 int VrDetailedGuns = 1;     /* guards and other players hold the first-person gun models (gevr_heldgun.c) */
+int VrGexGuns = 0;          /* GoldenEye X's first-person guns (gevr_gexmodel.c); off, as the original */
+int VrGexArms = 1;          /* stereo: GoldenEye X's arms for every hand, the left with the watch (gun.c) */
 int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts = 0, VrMpNextRound = 0;
 int VrMpCustom[4] = { 6, 7, 8, 25 };    /* ITEM_TT33, ITEM_SKORPION, ITEM_AK47, ITEM_ROCKETLAUNCH */
 int VrMpLoadout[4] = { 4, 8, 15, 26 };  /* ITEM_WPPK, ITEM_AK47, ITEM_SHOTGUN, ITEM_GRENADE */
@@ -133,6 +135,44 @@ float VrGunOffZ = -12.35f;   /* back */
 float VrGripTrim[2][6] = {
     { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },   /* handguns: under the gun hand */
     { 0.02f, -4.72f, 5.23f, 90.1f, 0.0f, 83.1f },    /* long guns: underhand below the fore-end */
+};
+/* GoldenEye X's models (launcher MODS) sit differently in the hand, so Gun
+ * fit keeps theirs apart (user). The gun's is the user's, fitted to the KF7
+ * in the headset (2026-10-04); the grips start from GoldenEye's. */
+float VrGexGunOff[3] = { 3.8982f, 2.1271f, -19.9475f };
+float VrGexGripTrim[2][6] = {
+    { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },
+    { 2.45f, -3.24f, 7.60f, 92.9f, 0.0f, 83.1f },    /* the user's, on the GE-X KF7 (2026-10-04) */
+};
+/*
+ * Hand reload's places, set with Gun fit's reload mode (user):
+ *  - where the off hand takes a magazine, cm right, up and back from the
+ *    gun hand's grip pose along its own axes, GoldenEye's guns [0] and
+ *    GoldenEye X's [1] (8 ahead and 7 below was the guess for both);
+ *  - the belt, cm below the eye, out to the hand's own side and ahead
+ *    (the user's reaches, 2026-10-04: 45-75 below, 17-22 out, -10-0 ahead);
+ *  - where GoldenEye X's off hand has its palm, empty or holding a
+ *    magazine, cm right, up and back from the off hand's grip pose.
+ * GoldenEye X's, the belt and the off hand are the user's, set in the
+ * headset with Gun fit (2026-10-04).
+ */
+float VrReloadGrab[2][3] = { { 0.0f, -7.0f, -8.0f }, { -2.0f, -2.48f, -18.03f } };
+float VrReloadBelt[3] = { 68.34f, 20.61f, -13.15f };
+float VrGexHeldMag[3] = { -1.47f, 1.44f, 4.08f };
+/* GoldenEye's watch on GE-X's left wrist (gun.c): cm ahead of the end of the
+ * sleeve, up and out from its axis there, and its size (Gun fit's off hand
+ * mode, holding the right grip). Over the wrist and a fifth larger, to go
+ * round GE-X's sleeve (user; measured offline on the KF7). */
+float VrGexWatch[4] = { 5.0f, 1.0f, 0.22f, 1.2f };
+/* where GE-X's left hand holds a gun with both hands, cm forward, up and out
+ * along the gun from where its animation has it (Gun fit's grip mode) */
+float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
+
+/* Gun fit's scope trims (port/include/gevr_scope.h): GoldenEye X's KF7 sight
+ * as the user fitted it (2026-10-04), the others none */
+float VrScopeFit[2][4][4] = {
+    { { 0 } },
+    { { 0 }, { 0 }, { -2.86f, 4.01f, 2.76f, 0.59f }, { 0 } },
 };
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
 float VrArmBodyFollow = 0.0f;  /* how fast the smoothed torso yaw chases the head */

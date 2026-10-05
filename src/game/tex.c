@@ -417,7 +417,13 @@ s32 sub_GAME_7F0CCB38(s32 *arg0)
 
 Gfx *texWriteTileFromDefinition(Gfx *gdl, struct tex *tex, s32 offset, s32 shifts, s32 shiftt, s32 arg5)
 {
+#ifdef GEVR
+    /* GoldenEye X's textures sit past the table (gevr_gexmodel.c) */
+    static struct image_entry gevrNoEntry;
+    struct image_entry *s0 = tex->texturenum < MAX_TEXTURES ? &g_Textures[tex->texturenum] : &gevrNoEntry;
+#else
     struct image_entry *s0 = &g_Textures[tex->texturenum];
+#endif
     s32 sp88;
     s32 sp84;
     s32 line;

@@ -147,6 +147,21 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 - **Also:** same Rare N64 FPS family, so it doubles as an architecture and feel reference (menus, aim/sway family, Fast3D ancestry).
 - **Ported:** the cylinder floor finder in `src/game/stan.c` (`stanFindGroundAtCyl`, #95) is `src/lib/collision.c`'s `cdFindGroundInfoAtCyl` family (`cdCollectGeoForCylFromList`, `cd0002709cIntTile`, `cdIs2dPointInIntTile`, `cdFindGroundFromList`) on GoldenEye's stan tiles.
 
+### GoldenEye X — optional assets supplied by the player
+
+- **Project:** [GoldenEye X by Wreck and collaborators](https://n64vault.com/pd-multi-levels:goldeneye-x).
+- **What we use it for:** optional GE-X 6a KF7 models, weapon animations and
+  VR arms, read at runtime from the player's own patched Perfect Dark ROM.
+  Wreck created the models and arms; Carnivorous created the weapon
+  animations; SubDrag contributed tools and other work. The patch's full
+  credits identify the rest of the team.
+- **Import reference:** [Dab's Mod](https://github.com/DabDavis/perfect-dark-dabs-mod)
+  informed the GE-X file/weapon mapping notes. The loader, model converter
+  and animation reader live in `port/src/gevr_gex*.c` and `gevr_pdanim.c`.
+- **Assets:** none are committed or shipped. This project's MIT license
+  does not grant rights to Perfect Dark or GE-X assets. See
+  [setup](docs/gex-setup.md) and [engineering notes](docs/gex-weapons.md).
+
 ### Emill / n64-fast3d-engine - renderer ancestry
 
 - **Repo:** https://github.com/Emill/n64-fast3d-engine
@@ -232,6 +247,5 @@ If you spot a missing credit for something we really used, open an Issue titled 
 - [docs/RARE-LOGO-AUDIO-HANDOFF.md](docs/RARE-LOGO-AUDIO-HANDOFF.md) - worked
   example of an LP64 porting-defect class
 - [LICENSE](LICENSE) - MIT, for this tree
-- [tools/gevr_mixer_ab/](tools/gevr_mixer_ab/README.md) - soft-mixer A/B harness
 - Upstream GEVR (PC/VR), including its `PRIOR-ART.md` and `LICENSE-MAP.md`:
   https://github.com/no6969el/GEVR

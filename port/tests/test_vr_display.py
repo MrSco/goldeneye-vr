@@ -76,5 +76,9 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         for invalid in ("-1", "3", "999", "garbage", "", "0.5", "2junk"):
             ini.write_text("WatchFaceStatus=" + invalid + "\n", encoding="utf-8")
             subprocess.run([str(exe), "watch_read", "1", "1"], cwd=temp, check=True)
+        ini.unlink(missing_ok=True)
+        subprocess.run([str(exe), "fit_write"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run([str(exe), "fit_read"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         print("PASS: " + ("Quest" if android else "desktop") + " defaults, saved rates, Auto round trips, missing/legacy keys, load-once")
+        print("PASS: gun fit, GoldenEye X's own and the scopes' trims round trip")
         print("PASS: watch defaults On, all status/gesture round trips, invalid settings and load-once")
