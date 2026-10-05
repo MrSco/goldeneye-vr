@@ -16034,6 +16034,7 @@ void gevrHandReloadTick(void)
     static f32 s_magGrabUp;      /* where along the gun's up it was taken, view units */
     static s32 s_gripWas;
     static s32 s_crossArmed[2];  /* per controller: on its own side since its last cross */
+    static s32 s_beltArmed[2];   /* per controller: away from its hip/belt since its last reload */
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 gun[3], gr[3], gu[3], gb[3], off[3], orr[3], ou[3], ob[3];
     s32 right, left, grip, ctrl, i;
@@ -16048,6 +16049,7 @@ void gevrHandReloadTick(void)
         s_gevrMagGrab = 0;
         s_gevrGexGripSpent = FALSE;
         s_crossArmed[0] = s_crossArmed[1] = FALSE;
+        s_beltArmed[0] = s_beltArmed[1] = FALSE;
         if (s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && g_CurrentPlayer != NULL)
         {
             gevrGexHeldDropped();
@@ -16199,24 +16201,27 @@ void gevrHandReloadTick(void)
         s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
 
         if (gevrGexByHand(hand) && s_gevrGexMag[hand] == GEVR_GEXMAG_OUT
-            && get_ammo_in_hands_weapon(hand) > 0 && gevrGexAtBelt(ctrl, ctrl ? gun : off))
+            && get_ammo_in_hands_weapon(hand) > 0
+            && (gevrGexAtBelt(ctrl, ctrl ? gun : off) || gevrHipZone(ctrl, ctrl ? gun : off)))
         {
             gevrGexMagIn(hand, "loaded at the belt", -1);
         }
     }
 
-    /* the chest cross: each gun that has no magazine to pull, or both while dual-wielding */
+    /* the chest cross and hip/belt reload: each gun that has no magazine to pull, or both while dual-wielding */
     for (ctrl = 0; ctrl < 2; ctrl++)
     {
         s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
         s32 item = ctrl ? right : left;
         s32 other = ctrl ? left : right;
+        const f32 *at = ctrl ? gun : off;
         f32 drop, side, ahead;
 
         if (!gevrReloadGun(item) || (gevrReloadMagazineFed(item) && !gevrReloadGun(other)) || gevrGexByHand(hand)
-            || !gevrHandOnBody(ctrl, ctrl ? gun : off, &drop, &side, &ahead))
+            || !gevrHandOnBody(ctrl, at, &drop, &side, &ahead))
         {
             s_crossArmed[ctrl] = FALSE;
+            s_beltArmed[ctrl] = FALSE;
             continue;
         }
         if (side >= 0.0f)
@@ -16228,6 +16233,16 @@ void gevrHandReloadTick(void)
         {
             s_crossArmed[ctrl] = FALSE;
             gevrHandReloadFire(hand, "chest cross");
+        }
+
+        if (!gevrGexAtBelt(ctrl, at) && !gevrHipZone(ctrl, at))
+        {
+            s_beltArmed[ctrl] = TRUE;
+        }
+        else if (s_beltArmed[ctrl] && (gevrGexAtBelt(ctrl, at) || gevrHipZone(ctrl, at)))
+        {
+            s_beltArmed[ctrl] = FALSE;
+            gevrHandReloadFire(hand, "belt reload");
         }
     }
 }
