@@ -2355,15 +2355,6 @@ Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w)
     {
         return gdl;
     }
-    {
-        static u32 s_logs;
-
-        if ((s_logs++ % 60) == 0)
-        {
-            sysLogPrintf(LOG_NOTE, "gex: watch arm on the screen at %.1f %.1f %.1f, %.4f a watch unit",
-                         w->m[3][0], w->m[3][1], w->m[3][2], lx);
-        }
-    }
     for (i = 0; i < 3; i++)
     {
         x[i] = w->m[0][i] / lx;
