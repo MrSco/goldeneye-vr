@@ -1854,6 +1854,7 @@ static void netApplyCoopConfig(const NetMatchConfig *c) {
     extern void init_mp_options_for_scenario(s32 numplayers);
     extern void do_extended_cast_display(s32 arg0);
     extern s32 g_StageNum;
+    gevrCoopPrepareSaveFolder();
     s_max_players = NET_COOP_MAX_PLAYERS;
     s_lobby_max_players = NET_COOP_MAX_PLAYERS;
     if (c->stage == NET_COOP_FRONT_STAGE) {
