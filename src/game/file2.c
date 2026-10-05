@@ -216,6 +216,15 @@ s32 fileGetSaveStageDifficultyTime(save_data* save, LEVEL_SOLO_SEQUENCE levelid,
     u32 time;
     s32 index;
 
+#ifdef GEVR
+    /* A co-op joiner may reach Statistics without a readable local save
+     * (report a16b05b5). No save means no recorded best time. */
+    if (save == NULL)
+    {
+        return 0;
+    }
+#endif
+
     max_level = SP_LEVEL_MAX;
     if ((levelid >= SP_LEVEL_DAM) && (levelid < SP_LEVEL_MAX ) && (difficulty >= DIFFICULTY_AGENT) && (difficulty < DIFFICULTY_MAX))
     {
