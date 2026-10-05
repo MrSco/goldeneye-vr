@@ -64,6 +64,13 @@ void gevrFrameTimingTracePoll(const char *marker) {
             }
             fclose(out);
         }
+        char gpuPath[800];snprintf(gpuPath,sizeof(gpuPath),"%s.gpu.csv",recording.path);
+        FILE *gpu=fopen(gpuPath,"w");
+        if(gpu) {
+            fprintf(gpu,"# gpu async arrival-time samples; overflow=%u\nready_ns,kind,gpu_ns\n",gpuOverflow);
+            for(unsigned i=0;i<gpuRows;i++) fprintf(gpu,"%llu,%u,%llu\n",(unsigned long long)gpuTrace[i].ready,gpuTrace[i].kind,(unsigned long long)gpuTrace[i].ns);
+            fclose(gpu);
+        }
         recording.active=0;
         return;
     }
