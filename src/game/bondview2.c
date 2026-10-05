@@ -15656,7 +15656,10 @@ void gevrGripGestureTick(void)
  *  - any other gun (pistols, revolvers, the shotguns, the launchers), or
  *    either gun while dual-wielding, reloads when its hand sweeps across the
  *    chest to the other side (GEVR PC's "chest cross").
- * Both start the game's own reload, as B did (gun.c attempt_reload_item_in_hand).
+ *  - every gun, including GE-X, can reload one-handed by entering the
+ *    fitted belt zone after leaving its boundary by more than 5 cm.
+ * Standard guns start the game's own reload, as B did; GE-X magazine-fed
+ * guns load at the belt immediately, retaining their rounds (below).
  * Throwables, knives and gadgets keep the game's own reload.
  * files/gevr_reload.txt overrides the zones while tuning:
  * "magradius pull crossside crossahead seat beltradius", centimetres.
@@ -15673,6 +15676,7 @@ static f32 s_gevrReloadTune[GEVR_RT_COUNT] = {
     6.0f,    /* GoldenEye X: a magazine within this of the magazine well seats */
     18.0f,   /* a hand within this of the belt (VrReloadBelt) is at it */
 };
+#define GEVR_RELOAD_BELT_EXIT_CM 5.0f   /* extra distance to rearm, beyond the fitted radius */
 extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3];   /* vr_settings_defaults.c: Gun fit's reload mode */
 
 extern int VrManualReloading;
@@ -15879,6 +15883,95 @@ static s32 gevrGexAtBelt(s32 ctrl, const f32 at[3])
     return gevrBeltDist2(ctrl, at) <= s_gevrReloadTune[GEVR_RT_BELTRADIUS] * s_gevrReloadTune[GEVR_RT_BELTRADIUS];
 }
 
+static s32 gevrReloadNeedsAmmo(s32 hand)
+{
+    WeaponStats *st;
+
+    if (!gevrManualReloadOn(hand) || get_ammo_in_hands_weapon(hand) <= 0)
+    {
+        return FALSE;
+    }
+    /* A magazine being handled explicitly belongs to that reload. */
+    if (gevrGexByHand(hand) && (s_gevrGexMag[hand] == GEVR_GEXMAG_GRIPPED
+                              || s_gevrGexMag[hand] == GEVR_GEXMAG_INHAND))
+    {
+        return FALSE;
+    }
+    st = get_ptr_item_statistics(getCurrentPlayerWeaponId(hand));
+    return g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine < st->MagSize;
+}
+
+/* A downward reach whose next quarter-second intersects the fitted belt.
+ * Work in the level body frame so head pitch, handedness and world scale
+ * do not change the test. Sideways swings and forward thrusts remain melee. */
+static s32 s_gevrBeltMeleeTaken[2];   /* keep the reload reach's downward follow-through quiet */
+
+static s32 gevrReloadBeltReach(s32 ctrl)
+{
+    extern float vr_ctrl_quat_play[2][4], vr_ctrl_velocity_play[2][3], vr_head_velocity_play[3];
+    f32 at[3], r[3], u[3], b[3], rel[3], loc[3], next[3], nowBody[3], nextBody[3];
+    f32 delta[3], toBelt[3], len2 = 0.0f, along = 0.0f, dist2 = 0.0f;
+    f32 radius = s_gevrReloadTune[GEVR_RT_BELTRADIUS] + GEVR_RELOAD_BELT_EXIT_CM;
+    f32 step = GEVR_UNITS_PER_METRE * D_800364CC * 0.25f;
+    s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
+    s32 i;
+
+    if (!gevrManualReloadOn(hand) || !gevrGripAxesRaw(ctrl, at, r, u, b))
+    {
+        s_gevrBeltMeleeTaken[ctrl] = FALSE;
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        rel[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
+    }
+    gevrWorldToLocal(vr_ctrl_quat_play[ctrl], rel, loc);
+    for (i = 0; i < 3; i++)
+    {
+        next[i] = at[i] + (loc[0] * r[i] + loc[1] * b[i] - loc[2] * u[i]) * step;
+    }
+    if (!gevrHandOnBody(ctrl, at, &nowBody[0], &nowBody[1], &nowBody[2])
+        || !gevrHandOnBody(ctrl, next, &nextBody[0], &nextBody[1], &nextBody[2]))
+    {
+        s_gevrBeltMeleeTaken[ctrl] = FALSE;
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        delta[i] = nextBody[i] - nowBody[i];
+        toBelt[i] = VrReloadBelt[i] - nowBody[i];
+        len2 += delta[i] * delta[i];
+        along += delta[i] * toBelt[i];
+    }
+    /* Below 0.2 m/s, or changing direction, the reach has ended. */
+    if (delta[0] < 5.0f || delta[0] <= fabsf(delta[1]) || delta[0] <= fabsf(delta[2])
+        || len2 < 1e-6f)
+    {
+        s_gevrBeltMeleeTaken[ctrl] = FALSE;
+        return FALSE;
+    }
+    if (s_gevrBeltMeleeTaken[ctrl])
+    {
+        return TRUE;
+    }
+    if (!gevrReloadNeedsAmmo(hand) || along <= 0.0f)
+    {
+        return FALSE;
+    }
+    along /= len2;
+    if (along > 1.0f)
+    {
+        along = 1.0f;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        f32 miss = toBelt[i] - along * delta[i];
+        dist2 += miss * miss;
+    }
+    s_gevrBeltMeleeTaken[ctrl] = dist2 <= radius * radius;
+    return s_gevrBeltMeleeTaken[ctrl];
+}
+
 /* gun.c: the gun's magazine (centre, and its top at the well) and the one in the hand (its top) */
 extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
 
@@ -15983,13 +16076,21 @@ s32 gevrReloadHoldsHand(s32 ctrl)
 
     if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL || ctrl < 0 || ctrl > 1)
     {
+        if (ctrl >= 0 && ctrl < 2)
+        {
+            s_gevrBeltMeleeTaken[ctrl] = FALSE;
+        }
         return FALSE;
     }
     if (ctrl == 0 && (s_gevrMagGrab != 0 || s_gevrGexMag[GUNRIGHT] != GEVR_GEXMAG_IN || s_gevrGexGripSpent))
     {
         return TRUE;
     }
-    if (get_button_state(ctrl, "grip") && gevrReloadGun(getCurrentPlayerWeaponId(GUNRIGHT)))
+    if (gevrReloadBeltReach(ctrl))
+    {
+        return TRUE;
+    }
+    if (get_button_state(ctrl, "grip") && gevrManualReloadOn(hand))
     {
         return TRUE;
     }
@@ -16143,6 +16244,7 @@ void gevrHandReloadTick(void)
     static f32 s_magGrabUp;      /* where along the gun's up it was taken, view units */
     static s32 s_gripWas;
     static s32 s_crossArmed[2];  /* per controller: on its own side since its last cross */
+    static s32 s_beltArmed[2];   /* per controller: away from its hip/belt since its last reload */
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 gun[3], gr[3], gu[3], gb[3], off[3], orr[3], ou[3], ob[3];
     s32 right, left, grip, ctrl, i;
@@ -16157,6 +16259,8 @@ void gevrHandReloadTick(void)
         s_gevrMagGrab = 0;
         s_gevrGexGripSpent = FALSE;
         s_crossArmed[0] = s_crossArmed[1] = FALSE;
+        s_beltArmed[0] = s_beltArmed[1] = FALSE;
+        s_gevrBeltMeleeTaken[0] = s_gevrBeltMeleeTaken[1] = FALSE;
         if (s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_INHAND && g_CurrentPlayer != NULL)
         {
             gevrGexHeldDropped();
@@ -16301,34 +16405,31 @@ void gevrHandReloadTick(void)
     }
     s_gripWas = grip;
 
-    /* one-handed, single or dual-wielding alike (user): an empty GoldenEye X
-     * gun brought to the belt takes a fresh magazine there */
-    for (ctrl = 0; ctrl < 2; ctrl++)
-    {
-        s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
-
-        if (gevrGexByHand(hand) && s_gevrGexMag[hand] == GEVR_GEXMAG_OUT
-            && get_ammo_in_hands_weapon(hand) > 0 && gevrGexAtBelt(ctrl, ctrl ? gun : off))
-        {
-            gevrGexMagIn(hand, "loaded at the belt", -1);
-        }
-    }
-
-    /* the chest cross: each gun that has no magazine to pull, or both while dual-wielding */
+    /* The fitted belt reloads every gun. Chest cross keeps its original
+     * non-magazine-fed/dual-wielded guns; explicit magazine pulls still work. */
     for (ctrl = 0; ctrl < 2; ctrl++)
     {
         s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
         s32 item = ctrl ? right : left;
         s32 other = ctrl ? left : right;
+        const f32 *at = ctrl ? gun : off;
         f32 drop, side, ahead;
+        f32 beltDist2;
+        const f32 beltRadius = s_gevrReloadTune[GEVR_RT_BELTRADIUS];
+        const f32 beltExit = beltRadius + GEVR_RELOAD_BELT_EXIT_CM;
 
-        if (!gevrReloadGun(item) || (gevrReloadMagazineFed(item) && !gevrReloadGun(other)) || gevrGexByHand(hand)
-            || !gevrHandOnBody(ctrl, ctrl ? gun : off, &drop, &side, &ahead))
+        if (!gevrReloadGun(item) || s_gevrGripGesture[ctrl] == 2
+            || !gevrHandOnBody(ctrl, at, &drop, &side, &ahead))
         {
             s_crossArmed[ctrl] = FALSE;
+            s_beltArmed[ctrl] = FALSE;
             continue;
         }
-        if (side >= 0.0f)
+        if (gevrGexByHand(hand) || (gevrReloadMagazineFed(item) && !gevrReloadGun(other)))
+        {
+            s_crossArmed[ctrl] = FALSE;
+        }
+        else if (side >= 0.0f)
         {
             s_crossArmed[ctrl] = TRUE;
         }
@@ -16337,6 +16438,30 @@ void gevrHandReloadTick(void)
         {
             s_crossArmed[ctrl] = FALSE;
             gevrHandReloadFire(hand, "chest cross");
+        }
+
+        /* Reload uses the fitted belt sphere, not the broad grip-holster
+         * zone. Leave by a margin before rearming so tracking jitter at
+         * the sphere's edge cannot produce another reload or buzz. */
+        beltDist2 = gevrBeltDist2(ctrl, at);
+        if (beltDist2 > beltExit * beltExit)
+        {
+            s_beltArmed[ctrl] = TRUE;
+        }
+        else if (s_beltArmed[ctrl] && beltDist2 <= beltRadius * beltRadius)
+        {
+            s_beltArmed[ctrl] = FALSE;
+            if (gevrReloadNeedsAmmo(hand))
+            {
+                if (gevrGexByHand(hand))
+                {
+                    gevrGexMagIn(hand, "loaded at the belt", -1);
+                }
+                else
+                {
+                    gevrHandReloadFire(hand, "belt reload");
+                }
+            }
         }
     }
 }
