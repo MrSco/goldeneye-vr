@@ -19,6 +19,10 @@
   Dam's starting curbs reproduces stutter, including a zero-clamp/reset window.
   Add paired motion and detailed renderer CPU diagnostics to separate movement
   jumps, physical-history resets and submission pacing; the report remains open.
+- Replace physical-collision history resets with immediate root correction and
+  contact-aware sub-tick head translation. This targets the measured curb/wall
+  camera bounce while preserving joystick interpolation and gameplay collision.
+  Native scheduling and fresh/redraw regressions pass; Quest verification is pending.
 
 - On-screen characters still get a model hit list after the cartridge's
   600 entries are in use. Report ee07735d: firing on solo Bunker 2

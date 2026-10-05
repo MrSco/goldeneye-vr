@@ -2584,6 +2584,8 @@ static GevrLocomotionPose s_recordedLocomotion;
 static bool s_haveSourceCamera, s_haveRecordedCamera;
 static XrTime s_lastPresentationTime;
 static GevrLocomotionPose s_evaluatedLocomotion;
+static bool s_collisionContact;
+static float s_collisionNormal[3], s_collisionHead[3];
 
 extern "C" void gevrVrStatsSimulation(unsigned ticks) { s_statSim += ticks; }
 extern "C" void gevrVrLocomotionReset(void)
@@ -2600,6 +2602,23 @@ extern "C" void gevrVrLocomotionResetReason(GevrLocomotionResetReason reason)
     gevrLocomotionReset(&s_locomotion);
     s_haveSourceCamera = s_haveRecordedCamera = false;
     s_lastPresentationTime = 0;
+    s_collisionContact = false;
+}
+
+extern "C" void gevrVrLocomotionCollision(const float step[3], const float requested[3], const float actual[3])
+{
+    if (!g_frameStarted || !g_frameState.shouldRender || !positionValid || !orientationValid) {
+        s_collisionContact = false;
+        return;
+    }
+    float correction[3];
+    s_collisionContact = gevrLocomotionCollision(step, requested, actual, correction, s_collisionNormal) != 0;
+    if (!s_collisionContact) return;
+    gevrLocomotionRebase(&s_locomotion, correction);
+    s_lastPresentationTime = 0;
+    s_collisionHead[0] = (g_frameViews[0].pose.position.x + g_frameViews[1].pose.position.x) * 0.5f;
+    s_collisionHead[1] = (g_frameViews[0].pose.position.y + g_frameViews[1].pose.position.y) * 0.5f;
+    s_collisionHead[2] = (g_frameViews[0].pose.position.z + g_frameViews[1].pose.position.z) * 0.5f;
 }
 
 extern "C" void gevrVrLocomotionSnapshot(const float position[3], const float tracking[3],
@@ -2850,6 +2869,18 @@ static bool vr_locomotion_camera(const GevrPresentationCamera& source,
             headR[y*3+x] = 0;
             for (int k = 0; k < 3; k++) headR[y*3+x] += oldR[k*3+y] * newR[k*3+x];
         }
+    }
+    if (s_collisionContact) {
+        const float contactD[3] = {
+            ((g_frameViews[0].pose.position.x + g_frameViews[1].pose.position.x) * 0.5f - s_collisionHead[0]) * 100.0f,
+            ((g_frameViews[0].pose.position.y + g_frameViews[1].pose.position.y) * 0.5f - s_collisionHead[1]) * 100.0f,
+            ((g_frameViews[0].pose.position.z + g_frameViews[1].pose.position.z) * 0.5f - s_collisionHead[2]) * 100.0f
+        };
+        float contactT[3] = {0};
+        for (int y = 0; y < 3; y++) for (int k = 0; k < 3; k++) contactT[y] += oldR[k*3+y] * contactD[k];
+        /* Clip only motion newer than the contact pose. Older raw head travel
+         * must still cancel history rebases when evaluating cached geometry. */
+        gevrLocomotionClipHead(source.rotation, contactT, s_collisionNormal, headT);
     }
     gevrLocomotionCamera(&source, &confirmed, &s_evaluatedLocomotion, headR, headT, &s_presentedCamera);
     gevrFrameTimingCamera(s_presentedCamera.position);

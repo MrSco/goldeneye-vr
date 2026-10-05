@@ -252,3 +252,57 @@ movement, then a stationary-head joystick push into the same curb, then an
 equivalent push against a tall wall. Keep each segment long enough to capture
 multiple windows and note its time. This distinguishes ordinary CPU/driver
 pacing from curb-induced movement changes and physical-history resets.
+
+## Angled curb test and physical collision correction
+
+The user tested `5d3de95` and still reports stutter when running into the Dam
+curb at an angle. The 16:58:49 screenshot has 44 late clamps, no resets and
+18.4 ms worst XR gap; 16:59:22 has no clamps/resets and 17.7 ms worst XR gap.
+The retained log starts at 16:59:18, so the earlier screenshot cannot be paired
+retrospectively. Thirteen retained windows through 16:59:30 contain 125 PHYSICAL
+resets and one SESSION reset; 247 of their 251 clamps are early, four late.
+These windows do not isolate each deliberate joystick push from head motion.
+
+The new movement pairing provides concrete evidence of the physical collision
+bounce. At 16:59:26, a redraw moves about +0.258/+0.109 cm in X/Z; the following
+fresh frame moves -0.262/-0.111 cm while the body's X/Z displacement is zero.
+Its physical head step is +0.521/+0.217 cm. Another window shows 36 PHYSICAL
+resets/s. These are real blocked head movements, beyond the former 1 mm jitter
+gate. Increasing the threshold would hide a physical collision response.
+
+The latest patch replaces that reset path. It derives a horizontal contact
+normal from requested minus actual movement and removes only the head step's
+component toward contact, bounded by observed movement loss. It immediately
+rebases retained root positions by that physical correction, preserving their
+timestamps and sample count. Cached render cameras retain their original root
+reference so absolute redraw transforms apply the correction once. Joystick
+collision loss is not used as an immediate root correction.
+
+Sub-tick head movement toward the most recent contact is constrained on redraws;
+head rotation, movement parallel to contact, and retreat remain current. The
+constraint is applied only to motion since that contact's tracked pose. Older
+head travel must still cancel the root rebase when querying previous geometry
+at a fresh-render boundary. Contact clears when movement is unobstructed or
+history is explicitly reset. This uses an inferred contact normal, not a new
+collision query: complex corners/curb response still needs headset verification.
+Gameplay collision, body position, aiming, controllers, HUDs, simulation timing
+and eye-pass count are unchanged.
+
+Native production-code tests cover repeated blocked head steps, forward/backward
+and stationary wall slides with tangential physical travel, immediate retreat,
+contact clearing, current tracked hands, fresh/cached boundary equality, and
+72/80/90/120 Hz scheduling. They include large world coordinates. Samples remain
+eight deep with one initial seed and no physical resets. Query targets within
+1 microsecond of a history endpoint hold that endpoint without incrementing the
+clamp counter; they never extrapolate. Retained late-clamp windows have sub-ms
+positive leads, but the absent 16:58:49 log cannot establish how large its 44
+late clamps were.
+
+CPU evidence still shows hitches: the 16:59:22 gap frame contains 15.5 ms work,
+3.7 ms image wait, about 1.5 ms draw-batch work, 0.09 ms shader binding, and no
+shader compilation/texture uploads. Other windows have a 7.3 ms texture upload.
+The remaining fresh CPU duration is not yet attributed. Added `gpu_poll` and
+`hud_readback` sections measure diagnostic timer-query polling and the existing
+synchronous ammo-crop readback, respectively, without changing their behavior.
+The physical-collision patch is ready for another angled-curb comparison; it
+does not establish that all rendering hitches or the stutter report are resolved.

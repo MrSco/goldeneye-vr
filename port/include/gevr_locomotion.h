@@ -54,8 +54,13 @@ typedef struct GevrPresentationCamera {
 
 void gevrLocomotionReset(GevrLocomotionHistory *history);
 const char *gevrLocomotionResetName(GevrLocomotionResetReason reason);
-int gevrLocomotionPhysicalBlocked(const float step[3], const float requested[3],
-    const float actual[3]);
+/* Presentation collision response: inferred horizontal contact normal and
+ * rejected physical component. Neither changes the game's collision result. */
+int gevrLocomotionCollision(const float step[3], const float requested[3],
+    const float actual[3], float correction[3], float normal[3]);
+void gevrLocomotionRebase(GevrLocomotionHistory *history, const float correction[3]);
+void gevrLocomotionClipHead(const float rotation[9], const float contactDelta[3],
+    const float normal[3], float translation[3]);
 int64_t gevrLocomotionDelay(int64_t displayPeriod);
 int gevrLocomotionSnapshot(GevrLocomotionHistory *history, const float position[3],
     const float tracking[3], float yaw, uint64_t sequence, int64_t displayTime,
@@ -78,6 +83,7 @@ void gevrVrLocomotionReset(void);
 void gevrVrLocomotionResetReason(GevrLocomotionResetReason reason);
 void gevrVrLocomotionSnapshot(const float position[3], const float tracking[3],
     float yaw, uint64_t sequence);
+void gevrVrLocomotionCollision(const float step[3], const float requested[3], const float actual[3]);
 void gevrVrCameraWorld(const float position[3], const float look[3], const float up[3]);
 int gevrVrPresentationDelta(float out[16]);
 void gevrVrStatsSimulation(unsigned ticks);

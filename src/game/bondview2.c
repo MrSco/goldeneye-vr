@@ -12613,14 +12613,13 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         ftemp_col_x = g_CurrentPlayer->field_488.collision_position.f[0] - start_collision_pos_x;
         ftemp_col_z = g_CurrentPlayer->field_488.collision_position.f[2] - start_collision_pos_z;
 #ifdef GEVR
-        /* Do not smooth the collision compensation for physical head motion:
-         * otherwise a blocked room-scale step could briefly lean through a wall. */
+        /* Keep physical collision compensation immediate, without discarding
+         * joystick interpolation every time the head meets a blocked surface. */
         {
             const f32 actual[3] = {ftemp_col_x, 0, ftemp_col_z};
             if (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) {
-                const s32 reset = gevrLocomotionPhysicalBlocked(s_gevrPhysicalStep, gevrPhysicalRequest, actual);
-                gevrFrameTimingCollision(s_gevrPhysicalStep, gevrPhysicalRequest, actual, reset);
-                if (reset) gevrVrLocomotionResetReason(GEVR_LOCO_RESET_PHYSICAL);
+                gevrFrameTimingCollision(s_gevrPhysicalStep, gevrPhysicalRequest, actual, 0);
+                gevrVrLocomotionCollision(s_gevrPhysicalStep, gevrPhysicalRequest, actual);
             }
         }
 #endif

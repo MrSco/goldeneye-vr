@@ -89,7 +89,9 @@ extern "C" void gfx_vr_gpu_begin(int redraw)
         return;
     }
     if (active >= 0 || !initialize()) return;
+    const uint64_t timingStart = gevrFrameTimingNow();
     poll();
+    gevrFrameTimingAdd(GEVR_TIME_GPU_POLL, timingStart);
     for (int i = 0; i < capacity; i++) if (!slots[i].pending) {
         slots[i].discard = false;
         slots[i].redraw = redraw != 0;
