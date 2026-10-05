@@ -3831,9 +3831,10 @@ static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y)
  * in a level, so they can be tried in play, organised); A opens one. In a
  * section up/down picks a row, left/right steps its value, A steps it
  * forward (wrapping); Back returns to the sections, and their Back to Game
- * Options. Closing the watch leaves the page too. Not here, as they only
- * take effect on starting: the display rate, the texture pack, the play
- * mode (holding the right stick click switches it in a level).
+ * Options. Closing the watch leaves the page too. The display rate is asked
+ * of the headset at once, as the launcher's Start asks it. Not here: the
+ * texture pack, which takes effect on starting, and the play mode (holding
+ * the right stick click switches it in a level).
  */
 extern float VrUseSnapTurn;          /* 0 smooth, else the snap angle */
 extern int VrSmoothTurnSpeed;        /* degrees per second, 45..240 */
@@ -3854,6 +3855,9 @@ extern int VrGexGuns, VrGexArms;
 extern float VrScreenDistance, VrScreenFov;
 extern int VrScreenCurved, VrScreenPassthrough;
 extern void vr_screen_resize(float dist, float fov);   /* port/vr/vr_screen.h */
+extern int VrRefreshRate;                              /* 0: the headset's own */
+extern int vr_get_supported_refresh_rates(int *rates, int capacity);   /* vr_openxr.cpp */
+extern void vr_apply_refresh_rate(void);
 extern int vr_screen_curve_supported(void);
 extern int vr_passthrough_supported(void);
 extern void vrSettingsSave(void);
@@ -3872,7 +3876,7 @@ enum {
     GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_STEADY, GEVR_VR_GUNFIT,
     GEVR_VR_WATCHPAUSE, GEVR_VR_HOLSTER, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB,
     GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE,
-    GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
+    GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
     GEVR_VR_MINESTICK, GEVR_VR_BODIES,
     GEVR_VR_GEXGUNS, GEVR_VR_GEXARMS, GEVR_VR_GUNSIZE,
     GEVR_VR_ROWS
@@ -3883,7 +3887,7 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Left-handed", "Swap sticks", "Aim: no lean", "Aim steady", "Gun fit",
     "Watch gesture", "Holster WIP", "Grip use", "Grip hand WIP", "Mine re-grab",
     "Reload WIP", "Gun recoil", "Motion throw", "Throw power", "Throw pitch", "Throw gaze",
-    "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
+    "Refresh", "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
     "Mines stick", "Bodies stay",
     "GE-X guns WIP", "GE-X arms WIP", "Gun size",
 };
@@ -3893,7 +3897,7 @@ static const s32 s_gevrVrComfort[] = { GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_
 static const s32 s_gevrVrControls[] = { GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_STEADY, GEVR_VR_GUNFIT };
 static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_HOLSTER, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB };
 static const s32 s_gevrVrWeapons[] = { GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE };
-static const s32 s_gevrVrDisplay[] = { GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
+static const s32 s_gevrVrDisplay[] = { GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
 static const s32 s_gevrVrRules[] = { GEVR_VR_MINESTICK, GEVR_VR_BODIES };
 static const s32 s_gevrVrMods[] = { GEVR_VR_GEXGUNS, GEVR_VR_GEXARMS, GEVR_VR_GUNSIZE };
 
@@ -3996,6 +4000,16 @@ static void gevrVrValueText(s32 row, char *buf)
                 sprintf(buf, "%d.%d", tenths / 10, tenths % 10);
             }
             break;
+        case GEVR_VR_REFRESH:
+            if (VrRefreshRate <= 0)
+            {
+                sprintf(buf, "%s", "AUTO");
+            }
+            else
+            {
+                sprintf(buf, "%d HZ", VrRefreshRate);
+            }
+            break;
         case GEVR_VR_WATCHFACE:
             sprintf(buf, "%s", VrWatchFaceStatus == 0 ? "OFF" : VrWatchFaceStatus == 2 ? "ONLY" : "ON");
             break;
@@ -4085,6 +4099,22 @@ static void gevrVrStep(s32 row, s32 dir)
             i = (s32) (VrComfortVignette * 10.0f + 0.5f);
             VrComfortVignette = gevrVrClampStep(i, dir, 0, 10) / 10.0f;
             break;
+        case GEVR_VR_REFRESH:
+        {
+            /* Auto, then the rates this headset offers (the launcher's choice) */
+            s32 rates[16];
+            s32 n = vr_get_supported_refresh_rates(rates, 16);
+
+            n = n > 16 ? 16 : n;
+            for (i = 0; i < n && rates[i] != VrRefreshRate; i++)
+            {
+            }
+            i = VrRefreshRate <= 0 || i >= n ? 0 : i + 1;
+            i = gevrVrClampStep(i, dir, 0, n);
+            VrRefreshRate = i == 0 ? 0 : rates[i - 1];
+            vr_apply_refresh_rate();
+            break;
+        }
         case GEVR_VR_WATCHFACE:
             VrWatchFaceStatus = gevrVrClampStep(VrWatchFaceStatus, dir, 0, 2);
             break;
