@@ -466,7 +466,9 @@ For the engineering side, see [STATUS.md](STATUS.md) (short, kept current) and t
 | CMake | 3.22.1 |
 | Device | Quest 2 / Pro / 3 / 3S with Developer Mode on |
 
-The root `CMakeLists.txt` builds `libgevr.so`, and the Gradle project in `android/` packages it.
+The application targets Android/Meta Quest only. The root `CMakeLists.txt` builds
+`libgevr.so`, and the Gradle project in `android/` packages it. Desktop game targets
+are disabled; native regression tests under `port/tests/` compile independently.
 The first configure fetches **SDL2** and **zlib** with CMake `FetchContent`, so it needs network
 access. The OpenXR loader is vendored under `OpenXR/`.
 

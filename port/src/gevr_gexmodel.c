@@ -90,7 +90,11 @@ struct pdArray {      /* a vertex array of the source and its place in the outpu
 	s32 star;          /* star gunfire: read through segment 4, not segment 5 */
 };
 
-struct pdDl { u32 src, dst, len, outLen; struct pdArray *arr; };   /* outLen: less the G_COLs */
+struct pdDl {
+	u32 src, dst, len, outLen;
+	struct pdArray *arr;
+	s32 flash;          /* uses the extra muzzle matrix, not PD's animated flash joints */
+};
 
 struct build {
 	const u8 *pd;
@@ -101,6 +105,8 @@ struct build {
 	s32 numArrays;
 	struct pdDl dls[MAX_DLS];
 	s32 numDls;
+	u32 flashNode;      /* PD part mapped to GoldenEye's muzzle flash switch */
+	s32 flashMatrix;    /* appended after the original skeleton, or -1 */
 	const char *name;
 	const u16 *texPairs;   /* GE-X number, GoldenEye id, ..., 0 */
 	s32 cartridgeTextures; /* table entries that took a GoldenEye id */
@@ -223,7 +229,20 @@ static u32 dlLength(struct build *b, u32 src)
 	return 0;
 }
 
-static void addDl(struct build *b, u32 addr, struct pdArray *arr)
+static s32 isFlashNode(struct build *b, u32 node)
+{
+	s32 depth;
+
+	for (depth = 0; node && depth < b->numNodes; depth++) {
+		if (node == b->flashNode) {
+			return 1;
+		}
+		node = OFS(rd32(b->pd + node + 8));
+	}
+	return 0;
+}
+
+static void addDl(struct build *b, u32 addr, struct pdArray *arr, s32 flash)
 {
 	if (addr == 0) {
 		return;
@@ -245,6 +264,11 @@ static void addDl(struct build *b, u32 addr, struct pdArray *arr)
 		}
 	}
 	b->dls[b->numDls].arr = arr;
+	b->dls[b->numDls].flash = flash;
+	if (flash) {
+		/* Even a star list without its own G_MTX must start at the muzzle. */
+		b->dls[b->numDls].outLen += 8;
+	}
 	b->numDls++;
 }
 
@@ -441,7 +465,7 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 			const u8 *s = pd + a->src + 12 * i;
 			u8 *d = out + a->dst + 16 * i;
 
-			memcpy(d, s, 6);          /* x, y, z */
+			memcpy(d, s, 6);          /* x, y, z, local to the selected matrix */
 			wr16(d + 6, 0);           /* flag */
 			memcpy(d + 8, s + 8, 4);  /* s, t */
 			memcpy(d + 12, a->colours + 4 * i, 4);
@@ -451,6 +475,11 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 	for (k = 0; k < (u32)b->numDls; k++) {
 		const struct pdDl *dl = &b->dls[k];
 		u8 *d = out + dl->dst;
+		if (dl->flash) {
+			wr32(d, 0x01020040);      /* G_MTX: load modelview, no push */
+			wr32(d + 4, 0x03000000 | (b->flashMatrix * 64));
+			d += 8;
+		}
 
 		for (i = 0; i < dl->len; i += 8) {
 			u32 w0 = rd32(pd + dl->src + i), w1 = rd32(pd + dl->src + i + 4);
@@ -467,6 +496,10 @@ static u32 emit(struct build *b, u8 *out, u32 numSwitches, const u32 *switchNode
 				} else {
 					w1 = (w1 & 0xff000000) | (OFS(w1) / 12 * 16);
 				}
+			} else if (op == 0x01 && SEGOF(w1) == 3 && dl->flash) {
+				/* KF7's sprite switches between PD joints 37 and 36. Both
+				 * must use the fitted muzzle without touching the arm rig. */
+				w1 = 0x03000000 | (b->flashMatrix * 64);
 			} else if (op == 0xc0 && (w1 & 0xfff) != 0) {   /* texture: GE-X's number to ours */
 				w1 = (w1 & ~0xfffu) | (mapTexture(b, w1 & 0xfff) & 0xfff);
 			} else if (op == 0xfd && SEGOF(w1) == 5) {
@@ -503,33 +536,8 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
 	root = OFS(rd32(pd));
 	collectNodes(b, root);
 
-	/* each node's arrays and display lists, in iteration order */
-	for (i = 0; i < (u32)b->numNodes && !b->failed; i++) {
-		const u8 *s = pd + b->nodeSrc[i];
-		u8 type = s[1];
-		const u8 *rs = pd + OFS(rd32(s + 4));
-
-		if (rodataSize(type) == 0) {
-			fail(b, "node type not handled", type);
-			break;
-		}
-		if (type == PD_NODE_GUNDL) {
-			struct pdArray *a = rd32(rs + 12) ? addArray(b, OFS(rd32(rs + 12)), rd16(rs + 0x10), 0) : NULL;
-
-			addDl(b, rd32(rs), a);
-			addDl(b, rd32(rs + 4), a);
-		} else if (type == PD_NODE_STARGUNFIRE) {
-			struct pdArray *a = rd32(rs + 4) ? addArray(b, OFS(rd32(rs + 4)), 4 * rd32(rs), 1) : NULL;
-
-			addDl(b, rd32(rs + 8), a);
-		}
-	}
-
-	for (k = 0; k < (u32)b->numDls && !b->failed; k++) {
-		colourVertices(b, &b->dls[k]);
-	}
-
-	/* the GE switch slots the caller wants, by PD part number */
+	/* Resolve switches before collecting lists: all descendants of switch 1
+	 * share a dedicated flash matrix, appended beyond the animation's joints. */
 	memset(switchNodes, 0, sizeof(switchNodes));
 	{
 		const u32 parts = OFS(rd32(pd + 8));
@@ -543,6 +551,34 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
 			}
 		}
 	}
+	b->flashNode = numSwitches > 1 && switchParts != NULL && switchParts[1] == 90 ? switchNodes[1] : 0;
+	b->flashMatrix = b->flashNode ? rd16(pd + 0xe) : -1;
+
+	/* each node's arrays and display lists, in iteration order */
+	for (i = 0; i < (u32)b->numNodes && !b->failed; i++) {
+		const u8 *s = pd + b->nodeSrc[i];
+		u8 type = s[1];
+		const u8 *rs = pd + OFS(rd32(s + 4));
+
+		if (rodataSize(type) == 0) {
+			fail(b, "node type not handled", type);
+			break;
+		}
+		if (type == PD_NODE_GUNDL) {
+			struct pdArray *a = rd32(rs + 12) ? addArray(b, OFS(rd32(rs + 12)), rd16(rs + 0x10), 0) : NULL;
+
+			addDl(b, rd32(rs), a, isFlashNode(b, b->nodeSrc[i]));
+			addDl(b, rd32(rs + 4), a, isFlashNode(b, b->nodeSrc[i]));
+		} else if (type == PD_NODE_STARGUNFIRE) {
+			struct pdArray *a = rd32(rs + 4) ? addArray(b, OFS(rd32(rs + 4)), 4 * rd32(rs), 1) : NULL;
+
+			addDl(b, rd32(rs + 8), a, isFlashNode(b, b->nodeSrc[i]));
+		}
+	}
+
+	for (k = 0; k < (u32)b->numDls && !b->failed; k++) {
+		colourVertices(b, &b->dls[k]);
+	}
 
 	len = b->failed ? 0 : emit(b, NULL, numSwitches, switchNodes);
 	if (len) {
@@ -554,7 +590,7 @@ u8 *gevrGexBuildModel(const char *pdname, u32 numSwitches, const s32 *switchPart
 	}
 	if (out != NULL) {
 		*outLen = len;
-		*outMatrices = rd16(pd + 0xe);
+		*outMatrices = rd16(pd + 0xe) + (b->flashMatrix >= 0);
 		*outTextures = rd16(pd + 0x16);
 		sysLogPrintf(LOG_NOTE, "gexmodel: %s: %d nodes, %d vertex arrays, %d display lists, %u bytes, %d of %u textures GoldenEye's own, %d GE-X ids mapped",
 				pdname, b->numNodes, b->numArrays, b->numDls, len, b->cartridgeTextures, rd16(pd + 0x16), s_texCount);

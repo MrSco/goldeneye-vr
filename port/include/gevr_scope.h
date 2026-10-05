@@ -42,6 +42,13 @@ extern int gevrScopeOn;   /* this frame's scopes: bit (1 << hand) */
 #define GEVR_SCOPE_FITS 4
 extern float VrScopeFit[2][GEVR_SCOPE_FITS][4];
 
+#ifndef GEVR_MAX_WEAPONS
+#define GEVR_MAX_WEAPONS 64
+#endif
+extern float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3];
+extern int gevrMuzzleFitting;
+int gevrMuzzleFitAvailable(void);
+
 #ifdef __cplusplus
 }
 #endif
