@@ -43,6 +43,22 @@ static CoopMenuState s_sent, s_host;
 static bool s_sent_valid, s_host_valid;
 static u64 s_sent_us;
 
+/*
+ * Before each co-op stage load. A host can start while a teammate is still
+ * choosing a folder, and a drop-in can bypass that screen entirely. Keep a
+ * chosen local folder; otherwise use this headset's first folder, never a
+ * folder supplied by the host. This also runs in the launcher before the
+ * game initializes: save I/O belongs to boss.c and the folder screen.
+ */
+void gevrCoopPrepareSaveFolder(void)
+{
+    if (selected_folder_num < FOLDER1 || selected_folder_num >= MAX_FOLDER_COUNT)
+    {
+        selected_folder_num = FOLDER1;
+        sysLogPrintf(LOG_NOTE, "coop: no local save folder selected; using folder %d", selected_folder_num + 1);
+    }
+}
+
 /* The screens a following headset shows as the host's */
 static bool coopMenuFollowable(int menu)
 {
