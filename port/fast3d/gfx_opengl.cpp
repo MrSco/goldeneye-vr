@@ -23,6 +23,7 @@
 #include "../src/net/net_game.h"
 #include "gevr_line_geometry.h"
 #include "gevr_frame_timing.h"
+#include "gevr_hud_bounds.h"
 /* Inclusive CPU timings, only with Show stats. RAII balances early returns;
  * draw_issue is nested in draw_batch, shader_bind may nest in shader_compile. */
 class GevrCpuSection {
@@ -3557,90 +3558,19 @@ void gfx_vr_hud_capture_begin_R(void)
     gVrMenuRCaptureViewport[3] = h;
 }
 
-// GoldenEye: where in the right-hand capture something was drawn, as a
-// 0..1 box with a bottom-left (GL) origin. The ammo counter lands wherever
-// fast3d's VR viewport mapping and the HUD shader put it, so it is measured:
-// every 30th capture is downsampled to 128x128 (64 KB read back) and the box
-// of non-transparent texels found. vr_openxr.cpp crops the panel to it.
-static float s_gevrRBox[4];
-static bool s_gevrRBoxValid;
-static GLuint s_gevrRBoxFbo, s_gevrRBoxTex;
-
+// Alpha bounds are measured through a fenced pixel-pack ring. Poll every
+// capture, including frames that do not request a new measurement.
 extern "C" bool gfx_vr_menu_R_bbox(float out[4])
 {
-    if (s_gevrRBoxValid) {
-        out[0] = s_gevrRBox[0]; out[1] = s_gevrRBox[1];
-        out[2] = s_gevrRBox[2]; out[3] = s_gevrRBox[3];
-    }
-    return s_gevrRBoxValid;
+    return gfx_vr_hud_bounds_box(out);
 }
 
-extern "C" s32 gevrAimModeOn(void);   /* bondview2.c */
+extern "C" s32 gevrAimModeOn(void);
 static void gevr_measure_R_capture(void)
 {
-    static unsigned n;
-    /* Aiming moves the counter (the ammo box shifts right in the capture): on
-     * a change, measure at once and for a few frames after, or the crop cut the
-     * digits for up to half a second - "the panel glitches and moves". */
-    static int lastAim = -1, burst;
-    const int aim = gevrAimModeOn() ? 1 : 0;
-    if (aim != lastAim) { lastAim = aim; burst = 4; }
-    if (burst > 0) burst--;
-    else if ((n++ % 30) != 0) return;
     GevrCpuSection timing(GEVR_TIME_HUD_READBACK);
-
-    const int S = 128;
-    if (s_gevrRBoxFbo == 0) {
-        glGenTextures(1, &s_gevrRBoxTex);
-        glBindTexture(GL_TEXTURE_2D, s_gevrRBoxTex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, S, S, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glGenFramebuffers(1, &s_gevrRBoxFbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, s_gevrRBoxFbo);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_gevrRBoxTex, 0);
-    }
-
-    int w = vr_get_internal_render_width();
-    int h = vr_get_internal_render_height();
-    GLint prevRead = 0, prevDraw = 0;
-    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
-    GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
-    glDisable(GL_SCISSOR_TEST);
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffers[gVrMenuRFb].fbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_gevrRBoxFbo);
-    glBlitFramebuffer(0, 0, w, h, 0, 0, S, S, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
-    static unsigned char px[128 * 128 * 4];
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, s_gevrRBoxFbo);
-    glReadPixels(0, 0, S, S, GL_RGBA, GL_UNSIGNED_BYTE, px);
-
-    int x0 = S, y0 = S, x1 = -1, y1 = -1;
-    for (int y = 0; y < S; y++) {
-        for (int x = 0; x < S; x++) {
-            if (px[(y * S + x) * 4 + 3] > 8) {
-                if (x < x0) x0 = x;
-                if (x > x1) x1 = x;
-                if (y < y0) y0 = y;
-                if (y > y1) y1 = y;
-            }
-        }
-    }
-    if (x1 >= x0 && y1 >= y0) {
-        s_gevrRBox[0] = (float)x0 / S;
-        s_gevrRBox[1] = (float)y0 / S;
-        s_gevrRBox[2] = (float)(x1 + 1) / S;
-        s_gevrRBox[3] = (float)(y1 + 1) / S;
-        s_gevrRBoxValid = true;
-        static unsigned logged;
-        if ((logged++ % 20) == 0) {
-            vr_log("ammo panel: drawn box %.3f,%.3f - %.3f,%.3f (GL origin)", s_gevrRBox[0], s_gevrRBox[1], s_gevrRBox[2], s_gevrRBox[3]);
-        }
-    }
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevRead);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDraw);
-    if (scissor) glEnable(GL_SCISSOR_TEST);
+    gfx_vr_hud_bounds_update(framebuffers[gVrMenuRFb].fbo,
+        vr_get_internal_render_width(), vr_get_internal_render_height(), gevrAimModeOn());
 }
 
 void gfx_vr_hud_capture_end_R(void)

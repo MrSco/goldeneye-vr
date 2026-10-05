@@ -306,3 +306,54 @@ The remaining fresh CPU duration is not yet attributed. Added `gpu_poll` and
 synchronous ammo-crop readback, respectively, without changing their behavior.
 The physical-collision patch is ready for another angled-curb comparison; it
 does not establish that all rendering hitches or the stutter report are resolved.
+
+## Remaining hitch: synchronous ammo bounds readback
+
+The user still reproduces the angled-curb hitch on `3f33c22`. The 17:14:45
+screenshot matches the 17:14:44.799 window: 34 late clamps, no resets, 17.701 ms
+worst XR gap, 17.470 ms work, 5.764 ms image wait, and 5.713 ms `hud_readback`.
+The latter runs `gevr_measure_R_capture`, which downsamples the ammo texture and
+calls `glReadPixels` directly into CPU memory to find nontransparent bounds.
+That existing call forces pixel delivery before the render thread can continue.
+GPU polling takes only 0.008 ms in this frame; shader compilation/texture uploads
+are zero, and draw batches take 1.511 ms. This is a measured rendering stall,
+though it need not explain every curb-induced movement irregularity.
+
+The retained log `android/app/build/locomotion-device/curb-contact-1714.log` has
+16 reporting windows from 17:14:43.787 through 17:14:58.864: no resets/seeds,
+eight samples throughout, and 310 late clamps. Largest positive target lead is
+only 0.006 ms. The 1 microsecond clamp threshold makes small clock drift visible
+as high clamp counts; these are not frame-sized history deficits. Counts alone
+do not justify adding another display frame of locomotion delay. Readback costs
+roughly 4.8-6.5 ms on the retained worst frames. Some worst-frame pairs show
+smooth, similar successive camera deltas while their submission gap exceeds
+the 8.33 ms display interval.
+
+The new production module `port/fast3d/gevr_hud_bounds.cpp` uses three 64 KB pixel
+pack buffers. It queues the existing downsample/read into a buffer, fences it,
+and polls with flags 0 and timeout 0 on subsequent captures. CPU mapping and
+alpha scanning happen only after an already-signaled/satisfied fence. A full
+ring skips a request; unavailable APIs never fall back to synchronous pixels.
+This follows the pixel-buffer offset and fence polling contracts in the
+[Khronos read-pixels reference](https://github.com/KhronosGroup/OpenGL-Refpages/blob/main/es3.0/glReadPixels.xml)
+and [client-wait reference](https://github.com/KhronosGroup/OpenGL-Refpages/blob/main/es3.0/glClientWaitSync.xml).
+Driver submission can still have CPU cost, so the new `hud_readback` duration
+must be measured on Quest; an asynchronous buffer is not a guarantee of zero
+driver time.
+
+Aim changes request a short burst and preserve previously completed bounds for
+each aim mode. Results from a previous aim/layout epoch are discarded, and
+resolution changes invalidate cached bounds. Before a new mode's first valid
+measurement, a conservative full capture prevents clipping digits. Tight bounds
+arrive later, so initial/aim-transition placement needs visual checking. The
+original 30-capture periodic update remains. GL framebuffer, texture, pixel-pack,
+packing and scissor state are restored. XR shutdown deletes buffers, fences and
+the downsample framebuffer/texture without waiting.
+
+Native production-code tests verify no CPU-directed readback, no pending map,
+zero-timeout/no-flush polls, full rings, stale aim/resize results, map/unmap/fence
+and framebuffer/allocation failures, transparent captures and resource cleanup.
+Locomotion, GPU/replay and surface regressions pass. No gameplay, collision,
+head/hand tracking, interpolation delay or eye-pass changes are included here.
+The next headset test should repeat the same angled curb and also inspect ammo
+placement when entering/leaving aim; release acceptance remains pending.

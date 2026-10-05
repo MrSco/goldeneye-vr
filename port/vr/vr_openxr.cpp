@@ -74,6 +74,7 @@
 #include "gevr_render_size.h"
 #include "gevr_locomotion.h"
 #include "gevr_frame_timing.h"
+#include "gevr_hud_bounds.h"
 
 extern "C" void sysFatalError(const char *fmt, ...) __attribute__((noreturn));
 
@@ -4797,6 +4798,7 @@ extern "C" void vr_shutdown()
     gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SESSION);
     LOGI("========== VR SHUTDOWN START ==========");
     gfx_vr_gpu_reset();
+    gfx_vr_hud_bounds_reset();
     gevrFrameTimingEnable(0);
 
     // 1. Ensure no frame is currently in progress
