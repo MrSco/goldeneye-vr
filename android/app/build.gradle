@@ -72,6 +72,14 @@ android {
             }
             ndk { debugSymbolLevel 'SYMBOL_TABLE' }
         }
+        // Unattended Quest profiling only; never shipped. Same code, signing and
+        // package as release, plus src/benchmark/AndroidManifest.xml, which
+        // declares optional hand tracking so the headset launches it with the
+        // controllers asleep. tools/perf/quest_profile.py installs it.
+        benchmark {
+            initWith release
+            matchingFallbacks = ['release']
+        }
     }
 
     compileOptions {

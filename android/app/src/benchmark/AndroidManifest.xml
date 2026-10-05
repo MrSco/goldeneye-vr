@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Benchmark build type only (tools/perf/quest_profile.py); never shipped.
+
+    Without a hand-tracking declaration Quest's RequiresControllersLaunchInterceptor
+    blocks launching with the controllers asleep, so the PC cannot start an
+    unattended profiling run. The release manifest deliberately has no such
+    declaration: with it, Quest switched to hands mid-game whenever the
+    controllers were set down and some controllers failed to reconnect (see
+    src/main/AndroidManifest.xml and 3c1080a3). Benchmarks drive the game
+    through gevr_input.txt, so that behavior does not matter here.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature
+        android:name="oculus.software.handtracking"
+        android:required="false" />
+</manifest>
