@@ -1,8 +1,11 @@
 # GoldenEye X guns and reloads
 
-Branch notes for claude/gex-weapons (2026-10-04). Goal: GoldenEye X's
-first-person gun models and reload animations in this port, read from the
-player's own patched GE-X ROM. Nothing from GE-X is committed or shipped; no
+Engineering notes for the GE-X support introduced in PR #117 (2026-10-04).
+For installation, ROM preparation, reload controls and troubleshooting, start
+with [GoldenEye X setup](gex-setup.md). Current support covers the KF7 and
+VR arms, read from the player's own patched GE-X 6a ROM; the weapon list below
+is a format reference, not a list of implemented replacements.
+Nothing from GE-X is committed or shipped; no
 licence covers its assets. Credits: the GoldenEye X team (Wreck, Carnivorous
 for the weapon animations, SubDrag and others) and Dab's Mod
 (DabDavis/perfect-dark-dabs-mod), whose import notes this follows.
@@ -12,7 +15,7 @@ for the weapon animations, SubDrag and others) and Dab's Mod
 - GE-X 6a (`GE-X_6a_01-19-25.zip` from n64vault) is an xdelta (VCDIFF, no
   secondary compression, four 8 MiB windows with Adler-32) against Perfect
   Dark NTSC 1.1 (`pd.z64`, MD5 e03b088b6ac9e0080440efed07c1e40f).
-  `tools/gex/vcdiff_apply.py pd.z64 GE-X_6a_01-19-25.xdelta gex.z64` builds
+  `python tools/gex/vcdiff_apply.py pd.z64 GE-X_6a_01-19-25.xdelta gex.z64` builds
   it (MD5 640923b68b9281044ac1b518612e979b, header "GoldenEye X", NX7E).
 - It keeps PD's layout: the data segment at ROM 0x39850 (1173-compressed),
   the file table at 0x28080 inside it, 2013 files under PD's names
