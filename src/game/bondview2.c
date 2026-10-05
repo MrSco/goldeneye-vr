@@ -2592,8 +2592,14 @@ s32 gevrStereoTwoHandUpdate(void)
     s32 item = getCurrentPlayerWeaponId(GUNRIGHT);
     s32 was = s_gevrTwoHand;
     f32 opos[3], snap[3], dist = 0.0f;
+    const char *why = "";
+    s32 claimed = FALSE;
 
     static s32 s_farFrames = 0;
+    static s32 s_gripWas = 0;
+    const s32 press = get_button_state(0, "grip") && !s_gripWas;
+
+    s_gripWas = get_button_state(0, "grip");
 
     /* Remote players have no tracked hands on this headset. */
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
@@ -2605,11 +2611,13 @@ s32 gevrStereoTwoHandUpdate(void)
     {
         s_gevrTwoHand = FALSE;
         s_farFrames = 0;
+        why = ", not a two-handed gun now";
     }
     else if (!get_button_state(0, "grip"))
     {
         s_gevrTwoHand = FALSE;
         s_farFrames = 0;
+        why = ", let go";
     }
     else
     {
@@ -2625,8 +2633,9 @@ s32 gevrStereoTwoHandUpdate(void)
             extern s32 gevrReloadClaimsOffHand(void);
 
             /* Hand reload: the off hand at the magazine is reloading, not holding (user) */
+            claimed = !s_gevrTwoHand && gevrReloadClaimsOffHand();
             if (dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM)
-                && (s_gevrTwoHand || !gevrReloadClaimsOffHand()))
+                && (s_gevrTwoHand || !claimed))
             {
                 s_gevrTwoHand = TRUE;
                 s_farFrames = 0;
@@ -2635,6 +2644,7 @@ s32 gevrStereoTwoHandUpdate(void)
             {
                 s_gevrTwoHand = FALSE;
                 s_farFrames = 0;
+                why = ", too far";
             }
         }
         else
@@ -2644,8 +2654,13 @@ s32 gevrStereoTwoHandUpdate(void)
     }
     if (s_gevrTwoHand != was)
     {
-        sysLogPrintf(LOG_NOTE, "stereo: two-handed hold %s (item %d, off hand %.1f cm from the barrel)",
-                     s_gevrTwoHand ? "on" : "off", item, dist);
+        sysLogPrintf(LOG_NOTE, "stereo: two-handed hold %s (item %d, off hand %.1f cm from the barrel%s)",
+                     s_gevrTwoHand ? "on" : "off", item, dist, s_gevrTwoHand ? "" : why);
+    }
+    else if (press && !s_gevrTwoHand && gevrStereoTwoHandItem(item))
+    {
+        sysLogPrintf(LOG_NOTE, "stereo: two-handed hold not taken (item %d, off hand %.1f cm from the barrel%s)",
+                     item, dist, claimed ? ", reloading" : "");
     }
     if (gevrAimLogEnabled() && (gevrVrGripSnapshotId() % 6) == 0)
     {
@@ -15691,6 +15706,22 @@ static void gevrReloadMagPoint(const f32 gun[3], const f32 gr[3], const f32 gu[3
     }
 }
 
+/*
+ * The magazine or the two-handed hold: the off hand goes to whichever is
+ * nearer (user: the KF7 would not be held with both hands - its magazine,
+ * where the player set it, is within reach of the fore-end's back).
+ */
+static s32 gevrMagNearerThanFore(f32 magcm)
+{
+    f32 opos[3], snap[3], fore;
+
+    if (!gevrStereoTwoHandItem(getCurrentPlayerWeaponId(GUNRIGHT)) || !gevrTwoHandBarrel(opos, snap, &fore, FALSE))
+    {
+        return TRUE;
+    }
+    return magcm < fore;
+}
+
 /* the off hand's grip belongs to the GoldenEye X magazine: holding it, or taking one at the belt */
 s32 gevrGexClaimsOffHand(void)
 {
@@ -15726,7 +15757,7 @@ s32 gevrGexClaimsOffHand(void)
         {
             d2 += (off[i] - mag[i]) * (off[i] - mag[i]);
         }
-        return d2 <= rr * rr;
+        return d2 <= rr * rr && gevrMagNearerThanFore(sqrtf(d2) / cm);
     }
     return s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && gevrGexAtBelt(0, off);
 }
@@ -15913,7 +15944,8 @@ s32 gevrReloadClaimsOffHand(void)
     {
         dist2 += (off[i] - mag[i]) * (off[i] - mag[i]);
     }
-    return dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm;
+    return dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm
+        && gevrMagNearerThanFore(sqrtf(dist2) / cm);
 }
 
 void gevrHandReloadTick(void)
@@ -15992,8 +16024,9 @@ void gevrHandReloadTick(void)
         switch (*st)
         {
             case GEVR_GEXMAG_IN:
-                if (grip && !s_gripWas
-                    && dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm)
+                if (grip && !s_gripWas && !gevrStereoTwoHandGrip()
+                    && dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm
+                    && gevrMagNearerThanFore(sqrtf(dist2) / cm))
                 {
                     *st = GEVR_GEXMAG_GRIPPED;
                     s_magGrabUp = upnow;
@@ -16054,8 +16087,9 @@ void gevrHandReloadTick(void)
             dist2 += d[i] * d[i];
             upnow += (off[i] - gun[i]) * gu[i];
         }
-        if (grip && !s_gripWas
-            && dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm)
+        if (grip && !s_gripWas && !gevrStereoTwoHandGrip()
+            && dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm
+            && gevrMagNearerThanFore(sqrtf(dist2) / cm))
         {
             s_gevrMagGrab = 1;
             s_magGrabUp = upnow;
