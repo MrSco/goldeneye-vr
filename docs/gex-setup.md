@@ -2,8 +2,8 @@
 
 GoldenEye VR can use GoldenEye X's **KF7 model and animations** and **VR arms
 wearing GoldenEye's watch**, supplied by your own patched ROM. These options are
-WIP and off by default. They were added after v0.4.6; use a build containing
-PR #117. See [unreleased changes](releases/unreleased.md).
+WIP and off by default. They are available in **v0.4.7 or later** (PR #117).
+See [v0.4.7 changes](releases/v0.4.7.md).
 
 You still play GoldenEye's missions with your normal GoldenEye 007 (USA) ROM.
 This support does not run the GE-X campaign or import its maps, other weapons,
@@ -247,4 +247,4 @@ the watch's VR settings where offered.
 
 For implementation and model-format notes, see [GE-X weapons](gex-weapons.md).
 For remaining headset checks and integration fixes, see
-[unreleased changes](releases/unreleased.md).
+[v0.4.7 changes](releases/v0.4.7.md).
