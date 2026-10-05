@@ -19,6 +19,7 @@
 
 <p align="center">
   <a href="#-install-it-in-5-steps">Install</a> ·
+  <a href="#-goldeneye-x-optional-wip">GE-X</a> ·
   <a href="#-controls">Controls</a> ·
   <a href="#-troubleshooting">Troubleshooting</a> ·
   <a href="#-building-from-source">Build</a> ·
@@ -32,6 +33,11 @@
 > no ROM, graphics, sound, music, text or levels. You need a ROM of the
 > **USA (NTSC-U)** cartridge that you own. The app reads everything it needs from that
 > file on your headset. Please don't ask for ROMs, and don't share them in Issues.
+
+> [!NOTE]
+> This README describes the current source. The changes after **v0.4.6**, including
+> optional GoldenEye X support, are listed in [the unreleased notes](docs/releases/unreleased.md).
+> Use a build containing those changes to access the new options.
 
 ## ✨ What you get
 
@@ -61,6 +67,9 @@ Also:
 
   In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
 - **Multiplayer** (experimental): deathmatch for up to eight players, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
+- **GoldenEye X** (optional, WIP): its KF7 model and animations, removable magazines in VR,
+  and its arms wearing GoldenEye's watch, loaded from your own patched Perfect Dark ROM.
+  See [GE-X setup](#-goldeneye-x-optional-wip).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.
@@ -155,6 +164,38 @@ Coming from v0.1.12 or older, or if you'd rather not update in the headset: inst
 the same way as the first time. Your ROM and settings stay where they are.
 **Don't uninstall first:** uninstalling deletes the app's folder, ROM included.
 
+## 🧩 GoldenEye X (optional, WIP)
+
+GoldenEye X is a ROM hack of Perfect Dark. This port can read its **KF7** and
+**arms** as optional replacements while you play GoldenEye. Support currently covers
+those assets; GE-X's campaign, maps and other weapons are not imported.
+
+Keep your usual GoldenEye 007 (USA) ROM installed. For GE-X, you also need your own
+**legally obtained Perfect Dark USA v1.1 / Rev 1 ROM**, in big-endian `.z64` format
+(33,554,432 bytes; MD5 `e03b088b6ac9e0080440efed07c1e40f`), and the **GE-X 6a** patch
+from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
+
+1. On your computer, apply `GE-X_6a_01-19-25.xdelta` to a **clean Perfect Dark v1.1**
+   ROM and save the result as `gex.z64`. Preserve the original. The
+   [full preparation guide](docs/gex-setup.md) covers byte-order conversion, patching
+   with a GUI or Python, and checking the result.
+2. Copy `gex.z64` into the Quest's **Download** folder using USB or SideQuest.
+3. Open the launcher's **Play → Mods...** page. Under **GOLDENEYE X**, press
+   **Choose ROM...** and select the patched file. Look for **GoldenEye X ROM chosen.**
+   The app stores it as `Android/data/com.gevr.port/files/data/gex.z64`.
+4. Enable **Its guns (KF7, WIP)** and/or **Its arms, wearing the watch (VR, WIP)**.
+   Both default to off. Start a mission and equip a KF7 to see the gun replacement.
+
+The virtual screen uses GE-X's KF7 fire and reload animations. For physical magazine
+reloads in stereo VR, also enable **Hand reload (WIP)** in **Controls → Gestures...**:
+pull the magazine with your off hand, grip a replacement at your belt, and seat it
+in the gun. B/Y drops the magazine; a removed magazine keeps its rounds until
+reinserted or dropped. See [reload and fit controls](docs/gex-setup.md#reload-and-fit-controls).
+
+No Perfect Dark ROM, patched ROM or GE-X assets ship with the app. The app imports
+the file you prepare; it does not apply the patch for you. Use the Mods picker for
+GE-X and the Play page's **Choose ROM file...** for your GoldenEye ROM.
+
 ## 🎮 Controls
 
 ### Stereo VR
@@ -194,15 +235,21 @@ Real-world movement works too: lean around corners, duck, and step. Ducking behi
 that are off by default:
 - **Hand reload (WIP)**: guns stop reloading themselves, and B/Y stop reloading. Pull an SMG's or
   rifle's magazine down with your off hand, or sweep a pistol, shotgun or dual-wielded gun
-  across your chest.
+  across your chest. The **GE-X KF7** uses a removable magazine: pull it out, take a
+  replacement at your belt and push it in; B/Y drops its magazine. Bring an empty GE-X
+  gun to the belt to reload it directly, including when dual-wielding.
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
 
 **Game rules...** on the **Play** tab holds two changes to the original game, off by default
 and for single player only: mines stick to guards, and bodies stay (the newest 12, 24 or 48).
 
-**VR settings**, at the bottom of the watch's Game Options page, changes these settings
-mid-mission: turning, turn speed, the vignette, the watch face, aim steadying, aim: no lean,
-motion throwing, the gestures, hand reload and per-gun recoil.
+**VR settings**, at the bottom of the watch's Game Options page, changes settings
+mid-mission in seven sections: **Comfort**, **Controls**, **Gestures**, **Weapons**,
+**Display**, **Game rules**, and **Mods and fun**. These include left-handed mode,
+stick swapping, gun fit, watch and grip gestures, reloads, recoil, motion throwing,
+screen size/distance/curve/passthrough, stats, GE-X toggles and gun size. **Display →
+Refresh** requests the supported rate immediately. Texture-pack selection and play
+mode stay outside these sections; switch play mode by holding the right stick click.
 
 **Left-handed?** Tick **Left-handed** in the launcher. The gun goes in your left hand and the watch on your right wrist, and the sticks and face buttons swap sides. The **☰ Menu** button stays on the left controller: the right one is Meta's system button.
 To walk with the left stick anyway, tick **Swap sticks** as well.
@@ -261,6 +308,12 @@ IP addresses) only while the game is open. Games on your Wi-Fi still work withou
 
 **Not there yet:** You don't see other players' hands move.
 
+Recent co-op fixes make dead guards drop their guns on joining headsets, with each
+player still able to collect their own copy. Mission Statistics also handles a
+joiner whose save-folder picker was bypassed: your chosen folder is preserved,
+otherwise the first local folder is used. The reported invisible Bunker ending
+cutscene remains under investigation. See [the unreleased notes](docs/releases/unreleased.md).
+
 ## ⚙️ Settings
 
 Launcher settings are saved for next time. Finer settings live in
@@ -295,6 +348,14 @@ is in your hand. Hold the gun with both hands to fit the holding hand as well. *
 player, **Menu + A** starts and ends it during play, so you can leave it, switch weapons and
 come back.
 
+**X** cycles the available fit modes: gun, scope, reload and GE-X off hand. With
+hand reload enabled and one magazine-fed gun, reload fit uses the **left trigger**
+to mark the magazine grab point and **Y** to mark your belt with the off hand.
+GE-X fits are saved separately from GoldenEye's. Its off-hand mode moves the palm;
+hold the right grip to adjust the watch's place and size. Holding a GE-X gun with
+both hands and GE-X arms enabled fits its supporting hand and grab point. See
+[the fit guide](docs/gex-setup.md#reload-and-fit-controls) for the full controls.
+
 With a gadget in hand instead (a mine, keycard, key analyzer, document and so on), the same
 fit moves that gadget: the move stick forward and sideways, the turn stick up and down and
 (sideways) its size. Hold the right grip and the sticks turn it. **A** saves every gadget's fit
@@ -327,6 +388,15 @@ Change the Library filter (top of the Library window) from **All** to **Unknown 
 </details>
 
 <details>
+<summary><b>GE-X won't load, or I don't see the new options</b></summary>
+
+Use a build with GE-X support (see [unreleased notes](docs/releases/unreleased.md)).
+Prepare **GE-X 6a** from **Perfect Dark USA v1.1**, check its byte order and checksum,
+then import it through **Play → Mods... → GOLDENEYE X → Choose ROM...**. The
+[setup guide](docs/gex-setup.md#troubleshooting) explains the error messages and restart steps.
+</details>
+
+<details>
 <summary><b>The Quest shows no files in Windows Explorer</b></summary>
 
 Put the headset on and accept **Allow access to data**, then reopen the Quest in File Explorer.
@@ -353,6 +423,15 @@ the release, then copy them back.
 
 In the launcher, turn on **Comfort** (darkens the edges while you move) and try **Snap** turning.
 Or play on the virtual screen, which has no artificial motion at all.
+</details>
+
+<details>
+<summary><b>Facility crashed or flickered green on Quest 2</b></summary>
+
+The current source fixes a frame-buffer overrun reported in v0.4.6 during Facility
+combat. Use a build containing PR #118 and include the build line and debug log if
+it happens again. Sustained combat on Quest 2 with the heaviest settings still needs
+headset verification; see [the investigation](docs/crash-4bde84c2.md).
 </details>
 
 ## 🧭 Status
@@ -433,6 +512,9 @@ Built on the shoulders of:
 - **[Perfect Dark VR](https://github.com/Alex-LeTux/perfect_dark_VR)** by Alex-LeTux: our VR layer.
 - **[GoldenEye PC port](https://github.com/jkdansereau/goldeneye-pc-port)**: 64-bit porting findings.
 - **[GEVR](https://github.com/no6969el/GEVR)**: the PC VR project that inspired this one.
+- **[GoldenEye X](https://n64vault.com/pd-multi-levels:goldeneye-x)** by Wreck and
+  collaborators, including Carnivorous's weapon animations and SubDrag's tools:
+  the optional models and animations you supply through your own patched ROM.
 
 [CREDITS.md](CREDITS.md) says exactly what each project contributed.
 

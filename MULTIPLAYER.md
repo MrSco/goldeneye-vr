@@ -13,6 +13,29 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 - The host picks the stage (the game's eleven, plus Statue and Cradle from the ROM's cut multiplayer setups, #95), the player count, a character and the weapons (the game's own multiplayer weapon sets, Slappers only to Golden Gun). The LAN list on the Join tab shows each game's stage, weapons and players.
 - A match supports up to eight player slots (protocol 16, issue #88). The host picks the count, two to eight, on any stage: the launcher's **Players** beside the stage, or the **PLAYERS** row of the in-match lobby page (default four, saved as `MpMaxPlayers`). It travels in the match config (`max_players`); a team scenario takes its own size instead. The count cannot drop below the connected players or a connected slot; in a match a new count applies from the next load. The host launcher requires at least two players, all ready, before launch.
 
+## Co-op campaign
+
+Choose **Co-op mission** in the launcher for up to four players. Each player
+uses their own local save folder; the host selects the mission and difficulty.
+The current source includes these fixes after v0.4.6:
+
+- Dead guards' hand weapons drop on joining headsets, with independent
+  pickups for each player. Taking your copy leaves teammates' copies available.
+- Mission start preserves your chosen save folder. If the host starts before
+  you finish choosing one, the first local folder is used; a missing save
+  reports no recorded best time instead of crashing mission Statistics.
+
+The reported invisible Bunker ending cutscene on a joiner remains unresolved.
+Two-headset acceptance for the new gun-drop behavior is pending. See
+[co-op notes](docs/issue-94-coop.md),
+[debrief crash analysis](docs/crash-a16b05b5-coop-debrief.md) and
+[unreleased changes](docs/releases/unreleased.md) for validation and limits.
+Protocol 18 is unchanged by these fixes.
+
+GE-X gun and arm replacements are local options. Only a player enabling them
+needs the additional prepared ROM; everyone still needs their own GoldenEye
+ROM and the same APK version. See [GE-X setup](docs/gex-setup.md).
+
 ## Implemented messages
 
 - `NET_MSG_HELLO`, `NET_MSG_WELCOME`, `NET_MSG_LOBBY_STATE`, `NET_MSG_LOBBY_READY`, and `NET_MSG_LOBBY_CHARACTER` manage the lobby. A player whose name is already in a slot on a dead connection takes that slot back. After a host migration `HELLO` names the slot the player had and `WELCOME` names the host's slot (protocol 8).
