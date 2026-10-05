@@ -2689,7 +2689,8 @@ extern "C" void gevrLauncherRun(void)
             ImGui::TextWrapped("Squeeze the grip with the hand in place. Anywhere else the grip aims as before.");
             ImGui::PopStyleColor();
             toggle("Hip holster (WIP)", &VrGestureHolster,
-                   "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.");
+                   "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.\n"
+                   "A fresh grip press takes priority over the belt reload gesture.");
             toggle("Grip use", &VrGestureGripUse,
                    "The hand at a door, switch or console: use it, as B does.");
             toggle("Grip to hand (WIP)", &VrGesturePickup,
@@ -2703,9 +2704,11 @@ extern "C" void gevrLauncherRun(void)
             ImGui::Spacing();
             ImGui::TextColored(gold, "RELOAD & RECOIL (stereo)");
             toggle("Hand reload (WIP)", &VrManualReloading,
-                   "No auto-reload, and B/Y no longer reload. Squeeze the off hand at the\n"
-                   "gun's magazine and pull down; or sweep a pistol, shotgun or a\n"
-                   "dual-wielded gun across your chest.");
+                   "Bring any gun, GE or GE-X, into your fitted belt zone to reload.\n"
+                   "Move 5 cm beyond the zone before another belt reload.\n"
+                   "A fresh grip at the hip holsters instead if Hip holster is on.\n"
+                   "Magazine pulls and pistol/shotgun/dual-gun chest crosses also work.\n"
+                   "Auto-reload is off; GE-X magazine buttons still eject the magazine.");
             toggle("Per-gun recoil", &VrPerWeaponRecoil,
                    "Each gun kicks with its own recoil (Perfect Dark VR's table)\ninstead of one kick for all.");
             ImGui::Spacing();
