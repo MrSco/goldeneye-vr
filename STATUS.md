@@ -3,25 +3,34 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-05, v0.4.8, versionCode 61, protocol 18.
+**Updated / current build:** 2026-10-05, v0.4.9, versionCode 62, protocol 18.
 The changes below are included in this build. Building it does not publish
 a GitHub release. No game data is shipped.
 
-## v0.4.8
+## v0.4.9
 
-- #113: launcher settings persist immediately on change across all tabs
-  and subpages without requiring the player to click START or have a valid
-  ROM loaded. Recovers write permissions if goldeneye-vr.ini is stuck read-only
-  and performs atomic temporary file replacement. Flushes settings on app exit.
-- #121: co-op players can pass through each other in narrow mission starts
-  (such as Facility's vent) without getting trapped. Competitive and world
-  collisions remain intact.
-- Validation: 12 native test suites pass (including co-op collision, read-only
-  INI recovery, multiplayer 64 tests). ARM64 release builds cleanly.
+- Smooth local VR locomotion between game ticks: confirmed translation and body
+  yaw interpolate on every headset frame while head/hands use current tracking.
+  Gameplay speed, collisions, aiming and multiplayer state retain their cadence.
+- Performance status separates simulation, fresh renders, intermediate redraws,
+  XR submissions, worst render/submission gaps, delay and history clamps.
+- GE-X muzzle flashes follow the fitted barrel tip (#126); the user's KF7 fit
+  is now the default for new installs. Saved fits retain priority.
+- Calibrated belt reloads work for both hands and reloadable guns, preserve GE-X
+  ammo and avoid holster/melee gesture conflicts (#124, #125).
+- Validation before the version bump: native locomotion/display/surface/reload/
+  collision checks, 64 multiplayer tests and 20 Android unit tests passed.
+  The user tested on Quest and reported smooth movement. Broader rate/QGO/co-op
+  comparisons remain unverified; tests were not rerun for the version bump.
 
-Full changes and notes: [v0.4.8 notes](docs/releases/v0.4.8.md).
+Full changes: [v0.4.9 notes](docs/releases/v0.4.9.md).
+Evidence: [locomotion validation](docs/vr-locomotion-validation.md).
 
 ## Release baseline
+
+**v0.4.8:** immediate launcher settings persistence, read-only INI recovery and
+atomic writes (#113); co-op spawn unclogging in narrow mission starts (#121).
+Notes: [v0.4.8](docs/releases/v0.4.8.md).
 
 **v0.4.7:** GE-X 6a KF7 and animations from patched Perfect Dark ROM; physical
 hand reload in stereo; GE-X arms with live watch; watch VR settings groups;

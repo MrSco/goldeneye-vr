@@ -146,7 +146,7 @@ extern "C" float gevrStereoVignette(void);          // bondview2.c
 void gfx_vr_scope_record(bool on, bool invert_y);   // gfx_opengl.cpp (issue #40)
 void gfx_vr_scope_only(int hand);                   // GUNRIGHT 0 / GUNLEFT 1, -1 ends
 void gfx_vr_scope_render(void);
-void gfx_vr_eye_record(bool on, const float* proj, bool invert_y);   // gfx_opengl.cpp (issue #53)
+void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* presentation);
 void gfx_vr_eye_hand(int ctrl);
 bool gfx_vr_eye_replay_ready(void);
 void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1);
@@ -155,6 +155,10 @@ extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
 extern "C" void gevrVrMarkRedrawn(void);
 extern "C" float g_viProjectionMatrixF[4][4];     // fr.c: the game's projection
 static float s_gevrLastVignette;                  // the eye pass's, for its redraws
+#include "gevr_locomotion.h"
+static bool s_gevrPresentationOn;
+static float s_gevrPresentationDelta[16];
+static int s_gevrPresentationHand = -1;
 int VrPauseHub = false;
 
 // --- VR: culling has to account for the per-eye clip-space shear -------------
@@ -2476,6 +2480,33 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     struct LoadedVertex* v2 = &rsp.loaded_vertices[vtx2_idx];
     struct LoadedVertex* v3 = &rsp.loaded_vertices[vtx3_idx];
     struct LoadedVertex* v_arr[3] = { v1, v2, v3 };
+    /* Keep raw vertices for scope/replay, but test both the simulation and
+     * presentation views. A triangle visible in either must reach the GPU. */
+    LoadedVertex presented[3];
+    const bool presentation = s_gevrPresentationOn && s_gevrPresentationHand < 0 && !gVrFlatPass;
+    if (presentation) {
+        for (int i = 0; i < 3; i++) {
+            presented[i] = *v_arr[i];
+            const float clip[4] = {presented[i].x, presented[i].y, presented[i].z, presented[i].w};
+            const float wm1 = fabsf(clip[3] - 1.0f);
+            if (wm1 == 0 || wm1 == 7 || wm1 == 8 || wm1 == 9) continue; // HUD markers
+            float p[4];
+            gevrPresentationClip(s_gevrPresentationDelta, &g_viProjectionMatrixF[0][0], clip, p);
+            presented[i].x = p[0]; presented[i].y = p[1]; presented[i].z = p[2]; presented[i].w = p[3];
+            const float aw = fabsf(p[3]);
+            const float mx = vr_clip_margin_x_const + vr_clip_margin_x_w * aw;
+            const float my = vr_clip_margin_y_w * aw;
+            uint8_t reject = 0;
+            if (p[0] < -p[3] - mx) reject |= 1;
+            if (p[0] > p[3] + mx) reject |= 2;
+            if (p[1] < -p[3] - my) reject |= 4;
+            if (p[1] > p[3] + my) reject |= 8;
+            if (p[2] * GEVR_FAR_DEPTH_SCALE > p[3]) reject |= 32;
+            presented[i].clip_rej = (v_arr[i]->clip_rej & reject) | (v_arr[i]->clip_rej & 64);
+            if (clip[3] < 0) presented[i].clip_rej &= 64;
+        }
+        v1 = &presented[0]; v2 = &presented[1]; v3 = &presented[2];
+    }
 
     // --- CUSTOM VR HIDE: SMART REMOVAL ---
     if ((v1->clip_rej & 64) && (v2->clip_rej & 64) && (v3->clip_rej & 64)) {
@@ -2542,6 +2573,13 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
             }
 
             cull = cull_front ? (cross <= 0) : (cross >= 0);
+        }
+        if (cull && presentation) {
+            for (int eye = 0; eye < (vr_cull_stereo ? 2 : 1); eye++) {
+                cross = gfx_tri_signed_area(v_arr[0], v_arr[1], v_arr[2], vr_cull_eye_dx[eye]);
+                if (gfx_is_matrix_inverted()) cross = -cross;
+                if (!(cull_front ? (cross <= 0) : (cross >= 0))) cull = false;
+            }
         }
 
         if (cull && gevrCullOff) {
@@ -3893,6 +3931,7 @@ static void gfx_run_dl(Gfx* cmd) {
                     // VR_HAND_DRAW (issue #53, gunfire.c gevrHandTag): the draws
                     // that follow controller (low bits - 1), or none (0)
                     gfx_flush();
+                    s_gevrPresentationHand = (int)(tag_w1 & 0xFF) - 1;
                     gfx_vr_eye_hand((int)(tag_w1 & 0xFF) - 1);
                     break;
                 }
@@ -4760,10 +4799,14 @@ extern "C" void gfx_run(Gfx* commands) {
             } else {
                 // 3) Render the game directly into the headset texture
                 // (its draws kept for the XR frames before the next game frame: issue #53)
-                gfx_vr_eye_record(true, &g_viProjectionMatrixF[0][0], gfx_rapi->get_clip_parameters().invert_y);
+                s_gevrPresentationHand = -1;
+                s_gevrPresentationOn = gevrVrPresentationDelta(s_gevrPresentationDelta) != 0;
+                gfx_vr_eye_record(true, &g_viProjectionMatrixF[0][0], gfx_rapi->get_clip_parameters().invert_y,
+                                  s_gevrPresentationOn ? s_gevrPresentationDelta : nullptr);
                 run_display_list();
                 gfx_flush();
-                gfx_vr_eye_record(false, nullptr, false);
+                gfx_vr_eye_record(false, nullptr, false, nullptr);
+                s_gevrPresentationOn = false;
                 gevrVrMarkEyesRendered(1);
                 gfx_vr_scope_render();   // issue #40: the world again, through the sniper scope
                 s_gevrLastVignette = gevrStereoVignette();

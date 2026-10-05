@@ -1,0 +1,256 @@
+#include "gevr_locomotion.h"
+#include <openxr/openxr.h>
+#include <algorithm>
+#include <array>
+#include <cassert>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <limits>
+#include <map>
+#include <vector>
+
+static bool g_frameStarted = true, positionValid = true, orientationValid = true;
+static bool g_haveCameraViews = true, g_haveRecordedViews = true, g_haveRenderedViews, g_eyesHoldStereo;
+static bool s_haveSourceCamera, s_haveRecordedCamera;
+static GevrLocomotionHistory s_locomotion;
+static GevrPresentationCamera s_sourceCamera, s_recordedCamera, s_presentedCamera, s_recordedPresentation;
+static GevrLocomotionPose s_recordedLocomotion, s_evaluatedLocomotion;
+static XrTime s_lastPresentationTime;
+static unsigned s_statClamps, s_statRedraw, freshRenders;
+static float vr_world_scale = 100;
+static XrFrameState g_frameState{};
+static std::array<XrView, 2> g_frameViews{}, g_cameraViews{}, g_recordedViews{}, g_renderedViews{};
+static void vr_stats_game_frame() { freshRenders++; }
+static XrQuaternionf oldHandQ{0,0,0,1}, newHandQ{0,0,0,1};
+static float oldHandP[3], newHandP[3];
+extern "C" int gevrVrGripPoseCamera(int, float p[3], float q[4]) {
+    std::memcpy(p, oldHandP, sizeof(oldHandP)); std::memcpy(q, &oldHandQ, sizeof(oldHandQ)); return 1;
+}
+extern "C" int gevrVrGripPoseSteady(int, float p[3], float q[4]) {
+    std::memcpy(p, newHandP, sizeof(newHandP)); std::memcpy(q, &newHandQ, sizeof(newHandQ)); return 1;
+}
+/* INSERT_RUNTIME */
+using u32 = uint32_t;
+static u32 g_gevrTeleportEpoch;
+/* INSERT_TELEPORT */
+
+using GLint = int;
+struct ShaderProgram { int opengl_program_id, reprojLocation=1, reprojVPLocation=2, scopeHeadPLocation=3; };
+static ShaderProgram program{1}, secondProgram{2}, *s_curPrg = &program;
+static bool use_multiview = true, gForceFlatShaderForMenu, gVrFlatPass, s_uniCacheValid;
+static bool s_eyePresent, s_eyeRec, s_eyeReady;
+static int s_eyeHand=-1, boundProgram=1;
+static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16];
+static std::vector<ShaderProgram*> s_eyePresentationPrograms;
+static std::vector<int> s_eyeDraws;
+static void *s_pmPtr = &program;
+static std::map<int,int> reprojection;
+static float lastUniformMatrix[16];
+static void glUseProgram(int id) { boundProgram = id; }
+static void glUniform1i(int, int value) { reprojection[boundProgram] = value; }
+static void glUniform2f(int, float, float) {}
+static void glUniformMatrix4fv(int, int, bool, const float *m) { std::memcpy(lastUniformMatrix,m,sizeof(lastUniformMatrix)); }
+static constexpr bool GL_FALSE = false;
+/* INSERT_BACKEND */
+
+static const float identity3[9] = {1,0,0,0,1,0,0,0,1};
+static const float identity4[16] = {1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+static void near(float a, float b, float tolerance=0.002f) { assert(std::fabs(a-b) < tolerance); }
+
+static void cadence(int hz, const std::array<float,3>& velocity) {
+    GevrLocomotionHistory h{};
+    const int64_t period = std::llround(1e9 / hz), anchor=1000000000;
+    const int64_t delay=gevrLocomotionDelay(period);
+    near((float)delay/1e6f, hz==120 ? 16.666667f : hz==90 ? 22.222222f : hz==80 ? 25.f : 27.777778f);
+    uint64_t tick=0;
+    int64_t due=anchor;
+    GevrLocomotionPose pose{};
+    for (int frame=0; frame<hz*4; frame++) {
+        const int64_t now=anchor+frame*period;
+        if (now+2000000 >= due) {
+            float tracking[3], position[3];
+            for (int i=0;i<3;i++) {
+                tracking[i]=(float)(std::sin(tick * 0.27+i) * 15); // independent physical movement
+                position[i]=tracking[i]+velocity[i]*(float)tick/60;
+            }
+            gevrLocomotionSnapshot(&h,position,tracking,std::fmod(359.f+tick*1.5f,360.f),tick,now,period);
+            tick++;
+            due=anchor+(int64_t)(tick*1000000000/60);
+        }
+        assert(gevrLocomotionQuery(&h,now,&pose));
+        if (now-anchor < delay) continue;
+        const float seconds=(float)(now-anchor-delay)/1e9f;
+        for (int i=0;i<3;i++) near(pose.position[i],velocity[i]*seconds);
+        near(std::remainder(pose.yaw-(359.f+seconds*90.f),360.f),0);
+        /* The latest physical offset bypasses interpolation at every display frame. */
+        GevrPresentationCamera source{{0,0,0},{1,0,0,0,1,0,0,0,1}}, camera{};
+        for (int i=0;i<3;i++) source.position[i]=h.poses[h.count-1].position[i]+23+i;
+        float headT[3]={1,2,3};
+        gevrLocomotionCamera(&source,&h.poses[h.count-1],&pose,identity3,headT,&camera);
+        for (int i=0;i<3;i++) near(camera.position[i],pose.position[i]+23+i+headT[i]);
+    }
+    assert(h.count==8);
+}
+
+static void stopsAndResets() {
+    GevrLocomotionHistory h{};
+    float p[3]={0,0,0}, tracking[3]={0,0,0};
+    for (uint64_t i=0;i<6;i++) {
+        p[0]=(float)std::min<uint64_t>(i,2)*4;
+        assert(gevrLocomotionSnapshot(&h,p,tracking,0,i,1000000000+i*16666667,8333333));
+        GevrLocomotionPose q{};
+        assert(gevrLocomotionQuery(&h,1000000000+i*16666667+8333333,&q));
+        assert(q.position[0]>=0 && q.position[0]<=8); // confirmed wall stop, no overshoot
+    }
+    GevrLocomotionPose q{};
+    gevrLocomotionQuery(&h,1400000000,&q); near(q.position[0],8);
+    assert(gevrLocomotionSnapshot(&h,p,tracking,90,6,1400000000,8333333)==2);
+    assert(h.count==1);
+    assert(gevrLocomotionSnapshot(&h,p,tracking,90,7,1416666667,11111111)==2);
+    assert(h.count==1); // rate change
+    assert(gevrLocomotionSnapshot(&h,p,tracking,90,7,1420000000,11111111)==0);
+    assert(h.count==1); // redraw must not publish another simulation sample
+    assert(gevrLocomotionSnapshot(&h,p,tracking,90,0,1430000000,11111111)==2);
+    assert(gevrLocomotionSnapshot(&h,p,tracking,90,1,1420000000,11111111)==2);
+    gevrLocomotionReset(&h); assert(!gevrLocomotionQuery(&h,1500000000,&q));
+    p[0]=std::numeric_limits<float>::quiet_NaN();
+    assert(!gevrLocomotionSnapshot(&h,p,tracking,0,0,1000000000,8333333)); assert(h.count==0);
+}
+
+static void runtimeFrame(uint64_t tick, int64_t time, float z) {
+    g_frameState.predictedDisplayTime=time;
+    g_frameState.predictedDisplayPeriod=8333333;
+    g_frameState.shouldRender=true;
+    for (auto &v:g_frameViews) v.pose.orientation={0,0,0,1};
+    g_cameraViews=g_frameViews;
+    const float pos[3]={0,175,z}, tracking[3]={0,0,0}, look[3]={0,0,1}, up[3]={0,1,0};
+    gevrVrLocomotionSnapshot(pos,tracking,0,tick);
+    gevrVrCameraWorld(pos,look,up);
+}
+
+static void runtimeIntegration() {
+    gevrVrLocomotionReset();
+    float fresh[16], replay[16];
+    runtimeFrame(0,1000000000,0); assert(gevrVrPresentationDelta(fresh));
+    gevrVrMarkEyesRendered(1);
+    runtimeFrame(1,1016666666,6); assert(gevrVrPresentationDelta(fresh));
+    near(s_presentedCamera.position[2],0); near(fresh[14],-6);
+    gevrVrMarkEyesRendered(1);
+    g_frameState.predictedDisplayTime=1024999999;
+    assert(gevrVrRedrawDelta(replay)); near(s_presentedCamera.position[2],3);
+    assert(gevrVrRedrawDelta(replay)); near(s_presentedCamera.position[2],3); // no accumulating correction
+    gevrVrMarkRedrawn(); assert(s_statRedraw==1);
+    /* Old cached geometry and a new game render evaluated at the same target
+     * must present the same camera, even though their raw vertex frames differ. */
+    g_frameState.predictedDisplayTime=1033333332;
+    assert(gevrVrRedrawDelta(replay)); const float boundary=s_presentedCamera.position[2];
+    runtimeFrame(2,1033333332,12); assert(gevrVrPresentationDelta(fresh));
+    near(s_presentedCamera.position[2],boundary);
+    gevrVrMarkEyesRendered(1);
+    /* Head translation and rotation are current on the intermediate frame. */
+    g_frameState.predictedDisplayTime=1041666665;
+    for (auto &v:g_frameViews) {
+        v.pose.position.x=0.1f;
+        v.pose.orientation={0,std::sin(0.1f),0,std::cos(0.1f)};
+    }
+    assert(gevrVrRedrawDelta(replay)); near(s_presentedCamera.position[0],-10);
+    near(s_presentedCamera.position[2],9);
+    near(s_presentedCamera.rotation[0],-std::cos(0.2f));
+    /* Locomotion corrections must not displace a stationary tracked gun. */
+    float hand[16]; assert(gevrVrRedrawHandDelta(0,hand));
+    for (int i=0;i<16;i++) near(hand[i],identity4[i]);
+    newHandP[0]=0.05f; assert(gevrVrRedrawHandDelta(1,hand)); near(hand[12],5);
+    newHandP[0]=0;
+    gevrNotifyTeleport(); assert(g_gevrTeleportEpoch==1); assert(s_locomotion.count==0);
+    assert(!gevrVrPresentationDelta(fresh));
+    for (auto &v:g_frameViews) v.pose.position={0,0,0};
+    runtimeFrame(0,1100000000,1000); assert(gevrVrPresentationDelta(fresh)); near(fresh[14],0);
+    gevrVrMarkEyesRendered(0); assert(!s_haveRecordedCamera); assert(s_locomotion.count==0);
+    runtimeFrame(1,1116666667,1000); positionValid=false;
+    const float pos[3]={0,0,0}; gevrVrLocomotionSnapshot(pos,pos,0,2); assert(s_locomotion.count==0);
+    positionValid=true;
+    assert(freshRenders==4);
+}
+
+static void matricesAndUniforms() {
+    GevrPresentationCamera source{{12,175,30},{-1,0,0,0,1,0,0,0,-1}}, mid=source, end=source;
+    mid.position[0]-=3; end.position[2]-=5;
+    float a[16],b[16],composed[16],direct[16];
+    gevrCameraDelta(&source,&mid,0.2f,a); gevrCameraDelta(&mid,&end,0.2f,b);
+    gevrMat4Multiply(b,a,composed); gevrCameraDelta(&source,&end,0.2f,direct);
+    for (int i=0;i<16;i++) near(composed[i],direct[i]);
+    const float proj[16]={2,0,0,0,0,3,0,0,0,0,-1,-1,0,0,-2,0};
+    const float clip[4]={4,9,8,10}; float moved[4];
+    gevrPresentationClip(a,proj,clip,moved); near(moved[0],2*(2-0.6f)); near(moved[3],10);
+    gfx_vr_eye_record(true,proj,false,a); assert(s_eyePresent);
+    s_curPrg=&program; boundProgram=1; s_uniCacheValid=false;
+    gevr_eye_present_draw(); assert(reprojection[1]==1);
+    float expected[16]; gevrMat4Multiply(proj,a,expected);
+    for (int i=0;i<16;i++) near(lastUniformMatrix[i],expected[i]);
+    s_uniCacheValid=true; gfx_vr_eye_hand(0); gevr_eye_present_draw(); assert(reprojection[1]==0);
+    gfx_vr_eye_hand(-1); gevr_eye_present_draw(); assert(reprojection[1]==1);
+    gForceFlatShaderForMenu=true; gevr_eye_present_draw(); assert(reprojection[1]==0);
+    gForceFlatShaderForMenu=false; gVrFlatPass=true; gevr_eye_present_draw(); assert(reprojection[1]==0);
+    gVrFlatPass=false; s_curPrg=&secondProgram; boundProgram=2; s_uniCacheValid=false;
+    gevr_eye_present_draw(); assert(reprojection[2]==1);
+    gfx_vr_eye_record(false,nullptr,false,nullptr);
+    assert(reprojection[1]==0 && reprojection[2]==0); assert(!s_eyePresent);
+    /* Fresh presentation also works without the replay ring. */
+    s_pmPtr=nullptr; gfx_vr_eye_record(true,proj,false,a); assert(s_eyePresent && !s_eyeRec);
+    gfx_vr_eye_record(false,nullptr,false,nullptr);
+}
+
+static void combinedHeadAndBody() {
+    gevrVrLocomotionReset();
+    for (auto &v:g_frameViews) {
+        v.pose.position={0,0,0}; v.pose.orientation={0,0,0,1};
+    }
+    g_frameState.predictedDisplayTime=2000000000;
+    g_frameState.predictedDisplayPeriod=8333333;
+    const float zero[3]={0,0,0}, up[3]={0,1,0};
+    gevrVrLocomotionSnapshot(zero,zero,359,0);
+    g_frameState.predictedDisplayTime=2016666666;
+    const float pos[3]={0,0,6};
+    gevrVrLocomotionSnapshot(pos,zero,1,1);
+    g_cameraViews=g_frameViews;
+    const float angle=-1.f*3.14159265359f/180.f;
+    const float look[3]={-std::sin(angle),0,-std::cos(angle)};
+    gevrVrCameraWorld(pos,look,up);
+    float delta[16]; assert(gevrVrPresentationDelta(delta));
+    gevrVrMarkEyesRendered(1);
+    g_frameState.predictedDisplayTime=2024999999;
+    for (auto &v:g_frameViews) {
+        v.pose.position={0.1f,0,0.03f};
+        v.pose.orientation={0,std::sin(0.1f),0,std::cos(0.1f)};
+    }
+    assert(gevrVrRedrawDelta(delta));
+    near(s_presentedCamera.position[0],std::cos(angle)*10+std::sin(angle)*3);
+    near(s_presentedCamera.position[2],3-std::sin(angle)*10+std::cos(angle)*3);
+    /* Body interpolates across 359->1 while the physical head has its current
+     * 0.2 rad turn: the combined world orientation is exactly the head turn. */
+    near(s_presentedCamera.rotation[0],std::cos(0.2f));
+    near(s_presentedCamera.rotation[2],std::sin(0.2f));
+    const GevrPresentationCamera redraw=s_presentedCamera;
+    /* Rebuild raw geometry at this same display time, including the already
+     * confirmed physical displacement, and obtain the identical eye pose. */
+    const float tracking[3]={redraw.position[0],0,redraw.position[2]-3};
+    const float advanced[3]={tracking[0],0,6+tracking[2]};
+    const float currentLook[3]={-std::sin(angle+0.2f),0,-std::cos(angle+0.2f)};
+    gevrVrCameraWorld(advanced,currentLook,up);
+    g_cameraViews=g_frameViews;
+    assert(gevrVrPresentationDelta(delta));
+    for (int i=0;i<3;i++) near(s_presentedCamera.position[i],redraw.position[i]);
+    for (int i=0;i<9;i++) near(s_presentedCamera.rotation[i],redraw.rotation[i]);
+}
+
+int main() {
+    for (int hz:{72,80,90,120}) {
+        cadence(hz,{0,0,120}); cadence(hz,{0,0,-120}); cadence(hz,{120,0,0});
+        cadence(hz,{120,30,-120});
+    }
+    stopsAndResets(); runtimeIntegration(); combinedHeadAndBody(); matricesAndUniforms();
+    std::puts("PASS: 72/80/90/120 Hz cadence, physical/head separation, yaw wrap, stops/stalls/resets");
+    std::puts("PASS: production XR fresh/redraw continuity, current head/hands, teleport and screen reset");
+    std::puts("PASS: production fresh-draw uniforms, controller/HUD exclusion, scope-state cleanup, C linkage");
+}

@@ -626,6 +626,10 @@ static bool s_opaqueDepthWrite;
 // ... and for the in-between frame's redraw (issue #53, gfx_vr_eye_replay)
 static GLint s_curViewport[4], s_curScissor[4];
 static bool s_eyeRec, s_eyeReady;   // recording the eye pass / a frame to redraw
+static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16];
+static int s_eyeHand = -1;
+static bool s_eyePresent;
+static std::vector<struct ShaderProgram*> s_eyePresentationPrograms;
 static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode);
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode);
 static void gevr_opaque_depth_after_blend(GLint first, GLsizei count);
@@ -2294,6 +2298,25 @@ GLuint gfx_vr_scope_texture(int hand)
     return (hand == 0 || hand == 1) && s_scopeDrawn[hand] ? s_scopeTex[hand] : 0;
 }
 
+static void gevr_eye_present_draw(void) {
+    /* Presentation-only correction on fresh eye draws. Scope captures and
+     * controller-held geometry retain their original camera-relative poses. */
+    if (use_multiview && s_curPrg && s_curPrg->reprojLocation >= 0) {
+        static int s_uniPresentation = -1;
+        const bool present = s_eyePresent && s_eyeHand < 0 && !gForceFlatShaderForMenu && !gVrFlatPass;
+        if (!s_uniCacheValid || s_uniPresentation != (int)present) {
+            glUniform1i(s_curPrg->reprojLocation, present ? 1 : 0);
+            if (present) {
+                glUniformMatrix4fv(s_curPrg->reprojVPLocation, 1, GL_FALSE, s_eyePresentationVP);
+                glUniform2f(s_curPrg->scopeHeadPLocation, s_eyeHeadP[0], s_eyeHeadP[1]);
+                if (std::find(s_eyePresentationPrograms.begin(), s_eyePresentationPrograms.end(), s_curPrg) == s_eyePresentationPrograms.end())
+                    s_eyePresentationPrograms.push_back(s_curPrg);
+            }
+            s_uniPresentation = present;
+        }
+    }
+}
+
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
 
     const bool lineMode = get_debug_VisCVG_flag() && !gForceFlatShaderForMenu && !gVrFlatPass &&
@@ -2401,6 +2424,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
             s_uniTint = shown;
         }
     }
+    gevr_eye_present_draw();
     s_uniCacheValid = use_multiview;   /* without multiview the eye uniforms are never cached */
 
     gevr_issue_draw(first, (GLsizei)(3 * buf_vbo_num_tris), s_decalZ, gevrRoomDl && s_isDecal, 0.0f, lineMode);
@@ -2613,28 +2637,37 @@ struct GevrEyeDraw {
 };
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
-static float s_eyeProj[16];    // the game's projection (fr.c g_viProjectionMatrixF), as a GL matrix
-static float s_eyeHeadP[2];
-static int s_eyeHand = -1;
+static void gevr_eye_proj_times(const float* delta, float M[16]);
 
 // gfx_pc.cpp gfx_run, around the stereo eye pass
-void gfx_vr_eye_record(bool on, const float* proj, bool invert_y)
+void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* presentation)
 {
     if (on) {
         s_eyeDraws.clear();
         s_eyeReady = false;
         s_eyeHand = -1;
+        s_eyePresentationPrograms.clear();
+        s_uniCacheValid = false;
+        s_eyePresent = presentation && proj && !invert_y && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
         // needs the mapped ring (each draw's vertices stay put) and the plain y
         s_eyeRec = proj != NULL && s_pmPtr != NULL && !invert_y
                 && fabsf(proj[0]) > 1e-6f && fabsf(proj[5]) > 1e-6f;
-        if (s_eyeRec) {
+        if (s_eyeRec || s_eyePresent) {
             memcpy(s_eyeProj, proj, sizeof(s_eyeProj));   // row-vector rows = GL columns
             s_eyeHeadP[0] = proj[0];
             s_eyeHeadP[1] = proj[5];
+            if (s_eyePresent) gevr_eye_proj_times(presentation, s_eyePresentationVP);
         }
     } else {
         s_eyeReady = s_eyeRec && !s_eyeDraws.empty();
         s_eyeRec = false;
+        s_eyePresent = false;
+        for (struct ShaderProgram* p : s_eyePresentationPrograms) {
+            glUseProgram(p->opengl_program_id);
+            glUniform1i(p->reprojLocation, 0);
+        }
+        if (s_curPrg) glUseProgram(s_curPrg->opengl_program_id);
+        s_uniCacheValid = false;
     }
 }
 
