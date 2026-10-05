@@ -82,6 +82,10 @@ extern struct AnimModelSlot *g_AnimModelSlots;
 extern struct ModelSlot *g_ModelSlots;
 
 extern struct ModelHitEntry *g_ModelHitFreeList;
+
+/* Heap chunks added once the cartridge's 600-entry pool is exhausted.
+ * Stage load (initModelHitEntryFreeList) releases them. */
+void modelHitEntryReleaseOverflow(void);
 extern s32 g_ModelDistanceDisabled;
 extern f32 g_ModelDistanceScale;
 extern u32 g_ModelAnimMergingEnabled;

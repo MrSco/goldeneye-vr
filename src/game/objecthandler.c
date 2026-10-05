@@ -1,5 +1,7 @@
 #include <ultra64.h>
 #include <memp.h>
+#include <stdlib.h>
+#include <string.h>
 #include "objecthandler.h"
 #include "model.h"
 
@@ -271,7 +273,63 @@ s32 D_8003641C =  0;
 
 
 /*
-*/
+ * Past the cartridge's 600 entries, chrTick would leave field_20 NULL: this
+ * walk returns the previous head when the free list is already empty, and a
+ * partial walk (the pool runs out mid-model) still returns a non-NULL list.
+ * Report ee07735d's shot had passed the bounding sphere of a living body
+ * whose root supplies a matrix, which is one of the opcodes below, so the
+ * free list was empty before that body was built. BodiesStay keeps corpses
+ * on screen, and those still take entries (drawjointlist uses the same
+ * list). Further entries are heap chunks, released on the next stage load.
+ */
+#define MODELHIT_EXTEND_COUNT 128
+
+typedef struct ModelHitChunk {
+    struct ModelHitChunk *next;
+    ModelHitEntry entries[MODELHIT_EXTEND_COUNT];
+} ModelHitChunk;
+
+static ModelHitChunk *g_ModelHitChunks;
+
+static ModelHitEntry *modelHitEntryExtend(void)
+{
+    ModelHitChunk *chunk;
+    s32 i;
+
+    chunk = (ModelHitChunk *)malloc(sizeof(ModelHitChunk));
+    if (chunk == NULL)
+    {
+        return NULL;
+    }
+
+    memset(chunk, 0, sizeof(ModelHitChunk));
+    chunk->next = g_ModelHitChunks;
+    g_ModelHitChunks = chunk;
+
+    for (i = 0; i < MODELHIT_EXTEND_COUNT - 1; i++)
+    {
+        chunk->entries[i].next = &chunk->entries[i + 1];
+        chunk->entries[i + 1].prev = &chunk->entries[i];
+    }
+
+    return &chunk->entries[0];
+}
+
+void modelHitEntryReleaseOverflow(void)
+{
+    ModelHitChunk *chunk;
+
+    chunk = g_ModelHitChunks;
+    g_ModelHitChunks = NULL;
+
+    while (chunk != NULL)
+    {
+        ModelHitChunk *next = chunk->next;
+
+        free(chunk);
+        chunk = next;
+    }
+}
 
 ModelHitEntry* sub_GAME_7F06B120(ModelHitEntry* head, Model* context) {
     ModelHitEntry* freeListCursor;
@@ -282,7 +340,37 @@ ModelHitEntry* sub_GAME_7F06B120(ModelHitEntry* head, Model* context) {
     sceneCursor = context->obj->RootNode;
     freeListCursor = g_ModelHitFreeList;
 
-    while ((sceneCursor != NULL) && (freeListCursor != NULL)) {
+    while (sceneCursor != NULL) {
+        if (freeListCursor == NULL)
+        {
+            ModelHitEntry *extra = modelHitEntryExtend();
+            ModelHitEntry *tail;
+
+            if (extra == NULL)
+            {
+                break;
+            }
+
+            if (g_ModelHitFreeList == NULL)
+            {
+                g_ModelHitFreeList = extra;
+            }
+            else
+            {
+                tail = g_ModelHitFreeList;
+
+                while (tail->next != NULL)
+                {
+                    tail = tail->next;
+                }
+
+                tail->next = extra;
+                extra->prev = tail;
+            }
+
+            freeListCursor = extra;
+        }
+
         nodeType = sceneCursor->Opcode & 0xFF;
 
         switch (nodeType) {
@@ -1267,14 +1355,11 @@ s32 sub_GAME_7F06C010(ModelHitEntry **entryptr, coord3d *modelRayStart, coord3d 
     ModelHitEntry *entry;
 
     /*
-     * Report ee07735d: a shot (chrTestHit from chraiDefaultWeaponFireHandler)
-     * SIGSEGV'd at entry->next. On arm64 that field is 0x18 into ModelHitEntry
-     * (the pool comment above: 40-byte entries), and the fault address was
-     * 0x18 with the base register clear: *entryptr was NULL. chrTick marks a
-     * chr on screen, then sub_GAME_7F06B120 leaves field_20 NULL when the
-     * 600-entry pool is empty or the model adds no hit nodes. The stereo aim
-     * trace skips that chr (chrprop.c); this walk did not, so the shot died
-     * in the same NULL+0x18 fault as the old aim-at-draw crash. No list is a
+     * Report ee07735d: a shot SIGSEGV'd at entry->next. On arm64 that field
+     * is 0x18 into ModelHitEntry, and the fault address was 0x18 with the
+     * base register clear: *entryptr was NULL. sub_GAME_7F06B120 now extends
+     * the pool so a model that has hit nodes still gets a list. This remains
+     * for a model with none, and for the extend malloc failing. No list is a
      * miss, which is what the search below already returns.
      */
     if (entryptr == NULL || *entryptr == NULL)
