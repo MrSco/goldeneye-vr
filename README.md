@@ -35,9 +35,9 @@
 > file on your headset. Please don't ask for ROMs, and don't share them in Issues.
 
 > [!NOTE]
-> This README describes the current source. The changes after **v0.4.6**, including
-> optional GoldenEye X support, are listed in [the unreleased notes](docs/releases/unreleased.md).
-> Use a build containing those changes to access the new options.
+> Optional GoldenEye X support and the latest co-op/Quest 2 fixes require
+> **v0.4.7 or later**. See [the v0.4.7 notes](docs/releases/v0.4.7.md) for the
+> new features and remaining headset checks.
 
 ## ✨ What you get
 
@@ -240,8 +240,15 @@ that are off by default:
   gun to the belt to reload it directly, including when dual-wielding.
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
 
-**Game rules...** on the **Play** tab holds two changes to the original game, off by default
-and for single player only: mines stick to guards, and bodies stay (the newest 12, 24 or 48).
+**Game rules...** on the **Play** tab offers three options, off by default:
+mines stick to guards (solo), bodies stay (the newest 12, 24 or 48, solo), and
+**Fast reinforcements**. Fast reinforcements increases difficulty by letting
+alerted guards call more reinforcements while earlier ones are still alive. It
+works with any body count, including Off. In co-op, the host controls Fast
+reinforcements for the mission. Turn it off for normal spawning.
+Keeping bodies alone preserves the original reinforcement behavior across all
+levels; 48 bodies no longer causes the reported enemy surge. See
+[body retention and reinforcements](docs/body-retention-reinforcements.md).
 
 **VR settings**, at the bottom of the watch's Game Options page, changes settings
 mid-mission in seven sections: **Comfort**, **Controls**, **Gestures**, **Weapons**,
@@ -312,7 +319,7 @@ Recent co-op fixes make dead guards drop their guns on joining headsets, with ea
 player still able to collect their own copy. Mission Statistics also handles a
 joiner whose save-folder picker was bypassed: your chosen folder is preserved,
 otherwise the first local folder is used. The reported invisible Bunker ending
-cutscene remains under investigation. See [the unreleased notes](docs/releases/unreleased.md).
+cutscene remains under investigation. See [the v0.4.7 notes](docs/releases/v0.4.7.md).
 
 ## ⚙️ Settings
 
@@ -390,7 +397,7 @@ Change the Library filter (top of the Library window) from **All** to **Unknown 
 <details>
 <summary><b>GE-X won't load, or I don't see the new options</b></summary>
 
-Use a build with GE-X support (see [unreleased notes](docs/releases/unreleased.md)).
+Use v0.4.7 or later (see [release notes](docs/releases/v0.4.7.md)).
 Prepare **GE-X 6a** from **Perfect Dark USA v1.1**, check its byte order and checksum,
 then import it through **Play → Mods... → GOLDENEYE X → Choose ROM...**. The
 [setup guide](docs/gex-setup.md#troubleshooting) explains the error messages and restart steps.

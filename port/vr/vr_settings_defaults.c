@@ -75,6 +75,8 @@ int VrPerWeaponRecoil = 0;
 /* Game rules GEVR PC changed; off keeps the original game's rule. */
 int VrMinesStickToGuards = 0; /* thrown mines stick to guards (vr450.2) */
 int VrBodiesStay = 0;         /* keep this many bodies (0, 12, 24 or 48) instead of fading them */
+int VrFastReinforcements = 0; /* independent difficulty option; normal reinforcement timing by default */
+int VrCoopFastReinforcements = 0; /* host-controlled co-op rule; clients follow the session, not their own preference */
 
 /* GoldenEye: 1 = true stereo in first-person play, 0 = everything on the virtual
  * screen. See vr_settings.h. */

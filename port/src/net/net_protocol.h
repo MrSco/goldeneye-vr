@@ -238,7 +238,7 @@ typedef struct {
     uint8_t next_round;     /* NET_NEXT_VOTE / SHUFFLE / PLAYLIST (the host's rows show it) */
     uint8_t friendly_fire;  /* host controlled, applies live; 1 preserves native damage */
     uint8_t voice_mode;     /* NET_VOICE_PROXIMITY / COUCH, applies live */
-    uint8_t fun_flags;      /* NET_FUN_*: next round only */
+    uint8_t fun_flags;      /* NET_FUN_*: next round; co-op's NET_COOP_FAST_REINFORCEMENTS applies live */
     uint8_t gun_size;       /* NET_GUN_NORMAL / TINY / BIG: visuals only */
     uint8_t custom_set[4];  /* the custom set's guns, ITEM_IDS */
     uint8_t max_players;    /* the host's choice, 2..GEVR_MAX_PLAYERS on any stage; team scenarios take their own size */
@@ -292,7 +292,8 @@ static inline int netMatchConfigValid(const NetMatchConfig *c) {
     if (c->mode == NET_MODE_COOP) {
         /* the deathmatch fields ride along unused; the mission and difficulty decide */
         if (!netCoopStageValid(c->stage) || c->difficulty >= NET_DIFFICULTY_COUNT ||
-            c->voice_mode > NET_VOICE_COUCH || c->friendly_fire > 1 || c->gun_size > NET_GUN_BIG) return 0;
+            c->voice_mode > NET_VOICE_COUCH || c->friendly_fire > 1 || c->gun_size > NET_GUN_BIG ||
+            (c->fun_flags & ~NET_COOP_FUN_MASK) != 0) return 0;
         return 1;
     }
     if (netStageIndexOf(c->stage) < 0 || c->scenario >= netScenarioCount() ||

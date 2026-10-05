@@ -3,11 +3,11 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated:** 2026-10-04. Latest release: v0.4.6, versionCode 59, protocol 18.
-The release tag identifies its signed build commit. Current source includes
-the changes below; no newer APK release is implied. No game data is shipped.
+**Updated / current build:** 2026-10-04, v0.4.7, versionCode 60, protocol 18.
+The changes below are included in this build. Building it does not publish
+a GitHub release. No game data is shipped.
 
-## Current source after v0.4.6
+## v0.4.7
 
 - #115 / #114: co-op clients prepare dead guards' hand weapons for normal
   drop/detach/activation. Pickups stay individual; live weapon changes stay
@@ -28,14 +28,17 @@ the changes below; no newer APK release is implied. No game data is shipped.
   frame pools, auxiliary allocation guards, completed-list validation and
   usage telemetry. About 1.13 MiB more of Facility's existing heap;
   individual command writes remain unchecked. Heavy Quest 2 combat pending.
-- Combined validation: 63 multiplayer tests, seven frame-pool regression
-  groups, co-op debrief/baseline regressions, watch, ammo/input/wrist,
-  pause UI and display/settings checks; Android ARM64 debug APK builds.
-  The combined build has not been installed or played on a headset.
+- Body retention preserves original script timing and tracked replacement
+  IDs across levels. Optional Fast reinforcements allows multiple living
+  reinforcements, defaults off, works at any body count, and is host-controlled
+  in co-op. 40-guard burst passes across simulated clients.
+- Validation: multiplayer, frame pools, debrief, watch, ammo/input/wrist,
+  pause UI, display/settings, NTSC/PAL reinforcement/baseline and co-op burst
+  checks. ARM64 release builds; combined headset play remains pending.
 
 Player guide: [GE-X setup](docs/gex-setup.md). Implementation:
 [GE-X weapons](docs/gex-weapons.md). Full changes and remaining checks:
-[unreleased notes](docs/releases/unreleased.md), [co-op notes](docs/issue-94-coop.md),
+[v0.4.7 notes](docs/releases/v0.4.7.md), [co-op notes](docs/issue-94-coop.md),
 [debrief crash](docs/crash-a16b05b5-coop-debrief.md), [Facility crash](docs/crash-4bde84c2.md).
 
 ## Release baseline

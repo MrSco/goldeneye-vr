@@ -1010,6 +1010,7 @@ static NetMatchConfig gevrLauncherConfig() {
         // host picks each mission and difficulty; four players at most (the deathmatch
         // fields ride along unused)
         c.mode = NET_MODE_COOP;
+        if (VrCoopFastReinforcements) c.fun_flags |= NET_COOP_FAST_REINFORCEMENTS;
         c.stage = NET_COOP_FRONT_STAGE;
         c.difficulty = 0;
         c.max_players = NET_COOP_MAX_PLAYERS;
@@ -1062,7 +1063,9 @@ static void gevrHostChoiceChanged() {
     VrMpNextRound = accepted->next_round;
     VrMpVoiceMode = accepted->voice_mode;
     VrMpFriendlyFire = accepted->friendly_fire;
-    VrMpFunFlags = accepted->fun_flags;
+    VrMpFunFlags = accepted->fun_flags & NET_FUN_MASK;
+    if (accepted->mode == NET_MODE_COOP)
+        VrCoopFastReinforcements = (accepted->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
     VrMpGunSize = accepted->gun_size;
     if (accepted->mode != NET_MODE_COOP) // co-op's four is not the deathmatch count
         VrMpMaxPlayers = accepted->max_players;
@@ -1186,7 +1189,7 @@ static const char *gevrGunSizeName(int n) {
     return names[n];
 }
 static void gevrFunOptions(bool hostPage) {
-    int flags = netIsActive() ? netGetMatchConfig()->fun_flags : VrMpFunFlags;
+    int flags = (netIsActive() ? netGetMatchConfig()->fun_flags : VrMpFunFlags) & NET_FUN_MASK;
     int size = netIsActive() ? netGetMatchConfig()->gun_size : VrMpGunSize;
     ImGui::TextDisabled(netIsActive() && netGetPhase() == NET_PHASE_IN_PROGRESS ? "Pending: applies next round"
                                                                                 : "Applies when the round loads");
@@ -1626,11 +1629,20 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                     if (ImGui::BeginTabItem("Match")) {
                         if (VrMpMode == NET_MODE_COOP) {
                             // co-op: the mission and difficulty decide the rest (Lobby tab)
+                            ImGui::BeginDisabled(netIsActive() && !netIsHost());
                             bool ff = VrMpFriendlyFire != 0;
                             if (ImGui::Checkbox("Friendly fire", &ff)) {
                                 VrMpFriendlyFire = ff;
                                 gevrHostChoiceChanged();
                             }
+                            bool fast = netIsActive() ? (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
+                                                : VrCoopFastReinforcements != 0;
+                            if (ImGui::Checkbox("Fast reinforcements", &fast)) {
+                                VrCoopFastReinforcements = fast ? 1 : 0;
+                                gevrHostChoiceChanged();
+                            }
+                            ImGui::TextWrapped("Harder: guards can call more reinforcements while earlier ones are alive. Host chooses; changes apply immediately.");
+                            ImGui::EndDisabled();
                         } else
                         gevrMatchOptions();
                         ImGui::BeginDisabled(netIsActive() && !netIsHost());
@@ -1694,9 +1706,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
                             ImGui::TextUnformatted("Connecting to host...");
                         else if (connected) {
                             const NetMatchConfig *cfg = netGetMatchConfig();
-                            if (cfg->mode == NET_MODE_COOP)
+                            if (cfg->mode == NET_MODE_COOP) {
                                 ImGui::Text("Co-op campaign: the host picks the missions");
-                            else
+                                ImGui::TextDisabled("Fast reinforcements: %s (host chooses)",
+                                    cfg->fun_flags & NET_COOP_FAST_REINFORCEMENTS ? "On" : "Off");
+                            } else
                                 ImGui::Text("%s / %s / %s", stageNameById(cfg->stage), netWeaponSetName(cfg->weapon_set),
                                             netScenarioName(cfg->scenario));
                             gevrTeamChoiceRow("##clientteam");
@@ -2699,9 +2713,9 @@ extern "C" void gevrLauncherRun(void)
         } else if (rulesPage) {
             // Game rules GEVR PC changed (vr450.2, its CORPSEKEEP); off keeps
             // the original game's rule. Single player.
-            ImGui::TextColored(gold, "GAME RULES (single player)");
+            ImGui::TextColored(gold, "GAME RULES");
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("These change the original game. Off keeps its rules.");
+            ImGui::TextWrapped("Off keeps the original rules. Mines and body retention are solo options. Fast reinforcements also works in co-op, controlled by the host.");
             ImGui::PopStyleColor();
             bool stick = VrMinesStickToGuards != 0;
             if (ImGui::Checkbox("Mines stick to guards", &stick)) VrMinesStickToGuards = stick ? 1 : 0;
@@ -2718,10 +2732,24 @@ extern "C" void gevrLauncherRun(void)
             ImGui::RadioButton("48##bodies", &VrBodiesStay, 48);
             ImGui::TextWrapped("The newest bodies stay on the floor; the oldest goes when a new guard needs its place.");
             ImGui::Spacing();
+            const bool online = netIsActive();
+            const bool coop = online && netGetMatchConfig()->mode == NET_MODE_COOP;
+            bool fast = online ? coop && (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
+                               : VrFastReinforcements != 0;
+            ImGui::BeginDisabled(online && (!coop || !netIsHost()));
+            if (ImGui::Checkbox("Fast reinforcements", &fast)) {
+                if (online) gevrNetConfigSet(CFG_FAST_REINFORCEMENTS, fast ? 1 : 0);
+                else VrFastReinforcements = fast ? 1 : 0;
+            }
+            ImGui::EndDisabled();
+            ImGui::TextWrapped("Harder: alerted guards can call more reinforcements while earlier ones are still alive. Works with any body count; co-op follows the host.");
+            ImGui::Spacing();
             ImGui::Separator();
             if (ImGui::Button("Original rules")) {
                 VrMinesStickToGuards = 0;
                 VrBodiesStay = 0;
+                if (online) gevrNetConfigSet(CFG_FAST_REINFORCEMENTS, 0);
+                else VrFastReinforcements = 0;
             }
             ImGui::SameLine();
             if (ImGui::Button("Done", ImVec2(-1, 0))) {
@@ -2825,7 +2853,7 @@ extern "C" void gevrLauncherRun(void)
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
             ImGui::SameLine();
-            const int rules = (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0);
+            const int rules = (VrMinesStickToGuards ? 1 : 0) + (VrBodiesStay ? 1 : 0) + (VrFastReinforcements ? 1 : 0);
             snprintf(label, sizeof(label), rules ? "Game rules... (%d changed)" : "Game rules...", rules);
             if (ImGui::Button(label)) rulesPage = true;
             ImGui::Spacing();
