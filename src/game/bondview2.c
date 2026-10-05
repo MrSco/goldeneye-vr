@@ -13821,6 +13821,10 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
         f32 *nodepos2;
         Mtxf handmtx;
         Mtx *finalmtx;
+#ifdef GEVR
+        extern s32 gevrGexWatchArmSwap(Model *arm, s32 begin);   /* gun.c */
+        s32 gexArm = FALSE;
+#endif
  
         rwdata->Switch.visible = g_CurrentPlayer->outside_watch_menu;
     
@@ -13938,9 +13942,41 @@ Gfx *bondviewRenderWatch(Gfx *gdl)
             }
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
+        {
+            /*
+             * GoldenEye X's arms (user: keep GE-X's arm through the watch): the
+             * pause's watch arm keeps its watch, which the pages are drawn on,
+             * without its hand or sleeve, and GE-X's left arm is drawn first,
+             * under the watch where it sits on it in the headset (gun.c). The
+             * pause draws without depth, so the arm goes on a cleared depth
+             * buffer of its own and the watch over it. Not left-handed (the
+             * arm is mirrored into a right one there).
+             */
+            extern Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w);
+
+            gexArm = !VrLeftHandedMode
+                  && gevrGexWatchArmSwap((Model *) (&g_CurrentPlayer->something_with_watch_object_instance), TRUE);
+            if (gexArm)
+            {
+                ModelRenderData armdata = renderdata;
+
+                gDPParam(renderdata.gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
+                armdata.gdl = renderdata.gdl;
+                armdata.zbufferenabled = 1;
+                matrix_4x4_7F058C64();
+                renderdata.gdl = gevrGexArmOnWatch(armdata.gdl, &armdata, matrices);
+                matrix_4x4_7F058C88();
+            }
+        }
 #endif
         subdraw(&renderdata, (Model *) (&g_CurrentPlayer->something_with_watch_object_instance));
         gdl = renderdata.gdl;
+#ifdef GEVR
+        if (gexArm)
+        {
+            gevrGexWatchArmSwap((Model *) (&g_CurrentPlayer->something_with_watch_object_instance), FALSE);
+        }
+#endif
 #ifdef GEVR
         if (VrLeftHandedMode)
         {

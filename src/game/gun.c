@@ -2241,7 +2241,8 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
 
 /*
  * The screen's watch (the pause button's raise, and every close; user: keep
- * GE-X's arm through the watch): GoldenEye's arm keeps its watch, which the
+ * GE-X's arm through the watch; bondview2.c bondviewRenderWatch draws the
+ * pause's own watch arm): GoldenEye's arm keeps its watch, which the
  * pages are drawn on, without its hand or sleeve, and GE-X's left arm is
  * drawn under it, where the watch sits on it in the headset
  * (gevrGexWatchFrame, the other way round), in the KF7's resting grip (the
@@ -2253,7 +2254,7 @@ static ModelNode *s_gevrGexSwapDl;
 static Gfx *s_gevrGexSwapSaved[2];
 static s32 s_gevrGexSwapCuff[10];
 
-/* gunfire.c, round the watch arm's draw: begin hides its hand and sleeve (TRUE if it did), end puts them back */
+/* bondview2.c, round the pause's watch arm: begin hides its hand and sleeve (TRUE if it did), end puts them back */
 s32 gevrGexWatchArmSwap(Model *arm, s32 begin)
 {
     static s32 s_note = -1;
@@ -2332,7 +2333,7 @@ s32 gevrGexWatchArmSwap(Model *arm, s32 begin)
     return TRUE;
 }
 
-/* gunfire.c, after the watch arm's draw: GE-X's left arm under its watch (w: its wrist, the watch's frame) */
+/* bondview2.c, before the pause's watch arm: GE-X's left arm under its watch (w: its wrist, the watch's frame) */
 Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w)
 {
     ModelFileHeader *hdr = &s_gevrGexHandHeader;
