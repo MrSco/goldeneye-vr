@@ -2658,6 +2658,21 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         extern s32 gevrGexWatchArmSwap(Model *arm, s32 begin);              /* gun.c */
         extern Gfx *gevrGexArmOnWatch(Gfx *gdl, ModelRenderData *templ, const Mtxf *w);
         s32 gexWatchArm = FALSE;
+
+        if (!g_gevrStereo && g_CurrentPlayer->watch_animation_state != 0)
+        {
+            /* the screen's watch: what each hand draws (user: GE-X's arm did not show there) */
+            static s32 s_was[2] = { -1, -1 };
+            const s32 now = item * 4 + (handptr->field_87F != 0) * 2 + (s_gevrHiddenShown[handnum] != 0);
+
+            if (s_was[handnum] != now)
+            {
+                s_was[handnum] = now;
+                sysLogPrintf(LOG_NOTE, "gex: screen watch, hand %d item %d shown %d hidden-shown %d (watch state %d)",
+                             handnum, item, handptr->field_87F, s_gevrHiddenShown[handnum],
+                             g_CurrentPlayer->watch_animation_state);
+            }
+        }
 #endif
 
 #ifdef GEVR
