@@ -27,11 +27,9 @@
 /* Inclusive CPU timings, only with Show stats. RAII balances early returns;
  * draw_issue is nested in draw_batch, shader_bind may nest in shader_compile. */
 class GevrCpuSection {
-    GevrFrameTimingSection section;
-    uint64_t start;
+    GevrProfileSection span;
 public:
-    explicit GevrCpuSection(GevrFrameTimingSection value) : section(value), start(gevrFrameTimingNow()) {}
-    ~GevrCpuSection() { gevrFrameTimingAdd(section, start); }
+    explicit GevrCpuSection(GevrFrameTimingSection value) : span(value) {}
 };
 /* Line mode, online (host fun flag) or offline (cheat/debug toggle): the
    N64 coverage visualization has no GL equivalent, so world edges are drawn here. */
@@ -1744,6 +1742,7 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_f
 
 static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
     GevrCpuSection timing(GEVR_TIME_TEXTURE_UPLOAD);
+    gevrFrameTimingCounters(0,0,0,(uint64_t)width*height*4,0,0);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
     // a name that held a pack image keeps its old mip levels: sample level 0 only
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
@@ -1756,6 +1755,7 @@ static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width,
 
 static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
     GevrCpuSection timing(GEVR_TIME_TEXTURE_UPLOAD);
+    gevrFrameTimingCounters(0,0,0,(uint64_t)width*height*4,0,0);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
     // before generating: the cache reuses names, and a native upload left this
     // one at MAX_LEVEL 0 - glGenerateMipmap stops there, and raising it after
@@ -2109,6 +2109,7 @@ void gfx_vr_scope_prepare(void)
 // hand's scope. The GL state is saved and put back once around both passes.
 void gfx_vr_scope_render(void)
 {
+    GevrProfileSection profile(GEVR_TIME_SCOPE);
     s_scopeRec = false;
     s_scopeOnlyMask = 0;
     if (!gevr_scope_any_taken()) {
@@ -2337,6 +2338,7 @@ static void gevr_eye_present_draw(void) {
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
     GevrCpuSection timing(GEVR_TIME_DRAW_BATCH);
+    gevrFrameTimingCounters(1, 3*buf_vbo_num_tris, 0, 0, 0, 0);
 
     const bool lineMode = get_debug_VisCVG_flag() && !gForceFlatShaderForMenu && !gVrFlatPass &&
         !vr_dl_is_pause_or_menu && buf_vbo[3] != 1.0f;
@@ -3425,6 +3427,7 @@ bool gfx_vr_menu_L_dirty_and_clear(void) {
 
 void gfx_vr_hud_capture_begin_L(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_fb_init();
 
@@ -3469,6 +3472,7 @@ void gfx_vr_hud_capture_begin_L(void)
 
 void gfx_vr_hud_capture_end_L(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
 
     gfx_flush();
 
@@ -3536,6 +3540,7 @@ static void gfx_opengl_vr_menu_R_fb_init(void)
 
 void gfx_vr_hud_capture_begin_R(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_R_fb_init();
     gevr_capture_state_save(1);
@@ -3575,6 +3580,7 @@ static void gevr_measure_R_capture(void)
 
 void gfx_vr_hud_capture_end_R(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     hud_R_was_drawn = true;
     gfx_flush();
     gevr_measure_R_capture();
@@ -3627,6 +3633,7 @@ static void gfx_opengl_vr_menu_H_fb_init(void) {
 
 void gfx_vr_hud_capture_begin_H(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_H_fb_init();
 
@@ -3668,6 +3675,7 @@ void gfx_vr_hud_capture_begin_H(void)
 
 void gfx_vr_hud_capture_end_H(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
 
     if (gVrMenuHCaptureDepth <= 0) {
@@ -3734,6 +3742,7 @@ static GLint gVrMenuPPrevViewport[4] = {0,0,0,0};
 
 void gfx_vr_hud_capture_begin_P(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     {
         int w = vr_get_internal_render_width();
@@ -3777,6 +3786,7 @@ void gfx_vr_hud_capture_begin_P(void)
 
 void gfx_vr_hud_capture_end_P(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
 
     if (gVrMenuPCaptureDepth <= 0) {

@@ -775,10 +775,12 @@ void gfx_texture_cache_clear() {
 }
 
 static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
+    GevrProfileSection profile(GEVR_TIME_TEX_LOOKUP);
     TextureCacheMap::iterator it = gfx_texture_cache.map.find(key);
     TextureCacheNode** n = &rendering_state.textures[i];
 
     if (it != gfx_texture_cache.map.end()) {
+        gevrFrameTimingCounters(0,0,0,0,1,0);
         /*
          * Performance pass: GoldenEye reloads the texture it is already using
          * all the time, and fast3d flushed the batch on every load - about
@@ -808,6 +810,7 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     }
 #ifdef GEVR
     s_gevrTcMisses++;
+    gevrFrameTimingCounters(0,0,1,0,0,1);
 #endif
 
     gfx_flush();   /* a new texture: the batch so far draws with the old one */
@@ -968,6 +971,7 @@ static void gevr_upload_native(uint32_t width, uint32_t height) {
 #endif
 
 static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
+    GevrProfileSection profile(GEVR_TIME_TEX_CONVERT);
     const uint8_t* addr = loaded_texture.addr;
 	const uint32_t width = rdp.texture_tile[tile].width;
 	const uint32_t height = rdp.texture_tile[tile].height;
@@ -990,6 +994,7 @@ static void import_texture_rgba16(int tile, const LoadedTexture& loaded_texture,
 }
 
 static void import_texture_rgba32(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
+    GevrProfileSection profile(GEVR_TIME_TEX_CONVERT);
     const uint8_t* addr = loaded_texture.addr;
 	uint32_t width = rdp.texture_tile[tile].width;
 	uint32_t height = rdp.texture_tile[tile].height;
@@ -1005,6 +1010,7 @@ static void import_texture_rgba32(int tile, const LoadedTexture& loaded_texture,
 }
 
 static void import_texture_ia4(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
+    GevrProfileSection profile(GEVR_TIME_TEX_CONVERT);
     const uint8_t* addr = loaded_texture.addr;
 	const uint32_t width = rdp.texture_tile[tile].width;
 	const uint32_t height = rdp.texture_tile[tile].height;
@@ -1027,6 +1033,7 @@ static void import_texture_ia4(int tile, const LoadedTexture& loaded_texture, bo
 }
 
 static void import_texture_ia8(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
+    GevrProfileSection profile(GEVR_TIME_TEX_CONVERT);
     const uint8_t* addr = loaded_texture.addr;
 	const uint32_t width = rdp.texture_tile[tile].width;
 	const uint32_t height = rdp.texture_tile[tile].height;
@@ -1046,6 +1053,7 @@ static void import_texture_ia8(int tile, const LoadedTexture& loaded_texture, bo
 }
 
 static void import_texture_ia16(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
+    GevrProfileSection profile(GEVR_TIME_TEX_CONVERT);
     const uint8_t* addr = loaded_texture.addr;
 	const uint32_t width = rdp.texture_tile[tile].width;
 	const uint32_t height = rdp.texture_tile[tile].height;
@@ -1065,6 +1073,7 @@ static void import_texture_ia16(int tile, const LoadedTexture& loaded_texture, b
 }
 
 static void import_texture_i4(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
+    GevrProfileSection profile(GEVR_TIME_TEX_CONVERT);
     const uint8_t* addr = loaded_texture.addr;
 	const uint32_t width = rdp.texture_tile[tile].width;
 	const uint32_t height = rdp.texture_tile[tile].height;
@@ -1085,6 +1094,7 @@ static void import_texture_i4(int tile, const LoadedTexture& loaded_texture, boo
 }
 
 static void import_texture_i8(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
+    GevrProfileSection profile(GEVR_TIME_TEX_CONVERT);
     const uint8_t* addr = loaded_texture.addr;
 	const uint32_t width = rdp.texture_tile[tile].width;
 	const uint32_t height = rdp.texture_tile[tile].height;
@@ -1126,6 +1136,7 @@ static inline void palette_to_rgba32(const uint16_t palentry, uint8_t *rgba32_bu
 }
 
 static void import_texture_ci4(int tile, const LoadedTexture& loaded_texture, bool is_rect) {
+    GevrProfileSection profile(GEVR_TIME_TEX_CONVERT);
     const uint8_t* addr = loaded_texture.addr;
     const uint32_t pal_idx = rdp.texture_tile[tile].palette; // 0-15
     const uint16_t* palette = (const uint16_t *)(rdp.palette + pal_idx * 16); // 16 pixel entries, 16 bits each
@@ -1158,6 +1169,7 @@ static void import_texture_ci4(int tile, const LoadedTexture& loaded_texture, bo
 }
 
 static void import_texture_ci8(int tile, const LoadedTexture& loaded_texture, bool importReplacement) {
+    GevrProfileSection profile(GEVR_TIME_TEX_CONVERT);
     const uint8_t* addr = loaded_texture.addr;
 	uint32_t width = rdp.texture_tile[tile].width;
 	uint32_t height = rdp.texture_tile[tile].height;
@@ -1616,6 +1628,7 @@ extern "C" void gevrTexpackStartEarly(void) {
 
 /* Once a frame: start the pack, and swap in images as they finish decoding. */
 static void gevr_texpack_frame(void) {
+    GevrProfileSection profile(GEVR_TIME_TEX_READY);
     static bool started = false;
     s_tpSyncBytes = 0;
     if (!started) {
@@ -2178,6 +2191,7 @@ struct GfxVtx {
 };
 
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
+    GevrProfileSection profile(GEVR_TIME_VERTEX);
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
 
     const bool probe = s_surfaceSampleFrame && (rsp.geometry_mode & G_LIGHTING)
@@ -2476,6 +2490,7 @@ static inline bool gfx_is_matrix_inverted() {
 }
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
+    GevrProfileSection profile(GEVR_TIME_CLIP);
     if (gevrMenuTrace) ++gevrMenuTriangles;
     struct LoadedVertex* v1 = &rsp.loaded_vertices[vtx1_idx];
     struct LoadedVertex* v2 = &rsp.loaded_vertices[vtx2_idx];
@@ -3895,6 +3910,7 @@ static void gevr_capture_rdp_state(unsigned target, bool begin) {
 }
 
 static void gfx_run_dl(Gfx* cmd) {
+    GevrProfileSection profile(GEVR_TIME_DL);
     // puts("dl");
     int dummy = 0;
     char dlName[128];

@@ -74,6 +74,7 @@
 #include "gevr_render_size.h"
 #include "gevr_locomotion.h"
 #include "gevr_frame_timing.h"
+#include "gevr_xr_metrics.h"
 #include "gevr_hud_bounds.h"
 
 extern "C" void sysFatalError(const char *fmt, ...) __attribute__((noreturn));
@@ -584,6 +585,8 @@ static std::vector<const char*> vr_enumerate_extensions()
 #endif
 
     for (const auto& ext : extensionProperties) {
+        if (std::strcmp(ext.extensionName, XR_META_PERFORMANCE_METRICS_EXTENSION_NAME) == 0)
+            enabledExts.push_back(XR_META_PERFORMANCE_METRICS_EXTENSION_NAME);
         for (const char* required : requiredExts) {
             if (std::strcmp(ext.extensionName, required) == 0) {
                 enabledExts.push_back(required);
@@ -4071,6 +4074,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     XrResult re = xrEndFrame(g_vrState.session, &endInfo);
     gevrFrameTimingAdd(GEVR_TIME_SUBMIT, timingStart);
     gevrFrameTimingSubmit(gevrFrameTimingNow(), XR_SUCCEEDED(re));
+    gevrXrMetricsPoll(XR_SUCCEEDED(re) && g_frameState.shouldRender);
     if (XR_SUCCEEDED(re)) vr_stats_xr_frame();
     if (XR_FAILED(re))
         LOGE("xrEndFrame failed %d", (int)re);
@@ -4189,6 +4193,7 @@ extern "C" bool openxr_initialize_vr(JavaVM* vm, jobject activity, ANativeWindow
     if (!vr_verify_graphics_requirements()) return false;
     if (!vr_configure_resolution()) return false;
     if (!vr_create_session()) return false;
+    gevrXrMetricsInit(g_vrState.instance,g_vrState.session);
     vr_setup_color_space();
     vr_passthrough_create();
     if (!vr_init_controllers()) return false;
@@ -4441,7 +4446,10 @@ extern "C" bool vr_begin_frame_and_update_poses()
         return false;
     }
 
-    gevrFrameTimingEnable(VrShowStats);
+#ifdef ANDROID
+    gevrFrameTimingTracePoll("/sdcard/Android/data/com.gevr.port/files/gevr_profile.txt");
+#endif
+    gevrFrameTimingEnable(VrShowStats || gevrFrameTimingTracing());
     uint64_t timingStart = gevrFrameTimingNow();
     gevrFrameTimingBegin(timingStart);
     XrFrameWaitInfo waitInfo{ XR_TYPE_FRAME_WAIT_INFO };
@@ -4642,6 +4650,7 @@ extern "C" GLuint vr_get_current_multiview_swapchain_tex() {
 // Begin OpenGL rendering for the current eye in multiview.
 // Returns false when there is nothing valid to render into, in which case the caller must
 // skip the display list rather than submit it against a dead swapchain.
+static uint64_t gevrImageAcquiredAt;
 bool vr_begin_eye_render()
 {
     if (!gfx_get_current_rendering_api()->is_multiview()) return false;
@@ -4654,6 +4663,7 @@ bool vr_begin_eye_render()
         return false;
     }
     g_swapchainImageAcquired = true;
+    gevrImageAcquiredAt=gevrFrameTimingNow();
     gevrFrameTimingAdd(GEVR_TIME_ACQUIRE, timingStart);
     timingStart = gevrFrameTimingNow();
 
@@ -4721,6 +4731,8 @@ void vr_end_eye_render()
     XrSwapchainImageReleaseInfo releaseInfo = { XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO };
     xrReleaseSwapchainImage(g_vrState.swapchains[0], &releaseInfo);
     gevrFrameTimingAdd(GEVR_TIME_RELEASE, timingStart);
+    if(gevrImageAcquiredAt) gevrFrameTimingImageLifetime(gevrFrameTimingNow()-gevrImageAcquiredAt);
+    gevrImageAcquiredAt=0;
     g_swapchainImageAcquired = false;
 
 }
@@ -4805,6 +4817,7 @@ extern "C" void vr_shutdown()
     LOGI("========== VR SHUTDOWN START ==========");
     gfx_vr_gpu_reset();
     gfx_vr_hud_bounds_reset();
+    gevrXrMetricsReset();
     gevrFrameTimingEnable(0);
 
     // 1. Ensure no frame is currently in progress

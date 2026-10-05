@@ -164,6 +164,8 @@ void vr_screen_destroy_swapchain() {}
 void vr_end_empty_frame(XrTime) {}
 extern "C" void gfx_vr_gpu_reset(void) {}
 extern "C" void gfx_vr_hud_bounds_reset(void) {}
+void gevrXrMetricsInit(XrInstance,XrSession) {}
+void gevrXrMetricsReset() {}
 extern "C" void gevrFrameTimingEnable(int) {}
 extern "C" void vr_shutdown();
 
