@@ -3,11 +3,11 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated:** 2026-10-04. Latest release: v0.4.6, versionCode 59, protocol 18.
-The release tag identifies its signed build commit. Current source includes
-the changes below; no newer APK release is implied. No game data is shipped.
+**Updated / current build:** 2026-10-04, v0.4.7, versionCode 60, protocol 18.
+The changes below are included in this build. Building it does not publish
+a GitHub release. No game data is shipped.
 
-## Current source after v0.4.6
+## v0.4.7
 
 - #115 / #114: co-op clients prepare dead guards' hand weapons for normal
   drop/detach/activation. Pickups stay individual; live weapon changes stay
@@ -35,7 +35,7 @@ the changes below; no newer APK release is implied. No game data is shipped.
 
 Player guide: [GE-X setup](docs/gex-setup.md). Implementation:
 [GE-X weapons](docs/gex-weapons.md). Full changes and remaining checks:
-[unreleased notes](docs/releases/unreleased.md), [co-op notes](docs/issue-94-coop.md),
+[v0.4.7 notes](docs/releases/v0.4.7.md), [co-op notes](docs/issue-94-coop.md),
 [debrief crash](docs/crash-a16b05b5-coop-debrief.md), [Facility crash](docs/crash-4bde84c2.md).
 
 ## Release baseline

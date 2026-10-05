@@ -17,7 +17,7 @@ This is an experimental native Quest multiplayer mode. It uses ENet and borrows 
 
 Choose **Co-op mission** in the launcher for up to four players. Each player
 uses their own local save folder; the host selects the mission and difficulty.
-The current source includes these fixes after v0.4.6:
+v0.4.7 includes these fixes:
 
 - Dead guards' hand weapons drop on joining headsets, with independent
   pickups for each player. Taking your copy leaves teammates' copies available.
@@ -29,7 +29,7 @@ The reported invisible Bunker ending cutscene on a joiner remains unresolved.
 Two-headset acceptance for the new gun-drop behavior is pending. See
 [co-op notes](docs/issue-94-coop.md),
 [debrief crash analysis](docs/crash-a16b05b5-coop-debrief.md) and
-[unreleased changes](docs/releases/unreleased.md) for validation and limits.
+[v0.4.7 changes](docs/releases/v0.4.7.md) for validation and limits.
 Protocol 18 is unchanged by these fixes.
 
 GE-X gun and arm replacements are local options. Only a player enabling them
