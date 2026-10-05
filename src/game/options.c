@@ -24,6 +24,7 @@
 #ifdef GEVR
 #include "net_coop.h"
 #include "net_match.h"   /* NET_COOP_RESULT_* */
+#include "net_game.h"
 /*
  * Co-op (#94): the watch reads this headset's own controller. Online the
  * first controller is player one's copy, on a teammate's headset the host's
@@ -3959,7 +3960,11 @@ static void gevrVrValueText(s32 row, char *buf)
 
     if (toggle != NULL)
     {
-        if (row == GEVR_VR_RECOIL)
+        if (row == GEVR_VR_FASTREINF && netIsActive())
+        {
+            sprintf(buf, "%s", !gevrCoopActive() ? "N/A" : gevrCoopFastReinforcements() ? "HOST ON" : "HOST OFF");
+        }
+        else if (row == GEVR_VR_RECOIL)
         {
             sprintf(buf, "%s", *toggle ? "PER GUN" : "GENERIC");
         }
@@ -4072,6 +4077,13 @@ static void gevrVrStep(s32 row, s32 dir)
     s32 i;
     s32 steps;
 
+    if (row == GEVR_VR_FASTREINF && netIsActive())
+    {
+        /* The net setter accepts only the co-op host. A joiner's saved
+         * solo preference cannot change this mission's reinforcement rule. */
+        gevrNetConfigSet(CFG_FAST_REINFORCEMENTS, dir == 2 ? !gevrNetConfigGet(CFG_FAST_REINFORCEMENTS) : dir > 0);
+        return;
+    }
     if (toggle != NULL)
     {
         if ((row == GEVR_VR_CURVED && !vr_screen_curve_supported())

@@ -35,6 +35,7 @@
 #ifdef GEVR
 extern bool netIsActive(void);
 #include "net_coop.h"
+#include "net_game.h"
 #endif
 
 
@@ -5373,11 +5374,12 @@ s32 gevrBodyRetireForAi(ChrRecord *chr)
     return FALSE;
 }
 
-/* Opt into repeated reinforcements from alerted guards, independently of
- * corpse visuals. Network and split-screen retain the original AI rules. */
+/* Solo uses the local preference; co-op uses only the host's active rule.
+ * Clients never spawn extra guards, and deathmatch/split-screen ignore it. */
 s32 gevrFastReinforcements(void)
 {
-    return VrFastReinforcements && !netIsActive() && getPlayerCount() == 1;
+    if (netIsActive()) return gevrCoopHostGuards() && gevrCoopFastReinforcements();
+    return VrFastReinforcements && getPlayerCount() == 1;
 }
 
 /* the body at i fades as the game would have faded it */

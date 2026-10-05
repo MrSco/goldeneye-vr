@@ -240,11 +240,12 @@ that are off by default:
   gun to the belt to reload it directly, including when dual-wielding.
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
 
-**Game rules...** on the **Play** tab offers three options, off by default and for
-single player only: mines stick to guards, bodies stay (the newest 12, 24 or 48),
-and **Fast reinforcements**. Fast reinforcements increases difficulty by letting
+**Game rules...** on the **Play** tab offers three options, off by default:
+mines stick to guards (solo), bodies stay (the newest 12, 24 or 48, solo), and
+**Fast reinforcements**. Fast reinforcements increases difficulty by letting
 alerted guards call more reinforcements while earlier ones are still alive. It
-works with any body count, including Off. Turn it off for normal spawning.
+works with any body count, including Off. In co-op, the host controls Fast
+reinforcements for the mission. Turn it off for normal spawning.
 Keeping bodies alone preserves the original reinforcement behavior across all
 levels; 48 bodies no longer causes the reported enemy surge. See
 [body retention and reinforcements](docs/body-retention-reinforcements.md).

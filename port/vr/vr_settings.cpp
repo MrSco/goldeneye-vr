@@ -65,6 +65,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "BodiesStay=%d\n", VrBodiesStay);
     fprintf(f, "; 1 = alerted guards can call multiple reinforcements (solo, default off; any body count).\n");
     fprintf(f, "FastReinforcements=%d\n", VrFastReinforcements ? 1 : 0);
+    fprintf(f, "; Host's co-op Fast reinforcements preference, independent of solo; default off.\n");
+    fprintf(f, "CoopFastReinforcements=%d\n", VrCoopFastReinforcements ? 1 : 0);
     fprintf(f, "TwoHandedAiming=%d\n", VrTwoHandAim ? 1 : 0);
     fprintf(f, "LeftHandedMode=%d\n", VrLeftHandedMode ? 1 : 0);
     fprintf(f, "; Watch face: 0 Off, 1 On (also standard HUD), 2 Only (gameplay).\n");
@@ -352,6 +354,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "PerWeaponRecoil") == 0) VrPerWeaponRecoil = ival != 0;
             else if (strcmp(key, "MinesStickToGuards") == 0) VrMinesStickToGuards = ival != 0;
             else if (strcmp(key, "FastReinforcements") == 0) VrFastReinforcements = ival != 0;
+            else if (strcmp(key, "CoopFastReinforcements") == 0) VrCoopFastReinforcements = ival != 0;
             else if (strcmp(key, "BodiesStay") == 0)
                 VrBodiesStay = ival >= 48 ? 48 : ival >= 24 ? 24 : ival >= 12 ? 12 : 0;
             else if (strcmp(key, "ShowStats") == 0) VrShowStats = (ival != 0);

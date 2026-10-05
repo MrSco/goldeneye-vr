@@ -4,6 +4,7 @@
 static void fixtureDamage(uint8_t,uint8_t,uint8_t,float,float,float);
 #include "../src/net/net_core.c"
 #define EXPORT __declspec(dllexport)
+#define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
 struct player_data g_playerPlayerData[MAX_PLAYER_COUNT];
 s32 g_gameOverFlag, D_80048394;
 struct player *g_playerPointers[MAX_PLAYER_COUNT];
@@ -19,6 +20,7 @@ int bondinvHasInvItem(ITEM_IDS item) { (void)item; return 0; }
 int VrMpStage,VrMpWeaponSet,VrMpChr,VrMpScenario,VrMpLength,VrMpHealth;
 int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize,VrMpMaxPlayers;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
+int VrCoopFastReinforcements;
 unsigned VrMpFavStages,VrMpFavSets;
 char VrPlayerName[16]="Test";
 static uint64_t clock_us=10000000;
@@ -224,6 +226,39 @@ EXPORT int test_core_fun(void) {
     if(netActiveFunFlags()!=2 || netActiveLineMode() || netActiveGunSize()!=2 || s_round.team[1]!=NET_TEAM_RED) return 8;
     return 0;
 }
+EXPORT int test_core_coop_fast(void) {
+    fixture(0);s_max_players=4;VrCoopFastReinforcements=0;
+    NetMatchConfig c=s_lobby_state.config;c.mode=NET_MODE_COOP;c.stage=NET_COOP_FRONT_STAGE;c.fun_flags=0;
+    netLobbySetConfig(&c);netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+    CHECK(!gevrCoopFastReinforcements() && !gevrNetConfigGet(CFG_FAST_REINFORCEMENTS));
+    VrCoopFastReinforcements=1; /* a stored local choice cannot override the active host rule */
+    CHECK(!gevrCoopFastReinforcements());
+    gevrNetConfigSet(CFG_FAST_REINFORCEMENTS,2);CHECK(!gevrCoopFastReinforcements());
+    for(int i=0;i<4;i++)s_lobby_state.slots[i].ready=1;
+    gevrNetConfigSet(CFG_FAST_REINFORCEMENTS,1);
+    CHECK(gevrCoopFastReinforcements() && gevrNetConfigGet(CFG_FAST_REINFORCEMENTS) && VrCoopFastReinforcements==1);
+    CHECK(VrMpFunFlags==0); /* co-op's bit never contaminates deathmatch preferences */
+    for(int i=0;i<4;i++)CHECK(s_lobby_state.slots[i].ready);
+    gevrNetConfigSet(CFG_FUN_FLAGS,NET_FUN_PAINTBALL);
+    CHECK(gevrCoopFastReinforcements() && s_round.config.fun_flags==NET_COOP_FAST_REINFORCEMENTS);
+    CHECK(s_lobby_state.config.fun_flags==(NET_FUN_PAINTBALL|NET_COOP_FAST_REINFORCEMENTS));
+    s_local_slot=1;VrCoopFastReinforcements=0;
+    gevrNetConfigSet(CFG_FAST_REINFORCEMENTS,0);CHECK(gevrCoopFastReinforcements());
+    s_local_slot=0;netSendMatchSnapshot(NULL);
+    struct netbuf b;NetRoundSettings active;NetMatchConfig pending;
+    netbufStartReadData(&b,sent_data,sent_size);
+    netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);
+    CHECK(netReadRoundSettings(&b,&active));netbufReadMatchConfig(&b,&pending);
+    CHECK(!b.error && (active.config.fun_flags&NET_COOP_FAST_REINFORCEMENTS) && (pending.fun_flags&NET_COOP_FAST_REINFORCEMENTS));
+    s_local_slot=1;ENetPeer peer={0};netHostLost(&peer);
+    CHECK(s_host_slot==1 && gevrCoopFastReinforcements());
+    s_state=NET_STATE_INGAME;
+    gevrNetConfigSet(CFG_FAST_REINFORCEMENTS,0);
+    CHECK(!gevrCoopFastReinforcements() && !VrCoopFastReinforcements);
+    s_round.config.mode=s_lobby_state.config.mode=NET_MODE_DEATHMATCH;
+    gevrNetConfigSet(CFG_FAST_REINFORCEMENTS,1);CHECK(!gevrCoopFastReinforcements());
+    return 0;
+}
 EXPORT int test_core_launch_consent(void) {
     fixture(7);s_max_players=4;
     for(int i=1;i<4;i++)s_lobby_state.slots[i].connected=0;
@@ -259,7 +294,6 @@ EXPORT int test_core_launch_consent(void) {
     return 0;
 }
 
-#define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
 static void readyPacket(ENetPeer *peer,int slot,int ready,int length) {
     u8 raw[2]={(u8)ready,0};struct netbuf b={.data=raw,.size=sizeof(raw)};
     netbufStartReadData(&b,raw,length);
