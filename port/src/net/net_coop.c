@@ -380,6 +380,16 @@ void gevrCoopChrSpawned(ChrRecord *chr, AIRecord *ailist, s32 spawnflags)
     COOP_LOG("spawn tx: slot %d chrnum %d body %d head %d", slot, chr->chrnum, chr->bodynum, chr->headnum);
 }
 
+/* A clone's final script ID, or the previous clone's reassigned ID. Reuse
+ * the reliable spawn record: an existing puppet updates its ID without
+ * allocating another guard. Late-join rosters already use these final IDs. */
+void gevrCoopChrIdentityChanged(ChrRecord *chr)
+{
+    s32 slot = coopSlotOf(chr);
+    if (!netCoopActive() || !netIsHost() || slot < 0 || slot >= COOP_MAX_SLOTS || !s_spawned[slot]) return;
+    gevrCoopChrSpawned(chr, chr->ailist, s_spawn_flags[slot]);
+}
+
 /* chr.c chrTick on the host: a guard about to be freed (CHRHIDDEN_REMOVE) */
 void gevrCoopChrRemoved(ChrRecord *chr)
 {
@@ -679,7 +689,9 @@ typedef struct {
     f32 angle;
     u64 until_us;          /* waiting for a free slot until then */
 } CoopSpawn;
-#define COOP_PENDING_SPAWNS 16
+/* One pending record per host slot: a reinforcement burst must not lose
+ * guards merely because this client's old bodies haven't freed slots yet. */
+#define COOP_PENDING_SPAWNS COOP_MAX_SLOTS
 static CoopSpawn s_pending_spawn[COOP_PENDING_SPAWNS];
 static int s_pending_spawns;
 

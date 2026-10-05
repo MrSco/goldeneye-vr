@@ -82,7 +82,8 @@ extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGra
 extern int VrPerWeaponRecoil;   // PD VR's per-weapon recoil table
 extern int VrMinesStickToGuards; // thrown mines stick to guards (GEVR PC vr450.2)
 extern int VrBodiesStay;        // bodies kept: 0 (original fade), 12, 24 or 48
-extern int VrFastReinforcements; // more simultaneous single-player reinforcements; off by default
+extern int VrFastReinforcements; // solo difficulty preference; off by default
+extern int VrCoopFastReinforcements; // host's co-op preference; off by default, separate from solo
 extern bool VrTwoHandAim;       // two-handed weapons aim along the line between both controllers
 extern int VrStickClickToCrouch;
 extern int VrAimNoLean;         // aiming keeps the move stick moving: no lean, no duck (issue #81)

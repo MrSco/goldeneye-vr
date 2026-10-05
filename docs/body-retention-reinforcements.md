@@ -8,9 +8,11 @@ alive. It is off by default and works with every body count, including Off.
 
 Both settings are in **Play → Game rules...** and the watch's **VR
 settings → Game rules**. **Original rules** in the launcher turns both off.
-They apply to solo play; network and split-screen use the original rules.
-Only guards whose existing AI permits calling reinforcements are affected.
-This does not turn every enemy or fixed mission spawn into a spawner.
+Mines and retained bodies apply to solo play. Fast reinforcements also
+works in co-op missions under the host's control; deathmatch and
+split-screen use the original rules. Only guards whose existing AI permits
+calling reinforcements are affected. This does not turn every enemy or fixed
+mission spawn into a spawner.
 
 ## Report and shared cause
 
@@ -53,6 +55,8 @@ replacement. Specific-guard mission checks keep their normal behavior.
 Turning the option off stops allowing additional living reinforcements.
 Guards already spawned remain in the mission. Body visuals and the
 default corpse-removal timing remain independent of this setting.
+In co-op, the host's preference governs spawning for all players and syncs live
+via network config; clients do not spawn independent clones.
 
 ## Validation
 
@@ -69,9 +73,13 @@ character and AI types. It verifies:
   without recapturing bodies or restoring expired IDs.
 - Fast mode permits multiple living reinforcements at every body count,
   keeps their IDs unique, and tracks the newest one.
-- Turning Fast mode off, network play and split-screen retain the normal
+- Turning Fast mode off, deathmatch and split-screen retain the normal
   living-reinforcement check; specific-guard mission checks are unaffected.
 - The pre-fix source fails both the premature-removal and clone-ID checks.
+
+Run `python port/tests/test_coop_spawns.py` to verify host reinforcement AI
+bursts across three simulated clients, including distinct slot layouts,
+a full client spawn queue, late joining, and repeated roster packets.
 
 `python port/tests/test_vr_display.py` also verifies the default Off value
 and independent persistence with every body count on Quest and desktop.

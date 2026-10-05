@@ -3692,12 +3692,16 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                                  * point at the newest one so script commands
                                  * following the spawn address that guard. */
                                 previous->chrnum = clone->chrnum;
+                                gevrCoopChrIdentityChanged(previous);
                                 previous = NULL;
                             }
 #endif
                             if (!previous)
                             {
                                 clone->chrnum = chrnum;
+#ifdef GEVR
+                                gevrCoopChrIdentityChanged(clone);
+#endif
                             }
                             // chrSetChrnum(clone, getLowestUnusedChrId());
                             // chr->chrdup = clone->chrnum;

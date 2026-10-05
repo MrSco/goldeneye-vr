@@ -19,9 +19,13 @@ s32 g_NumChrSlots = SLOTS, g_ActiveChrsCount, g_ClockTimer;
 struct player *g_CurrentPlayer;
 int VrBodiesStay, VrFastReinforcements;
 static bool network;
+static bool host, coop, host_fast;
 static s32 players = 1, free_slots = 64, next_slot = 1;
 
 bool netIsActive(void) { return network; }
+s32 gevrCoopHostGuards(void) { return network && host && coop; }
+s32 gevrCoopFastReinforcements(void) { return network && coop && host_fast; }
+void gevrCoopChrIdentityChanged(ChrRecord *chr) { (void)chr; }
 s32 getPlayerCount(void) { return players; }
 s32 chrGetNumFree(void) { return free_slots; }
 AIRecord *ailistFindById(s32 id) { (void)id; return NULL; }
@@ -86,6 +90,7 @@ static ChrRecord *reset(int bodies, int fast)
     VrBodiesStay = bodies;
     VrFastReinforcements = fast;
     network = FALSE; players = 1; free_slots = 63; next_slot = 1; g_ClockTimer = 0;
+    host = coop = host_fast = FALSE;
     ChrRecord *parent = make_chr(0, 5);
     parent->chrflags = CHRFLAG_CLONE;
     return parent;
@@ -193,12 +198,28 @@ static void fast_mode(void)
     }
 }
 
+static void coop_mode(void)
+{
+    ChrRecord *parent=reset(48,1), *latest=spawn(parent);
+    network=TRUE;coop=TRUE;host=TRUE;players=4;
+    assert(!gone(parent,(u8)CHR_CLONE)); /* solo preference does not enable co-op */
+    VrFastReinforcements=0;host_fast=TRUE;
+    for(int i=0;i<8;i++) {
+        assert(gone(parent,(u8)CHR_CLONE));latest=spawn(parent);
+        assert(chrFindById(parent,(u8)CHR_CLONE)==latest);
+    }
+    host=FALSE;VrFastReinforcements=1;
+    assert(!gone(parent,(u8)CHR_CLONE)); /* clients follow the host, never independently spawn */
+    host=TRUE;host_fast=FALSE;assert(!gone(parent,(u8)CHR_CLONE));
+    host_fast=TRUE;coop=FALSE;assert(!gone(parent,(u8)CHR_CLONE)); /* deathmatch */
+}
+
 int main(int argc, char **argv)
 {
     if (argc > 1 && !strcmp(argv[1], "timing")) { timing(); return 0; }
     if (argc > 1 && !strcmp(argv[1], "tracking")) { tracking(); return 0; }
-    timing(); tracking(); retention_changes(); fast_mode();
-    printf("PASS: %d-tick fade parity, all body counts, replacement IDs, retention/slot changes, optional swarm and solo gate\n",
+    timing(); tracking(); retention_changes(); fast_mode(); coop_mode();
+    printf("PASS: %d-tick fade parity, all body counts, replacement IDs, optional swarm and host-controlled co-op\n",
            CHRLV_TICK_DEAD_CHECK);
     return 0;
 }

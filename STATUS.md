@@ -30,10 +30,11 @@ a GitHub release. No game data is shipped.
   individual command writes remain unchecked. Heavy Quest 2 combat pending.
 - Body retention preserves original script timing and tracked replacement
   IDs across levels. Optional Fast reinforcements allows multiple living
-  reinforcements, defaults off, works at any body count and is solo only.
+  reinforcements, defaults off, works at any body count, and is host-controlled
+  in co-op. 40-guard burst passes across simulated clients.
 - Validation: multiplayer, frame pools, debrief, watch, ammo/input/wrist,
-  pause UI, display/settings and NTSC/PAL reinforcement/baseline checks.
-  ARM64 debug builds; combined headset play and Fast mode remain pending.
+  pause UI, display/settings, NTSC/PAL reinforcement/baseline and co-op burst
+  checks. ARM64 release builds; combined headset play remains pending.
 
 Player guide: [GE-X setup](docs/gex-setup.md). Implementation:
 [GE-X weapons](docs/gex-weapons.md). Full changes and remaining checks:

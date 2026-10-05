@@ -208,6 +208,7 @@ static NetRoundSettings s_round;
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpScenario, VrMpLength, VrMpHealth;
 extern int VrMpDual, VrMpLoadouts, VrMpNextRound, VrMpCustom[4], VrMpLoadout[4];
 extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers;
+extern int VrCoopFastReinforcements;
 extern unsigned VrMpFavStages, VrMpFavSets;
 extern void vrSettingsSave(void);
 
@@ -1744,6 +1745,10 @@ void netLobbySetConfig(const NetMatchConfig *config) {
     NetMatchConfig oldRound = s_lobby_state.config, newRound = *config;
     oldRound.voice_mode = newRound.voice_mode = 0;
     oldRound.friendly_fire = newRound.friendly_fire = 0;
+    if (oldRound.mode == NET_MODE_COOP && newRound.mode == NET_MODE_COOP) {
+        oldRound.fun_flags &= ~NET_COOP_FAST_REINFORCEMENTS;
+        newRound.fun_flags &= ~NET_COOP_FAST_REINFORCEMENTS;
+    }
     if (memcmp(&oldRound, &newRound, sizeof(oldRound)) != 0) {
         for (int i=0;i<GEVR_MAX_PLAYERS;i++) s_lobby_state.slots[i].ready = 0;
         netCancelRound();
@@ -1755,6 +1760,9 @@ void netLobbySetConfig(const NetMatchConfig *config) {
         for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i);
     }
     s_round.config.friendly_fire = config->friendly_fire;
+    if (s_round.config.mode == NET_MODE_COOP && config->mode == NET_MODE_COOP)
+        s_round.config.fun_flags = (s_round.config.fun_flags & ~NET_COOP_FAST_REINFORCEMENTS)
+            | (config->fun_flags & NET_COOP_FAST_REINFORCEMENTS);
     s_lobby_state.config = *config;
     if (s_state != NET_STATE_INGAME && s_state != NET_STATE_MIGRATING) {
         s_max_players = cap;
@@ -1783,6 +1791,10 @@ int netCoopSession(void) {
     return (s_state == NET_STATE_INGAME || s_state == NET_STATE_MIGRATING) && s_round.config.mode == NET_MODE_COOP;
 }
 int gevrCoopSession(void) { return netCoopSession(); }
+
+int gevrCoopFastReinforcements(void) {
+    return netCoopSession() && (s_round.config.fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
+}
 
 /*
  * The party's tally, for the statistics page (front.c): each player's guard
@@ -2052,6 +2064,7 @@ int gevrNetConfigGet(int field) {
     case CFG_FUN_FLAGS: return c->fun_flags;
     case CFG_GUN_SIZE: return c->gun_size;
     case CFG_MAX_PLAYERS: return c->max_players;
+    case CFG_FAST_REINFORCEMENTS: return c->mode == NET_MODE_COOP && (c->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
     default: return field >= CFG_CUSTOM0 && field <= CFG_CUSTOM3 ? c->custom_set[field-CFG_CUSTOM0] : 0;
     }
 }
@@ -2075,9 +2088,16 @@ void gevrNetConfigSet(int field, int value) {
     case CFG_NEXT_ROUND: c.next_round = value; break;
     case CFG_FRIENDLY_FIRE: c.friendly_fire = value; break;
     case CFG_VOICE_MODE: c.voice_mode = value; break;
-    case CFG_FUN_FLAGS: c.fun_flags = value; break;
+    case CFG_FUN_FLAGS:
+        if (value & ~NET_FUN_MASK) return;
+        c.fun_flags = value | (c.mode == NET_MODE_COOP ? c.fun_flags & NET_COOP_FAST_REINFORCEMENTS : 0);
+        break;
     case CFG_GUN_SIZE: c.gun_size = value; break;
     case CFG_MAX_PLAYERS: c.max_players = value; break;
+    case CFG_FAST_REINFORCEMENTS:
+        if (c.mode != NET_MODE_COOP || value > 1) return;
+        c.fun_flags = (c.fun_flags & ~NET_COOP_FAST_REINFORCEMENTS) | (value ? NET_COOP_FAST_REINFORCEMENTS : 0);
+        break;
     default: if (field < CFG_CUSTOM0 || field > CFG_CUSTOM3) return; c.custom_set[field-CFG_CUSTOM0] = value; break;
     }
     if (!netValidConfig(&c)) return;
@@ -2085,7 +2105,8 @@ void gevrNetConfigSet(int field, int value) {
     c = s_lobby_state.config; // Persist the accepted host settings.
     VrMpStage=c.stage; VrMpScenario=c.scenario; VrMpWeaponSet=c.weapon_set;
     VrMpLength=c.game_length; VrMpHealth=c.health; VrMpDual=c.dual_wield;
-    VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpVoiceMode=s_lobby_state.config.voice_mode; VrMpFriendlyFire=c.friendly_fire; VrMpFunFlags=c.fun_flags; VrMpGunSize=c.gun_size; VrMpMaxPlayers=c.max_players;
+    VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpVoiceMode=s_lobby_state.config.voice_mode; VrMpFriendlyFire=c.friendly_fire; VrMpFunFlags=c.fun_flags & NET_FUN_MASK; VrMpGunSize=c.gun_size; VrMpMaxPlayers=c.max_players;
+    if (c.mode == NET_MODE_COOP) VrCoopFastReinforcements = (c.fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
     for (int k=0;k<4;k++) VrMpCustom[k]=c.custom_set[k];
     vrSettingsSave();
 }
