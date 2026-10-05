@@ -3885,7 +3885,7 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Reload WIP", "Gun recoil", "Motion throw", "Throw power", "Throw pitch", "Throw gaze",
     "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
     "Mines stick", "Bodies stay",
-    "GE-X guns", "GE-X arms", "Gun size",
+    "GE-X guns WIP", "GE-X arms WIP", "Gun size",
 };
 
 /* the sections, as the launcher groups them */
