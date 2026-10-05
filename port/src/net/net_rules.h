@@ -3,6 +3,9 @@
 #define GEVR_NET_RULES_H
 
 enum { NET_FUN_DK = 1, NET_FUN_PAINTBALL = 2, NET_FUN_LINE = 4, NET_FUN_MASK = 7 };
+/* Co-op-only rule in the existing config byte; no packet layout changes. */
+#define NET_COOP_FAST_REINFORCEMENTS 8
+#define NET_COOP_FUN_MASK (NET_FUN_MASK | NET_COOP_FAST_REINFORCEMENTS)
 enum { NET_GUN_NORMAL, NET_GUN_TINY, NET_GUN_BIG };
 static inline float netGunSizeFactor(int mode) { return mode == NET_GUN_TINY ? 0.2f : mode == NET_GUN_BIG ? 2.0f : 1.0f; }
 #include <stdint.h>

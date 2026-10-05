@@ -3922,6 +3922,12 @@ ChrRecord* chrFindByLiteralId(s32 index)
     {
         if (g_ChrSlots[i].model != NULL && g_ChrSlots[i].chrnum == index)
         {
+#ifdef GEVR
+            if (gevrBodyRetireForAi(&g_ChrSlots[i]))
+            {
+                continue;
+            }
+#endif
             return &g_ChrSlots[i];
         }
     }

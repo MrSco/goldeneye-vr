@@ -34,6 +34,7 @@ extern int g_gevrCoopGuardTick;             /* the host is running a guard as it
 int gevrCoopForwardGuardDamage(float damage, float vx, float vz); /* bondview2.c record_damage_kills */
 int gevrCoopGuardHitElsewhere(struct ChrRecord *chr, int hitpart, struct coord3d *vector, int weaponid);   /* 2 reported */
 void gevrCoopChrSpawned(struct ChrRecord *chr, struct AIRecord *ailist, int spawnflags);   /* chraction.c chrSpawnAtCoord */
+void gevrCoopChrIdentityChanged(struct ChrRecord *chr); /* cloning assigns/reassigns IDs after the initial spawn */
 void gevrCoopChrRemoved(struct ChrRecord *chr);   /* chr.c chrTick, CHRHIDDEN_REMOVE */
 void gevrCoopGuardLaunched(struct ObjectRecord *obj);   /* chraction.c: a guard's grenade or rocket, on the host */
 int gevrCoopGuardExplosive(struct ObjectRecord *obj);   /* explosion.c explosionCreate: one of those, going off */
