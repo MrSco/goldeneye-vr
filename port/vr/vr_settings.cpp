@@ -173,6 +173,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; The watch on GoldenEye X's left wrist (Gun fit's off hand mode, right grip):\n");
     fprintf(f, "; cm ahead of the sleeve's end, up and out, and its size.\n");
     fprintf(f, "GexWatch=%.2f %.2f %.2f %.2f\n", VrGexWatch[0], VrGexWatch[1], VrGexWatch[2], VrGexWatch[3]);
+    fprintf(f, "; Where GoldenEye X's left hand holds a gun with both hands (Gun fit, both hands):\n");
+    fprintf(f, "; cm forward, up and out along the gun.\n");
+    fprintf(f, "GexForeHold=%.2f %.2f %.2f\n", VrGexForeHold[0], VrGexForeHold[1], VrGexForeHold[2]);
     fprintf(f, "; A scope's lens, set with Gun fit holding the gun (X switches to its scope):\n");
     fprintf(f, "; cm right, up and back from the eyepiece, then cm wider. GexScope* for\n");
     fprintf(f, "; GoldenEye X's models.\n");
@@ -259,6 +262,13 @@ extern "C" void vrSettingsLoad(void)
                       : line[0] == 'R' ? VrReloadBelt : VrGexHeldMag;
             if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
                 for (int i = 0; i < 3; i++) to[i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(line, "GexForeHold=", 12) == 0) {
+            float t[3];
+            if (sscanf(line + 12, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
+                for (int i = 0; i < 3; i++) VrGexForeHold[i] = t[i];
             }
             continue;
         }

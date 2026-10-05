@@ -164,6 +164,9 @@ float VrGexHeldMag[3] = { -1.47f, 1.44f, 4.08f };
  * mode, holding the right grip). Over the wrist and a fifth larger, to go
  * round GE-X's sleeve (user; measured offline on the KF7). */
 float VrGexWatch[4] = { 5.0f, 1.0f, 0.22f, 1.2f };
+/* where GE-X's left hand holds a gun with both hands, cm forward, up and out
+ * along the gun from where its animation has it (Gun fit's grip mode) */
+float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
 
 /* Gun fit's scope trims (port/include/gevr_scope.h): GoldenEye X's KF7 sight
  * as the user fitted it (2026-10-04), the others none */
