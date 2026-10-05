@@ -23,6 +23,10 @@
   contact-aware sub-tick head translation. This targets the measured curb/wall
   camera bounce while preserving joystick interpolation and gameplay collision.
   Native scheduling and fresh/redraw regressions pass; Quest verification is pending.
+- Replace the ammo-panel crop's synchronous pixel readback (measured around
+  5-6 ms on hitch frames) with fenced asynchronous transfers and later bounds
+  updates. Preserve GL state and aim/layout generations; native driver tests
+  pass. Headset pacing and ammo-panel transition checks remain pending.
 
 - On-screen characters still get a model hit list after the cartridge's
   600 entries are in use. Report ee07735d: firing on solo Bunker 2
