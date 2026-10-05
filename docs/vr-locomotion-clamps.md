@@ -30,8 +30,8 @@ an obstacle do not trigger it. Physical input and collision calculations are
 unchanged; the gate controls presentation history only. Requested movement is
 captured before collision may shorten it.
 
-The existing interpolation delay, logical timeline, camera composition and
-simulation pump remain unchanged. A native test demonstrates that a persistent
+The collision-gate build kept interpolation delay, logical timeline, camera
+composition and simulation pump unchanged. A native test demonstrates that a persistent
 40 ms offset between regular snapshot arrivals and their logical timestamps
 produces late clamps. That reproduces a candidate failure mechanism, not proof
 that the headset encountered it. Timeline correction awaits measured evidence.
@@ -157,5 +157,47 @@ changes before/after collection, stats toggles, query cleanup, long stalls,
 failed/empty frames, report rollover and predictions at all four display rates.
 It also executes the extracted production eye replay against a GL state mock.
 Locomotion, display, surface, reload and co-op collision regressions pass.
-The build still needs Quest timing capture and visual verification before the
-remaining stutter report can be called resolved.
+## Frame-gap Quest results and delay rounding correction
+
+The user tested `d21b4dc` at 120 Hz with 45-degree snap turns and smooth turning
+and reported that it seemed pretty smooth. The 16:33:31 screenshot shows Dam,
+1680x1760 eyes, XR 117 FPS, worst render/XR gaps of 24.0/21.9 ms, no clamps or
+resets, CPU work peak 15.3 ms, and GPU eye peaks of 2.7/2.4 ms fresh/redraw.
+This confirms perceived improvement for that test; the full acceptance matrix
+and a controlled baseline comparison remain incomplete.
+
+The retained log, `android/app/build/locomotion-device/frame-pacing-tested-120.log`,
+covers 14 windows from 16:33:34.504 through 16:33:47.574 at 120 Hz. Its first two
+windows contain 11 clamps and one effective SESSION reset; the final 12 contain
+no clamps or resets. Across the capture, GPU eye peaks reach 2.9/2.7 ms. Ordinary
+worst submission gaps are roughly 17-22 ms, with fresh-frame CPU work reaching
+18.3 ms and fresh rendering around 12-17 ms. Eye image waits on the paired frames
+reach about 6 ms; vertex fence waits are negligible and XR submission stays below
+0.5 ms. Eye GPU queries exclude layer copies/compositor work, so these numbers
+do not exclude a runtime or compositor scheduling problem. Fresh rendering is
+inclusive of nested waits; its duration and image wait must not be added.
+
+A 51.7 ms submission gap coincides with the SESSION reset window. The current
+frame has only 5.6 ms CPU work, while `between` is 46.1 ms. This is not evidence
+of a 51.7 ms draw call. The underlying session event has not been identified.
+After that reset, signed snapshot phase becomes about -33 to -42 ms: logical
+snapshot timestamps are ahead of predicted display time. The positive-only HUD
+does not expose this. Future captures now include exact runtime/history periods,
+anchor time/sequence and newest sequence to investigate this separately before
+changing the timeline. A read-only simpleperf attempt was denied access to perf
+events by the device; no CPU call-stack profile was obtained.
+
+The screenshot also shows an unexpected 25.0 ms locomotion delay at 120 Hz.
+The old integer ceiling selected three display intervals when the runtime
+period was just below its rounded nominal value (8,333,332 ns instead of
+8,333,333 ns). The new regression failed on the old implementation. Near an
+integer divisor of the 60 Hz tick, delay now uses the exact 16,666,667 ns tick
+when the nearest display multiple differs by at most 1 microsecond. Other normal
+display rates retain their existing delays. Production-code motion tests pass
+at all four rates with period variations of -100, -2, -1, 0, 1, 2 and 100 ns.
+Exact periods were not logged by `d21b4dc`, so the observed runtime period cannot
+be reconstructed; the reproduced bug matches its unexpected delay.
+
+The rounding correction needs a new headset check. Remaining gaps are not
+declared resolved, and the measured eye GPU time alone does not justify GPU
+quality reductions or speculative changes to simulation timing.

@@ -2739,11 +2739,14 @@ static void vr_stats_xr_frame(void)
         LOGI("xr-timing: frames=%u predicted_skips=%u GPU_eye_fresh_max_ms=%s n=%u GPU_eye_redraw_max_ms=%s n=%u disjoint=%u busy=%u",
             timing.frames, timing.predictedSkips, gpuFresh, timing.gpuCount[0],
             gpuRedraw, timing.gpuCount[1], timing.gpuDisjoint, timing.gpuBusy);
-        LOGI("loco: samples=%u seeds=%u lead_last_ms=%.3f lead_max_ms=%.3f phase_last_ms=%.3f phase_max_ms=%.3f display=%lld newest=%lld delay_ms=%.3f",
+        LOGI("loco: samples=%u seeds=%u lead_last_ms=%.3f lead_max_ms=%.3f phase_last_ms=%.3f phase_max_ms=%.3f display=%lld newest=%lld delay_ms=%.3f period_ns=%lld history_period_ns=%lld anchor_time=%lld anchor_seq=%llu newest_seq=%llu",
             s_locomotion.count, s_locomotionStats.seeds, s_locomotionStats.lastLead / 1e6,
             s_locomotionStats.maxLead / 1e6, s_locomotionStats.lastPhase / 1e6, s_locomotionStats.maxPhase / 1e6,
             (long long)g_frameState.predictedDisplayTime,
-            (long long)(s_locomotion.count ? s_locomotion.poses[s_locomotion.count - 1].time : 0), s_locomotion.delay / 1e6);
+            (long long)(s_locomotion.count ? s_locomotion.poses[s_locomotion.count - 1].time : 0), s_locomotion.delay / 1e6,
+            (long long)g_frameState.predictedDisplayPeriod, (long long)s_locomotion.period,
+            (long long)s_locomotion.anchorTime, (unsigned long long)s_locomotion.anchorSequence,
+            (unsigned long long)(s_locomotion.count ? s_locomotion.poses[s_locomotion.count - 1].sequence : 0));
         for (int i = 1; i < GEVR_LOCO_RESET_COUNT; i++) {
             if (s_locomotionStats.resets[i]) LOGI("loco-reset: %s %u",
                 gevrLocomotionResetName((GevrLocomotionResetReason)i), s_locomotionStats.resets[i]);
