@@ -78,6 +78,22 @@ s32 chraiGoToLabel(AIRecord *list, s32 offset, u8 label)
     goto_calls++;
     return goto_offset;
 }
+static PropRecord *active_tail;
+static int delist_calls;
+static int reparent_calls;
+static int projectile_frees;
+PropRecord *chrpropGetActiveTail(void) { return active_tail; }
+void chrpropDelist(PropRecord *prop) { delist_calls++; (void)prop; }
+void chrpropReparent(PropRecord *child, PropRecord *host)
+{
+    reparent_calls++;
+    child->parent = host;
+    child->prev = host->child;
+    if (host->child) host->child->next = child;
+    child->next = NULL;
+    host->child = child;
+}
+void projectileFree(struct Projectile *projectile) { projectile_frees++; (void)projectile; }
 void sub_GAME_7F03D058(PropRecord *prop, bool enable)
 {
     collision_calls++;
@@ -96,6 +112,8 @@ s32 g_BondCanEnterTank;
 /* INSERT_GRANT */
 
 /* INSERT_GADGET */
+
+/* INSERT_MINE */
 
 /* INSERT_TANK */
 
@@ -419,6 +437,115 @@ int main(void)
         assert(g_WorldTankProp == &tank);
         assert(g_PlayerTankYOffset == 12.0f);
         assert(g_BondCanEnterTank == 1);
+    }
+
+    /* Surface 2: a settled remote mine that is not on the helicopter fails.
+     * One still in the air does not. The host places the thrower's mine. */
+    {
+        WeaponObjRecord *mine = calloc(1, sizeof(*mine));
+        PropRecord *mineprop = calloc(1, sizeof(*mineprop));
+        struct Projectile flight;
+        int before_tx;
+        assert(mine && mineprop);
+        mine->type = PROPDEF_COLLECTABLE;
+        mine->weaponnum = ITEM_REMOTEMINE;
+        mine->runtime_bitflags = RUNTIMEBITFLAG_HASPROJECTILE | RUNTIME_OWNER_BITS(1);
+        mine->projectile = &flight;
+        mine->prop = mineprop;
+        mineprop->type = PROP_TYPE_WEAPON;
+        mineprop->weapon = mine;
+        active_tail = mineprop;
+        objprop->type = PROP_TYPE_OBJ;
+        objprop->obj = obj;
+        objprop->child = NULL;
+
+        assert(gevrCoopThrownMissionItem(ITEM_REMOTEMINE));
+        assert(gevrCoopThrownMissionItem(ITEM_TIMEDMINE));
+        assert(gevrCoopThrownMissionItem(ITEM_BUG));
+        assert(!gevrCoopThrownMissionItem(ITEM_WPPK));
+        assert(!gevrCoopThrownMissionItem(ITEM_GRENADE));
+
+        is_host = 1;
+        puppets = 0;
+        coop_active = 1;
+        local_slot = 0;
+        assert(gevrCoopDeferRemoteMineSettle(mine));
+        mine->runtime_bitflags = RUNTIMEBITFLAG_HASPROJECTILE | RUNTIME_OWNER_BITS(0);
+        assert(!gevrCoopDeferRemoteMineSettle(mine));
+        mine->runtime_bitflags = RUNTIMEBITFLAG_HASPROJECTILE | RUNTIME_OWNER_BITS(1);
+        is_host = 0;
+        assert(!gevrCoopDeferRemoteMineSettle(mine));
+        is_host = 1;
+        coop_active = 0;
+        assert(!gevrCoopDeferRemoteMineSettle(mine));
+        coop_active = 1;
+        mine->weaponnum = ITEM_WPPK;
+        assert(!gevrCoopDeferRemoteMineSettle(mine));
+        mine->weaponnum = ITEM_REMOTEMINE;
+
+        /* In the air: not landed, not on the helicopter. */
+        assert(objprop->child == NULL);
+        assert(mine->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE);
+
+        puppets = 1;
+        is_host = 0;
+        cur_player = 0;
+        local_slot = 0;
+        before_tx = broadcasts;
+        gevrCoopReportMineSettled(mine, objprop);
+        packet = open_last();
+        assert(netbufReadU8(&packet) == NET_MSG_COOP_EVENT);
+        assert(netbufReadU8(&packet) == (u8)local_slot);
+        assert(netbufReadU8(&packet) == NET_COOP_EVENT_MINE);
+        assert(netbufReadS32(&packet) == ITEM_REMOTEMINE);
+        assert(netbufReadS32(&packet) == 7);
+        gevrCoopReportMineSettled(mine, NULL);
+        packet = open_last();
+        assert(netbufReadU8(&packet) == NET_MSG_COOP_EVENT);
+        assert(netbufReadU8(&packet) == (u8)local_slot);
+        assert(netbufReadU8(&packet) == NET_COOP_EVENT_MINE);
+        assert(netbufReadS32(&packet) == ITEM_REMOTEMINE);
+        assert(netbufReadS32(&packet) == -1);
+        before_tx = broadcasts;
+        puppets = 0;
+        gevrCoopReportMineSettled(mine, objprop);
+        cur_player = 1;
+        puppets = 1;
+        gevrCoopReportMineSettled(mine, objprop);
+        mine->weaponnum = ITEM_WPPK;
+        cur_player = 0;
+        gevrCoopReportMineSettled(mine, objprop);
+        mine->weaponnum = ITEM_REMOTEMINE;
+        assert(broadcasts == before_tx);
+
+        is_host = 1;
+        puppets = 0;
+        delist_calls = 0;
+        reparent_calls = 0;
+        projectile_frees = 0;
+        coopApplyMineSettled(1, ITEM_REMOTEMINE, 7);
+        assert(mineprop->parent == objprop);
+        assert(objprop->child == mineprop);
+        assert((mine->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) == 0);
+        assert(mine->projectile == NULL);
+        assert(delist_calls == 1 && reparent_calls == 1 && projectile_frees == 1);
+
+        mine->runtime_bitflags = RUNTIMEBITFLAG_HASPROJECTILE | RUNTIME_OWNER_BITS(1);
+        mine->projectile = &flight;
+        mineprop->parent = NULL;
+        objprop->child = NULL;
+        delist_calls = 0;
+        reparent_calls = 0;
+        coopApplyMineSettled(1, ITEM_REMOTEMINE, -1);
+        assert(mineprop->parent == NULL);
+        assert(objprop->child == NULL);
+        assert((mine->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) == 0);
+        assert(delist_calls == 0 && reparent_calls == 0);
+        /* Settled and not on the helicopter: the list fails the objective. */
+        assert(active_tail == mineprop);
+
+        free(mine);
+        free(mineprop);
     }
 
     free(obj);

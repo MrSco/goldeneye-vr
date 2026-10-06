@@ -70,6 +70,10 @@ extern s32 getPlayerCount(void);
 extern int bondinvAddInvItem(int item);
 extern ObjectRecord *objFindByTagId(s32 TagID);
 extern u32 *ptr_last_tag_entry_type16;
+extern PropRecord *chrpropGetActiveTail(void);
+extern void chrpropDelist(PropRecord *prop);
+extern void chrpropReparent(PropRecord *child, PropRecord *host);
+extern void projectileFree(struct Projectile *projectile);
 
 static void coopHostMission(u64 now);
 static void coopMissionReset(void);
@@ -1211,6 +1215,82 @@ static void coopApplyGadgetUse(s32 tag)
     if (obj) obj->state |= PROPSTATE_ACTIVATED;
 }
 
+/*
+ * Thrown mines, the bug, the camera, plastique and the bomb case. A mission
+ * list can ask "has this landed?" (IFKeyDropped walks weapon props) or
+ * "is it stuck to this object?" (IFItemIsAttachedToObject). Surface 2's
+ * helicopter list does both, and the first settled remote mine that is not
+ * on the helicopter fails that objective (#130).
+ */
+int gevrCoopThrownMissionItem(int item)
+{
+    switch (item) {
+        case ITEM_REMOTEMINE:
+        case ITEM_TIMEDMINE:
+        case ITEM_PROXIMITYMINE:
+        case ITEM_BOMBCASE:
+        case ITEM_BUG:
+        case ITEM_MICROCAMERA:
+        case ITEM_PLASTIQUE:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* The host's copy of another player's mine must not settle on its own. */
+int gevrCoopDeferRemoteMineSettle(struct WeaponObjRecord *wep)
+{
+    if (!wep || wep->type != PROPDEF_COLLECTABLE || !netCoopActive() || !netIsHost()) return 0;
+    if (!gevrCoopThrownMissionItem(wep->weaponnum)) return 0;
+    return RUNTIME_OWNER(wep->runtime_bitflags) != netGetLocalSlot();
+}
+
+void gevrCoopReportMineSettled(struct WeaponObjRecord *wep, struct PropRecord *onto)
+{
+    s32 tag = -1;
+
+    if (!wep || !gevrCoopPuppets() || get_cur_playernum() != netGetLocalSlot()) return;
+    if (!gevrCoopThrownMissionItem(wep->weaponnum)) return;
+    if (onto && (onto->type == PROP_TYPE_OBJ || onto->type == PROP_TYPE_DOOR || onto->type == PROP_TYPE_WEAPON) && onto->obj)
+    {
+        tag = coopTagOf(onto->obj);
+    }
+    coopSendEvent(NET_COOP_EVENT_MINE, wep->weaponnum, tag, 2);
+}
+
+/* The host: the thrower's mine stuck to this tagged object, or landed (tag < 0). */
+static void coopApplyMineSettled(s32 slot, s32 item, s32 tag)
+{
+    PropRecord *prop;
+    WeaponObjRecord *wep = NULL;
+
+    if (!gevrCoopThrownMissionItem(item) || slot < 0 || slot >= 4) return;
+    for (prop = chrpropGetActiveTail(); prop; prop = prop->prev) {
+        WeaponObjRecord *cand;
+
+        if (prop->type != PROP_TYPE_WEAPON || !prop->weapon) continue;
+        cand = prop->weapon;
+        if (cand->weaponnum != item || RUNTIME_OWNER(cand->runtime_bitflags) != slot) continue;
+        wep = cand;
+        if (cand->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) break;
+    }
+    if (!wep || !wep->prop) return;
+    if (tag >= 0) {
+        ObjectRecord *obj = objFindByTagId(tag);
+
+        if (obj && obj->prop && obj->prop != wep->prop) {
+            chrpropDelist(wep->prop);
+            chrpropReparent(wep->prop, obj->prop);
+        }
+    }
+    if (wep->projectile) {
+        projectileFree(wep->projectile);
+        wep->projectile = NULL;
+    }
+    wep->runtime_bitflags &= ~RUNTIMEBITFLAG_HASPROJECTILE;
+}
+
 static void coopReceiveGrant(struct netbuf *b)
 {
     s32 item = netbufReadS32(b);
@@ -1332,6 +1412,12 @@ static void coopReceiveEvent(int slot, struct netbuf *b)
         case NET_COOP_EVENT_GADGET: {
             s32 tag = netbufReadS32(b);
             if (!b->error && !netbufReadLeft(b)) coopApplyGadgetUse(tag);
+            break;
+        }
+        case NET_COOP_EVENT_MINE: {
+            s32 item = netbufReadS32(b);
+            s32 tag = netbufReadS32(b);
+            if (!b->error && !netbufReadLeft(b)) coopApplyMineSettled(slot, item, tag);
             break;
         }
         default:
