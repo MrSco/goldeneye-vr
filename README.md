@@ -1,5 +1,9 @@
 <p align="center">
-  <img src="docs/banner.png" alt="GoldenEye VR" width="100%">
+  <img src="docs/hero.jpg" alt="GoldenEye VR" width="100%">
+</p>
+
+<p align="center">
+  <img src="docs/logo.jpg" alt="GoldenEye VR logo" width="96">
 </p>
 
 <h1 align="center">GoldenEye VR</h1>
