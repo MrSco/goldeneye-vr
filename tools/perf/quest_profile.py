@@ -27,12 +27,15 @@ MARKERS = ['gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt'
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
-# (start s into the measured minute, stick x, stick y, turn, duration ms, warp first, phase)
-PHASES = [(15.0, 0, -80, 0, 5000, True, 'forward'),
-          (20.0, 0, 80, 0, 5000, False, 'backward'),
-          (25.0, 80, 0, 0, 5000, False, 'strafe'),
-          (30.5, 55, -80, 0, 14000, True, 'angled-contact'),
-          (45.0, 0, 0, 100, 14500, True, 'smooth-turn')]
+# Stereo play walks with the C buttons the left stick produces (input.c):
+# U 0x8 forward, D 0x4 back, L 0x2 / R 0x1 strafe. The right stick's turn is the
+# hook's turn field. The N64 stick itself is ignored in stereo.
+# (start s into the measured minute, button mask, turn, duration ms, warp first, phase)
+PHASES = [(15.0, 0x8, 0, 5000, True, 'forward'),
+          (20.0, 0x4, 0, 5000, False, 'backward'),
+          (25.0, 0x1, 0, 5000, False, 'strafe'),
+          (30.5, 0x9, 0, 14000, True, 'angled-contact'),
+          (45.0, 0x0, 100, 14500, True, 'smooth-turn')]
 TARGET_PID = ''
 
 
@@ -127,8 +130,21 @@ def resumed_activity():
     return match[1] if match else ''
 
 
+def clear_stale_launch_checks():
+    """A controllers-required dialog left by an earlier blocked launch keeps
+    every later launch cached behind it; dismiss only that dialog's task."""
+    text = adb('shell', 'dumpsys', 'activity', 'activities', check=False)
+    tasks = sorted(set(re.findall(LAUNCH_CHECK + r' t(\d+)', text)))
+    for task in tasks:
+        adb('shell', 'am', 'stack', 'remove', task, check=False)
+        print('dismissed stale launch-check dialog task', task, flush=True)
+    if tasks:
+        time.sleep(1.5)
+
+
 def launch():
     global TARGET_PID
+    clear_stale_launch_checks()
     adb('shell', 'am', 'start', '-n', PACKAGE + '/.MainActivity')
     deadline = time.monotonic() + 20
     while time.monotonic() < deadline:
@@ -183,8 +199,8 @@ def validate(path, hz, status):
     periods = [int(r['period_ns']) for r in valid]
     if abs(sum(periods) / len(periods) - 1e9 / hz) > 10000:
         raise Unavailable('Runtime did not honor the requested display rate')
-    inputs = {(int(r['input_x']), int(r['input_y']), int(r['input_turn'])) for r in valid}
-    missing = [p[6] for p in PHASES if (p[1], p[2], p[3]) not in inputs]
+    inputs = {(int(r['input_buttons'], 16), int(r['input_turn'])) for r in valid}
+    missing = [p[5] for p in PHASES if (p[1], p[2]) not in inputs]
     if missing:
         raise Unavailable(f'Phases never reached the game: {missing}')
     return len(valid)
@@ -208,9 +224,12 @@ def run(args, out):
     adb('shell', 'am', 'force-stop', PACKAGE)
     for marker in MARKERS:
         adb('shell', 'rm', '-f', f'{FILES}/{marker}')
+    aapt = Path('C:/Users/Occor/AppData/Local/Android/Sdk/build-tools/36.0.0/aapt2.exe')
+    badging = subprocess.run([str(aapt), 'dump', 'badging', str(args.apk)], capture_output=True,
+                             encoding='utf-8', errors='replace').stdout
+    if "name='oculus.software.handtracking'" not in badging:
+        print('warning: APK is not the benchmark variant; Quest may block the launch', flush=True)
     adb('install', '-r', str(args.apk), timeout=300)
-    if 'oculus.software.handtracking' not in adb('shell', 'dumpsys', 'package', PACKAGE):
-        print('warning: installed APK is not the benchmark variant; launch may be blocked', flush=True)
     adb('push', str(local), f'{FILES}/data/goldeneye-vr.ini')
     adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
@@ -236,16 +255,16 @@ def run(args, out):
                 raise Unavailable('No profiling acknowledgment from an actively rendering runtime')
             measure = time.monotonic() + WARMUP
             events = [{'host_offset': -WARMUP, 'phase': 'warm-up+stationary', 'ack': ack}]
-            for offset, x, y, turn, ms, warp, phase in PHASES:
+            for offset, mask, turn, ms, warp, phase in PHASES:
                 while time.monotonic() < measure + offset:
                     time.sleep(min(.25, measure + offset - time.monotonic()))
                 wake()
                 if warp:
                     put('gevr_warp.txt', str(args.pad))
                     time.sleep(.5)
-                press(x=x, y=y, frames=1, turn=turn, wait=0, ms=ms)
+                press(f'{mask:x}', frames=1, turn=turn, wait=0, ms=ms)
                 events.append({'host_offset': time.monotonic() - measure, 'phase': phase,
-                               'command': [x, y, turn, ms], 'warp': warp})
+                               'command': [mask, turn, ms], 'warp': warp})
                 print(label, phase, flush=True)
             # Export happens on the render thread after the minute; wait for its verdict.
             deadline = measure + MEASURE + 60
@@ -273,6 +292,9 @@ def run(args, out):
         adb('shell', 'am', 'force-stop', PACKAGE)
         for marker in MARKERS:
             adb('shell', 'rm', '-f', f'{FILES}/{marker}', check=False)
+        # Success or failure, the headset gets the user's own settings and save back.
+        adb('push', str(out / 'backup/data/goldeneye-vr.ini'), f'{FILES}/data/goldeneye-vr.ini', check=False)
+        adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin', check=False)
         (folder / 'build.json').write_text(json.dumps(info, indent=2))
 
 

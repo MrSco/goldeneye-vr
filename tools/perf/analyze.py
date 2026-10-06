@@ -25,16 +25,20 @@ WAITS = ['wait', 'image_wait', 'vertex_wait', 'throttle']
 PHASE_ORDER = ['stationary', 'forward', 'backward', 'strafe', 'angled-contact', 'smooth-turn']
 
 
-def phase_of(x, y, turn):
+# Stereo walking: C buttons U 0x8 forward, D 0x4 back, L 0x2 / R 0x1 strafe.
+WALK, STRAFE = 0xc, 0x3
+
+
+def phase_of(buttons, turn):
     if turn:
         return 'smooth-turn'
-    if x and y:
+    if buttons & WALK and buttons & STRAFE:
         return 'angled-contact'
-    if y < 0:
+    if buttons & 0x8:
         return 'forward'
-    if y > 0:
+    if buttons & 0x4:
         return 'backward'
-    if x:
+    if buttons & STRAFE:
         return 'strafe'
     return 'stationary'
 
@@ -42,31 +46,37 @@ def phase_of(x, y, turn):
 def load_trace(path):
     with open(path) as f:
         meta = f.readline()
-        rows = list(csv.DictReader(f))
+        reader = csv.reader(f)
+        header = next(reader)
+        rows = list(reader)
     if 'gevr-profile-v2' not in meta:
         raise SystemExit(f'{path}: not a v2 trace')
-    if not rows:
-        return {}
-    cols = rows[0].keys()
-    data = {c: np.array([float(r[c]) for r in rows]) for c in cols if c != 'input_buttons'}
-    data['input_buttons'] = np.array([int(r['input_buttons'], 16) for r in rows])
+    # Early v2 traces named the timestamps start_ns/submit_ns, colliding with the
+    # submit section's duration column; the first two columns are always times.
+    header[0], header[1] = 'start_time_ns', 'submit_time_ns'
+    assert len(set(header)) == len(header), 'duplicate trace columns'
+    columns = list(zip(*rows)) if rows else [[] for _ in header]
+    data = {}
+    for name, values in zip(header, columns):
+        data[name] = (np.array([int(v, 16) for v in values]) if name == 'input_buttons'
+                      else np.array(values, dtype=float))
     return data
 
 
 def frame_table(path):
     """Per-frame derived columns plus the headline mask and phase labels."""
     d = load_trace(path)
-    n = len(d['start_ns'])
-    frame = d['submit_ns'] - d['start_ns']
+    n = len(d['start_time_ns'])
+    frame = d['submit_time_ns'] - d['start_time_ns']
     waits = {w: d[f'{w}_ns'] for w in WAITS}
     app = frame - sum(waits.values())
-    phases = np.array([phase_of(int(x), int(y), int(t)) for x, y, t in
-                       zip(d['input_x'], d['input_y'], d['input_turn'])])
+    phases = np.array([phase_of(int(b), int(t)) for b, t in zip(d['input_buttons'], d['input_turn'])],
+                      dtype=object)
     # Stationary means "before any movement", not the idle gaps between phases.
     moved = np.flatnonzero(phases != 'stationary')
     if len(moved):
         phases[moved[0]:] = np.where(phases[moved[0]:] == 'stationary', 'gap', phases[moved[0]:])
-    start = d['start_ns']
+    start = d['start_time_ns']
     settle = np.zeros(n, bool)
     edges = list(np.flatnonzero(phases[1:] != phases[:-1]) + 1) + list(np.flatnonzero(d['reset'] != 0))
     for e in edges:
@@ -141,17 +151,20 @@ def summarize(folder):
         for phase in PHASE_ORDER:
             m = t['headline'] & (t['phases'] == phase)
             p = per_phase.setdefault(phase, {'app': [], 'frame': [], 'pre': [], 'missed': 0, 'frames': 0,
-                                             'collision': 0, 'clipped': 0, 'moving': 0,
+                                             'fresh': [], 'redraw': [],
+                                             'ticks': 0, 'contact': 0,
                                              **{w: [] for w in WAITS}})
             p['app'].append(t['app'][m]); p['frame'].append(t['frame'][m]); p['pre'].append(d['pre_ns'][m])
+            # Fresh frames run a game tick and a full render; redraws reproject the last one.
+            p['fresh'].append(t['app'][m & (d['kind'] == 1)]); p['redraw'].append(t['app'][m & (d['kind'] == 2)])
             for w in WAITS:
                 p[w].append(t['waits'][w][m])
             p['missed'] += int(t['missed'][m].sum()); p['frames'] += int(m.sum())
-            req = np.hypot(d['requested_x'], d['requested_z'])
-            moving = m & (d['collision'] > 0) & (req >= 1.0)
-            off = np.hypot(d['requested_x'] - d['actual_x'], d['requested_z'] - d['actual_z']) > 0.01
-            p['moving'] += int(moving.sum()); p['clipped'] += int((moving & off).sum())
-        g = gpu_table(str(path) + '.gpu.csv', d['start_ns'][0], d['submit_ns'][-1])
+            # Wall contact: the move needed more than the simple collision path.
+            ticks = m & (d['collision'] > 0)
+            fallback = (d['move_attempted'].astype(int) & ~1) != 0
+            p['ticks'] += int(ticks.sum()); p['contact'] += int((ticks & fallback).sum())
+        g = gpu_table(path.with_suffix('.gpu.csv'), d['start_time_ns'][0], d['submit_time_ns'][-1])
         for kind, ns in g:
             gpu.setdefault(kind, []).append(ns)
         # Transitions and resets are excluded from phase statistics, not hidden.
@@ -165,10 +178,11 @@ def summarize(folder):
         cat = lambda k: np.concatenate(p[k]) if p[k] else np.array([])
         out['phases'][phase] = {
             'app': stats(cat('app')), 'frame': stats(cat('frame')), 'pre': stats(cat('pre')),
+            'app_fresh': stats(cat('fresh')), 'app_redraw': stats(cat('redraw')),
             'waits': {w: stats(cat(w)) for w in WAITS},
             'runs_p99_app': [pct(a, 99) for a in p['app']], 'runs_median_app': [pct(a, 50) for a in p['app']],
             'missed_frames': p['missed'], 'frames': p['frames'],
-            'moving_collision_ticks': p['moving'], 'clipped_ticks': p['clipped']}
+            'collision_ticks': p['ticks'], 'contact_ticks': p['contact']}
     out['excluded_transitions'] = stats(np.concatenate(excluded)) if excluded else stats(np.array([]))
     out['gpu'] = {('fresh' if k == 1 else 'redraw'): stats(np.array(v)) for k, v in gpu.items() if v}
     if detailed_frames:
@@ -221,7 +235,7 @@ def compare(base, cand):
 
 def print_summary(s):
     print(f"\n## {s['folder']}  ({s['hz']} Hz, detail={s['detail']}, showstats={s['showstats']})")
-    print('phase            frames  app med/p95/p99 ms      frame p99  xrWait med  img p99  vtx p99  pre p99  missed  clipped/moving')
+    print('phase            frames  app med/p95/p99 ms      frame p99  xrWait med  img p99  vtx p99  pre p99  missed  contact/ticks')
     for phase in PHASE_ORDER:
         p = s['phases'].get(phase)
         if not p or not p['frames']:
@@ -230,8 +244,10 @@ def print_summary(s):
         print(f"{phase:15s} {p['frames']:7d}  {a['median']:5.2f} / {a['p95']:5.2f} / {a['p99']:5.2f}"
               f"   {p['frame']['p99']:8.2f}  {w['wait']['median']:9.2f}  {w['image_wait']['p99']:7.2f}"
               f"  {w['vertex_wait']['p99']:7.2f}  {p['pre']['p99']:7.2f}  {p['missed_frames']:6d}"
-              f"  {p['clipped_ticks']}/{p['moving_collision_ticks']}")
-        print(f"{'':15s} per-run app p99: {', '.join(f'{v:.2f}' for v in p['runs_p99_app'])}")
+              f"  {p['contact_ticks']}/{p['collision_ticks']}")
+        f, r = p['app_fresh'], p['app_redraw']
+        print(f"{'':15s} fresh {f['median']:.2f} / {f['p95']:.2f} / {f['p99']:.2f}   redraw {r['median']:.2f} / {r['p95']:.2f} / {r['p99']:.2f}"
+              f"   per-run app p99: {', '.join(f'{v:.2f}' for v in p['runs_p99_app'])}")
     e = s['excluded_transitions']
     print(f"excluded transition/reset frames: n={e['n']} app p99 {e['p99']:.2f} max {e['max']:.2f} ms")
     for kind, g in s['gpu'].items():

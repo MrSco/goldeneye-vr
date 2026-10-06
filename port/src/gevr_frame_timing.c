@@ -59,7 +59,7 @@ void gevrFrameTimingTracePoll(const char *marker) {
         if (!out) ok=0;
         else {
             fprintf(out, "# gevr-profile-v2 label=%s rows=%u overflow=%u detail=%u\n", recording.label, recording.rows, recording.overflow, recording.detail);
-            fprintf(out, "start_ns,submit_ns,display_ns,period_ns,kind,body_valid,camera_valid,reset,detailed,errors,work_ns,pre_ns,draws,vertices,tex_cache_allocs,upload_bytes,cache_hits,cache_misses,image_lifetime_ns,input_buttons,input_x,input_y,input_turn,collision,move_attempted,move_accepted,requested_x,requested_z,actual_x,actual_z");
+            fprintf(out, "start_time_ns,submit_time_ns,display_ns,period_ns,kind,body_valid,camera_valid,reset,detailed,errors,work_ns,pre_ns,draws,vertices,tex_cache_allocs,upload_bytes,cache_hits,cache_misses,image_lifetime_ns,input_buttons,input_x,input_y,input_turn,collision,move_attempted,move_accepted,requested_x,requested_z,actual_x,actual_z");
             for (unsigned j=0;j<GEVR_TIME_COUNT;j++) fprintf(out, ",%s_ns,%s_self_ns,%s_pre_ns",gevrFrameTimingSectionName(j),gevrFrameTimingSectionName(j),gevrFrameTimingSectionName(j));
             fputc('\n',out);
             for (unsigned i=0;i<recording.rows;i++) {
