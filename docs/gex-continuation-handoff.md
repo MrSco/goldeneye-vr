@@ -29,7 +29,12 @@ payload switches. Regression in `hand_native.c` poisons the entry after a
 30-slot GE-X shotgun table with 0xc1e and verifies both hands preserve held-shell
 visibility. It also tests truncated tables, invalid indices and missing tables,
 while retaining all existing solo/online sleeve checks. `test_multiplayer.py`
-passed all 64 native tests after the fix. Signed APK rebuild follows.
+passed all 64 native tests after the fix. Settings round-trip tests and the
+JDK 20 signed release build also pass. Fix commit is `c3cdc1c` on PR #138.
+Test APK: `android/app/build/outputs/apk/release/GoldenEyeVR-gex-cuff-fix-c3cdc1c.apk`.
+In-game label: c3cdc1c; apksigner v2 verification passed. SHA256:
+`9b66a16bdeac220466bb024b8f09818654ca885200bbf62e45ef136ee5975937`.
+Use this APK instead of the original cdcb44a batch APK below.
 
 Saved RC-P90 calibration recovered from the report and baked into item 14:
 grab **-11.7789,-0.8653,13.1938**, held payload **1.2670,8.2710,-8.3611** cm.
