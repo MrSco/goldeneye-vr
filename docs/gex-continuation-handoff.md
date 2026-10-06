@@ -4,6 +4,43 @@ Start here, then read [the roadmap](gex-weapon-roadmap.md) for the history of
 PP7 grip, wrist orientation, duplicate arms, insertion targets and installed
 magazine fitting. This file records the current implementation and remaining work.
 
+## Crash cf69dded follow-up — latest priority
+
+User reported A-button switching away from RC-P90 crashes; wheel selection of
+Klobb worked. Decoded report shows the destination was **GshotgunZ**, loaded
+2026-10-06 19:44:02 immediately before SIGSEGV (fault address 0xc26).
+The Android report says tombstone unavailable, but its logcat contains frames:
+`modelGetNodeRwData+12 → bondviewSelectCuff+172 → gunUpdateAndFire+5872`.
+The failing library BuildId is `117cacd78d54d5a9910b67f37ce5ebf392e9d787`.
+Report file is base64 text; decode locally before reading. Raw/decoded reports
+contain private configuration and remain outside commits (ignored build folder).
+
+Root cause: original GE shotgun has 28 switch slots. Adding the GE-X two
+payload slots makes 30, satisfying gunfire's original `numSwitches >= 30`
+cuff-selector guard. `bondviewSelectCuff(...,29)` then treats the held shell
+at slot 29 as a sleeve and reads slots 30..34, already in texture data. RC-P90
+has 36 original slots; Klobb has 36, which explains the destination distinction.
+This is a destination model table bug, not evidence of an A-only input bug.
+
+Fix: skip original cuff selection for either current GE-X weapon header;
+validate the table/index, then bound and type-check each original cuff lookup.
+GE-X source arms keep their own material/visibility, without cuff writes altering
+payload switches. Regression in `hand_native.c` poisons the entry after a
+30-slot GE-X shotgun table with 0xc1e and verifies both hands preserve held-shell
+visibility. It also tests truncated tables, invalid indices and missing tables,
+while retaining all existing solo/online sleeve checks. `test_multiplayer.py`
+passed all 64 native tests after the fix. Signed APK rebuild follows.
+
+Saved RC-P90 calibration recovered from the report and baked into item 14:
+grab **-11.7789,-0.8653,13.1938**, held payload **1.2670,8.2710,-8.3611** cm.
+Existing gun placement and other family defaults are preserved; no device INI
+was overwritten. This feedback does not establish acceptance of all seven guns.
+
+Next headset checks: A from RC-P90 to shotgun repeatedly, wheel directly into
+shotgun, reverse cycling, original GE guns with GE-X disabled, both handedness
+modes and the other new destination guns. The native reproduction is fixed;
+on-device retest is still required before calling the crash headset-verified.
+
 ## Branch and scope
 
 - Branch: `codex/gex-remaining-weapons`; base Main:
