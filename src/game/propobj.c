@@ -4902,6 +4902,14 @@ s32 objTick(struct PropRecord *prop)
 
 					if (sp548 == 0)
 					{
+#ifdef GEVR
+						if (gevrCoopDeferRemoteMineSettle(airborneWeapon))
+						{
+							/* The thrower's headset reports where it stuck (#130). */
+						}
+						else
+						{
+#endif
 						projectileFree(Rocket);
 						obj->projectile = NULL;
 						obj->runtime_bitflags &= ~RUNTIMEBITFLAG_HASPROJECTILE;
@@ -4944,6 +4952,10 @@ s32 objTick(struct PropRecord *prop)
 							}
 #endif
 						}
+#ifdef GEVR
+						gevrCoopReportMineSettled(airborneWeapon, prop->parent == D_80030B0C ? D_80030B0C : NULL);
+						}
+#endif
 					}
 				}
 
@@ -5294,9 +5306,23 @@ s32 objTick(struct PropRecord *prop)
 
 				if ((projectileAlive != 0) || (Rocket->flags & PROJECTILEFLAG_00000008))
 				{
+#ifdef GEVR
+					if (obj->type == PROPDEF_COLLECTABLE && gevrCoopDeferRemoteMineSettle((struct WeaponObjRecord *)obj))
+					{
+						/* Still in the air here until the thrower says it landed. */
+					}
+					else
+					{
+#endif
 					projectileFree(Rocket);
 					obj->projectile = NULL;
 					obj->runtime_bitflags &= ~RUNTIMEBITFLAG_HASPROJECTILE;
+#ifdef GEVR
+					if (obj->type == PROPDEF_COLLECTABLE)
+					{
+						gevrCoopReportMineSettled((struct WeaponObjRecord *)obj, NULL);
+					}
+#endif
 					if (prop->flags & PROPFLAG_00000008)
 					{
 						prop->flags |= PROPFLAG_00000010;
@@ -5306,6 +5332,9 @@ s32 objTick(struct PropRecord *prop)
 					if (obj->type == PROPDEF_COLLECTABLE)
 					{
 						objectivestatusCheckDeposit(((struct WeaponObjRecord *) obj)->weaponnum, prop->stan->room);
+					}
+#endif
+#ifdef GEVR
 					}
 #endif
 				}
@@ -10972,6 +11001,13 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 
 #ifdef GEVR
             gevrWeaponPickedUp(wep->weaponnum, alreadyOwned);
+            /* Co-op: BondCollectObject and a dropped gadget both land here.
+             * Guns stay with whoever picked them up; a shared gadget is given
+             * to every player (net_coop.c gevrCoopGrantItem). */
+            {
+                extern void gevrCoopGrantItem(s32 item);
+                gevrCoopGrantItem(wep->weaponnum);
+            }
 #endif
             break;
         }

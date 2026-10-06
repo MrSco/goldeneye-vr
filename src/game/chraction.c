@@ -9734,7 +9734,34 @@ void chrlvAllChrTick(void)
 
     for (i=0; i<g_ActiveChrsCount; i++)
     {
+#ifdef GEVR
+        /* co-op: a background list has no guard slot, so "Bond" was the host.
+         * Run it as the nearest living player (Dr Doak's room, and the same
+         * pattern on every level). */
+        {
+            extern int gevrCoopActive(void);
+            extern s32 gevrCoopNearestPlayer(const coord3d *pos);
+            s32 gevrPrev = 0;
+            s32 gevrTarget = -1;
+
+            if (gevrCoopActive() && g_ActiveChrs[i].prop != NULL)
+            {
+                gevrPrev = get_cur_playernum();
+                gevrTarget = gevrCoopNearestPlayer(&g_ActiveChrs[i].prop->pos);
+                if (gevrTarget >= 0)
+                {
+                    set_cur_player(gevrTarget);
+                }
+            }
+            chrlvActionTick(&g_ActiveChrs[i]);
+            if (gevrTarget >= 0)
+            {
+                set_cur_player(gevrPrev);
+            }
+        }
+#else
         chrlvActionTick(&g_ActiveChrs[i]);
+#endif
     }
 
     g_SeenBondRecentlyGuardCount = 0;

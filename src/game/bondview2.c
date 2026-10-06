@@ -7664,9 +7664,13 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
         {
             if (g_PlayerTankProp != NULL)
             {
+#ifdef GEVR
+                gevrCoopReleaseTank();
+#else
                 g_WorldTankProp = NULL;
                 g_PlayerTankProp = NULL;
                 g_PlayerTankYOffset = 0.0f;
+#endif
             }
         }
     }
@@ -11530,6 +11534,70 @@ void bondviewPlayerTickExplode(void)
  * Thanks Trevor.
  * - Bethany Burns
  */
+#ifdef GEVR
+/*
+ * Tank ride state is one set of globals. Co-op ticks every player through
+ * MoveBond, and a teammate who is not on the deck used to clear those globals
+ * (and drop the rider through the hull) on Runway and Streets. A remote tick
+ * borrows a cleared copy and puts the rider's state back.
+ */
+typedef struct GevrTankGuard {
+    s32 active;
+    s32 inTank;
+    struct PropRecord *world;
+    struct PropRecord *player;
+    f32 yoff;
+    s32 canEnter;
+} GevrTankGuard;
+
+static void gevrCoopPushTank(GevrTankGuard *guard)
+{
+    guard->active = netIsActive() && get_cur_playernum() != netGetLocalSlot();
+    guard->inTank = g_PlayerIsInTank;
+    guard->world = g_WorldTankProp;
+    guard->player = g_PlayerTankProp;
+    guard->yoff = g_PlayerTankYOffset;
+    guard->canEnter = g_BondCanEnterTank;
+    if (!guard->active)
+    {
+        return;
+    }
+    g_PlayerIsInTank = 0;
+    g_WorldTankProp = NULL;
+    g_PlayerTankProp = NULL;
+    g_PlayerTankYOffset = 0.0f;
+    g_BondCanEnterTank = 0;
+}
+
+static void gevrCoopPopTank(const GevrTankGuard *guard)
+{
+    if (!guard->active)
+    {
+        return;
+    }
+    g_PlayerIsInTank = guard->inTank;
+    g_WorldTankProp = guard->world;
+    g_PlayerTankProp = guard->player;
+    g_PlayerTankYOffset = guard->yoff;
+    g_BondCanEnterTank = guard->canEnter;
+}
+
+/* Leaving the deck: the hull is solid again even if the pointer is dropped. */
+static void gevrCoopReleaseTank(void)
+{
+    struct PropRecord *tank = g_WorldTankProp;
+
+    g_WorldTankProp = NULL;
+    g_PlayerTankProp = NULL;
+    g_PlayerTankYOffset = 0.0f;
+    g_BondCanEnterTank = 0;
+    if (tank != NULL)
+    {
+        sub_GAME_7F03D058(tank, 1);
+    }
+}
+#endif
+
 void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 {
     struct coord3d move_offset;
@@ -11551,6 +11619,10 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     if (stick_x >= 100 || stick_x <= -100) return_null(); // __LINE__ __FILE__ (#6414 bondview.c) "joystick x has value %d!\n"
     if (stick_y >= 100 || stick_y <= -100) return_null(); // __LINE__ __FILE__ (#6415 bondview.c) "joystick y has value %d!\n"
     #endif
+#ifdef GEVR
+    GevrTankGuard gevrTank;
+    gevrCoopPushTank(&gevrTank);
+#endif
 
     if (g_bondviewForceDisarm > 0)
     {
@@ -12886,6 +12958,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             g_CurrentPlayer->field_488.collision_position.f[2],
             &sp5C_out_unused);
     }
+#ifdef GEVR
+    gevrCoopPopTank(&gevrTank);
+#endif
 }
 
 
@@ -12895,6 +12970,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 */
 void bondviewFrozenMoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 {
+#ifdef GEVR
+    GevrTankGuard gevrTank;
+#endif
     struct coord3d property_pos;
     struct coord3d property_pos2;
     struct coord3d property_offset;
@@ -12906,6 +12984,9 @@ void bondviewFrozenMoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     property_pos2 = g_DefaultFrozenPlayerPos2;
     property_offset = g_DefaultFrozenPlayerOffset;
     offset = g_DefaultFrozenMoveOffset;
+#ifdef GEVR
+    gevrCoopPushTank(&gevrTank);
+#endif
 
     bondviewPlayerTickDamageAndHealth();
     bondviewPlayerTickExplode();
@@ -12929,12 +13010,18 @@ void bondviewFrozenMoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     if ((g_CameraMode == CAMERAMODE_FP_NOINPUT) || (g_CameraMode == CAMERAMODE_FP) || (g_CameraMode == CAMERAMODE_FADE_TO_TITLE))
     {
         currentPlayerSetCameraMode(0);
+#ifdef GEVR
+        gevrCoopPopTank(&gevrTank);
+#endif
         return;
     }
 
     bondviewFrozenCameraTick(buttons, oldbuttons, &property_pos, &property_pos2, &property_offset, &room_pointer_tile, &stan_walk_start);
     currentPlayerSetCameraMode(1);
     bondviewSetCurrentPlayerPosition(&property_pos, &property_pos2, &property_offset, room_pointer_tile, &stan_walk_start);
+#ifdef GEVR
+    gevrCoopPopTank(&gevrTank);
+#endif
 }
 
 
