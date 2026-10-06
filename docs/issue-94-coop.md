@@ -148,12 +148,49 @@ guard updates to confirm a collected gun does not reappear.
 Historical drops from guards already removed, or dynamically spawned
 guards that died before joining, are not reconstructed by this fix.
 
+## Mission gadgets and the tank (#128, #129)
+
+A host-only script can give Bond an item with `AI_BondCollectObject`, and
+Dr Doak can instead drop the door decoder. Either way the pickup landed in
+one slot, on the host, and the other headsets' watch never listed it.
+Guard guns stay per headset. A mission gadget does not: bomb case through
+the watch magnets, plus the DAT tape. Keys, documents, the Golden Gun and
+the flag token are unchanged (the last two already use `netSendSpecialTaken`).
+
+`gevrCoopGrantItem` adds that gadget to every occupied, non-spectator slot
+and tells the party (`NET_COOP_EVENT_GRANT` up, `NET_MSG_COOP_GRANT` back
+down). A second grant does not add a second copy. A keyed door still checks
+the headset that uses it, so a teammate's key does not open it from here.
+
+Background lists have no guard slot, so "Bond" was the host. They now run
+as the nearest living player, the same choice a guard already makes. A
+client standing with Dr Doak is who the script sees.
+
+Using the door decoder, data thief, bomb defuser, explosive floppy or DAT
+tape sets `PROPSTATE_ACTIVATED` on that headset only. A client reports the
+object's tag (`NET_COOP_EVENT_GADGET`); the host sets the bit, and
+`AI_IFBondUsedGadgetOnObject` opens the door. Protocol 18 is unchanged:
+an older build ignores the new message and event numbers.
+
+The tank on Runway and Streets keeps one set of globals
+(`g_WorldTankProp`, `g_PlayerTankProp`, `g_PlayerIsInTank`,
+`g_PlayerTankYOffset`, `g_BondCanEnterTank`). Co-op ticks every player
+through `MoveBond`, and another player's tick cleared those globals, so
+the rider fell through the hull. A remote tick now borrows a cleared copy
+and puts the rider's state back. Leaving the deck re-enables hull
+collision even when the pointer is dropped. Enter, exit and tank shells
+stay on this headset's player. Other headsets still see a parked tank;
+the driven pose is not synced.
+
 ## Known limits (best effort)
 
 - Guard shots show muzzle flash and sound on clients, but no tracers or
   wall sparks; a guard's thrown grenade is not seen flying there.
 - Scripts that test "Bond" (rooms, items, cutscene control) test the
-  player the guard is targeting, or the host for background scripts.
+  player the guard is targeting, or the nearest living player for a
+  background list. Keys and documents stay on the headset that picked
+  them up; a keyed door does not accept a teammate's copy.
+- A driven tank is solid here. Other headsets still see it parked.
 - After a host change, objective events only the old host had (a client's
   photo or deposit) are not carried over; the stage flags are.
 - Guards a host spawned show the old chrnum on clients for a clone (cosmetic).
