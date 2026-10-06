@@ -393,6 +393,7 @@ Fixes in the follow-up:
   preview, and persistence/undo of component 6. Wrist tests check AR33's exact
   tracked orientation and unchanged magazine rotation at both handedness/scale.
 
-The follow-up wrist correction and new installed-mesh control still need user
-headset confirmation and final visual magazine fitting. Record that feedback
-before considering the two exceptions closed.
+The follow-up AR33 headset calibration was verified and baked into defaults:
+support hand **4.4486, -0.1748, -0.1474** cm, held magazine **-5.6976, 4.9249, 6.2176** cm,
+and magazine well **0.6024, -0.1363, 0.6389** cm.
+
