@@ -170,6 +170,18 @@ float VrGexWatch[4] = { 5.0f, 1.0f, 0.22f, 1.2f };
 /* where GE-X's left hand holds a gun with both hands, cm forward, up and out
  * along the gun from where its animation has it (Gun fit's grip mode) */
 float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
+/* PP7 and PP7 silenced share a model fit, separate from legacy KF7 values.
+ * Grab is a cm delta from the actual magazine, not a guessed controller point. */
+float VrGexPp7Grab[3] = { 0.0f, 0.0f, 0.0f };
+float VrGexPp7Support[3] = { 0.0f, 0.0f, 0.0f };
+float VrGexPp7SupportRot[3] = { 0.0f, 0.0f, 0.0f };
+/* Fire-frame-zero palm aligned with the already fitted KF7 shooting palm. */
+float VrGexPp7GunOff[3] = { 0.478802f, 4.372890f, -9.395315f };
+/* Held-magazine fit moves the mesh independently of the off hand and watch. */
+float VrGexKf7MagOff[3] = { 0.0f, 0.0f, 0.0f };
+float VrGexPp7MagOff[3] = { 0.0f, 0.0f, 0.0f };
+float VrGexKf7WellOff[3] = { 0.0f, 0.0f, 0.0f };
+float VrGexPp7WellOff[3] = { 0.0f, 0.0f, 0.0f };
 
 /* Gun fit's scope trims (port/include/gevr_scope.h): GoldenEye X's KF7 sight
  * as the user fitted it (2026-10-04), the others none */
