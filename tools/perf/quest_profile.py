@@ -221,6 +221,12 @@ def run(args, out):
     config, turn_edits = re.subn(rb'SnapTurn=[^\r\n]+', b'SnapTurn=0.0', config)
     config, stat_edits = re.subn(rb'ShowStats=\d', f'ShowStats={args.showstats}'.encode(), config)
     assert hz_edits == turn_edits == stat_edits == 1, 'settings file layout changed'
+    if args.texture_pack is not None:
+        # '' (none) or a pack folder name, otherwise the user's own choice.
+        pack = '' if args.texture_pack == 'none' else args.texture_pack
+        assert re.fullmatch(r'[A-Za-z0-9_.-]*', pack)
+        config, pack_edits = re.subn(rb'ActiveTexturePack=[^\r\n]*', f'ActiveTexturePack={pack}'.encode(), config)
+        assert pack_edits == 1, 'settings file layout changed'
     local = folder / 'settings.ini'
     local.write_bytes(config)
     adb('shell', 'am', 'force-stop', PACKAGE)
@@ -236,7 +242,7 @@ def run(args, out):
     adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'simpleperf': args.simpleperf, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -329,6 +335,7 @@ if __name__ == '__main__':
     parser.add_argument('--runs', type=int, default=3)
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)
+    parser.add_argument('--texture-pack', help="'none' or a pack folder; default keeps the user's setting")
     parser.add_argument('--simpleperf', action='store_true',
                         help='sample the measured minute with simpleperf (attribution only; needs the benchmark build)')
     args = parser.parse_args()
