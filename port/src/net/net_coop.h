@@ -16,6 +16,8 @@ struct ChrRecord;
 struct AIRecord;
 struct coord3d;
 struct ObjectRecord;
+struct WeaponObjRecord;
+struct PropRecord;
 
 /* The net layer (net_core.c) */
 void netCoopHostTick(void);                 /* netPoll: the guards' state, ten times a second */

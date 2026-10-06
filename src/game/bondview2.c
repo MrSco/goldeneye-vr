@@ -7563,6 +7563,9 @@ static s32 gevrBondMoveResult(GevrMoveAttempt kind, s32 result,
  * US address 7F07D960.
  * JP address 7F07DA34 (maybe).
  */
+#ifdef GEVR
+static void gevrCoopReleaseTank(void);   /* co-op tank guards, defined before MoveBond */
+#endif
 void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
 {
     struct coord3d next_pos; // spb4
