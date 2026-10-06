@@ -9,9 +9,15 @@
     controllers were set down and some controllers failed to reconnect (see
     src/main/AndroidManifest.xml and 3c1080a3). Benchmarks drive the game
     through gevr_input.txt, so that behavior does not matter here.
+
+    profileable lets the shell's simpleperf sample the game (the simpleperf
+    option of quest_profile.py run). Neither entry changes the native code.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature
         android:name="oculus.software.handtracking"
         android:required="false" />
+    <application>
+        <profileable android:shell="true" />
+    </application>
 </manifest>
