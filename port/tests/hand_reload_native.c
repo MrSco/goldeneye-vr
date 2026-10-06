@@ -407,6 +407,26 @@ static void pp7Reload(void)
         stats.MagSize=30; stats.AmmoType=1;
     }
 }
+static void nextGunReloads(void)
+{
+    const int items[]={ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16};
+    for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) {
+        reset(); gex[GUNRIGHT]=1; player.hands[GUNRIGHT].weapon=items[i];
+        player.hands[GUNRIGHT].weapon_ammo_in_magazine=7;
+        pistolTick(); assert(gevrReloadFitAvailable());
+        float cm=GEVR_UNITS_PER_METRE*D_800364CC/100.0f, magazine[3];
+        assert(gevrGexPistolPoint(0,magazine)); memcpy(poses[0],magazine,sizeof(magazine));
+        gripHeld[0]=1; pistolTick(); assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_GRIPPED);
+        poses[0][1]-=(gevrGexReloadDistance(GEVR_RT_PULL)+0.1f)*cm;
+        pistolTick(); assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND);
+        assert(s_gevrGexHeldRounds==7 && reserve==50);
+        pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint));
+        heldPoint[1]=3*gevrGexReloadDistance(GEVR_RT_SEAT)*cm; pistolTick();
+        heldPoint[1]=0; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==7 && reserve==50 && readyEvents==1);
+    }
+}
 int main(void)
 {
     const float scales[] = {0.2f, 1.0f};
@@ -427,6 +447,7 @@ int main(void)
         everyGunAndHolster();
         meleeArbitration();
         pp7Reload();
+        nextGunReloads();
     }
     /* A custom belt and radius must control both reload paths. */
     reset();

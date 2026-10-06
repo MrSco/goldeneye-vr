@@ -1,8 +1,9 @@
 # GE-X weapon roadmap
 
 Approved 2026-10-06. The first playable milestone is **PP7 and silenced PP7
-together**, preserving the working KF7. Subsequent families follow only after
-the previous stage passes its headset acceptance checks.
+together**, preserving the working KF7. The user then authorized a batch of
+additional detachable-magazine models with in-headset fitting. Batch integration
+is complete; acceptance of each new model remains pending.
 
 ## Interaction contract
 
@@ -231,3 +232,106 @@ python port/tests/test_vr_display.py
 The tests also run without ROM arguments using native/synthetic fixtures.
 The inspection scripts require Python and GCC/compatible `cc`. JSON extraction
 reports are candidates for review, not automatically approved runtime entries.
+
+
+## Detachable-magazine batch and saved fits (2026-10-06)
+
+Seven additional guns are integrated: **DD44, Klobb, ZMG, D5K, silenced D5K,
+Phantom and AR33**. This makes ten supported items including KF7 and both PP7s.
+Native conversion, pose and physical ammo-transfer checks cover each item.
+The new models have not yet received user headset acceptance. Test all of them
+before proceeding to the next loading mechanisms.
+
+| Weapon / item | GE-X slot and model | Fire | Reload: ammo / installed out / held shown / held hidden | Magazine matrices installed / held | Host bytes |
+| --- | --- | --- | --- | --- | --- |
+| DD44 / 6 | 5 `Gtt33Z` | 236 | 237: 24 / 19 / 1 / 24 | 38 / 42 | 16928 |
+| Klobb / 7 | 6 `GskorpionZ` | 1011 | 1012: 25 / 18 / 4 / 25 | 37 / 38 | 17504 |
+| ZMG / 9 | 8 `GuziZ` | 278 | 277: 45 / 23 / 33 / 45 | 38 / 39 | 12352 |
+| D5K / 10 | 9 `Gmp5kZ` | 1022 | 1019: 48 / 25 / 25 / 48 | 38 / 41 | 18768 |
+| D5K silenced / 11 | 10 `Gcmp150Z` | 1022 | 1019: 48 / 25 / 25 / 48 | 38 / 41 | 19488 |
+| Phantom / 12 | 11 `GcycloneZ` | 1068 | 1020: 48 / 16 / 16 / 48 | 38 / 41 | 18784 |
+| AR33 / 13 | 12 `Gm16Z` | 1003 | 1004: 41 / 17 / 17 / 41 | 39 / 40 | 13920 |
+
+Important differences to preserve:
+
+- DD44 shares the PP7 magazine's rigid alignment and compact support pose, but
+  its single reload transfers ammo at **24**, not PP7's 53. Dual reload 1009
+  transfers at 50 without a held mesh. Do not copy an entire pistol definition.
+- Klobb dual reload 1013 transfers at 47 and keeps the held mesh hidden; ZMG
+  dual reload 1058 transfers at 61 with held visibility 33..61.
+- Klobb and ZMG also park their unused idle left arms. The `compact` field
+  selects the fixed shooting-grip support pose and tracked magazine wrist;
+  `pistol` separately selects semi-auto fire restart and receiver readying.
+- PP7's overlapping support/magazine points retain the underside requirement.
+  The other compact guns select the closer distinct point with the same margin
+  and fresh-grip latch; they must not inherit PP7's underside geometry blindly.
+- Long guns now have support pitch/yaw/roll about the palm. With both hands
+  holding the gun in Gun fit, hold the **gun-hand grip** and use move Y for
+  pitch, move X for roll, turn Y for yaw. KF7 preserves its old support drawing
+  at zero rotation. Moving/turning the off controller cannot pivot the posed hand.
+- Body translations into GE's screen frame are DD44 `24,26,76`, Klobb `0,32,13`,
+  ZMG `0,23,0`, D5K variants `0,8,6`, Phantom `0,0,0`, AR33 `8,22,4`.
+  Initial muzzle origins come from the original GE flash group's position,
+  transformed through these body offsets and the GE-X fire-frame-zero gun joint.
+  Keep per-item barrel-tip fitting independent of shared body/grip fits.
+- Magazine alignment is identity for Klobb/D5K/Phantom, a `1,0,0.5` translation
+  for ZMG, and `-2,0,0` for AR33. Do not conflate mesh coordinates with animation
+  joints (Phantom's matrices 38/41 are animation joints 34/36).
+- Exact texture matches were checked against each original GE model. Body
+  matches use GE IDs to retain HD replacements; unmatched images keep GE-X IDs.
+  `gex_texmatch.py --model-only` avoids decoding unrelated cartridge images.
+
+### Fit persistence and baking workflow
+
+`VrGexWeaponFits[64][6][3]` stores the new fits. Saved rows are
+`GexFit<item>_<component>=x y z`, with components:
+
+| Component | Meaning / axes |
+| --- | --- |
+| 0 | Gun: controller right, up, back (cm) |
+| 1 | Reload grab: delta from the rest magazine in raw gun-controller right, up, back (cm) |
+| 2 | Support: gun forward, up, out (cm) |
+| 3 | Support rotation: pitch, yaw, roll (degrees) |
+| 4 | Held magazine: off-controller right, up, back (cm); mesh and seating tip move together |
+| 5 | Magazine well: gun right, up, back (cm); insertion target only |
+
+D5K silenced shares **item 10**, including magazine/well fits. Both PP7s retain
+legacy `GexPP7*` keys; KF7 retains its old gun, grab, support, held-mag and well
+keys, with generic item 8 / component 3 for its newly adjustable rotation.
+Save/undo captures the whole fit set. Parsing rejects invalid indices,
+malformed rows and non-finite vectors. Saving only writes implemented families,
+so an older build cannot zero out defaults for guns added by a future build.
+
+After the user fits a gun and presses **A**:
+
+1. Read `/sdcard/Android/data/com.gevr.port/files/data/goldeneye-vr.ini` using
+   adb. Read only the relevant fit keys; do not overwrite headset settings.
+2. Copy that family's six rows into the designated initializer in
+   `port/vr/vr_settings_defaults.c`; copy its `GexMuzzle*` trim separately.
+   Preserve the canonical item sharing above. Existing saved INI overrides
+   remain authoritative; compiled defaults apply when keys are missing.
+3. Run settings save/load/undo and weapon/reload native checks, then build a
+   signed release with JDK 20 and ask the user to verify placement in the headset.
+4. Record the user's actual headset acceptance, including exceptions, here.
+
+The user's latest saved PP7/KF7 fits were read on 2026-10-06 and baked into
+compiled defaults: gun, reload grab, support position/rotation, held-hand palm,
+held-mag mesh, watch and silenced PP7 muzzle. New gun placements align their
+shooting palms against the fitted KF7; DD44 starts with the fitted PP7 gun pose.
+These are initial placements, not validated replacements for user fitting.
+
+### Remaining next models
+
+RC-P90 (slot 13, `Gfnp90Z`) has a top magazine, matrices 38/39 and parts 41/42.
+Reload 1038 transfers at 104 of 156 frames without scripted magazine toggles.
+Review removal direction and explicit visibility/held pose before integrating;
+the existing downward-pull gesture should not be assumed correct for it.
+
+Sniper (slot 16, `GsniperrifleZ`) has parts 40/41 at matrices 40/41. Reload
+1039 removes at 42, hides the held mesh at 70 and transfers ammo at 72. Its
+script has no ordinary fire animation entry or flash part 90: implement and
+validate a separate rest/firing pose and scope/muzzle binding, rather than
+supplying an arbitrary animation to satisfy loader validation.
+
+Shell, cylinder, grenade and rocket loading remain separate later stages.
+Do not expand their physical reload rules by item range or Perfect Dark name.

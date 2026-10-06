@@ -14994,13 +14994,13 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         /* GoldenEye X's own left hand holding: where it holds (input.c) */
         const float *supportFit = gevrGexSupportFit(getCurrentPlayerWeaponId(GUNRIGHT));
         const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
-        extern float VrGexPp7SupportRot[3];
-        if (def != NULL && def->pistol)
+        const float *rotationFit = gevrGexSupportRotFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        if (def != NULL)
         {
             snprintf(buf, sizeof(buf),
-                     "PP7 SUPPORT FIT\nFORWARD %.1f  UP %.1f  SIDE %.1f CM\nPITCH %.0f  YAW %.0f  ROLL %.0f\nSTICKS MOVE THE HAND\nHOLD GUN HAND GRIP TO ROTATE\nMOVE STICK: PITCH, ROLL\nTURN STICK: YAW\n%sA: SAVE   B: UNDO   MENU + A: DONE",
-                     supportFit[0], supportFit[1], supportFit[2], VrGexPp7SupportRot[0],
-                     VrGexPp7SupportRot[1], VrGexPp7SupportRot[2], gevrFitNextLine(0));
+                     "SUPPORT FIT (GOLDENEYE X)\nFORWARD %.1f  UP %.1f  SIDE %.1f CM\nPITCH %.0f  YAW %.0f  ROLL %.0f\nSTICKS MOVE THE HAND\nHOLD GUN HAND GRIP TO ROTATE\nMOVE STICK: PITCH, ROLL\nTURN STICK: YAW\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                     supportFit[0], supportFit[1], supportFit[2], rotationFit[0],
+                     rotationFit[1], rotationFit[2], gevrFitNextLine(0));
         }
         else
         snprintf(buf, sizeof(buf),
@@ -16245,7 +16245,7 @@ static s32 gevrGexPistolPoint(s32 support, f32 out[3])
     f32 size = gevrGunSizeFactor(), side = VrLeftHandedMode ? 1.0f : -1.0f;
     const f32 *root, *fit;
     s32 i;
-    if (def == NULL || !def->pistol || cm < 1e-6f || !gevrGripAxesRaw(1, gun, r, u, b)) return FALSE;
+    if (def == NULL || def->item == ITEM_AK47 || cm < 1e-6f || !gevrGripAxesRaw(1, gun, r, u, b)) return FALSE;
     root = support ? def->supportRoot : def->grabRoot;
     fit = support ? gevrGexSupportFit(def->item) : gevrGexGrabFit(def->item);
     gevrGunOff(GUNRIGHT, off);
@@ -16277,7 +16277,7 @@ static s32 gevrGexPistolSupportAllowed(void)
         s_gevrPistolGripOwner = GEVR_GEXGRIP_SPENT;
         s_gevrPistolGripWas = TRUE;
     }
-    else if (!s_gevrPistolGripWas && def != NULL && def->pistol)
+    else if (!s_gevrPistolGripWas && def != NULL && def->compact)
     {
         s_gevrPistolGripWas = TRUE;
         s_gevrPistolGripOwner = GEVR_GEXGRIP_SPENT;
@@ -16290,19 +16290,20 @@ static s32 gevrGexPistolSupportAllowed(void)
                 sd2 += (off[i]-support[i])*(off[i]-support[i]);
                 below += (support[i]-off[i])*up[i]/cm;
             }
-            s_gevrPistolGripOwner = gevrGexPistolGripPick(sqrtf(md2)/cm, sqrtf(sd2)/cm, below);
+            /* PP7 overlaps its support cup; other compact magazines use distinct points. */
+            s_gevrPistolGripOwner = gevrGexPistolGripPick(sqrtf(md2)/cm, sqrtf(sd2)/cm, (def->item == ITEM_WPPK || def->item == ITEM_WPPKSIL) ? below : 2.0f);
             if (!gevrGexByHand(GUNRIGHT) && s_gevrPistolGripOwner == GEVR_GEXGRIP_MAG)
                 s_gevrPistolGripOwner = sd2 < 144*cm*cm ? GEVR_GEXGRIP_SUPPORT : GEVR_GEXGRIP_NONE;
         }
     }
     s_gevrPistolGripItem = context;
-    return def == NULL || !def->pistol || s_gevrPistolGripOwner == GEVR_GEXGRIP_SUPPORT;
+    return def == NULL || !def->compact || s_gevrPistolGripOwner == GEVR_GEXGRIP_SUPPORT;
 }
 
 static f32 gevrGexReloadDistance(s32 index)
 {
     const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
-    if (def != NULL && def->pistol)
+    if (def != NULL && def->compact)
         return index == GEVR_RT_MAGRADIUS ? 4.0f : index == GEVR_RT_PULL ? 5.0f : 3.0f;
     return s_gevrReloadTune[index];
 }
@@ -16363,7 +16364,7 @@ s32 gevrGexClaimsOffHand(void)
     if (s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN)
     {
         const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
-        if (def != NULL && def->pistol)
+        if (def != NULL && def->compact)
         {
             gevrGexPistolSupportAllowed();
             return s_gevrPistolGripOwner == GEVR_GEXGRIP_MAG;

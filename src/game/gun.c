@@ -1805,14 +1805,14 @@ static void gevrGexForeFrom(const Mtxf *rwmtx)
     u = l[2] / 0.085f;   /* units a cm */
     gevrGexMtxPoint(&rwmtx[GEVR_GEX_LHAND_WRIST], palmLocal, s_gevrGexForeAt);
     memcpy(original, s_gevrGexForeAt, sizeof(original));
-    if (def->pistol)
+    if (def->compact)
         gevrGexMtxPoint(&rwmtx[GEVR_GEX_RHAND_WRIST], palmLocal, s_gevrGexForeAt);
     for (i = 0; i < 3; i++)
     {
         s_gevrGexForeOff[i] = (fit[0] * g->m[2][i] / l[2] + fit[1] * g->m[1][i] / l[1]
                               + fit[2] * g->m[0][i] / l[0]) * u;
         s_gevrGexForeAt[i] += s_gevrGexForeOff[i];
-        if (def->pistol) s_gevrGexForeOff[i] = s_gevrGexForeAt[i] - original[i];
+        if (def->compact) s_gevrGexForeOff[i] = s_gevrGexForeAt[i] - original[i];
     }
     s_gevrGexForeValid = TRUE;
 }
@@ -1971,7 +1971,7 @@ static s32 gevrGexOffSteady(ModelFileHeader *hdr, Mtxf *rwmtx)
     {
         return FALSE;
     }
-    if (def->pistol)
+    if (def->compact)
     {
         gevrGexPistolMagGrip(hdr, rwmtx, s_gevrGexOffEmpty);
         return TRUE;
@@ -1998,7 +1998,7 @@ static s32 gevrGexOffSteady(ModelFileHeader *hdr, Mtxf *rwmtx)
  * Off-controller rotation only determines whether support is held. */
 static void gevrGexPistolSupportPose(ModelFileHeader *hdr, Mtxf *rwmtx)
 {
-    extern float VrGexPp7SupportRot[3];
+    /* Rotation is per model family, in the gun frame. */
     const GexWeaponDef *def = gevrGexForHeader(hdr);
     const f32 palmLocal[3] = {0,0,GEVR_GEX_PALM_Z};
     Mtxf rest[64], ident, mirror, a, b, inverse, relative, wrist, rotation, rotated;
@@ -2012,9 +2012,10 @@ static void gevrGexPistolSupportPose(ModelFileHeader *hdr, Mtxf *rwmtx)
     mirror.m[0][0] = -1.0f;
     matrix_4x4_multiply(&mirror, &rest[GEVR_GEX_RHAND_WRIST], &a);
     matrix_4x4_multiply(&a, &mirror, &b);
+    if (!def->compact) b = rest[GEVR_GEX_LHAND_WRIST];
     gevrGexRigidInverse(&rest[def->gunMatrix], &inverse);
     matrix_4x4_multiply(&inverse, &b, &relative);
-    for (i = 0; i < 3; i++) angles.f[i] = VrGexPp7SupportRot[i] * (M_PI / 180.0f);
+    for (i = 0; i < 3; i++) angles.f[i] = gevrGexSupportRotFit(def->item)[i] * (M_PI / 180.0f);
     matrix_4x4_set_rotation_around_xyz(&angles, &rotation);
     matrix_4x4_multiply(&rotation, &relative, &rotated);
     matrix_4x4_multiply(&rwmtx[def->gunMatrix], &rotated, &wrist);
@@ -2132,7 +2133,7 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     if (offHolds)
     {
         gevrGexLeftHandTo(hdr, rwmtx, off);
-        offSteady = (def->pistol || gevrGexArmsOn()) && gevrGexOffSteady(hdr, rwmtx);
+        offSteady = (def->compact || gevrGexArmsOn()) && gevrGexOffSteady(hdr, rwmtx);
         gevrGexHeldMagFitTo(def, &rwmtx[def->heldMatrix]);
     }
     if (g_gevrStereo && hdr->numMatrices > def->heldMatrix && (hand == GUNRIGHT || hand == GUNLEFT))
@@ -2172,7 +2173,9 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
                 /* the holding hand where Gun fit's grip mode put it */
                 s32 i, j;
 
-                if (def->pistol) gevrGexPistolSupportPose(hdr, rwmtx);
+                const float *rotationFit = gevrGexSupportRotFit(def->item);
+                if (def->compact || def->item != ITEM_AK47 || rotationFit[0] != 0 || rotationFit[1] != 0 || rotationFit[2] != 0)
+                    gevrGexPistolSupportPose(hdr, rwmtx);
                 else for (j = GEVR_GEX_LHAND_FIRST; j <= GEVR_GEX_LHAND_LAST; j++)
                 {
                     for (i = 0; i < 3; i++)
