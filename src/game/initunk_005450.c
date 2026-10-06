@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "bondtypes.h"
 #include "initunk_005450.h"
+#include "objecthandler.h"
 
 #define MODELHITENTRIES_LEN 600
 
@@ -27,8 +28,13 @@ void initModelHitEntryFreeList(void)
     s32 i;
     ModelHitEntry *entries = (ModelHitEntry *)g_ModelHitEntries;
 
+    /* Drop heap entries from the previous stage before the static pool is
+     * rethreaded. Those chunks are no longer on this free list. */
+    modelHitEntryReleaseOverflow();
+
     g_ModelHitFreeList = entries;
 
+    entries[0].prev = NULL;
     entries[0].next = &entries[1];
 
     for (i = 1; i < MODELHITENTRIES_LEN - 1; i++)
@@ -37,5 +43,6 @@ void initModelHitEntryFreeList(void)
         entries[i].prev = &entries[i - 1];
     }
 
+    entries[MODELHITENTRIES_LEN - 1].next = NULL;
     entries[MODELHITENTRIES_LEN - 1].prev = &entries[MODELHITENTRIES_LEN - 2]; /* the cartridge's g_ModelHitEntriesPenultimate label */
 }

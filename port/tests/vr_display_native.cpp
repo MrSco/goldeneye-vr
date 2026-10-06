@@ -1,4 +1,5 @@
 #include "gevr_render_size.h"
+#include "gevr_locomotion.h"
 #include <openxr/openxr.h>
 #include <cassert>
 #include <cstdio>
@@ -11,6 +12,7 @@
 #define LOGE(...) ((void)0)
 void vr_log(const char *, ...) {}
 extern "C" void gevrVrLocomotionReset(void) {}
+extern "C" void gevrVrLocomotionResetReason(GevrLocomotionResetReason) {}
 struct Fatal {};
 extern "C" __attribute__((noreturn)) void sysFatalError(const char *, ...) { throw Fatal{}; }
 using GLuint = unsigned;
@@ -160,6 +162,11 @@ bool vr_create_menu_swapchain() {
 }
 void vr_screen_destroy_swapchain() {}
 void vr_end_empty_frame(XrTime) {}
+extern "C" void gfx_vr_gpu_reset(void) {}
+extern "C" void gfx_vr_hud_bounds_reset(void) {}
+void gevrXrMetricsInit(XrInstance,XrSession) {}
+void gevrXrMetricsReset() {}
+extern "C" void gevrFrameTimingEnable(int) {}
 extern "C" void vr_shutdown();
 
 /* INSERT_REFRESH */

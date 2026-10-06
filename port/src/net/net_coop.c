@@ -66,6 +66,14 @@ extern void chrlvMergeKneelToStand(ChrRecord *self, f32 mergetime);
 extern bool netSlotOccupied(int slot);
 extern s32 chrGetNumFree(void);
 extern bool netSlotIsSpectator(int slot);
+extern s32 getPlayerCount(void);
+extern int bondinvAddInvItem(int item);
+extern ObjectRecord *objFindByTagId(s32 TagID);
+extern u32 *ptr_last_tag_entry_type16;
+extern PropRecord *chrpropGetActiveTail(void);
+extern void chrpropDelist(PropRecord *prop);
+extern void chrpropReparent(PropRecord *child, PropRecord *host);
+extern void projectileFree(struct Projectile *projectile);
 
 static void coopHostMission(u64 now);
 static void coopMissionReset(void);
@@ -79,6 +87,7 @@ static void coopRecordSetup(void);
 static void coopHostDropIn(u64 now);
 struct netbuf;
 static void coopHeader(struct netbuf *b, u8 type);
+static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs);
 static void coopWriteSpawn(struct netbuf *buf, ChrRecord *chr, s32 slot, AIRecord *ailist, s32 spawnflags);
 static bool coopTeammateUp(int i);
 
@@ -1075,6 +1084,221 @@ static void coopReceiveMission(struct netbuf *b)
     memcpy(s_host_status, statuses, count);
 }
 
+/*
+ * Mission gadgets the whole party can carry (issues #128/#129). Guns stay
+ * per headset. Keys and documents stay with whoever picked them up: a keyed
+ * door still checks that headset's own inventory.
+ */
+int gevrCoopSharedGadget(s32 item)
+{
+    switch (item) {
+        case ITEM_BOMBCASE:
+        case ITEM_PLASTIQUE:
+        case ITEM_FLAREPISTOL:
+        case ITEM_PITONGUN:
+        case ITEM_BUNGEE:
+        case ITEM_DOORDECODER:
+        case ITEM_BOMBDEFUSER:
+        case ITEM_CAMERA:
+        case ITEM_LOCKEXPLODER:
+        case ITEM_DOOREXPLODER:
+        case ITEM_BRIEFCASE:
+        case ITEM_WEAPONCASE:
+        case ITEM_SAFECRACKERCASE:
+        case ITEM_KEYANALYSERCASE:
+        case ITEM_BUG:
+        case ITEM_MICROCAMERA:
+        case ITEM_BUGDETECTOR:
+        case ITEM_EXPLOSIVEFLOPPY:
+        case ITEM_POLARIZEDGLASSES:
+        case ITEM_DARKGLASSES:
+        case ITEM_CREDITCARD:
+        case ITEM_GASKEYRING:
+        case ITEM_DATATHIEF:
+        case ITEM_WATCHIDENTIFIER:
+        case ITEM_WATCHCOMMUNICATOR:
+        case ITEM_WATCHGEIGERCOUNTER:
+        case ITEM_WATCHMAGNETREPEL:
+        case ITEM_WATCHMAGNETATTRACT:
+        case ITEM_DATTAPE:
+            return TRUE;
+        default:
+            return FALSE;
+    }
+}
+
+/* The nearest living teammate, for a background list that has no guard slot. */
+s32 gevrCoopNearestPlayer(const coord3d *pos)
+{
+    s32 best = netGetLocalSlot();
+    f32 bestd = 3.4e38f;
+
+    if (best < 0) best = 0;
+    if (!pos) return best;
+    for (int i = 0; i < 4; i++) {
+        coord3d *p;
+        f32 dx, dy, dz, d;
+        if (!coopPlayerTargetable(i) || !g_playerPointers[i]->prop) continue;
+        p = &g_playerPointers[i]->prop->pos;
+        dx = p->x - pos->x;
+        dy = p->y - pos->y;
+        dz = p->z - pos->z;
+        d = dx * dx + dy * dy * 4.0f + dz * dz;
+        if (d < bestd) {
+            bestd = d;
+            best = i;
+        }
+    }
+    return best;
+}
+
+static void coopGrantLocal(s32 item)
+{
+    s32 prev;
+    s32 i;
+
+    /* Slots are not always packed at the front: a leaver can leave a hole,
+     * and getPlayerCount() would then stop before a later occupied slot. */
+    if (item <= ITEM_UNARMED || item >= ITEM_IDS_MAX) return;
+    prev = get_cur_playernum();
+    for (i = 0; i < 4; i++) {
+        if (!g_playerPointers[i] || !netSlotOccupied(i) || netSlotIsSpectator(i)) continue;
+        set_cur_player(i);
+        bondinvAddInvItem(item);
+    }
+    set_cur_player(prev);
+}
+
+static void coopBroadcastGrant(s32 item)
+{
+    u8 raw[16];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+
+    coopHeader(&buf, NET_MSG_COOP_GRANT);
+    netbufWriteS32(&buf, item);
+    netCoopBroadcast(buf.data, buf.wp, true);
+}
+
+void gevrCoopGrantItem(s32 item)
+{
+    if (!netCoopActive() || !gevrCoopSharedGadget(item)) return;
+    coopGrantLocal(item);
+    if (netIsHost()) coopBroadcastGrant(item);
+    else coopSendEvent(NET_COOP_EVENT_GRANT, item, 0, 1);
+}
+
+static s32 coopTagOf(ObjectRecord *obj)
+{
+    TagObjectRecord *tag = (TagObjectRecord *)ptr_last_tag_entry_type16;
+
+    while (tag) {
+        if (tag->TaggedObject == obj) return tag->ID;
+        tag = tag->NextTag;
+    }
+    return -1;
+}
+
+void gevrCoopReportGadgetUse(ObjectRecord *obj)
+{
+    s32 tag;
+
+    if (!obj || !gevrCoopPuppets() || get_cur_playernum() != netGetLocalSlot()) return;
+    tag = coopTagOf(obj);
+    if (tag < 0) return;
+    coopSendEvent(NET_COOP_EVENT_GADGET, tag, 0, 1);
+}
+
+static void coopApplyGadgetUse(s32 tag)
+{
+    ObjectRecord *obj = objFindByTagId(tag);
+
+    if (obj) obj->state |= PROPSTATE_ACTIVATED;
+}
+
+/*
+ * Thrown mines, the bug, the camera, plastique and the bomb case. A mission
+ * list can ask "has this landed?" (IFKeyDropped walks weapon props) or
+ * "is it stuck to this object?" (IFItemIsAttachedToObject). Surface 2's
+ * helicopter list does both, and the first settled remote mine that is not
+ * on the helicopter fails that objective (#130).
+ */
+int gevrCoopThrownMissionItem(int item)
+{
+    switch (item) {
+        case ITEM_REMOTEMINE:
+        case ITEM_TIMEDMINE:
+        case ITEM_PROXIMITYMINE:
+        case ITEM_BOMBCASE:
+        case ITEM_BUG:
+        case ITEM_MICROCAMERA:
+        case ITEM_PLASTIQUE:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* The host's copy of another player's mine must not settle on its own. */
+int gevrCoopDeferRemoteMineSettle(struct WeaponObjRecord *wep)
+{
+    if (!wep || wep->type != PROPDEF_COLLECTABLE || !netCoopActive() || !netIsHost()) return 0;
+    if (!gevrCoopThrownMissionItem(wep->weaponnum)) return 0;
+    return RUNTIME_OWNER(wep->runtime_bitflags) != netGetLocalSlot();
+}
+
+void gevrCoopReportMineSettled(struct WeaponObjRecord *wep, struct PropRecord *onto)
+{
+    s32 tag = -1;
+
+    if (!wep || !gevrCoopPuppets() || get_cur_playernum() != netGetLocalSlot()) return;
+    if (!gevrCoopThrownMissionItem(wep->weaponnum)) return;
+    if (onto && (onto->type == PROP_TYPE_OBJ || onto->type == PROP_TYPE_DOOR || onto->type == PROP_TYPE_WEAPON) && onto->obj)
+    {
+        tag = coopTagOf(onto->obj);
+    }
+    coopSendEvent(NET_COOP_EVENT_MINE, wep->weaponnum, tag, 2);
+}
+
+/* The host: the thrower's mine stuck to this tagged object, or landed (tag < 0). */
+static void coopApplyMineSettled(s32 slot, s32 item, s32 tag)
+{
+    PropRecord *prop;
+    WeaponObjRecord *wep = NULL;
+
+    if (!gevrCoopThrownMissionItem(item) || slot < 0 || slot >= 4) return;
+    for (prop = chrpropGetActiveTail(); prop; prop = prop->prev) {
+        WeaponObjRecord *cand;
+
+        if (prop->type != PROP_TYPE_WEAPON || !prop->weapon) continue;
+        cand = prop->weapon;
+        if (cand->weaponnum != item || RUNTIME_OWNER(cand->runtime_bitflags) != slot) continue;
+        wep = cand;
+        if (cand->runtime_bitflags & RUNTIMEBITFLAG_HASPROJECTILE) break;
+    }
+    if (!wep || !wep->prop) return;
+    if (tag >= 0) {
+        ObjectRecord *obj = objFindByTagId(tag);
+
+        if (obj && obj->prop && obj->prop != wep->prop) {
+            chrpropDelist(wep->prop);
+            chrpropReparent(wep->prop, obj->prop);
+        }
+    }
+    if (wep->projectile) {
+        projectileFree(wep->projectile);
+        wep->projectile = NULL;
+    }
+    wep->runtime_bitflags &= ~RUNTIMEBITFLAG_HASPROJECTILE;
+}
+
+static void coopReceiveGrant(struct netbuf *b)
+{
+    s32 item = netbufReadS32(b);
+
+    if (b->error || netbufReadLeft(b) || !gevrCoopSharedGadget(item)) return;
+    coopGrantLocal(item);
+}
+
 static void coopSendEvent(u8 kind, s32 a, s32 b2, int nargs)
 {
     u8 raw[24];
@@ -1178,6 +1402,22 @@ static void coopReceiveEvent(int slot, struct netbuf *b)
             if (b->error) break;
             memcpy(s_held[slot], tags, n * sizeof(s32));
             s_held_count[slot] = n;
+            break;
+        }
+        case NET_COOP_EVENT_GRANT: {
+            s32 item = netbufReadS32(b);
+            if (!b->error && !netbufReadLeft(b)) gevrCoopGrantItem(item);
+            break;
+        }
+        case NET_COOP_EVENT_GADGET: {
+            s32 tag = netbufReadS32(b);
+            if (!b->error && !netbufReadLeft(b)) coopApplyGadgetUse(tag);
+            break;
+        }
+        case NET_COOP_EVENT_MINE: {
+            s32 item = netbufReadS32(b);
+            s32 tag = netbufReadS32(b);
+            if (!b->error && !netbufReadLeft(b)) coopApplyMineSettled(slot, item, tag);
             break;
         }
         default:
@@ -1750,6 +1990,7 @@ void netCoopReceive(int type, int slot, int from_host, struct netbuf *b)
     switch (type) {
         case NET_MSG_COOP_MISSION: if (from_host && !netIsHost()) coopReceiveMission(b); break;
         case NET_MSG_COOP_TEXT: if (from_host && !netIsHost()) coopReceiveText(b); break;
+        case NET_MSG_COOP_GRANT: if (from_host && !netIsHost()) coopReceiveGrant(b); break;
         case NET_MSG_COOP_EVENT: if (netIsHost()) coopReceiveEvent(slot, b); break;
         case NET_MSG_CHR_AI: if (from_host && !netIsHost()) coopReceiveAi(b); break;
         case NET_MSG_CHR_REMAP: if (from_host && !netIsHost()) coopReceiveRemap(b); break;

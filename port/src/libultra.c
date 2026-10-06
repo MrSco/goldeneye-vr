@@ -277,17 +277,33 @@ s32 osContStartReadData(OSMesgQueue *mesgq)
  * driven from the PC: adb shell "echo 1000 > /sdcard/Android/data/com.gevr.port/files/gevr_input.txt".
  * An optional 5th field, -100..100, is the VR right stick's turn for those
  * frames (input.c gevrVrTurnAxis), so stereo play can be turned too.
+ * An optional 6th field, 1..60000, holds the input for that many milliseconds
+ * instead of a frame count, so benchmark phases do not depend on the tick rate.
+ * The active input is recorded in profiling traces (gevrFrameTimingInput).
  */
 #include <stdio.h>
 #include <unistd.h>
+#include "gevr_frame_timing.h"
 static u16 gevrInjectButtons; static s8 gevrInjectX, gevrInjectY; static s32 gevrInjectFrames;
+static u64 gevrInjectUntilUs;
 float gevrInjectTurn;
+static void gevrInjectEnd(void)
+{
+	gevrInjectFrames = 0;
+	gevrInjectUntilUs = 0;
+	gevrInjectTurn = 0.0f;
+	gevrFrameTimingInput(0, 0, 0, 0);
+}
 static void gevrPollInjectedInput(void)
 {
 	static u32 sTick;
 	const char *path = "/sdcard/Android/data/com.gevr.port/files/gevr_input.txt";
+	if (gevrInjectUntilUs) {
+		if (sysGetMicroseconds() >= gevrInjectUntilUs) gevrInjectEnd();
+		return;
+	}
 	if (gevrInjectFrames > 0) {
-		if (--gevrInjectFrames == 0) gevrInjectTurn = 0.0f;
+		if (--gevrInjectFrames == 0) gevrInjectEnd();
 		return;
 	}
 	if ((++sTick % 15) != 0) {
@@ -295,19 +311,24 @@ static void gevrPollInjectedInput(void)
 	}
 	{
 		FILE *f = fopen(path, "r");
-		unsigned mask = 0; int x = 0, y = 0, frames = 4, turn = 0;
+		unsigned mask = 0; int x = 0, y = 0, frames = 4, turn = 0, ms = 0;
 		if (!f) {
 			return;
 		}
 		/* optional 4th field: how many frames to hold, e.g. "0010 0 0 120" to aim */
-		if (fscanf(f, "%x %d %d %d %d", &mask, &x, &y, &frames, &turn) >= 1) {
+		if (fscanf(f, "%x %d %d %d %d %d", &mask, &x, &y, &frames, &turn, &ms) >= 1) {
 			if (frames < 1) frames = 1;
 			if (frames > 600) frames = 600;
 			if (turn < -100) turn = -100;
 			if (turn > 100) turn = 100;
+			if (ms < 0) ms = 0;
+			if (ms > 60000) ms = 60000;
 			gevrInjectButtons = (u16)mask; gevrInjectX = (s8)x; gevrInjectY = (s8)y; gevrInjectFrames = frames;
 			gevrInjectTurn = turn / 100.0f;
-			sysLogPrintf(LOG_NOTE, "input: injecting buttons %04x stick %d,%d turn %d for %d frames", mask, x, y, turn, frames);
+			gevrInjectUntilUs = ms ? sysGetMicroseconds() + (u64)ms * 1000 : 0;
+			gevrFrameTimingInput(mask, gevrInjectX, gevrInjectY, turn);
+			if (ms) sysLogPrintf(LOG_NOTE, "input: injecting buttons %04x stick %d,%d turn %d for %d ms", mask, x, y, turn, ms);
+			else sysLogPrintf(LOG_NOTE, "input: injecting buttons %04x stick %d,%d turn %d for %d frames", mask, x, y, turn, frames);
 		}
 		fclose(f);
 		unlink(path);
@@ -329,7 +350,7 @@ void osContGetReadData(OSContPad *pad)
 		} else {
 			pad->errnum = 0;
 		}
-		if (i == 0 && gevrInjectFrames > 0) {
+		if (i == 0 && (gevrInjectFrames > 0 || gevrInjectUntilUs)) {
 			pad->button |= gevrInjectButtons;
 			pad->stick_x = gevrInjectX;
 			pad->stick_y = gevrInjectY;

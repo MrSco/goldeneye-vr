@@ -3,30 +3,33 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-05, v0.4.9, versionCode 62, protocol 18.
+**Updated / current build:** 2026-10-05, v0.4.10, versionCode 63, protocol 18.
 The changes below are included in this build. Building it does not publish
 a GitHub release. No game data is shipped.
 
-## v0.4.9
+## v0.4.10
 
-- Smooth local VR locomotion between game ticks: confirmed translation and body
-  yaw interpolate on every headset frame while head/hands use current tracking.
-  Gameplay speed, collisions, aiming and multiplayer state retain their cadence.
-- Performance status separates simulation, fresh renders, intermediate redraws,
-  XR submissions, worst render/submission gaps, delay and history clamps.
-- GE-X muzzle flashes follow the fitted barrel tip (#126); the user's KF7 fit
-  is now the default for new installs. Saved fits retain priority.
-- Calibrated belt reloads work for both hands and reloadable guns, preserve GE-X
-  ammo and avoid holster/melee gesture conflicts (#124, #125).
-- Validation before the version bump: native locomotion/display/surface/reload/
-  collision checks, 64 multiplayer tests and 20 Android unit tests passed.
-  The user tested on Quest and reported smooth movement. Broader rate/QGO/co-op
-  comparisons remain unverified; tests were not rerun for the version bump.
+- Movement at walls and curbs: collision correction no longer resets smoothing,
+  rounded curb slides retry with 0.1 mm clearance, interruptions recover, and
+  120 Hz keeps the intended 16.7 ms delay.
+- Fewer render stalls: asynchronous ammo-panel readback, 8% fewer draw calls,
+  safe vertex-ring reuse. Quest 3: 90 Hz holds; heavy 120 Hz views can still
+  exceed the budget (draw-call bound). [Report](docs/vr-render-stalls.md).
+- Co-op mission gadgets shared with every player, tank solid for its rider,
+  mine fixes (#131: #128, #129, #130); Bunker 2 hit-list crash fixed (#127).
+- Unattended Quest benchmarking: opt-in profiler, `benchmark` build type (never
+  shipped) and tools/perf/.
+- Validation: all native suites and 20 Android unit tests passed; the user
+  tested at 120 Hz and in co-op and reported it smooth and working. Tests were
+  not rerun for the version bump.
 
-Full changes: [v0.4.9 notes](docs/releases/v0.4.9.md).
-Evidence: [locomotion validation](docs/vr-locomotion-validation.md).
+Full changes: [v0.4.10 notes](docs/releases/v0.4.10.md).
 
 ## Release baseline
+
+**v0.4.9:** smooth VR locomotion between game ticks; performance status;
+GE-X muzzle flashes follow fitted barrel tips (#126); calibrated belt reloads
+(#124, #125). Notes: [v0.4.9](docs/releases/v0.4.9.md).
 
 **v0.4.8:** immediate launcher settings persistence, read-only INI recovery and
 atomic writes (#113); co-op spawn unclogging in narrow mission starts (#121).

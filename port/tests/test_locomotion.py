@@ -28,6 +28,8 @@ game = (ROOT / "src/game/bondview2.c").read_text(encoding="utf-8")
 fixture = (ROOT / "port/tests/locomotion_native.cpp").read_text(encoding="utf-8")
 runtime = [
     'extern "C" void gevrVrLocomotionReset(void)',
+    'extern "C" void gevrVrLocomotionResetReason(GevrLocomotionResetReason reason)',
+    'extern "C" void gevrVrLocomotionCollision(const float step[3], const float requested[3], const float actual[3])',
     'extern "C" void gevrVrLocomotionSnapshot(const float position[3], const float tracking[3],\n                                        float yaw, uint64_t sequence)',
     'extern "C" void gevrVrCameraWorld(const float position[3], const float look[3], const float up[3])',
     'static void vr_quat_to_mat3(const XrQuaternionf& q, float m[9])',
@@ -54,6 +56,9 @@ with tempfile.TemporaryDirectory(prefix="gevr-locomotion-") as temp:
     includes = ["-I" + str(ROOT / "port/include"), "-I" + str(ROOT / "OpenXR/Include")]
     subprocess.run([shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
                     *includes, "-c", str(ROOT / "port/src/gevr_locomotion.c"), "-o", str(obj)], check=True)
+    timing = temp / "timing.o"
+    subprocess.run([shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
+                    *includes, "-c", str(ROOT / "port/src/gevr_frame_timing.c"), "-o", str(timing)], check=True)
     subprocess.run([shutil.which("g++") or "g++", "-std=c++17", "-O2", "-Wall", "-Wextra", "-Werror",
-                    *includes, str(cpp), str(obj), "-o", str(exe)], check=True)
+                    *includes, str(cpp), str(obj), str(timing), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)

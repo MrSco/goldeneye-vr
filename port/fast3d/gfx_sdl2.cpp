@@ -9,6 +9,7 @@
 
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
+#include "gevr_frame_timing.h"
 
 
 #include "../vr/vr_log.h"
@@ -696,7 +697,9 @@ extern "C" void mirror_apply_size(bool enabled) {
 
 static void gfx_sdl_swap_buffers_begin(void) {
     if (target_fps) {
+        const uint64_t timingStart = gevrFrameTimingNow();
         sync_framerate_with_timer();
+        gevrFrameTimingAdd(GEVR_TIME_THROTTLE, timingStart);
     }
 
 

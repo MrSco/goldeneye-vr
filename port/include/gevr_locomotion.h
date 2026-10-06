@@ -16,12 +16,35 @@ typedef struct GevrLocomotionPose {
     int64_t time;
 } GevrLocomotionPose;
 
+typedef enum GevrLocomotionResetReason {
+    GEVR_LOCO_RESET_NONE, GEVR_LOCO_RESET_OTHER, GEVR_LOCO_RESET_CONTEXT,
+    GEVR_LOCO_RESET_TELEPORT, GEVR_LOCO_RESET_RECENTER, GEVR_LOCO_RESET_SNAP,
+    GEVR_LOCO_RESET_PAUSE, GEVR_LOCO_RESET_TANK, GEVR_LOCO_RESET_TRACKING,
+    GEVR_LOCO_RESET_SESSION, GEVR_LOCO_RESET_REFRESH, GEVR_LOCO_RESET_GAP,
+    GEVR_LOCO_RESET_CLOCK, GEVR_LOCO_RESET_INVALID, GEVR_LOCO_RESET_SCREEN,
+    GEVR_LOCO_RESET_PHYSICAL, GEVR_LOCO_RESET_COUNT
+} GevrLocomotionResetReason;
+
+typedef enum GevrLocomotionClampReason {
+    GEVR_LOCO_CLAMP_NONE, GEVR_LOCO_CLAMP_EARLY, GEVR_LOCO_CLAMP_LATE,
+    GEVR_LOCO_CLAMP_STALE, GEVR_LOCO_CLAMP_MISSING, GEVR_LOCO_CLAMP_COUNT
+} GevrLocomotionClampReason;
+
+typedef struct GevrLocomotionStats {
+    unsigned resets[GEVR_LOCO_RESET_COUNT], clamps[GEVR_LOCO_CLAMP_COUNT];
+    unsigned seeds;
+    int64_t lastLead, maxLead, lastPhase, maxPhase;
+} GevrLocomotionStats;
+
 typedef struct GevrLocomotionHistory {
     GevrLocomotionPose poses[8];
     unsigned count;
     uint64_t anchorSequence;
     int64_t anchorTime, lastDisplayTime, period, delay;
     unsigned clamps;
+    GevrLocomotionResetReason resetReason;
+    GevrLocomotionClampReason clampReason;
+    int64_t targetLead; /* delayed presentation target minus newest logical sample */
 } GevrLocomotionHistory;
 
 typedef struct GevrPresentationCamera {
@@ -30,6 +53,14 @@ typedef struct GevrPresentationCamera {
 } GevrPresentationCamera;
 
 void gevrLocomotionReset(GevrLocomotionHistory *history);
+const char *gevrLocomotionResetName(GevrLocomotionResetReason reason);
+/* Presentation collision response: inferred horizontal contact normal and
+ * rejected physical component. Neither changes the game's collision result. */
+int gevrLocomotionCollision(const float step[3], const float requested[3],
+    const float actual[3], float correction[3], float normal[3]);
+void gevrLocomotionRebase(GevrLocomotionHistory *history, const float correction[3]);
+void gevrLocomotionClipHead(const float rotation[9], const float contactDelta[3],
+    const float normal[3], float translation[3]);
 int64_t gevrLocomotionDelay(int64_t displayPeriod);
 int gevrLocomotionSnapshot(GevrLocomotionHistory *history, const float position[3],
     const float tracking[3], float yaw, uint64_t sequence, int64_t displayTime,
@@ -49,8 +80,10 @@ void gevrPresentationClip(const float delta[16], const float projection[16],
 
 /* C bridge into the XR/rendering layer. Never writes a player's simulation. */
 void gevrVrLocomotionReset(void);
+void gevrVrLocomotionResetReason(GevrLocomotionResetReason reason);
 void gevrVrLocomotionSnapshot(const float position[3], const float tracking[3],
     float yaw, uint64_t sequence);
+void gevrVrLocomotionCollision(const float step[3], const float requested[3], const float actual[3]);
 void gevrVrCameraWorld(const float position[3], const float look[3], const float up[3]);
 int gevrVrPresentationDelta(float out[16]);
 void gevrVrStatsSimulation(unsigned ticks);

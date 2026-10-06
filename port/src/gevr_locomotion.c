@@ -16,37 +16,110 @@ void gevrLocomotionReset(GevrLocomotionHistory *h)
     memset(h, 0, sizeof(*h));
 }
 
+const char *gevrLocomotionResetName(GevrLocomotionResetReason reason)
+{
+    static const char *names[] = {"NONE", "OTHER", "CONTEXT", "TELEPORT", "RECENTER",
+        "SNAP", "PAUSE", "TANK", "TRACKING", "SESSION", "REFRESH", "GAP", "CLOCK",
+        "INVALID", "SCREEN", "PHYSICAL"};
+    return reason >= 0 && reason < GEVR_LOCO_RESET_COUNT ? names[reason] : "INVALID";
+}
+
+int gevrLocomotionCollision(const float step[3], const float requested[3],
+    const float actual[3], float correction[3], float normal[3])
+{
+    float loss[3] = {requested[0] - actual[0], 0, requested[2] - actual[2]};
+    memset(correction, 0, sizeof(float) * 3);
+    memset(normal, 0, sizeof(float) * 3);
+    for (int i = 0; i < 3; i++) if (!isfinite(step[i]) || !isfinite(loss[i])) return 0;
+    const float length = sqrtf(loss[0]*loss[0] + loss[2]*loss[2]);
+    if (length <= 0.01f) return 0; /* 0.1 mm: float-coordinate noise, not contact */
+    normal[0] = loss[0] / length; normal[2] = loss[2] / length;
+    /* Remove only physical travel toward contact, bounded by both the head
+     * step and the observed collision loss. Tangential/retreat travel stays
+     * current; joystick loss must not become an immediate body correction. */
+    const float rejected = fminf(length, fmaxf(0, step[0]*normal[0] + step[2]*normal[2]));
+    correction[0] = -normal[0] * rejected;
+    correction[2] = -normal[2] * rejected;
+    return 1;
+}
+
+void gevrLocomotionRebase(GevrLocomotionHistory *h, const float correction[3])
+{
+    /* Re-express every retained root in the new physical-collision reference.
+     * Recorded render cameras keep their original reference, so the absolute
+     * redraw transform includes this correction exactly once. */
+    for (unsigned i = 0; i < h->count; i++)
+        for (int j = 0; j < 3; j++) h->poses[i].position[j] += correction[j];
+}
+
+void gevrLocomotionClipHead(const float rotation[9], const float contactDelta[3],
+    const float normal[3], float translation[3])
+{
+    float toward = 0;
+    for (int y = 0; y < 3; y++) for (int x = 0; x < 3; x++)
+        toward += normal[y] * rotation[y*3+x] * contactDelta[x];
+    if (toward <= 0) return;
+    for (int x = 0; x < 3; x++) for (int y = 0; y < 3; y++)
+        translation[x] -= rotation[y*3+x] * normal[y] * toward;
+}
+
 int64_t gevrLocomotionDelay(int64_t period)
 {
     if (period <= 0 || period > 100000000) return 16666667;
-    /* ceil(display Hz / 60) display intervals. Allow rounding of runtime ns
-     * periods at integer divisors (120 Hz is 2 intervals, not 3). */
-    int64_t intervals = (1000000000LL + 60 * period - 61) / (60 * period);
-    if (intervals < 1) intervals = 1;
-    return intervals * period;
+    /* Runtime periods vary by a few ns even without a refresh change. Near
+     * an integer divisor, ceil() could turn two 120 Hz intervals into three
+     * (25 ms). Use the exact logical tick when the nearest display multiple
+     * differs by at most 1 us; otherwise cover the full normal game interval. */
+    const int64_t tick = 16666667;
+    const int64_t nearest = (tick + period / 2) / period;
+    if (nearest >= 1 && llabs(nearest * period - tick) <= 1000) return tick;
+    return ((tick + period - 1) / period) * period;
 }
 
 int gevrLocomotionSnapshot(GevrLocomotionHistory *h, const float position[3],
     const float tracking[3], float yaw, uint64_t sequence, int64_t now, int64_t period)
 {
     int reset = 0;
+    h->resetReason = GEVR_LOCO_RESET_NONE;
     for (int i = 0; i < 3; i++) {
         if (!isfinite(position[i]) || !isfinite(tracking[i])) {
             gevrLocomotionReset(h);
+            h->resetReason = GEVR_LOCO_RESET_INVALID;
             return 0;
         }
     }
     if (!isfinite(yaw) || now <= 0 || period <= 0 || period > 100000000) {
         gevrLocomotionReset(h);
+        h->resetReason = GEVR_LOCO_RESET_INVALID;
         return 0;
     }
     if (h->count && (llabs(period - h->period) > 1000 || now < h->lastDisplayTime ||
         now - h->lastDisplayTime > 100000000 || sequence < h->poses[h->count - 1].sequence ||
         sequence - h->poses[h->count - 1].sequence > 6)) {
+        const GevrLocomotionResetReason reason = llabs(period - h->period) > 1000
+            ? GEVR_LOCO_RESET_REFRESH : now < h->lastDisplayTime || sequence < h->poses[h->count - 1].sequence
+            ? GEVR_LOCO_RESET_CLOCK : GEVR_LOCO_RESET_GAP;
         gevrLocomotionReset(h);
+        h->resetReason = reason;
         reset = 1;
     }
     if (h->count && sequence == h->poses[h->count - 1].sequence) return 0;
+    if (h->count) {
+        const uint64_t ticks = sequence - h->anchorSequence;
+        const int64_t expected = h->anchorTime + (int64_t)(ticks / 60) * 1000000000LL
+            + (int64_t)(ticks % 60) * 1000000000LL / 60;
+        /* A session/refresh interruption can advance predicted display time
+         * without a >100 ms arrival gap or a missing simulation sequence.
+         * The old anchor then stays late indefinitely. Normal 60 Hz scheduling
+         * fits within the display-rounded interval plus the pump's 2 ms slack.
+         * Outside that bound, explicitly re-seed instead of changing sample
+         * spacing or extrapolating an empty future. */
+        if (llabs(now - expected) > h->delay + 2000000) {
+            gevrLocomotionReset(h);
+            h->resetReason = GEVR_LOCO_RESET_CLOCK;
+            reset = 1;
+        }
+    }
     if (!h->count) {
         h->anchorTime = now;
         h->anchorSequence = sequence;
@@ -70,20 +143,33 @@ int gevrLocomotionSnapshot(GevrLocomotionHistory *h, const float position[3],
 
 int gevrLocomotionQuery(GevrLocomotionHistory *h, int64_t now, GevrLocomotionPose *p)
 {
-    if (!h->count) return 0;
+    h->clampReason = GEVR_LOCO_CLAMP_NONE;
+    h->targetLead = 0;
+    if (!h->count) {
+        h->clampReason = GEVR_LOCO_CLAMP_MISSING;
+        return 0;
+    }
     const int64_t target = now - h->delay;
     *p = h->poses[h->count - 1];
+    h->targetLead = target - p->time;
     if (now < h->lastDisplayTime || now - h->lastDisplayTime > 100000000) {
         h->clamps++;
+        h->clampReason = GEVR_LOCO_CLAMP_STALE;
         return 1; /* a stall holds the latest confirmed position, never predicts */
     }
     if (target < h->poses[0].time) {
         *p = h->poses[0];
-        h->clamps++;
+        if (h->poses[0].time - target > 1000) {
+            h->clamps++;
+            h->clampReason = GEVR_LOCO_CLAMP_EARLY;
+        }
         return 1;
     }
     if (target > p->time) {
-        h->clamps++;
+        if (target - p->time > 1000) {
+            h->clamps++;
+            h->clampReason = GEVR_LOCO_CLAMP_LATE;
+        }
         return 1;
     }
     for (unsigned i = 1; i < h->count; i++) {
