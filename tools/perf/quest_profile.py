@@ -301,10 +301,10 @@ def run(args, out):
             adb('pull', remote, str(folder / f'{label}.csv'))
             adb('pull', remote + '.gpu.csv', str(folder / f'{label}.gpu.csv'))
             (folder / f'{label}.events.json').write_text(json.dumps(events, indent=2))
+            adb('shell', 'rm', '-f', remote, remote + '.gpu.csv')   # pulled; never leave traces behind
             rows = validate(folder / f'{label}.csv', args.hz, status)
             info['traces'].append({'label': label, 'status': status, 'valid_rows': rows})
             print(label, 'validated', rows, 'active frames', flush=True)
-            adb('shell', 'rm', '-f', remote, remote + '.gpu.csv')
     finally:
         logger.terminate()
         logger.wait(timeout=10)
