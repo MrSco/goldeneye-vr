@@ -12,6 +12,8 @@ ai = (ROOT / "src/game/chrai.c").read_text(encoding="utf-8")
 propobj = (ROOT / "src/game/propobj.c").read_text(encoding="utf-8")
 gunfire = (ROOT / "src/game/gunfire.c").read_text(encoding="utf-8")
 bondview = (ROOT / "src/game/bondview2.c").read_text(encoding="utf-8")
+player = (ROOT / "src/game/player.c").read_text(encoding="utf-8")
+gun = (ROOT / "src/game/gun.c").read_text(encoding="utf-8")
 
 tick = block(action, "void chrlvAllChrTick(void)")
 assert "gevrCoopNearestPlayer(" in tick
@@ -25,6 +27,14 @@ move = block(bondview, "void MoveBond(")
 frozen = block(bondview, "void bondviewFrozenMoveBond(")
 assert "gevrCoopPushTank(&gevrTank)" in move and "gevrCoopPopTank(&gevrTank)" in move
 assert frozen.count("gevrCoopPopTank(&gevrTank)") == 2
+held = block(player, "void sub_GAME_7F09B398(")
+assert "gevrCoopThrownMissionItem(wepid)" in held
+thrown = block(gun, "void generate_player_thrown_object(")
+assert thrown.count("gevrSoloRules()") == 4
+assert "gevrCoopDeferRemoteMineSettle" in propobj
+assert "gevrCoopReportMineSettled" in propobj
+assert "case NET_COOP_EVENT_MINE:" in coop
+assert "coopApplyMineSettled(slot, item, tag)" in coop
 
 tank_start = bondview.index("typedef struct GevrTankGuard")
 tank_end = bondview.index("\n#endif", bondview.index("void gevrCoopReleaseTank(void)"))
@@ -51,6 +61,12 @@ parts = {
     "GRANT_CASE": block(coop, "case NET_COOP_EVENT_GRANT:"),
     "GADGET_CASE": block(coop, "case NET_COOP_EVENT_GADGET:"),
     "AI_CASE": block(ai, "case AI_IFBondUsedGadgetOnObject:\n                {"),
+    "MINE": "\n\n".join((
+        block(coop, "int gevrCoopThrownMissionItem("),
+        block(coop, "int gevrCoopDeferRemoteMineSettle("),
+        block(coop, "void gevrCoopReportMineSettled("),
+        block(coop, "static void coopApplyMineSettled("),
+    )),
 }
 fixture = (ROOT / "port/tests/coop_items_native.c").read_text(encoding="utf-8")
 for marker, code in parts.items():
@@ -70,4 +86,4 @@ with tempfile.TemporaryDirectory(prefix="gevr-coop-items-") as temp:
     if result.returncode:
         raise RuntimeError(result.stderr)
     subprocess.run([str(exe)], check=True)
-print("Co-op gadget grant, gadget use, and tank isolation checks passed")
+print("Co-op gadget grant, gadget use, tank isolation, and Surface 2 mine checks passed")

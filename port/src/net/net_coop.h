@@ -67,6 +67,9 @@ void gevrCoopReportKeyCopy(void);
 void gevrCoopReportAlarm(int on);           /* propobj.c propobjInteract: an alarm switch */
 void gevrCoopGrantItem(int item);           /* a shared mission gadget, into every occupied slot */
 void gevrCoopReportGadgetUse(struct ObjectRecord *obj); /* gunfire.c: a client used a gadget on this */
+int gevrCoopThrownMissionItem(int item);    /* a mine or other throw the mission script watches */
+int gevrCoopDeferRemoteMineSettle(struct WeaponObjRecord *wep); /* host: wait for the thrower (#130) */
+void gevrCoopReportMineSettled(struct WeaponObjRecord *wep, struct PropRecord *onto);
 int gevrCoopNearestPlayer(const struct coord3d *pos);   /* background scripts: nearest living player */
 void gevrCoopAiText(int top, int textid);   /* the host: a mission script's message, for everyone */
 int gevrCoopObjectiveSnapshot(unsigned char *statuses, int max, int localslot);   /* objective_status.c */

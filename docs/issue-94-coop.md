@@ -182,6 +182,28 @@ collision even when the pointer is dropped. Enter, exit and tank shells
 stay on this headset's player. Other headsets still see a parked tank;
 the driven pose is not synced.
 
+## The Surface 2 mine (#130)
+
+Surface 2's background list watches the remote mine. Stuck to the tagged
+helicopter, it starts a ten-second countdown and then the script destroys
+the aircraft. Any other settled remote mine fails that objective ("Bomb
+incorrectly placed"). Shooting the mine does not: the helicopter stays
+invincible until that countdown.
+
+Co-op was taking the multiplayer weapon path, which hangs a world copy of
+the equipped item on the player. That copy is a settled remote mine, so
+equipping the mine failed the objective before it was thrown. The hand
+keeps the solo mine (no world copy). Guns still get one, so other players
+can see them.
+
+A thrown mine is simulated on every headset. The list runs only on the
+host, and the host's copy of someone else's mine can land somewhere the
+thrower's did not. The host now leaves that mine in the air until the
+thrower's headset reports where it stuck (`NET_COOP_EVENT_MINE`: the
+object's tag, or -1 if it landed free). The host parents its copy there,
+and the list sees the same thing solo would. A co-op mission also uses
+the solo fuse on a thrown mine. Protocol 18 is unchanged.
+
 ## Known limits (best effort)
 
 - Guard shots show muzzle flash and sound on clients, but no tracers or
@@ -191,6 +213,8 @@ the driven pose is not synced.
   background list. Keys and documents stay on the headset that picked
   them up; a keyed door does not accept a teammate's copy.
 - A driven tank is solid here. Other headsets still see it parked.
+- A co-op player's held mine, bug, camera, plastique or bomb case has no
+  world model, so other headsets do not see it in the hand. Guns still do.
 - After a host change, objective events only the old host had (a client's
   photo or deposit) are not carried over; the stage flags are.
 - Guards a host spawned show the old chrnum on clients for a clone (cosmetic).

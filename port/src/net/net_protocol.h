@@ -131,6 +131,7 @@ enum {
     NET_COOP_EVENT_ALARM = 7,   /* s32 0/1: my player switched the alarm off or on */
     NET_COOP_EVENT_GRANT = 8,   /* s32 item: a teammate collected a shared mission gadget */
     NET_COOP_EVENT_GADGET = 9,  /* s32 tag: a teammate used a gadget on this tagged object */
+    NET_COOP_EVENT_MINE = 10,   /* s32 item, s32 tag: a thrown mine stuck (tag) or landed (-1) */
 };
 #define NET_COOP_HELD_MAX 8
 #define NET_CHR_NO_ANIM 0xFFFF
