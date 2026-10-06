@@ -123,7 +123,7 @@ static const GexWeaponDef weapons[] = {
         .numParts=2, .parts={42,40}, .visible={1,0}, .pistol=0, .compact=0
     },
     {
-        .item=ITEM_M16, .slot=12, .model="Gm16Z", .texturePairs=ar33Textures,
+        .item=ITEM_M16, .trackedMagWrist=1, .slot=12, .model="Gm16Z", .texturePairs=ar33Textures,
         .fireAnim=1003, .gunMatrix=33, .magMatrix=39, .heldMatrix=40,
         .reload={1004,41,17,17,41}, .dualReload={1004,41,17,17,41},
         .holdFrame=30, .screenOffset={8.000000f,22.000000f,4.000000f},
@@ -159,3 +159,5 @@ float *gevrGexGunFit(s32 item) { return pp7(item) ? VrGexPp7GunOff : item == ITE
 float *gevrGexSupportFit(s32 item) { return pp7(item) ? VrGexPp7Support : item == ITEM_AK47 ? VrGexForeHold : VrGexWeaponFits[fitItem(item)][2]; }
 float *gevrGexSupportRotFit(s32 item) { return pp7(item) ? VrGexPp7SupportRot : VrGexWeaponFits[fitItem(item)][3]; }
 float *gevrGexGrabFit(s32 item) { return pp7(item) ? VrGexPp7Grab : item == ITEM_AK47 ? VrReloadGrab[1] : VrGexWeaponFits[fitItem(item)][1]; }
+
+float *gevrGexInstalledMagFit(s32 item) { return VrGexWeaponFits[pp7(item) ? ITEM_WPPK : fitItem(item)][6]; }

@@ -37,10 +37,10 @@ HARNESS=r'''
 float VrReloadGrab[2][3], VrGexForeHold[3], VrGexPp7Grab[3], VrGexPp7Support[3];
 float VrGexGunOff[3], VrGexPp7GunOff[3];
 float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
-float VrGexPp7SupportRot[3], VrGexWeaponFits[64][6][3];
+float VrGexPp7SupportRot[3], VrGexWeaponFits[64][7][3];
 float VrGexKf7WellOff[3],VrGexPp7WellOff[3];
 static int gevrScopeFitting,gevrReloadFitting,gevrOffHandFitting,gevrHeldMagFitting,gevrMuzzleFitting;
-static int gevrWellFitting;
+static int gevrWellFitting,gevrInstalledMagFitting;
 static int gevrGunFitActive,g_gevrStereo=1,fitReload,fitScope=-1;
 #define LOGI(...) ((void)0)
 s32 gevrScopeFitIndex(void) { return fitScope; }
@@ -112,7 +112,7 @@ static void reloadGrip(ModelFileHeader *hdr) {
         assert(gevrGexOffSteady(hdr,poses));
         assert(gevrGexOffHandPose(empty,33));
         assert(!memcmp(&poses[17],&empty[17],sizeof(Mtxf)));
-        if (!active->compact) continue;
+        if (!active->compact && !active->trackedMagWrist) continue;
         /* The old translation-only fix left the PP7 wrist inverted by 172 degrees. */
         for (int row=0;row<4;row++) for (int a=0;a<4;a++)
             assert(fabsf(poses[18].m[row][a]-empty[18].m[row][a])<0.0001f);
@@ -250,7 +250,19 @@ static void wellFit(ModelFileHeader *hdr) {
         gevrGexWellPoint(active,mag,gun,well);
         for (int a=0;a<3;a++) assert(fabsf(well[a]-s_gevrGexHeldAt[a])<0.0001f);
         assert(!memcmp(poses,before,sizeof(poses))); /* target fit does not move any meshes */
-        memset(fit,0,3*sizeof(float));
+        f32 target[3]; memcpy(target,well,sizeof(target));
+        float *visual=gevrGexInstalledMagFit(active->item);
+        visual[0]=-2.25f; visual[1]=1.5f; visual[2]=0.75f;
+        gevrGexInstalledMagFitTo(active,&poses[active->magMatrix],gun);
+        for (int a=0;a<3;a++) {
+            f32 delta=(-visual[0]*gun->m[0][a]+visual[1]*gun->m[1][a]-visual[2]*gun->m[2][a])/0.085f;
+            assert(fabsf(poses[active->magMatrix].m[3][a]-before[active->magMatrix].m[3][a]-delta)<0.0001f);
+        }
+        for (int j=0;j<64;j++) if(j!=active->magMatrix) assert(!memcmp(&poses[j],&before[j],sizeof(Mtxf)));
+        for (int j=0;j<3;j++) assert(!memcmp(poses[active->magMatrix].m[j],before[active->magMatrix].m[j],4*sizeof(f32)));
+        gevrGexWellPoint(active,mag,gun,well);
+        for (int a=0;a<3;a++) assert(fabsf(well[a]-target[a])<0.0001f);
+        memset(visual,0,3*sizeof(float)); memset(fit,0,3*sizeof(float));
     }
 }
 static ModelNode *nodes[512]; static int count;
@@ -283,6 +295,9 @@ int main(int argc,char **argv) {
     assert(gevrGexHeldMagFit(ITEM_WPPK)!=gevrGexHeldMagFit(ITEM_AK47));
     assert(gevrGexWellFit(ITEM_WPPK)==gevrGexWellFit(ITEM_WPPKSIL));
     assert(gevrGexWellFit(ITEM_WPPK)!=gevrGexWellFit(ITEM_AK47));
+    assert(gevrGexInstalledMagFit(ITEM_WPPK)==gevrGexInstalledMagFit(ITEM_WPPKSIL));
+    assert(gevrGexInstalledMagFit(ITEM_MP5K)==gevrGexInstalledMagFit(ITEM_MP5KSIL));
+    assert(gevrGexInstalledMagFit(ITEM_M16)!=gevrGexInstalledMagFit(ITEM_SPECTRE));
     assert(gevrGexWeaponGet(ITEM_WPPK)->muzzle[2]<gevrGexWeaponGet(ITEM_WPPKSIL)->muzzle[2]);
     assert(!gevrGexWeaponGet(ITEM_FNP90));
     assert(gevrGexGunFit(ITEM_MP5K)==gevrGexGunFit(ITEM_MP5KSIL));
@@ -302,7 +317,13 @@ int main(int argc,char **argv) {
     cycleFit(); assert(gevrWellFitting && !gevrHeldMagFitting);
     assert(gevrGexMagazineFitting());
     assert(strstr(gevrFitNextLine(4),"MAGAZINE WELL"));
-    cycleFit(); assert(gevrMuzzleFitting && !gevrWellFitting);
+    assert(strstr(gevrFitNextLine(5),"INSTALLED MAGAZINE"));
+    cycleFit(); assert(gevrInstalledMagFitting && !gevrWellFitting);
+    assert(!gevrGexMagazineFitting() && gevrGexInstalledMagazineFitting());
+    gevrGunFitActive=2; assert(!gevrGexInstalledMagazineFitting()); gevrGunFitActive=1;
+    g_gevrStereo=0; assert(!gevrGexInstalledMagazineFitting()); g_gevrStereo=1;
+    assert(strstr(gevrFitNextLine(6),"BARREL TIP"));
+    cycleFit(); assert(gevrMuzzleFitting && !gevrInstalledMagFitting);
     assert(!gevrGexMagazineFitting());
     drawn=0; assert(!gevrGexOffHandConsumed(GEVR_GEXMAG_IN,&drawn) && !drawn);
     drawn=0; assert(gevrGexOffHandConsumed(GEVR_GEXMAG_INHAND,&drawn) && drawn);
@@ -396,7 +417,7 @@ production.extend(function(gun,s) for s in ("static void gevrGexMtxPoint(", "sta
     "static void gevrGexPistolMagGrip(", "static s32 gevrGexOffSteady("))
 production.extend(function(gun,s) for s in ("static void gevrGexHeldMagFitTo(", "static void gevrGexPistolSupportPose("))
 production.append(function(gun,"static void gevrGexForeFrom("))
-production.append(function(gun,"static s32 gevrGexMagazineFitting("))
+production.extend(function(gun,s) for s in ("static void gevrGexInstalledMagFitTo(", "static s32 gevrGexInstalledMagazineFitting(", "static s32 gevrGexMagazineFitting("))
 production.extend(function(gun,s) for s in ("static s32 gevrGexOffHandConsumed(", "static void gevrGexWellPoint(", "void gevrReloadFitSetWell("))
 view=(ROOT/"src/game/bondview2.c").read_text()
 production.append(function(view,"static const char *gevrFitNextLine("))

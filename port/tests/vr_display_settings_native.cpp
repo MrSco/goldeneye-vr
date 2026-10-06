@@ -94,6 +94,7 @@ int main(int argc, char **argv) {
         VrMuzzleTrim[1][8][1] = -1.5f;
         VrMuzzleTrim[1][8][2] = 4.25f;
         VrGexWeaponFits[6][3][2] = 47.25f;
+        VrGexWeaponFits[12][6][0] = -3.25f;
         gevrGunFitSaved(false);
         VrGexPp7MagOff[0] = 99;
         VrGexKf7MagOff[0] = 99;
@@ -102,8 +103,10 @@ int main(int argc, char **argv) {
         VrGexKf7WellOff[0] = 99;
         VrGexPp7WellOff[1] = 99;
         VrGexWeaponFits[6][3][2] = 99;
+        VrGexWeaponFits[12][6][0] = 99;
         gevrGunFitSaved(true);
         assert(VrGexWeaponFits[6][3][2] == 47.25f);
+        assert(VrGexWeaponFits[12][6][0] == -3.25f);
         assert(VrGexPp7MagOff[0] == 1.25f && VrGexKf7MagOff[0] == -0.5f && VrGexHeldMag[1] == 2.25f);
         assert(VrGexPp7SupportRot[2] == 90);
         assert(VrGexKf7WellOff[0] == -0.75f && VrGexPp7WellOff[1] == -2.25f);
@@ -112,6 +115,7 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && std::strcmp(argv[1], "fit_read") == 0) {
         assert(VrGexWeaponFits[6][3][2] == 47.25f);
+        assert(VrGexWeaponFits[12][6][0] == -3.25f);
         assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -19.1169f && VrGunOffX == 2.74f);
         assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 90.1f);
         assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);

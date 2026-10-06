@@ -235,9 +235,10 @@ mission with **Menu + A**. **A** saves; **B** returns to the last saved fit.
 | Off hand | Available with a GE-X gun. Sticks adjust the off-hand palm/magazine pose. Hold the gun-hand grip (right grip by default) to adjust the watch's position and size instead; turn-stick sideways changes size. |
 | Held magazine | Available with a supported GE-X gun. A preview magazine appears in the off hand, including with hand reload disabled. Move-stick forward/back and sideways, turn-stick up/down, move only the magazine within the fingers. Each family saves its own fit; PP7 variants share theirs, as do D5K variants. |
 | Magazine well | Available with a supported GE-X gun. Sticks move the insertion target on the gun. Place the preview magazine's tip at the desired entrance and press the off-hand trigger to set the target there. HUD shows tip-to-well distance; this fit leaves the meshes in place. |
+| Installed magazine | Moves the visible magazine in the gun, even when it is out. Move stick: forward/sideways; turn stick: up/down. Saved reload grab and insertion targets stay put. This is separate from Held magazine. |
 | Barrel tip | Sticks adjust the muzzle point. |
 
-The new guns save six vectors under `GexFit<item>_<component>` keys, with D5K
+The new guns save seven vectors under `GexFit<item>_<component>` keys, with D5K
 variants sharing item 10. Compiled defaults include the user's latest PP7/KF7
 fits; saved settings take precedence. See the [weapon roadmap](gex-weapon-roadmap.md#fit-persistence-and-baking-workflow)
 for the item/component mapping and how to bake later headset fits. The seven
