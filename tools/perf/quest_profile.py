@@ -263,8 +263,8 @@ def run(args, out):
                 # never compared with unsampled runs.
                 while time.monotonic() < measure:
                     time.sleep(.1)
-                pid = adb('shell', 'pidof', PACKAGE)
-                sampler = subprocess.Popen(['adb', 'shell', 'simpleperf', 'record', '-p', pid,
+                # A user build only lets the shell sample a profileable app by package.
+                sampler = subprocess.Popen(['adb', 'shell', 'simpleperf', 'record', '--app', PACKAGE,
                                             '-e', 'cpu-clock', '-f', '2000', '--call-graph', 'fp',
                                             '--duration', str(MEASURE), '-o', '/data/local/tmp/gevr-perf.data'],
                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -282,6 +282,8 @@ def run(args, out):
             if sampler:
                 output = sampler.communicate(timeout=MEASURE + 60)[0].decode(errors='replace')
                 (folder / f'{label}.simpleperf.txt').write_text(output)
+                if sampler.returncode:
+                    raise Unavailable(f'simpleperf failed: {output.strip()[-300:]}')
                 adb('pull', '/data/local/tmp/gevr-perf.data', str(folder / f'{label}.perf.data'))
                 adb('shell', 'rm', '-f', '/data/local/tmp/gevr-perf.data')
             # Export happens on the render thread after the minute; wait for its verdict.
