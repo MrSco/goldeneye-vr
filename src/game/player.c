@@ -7,6 +7,7 @@
 #include "bondview.h"
 #include "lv.h"
 #ifdef GEVR
+#include "net_coop.h"
 extern bool netIsActive(void);
 extern bool netSlotOccupied(int slot);
 extern int netGetLocalSlot(void);
@@ -671,6 +672,18 @@ void sub_GAME_7F09B398(enum GUNHAND hand)
     if (chr->weapons_held[hand] == NULL)
     {
         wepid = getCurrentPlayerWeaponId(hand);
+#ifdef GEVR
+        /*
+         * Multiplayer hangs a world copy of the equipped item on the player.
+         * Surface 2's background list treats any settled remote mine as
+         * thrown, and fails the helicopter the moment that copy exists
+         * (#130). Guns still get the copy, so other players can see them.
+         */
+        if (gevrCoopActive() && gevrCoopThrownMissionItem(wepid))
+        {
+            return;
+        }
+#endif
         prop = getPropForHeldItem(wepid);
 #ifdef GEVR
         /*
