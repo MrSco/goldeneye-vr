@@ -143,6 +143,19 @@ App-processing p99 (ms), 3 × 60 s per rate:
 - In the same 224 s, the compositor dropped 459 frames vs 683, and app-side
   missed frames were 18 vs 53. That is suggestive, not significant.
 
+## HD texture pack off vs on (same code, paired, 3 + 3 runs at 120 Hz)
+
+- **App time:** with `ActiveTexturePack=` (none), fresh-frame deltas against
+  `ge007-hd-ai` are within noise in every phase. The largest is smooth-turn p99
+  at -0.61 ms [-1.25, +0.17]. Pack off still reached p99 9.68 ms while turning,
+  so the stall is not caused by the pack.
+- **GPU:** fresh eye passes ran 1.67 ms median without the pack and 1.80 ms
+  with it. Both have ample headroom.
+- **Draws and dropped frames:** 160 vs 203 draws per frame and 506 vs 715
+  dropped frames, pack off vs on. Both are inconclusive: the same pack-on build
+  measured 143 draws per frame and 459 dropped frames in an earlier session, so
+  scene variation between sessions dominates.
+
 ## Remaining gap and options
 
 - **120 Hz.** Fresh frames in heavy views still reach p99 about 9.5–9.8 ms
