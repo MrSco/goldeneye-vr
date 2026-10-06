@@ -3,6 +3,8 @@
 #include "net_coop.h"
 #include "gevr_hud_geometry.h"
 #include "gevr_reload_input.h"
+#include "gevr_gexweapon.h"
+#include "gevr_gexgrip.h"
 #include "gevr_watch_status.h"
 #include "../../port/vr/gevr_pause_menu.h"
 #include "gevr_scope.h"
@@ -1506,9 +1508,10 @@ static void gevrGunOff(s32 hand, f32 off[3])
 {
     if (gevrGexHeld(hand))
     {
-        off[0] = VrGexGunOff[0];
-        off[1] = VrGexGunOff[1];
-        off[2] = VrGexGunOff[2];
+        const f32 *fit = gevrGexGunFit(gevrGexWeaponForHand(hand)->item);
+        off[0] = fit[0];
+        off[1] = fit[1];
+        off[2] = fit[2];
     }
     else
     {
@@ -2494,6 +2497,8 @@ s32 gevrStereoWatchGrip(void)
 
 static s32 s_gevrTwoHand;
 static s32 s_gevrTwoHandResetDir;
+static s32 gevrGexPistolSupportAllowed(void);
+static s32 gevrGexPistolPoint(s32 support, f32 out[3]);
 
 /* Touch files/gevr_aimlog.txt to sample the grip/aim path in the app log. */
 static s32 gevrAimLogEnabled(void)
@@ -2582,6 +2587,12 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     if (cm < 1e-6f || !gevrGripAxes(1, gpos, right, up, back) || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
     {
         return FALSE;
+    }
+    if (!drawn && gevrGexPistolPoint(TRUE, snap))
+    {
+        for (i = 0; i < 3; i++) d[i] = opos[i] - snap[i];
+        *distcm = sqrtf(d[0]*d[0] + d[1]*d[1] + d[2]*d[2]) / cm;
+        return TRUE;
     }
     if (!drawn && gevrGexForePoint(snap))
     {
@@ -2678,6 +2689,8 @@ s32 gevrStereoTwoHandUpdate(void)
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
         return FALSE;
 
+    s32 pistolSupport = gevrGexPistolSupportAllowed();
+
     if (!g_gevrStereo || gevrDualWielding() || !gevrStereoTwoHandItem(item)
         || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
         || g_CurrentPlayer->hands[GUNRIGHT].field_87F == 0)
@@ -2707,7 +2720,8 @@ s32 gevrStereoTwoHandUpdate(void)
 
             /* Hand reload: the off hand at the magazine is reloading, not holding (user) */
             claimed = !s_gevrTwoHand && gevrReloadClaimsOffHand();
-            if (dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM)
+            if (pistolSupport
+                && dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM)
                 && (s_gevrTwoHand || !claimed))
             {
                 s_gevrTwoHand = TRUE;
@@ -4296,6 +4310,9 @@ typedef char gevrScopeFitsMatchTheTable[(sizeof(s_gevrScopes) / sizeof(s_gevrSco
 extern int gevrScopeFitting;   /* port/src/input.c: Gun fit is moving the gun hand's scope */
 extern int gevrReloadFitting;  /* port/src/input.c: Gun fit is setting Hand reload's places */
 extern int gevrOffHandFitting; /* port/src/input.c: Gun fit is moving GE-X's off hand */
+extern int gevrHeldMagFitting; /* port/src/input.c: magazine mesh only */
+extern int gevrInstalledMagFitting; /* port/src/input.c: visible magazine in the gun */
+extern int gevrWellFitting; /* port/src/input.c: insertion target only */
 s32 gevrReloadFitAvailable(void);
 void gevrReloadFitDistances(f32 *grab, f32 *belt);
 
@@ -14825,7 +14842,7 @@ s32 gevrMuzzleFitAvailable(void)
     item = getCurrentPlayerWeaponId(GUNRIGHT);
     if (item <= ITEM_FIST || item >= GEVR_MAX_WEAPONS) return FALSE;
     hdr = get_ptr_itemheader_in_hand(GUNRIGHT);
-    return (gevrGexHeld(GUNRIGHT) && item == ITEM_AK47)
+    return (gevrGexHeld(GUNRIGHT) && gevrGexWeaponForHand(GUNRIGHT) != NULL)
         || (hdr != NULL && hdr->Switches != NULL && hdr->numSwitches > 3 && hdr->Switches[3] != NULL);
 }
 
@@ -14858,17 +14875,18 @@ static void gevrItemLabel(s32 item, char *label, s32 size)
     label[n] = 0;
 }
 
-/* X's next fit, as input.c goes round: the gun, its scope, Hand reload's places, GE-X's off hand, barrel tip */
+/* X's next fit, in the same order as input.c. */
 static const char *gevrFitNextLine(s32 from)
 {
-    static const char *const lines[5] = { "X: FIT THE GUN\n", "X: FIT THE SCOPE\n", "X: FIT THE RELOAD\n",
-                                          "X: FIT THE OFF HAND\n", "X: FIT THE BARREL TIP\n" };
-    const s32 can[5] = { TRUE, gevrScopeFitIndex() >= 0, gevrReloadFitAvailable(), gevrGexHeld(GUNRIGHT), gevrMuzzleFitAvailable() };
+    static const char *const lines[8] = { "X: FIT THE GUN\n", "X: FIT THE SCOPE\n", "X: FIT THE RELOAD\n",
+        "X: FIT THE OFF HAND\n", "X: FIT THE HELD MAGAZINE\n", "X: FIT THE MAGAZINE WELL\n", "X: FIT THE INSTALLED MAGAZINE\n", "X: FIT THE BARREL TIP\n" };
+    const s32 can[8] = { TRUE, gevrScopeFitIndex() >= 0, gevrReloadFitAvailable(), gevrGexHeld(GUNRIGHT),
+        gevrGexHeld(GUNRIGHT), gevrGexHeld(GUNRIGHT), gevrGexHeld(GUNRIGHT), gevrMuzzleFitAvailable() };
     s32 k = from;
 
     do
     {
-        k = (k + 1) % 5;
+        k = (k + 1) % 8;
     } while (!can[k]);
     return k == from ? "" : lines[k];
 }
@@ -14913,6 +14931,37 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
                  "RELOAD FIT%s\nOFF HAND ON THE MAGAZINE\n  LEFT TRIGGER: SET IT  (%s AWAY)\nOFF HAND AT YOUR BELT\n  Y: SET IT  (%s AWAY)\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, gs, bs, gevrFitNextLine(2));
     }
+    else if (gevrInstalledMagFitting)
+    {
+        const float *fit = gevrGexInstalledMagFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        snprintf(buf, sizeof(buf),
+                 "INSTALLED MAGAZINE FIT%s\nMAGAZINE IN THE GUN\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nSTICKS MOVE THE VISIBLE MAGAZINE\nRELOAD GRAB AND WELL STAY PUT\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -fit[2], fit[0], fit[1], gevrFitNextLine(6));
+    }
+    else if (gevrWellFitting)
+    {
+        extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
+        const float *fit = gevrGexWellFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+        f32 centre[3], well[3], held[3], distance2 = 0;
+        char distance[16] = "?";
+        s32 i;
+        if ((gevrGexMagPoints(centre, well, held) & 3) == 3 && cm > 1e-6f)
+        {
+            for (i = 0; i < 3; i++) distance2 += (held[i] - well[i]) * (held[i] - well[i]);
+            snprintf(distance, sizeof(distance), "%.1f CM", sqrtf(distance2) / cm);
+        }
+        snprintf(buf, sizeof(buf),
+                 "MAGAZINE WELL FIT%s\nINSERTION TARGET ON THE GUN\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTIP TO WELL: %s\nSTICKS MOVE THE TARGET\nOFF TRIGGER: SET TARGET AT MAG TIP\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -fit[2], fit[0], fit[1], distance, gevrFitNextLine(5));
+    }
+    else if (gevrHeldMagFitting)
+    {
+        const float *fit = gevrGexHeldMagFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        snprintf(buf, sizeof(buf),
+                 "HELD MAGAZINE FIT%s\nPREVIEW ON THE OFF HAND\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -fit[2], fit[0], fit[1], gevrFitNextLine(4));
+    }
     else if (gevrOffHandFitting)
     {
         /* GE-X's off hand, empty or holding a magazine: its palm from the grip pose;
@@ -14946,16 +14995,25 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         gevrItemLabel(item, label, sizeof(label));
         snprintf(buf, sizeof(buf),
                  "BARREL TIP FIT: %s%s\nFORWARD: %.1f CM  SIDE: %.1f CM  UP: %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\n%sA: SAVE   B: UNDO   MENU + A: DONE",
-                 label, gex, t ? t[2] : 0.0f, t ? t[0] : 0.0f, t ? t[1] : 0.0f, gevrFitNextLine(4));
+                 label, gex, t ? t[2] : 0.0f, t ? t[0] : 0.0f, t ? t[1] : 0.0f, gevrFitNextLine(7));
     }
     else if (gevrStereoTwoHandGrip() && gevrGexHeld(GUNRIGHT) && VrGexArms)
     {
         /* GoldenEye X's own left hand holding: where it holds (input.c) */
-        extern float VrGexForeHold[3];   /* vr_settings_defaults.c */
-
+        const float *supportFit = gevrGexSupportFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
+        const float *rotationFit = gevrGexSupportRotFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        if (def != NULL)
+        {
+            snprintf(buf, sizeof(buf),
+                     "SUPPORT FIT (GOLDENEYE X)\nFORWARD %.1f  UP %.1f  SIDE %.1f CM\nPITCH %.0f  YAW %.0f  ROLL %.0f\nSTICKS MOVE THE HAND\nHOLD GUN HAND GRIP TO ROTATE\nMOVE STICK: PITCH, ROLL\nTURN STICK: YAW\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                     supportFit[0], supportFit[1], supportFit[2], rotationFit[0],
+                     rotationFit[1], rotationFit[2], gevrFitNextLine(0));
+        }
+        else
         snprintf(buf, sizeof(buf),
                  "GRIP FIT (GOLDENEYE X)\nWHERE THE LEFT HAND HOLDS\nFORWARD %.1f  UP %.1f  SIDE %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nA: SAVE   B: UNDO   MENU + A: DONE",
-                 VrGexForeHold[0], VrGexForeHold[1], VrGexForeHold[2]);
+                 supportFit[0], supportFit[1], supportFit[2]);
     }
     else if (gevrStereoTwoHandGrip())
     {
@@ -15970,6 +16028,8 @@ enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT 
 static s32 s_gevrGexMag[2];          /* per gun hand */
 static s32 s_gevrGexSeatArmed;       /* the magazine in the hand has been away from the well */
 static s32 s_gevrGexHeldRounds = -1; /* the rounds in the right gun's magazine in the hand; -1 a fresh one */
+static s32 s_gevrGexHeldAmmoType;
+static s32 s_gevrGexMagItem[2] = {-1,-1};
 static s32 s_gevrGexGripSpent;       /* the off hand's grip seated a magazine: held until let go */
 
 extern void sub_GAME_7F0649D8(enum GUNHAND hand);   /* gunfire.c: the reload's ammo move */
@@ -15977,7 +16037,9 @@ extern void sub_GAME_7F0649D8(enum GUNHAND hand);   /* gunfire.c: the reload's a
 /* a GoldenEye X magazine-fed gun, reloaded by hand */
 static s32 gevrGexByHand(s32 hand)
 {
-    return gevrManualReloadOn(hand) && gevrGexHeld(hand) && gevrReloadMagazineFed(getCurrentPlayerWeaponId(hand));
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    return gevrManualReloadOn(hand) && def != NULL && def->magMatrix >= 0
+        && def->item == getCurrentPlayerWeaponId(hand);
 }
 
 static void gevrGexBuzz(f32 amp)
@@ -16004,6 +16066,7 @@ static void gevrGexMagOut(s32 hand, s32 state, const char *how)
     if (state == GEVR_GEXMAG_INHAND)
     {
         s_gevrGexHeldRounds = h->weapon_ammo_in_magazine;
+        s_gevrGexHeldAmmoType = st->AmmoType;
     }
     else
     {
@@ -16025,9 +16088,7 @@ static void gevrGexHeldDropped(void)
 {
     if (s_gevrGexHeldRounds > 0 && g_CurrentPlayer != NULL)
     {
-        WeaponStats *st = get_ptr_item_statistics(getCurrentPlayerWeaponId(GUNRIGHT));
-
-        g_CurrentPlayer->ammoheldarr[st->AmmoType] += s_gevrGexHeldRounds;
+        g_CurrentPlayer->ammoheldarr[s_gevrGexHeldAmmoType] += s_gevrGexHeldRounds;
     }
     s_gevrGexHeldRounds = -1;
 }
@@ -16045,6 +16106,7 @@ static void gevrGexMagIn(s32 hand, const char *how, s32 rounds)
         sub_GAME_7F0649D8(hand);
     }
     s_gevrGexMag[hand] = GEVR_GEXMAG_IN;
+    gevrGexMagazineReady(hand);
     gevrGexBuzz(0.6f);
     sysLogPrintf(LOG_NOTE, "stereo: hand reload, %s gun's magazine %s (%d rounds)", hand == GUNRIGHT ? "right" : "left", how,
                  g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine);
@@ -16169,13 +16231,108 @@ extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
 static void gevrReloadMagPoint(const f32 gun[3], const f32 gr[3], const f32 gu[3], const f32 gb[3], f32 cm, s32 gex,
                                f32 mag[3])
 {
-    const f32 *g = VrReloadGrab[gex ? 1 : 0];
+    const f32 *g = gex ? gevrGexGrabFit(getCurrentPlayerWeaponId(GUNRIGHT)) : VrReloadGrab[0];
     s32 i;
+
+    if (gex && gevrGexPistolPoint(FALSE, mag)) return;
 
     for (i = 0; i < 3; i++)
     {
         mag[i] = gun[i] + (g[0] * gr[i] + g[1] * gu[i] + g[2] * gb[i]) * cm;
     }
+}
+
+/* PP7 interaction points come from its rest mesh and the RAW gun controller.
+ * Neither the rendered/supported hand nor last frame's falling magazine can
+ * move a grab zone. Fit offsets are independent of KF7 calibration. */
+static s32 gevrGexPistolPoint(s32 support, f32 out[3])
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
+    f32 gun[3], r[3], u[3], b[3], off[3];
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 size = gevrGunSizeFactor(), side = VrLeftHandedMode ? 1.0f : -1.0f;
+    const f32 *root, *fit;
+    s32 i;
+    if (def == NULL || def->item == ITEM_AK47 || cm < 1e-6f || !gevrGripAxesRaw(1, gun, r, u, b)) return FALSE;
+    root = support ? def->supportRoot : def->grabRoot;
+    fit = support ? gevrGexSupportFit(def->item) : gevrGexGrabFit(def->item);
+    gevrGunOff(GUNRIGHT, off);
+    for (i=0; i<3; i++)
+    {
+        out[i] = gun[i] + ((-side*off[0]*r[i] + off[1]*u[i]
+            + (GEVR_GRIP_TO_ORIGIN_CM+off[2])*b[i])
+            + 0.1f*GEVR_VIEWMODEL_CM*(side*root[0]*r[i] + root[1]*u[i] - root[2]*b[i]))*cm*size;
+        out[i] += support ? (-fit[0]*b[i] + fit[1]*u[i] + side*fit[2]*r[i])*cm*size
+                         : (fit[0]*r[i] + fit[1]*u[i] + fit[2]*b[i])*cm;
+    }
+    return TRUE;
+}
+
+static s32 s_gevrPistolGripOwner, s_gevrPistolGripWas, s_gevrPistolGripItem = -1;
+
+static s32 gevrGexPistolSupportAllowed(void)
+{
+    extern _Bool get_button_state(int hand_index, const char *button_name);
+    const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
+    s32 grip = get_button_state(0, "grip");
+    s32 context = def != NULL ? def->item * 2 + (VrManualReloading != 0) : -1;
+    f32 mag[3], support[3], off[3], r[3], up[3], b[3], gun[3];
+    f32 md2=0, sd2=0, below=0, cm=GEVR_UNITS_PER_METRE*D_800364CC/100.0f;
+    s32 i;
+    if (!grip) s_gevrPistolGripOwner = s_gevrPistolGripWas = 0;
+    else if (context != s_gevrPistolGripItem)
+    {
+        s_gevrPistolGripOwner = GEVR_GEXGRIP_SPENT;
+        s_gevrPistolGripWas = TRUE;
+    }
+    else if (!s_gevrPistolGripWas && def != NULL && def->compact)
+    {
+        s_gevrPistolGripWas = TRUE;
+        s_gevrPistolGripOwner = GEVR_GEXGRIP_SPENT;
+        if (cm > 1e-6f && gevrGexPistolPoint(FALSE, mag) && gevrGexPistolPoint(TRUE, support)
+            && gevrGripAxesRaw(0, off, r, up, b) && gevrGripAxesRaw(1, gun, r, up, b))
+        {
+            for (i=0; i<3; i++)
+            {
+                md2 += (off[i]-mag[i])*(off[i]-mag[i]);
+                sd2 += (off[i]-support[i])*(off[i]-support[i]);
+                below += (support[i]-off[i])*up[i]/cm;
+            }
+            /* PP7 overlaps its support cup; other compact magazines use distinct points. */
+            s_gevrPistolGripOwner = gevrGexPistolGripPick(sqrtf(md2)/cm, sqrtf(sd2)/cm, (def->item == ITEM_WPPK || def->item == ITEM_WPPKSIL) ? below : 2.0f);
+            if (!gevrGexByHand(GUNRIGHT) && s_gevrPistolGripOwner == GEVR_GEXGRIP_MAG)
+                s_gevrPistolGripOwner = sd2 < 144*cm*cm ? GEVR_GEXGRIP_SUPPORT : GEVR_GEXGRIP_NONE;
+        }
+    }
+    s_gevrPistolGripItem = context;
+    return def == NULL || !def->compact || s_gevrPistolGripOwner == GEVR_GEXGRIP_SUPPORT;
+}
+
+static f32 gevrGexReloadDistance(s32 index)
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
+    if (def != NULL && def->compact)
+        return index == GEVR_RT_MAGRADIUS ? 4.0f : index == GEVR_RT_PULL ? 5.0f : 3.0f;
+    return s_gevrReloadTune[index];
+}
+
+/* A model reload can replace the same item at a stage boundary. Item equality
+ * alone cannot protect against stale magazines, held payloads or grip owners. */
+void gevrGexReloadReset(s32 hand)
+{
+    extern _Bool get_button_state(int hand_index, const char *button_name);
+    if (hand < 0 || hand > 1 || (netIsActive() && get_cur_playernum() != netGetLocalSlot())) return;
+    if (hand == GUNRIGHT)
+    {
+        if (s_gevrGexMag[hand] == GEVR_GEXMAG_INHAND) gevrGexHeldDropped();
+        s_gevrGexSeatArmed = FALSE;
+        s_gevrGexGripSpent = get_button_state(0, "grip");
+        s_gevrPistolGripOwner = s_gevrGexGripSpent ? GEVR_GEXGRIP_SPENT : GEVR_GEXGRIP_NONE;
+        s_gevrPistolGripWas = s_gevrGexGripSpent;
+        s_gevrPistolGripItem = -1;
+    }
+    s_gevrGexMag[hand] = GEVR_GEXMAG_IN;
+    s_gevrGexMagItem[hand] = -1;
 }
 
 /*
@@ -16214,6 +16371,12 @@ s32 gevrGexClaimsOffHand(void)
     }
     if (s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN)
     {
+        const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
+        if (def != NULL && def->compact)
+        {
+            gevrGexPistolSupportAllowed();
+            return s_gevrPistolGripOwner == GEVR_GEXGRIP_MAG;
+        }
         /* at the magazine, before the two-handed hold can take the press */
         f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
         f32 gun[3], gr[3], gu[3], gb[3], mag[3], d2 = 0.0f;
@@ -16303,14 +16466,15 @@ s32 gevrReloadFitAvailable(void)
         return FALSE;
     }
     right = getCurrentPlayerWeaponId(GUNRIGHT);
-    return gevrReloadGun(right) && gevrReloadMagazineFed(right) && !gevrReloadGun(getCurrentPlayerWeaponId(GUNLEFT));
+    return gevrReloadGun(right) && (gevrGexByHand(GUNRIGHT) || gevrReloadMagazineFed(right))
+        && !gevrReloadGun(getCurrentPlayerWeaponId(GUNLEFT));
 }
 
 void gevrReloadFitSetGrab(void)
 {
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 gun[3], gr[3], gu[3], gb[3], off[3], r[3], u[3], b[3], d[3];
-    f32 *g = VrReloadGrab[gevrGexHeld(GUNRIGHT) ? 1 : 0];
+    f32 *g = gevrGexHeld(GUNRIGHT) ? gevrGexGrabFit(getCurrentPlayerWeaponId(GUNRIGHT)) : VrReloadGrab[0];
     s32 i;
 
     if (cm < 1e-6f || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, r, u, b))
@@ -16320,6 +16484,18 @@ void gevrReloadFitSetGrab(void)
     for (i = 0; i < 3; i++)
     {
         d[i] = (off[i] - gun[i]) / cm;
+    }
+    if (gevrGexHeld(GUNRIGHT))
+    {
+        f32 mag[3];
+        if (gevrGexPistolPoint(FALSE, mag))
+        {
+            for (i=0; i<3; i++) d[i] = (off[i]-mag[i])/cm;
+            g[0] += d[0]*gr[0] + d[1]*gr[1] + d[2]*gr[2];
+            g[1] += d[0]*gu[0] + d[1]*gu[1] + d[2]*gu[2];
+            g[2] += d[0]*gb[0] + d[1]*gb[1] + d[2]*gb[2];
+            return;
+        }
     }
     g[0] = d[0] * gr[0] + d[1] * gr[1] + d[2] * gr[2];
     g[1] = d[0] * gu[0] + d[1] * gu[1] + d[2] * gu[2];
@@ -16408,6 +16584,7 @@ s32 gevrReloadClaimsOffHand(void)
     {
         return TRUE;
     }
+    if (gevrGexByHand(GUNRIGHT)) return FALSE;
     if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL
         || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || cm < 1e-6f
         || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, orr, ou, ob))
@@ -16439,6 +16616,9 @@ void gevrHandReloadTick(void)
     f32 gun[3], gr[3], gu[3], gb[3], off[3], orr[3], ou[3], ob[3];
     s32 right, left, grip, ctrl, i;
 
+    /* Remote contexts must not clear the local player's held magazine or
+     * refund its rounds into a remote player's reserve. */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot()) return;
     gevrReloadTuneRead();
     if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
         || g_CurrentPlayer->watch_animation_state != 0 || g_CurrentPlayer->mpmenuon
@@ -16467,13 +16647,14 @@ void gevrHandReloadTick(void)
     left = getCurrentPlayerWeaponId(GUNLEFT);
     for (i = 0; i < 2; i++)
     {
-        if (!gevrGexByHand(i))
+        if (!gevrGexByHand(i) || s_gevrGexMagItem[i] != getCurrentPlayerWeaponId(i))
         {
             if (i == GUNRIGHT && s_gevrGexMag[i] == GEVR_GEXMAG_INHAND)
             {
                 gevrGexHeldDropped();
             }
             s_gevrGexMag[i] = GEVR_GEXMAG_IN;   /* another gun: its own magazine, loaded */
+            s_gevrGexMagItem[i] = getCurrentPlayerWeaponId(i);
         }
     }
 
@@ -16487,7 +16668,7 @@ void gevrHandReloadTick(void)
     {
         /* the magazine where the player set it (Gun fit's reload mode); the seat as drawn (gun.c) */
         f32 mag[3], centre[3], well[3], held[3], dist2 = 0.0f, seatd2 = 0.0f, upnow = 0.0f, pulled;
-        const f32 seat2 = s_gevrReloadTune[GEVR_RT_SEAT] * cm * s_gevrReloadTune[GEVR_RT_SEAT] * cm;
+        const f32 seat2 = gevrGexReloadDistance(GEVR_RT_SEAT) * cm * gevrGexReloadDistance(GEVR_RT_SEAT) * cm;
         const s32 have = gevrGexMagPoints(centre, well, held);
         s32 *st = &s_gevrGexMag[GUNRIGHT];
 
@@ -16503,13 +16684,12 @@ void gevrHandReloadTick(void)
             sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip %.1f cm from the magazine, %.1f from the belt, state %d",
                          sqrtf(dist2) / cm, sqrtf(gevrBeltDist2(0, off)), *st);
         }
-        pulled = (s_magGrabUp - upnow) / (s_gevrReloadTune[GEVR_RT_PULL] * cm);
+        pulled = (s_magGrabUp - upnow) / (gevrGexReloadDistance(GEVR_RT_PULL) * cm);
         switch (*st)
         {
             case GEVR_GEXMAG_IN:
-                if (grip && !s_gripWas && !gevrStereoTwoHandGrip()
-                    && dist2 <= s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm * s_gevrReloadTune[GEVR_RT_MAGRADIUS] * cm
-                    && gevrMagNearerThanFore(sqrtf(dist2) / cm))
+                if (grip && !s_gripWas && !s_gevrGexGripSpent && !gevrStereoTwoHandGrip()
+                    && gevrGexClaimsOffHand())
                 {
                     *st = GEVR_GEXMAG_GRIPPED;
                     s_magGrabUp = upnow;
