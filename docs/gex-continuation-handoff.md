@@ -18,6 +18,24 @@ magazine fitting. This file records the current implementation and remaining wor
 - Latest user instruction: stop before weekly remaining usage reaches 2%; the
   older 4% floor is superseded. Do not use a reset credit automatically.
 
+## Completed delivery and stop point
+
+- Implementation commit: `d3ea3b8e4159038d565a0fe0dc59cc532fc94475`.
+- Open PR: [#138 — seven GE-X guns](https://github.com/MrSco/goldeneye-vr/pull/138),
+  pushed and attached to the chat. No GitHub checks were listed at delivery;
+  validation reported below was run locally. This PR has not been merged.
+- Signed test APK: `android/app/build/outputs/apk/release/GoldenEyeVR-gex-seven-d3ea3b8.apk`
+  in this workspace, 21958060 bytes; apksigner confirms v2 signature, one signer.
+  SHA256: `ba4228f3f2924ff63cc24ade898d0bbc4e8734fbc80b46b32635731d207b8c30`.
+  Built after the implementation commit with JDK 20. App version remains
+  0.4.11 / code 64; this is a test build, not a published release.
+- Weekly usage last reported 96% used / approximately 4% remaining at delivery.
+  Stopped with the user's 2% reserve intact after seven complete additions.
+  Cougar needs distinct cylinder-seat/partial-round rendering; grenade launcher
+  needs a held projectile mesh absent from its source rig. Resume from those
+  inspected cases below after accepting/fitting the current batch.
+- Subsequent commits that only update this handoff do not change APK code.
+
 ## Code landmarks
 
 | File | Responsibility |
