@@ -2980,11 +2980,20 @@ Gfx *bgRenderRoomPrimary(Gfx *gdl, s32 room_index)
     {
         if (g_BgRoomInfo[room_index].model_bin_loaded == 0)
         {
+#ifdef GEVR
+            /*
+             * This room is already on the visible list. The retail budget of
+             * 3 leaves it blank until a later frame; the first visit to an
+             * open level (Statue, Depot) shows sky through that chunk.
+             */
+            bgLoadRoomModelData(room_index);
+#else
             if (g_RoomLoadBudget > 0)
             {
                 g_RoomLoadBudget--;
                 bgLoadRoomModelData(room_index);
             }
+#endif
         }
 
         if (g_BgRoomInfo[room_index].model_bin_loaded == 0)
@@ -4800,6 +4809,69 @@ void bgDetermineVisibleRooms(void)
             g_BgRoomInfo[temp_v1].room_neighbor_to_rendered = 1;
         }
     }
+
+#ifdef GEVR
+    /*
+     * Portal screen boxes miss outdoor links while the room beyond still
+     * sits in the view (Statue's start wedge, Depot's fence). Draw that
+     * neighbor when its own bounds are on screen. One hop from the rooms
+     * the portal walk already accepted: a room added here does not pull
+     * its own neighbors in. A disabled portal stays shut.
+     */
+    {
+        u8 was_rendered[MAXROOMCOUNT];
+        s32 room;
+        s32 missing;
+
+        for (room = 0; room < g_MaxNumRooms && room < MAXROOMCOUNT; room++)
+        {
+            was_rendered[room] = g_BgRoomInfo[room].room_rendered;
+        }
+
+        for (var_s0 = 0; g_BgPortals[var_s0].offset_portal != NULL; var_s0++)
+        {
+            if (g_BgPortals[var_s0].controlbytes1 & PORTALFLAG_DISABLED)
+            {
+                continue;
+            }
+
+            temp_v1 = g_BgPortals[var_s0].connectedRoom1;
+            temp_a0 = g_BgPortals[var_s0].connectedRoom2;
+
+            if (temp_v1 <= 0 || temp_a0 <= 0
+                    || temp_v1 >= g_MaxNumRooms || temp_a0 >= g_MaxNumRooms
+                    || temp_v1 >= MAXROOMCOUNT || temp_a0 >= MAXROOMCOUNT)
+            {
+                continue;
+            }
+
+            if (was_rendered[temp_v1] != 0 && was_rendered[temp_a0] == 0)
+            {
+                missing = temp_a0;
+            }
+            else if (was_rendered[temp_a0] != 0 && was_rendered[temp_v1] == 0)
+            {
+                missing = temp_v1;
+            }
+            else
+            {
+                continue;
+            }
+
+            /* VISOP_DISABLE_ROOM: the script hid this room for the frame. */
+            if (g_BgRoomInfo[missing].room_loaded_mask != 0)
+            {
+                continue;
+            }
+
+            if (bgIsRoomOnScreen(missing, (struct rectbbox *)&g_CurrentPlayer->screensize) != 0)
+            {
+                s_gevrPathN64 = s_gevrHitN64;
+                sub_GAME_7F0B39BC(missing, 1, &g_CurrentPlayer->screensize, 0);
+            }
+        }
+    }
+#endif
 }
 
 
