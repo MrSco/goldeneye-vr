@@ -10972,6 +10972,13 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
 
 #ifdef GEVR
             gevrWeaponPickedUp(wep->weaponnum, alreadyOwned);
+            /* Co-op: BondCollectObject and a dropped gadget both land here.
+             * Guns stay with whoever picked them up; a shared gadget is given
+             * to every player (net_coop.c gevrCoopGrantItem). */
+            {
+                extern void gevrCoopGrantItem(s32 item);
+                gevrCoopGrantItem(wep->weaponnum);
+            }
 #endif
             break;
         }
