@@ -47,6 +47,13 @@
   once that pool was empty. Extra entries are allocated for the stage.
   A missing list still misses instead of crashing.
 
+- Unattended Quest profiling ([report](../vr-render-stalls.md)): at 120 Hz,
+  heavy Dam views exceed the frame budget on game-tick frames (p99 ~9.5-10 ms;
+  about 2 dropped frames/s), driven by draw-call count; 90 Hz holds. The vertex
+  ring now drains the GPU instead of reusing storage after a failed or timed-out
+  fence. Room boundaries no longer split non-decal batches and batches hold 256
+  triangles: 8% fewer draw calls (timing gain within measurement noise).
+
 See [v0.4.9](v0.4.9.md) for smooth VR locomotion and fitted muzzles,
 [v0.4.8](v0.4.8.md) for settings persistence and co-op spawn unclogging,
 and [v0.4.7](v0.4.7.md) for GE-X support.
