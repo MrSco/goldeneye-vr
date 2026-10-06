@@ -283,7 +283,7 @@ Important differences to preserve:
 
 ### Fit persistence and baking workflow
 
-`VrGexWeaponFits[64][6][3]` stores the new fits. Saved rows are
+`VrGexWeaponFits[64][7][3]` stores the new fits. Saved rows are
 `GexFit<item>_<component>=x y z`, with components:
 
 | Component | Meaning / axes |
@@ -294,9 +294,10 @@ Important differences to preserve:
 | 3 | Support rotation: pitch, yaw, roll (degrees) |
 | 4 | Held magazine: off-controller right, up, back (cm); mesh and seating tip move together |
 | 5 | Magazine well: gun right, up, back (cm); insertion target only |
+| 6 | Installed magazine mesh: gun right, up, back (cm); visible magazine only, targets stay put |
 
 D5K silenced shares **item 10**, including magazine/well fits. Both PP7s retain
-legacy `GexPP7*` keys; KF7 retains its old gun, grab, support, held-mag and well
+legacy `GexPP7*` keys, plus `GexFit4_6` for their shared installed mesh; KF7 retains its old gun, grab, support, held-mag and well
 keys, with generic item 8 / component 3 for its newly adjustable rotation.
 Save/undo captures the whole fit set. Parsing rejects invalid indices,
 malformed rows and non-finite vectors. Saving only writes implemented families,
@@ -306,7 +307,7 @@ After the user fits a gun and presses **A**:
 
 1. Read `/sdcard/Android/data/com.gevr.port/files/data/goldeneye-vr.ini` using
    adb. Read only the relevant fit keys; do not overwrite headset settings.
-2. Copy that family's six rows into the designated initializer in
+2. Copy that family's seven rows into the designated initializer in
    `port/vr/vr_settings_defaults.c`; copy its `GexMuzzle*` trim separately.
    Preserve the canonical item sharing above. Existing saved INI overrides
    remain authoritative; compiled defaults apply when keys are missing.
@@ -335,3 +336,63 @@ supplying an arbitrary animation to satisfy loader validation.
 
 Shell, cylinder, grenade and rocket loading remain separate later stages.
 Do not expand their physical reload rules by item range or Perfect Dark name.
+
+
+## Batch headset feedback and captured calibration (2026-10-06, 15:59)
+
+The user reported the batch "everything looked pretty good" and adjusted Gun
+fit. This is smoke acceptance with two remaining exceptions: AR33/M16's hand
+holding the magazine was twisted even though the magazine orientation looked
+correct, and the grey Phantom's installed magazine appeared beside the gun.
+Only its detection/insertion target could previously be adjusted.
+
+Screenshot evidence (same Quest media directory as above):
+`com.gevr.port-20261006-155837.jpg` (grey gun / well fit),
+`com.gevr.port-20261006-155903.jpg` (AR33 magazine wrist).
+The grey gun is identified as Phantom from its appearance and the changed
+item-12 well fit; confirm this identification if later feedback differs.
+
+The headset INI was pulled read-only, its finite fit vectors parsed, and all
+seven canonical family rows copied into compiled defaults. No device settings
+were overwritten. Existing PP7 gun/support/held-mag and watch fits were retained.
+New grab calibration (controller right, up, back; cm):
+
+| Family / item | Grab vector |
+| --- | --- |
+| KF7 / legacy `GexReloadGrab` | -8.21, -11.79, -11.28 |
+| DD44 / 6 | -8.8699, -13.2398, 7.5154 |
+| Klobb / 7 | -9.0799, -9.3980, 2.1436 |
+| ZMG / 9 | -8.3530, -10.2353, 6.7583 |
+| D5K variants / 10 | -8.9007, -9.7985, 4.6520 |
+| Phantom / 12 | -9.4191, -10.0058, 6.3455 |
+| AR33 / 13 | -9.4418, -9.0044, 6.4789 |
+
+Phantom's well vector is **-2.0765, 1.9985, 0.5825** cm. Every other new family
+well vector remains zero. The complete gun/support/rotation/held/well vectors
+are in the designated defaults in `vr_settings_defaults.c`.
+
+Fixes in the follow-up:
+
+- AR33 explicitly enables `trackedMagWrist`, independent of `compact` and
+  semi-auto animation rules. It reuses reload finger curl on the tracked empty
+  wrist and keeps the magazine's rotation. This preserves the working magazine
+  orientation and avoids changing KF7's accepted wrist behavior. Future rigs
+  must review hand orientation separately from magazine orientation.
+- X cycle adds **Installed Magazine** after Magazine Well and before Barrel
+  Tip. Move stick moves forward/sideways; turn stick moves up/down. It previews
+  a seated mesh even when the magazine is out, without granting ammo. It moves
+  only the gun's visible magazine in stereo; held-mag fit remains independent.
+- Installed mesh fit is component **6**, appended without renumbering old keys.
+  Generic storage is now seven vectors; old INIs with six rows stay valid. Both
+  PP7s share item 4 / component 6; D5K variants share item 10 / component 6.
+- The visual delta is excluded from well-point calculation and raw grab-point
+  calibration. The user can align the visible mesh while preserving the reload
+  targets already fitted. Its rendered matrix is also used for a dropped mesh.
+- Native tests now require actual installed-mesh movement, unchanged hand and
+  magazine rotations, unchanged well target, proper X/HUD cycling, stereo-only
+  preview, and persistence/undo of component 6. Wrist tests check AR33's exact
+  tracked orientation and unchanged magazine rotation at both handedness/scale.
+
+The follow-up wrist correction and new installed-mesh control still need user
+headset confirmation and final visual magazine fitting. Record that feedback
+before considering the two exceptions closed.

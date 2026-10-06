@@ -265,11 +265,11 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Where GoldenEye X's left hand holds a gun with both hands (Gun fit, both hands):\n");
     fprintf(f, "; cm forward, up and out along the gun.\n");
     fprintf(f, "GexForeHold=%.2f %.2f %.2f\n", VrGexForeHold[0], VrGexForeHold[1], VrGexForeHold[2]);
-    fprintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well).\n");
+    fprintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
     for (int item=0; item<64; item++) {
         /* Do not write zero overrides for models implemented by future builds. */
-        if (!gevrGexWeaponGet(item) || item == 4 || item == 5 || item == 11) continue;
-        for (int component=0; component<6; component++) {
+        if (!gevrGexWeaponGet(item) || item == 5 || item == 11) continue;
+        for (int component=(item == 4 ? 6 : 0); component<7; component++) {
             const float *v=VrGexWeaponFits[item][component];
             fprintf(f, "GexFit%d_%d=%.4f %.4f %.4f\n", item, component, v[0], v[1], v[2]);
         }
@@ -411,7 +411,7 @@ extern "C" void vrSettingsLoad(void)
         if (strncmp(line, "GexFit", 6) == 0) {
             int item, component, consumed=0; float t[3];
             if (sscanf(line, "GexFit%d_%d=%n", &item, &component, &consumed) == 2 && consumed > 0
-                && item >= 0 && item < 64 && component >= 0 && component < 6
+                && item >= 0 && item < 64 && component >= 0 && component < 7
                 && sscanf(line+consumed, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2]))
                 memcpy(VrGexWeaponFits[item][component], t, sizeof(t));

@@ -14,7 +14,10 @@ The current batch adds seven guns with separate grip, reload-grab, held-magazine
 and insertion-target fits. Both-hand support rotation is adjustable for all
 supported guns. See the [roadmap](gex-weapon-roadmap.md#detachable-magazine-batch-and-saved-fits-2026-10-06)
 for reviewed bindings, reload timing, fit keys and the next-model handoff.
-The new batch awaits headset fitting and acceptance.
+The user smoke-tested the batch and fitted reload grabs. AR33 magazine wrist
+and Phantom installed-magazine position require follow-up confirmation.
+Installed Magazine fit (X, after Magazine Well) moves the visible seated mesh
+while retaining independently calibrated grab/insertion targets.
 
 ## The ROM
 

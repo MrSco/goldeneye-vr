@@ -30,6 +30,7 @@ typedef struct GexWeaponDef {
     f32 grabRoot[3], supportRoot[3]; /* rest pose, in model-root coordinates */
     s32 numParts, parts[6], visible[6]; /* appended switches; first two are magazines */
     s32 pistol;
+    s32 trackedMagWrist; /* retain tracked wrist orientation without rotating the magazine */
     s32 compact; /* wrap the shooting grip; rest left arm is parked on these rigs */
 } GexWeaponDef;
 
@@ -39,13 +40,14 @@ void gevrGexMagazineReady(s32 hand);
 void gevrGexReloadReset(s32 hand);
 /* Fits are per model family. Legacy KF7/PP7 keys remain valid;
  * D5K and its silenced variant share their fit storage. */
-extern float VrGexWeaponFits[64][6][3]; /* gun, grab, support, rotation, held mag, well */
+extern float VrGexWeaponFits[64][7][3]; /* gun, grab, support, rotation, held mag, well, installed mesh */
 float *gevrGexSupportRotFit(s32 item);
 float *gevrGexSupportFit(s32 item);
 float *gevrGexGrabFit(s32 item);
 float *gevrGexGunFit(s32 item);
 float *gevrGexHeldMagFit(s32 item);
 float *gevrGexWellFit(s32 item);
+float *gevrGexInstalledMagFit(s32 item);
 
 #ifdef __cplusplus
 }
