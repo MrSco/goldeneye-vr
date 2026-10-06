@@ -499,6 +499,13 @@ static bool gevr_decal_writes_depth(void)
 {
     return s_isDecal && gevrRoomDl && !s_alphaArgs[0];
 }
+/* gevrRoomDl only changes how decal batches draw (every use above and in the
+ * draw path is under s_isDecal, which only changes after a flush), so a room
+ * boundary needs to end the batch only when it is a decal batch. */
+bool gfx_opengl_batch_is_decal(void)
+{
+    return s_isDecal;
+}
 
 /* Room decals sit a little off their walls: -2,-2 alone cut Frigate's
  * recessed fixtures. They draw pulled toward the eye by a reach

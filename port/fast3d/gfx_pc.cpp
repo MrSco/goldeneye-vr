@@ -78,7 +78,9 @@ uintptr_t gfxFramebuffer;
 
 
 #ifdef ANDROID
-#define MAX_BUFFERED 64 // better on Quest 2 Standalone
+/* 64 suited the original glBufferData-per-draw path. With the persistent
+ * vertex ring a batch is a memcpy, and every split is one more draw call. */
+#define MAX_BUFFERED 256
 #else
 #define MAX_BUFFERED 1024
 #endif
@@ -4077,7 +4079,10 @@ static void gfx_run_dl(Gfx* cmd) {
                     case VR_ROOM_DL_BEGIN:   // bg.c: a room's own display list (issue #72)
                     case VR_ROOM_DL_END: {
                         extern bool gevrRoomDl;   // gfx_opengl.cpp
-                        GEVR_FLUSH_BECAUSE(GEVR_FLUSH_ROOM);
+                        extern bool gfx_opengl_batch_is_decal(void);
+                        /* Rooms are 8% of draw calls; only a decal batch draws
+                         * differently inside a room's display list. */
+                        if (gfx_opengl_batch_is_decal()) GEVR_FLUSH_BECAUSE(GEVR_FLUSH_ROOM);
                         gevrRoomDl = tag_w1 == VR_ROOM_DL_BEGIN;
                         break;
                     }
