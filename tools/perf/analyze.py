@@ -224,21 +224,23 @@ def bootstrap_delta(base_runs, cand_runs, q, iterations=2000, seed=7):
     return point / 1e6, lo / 1e6, hi / 1e6
 
 
-def phase_runs(folder, phase):
+def phase_runs(folder, phase, kind=None):
     _, traces = run_dirs_traces(folder)
     runs = []
     for path in traces:
         t = frame_table(path)
         m = t['headline'] & (t['phases'] == phase)
+        if kind:
+            m &= t['d']['kind'] == kind
         if m.any():
             runs.append(t['app'][m])
     return runs
 
 
-def compare(base, cand):
+def compare(base, cand, kind=None):
     result = {}
     for phase in PHASE_ORDER:
-        b, c = phase_runs(base, phase), phase_runs(cand, phase)
+        b, c = phase_runs(base, phase, kind), phase_runs(cand, phase, kind)
         if not b or not c:
             continue
         result[phase] = {name: bootstrap_delta(b, c, q) for name, q in (('median', 50), ('p95', 95), ('p99', 99))}
@@ -285,14 +287,17 @@ def main(argv=None):
     sub = parser.add_subparsers(dest='action', required=True)
     s = sub.add_parser('summary'); s.add_argument('folders', nargs='+'); s.add_argument('--json')
     c = sub.add_parser('compare'); c.add_argument('base'); c.add_argument('cand'); c.add_argument('--json')
+    c.add_argument('--fresh', action='store_true',
+                   help='fresh frames only (game tick + render); the mix with redraws is bimodal')
     args = parser.parse_args(argv)
     if args.action == 'summary':
         result = [summarize(f) for f in args.folders]
         for r in result:
             print_summary(r)
     else:
-        result = compare(args.base, args.cand)
-        print(f'\n## {args.cand} vs {args.base}: app-processing delta ms (95% CI); negative is faster')
+        result = compare(args.base, args.cand, 1 if args.fresh else None)
+        what = 'fresh-frame app-processing' if args.fresh else 'app-processing'
+        print(f'\n## {args.cand} vs {args.base}: {what} delta ms (95% CI); negative is faster')
         for phase, r in result.items():
             cells = '  '.join(f"{k} {v[0]:+.3f} [{v[1]:+.3f}, {v[2]:+.3f}]" for k, v in r.items())
             print(f'{phase:15s} {cells}')
