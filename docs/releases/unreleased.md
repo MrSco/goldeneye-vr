@@ -11,6 +11,12 @@ equip/rest poses. Native regression checks and the signed Android release build
 pass; these seven await headset fitting and acceptance. See the
 [continuation handoff](../gex-continuation-handoff.md) for remaining guns.
 
+Fixed crash report cf69dded when cycling from RC-P90 into the GE-X shotgun:
+the original sleeve selector mistook added shell switches for cuff switches
+and read beyond the table. GE-X weapon tables now bypass original cuff
+selection; each original cuff lookup also checks its table bounds and node type.
+Saved RC-P90 grab and held-payload calibration from the report is baked in.
+
 See [v0.4.11](v0.4.11.md) for GE-X magazine weapons,
 room pop-in fixes, and player tracer collision fixes,
 [v0.4.10](v0.4.10.md) for smoother movement at walls and curbs, fewer render stalls and shared co-op mission gadgets,

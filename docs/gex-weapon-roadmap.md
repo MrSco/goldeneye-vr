@@ -1,5 +1,12 @@
 # GE-X weapon roadmap
 
+Latest crash follow-up: report **cf69dded** identified original sleeve selection
+reading past the GE-X shotgun's expanded 30-slot switch table when A cycled from
+RC-P90. Both GE-X weapon headers now bypass original cuff selection, and original
+cuff indices are bounded/type-checked. The native poisoned-table regression and
+64-test suite pass; headset retest is pending. RC-P90's report-provided grab and
+held mesh fits are baked into defaults. See the handoff's latest-priority section.
+
 Approved 2026-10-06. The first playable milestone is **PP7 and silenced PP7
 together**, preserving the working KF7. The user then authorized a batch of
 additional detachable-magazine models with in-headset fitting. Batch integration

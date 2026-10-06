@@ -13852,6 +13852,15 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
     s32 visible;
     s32 pad2;
 
+    if (header == NULL || header->Switches == NULL || switchindex < 0 || switchindex >= header->numSwitches) return;
+#ifdef GEVR
+    /* GE-X appends payload switches to the original GE table. A shotgun's
+     * 28 slots become 30, crossing the caller's cuff threshold (29), but
+     * slot 29 is its held shell and slot 30 is already texture data. */
+    extern s32 gevrGexHeld(s32 hand);
+    for (s32 hand=0; hand<2; hand++)
+        if (header == &g_CurrentPlayer->copy_of_body_obj_header[hand] && gevrGexHeld(hand)) return;
+#endif
     s32 cuff = g_CurrentPlayer->bondtype;
 #ifdef GEVR
     if (g_gevrStereo && netIsActive()) cuff = gevrMultiplayerCuff(get_player_mp_char_body(get_cur_playernum()));
@@ -13865,7 +13874,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
     // Offset uses the host ModelNode pointer width.
     base = (ModelNode **) (((u8 *) switches) + offset);
 
-    if (base[0] != NULL)
+    if (base[0] != NULL && (base[0]->Opcode & 0xff) == MODELNODE_OPCODE_SWITCH)
     {
         rwdata = (s32 *) modelGetNodeRwData(model, base[0]);
         *rwdata = cuff == CUFF_BOILER;
@@ -13875,7 +13884,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
 
     index = switchindex + 1;
 
-    if (((void *) (index * 0)) != base[1])
+    if (index < header->numSwitches && base[1] != NULL && (base[1]->Opcode & 0xff) == MODELNODE_OPCODE_SWITCH)
     {
         node = switches[index];
         rwdata = (s32 *) modelGetNodeRwData(model, node);
@@ -13903,7 +13912,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
 
     index = switchindex + 2;
 
-    if (base[2] != NULL)
+    if (index < header->numSwitches && base[2] != NULL && (base[2]->Opcode & 0xff) == MODELNODE_OPCODE_SWITCH)
     {
         rwdata = (s32 *) modelGetNodeRwData(model, switches[index]);
         visible = cuff == CUFF_CONNERY;
@@ -13924,7 +13933,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
 
     index = switchindex + 3;
 
-    if (base[3] != NULL)
+    if (index < header->numSwitches && base[3] != NULL && (base[3]->Opcode & 0xff) == MODELNODE_OPCODE_SWITCH)
     {
         rwdata = (s32 *) modelGetNodeRwData(model, switches[index]);
         *rwdata = cuff == CUFF_BLUE;
@@ -13934,7 +13943,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
 
     index = (switchindex + 4) ^ (((switchindex + 4) ^ 0) * 0);
 
-    if (base[4])
+    if (index < header->numSwitches && base[4] != NULL && (base[4]->Opcode & 0xff) == MODELNODE_OPCODE_SWITCH)
     {
         rwdata = (s32 *) modelGetNodeRwData(model, switches[index]);
         *rwdata = cuff == CUFF_JUNGLE;
@@ -13944,7 +13953,7 @@ void bondviewSelectCuff(Model *model, ModelFileHeader *header, s32 switchindex)
 
     index = switchindex + 5;
 
-    if (base[5] != NULL)
+    if (index < header->numSwitches && base[5] != NULL && (base[5]->Opcode & 0xff) == MODELNODE_OPCODE_SWITCH)
     {
         rwdata = (s32 *) modelGetNodeRwData(model, switches[index]);
         *rwdata = cuff == CUFF_SNOW;
