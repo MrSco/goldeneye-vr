@@ -2,13 +2,19 @@
 
 Engineering notes for the GE-X support introduced in PR #117 (2026-10-04).
 For installation, ROM preparation, reload controls and troubleshooting, start
-with [GoldenEye X setup](gex-setup.md). Current support covers KF7, both PP7s and
-VR arms, read from the player's own patched GE-X 6a ROM; the weapon list below
+with [GoldenEye X setup](gex-setup.md). Current support covers KF7, both PP7s, DD44, Klobb, ZMG, D5K variants,
+Phantom, AR33 and VR arms, read from the player's own patched GE-X 6a ROM; the weapon list below
 is a format reference, not a list of implemented replacements.
 Nothing from GE-X is committed or shipped; no
 licence covers its assets. Credits: the GoldenEye X team (Wreck, Carnivorous
 for the weapon animations, SubDrag and others) and Dab's Mod
 (DabDavis/perfect-dark-dabs-mod), whose import notes this follows.
+
+The current batch adds seven guns with separate grip, reload-grab, held-magazine,
+and insertion-target fits. Both-hand support rotation is adjustable for all
+supported guns. See the [roadmap](gex-weapon-roadmap.md#detachable-magazine-batch-and-saved-fits-2026-10-06)
+for reviewed bindings, reload timing, fit keys and the next-model handoff.
+The new batch awaits headset fitting and acceptance.
 
 ## The ROM
 
@@ -92,9 +98,9 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
 - tools/gex reads the ROM (file table, models, scripts, animation rows).
 - port/src/gevr_gex.c loads data/gex.z64; gevr_gexmodel.c rebuilds a PD
   gun model as a GoldenEye file; gevr_pdanim.c is PD's animation reader.
-  KF7/PP7 GE-X textures are paired with GoldenEye's own ids where the
+  Supported GE-X weapon textures are paired with GoldenEye's own ids where the
   pixels match, so the HD packs apply (gevr_gexweapon.c).
-- KF7 and both PP7s (launcher MODS "Its guns (KF7 + PP7, WIP)", ini GexGuns, off by
+- Supported guns (launcher MODS "Its guns (WIP)", ini GexGuns, off by
   default; also the watch's VR settings, from the next weapon drawn). On
   the screen it fires and reloads with GE-X's animations; its hands are
   the hand model on the gun's skeleton, as PD draws them.

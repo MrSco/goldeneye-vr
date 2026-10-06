@@ -60,6 +60,11 @@ int main(int argc, char **argv) {
         return 0;
     }
     // Gun fit: GoldenEye X's models' own trims and the scopes'
+    if (argc > 1 && std::strcmp(argv[1], "fit_invalid") == 0) {
+        assert(VrGexWeaponFits[6][3][2] == 8.8f);
+        assert(VrGexWeaponFits[14][0][0] == 0);
+        return 0;
+    }
     if (argc > 1 && std::strcmp(argv[1], "fit_write") == 0) {
         VrGexGunOff[0] = 1.5f;
         VrGexGripTrim[1][3] = 45.0f;
@@ -88,6 +93,7 @@ int main(int argc, char **argv) {
         VrMuzzleTrim[0][8][2] = 2.0f;
         VrMuzzleTrim[1][8][1] = -1.5f;
         VrMuzzleTrim[1][8][2] = 4.25f;
+        VrGexWeaponFits[6][3][2] = 47.25f;
         gevrGunFitSaved(false);
         VrGexPp7MagOff[0] = 99;
         VrGexKf7MagOff[0] = 99;
@@ -95,7 +101,9 @@ int main(int argc, char **argv) {
         VrGexPp7SupportRot[2] = 99;
         VrGexKf7WellOff[0] = 99;
         VrGexPp7WellOff[1] = 99;
+        VrGexWeaponFits[6][3][2] = 99;
         gevrGunFitSaved(true);
+        assert(VrGexWeaponFits[6][3][2] == 47.25f);
         assert(VrGexPp7MagOff[0] == 1.25f && VrGexKf7MagOff[0] == -0.5f && VrGexHeldMag[1] == 2.25f);
         assert(VrGexPp7SupportRot[2] == 90);
         assert(VrGexKf7WellOff[0] == -0.75f && VrGexPp7WellOff[1] == -2.25f);
@@ -103,13 +111,14 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "fit_read") == 0) {
-        assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -19.9475f && VrGunOffX == 2.74f);
+        assert(VrGexWeaponFits[6][3][2] == 47.25f);
+        assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -19.1169f && VrGunOffX == 2.74f);
         assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 90.1f);
         assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);
         assert(VrGexGuns == 0);   // GexGuns is not read as a Gex-prefixed fit
         assert(VrReloadGrab[1][2] == -9.5f && VrReloadGrab[0][2] == -8.0f);
         assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 20.61f && VrGexHeldMag[1] == 2.25f);
-        assert(VrGexWatch[3] == 1.5f && VrGexWatch[0] == 5.0f && VrGexForeHold[0] == 3.5f);
+        assert(VrGexWatch[3] == 1.5f && VrGexWatch[0] == 5.18f && VrGexForeHold[0] == 3.5f);
         assert(VrGexPp7Grab[1] == -1.25f && VrGexPp7Support[2] == 2.5f);
         assert(VrGexPp7GunOff[0] == 0.75f);
         assert(VrGexKf7MagOff[0] == -0.5f && VrGexKf7MagOff[1] == 0);

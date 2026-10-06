@@ -142,7 +142,7 @@ float VrGripTrim[2][6] = {
 /* GoldenEye X's models (launcher MODS) sit differently in the hand, so Gun
  * fit keeps theirs apart (user). The gun's is the user's, fitted to the KF7
  * in the headset (2026-10-04); the grips start from GoldenEye's. */
-float VrGexGunOff[3] = { 3.8982f, 2.1271f, -19.9475f };
+float VrGexGunOff[3] = {3.580500f,1.361500f,-19.116900f};
 float VrGexGripTrim[2][6] = {
     { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },
     { 2.45f, -3.24f, 7.60f, 92.9f, 0.0f, 83.1f },    /* the user's, on the GE-X KF7 (2026-10-04) */
@@ -159,27 +159,27 @@ float VrGexGripTrim[2][6] = {
  * GoldenEye X's, the belt and the off hand are the user's, set in the
  * headset with Gun fit (2026-10-04).
  */
-float VrReloadGrab[2][3] = { { 0.0f, -7.0f, -8.0f }, { -2.0f, -2.48f, -18.03f } };
+float VrReloadGrab[2][3] = { { 0.0f, -7.0f, -8.0f }, { -0.82f, -1.62f, -18.67f } };
 float VrReloadBelt[3] = { 68.34f, 20.61f, -13.15f };
-float VrGexHeldMag[3] = { -1.47f, 1.44f, 4.08f };
+float VrGexHeldMag[3] = {3.260000f,2.830000f,-5.930000f};
 /* GoldenEye's watch on GE-X's left wrist (gun.c): cm ahead of the end of the
  * sleeve, up and out from its axis there, and its size (Gun fit's off hand
  * mode, holding the right grip). Over the wrist and a fifth larger, to go
  * round GE-X's sleeve (user; measured offline on the KF7). */
-float VrGexWatch[4] = { 5.0f, 1.0f, 0.22f, 1.2f };
+float VrGexWatch[4] = {5.180000f,1.380000f,0.240000f,0.940000f};
 /* where GE-X's left hand holds a gun with both hands, cm forward, up and out
  * along the gun from where its animation has it (Gun fit's grip mode) */
 float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
 /* PP7 and PP7 silenced share a model fit, separate from legacy KF7 values.
  * Grab is a cm delta from the actual magazine, not a guessed controller point. */
-float VrGexPp7Grab[3] = { 0.0f, 0.0f, 0.0f };
-float VrGexPp7Support[3] = { 0.0f, 0.0f, 0.0f };
-float VrGexPp7SupportRot[3] = { 0.0f, 0.0f, 0.0f };
+float VrGexPp7Grab[3] = {-9.690000f,-9.140000f,3.940000f};
+float VrGexPp7Support[3] = {1.540000f,-0.110000f,6.130000f};
+float VrGexPp7SupportRot[3] = {-14.300000f,-36.700000f,8.800000f};
 /* Fire-frame-zero palm aligned with the already fitted KF7 shooting palm. */
 float VrGexPp7GunOff[3] = { 0.478802f, 4.372890f, -9.395315f };
 /* Held-magazine fit moves the mesh independently of the off hand and watch. */
 float VrGexKf7MagOff[3] = { 0.0f, 0.0f, 0.0f };
-float VrGexPp7MagOff[3] = { 0.0f, 0.0f, 0.0f };
+float VrGexPp7MagOff[3] = {1.230000f,5.270000f,1.690000f};
 float VrGexKf7WellOff[3] = { 0.0f, 0.0f, 0.0f };
 float VrGexPp7WellOff[3] = { 0.0f, 0.0f, 0.0f };
 
@@ -199,7 +199,7 @@ int   VrFistClench    = 0;     /* close the off hand while the left grip is sque
  * headset calibration (2026-10-05). Saved INI fits override these defaults.
  */
 float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3] = {
-    [1] = { [8] = { 4.07f, 2.87f, -7.23f } }, /* GE-X ITEM_AK47 / KF7 */
+    [1] = { [8] = { 4.07f, 2.87f, -7.23f }, [5] = { 0.08f, 0.32f, -0.32f } }, /* GE-X ITEM_AK47 / KF7 */
 };
 int gevrMuzzleFitting = 0;
 
@@ -239,3 +239,13 @@ bool VrTwoHandsGun(int weaponnum)
 void optionsMenuInit(void)
 {
 }
+
+/* Model-specific fits; D5K silenced shares item 10. Missing INI keys keep these defaults. */
+float VrGexWeaponFits[64][6][3] = {
+    [6] = {{0.478800f,4.372900f,-9.395300f},{0.000000f,0.000000f,0.000000f},{1.540000f,-0.110000f,6.130000f},{-14.300000f,-36.700000f,8.800000f},{1.230000f,5.270000f,1.690000f},{0.000000f,0.000000f,0.000000f}},
+    [7] = {{2.474469f,2.673778f,-8.497561f},{0.000000f,0.000000f,0.000000f},{1.540000f,-0.110000f,6.130000f},{-14.300000f,-36.700000f,8.800000f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f}},
+    [9] = {{2.332655f,2.382683f,-8.485081f},{0.000000f,0.000000f,0.000000f},{1.540000f,-0.110000f,6.130000f},{-14.300000f,-36.700000f,8.800000f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f}},
+    [10] = {{3.086050f,1.384690f,-19.423784f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f}},
+    [12] = {{3.601974f,1.256452f,-19.230030f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f},{0.000000f,0.000000f,0.000000f}},
+    [13] = {{3.614709f,1.382775f,-19.133067f}},
+};

@@ -150,6 +150,7 @@ if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('gex_rom'); parser.add_argument('ge_rom'); parser.add_argument('slot',type=int)
     parser.add_argument('--ge-model')
+    parser.add_argument('--model-only', action='store_true', help='Match only textures referenced by the original GE model')
     args=parser.parse_args()
     gex=PdRom(args.gex_rom); report=inspect(gex,args.slot); ge=load_rom(args.ge_rom)
     model=args.ge_model or ('GwppksilZ' if args.slot==4 else report['model'])
@@ -159,7 +160,7 @@ if __name__ == '__main__':
     offsets=texture_offsets(); base,_=images_segment(); decoder=Decoder(); decoded={}
     targets={n:decoder.decode(gex_texture(gex.rom,n)) for n in sorted(set(report['textures']))}
     shapes={v[:2] for v in targets.values()}
-    for n in range(len(offsets)-1):
+    for n in (candidates if args.model_only else range(len(offsets)-1)):
         blob=ge[base+offsets[n]:base+offsets[n+1]]
         if dimensions(blob) in shapes:
             try: decoded[n]=decoder.decode(blob)

@@ -6,6 +6,7 @@
 #include "gevr_reload_input.h"
 #include "gevr_watch_status.h"
 #include "gevr_scope.h"
+#include "gevr_gexweapon.h"
 #endif
 #include <string.h>
 #include <stddef.h>
@@ -107,11 +108,13 @@ static struct {
     float kf7Mag[3], pp7Mag[3];
     float pp7SupportRot[3];
     float kf7Well[3], pp7Well[3];
+    float weaponFits[64][6][3];
 } s_gunFitSaved;
 
 static void gevrGunFitSaved(bool restore)
 {
     if (restore) {
+        memcpy(VrGexWeaponFits, s_gunFitSaved.weaponFits, sizeof(VrGexWeaponFits));
         VrGunOffX = s_gunFitSaved.gun[0];
         VrGunOffY = s_gunFitSaved.gun[1];
         VrGunOffZ = s_gunFitSaved.gun[2];
@@ -134,6 +137,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(VrGexKf7WellOff, s_gunFitSaved.kf7Well, sizeof(VrGexKf7WellOff));
         memcpy(VrGexPp7WellOff, s_gunFitSaved.pp7Well, sizeof(VrGexPp7WellOff));
     } else {
+        memcpy(s_gunFitSaved.weaponFits, VrGexWeaponFits, sizeof(VrGexWeaponFits));
         s_gunFitSaved.gun[0] = VrGunOffX;
         s_gunFitSaved.gun[1] = VrGunOffY;
         s_gunFitSaved.gun[2] = VrGunOffZ;
@@ -1321,10 +1325,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     /* GoldenEye X's own left hand holds it (gun.c): where, cm forward,
                      * up and out along the gun (user: the hold was taken too near the
                      * magazine); the hold is taken there too */
-                    if ((fitItem == ITEM_WPPK || fitItem == ITEM_WPPKSIL) && get_button_state(1, "grip")) {
-                        VrGexPp7SupportRot[0] += my * 45.0f * dt;
-                        VrGexPp7SupportRot[1] += ry * 45.0f * dt;
-                        VrGexPp7SupportRot[2] += mx * 45.0f * dt;
+                    if (gevrGexWeaponGet(fitItem) != NULL && get_button_state(1, "grip")) {
+                        gevrGexSupportRotFit(fitItem)[0] += my * 45.0f * dt;
+                        gevrGexSupportRotFit(fitItem)[1] += ry * 45.0f * dt;
+                        gevrGexSupportRotFit(fitItem)[2] += mx * 45.0f * dt;
                     } else {
                         float *supportFit = gevrGexSupportFit(fitItem);
                         supportFit[0] += my * rate * dt;
