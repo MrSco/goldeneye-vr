@@ -100,6 +100,8 @@ typedef enum {
      * No existing packet layout or gameplay authority changes. */
     NET_MSG_ROUND_NOTICE = 49,  /* Host -> all: ready/vote requests and remaining warmup time */
     NET_MSG_CLIENT_CAPS = 50,   /* Client -> host: optional feature support after WELCOME */
+    /* Additive on protocol 18: an older build ignores the type and still joins. */
+    NET_MSG_COOP_GRANT = 51,    /* Host -> all: a mission gadget every player now carries (s32 ITEM_IDS) */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -127,6 +129,9 @@ enum {
     NET_COOP_EVENT_HELD = 5,    /* u8 count, s32 tags: the objective items my player holds */
     NET_COOP_EVENT_DOWNED = 6,  /* s32 0/1: my player is down (revive) or back up */
     NET_COOP_EVENT_ALARM = 7,   /* s32 0/1: my player switched the alarm off or on */
+    NET_COOP_EVENT_GRANT = 8,   /* s32 item: a teammate collected a shared mission gadget */
+    NET_COOP_EVENT_GADGET = 9,  /* s32 tag: a teammate used a gadget on this tagged object */
+    NET_COOP_EVENT_MINE = 10,   /* s32 item, s32 tag: a thrown mine stuck (tag) or landed (-1) */
 };
 #define NET_COOP_HELD_MAX 8
 #define NET_CHR_NO_ANIM 0xFFFF
