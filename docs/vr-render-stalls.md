@@ -143,6 +143,12 @@ App-processing p99 (ms), 3 × 60 s per rate:
 - In the same 224 s, the compositor dropped 459 frames vs 683, and app-side
   missed frames were 18 vs 53. That is suggestive, not significant.
 
+## Headset check
+
+On 2026-10-05 the user played the final release build (0e49fa2, normal
+manifest, 120 Hz, HD pack on) and reported it feels smooth. No visual
+regressions were reported, including in room decals.
+
 ## HD texture pack off vs on (same code, paired, 3 + 3 runs at 120 Hz)
 
 - **App time:** with `ActiveTexturePack=` (none), fresh-frame deltas against
