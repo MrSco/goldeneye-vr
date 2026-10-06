@@ -37,7 +37,7 @@ assert "case NET_COOP_EVENT_MINE:" in coop
 assert "coopApplyMineSettled(slot, item, tag)" in coop
 
 tank_start = bondview.index("typedef struct GevrTankGuard")
-tank_end = bondview.index("\n#endif", bondview.index("void gevrCoopReleaseTank(void)"))
+tank_end = bondview.index("\n#endif", bondview.index("void gevrCoopReleaseTank(void)", tank_start))
 parts = {
     "NEAREST": "\n\n".join((
         block(coop, "static int coopPlayerTargetable("),
