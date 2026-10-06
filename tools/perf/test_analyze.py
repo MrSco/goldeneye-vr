@@ -48,7 +48,7 @@ def write_trace(path, shift_ms=0.0, seed=0, skip_at=None):
         row.update(start_time_ns=start, submit_time_ns=start + int(frame * 1e6), display_ns=display, period_ns=PERIOD,
                    kind=1, body_valid=1, camera_valid=1, detailed=int(detailed), work_ns=int((app + image) * 1e6),
                    pre_ns=100000, input_buttons=f'{buttons:x}', input_turn=turn, collision=1,
-                   move_attempted=0x5 if phase == 'angled-contact' else 0x1, move_accepted=0x1,
+                   move_attempted='1f' if phase == 'angled-contact' else '1', move_accepted='1',
                    wait_ns=int(wait * 1e6), image_wait_ns=int(image * 1e6), frame_ns=int(frame * 1e6),
                    dl_self_ns=int(1.5e6) if detailed else 0, clip_self_ns=int(0.7e6) if detailed else 0)
         lines.append(','.join(str(row[c]) for c in COLUMNS))
@@ -64,7 +64,10 @@ def make_run(folder, shift_ms=0.0, seed=0):
     (folder / 'build.json').write_text(json.dumps({'hz': HZ, 'detail': 1, 'showstats': 0, 'sha256': 'x'}))
     (folder / 'device.log').write_text(
         '10-05 GoldenEye: xr-metric: time=1 /perfmetrics_meta/app/cpu_frametime=4.2000/u2'
-        ' /perfmetrics_meta/app/gpu_frametime=unavailable(0)\n')
+        ' /perfmetrics_meta/app/gpu_frametime=unavailable(0) /perfmetrics_meta/compositor/dropped_frame_count=10/u0\n'
+        '10-05 GoldenEye: xr-metric: time=2 /perfmetrics_meta/compositor/dropped_frame_count=13/u0\n'
+        '10-05 GoldenEye: xr-metric: time=3 /perfmetrics_meta/compositor/dropped_frame_count=2/u0\n'
+        '10-05 GoldenEye: xr-metric: time=4 /perfmetrics_meta/compositor/dropped_frame_count=3/u0\n')
 
 
 with tempfile.TemporaryDirectory() as temp:
@@ -88,6 +91,8 @@ with tempfile.TemporaryDirectory() as temp:
     assert s['sections']['self_ms_mean_p99'][0][0] == 'dl' and s['sections']['self_ms_mean_p99'][1][0] == 'clip'
     assert s['xr_metrics']['/perfmetrics_meta/app/cpu_frametime']['median'] == 4.2
     assert s['xr_metrics_unavailable'] == ['/perfmetrics_meta/app/gpu_frametime']
+    dropped = s['xr_metrics']['/perfmetrics_meta/compositor/dropped_frame_count']
+    assert dropped['total'] == 4 and dropped['seconds'] == 2 and dropped['per_second_max'] == 3
     with redirect_stdout(io.StringIO()):
         analyze.print_summary(s)
     faster = analyze.compare(temp / 'base', temp / 'fast')

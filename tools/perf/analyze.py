@@ -21,6 +21,7 @@ import sys
 import numpy as np
 
 TRANSITION_NS = 500_000_000
+HEX_COLUMNS = {'input_buttons', 'move_attempted', 'move_accepted'}   # printed with %x
 WAITS = ['wait', 'image_wait', 'vertex_wait', 'throttle']
 PHASE_ORDER = ['stationary', 'forward', 'backward', 'strafe', 'angled-contact', 'smooth-turn']
 
@@ -58,7 +59,7 @@ def load_trace(path):
     columns = list(zip(*rows)) if rows else [[] for _ in header]
     data = {}
     for name, values in zip(header, columns):
-        data[name] = (np.array([int(v, 16) for v in values]) if name == 'input_buttons'
+        data[name] = (np.array([int(v, 16) for v in values]) if name in HEX_COLUMNS
                       else np.array(values, dtype=float))
     return data
 
@@ -192,8 +193,19 @@ def summarize(folder):
                            'self_ms_mean_p99': [(k, round(mean, 4), round(p99, 4)) for mean, k, p99 in ranked
                                                 if mean > 0.001]}
     values, unavailable = metrics_from_log(folder)
-    out['xr_metrics'] = {k: {'median': float(np.median(v)), 'max': float(np.max(v)), 'n': len(v)}
-                         for k, v in values.items()}
+    out['xr_metrics'] = {}
+    for k, v in values.items():
+        v = np.array(v)
+        if k.endswith('_count'):
+            # Cumulative counters (dropped frames): report the once-a-second increments.
+            # A process restart resets the count; negative steps are those restarts.
+            steps = np.diff(v)
+            steps = steps[steps >= 0]
+            out['xr_metrics'][k] = {'per_second_median': float(np.median(steps)) if len(steps) else 0.0,
+                                    'per_second_max': float(steps.max()) if len(steps) else 0.0,
+                                    'total': float(steps.sum()), 'seconds': int(len(steps))}
+        else:
+            out['xr_metrics'][k] = {'median': float(np.median(v)), 'max': float(v.max()), 'n': len(v)}
     out['xr_metrics_unavailable'] = sorted(unavailable)
     return out
 
@@ -259,7 +271,10 @@ def print_summary(s):
     if s['xr_metrics']:
         print('XR runtime metrics (median / max):')
         for k, v in sorted(s['xr_metrics'].items()):
-            print(f"  {k}: {v['median']:.3f} / {v['max']:.3f} (n={v['n']})")
+            if 'total' in v:
+                print(f"  {k}: +{v['total']:.0f} over {v['seconds']} s (per second median {v['per_second_median']:.0f}, max {v['per_second_max']:.0f})")
+            else:
+                print(f"  {k}: {v['median']:.3f} / {v['max']:.3f} (n={v['n']})")
     else:
         print('XR runtime metrics: none reported' +
               (f" (unavailable: {', '.join(s['xr_metrics_unavailable'])})" if s['xr_metrics_unavailable'] else ''))

@@ -49,8 +49,10 @@ def adb(*args, check=True, timeout=120):
 
 
 def put(name, value):
-    # Values are fixed numeric benchmark commands or validated labels.
-    adb('shell', f"printf '%s' '{value}' > {FILES}/{name}")
+    # Values are fixed numeric benchmark commands or validated labels. The game's
+    # hooks read and delete a marker as soon as it exists, so write it whole and
+    # rename it into place: a half-written marker was read empty and lost.
+    adb('shell', f"printf '%s' '{value}' > {FILES}/.{name}.tmp && mv {FILES}/.{name}.tmp {FILES}/{name}")
 
 
 def backup(out):
@@ -234,7 +236,7 @@ def run(args, out):
     adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'simpleperf': args.simpleperf, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
@@ -255,6 +257,17 @@ def run(args, out):
                 raise Unavailable('No profiling acknowledgment from an actively rendering runtime')
             measure = time.monotonic() + WARMUP
             events = [{'host_offset': -WARMUP, 'phase': 'warm-up+stationary', 'ack': ack}]
+            sampler = None
+            if args.simpleperf:
+                # Attribution only: sampling perturbs timing, so these traces are
+                # never compared with unsampled runs.
+                while time.monotonic() < measure:
+                    time.sleep(.1)
+                pid = adb('shell', 'pidof', PACKAGE)
+                sampler = subprocess.Popen(['adb', 'shell', 'simpleperf', 'record', '-p', pid,
+                                            '-e', 'cpu-clock', '-f', '2000', '--call-graph', 'fp',
+                                            '--duration', str(MEASURE), '-o', '/data/local/tmp/gevr-perf.data'],
+                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             for offset, mask, turn, ms, warp, phase in PHASES:
                 while time.monotonic() < measure + offset:
                     time.sleep(min(.25, measure + offset - time.monotonic()))
@@ -266,6 +279,11 @@ def run(args, out):
                 events.append({'host_offset': time.monotonic() - measure, 'phase': phase,
                                'command': [mask, turn, ms], 'warp': warp})
                 print(label, phase, flush=True)
+            if sampler:
+                output = sampler.communicate(timeout=MEASURE + 60)[0].decode(errors='replace')
+                (folder / f'{label}.simpleperf.txt').write_text(output)
+                adb('pull', '/data/local/tmp/gevr-perf.data', str(folder / f'{label}.perf.data'))
+                adb('shell', 'rm', '-f', '/data/local/tmp/gevr-perf.data')
             # Export happens on the render thread after the minute; wait for its verdict.
             deadline = measure + MEASURE + 60
             while time.monotonic() < deadline:
@@ -309,6 +327,8 @@ if __name__ == '__main__':
     parser.add_argument('--runs', type=int, default=3)
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)
+    parser.add_argument('--simpleperf', action='store_true',
+                        help='sample the measured minute with simpleperf (attribution only; needs the benchmark build)')
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
     if args.action == 'backup':
