@@ -24,10 +24,10 @@ magazine fitting. This file records the current implementation and remaining wor
 - Open PR: [#138 — seven GE-X guns](https://github.com/MrSco/goldeneye-vr/pull/138),
   pushed and attached to the chat. No GitHub checks were listed at delivery;
   validation reported below was run locally. This PR has not been merged.
-- Signed test APK: `android/app/build/outputs/apk/release/GoldenEyeVR-gex-seven-d3ea3b8.apk`
-  in this workspace, 21958060 bytes; apksigner confirms v2 signature, one signer.
-  SHA256: `ba4228f3f2924ff63cc24ade898d0bbc4e8734fbc80b46b32635731d207b8c30`.
-  Built after the implementation commit with JDK 20. App version remains
+- Signed test APK: `android/app/build/outputs/apk/release/GoldenEyeVR-gex-seven-cdcb44a.apk`
+  in this workspace, 21978610 bytes; apksigner confirms v2 signature, one signer.
+  SHA256: `6231ec3313e27ca67e20444cb996a3bc9e6a282c162bdda7575b6b37c28d8bdf`.
+  Built from checkpoint `cdcb44a` with JDK 20; in-game build label is `cdcb44a`. App version remains
   0.4.11 / code 64; this is a test build, not a published release.
 - Weekly usage last reported 96% used / approximately 4% remaining at delivery.
   Stopped with the user's 2% reserve intact after seven complete additions.
@@ -197,3 +197,17 @@ Mixed historical line endings need care: preserve unchanged CRLF lines and
 use LF for edited text rather than rewriting entire large C files. Run
 `git diff --check` and inspect the final diff before committing. The optional
 ignored `android/app/build/normalize.py` restores unchanged line bytes from HEAD.
+
+Build label cache note: CMake configures `port/include/versioninfo.h` from Git
+at configure time. Incremental Gradle builds can retain an old hash even when
+new code was compiled. This delivery explicitly refreshed CMake configuration
+before rebuilding and signing. For this checkout's existing release cache:
+
+```powershell
+& 'C:/Users/Occor/AppData/Local/Android/Sdk/cmake/3.22.1/bin/cmake.exe' -S . -B android/app/.cxx/RelWithDebInfo/5n53247b/arm64-v8a
+```
+
+Use the actual cache directory in another checkout, and inspect its generated
+`port/include/versioninfo.h` before the final Gradle build. Keep the JDK 20
+requirement above for every Gradle invocation. The earlier d3ea3b8-named local
+APK had stale build-label metadata; use the cdcb44a-named APK listed above.
