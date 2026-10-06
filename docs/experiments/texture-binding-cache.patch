@@ -1,0 +1,329 @@
+Shelved experiment: GL texture-binding cache (not applied, never measured).
+
+Drafted 2026-10-05 against 6462f42. Suppresses redundant glActiveTexture/glBindTexture
+calls in port/fast3d/gfx_opengl.cpp through a shadow of the actual GL bindings.
+
+Shelved because:
+- No timing evidence that redundant binds cost anything; gfx_pc.cpp already skips
+  re-selecting unchanged textures (rendering_state.textures), and the replay and
+  scope paths already dedupe with their own replayTex state.
+- Unsafe as written: code outside gfx_opengl.cpp changes texture bindings mid-frame
+  without invalidating the shadow (vr_hub_render binds 0 on units 0-3 after the eye
+  passes; see vr_hub.cpp), so a later skipped bind would draw with the wrong texture.
+- The replay test fixture only stubbed the wrappers as passthroughs, so the cache
+  itself was never tested.
+
+Revisit only if profiling attributes measurable time to texture binds. Apply with
+  git apply docs/experiments/texture-binding-cache.patch
+then make every external GL texture binder invalidate the shadow and add real tests.
+
+diff --git a/port/fast3d/gfx_opengl.cpp b/port/fast3d/gfx_opengl.cpp
+index f013394..1fbd70e 100644
+--- a/port/fast3d/gfx_opengl.cpp
++++ b/port/fast3d/gfx_opengl.cpp
+@@ -24,6 +25,14 @@
+ #include "gevr_line_geometry.h"
+ #include "gevr_frame_timing.h"
+ #include "gevr_hud_bounds.h"
++#include "gevr_texture_bindings.h"
++static GevrTextureBindings gevrTextureBindings;
++static void gevr_gl_active_texture(GLenum unit) {
++    if(gevrTextureBindings.active((unsigned)(unit-GL_TEXTURE0))) glActiveTexture(unit);
++}
++static void gevr_gl_bind_texture(GLenum target, GLuint texture) {
++    if(target!=GL_TEXTURE_2D || gevrTextureBindings.bind(texture)) glBindTexture(target,texture);
++}
+ /* Inclusive CPU timings, only with Show stats. RAII balances early returns;
+  * draw_issue is nested in draw_batch, shader_bind may nest in shader_compile. */
+ class GevrCpuSection {
+@@ -260,12 +269,12 @@ static GLuint load_bmp_texture(const char* path) {
+ 
+     GLuint tex;
+     glGenTextures(1, &tex);
+-    glBindTexture(GL_TEXTURE_2D, tex);
++    gevr_gl_bind_texture(GL_TEXTURE_2D, tex);
+     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, w, abs(h), 0,
+                  GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+-    glBindTexture(GL_TEXTURE_2D, 0);
++    gevr_gl_bind_texture(GL_TEXTURE_2D, 0);
+ 
+ //    vr_log("load_bmp_texture: loaded %s (%dx%d, %dbpp)", path, w, abs(h), bpp);
+     return tex;
+@@ -857,8 +876,8 @@ extern "C" void gfx_opengl_draw_mirror_menu_overlay(GLuint menuTex, const float*
+     glUseProgram(menuOverlayProg);
+     glUniformMatrix4fv(menuOverlayMvpLoc, 1, GL_FALSE, mvp);
+ 
+-    glActiveTexture(GL_TEXTURE0);
+-    glBindTexture(GL_TEXTURE_2D, menuTex);
++    gevr_gl_active_texture(GL_TEXTURE0);
++    gevr_gl_bind_texture(GL_TEXTURE_2D, menuTex);
+     glUniform1i(menuOverlayTexLoc, 0);
+ 
+     glBindVertexArray(menuOverlayVao);
+@@ -1704,6 +1723,7 @@ static GLuint gfx_opengl_new_texture(void) {
+ }
+ 
+ static void gfx_opengl_delete_texture(uint32_t texID) {
++    gevrTextureBindings.invalidate();
+     glDeleteTextures(1, &texID);
+ }
+ 
+@@ -1734,8 +1754,8 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_f
+     s_boundTex[tile] = texture_id;
+     s_activeTexUnit = tile;
+ 
+-    glActiveTexture(GL_TEXTURE0 + tile);
+-    glBindTexture(GL_TEXTURE_2D, texture_id);
++    gevr_gl_active_texture(GL_TEXTURE0 + tile);
++    gevr_gl_bind_texture(GL_TEXTURE_2D, texture_id);
+ 
+     current_textures_linear_filter[tile] = linear_filter;
+ }
+@@ -1798,7 +1818,7 @@ static uint32_t gfx_cm_to_opengl(uint32_t val) {
+ 
+ static void gfx_opengl_set_sampler_parameters(int tile, bool linear_filter, uint32_t cms, uint32_t cmt) {
+     const GLint filter = linear_filter && (current_filter_mode == FILTER_LINEAR) ? GL_LINEAR : GL_NEAREST;
+-    glActiveTexture(GL_TEXTURE0 + tile);
++    gevr_gl_active_texture(GL_TEXTURE0 + tile);
+     s_activeTexUnit = tile;
+     if (gevr_tex_is_hd(s_boundTex[tile])) {
+         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+@@ -2072,7 +2092,7 @@ static void gevr_scope_make_target(int hand)
+     GLint prevFbo = 0;
+     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
+     glGenTextures(1, &s_scopeTex[hand]);
+-    glBindTexture(GL_TEXTURE_2D, s_scopeTex[hand]);
++    gevr_gl_bind_texture(GL_TEXTURE_2D, s_scopeTex[hand]);
+     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, GEVR_SCOPE_RES, GEVR_SCOPE_RES, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+@@ -2090,7 +2110,7 @@ static void gevr_scope_make_target(int hand)
+     sysLogPrintf(st == GL_FRAMEBUFFER_COMPLETE ? LOG_NOTE : LOG_WARNING,
+                  "scope: hand %d %dx%d target %s (0x%x)", hand, GEVR_SCOPE_RES, GEVR_SCOPE_RES,
+                  st == GL_FRAMEBUFFER_COMPLETE ? "ready" : "incomplete", st);
+-    glBindTexture(GL_TEXTURE_2D, s_boundTex[s_activeTexUnit]);
++    gevr_gl_bind_texture(GL_TEXTURE_2D, s_boundTex[s_activeTexUnit]);
+     glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)prevFbo);
+ }
+ 
+@@ -2193,8 +2213,8 @@ void gfx_vr_scope_render(void)
+             }
+             for (int t = 0; t < 2; t++) {
+                 if (d.prg->used_textures[t]) {
+-                    glActiveTexture(GL_TEXTURE0 + t);
+-                    glBindTexture(GL_TEXTURE_2D, d.tex[t]);
++                    gevr_gl_active_texture(GL_TEXTURE0 + t);
++                    gevr_gl_bind_texture(GL_TEXTURE_2D, d.tex[t]);
+                     if (d.prg->three_point_filter_locations[t] >= 0) {
+                         glUniform1i(d.prg->three_point_filter_locations[t], d.linear[t]);
+                     }
+@@ -2276,10 +2296,10 @@ void gfx_vr_scope_render(void)
+         glUseProgram(0);
+     }
+     for (int t = 0; t < 2; t++) {
+-        glActiveTexture(GL_TEXTURE0 + t);
+-        glBindTexture(GL_TEXTURE_2D, s_boundTex[t]);
++        gevr_gl_active_texture(GL_TEXTURE0 + t);
++        gevr_gl_bind_texture(GL_TEXTURE_2D, s_boundTex[t]);
+     }
+-    glActiveTexture(GL_TEXTURE0 + s_activeTexUnit);
++    gevr_gl_active_texture(GL_TEXTURE0 + s_activeTexUnit);
+     memcpy(s_depthArgs, savedDepth, sizeof(savedDepth));
+     memcpy(s_alphaArgs, savedAlpha, sizeof(savedAlpha));
+     s_depthZmode = savedZmode;
+@@ -2843,8 +2863,8 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
+         for (int t = 0; t < 2; t++) {
+             if (d.prg->used_textures[t]) {
+                 if (!haveTexture[t] || replayTex[t] != d.tex[t]) {
+-                    glActiveTexture(GL_TEXTURE0 + t);
+-                    glBindTexture(GL_TEXTURE_2D, d.tex[t]);
++                    gevr_gl_active_texture(GL_TEXTURE0 + t);
++                    gevr_gl_bind_texture(GL_TEXTURE_2D, d.tex[t]);
+                     replayTex[t] = d.tex[t];
+                     haveTexture[t] = true;
+                 }
+@@ -2888,10 +2908,10 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
+         glUseProgram(0);
+     }
+     for (int t = 0; t < 2; t++) {
+-        glActiveTexture(GL_TEXTURE0 + t);
+-        glBindTexture(GL_TEXTURE_2D, s_boundTex[t]);
++        gevr_gl_active_texture(GL_TEXTURE0 + t);
++        gevr_gl_bind_texture(GL_TEXTURE_2D, s_boundTex[t]);
+     }
+-    glActiveTexture(GL_TEXTURE0 + s_activeTexUnit);
++    gevr_gl_active_texture(GL_TEXTURE0 + s_activeTexUnit);
+     memcpy(s_depthArgs, savedDepth, sizeof(savedDepth));
+     memcpy(s_alphaArgs, savedAlpha, sizeof(savedAlpha));
+     s_depthZmode = savedZmode;
+@@ -3100,7 +3120,8 @@ static void gfx_opengl_init_extensions(void) {
+ }
+ 
+ 
+-static void gfx_opengl_init(void) {
++static void gfx_opengl_init(void) {
++    gevrTextureBindings.invalidate();
+     if (!gladLoadGLLoader(gl_load_proc) || glGetString == NULL || glEnable == NULL) {
+         sysFatalError("Could not load OpenGL.\nReported SDL error: %s", SDL_GetError());
+     }
+@@ -3233,7 +3254,8 @@ static void gfx_opengl_init(void) {
+ static void gfx_opengl_on_resize(void) {
+ }
+ 
+-static void gfx_opengl_start_frame(void) {
++static void gfx_opengl_start_frame(void) {
++    gevrTextureBindings.invalidate();
+     frame_count++;
+     gevr_decal_switch_poll();
+     gevr_zdebug_poll();
+@@ -3249,7 +3271,8 @@ static void gfx_opengl_start_frame(void) {
+ 
+ }
+ 
+-static void gfx_opengl_end_frame(void) {
++static void gfx_opengl_end_frame(void) {
++    gevrTextureBindings.invalidate();
+     glFlush();
+ 
+ }
+@@ -3264,14 +3287,14 @@ static int gfx_opengl_create_framebuffer() {
+ 
+     GLuint clrbuf;
+     glGenTextures(1, &clrbuf);
+-    glBindTexture(GL_TEXTURE_2D, clrbuf);
++    gevr_gl_bind_texture(GL_TEXTURE_2D, clrbuf);
+ 
+     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+ 
+ 
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+-    glBindTexture(GL_TEXTURE_2D, 0);
++    gevr_gl_bind_texture(GL_TEXTURE_2D, 0);
+     framebuffers[i].clrbuf = clrbuf;
+ 
+     if (!gfx_framebuffers_enabled) {
+@@ -3322,10 +3345,10 @@ static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width,
+         if (fb_id != 0) {
+             if (fb.width != width || fb.height != height || fb.msaa_level != msaa_level) {
+                 if (msaa_level <= 1) {
+-                    glBindTexture(GL_TEXTURE_2D, fb.clrbuf);
++                    gevr_gl_bind_texture(GL_TEXTURE_2D, fb.clrbuf);
+                     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+ 
+-                    glBindTexture(GL_TEXTURE_2D, 0);
++                    gevr_gl_bind_texture(GL_TEXTURE_2D, 0);
+                     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, fb.clrbuf, 0);
+                 }
+                 else {
+@@ -3885,8 +3908,8 @@ void gfx_opengl_select_texture_fb(int fb_id) {
+     //    LOGI( "GL select_texture_fb: fbid=%d clrbuf=%u is_mv=%d",
+     //                 fb_id, framebuffers[fb_id].clrbuf, framebuffers[fb_id].is_multiview);
+     // glDisable(GL_DEPTH_TEST);
+-    glActiveTexture(GL_TEXTURE0 + 0);
+-    glBindTexture(GL_TEXTURE_2D, framebuffers[fb_id].clrbuf);
++    gevr_gl_active_texture(GL_TEXTURE0 + 0);
++    gevr_gl_bind_texture(GL_TEXTURE_2D, framebuffers[fb_id].clrbuf);
+     s_boundTex[0] = framebuffers[fb_id].clrbuf;
+     s_activeTexUnit = 0;
+ 
+@@ -4014,8 +4037,8 @@ void gfx_opengl_copy_framebuffer(int fb_dst, int fb_src, int left, int top, bool
+         glUseProgram(mv_blit_prog);
+ 
+         GLuint texArray = vr_get_current_multiview_swapchain_tex();
+-        glActiveTexture(GL_TEXTURE0);
+-        glBindTexture(GL_TEXTURE_2D_ARRAY, texArray);
++        gevr_gl_active_texture(GL_TEXTURE0);
++        gevr_gl_bind_texture(GL_TEXTURE_2D_ARRAY, texArray);
+ 
+ 
+ #ifndef __ANDROID__ // if PC
+@@ -4163,8 +4186,8 @@ static void gfx_opengl_mirror_to_desktop(
+     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+ 
+     glUseProgram(s_mirror_prog);
+-    glActiveTexture(GL_TEXTURE0);
+-    glBindTexture(GL_TEXTURE_2D_ARRAY, eye_array_tex);
++    gevr_gl_active_texture(GL_TEXTURE0);
++    gevr_gl_bind_texture(GL_TEXTURE_2D_ARRAY, eye_array_tex);
+     glUniform1i(s_mirror_uloc_tex,   0);
+ 
+     bool sbs = gfx_sdl_is_mirror_sbs();
+@@ -4191,8 +4214,8 @@ static void gfx_opengl_mirror_to_desktop(
+     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+ 
+     glUseProgram(s_mirror_prog);
+-    glActiveTexture(GL_TEXTURE0);
+-    glBindTexture(GL_TEXTURE_2D_ARRAY, eye_array_tex);
++    gevr_gl_active_texture(GL_TEXTURE0);
++    gevr_gl_bind_texture(GL_TEXTURE_2D_ARRAY, eye_array_tex);
+     glUniform1i(s_mirror_uloc_tex, 0);
+     // ... (uniforms sbs/layer/rect unchanged) ...
+ 
+@@ -4200,8 +4223,8 @@ static void gfx_opengl_mirror_to_desktop(
+     glDrawArrays(GL_TRIANGLES, 0, 3); // fullscreen triangle
+ 
+ // --- XR Layers: quad menu panel, same as in the headset ---
+-    glActiveTexture(GL_TEXTURE0);
+-    glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
++    gevr_gl_active_texture(GL_TEXTURE0);
++    gevr_gl_bind_texture(GL_TEXTURE_2D_ARRAY, 0);
+ 
+     if (sbs) {
+         // Left half = left eye, right half = right eye
+@@ -4250,7 +4273,7 @@ static void gfx_opengl_mirror_to_desktop(
+ 
+ // Cleanup
+ glBindVertexArray(0);
+-glBindTexture(GL_TEXTURE_2D, 0);
++gevr_gl_bind_texture(GL_TEXTURE_2D, 0);
+ glUseProgram(0);
+ glDisable(GL_BLEND);
+ glFlush();
+diff --git a/port/tests/replay_state_native.cpp b/port/tests/replay_state_native.cpp
+index c64f9b8..c8c2b24 100644
+--- a/port/tests/replay_state_native.cpp
++++ b/port/tests/replay_state_native.cpp
+@@ -71,6 +71,8 @@ static void gevr_issue_draw(GLint first,GLsizei count,bool,bool,float,bool){
+         assert(filters[boundProgram][t]==(int)d.linear[t]);
+     }
+ }
++static void gevr_gl_active_texture(GLenum unit) { glActiveTexture(unit); }
++static void gevr_gl_bind_texture(GLenum target,GLuint texture) { glBindTexture(target,texture); }
+ /* INSERT_REPLAY */
+ int main(){
+     ShaderProgram a,b;a.opengl_program_id=1;b.opengl_program_id=2;
+diff --git a/port/include/gevr_texture_bindings.h b/port/include/gevr_texture_bindings.h
+new file mode 100644
+index 0000000..cc5f9f2
+--- /dev/null
++++ b/port/include/gevr_texture_bindings.h
+@@ -0,0 +1,26 @@
++#ifndef GEVR_TEXTURE_BINDINGS_H
++#define GEVR_TEXTURE_BINDINGS_H
++#include <stdint.h>
++/* Actual GL bindings, separate from Fast3D's logical texture selection. The
++ * backend invalidates at frame/context boundaries and before deleting names.
++ * Non-2D targets keep their own GL bindings and always go to the driver. */
++struct GevrTextureBindings {
++    int unit = -1;
++    uint32_t textures[2] = {};
++    bool known[2] = {};
++    void invalidate() { unit = -1; known[0] = known[1] = false; }
++    bool active(unsigned next) {
++        if (next > 1) { invalidate(); return true; }
++        if (unit == (int)next) return false;
++        unit = (int)next;
++        return true;
++    }
++    bool bind(uint32_t texture) {
++        if (unit < 0) return true;
++        if (known[unit] && textures[unit] == texture) return false;
++        textures[unit] = texture;
++        known[unit] = true;
++        return true;
++    }
++};
++#endif

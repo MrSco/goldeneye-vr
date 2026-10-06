@@ -2981,6 +2981,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
         case NET_MSG_COOP_DAMAGE:
         case NET_MSG_COOP_MISSION:
         case NET_MSG_COOP_TEXT:
+        case NET_MSG_COOP_GRANT:
         case NET_MSG_CHR_AI:
         case NET_MSG_CHR_REMAP:
         case NET_MSG_COOP_JOIN:

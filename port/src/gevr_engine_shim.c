@@ -27,6 +27,7 @@
 #include "input.h"
 #include "video.h"
 #include "gevr_sched.h"
+#include "gevr_frame_timing.h"
 #include "gevr_rom_segments.h"
 #include <music.h> /* musicFadeTick: the retrace-driven music cross-fade */
 
@@ -88,6 +89,7 @@ static OSMesg gevrFrameMsgBuf[OS_SC_MAX_MESGS];
 static s32 gevrSchedInitDone;
 static s32 gevrFrameOpen;        /* videoStartFrame() has run and videoEndFrame() has not */
 static u32 gevrTasksThisFrame;   /* display lists drawn since the last retrace */
+static uint64_t gevrGameSpan;
 static u32 gevrFramesLogged;
 
 
@@ -258,7 +260,8 @@ s32 gevrSchedSend(OSMesgQueue *mq, OSMesg msg)
 
 	gevrSchedEnsureInit();
 
-	if (t->list.t.type == M_GFXTASK && t->list.t.data_ptr) {
+    if (t->list.t.type == M_GFXTASK && t->list.t.data_ptr) {
+        const uint64_t renderSpan = gevrFrameTimingEnter(GEVR_TIME_FRESH);
 		if (!gevrFrameOpen) {
 			videoStartFrame();
 			gevrFrameOpen = 1;
@@ -269,7 +272,8 @@ s32 gevrSchedSend(OSMesgQueue *mq, OSMesg msg)
 			videoSubmitCommands((Gfx *)t->list.t.data_ptr);
 			gevrPerfAdd(1, gevrPerfNs() - t0);
 		}
-		gevrTasksThisFrame++;
+        gevrTasksThisFrame++;
+        gevrFrameTimingLeave(renderSpan);
 	}
 
 	if (t->msgQ) {
@@ -312,6 +316,8 @@ static u32 gevrRedraws;       /* in-between frames drawn again (issue #53) */
 
 static void gevrVrFrameEnd(void)
 {
+    gevrFrameTimingLeave(gevrGameSpan);
+    gevrGameSpan = 0;
 	if (gevrVrFrameBegun) {
 		gevrVrFrameBegun = 0;
 		vr_end_frame_and_submit();
@@ -356,12 +362,15 @@ static u64 gevrPerfNs(void)
 }
 static u64 gevrPerfAcc[3], gevrPerfFrameStart, gevrPerfSecStart, gevrPerfWorstGame;
 static u64 gevrPerfFrameAcc[3];
+static u64 gevrPerfPeakDraw;
 static u32 gevrPerfFrames;
-static char gevrPerfBuf[160];
+static char gevrPerfBuf[192];
 const char *gevrPerfText(void) { return gevrPerfBuf; }
 void gevrPerfAdd(int section, u64 ns)
 {
 	gevrPerfFrameAcc[section] += ns;
+	/* Peak duration of a single fresh-render/redraw CPU call, not GPU time. */
+	if (section == 1 && ns > gevrPerfPeakDraw) gevrPerfPeakDraw = ns;
 }
 u64 gevrPerfNow(void) { return gevrPerfNs(); }
 /* at the end of each presented frame */
@@ -384,15 +393,16 @@ static void gevrPerfFrameDone(void)
 			if (now - gevrPerfSecStart >= 1000000000ull && gevrPerfFrames) {
 				const double n = (double)gevrPerfFrames;
 				snprintf(gevrPerfBuf, sizeof(gevrPerfBuf),
-					"GAME %.1f MAX %.1f  DRAW %.1f  END %.1f  WAIT %.1f\nDRAWS %u  TRIS %uK",
+					"CPU GAME %.1f MAX %.1f MS\nDRAW/TICK %.1f PEAK %.1f MS\nFINISH %.1f WAIT %.1f MS\nDRAWS %u TRIS %uK",
 					gameAcc / n / 1e6, gevrPerfWorstGame / 1e6, gevrPerfAcc[1] / n / 1e6,
-					gevrPerfAcc[2] / n / 1e6, gevrPerfAcc[0] / n / 1e6,
+					gevrPerfPeakDraw / 1e6, gevrPerfAcc[2] / n / 1e6, gevrPerfAcc[0] / n / 1e6,
 					(unsigned)(gevr_perf_draws / gevrPerfFrames), (unsigned)(gevr_perf_tris / gevrPerfFrames / 1000));
 				if (VrShowStats) {
 					sysLogPrintf(LOG_NOTE, "perf: %s", gevrPerfBuf);
 				}
 				gameAcc = 0;
 				gevrPerfWorstGame = 0;
+				gevrPerfPeakDraw = 0;
 				gevrPerfFrames = 0;
 				gevr_perf_draws = gevr_perf_tris = 0;
 				for (i = 0; i < 3; i++) gevrPerfAcc[i] = 0;
@@ -429,7 +439,8 @@ static void gevrVrFrameBegin(void)
 		gevrVrFrameBegun = vr_begin_frame_and_update_poses() ? 1 : 0;
 		gevrPerfAdd(0, gevrPerfNs() - t0);
 	}
-	gevrXrFramesBegun++; /* false: no session yet, or an empty frame already closed */
+    gevrXrFramesBegun++; /* false: no session yet, or an empty frame already closed */
+    gevrGameSpan = gevrFrameTimingEnter(GEVR_TIME_GAME);
 
 	/* Hold the left stick click for about a second to bring the virtual screen back in front of you. */
 	if (gevrVrFrameBegun) {
@@ -462,8 +473,10 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 
 	if (gevrFrameOpen) {
 		{
-			const u64 t0 = gevrPerfNs();
-			videoEndFrame();
+            const u64 t0 = gevrPerfNs();
+            const uint64_t finishSpan=gevrFrameTimingEnter(GEVR_TIME_FINALIZE);
+            videoEndFrame();
+            gevrFrameTimingLeave(finishSpan);
 			gevrPerfAdd(2, gevrPerfNs() - t0);
 		}
 		gevrFrameOpen = 0;
@@ -484,7 +497,8 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	gevrPumpStage = 3;
 
 
-	inputUpdate();
+    const uint64_t inputStart=gevrFrameTimingNow();
+    inputUpdate();
 
 	/*
 	 * The controller poll ran from the scheduler's retrace handler on the
@@ -493,9 +507,10 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	 * one so the next retrace has something to consume.
 	 */
 	joyPoll();
-	if (g_ContInputMessageQueue.validCount == 0) {
-		osContStartReadData(&g_ContInputMessageQueue);
-	}
+    if (g_ContInputMessageQueue.validCount == 0) {
+        osContStartReadData(&g_ContInputMessageQueue);
+    }
+    if(inputStart) gevrFrameTimingOutside(GEVR_TIME_INPUT,gevrFrameTimingNow()-inputStart);
 
 	/*
 	 * __scHandleRetrace() called this right after joyPoll(), and nothing in
@@ -506,7 +521,9 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 	 * it left the pause track playing. One tick per retrace, which is what
 	 * FADE_FRAMERATE counts.
 	 */
+    const uint64_t fadeStart=gevrFrameTimingNow();
 	musicFadeTick();
+    if(fadeStart) gevrFrameTimingOutside(GEVR_TIME_AUDIO,gevrFrameTimingNow()-fadeStart);
 
 
 	/*
@@ -538,9 +555,13 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 			}
 			if (gevrVrFrameBegun) {
 				extern int gfx_vr_redraw_frame(void);
-				const u64 t0 = gevrPerfNs();
+                const u64 t0 = gevrPerfNs();
+                const uint64_t redrawSpan=gevrFrameTimingEnter(GEVR_TIME_REDRAW);
 
-				gevrRedraws += gfx_vr_redraw_frame();
+                const int redrawn = gfx_vr_redraw_frame();
+                gevrFrameTimingLeave(redrawSpan);
+                gevrFrameTimingRedrawResult(redrawn);
+				gevrRedraws += redrawn;
 				gevrPerfAdd(1, gevrPerfNs() - t0);
 			}
 			gevrVrFrameEnd();
@@ -574,8 +595,10 @@ s32 gevrSchedBlockedRecv(OSMesgQueue *mq, OSMesg *msg)
 
 #ifdef GEVR
 	{
-		extern void gevrAudioFrame(void);
-		gevrAudioFrame();
+        extern void gevrAudioFrame(void);
+        const uint64_t audioSpan=gevrFrameTimingEnter(GEVR_TIME_AUDIO);
+        gevrAudioFrame();
+        gevrFrameTimingLeave(audioSpan);
 		gevrPumpStage = 7;
 	}
 #endif

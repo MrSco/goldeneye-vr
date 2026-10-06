@@ -9,12 +9,14 @@
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
 #include "gevr_locomotion.h"
+#include "gevr_frame_timing.h"
+#include "gevr_collision_slide.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
 #include "system.h"
 static u32 g_gevrTeleportEpoch; /* bumped by gevrNotifyTeleport (chrai.c) */
-void gevrNotifyTeleport(void) { g_gevrTeleportEpoch++; gevrVrLocomotionReset(); }
+void gevrNotifyTeleport(void) { g_gevrTeleportEpoch++; gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TELEPORT); }
 extern s32 gevrCrouchToggled(void); // port/src/input.c
 #endif
 #include <math.h>
@@ -488,7 +490,7 @@ static f32 gevrStereoHeadHeight(void)
 /* Face the way the body faces: the current view becomes straight ahead. */
 static void gevrStereoRecenter(void)
 {
-    gevrVrLocomotionReset();
+    gevrVrLocomotionResetReason(GEVR_LOCO_RESET_RECENTER);
     s_gevrPhysicalWalk[0] = s_gevrPhysicalWalk[1] = s_gevrPhysicalWalk[2] = 0;
     s_gevrHeadValid = FALSE;   /* next tick takes this height as standing */
     s_gevrMenuHeadValid = FALSE;
@@ -978,7 +980,7 @@ void gevrStereoFrame(s32 inlevel)
             if (s_gevrSnapArmed && fabsf(x) > 0.5f)
             {
                 s_gevrBaseYaw += (x > 0.0f ? 1.0f : -1.0f) * VrUseSnapTurn;
-                gevrVrLocomotionReset(); /* a comfort snap must remain instantaneous */
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SNAP); /* a comfort snap must remain instantaneous */
                 s_gevrSnapArmed = FALSE;
                 /* the comfort ring closes on the frame that shows the new heading (gevrStereoVignette) */
                 s_gevrSnapVignetteHold = GEVR_SNAP_VIGNETTE_HOLD;
@@ -1023,17 +1025,22 @@ void gevrStereoFrame(s32 inlevel)
             /* Physical ducking is already carried by the body's Y; rising is
              * added to the camera later. Neither should acquire extra delay. */
             if (height < 0) tracking[1] = height;
-            if (lastPlayer != pl || lastStage != stage || lastPaused != paused ||
-                lastTank != g_PlayerIsInTank || lastTeleport != g_gevrTeleportEpoch)
-                gevrVrLocomotionReset();
+            if (lastPlayer != pl || lastStage != stage)
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_CONTEXT);
+            else if (lastPaused != paused)
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_PAUSE);
+            else if (lastTank != g_PlayerIsInTank)
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TANK);
+            else if (lastTeleport != g_gevrTeleportEpoch)
+                gevrVrLocomotionResetReason(GEVR_LOCO_RESET_TELEPORT);
             lastPlayer = pl; lastStage = stage; lastPaused = paused;
             lastTank = g_PlayerIsInTank; lastTeleport = g_gevrTeleportEpoch;
-            if (gevrSpectating() || gevrCoopLocalDowned()) gevrVrLocomotionReset();
+            if (gevrSpectating() || gevrCoopLocalDowned()) gevrVrLocomotionResetReason(GEVR_LOCO_RESET_CONTEXT);
             else gevrVrLocomotionSnapshot(pl->field_488.pos.f, tracking, s_gevrBaseYaw,
                                          (u32)currentFrameCounter);
         }
     }
-    else gevrVrLocomotionReset();
+    else gevrVrLocomotionResetReason(GEVR_LOCO_RESET_SCREEN);
 
     s_gevrStereoWas = want;
     g_gevrStereo = want;
@@ -7384,6 +7391,24 @@ s32 bondviewTryEdgeMovePlayerCollision(struct coord3d *prior_next_pos, struct co
             return 1;
         }
 
+#ifdef GEVR
+        /* Retry only a rejected local VR slide, on the current side of this
+         * edge. The full retail collision test still decides whether it can
+         * move: corners and other blockers must reject this target too. */
+        if (g_gevrStereo && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) &&
+            gevrCollisionSlideRetry(g_CurrentPlayer->field_488.collision_position.f,
+                prior_next_pos->f, collision_pt0->f, collision_pt1->f, try_next_pos.f)) {
+            const s32 accepted = bondviewTryMoveToStan(&try_next_pos, &stan);
+            gevrFrameTimingMoveResult(GEVR_MOVE_PRECISION, accepted, collision_pt0->f, collision_pt1->f);
+            if (accepted) {
+                g_CurrentPlayer->field_488.current_tile_ptr = stan;
+                g_CurrentPlayer->field_488.collision_position.f[0] = try_next_pos.f[0];
+                g_CurrentPlayer->field_488.collision_position.f[2] = try_next_pos.f[2];
+                return 1;
+            }
+        }
+#endif
+
         return 0;
     }
 
@@ -7514,6 +7539,21 @@ struct dummy_struct {
     s32 unk04;
 };
 
+#ifdef GEVR
+/* Keep every retail collision call and its short-circuit order intact. The
+ * diagnostic records which fallback actually ran for the local stereo player. */
+static s32 gevrBondMoveResult(GevrMoveAttempt kind, s32 result,
+    const struct coord3d *edge0, const struct coord3d *edge1)
+{
+    if (g_gevrStereo && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+        gevrFrameTimingMoveResult(kind, result, edge0->f, edge1->f);
+    return result;
+}
+#define GEVR_MOVE_RESULT(kind, result, edge0, edge1) gevrBondMoveResult(kind, result, edge0, edge1)
+#else
+#define GEVR_MOVE_RESULT(kind, result, edge0, edge1) (result)
+#endif
+
 /**
  * Sets Bond bondprevpos, attempts to move by `offset`.
  *
@@ -7523,6 +7563,9 @@ struct dummy_struct {
  * US address 7F07D960.
  * JP address 7F07DA34 (maybe).
  */
+#ifdef GEVR
+static void gevrCoopReleaseTank(void);   /* co-op tank guards, defined before MoveBond */
+#endif
 void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
 {
     struct coord3d next_pos; // spb4
@@ -7545,6 +7588,11 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
     s32 temp_a3; // no stack
     s32 phi_a0_3; // sp3c
     s32 temp_v0_7; // no stack
+
+#ifdef GEVR
+    if (g_gevrStereo && (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
+        gevrFrameTimingMoveBegin(allow_scoot);
+#endif
 
 
     g_CurrentPlayer->bondprevpos.f[0] = g_CurrentPlayer->field_488.collision_position.f[0];
@@ -7619,41 +7667,45 @@ void bondviewCalcUpdatePlayerCollision(struct coord3d *offset, s32 allow_scoot)
         {
             if (g_PlayerTankProp != NULL)
             {
+#ifdef GEVR
+                gevrCoopReleaseTank();
+#else
                 g_WorldTankProp = NULL;
                 g_PlayerTankProp = NULL;
                 g_PlayerTankYOffset = 0.0f;
+#endif
             }
         }
     }
 
     // This `if` block looks like Perfect Dark bbike0f0d3c60
-    if (bondviewTrySimpleMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1) == 0)
+    if (GEVR_MOVE_RESULT(GEVR_MOVE_SIMPLE, bondviewTrySimpleMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1) == 0)
     {
         // return values are:
         //   1 if able to update stan and collision position
         //   zero if still unable to move by failing on the same collision edge
         //   -1 otherwise (still unable to move).
-        temp_v0_7 = bondviewTryFractionMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1, &collision2_pt0, &collision2_pt1);
+        temp_v0_7 = GEVR_MOVE_RESULT(GEVR_MOVE_FRACTION, bondviewTryFractionMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1, &collision2_pt0, &collision2_pt1), &collision1_pt0, &collision1_pt1);
 
         if ((temp_v0_7 > 0) || (temp_v0_7 < 0))
         {
             if ((allow_scoot != 0)
-                && (bondviewTryEdgeMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1) <= 0)
-                && (bondviewTryEndHopPlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1) == 0))
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_EDGE, bondviewTryEdgeMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1) <= 0)
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_END, bondviewTryEndHopPlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1) == 0))
             {
                 // empty
             }
         }
         else if (temp_v0_7 == 0)
         {
-            bondviewTryFractionMovePlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1, &collision3_pt0, &collision3_pt1);
+            GEVR_MOVE_RESULT(GEVR_MOVE_FRACTION, bondviewTryFractionMovePlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1, &collision3_pt0, &collision3_pt1), &collision2_pt0, &collision2_pt1);
 
             if ((allow_scoot != 0)
-                && (bondviewTryEdgeMovePlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1) <= 0)
-                && (bondviewTryEdgeMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1) <= 0)
-                && (bondviewTryEndHopPlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1) == 0))
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_EDGE, bondviewTryEdgeMovePlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1), &collision2_pt0, &collision2_pt1) <= 0)
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_EDGE, bondviewTryEdgeMovePlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1) <= 0)
+                && (GEVR_MOVE_RESULT(GEVR_MOVE_END, bondviewTryEndHopPlayerCollision(&next_pos, &collision2_pt0, &collision2_pt1), &collision2_pt0, &collision2_pt1) == 0))
             {
-                bondviewTryEndHopPlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1);
+                GEVR_MOVE_RESULT(GEVR_MOVE_END, bondviewTryEndHopPlayerCollision(&next_pos, &collision1_pt0, &collision1_pt1), &collision1_pt0, &collision1_pt1);
             }
         }
     }
@@ -11485,6 +11537,70 @@ void bondviewPlayerTickExplode(void)
  * Thanks Trevor.
  * - Bethany Burns
  */
+#ifdef GEVR
+/*
+ * Tank ride state is one set of globals. Co-op ticks every player through
+ * MoveBond, and a teammate who is not on the deck used to clear those globals
+ * (and drop the rider through the hull) on Runway and Streets. A remote tick
+ * borrows a cleared copy and puts the rider's state back.
+ */
+typedef struct GevrTankGuard {
+    s32 active;
+    s32 inTank;
+    struct PropRecord *world;
+    struct PropRecord *player;
+    f32 yoff;
+    s32 canEnter;
+} GevrTankGuard;
+
+static void gevrCoopPushTank(GevrTankGuard *guard)
+{
+    guard->active = netIsActive() && get_cur_playernum() != netGetLocalSlot();
+    guard->inTank = g_PlayerIsInTank;
+    guard->world = g_WorldTankProp;
+    guard->player = g_PlayerTankProp;
+    guard->yoff = g_PlayerTankYOffset;
+    guard->canEnter = g_BondCanEnterTank;
+    if (!guard->active)
+    {
+        return;
+    }
+    g_PlayerIsInTank = 0;
+    g_WorldTankProp = NULL;
+    g_PlayerTankProp = NULL;
+    g_PlayerTankYOffset = 0.0f;
+    g_BondCanEnterTank = 0;
+}
+
+static void gevrCoopPopTank(const GevrTankGuard *guard)
+{
+    if (!guard->active)
+    {
+        return;
+    }
+    g_PlayerIsInTank = guard->inTank;
+    g_WorldTankProp = guard->world;
+    g_PlayerTankProp = guard->player;
+    g_PlayerTankYOffset = guard->yoff;
+    g_BondCanEnterTank = guard->canEnter;
+}
+
+/* Leaving the deck: the hull is solid again even if the pointer is dropped. */
+static void gevrCoopReleaseTank(void)
+{
+    struct PropRecord *tank = g_WorldTankProp;
+
+    g_WorldTankProp = NULL;
+    g_PlayerTankProp = NULL;
+    g_PlayerTankYOffset = 0.0f;
+    g_BondCanEnterTank = 0;
+    if (tank != NULL)
+    {
+        sub_GAME_7F03D058(tank, 1);
+    }
+}
+#endif
+
 void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 {
     struct coord3d move_offset;
@@ -11506,6 +11622,10 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     if (stick_x >= 100 || stick_x <= -100) return_null(); // __LINE__ __FILE__ (#6414 bondview.c) "joystick x has value %d!\n"
     if (stick_y >= 100 || stick_y <= -100) return_null(); // __LINE__ __FILE__ (#6415 bondview.c) "joystick y has value %d!\n"
     #endif
+#ifdef GEVR
+    GevrTankGuard gevrTank;
+    gevrCoopPushTank(&gevrTank);
+#endif
 
     if (g_bondviewForceDisarm > 0)
     {
@@ -12458,6 +12578,7 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
 #ifdef GEVR
         gevrStereoHeadWalk(&move_offset);
+        const f32 gevrPhysicalRequest[3] = {move_offset.x, move_offset.y, move_offset.z};
 #endif
         bondviewCalcUpdatePlayerCollision(&move_offset, (g_CurrentPlayer->swaytarget == 0.0f));
 
@@ -12606,12 +12727,15 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         ftemp_col_x = g_CurrentPlayer->field_488.collision_position.f[0] - start_collision_pos_x;
         ftemp_col_z = g_CurrentPlayer->field_488.collision_position.f[2] - start_collision_pos_z;
 #ifdef GEVR
-        /* Do not smooth the collision compensation for physical head motion:
-         * otherwise a blocked room-scale step could briefly lean through a wall. */
-        if ((s_gevrPhysicalStep[0] != 0 || s_gevrPhysicalStep[2] != 0) &&
-            (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) &&
-            (fabsf(ftemp_col_x - move_offset.x) > 0.1f || fabsf(ftemp_col_z - move_offset.z) > 0.1f))
-            gevrVrLocomotionReset();
+        /* Keep physical collision compensation immediate, without discarding
+         * joystick interpolation every time the head meets a blocked surface. */
+        {
+            const f32 actual[3] = {ftemp_col_x, 0, ftemp_col_z};
+            if (!netIsActive() || get_cur_playernum() == netGetLocalSlot()) {
+                gevrFrameTimingCollision(s_gevrPhysicalStep, gevrPhysicalRequest, actual, 0);
+                gevrVrLocomotionCollision(s_gevrPhysicalStep, gevrPhysicalRequest, actual);
+            }
+        }
 #endif
         sp240 = (move_offset.f[0] * move_offset.f[0]) + (move_offset.f[2] * move_offset.f[2]);
         if (sp240 != 0.0f)
@@ -12837,6 +12961,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
             g_CurrentPlayer->field_488.collision_position.f[2],
             &sp5C_out_unused);
     }
+#ifdef GEVR
+    gevrCoopPopTank(&gevrTank);
+#endif
 }
 
 
@@ -12846,6 +12973,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 */
 void bondviewFrozenMoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 {
+#ifdef GEVR
+    GevrTankGuard gevrTank;
+#endif
     struct coord3d property_pos;
     struct coord3d property_pos2;
     struct coord3d property_offset;
@@ -12857,6 +12987,9 @@ void bondviewFrozenMoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     property_pos2 = g_DefaultFrozenPlayerPos2;
     property_offset = g_DefaultFrozenPlayerOffset;
     offset = g_DefaultFrozenMoveOffset;
+#ifdef GEVR
+    gevrCoopPushTank(&gevrTank);
+#endif
 
     bondviewPlayerTickDamageAndHealth();
     bondviewPlayerTickExplode();
@@ -12880,12 +13013,18 @@ void bondviewFrozenMoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     if ((g_CameraMode == CAMERAMODE_FP_NOINPUT) || (g_CameraMode == CAMERAMODE_FP) || (g_CameraMode == CAMERAMODE_FADE_TO_TITLE))
     {
         currentPlayerSetCameraMode(0);
+#ifdef GEVR
+        gevrCoopPopTank(&gevrTank);
+#endif
         return;
     }
 
     bondviewFrozenCameraTick(buttons, oldbuttons, &property_pos, &property_pos2, &property_offset, &room_pointer_tile, &stan_walk_start);
     currentPlayerSetCameraMode(1);
     bondviewSetCurrentPlayerPosition(&property_pos, &property_pos2, &property_offset, room_pointer_tile, &stan_walk_start);
+#ifdef GEVR
+    gevrCoopPopTank(&gevrTank);
+#endif
 }
 
 
@@ -14623,7 +14762,7 @@ extern int VrShowStats;
 extern const char *gevrVrStatsText(void);
 static Gfx *gevrDrawStats(Gfx *gdl)
 {
-    char buf[640];
+    char buf[1024];
     s32 x, y, w = 0, h = 0;
 
     if (!VrShowStats || (getPlayerCount() != 1 && (!netIsActive() || get_cur_playernum() != netGetLocalSlot())))

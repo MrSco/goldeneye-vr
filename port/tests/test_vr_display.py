@@ -52,12 +52,18 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
     # Link the actual settings reader/writer and platform defaults, not copied parsing logic.
     for android in (False, True):
         exe = temp / ("settings-quest.exe" if android else "settings-desktop.exe")
+        # Defaults are production C, including C99 designated initializers.
+        defaults = temp / ("defaults-quest.o" if android else "defaults-desktop.o")
+        subprocess.run([shutil.which("gcc") or "cc", "-std=c11", "-O2", "-D_LANGUAGE_C",
+                        *(["-DANDROID"] if android else []), "-I" + str(root / "include"),
+                        "-I" + str(root / "port/vr"), "-I" + str(root / "port/include"),
+                        "-c", str(root / "port/vr/vr_settings_defaults.c"), "-o", str(defaults)], check=True)
         subprocess.run([compiler, "-std=c++17", "-O2", "-D_LANGUAGE_C", *(["-DANDROID"] if android else []),
                         "-include", str(root / "port/tests/vr_display_settings_stubs.h"),
                         "-I" + str(root / "include"), "-I" + str(root / "port/vr"),
                         "-I" + str(root / "port/include"),
                         str(root / "port/tests/vr_display_settings_native.cpp"),
-                        str(root / "port/vr/vr_settings.cpp"), str(root / "port/vr/vr_settings_defaults.c"),
+                        str(root / "port/vr/vr_settings.cpp"), str(defaults),
                         "-o", str(exe)], check=True)
         ini = temp / "goldeneye-vr.ini"
         ini.unlink(missing_ok=True)

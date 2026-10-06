@@ -1,5 +1,6 @@
-# Changes after v0.4.9
+# Changes after v0.4.10
 
-No additional changes are recorded yet. See [v0.4.9](v0.4.9.md) for smooth VR
-locomotion and performance diagnostics, [v0.4.8](v0.4.8.md) for launcher settings
-persistence and co-op spawn unclogging, and [v0.4.7](v0.4.7.md) for GE-X support.
+No additional changes are recorded yet. See [v0.4.10](v0.4.10.md) for smoother
+movement at walls and curbs, fewer render stalls and shared co-op mission gadgets,
+[v0.4.9](v0.4.9.md) for smooth VR locomotion and fitted muzzles, and
+[v0.4.8](v0.4.8.md) for settings persistence and co-op spawn unclogging.

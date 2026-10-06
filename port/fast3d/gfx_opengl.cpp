@@ -22,6 +22,16 @@
 #include "../vr/vr_log.h"
 #include "../src/net/net_game.h"
 #include "gevr_line_geometry.h"
+#include "gevr_frame_timing.h"
+#include "gevr_hud_bounds.h"
+#include "gevr_vertex_ownership.h"
+/* Inclusive CPU timings, only with Show stats. RAII balances early returns;
+ * draw_issue is nested in draw_batch, shader_bind may nest in shader_compile. */
+class GevrCpuSection {
+    GevrProfileSection span;
+public:
+    explicit GevrCpuSection(GevrFrameTimingSection value) : span(value) {}
+};
 /* Line mode, online (host fun flag) or offline (cheat/debug toggle): the
    N64 coverage visualization has no GL equivalent, so world edges are drawn here. */
 extern "C" int get_debug_VisCVG_flag(void);
@@ -489,6 +499,13 @@ static bool gevr_decal_writes_depth(void)
 {
     return s_isDecal && gevrRoomDl && !s_alphaArgs[0];
 }
+/* gevrRoomDl only changes how decal batches draw (every use above and in the
+ * draw path is under s_isDecal, which only changes after a flush), so a room
+ * boundary needs to end the batch only when it is a decal batch. */
+bool gfx_opengl_batch_is_decal(void)
+{
+    return s_isDecal;
+}
 
 /* Room decals sit a little off their walls: -2,-2 alone cut Frigate's
  * recessed fixtures. They draw pulled toward the eye by a reach
@@ -537,6 +554,7 @@ static float gevr_room_decal_reach(void)
 
 static void gevr_room_decal_log(float span, float pull)
 {
+    if (s_decalMode == 0 && gevrZDebugMode == 0) return;
     s_rdDraws++;
     if (pull > 0.0f) s_rdPulled++;
     else if (span > 64.0f) s_rdLarge++;
@@ -565,15 +583,36 @@ static GLsizeiptr s_pmSegSize, s_pmOff;
 static int s_pmSeg = -1;
 static uint32_t s_pmFrame = 0xffffffffu;
 static GLsync s_pmFence[GEVR_PM_SEGMENTS];
+static unsigned s_pmFallbacks;
+static unsigned gevr_pm_poll(void *context, uint64_t timeout) {
+    return glClientWaitSync(*(GLsync *)context, GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
+}
+static void gevr_pm_finish(void *) { glFinish(); }
+/* Fallbacks drain the GPU; log the 1st, 2nd, 4th, 8th... so a broken driver
+ * cannot turn the warning itself into a per-frame cost. */
+static void gevr_pm_fallback(const char *what, unsigned result) {
+    s_pmFallbacks++;
+    if (!(s_pmFallbacks & (s_pmFallbacks - 1)))
+        sysLogPrintf(LOG_WARNING, "vertex-ring: %s (0x%x); completed outstanding GPU work (%u so far)",
+                     what, result, s_pmFallbacks);
+}
 static void gevr_pm_next_segment(void)
 {
     if (s_pmSeg >= 0) {
         if (s_pmFence[s_pmSeg]) glDeleteSync(s_pmFence[s_pmSeg]);
         s_pmFence[s_pmSeg] = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+        if (!s_pmFence[s_pmSeg]) {
+            glFinish();   /* nothing to wait on later: the segment must be free now */
+            gevr_pm_fallback("fence creation failed", 0);
+        }
     }
     s_pmSeg = (s_pmSeg + 1) % GEVR_PM_SEGMENTS;
     if (s_pmFence[s_pmSeg]) {
-        glClientWaitSync(s_pmFence[s_pmSeg], GL_SYNC_FLUSH_COMMANDS_BIT, 100000000ull);
+        const uint64_t timingStart = gevrFrameTimingNow();
+        const unsigned result = gevrVertexAwaitOwnership(&s_pmFence[s_pmSeg], gevr_pm_poll, gevr_pm_finish);
+        gevrFrameTimingAdd(GEVR_TIME_VERTEX_WAIT, timingStart);
+        if (result != GEVR_FENCE_ALREADY && result != GEVR_FENCE_SATISFIED)
+            gevr_pm_fallback("fence wait did not signal", result);
         glDeleteSync(s_pmFence[s_pmSeg]);
         s_pmFence[s_pmSeg] = 0;
     }
@@ -968,6 +1007,7 @@ void gfx_opengl_vr_hud_full_size(bool full)
 }
 
 static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
+    GevrCpuSection timing(GEVR_TIME_SHADER_BIND);
     // if (!new_prg) return;
     s_curPrg = new_prg;
     glUseProgram(new_prg->opengl_program_id);
@@ -1168,6 +1208,7 @@ gl_Position = mvPos;
 
 
 static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shader_id0, uint32_t shader_id1) {
+    GevrCpuSection timing(GEVR_TIME_SHADER_COMPILE);
     struct CCFeatures cc_features = { 0 };
     gfx_cc_get_features(shader_id0, shader_id1, &cc_features);
 
@@ -1727,6 +1768,8 @@ static void gfx_opengl_select_texture(int tile, GLuint texture_id, bool linear_f
 }
 
 static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
+    GevrCpuSection timing(GEVR_TIME_TEXTURE_UPLOAD);
+    gevrFrameTimingCounters(0,0,0,(uint64_t)width*height*4,0,0);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
     // a name that held a pack image keeps its old mip levels: sample level 0 only
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
@@ -1738,6 +1781,8 @@ static void gfx_opengl_upload_texture(const uint8_t* rgba32_buf, uint32_t width,
 }
 
 static void gfx_opengl_upload_texture_hd(const uint8_t* rgba32_buf, uint32_t width, uint32_t height) {
+    GevrCpuSection timing(GEVR_TIME_TEXTURE_UPLOAD);
+    gevrFrameTimingCounters(0,0,0,(uint64_t)width*height*4,0,0);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba32_buf);
     // before generating: the cache reuses names, and a native upload left this
     // one at MAX_LEVEL 0 - glGenerateMipmap stops there, and raising it after
@@ -2091,6 +2136,7 @@ void gfx_vr_scope_prepare(void)
 // hand's scope. The GL state is saved and put back once around both passes.
 void gfx_vr_scope_render(void)
 {
+    GevrProfileSection profile(GEVR_TIME_SCOPE);
     s_scopeRec = false;
     s_scopeOnlyMask = 0;
     if (!gevr_scope_any_taken()) {
@@ -2318,6 +2364,8 @@ static void gevr_eye_present_draw(void) {
 }
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
+    GevrCpuSection timing(GEVR_TIME_DRAW_BATCH);
+    gevrFrameTimingCounters(1, 3*buf_vbo_num_tris, 0, 0, 0, 0);
 
     const bool lineMode = get_debug_VisCVG_flag() && !gForceFlatShaderForMenu && !gVrFlatPass &&
         !vr_dl_is_pause_or_menu && buf_vbo[3] != 1.0f;
@@ -2342,7 +2390,7 @@ static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_
         glBufferData(GL_ARRAY_BUFFER, sizeof(float) * buf_vbo_len, buf_vbo, GL_STREAM_DRAW);
     }
     s_drawDecalPull = 0.0f;
-    if (gevrRoomDl && s_isDecal && s_curPrg != NULL) {
+    if ((s_decalMode != 0 || gevrZDebugMode != 0) && gevrRoomDl && s_isDecal && s_curPrg != NULL) {
         const float span = gevr_vbo_span(buf_vbo, buf_vbo_num_tris, s_curPrg->num_floats);
         gevr_room_decal_log(span, gevr_room_decal_reach());
     }
@@ -2464,6 +2512,7 @@ static void gevr_draw_world_lines(GLint first, GLsizei count) {
 
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode)
 {
+    GevrCpuSection timing(GEVR_TIME_DRAW_ISSUE);
     if (lineMode) { gevr_draw_world_lines(first,count); return; }
     if (decalZ && decalDepth) {
         /*
@@ -2790,6 +2839,9 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     const GevrEyeDraw* last = NULL;
     int lastMenu = -1;
     int lastMove = -2;
+    GLuint replayTex[2] = {};
+    bool haveTexture[2] = {};
+    int replayFilter[2] = { -1, -1 };
     for (const GevrEyeDraw& d : s_eyeDraws) {
         if (last == NULL || d.prg != bound) {
             if (last != NULL || d.prg != bound) {
@@ -2804,6 +2856,8 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
             if (d.prg->reprojLocation >= 0) glUniform1i(d.prg->reprojLocation, 1);
             if (d.prg->scopeHeadPLocation >= 0) glUniform2f(d.prg->scopeHeadPLocation, s_eyeHeadP[0], s_eyeHeadP[1]);
             lastMove = -2;
+            // Filtering uniforms belong to the program; texture bindings do not.
+            replayFilter[0] = replayFilter[1] = -1;
         }
         if (d.hand != lastMove) {
             if (d.prg->reprojVPLocation >= 0) glUniformMatrix4fv(d.prg->reprojVPLocation, 1, GL_FALSE, Ms[d.hand + 1]);
@@ -2815,10 +2869,15 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         }
         for (int t = 0; t < 2; t++) {
             if (d.prg->used_textures[t]) {
-                glActiveTexture(GL_TEXTURE0 + t);
-                glBindTexture(GL_TEXTURE_2D, d.tex[t]);
-                if (d.prg->three_point_filter_locations[t] >= 0) {
+                if (!haveTexture[t] || replayTex[t] != d.tex[t]) {
+                    glActiveTexture(GL_TEXTURE0 + t);
+                    glBindTexture(GL_TEXTURE_2D, d.tex[t]);
+                    replayTex[t] = d.tex[t];
+                    haveTexture[t] = true;
+                }
+                if (d.prg->three_point_filter_locations[t] >= 0 && replayFilter[t] != (int)d.linear[t]) {
                     glUniform1i(d.prg->three_point_filter_locations[t], d.linear[t]);
+                    replayFilter[t] = (int)d.linear[t];
                 }
             }
         }
@@ -3395,6 +3454,7 @@ bool gfx_vr_menu_L_dirty_and_clear(void) {
 
 void gfx_vr_hud_capture_begin_L(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_fb_init();
 
@@ -3439,6 +3499,7 @@ void gfx_vr_hud_capture_begin_L(void)
 
 void gfx_vr_hud_capture_end_L(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
 
     gfx_flush();
 
@@ -3506,6 +3567,7 @@ static void gfx_opengl_vr_menu_R_fb_init(void)
 
 void gfx_vr_hud_capture_begin_R(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_R_fb_init();
     gevr_capture_state_save(1);
@@ -3528,93 +3590,24 @@ void gfx_vr_hud_capture_begin_R(void)
     gVrMenuRCaptureViewport[3] = h;
 }
 
-// GoldenEye: where in the right-hand capture something was drawn, as a
-// 0..1 box with a bottom-left (GL) origin. The ammo counter lands wherever
-// fast3d's VR viewport mapping and the HUD shader put it, so it is measured:
-// every 30th capture is downsampled to 128x128 (64 KB read back) and the box
-// of non-transparent texels found. vr_openxr.cpp crops the panel to it.
-static float s_gevrRBox[4];
-static bool s_gevrRBoxValid;
-static GLuint s_gevrRBoxFbo, s_gevrRBoxTex;
-
+// Alpha bounds are measured through a fenced pixel-pack ring. Poll every
+// capture, including frames that do not request a new measurement.
 extern "C" bool gfx_vr_menu_R_bbox(float out[4])
 {
-    if (s_gevrRBoxValid) {
-        out[0] = s_gevrRBox[0]; out[1] = s_gevrRBox[1];
-        out[2] = s_gevrRBox[2]; out[3] = s_gevrRBox[3];
-    }
-    return s_gevrRBoxValid;
+    return gfx_vr_hud_bounds_box(out);
 }
 
-extern "C" s32 gevrAimModeOn(void);   /* bondview2.c */
+extern "C" s32 gevrAimModeOn(void);
 static void gevr_measure_R_capture(void)
 {
-    static unsigned n;
-    /* Aiming moves the counter (the ammo box shifts right in the capture): on
-     * a change, measure at once and for a few frames after, or the crop cut the
-     * digits for up to half a second - "the panel glitches and moves". */
-    static int lastAim = -1, burst;
-    const int aim = gevrAimModeOn() ? 1 : 0;
-    if (aim != lastAim) { lastAim = aim; burst = 4; }
-    if (burst > 0) burst--;
-    else if ((n++ % 30) != 0) return;
-
-    const int S = 128;
-    if (s_gevrRBoxFbo == 0) {
-        glGenTextures(1, &s_gevrRBoxTex);
-        glBindTexture(GL_TEXTURE_2D, s_gevrRBoxTex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, S, S, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glGenFramebuffers(1, &s_gevrRBoxFbo);
-        glBindFramebuffer(GL_FRAMEBUFFER, s_gevrRBoxFbo);
-        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, s_gevrRBoxTex, 0);
-    }
-
-    int w = vr_get_internal_render_width();
-    int h = vr_get_internal_render_height();
-    GLint prevRead = 0, prevDraw = 0;
-    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
-    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
-    GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
-    glDisable(GL_SCISSOR_TEST);
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffers[gVrMenuRFb].fbo);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_gevrRBoxFbo);
-    glBlitFramebuffer(0, 0, w, h, 0, 0, S, S, GL_COLOR_BUFFER_BIT, GL_LINEAR);
-
-    static unsigned char px[128 * 128 * 4];
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, s_gevrRBoxFbo);
-    glReadPixels(0, 0, S, S, GL_RGBA, GL_UNSIGNED_BYTE, px);
-
-    int x0 = S, y0 = S, x1 = -1, y1 = -1;
-    for (int y = 0; y < S; y++) {
-        for (int x = 0; x < S; x++) {
-            if (px[(y * S + x) * 4 + 3] > 8) {
-                if (x < x0) x0 = x;
-                if (x > x1) x1 = x;
-                if (y < y0) y0 = y;
-                if (y > y1) y1 = y;
-            }
-        }
-    }
-    if (x1 >= x0 && y1 >= y0) {
-        s_gevrRBox[0] = (float)x0 / S;
-        s_gevrRBox[1] = (float)y0 / S;
-        s_gevrRBox[2] = (float)(x1 + 1) / S;
-        s_gevrRBox[3] = (float)(y1 + 1) / S;
-        s_gevrRBoxValid = true;
-        static unsigned logged;
-        if ((logged++ % 20) == 0) {
-            vr_log("ammo panel: drawn box %.3f,%.3f - %.3f,%.3f (GL origin)", s_gevrRBox[0], s_gevrRBox[1], s_gevrRBox[2], s_gevrRBox[3]);
-        }
-    }
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevRead);
-    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDraw);
-    if (scissor) glEnable(GL_SCISSOR_TEST);
+    GevrCpuSection timing(GEVR_TIME_HUD_READBACK);
+    gfx_vr_hud_bounds_update(framebuffers[gVrMenuRFb].fbo,
+        vr_get_internal_render_width(), vr_get_internal_render_height(), gevrAimModeOn());
 }
 
 void gfx_vr_hud_capture_end_R(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     hud_R_was_drawn = true;
     gfx_flush();
     gevr_measure_R_capture();
@@ -3667,6 +3660,7 @@ static void gfx_opengl_vr_menu_H_fb_init(void) {
 
 void gfx_vr_hud_capture_begin_H(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_H_fb_init();
 
@@ -3708,6 +3702,7 @@ void gfx_vr_hud_capture_begin_H(void)
 
 void gfx_vr_hud_capture_end_H(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
 
     if (gVrMenuHCaptureDepth <= 0) {
@@ -3774,6 +3769,7 @@ static GLint gVrMenuPPrevViewport[4] = {0,0,0,0};
 
 void gfx_vr_hud_capture_begin_P(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     {
         int w = vr_get_internal_render_width();
@@ -3817,6 +3813,7 @@ void gfx_vr_hud_capture_begin_P(void)
 
 void gfx_vr_hud_capture_end_P(void)
 {
+    GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
 
     if (gVrMenuPCaptureDepth <= 0) {
