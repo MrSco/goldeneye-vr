@@ -71,7 +71,7 @@ Also:
 
   In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
 - **Multiplayer** (experimental): deathmatch for up to eight players, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
-- **GoldenEye X** (optional, WIP): its KF7 model and animations, removable magazines in VR,
+- **GoldenEye X** (optional, WIP): ten weapon variants with models and animations, removable magazines in VR,
   and its arms wearing GoldenEye's watch, loaded from your own patched Perfect Dark ROM.
   See [GE-X setup](#-goldeneye-x-optional-wip).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
@@ -170,7 +170,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 
 ## 🧩 GoldenEye X (optional, WIP)
 
-GoldenEye X is a ROM hack of Perfect Dark. This port can read its **KF7** and
+GoldenEye X is a ROM hack of Perfect Dark. This port can read its **KF7, both PP7s, DD44, Klobb, ZMG, D5K, silenced D5K, Phantom and AR33** and
 **arms** as optional replacements while you play GoldenEye. Support currently covers
 those assets; GE-X's campaign, maps and other weapons are not imported.
 
@@ -187,14 +187,15 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
 3. Open the launcher's **Play → Mods...** page. Under **GOLDENEYE X**, press
    **Choose ROM...** and select the patched file. Look for **GoldenEye X ROM chosen.**
    The app stores it as `Android/data/com.gevr.port/files/data/gex.z64`.
-4. Enable **Its guns (KF7, WIP)** and/or **Its arms, wearing the watch (VR, WIP)**.
-   Both default to off. Start a mission and equip a KF7 to see the gun replacement.
+4. Enable **Its guns (WIP)** and/or **Its arms, wearing the watch (VR, WIP)**.
+   Gun replacements default to off. Equip a supported gun to see the replacement.
 
-The virtual screen uses GE-X's KF7 fire and reload animations. For physical magazine
+The virtual screen uses GE-X's fire and reload animations. For physical magazine
 reloads in stereo VR, also enable **Hand reload (WIP)** in **Controls → Gestures...**:
 pull the magazine with your off hand, grip a replacement at your belt, and seat it
 in the gun. B/Y drops the magazine; a removed magazine keeps its rounds until
-reinserted or dropped. See [reload and fit controls](docs/gex-setup.md#reload-and-fit-controls).
+reinserted or dropped. PP7 cupping favors support; release and grip distinctly
+below the pistol to remove its magazine. See [reload and fit controls](docs/gex-setup.md#reload-and-fit-controls).
 
 No Perfect Dark ROM, patched ROM or GE-X assets ship with the app. The app imports
 the file you prepare; it does not apply the patch for you. Use the Mods picker for
@@ -239,7 +240,7 @@ Real-world movement works too: lean around corners, duck, and step. Ducking behi
 that are off by default:
 - **Hand reload (WIP)**: guns stop reloading themselves, and B/Y stop reloading. Pull an SMG's or
   rifle's magazine down with your off hand, or sweep a pistol, shotgun or dual-wielded gun
-  across your chest. The **GE-X KF7** uses a removable magazine: pull it out, take a
+  across your chest. The **supported GE-X guns** use removable magazines: pull one out, take a
   replacement at your belt and push it in; B/Y drops its magazine. Bring an empty GE-X
   gun to the belt to reload it directly, including when dual-wielding.
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.

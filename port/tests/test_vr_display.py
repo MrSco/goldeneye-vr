@@ -13,15 +13,15 @@ root = Path(__file__).resolve().parents[2]
 engine = (root / "port/vr/vr_openxr.cpp").read_text(encoding="utf-8")
 
 
-def function(signature):
-    match = re.search(re.escape(signature) + r"\s*\{", engine)
+def function(signature, source=engine):
+    match = re.search(re.escape(signature) + r"\s*\{", source)
     assert match, signature
     end = match.end()
     depth = 1
     while depth:
-        depth += (engine[end] == "{") - (engine[end] == "}")
+        depth += (source[end] == "{") - (source[end] == "}")
         end += 1
-    return engine[match.start():end]
+    return source[match.start():end]
 
 
 parts = {
@@ -50,6 +50,16 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
     subprocess.run([str(exe)], cwd=temp, check=True)
 
     # Link the actual settings reader/writer and platform defaults, not copied parsing logic.
+    input_source = (root / "port/src/input.c").read_text()
+    snapshot = re.search(r"static struct \{\s*float gun\[3\].*?\} s_gunFitSaved;", input_source, re.S).group()
+    snapshot += "\n" + function("static void gevrGunFitSaved(bool restore)", input_source)
+    settings_fixture = temp / "settings_native.cpp"
+    settings_fixture.write_text((root / "port/tests/vr_display_settings_native.cpp").read_text().replace(
+        "/* FIT_SNAPSHOT */", snapshot))
+    registry = temp / "registry.o"
+    subprocess.run([shutil.which("gcc") or "cc", "-std=c11", "-O2", "-D_LANGUAGE_C",
+                    "-I" + str(root), "-I" + str(root / "include"), "-I" + str(root / "src"), "-I" + str(root / "port/include"),
+                    "-c", str(root / "port/src/gevr_gexweapon.c"), "-o", str(registry)], check=True)
     for android in (False, True):
         exe = temp / ("settings-quest.exe" if android else "settings-desktop.exe")
         # Defaults are production C, including C99 designated initializers.
@@ -62,8 +72,8 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
                         "-include", str(root / "port/tests/vr_display_settings_stubs.h"),
                         "-I" + str(root / "include"), "-I" + str(root / "port/vr"),
                         "-I" + str(root / "port/include"),
-                        str(root / "port/tests/vr_display_settings_native.cpp"),
-                        str(root / "port/vr/vr_settings.cpp"), str(defaults),
+                        str(settings_fixture),
+                        str(root / "port/vr/vr_settings.cpp"), str(defaults), str(registry),
                         "-o", str(exe)], check=True)
         ini = temp / "goldeneye-vr.ini"
         ini.unlink(missing_ok=True)
@@ -96,6 +106,10 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         ini.unlink(missing_ok=True)
         subprocess.run([str(exe), "fit_write"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         subprocess.run([str(exe), "fit_read"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
+        assert "GexFit14_" not in ini.read_text()  # Future P90 defaults must remain absent.
+        for row in ("GexFit-1_0=1 2 3", "GexFit64_0=1 2 3", "GexFit6_7=1 2 3", "GexFit6_3=1 nan 3", "GexFit6_3=1 2", "GexFit6_3junk=1 2 3"):
+            ini.write_text(row + "\n", encoding="utf-8")
+            subprocess.run([str(exe), "fit_invalid"], cwd=temp, check=True)
         print("PASS: " + ("Quest" if android else "desktop") + " defaults, saved rates, Auto round trips, missing/legacy keys, load-once")
         print("PASS: gun fit, GoldenEye X's own and the scopes' trims round trip")
         print("PASS: watch defaults On, all status/gesture round trips, invalid settings and load-once")

@@ -3,6 +3,7 @@
 #include "net_coop.h"
 #include "gevr_scope.h"   /* the per-hand VR scope (issue #40) */
 #include "gevr_model.h"
+#include "gevr_gexweapon.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -930,13 +931,9 @@ void gunUpdateAndFire(GUNHAND handnum)
 #ifdef GEVR
         else if (gevrGexHeld(handnum))
         {
-            /* Keep the calibration origin stable: saved GexMuzzleKF7 trims
-             * are relative to this point, including the user's fitted tip. */
-            static coord3d s_gexMuzzleKf7 = { 0.0f, 23.27f, 705.74f };
-            if (item == ITEM_AK47)
-            {
-                flashdata = (f32 *) &s_gexMuzzleKf7;
-            }
+            const GexWeaponDef *def = gevrGexWeaponForHand(handnum);
+            extern s32 g_gevrStereo;
+            flashdata = (f32 *) (g_gevrStereo ? def->muzzle : def->screenMuzzle);
         }
 #endif
 
@@ -5822,11 +5819,12 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         /* a GoldenEye X gun animates itself (gun.c): its fire animation's
          * clock, and its reload animation in place of the reload tilt */
         extern s32 gevrGexHeld(s32 hand);
-        extern void gevrGexTick(GUNHAND hand, s32 firing);
+        extern void gevrGexTick(GUNHAND hand, s32 firing, s32 shot);
         const s32 st = handptr->weapon_action_state;
 
         gevrGexTick(hand, st == GUN_ANIM_STATE_TRIGGER_PRESS || st == GUN_ANIM_STATE_FIRE
-                || st == GUN_ANIM_STATE_RECOIL1 || st == GUN_ANIM_STATE_RECOIL2);
+                || st == GUN_ANIM_STATE_RECOIL1 || st == GUN_ANIM_STATE_RECOIL2,
+                handptr->weapon_firing_status != 0);
         if (gevrGexHeld(hand) && gevrReloadPhase(hand) >= 0.0f)
         {
             handptr->field_92C = 0;
