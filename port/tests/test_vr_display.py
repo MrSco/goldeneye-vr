@@ -106,7 +106,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         ini.unlink(missing_ok=True)
         subprocess.run([str(exe), "fit_write"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         subprocess.run([str(exe), "fit_read"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
-        assert "GexFit14_" not in ini.read_text()  # Future P90 defaults must remain absent.
+        assert "GexFit18_" not in ini.read_text()  # Future P90 defaults must remain absent.
         for row in ("GexFit-1_0=1 2 3", "GexFit64_0=1 2 3", "GexFit6_7=1 2 3", "GexFit6_3=1 nan 3", "GexFit6_3=1 2", "GexFit6_3junk=1 2 3"):
             ini.write_text(row + "\n", encoding="utf-8")
             subprocess.run([str(exe), "fit_invalid"], cwd=temp, check=True)

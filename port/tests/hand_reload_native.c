@@ -409,7 +409,9 @@ static void pp7Reload(void)
 }
 static void nextGunReloads(void)
 {
-    const int items[]={ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16};
+    assert(gevrGexPullAmount(1,3,8,5)==1 && gevrGexPullAmount(1,3,-2,5)==-1);
+    assert(gevrGexPullAmount(0,3,-2,5)==1 && gevrGexPullAmount(0,3,8,5)==-1);
+    const int items[]={ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE};
     for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) {
         reset(); gex[GUNRIGHT]=1; player.hands[GUNRIGHT].weapon=items[i];
         player.hands[GUNRIGHT].weapon_ammo_in_magazine=7;
@@ -417,7 +419,7 @@ static void nextGunReloads(void)
         float cm=GEVR_UNITS_PER_METRE*D_800364CC/100.0f, magazine[3];
         assert(gevrGexPistolPoint(0,magazine)); memcpy(poses[0],magazine,sizeof(magazine));
         gripHeld[0]=1; pistolTick(); assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_GRIPPED);
-        poses[0][1]-=(gevrGexReloadDistance(GEVR_RT_PULL)+0.1f)*cm;
+        poses[0][1]+=(gevrGexWeaponGet(items[i])->pullUp ? 1 : -1)*(gevrGexReloadDistance(GEVR_RT_PULL)+0.1f)*cm;
         pistolTick(); assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND);
         assert(s_gevrGexHeldRounds==7 && reserve==50);
         pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint));
@@ -426,6 +428,57 @@ static void nextGunReloads(void)
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
         assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==7 && reserve==50 && readyEvents==1);
     }
+}
+static void singleRoundReloads(void)
+{
+    const int items[]={ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN};
+    for (int i=0;i<4;i++) {
+        reset(); stats.MagSize=i>=2 ? 1 : 5; gex[GUNRIGHT]=1;
+        player.hands[GUNRIGHT].weapon=items[i]; player.hands[GUNRIGHT].weapon_ammo_in_magazine=i>=2 ? 0 : 2;
+        int loaded=player.hands[GUNRIGHT].weapon_ammo_in_magazine;
+        pistolTick(); assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
+        gevrGexDropMagazine(GUNRIGHT); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==loaded && reserve==50);
+        belt(0,0); gripHeld[0]=1; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==1 && reserve==49);
+        pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==loaded+1 && reserve==49 && readyEvents==1);
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
+        pistolTick(); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==loaded+1 && reserve==49);
+        gripHeld[0]=0; pistolTick();
+        if (i>=2) { gripHeld[0]=1; pistolTick(); assert(s_gevrGexMag[GUNRIGHT]!=GEVR_GEXMAG_INHAND && reserve==49); continue; }
+        // Drop a reserved shell; loaded rounds must survive and reserve is refunded once.
+        pointsValid=0; gripHeld[0]=1; pistolTick(); assert(reserve==48);
+        gripHeld[0]=0; pistolTick(); assert(reserve==49 && player.hands[GUNRIGHT].weapon_ammo_in_magazine==loaded+1);
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
+        pistolTick(); assert(reserve==49);
+        // Changing ammo type while a shell is held refunds the captured ammo type.
+        gripHeld[0]=1; pistolTick(); assert(reserve==48);
+        player.hands[GUNRIGHT].weapon=ITEM_RUGER; stats.AmmoType=0; pistolTick();
+        assert(reserve==49 && player.ammoheldarr[0]==0);
+        stats.AmmoType=1;
+    }
+    /* Zero reserve, invalid pose, full capacity while held, tracking loss and
+     * stage cancellation must conserve the one reserved payload for every rig. */
+    for (int i=0;i<4;i++) {
+        reset(); stats.MagSize=i>=2 ? 1 : 5; gex[GUNRIGHT]=1;
+        player.hands[GUNRIGHT].weapon=items[i]; reserve=0;
+        pistolTick(); belt(0,0); gripHeld[0]=1; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN && reserve==0);
+        gripHeld[0]=0; pistolTick(); reserve=1; gripHeld[0]=1; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && reserve==0);
+        assert(!gevrReloadNeedsAmmo(GUNRIGHT) && gevrGexPistolSupportAllowed());
+        pointsValid=0; pistolTick(); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==0 && reserve==0);
+        player.hands[GUNRIGHT].weapon_ammo_in_magazine=stats.MagSize;
+        pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
+        assert(reserve==1 && player.hands[GUNRIGHT].weapon_ammo_in_magazine==stats.MagSize && s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
+        gripHeld[0]=0; pistolTick(); player.hands[GUNRIGHT].weapon_ammo_in_magazine=0;
+        pointsValid=0; gripHeld[0]=1; pistolTick(); assert(reserve==0);
+        tracked[0]=0; pistolTick(); assert(reserve==1 && s_gevrGexHeldRounds==-1);
+        tracked[0]=1; gripHeld[0]=0; pistolTick(); gripHeld[0]=1; pistolTick(); assert(reserve==0);
+        gevrGexReloadReset(GUNRIGHT); assert(reserve==1 && s_gevrGexHeldRounds==-1);
+        gevrGexReloadReset(GUNRIGHT); assert(reserve==1);
+    }
+    stats.MagSize=30;
 }
 int main(void)
 {
@@ -448,6 +501,7 @@ int main(void)
         meleeArbitration();
         pp7Reload();
         nextGunReloads();
+        singleRoundReloads();
     }
     /* A custom belt and radius must control both reload paths. */
     reset();

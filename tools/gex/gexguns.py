@@ -74,6 +74,9 @@ class GexCode:
         out = ["slot %d %s: def 0x%08x model %d %s (lod %d %s), pos %.0f %.0f %.0f, flags 0x%08x"
                % (slot, SLOTS.get(slot, "?"), d, hi, names.get(hi), lo, names.get(lo),
                   self.f32(d + 0x2C), self.f32(d + 0x30), self.f32(d + 0x34), self.u32(d + 0x4C))]
+        if self.u32(d + 4):
+            out.append("  equip/idle:")
+            out += self.script(self.u32(d + 4))
         for f in range(2):
             fa = self.u32(d + 0x14 + 4 * f)
             if fa and self.u32(fa + 0xC):

@@ -1217,9 +1217,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (scope < 0) gevrScopeFitting = 0;
             if (!fitting || !gevrReloadFitAvailable()) gevrReloadFitting = 0;
             if (!gex) gevrOffHandFitting = 0;
-            if (!gex) gevrHeldMagFitting = 0;
-            if (!gex) gevrWellFitting = 0;
-            if (!gex) gevrInstalledMagFitting = 0;
+            if (!gex || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT))) gevrHeldMagFitting = 0;
+            if (!gex || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT))) gevrWellFitting = 0;
+            if (!gex || !gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT))) gevrInstalledMagFitting = 0;
             if (!fitting || !gevrMuzzleFitAvailable()) gevrMuzzleFitting = 0;
             if (fitting && !fitWas) {
                 gevrGunFitSaved(false);
@@ -1244,7 +1244,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (x && !xHeld && gadget < 0) {
                     static const char *const names[8] = { "gun", "scope", "reload", "off hand", "held magazine", "magazine well", "installed magazine", "barrel tip" };
                     const bool can[8] = { true, scope >= 0, gevrReloadFitAvailable() != 0, gex != 0,
-                        gex != 0, gex != 0, gex != 0, gevrMuzzleFitAvailable() != 0 };
+                        gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable() != 0 };
                     int mode = gevrScopeFitting ? 1 : gevrReloadFitting ? 2 : gevrOffHandFitting ? 3
                         : gevrHeldMagFitting ? 4 : gevrWellFitting ? 5 : gevrInstalledMagFitting ? 6 : gevrMuzzleFitting ? 7 : 0;
                     do {

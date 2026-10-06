@@ -1,10 +1,11 @@
 # GoldenEye X setup
 
-GoldenEye VR can use GoldenEye X's **KF7, both PP7s, DD44, Klobb, ZMG, D5K variants, Phantom and AR33 models and animations** and **VR arms
+GoldenEye VR can use GoldenEye X's **KF7, both PP7s, DD44, Klobb, ZMG, D5K variants, Phantom, AR33, RC-P90, sniper, Moonraker laser, both shotguns, rocket launcher and Golden Gun models and animations** and **VR arms
 wearing GoldenEye's watch**, supplied by your own patched ROM. These options are
 WIP; GE-X gun replacements are off by default. KF7 support is available in
 **v0.4.7 or later** (PR #117); PP7 support is in the
-[changes after v0.4.10](releases/unreleased.md).
+[v0.4.11](releases/v0.4.11.md). The latest seven are in the
+[changes after v0.4.11](releases/unreleased.md), pending headset fitting.
 
 You still play GoldenEye's missions with your normal GoldenEye 007 (USA) ROM.
 This support does not run the GE-X campaign or import its maps, unsupported weapons,
@@ -211,6 +212,17 @@ on, guns no longer auto-reload. For a supported GE-X magazine-fed gun:
    well while holding grip. New magazines fill from your available reserve.
 4. Release grip after seating it before another grab or two-handed hold.
 
+**RC-P90:** lift its top magazine upward rather than pulling down.
+
+**Shotgun, automatic shotgun, rocket launcher and Golden Gun:** grip at your belt to take
+one shell, rocket or Golden Gun round, then insert its tip into the gun's port while holding grip.
+Each insertion adds one round and readies the weapon; release grip before the
+next pickup. Existing loaded rounds stay in the gun. Golden Gun opens its chamber while
+you hold the round and closes automatically after insertion. Dropped/cancelled held
+rounds return to reserve. B/Y does not eject loaded shells or rockets.
+Held Ammo and Ammo Insertion fit have independent previews for these payloads.
+The Moonraker laser has no physical reload or magazine fit modes.
+
 You can also bring an empty GE-X gun to the belt to reload it directly,
 including either gun when dual-wielding. Left GE-X guns are mirrored. For KF7,
 a grip near the magazine or the supporting-hand point takes the nearer one.
@@ -233,16 +245,16 @@ mission with **Menu + A**. **A** saves; **B** returns to the last saved fit.
 | Scope | Sticks move the lens; turn-stick sideways changes its width. Available for a scoped weapon, with separate GE-X values. |
 | Reload | Available with hand reload on and one magazine-fed gun. Place the off hand at the desired grab point and press its trigger (left trigger by default). Place it at your belt and press Y. Sticks are idle in this mode. |
 | Off hand | Available with a GE-X gun. Sticks adjust the off-hand palm/magazine pose. Hold the gun-hand grip (right grip by default) to adjust the watch's position and size instead; turn-stick sideways changes size. |
-| Held magazine | Available with a supported GE-X gun. A preview magazine appears in the off hand, including with hand reload disabled. Move-stick forward/back and sideways, turn-stick up/down, move only the magazine within the fingers. Each family saves its own fit; PP7 variants share theirs, as do D5K variants. |
-| Magazine well | Available with a supported GE-X gun. Sticks move the insertion target on the gun. Place the preview magazine's tip at the desired entrance and press the off-hand trigger to set the target there. HUD shows tip-to-well distance; this fit leaves the meshes in place. |
-| Installed magazine | Moves the visible magazine in the gun, even when it is out. Move stick: forward/sideways; turn stick: up/down. Saved reload grab and insertion targets stay put. This is separate from Held magazine. |
+| Held ammo | Available with a supported GE-X payload: magazine, shell or rocket. A preview appears in the off hand, including with hand reload disabled. Move-stick forward/back and sideways, turn-stick up/down, move only the payload within the fingers. Each family saves its own fit; PP7 variants share theirs, as do D5K variants. |
+| Ammo insertion | Available with a supported GE-X payload. Sticks move the insertion target on the gun. Place the preview's tip at the desired entrance and press the off-hand trigger to set the target there. HUD shows tip-to-well distance; this fit leaves the meshes in place. |
+| Installed magazine | Available only for a detachable magazine. Moves the visible magazine in the gun, even when it is out. Move stick: forward/sideways; turn stick: up/down. Saved reload grab and insertion targets stay put. This is separate from Held ammo. |
 | Barrel tip | Sticks adjust the muzzle point. |
 
 The new guns save seven vectors under `GexFit<item>_<component>` keys, with D5K
 variants sharing item 10. Compiled defaults include the user's latest PP7/KF7
 fits; saved settings take precedence. See the [weapon roadmap](gex-weapon-roadmap.md#fit-persistence-and-baking-workflow)
-for the item/component mapping and how to bake later headset fits. The seven
-new guns await headset fitting and acceptance.
+for the item/component mapping and how to bake later headset fits. The latest
+seven await headset fitting and acceptance; see the [current handoff](gex-continuation-handoff.md).
 
 GE-X arms retain GoldenEye's live wrist status and pause watch. The watch
 stays at least its original visible size so its face remains readable.
