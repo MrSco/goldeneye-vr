@@ -443,11 +443,26 @@ static constexpr float clampf(const float x, const float min, const float max) {
 /* the stats readout's per-frame draw count (port/src/gevr_engine_shim.c gevrPerf*) */
 extern "C" { uint32_t gevr_perf_draws, gevr_perf_tris; }
 static uint32_t g_gevrTrisThisFrame, g_gevrFlushesThisFrame; /* PORT probe: per-frame draw statistic, logged once a second from gfx_run */
+/* Why each batch was drawn, counted only during an opt-in profiling trace
+ * (tools/perf): every state change that flushes splits the batch into one
+ * more draw call, and draw calls dominate the Quest's CPU frame time. */
+enum { GEVR_FLUSH_OTHER, GEVR_FLUSH_TEXTURE, GEVR_FLUSH_TEXTURE_NEW, GEVR_FLUSH_COMBINER, GEVR_FLUSH_DEPTH,
+       GEVR_FLUSH_VIEWPORT, GEVR_FLUSH_SCISSOR, GEVR_FLUSH_SAMPLER, GEVR_FLUSH_SHADER, GEVR_FLUSH_ALPHA,
+       GEVR_FLUSH_FULL, GEVR_FLUSH_ROOM, GEVR_FLUSH_CAUSES };
+static unsigned s_gevrFlushCause;
+static uint32_t s_gevrFlushDraws[GEVR_FLUSH_CAUSES], s_gevrFlushTris[GEVR_FLUSH_CAUSES];
+#define GEVR_FLUSH_BECAUSE(cause) do { s_gevrFlushCause = (cause); gfx_flush(); } while (0)
 void gfx_flush(void) {
     g_gevrTrisThisFrame += buf_vbo_num_tris;
     g_gevrFlushesThisFrame++;
     gevr_perf_tris += buf_vbo_num_tris;
+    const unsigned cause = s_gevrFlushCause;
+    s_gevrFlushCause = GEVR_FLUSH_OTHER;
     if (buf_vbo_len > 0) {
+        if (gevrFrameTimingTracing()) {
+            s_gevrFlushDraws[cause]++;
+            s_gevrFlushTris[cause] += buf_vbo_num_tris;
+        }
         gevr_perf_draws++;
         gfx_rapi->draw_triangles(buf_vbo, buf_vbo_len, buf_vbo_num_tris);
         buf_vbo_len = 0;
@@ -702,7 +717,7 @@ static struct ColorCombiner* gfx_lookup_or_create_color_combiner(const ColorComb
     if (prev_combiner != color_combiner_pool.end()) {
         return &prev_combiner->second;
     }
-    gfx_flush();
+    GEVR_FLUSH_BECAUSE(GEVR_FLUSH_COMBINER);
     prev_combiner = color_combiner_pool.insert(std::make_pair(key, ColorCombiner())).first;
     gfx_generate_cc(&prev_combiner->second, key);
     return &prev_combiner->second;
@@ -789,7 +804,7 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
          * changes. Rebinding the same one is harmless.
          */
         if (*n != &*it) {
-            gfx_flush();
+            GEVR_FLUSH_BECAUSE(GEVR_FLUSH_TEXTURE);
         }
         gfx_rapi->select_texture(i, it->second.texture_id, it->second.linear_filter);
         *n = &*it;
@@ -813,7 +828,7 @@ static bool gfx_texture_cache_lookup(int i, const TextureCacheKey& key) {
     gevrFrameTimingCounters(0,0,1,0,0,1);
 #endif
 
-    gfx_flush();   /* a new texture: the batch so far draws with the old one */
+    GEVR_FLUSH_BECAUSE(GEVR_FLUSH_TEXTURE_NEW);   /* a new texture: the batch so far draws with the old one */
 
     uint32_t texture_id;
     if (!gfx_texture_cache.free_texture_ids.empty()) {
@@ -2615,19 +2630,19 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     uint8_t depth_mode = (depth_test ? 1 : 0) | (depth_update ? 2 : 0) | (depth_compare ? 4 : 0) | (depth_source_prim ? 8 : 0) | (zmode >> 6);
 
     if (depth_mode != rendering_state.depth_mode) {
-        gfx_flush();
+        GEVR_FLUSH_BECAUSE(GEVR_FLUSH_DEPTH);
         gfx_rapi->set_depth_mode(depth_test, depth_update, depth_compare, depth_source_prim, zmode);
         rendering_state.depth_mode = depth_mode;
     }
 
     if (rdp.viewport_or_scissor_changed) {
         if (memcmp(&rdp.viewport, &rendering_state.viewport, sizeof(rdp.viewport)) != 0) {
-            gfx_flush();
+            GEVR_FLUSH_BECAUSE(GEVR_FLUSH_VIEWPORT);
             gfx_rapi->set_viewport(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width, rdp.viewport.height);
             rendering_state.viewport = rdp.viewport;
         }
         if (memcmp(&rdp.scissor, &rendering_state.scissor, sizeof(rdp.scissor)) != 0) {
-            gfx_flush();
+            GEVR_FLUSH_BECAUSE(GEVR_FLUSH_SCISSOR);
             gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
             rendering_state.scissor = rdp.scissor;
         }
@@ -2749,7 +2764,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                 bool linear_filter = (rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT;
                 if (linear_filter != rendering_state.textures[i]->second.linear_filter ||
                     cms != rendering_state.textures[i]->second.cms || cmt != rendering_state.textures[i]->second.cmt) {
-                    gfx_flush();
+                    GEVR_FLUSH_BECAUSE(GEVR_FLUSH_SAMPLER);
                     gfx_rapi->set_sampler_parameters(i, linear_filter, cms, cmt);
                     rendering_state.textures[i]->second.linear_filter = linear_filter;
                     rendering_state.textures[i]->second.cms = cms;
@@ -2781,13 +2796,13 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
                 gfx_lookup_or_create_shader_program(comb->shader_id0, comb->shader_id1 | (tm * SHADER_OPT_TEXEL0_CLAMP_S));
     }
     if (prg != rendering_state.shader_program) {
-        gfx_flush();
+        GEVR_FLUSH_BECAUSE(GEVR_FLUSH_SHADER);
         gfx_rapi->unload_shader(rendering_state.shader_program);
         gfx_rapi->load_shader(prg);
         rendering_state.shader_program = prg;
     }
     if (use_alpha != rendering_state.alpha_blend || use_modulate != rendering_state.modulate) {
-        gfx_flush();
+        GEVR_FLUSH_BECAUSE(GEVR_FLUSH_ALPHA);
         gfx_rapi->set_use_alpha(use_alpha, use_modulate);
         rendering_state.alpha_blend = use_alpha;
         rendering_state.modulate = use_modulate;
@@ -2956,7 +2971,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
 
     if (++buf_vbo_num_tris == MAX_BUFFERED) {
-        gfx_flush();
+        GEVR_FLUSH_BECAUSE(GEVR_FLUSH_FULL);
     }
 }
 
@@ -4062,7 +4077,7 @@ static void gfx_run_dl(Gfx* cmd) {
                     case VR_ROOM_DL_BEGIN:   // bg.c: a room's own display list (issue #72)
                     case VR_ROOM_DL_END: {
                         extern bool gevrRoomDl;   // gfx_opengl.cpp
-                        gfx_flush();
+                        GEVR_FLUSH_BECAUSE(GEVR_FLUSH_ROOM);
                         gevrRoomDl = tag_w1 == VR_ROOM_DL_BEGIN;
                         break;
                     }
@@ -4774,6 +4789,18 @@ extern "C" void gfx_run(Gfx* commands) {
                 sFrames++; sTris += g_gevrTrisThisFrame; sFlushes += g_gevrFlushesThisFrame;
                 if (sFrames >= 72) {
                     vr_log("gfx: %u frames, %u tris, %u flushes, cimg %p", sFrames, sTris, sFlushes, rdp.color_image_address);
+                    if (gevrFrameTimingTracing()) {
+                        static const char *names[GEVR_FLUSH_CAUSES] = {"other", "texture", "texture_new", "combiner",
+                            "depth", "viewport", "scissor", "sampler", "shader", "alpha", "full", "room"};
+                        char text[512];
+                        int used = 0;
+                        for (int c = 0; c < GEVR_FLUSH_CAUSES && used < (int)sizeof(text); c++)
+                            used += snprintf(text + used, sizeof(text) - used, " %s=%u/%u", names[c],
+                                             s_gevrFlushDraws[c], s_gevrFlushTris[c]);
+                        vr_log("flush-causes: frames=%u draws/tris%s", sFrames, text);
+                        memset(s_gevrFlushDraws, 0, sizeof(s_gevrFlushDraws));
+                        memset(s_gevrFlushTris, 0, sizeof(s_gevrFlushTris));
+                    }
                     sFrames = sTris = sFlushes = 0;
                 }
             }
