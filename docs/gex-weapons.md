@@ -3,7 +3,8 @@
 Engineering notes for the GE-X support introduced in PR #117 (2026-10-04).
 For installation, ROM preparation, reload controls and troubleshooting, start
 with [GoldenEye X setup](gex-setup.md). Current support covers KF7, both PP7s, DD44, Klobb, ZMG, D5K variants,
-Phantom, AR33 and VR arms, read from the player's own patched GE-X 6a ROM; the weapon list below
+Phantom, AR33, RC-P90, sniper, Moonraker laser, both shotguns, rocket launcher, Golden Gun
+and VR arms (17 weapon variants), read from the player's own patched GE-X 6a ROM; the weapon list below
 is a format reference, not a list of implemented replacements.
 Nothing from GE-X is committed or shipped; no
 licence covers its assets. Credits: the GoldenEye X team (Wreck, Carnivorous
@@ -18,6 +19,14 @@ The user smoke-tested the batch and fitted reload grabs. AR33 magazine wrist
 and Phantom installed-magazine position require follow-up confirmation.
 Installed Magazine fit (X, after Magazine Well) moves the visible seated mesh
 while retaining independently calibrated grab/insertion targets.
+
+The continuation after v0.4.11 adds seven families: explicit equip/rest poses for
+guns without source fire clips, upward RC-P90 magazine removal, scoped sniper
+and laser roots, and one-round shell/rocket loading. Held Ammo and Ammo Insertion
+fit cover single rounds; Installed Magazine remains limited to detachable
+magazines. The laser has no ammunition payload/reload. See the
+[current continuation handoff](gex-continuation-handoff.md) for validation,
+headset checks, fit baking and the remaining Cougar/grenade rigs.
 
 ## The ROM
 
