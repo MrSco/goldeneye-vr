@@ -13,15 +13,15 @@ root = Path(__file__).resolve().parents[2]
 engine = (root / "port/vr/vr_openxr.cpp").read_text(encoding="utf-8")
 
 
-def function(signature):
-    match = re.search(re.escape(signature) + r"\s*\{", engine)
+def function(signature, source=engine):
+    match = re.search(re.escape(signature) + r"\s*\{", source)
     assert match, signature
     end = match.end()
     depth = 1
     while depth:
-        depth += (engine[end] == "{") - (engine[end] == "}")
+        depth += (source[end] == "{") - (source[end] == "}")
         end += 1
-    return engine[match.start():end]
+    return source[match.start():end]
 
 
 parts = {
@@ -50,6 +50,12 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
     subprocess.run([str(exe)], cwd=temp, check=True)
 
     # Link the actual settings reader/writer and platform defaults, not copied parsing logic.
+    input_source = (root / "port/src/input.c").read_text()
+    snapshot = re.search(r"static struct \{\s*float gun\[3\].*?\} s_gunFitSaved;", input_source, re.S).group()
+    snapshot += "\n" + function("static void gevrGunFitSaved(bool restore)", input_source)
+    settings_fixture = temp / "settings_native.cpp"
+    settings_fixture.write_text((root / "port/tests/vr_display_settings_native.cpp").read_text().replace(
+        "/* FIT_SNAPSHOT */", snapshot))
     for android in (False, True):
         exe = temp / ("settings-quest.exe" if android else "settings-desktop.exe")
         # Defaults are production C, including C99 designated initializers.
@@ -62,7 +68,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
                         "-include", str(root / "port/tests/vr_display_settings_stubs.h"),
                         "-I" + str(root / "include"), "-I" + str(root / "port/vr"),
                         "-I" + str(root / "port/include"),
-                        str(root / "port/tests/vr_display_settings_native.cpp"),
+                        str(settings_fixture),
                         str(root / "port/vr/vr_settings.cpp"), str(defaults),
                         "-o", str(exe)], check=True)
         ini = temp / "goldeneye-vr.ini"

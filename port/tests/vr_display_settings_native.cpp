@@ -36,6 +36,7 @@ void vrSettingsSave();
 }
 char g_ActiveExtTexPack[256] = {};
 unsigned int arc4random_uniform(unsigned int) { return 1; }
+/* FIT_SNAPSHOT */
 
 int main(int argc, char **argv) {
     const int initial = VrRefreshRate;
@@ -69,10 +70,35 @@ int main(int argc, char **argv) {
         VrGexHeldMag[1] = 2.25f;
         VrGexWatch[3] = 1.5f;
         VrGexForeHold[0] = 3.5f;
+        VrGexPp7Grab[1] = -1.25f;
+        VrGexPp7Support[2] = 2.5f;
+        VrGexPp7GunOff[0] = 0.75f;
+        VrGexKf7MagOff[0] = -0.5f;
+        VrGexPp7MagOff[0] = 1.25f;
+        VrGexPp7MagOff[1] = -2.5f;
+        VrGexPp7MagOff[2] = 3.75f;
+        VrGexPp7SupportRot[0] = 30;
+        VrGexPp7SupportRot[1] = -45;
+        VrGexPp7SupportRot[2] = 90;
+        VrGexKf7WellOff[0] = -0.75f;
+        VrGexPp7WellOff[0] = 1.5f;
+        VrGexPp7WellOff[1] = -2.25f;
+        VrGexPp7WellOff[2] = 3.0f;
         VrMuzzleTrim[0][8][0] = 0.5f;
         VrMuzzleTrim[0][8][2] = 2.0f;
         VrMuzzleTrim[1][8][1] = -1.5f;
         VrMuzzleTrim[1][8][2] = 4.25f;
+        gevrGunFitSaved(false);
+        VrGexPp7MagOff[0] = 99;
+        VrGexKf7MagOff[0] = 99;
+        VrGexHeldMag[1] = 99;
+        VrGexPp7SupportRot[2] = 99;
+        VrGexKf7WellOff[0] = 99;
+        VrGexPp7WellOff[1] = 99;
+        gevrGunFitSaved(true);
+        assert(VrGexPp7MagOff[0] == 1.25f && VrGexKf7MagOff[0] == -0.5f && VrGexHeldMag[1] == 2.25f);
+        assert(VrGexPp7SupportRot[2] == 90);
+        assert(VrGexKf7WellOff[0] == -0.75f && VrGexPp7WellOff[1] == -2.25f);
         vrSettingsSave();
         return 0;
     }
@@ -84,6 +110,13 @@ int main(int argc, char **argv) {
         assert(VrReloadGrab[1][2] == -9.5f && VrReloadGrab[0][2] == -8.0f);
         assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 20.61f && VrGexHeldMag[1] == 2.25f);
         assert(VrGexWatch[3] == 1.5f && VrGexWatch[0] == 5.0f && VrGexForeHold[0] == 3.5f);
+        assert(VrGexPp7Grab[1] == -1.25f && VrGexPp7Support[2] == 2.5f);
+        assert(VrGexPp7GunOff[0] == 0.75f);
+        assert(VrGexKf7MagOff[0] == -0.5f && VrGexKf7MagOff[1] == 0);
+        assert(VrGexPp7MagOff[0] == 1.25f && VrGexPp7MagOff[1] == -2.5f && VrGexPp7MagOff[2] == 3.75f);
+        assert(VrGexPp7SupportRot[0] == 30 && VrGexPp7SupportRot[1] == -45 && VrGexPp7SupportRot[2] == 90);
+        assert(VrGexKf7WellOff[0] == -0.75f && VrGexKf7WellOff[1] == 0);
+        assert(VrGexPp7WellOff[0] == 1.5f && VrGexPp7WellOff[1] == -2.25f && VrGexPp7WellOff[2] == 3.0f);
         assert(VrMuzzleTrim[0][8][0] == 0.5f && VrMuzzleTrim[0][8][2] == 2.0f);
         assert(VrMuzzleTrim[1][8][1] == -1.5f && VrMuzzleTrim[1][8][2] == 4.25f);
         assert(VrMuzzleTrim[0][4][0] == 0.0f);

@@ -888,7 +888,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     ImGui::TextColored(gold, "GOLDENEYE X");
     bool gex = VrGexGuns != 0;
-    if (ImGui::Checkbox("Its guns (KF7, WIP)", &gex)) VrGexGuns = gex ? 1 : 0;
+    if (ImGui::Checkbox("Its guns (KF7 + PP7, WIP)", &gex)) VrGexGuns = gex ? 1 : 0;
     bool arms = VrGexArms != 0;
     if (ImGui::Checkbox("Its arms, wearing the watch (VR, WIP)", &arms)) VrGexArms = arms ? 1 : 0;
     ImGui::SameLine();
