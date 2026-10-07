@@ -948,7 +948,73 @@ bool bondinvHasPropInInv(PropRecord *prop)
     return FALSE;
 }
 
+#ifdef GEVR
+/*
+ * GE-X's remote mines detonate themselves (gun.c gevrGexMineDetonates; user:
+ * the Detonator was still a choice on the watch): with VrGexGuns its entry
+ * leaves the list. The game's own walk below is the raw list; the watch's
+ * index and count (bondinvCountTotalItemsInInv, bondinvGetItemByIndex,
+ * bondinvGetTextbyInvIndex, which every index lookup uses) skip it.
+ */
+static s32 bondinvCountRaw(void);
+static InvItem *bondinvGetItemByIndexRaw(s32 index);
+static s32 bondinvGetTextbyInvIndexRaw(s32 index);
+
+static s32 gevrInvHides(s32 raw)
+{
+    return VrGexGuns && bondinvGetTextbyInvIndexRaw(raw) == ITEM_TRIGGER;
+}
+
+static s32 gevrInvRaw(s32 index)
+{
+    const s32 n = bondinvCountRaw();
+    s32 raw;
+
+    if (!VrGexGuns || index < 0)
+    {
+        return index;
+    }
+    for (raw = 0; raw < n; raw++)
+    {
+        if (gevrInvHides(raw))
+        {
+            continue;
+        }
+        if (index == 0)
+        {
+            return raw;
+        }
+        index--;
+    }
+    return n + index;
+}
+
 s32 bondinvCountTotalItemsInInv(void)
+{
+    const s32 n = bondinvCountRaw();
+    s32 raw, shown = n;
+
+    for (raw = 0; VrGexGuns && raw < n; raw++)
+    {
+        shown -= gevrInvHides(raw);
+    }
+    return shown;
+}
+
+InvItem *bondinvGetItemByIndex(s32 index)
+{
+    return bondinvGetItemByIndexRaw(gevrInvRaw(index));
+}
+
+s32 bondinvGetTextbyInvIndex(s32 index)
+{
+    return bondinvGetTextbyInvIndexRaw(gevrInvRaw(index));
+}
+
+static s32 bondinvCountRaw(void)
+#else
+s32 bondinvCountTotalItemsInInv(void)
+#endif
 {
     InvItem *item;
     s32      numitems = 0;
@@ -1006,7 +1072,11 @@ s32 bondinvCountTotalItemsInInv(void)
     return numitems;
 }
 
+#ifdef GEVR
+static InvItem *bondinvGetItemByIndexRaw(s32 index)
+#else
 InvItem *bondinvGetItemByIndex(s32 index)
+#endif
 {
     InvItem *item;
 
@@ -1118,12 +1188,20 @@ textoverride *bondinvGetTextbyWeaponID(ITEM_IDS weaponnum)
     return NULL;
 }
 
+#ifdef GEVR
+static s32 bondinvGetTextbyInvIndexRaw(s32 index)
+#else
 s32 bondinvGetTextbyInvIndex(s32 index)
+#endif
 {
     textoverride *override;
     InvItem *     inv_item;
 
+#ifdef GEVR
+    inv_item = bondinvGetItemByIndexRaw(index);
+#else
     inv_item = bondinvGetItemByIndex(index);
+#endif
 
     if (inv_item)
     {

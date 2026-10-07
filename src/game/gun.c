@@ -1717,13 +1717,17 @@ void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
         {
             /* onto GoldenEye's own mesh's place and size (user: the grenade was
              * small, the unarmed huge and off to one side) */
+            const s32 turned = def->panelRot[0][0] != 0.0f || def->panelRot[0][1] != 0.0f || def->panelRot[0][2] != 0.0f;
             Mtxf fit, moved;
-            s32 i;
+            s32 i, j;
 
             matrix_4x4_set_identity(&fit);
             for (i = 0; i < 3; i++)
             {
-                fit.m[i][i] = def->panelFit[0];
+                for (j = 0; j < 3; j++)
+                {
+                    fit.m[i][j] = def->panelFit[0] * (turned ? def->panelRot[i][j] : (f32) (i == j));
+                }
                 fit.m[3][i] = def->panelFit[1 + i];
             }
             matrix_4x4_multiply(&fit, &inverse, &moved);

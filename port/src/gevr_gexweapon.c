@@ -87,7 +87,10 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .screenFromRoot=1, .screenOffset={-17.660f,-26.253f,-197.154f}, \
     .muzzle={127.559f,309.704f,355.552f}, .screenMuzzle={109.899f,283.451f,158.398f}, \
     .supportRoot={-39.498364f,-28.279365f,49.061958f}, \
-    .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1 }
+    .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1, \
+    /* the panel: the blade upright as GoldenEye's, centred */ \
+    .panelFit={1.0f,-1.0f,-58.3f,-35.0f}, \
+    .panelRot={{-0.006f,0.934f,0.356f},{0.999f,0.019f,-0.032f},{-0.037f,0.356f,-0.934f}} }
 
 /* The throwables. GoldenEye hides these in the hand (HIDE_FIRST_PERSON_HAND);
  * GE-X's own rigs hold them, drawn as guns (gunfire.c), and once one has left
@@ -122,7 +125,9 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .item=id, .slot=22, .model="GdydragonZ", .texturePairs=watchTextures, \
     .fireAnim=1083, .restAnim=1083, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1, \
     .muzzle={-117.307f,63.739f,28.419f}, .screenMuzzle={-14.000f,1.187f,82.587f}, \
-    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .watch=1, .screenHand=1 }
+    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .watch=1, .screenHand=1, \
+    /* the panel: the watch on its edge, its face out, at GoldenEye's watch's size */ \
+    .panelFit={6.733f,0.0f,558.8f,87.5f}, .panelRot={{1.0f,0.0f,0.0f},{0.0f,0.0f,1.0f},{0.0f,-1.0f,0.0f}} }
 
 static const GexWeaponDef weapons[] = {
     WATCH_DEF(ITEM_WATCHLASER),
@@ -173,7 +178,10 @@ static const GexWeaponDef weapons[] = {
         .fireAnim=0, .restAnim=1086, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1,
         .screenFromRoot=1, .screenOffset={0.071f,-29.923f,-84.617f},
         .muzzle={28.462f,143.276f,90.878f}, .screenMuzzle={28.533f,113.354f,6.261f},
-        .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1
+        .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1,
+        /* the panel: upright as GoldenEye's, centred */
+        .panelFit={1.0f,-5.5f,-44.0f,-21.1f},
+        .panelRot={{0.010f,0.375f,-0.927f},{-0.991f,0.128f,0.041f},{0.134f,0.918f,0.373f}}
     },
     MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f,
              NO_PANEL),

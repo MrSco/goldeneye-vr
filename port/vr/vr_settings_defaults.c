@@ -162,12 +162,12 @@ float VrGexGripTrim[2][6] = {
  */
 float VrReloadGrab[2][3] = { {0.0000f,-7.0000f,-8.0000f}, {-8.2100f,-11.7900f,-11.2800f} };
 float VrReloadBelt[3] = { 66.65f, 19.86f, -18.68f };
-float VrGexHeldMag[3] = {4.980000f,2.830000f,-2.990000f};   /* headset fit 2026-10-07 */
+float VrGexHeldMag[3] = {4.840000f,2.830000f,-2.880000f};   /* headset fit 2026-10-07 */
 /* GoldenEye's watch on GE-X's left wrist (gun.c): cm ahead of the end of the
  * sleeve, up and out from its axis there, and its size (Gun fit's off hand
  * mode, holding the right grip). Over the wrist and a fifth larger, to go
  * round GE-X's sleeve (user; measured offline on the KF7). */
-float VrGexWatch[4] = {5.180000f,1.380000f,0.240000f,0.940000f};
+float VrGexWatch[4] = {4.410000f,1.370000f,-0.010000f,1.020000f};   /* headset fit 2026-10-07 */
 /* where GE-X's left hand holds a gun with both hands, cm forward, up and out
  * along the gun from where its animation has it (Gun fit's grip mode) */
 float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
@@ -246,7 +246,7 @@ void optionsMenuInit(void)
 /* Model-specific fits; D5K silenced shares item 10. Missing INI keys keep these defaults. */
 float VrGexWeaponFits[64][10][3] = {
     [1] = {{4.6000f,2.4000f,-8.5000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{-8.9074f,-0.8527f,8.8685f},{-87.9532f,23.1759f,-83.2908f}}, /* fist: headset gun hand fit 2026-10-07 */
-    [23] = {{-11.9871f,2.0760f,-16.7449f}}, /* watch items: the right palm on the fitted PP7's, initial */
+    [23] = {{-11.9871f,2.0760f,-16.7449f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{2.0238f,0.6595f,-3.4466f}}, /* watch items: the right palm on the fitted PP7's; gun hand headset fit 2026-10-07 */
     [2] = {{3.4710f,1.1003f,3.5348f}}, /* knives: palm aligned to the fitted KF7's, initial */
     [26] = {{4.2795f,1.3928f,4.5162f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{-0.5229f,1.1656f,0.4464f},{2.3233f,-3.7653f,2.3402f},{-0.0077f,0.0000f,0.0000f}}, /* grenade: headset item fit 2026-10-07 */
     [27] = {{1.4880f,2.6146f,-7.3449f}}, /* timed mine, initial */

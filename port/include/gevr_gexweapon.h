@@ -76,6 +76,10 @@ typedef struct GexWeaponDef {
      * sized (x) and moved (y, z, w) onto GoldenEye's mesh's bounds (measured from
      * both ROMs: its centre and its diagonal). Size 0: as it is */
     f32 panelFit[4];
+    /* ... and turned as GoldenEye's own lies (user: the knives, taser and watch lay
+     * on their sides): p' = (size p) R + move, R's rows matched from both ROMs'
+     * meshes. All zero: unturned */
+    f32 panelRot[3][3];
     GexReloadDef reload, dualReload;
     f32 holdFrame, screenOffset[3];
     f32 magCentre[3], magTop[3], heldTop[3];
