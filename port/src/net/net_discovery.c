@@ -140,7 +140,7 @@ void netDiscoveryUpdate(uint32_t current_time_ms) {
         beacon.version = PD_LE16(GEVR_NET_VERSION);
         beacon.port = PD_LE16(s_broadcast_port);
         snprintf(beacon.name, GEVR_MAX_NAME_LEN, "%s", s_broadcast_name);
-        beacon.player_count = (uint8_t)netGetConnectedPlayerCount();
+        beacon.player_count = (uint8_t)netGetHumanPlayerCount();   /* a joiner takes a bot's place */
         beacon.max_players = (uint8_t)netGetMaxPlayers();
         beacon.stage_num = (uint8_t)netGetLobbyStage();
         beacon.weapon_set = netGetLobbyWeaponSet();
