@@ -1686,6 +1686,7 @@ bool cheatIsActive(CHEAT_ID cheat)
         if (cheat == CHEAT_DK_MODE) return (flags & NET_FUN_DK) != 0;
         if (cheat == CHEAT_PAINTBALL) return (flags & NET_FUN_PAINTBALL) != 0;
         if (cheat == CHEAT_LINEMODE) return (flags & NET_FUN_LINE) != 0;
+        if (cheat == CHEAT_NO_RADAR_MP) return (flags & NET_FUN_NO_RADAR) != 0;
     }
 #endif
     return ((bool) (u8) g_CheatPlayerTextRelated[cheat] >> get_cur_playernum()) & 1;

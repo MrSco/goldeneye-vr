@@ -153,6 +153,16 @@ int main(int argc, char **argv) {
         assert(VrMuzzleTrim[0][4][0] == 0.0f);
         return 0;
     }
+    /* The fun rules, No radar (16) among them, survive a restart; anything else is off. */
+    if (argc > 1 && std::strcmp(argv[1], "fun_write") == 0) {
+        VrMpFunFlags = std::atoi(argv[2]);
+        vrSettingsSave();
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "fun_read") == 0) {
+        assert(VrMpFunFlags == std::atoi(argv[2]));
+        return 0;
+    }
     if (argc > 1 && std::strcmp(argv[1], "watch_write") == 0) {
         VrWatchFaceStatus = std::atoi(argv[2]);
         VrWatchGesturePause = std::atoi(argv[3]);

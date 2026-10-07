@@ -64,6 +64,8 @@ static ENetHost *s_host = NULL;
 static ENetPeer *s_server_peer = NULL; /* Used when we are a client */
 static ENetPeer *s_client_peers[GEVR_MAX_PLAYERS]; /* Host peer-to-slot map. */
 static bool s_client_can_be_kicked[GEVR_MAX_PLAYERS];
+static uint8_t s_client_caps[GEVR_MAX_PLAYERS];        /* NET_CLIENT_CAP_*, as the guest last said */
+static bool s_client_caps_known[GEVR_MAX_PLAYERS];     /* ... and whether it has said */
 static ENetVirtualSendCallback s_virtual_send = NULL;
 static ENetVirtualReceiveCallback s_virtual_receive = NULL;
 static void *s_virtual_context = NULL;
@@ -92,6 +94,9 @@ static bool s_rejoining = false;             /* a client between hosts: its slot
 static uint64_t s_migrate_deadline_us = 0;   /* a client gives up on the new host at this time */
 static char s_old_host_ip[64] = "";          /* the old host's LAN beacon may linger: skipped */
 static uint64_t s_slot_grace_us[GEVR_MAX_PLAYERS];   /* new host: a slot kept for its player until this time */
+static uint64_t s_slot_heard_us[GEVR_MAX_PLAYERS];   /* last application packet from this remote slot */
+static uint64_t s_host_heard_us;                     /* client: last application packet from the host */
+#define NET_SILENCE_TIMEOUT_US (30ull * 1000000ull)
 static void netBroadcastAllVotes(void);
 static void netClearVotes(int slot);
 static void netBroadcastVotes(int kind);
@@ -521,6 +526,7 @@ extern s32 D_80048394;
 extern s32 D_800483A8;
 static void netBroadcastBuf(struct netbuf *buf, uint8_t channel, uint32_t flags, ENetPeer *except);
 static void netHostDropSlot(int slot, ENetPeer *stale);
+static void netHostLost(ENetPeer *peer);
 
 /*
  * A player leaves: the kills against them go to their killers' score bank
@@ -578,18 +584,22 @@ static void netResetLobbyState(void) {
     s_warmup_started = s_start_requested = s_vote_requested = false;
     s_warmup_end_us = 0;
     memset(s_client_can_be_kicked, 0, sizeof(s_client_can_be_kicked));
+    memset(s_client_caps, 0, sizeof(s_client_caps));
+    memset(s_client_caps_known, 0, sizeof(s_client_caps_known));
     s_match_ended = false;
     s_results_deadline_us = 0;
     s_lobby_code[0] = '\0';
     s_lobby_token[0] = '\0';
     s_game_name[0] = '\0';
     s_lobby_max_players = GEVR_MAX_PLAYERS;
+    s_host_heard_us = 0;
     
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         s_remote_active[i] = false;
         s_client_peers[i] = NULL;
         s_slot_app_version[i][0] = '\0';
         s_slot_grace_us[i] = 0;
+        s_slot_heard_us[i] = 0;
         s_lobby_state.slots[i].team = s_round.team[i] = NET_TEAM_NONE;
         s_lobby_state.slots[i].ping_ms = NET_PING_UNKNOWN;
         memset(&s_remote_moves[i], 0, sizeof(s_remote_moves[i]));
@@ -921,7 +931,7 @@ static void netSendClientCaps(void) {
     netbufStartWrite(&buf);
     netbufWriteU32(&buf,GEVR_NET_MAGIC);netbufWriteU16(&buf,GEVR_NET_VERSION);
     netbufWriteU8(&buf,NET_MSG_CLIENT_CAPS);netbufWriteU8(&buf,(uint8_t)s_local_slot);
-    netbufWriteU8(&buf,NET_CLIENT_CAP_KICK);
+    netbufWriteU8(&buf,NET_CLIENT_CAP_KICK|NET_CLIENT_CAP_NO_RADAR);
     netBroadcastBuf(&buf,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
 }
 
@@ -929,7 +939,33 @@ static void netReceiveClientCaps(ENetPeer *peer, int slot, struct netbuf *buf, s
     if (!netIsHost() || !peer || size!=9 || !netLobbySlotConnected(slot) ||
         s_client_peers[slot]!=peer || (int)(intptr_t)peer->data-1!=slot) return;
     unsigned caps=netbufReadU8(buf);
-    if (!buf->error && !netbufReadLeft(buf)) s_client_can_be_kicked[slot]=(caps & NET_CLIENT_CAP_KICK)!=0;
+    if (buf->error || netbufReadLeft(buf)) return;
+    s_client_can_be_kicked[slot]=(caps & NET_CLIENT_CAP_KICK)!=0;
+    s_client_caps[slot]=(uint8_t)caps;
+    s_client_caps_known[slot]=true;
+}
+
+/*
+ * No radar (protocol 19). Protocol 19 already turns v0.4.11 and older away;
+ * this is the rule's own guarantee: while it is pending or live, the host
+ * removes a guest that has said it does not know it, which would reject the
+ * config and sit in a lobby it cannot read.
+ */
+static int netHostRemoveOldForNoRadar(void) {
+    int removed = 0;
+    if (!netIsHost() || (s_state != NET_STATE_INGAME && s_state != NET_STATE_HOSTING_LOBBY)) return 0;
+    if (!((s_lobby_state.config.fun_flags | s_round.config.fun_flags) & NET_FUN_NO_RADAR)) return 0;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        if (i == s_local_slot || !s_client_caps_known[i] || (s_client_caps[i] & NET_CLIENT_CAP_NO_RADAR)) continue;
+        if (!netHostKickPlayer(i)) continue;
+        NET_LOG("Slot %d runs an app without No radar: removed while the rule is on", i);
+        removed++;
+    }
+    if (removed && s_state == NET_STATE_INGAME) {
+        extern void hudmsgTopShow(char *mess);
+        hudmsgTopShow("NO RADAR: AN OLDER APP WAS REMOVED");
+    }
+    return removed;
 }
 
 static uint64_t s_lobby_received_us, s_last_latency_us;
@@ -2586,6 +2622,17 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             enet_peer_disconnect(peer, 0);
         return;
     }
+    /* Pose packets keep an idle player alive. A frozen or force-quit headset stops here. */
+    {
+        uint64_t heard = sysGetMicroseconds();
+        if (netIsHost()) {
+            int from = (int)(intptr_t)peer->data - 1;
+            if (from >= 0 && from < GEVR_MAX_PLAYERS && s_client_peers[from] == peer)
+                s_slot_heard_us[from] = heard;
+        } else if (peer == s_server_peer) {
+            s_host_heard_us = heard;
+        }
+    }
     
     switch (msg_type) {
         case NET_MSG_CLOCK: netReceiveClock(peer,slot_id,&buf);break;
@@ -2635,6 +2682,8 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             
             s_client_peers[assigned] = peer;
             s_client_can_be_kicked[assigned] = false;
+            s_client_caps[assigned] = 0;
+            s_client_caps_known[assigned] = false;
             peer->data = (void *)(intptr_t)(assigned + 1);
             
             s_lobby_state.slots[assigned].connected = 1;
@@ -3634,6 +3683,47 @@ static void netHostRoundTick(uint64_t now) {
     if (s_round_reset_loading) netReadyProgress();
 }
 
+/* Packets are expected in a live round. Loading, the migration grace and the
+ * co-op menus are not: refreshing the stamps there starts the 30 s clock only
+ * once pose packets should be arriving again. */
+static int netSilenceClockRuns(void) {
+    if (s_state != NET_STATE_INGAME) return 0;
+    if (s_phase != NET_PHASE_WARMUP && s_phase != NET_PHASE_IN_PROGRESS) return 0;
+    if (s_round_reset_loading) return 0;
+    if (netCoopSession() && bossGetStageNum() == LEVELID_TITLE) return 0;
+    return 1;
+}
+
+static void netSilenceTick(uint64_t now) {
+    if (!netSilenceClockRuns()) {
+        s_host_heard_us = now;
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) s_slot_heard_us[i] = now;
+        return;
+    }
+    if (netIsHost()) {
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+            ENetPeer *peer;
+            if (i == s_local_slot || !s_lobby_state.slots[i].connected || !s_lobby_state.slots[i].loaded)
+                continue;
+            /* No peer yet: the migration grace drops the slot on its own clock. */
+            if (!s_client_peers[i] || s_slot_grace_us[i]) continue;
+            if (!s_slot_heard_us[i]) { s_slot_heard_us[i] = now; continue; }
+            if (now - s_slot_heard_us[i] < NET_SILENCE_TIMEOUT_US) continue;
+            peer = s_client_peers[i];
+            NET_LOG("Slot %d sent nothing for 30 s: dropping", i);
+            /* reset, so the silent peer cannot keep the slot */
+            netHostDropSlot(i, peer);
+        }
+    } else if (s_server_peer) {
+        if (!s_host_heard_us) s_host_heard_us = now;
+        else if (now - s_host_heard_us >= NET_SILENCE_TIMEOUT_US) {
+            NET_LOG("Host sent nothing for 30 s");
+            s_host_heard_us = 0;
+            netHostLost(s_server_peer);
+        }
+    }
+}
+
 static void netRoundTick(void) {
     if (s_state == NET_STATE_INGAME) {
         uint64_t now = sysGetMicroseconds();
@@ -3660,6 +3750,9 @@ static void netRoundTick(void) {
             gevrRestartToLauncher();
             return;
         }
+
+        netSilenceTick(now);
+        if (s_state != NET_STATE_INGAME) return;
 
         netCoopTick();
         netHostRoundTick(now);
@@ -3874,6 +3967,8 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
     }
     s_client_peers[slot] = NULL;
     s_client_can_be_kicked[slot] = false;
+    s_client_caps[slot] = 0;
+    s_client_caps_known[slot] = false;
     s_remote_active[slot] = false;
     netVoiceForgetSlot((uint8_t)slot);
     netForgetPlayerScore(slot);
@@ -3883,6 +3978,7 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
     s_lobby_state.slots[slot].ping_ms = NET_PING_UNKNOWN;
     s_slot_app_version[slot][0] = '\0';
     s_slot_grace_us[slot] = 0;
+    s_slot_heard_us[slot] = 0;
     netClearVotes(slot);
 
     netBroadcastLobbyState();
@@ -4055,6 +4151,7 @@ void netPoll(void) {
     }
     netClockTick();
     netDrainHostHits();
+    netHostRemoveOldForNoRadar();
     netRoundTick();
     if (s_waiting_for_match_snapshot && s_stage_ready_sent &&
         s_state == NET_STATE_INGAME && !netIsHost() &&
