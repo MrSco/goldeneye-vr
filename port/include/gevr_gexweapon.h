@@ -56,6 +56,12 @@ typedef struct GexWeaponDef {
      * two Gun fits, as a hand on a controller would hold them (gun.c
      * gevrGexScreenAnchor): the hand-held items, the fist, the watch */
     s32 screenHand;
+    /* screen mode, a screenHand rig at GE-X's own place beside the PP7 (the fist,
+     * user: its chops flew up in the air): the PP7's virtual controller moved by
+     * this, model units in the root's frame - ten times the difference of their
+     * Perfect Dark weapon positions (x the gun's left, y up, z ahead) */
+    s32 screenFromPp7;
+    f32 screenPp7Offset[3];
     /* a joint the off hand holds (the remote mine's detonator, user: the watch
      * in the palm): in the headset put in the tracked off hand's palm, on the
      * screen held by the rig's own left hand, off on the watch pages */

@@ -1498,6 +1498,21 @@ static void gevrGexScreenFitAnchor(const f32 fit[3], Mtxf *anchor)
 
 static void gevrGexScreenHandAnchor(const GexWeaponDef *def, Mtxf *anchor)
 {
+    if (def->screenFromPp7)
+    {
+        /* GE-X's own place beside its PP7, not the headset's fit */
+        Mtxf pp7, shift;
+        s32 i;
+
+        gevrGexScreenFitAnchor(gevrGexGunFit(ITEM_WPPK), &pp7);
+        matrix_4x4_set_identity(&shift);
+        for (i = 0; i < 3; i++)
+        {
+            shift.m[3][i] = def->screenPp7Offset[i];
+        }
+        matrix_4x4_multiply(&pp7, &shift, anchor);
+        return;
+    }
     gevrGexScreenFitAnchor(gevrGexGunFit(def->item), anchor);
 }
 
@@ -2242,17 +2257,18 @@ static s32 gevrGexFaceFrame(const Mtxf *joint, const f32 face[4], f32 pos[3], f3
 }
 
 /*
- * The off hand holding the rig's own item (the remote mine's detonator; user:
- * it sat wrong and had no fit): Gun fit's off hand mode moves it (cm along the
- * wrist's own x, y and back along its z) and turns it about its palm (degrees),
+ * The rig's own item in the off hand (the remote mine's detonator watch; user:
+ * it sat wrong in the hand, and the fit moved the arm): Gun fit's off hand mode
+ * moves it in the hand (cm along the wrist's own x, y and back along its z) and
+ * turns it about its own origin (degrees), the hand staying on the controller -
  * the support fits, which a one-handed item has no other use for. In the rig's
- * left wrist's frame, model units.
+ * left wrist's frame, model units; `about` is the item's origin there.
  */
-static void gevrGexOffHoldFit(const GexWeaponDef *def, Mtxf *out)
+static void gevrGexOffHoldFit(const GexWeaponDef *def, const f32 about[3], Mtxf *out)
 {
     const f32 *pos = gevrGexSupportFit(def->item);
     const f32 *rot = gevrGexSupportRotFit(def->item);
-    const f32 palm[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+    const f32 *palm = about;
     struct coord3d angles;
     s32 j;
 
@@ -2900,12 +2916,16 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
             && getCurrentPlayerWeaponId(GUNLEFT) == ITEM_UNARMED && !gevrStereoTwoHandGrip()
             && gevrGexOffHandPose(offArm, GEVR_GEX_LHAND_LAST + 1))
         {
-            Mtxf holdFit, local;
+            Mtxf holdFit, local, ontoItem;
+            f32 about[3];
 
             gevrGexScaledInverse(&rwmtx[GEVR_GEX_LHAND_WRIST], &inverse);
-            gevrGexOffHoldFit(def, &holdFit);   /* Gun fit's off hand mode (user) */
+            matrix_4x4_multiply(&offArm[GEVR_GEX_LHAND_WRIST], &inverse, &onto);
+            /* the item itself as Gun fit's off hand mode has it in the hand (user) */
+            gevrGexMtxPoint(&inverse, rwmtx[def->offHandMatrix].m[3], about);
+            gevrGexOffHoldFit(def, about, &holdFit);
             matrix_4x4_multiply(&holdFit, &inverse, &local);
-            matrix_4x4_multiply(&offArm[GEVR_GEX_LHAND_WRIST], &local, &onto);
+            matrix_4x4_multiply(&offArm[GEVR_GEX_LHAND_WRIST], &local, &ontoItem);
             /* GE-X's own left hand holding it (user: its watch in the palm), for
              * gevrGexDrawOffHand: the rig's hand as it holds it, on the tracked wrist */
             for (j = 0; j <= GEVR_GEX_LHAND_LAST; j++)
@@ -2919,7 +2939,7 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
             s_gevrGexOffHeldTimer = g_GlobalTimer;
             for (j = def->offHandMatrix; j < hdr->numMatrices; j++)
             {
-                matrix_4x4_multiply(&onto, &rwmtx[j], &moved);
+                matrix_4x4_multiply(&ontoItem, &rwmtx[j], &moved);
                 rwmtx[j] = moved;
             }
             s_gevrGexOffHeldItem = rwmtx[def->offHandMatrix];
@@ -3618,9 +3638,27 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
                 else if ((item == ITEM_TRIGGER) || (item == ITEM_WATCHLASER))
                 {
 #ifdef GEVR
+                    /* GoldenEye X's watch rig (user: the watch laser kept GoldenEye's arm,
+                     * this branch never asked for it): built as a gun's, in a gun's room
+                     * (gevrGexGunPrepare checks it fits); else GoldenEye's own arm */
+                    gevrGexGunPrepare(hand, item, &g_CurrentPlayer->copy_of_body_obj_header[hand]);
+                    if (gevrGexHeld(hand))
+                    {
+                        texInitPool(&g_CurrentPlayer->item_related[hand], &buffer_weapon[D_80032464[hand]], size_buffer_weapon - D_80032464[hand]);
+                        load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, D_80032464[hand], &g_CurrentPlayer->item_related[hand]);
+                        gevrGexGunDone();
+                        if (hand == GUNRIGHT && !(netIsActive() && get_cur_playernum() != netGetLocalSlot()))
+                        {
+                            gevrGexOffCache(&g_CurrentPlayer->copy_of_body_obj_header[hand]);
+                        }
+                    }
+                    else
+                    {
+                    gevrGexGunDone();
                     /* D45 (gepc-ref): GtriggerZ / GwatchlaserZ expand to 0x16030. */
                     texInitPool(&g_CurrentPlayer->item_related[hand], buffer_weapon + 0x17000, size_buffer_weapon - 0x17000);
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, 0x17000, &g_CurrentPlayer->item_related[hand]);
+                    }
 #else
                     texInitPool(&g_CurrentPlayer->item_related[hand], buffer_weapon + 0xAFD0, size_buffer_weapon + 0xFFFF5030);
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, 0xAFD0, &g_CurrentPlayer->item_related[hand]);
