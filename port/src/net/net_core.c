@@ -92,6 +92,9 @@ static bool s_rejoining = false;             /* a client between hosts: its slot
 static uint64_t s_migrate_deadline_us = 0;   /* a client gives up on the new host at this time */
 static char s_old_host_ip[64] = "";          /* the old host's LAN beacon may linger: skipped */
 static uint64_t s_slot_grace_us[GEVR_MAX_PLAYERS];   /* new host: a slot kept for its player until this time */
+static uint64_t s_slot_heard_us[GEVR_MAX_PLAYERS];   /* last application packet from this remote slot */
+static uint64_t s_host_heard_us;                     /* client: last application packet from the host */
+#define NET_SILENCE_TIMEOUT_US (30ull * 1000000ull)
 static void netBroadcastAllVotes(void);
 static void netClearVotes(int slot);
 static void netBroadcastVotes(int kind);
@@ -521,6 +524,7 @@ extern s32 D_80048394;
 extern s32 D_800483A8;
 static void netBroadcastBuf(struct netbuf *buf, uint8_t channel, uint32_t flags, ENetPeer *except);
 static void netHostDropSlot(int slot, ENetPeer *stale);
+static void netHostLost(ENetPeer *peer);
 
 /*
  * A player leaves: the kills against them go to their killers' score bank
@@ -584,12 +588,14 @@ static void netResetLobbyState(void) {
     s_lobby_token[0] = '\0';
     s_game_name[0] = '\0';
     s_lobby_max_players = GEVR_MAX_PLAYERS;
+    s_host_heard_us = 0;
     
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         s_remote_active[i] = false;
         s_client_peers[i] = NULL;
         s_slot_app_version[i][0] = '\0';
         s_slot_grace_us[i] = 0;
+        s_slot_heard_us[i] = 0;
         s_lobby_state.slots[i].team = s_round.team[i] = NET_TEAM_NONE;
         s_lobby_state.slots[i].ping_ms = NET_PING_UNKNOWN;
         memset(&s_remote_moves[i], 0, sizeof(s_remote_moves[i]));
@@ -2586,6 +2592,17 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             enet_peer_disconnect(peer, 0);
         return;
     }
+    /* Pose packets keep an idle player alive. A frozen or force-quit headset stops here. */
+    {
+        uint64_t heard = sysGetMicroseconds();
+        if (netIsHost()) {
+            int from = (int)(intptr_t)peer->data - 1;
+            if (from >= 0 && from < GEVR_MAX_PLAYERS && s_client_peers[from] == peer)
+                s_slot_heard_us[from] = heard;
+        } else if (peer == s_server_peer) {
+            s_host_heard_us = heard;
+        }
+    }
     
     switch (msg_type) {
         case NET_MSG_CLOCK: netReceiveClock(peer,slot_id,&buf);break;
@@ -3620,6 +3637,48 @@ static void netHostRoundTick(uint64_t now) {
     if (s_round_reset_loading) netReadyProgress();
 }
 
+/* Packets are expected in a live round. Loading, the migration grace and the
+ * co-op menus are not: refreshing the stamps there starts the 30 s clock only
+ * once pose packets should be arriving again. */
+static int netSilenceClockRuns(void) {
+    if (s_state != NET_STATE_INGAME) return 0;
+    if (s_phase != NET_PHASE_WARMUP && s_phase != NET_PHASE_IN_PROGRESS) return 0;
+    if (s_round_reset_loading) return 0;
+    if (netCoopSession() && bossGetStageNum() == LEVELID_TITLE) return 0;
+    return 1;
+}
+
+static void netSilenceTick(uint64_t now) {
+    if (!netSilenceClockRuns()) {
+        s_host_heard_us = now;
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) s_slot_heard_us[i] = now;
+        return;
+    }
+    if (netIsHost()) {
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+            ENetPeer *peer;
+            if (i == s_local_slot || !s_lobby_state.slots[i].connected || !s_lobby_state.slots[i].loaded)
+                continue;
+            /* No peer yet: the migration grace drops the slot on its own clock. */
+            if (!s_client_peers[i] || s_slot_grace_us[i]) continue;
+            if (!s_slot_heard_us[i]) { s_slot_heard_us[i] = now; continue; }
+            if (now - s_slot_heard_us[i] < NET_SILENCE_TIMEOUT_US) continue;
+            peer = s_client_peers[i];
+            NET_LOG("Slot %d sent nothing for 30 s: dropping", i);
+            /* A test peer has no ENet host. A live one is reset so it cannot keep the slot. */
+            if (!peer->host) peer->data = NULL;
+            netHostDropSlot(i, peer->host ? peer : NULL);
+        }
+    } else if (s_server_peer) {
+        if (!s_host_heard_us) s_host_heard_us = now;
+        else if (now - s_host_heard_us >= NET_SILENCE_TIMEOUT_US) {
+            NET_LOG("Host sent nothing for 30 s");
+            s_host_heard_us = 0;
+            netHostLost(s_server_peer);
+        }
+    }
+}
+
 static void netRoundTick(void) {
     if (s_state == NET_STATE_INGAME) {
         uint64_t now = sysGetMicroseconds();
@@ -3646,6 +3705,9 @@ static void netRoundTick(void) {
             gevrRestartToLauncher();
             return;
         }
+
+        netSilenceTick(now);
+        if (s_state != NET_STATE_INGAME) return;
 
         netCoopTick();
         netHostRoundTick(now);
@@ -3869,6 +3931,7 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
     s_lobby_state.slots[slot].ping_ms = NET_PING_UNKNOWN;
     s_slot_app_version[slot][0] = '\0';
     s_slot_grace_us[slot] = 0;
+    s_slot_heard_us[slot] = 0;
     netClearVotes(slot);
 
     netBroadcastLobbyState();

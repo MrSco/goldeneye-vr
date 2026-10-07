@@ -1000,7 +1000,7 @@ static NetMatchConfig gevrLauncherConfig() {
     c.next_round = (uint8_t)clampi(VrMpNextRound, 3, 0);
     c.friendly_fire = VrMpFriendlyFire != 0;
     c.voice_mode = (uint8_t)clampi(VrMpVoiceMode, 2, 0);
-    c.fun_flags = (uint8_t)clampi(VrMpFunFlags, 8, 0);
+    c.fun_flags = (uint8_t)(VrMpFunFlags & NET_FUN_MASK);
     c.gun_size = (uint8_t)clampi(VrMpGunSize, 3, 0);
     for (int i = 0; i < 4; i++)
         c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
@@ -1194,12 +1194,13 @@ static void gevrFunOptions(bool hostPage) {
     ImGui::TextDisabled(netIsActive() && netGetPhase() == NET_PHASE_IN_PROGRESS ? "Pending: applies next round"
                                                                                 : "Applies when the round loads");
     ImGui::BeginDisabled(netIsActive() ? !netIsHost() : !hostPage);
-    const char *labels[] = {"DK mode", "Paintball", "Line mode"};
+    const char *labels[] = {"DK mode", "Paintball", "Line mode", "No radar"};
+    const int bits[] = {NET_FUN_DK, NET_FUN_PAINTBALL, NET_FUN_LINE, NET_FUN_NO_RADAR};
     bool changed = false;
-    for (int n = 0; n < 3; n++) {
-        bool on = (flags & (1 << n)) != 0;
+    for (int n = 0; n < 4; n++) {
+        bool on = (flags & bits[n]) != 0;
         if (ImGui::Checkbox(labels[n], &on)) {
-            flags ^= 1 << n;
+            flags ^= bits[n];
             changed = true;
         }
     }
