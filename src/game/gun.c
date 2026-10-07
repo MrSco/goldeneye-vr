@@ -1744,6 +1744,7 @@ static void gevrGexPoseFrom(ModelFileHeader *hdr, Mtxf *rwmtx, s32 anchored, s32
 
 /* gunfire.c, the watch's weapon pages: at rest, where GoldenEye's KF7 shows */
 static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices);   /* below */
+static void gevrGexInstalledMagFitTo(const GexWeaponDef *def, Mtxf *mag, const Mtxf *gun);   /* below */
 
 void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
 {
@@ -1796,6 +1797,11 @@ void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
     if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64)
     {
         gevrGexHandFitTo(def, rwmtx, hdr->numMatrices);
+    }
+    if (gevrGexHasMagazine(def) && def->magMatrix < hdr->numMatrices)
+    {
+        /* the visible magazine where Gun fit put it (user: not on the watch's pages) */
+        gevrGexInstalledMagFitTo(def, &rwmtx[def->magMatrix], &rwmtx[def->gunMatrix]);
     }
 }
 
@@ -2822,7 +2828,8 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     {
         gevrGexForeFrom(rwmtx);   /* before a magazine in the hand moves the left hand */
     }
-    if (g_gevrStereo && gevrGexHasMagazine(def))
+    /* the visible magazine's fit is the model's: the screen too (user) */
+    if (gevrGexHasMagazine(def))
         gevrGexInstalledMagFitTo(def, &rwmtx[def->magMatrix], &rwmtx[def->gunMatrix]);
     if (offHolds)
     {
