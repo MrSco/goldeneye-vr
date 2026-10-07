@@ -189,12 +189,15 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         }
     } else {
         GevrPauseField field;
-        for(int i=0;gevrPauseReadField(ui.tab,i,&field);i++) {
-            const bool audio=ui.tab==GEVR_PAUSE_AUDIO;
-            gevrPauseFieldWidget(field,audio?18:18+(i%2)*642,212+(audio?i:i/2)*76,audio?1100:602);
-        }
+        const bool audio=ui.tab==GEVR_PAUSE_AUDIO;
+        int fields=0;while(gevrPauseReadField(ui.tab,fields,&field))fields++;
+        /* two columns at 76 apart; a full Rules tab (a custom set and bots) closes them up above the buttons */
+        const int rows=audio?fields:(fields+1)/2;
+        const int step=rows>8?(800-48-212)/(rows-1):76;
+        for(int i=0;gevrPauseReadField(ui.tab,i,&field);i++)
+            gevrPauseFieldWidget(field,audio?18:18+(i%2)*642,212+(audio?i:i/2)*step,audio?1100:602);
         ImGui::SetCursorPos(ImVec2(18,816));
-        ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Host settings. Round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
+        if(212+(rows-1)*step+48<810) ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Host settings. Round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
     }
     ImGui::SetCursorPos(ImVec2(18,864));ImGui::Separator();
     ImGui::SetCursorPos(ImVec2(18,886));

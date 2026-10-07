@@ -88,7 +88,7 @@ Issue #88 raises the slots from four to eight. Every slot is still a game player
 
 ## Bots (protocol 19)
 
-The host can fill a deathmatch with bots: **Bots** in the launcher's match options and on the pause menu's match page (lobby and warmup only). The choices are **Off**, **Fill empty slots** (every place no human holds, up to the player count) and **Fixed count** (1 to 7). A single **Bot difficulty** covers them all, with Perfect Dark's six steps: Meat, Easy, Normal, Hard, Perfect, Dark. A host can start alone with bots. Co-op has none.
+The host can fill a deathmatch with bots: **Bots** in the launcher's match options and on the pause window's **Rules** tab (lobby and warmup only). The choices are **Off**, **Fill empty slots** (every place no human holds, up to the player count) and **Fixed count** (1 to 7). A single **Bot difficulty** covers them all, with Perfect Dark's six steps: Meat, Easy, Normal, Hard, Perfect, Dark. A host can start alone with bots. Co-op has none.
 
 - **What a bot is.** A bot is a real player slot that the host runs the way GoldenEye runs a split-screen player. An AI fills in its controller (`src/game/gevr_bot.c`, 1.1 Honey's layout), and its view is set directly. The game moves it (walls, steps, doors), fires its gun and judges the shot in the bot's own view pass. The game hurts, kills, respawns and scores it. The host owns its slot as a player owns their own (`net_core.c netSlotOwned`): damage applies there, and its moves, hit reports, respawns, projectiles, explosions and pickups go out under its slot. The other headsets see an ordinary remote player. It counts on the scoreboard and can win.
 - **Brain.** Perfect Dark's simulants (`bot.c`, `botcmd.c`, `botinv.c`):
