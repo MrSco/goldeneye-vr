@@ -2271,12 +2271,19 @@ static bool vr_pointer_grid_probe(void)
     return on;
 }
 
+static bool vr_screen_over_stereo(void);   // below: the pause panel over the game's eye buffers
+
 extern "C" void vr_pointer_draw(void)
 {
     const VrPointerHand &p0 = g_ptr[g_ptrActive];
     const bool grid = g_screenVisible && g_screenW != 0 && vr_pointer_grid_probe();
     const bool wanted = g_ptrFrame - g_ptrWantedFrame < 20;
-    if (!g_screenVisible || ((!p0.hit || !wanted) && !grid)) {
+    const bool beam = (p0.hit && wanted) || grid;
+    // The pause panel over a stereo game (vr_end_frame's layer order): the
+    // panel goes under the eye buffers, as the launcher's screen does, and
+    // these are cut open over it, so the beam drawn here shows in front.
+    const bool cut = vr_screen_over_stereo();
+    if (!g_screenVisible || (!beam && !cut)) {
         return;
     }
     VrPointerHand p = p0;
@@ -2315,6 +2322,8 @@ extern "C" void vr_pointer_draw(void)
             "    if (vShape.z < 0.5) {\n"
             "        float c = 1.0 - abs(vShape.x * 2.0 - 1.0);\n"
             "        a = vShape.w * c * c * smoothstep(0.0, 0.35, vShape.y);\n"
+            "    } else if (vShape.z > 1.5) {\n"
+            "        a = vShape.w;\n"                       // kind 2: a flat alpha (the panel's cut)
             "    } else {\n"
             "        float r = length(vShape.xy * 2.0 - 1.0);\n"
             "        a = vShape.w * (1.0 - smoothstep(0.55, 1.0, r));\n"
@@ -2441,8 +2450,43 @@ extern "C" void vr_pointer_draw(void)
     glUniformMatrix4fv(s_ptrVpLoc, 2, GL_FALSE, vp);
     glBindVertexArray(s_ptrVao);
     glBindBuffer(GL_ARRAY_BUFFER, s_ptrVbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
-    glDrawArrays(GL_TRIANGLES, 0, 12);
+    if (cut) {
+        // The eye buffers' alpha: opaque, then clear over the panel's own
+        // (curved) surface, through which the compositor shows the panel.
+        GLfloat clearCol[4];
+        glGetFloatv(GL_COLOR_CLEAR_VALUE, clearCol);
+        glDisable(GL_BLEND);
+        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        constexpr int CUT_COLUMNS = 32;
+        static float cutverts[CUT_COLUMNS * 6][7];
+        int n = 0;
+        for (int c = 0; c < CUT_COLUMNS; c++) {
+            float q[4][3];
+            vr_screen_uv_to_world((float)c / CUT_COLUMNS, 0.0f, q[0]);
+            vr_screen_uv_to_world((float)(c + 1) / CUT_COLUMNS, 0.0f, q[1]);
+            vr_screen_uv_to_world((float)(c + 1) / CUT_COLUMNS, 1.0f, q[2]);
+            vr_screen_uv_to_world((float)c / CUT_COLUMNS, 1.0f, q[3]);
+            const int idx[6] = { 0, 1, 2, 0, 2, 3 };
+            for (int k = 0; k < 6; k++, n++) {
+                for (int i = 0; i < 3; i++) cutverts[n][i] = q[idx[k]][i];
+                cutverts[n][3] = 0.0f;
+                cutverts[n][4] = 0.0f;
+                cutverts[n][5] = 2.0f;
+                cutverts[n][6] = 0.0f;
+            }
+        }
+        glBufferData(GL_ARRAY_BUFFER, sizeof(cutverts), cutverts, GL_STREAM_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, n);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        glClearColor(clearCol[0], clearCol[1], clearCol[2], clearCol[3]);
+        glEnable(GL_BLEND);
+    }
+    if (beam) {
+        glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, 12);
+    }
 
     if (grid) {
         static const float gu[5] = { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f };
@@ -2829,6 +2873,12 @@ extern "C" void gevrVrMarkEyesRendered(int stereo)
 // A 2D virtual screen drawn over an empty void (launcher, menus, 2D play, 2D pause).
 static inline bool vr_screen_on_void(void) {
     return g_screenVisible && (!g_screenOverlay || !g_eyesHoldStereo);
+}
+
+// The pause panel over the stereo game: under the eye buffers, which
+// vr_pointer_draw cuts open over it (the screen layer goes first, as on the void).
+static bool vr_screen_over_stereo(void) {
+    return g_screenVisible && g_screenOverlay && g_eyesHoldStereo;
 }
 
 /*
@@ -4028,8 +4078,10 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&passLayer);
     }
 
-    const bool screenAsOverlay = submitScreen && g_screenOverlay && g_eyesHoldStereo;
-    if (submitScreen && !screenAsOverlay) {
+    // The pause panel over the stereo game goes first too: vr_pointer_draw
+    // cut the eye buffers open over it, so the beam shows in front of it
+    // (as the launcher's does) instead of under it.
+    if (submitScreen) {
         layers[numLayers++] = screenCurved
             ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
             : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
@@ -4061,11 +4113,6 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     XrFrameEndInfo endInfo = {XR_TYPE_FRAME_END_INFO};
     endInfo.displayTime          = frameState.predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-    if (submitScreen && screenAsOverlay) {
-        layers[numLayers++] = screenCurved
-            ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
-            : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
-    }
     endInfo.layerCount           = numLayers;
     endInfo.layers               = layers;
 
