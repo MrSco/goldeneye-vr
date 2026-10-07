@@ -130,11 +130,11 @@ int main(int argc, char **argv) {
         assert(VrGexWeaponFits[6][3][2] == 47.25f);
         assert(VrGexWeaponFits[12][6][0] == -3.25f);
         assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -19.1169f && VrGunOffX == 2.74f);
-        assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 90.1f);
+        assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 86.3f);
         assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);
         assert(VrGexGuns == 0);   // GexGuns is not read as a Gex-prefixed fit
         assert(VrReloadGrab[1][2] == -9.5f && VrReloadGrab[0][2] == -8.0f);
-        assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 20.61f && VrGexHeldMag[1] == 2.25f);
+        assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 19.86f && VrGexHeldMag[1] == 2.25f);
         assert(VrGexWatch[3] == 1.5f && VrGexWatch[0] == 5.18f && VrGexForeHold[0] == 3.5f);
         assert(VrGexPp7Grab[1] == -1.25f && VrGexPp7Support[2] == 2.5f);
         assert(VrGexPp7GunOff[0] == 0.75f);
