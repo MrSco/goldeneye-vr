@@ -477,7 +477,13 @@ int main(int argc,char **argv) {
     /* Every rest pose must keep the actual gun at its screen placement. */
     Mtxf anchor,screen[64]; gevrGexScreenAnchor(&hdr,&anchor);
     gevrGexPoseWalk(&hdr,&anchor,gevrGexRestAnim(active),0,screen);
-    if (active->screenHand) {
+    if (active->screenHand && active->screenFromPp7) {
+        /* GE-X's own place beside the PP7: the PP7's root moved by the offset */
+        Mtxf inv; gevrGexRigidInverse(&s_gevrGexPp7RestGun, &inv);
+        const f32 *pp7 = gevrGexGunFit(ITEM_WPPK); (void)pp7;
+        for (int a=0;a<3;a++) assert(fabsf(anchor.m[3][a]-(s_gevrGexPp7ScreenOffset[a]+inv.m[3][a]
+            +active->screenPp7Offset[0]*inv.m[0][a]+active->screenPp7Offset[1]*inv.m[1][a]+active->screenPp7Offset[2]*inv.m[2][a]))<0.01f);
+    } else if (active->screenHand) {
         /* held on the PP7's virtual controller: with the PP7's own fit, its root is the PP7's */
         f32 saved[3], *fit = gevrGexGunFit(active->item), *pp7 = gevrGexGunFit(ITEM_WPPK);
         Mtxf inv, same;

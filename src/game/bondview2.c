@@ -1172,7 +1172,7 @@ static GevrItemPose s_gevrItemPoses[] = {
     { ITEM_TIMEDMINE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, -90.0f }, 1.0f, TRUE },  /* flat against the palm, top out (#19) */
     { ITEM_PROXIMITYMINE, { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, -90.0f }, 1.0f, TRUE },
     { ITEM_REMOTEMINE,    { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, -90.0f }, 1.0f, TRUE },
-    { ITEM_BUG,           { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.67f, TRUE },  /* covert modem: 1.5x too big (user) */
+    { ITEM_BUG,           { 1.06f, 0.31f, 8.91f }, { 4.2f, -8.2f, -86.2f }, 0.608f, TRUE },  /* covert modem: gadget fit in GE-X's hand (user) */
     { ITEM_MICROCAMERA,   { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
     { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 90.0f }, 2.0f, TRUE },   /* tiny at 1 (issue #8) */
     { ITEM_BOMBCASE,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },   /* half size at 1 (user) */
@@ -15428,7 +15428,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         const float *r = gevrGexSupportRotFit(held);
 
         snprintf(buf, sizeof(buf),
-                 "DETONATOR HAND FIT%s\nFORWARD %.1f  SIDE %.1f  UP %.1f CM\nTURN %.0f %.0f %.0f DEG\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD RIGHT GRIP: STICKS TURN IT\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 "DETONATOR WATCH FIT%s\nTHE WATCH IN THE HAND\nFORWARD %.1f  SIDE %.1f  UP %.1f CM\nTURN %.0f %.0f %.0f DEG\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD RIGHT GRIP: STICKS TURN IT\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, -h[2], h[0], h[1], r[0], r[1], r[2], gevrFitNextLine(3));
     }
     else if (gevrOffHandFitting)
