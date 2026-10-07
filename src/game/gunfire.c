@@ -4047,7 +4047,7 @@ static void gevrPlaceRemoteGunSound(ALSoundState *state, s32 hand)
         return;
     }
     local = netGetLocalSlot();
-    if (get_cur_playernum() == local || local < 0 || local >= 4)
+    if (get_cur_playernum() == local || local < 0 || local >= MAX_PLAYER_COUNT)
     {
         return;
     }
@@ -4813,7 +4813,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 #endif
                )
             {
-                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, EMPTY_GUN_FIRE_SFX, NULL);
+                gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, EMPTY_GUN_FIRE_SFX, NULL), hand);   /* another player's (a copy, a bot): from where they stand */
             }
         }
     }
@@ -5159,18 +5159,18 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 switch (var_s1)
                 {
                     case ITEM_LASER:
-                        sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_LASER_SFX, NULL);
+                        gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_LASER_SFX, NULL), hand);
                         break;
 
                     case ITEM_KNIFE:
                     case ITEM_THROWKNIFE:
-                        sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_KNIFE_SFX, NULL);
+                        gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_KNIFE_SFX, NULL), hand);
                         break;
 
                     case ITEM_TIMEDMINE:
                     case ITEM_PROXIMITYMINE:
                     case ITEM_REMOTEMINE:
-                        sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_MINE_SFX, NULL);
+                        gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_MINE_SFX, NULL), hand);
                         break;
 
                     case ITEM_UNARMED:
@@ -5191,7 +5191,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                         break;
 
                     default:
-                        sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_GUN_SFX, NULL);
+                        gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_GUN_SFX, NULL), hand);
                         break;
                 }
             }
@@ -5346,7 +5346,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             case ITEM_WATCHCOMMUNICATOR:
             case ITEM_WATCHGEIGERCOUNTER:
             case ITEM_WATCHMAGNETREPEL:
-                sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, GUN_RIFLECOCK_SFX, NULL);
+                gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, GUN_RIFLECOCK_SFX, NULL), hand);
                 break;
             }
         }
@@ -5509,7 +5509,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 && (handptr->field_890 >= WHEN_11_FLD890_1))
         {
             sp7C = knife_throw_sounds;
-            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, sp7C.half[randomGetNext() % 3U], NULL);
+            gevrPlaceRemoteGunSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, sp7C.half[randomGetNext() % 3U], NULL), hand);
 
 
             if (handptr->weapon_action_state == GUN_ANIM_STATE_KNIFE_SLASH1_BEGIN)
