@@ -946,10 +946,10 @@ static void netReceiveClientCaps(ENetPeer *peer, int slot, struct netbuf *buf, s
 }
 
 /*
- * No radar is additive on protocol 18. v0.4.11 and older reject a lobby or
- * round config with NET_FUN_NO_RADAR and would sit in a lobby they cannot
- * read. While the rule is pending or live, the host removes a guest that has
- * said it does not know the rule; with it off, older apps still play.
+ * No radar (protocol 19). Protocol 19 already turns v0.4.11 and older away;
+ * this is the rule's own guarantee: while it is pending or live, the host
+ * removes a guest that has said it does not know it, which would reject the
+ * config and sit in a lobby it cannot read.
  */
 static int netHostRemoveOldForNoRadar(void) {
     int removed = 0;
