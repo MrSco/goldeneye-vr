@@ -44,6 +44,13 @@ bool bondinvItemAvailableForHand(s32 right, s32 left) {
 ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand) { return player.hands[hand].weaponnum; }
 /* INSERT_NEXT_WEAPON */
 ITEM_IDS get_item_in_hand_or_watch_menu(GUNHAND hand) { return getCurrentPlayerWeaponId(hand); }
+/* gun.c's GE-X remote mines: the hand stays on them while any are out */
+int VrGexGuns;
+static int minesOut;
+s32 gevrGexMinesHold(GUNHAND hand) {
+    return VrGexGuns && hand == GUNRIGHT && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_REMOTEMINE
+        && bondinvItemAvailable(ITEM_TRIGGER) && minesOut;
+}
 s32 get_ammo_type_for_weapon(ITEM_IDS item) { return item > ITEM_KNIFE && item < ITEM_BOMBCASE && item != ITEM_TRIGGER ? item : 0; }
 s32 get_ammo_in_hands_magazine(GUNHAND hand) { return player.hands[hand].weapon_ammo_in_magazine; }
 s32 get_ammo_in_hands_weapon(GUNHAND hand) { return reserve[player.hands[hand].weaponnum]; }
@@ -233,6 +240,11 @@ EXPORT int test_hand_depletion(void) {
     reset(); owned[ITEM_TRIGGER] = 1; player.hands[GUNRIGHT].weaponnum = ITEM_REMOTEMINE;
     gevrAutoAdvanceHand(GUNRIGHT); CHECK(player.hands[GUNRIGHT].weapon_next_weapon == ITEM_TRIGGER);
     CHECK(!player.hands[GUNLEFT].weapon_animation_trigger);
+    /* GE-X: the mines detonate from the watch. Out: the hand stays; none out: on, never to the Detonator */
+    reset(); VrGexGuns = 1; minesOut = 1; owned[ITEM_TRIGGER] = 1; player.hands[GUNRIGHT].weaponnum = ITEM_REMOTEMINE;
+    gevrAutoAdvanceHand(GUNRIGHT); CHECK(!player.hands[GUNRIGHT].weapon_next_weapon);
+    minesOut = 0; gevrAutoAdvanceHand(GUNRIGHT); CHECK(player.hands[GUNRIGHT].weapon_next_weapon != ITEM_TRIGGER);
+    VrGexGuns = 0;
     return 0;
 }
 

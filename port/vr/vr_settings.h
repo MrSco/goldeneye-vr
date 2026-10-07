@@ -41,8 +41,7 @@ extern int VrHostEqualization, VrHostLatencyCapMs;
 extern int VrMpFunFlags, VrMpGunSize;
 extern int VrMpMaxPlayers; // the host's player count, 2..8 on any stage
 extern int VrDetailedGuns;   // guards and other players hold the first-person gun models (#95); 0 = the game's own
-extern int VrGexGuns;        // GoldenEye X's first-person guns from the player's data/gex.z64 (experimental)
-extern int VrGexArms;        // stereo: GoldenEye X's arms for every hand, the left wearing the watch
+extern int VrGexGuns;        // GoldenEye X's first-person models (guns, items, hands, the watch arm) from data/gex.z64
 extern int VrMpScenario, VrMpLength, VrMpHealth, VrMpDual, VrMpLoadouts, VrMpNextRound;
 extern int VrMpCustom[4];       // the host's custom set
 // Co-op (NET_MODE_COOP): the mode, the mission's LEVELID and the solo difficulty (0..3).

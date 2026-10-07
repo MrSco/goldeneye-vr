@@ -46,6 +46,12 @@ typedef struct GexWeaponDef {
     s32 pullUp; /* top-loading magazine extracts up instead of down */
     s32 hasScope; f32 scopeRoot[3];
     s32 fireAnim, gunMatrix, magMatrix, heldMatrix;
+    /* the fist: GoldenEye's two punches (PUNCH1, PUNCH2) play fireAnim and this,
+     * on GoldenEye's own punch clock, in place of its keyframed swing */
+    s32 fireAnimAlt;
+    /* a watch item: the device is the watch on the left arm (in the headset the
+     * tracked arm's, and the right hand presses it) */
+    s32 watch;
     GexReloadDef reload, dualReload;
     f32 holdFrame, screenOffset[3];
     f32 magCentre[3], magTop[3], heldTop[3];

@@ -1055,10 +1055,76 @@ int getCurrentWeaponOrItem(void)
 #include "gevr_gexmodel.h"
 #include "gevr_gexweapon.h"
 #include "net_game.h"
+extern bool netIsActive(void);   /* net_core.c */
+extern int netGetLocalSlot(void);
 #include "gevr_pdanim.h"
 #include "system.h"
 extern int VrGexGuns;   /* goldeneye-vr.ini GexGuns: GoldenEye X's guns (docs/gex-weapons.md) */
 extern s32 g_gevrHandPatchSkip;   /* gevr_handpatch.c: the hand shells are GoldenEye's model's */
+
+/*
+ * GoldenEye X's remote mines (user): GE-X holds the watch in the left hand and
+ * the mines in the right, and detonates one-handed from the watch, so with its
+ * models on the mines are one weapon. The gun hand's trigger throws, the off
+ * hand's detonates (port/src/input.c), the Detonator leaves the weapon lists,
+ * and the empty hand stays on the mines while any of this player's are out.
+ */
+static s32 s_gevrGexDetonate;   /* the off hand's trigger asked; the gun hand's tick detonates */
+
+/* any of the current player's remote mines thrown or stuck */
+s32 gevrGexRemoteMinesOut(void)
+{
+    PropRecord *prop;
+    s32 me = get_cur_playernum();
+
+    for (prop = chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
+    {
+        if (prop->type == PROP_TYPE_WEAPON && prop->weapon != NULL && prop->weapon->weaponnum == ITEM_REMOTEMINE
+            && RUNTIME_OWNER(prop->weapon->runtime_bitflags) == me)
+        {
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+/* the remote mines are out in the gun hand and detonate from the watch */
+s32 gevrGexMineDetonates(void)
+{
+    return VrGexGuns && g_CurrentPlayer != NULL && !g_CurrentPlayer->bonddead
+        && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_REMOTEMINE
+        && getCurrentPlayerWeaponId(GUNLEFT) == ITEM_UNARMED
+        && bondinvItemAvailable(ITEM_TRIGGER);
+}
+
+/* input.c: the off hand's trigger, pressed */
+void gevrGexDetonateRequest(void)
+{
+    s_gevrGexDetonate = TRUE;
+}
+
+/* gunfire.c, the gun hand's tick: the request, as the Detonator's own trigger
+ * would (chrprop.c chraiCheckUseHeldItem) */
+void gevrGexDetonateTick(void)
+{
+    if (!s_gevrGexDetonate || (netIsActive() && get_cur_playernum() != netGetLocalSlot()))
+    {
+        return;   /* this headset's player only: a copy's mines go off on its owner's word */
+    }
+    s_gevrGexDetonate = FALSE;
+    if (gevrGexMineDetonates())
+    {
+        trigger_remote_mine_detonation();
+        sysLogPrintf(LOG_NOTE, "gex: remote mines detonated from the watch");
+    }
+}
+
+/* the hand empty of mines stays on them while any are out (no Detonator to go to) */
+s32 gevrGexMinesHold(GUNHAND hand)
+{
+    return VrGexGuns && hand == GUNRIGHT && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_REMOTEMINE
+        && bondinvItemAvailable(ITEM_TRIGGER) && gevrGexRemoteMinesOut();
+}
 
 /* each player's hands whose model is GoldenEye X's (gevrGexGunPrepare) */
 static const GexWeaponDef *s_gevrGexHand[MAX_PLAYER_COUNT][2];
@@ -1188,7 +1254,8 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     if (gevrGexPendingFile && (mtx > 64 || mtx <= def->magMatrix || mtx <= def->heldMatrix
         || len > D_80032464[hand] || gevrPdAnimNumFrames(gevrGexRestAnim(def)) <= 0
         || (def->reload.anim > 0 && gevrPdAnimNumFrames(def->reload.anim) <= 0)
-        || (def->holdAnim > 0 && gevrPdAnimNumFrames(def->holdAnim) <= 0)))
+        || (def->holdAnim > 0 && gevrPdAnimNumFrames(def->holdAnim) <= 0)
+        || (def->fireAnimAlt > 0 && gevrPdAnimNumFrames(def->fireAnimAlt) <= 0)))
     {
         sysLogPrintf(LOG_ERROR, "gex: %s exceeds gun limits or animation unavailable", def->model);
         free(gevrGexPendingFile);
@@ -1745,6 +1812,27 @@ static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv)
     }
 }
 
+/* a joint with the gun's size in its rows (uniform): rows transposed and divided
+ * by the size squared, the translation turned back */
+static void gevrGexScaledInverse(const Mtxf *g, Mtxf *inv)
+{
+    const f32 s2 = g->m[0][0] * g->m[0][0] + g->m[0][1] * g->m[0][1] + g->m[0][2] * g->m[0][2];
+    s32 i, j;
+
+    gevrGexRigidInverse(g, inv);
+    if (s2 < 1e-12f)
+    {
+        return;
+    }
+    for (i = 0; i < 4; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            inv->m[i][j] /= s2;
+        }
+    }
+}
+
 /* bondview2.c gevrGexMagState */
 enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT };
 extern s32 gevrGexMagState(s32 hand, f32 off[3]);
@@ -1875,7 +1963,7 @@ static void gevrGexLeftHandTo(ModelFileHeader *hdr, Mtxf *rwmtx, const f32 off[3
 /*
  * The headset's arms (user: one arm look and size for every hand, the gun
  * hands keep their animated fingers, and the watch must not shrink - its
- * health, armor and radar would be too small to read): with VrGexArms on,
+ * health, armor and radar would be too small to read): with VrGexGuns on,
  * GoldenEye X's own arms are every arm, as GE-X made them, and GoldenEye's
  * watch is drawn at its own size on the left one's wrist, at the end of its
  * sleeve (bondview2.c gevrRenderGexWatch): the two-handed grip hand, the
@@ -1884,8 +1972,8 @@ static void gevrGexLeftHandTo(ModelFileHeader *hdr, Mtxf *rwmtx, const f32 off[3
  * its animation has it, in place of the grip hand.
  */
 #define GEVR_GEX_CUFF_Z 330.0f   /* where the hand model's sleeves end, on their arm joints' z */
-extern int VrGexArms;   /* vr_settings_defaults.c */
 static void gevrGexOffCache(ModelFileHeader *gunhdr);
+static s32 gevrGexOffHandPose(Mtxf *m, s32 n);
 extern s32 gevrStereoTwoHandGrip(void);   /* bondview2.c */
 extern float VrGexWatch[4];   /* vr_settings_defaults.c: the watch's place and size (Gun fit) */
 
@@ -1899,7 +1987,7 @@ static s32 gevrGexArmsOn(void)
 {
     extern s32 g_gevrStereo;
 
-    return g_gevrStereo && VrGexArms;
+    return g_gevrStereo && VrGexGuns;
 }
 
 /* gunfire.c, bondview2.c: GE-X's left hand holds the gun with both hands */
@@ -2365,6 +2453,21 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     {
         anim = def->fireAnim; frame = fire;
     }
+    else if (def->fireAnimAlt > 0 && g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT))
+    {
+        /* the fist: GoldenEye's punch, as GE-X's (1001 or 1002), on GoldenEye's clock */
+        const s32 st = g_CurrentPlayer->hands[hand].weapon_action_state;
+        const s32 punch = st == GUN_ANIM_STATE_PUNCH1_STRIKE || st == GUN_ANIM_STATE_PUNCH1_RECOVER ? def->fireAnim
+                        : st == GUN_ANIM_STATE_PUNCH2_STRIKE || st == GUN_ANIM_STATE_PUNCH2_RECOVER ? def->fireAnimAlt : 0;
+
+        if (punch > 0)
+        {
+            const f32 last = (f32) (gevrPdAnimNumFrames(punch) - 1);
+
+            anim = punch;
+            frame = g_CurrentPlayer->hands[hand].field_890 < last ? g_CurrentPlayer->hands[hand].field_890 : last;
+        }
+    }
     if (p >= 0 && p < MAX_PLAYER_COUNT && (phase >= 0.0f) != s_gevrGexReloading[p][hand])
     {
         s_gevrGexReloading[p][hand] = phase >= 0.0f;
@@ -2508,6 +2611,35 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         gevrGexWellPoint(def, &s_gevrGexLastMag[hand], &s_gevrGexLastGun[hand], s_gevrGexWellAt);
         gevrGexMtxPoint(&rwmtx[def->heldMatrix], def->heldTop, s_gevrGexHeldAt);
         s_gevrGexMagPointsValid = 1 | (offHolds ? 2 : 0);
+    }
+    /*
+     * A watch item in the headset (user: GE-X's watch laser rig): the tracked
+     * left arm wears the watch (gevrGexDrawOffHand), so the rig's own device
+     * goes; with the hand at the watch (bondview2.c gevrStereoWatchGrip) the
+     * rig's right hand presses it as GE-X's raised arm has it, its left forearm
+     * put on the tracked one's (the same joint of the same skeleton).
+     */
+    if (def->watch && g_gevrStereo && hand == GUNRIGHT && hdr->numMatrices <= 64)
+    {
+        extern s32 gevrStereoWatchGrip(void);   /* bondview2.c */
+        Mtxf offArm[GEVR_GEX_LHAND_LAST + 1], inverse, onto, moved;
+        s32 j;
+
+        if (gevrStereoWatchGrip() && hdr->numMatrices > GEVR_GEX_LHAND_LAST
+            && gevrGexOffHandPose(offArm, GEVR_GEX_LHAND_LAST + 1))
+        {
+            gevrGexScaledInverse(&rwmtx[GEVR_GEX_LHAND_ARM], &inverse);
+            matrix_4x4_multiply(&offArm[GEVR_GEX_LHAND_ARM], &inverse, &onto);
+            for (j = 0; j < hdr->numMatrices; j++)
+            {
+                matrix_4x4_multiply(&onto, &rwmtx[j], &moved);
+                rwmtx[j] = moved;
+            }
+        }
+        for (j = def->gunMatrix; j < hdr->numMatrices; j++)
+        {
+            gevrGexCollapse(&rwmtx[j]);
+        }
     }
     /* last, once nothing else reads them: a stray mesh, and a thrown item that
      * is no toggled part (the mines' own bodies on the gun matrix) */
@@ -2672,6 +2804,87 @@ Model *gevrGexHands(GUNHAND hand)
     return &s_gevrGexHandModel;
 }
 
+/*
+ * gunfire.c gevrRenderItemHand: a mission gadget's hand (user: GE-X's hand for
+ * the gadgets, the gadget in its palm as GoldenEye's fist held it). The hand
+ * model on its own skeleton (the combat hands' rig is the same) in the fist's
+ * rest, 1001's frame 0, on the controller where the GE-X fist is fitted, so
+ * the gadget - put into the fingers from the controller (bondview2.c
+ * gevrStereoItemPose) - sits in it as in the fist. A left hand is the right
+ * one mirrored, as the fist's was.
+ */
+Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mirror, s32 *drawn)
+{
+    extern s32 gevrStereoGunMatrixFit(s32 handnum, const f32 off[3], Mtxf *out);   /* bondview2.c */
+    extern void matrix_4x4_7F058C64(void);
+    extern void matrix_4x4_7F058C88(void);
+    ModelFileHeader *hdr = &s_gevrGexHandHeader;
+    const GexWeaponDef *fist = gevrGexWeaponGet(ITEM_FIST);
+    ModelRenderData renderdata;
+    Mtxf base;
+    Mtxf *m;
+    s32 i, n;
+
+    *drawn = FALSE;
+    if (!gevrGexArmsOn() || fist == NULL || fist->fireAnim <= 0 || gevrPdAnimNumFrames(fist->fireAnim) <= 0
+        || g_CurrentPlayer == NULL || !gevrGexHandLoad() || hdr->numMatrices <= GEVR_GEX_LHAND_LAST
+        || hdr->numMatrices > 64 || !gevrStereoGunMatrixFit(hand, gevrGexGunFit(ITEM_FIST), &base))
+    {
+        return gdl;
+    }
+    if (hand == GUNLEFT)
+    {
+        for (i = 0; i < 4; i++)
+        {
+            base.m[i][0] = -base.m[i][0];   /* a left hand: mirrored in the model's own frame */
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        base.m[0][i] *= 0.1f;   /* the flat game's 0.1, as every viewmodel's (gunfire.c) */
+        base.m[1][i] *= 0.1f;
+        base.m[2][i] *= 0.1f;
+    }
+    n = hdr->numMatrices;
+    m = (Mtxf *) dynAllocate(n * (s32) sizeof(Mtxf));
+    gevrGexPoseWalk(hdr, &base, fist->fireAnim, 0.0f, m);
+
+    modelInit(&s_gevrGexHandModel, hdr, s_gevrGexHandRw);
+    for (i = 0; i < hdr->numSwitches; i++)
+    {
+        s32 *visible = hdr->Switches[i] != NULL ? (s32 *) modelGetNodeRwData(&s_gevrGexHandModel, hdr->Switches[i]) : NULL;
+
+        if (visible != NULL)
+        {
+            *visible = i == GEVR_GEX_HAND_SW_RIGHT;
+        }
+    }
+    s_gevrGexHandModel.render_pos = (RenderPosView *) m;
+    renderdata = *templ;
+    renderdata.gdl = gdl;
+    renderdata.PropType = 4;
+    renderdata.envcolour.word = g_CurrentPlayer->tileColor.a
+                              | ((u32)g_CurrentPlayer->tileColor.r << 24)
+                              | ((u32)g_CurrentPlayer->tileColor.g << 16)
+                              | ((u32)g_CurrentPlayer->tileColor.b << 8);
+    renderdata.zbufferenabled = 1;
+    matrix_4x4_7F058C64();
+    if (mirror)
+    {
+        gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
+    }
+    subdraw(&renderdata, &s_gevrGexHandModel);
+    gdl = renderdata.gdl;
+    if (mirror)
+    {
+        gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
+    }
+    bondviewTransformManyPosToViewMatrix(s_gevrGexHandModel.render_pos, n);
+    matrix_4x4_7F058C88();
+    *drawn = TRUE;
+    return gdl;
+}
+
 /* the log, when what happened to an arm through the watch changes (user: it still showed GoldenEye's) */
 static void gevrGexWatchNote(s32 *last, s32 code, const char *what)
 {
@@ -2684,6 +2897,9 @@ static void gevrGexWatchNote(s32 *last, s32 code, const char *what)
                      g_CurrentPlayer != NULL ? g_CurrentPlayer->watch_animation_state : -1, g_gevrStereo);
     }
 }
+
+/* bondview2.c gevrRenderGexWatch: the watch it draws is the empty off hand's */
+s32 g_gevrGexOffWatch;
 
 /* gunfire.c, where the watch arm goes: the off hand, empty (gevrGexOffCache above) */
 Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
@@ -2713,9 +2929,11 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     }
     /* through the watch's pages too (user: keep GE-X's arm), but the watch's own
      * items fire from the watch arm's face (bondview2.c gevrStereoWatchPoint) */
+    /* the watch items too (user): this arm wears their watch, GE-X's rig the hand at it */
     if (!gevrGexArmsOn() || !VrGexGuns || s_gevrGexOffFrom == NULL || g_CurrentPlayer == NULL
         || g_CurrentPlayer->bonddead || (left != ITEM_UNARMED && left != ITEM_SUIT_LF_HAND)
-        || gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) || gevrStereoTwoHandGrip())
+        || (gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT)) && !gevrGexHeld(GUNRIGHT))
+        || gevrStereoTwoHandGrip())
     {
         if (g_CurrentPlayer != NULL && g_CurrentPlayer->watch_animation_state != 0)
         {
@@ -2763,7 +2981,10 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     renderdata.zbufferenabled = 1;
     matrix_4x4_7F058C64();
     subdraw(&renderdata, &s_gevrGexHandModel);
+    /* its face is where the watch items' beam leaves and the hand presses (bondview2.c) */
+    g_gevrGexOffWatch = TRUE;
     gdl = watch ? gevrRenderGexWatch(renderdata.gdl, &renderdata, pos, x, y) : renderdata.gdl;
+    g_gevrGexOffWatch = FALSE;
     bondviewTransformManyPosToViewMatrix(s_gevrGexHandModel.render_pos, n);
     matrix_4x4_7F058C88();
     *drawn = TRUE;
@@ -2777,10 +2998,9 @@ Gfx *gevrGexDrawOffHand(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
  * pages are drawn on, without its hand or sleeve, and GE-X's left arm is
  * drawn under it, where the watch sits on it in the headset
  * (gevrGexWatchFrame, the other way round), in the KF7's resting grip (the
- * off hand's cache). In the headset's game only (VrPlayMode); the screen
- * game keeps GoldenEye's watch arm.
+ * off hand's cache). On the screen and in the headset alike (user: the
+ * screen game shows GE-X's arms too).
  */
-extern int VrPlayMode;   /* vr_settings_defaults.c: 1 = the headset's game */
 static ModelNode *s_gevrGexSwapDl;
 static Gfx *s_gevrGexSwapSaved[2];
 static s32 s_gevrGexSwapCuff[10];
@@ -2812,10 +3032,10 @@ s32 gevrGexWatchArmSwap(Model *arm, s32 begin)
         }
         return FALSE;
     }
-    if (hdr == NULL || !VrGexArms || !VrPlayMode || !VrGexGuns || s_gevrGexOffFrom == NULL || hdr->numSwitches < 4
+    if (hdr == NULL || !VrGexGuns || s_gevrGexOffFrom == NULL || hdr->numSwitches < 4
         || !gevrGexHandLoad())
     {
-        gevrGexWatchNote(&s_note, hdr == NULL ? 1 : !VrGexArms ? 2 : !VrPlayMode ? 3 : !VrGexGuns ? 4
+        gevrGexWatchNote(&s_note, hdr == NULL ? 1 : !VrGexGuns ? 4
                                   : s_gevrGexOffFrom == NULL ? 5 : hdr->numSwitches < 4 ? 6 : 7,
                          "arm on the screen stays GoldenEye's");
         return FALSE;
@@ -3196,6 +3416,10 @@ void autoadvance_on_deplete_all_ammo(void)
 {
 #ifdef GEVR
     extern s32 g_gevrStereo;
+    if (gevrGexMinesHold(GUNRIGHT))
+    {
+        return;   /* GE-X's remote mines: the watch detonates them, the hand stays */
+    }
     if (g_gevrStereo)
     {
         gevrAutoAdvanceHand(GUNRIGHT);
@@ -3220,7 +3444,11 @@ void autoadvance_on_deplete_all_ammo(void)
         duperight = g_CurrentPlayer->hands[GUNRIGHT].previous_weapon;
         dupeleft = g_CurrentPlayer->hands[GUNLEFT].previous_weapon;
     }
-    else if ((duperight == ITEM_REMOTEMINE) && ((bondinvItemAvailable(ITEM_TRIGGER))))
+    else if ((duperight == ITEM_REMOTEMINE) && ((bondinvItemAvailable(ITEM_TRIGGER)))
+#ifdef GEVR
+             && !VrGexGuns   /* GE-X's remote mines detonate themselves: no Detonator */
+#endif
+             )
     {
         duperight = ITEM_TRIGGER;
         dupeleft = ITEM_UNARMED;
@@ -3487,6 +3715,19 @@ u8 bondwalkItemGetObjectsShootThrough(ITEM_IDS item)
 
 s32 bondwalkItemHasAmmo(ITEM_IDS item)
 {
+#ifdef GEVR
+    /* GE-X's remote mines (gevrGexMineDetonates): the Detonator is theirs, out of
+     * the lists; the mines stay while any are out to detonate */
+    if (VrGexGuns && item == ITEM_TRIGGER)
+    {
+        return 0;
+    }
+    if (VrGexGuns && item == ITEM_REMOTEMINE && get_ammo_count_for_weapon(item) <= 0
+        && bondinvItemAvailable(ITEM_TRIGGER) && gevrGexRemoteMinesOut())
+    {
+        return 1;
+    }
+#endif
     if (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_HAS_AMMO) != 0)
     {
         if ((get_ammo_type_for_weapon(item) == 0) || (get_ammo_count_for_weapon(item) > 0))

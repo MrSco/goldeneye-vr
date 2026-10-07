@@ -204,7 +204,6 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
     fprintf(f, "GexGuns=%d\n", VrGexGuns ? 1 : 0);
     fprintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
-    fprintf(f, "GexArms=%d\n", VrGexArms ? 1 : 0);
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
     fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
@@ -563,7 +562,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpMaxPlayers") == 0) VrMpMaxPlayers = ival >= 2 && ival <= 8 ? ival : 4;
             else if (strcmp(key, "DetailedGuns") == 0) VrDetailedGuns = ival != 0;
             else if (strcmp(key, "GexGuns") == 0) VrGexGuns = ival != 0;
-            else if (strcmp(key, "GexArms") == 0) VrGexArms = ival != 0;
+            /* GexArms (before one toggle): on by default, nothing without the guns; GexGuns decides */
             else if (strcmp(key, "MpVoiceMode") == 0) VrMpVoiceMode = ival == 1 ? 1 : 0;
             else if (strcmp(key, "MpScenario") == 0) VrMpScenario = ival;
             else if (strcmp(key, "MpLength") == 0) VrMpLength = ival;
