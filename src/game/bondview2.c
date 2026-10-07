@@ -16668,10 +16668,18 @@ static void gevrGexRoundTick(f32 cm, const f32 off[3], s32 grip, s32 fresh)
     if (*state != GEVR_GEXMAG_INHAND) *state = GEVR_GEXMAG_IN;
     if (*state == GEVR_GEXMAG_INHAND) {
         for (s32 i=0;i<3;i++) distance2 += (held[i]-well[i])*(held[i]-well[i]);
+        static s32 s_told;
+        if ((s_told++ % 30) == 0)
+            sysLogPrintf(LOG_NOTE, "stereo: hand reload, %d round(s) held, tip %.1f cm from the entrance (seat %.1f cm, points %d)",
+                         s_gevrGexHeldRounds, sqrtf(distance2) / cm, radius / cm, points);
         if (!grip) {
+            sysLogPrintf(LOG_NOTE, "stereo: hand reload, %d round(s) let go %.1f cm from the entrance", s_gevrGexHeldRounds, sqrtf(distance2) / cm);
+            s_told = 0;
             gevrGexMagazineFalls(GUNRIGHT,TRUE); gevrGexHeldDropped();
             *state=GEVR_GEXMAG_IN;
         } else if ((points&3)==3 && distance2 <= radius*radius) {
+            sysLogPrintf(LOG_NOTE, "stereo: hand reload, %d round(s) inserted (%d loaded before)", s_gevrGexHeldRounds, hand->weapon_ammo_in_magazine);
+            s_told = 0;
             if (s_gevrGexHeldRounds > 0 && hand->weapon_ammo_in_magazine + s_gevrGexHeldRounds <= stats->MagSize) {
                 hand->weapon_ammo_in_magazine += s_gevrGexHeldRounds;
                 /* GE draws a loaded rocket as its own prop at the tube (gun.c
@@ -16688,6 +16696,13 @@ static void gevrGexRoundTick(f32 cm, const f32 off[3], s32 grip, s32 fresh)
         g_CurrentPlayer->ammoheldarr[stats->AmmoType] -= rounds;
         s_gevrGexHeldAmmoType=stats->AmmoType; s_gevrGexHeldRounds=rounds;
         *state=GEVR_GEXMAG_INHAND; gevrGexBuzz(0.4f);
+        sysLogPrintf(LOG_NOTE, "stereo: hand reload, %d round(s) taken at the belt (item %d, %d loaded, %d left)",
+                     rounds, def->item, hand->weapon_ammo_in_magazine, g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
+    } else if (grip && fresh) {
+        /* why a fresh grip took nothing: away from the belt, already full, or no reserve */
+        sysLogPrintf(LOG_NOTE, "stereo: hand reload, grip took no round: %.1f cm from the belt, spent %d, %d/%d loaded, %d in reserve",
+                     sqrtf(gevrBeltDist2(0, off)), s_gevrGexGripSpent, hand->weapon_ammo_in_magazine, stats->MagSize,
+                     g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
     }
     s_gevrMagGrab=0;
 }
