@@ -1698,6 +1698,22 @@ void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
         matrix_4x4_set_identity(&ident);
         gevrGexPoseWalk(hdr, &ident, gevrGexRestAnim(def), 0.0f, rest);
         gevrGexRigidInverse(&rest[def->gunMatrix], &inverse);
+        if (def->panelFit[0] > 0.0f)
+        {
+            /* onto GoldenEye's own mesh's place and size (user: the grenade was
+             * small, the unarmed huge and off to one side) */
+            Mtxf fit, moved;
+            s32 i;
+
+            matrix_4x4_set_identity(&fit);
+            for (i = 0; i < 3; i++)
+            {
+                fit.m[i][i] = def->panelFit[0];
+                fit.m[3][i] = def->panelFit[1 + i];
+            }
+            matrix_4x4_multiply(&fit, &inverse, &moved);
+            inverse = moved;
+        }
         matrix_4x4_multiply(&rwmtx[0], &inverse, &base);
         gevrGexPoseWalk(hdr, &base, gevrGexRestAnim(def), 0.0f, rwmtx);
         if (def->hideMatrix > 0 && def->hideMatrix < hdr->numMatrices)
@@ -2225,6 +2241,36 @@ static s32 gevrGexFaceFrame(const Mtxf *joint, const f32 face[4], f32 pos[3], f3
     return TRUE;
 }
 
+/*
+ * The off hand holding the rig's own item (the remote mine's detonator; user:
+ * it sat wrong and had no fit): Gun fit's off hand mode moves it (cm along the
+ * wrist's own x, y and back along its z) and turns it about its palm (degrees),
+ * the support fits, which a one-handed item has no other use for. In the rig's
+ * left wrist's frame, model units.
+ */
+static void gevrGexOffHoldFit(const GexWeaponDef *def, Mtxf *out)
+{
+    const f32 *pos = gevrGexSupportFit(def->item);
+    const f32 *rot = gevrGexSupportRotFit(def->item);
+    const f32 palm[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+    struct coord3d angles;
+    s32 j;
+
+    angles.f[0] = rot[0] * (M_PI_F / 180.0f);
+    angles.f[1] = rot[1] * (M_PI_F / 180.0f);
+    angles.f[2] = rot[2] * (M_PI_F / 180.0f);
+    matrix_4x4_set_rotation_around_xyz(&angles, out);
+    for (j = 0; j < 3; j++)
+    {
+        out->m[3][j] = palm[j] - (palm[0] * out->m[0][j] + palm[1] * out->m[1][j] + palm[2] * out->m[2][j]);
+        out->m[j][3] = 0.0f;
+    }
+    out->m[3][0] += pos[0] / 0.085f;
+    out->m[3][1] += pos[1] / 0.085f;
+    out->m[3][2] -= pos[2] / 0.085f;
+    out->m[3][3] = 1.0f;
+}
+
 static void gevrGexWatchAt(s32 hand, const Mtxf *forearm)
 {
     s_gevrGexWatch[hand].on = gevrGexWatchFrame(forearm, s_gevrGexWatch[hand].pos, s_gevrGexWatch[hand].x,
@@ -2698,7 +2744,10 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         if (cookFrame > def->cookEnd) cookFrame = def->cookEnd;
         gevrGexPoseMechanism(hdr, rwmtx, def->cookAnim, cookFrame);
     }
-    if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64)
+    /* the fist's hand fit is the headset's gesture hand on the controller: on the
+     * screen GE-X's own punches play from its own pose (user: the arm stood up
+     * in the air to the right) */
+    if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64 && (g_gevrStereo || def->fireAnimAlt <= 0))
     {
         gevrGexHandFitTo(def, rwmtx, hdr->numMatrices);   /* before the support point is taken from this hand */
     }
@@ -2851,8 +2900,12 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
             && getCurrentPlayerWeaponId(GUNLEFT) == ITEM_UNARMED && !gevrStereoTwoHandGrip()
             && gevrGexOffHandPose(offArm, GEVR_GEX_LHAND_LAST + 1))
         {
+            Mtxf holdFit, local;
+
             gevrGexScaledInverse(&rwmtx[GEVR_GEX_LHAND_WRIST], &inverse);
-            matrix_4x4_multiply(&offArm[GEVR_GEX_LHAND_WRIST], &inverse, &onto);
+            gevrGexOffHoldFit(def, &holdFit);   /* Gun fit's off hand mode (user) */
+            matrix_4x4_multiply(&holdFit, &inverse, &local);
+            matrix_4x4_multiply(&offArm[GEVR_GEX_LHAND_WRIST], &local, &onto);
             /* GE-X's own left hand holding it (user: its watch in the palm), for
              * gevrGexDrawOffHand: the rig's hand as it holds it, on the tracked wrist */
             for (j = 0; j <= GEVR_GEX_LHAND_LAST; j++)
@@ -3103,7 +3156,6 @@ Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mir
     n = hdr->numMatrices;
     m = (Mtxf *) dynAllocate(n * (s32) sizeof(Mtxf));
     gevrGexPoseWalk(hdr, &base, fist->fireAnim, 0.0f, m);
-    gevrGexHandFitTo(fist, m, n);   /* the fist's own gun hand fit (user's) */
 
     modelInit(&s_gevrGexHandModel, hdr, s_gevrGexHandRw);
     for (i = 0; i < hdr->numSwitches; i++)

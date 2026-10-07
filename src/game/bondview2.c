@@ -15420,6 +15420,17 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
                  "HELD AMMO FIT%s\nPREVIEW ON THE OFF HAND\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, -fit[2], fit[0], fit[1], gevrFitNextLine(4));
     }
+    else if (gevrOffHandFitting && gevrGexHeld(GUNRIGHT) && gevrGexWeaponForHand(GUNRIGHT)->offHandMatrix > 0)
+    {
+        /* the off hand holding the rig's own item, the remote mine's detonator (input.c) */
+        const s32 held = getCurrentPlayerWeaponId(GUNRIGHT);
+        const float *h = gevrGexSupportFit(held);
+        const float *r = gevrGexSupportRotFit(held);
+
+        snprintf(buf, sizeof(buf),
+                 "DETONATOR HAND FIT%s\nFORWARD %.1f  SIDE %.1f  UP %.1f CM\nTURN %.0f %.0f %.0f DEG\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD RIGHT GRIP: STICKS TURN IT\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -h[2], h[0], h[1], r[0], r[1], r[2], gevrFitNextLine(3));
+    }
     else if (gevrOffHandFitting)
     {
         /* GE-X's off hand, empty or holding a magazine: its palm from the grip pose;

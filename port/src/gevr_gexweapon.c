@@ -87,7 +87,8 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .screenFromRoot=1, .screenOffset={-17.660f,-26.253f,-197.154f}, \
     .muzzle={127.559f,309.704f,355.552f}, .screenMuzzle={109.899f,283.451f,158.398f}, \
     .supportRoot={-39.498364f,-28.279365f,49.061958f}, \
-    .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1 }
+    .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1, \
+    .panelFit={1.200f,-86.9f,51.7f,-70.7f} }
 
 /* The throwables. GoldenEye hides these in the hand (HIDE_FIRST_PERSON_HAND);
  * GE-X's own rigs hold them, drawn as guns (gunfire.c), and once one has left
@@ -103,10 +104,11 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
  * ring of radius ~16-17 at z -11, centred on (0, 14.5) */
 #define DETONATOR_FACE {0.0f,14.5f,-11.5f,15.0f}
 #define NO_FACE {0.0f,0.0f,0.0f,0.0f}
-#define MINE_DEF(id, gexslot, file, textures, rest, offz, offhand, face, mx, my, mz) { \
+#define PANEL(s, x, y, z) {s,x,y,z}
+#define MINE_DEF(id, gexslot, file, textures, rest, offz, offhand, face, mx, my, mz, panel) { \
     .item=id, .slot=gexslot, .model=file, .texturePairs=textures, \
     .fireAnim=0, .restAnim=rest, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1, \
-    .screenOffset={0.0f,2.0f,offz}, .spentMatrix=33, .offHandMatrix=offhand, .offHandFace=face, \
+    .screenOffset={0.0f,2.0f,offz}, .spentMatrix=33, .offHandMatrix=offhand, .offHandFace=face, .panelFit=panel, \
     .muzzle={mx,my,mz}, .screenMuzzle={0.0f,2.0f,offz}, \
     .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1 }
 
@@ -142,7 +144,8 @@ static const GexWeaponDef weapons[] = {
         .fireAnim=1001, .fireAnimAlt=1002, .gunMatrix=2, .magMatrix=-1, .heldMatrix=-1,
         .screenFromRoot=1, .screenOffset={-3.957f,-11.053f,-55.746f},
         .supportRoot={-39.498364f,-28.279365f,49.061958f},
-        .numParts=4, .parts={-1,-1,53,54}, .visible={0,0,0,0}, .compact=1, .screenHand=1
+        .numParts=4, .parts={-1,-1,53,54}, .visible={0,0,0,0}, .compact=1, .screenHand=1,
+        .panelFit={0.861f,-265.5f,-118.9f,32.1f}   /* GoldenEye's fist mesh sits far off its origin */
     },
     KNIFE_DEF(ITEM_KNIFE),
     KNIFE_DEF(ITEM_THROWKNIFE),
@@ -153,6 +156,7 @@ static const GexWeaponDef weapons[] = {
         .muzzle={87.029f,38.664f,215.278f}, .screenMuzzle={59.856f,15.851f,6.583f},
         .supportRoot={-39.498364f,-28.279365f,49.061958f},
         .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1,
+        .panelFit={6.132f,64.4f,151.9f,-97.9f},   /* GoldenEye's grenade is six times GE-X's */
         /* throw 1062's lever (matrix 34) lifts by 6 and has flown by 30 */
         .cookAnim=1062, .cookEnd=30.0f, .cookMatrix=34
     },
@@ -166,14 +170,19 @@ static const GexWeaponDef weapons[] = {
         .fireAnim=0, .restAnim=1086, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1,
         .screenFromRoot=1, .screenOffset={0.071f,-29.923f,-84.617f},
         .muzzle={28.462f,143.276f,90.878f}, .screenMuzzle={28.533f,113.354f,6.261f},
-        .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1
+        .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1,
+        .panelFit={2.199f,-36.6f,52.3f,-431.7f}
     },
-    MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f),
-    MINE_DEF(ITEM_PROXIMITYMINE, 28, "GproximitymineZ", proxMineTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f),
-    MINE_DEF(ITEM_REMOTEMINE, 29, "GremotemineZ", remoteMineTextures, 1078, 10.0f, 34, DETONATOR_FACE, -6.853f, 8.724f, 89.783f),
+    MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f,
+             PANEL(1.0f, 3.1f, -64.6f, -13.5f)),
+    MINE_DEF(ITEM_PROXIMITYMINE, 28, "GproximitymineZ", proxMineTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f,
+             PANEL(1.0f, 2.0f, -71.6f, -14.3f)),
+    MINE_DEF(ITEM_REMOTEMINE, 29, "GremotemineZ", remoteMineTextures, 1078, 10.0f, 34, DETONATOR_FACE, -6.853f, 8.724f, 89.783f,
+             PANEL(1.0f, 1.8f, -65.8f, -3.6f)),
     /* Plastique: GE-X's (slot 53), Perfect Dark's ECM mine, rigged as the timed mine is
      * (34 joints, the item on 33) with its idle 1072 and its place clip 1077 */
-    MINE_DEF(ITEM_PLASTIQUE, 53, "GecmmineZ", plastiqueTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f),
+    MINE_DEF(ITEM_PLASTIQUE, 53, "GecmmineZ", plastiqueTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f,
+             PANEL(3.921f, -62.7f, 107.8f, 0.0f)),
     {
         .item=ITEM_AK47, .slot=7, .model="Gak47Z", .texturePairs=kf7Textures,
         .fireAnim=1017, .gunMatrix=33, .magMatrix=39, .heldMatrix=40,

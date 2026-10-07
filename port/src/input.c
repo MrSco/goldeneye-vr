@@ -1344,6 +1344,22 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     magFit[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     magFit[2] -= my * rate * dt;
                     magFit[1] += ry * rate * dt;
+                } else if (gevrOffHandFitting && gevrGexWeaponForHand(GUNRIGHT) != NULL
+                           && gevrGexWeaponForHand(GUNRIGHT)->offHandMatrix > 0) {
+                    /* the off hand holds the rig's own item (the remote mine's detonator,
+                     * user: no fit for it): the sticks move it on the wrist, holding the
+                     * right grip they turn it about the palm (gun.c gevrGexOffHoldFit) */
+                    if (get_button_state(1, "grip")) {
+                        float *r = gevrGexSupportRotFit(fitItem);
+                        r[0] += my * 45.0f * dt;
+                        r[1] += ry * 45.0f * dt;
+                        r[2] += mx * 45.0f * dt;
+                    } else {
+                        float *h = gevrGexSupportFit(fitItem);
+                        h[0] += mx * rate * dt;
+                        h[2] -= my * rate * dt;
+                        h[1] += ry * rate * dt;
+                    }
                 } else if (gevrOffHandFitting && get_button_state(1, "grip")) {
                     /* holding the right grip, the watch on GE-X's left wrist (user: over
                      * the wrist, sized to the arm): forward and sideways, up and down,
