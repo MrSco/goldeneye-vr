@@ -325,7 +325,7 @@ static u8 *partVertices(u8 *source,int wanted) {
     abort();
 }
 int main(int argc,char **argv) {
-    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH,ITEM_SILVERWPPK,ITEM_GOLDWPPK};
+    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH,ITEM_SILVERWPPK,ITEM_GOLDWPPK,ITEM_KNIFE,ITEM_THROWKNIFE};
     for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) { active=gevrGexWeaponGet(items[i]); assert(active); switches(); }
     assert(gevrGexWeaponGet(ITEM_WPPK)->magMatrix==38);
     assert(gevrGexWeaponGet(ITEM_WPPK)->heldMatrix==42);
@@ -344,9 +344,11 @@ int main(int argc,char **argv) {
     assert(gevrGexInstalledMagFit(ITEM_MP5K)==gevrGexInstalledMagFit(ITEM_MP5KSIL));
     assert(gevrGexInstalledMagFit(ITEM_M16)!=gevrGexInstalledMagFit(ITEM_SPECTRE));
     assert(gevrGexWeaponGet(ITEM_WPPK)->muzzle[2]<gevrGexWeaponGet(ITEM_WPPKSIL)->muzzle[2]);
-    assert(!gevrGexWeaponGet(ITEM_KNIFE));
+    assert(!gevrGexWeaponGet(ITEM_TASER));
     assert(!gevrGexHasMagazine(gevrGexWeaponGet(ITEM_LASER)));
     assert(gevrGexGunFit(ITEM_MP5K)==gevrGexGunFit(ITEM_MP5KSIL));
+    assert(gevrGexGunFit(ITEM_KNIFE)==gevrGexGunFit(ITEM_THROWKNIFE) && gevrGexHandFit(ITEM_KNIFE)==gevrGexHandFit(ITEM_THROWKNIFE));
+    assert(!gevrGexHasAmmo(gevrGexWeaponGet(ITEM_KNIFE)) && gevrGexWeaponGet(ITEM_THROWKNIFE)->screenFromRoot);
     assert(gevrGexSupportRotFit(ITEM_UZI)!=gevrGexSupportRotFit(ITEM_SKORPION));
     assert(gevrGexGrabFit(ITEM_TT33)!=gevrGexGrabFit(ITEM_WPPK));
     /* Real input X cycling and the HUD must include magazine fit with reload
@@ -448,6 +450,13 @@ int main(int argc,char **argv) {
     /* Every rest pose must keep the actual gun at its screen placement. */
     Mtxf anchor,screen[64]; gevrGexScreenAnchor(&hdr,&anchor);
     gevrGexPoseWalk(&hdr,&anchor,gevrGexRestAnim(active),0,screen);
+    if (active->screenFromRoot) {
+        /* the rig's own pose from its root; the hand's palm where the PP7's sits */
+        const f32 palmL[3]={0,0,GEVR_GEX_PALM_Z},pp7Palm[3]={-18.22f,-25.04f,-5.74f}; f32 palm[3];
+        for (int a=0;a<3;a++) assert(fabsf(screen[0].m[3][a]-active->screenOffset[a])<0.01f);
+        gevrGexMtxPoint(&screen[GEVR_GEX_RHAND_WRIST],palmL,palm);
+        for (int a=0;a<3;a++) assert(fabsf(palm[a]-pp7Palm[a])<0.1f);
+    } else
     for (int a=0;a<3;a++) assert(fabsf(screen[active->gunMatrix].m[3][a]-active->screenOffset[a])<0.01f);
     if (active->hasScope) {
         const struct GevrScope *sc=&s_gevrScopes[active->item==ITEM_LASER];
@@ -613,6 +622,6 @@ with tempfile.TemporaryDirectory(prefix="gex-weapons-") as directory:
         sys.path.insert(0,str(ROOT/'tools/gex'))
         from pdrom import PdRom
         rom=PdRom(sys.argv[1])
-        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18),('GdydevastatorZ',24),('Gdy357Z',20),('Gdy357trentZ',21)):
+        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18),('GdydevastatorZ',24),('Gdy357Z',20),('Gdy357trentZ',21),('GknifeZ',2),('GknifeZ',3)):
             sample=temp/'model.bin'; sample.write_bytes(rom.load(model))
             subprocess.run([str(exe),str(sample),str(Path(sys.argv[1]).resolve()),str(item)],check=True)

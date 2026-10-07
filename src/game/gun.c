@@ -1346,6 +1346,12 @@ static void gevrGexScreenAnchor(ModelFileHeader *hdr, Mtxf *anchor)
     const Mtxf *g;
     s32 i, j;
 
+    if (def->screenFromRoot)
+    {
+        matrix_4x4_set_identity(anchor);
+        for (i = 0; i < 3; i++) anchor->m[3][i] = def->screenOffset[i];
+        return;
+    }
     matrix_4x4_set_identity(&ident);
     gevrGexPoseWalk(hdr, &ident, gevrGexRestAnim(def), 0.0f, rest);
     g = &rest[def->gunMatrix];

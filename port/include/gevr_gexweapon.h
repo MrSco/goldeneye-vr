@@ -30,6 +30,10 @@ typedef struct GexWeaponDef {
     /* a GoldenEye prop drawn as the held payload on heldMatrix when the rig has
      * none (grenade launcher), in model units times payloadScale */
     s32 payloadProp; f32 payloadScale;
+    /* screen mode: place the rig's root (Perfect Dark's own first-person
+     * pose) at screenOffset instead of squaring the gun joint to the screen;
+     * for items whose mesh does not run along their joint's z (the knife) */
+    s32 screenFromRoot;
     s32 restAnim; /* explicit equip/idle pose when the ROM has no firing animation */
     s32 gripMatrix; /* optional reload joint actually held by the hand */
     s32 pullUp; /* top-loading magazine extracts up instead of down */
