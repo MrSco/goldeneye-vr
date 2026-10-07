@@ -12,12 +12,18 @@ extern "C" {
 typedef struct GexReloadDef {
     s32 anim;
     f32 ammoFrame, magOut, heldShow, heldHide;
+    f32 openShow, openHide; /* optional chamber/cover visibility interval */
 } GexReloadDef;
 
 typedef struct GexWeaponDef {
     s32 item, slot;
     const char *model;
     const u16 *texturePairs;
+    s32 singleRound; /* load one shell/rocket without removing loaded ammunition */
+    s32 restAnim; /* explicit equip/idle pose when the ROM has no firing animation */
+    s32 gripMatrix; /* optional reload joint actually held by the hand */
+    s32 pullUp; /* top-loading magazine extracts up instead of down */
+    s32 hasScope; f32 scopeRoot[3];
     s32 fireAnim, gunMatrix, magMatrix, heldMatrix;
     GexReloadDef reload, dualReload;
     f32 holdFrame, screenOffset[3];
@@ -34,6 +40,13 @@ typedef struct GexWeaponDef {
     s32 compact; /* wrap the shooting grip; rest left arm is parked on these rigs */
 } GexWeaponDef;
 
+static inline s32 gevrGexHasMagazine(const GexWeaponDef *def) { return def && !def->singleRound && def->magMatrix >= 0 && def->heldMatrix >= 0; }
+static inline s32 gevrGexHasAmmo(const GexWeaponDef *def) { return def && def->magMatrix >= 0 && def->heldMatrix >= 0; }
+static inline s32 gevrGexRestAnim(const GexWeaponDef *def) { return def->restAnim ? def->restAnim : def->fireAnim; }
+static inline s32 gevrGexChamberOpen(const GexReloadDef *reload, f32 frame, s32 held)
+{
+    return reload->openHide > reload->openShow && (held || (frame >= reload->openShow && frame < reload->openHide));
+}
 const GexWeaponDef *gevrGexWeaponGet(s32 item);
 const GexWeaponDef *gevrGexWeaponForHand(s32 hand);
 void gevrGexMagazineReady(s32 hand);

@@ -1217,9 +1217,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (scope < 0) gevrScopeFitting = 0;
             if (!fitting || !gevrReloadFitAvailable()) gevrReloadFitting = 0;
             if (!gex) gevrOffHandFitting = 0;
-            if (!gex) gevrHeldMagFitting = 0;
-            if (!gex) gevrWellFitting = 0;
-            if (!gex) gevrInstalledMagFitting = 0;
+            if (!gex || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT))) gevrHeldMagFitting = 0;
+            if (!gex || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT))) gevrWellFitting = 0;
+            if (!gex || !gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT))) gevrInstalledMagFitting = 0;
             if (!fitting || !gevrMuzzleFitAvailable()) gevrMuzzleFitting = 0;
             if (fitting && !fitWas) {
                 gevrGunFitSaved(false);
@@ -1244,7 +1244,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (x && !xHeld && gadget < 0) {
                     static const char *const names[8] = { "gun", "scope", "reload", "off hand", "held magazine", "magazine well", "installed magazine", "barrel tip" };
                     const bool can[8] = { true, scope >= 0, gevrReloadFitAvailable() != 0, gex != 0,
-                        gex != 0, gex != 0, gex != 0, gevrMuzzleFitAvailable() != 0 };
+                        gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable() != 0 };
                     int mode = gevrScopeFitting ? 1 : gevrReloadFitting ? 2 : gevrOffHandFitting ? 3
                         : gevrHeldMagFitting ? 4 : gevrWellFitting ? 5 : gevrInstalledMagFitting ? 6 : gevrMuzzleFitting ? 7 : 0;
                     do {
@@ -1537,6 +1537,23 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // as Perfect Dark VR's (sight.c sightDrawLeftHand, on vr_button_L_grip).
         // Not R as well: here R aims and zooms.
         vr_button_L_grip = stereoplay && gevrDualWielding() && leftGrip && !leftThrowable && !gripTaken[0];
+        // Scope sight diagnosis (sniper/laser headset reports): every source of
+        // the aim request, logged only when one of them changes.
+        {
+            static int aimWas = -1;
+            const int aim = (stereoplay ? 1 : 0) | (menu ? 2 : 0) | (fitting ? 4 : 0)
+                | (rightGrip ? 8 : 0) | (leftGrip ? 16 : 0) | (get_button_state(0, "trigger") ? 32 : 0)
+                | (gripTaken[0] ? 64 : 0) | (gripTaken[1] ? 128 : 0)
+                | (gevrStereoTwoHandGrip() ? 256 : 0) | ((npad->button & R_TRIG) ? 512 : 0)
+                | ((npad->button & L_TRIG) ? 1024 : 0);
+            if (aim != aimWas && g_gevrStereo) {
+                LOGI("aimsrc: play %d menu %d fit %d gunGrip %d offGrip %d offTrig %d taken %d/%d twoHand %d R %d L %d item %d\n",
+                     aim & 1, !!(aim & 2), !!(aim & 4), !!(aim & 8), !!(aim & 16), !!(aim & 32),
+                     !!(aim & 64), !!(aim & 128), !!(aim & 256), !!(aim & 512), !!(aim & 1024),
+                     g_CurrentPlayer ? (int)getCurrentPlayerWeaponId(GUNRIGHT) : -1);
+            }
+            aimWas = aim;
+        }
         // The off hand's buttons do what the gun hand's in the same place do, as
         // in the launcher (user): X (lower) is A, the weapons, and Y (upper) is B,
         // use/reload. (Not the X that just switched the texture pack in the

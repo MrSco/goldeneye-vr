@@ -38,6 +38,15 @@ char g_ActiveExtTexPack[256] = {};
 unsigned int arc4random_uniform(unsigned int) { return 1; }
 /* FIT_SNAPSHOT */
 
+static void newFamilyFits(float base, bool check) {
+    const int items[]={14,15,16,17,19,22,25};
+    for(int item:items) for(int component=0;component<7;component++) for(int axis=0;axis<3;axis++) {
+        const float value=base+item+component*0.25f+axis*0.125f;
+        if(check) assert(VrGexWeaponFits[item][component][axis]==value);
+        else VrGexWeaponFits[item][component][axis]=value;
+    }
+}
+
 int main(int argc, char **argv) {
     const int initial = VrRefreshRate;
 #ifdef ANDROID
@@ -62,7 +71,7 @@ int main(int argc, char **argv) {
     // Gun fit: GoldenEye X's models' own trims and the scopes'
     if (argc > 1 && std::strcmp(argv[1], "fit_invalid") == 0) {
         assert(VrGexWeaponFits[6][3][2] == 8.8f);
-        assert(VrGexWeaponFits[14][0][0] == 0);
+        assert(VrGexWeaponFits[18][0][0] == 0);
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "fit_write") == 0) {
@@ -95,7 +104,9 @@ int main(int argc, char **argv) {
         VrMuzzleTrim[1][8][2] = 4.25f;
         VrGexWeaponFits[6][3][2] = 47.25f;
         VrGexWeaponFits[12][6][0] = -3.25f;
+        newFamilyFits(-5,false);
         gevrGunFitSaved(false);
+        newFamilyFits(99,false);
         VrGexPp7MagOff[0] = 99;
         VrGexKf7MagOff[0] = 99;
         VrGexHeldMag[1] = 99;
@@ -105,6 +116,7 @@ int main(int argc, char **argv) {
         VrGexWeaponFits[6][3][2] = 99;
         VrGexWeaponFits[12][6][0] = 99;
         gevrGunFitSaved(true);
+        newFamilyFits(-5,true);
         assert(VrGexWeaponFits[6][3][2] == 47.25f);
         assert(VrGexWeaponFits[12][6][0] == -3.25f);
         assert(VrGexPp7MagOff[0] == 1.25f && VrGexKf7MagOff[0] == -0.5f && VrGexHeldMag[1] == 2.25f);
@@ -114,14 +126,15 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "fit_read") == 0) {
+        newFamilyFits(-5,true);
         assert(VrGexWeaponFits[6][3][2] == 47.25f);
         assert(VrGexWeaponFits[12][6][0] == -3.25f);
         assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -19.1169f && VrGunOffX == 2.74f);
-        assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 90.1f);
+        assert(VrGexGripTrim[1][3] == 45.0f && VrGripTrim[1][3] == 86.3f);
         assert(VrScopeFit[0][0][0] == 0.5f && VrScopeFit[1][2][3] == -1.25f && VrScopeFit[0][2][3] == 0.0f);
         assert(VrGexGuns == 0);   // GexGuns is not read as a Gex-prefixed fit
         assert(VrReloadGrab[1][2] == -9.5f && VrReloadGrab[0][2] == -8.0f);
-        assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 20.61f && VrGexHeldMag[1] == 2.25f);
+        assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 19.86f && VrGexHeldMag[1] == 2.25f);
         assert(VrGexWatch[3] == 1.5f && VrGexWatch[0] == 5.18f && VrGexForeHold[0] == 3.5f);
         assert(VrGexPp7Grab[1] == -1.25f && VrGexPp7Support[2] == 2.5f);
         assert(VrGexPp7GunOff[0] == 0.75f);
