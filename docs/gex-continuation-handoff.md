@@ -9,7 +9,8 @@ magazine fitting. This file records the current implementation and remaining wor
 Current test APK: `android/app/build/outputs/apk/release/GoldenEyeVR-code65-fits-1100498.apk`,
 build label **1100498**, still **0.4.11 / code 65** (version deliberately unchanged).
 apksigner verifies; SHA256 `d364ad29142375507977fbab287da3eac71d88c9a30175db240f591b4687a439`.
-This branch is local only and also contains merged PRs #140 and #139 (see below).
+PRs #140 and #139 were merged to main (6d246d6, d6ea0f7); main is merged into
+this branch and PR #138 is pushed with these changes.
 
 - **Rocket seated payload — fixed, headset-accepted.** GE draws a loaded rocket as
   its own prop (`hand->rocket`, gun.c `gunUpdateAttachedRocket`), created only by
@@ -34,8 +35,8 @@ This branch is local only and also contains merged PRs #140 and #139 (see below)
 - **Merged PRs:** #140 (Statue pop-in) and #139 (crash detection, multiplayer ROM
   gate) merged locally. #139 did not compile on Android (`disconnect()` used
   above its lambda); the fix `d1a7b95` was pushed to #139's branch and is also
-  on this branch as `9a29241`. Pushing this branch would add both PRs' commits
-  to #138 — merge them to main first or confirm with the user.
+  on this branch as `9a29241`. Both PRs are now merged to main and main is
+  merged here, so #138's diff contains only GE-X work.
 
 ## Crash cf69dded follow-up — latest priority
 
