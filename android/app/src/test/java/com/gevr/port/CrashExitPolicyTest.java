@@ -43,6 +43,33 @@ public class CrashExitPolicyTest {
         // Only an earlier run's record: this run's own record is missing.
         assertTrue(CrashExitPolicy.unexpectedExit(markerAt, INSTALL, 0, markerAt - 60_000));
     }
+    @Test public void foregroundMarkerFromBeforeBootIsNotUnexpected() {
+        // Report 73a899cd: run at 23:42:58Z, container rebooted at 23:46:43Z, no exit records.
+        long installAt = 1791330045000L;
+        long offeredAt = 1791330049000L;
+        long previousRun = 1791330178000L;
+        long bootAt = 1791330403000L;
+        assertFalse(CrashExitPolicy.unexpectedExit(previousRun, installAt, offeredAt, 0, bootAt));
+    }
+    @Test public void foregroundMarkerAfterBootIsUnexpected() {
+        long bootAt = INSTALL + 10_000;
+        long markerAt = INSTALL + 60_000;
+        assertTrue(CrashExitPolicy.unexpectedExit(markerAt, INSTALL, 0, 0, bootAt));
+        assertFalse(CrashExitPolicy.unexpectedExit(markerAt, INSTALL, 0, 0, markerAt + 1_000));
+    }
+    @Test public void preferNativeCrashWithTombstoneOverSignalNotification() {
+        // Report 05ffc73d: crash-native(5) at 00:11:09Z followed by signaled(2) at 00:11:10Z.
+        long tNative = 1791331869000L;
+        long tSignal = 1791331870000L;
+        assertTrue(CrashExitPolicy.isBetterCrash(5, tNative, 2, tSignal));
+        assertFalse(CrashExitPolicy.isBetterCrash(2, tSignal, 5, tNative));
+    }
+    @Test public void preferNewerCrashWhenSeparatedByMoreThanFiveSeconds() {
+        long tOld = INSTALL + 10_000;
+        long tNew = INSTALL + 60_000;
+        assertTrue(CrashExitPolicy.isBetterCrash(2, tNew, 5, tOld));
+        assertFalse(CrashExitPolicy.isBetterCrash(5, tOld, 2, tNew));
+    }
     @Test public void describesRecordsReadably() {
         assertEquals("2026-09-26T14:47:41Z signaled(2) status=11 [before install]",
                 CrashExitPolicy.describe(1790434061432L, 2, 11, null, 1790434061432L + 1));
