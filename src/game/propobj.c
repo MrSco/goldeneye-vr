@@ -10379,6 +10379,29 @@ void apped_text_ammotype(u8 *buffer, AMMOTYPE ammotype, s32 amount)
 }
 
 
+#ifdef GEVR
+/*
+ * A player's pickup sound: as the game plays it for the local player; for
+ * another player (the host's bot) at where they stand, full volume within
+ * 2 m, a third by 4 m and gone by 12 m, not in the local player's ears from anywhere.
+ */
+static void gevrPickupSfx(s32 sfx)
+{
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    ALSoundState *state = sndPlaySfx(g_musicSfxBufferPtr, sfx, 0);
+
+    if (state != NULL && netIsActive() && get_cur_playernum() != netGetLocalSlot() &&
+        g_CurrentPlayer != NULL && g_CurrentPlayer->prop != NULL)
+    {
+        chrobjSndCreatePostEvent(state, &g_CurrentPlayer->prop->pos, 400.0f, 1200.0f);
+    }
+}
+#define sndPlayPickupSfx(sfx) gevrPickupSfx(sfx)
+#else
+#define sndPlayPickupSfx(sfx) sndPlaySfx(g_musicSfxBufferPtr, sfx, 0)
+#endif
+
 void set_sound_effect_for_ammo_collection(AMMOTYPE ammotype)
 {
     switch(ammotype) {
@@ -10398,7 +10421,7 @@ void set_sound_effect_for_ammo_collection(AMMOTYPE ammotype)
         case AMMO_DYNAMITE:
         case AMMO_GEKEY:
         case AMMO_TOKEN:
-            sndPlaySfx(g_musicSfxBufferPtr,PICKUP_AMMO_SFX,0);
+            sndPlayPickupSfx(PICKUP_AMMO_SFX);
             break;
         case AMMO_REMOTEMINE:
         case AMMO_PROXMINE:
@@ -10407,10 +10430,10 @@ void set_sound_effect_for_ammo_collection(AMMOTYPE ammotype)
         case AMMO_BUG:
         case AMMO_MICRO_CAMERA:
         case AMMO_PLASTIQUE:
-            sndPlaySfx(g_musicSfxBufferPtr,PICKUP_MINE_SFX,0);
+            sndPlayPickupSfx(PICKUP_MINE_SFX);
             break;
         case AMMO_KNIFE:
-            sndPlaySfx(g_musicSfxBufferPtr,PICKUP_KNIFE_SFX,0);
+            sndPlayPickupSfx(PICKUP_KNIFE_SFX);
     }
 }
 
@@ -10419,7 +10442,7 @@ void set_sound_effect_for_weapontype_collection(ITEM_IDS weapontype)
 {
     if ((weapontype == ITEM_KNIFE) || (weapontype == ITEM_THROWKNIFE))
     {
-        sndPlaySfx(g_musicSfxBufferPtr,PICKUP_KNIFE_SFX,0);
+        sndPlayPickupSfx(PICKUP_KNIFE_SFX);
     }
     else
     {
@@ -10427,23 +10450,23 @@ void set_sound_effect_for_weapontype_collection(ITEM_IDS weapontype)
             (weapontype == ITEM_BOMBCASE) || (weapontype == ITEM_BUG) || (weapontype == ITEM_MICROCAMERA) ||
             (weapontype == ITEM_PLASTIQUE))
         {
-            sndPlaySfx(g_musicSfxBufferPtr,PICKUP_MINE_SFX,0);
+            sndPlayPickupSfx(PICKUP_MINE_SFX);
         }
         else
         {
             if ((weapontype == ITEM_GRENADE) || (weapontype == ITEM_GRENADEROUND ) || (weapontype == ITEM_ROCKETROUND))
             {
-                sndPlaySfx(g_musicSfxBufferPtr,PICKUP_AMMO_SFX,0);
+                sndPlayPickupSfx(PICKUP_AMMO_SFX);
             }
             else
             {
                 if (weapontype == ITEM_LASER)
                 {
-                    sndPlaySfx(g_musicSfxBufferPtr,PICKUP_LASER_SFX,0);
+                    sndPlayPickupSfx(PICKUP_LASER_SFX);
                 }
                 else
                 {
-                    sndPlaySfx(g_musicSfxBufferPtr,PICKUP_GUN_SFX,0);
+                    sndPlayPickupSfx(PICKUP_GUN_SFX);
                 }
             }
         }
@@ -10896,7 +10919,7 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
                 add_ammo_to_inventory(ammotype, ammoquantity, 0, showstring);
             }
 
-            sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, PICKUP_AMMO_SFX, 0);
+            sndPlayPickupSfx(PICKUP_AMMO_SFX);
 
             op = TICKOP_FREE;
 
