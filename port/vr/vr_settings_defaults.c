@@ -168,6 +168,7 @@ float VrGexHeldMag[3] = {4.840000f,2.830000f,-2.880000f};   /* headset fit 2026-
  * mode, holding the right grip). Over the wrist and a fifth larger, to go
  * round GE-X's sleeve (user; measured offline on the KF7). */
 float VrGexWatch[4] = {4.410000f,1.370000f,-0.010000f,1.020000f};   /* headset fit 2026-10-07 */
+float VrGexOffRot[3] = {0.0f,0.0f,0.0f};   /* GE-X's empty off hand turned about its palm, degrees */
 /* where GE-X's left hand holds a gun with both hands, cm forward, up and out
  * along the gun from where its animation has it (Gun fit's grip mode) */
 float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };

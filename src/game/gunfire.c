@@ -3168,15 +3168,23 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
         {
             return gdl;
         }
+        static Mtxf s_gevrTankBase;
+        ModelRenderData calc = {0};
+
         modelInit((Model *) &model, bodymodel, s_gevrTankRw);
-        matrix_4x4_copy(mtx, matrices);
+        matrix_4x4_copy(mtx, &s_gevrTankBase);
         for (i = 0; i < 3; i++)
         {
             for (j = 0; j < 3; j++)
             {
-                matrices[0].m[i][j] *= k;
+                s_gevrTankBase.m[i][j] *= k;
             }
         }
+        /* every part's matrix from that root, as a prop's (propobj.c's held props;
+         * with the root alone the rest drew at the eye, a black rectangle) */
+        calc.basemtx = &s_gevrTankBase;
+        calc.mtxlist = matrices;
+        instcalcmatrices(&calc, (Model *) &model);
         i = 0;
         goto gevrTankReady;
     }

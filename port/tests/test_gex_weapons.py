@@ -36,6 +36,7 @@ HARNESS=r'''
 #include "game/matrixmath.h"
 float VrReloadGrab[2][3], VrGexForeHold[3], VrGexPp7Grab[3], VrGexPp7Support[3];
 float VrGexGunOff[3], VrGexPp7GunOff[3];
+float VrGexOffRot[3];   /* gun.c gevrGexOffHandPose: the off hand's turn, none here */
 /* gun.c gevrGexScreenGadget (in the screen hand's range): the gadget's own fit and pose */
 s32 g_GlobalTimer; float VrGunOffX, VrGunOffY, VrGunOffZ;
 s32 gevrGadgetFitPose(s32 item, f32 ofs[3], f32 rot[3], f32 *scale) { (void)item; (void)ofs; (void)rot; (void)scale; return 0; }

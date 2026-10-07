@@ -2220,6 +2220,7 @@ static void gevrGexOffCache(ModelFileHeader *gunhdr);
 static s32 gevrGexOffHandPose(Mtxf *m, s32 n);
 extern s32 gevrStereoTwoHandGrip(void);   /* bondview2.c */
 extern float VrGexWatch[4];   /* vr_settings_defaults.c: the watch's place and size (Gun fit) */
+extern float VrGexOffRot[3];  /* vr_settings_defaults.c: the empty off hand's turn (Gun fit) */
 
 static struct
 {
@@ -2480,6 +2481,29 @@ static s32 gevrGexOffHandPose(Mtxf *m, s32 n)
     mx.m[0][0] = -1.0f;
     matrix_4x4_multiply(&mx, &s_gevrGexOffR2, &a);
     matrix_4x4_multiply(&a, &mx, &b);
+    if (VrGexOffRot[0] != 0.0f || VrGexOffRot[1] != 0.0f || VrGexOffRot[2] != 0.0f)
+    {
+        /* turned about its palm as Gun fit's off hand mode set it (user: the
+         * mirrored gun hand's angle did not suit the off hand, the watch arm) */
+        struct coord3d angles;
+        Mtxf turn, turned;
+        f32 pl[3];
+
+        gevrGexMtxPoint(&b, palmLocal, pl);
+        for (i = 0; i < 3; i++)
+        {
+            angles.f[i] = VrGexOffRot[i] * (M_PI_F / 180.0f);
+        }
+        matrix_4x4_set_rotation_around_xyz(&angles, &turn);
+        for (j = 0; j < 3; j++)
+        {
+            turn.m[3][j] = pl[j] - (pl[0] * turn.m[0][j] + pl[1] * turn.m[1][j] + pl[2] * turn.m[2][j]);
+            turn.m[j][3] = 0.0f;
+        }
+        turn.m[3][3] = 1.0f;
+        matrix_4x4_multiply(&turn, &b, &turned);
+        b = turned;
+    }
     matrix_4x4_multiply(&goff, &b, &wrist);
     for (j = 0; j < n; j++)
     {
