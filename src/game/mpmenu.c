@@ -666,7 +666,7 @@ static const GevrMenuRow *gevrPauseRow(int id)
 static int gevrPauseGroup(const GevrMenuRow *r)
 {
     const char *n=r->name;
-    if (!strcmp(n,"NEXT ROUND") || !strcmp(n,"NEXT MAP") || !strcmp(n,"NEXT WEAPONS") || !strcmp(n,"MAP") || !strcmp(n,"WEAPONS") || !strcmp(n,"SCENARIO") || !strncmp(n,"BOT",3)) return GEVR_PAUSE_MATCH;
+    if (!strcmp(n,"NEXT ROUND") || !strcmp(n,"NEXT MAP") || !strcmp(n,"NEXT WEAPONS") || !strcmp(n,"MAP") || !strcmp(n,"WEAPONS") || !strcmp(n,"SCENARIO")) return GEVR_PAUSE_MATCH;
     if (!strcmp(n,"NEXT ROUND READY") || !strcmp(n,"YOUR TEAM") || !strcmp(n,"CHARACTER") || !strncmp(n,"LOADOUT ",8) || !strcmp(n,"FAV MAP") || !strcmp(n,"FAV SET")) return GEVR_PAUSE_PLAYER;
     if (!strcmp(n,"MUSIC") || !strcmp(n,"SFX") || !strcmp(n,"VOICE") || !strcmp(n,"VOICE MODE") || !strcmp(n,"MIC")) return GEVR_PAUSE_AUDIO;
     return GEVR_PAUSE_RULES;
