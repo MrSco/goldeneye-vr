@@ -585,6 +585,30 @@ static void gevrBotChooseWeapon(struct player *pl, GevrBot *bot)
 }
 
 /*
+ * Whether pulling the trigger now does anything (PD's sims fire only a gun
+ * with loadedammo, and fists and knives within reach, bot.c
+ * botTickUnpaused). An empty gun left with the trigger up is the game's to
+ * swap for the next (gunfire.c: the swap waits for a released trigger), and
+ * a magazine with carried ammo reloads by itself.
+ */
+static s32 gevrBotCanFire(struct player *pl, GevrBot *bot)
+{
+    struct hand *hand = &pl->hands[GUNRIGHT];
+    s32 item = hand->weaponnum;
+
+    if (item == ITEM_TOKEN || (hand->weapon_action_state >= GUN_ANIM_STATE_RELOAD_START &&
+                               hand->weapon_action_state <= GUN_ANIM_STATE_RELOAD_RAISE))
+    {
+        return FALSE;
+    }
+    if (item <= ITEM_KNIFE || gevrBotWeaponPref(item)->distconfig == BOT_DISTCFG_CLOSE)
+    {
+        return bot->target >= 0 && bot->distance[bot->target] < 150.0f;
+    }
+    return hand->weapon_ammo_in_magazine > 0;
+}
+
+/*
  * PD's reload rule (bot.c botTickUnpaused): an empty magazine, or under half
  * of one with no foe seen for two seconds, is reloaded with ammo carried.
  * The bot presses B, as a player reloads; the game does the rest. The
@@ -796,6 +820,56 @@ static void gevrBotWalkRoute(s32 slot, struct player *pl, GevrBot *bot, OSContPa
     (void)slot;
 }
 
+/*
+ * Players do not walk through one another (stan.c refuses a move into
+ * another's cylinder), so a bot about to walk into one steps round it:
+ * to the side away from it, slowing if it is right ahead.
+ */
+static void gevrBotAvoidPlayers(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
+{
+    f32 rad = bot->theta * (M_PI_F / 180.0f);
+    s32 i;
+
+    if (pad->stick_y == 0 && !(pad->button & (L_CBUTTONS | R_CBUTTONS)))
+    {
+        return;
+    }
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        struct player *op = g_playerPointers[i];
+        f32 dx;
+        f32 dz;
+        f32 dist;
+        f32 ahead;
+        f32 across;
+
+        if (i == slot || op == NULL || op->prop == NULL || op->bonddead || !netSlotOccupied(i))
+        {
+            continue;
+        }
+        dx = op->prop->pos.x - pl->prop->pos.x;
+        dz = op->prop->pos.z - pl->prop->pos.z;
+        dist = sqrtf(dx * dx + dz * dz);
+        if (dist > 110.0f || dist < 1.0f)
+        {
+            continue;
+        }
+        ahead = (dx * -sinf(rad) + dz * cosf(rad)) / dist;
+        across = (dx * -cosf(rad) + dz * -sinf(rad)) / dist;
+        if (ahead < 0.3f || pad->stick_y <= 0)
+        {
+            continue;
+        }
+        /* it is ahead: sidestep away from it, and stop pressing into it */
+        pad->button = (pad->button & ~(L_CBUTTONS | R_CBUTTONS)) | (across > 0.0f ? L_CBUTTONS : R_CBUTTONS);
+        if (dist < 80.0f)
+        {
+            pad->stick_y = 0;
+        }
+        return;
+    }
+}
+
 /* The bot's controller and view for this tick */
 static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
 {
@@ -889,7 +963,8 @@ static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *p
             f32 heading = gevrBotHeading(&pl->prop->pos, &op->prop->pos) + bot->extraangle * (180.0f / M_PI_F);
             f32 off = gevrBotTurnTo(bot, heading, BOT_TURN_PER_TICK);
 
-            if (bot->shootdelaytimer60 >= s_difficulties[diff].shootdelay && off < 45.0f && off > -45.0f)
+            if (bot->shootdelaytimer60 >= s_difficulties[diff].shootdelay && off < 45.0f && off > -45.0f &&
+                gevrBotCanFire(pl, bot))
             {
                 pad->button |= Z_TRIG;
             }
@@ -921,7 +996,8 @@ static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *p
 
             bot->verta = atan2f(dy, flat > 1.0f ? flat : 1.0f) * (180.0f / M_PI_F);
             /* PD's fire rule (bot.c botTickUnpaused): in sight, reacted, within 45 degrees */
-            if (bot->shootdelaytimer60 >= s_difficulties[diff].shootdelay && off < 45.0f && off > -45.0f)
+            if (bot->shootdelaytimer60 >= s_difficulties[diff].shootdelay && off < 45.0f && off > -45.0f &&
+                gevrBotCanFire(pl, bot))
             {
                 pad->button |= Z_TRIG;
             }
@@ -965,6 +1041,7 @@ static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *p
         }
         gevrBotWalkRoute(slot, pl, bot, pad, TRUE);
     }
+    gevrBotAvoidPlayers(slot, pl, bot, pad);
     gevrBotUnstick(slot, pl, bot, pad);
     /* PD's speedtheta: the turn, radians a tick, scaled as bot.c scales it */
     bot->speedtheta = gevrBotWrap(bot->theta - oldtheta) * (M_PI_F / 180.0f) / (g_ClockTimer > 0 ? g_ClockTimer : 1) * 16.236389160156f;
