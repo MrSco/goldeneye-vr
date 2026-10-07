@@ -179,8 +179,18 @@ through `MoveBond`, and another player's tick cleared those globals, so
 the rider fell through the hull. A remote tick now borrows a cleared copy
 and puts the rider's state back. Leaving the deck re-enables hull
 collision even when the pointer is dropped. Enter, exit and tank shells
-stay on this headset's player. Other headsets still see a parked tank;
-the driven pose is not synced.
+stay on this headset's player.
+
+Only the driver's headset moved the tank, so the others saw it parked
+where it started. The driver's headset now sends its tank's pose
+(`NET_MSG_COOP_TANK`): position, hull heading, turret heading and pitch,
+and whether the gun flash shows. It goes 20 times a second, unreliably,
+while the player drives, and once more reliably when they get out. The
+host poses its own tank and relays the message to the others. Every
+headset poses the same tank as the driver's `MoveBond` does: hull matrix,
+tile, rooms, collision and the turret the model is drawn with. A tank a
+teammate drove in the last second cannot be entered here. Older builds
+ignore the new message type; protocol 18 is unchanged.
 
 ## The Surface 2 mine (#130)
 
@@ -212,7 +222,8 @@ the solo fuse on a thrown mine. Protocol 18 is unchanged.
   player the guard is targeting, or the nearest living player for a
   background list. Keys and documents stay on the headset that picked
   them up; a keyed door does not accept a teammate's copy.
-- A driven tank is solid here. Other headsets still see it parked.
+- A driven tank is seen moving, but its engine and tread sounds play only
+  on the driver's headset.
 - A co-op player's held mine, bug, camera, plastique or bomb case has no
   world model, so other headsets do not see it in the hand. Guns still do.
 - After a host change, objective events only the old host had (a client's

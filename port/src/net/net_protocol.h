@@ -102,6 +102,7 @@ typedef enum {
     NET_MSG_CLIENT_CAPS = 50,   /* Client -> host: optional feature support after WELCOME */
     /* Additive on protocol 18: an older build ignores the type and still joins. */
     NET_MSG_COOP_GRANT = 51,    /* Host -> all: a mission gadget every player now carries (s32 ITEM_IDS) */
+    NET_MSG_COOP_TANK = 52,     /* Driver -> host -> all: the tank's pose (NET_COOP_TANK_*, position, hull and turret angles) */
 } NetMsgType;
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
@@ -134,6 +135,11 @@ enum {
     NET_COOP_EVENT_MINE = 10,   /* s32 item, s32 tag: a thrown mine stuck (tag) or landed (-1) */
 };
 #define NET_COOP_HELD_MAX 8
+enum {
+    NET_COOP_TANK_DRIVEN = 1,   /* the driver is still in it (clear: the last pose, it got out) */
+    NET_COOP_TANK_FIRING = 2,   /* its gun's flash shows */
+};
+#define NET_COOP_TANK_BYTES 25  /* u8 flags, f32 x y z, hull yaw, turret yaw, turret pitch */
 #define NET_CHR_NO_ANIM 0xFFFF
 #define NET_CHR_STATE_BYTES 44
 #define NET_CHR_STATES_PER_PACKET 24
