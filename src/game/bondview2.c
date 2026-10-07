@@ -17640,14 +17640,6 @@ static ModelFileHeader *gevrWeaponPanelModel(s32 item)
     }
     tmpl = gitem_structs[item].item_header;
     name = (char *) gitem_structs[item].item_file_name;
-    if (item == ITEM_TANKSHELLS)
-    {
-        /* no gun model: the tank's own prop, made small (gunfire.c, user) */
-        extern struct ItemModelFileRecord PitemZ_entries[];
-
-        tmpl = PitemZ_entries[PROP_TANK].header;
-        name = PitemZ_entries[PROP_TANK].filename;
-    }
     if (tmpl == NULL || name == NULL)
     {
         return NULL;
@@ -17687,12 +17679,6 @@ static ModelFileHeader *gevrWeaponPanelModel(s32 item)
                  get_depth_offset_solo_watch_menu_inventory_page_for_item(item),
                  get_xrotation_solo_watch_menu_for_item(item), get_yrotation_solo_watch_menu_for_item(item));
     return &s_gevrWpModelHeader;
-}
-
-/* gunfire.c, the watch's page: the tank's prop model, from the panel's own buffer */
-ModelFileHeader *gevrTankPanelModel(void)
-{
-    return gevrWeaponPanelModel(ITEM_TANKSHELLS);
 }
 
 /*

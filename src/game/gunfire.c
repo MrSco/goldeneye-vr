@@ -3095,20 +3095,6 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     }
 
 #ifdef GEVR
-    if (itemid == ITEM_TANKSHELLS && g_gevrItemModelOverride == NULL)
-    {
-        /* the watch's page: the tank has no gun model, its prop's (bondview2.c, user) */
-        extern ModelFileHeader *gevrTankPanelModel(void);
-
-        g_gevrItemModelOverride = gevrTankPanelModel();
-        if (g_gevrItemModelOverride == NULL)
-        {
-            return gdl;
-        }
-        gdl = set_enviro_fog_for_items_in_solo_watch_menu(gdl, itemid, mtx, arg3, arg4);
-        g_gevrItemModelOverride = NULL;
-        return gdl;
-    }
     if (g_gevrItemModelOverride != NULL)
     {
         bodymodel = g_gevrItemModelOverride;
@@ -3152,43 +3138,6 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     i = 0;
     ((Model *) &model)->render_pos = matrices;
     modelCalculateRwDataLen(bodymodel);
-#ifdef GEVR
-    if (itemid == ITEM_TANKSHELLS)
-    {
-        /*
-         * The tank's prop model (user: a mini tank on the wheel and the watch).
-         * No gun model: none of the gun setup below reads its switches right
-         * (it crashed in sub_GAME_7F05E978), and its records outgrow spb8.
-         * At a gun's size, the PP7's reach (its record's place).
-         */
-        static u32 s_gevrTankRw[0x800];
-        const f32 k = bodymodel->BoundingVolumeRadius > 1.0f ? 200.0f / bodymodel->BoundingVolumeRadius : 0.03f;
-
-        if (bodymodel->numRecords <= 0 || bodymodel->numRecords > (s32) ARRAYCOUNT(s_gevrTankRw))
-        {
-            return gdl;
-        }
-        static Mtxf s_gevrTankBase;
-        ModelRenderData calc = {0};
-
-        modelInit((Model *) &model, bodymodel, s_gevrTankRw);
-        matrix_4x4_copy(mtx, &s_gevrTankBase);
-        for (i = 0; i < 3; i++)
-        {
-            for (j = 0; j < 3; j++)
-            {
-                s_gevrTankBase.m[i][j] *= k;
-            }
-        }
-        /* every part's matrix from that root, as a prop's (propobj.c's held props;
-         * with the root alone the rest drew at the eye, a black rectangle) */
-        calc.basemtx = &s_gevrTankBase;
-        calc.mtxlist = matrices;
-        instcalcmatrices(&calc, (Model *) &model);
-        i = 0;
-        goto gevrTankReady;
-    }
-#endif
     modelInit((Model *) &model, bodymodel, spb8);
     sub_GAME_7F05E978((Model *) &model, 0);
     sub_GAME_7F05EA94((Model *) &model, 1);
@@ -3299,9 +3248,6 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
         }
     }
 
-#ifdef GEVR
-gevrTankReady:
-#endif
     modelUpdateNodeRelations((Model *) &model);
 #ifdef GEVR
     {
@@ -3372,12 +3318,6 @@ gevrTankReady:
                                   | ((u32)g_CurrentPlayer->tileColor.r << 24)
                                   | ((u32)g_CurrentPlayer->tileColor.g << 16)
                                   | ((u32)g_CurrentPlayer->tileColor.b << 8);
-    }
-    if (itemid == ITEM_TANKSHELLS)
-    {
-        /* the tank's opaque pass alone: its shadow (model.c doshadow, the second
-         * pass) has no ground here and drew as a black rectangle (user) */
-        renderdata.flags = 1;
     }
 #endif
     subdraw(&renderdata, (Model *) &model);

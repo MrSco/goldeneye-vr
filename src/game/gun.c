@@ -1164,13 +1164,13 @@ void gevrGexWatchHandsTick(void)
  * gunfire.c's watch-page offsets (the weapon panel, the watch's pages): a GE-X
  * model centred on its own mesh (GexWeaponDef panelFit) spins about the
  * origin, not GoldenEye's mesh's place (user: they swung down and to the
- * side); the tank's prop model the same.
+ * side).
  */
 s32 gevrGexPanelCentred(s32 item)
 {
     const GexWeaponDef *def = VrGexGuns ? gevrGexWeaponGet(item) : NULL;
 
-    return item == ITEM_TANKSHELLS || (def != NULL && def->panelFit[0] > 0.0f);
+    return def != NULL && def->panelFit[0] > 0.0f;
 }
 
 /* each player's hands whose model is GoldenEye X's (gevrGexGunPrepare) */
@@ -1802,6 +1802,15 @@ void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
     {
         /* the visible magazine where Gun fit put it (user: not on the watch's pages) */
         gevrGexInstalledMagFitTo(def, &rwmtx[def->magMatrix], &rwmtx[def->gunMatrix]);
+    }
+    if (def->item == ITEM_ROCKETLAUNCH && def->heldMatrix > 0 && def->heldMatrix < hdr->numMatrices
+        && def->magMatrix >= 0 && def->magMatrix < hdr->numMatrices)
+    {
+        /* the rocket in its tube (user: missing on the watch and the wheel): in play
+         * it is GoldenEye's own rocket prop, drawn on the gun (gunfire.c); here GE-X's
+         * held rocket, put where it loads (heldToMag, as gevrGexLeftHandTo) */
+        matrix_4x4_multiply(&rwmtx[def->magMatrix], (Mtxf *) def->heldToMag, &rwmtx[def->heldMatrix]);
+        gevrGexShowMagazines(hdr, model, TRUE, TRUE);
     }
 }
 
