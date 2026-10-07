@@ -106,10 +106,30 @@ static void gevrReadSlotPads(void)
     }
 }
 
-/* the pad of an online-only slot, or NULL for the four ports (and anything else) */
+/* the pad of an online-only slot or of a bot the host runs (gevr_bot.c), or NULL
+ * for the four ports (and anything else) */
 static OSContPad *gevrSlotPad(s8 contpadnum)
 {
+    extern OSContPad *gevrBotPad(s32 slot, u16 *pressed);
+    OSContPad *bot = gevrBotPad(contpadnum, NULL);
+
+    if (bot != NULL)
+    {
+        return bot;
+    }
     return contpadnum >= MAXCONTROLLERS && contpadnum < MAX_PLAYER_COUNT ? &g_GevrSlotPads[contpadnum - MAXCONTROLLERS] : NULL;
+}
+
+static u16 gevrSlotPadPressed(s8 contpadnum)
+{
+    extern OSContPad *gevrBotPad(s32 slot, u16 *pressed);
+    u16 pressed = 0;
+
+    if (gevrBotPad(contpadnum, &pressed) != NULL)
+    {
+        return pressed;
+    }
+    return g_GevrSlotPadsPressed[contpadnum - MAXCONTROLLERS];
 }
 #endif
 
@@ -734,7 +754,7 @@ u16 joyGetButtonsPressedThisFrame(s8 contpadnum, u16 mask)
 #ifdef GEVR
     if (gevrSlotPad(contpadnum) != NULL)
     {
-        return g_GevrSlotPadsPressed[contpadnum - MAXCONTROLLERS] & mask;
+        return gevrSlotPadPressed(contpadnum) & mask;
     }
 #endif
     /*

@@ -670,8 +670,18 @@ void bossMainloop(void)
 
 #ifdef GEVR
                                     netPlayerSyncBeforeTick(playernum);
-#endif
+                                    {
+                                        /* the host's bot: its AI fills the pad the tick reads (gevr_bot.c) */
+                                        extern s32 gevrBotTickBegin(s32 slot);
+                                        extern void gevrBotTickEnd(s32 slot, s32 began);
+                                        s32 bot = gevrBotTickBegin(playernum);
+
+                                        lvlViewMoveTick();
+                                        gevrBotTickEnd(playernum, bot);
+                                    }
+#else
                                     lvlViewMoveTick();
+#endif
 #ifdef GEVR
                                     netPlayerSyncAfterTick(playernum);
 #endif
