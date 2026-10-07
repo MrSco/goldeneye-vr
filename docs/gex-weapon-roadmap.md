@@ -1,5 +1,13 @@
 # GE-X weapon roadmap
 
+Latest headset feedback adds three unresolved priorities: rocket launcher needs
+a persistent loaded-rocket mesh after reload; sniper sometimes routes off-hand
+grip to scope sight and blocks belt magazine pickup until switched away/back;
+laser fails to show the gun-hand scope sight while held with both hands. The
+[handoff](gex-continuation-handoff.md) records observed behavior, confirmed code
+facts, candidate causes and required render/input lifecycle tests. No gameplay
+fix is claimed for these yet. Address them before adding the remaining guns.
+
 Latest crash follow-up: report **cf69dded** identified original sleeve selection
 reading past the GE-X shotgun's expanded 30-slot switch table when A cycled from
 RC-P90. Both GE-X weapon headers now bypass original cuff selection, and original
