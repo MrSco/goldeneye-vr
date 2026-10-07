@@ -63,6 +63,7 @@ void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in t
 void vr_apply_refresh_rate(void);     // vr_openxr.cpp
 int vr_get_supported_refresh_rates(int *rates, int capacity);
 int gevrVrSessionRunning(void);       // vr_openxr.cpp: includes the unfocused Quest menu
+unsigned long long sysGetMicroseconds(void);  // port/src/system.c: wall clock, runs on through a headset's sleep
 extern int selected_num_players;      // src/game/front.c
 extern int gamemode;                  // src/game/front.c
 extern int g_StageNum;                 // port/src/main.c
@@ -1283,6 +1284,35 @@ static void gevrLobbyRoster(const ImVec4 &gold) {
         ImGui::EndDisabled();ImGui::EndPopup();
     }
 }
+/*
+ * A host's launcher idle (gevrMultiplayerPage): idle since, on the wall clock, so
+ * a sleeping headset's time counts. The page runs only while it is on screen;
+ * launcher frames it missed (another page) or a match (gevrLobbyGameTick) start
+ * the clock again. A sleep draws no frames at all, so it counts.
+ */
+static uint64_t s_launcherHostActMs = 0;
+static uint64_t s_launcherFrame = 0;       // gevrLauncherRun: one per launcher frame
+static uint64_t s_launcherHostFrame = 0;   // the launcher frame the page last ran in, 0 never
+#define GEVR_LAUNCHER_HOST_IDLE_MS (10ull * 60 * 1000)
+
+/* One page frame at nowMs (wall clock, ms): true when the host's 10 minutes ran out.
+ * The idle time so far is judged before this frame's activity: waking the headset
+ * moves the pointer, and that must not wipe out the sleep before it. */
+static bool gevrLauncherHostIdleTick(uint64_t nowMs, bool hosting, bool act)
+{
+    if (!hosting || s_launcherHostFrame + 1 != s_launcherFrame)
+        s_launcherHostActMs = 0;   // a new hosting session, or back from another page or a match
+    s_launcherHostFrame = s_launcherFrame;
+    if (!hosting) return false;
+    if (s_launcherHostActMs == 0) s_launcherHostActMs = nowMs;
+    if (nowMs - s_launcherHostActMs >= GEVR_LAUNCHER_HOST_IDLE_MS) {
+        s_launcherHostActMs = 0;
+        return true;
+    }
+    if (act) s_launcherHostActMs = nowMs;
+    return false;
+}
+
 void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
     static int subTab = 0;     // 0 = Host, 1 = Join
     static int joinMethod = 0; // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
@@ -1366,13 +1396,12 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
     }
     netIcePoll();
 
+    // Launcher idle kick: if host is inactive for 10 minutes, stop hosting.
+    // Wall clock: SDL_GetTicks stops while the headset sleeps, so a host who slept
+    // or left the headset kept the lobby listed forever. A sleep counts as idle.
+    if (!netIsHost()) gevrLauncherHostIdleTick(0, false, false);
     if (netIsHost()) {
-        // Launcher idle kick: if host is inactive for 10 minutes, stop hosting
-        static uint32_t s_launcher_host_act_ms = 0;
         static float s_last_px = 0.0f, s_last_py = 0.0f;
-        const uint32_t actNow = SDL_GetTicks();
-        if (s_launcher_host_act_ms == 0)
-            s_launcher_host_act_ms = actNow;
         ImGuiIO &io = ImGui::GetIO();
         bool act =
             io.MouseDown[0] || fabsf(io.MousePos.x - s_last_px) > 2.0f || fabsf(io.MousePos.y - s_last_py) > 2.0f;
@@ -1385,9 +1414,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             get_button_state(1, "trigger") || get_button_state(0, "grip") || get_button_state(1, "grip")) {
             act = true;
         }
-        if (act) {
-            s_launcher_host_act_ms = actNow;
-        } else if (actNow - s_launcher_host_act_ms >= 10 * 60 * 1000) {
+        if (gevrLauncherHostIdleTick(sysGetMicroseconds() / 1000, true, act)) {
             gevrJavaCommand("lobbyCommand", "stop");
             netDiscoveryStopBroadcasting();
             netDisconnect();
@@ -1395,7 +1422,6 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             hostedCode.clear();
             hostJoinIds.clear();
             onlineMessage = "Hosting stopped due to inactivity (10 min idle)";
-            s_launcher_host_act_ms = 0;
         }
 
         int pCount = netGetConnectedPlayerCount();
@@ -1969,6 +1995,7 @@ extern "C" void gevrLobbyGameTick(void)
     static bool keepalivePaused = false;
     static std::vector<std::string> pendingAnswers;
     const Uint32 now = SDL_GetTicks();
+    s_launcherHostFrame = 0;   // in a match: the launcher's idle clock starts again on return
     if (now - lastTick < 250) return;
     lastTick = now;
 
@@ -2604,6 +2631,7 @@ extern "C" void gevrLauncherRun(void)
         }
         ImGui::Separator();
 
+        s_launcherFrame++;   // the host's idle clock (gevrMultiplayerPage) sees frames it missed
         // GoldenEye cheats (issue #1's idea: the tiny guns as a cheat): their
         // own page. Ticked cheats are switched on as each mission starts, the
         // way the game's own cheat menu does (front.c init_menu0B_runstage).
