@@ -4,95 +4,38 @@ Start here, then read [the roadmap](gex-weapon-roadmap.md) for the history of
 PP7 grip, wrist orientation, duplicate arms, insertion targets and installed
 magazine fitting. This file records the current implementation and remaining work.
 
-## Latest headset feedback — unresolved, address before adding guns
+## Latest headset session — resolved (2026-10-06, evening)
 
-Reported after the version-code-65 test build, 2026-10-06. User lowered the
-weekly reserve floor from 2% to **1%** for this investigation. This pass made
-documentation changes only: no gameplay fix or new APK is claimed. The current
-code/APK remains build **9b212a0**, version **0.4.11 / code 65**, with the cuff
-crash fix. PR #138 contains this investigation checkpoint.
+Current test APK: `android/app/build/outputs/apk/release/GoldenEyeVR-code65-fits-1100498.apk`,
+build label **1100498**, still **0.4.11 / code 65** (version deliberately unchanged).
+apksigner verifies; SHA256 `d364ad29142375507977fbab287da3eac71d88c9a30175db240f591b4687a439`.
+This branch is local only and also contains merged PRs #140 and #139 (see below).
 
-### Rocket launcher: seated rocket disappears after reload
-
-User sees rocket ammo at the end initially. After reloading, the gun can fire
-but the rocket model does not stay at the tube's end. Ammo transfer works;
-the missing representation is the visible loaded payload.
-
-Confirmed source facts: `GdyrocketZ` definition has `singleRound=1`,
-`gunMatrix=magMatrix=33`, `heldMatrix=37`, `parts={-1,40}`. There is deliberately
-no installed switch; part 40 is driven as the held payload.
-`gevrGexShowMagazines` drives part index 0 from inGun and index 1 from inHand.
-`gevrGexPoseGun` normally clears inHand after physical insertion (state IN,
-no active screen reload). This leaves no explicit loaded-round visibility path,
-which is the leading explanation. Initial source visibility was not reproduced
-on-device during this pass; do not treat that detail as resolved.
-
-Next: inspect the ROM's native rest/fire/reload matrix 37 and part 40 geometry,
-then render a seated round whenever authoritative GE loaded ammo is nonzero.
-Keep its seated transform separate from the held/off-hand pose and fits. Since
-capacity is one, held versus loaded rendering may be mutually exclusive, but
-verify direct belt reload, cancelled/dropped rounds, fit preview and screen
-reload before relying on that. Do not make shell or Golden Gun ammo permanently
-visible through a generic singleRound override. Prevent a falling held mesh
-from overwriting the seated pose. Hide the loaded rocket after firing and show
-it again after either physical insertion or direct belt reload.
-
-Required regression: actual render visibility/pose at spawn loaded, fire empty,
-pickup held, insertion loaded, ready-animation end, next shot, cancel/drop,
-weapon switch and both handedness/size modes. Existing ammo-only reload tests
-and converter tests do **not** cover this loaded-round rendering lifecycle.
-
-### Sniper: intermittent off-hand grip shows scope sight; clarify belt behavior
-
-User reports that off-hand grip sometimes makes the scope crosshair appear.
-Their exact wording says "i could grab magazine from my belt to reload while
-that was happening"; do not assume belt pickup was blocked. Clarify whether
-"could" was intended literally or meant "couldn't" before classifying that
-part of the failure. Switching away from sniper and back restores correct
-behavior. This is intermittent, unreproduced locally, and the cause is unconfirmed.
-
-Trace `inputReadController` gripTaken/physical-to-logical grip mapping and
-R_TRIG generation, `gevrGripGestureInput/Taken`, `gevrStereoTwoHandUpdate`,
-`gevrGexClaimsOffHand`, `gevrReloadClaimsOffHand`, `gevrHandReloadTick`, and
-`gunDrawSight` / gunsightmode / insightaimmode. In stereo, the input's normal
-R_TRIG aim request uses logical **right** grip unless gripTaken[1]; off grip
-alone should not request the primary sight. Two-hand state is s_gevrTwoHand;
-the support update preserves an existing hold through tracking occlusion and
-checks reload ownership only when !s_gevrTwoHand. Thus a stale support/gesture
-owner is a candidate to investigate, not an established cause.
-
-Record per tick: physical and logical grips, handedness mapping, gripTaken[2],
-s_gevrGripGesture[2], s_gevrTwoHand, controller tracked flags, current GE item
-and GEX definition, GEX magazine state/item, s_gevrGexGripSpent, fresh-grip flags,
-R_TRIG, gunsightmode, insightaimmode and belt distance. Compare before/after
-weapon switch; test release/repress, scope-near occlusion, and crossing from
-support into belt reach. Preserve deliberate grip ownership and partial ammo;
-do not erase all state each tick or let a support hold silently become reload.
-
-### Moonraker laser: primary grip does not show sight during two-hand hold
-
-User cups the pistol with off-hand grip, then grips the gun-hand controller to
-enable the scope crosshair; no crosshair appears. Root cause unconfirmed.
-Laser is compact/pistol, `hasScope=1`, no reload payload or physical reload.
-
-`inputReadController` generates aim R_TRIG from rightGrip only if !menu,
-!rightThrowable and !gripTaken[1]. Gun fit later removes R_TRIG; weapon/pause
-flows can also clear it. `gunDrawSight` renders the primary scope sight only
-when gunsightmode==0 and mpmenuon==FALSE, then requires gevrScopeOn's right bit.
-`gevrGripSteadyOnCtrl` returning TRUE for two-hand support affects smoothing;
-it is not itself a crosshair request. Inspect actual grip gesture consumption,
-aim-state transition and scope bit at the failed press; do not equate steady
-scope with aiming or remove valid damage/menu sight suppression.
-
-Required paired scope tests: sniper and laser, one/two hands, right grip only,
-off grip only, both grips in either press order, release/repress, tracking
-loss/recovery, belt reload ownership, weapon switch, handedness and fit mode
-on/off. Verify source GE behavior alongside GE-X to separate shared input/state
-bugs from model bindings. No scope/grip regression or fix was added in this pass.
-
-Finish these three and capture the user's new fits/acceptance before continuing
-Cougar cylinder or grenade projectile integration below. Preserve all accepted
-PP7/KF7/AR33/RC-P90 calibration and the version-code-65 cuff crash fix.
+- **Rocket seated payload — fixed, headset-accepted.** GE draws a loaded rocket as
+  its own prop (`hand->rocket`, gun.c `gunUpdateAttachedRocket`), created only by
+  `currentPlayerCreateRocket` inside GE's reload ammo move `sub_GAME_7F0649D8`
+  (equip and the gun-to-belt fallback use it). Physical insertion in
+  `gevrGexRoundTick` incremented ammo directly, so no rocket was drawn. It now
+  calls `currentPlayerCreateRocket` for the rocket. GE-X part 40 stays the held
+  payload only. `hand_reload_native.c` requires exactly one creation on rocket
+  insertion and none for shells/Golden Gun (fails on the old source).
+- **Sniper/laser scope sight — closed, not a bug.** Change-only diagnostics log
+  `aimsrc:` (input aim sources) and `aimstate:` (GE aim state) to logcat. The
+  session showed two-handed laser + gun grip aiming with sight shown, sniper
+  off-hand grips going to reload, and Gun fit mode stripping R_TRIG (the user had
+  fit mode on when the laser sight did not appear). The off-hand trigger also
+  aims in single-gun stereo by design; that is the likely sniper explanation.
+  The user could not reproduce either and asked not to pursue them.
+- **Fits baked** from the headset INI into `vr_settings_defaults.c`: Klobb (7),
+  ZMG (9), Phantom installed mesh (12/6), sniper (17), Golden Gun (19), laser (22),
+  rocket (25), plus `VrGexHeldMag`, `VrReloadBelt` and GE long-gun `VrGripTrim[1]`.
+- **Statue Park** (#140) draws correctly in the headset; stage pool still had
+  ~12 MB free after load with `-ma800`.
+- **Merged PRs:** #140 (Statue pop-in) and #139 (crash detection, multiplayer ROM
+  gate) merged locally. #139 did not compile on Android (`disconnect()` used
+  above its lambda); the fix `d1a7b95` was pushed to #139's branch and is also
+  on this branch as `9a29241`. Pushing this branch would add both PRs' commits
+  to #138 — merge them to main first or confirm with the user.
 
 ## Crash cf69dded follow-up — latest priority
 
