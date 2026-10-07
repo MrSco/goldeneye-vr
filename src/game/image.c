@@ -269,10 +269,15 @@ s32 texInflateZlib(u8 *src, u8 *dst, s32 arg2, s32 forcenumimages, struct texpoo
             arg4->rightpos->depth = g_TexFormatDepths[format];
             arg4->rightpos->lutmodeindex = g_TexFormatLutModes[format] >> G_MDSFT_TEXTLUT;
         }
-        else if (writetocache)
+        else if (j <= 7)
         {
-            g_TexCacheItems[g_TexCacheCount].widths[j - 1] = width;
-            g_TexCacheItems[g_TexCacheCount].heights[j - 1] = height;
+            arg4->rightpos->lodwidths[j - 1] = (u8)width;
+            arg4->rightpos->lodheights[j - 1] = (u8)height;
+            if (writetocache)
+            {
+                g_TexCacheItems[g_TexCacheCount].widths[j - 1] = width;
+                g_TexCacheItems[g_TexCacheCount].heights[j - 1] = height;
+            }
         }
 
         if ((width * height) >= 4097)
@@ -950,10 +955,15 @@ s32 texInflateNonZlib(u8 *src, u8 *dst, s32 arg2, s32 forcenumimages, struct tex
             arg4->rightpos->depth = g_TexFormatDepths[format];
             arg4->rightpos->lutmodeindex = g_TexFormatLutModes[format] >> G_MDSFT_TEXTLUT;
         }
-        else if (writetocache)
+        else if (i <= 7)
         {
-            g_TexCacheItems[g_TexCacheCount].widths[i - 1] = width;
-            g_TexCacheItems[g_TexCacheCount].heights[i - 1] = height;
+            arg4->rightpos->lodwidths[i - 1] = (u8)width;
+            arg4->rightpos->lodheights[i - 1] = (u8)height;
+            if (writetocache)
+            {
+                g_TexCacheItems[g_TexCacheCount].widths[i - 1] = width;
+                g_TexCacheItems[g_TexCacheCount].heights[i - 1] = height;
+            }
         }
 
         if (width * height > 0x2000)
@@ -2602,6 +2612,11 @@ void texLoad(uintptr_t *updateword, struct texpool *pool)
             tex = pool->rightpos;
             tex->texturenum = g_TexNumToLoad;
             tex->data = pool->leftpos;
+            for (s32 lodslot = 0; lodslot < 7; lodslot++)
+            {
+                tex->lodwidths[lodslot] = 0;
+                tex->lodheights[lodslot] = 0;
+            }
 
             // Extract the texture data to the allocation (pool->leftpos)
             if (iszlib) {

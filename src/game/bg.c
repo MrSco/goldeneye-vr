@@ -2783,11 +2783,13 @@ void bgLoadRoomModelData(s32 roomID)
     {
         result = bgLoadRoomVtxData(roomID, data, allocsize);
 
-        if (result >= 0)
+        if (result < 0)
         {
-            used = result;
-            redarken_lights_in_room(roomID);
+            goto load_failed;
         }
+
+        used = result;
+        redarken_lights_in_room(roomID);
     }
     else
     {
@@ -2802,10 +2804,12 @@ void bgLoadRoomModelData(s32 roomID)
     {
         result = bgLoadRoomPrimaryGdl(roomID, data + used, allocsize - used);
 
-        if (result >= 0)
+        if (result < 0)
         {
-            used += result;
+            goto load_failed;
         }
+
+        used += result;
     }
 
     /**
@@ -2814,6 +2818,11 @@ void bgLoadRoomModelData(s32 roomID)
     if (g_BgRoomInfo[roomID].csize_secondary_DL_binary)
     {
         result = bgLoadRoomSecondaryGdl(roomID, data + used, allocsize - used);
+
+        if (result < 0)
+        {
+            goto load_failed;
+        }
 
         if (result > 0)
         {
@@ -2868,6 +2877,21 @@ void bgLoadRoomModelData(s32 roomID)
 
     bgBuildRoomVtxBounds(roomID);
     roomsHandleStateDebugging();
+    goto end;
+
+load_failed:
+    /*
+     * A malloc or decompress failure used to mark the room loaded. Nothing
+     * retries a room that is already marked loaded, so it stayed black for
+     * the rest of the stage. Drop the block and leave it unloaded.
+     */
+    memaFree(data, allocsize);
+    g_BgRoomInfo[roomID].vertices = NULL;
+    g_BgRoomInfo[roomID].usize_point_index_binary = 0;
+    g_BgRoomInfo[roomID].ptr_expanded_mapping_info = NULL;
+    g_BgRoomInfo[roomID].usize_primary_DL_binary = 0;
+    g_BgRoomInfo[roomID].ptr_secondary_expanded_mapping_info = NULL;
+    g_BgRoomInfo[roomID].usize_secondary_DL_binary = 0;
 
 end:;
 
