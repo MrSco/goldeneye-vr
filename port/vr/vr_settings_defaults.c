@@ -246,7 +246,7 @@ void optionsMenuInit(void)
 /* Model-specific fits; D5K silenced shares item 10. Missing INI keys keep these defaults. */
 float VrGexWeaponFits[64][10][3] = {
     [2] = {{3.4710f,1.1003f,3.5348f}}, /* knives: palm aligned to the fitted KF7's, initial */
-    [26] = {{4.2795f,1.3928f,4.5162f}}, /* grenade: palm aligned to the fitted KF7's, initial */
+    [26] = {{4.2795f,1.3928f,4.5162f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{-0.5229f,1.1656f,0.4464f},{2.3233f,-3.7653f,2.3402f},{-0.0077f,0.0000f,0.0000f}}, /* grenade: headset item fit 2026-10-07 */
     [27] = {{1.4880f,2.6146f,-7.3449f}}, /* timed mine, initial */
     [28] = {{1.4880f,2.6146f,-7.3449f}}, /* proximity mine, initial */
     [29] = {{-1.8157f,3.5317f,-9.2842f}}, /* remote mine, initial */
