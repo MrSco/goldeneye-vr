@@ -364,6 +364,7 @@ extern s32 g_gevrStereo;
 extern s32 gevrStereoMirrored(void);
 extern s32 gevrHandsMirrored(void);
 extern s32 gevrStereoItemShown(s32 item);
+extern s32 gevrGexHeld(s32 hand);     /* gun.c: this hand's model is GoldenEye X's */
 extern void gevrStereoItemPose(s32 item, Mtxf *m);
 extern s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out);
 extern s32 g_gevrStereo;
@@ -677,7 +678,11 @@ void gunUpdateAndFire(GUNHAND handnum)
             matrix_4x4_set_rotation_around_xyz(&trigrot, &tmpmtx);
             matrix_4x4_multiply_homogeneous_in_place(&tmpmtx, &rotmtx);
     }
+#ifdef GEVR
+    else if (item == ITEM_TASER && !gevrGexHeld(handnum))   /* GE-X's taser rig holds itself as posed */
+#else
     else if (item == ITEM_TASER)
+#endif
     {
         taserrot = D_80035C7C;
         matrix_4x4_set_rotation_around_xyz(&taserrot, &tmpmtx);
@@ -743,11 +748,12 @@ void gunUpdateAndFire(GUNHAND handnum)
             Mtxf pose;
 
             matrix_4x4_copy(&gevrItemRot, &pose);
-            extern s32 gevrGexHandHeld(s32 hand);   /* gun.c: a GE-X knife, grenade or mine */
+            extern s32 gevrMotionThrowOwnsHand(s32 hand);   /* bondview2.c */
 
-            /* not for an item the tracked hand itself swings and throws (user:
-             * GoldenEye's throw swung the GE-X arm a second time) */
-            if (hand->field_92C != 0 && !gevrStereoItemShown(item) && !gevrGexHandHeld(handnum))
+            /* not while the grip's motion throw owns the hand - winding up,
+             * cooking or recovering (user: GoldenEye's throw swung the arm a
+             * second time); a trigger stab or throw keeps its animation */
+            if (hand->field_92C != 0 && !gevrStereoItemShown(item) && !gevrMotionThrowOwnsHand(handnum))
             {
                 /*
                  * The keyframe turn is in the model frame, which the flat

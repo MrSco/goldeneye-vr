@@ -31,10 +31,42 @@ SLOTS = {2: "knife", 3: "PP7", 4: "PP7 silenced", 5: "DD44", 6: "Klobb", 7: "KF7
          24: "rocket launcher", 26: "grenade"}
 
 
+def gun_names(rom):
+    """The ROM's own English weapon names (LgunE), by text index; each weapon
+    definition names itself at +0x46 (bank 0x26, low 9 bits the index).
+    SLOTS above is hand-kept: slot 30 is the Taser, 44 the Hallucinogun."""
+    data = rom.load("LgunE")
+    offsets, first, i = [], None, 0
+    while first is None or 4 * i < first:
+        o = struct.unpack_from(">I", data, 4 * i)[0]
+        offsets.append(o)
+        if o and (first is None or o < first):
+            first = o
+        i += 1
+    def text(k):
+        if k >= len(offsets) or not offsets[k]:
+            return None
+        o = offsets[k]
+        return data[o:data.index(b"\0", o)].decode("latin1").strip()
+    return text
+
+
 class GexCode:
     def __init__(self, rom):
         self.rom = rom
         self.seg = rom.data   # the inflated data segment
+        try:
+            self.name_text = gun_names(rom)
+        except Exception:     # a ROM without the language file: the hand-kept labels
+            self.name_text = None
+
+    def slot_name(self, slot):
+        if self.name_text is not None:
+            d = self.u32(G_WEAPONS + 4 * slot)
+            name = self.name_text(self.u16(d + 0x46) & 0x1FF)
+            if name:
+                return name
+        return SLOTS.get(slot, "?")
 
     def u8(self, a): return self.seg[a - DATA_BASE]
     def u16(self, a): return struct.unpack_from(">H", self.seg, a - DATA_BASE)[0]
@@ -72,7 +104,7 @@ class GexCode:
         hi, lo = self.u16(d), self.u16(d + 2)
         names = {f[0]: f[1] for f in self.rom.files}
         out = ["slot %d %s: def 0x%08x model %d %s (lod %d %s), pos %.0f %.0f %.0f, flags 0x%08x"
-               % (slot, SLOTS.get(slot, "?"), d, hi, names.get(hi), lo, names.get(lo),
+               % (slot, self.slot_name(slot), d, hi, names.get(hi), lo, names.get(lo),
                   self.f32(d + 0x2C), self.f32(d + 0x30), self.f32(d + 0x34), self.u32(d + 0x4C))]
         if self.u32(d + 4):
             out.append("  equip/idle:")
