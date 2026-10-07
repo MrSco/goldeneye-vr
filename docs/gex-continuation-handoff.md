@@ -4,6 +4,38 @@ Start here, then read [the roadmap](gex-weapon-roadmap.md) for the history of
 PP7 grip, wrist orientation, duplicate arms, insertion targets and installed
 magazine fitting. This file records the current implementation and remaining work.
 
+## Bonus PP7s, knives, throwables, Gun hand fit — 2026-10-06, night
+
+Branch `codex/gex-cougar-grenade` (local, not pushed). Latest test APK
+`GoldenEyeVR-code65-throwables-6bd194d.apk`, label **6bd194d**, 0.4.11 / code 65,
+SHA256 `71ddbc10cbd6f2f6cdfdf27db3597bcacdb7a75002a8380a495e9f604330fa29`.
+Headset acceptance of this batch is **pending**; Cougar, grenade launcher (with Gun
+hand), crosshair option and fits up to 3d5b733 were accepted/fitted by the user.
+
+- **Gun hand fit (1034239).** Ninth X mode (GE-X guns): moves GE-X's right hand
+  joints 1..16 on the gun (cm) and, holding the gun-hand grip, turns them about the
+  palm. Fit components 7/8; table is `[64][9][3]`. Needed because the launcher reuses
+  the Cougar rig; its baked hand is (0, 1.995, 9.35) cm.
+- **Bonus PP7s (9ee6c15).** GE-X draws silver/gold PP7 as PD's DY357 / DY357-LX on
+  the PP7's own rig (same scripts, clips and magazine). `PP7_RIG` macro; they share
+  the PP7 family's fits (`pp7()`), the underside grab rule, no GexFit20/21 rows.
+- **Knives (dbfb6e5).** `GknifeZ` for knife and throwing knife (fits shared, item 2).
+  Blade runs along the joint's x, so `screenFromRoot` keeps PD's own first-person pose
+  in screen mode with the palm placed on the PP7's. No fire clip: GoldenEye's swing and
+  throw move it (GE-X's would move it twice; its 1029 ends in the throwing grip).
+- **Grenade and mines (6bd194d).** `GgrenadeZ` (root-anchored), timed/proximity/
+  remote mines (GoldenEye's own meshes, every vertex matches). Idle clips raise the
+  hand from below, so each use clip's frame 0 is the rest. GoldenEye hides these in the
+  hand and stereo drew them as gadgets in a fist; GE-X items without an ammo payload
+  now stay shown (gunfire.c), the gadget table/fist stand down (`gevrStereoItemShown`),
+  and a spent item hides alone (part 100, or `spentMatrix`) so the GE-X hand stays.
+  The remote mine's PD detonator (matrix 34) is collapsed (`hideMatrix`).
+
+Headset checks: knife idle hold, stab by swing, throwing knife throw and redraw;
+grenade hold/throw/next grenade, hand stays empty (no GE fist) between throws; each
+mine's hold, throw/place, stick, re-grab, remote detonation; left-hand gadget mines;
+screen mode for all; Gun hand mode on these too. Fit each and bake as before.
+
 ## Cougar, grenade launcher and switch blink — 2026-10-06, late
 
 Branch `codex/gex-cougar-grenade` from Main `2dfbc84` (PRs #138/#139/#140 merged).
