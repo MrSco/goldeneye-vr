@@ -6272,8 +6272,9 @@ void gunTickGameplay(s32 triggerOn)
      * controller's trigger fires its own gun - the game's single trigger and
      * its turn-taking above only fit one pad aiming both guns at one crosshair.
      */
-    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    if (netIsActive() && !gevrNetOwnsSlot(get_cur_playernum()))
     {
+        /* a copy fires as its owner says; a bot (the host) by its own pad, below */
         trigger_state.triggerOn[GUNRIGHT] = netRemoteTrigger(get_cur_playernum(), GUNRIGHT);
         trigger_state.triggerOn[GUNLEFT] = netRemoteTrigger(get_cur_playernum(), GUNLEFT);
     }

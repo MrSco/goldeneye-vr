@@ -11,7 +11,8 @@ struct player *g_playerPointers[MAX_PLAYER_COUNT];
 s32 startpadcount=8;
 static unsigned char sent_data[1024];   /* an eight-player match snapshot is 715 bytes */
 static size_t sent_size;
-s32 get_cur_playernum(void) { return s_local_slot; }
+static int fixture_cur=-1;   /* the player ticking, when not the local one (a bot) */
+s32 get_cur_playernum(void) { return fixture_cur>=0 ? fixture_cur : s_local_slot; }
 static int respawn_calls;
 void set_cur_player(s32 slot) { (void)slot; }
 void mp_respawn_handler_net(s32 pad,float theta) { (void)pad;(void)theta;respawn_calls++; }
@@ -691,10 +692,10 @@ EXPORT int test_core_timed_hits(void) {
     CHECK(!netAcceptRespawn(0,s_combat_epoch,previous,netNextLife(previous)));
     CHECK(!netAcceptRespawn(0,s_combat_epoch+1,s_hit_life[0],netNextLife(s_hit_life[0])));
     CHECK(!netAcceptRespawn(0,s_combat_epoch,s_hit_life[0],s_hit_life[0]+2));
-    hitFixture();netBeginLocalShot();NetHitReport a=netMakeLocalHit(1,ITEM_SHOTGUN,0,1,2,3,1);
-    clock_us+=1000;NetHitReport b=netMakeLocalHit(1,ITEM_SHOTGUN,0,1,2,3,1);netEndLocalShot();
+    hitFixture();netBeginLocalShot();NetHitReport a=netMakeLocalHit(s_local_slot,1,ITEM_SHOTGUN,0,1,2,3,1);
+    clock_us+=1000;NetHitReport b=netMakeLocalHit(s_local_slot,1,ITEM_SHOTGUN,0,1,2,3,1);netEndLocalShot();
     CHECK(a.shot_id==b.shot_id && a.shot_us==b.shot_us && a.hit_id!=b.hit_id);
-    NetHitReport c=netMakeLocalHit(1,ITEM_WPPK,0,1,2,3,1);CHECK(c.shot_id!=a.shot_id && c.shot_us==clock_us);
+    NetHitReport c=netMakeLocalHit(s_local_slot,1,ITEM_WPPK,0,1,2,3,1);CHECK(c.shot_id!=a.shot_id && c.shot_us==clock_us);
     shoot(1);CHECK(queued()==1);CHECK(netAcceptRespawn(1,s_combat_epoch,s_hit_life[1],netNextLife(s_hit_life[1])));
     clock_us+=20000;netDrainHostHits();CHECK(!damage_count && !queued());
     // Owner death uses synchronized time and life; older movement cannot reset it.
@@ -743,8 +744,8 @@ EXPORT int test_core_owner_packets(void) {
     h.target_life=s_hit_life[1];receiveDamageBody(s_server_peer,2,h,0);CHECK(damage_count==2);
     h.epoch++;receiveDamageBody(s_server_peer,2,h,0);CHECK(damage_count==2);
     // A client polling host queues must retain its original owner death time.
-    struct netplayermove m={0};m.dead=1;m.tick=1;netSendLocalPlayerMove(&m);uint64_t death=s_local_death_us;CHECK(death);
-    clock_us+=20000;netDrainHostHits();netSendLocalPlayerMove(&m);CHECK(s_local_death_us==death);
+    struct netplayermove m={0};m.dead=1;m.tick=1;netSendLocalPlayerMove(&m);uint64_t death=s_local_death_us[s_local_slot];CHECK(death);
+    clock_us+=20000;netDrainHostHits();netSendLocalPlayerMove(&m);CHECK(s_local_death_us[s_local_slot]==death);
     hitFixture();static PropRecord prop;hit_players[1].prop=&prop;respawn_calls=0;
     previous=s_hit_life[1];s_remote_moves[1].dead=1;s_remote_moves[1].death_us=clock_us;s_remote_active[1]=true;
     receiveRespawnBody(&hit_peers[2],1,s_combat_epoch,previous,netNextLife(previous));CHECK(!respawn_calls);
@@ -946,5 +947,39 @@ EXPORT int test_core_bot_join(void) {
     s_lobby_state.slots[1].connected=s_lobby_state.slots[1].is_bot=1;s_lobby_state.slots[2].connected=s_lobby_state.slots[2].is_bot=1;
     netHostLost(&hit_peers[0]);CHECK(s_host_slot==3);
     s_state=NET_STATE_HOSTING_LOBBY;s_host_slot=s_local_slot=0;VrMpBotMode=0;
+    return 0;
+}
+
+/* The host owns its bots: their moves, hits and respawns go out as an owner's */
+EXPORT int test_core_bot_owner(void) {
+    botFixture(0);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;netResetCombatEpoch();
+    for(int i=0;i<4;i++) {s_lobby_state.slots[i].loaded=1;g_playerPointers[i]=&hit_players[i];memset(&hit_players[i],0,sizeof(hit_players[i]));}
+    CHECK(netSlotOwned(0) && netSlotOwned(2) && !netSlotOwned(5) && !netIsRemotePlayerActive(2));
+    s_remote_active[2]=true;CHECK(!netIsRemotePlayerActive(2) && !netRemoteTrigger(2,GUNRIGHT));
+    /* a bot's move carries its own slot and life */
+    static ENetHost owner_host;s_host=&owner_host;s_client_peers[1]=&hit_peers[1];
+    struct netplayermove m={0};m.tick=5;
+    sent_size=0;netSendOwnedMove(2,&m);CHECK(sent_size>8 && sent_data[6]==NET_MSG_PLAYER_STATE && sent_data[7]==2);
+    m.dead=1;netSendOwnedMove(2,&m);CHECK(s_local_death_us[2] && !s_local_death_us[0]);
+    m.dead=0;netSendOwnedMove(2,&m);
+    /* a bot's shot: its own ids and life, through the host's queue to the damage */
+    netSetHostEqualization(0,0);damage_count=0;
+    fixture_cur=2;netBeginLocalShot();CHECK(s_local_shot_active[2] && !s_local_shot_active[0]);
+    netSendHitReport(3,ITEM_AK47,0,1,2,3,0.2f);netEndLocalShot();
+    CHECK(damage_count==1 && damage_target[0]==3 && s_last_hit_id[2]==s_local_hit_id[2]);
+    /* a copy's hit is its owner's to send */
+    fixture_cur=5;netSendHitReport(3,ITEM_AK47,0,1,2,3,0.2f);CHECK(damage_count==1);
+    /* a bot's blast, reported for it while another player ticks */
+    fixture_cur=-1;netSendHitReportAs(2,1,ITEM_GRENADE,0,1,2,3,0.5f);CHECK(damage_count==2 && damage_target[1]==1);
+    /* a bot's respawn: a new life, sent as the bot's */
+    uint32_t life=s_hit_life[2];fixture_cur=2;sent_size=0;netSendRespawnEvent(1,0);fixture_cur=-1;
+    CHECK(s_hit_life[2]==netNextLife(life) && sent_data[6]==NET_MSG_RESPAWN && sent_data[7]==2);
+    /* a client owns its own slot only */
+    s_host=NULL;s_server_peer=&hit_peers[0];s_local_slot=1;
+    CHECK(!netIsHost() && netSlotOwned(1) && !netSlotOwned(2));
+    s_server_peer=NULL;s_local_slot=0;s_client_peers[1]=NULL;fixture_cur=-1;
+    memset(g_playerPointers,0,sizeof(g_playerPointers));
+    s_state=NET_STATE_HOSTING_LOBBY;VrMpBotMode=0;netSetHostEqualization(1,50);
     return 0;
 }

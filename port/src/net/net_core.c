@@ -137,13 +137,14 @@ typedef struct {
     NetHitReport report; /* shot_us has been mapped to host time before queuing */
 } QueuedHostHit;
 static QueuedHostHit s_host_hits[NET_HOST_HIT_CAPACITY];
-static uint64_t s_combat_epoch,s_hit_death_us[GEVR_MAX_PLAYERS],s_hit_order,s_local_death_us;
+static uint64_t s_combat_epoch,s_hit_death_us[GEVR_MAX_PLAYERS],s_hit_order,s_local_death_us[GEVR_MAX_PLAYERS];
 static uint32_t s_hit_life[GEVR_MAX_PLAYERS],s_last_hit_id[GEVR_MAX_PLAYERS];
-static uint32_t s_hit_move_tick[GEVR_MAX_PLAYERS],s_local_shot_id,s_local_hit_id;
+/* s_local_*: per owned slot, the local player's and (the host) its bots' (netSlotOwned) */
+static uint32_t s_hit_move_tick[GEVR_MAX_PLAYERS],s_local_shot_id[GEVR_MAX_PLAYERS],s_local_hit_id[GEVR_MAX_PLAYERS];
 static bool s_hit_move_seen[GEVR_MAX_PLAYERS];
-static bool s_hit_overflow_warned,s_local_shot_active;
+static bool s_hit_overflow_warned,s_local_shot_active[GEVR_MAX_PLAYERS];
 static unsigned s_host_hit_cursor;
-static NetHitReport s_local_shot;
+static NetHitReport s_local_shot[GEVR_MAX_PLAYERS];
 static NetClockSync s_clock_sync[GEVR_MAX_PLAYERS];
 static NetClockExchange s_clock_pending[GEVR_MAX_PLAYERS];
 static uint64_t s_clock_probe_us[GEVR_MAX_PLAYERS];
@@ -163,7 +164,7 @@ static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, flo
     s32 prev = get_cur_playernum();
     f32 h0 = pl->bondhealth, a0 = pl->bondarmour;
     s_last_attacker[target] = (int8_t)attacker;
-    if (target != s_local_slot) {
+    if (!netSlotOwned(target)) {
         /*
          * A copy takes no damage of its own: its health is its owner's
          * (protocol 10) and it dies when its owner reports dead
@@ -185,7 +186,7 @@ static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, flo
     s_gevrExplosionDamage = 0;
     set_cur_player(prev);
     if (pl->bonddead && !s_hit_death_us[target]) s_hit_death_us[target] = sysGetMicroseconds();
-    if (pl->bonddead && !s_local_death_us) s_local_death_us = s_hit_death_us[target];
+    if (pl->bonddead && !s_local_death_us[target]) s_local_death_us[target] = s_hit_death_us[target];
     NET_LOG("damage: player %d took %.2f from %d (weapon %d): health %.2f -> %.2f, armour %.2f -> %.2f%s%s",
             target, dmg, attacker, weapon, h0, pl->bondhealth, a0, pl->bondarmour,
             pl->bonddead ? ", dead" : "", target == s_local_slot ? " (me)" : "");
@@ -224,7 +225,7 @@ static void netInvalidateHitSlot(int slot)
     s_hit_death_us[slot] = 0;
     s_last_hit_id[slot]=0;
     s_hit_move_seen[slot]=false;
-    if (slot==s_local_slot) {s_local_death_us=0;s_local_shot_active=false;s_local_shot_id=s_local_hit_id=0;}
+    s_local_death_us[slot]=0;s_local_shot_active[slot]=false;s_local_shot_id[slot]=s_local_hit_id[slot]=0;
     for (int i=0;i<NET_HOST_HIT_CAPACITY;i++)
         if (s_host_hits[i].active && (s_host_hits[i].report.target == slot || s_host_hits[i].shooter == slot)) s_host_hits[i].active = false;
 }
@@ -233,7 +234,7 @@ static void netClearHostHits(void)
 {
     memset(s_host_hits,0,sizeof(s_host_hits));
     for (int i=0;i<GEVR_MAX_PLAYERS;i++) s_hit_death_us[i]=0;
-    s_local_death_us=0;s_local_shot_active=false;
+    memset(s_local_death_us,0,sizeof(s_local_death_us));memset(s_local_shot_active,0,sizeof(s_local_shot_active));
     memset(s_hit_move_seen,0,sizeof(s_hit_move_seen));
     s_hit_overflow_warned=false;
     s_host_hit_cursor=0;
@@ -254,7 +255,7 @@ int netGetHostEqualization(unsigned *cap_ms)
 static int netMapShotTime(int slot,uint64_t stamp,uint64_t *mapped,unsigned *uncertainty)
 {
     uint64_t now=sysGetMicroseconds();
-    if (slot==s_local_slot) { *mapped=stamp;*uncertainty=0;return stamp && stamp<=INT64_MAX; }
+    if (netSlotOwned(slot)) { *mapped=stamp;*uncertainty=0;return stamp && stamp<=INT64_MAX; }
     return slot>=0 && slot<GEVR_MAX_PLAYERS && netClockMap(&s_clock_sync[slot],stamp,now,mapped,uncertainty);
 }
 static void netObserveHitMove(int slot,const struct netplayermove *move)
@@ -277,7 +278,7 @@ static void netResetCombatEpoch(void)
     netClearHostHits();
     memset(s_clock_sync,0,sizeof(s_clock_sync));memset(s_clock_pending,0,sizeof(s_clock_pending));
     memset(s_clock_probe_us,0,sizeof(s_clock_probe_us));memset(s_last_hit_id,0,sizeof(s_last_hit_id));
-    s_local_shot_id=s_local_hit_id=0;
+    memset(s_local_shot_id,0,sizeof(s_local_shot_id));memset(s_local_hit_id,0,sizeof(s_local_hit_id));
     for(int i=0;i<GEVR_MAX_PLAYERS;i++)s_hit_life[i]=1;
 }
 static void netWriteCombatIdentity(struct netbuf *b)
@@ -814,6 +815,19 @@ bool netSlotIsBot(int slot) {
     return slot >= 0 && slot < GEVR_MAX_PLAYERS && s_lobby_state.slots[slot].connected && s_lobby_state.slots[slot].is_bot;
 }
 
+/* This headset decides the slot's life and sends its events: its own, and
+ * on the host the bots. During a host change no one owns the bots. */
+bool netSlotOwned(int slot) {
+    return slot >= 0 && slot < GEVR_MAX_PLAYERS && (slot == s_local_slot || (netIsHost() && netSlotIsBot(slot)));
+}
+int gevrNetOwnsSlot(int slot) { return netSlotOwned(slot); }
+
+/* The owned player ticking now, whose events go out; -1 for a copy */
+static int netActingSlot(void) {
+    int slot = get_cur_playernum();
+    return netSlotOwned(slot) ? slot : -1;
+}
+
 int netGetHumanPlayerCount(void) {
     int count = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
@@ -1300,8 +1314,8 @@ static bool netApplyAmmoPacket(struct netbuf *b) {
     return true;
 }
 
-static void netSendObjectEvent(ObjectRecord *obj, uint8_t action, int8_t value) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !obj) return;
+static void netSendObjectEvent(int slot, ObjectRecord *obj, uint8_t action, int8_t value) {
+    if (s_state != NET_STATE_INGAME || slot < 0 || !obj) return;
     int index = netObjectIndex(obj);
     /* Only the setup's objects are the same on every headset. The
      * g_WeaponSlots / g_AmmoCrates pools (0x8000+, 0x9000+) are recycled per
@@ -1315,7 +1329,7 @@ static void netSendObjectEvent(ObjectRecord *obj, uint8_t action, int8_t value) 
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_OBJECT_STATE);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWriteU16(&buf, (uint16_t)index);
     netbufWriteU8(&buf, (uint8_t)obj->type);
     netbufWriteU8(&buf, action);
@@ -1327,15 +1341,15 @@ static void netSendObjectEvent(ObjectRecord *obj, uint8_t action, int8_t value) 
 /* chrprop.c propsTickPlayer: the local player collected this (Perfect Dark
  * port-net SVC_PROP_PICKUP carries the tick operation the same way). */
 void netSendObjectPickup(ObjectRecord *obj, s32 tickop) {
-    if (!netIsActive() || get_cur_playernum() != s_local_slot) return;
-    netSendObjectEvent(obj, NET_OBJECT_PICKUP, (int8_t)tickop);
+    if (!netIsActive()) return;
+    netSendObjectEvent(netActingSlot(), obj, NET_OBJECT_PICKUP, (int8_t)tickop);
 }
 
 /* propobj.c propdoorInteract: the local player opened or closed this door
  * (SVC_PROP_DOOR sends the door's new mode). */
 void netSendDoorState(ObjectRecord *door, s32 state) {
-    if (!netIsActive() || get_cur_playernum() != s_local_slot) return;
-    netSendObjectEvent(door, NET_OBJECT_DOOR, (int8_t)state);
+    if (!netIsActive()) return;
+    netSendObjectEvent(netActingSlot(), door, NET_OBJECT_DOOR, (int8_t)state);
 }
 
 /* Co-op (#94), the host: a door its guards, scripts or timers moved, and a
@@ -1344,12 +1358,12 @@ void netSendDoorState(ObjectRecord *door, s32 state) {
 void netSendHostDoorState(ObjectRecord *door, s32 state) {
     if (!netIsHost() || !netCoopActive() || !netPlayersWereTicked()) return;
     if (state != DOORSTATE_OPENING && state != DOORSTATE_CLOSING && state != DOORSTATE_WAITING) return;
-    netSendObjectEvent(door, NET_OBJECT_DOOR, (int8_t)state);
+    netSendObjectEvent(s_local_slot, door, NET_OBJECT_DOOR, (int8_t)state);
 }
 
 void netSendHostDoorLock(ObjectRecord *door) {
     if (!netIsHost() || !netCoopActive() || !netPlayersWereTicked() || !door || door->type != PROPDEF_DOOR) return;
-    netSendObjectEvent(door, NET_OBJECT_DOOR_LOCK, (int8_t)(uint8_t)((DoorRecord *)door)->keyflags);
+    netSendObjectEvent(s_local_slot, door, NET_OBJECT_DOOR_LOCK, (int8_t)(uint8_t)((DoorRecord *)door)->keyflags);
 }
 
 /* chrprop.c: the local player now holds the flag or the Golden Gun, from the
@@ -1358,7 +1372,8 @@ void netSendHostDoorLock(ObjectRecord *door) {
  * on every headset. A pool object has no shared identity, so the item is
  * the message. */
 void netSendSpecialTaken(s32 item) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || get_cur_playernum() != s_local_slot) return;
+    int slot = netActingSlot();
+    if (s_state != NET_STATE_INGAME || slot < 0) return;
     if (item != ITEM_GOLDENGUN && item != ITEM_TOKEN) return;
     u8 raw[24];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -1366,7 +1381,7 @@ void netSendSpecialTaken(s32 item) {
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_OBJECT_STATE);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWriteU16(&buf, 0);
     netbufWriteU8(&buf, 0);
     netbufWriteU8(&buf, NET_OBJECT_SPECIAL_TAKEN);
@@ -2386,15 +2401,16 @@ bool netLobbyHostLaunchMatch(void) {
     return true;
 }
 
-void netSendLocalPlayerMove(const struct netplayermove *input) {
-    if(s_local_slot<0 || s_local_slot>=GEVR_MAX_PLAYERS || !s_combat_epoch)return;
-    struct netplayermove local=*input;local.epoch=s_combat_epoch;local.life_id=s_hit_life[s_local_slot];
+/* An owned player's move: the local player's, or the host's bot's */
+void netSendOwnedMove(int slot, const struct netplayermove *input) {
+    if(!netSlotOwned(slot) || !s_combat_epoch)return;
+    struct netplayermove local=*input;local.epoch=s_combat_epoch;local.life_id=s_hit_life[slot];
     local.clock_us=sysGetMicroseconds();
-    if(local.dead && !s_local_death_us)s_local_death_us=local.clock_us;
-    local.death_us=local.dead?s_local_death_us:0;
+    if(local.dead && !s_local_death_us[slot])s_local_death_us[slot]=local.clock_us;
+    local.death_us=local.dead?s_local_death_us[slot]:0;
     const struct netplayermove *move=&local;
-    if (netIsHost()) netObserveHitMove(s_local_slot,move);
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
+    if (netIsHost()) netObserveHitMove(slot,move);
+    if (s_state != NET_STATE_INGAME || (slot == s_local_slot && netLocalIsSpectator())) return;
     
     u8 raw[256];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -2402,11 +2418,12 @@ void netSendLocalPlayerMove(const struct netplayermove *input) {
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_PLAYER_STATE);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWritePlayerMove(&buf, move);
-    
+
     netBroadcastBuf(&buf, NET_CHAN_PLAYER_STATE, ENET_PACKET_FLAG_UNSEQUENCED, NULL);
 }
+void netSendLocalPlayerMove(const struct netplayermove *input) { netSendOwnedMove(s_local_slot, input); }
 
 void netSendLocalPlayerState(const NetMsgPlayerState *state) {
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
@@ -2444,7 +2461,7 @@ const NetMsgPlayerState *netGetRemotePlayerState(int slot_id) {
 }
 
 bool netIsRemotePlayerActive(int slot_id) {
-    if (slot_id < 0 || slot_id >= GEVR_MAX_PLAYERS || slot_id == s_local_slot) return false;
+    if (slot_id < 0 || slot_id >= GEVR_MAX_PLAYERS || netSlotOwned(slot_id)) return false;
     return s_remote_active[slot_id];
 }
 
@@ -2489,7 +2506,7 @@ static bool netHitReportAllowed(int shooter,const NetHitReport *h,unsigned uncer
         || !isfinite(h->hx) || !isfinite(h->hy) || !isfinite(h->hz)
         || !netShotTimeValid(h->shot_us,sysGetMicroseconds(),uncertainty) || !netDamageAllowed(shooter,h->target))return false;
     struct player *pl=g_playerPointers[shooter];
-    if(shooter==s_local_slot && pl && pl->bonddead && !s_hit_death_us[shooter])s_hit_death_us[shooter]=sysGetMicroseconds();
+    if(netSlotOwned(shooter) && pl && pl->bonddead && !s_hit_death_us[shooter])s_hit_death_us[shooter]=sysGetMicroseconds();
     /* Blast time is impact time; a grenade thrown before death remains dangerous. */
     return netExplosiveWeapon(h->weapon) || netShotTradeValid(h->shot_us,s_hit_death_us[shooter],uncertainty);
 }
@@ -2528,12 +2545,12 @@ static void netExecuteHostHit(QueuedHostHit *hit)
     if(!hit->active)return;
     hit->active=false;netProcessHitReport(hit->shooter,&hit->report,0);
 }
-static void netQueueHostHit(NetHitReport h)
+static void netQueueHostHit(int shooter,NetHitReport h)
 {
     unsigned uncertainty;
-    if(!netAcceptHit(s_local_slot,&h,&uncertainty))return;
+    if(!netAcceptHit(shooter,&h,&uncertainty))return;
     unsigned delay=netGetSlotHostDelayMs(h.target);
-    if(!delay) {netProcessHitReport(s_local_slot,&h,0);return;}
+    if(!delay) {netProcessHitReport(shooter,&h,0);return;}
     int free_slot=-1,oldest=0;
     for(int n=0;n<NET_HOST_HIT_CAPACITY;n++) {
         int i=(s_host_hit_cursor+n)%NET_HOST_HIT_CAPACITY;
@@ -2545,7 +2562,7 @@ static void netQueueHostHit(NetHitReport h)
         netExecuteHostHit(&s_host_hits[oldest]);free_slot=oldest;
     }
     s_host_hit_cursor=(free_slot+1)%NET_HOST_HIT_CAPACITY;
-    s_host_hits[free_slot]=(QueuedHostHit){true,(uint8_t)s_local_slot,netHostBaseDelayMs(h.target),sysGetMicroseconds(),++s_hit_order,h};
+    s_host_hits[free_slot]=(QueuedHostHit){true,(uint8_t)shooter,netHostBaseDelayMs(h.target),sysGetMicroseconds(),++s_hit_order,h};
 }
 static void netDrainHostHits(void)
 {
@@ -2565,41 +2582,49 @@ static void netDrainHostHits(void)
 }
 void netBeginLocalShot(void)
 {
-    if(!s_combat_epoch || s_local_slot<0 || s_local_slot>=GEVR_MAX_PLAYERS || get_cur_playernum()!=s_local_slot)return;
-    if(!++s_local_shot_id)++s_local_shot_id;
-    s_local_shot=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[s_local_slot],.shot_id=s_local_shot_id};
-    s_local_shot_active=true;
+    int slot=netActingSlot();
+    if(!s_combat_epoch || slot<0)return;
+    if(!++s_local_shot_id[slot])++s_local_shot_id[slot];
+    s_local_shot[slot]=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[slot],.shot_id=s_local_shot_id[slot]};
+    s_local_shot_active[slot]=true;
 }
-void netEndLocalShot(void) {s_local_shot_active=false;}
-static NetHitReport netMakeLocalHit(uint8_t target,uint8_t weapon,uint8_t part,float hx,float hy,float hz,float damage)
+void netEndLocalShot(void) {int slot=netActingSlot();if(slot>=0)s_local_shot_active[slot]=false;}
+static NetHitReport netMakeLocalHit(int slot,uint8_t target,uint8_t weapon,uint8_t part,float hx,float hy,float hz,float damage)
 {
-    NetHitReport h=s_local_shot;
-    if(!s_local_shot_active || netExplosiveWeapon(weapon)) {
-        if(!++s_local_shot_id)++s_local_shot_id;
-        h=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[s_local_slot],.shot_id=s_local_shot_id};
+    NetHitReport h=s_local_shot[slot];
+    if(!s_local_shot_active[slot] || netExplosiveWeapon(weapon)) {
+        if(!++s_local_shot_id[slot])++s_local_shot_id[slot];
+        h=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[slot],.shot_id=s_local_shot_id[slot]};
     }
-    if(!++s_local_hit_id)++s_local_hit_id;
-    h.hit_id=s_local_hit_id;h.target=target;h.target_life=target<GEVR_MAX_PLAYERS?s_hit_life[target]:0;
+    if(!++s_local_hit_id[slot])++s_local_hit_id[slot];
+    h.hit_id=s_local_hit_id[slot];h.target=target;h.target_life=target<GEVR_MAX_PLAYERS?s_hit_life[target]:0;
     h.weapon=weapon;h.part=part;h.hx=hx;h.hy=hy;h.hz=hz;h.damage=damage;
     return h;
 }
 void netSendWorldHitReport(uint8_t target,uint8_t weapon,float x,float y,float z,float damage)
 {
     if(s_state!=NET_STATE_INGAME || !netIsHost() || target>=GEVR_MAX_PLAYERS)return;
-    NetHitReport h=netMakeLocalHit(target,weapon,0,x,y,z,damage);
+    NetHitReport h=netMakeLocalHit(s_local_slot,target,weapon,0,x,y,z,damage);
     h.shooter_life=s_hit_life[target];
     /* Environmental blasts have no remote clock or player attacker. */
     netProcessHitReport(target,&h,0);
 }
-void netSendHitReport(uint8_t target,uint8_t weapon,uint8_t part,float x,float y,float z,float damage)
+/* An owned player's hit on another player: a bot's (the host) or the local player's */
+void netSendHitReportAs(int shooter,uint8_t target,uint8_t weapon,uint8_t part,float x,float y,float z,float damage)
 {
-    if(s_state!=NET_STATE_INGAME || !s_combat_epoch || s_local_slot<0 || get_cur_playernum()!=s_local_slot)return;
-    NetHitReport h=netMakeLocalHit(target,weapon,part,x,y,z,damage);
-    if(netIsHost()) {netQueueHostHit(h);return;}
+    if(s_state!=NET_STATE_INGAME || !s_combat_epoch || !netSlotOwned(shooter))return;
+    NetHitReport h=netMakeLocalHit(shooter,target,weapon,part,x,y,z,damage);
+    if(netIsHost()) {netQueueHostHit(shooter,h);return;}
     u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);
     netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
-    netbufWriteU8(&b,NET_MSG_HIT_REPORT);netbufWriteU8(&b,(uint8_t)s_local_slot);netbufWriteHitReport(&b,&h);
+    netbufWriteU8(&b,NET_MSG_HIT_REPORT);netbufWriteU8(&b,(uint8_t)shooter);netbufWriteHitReport(&b,&h);
     netBroadcastBuf(&b,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
+}
+/* The player ticking now, when it is owned */
+void netSendHitReport(uint8_t target,uint8_t weapon,uint8_t part,float x,float y,float z,float damage)
+{
+    int slot=netActingSlot();
+    if(slot>=0) netSendHitReportAs(slot,target,weapon,part,x,y,z,damage);
 }
 static uint32_t netNextLife(uint32_t life) {return life==UINT32_MAX?1:life+1;}
 static bool netAcceptRespawn(int slot,uint64_t epoch,uint32_t previous,uint32_t next)
@@ -2609,12 +2634,13 @@ static bool netAcceptRespawn(int slot,uint64_t epoch,uint32_t previous,uint32_t 
 }
 void netSendRespawnEvent(uint8_t pad_index,float theta)
 {
-    if(s_state!=NET_STATE_INGAME || s_local_slot<0 || !s_combat_epoch || pad_index>=startpadcount)return;
-    uint32_t previous=s_hit_life[s_local_slot],next=netNextLife(previous);
-    netAcceptRespawn(s_local_slot,s_combat_epoch,previous,next);
+    int slot=netActingSlot();
+    if(s_state!=NET_STATE_INGAME || slot<0 || !s_combat_epoch || pad_index>=startpadcount)return;
+    uint32_t previous=s_hit_life[slot],next=netNextLife(previous);
+    netAcceptRespawn(slot,s_combat_epoch,previous,next);
     u8 raw[40];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);
     netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
-    netbufWriteU8(&b,NET_MSG_RESPAWN);netbufWriteU8(&b,(uint8_t)s_local_slot);
+    netbufWriteU8(&b,NET_MSG_RESPAWN);netbufWriteU8(&b,(uint8_t)slot);
     netbufWriteU8(&b,pad_index);netbufWriteF32(&b,theta);netbufWriteU64(&b,s_combat_epoch);
     netbufWriteU32(&b,previous);netbufWriteU32(&b,next);
     netBroadcastBuf(&b,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
@@ -2638,7 +2664,8 @@ void netSendFireEvent(uint8_t weapon_id) {
 /* gun.c gevrNetProjectile: the local player's thrown or launched projectile */
 void netSendProjectile(s32 kind, s32 hand, s32 item, const coord3d *pos, const coord3d *vel,
                        const f32 *rot9, const coord3d *extra, s32 cooktimer) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !pos || !vel || !rot9) return;
+    int slot = netActingSlot();
+    if (s_state != NET_STATE_INGAME || slot < 0 || !pos || !vel || !rot9) return;
 
     u8 raw[128];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -2647,7 +2674,7 @@ void netSendProjectile(s32 kind, s32 hand, s32 item, const coord3d *pos, const c
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_PROJECTILE);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWriteU8(&buf, (uint8_t)kind);
     netbufWriteU8(&buf, (uint8_t)hand);
     netbufWriteU8(&buf, (uint8_t)item);
@@ -2660,9 +2687,11 @@ void netSendProjectile(s32 kind, s32 hand, s32 item, const coord3d *pos, const c
     NET_LOG("projectile tx: kind %d item %d at %.0f,%.0f,%.0f", (int)kind, (int)item, pos->x, pos->y, pos->z);
 }
 
-/* explosion.c explosionCreate: a damaging explosion the local player caused */
-void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !pos) return;
+/* explosion.c explosionCreate: a damaging explosion an owned player caused
+ * (the local player, or the host's bot); -1 is the world's, sent as the host's */
+void netSendExplosionAs(s32 owner, s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8) {
+    int slot = owner < 0 ? s_local_slot : owner;
+    if (s_state != NET_STATE_INGAME || !netSlotOwned(slot) || !pos) return;
 
     u8 raw[48];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -2670,13 +2699,16 @@ void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground,
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_EXPLOSION);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWriteU8(&buf, (uint8_t)type);
     netbufWriteU8(&buf, rooms ? rooms[0] : 0xff);
     netbufWriteU8(&buf, (uint8_t)((ground ? 1 : 0) | (flag8 ? 2 : 0)));
     netbufWriteCoord(&buf, pos);
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
     NET_LOG("explosion tx: type %d at %.0f,%.0f,%.0f", (int)type, pos->x, pos->y, pos->z);
+}
+void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8) {
+    netSendExplosionAs(-1, type, pos, rooms, ground, flag8);
 }
 
 /* A world event from player slot: sent by that player's own headset, relayed

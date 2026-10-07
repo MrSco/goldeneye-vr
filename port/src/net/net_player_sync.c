@@ -464,12 +464,47 @@ static bool netSyncLocalActivity(f32 speedforwards, f32 speedsideways, const str
     return act;
 }
 
+/*
+ * A bot the host runs (gevr_bot.c): its move goes out as an owner's does,
+ * from its own hands and view. It has no tracked controllers, so no barrel
+ * aim (the copies pose it from its view) and no hand pose.
+ */
+static void netSyncSendBotMove(int slot) {
+    struct player *pl = g_playerPointers[slot];
+    if (!pl) return;
+    struct netplayermove move;
+    memset(&move, 0, sizeof(move));
+    move.tick = (u32)(sysGetMicroseconds() / 1000);
+    for (int hand = GUNRIGHT; hand <= GUNLEFT; hand++) {
+        bool enabled = hand == GUNRIGHT || netActiveDualWield();
+        if (enabled && !pl->bonddead && pl->hands[hand].weapon_firing_status)
+            move.ucmd |= hand == GUNLEFT ? UCMD_FIRE_LEFT : UCMD_FIRE;
+    }
+    if (pl->crouchpos != CROUCH_STAND) move.ucmd |= UCMD_DUCK;
+    move.movespeed[0] = pl->speedforwards;
+    move.movespeed[1] = pl->speedsideways;
+    move.angles[0] = pl->vv_theta;
+    move.angles[1] = pl->vv_verta;
+    move.weaponnum = (s8)pl->hands[GUNRIGHT].weaponnum;
+    move.weaponnum_left = netActiveDualWield() ? (s8)pl->hands[GUNLEFT].weaponnum : ITEM_UNARMED;
+    move.crouchpos = (s8)pl->crouchpos;
+    move.health = pl->bondhealth;
+    move.armour = pl->bondarmour;
+    move.dead = pl->bonddead ? 1 : 0;
+    move.pos = pl->prop ? pl->prop->pos : pl->pos;
+    netSendOwnedMove(slot, &move);
+}
+
 void netPlayerSyncAfterTick(s32 playernum) {
     if (!netIsActive()) return;
     /* This tick ran the level's players: their structs are valid for voice. */
     netVoicePlayersTick();
-    
+
     int local_slot = netGetLocalSlot();
+    if (playernum != local_slot && netSlotOwned(playernum)) {
+        netSyncSendBotMove(playernum);
+        return;
+    }
     if (playernum != local_slot) {
         /* The original per-player tick can move a remote prop after the
          * network correction above. Restore its received position and room
