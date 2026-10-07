@@ -3152,6 +3152,35 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     i = 0;
     ((Model *) &model)->render_pos = matrices;
     modelCalculateRwDataLen(bodymodel);
+#ifdef GEVR
+    if (itemid == ITEM_TANKSHELLS)
+    {
+        /*
+         * The tank's prop model (user: a mini tank on the wheel and the watch).
+         * No gun model: none of the gun setup below reads its switches right
+         * (it crashed in sub_GAME_7F05E978), and its records outgrow spb8.
+         * At a gun's size, the PP7's reach (its record's place).
+         */
+        static u32 s_gevrTankRw[0x800];
+        const f32 k = bodymodel->BoundingVolumeRadius > 1.0f ? 200.0f / bodymodel->BoundingVolumeRadius : 0.03f;
+
+        if (bodymodel->numRecords <= 0 || bodymodel->numRecords > (s32) ARRAYCOUNT(s_gevrTankRw))
+        {
+            return gdl;
+        }
+        modelInit((Model *) &model, bodymodel, s_gevrTankRw);
+        matrix_4x4_copy(mtx, matrices);
+        for (i = 0; i < 3; i++)
+        {
+            for (j = 0; j < 3; j++)
+            {
+                matrices[0].m[i][j] *= k;
+            }
+        }
+        i = 0;
+        goto gevrTankReady;
+    }
+#endif
     modelInit((Model *) &model, bodymodel, spb8);
     sub_GAME_7F05E978((Model *) &model, 0);
     sub_GAME_7F05EA94((Model *) &model, 1);
@@ -3167,22 +3196,6 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     }
 
     matrix_4x4_copy(mtx, matrices);
-#ifdef GEVR
-    if (itemid == ITEM_TANKSHELLS && bodymodel->BoundingVolumeRadius > 1.0f)
-    {
-        /* the tank's prop at a gun's size (the PP7's reach, its record's place) */
-        const f32 k = 200.0f / bodymodel->BoundingVolumeRadius;
-
-        for (i = 0; i < 3; i++)
-        {
-            for (j = 0; j < 3; j++)
-            {
-                matrices[0].m[i][j] *= k;
-            }
-        }
-        i = 0;
-    }
-#endif
     if (bodymodel->Skeleton == (&skeleton_gun_revolver))
     {
         if (bodymodel->Switches[4] != NULL)
@@ -3278,6 +3291,9 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
         }
     }
 
+#ifdef GEVR
+gevrTankReady:
+#endif
     modelUpdateNodeRelations((Model *) &model);
 #ifdef GEVR
     {
