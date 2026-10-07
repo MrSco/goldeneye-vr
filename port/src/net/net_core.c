@@ -4141,25 +4141,31 @@ bool netHostTakeOver(uint16_t port) {
     s_takeover_pending = false;
     s_max_players = s_lobby_max_players;
     uint64_t now = sysGetMicroseconds();
-    int waiting = 0;
+    int waiting = 0, bots = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         s_client_peers[i] = NULL;
         s_remote_active[i] = false;
         if (i == s_local_slot) {
             s_lobby_state.slots[i].connected = 1;
             s_lobby_state.slots[i].loaded = 1;
+        } else if (netSlotIsBot(i)) {
+            /* the bots are this headset's now (gevr_bot.c), from where their copies stand */
+            s_lobby_state.slots[i].loaded = 1;
+            s_slot_grace_us[i] = 0;
+            bots++;
         } else if (s_lobby_state.slots[i].connected) {
             s_lobby_state.slots[i].loaded = 0;
             s_slot_grace_us[i] = now + 20ull * 1000000;
             waiting++;
         }
     }
-    if (!waiting && s_round.config.mode != NET_MODE_COOP) netBeginRoundReset(false);
+    /* alone with bots, the match goes on (user, 2026-10-07) */
+    if (!waiting && !bots && s_round.config.mode != NET_MODE_COOP) netBeginRoundReset(false);
     else if (s_match_ended || g_gameOverFlag) {
         s_match_ended = true;
         s_results_deadline_us = now + 30000000ull;
     }
-    NET_LOG("Hosting the match from slot %d on port %d; %d player(s) have 20 s to come back", s_local_slot, address.port, waiting);
+    NET_LOG("Hosting the match from slot %d on port %d; %d player(s) have 20 s to come back, %d bot(s) adopted", s_local_slot, address.port, waiting, bots);
     netCoopBecameHost();   /* co-op: the guards' AI resumes here */
     return true;
 }
