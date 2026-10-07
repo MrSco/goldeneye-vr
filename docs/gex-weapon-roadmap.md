@@ -1,9 +1,27 @@
 # GE-X weapon roadmap
 
+Latest headset feedback adds three unresolved priorities: rocket launcher needs
+a persistent loaded-rocket mesh after reload; sniper sometimes routes off-hand
+grip to scope sight until switched away/back (belt-pickup wording needs clarification);
+laser fails to show the gun-hand scope sight while held with both hands. The
+[handoff](gex-continuation-handoff.md) records observed behavior, confirmed code
+facts, candidate causes and required render/input lifecycle tests. No gameplay
+fix is claimed for these yet. Address them before adding the remaining guns.
+
+Latest crash follow-up: report **cf69dded** identified original sleeve selection
+reading past the GE-X shotgun's expanded 30-slot switch table when A cycled from
+RC-P90. Both GE-X weapon headers now bypass original cuff selection, and original
+cuff indices are bounded/type-checked. The native poisoned-table regression and
+64-test suite pass; headset retest is pending. RC-P90's report-provided grab and
+held mesh fits are baked into defaults. See the handoff's latest-priority section.
+
 Approved 2026-10-06. The first playable milestone is **PP7 and silenced PP7
 together**, preserving the working KF7. The user then authorized a batch of
 additional detachable-magazine models with in-headset fitting. Batch integration
-is complete; acceptance of each new model remains pending.
+is complete. The latest continuation adds seven more weapons after syncing Main
+at `4786b2a` (v0.4.11). Start with the current
+[continuation handoff](gex-continuation-handoff.md); historical headset feedback
+and calibration decisions remain below. The newest seven await headset acceptance.
 
 ## Interaction contract
 
@@ -321,20 +339,11 @@ held-mag mesh, watch and silenced PP7 muzzle. New gun placements align their
 shooting palms against the fitted KF7; DD44 starts with the fitted PP7 gun pose.
 These are initial placements, not validated replacements for user fitting.
 
-### Remaining next models
+### Continuation status
 
-RC-P90 (slot 13, `Gfnp90Z`) has a top magazine, matrices 38/39 and parts 41/42.
-Reload 1038 transfers at 104 of 156 frames without scripted magazine toggles.
-Review removal direction and explicit visibility/held pose before integrating;
-the existing downward-pull gesture should not be assumed correct for it.
-
-Sniper (slot 16, `GsniperrifleZ`) has parts 40/41 at matrices 40/41. Reload
-1039 removes at 42, hides the held mesh at 70 and transfers ammo at 72. Its
-script has no ordinary fire animation entry or flash part 90: implement and
-validate a separate rest/firing pose and scope/muzzle binding, rather than
-supplying an arbitrary animation to satisfy loader validation.
-
-Shell, cylinder, grenade and rocket loading remain separate later stages.
+RC-P90, sniper, laser, shotgun, automatic shotgun, rocket launcher and Golden Gun are now
+integrated. Cylinder and grenade loading remain separate
+stages. See the current handoff for inspected data and concrete next steps.
 Do not expand their physical reload rules by item range or Perfect Dark name.
 
 
@@ -397,3 +406,79 @@ The follow-up AR33 headset calibration was verified and baked into defaults:
 support hand **4.4486, -0.1748, -0.1474** cm, held magazine **-5.6976, 4.9249, 6.2176** cm,
 and magazine well **0.6024, -0.1363, 0.6389** cm.
 
+## Seven-weapon continuation after v0.4.11 (2026-10-06)
+
+Main was fast-forwarded to `4786b2aa52ee526b15a6f671a61a522d5138aec2`, including
+the accepted AR33 calibration above, room pop-in and tracer collision fixes.
+The continuation branch is `codex/gex-remaining-weapons`. Seven new items bring
+the registry to **17 supported weapon variants**. Their starting fits are
+derived from the actual ROM rigs; they await the user's headset calibration.
+
+| Family / GE item | PD slot / file | Fire / explicit rest | Reload: transfer / removed / shown / hidden | Gun / installed frame / held matrix | Host bytes |
+| --- | --- | --- | --- | --- | --- |
+| RC-P90 / 14 | 13 / `Gfnp90Z` | none / 1038 | 1038: 104 / 41 / 41 / 104 | 33 / 38 / 39 | 14064 |
+| Sniper / 17 | 16 / `GsniperrifleZ` | none / 1036 | 1039: 72 / 42 / 42 / 70 | 33 / 40 / 41 | 19472 |
+| Moonraker / 22 | 21 / `GdysuperdragonZ` | 236 / 236 | none | 33 / none / none | 21888 |
+| Shotgun / 15 | 14 / `GshotgunZ` | 1006 / 1006 | 1005: 53 / n/a / 1 / 54 | 33 / 33 / 38 | 16016 |
+| Auto shotgun / 16 | 15 / `Grcp120Z` | none / 1006 | 1005: 53 / n/a / 1 / 54 | 33 / 33 / 38 | 22592 |
+| Rocket / 25 | 24 / `GdyrocketZ` | 1008 / 1008 | 1007: 93 / n/a / 24 / 93 | 33 / 33 / 37 | 20096 |
+| Golden Gun / 19 | 18 / `Gleegun1Z` | 236 / 236 | 1045: 82 / n/a / 38 / 115 | 33 / 33 / 42 | 16272 |
+
+For single rounds, matrix 33 is the gun's insertion frame, not a removable
+magazine. A configured part of -1 deliberately means no installed mesh.
+Shotguns use held part 43; rocket uses held part 40. All converted models fit
+the 61440-byte host budget and 64-matrix limit.
+
+Lessons carried forward:
+
+- Inspect equip scripts too. RC-P90 has no firing animation; its equip reload
+  1038 has identical gun/magazine placement at rest endpoints. Sniper's equip
+  1036 is a one-frame rest. Auto shotgun's equip is 1006. `restAnim` now
+  distinguishes a valid idle rig from an absent firing clip; fireAnim 0 never
+  starts an arbitrary animation. Watch/empty-hand caches use the same rest.
+- RC-P90's real animated magazine is matrix 38 even while held; matrix 39 is
+  the spare mesh. `gripMatrix=38` binds fingers to the actual reload contact,
+  while screen reload copies its pose to the held mesh. `pullUp` reverses the
+  extraction gesture in gun-relative up coordinates. It does not reverse
+  orientation or reuse a downward gesture by assumption.
+- Sniper has no flash part 90. Muzzle coordinates come from the actual barrel
+  face (local 0,53,828; screen 0,53,804), without adding a fictitious flash
+  matrix. Rocket likewise has no part 90. Scope roots for sniper and laser
+  map the original GE eyepiece into each GE-X rest rig; tests verify that mapping,
+  the actual lens-placement function, mirrored handedness, size and fit trims.
+- `gevrGexHasAmmo` means a held payload and insertion frame exist;
+  `gevrGexHasMagazine` also excludes single-round guns. Laser has neither.
+  Held ammo and insertion fit support shells/rockets; Installed Magazine and
+  magazine-grab fits apply only to removable magazines. Hidden component 6
+  cannot shift a single-round insertion target.
+- `singleRound` reserves exactly one shell/rocket at a fresh belt grip. Insertion
+  adds one round up to GE capacity; it never removes existing loaded rounds.
+  Releasing/cancelling refunds the captured ammo type once. B/Y does not dump
+  shells. Release is required before another pickup. The existing gun-to-belt
+  reload remains available, including with two guns equipped.
+- Single-round idle state remains IN: OUT would suppress the otherwise free
+  off hand's melee indefinitely. Holding a payload uses INHAND and the same
+  arm-consumption path that fixed the PP7 duplicate-arm preview. Compact single
+  rounds bypass pistol magazine/support ownership because no magazine grab exists.
+- Rocket insertion uses the actual tube face at 0,125.25,436 in gun coordinates.
+  The held rocket's -126 end is the selected tip; using its +335 end with the
+  fully inserted source pose put the target beyond the tube. The user can refine
+  this with Ammo Insertion fit. Its starting support fit is 30,7,0 cm under the tube.
+
+Fit keys for the seven new families are `GexFit14_*`, `GexFit15_*`,
+`GexFit16_*`, `GexFit17_*`, `GexFit19_*`, `GexFit22_*`, `GexFit25_*`. The seven components
+retain their existing meanings; scope and muzzle fits remain separately saved.
+To bake feedback, pull the INI read-only, parse only finite vectors, copy the
+matching designated rows into `port/vr/vr_settings_defaults.c`, retain all
+previous user values and rerun save/load/undo checks. Do not replace the user's
+device configuration. The full resume and headset checklist is in the handoff.
+
+Golden Gun adds timed chamber/cover parts 45/42 instead of treating them as an
+installed magazine. Single screen reload 1045 shows them from 19 to 115;
+dual 1059 shows them from 19 to 59 and transfers ammo at 68. Physical holding
+opens the chamber with source frame 60; insertion readies from 82 and closes
+at 115. The target is (-24,34,-51) in gun matrix 33. Source matrix 38 is an
+animated ejected casing: using its translated rest frame would shift the
+entrance. Held part 43 / matrix 42 shares the bullet's local geometry but needs
+its own animated hand contact. Native tests cover the visibility boundaries,
+mechanism pose, fit availability and one-round ammo conservation.

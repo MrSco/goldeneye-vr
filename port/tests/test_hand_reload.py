@@ -73,7 +73,7 @@ production.extend(function(view, signature) for signature in (
     "static s32 gevrGexPistolSupportAllowed(void)\n{", "static f32 gevrGexReloadDistance(",
     "void gevrGexReloadReset(",
     "s32 gevrGexClaimsOffHand(void)\n{", "void gevrGexDropMagazine(",
-    "static void gevrHandReloadFire(", "void gevrHandReloadTick("))
+    "static void gevrHandReloadFire(", "static void gevrGexRoundTick(", "void gevrHandReloadTick("))
 for signature in ("static s32 gevrReloadNeedsAmmo(", "static s32 gevrReloadBeltReach("):
     if signature in view:
         production.insert(-2, function(view, signature))

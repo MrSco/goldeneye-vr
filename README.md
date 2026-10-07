@@ -71,7 +71,7 @@ Also:
 
   In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
 - **Multiplayer** (experimental): deathmatch for up to eight players, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
-- **GoldenEye X** (optional, WIP): ten weapon variants with models and animations, removable magazines in VR,
+- **GoldenEye X** (optional, WIP): seventeen weapon variants with models and animations, magazines and individual shells/rockets in VR,
   and its arms wearing GoldenEye's watch, loaded from your own patched Perfect Dark ROM.
   See [GE-X setup](#-goldeneye-x-optional-wip).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
@@ -170,7 +170,7 @@ the same way as the first time. Your ROM and settings stay where they are.
 
 ## 🧩 GoldenEye X (optional, WIP)
 
-GoldenEye X is a ROM hack of Perfect Dark. This port can read its **KF7, both PP7s, DD44, Klobb, ZMG, D5K, silenced D5K, Phantom and AR33** and
+GoldenEye X is a ROM hack of Perfect Dark. This port can read its **KF7, both PP7s, DD44, Klobb, ZMG, D5K, silenced D5K, Phantom, AR33, RC-P90, sniper, Moonraker laser, both shotguns, rocket launcher and Golden Gun** and
 **arms** as optional replacements while you play GoldenEye. Support currently covers
 those assets; GE-X's campaign, maps and other weapons are not imported.
 
@@ -196,6 +196,12 @@ pull the magazine with your off hand, grip a replacement at your belt, and seat 
 in the gun. B/Y drops the magazine; a removed magazine keeps its rounds until
 reinserted or dropped. PP7 cupping favors support; release and grip distinctly
 below the pistol to remove its magazine. See [reload and fit controls](docs/gex-setup.md#reload-and-fit-controls).
+
+RC-P90's top magazine lifts upward. For either shotgun or the rocket launcher,
+grip one round at your belt and insert it at the gun's port; release grip before
+taking another. Held Ammo and Ammo Insertion fit adjust the payload and target
+independently. The newest seven guns await headset fitting. The
+[continuation handoff](docs/gex-continuation-handoff.md) tracks the remaining guns.
 
 No Perfect Dark ROM, patched ROM or GE-X assets ship with the app. The app imports
 the file you prepare; it does not apply the patch for you. Use the Mods picker for
@@ -240,9 +246,10 @@ Real-world movement works too: lean around corners, duck, and step. Ducking behi
 that are off by default:
 - **Hand reload (WIP)**: guns stop reloading themselves, and B/Y stop reloading. Pull an SMG's or
   rifle's magazine down with your off hand, or sweep a pistol, shotgun or dual-wielded gun
-  across your chest. The **supported GE-X guns** use removable magazines: pull one out, take a
+  across your chest. **GE-X magazine guns** use removable magazines: pull one out, take a
   replacement at your belt and push it in; B/Y drops its magazine. Bring an empty GE-X
-  gun to the belt to reload it directly, including when dual-wielding.
+  gun to the belt to reload it directly, including when dual-wielding. GE-X shotguns and
+  rockets also support picking up and inserting one round at a time; RC-P90 magazines lift up.
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
 
 **Game rules...** on the **Play** tab offers three options, off by default:
