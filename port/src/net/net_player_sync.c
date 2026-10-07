@@ -439,6 +439,31 @@ void netPlayerSyncBeforeTick(s32 playernum) {
     }
 }
 
+/*
+ * The idle kick's activity (net_core.c netTouchLocalActivity): walking, turning
+ * or looking, moving, or firing. Not the move's other flags: UCMD_AIMVALID is set
+ * every frame a gun has a barrel pose (always, in VR) and UCMD_DUCK while
+ * crouched, so a headset asleep or left in a match never idled out.
+ */
+static bool netSyncLocalActivity(f32 speedforwards, f32 speedsideways, const struct netplayermove *move) {
+    static coord3d s_last_act_pos;
+    static f32 s_last_act_theta = 0.0f, s_last_act_verta = 0.0f;
+    bool act = false;
+    if (fabsf(speedforwards) > 0.02f || fabsf(speedsideways) > 0.02f) act = true;
+    if (move->ucmd & (UCMD_FIRE | UCMD_FIRE_LEFT)) act = true;
+    if (fabsf(move->angles[0] - s_last_act_theta) > 2.0f || fabsf(move->angles[1] - s_last_act_verta) > 2.0f) {
+        act = true;
+        s_last_act_theta = move->angles[0];
+        s_last_act_verta = move->angles[1];
+    }
+    f32 dx = move->pos.x - s_last_act_pos.x, dy = move->pos.y - s_last_act_pos.y, dz = move->pos.z - s_last_act_pos.z;
+    if (dx * dx + dy * dy + dz * dz > 0.0016f) {
+        act = true;
+        s_last_act_pos = move->pos;
+    }
+    return act;
+}
+
 void netPlayerSyncAfterTick(s32 playernum) {
     if (!netIsActive()) return;
     /* This tick ran the level's players: their structs are valid for voice. */
@@ -640,24 +665,7 @@ void netPlayerSyncAfterTick(s32 playernum) {
     move.handrot.y = atan2f(2.0f * (hqw * hqy + hqx * hqz), 1.0f - 2.0f * (hqx * hqx + hqy * hqy)) * (180.0f / (float)M_PI);
     move.handrot.z = atan2f(2.0f * (hqw * hqz + hqx * hqy), 1.0f - 2.0f * (hqx * hqx + hqz * hqz)) * (180.0f / (float)M_PI);
 
-    {
-        static coord3d s_last_act_pos;
-        static f32 s_last_act_theta = 0.0f, s_last_act_verta = 0.0f;
-        bool act = false;
-        if (fabsf(pl->speedforwards) > 0.02f || fabsf(pl->speedsideways) > 0.02f) act = true;
-        if (move.ucmd != 0) act = true;
-        if (fabsf(move.angles[0] - s_last_act_theta) > 2.0f || fabsf(move.angles[1] - s_last_act_verta) > 2.0f) {
-            act = true;
-            s_last_act_theta = move.angles[0];
-            s_last_act_verta = move.angles[1];
-        }
-        f32 dx = move.pos.x - s_last_act_pos.x, dy = move.pos.y - s_last_act_pos.y, dz = move.pos.z - s_last_act_pos.z;
-        if (dx * dx + dy * dy + dz * dz > 0.0016f) {
-            act = true;
-            s_last_act_pos = move.pos;
-        }
-        if (act) netTouchLocalActivity();
-    }
+    if (netSyncLocalActivity(pl->speedforwards, pl->speedsideways, &move)) netTouchLocalActivity();
 
     /* The owner's side of the copy's pose line above, to compare against. */
     {

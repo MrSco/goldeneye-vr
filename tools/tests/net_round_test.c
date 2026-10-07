@@ -5,6 +5,8 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include "net/netenet.h"
+#undef s_host /* Winsock's in_addr byte-field macro */
 #include "../../port/src/net/net_core.c"
 
 static u64 test_now;
@@ -16,6 +18,9 @@ unsigned VrMpFavStages, VrMpFavSets;
 u64 sysGetMicroseconds(void) { return test_now; }
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 void netVoiceForgetSlot(uint8_t slot) { (void)slot; voice_clears++; }
+void netCoopHostLost(int oldhost, int elected) { (void)oldhost; (void)elected; }
+void netCoopSlotLeft(int slot) { (void)slot; }
+void netIceForgetPeer(const char *virtualIp) { (void)virtualIp; }
 void netPlayersTickedReset(void) {}
 static int s_hudmsg_count, s_lobby_stops, s_launcher_restarts;
 void hudmsgTopShow(char *mess) { (void)mess; s_hudmsg_count++; }
@@ -34,6 +39,14 @@ int enet_peer_send(ENetPeer *peer, uint8_t channel, ENetPacket *packet) {
     return 0;
 }
 
+/* A dropped slot and a lost host reach these; the test peers have no ENet host. */
+void enet_peer_reset(ENetPeer *peer) { (void)peer; }
+int enet_address_get_ip(const ENetAddress *address, char *name, size_t length) {
+    (void)address;
+    if (length) name[0] = '\0';
+    return 0;
+}
+
 static ENetPeer peer1;
 
 /* The host's clock probe answered (net_core.c netReceiveClock): rounds wait
@@ -48,6 +61,11 @@ static void clock_sync(void) {
 static void stage_reloaded(void) {
     for (int i=0;i<2;i++) s_lobby_state.slots[i].loaded = 1;
     clock_sync();
+}
+
+/* Pose packets keep arriving. Time jumps in the round tests are not a freeze. */
+static void still_sending(void) {
+    s_slot_heard_us[1] = s_host_heard_us = test_now;
 }
 
 static void session(void) {
@@ -68,38 +86,48 @@ static void session(void) {
     netLatchRoundSettings(); netClearVotes(-1);
     s_round_reset_pending = s_round_reset_loading = s_start_after_load = false;
     s_next_round_at_us = s_countdown_end_us = 0;
+    s_host_heard_us = test_now;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) s_slot_heard_us[i] = test_now;
+    s_last_local_activity_us = test_now;   /* test_now goes back here: the idle clock with it */
     g_gameOverFlag = 0;
     resets = starts = voice_clears = 0;
 }
 
 static void test_round_flow(void) {
     session();
-    netReadyProgress(); assert(netCountdownSecondsLeft() == 0); /* no clock from slot 1 yet */
-    clock_sync(); netReadyProgress();
+    /* Ready alone keeps warmup going; the host's START (or warmup's end) asks for the round. */
+    netReadyProgress(); assert(netCountdownSecondsLeft() == 0 && s_phase == NET_PHASE_WARMUP);
+    netHostStartRoundNow(); assert(netCountdownSecondsLeft() == 0); /* no clock from slot 1 yet */
+    clock_sync(); still_sending(); netRoundTick();
     assert(netCountdownSecondsLeft() == 10 && resets == 0);
-    test_now += 9999999; netRoundTick(); assert(resets == 0);
-    test_now++; netRoundTick(); assert(resets == 1 && netTakeRoundReset());
-    netRoundTick(); assert(resets == 1 && !netTakeRoundReset());
+    test_now += 9999999; still_sending(); netRoundTick(); assert(resets == 0);
+    test_now++; still_sending(); netRoundTick(); assert(resets == 1 && netTakeRoundReset());
+    still_sending(); netRoundTick(); assert(resets == 1 && !netTakeRoundReset());
     s_lobby_state.slots[0].ready = s_lobby_state.slots[1].ready = 1;
     netReadyProgress(); assert(s_phase == NET_PHASE_WARMUP && starts == 0); /* still loading */
     stage_reloaded(); netReadyProgress(); assert(s_phase == NET_PHASE_IN_PROGRESS && starts == 1);
     netHostRoundEnded(); u64 deadline = s_results_deadline_us;
     netHostRoundEnded(); assert(s_results_deadline_us == deadline);
-    test_now = deadline-1; netRoundTick(); assert(!s_next_round_at_us);
-    test_now++; netRoundTick(); assert(netCountdownSecondsLeft() == 20 && resets == 1);
-    u64 end = s_next_round_at_us; netHostContinue(); assert(s_next_round_at_us == end);
+    /* The results show for 30 s. The players vote and ready up for the next match meanwhile. */
     s_vote[NET_BALLOT_STAGE][1] = 1;
     s_vote[NET_BALLOT_WEAPONS][1] = 5;
-    test_now = end-1; netRoundTick(); assert(s_round.config.stage == 27);
-    test_now++; netRoundTick(); assert(resets == 2 && s_round.config.stage == 31 && s_round.config.weapon_set == 5);
     s_lobby_state.slots[0].ready = s_lobby_state.slots[1].ready = 1;
-    stage_reloaded(); netReadyProgress(); assert(starts == 2);
-    netHostReturnToLobby(); assert(resets == 3 && s_lobby_open && s_round.config.stage == 31);
+    test_now = deadline-1; still_sending(); netRoundTick(); assert(!s_next_round_at_us && resets == 1 && s_round.config.stage == 27);
+    /* At the deadline the voted map loads into warmup; no countdown yet. */
+    test_now++; clock_sync(); still_sending(); netRoundTick();   /* the host's 2 s probe keeps the clock fresh */
+    assert(resets == 2); assert(!s_next_round_at_us); assert(s_round.config.stage == 31); assert(s_round.config.weapon_set == 5);
+    stage_reloaded(); netReadyProgress(); assert(s_phase == NET_PHASE_WARMUP && starts == 1);
+    /* START: ten seconds, then the reload that begins the match. */
+    netHostStartRoundNow(); assert(netCountdownSecondsLeft() == 10 && resets == 2);
+    u64 end = s_next_round_at_us;
+    test_now = end; clock_sync(); still_sending(); netRoundTick(); assert(resets == 3);
+    stage_reloaded(); netReadyProgress(); assert(s_phase == NET_PHASE_IN_PROGRESS && starts == 2);
+    netHostReturnToLobby(); assert(resets == 4 && s_lobby_open && s_round.config.stage == 31);
     s_lobby_state.slots[0].ready = s_lobby_state.slots[1].ready = 1;
     stage_reloaded(); netReadyProgress(); netReadyProgress(); assert(!s_next_round_at_us && starts == 2);
     netHostStartRoundNow(); assert(netCountdownSecondsLeft() == 10);
     s_local_slot = 1; end = s_next_round_at_us; netHostReturnToLobby();
-    assert(s_next_round_at_us == end && resets == 3); /* client cannot control rounds */
+    assert(s_next_round_at_us == end && resets == 4); /* client cannot control rounds */
 }
 
 static void test_settings_and_wire(void) {
@@ -162,26 +190,86 @@ static void test_idle_timeout(void) {
     s_last_local_activity_us = test_now;
     s_hudmsg_count = s_lobby_stops = s_launcher_restarts = 0;
     test_now += 269ULL * 1000000ULL;
+    still_sending();
     netRoundTick();
     assert(s_hudmsg_count == 0 && s_lobby_stops == 0 && s_launcher_restarts == 0);
+    assert(s_lobby_state.slots[1].connected);
 
     test_now += 1ULL * 1000000ULL;
+    still_sending();
     netRoundTick();
     assert(s_hudmsg_count == 1 && s_lobby_stops == 0 && s_launcher_restarts == 0);
+    assert(s_lobby_state.slots[1].connected);
 
     netTouchLocalActivity();
     s_hudmsg_count = 0;
     test_now += 10ULL * 1000000ULL;
+    still_sending();
     netRoundTick();
     assert(s_hudmsg_count == 0);
+    assert(s_lobby_state.slots[1].connected);
 
     test_now += 300ULL * 1000000ULL;
+    still_sending();
     netRoundTick();
     assert(s_lobby_stops == 1 && s_launcher_restarts == 1);
 }
 
+/* A headset that stops sending is not idle: pose packets have stopped. */
+static void test_silence_timeout(void) {
+    s_lobby_stops = s_launcher_restarts = 0;
+    session();
+    s_slot_heard_us[1] = test_now;
+    test_now += 29ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_lobby_state.slots[1].connected && s_client_peers[1] == &peer1);
+
+    test_now += 1ULL * 1000000ULL;
+    netRoundTick();
+    assert(!s_lobby_state.slots[1].connected && s_client_peers[1] == NULL);
+    assert(s_lobby_stops == 0 && s_launcher_restarts == 0);
+
+    /* Not loaded, a round reload, and the co-op menus do not start the clock. */
+    session();
+    s_lobby_state.slots[1].loaded = 0;
+    s_slot_heard_us[1] = test_now;
+    test_now += 31ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_lobby_state.slots[1].connected);
+
+    session();
+    s_round_reset_loading = true;
+    s_slot_heard_us[1] = 1;
+    test_now += 31ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_lobby_state.slots[1].connected && s_slot_heard_us[1] == test_now);
+
+    session();
+    s_round.config.mode = NET_MODE_COOP;
+    s_lobby_state.config.stage = s_round.config.stage = LEVELID_TITLE;
+    s_slot_heard_us[1] = 1;
+    test_now += 31ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_lobby_state.slots[1].connected);
+
+    /* A client whose host goes silent leaves for migration, not the idle kick. */
+    session();
+    s_local_slot = 1;
+    s_host_slot = 0;
+    s_server_peer = &peer1;
+    s_client_peers[1] = NULL;
+    s_host_heard_us = test_now;
+    test_now += 29ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_state == NET_STATE_INGAME && s_server_peer == &peer1);
+    test_now += 1ULL * 1000000ULL;
+    netRoundTick();
+    assert(s_state == NET_STATE_MIGRATING && s_server_peer == NULL);
+    assert(s_lobby_stops == 0 && s_launcher_restarts == 0);
+}
+
 int main(void) {
-    test_round_flow(); test_settings_and_wire(); test_ballots_roles_rotation(); test_idle_timeout();
-    puts("PASS: round transitions, pending settings, truncated packets, both hands, ballots, rotation, roles and migration slots");
+    test_round_flow(); test_settings_and_wire(); test_ballots_roles_rotation(); test_idle_timeout(); test_silence_timeout();
+    puts("PASS: round transitions, pending settings, truncated packets, both hands, ballots, rotation, roles, migration slots and silence");
     return 0;
 }

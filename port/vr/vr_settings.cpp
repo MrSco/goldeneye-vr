@@ -24,6 +24,7 @@
 #include "gevr_scope.h"
 #include "vr_screen.h"
 #include "vr_haptics.h"
+#include "../src/net/net_rules.h" /* NET_FUN_MASK: the deathmatch fun rules */
 
 extern "C" float inputRumbleGetStrength(int playernum);
 extern "C" void inputRumbleSetStrength(int playernum, int strength);
@@ -557,7 +558,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "HostEqualization") == 0) VrHostEqualization = ival != 0;
             else if (strcmp(key, "HostLatencyCapMs") == 0) VrHostLatencyCapMs = ival < 0 ? 0 : ival > 80 ? 80 : ival;
             else if (strcmp(key, "MpFriendlyFire") == 0) VrMpFriendlyFire = ival != 0;
-            else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && ival <= 7 ? ival : 0;
+            else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && !(ival & ~NET_FUN_MASK) ? ival : 0;
             else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "MpMaxPlayers") == 0) VrMpMaxPlayers = ival >= 2 && ival <= 8 ? ival : 4;
             else if (strcmp(key, "DetailedGuns") == 0) VrDetailedGuns = ival != 0;

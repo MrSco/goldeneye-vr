@@ -439,15 +439,18 @@ static void funStep(s32 flag) { gevrNetConfigSet(CFG_FUN_FLAGS, gevrNetConfigGet
 static void rowDkValue(char *b,s32 n) { funValue(b,n,NET_FUN_DK); }
 static void rowPaintValue(char *b,s32 n) { funValue(b,n,NET_FUN_PAINTBALL); }
 static void rowLineValue(char *b,s32 n) { funValue(b,n,NET_FUN_LINE); }
+static void rowRadarValue(char *b,s32 n) { funValue(b,n,NET_FUN_NO_RADAR); }
 static void rowDkStep(s32 dir) { funStep(NET_FUN_DK); }
 static void rowPaintStep(s32 dir) { funStep(NET_FUN_PAINTBALL); }
 static void rowLineStep(s32 dir) { funStep(NET_FUN_LINE); }
+static void rowRadarStep(s32 dir) { funStep(NET_FUN_NO_RADAR); }
 static void rowGunSizeValue(char *b,s32 n) { const char *names[] = { "NORMAL", "TINY", "BIG" }; snprintf(b,n,"%s",names[gevrNetConfigGet(CFG_GUN_SIZE)]); }
 static void rowGunSizeStep(s32 dir) { gevrNetConfigSet(CFG_GUN_SIZE,gevrCycled(gevrNetConfigGet(CFG_GUN_SIZE),dir,3)); }
 static const GevrMenuRow s_funRows[] = {
     { "DK MODE", GEVR_ROW_VALUE, 1, NULL, rowDkValue, rowDkStep, "R-STICK:ON/OFF" },
     { "PAINTBALL", GEVR_ROW_VALUE, 1, NULL, rowPaintValue, rowPaintStep, "R-STICK:ON/OFF" },
     { "LINE MODE", GEVR_ROW_VALUE, 1, NULL, rowLineValue, rowLineStep, "R-STICK:ON/OFF" },
+    { "NO RADAR", GEVR_ROW_VALUE, 1, NULL, rowRadarValue, rowRadarStep, "R-STICK:ON/OFF" },
     { "GUN SIZE", GEVR_ROW_VALUE, 1, NULL, rowGunSizeValue, rowGunSizeStep, "R-STICK:PICK" },
 };
 static GevrMenuPage s_funPage = { s_funRows, sizeof(s_funRows) / sizeof(s_funRows[0]), 0, 0 };
@@ -686,7 +689,7 @@ static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
 int gevrPauseReadField(int tab,int index,GevrPauseField *out)
 {
     int seen=0;
-    for(int id=0;id<204;id++) {
+    for(int id=0;id<200+(int)(sizeof(s_funRows)/sizeof(s_funRows[0]));id++) {
         const GevrMenuRow *r=gevrPauseRow(id);if(!r || r->kind==GEVR_ROW_ACTION || gevrPauseGroup(r)!=tab || !gevrRowVisible(r)) continue;
         if(gevrCoopActive()) {
             /* Campaign rules come from the mission: no deathmatch ballots, teams or kits. */

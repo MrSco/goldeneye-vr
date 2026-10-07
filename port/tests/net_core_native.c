@@ -66,6 +66,8 @@ void netPlayersTickedReset(void) {}
 void netVoiceReset(void) { voice_resets++; }
 void gevrLobbySessionStopped(void) { launcher_stops++; }
 void gevrRestartToLauncher(void) { launcher_restarts++; }
+static int hud_messages;
+void hudmsgTopShow(char *mess) { (void)mess; hud_messages++; }
 static void fixture(int scenario) {
     memset(&s_round,0,sizeof(s_round)); memset(g_playerPlayerData,0,sizeof(g_playerPlayerData));
     s_state=NET_STATE_HOSTING_LOBBY;s_local_slot=s_host_slot=0;netResetLobbyState();
@@ -205,6 +207,9 @@ EXPORT int test_core_fun(void) {
     s_max_players=4;
     gevrNetConfigSet(CFG_FUN_FLAGS,7);gevrNetConfigSet(CFG_GUN_SIZE,1);
     if(s_lobby_state.config.fun_flags!=7 || VrMpFunFlags!=7 || VrMpGunSize!=1) return 1;
+    gevrNetConfigSet(CFG_FUN_FLAGS,NET_FUN_NO_RADAR);
+    if(s_lobby_state.config.fun_flags!=NET_FUN_NO_RADAR || VrMpFunFlags!=NET_FUN_NO_RADAR) return 9;
+    gevrNetConfigSet(CFG_FUN_FLAGS,7);
     gevrNetConfigSet(CFG_FUN_FLAGS,8);gevrNetConfigSet(CFG_GUN_SIZE,3);
     if(s_lobby_state.config.fun_flags!=7 || s_lobby_state.config.gun_size!=1) return 2;
     netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
@@ -500,12 +505,44 @@ EXPORT int test_core_host_kick(void) {
     /* Only the current host's intentional disconnect exits to the launcher. */
     s_server_peer=&hit_peers[0];launcher_stops=launcher_restarts=0;
     s_host=(ENetHost*)1;netSendClientCaps();
-    CHECK(sent_size==9 && sent_data[6]==NET_MSG_CLIENT_CAPS && sent_data[7]==2 && sent_data[8]==NET_CLIENT_CAP_KICK);
+    CHECK(sent_size==9 && sent_data[6]==NET_MSG_CLIENT_CAPS && sent_data[7]==2 &&
+          sent_data[8]==(NET_CLIENT_CAP_KICK|NET_CLIENT_CAP_NO_RADAR));
     s_host=NULL;
     CHECK(!netClientKickDisconnected(&hit_peers[1],NET_DISCONNECT_KICKED));
     CHECK(!netClientKickDisconnected(s_server_peer,0) && s_state==NET_STATE_INGAME);
     CHECK(netClientKickDisconnected(s_server_peer,NET_DISCONNECT_KICKED));
     CHECK(s_state==NET_STATE_OFFLINE && !s_server_peer && launcher_stops==1 && launcher_restarts==1);
+    return 0;
+}
+/* No radar: the host removes only a guest whose app said it lacks the rule. */
+static void caps(int slot,unsigned value) {
+    u8 raw[1]={(u8)value};struct netbuf b={.data=raw,.size=sizeof(raw)};
+    netbufStartReadData(&b,raw,1);netReceiveClientCaps(&hit_peers[slot],slot,&b,9);
+}
+EXPORT int test_core_no_radar_caps(void) {
+    fixture(0);netLatchRoundSettings();s_state=NET_STATE_HOSTING_LOBBY;
+    for(int i=1;i<4;i++){s_client_peers[i]=&hit_peers[i];hit_peers[i].data=(void*)(intptr_t)(i+1);}
+    caps(1,NET_CLIENT_CAP_KICK);                          /* v0.4.11 */
+    caps(2,NET_CLIENT_CAP_KICK|NET_CLIENT_CAP_NO_RADAR);  /* this build */
+    /* slot 3 has not said yet */
+    disconnected_peer=NULL;disconnect_reason=0;hud_messages=0;
+    /* The rule off: older apps still play. */
+    CHECK(netHostRemoveOldForNoRadar()==0 && netLobbySlotConnected(1) && !disconnected_peer);
+    /* Pending for the next round: the older app is removed with the kick reason, in the lobby without a HUD line. */
+    s_lobby_state.config.fun_flags=NET_FUN_NO_RADAR;
+    CHECK(netHostRemoveOldForNoRadar()==1);
+    CHECK(!netLobbySlotConnected(1) && disconnected_peer==&hit_peers[1] && disconnect_reason==NET_DISCONNECT_KICKED);
+    CHECK(netLobbySlotConnected(2) && netLobbySlotConnected(3) && hud_messages==0);
+    CHECK(netHostRemoveOldForNoRadar()==0);
+    /* Live in this round, no longer pending: a guest that says it is older goes, and the host is told. */
+    s_state=NET_STATE_INGAME;s_lobby_state.config.fun_flags=0;s_round.config.fun_flags=NET_FUN_NO_RADAR;
+    caps(3,NET_CLIENT_CAP_KICK);
+    CHECK(netHostRemoveOldForNoRadar()==1 && !netLobbySlotConnected(3) && netLobbySlotConnected(2) && hud_messages==1);
+    /* A dropped slot forgets its capabilities; a returning guest is asked again. */
+    CHECK(!s_client_caps_known[1] && !s_client_caps_known[3]);
+    /* A guest never removes anyone. */
+    s_lobby_state.slots[1].connected=1;s_client_peers[1]=&hit_peers[1];hit_peers[1].data=(void*)(intptr_t)2;caps(1,NET_CLIENT_CAP_KICK);
+    s_host_slot=2;CHECK(netHostRemoveOldForNoRadar()==0 && netLobbySlotConnected(1));
     return 0;
 }
 static void hitFixture(void) {

@@ -97,9 +97,12 @@ static u32 gevrFramesLogged;
 
 /*
  * A silent spin on the game thread shows as a frozen last frame and 100% CPU
- * with nothing in the log. This thread watches the retrace count and, when it
- * has not moved for five seconds, delivers SIGSEGV to the game thread so the
- * tombstone carries that thread's stack. Diagnostic; costs one wake-up a second.
+ * with nothing in the log. This thread watches the retrace count. After five
+ * seconds it logs the game thread's stack. A stall that is still there at
+ * eight seconds is aborted so the crash handler writes a report, unless the
+ * headset is asleep or paused: the app in the background (SDL parks the game
+ * thread in its event pump), the XR session not focused, or the stack in the
+ * frame wait.
  */
 #include <pthread.h>
 static u64 gevrPerfNs(void);
@@ -130,10 +133,15 @@ void gevrSchedTraceMenu(s32 menu, s32 afterTick)
 /*
  * A hang in play (2026-09-24, Frigate: stuck at pump stage 6, inside the audio
  * frame, right after a focus change) left no stack. When frames stop, the
- * watchdog now signals the game thread with SIGUSR2; this handler logs its
- * stack (function names where dladdr knows them) and returns - the game is
- * not killed, so a headset sleep costs nothing.
+ * watchdog signals the game thread with SIGUSR2; this handler logs its stack
+ * (function names where dladdr knows them) and notes a frame wait. A pause
+ * (see gevrWatchdog) is left alone. Any other stall that is still there a
+ * few seconds later is aborted, so the crash handler writes a report.
  */
+volatile int g_gevrAppBackgrounded;   /* input.c: SDL's SDL_APP_*BACKGROUND, set on the game thread before it blocks */
+extern int gevrVrSessionFocused(void);
+static volatile sig_atomic_t gevrWatchdogStackReady;
+static volatile sig_atomic_t gevrWatchdogFrameWait;
 #include <unwind.h>
 #include <dlfcn.h>
 struct gevrBt { uintptr_t pc[32]; int n; };
@@ -144,16 +152,23 @@ static _Unwind_Reason_Code gevrBtStep(struct _Unwind_Context *ctx, void *arg)
 	if (pc && bt->n < 32) bt->pc[bt->n++] = pc;
 	return bt->n < 32 ? _URC_NO_REASON : _URC_END_OF_STACK;
 }
+static int gevrStackIsFrameWait(const char *name)
+{
+	return name && (strstr(name, "xrWaitFrame") || strstr(name, "vr_begin_frame_and_update_poses") ||
+		strstr(name, "vr_idle_pace"));
+}
+
 static void gevrStackDumpHandler(int sig)
 {
 	struct gevrBt bt;
-	int i;
+	int i, frameWait = 0;
 	(void)sig;
 	bt.n = 0;
 	_Unwind_Backtrace(gevrBtStep, &bt);
 	for (i = 0; i < bt.n; i++) {
 		Dl_info info;
 		if (dladdr((void *)bt.pc[i], &info) && info.dli_sname) {
+			if (gevrStackIsFrameWait(info.dli_sname)) frameWait = 1;
 			sysLogPrintf(LOG_ERROR, "watchdog stack #%d %s+0x%lx", i, info.dli_sname,
 				(unsigned long)(bt.pc[i] - (uintptr_t)info.dli_saddr));
 		} else {
@@ -161,6 +176,8 @@ static void gevrStackDumpHandler(int sig)
 				info.dli_fname ? info.dli_fname : "?");
 		}
 	}
+	gevrWatchdogFrameWait = frameWait;
+	gevrWatchdogStackReady = 1;
 }
 
 static void *gevrWatchdog(void *arg)
@@ -185,8 +202,11 @@ static void *gevrWatchdog(void *arg)
 			stalled++;
 			if (stalled >= 5 && !reported) {
 				reported = 1;
-				sysLogPrintf(LOG_ERROR, "watchdog: no retrace for %u s (pump stage %u, entries %u, xr loops %u, frame open %d, xr begun %d)",
-						stalled, gevrPumpStage, gevrPumpEntries, gevrPumpLoops, gevrFrameOpen, gevrVrFrameBegun);
+				gevrWatchdogStackReady = 0;
+				gevrWatchdogFrameWait = 0;
+				sysLogPrintf(LOG_ERROR, "watchdog: no retrace for %u s (pump stage %u, entries %u, xr loops %u, frame open %d, xr begun %d, background %d, focused %d)",
+						stalled, gevrPumpStage, gevrPumpEntries, gevrPumpLoops, gevrFrameOpen, gevrVrFrameBegun,
+						g_gevrAppBackgrounded, gevrVrSessionFocused());
 				/* where the game thread is (a paused headset shows the frame wait, a hang its cause) */
 				{
 					static int installed;
@@ -203,9 +223,18 @@ static void *gevrWatchdog(void *arg)
 				pthread_kill(gevrGameThread, SIGSEGV);
 				return NULL;
 			}
+			/* The dump has had time to run. A paused or sleeping headset is not a hang. */
+			if (stalled >= 8 && gevrWatchdogStackReady && !gevrWatchdogFrameWait &&
+				!g_gevrAppBackgrounded && gevrVrSessionFocused()) {
+				sysLogPrintf(LOG_ERROR, "watchdog: hung for %u s outside the frame wait; aborting for a crash report", stalled);
+				pthread_kill(gevrGameThread, SIGSEGV);
+				return NULL;
+			}
 		} else {
 			stalled = 0;
 			reported = 0;
+			gevrWatchdogStackReady = 0;
+			gevrWatchdogFrameWait = 0;
 			last = os_scheduler.frameCount;
 		}
 	}

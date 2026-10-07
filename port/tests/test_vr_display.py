@@ -103,6 +103,12 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         for invalid in ("-1", "3", "999", "garbage", "", "0.5", "2junk"):
             ini.write_text("WatchFaceStatus=" + invalid + "\n", encoding="utf-8")
             subprocess.run([str(exe), "watch_read", "1", "1"], cwd=temp, check=True)
+        for flags in (0, 7, 16, 17, 23):
+            subprocess.run([str(exe), "fun_write", str(flags)], cwd=temp, check=True)
+            subprocess.run([str(exe), "fun_read", str(flags)], cwd=temp, check=True)
+        for invalid in ("8", "24", "255", "-1"):
+            ini.write_text("MpFunFlags=" + invalid + "\n", encoding="utf-8")
+            subprocess.run([str(exe), "fun_read", "0"], cwd=temp, check=True)
         ini.unlink(missing_ok=True)
         subprocess.run([str(exe), "fit_write"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         subprocess.run([str(exe), "fit_read"], cwd=temp, check=True, stdout=subprocess.DEVNULL)

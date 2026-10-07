@@ -11,7 +11,7 @@
 #include "net_match.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         18  /* 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         19  /* 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects; 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
@@ -107,6 +107,9 @@ typedef enum {
 
 #define NET_DISCONNECT_KICKED 0x47454b49u
 #define NET_CLIENT_CAP_KICK 1u
+/* The guest reads NET_FUN_NO_RADAR (protocol 19 has it). A guest that says otherwise
+ * is removed while the rule is pending or live (net_core.c netHostRemoveOldForNoRadar). */
+#define NET_CLIENT_CAP_NO_RADAR 2u
 
 /*
  * A guard as the host runs it (co-op, #94): what a puppet on another headset
