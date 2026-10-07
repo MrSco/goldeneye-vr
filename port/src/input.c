@@ -88,6 +88,7 @@ extern void gevrReloadFitSetGrab(void);
 extern void gevrReloadFitSetBelt(void);
 extern s32 gevrGexMagState(s32 hand, f32 off[3]);
 extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3], VrGexWatch[4], VrGexForeHold[3];   /* vr_settings_defaults.c */
+extern float VrGexOffRot[3];   /* vr_settings_defaults.c: GE-X's off hand's turn */
 extern float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3];
 extern float VrGexPp7Grab[3], VrGexPp7Support[3];
 extern float VrGexPp7SupportRot[3];
@@ -99,12 +100,14 @@ extern float *gevrGexHeldMagFit(s32 item);
 extern float VrGexKf7WellOff[3], VrGexPp7WellOff[3];
 extern float *gevrGexWellFit(s32 item);
 extern void gevrReloadFitSetWell(void);
-extern int VrGexArms;                     /* vr_settings_defaults.c: GE-X's arms in the headset */
+extern int VrGexGuns;                     /* vr_settings_defaults.c: GoldenEye X's models */
+extern s32 gevrGexMineDetonates(void);    /* gun.c: GE-X's remote mines, detonated from the watch */
+extern void gevrGexDetonateRequest(void);
 
 /* Gun fit's values as last saved, which B goes back to: both models' sets */
 static struct {
     float gun[3], gexGun[3], grip[2][6], gexGrip[2][6], scope[2][GEVR_SCOPE_FITS][4];
-    float reloadGrab[2][3], reloadBelt[3], gexHeld[3], gexWatch[4], gexFore[3];
+    float reloadGrab[2][3], reloadBelt[3], gexHeld[3], gexWatch[4], gexFore[3], gexOffRot[3];
     float muzzle[2][GEVR_MAX_WEAPONS][3];
     float pp7Grab[3], pp7Support[3], pp7Gun[3];
     float kf7Mag[3], pp7Mag[3];
@@ -129,6 +132,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(VrReloadBelt, s_gunFitSaved.reloadBelt, sizeof(VrReloadBelt));
         memcpy(VrGexHeldMag, s_gunFitSaved.gexHeld, sizeof(VrGexHeldMag));
         memcpy(VrGexWatch, s_gunFitSaved.gexWatch, sizeof(VrGexWatch));
+        memcpy(VrGexOffRot, s_gunFitSaved.gexOffRot, sizeof(VrGexOffRot));
         memcpy(VrGexForeHold, s_gunFitSaved.gexFore, sizeof(VrGexForeHold));
         memcpy(VrMuzzleTrim, s_gunFitSaved.muzzle, sizeof(VrMuzzleTrim));
         memcpy(VrGexPp7Grab, s_gunFitSaved.pp7Grab, sizeof(VrGexPp7Grab));
@@ -152,6 +156,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(s_gunFitSaved.reloadBelt, VrReloadBelt, sizeof(VrReloadBelt));
         memcpy(s_gunFitSaved.gexHeld, VrGexHeldMag, sizeof(VrGexHeldMag));
         memcpy(s_gunFitSaved.gexWatch, VrGexWatch, sizeof(VrGexWatch));
+        memcpy(s_gunFitSaved.gexOffRot, VrGexOffRot, sizeof(VrGexOffRot));
         memcpy(s_gunFitSaved.gexFore, VrGexForeHold, sizeof(VrGexForeHold));
         memcpy(s_gunFitSaved.muzzle, VrMuzzleTrim, sizeof(VrMuzzleTrim));
         memcpy(s_gunFitSaved.pp7Grab, VrGexPp7Grab, sizeof(VrGexPp7Grab));
@@ -1342,6 +1347,33 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     magFit[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     magFit[2] -= my * rate * dt;
                     magFit[1] += ry * rate * dt;
+                } else if (gevrOffHandFitting && gevrGexWeaponForHand(GUNRIGHT) != NULL
+                           && gevrGexWeaponForHand(GUNRIGHT)->offHandMatrix > 0) {
+                    /* the off hand holds the rig's own item (the remote mine's detonator,
+                     * user: no fit for it): the sticks move it on the wrist, holding the
+                     * right grip they turn it about the palm (gun.c gevrGexOffHoldFit) */
+                    if (get_button_state(1, "grip")) {
+                        float *r = gevrGexSupportRotFit(fitItem);
+                        r[0] += my * 45.0f * dt;
+                        r[1] += ry * 45.0f * dt;
+                        r[2] += mx * 45.0f * dt;
+                    } else {
+                        float *h = gevrGexSupportFit(fitItem);
+                        h[0] += mx * rate * dt;
+                        h[2] -= my * rate * dt;
+                        h[1] += ry * rate * dt;
+                    }
+                } else if (gevrOffHandFitting && get_button_state(0, "grip")) {
+                    /* holding the left grip, the off hand (and its watch arm) turns about
+                     * its palm (user: its angle could not be set): the move stick
+                     * forward and sideways, the turn stick sideways, ~45 degrees a second */
+                    VrGexOffRot[0] += my * 45.0f * dt;
+                    VrGexOffRot[1] += rx * 45.0f * dt;
+                    VrGexOffRot[2] += mx * 45.0f * dt;
+                    for (int k = 0; k < 3; k++) {
+                        if (VrGexOffRot[k] > 180.0f) VrGexOffRot[k] -= 360.0f;
+                        if (VrGexOffRot[k] < -180.0f) VrGexOffRot[k] += 360.0f;
+                    }
                 } else if (gevrOffHandFitting && get_button_state(1, "grip")) {
                     /* holding the right grip, the watch on GE-X's left wrist (user: over
                      * the wrist, sized to the arm): forward and sideways, up and down,
@@ -1375,7 +1407,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     mtrim[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     mtrim[2] += my * rate * dt;
                     mtrim[1] += ry * rate * dt;
-                } else if (gevrStereoTwoHandGrip() && gex && VrGexArms) {
+                } else if (gevrStereoTwoHandGrip() && gex && VrGexGuns) {
                     /* GoldenEye X's own left hand holds it (gun.c): where, cm forward,
                      * up and out along the gun (user: the hold was taken too near the
                      * magazine); the hold is taken there too */
@@ -1459,12 +1491,22 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // gives each gun its own trigger (gevrVrTriggerDown).
         gevrVrTriggerDown[0] = get_button_state(1, "trigger");   /* GUNRIGHT */
         gevrVrTriggerDown[1] = get_button_state(0, "trigger");   /* GUNLEFT */
+        /* GE-X's remote mines (gun.c): the off hand's trigger detonates them, on
+         * the screen and in the headset, instead of aiming or firing */
+        {
+            static bool detonateWas;
+            const bool detonate = !menu && gevrGexMineDetonates() && get_button_state(0, "trigger");
+
+            if (detonate && !detonateWas) gevrGexDetonateRequest();
+            detonateWas = detonate;
+            if (detonate || gevrGexMineDetonates()) gevrVrTriggerDown[1] = 0;
+        }
         if (stereoplay && gevrDualWielding()) {
             if (gevrVrTriggerDown[0] || gevrVrTriggerDown[1]) npad->button |= Z_TRIG;
         } else if (stereoplay) {
             if (get_button_state(1, "trigger")) npad->button |= Z_TRIG;
-            if (get_button_state(0, "trigger")) npad->button |= R_TRIG;
-        } else if (get_button_state(1, "trigger") || get_button_state(0, "trigger")) {
+            if (get_button_state(0, "trigger") && !gevrGexMineDetonates()) npad->button |= R_TRIG;
+        } else if (get_button_state(1, "trigger") || (get_button_state(0, "trigger") && !gevrGexMineDetonates())) {
             npad->button |= Z_TRIG;
         }
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;

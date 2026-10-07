@@ -49,7 +49,9 @@ fixtures = {
         "GAUGES": function(glass, "void hudMakeDamageSegments("),
         "GAUGE_DL": function(glass, "Gfx *buildGaugeBarDL("),
         "FIT": function(view, "static void gevrWatchStatusFit("),
-        "RENDER": function(view, "static Gfx *gevrRenderWatchStatus(Gfx *gdl, const Mtxf *wrist)\n{"),
+        "RENDER": "static Gfx *gevrRenderWatchStatusAt(Gfx *gdl, const Mtxf *transform);\n"
+                  + function(view, "static Gfx *gevrRenderWatchStatus(Gfx *gdl, const Mtxf *wrist)\n{") + "\n"
+                  + function(view, "static Gfx *gevrRenderWatchStatusAt(Gfx *gdl, const Mtxf *transform)\n{"),
     },
 }
 compiler = shutil.which("g++") or "g++"

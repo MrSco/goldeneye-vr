@@ -204,7 +204,6 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
     fprintf(f, "GexGuns=%d\n", VrGexGuns ? 1 : 0);
     fprintf(f, "; 1 = in the headset GoldenEye X's arms are every arm, the left wearing the watch; 0 = the watch arm.\n");
-    fprintf(f, "GexArms=%d\n", VrGexArms ? 1 : 0);
     for (int i = 0; i < 4; i++) fprintf(f, "MpCustom%d=%d\n", i + 1, VrMpCustom[i]);
     for (int i = 0; i < 4; i++) fprintf(f, "MpLoadout%d=%d\n", i + 1, VrMpLoadout[i]);
     fprintf(f, "MpFavStages=%u\nMpFavSets=%u\n", VrMpFavStages, VrMpFavSets);
@@ -265,6 +264,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; The watch on GoldenEye X's left wrist (Gun fit's off hand mode, right grip):\n");
     fprintf(f, "; cm ahead of the sleeve's end, up and out, and its size.\n");
     fprintf(f, "GexWatch=%.2f %.2f %.2f %.2f\n", VrGexWatch[0], VrGexWatch[1], VrGexWatch[2], VrGexWatch[3]);
+    fprintf(f, "; GoldenEye X's off hand (and its watch arm) turned about its palm, degrees\n");
+    fprintf(f, "; (Gun fit's off hand mode, left grip).\n");
+    fprintf(f, "GexOffRot=%.1f %.1f %.1f\n", VrGexOffRot[0], VrGexOffRot[1], VrGexOffRot[2]);
     fprintf(f, "; Where GoldenEye X's left hand holds a gun with both hands (Gun fit, both hands):\n");
     fprintf(f, "; cm forward, up and out along the gun.\n");
     fprintf(f, "GexForeHold=%.2f %.2f %.2f\n", VrGexForeHold[0], VrGexForeHold[1], VrGexForeHold[2]);
@@ -418,7 +420,10 @@ extern "C" void vrSettingsLoad(void)
             if (sscanf(line, "GexFit%d_%d=%n", &item, &component, &consumed) == 2 && consumed > 0
                 && item >= 0 && item < 64 && component >= 0 && component < 10
                 && sscanf(line+consumed, "%f %f %f", &t[0], &t[1], &t[2]) == 3
-                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2]))
+                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])
+                /* every known model's rows are saved, fitted or not: an all-zero row is a
+                 * fit never made, and a default added since (the watch items') stands */
+                && (t[0] != 0.0f || t[1] != 0.0f || t[2] != 0.0f))
                 memcpy(VrGexWeaponFits[item][component], t, sizeof(t));
             continue;
         }
@@ -445,6 +450,14 @@ extern "C" void vrSettingsLoad(void)
             float t[3];
             if (sscanf(line + 12, "%f %f %f", &t[0], &t[1], &t[2]) == 3) {
                 for (int i = 0; i < 3; i++) VrGexForeHold[i] = t[i];
+            }
+            continue;
+        }
+        if (strncmp(line, "GexOffRot=", 10) == 0) {
+            float t[3];
+            if (sscanf(line + 10, "%f %f %f", &t[0], &t[1], &t[2]) == 3
+                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {
+                for (int i = 0; i < 3; i++) VrGexOffRot[i] = t[i];
             }
             continue;
         }
@@ -563,7 +576,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpMaxPlayers") == 0) VrMpMaxPlayers = ival >= 2 && ival <= 8 ? ival : 4;
             else if (strcmp(key, "DetailedGuns") == 0) VrDetailedGuns = ival != 0;
             else if (strcmp(key, "GexGuns") == 0) VrGexGuns = ival != 0;
-            else if (strcmp(key, "GexArms") == 0) VrGexArms = ival != 0;
+            /* GexArms (before one toggle): on by default, nothing without the guns; GexGuns decides */
             else if (strcmp(key, "MpVoiceMode") == 0) VrMpVoiceMode = ival == 1 ? 1 : 0;
             else if (strcmp(key, "MpScenario") == 0) VrMpScenario = ival;
             else if (strcmp(key, "MpLength") == 0) VrMpLength = ival;
