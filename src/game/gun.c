@@ -1126,6 +1126,53 @@ s32 gevrGexMinesHold(GUNHAND hand)
         && bondinvItemAvailable(ITEM_TRIGGER) && gevrGexRemoteMinesOut();
 }
 
+/* GoldenEye X's watch rig (WATCH_DEF): both arms are its own */
+s32 gevrGexWatchItem(s32 item)
+{
+    const GexWeaponDef *def = VrGexGuns ? gevrGexWeaponGet(item) : NULL;
+
+    return def != NULL && def->watch;
+}
+
+/*
+ * gunfire.c, the gun hand's tick: a watch item in the gun hand with GE-X's
+ * rig, whose raised left arm wears the watch, takes the left hand's gun
+ * away (user: a gun in the left hand as well drew three arms, in 2D after
+ * the headset).
+ */
+void gevrGexWatchHandsTick(void)
+{
+    extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);   /* below */
+    s32 st;
+
+    if (g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+        || !gevrGexWatchItem(getCurrentPlayerWeaponId(GUNRIGHT))
+        || getCurrentPlayerWeaponId(GUNLEFT) == ITEM_UNARMED)
+    {
+        return;
+    }
+    st = g_CurrentPlayer->hands[GUNLEFT].weapon_action_state;
+    if (st != GUN_ANIM_STATE_SWITCH_LOWER && st != GUN_ANIM_STATE_SWITCH_SWAP)
+    {
+        gunRequestHandWeaponChange(GUNLEFT, ITEM_UNARMED, 1);
+        sysLogPrintf(LOG_NOTE, "gex: watch item in the gun hand, the left hand emptied");
+    }
+}
+
+/*
+ * gunfire.c's watch-page offsets (the weapon panel, the watch's pages): a GE-X
+ * model centred on its own mesh (GexWeaponDef panelFit) spins about the
+ * origin, not GoldenEye's mesh's place (user: they swung down and to the
+ * side); the tank's prop model the same.
+ */
+s32 gevrGexPanelCentred(s32 item)
+{
+    const GexWeaponDef *def = VrGexGuns ? gevrGexWeaponGet(item) : NULL;
+
+    return item == ITEM_TANKSHELLS || (def != NULL && def->panelFit[0] > 0.0f);
+}
+
 /* each player's hands whose model is GoldenEye X's (gevrGexGunPrepare) */
 static const GexWeaponDef *s_gevrGexHand[MAX_PLAYER_COUNT][2];
 static void gevrGexResetModel(s32 hand, s32 rebuildCache);

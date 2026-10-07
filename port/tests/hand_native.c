@@ -51,6 +51,10 @@ s32 gevrGexMinesHold(GUNHAND hand) {
     return VrGexGuns && hand == GUNRIGHT && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_REMOTEMINE
         && bondinvItemAvailable(ITEM_TRIGGER) && minesOut;
 }
+/* gun.c: GE-X's watch rig (both arms its own) for the watch laser and the watch gadgets */
+s32 gevrGexWatchItem(s32 item) {
+    return VrGexGuns && (item == ITEM_WATCHLASER || (item >= ITEM_WATCHIDENTIFIER && item <= ITEM_WATCHMAGNETATTRACT));
+}
 s32 get_ammo_type_for_weapon(ITEM_IDS item) { return item > ITEM_KNIFE && item < ITEM_BOMBCASE && item != ITEM_TRIGGER ? item : 0; }
 s32 get_ammo_in_hands_magazine(GUNHAND hand) { return player.hands[hand].weapon_ammo_in_magazine; }
 s32 get_ammo_in_hands_weapon(GUNHAND hand) { return reserve[player.hands[hand].weaponnum]; }

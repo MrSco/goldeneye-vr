@@ -1249,7 +1249,12 @@ s32 bondinvGetTextbyInvIndex(s32 index)
 
 u16 *bondinvGetNameByIndex(s32 index)
 {
+#ifdef GEVR
+    /* the filtered index once, then the raw list: the all-guns lines below read it too */
+    InvItem      *item      = bondinvGetItemByIndexRaw(index = gevrInvRaw(index));
+#else
     InvItem      *item      = bondinvGetItemByIndex(index);
+#endif
     ITEM_IDS      weaponnum = 0;
     textoverride *override;
 
@@ -1309,7 +1314,12 @@ u16 *bondinvGetNameByIndex(s32 index)
 
 u16 *bondinvGetLongNameByIndex(s32 index)
 {
+#ifdef GEVR
+    /* the filtered index once, then the raw list: the all-guns lines below read it too */
+    InvItem      *item      = bondinvGetItemByIndexRaw(index = gevrInvRaw(index));
+#else
     InvItem      *item      = bondinvGetItemByIndex(index);
+#endif
     ITEM_IDS      weaponnum = 0;
     textoverride *override;
 
@@ -1390,7 +1400,12 @@ int bondinvGetDepthForIndex(int index)
 
 u16 *bondinvGetFirstTitlebyIndex(s32 index)
 {
+#ifdef GEVR
+    /* the filtered index once, then the raw list: the all-guns lines below read it too */
+    InvItem      *item      = bondinvGetItemByIndexRaw(index = gevrInvRaw(index));
+#else
     InvItem      *item      = bondinvGetItemByIndex(index);
+#endif
     ITEM_IDS      weaponnum = 0;
     textoverride *override;
 
@@ -1450,7 +1465,12 @@ u16 *bondinvGetFirstTitlebyIndex(s32 index)
 
 u16 *bondinvGetSecondTitlebyIndex(s32 index)
 {
+#ifdef GEVR
+    /* the filtered index once, then the raw list: the all-guns lines below read it too */
+    InvItem      *item      = bondinvGetItemByIndexRaw(index = gevrInvRaw(index));
+#else
     InvItem      *item      = bondinvGetItemByIndex(index);
+#endif
     ITEM_IDS      weaponnum = 0;
     textoverride *override;
 

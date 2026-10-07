@@ -164,7 +164,7 @@ static const GexWeaponDef weapons[] = {
         .muzzle={87.029f,38.664f,215.278f}, .screenMuzzle={59.856f,15.851f,6.583f},
         .supportRoot={-39.498364f,-28.279365f,49.061958f},
         .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1,
-        .panelFit={6.132f,64.4f,151.9f,-97.9f},   /* GoldenEye's grenade is six times GE-X's */
+        .panelFit={6.132f,18.4f,147.2f,-98.1f},   /* GoldenEye's grenade is six times GE-X's; centred */
         /* throw 1062's lever (matrix 34) lifts by 6 and has flown by 30 */
         .cookAnim=1062, .cookEnd=30.0f, .cookMatrix=34
     },

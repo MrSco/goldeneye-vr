@@ -3095,6 +3095,20 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     }
 
 #ifdef GEVR
+    if (itemid == ITEM_TANKSHELLS && g_gevrItemModelOverride == NULL)
+    {
+        /* the watch's page: the tank has no gun model, its prop's (bondview2.c, user) */
+        extern ModelFileHeader *gevrTankPanelModel(void);
+
+        g_gevrItemModelOverride = gevrTankPanelModel();
+        if (g_gevrItemModelOverride == NULL)
+        {
+            return gdl;
+        }
+        gdl = set_enviro_fog_for_items_in_solo_watch_menu(gdl, itemid, mtx, arg3, arg4);
+        g_gevrItemModelOverride = NULL;
+        return gdl;
+    }
     if (g_gevrItemModelOverride != NULL)
     {
         bodymodel = g_gevrItemModelOverride;
@@ -3153,7 +3167,22 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     }
 
     matrix_4x4_copy(mtx, matrices);
-  
+#ifdef GEVR
+    if (itemid == ITEM_TANKSHELLS && bodymodel->BoundingVolumeRadius > 1.0f)
+    {
+        /* the tank's prop at a gun's size (the PP7's reach, its record's place) */
+        const f32 k = 200.0f / bodymodel->BoundingVolumeRadius;
+
+        for (i = 0; i < 3; i++)
+        {
+            for (j = 0; j < 3; j++)
+            {
+                matrices[0].m[i][j] *= k;
+            }
+        }
+        i = 0;
+    }
+#endif
     if (bodymodel->Skeleton == (&skeleton_gun_revolver))
     {
         if (bodymodel->Switches[4] != NULL)
@@ -5947,6 +5976,11 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             extern void gevrGexDetonateTick(void);
 
             gevrGexDetonateTick();
+            {
+                extern void gevrGexWatchHandsTick(void);   /* gun.c: GE-X's watch rig has both arms */
+
+                gevrGexWatchHandsTick();
+            }
         }
         /* GE-X's fist punches with its own clips (gun.c): GoldenEye's keyframed swing stands down */
         if (gevrGexHeld(hand) && gevrGexWeaponForHand(hand)->fireAnimAlt > 0)
@@ -6024,14 +6058,23 @@ void give_weapon_case_items(void)
 }
 
 
+#ifdef GEVR
+extern s32 gevrGexPanelCentred(s32 item);   /* gun.c: the model spins about its own centre */
+#endif
 f32 get_vertical_position_solo_watch_menu_main_page_for_item(ITEM_IDS item)
 {
+#ifdef GEVR
+  if (gevrGexPanelCentred(item)) return 0.0f;
+#endif
   return gitem_structs[item].watch_pos_x;
 }
 
 
 f32 get_lateral_position_solo_watch_menu_main_page_for_item(ITEM_IDS item)
 {
+#ifdef GEVR
+  if (gevrGexPanelCentred(item)) return 0.0f;
+#endif
   return gitem_structs[item].watch_pos_y;
 }
 
@@ -6092,12 +6135,18 @@ f32 get_45_degree_angle_0(s32 unk)
 
 f32 get_horizontal_offset_on_solo_watch_menu_for_item(ITEM_IDS item)
 {
+#ifdef GEVR
+  if (gevrGexPanelCentred(item)) return 0.0f;
+#endif
   return gitem_structs[item].equip_watch_x;
 }
 
 
 f32 get_vertical_offset_on_solo_watch_menu_for_item(ITEM_IDS item)
 {
+#ifdef GEVR
+  if (gevrGexPanelCentred(item)) return 0.0f;
+#endif
   return gitem_structs[item].equip_watch_y;
 }
 
