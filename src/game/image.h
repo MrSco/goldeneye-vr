@@ -50,6 +50,15 @@ struct tex {
 	/*0x0c*/ u32 hasExplicitLods : 1;
 	/*0x0c*/ u32 unk0c_03 : 1;
 	/*0x0c*/ u32 next : 24;
+	/*
+	 * Explicit LOD sizes used to live only in g_TexCacheItems[150]. That table
+	 * wraps back to 0, and a lookup then misses and reports width 1. The watch
+	 * arm does not use explicit LODs. Weapon-panel models do (the KF7, the
+	 * PP7, the taser text, the plans), and their pools stay live while later
+	 * loads wrap the table. The sizes stay with the texture.
+	 */
+	u8 lodwidths[7];
+	u8 lodheights[7];
 };
 
 struct image_entry
