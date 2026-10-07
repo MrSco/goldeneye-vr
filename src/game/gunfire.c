@@ -8418,6 +8418,7 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
     extern bool netIsActive(void);
     extern int netGetLocalSlot(void);
     extern int netVoiceSlotSpeaking(unsigned char slot);
+    extern s32 fogGetPropDistColor(PropRecord *prop, rgba_f32 *color);
     s32 i;
 
     for (i = 0; i < getPlayerCount(); i++)
@@ -8425,9 +8426,22 @@ Gfx *gevrDrawNameTags(Gfx *gdl)
         struct player *pl = g_playerPointers[i];
         const char *name;
         coord3d at;
+        rgba_f32 fog;
+        s32 fogged;
 
         if (i == netGetLocalSlot() || netPlayerIsSpectator(i) || i == netSpectatorTarget() || pl == NULL || pl->prop == NULL || pl->bonddead
             || !(pl->prop->flags & PROPFLAG_ONSCREEN))
+        {
+            continue;
+        }
+        /*
+         * Not through fog: the body fades into it (the prop's own fog,
+         * bgfog.c fogGetPropDistColor), and a tag drawn past that gave a
+         * player away across Cradle before they were in sight (user report,
+         * 2026-10-07). Gone once the fog has most of the body.
+         */
+        fogged = fogGetPropDistColor(pl->prop, &fog);
+        if (fogged == 0 || (fogged == 1 && fog.rgba[3] >= 0.7f))
         {
             continue;
         }
