@@ -16340,7 +16340,7 @@ static s32 gevrGexPistolSupportAllowed(void)
                 below += (support[i]-off[i])*up[i]/cm;
             }
             /* PP7 overlaps its support cup; other compact magazines use distinct points. */
-            s_gevrPistolGripOwner = gevrGexPistolGripPick(sqrtf(md2)/cm, sqrtf(sd2)/cm, (def->item == ITEM_WPPK || def->item == ITEM_WPPKSIL) ? below : 2.0f);
+            s_gevrPistolGripOwner = gevrGexPistolGripPick(sqrtf(md2)/cm, sqrtf(sd2)/cm, (def->item == ITEM_WPPK || def->item == ITEM_WPPKSIL || def->item == ITEM_SILVERWPPK || def->item == ITEM_GOLDWPPK) ? below : 2.0f);
             if (!gevrGexByHand(GUNRIGHT) && s_gevrPistolGripOwner == GEVR_GEXGRIP_MAG)
                 s_gevrPistolGripOwner = sd2 < 144*cm*cm ? GEVR_GEXGRIP_SUPPORT : GEVR_GEXGRIP_NONE;
         }
