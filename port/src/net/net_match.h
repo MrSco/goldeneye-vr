@@ -88,6 +88,10 @@ const char *netDualWieldName(int mode);
 const char *netNextRoundName(int mode);
 const char *netVoiceModeName(int mode);
 const char *netTeamName(int team);
+enum { NET_BOT_MODE_OFF = 0, NET_BOT_MODE_FILL = 1, NET_BOT_MODE_FIXED = 2, NET_BOT_MODE_COUNT = 3 };
+enum { NET_BOT_DIFF_EASY = 0, NET_BOT_DIFF_MEDIUM = 1, NET_BOT_DIFF_HARD = 2, NET_BOT_DIFF_COUNT = 3 };
+const char *netBotModeName(int mode);
+const char *netBotDifficultyName(int diff);
 
 #ifdef __cplusplus
 }

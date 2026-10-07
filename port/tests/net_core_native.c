@@ -19,10 +19,14 @@ void mp_respawn_handler_net(s32 pad,float theta) { (void)pad;(void)theta;respawn
 int bondinvHasInvItem(ITEM_IDS item) { (void)item; return 0; }
 int VrMpStage,VrMpWeaponSet,VrMpChr,VrMpScenario,VrMpLength,VrMpHealth;
 int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize,VrMpMaxPlayers;
+int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=1;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 int VrCoopFastReinforcements;
 unsigned VrMpFavStages,VrMpFavSets;
 char VrPlayerName[16]="Test";
+u32 randomGetNext(void) { return 0x12345678; }
+void netBotAiTick(void) {}
+void netBotAiReset(void) {}
 static uint64_t clock_us=10000000;
 static int voice_resets;
 static struct player hit_players[GEVR_MAX_PLAYERS];
@@ -59,6 +63,8 @@ static ENetPeer *disconnected_peer;
 static uint32_t disconnect_reason;
 static int launcher_stops,launcher_restarts;
 void enet_peer_disconnect(ENetPeer *peer,uint32_t reason) { disconnected_peer=peer;disconnect_reason=reason; }
+void enet_peer_reset(ENetPeer *peer) { (void)peer; }
+void netIceForgetPeer(const char *ip) { (void)ip; }
 void netCoopSlotLeft(int slot) { (void)slot; }
 void netCoopMenuReset(void) {}
 void netSpectatorReset(void) {}
@@ -68,6 +74,7 @@ void gevrLobbySessionStopped(void) { launcher_stops++; }
 void gevrRestartToLauncher(void) { launcher_restarts++; }
 static void fixture(int scenario) {
     memset(&s_round,0,sizeof(s_round)); memset(g_playerPlayerData,0,sizeof(g_playerPlayerData));
+    VrMpBotMode=0;
     s_state=NET_STATE_HOSTING_LOBBY;s_local_slot=s_host_slot=0;netResetLobbyState();
     s_lobby_state.config.scenario=scenario; s_lobby_state.config.stage=34;
     s_lobby_state.config.voice_mode=NET_VOICE_PROXIMITY; s_phase=NET_PHASE_WAITING;
@@ -777,7 +784,7 @@ EXPORT int test_core_eight_slots(void) {
     s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
     g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
     sent_size=0;netSendMatchSnapshot(NULL);
-    CHECK(sent_size==71+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    CHECK(sent_size==77+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
     struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
     netbufStartReadData(&b,sent_data,sent_size);
     netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);
@@ -814,3 +821,144 @@ EXPORT int test_core_eight_slots(void) {
     s_host_slot=0;
     return 0;
 }
+
+static void sendHello(ENetPeer *peer, const char *name, uint8_t chr) {
+    u8 raw[64]; struct netbuf b = { .data = raw, .size = sizeof(raw) };
+    netbufStartWrite(&b);
+    netbufWriteStr(&b, name);
+    netbufWriteU8(&b, chr);
+    netbufStartReadData(&b, raw, b.wp);
+    netReceiveHello(peer, &b);
+}
+
+EXPORT int test_core_bot_lobby(void) {
+    fixture(0);
+    for (int i = 1; i < GEVR_MAX_PLAYERS; i++) {
+        memset(&s_lobby_state.slots[i], 0, sizeof(s_lobby_state.slots[i]));
+        s_client_peers[i] = NULL;
+    }
+    s_max_players = 4;
+    s_lobby_state.config.max_players = 4;
+
+    /* Initial state: bots off */
+    gevrNetConfigSet(CFG_BOT_MODE, NET_BOT_MODE_OFF);
+    CHECK(netGetHumanPlayerCount() == 1 && netGetBotCount() == 0);
+
+    /* Configuration getters, setters, and boundary clamping */
+    gevrNetConfigSet(CFG_BOT_MODE, 99);
+    CHECK(gevrNetConfigGet(CFG_BOT_MODE) == NET_BOT_MODE_OFF);
+    gevrNetConfigSet(CFG_BOT_COUNT, 2);
+    CHECK(gevrNetConfigGet(CFG_BOT_COUNT) == 2 && VrMpBotCount == 2);
+    gevrNetConfigSet(CFG_BOT_COUNT, 0);
+    CHECK(gevrNetConfigGet(CFG_BOT_COUNT) == 2 && VrMpBotCount == 2);
+    gevrNetConfigSet(CFG_BOT_COUNT, 99);
+    CHECK(gevrNetConfigGet(CFG_BOT_COUNT) == 2 && VrMpBotCount == 2);
+    gevrNetConfigSet(CFG_BOT_COUNT, 3);
+    CHECK(gevrNetConfigGet(CFG_BOT_COUNT) == 3 && VrMpBotCount == 3);
+    gevrNetConfigSet(CFG_BOT_DIFFICULTY, NET_BOT_DIFF_HARD);
+    CHECK(gevrNetConfigGet(CFG_BOT_DIFFICULTY) == NET_BOT_DIFF_HARD && VrMpBotDifficulty == NET_BOT_DIFF_HARD);
+    gevrNetConfigSet(CFG_BOT_DIFFICULTY, 42);
+    CHECK(gevrNetConfigGet(CFG_BOT_DIFFICULTY) == NET_BOT_DIFF_HARD);
+
+    /* Fill empty slots with bots */
+    gevrNetConfigSet(CFG_BOT_MODE, NET_BOT_MODE_FILL);
+    CHECK(gevrNetConfigGet(CFG_BOT_MODE) == NET_BOT_MODE_FILL && VrMpBotMode == NET_BOT_MODE_FILL);
+    CHECK(netGetHumanPlayerCount() == 1 && netGetBotCount() == 3);
+    CHECK(netGetConnectedPlayerCount() == 4);
+    for (int i = 1; i < 4; i++) {
+        CHECK(netIsBotSlot(i));
+        CHECK(s_lobby_state.slots[i].connected && s_lobby_state.slots[i].ready && s_lobby_state.slots[i].loaded);
+        CHECK(strncmp(s_lobby_state.slots[i].name, "[BOT] ", 6) == 0);
+        CHECK(!s_lobby_state.slots[i].spectator && !s_lobby_state.slots[i].eliminated);
+    }
+    CHECK(!netIsBotSlot(0) && !netIsBotSlot(4));
+    /* Characters are unique across host and bots */
+    CHECK(s_lobby_state.slots[0].chr_id != s_lobby_state.slots[1].chr_id);
+    CHECK(s_lobby_state.slots[1].chr_id != s_lobby_state.slots[2].chr_id);
+    CHECK(s_lobby_state.slots[2].chr_id != s_lobby_state.slots[3].chr_id);
+
+    /* Solo host can launch with bots */
+    CHECK(netLobbyCanLaunch());
+    CHECK(netRoundRosterReady());
+
+    /* Team auto-balancing in team scenarios */
+    s_lobby_state.config.scenario = 5; /* 2v2 */
+    s_lobby_state.slots[0].team = NET_TEAM_RED;
+    netUpdateLobbyBots();
+    int red_count = 0, blue_count = 0;
+    for (int i = 0; i < 4; i++) {
+        if (s_lobby_state.slots[i].team == NET_TEAM_RED) red_count++;
+        else if (s_lobby_state.slots[i].team == NET_TEAM_BLUE) blue_count++;
+    }
+    CHECK(red_count == 2 && blue_count == 2);
+    CHECK(netTeamRosterReady());
+
+    /* Non-team scenario resets bot teams */
+    s_lobby_state.config.scenario = 0;
+    netUpdateLobbyBots();
+    CHECK(s_lobby_state.slots[1].team == NET_TEAM_NONE);
+
+    /* Trimming bots when switching to fixed count or off */
+    s_lobby_state.config.bot_mode = NET_BOT_MODE_FIXED;
+    s_lobby_state.config.bot_count = 1;
+    netUpdateLobbyBots();
+    CHECK(netGetBotCount() == 1 && netIsBotSlot(1));
+    CHECK(!s_lobby_state.slots[2].connected && !s_lobby_state.slots[3].connected);
+
+    s_lobby_state.config.bot_mode = NET_BOT_MODE_OFF;
+    netUpdateLobbyBots();
+    CHECK(netGetBotCount() == 0 && !s_lobby_state.slots[1].connected);
+
+    /* Hot-swapping bot slots during lobby */
+    s_lobby_state.config.bot_mode = NET_BOT_MODE_FILL;
+    netUpdateLobbyBots();
+    CHECK(netGetBotCount() == 3);
+    memset(&hit_peers[1], 0, sizeof(hit_peers[1]));
+    sendHello(&hit_peers[1], "Guest1", 10);
+    CHECK(s_lobby_state.slots[1].connected && !s_lobby_state.slots[1].is_bot);
+    CHECK(strcmp(s_lobby_state.slots[1].name, "Guest1") == 0 && s_lobby_state.slots[1].chr_id == 10);
+    CHECK(s_client_peers[1] == &hit_peers[1]);
+    CHECK(netGetHumanPlayerCount() == 2 && netGetBotCount() == 2);
+
+    /* Refilling slot with bot when human leaves during lobby */
+    netHostDropSlot(1, &hit_peers[1]);
+    CHECK(s_lobby_state.slots[1].connected && s_lobby_state.slots[1].is_bot);
+    CHECK(strncmp(s_lobby_state.slots[1].name, "[BOT] ", 6) == 0);
+    CHECK(netGetHumanPlayerCount() == 1 && netGetBotCount() == 3);
+
+    /* Kicking a bot */
+    CHECK(netHostCanKickPlayer(1));
+    CHECK(netHostKickPlayer(1));
+    CHECK(!s_lobby_state.slots[1].connected);
+    CHECK(!netHostKickPlayer(1));
+    CHECK(!netHostCanKickPlayer(0));
+    CHECK(!netHostKickPlayer(-1) && !netHostKickPlayer(8));
+
+    /* Hot-swapping bot slots during warmup */
+    netUpdateLobbyBots();
+    CHECK(netGetBotCount() == 3);
+    netLatchRoundSettings();
+    s_state = NET_STATE_INGAME;
+    s_phase = NET_PHASE_WARMUP;
+    memset(&hit_peers[2], 0, sizeof(hit_peers[2]));
+    sendHello(&hit_peers[2], "WarmupGuest", 12);
+    CHECK(s_lobby_state.slots[1].connected && !s_lobby_state.slots[1].is_bot);
+    CHECK(strcmp(s_lobby_state.slots[1].name, "WarmupGuest") == 0 && s_lobby_state.slots[1].chr_id == 12);
+    CHECK(!s_lobby_state.slots[1].spectator);
+    CHECK(s_client_peers[1] == &hit_peers[2]);
+    CHECK(s_lobby_state.slots[2].connected && s_lobby_state.slots[2].is_bot);
+    CHECK(netGetHumanPlayerCount() == 2 && netGetBotCount() == 2);
+
+    /* Co-op mode clears all bots */
+    s_state = NET_STATE_HOSTING_LOBBY;
+    s_phase = NET_PHASE_WAITING;
+    s_lobby_state.config.mode = NET_MODE_COOP;
+    netUpdateLobbyBots();
+    CHECK(netGetBotCount() == 0);
+
+    /* Clean up global bot setting */
+    gevrNetConfigSet(CFG_BOT_MODE, NET_BOT_MODE_OFF);
+    s_lobby_state.config.mode = NET_MODE_DEATHMATCH;
+    return 0;
+}
+

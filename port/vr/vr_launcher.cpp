@@ -1005,6 +1005,9 @@ static NetMatchConfig gevrLauncherConfig() {
     for (int i = 0; i < 4; i++)
         c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
     c.max_players = (uint8_t)(VrMpMaxPlayers >= 2 && VrMpMaxPlayers <= GEVR_MAX_PLAYERS ? VrMpMaxPlayers : 4);
+    c.bot_mode = (uint8_t)clampi(VrMpBotMode, NET_BOT_MODE_COUNT, 0);
+    c.bot_count = (uint8_t)(VrMpBotCount >= 1 && VrMpBotCount <= GEVR_MAX_PLAYERS - 1 ? VrMpBotCount : 3);
+    c.bot_difficulty = (uint8_t)clampi(VrMpBotDifficulty, NET_BOT_DIFF_COUNT, 1);
     if (VrMpMode == NET_MODE_COOP) {
         // the solo campaign for the party: it starts in the game's menus, where the
         // host picks each mission and difficulty; four players at most (the deathmatch
@@ -1069,6 +1072,9 @@ static void gevrHostChoiceChanged() {
     VrMpGunSize = accepted->gun_size;
     if (accepted->mode != NET_MODE_COOP) // co-op's four is not the deathmatch count
         VrMpMaxPlayers = accepted->max_players;
+    VrMpBotMode = accepted->bot_mode;
+    VrMpBotCount = accepted->bot_count;
+    VrMpBotDifficulty = accepted->bot_difficulty;
     for (int k = 0; k < 4; k++)
         VrMpCustom[k] = accepted->custom_set[k];
     vrSettingsSave();
@@ -1173,6 +1179,29 @@ static void gevrMatchOptions(bool favorites = false) {
         ImGui::TextDisabled("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
                                   : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
                                                                        : "the players vote in the pause menu");
+
+        ImGui::Text("Bots:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 11.0f);
+        changed |= namedCombo("##botmode", NET_BOT_MODE_COUNT, netBotModeName, &VrMpBotMode);
+
+        if (VrMpBotMode == NET_BOT_MODE_FIXED) {
+            ImGui::Text("Bot count:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 7.0f);
+            if (ImGui::InputInt("##botcount", &VrMpBotCount, 1, 1)) {
+                if (VrMpBotCount < 1) VrMpBotCount = 1;
+                if (VrMpBotCount > GEVR_MAX_PLAYERS - 1) VrMpBotCount = GEVR_MAX_PLAYERS - 1;
+                changed = true;
+            }
+        }
+
+        if (VrMpBotMode != NET_BOT_MODE_OFF) {
+            ImGui::Text("Bot difficulty:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+            changed |= namedCombo("##botdiff", NET_BOT_DIFF_COUNT, netBotDifficultyName, &VrMpBotDifficulty);
+        }
     }
 
     if (favorites) {
@@ -1241,17 +1270,21 @@ static void gevrLobbyRoster(const ImVec4 &gold) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(slot.name);
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host.",
-                                  slot.name, netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1);
+            if (ImGui::IsItemHovered()) {
+                if (slot.is_bot)
+                    ImGui::SetTooltip("%s\nAI Bot\nSlot: %d", slot.name, i + 1);
+                else
+                    ImGui::SetTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host.",
+                                      slot.name, netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1);
+            }
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(netCharacterName(slot.chr_id));
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(gevrLobbyHasTeams(&lobby->config) ? netTeamName(slot.team) : "—");
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(host ? "Host" : slot.ready ? "Ready" : "Waiting");
+            ImGui::TextUnformatted(slot.is_bot ? "Bot" : host ? "Host" : slot.ready ? "Ready" : "Waiting");
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(gevrPingText(i).c_str());
+            ImGui::TextUnformatted(slot.is_bot ? "—" : gevrPingText(i).c_str());
             if (canKick) {
                 ImGui::TableNextColumn();ImGui::PushID(i);
                 if (!host) {

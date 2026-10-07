@@ -249,6 +249,9 @@ typedef struct {
     uint8_t max_players;    /* the host's choice, 2..GEVR_MAX_PLAYERS on any stage; team scenarios take their own size */
     uint8_t mode;           /* NET_MODE_DEATHMATCH / NET_MODE_COOP (protocol 16) */
     uint8_t difficulty;     /* co-op: DIFFICULTY_AGENT .. DIFFICULTY_007 */
+    uint8_t bot_mode;       /* NET_BOT_MODE_OFF / FILL / FIXED */
+    uint8_t bot_count;      /* for NET_BOT_MODE_FIXED: 1..7 */
+    uint8_t bot_difficulty; /* NET_BOT_DIFF_EASY / MEDIUM / HARD */
 } NetMatchConfig;
 
 /* No native pointers or structure padding enter the wire format. */
@@ -305,7 +308,9 @@ static inline int netMatchConfigValid(const NetMatchConfig *c) {
         c->weapon_set >= netWeaponSetCount() || c->game_length >= netGameLengthCount() ||
         c->health >= netHealthCount() || c->dual_wield > NET_DUAL_ANY || c->loadouts > 1 ||
         (c->fun_flags & ~NET_FUN_MASK) != 0 || c->gun_size > NET_GUN_BIG || c->friendly_fire > 1 || c->next_round > NET_NEXT_PLAYLIST || c->voice_mode > NET_VOICE_COUCH ||
-        c->max_players < 2 || c->max_players > GEVR_MAX_PLAYERS) return 0;
+        c->max_players < 2 || c->max_players > GEVR_MAX_PLAYERS ||
+        c->bot_mode >= NET_BOT_MODE_COUNT || c->bot_count >= GEVR_MAX_PLAYERS ||
+        c->bot_difficulty >= NET_BOT_DIFF_COUNT) return 0;
     for(int k=0;k<4;k++) if(netItemIndexOf(c->custom_set[k]) < 0) return 0;
     return 1;
 }
@@ -337,6 +342,9 @@ static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfi
     netbufWriteU8(buf, c->max_players);
     netbufWriteU8(buf, c->mode);
     netbufWriteU8(buf, c->difficulty);
+    netbufWriteU8(buf, c->bot_mode);
+    netbufWriteU8(buf, c->bot_count);
+    netbufWriteU8(buf, c->bot_difficulty);
     return buf->error;
 }
 
@@ -357,6 +365,9 @@ static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
     c->max_players = netbufReadU8(buf);
     c->mode = netbufReadU8(buf);
     c->difficulty = netbufReadU8(buf);
+    c->bot_mode = netbufReadU8(buf);
+    c->bot_count = netbufReadU8(buf);
+    c->bot_difficulty = netbufReadU8(buf);
     return buf->error;
 }
 
@@ -480,6 +491,7 @@ typedef struct {
     uint8_t   loadout[4];   /* the player's four spawn guns (config.loadouts) */
     uint8_t   team;         /* pending team, NET_TEAM_NONE until chosen */
     uint8_t   eliminated;   /* cannot respawn until the next match */
+    uint8_t   is_bot;       /* 1 if occupied by an AI bot */
     uint16_t  ping_ms;
     char      name[GEVR_MAX_NAME_LEN];
 } NetLobbySlot;

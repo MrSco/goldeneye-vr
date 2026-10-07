@@ -50,6 +50,13 @@ bool netIsHost(void);
 int netGetLocalSlot(void);
 int netGetHostSlot(void);
 int netGetConnectedPlayerCount(void);
+int netGetHumanPlayerCount(void);
+int netGetBotCount(void);
+int netIsBotSlot(int slot);
+void netUpdateLobbyBots(void);
+void netHostBroadcastBotMove(int bot_slot, const struct netplayermove *input);
+void netHostApplyBotHit(uint8_t bot_slot, uint8_t target_slot, uint8_t weapon_id, float damage, float hit_x, float hit_z);
+void netHostRespawnBot(int slot);
 int netGetMaxPlayers(void);
 int netLobbyMinPlayers(void);   /* the fewest players the host can pick with this lobby */
 NetPhase netGetPhase(void);

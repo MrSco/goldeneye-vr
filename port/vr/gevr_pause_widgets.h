@@ -11,7 +11,7 @@
 struct GevrPausePlayerView {
     char name[64], character[64];
     int slot=-1,points=0,kills=0,losses=0,ping=0;
-    bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false;
+    bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false,is_bot=false;
 };
 struct GevrPauseView {
     bool coop=false,host=false,canStart=false,canReturn=false,localReady=false,soloWarmup=false;
@@ -150,15 +150,15 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
             for(int i=0;i<model.count;i++) {
                 const auto&p=model.players[i];ImGui::TableNextRow(0,40);
                 ImGui::TableNextColumn();ImGui::Text("%.14s%s",p.name,p.host?" *":"");
-                if(ImGui::IsItemHovered())ImGui::SetTooltip("%s%s",p.name,p.host?" (Host)":"");
+                if(ImGui::IsItemHovered())ImGui::SetTooltip("%s%s",p.name,p.is_bot?" (Bot)":p.host?" (Host)":"");
                 ImGui::TableNextColumn();ImGui::TextUnformatted(p.character);
                 if(model.coop) {ImGui::TableNextColumn();ImGui::TextColored(p.down?bad:good,"%s",p.down?"Down / revive":"Active");ImGui::TableNextColumn();ImGui::Text("%d",p.ping);}
                 else {
                     ImGui::TableNextColumn();ImGui::TextColored(gold,"%d",p.points);
                     ImGui::TableNextColumn();ImGui::Text("%d",p.kills);
                     ImGui::TableNextColumn();ImGui::Text("%d",p.losses);
-                    ImGui::TableNextColumn();ImGui::Text("%d",p.ping);
-                    ImGui::TableNextColumn();ImGui::TextColored(p.ready?good:ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),"%s",!p.loaded?"Loading":p.host?"Host":p.ready?(p.spectator?"Ready (S)":"Ready"):(p.spectator?"Spectator":"Waiting"));
+                    ImGui::TableNextColumn();if(p.is_bot)ImGui::TextUnformatted("—");else ImGui::Text("%d",p.ping);
+                    ImGui::TableNextColumn();ImGui::TextColored(p.ready?good:ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),"%s",p.is_bot?"Bot":!p.loaded?"Loading":p.host?"Host":p.ready?(p.spectator?"Ready (S)":"Ready"):(p.spectator?"Spectator":"Waiting"));
                 }
                 if(kicks) {
                     ImGui::TableNextColumn();ImGui::PushID(p.slot);
@@ -168,7 +168,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                             ui.kickSlot=p.slot;snprintf(ui.kickName,sizeof(ui.kickName),"%s",p.name);
                         }
                         ImGui::EndDisabled();
-                        if(!p.canKick && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))ImGui::SetTooltip("This player needs the updated build for host removal.");
+                        if(!p.canKick && !p.is_bot && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))ImGui::SetTooltip("This player needs the updated build for host removal.");
                     }
                     ImGui::PopID();
                 }

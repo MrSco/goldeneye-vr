@@ -40,6 +40,7 @@ extern int VrMpFriendlyFire;
 extern int VrHostEqualization, VrHostLatencyCapMs;
 extern int VrMpFunFlags, VrMpGunSize;
 extern int VrMpMaxPlayers; // the host's player count, 2..8 on any stage
+extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty; // bots: mode (0 off, 1 fill, 2 fixed), count (1..7), diff (0 easy, 1 med, 2 hard)
 extern int VrDetailedGuns;   // guards and other players hold the first-person gun models (#95); 0 = the game's own
 extern int VrGexGuns;        // GoldenEye X's first-person guns from the player's data/gex.z64 (experimental)
 extern int VrGexArms;        // stereo: GoldenEye X's arms for every hand, the left wearing the watch

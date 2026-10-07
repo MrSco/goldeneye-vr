@@ -165,3 +165,9 @@ const char *netNextRoundName(int mode) {
 
 const char *netVoiceModeName(int mode) { return mode == NET_VOICE_COUCH ? "Couch" : "Proximity"; }
 const char *netTeamName(int team) { return team == NET_TEAM_RED ? "Red" : team == NET_TEAM_BLUE ? "Blue" : "Unassigned"; }
+const char *netBotModeName(int mode) {
+    return mode == 1 ? "Fill empty slots" : mode == 2 ? "Fixed count" : "Off";
+}
+const char *netBotDifficultyName(int diff) {
+    return diff == 0 ? "Easy" : diff == 2 ? "Hard" : "Medium";
+}

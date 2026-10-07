@@ -48,6 +48,7 @@ int VrMpFriendlyFire = 1;
 int VrHostEqualization = 1, VrHostLatencyCapMs = 50;
 int VrMpFunFlags = 0, VrMpGunSize = 0;
 int VrMpMaxPlayers = 4;
+int VrMpBotMode = 0, VrMpBotCount = 3, VrMpBotDifficulty = 1;
 int VrDetailedGuns = 1;     /* guards and other players hold the first-person gun models (gevr_heldgun.c) */
 int VrGexGuns = 0;          /* GoldenEye X's first-person guns (gevr_gexmodel.c); off, as the original */
 int VrGexArms = 1;          /* stereo: GoldenEye X's arms for every hand, the left with the watch (gun.c) */
