@@ -482,3 +482,18 @@ animated ejected casing: using its translated rest frame would shift the
 entrance. Held part 43 / matrix 42 shares the bullet's local geometry but needs
 its own animated hand contact. Native tests cover the visibility boundaries,
 mechanism pose, fit availability and one-round ammo conservation.
+
+## Cougar and grenade launcher (2026-10-06, late)
+
+| Family / GE item | PD slot / file | Fire / rest | Reload | Gun / payload matrix | Host bytes |
+| --- | --- | --- | --- | --- | --- |
+| Cougar / 18 | 17 / `GmaianpistolZ` | 1030 / 1030 | 1032: ammo 123, loader 92..121, hold 100 | 33 / 46 (parts 40..45) | 18336 |
+| Grenade launcher / 24 | 23 / `GdydevastatorZ` | 1030 / 1030 | none; hand from 1032 @100 | 33 / 46 (GE prop) | 20720 |
+
+Lessons: six meshes on one matrix were a speedloader, not cylinder seats, so the
+Cougar gained `loaderRounds` (one pickup = as many rounds as fit and the reserve has)
+rather than per-seat state. A rig without a payload mesh can borrow another clip's
+hand pose (`holdAnim`) and draw a GoldenEye prop as the payload (`payloadProp`); the
+prop models are authored oversized (0.1 scale), so scale to the real calibre. Check
+what a borrowed clip does to the new rig before using it: 1032's cylinder swing is a
+sideways slide that suits the Cougar, not the launcher's drum. See the handoff.

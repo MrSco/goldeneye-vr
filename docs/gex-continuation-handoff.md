@@ -4,6 +4,50 @@ Start here, then read [the roadmap](gex-weapon-roadmap.md) for the history of
 PP7 grip, wrist orientation, duplicate arms, insertion targets and installed
 magazine fitting. This file records the current implementation and remaining work.
 
+## Cougar, grenade launcher and switch blink — 2026-10-06, late
+
+Branch `codex/gex-cougar-grenade` from Main `2dfbc84` (PRs #138/#139/#140 merged).
+Version unchanged, **0.4.11 / code 65**. Signed test APK
+`android/app/build/outputs/apk/release/GoldenEyeVR-code65-cougar-grenade-90f5a59.apk`,
+label **90f5a59**, SHA256 `3dcee71edefc30baa76110dbd7e50560ed68a06cf8bb3587dc49cc574af97ef1`.
+Main's own build is `GoldenEyeVR-code65-main-2dfbc84.apk`. Not pushed; no PR yet.
+Headset acceptance of everything below is **pending**.
+
+- **Arm blink on weapon switch (fixed, 191c41a).** Loading a GE-X gun cleared the
+  off hand's cached empty pose; the hidden switch frames then fell back to GE's
+  watch arm until the raised gun was drawn. The cache is now marked stale (it
+  holds matrices only), the last empty hand keeps drawing, and it is rebuilt as
+  soon as the new gun loads. Harness test: stale cache keeps drawing, same-address
+  reload rebuilds.
+- **Cougar (item 18, slot 17, `GmaianpistolZ`, 716ad55).** Body = GE `GrugerZ` +
+  (0,50,42). Parts 40..45 on matrix 46 are a six-round **speedloader**, not cylinder
+  seats: source shows them 92..121 in reload 1032 (ammo 123, closed 147) and never
+  draws rounds in the cylinder. New `loaderRounds=6`: a belt pickup reserves
+  min(capacity − loaded, reserve) rounds, insertion adds them all, release/tracking
+  loss refunds them all; one bullet drawn per round held (also while falling). The
+  cylinder (matrices 34, 39..45, still from 80 to 135) stands open at hold frame
+  100 while held; target is the ring centre on the rear face (42.2,14.2,41.7).
+- **Grenade launcher (item 24, slot 23, `GdydevastatorZ`, 90f5a59).** Body = GE
+  `GgrenadelaunchZ` + (0,−24,118), 108/108. Cougar skeleton, drum on matrix 34,
+  **no reload clip and no round mesh**. New `holdAnim` (Cougar 1032 @100 poses the
+  hand on joint 46) and `payloadProp/payloadScale` (GE `PchrgrenaderoundZ`, nose +z,
+  drawn on joint 46 at 0.385 ≈ 40 mm, loaded with the gun). One round per insertion
+  into the drum's bottom chamber from behind (0,−25,42.3): the frame covers the
+  drum's upper rear; chambers ring 47 units out. The 1032 drum "open" is only a
+  38-unit sideways slide, so it is deliberately not used. Screen reload keeps GE's
+  tilt (no clip); no receiver ready motion.
+- Initial fits: computed gun placement for both; support/rotation copied from the
+  fitted Golden Gun. Fit both in the headset and bake as before.
+
+Headset checks: switch rapidly between GE-X guns and to/from non-GE-X items with arms
+on (no GE arm flash); Cougar partial/empty reload, loader count visibly matching rounds,
+cylinder open while held and closing after insertion, drop/refund; grenade launcher
+held round size/orientation in the hand, chamber target comfort, six insertions,
+projectile origin, screen-mode reload. Both handedness and size modes.
+
+Remaining tracks: bonus PP7s (silver/gold; keep original appearance until verified),
+knives and throwables. All ordinary guns now have GE-X models (19 variants).
+
 ## Latest headset session — resolved (2026-10-06, evening)
 
 Current test APK: `android/app/build/outputs/apk/release/GoldenEyeVR-code65-fits-1100498.apk`,
