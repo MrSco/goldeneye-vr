@@ -135,6 +135,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "StickClickToCrouch=%d\n", VrStickClickToCrouch ? 1 : 0);
     fprintf(f, "; 1 = holding the aim trigger no longer leans or ducks: the move stick keeps moving (issue #81).\n");
     fprintf(f, "AimNoLean=%d\n", VrAimNoLean ? 1 : 0);
+    fprintf(f, "; 0 = no crosshair (nor scope sight) while holding a grip to aim, in stereo.\n");
+    fprintf(f, "AimSight=%d\n", VrAimSight ? 1 : 0);
     fprintf(f, "SnapTurn=%.1f\n", VrUseSnapTurn);
     fprintf(f, "; Smooth turning speed in degrees per second, %d..%d.\n", SMOOTHTURN_MIN, SMOOTHTURN_MAX);
     fprintf(f, "SmoothTurnSpeed=%d\n", VrSmoothTurnSpeed);
@@ -268,8 +270,10 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
     for (int item=0; item<64; item++) {
         /* Do not write zero overrides for models implemented by future builds. */
-        if (!gevrGexWeaponGet(item) || item == 5 || item == 11) continue;
-        for (int component=(item == 4 ? 6 : 0); component<7; component++) {
+        /* 5, 20 and 21 share the PP7's (item 4's) fits; 11 the D5K's (10); 3 the knife's (2) */
+        if (!gevrGexWeaponGet(item) || item == 3 || item == 5 || item == 11 || item == 20 || item == 21) continue;
+        /* item 4's 0..5 are the legacy GexPP7* keys; 7 and 8 the gun hand (or item), 9 item size */
+        for (int component=(item == 4 ? 6 : 0); component<10; component++) {
             const float *v=VrGexWeaponFits[item][component];
             fprintf(f, "GexFit%d_%d=%.4f %.4f %.4f\n", item, component, v[0], v[1], v[2]);
         }
@@ -411,7 +415,7 @@ extern "C" void vrSettingsLoad(void)
         if (strncmp(line, "GexFit", 6) == 0) {
             int item, component, consumed=0; float t[3];
             if (sscanf(line, "GexFit%d_%d=%n", &item, &component, &consumed) == 2 && consumed > 0
-                && item >= 0 && item < 64 && component >= 0 && component < 7
+                && item >= 0 && item < 64 && component >= 0 && component < 10
                 && sscanf(line+consumed, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2]))
                 memcpy(VrGexWeaponFits[item][component], t, sizeof(t));
@@ -516,6 +520,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "WeaponRecoil") == 0) VrWeaponRecoil = (ival != 0);
             else if (strcmp(key, "StickClickToCrouch") == 0) VrStickClickToCrouch = (ival != 0);
             else if (strcmp(key, "AimNoLean") == 0) VrAimNoLean = (ival != 0);
+            else if (strcmp(key, "AimSight") == 0) VrAimSight = (ival != 0);
             else if (strcmp(key, "NoKnockback") == 0) VrNoKnockback = (ival != 0);
             else if (strcmp(key, "NoHitstun") == 0) VrNoHitstun = (ival != 0);
             else if (strcmp(key, "DamageFlash") == 0) VrDamageFlash = (ival != 0);

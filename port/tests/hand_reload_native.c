@@ -41,16 +41,22 @@ static int s_gevrMuzzleValid[2], s_gevrMuzzleItem[2];
 static float s_gevrMuzzle[2][3];
 static void *g_musicSfxBufferPtr;
 #define PUNCHING_AIR_SFX 0
+struct sfx3 { unsigned short half[3]; };   /* a knife swing's slash sounds (gun.c) */
+struct sfx3 knife_throw_sounds = { { 101, 102, 103 } };
+static unsigned int randomGetNext(void) { return 1; }
 static int gevrStereoWatchGrip(void) { return 0; }
+static int lastSound, lastChopItem, chopResult;
+static float lastNeed = -1;
 static void sndPlaySfx(void *buffer, int sound, void *state)
-{ (void)buffer; (void)sound; (void)state; whiffs++; }
+{ (void)buffer; (void)state; lastSound = sound; whiffs++; }
 s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item,
                 const f32 velocity[3], f32 need, s32 land, f32 *into)
 {
-    (void)from; (void)to; (void)touch; (void)dir; (void)item;
+    (void)from; (void)to; (void)touch; (void)dir;
     (void)velocity; (void)need; (void)land; (void)into;
+    lastChopItem = item; lastNeed = need;
     chopHits++;
-    return 0;
+    return chopResult;
 }
 static Mtxf viewMatrix;
 static Mtxf *currentPlayerGetViewToWorldMtxf(void) { return &viewMatrix; }
@@ -320,6 +326,35 @@ static void meleeArbitration(void)
     vr_ctrl_velocity_play[1][2] = 2.5f;
     chopHits = 0; gevrHandChopTick(1); assert(chopHits == 1);
     VrManualReloading = 1;
+    /* Both knives swing as the knife: its damage and slash sound, no punch
+     * whiff; a throw's grip wind-up swings no blow at all (user). */
+    for (int k = 0; k < 2; k++) {
+        reset(); player.hands[GUNRIGHT].weapon = k ? ITEM_THROWKNIFE : ITEM_KNIFE;
+        at(1, 30, VrReloadBelt[1], 80);
+        vr_ctrl_velocity_play[1][0] = 1.8f;   /* a knife's slash speed, under a gun's */
+        chopHits = whiffs = 0; lastChopItem = -1; lastSound = 0;
+        gevrHandChopTick(1);
+        assert(chopHits == 1 && lastChopItem == ITEM_KNIFE && lastSound >= 101 && lastSound <= 103 && whiffs == 1);
+        vr_ctrl_velocity_play[1][0] = 0;
+        for (int i = 0; i < 25; i++) gevrHandChopTick(1);
+        assert(whiffs == 1);
+        reset(); player.hands[GUNRIGHT].weapon = k ? ITEM_THROWKNIFE : ITEM_KNIFE;
+        at(1, 30, VrReloadBelt[1], 80);
+        s_gevrThrowWindup[GUNRIGHT] = 1;
+        vr_ctrl_velocity_play[1][0] = 2.5f;
+        chopHits = whiffs = 0; gevrHandChopTick(1);
+        assert(chopHits == 0 && whiffs == 0);
+        s_gevrThrowWindup[GUNRIGHT] = 0; vr_ctrl_velocity_play[1][0] = 0;
+    }
+    /* The taser's trigger reaches as far as the arm: a touch test along the
+     * held taser with its damage and no speed asked; none touched, no hit. */
+    reset(); player.hands[GUNRIGHT].weapon = ITEM_TASER;
+    at(1, 30, VrReloadBelt[1], 80);
+    chopHits = 0; lastChopItem = -1; lastNeed = -1; chopResult = 0;
+    assert(!gevrTaserTouch(GUNRIGHT) && chopHits == 1 && lastChopItem == ITEM_TASER && lastNeed == 0.0f);
+    chopResult = 1; assert(!gevrTaserTouch(GUNRIGHT));   /* in touch but not struck */
+    chopResult = 2; assert(gevrTaserTouch(GUNRIGHT));
+    chopResult = 0;
 }
 
 static void pistolTick(void)
@@ -484,6 +519,68 @@ static void singleRoundReloads(void)
     }
     stats.MagSize=30;
 }
+/* Cougar speedloader: one pickup carries as many rounds as fit and the
+ * reserve has; insertion adds them all; abandoning it refunds them all. */
+static void speedloaderReloads(void)
+{
+    const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f; (void)cm;
+    #define LOADER_INSERT() do { pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick(); } while (0)
+    #define LOADER_RELEASE() do { gripHeld[0]=0; pistolTick(); } while (0)
+    #define LOADER_TAKE() do { pointsValid=0; belt(0,0); gripHeld[0]=1; pistolTick(); } while (0)
+    assert(gevrGexWeaponGet(ITEM_RUGER)->loaderRounds==6 && gevrGexWeaponGet(ITEM_RUGER)->singleRound);
+    reset(); stats.MagSize=6; gex[GUNRIGHT]=1; player.hands[GUNRIGHT].weapon=ITEM_RUGER;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine=2; pistolTick();
+    LOADER_TAKE();
+    assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==4 && reserve==46);
+    assert(gevrGexHeldRoundCount()==4);
+    LOADER_INSERT();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==6 && reserve==46 && readyEvents==1);
+    assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
+    LOADER_RELEASE(); LOADER_TAKE();   /* full: nothing to take */
+    assert(s_gevrGexMag[GUNRIGHT]!=GEVR_GEXMAG_INHAND && reserve==46);
+    /* a short reserve fills the loader only partly */
+    LOADER_RELEASE(); player.hands[GUNRIGHT].weapon_ammo_in_magazine=0; reserve=3;
+    LOADER_TAKE(); assert(s_gevrGexHeldRounds==3 && reserve==0);
+    LOADER_INSERT(); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==3 && reserve==0);
+    /* let go without inserting: every round goes back */
+    LOADER_RELEASE(); player.hands[GUNRIGHT].weapon_ammo_in_magazine=1; reserve=50;
+    LOADER_TAKE(); assert(s_gevrGexHeldRounds==5 && reserve==45);
+    LOADER_RELEASE(); assert(reserve==50 && player.hands[GUNRIGHT].weapon_ammo_in_magazine==1);
+    assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN && falls>0);
+    /* firing while the loader is held still seats every round it carries */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine=4;
+    LOADER_TAKE(); assert(s_gevrGexHeldRounds==2 && reserve==48);
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine=2;
+    LOADER_INSERT(); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==4 && reserve==48);
+    /* tracking loss while held refunds once */
+    LOADER_RELEASE(); player.hands[GUNRIGHT].weapon_ammo_in_magazine=0;
+    LOADER_TAKE(); assert(reserve==42);
+    tracked[0]=0; pistolTick(); assert(reserve==48 && s_gevrGexHeldRounds==-1);
+    tracked[0]=1; LOADER_RELEASE();
+    #undef LOADER_INSERT
+    #undef LOADER_RELEASE
+    #undef LOADER_TAKE
+    stats.MagSize=30;
+}
+/* Grenade launcher: one round per pickup into a six-round drum. */
+static void grenadeRounds(void)
+{
+    const GexWeaponDef *def = gevrGexWeaponGet(ITEM_GRENADELAUNCH);
+    assert(def && def->singleRound && def->loaderRounds == 0 && def->payloadProp > 0);
+    reset(); stats.MagSize=6; gex[GUNRIGHT]=1; player.hands[GUNRIGHT].weapon=ITEM_GRENADELAUNCH;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine=4; pistolTick();
+    for (int round=5; round<=6; round++) {
+        pointsValid=0; belt(0,0); gripHeld[0]=1; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==1);
+        pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==round && reserve==50-(round-4));
+        gripHeld[0]=0; pistolTick();
+    }
+    pointsValid=0; belt(0,0); gripHeld[0]=1; pistolTick();   /* full: nothing taken */
+    assert(s_gevrGexMag[GUNRIGHT]!=GEVR_GEXMAG_INHAND && reserve==48);
+    gripHeld[0]=0; pistolTick();
+    stats.MagSize=30;
+}
 int main(void)
 {
     const float scales[] = {0.2f, 1.0f};
@@ -506,6 +603,8 @@ int main(void)
         pp7Reload();
         nextGunReloads();
         singleRoundReloads();
+        speedloaderReloads();
+        grenadeRounds();
     }
     /* A custom belt and radius must control both reload paths. */
     reset();

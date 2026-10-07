@@ -3843,6 +3843,7 @@ extern float VrComfortVignette;      /* 0 off, 0.1..1 */
 extern int VrWatchFaceStatus;        /* 0 off, 1 on, 2 only */
 extern int VrAimSteady;              /* 0 off, 1 low, 2 high */
 extern int VrAimNoLean;
+extern int VrAimSight;
 extern int VrMotionThrowing;
 extern float VrMotionThrowStrength, VrMotionThrowPitch, VrMotionThrowGazeAssist;
 extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
@@ -3874,7 +3875,7 @@ extern void vrSettingsSave(void);
 
 enum {
     GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH,
-    GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_STEADY, GEVR_VR_GUNFIT,
+    GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_SIGHT, GEVR_VR_STEADY, GEVR_VR_GUNFIT,
     GEVR_VR_WATCHPAUSE, GEVR_VR_HOLSTER, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB,
     GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE,
     GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
@@ -3885,7 +3886,7 @@ enum {
 
 static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Turning", "Turn speed", "Vignette", "No knockback", "No hitstun", "Hit flash",
-    "Left-handed", "Swap sticks", "Aim: no lean", "Aim steady", "Gun fit",
+    "Left-handed", "Swap sticks", "Aim: no lean", "Aim: crosshair", "Aim steady", "Gun fit",
     "Watch gesture", "Holster WIP", "Grip use", "Grip hand WIP", "Mine re-grab",
     "Hand reload WIP", "Gun recoil", "Motion throw", "Throw power", "Throw pitch", "Throw gaze",
     "Refresh", "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
@@ -3895,7 +3896,7 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
 
 /* the sections, as the launcher groups them */
 static const s32 s_gevrVrComfort[] = { GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH };
-static const s32 s_gevrVrControls[] = { GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_STEADY, GEVR_VR_GUNFIT };
+static const s32 s_gevrVrControls[] = { GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_SIGHT, GEVR_VR_STEADY, GEVR_VR_GUNFIT };
 static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_HOLSTER, GEVR_VR_RELOAD, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB };
 static const s32 s_gevrVrWeapons[] = { GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE };
 static const s32 s_gevrVrDisplay[] = { GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH };
@@ -3933,6 +3934,7 @@ static s32 *gevrVrToggle(s32 row)
         case GEVR_VR_LEFTY:       return &VrLeftHandedMode;
         case GEVR_VR_SWAP:        return &VrSwapJoysticks;
         case GEVR_VR_NOLEAN:      return &VrAimNoLean;
+        case GEVR_VR_SIGHT:       return &VrAimSight;
         case GEVR_VR_GUNFIT:      return &VrGunFitArmed;
         case GEVR_VR_WATCHPAUSE:  return &VrWatchGesturePause;
         case GEVR_VR_HOLSTER:     return &VrGestureHolster;
