@@ -39,6 +39,14 @@ int enet_peer_send(ENetPeer *peer, uint8_t channel, ENetPacket *packet) {
     return 0;
 }
 
+/* A dropped slot and a lost host reach these; the test peers have no ENet host. */
+void enet_peer_reset(ENetPeer *peer) { (void)peer; }
+int enet_address_get_ip(const ENetAddress *address, char *name, size_t length) {
+    (void)address;
+    if (length) name[0] = '\0';
+    return 0;
+}
+
 static ENetPeer peer1;
 
 /* The host's clock probe answered (net_core.c netReceiveClock): rounds wait
@@ -80,6 +88,7 @@ static void session(void) {
     s_next_round_at_us = s_countdown_end_us = 0;
     s_host_heard_us = test_now;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) s_slot_heard_us[i] = test_now;
+    s_last_local_activity_us = test_now;   /* test_now goes back here: the idle clock with it */
     g_gameOverFlag = 0;
     resets = starts = voice_clears = 0;
 }
