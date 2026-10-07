@@ -740,7 +740,24 @@ static inline void inputInitAllControllers(void)
 
 static int inputEventFilter(void *data, SDL_Event *event)
 {
+    extern volatile int g_gevrAppBackgrounded;
+
     switch (event->type) {
+        /*
+         * Android pauses the game thread inside SDL's event pump (not the
+         * frame wait) while the app is in the background, e.g. a sleeping
+         * headset. SDL sends these on that thread just before it blocks and
+         * just after it resumes; the frame watchdog leaves a pause alone.
+         */
+        case SDL_APP_WILLENTERBACKGROUND:
+        case SDL_APP_DIDENTERBACKGROUND:
+            g_gevrAppBackgrounded = 1;
+            break;
+        case SDL_APP_WILLENTERFOREGROUND:
+        case SDL_APP_DIDENTERFOREGROUND:
+            g_gevrAppBackgrounded = 0;
+            break;
+
         case SDL_CONTROLLERDEVICEADDED:
             for (s32 i = firstController; i < INPUT_MAX_CONTROLLERS; ++i) {
                 if (!pads[i]) {
