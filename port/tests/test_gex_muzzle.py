@@ -118,7 +118,11 @@ with tempfile.TemporaryDirectory(prefix="gevr-gex-muzzle-") as directory:
     if len(sys.argv) > 1:
         sys.path.insert(0, str(ROOT / "tools/gex"))
         from pdrom import PdRom
-        samples.append(("GE-X KF7", PdRom(sys.argv[1]).load("Gak47Z")))
+        rom = PdRom(sys.argv[1])
+        samples.append(("GE-X KF7", rom.load("Gak47Z")))
+        samples.append(("GE-X PP7", rom.load("GwppkZ")))
+        for name in ("Gtt33Z", "GskorpionZ", "GuziZ", "Gmp5kZ", "Gcmp150Z", "GcycloneZ", "Gm16Z", "Gfnp90Z", "GsniperrifleZ", "GdysuperdragonZ", "GshotgunZ", "Grcp120Z", "GdyrocketZ", "Gleegun1Z", "GmaianpistolZ", "GdydevastatorZ", "Gdy357Z", "Gdy357trentZ"):
+            samples.append(("GE-X " + name, rom.load(name)))
     for label, original in samples:
         original = bytes(original)
         input_file = temp / "input.bin"
@@ -126,17 +130,19 @@ with tempfile.TemporaryDirectory(prefix="gevr-gex-muzzle-") as directory:
         input_file.write_bytes(original)
         original_nodes = list(nodes(original, pointer(original, 0)))
         matrices = struct.unpack_from(">H", original, 14)[0]
+        part_count=struct.unpack_from(">H",original,12)[0]; part_table=pointer(original,8)
+        has_flash=label=="synthetic" or any(struct.unpack_from(">h",original,part_table+4*part_count+2*i)[0]==90 for i in range(part_count))
         for flash_part in (90, -1):
             result = subprocess.run([str(exe), str(input_file), str(output_file), str(flash_part)],
                                     check=True, capture_output=True, text=True)
-            assert int(result.stdout) == matrices + (flash_part == 90)
+            assert int(result.stdout) == matrices + (flash_part == 90 and has_flash)
             output = output_file.read_bytes()
             # With two empty/no-texture switch slots the root starts at byte 8;
             # with textures it follows their 12-byte configurations.
             tex_count = struct.unpack_from(">H", original, 22)[0]
             output_nodes = list(nodes(output, 8 + 12 * tex_count))
             assert len(original_nodes) == len(output_nodes)
-            toggle = pointer(output, 4) if flash_part == 90 else 0
+            toggle = pointer(output, 4) if flash_part == 90 and has_flash else 0
             flash_nodes = set(nodes(output, pointer(output, toggle + 20))) if toggle else set()
             for old, new in zip(original_nodes, output_nodes):
                 kind = original[old + 1]

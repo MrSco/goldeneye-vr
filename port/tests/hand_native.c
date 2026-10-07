@@ -17,6 +17,8 @@ struct player *g_CurrentPlayer;
 static struct player player;
 static InvItem pair;
 static int online, mode, spectator, remote;
+static int gexHands[2];
+s32 gevrGexHeld(s32 hand) { return gexHands[hand]; }
 s32 get_scenario(void) { return 0; }
 bool bondinvIsAliveWithFlag(void) { return 0; }
 static int owned[ITEM_IDS_MAX], reserve[ITEM_IDS_MAX];
@@ -381,7 +383,8 @@ EXPORT int test_character_sleeves(void) {
     CHECK(gevrMultiplayerCuff(BODY_Male_Mishkin)==CUFF_BLUE);
     reset();online=1;player.bondtype=CUFF_JUNGLE;
     Model model={0};ModelFileHeader header={0};ModelNode *switches[9]={0};
-    for(int i=0;i<6;i++)switches[i+3]=&cuff_nodes[i];header.Switches=switches;
+    for(int i=0;i<6;i++){switches[i+3]=&cuff_nodes[i];cuff_nodes[i].Opcode=MODELNODE_OPCODE_SWITCH;}
+    header.Switches=switches;header.numSwitches=9;
     int bodies[]={BODY_Brosnan_Tuxedo,BODY_Scientist_1_Male,BODY_Parka,BODY_Male_Mishkin,BODY_Jungle_Commando};
     int indices[]={1,0,5,3,4};
     for(int b=0;b<5;b++) {
@@ -391,5 +394,21 @@ EXPORT int test_character_sleeves(void) {
     }
     online=0;character_body=BODY_Parka;bondviewSelectCuff(&model,&header,3);
     CHECK(*(s32*)&cuff_data[4] && !*(s32*)&cuff_data[5]);
+    // A partial table must not dereference bytes after its last switch.
+    ModelNode *shortTable[2]={&cuff_nodes[0],(ModelNode *)0xc1e};
+    header.Switches=shortTable;header.numSwitches=1;
+    player.bondtype=CUFF_BOILER;bondviewSelectCuff(&model,&header,0);
+    CHECK(*(s32*)&cuff_data[0]);
+    bondviewSelectCuff(&model,&header,1);bondviewSelectCuff(&model,&header,-1);
+    header.Switches=NULL;bondviewSelectCuff(&model,&header,0);
+    // Exact GE-X shotgun layout: 28 original slots + absent/held payload.
+    // Texture data follows slot 29; original cuff selection must touch neither.
+    ModelNode *shotgun[31]={0};shotgun[29]=&cuff_nodes[0];shotgun[30]=(ModelNode *)0xc1e;
+    for(int hand=0;hand<2;hand++) {
+        ModelFileHeader *gex=&player.copy_of_body_obj_header[hand];
+        gex->Switches=shotgun;gex->numSwitches=30;gexHands[hand]=1;
+        *(s32*)&cuff_data[0]=7;bondviewSelectCuff(&model,gex,29);
+        CHECK(*(s32*)&cuff_data[0]==7);gexHands[hand]=0;
+    }
     return 0;
 }

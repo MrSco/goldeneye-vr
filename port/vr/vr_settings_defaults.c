@@ -33,6 +33,7 @@ bool vr_grip_for_unarmed  = false;  /* the grip button still does something with
 int  VrHideArms           = 0;      /* draw no arm models */
 int  VrStickClickToCrouch = 0;      /* crouch on stick click instead of physically ducking */
 int  VrAimNoLean          = 0;      /* aiming keeps the move stick moving: no lean, no duck (issue #81) */
+int  VrAimSight           = 1;      /* stereo: the crosshair shows while a grip aims; 0 never (user) */
 int  VrMicMuted           = 0;      /* persist multiplayer microphone mute */
 float VrMusicVolume       = 1.0f;   /* music volume (0..1) */
 float VrVoiceVolume       = 1.0f;   /* multiplayer voice chat volume (0..1) */
@@ -137,12 +138,12 @@ float VrGunOffZ = -12.35f;   /* back */
  * defaults are the user's, set that way in the headset (2026-09-26). */
 float VrGripTrim[2][6] = {
     { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },   /* handguns: under the gun hand */
-    { 0.02f, -4.72f, 5.23f, 90.1f, 0.0f, 83.1f },    /* long guns: underhand below the fore-end */
+    { 0.22f, -9.08f, 13.13f, 86.3f, 0.0f, 83.1f },   /* long guns: underhand below the fore-end (user, 2026-10-06) */
 };
 /* GoldenEye X's models (launcher MODS) sit differently in the hand, so Gun
  * fit keeps theirs apart (user). The gun's is the user's, fitted to the KF7
  * in the headset (2026-10-04); the grips start from GoldenEye's. */
-float VrGexGunOff[3] = { 3.8982f, 2.1271f, -19.9475f };
+float VrGexGunOff[3] = {3.580500f,1.361500f,-19.116900f};
 float VrGexGripTrim[2][6] = {
     { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },
     { 2.45f, -3.24f, 7.60f, 92.9f, 0.0f, 83.1f },    /* the user's, on the GE-X KF7 (2026-10-04) */
@@ -159,17 +160,29 @@ float VrGexGripTrim[2][6] = {
  * GoldenEye X's, the belt and the off hand are the user's, set in the
  * headset with Gun fit (2026-10-04).
  */
-float VrReloadGrab[2][3] = { { 0.0f, -7.0f, -8.0f }, { -2.0f, -2.48f, -18.03f } };
-float VrReloadBelt[3] = { 68.34f, 20.61f, -13.15f };
-float VrGexHeldMag[3] = { -1.47f, 1.44f, 4.08f };
+float VrReloadGrab[2][3] = { {0.0000f,-7.0000f,-8.0000f}, {-8.2100f,-11.7900f,-11.2800f} };
+float VrReloadBelt[3] = { 66.65f, 19.86f, -18.68f };
+float VrGexHeldMag[3] = {4.030000f,2.830000f,-1.730000f};
 /* GoldenEye's watch on GE-X's left wrist (gun.c): cm ahead of the end of the
  * sleeve, up and out from its axis there, and its size (Gun fit's off hand
  * mode, holding the right grip). Over the wrist and a fifth larger, to go
  * round GE-X's sleeve (user; measured offline on the KF7). */
-float VrGexWatch[4] = { 5.0f, 1.0f, 0.22f, 1.2f };
+float VrGexWatch[4] = {5.180000f,1.380000f,0.240000f,0.940000f};
 /* where GE-X's left hand holds a gun with both hands, cm forward, up and out
  * along the gun from where its animation has it (Gun fit's grip mode) */
 float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
+/* PP7 and PP7 silenced share a model fit, separate from legacy KF7 values.
+ * Grab is a cm delta from the actual magazine, not a guessed controller point. */
+float VrGexPp7Grab[3] = {-9.690000f,-9.140000f,3.940000f};
+float VrGexPp7Support[3] = {1.540000f,-0.110000f,6.130000f};
+float VrGexPp7SupportRot[3] = {-14.300000f,-36.700000f,8.800000f};
+/* Fire-frame-zero palm aligned with the already fitted KF7 shooting palm. */
+float VrGexPp7GunOff[3] = { 0.478802f, 4.372890f, -9.395315f };
+/* Held-magazine fit moves the mesh independently of the off hand and watch. */
+float VrGexKf7MagOff[3] = { 0.0f, 0.0f, 0.0f };
+float VrGexPp7MagOff[3] = {1.230000f,5.270000f,1.690000f};
+float VrGexKf7WellOff[3] = { 0.0f, 0.0f, 0.0f };
+float VrGexPp7WellOff[3] = { 0.0f, 0.0f, 0.0f };
 
 /* Gun fit's scope trims (port/include/gevr_scope.h): GoldenEye X's KF7 sight
  * as the user fitted it (2026-10-04), the others none */
@@ -187,9 +200,11 @@ int   VrFistClench    = 0;     /* close the off hand while the left grip is sque
  * headset calibration (2026-10-05). Saved INI fits override these defaults.
  */
 float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3] = {
-    [1] = { [8] = { 4.07f, 2.87f, -7.23f } }, /* GE-X ITEM_AK47 / KF7 */
+    [1] = { [8] = { 4.07f, 2.87f, -7.23f }, [5] = { 0.08f, 0.32f, -0.32f }, /* GE-X ITEM_AK47 / KF7 */
+            [24] = { 0.15f, -0.23f, -2.39f } }, /* GE-X grenade launcher (2026-10-06) */
 };
 int gevrMuzzleFitting = 0;
+int gevrGunHandFitting = 0;   /* Gun fit moves GE-X's own gun hand on the gun (X), for bondview2.c and gun.c */
 
 /* --- Runtime state ------------------------------------------------------- */
 
@@ -227,3 +242,29 @@ bool VrTwoHandsGun(int weaponnum)
 void optionsMenuInit(void)
 {
 }
+
+/* Model-specific fits; D5K silenced shares item 10. Missing INI keys keep these defaults. */
+float VrGexWeaponFits[64][10][3] = {
+    [2] = {{3.4710f,1.1003f,3.5348f}}, /* knives: palm aligned to the fitted KF7's, initial */
+    [26] = {{4.2795f,1.3928f,4.5162f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{-0.5229f,1.1656f,0.4464f},{2.3233f,-3.7653f,2.3402f},{-0.0077f,0.0000f,0.0000f}}, /* grenade: headset item fit 2026-10-07 */
+    [27] = {{1.4880f,2.6146f,-7.3449f}}, /* timed mine, initial */
+    [28] = {{1.4880f,2.6146f,-7.3449f}}, /* proximity mine, initial */
+    [29] = {{-1.8157f,3.5317f,-9.2842f}}, /* remote mine, initial */
+    [31] = {{1.9638f,0.7885f,-6.0305f}}, /* taser: palm aligned to the fitted KF7's, initial */
+    [6] = {{0.4788f,4.3729f,-9.3953f},{-8.8699f,-13.2398f,7.5154f},{1.5400f,-0.1100f,6.1300f},{-14.3000f,-36.7000f,8.8000f},{1.2300f,5.2700f,1.6900f},{0.0000f,0.0000f,0.0000f}},
+    [7] = {{2.4745f,2.6738f,-8.4976f},{-12.1534f,-6.8046f,3.6830f},{17.8745f,2.4844f,5.5687f},{24.3048f,-12.4422f,-76.1620f},{0.2536f,3.4809f,1.9681f},{-0.2045f,0.5283f,0.5684f},{0.0000f,0.0000f,0.0000f}},
+    [8] = {{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f}},
+    [9] = {{1.9459f,2.3827f,-8.3047f},{-8.8925f,-10.5493f,4.2224f},{10.2462f,0.5458f,5.9836f},{0.5295f,-29.1067f,-42.9358f},{0.0028f,0.0000f,1.7100f},{-0.1512f,-1.9467f,0.0415f},{0.0000f,0.0000f,0.0000f}},
+    [10] = {{3.0861f,1.3847f,-19.4238f},{-8.9007f,-9.7985f,4.6520f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f}},
+    [12] = {{3.6020f,1.2565f,-19.2300f},{-9.4191f,-10.0058f,6.3455f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{-2.0765f,1.9985f,0.5825f},{-2.1285f,1.0949f,0.8763f}},
+    [13] = {{3.6147f,1.3828f,-19.1331f},{-9.4418f,-9.0044f,6.4789f},{4.4486f,-0.1748f,-0.1474f},{0.0000f,0.0000f,0.0000f},{-5.6976f,4.9249f,6.2176f},{0.6024f,-0.1363f,0.6389f},{0.0000f,0.0000f,0.0000f}},
+    [14] = {{2.426499f,-0.191122f,-17.002609f},{-11.7789f,-0.8653f,13.1938f},{0,0,0},{0,0,0},{1.2670f,8.2710f,-8.3611f}},
+    [17] = {{6.1709f,2.5385f,-15.5216f},{-9.9295f,-10.7048f,0.8858f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{-1.3083f,5.2604f,2.8389f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f}},
+    [22] = {{0.1611f,3.6073f,-8.5647f},{0.0000f,0.0000f,0.0000f},{0.5847f,-0.1097f,6.3322f},{-1.1813f,-40.9310f,-0.4716f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f}},
+    [15] = {{2.307075f,2.768407f,-20.009436f}},
+    [16] = {{2.307075f,2.768407f,-20.009436f}},
+    [25] = {{1.3591f,-0.3056f,-17.8129f},{-11.1379f,-2.7505f,36.0274f},{23.8084f,5.1718f,9.5193f},{-2.3728f,-17.0255f,-15.0149f},{1.6822f,12.4943f,-0.1565f},{0.0577f,0.2809f,10.2066f},{0.0000f,0.0000f,0.0000f}},
+    [18] = {{0.9652f,3.4521f,-8.4026f},{-10.8169f,1.0130f,-12.8773f},{2.6120f,0.7110f,8.2267f},{5.4308f,-36.9894f,-0.4886f},{-0.0235f,0.8383f,-0.3653f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f}}, /* Cougar: headset fit 2026-10-06 */
+    [24] = {{-0.3676f,2.1240f,-14.2586f},{-10.1756f,-5.2829f,-8.0162f},{30.5425f,-1.9693f,5.9495f},{41.8603f,-36.9894f,-75.5737f},{0.1039f,0.4432f,-1.9243f},{-4.2139f,2.0370f,-0.6997f},{0.0000f,0.0000f,0.0000f},{0.0000f,1.9950f,9.3500f},{0.0000f,0.0000f,0.0000f}}, /* grenade launcher: headset fit 2026-10-06, gun hand included */
+    [19] = {{0.1611f,3.6073f,-8.5647f},{0.0000f,0.0000f,0.0000f},{-2.2736f,0.8682f,6.7402f},{5.4308f,-36.9894f,-0.4886f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f}},
+};

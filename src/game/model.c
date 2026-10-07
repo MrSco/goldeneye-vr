@@ -2160,6 +2160,15 @@ void modelUpdateRelationsQuick(Model *model, ModelNode *parent)
             case MODELNODE_OPCODE_BSP:
                 modelUpdateReorderRelations(model, node);
                 break;
+            case MODELNODE_OPCODE_SWITCH:
+                /*
+                 * The child pointer is on the shared model, the on/off flag is
+                 * on this copy. Apply it before descending, or a muzzle flash
+                 * or held part left by another copy (or another view) is what
+                 * this walk updates. The draw walk already does this per copy.
+                 */
+                modelApplyToggleRelations(model, node);
+                break;
             case MODELNODE_OPCODE_OP07:
                 process_07_unknown(model, node);
                 break;

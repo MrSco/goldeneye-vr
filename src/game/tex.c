@@ -245,6 +245,11 @@ s32 texGetWidthAtLod(struct tex *tex, s32 lod)
 
     if (tex->hasExplicitLods)
     {
+        if (lod <= 7 && tex->lodwidths[lod - 1] != 0)
+        {
+            return tex->lodwidths[lod - 1];
+        }
+
         for (i = 0; i < g_TexCacheCount; i++)
         {
             if (tex->texturenum == g_TexCacheItems[i].texturenum)
@@ -277,6 +282,11 @@ s32 texGetHeightAtLod(struct tex *tex, s32 lod)
 
     if (tex->hasExplicitLods)
     {
+        if (lod <= 7 && tex->lodheights[lod - 1] != 0)
+        {
+            return tex->lodheights[lod - 1];
+        }
+
         for (i = 0; i < g_TexCacheCount; i++)
         {
             if (tex->texturenum == g_TexCacheItems[i].texturenum)

@@ -2,13 +2,31 @@
 
 Engineering notes for the GE-X support introduced in PR #117 (2026-10-04).
 For installation, ROM preparation, reload controls and troubleshooting, start
-with [GoldenEye X setup](gex-setup.md). Current support covers the KF7 and
-VR arms, read from the player's own patched GE-X 6a ROM; the weapon list below
+with [GoldenEye X setup](gex-setup.md). Current support covers KF7, both PP7s, DD44, Klobb, ZMG, D5K variants,
+Phantom, AR33, RC-P90, sniper, Moonraker laser, both shotguns, rocket launcher, Golden Gun
+and VR arms (17 weapon variants), read from the player's own patched GE-X 6a ROM; the weapon list below
 is a format reference, not a list of implemented replacements.
 Nothing from GE-X is committed or shipped; no
 licence covers its assets. Credits: the GoldenEye X team (Wreck, Carnivorous
 for the weapon animations, SubDrag and others) and Dab's Mod
 (DabDavis/perfect-dark-dabs-mod), whose import notes this follows.
+
+The current batch adds seven guns with separate grip, reload-grab, held-magazine,
+and insertion-target fits. Both-hand support rotation is adjustable for all
+supported guns. See the [roadmap](gex-weapon-roadmap.md#detachable-magazine-batch-and-saved-fits-2026-10-06)
+for reviewed bindings, reload timing, fit keys and the next-model handoff.
+The user smoke-tested the batch and fitted reload grabs. AR33 magazine wrist
+and Phantom installed-magazine position require follow-up confirmation.
+Installed Magazine fit (X, after Magazine Well) moves the visible seated mesh
+while retaining independently calibrated grab/insertion targets.
+
+The continuation after v0.4.11 adds seven families: explicit equip/rest poses for
+guns without source fire clips, upward RC-P90 magazine removal, scoped sniper
+and laser roots, and one-round shell/rocket loading. Held Ammo and Ammo Insertion
+fit cover single rounds; Installed Magazine remains limited to detachable
+magazines. The laser has no ammunition payload/reload. See the
+[current continuation handoff](gex-continuation-handoff.md) for validation,
+headset checks, fit baking and the remaining Cougar/grenade rigs.
 
 ## The ROM
 
@@ -87,14 +105,14 @@ Bond) with the gun model's matrices and animation: every first-person gun
 carries the same hand skeleton. Placement comes from the weapon's position
 fields (KF7 13, -23, -27; PP7 8, -19, -26).
 
-## In this port (2026-10-04)
+## In this port (2026-10-06)
 
 - tools/gex reads the ROM (file table, models, scripts, animation rows).
 - port/src/gevr_gex.c loads data/gex.z64; gevr_gexmodel.c rebuilds a PD
   gun model as a GoldenEye file; gevr_pdanim.c is PD's animation reader.
-  The KF7's GE-X textures are paired with GoldenEye's own ids where the
-  pixels match, so the HD packs apply (gun.c s_gevrGexKf7Textures).
-- The KF7 (launcher MODS "Its guns (KF7, WIP)", ini GexGuns, off by
+  Supported GE-X weapon textures are paired with GoldenEye's own ids where the
+  pixels match, so the HD packs apply (gevr_gexweapon.c).
+- Supported guns (launcher MODS "Its guns (WIP)", ini GexGuns, off by
   default; also the watch's VR settings, from the next weapon drawn). On
   the screen it fires and reloads with GE-X's animations; its hands are
   the hand model on the gun's skeleton, as PD draws them.
@@ -102,12 +120,28 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   pulls the magazine (or B/Y drops it; it falls), takes one at the belt
   and pushes it into the well. A magazine keeps its rounds while out;
   dropped, they go back to the reserve; one from the belt is full. Either
-  gun can take one at the belt by itself. A left KF7 is mirrored.
+  gun can take one at the belt by itself. Left GE-X guns are mirrored.
 - Gun fit keeps GE-X's own gun, grip and scope fits, and adds modes (X):
   reload (where the magazine is taken, the belt), off hand (its palm;
   holding the right grip, the watch) and, holding with both hands, where
   GE-X's left hand holds the gun (ini GexForeHold), which is also where the
-  two-handed hold is taken; the nearer of it and the magazine wins.
+  two-handed hold is taken; the nearer of it and the magazine wins for KF7.
+  PP7 shares separate gun/support/grab fits across its two variants. A fresh
+  underside grab selects its magazine; ambiguous overlap selects support,
+  and grip ownership persists until release.
+  The PP7 support hand stays fixed relative to the pistol instead of rotating
+  with the off controller. X also offers a held-magazine fit: sticks move only
+  the magazine within the fingers, with separate PP7/KF7 values and the fitted
+  top used for physical seating.
+  Held-magazine fit previews the magazine without requiring physical reload.
+  PP7's support fit includes pitch/yaw/roll about the palm, adjusted with the
+  gun-hand grip held. Reload grab-point fitting recognizes the GE-X pistol
+  magazine too.
+  Magazine-well fit moves only the insertion entrance, independently of the
+  grab/held points. PP7's default entrance is its handle bottom; KF7 keeps its
+  existing target. The off trigger sets the entrance at the preview magazine's
+  tip. An already rendered GE-X magazine hand consumes the off-hand render slot
+  so the legacy arm is not added over it.
 - Arms (MODS "Its arms, wearing the watch (VR, WIP)", ini GexArms):
   GE-X's own arms are every arm in the headset, as GE-X made them, and
   GoldenEye's watch is drawn at its own size or larger (ini GexWatch) at
@@ -115,4 +149,10 @@ fields (KF7 13, -23, -27; PP7 8, -19, -26).
   The pause's own watch arm (bondview2.c bondviewRenderWatch) keeps its
   watch and GE-X's arm is drawn under it. The rejected alternative, the
   watch arm's sleeve on GE-X's hands, is parked on claude/gex-watch-sleeves.
-- Next: the other guns; then GoldenEye's own guns' arms.
+- `GexWeaponDef` centralizes models, parts, animations, render matrix indices,
+  texture mappings, muzzle origins and magazine alignment. The PP7 installed
+  magazine is matrix 38 / animation joint 41, held is matrix 42 / joint 40;
+  its held mesh needs a separate rigid transform and seating point.
+- tools/gex/gex_extract.py reports rigs and scripts; gex_texmatch.py compares
+  decoded pixels with both compression paths. Neither exports ROM assets.
+- Next stages and acceptance gates: [weapon roadmap](gex-weapon-roadmap.md).

@@ -653,7 +653,7 @@ static void gevrOrderSecondaryPass(void)
         s_gevrSecondaryOrder[i] = i;
     }
 
-    if ((levelentry_index != LEVEL_INDEX_CRAD) && (g_BgPortals->offset_portal != NULL))
+    if ((levelentry_index != LEVEL_INDEX_CRAD && levelentry_index != LEVEL_INDEX_STATUE) && (g_BgPortals->offset_portal != NULL))
     {
         return;
     }
@@ -2783,11 +2783,13 @@ void bgLoadRoomModelData(s32 roomID)
     {
         result = bgLoadRoomVtxData(roomID, data, allocsize);
 
-        if (result >= 0)
+        if (result < 0)
         {
-            used = result;
-            redarken_lights_in_room(roomID);
+            goto load_failed;
         }
+
+        used = result;
+        redarken_lights_in_room(roomID);
     }
     else
     {
@@ -2802,10 +2804,12 @@ void bgLoadRoomModelData(s32 roomID)
     {
         result = bgLoadRoomPrimaryGdl(roomID, data + used, allocsize - used);
 
-        if (result >= 0)
+        if (result < 0)
         {
-            used += result;
+            goto load_failed;
         }
+
+        used += result;
     }
 
     /**
@@ -2814,6 +2818,11 @@ void bgLoadRoomModelData(s32 roomID)
     if (g_BgRoomInfo[roomID].csize_secondary_DL_binary)
     {
         result = bgLoadRoomSecondaryGdl(roomID, data + used, allocsize - used);
+
+        if (result < 0)
+        {
+            goto load_failed;
+        }
 
         if (result > 0)
         {
@@ -2868,6 +2877,21 @@ void bgLoadRoomModelData(s32 roomID)
 
     bgBuildRoomVtxBounds(roomID);
     roomsHandleStateDebugging();
+    goto end;
+
+load_failed:
+    /*
+     * A malloc or decompress failure used to mark the room loaded. Nothing
+     * retries a room that is already marked loaded, so it stayed black for
+     * the rest of the stage. Drop the block and leave it unloaded.
+     */
+    memaFree(data, allocsize);
+    g_BgRoomInfo[roomID].vertices = NULL;
+    g_BgRoomInfo[roomID].usize_point_index_binary = 0;
+    g_BgRoomInfo[roomID].ptr_expanded_mapping_info = NULL;
+    g_BgRoomInfo[roomID].usize_primary_DL_binary = 0;
+    g_BgRoomInfo[roomID].ptr_secondary_expanded_mapping_info = NULL;
+    g_BgRoomInfo[roomID].usize_secondary_DL_binary = 0;
 
 end:;
 
@@ -3035,6 +3059,11 @@ Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
     }
     else if ((D_8004485C != 0) || (D_80044858 == (room_index % 10)))
     {
+        if (g_BgRoomInfo[room_index].model_bin_loaded == 0)
+        {
+            bgLoadRoomModelData(room_index);
+        }
+
         if (g_BgRoomInfo[room_index].model_bin_loaded != 0)
         {
             gdl = applyRoomMatrixToDisplayList(gdl, room_index);
@@ -3044,10 +3073,6 @@ Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
 
             // Set the room's state to "loaded"
             g_BgRoomInfo[room_index].model_bin_loaded = 1;
-        }
-        else
-        {
-            bgLoadRoomModelData(room_index);
         }
     }
 
@@ -4735,19 +4760,24 @@ void bgDetermineVisibleRooms(void)
     if (1);
 
     /**
-     * If the level is Cradle, or has no portals, skip the portal occlusion culling algorithm. Just add every room in the player's
+     * If the level is Cradle or Statue, or has no portals, skip the portal occlusion culling algorithm. Just add every room in the player's
      * screen bounds to the list of rooms to draw.
      */
-    if ((levelentry_index == LEVEL_INDEX_CRAD) || (g_BgPortals->offset_portal == NULL)) 
+    if ((levelentry_index == LEVEL_INDEX_CRAD) || (levelentry_index == LEVEL_INDEX_STATUE) || (g_BgPortals->offset_portal == NULL)) 
     {
         if (levelentry_index == LEVEL_INDEX_CRAD) 
         {
             sub_GAME_7F0B39BC(9, 0, &g_CurrentPlayer->screensize, 1);
         }
+        else if (levelentry_index == LEVEL_INDEX_STATUE)
+        {
+            sub_GAME_7F0B39BC(g_BgCurrentRoom, 0, &g_CurrentPlayer->screensize, 1);
+        }
 
         for (var_s0 = 1; var_s0 < g_MaxNumRooms; var_s0++) 
         {
-            if (bgIsRoomOnScreen(var_s0, &g_CurrentPlayer->screensize) != 0) 
+            if (g_BgRoomInfo[var_s0].room_loaded_mask != 0) continue;
+            if (bgIsRoomOnScreen(var_s0, (struct rectbbox *)&g_CurrentPlayer->screensize) != 0) 
             {
 #ifdef GEVR
                 s_gevrPathN64 = s_gevrHitN64;   /* no portals: the room's own far test */

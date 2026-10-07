@@ -3,29 +3,25 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-05, v0.4.10, versionCode 63, protocol 18.
+**Updated / current build:** 2026-10-06, v0.4.11, versionCode 64, protocol 18.
 The changes below are included in this build. Building it does not publish
 a GitHub release. No game data is shipped.
 
-## v0.4.10
+## v0.4.11
 
-- Movement at walls and curbs: collision correction no longer resets smoothing,
-  rounded curb slides retry with 0.1 mm clearance, interruptions recover, and
-  120 Hz keeps the intended 16.7 ms delay.
-- Fewer render stalls: asynchronous ammo-panel readback, 8% fewer draw calls,
-  safe vertex-ring reuse. Quest 3: 90 Hz holds; heavy 120 Hz views can still
-  exceed the budget (draw-call bound). [Report](docs/vr-render-stalls.md).
-- Co-op mission gadgets shared with every player, tank solid for its rider,
-  mine fixes (#131: #128, #129, #130); Bunker 2 hit-list crash fixed (#127).
-- Unattended Quest benchmarking: opt-in profiler, `benchmark` build type (never
-  shipped) and tools/perf/.
-- Validation: all native suites and 20 Android unit tests passed; the user
-  tested at 120 Hz and in co-op and reported it smooth and working. Tests were
-  not rerun for the version bump.
-
-Full changes: [v0.4.10 notes](docs/releases/v0.4.10.md).
+- GE-X magazine weapons and per-weapon VR fits: PP7, silenced PP7, DD44, Klobb,
+  ZMG, D5K, silenced D5K, Phantom, and AR33 alongside KF7 (#137). Physical reload
+  grips, support rotation, held magazine preview, magazine well, and installed
+  magazine mesh fitting baked into defaults.
+- Bullet tracers stop on the player cylinder in solo mode (#136).
+- Statue and Depot outdoor room pop-in fix (#133): draw neighboring rooms when
+  bounds are on screen even if the portal box missed them.
+- Updated launcher header and branding assets (#134).
 
 ## Release baseline
+
+**v0.4.10:** smoother wall and curb movement, fewer render stalls, shared co-op
+mission gadgets (#127, #131). Notes: [v0.4.10](docs/releases/v0.4.10.md).
 
 **v0.4.9:** smooth VR locomotion between game ticks; performance status;
 GE-X muzzle flashes follow fitted barrel tips (#126); calibrated belt reloads
