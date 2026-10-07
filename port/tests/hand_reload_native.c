@@ -45,7 +45,8 @@ struct sfx3 { unsigned short half[3]; };   /* a knife swing's slash sounds (gun.
 struct sfx3 knife_throw_sounds = { { 101, 102, 103 } };
 static unsigned int randomGetNext(void) { return 1; }
 static int gevrStereoWatchGrip(void) { return 0; }
-static int lastSound, lastChopItem;
+static int lastSound, lastChopItem, chopResult;
+static float lastNeed = -1;
 static void sndPlaySfx(void *buffer, int sound, void *state)
 { (void)buffer; (void)state; lastSound = sound; whiffs++; }
 s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item,
@@ -53,9 +54,9 @@ s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3],
 {
     (void)from; (void)to; (void)touch; (void)dir;
     (void)velocity; (void)need; (void)land; (void)into;
-    lastChopItem = item;
+    lastChopItem = item; lastNeed = need;
     chopHits++;
-    return 0;
+    return chopResult;
 }
 static Mtxf viewMatrix;
 static Mtxf *currentPlayerGetViewToWorldMtxf(void) { return &viewMatrix; }
@@ -345,6 +346,15 @@ static void meleeArbitration(void)
         assert(chopHits == 0 && whiffs == 0);
         s_gevrThrowWindup[GUNRIGHT] = 0; vr_ctrl_velocity_play[1][0] = 0;
     }
+    /* The taser's trigger reaches as far as the arm: a touch test along the
+     * held taser with its damage and no speed asked; none touched, no hit. */
+    reset(); player.hands[GUNRIGHT].weapon = ITEM_TASER;
+    at(1, 30, VrReloadBelt[1], 80);
+    chopHits = 0; lastChopItem = -1; lastNeed = -1; chopResult = 0;
+    assert(!gevrTaserTouch(GUNRIGHT) && chopHits == 1 && lastChopItem == ITEM_TASER && lastNeed == 0.0f);
+    chopResult = 1; assert(!gevrTaserTouch(GUNRIGHT));   /* in touch but not struck */
+    chopResult = 2; assert(gevrTaserTouch(GUNRIGHT));
+    chopResult = 0;
 }
 
 static void pistolTick(void)

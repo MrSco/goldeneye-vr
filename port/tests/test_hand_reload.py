@@ -51,6 +51,7 @@ for name in ("GEVR_UNITS_PER_METRE", "GEVR_RELOAD_BELT_EXIT_CM", "GEVR_VIEWMODEL
     if match:
         definitions.append(match.group())
 definitions.extend(re.findall(r"^#define GEVR_CHOP_[^\n]+", view, re.M))
+definitions.extend(re.findall(r"^#define GEVR_TASER_[^\n]+", view, re.M))
 for name in ("s_gevrClubButt", "s_gevrChopSwing", "s_gevrBeltMeleeTaken", "s_gevrThrowWindup"):
     match = re.search(r"^static (?:const )?(?:f32|s32) " + name + r"\[[23]\][^;]*;", view, re.M)
     if match:
@@ -79,7 +80,7 @@ for signature in ("static s32 gevrReloadNeedsAmmo(", "static s32 gevrReloadBeltR
     if signature in view:
         production.insert(-2, function(view, signature))
 production.extend(function(view, signature) for signature in (
-    "s32 gevrReloadHoldsHand(s32 ctrl)\n{", "void gevrHandChopTick(", "s32 gevrHandChopSwinging("))
+    "s32 gevrReloadHoldsHand(s32 ctrl)\n{", "void gevrHandChopTick(", "s32 gevrHandChopSwinging(", "s32 gevrTaserTouch("))
 production.append(function(view,"s32 gevrReloadFitAvailable(void)\n{"))
 fixture = (ROOT / "port/tests/hand_reload_native.c").read_text(encoding="utf-8")
 fixture = fixture.replace("/* DEFINITIONS */", "\n".join(definitions))

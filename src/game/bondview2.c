@@ -3070,6 +3070,49 @@ void gevrHandChopTick(s32 ctrl)
     }
 }
 
+/*
+ * chrprop.c chraiCheckUseHeldItem: the taser's trigger in the headset. It
+ * reaches as far as the arm holds it (user: GoldenEye's taser shot as far as
+ * a gun): a guard within GEVR_TASER_TOUCH_CM of the line from the hand to the
+ * taser's tip is struck with its damage, standing still or not. With none
+ * touched the caller falls back to GoldenEye's own melee reach.
+ */
+#define GEVR_TASER_TOUCH_CM 12.0f
+#define GEVR_TASER_TIP_CM   15.0f   /* the tip, when the drawn one is not known */
+
+s32 gevrTaserTouch(s32 hand)
+{
+    extern s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item_id,
+                           const f32 vel[3], f32 need, s32 land, f32 *into);   /* chrprop.c */
+    const f32 still[3] = { 0.0f, 0.0f, 0.0f };
+    f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    f32 at[3], right[3], up[3], back[3], end[3], dir[3], len, into;
+    s32 ctrl = hand == GUNRIGHT ? 1 : 0;
+    s32 i;
+
+    if (!g_gevrStereo || (hand != GUNRIGHT && hand != GUNLEFT) || cm < 1e-6f
+        || !gevrGripAxesRaw(ctrl, at, right, up, back))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        end[i] = s_gevrMuzzleValid[hand] && s_gevrMuzzleItem[hand] == ITEM_TASER
+            ? s_gevrMuzzle[hand][i] : at[i] - back[i] * GEVR_TASER_TIP_CM * cm;
+    }
+    len = sqrtf(end[0] * end[0] + end[1] * end[1] + end[2] * end[2]);
+    for (i = 0; i < 3; i++)
+    {
+        dir[i] = len > 1e-6f ? end[i] / len : (i == 2 ? -1.0f : 0.0f);
+    }
+    if (gevrChopHit(at, end, GEVR_TASER_TOUCH_CM * cm, dir, ITEM_TASER, still, 0.0f, TRUE, &into) == 2)
+    {
+        sysLogPrintf(LOG_NOTE, "stereo: taser touched a guard");
+        return TRUE;
+    }
+    return FALSE;
+}
+
 /* net_player_sync.c: this hand began a swing within the last few ticks */
 s32 gevrHandChopSwinging(s32 ctrl)
 {
