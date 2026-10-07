@@ -24,6 +24,7 @@ static const u16 laserTextures[] = {515,849,518,664,694,508,1838,511,1839,850,18
 static const u16 shotgunTextures[] = {939,2141,940,2142,941,2143,942,2144,0};
 static const u16 autoshotTextures[] = {243,82,1848,232,2385,74,2386,75,2387,76,2388,78,2389,79,2390,80,2392,84,2393,1217,0};
 static const u16 cougarTextures[] = {923,2137,924,2138,925,2139,926,2140,2489,1141,2490,1142,2491,1143,3275,776,0};
+static const u16 launcherTextures[] = {1,1514,257,880,1673,227,2983,767,3286,27,0};
 static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,696,1378,1674,228,2496,418,2497,420,2637,532,0};
 #define IDENTITY {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}}
 /* GE-X 6a GwppkZ: the same 16 magazine vertices in both display lists.
@@ -379,6 +380,49 @@ static const GexWeaponDef weapons[] = {
         .magTop={42.220902f,14.196192f,41.736997f},
         .magWell={42.220902f,14.196192f,41.736997f},
         .heldTop={0.5f,-0.5f,34.0f}
+    },
+    /* Grenade launcher: GdydevastatorZ (slot 23) = GE GgrenadelaunchZ + (0,-24,118)
+     * (108/108 vertices). Built on the Cougar's skeleton, with a drum on matrix
+     * 34, it has no reload clip and no round mesh. The hand holds GoldenEye's
+     * own round (PchrgrenaderoundZ, nose +z, 122 wide) scaled to 40 mm on the
+     * Cougar loader's joint 46, posed by the Cougar's reload 1032 at 100. One
+     * round goes into the drum's bottom chamber from behind per insertion: the
+     * frame covers the drum's upper rear; chambers sit 47 units from its axis. */
+    {
+        .item=ITEM_GRENADELAUNCH,
+        .slot=23,
+        .model="GdydevastatorZ",
+        .texturePairs=launcherTextures,
+        .singleRound=1,
+        .fireAnim=1030,
+        .restAnim=1030,
+        .gunMatrix=33,
+        .magMatrix=33,
+        .heldMatrix=46,
+        .reload={0,0,0,-1,-1},
+        .dualReload={0,0,0,-1,-1},
+        .holdAnim=1032,
+        .holdFrame=100,
+        .payloadProp=PROP_CHRGRENADEROUND,
+        .payloadScale=0.385f,
+        .numParts=2,
+        .parts={-1,-1},
+        .visible={0,0},
+        .pistol=1,
+        .trackedMagWrist=1,
+        .compact=1,
+        /* the Cougar loader joint's seated orientation: the round points forward */
+        .heldToMag={{0.312677f,-0.949678f,-0.018587f,0},{0.948930f,0.313177f,-0.038119f,0},{0.042021f,-0.005719f,0.999100f,0},{0,0,0,1}},
+        .screenOffset={0.000000f,-24.000000f,118.000000f},
+        .muzzle={-3.288169f,110.359302f,626.104645f},
+        .screenMuzzle={0.000000f,53.250000f,639.000000f},
+        .supportRoot={-39.498364f,-28.279365f,49.061958f},
+        .grabRoot={0,0,0},
+        /* the bottom chamber's rear mouth: drum axis (0,22,42.3) less 47 down */
+        .magCentre={0.0f,-25.0f,42.3f},
+        .magTop={0.0f,-25.0f,42.3f},
+        .magWell={0.0f,-25.0f,42.3f},
+        .heldTop={0.0f,0.0f,36.575f}
     }
 };
 

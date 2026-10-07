@@ -2881,6 +2881,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                 subdraw(&renderdata, hands);
                 renderdata.gdl = gevrGexDrawWatch(renderdata.gdl, &renderdata, handnum);
             }
+            if (gevrGexHeld(handnum))
+            {
+                /* a prop payload in the hand (the grenade launcher's round), arms on or off */
+                extern Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand);
+
+                renderdata.gdl = gevrGexDrawPayload(renderdata.gdl, &renderdata, handnum);
+            }
         }
 #endif
         gdl = renderdata.gdl;
@@ -5825,7 +5832,8 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         gevrGexTick(hand, st == GUN_ANIM_STATE_TRIGGER_PRESS || st == GUN_ANIM_STATE_FIRE
                 || st == GUN_ANIM_STATE_RECOIL1 || st == GUN_ANIM_STATE_RECOIL2,
                 handptr->weapon_firing_status != 0);
-        if (gevrGexHeld(hand) && gevrReloadPhase(hand) >= 0.0f)
+        /* a rig without a reload clip (the grenade launcher) keeps GoldenEye's tilt */
+        if (gevrGexHeld(hand) && gevrReloadPhase(hand) >= 0.0f && gevrGexWeaponForHand(hand)->reload.anim > 0)
         {
             handptr->field_92C = 0;
         }
