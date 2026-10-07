@@ -1408,6 +1408,16 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             gevrJavaCommand("lobbyCommand", refresh.c_str());
         }
     }
+    /* defined before the in-game check: a client without a ROM leaves there */
+    auto disconnect = [&]() {
+        gevrJavaCommand("lobbyCommand", "stop");
+        netDiscoveryStopBroadcasting();
+        netDisconnect();
+        netIceStop();
+        hostedCode.clear();
+        hostJoinIds.clear();
+        clientJoinId.clear();
+    };
     if (netIsActive() && !netIsHost() && netGetState() == NET_STATE_INGAME) {
         if (!romReady) {
             onlineMessage = "Cannot join match: no valid GoldenEye ROM loaded.";
@@ -1431,15 +1441,6 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             gevrSendLoadout();
         }
     }
-    auto disconnect = [&]() {
-        gevrJavaCommand("lobbyCommand", "stop");
-        netDiscoveryStopBroadcasting();
-        netDisconnect();
-        netIceStop();
-        hostedCode.clear();
-        hostJoinIds.clear();
-        clientJoinId.clear();
-    };
     auto playerOptions = [&]() {
         ImGui::TextUnformatted("Your name:");
         ImGui::SameLine();
