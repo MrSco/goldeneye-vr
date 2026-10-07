@@ -2675,6 +2675,23 @@ void chraiCheckUseHeldItem(s32 hand)
         {
             chraiFistAttackHandler(hand, item_id);
         }
+#ifdef GEVR
+        else if (item_id == ITEM_TASER && g_gevrStereo)
+        {
+            /*
+             * The headset's taser reaches as far as the arm (user: GoldenEye's
+             * shot as far as a gun): the guard its tip touches, else GoldenEye's
+             * own melee reach - the fist's handler, with the taser's damage.
+             */
+            extern s32 gevrTaserTouch(s32 hand);   /* bondview2.c */
+
+            inc_curplayer_hitcount_with_weapon(item_id, SHOT_REGISTER_TOTAL);
+            if (!gevrTaserTouch(hand))
+            {
+                chraiFistAttackHandler(hand, item_id);
+            }
+        }
+#endif
         else if (item_id == ITEM_SHOTGUN || item_id == ITEM_AUTOSHOT)
         {
             inc_curplayer_hitcount_with_weapon(item_id, SHOT_REGISTER_TOTAL);

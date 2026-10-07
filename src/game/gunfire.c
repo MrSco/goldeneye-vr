@@ -752,8 +752,10 @@ void gunUpdateAndFire(GUNHAND handnum)
 
             /* not while the grip's motion throw owns the hand - winding up,
              * cooking or recovering (user: GoldenEye's throw swung the arm a
-             * second time); a trigger stab or throw keeps its animation */
-            if (hand->field_92C != 0 && !gevrStereoItemShown(item) && !gevrMotionThrowOwnsHand(handnum))
+             * second time); a trigger stab or throw keeps its animation. Nor
+             * the taser's thrust, either model: the arm itself reaches (user) */
+            if (hand->field_92C != 0 && !gevrStereoItemShown(item) && !gevrMotionThrowOwnsHand(handnum)
+                && item != ITEM_TASER)
             {
                 /*
                  * The keyframe turn is in the model frame, which the flat
