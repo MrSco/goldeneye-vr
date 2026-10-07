@@ -1155,6 +1155,9 @@ static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[
  * grenade and plastique bring no hand, despite being fist-sized.
  * files/gevr_itempose.txt overrides a line at a time while testing:
  * "item left up fwd rx ry rz scale fist" (item as the ITEM_IDS number).
+ * GoldenEye X's hand is another model and holds them otherwise (user: keep
+ * the two fits apart): with VrGexGuns its own set, this table bar
+ * s_gevrItemPosesGex below, fitted and saved in files/gevr_itempose_gex.txt.
  */
 #include <stdio.h>
 #include <string.h>
@@ -1172,7 +1175,7 @@ static GevrItemPose s_gevrItemPoses[] = {
     { ITEM_TIMEDMINE,     { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, -90.0f }, 1.0f, TRUE },  /* flat against the palm, top out (#19) */
     { ITEM_PROXIMITYMINE, { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, -90.0f }, 1.0f, TRUE },
     { ITEM_REMOTEMINE,    { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, -90.0f }, 1.0f, TRUE },
-    { ITEM_BUG,           { 1.06f, 0.31f, 8.91f }, { 4.2f, -8.2f, -86.2f }, 0.608f, TRUE },  /* covert modem: gadget fit in GE-X's hand (user) */
+    { ITEM_BUG,           { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 0.67f, TRUE },  /* covert modem: 1.5x too big (user) */
     { ITEM_MICROCAMERA,   { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 0.0f }, 1.0f, TRUE },
     { ITEM_CAMERA,        { 0.0f, 1.0f, 15.0f }, { 0.0f, 0.0f, 90.0f }, 2.0f, TRUE },   /* tiny at 1 (issue #8) */
     { ITEM_BOMBCASE,      { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 2.0f, TRUE },   /* half size at 1 (user) */
@@ -1230,28 +1233,65 @@ static GevrItemPose s_gevrItemPoses[] = {
     { ITEM_LOCKEXPLODER,  { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
     { ITEM_DOOREXPLODER,  { 0.0f, 1.0f, 16.0f }, { 0.0f, 0.0f, 0.0f }, 0.6f, TRUE },
 };
-static GevrItemPose s_gevrItemPoseDefaults[ARRAYCOUNT(s_gevrItemPoses)];
-static GevrItemPose s_gevrItemPoseFitSaved[ARRAYCOUNT(s_gevrItemPoses)];
+/* GoldenEye X's hand's own fits, where they differ from the fist's */
+static const GevrItemPose s_gevrItemPosesGex[] = {
+    { ITEM_BUG,           { 1.06f, 0.31f, 8.91f }, { 4.2f, -8.2f, -86.2f }, 0.608f, TRUE },  /* covert modem: gadget fit (user) */
+};
+
+#define GEVR_ITEMPOSE_COUNT ARRAYCOUNT(s_gevrItemPoses)
+/* [0] GoldenEye's fist, [1] GoldenEye X's hand (VrGexGuns) */
+static GevrItemPose s_gevrItemPoseSets[2][GEVR_ITEMPOSE_COUNT];
+static GevrItemPose s_gevrItemPoseDefaults[2][GEVR_ITEMPOSE_COUNT];
+static GevrItemPose s_gevrItemPoseFitSaved[2][GEVR_ITEMPOSE_COUNT];
 static s32 s_gevrGadgetFitting;   /* Gun fit is moving a gadget: the file must not undo it */
 
-#define GEVR_ITEMPOSE_FILE "/sdcard/Android/data/com.gevr.port/files/gevr_itempose.txt"
+static const char *const s_gevrItemPoseFiles[2] = {
+    "/sdcard/Android/data/com.gevr.port/files/gevr_itempose.txt",
+    "/sdcard/Android/data/com.gevr.port/files/gevr_itempose_gex.txt",
+};
+
+/* the hands now drawn: GoldenEye X's or GoldenEye's own */
+static s32 gevrItemPoseSet(void)
+{
+    extern int VrGexGuns;   /* vr_settings_defaults.c */
+
+    return VrGexGuns ? 1 : 0;
+}
 
 static GevrItemPose *gevrItemPoseFind(s32 item)
 {
     static u32 tick;
     static s32 copied;
-    u32 i;
+    static s32 lastSet = -1;
+    const s32 set = gevrItemPoseSet();
+    GevrItemPose *poses = s_gevrItemPoseSets[set];
+    u32 i, k;
 
     if (!copied)
     {
-        memcpy(s_gevrItemPoseDefaults, s_gevrItemPoses, sizeof(s_gevrItemPoses));
+        memcpy(s_gevrItemPoseSets[0], s_gevrItemPoses, sizeof(s_gevrItemPoses));
+        memcpy(s_gevrItemPoseSets[1], s_gevrItemPoses, sizeof(s_gevrItemPoses));
+        for (i = 0; i < GEVR_ITEMPOSE_COUNT; i++)
+        {
+            for (k = 0; k < ARRAYCOUNT(s_gevrItemPosesGex); k++)
+            {
+                if (s_gevrItemPoseSets[1][i].item == s_gevrItemPosesGex[k].item)
+                {
+                    s_gevrItemPoseSets[1][i] = s_gevrItemPosesGex[k];
+                }
+            }
+        }
+        memcpy(s_gevrItemPoseDefaults, s_gevrItemPoseSets, sizeof(s_gevrItemPoseSets));
         copied = TRUE;
     }
 
-    /* Gun fit's saved poses (and hand edits), re-read every couple of seconds */
-    if ((tick++ % 120) == 0 && !s_gevrGadgetFitting)
+    /* Gun fit's saved poses (and hand edits), re-read every couple of seconds
+     * and when the hands change */
+    if (((tick++ % 120) == 0 || set != lastSet) && !s_gevrGadgetFitting)
     {
-        FILE *f = fopen(GEVR_ITEMPOSE_FILE, "r");
+        FILE *f = fopen(s_gevrItemPoseFiles[set], "r");
+
+        lastSet = set;
 
         if (f != NULL)
         {
@@ -1260,13 +1300,13 @@ static GevrItemPose *gevrItemPoseFind(s32 item)
             while (fscanf(f, "%d %f %f %f %f %f %f %f %d", &p.item, &p.ofs[0], &p.ofs[1], &p.ofs[2],
                           &p.rot[0], &p.rot[1], &p.rot[2], &p.scale, &p.fist) == 9)
             {
-                for (i = 0; i < ARRAYCOUNT(s_gevrItemPoses); i++)
+                for (i = 0; i < GEVR_ITEMPOSE_COUNT; i++)
                 {
-                    if (s_gevrItemPoses[i].item == p.item && memcmp(&s_gevrItemPoses[i], &p, sizeof(p)) != 0)
+                    if (poses[i].item == p.item && memcmp(&poses[i], &p, sizeof(p)) != 0)
                     {
-                        s_gevrItemPoses[i] = p;
-                        sysLogPrintf(LOG_NOTE, "stereo: item %d pose %.1f %.1f %.1f cm, %.0f %.0f %.0f deg, x%.2f, fist %d",
-                                     p.item, p.ofs[0], p.ofs[1], p.ofs[2], p.rot[0], p.rot[1], p.rot[2], p.scale, p.fist);
+                        poses[i] = p;
+                        sysLogPrintf(LOG_NOTE, "stereo: item %d pose%s %.1f %.1f %.1f cm, %.0f %.0f %.0f deg, x%.2f, fist %d",
+                                     p.item, set ? " (GoldenEye X)" : "", p.ofs[0], p.ofs[1], p.ofs[2], p.rot[0], p.rot[1], p.rot[2], p.scale, p.fist);
                     }
                 }
             }
@@ -1274,11 +1314,11 @@ static GevrItemPose *gevrItemPoseFind(s32 item)
         }
     }
 
-    for (i = 0; i < ARRAYCOUNT(s_gevrItemPoses); i++)
+    for (i = 0; i < GEVR_ITEMPOSE_COUNT; i++)
     {
-        if (s_gevrItemPoses[i].item == item)
+        if (poses[i].item == item)
         {
-            return &s_gevrItemPoses[i];
+            return &poses[i];
         }
     }
     return NULL;
@@ -1340,7 +1380,7 @@ s32 gevrGadgetFitItem(void)
 void gevrGadgetFitBegin(void)
 {
     gevrItemPoseFind(ITEM_UNARMED);   /* the defaults are copied on first use */
-    memcpy(s_gevrItemPoseFitSaved, s_gevrItemPoses, sizeof(s_gevrItemPoses));
+    memcpy(s_gevrItemPoseFitSaved, s_gevrItemPoseSets, sizeof(s_gevrItemPoseSets));
     s_gevrGadgetFitting = TRUE;
 }
 
@@ -1382,22 +1422,24 @@ void gevrGadgetFitEnd(s32 keep)
     }
     if (!keep)
     {
-        memcpy(s_gevrItemPoses, s_gevrItemPoseFitSaved, sizeof(s_gevrItemPoses));
+        memcpy(s_gevrItemPoseSets, s_gevrItemPoseFitSaved, sizeof(s_gevrItemPoseSets));
         return;
     }
     {
-        FILE *f = fopen(GEVR_ITEMPOSE_FILE, "w");
+        /* the set being fitted, to its own file */
+        const s32 set = gevrItemPoseSet();
+        FILE *f = fopen(s_gevrItemPoseFiles[set], "w");
 
         if (f == NULL)
         {
-            sysLogPrintf(LOG_WARNING, "stereo: gadget fit not saved, %s won't open", GEVR_ITEMPOSE_FILE);
+            sysLogPrintf(LOG_WARNING, "stereo: gadget fit not saved, %s won't open", s_gevrItemPoseFiles[set]);
             return;
         }
-        for (i = 0; i < ARRAYCOUNT(s_gevrItemPoses); i++)
+        for (i = 0; i < GEVR_ITEMPOSE_COUNT; i++)
         {
-            const GevrItemPose *p = &s_gevrItemPoses[i];
+            const GevrItemPose *p = &s_gevrItemPoseSets[set][i];
 
-            if (memcmp(p, &s_gevrItemPoseDefaults[i], sizeof(*p)) != 0)
+            if (memcmp(p, &s_gevrItemPoseDefaults[set][i], sizeof(*p)) != 0)
             {
                 fprintf(f, "%d %.2f %.2f %.2f %.1f %.1f %.1f %.3f %d\n", p->item, p->ofs[0], p->ofs[1], p->ofs[2],
                         p->rot[0], p->rot[1], p->rot[2], p->scale, p->fist);
