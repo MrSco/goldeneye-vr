@@ -1291,6 +1291,17 @@ s32 gevrStereoItemShown(s32 item)
     return g_gevrStereo && gevrItemPoseFind(item) != NULL && !gevrGexDrawsItem(item);
 }
 
+/* gunfire.c, the screen: GoldenEye drew none of these gadgets; with GoldenEye X's
+ * models GE-X's hand holds them as the headset's does (user), the gun hand only */
+s32 gevrScreenGadget(s32 hand, s32 item)
+{
+    extern s32 gevrGexDrawsItem(s32 item);   /* gun.c */
+    extern int VrGexGuns;   /* vr_settings_defaults.c */
+
+    return !g_gevrStereo && VrGexGuns && hand == GUNRIGHT && gevrItemPoseFind(item) != NULL
+        && gevrItemPoseFind(item)->fist != 0 && !gevrGexDrawsItem(item);
+}
+
 s32 gevrStereoItemNeedsFist(s32 item)
 {
     GevrItemPose *p = gevrItemPoseFind(item);
@@ -1893,6 +1904,102 @@ static ModelNode *s_gevrWatchHandDl;   /* the watch arm's hand: its first unswit
  */
 static f32 s_gevrGexWatchFaceCm[3];
 static u32 s_gevrGexWatchFaceFrame;   /* g_GlobalTimer when measured, 0 never */
+static f32 s_gevrGexWatchFaceOut[3];  /* out of the face, the off grip's +X, +Y, +Z */
+
+/* the face drawn on the off hand: where it is from the off grip, and where it looks */
+static void gevrGexWatchFaceNote(const f32 centre[3], const f32 normal[3])
+{
+    f32 cpos[3], cright[3], cup[3], cback[3], fx[3], fy[3], fz[3], d[3];
+    f32 unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    f32 len;
+    s32 i;
+
+    if (unit <= 1e-6f || !gevrGripAxes(0, cpos, cright, cup, cback))
+    {
+        return;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        fx[i] = -cback[i];
+        fy[i] = VrLeftHandedMode ? cright[i] : -cright[i];
+        d[i] = centre[i] - cpos[i];
+    }
+    /* z from the unflipped y, as gevrWatchFaceFrame takes it */
+    fz[0] = fx[1] * -cright[2] - fx[2] * -cright[1];
+    fz[1] = fx[2] * -cright[0] - fx[0] * -cright[2];
+    fz[2] = fx[0] * -cright[1] - fx[1] * -cright[0];
+    s_gevrGexWatchFaceCm[0] = (d[0] * fx[0] + d[1] * fx[1] + d[2] * fx[2]) / unit;
+    s_gevrGexWatchFaceCm[1] = (d[0] * fy[0] + d[1] * fy[1] + d[2] * fy[2]) / unit;
+    s_gevrGexWatchFaceCm[2] = (d[0] * fz[0] + d[1] * fz[1] + d[2] * fz[2]) / unit;
+    /* the grip's own axes (gevrGripAxesRaw): +X right, +Y back, +Z down the up */
+    s_gevrGexWatchFaceOut[0] = normal[0] * cright[0] + normal[1] * cright[1] + normal[2] * cright[2];
+    s_gevrGexWatchFaceOut[1] = normal[0] * cback[0] + normal[1] * cback[1] + normal[2] * cback[2];
+    s_gevrGexWatchFaceOut[2] = -(normal[0] * cup[0] + normal[1] * cup[1] + normal[2] * cup[2]);
+    len = sqrtf(s_gevrGexWatchFaceOut[0] * s_gevrGexWatchFaceOut[0] + s_gevrGexWatchFaceOut[1] * s_gevrGexWatchFaceOut[1]
+                + s_gevrGexWatchFaceOut[2] * s_gevrGexWatchFaceOut[2]);
+    for (i = 0; i < 3; i++)
+    {
+        s_gevrGexWatchFaceOut[i] = len > 1e-6f ? s_gevrGexWatchFaceOut[i] / len : 0.0f;
+    }
+    s_gevrGexWatchFaceFrame = g_GlobalTimer ? g_GlobalTimer : 1;
+}
+
+/*
+ * port/vr/vr_input.cpp gevrVrWatchGesture: the look at the watch is a look at
+ * its face wherever GE-X's off hand has it (user: the detonator's watch in the
+ * palm pauses as the wrist's does). Out of the face in the off grip's own
+ * axes; FALSE with no such face drawn lately (the wrist's back, as before).
+ */
+s32 gevrWatchFaceGripNormal(f32 out[3])
+{
+    s32 i;
+
+    if (!g_gevrStereo || s_gevrGexWatchFaceFrame == 0 || g_GlobalTimer - s_gevrGexWatchFaceFrame >= 10
+        || (s_gevrGexWatchFaceOut[0] == 0.0f && s_gevrGexWatchFaceOut[1] == 0.0f && s_gevrGexWatchFaceOut[2] == 0.0f))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = s_gevrGexWatchFaceOut[i];
+    }
+    return TRUE;
+}
+
+static Gfx *gevrRenderWatchStatusAt(Gfx *gdl, const Mtxf *transform);
+
+/*
+ * gun.c gevrGexDrawOffHand: GoldenEye's readout (health, armor, radar) on a
+ * watch face that is no GoldenEye watch (the remote mine's detonator in GE-X's
+ * palm): centred on it, twelve o'clock up, out of the face along normal, the
+ * readout's own frame (gevrWatchStatusMatrix) never mirrored.
+ */
+Gfx *gevrRenderWatchFace(Gfx *gdl, const f32 centre[3], const f32 up[3], const f32 normal[3], f32 radius)
+{
+    Mtxf transform;
+    f32 s = radius / GEVR_WATCH_STATUS_UNITS;
+    f32 x[3];
+    s32 i;
+
+    if (!g_gevrStereo || radius <= 0.0f)
+    {
+        return gdl;
+    }
+    gevrGexWatchFaceNote(centre, normal);
+    x[0] = up[1] * normal[2] - up[2] * normal[1];
+    x[1] = up[2] * normal[0] - up[0] * normal[2];
+    x[2] = up[0] * normal[1] - up[1] * normal[0];
+    for (i = 0; i < 3; i++)
+    {
+        transform.m[0][i] = x[i] * s;
+        transform.m[1][i] = up[i] * s;
+        transform.m[2][i] = normal[i] * s;
+        transform.m[3][i] = centre[i];
+    }
+    transform.m[0][3] = transform.m[1][3] = transform.m[2][3] = 0.0f;
+    transform.m[3][3] = 1.0f;
+    return gevrRenderWatchStatusAt(gdl, &transform);
+}
 
 Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], const f32 x[3], const f32 y[3])
 {
@@ -1970,25 +2077,11 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
     gevrWatchArmHands(matrices, FALSE);
     {
         extern s32 g_gevrGexOffWatch;   /* gun.c */
-        f32 cpos[3], cright[3], cup[3], cback[3], fx[3], fy[3], fz[3], d[3];
-        f32 unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
 
-        if (g_gevrGexOffWatch && unit > 1e-6f && gevrGripAxes(0, cpos, cright, cup, cback))
+        if (g_gevrGexOffWatch)
         {
-            for (i = 0; i < 3; i++)
-            {
-                fx[i] = -cback[i];
-                fy[i] = VrLeftHandedMode ? cright[i] : -cright[i];
-                d[i] = matrices[1].m[3][i] - cpos[i];
-            }
-            /* z from the unflipped y, as gevrWatchFaceFrame takes it */
-            fz[0] = fx[1] * -cright[2] - fx[2] * -cright[1];
-            fz[1] = fx[2] * -cright[0] - fx[0] * -cright[2];
-            fz[2] = fx[0] * -cright[1] - fx[1] * -cright[0];
-            s_gevrGexWatchFaceCm[0] = (d[0] * fx[0] + d[1] * fx[1] + d[2] * fx[2]) / unit;
-            s_gevrGexWatchFaceCm[1] = (d[0] * fy[0] + d[1] * fy[1] + d[2] * fy[2]) / unit;
-            s_gevrGexWatchFaceCm[2] = (d[0] * fz[0] + d[1] * fz[1] + d[2] * fz[2]) / unit;
-            s_gevrGexWatchFaceFrame = g_GlobalTimer ? g_GlobalTimer : 1;
+            /* the face is the wrist frame's y (the back of the wrist) */
+            gevrGexWatchFaceNote(matrices[1].m[3], y);
         }
     }
 
@@ -14621,8 +14714,22 @@ Gfx *gevrRenderRadarGauges(Gfx *gdl, s32 x, s32 y, s32 radius)
  * the mission clock visible; no compositor layer or head-locked capture. */
 static Gfx *gevrRenderWatchStatus(Gfx *gdl, const Mtxf *wrist)
 {
+    Mtxf transform;
+    const f32 *pivot;
+
+    if (s_gevrWatchStatusRadius <= 0) return gdl;
+    pivot = (const f32 *)s_gevrWatchHeader.Switches[0]->Data;
+    gevrWatchStatusMatrix(wrist->m, pivot, s_gevrWatchStatusPlane,
+                         s_gevrWatchStatusRadius, VrLeftHandedMode, transform.m);
+    return gevrRenderWatchStatusAt(gdl, &transform);
+}
+
+/* the readout on a dial: transform's rows its right, twelve o'clock and out of
+ * the face at GEVR_WATCH_STATUS_UNITS a radius, its last the dial's centre */
+static Gfx *gevrRenderWatchStatusAt(Gfx *gdl, const Mtxf *transform)
+{
     if (!g_gevrStereo || gevrWatchStatusChoice(VrWatchFaceStatus) == GEVR_WATCH_FACE_OFF
-        || s_gevrWatchStatusRadius <= 0 || gevrSpectating() || gevrCoopLocalDowned()) return gdl;
+        || gevrSpectating() || gevrCoopLocalDowned()) return gdl;
     struct player *player = g_CurrentPlayer;
     if (netIsActive()) {
         s32 slot = netGetLocalSlot();
@@ -14634,11 +14741,7 @@ static Gfx *gevrRenderWatchStatus(Gfx *gdl, const Mtxf *wrist)
     Gfx *health = dynAllocate(67 * sizeof(Gfx));
     Gfx *armor = dynAllocate(67 * sizeof(Gfx));
     Mtx *matrix = dynAllocateMatrix();
-    Mtxf transform;
-    const f32 *pivot = (const f32 *)s_gevrWatchHeader.Switches[0]->Data;
-    gevrWatchStatusMatrix(wrist->m, pivot, s_gevrWatchStatusPlane,
-                         s_gevrWatchStatusRadius, VrLeftHandedMode, transform.m);
-    guMtxF2L(transform.m, matrix); /* wrist already carries stage/view-model scale */
+    guMtxF2L((float (*)[4])transform->m, matrix); /* wrist already carries stage/view-model scale */
     hudMakeDamageSegments(v, 46, -1, player->bondhealth);
     hudMakeDamageSegments(v + 46, 46, 1, player->bondarmour);
     const f32 radarRadius = GEVR_WATCH_STATUS_UNITS * 0.64f;
