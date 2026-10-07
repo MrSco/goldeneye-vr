@@ -2,7 +2,7 @@
 
 Latest headset feedback adds three unresolved priorities: rocket launcher needs
 a persistent loaded-rocket mesh after reload; sniper sometimes routes off-hand
-grip to scope sight and blocks belt magazine pickup until switched away/back;
+grip to scope sight until switched away/back (belt-pickup wording needs clarification);
 laser fails to show the gun-hand scope sight while held with both hands. The
 [handoff](gex-continuation-handoff.md) records observed behavior, confirmed code
 facts, candidate causes and required render/input lifecycle tests. No gameplay

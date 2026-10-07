@@ -42,12 +42,14 @@ pickup held, insertion loaded, ready-animation end, next shot, cancel/drop,
 weapon switch and both handedness/size modes. Existing ammo-only reload tests
 and converter tests do **not** cover this loaded-round rendering lifecycle.
 
-### Sniper: intermittent off-hand grip shows scope sight and blocks belt pickup
+### Sniper: intermittent off-hand grip shows scope sight; clarify belt behavior
 
-User reports that off-hand grip sometimes makes the scope crosshair appear
-and prevents taking a magazine from the belt while that state persists.
-Switching away from sniper and back restores correct behavior. This is
-intermittent, unreproduced locally, and the root cause is unconfirmed.
+User reports that off-hand grip sometimes makes the scope crosshair appear.
+Their exact wording says "i could grab magazine from my belt to reload while
+that was happening"; do not assume belt pickup was blocked. Clarify whether
+"could" was intended literally or meant "couldn't" before classifying that
+part of the failure. Switching away from sniper and back restores correct
+behavior. This is intermittent, unreproduced locally, and the cause is unconfirmed.
 
 Trace `inputReadController` gripTaken/physical-to-logical grip mapping and
 R_TRIG generation, `gevrGripGestureInput/Taken`, `gevrStereoTwoHandUpdate`,
