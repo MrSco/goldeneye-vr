@@ -514,7 +514,7 @@ EXPORT int test_core_host_kick(void) {
     CHECK(s_state==NET_STATE_OFFLINE && !s_server_peer && launcher_stops==1 && launcher_restarts==1);
     return 0;
 }
-/* No radar stays on protocol 18: the host removes only a guest whose app said it lacks the rule. */
+/* No radar: the host removes only a guest whose app said it lacks the rule. */
 static void caps(int slot,unsigned value) {
     u8 raw[1]={(u8)value};struct netbuf b={.data=raw,.size=sizeof(raw)};
     netbufStartReadData(&b,raw,1);netReceiveClientCaps(&hit_peers[slot],slot,&b,9);
