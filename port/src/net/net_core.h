@@ -52,6 +52,8 @@ int netGetHostSlot(void);
 int netGetConnectedPlayerCount(void);
 int netGetHumanPlayerCount(void);   /* connected slots that are not bots */
 bool netSlotIsBot(int slot);        /* a slot the host runs with AI input (gevr_bot.c) */
+bool netSlotOwned(int slot);        /* this headset decides the slot's life: its own, the host's bots */
+void netSendOwnedMove(int slot, const struct netplayermove *input);
 int netGetMaxPlayers(void);
 int netLobbyMinPlayers(void);   /* the fewest players the host can pick with this lobby */
 NetPhase netGetPhase(void);

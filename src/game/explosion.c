@@ -297,13 +297,15 @@ explosionCreate(PropRecord *arg0, struct coord3d *target_pos, StandTile *target_
         extern bool netIsActive(void);
         extern int netGetLocalSlot(void);
         extern bool netSlotOccupied(int slot);
-        extern void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8);
+        extern void netSendExplosionAs(s32 owner, s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8);
+        extern int gevrNetOwnsSlot(int slot);
 
         if (netIsActive())
         {
-            if (player == netGetLocalSlot())
+            /* the owner's headset sends it: the local player's, or the host's bot's */
+            if (player >= 0 && gevrNetOwnsSlot(player))
             {
-                netSendExplosion(explosion_type, target_pos, rooms, arg4, arg7);
+                netSendExplosionAs(player, explosion_type, target_pos, rooms, arg4, arg7);
             }
             else if (player >= 0 && player < MAX_PLAYER_COUNT && netSlotOccupied(player))
             {
@@ -809,9 +811,12 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                             extern bool netIsHost(void);
                             extern void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg);
                             extern void netSendWorldHitReport(uint8_t target_slot, uint8_t weapon_id, float hit_x, float hit_y, float hit_z, float dmg);
+                            extern void netSendHitReportAs(int shooter, uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg);
+                            extern int gevrNetOwnsSlot(int slot);
                             if (netIsActive())
                             {
-                                bool should_report = ((s32)temp_s2->player == netGetLocalSlot()) ||
+                                /* the thrower's owner reports: the local player's blast, or the host's bot's */
+                                bool should_report = (temp_s2->player >= 0 && gevrNetOwnsSlot(temp_s2->player)) ||
                                                      (temp_s2->player < 0 && netIsHost());
                                 if (should_report)
                                 {
@@ -833,7 +838,7 @@ void explosionInflictDamage(PropRecord *arg0, f32 horiz_range, f32 vert_range)
                                     }
                                     else
                                     {
-                                        netSendHitReport((uint8_t)targetIndex, ITEM_GRENADE, 0, xdist, 0.0f, zdist, minfrac);
+                                        netSendHitReportAs(temp_s2->player, (uint8_t)targetIndex, ITEM_GRENADE, 0, xdist, 0.0f, zdist, minfrac);
                                     }
                                 }
                                 continue;

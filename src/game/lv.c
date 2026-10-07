@@ -843,6 +843,17 @@ static void gevrViewPass(s32 playernum, s32 hand)
         g_gevrShotHand = -1;
     }
     gevrSetCopyTrace(FALSE);
+    if (hand == GUNRIGHT && gevrNetSlotIsBot(playernum) && gevrNetOwnsSlot(playernum))
+    {
+        /* The host's bot: what the head pass does for the local player, its
+         * pickups and its B (a door, else a reload), with this pass's matrices */
+        propsTickPlayer();
+        if (bond_pressed_reload_activate() && bond_interact_object())
+        {
+            attempt_reload_item_in_hand(GUNRIGHT);
+            attempt_reload_item_in_hand(GUNLEFT);
+        }
+    }
 
     g_gevrExtraPass = FALSE;
     set_cur_player(prev);

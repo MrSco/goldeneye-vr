@@ -14842,7 +14842,7 @@ static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
 #ifdef GEVR
     if (forced_pad < 0)
     {
-        if (netIsActive() && get_cur_playernum() == netGetLocalSlot())
+        if (netIsActive() && gevrNetOwnsSlot(get_cur_playernum()))
         {
             netSendRespawnEvent((u8)var_v1, g_CurrentPlayer->vv_theta);
         }
@@ -18188,7 +18188,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     }
 
 #ifdef GEVR
-    if (netIsActive() && get_cur_playernum() == netGetLocalSlot() &&
+    if (netIsActive() && gevrNetOwnsSlot(get_cur_playernum()) &&
         gevrOnlineRespawnReady(g_CurrentPlayer) && !g_CurrentPlayer->mpmenuon && !g_stopPlayFlag && !g_gameOverFlag &&
         !netPlayerIsSpectator(get_cur_playernum()) &&
         joyGetButtonsPressedThisFrame(get_cur_playernum(), A_BUTTON | B_BUTTON | Z_TRIG)) {
@@ -18280,11 +18280,11 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                         {
                             if (
 #ifdef GEVR
-                                (netIsActive() && get_cur_playernum() == netGetLocalSlot()) ||
+                                (netIsActive() && gevrNetOwnsSlot(get_cur_playernum())) ||
 #endif
                                 joyGetButtons(get_cur_playernum(), 0xB000)
 #ifdef GEVR
-                                && (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+                                && (!netIsActive() || gevrNetOwnsSlot(get_cur_playernum()))
 #endif
                             )
                             {

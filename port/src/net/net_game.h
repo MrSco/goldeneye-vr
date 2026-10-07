@@ -18,6 +18,7 @@ int gevrCoopFastReinforcements(void); /* active host rule; independent of this h
 void gevrNetConfigSet(int field, int value);
 int gevrNetSlotChr(int slot);
 int gevrNetSlotIsBot(int slot);       /* the host runs this slot with AI input (gevr_bot.c) */
+int gevrNetOwnsSlot(int slot);        /* this headset decides the slot's life: its own, the host's bots */
 int gevrNetBotRowsEditable(void);     /* the host's bot rows: deathmatch, outside a round in progress */
 int netGetSlotTeam(int slot);
 int netGetSlotPing(int slot);
