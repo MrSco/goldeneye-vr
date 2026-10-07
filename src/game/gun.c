@@ -1456,6 +1456,77 @@ static void gevrGexPoseWalk(ModelFileHeader *hdr, const Mtxf *base, s32 anim, f3
  * hands and all. The headset keeps the root on the controller, as
  * Perfect Dark VR does, where Gun fit places it (the user fitted it so).
  */
+static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv);
+static void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3]);
+/*
+ * Screen mode for the hand-held rigs (user: their arms came at the camera,
+ * anchored where GoldenEye drew its own item). On the screen a GE-X gun sits as
+ * the PP7's does, so the PP7's pose is a virtual controller: its root (the gun
+ * joint squared at its screen offset, at the PP7's own screen place, gunfire.c)
+ * moved back by its Gun fit. The item's root goes on that controller by its own
+ * Gun fit, as in the headset: the difference of the two fits, cm right, up and
+ * back, in the root's model units (x the gun's left, z ahead; 0.085 cm a unit).
+ * So the headset's fitting places it on the screen too.
+ */
+static const Mtxf s_gevrGexPp7RestGun = { {
+    { 0.99996f, -0.008036f, 0.003984f, 0.0f },
+    { 0.00804f, 0.999967f, -0.001007f, 0.0f },
+    { -0.003976f, 0.001039f, 0.999992f, 0.0f },
+    { 2.799401f, 22.504885f, 131.922856f, 1.0f },
+} };   /* GwppkZ's gun joint (33) at its rest, 236's frame 0 */
+static const f32 s_gevrGexPp7ScreenOffset[3] = { 24.0f, 26.0f, 77.0f };
+
+static void gevrGexScreenHandAnchor(const GexWeaponDef *def, Mtxf *anchor)
+{
+    const f32 *fit = gevrGexGunFit(def->item);
+    const f32 *pp7 = gevrGexGunFit(ITEM_WPPK);
+    Mtxf up, inv, shift, tmp;
+    s32 i;
+
+    gevrGexRigidInverse(&s_gevrGexPp7RestGun, &inv);
+    matrix_4x4_set_identity(&up);
+    matrix_4x4_set_identity(&shift);
+    for (i = 0; i < 3; i++)
+    {
+        up.m[3][i] = s_gevrGexPp7ScreenOffset[i];
+    }
+    shift.m[3][0] = -(fit[0] - pp7[0]) / 0.085f;
+    shift.m[3][1] = (fit[1] - pp7[1]) / 0.085f;
+    shift.m[3][2] = -(fit[2] - pp7[2]) / 0.085f;
+    matrix_4x4_multiply(&inv, &shift, &tmp);
+    matrix_4x4_multiply(&up, &tmp, anchor);
+}
+
+/* gunfire.c: this hand's rig takes the PP7's place on the screen */
+s32 gevrGexScreenHand(GUNHAND hand)
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+
+    return def != NULL && def->screenHand;
+}
+
+/* gunfire.c, the screen's muzzle (where beams and thrown things start), in the gun matrix's frame */
+void gevrGexScreenMuzzle(GUNHAND hand, f32 out[3])
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    Mtxf anchor;
+
+    if (def == NULL)
+    {
+        out[0] = out[1] = out[2] = 0.0f;
+        return;
+    }
+    if (!def->screenHand)
+    {
+        out[0] = def->screenMuzzle[0];
+        out[1] = def->screenMuzzle[1];
+        out[2] = def->screenMuzzle[2];
+        return;
+    }
+    gevrGexScreenHandAnchor(def, &anchor);
+    gevrGexMtxPoint(&anchor, def->muzzle, out);
+}
+
 static void gevrGexScreenAnchor(ModelFileHeader *hdr, Mtxf *anchor)
 {
     const GexWeaponDef *def = gevrGexForHeader(hdr);
@@ -1464,6 +1535,11 @@ static void gevrGexScreenAnchor(ModelFileHeader *hdr, Mtxf *anchor)
     const Mtxf *g;
     s32 i, j;
 
+    if (def->screenHand)
+    {
+        gevrGexScreenHandAnchor(def, anchor);
+        return;
+    }
     if (def->screenFromRoot)
     {
         matrix_4x4_set_identity(anchor);
@@ -1558,6 +1634,24 @@ void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
     const GexWeaponDef *def = gevrGexForHeader(hdr);
 
     gevrGexShowMagazines(hdr, model, TRUE, FALSE);
+    if (def->screenHand && hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64)
+    {
+        /* a hand-held item at rest on a page: the item itself (its joint) where
+         * GoldenEye's own model has its origin, square to the page (user: the
+         * panel's grenade was a speck and its unarmed off to one side) */
+        Mtxf ident, rest[64], inverse, base;
+
+        matrix_4x4_set_identity(&ident);
+        gevrGexPoseWalk(hdr, &ident, gevrGexRestAnim(def), 0.0f, rest);
+        gevrGexRigidInverse(&rest[def->gunMatrix], &inverse);
+        matrix_4x4_multiply(&rwmtx[0], &inverse, &base);
+        gevrGexPoseWalk(hdr, &base, gevrGexRestAnim(def), 0.0f, rwmtx);
+        if (def->hideMatrix > 0 && def->hideMatrix < hdr->numMatrices)
+        {
+            gevrGexCollapse(&rwmtx[def->hideMatrix]);   /* the remote mine's detonator */
+        }
+        return;
+    }
     gevrGexPoseFrom(hdr, rwmtx, TRUE, gevrGexRestAnim(def), 0.0f);
     if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64)
     {
@@ -2802,7 +2896,8 @@ Model *gevrGexHands(GUNHAND hand)
 
         if (visible != NULL)
         {
-            *visible = i == GEVR_GEX_HAND_SW_RIGHT || (!g_gevrStereo && !dual && !watch) || leftShown;
+            *visible = i == GEVR_GEX_HAND_SW_RIGHT || leftShown
+                    || (!g_gevrStereo && !dual && !watch && !gevrGexIsHandHeld(gevrGexWeaponForHand(hand)));
         }
     }
     return &s_gevrGexHandModel;
@@ -2970,7 +3065,7 @@ s32 gevrGexPanelPose(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
 
         if (visible != NULL && def->fireAnimAlt > 0)
         {
-            *visible = TRUE;   /* the fist: its rig's own hands */
+            *visible = def->parts[i] == 54;   /* the fist: its rig's own right hand */
         }
     }
     return TRUE;

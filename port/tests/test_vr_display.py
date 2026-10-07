@@ -117,7 +117,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         assert "GexFit1_" in ini.read_text() and "GexFit34_" in ini.read_text()  # GE-X's fist and plastique are saved
         assert "GexFit2_" in ini.read_text() and "GexFit3_" not in ini.read_text()  # throwing knife shares the knife's
         assert "GexFit20_" not in ini.read_text() and "GexFit21_" not in ini.read_text()  # bonus PP7s share item 4's
-        for row in ("GexFit-1_0=1 2 3", "GexFit64_0=1 2 3", "GexFit6_10=1 2 3", "GexFit6_3=1 nan 3", "GexFit6_3=1 2", "GexFit6_3junk=1 2 3"):
+        for row in ("GexFit-1_0=1 2 3", "GexFit64_0=1 2 3", "GexFit6_10=1 2 3", "GexFit6_3=1 nan 3", "GexFit6_3=1 2", "GexFit6_3junk=1 2 3", "GexFit23_0=0 0 0"):
             ini.write_text(row + "\n", encoding="utf-8")
             subprocess.run([str(exe), "fit_invalid"], cwd=temp, check=True)
         print("PASS: " + ("Quest" if android else "desktop") + " defaults, saved rates, Auto round trips, missing/legacy keys, load-once")

@@ -417,7 +417,10 @@ extern "C" void vrSettingsLoad(void)
             if (sscanf(line, "GexFit%d_%d=%n", &item, &component, &consumed) == 2 && consumed > 0
                 && item >= 0 && item < 64 && component >= 0 && component < 10
                 && sscanf(line+consumed, "%f %f %f", &t[0], &t[1], &t[2]) == 3
-                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2]))
+                && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])
+                /* every known model's rows are saved, fitted or not: an all-zero row is a
+                 * fit never made, and a default added since (the watch items') stands */
+                && (t[0] != 0.0f || t[1] != 0.0f || t[2] != 0.0f))
                 memcpy(VrGexWeaponFits[item][component], t, sizeof(t));
             continue;
         }

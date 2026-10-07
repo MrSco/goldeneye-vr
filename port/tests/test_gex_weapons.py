@@ -474,7 +474,18 @@ int main(int argc,char **argv) {
     /* Every rest pose must keep the actual gun at its screen placement. */
     Mtxf anchor,screen[64]; gevrGexScreenAnchor(&hdr,&anchor);
     gevrGexPoseWalk(&hdr,&anchor,gevrGexRestAnim(active),0,screen);
-    if (active->screenFromRoot) {
+    if (active->screenHand) {
+        /* held on the PP7's virtual controller: with the PP7's own fit, its root is the PP7's */
+        f32 saved[3], *fit = gevrGexGunFit(active->item), *pp7 = gevrGexGunFit(ITEM_WPPK);
+        Mtxf inv, same;
+        memcpy(saved, fit, sizeof(saved)); memcpy(fit, pp7, sizeof(saved));
+        gevrGexScreenAnchor(&hdr, &same); gevrGexRigidInverse(&s_gevrGexPp7RestGun, &inv);
+        for (int a=0;a<3;a++) assert(fabsf(same.m[3][a]-(s_gevrGexPp7ScreenOffset[a]+inv.m[3][a]))<0.01f);
+        fit[0] = pp7[0] + 0.85f;   /* 0.85 cm right: 10 units toward the gun's right (-x) */
+        gevrGexScreenAnchor(&hdr, &same);
+        assert(fabsf(same.m[3][0]-(s_gevrGexPp7ScreenOffset[0]+inv.m[3][0]-10.0f))<0.01f);
+        memcpy(fit, saved, sizeof(saved));
+    } else if (active->screenFromRoot) {
         /* the rig's own pose from its root; the hand's palm where the PP7's sits */
         const f32 palmL[3]={0,0,GEVR_GEX_PALM_Z},pp7Palm[3]={-18.22f,-25.04f,-5.74f}; f32 palm[3];
         for (int a=0;a<3;a++) assert(fabsf(screen[0].m[3][a]-active->screenOffset[a])<0.01f);
@@ -657,10 +668,14 @@ assert 'rebuildCache) s_gevrGexOffFrom = NULL' not in gun
 math=(ROOT/"src/game/matrixmath.c").read_text()
 production=[function(math,s) for s in ("void matrix_4x4_multiply(","void matrix_4x4_set_identity(",
     "void matrix_4x4_set_rotation_around_xyz(")]
-production.extend(function(gun,s) for s in ("static void gevrGexAnimPart(","static void gevrGexPoseWalk(","static void gevrGexShowMagazines(","static void gevrGexScreenAnchor(","static void gevrGexShowChamber("))
+screen_hand=gun[gun.index("static const Mtxf s_gevrGexPp7RestGun"):]
+screen_hand=screen_hand[:screen_hand.index("/* gunfire.c: this hand's rig takes")]
+production.extend(function(gun,s) for s in ("static void gevrGexAnimPart(","static void gevrGexPoseWalk(","static void gevrGexShowMagazines("))
+production.append("static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv);\nstatic void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3]);\n" + screen_hand)
+production.extend(function(gun,s) for s in ("static void gevrGexScreenAnchor(ModelFileHeader *hdr, Mtxf *anchor)\n{","static void gevrGexShowChamber("))
 production.extend(function(gun,s) for s in ("static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv)\n{", "static void gevrGexPoseMechanism(", "static void gevrGexPoseReady("))
 production.extend(function(gun,s) for s in ("void gevrGexTick(", "void gevrGexMagazineReady("))
-production.extend(function(gun,s) for s in ("static void gevrGexMtxPoint(", "static void gevrGexLeftHandTo(",
+production.extend(function(gun,s) for s in ("static void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3])\n{", "static void gevrGexLeftHandTo(",
     "static void gevrGexOffCache(ModelFileHeader *gunhdr)\n{", "static s32 gevrGexOffHandPose(Mtxf *m, s32 n)\n{",
     "static void gevrGexPistolMagGrip(", "static s32 gevrGexOffSteady("))
 production.extend(function(gun,s) for s in ("static void gevrGexHeldMagFitTo(", "static void gevrGexPistolSupportPose("))
