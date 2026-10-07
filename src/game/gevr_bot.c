@@ -23,6 +23,7 @@
 #include <bondconstants.h>
 #include "bondview.h"
 #include "player.h"
+#include "gun.h"
 #include "gevr_bot.h"
 #include "net_game.h"
 
@@ -161,6 +162,8 @@ typedef struct GevrBot {
     PropRecord *gotoprop;   /* a pickup it is fetching (PD's gotoprop) */
     s32 gotottl60;
     s32 fleettl60;          /* Flag Tag: until it picks a new place to run to */
+    s32 lastseenanytarget60;    /* PD's: the last tick a foe was in sight */
+    s32 reloadwait60;       /* since its last B for a reload */
 } GevrBot;
 
 static GevrBot s_bots[MAX_PLAYER_COUNT];
@@ -482,7 +485,7 @@ static void gevrBotChooseTarget(s32 slot, struct player *pl, GevrBot *bot, s32 d
             bot->insight[i] = FALSE;
             continue;
         }
-        if (bot->insight[i]) bot->lastseen60[i] = bot->frame60;
+        if (bot->insight[i]) bot->lastseen60[i] = bot->lastseenanytarget60 = bot->frame60;
         for (j = count; j > 0 && bot->distance[order[j - 1]] > bot->distance[i]; j--) order[j] = order[j - 1];
         order[j] = i;
         count++;
@@ -572,11 +575,47 @@ static void gevrBotChooseWeapon(struct player *pl, GevrBot *bot)
         bot->changeguntimer60 -= g_ClockTimer;
         return;
     }
-    if (pl->hands[GUNRIGHT].weaponnum != best && best != ITEM_UNARMED)
+    /* with nothing left to fire, the fists (an empty gun only clicks) */
+    if (pl->hands[GUNRIGHT].weaponnum != best &&
+        (best != ITEM_UNARMED || gevrBotAmmo(pl, pl->hands[GUNRIGHT].weaponnum) <= 0))
     {
         currentPlayerEquipWeaponWrapper(GUNRIGHT, best);
         bot->changeguntimer60 = 60;
     }
+}
+
+/*
+ * PD's reload rule (bot.c botTickUnpaused): an empty magazine, or under half
+ * of one with no foe seen for two seconds, is reloaded with ammo carried.
+ * The bot presses B, as a player reloads; the game does the rest. The
+ * host's own reload scheme (the hand gesture) is the local player's only.
+ */
+static void gevrBotReload(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
+{
+    struct hand *hand = &pl->hands[GUNRIGHT];
+    s32 item = hand->weaponnum;
+    WeaponStats *stats;
+
+    bot->reloadwait60 += g_ClockTimer;
+    if (item <= ITEM_FIST || item > ITEM_REMOTEMINE || gevrBotWeaponPref(item)->distconfig == BOT_DISTCFG_CLOSE ||
+        hand->weapon_action_state != GUN_ANIM_STATE_IDLE || bot->reloadwait60 < 45)
+    {
+        return;
+    }
+    stats = get_ptr_item_statistics(item);
+    if (stats == NULL || stats->MagSize <= 1 || get_ammo_count_for_weapon(item) <= 0)
+    {
+        return;
+    }
+    if (hand->weapon_ammo_in_magazine > 0 &&
+        (hand->weapon_ammo_in_magazine >= stats->MagSize / 2 || bot->frame60 - bot->lastseenanytarget60 < 120))
+    {
+        return;
+    }
+    pad->button |= B_BUTTON;
+    bot->reloadwait60 = 0;
+    sysLogPrintf(1, "bots: slot %d reloads item %d (%d of %d loaded, %d carried)",
+                 slot, item, hand->weapon_ammo_in_magazine, stats->MagSize, get_ammo_count_for_weapon(item));
 }
 
 /*
@@ -772,6 +811,7 @@ static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *p
     bot->routeticks += g_ClockTimer;
     gevrBotChooseTarget(slot, pl, bot, diff);
     gevrBotChooseWeapon(pl, bot);
+    gevrBotReload(slot, pl, bot, pad);
 
     if (prizeitem != ITEM_UNARMED)
     {
