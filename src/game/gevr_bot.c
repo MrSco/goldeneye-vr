@@ -35,6 +35,10 @@ extern void sysLogPrintf(s32 level, const char *fmt, ...);
 extern PadRecord *g_Startpad[];
 extern s32 startpadcount;
 extern bool netSlotOccupied(int slot);
+extern int bondinvHasInvItem(ITEM_IDS item);
+extern s32 get_ammo_count_for_weapon(ITEM_IDS weapon);
+extern s32 currentPlayerEquipWeaponWrapper(GUNHAND hand, s32 next_weapon);
+extern PropRecord *chrpropGetActiveTail(void);
 extern s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f32 dest_z, s32 cdtypes,
                                     f32 unkHeight, f32 unkA, f32 unkB, f32 unkC);
 
@@ -65,6 +69,56 @@ static const GevrBotDifficulty s_difficulties[NET_BOT_DIFF_COUNT] = {
 
 /* PD's distance modes (botcmd.c botcmdTickDistMode) */
 enum { BOT_DIST_NONE = -1, BOT_DIST_BACKUP, BOT_DIST_OK, BOT_DIST_ADVANCE, BOT_DIST_GOTO };
+
+/* PD's distance configs (botcmd.c g_BotDistConfigs): the closest and farthest
+ * a sim attacks from with a weapon of the kind */
+enum { BOT_DISTCFG_CLOSE, BOT_DISTCFG_PISTOL, BOT_DISTCFG_DEFAULT, BOT_DISTCFG_SHOOTEXPLOSIVE, BOT_DISTCFG_THROWEXPLOSIVE };
+static const f32 s_distconfigs[][2] = {
+    { 0, 120 }, { 300, 450 }, { 300, 600 }, { 600, 1200 }, { 450, 700 },
+};
+
+/*
+ * Perfect Dark's weapon preferences (botinv.c g_AibotWeaponPreferences):
+ * the score a sim gives a gun (unk00) and its distance config, taken from
+ * the row of PD's own copy of each GoldenEye gun (its classic weapons: PP9i,
+ * CC13, KL01313, KF7 Special, ZZT, DMC, AR53, RC-P45) or of PD's gun of the
+ * same kind. The critical ammo is the row's criticalammopri. A score of 0:
+ * a bot never picks it (mines, the watch's laser, gadgets).
+ */
+typedef struct GevrBotWeapon {
+    u8 score;
+    u8 distconfig;
+    u8 critical;
+} GevrBotWeapon;
+
+static const GevrBotWeapon s_weapons[ITEM_REMOTEMINE + 1] = {
+    [ITEM_UNARMED]       = { 13,  BOT_DISTCFG_CLOSE, 0 },
+    [ITEM_FIST]          = { 13,  BOT_DISTCFG_CLOSE, 0 },
+    [ITEM_KNIFE]         = { 20,  BOT_DISTCFG_CLOSE, 0 },              /* combat knife */
+    [ITEM_THROWKNIFE]    = { 20,  BOT_DISTCFG_CLOSE, 0 },
+    [ITEM_WPPK]          = { 56,  BOT_DISTCFG_PISTOL, 10 },            /* PP9i */
+    [ITEM_WPPKSIL]       = { 52,  BOT_DISTCFG_PISTOL, 10 },            /* Falcon 2 silencer */
+    [ITEM_TT33]          = { 56,  BOT_DISTCFG_PISTOL, 10 },            /* CC13 */
+    [ITEM_SKORPION]      = { 56,  BOT_DISTCFG_DEFAULT, 10 },           /* KL01313 */
+    [ITEM_AK47]          = { 124, BOT_DISTCFG_DEFAULT, 30 },           /* KF7 Special */
+    [ITEM_UZI]           = { 116, BOT_DISTCFG_DEFAULT, 30 },           /* ZZT */
+    [ITEM_MP5K]          = { 124, BOT_DISTCFG_DEFAULT, 30 },           /* DMC */
+    [ITEM_MP5KSIL]       = { 120, BOT_DISTCFG_DEFAULT, 30 },
+    [ITEM_SPECTRE]       = { 120, BOT_DISTCFG_DEFAULT, 50 },           /* Cyclone */
+    [ITEM_M16]           = { 156, BOT_DISTCFG_DEFAULT, 30 },           /* AR53 */
+    [ITEM_FNP90]         = { 164, BOT_DISTCFG_DEFAULT, 40 },           /* RC-P45 */
+    [ITEM_SHOTGUN]       = { 140, BOT_DISTCFG_PISTOL, 8 },
+    [ITEM_AUTOSHOT]      = { 144, BOT_DISTCFG_PISTOL, 8 },
+    [ITEM_SNIPERRIFLE]   = { 28,  BOT_DISTCFG_DEFAULT, 10 },
+    [ITEM_RUGER]         = { 68,  BOT_DISTCFG_PISTOL, 8 },             /* DY357 Magnum */
+    [ITEM_GOLDENGUN]     = { 180, BOT_DISTCFG_PISTOL, 6 },             /* DY357-LX */
+    [ITEM_SILVERWPPK]    = { 60,  BOT_DISTCFG_PISTOL, 10 },
+    [ITEM_GOLDWPPK]      = { 180, BOT_DISTCFG_PISTOL, 6 },
+    [ITEM_LASER]         = { 112, BOT_DISTCFG_DEFAULT, 0 },
+    [ITEM_GRENADELAUNCH] = { 160, BOT_DISTCFG_SHOOTEXPLOSIVE, 1 },      /* rocket launcher's row */
+    [ITEM_ROCKETLAUNCH]  = { 160, BOT_DISTCFG_SHOOTEXPLOSIVE, 1 },
+    [ITEM_GRENADE]       = { 36,  BOT_DISTCFG_THROWEXPLOSIVE, 2 },
+};
 
 /* PD's simulant turn (bot.c botTick): 0.0616 rad, 3.5 degrees, a tick */
 #define BOT_TURN_PER_TICK 3.529f
@@ -100,7 +154,10 @@ typedef struct GevrBot {
     f32 speedtheta;         /* PD's turn speed measure, for the turning error */
     s32 distmode;
     s32 distmodettl60;
-    s32 targetroutetile;    /* the target's tile the route was planned to, as a tag */
+    s32 weapon;             /* the gun it wants in hand */
+    s32 changeguntimer60;   /* PD's: no change again before this runs out */
+    PropRecord *gotoprop;   /* a pickup it is fetching (PD's gotoprop) */
+    s32 gotottl60;
 } GevrBot;
 
 static GevrBot s_bots[MAX_PLAYER_COUNT];
@@ -447,11 +504,123 @@ static void gevrBotChooseTarget(s32 slot, struct player *pl, GevrBot *bot, s32 d
     gevrBotSetTarget(bot, bot->target);
 }
 
-/* PD's botcmdTickDistMode with BOTDISTCFG_DEFAULT (botcmd.c g_BotDistConfigs) */
+static const GevrBotWeapon *gevrBotWeaponPref(s32 item)
+{
+    static const GevrBotWeapon none = { 0, BOT_DISTCFG_DEFAULT, 0 };
+
+    return item >= 0 && item <= ITEM_REMOTEMINE ? &s_weapons[item] : &none;
+}
+
+/* The ammo the bot has for a gun: what is loaded and what is carried (none for fists and knives) */
+static s32 gevrBotAmmo(struct player *pl, s32 item)
+{
+    s32 ammo;
+
+    if (gevrBotWeaponPref(item)->distconfig == BOT_DISTCFG_CLOSE && item != ITEM_THROWKNIFE)
+    {
+        return 1;
+    }
+    ammo = get_ammo_count_for_weapon(item);
+    if (pl->hands[GUNRIGHT].weaponnum == item)
+    {
+        ammo += pl->hands[GUNRIGHT].weapon_ammo_in_magazine;
+    }
+    return ammo;
+}
+
+/*
+ * PD's botinvTick, simplified to GoldenEye's one inventory: the best scored
+ * gun it has with ammo, swapped in the game's own way (the draw animation
+ * plays), not again for a second.
+ */
+static void gevrBotChooseWeapon(struct player *pl, GevrBot *bot)
+{
+    s32 best = ITEM_UNARMED;
+    s32 item;
+
+    for (item = ITEM_FIST; item <= ITEM_REMOTEMINE; item++)
+    {
+        if (s_weapons[item].score == 0 || s_weapons[item].score <= s_weapons[best].score)
+        {
+            continue;
+        }
+        if (bondinvHasInvItem(item) && gevrBotAmmo(pl, item) > 0)
+        {
+            best = item;
+        }
+    }
+    bot->weapon = best;
+    if (bot->changeguntimer60 > 0)
+    {
+        bot->changeguntimer60 -= g_ClockTimer;
+        return;
+    }
+    if (pl->hands[GUNRIGHT].weaponnum != best && best != ITEM_UNARMED)
+    {
+        currentPlayerEquipWeaponWrapper(GUNRIGHT, best);
+        bot->changeguntimer60 = 60;
+    }
+}
+
+/*
+ * PD's botFindPickup: the nearest gun lying on the floor that scores above
+ * what the bot has, or, when it is short of ammo (PD's criticalammopri) or
+ * hurt, an ammo crate or body armour; ANY when it has nothing else to do.
+ */
+static PropRecord *gevrBotFindPickup(struct player *pl, GevrBot *bot, s32 any)
+{
+    const GevrBotWeapon *have = gevrBotWeaponPref(bot->weapon);
+    s32 short_of_ammo = have->critical > 0 && gevrBotAmmo(pl, bot->weapon) <= have->critical;
+    s32 hurt = pl->bondhealth < 0.5f && pl->bondarmour <= 0.0f;
+    PropRecord *best = NULL;
+    f32 bestdist = 3000.0f * 3000.0f;
+    PropRecord *prop;
+
+    for (prop = chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
+    {
+        s32 wanted = FALSE;
+        f32 dx;
+        f32 dz;
+        f32 d;
+
+        if (prop->timetoregen > 0 || prop->parent != NULL || prop->stan == NULL || !(prop->flags & PROPFLAG_ENABLED))
+        {
+            continue;
+        }
+        if (prop->type == PROP_TYPE_WEAPON && prop->weapon != NULL)
+        {
+            s32 item = prop->weapon->weaponnum;
+
+            wanted = gevrBotWeaponPref(item)->score > have->score || any ||
+                     (short_of_ammo && item == bot->weapon);
+        }
+        else if (prop->type == PROP_TYPE_OBJ && prop->obj != NULL)
+        {
+            wanted = (prop->obj->type == PROPDEF_AMMO && (short_of_ammo || any)) ||
+                     (prop->obj->type == PROPDEF_ARMOUR && (hurt || any));
+        }
+        if (!wanted)
+        {
+            continue;
+        }
+        dx = prop->pos.x - pl->prop->pos.x;
+        dz = prop->pos.z - pl->prop->pos.z;
+        d = dx * dx + dz * dz;
+        if (d < bestdist)
+        {
+            bestdist = d;
+            best = prop;
+        }
+    }
+    return best;
+}
+
+/* PD's botcmdTickDistMode (botcmd.c), the distances by the gun in hand */
 static s32 gevrBotDistMode(GevrBot *bot, s32 diff)
 {
-    f32 mindist = 300.0f;
-    f32 maxdist = 600.0f;
+    const f32 *limits = s_distconfigs[gevrBotWeaponPref(bot->weapon)->distconfig];
+    f32 mindist = limits[0];
+    f32 maxdist = limits[1];
     f32 dist = bot->distance[bot->target];
 
     if (diff == NET_BOT_MEAT) mindist *= 0.35f;
@@ -497,8 +666,67 @@ static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *p
     bot->frame60 += g_ClockTimer;
     bot->routeticks += g_ClockTimer;
     gevrBotChooseTarget(slot, pl, bot, diff);
+    gevrBotChooseWeapon(pl, bot);
 
-    if (bot->target >= 0)
+    /*
+     * PD's main loop order (bot.c botTickUnpaused): a gun better than the
+     * one in hand, or ammo it is short of, comes first unless a foe is in
+     * sight and armed against; with nothing to fight, any pickup.
+     */
+    if (bot->gotoprop != NULL &&
+        (bot->gotoprop->timetoregen > 0 || bot->gotoprop->parent != NULL || bot->gotottl60 <= 0 ||
+         !(bot->gotoprop->flags & PROPFLAG_ENABLED)))
+    {
+        bot->gotoprop = NULL;
+        bot->route.count = 0;
+    }
+    if (bot->gotoprop == NULL && (bot->target < 0 || !bot->targetinsight || bot->weapon <= ITEM_FIST))
+    {
+        PropRecord *pickup = gevrBotFindPickup(pl, bot, bot->target < 0);
+
+        if (pickup != NULL && gevrBotNavPlan(&bot->route, pl->prop->stan, &pl->prop->pos, pickup->stan, &pickup->pos))
+        {
+            bot->gotoprop = pickup;
+            bot->gotottl60 = 60 * 15;
+            bot->routeticks = 0;
+            bot->distmode = BOT_DIST_NONE;
+        }
+    }
+    if (bot->gotoprop != NULL)
+    {
+        bot->gotottl60 -= g_ClockTimer;
+        if (bot->target >= 0 && bot->targetinsight && bot->weapon > ITEM_FIST)
+        {
+            bot->gotoprop = NULL;
+            bot->route.count = 0;
+        }
+    }
+
+    if (bot->gotoprop != NULL)
+    {
+        if (bot->target >= 0 && bot->targetinsight)
+        {
+            /* fetching under fire: shoot back while it walks */
+            struct player *op = g_playerPointers[bot->target];
+            f32 heading = gevrBotHeading(&pl->prop->pos, &op->prop->pos) + bot->extraangle * (180.0f / M_PI_F);
+            f32 off = gevrBotTurnTo(bot, heading, BOT_TURN_PER_TICK);
+
+            if (bot->shootdelaytimer60 >= s_difficulties[diff].shootdelay && off < 45.0f && off > -45.0f)
+            {
+                pad->button |= Z_TRIG;
+            }
+            gevrBotWalkRoute(slot, pl, bot, pad, FALSE);
+        }
+        else
+        {
+            gevrBotWalkRoute(slot, pl, bot, pad, TRUE);
+        }
+        if (bot->route.count == 0)
+        {
+            bot->gotoprop = NULL;
+        }
+    }
+    else if (bot->target >= 0)
     {
         struct player *op = g_playerPointers[bot->target];
         s32 mode = gevrBotDistMode(bot, diff);
