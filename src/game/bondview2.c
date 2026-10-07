@@ -16062,6 +16062,12 @@ enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT 
 static s32 s_gevrGexMag[2];          /* per gun hand */
 static s32 s_gevrGexSeatArmed;       /* the magazine in the hand has been away from the well */
 static s32 s_gevrGexHeldRounds = -1; /* the rounds in the right gun's magazine in the hand; -1 a fresh one */
+
+/* gun.c: a speedloader shows one round per round it carries */
+s32 gevrGexHeldRoundCount(void)
+{
+    return s_gevrGexHeldRounds;
+}
 static s32 s_gevrGexHeldAmmoType;
 static s32 s_gevrGexMagItem[2] = {-1,-1};
 static s32 s_gevrGexGripSpent;       /* the off hand's grip seated a magazine: held until let go */
@@ -16645,8 +16651,9 @@ s32 gevrReloadClaimsOffHand(void)
         && gevrMagNearerThanFore(sqrtf(dist2) / cm);
 }
 
-/* A real round is reserved at pickup. Insertion adds exactly one; abandoning
- * it uses the same captured-ammo refund path as a partial magazine. */
+/* Real rounds are reserved at pickup: one, or a speedloader's as many as fit
+ * and the reserve has (gevrGexPickupRounds). Insertion adds them all; abandoning
+ * them uses the same captured-ammo refund path as a partial magazine. */
 static void gevrGexRoundTick(f32 cm, const f32 off[3], s32 grip, s32 fresh)
 {
     const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
@@ -16665,8 +16672,8 @@ static void gevrGexRoundTick(f32 cm, const f32 off[3], s32 grip, s32 fresh)
             gevrGexMagazineFalls(GUNRIGHT,TRUE); gevrGexHeldDropped();
             *state=GEVR_GEXMAG_IN;
         } else if ((points&3)==3 && distance2 <= radius*radius) {
-            if (hand->weapon_ammo_in_magazine < stats->MagSize && s_gevrGexHeldRounds==1) {
-                hand->weapon_ammo_in_magazine++;
+            if (s_gevrGexHeldRounds > 0 && hand->weapon_ammo_in_magazine + s_gevrGexHeldRounds <= stats->MagSize) {
+                hand->weapon_ammo_in_magazine += s_gevrGexHeldRounds;
                 /* GE draws a loaded rocket as its own prop at the tube (gun.c
                  * gunUpdateAttachedRocket), made by its reload's ammo move; this
                  * insertion bypasses that move, so make it here too. */
@@ -16676,9 +16683,10 @@ static void gevrGexRoundTick(f32 cm, const f32 off[3], s32 grip, s32 fresh)
             *state=GEVR_GEXMAG_IN; s_gevrGexGripSpent=TRUE;
         }
     } else if (grip && fresh && !s_gevrGexGripSpent && gevrGexAtBelt(0,off)
-        && hand->weapon_ammo_in_magazine < stats->MagSize && g_CurrentPlayer->ammoheldarr[stats->AmmoType]>0) {
-        g_CurrentPlayer->ammoheldarr[stats->AmmoType]--;
-        s_gevrGexHeldAmmoType=stats->AmmoType; s_gevrGexHeldRounds=1;
+        && gevrGexPickupRounds(def, hand->weapon_ammo_in_magazine, stats->MagSize, g_CurrentPlayer->ammoheldarr[stats->AmmoType]) > 0) {
+        const s32 rounds = gevrGexPickupRounds(def, hand->weapon_ammo_in_magazine, stats->MagSize, g_CurrentPlayer->ammoheldarr[stats->AmmoType]);
+        g_CurrentPlayer->ammoheldarr[stats->AmmoType] -= rounds;
+        s_gevrGexHeldAmmoType=stats->AmmoType; s_gevrGexHeldRounds=rounds;
         *state=GEVR_GEXMAG_INHAND; gevrGexBuzz(0.4f);
     }
     s_gevrMagGrab=0;

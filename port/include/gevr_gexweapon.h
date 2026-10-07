@@ -20,6 +20,10 @@ typedef struct GexWeaponDef {
     const char *model;
     const u16 *texturePairs;
     s32 singleRound; /* load one shell/rocket without removing loaded ammunition */
+    /* A speedloader (Cougar): a pickup carries up to this many rounds, as many
+     * as fit and the reserve has; parts[1..] are its rounds, shown one per round
+     * held; and the mechanism stands open at holdFrame while it is held. */
+    s32 loaderRounds;
     s32 restAnim; /* explicit equip/idle pose when the ROM has no firing animation */
     s32 gripMatrix; /* optional reload joint actually held by the hand */
     s32 pullUp; /* top-loading magazine extracts up instead of down */
@@ -34,7 +38,7 @@ typedef struct GexWeaponDef {
     f32 muzzle[3];
     f32 screenMuzzle[3];
     f32 grabRoot[3], supportRoot[3]; /* rest pose, in model-root coordinates */
-    s32 numParts, parts[6], visible[6]; /* appended switches; first two are magazines */
+    s32 numParts, parts[8], visible[8]; /* appended switches; first two are magazines */
     s32 pistol;
     s32 trackedMagWrist; /* retain tracked wrist orientation without rotating the magazine */
     s32 compact; /* wrap the shooting grip; rest left arm is parked on these rigs */
@@ -43,6 +47,19 @@ typedef struct GexWeaponDef {
 static inline s32 gevrGexHasMagazine(const GexWeaponDef *def) { return def && !def->singleRound && def->magMatrix >= 0 && def->heldMatrix >= 0; }
 static inline s32 gevrGexHasAmmo(const GexWeaponDef *def) { return def && def->magMatrix >= 0 && def->heldMatrix >= 0; }
 static inline s32 gevrGexRestAnim(const GexWeaponDef *def) { return def->restAnim ? def->restAnim : def->fireAnim; }
+/* the mechanism (chamber, cylinder) stands open while the off hand holds the payload */
+static inline s32 gevrGexOpensWhileHeld(const GexWeaponDef *def)
+{
+    return def->reload.openHide > 0 || def->loaderRounds > 1;
+}
+/* the rounds one pickup can carry: one, or a loader's as many as fit and the reserve has */
+static inline s32 gevrGexPickupRounds(const GexWeaponDef *def, s32 loaded, s32 capacity, s32 reserve)
+{
+    s32 n = def->loaderRounds > 1 ? def->loaderRounds : 1;
+    if (n > capacity - loaded) n = capacity - loaded;
+    if (n > reserve) n = reserve;
+    return n > 0 ? n : 0;
+}
 static inline s32 gevrGexChamberOpen(const GexReloadDef *reload, f32 frame, s32 held)
 {
     return reload->openHide > reload->openShow && (held || (frame >= reload->openShow && frame < reload->openHide));

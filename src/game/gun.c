@@ -1377,7 +1377,8 @@ static void gevrGexScreenAnchor(ModelFileHeader *hdr, Mtxf *anchor)
  * the joint's offset plus the animation's translation; the root takes the
  * animation's translation alone.
  */
-/* the magazines: the one in the gun and the one in the left hand */
+/* the magazines: the one in the gun and the one in the left hand; for a
+ * speedloader inHand counts its rounds, one switch each (parts[1..]) */
 static void gevrGexShowMagazines(ModelFileHeader *hdr, Model *model, s32 inGun, s32 inHand)
 {
     const GexWeaponDef *def = gevrGexForHeader(hdr);
@@ -1390,7 +1391,7 @@ static void gevrGexShowMagazines(ModelFileHeader *hdr, Model *model, s32 inGun, 
 
         if (visible != NULL)
         {
-            *visible = i == 0 ? inGun : i == 1 ? inHand : def->visible[i];
+            *visible = i == 0 ? inGun : def->loaderRounds > 1 ? i <= inHand : i == 1 ? inHand : def->visible[i];
         }
     }
 }
@@ -1476,11 +1477,14 @@ static struct
 {
     s32 on;
     s32 matrix;
+    s32 rounds;   /* a speedloader's, as it was held */
     f32 t;        /* seconds */
     Mtxf world;
 } s_gevrGexFall[2];
 
 static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv);
+
+extern s32 gevrGexHeldRoundCount(void);   /* bondview2.c: rounds in the off hand's payload */
 
 void gevrGexMagazineFalls(s32 hand, s32 fromHand)
 {
@@ -1507,6 +1511,7 @@ void gevrGexMagazineFalls(s32 hand, s32 fromHand)
     matrix_4x4_multiply(v2w, &unit, &s_gevrGexFall[hand].world);
     s_gevrGexFall[hand].on = TRUE;
     s_gevrGexFall[hand].matrix = fromHand ? def->heldMatrix : def->magMatrix;
+    s_gevrGexFall[hand].rounds = fromHand ? gevrGexHeldRoundCount() : 0;
     s_gevrGexFall[hand].t = 0.0f;
 }
 
@@ -2158,6 +2163,7 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     inHand |= preview;
     inGun |= installedPreview;
     s32 offSteady = FALSE;
+    s32 fell = FALSE;
     Mtxf falling;
 
     if (!preview && offHolds && s_gevrGexFall[hand].on && s_gevrGexFall[hand].matrix == def->heldMatrix)
@@ -2167,7 +2173,7 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     gevrGexPoseFrom(hdr, rwmtx, !g_gevrStereo, anim, frame);
     if (g_gevrStereo && p >= 0 && p < MAX_PLAYER_COUNT)
         gevrGexPoseReady(hdr, rwmtx, s_gevrGexReadyFrame[p][hand]);
-    if (g_gevrStereo && offHolds && def->reload.openHide > 0)
+    if (g_gevrStereo && offHolds && gevrGexOpensWhileHeld(def))
         gevrGexPoseReady(hdr,rwmtx,def->holdFrame);
     if (g_gevrStereo && hand == GUNRIGHT && hdr->numMatrices > def->gunMatrix)
     {
@@ -2198,6 +2204,7 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
             if (s_gevrGexFall[hand].matrix == def->heldMatrix)
             {
                 inHand = TRUE;
+                fell = TRUE;
             }
             else
             {
@@ -2207,6 +2214,14 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     }
     if (!g_gevrStereo && phase >= 0.0f && inHand && def->gripMatrix)
         rwmtx[def->heldMatrix] = rwmtx[def->gripMatrix];
+    if (def->loaderRounds > 1 && inHand)
+    {
+        /* the loader's rounds: as held, as dropped, else full (screen reload, fit preview) */
+        const s32 held = gevrGexHeldRoundCount();
+        inHand = fell ? s_gevrGexFall[hand].rounds
+               : (!preview && hand == GUNRIGHT && mag == GEVR_GEXMAG_INHAND && held > 0) ? held
+               : def->loaderRounds;
+    }
     gevrGexShowMagazines(hdr, model, inGun, inHand);
     if (def->reload.openHide > 0) {
         f32 chamberFrame = phase >= 0 ? frame : -1;
