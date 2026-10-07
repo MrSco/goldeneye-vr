@@ -619,6 +619,21 @@ void gunUpdateAndFire(GUNHAND handnum)
 
     gunofs.y = hand->gunofs2_y + (itemstats->PosY + hand->sway_pos_y);
     gunofs.z = hand->gunofs2_z + (itemstats->PosZ + hand->sway_pos_z);
+#ifdef GEVR
+    {
+        /* GE-X's hand-held rigs on the screen: at the PP7's place (gun.c gevrGexScreenAnchor) */
+        extern s32 gevrGexScreenHand(GUNHAND hand);
+
+        if (!g_gevrStereo && gevrGexScreenHand(handnum))
+        {
+            WeaponStats *pp7 = get_ptr_item_statistics(ITEM_WPPK);
+
+            gunofs.x += (handnum == GUNRIGHT ? 1.0f : -1.0f) * (pp7->PosX - itemstats->PosX);
+            gunofs.y += pp7->PosY - itemstats->PosY;
+            gunofs.z += pp7->PosZ - itemstats->PosZ;
+        }
+    }
+#endif
 
     if (((item == ITEM_ROCKETLAUNCH) || (item == ITEM_TRIGGER)) || (item == ITEM_WATCHLASER))
     {
@@ -672,7 +687,11 @@ void gunUpdateAndFire(GUNHAND handnum)
     sub_GAME_7F05C614();
     matrix_4x4_set_identity(&rotmtx);
 
-    if ((item == ITEM_TRIGGER) || (item == ITEM_WATCHLASER))
+    if (((item == ITEM_TRIGGER) || (item == ITEM_WATCHLASER))
+#ifdef GEVR
+        && !gevrGexHeld(handnum)   /* GE-X's watch rig holds itself as posed */
+#endif
+        )
     {
             trigrot = D_80035C70;
             matrix_4x4_set_rotation_around_xyz(&trigrot, &tmpmtx);
@@ -969,7 +988,11 @@ void gunUpdateAndFire(GUNHAND handnum)
         {
             const GexWeaponDef *def = gevrGexWeaponForHand(handnum);
             extern s32 g_gevrStereo;
-            flashdata = (f32 *) (g_gevrStereo ? def->muzzle : def->screenMuzzle);
+            extern void gevrGexScreenMuzzle(GUNHAND hand, f32 out[3]);
+            static f32 s_screenMuzzle[2][3];
+
+            gevrGexScreenMuzzle(handnum, s_screenMuzzle[handnum]);
+            flashdata = (f32 *) (g_gevrStereo ? def->muzzle : s_screenMuzzle[handnum]);
         }
 #endif
 
@@ -2884,7 +2907,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             }
         }
  
-        if (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0) 
+        if (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0
+#ifdef GEVR
+            /* GE-X's left gun is mirrored with its cull flipped (VR_CULL_MIRROR below):
+             * GoldenEye's own mirrored cull mode flipped it back (user: half the gun) */
+            && !gevrGexHeld(handnum)
+#endif
+            ) 
         {
             gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
  

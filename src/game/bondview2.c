@@ -15714,6 +15714,7 @@ static s32 gevrHandItemAllowed(s32 hand, s32 item)
      * (ITEM_FIST) is the same thing to it (gevrChopHit: both bare; the cycle picks
      * ITEM_UNARMED for the left), so the panel listed the arm twice (user, 2026-10-02) */
     if (hand == GUNLEFT && item == ITEM_FIST) return FALSE;
+    if (item == ITEM_TRIGGER && VrGexGuns) return FALSE;   /* GE-X's remote mines detonate themselves (gun.c) */
     if (hand == GUNLEFT && item != ITEM_UNARMED && !gevrLeftGunOk(item)) return FALSE;
     /* Shared throwable ammo already limits consumption. Firearms need two copies. */
     if (item == other && gevrWeaponUsesCopies(item)

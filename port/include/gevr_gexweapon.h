@@ -52,6 +52,10 @@ typedef struct GexWeaponDef {
     /* a watch item: the device is the watch on the left arm (in the headset the
      * tracked arm's, and the right hand presses it) */
     s32 watch;
+    /* screen mode: held where the PP7's hand is, moved by the difference of the
+     * two Gun fits, as a hand on a controller would hold them (gun.c
+     * gevrGexScreenAnchor): the hand-held items, the fist, the watch */
+    s32 screenHand;
     GexReloadDef reload, dualReload;
     f32 holdFrame, screenOffset[3];
     f32 magCentre[3], magTop[3], heldTop[3];

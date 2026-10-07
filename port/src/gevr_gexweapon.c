@@ -87,7 +87,7 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .screenFromRoot=1, .screenOffset={-17.660f,-26.253f,-197.154f}, \
     .muzzle={127.559f,309.704f,355.552f}, .screenMuzzle={109.899f,283.451f,158.398f}, \
     .supportRoot={-39.498364f,-28.279365f,49.061958f}, \
-    .numParts=1, .parts={100}, .visible={1}, .compact=1 }
+    .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1 }
 
 /* The throwables. GoldenEye hides these in the hand (HIDE_FIRST_PERSON_HAND);
  * GE-X's own rigs hold them, drawn as guns (gunfire.c), and once one has left
@@ -103,7 +103,7 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .fireAnim=0, .restAnim=rest, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1, \
     .screenOffset={0.0f,2.0f,offz}, .spentMatrix=33, .hideMatrix=hide, \
     .muzzle={mx,my,mz}, .screenMuzzle={0.0f,2.0f,offz}, \
-    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1 }
+    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1 }
 
 /* The watch items: GE-X's Watch Laser rig (slot 22, its Watch Magnet's too), the
  * watch device on 33 strapped to the raised left arm, the right hand at it, the
@@ -116,7 +116,7 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .item=id, .slot=22, .model="GdydragonZ", .texturePairs=watchTextures, \
     .fireAnim=1083, .restAnim=1083, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1, \
     .muzzle={-117.307f,63.739f,28.419f}, .screenMuzzle={-14.000f,1.187f,82.587f}, \
-    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .watch=1 }
+    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .watch=1, .screenHand=1 }
 
 static const GexWeaponDef weapons[] = {
     WATCH_DEF(ITEM_WATCHLASER),
@@ -137,7 +137,7 @@ static const GexWeaponDef weapons[] = {
         .fireAnim=1001, .fireAnimAlt=1002, .gunMatrix=2, .magMatrix=-1, .heldMatrix=-1,
         .screenFromRoot=1, .screenOffset={-3.957f,-11.053f,-55.746f},
         .supportRoot={-39.498364f,-28.279365f,49.061958f},
-        .numParts=4, .parts={-1,-1,53,54}, .visible={0,0,0,0}, .compact=1
+        .numParts=4, .parts={-1,-1,53,54}, .visible={0,0,0,0}, .compact=1, .screenHand=1
     },
     KNIFE_DEF(ITEM_KNIFE),
     KNIFE_DEF(ITEM_THROWKNIFE),
@@ -147,7 +147,7 @@ static const GexWeaponDef weapons[] = {
         .screenFromRoot=1, .screenOffset={-27.173f,-22.813f,-208.695f},
         .muzzle={87.029f,38.664f,215.278f}, .screenMuzzle={59.856f,15.851f,6.583f},
         .supportRoot={-39.498364f,-28.279365f,49.061958f},
-        .numParts=1, .parts={100}, .visible={1}, .compact=1,
+        .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1,
         /* throw 1062's lever (matrix 34) lifts by 6 and has flown by 30 */
         .cookAnim=1062, .cookEnd=30.0f, .cookMatrix=34
     },
@@ -161,7 +161,7 @@ static const GexWeaponDef weapons[] = {
         .fireAnim=0, .restAnim=1086, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1,
         .screenFromRoot=1, .screenOffset={0.071f,-29.923f,-84.617f},
         .muzzle={28.462f,143.276f,90.878f}, .screenMuzzle={28.533f,113.354f,6.261f},
-        .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1
+        .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1
     },
     MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
     MINE_DEF(ITEM_PROXIMITYMINE, 28, "GproximitymineZ", proxMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
