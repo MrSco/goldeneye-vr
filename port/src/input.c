@@ -110,7 +110,7 @@ static struct {
     float kf7Mag[3], pp7Mag[3];
     float pp7SupportRot[3];
     float kf7Well[3], pp7Well[3];
-    float weaponFits[64][9][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
+    float weaponFits[64][10][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
 } s_gunFitSaved;
 _Static_assert(sizeof(s_gunFitSaved.weaponFits) == sizeof(VrGexWeaponFits), "fit snapshot matches the fits");
 
@@ -1297,10 +1297,18 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         r[1] += ry * 45.0f * dt;
                         r[2] += mx * 45.0f * dt;
                     } else {
+                        extern s32 gevrGexHandHeld(s32 hand);   /* gun.c: a knife, grenade or mine */
                         float *h = gevrGexHandFit(fitItem);
                         h[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                         h[2] -= my * rate * dt;
                         h[1] += ry * rate * dt;
+                        if (gevrGexHandHeld(GUNRIGHT)) {
+                            /* a hand-held item: the turn stick's sideways sizes it (user) */
+                            float *size = gevrGexItemSizeFit(fitItem);
+                            size[0] += rx * 0.5f * dt;
+                            if (size[0] < -0.8f) size[0] = -0.8f;
+                            if (size[0] > 2.0f) size[0] = 2.0f;
+                        }
                     }
                 } else if (gevrInstalledMagFitting) {
                     float *fit = gevrGexInstalledMagFit(fitItem);

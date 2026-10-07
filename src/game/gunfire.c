@@ -743,7 +743,11 @@ void gunUpdateAndFire(GUNHAND handnum)
             Mtxf pose;
 
             matrix_4x4_copy(&gevrItemRot, &pose);
-            if (hand->field_92C != 0 && !gevrStereoItemShown(item))
+            extern s32 gevrGexHandHeld(s32 hand);   /* gun.c: a GE-X knife, grenade or mine */
+
+            /* not for an item the tracked hand itself swings and throws (user:
+             * GoldenEye's throw swung the GE-X arm a second time) */
+            if (hand->field_92C != 0 && !gevrStereoItemShown(item) && !gevrGexHandHeld(handnum))
             {
                 /*
                  * The keyframe turn is in the model frame, which the flat

@@ -2884,8 +2884,10 @@ void gevrHandChopTick(s32 ctrl)
     s32 item = getCurrentPlayerWeaponId(hand);
     s32 bare = item == ITEM_UNARMED || item == ITEM_FIST;
     s32 club = item == ITEM_FIST && g_CurrentPlayer->cur_item_weapon_getname == ITEM_SNIPERRIFLE;
-    s32 damage = item == ITEM_KNIFE ? ITEM_KNIFE : ITEM_FIST;
-    f32 need = (bare || item == ITEM_KNIFE) ? GEVR_CHOP_HIT : GEVR_CHOP_HIT_ARMED;
+    /* a throwing knife in the hand stabs as the knife does (user: not a punch) */
+    s32 knife = item == ITEM_KNIFE || item == ITEM_THROWKNIFE;
+    s32 damage = knife ? ITEM_KNIFE : ITEM_FIST;
+    f32 need = (bare || knife) ? GEVR_CHOP_HIT : GEVR_CHOP_HIT_ARMED;
     f32 rel[3], loc[3], vel[3], at[3], right[3], up[3], back[3], thrust, slash, speed;
     s32 fast;
     s32 i;
@@ -2945,7 +2947,7 @@ void gevrHandChopTick(s32 ctrl)
     speed = sqrtf(vel[0] * vel[0] + vel[1] * vel[1] + vel[2] * vel[2]);
     thrust = -vel[2];
     slash = sqrtf(vel[0] * vel[0] + (vel[1] < 0.0f ? vel[1] * vel[1] : 0.0f));
-    if (bare || item == ITEM_KNIFE)
+    if (bare || knife)
     {
         fast = thrust > GEVR_CHOP_THRUST || slash > GEVR_CHOP_SLASH;
     }
@@ -2970,7 +2972,7 @@ void gevrHandChopTick(s32 ctrl)
     {
         f32 end[3], dir[3], len, into;
         f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
-        s32 cycle = s_pace[0] >= 0 ? s_pace[0] : (item == ITEM_KNIFE || club) ? GEVR_CHOP_CYCLE_KNIFE : GEVR_CHOP_CYCLE_FIST;
+        s32 cycle = s_pace[0] >= 0 ? s_pace[0] : (knife || club) ? GEVR_CHOP_CYCLE_KNIFE : GEVR_CHOP_CYCLE_FIST;
         s32 other = s_pace[1] >= 0 ? s_pace[1] : cycle / 2;
         s32 got;
 
@@ -2987,7 +2989,7 @@ void gevrHandChopTick(s32 ctrl)
                                               + s_gevrClubButt[2] * g->m[2][i]);
             }
         }
-        else if (!bare && item != ITEM_KNIFE && s_gevrMuzzleValid[hand] && s_gevrMuzzleItem[hand] == item)
+        else if (!bare && !knife && s_gevrMuzzleValid[hand] && s_gevrMuzzleItem[hand] == item)
         {
             end[0] = s_gevrMuzzle[hand][0];
             end[1] = s_gevrMuzzle[hand][1];
@@ -14927,6 +14929,12 @@ static const char *gevrFitNextLine(s32 from)
     {
         k = (k + 1) % 9;
     } while (!can[k]);
+    if (k == 8)
+    {
+        extern s32 gevrGexHandHeld(s32 hand);   /* gun.c: a knife, grenade or mine */
+
+        if (gevrGexHandHeld(GUNRIGHT) && k != from) return "X: FIT THE ITEM\n";
+    }
     return k == from ? "" : lines[k];
 }
 
@@ -15026,9 +15034,19 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     else if (gevrGunHandFitting && gevrGexHeld(GUNRIGHT))
     {
         /* GE-X's own gun hand on the gun (input.c; gun.c gevrGexHandFitTo) */
+        extern s32 gevrGexHandHeld(s32 hand);   /* gun.c: a knife, grenade or mine */
         const float *h = gevrGexHandFit(getCurrentPlayerWeaponId(GUNRIGHT));
         const float *r = gevrGexHandRotFit(getCurrentPlayerWeaponId(GUNRIGHT));
 
+        if (gevrGexHandHeld(GUNRIGHT))
+        {
+            /* the item itself in the hand: place, turn and size (gun.c) */
+            snprintf(buf, sizeof(buf),
+                     "ITEM FIT%s\nTHE ITEM IN THE HAND\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nPITCH %.0f  YAW %.0f  ROLL %.0f   SIZE %.2f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\nHOLD GUN HAND GRIP: STICKS TURN IT\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                     gex, -h[2], h[0], h[1], r[0], r[1], r[2], 1.0f + gevrGexItemSizeFit(getCurrentPlayerWeaponId(GUNRIGHT))[0],
+                     gevrFitNextLine(8));
+        }
+        else
         snprintf(buf, sizeof(buf),
                  "GUN HAND FIT%s\nTHE HAND ON THE GUN'S GRIP\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nPITCH %.0f  YAW %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD GUN HAND GRIP: STICKS TURN IT\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, -h[2], h[0], h[1], r[0], r[1], r[2], gevrFitNextLine(8));
