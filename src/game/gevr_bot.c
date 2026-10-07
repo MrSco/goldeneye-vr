@@ -39,6 +39,8 @@ extern int bondinvHasInvItem(ITEM_IDS item);
 extern s32 get_ammo_count_for_weapon(ITEM_IDS weapon);
 extern s32 currentPlayerEquipWeaponWrapper(GUNHAND hand, s32 next_weapon);
 extern PropRecord *chrpropGetActiveTail(void);
+extern MPSCENARIOS get_scenario(void);
+extern bool bondinvIsAliveWithFlag(void);
 extern s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f32 dest_z, s32 cdtypes,
                                     f32 unkHeight, f32 unkA, f32 unkB, f32 unkC);
 
@@ -158,6 +160,7 @@ typedef struct GevrBot {
     s32 changeguntimer60;   /* PD's: no change again before this runs out */
     PropRecord *gotoprop;   /* a pickup it is fetching (PD's gotoprop) */
     s32 gotottl60;
+    s32 fleettl60;          /* Flag Tag: until it picks a new place to run to */
 } GevrBot;
 
 static GevrBot s_bots[MAX_PLAYER_COUNT];
@@ -538,6 +541,13 @@ static void gevrBotChooseWeapon(struct player *pl, GevrBot *bot)
     s32 best = ITEM_UNARMED;
     s32 item;
 
+    if (bondinvIsAliveWithFlag())
+    {
+        /* Flag Tag: the flag is the hand's (lv.c puts it back) */
+        bot->weapon = ITEM_TOKEN;
+        return;
+    }
+
     for (item = ITEM_FIST; item <= ITEM_REMOTEMINE; item++)
     {
         if (s_weapons[item].score == 0 || s_weapons[item].score <= s_weapons[best].score)
@@ -615,6 +625,89 @@ static PropRecord *gevrBotFindPickup(struct player *pl, GevrBot *bot, s32 any)
     return best;
 }
 
+/*
+ * The scenario's prize (PD's hold-the-briefcase branch, bot.c
+ * botTickUnpaused, as the model): Flag Tag's flag, the Golden Gun. NULL
+ * when it is not lying on the floor; *holder is who has it, or -1.
+ */
+static PropRecord *gevrBotPrize(s32 item, s32 *holder)
+{
+    PropRecord *prop;
+    s32 i;
+
+    *holder = -1;
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        struct player *op = g_playerPointers[i];
+
+        if (netSlotOccupied(i) && op != NULL && !op->bonddead && op->hands[GUNRIGHT].weaponnum == item)
+        {
+            *holder = i;
+            return NULL;
+        }
+    }
+    for (prop = chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
+    {
+        if (prop->type == PROP_TYPE_WEAPON && prop->weapon != NULL && prop->weapon->weaponnum == item &&
+            prop->parent == NULL && prop->stan != NULL && prop->timetoregen <= 0 && (prop->flags & PROPFLAG_ENABLED))
+        {
+            return prop;
+        }
+    }
+    return NULL;
+}
+
+/* Flag Tag with the flag: run to the start pad farthest from the nearest foe */
+static void gevrBotFlee(s32 slot, struct player *pl, GevrBot *bot)
+{
+    s32 nearest = -1;
+    f32 neardist = 0;
+    f32 bestdist = -1;
+    PadRecord *best = NULL;
+    s32 i;
+
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        if (gevrBotFoe(slot, i) && (nearest < 0 || bot->distance[i] < neardist))
+        {
+            nearest = i;
+            neardist = bot->distance[i];
+        }
+    }
+    for (i = 0; i < startpadcount; i++)
+    {
+        PadRecord *pad = g_Startpad[i];
+        f32 dx;
+        f32 dz;
+        f32 d;
+
+        if (pad == NULL || pad->stan == NULL)
+        {
+            continue;
+        }
+        if (nearest < 0)
+        {
+            d = (f32)(gevrBotRandom() % 1000);
+        }
+        else
+        {
+            dx = pad->pos.x - g_playerPointers[nearest]->prop->pos.x;
+            dz = pad->pos.z - g_playerPointers[nearest]->prop->pos.z;
+            d = dx * dx + dz * dz;
+        }
+        if (d > bestdist)
+        {
+            bestdist = d;
+            best = pad;
+        }
+    }
+    if (best != NULL)
+    {
+        gevrBotNavPlan(&bot->route, pl->prop->stan, &pl->prop->pos, best->stan, &best->pos);
+        bot->routeticks = 0;
+    }
+}
+
 /* PD's botcmdTickDistMode (botcmd.c), the distances by the gun in hand */
 static s32 gevrBotDistMode(GevrBot *bot, s32 diff)
 {
@@ -663,10 +756,48 @@ static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *p
     s32 diff = gevrNetBotDifficulty();
     f32 oldtheta = bot->theta;
 
+    s32 scenario = get_scenario();
+    s32 prizeitem = scenario == SCENARIO_TLD ? ITEM_TOKEN : scenario == SCENARIO_MWTGG ? ITEM_GOLDENGUN : ITEM_UNARMED;
+    PropRecord *prize = NULL;
+    s32 holder = -1;
+
     bot->frame60 += g_ClockTimer;
     bot->routeticks += g_ClockTimer;
     gevrBotChooseTarget(slot, pl, bot, diff);
     gevrBotChooseWeapon(pl, bot);
+
+    if (prizeitem != ITEM_UNARMED)
+    {
+        prize = gevrBotPrize(prizeitem, &holder);
+        if (holder == slot && prizeitem == ITEM_TOKEN)
+        {
+            /* the flag scores by the second: keep it away from everyone, no gun to fire */
+            bot->fleettl60 -= g_ClockTimer;
+            if (bot->route.count == 0 || bot->fleettl60 <= 0)
+            {
+                gevrBotFlee(slot, pl, bot);
+                bot->fleettl60 = 60 * 4;
+            }
+            bot->gotoprop = NULL;
+            gevrBotWalkRoute(slot, pl, bot, pad, TRUE);
+            gevrBotUnstick(slot, pl, bot, pad);
+            return;
+        }
+        if (holder >= 0 && gevrBotFoe(slot, holder))
+        {
+            /* a foe has the prize: it is the target, seen or not */
+            gevrBotSetTarget(bot, holder);
+        }
+        if (prize != NULL && bot->gotoprop != prize &&
+            gevrBotNavPlan(&bot->route, pl->prop->stan, &pl->prop->pos, prize->stan, &prize->pos))
+        {
+            /* the prize on the floor beats any other pickup */
+            bot->gotoprop = prize;
+            bot->gotottl60 = 60 * 20;
+            bot->routeticks = 0;
+            bot->distmode = BOT_DIST_NONE;
+        }
+    }
 
     /*
      * PD's main loop order (bot.c botTickUnpaused): a gun better than the
@@ -695,7 +826,7 @@ static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *p
     if (bot->gotoprop != NULL)
     {
         bot->gotottl60 -= g_ClockTimer;
-        if (bot->target >= 0 && bot->targetinsight && bot->weapon > ITEM_FIST)
+        if (bot->gotoprop != prize && bot->target >= 0 && bot->targetinsight && bot->weapon > ITEM_FIST)
         {
             bot->gotoprop = NULL;
             bot->route.count = 0;
