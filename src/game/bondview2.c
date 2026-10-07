@@ -16310,6 +16310,9 @@ static f32 s_gevrReloadTune[GEVR_RT_COUNT] = {
 extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3];   /* vr_settings_defaults.c: Gun fit's reload mode */
 
 extern int VrManualReloading;
+/* Hand reload needs GoldenEye X's models (user): its reloads are GE-X's magazines
+ * and hands. The setting is kept; with GE-X off the game reloads itself. */
+#define gevrHandReloadEnabled() (VrManualReloading && VrGexGuns)
 
 static s32 gevrReloadGun(s32 item)
 {
@@ -16333,7 +16336,7 @@ static s32 gevrReloadMagazineFed(s32 item)
 /* gunfire.c and lv.c: the local player reloads by hand */
 s32 gevrManualReloadOn(s32 hand)
 {
-    return g_gevrStereo && VrManualReloading && g_CurrentPlayer != NULL
+    return g_gevrStereo && gevrHandReloadEnabled() && g_CurrentPlayer != NULL
         && (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
         && gevrReloadGun(getCurrentPlayerWeaponId(hand));
 }
@@ -16664,7 +16667,7 @@ static s32 gevrGexPistolSupportAllowed(void)
     extern _Bool get_button_state(int hand_index, const char *button_name);
     const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
     s32 grip = get_button_state(0, "grip");
-    s32 context = def != NULL ? def->item * 2 + (VrManualReloading != 0) : -1;
+    s32 context = def != NULL ? def->item * 2 + (gevrHandReloadEnabled() != 0) : -1;
     f32 mag[3], support[3], off[3], r[3], up[3], b[3], gun[3];
     f32 md2=0, sd2=0, below=0, cm=GEVR_UNITS_PER_METRE*D_800364CC/100.0f;
     s32 i;
@@ -16820,7 +16823,7 @@ s32 gevrReloadHoldsHand(s32 ctrl)
     extern _Bool get_button_state(int hand_index, const char *button_name);
     s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
 
-    if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL || ctrl < 0 || ctrl > 1)
+    if (!gevrHandReloadEnabled() || !g_gevrStereo || g_CurrentPlayer == NULL || ctrl < 0 || ctrl > 1)
     {
         if (ctrl >= 0 && ctrl < 2)
         {
@@ -16854,7 +16857,7 @@ s32 gevrReloadFitAvailable(void)
 {
     s32 right;
 
-    if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL)
+    if (!gevrHandReloadEnabled() || !g_gevrStereo || g_CurrentPlayer == NULL)
     {
         return FALSE;
     }
@@ -16979,7 +16982,7 @@ s32 gevrReloadClaimsOffHand(void)
         return TRUE;
     }
     if (gevrGexByHand(GUNRIGHT)) return FALSE;
-    if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL
+    if (!gevrHandReloadEnabled() || !g_gevrStereo || g_CurrentPlayer == NULL
         || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || cm < 1e-6f
         || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, orr, ou, ob))
     {
@@ -17070,7 +17073,7 @@ void gevrHandReloadTick(void)
      * refund its rounds into a remote player's reserve. */
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot()) return;
     gevrReloadTuneRead();
-    if (!VrManualReloading || !g_gevrStereo || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
+    if (!gevrHandReloadEnabled() || !g_gevrStereo || g_CurrentPlayer == NULL || g_CurrentPlayer->bonddead
         || g_CurrentPlayer->watch_animation_state != 0 || g_CurrentPlayer->mpmenuon
         || g_PlayerIsInTank == 1 || gevrSpectating() || gevrCoopLocalDowned()
         || (netIsActive() && get_cur_playernum() != netGetLocalSlot()) || cm < 1e-6f
@@ -17457,10 +17460,13 @@ static ModelFileHeader *gevrWeaponPanelModel(s32 item)
     ModelFileHeader *tmpl;
     char *name;
 
-    if (item == s_gevrWpModelItem && s_gevrWpModelStage == bossGetStageNum())
+    static s32 s_gex = -1;
+
+    if (item == s_gevrWpModelItem && s_gevrWpModelStage == bossGetStageNum() && s_gex == VrGexGuns)
     {
         return s_gevrWpModelOk ? &s_gevrWpModelHeader : NULL;
     }
+    s_gex = VrGexGuns;
     s_gevrWpModelItem = item;
     s_gevrWpModelStage = bossGetStageNum();
     s_gevrWpModelOk = FALSE;
@@ -17485,8 +17491,19 @@ static ModelFileHeader *gevrWeaponPanelModel(s32 item)
     }
 
     s_gevrWpModelHeader = *tmpl;
-    texInitPool(&s_gevrWpModelPool, s_gevrWpModelBuf + GEVR_WP_MODELSIZE, GEVR_WP_BUFSIZE - GEVR_WP_MODELSIZE);
-    load_object_fill_header(&s_gevrWpModelHeader, (u8 *) name, s_gevrWpModelBuf, GEVR_WP_MODELSIZE, &s_gevrWpModelPool);
+    {
+        /* GoldenEye X's models: its model, as the hand's is built (gun.c) */
+        extern s32 gevrGexPanelPrepare(s32 item, ModelFileHeader *hdr);
+        extern void gevrGexPanelDone(s32 loaded);
+        const s32 gex = gevrGexPanelPrepare(item, &s_gevrWpModelHeader);
+
+        texInitPool(&s_gevrWpModelPool, s_gevrWpModelBuf + GEVR_WP_MODELSIZE, GEVR_WP_BUFSIZE - GEVR_WP_MODELSIZE);
+        load_object_fill_header(&s_gevrWpModelHeader, (u8 *) name, s_gevrWpModelBuf, GEVR_WP_MODELSIZE, &s_gevrWpModelPool);
+        if (gex)
+        {
+            gevrGexPanelDone(s_gevrWpModelHeader.RootNode != NULL);
+        }
+    }
     modelCalculateRwDataLen(&s_gevrWpModelHeader);
     if (s_gevrWpModelHeader.RootNode == NULL)
     {

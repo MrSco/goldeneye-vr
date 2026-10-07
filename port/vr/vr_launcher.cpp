@@ -2737,12 +2737,14 @@ extern "C" void gevrLauncherRun(void)
                    "Raise your left wrist to your face to open Bond's watch.\nThe Menu button pauses either way.");
             ImGui::Spacing();
             ImGui::TextColored(gold, "RELOAD & RECOIL (stereo)");
-            toggle("Hand reload (WIP)", &VrManualReloading,
-                   "Bring any gun, GE or GE-X, into your fitted belt zone to reload.\n"
+            ImGui::BeginDisabled(VrGexGuns == 0);
+            toggle(VrGexGuns ? "Hand reload (WIP)" : "Hand reload (needs GoldenEye X)", &VrManualReloading,
+                   "Needs GoldenEye X's models (Mods). Bring the gun into your fitted belt zone to reload.\n"
                    "Move 5 cm beyond the zone before another belt reload.\n"
                    "A fresh grip at the hip holsters instead if Hip holster is on.\n"
                    "Magazine pulls and pistol/shotgun/dual-gun chest crosses also work.\n"
                    "Auto-reload is off; GE-X magazine buttons still eject the magazine.");
+            ImGui::EndDisabled();
             toggle("Per-gun recoil", &VrPerWeaponRecoil,
                    "Each gun kicks with its own recoil (Perfect Dark VR's table)\ninstead of one kick for all.");
             ImGui::Spacing();

@@ -18,6 +18,7 @@ struct hand { int weapon, weapon_current_animation, weapon_ammo_in_magazine, num
 struct Player { int bonddead, watch_animation_state, mpmenuon, cur_item_weapon_getname, ammoheldarr[2]; struct hand hands[2]; } player;
 static struct Player *g_CurrentPlayer = &player;
 static int VrManualReloading = 1, g_gevrStereo = 1, g_PlayerIsInTank, VrLeftHandedMode;
+static int VrGexGuns = 1;   /* hand reload is GoldenEye X's (bondview2.c gevrHandReloadEnabled) */
 static float D_800364CC = 1;
 static int s_gevrMagGrab, s_gevrGexGripSpent, s_gevrGexMag[2], s_gevrGexSeatArmed;
 static int s_gevrGexHeldRounds = -1;
@@ -618,6 +619,15 @@ int main(void)
     belt(1, 0); gevrHandReloadTick(); assert(buzzes == 2);
     belt(1, 13.1f); gevrHandReloadTick();
     belt(1, 0); gevrHandReloadTick(); assert(buzzes == 4);
+    /* Hand reload needs GoldenEye X's models (user): with them off the belt does nothing,
+     * the setting kept for when they are back. */
+    reset(); VrGexGuns = 0;
+    {
+        const int before = buzzes;
+        belt(1, 13.1f); gevrHandReloadTick();
+        belt(1, 0); gevrHandReloadTick(); assert(buzzes == before && VrManualReloading);
+    }
+    VrGexGuns = 1;
     reset(); gex[GUNRIGHT] = 1; player.hands[GUNRIGHT].weapon = ITEM_AK47;
     gevrHandReloadTick();
     s_gevrGexMag[GUNRIGHT] = GEVR_GEXMAG_OUT;
