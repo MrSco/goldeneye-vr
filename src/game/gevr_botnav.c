@@ -107,6 +107,11 @@ static void navFree(void)
     s_builtfor = NULL;
 }
 
+void gevrBotNavForget(void)
+{
+    s_builtfor = NULL;
+}
+
 static s32 navBuild(void)
 {
     StandTile *first;

@@ -165,6 +165,13 @@ typedef struct GevrBot {
 
 static GevrBot s_bots[MAX_PLAYER_COUNT];
 
+/* A stage loaded: the bots start over (their pickups and routes were the last stage's) */
+void gevrBotStageLoaded(void)
+{
+    memset(s_bots, 0, sizeof(s_bots));
+    gevrBotNavForget();
+}
+
 /* The host runs this slot */
 static s32 gevrBotRuns(s32 slot)
 {

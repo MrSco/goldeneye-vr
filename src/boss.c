@@ -534,6 +534,10 @@ void bossMainloop(void)
         for (int slot = 0; slot < MAX_PLAYER_COUNT; slot++) s_net_slot_enabled[slot] = TRUE;
         s_net_session_started = netIsActive() && (g_StageNum != LEVELID_TITLE || netCoopSession());
         netCoopStageLoaded();   /* a load, which netStageLoaded's other calls are not */
+        {
+            extern void gevrBotStageLoaded(void);
+            gevrBotStageLoaded();   /* the bots' props, routes and players were the last stage's */
+        }
         netStageLoaded();
 #endif
         sysLogPrintf(LOG_NOTE, "stage: loading: lvlStageLoad done (stage pool %d bytes left)", mempGetBankSizeLeft(MEMPOOL_STAGE));
