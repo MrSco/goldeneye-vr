@@ -135,6 +135,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "StickClickToCrouch=%d\n", VrStickClickToCrouch ? 1 : 0);
     fprintf(f, "; 1 = holding the aim trigger no longer leans or ducks: the move stick keeps moving (issue #81).\n");
     fprintf(f, "AimNoLean=%d\n", VrAimNoLean ? 1 : 0);
+    fprintf(f, "; 0 = no crosshair (nor scope sight) while holding a grip to aim, in stereo.\n");
+    fprintf(f, "AimSight=%d\n", VrAimSight ? 1 : 0);
     fprintf(f, "SnapTurn=%.1f\n", VrUseSnapTurn);
     fprintf(f, "; Smooth turning speed in degrees per second, %d..%d.\n", SMOOTHTURN_MIN, SMOOTHTURN_MAX);
     fprintf(f, "SmoothTurnSpeed=%d\n", VrSmoothTurnSpeed);
@@ -516,6 +518,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "WeaponRecoil") == 0) VrWeaponRecoil = (ival != 0);
             else if (strcmp(key, "StickClickToCrouch") == 0) VrStickClickToCrouch = (ival != 0);
             else if (strcmp(key, "AimNoLean") == 0) VrAimNoLean = (ival != 0);
+            else if (strcmp(key, "AimSight") == 0) VrAimSight = (ival != 0);
             else if (strcmp(key, "NoKnockback") == 0) VrNoKnockback = (ival != 0);
             else if (strcmp(key, "NoHitstun") == 0) VrNoHitstun = (ival != 0);
             else if (strcmp(key, "DamageFlash") == 0) VrDamageFlash = (ival != 0);

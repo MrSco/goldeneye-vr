@@ -8431,6 +8431,12 @@ void gunDrawSight(Gfx **gdl) {
 
         if (g_gevrStereo)
         {
+            extern int VrAimSight;   /* launcher / VR options "Aim: crosshair" (user) */
+
+            if (!VrAimSight)
+            {
+                return;   /* neither hand's sight, nor the scopes' */
+            }
             if ((g_CurrentPlayer->gunsightmode == 0) && (g_CurrentPlayer->mpmenuon == FALSE))
             {
                 *gdl = gevrHandTag(*gdl, 1);   /* issue #53: it follows the gun */
