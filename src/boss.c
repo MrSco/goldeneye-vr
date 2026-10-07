@@ -147,7 +147,7 @@ struct memallocstring memallocstringtable[] = {
 { LEVELID_FRIGATE,      "-ml0 -me0 -mgfx70  -mvtx50 -mt750 -ma225"},
 { LEVELID_SURFACE2,     "-ml0 -me0 -mgfx100 -mvtx50 -mt550 -ma350"},
 { LEVELID_BUNKER2,      "-ml0 -me0 -mgfx100 -mvtx50 -mt725 -ma150"},
-{ LEVELID_STATUE,       "-ml0 -me0 -mgfx70  -mvtx50 -mt750 -ma220"},
+{ LEVELID_STATUE,       "-ml0 -me0 -mgfx70  -mvtx50 -mt750 -ma800"},
 { LEVELID_ARCHIVES,     "-ml0 -me0 -mgfx70  -mvtx50 -mt600 -ma250"},
 { LEVELID_STREETS,      "-ml0 -me0 -mgfx60  -mvtx40 -mt635 -ma290"},
 { LEVELID_DEPOT,        "-ml0 -me0 -mgfx60  -mvtx50 -mt710 -ma300"},
@@ -178,7 +178,7 @@ struct memallocstring memallocstringtable[] = {
 /* Statue and Cradle online (#95; Rare cut them from the MP menu, front.c
  * multi_stage_setups): the MP stages' display list buffers, the solo
  * missions' texture and room budgets */
-{ LEVELID_STATUE_MP ,   "-ml0 -me0 -mgfx130 -mvtx100 -mt750 -ma220"},
+{ LEVELID_STATUE_MP ,   "-ml0 -me0 -mgfx130 -mvtx100 -mt750 -ma800"},
 { LEVELID_CRADLE_MP ,   "-ml0 -me0 -mgfx130 -mvtx100 -mt650 -ma250"},
 #endif
 { LEVELID_DEFAULT,      "-ml0 -me0 -mgfx100 -mvtx50 -mt700 -ma400"},
