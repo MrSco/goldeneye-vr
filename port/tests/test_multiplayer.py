@@ -58,7 +58,7 @@ def build_core():
     keep.update({"netConfigSlots","netLobbyMinPlayers", "netCoopSession", "gevrCoopFastReinforcements"})
     keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase"})
     keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
-    keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps"})
+    keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
@@ -253,6 +253,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_late_join_countdown_and_voted_map_warmup(self): self.assertEqual(self.core.test_core_warmup_join_and_votes(),0)
     def test_ready_vote_prompts_and_authenticated_notices(self): self.assertEqual(self.core.test_core_round_prompts(),0)
     def test_host_kick_and_client_launcher_exit(self): self.assertEqual(self.core.test_core_host_kick(),0)
+    def test_no_radar_removes_only_older_apps(self): self.assertEqual(self.core.test_core_no_radar_caps(),0)
     def test_line_renderer_restores_gl_state(self): self.assertEqual(self.line_renderer.test_line_renderer(),0)
     def test_line_edges_and_vertex_ring_offset(self): self.assertEqual(self.lib.test_line_indices(),0)
     def test_gauge_clearance_and_symmetry(self): self.assertEqual(self.lib.test_gauge_geometry(),0)
