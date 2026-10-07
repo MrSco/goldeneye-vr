@@ -71,7 +71,8 @@ int main(int argc, char **argv) {
     // Gun fit: GoldenEye X's models' own trims and the scopes'
     if (argc > 1 && std::strcmp(argv[1], "fit_invalid") == 0) {
         assert(VrGexWeaponFits[6][3][2] == 8.8f);
-        assert(VrGexWeaponFits[2][0][0] == 0);           // unregistered: no default
+        assert(VrGexWeaponFits[1][0][0] == 0);           // unregistered: no default
+        assert(VrGexWeaponFits[2][0][0] == 3.4710f);     // the knives keep their default
         assert(VrAimSight == 1);                         // missing key: the crosshair stays on
         assert(VrGexWeaponFits[18][0][0] == 0.9652f);    // the Cougar keeps its default
         return 0;

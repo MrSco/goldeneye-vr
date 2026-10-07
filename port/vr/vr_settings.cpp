@@ -270,8 +270,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; Per-weapon fits: item number / vector (0 gun, 1 grab, 2 support, 3 rotation, 4 held mag, 5 well, 6 installed mesh).\n");
     for (int item=0; item<64; item++) {
         /* Do not write zero overrides for models implemented by future builds. */
-        /* 5, 20 and 21 share the PP7's (item 4's) fits; 11 the D5K's (10) */
-        if (!gevrGexWeaponGet(item) || item == 5 || item == 11 || item == 20 || item == 21) continue;
+        /* 5, 20 and 21 share the PP7's (item 4's) fits; 11 the D5K's (10); 3 the knife's (2) */
+        if (!gevrGexWeaponGet(item) || item == 3 || item == 5 || item == 11 || item == 20 || item == 21) continue;
         /* item 4's 0..5 are the legacy GexPP7* keys; 7 and 8 are the gun hand */
         for (int component=(item == 4 ? 6 : 0); component<9; component++) {
             const float *v=VrGexWeaponFits[item][component];

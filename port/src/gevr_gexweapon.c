@@ -14,6 +14,7 @@ static const u16 pp7Textures[] = {
 /* Pixel-identical matches in each original GE model; others retain GE-X IDs. */
 static const u16 silverPp7Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,3275,776,0 };
 static const u16 goldPp7Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,0 };
+static const u16 knifeTextures[] = { 3275,776,0 };
 static const u16 dd44Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,3274,1725,3275,776,0 };
 static const u16 klobbTextures[] = { 1,1514,3274,1725,3279,2145,3280,2146,3281,2147,3282,2148,3284,1867,0 };
 static const u16 zmgTextures[] = { 993,2155,994,2153,995,2156,996,2154,997,2151,998,2149,999,2152,1000,2150,3274,1725,3285,28,3286,27,0 };
@@ -65,7 +66,24 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .supportRoot={-39.498364f,-28.279365f,49.061958f}, \
     .numParts=2, .parts={42,43}, .visible={1,0}, .pistol=1, .compact=1 }
 
+/* The knives: GknifeZ (slot 2), Perfect Dark's combat knife, for both GE's
+ * knife and its throwing knives. Its blade (part 100, matrix 33) runs along
+ * the joint's x, so screen mode keeps PD's own first-person pose from the
+ * root, placed so the hand's palm sits where the PP7's does. Idle 1027 holds
+ * the knife rigidly from frame 0 to 55. GoldenEye's own swing and throw move
+ * it (fireAnim 0): GE-X's slash 1028 and throw 1051 would move it twice, and
+ * its reload 1029 ends in the throwing grip. In the headset the hand swings it. */
+#define KNIFE_DEF(id) { \
+    .item=id, .slot=2, .model="GknifeZ", .texturePairs=knifeTextures, \
+    .fireAnim=0, .restAnim=1027, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1, \
+    .screenFromRoot=1, .screenOffset={-17.660f,-26.253f,-197.154f}, \
+    .muzzle={127.559f,309.704f,355.552f}, .screenMuzzle={109.899f,283.451f,158.398f}, \
+    .supportRoot={-39.498364f,-28.279365f,49.061958f}, \
+    .numParts=1, .parts={100}, .visible={1}, .compact=1 }
+
 static const GexWeaponDef weapons[] = {
+    KNIFE_DEF(ITEM_KNIFE),
+    KNIFE_DEF(ITEM_THROWKNIFE),
     {
         .item=ITEM_AK47, .slot=7, .model="Gak47Z", .texturePairs=kf7Textures,
         .fireAnim=1017, .gunMatrix=33, .magMatrix=39, .heldMatrix=40,
@@ -465,7 +483,8 @@ extern float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
 extern float VrGexKf7WellOff[3], VrGexPp7WellOff[3];
 
 extern float VrGexPp7SupportRot[3];
-static s32 fitItem(s32 item) { return item == ITEM_MP5KSIL ? ITEM_MP5K : item >= 0 && item < 64 ? item : 0; }
+/* D5K silenced shares the D5K's fits, the throwing knife the knife's */
+static s32 fitItem(s32 item) { return item == ITEM_MP5KSIL ? ITEM_MP5K : item == ITEM_THROWKNIFE ? ITEM_KNIFE : item >= 0 && item < 64 ? item : 0; }
 /* the PP7 rig's family: both PP7s and the bonus DY357s share its fits */
 static s32 pp7(s32 item) { return item == ITEM_WPPK || item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK; }
 float *gevrGexWellFit(s32 item) { return pp7(item) ? VrGexPp7WellOff : item == ITEM_AK47 ? VrGexKf7WellOff : VrGexWeaponFits[fitItem(item)][5]; }
