@@ -6,6 +6,14 @@ magazine fitting. This file records the current implementation and remaining wor
 
 ## Crash cf69dded follow-up — latest priority
 
+Latest delivery supersedes the APK paths below: Android **versionCode 65**,
+versionName **0.4.11**, build label **9b212a0**. Signed release rebuilt with
+JDK 20; apksigner verifies and aapt confirms code 65. APK:
+`android/app/build/outputs/apk/release/GoldenEyeVR-code65-cuff-fix-9b212a0.apk`.
+SHA256: `4fb508d42c055ab91b79321a71e8cd0fc7d799d2fdd098022705b6e655eb2864`.
+The version bump is pushed to PR #138; code retains the cf69dded cuff fix and
+captured RC-P90 fit defaults. Headset retest remains pending.
+
 User reported A-button switching away from RC-P90 crashes; wheel selection of
 Klobb worked. Decoded report shows the destination was **GshotgunZ**, loaded
 2026-10-06 19:44:02 immediately before SIGSEGV (fault address 0xc26).
