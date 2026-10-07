@@ -4443,6 +4443,27 @@ s32 gevrScopeZoomStick(void)
             || getCurrentPlayerWeaponId(GUNLEFT) == ITEM_SNIPERRIFLE);
 }
 
+/* Scope sight diagnosis: GoldenEye's aim state, logged when it changes. */
+static void gevrAimStateLog(s32 buttons, s32 aimButtons)
+{
+    static s32 was = -1;
+    s32 now;
+
+    if (!g_gevrStereo || g_CurrentPlayer == NULL)
+    {
+        return;
+    }
+    now = (g_CurrentPlayer->insightaimmode ? 1 : 0) | ((buttons & aimButtons) ? 2 : 0)
+        | ((s32) cur_player_get_aim_control() << 2) | (s32) (g_CurrentPlayer->gunsightmode << 4);
+    if (now != was)
+    {
+        sysLogPrintf(LOG_NOTE, "aimstate: aiming %d buttons R %d L %d toggle %d sightmode 0x%x item %d twoHand %d",
+                     now & 1, (buttons & R_TRIG) != 0, (buttons & L_TRIG) != 0, (s32) cur_player_get_aim_control(),
+                     g_CurrentPlayer->gunsightmode, getCurrentPlayerWeaponId(GUNRIGHT), s_gevrTwoHand);
+        was = now;
+    }
+}
+
 static void gevrScopeTune(void)
 {
     static u32 tick;
@@ -10096,6 +10117,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 {
                     g_CurrentPlayer->insightaimmode = !g_CurrentPlayer->insightaimmode;
                 }
+                gevrAimStateLog(sp104 ? Z_TRIG : 0, Z_TRIG);
 
                 moveData.canSwivelGun = !g_CurrentPlayer->insightaimmode;
                 moveData.canAutoAim = !g_CurrentPlayer->insightaimmode;
@@ -10297,6 +10319,7 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                     {
                         g_CurrentPlayer->insightaimmode = !g_CurrentPlayer->insightaimmode;
                     }
+                    gevrAimStateLog(buttons, aimButtons);
 
                     moveData.canSwivelGun = !g_CurrentPlayer->insightaimmode;
                     moveData.canAutoAim = !g_CurrentPlayer->insightaimmode;
@@ -16044,6 +16067,7 @@ static s32 s_gevrGexMagItem[2] = {-1,-1};
 static s32 s_gevrGexGripSpent;       /* the off hand's grip seated a magazine: held until let go */
 
 extern void sub_GAME_7F0649D8(enum GUNHAND hand);   /* gunfire.c: the reload's ammo move */
+extern void currentPlayerCreateRocket(GUNHAND hand); /* gun.c: the launcher's loaded rocket */
 
 /* a GoldenEye X magazine-fed gun, reloaded by hand */
 static s32 gevrGexByHand(s32 hand)
@@ -16643,6 +16667,10 @@ static void gevrGexRoundTick(f32 cm, const f32 off[3], s32 grip, s32 fresh)
         } else if ((points&3)==3 && distance2 <= radius*radius) {
             if (hand->weapon_ammo_in_magazine < stats->MagSize && s_gevrGexHeldRounds==1) {
                 hand->weapon_ammo_in_magazine++;
+                /* GE draws a loaded rocket as its own prop at the tube (gun.c
+                 * gunUpdateAttachedRocket), made by its reload's ammo move; this
+                 * insertion bypasses that move, so make it here too. */
+                if (def->item == ITEM_ROCKETLAUNCH) currentPlayerCreateRocket(GUNRIGHT);
                 s_gevrGexHeldRounds=-1; gevrGexMagazineReady(GUNRIGHT); gevrGexBuzz(0.6f);
             } else gevrGexHeldDropped();
             *state=GEVR_GEXMAG_IN; s_gevrGexGripSpent=TRUE;

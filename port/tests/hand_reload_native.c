@@ -32,7 +32,8 @@ static WeaponStats stats = {30, 1};
 static WeaponStats *get_ptr_item_statistics(int item) { (void)item; return &stats; }
 #define WEAPONSTATBITFLAG_AMMO_CLIP_LIMIT 1
 static int bondwalkItemCheckBitflags(int item, int flags) { (void)item; (void)flags; return 0; }
-static void currentPlayerCreateRocket(int hand) { (void)hand; }
+static int rockets;
+static void currentPlayerCreateRocket(int hand) { (void)hand; rockets++; }
 float vr_ctrl_quat_play[2][4] = {{1, 0, 0, 0}, {1, 0, 0, 0}};
 float vr_ctrl_velocity_play[2][3], vr_head_velocity_play[3];
 static int g_ClockTimer = 1, chopHits, whiffs;
@@ -440,8 +441,11 @@ static void singleRoundReloads(void)
         gevrGexDropMagazine(GUNRIGHT); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==loaded && reserve==50);
         belt(0,0); gripHeld[0]=1; pistolTick();
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==1 && reserve==49);
+        int rocketsBefore=rockets;
         pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
         assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==loaded+1 && reserve==49 && readyEvents==1);
+        /* The seated rocket is GE's own prop; physical insertion must create it. */
+        assert(rockets-rocketsBefore==(items[i]==ITEM_ROCKETLAUNCH));
         assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
         pistolTick(); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==loaded+1 && reserve==49);
         gripHeld[0]=0; pistolTick();
