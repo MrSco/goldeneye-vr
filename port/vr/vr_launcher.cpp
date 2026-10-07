@@ -1282,7 +1282,7 @@ static void gevrLobbyRoster(const ImVec4 &gold) {
         ImGui::EndDisabled();ImGui::EndPopup();
     }
 }
-void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
+void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
     static int subTab = 0;     // 0 = Host, 1 = Join
     static int joinMethod = 0; // 0 = Public Internet, 1 = Private Code, 2 = LAN Games, 3 = Direct IP
     static char directIp[64] = "192.168.1.";
@@ -1409,13 +1409,18 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
         }
     }
     if (netIsActive() && !netIsHost() && netGetState() == NET_STATE_INGAME) {
-        netApplyMatchConfig();
-        // the boot loads g_StageNum (main.c); a co-op party's menus loaded twice so,
-        // and the Rare logo and folder music played twice over (#94)
-        if (netGetMatchConfig()->mode != NET_MODE_COOP)
-            bossSetLoadedStage(g_StageNum);
-        startMatch = true;
-        open = false;
+        if (!romReady) {
+            onlineMessage = "Cannot join match: no valid GoldenEye ROM loaded.";
+            disconnect();
+        } else {
+            netApplyMatchConfig();
+            // the boot loads g_StageNum (main.c); a co-op party's menus loaded twice so,
+            // and the Rare logo and folder music played twice over (#94)
+            if (netGetMatchConfig()->mode != NET_MODE_COOP)
+                bossSetLoadedStage(g_StageNum);
+            startMatch = true;
+            open = false;
+        }
     }
     static int sentSlot = -1;
     if (!netIsActive())
@@ -1864,14 +1869,15 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, const ImVec4 &gold, const
     ImGui::Separator();
     // Fixed footer: long rosters, popups and status messages cannot push it away.
     gevrLauncherStatus(onlineMessage.empty()
-                           ? (netIsHost() ? (netLobbyCanLaunch() ? "Ready to launch warmup."
-                                                                 : "Waiting for joined players to ready up.")
-                                          : "Choose a game or connection method.")
+                           ? (!romReady ? "Choose a GoldenEye ROM before launching a match."
+                                        : (netIsHost() ? (netLobbyCanLaunch() ? "Ready to launch warmup."
+                                                                              : "Waiting for joined players to ready up.")
+                                                       : "Choose a game or connection method."))
                            : onlineMessage.c_str());
     int pCount = netGetConnectedPlayerCount();
     float h = ImGui::GetFrameHeight() * 1.5f;
     if (netIsHost()) {
-        ImGui::BeginDisabled(!netLobbyCanLaunch());
+        ImGui::BeginDisabled(!netLobbyCanLaunch() || !romReady);
         if (ImGui::Button("Launch", ImVec2(0, h))) {
 
             if (netLobbyHostLaunchMatch()) {
@@ -2604,7 +2610,7 @@ extern "C" void gevrLauncherRun(void)
         } else if (hapticsPage) {
             gevrHapticsPage(hapticsPage, gold, good, bad);
         } else if (mpPage) {
-            gevrMultiplayerPage(mpPage, start, gold, good, bad);
+            gevrMultiplayerPage(mpPage, start, romReady, gold, good, bad);
         } else if (modsPage) {
             gevrModsPage(modsPage, now, gold, good, bad);
         } else if (throwingPage) {
