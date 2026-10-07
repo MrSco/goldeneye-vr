@@ -2168,6 +2168,7 @@ static s32 gevrTaserHandLoad(void)
  */
 extern s32 gevrStereoItemNeedsFist(s32 item);
 extern s32 gevrStereoItemHand(s32 item);   /* bondview2.c: GEVR_ITEM_HAND_* */
+extern s32 gevrGexShowsItem(s32 hand, s32 item);   /* gun.c: GoldenEye X's rig, with its own hand */
 extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator (#31) */
 extern s32 gevrStereoWatchGrip(void);      /* bondview2.c: the gun hand is at the watch (#31) */
 extern s32 gevrStereoWatchHandMatrix(Mtxf *out);
@@ -2196,6 +2197,10 @@ static Gfx *gevrRenderItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND handnum
     {
         return gdl;     /* the game draws the weapon (with its hand) */
     }
+    if (gevrGexShowsItem(handnum, item))
+    {
+        return gdl;     /* GoldenEye X's rig has its own hand (gun.c) */
+    }
     if (gevrStereoWatchItem(item) && gevrStereoWatchGrip())
     {
         return gdl;     /* the hand is holding the watch (gevrRenderWatchGripHand) */
@@ -2217,6 +2222,17 @@ static Gfx *gevrRenderItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND handnum
     if (!gevrStereoGunMatrix(handnum, &armmtx))
     {
         return gdl;
+    }
+    {
+        /* GoldenEye X's models: its hand holds the gadget (gun.c), not GoldenEye's fist */
+        extern Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mirror, s32 *drawn);
+        s32 drawn = FALSE;
+
+        gdl = gevrGexDrawItemHand(gdl, templ, handnum, mirror, &drawn);
+        if (drawn)
+        {
+            return gdl;
+        }
     }
     /* issue #41: a grenade in the taser's gripping hand, not the open fist */
     if (s_gevrHiddenShown[handnum] && gevrStereoItemHand(item) == 2 && gevrTaserHandLoad())
@@ -2593,7 +2609,8 @@ static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
         || g_CurrentPlayer->bonddead
         || g_CurrentPlayer->watch_animation_state != 0
         || !gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT))
-        || !gevrStereoWatchGrip())
+        || !gevrStereoWatchGrip()
+        || gevrGexShowsItem(GUNRIGHT, get_item_in_hand_or_watch_menu(GUNRIGHT)))   /* GE-X's own hand presses it */
     {
         return gdl;
     }
@@ -5868,6 +5885,18 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         gevrGexTick(hand, st == GUN_ANIM_STATE_TRIGGER_PRESS || st == GUN_ANIM_STATE_FIRE
                 || st == GUN_ANIM_STATE_RECOIL1 || st == GUN_ANIM_STATE_RECOIL2,
                 handptr->weapon_firing_status != 0);
+        /* GE-X's remote mines: the off hand's trigger detonated them (gun.c) */
+        if (hand == GUNRIGHT)
+        {
+            extern void gevrGexDetonateTick(void);
+
+            gevrGexDetonateTick();
+        }
+        /* GE-X's fist punches with its own clips (gun.c): GoldenEye's keyframed swing stands down */
+        if (gevrGexHeld(hand) && gevrGexWeaponForHand(hand)->fireAnimAlt > 0)
+        {
+            handptr->field_92C = 0;
+        }
         /* a rig without a reload clip (the grenade launcher) keeps GoldenEye's tilt */
         if (gevrGexHeld(hand) && gevrReloadPhase(hand) >= 0.0f && gevrGexWeaponForHand(hand)->reload.anim > 0)
         {

@@ -99,7 +99,9 @@ extern float *gevrGexHeldMagFit(s32 item);
 extern float VrGexKf7WellOff[3], VrGexPp7WellOff[3];
 extern float *gevrGexWellFit(s32 item);
 extern void gevrReloadFitSetWell(void);
-extern int VrGexArms;                     /* vr_settings_defaults.c: GE-X's arms in the headset */
+extern int VrGexGuns;                     /* vr_settings_defaults.c: GoldenEye X's models */
+extern s32 gevrGexMineDetonates(void);    /* gun.c: GE-X's remote mines, detonated from the watch */
+extern void gevrGexDetonateRequest(void);
 
 /* Gun fit's values as last saved, which B goes back to: both models' sets */
 static struct {
@@ -1375,7 +1377,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     mtrim[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     mtrim[2] += my * rate * dt;
                     mtrim[1] += ry * rate * dt;
-                } else if (gevrStereoTwoHandGrip() && gex && VrGexArms) {
+                } else if (gevrStereoTwoHandGrip() && gex && VrGexGuns) {
                     /* GoldenEye X's own left hand holds it (gun.c): where, cm forward,
                      * up and out along the gun (user: the hold was taken too near the
                      * magazine); the hold is taken there too */
@@ -1459,12 +1461,22 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // gives each gun its own trigger (gevrVrTriggerDown).
         gevrVrTriggerDown[0] = get_button_state(1, "trigger");   /* GUNRIGHT */
         gevrVrTriggerDown[1] = get_button_state(0, "trigger");   /* GUNLEFT */
+        /* GE-X's remote mines (gun.c): the off hand's trigger detonates them, on
+         * the screen and in the headset, instead of aiming or firing */
+        {
+            static bool detonateWas;
+            const bool detonate = !menu && gevrGexMineDetonates() && get_button_state(0, "trigger");
+
+            if (detonate && !detonateWas) gevrGexDetonateRequest();
+            detonateWas = detonate;
+            if (detonate || gevrGexMineDetonates()) gevrVrTriggerDown[1] = 0;
+        }
         if (stereoplay && gevrDualWielding()) {
             if (gevrVrTriggerDown[0] || gevrVrTriggerDown[1]) npad->button |= Z_TRIG;
         } else if (stereoplay) {
             if (get_button_state(1, "trigger")) npad->button |= Z_TRIG;
-            if (get_button_state(0, "trigger")) npad->button |= R_TRIG;
-        } else if (get_button_state(1, "trigger") || get_button_state(0, "trigger")) {
+            if (get_button_state(0, "trigger") && !gevrGexMineDetonates()) npad->button |= R_TRIG;
+        } else if (get_button_state(1, "trigger") || (get_button_state(0, "trigger") && !gevrGexMineDetonates())) {
             npad->button |= Z_TRIG;
         }
         if (get_button_state(1, "a")) npad->button |= A_BUTTON;
