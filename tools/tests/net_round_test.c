@@ -95,8 +95,10 @@ static void session(void) {
 
 static void test_round_flow(void) {
     session();
-    netReadyProgress(); assert(netCountdownSecondsLeft() == 0); /* no clock from slot 1 yet */
-    clock_sync(); netReadyProgress();
+    /* Ready alone keeps warmup going; the host's START (or warmup's end) asks for the round. */
+    netReadyProgress(); assert(netCountdownSecondsLeft() == 0 && s_phase == NET_PHASE_WARMUP);
+    netHostStartRoundNow(); assert(netCountdownSecondsLeft() == 0); /* no clock from slot 1 yet */
+    clock_sync(); still_sending(); netRoundTick();
     assert(netCountdownSecondsLeft() == 10 && resets == 0);
     test_now += 9999999; still_sending(); netRoundTick(); assert(resets == 0);
     test_now++; still_sending(); netRoundTick(); assert(resets == 1 && netTakeRoundReset());
@@ -106,21 +108,26 @@ static void test_round_flow(void) {
     stage_reloaded(); netReadyProgress(); assert(s_phase == NET_PHASE_IN_PROGRESS && starts == 1);
     netHostRoundEnded(); u64 deadline = s_results_deadline_us;
     netHostRoundEnded(); assert(s_results_deadline_us == deadline);
-    test_now = deadline-1; still_sending(); netRoundTick(); assert(!s_next_round_at_us);
-    test_now++; still_sending(); netRoundTick(); assert(netCountdownSecondsLeft() == 20 && resets == 1);
-    u64 end = s_next_round_at_us; netHostContinue(); assert(s_next_round_at_us == end);
+    /* The results show for 30 s. The players vote and ready up for the next match meanwhile. */
     s_vote[NET_BALLOT_STAGE][1] = 1;
     s_vote[NET_BALLOT_WEAPONS][1] = 5;
-    test_now = end-1; still_sending(); netRoundTick(); assert(s_round.config.stage == 27);
-    test_now++; still_sending(); netRoundTick(); assert(resets == 2 && s_round.config.stage == 31 && s_round.config.weapon_set == 5);
     s_lobby_state.slots[0].ready = s_lobby_state.slots[1].ready = 1;
-    stage_reloaded(); netReadyProgress(); assert(starts == 2);
-    netHostReturnToLobby(); assert(resets == 3 && s_lobby_open && s_round.config.stage == 31);
+    test_now = deadline-1; still_sending(); netRoundTick(); assert(!s_next_round_at_us && resets == 1 && s_round.config.stage == 27);
+    /* At the deadline the voted map loads into warmup; no countdown yet. */
+    test_now++; clock_sync(); still_sending(); netRoundTick();   /* the host's 2 s probe keeps the clock fresh */
+    assert(resets == 2); assert(!s_next_round_at_us); assert(s_round.config.stage == 31); assert(s_round.config.weapon_set == 5);
+    stage_reloaded(); netReadyProgress(); assert(s_phase == NET_PHASE_WARMUP && starts == 1);
+    /* START: ten seconds, then the reload that begins the match. */
+    netHostStartRoundNow(); assert(netCountdownSecondsLeft() == 10 && resets == 2);
+    u64 end = s_next_round_at_us;
+    test_now = end; clock_sync(); still_sending(); netRoundTick(); assert(resets == 3);
+    stage_reloaded(); netReadyProgress(); assert(s_phase == NET_PHASE_IN_PROGRESS && starts == 2);
+    netHostReturnToLobby(); assert(resets == 4 && s_lobby_open && s_round.config.stage == 31);
     s_lobby_state.slots[0].ready = s_lobby_state.slots[1].ready = 1;
     stage_reloaded(); netReadyProgress(); netReadyProgress(); assert(!s_next_round_at_us && starts == 2);
     netHostStartRoundNow(); assert(netCountdownSecondsLeft() == 10);
     s_local_slot = 1; end = s_next_round_at_us; netHostReturnToLobby();
-    assert(s_next_round_at_us == end && resets == 3); /* client cannot control rounds */
+    assert(s_next_round_at_us == end && resets == 4); /* client cannot control rounds */
 }
 
 static void test_settings_and_wire(void) {
