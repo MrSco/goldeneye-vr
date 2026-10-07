@@ -4313,6 +4313,7 @@ extern int gevrOffHandFitting; /* port/src/input.c: Gun fit is moving GE-X's off
 extern int gevrHeldMagFitting; /* port/src/input.c: magazine mesh only */
 extern int gevrInstalledMagFitting; /* port/src/input.c: visible magazine in the gun */
 extern int gevrWellFitting; /* port/src/input.c: insertion target only */
+extern int gevrGunHandFitting; /* vr_settings_defaults.c / input.c: GE-X's own gun hand on the gun */
 s32 gevrReloadFitAvailable(void);
 void gevrReloadFitDistances(f32 *grab, f32 *belt);
 
@@ -14912,15 +14913,17 @@ static void gevrItemLabel(s32 item, char *label, s32 size)
 /* X's next fit, in the same order as input.c. */
 static const char *gevrFitNextLine(s32 from)
 {
-    static const char *const lines[8] = { "X: FIT THE GUN\n", "X: FIT THE SCOPE\n", "X: FIT THE RELOAD\n",
-        "X: FIT THE OFF HAND\n", "X: FIT THE HELD AMMO\n", "X: FIT THE AMMO INSERTION\n", "X: FIT THE INSTALLED MAGAZINE\n", "X: FIT THE BARREL TIP\n" };
-    const s32 can[8] = { TRUE, gevrScopeFitIndex() >= 0, gevrReloadFitAvailable(), gevrGexHeld(GUNRIGHT),
-        gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable() };
+    static const char *const lines[9] = { "X: FIT THE GUN\n", "X: FIT THE SCOPE\n", "X: FIT THE RELOAD\n",
+        "X: FIT THE OFF HAND\n", "X: FIT THE HELD AMMO\n", "X: FIT THE AMMO INSERTION\n", "X: FIT THE INSTALLED MAGAZINE\n", "X: FIT THE BARREL TIP\n",
+        "X: FIT THE GUN HAND\n" };
+    const s32 can[9] = { TRUE, gevrScopeFitIndex() >= 0, gevrReloadFitAvailable(), gevrGexHeld(GUNRIGHT),
+        gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable(),
+        gevrGexHeld(GUNRIGHT) };
     s32 k = from;
 
     do
     {
-        k = (k + 1) % 8;
+        k = (k + 1) % 9;
     } while (!can[k]);
     return k == from ? "" : lines[k];
 }
@@ -15017,6 +15020,16 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         snprintf(buf, sizeof(buf),
                  "SCOPE FIT: %s%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nWIDER %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  label, gex, -s[2], s[0], s[1], s[3], gevrFitNextLine(1));
+    }
+    else if (gevrGunHandFitting && gevrGexHeld(GUNRIGHT))
+    {
+        /* GE-X's own gun hand on the gun (input.c; gun.c gevrGexHandFitTo) */
+        const float *h = gevrGexHandFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        const float *r = gevrGexHandRotFit(getCurrentPlayerWeaponId(GUNRIGHT));
+
+        snprintf(buf, sizeof(buf),
+                 "GUN HAND FIT%s\nTHE HAND ON THE GUN'S GRIP\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nPITCH %.0f  YAW %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD GUN HAND GRIP: STICKS TURN IT\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -h[2], h[0], h[1], r[0], r[1], r[2], gevrFitNextLine(8));
     }
     else if (gevrMuzzleFitting)
     {

@@ -82,6 +82,7 @@ int gevrHeldMagFitting;                   /* Gun fit moves the magazine independ
 int gevrInstalledMagFitting;                /* visible magazine in the gun, independently of reload targets */
 int gevrWellFitting;                      /* Gun fit moves the magazine-well insertion target */
 extern int gevrMuzzleFitting;                 /* Gun fit is moving barrel tip (X), for bondview2.c */
+extern int gevrGunHandFitting;                /* Gun fit is moving GE-X's own gun hand on the gun (X) */
 extern s32 gevrReloadFitAvailable(void);  /* bondview2.c */
 extern void gevrReloadFitSetGrab(void);
 extern void gevrReloadFitSetBelt(void);
@@ -109,8 +110,9 @@ static struct {
     float kf7Mag[3], pp7Mag[3];
     float pp7SupportRot[3];
     float kf7Well[3], pp7Well[3];
-    float weaponFits[64][7][3];
+    float weaponFits[64][9][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
 } s_gunFitSaved;
+_Static_assert(sizeof(s_gunFitSaved.weaponFits) == sizeof(VrGexWeaponFits), "fit snapshot matches the fits");
 
 static void gevrGunFitSaved(bool restore)
 {
@@ -1221,6 +1223,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (!gex || !gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT))) gevrWellFitting = 0;
             if (!gex || !gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT))) gevrInstalledMagFitting = 0;
             if (!fitting || !gevrMuzzleFitAvailable()) gevrMuzzleFitting = 0;
+            if (!gex) gevrGunHandFitting = 0;
             if (fitting && !fitWas) {
                 gevrGunFitSaved(false);
                 gevrGadgetFitBegin();
@@ -1238,17 +1241,19 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 float ry = fabsf(right.y) < dz ? 0.0f : right.y;
                 float rx = fabsf(right.x) < dz ? 0.0f : right.x;
                 const s32 gadget = gevrGadgetFitItem();
-                /* X: gun, scope, reload places, off hand, held magazine, well, installed magazine, barrel tip
-                 * (bondview2.c gevrFitNextLine says which is next) */
+                /* X: gun, scope, reload places, off hand, held magazine, well, installed magazine, barrel tip,
+                 * GE-X's gun hand (bondview2.c gevrFitNextLine says which is next) */
                 const bool x = get_button_state(0, "x");
                 if (x && !xHeld && gadget < 0) {
-                    static const char *const names[8] = { "gun", "scope", "reload", "off hand", "held magazine", "magazine well", "installed magazine", "barrel tip" };
-                    const bool can[8] = { true, scope >= 0, gevrReloadFitAvailable() != 0, gex != 0,
-                        gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable() != 0 };
+                    static const char *const names[9] = { "gun", "scope", "reload", "off hand", "held magazine", "magazine well", "installed magazine", "barrel tip", "gun hand" };
+                    const bool can[9] = { true, scope >= 0, gevrReloadFitAvailable() != 0, gex != 0,
+                        gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable() != 0,
+                        gex != 0 };
                     int mode = gevrScopeFitting ? 1 : gevrReloadFitting ? 2 : gevrOffHandFitting ? 3
-                        : gevrHeldMagFitting ? 4 : gevrWellFitting ? 5 : gevrInstalledMagFitting ? 6 : gevrMuzzleFitting ? 7 : 0;
+                        : gevrHeldMagFitting ? 4 : gevrWellFitting ? 5 : gevrInstalledMagFitting ? 6 : gevrMuzzleFitting ? 7
+                        : gevrGunHandFitting ? 8 : 0;
                     do {
-                        mode = (mode + 1) % 8;
+                        mode = (mode + 1) % 9;
                     } while (!can[mode]);
                     gevrScopeFitting = mode == 1;
                     gevrReloadFitting = mode == 2;
@@ -1257,6 +1262,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     gevrWellFitting = mode == 5;
                     gevrInstalledMagFitting = mode == 6;
                     gevrMuzzleFitting = mode == 7;
+                    gevrGunHandFitting = mode == 8;
                     LOGI("input: gun fit on the %s\n", names[mode]);
                 }
                 xHeld = x;
@@ -1281,6 +1287,21 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     }
                 } else if (gevrReloadFitting) {
                     /* the places are shown with the off hand (above): the sticks rest */
+                } else if (gevrGunHandFitting) {
+                    /* GE-X's own gun hand on the gun (user: the grenade launcher's hand
+                     * missed its grip): the sticks move it, as the gun on its hand;
+                     * holding the gun hand's grip they turn it about its palm */
+                    if (get_button_state(1, "grip")) {
+                        float *r = gevrGexHandRotFit(fitItem);
+                        r[0] += my * 45.0f * dt;
+                        r[1] += ry * 45.0f * dt;
+                        r[2] += mx * 45.0f * dt;
+                    } else {
+                        float *h = gevrGexHandFit(fitItem);
+                        h[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
+                        h[2] -= my * rate * dt;
+                        h[1] += ry * rate * dt;
+                    }
                 } else if (gevrInstalledMagFitting) {
                     float *fit = gevrGexInstalledMagFit(fitItem);
                     fit[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
@@ -1392,7 +1413,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 left.x = left.y = right.x = right.y = 0.0f;
             }
             if (fitWas && !fitting) gevrGadgetFitEnd(-1);   /* paused, put away or switched off: the edits stay, unsaved */
-            if (!fitting) gevrScopeFitting = gevrOffHandFitting = gevrHeldMagFitting = gevrWellFitting = gevrInstalledMagFitting = gevrMuzzleFitting = 0;
+            if (!fitting) gevrScopeFitting = gevrOffHandFitting = gevrHeldMagFitting = gevrWellFitting = gevrInstalledMagFitting = gevrMuzzleFitting = gevrGunHandFitting = 0;
             fitWas = fitting;
             /* 1 fitting; 2 on in a level with nothing that fits in hand (bondview2.c says so) */
             gevrGunFitActive = fitting ? 1 : (VrGunFitArmed && !menu && g_gevrStereo) ? 2 : 0;

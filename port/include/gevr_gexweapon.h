@@ -77,7 +77,9 @@ void gevrGexMagazineReady(s32 hand);
 void gevrGexReloadReset(s32 hand);
 /* Fits are per model family. Legacy KF7/PP7 keys remain valid;
  * D5K and its silenced variant share their fit storage. */
-extern float VrGexWeaponFits[64][7][3]; /* gun, grab, support, rotation, held mag, well, installed mesh */
+/* gun, grab, support, rotation, held mag, well, installed mesh, gun hand, gun hand rotation */
+#define GEVR_GEX_FIT_COMPONENTS 9
+extern float VrGexWeaponFits[64][GEVR_GEX_FIT_COMPONENTS][3];
 float *gevrGexSupportRotFit(s32 item);
 float *gevrGexSupportFit(s32 item);
 float *gevrGexGrabFit(s32 item);
@@ -85,6 +87,9 @@ float *gevrGexGunFit(s32 item);
 float *gevrGexHeldMagFit(s32 item);
 float *gevrGexWellFit(s32 item);
 float *gevrGexInstalledMagFit(s32 item);
+/* Gun fit's Gun hand: GE-X's own right hand on the gun (cm right, up, back; degrees) */
+float *gevrGexHandFit(s32 item);
+float *gevrGexHandRotFit(s32 item);
 
 #ifdef __cplusplus
 }

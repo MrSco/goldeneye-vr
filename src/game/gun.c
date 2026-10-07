@@ -1427,10 +1427,18 @@ static void gevrGexPoseFrom(ModelFileHeader *hdr, Mtxf *rwmtx, s32 anchored, s32
 }
 
 /* gunfire.c, the watch's weapon pages: at rest, where GoldenEye's KF7 shows */
+static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx);   /* below */
+
 void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
 {
+    const GexWeaponDef *def = gevrGexForHeader(hdr);
+
     gevrGexShowMagazines(hdr, model, TRUE, FALSE);
-    gevrGexPoseFrom(hdr, rwmtx, TRUE, gevrGexRestAnim(gevrGexForHeader(hdr)), 0.0f);
+    gevrGexPoseFrom(hdr, rwmtx, TRUE, gevrGexRestAnim(def), 0.0f);
+    if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64)
+    {
+        gevrGexHandFitTo(def, rwmtx);
+    }
 }
 
 /*
@@ -1563,6 +1571,72 @@ static void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3])
     for (i = 0; i < 3; i++)
     {
         out[i] = local[0] * m->m[0][i] + local[1] * m->m[1][i] + local[2] * m->m[2][i] + m->m[3][i];
+    }
+}
+
+/*
+ * Gun fit's Gun hand: GE-X's own right hand (joints 1..16) moved on the gun
+ * (cm right, up, back) and turned about its palm (degrees pitch, yaw, roll, in
+ * the gun's frame). A rig borrowed from another gun poses its hand at that
+ * gun's grip (user: the grenade launcher's, built on the Cougar's, missed its
+ * own). The gun matrix carries the gun's size, so its axes are normalised to
+ * turn the joints' rows rather than inverted.
+ */
+static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx)
+{
+    const f32 *pos = gevrGexHandFit(def->item);
+    const f32 *rot = gevrGexHandRotFit(def->item);
+    const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+    const Mtxf *gun = &rwmtx[def->gunMatrix];
+    struct coord3d angles;
+    Mtxf turn;
+    f32 ax[3][3], palm[3], d[3], v[3], g[3], t[3];
+    s32 i, j, k, r;
+
+    if (pos[0] == 0.0f && pos[1] == 0.0f && pos[2] == 0.0f && rot[0] == 0.0f && rot[1] == 0.0f && rot[2] == 0.0f)
+    {
+        return;
+    }
+    for (k = 0; k < 3; k++)
+    {
+        f32 len = sqrtf(gun->m[k][0] * gun->m[k][0] + gun->m[k][1] * gun->m[k][1] + gun->m[k][2] * gun->m[k][2]);
+
+        for (i = 0; i < 3; i++)
+        {
+            ax[k][i] = len > 1e-9f ? gun->m[k][i] / len : 0.0f;
+        }
+    }
+    for (i = 0; i < 3; i++)
+    {
+        d[i] = (-pos[0] * gun->m[0][i] + pos[1] * gun->m[1][i] - pos[2] * gun->m[2][i]) / 0.085f;
+        angles.f[i] = rot[i] * (M_PI / 180.0f);
+    }
+    matrix_4x4_set_rotation_around_xyz(&angles, &turn);
+    gevrGexMtxPoint(&rwmtx[GEVR_GEX_RHAND_WRIST], palmLocal, palm);
+    for (j = GEVR_GEX_RHAND_ARM; j < GEVR_GEX_LHAND_FIRST; j++)
+    {
+        /* rows 0..2 its axes, row 3 its place about the palm: into the gun's
+         * frame, turned there, and back */
+        for (r = 0; r < 4; r++)
+        {
+            for (i = 0; i < 3; i++)
+            {
+                v[i] = r == 3 ? rwmtx[j].m[3][i] - palm[i] : rwmtx[j].m[r][i];
+            }
+            for (k = 0; k < 3; k++)
+            {
+                g[k] = v[0] * ax[k][0] + v[1] * ax[k][1] + v[2] * ax[k][2];
+            }
+            for (i = 0; i < 3; i++)
+            {
+                t[i] = g[0] * turn.m[0][i] + g[1] * turn.m[1][i] + g[2] * turn.m[2][i];
+            }
+            for (i = 0; i < 3; i++)
+            {
+                v[i] = t[0] * ax[0][i] + t[1] * ax[1][i] + t[2] * ax[2][i];
+                rwmtx[j].m[r][i] = r == 3 ? palm[i] + v[i] + d[i] : v[i];
+            }
+        }
     }
 }
 
@@ -2230,6 +2304,10 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         gevrGexPoseReady(hdr, rwmtx, s_gevrGexReadyFrame[p][hand]);
     if (g_gevrStereo && offHolds && gevrGexOpensWhileHeld(def))
         gevrGexPoseReady(hdr,rwmtx,def->holdFrame);
+    if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64)
+    {
+        gevrGexHandFitTo(def, rwmtx);   /* before the support point is taken from this hand */
+    }
     if (g_gevrStereo && hand == GUNRIGHT && hdr->numMatrices > def->gunMatrix)
     {
         gevrGexForeFrom(rwmtx);   /* before a magazine in the hand moves the left hand */
