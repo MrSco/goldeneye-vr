@@ -37,7 +37,7 @@ HARNESS=r'''
 float VrReloadGrab[2][3], VrGexForeHold[3], VrGexPp7Grab[3], VrGexPp7Support[3];
 float VrGexGunOff[3], VrGexPp7GunOff[3];
 float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
-float VrGexPp7SupportRot[3], VrGexWeaponFits[64][9][3];
+float VrGexPp7SupportRot[3], VrGexWeaponFits[64][10][3];
 float VrGexKf7WellOff[3],VrGexPp7WellOff[3];
 static int gevrScopeFitting,gevrReloadFitting,gevrOffHandFitting,gevrHeldMagFitting,gevrMuzzleFitting,gevrGunHandFitting;
 static int gevrWellFitting,gevrInstalledMagFitting;
@@ -498,6 +498,33 @@ int main(int argc,char **argv) {
         f32 *h=gevrGexHandFit(active->item),*rt=gevrGexHandRotFit(active->item),keep[6];
         const f32 palmL[3]={0,0,GEVR_GEX_PALM_Z};
         memcpy(keep,h,3*sizeof(f32)); memcpy(keep+3,rt,3*sizeof(f32));
+        f32 *sz=gevrGexItemSizeFit(active->item),keepSize=sz[0];
+        if (gevrGexIsHandHeld(active)) for (int mirror=0;mirror<2;mirror++) {
+            /* a knife, grenade or mine: the item moves, turns and sizes about its
+             * own origin; both hands stay on their controllers */
+            Mtxf base2,before[64],after[64]; f32 ex[3];
+            matrix_4x4_set_identity(&base2);
+            base2.m[0][0]=(mirror?-1:1)*0.05f; base2.m[1][1]=base2.m[2][2]=0.05f;
+            base2.m[3][0]=7; base2.m[3][1]=-3; base2.m[3][2]=11;
+            gevrGexPoseWalk(&hdr,&base2,gevrGexRestAnim(active),0,before);
+            memcpy(after,before,sizeof(after)); memset(h,0,3*sizeof(f32)); memset(rt,0,3*sizeof(f32)); sz[0]=0;
+            gevrGexHandFitTo(active,after,matrices); assert(!memcmp(after,before,sizeof(after)));
+            h[0]=1; h[1]=2; h[2]=3; gevrGexHandFitTo(active,after,matrices);
+            for (int a=0;a<3;a++) ex[a]=(-1*before[33].m[0][a]+2*before[33].m[1][a]-3*before[33].m[2][a])/0.085f;
+            for (int j=active->gunMatrix;j<matrices;j++) for (int a=0;a<3;a++) assert(fabsf(after[j].m[3][a]-before[j].m[3][a]-ex[a])<0.01f);
+            for (int j=0;j<active->gunMatrix;j++) assert(!memcmp(&after[j],&before[j],sizeof(Mtxf)));
+            memcpy(after,before,sizeof(after)); memset(h,0,3*sizeof(f32)); rt[0]=20; rt[1]=-35; rt[2]=10; sz[0]=0.5f;
+            gevrGexHandFitTo(active,after,matrices);
+            for (int a=0;a<3;a++) assert(fabsf(after[active->gunMatrix].m[3][a]-before[active->gunMatrix].m[3][a])<0.01f);
+            for (int j=active->gunMatrix;j<matrices;j++) for (int r=0;r<3;r++) {
+                f32 la=0,lb=0; for (int a=0;a<3;a++) { la+=before[j].m[r][a]*before[j].m[r][a]; lb+=after[j].m[r][a]*after[j].m[r][a]; }
+                assert(fabsf(sqrtf(lb)-1.5f*sqrtf(la))<1e-4f);
+            }
+            for (int j=0;j<active->gunMatrix;j++) assert(!memcmp(&after[j],&before[j],sizeof(Mtxf)));
+            memcpy(after,before,sizeof(after)); memset(rt,0,3*sizeof(f32)); sz[0]=-0.95f;   /* never collapsed by a fit */
+            gevrGexHandFitTo(active,after,matrices); assert(!memcmp(after,before,sizeof(after)));
+        }
+        else
         for (int mirror=0;mirror<2;mirror++) {
             Mtxf base2,before[64],after[64]; f32 p0[3],p1[3],ex[3];
             matrix_4x4_set_identity(&base2);
@@ -505,14 +532,14 @@ int main(int argc,char **argv) {
             base2.m[3][0]=7; base2.m[3][1]=-3; base2.m[3][2]=11;
             gevrGexPoseWalk(&hdr,&base2,gevrGexRestAnim(active),0,before);
             memcpy(after,before,sizeof(after)); memset(h,0,3*sizeof(f32)); memset(rt,0,3*sizeof(f32));
-            gevrGexHandFitTo(active,after); assert(!memcmp(after,before,sizeof(after)));
-            h[0]=1; h[1]=2; h[2]=3; gevrGexHandFitTo(active,after);
+            gevrGexHandFitTo(active,after,matrices); assert(!memcmp(after,before,sizeof(after)));
+            h[0]=1; h[1]=2; h[2]=3; gevrGexHandFitTo(active,after,matrices);
             gevrGexMtxPoint(&before[GEVR_GEX_RHAND_WRIST],palmL,p0); gevrGexMtxPoint(&after[GEVR_GEX_RHAND_WRIST],palmL,p1);
             for (int a=0;a<3;a++) ex[a]=(-1*before[33].m[0][a]+2*before[33].m[1][a]-3*before[33].m[2][a])/0.085f;
             for (int a=0;a<3;a++) assert(fabsf(p1[a]-p0[a]-ex[a])<0.01f);
             for (int j=GEVR_GEX_LHAND_FIRST;j<matrices-1;j++) assert(!memcmp(&after[j],&before[j],sizeof(Mtxf)));
             memcpy(after,before,sizeof(after)); memset(h,0,3*sizeof(f32)); rt[0]=20; rt[1]=-35; rt[2]=10;
-            gevrGexHandFitTo(active,after);
+            gevrGexHandFitTo(active,after,matrices);
             gevrGexMtxPoint(&after[GEVR_GEX_RHAND_WRIST],palmL,p1);
             for (int a=0;a<3;a++) assert(fabsf(p1[a]-p0[a])<0.01f);
             f32 moved=0;
@@ -531,7 +558,7 @@ int main(int argc,char **argv) {
             assert(moved>0.1f);
             for (int j=GEVR_GEX_LHAND_FIRST;j<matrices-1;j++) assert(!memcmp(&after[j],&before[j],sizeof(Mtxf)));
         }
-        memcpy(h,keep,3*sizeof(f32)); memcpy(rt,keep+3,3*sizeof(f32));
+        memcpy(h,keep,3*sizeof(f32)); memcpy(rt,keep+3,3*sizeof(f32)); sz[0]=keepSize;
     }
     if (active->payloadProp>0) {
         /* The grenade launcher: no clip of its own, the hand posed by the
@@ -604,7 +631,9 @@ production.extend(function(gun,s) for s in ("static void gevrGexMtxPoint(", "sta
     "static void gevrGexPistolMagGrip(", "static s32 gevrGexOffSteady("))
 production.extend(function(gun,s) for s in ("static void gevrGexHeldMagFitTo(", "static void gevrGexPistolSupportPose("))
 production.append(function(gun,"static void gevrGexForeFrom("))
-production.append(function(gun,"static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx)\n{"))
+production.append(function(gun,"static s32 gevrGexIsHandHeld("))
+production.append(function(gun,"s32 gevrGexHandHeld(s32 hand)"))
+production.append(function(gun,"static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices)\n{"))
 production.extend(function(gun,s) for s in ("static void gevrGexInstalledMagFitTo(", "static s32 gevrGexInstalledMagazineFitting(", "static s32 gevrGexMagazineFitting("))
 production.extend(function(gun,s) for s in ("static s32 gevrGexOffHandConsumed(", "static void gevrGexWellPoint(", "void gevrReloadFitSetWell("))
 view=(ROOT/"src/game/bondview2.c").read_text()

@@ -528,3 +528,4 @@ float *gevrGexGrabFit(s32 item) { return pp7(item) ? VrGexPp7Grab : item == ITEM
 float *gevrGexInstalledMagFit(s32 item) { return VrGexWeaponFits[pp7(item) ? ITEM_WPPK : fitItem(item)][6]; }
 float *gevrGexHandFit(s32 item) { return VrGexWeaponFits[pp7(item) ? ITEM_WPPK : fitItem(item)][7]; }
 float *gevrGexHandRotFit(s32 item) { return VrGexWeaponFits[pp7(item) ? ITEM_WPPK : fitItem(item)][8]; }
+float *gevrGexItemSizeFit(s32 item) { return VrGexWeaponFits[pp7(item) ? ITEM_WPPK : fitItem(item)][9]; }

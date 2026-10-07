@@ -272,8 +272,8 @@ extern "C" void vrSettingsSave(void)
         /* Do not write zero overrides for models implemented by future builds. */
         /* 5, 20 and 21 share the PP7's (item 4's) fits; 11 the D5K's (10); 3 the knife's (2) */
         if (!gevrGexWeaponGet(item) || item == 3 || item == 5 || item == 11 || item == 20 || item == 21) continue;
-        /* item 4's 0..5 are the legacy GexPP7* keys; 7 and 8 are the gun hand */
-        for (int component=(item == 4 ? 6 : 0); component<9; component++) {
+        /* item 4's 0..5 are the legacy GexPP7* keys; 7 and 8 the gun hand (or item), 9 item size */
+        for (int component=(item == 4 ? 6 : 0); component<10; component++) {
             const float *v=VrGexWeaponFits[item][component];
             fprintf(f, "GexFit%d_%d=%.4f %.4f %.4f\n", item, component, v[0], v[1], v[2]);
         }
@@ -415,7 +415,7 @@ extern "C" void vrSettingsLoad(void)
         if (strncmp(line, "GexFit", 6) == 0) {
             int item, component, consumed=0; float t[3];
             if (sscanf(line, "GexFit%d_%d=%n", &item, &component, &consumed) == 2 && consumed > 0
-                && item >= 0 && item < 64 && component >= 0 && component < 9
+                && item >= 0 && item < 64 && component >= 0 && component < 10
                 && sscanf(line+consumed, "%f %f %f", &t[0], &t[1], &t[2]) == 3
                 && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2]))
                 memcpy(VrGexWeaponFits[item][component], t, sizeof(t));

@@ -1104,6 +1104,18 @@ s32 gevrGexDrawsItem(s32 item)
     return gevrGexShowsItem(GUNRIGHT, item) || gevrGexShowsItem(GUNLEFT, item);
 }
 
+/* a GE-X item the hand simply holds - knife, grenade, mine: no ammo payload, no
+ * fire clip. In the headset the player's own hand swings and throws it. */
+static s32 gevrGexIsHandHeld(const GexWeaponDef *def)
+{
+    return def != NULL && def->magMatrix < 0 && def->fireAnim == 0;
+}
+
+s32 gevrGexHandHeld(s32 hand)
+{
+    return gevrGexIsHandHeld(gevrGexWeaponForHand(hand));
+}
+
 /* a single-use item (throwable) that has left the hand: GoldenEye hid the
  * whole model; GE-X's hides the item alone and keeps the hand */
 static s32 gevrGexItemSpent(const GexWeaponDef *def, GUNHAND hand)
@@ -1468,7 +1480,7 @@ static void gevrGexPoseFrom(ModelFileHeader *hdr, Mtxf *rwmtx, s32 anchored, s32
 }
 
 /* gunfire.c, the watch's weapon pages: at rest, where GoldenEye's KF7 shows */
-static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx);   /* below */
+static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices);   /* below */
 
 void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
 {
@@ -1478,7 +1490,7 @@ void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
     gevrGexPoseFrom(hdr, rwmtx, TRUE, gevrGexRestAnim(def), 0.0f);
     if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64)
     {
-        gevrGexHandFitTo(def, rwmtx);
+        gevrGexHandFitTo(def, rwmtx, hdr->numMatrices);
     }
 }
 
@@ -1623,20 +1635,33 @@ static void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3])
  * own). The gun matrix carries the gun's size, so its axes are normalised to
  * turn the joints' rows rather than inverted.
  */
-static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx)
+static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices)
 {
     const f32 *pos = gevrGexHandFit(def->item);
     const f32 *rot = gevrGexHandRotFit(def->item);
     const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
-    const Mtxf *gun = &rwmtx[def->gunMatrix];
+    /* a hand-held item (knife, grenade, mine): the item moves, turns and is
+     * sized about its own origin in the hand, the hand staying on the
+     * controller (user: fit the grenade's size and place in the hand) */
+    const s32 item = gevrGexIsHandHeld(def);
+    const f32 size = item ? 1.0f + gevrGexItemSizeFit(def->item)[0] : 1.0f;
+    const s32 first = item ? def->gunMatrix : GEVR_GEX_RHAND_ARM;
+    const s32 last = item ? numMatrices : GEVR_GEX_LHAND_FIRST;
+    Mtxf gunAt = rwmtx[def->gunMatrix];
+    const Mtxf *gun = &gunAt;
     struct coord3d angles;
     Mtxf turn;
     f32 ax[3][3], palm[3], d[3], v[3], g[3], t[3];
     s32 i, j, k, r;
 
-    if (pos[0] == 0.0f && pos[1] == 0.0f && pos[2] == 0.0f && rot[0] == 0.0f && rot[1] == 0.0f && rot[2] == 0.0f)
+    if (pos[0] == 0.0f && pos[1] == 0.0f && pos[2] == 0.0f && rot[0] == 0.0f && rot[1] == 0.0f && rot[2] == 0.0f
+        && size == 1.0f)
     {
         return;
+    }
+    if (size < 0.1f)
+    {
+        return;   /* never collapse it from a fit */
     }
     for (k = 0; k < 3; k++)
     {
@@ -1653,16 +1678,23 @@ static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx)
         angles.f[i] = rot[i] * (M_PI / 180.0f);
     }
     matrix_4x4_set_rotation_around_xyz(&angles, &turn);
-    gevrGexMtxPoint(&rwmtx[GEVR_GEX_RHAND_WRIST], palmLocal, palm);
-    for (j = GEVR_GEX_RHAND_ARM; j < GEVR_GEX_LHAND_FIRST; j++)
+    if (item)
     {
-        /* rows 0..2 its axes, row 3 its place about the palm: into the gun's
-         * frame, turned there, and back */
+        for (i = 0; i < 3; i++) palm[i] = gunAt.m[3][i];   /* the item's own origin */
+    }
+    else
+    {
+        gevrGexMtxPoint(&rwmtx[GEVR_GEX_RHAND_WRIST], palmLocal, palm);
+    }
+    for (j = first; j < last && j < 64; j++)
+    {
+        /* rows 0..2 its axes, row 3 its place about the pivot: into the gun's
+         * frame, turned (and sized) there, and back */
         for (r = 0; r < 4; r++)
         {
             for (i = 0; i < 3; i++)
             {
-                v[i] = r == 3 ? rwmtx[j].m[3][i] - palm[i] : rwmtx[j].m[r][i];
+                v[i] = (r == 3 ? rwmtx[j].m[3][i] - palm[i] : rwmtx[j].m[r][i]) * size;
             }
             for (k = 0; k < 3; k++)
             {
@@ -2348,7 +2380,7 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         gevrGexPoseReady(hdr,rwmtx,def->holdFrame);
     if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64)
     {
-        gevrGexHandFitTo(def, rwmtx);   /* before the support point is taken from this hand */
+        gevrGexHandFitTo(def, rwmtx, hdr->numMatrices);   /* before the support point is taken from this hand */
     }
     if (g_gevrStereo && hand == GUNRIGHT && hdr->numMatrices > def->gunMatrix)
     {
