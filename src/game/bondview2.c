@@ -1084,6 +1084,7 @@ void gevrStereoFrame(s32 inlevel)
 
 static f32 s_gevrTwoHandAmt;   /* issue #35: the two-handed hold, eased 0..1 (gevrStereoTwoHandUpdate) */
 static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3]);
+static s32 gevrCoopTankTaken(struct PropRecord *prop);   /* a teammate drives this tank (co-op) */
 f32 gevrScopeMagnification(void);
 
 static s32 gevrGripAxesRaw(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
@@ -10690,7 +10691,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         else if (g_PlayerTankProp != NULL
             && g_PlayerTankProp->type == PROP_TYPE_OBJ
             && g_PlayerTankProp->obj->type == PROPDEF_TANK
-            && g_BondCanEnterTank)
+            && g_BondCanEnterTank
+#ifdef GEVR
+            && !gevrCoopTankTaken(g_PlayerTankProp)
+#endif
+            )
         {
             spEC = (struct TankRecord *)g_PlayerTankProp->obj;
 
@@ -11725,6 +11730,166 @@ static void gevrCoopReleaseTank(void)
     {
         sub_GAME_7F03D058(tank, 1);
     }
+}
+
+/*
+ * Only the driver's headset moved the tank; every other headset kept it
+ * parked where it started. The driver's headset sends its TankRecord's pose
+ * (net_coop.c netCoopSendTank) and every other headset poses the same tank
+ * as the driver's MoveBond does: hull matrix, position, tile, rooms,
+ * collision and the turret angles the model is drawn with.
+ */
+#define GEVR_COOP_TANK_HELD_US 1000000ull   /* a teammate's pose this recent: they still drive it */
+
+static struct PropRecord *s_gevrTankSent;   /* this headset's player drove it last tick */
+static struct PropRecord *s_gevrTankRemote; /* the tank a teammate drives here */
+static u64 s_gevrTankRemoteUs;              /* their last pose that said driven */
+
+void gevrCoopTankReset(void)
+{
+    s_gevrTankSent = NULL;
+    s_gevrTankRemote = NULL;
+    s_gevrTankRemoteUs = 0;
+}
+
+static s32 gevrCoopIsTank(struct PropRecord *prop)
+{
+    return prop != NULL && prop->type == PROP_TYPE_OBJ && prop->obj != NULL && prop->obj->type == PROPDEF_TANK
+        && prop->obj->model != NULL;
+}
+
+/* MoveBond, this headset's player: its tank's pose while it drives, and once after it gets out */
+static void gevrCoopSendTank(void)
+{
+    struct PropRecord *prop = NULL;
+    struct TankRecord *tank;
+    s32 driven;
+
+    if (!gevrCoopActive() || get_cur_playernum() != netGetLocalSlot())
+    {
+        return;
+    }
+    if (g_PlayerIsInTank == 1 && gevrCoopIsTank(g_PlayerTankProp))
+    {
+        prop = g_PlayerTankProp;
+    }
+    driven = prop != NULL;
+    if (!driven)
+    {
+        prop = s_gevrTankSent;
+    }
+    s_gevrTankSent = driven ? prop : NULL;
+    if (!gevrCoopIsTank(prop))
+    {
+        return;
+    }
+    tank = (struct TankRecord *)prop->obj;
+    netCoopSendTank(driven, prop->pos.f, tank->tank_orientation_angle, tank->turret_orientation_angle,
+                    tank->turret_vertical_angle, driven && tank->is_firing_tank);
+}
+
+/* A teammate drives it: this headset's player cannot get in */
+static s32 gevrCoopTankTaken(struct PropRecord *prop)
+{
+    return prop != NULL && prop == s_gevrTankRemote && s_gevrTankRemoteUs != 0
+        && sysGetMicroseconds() - s_gevrTankRemoteUs < GEVR_COOP_TANK_HELD_US;
+}
+
+/* The level's tank nearest pos (Runway and Streets have one) */
+static struct PropRecord *gevrCoopFindTank(const f32 pos[3])
+{
+    struct PropRecord *prop;
+    struct PropRecord *best = NULL;
+    f32 bestDist = 0.0f;
+
+    if (gevrCoopIsTank(s_gevrTankRemote))
+    {
+        return s_gevrTankRemote;
+    }
+    for (prop = chrpropGetActiveTail(); prop != NULL; prop = prop->prev)
+    {
+        f32 dx;
+        f32 dz;
+
+        if (!gevrCoopIsTank(prop))
+        {
+            continue;
+        }
+        dx = prop->pos.f[0] - pos[0];
+        dz = prop->pos.f[2] - pos[2];
+        if (best == NULL || dx * dx + dz * dz < bestDist)
+        {
+            best = prop;
+            bestDist = dx * dx + dz * dz;
+        }
+    }
+    return best;
+}
+
+/* net_coop.c: a teammate's tank pose, posed here as their MoveBond posed it */
+void gevrCoopApplyTank(s32 slot, s32 driven, const f32 pos[3], f32 yaw, f32 turretyaw, f32 turretpitch, s32 firing)
+{
+    struct PropRecord *prop = gevrCoopFindTank(pos);
+    struct ObjectRecord *obj;
+    struct TankRecord *tank;
+    ModelRoData_BoundingBoxRecord *bbox;
+    struct StandTile *stan;
+    struct player *rider;
+    Mtxf mtx;
+
+    if (prop == NULL)
+    {
+        return;
+    }
+    /* this headset's player is in it: theirs is the pose */
+    if (g_PlayerIsInTank == 1 && g_PlayerTankProp == prop)
+    {
+        return;
+    }
+    obj = prop->obj;
+    tank = (struct TankRecord *)obj;
+    s_gevrTankRemote = prop;
+    s_gevrTankRemoteUs = driven ? sysGetMicroseconds() : 0;
+
+    tank->is_firing_tank = driven && firing;
+    tank->turret_vertical_angle = turretpitch;
+    tank->turret_orientation_angle = turretyaw;
+    tank->tank_orientation_angle = yaw;
+
+    matrix_4x4_set_rotation_around_y(M_TAU_F - yaw, &mtx);
+    matrix_scalar_multiply(obj->model->scale, (f32 *)&mtx);
+    matrix_4x4_copy(&mtx, &obj->mtx);
+
+    /* its tile: walked from where it was, or from the rider's copy */
+    stan = prop->stan;
+    if (stan == NULL || !walkTilesBetweenPoints_NoCallback(&stan, prop->pos.f[0], prop->pos.f[2], pos[0], pos[2]))
+    {
+        rider = slot >= 0 && slot < MAX_PLAYER_COUNT ? g_playerPointers[slot] : NULL;
+        if (rider != NULL && rider->field_488.current_tile_ptr != NULL)
+        {
+            struct StandTile *from = rider->field_488.current_tile_ptr;
+
+            if (walkTilesBetweenPoints_NoCallback(&from, rider->field_488.collision_position.f[0],
+                                                  rider->field_488.collision_position.f[2], pos[0], pos[2]) || stan == NULL)
+            {
+                stan = from;
+            }
+        }
+    }
+    if (stan != NULL)
+    {
+        prop->stan = stan;
+        tank->stan_y = stanGetPositionYValue(stan, pos[0], pos[2]);
+    }
+    /* the driver's smoothed ground, so this headset's player drives on from here */
+    bbox = (ModelRoData_BoundingBoxRecord *)((struct ModelNode *)obj->model->obj->Switches)->Child->Data;
+    tank->unkD0 = (pos[1] + chrpropBBOXGetYmin(bbox) * obj->model->scale - 4.0f) / (1.0f - TANK_UNKD0_SCALE);
+
+    obj->runtime_pos.f[0] = prop->pos.f[0] = pos[0];
+    obj->runtime_pos.f[1] = prop->pos.f[1] = pos[1];
+    obj->runtime_pos.f[2] = prop->pos.f[2] = pos[2];
+    setupUpdateObjectRoomPosition(obj);
+    chrobjCollisionRelated(obj);
 }
 #endif
 
@@ -13090,6 +13255,7 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     }
 #ifdef GEVR
     gevrCoopPopTank(&gevrTank);
+    gevrCoopSendTank();
 #endif
 }
 

@@ -93,6 +93,10 @@ void gevrCoopCinemaTick(void);              /* bondview2.c: this headset's playe
 int gevrCoopCinemaCamera(float *pos, float *pos2, void **stan, float *arg6);   /* its camera, the host's */
 int gevrCoopCinemaHides(int player);        /* another player's copy stays out of the shot */
 void gevrCoopCinemaReset(void);             /* a stage's load */
+/* The tank a player drives, on every headset (net_coop.c, bondview2.c) */
+void netCoopSendTank(int driven, const float pos[3], float yaw, float turretyaw, float turretpitch, int firing);
+void gevrCoopApplyTank(int slot, int driven, const float pos[3], float yaw, float turretyaw, float turretpitch, int firing);
+void gevrCoopTankReset(void);               /* a stage's load */
 
 /* The party's tally of the last mission, for the statistics page (front.c; net_core.c) */
 int gevrCoopTallyCount(void);               /* slots to look at, 0 none */

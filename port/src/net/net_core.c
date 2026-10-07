@@ -2995,6 +2995,20 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 s_client_peers[slot_id] != peer || (int)(intptr_t)peer->data - 1 != slot_id) break;
             netCoopReceive(msg_type, slot_id, 0, &buf);
             break;
+        case NET_MSG_COOP_TANK:
+            /* a player's driven tank: the host poses its own and relays it (net_coop.c netCoopSendTank) */
+            if (s_state != NET_STATE_INGAME || slot_id >= GEVR_MAX_PLAYERS || (int)slot_id == s_local_slot) break;
+            if (netIsHost()) {
+                if (s_client_peers[slot_id] != peer || (int)(intptr_t)peer->data - 1 != slot_id) break;
+                if (size > 8 && (data[8] & NET_COOP_TANK_DRIVEN))
+                    netBroadcastPacket(data, size, NET_CHAN_PLAYER_STATE, 0, peer);
+                else
+                    netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer);
+            } else if (peer != s_server_peer) {
+                break;
+            }
+            netCoopReceive(msg_type, slot_id, !netIsHost(), &buf);
+            break;
         case NET_MSG_COUNTDOWN: {
             if (netIsHost() || peer != s_server_peer || size != 12) break;
             uint32_t ms = netbufReadU32(&buf);
