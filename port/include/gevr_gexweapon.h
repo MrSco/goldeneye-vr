@@ -65,6 +65,11 @@ typedef struct GexWeaponDef {
      * just above the glass and its radius, model units; out of the face is the
      * joint's -z and twelve o'clock its +y. Radius 0: no face */
     f32 offHandFace[4];
+    /* the weapon panel and the watch's pages (gun.c gevrGexPoseStill): GoldenEye's
+     * layout is made for its own model, so GE-X's, about its gun joint at rest, is
+     * sized (x) and moved (y, z, w) onto GoldenEye's mesh's bounds (measured from
+     * both ROMs: its centre and its diagonal). Size 0: as it is */
+    f32 panelFit[4];
     GexReloadDef reload, dualReload;
     f32 holdFrame, screenOffset[3];
     f32 magCentre[3], magTop[3], heldTop[3];
