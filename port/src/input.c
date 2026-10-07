@@ -88,6 +88,7 @@ extern void gevrReloadFitSetGrab(void);
 extern void gevrReloadFitSetBelt(void);
 extern s32 gevrGexMagState(s32 hand, f32 off[3]);
 extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3], VrGexWatch[4], VrGexForeHold[3];   /* vr_settings_defaults.c */
+extern float VrGexOffRot[3];   /* vr_settings_defaults.c: GE-X's off hand's turn */
 extern float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3];
 extern float VrGexPp7Grab[3], VrGexPp7Support[3];
 extern float VrGexPp7SupportRot[3];
@@ -106,7 +107,7 @@ extern void gevrGexDetonateRequest(void);
 /* Gun fit's values as last saved, which B goes back to: both models' sets */
 static struct {
     float gun[3], gexGun[3], grip[2][6], gexGrip[2][6], scope[2][GEVR_SCOPE_FITS][4];
-    float reloadGrab[2][3], reloadBelt[3], gexHeld[3], gexWatch[4], gexFore[3];
+    float reloadGrab[2][3], reloadBelt[3], gexHeld[3], gexWatch[4], gexFore[3], gexOffRot[3];
     float muzzle[2][GEVR_MAX_WEAPONS][3];
     float pp7Grab[3], pp7Support[3], pp7Gun[3];
     float kf7Mag[3], pp7Mag[3];
@@ -131,6 +132,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(VrReloadBelt, s_gunFitSaved.reloadBelt, sizeof(VrReloadBelt));
         memcpy(VrGexHeldMag, s_gunFitSaved.gexHeld, sizeof(VrGexHeldMag));
         memcpy(VrGexWatch, s_gunFitSaved.gexWatch, sizeof(VrGexWatch));
+        memcpy(VrGexOffRot, s_gunFitSaved.gexOffRot, sizeof(VrGexOffRot));
         memcpy(VrGexForeHold, s_gunFitSaved.gexFore, sizeof(VrGexForeHold));
         memcpy(VrMuzzleTrim, s_gunFitSaved.muzzle, sizeof(VrMuzzleTrim));
         memcpy(VrGexPp7Grab, s_gunFitSaved.pp7Grab, sizeof(VrGexPp7Grab));
@@ -154,6 +156,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(s_gunFitSaved.reloadBelt, VrReloadBelt, sizeof(VrReloadBelt));
         memcpy(s_gunFitSaved.gexHeld, VrGexHeldMag, sizeof(VrGexHeldMag));
         memcpy(s_gunFitSaved.gexWatch, VrGexWatch, sizeof(VrGexWatch));
+        memcpy(s_gunFitSaved.gexOffRot, VrGexOffRot, sizeof(VrGexOffRot));
         memcpy(s_gunFitSaved.gexFore, VrGexForeHold, sizeof(VrGexForeHold));
         memcpy(s_gunFitSaved.muzzle, VrMuzzleTrim, sizeof(VrMuzzleTrim));
         memcpy(s_gunFitSaved.pp7Grab, VrGexPp7Grab, sizeof(VrGexPp7Grab));
@@ -1359,6 +1362,17 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         h[0] += mx * rate * dt;
                         h[2] -= my * rate * dt;
                         h[1] += ry * rate * dt;
+                    }
+                } else if (gevrOffHandFitting && get_button_state(0, "grip")) {
+                    /* holding the left grip, the off hand (and its watch arm) turns about
+                     * its palm (user: its angle could not be set): the move stick
+                     * forward and sideways, the turn stick sideways, ~45 degrees a second */
+                    VrGexOffRot[0] += my * 45.0f * dt;
+                    VrGexOffRot[1] += rx * 45.0f * dt;
+                    VrGexOffRot[2] += mx * 45.0f * dt;
+                    for (int k = 0; k < 3; k++) {
+                        if (VrGexOffRot[k] > 180.0f) VrGexOffRot[k] -= 360.0f;
+                        if (VrGexOffRot[k] < -180.0f) VrGexOffRot[k] += 360.0f;
                     }
                 } else if (gevrOffHandFitting && get_button_state(1, "grip")) {
                     /* holding the right grip, the watch on GE-X's left wrist (user: over

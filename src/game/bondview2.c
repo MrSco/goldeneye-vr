@@ -15393,7 +15393,7 @@ static const char *gevrFitNextLine(s32 from)
 
 static Gfx *gevrDrawGunFit(Gfx *gdl)
 {
-    char buf[320];
+    char buf[480];
     s32 x, y, w = 0, h = 0;
     extern bool netIsActive(void);
     const char *gex = gevrGexHeld(GUNRIGHT) ? " (GOLDENEYE X)" : "";
@@ -15477,12 +15477,12 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     {
         /* GE-X's off hand, empty or holding a magazine: its palm from the grip pose;
          * holding the right grip, the watch on its wrist (input.c) */
-        extern float VrGexHeldMag[3];   /* vr_settings_defaults.c */
+        extern float VrGexHeldMag[3], VrGexOffRot[3];   /* vr_settings_defaults.c */
 
         snprintf(buf, sizeof(buf),
-                 "OFF HAND FIT%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nWATCH: FORWARD %.1f  SIDE %.1f  UP %.1f  SIZE %.2f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN (SIDEWAYS: WATCH SIZE)\nHOLD RIGHT GRIP: STICKS MOVE THE WATCH\n%sA: SAVE   B: UNDO   MENU + A: DONE",
-                 gex, -VrGexHeldMag[2], VrGexHeldMag[0], VrGexHeldMag[1], VrGexWatch[0], VrGexWatch[2], VrGexWatch[1],
-                 VrGexWatch[3], gevrFitNextLine(3));
+                 "OFF HAND FIT%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTURN %.0f %.0f %.0f DEG\nWATCH: FORWARD %.1f  SIDE %.1f  UP %.1f  SIZE %.2f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN (SIDEWAYS: WATCH SIZE)\nHOLD LEFT GRIP: STICKS TURN THE HAND\nHOLD RIGHT GRIP: STICKS MOVE THE WATCH\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 gex, -VrGexHeldMag[2], VrGexHeldMag[0], VrGexHeldMag[1], VrGexOffRot[0], VrGexOffRot[1], VrGexOffRot[2],
+                 VrGexWatch[0], VrGexWatch[2], VrGexWatch[1], VrGexWatch[3], gevrFitNextLine(3));
     }
     else if (gevrScopeFitting && gevrScopeFitIndex() >= 0)
     {
