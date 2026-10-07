@@ -18063,6 +18063,27 @@ static s32 gevrOnlineRespawnReady(struct player *pl)
 }
 #endif
 
+/* The host's bot (gevr_bot.c), as the current player: once its fall has
+ * played it respawns, as an owner does with A below (YOLT's lives too) */
+void gevrBotRespawn(void)
+{
+    s32 deaths = 0;
+    s32 j;
+
+    if (!gevrOnlineRespawnReady(g_CurrentPlayer) || g_stopPlayFlag || g_gameOverFlag)
+    {
+        return;
+    }
+    for (j = 0; j < getPlayerCount(); j++)
+    {
+        deaths += g_playerPlayerData[j].kill_counts[get_cur_playernum()];
+    }
+    if (get_scenario() != SCENARIO_YOLT || deaths < 2)
+    {
+        mp_respawn_handler();
+    }
+}
+
 Gfx *maybe_mp_interface(Gfx *gdl)
 {
     s32 ulx;
