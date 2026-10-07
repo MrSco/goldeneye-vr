@@ -3373,6 +3373,12 @@ gevrTankReady:
                                   | ((u32)g_CurrentPlayer->tileColor.g << 16)
                                   | ((u32)g_CurrentPlayer->tileColor.b << 8);
     }
+    if (itemid == ITEM_TANKSHELLS)
+    {
+        /* the tank's opaque pass alone: its shadow (model.c doshadow, the second
+         * pass) has no ground here and drew as a black rectangle (user) */
+        renderdata.flags = 1;
+    }
 #endif
     subdraw(&renderdata, (Model *) &model);
     gdl = renderdata.gdl;
