@@ -624,7 +624,9 @@ void gunUpdateAndFire(GUNHAND handnum)
         /* GE-X's hand-held rigs on the screen: at the PP7's place (gun.c gevrGexScreenAnchor) */
         extern s32 gevrGexScreenHand(GUNHAND hand);
 
-        if (!g_gevrStereo && gevrGexScreenHand(handnum))
+        extern s32 gevrScreenGadget(s32 hand, s32 item);   /* bondview2.c */
+
+        if (!g_gevrStereo && (gevrGexScreenHand(handnum) || gevrScreenGadget(handnum, item)))
         {
             WeaponStats *pp7 = get_ptr_item_statistics(ITEM_WPPK);
 
@@ -917,9 +919,8 @@ void gunUpdateAndFire(GUNHAND handnum)
 
 #ifdef GEVR
     /* the flat test above without the hide flag, for the listed gadgets */
-    s_gevrHiddenShown[handnum] = g_gevrStereo
+    s_gevrHiddenShown[handnum] = (g_gevrStereo ? gevrStereoItemShown(item) : gevrScreenGadget(handnum, item))
         && hand->field_87F == 0
-        && gevrStereoItemShown(item)
         /* the gadget itself in the hand, not only picked on the watch: a mine
          * chosen while the sniper rifle was still out showed with it (#19) */
         && getCurrentPlayerWeaponId(handnum) == item
@@ -1016,6 +1017,14 @@ void gunUpdateAndFire(GUNHAND handnum)
         }
 
         matrix_scalar_multiply(IDO_POINT_ONE, gunmtx.m[0]);
+#ifdef GEVR
+        if (!g_gevrStereo && s_gevrHiddenShown[handnum])
+        {
+            extern void gevrGexScreenGadget(s32 item, Mtxf *m);   /* gun.c: in GE-X's hand */
+
+            gevrGexScreenGadget(item, &gunmtx);
+        }
+#endif
         matrix_4x4_copy(&gunmtx, rwmtx);
 
         if (mdlhdr->Skeleton == (&skeleton_gun_revolver))
@@ -2209,8 +2218,20 @@ static Gfx *gevrRenderItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND handnum
     /* left-handed mode mirrors the gun matrix too: the left hand's then cancels */
     s32 mirror = gevrStereoMirrored() != (handnum == GUNLEFT);
 
-    if (!g_gevrStereo
-        || g_CurrentPlayer->bonddead
+    if (!g_gevrStereo)
+    {
+        /* the screen: GE-X's hand holds a gadget the flat game never drew (gun.c) */
+        extern Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mirror, s32 *drawn);
+        s32 drawn = FALSE;
+
+        if (handnum == GUNRIGHT && s_gevrHiddenShown[handnum] && !g_CurrentPlayer->bonddead
+            && g_CurrentPlayer->watch_animation_state == 0)
+        {
+            gdl = gevrGexDrawItemHand(gdl, templ, handnum, FALSE, &drawn);
+        }
+        return gdl;
+    }
+    if (g_CurrentPlayer->bonddead
         || g_CurrentPlayer->watch_animation_state != 0
         || item == ITEM_UNARMED || item == ITEM_TANKSHELLS || item == ITEM_SUIT_LF_HAND)
     {

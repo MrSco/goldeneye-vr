@@ -56,6 +56,15 @@ typedef struct GexWeaponDef {
      * two Gun fits, as a hand on a controller would hold them (gun.c
      * gevrGexScreenAnchor): the hand-held items, the fist, the watch */
     s32 screenHand;
+    /* a joint the off hand holds (the remote mine's detonator, user: the watch
+     * in the palm): in the headset put in the tracked off hand's palm, on the
+     * screen held by the rig's own left hand, off on the watch pages */
+    s32 offHandMatrix;
+    /* its watch face on that joint (user: the health, armor and radar readout on
+     * the watch wherever it is, and the look at it pauses): the dial's centre
+     * just above the glass and its radius, model units; out of the face is the
+     * joint's -z and twelve o'clock its +y. Radius 0: no face */
+    f32 offHandFace[4];
     GexReloadDef reload, dualReload;
     f32 holdFrame, screenOffset[3];
     f32 magCentre[3], magTop[3], heldTop[3];

@@ -95,13 +95,18 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
  * Their idle clips raise the hand from below; each use clip's frame 0 is the
  * raised hold. GoldenEye's own throw and place keep moving them (fireAnim 0).
  * The mines are GoldenEye's own meshes (every vertex matches); the remote
- * mine's rig also carries Perfect Dark's detonator on matrix 34, collapsed.
+ * mine's rig also carries Perfect Dark's detonator on matrix 34, which its
+ * left hand holds (offHandMatrix): GE-X detonates from it, one-handed.
  * The grenade matches no GoldenEye mesh: screen mode places its root so the
  * palm sits where the PP7's does. */
-#define MINE_DEF(id, gexslot, file, textures, rest, offz, hide, mx, my, mz) { \
+/* the remote mine's detonator watch (part 41 on matrix 34): its glass is the
+ * ring of radius ~16-17 at z -11, centred on (0, 14.5) */
+#define DETONATOR_FACE {0.0f,14.5f,-11.5f,15.0f}
+#define NO_FACE {0.0f,0.0f,0.0f,0.0f}
+#define MINE_DEF(id, gexslot, file, textures, rest, offz, offhand, face, mx, my, mz) { \
     .item=id, .slot=gexslot, .model=file, .texturePairs=textures, \
     .fireAnim=0, .restAnim=rest, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1, \
-    .screenOffset={0.0f,2.0f,offz}, .spentMatrix=33, .hideMatrix=hide, \
+    .screenOffset={0.0f,2.0f,offz}, .spentMatrix=33, .offHandMatrix=offhand, .offHandFace=face, \
     .muzzle={mx,my,mz}, .screenMuzzle={0.0f,2.0f,offz}, \
     .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1 }
 
@@ -163,12 +168,12 @@ static const GexWeaponDef weapons[] = {
         .muzzle={28.462f,143.276f,90.878f}, .screenMuzzle={28.533f,113.354f,6.261f},
         .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1
     },
-    MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
-    MINE_DEF(ITEM_PROXIMITYMINE, 28, "GproximitymineZ", proxMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
-    MINE_DEF(ITEM_REMOTEMINE, 29, "GremotemineZ", remoteMineTextures, 1078, 10.0f, 34, -6.853f, 8.724f, 89.783f),
+    MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f),
+    MINE_DEF(ITEM_PROXIMITYMINE, 28, "GproximitymineZ", proxMineTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f),
+    MINE_DEF(ITEM_REMOTEMINE, 29, "GremotemineZ", remoteMineTextures, 1078, 10.0f, 34, DETONATOR_FACE, -6.853f, 8.724f, 89.783f),
     /* Plastique: GE-X's (slot 53), Perfect Dark's ECM mine, rigged as the timed mine is
      * (34 joints, the item on 33) with its idle 1072 and its place clip 1077 */
-    MINE_DEF(ITEM_PLASTIQUE, 53, "GecmmineZ", plastiqueTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
+    MINE_DEF(ITEM_PLASTIQUE, 53, "GecmmineZ", plastiqueTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f),
     {
         .item=ITEM_AK47, .slot=7, .model="Gak47Z", .texturePairs=kf7Textures,
         .fireAnim=1017, .gunMatrix=33, .magMatrix=39, .heldMatrix=40,

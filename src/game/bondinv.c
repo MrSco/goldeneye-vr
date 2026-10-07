@@ -10,6 +10,15 @@
 #include "language.h"
 #include "bondinv.h"
 #include "gun.h"
+#ifdef GEVR
+extern int VrGexGuns;
+/* GE-X's remote mines detonate themselves (gun.c gevrGexMineDetonates): the
+ * Detonator leaves the cycle, ammo required or not */
+#define GEVR_CYCLE_OK(requireammo, item) \
+    (((requireammo) == FALSE && !(VrGexGuns && (item) == ITEM_TRIGGER)) || bondwalkItemHasAmmo(item))
+#else
+#define GEVR_CYCLE_OK(requireammo, item) ((requireammo) == FALSE || bondwalkItemHasAmmo(item))
+#endif
 #include "lv.h"
 #include <bondtypes.h>
 #include "system.h"
@@ -591,7 +600,7 @@ void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
         {
             if (item->type_inv_item.type_weap.weapon < ITEM_BOMBCASE && item->type_inv_item.type_weap.weapon > weapon1)
             {
-                if (requireammo == FALSE || bondwalkItemHasAmmo(item->type_inv_item.type_weap.weapon))
+                if (GEVR_CYCLE_OK(requireammo, item->type_inv_item.type_weap.weapon))
                 {
                     weapon1 = item->type_inv_item.type_weap.weapon;
                     weapon2 = 0;
@@ -630,7 +639,7 @@ void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
     {
         s32 candidate = *nextright;
 
-        if (getPlayerCount() == 1 && bondwalkItemCheckBitflags(*nextright, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) && (*nextleft < *nextright) && (requireammo == FALSE || bondwalkItemHasAmmo(*nextright)) && (weapon1 != *nextright || *nextright < weapon2)
+        if (getPlayerCount() == 1 && bondwalkItemCheckBitflags(*nextright, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) && (*nextleft < *nextright) && (GEVR_CYCLE_OK(requireammo, *nextright)) && (weapon1 != *nextright || *nextright < weapon2)
 #ifdef BUGFIX_R1
             && (!j_text_trigger || *nextright != ITEM_KNIFE)
 #endif
@@ -662,7 +671,7 @@ void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
                         candidate = (candidate + 1) % ITEM_BOMBCASE;
                     }
 
-                    if ((requireammo == FALSE || bondwalkItemHasAmmo(candidate))
+                    if ((GEVR_CYCLE_OK(requireammo, candidate))
 #ifdef BUGFIX_R1
                         && (!j_text_trigger || candidate != ITEM_KNIFE)
 #endif
@@ -709,7 +718,7 @@ void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
             {
                 if (item->type_inv_item.type_weap.weapon < ITEM_BOMBCASE && (item->type_inv_item.type_weap.weapon < weapon1 || (weapon1 == item->type_inv_item.type_weap.weapon && weapon2 > 0)))
                 {
-                    if (requireammo == FALSE || bondwalkItemHasAmmo(item->type_inv_item.type_weap.weapon))
+                    if (GEVR_CYCLE_OK(requireammo, item->type_inv_item.type_weap.weapon))
                     {
                         weapon1 = item->type_inv_item.type_weap.weapon;
                         weapon2 = ITEM_UNARMED;
@@ -771,7 +780,7 @@ void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
 #endif
             if (candidate == weapon1)
             {
-                if (getPlayerCount() == 1 && bondwalkItemCheckBitflags(candidate, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) && (requireammo == FALSE || bondwalkItemHasAmmo(candidate)) && (candidate != *nextright || candidate < *nextleft) && (weapon2 < candidate)
+                if (getPlayerCount() == 1 && bondwalkItemCheckBitflags(candidate, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) && (GEVR_CYCLE_OK(requireammo, candidate)) && (candidate != *nextright || candidate < *nextleft) && (weapon2 < candidate)
 #ifdef BUGFIX_R1
                     && (!j_text_trigger || candidate != ITEM_KNIFE)
 #endif
@@ -784,7 +793,7 @@ void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
                 break;
             }
             else if (
-                (requireammo == FALSE || bondwalkItemHasAmmo(candidate))
+                (GEVR_CYCLE_OK(requireammo, candidate))
 #ifdef BUGFIX_R1
                 && (!j_text_trigger || candidate != ITEM_KNIFE)
 #endif
