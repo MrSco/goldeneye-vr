@@ -205,6 +205,9 @@ EXPORT int test_core_fun(void) {
     s_max_players=4;
     gevrNetConfigSet(CFG_FUN_FLAGS,7);gevrNetConfigSet(CFG_GUN_SIZE,1);
     if(s_lobby_state.config.fun_flags!=7 || VrMpFunFlags!=7 || VrMpGunSize!=1) return 1;
+    gevrNetConfigSet(CFG_FUN_FLAGS,NET_FUN_NO_RADAR);
+    if(s_lobby_state.config.fun_flags!=NET_FUN_NO_RADAR || VrMpFunFlags!=NET_FUN_NO_RADAR) return 9;
+    gevrNetConfigSet(CFG_FUN_FLAGS,7);
     gevrNetConfigSet(CFG_FUN_FLAGS,8);gevrNetConfigSet(CFG_GUN_SIZE,3);
     if(s_lobby_state.config.fun_flags!=7 || s_lobby_state.config.gun_size!=1) return 2;
     netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;

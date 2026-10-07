@@ -2,7 +2,7 @@
 #ifndef GEVR_NET_RULES_H
 #define GEVR_NET_RULES_H
 
-enum { NET_FUN_DK = 1, NET_FUN_PAINTBALL = 2, NET_FUN_LINE = 4, NET_FUN_MASK = 7 };
+enum { NET_FUN_DK = 1, NET_FUN_PAINTBALL = 2, NET_FUN_LINE = 4, NET_FUN_NO_RADAR = 16, NET_FUN_MASK = 23 };
 /* Co-op-only rule in the existing config byte; no packet layout changes. */
 #define NET_COOP_FAST_REINFORCEMENTS 8
 #define NET_COOP_FUN_MASK (NET_FUN_MASK | NET_COOP_FAST_REINFORCEMENTS)

@@ -44,7 +44,7 @@ EXPORT int test_protocol(void) {
     for (int i=0;i<4;i++) original.custom_set[i]=(uint8_t)(10+i);
     original.max_players=6;original.mode=1;original.difficulty=2;
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 19 || GEVR_NET_VERSION != 18 || GEVR_MAX_PLAYERS != 8) return 1;
+    if (b.error || b.wp != 19 || GEVR_NET_VERSION != 19 || GEVR_MAX_PLAYERS != 8) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
     for(int size=0;size<19;size++) {
@@ -78,7 +78,10 @@ EXPORT int test_config_validation(void) {
     c.custom_set[0]=netItem(0)->item; c.loadouts=2; if(netMatchConfigValid(&c)) return 8;
     c.loadouts=0;c.friendly_fire=2;if(netMatchConfigValid(&c)) return 9;
     c.friendly_fire=0;c.fun_flags=8;if(netMatchConfigValid(&c)) return 10;
-    c.fun_flags=255;if(netMatchConfigValid(&c)) return 11;
+    c.fun_flags=NET_FUN_NO_RADAR;if(!netMatchConfigValid(&c)) return 18;
+    c.mode=NET_MODE_COOP;c.stage=NET_COOP_FRONT_STAGE;c.difficulty=0;
+    c.fun_flags=NET_FUN_NO_RADAR|NET_COOP_FAST_REINFORCEMENTS;if(!netMatchConfigValid(&c)) return 19;
+    c.mode=0;c.stage=34;c.difficulty=0;c.fun_flags=255;if(netMatchConfigValid(&c)) return 11;
     c.fun_flags=7;c.gun_size=3;if(netMatchConfigValid(&c)) return 12;
     c.gun_size=2;if(!netMatchConfigValid(&c)) return 13;
     /* Statue and Cradle (#95): the ROM's cut MP setups, eight players, last in the list */
