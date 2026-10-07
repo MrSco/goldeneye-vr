@@ -26,6 +26,10 @@ s32 gevrBotNavPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
  * next points a straight walk reaches. FALSE at the end or with no route. */
 s32 gevrBotNavNext(GevrBotRoute *route, const coord3d *pos, StandTile *tile, coord3d *aim);
 
+/* A stage loaded: the floor graph is rebuilt on the next route (another stage's
+ * floor can load where the last one was) */
+void gevrBotNavForget(void);
+
 /* The floor tile under a point, from a nearby known tile */
 StandTile *gevrBotNavTileAt(const coord3d *pos, StandTile *near);
 
