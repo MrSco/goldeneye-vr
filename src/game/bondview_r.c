@@ -520,6 +520,12 @@ void bondviewLoadSetupIntroSection(void)
     g_PlayerIsInTank = 0;
     g_WorldTankProp = 0;
     g_PlayerTankProp = NULL;
+#ifdef GEVR
+    {
+        extern void gevrCoopTankReset(void);
+        gevrCoopTankReset();
+    }
+#endif
     g_PlayerTankYOffset = FLOAT_INIT;
     g_TankSfxState[0] = NULL;
     g_TankSfxState[1] = NULL;

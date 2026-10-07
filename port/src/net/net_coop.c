@@ -1352,6 +1352,53 @@ void netCoopClientTick(void)
     s_held_sent_us = now;
 }
 
+/*
+ * The tank (Runway, Streets): only its driver's headset moves it, so the
+ * others saw it parked where it started. bondview2.c sends the driver's
+ * TankRecord pose 20 times a second (unreliable) and once more, reliably,
+ * when the driver gets out; the host keeps its copy and relays to the
+ * others (net_core.c), and each headset poses its tank the same way.
+ */
+#define COOP_TANK_SEND_US 50000ull
+static u64 s_tank_sent_us;
+
+void netCoopSendTank(int driven, const float pos[3], float yaw, float turretyaw, float turretpitch, int firing)
+{
+    u8 raw[16 + NET_COOP_TANK_BYTES];
+    struct netbuf buf = { .data = raw, .size = sizeof(raw) };
+    u64 now = sysGetMicroseconds();
+
+    if (!netCoopActive() || netLocalIsSpectator() || !pos) return;
+    if (driven && now - s_tank_sent_us < COOP_TANK_SEND_US) return;
+    s_tank_sent_us = now;
+    coopHeader(&buf, NET_MSG_COOP_TANK);
+    netbufWriteU8(&buf, (u8)((driven ? NET_COOP_TANK_DRIVEN : 0) | (firing ? NET_COOP_TANK_FIRING : 0)));
+    for (int i = 0; i < 3; i++) netbufWriteF32(&buf, pos[i]);
+    netbufWriteF32(&buf, yaw);
+    netbufWriteF32(&buf, turretyaw);
+    netbufWriteF32(&buf, turretpitch);
+    netCoopBroadcast(buf.data, buf.wp, !driven);
+    if (!driven) COOP_LOG("tank tx: parked at %.0f,%.0f,%.0f yaw %.2f", pos[0], pos[1], pos[2], yaw);
+}
+
+static void coopReceiveTank(int slot, struct netbuf *b)
+{
+    u8 flags = netbufReadU8(b);
+    float pos[3], yaw, turretyaw, turretpitch;
+
+    for (int i = 0; i < 3; i++) pos[i] = netbufReadF32(b);
+    yaw = netbufReadF32(b);
+    turretyaw = netbufReadF32(b);
+    turretpitch = netbufReadF32(b);
+    if (b->error || netbufReadLeft(b) || slot < 0 || slot >= GEVR_MAX_PLAYERS || slot == netGetLocalSlot()) return;
+    for (int i = 0; i < 3; i++) if (!isfinite(pos[i]) || fabsf(pos[i]) > 1.0e6f) return;
+    if (!isfinite(yaw) || !isfinite(turretyaw) || !isfinite(turretpitch) ||
+        fabsf(yaw) > 100.0f || fabsf(turretyaw) > 100.0f || fabsf(turretpitch) > 100.0f) return;
+    gevrCoopApplyTank(slot, (flags & NET_COOP_TANK_DRIVEN) != 0, pos, yaw, turretyaw, turretpitch,
+                      (flags & NET_COOP_TANK_FIRING) != 0);
+    if (!(flags & NET_COOP_TANK_DRIVEN)) COOP_LOG("tank rx: slot %d parked it at %.0f,%.0f,%.0f", slot, pos[0], pos[1], pos[2]);
+}
+
 /* The host: a teammate's event */
 static void coopReceiveEvent(int slot, struct netbuf *b)
 {
@@ -2001,6 +2048,7 @@ void netCoopReceive(int type, int slot, int from_host, struct netbuf *b)
         case NET_MSG_CHR_REMOVE: if (from_host && !netIsHost()) coopReceiveRemove(b); break;
         case NET_MSG_COOP_DAMAGE: if (from_host && !netIsHost()) coopApplyDamage(b); break;
         case NET_MSG_COOP_HIT: if (netIsHost()) coopApplyHit(slot, b); break;
+        case NET_MSG_COOP_TANK: coopReceiveTank(slot, b); break;
         default: break;
     }
 }

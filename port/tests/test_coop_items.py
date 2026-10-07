@@ -37,7 +37,21 @@ assert "case NET_COOP_EVENT_MINE:" in coop
 assert "coopApplyMineSettled(slot, item, tag)" in coop
 
 tank_start = bondview.index("typedef struct GevrTankGuard")
-tank_end = bondview.index("\n#endif", bondview.index("void gevrCoopReleaseTank(void)", tank_start))
+release = bondview.index("static void gevrCoopReleaseTank(void)", tank_start)
+tank_end = release + len(block(bondview[release:], "static void gevrCoopReleaseTank(void)"))
+sync_start = bondview.index("#define GEVR_COOP_TANK_HELD_US")
+sync_end = bondview.index("void gevrCoopApplyTank(")
+sync_end += len(block(bondview[sync_end:], "void gevrCoopApplyTank("))
+assert "gevrCoopSendTank();" in move
+assert "!gevrCoopTankTaken(g_PlayerTankProp)" in bondview
+assert "gevrCoopTankReset();" in (ROOT / "src/game/bondview_r.c").read_text(encoding="utf-8")
+core = (ROOT / "port/src/net/net_core.c").read_text(encoding="utf-8")
+route = core[core.index("case NET_MSG_COOP_TANK:"):]
+route = route[:route.index("case NET_MSG_COUNTDOWN:")]
+assert "netBroadcastPacket(data, size, NET_CHAN_PLAYER_STATE, 0, peer)" in route
+assert "netBroadcastPacket(data, size, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, peer)" in route
+assert "s_client_peers[slot_id] != peer" in route and "peer != s_server_peer" in route
+assert "case NET_MSG_COOP_TANK: coopReceiveTank(slot, b); break;" in coop
 parts = {
     "NEAREST": "\n\n".join((
         block(coop, "static int coopPlayerTargetable("),
@@ -58,6 +72,12 @@ parts = {
         block(coop, "static void coopApplyGadgetUse("),
     )),
     "TANK": bondview[tank_start:tank_end],
+    "TANK_SEND": "\n\n".join((
+        "#define COOP_TANK_SEND_US 50000ull\nstatic u64 s_tank_sent_us;",
+        block(coop, "void netCoopSendTank("),
+        block(coop, "static void coopReceiveTank("),
+    )),
+    "TANK_SYNC": bondview[sync_start:sync_end],
     "GRANT_CASE": block(coop, "case NET_COOP_EVENT_GRANT:"),
     "GADGET_CASE": block(coop, "case NET_COOP_EVENT_GADGET:"),
     "AI_CASE": block(ai, "case AI_IFBondUsedGadgetOnObject:\n                {"),
@@ -86,4 +106,4 @@ with tempfile.TemporaryDirectory(prefix="gevr-coop-items-") as temp:
     if result.returncode:
         raise RuntimeError(result.stderr)
     subprocess.run([str(exe)], check=True)
-print("Co-op gadget grant, gadget use, tank isolation, and Surface 2 mine checks passed")
+print("Co-op gadget grant, gadget use, tank isolation, tank pose sync, and Surface 2 mine checks passed")
