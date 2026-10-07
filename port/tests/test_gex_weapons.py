@@ -106,7 +106,7 @@ u8 *gevrGexFileLoad(const char *name,u32 *len) { return modelPath ? readFile(mod
 static void reloadGrip(ModelFileHeader *hdr) {
     Mtxf ident,held[64],poses[64],empty[33],inverse,relative,expected,mag;
     matrix_4x4_set_identity(&ident);
-    gevrGexPoseWalk(hdr,&ident,active->reload.anim,active->holdFrame,held);
+    gevrGexPoseWalk(hdr,&ident,gevrGexHoldAnim(active),active->holdFrame,held);
     for (int mirror=0;mirror<2;mirror++) for (int turn=0;turn<2;turn++) for (int size=0;size<2;size++) {
         float k=size ? 0.085f : 0.017f, angle=turn ? 0.8f : 0;
         float sign=mirror ? -1 : 1;
@@ -324,7 +324,7 @@ static u8 *partVertices(u8 *source,int wanted) {
     abort();
 }
 int main(int argc,char **argv) {
-    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER};
+    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH};
     for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) { active=gevrGexWeaponGet(items[i]); assert(active); switches(); }
     assert(gevrGexWeaponGet(ITEM_WPPK)->magMatrix==38);
     assert(gevrGexWeaponGet(ITEM_WPPK)->heldMatrix==42);
@@ -388,7 +388,7 @@ int main(int argc,char **argv) {
         gevrGexTick(0,1,1); assert(s_gevrGexFire[0][0]==0);
         gevrGexTick(0,1,0); assert(s_gevrGexFire[0][0]==1);
         gevrGexTick(0,1,1); assert(s_gevrGexFire[0][0]==0); /* repeated semi-auto shot */
-        gevrGexMagazineReady(0); assert(s_gevrGexReadyFrame[0][0]==(gevrGexHasAmmo(active) ? active->reload.ammoFrame : -1));
+        gevrGexMagazineReady(0); assert(s_gevrGexReadyFrame[0][0]==(gevrGexHasAmmo(active) && active->reload.anim>0 ? active->reload.ammoFrame : -1));
         gevrGexTick(0,1,1); assert(s_gevrGexReadyFrame[0][0]==-1);
     } else {
         gevrGexTick(0,1,1); assert(s_gevrGexFire[0][0]==0);
@@ -467,6 +467,20 @@ int main(int argc,char **argv) {
         gevrGexOffCache(&hdr);
         assert(!s_gevrGexOffStale && !memcmp(&chain,&s_gevrGexOffChain[GEVR_GEX_LHAND_LAST],sizeof(chain)));
     }
+    if (active->payloadProp>0) {
+        /* The grenade launcher: no clip of its own, the hand posed by the
+         * borrowed one; the target is a chamber mouth on the drum's rear face
+         * (matrix 34), and the held tip is GoldenEye's round's nose (+95) scaled. */
+        assert(active->reload.anim==0 && active->holdAnim>0 && gevrPdAnimNumFrames(active->holdAnim)>active->holdFrame);
+        assert(fabsf(active->heldTop[2]-95.0f*active->payloadScale)<0.01f);
+        assert(fabsf(122.0f*active->payloadScale*0.085f-4.0f)<0.1f);   /* a 40 mm round */
+        Mtxf inv; f32 at[3],drum[3];
+        gevrGexRigidInverse(&poses[active->gunMatrix],&inv);
+        for(int a=0;a<3;a++) at[a]=poses[34].m[3][a];
+        gevrGexMtxPoint(&inv,at,drum);
+        f32 r=sqrtf((active->magWell[0]-drum[0])*(active->magWell[0]-drum[0])+(active->magWell[1]-drum[1])*(active->magWell[1]-drum[1]));
+        assert(r>37 && r<57 && fabsf(active->magWell[2]-drum[2])<1.0f && active->magWell[1]<drum[1]);
+    }
     if (active->loaderRounds>1) {
         /* Held, the cylinder swings out to the loader's entrance; the gun and
          * the loader's own matrix stay where tracking put them. */
@@ -544,6 +558,6 @@ with tempfile.TemporaryDirectory(prefix="gex-weapons-") as directory:
         sys.path.insert(0,str(ROOT/'tools/gex'))
         from pdrom import PdRom
         rom=PdRom(sys.argv[1])
-        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18)):
+        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18),('GdydevastatorZ',24)):
             sample=temp/'model.bin'; sample.write_bytes(rom.load(model))
             subprocess.run([str(exe),str(sample),str(Path(sys.argv[1]).resolve()),str(item)],check=True)

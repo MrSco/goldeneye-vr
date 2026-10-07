@@ -527,6 +527,25 @@ static void speedloaderReloads(void)
     #undef LOADER_TAKE
     stats.MagSize=30;
 }
+/* Grenade launcher: one round per pickup into a six-round drum. */
+static void grenadeRounds(void)
+{
+    const GexWeaponDef *def = gevrGexWeaponGet(ITEM_GRENADELAUNCH);
+    assert(def && def->singleRound && def->loaderRounds == 0 && def->payloadProp > 0);
+    reset(); stats.MagSize=6; gex[GUNRIGHT]=1; player.hands[GUNRIGHT].weapon=ITEM_GRENADELAUNCH;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine=4; pistolTick();
+    for (int round=5; round<=6; round++) {
+        pointsValid=0; belt(0,0); gripHeld[0]=1; pistolTick();
+        assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==1);
+        pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
+        assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==round && reserve==50-(round-4));
+        gripHeld[0]=0; pistolTick();
+    }
+    pointsValid=0; belt(0,0); gripHeld[0]=1; pistolTick();   /* full: nothing taken */
+    assert(s_gevrGexMag[GUNRIGHT]!=GEVR_GEXMAG_INHAND && reserve==48);
+    gripHeld[0]=0; pistolTick();
+    stats.MagSize=30;
+}
 int main(void)
 {
     const float scales[] = {0.2f, 1.0f};
@@ -550,6 +569,7 @@ int main(void)
         nextGunReloads();
         singleRoundReloads();
         speedloaderReloads();
+        grenadeRounds();
     }
     /* A custom belt and radius must control both reload paths. */
     reset();

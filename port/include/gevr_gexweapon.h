@@ -24,6 +24,12 @@ typedef struct GexWeaponDef {
      * as fit and the reserve has; parts[1..] are its rounds, shown one per round
      * held; and the mechanism stands open at holdFrame while it is held. */
     s32 loaderRounds;
+    /* the clip whose holdFrame poses the hand holding the payload when the
+     * rig has no reload clip of its own (0: reload.anim) */
+    s32 holdAnim;
+    /* a GoldenEye prop drawn as the held payload on heldMatrix when the rig has
+     * none (grenade launcher), in model units times payloadScale */
+    s32 payloadProp; f32 payloadScale;
     s32 restAnim; /* explicit equip/idle pose when the ROM has no firing animation */
     s32 gripMatrix; /* optional reload joint actually held by the hand */
     s32 pullUp; /* top-loading magazine extracts up instead of down */
@@ -47,6 +53,7 @@ typedef struct GexWeaponDef {
 static inline s32 gevrGexHasMagazine(const GexWeaponDef *def) { return def && !def->singleRound && def->magMatrix >= 0 && def->heldMatrix >= 0; }
 static inline s32 gevrGexHasAmmo(const GexWeaponDef *def) { return def && def->magMatrix >= 0 && def->heldMatrix >= 0; }
 static inline s32 gevrGexRestAnim(const GexWeaponDef *def) { return def->restAnim ? def->restAnim : def->fireAnim; }
+static inline s32 gevrGexHoldAnim(const GexWeaponDef *def) { return def->holdAnim ? def->holdAnim : def->reload.anim; }
 /* the mechanism (chamber, cylinder) stands open while the off hand holds the payload */
 static inline s32 gevrGexOpensWhileHeld(const GexWeaponDef *def)
 {
