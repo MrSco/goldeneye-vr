@@ -37,9 +37,9 @@ HARNESS=r'''
 float VrReloadGrab[2][3], VrGexForeHold[3], VrGexPp7Grab[3], VrGexPp7Support[3];
 float VrGexGunOff[3], VrGexPp7GunOff[3];
 float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
-float VrGexPp7SupportRot[3], VrGexWeaponFits[64][7][3];
+float VrGexPp7SupportRot[3], VrGexWeaponFits[64][9][3];
 float VrGexKf7WellOff[3],VrGexPp7WellOff[3];
-static int gevrScopeFitting,gevrReloadFitting,gevrOffHandFitting,gevrHeldMagFitting,gevrMuzzleFitting;
+static int gevrScopeFitting,gevrReloadFitting,gevrOffHandFitting,gevrHeldMagFitting,gevrMuzzleFitting,gevrGunHandFitting;
 static int gevrWellFitting,gevrInstalledMagFitting;
 static int gevrGunFitActive,g_gevrStereo=1,fitReload,fitScope=-1;
 #define LOGI(...) ((void)0)
@@ -62,6 +62,7 @@ static s32 visible[64];
 static f32 s_gevrGexFire[MAX_PLAYER_COUNT][2], s_gevrGexReadyFrame[MAX_PLAYER_COUNT][2];
 static s32 s_gevrGexFiring[MAX_PLAYER_COUNT][2];
 static s32 g_ClockTimer=1;
+#define GEVR_GEX_RHAND_ARM 1
 #define GEVR_GEX_RHAND_WRIST 2
 #define GEVR_GEX_LHAND_ARM 17
 #define GEVR_GEX_LHAND_FIRST 17
@@ -370,20 +371,25 @@ int main(int argc,char **argv) {
     assert(strstr(gevrFitNextLine(6),"BARREL TIP"));
     cycleFit(); assert(gevrMuzzleFitting && !gevrInstalledMagFitting);
     assert(!gevrGexMagazineFitting());
+    assert(strstr(gevrFitNextLine(7),"GUN HAND"));
     drawn=0; assert(!gevrGexOffHandConsumed(GEVR_GEXMAG_IN,&drawn) && !drawn);
     drawn=0; assert(gevrGexOffHandConsumed(GEVR_GEXMAG_INHAND,&drawn) && drawn);
-    cycleFit(); assert(!gevrMuzzleFitting && !gevrOffHandFitting);
+    cycleFit(); assert(gevrGunHandFitting && !gevrMuzzleFitting);
+    assert(strstr(gevrFitNextLine(8),"FIT THE GUN\n"));
+    cycleFit(); assert(!gevrGunHandFitting && !gevrMuzzleFitting && !gevrOffHandFitting);
     active=gevrGexWeaponGet(ITEM_LASER); fitScope=1;
     cycleFit(); assert(gevrScopeFitting);
     cycleFit(); assert(gevrOffHandFitting);
     cycleFit(); assert(gevrMuzzleFitting && !gevrHeldMagFitting && !gevrWellFitting && !gevrInstalledMagFitting);
-    cycleFit(); assert(!gevrMuzzleFitting);
+    cycleFit(); assert(gevrGunHandFitting && !gevrMuzzleFitting);
+    cycleFit(); assert(!gevrGunHandFitting);
     active=gevrGexWeaponGet(ITEM_GOLDENGUN); fitScope=-1;
     cycleFit(); assert(gevrOffHandFitting);
     cycleFit(); assert(gevrHeldMagFitting);
     cycleFit(); assert(gevrWellFitting);
     cycleFit(); assert(gevrMuzzleFitting && !gevrInstalledMagFitting);
-    cycleFit(); assert(!gevrMuzzleFitting);
+    cycleFit(); assert(gevrGunHandFitting && !gevrMuzzleFitting);
+    cycleFit(); assert(!gevrGunHandFitting);
     { u32 len; u16 matrices,textures; assert(!gevrGexBuildModel("missing",0,NULL,NULL,&len,&matrices,&textures)); }
     if (argc<4) { puts("PASS: registry and production attachment/magazine visibility"); return 0; }
     active=gevrGexWeaponGet(atoi(argv[3])); modelPath=argv[1]; rom=readFile(argv[2],&romSize);
@@ -474,6 +480,47 @@ int main(int argc,char **argv) {
         gevrGexOffCache(&hdr);
         assert(!s_gevrGexOffStale && !memcmp(&chain,&s_gevrGexOffChain[GEVR_GEX_LHAND_LAST],sizeof(chain)));
     }
+    {
+        /* Gun hand fit: the right hand alone moves and turns about its palm; the
+         * gun and the left hand stay; mirroring and the gun's size carry through. */
+        f32 *h=gevrGexHandFit(active->item),*rt=gevrGexHandRotFit(active->item),keep[6];
+        const f32 palmL[3]={0,0,GEVR_GEX_PALM_Z};
+        memcpy(keep,h,3*sizeof(f32)); memcpy(keep+3,rt,3*sizeof(f32));
+        for (int mirror=0;mirror<2;mirror++) {
+            Mtxf base2,before[64],after[64]; f32 p0[3],p1[3],ex[3];
+            matrix_4x4_set_identity(&base2);
+            base2.m[0][0]=(mirror?-1:1)*0.05f; base2.m[1][1]=base2.m[2][2]=0.05f;
+            base2.m[3][0]=7; base2.m[3][1]=-3; base2.m[3][2]=11;
+            gevrGexPoseWalk(&hdr,&base2,gevrGexRestAnim(active),0,before);
+            memcpy(after,before,sizeof(after)); memset(h,0,3*sizeof(f32)); memset(rt,0,3*sizeof(f32));
+            gevrGexHandFitTo(active,after); assert(!memcmp(after,before,sizeof(after)));
+            h[0]=1; h[1]=2; h[2]=3; gevrGexHandFitTo(active,after);
+            gevrGexMtxPoint(&before[GEVR_GEX_RHAND_WRIST],palmL,p0); gevrGexMtxPoint(&after[GEVR_GEX_RHAND_WRIST],palmL,p1);
+            for (int a=0;a<3;a++) ex[a]=(-1*before[33].m[0][a]+2*before[33].m[1][a]-3*before[33].m[2][a])/0.085f;
+            for (int a=0;a<3;a++) assert(fabsf(p1[a]-p0[a]-ex[a])<0.01f);
+            for (int j=GEVR_GEX_LHAND_FIRST;j<matrices-1;j++) assert(!memcmp(&after[j],&before[j],sizeof(Mtxf)));
+            memcpy(after,before,sizeof(after)); memset(h,0,3*sizeof(f32)); rt[0]=20; rt[1]=-35; rt[2]=10;
+            gevrGexHandFitTo(active,after);
+            gevrGexMtxPoint(&after[GEVR_GEX_RHAND_WRIST],palmL,p1);
+            for (int a=0;a<3;a++) assert(fabsf(p1[a]-p0[a])<0.01f);
+            f32 moved=0;
+            for (int j=1;j<GEVR_GEX_LHAND_FIRST;j++) {
+                for (int k=1;k<GEVR_GEX_LHAND_FIRST;k++) {
+                    f32 a2=0,b2=0;
+                    for (int a=0;a<3;a++) { f32 da=before[j].m[3][a]-before[k].m[3][a], db=after[j].m[3][a]-after[k].m[3][a]; a2+=da*da; b2+=db*db; }
+                    assert(fabsf(sqrtf(a2)-sqrtf(b2))<0.01f);
+                }
+                for (int r=0;r<3;r++) {
+                    f32 la=0,lb=0; for (int a=0;a<3;a++) { la+=before[j].m[r][a]*before[j].m[r][a]; lb+=after[j].m[r][a]*after[j].m[r][a]; }
+                    assert(fabsf(sqrtf(la)-sqrtf(lb))<1e-4f);
+                }
+                for (int a=0;a<3;a++) { f32 m=fabsf(after[j].m[3][a]-before[j].m[3][a]); if (m>moved) moved=m; }
+            }
+            assert(moved>0.1f);
+            for (int j=GEVR_GEX_LHAND_FIRST;j<matrices-1;j++) assert(!memcmp(&after[j],&before[j],sizeof(Mtxf)));
+        }
+        memcpy(h,keep,3*sizeof(f32)); memcpy(rt,keep+3,3*sizeof(f32));
+    }
     if (active->payloadProp>0) {
         /* The grenade launcher: no clip of its own, the hand posed by the
          * borrowed one; the target is a chamber mouth on the drum's rear face
@@ -545,6 +592,7 @@ production.extend(function(gun,s) for s in ("static void gevrGexMtxPoint(", "sta
     "static void gevrGexPistolMagGrip(", "static s32 gevrGexOffSteady("))
 production.extend(function(gun,s) for s in ("static void gevrGexHeldMagFitTo(", "static void gevrGexPistolSupportPose("))
 production.append(function(gun,"static void gevrGexForeFrom("))
+production.append(function(gun,"static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx)\n{"))
 production.extend(function(gun,s) for s in ("static void gevrGexInstalledMagFitTo(", "static s32 gevrGexInstalledMagazineFitting(", "static s32 gevrGexMagazineFitting("))
 production.extend(function(gun,s) for s in ("static s32 gevrGexOffHandConsumed(", "static void gevrGexWellPoint(", "void gevrReloadFitSetWell("))
 view=(ROOT/"src/game/bondview2.c").read_text()

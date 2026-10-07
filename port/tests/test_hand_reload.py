@@ -43,7 +43,7 @@ definitions.append(re.search(r"float VrReloadBelt\[3\] = [^;]+;", defaults).grou
 for name in ("VrReloadGrab", "VrGexGunOff", "VrGexForeHold", "VrGexPp7Grab", "VrGexPp7Support", "VrGexPp7GunOff",
              "VrGexKf7MagOff", "VrGexPp7MagOff", "VrGexKf7WellOff", "VrGexPp7WellOff", "VrGexPp7SupportRot"):
     definitions.append(re.search(r"float " + name + r"\[[^;]+;", defaults).group())
-definitions.append("float VrGexWeaponFits[64][7][3];")
+definitions.append("float VrGexWeaponFits[64][9][3];")
 for name in ("s_gevrGexMagItem", "s_gevrPistolGripOwner"):
     definitions.append(re.search(r"static s32 " + name + r"[^;]+;", view).group())
 for name in ("GEVR_UNITS_PER_METRE", "GEVR_RELOAD_BELT_EXIT_CM", "GEVR_VIEWMODEL_CM", "GEVR_GRIP_TO_ORIGIN_CM"):

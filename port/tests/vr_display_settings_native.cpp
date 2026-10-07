@@ -39,8 +39,8 @@ unsigned int arc4random_uniform(unsigned int) { return 1; }
 /* FIT_SNAPSHOT */
 
 static void newFamilyFits(float base, bool check) {
-    const int items[]={14,15,16,17,19,22,25};
-    for(int item:items) for(int component=0;component<7;component++) for(int axis=0;axis<3;axis++) {
+    const int items[]={14,15,16,17,18,19,22,24,25};
+    for(int item:items) for(int component=0;component<9;component++) for(int axis=0;axis<3;axis++) {
         const float value=base+item+component*0.25f+axis*0.125f;
         if(check) assert(VrGexWeaponFits[item][component][axis]==value);
         else VrGexWeaponFits[item][component][axis]=value;
