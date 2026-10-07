@@ -66,6 +66,7 @@ production.extend(function(view, signature) for signature in (
     "static s32 gevrHandOnBody(", "static s32 gevrHipZone(",
     "static s32 gevrReloadGun(", "static s32 gevrReloadMagazineFed(",
     "s32 gevrManualReloadOn(", "static s32 gevrGexByHand(",
+    "s32 gevrGexHeldRoundCount(void)\n{",
     "static void gevrGexHeldDropped(", "static void gevrGexMagOut(",
     "static void gevrGexMagIn(",
     "static f32 gevrBeltDist2(", "static s32 gevrGexAtBelt(",

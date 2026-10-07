@@ -215,8 +215,9 @@ static void reloadGrip(ModelFileHeader *hdr) {
 }
 static void switches(void) {
     if (!gevrGexHasAmmo(active)) return;
-    ModelFileHeader hdr={0}; Model model={0}; ModelNode nodes[6]={0};
-    union ModelRoData records[6]={0}; ModelNode *table[64]={0};
+    ModelFileHeader hdr={0}; Model model={0}; ModelNode nodes[8]={0};
+    union ModelRoData records[8]={0}; ModelNode *table[64]={0};
+    assert(active->numParts<=8);
     hdr.numSwitches=40+active->numParts; hdr.Switches=table;
     for (int i=0;i<active->numParts;i++) {
         nodes[i].Data=&records[i]; records[i].Switch.RwDataIndex=40+i;
@@ -228,6 +229,14 @@ static void switches(void) {
     gevrGexShowMagazines(&hdr,&model,0,1);
     assert(visible[40]==0 && visible[41]==1);
     for (int i=2;i<active->numParts;i++) assert(visible[40+i]==active->visible[i]);
+    if (active->loaderRounds>1) {
+        /* one round drawn per round the loader carries, never the empty part 0 */
+        assert(active->numParts==active->loaderRounds+1 && gevrGexOpensWhileHeld(active));
+        for (int n=0;n<=active->loaderRounds;n++) {
+            gevrGexShowMagazines(&hdr,&model,0,n);
+            for (int i=1;i<active->numParts;i++) assert(visible[40+i]==(i<=n));
+        }
+    }
     if (active->reload.openHide>0) {
         const GexReloadDef *clips[]={&active->reload,&active->dualReload};
         for(int c=0;c<2;c++) {
@@ -315,7 +324,7 @@ static u8 *partVertices(u8 *source,int wanted) {
     abort();
 }
 int main(int argc,char **argv) {
-    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN};
+    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER};
     for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) { active=gevrGexWeaponGet(items[i]); assert(active); switches(); }
     assert(gevrGexWeaponGet(ITEM_WPPK)->magMatrix==38);
     assert(gevrGexWeaponGet(ITEM_WPPK)->heldMatrix==42);
@@ -327,7 +336,7 @@ int main(int argc,char **argv) {
     assert(gevrGexInstalledMagFit(ITEM_MP5K)==gevrGexInstalledMagFit(ITEM_MP5KSIL));
     assert(gevrGexInstalledMagFit(ITEM_M16)!=gevrGexInstalledMagFit(ITEM_SPECTRE));
     assert(gevrGexWeaponGet(ITEM_WPPK)->muzzle[2]<gevrGexWeaponGet(ITEM_WPPKSIL)->muzzle[2]);
-    assert(!gevrGexWeaponGet(ITEM_RUGER));
+    assert(!gevrGexWeaponGet(ITEM_KNIFE));
     assert(!gevrGexHasMagazine(gevrGexWeaponGet(ITEM_LASER)));
     assert(gevrGexGunFit(ITEM_MP5K)==gevrGexGunFit(ITEM_MP5KSIL));
     assert(gevrGexSupportRotFit(ITEM_UZI)!=gevrGexSupportRotFit(ITEM_SKORPION));
@@ -458,6 +467,20 @@ int main(int argc,char **argv) {
         gevrGexOffCache(&hdr);
         assert(!s_gevrGexOffStale && !memcmp(&chain,&s_gevrGexOffChain[GEVR_GEX_LHAND_LAST],sizeof(chain)));
     }
+    if (active->loaderRounds>1) {
+        /* Held, the cylinder swings out to the loader's entrance; the gun and
+         * the loader's own matrix stay where tracking put them. */
+        Mtxf open[64],inv; f32 shut[3],out[3],d0=0,d1=0;
+        memcpy(open,poses,sizeof(open));
+        gevrGexPoseReady(&hdr,open,active->holdFrame);
+        assert(!memcmp(&open[active->gunMatrix],&poses[active->gunMatrix],sizeof(Mtxf)));
+        assert(!memcmp(&open[active->heldMatrix],&poses[active->heldMatrix],sizeof(Mtxf)));
+        gevrGexRigidInverse(&poses[active->gunMatrix],&inv);
+        f32 at[3]; for(int a=0;a<3;a++) at[a]=poses[39].m[3][a]; gevrGexMtxPoint(&inv,at,shut);
+        for(int a=0;a<3;a++) at[a]=open[39].m[3][a]; gevrGexMtxPoint(&inv,at,out);
+        for(int a=0;a<3;a++){ d0+=(shut[a]-active->magWell[a])*(shut[a]-active->magWell[a]); d1+=(out[a]-active->magWell[a])*(out[a]-active->magWell[a]); }
+        assert(d1<12*12 && d0>d1 && fabsf(out[0]-shut[0])>10);
+    }
     if (active->reload.openHide>0) {
         Mtxf before[64]; memcpy(before,poses,sizeof(before));
         gevrGexPoseReady(&hdr,poses,active->holdFrame);
@@ -521,6 +544,6 @@ with tempfile.TemporaryDirectory(prefix="gex-weapons-") as directory:
         sys.path.insert(0,str(ROOT/'tools/gex'))
         from pdrom import PdRom
         rom=PdRom(sys.argv[1])
-        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19)):
+        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18)):
             sample=temp/'model.bin'; sample.write_bytes(rom.load(model))
             subprocess.run([str(exe),str(sample),str(Path(sys.argv[1]).resolve()),str(item)],check=True)

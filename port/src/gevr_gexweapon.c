@@ -23,6 +23,7 @@ static const u16 p90Textures[] = {1022,884,3285,28,3286,27,3300,2114,3301,2115,3
 static const u16 laserTextures[] = {515,849,518,664,694,508,1838,511,1839,850,1843,2130,1844,2131,1845,2132,1846,2133,2466,2057,0};
 static const u16 shotgunTextures[] = {939,2141,940,2142,941,2143,942,2144,0};
 static const u16 autoshotTextures[] = {243,82,1848,232,2385,74,2386,75,2387,76,2388,78,2389,79,2390,80,2392,84,2393,1217,0};
+static const u16 cougarTextures[] = {923,2137,924,2138,925,2139,926,2140,2489,1141,2490,1142,2491,1143,3275,776,0};
 static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,696,1378,1674,228,2496,418,2497,420,2637,532,0};
 #define IDENTITY {{1,0,0,0},{0,1,0,0},{0,0,1,0},{0,0,0,1}}
 /* GE-X 6a GwppkZ: the same 16 magazine vertices in both display lists.
@@ -339,6 +340,45 @@ static const GexWeaponDef weapons[] = {
         .magTop={-24,34,-51},
         .heldTop={-24,34,-51},
         .magWell={-24,34,-51}
+    },
+    /* Cougar: GmaianpistolZ, body = GE GrugerZ + (0,50,42) (131/143 vertices).
+     * Reload 1032 swings the cylinder out by 80 and holds it still to 135;
+     * the six-round speedloader (parts 40..45, one matrix 46) shows at 92,
+     * seats on the cylinder's rear face at 121, ammo moves at 123, closed at 147.
+     * The loader's rounds are not drawn once in the cylinder, as in the source. */
+    {
+        .item=ITEM_RUGER,
+        .slot=17,
+        .model="GmaianpistolZ",
+        .texturePairs=cougarTextures,
+        .singleRound=1,
+        .loaderRounds=6,
+        .fireAnim=1030,
+        .restAnim=1030,
+        .gunMatrix=33,
+        .magMatrix=33,
+        .heldMatrix=46,
+        .reload={1032,123,0,92,121},
+        .dualReload={1056,123,0,-1,-1},
+        .holdFrame=100,
+        .numParts=7,
+        .parts={-1,40,41,42,43,44,45},
+        .visible={0,0,0,0,0,0,0},
+        .pistol=1,
+        .trackedMagWrist=1,
+        .compact=1,
+        /* the loader's frame in the gun's at frame 121, seated */
+        .heldToMag={{0.312677f,-0.949678f,-0.018587f,0},{0.948930f,0.313177f,-0.038119f,0},{0.042021f,-0.005719f,0.999100f,0},{42.539028f,14.827619f,41.727231f,1}},
+        .screenOffset={0.000000f,50.000000f,42.000000f},
+        .muzzle={-3.264762f,73.745319f,461.450909f},
+        .screenMuzzle={0.000000f,85.199997f,397.716400f},
+        .supportRoot={-39.498364f,-28.279365f,49.061958f},
+        .grabRoot={0,0,0},
+        /* the ring's centre on the cylinder's rear face; the rounds' tips lead */
+        .magCentre={42.220902f,14.196192f,41.736997f},
+        .magTop={42.220902f,14.196192f,41.736997f},
+        .magWell={42.220902f,14.196192f,41.736997f},
+        .heldTop={0.5f,-0.5f,34.0f}
     }
 };
 

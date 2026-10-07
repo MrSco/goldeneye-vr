@@ -484,6 +484,49 @@ static void singleRoundReloads(void)
     }
     stats.MagSize=30;
 }
+/* Cougar speedloader: one pickup carries as many rounds as fit and the
+ * reserve has; insertion adds them all; abandoning it refunds them all. */
+static void speedloaderReloads(void)
+{
+    const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f; (void)cm;
+    #define LOADER_INSERT() do { pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick(); } while (0)
+    #define LOADER_RELEASE() do { gripHeld[0]=0; pistolTick(); } while (0)
+    #define LOADER_TAKE() do { pointsValid=0; belt(0,0); gripHeld[0]=1; pistolTick(); } while (0)
+    assert(gevrGexWeaponGet(ITEM_RUGER)->loaderRounds==6 && gevrGexWeaponGet(ITEM_RUGER)->singleRound);
+    reset(); stats.MagSize=6; gex[GUNRIGHT]=1; player.hands[GUNRIGHT].weapon=ITEM_RUGER;
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine=2; pistolTick();
+    LOADER_TAKE();
+    assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==4 && reserve==46);
+    assert(gevrGexHeldRoundCount()==4);
+    LOADER_INSERT();
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==6 && reserve==46 && readyEvents==1);
+    assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN);
+    LOADER_RELEASE(); LOADER_TAKE();   /* full: nothing to take */
+    assert(s_gevrGexMag[GUNRIGHT]!=GEVR_GEXMAG_INHAND && reserve==46);
+    /* a short reserve fills the loader only partly */
+    LOADER_RELEASE(); player.hands[GUNRIGHT].weapon_ammo_in_magazine=0; reserve=3;
+    LOADER_TAKE(); assert(s_gevrGexHeldRounds==3 && reserve==0);
+    LOADER_INSERT(); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==3 && reserve==0);
+    /* let go without inserting: every round goes back */
+    LOADER_RELEASE(); player.hands[GUNRIGHT].weapon_ammo_in_magazine=1; reserve=50;
+    LOADER_TAKE(); assert(s_gevrGexHeldRounds==5 && reserve==45);
+    LOADER_RELEASE(); assert(reserve==50 && player.hands[GUNRIGHT].weapon_ammo_in_magazine==1);
+    assert(s_gevrGexMag[GUNRIGHT]==GEVR_GEXMAG_IN && falls>0);
+    /* firing while the loader is held still seats every round it carries */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine=4;
+    LOADER_TAKE(); assert(s_gevrGexHeldRounds==2 && reserve==48);
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine=2;
+    LOADER_INSERT(); assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine==4 && reserve==48);
+    /* tracking loss while held refunds once */
+    LOADER_RELEASE(); player.hands[GUNRIGHT].weapon_ammo_in_magazine=0;
+    LOADER_TAKE(); assert(reserve==42);
+    tracked[0]=0; pistolTick(); assert(reserve==48 && s_gevrGexHeldRounds==-1);
+    tracked[0]=1; LOADER_RELEASE();
+    #undef LOADER_INSERT
+    #undef LOADER_RELEASE
+    #undef LOADER_TAKE
+    stats.MagSize=30;
+}
 int main(void)
 {
     const float scales[] = {0.2f, 1.0f};
@@ -506,6 +549,7 @@ int main(void)
         pp7Reload();
         nextGunReloads();
         singleRoundReloads();
+        speedloaderReloads();
     }
     /* A custom belt and radius must control both reload paths. */
     reset();
