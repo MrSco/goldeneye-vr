@@ -4,6 +4,32 @@ Start here, then read [the roadmap](gex-weapon-roadmap.md) for the history of
 PP7 grip, wrist orientation, duplicate arms, insertion targets and installed
 magazine fitting. This file records the current implementation and remaining work.
 
+## Throwable fixes, grenade cooking, taser — 2026-10-07
+
+Latest test APK `GoldenEyeVR-code65-taserreach-deda17c.apk` (label **deda17c**,
+0.4.11 / code 65). User accepted the Cougar (reload via belt speedloader), grenade
+launcher incl. Gun hand, knives, grenade (item fit baked) and taser placement;
+all saved fits are baked (none newer than the grenade's item fit).
+
+- **Keyframes.** Stereo skips GoldenEye's keyframe swing only while the grip's motion
+  throw owns the hand (wind-up, cooking, recovery: `gevrMotionThrowOwnsHand`), and for
+  the taser with either model. Trigger stabs/throws keep their animation.
+- **Knife melee.** A knife or throwing knife swung by hand attacks as the knife: its
+  slash sounds (`knife_throw_sounds`), knife damage, no punch whiff. A throw's grip
+  wind-up swings no blow.
+- **Item fit.** For hand-held GE-X items (no payload, no fire clip: knives, grenade,
+  mines, taser) the ninth X mode is Item: components 7/8 move/turn the item about its
+  origin, 9 sizes it; hands stay on their controllers. Table is `[64][10][3]`.
+- **Cooking.** Trigger held with a grenade plays throw 1062 on the lever (matrix 34)
+  to frame 30 (`cookAnim/cookEnd/cookMatrix`), then collapses it.
+  `gevrGexPoseMechanism` now skips the last matrix only when the rig has the appended
+  muzzle-flash matrix (switch 1); previously a flashless rig's last joint never moved.
+- **Taser.** ROM weapon names (now read by `gexguns.py` from LgunE) put the taser at
+  slot 30 (`Gfalcon2lodZ`), not 44 (Hallucinogun). Held like the knives; GoldenEye's
+  taser rotation skipped for it. In stereo its trigger strikes the guard its tip
+  touches (12 cm, `gevrTaserTouch` → `gevrChopHit` with no speed), else GoldenEye's
+  melee reach (`chraiFistAttackHandler` with taser damage) - no unlimited-range shot.
+
 ## Bonus PP7s, knives, throwables, Gun hand fit — 2026-10-06, night
 
 Branch `codex/gex-cougar-grenade` (local, not pushed). Latest test APK
