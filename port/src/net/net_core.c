@@ -2323,6 +2323,12 @@ void gevrNetConfigSet(int field, int value) {
     vrSettingsSave();
 }
 int gevrNetSlotIsBot(int slot) { return netSlotIsBot(slot); }
+/* A bot's foes: everyone else, or the other side in a team round */
+int gevrNetBotFoes(int a, int b) {
+    if (a == b || a < 0 || b < 0 || a >= GEVR_MAX_PLAYERS || b >= GEVR_MAX_PLAYERS) return 0;
+    return !netScenarioHasTeams(s_round.config.scenario) || s_round.team[a] != s_round.team[b];
+}
+int gevrNetBotDifficulty(void) { return s_round.config.bot_difficulty < NET_BOT_DIFF_COUNT ? s_round.config.bot_difficulty : NET_BOT_NORMAL; }
 /* Bots change between rounds: the lobby and the warmup, never a round in progress */
 int gevrNetBotRowsEditable(void) {
     return netIsHost() && s_lobby_state.config.mode != NET_MODE_COOP &&

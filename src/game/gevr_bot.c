@@ -34,6 +34,37 @@ extern void gevrBotRespawn(void);       /* bondview2.c */
 extern void sysLogPrintf(s32 level, const char *fmt, ...);
 extern PadRecord *g_Startpad[];
 extern s32 startpadcount;
+extern bool netSlotOccupied(int slot);
+extern s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f32 dest_z, s32 cdtypes,
+                                    f32 unkHeight, f32 unkA, f32 unkB, f32 unkC);
+
+/*
+ * Perfect Dark's simulant difficulties (bot.c g_BotDifficulties), NTSC
+ * ticks: the reaction (shootdelay: ticks of sight before the first shot),
+ * the aim error's range in radians while the target is fresh (unk04, unk08)
+ * and the ticks of sight that settle it (unk0c), the error turning adds
+ * (unk10), and its floor (unk18). Meat to Dark.
+ */
+typedef struct GevrBotDifficulty {
+    s32 shootdelay;
+    f32 errmin, errmax;
+    s32 settle;
+    f32 turnerr;
+    f32 cloakerr;
+    f32 errfloor;
+} GevrBotDifficulty;
+
+static const GevrBotDifficulty s_difficulties[NET_BOT_DIFF_COUNT] = {
+    /* meat */ { 90, 0.26175770163536f,  0.52351540327072f,  600, 10, 0.69802051782608f, 0.34901025891304f },
+    /* easy */ { 60, 0.12215359508991f,  0.24430719017982f,  360, 10, 0.49733963608742f, 0.13960410654545f },
+    /* norm */ { 30, 0.069802053272724f, 0.13960410654545f,  180, 4,  0.34901025891304f, 0.08725256472826f },
+    /* hard */ { 15, 0.026175770908594f, 0.069802053272724f, 90,  2,  0.24430719017982f, 0.034901026636362f },
+    /* perf */ { 0,  0,                  0.034901026636362f, 45,  1,  0.17450512945652f, 0 },
+    /* dark */ { 0,  0,                  0,                  0,   0,  0.13960410654545f, 0 },
+};
+
+/* PD's distance modes (botcmd.c botcmdTickDistMode) */
+enum { BOT_DIST_NONE = -1, BOT_DIST_BACKUP, BOT_DIST_OK, BOT_DIST_ADVANCE, BOT_DIST_GOTO };
 
 /* PD's simulant turn (bot.c botTick): 0.0616 rad, 3.5 degrees, a tick */
 #define BOT_TURN_PER_TICK 3.529f
@@ -53,6 +84,23 @@ typedef struct GevrBot {
     s32 stillticks;         /* walking without getting anywhere */
     s32 unstickticks;       /* sidestepping out of it */
     s32 unstickdir;
+    /* Perfect Dark's aibot fields (bot.c), by the same names */
+    s32 frame60;            /* the bot's own clock, 60 Hz ticks */
+    s32 queryslot;          /* the player the next sight check is for */
+    s8 insight[MAX_PLAYER_COUNT];
+    s32 lastseen60[MAX_PLAYER_COUNT];
+    f32 distance[MAX_PLAYER_COUNT];
+    s32 target;             /* a slot, -1 none */
+    s32 targetinsight;
+    s32 shootdelaytimer60;
+    f32 targetinsighttemperature;
+    u32 random3;
+    s32 random3ttl60;
+    f32 extraanglebase, extraanglerate, extraangle;   /* radians */
+    f32 speedtheta;         /* PD's turn speed measure, for the turning error */
+    s32 distmode;
+    s32 distmodettl60;
+    s32 targetroutetile;    /* the target's tile the route was planned to, as a tag */
 } GevrBot;
 
 static GevrBot s_bots[MAX_PLAYER_COUNT];
@@ -234,31 +282,286 @@ static void gevrBotUnstick(s32 slot, struct player *pl, GevrBot *bot, OSContPad 
     }
 }
 
-/* The bot's controller and view for this tick */
-static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
+/* A player the bot may fight now: in the level, alive, a foe */
+static s32 gevrBotFoe(s32 slot, s32 other)
+{
+    struct player *op;
+
+    if (other < 0 || other >= MAX_PLAYER_COUNT || other == slot || !netSlotOccupied(other) || !gevrNetBotFoes(slot, other))
+    {
+        return FALSE;
+    }
+    op = g_playerPointers[other];
+    return op != NULL && op->prop != NULL && op->prop->stan != NULL && !op->bonddead;
+}
+
+/*
+ * Line of sight, as a guard sees Bond (chraction.c chrCanSeeBond): the
+ * floor walks unbroken from eye to eye, past no door, object or opaque
+ * scenery, and ends on the other's tile. Players do not block it.
+ */
+static s32 gevrBotCanSee(struct player *pl, struct player *op)
+{
+    StandTile *tile = pl->prop->stan;
+    f32 height = pl->eyeheight - 20.0f;
+
+    if (height < 40.0f)
+    {
+        height = 40.0f;
+    }
+    return stanTestLineUnobstructed(&tile, pl->prop->pos.x, pl->prop->pos.z, op->prop->pos.x, op->prop->pos.z,
+                                    CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER | CDTYPE_AIOPAQUE,
+                                    height, height, 0.0f, 1.0f)
+        && tile == op->prop->stan;
+}
+
+/* PD's botSetTarget: the reaction clock runs while the target is in sight */
+static void gevrBotSetTarget(GevrBot *bot, s32 target)
+{
+    bot->targetinsight = target >= 0 && bot->insight[target];
+    if (bot->target != target)
+    {
+        bot->target = target;
+        bot->shootdelaytimer60 = 0;
+        bot->route.count = 0;
+    }
+    else if (bot->targetinsight)
+    {
+        bot->shootdelaytimer60 += g_ClockTimer;
+    }
+    else
+    {
+        bot->shootdelaytimer60 -= g_ClockTimer;
+        if (bot->shootdelaytimer60 < 0) bot->shootdelaytimer60 = 0;
+    }
+}
+
+/* PD's bot0f192a74: the aim error, wide while the target is fresh in sight,
+ * settling as it stays there, unsettled by turning */
+static void gevrBotAimError(GevrBot *bot, s32 diff)
+{
+    const GevrBotDifficulty *d = &s_difficulties[diff];
+    f32 lo;
+    f32 hi;
+    f32 turning;
+    s32 i;
+
+    bot->random3ttl60 -= g_ClockTimer;
+    if (bot->random3ttl60 <= 0)
+    {
+        bot->random3 = gevrBotRandom();
+        bot->random3ttl60 = 20 + gevrBotRandom() % 20;
+    }
+    bot->targetinsighttemperature += bot->targetinsight ? g_ClockTimer : -g_ClockTimer;
+    turning = d->turnerr * bot->speedtheta * g_ClockTimer;
+    bot->targetinsighttemperature -= turning < 0 ? -turning : turning;
+    if (bot->targetinsighttemperature > bot->shootdelaytimer60) bot->targetinsighttemperature = bot->shootdelaytimer60;
+    if (bot->targetinsighttemperature < 0) bot->targetinsighttemperature = 0;
+    if (bot->targetinsighttemperature >= d->settle)
+    {
+        bot->targetinsighttemperature = d->settle;
+        lo = hi = 0.0f;
+    }
+    else
+    {
+        f32 left = (d->settle - bot->targetinsighttemperature) / d->settle;
+
+        lo = d->errmin * left;
+        hi = d->errmax * left;
+    }
+    if (hi < d->errfloor) hi = d->errfloor;
+    bot->extraanglebase = (hi - lo) * (bot->random3 & 0xffff) * 0.000015259021893144f + lo;
+    if (bot->random3 & 0x10000) bot->extraanglebase = -bot->extraanglebase;
+    for (i = 0; i < g_ClockTimer * 4; i++)
+    {
+        bot->extraanglerate = bot->extraanglerate * 0.97500002384186f + bot->extraanglebase;
+    }
+    bot->extraangle = bot->extraanglerate * 0.024999976158142f;
+}
+
+/*
+ * PD's botChooseGeneralTarget: one sight check a tick, round the players;
+ * keep a target in sight, else the nearest foe in sight, else (Meat and Easy
+ * at once, the others when no one is in sight) the nearest foe anywhere.
+ */
+static void gevrBotChooseTarget(s32 slot, struct player *pl, GevrBot *bot, s32 diff)
+{
+    s32 order[MAX_PLAYER_COUNT];
+    s32 count = 0;
+    s32 i;
+    s32 j;
+    s32 nearest = -1;
+    s32 q;
+
+    q = bot->queryslot = (bot->queryslot + 1) % MAX_PLAYER_COUNT;
+    if (gevrBotFoe(slot, q))
+    {
+        struct player *op = g_playerPointers[q];
+        f32 dx = op->prop->pos.x - pl->prop->pos.x;
+        f32 dy = op->prop->pos.y - pl->prop->pos.y;
+        f32 dz = op->prop->pos.z - pl->prop->pos.z;
+
+        bot->distance[q] = sqrtf(dx * dx + dy * dy + dz * dz);
+        bot->insight[q] = gevrBotCanSee(pl, op);
+    }
+    else
+    {
+        bot->insight[q] = FALSE;
+    }
+    for (i = 0; i < MAX_PLAYER_COUNT; i++)
+    {
+        if (!gevrBotFoe(slot, i))
+        {
+            bot->insight[i] = FALSE;
+            continue;
+        }
+        if (bot->insight[i]) bot->lastseen60[i] = bot->frame60;
+        for (j = count; j > 0 && bot->distance[order[j - 1]] > bot->distance[i]; j--) order[j] = order[j - 1];
+        order[j] = i;
+        count++;
+    }
+    gevrBotAimError(bot, diff);
+    if (bot->target >= 0 && !gevrBotFoe(slot, bot->target))
+    {
+        bot->target = -1;
+    }
+    if (bot->target >= 0 && bot->insight[bot->target])
+    {
+        gevrBotSetTarget(bot, bot->target);
+        return;
+    }
+    for (i = 0; i < count; i++)
+    {
+        if (bot->insight[order[i]])
+        {
+            gevrBotSetTarget(bot, order[i]);
+            return;
+        }
+        if (nearest < 0) nearest = order[i];
+    }
+    if (bot->target < 0 || diff <= NET_BOT_EASY)
+    {
+        gevrBotSetTarget(bot, nearest);
+        return;
+    }
+    gevrBotSetTarget(bot, bot->target);
+}
+
+/* PD's botcmdTickDistMode with BOTDISTCFG_DEFAULT (botcmd.c g_BotDistConfigs) */
+static s32 gevrBotDistMode(GevrBot *bot, s32 diff)
+{
+    f32 mindist = 300.0f;
+    f32 maxdist = 600.0f;
+    f32 dist = bot->distance[bot->target];
+
+    if (diff == NET_BOT_MEAT) mindist *= 0.35f;
+    else if (diff == NET_BOT_EASY) mindist *= 0.5f;
+    if (bot->distmode == BOT_DIST_BACKUP) mindist += 25.0f;
+    else if (bot->distmode == BOT_DIST_ADVANCE || bot->distmode == BOT_DIST_GOTO) maxdist -= 25.0f;
+    if (dist < mindist) return bot->targetinsight ? BOT_DIST_BACKUP : BOT_DIST_ADVANCE;
+    if (dist < maxdist) return bot->targetinsight ? BOT_DIST_OK : BOT_DIST_ADVANCE;
+    if (dist < 4500.0f) return BOT_DIST_ADVANCE;
+    return BOT_DIST_GOTO;
+}
+
+/* Walk the route toward a goal, turning to face along it unless told where to look */
+static void gevrBotWalkRoute(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad, s32 face)
 {
     coord3d aim;
 
-    bot->routeticks += g_ClockTimer;
-    if (bot->route.count == 0 || bot->routeticks > 60 * 20)
+    if (!gevrBotNavNext(&bot->route, &pl->prop->pos, pl->prop->stan, &aim))
     {
-        gevrBotPickRoam(pl, bot);
+        bot->route.count = 0;
+        return;
     }
-    if (gevrBotNavNext(&bot->route, &pl->prop->pos, pl->prop->stan, &aim))
+    if (face)
     {
         f32 turn = gevrBotTurnTo(bot, gevrBotHeading(&pl->prop->pos, &aim), BOT_TURN_PER_TICK * 2.0f);
 
         bot->verta *= 0.9f;
-        if (turn < 60.0f && turn > -60.0f)
+        if (turn > 60.0f || turn < -60.0f)
         {
-            gevrBotMoveToward(pl, bot, &aim, pad);
+            return;
+        }
+    }
+    gevrBotMoveToward(pl, bot, &aim, pad);
+    (void)slot;
+}
+
+/* The bot's controller and view for this tick */
+static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
+{
+    s32 diff = gevrNetBotDifficulty();
+    f32 oldtheta = bot->theta;
+
+    bot->frame60 += g_ClockTimer;
+    bot->routeticks += g_ClockTimer;
+    gevrBotChooseTarget(slot, pl, bot, diff);
+
+    if (bot->target >= 0)
+    {
+        struct player *op = g_playerPointers[bot->target];
+        s32 mode = gevrBotDistMode(bot, diff);
+
+        if (bot->targetinsight)
+        {
+            /* face the target, off by the aim error (bot.c botTick); pitch straight at its chest */
+            f32 dx = op->prop->pos.x - pl->prop->pos.x;
+            f32 dz = op->prop->pos.z - pl->prop->pos.z;
+            f32 dy = (op->prop->pos.y - 30.0f) - pl->prop->pos.y;
+            f32 flat = sqrtf(dx * dx + dz * dz);
+            f32 heading = gevrBotHeading(&pl->prop->pos, &op->prop->pos) + bot->extraangle * (180.0f / M_PI_F);
+            f32 off = gevrBotTurnTo(bot, heading, BOT_TURN_PER_TICK);
+
+            bot->verta = atan2f(dy, flat > 1.0f ? flat : 1.0f) * (180.0f / M_PI_F);
+            /* PD's fire rule (bot.c botTickUnpaused): in sight, reacted, within 45 degrees */
+            if (bot->shootdelaytimer60 >= s_difficulties[diff].shootdelay && off < 45.0f && off > -45.0f)
+            {
+                pad->button |= Z_TRIG;
+            }
+        }
+        if (mode != bot->distmode || bot->distmodettl60 <= 0)
+        {
+            bot->distmode = mode;
+            bot->distmodettl60 = 60;
+            if (mode == BOT_DIST_ADVANCE || mode == BOT_DIST_GOTO)
+            {
+                if (gevrBotNavPlan(&bot->route, pl->prop->stan, &pl->prop->pos, op->prop->stan, &op->prop->pos))
+                {
+                    bot->routeticks = 0;
+                }
+            }
+            else
+            {
+                bot->route.count = 0;
+            }
+        }
+        bot->distmodettl60 -= g_ClockTimer;
+        if (mode == BOT_DIST_BACKUP)
+        {
+            coord3d away = pl->prop->pos;
+
+            away.x += pl->prop->pos.x - op->prop->pos.x;
+            away.z += pl->prop->pos.z - op->prop->pos.z;
+            gevrBotMoveToward(pl, bot, &away, pad);
+        }
+        else if (mode != BOT_DIST_OK)
+        {
+            gevrBotWalkRoute(slot, pl, bot, pad, !bot->targetinsight);
         }
     }
     else
     {
-        bot->route.count = 0;
+        bot->distmode = BOT_DIST_NONE;
+        if (bot->route.count == 0 || bot->routeticks > 60 * 20)
+        {
+            gevrBotPickRoam(pl, bot);
+        }
+        gevrBotWalkRoute(slot, pl, bot, pad, TRUE);
     }
     gevrBotUnstick(slot, pl, bot, pad);
+    /* PD's speedtheta: the turn, radians a tick, scaled as bot.c scales it */
+    bot->speedtheta = gevrBotWrap(bot->theta - oldtheta) * (M_PI_F / 180.0f) / (g_ClockTimer > 0 ? g_ClockTimer : 1) * 16.236389160156f;
 }
 
 /*
@@ -287,6 +590,8 @@ s32 gevrBotTickBegin(s32 slot)
     {
         memset(bot, 0, sizeof(*bot));
         bot->started = TRUE;
+        bot->target = -1;
+        bot->distmode = BOT_DIST_NONE;
         bot->theta = pl->vv_theta;
         bot->verta = 0.0f;
     }
@@ -304,6 +609,9 @@ s32 gevrBotTickBegin(s32 slot)
             bot->theta = pl->vv_theta;
             bot->verta = 0.0f;
             bot->route.count = 0;
+            bot->target = -1;
+            bot->distmode = BOT_DIST_NONE;
+            bot->targetinsighttemperature = 0;
         }
     }
     else
