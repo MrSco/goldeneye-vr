@@ -10,6 +10,15 @@
 #include "language.h"
 #include "bondinv.h"
 #include "gun.h"
+#ifdef GEVR
+extern int VrGexGuns;
+/* GE-X's remote mines detonate themselves (gun.c gevrGexMineDetonates): the
+ * Detonator leaves the cycle, ammo required or not */
+#define GEVR_CYCLE_OK(requireammo, item) \
+    (((requireammo) == FALSE && !(VrGexGuns && (item) == ITEM_TRIGGER)) || bondwalkItemHasAmmo(item))
+#else
+#define GEVR_CYCLE_OK(requireammo, item) ((requireammo) == FALSE || bondwalkItemHasAmmo(item))
+#endif
 #include "lv.h"
 #include <bondtypes.h>
 #include "system.h"
@@ -591,7 +600,7 @@ void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
         {
             if (item->type_inv_item.type_weap.weapon < ITEM_BOMBCASE && item->type_inv_item.type_weap.weapon > weapon1)
             {
-                if (requireammo == FALSE || bondwalkItemHasAmmo(item->type_inv_item.type_weap.weapon))
+                if (GEVR_CYCLE_OK(requireammo, item->type_inv_item.type_weap.weapon))
                 {
                     weapon1 = item->type_inv_item.type_weap.weapon;
                     weapon2 = 0;
@@ -630,7 +639,7 @@ void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
     {
         s32 candidate = *nextright;
 
-        if (getPlayerCount() == 1 && bondwalkItemCheckBitflags(*nextright, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) && (*nextleft < *nextright) && (requireammo == FALSE || bondwalkItemHasAmmo(*nextright)) && (weapon1 != *nextright || *nextright < weapon2)
+        if (getPlayerCount() == 1 && bondwalkItemCheckBitflags(*nextright, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) && (*nextleft < *nextright) && (GEVR_CYCLE_OK(requireammo, *nextright)) && (weapon1 != *nextright || *nextright < weapon2)
 #ifdef BUGFIX_R1
             && (!j_text_trigger || *nextright != ITEM_KNIFE)
 #endif
@@ -662,7 +671,7 @@ void bondinvCycleForward(s32 *nextright, s32 *nextleft, s32 requireammo)
                         candidate = (candidate + 1) % ITEM_BOMBCASE;
                     }
 
-                    if ((requireammo == FALSE || bondwalkItemHasAmmo(candidate))
+                    if ((GEVR_CYCLE_OK(requireammo, candidate))
 #ifdef BUGFIX_R1
                         && (!j_text_trigger || candidate != ITEM_KNIFE)
 #endif
@@ -709,7 +718,7 @@ void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
             {
                 if (item->type_inv_item.type_weap.weapon < ITEM_BOMBCASE && (item->type_inv_item.type_weap.weapon < weapon1 || (weapon1 == item->type_inv_item.type_weap.weapon && weapon2 > 0)))
                 {
-                    if (requireammo == FALSE || bondwalkItemHasAmmo(item->type_inv_item.type_weap.weapon))
+                    if (GEVR_CYCLE_OK(requireammo, item->type_inv_item.type_weap.weapon))
                     {
                         weapon1 = item->type_inv_item.type_weap.weapon;
                         weapon2 = ITEM_UNARMED;
@@ -771,7 +780,7 @@ void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
 #endif
             if (candidate == weapon1)
             {
-                if (getPlayerCount() == 1 && bondwalkItemCheckBitflags(candidate, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) && (requireammo == FALSE || bondwalkItemHasAmmo(candidate)) && (candidate != *nextright || candidate < *nextleft) && (weapon2 < candidate)
+                if (getPlayerCount() == 1 && bondwalkItemCheckBitflags(candidate, WEAPONSTATBITFLAG_CAN_DUAL_WIELD) && (GEVR_CYCLE_OK(requireammo, candidate)) && (candidate != *nextright || candidate < *nextleft) && (weapon2 < candidate)
 #ifdef BUGFIX_R1
                     && (!j_text_trigger || candidate != ITEM_KNIFE)
 #endif
@@ -784,7 +793,7 @@ void bondinvCycleBackward(s32 *nextright, s32 *nextleft, s32 requireammo)
                 break;
             }
             else if (
-                (requireammo == FALSE || bondwalkItemHasAmmo(candidate))
+                (GEVR_CYCLE_OK(requireammo, candidate))
 #ifdef BUGFIX_R1
                 && (!j_text_trigger || candidate != ITEM_KNIFE)
 #endif
@@ -939,7 +948,73 @@ bool bondinvHasPropInInv(PropRecord *prop)
     return FALSE;
 }
 
+#ifdef GEVR
+/*
+ * GE-X's remote mines detonate themselves (gun.c gevrGexMineDetonates; user:
+ * the Detonator was still a choice on the watch): with VrGexGuns its entry
+ * leaves the list. The game's own walk below is the raw list; the watch's
+ * index and count (bondinvCountTotalItemsInInv, bondinvGetItemByIndex,
+ * bondinvGetTextbyInvIndex, which every index lookup uses) skip it.
+ */
+static s32 bondinvCountRaw(void);
+static InvItem *bondinvGetItemByIndexRaw(s32 index);
+static s32 bondinvGetTextbyInvIndexRaw(s32 index);
+
+static s32 gevrInvHides(s32 raw)
+{
+    return VrGexGuns && bondinvGetTextbyInvIndexRaw(raw) == ITEM_TRIGGER;
+}
+
+static s32 gevrInvRaw(s32 index)
+{
+    const s32 n = bondinvCountRaw();
+    s32 raw;
+
+    if (!VrGexGuns || index < 0)
+    {
+        return index;
+    }
+    for (raw = 0; raw < n; raw++)
+    {
+        if (gevrInvHides(raw))
+        {
+            continue;
+        }
+        if (index == 0)
+        {
+            return raw;
+        }
+        index--;
+    }
+    return n + index;
+}
+
 s32 bondinvCountTotalItemsInInv(void)
+{
+    const s32 n = bondinvCountRaw();
+    s32 raw, shown = n;
+
+    for (raw = 0; VrGexGuns && raw < n; raw++)
+    {
+        shown -= gevrInvHides(raw);
+    }
+    return shown;
+}
+
+InvItem *bondinvGetItemByIndex(s32 index)
+{
+    return bondinvGetItemByIndexRaw(gevrInvRaw(index));
+}
+
+s32 bondinvGetTextbyInvIndex(s32 index)
+{
+    return bondinvGetTextbyInvIndexRaw(gevrInvRaw(index));
+}
+
+static s32 bondinvCountRaw(void)
+#else
+s32 bondinvCountTotalItemsInInv(void)
+#endif
 {
     InvItem *item;
     s32      numitems = 0;
@@ -997,7 +1072,11 @@ s32 bondinvCountTotalItemsInInv(void)
     return numitems;
 }
 
+#ifdef GEVR
+static InvItem *bondinvGetItemByIndexRaw(s32 index)
+#else
 InvItem *bondinvGetItemByIndex(s32 index)
+#endif
 {
     InvItem *item;
 
@@ -1109,12 +1188,20 @@ textoverride *bondinvGetTextbyWeaponID(ITEM_IDS weaponnum)
     return NULL;
 }
 
+#ifdef GEVR
+static s32 bondinvGetTextbyInvIndexRaw(s32 index)
+#else
 s32 bondinvGetTextbyInvIndex(s32 index)
+#endif
 {
     textoverride *override;
     InvItem *     inv_item;
 
+#ifdef GEVR
+    inv_item = bondinvGetItemByIndexRaw(index);
+#else
     inv_item = bondinvGetItemByIndex(index);
+#endif
 
     if (inv_item)
     {
@@ -1162,7 +1249,12 @@ s32 bondinvGetTextbyInvIndex(s32 index)
 
 u16 *bondinvGetNameByIndex(s32 index)
 {
+#ifdef GEVR
+    /* the filtered index once, then the raw list: the all-guns lines below read it too */
+    InvItem      *item      = bondinvGetItemByIndexRaw(index = gevrInvRaw(index));
+#else
     InvItem      *item      = bondinvGetItemByIndex(index);
+#endif
     ITEM_IDS      weaponnum = 0;
     textoverride *override;
 
@@ -1222,7 +1314,12 @@ u16 *bondinvGetNameByIndex(s32 index)
 
 u16 *bondinvGetLongNameByIndex(s32 index)
 {
+#ifdef GEVR
+    /* the filtered index once, then the raw list: the all-guns lines below read it too */
+    InvItem      *item      = bondinvGetItemByIndexRaw(index = gevrInvRaw(index));
+#else
     InvItem      *item      = bondinvGetItemByIndex(index);
+#endif
     ITEM_IDS      weaponnum = 0;
     textoverride *override;
 
@@ -1303,7 +1400,12 @@ int bondinvGetDepthForIndex(int index)
 
 u16 *bondinvGetFirstTitlebyIndex(s32 index)
 {
+#ifdef GEVR
+    /* the filtered index once, then the raw list: the all-guns lines below read it too */
+    InvItem      *item      = bondinvGetItemByIndexRaw(index = gevrInvRaw(index));
+#else
     InvItem      *item      = bondinvGetItemByIndex(index);
+#endif
     ITEM_IDS      weaponnum = 0;
     textoverride *override;
 
@@ -1363,7 +1465,12 @@ u16 *bondinvGetFirstTitlebyIndex(s32 index)
 
 u16 *bondinvGetSecondTitlebyIndex(s32 index)
 {
+#ifdef GEVR
+    /* the filtered index once, then the raw list: the all-guns lines below read it too */
+    InvItem      *item      = bondinvGetItemByIndexRaw(index = gevrInvRaw(index));
+#else
     InvItem      *item      = bondinvGetItemByIndex(index);
+#endif
     ITEM_IDS      weaponnum = 0;
     textoverride *override;
 

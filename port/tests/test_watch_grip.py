@@ -98,6 +98,10 @@ static Mtxf poses[2];
 static struct player player;
 struct player *g_CurrentPlayer = &player;
 static int g_GlobalTimerDelta = 1;
+/* GE-X's off hand watch (gevrRenderGexWatch): unmeasured until a test sets it */
+static int g_GlobalTimer = 1000;
+static float s_gevrGexWatchFaceCm[3];
+static unsigned s_gevrGexWatchFaceFrame;
 static ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand) { return player.hands[hand].weaponnum; }
 static ModelFileHeader *gevrModelPendingHeader, *gevrModelWatchGripHeader;
 static int s_gevrWatchGrip, online, localSlot, playerSlot, haveWatchPoint = 1;
@@ -295,6 +299,22 @@ int main(void)
             float anchor = attached.m[3][i];
             for (int j = 0; j < 3; j++) anchor += s_gevrLaserFace[j]*attached.m[j][i];
             closeEnough(anchor, o[i] + cm*(s_gevrWatchHandTrim[0]*x[i] + s_gevrWatchHandTrim[1]*y[i] + s_gevrWatchHandTrim[2]*z[i]));
+        }
+        /* GE-X's arm drawn just now: its own watch face, from the bare controller,
+         * and only while fresh (the original arm's again once it stops being drawn) */
+        {
+            float go[3], gx[3], gy[3], gz[3];
+            s_gevrGexWatchFaceCm[0] = -3; s_gevrGexWatchFaceCm[1] = 2; s_gevrGexWatchFaceCm[2] = 0.5f;
+            s_gevrGexWatchFaceFrame = g_GlobalTimer - 2;
+            assert(gevrWatchFaceFrame(go, gx, gy, gz));
+            for (int i = 0; i < 3; i++) {
+                closeEnough(go[i], poses[0].m[3][i] + cm*(-3*gx[i] + 2*gy[i] + 0.5f*gz[i]));
+                closeEnough(gx[i], x[i]); closeEnough(gz[i], z[i]);
+            }
+            s_gevrGexWatchFaceFrame = g_GlobalTimer - 50;
+            assert(gevrWatchFaceFrame(go, gx, gy, gz));
+            for (int i = 0; i < 3; i++) closeEnough(go[i], o[i]);
+            s_gevrGexWatchFaceFrame = 0;
         }
         angles.x += 1.4f;
         matrix_4x4_set_rotation_around_xyz(&angles, &poses[1]);
