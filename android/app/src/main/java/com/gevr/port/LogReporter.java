@@ -76,10 +76,12 @@ final class LogReporter {
                         lastExit = Math.max(lastExit, exit.getTimestamp());
                     if (this.context.getPackageName().equals(exit.getProcessName())
                             && CrashExitPolicy.qualifies(exit.getReason(), exit.getStatus(),
-                                    exit.getTimestamp(), installTime, offered)
-                            && exit.getTimestamp() > crashTimestamp) {
-                        crash = exit;
-                        crashTimestamp = exit.getTimestamp();
+                                    exit.getTimestamp(), installTime, offered)) {
+                        if (crash == null || CrashExitPolicy.isBetterCrash(exit.getReason(), exit.getTimestamp(),
+                                crash.getReason(), crash.getTimestamp())) {
+                            crash = exit;
+                            crashTimestamp = exit.getTimestamp();
+                        }
                     }
                 }
                 if (crash != null) state = "offer";
@@ -89,8 +91,18 @@ final class LogReporter {
         // ignore activity recreation within this same process. A marker older
         // than the install is the install itself killing the running app, and
         // one followed by an exit record already has its non-crash reason.
+        // A marker from before the current boot belongs to a previous boot that
+        // was terminated by shutdown/reboot (report 73a899cd), not a game crash.
         long previousRun = prefs.getLong("foreground_run", 0);
-        if (crash == null && CrashExitPolicy.unexpectedExit(previousRun, installTime, offered, lastExit)
+        long currentElapsed = android.os.SystemClock.elapsedRealtime();
+        long bootAt = System.currentTimeMillis() - currentElapsed;
+        long previousBoot = prefs.getLong("foreground_boot", 0);
+        long previousElapsed = prefs.getLong("foreground_elapsed", 0);
+        boolean rebooted = previousRun < bootAt
+                || (previousBoot != 0 && Math.abs(bootAt - previousBoot) > 5000)
+                || (previousElapsed != 0 && currentElapsed < previousElapsed);
+        if (crash == null && !rebooted
+                && CrashExitPolicy.unexpectedExit(previousRun, installTime, offered, lastExit, bootAt)
                 && prefs.getInt("run_pid", 0) != android.os.Process.myPid()) {
             crashTimestamp = previousRun;
             unexpectedExit = true;
@@ -100,7 +112,11 @@ final class LogReporter {
     }
 
     void foreground(boolean active) {
-        prefs.edit().putLong("foreground_run", active ? System.currentTimeMillis() : 0)
+        long now = System.currentTimeMillis();
+        long elapsed = android.os.SystemClock.elapsedRealtime();
+        prefs.edit().putLong("foreground_run", active ? now : 0)
+                .putLong("foreground_boot", active ? (now - elapsed) : 0)
+                .putLong("foreground_elapsed", active ? elapsed : 0)
                 .putInt("run_pid", android.os.Process.myPid()).commit();
     }
 
@@ -212,8 +228,8 @@ final class LogReporter {
             String crashSummary = withCrash && crash != null
                     ? redact(CrashExitPolicy.describe(crash.getTimestamp(), crash.getReason(),
                             crash.getStatus(), crash.getDescription(), installTime))
-                    : unexpectedExit ? "Previous foreground run ended unexpectedly at "
-                            + CrashExitPolicy.isoUtc(crashTimestamp) : "";
+                    : unexpectedExit ? "Previous foreground run from "
+                            + CrashExitPolicy.isoUtc(crashTimestamp) + " ended unexpectedly" : "";
             if (crashSummary.length() > 500) crashSummary = crashSummary.substring(0, 500);
             JSONObject body = new JSONObject()
                     .put("kind", withCrash ? "crash" : "manual")
