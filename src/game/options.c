@@ -3969,6 +3969,10 @@ static void gevrVrValueText(s32 row, char *buf)
         {
             sprintf(buf, "%s", *toggle ? "PER GUN" : "GENERIC");
         }
+        else if (row == GEVR_VR_RELOAD && !VrGexGuns)
+        {
+            sprintf(buf, "%s", "NEEDS GE-X");   /* hand reload is GoldenEye X's */
+        }
         else if ((row == GEVR_VR_CURVED && !vr_screen_curve_supported())
                  || (row == GEVR_VR_PASSTHROUGH && !vr_passthrough_supported()))
         {
@@ -4088,7 +4092,8 @@ static void gevrVrStep(s32 row, s32 dir)
     if (toggle != NULL)
     {
         if ((row == GEVR_VR_CURVED && !vr_screen_curve_supported())
-            || (row == GEVR_VR_PASSTHROUGH && !vr_passthrough_supported()))
+            || (row == GEVR_VR_PASSTHROUGH && !vr_passthrough_supported())
+            || (row == GEVR_VR_RELOAD && !VrGexGuns))
         {
             return;
         }

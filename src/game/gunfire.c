@@ -3206,10 +3206,16 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
         extern s32 gevrGexHeld(s32 hand);
         extern void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx);
 
+        extern s32 gevrGexPanelPose(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx);
+
         if (g_gevrItemModelOverride == NULL && bodymodel == &g_CurrentPlayer->copy_of_body_obj_header[GUNRIGHT]
             && gevrGexHeld(GUNRIGHT))
         {
             gevrGexPoseStill(bodymodel, (Model *) &model, matrices);
+        }
+        else if (g_gevrItemModelOverride != NULL)
+        {
+            gevrGexPanelPose(bodymodel, (Model *) &model, matrices);   /* the panel's GE-X model (gun.c) */
         }
     }
 #endif

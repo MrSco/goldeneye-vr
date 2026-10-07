@@ -1204,9 +1204,13 @@ static void gevrGexCollapse(Mtxf *m)
     }
 }
 
+static ModelFileHeader *s_gevrGexPanelHdr;            /* the weapon panel's (below) */
+static const GexWeaponDef *s_gevrGexPanelDef;
+
 static const GexWeaponDef *gevrGexForHeader(ModelFileHeader *hdr)
 {
     s32 hand;
+    if (hdr != NULL && hdr == s_gevrGexPanelHdr && s_gevrGexPanelDef != NULL) return s_gevrGexPanelDef;
     for (hand = 0; hand < 2; hand++)
         if (hdr == &g_CurrentPlayer->copy_of_body_obj_header[hand]) return gevrGexWeaponForHand(hand);
     return gevrGexWeaponForHand(GUNRIGHT);
@@ -2883,6 +2887,93 @@ Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mir
     matrix_4x4_7F058C88();
     *drawn = TRUE;
     return gdl;
+}
+
+/*
+ * bondview2.c's weapon panel (user: GE-X's models there too, unarmed and all):
+ * its own copy of an item's model, built as GE-X's as a hand's is
+ * (gevrGexGunPrepare), drawn at rest as the watch's pages draw a hand's
+ * (gevrGexPoseStill). The fist shows its rig's own hands there, there being
+ * no wetsuit hands drawn over it.
+ */
+/* before the panel loads `item` into hdr: TRUE when GE-X's model is pending for it */
+s32 gevrGexPanelPrepare(s32 item, ModelFileHeader *hdr)
+{
+    s32 parts[64];
+    u32 len = 0;
+    u16 mtx = 0, tex = 0;
+    s32 i;
+    const s32 n = hdr->numSwitches;
+    const GexWeaponDef *def = gevrGexWeaponGet(item);
+
+    s_gevrGexPanelHdr = NULL;
+    s_gevrGexPanelDef = NULL;
+    if (!VrGexGuns || def == NULL || n < 0 || n + def->numParts > 64)
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 64; i++)
+    {
+        parts[i] = -1;
+    }
+    if (n > 1)
+    {
+        parts[1] = 90;
+    }
+    for (i = 0; i < def->numParts; i++)
+    {
+        parts[n + i] = def->parts[i];
+    }
+    gevrGexPendingFile = gevrGexBuildModel(def->model, n + def->numParts, parts, def->texturePairs, &len, &mtx, &tex);
+    if (gevrGexPendingFile == NULL || mtx > 64 || gevrPdAnimNumFrames(gevrGexRestAnim(def)) <= 0)
+    {
+        free(gevrGexPendingFile);
+        gevrGexPendingFile = NULL;
+        return FALSE;
+    }
+    gevrGexPendingLen = len;
+    hdr->numSwitches = n + def->numParts;
+    hdr->numMatrices = mtx;
+    hdr->numtextures = tex;
+    g_gevrHandPatchSkip = TRUE;
+    s_gevrGexPanelHdr = hdr;
+    s_gevrGexPanelDef = def;
+    return TRUE;
+}
+
+/* after the panel's load (whether it took or not) */
+void gevrGexPanelDone(s32 loaded)
+{
+    gevrGexGunDone();
+    if (!loaded)
+    {
+        s_gevrGexPanelHdr = NULL;
+        s_gevrGexPanelDef = NULL;
+    }
+}
+
+/* gunfire.c, the panel's draw: TRUE when this is GE-X's model, posed here */
+s32 gevrGexPanelPose(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx)
+{
+    const GexWeaponDef *def = s_gevrGexPanelDef;
+    s32 i;
+
+    if (hdr == NULL || hdr != s_gevrGexPanelHdr || def == NULL)
+    {
+        return FALSE;
+    }
+    gevrGexPoseStill(hdr, model, rwmtx);
+    for (i = 0; i < def->numParts; i++)
+    {
+        ModelNode *sw = hdr->Switches[hdr->numSwitches - def->numParts + i];
+        s32 *visible = sw != NULL ? (s32 *) modelGetNodeRwData(model, sw) : NULL;
+
+        if (visible != NULL && def->fireAnimAlt > 0)
+        {
+            *visible = TRUE;   /* the fist: its rig's own hands */
+        }
+    }
+    return TRUE;
 }
 
 /* the log, when what happened to an arm through the watch changes (user: it still showed GoldenEye's) */
