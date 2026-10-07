@@ -5,7 +5,7 @@
 #include <vector>
 #include <cstdlib>
 static ImVec4 gold(1,1,0,1);
-int VrLeftHandedMode,VrSwapJoysticks,VrAimNoLean,VrAimSteady,VrGunFitArmed,VrMotionThrowing;
+int VrLeftHandedMode,VrSwapJoysticks,VrAimNoLean,VrAimSight=1,VrAimSteady,VrGunFitArmed,VrMotionThrowing;
 int VrWatchFaceStatus=GEVR_WATCH_FACE_ON,VrWatchGesturePause=1;
 bool throwingPage,hapticsPage,gesturesPage;
 static ImRect watchControlsRect;
