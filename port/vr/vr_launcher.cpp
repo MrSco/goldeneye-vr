@@ -961,6 +961,11 @@ static const char *playerCountName(int idx) {
 }
 
 static const char *gunNameAt(int idx) { return netItem(idx)->name; }
+static const char *gevrBotCountName(int idx) {
+    static const char *const names[] = { "1 bot", "2 bots", "3 bots", "4 bots", "5 bots", "6 bots", "7 bots" };
+    static_assert(sizeof(names) / sizeof(names[0]) == GEVR_MAX_PLAYERS - 1, "a name for every count");
+    return idx >= 0 && idx < GEVR_MAX_PLAYERS - 1 ? names[idx] : names[2];
+}
 static const char *stageNameById(int levelId) { return netStageName(netStageIndexOf((uint8_t)levelId)); }
 
 // A game list's entry (the lobby service, a LAN beacon): a co-op game lists
@@ -1006,6 +1011,9 @@ static NetMatchConfig gevrLauncherConfig() {
     for (int i = 0; i < 4; i++)
         c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
     c.max_players = (uint8_t)(VrMpMaxPlayers >= 2 && VrMpMaxPlayers <= GEVR_MAX_PLAYERS ? VrMpMaxPlayers : 4);
+    c.bot_mode = (uint8_t)clampi(VrMpBotMode, NET_BOT_MODE_COUNT, NET_BOT_OFF);
+    c.bot_count = (uint8_t)(VrMpBotCount >= 1 && VrMpBotCount < GEVR_MAX_PLAYERS ? VrMpBotCount : 3);
+    c.bot_difficulty = (uint8_t)clampi(VrMpBotDifficulty, NET_BOT_DIFF_COUNT, NET_BOT_NORMAL);
     if (VrMpMode == NET_MODE_COOP) {
         // the solo campaign for the party: it starts in the game's menus, where the
         // host picks each mission and difficulty; four players at most (the deathmatch
@@ -1070,6 +1078,9 @@ static void gevrHostChoiceChanged() {
     VrMpGunSize = accepted->gun_size;
     if (accepted->mode != NET_MODE_COOP) // co-op's four is not the deathmatch count
         VrMpMaxPlayers = accepted->max_players;
+    VrMpBotMode = accepted->bot_mode;
+    VrMpBotCount = accepted->bot_count;
+    VrMpBotDifficulty = accepted->bot_difficulty;
     for (int k = 0; k < 4; k++)
         VrMpCustom[k] = accepted->custom_set[k];
     vrSettingsSave();
@@ -1174,6 +1185,30 @@ static void gevrMatchOptions(bool favorites = false) {
         ImGui::TextDisabled("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
                                   : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
                                                                        : "the players vote in the pause menu");
+        // Bots: player slots the host runs (gevr_bot.c); they change between rounds only
+        if (VrMpMode != NET_MODE_COOP) {
+            ImGui::BeginDisabled(netIsActive() && !gevrNetBotRowsEditable());
+            ImGui::Text("Bots:");
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+            changed |= namedCombo("##botmode", NET_BOT_MODE_COUNT, netBotModeName, &VrMpBotMode);
+            if (VrMpBotMode == NET_BOT_FIXED) {
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+                int count = VrMpBotCount - 1;
+                if (namedCombo("##botcount", GEVR_MAX_PLAYERS - 1, gevrBotCountName, &count)) {
+                    VrMpBotCount = count + 1;
+                    changed = true;
+                }
+            }
+            if (VrMpBotMode != NET_BOT_OFF) {
+                ImGui::Text("Bot difficulty:");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+                changed |= namedCombo("##botdiff", NET_BOT_DIFF_COUNT, netBotDifficultyName, &VrMpBotDifficulty);
+            }
+            ImGui::EndDisabled();
+        }
     }
 
     if (favorites) {
@@ -1243,7 +1278,10 @@ static void gevrLobbyRoster(const ImVec4 &gold) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(slot.name);
-            if (ImGui::IsItemHovered())
+            if (ImGui::IsItemHovered() && slot.is_bot)
+                ImGui::SetTooltip("%s\nA bot the host runs (%s)\nSlot: %d", slot.name,
+                                  netBotDifficultyName(lobby->config.bot_difficulty), i + 1);
+            else if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("%s\nBuild: %s\nProtocol: %d\nSlot: %d\nPing is the round trip to the current host.",
                                   slot.name, netGetSlotAppVersion(i), GEVR_NET_VERSION, i + 1);
             ImGui::TableNextColumn();
@@ -1251,9 +1289,9 @@ static void gevrLobbyRoster(const ImVec4 &gold) {
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(gevrLobbyHasTeams(&lobby->config) ? netTeamName(slot.team) : "—");
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(host ? "Host" : slot.ready ? "Ready" : "Waiting");
+            ImGui::TextUnformatted(host ? "Host" : slot.is_bot ? "Bot" : slot.ready ? "Ready" : "Waiting");
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(gevrPingText(i).c_str());
+            ImGui::TextUnformatted(slot.is_bot ? "—" : gevrPingText(i).c_str());
             if (canKick) {
                 ImGui::TableNextColumn();ImGui::PushID(i);
                 if (!host) {
@@ -1424,7 +1462,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
             onlineMessage = "Hosting stopped due to inactivity (10 min idle)";
         }
 
-        int pCount = netGetConnectedPlayerCount();
+        int pCount = netGetHumanPlayerCount();   // a joiner takes a bot's place
         int maxP = netGetMaxPlayers();
         const uint32_t heartbeatNow = SDL_GetTicks();
         if (netIsHost() && (heartbeatNow - lastHeartbeatMs > 5000 || lastHeartbeatMs == 0)) {
@@ -1902,7 +1940,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                                                                               : "Waiting for joined players to ready up.")
                                                        : "Choose a game or connection method."))
                            : onlineMessage.c_str());
-    int pCount = netGetConnectedPlayerCount();
+    int pCount = netGetHumanPlayerCount();   // the lobby service counts the people
     float h = ImGui::GetFrameHeight() * 1.5f;
     if (netIsHost()) {
         ImGui::BeginDisabled(!netLobbyCanLaunch() || !romReady);
@@ -2452,7 +2490,7 @@ extern "C" void gevrLauncherRun(void)
             if (netIsHost() && gevrVrSessionRunning() &&
                 (lastNoFrameRefresh == 0 || now - lastNoFrameRefresh >= 5000)) {
                 lastNoFrameRefresh = now;
-                const int players = netGetConnectedPlayerCount();
+                const int players = netGetHumanPlayerCount();
                 gevrJavaCommand("lobbyCommand", (std::string("refresh|") + std::to_string(players) +
                     "|" + (players < netGetMaxPlayers() ? "1" : "0") +
                     "|" + std::to_string(netGetMaxPlayers())).c_str());

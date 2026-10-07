@@ -59,6 +59,7 @@ def build_core():
     keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase"})
     keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
     keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar"})
+    keep.update({"netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
@@ -274,6 +275,8 @@ class MultiplayerNativeTests(unittest.TestCase):
                 self.assertEqual(self.lib.test_damage(scenario,0,0,0,1),1)
     def test_late_join_snapshot(self): self.assertEqual(self.core.test_core_late_join_snapshot(),0)
     def test_eight_slots_packets_teams_and_pads(self): self.assertEqual(self.core.test_core_eight_slots(),0)
+    def test_bot_roster(self): self.assertEqual(self.core.test_core_bot_roster(),0)
+    def test_bot_join_and_election(self): self.assertEqual(self.core.test_core_bot_join(),0)
     def test_host_player_count_any_stage(self): self.assertEqual(self.core.test_core_player_count(),0)
     def test_live_config_and_round_snapshot(self): self.assertEqual(self.core.test_core_live_voice(),0)
     def test_scores_survive_departures(self): self.assertEqual(self.core.test_core_scores_after_departure(),0)

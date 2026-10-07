@@ -9,7 +9,7 @@ extern "C" {
 enum { CFG_STAGE, CFG_SCENARIO, CFG_WEAPON_SET, CFG_GAME_LENGTH, CFG_HEALTH,
        CFG_DUAL_WIELD, CFG_LOADOUTS, CFG_NEXT_ROUND, CFG_CUSTOM0, CFG_CUSTOM1,
        CFG_CUSTOM2, CFG_CUSTOM3, CFG_VOICE_MODE, CFG_FRIENDLY_FIRE, CFG_FUN_FLAGS, CFG_GUN_SIZE,
-       CFG_MAX_PLAYERS, CFG_FAST_REINFORCEMENTS };
+       CFG_MAX_PLAYERS, CFG_FAST_REINFORCEMENTS, CFG_BOT_MODE, CFG_BOT_COUNT, CFG_BOT_DIFFICULTY };
 int gevrNetConfigGet(int field);
 /* Online in a co-op mission: where retail reads two or more players as a
  * deathmatch, the game asks this and plays the solo mission's rules. */
@@ -17,6 +17,8 @@ int gevrCoopActive(void);
 int gevrCoopFastReinforcements(void); /* active host rule; independent of this headset's solo preference */
 void gevrNetConfigSet(int field, int value);
 int gevrNetSlotChr(int slot);
+int gevrNetSlotIsBot(int slot);       /* the host runs this slot with AI input (gevr_bot.c) */
+int gevrNetBotRowsEditable(void);     /* the host's bot rows: deathmatch, outside a round in progress */
 int netGetSlotTeam(int slot);
 int netGetSlotPing(int slot);
 /* Local host policy. Cap is clamped to 0..80 ms. */

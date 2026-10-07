@@ -199,6 +199,7 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "MpFriendlyFire=%d\n", VrMpFriendlyFire);
     fprintf(f, "HostEqualization=%d\nHostLatencyCapMs=%d\n", VrHostEqualization, VrHostLatencyCapMs);
     fprintf(f, "MpFunFlags=%d\nMpGunSize=%d\nMpMaxPlayers=%d\n", VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers);
+    fprintf(f, "MpBotMode=%d\nMpBotCount=%d\nMpBotDifficulty=%d\n", VrMpBotMode, VrMpBotCount, VrMpBotDifficulty);
     fprintf(f, "; 1 = guards and other players hold the detailed first-person gun models, 0 = the game's own.\n");
     fprintf(f, "DetailedGuns=%d\n", VrDetailedGuns ? 1 : 0);
     fprintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
@@ -561,6 +562,9 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MpFunFlags") == 0) VrMpFunFlags = ival >= 0 && !(ival & ~NET_FUN_MASK) ? ival : 0;
             else if (strcmp(key, "MpGunSize") == 0) VrMpGunSize = ival >= 0 && ival <= 2 ? ival : 0;
             else if (strcmp(key, "MpMaxPlayers") == 0) VrMpMaxPlayers = ival >= 2 && ival <= 8 ? ival : 4;
+            else if (strcmp(key, "MpBotMode") == 0) VrMpBotMode = ival >= 0 && ival <= 2 ? ival : 0;
+            else if (strcmp(key, "MpBotCount") == 0) VrMpBotCount = ival >= 1 && ival <= 7 ? ival : 3;
+            else if (strcmp(key, "MpBotDifficulty") == 0) VrMpBotDifficulty = ival >= 0 && ival <= 5 ? ival : 2;
             else if (strcmp(key, "DetailedGuns") == 0) VrDetailedGuns = ival != 0;
             else if (strcmp(key, "GexGuns") == 0) VrGexGuns = ival != 0;
             else if (strcmp(key, "GexArms") == 0) VrGexArms = ival != 0;

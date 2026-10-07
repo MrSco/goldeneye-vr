@@ -11,7 +11,7 @@
 struct GevrPausePlayerView {
     char name[64], character[64];
     int slot=-1,points=0,kills=0,losses=0,ping=0;
-    bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false;
+    bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false,bot=false;
 };
 struct GevrPauseView {
     bool coop=false,host=false,canStart=false,canReturn=false,localReady=false,soloWarmup=false;
@@ -157,8 +157,8 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                     ImGui::TableNextColumn();ImGui::TextColored(gold,"%d",p.points);
                     ImGui::TableNextColumn();ImGui::Text("%d",p.kills);
                     ImGui::TableNextColumn();ImGui::Text("%d",p.losses);
-                    ImGui::TableNextColumn();ImGui::Text("%d",p.ping);
-                    ImGui::TableNextColumn();ImGui::TextColored(p.ready?good:ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),"%s",!p.loaded?"Loading":p.host?"Host":p.ready?(p.spectator?"Ready (S)":"Ready"):(p.spectator?"Spectator":"Waiting"));
+                    ImGui::TableNextColumn();if(p.bot)ImGui::TextUnformatted("—");else ImGui::Text("%d",p.ping);
+                    ImGui::TableNextColumn();ImGui::TextColored(p.ready?good:ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),"%s",!p.loaded?"Loading":p.host?"Host":p.bot?"Bot":p.ready?(p.spectator?"Ready (S)":"Ready"):(p.spectator?"Spectator":"Waiting"));
                 }
                 if(kicks) {
                     ImGui::TableNextColumn();ImGui::PushID(p.slot);
@@ -168,7 +168,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                             ui.kickSlot=p.slot;snprintf(ui.kickName,sizeof(ui.kickName),"%s",p.name);
                         }
                         ImGui::EndDisabled();
-                        if(!p.canKick && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))ImGui::SetTooltip("This player needs the updated build for host removal.");
+                        if(!p.canKick && !p.bot && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))ImGui::SetTooltip("This player needs the updated build for host removal.");
                     }
                     ImGui::PopID();
                 }
