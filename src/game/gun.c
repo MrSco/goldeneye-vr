@@ -1862,6 +1862,11 @@ s32 gevrGexForePoint(f32 out[3])
 static Mtxf s_gevrGexOffR2;
 static Mtxf s_gevrGexOffChain[GEVR_GEX_LHAND_LAST + 1];
 static ModelNode *s_gevrGexOffFrom;
+/* A new gun was loaded, possibly into the same buffer: rebuild from it, but
+ * keep drawing the last empty hand meanwhile. Clearing the cache made the off
+ * hand fall back to GoldenEye's watch arm for the switch's hidden frames (user:
+ * the original arm blinked between guns). The cache holds matrices only. */
+static s32 s_gevrGexOffStale;
 
 static void gevrGexOffCache(ModelFileHeader *gunhdr)
 {
@@ -1870,7 +1875,8 @@ static void gevrGexOffCache(ModelFileHeader *gunhdr)
     Mtxf ident, inv;
     s32 j;
 
-    if (gunhdr->RootNode == s_gevrGexOffFrom || gunhdr->numMatrices <= GEVR_GEX_LHAND_LAST || gunhdr->numMatrices > 64)
+    if ((gunhdr->RootNode == s_gevrGexOffFrom && !s_gevrGexOffStale)
+        || gunhdr->numMatrices <= GEVR_GEX_LHAND_LAST || gunhdr->numMatrices > 64)
     {
         return;
     }
@@ -1883,6 +1889,7 @@ static void gevrGexOffCache(ModelFileHeader *gunhdr)
         matrix_4x4_multiply(&inv, &rest[j], &s_gevrGexOffChain[j]);
     }
     s_gevrGexOffFrom = gunhdr->RootNode;
+    s_gevrGexOffStale = FALSE;
 }
 
 /* the empty off hand's n joints (the right hand's on its wrist), its palm where
@@ -2268,7 +2275,7 @@ static void gevrGexResetModel(s32 hand, s32 rebuildCache)
         if (hand == GUNRIGHT)
         {
             s_gevrGexMagPointsValid = s_gevrGexLastHeldValid = s_gevrGexForeValid = FALSE;
-            if (rebuildCache) s_gevrGexOffFrom = NULL;
+            if (rebuildCache) s_gevrGexOffStale = TRUE;
         }
     }
 }
@@ -2728,6 +2735,12 @@ void used_to_load_1st_person_model_on_demand(GUNHAND hand)
                     load_object_fill_header(&g_CurrentPlayer->copy_of_body_obj_header[hand], (u8 *)ptr_item_text, buffer_weapon, D_80032464[hand], &g_CurrentPlayer->item_related[hand]);
 #ifdef GEVR
                     gevrGexGunDone();
+                    /* the new gun's empty off hand now, not at its first draw after the switch */
+                    if (hand == GUNRIGHT && gevrGexHeld(GUNRIGHT)
+                        && !(netIsActive() && get_cur_playernum() != netGetLocalSlot()))
+                    {
+                        gevrGexOffCache(&g_CurrentPlayer->copy_of_body_obj_header[hand]);
+                    }
 #endif
                 }
             }

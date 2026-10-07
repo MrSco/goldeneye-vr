@@ -74,6 +74,7 @@ static s32 s_gevrGexMagPointsValid;
 static f32 s_gevrGexWellAt[3],s_gevrGexHeldAt[3];
 static Mtxf s_gevrGexOffR2, s_gevrGexOffChain[33], s_gevrGexOffEmpty[33];
 static ModelNode *s_gevrGexOffFrom;
+static s32 s_gevrGexOffStale;
 static Mtxf offController;
 static f32 offPalm[3];
 static f32 s_gevrGexForeAt[3];
@@ -444,6 +445,19 @@ int main(int argc,char **argv) {
         }
     }
     if (gevrGexHasAmmo(active)) { reloadGrip(&hdr); wellFit(&hdr); }
+    {
+        /* Weapon switch: a new gun marks the off hand's cache stale. The last
+         * empty hand keeps drawing (no GoldenEye arm blink) until it is rebuilt,
+         * even from a gun loaded at the same buffer address. */
+        Mtxf pose[64]; s_gevrGexOffFrom=NULL; s_gevrGexOffStale=0;
+        gevrGexOffCache(&hdr); assert(s_gevrGexOffFrom==hdr.RootNode);
+        Mtxf chain=s_gevrGexOffChain[GEVR_GEX_LHAND_LAST];
+        memset(s_gevrGexOffChain,0,sizeof(s_gevrGexOffChain));
+        s_gevrGexOffStale=1;
+        assert(gevrGexOffHandPose(pose,matrices));
+        gevrGexOffCache(&hdr);
+        assert(!s_gevrGexOffStale && !memcmp(&chain,&s_gevrGexOffChain[GEVR_GEX_LHAND_LAST],sizeof(chain)));
+    }
     if (active->reload.openHide>0) {
         Mtxf before[64]; memcpy(before,poses,sizeof(before));
         gevrGexPoseReady(&hdr,poses,active->holdFrame);
@@ -474,6 +488,8 @@ int main(int argc,char **argv) {
 '''
 
 gun=(ROOT/"src/game/gun.c").read_text()
+# A model reset must not drop the off hand's cache (the original arm blinked on switch).
+assert 'rebuildCache) s_gevrGexOffFrom = NULL' not in gun
 math=(ROOT/"src/game/matrixmath.c").read_text()
 production=[function(math,s) for s in ("void matrix_4x4_multiply(","void matrix_4x4_set_identity(",
     "void matrix_4x4_set_rotation_around_xyz(")]
