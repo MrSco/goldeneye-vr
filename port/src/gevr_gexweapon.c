@@ -15,6 +15,10 @@ static const u16 pp7Textures[] = {
 static const u16 silverPp7Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,3275,776,0 };
 static const u16 goldPp7Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,0 };
 static const u16 knifeTextures[] = { 3275,776,0 };
+static const u16 grenadeTextures[] = { 2983,767,2985,2272,2986,2273,2987,2274,0 };
+static const u16 timedMineTextures[] = { 110,778,114,945,647,31,2735,943,0 };
+static const u16 proxMineTextures[] = { 114,945,2734,32,2736,944,0 };
+static const u16 remoteMineTextures[] = { 114,945,647,31,2737,946,0 };
 static const u16 dd44Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,3274,1725,3275,776,0 };
 static const u16 klobbTextures[] = { 1,1514,3274,1725,3279,2145,3280,2146,3281,2147,3282,2148,3284,1867,0 };
 static const u16 zmgTextures[] = { 993,2155,994,2153,995,2156,996,2154,997,2151,998,2149,999,2152,1000,2150,3274,1725,3285,28,3286,27,0 };
@@ -81,9 +85,36 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .supportRoot={-39.498364f,-28.279365f,49.061958f}, \
     .numParts=1, .parts={100}, .visible={1}, .compact=1 }
 
+/* The throwables. GoldenEye hides these in the hand (HIDE_FIRST_PERSON_HAND);
+ * GE-X's own rigs hold them, drawn as guns (gunfire.c), and once one has left
+ * the hand only the item goes (spent part or matrix), the empty hand staying.
+ * Their idle clips raise the hand from below; each use clip's frame 0 is the
+ * raised hold. GoldenEye's own throw and place keep moving them (fireAnim 0).
+ * The mines are GoldenEye's own meshes (every vertex matches); the remote
+ * mine's rig also carries Perfect Dark's detonator on matrix 34, collapsed.
+ * The grenade matches no GoldenEye mesh: screen mode places its root so the
+ * palm sits where the PP7's does. */
+#define MINE_DEF(id, gexslot, file, textures, rest, offz, hide, mx, my, mz) { \
+    .item=id, .slot=gexslot, .model=file, .texturePairs=textures, \
+    .fireAnim=0, .restAnim=rest, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1, \
+    .screenOffset={0.0f,2.0f,offz}, .spentMatrix=33, .hideMatrix=hide, \
+    .muzzle={mx,my,mz}, .screenMuzzle={0.0f,2.0f,offz}, \
+    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1 }
+
 static const GexWeaponDef weapons[] = {
     KNIFE_DEF(ITEM_KNIFE),
     KNIFE_DEF(ITEM_THROWKNIFE),
+    {
+        .item=ITEM_GRENADE, .slot=26, .model="GgrenadeZ", .texturePairs=grenadeTextures,
+        .fireAnim=0, .restAnim=1062, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1,
+        .screenFromRoot=1, .screenOffset={-27.173f,-22.813f,-208.695f},
+        .muzzle={87.029f,38.664f,215.278f}, .screenMuzzle={59.856f,15.851f,6.583f},
+        .supportRoot={-39.498364f,-28.279365f,49.061958f},
+        .numParts=1, .parts={100}, .visible={1}, .compact=1
+    },
+    MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
+    MINE_DEF(ITEM_PROXIMITYMINE, 28, "GproximitymineZ", proxMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
+    MINE_DEF(ITEM_REMOTEMINE, 29, "GremotemineZ", remoteMineTextures, 1078, 10.0f, 34, -6.853f, 8.724f, 89.783f),
     {
         .item=ITEM_AK47, .slot=7, .model="Gak47Z", .texturePairs=kf7Textures,
         .fireAnim=1017, .gunMatrix=33, .magMatrix=39, .heldMatrix=40,

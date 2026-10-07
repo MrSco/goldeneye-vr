@@ -861,6 +861,30 @@ void gunUpdateAndFire(GUNHAND handnum)
     }
 
 #ifdef GEVR
+    {
+        /*
+         * A GoldenEye X knife, grenade or mine holds the item in its own hand
+         * (gun.c): GoldenEye's hidden hand (HIDE_FIRST_PERSON_HAND) and its
+         * spent single-use item no longer hide it - gun.c hides the item alone,
+         * so the GE-X hand stays (user: no original fist between throws). Every
+         * other reason to hide it still does.
+         */
+        extern s32 gevrGexShowsItem(s32 hand, s32 item);
+        const GexWeaponDef *gexItem = gevrGexWeaponForHand(handnum);
+
+        if (hand->field_87F == 0 && gevrGexShowsItem(handnum, item) && gexItem->magMatrix < 0
+            && get_ptr_weapon_model_header_line(item) != 0
+            && bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SHOW_FIRST_PERSON) != 0
+            && hand->weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP
+            && hand->weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
+            && Gun_hand_without_item(handnum) != 0 && get_itemtype_in_hand(handnum) != 0)
+        {
+            hand->field_87F = 1;
+        }
+    }
+#endif
+
+#ifdef GEVR
     /* the flat test above without the hide flag, for the listed gadgets */
     s_gevrHiddenShown[handnum] = g_gevrStereo
         && hand->field_87F == 0

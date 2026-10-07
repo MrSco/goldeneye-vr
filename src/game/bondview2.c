@@ -1285,7 +1285,9 @@ static GevrItemPose *gevrItemPoseFind(s32 item)
 
 s32 gevrStereoItemShown(s32 item)
 {
-    return g_gevrStereo && gevrItemPoseFind(item) != NULL;
+    extern s32 gevrGexDrawsItem(s32 item);   /* gun.c: GE-X's rig holds it in its own hand */
+
+    return g_gevrStereo && gevrItemPoseFind(item) != NULL && !gevrGexDrawsItem(item);
 }
 
 s32 gevrStereoItemNeedsFist(s32 item)

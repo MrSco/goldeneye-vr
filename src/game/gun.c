@@ -1091,6 +1091,41 @@ const GexWeaponDef *gevrGexWeaponForHand(s32 hand)
     return p >= 0 && p < MAX_PLAYER_COUNT && hand >= 0 && hand < 2 ? s_gevrGexHand[p][hand] : NULL;
 }
 
+/* gunfire.c: this hand's model is GE-X's, for this item (it has its own hand) */
+s32 gevrGexShowsItem(s32 hand, s32 item)
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    return def != NULL && def->item == item;
+}
+
+/* bondview2.c gevrStereoItemShown: either hand draws this item as GE-X's, not as a gadget */
+s32 gevrGexDrawsItem(s32 item)
+{
+    return gevrGexShowsItem(GUNRIGHT, item) || gevrGexShowsItem(GUNLEFT, item);
+}
+
+/* a single-use item (throwable) that has left the hand: GoldenEye hid the
+ * whole model; GE-X's hides the item alone and keeps the hand */
+static s32 gevrGexItemSpent(const GexWeaponDef *def, GUNHAND hand)
+{
+    return g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT)
+        && g_CurrentPlayer->hands[hand].weapon_ammo_in_magazine <= 0
+        && bondwalkItemCheckBitflags(def->item, WEAPONSTATBITFLAG_SINGLE_USE_RELOAD);
+}
+
+static void gevrGexCollapse(Mtxf *m)
+{
+    s32 r, c;
+
+    for (r = 0; r < 3; r++)
+    {
+        for (c = 0; c < 3; c++)
+        {
+            m->m[r][c] = 0.0f;
+        }
+    }
+}
+
 static const GexWeaponDef *gevrGexForHeader(ModelFileHeader *hdr)
 {
     s32 hand;
@@ -2291,7 +2326,8 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         sysLogPrintf(LOG_NOTE, "gexanim: hand %d reload %s", hand, phase >= 0.0f ? "starts" : "ends");
     }
 
-    s32 inGun = mag == GEVR_GEXMAG_IN ? !swapped : mag == GEVR_GEXMAG_GRIPPED;
+    s32 inGun = (mag == GEVR_GEXMAG_IN ? !swapped : mag == GEVR_GEXMAG_GRIPPED)
+        && !(def->magMatrix < 0 && gevrGexItemSpent(def, hand));   /* a thrown knife or grenade's part */
     s32 inHand = mag == GEVR_GEXMAG_IN ? phase >= 0.0f && reload->heldShow >= 0
         && frame >= reload->heldShow && frame < reload->heldHide
         : (mag == GEVR_GEXMAG_INHAND && hand == GUNRIGHT);
@@ -2416,6 +2452,16 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         gevrGexWellPoint(def, &s_gevrGexLastMag[hand], &s_gevrGexLastGun[hand], s_gevrGexWellAt);
         gevrGexMtxPoint(&rwmtx[def->heldMatrix], def->heldTop, s_gevrGexHeldAt);
         s_gevrGexMagPointsValid = 1 | (offHolds ? 2 : 0);
+    }
+    /* last, once nothing else reads them: a stray mesh, and a thrown item that
+     * is no toggled part (the mines' own bodies on the gun matrix) */
+    if (def->hideMatrix > 0 && def->hideMatrix < hdr->numMatrices)
+    {
+        gevrGexCollapse(&rwmtx[def->hideMatrix]);
+    }
+    if (def->spentMatrix > 0 && def->spentMatrix < hdr->numMatrices && gevrGexItemSpent(def, hand))
+    {
+        gevrGexCollapse(&rwmtx[def->spentMatrix]);
     }
 }
 

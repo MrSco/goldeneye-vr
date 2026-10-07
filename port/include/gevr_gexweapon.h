@@ -34,6 +34,10 @@ typedef struct GexWeaponDef {
      * pose) at screenOffset instead of squaring the gun joint to the screen;
      * for items whose mesh does not run along their joint's z (the knife) */
     s32 screenFromRoot;
+    /* matrices whose geometry is collapsed: always (a stray mesh the rig
+     * carries), or once a single-use item has left the hand (the item itself,
+     * when it is not a toggled part); 0 none */
+    s32 hideMatrix, spentMatrix;
     s32 restAnim; /* explicit equip/idle pose when the ROM has no firing animation */
     s32 gripMatrix; /* optional reload joint actually held by the hand */
     s32 pullUp; /* top-loading magazine extracts up instead of down */
