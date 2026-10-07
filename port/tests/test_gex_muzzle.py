@@ -121,7 +121,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-gex-muzzle-") as directory:
         rom = PdRom(sys.argv[1])
         samples.append(("GE-X KF7", rom.load("Gak47Z")))
         samples.append(("GE-X PP7", rom.load("GwppkZ")))
-        for name in ("Gtt33Z", "GskorpionZ", "GuziZ", "Gmp5kZ", "Gcmp150Z", "GcycloneZ", "Gm16Z", "Gfnp90Z", "GsniperrifleZ", "GdysuperdragonZ", "GshotgunZ", "Grcp120Z", "GdyrocketZ", "Gleegun1Z", "GmaianpistolZ", "GdydevastatorZ"):
+        for name in ("Gtt33Z", "GskorpionZ", "GuziZ", "Gmp5kZ", "Gcmp150Z", "GcycloneZ", "Gm16Z", "Gfnp90Z", "GsniperrifleZ", "GdysuperdragonZ", "GshotgunZ", "Grcp120Z", "GdyrocketZ", "Gleegun1Z", "GmaianpistolZ", "GdydevastatorZ", "Gdy357Z", "Gdy357trentZ"):
             samples.append(("GE-X " + name, rom.load(name)))
     for label, original in samples:
         original = bytes(original)

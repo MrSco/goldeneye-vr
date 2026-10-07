@@ -108,6 +108,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         subprocess.run([str(exe), "fit_read"], cwd=temp, check=True, stdout=subprocess.DEVNULL)
         assert "GexFit18_" in ini.read_text()  # the Cougar is implemented: its fits are saved
         assert "GexFit2_" not in ini.read_text()  # an unregistered item (the knife) writes no zero overrides
+        assert "GexFit20_" not in ini.read_text() and "GexFit21_" not in ini.read_text()  # bonus PP7s share item 4's
         for row in ("GexFit-1_0=1 2 3", "GexFit64_0=1 2 3", "GexFit6_7=1 2 3", "GexFit6_3=1 nan 3", "GexFit6_3=1 2", "GexFit6_3junk=1 2 3"):
             ini.write_text(row + "\n", encoding="utf-8")
             subprocess.run([str(exe), "fit_invalid"], cwd=temp, check=True)

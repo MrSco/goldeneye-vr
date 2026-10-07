@@ -12,6 +12,8 @@ static const u16 pp7Textures[] = {
 };
 
 /* Pixel-identical matches in each original GE model; others retain GE-X IDs. */
+static const u16 silverPp7Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,3275,776,0 };
+static const u16 goldPp7Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,0 };
 static const u16 dd44Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,3274,1725,3275,776,0 };
 static const u16 klobbTextures[] = { 1,1514,3274,1725,3279,2145,3280,2146,3281,2147,3282,2148,3284,1867,0 };
 static const u16 zmgTextures[] = { 993,2155,994,2153,995,2156,996,2154,997,2151,998,2149,999,2152,1000,2150,3274,1725,3285,28,3286,27,0 };
@@ -49,6 +51,20 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .numParts=6, .parts={42,43,45,44,46,47}, \
     .visible={1,0,silencerdraw,0,0,0}, .pistol=1, .compact=1 }
 
+/* PP7_DEF's rig without the PP7's silencer or extra parts */
+#define PP7_RIG(id, gexslot, file, textures) { \
+    .item=id, .slot=gexslot, .model=file, \
+    .texturePairs=textures, .fireAnim=236, .gunMatrix=33, .magMatrix=38, .heldMatrix=42, \
+    .reload={1047,53,19,1,24}, .dualReload={1009,50,50,-1,-1}, \
+    .holdFrame=20, .screenOffset={24,26,77}, .magCentre={0.5f,-61.5f,-22.5f}, \
+    .magTop={0.5f,-4,-22.5f}, .heldTop={96.42239378f,72.27806361f,-28.08335267f}, \
+    .magWell={0.5f,-118.5f,-44.0f}, \
+    .heldToMag=PP7_ALIGNMENT, .muzzle={-21.278400f,55.235700f,237.304000f}, \
+    .screenMuzzle={0,56,182}, \
+    .grabRoot={-19.544478f,-64.599627f,71.853345f}, \
+    .supportRoot={-39.498364f,-28.279365f,49.061958f}, \
+    .numParts=2, .parts={42,43}, .visible={1,0}, .pistol=1, .compact=1 }
+
 static const GexWeaponDef weapons[] = {
     {
         .item=ITEM_AK47, .slot=7, .model="Gak47Z", .texturePairs=kf7Textures,
@@ -63,6 +79,13 @@ static const GexWeaponDef weapons[] = {
     },
     PP7_DEF(ITEM_WPPK, 0, -21.375904f, 52.805902f, 236.796127f),
     PP7_DEF(ITEM_WPPKSIL, 1, -21.968322f, 52.960776f, 385.794870f),
+    /* The bonus PP7s: GE-X draws them as Perfect Dark's DY357 (silver) and
+     * DY357-LX (gold) on the PP7's own rig: same skeleton, scripts (GE-X
+     * includes the PP7's), clips and magazine meshes 42/43 on 38/42. They share
+     * the PP7's screen anchor and family fits; the barrel ends where the
+     * unsilenced PP7's does. Bodies keep GE-X's silver/gold textures. */
+    PP7_RIG(ITEM_SILVERWPPK, 19, "Gdy357Z", silverPp7Textures),
+    PP7_RIG(ITEM_GOLDWPPK, 20, "Gdy357trentZ", goldPp7Textures),
     {
         .item=ITEM_TT33, .slot=5, .model="Gtt33Z", .texturePairs=dd44Textures,
         .fireAnim=236, .gunMatrix=33, .magMatrix=38, .heldMatrix=42,
@@ -443,7 +466,8 @@ extern float VrGexKf7WellOff[3], VrGexPp7WellOff[3];
 
 extern float VrGexPp7SupportRot[3];
 static s32 fitItem(s32 item) { return item == ITEM_MP5KSIL ? ITEM_MP5K : item >= 0 && item < 64 ? item : 0; }
-static s32 pp7(s32 item) { return item == ITEM_WPPK || item == ITEM_WPPKSIL; }
+/* the PP7 rig's family: both PP7s and the bonus DY357s share its fits */
+static s32 pp7(s32 item) { return item == ITEM_WPPK || item == ITEM_WPPKSIL || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK; }
 float *gevrGexWellFit(s32 item) { return pp7(item) ? VrGexPp7WellOff : item == ITEM_AK47 ? VrGexKf7WellOff : VrGexWeaponFits[fitItem(item)][5]; }
 float *gevrGexHeldMagFit(s32 item) { return pp7(item) ? VrGexPp7MagOff : item == ITEM_AK47 ? VrGexKf7MagOff : VrGexWeaponFits[fitItem(item)][4]; }
 float *gevrGexGunFit(s32 item) { return pp7(item) ? VrGexPp7GunOff : item == ITEM_AK47 ? VrGexGunOff : VrGexWeaponFits[fitItem(item)][0]; }

@@ -324,11 +324,18 @@ static u8 *partVertices(u8 *source,int wanted) {
     abort();
 }
 int main(int argc,char **argv) {
-    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH};
+    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH,ITEM_SILVERWPPK,ITEM_GOLDWPPK};
     for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) { active=gevrGexWeaponGet(items[i]); assert(active); switches(); }
     assert(gevrGexWeaponGet(ITEM_WPPK)->magMatrix==38);
     assert(gevrGexWeaponGet(ITEM_WPPK)->heldMatrix==42);
     assert(gevrGexHeldMagFit(ITEM_WPPK)==gevrGexHeldMagFit(ITEM_WPPKSIL));
+    /* the bonus DY357s are the PP7's rig: one family of fits */
+    for (int b=ITEM_SILVERWPPK;b<=ITEM_GOLDWPPK;b++) {
+        assert(gevrGexGunFit(b)==gevrGexGunFit(ITEM_WPPK) && gevrGexGrabFit(b)==gevrGexGrabFit(ITEM_WPPK));
+        assert(gevrGexSupportFit(b)==gevrGexSupportFit(ITEM_WPPK) && gevrGexSupportRotFit(b)==gevrGexSupportRotFit(ITEM_WPPK));
+        assert(gevrGexHeldMagFit(b)==gevrGexHeldMagFit(ITEM_WPPK) && gevrGexWellFit(b)==gevrGexWellFit(ITEM_WPPK));
+        assert(gevrGexInstalledMagFit(b)==gevrGexInstalledMagFit(ITEM_WPPK));
+    }
     assert(gevrGexHeldMagFit(ITEM_WPPK)!=gevrGexHeldMagFit(ITEM_AK47));
     assert(gevrGexWellFit(ITEM_WPPK)==gevrGexWellFit(ITEM_WPPKSIL));
     assert(gevrGexWellFit(ITEM_WPPK)!=gevrGexWellFit(ITEM_AK47));
@@ -558,6 +565,6 @@ with tempfile.TemporaryDirectory(prefix="gex-weapons-") as directory:
         sys.path.insert(0,str(ROOT/'tools/gex'))
         from pdrom import PdRom
         rom=PdRom(sys.argv[1])
-        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18),('GdydevastatorZ',24)):
+        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18),('GdydevastatorZ',24),('Gdy357Z',20),('Gdy357trentZ',21)):
             sample=temp/'model.bin'; sample.write_bytes(rom.load(model))
             subprocess.run([str(exe),str(sample),str(Path(sys.argv[1]).resolve()),str(item)],check=True)
