@@ -39,8 +39,8 @@ unsigned int arc4random_uniform(unsigned int) { return 1; }
 /* FIT_SNAPSHOT */
 
 static void newFamilyFits(float base, bool check) {
-    const int items[]={14,15,16,17,19,22,25};
-    for(int item:items) for(int component=0;component<7;component++) for(int axis=0;axis<3;axis++) {
+    const int items[]={14,15,16,17,18,19,22,24,25};
+    for(int item:items) for(int component=0;component<10;component++) for(int axis=0;axis<3;axis++) {
         const float value=base+item+component*0.25f+axis*0.125f;
         if(check) assert(VrGexWeaponFits[item][component][axis]==value);
         else VrGexWeaponFits[item][component][axis]=value;
@@ -71,10 +71,14 @@ int main(int argc, char **argv) {
     // Gun fit: GoldenEye X's models' own trims and the scopes'
     if (argc > 1 && std::strcmp(argv[1], "fit_invalid") == 0) {
         assert(VrGexWeaponFits[6][3][2] == 8.8f);
-        assert(VrGexWeaponFits[18][0][0] == 0);
+        assert(VrGexWeaponFits[1][0][0] == 0);           // unregistered: no default
+        assert(VrGexWeaponFits[2][0][0] == 3.4710f);     // the knives keep their default
+        assert(VrAimSight == 1);                         // missing key: the crosshair stays on
+        assert(VrGexWeaponFits[18][0][0] == 0.9652f);    // the Cougar keeps its default
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "fit_write") == 0) {
+        VrAimSight = 0;
         VrGexGunOff[0] = 1.5f;
         VrGexGripTrim[1][3] = 45.0f;
         VrScopeFit[0][0][0] = 0.5f;
@@ -127,6 +131,7 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && std::strcmp(argv[1], "fit_read") == 0) {
         newFamilyFits(-5,true);
+        assert(VrAimSight == 0);   // "Aim: crosshair" off round trips
         assert(VrGexWeaponFits[6][3][2] == 47.25f);
         assert(VrGexWeaponFits[12][6][0] == -3.25f);
         assert(VrGexGunOff[0] == 1.5f && VrGexGunOff[2] == -19.1169f && VrGunOffX == 2.74f);

@@ -33,6 +33,7 @@ bool vr_grip_for_unarmed  = false;  /* the grip button still does something with
 int  VrHideArms           = 0;      /* draw no arm models */
 int  VrStickClickToCrouch = 0;      /* crouch on stick click instead of physically ducking */
 int  VrAimNoLean          = 0;      /* aiming keeps the move stick moving: no lean, no duck (issue #81) */
+int  VrAimSight           = 1;      /* stereo: the crosshair shows while a grip aims; 0 never (user) */
 int  VrMicMuted           = 0;      /* persist multiplayer microphone mute */
 float VrMusicVolume       = 1.0f;   /* music volume (0..1) */
 float VrVoiceVolume       = 1.0f;   /* multiplayer voice chat volume (0..1) */
@@ -199,9 +200,11 @@ int   VrFistClench    = 0;     /* close the off hand while the left grip is sque
  * headset calibration (2026-10-05). Saved INI fits override these defaults.
  */
 float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3] = {
-    [1] = { [8] = { 4.07f, 2.87f, -7.23f }, [5] = { 0.08f, 0.32f, -0.32f } }, /* GE-X ITEM_AK47 / KF7 */
+    [1] = { [8] = { 4.07f, 2.87f, -7.23f }, [5] = { 0.08f, 0.32f, -0.32f }, /* GE-X ITEM_AK47 / KF7 */
+            [24] = { 0.15f, -0.23f, -2.39f } }, /* GE-X grenade launcher (2026-10-06) */
 };
 int gevrMuzzleFitting = 0;
+int gevrGunHandFitting = 0;   /* Gun fit moves GE-X's own gun hand on the gun (X), for bondview2.c and gun.c */
 
 /* --- Runtime state ------------------------------------------------------- */
 
@@ -241,7 +244,13 @@ void optionsMenuInit(void)
 }
 
 /* Model-specific fits; D5K silenced shares item 10. Missing INI keys keep these defaults. */
-float VrGexWeaponFits[64][7][3] = {
+float VrGexWeaponFits[64][10][3] = {
+    [2] = {{3.4710f,1.1003f,3.5348f}}, /* knives: palm aligned to the fitted KF7's, initial */
+    [26] = {{4.2795f,1.3928f,4.5162f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{-0.5229f,1.1656f,0.4464f},{2.3233f,-3.7653f,2.3402f},{-0.0077f,0.0000f,0.0000f}}, /* grenade: headset item fit 2026-10-07 */
+    [27] = {{1.4880f,2.6146f,-7.3449f}}, /* timed mine, initial */
+    [28] = {{1.4880f,2.6146f,-7.3449f}}, /* proximity mine, initial */
+    [29] = {{-1.8157f,3.5317f,-9.2842f}}, /* remote mine, initial */
+    [31] = {{1.9638f,0.7885f,-6.0305f}}, /* taser: palm aligned to the fitted KF7's, initial */
     [6] = {{0.4788f,4.3729f,-9.3953f},{-8.8699f,-13.2398f,7.5154f},{1.5400f,-0.1100f,6.1300f},{-14.3000f,-36.7000f,8.8000f},{1.2300f,5.2700f,1.6900f},{0.0000f,0.0000f,0.0000f}},
     [7] = {{2.4745f,2.6738f,-8.4976f},{-12.1534f,-6.8046f,3.6830f},{17.8745f,2.4844f,5.5687f},{24.3048f,-12.4422f,-76.1620f},{0.2536f,3.4809f,1.9681f},{-0.2045f,0.5283f,0.5684f},{0.0000f,0.0000f,0.0000f}},
     [8] = {{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f}},
@@ -255,5 +264,7 @@ float VrGexWeaponFits[64][7][3] = {
     [15] = {{2.307075f,2.768407f,-20.009436f}},
     [16] = {{2.307075f,2.768407f,-20.009436f}},
     [25] = {{1.3591f,-0.3056f,-17.8129f},{-11.1379f,-2.7505f,36.0274f},{23.8084f,5.1718f,9.5193f},{-2.3728f,-17.0255f,-15.0149f},{1.6822f,12.4943f,-0.1565f},{0.0577f,0.2809f,10.2066f},{0.0000f,0.0000f,0.0000f}},
+    [18] = {{0.9652f,3.4521f,-8.4026f},{-10.8169f,1.0130f,-12.8773f},{2.6120f,0.7110f,8.2267f},{5.4308f,-36.9894f,-0.4886f},{-0.0235f,0.8383f,-0.3653f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f}}, /* Cougar: headset fit 2026-10-06 */
+    [24] = {{-0.3676f,2.1240f,-14.2586f},{-10.1756f,-5.2829f,-8.0162f},{30.5425f,-1.9693f,5.9495f},{41.8603f,-36.9894f,-75.5737f},{0.1039f,0.4432f,-1.9243f},{-4.2139f,2.0370f,-0.6997f},{0.0000f,0.0000f,0.0000f},{0.0000f,1.9950f,9.3500f},{0.0000f,0.0000f,0.0000f}}, /* grenade launcher: headset fit 2026-10-06, gun hand included */
     [19] = {{0.1611f,3.6073f,-8.5647f},{0.0000f,0.0000f,0.0000f},{-2.2736f,0.8682f,6.7402f},{5.4308f,-36.9894f,-0.4886f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f}},
 };

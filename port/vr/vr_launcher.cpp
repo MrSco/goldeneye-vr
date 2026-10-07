@@ -2937,6 +2937,13 @@ extern "C" void gevrLauncherRun(void)
                 }
                 if (ImGui::IsItemHovered())
                     ImGui::SetTooltip("Stereo: keep moving while holding the aim trigger.\nClick the left stick to crouch.");
+                bool sight = VrAimSight != 0;
+                if (ImGui::Checkbox("Aim: crosshair", &sight)) {
+                    VrAimSight = sight ? 1 : 0;
+                    vrSettingsSave();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Stereo: show the crosshair (and the scope's sight)\nwhile holding a grip to aim.");
                 ImGui::Spacing();
                 ImGui::TextColored(gold, "AIM STEADYING (stereo)");
                 int steady = VrAimSteady < 0 ? 0 : VrAimSteady > 2 ? 2 : VrAimSteady;
