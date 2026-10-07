@@ -19,6 +19,7 @@ static const u16 grenadeTextures[] = { 2983,767,2985,2272,2986,2273,2987,2274,0 
 static const u16 timedMineTextures[] = { 110,778,114,945,647,31,2735,943,0 };
 static const u16 proxMineTextures[] = { 114,945,2734,32,2736,944,0 };
 static const u16 remoteMineTextures[] = { 114,945,647,31,2737,946,0 };
+static const u16 taserTextures[] = { 539,916,1975,23,1976,24,1977,1409,1978,1412,1979,1413,1980,1414,1981,1415,2466,2057,3016,1417,3017,1410,0 };
 static const u16 dd44Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,3274,1725,3275,776,0 };
 static const u16 klobbTextures[] = { 1,1514,3274,1725,3279,2145,3280,2146,3281,2147,3282,2148,3284,1867,0 };
 static const u16 zmgTextures[] = { 993,2155,994,2153,995,2156,996,2154,997,2151,998,2149,999,2152,1000,2150,3274,1725,3285,28,3286,27,0 };
@@ -110,7 +111,21 @@ static const GexWeaponDef weapons[] = {
         .screenFromRoot=1, .screenOffset={-27.173f,-22.813f,-208.695f},
         .muzzle={87.029f,38.664f,215.278f}, .screenMuzzle={59.856f,15.851f,6.583f},
         .supportRoot={-39.498364f,-28.279365f,49.061958f},
-        .numParts=1, .parts={100}, .visible={1}, .compact=1
+        .numParts=1, .parts={100}, .visible={1}, .compact=1,
+        /* throw 1062's lever (matrix 34) lifts by 6 and has flown by 30 */
+        .cookAnim=1062, .cookEnd=30.0f, .cookMatrix=34
+    },
+    /* Taser: slot 30 by the ROM's own weapon names (not slot 44, the
+     * Hallucinogun), Gfalcon2lodZ. Its idle raises the hand, so its jab 1086's
+     * frame 0 is the hold; the jab itself (8 cm of the whole hand) is not
+     * played: the tracked hand holds it, as the knives. Root-anchored on the
+     * screen: no GoldenEye GtaserZ mesh matches. */
+    {
+        .item=ITEM_TASER, .slot=30, .model="Gfalcon2lodZ", .texturePairs=taserTextures,
+        .fireAnim=0, .restAnim=1086, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1,
+        .screenFromRoot=1, .screenOffset={0.071f,-29.923f,-84.617f},
+        .muzzle={28.462f,143.276f,90.878f}, .screenMuzzle={28.533f,113.354f,6.261f},
+        .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1
     },
     MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
     MINE_DEF(ITEM_PROXIMITYMINE, 28, "GproximitymineZ", proxMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),

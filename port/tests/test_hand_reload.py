@@ -51,7 +51,7 @@ for name in ("GEVR_UNITS_PER_METRE", "GEVR_RELOAD_BELT_EXIT_CM", "GEVR_VIEWMODEL
     if match:
         definitions.append(match.group())
 definitions.extend(re.findall(r"^#define GEVR_CHOP_[^\n]+", view, re.M))
-for name in ("s_gevrClubButt", "s_gevrChopSwing", "s_gevrBeltMeleeTaken"):
+for name in ("s_gevrClubButt", "s_gevrChopSwing", "s_gevrBeltMeleeTaken", "s_gevrThrowWindup"):
     match = re.search(r"^static (?:const )?(?:f32|s32) " + name + r"\[[23]\][^;]*;", view, re.M)
     if match:
         definitions.append(match.group())

@@ -41,14 +41,19 @@ static int s_gevrMuzzleValid[2], s_gevrMuzzleItem[2];
 static float s_gevrMuzzle[2][3];
 static void *g_musicSfxBufferPtr;
 #define PUNCHING_AIR_SFX 0
+struct sfx3 { unsigned short half[3]; };   /* a knife swing's slash sounds (gun.c) */
+struct sfx3 knife_throw_sounds = { { 101, 102, 103 } };
+static unsigned int randomGetNext(void) { return 1; }
 static int gevrStereoWatchGrip(void) { return 0; }
+static int lastSound, lastChopItem;
 static void sndPlaySfx(void *buffer, int sound, void *state)
-{ (void)buffer; (void)sound; (void)state; whiffs++; }
+{ (void)buffer; (void)state; lastSound = sound; whiffs++; }
 s32 gevrChopHit(const f32 from[3], const f32 to[3], f32 touch, const f32 dir[3], s32 item,
                 const f32 velocity[3], f32 need, s32 land, f32 *into)
 {
-    (void)from; (void)to; (void)touch; (void)dir; (void)item;
+    (void)from; (void)to; (void)touch; (void)dir;
     (void)velocity; (void)need; (void)land; (void)into;
+    lastChopItem = item;
     chopHits++;
     return 0;
 }
@@ -320,6 +325,26 @@ static void meleeArbitration(void)
     vr_ctrl_velocity_play[1][2] = 2.5f;
     chopHits = 0; gevrHandChopTick(1); assert(chopHits == 1);
     VrManualReloading = 1;
+    /* Both knives swing as the knife: its damage and slash sound, no punch
+     * whiff; a throw's grip wind-up swings no blow at all (user). */
+    for (int k = 0; k < 2; k++) {
+        reset(); player.hands[GUNRIGHT].weapon = k ? ITEM_THROWKNIFE : ITEM_KNIFE;
+        at(1, 30, VrReloadBelt[1], 80);
+        vr_ctrl_velocity_play[1][0] = 1.8f;   /* a knife's slash speed, under a gun's */
+        chopHits = whiffs = 0; lastChopItem = -1; lastSound = 0;
+        gevrHandChopTick(1);
+        assert(chopHits == 1 && lastChopItem == ITEM_KNIFE && lastSound >= 101 && lastSound <= 103 && whiffs == 1);
+        vr_ctrl_velocity_play[1][0] = 0;
+        for (int i = 0; i < 25; i++) gevrHandChopTick(1);
+        assert(whiffs == 1);
+        reset(); player.hands[GUNRIGHT].weapon = k ? ITEM_THROWKNIFE : ITEM_KNIFE;
+        at(1, 30, VrReloadBelt[1], 80);
+        s_gevrThrowWindup[GUNRIGHT] = 1;
+        vr_ctrl_velocity_play[1][0] = 2.5f;
+        chopHits = whiffs = 0; gevrHandChopTick(1);
+        assert(chopHits == 0 && whiffs == 0);
+        s_gevrThrowWindup[GUNRIGHT] = 0; vr_ctrl_velocity_play[1][0] = 0;
+    }
 }
 
 static void pistolTick(void)

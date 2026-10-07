@@ -38,6 +38,9 @@ typedef struct GexWeaponDef {
      * carries), or once a single-use item has left the hand (the item itself,
      * when it is not a toggled part); 0 none */
     s32 hideMatrix, spentMatrix;
+    /* cooking (the trigger held): this clip plays on the mechanism to cookEnd
+     * (the grenade's lever popping off), then cookMatrix is collapsed */
+    s32 cookAnim; f32 cookEnd; s32 cookMatrix;
     s32 restAnim; /* explicit equip/idle pose when the ROM has no firing animation */
     s32 gripMatrix; /* optional reload joint actually held by the hand */
     s32 pullUp; /* top-loading magazine extracts up instead of down */

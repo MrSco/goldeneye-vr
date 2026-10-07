@@ -325,7 +325,7 @@ static u8 *partVertices(u8 *source,int wanted) {
     abort();
 }
 int main(int argc,char **argv) {
-    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH,ITEM_SILVERWPPK,ITEM_GOLDWPPK,ITEM_KNIFE,ITEM_THROWKNIFE,ITEM_GRENADE,ITEM_TIMEDMINE,ITEM_PROXIMITYMINE,ITEM_REMOTEMINE};
+    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH,ITEM_SILVERWPPK,ITEM_GOLDWPPK,ITEM_KNIFE,ITEM_THROWKNIFE,ITEM_GRENADE,ITEM_TIMEDMINE,ITEM_PROXIMITYMINE,ITEM_REMOTEMINE,ITEM_TASER};
     for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) { active=gevrGexWeaponGet(items[i]); assert(active); switches(); }
     assert(gevrGexWeaponGet(ITEM_WPPK)->magMatrix==38);
     assert(gevrGexWeaponGet(ITEM_WPPK)->heldMatrix==42);
@@ -344,7 +344,7 @@ int main(int argc,char **argv) {
     assert(gevrGexInstalledMagFit(ITEM_MP5K)==gevrGexInstalledMagFit(ITEM_MP5KSIL));
     assert(gevrGexInstalledMagFit(ITEM_M16)!=gevrGexInstalledMagFit(ITEM_SPECTRE));
     assert(gevrGexWeaponGet(ITEM_WPPK)->muzzle[2]<gevrGexWeaponGet(ITEM_WPPKSIL)->muzzle[2]);
-    assert(!gevrGexWeaponGet(ITEM_TASER));
+    assert(!gevrGexWeaponGet(ITEM_FIST));
     assert(!gevrGexHasMagazine(gevrGexWeaponGet(ITEM_LASER)));
     assert(gevrGexGunFit(ITEM_MP5K)==gevrGexGunFit(ITEM_MP5KSIL));
     assert(gevrGexGunFit(ITEM_KNIFE)==gevrGexGunFit(ITEM_THROWKNIFE) && gevrGexHandFit(ITEM_KNIFE)==gevrGexHandFit(ITEM_THROWKNIFE));
@@ -560,6 +560,19 @@ int main(int argc,char **argv) {
         }
         memcpy(h,keep,3*sizeof(f32)); memcpy(rt,keep+3,3*sizeof(f32)); sz[0]=keepSize;
     }
+    if (active->cookAnim>0) {
+        /* cooking: the lever flies off the grenade by cookEnd; the grenade
+         * itself and both hands stay as tracked */
+        Mtxf cooked[64],inv; f32 at[3],lever[3];
+        memcpy(cooked,poses,sizeof(cooked));
+        gevrGexPoseMechanism(&hdr,cooked,active->cookAnim,active->cookEnd);
+        for (int j=0;j<=active->gunMatrix;j++) assert(!memcmp(&cooked[j],&poses[j],sizeof(Mtxf)));
+        gevrGexRigidInverse(&cooked[active->gunMatrix],&inv);
+        for (int a=0;a<3;a++) at[a]=cooked[active->cookMatrix].m[3][a];
+        gevrGexMtxPoint(&inv,at,lever);
+        assert(sqrtf(lever[0]*lever[0]+lever[1]*lever[1]+lever[2]*lever[2])>300);
+        assert(active->cookMatrix<matrices);
+    }
     if (active->payloadProp>0) {
         /* The grenade launcher: no clip of its own, the hand posed by the
          * borrowed one; the target is a chamber mouth on the drum's rear face
@@ -624,7 +637,7 @@ math=(ROOT/"src/game/matrixmath.c").read_text()
 production=[function(math,s) for s in ("void matrix_4x4_multiply(","void matrix_4x4_set_identity(",
     "void matrix_4x4_set_rotation_around_xyz(")]
 production.extend(function(gun,s) for s in ("static void gevrGexAnimPart(","static void gevrGexPoseWalk(","static void gevrGexShowMagazines(","static void gevrGexScreenAnchor(","static void gevrGexShowChamber("))
-production.extend(function(gun,s) for s in ("static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv)\n{", "static void gevrGexPoseReady("))
+production.extend(function(gun,s) for s in ("static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv)\n{", "static void gevrGexPoseMechanism(", "static void gevrGexPoseReady("))
 production.extend(function(gun,s) for s in ("void gevrGexTick(", "void gevrGexMagazineReady("))
 production.extend(function(gun,s) for s in ("static void gevrGexMtxPoint(", "static void gevrGexLeftHandTo(",
     "static void gevrGexOffCache(ModelFileHeader *gunhdr)\n{", "static s32 gevrGexOffHandPose(",
@@ -654,6 +667,6 @@ with tempfile.TemporaryDirectory(prefix="gex-weapons-") as directory:
         sys.path.insert(0,str(ROOT/'tools/gex'))
         from pdrom import PdRom
         rom=PdRom(sys.argv[1])
-        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18),('GdydevastatorZ',24),('Gdy357Z',20),('Gdy357trentZ',21),('GknifeZ',2),('GknifeZ',3),('GgrenadeZ',26),('GtimedmineZ',27),('GproximitymineZ',28),('GremotemineZ',29)):
+        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18),('GdydevastatorZ',24),('Gdy357Z',20),('Gdy357trentZ',21),('GknifeZ',2),('GknifeZ',3),('GgrenadeZ',26),('GtimedmineZ',27),('GproximitymineZ',28),('GremotemineZ',29),('Gfalcon2lodZ',31)):
             sample=temp/'model.bin'; sample.write_bytes(rom.load(model))
             subprocess.run([str(exe),str(sample),str(Path(sys.argv[1]).resolve()),str(item)],check=True)

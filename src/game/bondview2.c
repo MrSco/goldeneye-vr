@@ -2864,6 +2864,8 @@ static s32 s_gevrChopSwing[2];   /* ticks left of "a swing began" (gevrHandChopS
 
 s32 gevrReloadHoldsHand(s32 ctrl);   /* below: the hand is reloading, it does not swing */
 
+static s32 s_gevrThrowWindup[2];   /* below: the grip winds up a motion throw */
+
 void gevrHandChopTick(s32 ctrl)
 {
     if (gevrSpectating() || gevrCoopLocalDowned()) return;
@@ -2926,6 +2928,7 @@ void gevrHandChopTick(s32 ctrl)
         || (netIsActive() && g_CurrentPlayer->mpmenuon)
         || g_PlayerIsInTank == 1 || gevrStereoWatchGrip() || (ctrl == 0 && gevrStereoTwoHandGrip())
         || gevrReloadHoldsHand(ctrl)
+        || s_gevrThrowWindup[hand]   /* winding up a throw (grip held): a throw, not a blow (user) */
         || !gevrGripAxesRaw(ctrl, at, right, up, back))
     {
         s_whiff[ctrl] = 0;
@@ -2961,6 +2964,13 @@ void gevrHandChopTick(s32 ctrl)
     {
         s_whiff[ctrl] = GEVR_CHOP_TICKS;
         s_gevrChopSwing[ctrl] = 3;   /* online the copies swing on it too (net_player_sync.c) */
+        if (knife)
+        {
+            /* the knife's own slash, as its trigger attack plays it (gunfire.c), no animation */
+            extern struct sfx3 knife_throw_sounds;   /* gun.c */
+
+            sndPlaySfx(g_musicSfxBufferPtr, knife_throw_sounds.half[randomGetNext() % 3U], NULL);
+        }
     }
     s_fast[ctrl] = fast;
 
@@ -3052,7 +3062,10 @@ void gevrHandChopTick(s32 ctrl)
         if (s_whiff[ctrl] <= 0)
         {
             sysLogPrintf(LOG_NOTE, "stereo: %s swing missed", ctrl ? "gun hand" : "off hand");
-            sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, NULL);
+            if (!knife)
+            {
+                sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, NULL);   /* a knife's slash already sounded */
+            }
         }
     }
 }
@@ -3070,9 +3083,31 @@ static struct coord3d s_gevrThrowVelBuffer[2][GEVR_THROW_BUFFER_SIZE];
 static s32 s_gevrThrowVelHead[2] = { 0, 0 };
 static s32 s_gevrThrowVelCount[2] = { 0, 0 };
 static s32 s_gevrThrowWindup[2] = { 0, 0 };
+/* a motion throw has just been made: GoldenEye's recovery and the next item's
+ * raise stay off the tracked hand until it is idle again */
+static s32 s_gevrMotionRecover[2] = { 0, 0 };
 static f32 s_gevrGripPeak[2] = { 0.0f, 0.0f };
 static s32 s_gevrGripArmed[2] = { 0, 0 };
 static s32 s_gevrTrackingLostFrames[2] = { 0, 0 };
+
+/*
+ * gunfire.c: the grip's motion throw owns this hand - winding up (the grip
+ * held; a grenade cooks on the trigger meanwhile) or recovering from a throw.
+ * GoldenEye's keyframe swing then stays off the tracked hand (user: it threw
+ * the arm a second time); a trigger throw or stab keeps its animation.
+ */
+s32 gevrMotionThrowOwnsHand(s32 hand)
+{
+    if (hand < 0 || hand > 1 || g_CurrentPlayer == NULL)
+    {
+        return FALSE;
+    }
+    if (s_gevrMotionRecover[hand] && g_CurrentPlayer->hands[hand].weapon_action_state == GUN_ANIM_STATE_IDLE)
+    {
+        s_gevrMotionRecover[hand] = FALSE;
+    }
+    return s_gevrThrowWindup[hand] || s_gevrMotionRecover[hand];
+}
 
 void gevrMotionThrowTick(s32 hand)
 {
@@ -3397,6 +3432,7 @@ void gevrMotionThrowTick(s32 hand)
                 }
 
                 g_gevrMotionThrowActive[hand] = 1;
+                s_gevrMotionRecover[hand] = TRUE;
                 g_gevrMotionThrowVel[hand] = final_vel;
 
                 if (item == ITEM_GRENADE)
@@ -3454,6 +3490,7 @@ void gevrMotionThrowTick(s32 hand)
                 drop_vel.y = -1.0f;
                 drop_vel.z = 0.0f;
                 g_gevrMotionThrowActive[hand] = 1;
+                s_gevrMotionRecover[hand] = TRUE;
                 g_gevrMotionThrowVel[hand] = drop_vel;
                 g_CurrentPlayer->last_z_trigger_timer = (s32)handptr->field_890;
 
