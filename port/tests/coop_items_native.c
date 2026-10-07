@@ -12,6 +12,7 @@ void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 struct player {
     PropRecord *prop;
     s32 bonddead;
+    struct { StandTile *current_tile_ptr; coord3d collision_position; } field_488;
 };
 struct player *g_playerPointers[4];
 u32 *ptr_last_tag_entry_type16;
@@ -30,6 +31,7 @@ static int adds;
 static u8 last[64];
 static unsigned last_len;
 static int broadcasts;
+static int last_reliable;
 static PropRecord *collision_prop;
 static int collision_calls;
 static int tank_solid = 1;
@@ -64,7 +66,7 @@ void netCoopBroadcast(const unsigned char *data, unsigned int size, int reliable
     memcpy(last, data, size);
     last_len = size;
     broadcasts++;
-    (void)reliable;
+    last_reliable = reliable;
 }
 ObjectRecord *objFindByTagId(s32 tag)
 {
@@ -117,6 +119,49 @@ s32 g_BondCanEnterTank;
 
 /* INSERT_TANK */
 
+/* The tank's pose on every headset: the game's helpers it calls */
+#define COOP_LOG(...) ((void)0)
+#ifndef M_TAU_F
+#define M_TAU_F 6.2831855f
+#endif
+#define TANK_UNKD0_SCALE 0.83f
+static u64 now_us = 5000000;
+static int local_spectator;
+static StandTile *walk_fail_from;
+static StandTile *walk_dest;
+static int room_updates;
+static int collision_updates;
+static StandTile walked_tile;
+u64 sysGetMicroseconds(void) { return now_us; }
+bool netLocalIsSpectator(void) { return local_spectator; }
+int gevrCoopActive(void) { return coop_active; }
+void matrix_4x4_set_rotation_around_y(f32 angle, Mtxf *m)
+{
+    memset(m, 0, sizeof(*m));
+    m->m[0][0] = cosf(angle); m->m[0][2] = -sinf(angle);
+    m->m[1][1] = 1.0f;
+    m->m[2][0] = sinf(angle); m->m[2][2] = cosf(angle);
+    m->m[3][3] = 1.0f;
+}
+void matrix_scalar_multiply(f32 scalar, f32 *matrix) { for (int i = 0; i < 12; i++) matrix[i] *= scalar; }
+void matrix_4x4_copy(Mtxf *src, Mtxf *dst) { *dst = *src; }
+s32 walkTilesBetweenPoints_NoCallback(StandTile **tile, f32 sx, f32 sz, f32 dx, f32 dz)
+{
+    (void)sx; (void)sz; (void)dx; (void)dz;
+    if (*tile == walk_fail_from) return 0;
+    *tile = walk_dest ? walk_dest : &walked_tile;
+    return 1;
+}
+f32 stanGetPositionYValue(StandTile *tile, f32 x, f32 z) { (void)tile; (void)x; (void)z; return 7.0f; }
+f32 chrpropBBOXGetYmin(ModelRoData_BoundingBoxRecord *box) { (void)box; return -10.0f; }
+void setupUpdateObjectRoomPosition(ObjectRecord *obj) { (void)obj; room_updates++; }
+void chrobjCollisionRelated(ObjectRecord *obj) { (void)obj; collision_updates++; }
+
+void gevrCoopApplyTank(s32 slot, s32 driven, const f32 pos[3], f32 yaw, f32 turretyaw, f32 turretpitch, s32 firing);
+/* INSERT_TANK_SEND */
+
+/* INSERT_TANK_SYNC */
+
 static void host_event(struct netbuf *b)
 {
     u8 kind = netbufReadU8(b);
@@ -166,6 +211,229 @@ static void reset_party(void)
     broadcasts = 0;
     last_len = 0;
     cur_player = 3;
+}
+
+/* The driver's headset sends its tank; another headset poses the same tank there. */
+static void tank_record(PropRecord *prop, TankRecord *tank, Model *model, ModelFileHeader *header,
+                        ModelNode *switches, ModelNode *child, f32 x, f32 z)
+{
+    memset(prop, 0, sizeof(*prop));
+    memset(tank, 0, sizeof(*tank));
+    memset(model, 0, sizeof(*model));
+    memset(header, 0, sizeof(*header));
+    memset(switches, 0, sizeof(*switches));
+    memset(child, 0, sizeof(*child));
+    /* bondview2.c reads the bounding box as the decompiled driver code does */
+    switches->Child = child;
+    header->Switches = (ModelNode **)switches;
+    model->obj = header;
+    model->scale = 0.5f;
+    tank->type = PROPDEF_TANK;
+    tank->model = model;
+    tank->prop = prop;
+    prop->type = PROP_TYPE_OBJ;
+    prop->obj = (ObjectRecord *)tank;
+    prop->pos.x = x;
+    prop->pos.z = z;
+}
+
+/* The last packet sent: this headset's tank pose, past the header */
+static struct netbuf tank_packet(u8 *flags)
+{
+    struct netbuf b = open_last();
+    assert(netbufReadU8(&b) == NET_MSG_COOP_TANK);
+    assert(netbufReadU8(&b) == (u8)local_slot);
+    assert(netbufReadLeft(&b) == NET_COOP_TANK_BYTES);
+    *flags = netbufReadU8(&b);
+    return b;
+}
+
+static void tank_pose(struct netbuf *w, u8 flags, f32 x, f32 y, f32 z, f32 yaw, f32 turretyaw, f32 turretpitch)
+{
+    netbufWriteU8(w, flags);
+    netbufWriteF32(w, x); netbufWriteF32(w, y); netbufWriteF32(w, z);
+    netbufWriteF32(w, yaw); netbufWriteF32(w, turretyaw); netbufWriteF32(w, turretpitch);
+    rewind_written(w);
+}
+
+static void run_tank_sync(void)
+{
+    PropRecord prop, other, decoy;
+    TankRecord tank, othertank, decoytank;
+    Model model, othermodel, decoymodel;
+    ModelFileHeader header, otherheader, decoyheader;
+    ModelNode switches, child, oswitches, ochild, dswitches, dchild;
+    struct player rider;
+    StandTile start, ridertile;
+    struct netbuf b;
+    u8 raw[64];
+    u8 flags;
+    int before;
+
+    gevrCoopTankReset();
+    tank_record(&prop, &tank, &model, &header, &switches, &child, 100.0f, 200.0f);
+    coop_active = 1;
+    net_active = 1;
+    local_slot = 1;
+    cur_player = 1;
+    is_host = 0;
+    puppets = 1;
+    local_spectator = 0;
+
+    /* Driving: the pose goes out unreliably, at most 20 times a second. */
+    g_PlayerIsInTank = 1;
+    g_PlayerTankProp = &prop;
+    prop.pos.x = 150.0f; prop.pos.y = 40.0f; prop.pos.z = 260.0f;
+    tank.tank_orientation_angle = 1.25f;
+    tank.turret_orientation_angle = 0.5f;
+    tank.turret_vertical_angle = 0.125f;
+    tank.is_firing_tank = 1;
+    before = broadcasts;
+    gevrCoopSendTank();
+    assert(broadcasts == before + 1 && !last_reliable);
+    b = tank_packet(&flags);
+    assert(flags == (NET_COOP_TANK_DRIVEN | NET_COOP_TANK_FIRING));
+    assert(netbufReadF32(&b) == 150.0f && netbufReadF32(&b) == 40.0f && netbufReadF32(&b) == 260.0f);
+    assert(netbufReadF32(&b) == 1.25f && netbufReadF32(&b) == 0.5f && netbufReadF32(&b) == 0.125f);
+    now_us += 10000;
+    gevrCoopSendTank();
+    assert(broadcasts == before + 1);
+    now_us += 50000;
+    gevrCoopSendTank();
+    assert(broadcasts == before + 2);
+
+    /* Another headset's player ticking here sends nothing. */
+    cur_player = 2;
+    now_us += 60000;
+    gevrCoopSendTank();
+    assert(broadcasts == before + 2);
+    cur_player = 1;
+
+    /* Out of the tank: one reliable last pose, even inside the 50 ms, then quiet. */
+    g_PlayerIsInTank = 0;
+    g_PlayerTankProp = NULL;
+    now_us += 1000;
+    gevrCoopSendTank();
+    assert(broadcasts == before + 3 && last_reliable);
+    b = tank_packet(&flags);
+    assert(flags == 0);
+    now_us += 100000;
+    gevrCoopSendTank();
+    assert(broadcasts == before + 3);
+
+    /* Not co-op, or a spectator: nothing. */
+    g_PlayerIsInTank = 1;
+    g_PlayerTankProp = &prop;
+    coop_active = 0;
+    now_us += 100000;
+    gevrCoopSendTank();
+    coop_active = 1;
+    gevrCoopTankReset();
+    local_spectator = 1;
+    now_us += 100000;
+    gevrCoopSendTank();
+    local_spectator = 0;
+    assert(broadcasts == before + 3);
+
+    /* Another headset: its own copy of the tank, parked at the start, and a far decoy. */
+    gevrCoopTankReset();
+    g_PlayerIsInTank = 0;
+    g_PlayerTankProp = NULL;
+    tank_record(&other, &othertank, &othermodel, &otherheader, &oswitches, &ochild, 100.0f, 200.0f);
+    tank_record(&decoy, &decoytank, &decoymodel, &decoyheader, &dswitches, &dchild, 5000.0f, 5000.0f);
+    decoy.prev = &other;
+    active_tail = &decoy;
+    other.stan = &start;
+    g_PlayerIsInTank = 1;
+    g_PlayerTankProp = &prop;
+    now_us += 100000;
+    gevrCoopSendTank();          /* the driver's packet, from slot 1 */
+    g_PlayerIsInTank = 0;
+    g_PlayerTankProp = NULL;
+    local_slot = 0;
+    room_updates = collision_updates = 0;
+    b = open_last();
+    assert(netbufReadU8(&b) == NET_MSG_COOP_TANK);
+    assert(netbufReadU8(&b) == 1);
+    coopReceiveTank(1, &b);
+    assert(other.pos.x == 150.0f && other.pos.y == 40.0f && other.pos.z == 260.0f);
+    assert(othertank.runtime_pos.x == 150.0f && othertank.runtime_pos.z == 260.0f);
+    assert(othertank.tank_orientation_angle == 1.25f);
+    assert(othertank.turret_orientation_angle == 0.5f);
+    assert(othertank.turret_vertical_angle == 0.125f);
+    assert(othertank.is_firing_tank == 1);
+    assert(fabsf(othertank.mtx.m[0][0] - cosf(M_TAU_F - 1.25f) * 0.5f) < 1e-5f);
+    assert(fabsf(othertank.mtx.m[2][0] - sinf(M_TAU_F - 1.25f) * 0.5f) < 1e-5f);
+    assert(other.stan == &walked_tile && othertank.stan_y == 7.0f);
+    /* the ground it rides on, as the driver's MoveBond smooths it */
+    assert(fabsf(othertank.unkD0 * (1.0f - TANK_UNKD0_SCALE) - (-10.0f * 0.5f) + 4.0f - 40.0f) < 1e-3f);
+    assert(room_updates == 1 && collision_updates == 1);
+    assert(decoy.pos.x == 5000.0f && decoytank.tank_orientation_angle == 0.0f);
+    /* a teammate drives it: this headset's player cannot get in */
+    assert(gevrCoopTankTaken(&other));
+    assert(!gevrCoopTankTaken(&decoy));
+    now_us += 2000000;
+    assert(!gevrCoopTankTaken(&other));
+
+    /* A walk that does not get there: walked from the rider's tile instead. */
+    memset(&rider, 0, sizeof(rider));
+    rider.field_488.current_tile_ptr = &start;
+    g_playerPointers[1] = &rider;
+    walk_fail_from = &walked_tile;
+    walk_dest = &ridertile;
+    b = written(raw, sizeof(raw));
+    tank_pose(&b, NET_COOP_TANK_DRIVEN, 160.0f, 40.0f, 270.0f, 1.25f, 0.5f, 0.125f);
+    coopReceiveTank(1, &b);
+    assert(other.pos.x == 160.0f && other.stan == &ridertile);
+    /* ... and if that fails too, the tank's own tile stands. */
+    walk_fail_from = &ridertile;
+    rider.field_488.current_tile_ptr = &ridertile;
+    b = written(raw, sizeof(raw));
+    tank_pose(&b, NET_COOP_TANK_DRIVEN, 165.0f, 40.0f, 275.0f, 1.25f, 0.5f, 0.125f);
+    coopReceiveTank(1, &b);
+    assert(other.pos.x == 165.0f && other.stan == &ridertile);
+    walk_fail_from = NULL;
+    walk_dest = NULL;
+    g_playerPointers[1] = NULL;
+
+    /* The parked pose frees it, and the gun flash goes out. */
+    b = written(raw, sizeof(raw));
+    tank_pose(&b, 0, 180.0f, 41.0f, 300.0f, 2.0f, 0.25f, 0.0f);
+    coopReceiveTank(1, &b);
+    assert(other.pos.x == 180.0f && othertank.tank_orientation_angle == 2.0f);
+    assert(othertank.is_firing_tank == 0);
+    assert(!gevrCoopTankTaken(&other));
+
+    /* Not a number, a short packet, or this headset's own slot: ignored. */
+    b = written(raw, sizeof(raw));
+    tank_pose(&b, NET_COOP_TANK_DRIVEN, NAN, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+    coopReceiveTank(1, &b);
+    assert(other.pos.x == 180.0f);
+    b = written(raw, sizeof(raw));
+    netbufWriteU8(&b, NET_COOP_TANK_DRIVEN);
+    netbufWriteF32(&b, 1.0f);
+    rewind_written(&b);
+    coopReceiveTank(1, &b);
+    assert(other.pos.x == 180.0f);
+    b = written(raw, sizeof(raw));
+    tank_pose(&b, NET_COOP_TANK_DRIVEN, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+    coopReceiveTank(0, &b);
+    assert(other.pos.x == 180.0f);
+
+    /* This headset's player drives it: its own pose stands. */
+    g_PlayerIsInTank = 1;
+    g_PlayerTankProp = &other;
+    b = written(raw, sizeof(raw));
+    tank_pose(&b, NET_COOP_TANK_DRIVEN, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f);
+    coopReceiveTank(1, &b);
+    assert(other.pos.x == 180.0f);
+    g_PlayerIsInTank = 0;
+    g_PlayerTankProp = NULL;
+
+    /* A new stage forgets the old tank. */
+    gevrCoopTankReset();
+    assert(!gevrCoopTankTaken(&other));
+    active_tail = NULL;
 }
 
 int main(void)
@@ -550,5 +818,6 @@ int main(void)
 
     free(obj);
     free(objprop);
+    run_tank_sync();
     return 0;
 }
