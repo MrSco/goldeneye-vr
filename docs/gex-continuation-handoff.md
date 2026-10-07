@@ -4,6 +4,94 @@ Start here, then read [the roadmap](gex-weapon-roadmap.md) for the history of
 PP7 grip, wrist orientation, duplicate arms, insertion targets and installed
 magazine fitting. This file records the current implementation and remaining work.
 
+## Latest headset feedback — unresolved, address before adding guns
+
+Reported after the version-code-65 test build, 2026-10-06. User lowered the
+weekly reserve floor from 2% to **1%** for this investigation. This pass made
+documentation changes only: no gameplay fix or new APK is claimed. The current
+code/APK remains build **9b212a0**, version **0.4.11 / code 65**, with the cuff
+crash fix. PR #138 contains this investigation checkpoint.
+
+### Rocket launcher: seated rocket disappears after reload
+
+User sees rocket ammo at the end initially. After reloading, the gun can fire
+but the rocket model does not stay at the tube's end. Ammo transfer works;
+the missing representation is the visible loaded payload.
+
+Confirmed source facts: `GdyrocketZ` definition has `singleRound=1`,
+`gunMatrix=magMatrix=33`, `heldMatrix=37`, `parts={-1,40}`. There is deliberately
+no installed switch; part 40 is driven as the held payload.
+`gevrGexShowMagazines` drives part index 0 from inGun and index 1 from inHand.
+`gevrGexPoseGun` normally clears inHand after physical insertion (state IN,
+no active screen reload). This leaves no explicit loaded-round visibility path,
+which is the leading explanation. Initial source visibility was not reproduced
+on-device during this pass; do not treat that detail as resolved.
+
+Next: inspect the ROM's native rest/fire/reload matrix 37 and part 40 geometry,
+then render a seated round whenever authoritative GE loaded ammo is nonzero.
+Keep its seated transform separate from the held/off-hand pose and fits. Since
+capacity is one, held versus loaded rendering may be mutually exclusive, but
+verify direct belt reload, cancelled/dropped rounds, fit preview and screen
+reload before relying on that. Do not make shell or Golden Gun ammo permanently
+visible through a generic singleRound override. Prevent a falling held mesh
+from overwriting the seated pose. Hide the loaded rocket after firing and show
+it again after either physical insertion or direct belt reload.
+
+Required regression: actual render visibility/pose at spawn loaded, fire empty,
+pickup held, insertion loaded, ready-animation end, next shot, cancel/drop,
+weapon switch and both handedness/size modes. Existing ammo-only reload tests
+and converter tests do **not** cover this loaded-round rendering lifecycle.
+
+### Sniper: intermittent off-hand grip shows scope sight and blocks belt pickup
+
+User reports that off-hand grip sometimes makes the scope crosshair appear
+and prevents taking a magazine from the belt while that state persists.
+Switching away from sniper and back restores correct behavior. This is
+intermittent, unreproduced locally, and the root cause is unconfirmed.
+
+Trace `inputReadController` gripTaken/physical-to-logical grip mapping and
+R_TRIG generation, `gevrGripGestureInput/Taken`, `gevrStereoTwoHandUpdate`,
+`gevrGexClaimsOffHand`, `gevrReloadClaimsOffHand`, `gevrHandReloadTick`, and
+`gunDrawSight` / gunsightmode / insightaimmode. In stereo, the input's normal
+R_TRIG aim request uses logical **right** grip unless gripTaken[1]; off grip
+alone should not request the primary sight. Two-hand state is s_gevrTwoHand;
+the support update preserves an existing hold through tracking occlusion and
+checks reload ownership only when !s_gevrTwoHand. Thus a stale support/gesture
+owner is a candidate to investigate, not an established cause.
+
+Record per tick: physical and logical grips, handedness mapping, gripTaken[2],
+s_gevrGripGesture[2], s_gevrTwoHand, controller tracked flags, current GE item
+and GEX definition, GEX magazine state/item, s_gevrGexGripSpent, fresh-grip flags,
+R_TRIG, gunsightmode, insightaimmode and belt distance. Compare before/after
+weapon switch; test release/repress, scope-near occlusion, and crossing from
+support into belt reach. Preserve deliberate grip ownership and partial ammo;
+do not erase all state each tick or let a support hold silently become reload.
+
+### Moonraker laser: primary grip does not show sight during two-hand hold
+
+User cups the pistol with off-hand grip, then grips the gun-hand controller to
+enable the scope crosshair; no crosshair appears. Root cause unconfirmed.
+Laser is compact/pistol, `hasScope=1`, no reload payload or physical reload.
+
+`inputReadController` generates aim R_TRIG from rightGrip only if !menu,
+!rightThrowable and !gripTaken[1]. Gun fit later removes R_TRIG; weapon/pause
+flows can also clear it. `gunDrawSight` renders the primary scope sight only
+when gunsightmode==0 and mpmenuon==FALSE, then requires gevrScopeOn's right bit.
+`gevrGripSteadyOnCtrl` returning TRUE for two-hand support affects smoothing;
+it is not itself a crosshair request. Inspect actual grip gesture consumption,
+aim-state transition and scope bit at the failed press; do not equate steady
+scope with aiming or remove valid damage/menu sight suppression.
+
+Required paired scope tests: sniper and laser, one/two hands, right grip only,
+off grip only, both grips in either press order, release/repress, tracking
+loss/recovery, belt reload ownership, weapon switch, handedness and fit mode
+on/off. Verify source GE behavior alongside GE-X to separate shared input/state
+bugs from model bindings. No scope/grip regression or fix was added in this pass.
+
+Finish these three and capture the user's new fits/acceptance before continuing
+Cougar cylinder or grenade projectile integration below. Preserve all accepted
+PP7/KF7/AR33/RC-P90 calibration and the version-code-65 cuff crash fix.
+
 ## Crash cf69dded follow-up — latest priority
 
 Latest delivery supersedes the APK paths below: Android **versionCode 65**,
