@@ -1,12 +1,14 @@
 # GoldenEye X setup
 
-GoldenEye VR can use GoldenEye X's **KF7 model and animations** and **VR arms
+GoldenEye VR can use GoldenEye X's **KF7, both PP7s, DD44, Klobb, ZMG, D5K variants, Phantom, AR33, RC-P90, sniper, Moonraker laser, both shotguns, rocket launcher and Golden Gun models and animations** and **VR arms
 wearing GoldenEye's watch**, supplied by your own patched ROM. These options are
-WIP and off by default. They are available in **v0.4.7 or later** (PR #117).
-See [v0.4.7 changes](releases/v0.4.7.md).
+WIP; GE-X gun replacements are off by default. KF7 support is available in
+**v0.4.7 or later** (PR #117); PP7 support is in the
+[v0.4.11](releases/v0.4.11.md). The latest seven are in the
+[changes after v0.4.11](releases/unreleased.md), pending headset fitting.
 
 You still play GoldenEye's missions with your normal GoldenEye 007 (USA) ROM.
-This support does not run the GE-X campaign or import its maps, other weapons,
+This support does not run the GE-X campaign or import its maps, unsupported weapons,
 music or sounds. No Perfect Dark ROM, patched ROM or GE-X assets are included
 in the APK or repository. Supply a legally obtained dump of your own game;
 do not upload either ROM to GitHub or a bug report.
@@ -169,8 +171,8 @@ The ROM title alone does not guarantee the right revision.
    **GoldenEye X ROM chosen.** The app stores the file as
    `Android/data/com.gevr.port/files/data/gex.z64` and keeps the main game's
    ROM separately. Do not use the Play page's main **Choose ROM file...**.
-5. Enable **Its guns (KF7, WIP)**, **Its arms, wearing the watch (VR, WIP)**,
-   or both. Start a mission and equip a KF7 to check the gun replacement.
+5. Enable **Its guns (WIP)**, **Its arms, wearing the watch (VR, WIP)**,
+   or both. Start a mission and equip a supported gun to check the replacement.
 
 For manual transfer, copy the verified `gex.z64` to the app-created data
 folder above. With ADB, the destination is:
@@ -186,7 +188,7 @@ import, while `gex: GoldenEye X ROM loaded, 2013 files` in a game log confirms
 runtime loading. An enabled GE-X option can fall back to GoldenEye's assets
 if loading fails.
 
-HD textures remain a separate Mods option. GE-X KF7 textures that match
+HD textures remain a separate Mods option. GE-X weapon textures that match
 GoldenEye's texture IDs can use the existing HD packs; importing a GE-X ROM
 does not install the emulator texture files bundled in its patch ZIP.
 
@@ -195,12 +197,12 @@ does not install the emulator texture files bundled in its patch ZIP.
 Controls below assume the default right-handed layout. Left-handed mode
 swaps hands and face buttons as described in the [README controls](../README.md#-controls).
 
-**Virtual screen:** the KF7 uses GE-X's fire and reload animations. Normal
+**Virtual screen:** supported guns use GE-X's fire and reload animations. Normal
 button reloads still work here.
 
 **Stereo VR:** enable **Hand reload (WIP)** under **Controls → Gestures...**,
 or **watch → Game Options → VR settings → Weapons → Reload WIP**. With it
-on, guns no longer auto-reload. For a GE-X KF7:
+on, guns no longer auto-reload. For a supported GE-X magazine-fed gun:
 
 1. With one gun, put the off hand at its magazine, squeeze grip and pull down.
    The magazine retains its remaining rounds while held; you can put it back.
@@ -210,10 +212,28 @@ on, guns no longer auto-reload. For a GE-X KF7:
    well while holding grip. New magazines fill from your available reserve.
 4. Release grip after seating it before another grab or two-handed hold.
 
+**RC-P90:** lift its top magazine upward rather than pulling down.
+
+**Shotgun, automatic shotgun, rocket launcher and Golden Gun:** grip at your belt to take
+one shell, rocket or Golden Gun round, then insert its tip into the gun's port while holding grip.
+Each insertion adds one round and readies the weapon; release grip before the
+next pickup. Existing loaded rounds stay in the gun. Golden Gun opens its chamber while
+you hold the round and closes automatically after insertion. Dropped/cancelled held
+rounds return to reserve. B/Y does not eject loaded shells or rockets.
+Held Ammo and Ammo Insertion fit have independent previews for these payloads.
+The Moonraker laser has no physical reload or magazine fit modes.
+
 You can also bring an empty GE-X gun to the belt to reload it directly,
-including either gun when dual-wielding. The left KF7 is mirrored. A grip
-near the magazine or the supporting-hand point takes the nearer one, with
+including either gun when dual-wielding. Left GE-X guns are mirrored. For KF7,
+a grip near the magazine or the supporting-hand point takes the nearer one.
+For **PP7**, ordinary cupping favors support; release grip and take a fresh grab
+distinctly below the pistol to pull its magazine, or use button eject. A support
+hold never turns into a magazine pull while grip stays pressed. Both paths give
 haptic feedback when the off hand takes hold.
+
+Both PP7 variants share their own gun, support and magazine-grab calibration,
+independent of KF7. Their muzzle calibration remains separate. PP7 fit and
+controller clearance still require headset validation.
 
 **Gun fit:** enable **Controls → Gun fit...**, or toggle it during a solo
 mission with **Menu + A**. **A** saves; **B** returns to the last saved fit.
@@ -221,17 +241,37 @@ mission with **Menu + A**. **A** saves; **B** returns to the last saved fit.
 
 | Mode | Controls |
 |---|---|
-| Gun | Sticks move the gun in your hand. GE-X saves its own fit separately. With both hands holding a GE-X gun and GE-X arms enabled, sticks adjust its supporting-hand position and grip point. |
+| Gun | Sticks move the gun in your hand. GE-X saves its own fit separately. With both hands holding a GE-X gun and GE-X arms enabled, sticks adjust its supporting-hand position and grip point. Hold the gun-hand grip to rotate: move-stick forward/back sets pitch, sideways sets roll; turn-stick up/down sets yaw. |
 | Scope | Sticks move the lens; turn-stick sideways changes its width. Available for a scoped weapon, with separate GE-X values. |
 | Reload | Available with hand reload on and one magazine-fed gun. Place the off hand at the desired grab point and press its trigger (left trigger by default). Place it at your belt and press Y. Sticks are idle in this mode. |
 | Off hand | Available with a GE-X gun. Sticks adjust the off-hand palm/magazine pose. Hold the gun-hand grip (right grip by default) to adjust the watch's position and size instead; turn-stick sideways changes size. |
+| Held ammo | Available with a supported GE-X payload: magazine, shell or rocket. A preview appears in the off hand, including with hand reload disabled. Move-stick forward/back and sideways, turn-stick up/down, move only the payload within the fingers. Each family saves its own fit; PP7 variants share theirs, as do D5K variants. |
+| Ammo insertion | Available with a supported GE-X payload. Sticks move the insertion target on the gun. Place the preview's tip at the desired entrance and press the off-hand trigger to set the target there. HUD shows tip-to-well distance; this fit leaves the meshes in place. |
+| Installed magazine | Available only for a detachable magazine. Moves the visible magazine in the gun, even when it is out. Move stick: forward/sideways; turn stick: up/down. Saved reload grab and insertion targets stay put. This is separate from Held ammo. |
+| Barrel tip | Sticks adjust the muzzle point. |
+
+The new guns save seven vectors under `GexFit<item>_<component>` keys, with D5K
+variants sharing item 10. Compiled defaults include the user's latest PP7/KF7
+fits; saved settings take precedence. See the [weapon roadmap](gex-weapon-roadmap.md#fit-persistence-and-baking-workflow)
+for the item/component mapping and how to bake later headset fits. The latest
+seven await headset fitting and acceptance; see the [current handoff](gex-continuation-handoff.md).
 
 GE-X arms retain GoldenEye's live wrist status and pause watch. The watch
 stays at least its original visible size so its face remains readable.
 Toggles and fits are saved in `data/goldeneye-vr.ini` (`GexGuns`, `GexArms`,
-`GexReloadGrab`, `ReloadBelt`, `GexHeldMag`, `GexWatch`, `GexForeHold` and
+`GexReloadGrab`, `ReloadBelt`, `GexHeldMag`, `GexWatch`, `GexForeHold`,
+`GexPP7GunOff`, `GexPP7Grab`, `GexPP7Support`, `GexPP7SupportRot`, `GexPP7MagOff`, `GexKF7MagOff`,
+`GexPP7WellOff`, `GexKF7WellOff` and
 the GE-X gun/grip/scope fits). They can be changed from the launcher or
 the watch's VR settings where offered.
+
+PP7's two-hand support pose stays fixed to the pistol, like the original GE
+pistol grip. Turning the off controller does not pivot the supporting hand.
+Support rotation pivots around that palm and is saved in degrees as pitch,
+yaw and roll, independently of the hand's position and magazine fit.
+PP7 insertion uses the magazine-well entrance at the handle's bottom rather
+than the installed magazine's top near the slide. Well fitting refines that
+target independently of the grab point and held-magazine position.
 
 ## Troubleshooting
 
@@ -242,7 +282,7 @@ the watch's VR settings where offered.
 | "That is not a GoldenEye X .z64 ROM..." | Select the extracted, patched 32 MiB output. The picker does not accept the ZIP, xdelta patch, clean Perfect Dark ROM or a byte-swapped output. |
 | `gex: no GoldenEye X ROM (data/gex.z64)` | Import from the Mods picker or check the exact manual destination, then restart. |
 | `gex: not GE-X 6a's layout (file or texture table)` | Recreate the output from the checked source and official 6a patch, verify its MD5, import and restart. |
-| Original KF7 still appears | Enable **Its guns (KF7, WIP)**, equip a KF7 and check the runtime log. Other weapons retain their existing models. Restart after a failed load or a ROM replacement. |
+| Original supported gun still appears | Enable **Its guns (WIP)**, equip a supported gun and check the runtime log. Other weapons retain their existing models. Restart after a failed load or a ROM replacement. |
 | Magazine or supporting-hand grip is hard to reach | Use Gun fit's reload mode to set the grab/belt points, or its two-handed gun fit to adjust the supporting hand. Release grip after seating a magazine. |
 
 For implementation and model-format notes, see [GE-X weapons](gex-weapons.md).

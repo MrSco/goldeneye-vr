@@ -199,7 +199,7 @@ set_target_properties(openxr_loader PROPERTIES
 # gevr_collision_slide.c: collision-checked clearance retry for local VR edge slides
 # gevr_xr_metrics.cpp: optional runtime performance counters for automated profiling
 # gevr_surface_probe.c: opt-in issue #30 diagnostics; gevr_locomotion.c: presentation interpolation
-file(GLOB_RECURSE SRC_PORT "${CMAKE_SOURCE_DIR}/port/*.c")
+file(GLOB_RECURSE SRC_PORT CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/port/*.c")
 list(FILTER SRC_PORT EXCLUDE REGEX "port/(external|tests)/.*")
 # Exclude PD-specific files not used by GoldenEye
 list(FILTER SRC_PORT EXCLUDE REGEX ".*(preprocess|pdmain|pdsched|communityart|mpsetups|optionsmenu).*")

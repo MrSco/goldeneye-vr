@@ -3,6 +3,7 @@
 #include "net_coop.h"
 #include "gevr_scope.h"   /* the per-hand VR scope (issue #40) */
 #include "gevr_model.h"
+#include "gevr_gexweapon.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -363,6 +364,7 @@ extern s32 g_gevrStereo;
 extern s32 gevrStereoMirrored(void);
 extern s32 gevrHandsMirrored(void);
 extern s32 gevrStereoItemShown(s32 item);
+extern s32 gevrGexHeld(s32 hand);     /* gun.c: this hand's model is GoldenEye X's */
 extern void gevrStereoItemPose(s32 item, Mtxf *m);
 extern s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out);
 extern s32 g_gevrStereo;
@@ -676,7 +678,11 @@ void gunUpdateAndFire(GUNHAND handnum)
             matrix_4x4_set_rotation_around_xyz(&trigrot, &tmpmtx);
             matrix_4x4_multiply_homogeneous_in_place(&tmpmtx, &rotmtx);
     }
+#ifdef GEVR
+    else if (item == ITEM_TASER && !gevrGexHeld(handnum))   /* GE-X's taser rig holds itself as posed */
+#else
     else if (item == ITEM_TASER)
+#endif
     {
         taserrot = D_80035C7C;
         matrix_4x4_set_rotation_around_xyz(&taserrot, &tmpmtx);
@@ -742,7 +748,14 @@ void gunUpdateAndFire(GUNHAND handnum)
             Mtxf pose;
 
             matrix_4x4_copy(&gevrItemRot, &pose);
-            if (hand->field_92C != 0 && !gevrStereoItemShown(item))
+            extern s32 gevrMotionThrowOwnsHand(s32 hand);   /* bondview2.c */
+
+            /* not while the grip's motion throw owns the hand - winding up,
+             * cooking or recovering (user: GoldenEye's throw swung the arm a
+             * second time); a trigger stab or throw keeps its animation. Nor
+             * the taser's thrust, either model: the arm itself reaches (user) */
+            if (hand->field_92C != 0 && !gevrStereoItemShown(item) && !gevrMotionThrowOwnsHand(handnum)
+                && item != ITEM_TASER)
             {
                 /*
                  * The keyframe turn is in the model frame, which the flat
@@ -860,6 +873,30 @@ void gunUpdateAndFire(GUNHAND handnum)
     }
 
 #ifdef GEVR
+    {
+        /*
+         * A GoldenEye X knife, grenade or mine holds the item in its own hand
+         * (gun.c): GoldenEye's hidden hand (HIDE_FIRST_PERSON_HAND) and its
+         * spent single-use item no longer hide it - gun.c hides the item alone,
+         * so the GE-X hand stays (user: no original fist between throws). Every
+         * other reason to hide it still does.
+         */
+        extern s32 gevrGexShowsItem(s32 hand, s32 item);
+        const GexWeaponDef *gexItem = gevrGexWeaponForHand(handnum);
+
+        if (hand->field_87F == 0 && gevrGexShowsItem(handnum, item) && gexItem->magMatrix < 0
+            && get_ptr_weapon_model_header_line(item) != 0
+            && bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_SHOW_FIRST_PERSON) != 0
+            && hand->weapon_action_state != GUN_ANIM_STATE_SWITCH_SWAP
+            && hand->weapon_action_state != GUN_ANIM_STATE_SWITCH_HOLD
+            && Gun_hand_without_item(handnum) != 0 && get_itemtype_in_hand(handnum) != 0)
+        {
+            hand->field_87F = 1;
+        }
+    }
+#endif
+
+#ifdef GEVR
     /* the flat test above without the hide flag, for the listed gadgets */
     s_gevrHiddenShown[handnum] = g_gevrStereo
         && hand->field_87F == 0
@@ -930,13 +967,9 @@ void gunUpdateAndFire(GUNHAND handnum)
 #ifdef GEVR
         else if (gevrGexHeld(handnum))
         {
-            /* Keep the calibration origin stable: saved GexMuzzleKF7 trims
-             * are relative to this point, including the user's fitted tip. */
-            static coord3d s_gexMuzzleKf7 = { 0.0f, 23.27f, 705.74f };
-            if (item == ITEM_AK47)
-            {
-                flashdata = (f32 *) &s_gexMuzzleKf7;
-            }
+            const GexWeaponDef *def = gevrGexWeaponForHand(handnum);
+            extern s32 g_gevrStereo;
+            flashdata = (f32 *) (g_gevrStereo ? def->muzzle : def->screenMuzzle);
         }
 #endif
 
@@ -2883,6 +2916,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                 hands->render_pos = handptr->weaponModel.render_pos;
                 subdraw(&renderdata, hands);
                 renderdata.gdl = gevrGexDrawWatch(renderdata.gdl, &renderdata, handnum);
+            }
+            if (gevrGexHeld(handnum))
+            {
+                /* a prop payload in the hand (the grenade launcher's round), arms on or off */
+                extern Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand);
+
+                renderdata.gdl = gevrGexDrawPayload(renderdata.gdl, &renderdata, handnum);
             }
         }
 #endif
@@ -5822,12 +5862,14 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         /* a GoldenEye X gun animates itself (gun.c): its fire animation's
          * clock, and its reload animation in place of the reload tilt */
         extern s32 gevrGexHeld(s32 hand);
-        extern void gevrGexTick(GUNHAND hand, s32 firing);
+        extern void gevrGexTick(GUNHAND hand, s32 firing, s32 shot);
         const s32 st = handptr->weapon_action_state;
 
         gevrGexTick(hand, st == GUN_ANIM_STATE_TRIGGER_PRESS || st == GUN_ANIM_STATE_FIRE
-                || st == GUN_ANIM_STATE_RECOIL1 || st == GUN_ANIM_STATE_RECOIL2);
-        if (gevrGexHeld(hand) && gevrReloadPhase(hand) >= 0.0f)
+                || st == GUN_ANIM_STATE_RECOIL1 || st == GUN_ANIM_STATE_RECOIL2,
+                handptr->weapon_firing_status != 0);
+        /* a rig without a reload clip (the grenade launcher) keeps GoldenEye's tilt */
+        if (gevrGexHeld(hand) && gevrReloadPhase(hand) >= 0.0f && gevrGexWeaponForHand(hand)->reload.anim > 0)
         {
             handptr->field_92C = 0;
         }
@@ -8425,6 +8467,12 @@ void gunDrawSight(Gfx **gdl) {
 
         if (g_gevrStereo)
         {
+            extern int VrAimSight;   /* launcher / VR options "Aim: crosshair" (user) */
+
+            if (!VrAimSight)
+            {
+                return;   /* neither hand's sight, nor the scopes' */
+            }
             if ((g_CurrentPlayer->gunsightmode == 0) && (g_CurrentPlayer->mpmenuon == FALSE))
             {
                 *gdl = gevrHandTag(*gdl, 1);   /* issue #53: it follows the gun */

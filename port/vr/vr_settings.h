@@ -87,6 +87,7 @@ extern int VrCoopFastReinforcements; // host's co-op preference; off by default,
 extern bool VrTwoHandAim;       // two-handed weapons aim along the line between both controllers
 extern int VrStickClickToCrouch;
 extern int VrAimNoLean;         // aiming keeps the move stick moving: no lean, no duck (issue #81)
+extern int VrAimSight;          // stereo: crosshair while a grip aims (1) or never (0)
 extern int VrLeftHandedMode;
 extern int VrSwapJoysticks;
 extern int VrAimSteady;         // gun-hand steadying: 0 off, 1 low, 2 high (issue #7)
@@ -115,6 +116,12 @@ extern float VrReloadBelt[3];      // the belt: below the eye, out, ahead
 extern float VrGexHeldMag[3];      // a GE-X magazine's palm from the off hand's grip
 extern float VrGexWatch[4];        // the watch on GE-X's left wrist: cm ahead, up, out; its size
 extern float VrGexForeHold[3];     // GE-X's two-handed hold on the gun: cm forward, up, out
+extern float VrGexWeaponFits[64][10][3];
+extern float VrGexPp7Grab[3], VrGexPp7Support[3]; // shared by both PP7 variants
+extern float VrGexPp7GunOff[3];
+extern float VrGexPp7SupportRot[3]; // pitch, yaw, roll in degrees about the supporting palm
+extern float VrGexKf7MagOff[3], VrGexPp7MagOff[3]; // held magazine only: cm right, up, back
+extern float VrGexKf7WellOff[3], VrGexPp7WellOff[3]; // well target only: cm right, up, back on gun
 extern float VrArmElbowTuck;    // 0..1, how tightly the elbow is pinned toward the body
 extern float VrArmBodyFollow;   // how fast the smoothed torso yaw chases the head (spin comfort)
 extern int   VrFistClench;      // close the off-hand while the left grip is squeezed
