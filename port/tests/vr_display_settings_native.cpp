@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
         assert(VrGexGuns == 0);   // GexGuns is not read as a Gex-prefixed fit
         assert(VrReloadGrab[1][2] == -9.5f && VrReloadGrab[0][2] == -8.0f);
         assert(VrReloadBelt[0] == 55.0f && VrReloadBelt[1] == 19.86f && VrGexHeldMag[1] == 2.25f);
-        assert(VrGexWatch[3] == 1.5f && VrGexWatch[0] == 5.18f && VrGexForeHold[0] == 3.5f);
+        assert(VrGexWatch[3] == 1.5f && VrGexWatch[0] == 4.41f && VrGexForeHold[0] == 3.5f);
         assert(VrGexPp7Grab[1] == -1.25f && VrGexPp7Support[2] == 2.5f);
         assert(VrGexPp7GunOff[0] == 0.75f);
         assert(VrGexKf7MagOff[0] == -0.5f && VrGexKf7MagOff[1] == 0);
