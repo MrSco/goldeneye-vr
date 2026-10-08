@@ -99,6 +99,8 @@ typedef struct
     s32 tracked;
     s32 gripHeld;             /* the slot took this grip: nothing else does until it's let go */
     GevrBodyStick stick;      /* its own stick's flicks */
+    GevrBodyDefer belt;       /* hand reload's belt touch, waiting for a holstering grip */
+    s32 nearFront;            /* within 1.25 radii of a hip, the chest or the belt it could use */
     s32 quiet;                /* ticks the hand stays quiet after a take (no blow, no reload) */
 } GevrBodyHand;
 
@@ -250,6 +252,7 @@ static void gevrBodyLeave(s32 ctrl, const char *why)
                      why != NULL ? ": " : "", why != NULL ? why : "");
     }
     h->slot = -1;
+    h->nearFront = FALSE;
     h->ms = 0.0f;
     h->steps = 0;
     h->pick = -1;
@@ -394,6 +397,7 @@ static void gevrBodyHandUpdate(s32 ctrl)
     f32 dist[GEVR_BODY_SLOTS];
     s32 s, slot;
 
+    h->nearFront = FALSE;
     h->tracked = gevrBodyHandAt(ctrl, h->at);
     if (!h->tracked)
     {
@@ -407,6 +411,10 @@ static void gevrBodyHandUpdate(s32 ctrl)
         dist[s] = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
         /* a slot with nothing for this hand isn't there for it */
         eligible[s] = offOk && (gevrBodySlotHands(s) & (1 << ctrl)) && gevrBodyChoicesFor(s, hand, choices) > 0;
+        if (eligible[s] && s != GEVR_BS_BACK_GUN && s != GEVR_BS_BACK_OFF && dist[s] < 1.25f * s_bodyRadius[s])
+        {
+            h->nearFront = TRUE;
+        }
     }
     slot = gevrBodyZonePick(h->slot, dist, s_bodyRadius, eligible, s_bodyTune[BT_EXIT], 0.15f);
     if (slot != h->slot)
@@ -619,6 +627,54 @@ int gevrBodySlotStick(int ctrl, float x, float dtMs)
         gevrBodyStep(ctrl, step, "stick");
     }
     return take;
+}
+
+/*
+ * Hand reload's belt (bondview2.c gevrHandReloadTick) sits where the hip
+ * holster does: a touch there still reloads, after deferms, and a squeeze in
+ * that time (the hand is holstering) drops it until the hand has left. -1
+ * with the slots off: the belt reloads at once, as always.
+ */
+int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped)
+{
+    GevrBodyDefer *d;
+    s32 was, fire;
+
+    if (ctrl < 0 || ctrl > 1)
+    {
+        return -1;
+    }
+    d = &s_bodyHand[ctrl].belt;
+    if (!s_bodyLive)
+    {
+        memset(d, 0, sizeof(*d));
+        return -1;
+    }
+    was = d->pending;
+    fire = gevrBodyBeltDefer(d, entered, inside, gripped, g_ClockTimer * BS_TICK_MS, s_bodyTune[BT_DEFER]);
+    if (d->pending && !was)
+    {
+        sysLogPrintf(LOG_NOTE, "bodyslot: belt (%s): touch, reload waits %.0f ms", gevrBodyHandName(ctrl),
+                     s_bodyTune[BT_DEFER]);
+    }
+    else if (was && !d->pending)
+    {
+        sysLogPrintf(LOG_NOTE, "bodyslot: belt (%s): %s", gevrBodyHandName(ctrl),
+                     fire ? "reloads" : gripped ? "a squeeze: no reload" : "left: no reload");
+    }
+    return fire;
+}
+
+/* the hand is in a slot, or just took from one: no chest-cross reload */
+int gevrBodySlotBusy(int ctrl)
+{
+    return s_bodyLive && ctrl >= 0 && ctrl < 2 && (s_bodyHand[ctrl].slot >= 0 || s_bodyHand[ctrl].quiet > 0);
+}
+
+/* and near one at the front of the body: no blow either (bondview2.c gevrHandChopTick) */
+int gevrBodySlotQuiet(int ctrl)
+{
+    return gevrBodySlotBusy(ctrl) || (s_bodyLive && ctrl >= 0 && ctrl < 2 && s_bodyHand[ctrl].nearFront);
 }
 
 /* port/src/input.c through gevrGripGestureInput: the grip is let go */

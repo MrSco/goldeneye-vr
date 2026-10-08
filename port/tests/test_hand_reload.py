@@ -91,6 +91,6 @@ with tempfile.TemporaryDirectory(prefix="gevr-hand-reload-") as temp:
     source.write_text(fixture, encoding="utf-8")
     subprocess.run([shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-D_LANGUAGE_C",
                     "-I"+str(ROOT), "-I"+str(ROOT/"include"), "-I"+str(ROOT/"src"), "-I"+str(ROOT/"port/include"),
-                    str(source), str(ROOT/"port/src/gevr_gexweapon.c"),
+                    str(source), str(ROOT/"port/src/gevr_gexweapon.c"), str(ROOT/"port/src/gevr_bodyslot.c"),
                     "-lm", "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
