@@ -44,6 +44,7 @@ extern PropRecord *sub_GAME_7F0B1410(StandTile *tile, f32 x, f32 z, f32 x2, f32 
 extern void doorsChooseSwingDirection(PropRecord *chrprop, DoorRecord *door);   /* propobj.c */
 extern void doorActivate(DoorRecord *door, DOORSTATE state);
 extern bool doorIsPadlockFree(DoorRecord *door);                                 /* chrprop.c */
+extern bool doorIsClosed(DoorRecord *door);                                      /* propobj.c */
 extern void netSendDoorState(ObjectRecord *door, s32 state);                     /* net_core.c */
 extern MPSCENARIOS get_scenario(void);
 extern bool bondinvIsAliveWithFlag(void);
@@ -145,6 +146,8 @@ typedef struct GevrBot {
     coord3d lastpos;        /* for the stuck check */
     s32 stillticks;         /* walking without getting anywhere */
     s32 doorticks;          /* to the next look for a door on the way */
+    DoorRecord *lastdoor;   /* the door it opened last, and when (frame60) */
+    s32 lastdoor60;
     s32 unstickticks;       /* sidestepping out of it */
     s32 unstickdir;
     /* Perfect Dark's aibot fields (bot.c), by the same names */
@@ -813,6 +816,12 @@ static s32 gevrBotDistMode(GevrBot *bot, s32 diff)
  * the door ahead of the view, which a bot fighting has elsewhere. Only the
  * doors a player could open; it goes to the other headsets as a player's
  * door does (propobj.c propdoorInteract).
+ *
+ * Only a shut door, and not the same one again for four seconds. The
+ * guards' search also finds open and ajar doors, and opening one again
+ * chose its swing afresh: a bot stuck by an open door's leaf threw it back
+ * across the doorway six times a second, trapping a player in Facility's
+ * toilets (user, 2026-10-08; one door opened 44 times in two minutes).
  */
 static void gevrBotOpenDoors(s32 slot, struct player *pl, GevrBot *bot, const coord3d *aim)
 {
@@ -835,8 +844,8 @@ static void gevrBotOpenDoors(s32 slot, struct player *pl, GevrBot *bot, const co
         return;
     }
     if ((doorprop->obj->flags2 & PROPFLAG_DOOR_OPENTOFRONT) || (door->flags & PROPFLAG_CANNOT_ACTIVATE)
-        || door->keyflags != 0 || !doorIsPadlockFree(door)
-        || door->openstate == DOORSTATE_OPENING || door->openstate == DOORSTATE_WAITING)
+        || door->keyflags != 0 || !doorIsPadlockFree(door) || !doorIsClosed(door)
+        || (door == bot->lastdoor && bot->frame60 - bot->lastdoor60 < 60 * 4))
     {
         return;
     }
@@ -851,6 +860,8 @@ static void gevrBotOpenDoors(s32 slot, struct player *pl, GevrBot *bot, const co
     doorActivate(door, DOORSTATE_OPENING);
     door->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED;
     netSendDoorState((ObjectRecord *)door, door->openstate);
+    bot->lastdoor = door;
+    bot->lastdoor60 = bot->frame60;
     sysLogPrintf(1, "bots: slot %d opens the door at %.0f,%.0f,%.0f", slot, doorprop->pos.x, doorprop->pos.y, doorprop->pos.z);
 }
 
