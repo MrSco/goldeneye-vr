@@ -46,6 +46,40 @@ typedef struct GexWeaponDef {
     s32 pullUp; /* top-loading magazine extracts up instead of down */
     s32 hasScope; f32 scopeRoot[3];
     s32 fireAnim, gunMatrix, magMatrix, heldMatrix;
+    /* the fist: GoldenEye's two punches (PUNCH1, PUNCH2) play fireAnim and this,
+     * on GoldenEye's own punch clock, in place of its keyframed swing */
+    s32 fireAnimAlt;
+    /* a watch item: the device is the watch on the left arm (in the headset the
+     * tracked arm's, and the right hand presses it) */
+    s32 watch;
+    /* screen mode: held where the PP7's hand is, moved by the difference of the
+     * two Gun fits, as a hand on a controller would hold them (gun.c
+     * gevrGexScreenAnchor): the hand-held items, the fist, the watch */
+    s32 screenHand;
+    /* screen mode, a screenHand rig at GE-X's own place beside the PP7 (the fist,
+     * user: its chops flew up in the air): the PP7's virtual controller moved by
+     * this, model units in the root's frame - ten times the difference of their
+     * Perfect Dark weapon positions (x the gun's left, y up, z ahead) */
+    s32 screenFromPp7;
+    f32 screenPp7Offset[3];
+    /* a joint the off hand holds (the remote mine's detonator, user: the watch
+     * in the palm): in the headset put in the tracked off hand's palm, on the
+     * screen held by the rig's own left hand, off on the watch pages */
+    s32 offHandMatrix;
+    /* its watch face on that joint (user: the health, armor and radar readout on
+     * the watch wherever it is, and the look at it pauses): the dial's centre
+     * just above the glass and its radius, model units; out of the face is the
+     * joint's -z and twelve o'clock its +y. Radius 0: no face */
+    f32 offHandFace[4];
+    /* the weapon panel and the watch's pages (gun.c gevrGexPoseStill): GoldenEye's
+     * layout is made for its own model, so GE-X's, about its gun joint at rest, is
+     * sized (x) and moved (y, z, w) onto GoldenEye's mesh's bounds (measured from
+     * both ROMs: its centre and its diagonal). Size 0: as it is */
+    f32 panelFit[4];
+    /* ... and turned as GoldenEye's own lies (user: the knives, taser and watch lay
+     * on their sides): p' = (size p) R + move, R's rows matched from both ROMs'
+     * meshes. All zero: unturned */
+    f32 panelRot[3][3];
     GexReloadDef reload, dualReload;
     f32 holdFrame, screenOffset[3];
     f32 magCentre[3], magTop[3], heldTop[3];

@@ -1803,6 +1803,8 @@ void example_vr_input_usage() {
  */
 static inline int gevrPhysHand(int hand) { return VrLeftHandedMode ? 1 - hand : hand; }
 
+extern "C" int gevrWatchFaceGripNormal(float out[3]);   // bondview2.c: GE-X's held watch face
+
 extern "C" int gevrVrWatchGesture(void)
 {
     const ControllerInputState& st = gControllerStates[gevrPhysHand(0)];
@@ -1829,10 +1831,18 @@ extern "C" int gevrVrWatchGesture(void)
     // The grip's -X axis in view space: q * (-1,0,0) * q^-1. The back of a
     // right hand (left-handed mode: the watch on the right wrist) is +X.
     const float qx = pose.orientation.x, qy = pose.orientation.y, qz = pose.orientation.z, qw = pose.orientation.w;
+    // With GE-X's off hand drawn, out of its watch face instead, wherever that is
+    // (user: the remote mine's detonator in the palm), in the grip's own axes.
     const float side = VrLeftHandedMode ? 1.0f : -1.0f;
-    const float ax = side * (1.0f - 2.0f * (qy * qy + qz * qz));
-    const float ay = side * (2.0f * (qx * qy + qw * qz));
-    const float az = side * (2.0f * (qx * qz - qw * qy));
+    float local[3] = { side, 0.0f, 0.0f };
+    gevrWatchFaceGripNormal(local);
+    // q * v * q^-1: v + 2w (q x v) + 2 q x (q x v)
+    const float cx = qy * local[2] - qz * local[1];
+    const float cy = qz * local[0] - qx * local[2];
+    const float cz = qx * local[1] - qy * local[0];
+    const float ax = local[0] + 2.0f * (qw * cx + qy * cz - qz * cy);
+    const float ay = local[1] + 2.0f * (qw * cy + qz * cx - qx * cz);
+    const float az = local[2] + 2.0f * (qw * cz + qx * cy - qy * cx);
     const float facing = (ax * -px + ay * -py + az * -pz) / dist;
 
     const bool lookingDown = lookY < -0.34f;

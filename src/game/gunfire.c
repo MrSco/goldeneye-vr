@@ -619,6 +619,23 @@ void gunUpdateAndFire(GUNHAND handnum)
 
     gunofs.y = hand->gunofs2_y + (itemstats->PosY + hand->sway_pos_y);
     gunofs.z = hand->gunofs2_z + (itemstats->PosZ + hand->sway_pos_z);
+#ifdef GEVR
+    {
+        /* GE-X's hand-held rigs on the screen: at the PP7's place (gun.c gevrGexScreenAnchor) */
+        extern s32 gevrGexScreenHand(GUNHAND hand);
+
+        extern s32 gevrScreenGadget(s32 hand, s32 item);   /* bondview2.c */
+
+        if (!g_gevrStereo && (gevrGexScreenHand(handnum) || gevrScreenGadget(handnum, item)))
+        {
+            WeaponStats *pp7 = get_ptr_item_statistics(ITEM_WPPK);
+
+            gunofs.x += (handnum == GUNRIGHT ? 1.0f : -1.0f) * (pp7->PosX - itemstats->PosX);
+            gunofs.y += pp7->PosY - itemstats->PosY;
+            gunofs.z += pp7->PosZ - itemstats->PosZ;
+        }
+    }
+#endif
 
     if (((item == ITEM_ROCKETLAUNCH) || (item == ITEM_TRIGGER)) || (item == ITEM_WATCHLASER))
     {
@@ -672,7 +689,11 @@ void gunUpdateAndFire(GUNHAND handnum)
     sub_GAME_7F05C614();
     matrix_4x4_set_identity(&rotmtx);
 
-    if ((item == ITEM_TRIGGER) || (item == ITEM_WATCHLASER))
+    if (((item == ITEM_TRIGGER) || (item == ITEM_WATCHLASER))
+#ifdef GEVR
+        && !gevrGexHeld(handnum)   /* GE-X's watch rig holds itself as posed */
+#endif
+        )
     {
             trigrot = D_80035C70;
             matrix_4x4_set_rotation_around_xyz(&trigrot, &tmpmtx);
@@ -898,9 +919,8 @@ void gunUpdateAndFire(GUNHAND handnum)
 
 #ifdef GEVR
     /* the flat test above without the hide flag, for the listed gadgets */
-    s_gevrHiddenShown[handnum] = g_gevrStereo
+    s_gevrHiddenShown[handnum] = (g_gevrStereo ? gevrStereoItemShown(item) : gevrScreenGadget(handnum, item))
         && hand->field_87F == 0
-        && gevrStereoItemShown(item)
         /* the gadget itself in the hand, not only picked on the watch: a mine
          * chosen while the sniper rifle was still out showed with it (#19) */
         && getCurrentPlayerWeaponId(handnum) == item
@@ -969,7 +989,11 @@ void gunUpdateAndFire(GUNHAND handnum)
         {
             const GexWeaponDef *def = gevrGexWeaponForHand(handnum);
             extern s32 g_gevrStereo;
-            flashdata = (f32 *) (g_gevrStereo ? def->muzzle : def->screenMuzzle);
+            extern void gevrGexScreenMuzzle(GUNHAND hand, f32 out[3]);
+            static f32 s_screenMuzzle[2][3];
+
+            gevrGexScreenMuzzle(handnum, s_screenMuzzle[handnum]);
+            flashdata = (f32 *) (g_gevrStereo ? def->muzzle : s_screenMuzzle[handnum]);
         }
 #endif
 
@@ -993,6 +1017,14 @@ void gunUpdateAndFire(GUNHAND handnum)
         }
 
         matrix_scalar_multiply(IDO_POINT_ONE, gunmtx.m[0]);
+#ifdef GEVR
+        if (!g_gevrStereo && s_gevrHiddenShown[handnum])
+        {
+            extern void gevrGexScreenGadget(s32 item, Mtxf *m);   /* gun.c: in GE-X's hand */
+
+            gevrGexScreenGadget(item, &gunmtx);
+        }
+#endif
         matrix_4x4_copy(&gunmtx, rwmtx);
 
         if (mdlhdr->Skeleton == (&skeleton_gun_revolver))
@@ -1351,6 +1383,18 @@ void gunUpdateAndFire(GUNHAND handnum)
             if (gevrGexHeld(handnum))
             {
                 gevrGexPoseGun(mdlhdr, model, rwmtx, handnum);
+            }
+            else if (item == ITEM_FIST)
+            {
+                /* the unarmed hand drawn as GoldenEye's (gun.c gexfist logs GE-X's) */
+                static u32 s_fistTick;
+
+                if ((s_fistTick++ % 72) == 0)
+                {
+                    sysLogPrintf(LOG_NOTE, "gexfist: hand %d is GoldenEye's own fist (named %d, matrices %d, root %.2f %.2f %.2f)",
+                                 handnum, g_CurrentPlayer->cur_item_weapon_getname, mdlhdr->numMatrices,
+                                 rwmtx[0].m[3][0], rwmtx[0].m[3][1], rwmtx[0].m[3][2]);
+                }
             }
         }
 #endif
@@ -2168,6 +2212,7 @@ static s32 gevrTaserHandLoad(void)
  */
 extern s32 gevrStereoItemNeedsFist(s32 item);
 extern s32 gevrStereoItemHand(s32 item);   /* bondview2.c: GEVR_ITEM_HAND_* */
+extern s32 gevrGexShowsItem(s32 hand, s32 item);   /* gun.c: GoldenEye X's rig, with its own hand */
 extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the detonator (#31) */
 extern s32 gevrStereoWatchGrip(void);      /* bondview2.c: the gun hand is at the watch (#31) */
 extern s32 gevrStereoWatchHandMatrix(Mtxf *out);
@@ -2185,8 +2230,20 @@ static Gfx *gevrRenderItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND handnum
     /* left-handed mode mirrors the gun matrix too: the left hand's then cancels */
     s32 mirror = gevrStereoMirrored() != (handnum == GUNLEFT);
 
-    if (!g_gevrStereo
-        || g_CurrentPlayer->bonddead
+    if (!g_gevrStereo)
+    {
+        /* the screen: GE-X's hand holds a gadget the flat game never drew (gun.c) */
+        extern Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mirror, s32 *drawn);
+        s32 drawn = FALSE;
+
+        if (handnum == GUNRIGHT && s_gevrHiddenShown[handnum] && !g_CurrentPlayer->bonddead
+            && g_CurrentPlayer->watch_animation_state == 0)
+        {
+            gdl = gevrGexDrawItemHand(gdl, templ, handnum, FALSE, &drawn);
+        }
+        return gdl;
+    }
+    if (g_CurrentPlayer->bonddead
         || g_CurrentPlayer->watch_animation_state != 0
         || item == ITEM_UNARMED || item == ITEM_TANKSHELLS || item == ITEM_SUIT_LF_HAND)
     {
@@ -2195,6 +2252,10 @@ static Gfx *gevrRenderItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND handnum
     if (g_CurrentPlayer->hands[handnum].field_87F != 0 && !gevrStereoWatchItem(item))
     {
         return gdl;     /* the game draws the weapon (with its hand) */
+    }
+    if (gevrGexShowsItem(handnum, item))
+    {
+        return gdl;     /* GoldenEye X's rig has its own hand (gun.c) */
     }
     if (gevrStereoWatchItem(item) && gevrStereoWatchGrip())
     {
@@ -2217,6 +2278,17 @@ static Gfx *gevrRenderItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND handnum
     if (!gevrStereoGunMatrix(handnum, &armmtx))
     {
         return gdl;
+    }
+    {
+        /* GoldenEye X's models: its hand holds the gadget (gun.c), not GoldenEye's fist */
+        extern Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mirror, s32 *drawn);
+        s32 drawn = FALSE;
+
+        gdl = gevrGexDrawItemHand(gdl, templ, handnum, mirror, &drawn);
+        if (drawn)
+        {
+            return gdl;
+        }
     }
     /* issue #41: a grenade in the taser's gripping hand, not the open fist */
     if (s_gevrHiddenShown[handnum] && gevrStereoItemHand(item) == 2 && gevrTaserHandLoad())
@@ -2593,7 +2665,8 @@ static Gfx *gevrRenderWatchGripHand(Gfx *gdl, ModelRenderData *templ)
         || g_CurrentPlayer->bonddead
         || g_CurrentPlayer->watch_animation_state != 0
         || !gevrStereoWatchItem(get_item_in_hand_or_watch_menu(GUNRIGHT))
-        || !gevrStereoWatchGrip())
+        || !gevrStereoWatchGrip()
+        || gevrGexShowsItem(GUNRIGHT, get_item_in_hand_or_watch_menu(GUNRIGHT)))   /* GE-X's own hand presses it */
     {
         return gdl;
     }
@@ -2867,7 +2940,13 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             }
         }
  
-        if (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0) 
+        if (bondwalkItemCheckBitflags(item, WEAPONSTATBITFLAG_MIRROR_DUAL) != 0
+#ifdef GEVR
+            /* GE-X's left gun is mirrored with its cull flipped (VR_CULL_MIRROR below):
+             * GoldenEye's own mirrored cull mode flipped it back (user: half the gun) */
+            && !gevrGexHeld(handnum)
+#endif
+            ) 
         {
             gSPClearGeometryMode(renderdata.gdl++, G_CULL_BOTH);
  
@@ -3086,7 +3165,6 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     }
 
     matrix_4x4_copy(mtx, matrices);
-  
     if (bodymodel->Skeleton == (&skeleton_gun_revolver))
     {
         if (bodymodel->Switches[4] != NULL)
@@ -3189,10 +3267,16 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
         extern s32 gevrGexHeld(s32 hand);
         extern void gevrGexPoseStill(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx);
 
+        extern s32 gevrGexPanelPose(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx);
+
         if (g_gevrItemModelOverride == NULL && bodymodel == &g_CurrentPlayer->copy_of_body_obj_header[GUNRIGHT]
             && gevrGexHeld(GUNRIGHT))
         {
             gevrGexPoseStill(bodymodel, (Model *) &model, matrices);
+        }
+        else if (g_gevrItemModelOverride != NULL)
+        {
+            gevrGexPanelPose(bodymodel, (Model *) &model, matrices);   /* the panel's GE-X model (gun.c) */
         }
     }
 #endif
@@ -5897,6 +5981,23 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         gevrGexTick(hand, st == GUN_ANIM_STATE_TRIGGER_PRESS || st == GUN_ANIM_STATE_FIRE
                 || st == GUN_ANIM_STATE_RECOIL1 || st == GUN_ANIM_STATE_RECOIL2,
                 handptr->weapon_firing_status != 0);
+        /* GE-X's remote mines: the off hand's trigger detonated them (gun.c) */
+        if (hand == GUNRIGHT)
+        {
+            extern void gevrGexDetonateTick(void);
+
+            gevrGexDetonateTick();
+            {
+                extern void gevrGexWatchHandsTick(void);   /* gun.c: GE-X's watch rig has both arms */
+
+                gevrGexWatchHandsTick();
+            }
+        }
+        /* GE-X's fist punches with its own clips (gun.c): GoldenEye's keyframed swing stands down */
+        if (gevrGexHeld(hand) && gevrGexWeaponForHand(hand)->fireAnimAlt > 0)
+        {
+            handptr->field_92C = 0;
+        }
         /* a rig without a reload clip (the grenade launcher) keeps GoldenEye's tilt */
         if (gevrGexHeld(hand) && gevrReloadPhase(hand) >= 0.0f && gevrGexWeaponForHand(hand)->reload.anim > 0)
         {
@@ -5968,14 +6069,23 @@ void give_weapon_case_items(void)
 }
 
 
+#ifdef GEVR
+extern s32 gevrGexPanelCentred(s32 item);   /* gun.c: the model spins about its own centre */
+#endif
 f32 get_vertical_position_solo_watch_menu_main_page_for_item(ITEM_IDS item)
 {
+#ifdef GEVR
+  if (gevrGexPanelCentred(item)) return 0.0f;
+#endif
   return gitem_structs[item].watch_pos_x;
 }
 
 
 f32 get_lateral_position_solo_watch_menu_main_page_for_item(ITEM_IDS item)
 {
+#ifdef GEVR
+  if (gevrGexPanelCentred(item)) return 0.0f;
+#endif
   return gitem_structs[item].watch_pos_y;
 }
 
@@ -6036,12 +6146,18 @@ f32 get_45_degree_angle_0(s32 unk)
 
 f32 get_horizontal_offset_on_solo_watch_menu_for_item(ITEM_IDS item)
 {
+#ifdef GEVR
+  if (gevrGexPanelCentred(item)) return 0.0f;
+#endif
   return gitem_structs[item].equip_watch_x;
 }
 
 
 f32 get_vertical_offset_on_solo_watch_menu_for_item(ITEM_IDS item)
 {
+#ifdef GEVR
+  if (gevrGexPanelCentred(item)) return 0.0f;
+#endif
   return gitem_structs[item].equip_watch_y;
 }
 

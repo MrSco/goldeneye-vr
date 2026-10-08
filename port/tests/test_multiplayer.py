@@ -145,7 +145,7 @@ def build_fixture(name, source=None):
         start=gun.index('ITEM_IDS get_next_weapon_in_cycle_for_hand(')
         end=gun.index('void gunRequestHandWeaponChange(',start)
         fixture=fixture.replace('/* INSERT_NEXT_WEAPON */',gun[start:end])
-        start=gun.index('void gunRequestHandWeaponChange(')
+        start=gun.index('\nvoid gunRequestHandWeaponChange(')+1   # the definition, not a declaration in a body
         end=gun.index('// Unused',start)
         fixture=fixture.replace('/* INSERT_HAND_REQUEST */',gun[start:end])
         fire=(ROOT/'src/game/gunfire.c').read_text(encoding='utf8')
