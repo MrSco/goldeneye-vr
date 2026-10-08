@@ -82,8 +82,8 @@ is goldeneyevr.com, in its own repository.
   and upload before relay batching/culling. Remote hands do not animate.
 - Bots: untested on two headsets (client view, mid-round replace, adoption);
   bots may stall at closed doors. MULTIPLAYER.md has the test script.
-- #95: GE Plus survey, 14 of 21 done. Statue/Cradle, remote ledges/guns
-  still need two-headset checks. #9 stays open for remaining hand patches.
+- Two-headset checks still owed from #95 (closed): Statue/Cradle online,
+  remote ledges and guns.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt
   Golden Gun room exit door can draw black; cryptdoor visibility logging.
 - Hand reload, hip holster, grip to hand and game rules remain WIP;
