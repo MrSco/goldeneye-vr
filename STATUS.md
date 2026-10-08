@@ -3,24 +3,15 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-08, v0.4.13 released (versionCode 68,
-protocol 19, unchanged from v0.4.11; v0.4.10 and older can't join). Building does not publish a
+**Updated / current build:** 2026-10-08, v0.4.14 released (versionCode 69,
+protocol 20; v0.4.13 and older can't join). Building does not publish a
 GitHub release. No game data is shipped.
-
-## Unreleased on main (after v0.4.13)
-
-- Bots and doors: bots open doors as GoldenEye's guards do (swung away,
-  only shut ones, the one they're pressed against too), step out of a
-  stalled door's swing, reopen closing doors, never shut one from its
-  doorway; climbing counts as progress. Facility playtests 2026-10-08.
-- Soft collision online: players pass through, are pushed apart and slowed.
-- A player let out of an object it landed in (Facility's vent drop).
-- Hit immunity is a host rule: Short (a quarter second, default), None,
-  GoldenEye. Online, no damage flash hides the top message or clock.
-- The next release must bump the protocol to 20 (new rule bits).
 
 ## Recent releases
 
+**v0.4.14:** bots handle doors, soft player collision, the hit immunity rule
+(Short default), object escape, HUD through hits (#153). Notes:
+[v0.4.14](docs/releases/v0.4.14.md).
 **v0.4.13:** crash fixes (#151): stale portal table at the title, full sound
 queue. Notes: [v0.4.13](docs/releases/v0.4.13.md).
 **v0.4.12:** the GE-X detonator watch's default fit. Notes: [v0.4.12](docs/releases/v0.4.12.md).
