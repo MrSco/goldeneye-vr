@@ -7,35 +7,27 @@ logs are in docs/archive/; feature investigations keep their own notes.
 protocol 19, unchanged from v0.4.11; v0.4.10 and older can't join). Building does not publish a
 GitHub release. No game data is shipped.
 
-## v0.4.13
+## Unreleased on main (after v0.4.13)
 
-Notes: [v0.4.13](docs/releases/v0.4.13.md). Crash fix release (#151): the
-title clears the freed stage's portal table (Quest 2 crash 65a366e6); a full
-sound queue no longer hangs the sound player (Quest 3 crash bfb06b31).
+- Bots and doors: bots open doors as GoldenEye's guards do (swung away,
+  only shut ones, the one they're pressed against too), step out of a
+  stalled door's swing, reopen closing doors, never shut one from its
+  doorway; climbing counts as progress. Facility playtests 2026-10-08.
+- Soft collision online: players pass through, are pushed apart and slowed.
+- A player let out of an object it landed in (Facility's vent drop).
+- Hit immunity is a host rule: Short (a quarter second, default), None,
+  GoldenEye. Online, no damage flash hides the top message or clock.
+- The next release must bump the protocol to 20 (new rule bits).
 
-## v0.4.12
+## Recent releases
 
-Notes: [v0.4.12](docs/releases/v0.4.12.md). Quick fix release: the GE-X remote
-mine's detonator watch in the off hand gets its headset fit as the default
-(support rows of fit 29); its Gun fit turn wraps to a half turn.
-
-## v0.4.11
-
-Notes: [v0.4.11](docs/releases/v0.4.11.md).
-- Deathmatch bots (#149, replaces rejected #146): host-run player slots with
-  Perfect Dark's simulant brain, six difficulties, stan-tile pathfinding,
-  pickups, Flag Tag/Golden Gun awareness; Off/Fill/Fixed rows. Mid-round joins
-  replace the lowest bot; a new host adopts the bots.
-- 3D game audio in every mode (#149): placed sounds through the voice chat's
-  Steam Audio HRTF, measured round walls through the portals.
-- GE-X for every weapon and item (#137, #138, #142, #147, #148): magazine,
-  single-round and speedloader reloads, knives, throwables, taser, unarmed
-  chop, one GE-X toggle with 2D parity, one-handed remote mines (off-hand
-  trigger detonates), watch rig, wheel/watch-page models, new fit modes.
-- Co-op tank pose sync (#143); No radar rule, silent-headset drop, idle kick
-  and watchdog (#144); Statue/Depot pop-in (#133, #140); room retry, per-copy
-  parts, LOD sizes (#145); tracers (#136); crash reports (#139); branding
-  (#134); pause laser layer, death sting, fog name tags, HUD flicker (#149).
+**v0.4.13:** crash fixes (#151): stale portal table at the title, full sound
+queue. Notes: [v0.4.13](docs/releases/v0.4.13.md).
+**v0.4.12:** the GE-X detonator watch's default fit. Notes: [v0.4.12](docs/releases/v0.4.12.md).
+**v0.4.11:** deathmatch bots and 3D game audio (#149), GE-X for every weapon and
+item (#137-#148), co-op tank sync (#143), No radar and silent-headset drop
+(#144), Statue/Depot pop-in (#133, #140), #136, #139, #145. Notes:
+[v0.4.11](docs/releases/v0.4.11.md).
 
 ## Release baseline
 
@@ -46,17 +38,9 @@ mission gadgets (#127, #131). Notes: [v0.4.10](docs/releases/v0.4.10.md).
 GE-X muzzle flashes follow fitted barrel tips (#126); calibrated belt reloads
 (#124, #125). Notes: [v0.4.9](docs/releases/v0.4.9.md).
 
-**v0.4.8:** immediate launcher settings persistence, read-only INI recovery and
-atomic writes (#113); co-op spawn unclogging in narrow mission starts (#121).
-Notes: [v0.4.8](docs/releases/v0.4.8.md).
-
-**v0.4.7:** GE-X KF7 from patched Perfect Dark ROM, physical hand reload,
-GE-X arms with live watch, co-op and Facility fixes (#114-#118). Notes:
-[v0.4.7](docs/releases/v0.4.7.md).
-
-**v0.4.6:** #95 round 2 (#110), watch VR settings and grip gestures (#111),
-#112, #108; protocol 18 rejects older stage lists. Notes:
-[v0.4.6](docs/releases/v0.4.6.md), docs/issue-95-round2.md.
+**v0.4.6-v0.4.8:** settings persistence (#113), co-op spawn unclogging (#121),
+GE-X KF7 and hand reload (#114-#118), #95 round 2 (#110), watch settings (#111).
+Notes in docs/releases/.
 
 **Earlier:** v0.4.5 added screen passthrough and fixed Frigate fixtures,
 co-op readiness and sniper no-lean zoom. v0.4.4 added in-hand gadgets and
