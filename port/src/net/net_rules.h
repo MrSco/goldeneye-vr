@@ -2,7 +2,12 @@
 #ifndef GEVR_NET_RULES_H
 #define GEVR_NET_RULES_H
 
-enum { NET_FUN_DK = 1, NET_FUN_PAINTBALL = 2, NET_FUN_LINE = 4, NET_FUN_NO_RADAR = 16, NET_FUN_MASK = 23 };
+/* NET_FUN_HIT_IMMUNITY: GoldenEye's hit immunity, a hit ignored during the
+ * last one's red flash. Clear (the default), every hit counts, as in Perfect
+ * Dark. Builds 0.4.11-0.4.13 (protocol 19) don't know the bit: they refuse a
+ * config with it and, without it, keep GoldenEye's rule for their own player;
+ * the next release bumps the protocol (user rule: only at a release). */
+enum { NET_FUN_DK = 1, NET_FUN_PAINTBALL = 2, NET_FUN_LINE = 4, NET_FUN_NO_RADAR = 16, NET_FUN_HIT_IMMUNITY = 32, NET_FUN_MASK = 55 };
 /* Co-op-only rule in the existing config byte; no packet layout changes. */
 #define NET_COOP_FAST_REINFORCEMENTS 8
 #define NET_COOP_FUN_MASK (NET_FUN_MASK | NET_COOP_FAST_REINFORCEMENTS)

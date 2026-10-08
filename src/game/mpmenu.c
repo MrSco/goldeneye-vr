@@ -457,6 +457,8 @@ static void rowDkStep(s32 dir) { funStep(NET_FUN_DK); }
 static void rowPaintStep(s32 dir) { funStep(NET_FUN_PAINTBALL); }
 static void rowLineStep(s32 dir) { funStep(NET_FUN_LINE); }
 static void rowRadarStep(s32 dir) { funStep(NET_FUN_NO_RADAR); }
+static void rowImmunityValue(char *b,s32 n) { funValue(b,n,NET_FUN_HIT_IMMUNITY); }
+static void rowImmunityStep(s32 dir) { funStep(NET_FUN_HIT_IMMUNITY); }
 static void rowGunSizeValue(char *b,s32 n) { const char *names[] = { "NORMAL", "TINY", "BIG" }; snprintf(b,n,"%s",names[gevrNetConfigGet(CFG_GUN_SIZE)]); }
 static void rowGunSizeStep(s32 dir) { gevrNetConfigSet(CFG_GUN_SIZE,gevrCycled(gevrNetConfigGet(CFG_GUN_SIZE),dir,3)); }
 static const GevrMenuRow s_funRows[] = {
@@ -464,6 +466,7 @@ static const GevrMenuRow s_funRows[] = {
     { "PAINTBALL", GEVR_ROW_VALUE, 1, NULL, rowPaintValue, rowPaintStep, "R-STICK:ON/OFF" },
     { "LINE MODE", GEVR_ROW_VALUE, 1, NULL, rowLineValue, rowLineStep, "R-STICK:ON/OFF" },
     { "NO RADAR", GEVR_ROW_VALUE, 1, NULL, rowRadarValue, rowRadarStep, "R-STICK:ON/OFF" },
+    { "HIT IMMUNITY", GEVR_ROW_VALUE, 1, NULL, rowImmunityValue, rowImmunityStep, "R-STICK:ON/OFF" },   /* GoldenEye's; off, every hit counts */
     { "GUN SIZE", GEVR_ROW_VALUE, 1, NULL, rowGunSizeValue, rowGunSizeStep, "R-STICK:PICK" },
 };
 static GevrMenuPage s_funPage = { s_funRows, sizeof(s_funRows) / sizeof(s_funRows[0]), 0, 0 };
