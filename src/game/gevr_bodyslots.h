@@ -17,5 +17,11 @@ void gevrBodySlotsRecentre(void);
 int gevrBodySlotsOn(void);
 /* the slot a hand is in (GEVR_BS_*), -1 none */
 int gevrBodySlotHover(int ctrl);
+/* a fresh grip press: 1 if a slot took it (drew, put away, or refused) */
+int gevrBodySlotGrip(int ctrl);
+/* the grip is let go (bondview2.c gevrGripGestureInput) */
+void gevrBodySlotGripLetGo(int ctrl);
+/* a slot took the grip still held: a throw doesn't wind up from it */
+int gevrBodySlotHoldsGrip(int ctrl);
 
 #endif
