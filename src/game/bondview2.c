@@ -11771,13 +11771,15 @@ void bondviewPlayerTickDamageAndHealth(void)
 #ifdef GEVR
     /*
      * The top message and the match clock have one switch for the screen
-     * (g_UpperTextDisplayFlag, clock_drawn_flag), not one a player: online
-     * only the local player's damage flash hides them. A host's bots hit
-     * each other all match, and each hit blinked the local player's
-     * countdown and clock (user, 2026-10-07).
+     * (g_UpperTextDisplayFlag, clock_drawn_flag), not one a player. A host's
+     * bots hit each other all match, and each hit blinked the local
+     * player's countdown and clock (user, 2026-10-07); then the local
+     * player's own hits, taken from bots fighting through warmup, blinked
+     * "MATCH STARTS IN" (user, 2026-10-08). Online no damage flash hides
+     * them: the countdown and the clock matter more than a hit's flash.
+     * Solo keeps GoldenEye's.
      */
-    extern int netGetLocalSlot(void);
-    const bool screenHud = !netIsActive() || get_cur_playernum() == netGetLocalSlot();
+    const bool screenHud = !netIsActive();
 #endif
     // update damage showtime
     if (g_CurrentPlayer->damageshowtime >= 0)
