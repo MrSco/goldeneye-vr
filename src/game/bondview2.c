@@ -18928,6 +18928,22 @@ s32 sub_GAME_7F0898E8(void)
  * Address EU 7F089A84.
  * Address JP 7F089FF0.
  */
+#ifdef GEVR
+/*
+ * Online deathmatch: every hit counts, as in Perfect Dark, whose player
+ * damage (chraction.c) has no red-flash gate: the flash only shows the hit.
+ * GoldenEye ignored a hit for the half second to a second of the last one's
+ * flash, longer the lower the health, so fast fire mostly did nothing:
+ * eight DD44 hits on a bot counted twice, its three slower ones all counted
+ * (user and a player's report, 2026-10-08). The host can keep GoldenEye's
+ * rule (NET_FUN_HIT_IMMUNITY); solo and co-op keep it.
+ */
+static s32 gevrNetEveryHitCounts(void)
+{
+    return netIsActive() && !gevrCoopActive() && !(netActiveFunFlags() & NET_FUN_HIT_IMMUNITY);
+}
+#endif
+
 void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor) {
 #ifdef GEVR
     if (netPlayerIsSpectator(get_cur_playernum()) || !netDamageAllowed(playerid, get_cur_playernum())) return;
@@ -18987,7 +19003,11 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
         }
 
         if (g_CurrentPlayer->cheatBondInvincible == FALSE && g_CurrentPlayer->bonddead == FALSE && g_PlayerInvincible == FALSE &&
-            (g_CurrentPlayer->damageshowtime < 0 || (getPlayerCount() >= 2 && g_CurrentPlayer->damageshowtime == 0)))
+            (g_CurrentPlayer->damageshowtime < 0 || (getPlayerCount() >= 2 && g_CurrentPlayer->damageshowtime == 0)
+#ifdef GEVR
+             || gevrNetEveryHitCounts()
+#endif
+            ))
         {
 #ifdef GEVR
             /* co-op (#94): the mission goes on while the watch is up, the guards' fire too */

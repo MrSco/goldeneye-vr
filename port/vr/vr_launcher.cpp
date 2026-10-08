@@ -1228,10 +1228,12 @@ static void gevrFunOptions(bool hostPage) {
     ImGui::TextDisabled(netIsActive() && netGetPhase() == NET_PHASE_IN_PROGRESS ? "Pending: applies next round"
                                                                                 : "Applies when the round loads");
     ImGui::BeginDisabled(netIsActive() ? !netIsHost() : !hostPage);
-    const char *labels[] = {"DK mode", "Paintball", "Line mode", "No radar"};
-    const int bits[] = {NET_FUN_DK, NET_FUN_PAINTBALL, NET_FUN_LINE, NET_FUN_NO_RADAR};
+    /* Hit immunity: GoldenEye's rule, a hit ignored during the last one's red
+     * flash; off (the default), every hit counts, as in Perfect Dark */
+    const char *labels[] = {"DK mode", "Paintball", "Line mode", "No radar", "Hit immunity (GoldenEye)"};
+    const int bits[] = {NET_FUN_DK, NET_FUN_PAINTBALL, NET_FUN_LINE, NET_FUN_NO_RADAR, NET_FUN_HIT_IMMUNITY};
     bool changed = false;
-    for (int n = 0; n < 4; n++) {
+    for (int n = 0; n < 5; n++) {
         bool on = (flags & bits[n]) != 0;
         if (ImGui::Checkbox(labels[n], &on)) {
             flags ^= bits[n];
