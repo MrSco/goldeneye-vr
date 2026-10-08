@@ -22,6 +22,7 @@ int netSpectatorTarget(){return spectator;}
 bool netIsActive(){return connected;}
 bool netSlotOccupied(int i){return occupied[i];}
 bool netIsRemotePlayerActive(int i){return active[i];}
+int gevrNetOwnsSlot(int i){return i==localSlot;}   /* the local player, or the host's bot (net_core.c netSlotOwned) */
 int getPlayerCount(){return count;}
 int cheatIsActive(int){return noRadar;}
 MPSCENARIOS get_scenario(){return scenario;}

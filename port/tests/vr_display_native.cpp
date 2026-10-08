@@ -161,6 +161,7 @@ bool vr_create_menu_swapchain() {
     return !menuFailure;
 }
 void vr_screen_destroy_swapchain() {}
+void vr_pointer_layer_destroy() {}
 void vr_end_empty_frame(XrTime) {}
 extern "C" void gfx_vr_gpu_reset(void) {}
 extern "C" void gfx_vr_hud_bounds_reset(void) {}
