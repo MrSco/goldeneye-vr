@@ -1384,6 +1384,18 @@ void gunUpdateAndFire(GUNHAND handnum)
             {
                 gevrGexPoseGun(mdlhdr, model, rwmtx, handnum);
             }
+            else if (item == ITEM_FIST)
+            {
+                /* the unarmed hand drawn as GoldenEye's (gun.c gexfist logs GE-X's) */
+                static u32 s_fistTick;
+
+                if ((s_fistTick++ % 72) == 0)
+                {
+                    sysLogPrintf(LOG_NOTE, "gexfist: hand %d is GoldenEye's own fist (named %d, matrices %d, root %.2f %.2f %.2f)",
+                                 handnum, g_CurrentPlayer->cur_item_weapon_getname, mdlhdr->numMatrices,
+                                 rwmtx[0].m[3][0], rwmtx[0].m[3][1], rwmtx[0].m[3][2]);
+                }
+            }
         }
 #endif
 

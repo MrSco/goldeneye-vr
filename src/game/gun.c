@@ -1272,8 +1272,16 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     u16 mtx = 0, tex = 0;
     s32 i;
     const s32 n = hdr->numSwitches;
-    const GexWeaponDef *def = gevrGexWeaponGet(item);
+    /* GoldenEye's ITEM_FIST draws the named item's melee model (gun.c
+     * get_ptr_weapon_model_header_line): the fist, or the sniper rifle's butt */
+    const s32 named = item == ITEM_FIST && g_CurrentPlayer != NULL ? g_CurrentPlayer->cur_item_weapon_getname : item;
+    const GexWeaponDef *def = gevrGexWeaponGet(named);
 
+    if (item == ITEM_FIST)
+    {
+        sysLogPrintf(LOG_NOTE, "gex: hand %d unarmed loads item %d (%s), GE-X %d, net %d", hand, named,
+                     def != NULL ? def->model : "GoldenEye's", VrGexGuns, netIsActive());
+    }
     if (!VrGexGuns || def == NULL || n + def->numParts > 64)
     {
         return;
@@ -2794,13 +2802,16 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
                              : reload->ammoFrame + (phase - 2.0f) * (last - reload->ammoFrame);
         swapped = frame >= reload->magOut && frame < reload->ammoFrame;
     }
-    else if (fire >= 0.0f && def->fireAnim > 0)
+    else if (fire >= 0.0f && def->fireAnim > 0 && def->fireAnimAlt <= 0)
     {
         anim = def->fireAnim; frame = fire;
     }
     else if (def->fireAnimAlt > 0 && g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT))
     {
-        /* the fist: GoldenEye's punch, as GE-X's (1001 or 1002), on GoldenEye's clock */
+        /* the fist: the trigger's punch, as GE-X's (1001 or 1002), on GoldenEye's clock,
+         * on the screen and in the headset alike (user: the trigger animates it). The
+         * trigger's fire clip had played it at a gun's pace. A gesture's swing never
+         * sets these states: it is the player's own (bondview2.c gevrHandChopTick) */
         const s32 st = g_CurrentPlayer->hands[hand].weapon_action_state;
         const s32 punch = st == GUN_ANIM_STATE_PUNCH1_STRIKE || st == GUN_ANIM_STATE_PUNCH1_RECOVER ? def->fireAnim
                         : st == GUN_ANIM_STATE_PUNCH2_STRIKE || st == GUN_ANIM_STATE_PUNCH2_RECOVER ? def->fireAnimAlt : 0;
@@ -2856,6 +2867,45 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     if (hdr->numMatrices > def->gunMatrix && hdr->numMatrices <= 64 && (g_gevrStereo || def->fireAnimAlt <= 0))
     {
         gevrGexHandFitTo(def, rwmtx, hdr->numMatrices);   /* before the support point is taken from this hand */
+    }
+    if (def->fireAnimAlt > 0 && g_CurrentPlayer != NULL && hdr->numMatrices > GEVR_GEX_RHAND_WRIST)
+    {
+        /* the unarmed hand, solo and online (user: everything differed online):
+         * once a second and whenever its state changes */
+        extern f32 gevrGunSizeNow(s32 *setting, s32 *online);   /* bondview2.c */
+        extern f32 D_800364CC;
+        static u32 s_tick[2];
+        static s32 s_state[2] = { -1, -1 };
+        const s32 h = hand == GUNLEFT ? 1 : 0;
+        const s32 st = g_CurrentPlayer->hands[hand].weapon_action_state;
+
+        if ((s_tick[h]++ % 72) == 0 || st != s_state[h])
+        {
+            const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
+            const f32 *gunFit = gevrGexGunFit(def->item), *handFit = gevrGexHandFit(def->item);
+            const f32 *handRot = gevrGexHandRotFit(def->item);
+            const Mtxf *r = &rwmtx[0], *w = &rwmtx[GEVR_GEX_RHAND_WRIST];
+            f32 palm[3], rowlen;
+            s32 setting, online;
+            const f32 size = gevrGunSizeNow(&setting, &online);
+
+            s_state[h] = st;
+            gevrGexMtxPoint(w, palmLocal, palm);
+            rowlen = sqrtf(r->m[0][0] * r->m[0][0] + r->m[0][1] * r->m[0][1] + r->m[0][2] * r->m[0][2]);
+            sysLogPrintf(LOG_NOTE, "gexfist: hand %d player %d local %d online %d stereo %d item %d (%s) named %d"
+                         " state %d frame %d anim %d at %.1f fire %.1f",
+                         hand, p, online ? netGetLocalSlot() : -1, online, g_gevrStereo, def->item, def->model,
+                         g_CurrentPlayer->cur_item_weapon_getname, st, g_CurrentPlayer->hands[hand].field_890,
+                         anim, frame, fire);
+            sysLogPrintf(LOG_NOTE, "gexfist:   size %.3f (setting %d) world %.4f gunfit %.2f %.2f %.2f handfit %.2f %.2f %.2f"
+                         " rot %.1f %.1f %.1f",
+                         size, setting, D_800364CC, gunFit[0], gunFit[1], gunFit[2], handFit[0], handFit[1], handFit[2],
+                         handRot[0], handRot[1], handRot[2]);
+            sysLogPrintf(LOG_NOTE, "gexfist:   root %.2f %.2f %.2f row %.4f  wrist %.2f %.2f %.2f  palm %.2f %.2f %.2f"
+                         " keyframes %d mtx %d",
+                         r->m[3][0], r->m[3][1], r->m[3][2], rowlen, w->m[3][0], w->m[3][1], w->m[3][2],
+                         palm[0], palm[1], palm[2], g_CurrentPlayer->hands[hand].field_92C, hdr->numMatrices);
+        }
     }
     if (g_gevrStereo && hand == GUNRIGHT && hdr->numMatrices > def->gunMatrix)
     {
