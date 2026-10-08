@@ -39,73 +39,63 @@ static s32 gevrNetInsideDoorProp(PropRecord *prop, rect4f *polygon, s32 edges, f
 }
 
 /*
- * Co-op teammates pass through each other so narrow mission starts and
- * corridors cannot trap the party. In competitive play, two players
- * already closer than the sum of their radii (60 units for two
- * Bonds): the volume test refuses every destination whose circle overlaps
- * the other's cylinder, in every direction, so both stood locked at 34
- * apart until one died (both headsets' logs, 2026-09-30). The copies lag
- * their owners, which is how two players get inside 60 at all. From inside,
- * a move that does not bring them closer goes through.
+ * A player already inside an object's footprint is let out of it: a drop
+ * from above (Facility's start vent onto the toilet below, user 2026-10-08)
+ * lands the player in it, and from inside every move crosses its edge, so
+ * none was possible ever after. Only the player's own move
+ * (bondview2.c bondviewTryMoveToStan sets g_gevrPlayerMoveTest), and only
+ * moves that leave the overlap; entering one is refused as ever.
+ */
+s32 g_gevrPlayerMoveTest;
+
+static s32 gevrInsideObjProp(PropRecord *prop, rect4f *polygon, s32 edges, f32 x, f32 z)
+{
+    if (!g_gevrPlayerMoveTest || prop->type != PROP_TYPE_OBJ || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL)
+    {
+        return 0;
+    }
+    if (!gevrDoorEscape((const float *)polygon, edges, g_CurrentPlayer->field_488.collision_radius,
+                        g_CurrentPlayer->field_488.collision_position.x, g_CurrentPlayer->field_488.collision_position.z, x, z))
+    {
+        return 0;
+    }
+    {
+        static u64 s_next_log_us;
+        u64 now = sysGetMicroseconds();
+
+        if (now >= s_next_log_us)
+        {
+            s_next_log_us = now + 1000000;
+            sysLogPrintf(LOG_NOTE, "move: player %d inside object %d at %.0f,%.0f, moving out let through",
+                         get_cur_playernum(), prop->obj != NULL ? prop->obj->obj : -1,
+                         g_CurrentPlayer->field_488.collision_position.x, g_CurrentPlayer->field_488.collision_position.z);
+        }
+    }
+    return 1;
+}
+
+/*
+ * Online, players never block one another's moves: soft collision
+ * (bondview2.c gevrSoftPlayerCollision) pushes overlapping players apart
+ * and slows them instead, so an enemy standing in front can't pin a player
+ * in a corner and a corridor can't trap a party (user, 2026-10-08, as other
+ * shooters do it). Hard player-on-player blocking had already gone for
+ * co-op teammates (#121: Facility's start vent) and, from inside an
+ * overlap, for competitive players whose copies lag their owners
+ * (2026-09-30: two players stood locked at 34 apart until one died).
+ * World and guard collision run as ever.
  */
 static s32 gevrNetInsidePlayerProp(struct PropRecord *prop, f32 dest_x, f32 dest_z, const char *where)
 {
-    static u64 s_next_log_us;
-    u64 now;
-    s32 slot;
-    f32 dx, dz, dist, ndx, ndz, ndist, radius, height, unused;
-
+    (void)dest_x;
+    (void)dest_z;
+    (void)where;
     if (prop->type != PROP_TYPE_VIEWER || !netIsActive()
         || g_CurrentPlayer == NULL || g_CurrentPlayer->prop == NULL || g_CurrentPlayer->prop == prop)
     {
         return 0;
     }
-
-    slot = getPlayerPointerIndex(prop);
-
-    if (!netSlotOccupied(slot))
-    {
-        return 0;
-    }
-
-    /* Co-op (#121): Facility's start vent cannot fit the party side by
-     * side. Teammates may share its floor and pass each other, including
-     * while already overlapping at spawn. World/guard collision still
-     * runs normally; competitive players retain the escape rule below. */
-    if (gevrCoopActive())
-    {
-        return 1;
-    }
-
-    dx = prop->pos.x - g_CurrentPlayer->field_488.collision_position.x;
-    dz = prop->pos.z - g_CurrentPlayer->field_488.collision_position.z;
-    dist = sqrtf(dx * dx + dz * dz);
-    chrpropGetCollisionBounds(prop, &radius, &height, &unused);
-
-    if (dist >= radius + g_CurrentPlayer->field_488.collision_radius)
-    {
-        return 0;   /* not overlapping: the game's own tests apply */
-    }
-
-    ndx = prop->pos.x - dest_x;
-    ndz = prop->pos.z - dest_z;
-    ndist = sqrtf(ndx * ndx + ndz * ndz);
-
-    if (ndist < dist - 0.01f)
-    {
-        return 0;   /* closer still: refused as ever */
-    }
-
-    now = sysGetMicroseconds();
-
-    if (now >= s_next_log_us)
-    {
-        s_next_log_us = now + 1000000;
-        sysLogPrintf(LOG_NOTE, "net: move: player %d overlapping player %d (%s, %.0f apart, radii %.0f+%.0f), moving apart let through",
-                     get_cur_playernum(), slot, where, dist, radius, g_CurrentPlayer->field_488.collision_radius);
-    }
-
-    return 1;
+    return netSlotOccupied(getPlayerPointerIndex(prop)) ? 1 : 0;
 }
 #endif
 
@@ -1809,7 +1799,8 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
 
 #ifdef GEVR
                 if (gevrNetInsidePlayerProp(prop, dest_x, dest_z, "line") ||
-                    gevrNetInsideDoorProp(prop, polygon, numvertices0, dest_x, dest_z))
+                    gevrNetInsideDoorProp(prop, polygon, numvertices0, dest_x, dest_z) ||
+                    gevrInsideObjProp(prop, polygon, numvertices0, dest_x, dest_z))
                 {
                     continue;
                 }
@@ -2156,7 +2147,8 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
                 chraiGetCollisionBounds(prop, &polygon, &numvertices0, &sp94, &sp90);
 #ifdef GEVR
                 if (gevrNetInsidePlayerProp(prop, arg1, arg2, "volume") ||
-                    gevrNetInsideDoorProp(prop, polygon, numvertices0, arg1, arg2))
+                    gevrNetInsideDoorProp(prop, polygon, numvertices0, arg1, arg2) ||
+                    gevrInsideObjProp(prop, polygon, numvertices0, arg1, arg2))
                 {
                     continue;
                 }

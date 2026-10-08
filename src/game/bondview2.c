@@ -406,6 +406,97 @@ s32 gevrCoopPlaceBeside(s32 target)
     return TRUE;
 }
 
+/*
+ * Online soft collision between players (user, 2026-10-08: an enemy
+ * standing in front could pin a player in a corner; as other shooters do
+ * it). Players pass through one another's cylinders (stan.c
+ * gevrNetInsidePlayerProp); overlapping one, a player this headset owns
+ * (its own, or the host's bots) walks 30% slower and is pushed out, harder
+ * the deeper the overlap, through the walk's own collision, so walls and
+ * guards still stop it. Each headset pushes only its own players: the other
+ * side pushes back on its owner's headset, so a pair separates evenly.
+ */
+#define GEVR_SOFT_SLOW 0.7f      /* the walk while overlapping */
+#define GEVR_SOFT_PUSH 0.12f     /* of the overlap's depth, a tick */
+#define GEVR_SOFT_MAX 6.0f       /* units a tick, at most */
+
+static void gevrSoftPlayerCollision(struct coord3d *move_offset)
+{
+    extern bool netSlotOccupied(int slot);
+    extern int gevrNetOwnsSlot(int slot);
+    extern void chrpropGetCollisionBounds(PropRecord *prop, f32 *collision_radius, f32 *height, f32 *arg3);
+    s32 me = get_cur_playernum();
+    PropRecord *self = g_CurrentPlayer != NULL ? g_CurrentPlayer->prop : NULL;
+    f32 px = 0.0f;
+    f32 pz = 0.0f;
+    f32 len;
+    f32 cap;
+    s32 overlap = FALSE;
+    s32 slot;
+
+    if (!netIsActive() || self == NULL || g_CurrentPlayer->bonddead || !gevrNetOwnsSlot(me) || netPlayerIsSpectator(me))
+    {
+        return;
+    }
+    for (slot = 0; slot < getPlayerCount(); slot++)
+    {
+        struct player *other = g_playerPointers[slot];
+        f32 radius;
+        f32 height;
+        f32 unused;
+        f32 dx;
+        f32 dz;
+        f32 reach;
+        f32 dist;
+
+        if (slot == me || !netSlotOccupied(slot) || netPlayerIsSpectator(slot) || other == NULL
+            || other->prop == NULL || other->bonddead)
+        {
+            continue;
+        }
+        chrpropGetCollisionBounds(other->prop, &radius, &height, &unused);
+        if (fabsf(self->pos.y - other->prop->pos.y) >= height)
+        {
+            continue;   /* a floor above or below */
+        }
+        dx = g_CurrentPlayer->field_488.collision_position.x - other->prop->pos.x;
+        dz = g_CurrentPlayer->field_488.collision_position.z - other->prop->pos.z;
+        reach = radius + g_CurrentPlayer->field_488.collision_radius;
+        if (dx * dx + dz * dz >= reach * reach)
+        {
+            continue;
+        }
+        overlap = TRUE;
+        dist = sqrtf(dx * dx + dz * dz);
+        if (dist < 1.0f)
+        {
+            /* on top of each other: the lower slot one way, the higher the other */
+            dx = me < slot ? 1.0f : -1.0f;
+            dz = 0.0f;
+            dist = 1.0f;
+        }
+        px += dx / dist * (reach - dist) * GEVR_SOFT_PUSH;
+        pz += dz / dist * (reach - dist) * GEVR_SOFT_PUSH;
+    }
+    if (!overlap)
+    {
+        return;
+    }
+    move_offset->x *= GEVR_SOFT_SLOW;
+    move_offset->z *= GEVR_SOFT_SLOW;
+    px *= g_GlobalTimerDelta;
+    pz *= g_GlobalTimerDelta;
+    len = sqrtf(px * px + pz * pz);
+    cap = GEVR_SOFT_MAX * g_GlobalTimerDelta;
+    if (len > cap)
+    {
+        px *= cap / len;
+        pz *= cap / len;
+    }
+    move_offset->x += px;
+    move_offset->z += pz;
+}
+
 void gevrStereoHeadWalk(struct coord3d *move_offset)
 {
     s_gevrPhysicalStep[0] = s_gevrPhysicalStep[1] = s_gevrPhysicalStep[2] = 0;
@@ -7384,6 +7475,9 @@ f32 bondviewGet8003646CRad(void)
 */
 s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
 {
+#ifdef GEVR
+    s32 gevrMoveTestsOk;
+#endif
     s32 sp94;
     StandTile *sp90;
     s32 cdtypes;
@@ -7444,6 +7538,23 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
             g_CurrentPlayer->autocrouchpos = CROUCH_SQUAT;
         }
 
+#ifdef GEVR
+        {
+            /* the player's own move: an object it already stands in lets it out (stan.c gevrInsideObjProp) */
+            extern s32 g_gevrPlayerMoveTest;
+            s32 lineok;
+            s32 volumeok;
+
+            g_gevrPlayerMoveTest = TRUE;
+            lineok = stanTestLineUnobstructed(&sp90, g_CurrentPlayer->field_488.collision_position.f[0],
+                                              g_CurrentPlayer->field_488.collision_position.f[2], arg0->f[0], arg0->f[2],
+                                              cdtypes, height, always_30, 0.0f, 1.0f) != 0;
+            volumeok = lineok && stanTestVolume(&sp90, arg0->f[0], arg0->f[2], collision_radius, cdtypes, height, always_30) < 0;
+            g_gevrPlayerMoveTest = FALSE;
+            gevrMoveTestsOk = volumeok;
+        }
+        if (gevrMoveTestsOk)
+#else
         if ((stanTestLineUnobstructed(
                 &sp90,
                 g_CurrentPlayer->field_488.collision_position.f[0],
@@ -7456,6 +7567,7 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
                 0.0f,
                 1.0f) != 0)
             && stanTestVolume(&sp90, arg0->f[0], arg0->f[2], collision_radius, cdtypes, height, always_30) < 0)
+#endif
         {
             if (g_CurrentPlayer->ducking_height_offset == FULL_CROUCH_OFFSET || sp7C < 0)
             {
@@ -7481,6 +7593,9 @@ block_20:
             /* a move refused for a door: which, and how open (Facility double door that opens but blocks, user 2026-09-30) */
             if (stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_DOOR && stanSavedColl_posData->door != NULL)
             {
+                extern void gevrBotNoteBlockingDoor(s32 slot, PropRecord *doorprop);   /* gevr_bot.c */
+
+                gevrBotNoteBlockingDoor(get_cur_playernum(), stanSavedColl_posData);
                 static u64 s_next_door_log_us;
                 u64 now = sysGetMicroseconds();
 
@@ -11656,13 +11771,15 @@ void bondviewPlayerTickDamageAndHealth(void)
 #ifdef GEVR
     /*
      * The top message and the match clock have one switch for the screen
-     * (g_UpperTextDisplayFlag, clock_drawn_flag), not one a player: online
-     * only the local player's damage flash hides them. A host's bots hit
-     * each other all match, and each hit blinked the local player's
-     * countdown and clock (user, 2026-10-07).
+     * (g_UpperTextDisplayFlag, clock_drawn_flag), not one a player. A host's
+     * bots hit each other all match, and each hit blinked the local
+     * player's countdown and clock (user, 2026-10-07); then the local
+     * player's own hits, taken from bots fighting through warmup, blinked
+     * "MATCH STARTS IN" (user, 2026-10-08). Online no damage flash hides
+     * them: the countdown and the clock matter more than a hit's flash.
+     * Solo keeps GoldenEye's.
      */
-    extern int netGetLocalSlot(void);
-    const bool screenHud = !netIsActive() || get_cur_playernum() == netGetLocalSlot();
+    const bool screenHud = !netIsActive();
 #endif
     // update damage showtime
     if (g_CurrentPlayer->damageshowtime >= 0)
@@ -13110,6 +13227,7 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         }
 
 #ifdef GEVR
+        gevrSoftPlayerCollision(&move_offset);   /* online: pushed out of other players, not blocked */
         gevrStereoHeadWalk(&move_offset);
         const f32 gevrPhysicalRequest[3] = {move_offset.x, move_offset.y, move_offset.z};
 #endif
@@ -18815,6 +18933,31 @@ s32 sub_GAME_7F0898E8(void)
  * Address EU 7F089A84.
  * Address JP 7F089FF0.
  */
+#ifdef GEVR
+/*
+ * Online deathmatch: a hit counts a quarter second after the last (the
+ * user's middle ground, the default), or every hit (as in Perfect Dark,
+ * whose player damage, chraction.c, has no red-flash gate), or GoldenEye's
+ * rule. GoldenEye ignored a hit for the half second to a second of the last
+ * one's flash, longer the lower the health, so fast fire mostly did nothing:
+ * eight DD44 hits on a bot counted twice, its three slower ones all counted
+ * (user and a player's report, 2026-10-08). The host picks
+ * (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY; net_rules.h); solo and co-op keep
+ * GoldenEye's. damageshowtime counts the ticks since the last hit.
+ */
+static s32 gevrNetHitCounts(void)
+{
+    s32 immunity;
+
+    if (!netIsActive() || gevrCoopActive())
+    {
+        return FALSE;
+    }
+    immunity = netHitImmunity(netActiveFunFlags());
+    return immunity == 0 || (immunity == 1 && g_CurrentPlayer->damageshowtime >= NET_HIT_SHORT_TICKS);
+}
+#endif
+
 void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 playerid, s32 affects_armor) {
 #ifdef GEVR
     if (netPlayerIsSpectator(get_cur_playernum()) || !netDamageAllowed(playerid, get_cur_playernum())) return;
@@ -18874,7 +19017,11 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
         }
 
         if (g_CurrentPlayer->cheatBondInvincible == FALSE && g_CurrentPlayer->bonddead == FALSE && g_PlayerInvincible == FALSE &&
-            (g_CurrentPlayer->damageshowtime < 0 || (getPlayerCount() >= 2 && g_CurrentPlayer->damageshowtime == 0)))
+            (g_CurrentPlayer->damageshowtime < 0 || (getPlayerCount() >= 2 && g_CurrentPlayer->damageshowtime == 0)
+#ifdef GEVR
+             || gevrNetHitCounts()
+#endif
+            ))
         {
 #ifdef GEVR
             /* co-op (#94): the mission goes on while the watch is up, the guards' fire too */

@@ -1222,6 +1222,10 @@ static const char *gevrGunSizeName(int n) {
     const char *names[] = {"Normal", "Tiny", "Big"};
     return names[n];
 }
+static const char *gevrHitImmunityName(int n) {
+    const char *names[] = {"None", "Short", "GoldenEye"};
+    return names[n];
+}
 static void gevrFunOptions(bool hostPage) {
     int flags = (netIsActive() ? netGetMatchConfig()->fun_flags : VrMpFunFlags) & NET_FUN_MASK;
     int size = netIsActive() ? netGetMatchConfig()->gun_size : VrMpGunSize;
@@ -1237,6 +1241,16 @@ static void gevrFunOptions(bool hostPage) {
             flags ^= bits[n];
             changed = true;
         }
+    }
+    /* a hit ignored for a while after the last: none (every hit counts, as in
+     * Perfect Dark), a quarter second, or GoldenEye's red-flash half second to a second */
+    ImGui::TextUnformatted("Hit immunity:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9);
+    int immunity = netHitImmunity(flags);
+    if (namedCombo("##mphitimmunity", 3, gevrHitImmunityName, &immunity)) {
+        flags = netWithHitImmunity(flags, immunity);
+        changed = true;
     }
     ImGui::TextUnformatted("Gun size:");
     ImGui::SameLine();

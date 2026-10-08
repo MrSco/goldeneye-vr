@@ -2,7 +2,26 @@
 #ifndef GEVR_NET_RULES_H
 #define GEVR_NET_RULES_H
 
-enum { NET_FUN_DK = 1, NET_FUN_PAINTBALL = 2, NET_FUN_LINE = 4, NET_FUN_NO_RADAR = 16, NET_FUN_MASK = 23 };
+/* Hit immunity, a hit ignored for a while after the last. Neither bit (the
+ * default, the user's pick, 2026-10-08): a quarter second
+ * (NET_HIT_SHORT_TICKS). NET_FUN_HIT_IMMUNITY: GoldenEye's, the red flash's
+ * half second to a second. NET_FUN_HIT_EVERY: none, every hit counts, as in
+ * Perfect Dark. The default needs no bit, so a saved 0 (every setup that
+ * never touched the rule) gets it. Builds 0.4.11-0.4.13 (protocol 19) know
+ * neither bit: they refuse a config with one and, without, keep GoldenEye's
+ * rule for their own player; the next release bumps the protocol (user rule:
+ * only at a release). */
+enum { NET_FUN_DK = 1, NET_FUN_PAINTBALL = 2, NET_FUN_LINE = 4, NET_FUN_NO_RADAR = 16, NET_FUN_HIT_IMMUNITY = 32,
+       NET_FUN_HIT_EVERY = 64, NET_FUN_MASK = 119 };
+#define NET_HIT_SHORT_TICKS 15
+/* 0 every hit counts, 1 short, 2 GoldenEye's */
+static inline int netHitImmunity(int flags) {
+    return (flags & NET_FUN_HIT_IMMUNITY) ? 2 : (flags & NET_FUN_HIT_EVERY) ? 0 : 1;
+}
+static inline int netWithHitImmunity(int flags, int immunity) {
+    flags &= ~(NET_FUN_HIT_IMMUNITY | NET_FUN_HIT_EVERY);
+    return flags | (immunity == 2 ? NET_FUN_HIT_IMMUNITY : immunity == 0 ? NET_FUN_HIT_EVERY : 0);
+}
 /* Co-op-only rule in the existing config byte; no packet layout changes. */
 #define NET_COOP_FAST_REINFORCEMENTS 8
 #define NET_COOP_FUN_MASK (NET_FUN_MASK | NET_COOP_FAST_REINFORCEMENTS)
