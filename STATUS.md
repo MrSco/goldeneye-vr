@@ -3,34 +3,27 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-07, v0.4.11, versionCode 64, protocol 18;
-main is ahead of it (below) on protocol 19. Building does not publish a
+**Updated / current build:** 2026-10-07, v0.4.11 released (versionCode 66,
+protocol 19; v0.4.10 and older can't join). Building does not publish a
 GitHub release. No game data is shipped.
-
-## Unreleased on main (after v0.4.11)
-
-- Deathmatch bots (claude/mp-bots, replaces rejected PR #146): host-run player
-  slots with AI pad input and Perfect Dark's simulant brain, six difficulties,
-  stan-tile pathfinding, pickup seeking, Flag Tag/Golden Gun awareness; lobby
-  and pause rows Off/Fill/Fixed. Mid-round joins replace the lowest bot; a new
-  host adopts the bots. Solo host + 7 bots headset-accepted 2026-10-07.
-- 3D game audio in every mode: placed sounds go through the voice chat's
-  Steam Audio HRTF, and are measured round walls through the portals (PD's
-  path distance). Split screen keeps the game's rule.
-- Pause laser on its own eye layer over the panel; death sting plays again
-  (blood drip paced at 60 Hz); name tags hidden by fog; HUD top message and
-  clock no longer hidden by other players' damage flashes.
 
 ## v0.4.11
 
-- GE-X magazine weapons and per-weapon VR fits: PP7, silenced PP7, DD44, Klobb,
-  ZMG, D5K, silenced D5K, Phantom, and AR33 alongside KF7 (#137). Physical reload
-  grips, support rotation, held magazine preview, magazine well, and installed
-  magazine mesh fitting baked into defaults.
-- Bullet tracers stop on the player cylinder in solo mode (#136).
-- Statue and Depot outdoor room pop-in fix (#133): draw neighboring rooms when
-  bounds are on screen even if the portal box missed them.
-- Updated launcher header and branding assets (#134).
+Notes: [v0.4.11](docs/releases/v0.4.11.md).
+- Deathmatch bots (#149, replaces rejected #146): host-run player slots with
+  Perfect Dark's simulant brain, six difficulties, stan-tile pathfinding,
+  pickups, Flag Tag/Golden Gun awareness; Off/Fill/Fixed rows. Mid-round joins
+  replace the lowest bot; a new host adopts the bots.
+- 3D game audio in every mode (#149): placed sounds through the voice chat's
+  Steam Audio HRTF, measured round walls through the portals.
+- GE-X for every weapon and item (#137, #138, #142, #147, #148): magazine,
+  single-round and speedloader reloads, knives, throwables, taser, unarmed
+  chop, one GE-X toggle with 2D parity, one-handed remote mines (off-hand
+  trigger detonates), watch rig, wheel/watch-page models, new fit modes.
+- Co-op tank pose sync (#143); No radar rule, silent-headset drop, idle kick
+  and watchdog (#144); Statue/Depot pop-in (#133, #140); room retry, per-copy
+  parts, LOD sizes (#145); tracers (#136); crash reports (#139); branding
+  (#134); pause laser layer, death sting, fog name tags, HUD flicker (#149).
 
 ## Release baseline
 
