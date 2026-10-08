@@ -3,9 +3,23 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-06, v0.4.11, versionCode 64, protocol 18.
-The changes below are included in this build. Building it does not publish
-a GitHub release. No game data is shipped.
+**Updated / current build:** 2026-10-07, v0.4.11, versionCode 64, protocol 18;
+main is ahead of it (below) on protocol 19. Building does not publish a
+GitHub release. No game data is shipped.
+
+## Unreleased on main (after v0.4.11)
+
+- Deathmatch bots (claude/mp-bots, replaces rejected PR #146): host-run player
+  slots with AI pad input and Perfect Dark's simulant brain, six difficulties,
+  stan-tile pathfinding, pickup seeking, Flag Tag/Golden Gun awareness; lobby
+  and pause rows Off/Fill/Fixed. Mid-round joins replace the lowest bot; a new
+  host adopts the bots. Solo host + 7 bots headset-accepted 2026-10-07.
+- 3D game audio in every mode: placed sounds go through the voice chat's
+  Steam Audio HRTF, and are measured round walls through the portals (PD's
+  path distance). Split screen keeps the game's rule.
+- Pause laser on its own eye layer over the panel; death sting plays again
+  (blood drip paced at 60 Hz); name tags hidden by fog; HUD top message and
+  clock no longer hidden by other players' damage flashes.
 
 ## v0.4.11
 
@@ -31,22 +45,13 @@ GE-X muzzle flashes follow fitted barrel tips (#126); calibrated belt reloads
 atomic writes (#113); co-op spawn unclogging in narrow mission starts (#121).
 Notes: [v0.4.8](docs/releases/v0.4.8.md).
 
-**v0.4.7:** GE-X 6a KF7 and animations from patched Perfect Dark ROM; physical
-hand reload in stereo; GE-X arms with live watch; watch VR settings groups;
-co-op gun drops detach on joiners (#114, #115); debrief folder fix (#116);
-Facility frame-buffer overruns fixed (#118); body retention script fade timing
-and replacement IDs preserved; optional host-controlled Fast reinforcements.
-Notes: [v0.4.7](docs/releases/v0.4.7.md).
+**v0.4.7:** GE-X KF7 from patched Perfect Dark ROM, physical hand reload,
+GE-X arms with live watch, co-op and Facility fixes (#114-#118). Notes:
+[v0.4.7](docs/releases/v0.4.7.md).
 
-**v0.4.6:** #95 round 2 (#110): extra launcher cheats, Comfort WHEN HIT,
-Statue/Cradle online, cylinder floor finder for remote bodies/tile recovery,
-detailed held guns, stage HD texture preload and MP death music fix. #111:
-watch VR settings, turn speed, grip gestures, WIP hand reload, per-gun recoil,
-and optional single-player mine/body rules. Room decal reach fixed, pause
-watch on the virtual screen, Dam/Surface melee scale fixed (#112), non-USA
-ROMs refused (#108). Protocol 18 rejects older stage lists. Notes:
-[v0.4.6](docs/releases/v0.4.6.md), docs/issue-95-round2.md,
-docs/upstream-vr453-features.md.
+**v0.4.6:** #95 round 2 (#110), watch VR settings and grip gestures (#111),
+#112, #108; protocol 18 rejects older stage lists. Notes:
+[v0.4.6](docs/releases/v0.4.6.md), docs/issue-95-round2.md.
 
 **Earlier:** v0.4.5 added screen passthrough and fixed Frigate fixtures,
 co-op readiness and sniper no-lean zoom. v0.4.4 added in-hand gadgets and
@@ -70,9 +75,9 @@ is goldeneyevr.com, in its own repository.
 - Launcher: ROM pickers, play mode, display/comfort, gun fit, cheats,
   textures, updater, audio and microphone settings.
 - Experimental multiplayer: LAN/direct IP and public/private internet
-  lobbies, ICE/TURN, up to eight deathmatch players or four co-op players,
-  synced combat/pickups, clocks/life IDs, late join, voting, host migration,
-  names, teams and proximity/team voice (Opus/Steam Audio).
+  lobbies, ICE/TURN, up to eight deathmatch players (bots fill slots) or four
+  co-op players, synced combat/pickups, clocks/life IDs, late join, voting,
+  host migration, names, teams and proximity/team voice (Opus/Steam Audio).
   Mute via launcher, watch or Menu + right B. See MULTIPLAYER.md.
 
 ## Outstanding issues / limits
@@ -82,6 +87,8 @@ is goldeneyevr.com, in its own repository.
   cinema animation and script music stay on the host.
 - #88: eight slots tested on one headset; measure 5+ headsets' frame time
   and upload before relay batching/culling. Remote hands do not animate.
+- Bots: untested on two headsets (client view, mid-round replace, adoption);
+  bots may stall at closed doors. MULTIPLAYER.md has the test script.
 - #95: GE Plus survey, 14 of 21 done. Statue/Cradle, remote ledges/guns
   still need two-headset checks. #9 stays open for remaining hand patches.
 - #30: intermittent colored water lines; no confirmed fix. #85: Egypt

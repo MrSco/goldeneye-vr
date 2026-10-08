@@ -89,6 +89,20 @@ const char *netNextRoundName(int mode);
 const char *netVoiceModeName(int mode);
 const char *netTeamName(int team);
 
+/*
+ * Bots (NetMatchConfig.bot_mode/bot_count/bot_difficulty): player slots the
+ * host runs with AI input (gevr_bot.c), for any deathmatch scenario. Fill
+ * takes every slot no human holds; Fixed keeps bot_count of them. The
+ * difficulty steps are Perfect Dark's simulants' (bot.c g_BotDifficulties).
+ */
+enum { NET_BOT_OFF = 0, NET_BOT_FILL = 1, NET_BOT_FIXED = 2, NET_BOT_MODE_COUNT = 3 };
+enum { NET_BOT_MEAT = 0, NET_BOT_EASY = 1, NET_BOT_NORMAL = 2, NET_BOT_HARD = 3,
+       NET_BOT_PERFECT = 4, NET_BOT_DARK = 5, NET_BOT_DIFF_COUNT = 6 };
+const char *netBotModeName(int mode);
+const char *netBotDifficultyName(int difficulty);
+/* A bot's character for the n-th bot (the eight leads), -1 past them */
+int netBotCharacter(int n);
+
 #ifdef __cplusplus
 }
 #endif

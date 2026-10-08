@@ -59,6 +59,7 @@ def build_core():
     keep.update({"netReceiveLobbyReady","netHostCanStartRound","netBeginRoundReset","netBroadcastRoundPhase"})
     keep.update({"netLobbySlotConnected","netWarmupSettingsChanged","netTryHostStartRequest","netHostRoundTick","netHostReturnToLobby","netStageLoaded","netWarmupSecondsLeft","netHostStartRequested","netHostRequestVotes","netRoundNoticeText","netBroadcastRoundNotice","netReceiveRoundNotice","netGetVote","netResolveVotes","netTallyBallot","netRotationPick","netBallotSize","netHostKickPlayer","netHostDropSlot","netClientKickDisconnected","netBroadcastAllVotes"})
     keep.update({"netHostCanKickPlayer","netReceiveClientCaps","netSendClientCaps","netHostRemoveOldForNoRadar"})
+    keep.update({"netSlotOwned","gevrNetOwnsSlot","netActingSlot","netSendHitReportAs","netSendOwnedMove","netIsRemotePlayerActive","netRemoteTrigger","netSlotIsBot","netGetHumanPlayerCount","netReleaseBotSlot","netAddBot","netUpdateBots","netBotPoints","netBotToReplace","netJoinSlot","gevrNetSlotIsBot","gevrNetBotRowsEditable"})
     keep.update({"netMapShotTime","netResetCombatEpoch","netWriteCombatIdentity","netReadCombatIdentity","netImportCombatIdentity","netSendClockTo","netClockTick","netReceiveClock","netExplosiveWeapon","netAcceptHit","netReceiveHitReport","netBeginLocalShot","netEndLocalShot","netMakeLocalHit","netNextLife","netAcceptRespawn","netSendRespawnEvent","netSendLocalPlayerMove","netLocalIsSpectator","netReceiveDamageEvent","netReceiveRespawn","netCombatClocksReady"})
     replacements=[]
     for m in re.finditer(r"^[A-Za-z_][A-Za-z_ \t*]*?\s+([A-Za-z_]\w*)\([^;]*?\)\s*\{",masked,re.M):
@@ -181,6 +182,10 @@ def build_fixture(name, source=None):
         fixture=fixture.replace('../../src/game/vtxstore.c',old.as_posix())
     elif name == "vtxstore_native":
         fixture=fixture.replace('../../src/game/vtxstore.c',(ROOT/'src/game/vtxstore.c').as_posix())
+    elif name == "sndpath_native":
+        fixture=fixture.replace('../../src/game/gevr_sndpath.c',(ROOT/'src/game/gevr_sndpath.c').as_posix())
+    elif name == "botnav_native":
+        fixture=fixture.replace('../../src/game/gevr_botnav.c',(ROOT/'src/game/gevr_botnav.c').as_posix())
     elif name == "objects_native":
         fixture=fixture.replace('../src/net/net_objects.c',(ROOT/'port/src/net/net_objects.c').as_posix())
     path=NATIVE/f"{name}.c";path.write_text(fixture,encoding="utf-8")
@@ -213,6 +218,8 @@ class MultiplayerNativeTests(unittest.TestCase):
         cls.inventory = build_fixture("inventory_native")
         cls.fun = build_fixture("fun_native")
         cls.hands = build_fixture("hand_native")
+        cls.botnav = build_fixture("botnav_native")
+        cls.sndpath = build_fixture("sndpath_native")
         cls.line_renderer = build_line_renderer()
         if cls.lib.test_spatial_init() != 1: raise RuntimeError(f"Actual Steam Audio initialization failed: {cls.lib.test_spatial_error()}")
     @classmethod
@@ -274,6 +281,11 @@ class MultiplayerNativeTests(unittest.TestCase):
                 self.assertEqual(self.lib.test_damage(scenario,0,0,0,1),1)
     def test_late_join_snapshot(self): self.assertEqual(self.core.test_core_late_join_snapshot(),0)
     def test_eight_slots_packets_teams_and_pads(self): self.assertEqual(self.core.test_core_eight_slots(),0)
+    def test_bot_roster(self): self.assertEqual(self.core.test_core_bot_roster(),0)
+    def test_bot_join_and_election(self): self.assertEqual(self.core.test_core_bot_join(),0)
+    def test_bot_owner(self): self.assertEqual(self.core.test_core_bot_owner(),0)
+    def test_bot_floor_routes(self): self.assertEqual(self.botnav.test_botnav(),0)
+    def test_sound_through_portals(self): self.assertEqual(self.sndpath.test_sndpath(),0)
     def test_host_player_count_any_stage(self): self.assertEqual(self.core.test_core_player_count(),0)
     def test_live_config_and_round_snapshot(self): self.assertEqual(self.core.test_core_live_voice(),0)
     def test_scores_survive_departures(self): self.assertEqual(self.core.test_core_scores_after_departure(),0)

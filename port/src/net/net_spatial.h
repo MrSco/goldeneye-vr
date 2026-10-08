@@ -1,7 +1,10 @@
 #ifndef GEVR_NET_SPATIAL_H
 #define GEVR_NET_SPATIAL_H
-/* One binaural voice per player slot (net_protocol.h GEVR_MAX_PLAYERS) */
-#define NET_SPATIAL_SLOTS 8
+/* One binaural voice per player slot (net_protocol.h GEVR_MAX_PLAYERS), then
+ * the placed game sounds' (gevr_sndpath.c) */
+#define NET_SPATIAL_SFX_FIRST 8
+#define NET_SPATIAL_SFX_SLOTS 16
+#define NET_SPATIAL_SLOTS (NET_SPATIAL_SFX_FIRST + NET_SPATIAL_SFX_SLOTS)
 int netSpatialInit(void);
 int netSpatialLastError(void);
 void netSpatialShutdown(void);

@@ -157,8 +157,10 @@ Gfx *display_red_blue_on_radar(Gfx *DL)
             extern bool netIsActive(void);
             extern bool netSlotOccupied(int slot);
             extern bool netIsRemotePlayerActive(int slot);
+            extern int gevrNetOwnsSlot(int slot);
+            /* a copy driven by its owner, or a player this headset runs (the host's bots) */
             if (netIsActive() && (i == netSpectatorTarget() || !netSlotOccupied(i) ||
-                (i != cur_playernum && !netIsRemotePlayerActive(i)))) continue;
+                (i != cur_playernum && !netIsRemotePlayerActive(i) && !gevrNetOwnsSlot(i)))) continue;
         }
 #endif
         if (i != cur_playernum)
@@ -266,6 +268,7 @@ void gevrPauseLocalRadar(GevrPauseRadarView *radar)
     extern int netGetLocalSlot(void);
     extern bool netSlotOccupied(int slot);
     extern bool netIsRemotePlayerActive(int slot);
+    extern int gevrNetOwnsSlot(int slot);
     int slot=netGetLocalSlot();
     radar->visible=radar->count=0;
     if(!netIsActive() || slot<0 || slot>=MAX_PLAYER_COUNT ||
@@ -286,7 +289,7 @@ void gevrPauseLocalRadar(GevrPauseRadarView *radar)
     for(int i=0;i<getPlayerCount() && i<MAX_PLAYER_COUNT;i++) {
         struct player *other=g_playerPointers[i];
         if(i==slot || i==netSpectatorTarget() || !netSlotOccupied(i) ||
-            !netIsRemotePlayerActive(i) || !other || !other->prop || other->bonddead)continue;
+            (!netIsRemotePlayerActive(i) && !gevrNetOwnsSlot(i)) || !other || !other->prop || other->bonddead)continue;
         f32 dx=other->prop->pos.f[0]-local->prop->pos.f[0];
         f32 dz=other->prop->pos.f[2]-local->prop->pos.f[2];
         f32 angle=(((atan2f(dx,dz)*180.f)/M_PI_F)+local->vv_theta+180.f)*0.017453292f;

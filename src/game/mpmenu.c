@@ -404,6 +404,16 @@ static void rowTeamStep(s32 dir) { netLobbySetTeam((u8)gevrCycled(netGetSlotTeam
 static s32 lobbyClient(void) { return !netIsHost(); }
 static void rowReadyValue(char *b,s32 n) { snprintf(b,n,"%s",netLocalReady() ? "READY" : "WAITING"); }
 static void rowReadyStep(s32 dir) { gevrNetSetReady(!netLocalReady()); }
+/* Bots: player slots the host runs (gevr_bot.c), changed between rounds only */
+static s32 lobbyBots(void) { return gevrNetBotRowsEditable(); }
+static s32 lobbyBotsOn(void) { return gevrNetBotRowsEditable() && gevrNetConfigGet(CFG_BOT_MODE) != NET_BOT_OFF; }
+static s32 lobbyBotsFixed(void) { return gevrNetBotRowsEditable() && gevrNetConfigGet(CFG_BOT_MODE) == NET_BOT_FIXED; }
+static void rowBotModeValue(char *b,s32 n) { snprintf(b,n,"%s",netBotModeName(gevrNetConfigGet(CFG_BOT_MODE))); }
+static void rowBotModeStep(s32 dir) { gevrNetConfigSet(CFG_BOT_MODE,gevrCycled(gevrNetConfigGet(CFG_BOT_MODE),dir,NET_BOT_MODE_COUNT)); }
+static void rowBotCountValue(char *b,s32 n) { snprintf(b,n,"%d",gevrNetConfigGet(CFG_BOT_COUNT)); }
+static void rowBotCountStep(s32 dir) { gevrNetConfigSet(CFG_BOT_COUNT,gevrCycled(gevrNetConfigGet(CFG_BOT_COUNT)-1,dir,MAX_PLAYER_COUNT-1)+1); }
+static void rowBotDiffValue(char *b,s32 n) { snprintf(b,n,"%s",netBotDifficultyName(gevrNetConfigGet(CFG_BOT_DIFFICULTY))); }
+static void rowBotDiffStep(s32 dir) { gevrNetConfigSet(CFG_BOT_DIFFICULTY,gevrCycled(gevrNetConfigGet(CFG_BOT_DIFFICULTY),dir,NET_BOT_DIFF_COUNT)); }
 static const GevrMenuRow s_lobbyRows[] = {
     { "NEXT ROUND READY", GEVR_ROW_VALUE, 0, lobbyClient, rowReadyValue, rowReadyStep, "R-STICK:ON/OFF" },
     { "FRIENDLY FIRE", GEVR_ROW_VALUE, 1, friendlyFireTeams, rowFriendlyFireValue, rowFriendlyFireStep, "R-STICK:ON/OFF" },
@@ -414,6 +424,9 @@ static const GevrMenuRow s_lobbyRows[] = {
     { "NEXT WEAPONS",    GEVR_ROW_VALUE,  0, lobbyWeaponVote,       rowNextWeaponsValue, rowNextWeaponsStep, "R-STICK:VOTE" },
     { "MAP",             GEVR_ROW_VALUE,  1, NULL,              rowMapValue,        rowMapStep,         "R-STICK:PICK" },
     { "PLAYERS",         GEVR_ROW_VALUE,  1, lobbyNoTeams,      rowPlayersValue,    rowPlayersStep,     "R-STICK:PICK" },
+    { "BOTS",            GEVR_ROW_VALUE,  1, lobbyBots,         rowBotModeValue,    rowBotModeStep,     "R-STICK:PICK" },
+    { "BOT COUNT",       GEVR_ROW_VALUE,  1, lobbyBotsFixed,    rowBotCountValue,   rowBotCountStep,    "R-STICK:PICK" },
+    { "BOT DIFFICULTY",  GEVR_ROW_VALUE,  1, lobbyBotsOn,       rowBotDiffValue,    rowBotDiffStep,     "R-STICK:PICK" },
     { "WEAPONS",         GEVR_ROW_VALUE,  1, lobbyNotGoldenGun, rowWeaponsValue,    rowWeaponsStep,     "R-STICK:PICK" },
     { "CUSTOM 1",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom0Value,    rowCustom0Step,     "R-STICK:PICK" },
     { "CUSTOM 2",        GEVR_ROW_VALUE,  1, lobbyCustomSet,    rowCustom1Value,    rowCustom1Step,     "R-STICK:PICK" },
@@ -666,6 +679,9 @@ static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
     if (!strcmp(n,"NEXT MAP")) { *selected=netGetVote(0,netGetLocalSlot())+1; return netStageCount()+1; }
     if (!strcmp(n,"NEXT WEAPONS")) { *selected=netGetVote(1,netGetLocalSlot())+1; return netWeaponSetCount()+1; }
     if (!strcmp(n,"PLAYERS")) { *selected=gevrNetConfigGet(CFG_MAX_PLAYERS)-2; return 7; }
+    if (!strcmp(n,"BOT COUNT")) { *selected=gevrNetConfigGet(CFG_BOT_COUNT)-1; return MAX_PLAYER_COUNT-1; }
+    if (!strcmp(n,"BOTS")) {field=CFG_BOT_MODE;count=NET_BOT_MODE_COUNT;}
+    if (!strcmp(n,"BOT DIFFICULTY")) {field=CFG_BOT_DIFFICULTY;count=NET_BOT_DIFF_COUNT;}
     if (!strcmp(n,"CHARACTER")) { *selected=gevrNetSlotChr(netGetLocalSlot()); return netCharacterCount(); }
     if (!strcmp(n,"YOUR TEAM")) { *selected=netGetSlotTeam(netGetLocalSlot()); return 3; }
     if (!strncmp(n,"LOADOUT ",8)) { *selected=netItemIndexOf(gevrNetSlotLoadout(netGetLocalSlot(),n[8]-'1')); return netItemCount(); }
@@ -717,6 +733,9 @@ const char *gevrPauseChoice(int id,int index)
     if(index<0 || index>=count)return "";
     if(!strcmp(n,"NEXT MAP") || !strcmp(n,"NEXT WEAPONS")) {if(!index)return "No vote";index--;return !strcmp(n,"NEXT MAP")?netStageName(index):netWeaponSetName(index);}
     if(!strcmp(n,"PLAYERS")) { const char*names[]={"2","3","4","5","6","7","8"};return names[index]; }
+    if(!strcmp(n,"BOT COUNT")) { const char*names[]={"1","2","3","4","5","6","7"};return names[index]; }
+    if(!strcmp(n,"BOTS"))return netBotModeName(index);
+    if(!strcmp(n,"BOT DIFFICULTY"))return netBotDifficultyName(index);
     if(!strcmp(n,"MAP"))return netStageName(index);
     if(!strcmp(n,"WEAPONS"))return netWeaponSetName(index);
     if(!strcmp(n,"SCENARIO"))return netScenarioName(index);
@@ -742,6 +761,9 @@ void gevrPauseSelect(int id,int index)
     if(!strcmp(r->name,"NEXT WEAPONS")) {netSetLocalVote(1,index-1);return;}
     if(!strcmp(r->name,"SCENARIO"))gevrNetConfigSet(CFG_SCENARIO,index);
     else if(!strcmp(r->name,"PLAYERS"))gevrNetConfigSet(CFG_MAX_PLAYERS,index+2);
+    else if(!strcmp(r->name,"BOTS"))gevrNetConfigSet(CFG_BOT_MODE,index);
+    else if(!strcmp(r->name,"BOT COUNT"))gevrNetConfigSet(CFG_BOT_COUNT,index+1);
+    else if(!strcmp(r->name,"BOT DIFFICULTY"))gevrNetConfigSet(CFG_BOT_DIFFICULTY,index);
     else r->step(index-current);
     mpwatchPlayBeep();
 }
