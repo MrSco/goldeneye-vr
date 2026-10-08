@@ -1555,6 +1555,16 @@ static f32 gevrGunSizeFactor(void)
     return netGunSizeFactor(netIsActive() ? netActiveGunSize() : VrGunSizeCheat);
 }
 
+/* gun.c's unarmed log: the size every hand is drawn at, and where it comes from */
+f32 gevrGunSizeNow(s32 *setting, s32 *online)
+{
+    extern int VrGunSizeCheat;
+
+    *online = netIsActive();
+    *setting = *online ? netActiveGunSize() : VrGunSizeCheat;
+    return gevrGunSizeFactor();
+}
+
 /*
  * The gun's fit in the hand (Gun fit), cm right, up and back: GoldenEye's,
  * or for a GoldenEye X model its own, since those sit differently in the
