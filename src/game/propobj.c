@@ -317,6 +317,9 @@ s32 objGetShotsTaken(ObjectRecord *);
 void sub_GAME_7F04AC20(PropRecord *prop, ModelRenderData *, s32 arg2);
 bool chrobjSeparatingAxisTheorem(rect4f* rect1, s32 numvertices0, rect4f* rect2, s32 numvertices1);
 void chrobjSndCreatePostEvent(ALSoundState *state, coord3d *pos, f32 low, f32 high);
+#ifdef GEVR
+void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos);   /* gevr_sndpath.c */
+#endif
 void remove_obj_from_temp_proxmine_table(WeaponObjRecord* proxy);
 void add_obj_to_temp_proxmine_table(WeaponObjRecord* proxy);
 s32 sub_GAME_7F042EB4(struct ObjectRecord *arg0, f32 *arg1, struct coord3d *arg2, struct coord3d *arg3, s32 arg4, s32 arg5);
@@ -13100,25 +13103,27 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
     shortest_distance = high;
     count = getPlayerCount();
 
+#ifdef GEVR
+    /*
+     * Split screen shares one speaker, so a sound is as loud as it is for
+     * the nearest player. Online each headset hears only its own player
+     * (measured to the other players' copies, a remote gun or explosion was
+     * always as loud as if it were beside you), and along the way the sound
+     * travels, round walls through the doorways (gevr_sndpath.c).
+     */
+    {
+        extern bool netIsActive(void);
+        extern int netGetLocalSlot(void);
+        extern s32 gevrSndPathVolume(coord3d *pos, s32 room, f32 low, f32 high);
+
+        if (netIsActive() && netGetLocalSlot() >= 0)
+        {
+            return gevrSndPathVolume(pos, -1, low, high);
+        }
+    }
+#endif
     for (index = 0; index < count; index++)
     {
-#ifdef GEVR
-        /*
-         * Split screen shares one speaker, so a sound is as loud as it is for
-         * the nearest player. Online each headset hears only its own player:
-         * measured to the other players' copies, a remote gun or explosion
-         * was always as loud as if it were beside you.
-         */
-        {
-            extern bool netIsActive(void);
-            extern int netGetLocalSlot(void);
-
-            if (netIsActive() && netGetLocalSlot() >= 0 && index != netGetLocalSlot())
-            {
-                continue;
-            }
-        }
-#endif
         prop  = g_playerPointers[index]->prop;
         diffx = prop->pos.x - pos->x;
         diffy = prop->pos.y - pos->y;
@@ -13137,6 +13142,9 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
 void chrobjSndCreatePostEvent(ALSoundState *state, coord3d *pos, f32 low, f32 high)
 {
     sndCreatePostEvent(state, 8, sub_GAME_7F053894(pos, low, high));
+#ifdef GEVR
+    gevrSndSpatialPlace(state, pos);   /* online: heard from where it is */
+#endif
 }
 
 
@@ -13156,6 +13164,9 @@ void chrobjSndCreatePostEventDamage(ALSoundState *state, coord3d *pos)
 {
     f32 gain = sub_GAME_7F053894(pos, 200.0f, 500.0f) / 32767.0f;
     sndCreatePostEvent(state, 8, (s32)(32767.0f * gain * gain));
+#ifdef GEVR
+    gevrSndSpatialPlace(state, pos);
+#endif
 }
 
 void chrobjSndCreatePostEventDefault(ALSoundState *state, coord3d *pos)
@@ -13189,6 +13200,9 @@ void sub_GAME_7F053A3C(DoorRecord* arg0)
             assert( po->audiostate!=NULL);
             #endif
             sndCreatePostEvent(arg0->openSoundState, 8, sp1C);
+#ifdef GEVR
+            gevrSndSpatialPlace(arg0->openSoundState, &arg0->prop->pos);
+#endif
         }
 
         if (close_playing != 0)
@@ -13197,6 +13211,9 @@ void sub_GAME_7F053A3C(DoorRecord* arg0)
             assert( po->audiostate2!=NULL);
             #endif
             sndCreatePostEvent(arg0->closeSoundState, 8, sp1C);
+#ifdef GEVR
+            gevrSndSpatialPlace(arg0->closeSoundState, &arg0->prop->pos);
+#endif
         }
     }
 }

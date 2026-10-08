@@ -84,6 +84,20 @@ void       audioPlayFromProp2(s32 slot)
         {
             tempvol = 0;
         }
+#ifdef GEVR
+        {
+            extern void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos);
+
+            if (sfx->pos)
+            {
+                gevrSndSpatialPlace(sfx->state, sfx->pos);
+            }
+            else if (sfx->Obj && sfx->Obj->prop)
+            {
+                gevrSndSpatialPlace(sfx->state, &sfx->Obj->runtime_pos);
+            }
+        }
+#endif
         if (tempvol != sfx->Volume2)
         {
             sndCreatePostEvent(sfx->state, 8, tempvol);

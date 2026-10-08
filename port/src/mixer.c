@@ -5,6 +5,9 @@
 
 #include "mixer.h"
 #include "system.h"
+#ifdef GEVR
+#include "net/net_spatial.h"
+#endif
 
 #ifdef __SSE4_1__
 #include <immintrin.h>
@@ -698,6 +701,9 @@ void aEnvMixerImpl(uint8_t flags, ENVMIX_STATE state) {
  int nbytes = ROUND_UP_16(rspa.nbytes);
 
 #ifdef GEVR
+ extern int32_t g_gevrSndSpatialSlot;
+ extern float g_gevrSndSpatialDir[3];
+ extern int32_t g_gevrSndSpatialPositioned;
  /* Rare's env.c _getRate is a signed 16.16 ADDITIVE delta (not SM64's
   * exponential multiply). Match getv / mupen alist_envmix_ge ramp_step. */
  struct GeEnvState {
@@ -745,8 +751,19 @@ void aEnvMixerImpl(uint8_t flags, ENVMIX_STATE state) {
    {
     int16_t gain_dry_l = clamp16(((int32_t)vol[0] * saved.dry + 0x4000) >> 15);
     int16_t gain_dry_r = clamp16(((int32_t)vol[1] * saved.dry + 0x4000) >> 15);
-    dry[0][i] = clamp16(dry[0][i] + (((int32_t)sample * gain_dry_l) >> 15));
-    dry[1][i] = clamp16(dry[1][i] + (((int32_t)sample * gain_dry_r) >> 15));
+    if (g_gevrSndSpatialSlot >= 0) {
+     /* a placed sound, online: its dry signal heard from its direction
+      * (gevr_sndpath.c), as the players' voices are; the wet send as ever */
+     float l, r;
+     netSpatialSample((unsigned)g_gevrSndSpatialSlot,
+                      (float)(((int32_t)sample * ((gain_dry_l + gain_dry_r) >> 1)) >> 15),
+                      g_gevrSndSpatialDir, g_gevrSndSpatialPositioned, &l, &r);
+     dry[0][i] = clamp16(dry[0][i] + (int32_t)l);
+     dry[1][i] = clamp16(dry[1][i] + (int32_t)r);
+    } else {
+     dry[0][i] = clamp16(dry[0][i] + (((int32_t)sample * gain_dry_l) >> 15));
+     dry[1][i] = clamp16(dry[1][i] + (((int32_t)sample * gain_dry_r) >> 15));
+    }
     /* getv always writes wet when A_AUX was set at INIT; env.c passes
      * A_AUX on CONTINUE too, but keep wet alive from saved wetamt. */
     if (flags & A_AUX) {
