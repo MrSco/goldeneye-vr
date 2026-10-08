@@ -30,6 +30,8 @@
 #include "player.h"
 #include "lv.h"
 #include "net_game.h"
+#include "dyn.h"
+#include "model.h"
 #include "gevr_bodyslot.h"
 #include "gevr_bodyslots.h"
 
@@ -56,6 +58,19 @@ extern s32 gevrBodyHandList(s32 hand, s32 *items, char (*names)[48], s32 max);
 extern s32 gevrBodyGripPos(s32 ctrl, f32 pos[3]);
 extern s32 gevrBodyTwoHandNear(void);
 extern void gevrHolsterReset(void);
+extern void gevrBodyShortName(const char *in, char *out, s32 size);
+extern u32 gevrBodyCategoryTint(s32 cat);
+extern s32 gevrBodyItemPosed(s32 item);
+extern void gevrStereoItemPose(s32 item, Mtxf *m);
+extern f32 gevrGunSizeNow(s32 *setting, s32 *online);
+extern float VrGunOffX, VrGunOffY, VrGunOffZ;
+extern s32 g_gevrExtraPass;                   /* lv.c: an extra view pass */
+extern void matrix_4x4_7F058C64(void);
+extern void matrix_4x4_7F058C88(void);
+extern u16 viGetPerspNorm(void);
+/* gevr_heldgun.c, gunfire.c */
+extern Gfx *gevrHeldGunDrawPosed(s32 inst, s32 item, Mtxf *root, ModelRenderData *templ, Gfx *gdl);
+extern Gfx *gevrDrawViewTag(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 speaking, u32 panel);
 extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);
 extern s32 gevrIsThrowable(s32 item);        /* port/src/input.c */
 extern int VrMotionThrowing;
@@ -115,6 +130,7 @@ static GevrBodyMru s_bodyMru[GEVR_BODY_SLOTS];
 static s32 s_bodyList[2][BS_LIST];
 static char s_bodyNames[2][BS_LIST][48];
 static s32 s_bodyListN[2];
+static f32 s_bodyView[3][3];   /* the view's right, up and back in the level frame, this tick */
 static f32 s_bodyTwistLogged;
 static s32 s_bodyTwistLogTicks;
 
@@ -349,6 +365,12 @@ static s32 gevrBodyFrameUpdate(void)
         sysLogPrintf(LOG_NOTE, "bodyslot: torso starts at the head (%s)", s_bodyFrameValid ? "it jumped" : "first frame");
     }
     gevrBodyFrameBuild(&s_bodyFrame, &s_bodyTorso, hp, fw, up, rt);
+    for (s = 0; s < 3; s++)
+    {
+        s_bodyView[0][s] = rt[s];
+        s_bodyView[1][s] = up[s];
+        s_bodyView[2][s] = -fw[s];
+    }
     for (s = 0; s < GEVR_BODY_SLOTS; s++)
     {
         f32 off[3];
@@ -689,6 +711,363 @@ void gevrBodySlotGripLetGo(int ctrl)
 int gevrBodySlotHoldsGrip(int ctrl)
 {
     return ctrl >= 0 && ctrl < 2 && s_bodyHand[ctrl].gripHeld;
+}
+
+/* ------------------------------------------------------------- drawing */
+
+/* a level-frame direction into view space; a point too (cm into view units) with cm */
+static void gevrBodyToView(const f32 p[3], f32 scale, f32 out[3])
+{
+    s32 i;
+
+    for (i = 0; i < 3; i++)
+    {
+        out[i] = (p[0] * s_bodyView[i][0] + p[1] * s_bodyView[i][1] + p[2] * s_bodyView[i][2]) * scale;
+    }
+}
+
+/* what a slot shows: a hovering hand's choice, else what its own hand would take */
+static s32 gevrBodyShownItem(s32 slot, s32 *hoveredBy)
+{
+    s32 choices[BS_CHOICES];
+    s32 ctrl, n, pick;
+
+    *hoveredBy = -1;
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        if (s_bodyHand[ctrl].slot == slot)
+        {
+            *hoveredBy = ctrl;
+            return s_bodyHand[ctrl].pick >= 0 ? s_bodyHand[ctrl].pick : -1;
+        }
+    }
+    for (ctrl = 1; ctrl >= 0; ctrl--)
+    {
+        if (!(gevrBodySlotHands(slot) & (1 << ctrl)) || (ctrl == 0 && !gevrLeftPanelAvailable()))
+        {
+            continue;
+        }
+        n = gevrBodyChoicesFor(slot, ctrl ? GUNRIGHT : GUNLEFT, choices);
+        pick = gevrBodyDefaultPick(&s_bodyMru[slot], choices, n);
+        if (pick >= 0)
+        {
+            return pick;
+        }
+    }
+    return -1;
+}
+
+/*
+ * A slot's model matrix, view space, as gevrStereoGunMatrix builds the gun
+ * hand's: the viewmodel's 0.85 cm a unit (and the flat game's 0.1, gunfire.c),
+ * the grip on the slot's centre. A pistol hangs muzzle down with its slide
+ * forward, the hand reaching down for its grip; a knife too; grenades, mines
+ * and gadgets sit upright, facing ahead, gadgets at their in-hand size.
+ */
+static void gevrBodySlotRoot(s32 slot, s32 item, Mtxf *root)
+{
+    const f32 *R = s_bodyFrame.right, *U = s_bodyFrame.up, *F = s_bodyFrame.fwd;
+    s32 down = slot == GEVR_BS_HIP_GUN || slot == GEVR_BS_HIP_OFF || item == ITEM_KNIFE || item == ITEM_THROWKNIFE;
+    f32 x[3], y[3], z[3], xv[3], yv[3], zv[3], cv[3];
+    f32 cm = D_800364CC;
+    s32 setting, online, i, j;
+    f32 size = gevrGunSizeNow(&setting, &online);
+    f32 k = 0.85f * cm * size;
+
+    for (i = 0; i < 3; i++)
+    {
+        x[i] = -R[i];
+        y[i] = down ? F[i] : U[i];
+        z[i] = down ? -U[i] : F[i];
+    }
+    gevrBodyToView(x, 1.0f, xv);
+    gevrBodyToView(y, 1.0f, yv);
+    gevrBodyToView(z, 1.0f, zv);
+    gevrBodyToView(s_bodyCentre[slot], cm, cv);
+    for (i = 0; i < 3; i++)
+    {
+        root->m[0][i] = xv[i] * k;
+        root->m[1][i] = yv[i] * k;
+        root->m[2][i] = zv[i] * k;
+        root->m[3][i] = cv[i] + (-VrGunOffX * xv[i] + VrGunOffY * yv[i] - (12.0f + VrGunOffZ) * zv[i]) * cm * size;
+    }
+    root->m[0][3] = root->m[1][3] = root->m[2][3] = 0.0f;
+    root->m[3][3] = 1.0f;
+    if (gevrBodyItemPosed(item))
+    {
+        gevrStereoItemPose(item, root);
+    }
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            root->m[i][j] *= 0.1f;
+        }
+    }
+}
+
+/* in view, and near enough the view's axis to be seen (the hips when looking down) */
+static s32 gevrBodyInView(const f32 v[3])
+{
+    f32 len = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+
+    return -v[2] > 10.0f * D_800364CC && -v[2] > 0.57f * len;   /* inside about 55 degrees */
+}
+
+/*
+ * bondview2.c maybe_mp_interface, before the first-person guns, culling off:
+ * what the hips, the chest and the belt hold, drawn on the body (Doom3Quest
+ * and Perfect Dark VR draw their holster and belt magazine always). Only the
+ * slots in view are drawn, so looking ahead costs nothing.
+ */
+Gfx *gevrBodySlotsDraw(Gfx *gdl)
+{
+    static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF, GEVR_BS_CHEST, GEVR_BS_BELT };
+    ModelRenderData rd;
+    u32 tint;
+    s32 i, inst = 0, set = FALSE;
+
+    if (!s_bodyLive || !s_bodyFrameValid || !VrBodySlotShow || g_gevrExtraPass || g_CurrentPlayer == NULL)
+    {
+        return gdl;
+    }
+    rd = (ModelRenderData){0};
+    rd.zbufferenabled = TRUE;
+    rd.flags = 3;
+    rd.PropType = 4;
+    tint = g_CurrentPlayer->tileColor.a | ((u32) g_CurrentPlayer->tileColor.r << 24)
+         | ((u32) g_CurrentPlayer->tileColor.g << 16) | ((u32) g_CurrentPlayer->tileColor.b << 8);
+    for (i = 0; i < (s32) (sizeof(shown) / sizeof(shown[0])); i++)
+    {
+        s32 slot = shown[i], by;
+        s32 item = gevrBodyShownItem(slot, &by);
+        f32 cv[3];
+        Mtxf root;
+
+        if (item < 0)
+        {
+            continue;
+        }
+        gevrBodyToView(s_bodyCentre[slot], D_800364CC, cv);
+        if (!gevrBodyInView(cv))
+        {
+            continue;
+        }
+        if (!set)
+        {
+            gSPPerspNormalize(gdl++, matrix_4x4_calc_depth_scale(0.0f, 300.0f));   /* as the guns are */
+            set = TRUE;
+        }
+        rd.envcolour.word = tint;
+        if (by >= 0)
+        {
+            /* the one the hand is on, lit up */
+            u32 r = (tint >> 24) & 0xff, g = (tint >> 16) & 0xff, b = (tint >> 8) & 0xff;
+
+            r = r * 3 / 2 + 24; g = g * 3 / 2 + 20; b = b * 3 / 2 + 8;
+            rd.envcolour.word = (r > 255 ? 255u : r) << 24 | (g > 255 ? 255u : g) << 16
+                              | (b > 255 ? 255u : b) << 8 | (tint & 0xff);
+        }
+        gevrBodySlotRoot(slot, item, &root);
+        if (gevrBodyItemPosed(item))
+        {
+            gDPNoOpTag(gdl++, 0x565B0001);   /* a gadget keeps its culling (gunfire.c s_gevrHiddenShown) */
+        }
+        matrix_4x4_7F058C64();
+        gdl = gevrHeldGunDrawPosed(inst++, item, &root, &rd, gdl);
+        matrix_4x4_7F058C88();
+        if (gevrBodyItemPosed(item))
+        {
+            gDPNoOpTag(gdl++, 0x565B0000);
+        }
+    }
+    if (set)
+    {
+        gSPPerspNormalize(gdl++, viGetPerspNorm());
+    }
+    return gdl;
+}
+
+static void gevrBodyVtx(Vtx *v, s32 x, s32 y, u32 rgba)
+{
+    v->v.ob[0] = x;
+    v->v.ob[1] = y;
+    v->v.ob[2] = 0;
+    v->v.flag = 0;
+    v->v.tc[0] = v->v.tc[1] = 0;
+    v->v.cn[0] = rgba >> 24;
+    v->v.cn[1] = (rgba >> 16) & 0xff;
+    v->v.cn[2] = (rgba >> 8) & 0xff;
+    v->v.cn[3] = rgba & 0xff;
+}
+
+/* a ring facing the eye at the view point at, radius cm (gevrDrawMuzzleMarker's way: vertices in mm) */
+static Gfx *gevrBodyRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba)
+{
+    Mtxf mf;
+    Mtx *mv = dynAllocateMatrix();
+    Vtx *v = dynAllocateVertices(32);
+    f32 outer = radius * 10.0f, inner = outer - 4.0f;
+    s32 i;
+
+    matrix_4x4_set_identity(&mf);
+    mf.m[0][0] = mf.m[1][1] = mf.m[2][2] = 0.1f * D_800364CC;
+    mf.m[3][0] = at[0];
+    mf.m[3][1] = at[1];
+    mf.m[3][2] = at[2];
+    guMtxF2L(mf.m, mv);
+    for (i = 0; i < 16; i++)
+    {
+        f32 a = i * (6.2831853f / 16.0f);
+
+        gevrBodyVtx(&v[i * 2], (s32) (cosf(a) * outer), (s32) (sinf(a) * outer), rgba);
+        gevrBodyVtx(&v[i * 2 + 1], (s32) (cosf(a) * inner), (s32) (sinf(a) * inner), rgba);
+    }
+    gSPMatrix(gdl++, osVirtualToPhysical((void *) currentPlayerGetProjectionMatrix()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+    gSPMatrix(gdl++, osVirtualToPhysical(mv), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
+    gDPPipeSync(gdl++);
+    gSPClearGeometryMode(gdl++, G_ZBUFFER | G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
+    gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
+    gDPSetCycleType(gdl++, G_CYC_1CYCLE);
+    gDPSetRenderMode(gdl++, G_RM_XLU_SURF, G_RM_XLU_SURF2);
+    gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
+    gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE);
+    gSPVertex(gdl++, osVirtualToPhysical(v), 32, 0);
+    for (i = 0; i < 16; i++)
+    {
+        s32 o = i * 2, n = ((i + 1) % 16) * 2;
+
+        gSP2Triangles(gdl++, o, o + 1, n, 0, o + 1, n + 1, n, 0);
+    }
+    gDPPipeSync(gdl++);
+    gSPSetGeometryMode(gdl++, G_ZBUFFER);
+    return gdl;
+}
+
+/* the label's text: what a grip takes, and which of how many */
+static void gevrBodyLabel(s32 ctrl, char *out, s32 size)
+{
+    GevrBodyHand *h = &s_bodyHand[ctrl];
+    s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
+    char name[48];
+    s32 items = 0, at = 0, i;
+
+    if (getPlayerCount() >= 2 && get_scenario() == 2 && bondinvIsAliveWithFlag())
+    {
+        snprintf(out, size, "FLAG");
+        return;
+    }
+    if (h->pick == GEVR_BODY_HOLSTER)
+    {
+        gevrBodyShortName(gevrBodyItemName(hand, gevrBodyHandSelected(hand)), name, sizeof(name));
+        snprintf(out, size, "HOLSTER %s", name);
+        return;
+    }
+    gevrBodyShortName(gevrBodyItemName(hand, h->pick), name, sizeof(name));
+    for (i = 0; i < h->n; i++)
+    {
+        if (h->choices[i] >= 0)
+        {
+            items++;
+            if (h->choices[i] == h->pick)
+            {
+                at = items;
+            }
+        }
+    }
+    if (items > 1)
+    {
+        snprintf(out, size, "%s %d/%d", name, at, items);
+    }
+    else
+    {
+        snprintf(out, size, "%s", name);
+    }
+}
+
+/*
+ * bondview2.c maybe_mp_interface, after the sight: by a hand in a slot, what a
+ * grip takes there (the shoulders are behind the head: theirs sits in front of
+ * the chest), and a ring on a front slot's centre. Gun fit's Slots mode, or the
+ * tune file's markers, ring every slot.
+ */
+Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
+{
+    s32 ctrl;
+
+    if (!s_bodyLive || !s_bodyFrameValid || g_gevrExtraPass || g_CurrentPlayer == NULL)
+    {
+        return gdl;
+    }
+    if (s_bodyTune[BT_MARKERS] != 0.0f)
+    {
+        s32 s;
+
+        for (s = 0; s < GEVR_BODY_SLOTS; s++)
+        {
+            f32 cv[3];
+
+            gevrBodyToView(s_bodyCentre[s], D_800364CC, cv);
+            if (cv[2] < 0.0f)
+            {
+                gdl = gevrBodyRing(gdl, cv, s_bodyRadius[s], gevrBodyCategoryTint(gevrBodySlotCategory(s)) | 0x90);
+            }
+        }
+    }
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        GevrBodyHand *h = &s_bodyHand[ctrl];
+        s32 back = h->slot == GEVR_BS_BACK_GUN || h->slot == GEVR_BS_BACK_OFF;
+        u32 tint;
+        f32 p[3], v[3];
+        char text[48];
+        s32 i;
+
+        if (h->slot < 0 || h->pick == -1)
+        {
+            continue;
+        }
+        tint = gevrBodyCategoryTint(gevrBodySlotCategory(h->slot));
+        if (back)
+        {
+            /* in front of the chest, on the shoulder's side */
+            const f32 side = (f32) gevrBodySlotSide(h->slot, VrLeftHandedMode);
+
+            for (i = 0; i < 3; i++)
+            {
+                p[i] = s_bodyFrame.origin[i] + 35.0f * s_bodyFrame.fwd[i] + 15.0f * side * s_bodyFrame.right[i]
+                     - 15.0f * s_bodyFrame.up[i];
+            }
+        }
+        else
+        {
+            for (i = 0; i < 3; i++)
+            {
+                p[i] = h->at[i] + 9.0f * s_bodyFrame.up[i];
+            }
+            gevrBodyToView(s_bodyCentre[h->slot], D_800364CC, v);
+            if (v[2] < 0.0f)
+            {
+                gdl = gevrBodyRing(gdl, v, 4.0f, tint | 0xC0);
+            }
+        }
+        gevrBodyToView(p, D_800364CC, v);
+        if (v[2] > -5.0f * D_800364CC)
+        {
+            continue;   /* behind the eye */
+        }
+        gevrBodyLabel(ctrl, text, sizeof(text));
+        if (!back)
+        {
+            gDPNoOpTag(gdl++, 0x565F0000 | (u32) (ctrl + 1));   /* with the hand (gunfire.c gevrHandTag) */
+        }
+        gdl = gevrDrawViewTag(gdl, text, v, 0.12f * D_800364CC, FALSE, (tint & 0xffffff00) | 0xB0);
+        if (!back)
+        {
+            gDPNoOpTag(gdl++, 0x565F0000);
+        }
+    }
+    return gdl;
 }
 
 void gevrBodySlotsReset(void)

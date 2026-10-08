@@ -18317,6 +18317,26 @@ s32 gevrBodyGripPos(s32 ctrl, f32 pos[3])
     return gevrGripAxesRaw(ctrl, pos, r, u, b);
 }
 
+/* the wheel's short name for a list name (its labels) */
+void gevrBodyShortName(const char *in, char *out, s32 size)
+{
+    gevrWcShorten(in, out, size);
+}
+
+/* the wheel's tint for a category */
+u32 gevrBodyCategoryTint(s32 cat)
+{
+    return cat >= 0 && cat < GEVR_WC_COUNT
+        ? ((u32) s_gevrWcTint[cat][0] << 24) | ((u32) s_gevrWcTint[cat][1] << 16) | ((u32) s_gevrWcTint[cat][2] << 8)
+        : 0x80808000;
+}
+
+/* a gadget with an in-hand pose (gevrStereoItemPose) */
+s32 gevrBodyItemPosed(s32 item)
+{
+    return gevrItemPoseFind(item) != NULL;
+}
+
 /* the off hand is holding, or about to hold, the gun with both hands */
 s32 gevrBodyTwoHandNear(void)
 {
@@ -18639,6 +18659,16 @@ Gfx *maybe_mp_interface(Gfx *gdl)
         gDPNoOpTag(gdl++, 0x565B0000);
     }
 #endif
+#ifdef GEVR
+    /* what the body slots hold, on the body, before the hands: drawn after,
+     * they sort against a gun's wooden parts, which write no depth */
+    if (g_gevrStereo && !(netIsActive() && g_CurrentPlayer->mpmenuon))
+    {
+        extern Gfx *gevrBodySlotsDraw(Gfx *gdl);   /* gevr_bodyslots.c */
+
+        gdl = gevrBodySlotsDraw(gdl);
+    }
+#endif
     if (!(netIsActive() && g_CurrentPlayer->mpmenuon)) gunRenderFirstPersonGunModels(&gdl);
 #ifdef GEVR
     if (g_gevrStereo)
@@ -18870,6 +18900,11 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     gunDrawSight(&gdl);
 #ifdef GEVR
     gdl = gevrDrawMuzzleMarker(gdl);
+    {
+        extern Gfx *gevrBodySlotsDrawLabels(Gfx *gdl);   /* gevr_bodyslots.c: what a reach takes */
+
+        gdl = gevrBodySlotsDrawLabels(gdl);
+    }
     /*
      * Stereo: the ammo count goes on a small panel at the right controller,
      * Perfect Dark VR's weapon HUD (VR_WEP_HUD_CAPTURE_*_R round its ammo
