@@ -838,19 +838,6 @@ static void gevrViewPass(s32 playernum, s32 hand)
     }
     else
     {
-        if (gevrNetSlotIsBot(playernum) && get_hands_firing_status(hand))
-        {
-            /* playtest probe (2026-10-07: bots' shots land on no one): a bot's shot, once a second a slot */
-            static u32 s_lastlog[MAX_PLAYER_COUNT];
-
-            if ((u32)g_GlobalTimer - s_lastlog[playernum] >= 60)
-            {
-                s_lastlog[playernum] = (u32)g_GlobalTimer;
-                sysLogPrintf(LOG_NOTE, "bots: slot %d fires item %d from %.0f,%.0f,%.0f view %.2f,%.2f,%.2f (cam %.0f,%.0f,%.0f) state %d",
-                             playernum, getCurrentPlayerWeaponId(hand), pl->prop->pos.x, pl->prop->pos.y, pl->prop->pos.z,
-                             look.x, look.y, look.z, pos.x, pos.y, pos.z, pl->hands[hand].weapon_action_state);
-            }
-        }
         g_gevrShotHand = hand;
         chraiCheckUseHeldItem(hand);
         g_gevrShotHand = -1;

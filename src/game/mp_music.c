@@ -55,6 +55,14 @@ void set_missionstate(MISSION_STATE_ID arg0)
 {
     s32 old_mission_state = mission_state;
 
+#ifdef GEVR
+    /* the death sting (state 6) has been missing online for some versions: log the changes */
+    if (arg0 != old_mission_state)
+    {
+        extern void sysLogPrintf(s32 level, const char *fmt, ...);
+        sysLogPrintf(1, "music: mission state %d -> %d (stage music %d)", old_mission_state, arg0, stageMusicID);
+    }
+#endif
 
     mission_state = arg0;
 
