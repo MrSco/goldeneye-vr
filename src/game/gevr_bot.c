@@ -994,7 +994,8 @@ static void gevrBotThink(s32 slot, struct player *pl, GevrBot *bot, OSContPad *p
             f32 heading = gevrBotHeading(&pl->prop->pos, &op->prop->pos) + bot->extraangle * (180.0f / M_PI_F);
             f32 off = gevrBotTurnTo(bot, heading, BOT_TURN_PER_TICK);
 
-            bot->verta = atan2f(dy, flat > 1.0f ? flat : 1.0f) * (180.0f / M_PI_F);
+            /* the game's atan2f runs 0..2 pi (math_atan2f.c): a target below is near 360, not below 0 */
+            bot->verta = gevrBotWrap(atan2f(dy, flat > 1.0f ? flat : 1.0f) * (180.0f / M_PI_F));
             /* PD's fire rule (bot.c botTickUnpaused): in sight, reacted, within 45 degrees */
             if (bot->shootdelaytimer60 >= s_difficulties[diff].shootdelay && off < 45.0f && off > -45.0f &&
                 gevrBotCanFire(pl, bot))
