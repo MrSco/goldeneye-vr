@@ -28,5 +28,11 @@ int gevrBodySlotHoldsGrip(int ctrl);
  * turn don't) */
 int gevrBodySlotButton(int ctrl);
 int gevrBodySlotStick(int ctrl, float x, float dtMs);
+/* hand reload (bondview2.c gevrHandReloadTick): the belt touch with the slots
+ * on, 1 fire, 0 wait, -1 slots off (fire at once); a hand in or just out of a
+ * slot makes no chest cross (Busy) and, near one, no blow (Quiet) */
+int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped);
+int gevrBodySlotBusy(int ctrl);
+int gevrBodySlotQuiet(int ctrl);
 
 #endif

@@ -120,6 +120,18 @@ s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration)
     return 1;
 }
 int vr_haptics_ready(void) { return 1; }
+/* body slots (src/game/gevr_bodyslots.c): off unless a case turns them on;
+ * the belt's wait is the production arithmetic (port/src/gevr_bodyslot.c) */
+#include "gevr_bodyslot.h"
+static int bodySlots, bodyBusy[2], bodyQuiet[2];
+static GevrBodyDefer bodyBelt[2];
+int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped)
+{
+    if (!bodySlots) { memset(&bodyBelt[ctrl], 0, sizeof(bodyBelt[ctrl])); return -1; }
+    return gevrBodyBeltDefer(&bodyBelt[ctrl], entered, inside, gripped, g_ClockTimer * 1000.0f / 60.0f, 100.0f);
+}
+int gevrBodySlotBusy(int ctrl) { return bodySlots && bodyBusy[ctrl]; }
+int gevrBodySlotQuiet(int ctrl) { return bodySlots && (bodyBusy[ctrl] || bodyQuiet[ctrl]); }
 /* PRODUCTION */
 
 /* Supply a body-space point in cm, independently of view scale and handedness. */
@@ -155,6 +167,8 @@ static void reset(void)
     tracked[0] = tracked[1] = 1;
     s_gevrGripGesture[0] = s_gevrGripGesture[1] = 0;
     gripHeld[0] = gripHeld[1] = 0;
+    bodySlots = bodyBusy[0] = bodyBusy[1] = bodyQuiet[0] = bodyQuiet[1] = 0;
+    memset(bodyBelt, 0, sizeof(bodyBelt));
     memset(vr_ctrl_velocity_play, 0, sizeof(vr_ctrl_velocity_play));
     memset(vr_head_velocity_play, 0, sizeof(vr_head_velocity_play));
     at(0, 20, 20, 40);
@@ -243,6 +257,49 @@ static void lifecycleAndHands(void)
     belt(1, 0); gevrHandReloadTick();
     assert(buzzes == 2 && player.hands[GUNRIGHT].weapon_current_animation == 9);
     reset(); at(1, 30, -15, 20); gevrHandReloadTick();
+    assert(buzzes == 2 && player.hands[GUNRIGHT].weapon_current_animation == 9);
+}
+
+/* Body slots on: a touch at the belt still reloads, a moment later; a squeeze
+ * there (holstering at the hip) drops it until the hand has left; a hand in a
+ * slot makes no chest cross and, near one, no blow. */
+static void bodySlotArbitration(void)
+{
+    reset();
+    bodySlots = 1;
+    belt(1, 0); gevrHandReloadTick();
+    assert(buzzes == 0 && player.hands[GUNRIGHT].weapon_current_animation == 0);
+    for (int i = 0; i < 4; i++) gevrHandReloadTick();       /* 83 ms */
+    assert(buzzes == 0);
+    gevrHandReloadTick(); gevrHandReloadTick();             /* 100 ms: it reloads */
+    assert(player.hands[GUNRIGHT].weapon_current_animation == 9 && buzzes == 2);
+    for (int i = 0; i < 20; i++) gevrHandReloadTick();
+    assert(buzzes == 2);                                    /* once */
+    reset();
+    bodySlots = 1;
+    belt(1, 0); gevrHandReloadTick();
+    s_gevrGripGesture[1] = 1; gevrHandReloadTick();        /* a squeeze, still deciding */
+    s_gevrGripGesture[1] = 2; gevrHandReloadTick();        /* a slot took it */
+    s_gevrGripGesture[1] = 0;
+    for (int i = 0; i < 20; i++) gevrHandReloadTick();
+    assert(buzzes == 0 && player.hands[GUNRIGHT].weapon_current_animation == 0);
+    belt(1, 30); gevrHandReloadTick();                      /* out, and back: a touch again */
+    belt(1, 0);
+    for (int i = 0; i < 7; i++) gevrHandReloadTick();
+    assert(player.hands[GUNRIGHT].weapon_current_animation == 9 && buzzes == 2);
+    reset();
+    bodySlots = 1;
+    belt(1, 0); gevrHandReloadTick();
+    belt(1, 30); gevrHandReloadTick();                      /* in and straight out: no reload */
+    for (int i = 0; i < 10; i++) gevrHandReloadTick();
+    assert(buzzes == 0);
+    /* a pistol's chest cross: none while the hand is in a slot */
+    reset();
+    bodySlots = 1; bodyBusy[1] = 1;
+    at(1, 30, 15, 20); gevrHandReloadTick();
+    at(1, 30, -15, 20); gevrHandReloadTick();
+    assert(buzzes == 0);
+    bodyBusy[1] = 0; gevrHandReloadTick();                 /* out of the slot, still across: the cross */
     assert(buzzes == 2 && player.hands[GUNRIGHT].weapon_current_animation == 9);
 }
 
@@ -600,6 +657,7 @@ int main(void)
         gexEntry();
         lifecycleAndHands();
         everyGunAndHolster();
+        bodySlotArbitration();
         meleeArbitration();
         pp7Reload();
         nextGunReloads();

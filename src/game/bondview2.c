@@ -3180,6 +3180,7 @@ void gevrHandChopTick(s32 ctrl)
                            const f32 vel[3], f32 need, s32 land, f32 *into);   /* chrprop.c */
     extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
     extern int vr_haptics_ready(void);        /* vr_input.cpp */
+    extern int gevrBodySlotQuiet(int ctrl);   /* gevr_bodyslots.c */
     static s32 s_whiff[2];   /* ticks until a swing that has landed nothing whiffs, 0 none */
     static s32 s_cool[2];    /* ticks until the hand's next blow can land */
     static s32 s_fast[2];    /* Perfect Dark's vr_hand_triggered: the hand has not slowed yet */
@@ -3231,7 +3232,7 @@ void gevrHandChopTick(s32 ctrl)
     if (!g_gevrStereo || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
         || (netIsActive() && g_CurrentPlayer->mpmenuon)
         || g_PlayerIsInTank == 1 || gevrStereoWatchGrip() || (ctrl == 0 && gevrStereoTwoHandGrip())
-        || gevrReloadHoldsHand(ctrl)
+        || gevrReloadHoldsHand(ctrl) || gevrBodySlotQuiet(ctrl)   /* a reach for a body slot isn't a blow */
         || s_gevrThrowWindup[hand]   /* winding up a throw (grip held): a throw, not a blow (user) */
         || !gevrGripAxesRaw(ctrl, at, right, up, back))
     {
@@ -17593,6 +17594,9 @@ void gevrHandReloadTick(void)
         const f32 *at = ctrl ? gun : off;
         f32 drop, side, ahead;
         f32 beltDist2;
+        s32 beltFire, beltWait;
+        extern int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped);   /* gevr_bodyslots.c */
+        extern int gevrBodySlotBusy(int ctrl);
         const f32 beltRadius = s_gevrReloadTune[GEVR_RT_BELTRADIUS];
         const f32 beltExit = beltRadius + GEVR_RELOAD_BELT_EXIT_CM;
 
@@ -17601,6 +17605,7 @@ void gevrHandReloadTick(void)
         {
             s_crossArmed[ctrl] = FALSE;
             s_beltArmed[ctrl] = FALSE;
+            gevrBodySlotBeltWait(ctrl, FALSE, FALSE, FALSE);   /* a waiting touch is dropped */
             continue;
         }
         if (gevrGexByHand(hand) || (gevrReloadMagazineFed(item) && !gevrReloadGun(other)))
@@ -17612,7 +17617,8 @@ void gevrHandReloadTick(void)
             s_crossArmed[ctrl] = TRUE;
         }
         else if (s_crossArmed[ctrl] && -side >= s_gevrReloadTune[GEVR_RT_CROSSSIDE]
-                 && ahead <= s_gevrReloadTune[GEVR_RT_CROSSAHEAD] && drop >= 10.0f && drop <= 65.0f)
+                 && ahead <= s_gevrReloadTune[GEVR_RT_CROSSAHEAD] && drop >= 10.0f && drop <= 65.0f
+                 && !gevrBodySlotBusy(ctrl))   /* a reach for the chest or the belt isn't a cross */
         {
             s_crossArmed[ctrl] = FALSE;
             gevrHandReloadFire(hand, "chest cross");
@@ -17622,6 +17628,7 @@ void gevrHandReloadTick(void)
          * zone. Leave by a margin before rearming so tracking jitter at
          * the sphere's edge cannot produce another reload or buzz. */
         beltDist2 = gevrBeltDist2(ctrl, at);
+        beltFire = FALSE;
         if (beltDist2 > beltExit * beltExit)
         {
             s_beltArmed[ctrl] = TRUE;
@@ -17629,6 +17636,18 @@ void gevrHandReloadTick(void)
         else if (s_beltArmed[ctrl] && beltDist2 <= beltRadius * beltRadius)
         {
             s_beltArmed[ctrl] = FALSE;
+            beltFire = TRUE;
+        }
+        /* body slots: the hip holster sits at the belt, so the touch waits a
+         * moment and a squeeze meanwhile (holstering) drops it */
+        beltWait = gevrBodySlotBeltWait(ctrl, beltFire, beltDist2 <= beltRadius * beltRadius,
+                                        s_gevrGripGesture[ctrl] != 0);
+        if (beltWait >= 0)
+        {
+            beltFire = beltWait;
+        }
+        if (beltFire)
+        {
             if (gevrReloadNeedsAmmo(hand))
             {
                 if (gevrGexByHand(hand))
