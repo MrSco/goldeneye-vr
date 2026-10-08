@@ -11446,6 +11446,17 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 */
 void bondviewPlayerTickDamageAndHealth(void)
 {
+#ifdef GEVR
+    /*
+     * The top message and the match clock have one switch for the screen
+     * (g_UpperTextDisplayFlag, clock_drawn_flag), not one a player: online
+     * only the local player's damage flash hides them. A host's bots hit
+     * each other all match, and each hit blinked the local player's
+     * countdown and clock (user, 2026-10-07).
+     */
+    extern int netGetLocalSlot(void);
+    const bool screenHud = !netIsActive() || get_cur_playernum() == netGetLocalSlot();
+#endif
     // update damage showtime
     if (g_CurrentPlayer->damageshowtime >= 0)
     {
@@ -11455,8 +11466,13 @@ void bondviewPlayerTickDamageAndHealth(void)
             gunSetGunAmmoVisible(GUNAMMOREASON_DAMAGE, FALSE);
             gunSetSightVisible(GUNSIGHTREASON_DAMAGE, FALSE);
             hudmsgsSetOff(4);
-            bondviewSetUpperTextDisplayFlag(PLAYERFLAG_NOTIMER);
-            countdownTimerSetVisible(8, 0);
+#ifdef GEVR
+            if (screenHud)
+#endif
+            {
+                bondviewSetUpperTextDisplayFlag(PLAYERFLAG_NOTIMER);
+                countdownTimerSetVisible(8, 0);
+            }
 
             g_CurrentPlayer->damagetype = (s32)(currentPlayerGetHealth() * 8.0f);
 
@@ -11557,8 +11573,13 @@ void bondviewPlayerTickDamageAndHealth(void)
                 gunSetGunAmmoVisible(GUNAMMOREASON_DAMAGE, TRUE);
                 gunSetSightVisible(GUNSIGHTREASON_DAMAGE, TRUE);
                 hudmsgsSetOn(4);
-                bondviewClearUpperTextDisplayFlag(PLAYERFLAG_NOTIMER);
-                countdownTimerSetVisible(8, 1);
+#ifdef GEVR
+                if (screenHud)
+#endif
+                {
+                    bondviewClearUpperTextDisplayFlag(PLAYERFLAG_NOTIMER);
+                    countdownTimerSetVisible(8, 1);
+                }
             }
         }
     }
