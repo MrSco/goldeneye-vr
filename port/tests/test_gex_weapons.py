@@ -36,6 +36,10 @@ HARNESS=r'''
 #include "game/matrixmath.h"
 float VrReloadGrab[2][3], VrGexForeHold[3], VrGexPp7Grab[3], VrGexPp7Support[3];
 float VrGexGunOff[3], VrGexPp7GunOff[3];
+float VrGexOffRot[3];   /* gun.c gevrGexOffHandPose: the off hand's turn, none here */
+/* gun.c gevrGexScreenGadget (in the screen hand's range): the gadget's own fit and pose */
+s32 g_GlobalTimer; float VrGunOffX, VrGunOffY, VrGunOffZ;
+s32 gevrGadgetFitPose(s32 item, f32 ofs[3], f32 rot[3], f32 *scale) { (void)item; (void)ofs; (void)rot; (void)scale; return 0; }
 float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
 float VrGexPp7SupportRot[3], VrGexWeaponFits[64][10][3];
 float VrGexKf7WellOff[3],VrGexPp7WellOff[3];
@@ -325,7 +329,7 @@ static u8 *partVertices(u8 *source,int wanted) {
     abort();
 }
 int main(int argc,char **argv) {
-    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH,ITEM_SILVERWPPK,ITEM_GOLDWPPK,ITEM_KNIFE,ITEM_THROWKNIFE,ITEM_GRENADE,ITEM_TIMEDMINE,ITEM_PROXIMITYMINE,ITEM_REMOTEMINE,ITEM_TASER};
+    const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH,ITEM_SILVERWPPK,ITEM_GOLDWPPK,ITEM_KNIFE,ITEM_THROWKNIFE,ITEM_GRENADE,ITEM_TIMEDMINE,ITEM_PROXIMITYMINE,ITEM_REMOTEMINE,ITEM_TASER,ITEM_FIST,ITEM_PLASTIQUE,ITEM_WATCHLASER};
     for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) { active=gevrGexWeaponGet(items[i]); assert(active); switches(); }
     assert(gevrGexWeaponGet(ITEM_WPPK)->magMatrix==38);
     assert(gevrGexWeaponGet(ITEM_WPPK)->heldMatrix==42);
@@ -344,7 +348,28 @@ int main(int argc,char **argv) {
     assert(gevrGexInstalledMagFit(ITEM_MP5K)==gevrGexInstalledMagFit(ITEM_MP5KSIL));
     assert(gevrGexInstalledMagFit(ITEM_M16)!=gevrGexInstalledMagFit(ITEM_SPECTRE));
     assert(gevrGexWeaponGet(ITEM_WPPK)->muzzle[2]<gevrGexWeaponGet(ITEM_WPPKSIL)->muzzle[2]);
-    assert(!gevrGexWeaponGet(ITEM_FIST));
+    /* the fist: GE-X's unarmed rig, its two punches for GoldenEye's two, its own
+     * low-detail hands off (the wetsuit hands are drawn on it), fitted on its own */
+    active=gevrGexWeaponGet(ITEM_FIST);
+    assert(active->slot==1 && active->fireAnim==1001 && active->fireAnimAlt==1002 && active->screenFromRoot);
+    assert(active->numParts==4 && active->parts[2]==53 && active->parts[3]==54 && !active->visible[2] && !active->visible[3]);
+    assert(!gevrGexHasAmmo(active) && gevrGexGunFit(ITEM_FIST)!=gevrGexGunFit(ITEM_KNIFE));
+    /* the watch items: GE-X's Watch Laser rig for all of them, the device on 33, the
+     * emitter 82.6 ahead along its z on the screen */
+    {
+        const int watches[]={ITEM_WATCHLASER,ITEM_TRIGGER,ITEM_WATCHIDENTIFIER,ITEM_WATCHCOMMUNICATOR,
+            ITEM_WATCHGEIGERCOUNTER,ITEM_WATCHMAGNETREPEL,ITEM_WATCHMAGNETATTRACT};
+        for (unsigned i=0;i<sizeof(watches)/sizeof(watches[0]);i++) {
+            active=gevrGexWeaponGet(watches[i]);
+            assert(active && active->watch && active->slot==22 && active->gunMatrix==33 && !active->screenFromRoot);
+            assert(active->restAnim==1083 && active->screenMuzzle[2]>80.0f);
+        }
+        assert(!gevrGexWeaponGet(ITEM_AK47)->watch && !gevrGexWeaponGet(ITEM_FIST)->watch);
+    }
+    /* plastique: GE-X's ECM mine, a hand-held mine like the timed one */
+    active=gevrGexWeaponGet(ITEM_PLASTIQUE);
+    assert(active->slot==53 && active->restAnim==1077 && active->fireAnim==0 && active->spentMatrix==33);
+    assert(gevrGexGunFit(ITEM_PLASTIQUE)[0]==gevrGexGunFit(ITEM_TIMEDMINE)[0]);
     assert(!gevrGexHasMagazine(gevrGexWeaponGet(ITEM_LASER)));
     assert(gevrGexGunFit(ITEM_MP5K)==gevrGexGunFit(ITEM_MP5KSIL));
     assert(gevrGexGunFit(ITEM_KNIFE)==gevrGexGunFit(ITEM_THROWKNIFE) && gevrGexHandFit(ITEM_KNIFE)==gevrGexHandFit(ITEM_THROWKNIFE));
@@ -453,7 +478,24 @@ int main(int argc,char **argv) {
     /* Every rest pose must keep the actual gun at its screen placement. */
     Mtxf anchor,screen[64]; gevrGexScreenAnchor(&hdr,&anchor);
     gevrGexPoseWalk(&hdr,&anchor,gevrGexRestAnim(active),0,screen);
-    if (active->screenFromRoot) {
+    if (active->screenHand && active->screenFromPp7) {
+        /* GE-X's own place beside the PP7: the PP7's root moved by the offset */
+        Mtxf inv; gevrGexRigidInverse(&s_gevrGexPp7RestGun, &inv);
+        const f32 *pp7 = gevrGexGunFit(ITEM_WPPK); (void)pp7;
+        for (int a=0;a<3;a++) assert(fabsf(anchor.m[3][a]-(s_gevrGexPp7ScreenOffset[a]+inv.m[3][a]
+            +active->screenPp7Offset[0]*inv.m[0][a]+active->screenPp7Offset[1]*inv.m[1][a]+active->screenPp7Offset[2]*inv.m[2][a]))<0.01f);
+    } else if (active->screenHand) {
+        /* held on the PP7's virtual controller: with the PP7's own fit, its root is the PP7's */
+        f32 saved[3], *fit = gevrGexGunFit(active->item), *pp7 = gevrGexGunFit(ITEM_WPPK);
+        Mtxf inv, same;
+        memcpy(saved, fit, sizeof(saved)); memcpy(fit, pp7, sizeof(saved));
+        gevrGexScreenAnchor(&hdr, &same); gevrGexRigidInverse(&s_gevrGexPp7RestGun, &inv);
+        for (int a=0;a<3;a++) assert(fabsf(same.m[3][a]-(s_gevrGexPp7ScreenOffset[a]+inv.m[3][a]))<0.01f);
+        fit[0] = pp7[0] + 0.85f;   /* 0.85 cm right: 10 units toward the gun's right (-x) */
+        gevrGexScreenAnchor(&hdr, &same);
+        assert(fabsf(same.m[3][0]-(s_gevrGexPp7ScreenOffset[0]+inv.m[3][0]-10.0f))<0.01f);
+        memcpy(fit, saved, sizeof(saved));
+    } else if (active->screenFromRoot) {
         /* the rig's own pose from its root; the hand's palm where the PP7's sits */
         const f32 palmL[3]={0,0,GEVR_GEX_PALM_Z},pp7Palm[3]={-18.22f,-25.04f,-5.74f}; f32 palm[3];
         for (int a=0;a<3;a++) assert(fabsf(screen[0].m[3][a]-active->screenOffset[a])<0.01f);
@@ -510,7 +552,7 @@ int main(int argc,char **argv) {
             memcpy(after,before,sizeof(after)); memset(h,0,3*sizeof(f32)); memset(rt,0,3*sizeof(f32)); sz[0]=0;
             gevrGexHandFitTo(active,after,matrices); assert(!memcmp(after,before,sizeof(after)));
             h[0]=1; h[1]=2; h[2]=3; gevrGexHandFitTo(active,after,matrices);
-            for (int a=0;a<3;a++) ex[a]=(-1*before[33].m[0][a]+2*before[33].m[1][a]-3*before[33].m[2][a])/0.085f;
+            for (int a=0;a<3;a++) ex[a]=(-1*before[active->gunMatrix].m[0][a]+2*before[active->gunMatrix].m[1][a]-3*before[active->gunMatrix].m[2][a])/0.085f;
             for (int j=active->gunMatrix;j<matrices;j++) for (int a=0;a<3;a++) assert(fabsf(after[j].m[3][a]-before[j].m[3][a]-ex[a])<0.01f);
             for (int j=0;j<active->gunMatrix;j++) assert(!memcmp(&after[j],&before[j],sizeof(Mtxf)));
             memcpy(after,before,sizeof(after)); memset(h,0,3*sizeof(f32)); rt[0]=20; rt[1]=-35; rt[2]=10; sz[0]=0.5f;
@@ -535,7 +577,7 @@ int main(int argc,char **argv) {
             gevrGexHandFitTo(active,after,matrices); assert(!memcmp(after,before,sizeof(after)));
             h[0]=1; h[1]=2; h[2]=3; gevrGexHandFitTo(active,after,matrices);
             gevrGexMtxPoint(&before[GEVR_GEX_RHAND_WRIST],palmL,p0); gevrGexMtxPoint(&after[GEVR_GEX_RHAND_WRIST],palmL,p1);
-            for (int a=0;a<3;a++) ex[a]=(-1*before[33].m[0][a]+2*before[33].m[1][a]-3*before[33].m[2][a])/0.085f;
+            for (int a=0;a<3;a++) ex[a]=(-1*before[active->gunMatrix].m[0][a]+2*before[active->gunMatrix].m[1][a]-3*before[active->gunMatrix].m[2][a])/0.085f;
             for (int a=0;a<3;a++) assert(fabsf(p1[a]-p0[a]-ex[a])<0.01f);
             for (int j=GEVR_GEX_LHAND_FIRST;j<matrices-1;j++) assert(!memcmp(&after[j],&before[j],sizeof(Mtxf)));
             memcpy(after,before,sizeof(after)); memset(h,0,3*sizeof(f32)); rt[0]=20; rt[1]=-35; rt[2]=10;
@@ -636,18 +678,22 @@ assert 'rebuildCache) s_gevrGexOffFrom = NULL' not in gun
 math=(ROOT/"src/game/matrixmath.c").read_text()
 production=[function(math,s) for s in ("void matrix_4x4_multiply(","void matrix_4x4_set_identity(",
     "void matrix_4x4_set_rotation_around_xyz(")]
-production.extend(function(gun,s) for s in ("static void gevrGexAnimPart(","static void gevrGexPoseWalk(","static void gevrGexShowMagazines(","static void gevrGexScreenAnchor(","static void gevrGexShowChamber("))
+screen_hand=gun[gun.index("static const Mtxf s_gevrGexPp7RestGun"):]
+screen_hand=screen_hand[:screen_hand.index("/* gunfire.c: this hand's rig takes")]
+production.extend(function(gun,s) for s in ("static void gevrGexAnimPart(","static void gevrGexPoseWalk(","static void gevrGexShowMagazines("))
+production.append("static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv);\nstatic void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3]);\n" + screen_hand)
+production.extend(function(gun,s) for s in ("static void gevrGexScreenAnchor(ModelFileHeader *hdr, Mtxf *anchor)\n{","static void gevrGexShowChamber("))
 production.extend(function(gun,s) for s in ("static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv)\n{", "static void gevrGexPoseMechanism(", "static void gevrGexPoseReady("))
 production.extend(function(gun,s) for s in ("void gevrGexTick(", "void gevrGexMagazineReady("))
-production.extend(function(gun,s) for s in ("static void gevrGexMtxPoint(", "static void gevrGexLeftHandTo(",
-    "static void gevrGexOffCache(ModelFileHeader *gunhdr)\n{", "static s32 gevrGexOffHandPose(",
+production.extend(function(gun,s) for s in ("static void gevrGexMtxPoint(const Mtxf *m, const f32 local[3], f32 out[3])\n{", "static void gevrGexLeftHandTo(",
+    "static void gevrGexOffCache(ModelFileHeader *gunhdr)\n{", "static s32 gevrGexOffHandPose(Mtxf *m, s32 n)\n{",
     "static void gevrGexPistolMagGrip(", "static s32 gevrGexOffSteady("))
 production.extend(function(gun,s) for s in ("static void gevrGexHeldMagFitTo(", "static void gevrGexPistolSupportPose("))
 production.append(function(gun,"static void gevrGexForeFrom("))
 production.append(function(gun,"static s32 gevrGexIsHandHeld("))
 production.append(function(gun,"s32 gevrGexHandHeld(s32 hand)"))
 production.append(function(gun,"static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices)\n{"))
-production.extend(function(gun,s) for s in ("static void gevrGexInstalledMagFitTo(", "static s32 gevrGexInstalledMagazineFitting(", "static s32 gevrGexMagazineFitting("))
+production.extend(function(gun,s) for s in ("static void gevrGexInstalledMagFitTo(const GexWeaponDef *def, Mtxf *mag, const Mtxf *gun)\n{", "static s32 gevrGexInstalledMagazineFitting(", "static s32 gevrGexMagazineFitting("))
 production.extend(function(gun,s) for s in ("static s32 gevrGexOffHandConsumed(", "static void gevrGexWellPoint(", "void gevrReloadFitSetWell("))
 view=(ROOT/"src/game/bondview2.c").read_text()
 production.append(function(view,"static const char *gevrFitNextLine("))
@@ -667,6 +713,6 @@ with tempfile.TemporaryDirectory(prefix="gex-weapons-") as directory:
         sys.path.insert(0,str(ROOT/'tools/gex'))
         from pdrom import PdRom
         rom=PdRom(sys.argv[1])
-        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18),('GdydevastatorZ',24),('Gdy357Z',20),('Gdy357trentZ',21),('GknifeZ',2),('GknifeZ',3),('GgrenadeZ',26),('GtimedmineZ',27),('GproximitymineZ',28),('GremotemineZ',29),('Gfalcon2lodZ',31)):
+        for model,item in (('Gak47Z',8),('GwppkZ',4),('GwppkZ',5),('Gtt33Z',6),('GskorpionZ',7),('GuziZ',9),('Gmp5kZ',10),('Gcmp150Z',11),('GcycloneZ',12),('Gm16Z',13),('Gfnp90Z',14),('GsniperrifleZ',17),('GdysuperdragonZ',22),('GshotgunZ',15),('Grcp120Z',16),('GdyrocketZ',25),('Gleegun1Z',19),('GmaianpistolZ',18),('GdydevastatorZ',24),('Gdy357Z',20),('Gdy357trentZ',21),('GknifeZ',2),('GknifeZ',3),('GgrenadeZ',26),('GtimedmineZ',27),('GproximitymineZ',28),('GremotemineZ',29),('Gfalcon2lodZ',31),('GcombathandslodZ',1),('GecmmineZ',34),('GdydragonZ',23)):
             sample=temp/'model.bin'; sample.write_bytes(rom.load(model))
             subprocess.run([str(exe),str(sample),str(Path(sys.argv[1]).resolve()),str(item)],check=True)

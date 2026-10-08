@@ -15,6 +15,9 @@ static const u16 pp7Textures[] = {
 static const u16 silverPp7Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,3275,776,0 };
 static const u16 goldPp7Textures[] = { 2876,2157,2877,2158,2878,2159,2879,2160,0 };
 static const u16 knifeTextures[] = { 3275,776,0 };
+static const u16 fistTextures[] = { 0 };        /* its own hands are switched off */
+static const u16 plastiqueTextures[] = { 0 };   /* Perfect Dark's ECM mine: no GoldenEye copy */
+static const u16 watchTextures[] = { 0 };       /* GE-X's own watch device */
 static const u16 grenadeTextures[] = { 2983,767,2985,2272,2986,2273,2987,2274,0 };
 static const u16 timedMineTextures[] = { 110,778,114,945,647,31,2735,943,0 };
 static const u16 proxMineTextures[] = { 114,945,2734,32,2736,944,0 };
@@ -84,7 +87,10 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
     .screenFromRoot=1, .screenOffset={-17.660f,-26.253f,-197.154f}, \
     .muzzle={127.559f,309.704f,355.552f}, .screenMuzzle={109.899f,283.451f,158.398f}, \
     .supportRoot={-39.498364f,-28.279365f,49.061958f}, \
-    .numParts=1, .parts={100}, .visible={1}, .compact=1 }
+    .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1, \
+    /* the panel: the blade upright as GoldenEye's, centred */ \
+    .panelFit={1.0f,-1.0f,-58.3f,-35.0f}, \
+    .panelRot={{-0.006f,0.934f,0.356f},{0.999f,0.019f,-0.032f},{-0.037f,0.356f,-0.934f}} }
 
 /* The throwables. GoldenEye hides these in the hand (HIDE_FIRST_PERSON_HAND);
  * GE-X's own rigs hold them, drawn as guns (gunfire.c), and once one has left
@@ -92,17 +98,63 @@ static const u16 rocketTextures[] = {269,56,315,616,692,1379,694,508,695,1377,69
  * Their idle clips raise the hand from below; each use clip's frame 0 is the
  * raised hold. GoldenEye's own throw and place keep moving them (fireAnim 0).
  * The mines are GoldenEye's own meshes (every vertex matches); the remote
- * mine's rig also carries Perfect Dark's detonator on matrix 34, collapsed.
+ * mine's rig also carries Perfect Dark's detonator on matrix 34, which its
+ * left hand holds (offHandMatrix): GE-X detonates from it, one-handed.
  * The grenade matches no GoldenEye mesh: screen mode places its root so the
  * palm sits where the PP7's does. */
-#define MINE_DEF(id, gexslot, file, textures, rest, offz, hide, mx, my, mz) { \
+/* the remote mine's detonator watch (part 41 on matrix 34): its glass is the
+ * ring of radius ~16-17 at z -11, centred on (0, 14.5) */
+#define DETONATOR_FACE {0.0f,14.5f,-11.5f,15.0f}
+#define NO_FACE {0.0f,0.0f,0.0f,0.0f}
+#define NO_PANEL {0.0f,0.0f,0.0f,0.0f}
+#define MINE_DEF(id, gexslot, file, textures, rest, offz, offhand, face, mx, my, mz, panel) { \
     .item=id, .slot=gexslot, .model=file, .texturePairs=textures, \
     .fireAnim=0, .restAnim=rest, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1, \
-    .screenOffset={0.0f,2.0f,offz}, .spentMatrix=33, .hideMatrix=hide, \
+    .screenOffset={0.0f,2.0f,offz}, .spentMatrix=33, .offHandMatrix=offhand, .offHandFace=face, .panelFit=panel, \
     .muzzle={mx,my,mz}, .screenMuzzle={0.0f,2.0f,offz}, \
-    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1 }
+    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1 }
+
+/* The watch items: GE-X's Watch Laser rig (slot 22, its Watch Magnet's too), the
+ * watch device on 33 strapped to the raised left arm, the right hand at it, the
+ * emitter on 34 (82.6 ahead along the device's z). Its rest is the press clip
+ * 1083's frame 0, the arm raised (the idle 1070's end). On the screen the device
+ * stands where GoldenEye's own watch arm model does (its joint squared, as the
+ * mines'); in the headset the tracked left arm wears the watch and the rig's right
+ * hand presses it (gun.c gevrGexWatchPress). */
+#define WATCH_DEF(id) { \
+    .item=id, .slot=22, .model="GdydragonZ", .texturePairs=watchTextures, \
+    .fireAnim=1083, .restAnim=1083, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1, \
+    .muzzle={-117.307f,63.739f,28.419f}, .screenMuzzle={-14.000f,1.187f,82.587f}, \
+    .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .watch=1, .screenHand=1, \
+    /* the panel: the watch on its edge, its face out, at GoldenEye's watch's size */ \
+    .panelFit={6.733f,0.0f,558.8f,87.5f}, .panelRot={{1.0f,0.0f,0.0f},{0.0f,0.0f,1.0f},{0.0f,-1.0f,0.0f}} }
 
 static const GexWeaponDef weapons[] = {
+    WATCH_DEF(ITEM_WATCHLASER),
+    WATCH_DEF(ITEM_TRIGGER),
+    WATCH_DEF(ITEM_WATCHIDENTIFIER),
+    WATCH_DEF(ITEM_WATCHCOMMUNICATOR),
+    WATCH_DEF(ITEM_WATCHGEIGERCOUNTER),
+    WATCH_DEF(ITEM_WATCHMAGNETREPEL),
+    WATCH_DEF(ITEM_WATCHMAGNETATTRACT),
+    /* Unarmed: GE-X's own (slot 1), its combat hands' rig on the hand skeleton.
+     * GoldenEye's two punches play GE-X's two (1001, 1002); at rest the first's
+     * frame 0. The rig's own low-detail hands (parts 53, 54) stay off: GE-X's
+     * wetsuit hands are drawn on its joints as on every gun's. On the screen its
+     * root goes where the knife's palm is; in the headset the trigger punches
+     * and the hand's own swing is the player's (bondview2.c gevrHandChopTick). */
+    {
+        .item=ITEM_FIST, .slot=1, .model="GcombathandslodZ", .texturePairs=fistTextures,
+        .fireAnim=1001, .fireAnimAlt=1002, .gunMatrix=2, .magMatrix=-1, .heldMatrix=-1,
+        .screenFromRoot=1, .screenOffset={-3.957f,-11.053f,-55.746f},
+        .supportRoot={-39.498364f,-28.279365f,49.061958f},
+        .numParts=4, .parts={-1,-1,53,54}, .visible={0,0,0,0}, .compact=1, .screenHand=1,
+        /* GE-X's unarmed sits 22 lower and 10 nearer than its PP7 (positions 8 -41 -16
+         * against 8 -19 -26): at rest below the view, its chops rising into it */
+        .screenFromPp7=1, .screenPp7Offset={0.0f,-220.0f,-100.0f},
+        /* the panel: the hand and forearm centred where it spins, at 0.7 (it was huge) */
+        .panelFit={0.70f,-4.2f,15.4f,50.4f}
+    },
     KNIFE_DEF(ITEM_KNIFE),
     KNIFE_DEF(ITEM_THROWKNIFE),
     {
@@ -111,7 +163,8 @@ static const GexWeaponDef weapons[] = {
         .screenFromRoot=1, .screenOffset={-27.173f,-22.813f,-208.695f},
         .muzzle={87.029f,38.664f,215.278f}, .screenMuzzle={59.856f,15.851f,6.583f},
         .supportRoot={-39.498364f,-28.279365f,49.061958f},
-        .numParts=1, .parts={100}, .visible={1}, .compact=1,
+        .numParts=1, .parts={100}, .visible={1}, .compact=1, .screenHand=1,
+        .panelFit={6.132f,18.4f,147.2f,-98.1f},   /* GoldenEye's grenade is six times GE-X's; centred */
         /* throw 1062's lever (matrix 34) lifts by 6 and has flown by 30 */
         .cookAnim=1062, .cookEnd=30.0f, .cookMatrix=34
     },
@@ -125,11 +178,21 @@ static const GexWeaponDef weapons[] = {
         .fireAnim=0, .restAnim=1086, .gunMatrix=33, .magMatrix=-1, .heldMatrix=-1,
         .screenFromRoot=1, .screenOffset={0.071f,-29.923f,-84.617f},
         .muzzle={28.462f,143.276f,90.878f}, .screenMuzzle={28.533f,113.354f,6.261f},
-        .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1
+        .supportRoot={-39.498364f,-28.279365f,49.061958f}, .compact=1, .screenHand=1,
+        /* the panel: upright as GoldenEye's, centred */
+        .panelFit={1.0f,-5.5f,-44.0f,-21.1f},
+        .panelRot={{0.010f,0.375f,-0.927f},{-0.991f,0.128f,0.041f},{0.134f,0.918f,0.373f}}
     },
-    MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
-    MINE_DEF(ITEM_PROXIMITYMINE, 28, "GproximitymineZ", proxMineTextures, 1077, 0.0f, 0, 52.356f, 12.312f, 94.028f),
-    MINE_DEF(ITEM_REMOTEMINE, 29, "GremotemineZ", remoteMineTextures, 1078, 10.0f, 34, -6.853f, 8.724f, 89.783f),
+    MINE_DEF(ITEM_TIMEDMINE, 27, "GtimedmineZ", timedMineTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f,
+             NO_PANEL),
+    MINE_DEF(ITEM_PROXIMITYMINE, 28, "GproximitymineZ", proxMineTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f,
+             NO_PANEL),
+    MINE_DEF(ITEM_REMOTEMINE, 29, "GremotemineZ", remoteMineTextures, 1078, 10.0f, 34, DETONATOR_FACE, -6.853f, 8.724f, 89.783f,
+             NO_PANEL),
+    /* Plastique: GE-X's (slot 53), Perfect Dark's ECM mine, rigged as the timed mine is
+     * (34 joints, the item on 33) with its idle 1072 and its place clip 1077 */
+    MINE_DEF(ITEM_PLASTIQUE, 53, "GecmmineZ", plastiqueTextures, 1077, 0.0f, 0, NO_FACE, 52.356f, 12.312f, 94.028f,
+             NO_PANEL),
     {
         .item=ITEM_AK47, .slot=7, .model="Gak47Z", .texturePairs=kf7Textures,
         .fireAnim=1017, .gunMatrix=33, .magMatrix=39, .heldMatrix=40,

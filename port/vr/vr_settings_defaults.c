@@ -51,8 +51,8 @@ int VrMpFunFlags = 0, VrMpGunSize = 0;
 int VrMpMaxPlayers = 4;
 int VrMpBotMode = 0, VrMpBotCount = 3, VrMpBotDifficulty = 2;   /* off; three bots at Normal when on */
 int VrDetailedGuns = 1;     /* guards and other players hold the first-person gun models (gevr_heldgun.c) */
-int VrGexGuns = 0;          /* GoldenEye X's first-person guns (gevr_gexmodel.c); off, as the original */
-int VrGexArms = 1;          /* stereo: GoldenEye X's arms for every hand, the left with the watch (gun.c) */
+int VrGexGuns = 0;          /* GoldenEye X's first-person models: guns, items, hands and the watch arm, on the
+                               screen and in the headset (gevr_gexmodel.c, gun.c); off, as the original */
 int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts = 0, VrMpNextRound = 0;
 int VrMpCustom[4] = { 6, 7, 8, 25 };    /* ITEM_TT33, ITEM_SKORPION, ITEM_AK47, ITEM_ROCKETLAUNCH */
 int VrMpLoadout[4] = { 4, 8, 15, 26 };  /* ITEM_WPPK, ITEM_AK47, ITEM_SHOTGUN, ITEM_GRENADE */
@@ -163,12 +163,13 @@ float VrGexGripTrim[2][6] = {
  */
 float VrReloadGrab[2][3] = { {0.0000f,-7.0000f,-8.0000f}, {-8.2100f,-11.7900f,-11.2800f} };
 float VrReloadBelt[3] = { 66.65f, 19.86f, -18.68f };
-float VrGexHeldMag[3] = {4.030000f,2.830000f,-1.730000f};
+float VrGexHeldMag[3] = {4.840000f,2.830000f,-2.880000f};   /* headset fit 2026-10-07 */
 /* GoldenEye's watch on GE-X's left wrist (gun.c): cm ahead of the end of the
  * sleeve, up and out from its axis there, and its size (Gun fit's off hand
  * mode, holding the right grip). Over the wrist and a fifth larger, to go
  * round GE-X's sleeve (user; measured offline on the KF7). */
-float VrGexWatch[4] = {5.180000f,1.380000f,0.240000f,0.940000f};
+float VrGexWatch[4] = {4.410000f,1.370000f,-0.010000f,1.020000f};   /* headset fit 2026-10-07 */
+float VrGexOffRot[3] = {5.2f,-12.6f,10.0f};   /* GE-X's empty off hand turned about its palm, degrees: headset fit 2026-10-07 */
 /* where GE-X's left hand holds a gun with both hands, cm forward, up and out
  * along the gun from where its animation has it (Gun fit's grip mode) */
 float VrGexForeHold[3] = { 0.0f, 0.0f, 0.0f };
@@ -246,11 +247,14 @@ void optionsMenuInit(void)
 
 /* Model-specific fits; D5K silenced shares item 10. Missing INI keys keep these defaults. */
 float VrGexWeaponFits[64][10][3] = {
+    [1] = {{4.6000f,2.4000f,-8.5000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{2.3500f,1.0328f,-1.6496f},{-162.3683f,155.4807f,178.0168f}}, /* fist: headset gun hand fit 2026-10-07 (evening) */
+    [23] = {{-11.9871f,2.0760f,-16.7449f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{2.0238f,0.6595f,-3.4466f}}, /* watch items: the right palm on the fitted PP7's; gun hand headset fit 2026-10-07 */
     [2] = {{3.4710f,1.1003f,3.5348f}}, /* knives: palm aligned to the fitted KF7's, initial */
     [26] = {{4.2795f,1.3928f,4.5162f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{0.0000f,0.0000f,0.0000f},{-0.5229f,1.1656f,0.4464f},{2.3233f,-3.7653f,2.3402f},{-0.0077f,0.0000f,0.0000f}}, /* grenade: headset item fit 2026-10-07 */
     [27] = {{1.4880f,2.6146f,-7.3449f}}, /* timed mine, initial */
     [28] = {{1.4880f,2.6146f,-7.3449f}}, /* proximity mine, initial */
     [29] = {{-1.8157f,3.5317f,-9.2842f}}, /* remote mine, initial */
+    [34] = {{1.4880f,2.6146f,-7.3449f}}, /* plastique: the timed mine's, initial */
     [31] = {{1.9638f,0.7885f,-6.0305f}}, /* taser: palm aligned to the fitted KF7's, initial */
     [6] = {{0.4788f,4.3729f,-9.3953f},{-8.8699f,-13.2398f,7.5154f},{1.5400f,-0.1100f,6.1300f},{-14.3000f,-36.7000f,8.8000f},{1.2300f,5.2700f,1.6900f},{0.0000f,0.0000f,0.0000f}},
     [7] = {{2.4745f,2.6738f,-8.4976f},{-12.1534f,-6.8046f,3.6830f},{17.8745f,2.4844f,5.5687f},{24.3048f,-12.4422f,-76.1620f},{0.2536f,3.4809f,1.9681f},{-0.2045f,0.5283f,0.5684f},{0.0000f,0.0000f,0.0000f}},
