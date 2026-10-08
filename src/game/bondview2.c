@@ -19403,6 +19403,10 @@ void hudmsgTopShow(char* mess)
  * every second overflowed it and numbers went missing (user, 2026-09-30).
  * A queued message that starts with prefix is rewritten in place and kept
  * up; otherwise the message is queued as usual.
+ * Kept up for two seconds, not the window's one (TIMER_A, a tick over a
+ * second): a frame running long let a once-a-second update come after the
+ * message had already dropped, and the warmup countdown blinked out and
+ * back (user, 2026-10-07, a host running bots).
  */
 void gevrHudTopReplace(const char *mess, const char *prefix)
 {
@@ -19417,9 +19421,9 @@ void gevrHudTopReplace(const char *mess, const char *prefix)
         {
             strncpy(stringbuffer_top[index], mess, BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH - 1);
             stringbuffer_top[index][BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH - 1] = 0;
-            if (k == 0 && upper_text_window_timer < BONDVIEW_UPPER_TEXT_TIMER_A)
+            if (k == 0 && upper_text_window_timer < BONDVIEW_UPPER_TEXT_TIMER_A * 2)
             {
-                upper_text_window_timer = BONDVIEW_UPPER_TEXT_TIMER_A;
+                upper_text_window_timer = BONDVIEW_UPPER_TEXT_TIMER_A * 2;
             }
             return;
         }
