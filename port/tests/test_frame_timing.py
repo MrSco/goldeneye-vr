@@ -53,7 +53,7 @@ with tempfile.TemporaryDirectory(prefix="gevr-frame-timing-") as temp:
     fixture = (ROOT / "port/tests/replay_state_native.cpp").read_text(encoding="utf-8")
     fixture = fixture.replace("/* INSERT_DRAW_STRUCT */", extract(gl, "struct GevrEyeDraw") + ";")
     fixture = fixture.replace("/* INSERT_REPLAY */", extract(gl,
-        "void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1)"))
+        "void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body)"))
     cpp = temp / "replay.cpp"
     cpp.write_text(fixture)
     exe = temp / "replay.exe"

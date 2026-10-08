@@ -831,6 +831,7 @@ Gfx *gevrBodySlotsDraw(Gfx *gdl)
     {
         return gdl;
     }
+    gDPNoOpTag(gdl++, 0x565F0003);   /* VR_HAND_DRAW 3: the body (fast3d's in-between frames) */
     rd = (ModelRenderData){0};
     rd.zbufferenabled = TRUE;
     rd.flags = 3;
@@ -885,6 +886,7 @@ Gfx *gevrBodySlotsDraw(Gfx *gdl)
     {
         gSPPerspNormalize(gdl++, viGetPerspNorm());
     }
+    gDPNoOpTag(gdl++, 0x565F0000);   /* the world again */
     return gdl;
 }
 
@@ -1010,7 +1012,9 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
             gevrBodyToView(s_bodyCentre[s], D_800364CC, cv);
             if (cv[2] < 0.0f)
             {
+                gDPNoOpTag(gdl++, 0x565F0003);
                 gdl = gevrBodyRing(gdl, cv, s_bodyRadius[s], gevrBodyCategoryTint(gevrBodySlotCategory(s)) | 0x90);
+                gDPNoOpTag(gdl++, 0x565F0000);
             }
         }
     }
@@ -1048,7 +1052,9 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
             gevrBodyToView(s_bodyCentre[h->slot], D_800364CC, v);
             if (v[2] < 0.0f)
             {
+                gDPNoOpTag(gdl++, 0x565F0003);   /* on the body */
                 gdl = gevrBodyRing(gdl, v, 4.0f, tint | 0xC0);
+                gDPNoOpTag(gdl++, 0x565F0000);
             }
         }
         gevrBodyToView(p, D_800364CC, v);
@@ -1057,15 +1063,10 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
             continue;   /* behind the eye */
         }
         gevrBodyLabel(ctrl, text, sizeof(text));
-        if (!back)
-        {
-            gDPNoOpTag(gdl++, 0x565F0000 | (u32) (ctrl + 1));   /* with the hand (gunfire.c gevrHandTag) */
-        }
+        /* with the hand (gunfire.c gevrHandTag), or for a shoulder's, the body */
+        gDPNoOpTag(gdl++, 0x565F0000 | (u32) (back ? 3 : ctrl + 1));
         gdl = gevrDrawViewTag(gdl, text, v, 0.12f * D_800364CC, FALSE, (tint & 0xffffff00) | 0xB0);
-        if (!back)
-        {
-            gDPNoOpTag(gdl++, 0x565F0000);
-        }
+        gDPNoOpTag(gdl++, 0x565F0000);
     }
     return gdl;
 }

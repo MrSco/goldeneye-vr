@@ -83,13 +83,13 @@ int main(){
     d.prg=&a;s_eyeDraws.push_back(d);
     d.tex[1]=45;d.linear[0]=false;s_eyeDraws.push_back(d);
     float delta[16]={};delta[0]=delta[5]=delta[10]=delta[15]=1;
-    gfx_vr_eye_replay(delta,nullptr,nullptr);
+    gfx_vr_eye_replay(delta,nullptr,nullptr,nullptr);
     assert(issued==104);
     /* 3 changed texture bindings + 2 restores, rather than 208 bindings.
      * Program-local filtering is refreshed on switches and value changes. */
     assert(textureCalls==5 && filterCalls==6);
     assert(boundTex[0]==777&&boundTex[1]==888&&activeTexture==1);
     assert(s_curPrg==&a&&boundProgram==1&&!s_uniCacheValid);
-    s_eyeReady=false;gfx_vr_eye_replay(delta,nullptr,nullptr);assert(issued==104);
+    s_eyeReady=false;gfx_vr_eye_replay(delta,nullptr,nullptr,nullptr);assert(issued==104);
     std::puts("PASS: real redraw preserves draw order, shader-local filtering, texture changes, mixed texture usage and frontend restoration while removing redundant calls");
 }
