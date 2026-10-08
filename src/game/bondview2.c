@@ -6708,6 +6708,13 @@ void currentPlayerSetYAutoAimEnabled(bool enabled)
  */
 bool currentPlayerGetYAutoAimEnabled(void)
 {
+#ifdef GEVR
+    /* a bot aims with Perfect Dark's aim error alone (gevr_bot.c), as a simulant does */
+    if (gevrNetSlotIsBot(get_cur_playernum()))
+    {
+        return FALSE;
+    }
+#endif
     if (getPlayerCount() == 1)
     {
         return g_CurrentPlayer->autoyaimenabled;
@@ -6772,6 +6779,12 @@ void currentPlayerSetXAutoAimEnabled(bool enabled)
  */
 bool currentPlayerGetXAutoAimEnabled(void)
 {
+#ifdef GEVR
+    if (gevrNetSlotIsBot(get_cur_playernum()))
+    {
+        return FALSE;
+    }
+#endif
     if (getPlayerCount() == 1)
     {
         return g_CurrentPlayer->autoxaimenabled;
