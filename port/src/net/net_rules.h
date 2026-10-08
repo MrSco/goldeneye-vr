@@ -8,9 +8,7 @@
  * half second to a second. NET_FUN_HIT_EVERY: none, every hit counts, as in
  * Perfect Dark. The default needs no bit, so a saved 0 (every setup that
  * never touched the rule) gets it. Builds 0.4.11-0.4.13 (protocol 19) know
- * neither bit: they refuse a config with one and, without, keep GoldenEye's
- * rule for their own player; the next release bumps the protocol (user rule:
- * only at a release). */
+ * neither bit, so v0.4.14 is protocol 20. */
 enum { NET_FUN_DK = 1, NET_FUN_PAINTBALL = 2, NET_FUN_LINE = 4, NET_FUN_NO_RADAR = 16, NET_FUN_HIT_IMMUNITY = 32,
        NET_FUN_HIT_EVERY = 64, NET_FUN_MASK = 119 };
 #define NET_HIT_SHORT_TICKS 15
