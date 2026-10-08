@@ -338,27 +338,18 @@ static s32 gevrBodyFrameUpdate(void)
     {
         return FALSE;
     }
-    /* a hand reaching for the front of the body, or the head looking down at it:
-     * the torso holds still (The Light Brigade's and H3VR's belts turned away) */
+    /* a hand in a slot at the front of the body, or the head looking down at
+     * it: the torso holds still (The Light Brigade's and H3VR's belts turned
+     * away). Not a hand merely near one: hanging arms rest by the hips. */
     if (s_bodyFrameValid)
     {
         freeze = s_bodyFrame.pitch < s_bodyTune[BT_FREEZE];
-        for (ctrl = 0; ctrl < 2 && !freeze; ctrl++)
+        for (ctrl = 0; ctrl < 2; ctrl++)
         {
-            if (!s_bodyHand[ctrl].tracked)
+            s = s_bodyHand[ctrl].slot;
+            if (s >= 0 && s != GEVR_BS_BACK_GUN && s != GEVR_BS_BACK_OFF)
             {
-                continue;
-            }
-            for (s = 0; s < GEVR_BODY_SLOTS; s++)
-            {
-                f32 d[3] = { s_bodyHand[ctrl].at[0] - s_bodyCentre[s][0], s_bodyHand[ctrl].at[1] - s_bodyCentre[s][1],
-                             s_bodyHand[ctrl].at[2] - s_bodyCentre[s][2] };
-
-                if (s != GEVR_BS_BACK_GUN && s != GEVR_BS_BACK_OFF
-                    && sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) < 1.5f * s_bodyRadius[s])
-                {
-                    freeze = TRUE;
-                }
+                freeze = TRUE;
             }
         }
     }
@@ -484,7 +475,10 @@ void gevrBodySlotsTick(void)
 {
     s32 ctrl;
 
-    gevrBodyTuneRead();
+    if (VrBodySlots)
+    {
+        gevrBodyTuneRead();
+    }
     if (g_CurrentPlayer == NULL || (netIsActive() && get_cur_playernum() != netGetLocalSlot()))
     {
         return;   /* another player's pass: the local one keeps its state */
