@@ -31,6 +31,7 @@ extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern s32 g_gevrStereo;
 extern s32 g_ClockTimer;
+extern s32 g_GlobalTimer;
 extern void gevrBotRespawn(void);       /* bondview2.c */
 extern void sysLogPrintf(s32 level, const char *fmt, ...);
 extern PadRecord *g_Startpad[];
@@ -148,6 +149,8 @@ typedef struct GevrBot {
     s32 doorticks;          /* to the next look for a door on the way */
     DoorRecord *lastdoor;   /* the door it opened last, and when (frame60) */
     s32 lastdoor60;
+    DoorRecord *closeddoor; /* the open door it shut out of its way last, and when */
+    s32 closeddoor60;
     s32 unstickticks;       /* sidestepping out of it */
     s32 unstickdir;
     /* Perfect Dark's aibot fields (bot.c), by the same names */
@@ -178,9 +181,13 @@ typedef struct GevrBot {
 static GevrBot s_bots[MAX_PLAYER_COUNT];
 
 /* A stage loaded: the bots start over (their pickups and routes were the last stage's) */
+static PropRecord *s_blockdoor[MAX_PLAYER_COUNT];   /* below: the door each player's moves last ran into */
+static u32 s_blockdoorframe[MAX_PLAYER_COUNT];
+
 void gevrBotStageLoaded(void)
 {
     memset(s_bots, 0, sizeof(s_bots));
+    memset(s_blockdoor, 0, sizeof(s_blockdoor));
     gevrBotNavForget();
 }
 
@@ -823,6 +830,69 @@ static s32 gevrBotDistMode(GevrBot *bot, s32 diff)
  * across the doorway six times a second, trapping a player in Facility's
  * toilets (user, 2026-10-08; one door opened 44 times in two minutes).
  */
+/*
+ * Stuck against an open door's leaf: Facility's swinging doors stand open
+ * a metre into the room, and a route over the floor knows nothing of
+ * them, so a bot came at the leaf from beyond its end again and again
+ * (user, 2026-10-08: bots stuck in doorways). A player would press B
+ * twice: shut it, then open it again, swung away from them, to the far
+ * side. A bot stuck 20 ticks with an open door across the line to its
+ * next point shuts it, once per door per four seconds; shut, it is
+ * opened again by gevrBotOpenDoors, away from the bot.
+ */
+/* bondview2.c, a move refused for a door: the door, and when, for each player
+ * (the line to the next point can pass the end of a leaf the body can't) */
+void gevrBotNoteBlockingDoor(s32 slot, PropRecord *doorprop)
+{
+    if (slot >= 0 && slot < MAX_PLAYER_COUNT)
+    {
+        s_blockdoor[slot] = doorprop;
+        s_blockdoorframe[slot] = (u32)g_GlobalTimer;
+    }
+}
+
+static void gevrBotCloseDoorInWay(s32 slot, struct player *pl, GevrBot *bot, const coord3d *aim)
+{
+    PropRecord *doorprop;
+    DoorRecord *door;
+    f32 dx;
+    f32 dz;
+
+    if (bot->stillticks < 20)
+    {
+        return;
+    }
+    doorprop = sub_GAME_7F0B1410(pl->prop->stan, pl->prop->pos.x, pl->prop->pos.z, aim->x, aim->z, CDTYPE_OPENDOORS);
+    if (doorprop == NULL && s_blockdoor[slot] != NULL && (u32)g_GlobalTimer - s_blockdoorframe[slot] < 30)
+    {
+        doorprop = s_blockdoor[slot];   /* what its last moves ran into */
+    }
+    if (doorprop == NULL || doorprop->type != PROP_TYPE_DOOR || (door = doorprop->door) == NULL)
+    {
+        return;
+    }
+    if ((door->flags & PROPFLAG_CANNOT_ACTIVATE) || door->keyflags != 0 || !doorIsPadlockFree(door)
+        || (door->openstate != DOORSTATE_STATIONARY && door->openstate != DOORSTATE_WAITING) || door->openPosition <= 0.0f
+        || (door == bot->closeddoor && bot->frame60 - bot->closeddoor60 < 60 * 4))
+    {
+        return;
+    }
+    dx = doorprop->pos.x - pl->prop->pos.x;
+    dz = doorprop->pos.z - pl->prop->pos.z;
+    if (dx * dx + dz * dz >= 200.0f * 200.0f)
+    {
+        return;
+    }
+    doorActivate(door, DOORSTATE_CLOSING);
+    door->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED;
+    netSendDoorState((ObjectRecord *)door, door->openstate);
+    bot->closeddoor = door;
+    bot->closeddoor60 = bot->frame60;
+    bot->lastdoor = NULL;   /* shut, it may be opened again at once, the other way */
+    s_blockdoor[slot] = NULL;
+    sysLogPrintf(1, "bots: slot %d shuts the open door at %.0f,%.0f,%.0f in its way", slot, doorprop->pos.x, doorprop->pos.y, doorprop->pos.z);
+}
+
 static void gevrBotOpenDoors(s32 slot, struct player *pl, GevrBot *bot, const coord3d *aim)
 {
     PropRecord *doorprop;
@@ -841,6 +911,7 @@ static void gevrBotOpenDoors(s32 slot, struct player *pl, GevrBot *bot, const co
                                  CDTYPE_CLOSEDDOORS | CDTYPE_AJARDOORS);
     if (doorprop == NULL || doorprop->type != PROP_TYPE_DOOR || (door = doorprop->door) == NULL)
     {
+        gevrBotCloseDoorInWay(slot, pl, bot, aim);
         return;
     }
     if ((doorprop->obj->flags2 & PROPFLAG_DOOR_OPENTOFRONT) || (door->flags & PROPFLAG_CANNOT_ACTIVATE)

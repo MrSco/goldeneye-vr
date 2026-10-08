@@ -7593,6 +7593,9 @@ block_20:
             /* a move refused for a door: which, and how open (Facility double door that opens but blocks, user 2026-09-30) */
             if (stanSavedColl_posData != NULL && stanSavedColl_posData->type == PROP_TYPE_DOOR && stanSavedColl_posData->door != NULL)
             {
+                extern void gevrBotNoteBlockingDoor(s32 slot, PropRecord *doorprop);   /* gevr_bot.c */
+
+                gevrBotNoteBlockingDoor(get_cur_playernum(), stanSavedColl_posData);
                 static u64 s_next_door_log_us;
                 u64 now = sysGetMicroseconds();
 
