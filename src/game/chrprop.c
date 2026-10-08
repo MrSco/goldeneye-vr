@@ -1973,7 +1973,9 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
         extern bool netIsActive(void);
         extern int netGetLocalSlot(void);
         extern bool netSlotOccupied(int slot);
-        if (netIsActive() && get_cur_playernum() == netGetLocalSlot())
+        extern int gevrNetOwnsSlot(int slot);
+        /* the local player's punch, or the host's bot's (net_core.c netSlotOwned) */
+        if (netIsActive() && gevrNetOwnsSlot(get_cur_playernum()))
         {
             for (s32 slot = 0; slot < getPlayerCount(); slot++)
             {
@@ -2016,8 +2018,8 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
 
         if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
         {
-            /* another player's swing, heard from where they stand */
-            chrobjSndCreatePostEventDefault(sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, 0), &playerprop->pos);
+            /* another player's swing, heard from where they stand, a few metres (propobj.c) */
+            chrobjSndCreatePostEvent(sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, 0), &playerprop->pos, 400.0f, 1200.0f);
             return;
         }
 #endif
