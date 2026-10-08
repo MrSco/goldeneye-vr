@@ -153,6 +153,7 @@ typedef struct GevrBot {
     DoorRecord *closeddoor; /* the open door it shut out of its way last, and when */
     s32 closeddoor60;
     f32 lastdooropen;       /* how far the door it opened had come, the last tick */
+    s32 spawn60;            /* frame60 when it last came into the round (0 at a stage's start) */
     s32 unstickticks;       /* sidestepping out of it */
     s32 unstickdir;
     /* Perfect Dark's aibot fields (bot.c), by the same names */
@@ -350,7 +351,10 @@ static void gevrBotUnstick(s32 slot, struct player *pl, GevrBot *bot, OSContPad 
         pad->button = (pad->button & ~(L_CBUTTONS | R_CBUTTONS)) | (bot->unstickdir ? R_CBUTTONS : L_CBUTTONS);
         return;
     }
-    if (!moving || lvlGetControlsLockedFlag() || dx * dx + dy * dy + dz * dz > 2.0f * 2.0f * (g_ClockTimer > 0 ? g_ClockTimer : 1))
+    /* the first three seconds in the round don't count: a bot stands still a
+     * moment as the round starts, and every bot was logged stuck at its pad */
+    if (!moving || lvlGetControlsLockedFlag() || bot->frame60 - bot->spawn60 < 60 * 3
+        || dx * dx + dy * dy + dz * dz > 2.0f * 2.0f * (g_ClockTimer > 0 ? g_ClockTimer : 1))
     {
         bot->stillticks = 0;
         bot->lastpos = pl->prop->pos;
@@ -1309,6 +1313,7 @@ s32 gevrBotTickBegin(s32 slot)
         {
             bot->stillticks = 0;   /* back from the dead: not stuck where it died */
             bot->lastpos = pl->prop->pos;
+            bot->spawn60 = bot->frame60;
         }
         bot->deadticks = 0;
         gevrBotThink(slot, pl, bot, &pad);
