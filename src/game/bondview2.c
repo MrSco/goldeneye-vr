@@ -18254,6 +18254,30 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                 }
                 else
                 {
+#ifdef GEVR
+                    /*
+                     * The cartridge stepped the drip once a drawn frame, about
+                     * 20 a second in multiplayer. At 72-90 Hz it ran out in
+                     * 0.7 s, and its end brings the level music back (lv.c,
+                     * MISSION_STATE_6), so the death sting was cut off at
+                     * once (playtest log 2026-10-07: state 1 -> 6, 0.7 s,
+                     * 6 -> 1). Step it every 3 ticks, the N64's pace; between
+                     * steps it shows the same frame (2), as on a frame with
+                     * no tick.
+                     */
+                    static s32 s_gevrBloodTicks;
+
+                    s_gevrBloodTicks += g_ClockTimer;
+                    if (s_gevrBloodTicks >= 3)
+                    {
+                        s_gevrBloodTicks -= 3;
+                        doblood = 1;
+                    }
+                    else
+                    {
+                        doblood = 2;
+                    }
+#else
                     if (g_ClockTimer > 0)
                     {
                         doblood = 1;
@@ -18262,6 +18286,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                     {
                         doblood = 2;
                     }
+#endif
                     if (die_blood_image_routine(doblood))
                     {
                         g_CurrentPlayer->redbloodfinished = TRUE;
