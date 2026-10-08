@@ -23,5 +23,10 @@ int gevrBodySlotGrip(int ctrl);
 void gevrBodySlotGripLetGo(int ctrl);
 /* a slot took the grip still held: a throw doesn't wind up from it */
 int gevrBodySlotHoldsGrip(int ctrl);
+/* port/src/input.c: the hand's own A or X pressed, its own stick's X each
+ * poll; 1 when the slot takes it (the wheel, the cycle, the strafe or the
+ * turn don't) */
+int gevrBodySlotButton(int ctrl);
+int gevrBodySlotStick(int ctrl, float x, float dtMs);
 
 #endif
