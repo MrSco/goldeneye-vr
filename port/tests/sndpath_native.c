@@ -12,6 +12,14 @@ int netGetLocalSlot(void) { return 0; }
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 static s32 s_volume;
 void sndCreatePostEvent(ALSoundState *state, s16 type, s32 value) { (void)state; (void)type; s_volume = value; }
+/* the floor's room: rooms 1, 2, 3 along x, a thousand wide */
+static StandTile s_floor;
+StandTile *stanFindTileBelowPos(coord3d *pos, u8 *rooms, f32 *y) { (void)rooms; (void)y; s_floor.room = (u8)(1 + (s32)(pos->x / 1000.0f)); return &s_floor; }
+static int s_spatialInits;
+int netSpatialInit(void) { return ++s_spatialInits; }
+void netSpatialResetSlot(unsigned slot) { (void)slot; }
+/* looking down -z, as the head does at no turn */
+void gevrVoiceListenerBasis(float forward[3], float up[3]) { forward[0] = 0; forward[1] = 0; forward[2] = -1; up[0] = 0; up[1] = 1; up[2] = 0; }
 
 /*
  * Rooms 1, 2, 3 in a row along x, 1000 wide, each joined to the next by a
@@ -55,6 +63,34 @@ EXPORT int test_sndpath(void)
     CHECK(d > 2.0f * 1000.0f + 900.0f && d < 3000.0f + 2.0f * 1000.0f);
     /* a room unknown: straight */
     CHECK(gevrSndPathDistance(-1, &here, 3, &there) == spDist(&here, &there));
+    /* a placed sound: measured from the local player, in the room under it */
+    {
+        static struct player me;
+        static PropRecord body;
+        static ALSoundState shot, other;
+        coord3d left = { { -300, 100, 0 } };
+
+        body.pos = here;
+        body.rooms[0] = 1;
+        me.prop = &body;
+        g_playerPointers[0] = &me;
+        CHECK(gevrSndPathVolume(&there, -1, 5000.0f, 6000.0f) == (s32)gevrSndPathDistance(1, &here, 3, &there));
+        CHECK(gevrSndPathVolume(&nextdoor, 1, 5000.0f, 6000.0f) == (s32)spDist(&here, &nextdoor));
+        /* heard from where it is: 3 m to the listener's left */
+        left.x += here.x;
+        gevrSndSpatialPlace(&shot, &left);
+        CHECK(s_spatialInits == 1 && s_tagCount == 1);
+        gevrSndSpatialVoice(&other.voice);
+        CHECK(g_gevrSndSpatialSlot == -1);
+        gevrSndSpatialVoice(&shot.voice);
+        CHECK(g_gevrSndSpatialSlot == NET_SPATIAL_SFX_FIRST && g_gevrSndSpatialPositioned);
+        CHECK(g_gevrSndSpatialDir[0] < -0.99f && g_gevrSndSpatialDir[2] > -0.01f && g_gevrSndSpatialDir[2] < 0.01f);
+        /* freed: the next sound in that state is not placed */
+        gevrSndSpatialForget(&shot);
+        gevrSndSpatialVoice(&shot.voice);
+        CHECK(g_gevrSndSpatialSlot == -1 && s_tagCount == 0);
+        g_playerPointers[0] = NULL;
+    }
     /* not online: no table, straight */
     spFree();
     CHECK(gevrSndPathDistance(1, &here, 3, &there) == spDist(&here, &there));

@@ -22,6 +22,9 @@
 #include <audio/synthInternals.h>
 #include <PR/os.h>
 #include <assert.h>
+#ifdef GEVR
+#include <stddef.h>
+#endif
 
 #ifdef AUD_PROFILE
 extern u32 cnt_index, env_num, env_cnt, env_max, env_min, lastCnt[];
@@ -389,6 +392,15 @@ static Acmd* _pullSubFrame(void *filter, s16 *inp, s16 *outp, s32 outCount, s32 
      */
     aSetBuffer(ptr++, A_MAIN, *inp, AL_MAIN_L_OUT + *outp, outCount<<1);
     aSetBuffer(ptr++, A_AUX, AL_MAIN_R_OUT + *outp, AL_AUX_L_OUT + *outp, AL_AUX_R_OUT + *outp);
+#ifdef GEVR
+    {
+        /* a placed sound's voice is mixed from its direction (gevr_sndpath.c, mixer.c) */
+        extern void gevrSndSpatialVoice(ALVoice *voice);
+        PVoice *pv = (PVoice *)((char *)e - offsetof(PVoice, envmixer));
+
+        gevrSndSpatialVoice(pv->vvoice);
+    }
+#endif
 
     if (e->first)
     {
@@ -413,6 +425,9 @@ static Acmd* _pullSubFrame(void *filter, s16 *inp, s16 *outp, s32 outCount, s32 
     {
 	    aEnvMixer(ptr++, A_CONTINUE | A_AUX, osVirtualToPhysical(e->state));
     }
+#ifdef GEVR
+    gevrSndSpatialVoice(NULL);
+#endif
 
     /*
      * bump the input buffer pointer

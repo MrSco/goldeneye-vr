@@ -14,6 +14,13 @@
  * here once a stage when online: portals that share a room are linked by the
  * distance between their middles, and every pair's shortest path is found
  * across those links.
+ *
+ * Online every sound placed in the world (propobj.c sub_GAME_7F053894, the
+ * one placement the game's sounds share) is measured this way, and is heard
+ * from its direction: its synth voice goes through the binaural effect the
+ * players' voices use (net_spatial.c), whatever the voice chat setting
+ * (user, 2026-10-07: "the sfx sounds that players make" with the proximity
+ * chat's 3D audio). The game itself only set a volume: every sound was centred.
  */
 
 #include <ultra64.h>
@@ -25,12 +32,16 @@
 #include "bondview.h"
 #include "player.h"
 #include "snd.h"
+#include "stan.h"
+#include "net_spatial.h"
+#include <stddef.h>
 
 extern f32 room_data_float1;
 extern s32 sub_GAME_7F0537B8(f32 distance, f32 min, f32 max);
 extern bool netIsActive(void);
 extern int netGetLocalSlot(void);
 extern void sysLogPrintf(s32 level, const char *fmt, ...);
+extern void gevrVoiceListenerBasis(float forward[3], float up[3]);
 
 #define SP_MAX_PORTALS 1024
 #define SP_FAR 1.0e9f
@@ -49,8 +60,63 @@ static f32 spDist(const coord3d *a, const coord3d *b)
     return sqrtf(dx * dx + dy * dy + dz * dz);
 }
 
+/*
+ * The room a sound at pos is in, when its maker's is not known: the room of
+ * the floor under it (stan.c), as explosion.c finds one. The last few are
+ * remembered: a door or a machine posts its volume every frame.
+ */
+#define SP_ROOM_CACHE 8
+static struct
+{
+    coord3d at;
+    s32 room;
+    s32 used;
+} s_roomCache[SP_ROOM_CACHE];
+static s32 s_roomNext;
+
+static s32 spRoomAt(const coord3d *pos)
+{
+    coord3d probe;
+    StandTile *tile;
+    s32 i;
+
+    for (i = 0; i < SP_ROOM_CACHE; i++)
+    {
+        if (s_roomCache[i].used && s_roomCache[i].at.x == pos->x && s_roomCache[i].at.y == pos->y &&
+            s_roomCache[i].at.z == pos->z)
+        {
+            return s_roomCache[i].room;
+        }
+    }
+    probe = *pos;
+    probe.y += 30.0f;
+    tile = stanFindTileBelowPos(&probe, NULL, NULL);
+    i = s_roomNext;
+    s_roomNext = (s_roomNext + 1) % SP_ROOM_CACHE;
+    s_roomCache[i].at = *pos;
+    s_roomCache[i].room = tile != NULL && tile->room != 0xff ? tile->room : -1;
+    s_roomCache[i].used = 1;
+    return s_roomCache[i].room;
+}
+
+/* The placed sounds heard from their direction: a binaural slot each, after the players' voices */
+static struct
+{
+    ALSoundState *state;
+    coord3d pos;
+} s_tags[NET_SPATIAL_SFX_SLOTS];
+static s32 s_tagCount;
+
+/* For the mixer (mixer.c aEnvMixerImpl): the voice it is mixing, if heard from a direction */
+s32 g_gevrSndSpatialSlot = -1;
+f32 g_gevrSndSpatialDir[3];
+s32 g_gevrSndSpatialPositioned;
+
 static void spFree(void)
 {
+    memset(s_roomCache, 0, sizeof(s_roomCache));
+    memset(s_tags, 0, sizeof(s_tags));
+    s_tagCount = 0;
     free(s_path);
     free(s_middle);
     free(s_rooms);
@@ -59,6 +125,9 @@ static void spFree(void)
     s_rooms = NULL;
     s_count = 0;
 }
+
+s32 gevrSndPathVolume(coord3d *pos, s32 room, f32 low, f32 high);
+void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos);
 
 /* A stage loaded (boss.c): online, the portal paths of its rooms */
 void gevrSndPathStageLoaded(void)
@@ -200,15 +269,153 @@ f32 gevrSndPathDistance(s32 room1, const coord3d *pos1, s32 room2, const coord3d
  */
 void gevrSndPlaceFromProp(ALSoundState *state, PropRecord *source, coord3d *pos, f32 low, f32 high)
 {
-    s32 local = netGetLocalSlot();
-    PropRecord *listener;
-    f32 dist;
-
-    if (state == NULL || local < 0 || local >= MAX_PLAYER_COUNT || g_playerPointers[local] == NULL ||
-        (listener = g_playerPointers[local]->prop) == NULL)
+    if (state == NULL)
     {
         return;
     }
-    dist = gevrSndPathDistance(listener->rooms[0], &listener->pos, source != NULL ? source->rooms[0] : -1, pos);
-    sndCreatePostEvent(state, 8, sub_GAME_7F0537B8(dist, low, high));
+    sndCreatePostEvent(state, 8, gevrSndPathVolume(pos, source != NULL ? source->rooms[0] : -1, low, high));
+    gevrSndSpatialPlace(state, pos);
+}
+
+/* The local player's body: the listener online */
+static PropRecord *spListener(void)
+{
+    s32 local = netGetLocalSlot();
+
+    if (local < 0 || local >= MAX_PLAYER_COUNT || g_playerPointers[local] == NULL)
+    {
+        return NULL;
+    }
+    return g_playerPointers[local]->prop;
+}
+
+/*
+ * The volume of a sound at pos (in room, or -1 for the room under it) for the
+ * local player, on the game's curve (propobj.c sub_GAME_7F0537B8), measured
+ * the way it travels.
+ */
+s32 gevrSndPathVolume(coord3d *pos, s32 room, f32 low, f32 high)
+{
+    PropRecord *listener = spListener();
+    f32 straight;
+
+    if (listener == NULL)
+    {
+        return 0;
+    }
+    straight = spDist(&listener->pos, pos);
+    if (straight >= high || s_path == NULL)
+    {
+        return sub_GAME_7F0537B8(straight, low, high);   /* the way round is never shorter */
+    }
+    if (room < 0 || room == 0xff)
+    {
+        room = spRoomAt(pos);
+    }
+    return sub_GAME_7F0537B8(gevrSndPathDistance(listener->rooms[0], &listener->pos, room, pos), low, high);
+}
+
+/* Online, a sound placed at pos is heard from there (or moved there, if placed already) */
+void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos)
+{
+    s32 i;
+    s32 free_tag = -1;
+
+    if (state == NULL || !netIsActive())
+    {
+        return;
+    }
+    for (i = 0; i < NET_SPATIAL_SFX_SLOTS; i++)
+    {
+        if (s_tags[i].state == state)
+        {
+            s_tags[i].pos = *pos;
+            return;
+        }
+        if (s_tags[i].state == NULL && free_tag < 0)
+        {
+            free_tag = i;
+        }
+    }
+    if (free_tag < 0)
+    {
+        return;   /* every slot busy: this one stays centred */
+    }
+    netSpatialInit();
+    netSpatialResetSlot(NET_SPATIAL_SFX_FIRST + free_tag);
+    s_tags[free_tag].state = state;
+    s_tags[free_tag].pos = *pos;
+    s_tagCount++;
+}
+
+/* A sound state freed (snd.c sndUnlinkClearSound): the next sound to use it is not placed */
+void gevrSndSpatialForget(ALSoundState *state)
+{
+    s32 i;
+
+    if (s_tagCount == 0)
+    {
+        return;
+    }
+    for (i = 0; i < NET_SPATIAL_SFX_SLOTS; i++)
+    {
+        if (s_tags[i].state == state)
+        {
+            s_tags[i].state = NULL;
+            s_tagCount--;
+        }
+    }
+}
+
+/*
+ * The synth is about to mix this voice (env.c _pullSubFrame), or none: if it
+ * plays a placed sound, the mixer's binaural slot and the direction to it,
+ * head-relative (+x right, +y up, -z ahead), as net_voice.c netVoiceMix.
+ * The voice is matched by address alone: one not of the sound player (the
+ * music's) is never read through.
+ */
+void gevrSndSpatialVoice(ALVoice *voice)
+{
+    ALSoundState *state;
+    PropRecord *listener;
+    float forward[3];
+    float up[3];
+    float right[3];
+    float delta[3];
+    float distance;
+    s32 i;
+
+    g_gevrSndSpatialSlot = -1;
+    if (voice == NULL || s_tagCount == 0)
+    {
+        return;
+    }
+    state = (ALSoundState *)((u8 *)voice - offsetof(ALSoundState, voice));
+    for (i = 0; i < NET_SPATIAL_SFX_SLOTS && s_tags[i].state != state; i++)
+    {
+    }
+    if (i == NET_SPATIAL_SFX_SLOTS || (listener = spListener()) == NULL)
+    {
+        return;
+    }
+    gevrVoiceListenerBasis(forward, up);
+    right[0] = forward[1] * up[2] - forward[2] * up[1];
+    right[1] = forward[2] * up[0] - forward[0] * up[2];
+    right[2] = forward[0] * up[1] - forward[1] * up[0];
+    delta[0] = s_tags[i].pos.x - listener->pos.x;
+    delta[1] = s_tags[i].pos.y - listener->pos.y;
+    delta[2] = s_tags[i].pos.z - listener->pos.z;
+    distance = sqrtf(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
+    g_gevrSndSpatialPositioned = distance > 1.0f && isfinite(distance);
+    if (g_gevrSndSpatialPositioned)
+    {
+        float f = delta[0] * forward[0] + delta[1] * forward[1] + delta[2] * forward[2];
+        float u = delta[0] * up[0] + delta[1] * up[1] + delta[2] * up[2];
+        float r = delta[0] * right[0] + delta[1] * right[1] + delta[2] * right[2];
+
+        g_gevrSndSpatialDir[0] = r / distance;
+        g_gevrSndSpatialDir[1] = u / distance;
+        g_gevrSndSpatialDir[2] = -f / distance;
+    }
+    g_gevrSndSpatialSlot = NET_SPATIAL_SFX_FIRST + i;
 }

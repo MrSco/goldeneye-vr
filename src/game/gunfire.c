@@ -3774,6 +3774,12 @@ void recall_joy2_hits_edit_detail_edit_flag(enum ITEM_IDS item, PropRecord* prop
             if (sound_state->link.next != NULL)
             {
                 sndCreatePostEvent((ALSoundState* ) sound_state->link.next, 8, sp6C);
+#ifdef GEVR
+                {
+                    extern void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos);   /* gevr_sndpath.c */
+                    gevrSndSpatialPlace((ALSoundState *) sound_state->link.next, &prop->pos);
+                }
+#endif
             }
         }
         else
@@ -3795,6 +3801,12 @@ void recall_joy2_hits_edit_detail_edit_flag(enum ITEM_IDS item, PropRecord* prop
 
             if (sound_state->link.next != NULL) {
                 sndCreatePostEvent((ALSoundState* ) sound_state->link.next, 8, sp6C);
+#ifdef GEVR
+                {
+                    extern void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos);   /* gevr_sndpath.c */
+                    gevrSndSpatialPlace((ALSoundState *) sound_state->link.next, &prop->pos);
+                }
+#endif
             }
         }
     }

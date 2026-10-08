@@ -752,6 +752,10 @@ ALSoundState *sndSetupSound(struct ALBankAlt_s *soundBank, ALSound* sound)
  */
 void sndUnlinkClearSound(ALSoundState *state)
 {
+#ifdef GEVR
+    extern void gevrSndSpatialForget(ALSoundState *state);
+    gevrSndSpatialForget(state);
+#endif
     if (state == (ALSoundState *)D_800243E4.node.next)
     {
         D_800243E4.node.next = state->link.next;
