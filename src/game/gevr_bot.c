@@ -339,6 +339,7 @@ static s32 gevrBotPickRoam(struct player *pl, GevrBot *bot)
 static void gevrBotUnstick(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
 {
     f32 dx = pl->prop->pos.x - bot->lastpos.x;
+    f32 dy = pl->prop->pos.y - bot->lastpos.y;   /* climbing is getting somewhere: Facility's ladder (2026-10-08) */
     f32 dz = pl->prop->pos.z - bot->lastpos.z;
     s32 moving = pad->stick_y != 0 || (pad->button & (L_CBUTTONS | R_CBUTTONS));
 
@@ -349,7 +350,7 @@ static void gevrBotUnstick(s32 slot, struct player *pl, GevrBot *bot, OSContPad 
         pad->button = (pad->button & ~(L_CBUTTONS | R_CBUTTONS)) | (bot->unstickdir ? R_CBUTTONS : L_CBUTTONS);
         return;
     }
-    if (!moving || lvlGetControlsLockedFlag() || dx * dx + dz * dz > 2.0f * 2.0f * (g_ClockTimer > 0 ? g_ClockTimer : 1))
+    if (!moving || lvlGetControlsLockedFlag() || dx * dx + dy * dy + dz * dz > 2.0f * 2.0f * (g_ClockTimer > 0 ? g_ClockTimer : 1))
     {
         bot->stillticks = 0;
         bot->lastpos = pl->prop->pos;
