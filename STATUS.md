@@ -3,9 +3,15 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-07, v0.4.12 released (versionCode 67,
+**Updated / current build:** 2026-10-08, v0.4.13 released (versionCode 68,
 protocol 19, unchanged from v0.4.11; v0.4.10 and older can't join). Building does not publish a
 GitHub release. No game data is shipped.
+
+## v0.4.13
+
+Notes: [v0.4.13](docs/releases/v0.4.13.md). Crash fix release (#151): the
+title clears the freed stage's portal table (Quest 2 crash 65a366e6); a full
+sound queue no longer hangs the sound player (Quest 3 crash bfb06b31).
 
 ## v0.4.12
 
