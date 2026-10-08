@@ -1,5 +1,5 @@
 /*
- * Online, a sound another player makes is heard the way Perfect Dark hears a
+ * A sound is heard the way Perfect Dark hears a
  * sound (dlights.c func0f0056f4 and func0f0053d0, which propsnd.c
  * psCalculateVol measures with): in the listener's own room by straight
  * distance; from another room along the way sound would travel, through
@@ -8,19 +8,22 @@
  * sound. A shot behind a wall is as far away as the way round it, not as
  * the wall is thick (user, 2026-10-07: other players were at full volume
  * through walls and from other rooms). GoldenEye measured straight lines
- * only; its guards keep that.
+ * only.
  *
- * The portal-to-portal path lengths are PD's table (func0f000920), built
- * here once a stage when online: portals that share a room are linked by the
- * distance between their middles, and every pair's shortest path is found
- * across those links.
+ * The portal-to-portal path lengths are PD's table (func0f000920): portals
+ * that share a room are linked by the distance between their middles. PD
+ * builds every pair at load; here a portal's row is found when a sound first
+ * needs it (the listener's room's portals), so a stage of a thousand portals
+ * loads no slower.
  *
- * Online every sound placed in the world (propobj.c sub_GAME_7F053894, the
- * one placement the game's sounds share) is measured this way, and is heard
- * from its direction: its synth voice goes through the binaural effect the
+ * Every sound placed in the world (propobj.c sub_GAME_7F053894, the one
+ * placement the game's sounds share) is measured this way, and is heard from
+ * its direction: its synth voice goes through the binaural effect the
  * players' voices use (net_spatial.c), whatever the voice chat setting
- * (user, 2026-10-07: "the sfx sounds that players make" with the proximity
- * chat's 3D audio). The game itself only set a volume: every sound was centred.
+ * (user, 2026-10-07: the proximity chat's 3D audio for the game's sounds, in
+ * every mode). The game itself only set a volume: every sound was centred.
+ * That needs one listener - solo, co-op or online, not split screen, which
+ * keeps the game's loudest-for-the-nearest rule.
  */
 
 #include <ultra64.h>
@@ -46,7 +49,9 @@ extern void gevrVoiceListenerBasis(float forward[3], float up[3]);
 #define SP_MAX_PORTALS 1024
 #define SP_FAR 1.0e9f
 
-static f32 *s_path;         /* s_count x s_count: the shortest way from portal to portal */
+static f32 *s_path;         /* s_count x s_count: the shortest way from portal to portal, a row once found */
+static u8 *s_rowReady;      /* which rows are found */
+static u8 *s_done;          /* a row's search: the portals settled */
 static coord3d *s_middle;   /* each portal's middle, world space */
 static u8 (*s_rooms)[2];    /* the two rooms each portal joins */
 static s32 s_count;
@@ -118,9 +123,13 @@ static void spFree(void)
     memset(s_tags, 0, sizeof(s_tags));
     s_tagCount = 0;
     free(s_path);
+    free(s_rowReady);
+    free(s_done);
     free(s_middle);
     free(s_rooms);
     s_path = NULL;
+    s_rowReady = NULL;
+    s_done = NULL;
     s_middle = NULL;
     s_rooms = NULL;
     s_count = 0;
@@ -129,17 +138,16 @@ static void spFree(void)
 s32 gevrSndPathVolume(coord3d *pos, s32 room, f32 low, f32 high);
 void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos);
 
-/* A stage loaded (boss.c): online, the portal paths of its rooms */
+/* A stage loaded (boss.c): its portals, for the paths between its rooms */
 void gevrSndPathStageLoaded(void)
 {
     s32 count = 0;
     s32 i;
     s32 j;
-    s32 k;
     f32 scale;
 
     spFree();
-    if (!netIsActive() || g_BgPortals == NULL)
+    if (g_BgPortals == NULL)
     {
         return;
     }
@@ -152,9 +160,11 @@ void gevrSndPathStageLoaded(void)
         return;
     }
     s_path = malloc(sizeof(f32) * count * count);
+    s_rowReady = calloc(count, 1);
+    s_done = malloc(count);
     s_middle = malloc(sizeof(coord3d) * count);
     s_rooms = malloc(sizeof(*s_rooms) * count);
-    if (s_path == NULL || s_middle == NULL || s_rooms == NULL)
+    if (s_path == NULL || s_rowReady == NULL || s_done == NULL || s_middle == NULL || s_rooms == NULL)
     {
         spFree();
         return;
@@ -180,39 +190,64 @@ void gevrSndPathStageLoaded(void)
         s_rooms[i][0] = g_BgPortals[i].connectedRoom1;
         s_rooms[i][1] = g_BgPortals[i].connectedRoom2;
     }
-    for (i = 0; i < count; i++)
-    {
-        for (j = 0; j < count; j++)
-        {
-            s32 shared = i != j && (s_rooms[i][0] == s_rooms[j][0] || s_rooms[i][0] == s_rooms[j][1] ||
-                                    s_rooms[i][1] == s_rooms[j][0] || s_rooms[i][1] == s_rooms[j][1]);
+    s_count = count;
+    sysLogPrintf(1, "sound: %d portals", count);
+}
 
-            s_path[i * count + j] = i == j ? 0.0f : shared ? spDist(&s_middle[i], &s_middle[j]) : SP_FAR;
-        }
+/* Two portals open on one room */
+static s32 spShared(s32 i, s32 j)
+{
+    return s_rooms[i][0] == s_rooms[j][0] || s_rooms[i][0] == s_rooms[j][1] ||
+           s_rooms[i][1] == s_rooms[j][0] || s_rooms[i][1] == s_rooms[j][1];
+}
+
+/* A portal's shortest ways to every portal (Dijkstra over the shared rooms), found once a stage */
+static const f32 *spRow(s32 from)
+{
+    f32 *row = &s_path[from * s_count];
+    s32 i;
+
+    if (s_rowReady[from])
+    {
+        return row;
     }
-    for (k = 0; k < count; k++)
+    for (i = 0; i < s_count; i++)
     {
-        for (i = 0; i < count; i++)
+        row[i] = SP_FAR;
+        s_done[i] = 0;
+    }
+    row[from] = 0.0f;
+    for (;;)
+    {
+        s32 next = -1;
+
+        for (i = 0; i < s_count; i++)
         {
-            f32 ik = s_path[i * count + k];
-
-            if (ik >= SP_FAR)
+            if (!s_done[i] && row[i] < SP_FAR && (next < 0 || row[i] < row[next]))
             {
-                continue;
+                next = i;
             }
-            for (j = 0; j < count; j++)
+        }
+        if (next < 0)
+        {
+            break;
+        }
+        s_done[next] = 1;
+        for (i = 0; i < s_count; i++)
+        {
+            if (!s_done[i] && spShared(next, i))
             {
-                f32 via = ik + s_path[k * count + j];
+                f32 via = row[next] + spDist(&s_middle[next], &s_middle[i]);
 
-                if (via < s_path[i * count + j])
+                if (via < row[i])
                 {
-                    s_path[i * count + j] = via;
+                    row[i] = via;
                 }
             }
         }
     }
-    s_count = count;
-    sysLogPrintf(1, "sound: %d portals, paths ready", count);
+    s_rowReady[from] = 1;
+    return row;
 }
 
 /*
@@ -233,6 +268,7 @@ f32 gevrSndPathDistance(s32 room1, const coord3d *pos1, s32 room2, const coord3d
     }
     for (i = 0; i < s_count; i++)
     {
+        const f32 *row;
         f32 out;
 
         if (s_rooms[i][0] != room1 && s_rooms[i][1] != room1)
@@ -244,6 +280,7 @@ f32 gevrSndPathDistance(s32 room1, const coord3d *pos1, s32 room2, const coord3d
         {
             continue;
         }
+        row = spRow(i);
         for (j = 0; j < s_count; j++)
         {
             f32 way;
@@ -252,7 +289,7 @@ f32 gevrSndPathDistance(s32 room1, const coord3d *pos1, s32 room2, const coord3d
             {
                 continue;
             }
-            way = out + s_path[i * s_count + j] + spDist(&s_middle[j], pos2);
+            way = out + row[j] + spDist(&s_middle[j], pos2);
             if (way < best)
             {
                 best = way;
@@ -277,16 +314,22 @@ void gevrSndPlaceFromProp(ALSoundState *state, PropRecord *source, coord3d *pos,
     gevrSndSpatialPlace(state, pos);
 }
 
-/* The local player's body: the listener online */
+/* The one listener: the local player online, the player in solo; none in split screen */
 static PropRecord *spListener(void)
 {
-    s32 local = netGetLocalSlot();
+    s32 local = netIsActive() ? netGetLocalSlot() : getPlayerCount() == 1 ? 0 : -1;
 
     if (local < 0 || local >= MAX_PLAYER_COUNT || g_playerPointers[local] == NULL)
     {
         return NULL;
     }
     return g_playerPointers[local]->prop;
+}
+
+/* propobj.c: the sounds are measured here, to one listener */
+s32 gevrSndHasListener(void)
+{
+    return spListener() != NULL;
 }
 
 /*
@@ -315,13 +358,13 @@ s32 gevrSndPathVolume(coord3d *pos, s32 room, f32 low, f32 high)
     return sub_GAME_7F0537B8(gevrSndPathDistance(listener->rooms[0], &listener->pos, room, pos), low, high);
 }
 
-/* Online, a sound placed at pos is heard from there (or moved there, if placed already) */
+/* A sound placed at pos is heard from there (or moved there, if placed already) */
 void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos)
 {
     s32 i;
     s32 free_tag = -1;
 
-    if (state == NULL || !netIsActive())
+    if (state == NULL || spListener() == NULL)
     {
         return;
     }
@@ -406,7 +449,10 @@ void gevrSndSpatialVoice(ALVoice *voice)
     delta[1] = s_tags[i].pos.y - listener->pos.y;
     delta[2] = s_tags[i].pos.z - listener->pos.z;
     distance = sqrtf(delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]);
-    g_gevrSndSpatialPositioned = distance > 1.0f && isfinite(distance);
+    /* centred while a camera, not the head, shows the scene: the intro, the swirl, the ending */
+    g_gevrSndSpatialPositioned = distance > 1.0f && isfinite(distance) && g_CameraMode != CAMERAMODE_INTRO &&
+                                 g_CameraMode != CAMERAMODE_FADESWIRL && g_CameraMode != CAMERAMODE_SWIRL &&
+                                 g_CameraMode != CAMERAMODE_POSEND && g_CameraMode != CAMERAMODE_FADE_TO_TITLE;
     if (g_gevrSndSpatialPositioned)
     {
         float f = delta[0] * forward[0] + delta[1] * forward[1] + delta[2] * forward[2];

@@ -8,6 +8,8 @@ f32 room_data_float1 = 1.0f;
 struct player *g_playerPointers[MAX_PLAYER_COUNT];
 s32 sub_GAME_7F0537B8(f32 distance, f32 min, f32 max) { (void)min; (void)max; return (s32)distance; }
 bool netIsActive(void) { return TRUE; }
+s32 getPlayerCount(void) { return 1; }
+enum CAMERAMODE g_CameraMode = CAMERAMODE_FP;
 int netGetLocalSlot(void) { return 0; }
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 static s32 s_volume;
@@ -52,7 +54,7 @@ EXPORT int test_sndpath(void)
 
     rooms();
     gevrSndPathStageLoaded();
-    CHECK(s_count == 2 && s_path[1] > 999.0f && s_path[1] < 1001.0f);
+    CHECK(s_count == 2 && !s_rowReady[0] && spRow(0)[1] > 999.0f && spRow(0)[1] < 1001.0f && s_rowReady[0]);
     /* the same room: a straight line */
     CHECK(gevrSndPathDistance(1, &here, 1, &nextdoor) == spDist(&here, &nextdoor));
     /* the next room behind the wall: round by its doorway, never nearer than straight */

@@ -13106,17 +13106,17 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
 #ifdef GEVR
     /*
      * Split screen shares one speaker, so a sound is as loud as it is for
-     * the nearest player. Online each headset hears only its own player
-     * (measured to the other players' copies, a remote gun or explosion was
-     * always as loud as if it were beside you), and along the way the sound
-     * travels, round walls through the doorways (gevr_sndpath.c).
+     * the nearest player. With one listener (solo, co-op, online: each
+     * headset its own player; measured to the other players' copies, a
+     * remote gun or explosion was always as loud as if it were beside you)
+     * a sound is measured to it along the way the sound travels, round walls
+     * through the doorways (gevr_sndpath.c).
      */
     {
-        extern bool netIsActive(void);
-        extern int netGetLocalSlot(void);
+        extern s32 gevrSndHasListener(void);
         extern s32 gevrSndPathVolume(coord3d *pos, s32 room, f32 low, f32 high);
 
-        if (netIsActive() && netGetLocalSlot() >= 0)
+        if (gevrSndHasListener())
         {
             return gevrSndPathVolume(pos, -1, low, high);
         }
@@ -13143,7 +13143,7 @@ void chrobjSndCreatePostEvent(ALSoundState *state, coord3d *pos, f32 low, f32 hi
 {
     sndCreatePostEvent(state, 8, sub_GAME_7F053894(pos, low, high));
 #ifdef GEVR
-    gevrSndSpatialPlace(state, pos);   /* online: heard from where it is */
+    gevrSndSpatialPlace(state, pos);   /* heard from where it is */
 #endif
 }
 
