@@ -18933,14 +18933,14 @@ s32 sub_GAME_7F0898E8(void)
  */
 #ifdef GEVR
 /*
- * Online deathmatch: every hit counts, as in Perfect Dark, whose player
- * damage (chraction.c) has no red-flash gate: the flash only shows the hit.
- * GoldenEye ignored a hit for the half second to a second of the last one's
- * flash, longer the lower the health, so fast fire mostly did nothing:
+ * Online deathmatch: a hit counts a quarter second after the last (the
+ * user's middle ground, the default), or every hit (as in Perfect Dark,
+ * whose player damage, chraction.c, has no red-flash gate), or GoldenEye's
+ * rule. GoldenEye ignored a hit for the half second to a second of the last
+ * one's flash, longer the lower the health, so fast fire mostly did nothing:
  * eight DD44 hits on a bot counted twice, its three slower ones all counted
- * (user and a player's report, 2026-10-08). The host can keep GoldenEye's
- * rule (NET_FUN_HIT_IMMUNITY) or take a quarter second between hits
- * (NET_FUN_HIT_SHORT, the user's middle ground); solo and co-op keep
+ * (user and a player's report, 2026-10-08). The host picks
+ * (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY; net_rules.h); solo and co-op keep
  * GoldenEye's. damageshowtime counts the ticks since the last hit.
  */
 static s32 gevrNetHitCounts(void)
