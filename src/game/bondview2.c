@@ -18939,11 +18939,20 @@ s32 sub_GAME_7F0898E8(void)
  * flash, longer the lower the health, so fast fire mostly did nothing:
  * eight DD44 hits on a bot counted twice, its three slower ones all counted
  * (user and a player's report, 2026-10-08). The host can keep GoldenEye's
- * rule (NET_FUN_HIT_IMMUNITY); solo and co-op keep it.
+ * rule (NET_FUN_HIT_IMMUNITY) or take a quarter second between hits
+ * (NET_FUN_HIT_SHORT, the user's middle ground); solo and co-op keep
+ * GoldenEye's. damageshowtime counts the ticks since the last hit.
  */
-static s32 gevrNetEveryHitCounts(void)
+static s32 gevrNetHitCounts(void)
 {
-    return netIsActive() && !gevrCoopActive() && !(netActiveFunFlags() & NET_FUN_HIT_IMMUNITY);
+    s32 immunity;
+
+    if (!netIsActive() || gevrCoopActive())
+    {
+        return FALSE;
+    }
+    immunity = netHitImmunity(netActiveFunFlags());
+    return immunity == 0 || (immunity == 1 && g_CurrentPlayer->damageshowtime >= NET_HIT_SHORT_TICKS);
 }
 #endif
 
@@ -19008,7 +19017,7 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
         if (g_CurrentPlayer->cheatBondInvincible == FALSE && g_CurrentPlayer->bonddead == FALSE && g_PlayerInvincible == FALSE &&
             (g_CurrentPlayer->damageshowtime < 0 || (getPlayerCount() >= 2 && g_CurrentPlayer->damageshowtime == 0)
 #ifdef GEVR
-             || gevrNetEveryHitCounts()
+             || gevrNetHitCounts()
 #endif
             ))
         {
