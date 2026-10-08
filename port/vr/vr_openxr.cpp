@@ -2271,19 +2271,26 @@ static bool vr_pointer_grid_probe(void)
     return on;
 }
 
-static bool vr_screen_over_stereo(void);   // below: the pause panel over the game's eye buffers
+static bool vr_screen_over_stereo(void);   // below: the pause panel over the stereo game
 
-extern "C" void vr_pointer_draw(void)
+// The beam (or the grid probe) is to be drawn this frame
+static bool vr_pointer_wanted(void)
+{
+    const bool grid = g_screenVisible && g_screenW != 0 && vr_pointer_grid_probe();
+    const bool wanted = g_ptrFrame - g_ptrWantedFrame < 20;
+    return g_screenVisible && ((g_ptr[g_ptrActive].hit && wanted) || grid);
+}
+
+/*
+ * The beam and its spot, into the bound multiview target, from these views.
+ * declare: the target is the eye buffers, whose submitted views become these.
+ */
+static void vr_pointer_paint(const std::array<XrView, 2> &views, bool declare)
 {
     const VrPointerHand &p0 = g_ptr[g_ptrActive];
     const bool grid = g_screenVisible && g_screenW != 0 && vr_pointer_grid_probe();
     const bool wanted = g_ptrFrame - g_ptrWantedFrame < 20;
-    const bool beam = (p0.hit && wanted) || grid;
-    // The pause panel over a stereo game (vr_end_frame's layer order): the
-    // panel goes under the eye buffers, as the launcher's screen does, and
-    // these are cut open over it, so the beam drawn here shows in front.
-    const bool cut = vr_screen_over_stereo();
-    if (!g_screenVisible || (!beam && !cut)) {
+    if (!vr_pointer_wanted()) {
         return;
     }
     VrPointerHand p = p0;
@@ -2322,8 +2329,6 @@ extern "C" void vr_pointer_draw(void)
             "    if (vShape.z < 0.5) {\n"
             "        float c = 1.0 - abs(vShape.x * 2.0 - 1.0);\n"
             "        a = vShape.w * c * c * smoothstep(0.0, 0.35, vShape.y);\n"
-            "    } else if (vShape.z > 1.5) {\n"
-            "        a = vShape.w;\n"                       // kind 2: a flat alpha (the panel's cut)
             "    } else {\n"
             "        float r = length(vShape.xy * 2.0 - 1.0);\n"
             "        a = vShape.w * (1.0 - smoothstep(0.55, 1.0, r));\n"
@@ -2372,19 +2377,21 @@ extern "C" void vr_pointer_draw(void)
     // was drawn with, so that XR frames which reuse this image (72 Hz display,
     // 60 Hz game) are reprojected from the right pose instead of letting the
     // beam and spot swim off the screen as the head turns.
-    g_renderedViews = g_frameViews;
-    g_haveRenderedViews = true;
+    if (declare) {
+        g_renderedViews = views;
+        g_haveRenderedViews = true;
+    }
 
     // eye view-projections, play space
     float vp[32];
     for (int eye = 0; eye < 2; eye++) {
         float pose[16], view[16], proj[16];
-        QuatToMat4(g_frameViews[eye].pose.orientation, pose);
-        pose[12] = g_frameViews[eye].pose.position.x;
-        pose[13] = g_frameViews[eye].pose.position.y;
-        pose[14] = g_frameViews[eye].pose.position.z;
+        QuatToMat4(views[eye].pose.orientation, pose);
+        pose[12] = views[eye].pose.position.x;
+        pose[13] = views[eye].pose.position.y;
+        pose[14] = views[eye].pose.position.z;
         InvertRigidMat4(pose, view);
-        ProjectionFromFov(g_frameViews[eye].fov, 0.05f, 100.0f, proj);
+        ProjectionFromFov(views[eye].fov, 0.05f, 100.0f, proj);
         Mat4Mul(proj, view, vp + eye * 16);
     }
 
@@ -2450,40 +2457,7 @@ extern "C" void vr_pointer_draw(void)
     glUniformMatrix4fv(s_ptrVpLoc, 2, GL_FALSE, vp);
     glBindVertexArray(s_ptrVao);
     glBindBuffer(GL_ARRAY_BUFFER, s_ptrVbo);
-    if (cut) {
-        // The eye buffers' alpha: opaque, then clear over the panel's own
-        // (curved) surface, through which the compositor shows the panel.
-        GLfloat clearCol[4];
-        glGetFloatv(GL_COLOR_CLEAR_VALUE, clearCol);
-        glDisable(GL_BLEND);
-        glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_TRUE);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
-        constexpr int CUT_COLUMNS = 32;
-        static float cutverts[CUT_COLUMNS * 6][7];
-        int n = 0;
-        for (int c = 0; c < CUT_COLUMNS; c++) {
-            float q[4][3];
-            vr_screen_uv_to_world((float)c / CUT_COLUMNS, 0.0f, q[0]);
-            vr_screen_uv_to_world((float)(c + 1) / CUT_COLUMNS, 0.0f, q[1]);
-            vr_screen_uv_to_world((float)(c + 1) / CUT_COLUMNS, 1.0f, q[2]);
-            vr_screen_uv_to_world((float)c / CUT_COLUMNS, 1.0f, q[3]);
-            const int idx[6] = { 0, 1, 2, 0, 2, 3 };
-            for (int k = 0; k < 6; k++, n++) {
-                for (int i = 0; i < 3; i++) cutverts[n][i] = q[idx[k]][i];
-                cutverts[n][3] = 0.0f;
-                cutverts[n][4] = 0.0f;
-                cutverts[n][5] = 2.0f;
-                cutverts[n][6] = 0.0f;
-            }
-        }
-        glBufferData(GL_ARRAY_BUFFER, sizeof(cutverts), cutverts, GL_STREAM_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, n);
-        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
-        glClearColor(clearCol[0], clearCol[1], clearCol[2], clearCol[3]);
-        glEnable(GL_BLEND);
-    }
-    if (beam) {
+    if (p0.hit && wanted) {
         glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, 12);
     }
@@ -2523,6 +2497,126 @@ extern "C" void vr_pointer_draw(void)
     if (depth) glEnable(GL_DEPTH_TEST);
     if (cull) glEnable(GL_CULL_FACE);
     if (scissor) glEnable(GL_SCISSOR_TEST);
+}
+
+// The pointer into the eye buffers (the launcher, the 2D screens). Not over
+// the stereo game: there the laser has a layer of its own (vr_pointer_layer_render).
+extern "C" void vr_pointer_draw(void)
+{
+    if (!vr_screen_over_stereo()) {
+        vr_pointer_paint(g_frameViews, true);
+    }
+}
+
+/*
+ * The pause panel over the stereo game. The launcher's laser is drawn into
+ * eye buffers that hold nothing else, submitted over its screen. Here the eye
+ * buffers hold the game, under the panel, so the laser gets eye buffers of
+ * its own over the panel, drawn on every XR frame from that frame's views.
+ * (Cutting the game's eye buffers open over the panel instead left the hole
+ * drawn for one pose and the game under it for another, and the eye layer's
+ * premultiplied colour still lit the hole: the panel looked washed out and
+ * cut off as the head turned. User, 2026-10-07.)
+ * Half the eye size: it holds only the beam and its spot.
+ */
+static XrSwapchain g_ptrLayerSwapchain = XR_NULL_HANDLE;
+#ifdef ANDROID
+static std::vector<XrSwapchainImageOpenGLESKHR> g_ptrLayerImages;
+#else
+static std::vector<XrSwapchainImageOpenGLKHR> g_ptrLayerImages;
+#endif
+static GLuint g_ptrLayerFbo;
+static int32_t g_ptrLayerW, g_ptrLayerH;
+static bool g_ptrLayerFailed;
+
+static bool vr_pointer_layer_render(const std::array<XrView, 2> &views)
+{
+    if (!vr_pointer_wanted()) {
+        return false;
+    }
+    if (g_ptrLayerSwapchain == XR_NULL_HANDLE) {
+        if (g_ptrLayerFailed || !glFramebufferTextureMultiviewOVR) {
+            return false;
+        }
+        XrSwapchainCreateInfo info{XR_TYPE_SWAPCHAIN_CREATE_INFO};
+        info.usageFlags  = XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+        info.format      = vr_pick_swapchain_format();
+        info.sampleCount = 1;
+        info.width       = (uint32_t)(g_internalRenderWidth / 2);
+        info.height      = (uint32_t)(g_internalRenderHeight / 2);
+        info.faceCount   = 1;
+        info.arraySize   = 2;
+        info.mipCount    = 1;
+        if (XR_FAILED(xrCreateSwapchain(g_vrState.session, &info, &g_ptrLayerSwapchain))) {
+            LOGE("pointer layer: xrCreateSwapchain %u x %u failed", info.width, info.height);
+            g_ptrLayerSwapchain = XR_NULL_HANDLE;
+            g_ptrLayerFailed = true;
+            return false;
+        }
+        if (!vr_load_swapchain_images(g_ptrLayerSwapchain, g_ptrLayerImages)) {
+            LOGE("pointer layer: no swapchain images");
+            xrDestroySwapchain(g_ptrLayerSwapchain);
+            g_ptrLayerSwapchain = XR_NULL_HANDLE;
+            g_ptrLayerFailed = true;
+            return false;
+        }
+        g_ptrLayerW = (int32_t)info.width;
+        g_ptrLayerH = (int32_t)info.height;
+        LOGI("pointer layer: %d x %d", g_ptrLayerW, g_ptrLayerH);
+    }
+
+    uint32_t index = 0;
+    XrSwapchainImageAcquireInfo acquireInfo{XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+    if (XR_FAILED(xrAcquireSwapchainImage(g_ptrLayerSwapchain, &acquireInfo, &index))) {
+        return false;
+    }
+    XrSwapchainImageWaitInfo waitInfo{XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+    waitInfo.timeout = XR_INFINITE_DURATION;
+    xrWaitSwapchainImage(g_ptrLayerSwapchain, &waitInfo);
+
+    GLint prevDraw = 0, prevRead = 0, vp[4];
+    GLfloat clearCol[4];
+    glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &prevDraw);
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &prevRead);
+    glGetIntegerv(GL_VIEWPORT, vp);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, clearCol);
+    const GLboolean scissor = glIsEnabled(GL_SCISSOR_TEST);
+
+    if (!g_ptrLayerFbo) {
+        glGenFramebuffers(1, &g_ptrLayerFbo);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, g_ptrLayerFbo);
+    glFramebufferTextureMultiviewOVR(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, g_ptrLayerImages[index].image, 0, 0, 2);
+    glViewport(0, 0, g_ptrLayerW, g_ptrLayerH);
+    glDisable(GL_SCISSOR_TEST);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    vr_pointer_paint(views, false);
+
+    glClearColor(clearCol[0], clearCol[1], clearCol[2], clearCol[3]);
+    if (scissor) glEnable(GL_SCISSOR_TEST);
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDraw);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint)prevRead);
+
+    XrSwapchainImageReleaseInfo releaseInfo{XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+    xrReleaseSwapchainImage(g_ptrLayerSwapchain, &releaseInfo);
+    return true;
+}
+
+static void vr_pointer_layer_destroy(void)
+{
+    if (g_ptrLayerSwapchain != XR_NULL_HANDLE) {
+        xrDestroySwapchain(g_ptrLayerSwapchain);
+        g_ptrLayerSwapchain = XR_NULL_HANDLE;
+    }
+    g_ptrLayerImages.clear();
+    if (g_ptrLayerFbo) {
+        glDeleteFramebuffers(1, &g_ptrLayerFbo);
+        g_ptrLayerFbo = 0;
+    }
+    g_ptrLayerFailed = false;
 }
 
 static bool vr_screen_present_common(unsigned int srcTex, bool is2d, int w, int h);
@@ -2875,8 +2969,8 @@ static inline bool vr_screen_on_void(void) {
     return g_screenVisible && (!g_screenOverlay || !g_eyesHoldStereo);
 }
 
-// The pause panel over the stereo game: under the eye buffers, which
-// vr_pointer_draw cuts open over it (the screen layer goes first, as on the void).
+// The pause panel over the stereo game: over the eye buffers, with the
+// laser's own layer over it (vr_pointer_layer_render).
 static bool vr_screen_over_stereo(void) {
     return g_screenVisible && g_screenOverlay && g_eyesHoldStereo;
 }
@@ -4078,10 +4172,28 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&passLayer);
     }
 
-    // The pause panel over the stereo game goes first too: vr_pointer_draw
-    // cut the eye buffers open over it, so the beam shows in front of it
-    // (as the launcher's does) instead of under it.
-    if (submitScreen) {
+    // The pause panel over the stereo game goes over the game's eye buffers,
+    // and the laser's own eye buffers over it (vr_pointer_layer_render).
+    const bool screenAsOverlay = submitScreen && vr_screen_over_stereo();
+    std::array<XrCompositionLayerProjectionView, 2> ptrViews;
+    XrCompositionLayerProjection ptrLayer{XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    const bool submitPointer = screenAsOverlay && vr_pointer_layer_render(g_frameViews);
+    if (submitPointer) {
+        for (int eye = 0; eye < 2; ++eye) {
+            ptrViews[eye] = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
+            ptrViews[eye].pose = g_frameViews[eye].pose;
+            ptrViews[eye].fov = g_frameViews[eye].fov;
+            ptrViews[eye].subImage.swapchain = g_ptrLayerSwapchain;
+            ptrViews[eye].subImage.imageArrayIndex = eye;
+            ptrViews[eye].subImage.imageRect.offset = {0, 0};
+            ptrViews[eye].subImage.imageRect.extent = {g_ptrLayerW, g_ptrLayerH};
+        }
+        ptrLayer.layerFlags = XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT;
+        ptrLayer.space = g_vrState.playSpace;
+        ptrLayer.viewCount = 2;
+        ptrLayer.views = ptrViews.data();
+    }
+    if (submitScreen && !screenAsOverlay) {
         layers[numLayers++] = screenCurved
             ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
             : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
@@ -4113,6 +4225,14 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
     XrFrameEndInfo endInfo = {XR_TYPE_FRAME_END_INFO};
     endInfo.displayTime          = frameState.predictedDisplayTime;
     endInfo.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+    if (screenAsOverlay) {
+        layers[numLayers++] = screenCurved
+            ? reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenCyl)
+            : reinterpret_cast<const XrCompositionLayerBaseHeader*>(&screenLayer);
+    }
+    if (submitPointer) {
+        layers[numLayers++] = reinterpret_cast<const XrCompositionLayerBaseHeader*>(&ptrLayer);
+    }
     endInfo.layerCount           = numLayers;
     endInfo.layers               = layers;
 
@@ -4915,6 +5035,7 @@ extern "C" void vr_shutdown()
         }
     }
     vr_screen_destroy_swapchain();
+    vr_pointer_layer_destroy();
     g_screenRecenterTimes.clear();
     vr_passthrough_destroy();
 
