@@ -1272,8 +1272,16 @@ static void gevrGexGunPrepare(GUNHAND hand, ITEM_IDS item, ModelFileHeader *hdr)
     u16 mtx = 0, tex = 0;
     s32 i;
     const s32 n = hdr->numSwitches;
-    const GexWeaponDef *def = gevrGexWeaponGet(item);
+    /* GoldenEye's ITEM_FIST draws the named item's melee model (gun.c
+     * get_ptr_weapon_model_header_line): the fist, or the sniper rifle's butt */
+    const s32 named = item == ITEM_FIST && g_CurrentPlayer != NULL ? g_CurrentPlayer->cur_item_weapon_getname : item;
+    const GexWeaponDef *def = gevrGexWeaponGet(named);
 
+    if (item == ITEM_FIST)
+    {
+        sysLogPrintf(LOG_NOTE, "gex: hand %d unarmed loads item %d (%s), GE-X %d, net %d", hand, named,
+                     def != NULL ? def->model : "GoldenEye's", VrGexGuns, netIsActive());
+    }
     if (!VrGexGuns || def == NULL || n + def->numParts > 64)
     {
         return;
@@ -2794,13 +2802,16 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
                              : reload->ammoFrame + (phase - 2.0f) * (last - reload->ammoFrame);
         swapped = frame >= reload->magOut && frame < reload->ammoFrame;
     }
-    else if (fire >= 0.0f && def->fireAnim > 0)
+    else if (fire >= 0.0f && def->fireAnim > 0 && def->fireAnimAlt <= 0)
     {
         anim = def->fireAnim; frame = fire;
     }
-    else if (def->fireAnimAlt > 0 && g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT))
+    else if (def->fireAnimAlt > 0 && !g_gevrStereo && g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT))
     {
-        /* the fist: GoldenEye's punch, as GE-X's (1001 or 1002), on GoldenEye's clock */
+        /* the fist: GoldenEye's punch, as GE-X's (1001 or 1002), on GoldenEye's clock.
+         * The trigger's fire clip played it at a gun's pace (user: the animation was
+         * wrong on the trigger). In the headset the hand stays the tracked one: the
+         * player's own swing is the punch (bondview2.c gevrHandChopTick) */
         const s32 st = g_CurrentPlayer->hands[hand].weapon_action_state;
         const s32 punch = st == GUN_ANIM_STATE_PUNCH1_STRIKE || st == GUN_ANIM_STATE_PUNCH1_RECOVER ? def->fireAnim
                         : st == GUN_ANIM_STATE_PUNCH2_STRIKE || st == GUN_ANIM_STATE_PUNCH2_RECOVER ? def->fireAnimAlt : 0;
