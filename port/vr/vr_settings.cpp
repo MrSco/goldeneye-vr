@@ -33,6 +33,8 @@ extern "C" void inputRumbleSetStrength(int playernum, int strength);
 
 // goldeneye-vr.ini's names for VrScopeFit's guns, in its order (gevr_scope.h)
 static const char *const kScopeFitNames[GEVR_SCOPE_FITS] = { "Sniper", "Laser", "KF7", "AR33" };
+// BodySlot<name>= lines, in gevr_bodyslot.h's order
+static const char *const kBodySlotKeys[GEVR_BODY_SLOTS] = { "HipGun", "HipOff", "BackGun", "BackOff", "Chest", "Belt" };
 
 struct MuzzleWeaponEntry {
     int item;
@@ -145,6 +147,16 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; at the hand, put a gun on the floor in that hand (grip to hand), take back your own mine.\n");
     fprintf(f, "GestureHolster=%d\nGestureGripUse=%d\nGestureGripToHand=%d\nGestureMineGrab=%d\n",
             VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab);
+    fprintf(f, "; Body slots (stereo), 1 = on: pistols at the hips, long guns over the shoulders,\n");
+    fprintf(f, "; thrown on the chest, gadgets at the belt. Show: 1 = draw what they hold.\n");
+    fprintf(f, "; Size: zones 0 small, 1 normal, 2 large.\n");
+    fprintf(f, "BodySlots=%d\nBodySlotShow=%d\nBodySlotSize=%d\n", VrBodySlots, VrBodySlotShow, VrBodySlotSize);
+    fprintf(f, "; Each slot's centre, set with Gun fit's Slots mode: cm below the eye, out to its\n");
+    fprintf(f, "; side and ahead, in the torso's frame. 0 0 0 = the default for your height.\n");
+    for (int s = 0; s < GEVR_BODY_SLOTS; s++) {
+        fprintf(f, "BodySlot%s=%.2f %.2f %.2f\n", kBodySlotKeys[s],
+                VrBodySlotFit[s][0], VrBodySlotFit[s][1], VrBodySlotFit[s][2]);
+    }
     fprintf(f, "; 1 = each gun kicks with its own recoil (Perfect Dark VR's table), 0 = one generic kick.\n");
     fprintf(f, "PerWeaponRecoil=%d\n", VrPerWeaponRecoil);
     fprintf(f, "; Game rules (single player). 1 = thrown mines stick to guards.\n");
@@ -324,7 +336,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; How fast the virtual torso turns to follow your head, per tick. The elbow anchor\n");
     fprintf(f, "; is held steady relative to that torso, so this trades two things off: too LOW and\n");
     fprintf(f, "; the elbows lag behind when you physically turn your whole body; too HIGH and they\n");
-    fprintf(f, "; drift when you merely glance around. ~0.02 suits most people.\n");
+    fprintf(f, "; drift when you merely glance around. ~0.02 suits most people. Body slots ride\n");
+    fprintf(f, "; on the same torso.\n");
     fprintf(f, "ArmBodyFollow=%.4f\n", VrArmBodyFollow);
     fprintf(f, "\n");
     fprintf(f, "; 1 = the empty off-hand closes into a fist while you squeeze the left grip,\n");
@@ -415,6 +428,22 @@ extern "C" void vrSettingsLoad(void)
                 for (int i = 0; i < 3; i++) to[i] = t[i];
             }
             continue;
+        }
+        if (strncmp(line, "BodySlot", 8) == 0) {
+            int s = 0;
+            while (s < GEVR_BODY_SLOTS && !(strncmp(line + 8, kBodySlotKeys[s], strlen(kBodySlotKeys[s])) == 0
+                                            && line[8 + strlen(kBodySlotKeys[s])] == '=')) {
+                s++;
+            }
+            if (s < GEVR_BODY_SLOTS) {
+                float t[3];
+                if (sscanf(strchr(line, '=') + 1, "%f %f %f", &t[0], &t[1], &t[2]) == 3
+                    && std::isfinite(t[0]) && std::isfinite(t[1]) && std::isfinite(t[2])) {
+                    for (int i = 0; i < 3; i++) VrBodySlotFit[s][i] = t[i];
+                }
+                continue;
+            }
+            // BodySlots=, BodySlotShow=, BodySlotSize=: the integer keys below
         }
         if (strncmp(line, "GexFit", 6) == 0) {
             int item, component, consumed=0; float t[3];
@@ -551,6 +580,9 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "GestureGripUse") == 0) VrGestureGripUse = ival != 0;
             else if (strcmp(key, "GestureGripToHand") == 0) VrGesturePickup = ival != 0;
             else if (strcmp(key, "GestureMineGrab") == 0) VrGestureMineGrab = ival != 0;
+            else if (strcmp(key, "BodySlots") == 0) VrBodySlots = ival != 0;
+            else if (strcmp(key, "BodySlotShow") == 0) VrBodySlotShow = ival != 0;
+            else if (strcmp(key, "BodySlotSize") == 0) VrBodySlotSize = ival < 0 ? 0 : ival > 2 ? 2 : ival;
             else if (strcmp(key, "PerWeaponRecoil") == 0) VrPerWeaponRecoil = ival != 0;
             else if (strcmp(key, "MinesStickToGuards") == 0) VrMinesStickToGuards = ival != 0;
             else if (strcmp(key, "FastReinforcements") == 0) VrFastReinforcements = ival != 0;
@@ -633,7 +665,9 @@ extern "C" void vrSettingsLoad(void)
                 VrUseSnapTurn = fval;
             }
             else if (strcmp(key, "ArmElbowTuck") == 0) VrArmElbowTuck = fval;
-            else if (strcmp(key, "ArmBodyFollow") == 0) VrArmBodyFollow = fval;
+            /* nothing read it before body slots, and every file saved 0: the
+             * torso has to follow, so 0 or less is Perfect Dark VR's 0.02 */
+            else if (strcmp(key, "ArmBodyFollow") == 0) VrArmBodyFollow = fval > 0.0f && fval <= 1.0f ? fval : 0.02f;
             else if (strcmp(key, "GunOffX") == 0) { gunOff[0] = fval; gunOffRead = true; }
             else if (strcmp(key, "GunOffY") == 0) { gunOff[1] = fval; gunOffRead = true; }
             else if (strcmp(key, "GunOffZ") == 0) { gunOff[2] = fval; gunOffRead = true; }

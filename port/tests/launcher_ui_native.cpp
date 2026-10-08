@@ -11,6 +11,9 @@ bool throwingPage,hapticsPage,gesturesPage;
 static ImRect watchControlsRect;
 extern "C" void vrSettingsSave(void) {}
 /* INSERT_CONTROLS */
+int VrGestureHolster=1,VrGestureGripUse=1,VrGesturePickup,VrGestureMineGrab=1,VrManualReloading,VrPerWeaponRecoil;
+int VrBodySlots,VrBodySlotShow=1,VrBodySlotSize=1,VrGexGuns;
+/* INSERT_GESTURES */
 static int selected = 20, disabledRow = -1;
 static std::vector<std::pair<int, ImVec2>> visible;
 static ImVec2 combo;
@@ -176,6 +179,37 @@ static void settingsChecks() {
     session.updateDebugCombo(false, false); session.updateDebugCombo(true, true);
     check(session.debugUnlocked, "fresh combo unlocks the next launcher session");
 }
+/* The Gestures page, every section shown, fits under the launcher's header without scrolling. */
+static void gesturesChecks() {
+    reset();
+    ImGui::GetIO().DisplaySize = ImVec2(1280, 960);
+    ImGui::GetIO().FontGlobalScale = 2.2f;
+    ImGui::GetStyle().ScaleAllSizes(2.2f);
+    VrBodySlots = VrGexGuns = 1;
+    for (int pass = 0; pass < 3; pass++) {
+        ImGui::NewFrame();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+        ImGui::Begin("Gestures", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoSavedSettings
+                     | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+        // vr_launcher.cpp's header: icon and title, the ROM header, two separators
+        ImGui::Dummy(ImVec2(0, ImGui::GetTextLineHeight() * 2.2f + ImGui::GetStyle().ItemSpacing.y));
+        ImGui::Separator();
+        ImGui::Button("ROM: ok###rom", ImVec2(-1, 0));
+        ImGui::Separator();
+        gesturesPage = true;
+        gevrTestGestures();
+        const auto *window = ImGui::GetCurrentWindow();
+        if (pass == 2) {
+            check(window->DC.CursorMaxPos.y <= window->Pos.y + window->Size.y - ImGui::GetStyle().WindowPadding.y,
+                  "the Gestures page fits without scrolling");
+            check(window->DC.CursorMaxPos.x <= window->Pos.x + window->Size.x,
+                  "the body slots row fits the page's width");
+        }
+        ImGui::End();
+        ImGui::Render();
+    }
+}
 int main() {
     ImGui::CreateContext();
     for (int which = 0; which < 3; which++) {
@@ -254,7 +288,8 @@ int main() {
         ImGui::Render();
     }
     settingsChecks();
+    gesturesChecks();
     ImGui::DestroyContext();
     std::puts("PASS: launcher UI (combo clicks/navigation, pointer routing, footer bounds, settings tabs, "
-              "ROM collapse/error recovery, saved rates, debug combo and session reset)");
+              "ROM collapse/error recovery, saved rates, debug combo and session reset, Gestures page fit)");
 }
