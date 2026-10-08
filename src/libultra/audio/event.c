@@ -69,7 +69,17 @@ ALMicroTime alEvtqNextEvent(ALEventQueue *evtq, ALEvent *evt)
 	/* at once completely emptying out the queue.  At this point this problem */
 	/* must be treated as an out of resource error and the evtq should be increased. */
 	evt->type = -1;
-	delta = 0;	    
+#ifdef GEVR
+	/*
+	 * Callers loop while this delta is 0. A full queue drops the heartbeat
+	 * that used to carry the frame delay, and returning 0 then never comes
+	 * back to alAudioFrame (Quest 3 crash bfb06b31). One frame lets the
+	 * driver call again.
+	 */
+	delta = AL_USEC_PER_FRAME;
+#else
+	delta = 0;
+#endif
     }
 
     osSetIntMask(mask);

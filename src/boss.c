@@ -504,6 +504,15 @@ void bossMainloop(void)
         }
 
         mempResetBank(MEMPOOL_STAGE);
+#ifdef GEVR
+        /*
+         * Title does not load a background, so this pointer would keep
+         * addressing the stage just freed. Sound-path setup walks it after
+         * the bank is reused (Quest 2 crash 65a366e6, Statue back to title).
+         * A real stage sets it again in load_bg_file.
+         */
+        g_BgPortals = NULL;
+#endif
         obBlankResourcesLoadedInBank(MEMPOOL_STAGE);
         if (tokenFind(1, "-ma"))
         {

@@ -220,13 +220,43 @@ ALMicroTime sndPlayerVoiceHandler(void *node)
 {
     ALSndPlayer *sndp = (ALSndPlayer *) node;
     ALSndpEvent evt;
+#ifdef GEVR
+    s32 gevrZeroSteps = 0;
+    s32 gevrApiMissed = 0;
+#endif
 
     do
     {
+#ifdef GEVR
+        /*
+         * An empty pop leaves type -1. That is not a sound: the heartbeat
+         * was dropped while the queue was full. Treat this call as the
+         * heartbeat and return a frame, so the next call posts it again.
+         */
+        if (sndp->nextEvent.type < 0)
+        {
+            sndp->nextEvent.type = (s16)AL_SNDP_API_EVT;
+            sndp->nextDelta = sndp->frameTime;
+            break;
+        }
+#endif
         switch (sndp->nextEvent.type)
         {
             case (AL_SNDP_API_EVT):
                 evt.common.type = (s16)AL_SNDP_API_EVT;
+#ifdef GEVR
+                /*
+                 * alEvtqPostEvent drops the event when no slot is free. The
+                 * dropped event is the one that carries frameTime, and the
+                 * handler then loops forever on the zero-delta events left
+                 * behind (Quest 3 crash bfb06b31, five bots at round start).
+                 */
+                if (sndp->evtq.freeList.next == NULL)
+                {
+                    gevrApiMissed = 1;
+                }
+                else
+#endif
                 alEvtqPostEvent(&sndp->evtq, (ALEvent *)&evt, sndp->frameTime);
                 break;
 
@@ -236,6 +266,29 @@ ALMicroTime sndPlayerVoiceHandler(void *node)
         }
 
         sndp->nextDelta = alEvtqNextEvent(&sndp->evtq, &sndp->nextEvent);
+
+#ifdef GEVR
+        if (gevrApiMissed && sndp->evtq.freeList.next != NULL)
+        {
+            evt.common.type = (s16)AL_SNDP_API_EVT;
+            alEvtqPostEvent(&sndp->evtq, (ALEvent *)&evt, sndp->frameTime);
+            gevrApiMissed = 0;
+        }
+        /*
+         * A queue whose events are all delta 0 never leaves this loop, and
+         * the 256-step guard in sndHandleEvent does not cover it. Stop and
+         * come back next frame. 256 is more than the 64-slot queue.
+         */
+        if (sndp->nextDelta == 0 && ++gevrZeroSteps > 256)
+        {
+            if (gevrApiMissed)
+            {
+                evt.common.type = (s16)AL_SNDP_API_EVT;
+                alEvtqPostEvent(&sndp->evtq, (ALEvent *)&evt, sndp->frameTime);
+            }
+            sndp->nextDelta = sndp->frameTime;
+        }
+#endif
 
     } while (sndp->nextDelta == 0);
 
