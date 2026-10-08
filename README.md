@@ -39,9 +39,10 @@
 > file on your headset. Please don't ask for ROMs, and don't share them in Issues.
 
 > [!NOTE]
-> **v0.4.11** adds deathmatch bots, 3D game sound, and GoldenEye X models for
-> every GoldenEye weapon and item. For multiplayer, everyone needs v0.4.11:
-> older versions can't join its games. See [the v0.4.11 notes](docs/releases/v0.4.11.md).
+> **v0.4.14** teaches bots to open doors, lets online players push apart instead of
+> pinning each other, and adds a **Hit immunity** rule so fast guns land their hits.
+> For multiplayer, everyone needs v0.4.14: older versions can't join its games. See
+> [the v0.4.14 notes](docs/releases/v0.4.14.md).
 
 ## ✨ What you get
 
@@ -81,61 +82,53 @@ Also:
 
 ## 🚀 Install it in 5 steps
 
-First time sideloading? No problem. You'll need:
-- your Quest
-- a USB-C cable (the charging cable works)
-- a Windows PC or Mac
+No Developer Mode, and no computer needed. You'll need:
+- your Quest, on Wi-Fi
 - your GoldenEye 007 (USA) ROM file: `.z64`, `.v64` or `.n64`, 12 MB
 
-### 1. Turn on Developer Mode (one time only)
+Already set up with Developer Mode and SideQuest on your computer? See
+[Install from a computer](#install-from-a-computer) instead.
 
-Meta only lets you install apps from outside the Store once Developer Mode is on.
+### 1. Install SideQuest in your headset
 
-1. Go to **[developers.meta.com/horizon](https://developers.meta.com/horizon/)** and sign in
-   with the same Meta account your headset uses.
-2. Create an **organization**. It's free: any name works, then accept the agreement. If
-   Meta asks you to verify your account, do that as well.
-3. On your phone, open the **Meta Horizon** app.
-4. Go to **Devices**, pick your headset, then **Headset settings** → **Developer mode**, and turn it **on**.
-5. **Restart** the headset.
+SideQuest is the most popular free store for apps outside the Meta Store, and it now
+installs straight from the headset.
 
-### 2. Install SideQuest on your computer
+1. In the headset, open the **Browser** and go to **`sdq.st/go`**. The SideQuest app downloads.
+2. Open the browser's downloads, press the **three dots** next to the file, choose **Export**,
+   and follow the prompts to install SideQuest.
 
-SideQuest is the most popular free tool for installing apps on a Quest.
-Download the **Advanced Installer** from **[sidequestvr.com/setup-howto](https://sidequestvr.com/setup-howto)**
-and install it like any other program.
+SideQuest's own [video walkthrough](https://www.youtube.com/watch?v=ByWjKGKMUfM) shows each step.
 
-### 3. Connect your Quest
+### 2. Install GoldenEye VR
 
-1. Plug the headset into your computer with the USB cable.
-2. **Put the headset on.** A window asks **"Allow USB debugging?"**. Tick
-   **"Always allow from this computer"** and press **Allow**.
-3. In SideQuest, the dot at the top-left turns **green** and shows your headset's name.
+1. Open **SideQuest** in the headset. The first time, it's in **Library** under **Unknown Sources**.
+2. Search for **GoldenEye VR** ([its SideQuest page](https://sidequestvr.com/app/62675/goldeneye-vr))
+   and install it.
+3. Optional: let SideQuest add GoldenEye VR to your main **Library**, so you don't have to look
+   under Unknown Sources.
 
-> If it stays red or orange, unplug and replug the cable, and look inside the headset for the prompt again.
+### 3. Copy your ROM to the headset
 
-### 4. Install GoldenEye VR
+Put the ROM in the headset's **Download** folder:
+- **From a computer:** plug the headset in with a USB-C cable (the charging cable works), put it on,
+  and accept **"Allow access to data"**. On Windows, open File Explorer and go to **This PC** →
+  **Quest** → **Internal shared storage** → **Download**, then drop the ROM in. On a Mac, use an
+  Android file transfer (MTP) app.
+- **Without a computer:** in the headset's browser, download the ROM from your own cloud storage.
+  Browser downloads land in **Download**.
 
-1. Download **`GoldenEye-VR-vX.Y.Z.apk`** from the **[latest release](https://github.com/MrSco/goldeneye-vr/releases/latest)**.
-2. In SideQuest, click the **"Install APK file from folder on computer"** icon (a box with an arrow,
-   top right), choose the APK, and wait for **"All tasks completed"**.
-   Dragging the APK onto the SideQuest window works too.
+### 4. Start GoldenEye VR
 
-### 5. Add your ROM, then play
+In the headset, open **Library**, change the filter to **Unknown Sources** (or use the shortcut
+SideQuest added), and start **GoldenEye VR**. The launcher opens and shows
+**"No GoldenEye ROM yet"**. That's expected.
 
-The easy way is to put the ROM in the headset's **Download** folder and pick it from inside the app.
+### 5. Choose your ROM, then play
 
-1. With the headset plugged in, copy your ROM into the Quest's **Download** folder:
-   - **Windows:** open File Explorer and go to **This PC** → **Quest** → **Internal shared storage** →
-     **Download**, then drop the ROM in. If the Quest shows up empty, put the headset on and accept
-     **"Allow access to data"**.
-   - **Mac, or any computer:** in SideQuest, click the **folder** icon (Manage files on the headset),
-     open **Download**, and upload the ROM.
-2. In the headset, open **Library**, change the filter to **Unknown Sources**, and start **GoldenEye VR**.
-   The launcher opens and shows **"No GoldenEye ROM yet"**. That's expected.
-3. Press **Choose ROM file...**, open **Download**, and pick your ROM. The app copies it into its
+1. Press **Choose ROM file...**, open **Download**, and pick your ROM. The app copies it into its
    own folder, and the ROM line turns green: **GoldenEye 007 (USA) - OK**.
-4. Pick your options and press **START**. Enjoy, 007. 🍸
+2. Pick your options and press **START**. Enjoy, 007. 🍸
 
 > [!NOTE]
 > **Don't create the app's folder yourself.** The app makes `Android/data/com.gevr.port/files/data`
@@ -146,6 +139,36 @@ The easy way is to put the ROM in the headset's **Download** folder and pick it 
 > Prefer copying straight into the app's folder? Start the app once first, then copy the ROM into
 > `Android/data/com.gevr.port/files/data` from your computer and press **Look again**.
 > Any file name works: the launcher recognizes the ROM and renames it for you.
+
+### Install from a computer
+
+The older way, with SideQuest's desktop app over a USB cable. It needs Developer Mode, a
+USB-C cable (the charging cable works) and a Windows PC or Mac.
+
+1. **Turn on Developer Mode** (one time only). Meta only lets a computer install apps once it's on.
+   1. Go to **[developers.meta.com/horizon](https://developers.meta.com/horizon/)** and sign in
+      with the same Meta account your headset uses.
+   2. Create an **organization**. It's free: any name works, then accept the agreement. If
+      Meta asks you to verify your account, do that as well.
+   3. On your phone, open the **Meta Horizon** app.
+   4. Go to **Devices**, pick your headset, then **Headset settings** → **Developer mode**, and turn it **on**.
+   5. **Restart** the headset.
+2. **Install SideQuest on your computer.** Download the desktop app from
+   **[sidequestvr.com/setup-howto](https://sidequestvr.com/setup-howto)** and install it like any
+   other program.
+3. **Connect your Quest.** Plug the headset into your computer and **put it on**. A window asks
+   **"Allow USB debugging?"**. Tick **"Always allow from this computer"** and press **Allow**.
+   In SideQuest, the dot at the top-left turns **green** and shows your headset's name.
+   If it stays red or orange, unplug and replug the cable, and look inside the headset for the
+   prompt again.
+4. **Install GoldenEye VR.** Download **`GoldenEye-VR-vX.Y.Z.apk`** from the
+   **[latest release](https://github.com/MrSco/goldeneye-vr/releases/latest)**. In SideQuest, click
+   the **"Install APK file from folder on computer"** icon (a box with an arrow, top right), choose
+   the APK, and wait for **"All tasks completed"**. Dragging the APK onto the SideQuest window
+   works too.
+5. **Copy your ROM** into the headset's **Download** folder, as in [step 3](#3-copy-your-rom-to-the-headset).
+   On any computer, SideQuest's **folder** icon (Manage files on the headset) works too: open
+   **Download** and upload the ROM. Then carry on from [step 4](#4-start-goldeneye-vr).
 
 > [!TIP]
 > Comfortable with the command line? You can skip SideQuest:
@@ -331,13 +354,17 @@ It's still experimental: expect rough edges, and please report what you find.
 
 **Everyone needs the same version of GoldenEye VR**, and each player their own ROM.
 
-**Host a game.** In the launcher press **Multiplayer...**, stay on the **Host** tab, and pick (across its **Lobby**, **Match** and **Player** tabs):
+**Host a game.** In the launcher press **Multiplayer...**, stay on the **Host** tab, and pick (across its **Lobby**, **Match**, **Fun** and **Player** tabs):
 - the **Mode**: **Deathmatch**, or **Co-op mission** for the campaign (each player picks their own save folder, then the host picks missions, difficulty and briefings for everyone).
 - **Public game** to appear in the internet browser, or **Private game** to share a join code.
 - a **stage** and how many **players** it takes, from 2 to 8 on any stage.
 - your **character** (on the **Player** tab).
 - the **weapons**: the game's own sets, from Slappers only to the Golden Gun, proximity mines included.
 - **bots**, to fill empty slots (see below).
+- the **Fun** tab's rules, among them **No radar** and **Hit immunity:**, which sets how long
+  a deathmatch hit is ignored after the last one: **Short** (the default, a quarter second, so a
+  fast gun lands about four hits a second), **None** (every hit counts, as in Perfect Dark) or
+  **GoldenEye** (the original half second to a second). Solo and co-op keep GoldenEye's rule.
 
 Then press **Start Hosting**, and **Launch** once everyone connected shows **Ready**. You can launch alone. The host can explore in warmup without running the round clock or score. When a guest has loaded the map, the stage and equipment reset and the timed round begins together. If the last guest leaves, the host returns to warmup.
 
@@ -356,8 +383,9 @@ settings are on the pause menu's **Rules** tab as **BOTS**, **BOT COUNT** and
 - **Full players.** Bots score, can win, and play as GoldenEye's characters
   ("Natalya (Bot)"). They use Perfect Dark's simulant brain, so they hunt by line of
   sight, react after a moment, and aim worse when they've just spotted you.
-- **Behaviour.** Bots find their way round the level, pick up guns and ammo, and go for
-  the flag in Flag Tag and the gun in The Man with the Golden Gun.
+- **Behaviour.** Bots find their way round the level, open doors as GoldenEye's guards
+  do, pick up guns and ammo, and go for the flag in Flag Tag and the gun in The Man with
+  the Golden Gun.
 - **Hosting alone.** A host on their own can start a match with only bots.
 - **Joining and kicking.** A player who joins a full match takes the lowest-scoring bot's
   place straight away. The host can **Kick** a bot from the pause menu's roster.
@@ -371,6 +399,9 @@ settings are on the pause menu's **Rules** tab as **BOTS**, **BOT COUNT** and
 - **Buttons:** **Ready up** / **Unready**, **Request votes**, **Return to lobby** and
   **Leave match...**.
 - **Host only:** **Start match**, **Kick**, and in co-op **End mission...**.
+
+Online, players don't block each other: overlapping players are pushed gently apart and
+slowed, so nobody can pin you in a corner. Walls and guards still stop you.
 
 While you spectate, the gun hand's **A** follows the next player and **B** the previous one.
 In co-op, stand beside a downed teammate for 3 seconds to revive them.
@@ -457,6 +488,7 @@ Mention it when you report a bug.
 <summary><b>I can't find the app in my Library</b></summary>
 
 Change the Library filter (top of the Library window) from **All** to **Unknown Sources**.
+Or let SideQuest add GoldenEye VR to your main Library.
 </details>
 
 <details>
@@ -486,13 +518,14 @@ then import it through **Play → Mods... → GOLDENEYE X → Choose ROM...**. T
 <summary><b>The Quest shows no files in Windows Explorer</b></summary>
 
 Put the headset on and accept **Allow access to data**, then reopen the Quest in File Explorer.
-Or use SideQuest's file manager instead.
+Or, with Developer Mode on, use the SideQuest desktop app's file manager instead.
 </details>
 
 <details>
-<summary><b>SideQuest says the device is unauthorized, or the dot is red</b></summary>
+<summary><b>SideQuest on my computer says the device is unauthorized, or the dot is red</b></summary>
 
-Developer Mode must be on (step 1). Put the headset on while it's plugged in and accept
+The desktop app needs Developer Mode on (see [Install from a computer](#install-from-a-computer)).
+SideQuest in the headset doesn't. Put the headset on while it's plugged in and accept
 **Allow USB debugging**. Try another cable or port if it still won't connect: some cables only charge.
 </details>
 
