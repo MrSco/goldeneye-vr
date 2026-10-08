@@ -7475,6 +7475,9 @@ f32 bondviewGet8003646CRad(void)
 */
 s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
 {
+#ifdef GEVR
+    s32 gevrMoveTestsOk;
+#endif
     s32 sp94;
     StandTile *sp90;
     s32 cdtypes;
@@ -7535,6 +7538,23 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
             g_CurrentPlayer->autocrouchpos = CROUCH_SQUAT;
         }
 
+#ifdef GEVR
+        {
+            /* the player's own move: an object it already stands in lets it out (stan.c gevrInsideObjProp) */
+            extern s32 g_gevrPlayerMoveTest;
+            s32 lineok;
+            s32 volumeok;
+
+            g_gevrPlayerMoveTest = TRUE;
+            lineok = stanTestLineUnobstructed(&sp90, g_CurrentPlayer->field_488.collision_position.f[0],
+                                              g_CurrentPlayer->field_488.collision_position.f[2], arg0->f[0], arg0->f[2],
+                                              cdtypes, height, always_30, 0.0f, 1.0f) != 0;
+            volumeok = lineok && stanTestVolume(&sp90, arg0->f[0], arg0->f[2], collision_radius, cdtypes, height, always_30) < 0;
+            g_gevrPlayerMoveTest = FALSE;
+            gevrMoveTestsOk = volumeok;
+        }
+        if (gevrMoveTestsOk)
+#else
         if ((stanTestLineUnobstructed(
                 &sp90,
                 g_CurrentPlayer->field_488.collision_position.f[0],
@@ -7547,6 +7567,7 @@ s32 bondviewTryMoveToStan(struct coord3d *arg0, StandTile **stan)
                 0.0f,
                 1.0f) != 0)
             && stanTestVolume(&sp90, arg0->f[0], arg0->f[2], collision_radius, cdtypes, height, always_30) < 0)
+#endif
         {
             if (g_CurrentPlayer->ducking_height_offset == FULL_CROUCH_OFFSET || sp7C < 0)
             {
