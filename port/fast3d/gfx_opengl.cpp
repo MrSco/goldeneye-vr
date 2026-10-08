@@ -2680,7 +2680,7 @@ struct GevrEyeDraw {
     bool decalDepth;
     float decalPull;
     bool isMenu;
-    int8_t hand;       // the controller it follows (gunfire.c gevrHandTag), or -1: the world
+    int8_t hand;       // the controller it follows (gunfire.c gevrHandTag), 2 the body, or -1: the world
     GLint viewport[4];
     GLint scissor[4];
 };
@@ -2720,10 +2720,10 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
     }
 }
 
-// gfx_pc.cpp: VR_HAND_DRAW, what follows a controller (-1: the world again)
+// gfx_pc.cpp: VR_HAND_DRAW, what follows a controller, 2 the body (gevr_bodyslots.c), -1 the world again
 void gfx_vr_eye_hand(int ctrl)
 {
-    s_eyeHand = (ctrl == 0 || ctrl == 1) ? ctrl : -1;
+    s_eyeHand = (ctrl >= 0 && ctrl <= 2) ? ctrl : -1;
 }
 
 bool gfx_vr_eye_replay_ready(void)
@@ -2787,18 +2787,20 @@ static void gevr_eye_proj_times(const float* delta, float M[16])
  * in its camera space (view units), a GL matrix. hand0/hand1: each
  * controller's move in that space, or NULL, for what it holds: kept where it
  * was in the world, a gun lagged the hand every third frame at 90 Hz (user:
- * controller tracking not as smooth).
+ * controller tracking not as smooth). body: what sits on the body (the body
+ * slots' weapons), which goes with the head's position but not its turn.
  */
-void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1)
+void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body)
 {
     if (!s_eyeReady) {
         return;
     }
 
-    float Ms[3][16];   // [0] the world (the head's move), [1] left, [2] right controller
+    float Ms[4][16];   // [0] the world (the head's move), [1] left, [2] right controller, [3] the body
     gevr_eye_proj_times(delta, Ms[0]);
     gevr_eye_proj_times(hand0 != NULL ? hand0 : delta, Ms[1]);
     gevr_eye_proj_times(hand1 != NULL ? hand1 : delta, Ms[2]);
+    gevr_eye_proj_times(body != NULL ? body : delta, Ms[3]);
 
     // everything this changes, to put back as fast3d left it
     GLint prevVao = 0, depthFunc = GL_LEQUAL;

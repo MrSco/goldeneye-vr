@@ -152,9 +152,10 @@ void gfx_vr_scope_render(void);
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* presentation);
 void gfx_vr_eye_hand(int ctrl);
 bool gfx_vr_eye_replay_ready(void);
-void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1);
+void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body);
 extern "C" int gevrVrRedrawDelta(float out[16]);   // vr_openxr.cpp
 extern "C" int gevrVrRedrawHandDelta(int hand, float out[16]);
+extern "C" int gevrVrRedrawBodyDelta(float out[16]);
 extern "C" void gevrVrMarkRedrawn(void);
 extern "C" float g_viProjectionMatrixF[4][4];     // fr.c: the game's projection
 static float s_gevrLastVignette;                  // the eye pass's, for its redraws
@@ -3963,7 +3964,8 @@ static void gfx_run_dl(Gfx* cmd) {
                 }
                 if ((tag_w1 & 0xFFFF0000u) == 0x565F0000u) {
                     // VR_HAND_DRAW (issue #53, gunfire.c gevrHandTag): the draws
-                    // that follow controller (low bits - 1), or none (0)
+                    // that follow controller (low bits - 1), the body (3,
+                    // gevr_bodyslots.c), or none (0)
                     gfx_flush();
                     s_gevrPresentationHand = (int)(tag_w1 & 0xFF) - 1;
                     gfx_vr_eye_hand((int)(tag_w1 & 0xFF) - 1);
@@ -4942,10 +4944,11 @@ extern "C" int gfx_vr_redraw_frame(void) {
     gfx_vr_gpu_begin(1);
     gfx_rapi->start_draw_to_framebuffer(0, 1.0f);
     {
-        float hand[2][16];
+        float hand[2][16], body[16];
         const bool have0 = gevrVrRedrawHandDelta(0, hand[0]) != 0;
         const bool have1 = gevrVrRedrawHandDelta(1, hand[1]) != 0;
-        gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr);
+        const bool haveBody = gevrVrRedrawBodyDelta(body) != 0;
+        gfx_vr_eye_replay(delta, have0 ? hand[0] : nullptr, have1 ? hand[1] : nullptr, haveBody ? body : nullptr);
     }
     gfx_opengl_draw_vignette(s_gevrLastVignette);
     gfx_vr_gpu_end();
