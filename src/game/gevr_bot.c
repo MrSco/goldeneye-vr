@@ -31,6 +31,8 @@ extern bool netIsActive(void);
 extern bool netIsHost(void);
 extern s32 g_gevrStereo;
 extern s32 g_ClockTimer;
+extern s32 g_GlobalTimer;
+extern s32 lvlGetControlsLockedFlag(void);                                       /* lv.c */
 extern void gevrBotRespawn(void);       /* bondview2.c */
 extern void sysLogPrintf(s32 level, const char *fmt, ...);
 extern PadRecord *g_Startpad[];
@@ -40,6 +42,12 @@ extern int bondinvHasInvItem(ITEM_IDS item);
 extern s32 get_ammo_count_for_weapon(ITEM_IDS weapon);
 extern s32 currentPlayerEquipWeaponWrapper(GUNHAND hand, s32 next_weapon);
 extern PropRecord *chrpropGetActiveTail(void);
+extern PropRecord *sub_GAME_7F0B1410(StandTile *tile, f32 x, f32 z, f32 x2, f32 z2, s32 cdtypes);   /* stan.c */
+extern void doorsChooseSwingDirection(PropRecord *chrprop, DoorRecord *door);   /* propobj.c */
+extern void doorActivate(DoorRecord *door, DOORSTATE state);
+extern bool doorIsPadlockFree(DoorRecord *door);                                 /* chrprop.c */
+extern bool doorIsClosed(DoorRecord *door);                                      /* propobj.c */
+extern void netSendDoorState(ObjectRecord *door, s32 state);                     /* net_core.c */
 extern MPSCENARIOS get_scenario(void);
 extern bool bondinvIsAliveWithFlag(void);
 extern s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f32 dest_z, s32 cdtypes,
@@ -139,6 +147,13 @@ typedef struct GevrBot {
     coord3d goal;           /* the route's end */
     coord3d lastpos;        /* for the stuck check */
     s32 stillticks;         /* walking without getting anywhere */
+    s32 doorticks;          /* to the next look for a door on the way */
+    DoorRecord *lastdoor;   /* the door it opened last, and when (frame60) */
+    s32 lastdoor60;
+    DoorRecord *closeddoor; /* the open door it shut out of its way last, and when */
+    s32 closeddoor60;
+    f32 lastdooropen;       /* how far the door it opened had come, the last tick */
+    s32 spawn60;            /* frame60 when it last came into the round (0 at a stage's start) */
     s32 unstickticks;       /* sidestepping out of it */
     s32 unstickdir;
     /* Perfect Dark's aibot fields (bot.c), by the same names */
@@ -169,9 +184,13 @@ typedef struct GevrBot {
 static GevrBot s_bots[MAX_PLAYER_COUNT];
 
 /* A stage loaded: the bots start over (their pickups and routes were the last stage's) */
+static PropRecord *s_blockdoor[MAX_PLAYER_COUNT];   /* below: the door each player's moves last ran into */
+static u32 s_blockdoorframe[MAX_PLAYER_COUNT];
+
 void gevrBotStageLoaded(void)
 {
     memset(s_bots, 0, sizeof(s_bots));
+    memset(s_blockdoor, 0, sizeof(s_blockdoor));
     gevrBotNavForget();
 }
 
@@ -314,12 +333,14 @@ static s32 gevrBotPickRoam(struct player *pl, GevrBot *bot)
 }
 
 /*
- * Not getting anywhere while walking: a closed door (B opens it, as a
- * player's B does), else a sidestep and a new route.
+ * Not getting anywhere while walking: something B opens (one press: a
+ * second toggles a door shut again), else a sidestep and a new route. The
+ * doors on its route a bot opens itself (gevrBotOpenDoors).
  */
 static void gevrBotUnstick(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
 {
     f32 dx = pl->prop->pos.x - bot->lastpos.x;
+    f32 dy = pl->prop->pos.y - bot->lastpos.y;   /* climbing is getting somewhere: Facility's ladder (2026-10-08) */
     f32 dz = pl->prop->pos.z - bot->lastpos.z;
     s32 moving = pad->stick_y != 0 || (pad->button & (L_CBUTTONS | R_CBUTTONS));
 
@@ -330,14 +351,17 @@ static void gevrBotUnstick(s32 slot, struct player *pl, GevrBot *bot, OSContPad 
         pad->button = (pad->button & ~(L_CBUTTONS | R_CBUTTONS)) | (bot->unstickdir ? R_CBUTTONS : L_CBUTTONS);
         return;
     }
-    if (!moving || dx * dx + dz * dz > 2.0f * 2.0f * (g_ClockTimer > 0 ? g_ClockTimer : 1))
+    /* the first three seconds in the round don't count: a bot stands still a
+     * moment as the round starts, and every bot was logged stuck at its pad */
+    if (!moving || lvlGetControlsLockedFlag() || bot->frame60 - bot->spawn60 < 60 * 3
+        || dx * dx + dy * dy + dz * dz > 2.0f * 2.0f * (g_ClockTimer > 0 ? g_ClockTimer : 1))
     {
         bot->stillticks = 0;
         bot->lastpos = pl->prop->pos;
         return;
     }
-    bot->stillticks += g_ClockTimer;
-    if (bot->stillticks >= 20 && bot->stillticks < 80 && (bot->stillticks / 10) % 2 == 0)
+    bot->stillticks += g_ClockTimer < 4 ? g_ClockTimer : 4;   /* a long frame (a stage's load) is not a stuck spell */
+    if (bot->stillticks >= 20 && bot->stillticks < 30)
     {
         pad->button |= B_BUTTON;
     }
@@ -796,6 +820,152 @@ static s32 gevrBotDistMode(GevrBot *bot, s32 diff)
     return BOT_DIST_GOTO;
 }
 
+/*
+ * A closed door on the way, opened as GoldenEye's guards open one
+ * (chraction.c, the waypoint walk): every ten ticks, the door the line to
+ * the next point meets, if within 2 m, swings away from the walker and
+ * opens. A bot pressing B, as a player does, fared badly at Facility's doors
+ * (user report, 2026-10-08): B toggles a door, so a second press shut one
+ * still opening; a door swung into the bot stalled against it; and B needs
+ * the door ahead of the view, which a bot fighting has elsewhere. Only the
+ * doors a player could open; it goes to the other headsets as a player's
+ * door does (propobj.c propdoorInteract).
+ *
+ * Only a shut door, and not the same one again for four seconds. The
+ * guards' search also finds open and ajar doors, and opening one again
+ * chose its swing afresh: a bot stuck by an open door's leaf threw it back
+ * across the doorway six times a second, trapping a player in Facility's
+ * toilets (user, 2026-10-08; one door opened 44 times in two minutes).
+ */
+/*
+ * Stuck against an open door's leaf: Facility's swinging doors stand open
+ * a metre into the room, and a route over the floor knows nothing of
+ * them, so a bot came at the leaf from beyond its end again and again
+ * (user, 2026-10-08: bots stuck in doorways). A player would press B
+ * twice: shut it, then open it again, swung away from them, to the far
+ * side. A bot stuck 20 ticks with an open door across the line to its
+ * next point shuts it, once per door per four seconds; shut, it is
+ * opened again by gevrBotOpenDoors, away from the bot.
+ */
+/* bondview2.c, a move refused for a door: the door, and when, for each player
+ * (the line to the next point can pass the end of a leaf the body can't) */
+void gevrBotNoteBlockingDoor(s32 slot, PropRecord *doorprop)
+{
+    if (slot >= 0 && slot < MAX_PLAYER_COUNT)
+    {
+        s_blockdoor[slot] = doorprop;
+        s_blockdoorframe[slot] = (u32)g_GlobalTimer;
+    }
+}
+
+static void gevrBotCloseDoorInWay(s32 slot, struct player *pl, GevrBot *bot, const coord3d *aim)
+{
+    PropRecord *doorprop;
+    DoorRecord *door;
+    f32 dx;
+    f32 dz;
+
+    if (bot->stillticks < 20)
+    {
+        return;
+    }
+    doorprop = sub_GAME_7F0B1410(pl->prop->stan, pl->prop->pos.x, pl->prop->pos.z, aim->x, aim->z, CDTYPE_OPENDOORS);
+    if (doorprop == NULL && s_blockdoor[slot] != NULL && (u32)g_GlobalTimer - s_blockdoorframe[slot] < 30)
+    {
+        doorprop = s_blockdoor[slot];   /* what its last moves ran into */
+    }
+    if (doorprop == NULL || doorprop->type != PROP_TYPE_DOOR || (door = doorprop->door) == NULL)
+    {
+        return;
+    }
+    /* only a two-way door swings the other way when opened again
+     * (propobj.c doorsChooseSwingDirection): a one-way one lands back in the way */
+    if (!(door->flags & PROPFLAG_DOOR_TWOWAY) || (door->flags & PROPFLAG_CANNOT_ACTIVATE) || door->keyflags != 0
+        || !doorIsPadlockFree(door)
+        || (door->openstate != DOORSTATE_STATIONARY && door->openstate != DOORSTATE_WAITING) || door->openPosition <= 0.0f
+        || (door == bot->closeddoor && bot->frame60 - bot->closeddoor60 < 60 * 4))
+    {
+        return;
+    }
+    dx = doorprop->pos.x - pl->prop->pos.x;
+    dz = doorprop->pos.z - pl->prop->pos.z;
+    /* not from the doorway itself: shut, the door closed on the bot and held
+     * it there (a bot pinned 20 s in Facility's doorway, 2026-10-08) */
+    if (dx * dx + dz * dz >= 200.0f * 200.0f || dx * dx + dz * dz < 90.0f * 90.0f)
+    {
+        return;
+    }
+    doorActivate(door, DOORSTATE_CLOSING);
+    door->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED;
+    netSendDoorState((ObjectRecord *)door, door->openstate);
+    bot->closeddoor = door;
+    bot->closeddoor60 = bot->frame60;
+    bot->lastdoor = NULL;   /* shut, it may be opened again at once, the other way */
+    s_blockdoor[slot] = NULL;
+    sysLogPrintf(1, "bots: slot %d shuts the open door at %.0f,%.0f,%.0f in its way", slot, doorprop->pos.x, doorprop->pos.y, doorprop->pos.z);
+}
+
+static void gevrBotOpenDoors(s32 slot, struct player *pl, GevrBot *bot, const coord3d *aim)
+{
+    PropRecord *doorprop;
+    DoorRecord *door;
+    f32 dx;
+    f32 dy;
+    f32 dz;
+
+    bot->doorticks -= g_ClockTimer;
+    if (bot->doorticks > 0)
+    {
+        return;
+    }
+    bot->doorticks = 10;
+    doorprop = sub_GAME_7F0B1410(pl->prop->stan, pl->prop->pos.x, pl->prop->pos.z, aim->x, aim->z,
+                                 CDTYPE_CLOSEDDOORS | CDTYPE_AJARDOORS);
+    if (doorprop == NULL && s_blockdoor[slot] != NULL && (u32)g_GlobalTimer - s_blockdoorframe[slot] < 30)
+    {
+        /* the door it is pressed against: from inside a doorway the line to
+         * the next point can miss the door that holds it */
+        PropRecord *pressed = s_blockdoor[slot];
+
+        if (pressed->type == PROP_TYPE_DOOR && pressed->door != NULL
+            && (doorIsClosed(pressed->door) || pressed->door->openstate == DOORSTATE_CLOSING))
+        {
+            doorprop = pressed;
+        }
+    }
+    if (doorprop == NULL || doorprop->type != PROP_TYPE_DOOR || (door = doorprop->door) == NULL)
+    {
+        gevrBotCloseDoorInWay(slot, pl, bot, aim);
+        return;
+    }
+    if ((doorprop->obj->flags2 & PROPFLAG_DOOR_OPENTOFRONT) || (door->flags & PROPFLAG_CANNOT_ACTIVATE)
+        || door->keyflags != 0 || !doorIsPadlockFree(door)
+        || (!doorIsClosed(door) && door->openstate != DOORSTATE_CLOSING)
+        || (door == bot->lastdoor
+            && bot->frame60 - bot->lastdoor60 < (door->openstate == DOORSTATE_CLOSING ? 60 : 60 * 4)))
+    {
+        return;
+    }
+    dx = doorprop->pos.x - pl->prop->pos.x;
+    dy = doorprop->pos.y - pl->prop->pos.y;
+    dz = doorprop->pos.z - pl->prop->pos.z;
+    if (dx * dx + dy * dy + dz * dz >= 200.0f * 200.0f)
+    {
+        return;
+    }
+    if (door->openstate != DOORSTATE_CLOSING)
+    {
+        doorsChooseSwingDirection(pl->prop, door);   /* a closing door keeps its swing, as B leaves it */
+    }
+    doorActivate(door, DOORSTATE_OPENING);
+    door->runtime_bitflags |= RUNTIMEBITFLAG_ACTIVATED;
+    netSendDoorState((ObjectRecord *)door, door->openstate);
+    bot->lastdoor = door;
+    bot->lastdoor60 = bot->frame60;
+    bot->lastdooropen = door->openPosition;
+    sysLogPrintf(1, "bots: slot %d opens the door at %.0f,%.0f,%.0f", slot, doorprop->pos.x, doorprop->pos.y, doorprop->pos.z);
+}
+
 /* Walk the route toward a goal, turning to face along it unless told where to look */
 static void gevrBotWalkRoute(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad, s32 face)
 {
@@ -805,6 +975,44 @@ static void gevrBotWalkRoute(s32 slot, struct player *pl, GevrBot *bot, OSContPa
     {
         bot->route.count = 0;
         return;
+    }
+    gevrBotOpenDoors(slot, pl, bot, &aim);
+    /*
+     * A door it opened that swings its way stalls against it (propobj.c: a
+     * blocked door holds still), and a one-way door can't be swung the other
+     * way: a bot leaned on Facility's door for half a minute (user,
+     * 2026-10-08). While the door it opened is opening but not moving and the
+     * bot is close, it steps back out of the swing, as a player would.
+     */
+    if (bot->lastdoor == NULL && s_blockdoor[slot] != NULL && s_blockdoor[slot]->type == PROP_TYPE_DOOR
+        && (u32)g_GlobalTimer - s_blockdoorframe[slot] < 30 && s_blockdoor[slot]->door != NULL
+        && s_blockdoor[slot]->door->openstate == DOORSTATE_OPENING)
+    {
+        /* a door someone else opened, swinging into this bot */
+        bot->lastdoor = s_blockdoor[slot]->door;
+        bot->lastdoor60 = bot->frame60;
+        bot->lastdooropen = -1.0f;
+    }
+    if (bot->lastdoor != NULL && bot->lastdoor->openstate == DOORSTATE_OPENING
+        && bot->frame60 - bot->lastdoor60 < 60 * 2)
+    {
+        PropRecord *dp = bot->lastdoor->prop;
+        f32 open = bot->lastdoor->openPosition;
+        s32 stalled = open <= bot->lastdooropen + 0.001f;
+
+        bot->lastdooropen = open;
+        if (stalled && dp != NULL)
+        {
+            f32 ddx = dp->pos.x - pl->prop->pos.x;
+            f32 ddz = dp->pos.z - pl->prop->pos.z;
+
+            if (ddx * ddx + ddz * ddz < 160.0f * 160.0f)
+            {
+                pad->stick_y = -BOT_STICK_FULL / 2;
+                bot->stillticks = 0;
+                return;
+            }
+        }
     }
     if (face)
     {
@@ -821,9 +1029,10 @@ static void gevrBotWalkRoute(s32 slot, struct player *pl, GevrBot *bot, OSContPa
 }
 
 /*
- * Players do not walk through one another (stan.c refuses a move into
- * another's cylinder), so a bot about to walk into one steps round it:
- * to the side away from it, slowing if it is right ahead.
+ * Players pass through one another online, pushed apart (bondview2.c
+ * gevrSoftPlayerCollision), but a bot about to walk into one still steps
+ * round it, as a player would: to the side away from it, slowing if it is
+ * right ahead.
  */
 static void gevrBotAvoidPlayers(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
 {
@@ -1100,6 +1309,12 @@ s32 gevrBotTickBegin(s32 slot)
     }
     else
     {
+        if (bot->deadticks > 0)
+        {
+            bot->stillticks = 0;   /* back from the dead: not stuck where it died */
+            bot->lastpos = pl->prop->pos;
+            bot->spawn60 = bot->frame60;
+        }
         bot->deadticks = 0;
         gevrBotThink(slot, pl, bot, &pad);
     }

@@ -42,11 +42,12 @@ int main(void) {
     assert(gevrNetInsidePlayerProp(&other, 0, 10, "volume"));
     other.pos.z = 100;
     assert(gevrNetInsidePlayerProp(&other, 0, 70, "line"));
-    /* Competitive entry and movement deeper into overlap remain blocked. */
+    /* Competitive players pass too, entering and deepening an overlap:
+       soft collision pushes them apart instead (bondview2.c). */
     coop = 0;
-    assert(!gevrNetInsidePlayerProp(&other, 0, 70, "line"));
+    assert(gevrNetInsidePlayerProp(&other, 0, 70, "line"));
     other.pos.z = 34;
-    assert(!gevrNetInsidePlayerProp(&other, 0, 10, "volume"));
+    assert(gevrNetInsidePlayerProp(&other, 0, 10, "volume"));
     assert(gevrNetInsidePlayerProp(&other, 0, -10, "volume"));
     coop = 1;
     other.type = 2;
