@@ -1318,6 +1318,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                         r[0] += my * 45.0f * dt;
                         r[1] += ry * 45.0f * dt;
                         r[2] += mx * 45.0f * dt;
+                        for (int k = 0; k < 3; k++) {
+                            /* the same turn either side of a whole one (the fist's ran to -882) */
+                            if (r[k] > 180.0f) r[k] -= 360.0f;
+                            if (r[k] < -180.0f) r[k] += 360.0f;
+                        }
                     } else {
                         extern s32 gevrGexHandHeld(s32 hand);   /* gun.c: a knife, grenade or mine */
                         float *h = gevrGexHandFit(fitItem);
