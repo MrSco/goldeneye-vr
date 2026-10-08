@@ -880,9 +880,10 @@ static void gevrBotWalkRoute(s32 slot, struct player *pl, GevrBot *bot, OSContPa
 }
 
 /*
- * Players do not walk through one another (stan.c refuses a move into
- * another's cylinder), so a bot about to walk into one steps round it:
- * to the side away from it, slowing if it is right ahead.
+ * Players pass through one another online, pushed apart (bondview2.c
+ * gevrSoftPlayerCollision), but a bot about to walk into one still steps
+ * round it, as a player would: to the side away from it, slowing if it is
+ * right ahead.
  */
 static void gevrBotAvoidPlayers(s32 slot, struct player *pl, GevrBot *bot, OSContPad *pad)
 {
