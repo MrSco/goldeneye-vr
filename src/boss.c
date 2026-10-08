@@ -536,7 +536,9 @@ void bossMainloop(void)
         netCoopStageLoaded();   /* a load, which netStageLoaded's other calls are not */
         {
             extern void gevrBotStageLoaded(void);
+            extern void gevrSndPathStageLoaded(void);
             gevrBotStageLoaded();   /* the bots' props, routes and players were the last stage's */
+            gevrSndPathStageLoaded();   /* online: how sound travels between this stage's rooms */
         }
         netStageLoaded();
 #endif
