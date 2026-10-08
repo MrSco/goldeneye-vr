@@ -590,6 +590,11 @@ static void gevrStereoRecenter(void)
     vr_align_with_game_angle(0.0f);
     s_gevrBaseYaw = g_CurrentPlayer->vv_theta;
     s_gevrLastTheta = g_CurrentPlayer->vv_theta;
+    {
+        extern void gevrBodySlotsRecentre(void);   /* gevr_bodyslots.c: the torso faces ahead too */
+
+        gevrBodySlotsRecentre();
+    }
 }
 
 /* Once per rendered frame, from lvlRender: pick stereo or the screen, turn. */
@@ -16591,6 +16596,11 @@ void gevrGripGestureTick(void)
     s32 ctrl;
 
     gevrGestureTuneRead();
+    {
+        extern void gevrBodySlotsTick(void);   /* gevr_bodyslots.c: which slot each hand is in */
+
+        gevrBodySlotsTick();
+    }
     for (ctrl = 0; ctrl < 2; ctrl++)
     {
         if (s_gevrGripGesture[ctrl] == 1)
@@ -18226,6 +18236,57 @@ static Gfx *gevrWheelDrawRing(Gfx *gdl, s32 cx, s32 cy, s32 active)
 
 extern s32 dynGetFreeGfx(Gfx *gdl);
 extern s32 dynGetFreeVtx(void);
+
+/*
+ * Body slots (gevr_bodyslots.c) use the wheel's lists and rules through
+ * these, so the slots and the wheel always agree on what a hand may hold.
+ */
+s32 gevrBodyHandSelected(s32 hand)
+{
+    return gevrHandSelected(hand);
+}
+
+/* the wheel's list for a hand (items and names), leaving the wheel's own as it was */
+s32 gevrBodyHandList(s32 hand, s32 *items, char (*names)[48], s32 max)
+{
+    static GevrWpEntry saved[GEVR_WP_MAX];
+    s32 n, i;
+
+    memcpy(saved, s_gevrWpList, sizeof(saved));
+    n = gevrWeaponBuildList(hand);
+    for (i = 0; i < n && i < max; i++)
+    {
+        items[i] = hand == GUNLEFT ? s_gevrWpList[i].left : s_gevrWpList[i].right;
+        if (names != NULL)
+        {
+            strcpy(names[i], s_gevrWpList[i].name);
+        }
+    }
+    memcpy(s_gevrWpList, saved, sizeof(saved));
+    return i;
+}
+
+/* the grip, view space (gevrGripAxesRaw's units) */
+s32 gevrBodyGripPos(s32 ctrl, f32 pos[3])
+{
+    f32 r[3], u[3], b[3];
+
+    return gevrGripAxesRaw(ctrl, pos, r, u, b);
+}
+
+/* the off hand is holding, or about to hold, the gun with both hands */
+s32 gevrBodyTwoHandNear(void)
+{
+    extern s32 gevrDualWielding(void);   /* gunfire.c */
+    f32 opos[3], snap[3], dist;
+
+    if (gevrStereoTwoHandGrip())
+    {
+        return TRUE;
+    }
+    return !gevrDualWielding() && gevrStereoTwoHandItem(getCurrentPlayerWeaponId(GUNRIGHT))
+        && gevrTwoHandBarrel(opos, snap, &dist, FALSE) && dist < GEVR_TWOHAND_PRESS_CM * 1.5f;
+}
 
 Gfx *gevrDrawWeaponPanel(Gfx *gdl)
 {
