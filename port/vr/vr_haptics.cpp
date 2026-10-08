@@ -93,6 +93,12 @@ static HapticProfile s_profiles[] = {
     // === Category: Damage & Actions ===
     { GEVR_ACTION_DAMAGE_BULLET,    "Damage (Bullet Hit)", "Damage_Bullet",   HAPTIC_CAT_DAMAGE,     6, 6,  90,  90, 150.0f },
     { GEVR_ACTION_DAMAGE_EXPLOSION, "Damage (Explosion)",  "Damage_Explosion",HAPTIC_CAT_DAMAGE,     9, 9, 280, 280,  90.0f },
+    // body slots: Quake VR's and RTCWQuest's holster pulses (a light hint on
+    // entering, a firm one on taking, a refusal in between)
+    { GEVR_ACTION_SLOT_HOVER,       "Body Slot (Reach)",   "Slot_Hover",      HAPTIC_CAT_DAMAGE,     3, 3,  30,  30, 160.0f },
+    { GEVR_ACTION_SLOT_TAKE,        "Body Slot (Take)",    "Slot_Take",       HAPTIC_CAT_DAMAGE,     8, 8,  80,  80, 120.0f },
+    { GEVR_ACTION_SLOT_DENY,        "Body Slot (Refused)", "Slot_Deny",       HAPTIC_CAT_DAMAGE,     5, 5, 100, 100,  90.0f },
+    { GEVR_ACTION_SLOT_STEP,        "Body Slot (Step)",    "Slot_Step",       HAPTIC_CAT_DAMAGE,     2, 2,  20,  20, 200.0f },
 };
 
 static const int kNumProfiles = sizeof(s_profiles) / sizeof(s_profiles[0]);
