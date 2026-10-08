@@ -4699,6 +4699,8 @@ typedef char gevrScopeFitsMatchTheTable[(sizeof(s_gevrScopes) / sizeof(s_gevrSco
 
 extern int gevrScopeFitting;   /* port/src/input.c: Gun fit is moving the gun hand's scope */
 extern int gevrReloadFitting;  /* port/src/input.c: Gun fit is setting Hand reload's places */
+extern int gevrBodySlotFitting;   /* gevr_bodyslots.c: ... or the body slots' */
+extern void gevrBodySlotFitText(char *out, s32 size);
 extern int gevrOffHandFitting; /* port/src/input.c: Gun fit is moving GE-X's off hand */
 extern int gevrHeldMagFitting; /* port/src/input.c: magazine mesh only */
 extern int gevrInstalledMagFitting; /* port/src/input.c: visible magazine in the gun */
@@ -15539,17 +15541,18 @@ static void gevrItemLabel(s32 item, char *label, s32 size)
 /* X's next fit, in the same order as input.c. */
 static const char *gevrFitNextLine(s32 from)
 {
-    static const char *const lines[9] = { "X: FIT THE GUN\n", "X: FIT THE SCOPE\n", "X: FIT THE RELOAD\n",
+    extern s32 gevrBodySlotFitAvailable(void);   /* gevr_bodyslots.c */
+    static const char *const lines[10] = { "X: FIT THE GUN\n", "X: FIT THE SCOPE\n", "X: FIT THE RELOAD\n",
         "X: FIT THE OFF HAND\n", "X: FIT THE HELD AMMO\n", "X: FIT THE AMMO INSERTION\n", "X: FIT THE INSTALLED MAGAZINE\n", "X: FIT THE BARREL TIP\n",
-        "X: FIT THE GUN HAND\n" };
-    const s32 can[9] = { TRUE, gevrScopeFitIndex() >= 0, gevrReloadFitAvailable(), gevrGexHeld(GUNRIGHT),
+        "X: FIT THE GUN HAND\n", "X: FIT THE BODY SLOTS\n" };
+    const s32 can[10] = { TRUE, gevrScopeFitIndex() >= 0, gevrReloadFitAvailable(), gevrGexHeld(GUNRIGHT),
         gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable(),
-        gevrGexHeld(GUNRIGHT) };
+        gevrGexHeld(GUNRIGHT), gevrBodySlotFitAvailable() };
     s32 k = from;
 
     do
     {
-        k = (k + 1) % 9;
+        k = (k + 1) % 10;
     } while (!can[k]);
     if (k == 8)
     {
@@ -15586,6 +15589,14 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         snprintf(buf, sizeof(buf),
                  "GADGET FIT: %s (%d)\nFORWARD %.1f  LEFT %.1f  UP %.1f CM\nTURN X %.0f  Y %.0f  Z %.0f   SIZE %.2f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, SIZE\nHOLD RIGHT GRIP: STICKS TURN IT\nA: SAVE   B: UNDO   MENU + A: DONE",
                  label, item, ofs[2], ofs[0], ofs[1], rot[0], rot[1], rot[2], scale);
+    }
+    else if (gevrBodySlotFitting)
+    {
+        /* the body slots' places (gevr_bodyslots.c; X switches to it, input.c) */
+        char text[320];
+
+        gevrBodySlotFitText(text, sizeof(text));
+        snprintf(buf, sizeof(buf), "%s%sA: SAVE   B: UNDO   MENU + A: DONE", text, gevrFitNextLine(9));
     }
     else if (gevrReloadFitting)
     {

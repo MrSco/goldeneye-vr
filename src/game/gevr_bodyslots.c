@@ -131,6 +131,8 @@ static s32 s_bodyList[2][BS_LIST];
 static char s_bodyNames[2][BS_LIST][48];
 static s32 s_bodyListN[2];
 static f32 s_bodyView[3][3];   /* the view's right, up and back in the level frame, this tick */
+int gevrBodySlotFitting;       /* Gun fit's Slots mode (port/src/input.c) */
+static s32 s_bodyFitSlot;      /* the slot it moves */
 static f32 s_bodyTwistLogged;
 static s32 s_bodyTwistLogTicks;
 
@@ -254,7 +256,7 @@ static s32 gevrBodyInPlay(void)
     return VrBodySlots && g_gevrStereo && g_CurrentPlayer != NULL && !g_CurrentPlayer->bonddead
         && g_CurrentPlayer->watch_animation_state == 0 && !g_CurrentPlayer->mpmenuon
         && g_PlayerIsInTank != 1 && !gevrSpectating() && !gevrCoopLocalDowned()
-        && !gevrWeaponPanelOpen && gevrGunFitActive != 1 && D_800364CC > 1e-6f;
+        && !gevrWeaponPanelOpen && (gevrGunFitActive != 1 || gevrBodySlotFitting) && D_800364CC > 1e-6f;
 }
 
 static void gevrBodyLeave(s32 ctrl, const char *why)
@@ -1001,19 +1003,25 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
     {
         return gdl;
     }
-    if (s_bodyTune[BT_MARKERS] != 0.0f)
+    if (s_bodyTune[BT_MARKERS] != 0.0f || gevrBodySlotFitting)
     {
         s32 s;
 
         for (s = 0; s < GEVR_BODY_SLOTS; s++)
         {
+            const s32 chosen = gevrBodySlotFitting && s == s_bodyFitSlot;
             f32 cv[3];
 
             gevrBodyToView(s_bodyCentre[s], D_800364CC, cv);
             if (cv[2] < 0.0f)
             {
                 gDPNoOpTag(gdl++, 0x565F0003);
-                gdl = gevrBodyRing(gdl, cv, s_bodyRadius[s], gevrBodyCategoryTint(gevrBodySlotCategory(s)) | 0x90);
+                gdl = gevrBodyRing(gdl, cv, s_bodyRadius[s],
+                                   gevrBodyCategoryTint(gevrBodySlotCategory(s)) | (chosen ? 0xF0 : 0x60));
+                if (chosen)
+                {
+                    gdl = gevrBodyRing(gdl, cv, 2.0f, 0xFFFFFFF0);   /* and its centre */
+                }
                 gDPNoOpTag(gdl++, 0x565F0000);
             }
         }
@@ -1069,6 +1077,85 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
         gDPNoOpTag(gdl++, 0x565F0000);
     }
     return gdl;
+}
+
+/* ------------------------------------------------------------- Gun fit's Slots mode */
+
+/* X offers it while body slots are on (port/src/input.c, bondview2.c gevrFitNextLine) */
+s32 gevrBodySlotFitAvailable(void)
+{
+    return VrBodySlots && g_gevrStereo;
+}
+
+/* the move stick's sideways flick: the next slot */
+void gevrBodySlotFitPick(int dir)
+{
+    s_bodyFitSlot = ((s_bodyFitSlot + (dir < 0 ? -1 : 1)) % GEVR_BODY_SLOTS + GEVR_BODY_SLOTS) % GEVR_BODY_SLOTS;
+    sysLogPrintf(LOG_NOTE, "bodyslot: fit the %s", gevrBodySlotName(s_bodyFitSlot));
+}
+
+/* a fresh grip: the slot where that hand is (Hand reload's belt is set the same way) */
+void gevrBodySlotFitSet(int ctrl)
+{
+    f32 at[3], *fit = VrBodySlotFit[s_bodyFitSlot];
+
+    if (!s_bodyFrameValid || ctrl < 0 || ctrl > 1 || !gevrBodyHandAt(ctrl, at))
+    {
+        return;
+    }
+    gevrBodySlotFitFrom(&s_bodyFrame, s_bodyFitSlot, at, VrLeftHandedMode, fit);
+    if (fit[0] == 0.0f && fit[1] == 0.0f && fit[2] == 0.0f)
+    {
+        fit[0] = 0.01f;   /* 0 0 0 reads as "the default" */
+    }
+    gevrBodyBuzz(ctrl, GEVR_ACTION_SLOT_TAKE);
+    sysLogPrintf(LOG_NOTE, "bodyslot: fit the %s at the %s: %.1f below %.1f out %.1f ahead", gevrBodySlotName(s_bodyFitSlot),
+                 gevrBodyHandName(ctrl), fit[0], fit[1], fit[2]);
+}
+
+/* Y: the slot's default for your height again */
+void gevrBodySlotFitReset(void)
+{
+    VrBodySlotFit[s_bodyFitSlot][0] = VrBodySlotFit[s_bodyFitSlot][1] = VrBodySlotFit[s_bodyFitSlot][2] = 0.0f;
+    sysLogPrintf(LOG_NOTE, "bodyslot: fit the %s: back to its default", gevrBodySlotName(s_bodyFitSlot));
+}
+
+/* the readout (bondview2.c gevrDrawGunFit) */
+void gevrBodySlotFitText(char *out, s32 size)
+{
+    static const char *upper[GEVR_BODY_SLOTS] = {
+        "GUN HAND'S HIP", "OFF HAND'S HIP", "GUN HAND'S SHOULDER", "OFF HAND'S SHOULDER", "CHEST", "BELT",
+    };
+    const s32 s = s_bodyFitSlot;
+    f32 off[3], near = -1.0f;
+    s32 ctrl, i;
+    char away[24];
+
+    gevrBodySlotOffsets(s, VrBodySlotFit[s], VrPlayerHeight, off);
+    for (ctrl = 0; ctrl < 2 && s_bodyFrameValid; ctrl++)
+    {
+        if (s_bodyHand[ctrl].tracked)
+        {
+            f32 d = 0.0f;
+
+            for (i = 0; i < 3; i++)
+            {
+                d += (s_bodyHand[ctrl].at[i] - s_bodyCentre[s][i]) * (s_bodyHand[ctrl].at[i] - s_bodyCentre[s][i]);
+            }
+            d = sqrtf(d);
+            if (near < 0.0f || d < near)
+            {
+                near = d;
+            }
+        }
+    }
+    snprintf(away, sizeof(away), near < 0.0f ? "?" : "%.0f CM", near);
+    snprintf(out, size,
+             "BODY SLOT FIT: %s (%d/%d)\n%.0f BELOW  %.0f OUT  %.0f AHEAD CM%s\nNEAREST HAND %s AWAY, REACH %.0f CM\n"
+             "MOVE STICK SIDEWAYS: NEXT SLOT\nGRIP: PUT IT AT THAT HAND\nY: DEFAULT FOR YOUR HEIGHT\n",
+             upper[s], s + 1, GEVR_BODY_SLOTS, off[0], off[1], off[2],
+             VrBodySlotFit[s][0] == 0.0f && VrBodySlotFit[s][1] == 0.0f && VrBodySlotFit[s][2] == 0.0f ? " (DEFAULT)" : "",
+             away, s_bodyRadius[s]);
 }
 
 void gevrBodySlotsReset(void)
