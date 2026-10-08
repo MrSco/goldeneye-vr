@@ -406,6 +406,97 @@ s32 gevrCoopPlaceBeside(s32 target)
     return TRUE;
 }
 
+/*
+ * Online soft collision between players (user, 2026-10-08: an enemy
+ * standing in front could pin a player in a corner; as other shooters do
+ * it). Players pass through one another's cylinders (stan.c
+ * gevrNetInsidePlayerProp); overlapping one, a player this headset owns
+ * (its own, or the host's bots) walks 30% slower and is pushed out, harder
+ * the deeper the overlap, through the walk's own collision, so walls and
+ * guards still stop it. Each headset pushes only its own players: the other
+ * side pushes back on its owner's headset, so a pair separates evenly.
+ */
+#define GEVR_SOFT_SLOW 0.7f      /* the walk while overlapping */
+#define GEVR_SOFT_PUSH 0.12f     /* of the overlap's depth, a tick */
+#define GEVR_SOFT_MAX 6.0f       /* units a tick, at most */
+
+static void gevrSoftPlayerCollision(struct coord3d *move_offset)
+{
+    extern bool netSlotOccupied(int slot);
+    extern int gevrNetOwnsSlot(int slot);
+    extern void chrpropGetCollisionBounds(PropRecord *prop, f32 *collision_radius, f32 *height, f32 *arg3);
+    s32 me = get_cur_playernum();
+    PropRecord *self = g_CurrentPlayer != NULL ? g_CurrentPlayer->prop : NULL;
+    f32 px = 0.0f;
+    f32 pz = 0.0f;
+    f32 len;
+    f32 cap;
+    s32 overlap = FALSE;
+    s32 slot;
+
+    if (!netIsActive() || self == NULL || g_CurrentPlayer->bonddead || !gevrNetOwnsSlot(me) || netPlayerIsSpectator(me))
+    {
+        return;
+    }
+    for (slot = 0; slot < getPlayerCount(); slot++)
+    {
+        struct player *other = g_playerPointers[slot];
+        f32 radius;
+        f32 height;
+        f32 unused;
+        f32 dx;
+        f32 dz;
+        f32 reach;
+        f32 dist;
+
+        if (slot == me || !netSlotOccupied(slot) || netPlayerIsSpectator(slot) || other == NULL
+            || other->prop == NULL || other->bonddead)
+        {
+            continue;
+        }
+        chrpropGetCollisionBounds(other->prop, &radius, &height, &unused);
+        if (fabsf(self->pos.y - other->prop->pos.y) >= height)
+        {
+            continue;   /* a floor above or below */
+        }
+        dx = g_CurrentPlayer->field_488.collision_position.x - other->prop->pos.x;
+        dz = g_CurrentPlayer->field_488.collision_position.z - other->prop->pos.z;
+        reach = radius + g_CurrentPlayer->field_488.collision_radius;
+        if (dx * dx + dz * dz >= reach * reach)
+        {
+            continue;
+        }
+        overlap = TRUE;
+        dist = sqrtf(dx * dx + dz * dz);
+        if (dist < 1.0f)
+        {
+            /* on top of each other: the lower slot one way, the higher the other */
+            dx = me < slot ? 1.0f : -1.0f;
+            dz = 0.0f;
+            dist = 1.0f;
+        }
+        px += dx / dist * (reach - dist) * GEVR_SOFT_PUSH;
+        pz += dz / dist * (reach - dist) * GEVR_SOFT_PUSH;
+    }
+    if (!overlap)
+    {
+        return;
+    }
+    move_offset->x *= GEVR_SOFT_SLOW;
+    move_offset->z *= GEVR_SOFT_SLOW;
+    px *= g_GlobalTimerDelta;
+    pz *= g_GlobalTimerDelta;
+    len = sqrtf(px * px + pz * pz);
+    cap = GEVR_SOFT_MAX * g_GlobalTimerDelta;
+    if (len > cap)
+    {
+        px *= cap / len;
+        pz *= cap / len;
+    }
+    move_offset->x += px;
+    move_offset->z += pz;
+}
+
 void gevrStereoHeadWalk(struct coord3d *move_offset)
 {
     s_gevrPhysicalStep[0] = s_gevrPhysicalStep[1] = s_gevrPhysicalStep[2] = 0;
@@ -13110,6 +13201,7 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         }
 
 #ifdef GEVR
+        gevrSoftPlayerCollision(&move_offset);   /* online: pushed out of other players, not blocked */
         gevrStereoHeadWalk(&move_offset);
         const f32 gevrPhysicalRequest[3] = {move_offset.x, move_offset.y, move_offset.z};
 #endif
