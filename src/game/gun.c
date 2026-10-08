@@ -2806,12 +2806,12 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
     {
         anim = def->fireAnim; frame = fire;
     }
-    else if (def->fireAnimAlt > 0 && !g_gevrStereo && g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT))
+    else if (def->fireAnimAlt > 0 && g_CurrentPlayer != NULL && (hand == GUNRIGHT || hand == GUNLEFT))
     {
-        /* the fist: GoldenEye's punch, as GE-X's (1001 or 1002), on GoldenEye's clock.
-         * The trigger's fire clip played it at a gun's pace (user: the animation was
-         * wrong on the trigger). In the headset the hand stays the tracked one: the
-         * player's own swing is the punch (bondview2.c gevrHandChopTick) */
+        /* the fist: the trigger's punch, as GE-X's (1001 or 1002), on GoldenEye's clock,
+         * on the screen and in the headset alike (user: the trigger animates it). The
+         * trigger's fire clip had played it at a gun's pace. A gesture's swing never
+         * sets these states: it is the player's own (bondview2.c gevrHandChopTick) */
         const s32 st = g_CurrentPlayer->hands[hand].weapon_action_state;
         const s32 punch = st == GUN_ANIM_STATE_PUNCH1_STRIKE || st == GUN_ANIM_STATE_PUNCH1_RECOVER ? def->fireAnim
                         : st == GUN_ANIM_STATE_PUNCH2_STRIKE || st == GUN_ANIM_STATE_PUNCH2_RECOVER ? def->fireAnimAlt : 0;
@@ -2893,7 +2893,7 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
             gevrGexMtxPoint(w, palmLocal, palm);
             rowlen = sqrtf(r->m[0][0] * r->m[0][0] + r->m[0][1] * r->m[0][1] + r->m[0][2] * r->m[0][2]);
             sysLogPrintf(LOG_NOTE, "gexfist: hand %d player %d local %d online %d stereo %d item %d (%s) named %d"
-                         " state %d frame %.1f anim %d at %.1f fire %.1f",
+                         " state %d frame %d anim %d at %.1f fire %.1f",
                          hand, p, online ? netGetLocalSlot() : -1, online, g_gevrStereo, def->item, def->model,
                          g_CurrentPlayer->cur_item_weapon_getname, st, g_CurrentPlayer->hands[hand].field_890,
                          anim, frame, fire);
