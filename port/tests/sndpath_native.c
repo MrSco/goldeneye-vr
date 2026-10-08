@@ -93,6 +93,17 @@ EXPORT int test_sndpath(void)
         CHECK(g_gevrSndSpatialSlot == -1 && s_tagCount == 0);
         g_playerPointers[0] = NULL;
     }
+    /* title: the stage bank was reset and the previous portals were cleared */
+    g_BgPortals = NULL;
+    gevrSndPathStageLoaded();
+    CHECK(s_count == 0);
+    CHECK(gevrSndPathDistance(1, &here, 3, &there) == spDist(&here, &there));
+    /* the next stage still builds its paths */
+    rooms();
+    gevrSndPathStageLoaded();
+    CHECK(s_count == 2);
+    d = gevrSndPathDistance(1, &here, 3, &there);
+    CHECK(d > 2.0f * 1000.0f + 900.0f && d < 3000.0f + 2.0f * 1000.0f);
     /* not online: no table, straight */
     spFree();
     CHECK(gevrSndPathDistance(1, &here, 3, &there) == spDist(&here, &there));

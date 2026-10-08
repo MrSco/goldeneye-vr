@@ -144,6 +144,9 @@ static ALMicroTime __CSPVoiceHandler(void *node)
     void            *oscState;
     f32             oscValue;
     u8              chan;
+#ifdef GEVR
+    s32             gevrZeroSteps = 0;
+#endif
 
     do {
         switch (seqp->nextEvent.type)
@@ -324,7 +327,16 @@ static ALMicroTime __CSPVoiceHandler(void *node)
 	    assert(FALSE);		
 	    break;
         }
-        seqp->nextDelta = alEvtqNextEvent(&seqp->evtq, &seqp->nextEvent); 
+        seqp->nextDelta = alEvtqNextEvent(&seqp->evtq, &seqp->nextEvent);
+
+#ifdef GEVR
+        /*
+         * Same bound as sndPlayerVoiceHandler: a queue of only zero-delta
+         * events never reaches the frame heartbeat (Quest 3 crash bfb06b31).
+         */
+        if (seqp->nextDelta == 0 && ++gevrZeroSteps > 256)
+            seqp->nextDelta = seqp->frameTime;
+#endif
         
     } while (seqp->nextDelta == 0);
 

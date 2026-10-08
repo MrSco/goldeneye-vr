@@ -184,6 +184,18 @@ def build_fixture(name, source=None):
         fixture=fixture.replace('../../src/game/vtxstore.c',(ROOT/'src/game/vtxstore.c').as_posix())
     elif name == "sndpath_native":
         fixture=fixture.replace('../../src/game/gevr_sndpath.c',(ROOT/'src/game/gevr_sndpath.c').as_posix())
+    elif name == "sfx_queue_native":
+        def function(path, signature):
+            text=(ROOT/path).read_text(encoding="utf-8")
+            start=text.index(signature);brace=text.index("{",start);depth=1;end=brace+1
+            while depth:
+                if text[end]=="{":depth+=1
+                elif text[end]=="}":depth-=1
+                end+=1
+            return text[start:end]
+        for rel in ("sl.c", "copy.c", "event.c"):
+            fixture=fixture.replace(f"../../src/libultra/audio/{rel}", (ROOT/f"src/libultra/audio/{rel}").as_posix())
+        fixture=fixture.replace("/* INSERT_VOICE_HANDLER */", function("src/snd.c", "ALMicroTime sndPlayerVoiceHandler(void *node)\n"))
     elif name == "botnav_native":
         fixture=fixture.replace('../../src/game/gevr_botnav.c',(ROOT/'src/game/gevr_botnav.c').as_posix())
     elif name == "objects_native":
@@ -192,6 +204,8 @@ def build_fixture(name, source=None):
     args=[shutil.which("gcc") or "gcc","-shared","-O2","-fms-extensions","-Wno-builtin-declaration-mismatch"]
     args += ["-D"+v for v in ("GEVR=1","PLATFORM_64BIT=1","_LANGUAGE_C=1","VERSION=2","VERSION_US=1","LANG_US=1")]
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]
+    if name == "sfx_queue_native":
+        args += ["-I"+str(ROOT/"include/PR")]
     args += [str(path),"-o",str(NATIVE/f"{name}.dll")]
     result=subprocess.run(args,cwd=ROOT,capture_output=True,text=True)
     if result.returncode: raise RuntimeError(result.stderr)
@@ -220,6 +234,7 @@ class MultiplayerNativeTests(unittest.TestCase):
         cls.hands = build_fixture("hand_native")
         cls.botnav = build_fixture("botnav_native")
         cls.sndpath = build_fixture("sndpath_native")
+        cls.sfxqueue = build_fixture("sfx_queue_native")
         cls.line_renderer = build_line_renderer()
         if cls.lib.test_spatial_init() != 1: raise RuntimeError(f"Actual Steam Audio initialization failed: {cls.lib.test_spatial_error()}")
     @classmethod
@@ -286,6 +301,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_bot_owner(self): self.assertEqual(self.core.test_core_bot_owner(),0)
     def test_bot_floor_routes(self): self.assertEqual(self.botnav.test_botnav(),0)
     def test_sound_through_portals(self): self.assertEqual(self.sndpath.test_sndpath(),0)
+    def test_sound_queue_yields_a_frame(self): self.assertEqual(self.sfxqueue.test_sfx_queue(),0)
     def test_host_player_count_any_stage(self): self.assertEqual(self.core.test_core_player_count(),0)
     def test_live_config_and_round_snapshot(self): self.assertEqual(self.core.test_core_live_voice(),0)
     def test_scores_survive_departures(self): self.assertEqual(self.core.test_core_scores_after_departure(),0)
