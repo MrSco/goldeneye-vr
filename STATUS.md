@@ -3,9 +3,15 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-07, v0.4.11 released (versionCode 66,
-protocol 19; v0.4.10 and older can't join). Building does not publish a
+**Updated / current build:** 2026-10-07, v0.4.12 released (versionCode 67,
+protocol 19, unchanged from v0.4.11; v0.4.10 and older can't join). Building does not publish a
 GitHub release. No game data is shipped.
+
+## v0.4.12
+
+Notes: [v0.4.12](docs/releases/v0.4.12.md). Quick fix release: the GE-X remote
+mine's detonator watch in the off hand gets its headset fit as the default
+(support rows of fit 29); its Gun fit turn wraps to a half turn.
 
 ## v0.4.11
 
