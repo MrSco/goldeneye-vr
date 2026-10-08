@@ -1222,23 +1222,35 @@ static const char *gevrGunSizeName(int n) {
     const char *names[] = {"Normal", "Tiny", "Big"};
     return names[n];
 }
+static const char *gevrHitImmunityName(int n) {
+    const char *names[] = {"None", "Short", "GoldenEye"};
+    return names[n];
+}
 static void gevrFunOptions(bool hostPage) {
     int flags = (netIsActive() ? netGetMatchConfig()->fun_flags : VrMpFunFlags) & NET_FUN_MASK;
     int size = netIsActive() ? netGetMatchConfig()->gun_size : VrMpGunSize;
     ImGui::TextDisabled(netIsActive() && netGetPhase() == NET_PHASE_IN_PROGRESS ? "Pending: applies next round"
                                                                                 : "Applies when the round loads");
     ImGui::BeginDisabled(netIsActive() ? !netIsHost() : !hostPage);
-    /* Hit immunity: GoldenEye's rule, a hit ignored during the last one's red
-     * flash; off (the default), every hit counts, as in Perfect Dark */
-    const char *labels[] = {"DK mode", "Paintball", "Line mode", "No radar", "Hit immunity (GoldenEye)"};
-    const int bits[] = {NET_FUN_DK, NET_FUN_PAINTBALL, NET_FUN_LINE, NET_FUN_NO_RADAR, NET_FUN_HIT_IMMUNITY};
+    const char *labels[] = {"DK mode", "Paintball", "Line mode", "No radar"};
+    const int bits[] = {NET_FUN_DK, NET_FUN_PAINTBALL, NET_FUN_LINE, NET_FUN_NO_RADAR};
     bool changed = false;
-    for (int n = 0; n < 5; n++) {
+    for (int n = 0; n < 4; n++) {
         bool on = (flags & bits[n]) != 0;
         if (ImGui::Checkbox(labels[n], &on)) {
             flags ^= bits[n];
             changed = true;
         }
+    }
+    /* a hit ignored for a while after the last: none (every hit counts, as in
+     * Perfect Dark), a quarter second, or GoldenEye's red-flash half second to a second */
+    ImGui::TextUnformatted("Hit immunity:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(ImGui::GetFontSize() * 9);
+    int immunity = netHitImmunity(flags);
+    if (namedCombo("##mphitimmunity", 3, gevrHitImmunityName, &immunity)) {
+        flags = netWithHitImmunity(flags, immunity);
+        changed = true;
     }
     ImGui::TextUnformatted("Gun size:");
     ImGui::SameLine();
