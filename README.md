@@ -39,9 +39,9 @@
 > file on your headset. Please don't ask for ROMs, and don't share them in Issues.
 
 > [!NOTE]
-> Optional GoldenEye X support and the latest co-op/Quest 2 fixes require
-> **v0.4.7 or later**. See [the v0.4.7 notes](docs/releases/v0.4.7.md) for the
-> new features and remaining headset checks.
+> **v0.4.11** adds deathmatch bots, 3D game sound, and GoldenEye X models for
+> every GoldenEye weapon and item. For multiplayer, everyone needs v0.4.11:
+> older versions can't join its games. See [the v0.4.11 notes](docs/releases/v0.4.11.md).
 
 ## ✨ What you get
 
@@ -69,10 +69,11 @@ Also:
 
   Nothing of theirs ships with the app. New pack releases show up on the Mods page as updates.
 
-  In game, hold **Menu** and press **X** to switch the HD textures off and back on to compare.
-- **Multiplayer** (experimental): deathmatch for up to eight players, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
-- **GoldenEye X** (optional, WIP): seventeen weapon variants with models and animations, magazines and individual shells/rockets in VR,
-  and its arms wearing GoldenEye's watch, loaded from your own patched Perfect Dark ROM.
+  In game, hold **Menu** until the return-to-launcher prompt shows, then press **X** to switch the HD textures off and back on to compare.
+- **Multiplayer** (experimental): deathmatch for up to eight players, with **bots** to fill the empty slots or to play against on your own, or the campaign in co-op for up to four, each in their own headset, over the internet or your Wi-Fi: browse public games or share a private code. See [Multiplayer](#-multiplayer-experimental).
+- **3D sound**: gunfire, explosions, doors and the game's other sounds come from where they happen, through the same Steam Audio 3D audio as voice chat. A fight in the next room sounds like it's round the corner, not through the wall.
+- **GoldenEye X** (optional, WIP): models and animations for every GoldenEye weapon and item, with magazines, single rounds
+  and speedloaders reloaded by hand in VR, one-handed remote mines, and its arms wearing the watch, loaded from your own patched Perfect Dark ROM.
   See [GE-X setup](#-goldeneye-x-optional-wip).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
@@ -170,9 +171,14 @@ the same way as the first time. Your ROM and settings stay where they are.
 
 ## 🧩 GoldenEye X (optional, WIP)
 
-GoldenEye X is a ROM hack of Perfect Dark. This port can read its **KF7, both PP7s, DD44, Klobb, ZMG, D5K, silenced D5K, Phantom, AR33, RC-P90, sniper, Moonraker laser, both shotguns, rocket launcher and Golden Gun** and
-**arms** as optional replacements while you play GoldenEye. Support currently covers
-those assets; GE-X's campaign, maps and other weapons are not imported.
+GoldenEye X is a ROM hack of Perfect Dark. This port can read its models and animations
+for **every GoldenEye weapon and item**, and its **hands, arms and watch**, as optional
+replacements while you play GoldenEye:
+- every gun, from the PP7 to the Golden Gun;
+- the Cougar Magnum and grenade launcher;
+- the knives, grenades, mines and taser.
+
+GE-X's campaign and maps are not imported.
 
 Keep your usual GoldenEye 007 (USA) ROM installed. For GE-X, you also need your own
 **legally obtained Perfect Dark USA v1.1 / Rev 1 ROM**, in big-endian `.z64` format
@@ -187,21 +193,36 @@ from [Wreck's N64 Vault page](https://n64vault.com/pd-multi-levels:goldeneye-x).
 3. Open the launcher's **Play → Mods...** page. Under **GOLDENEYE X**, press
    **Choose ROM...** and select the patched file. Look for **GoldenEye X ROM chosen.**
    The app stores it as `Android/data/com.gevr.port/files/data/gex.z64`.
-4. Enable **Its guns (WIP)** and/or **Its arms, wearing the watch (VR, WIP)**.
-   Gun replacements default to off. Equip a supported gun to see the replacement.
+4. Tick **Its guns, items, hands and watch arm**. It's off by default. During a mission
+   you can switch it under the watch's **VR settings → Mods and fun → GoldenEye X**.
 
-The virtual screen uses GE-X's fire and reload animations. For physical magazine
-reloads in stereo VR, also enable **Hand reload (WIP)** in **Controls → Gestures...**:
-pull the magazine with your off hand, grip a replacement at your belt, and seat it
-in the gun. B/Y drops the magazine; a removed magazine keeps its rounds until
-reinserted or dropped. PP7 cupping favors support; release and grip distinctly
-below the pistol to remove its magazine. See [reload and fit controls](docs/gex-setup.md#reload-and-fit-controls).
+On the virtual screen, GE-X's own fire and reload animations play. To reload by hand in
+stereo VR, also turn on **Hand reload (WIP)** in **Controls → Gestures...**. It needs
+GoldenEye X; until GE-X is on, it reads **Hand reload (needs GoldenEye X)**.
+- **Magazine guns.** Pull the magazine with your off hand, grip a replacement at your
+  belt, and seat it in the gun.
+  - B/Y drops the magazine. A removed magazine keeps its rounds until you put it back or drop it.
+  - The RC-P90's magazine lifts off the top.
+  - On the PP7, cupping the pistol counts as support. Release, then grip clearly below it
+    to remove its magazine.
+- **Shotguns, rocket launcher, Golden Gun and grenade launcher.** Grip one round at your
+  belt and insert it at the gun's port. Release the grip before taking another.
+- **Cougar Magnum.** A belt grab takes a speedloader with up to six rounds. The cylinder
+  swings open while you hold it, and inserting seats them all.
+- **Empty guns.** Bring an empty gun to your belt to reload it directly.
 
-RC-P90's top magazine lifts upward. For either shotgun or the rocket launcher,
-grip one round at your belt and insert it at the gun's port; release grip before
-taking another. Held Ammo and Ammo Insertion fit adjust the payload and target
-independently. The newest seven guns await headset fitting. The
-[continuation handoff](docs/gex-continuation-handoff.md) tracks the remaining guns.
+See [reload and fit controls](docs/gex-setup.md#reload-and-fit-controls).
+
+**Remote mines.** With GoldenEye X on, remote mines and their detonator are one weapon:
+- Your gun hand's trigger throws or places a mine.
+- With your off hand empty, pull its **trigger** to set off every remote mine you've
+  placed, in the headset or on the screen.
+- The Detonator leaves the weapon cycle, the wheel and the watch's list.
+- Your gun hand stays on the mines while any are out.
+- GE-X's left hand wears the detonator watch, which shows your health, armor and radar.
+
+Some mission-specific items may still need their fit adjusted in the headset
+(**Gun fit...**, below).
 
 No Perfect Dark ROM, patched ROM or GE-X assets ship with the app. The app imports
 the file you prepare; it does not apply the patch for you. Use the Mods picker for
@@ -221,35 +242,39 @@ GE-X and the Play page's **Choose ROM file...** for your GoldenEye ROM.
 | **Hand at its own hip** + **grip** | Holster what that hand holds; squeeze there again to draw it (**Hip holster (WIP)**) |
 | **Hand at a door, switch or console** + **grip** | Use it, as B does |
 | **Hand at a gun on the floor** + **grip** | With **Grip to hand (WIP)** on (off by default): that gun goes into that hand. Walking over guns still picks them up |
-| **Hand at your own stuck mine** + **grip** | Take it back (remote mines, and proximity mines still arming; single player) |
+| **Hand at your own stuck mine** + **grip** | Take it back (remote mines, and proximity mines still arming; single player and the co-op host) |
+| **Grip** a throwable, swing, **release** the grip | Throw it from your hand: throwing knives, grenades, mines (**Motion throwing**, on by default). The trigger cooks a grenade meanwhile |
 | **Left stick** | Walk and strafe |
 | **Right stick** | Turn: smooth (with its speed) or snap, set in the launcher |
 | **Left stick click** | Crouch (toggle) |
 | **Left stick up/down** (aiming the sniper rifle) | Zoom the scope (the stick doesn't strafe then) |
 | **Swing either hand** at a guard | Melee: chop, punch, pistol-whip, stab or club |
-| **Gun hand at the watch** + **right trigger** | Fire the watch laser |
-| **A** / **X** | Next weapon |
+| **Gun hand at the watch** + **right trigger** | Fire the watch laser (or the Detonator, without GoldenEye X) |
+| **Left trigger**, with GE-X remote mines in your gun hand and the left hand empty | Set off all the remote mines you've placed |
+| **A** | Next weapon for your gun hand |
 | **Right grip** + **A** | Previous weapon |
+| **X** | Next item for your left hand: empty, or something you carry that it can hold |
+| **Left grip** + **X** | Previous item for your left hand |
 | **Hold A** | Weapon wheel above your gun hand: push the other stick toward a category (pistols top, rifles upper right, heavy lower right, gadgets lower left, thrown upper left), pull a trigger to step through the guns in it (gun hand forward, other hand back), let go of A to equip (dual-wield pairs included) |
-| **Hold X** | Left-hand wheel: a second gun for your left hand, any gun you carry that can be dual-wielded (not gadgets). Point with the right stick, step with the triggers, let go to equip. Solo missions, with such a gun in your right hand |
+| **Hold X** | Left-hand wheel: anything you carry for your left hand, guns, knives, grenades and mines included (not the watch laser, Detonator or tank shells). Point with the right stick, step with the triggers, let go to equip. In multiplayer, only when the host's **Dual wield** rule isn't Off |
 | **B** / **Y** | Action: doors and switches take priority; dual wielding, reload the gun in that button's hand. With one gun, either button reloads it (not with **Hand reload (WIP)** on) |
-| **☰ Menu** (left controller) | Pause / Bond's watch |
+| **☰ Menu** (left controller) | Pause / Bond's watch (in multiplayer: the pause menu) |
+| **☰ Menu** + **A** | Gun fit on or off (single player) |
+| **☰ Menu** + **B** | Mute or unmute your microphone (multiplayer) |
 | **Hold ☰ Menu** (1.5 s) | Back to the launcher, to change settings or cheats (asks first: A yes, B no) |
 | **Raise left wrist to your face** | Open Bond's watch when **Watch gesture to pause** is enabled |
 | **Both stick clicks** | Recenter the view |
 | **Hold right stick click** (1 s) | Switch to the virtual screen |
 
 Real-world movement works too: lean around corners, duck, and step. Ducking behind cover hides you from guards.
+Aiming with the grip stops you walking, unless **Aim: no lean** is on.
 
 **Gestures...** on the launcher's **Controls** tab turns each grip gesture on or off, and holds
 **Watch gesture to pause**. Anywhere else the grip aims as before. It also holds two options
 that are off by default:
-- **Hand reload (WIP)**: guns stop reloading themselves, and B/Y stop reloading. Pull an SMG's or
-  rifle's magazine down with your off hand, or sweep a pistol, shotgun or dual-wielded gun
-  across your chest. **GE-X magazine guns** use removable magazines: pull one out, take a
-  replacement at your belt and push it in; B/Y drops its magazine. Bring an empty GE-X
-  gun to the belt to reload it directly, including when dual-wielding. GE-X shotguns and
-  rockets also support picking up and inserting one round at a time; RC-P90 magazines lift up.
+- **Hand reload (WIP)**: needs GoldenEye X. Guns stop reloading themselves, and B/Y stop
+  reloading. You reload by hand as described under [GoldenEye X](#-goldeneye-x-optional-wip),
+  including when dual-wielding.
 - **Per-gun recoil**: each gun kicks with Perfect Dark VR's recoil.
 
 **Game rules...** on the **Play** tab offers three options, off by default:
@@ -266,7 +291,7 @@ levels; 48 bodies no longer causes the reported enemy surge. See
 mid-mission in seven sections: **Comfort**, **Controls**, **Gestures**, **Weapons**,
 **Display**, **Game rules**, and **Mods and fun**. These include left-handed mode,
 stick swapping, gun fit, watch and grip gestures, reloads, recoil, motion throwing,
-screen size/distance/curve/passthrough, stats, GE-X toggles and gun size. **Display →
+screen size/distance/curve/passthrough, stats, the GoldenEye X toggle and gun size. **Display →
 Refresh** requests the supported rate immediately. Texture-pack selection and play
 mode stay outside these sections; switch play mode by holding the right stick click.
 
@@ -285,12 +310,16 @@ to read your wrist without opening the pause menu; the Menu button still pauses.
 | Control | Action |
 |---|---|
 | **Either trigger** | Fire (in menus: select) |
+| **A** or **X** / **B** or **Y** | The game's A / B buttons |
 | **Grips** | Aim / zoom |
 | **Left stick** | Walk and strafe (in menus: move the cursor) |
 | **Right stick** | Look and turn (in menus: move the cursor) |
 | **Point a controller** | Laser pointer for the file and mission folders |
 | **Hold both grips and move your hands** | Carry the screen somewhere else |
 | **Hold both grips and use the right stick** | Up/down: nearer/farther. Left/right: smaller/bigger |
+| **Left stick click** | Crouch (toggle) |
+| **Both stick clicks** | Recenter the view and the screen |
+| **☰ Menu** | Pause; hold it (1.5 s) to go back to the launcher |
 | **Hold left stick click** (1 s) | Bring the screen back in front of you |
 | **Hold right stick click** (1 s) | Switch to stereo VR |
 | **Grips** (in Bond's watch) | Turn the watch pages |
@@ -302,22 +331,54 @@ It's still experimental: expect rough edges, and please report what you find.
 
 **Everyone needs the same version of GoldenEye VR**, and each player their own ROM.
 
-**Host a game.** In the launcher press **Multiplayer...**, stay on **Host Game**, and pick:
+**Host a game.** In the launcher press **Multiplayer...**, stay on the **Host** tab, and pick (across its **Lobby**, **Match** and **Player** tabs):
 - the **Mode**: **Deathmatch**, or **Co-op mission** for the campaign (each player picks their own save folder, then the host picks missions, difficulty and briefings for everyone).
 - **Public game** to appear in the internet browser, or **Private game** to share a join code.
 - a **stage** and how many **players** it takes, from 2 to 8 on any stage.
-- your **character**.
+- your **character** (on the **Player** tab).
 - the **weapons**: the game's own sets, from Slappers only to the Golden Gun, proximity mines included.
+- **bots**, to fill empty slots (see below).
 
-Then press **START HOSTING LOBBY**. You can launch alone once everyone currently connected shows **[READY]**. The host can explore in warmup without running the round clock or score. When a guest has loaded the map, the stage and equipment reset and the timed round begins together. If the last guest leaves, the host returns to warmup.
+Then press **Start Hosting**, and **Launch** once everyone connected shows **Ready**. You can launch alone. The host can explore in warmup without running the round clock or score. When a guest has loaded the map, the stage and equipment reset and the timed round begins together. If the last guest leaves, the host returns to warmup.
 
-**Join a game.** Press **Multiplayer...** and choose **Join Game**. Pick a public internet game,
-enter a private code, or select a game discovered on your Wi-Fi. Direct IP remains available as a fallback.
-Then choose your character and tick **I am Ready**. Open spots can be joined during warmup or an active round. A late join starts from a fresh spawn with zero score, and reconnecting does not restore a previous score.
+**Join a game.** Press **Multiplayer...** and choose the **Join** tab. Pick a public internet game
+(**Public**), enter a code (**Private**), or select a game discovered on your Wi-Fi (**LAN**).
+**Direct IP** remains available as a fallback. Then choose your character on the **Player** tab and
+tick **Ready**. Open spots can be joined during warmup or an active round. Joining a deathmatch round
+in progress, you watch until the next round starts, unless you take a bot's place; co-op joiners drop
+straight in. Reconnecting doesn't restore a previous score.
+
+**Bots.** In deathmatch, the host's **Match** tab has a **Bots:** setting: **Off**,
+**Fill empty slots**, or **Fixed count** with 1 to 7 bots, plus a **Bot difficulty:**
+from Perfect Dark's six levels (Meat, Easy, Normal, Hard, Perfect, Dark). The same
+settings are on the pause menu's **Rules** tab as **BOTS**, **BOT COUNT** and
+**BOT DIFFICULTY**. They can be changed in the lobby and in warmup, and apply from the next round.
+- **Full players.** Bots score, can win, and play as GoldenEye's characters
+  ("Natalya (Bot)"). They use Perfect Dark's simulant brain, so they hunt by line of
+  sight, react after a moment, and aim worse when they've just spotted you.
+- **Behaviour.** Bots find their way round the level, pick up guns and ammo, and go for
+  the flag in Flag Tag and the gun in The Man with the Golden Gun.
+- **Hosting alone.** A host on their own can start a match with only bots.
+- **Joining and kicking.** A player who joins a full match takes the lowest-scoring bot's
+  place straight away. The host can **Kick** a bot from the pause menu's roster.
+- **Host migration.** If the host leaves, the next host takes over the bots and the
+  match goes on.
+
+**In a match.** **☰ Menu** (or the watch gesture) opens the pause menu, with **Match**,
+**Rules**, **Player** and **Audio** tabs. The match goes on while it's open.
+- **Navigating.** Point and pull a trigger, or use either stick. A or X selects; B or Y
+  goes back, and B resumes.
+- **Buttons:** **Ready up** / **Unready**, **Request votes**, **Return to lobby** and
+  **Leave match...**.
+- **Host only:** **Start match**, **Kick**, and in co-op **End mission...**.
+
+While you spectate, the gun hand's **A** follows the next player and **B** the previous one.
+In co-op, stand beside a downed teammate for 3 seconds to revive them.
 
 **Voice chat.** Allow microphone access to talk. Everyone can hear each other in the lobby;
-in a match, voices get quieter with distance and pan toward the speaker. Mute in the lobby or
-on the watch's Game Options page, or press **Menu + B**. Your mute choice is saved.
+in a match, voices get quieter with distance and come from the speaker's direction, like the
+game's own sounds. Mute with **Mute microphone** in the launcher, **MIC** on the pause menu's
+**Audio** tab, or **Menu + B**. Your mute choice is saved.
 If you deny microphone access, you can still hear other players.
 
 **Over the internet.** No IP addresses and no router setup: headsets connect directly when they can,
@@ -327,11 +388,9 @@ IP addresses) only while the game is open. Games on your Wi-Fi still work withou
 
 **Not there yet:** You don't see other players' hands move.
 
-Recent co-op fixes make dead guards drop their guns on joining headsets, with each
-player still able to collect their own copy. Mission Statistics also handles a
-joiner whose save-folder picker was bypassed: your chosen folder is preserved,
-otherwise the first local folder is used. The reported invisible Bunker ending
-cutscene remains under investigation. See [the v0.4.7 notes](docs/releases/v0.4.7.md).
+In co-op, every headset sees the tank move on Runway and Streets. Its engine sound still
+plays only for the driver. The reported invisible Bunker ending cutscene remains under
+investigation.
 
 ## ⚙️ Settings
 
@@ -341,9 +400,7 @@ position in your hand, HUD distance, player height and more. Edit it on your
 computer while the headset is plugged in.
 
 The ROM section collapses after validation succeeds and opens when a ROM is missing
-or selection fails. Expand it to change files. **Send debug log** starts disabled;
-click both controller sticks together to enable it for this launcher session. Leaving
-the launcher to play resets the unlock, so quitting and returning requires the combo again.
+or selection fails. Expand it to change files.
 
 **Display rate.** **Auto** leaves the refresh rate to the headset and external profiles.
 New Quest settings default to Auto; existing saved choices remain selected. The launcher
@@ -367,12 +424,22 @@ is in your hand. Hold the gun with both hands to fit the holding hand as well. *
 player, **Menu + A** starts and ends it during play, so you can leave it, switch weapons and
 come back.
 
-**X** cycles the available fit modes: gun, scope, reload and GE-X off hand. With
-hand reload enabled and one magazine-fed gun, reload fit uses the **left trigger**
-to mark the magazine grab point and **Y** to mark your belt with the off hand.
-GE-X fits are saved separately from GoldenEye's. Its off-hand mode moves the palm;
-hold the right grip to adjust the watch's place and size. Holding a GE-X gun with
-both hands and GE-X arms enabled fits its supporting hand and grab point. See
+**X** steps through the fit modes the gun has. Left-handed, that's the A button.
+The modes are:
+- **gun** and **scope**
+- **reload**: with hand reload on, the **left trigger** marks the magazine grab point,
+  and **Y** marks your belt with the off hand
+- GE-X modes:
+  - **off hand**: moves the palm. Hold the left grip to turn it, and the right grip
+    to move and size the watch.
+  - **held magazine**
+  - **magazine well**: the **left trigger** marks the well
+  - **installed magazine**
+  - **gun hand**
+- **barrel tip**
+
+GE-X fits are saved separately from GoldenEye's. Holding a GE-X gun with both hands
+fits its supporting hand and grab point. See
 [the fit guide](docs/gex-setup.md#reload-and-fit-controls) for the full controls.
 
 With a gadget in hand instead (a mine, keycard, key analyzer, document and so on), the same
@@ -549,6 +616,7 @@ This project's own code is **MIT** licensed ([LICENSE](LICENSE)). Vendored compo
 | `port/vr/imgui/` | Dear ImGui | `port/vr/imgui/LICENSE.txt` |
 | `port/fast3d/` | n64-fast3d-engine | `port/fast3d/LICENSE.txt` |
 | `OpenXR/` | Khronos OpenXR loader | Apache-2.0 |
+| `port/external/steamaudio/` | Steam Audio (Valve) | Apache-2.0, [`LICENSE.md`](port/external/steamaudio/LICENSE.md) |
 
 The app icon and banner art were made for this project.
 

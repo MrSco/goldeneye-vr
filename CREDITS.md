@@ -146,6 +146,7 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
   (`Copyright (c) 2022 Ryan Dwyer`) is the notice those directories carry.
 - **Also:** same Rare N64 FPS family, so it doubles as an architecture and feel reference (menus, aim/sway family, Fast3D ancestry).
 - **Ported:** the cylinder floor finder in `src/game/stan.c` (`stanFindGroundAtCyl`, #95) is `src/lib/collision.c`'s `cdFindGroundInfoAtCyl` family (`cdCollectGeoForCylFromList`, `cd0002709cIntTile`, `cdIs2dPointInIntTile`, `cdFindGroundFromList`) on GoldenEye's stan tiles.
+- **Ported:** the deathmatch bots' brain in `src/game/gevr_bot.c` (#149) is the simulants' (`bot.c` `g_BotDifficulties`, the aim error, target choice and fire rule; `botcmd.c` distance modes; `botinv.c` weapon scoring), and the sound path distance in `src/game/gevr_sndpath.c` is `dlights.c`'s portal path measure (`func0f0056f4`, `func0f0053d0`, the portal table of `func0f000920`).
 
 ### GoldenEye X — optional assets supplied by the player
 
@@ -192,6 +193,12 @@ Perfect Dark's logo, which the vendored VR layer had shipped as the app icon.
 - **What for:** Encodes and decodes multiplayer voice chat. CMake fetches the pinned 1.6.1 source release.
 - **Source:** https://opus-codec.org/downloads/
 - **Licence:** BSD-style; full copyright notice, conditions and disclaimer in `docs/opus-LICENSE.txt`.
+
+### Steam Audio (Valve)
+
+- **What for:** Binaural (HRTF) rendering of multiplayer voice chat and, since v0.4.11, of the game's placed sounds in every mode (`port/src/net/net_spatial.c`). The prebuilt Android library and headers are vendored in `port/external/steamaudio/`.
+- **Source:** https://github.com/ValveSoftware/steam-audio
+- **Licence:** Apache-2.0; `port/external/steamaudio/LICENSE.md`, third-party notices in `THIRDPARTY.md` there.
 
 ### ENet (zpl-c/enet single-header C99 amalgamation)
 
