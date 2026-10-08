@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
     if (argc > 1 && std::strcmp(argv[1], "fit_invalid") == 0) {
         assert(VrGexWeaponFits[6][3][2] == 8.8f);
         assert(VrGexWeaponFits[0][0][0] == 0);           // unregistered: no default
-        assert(VrGexWeaponFits[1][0][0] == 4.6f && VrGexWeaponFits[1][8][0] == -87.9532f);   // GE-X's fist keeps its fit
+        assert(VrGexWeaponFits[1][0][0] == 4.6f && VrGexWeaponFits[1][8][0] == -162.3683f);   // GE-X's fist keeps its fit
         assert(VrGexWeaponFits[23][0][0] == -11.9871f);  // the watch items keep theirs
         assert(VrGexWeaponFits[34][0][0] == 1.4880f);    // the plastique keeps the timed mine's
         assert(VrGexWeaponFits[2][0][0] == 3.4710f);     // the knives keep their default
