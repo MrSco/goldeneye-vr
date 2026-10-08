@@ -240,6 +240,9 @@ extern int VrPerWeaponRecoil;   /* launcher "Per-gun recoil" */
 #include "gevr_recoil.h"
 /* bondview2.c: GEVR PC's grip gestures (src/game/gevr_grip_gesture.h) */
 extern void gevrGripGestureInput(int ctrl, int pressed, int held);
+/* src/game/gevr_bodyslots.c: a hand in a body slot steps through it */
+extern int gevrBodySlotButton(int ctrl);
+extern int gevrBodySlotStick(int ctrl, float x, float dtMs);
 extern int gevrGripGestureTaken(int ctrl);
 extern ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand);
 
@@ -1652,6 +1655,19 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             aimWas = aim;
         }
+        // Body slots (gevr_bodyslots.c): with a hand in a slot, its own A or X
+        // steps through what the slot holds instead of cycling or opening the
+        // wheel, swallowed until let go.
+        {
+            static bool slotA, slotX;
+            const bool a = get_button_state(1, "a"), x = get_button_state(0, "x");
+            if (stereoplay && !fitting && !gevrReturnPrompt && !gevrWeaponPanelOpen) {
+                if (a && !slotA && !gevrSwallowA && gevrBodySlotButton(1)) gevrSwallowA = true;
+                if (x && !slotX && !gevrSwallowX && gevrBodySlotButton(0)) gevrSwallowX = true;
+            }
+            slotA = a;
+            slotX = x;
+        }
         // The off hand's buttons do what the gun hand's in the same place do, as
         // in the launcher (user): X (lower) is A, the weapons, and Y (upper) is B,
         // use/reload. (Not the X that just switched the texture pack in the
@@ -1860,6 +1876,20 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             } else if (changed) {
                 vrSettingsSave();
                 changed = false;
+            }
+        }
+        // Body slots: a hand in a slot steps through it with its own stick's
+        // sideways flick, which stops strafing or turning meanwhile (forward and
+        // back stay the player's). "left" is the move stick: the off hand's
+        // unless Swap sticks.
+        if (stereoplay && !fitting && !adjusting) {
+            static u32 slotStickAt;
+            const u32 now = SDL_GetTicks();
+            const float dt = slotStickAt && now - slotStickAt < 200 ? (float)(now - slotStickAt) : 0.0f;
+            slotStickAt = now;
+            for (int c = 0; c < 2; c++) {
+                XrVector2f *own = ((c == 0) == (VrSwapJoysticks == 0)) ? &left : &right;
+                if (gevrBodySlotStick(c, own->x, dt)) own->x = 0.0f;
             }
         }
         // In menus either stick navigates (whichever is pushed further).

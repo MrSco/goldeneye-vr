@@ -98,6 +98,7 @@ typedef struct
     f32 at[3];                /* the hand, level frame cm */
     s32 tracked;
     s32 gripHeld;             /* the slot took this grip: nothing else does until it's let go */
+    GevrBodyStick stick;      /* its own stick's flicks */
     s32 quiet;                /* ticks the hand stays quiet after a take (no blow, no reload) */
 } GevrBodyHand;
 
@@ -565,6 +566,59 @@ int gevrBodySlotGrip(int ctrl)
     h->gripHeld = TRUE;
     h->quiet = 15;
     return TRUE;
+}
+
+/* the hand's choice moves on by dir (A/X, the stick) */
+static void gevrBodyStep(s32 ctrl, s32 dir, const char *how)
+{
+    GevrBodyHand *h = &s_bodyHand[ctrl];
+    s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
+    char name[48];
+
+    if (h->n <= 1)
+    {
+        return;   /* one choice: nothing to step to */
+    }
+    h->pick = gevrBodyStepPick(h->choices, h->n, h->pick, dir);
+    h->steps++;
+    if (h->pick >= 0)
+    {
+        gevrBodyMruTouch(&s_bodyMru[h->slot], h->pick);   /* the slot keeps it, taken or not */
+    }
+    gevrBodyBuzz(ctrl, GEVR_ACTION_SLOT_STEP);
+    gevrBodyPickName(hand, h->pick, name, sizeof(name));
+    sysLogPrintf(LOG_NOTE, "bodyslot: step (%s) %s by %s: %d %s", gevrBodyHandName(ctrl),
+                 gevrBodySlotName(h->slot), how, h->pick, name);
+}
+
+/* port/src/input.c: the hand's own A or X, pressed. 1: the slot has it */
+int gevrBodySlotButton(int ctrl)
+{
+    if (!s_bodyLive || ctrl < 0 || ctrl > 1 || s_bodyHand[ctrl].slot < 0)
+    {
+        return FALSE;
+    }
+    gevrBodyStep(ctrl, 1, ctrl ? "A" : "X");
+    return TRUE;
+}
+
+/* port/src/input.c, each poll: the hand's own stick's X. 1: the slot has it */
+int gevrBodySlotStick(int ctrl, float x, float dtMs)
+{
+    GevrBodyHand *h;
+    s32 take, step;
+
+    if (ctrl < 0 || ctrl > 1)
+    {
+        return FALSE;
+    }
+    h = &s_bodyHand[ctrl];
+    step = gevrBodyStickStep(&h->stick, s_bodyLive && h->slot >= 0, x, dtMs, &take);
+    if (step != 0)
+    {
+        gevrBodyStep(ctrl, step, "stick");
+    }
+    return take;
 }
 
 /* port/src/input.c through gevrGripGestureInput: the grip is let go */
