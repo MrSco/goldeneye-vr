@@ -2674,13 +2674,6 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
                 if (gevrNetOwnsSlot(playerNum))
                 {
                     extern s32 g_gevrShotHand;
-                    extern int gevrNetSlotIsBot(int slot);
-                    if (gevrNetSlotIsBot(playerNum))
-                    {
-                        /* playtest probe (2026-10-07): a bot's shot reached a player */
-                        sysLogPrintf(LOG_NOTE, "bots: slot %d hits player %d (part %d, damage %.2f)",
-                                     playerNum, targetNum, hitpart, damageToCause * 0.125f);
-                    }
                     s32 hand = g_gevrShotHand >= 0 && g_gevrShotHand <= 1 ? g_gevrShotHand : GUNRIGHT;
                     u8 wepid = (u8)(g_CurrentPlayer ? getCurrentPlayerWeaponId(hand) : weaponid);
                     netSendHitReport((uint8_t)targetNum, wepid, (uint8_t)hitpart, vector->x, vector->y, vector->z, damageToCause * 0.125f);
