@@ -4066,7 +4066,12 @@ static void gevrPlaceRemoteSound(ALSoundState *state, s32 hand, f32 low, f32 hig
     extern int netGetRemoteAim(int slot, int hand, coord3d *origin, coord3d *dir);
     coord3d origin = g_CurrentPlayer->prop->pos, direction;
     netGetRemoteAim(get_cur_playernum(), hand, &origin, &direction);
-    chrobjSndCreatePostEvent(state, &origin, low, high);
+    {
+        /* the way the sound travels, through the portals (gevr_sndpath.c, PD's dlights.c) */
+        extern void gevrSndPlaceFromProp(ALSoundState *state, PropRecord *source, coord3d *pos, f32 low, f32 high);
+
+        gevrSndPlaceFromProp(state, g_CurrentPlayer->prop, &origin, low, high);
+    }
 
     listener = g_playerPointers[local];
     if (listener == NULL || listener->prop == NULL)

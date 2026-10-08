@@ -2019,7 +2019,9 @@ void chraiFistAttackHandler(s32 hand, s32 item_id)
         if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
         {
             /* another player's swing, heard from where they stand, a few metres (propobj.c) */
-            chrobjSndCreatePostEvent(sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, 0), &playerprop->pos, 400.0f, 1200.0f);
+            extern void gevrSndPlaceFromProp(ALSoundState *state, PropRecord *source, coord3d *pos, f32 low, f32 high);
+
+            gevrSndPlaceFromProp(sndPlaySfx(g_musicSfxBufferPtr, PUNCHING_AIR_SFX, 0), playerprop, &playerprop->pos, 400.0f, 1200.0f);
             return;
         }
 #endif
