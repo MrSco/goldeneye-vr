@@ -3496,8 +3496,9 @@ void gevrMotionThrowTick(s32 hand)
 
     s32 ctrl = gevrShotCtrl(hand);
     s32 item = getCurrentPlayerWeaponId(hand);
+    extern int gevrBodySlotHoldsGrip(int ctrl);   /* gevr_bodyslots.c: a body slot took this grip */
 
-    if (!gevrIsThrowable(item))
+    if (!gevrIsThrowable(item) || gevrBodySlotHoldsGrip(ctrl))
     {
         s_gevrThrowWindup[hand] = 0;
         s_gevrGripArmed[hand] = 0;
@@ -16205,6 +16206,7 @@ void gevrAutoAdvanceHand(s32 hand)
 #include "gevr_grip_gesture.h"
 
 extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+extern int VrBodySlots;   /* body slots replace the hip holster (gevr_bodyslots.c) */
 extern int VrMotionThrowing;
 extern s32 gevrIsThrowable(s32 item);   /* port/src/input.c */
 
@@ -16233,12 +16235,18 @@ void gevrGripGestureInput(s32 ctrl, s32 pressed, s32 held)
     }
     if (!held)
     {
+        extern void gevrBodySlotGripLetGo(int ctrl);   /* gevr_bodyslots.c */
+
         s_gevrGripGesture[ctrl] = 0;
+        gevrBodySlotGripLetGo(ctrl);
         return;
     }
     if (pressed)
     {
-        s_gevrGripGesture[ctrl] = (VrGestureHolster || VrGestureGripUse || VrGesturePickup || VrGestureMineGrab) ? 1 : 3;
+        extern int gevrBodySlotsOn(void);
+
+        s_gevrGripGesture[ctrl] = (VrGestureHolster || VrGestureGripUse || VrGesturePickup || VrGestureMineGrab
+                                   || gevrBodySlotsOn()) ? 1 : 3;
         s_gevrGripPendAge[ctrl] = 0;
         sysLogPrintf(LOG_NOTE, "stereo: grip (%s) pressed%s", ctrl ? "gun hand" : "off hand",
                      s_gevrGripGesture[ctrl] == 1 ? "" : ", every gesture off");
@@ -16441,6 +16449,16 @@ static s32 gevrGripGestureTry(s32 ctrl)
         sysLogPrintf(LOG_NOTE, "stereo: grip try (%s): two-handed hold or watch", ctrl ? "gun hand" : "off hand");
         return FALSE;
     }
+    {
+        /* a body slot (gevr_bodyslots.c) before the throw and the hip holster:
+         * it holds back a throwable's wind-up itself */
+        extern int gevrBodySlotGrip(int ctrl);
+
+        if (gevrBodySlotGrip(ctrl))
+        {
+            return TRUE;
+        }
+    }
     item = getCurrentPlayerWeaponId(hand);
     if (VrMotionThrowing && gevrIsThrowable(item))
     {
@@ -16471,7 +16489,7 @@ static s32 gevrGripGestureTry(s32 ctrl)
                      o ? o->flags : 0, o ? o->flags2 : 0, o ? o->runtime_bitflags : 0);
     }
 
-    if (VrGestureHolster && gevrHipZone(ctrl, at) && gevrHolsterTry(hand))
+    if (VrGestureHolster && !VrBodySlots && gevrHipZone(ctrl, at) && gevrHolsterTry(hand))
     {
         done = 0;
     }
@@ -18244,6 +18262,12 @@ extern s32 dynGetFreeVtx(void);
 s32 gevrBodyHandSelected(s32 hand)
 {
     return gevrHandSelected(hand);
+}
+
+/* the old hip holster's memory, from a new stage (gevrBodySlotsReset) */
+void gevrHolsterReset(void)
+{
+    s_gevrHolsterItem[0] = s_gevrHolsterItem[1] = -1;
 }
 
 /* the wheel's list for a hand (items and names), leaving the wheel's own as it was */

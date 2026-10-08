@@ -55,6 +55,14 @@ extern s32 gevrBodyHandSelected(s32 hand);
 extern s32 gevrBodyHandList(s32 hand, s32 *items, char (*names)[48], s32 max);
 extern s32 gevrBodyGripPos(s32 ctrl, f32 pos[3]);
 extern s32 gevrBodyTwoHandNear(void);
+extern void gevrHolsterReset(void);
+extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);
+extern s32 gevrIsThrowable(s32 item);        /* port/src/input.c */
+extern int VrMotionThrowing;
+extern float vr_ctrl_velocity_play[2][3], vr_head_velocity_play[3];
+extern s32 bondinvIsAliveWithFlag(void);
+extern MPSCENARIOS get_scenario(void);
+extern s32 getPlayerCount(void);
 
 #define GEVR_ACTION_SLOT_HOVER 1004   /* port/vr/vr_haptics.h */
 #define GEVR_ACTION_SLOT_TAKE  1005
@@ -89,6 +97,8 @@ typedef struct
     f32 dist;                 /* cm to its centre */
     f32 at[3];                /* the hand, level frame cm */
     s32 tracked;
+    s32 gripHeld;             /* the slot took this grip: nothing else does until it's let go */
+    s32 quiet;                /* ticks the hand stays quiet after a take (no blow, no reload) */
 } GevrBodyHand;
 
 static GevrBodyHand s_bodyHand[2] = { { -1 }, { -1 } };
@@ -476,13 +486,105 @@ void gevrBodySlotsTick(void)
     }
     for (ctrl = 0; ctrl < 2; ctrl++)
     {
+        if (s_bodyHand[ctrl].quiet > 0)
+        {
+            s_bodyHand[ctrl].quiet -= g_ClockTimer;
+        }
         gevrBodyHandUpdate(ctrl);
     }
+}
+
+/*
+ * A fresh grip in a slot (bondview2.c gevrGripGestureTry, after the grips'
+ * own jobs): the hand takes the slot's choice, what it held going back to its
+ * own slot, or puts away what it holds (GEVR PC vr456: a hip grip is never a
+ * no-op). Nothing for the hand: the press goes on to the other gestures.
+ */
+int gevrBodySlotGrip(int ctrl)
+{
+    GevrBodyHand *h;
+    s32 hand, held, action;
+    char from[48], to[48];
+
+    if (!s_bodyLive || ctrl < 0 || ctrl > 1 || s_bodyHand[ctrl].slot < 0)
+    {
+        return FALSE;
+    }
+    h = &s_bodyHand[ctrl];
+    hand = ctrl ? GUNRIGHT : GUNLEFT;
+    held = gevrBodyHandSelected(hand);
+    if (VrMotionThrowing && gevrIsThrowable(held))
+    {
+        /* its grip winds up a throw (gevrMotionThrowTick): the slot takes it only
+         * from a hand that has settled there, so reach back and throw still throws */
+        f32 v[3], speed;
+        s32 i;
+
+        for (i = 0; i < 3; i++)
+        {
+            v[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
+        }
+        speed = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (!gevrBodyThrowGate(h->ms, speed, s_bodyTune[BT_DWELL], 1.0f))
+        {
+            sysLogPrintf(LOG_NOTE, "bodyslot: grip (%s) %s with throwable %d: a throw (%.0f ms there, %.1f m/s)",
+                         gevrBodyHandName(ctrl), gevrBodySlotName(h->slot), held, h->ms, speed);
+            return FALSE;
+        }
+    }
+    action = gevrBodyGripAction(h->pick, getPlayerCount() >= 2 && get_scenario() == 2 && bondinvIsAliveWithFlag());
+    gevrBodyPickName(hand, held, from, sizeof(from));
+    gevrBodyPickName(hand, h->pick, to, sizeof(to));
+    switch (action)
+    {
+        case GEVR_BODY_DENY:
+            /* the flag's carrier keeps it (gevrCycleHandWeaponInternal) */
+            sysLogPrintf(LOG_NOTE, "bodyslot: refuse (%s) %s: carrying the flag", gevrBodyHandName(ctrl),
+                         gevrBodySlotName(h->slot));
+            gevrBodyBuzz(ctrl, GEVR_ACTION_SLOT_DENY);
+            h->gripHeld = TRUE;
+            return TRUE;
+        case GEVR_BODY_DRAW:
+            gunRequestHandWeaponChange(hand, h->pick, 1);
+            sysLogPrintf(LOG_NOTE, "bodyslot: take (%s) %s: %d %s for %d %s", gevrBodyHandName(ctrl),
+                         gevrBodySlotName(h->slot), h->pick, to, held, from);
+            break;
+        case GEVR_BODY_STOW:
+            gunRequestHandWeaponChange(hand, hand == GUNLEFT ? ITEM_UNARMED : ITEM_FIST, 1);
+            sysLogPrintf(LOG_NOTE, "bodyslot: stow (%s) %s: %d %s", gevrBodyHandName(ctrl),
+                         gevrBodySlotName(h->slot), held, from);
+            break;
+        default:
+            return FALSE;
+    }
+    if (gevrBodyItemKept(held))
+    {
+        gevrBodyMruTouch(&s_bodyMru[gevrBodySlotForItem(held, hand)], held);   /* it shows where it went */
+    }
+    gevrBodyBuzz(ctrl, GEVR_ACTION_SLOT_TAKE);
+    h->gripHeld = TRUE;
+    h->quiet = 15;
+    return TRUE;
+}
+
+/* port/src/input.c through gevrGripGestureInput: the grip is let go */
+void gevrBodySlotGripLetGo(int ctrl)
+{
+    if (ctrl >= 0 && ctrl < 2)
+    {
+        s_bodyHand[ctrl].gripHeld = FALSE;
+    }
+}
+
+int gevrBodySlotHoldsGrip(int ctrl)
+{
+    return ctrl >= 0 && ctrl < 2 && s_bodyHand[ctrl].gripHeld;
 }
 
 void gevrBodySlotsReset(void)
 {
     memset(s_bodyMru, 0, sizeof(s_bodyMru));
+    gevrHolsterReset();   /* the old hip holster's memory, which no stage ever cleared */
     gevrBodyTorsoReset(&s_bodyTorso);
     gevrBodyIdle("new stage");
 }
