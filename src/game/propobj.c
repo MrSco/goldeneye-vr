@@ -317,6 +317,9 @@ s32 objGetShotsTaken(ObjectRecord *);
 void sub_GAME_7F04AC20(PropRecord *prop, ModelRenderData *, s32 arg2);
 bool chrobjSeparatingAxisTheorem(rect4f* rect1, s32 numvertices0, rect4f* rect2, s32 numvertices1);
 void chrobjSndCreatePostEvent(ALSoundState *state, coord3d *pos, f32 low, f32 high);
+#ifdef GEVR
+void gevrSndSpatialPlace(ALSoundState *state, const coord3d *pos);   /* gevr_sndpath.c */
+#endif
 void remove_obj_from_temp_proxmine_table(WeaponObjRecord* proxy);
 void add_obj_to_temp_proxmine_table(WeaponObjRecord* proxy);
 s32 sub_GAME_7F042EB4(struct ObjectRecord *arg0, f32 *arg1, struct coord3d *arg2, struct coord3d *arg3, s32 arg4, s32 arg5);
@@ -10379,6 +10382,31 @@ void apped_text_ammotype(u8 *buffer, AMMOTYPE ammotype, s32 amount)
 }
 
 
+#ifdef GEVR
+/*
+ * A player's pickup sound: as the game plays it for the local player; for
+ * another player (the host's bot) at where they stand, full volume within
+ * 2 m, a third by 4 m and gone by 12 m, not in the local player's ears from anywhere.
+ */
+static void gevrPickupSfx(s32 sfx)
+{
+    extern bool netIsActive(void);
+    extern int netGetLocalSlot(void);
+    ALSoundState *state = sndPlaySfx(g_musicSfxBufferPtr, sfx, 0);
+
+    if (state != NULL && netIsActive() && get_cur_playernum() != netGetLocalSlot() &&
+        g_CurrentPlayer != NULL && g_CurrentPlayer->prop != NULL)
+    {
+        extern void gevrSndPlaceFromProp(ALSoundState *state, PropRecord *source, coord3d *pos, f32 low, f32 high);
+
+        gevrSndPlaceFromProp(state, g_CurrentPlayer->prop, &g_CurrentPlayer->prop->pos, 400.0f, 1200.0f);   /* through the portals */
+    }
+}
+#define sndPlayPickupSfx(sfx) gevrPickupSfx(sfx)
+#else
+#define sndPlayPickupSfx(sfx) sndPlaySfx(g_musicSfxBufferPtr, sfx, 0)
+#endif
+
 void set_sound_effect_for_ammo_collection(AMMOTYPE ammotype)
 {
     switch(ammotype) {
@@ -10398,7 +10426,7 @@ void set_sound_effect_for_ammo_collection(AMMOTYPE ammotype)
         case AMMO_DYNAMITE:
         case AMMO_GEKEY:
         case AMMO_TOKEN:
-            sndPlaySfx(g_musicSfxBufferPtr,PICKUP_AMMO_SFX,0);
+            sndPlayPickupSfx(PICKUP_AMMO_SFX);
             break;
         case AMMO_REMOTEMINE:
         case AMMO_PROXMINE:
@@ -10407,10 +10435,10 @@ void set_sound_effect_for_ammo_collection(AMMOTYPE ammotype)
         case AMMO_BUG:
         case AMMO_MICRO_CAMERA:
         case AMMO_PLASTIQUE:
-            sndPlaySfx(g_musicSfxBufferPtr,PICKUP_MINE_SFX,0);
+            sndPlayPickupSfx(PICKUP_MINE_SFX);
             break;
         case AMMO_KNIFE:
-            sndPlaySfx(g_musicSfxBufferPtr,PICKUP_KNIFE_SFX,0);
+            sndPlayPickupSfx(PICKUP_KNIFE_SFX);
     }
 }
 
@@ -10419,7 +10447,7 @@ void set_sound_effect_for_weapontype_collection(ITEM_IDS weapontype)
 {
     if ((weapontype == ITEM_KNIFE) || (weapontype == ITEM_THROWKNIFE))
     {
-        sndPlaySfx(g_musicSfxBufferPtr,PICKUP_KNIFE_SFX,0);
+        sndPlayPickupSfx(PICKUP_KNIFE_SFX);
     }
     else
     {
@@ -10427,23 +10455,23 @@ void set_sound_effect_for_weapontype_collection(ITEM_IDS weapontype)
             (weapontype == ITEM_BOMBCASE) || (weapontype == ITEM_BUG) || (weapontype == ITEM_MICROCAMERA) ||
             (weapontype == ITEM_PLASTIQUE))
         {
-            sndPlaySfx(g_musicSfxBufferPtr,PICKUP_MINE_SFX,0);
+            sndPlayPickupSfx(PICKUP_MINE_SFX);
         }
         else
         {
             if ((weapontype == ITEM_GRENADE) || (weapontype == ITEM_GRENADEROUND ) || (weapontype == ITEM_ROCKETROUND))
             {
-                sndPlaySfx(g_musicSfxBufferPtr,PICKUP_AMMO_SFX,0);
+                sndPlayPickupSfx(PICKUP_AMMO_SFX);
             }
             else
             {
                 if (weapontype == ITEM_LASER)
                 {
-                    sndPlaySfx(g_musicSfxBufferPtr,PICKUP_LASER_SFX,0);
+                    sndPlayPickupSfx(PICKUP_LASER_SFX);
                 }
                 else
                 {
-                    sndPlaySfx(g_musicSfxBufferPtr,PICKUP_GUN_SFX,0);
+                    sndPlayPickupSfx(PICKUP_GUN_SFX);
                 }
             }
         }
@@ -10896,7 +10924,7 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
                 add_ammo_to_inventory(ammotype, ammoquantity, 0, showstring);
             }
 
-            sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, PICKUP_AMMO_SFX, 0);
+            sndPlayPickupSfx(PICKUP_AMMO_SFX);
 
             op = TICKOP_FREE;
 
@@ -13075,25 +13103,27 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
     shortest_distance = high;
     count = getPlayerCount();
 
+#ifdef GEVR
+    /*
+     * Split screen shares one speaker, so a sound is as loud as it is for
+     * the nearest player. With one listener (solo, co-op, online: each
+     * headset its own player; measured to the other players' copies, a
+     * remote gun or explosion was always as loud as if it were beside you)
+     * a sound is measured to it along the way the sound travels, round walls
+     * through the doorways (gevr_sndpath.c).
+     */
+    {
+        extern s32 gevrSndHasListener(void);
+        extern s32 gevrSndPathVolume(coord3d *pos, s32 room, f32 low, f32 high);
+
+        if (gevrSndHasListener())
+        {
+            return gevrSndPathVolume(pos, -1, low, high);
+        }
+    }
+#endif
     for (index = 0; index < count; index++)
     {
-#ifdef GEVR
-        /*
-         * Split screen shares one speaker, so a sound is as loud as it is for
-         * the nearest player. Online each headset hears only its own player:
-         * measured to the other players' copies, a remote gun or explosion
-         * was always as loud as if it were beside you.
-         */
-        {
-            extern bool netIsActive(void);
-            extern int netGetLocalSlot(void);
-
-            if (netIsActive() && netGetLocalSlot() >= 0 && index != netGetLocalSlot())
-            {
-                continue;
-            }
-        }
-#endif
         prop  = g_playerPointers[index]->prop;
         diffx = prop->pos.x - pos->x;
         diffy = prop->pos.y - pos->y;
@@ -13112,6 +13142,9 @@ s32 sub_GAME_7F053894(coord3d *pos, f32 low, f32 high)
 void chrobjSndCreatePostEvent(ALSoundState *state, coord3d *pos, f32 low, f32 high)
 {
     sndCreatePostEvent(state, 8, sub_GAME_7F053894(pos, low, high));
+#ifdef GEVR
+    gevrSndSpatialPlace(state, pos);   /* heard from where it is */
+#endif
 }
 
 
@@ -13131,6 +13164,9 @@ void chrobjSndCreatePostEventDamage(ALSoundState *state, coord3d *pos)
 {
     f32 gain = sub_GAME_7F053894(pos, 200.0f, 500.0f) / 32767.0f;
     sndCreatePostEvent(state, 8, (s32)(32767.0f * gain * gain));
+#ifdef GEVR
+    gevrSndSpatialPlace(state, pos);
+#endif
 }
 
 void chrobjSndCreatePostEventDefault(ALSoundState *state, coord3d *pos)
@@ -13164,6 +13200,9 @@ void sub_GAME_7F053A3C(DoorRecord* arg0)
             assert( po->audiostate!=NULL);
             #endif
             sndCreatePostEvent(arg0->openSoundState, 8, sp1C);
+#ifdef GEVR
+            gevrSndSpatialPlace(arg0->openSoundState, &arg0->prop->pos);
+#endif
         }
 
         if (close_playing != 0)
@@ -13172,6 +13211,9 @@ void sub_GAME_7F053A3C(DoorRecord* arg0)
             assert( po->audiostate2!=NULL);
             #endif
             sndCreatePostEvent(arg0->closeSoundState, 8, sp1C);
+#ifdef GEVR
+            gevrSndSpatialPlace(arg0->closeSoundState, &arg0->prop->pos);
+#endif
         }
     }
 }

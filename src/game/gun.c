@@ -88,7 +88,7 @@ s32 gevrNetProjectile(s32 kind, s32 hand, coord3d *pos, coord3d *vel, Mtxf *rot,
         return TRUE;
     }
 
-    if (netIsActive() && get_cur_playernum() == netGetLocalSlot())
+    if (netIsActive() && gevrNetOwnsSlot(get_cur_playernum()))
     {
         f32 rot9[9];
 

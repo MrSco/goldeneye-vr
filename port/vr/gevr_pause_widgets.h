@@ -11,7 +11,7 @@
 struct GevrPausePlayerView {
     char name[64], character[64];
     int slot=-1,points=0,kills=0,losses=0,ping=0;
-    bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false;
+    bool host=false,ready=false,down=false,loaded=true,spectator=false,canKick=false,bot=false;
 };
 struct GevrPauseView {
     bool coop=false,host=false,canStart=false,canReturn=false,localReady=false,soloWarmup=false;
@@ -157,8 +157,8 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                     ImGui::TableNextColumn();ImGui::TextColored(gold,"%d",p.points);
                     ImGui::TableNextColumn();ImGui::Text("%d",p.kills);
                     ImGui::TableNextColumn();ImGui::Text("%d",p.losses);
-                    ImGui::TableNextColumn();ImGui::Text("%d",p.ping);
-                    ImGui::TableNextColumn();ImGui::TextColored(p.ready?good:ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),"%s",!p.loaded?"Loading":p.host?"Host":p.ready?(p.spectator?"Ready (S)":"Ready"):(p.spectator?"Spectator":"Waiting"));
+                    ImGui::TableNextColumn();if(p.bot)ImGui::TextUnformatted("—");else ImGui::Text("%d",p.ping);
+                    ImGui::TableNextColumn();ImGui::TextColored(p.ready?good:ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),"%s",!p.loaded?"Loading":p.host?"Host":p.bot?"Bot":p.ready?(p.spectator?"Ready (S)":"Ready"):(p.spectator?"Spectator":"Waiting"));
                 }
                 if(kicks) {
                     ImGui::TableNextColumn();ImGui::PushID(p.slot);
@@ -168,7 +168,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
                             ui.kickSlot=p.slot;snprintf(ui.kickName,sizeof(ui.kickName),"%s",p.name);
                         }
                         ImGui::EndDisabled();
-                        if(!p.canKick && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))ImGui::SetTooltip("This player needs the updated build for host removal.");
+                        if(!p.canKick && !p.bot && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))ImGui::SetTooltip("This player needs the updated build for host removal.");
                     }
                     ImGui::PopID();
                 }
@@ -189,12 +189,15 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         }
     } else {
         GevrPauseField field;
-        for(int i=0;gevrPauseReadField(ui.tab,i,&field);i++) {
-            const bool audio=ui.tab==GEVR_PAUSE_AUDIO;
-            gevrPauseFieldWidget(field,audio?18:18+(i%2)*642,212+(audio?i:i/2)*76,audio?1100:602);
-        }
+        const bool audio=ui.tab==GEVR_PAUSE_AUDIO;
+        int fields=0;while(gevrPauseReadField(ui.tab,fields,&field))fields++;
+        /* two columns at 76 apart; a full Rules tab (a custom set and bots) closes them up above the buttons */
+        const int rows=audio?fields:(fields+1)/2;
+        const int step=rows>8?(800-48-212)/(rows-1):76;
+        for(int i=0;gevrPauseReadField(ui.tab,i,&field);i++)
+            gevrPauseFieldWidget(field,audio?18:18+(i%2)*642,212+(audio?i:i/2)*step,audio?1100:602);
         ImGui::SetCursorPos(ImVec2(18,816));
-        ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Host settings. Round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
+        if(212+(rows-1)*step+48<810) ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Host settings. Round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
     }
     ImGui::SetCursorPos(ImVec2(18,864));ImGui::Separator();
     ImGui::SetCursorPos(ImVec2(18,886));

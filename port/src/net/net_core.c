@@ -137,13 +137,14 @@ typedef struct {
     NetHitReport report; /* shot_us has been mapped to host time before queuing */
 } QueuedHostHit;
 static QueuedHostHit s_host_hits[NET_HOST_HIT_CAPACITY];
-static uint64_t s_combat_epoch,s_hit_death_us[GEVR_MAX_PLAYERS],s_hit_order,s_local_death_us;
+static uint64_t s_combat_epoch,s_hit_death_us[GEVR_MAX_PLAYERS],s_hit_order,s_local_death_us[GEVR_MAX_PLAYERS];
 static uint32_t s_hit_life[GEVR_MAX_PLAYERS],s_last_hit_id[GEVR_MAX_PLAYERS];
-static uint32_t s_hit_move_tick[GEVR_MAX_PLAYERS],s_local_shot_id,s_local_hit_id;
+/* s_local_*: per owned slot, the local player's and (the host) its bots' (netSlotOwned) */
+static uint32_t s_hit_move_tick[GEVR_MAX_PLAYERS],s_local_shot_id[GEVR_MAX_PLAYERS],s_local_hit_id[GEVR_MAX_PLAYERS];
 static bool s_hit_move_seen[GEVR_MAX_PLAYERS];
-static bool s_hit_overflow_warned,s_local_shot_active;
+static bool s_hit_overflow_warned,s_local_shot_active[GEVR_MAX_PLAYERS];
 static unsigned s_host_hit_cursor;
-static NetHitReport s_local_shot;
+static NetHitReport s_local_shot[GEVR_MAX_PLAYERS];
 static NetClockSync s_clock_sync[GEVR_MAX_PLAYERS];
 static NetClockExchange s_clock_pending[GEVR_MAX_PLAYERS];
 static uint64_t s_clock_probe_us[GEVR_MAX_PLAYERS];
@@ -163,7 +164,7 @@ static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, flo
     s32 prev = get_cur_playernum();
     f32 h0 = pl->bondhealth, a0 = pl->bondarmour;
     s_last_attacker[target] = (int8_t)attacker;
-    if (target != s_local_slot) {
+    if (!netSlotOwned(target)) {
         /*
          * A copy takes no damage of its own: its health is its owner's
          * (protocol 10) and it dies when its owner reports dead
@@ -185,7 +186,7 @@ static void netApplyDamage(uint8_t target, uint8_t attacker, uint8_t weapon, flo
     s_gevrExplosionDamage = 0;
     set_cur_player(prev);
     if (pl->bonddead && !s_hit_death_us[target]) s_hit_death_us[target] = sysGetMicroseconds();
-    if (pl->bonddead && !s_local_death_us) s_local_death_us = s_hit_death_us[target];
+    if (pl->bonddead && !s_local_death_us[target]) s_local_death_us[target] = s_hit_death_us[target];
     NET_LOG("damage: player %d took %.2f from %d (weapon %d): health %.2f -> %.2f, armour %.2f -> %.2f%s%s",
             target, dmg, attacker, weapon, h0, pl->bondhealth, a0, pl->bondarmour,
             pl->bonddead ? ", dead" : "", target == s_local_slot ? " (me)" : "");
@@ -213,6 +214,7 @@ static NetRoundSettings s_round;
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpScenario, VrMpLength, VrMpHealth;
 extern int VrMpDual, VrMpLoadouts, VrMpNextRound, VrMpCustom[4], VrMpLoadout[4];
 extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers;
+extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty;
 extern int VrCoopFastReinforcements;
 extern unsigned VrMpFavStages, VrMpFavSets;
 extern void vrSettingsSave(void);
@@ -223,7 +225,7 @@ static void netInvalidateHitSlot(int slot)
     s_hit_death_us[slot] = 0;
     s_last_hit_id[slot]=0;
     s_hit_move_seen[slot]=false;
-    if (slot==s_local_slot) {s_local_death_us=0;s_local_shot_active=false;s_local_shot_id=s_local_hit_id=0;}
+    s_local_death_us[slot]=0;s_local_shot_active[slot]=false;s_local_shot_id[slot]=s_local_hit_id[slot]=0;
     for (int i=0;i<NET_HOST_HIT_CAPACITY;i++)
         if (s_host_hits[i].active && (s_host_hits[i].report.target == slot || s_host_hits[i].shooter == slot)) s_host_hits[i].active = false;
 }
@@ -232,7 +234,7 @@ static void netClearHostHits(void)
 {
     memset(s_host_hits,0,sizeof(s_host_hits));
     for (int i=0;i<GEVR_MAX_PLAYERS;i++) s_hit_death_us[i]=0;
-    s_local_death_us=0;s_local_shot_active=false;
+    memset(s_local_death_us,0,sizeof(s_local_death_us));memset(s_local_shot_active,0,sizeof(s_local_shot_active));
     memset(s_hit_move_seen,0,sizeof(s_hit_move_seen));
     s_hit_overflow_warned=false;
     s_host_hit_cursor=0;
@@ -253,7 +255,7 @@ int netGetHostEqualization(unsigned *cap_ms)
 static int netMapShotTime(int slot,uint64_t stamp,uint64_t *mapped,unsigned *uncertainty)
 {
     uint64_t now=sysGetMicroseconds();
-    if (slot==s_local_slot) { *mapped=stamp;*uncertainty=0;return stamp && stamp<=INT64_MAX; }
+    if (netSlotOwned(slot)) { *mapped=stamp;*uncertainty=0;return stamp && stamp<=INT64_MAX; }
     return slot>=0 && slot<GEVR_MAX_PLAYERS && netClockMap(&s_clock_sync[slot],stamp,now,mapped,uncertainty);
 }
 static void netObserveHitMove(int slot,const struct netplayermove *move)
@@ -276,7 +278,7 @@ static void netResetCombatEpoch(void)
     netClearHostHits();
     memset(s_clock_sync,0,sizeof(s_clock_sync));memset(s_clock_pending,0,sizeof(s_clock_pending));
     memset(s_clock_probe_us,0,sizeof(s_clock_probe_us));memset(s_last_hit_id,0,sizeof(s_last_hit_id));
-    s_local_shot_id=s_local_hit_id=0;
+    memset(s_local_shot_id,0,sizeof(s_local_shot_id));memset(s_local_hit_id,0,sizeof(s_local_hit_id));
     for(int i=0;i<GEVR_MAX_PLAYERS;i++)s_hit_life[i]=1;
 }
 static void netWriteCombatIdentity(struct netbuf *b)
@@ -405,7 +407,9 @@ static int netConfigSlots(const NetMatchConfig *c) {
     return c->max_players > players ? c->max_players : players;
 }
 
+static bool netUpdateBots(bool next_round);
 static void netLatchRoundSettings(void) {
+    netUpdateBots(true);   /* the next round's bots, before its roster is frozen */
     s_round.config = s_lobby_state.config;
     if (s_round.config.mode == NET_MODE_COOP) {
         /* the solo mission's rules, not the host's deathmatch settings riding
@@ -579,6 +583,8 @@ static void netResetLobbyState(void) {
     s_lobby_state.config.custom_set[1] = ITEM_SKORPION;
     s_lobby_state.config.custom_set[2] = ITEM_AK47;
     s_lobby_state.config.custom_set[3] = ITEM_ROCKETLAUNCH;
+    s_lobby_state.config.bot_count = 3;
+    s_lobby_state.config.bot_difficulty = NET_BOT_NORMAL;
     netLatchRoundSettings();
     s_lobby_open = false;
     s_warmup_started = s_start_requested = s_vote_requested = false;
@@ -800,6 +806,163 @@ int netGetConnectedPlayerCount(void) {
     return count;
 }
 
+/*
+ * Bots: player slots the host runs with AI input (gevr_bot.c). In the
+ * roster, the scores and the start gates they are players; joins, the LAN
+ * beacon and the host election count the humans.
+ */
+bool netSlotIsBot(int slot) {
+    return slot >= 0 && slot < GEVR_MAX_PLAYERS && s_lobby_state.slots[slot].connected && s_lobby_state.slots[slot].is_bot;
+}
+
+/* This headset decides the slot's life and sends its events: its own, and
+ * on the host the bots. During a host change no one owns the bots. */
+bool netSlotOwned(int slot) {
+    return slot >= 0 && slot < GEVR_MAX_PLAYERS && (slot == s_local_slot || (netIsHost() && netSlotIsBot(slot)));
+}
+int gevrNetOwnsSlot(int slot) { return netSlotOwned(slot); }
+
+/* The owned player ticking now, whose events go out; -1 for a copy */
+static int netActingSlot(void) {
+    int slot = get_cur_playernum();
+    return netSlotOwned(slot) ? slot : -1;
+}
+
+int netGetHumanPlayerCount(void) {
+    int count = 0;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot) count++;
+    return count;
+}
+
+/* A bot leaves: its kills are kept as a departure's (netForgetPlayerScore) */
+static void netReleaseBotSlot(int slot) {
+    netForgetPlayerScore(slot);
+    s_remote_active[slot] = false;
+    memset(&s_lobby_state.slots[slot], 0, sizeof(NetLobbySlot));
+    s_lobby_state.slots[slot].team = NET_TEAM_NONE;
+    s_lobby_state.slots[slot].ping_ms = NET_PING_UNKNOWN;
+}
+
+/* A bot takes an empty slot: one of the eight leads no one plays, or the
+ * body the loaded stage already has for the slot (a warmup refill) */
+static void netAddBot(int slot, bool in_level) {
+    NetLobbySlot *s = &s_lobby_state.slots[slot];
+    bool taken[64] = { false };
+    int chr = in_level ? s_round.character[slot] : -1;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
+        if (s_lobby_state.slots[i].connected && s_lobby_state.slots[i].chr_id < 64) taken[s_lobby_state.slots[i].chr_id] = true;
+    for (int n = 0; chr < 0 && netBotCharacter(n) >= 0; n++)
+        if (!taken[netBotCharacter(n)]) chr = netBotCharacter(n);
+    for (int k = 0; chr < 0 && k < netCharacterCount() && k < 64; k++)
+        if (!taken[k]) chr = k;
+    if (chr < 0 || chr >= netCharacterCount()) chr = 0;
+    memset(s, 0, sizeof(*s));
+    s->connected = s->ready = s->is_bot = 1;
+    s->loaded = in_level;
+    s->chr_id = (uint8_t)chr;
+    s->team = NET_TEAM_NONE;
+    s->ping_ms = NET_PING_UNKNOWN;
+    memcpy(s->loadout, s_lobby_state.config.custom_set, 4);
+    snprintf(s->name, sizeof(s->name), "%s (Bot)", netCharacterName(chr));
+    s_client_peers[slot] = NULL;
+    s_remote_active[slot] = false;
+    s_slot_grace_us[slot] = 0;
+    s_slot_heard_us[slot] = 0;
+    s_slot_app_version[slot][0] = '\0';
+}
+
+/*
+ * The host's bots follow the config: Fill takes every place no human holds,
+ * Fixed keeps bot_count of them, inside the match's player count, and in a
+ * team scenario they fill the sides the humans leave open. A round in
+ * progress keeps its players (a joiner still takes a bot's place,
+ * netBotToReplace); next_round is the latch for the round about to load.
+ * Returns whether the roster changed; the caller broadcasts it.
+ */
+static bool netUpdateBots(bool next_round) {
+    if (!netIsHost() || s_state == NET_STATE_MIGRATING) return false;
+    if (!next_round && s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS) return false;
+    const NetMatchConfig *c = &s_lobby_state.config;
+    const bool in_level = !next_round && s_state == NET_STATE_INGAME && !s_round_reset_loading;
+    int slots = netConfigSlots(c);
+    if (in_level && slots > s_max_players) slots = s_max_players;   /* the loaded stage has these players */
+    if (slots > GEVR_MAX_PLAYERS) slots = GEVR_MAX_PLAYERS;
+    int room = netConfigMaxPlayers(c) - netGetHumanPlayerCount(), target = 0;
+    if (c->mode != NET_MODE_COOP && c->bot_mode != NET_BOT_OFF)
+        target = c->bot_mode == NET_BOT_FILL || c->bot_count > room ? room : c->bot_count;
+    if (target < 0) target = 0;
+    bool changed = false;
+    int bots = 0;
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        if (!netSlotIsBot(i)) continue;
+        if (i >= slots) { netReleaseBotSlot(i); changed = true; }
+        else bots++;
+    }
+    for (int i = GEVR_MAX_PLAYERS - 1; i >= 0 && bots > target; i--)
+        if (netSlotIsBot(i)) { netReleaseBotSlot(i); bots--; changed = true; }
+    for (int i = 0; i < slots && bots < target; i++) {
+        if (i == s_host_slot || s_lobby_state.slots[i].connected) continue;
+        netAddBot(i, in_level);
+        bots++;
+        changed = true;
+    }
+    /* The sides: humans first, a bot keeps its side while it has room, the rest balance */
+    const bool teams = c->mode != NET_MODE_COOP && netScenarioHasTeams(c->scenario);
+    int room_on[2] = { 0, 0 };
+    if (teams) {
+        room_on[0] = netTeamCapacity(c->scenario, 0);
+        room_on[1] = netTeamCapacity(c->scenario, 1);
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
+            if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot && s_lobby_state.slots[i].team < 2)
+                room_on[s_lobby_state.slots[i].team]--;
+    }
+    bool placed[GEVR_MAX_PLAYERS] = { false };
+    for (int i = 0; teams && i < GEVR_MAX_PLAYERS; i++) {
+        uint8_t t = s_lobby_state.slots[i].team;
+        if (netSlotIsBot(i) && t < 2 && room_on[t] > 0) { room_on[t]--; placed[i] = true; }
+    }
+    for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
+        if (!netSlotIsBot(i)) continue;
+        s_lobby_state.slots[i].ready = 1;   /* a bot consents to everything */
+        if (placed[i]) continue;
+        uint8_t t = NET_TEAM_NONE;
+        if (teams && (room_on[0] > 0 || room_on[1] > 0)) t = room_on[0] >= room_on[1] ? 0 : 1;
+        if (t < 2) room_on[t]--;
+        if (s_lobby_state.slots[i].team != t) { s_lobby_state.slots[i].team = t; changed = true; }
+    }
+    if (changed) NET_LOG("bots: %d of %d (%s, %s)", bots, target, netBotModeName(c->bot_mode), netBotDifficultyName(c->bot_difficulty));
+    return changed;
+}
+
+/* A bot's points, as the scoreboard counts them: kills, less suicides */
+static int netBotPoints(int slot) {
+    int points = g_playerPlayerData[slot].gevr_score_bank;
+    for (int j = 0; j < GEVR_MAX_PLAYERS; j++)
+        points += j == slot ? -g_playerPlayerData[slot].kill_counts[j] : g_playerPlayerData[slot].kill_counts[j];
+    return points;
+}
+
+/* The bot a joiner replaces when every place is taken: in a team match one
+ * from the side with more bots, then the lowest score (the later slot on a tie) */
+static int netBotToReplace(void) {
+    const bool ingame = s_state == NET_STATE_INGAME;
+    int bots_on[2] = { 0, 0 }, side = -1, best = -1, best_points = 0;
+    for (int i = 0; i < s_max_players; i++) {
+        int t = ingame ? s_round.team[i] : s_lobby_state.slots[i].team;
+        if (netSlotIsBot(i) && t < 2) bots_on[t]++;
+    }
+    if (netScenarioHasTeams((ingame ? &s_round.config : &s_lobby_state.config)->scenario) && bots_on[0] + bots_on[1] > 0)
+        side = bots_on[1] > bots_on[0] ? 1 : 0;
+    for (int i = 0; i < s_max_players; i++) {
+        int t = ingame ? s_round.team[i] : s_lobby_state.slots[i].team;
+        if (!netSlotIsBot(i) || i == s_host_slot || (side >= 0 && t != side)) continue;
+        int points = netBotPoints(i);
+        if (best < 0 || points <= best_points) { best = i; best_points = points; }
+    }
+    return best;
+}
+
 /* Menus need the connection roster, including loading players and spectators.
  * netSlotOccupied remains the separate list of characters in the world. */
 int netLobbySlotConnected(int slot) {
@@ -811,7 +974,7 @@ int netLobbySlotConnected(int slot) {
 int netLobbyMinPlayers(void) {
     int min = 2;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
-        if (s_lobby_state.slots[i].connected && i + 1 > min) min = i + 1;
+        if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot && i + 1 > min) min = i + 1;
     return min;
 }
 
@@ -990,6 +1153,7 @@ static void netBroadcastLobbyState(void) {
         netbufWriteU8(&buf, s_lobby_state.slots[i].spectator);
         netbufWriteU8(&buf, s_lobby_state.slots[i].team);
         netbufWriteU8(&buf, s_lobby_state.slots[i].eliminated);
+        netbufWriteU8(&buf, s_lobby_state.slots[i].is_bot);
         netbufWriteU16(&buf, s_lobby_state.slots[i].ping_ms);
         for (int k = 0; k < 4; k++) netbufWriteU8(&buf, s_lobby_state.slots[i].loadout[k]);
         netbufWriteStr(&buf, s_lobby_state.slots[i].name);
@@ -1150,8 +1314,8 @@ static bool netApplyAmmoPacket(struct netbuf *b) {
     return true;
 }
 
-static void netSendObjectEvent(ObjectRecord *obj, uint8_t action, int8_t value) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !obj) return;
+static void netSendObjectEvent(int slot, ObjectRecord *obj, uint8_t action, int8_t value) {
+    if (s_state != NET_STATE_INGAME || slot < 0 || !obj) return;
     int index = netObjectIndex(obj);
     /* Only the setup's objects are the same on every headset. The
      * g_WeaponSlots / g_AmmoCrates pools (0x8000+, 0x9000+) are recycled per
@@ -1165,7 +1329,7 @@ static void netSendObjectEvent(ObjectRecord *obj, uint8_t action, int8_t value) 
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_OBJECT_STATE);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWriteU16(&buf, (uint16_t)index);
     netbufWriteU8(&buf, (uint8_t)obj->type);
     netbufWriteU8(&buf, action);
@@ -1177,15 +1341,15 @@ static void netSendObjectEvent(ObjectRecord *obj, uint8_t action, int8_t value) 
 /* chrprop.c propsTickPlayer: the local player collected this (Perfect Dark
  * port-net SVC_PROP_PICKUP carries the tick operation the same way). */
 void netSendObjectPickup(ObjectRecord *obj, s32 tickop) {
-    if (!netIsActive() || get_cur_playernum() != s_local_slot) return;
-    netSendObjectEvent(obj, NET_OBJECT_PICKUP, (int8_t)tickop);
+    if (!netIsActive()) return;
+    netSendObjectEvent(netActingSlot(), obj, NET_OBJECT_PICKUP, (int8_t)tickop);
 }
 
 /* propobj.c propdoorInteract: the local player opened or closed this door
  * (SVC_PROP_DOOR sends the door's new mode). */
 void netSendDoorState(ObjectRecord *door, s32 state) {
-    if (!netIsActive() || get_cur_playernum() != s_local_slot) return;
-    netSendObjectEvent(door, NET_OBJECT_DOOR, (int8_t)state);
+    if (!netIsActive()) return;
+    netSendObjectEvent(netActingSlot(), door, NET_OBJECT_DOOR, (int8_t)state);
 }
 
 /* Co-op (#94), the host: a door its guards, scripts or timers moved, and a
@@ -1194,12 +1358,12 @@ void netSendDoorState(ObjectRecord *door, s32 state) {
 void netSendHostDoorState(ObjectRecord *door, s32 state) {
     if (!netIsHost() || !netCoopActive() || !netPlayersWereTicked()) return;
     if (state != DOORSTATE_OPENING && state != DOORSTATE_CLOSING && state != DOORSTATE_WAITING) return;
-    netSendObjectEvent(door, NET_OBJECT_DOOR, (int8_t)state);
+    netSendObjectEvent(s_local_slot, door, NET_OBJECT_DOOR, (int8_t)state);
 }
 
 void netSendHostDoorLock(ObjectRecord *door) {
     if (!netIsHost() || !netCoopActive() || !netPlayersWereTicked() || !door || door->type != PROPDEF_DOOR) return;
-    netSendObjectEvent(door, NET_OBJECT_DOOR_LOCK, (int8_t)(uint8_t)((DoorRecord *)door)->keyflags);
+    netSendObjectEvent(s_local_slot, door, NET_OBJECT_DOOR_LOCK, (int8_t)(uint8_t)((DoorRecord *)door)->keyflags);
 }
 
 /* chrprop.c: the local player now holds the flag or the Golden Gun, from the
@@ -1208,7 +1372,8 @@ void netSendHostDoorLock(ObjectRecord *door) {
  * on every headset. A pool object has no shared identity, so the item is
  * the message. */
 void netSendSpecialTaken(s32 item) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || get_cur_playernum() != s_local_slot) return;
+    int slot = netActingSlot();
+    if (s_state != NET_STATE_INGAME || slot < 0) return;
     if (item != ITEM_GOLDENGUN && item != ITEM_TOKEN) return;
     u8 raw[24];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -1216,7 +1381,7 @@ void netSendSpecialTaken(s32 item) {
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_OBJECT_STATE);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWriteU16(&buf, 0);
     netbufWriteU8(&buf, 0);
     netbufWriteU8(&buf, NET_OBJECT_SPECIAL_TAKEN);
@@ -1677,6 +1842,8 @@ void netStageLoaded(void) {
         netbufWriteF32(&buf, pl ? pl->vv_theta : 0);
         netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
     } else {
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++)
+            if (netSlotIsBot(i)) s_lobby_state.slots[i].loaded = 1;
         netBroadcastLobbyState();
         netReadyProgress();
     }
@@ -1776,8 +1943,8 @@ void netLobbySetConfig(const NetMatchConfig *config) {
     if (!netIsHost() || !config || !netValidConfig(config)) return;
     /* Fewer players than are connected (or a slot past the new count) is refused. */
     int cap = netConfigSlots(config);
-    for (int i=cap;i<GEVR_MAX_PLAYERS;i++) if (s_lobby_state.slots[i].connected) return;
-    if (netGetConnectedPlayerCount() > netConfigMaxPlayers(config)) return;
+    for (int i=cap;i<GEVR_MAX_PLAYERS;i++) if (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot) return;
+    if (netGetHumanPlayerCount() > netConfigMaxPlayers(config)) return;
     NetMatchConfig oldRound = s_lobby_state.config, newRound = *config;
     oldRound.voice_mode = newRound.voice_mode = 0;
     oldRound.friendly_fire = newRound.friendly_fire = 0;
@@ -1804,6 +1971,7 @@ void netLobbySetConfig(const NetMatchConfig *config) {
         s_max_players = cap;
         s_lobby_max_players = (uint8_t)cap;
     }
+    netUpdateBots(false);
     netBroadcastLobbyState();
 }
 
@@ -2061,13 +2229,14 @@ static bool netSetSlotTeam(int slot, uint8_t team) {
     if (slot < 0 || slot >= GEVR_MAX_PLAYERS || !s_lobby_state.slots[slot].connected || team > NET_TEAM_NONE || !netScenarioHasTeams(s_lobby_state.config.scenario)) return false;
     if (team < 2) {
         int count=0;
-        for (int i=0;i<GEVR_MAX_PLAYERS;i++) if (i != slot && s_lobby_state.slots[i].connected && s_lobby_state.slots[i].team == team) count++;
+        for (int i=0;i<GEVR_MAX_PLAYERS;i++) if (i != slot && s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot && s_lobby_state.slots[i].team == team) count++;
         if (count >= netTeamCapacity(s_lobby_state.config.scenario, team)) return false;
     }
     if (s_lobby_state.slots[slot].team == team) return true;
     s_lobby_state.slots[slot].team = team;
     s_lobby_state.slots[slot].ready = 0; // Next-round consent never changes the loaded active player.
     netCancelRound();
+    netUpdateBots(false);   /* a bot on the side picked moves over */
     netBroadcastLobbyState();
     return true;
 }
@@ -2101,6 +2270,9 @@ int gevrNetConfigGet(int field) {
     case CFG_GUN_SIZE: return c->gun_size;
     case CFG_MAX_PLAYERS: return c->max_players;
     case CFG_FAST_REINFORCEMENTS: return c->mode == NET_MODE_COOP && (c->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
+    case CFG_BOT_MODE: return c->bot_mode;
+    case CFG_BOT_COUNT: return c->bot_count;
+    case CFG_BOT_DIFFICULTY: return c->bot_difficulty;
     default: return field >= CFG_CUSTOM0 && field <= CFG_CUSTOM3 ? c->custom_set[field-CFG_CUSTOM0] : 0;
     }
 }
@@ -2134,6 +2306,9 @@ void gevrNetConfigSet(int field, int value) {
         if (c.mode != NET_MODE_COOP || value > 1) return;
         c.fun_flags = (c.fun_flags & ~NET_COOP_FAST_REINFORCEMENTS) | (value ? NET_COOP_FAST_REINFORCEMENTS : 0);
         break;
+    case CFG_BOT_MODE: if (!gevrNetBotRowsEditable()) return; c.bot_mode = value; break;
+    case CFG_BOT_COUNT: if (!gevrNetBotRowsEditable() || value < 1) return; c.bot_count = value; break;
+    case CFG_BOT_DIFFICULTY: if (!gevrNetBotRowsEditable()) return; c.bot_difficulty = value; break;
     default: if (field < CFG_CUSTOM0 || field > CFG_CUSTOM3) return; c.custom_set[field-CFG_CUSTOM0] = value; break;
     }
     if (!netValidConfig(&c)) return;
@@ -2142,9 +2317,22 @@ void gevrNetConfigSet(int field, int value) {
     VrMpStage=c.stage; VrMpScenario=c.scenario; VrMpWeaponSet=c.weapon_set;
     VrMpLength=c.game_length; VrMpHealth=c.health; VrMpDual=c.dual_wield;
     VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpVoiceMode=s_lobby_state.config.voice_mode; VrMpFriendlyFire=c.friendly_fire; VrMpFunFlags=c.fun_flags & NET_FUN_MASK; VrMpGunSize=c.gun_size; VrMpMaxPlayers=c.max_players;
+    VrMpBotMode=c.bot_mode; VrMpBotCount=c.bot_count; VrMpBotDifficulty=c.bot_difficulty;
     if (c.mode == NET_MODE_COOP) VrCoopFastReinforcements = (c.fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
     for (int k=0;k<4;k++) VrMpCustom[k]=c.custom_set[k];
     vrSettingsSave();
+}
+int gevrNetSlotIsBot(int slot) { return netSlotIsBot(slot); }
+/* A bot's foes: everyone else, or the other side in a team round */
+int gevrNetBotFoes(int a, int b) {
+    if (a == b || a < 0 || b < 0 || a >= GEVR_MAX_PLAYERS || b >= GEVR_MAX_PLAYERS) return 0;
+    return !netScenarioHasTeams(s_round.config.scenario) || s_round.team[a] != s_round.team[b];
+}
+int gevrNetBotDifficulty(void) { return s_round.config.bot_difficulty < NET_BOT_DIFF_COUNT ? s_round.config.bot_difficulty : NET_BOT_NORMAL; }
+/* Bots change between rounds: the lobby and the warmup, never a round in progress */
+int gevrNetBotRowsEditable(void) {
+    return netIsHost() && s_lobby_state.config.mode != NET_MODE_COOP &&
+           !(s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS);
 }
 int gevrNetSlotChr(int slot) { return slot >= 0 && slot < GEVR_MAX_PLAYERS ? s_lobby_state.slots[slot].chr_id : 0; }
 int gevrNetSlotLoadout(int slot, int k) { return slot >= 0 && slot < GEVR_MAX_PLAYERS && k >= 0 && k < 4 ? s_lobby_state.slots[slot].loadout[k] : 0; }
@@ -2180,7 +2368,7 @@ int netLobbyCanLaunch(void) {
     if (!netIsHost()) return 0;
     int connected = 0;
     for (int i=0;i<GEVR_MAX_PLAYERS;i++) if (s_lobby_state.slots[i].connected) {
-        if (i >= s_max_players || (i != s_host_slot && !s_lobby_state.slots[i].ready)) return 0;
+        if (i >= s_max_players || (i != s_host_slot && !s_lobby_state.slots[i].ready && !s_lobby_state.slots[i].is_bot)) return 0;
         connected++;
     }
     return connected > 0;
@@ -2219,15 +2407,16 @@ bool netLobbyHostLaunchMatch(void) {
     return true;
 }
 
-void netSendLocalPlayerMove(const struct netplayermove *input) {
-    if(s_local_slot<0 || s_local_slot>=GEVR_MAX_PLAYERS || !s_combat_epoch)return;
-    struct netplayermove local=*input;local.epoch=s_combat_epoch;local.life_id=s_hit_life[s_local_slot];
+/* An owned player's move: the local player's, or the host's bot's */
+void netSendOwnedMove(int slot, const struct netplayermove *input) {
+    if(!netSlotOwned(slot) || !s_combat_epoch)return;
+    struct netplayermove local=*input;local.epoch=s_combat_epoch;local.life_id=s_hit_life[slot];
     local.clock_us=sysGetMicroseconds();
-    if(local.dead && !s_local_death_us)s_local_death_us=local.clock_us;
-    local.death_us=local.dead?s_local_death_us:0;
+    if(local.dead && !s_local_death_us[slot])s_local_death_us[slot]=local.clock_us;
+    local.death_us=local.dead?s_local_death_us[slot]:0;
     const struct netplayermove *move=&local;
-    if (netIsHost()) netObserveHitMove(s_local_slot,move);
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
+    if (netIsHost()) netObserveHitMove(slot,move);
+    if (s_state != NET_STATE_INGAME || (slot == s_local_slot && netLocalIsSpectator())) return;
     
     u8 raw[256];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -2235,11 +2424,12 @@ void netSendLocalPlayerMove(const struct netplayermove *input) {
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_PLAYER_STATE);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWritePlayerMove(&buf, move);
-    
+
     netBroadcastBuf(&buf, NET_CHAN_PLAYER_STATE, ENET_PACKET_FLAG_UNSEQUENCED, NULL);
 }
+void netSendLocalPlayerMove(const struct netplayermove *input) { netSendOwnedMove(s_local_slot, input); }
 
 void netSendLocalPlayerState(const NetMsgPlayerState *state) {
     if (s_state != NET_STATE_INGAME || s_local_slot < 0 || netLocalIsSpectator()) return;
@@ -2277,7 +2467,7 @@ const NetMsgPlayerState *netGetRemotePlayerState(int slot_id) {
 }
 
 bool netIsRemotePlayerActive(int slot_id) {
-    if (slot_id < 0 || slot_id >= GEVR_MAX_PLAYERS || slot_id == s_local_slot) return false;
+    if (slot_id < 0 || slot_id >= GEVR_MAX_PLAYERS || netSlotOwned(slot_id)) return false;
     return s_remote_active[slot_id];
 }
 
@@ -2322,7 +2512,7 @@ static bool netHitReportAllowed(int shooter,const NetHitReport *h,unsigned uncer
         || !isfinite(h->hx) || !isfinite(h->hy) || !isfinite(h->hz)
         || !netShotTimeValid(h->shot_us,sysGetMicroseconds(),uncertainty) || !netDamageAllowed(shooter,h->target))return false;
     struct player *pl=g_playerPointers[shooter];
-    if(shooter==s_local_slot && pl && pl->bonddead && !s_hit_death_us[shooter])s_hit_death_us[shooter]=sysGetMicroseconds();
+    if(netSlotOwned(shooter) && pl && pl->bonddead && !s_hit_death_us[shooter])s_hit_death_us[shooter]=sysGetMicroseconds();
     /* Blast time is impact time; a grenade thrown before death remains dangerous. */
     return netExplosiveWeapon(h->weapon) || netShotTradeValid(h->shot_us,s_hit_death_us[shooter],uncertainty);
 }
@@ -2361,12 +2551,12 @@ static void netExecuteHostHit(QueuedHostHit *hit)
     if(!hit->active)return;
     hit->active=false;netProcessHitReport(hit->shooter,&hit->report,0);
 }
-static void netQueueHostHit(NetHitReport h)
+static void netQueueHostHit(int shooter,NetHitReport h)
 {
     unsigned uncertainty;
-    if(!netAcceptHit(s_local_slot,&h,&uncertainty))return;
+    if(!netAcceptHit(shooter,&h,&uncertainty))return;
     unsigned delay=netGetSlotHostDelayMs(h.target);
-    if(!delay) {netProcessHitReport(s_local_slot,&h,0);return;}
+    if(!delay) {netProcessHitReport(shooter,&h,0);return;}
     int free_slot=-1,oldest=0;
     for(int n=0;n<NET_HOST_HIT_CAPACITY;n++) {
         int i=(s_host_hit_cursor+n)%NET_HOST_HIT_CAPACITY;
@@ -2378,7 +2568,7 @@ static void netQueueHostHit(NetHitReport h)
         netExecuteHostHit(&s_host_hits[oldest]);free_slot=oldest;
     }
     s_host_hit_cursor=(free_slot+1)%NET_HOST_HIT_CAPACITY;
-    s_host_hits[free_slot]=(QueuedHostHit){true,(uint8_t)s_local_slot,netHostBaseDelayMs(h.target),sysGetMicroseconds(),++s_hit_order,h};
+    s_host_hits[free_slot]=(QueuedHostHit){true,(uint8_t)shooter,netHostBaseDelayMs(h.target),sysGetMicroseconds(),++s_hit_order,h};
 }
 static void netDrainHostHits(void)
 {
@@ -2398,41 +2588,49 @@ static void netDrainHostHits(void)
 }
 void netBeginLocalShot(void)
 {
-    if(!s_combat_epoch || s_local_slot<0 || s_local_slot>=GEVR_MAX_PLAYERS || get_cur_playernum()!=s_local_slot)return;
-    if(!++s_local_shot_id)++s_local_shot_id;
-    s_local_shot=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[s_local_slot],.shot_id=s_local_shot_id};
-    s_local_shot_active=true;
+    int slot=netActingSlot();
+    if(!s_combat_epoch || slot<0)return;
+    if(!++s_local_shot_id[slot])++s_local_shot_id[slot];
+    s_local_shot[slot]=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[slot],.shot_id=s_local_shot_id[slot]};
+    s_local_shot_active[slot]=true;
 }
-void netEndLocalShot(void) {s_local_shot_active=false;}
-static NetHitReport netMakeLocalHit(uint8_t target,uint8_t weapon,uint8_t part,float hx,float hy,float hz,float damage)
+void netEndLocalShot(void) {int slot=netActingSlot();if(slot>=0)s_local_shot_active[slot]=false;}
+static NetHitReport netMakeLocalHit(int slot,uint8_t target,uint8_t weapon,uint8_t part,float hx,float hy,float hz,float damage)
 {
-    NetHitReport h=s_local_shot;
-    if(!s_local_shot_active || netExplosiveWeapon(weapon)) {
-        if(!++s_local_shot_id)++s_local_shot_id;
-        h=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[s_local_slot],.shot_id=s_local_shot_id};
+    NetHitReport h=s_local_shot[slot];
+    if(!s_local_shot_active[slot] || netExplosiveWeapon(weapon)) {
+        if(!++s_local_shot_id[slot])++s_local_shot_id[slot];
+        h=(NetHitReport){.epoch=s_combat_epoch,.shot_us=sysGetMicroseconds(),.shooter_life=s_hit_life[slot],.shot_id=s_local_shot_id[slot]};
     }
-    if(!++s_local_hit_id)++s_local_hit_id;
-    h.hit_id=s_local_hit_id;h.target=target;h.target_life=target<GEVR_MAX_PLAYERS?s_hit_life[target]:0;
+    if(!++s_local_hit_id[slot])++s_local_hit_id[slot];
+    h.hit_id=s_local_hit_id[slot];h.target=target;h.target_life=target<GEVR_MAX_PLAYERS?s_hit_life[target]:0;
     h.weapon=weapon;h.part=part;h.hx=hx;h.hy=hy;h.hz=hz;h.damage=damage;
     return h;
 }
 void netSendWorldHitReport(uint8_t target,uint8_t weapon,float x,float y,float z,float damage)
 {
     if(s_state!=NET_STATE_INGAME || !netIsHost() || target>=GEVR_MAX_PLAYERS)return;
-    NetHitReport h=netMakeLocalHit(target,weapon,0,x,y,z,damage);
+    NetHitReport h=netMakeLocalHit(s_local_slot,target,weapon,0,x,y,z,damage);
     h.shooter_life=s_hit_life[target];
     /* Environmental blasts have no remote clock or player attacker. */
     netProcessHitReport(target,&h,0);
 }
-void netSendHitReport(uint8_t target,uint8_t weapon,uint8_t part,float x,float y,float z,float damage)
+/* An owned player's hit on another player: a bot's (the host) or the local player's */
+void netSendHitReportAs(int shooter,uint8_t target,uint8_t weapon,uint8_t part,float x,float y,float z,float damage)
 {
-    if(s_state!=NET_STATE_INGAME || !s_combat_epoch || s_local_slot<0 || get_cur_playernum()!=s_local_slot)return;
-    NetHitReport h=netMakeLocalHit(target,weapon,part,x,y,z,damage);
-    if(netIsHost()) {netQueueHostHit(h);return;}
+    if(s_state!=NET_STATE_INGAME || !s_combat_epoch || !netSlotOwned(shooter))return;
+    NetHitReport h=netMakeLocalHit(shooter,target,weapon,part,x,y,z,damage);
+    if(netIsHost()) {netQueueHostHit(shooter,h);return;}
     u8 raw[128];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);
     netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
-    netbufWriteU8(&b,NET_MSG_HIT_REPORT);netbufWriteU8(&b,(uint8_t)s_local_slot);netbufWriteHitReport(&b,&h);
+    netbufWriteU8(&b,NET_MSG_HIT_REPORT);netbufWriteU8(&b,(uint8_t)shooter);netbufWriteHitReport(&b,&h);
     netBroadcastBuf(&b,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
+}
+/* The player ticking now, when it is owned */
+void netSendHitReport(uint8_t target,uint8_t weapon,uint8_t part,float x,float y,float z,float damage)
+{
+    int slot=netActingSlot();
+    if(slot>=0) netSendHitReportAs(slot,target,weapon,part,x,y,z,damage);
 }
 static uint32_t netNextLife(uint32_t life) {return life==UINT32_MAX?1:life+1;}
 static bool netAcceptRespawn(int slot,uint64_t epoch,uint32_t previous,uint32_t next)
@@ -2442,12 +2640,13 @@ static bool netAcceptRespawn(int slot,uint64_t epoch,uint32_t previous,uint32_t 
 }
 void netSendRespawnEvent(uint8_t pad_index,float theta)
 {
-    if(s_state!=NET_STATE_INGAME || s_local_slot<0 || !s_combat_epoch || pad_index>=startpadcount)return;
-    uint32_t previous=s_hit_life[s_local_slot],next=netNextLife(previous);
-    netAcceptRespawn(s_local_slot,s_combat_epoch,previous,next);
+    int slot=netActingSlot();
+    if(s_state!=NET_STATE_INGAME || slot<0 || !s_combat_epoch || pad_index>=startpadcount)return;
+    uint32_t previous=s_hit_life[slot],next=netNextLife(previous);
+    netAcceptRespawn(slot,s_combat_epoch,previous,next);
     u8 raw[40];struct netbuf b={.data=raw,.size=sizeof(raw)};netbufStartWrite(&b);
     netbufWriteU32(&b,GEVR_NET_MAGIC);netbufWriteU16(&b,GEVR_NET_VERSION);
-    netbufWriteU8(&b,NET_MSG_RESPAWN);netbufWriteU8(&b,(uint8_t)s_local_slot);
+    netbufWriteU8(&b,NET_MSG_RESPAWN);netbufWriteU8(&b,(uint8_t)slot);
     netbufWriteU8(&b,pad_index);netbufWriteF32(&b,theta);netbufWriteU64(&b,s_combat_epoch);
     netbufWriteU32(&b,previous);netbufWriteU32(&b,next);
     netBroadcastBuf(&b,NET_CHAN_RELIABLE,ENET_PACKET_FLAG_RELIABLE,NULL);
@@ -2471,7 +2670,8 @@ void netSendFireEvent(uint8_t weapon_id) {
 /* gun.c gevrNetProjectile: the local player's thrown or launched projectile */
 void netSendProjectile(s32 kind, s32 hand, s32 item, const coord3d *pos, const coord3d *vel,
                        const f32 *rot9, const coord3d *extra, s32 cooktimer) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !pos || !vel || !rot9) return;
+    int slot = netActingSlot();
+    if (s_state != NET_STATE_INGAME || slot < 0 || !pos || !vel || !rot9) return;
 
     u8 raw[128];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -2480,7 +2680,7 @@ void netSendProjectile(s32 kind, s32 hand, s32 item, const coord3d *pos, const c
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_PROJECTILE);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWriteU8(&buf, (uint8_t)kind);
     netbufWriteU8(&buf, (uint8_t)hand);
     netbufWriteU8(&buf, (uint8_t)item);
@@ -2493,9 +2693,11 @@ void netSendProjectile(s32 kind, s32 hand, s32 item, const coord3d *pos, const c
     NET_LOG("projectile tx: kind %d item %d at %.0f,%.0f,%.0f", (int)kind, (int)item, pos->x, pos->y, pos->z);
 }
 
-/* explosion.c explosionCreate: a damaging explosion the local player caused */
-void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8) {
-    if (s_state != NET_STATE_INGAME || s_local_slot < 0 || !pos) return;
+/* explosion.c explosionCreate: a damaging explosion an owned player caused
+ * (the local player, or the host's bot); -1 is the world's, sent as the host's */
+void netSendExplosionAs(s32 owner, s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8) {
+    int slot = owner < 0 ? s_local_slot : owner;
+    if (s_state != NET_STATE_INGAME || !netSlotOwned(slot) || !pos) return;
 
     u8 raw[48];
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
@@ -2503,13 +2705,16 @@ void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground,
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
     netbufWriteU16(&buf, GEVR_NET_VERSION);
     netbufWriteU8(&buf, NET_MSG_EXPLOSION);
-    netbufWriteU8(&buf, (uint8_t)s_local_slot);
+    netbufWriteU8(&buf, (uint8_t)slot);
     netbufWriteU8(&buf, (uint8_t)type);
     netbufWriteU8(&buf, rooms ? rooms[0] : 0xff);
     netbufWriteU8(&buf, (uint8_t)((ground ? 1 : 0) | (flag8 ? 2 : 0)));
     netbufWriteCoord(&buf, pos);
     netBroadcastBuf(&buf, NET_CHAN_RELIABLE, ENET_PACKET_FLAG_RELIABLE, NULL);
     NET_LOG("explosion tx: type %d at %.0f,%.0f,%.0f", (int)type, pos->x, pos->y, pos->z);
+}
+void netSendExplosion(s32 type, const coord3d *pos, const u8 *rooms, s32 ground, s32 flag8) {
+    netSendExplosionAs(-1, type, pos, rooms, ground, flag8);
 }
 
 /* A world event from player slot: sent by that player's own headset, relayed
@@ -2605,6 +2810,38 @@ static void netReceiveRespawn(ENetPeer *peer,int slot,struct netbuf *b,const u8 
 
 }
 
+/*
+ * A joiner's slot (HELLO). A player back after a host migration names its
+ * slot, kept for it (s_slot_grace_us); otherwise the first free one. Slot 0
+ * is the first host's: after a migration it stays empty. With every place
+ * taken a bot gives its own up, in any phase: the joiner drops in at once,
+ * on the bot's side. -1: full.
+ */
+static int netJoinSlot(int previous, const char *clean, bool *replacing_bot, uint8_t *bot_team) {
+    int assigned = -1;
+    *replacing_bot = false;
+    *bot_team = NET_TEAM_NONE;
+    if (previous >= 0 && previous < s_max_players && previous != s_host_slot &&
+        s_lobby_state.slots[previous].connected && s_client_peers[previous] == NULL &&
+        s_slot_grace_us[previous] && strcasecmp(s_lobby_state.slots[previous].name, clean) == 0) {
+        assigned = previous;
+        NET_LOG("%s is back in slot %d after the host change", clean, previous);
+    }
+    for (int i = 0; assigned < 0 && i < s_max_players; i++) {
+        if (i != s_host_slot && !s_lobby_state.slots[i].connected) {
+            assigned = i;
+        }
+    }
+    if (assigned >= 0 && (assigned == previous || netGetConnectedPlayerCount() < netGetMaxPlayers())) return assigned;
+    int bot = netGetHumanPlayerCount() < netGetMaxPlayers() ? netBotToReplace() : -1;
+    if (bot < 0) return -1;
+    *replacing_bot = true;
+    *bot_team = s_state == NET_STATE_INGAME ? s_round.team[bot] : s_lobby_state.slots[bot].team;
+    NET_LOG("%s takes the place of %s (slot %d)", clean, s_lobby_state.slots[bot].name, bot);
+    netReleaseBotSlot(bot);
+    return bot;
+}
+
 static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
     if (size < 8) return;
     
@@ -2657,24 +2894,12 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 }
             }
 
-            /* A player back after a host migration names its slot, kept for
-             * it (s_slot_grace_us); otherwise the first free one. Slot 0 is
-             * the first host's: after a migration it stays empty. */
-            int assigned = -1;
             int previous = netbufReadLeft(&buf) >= 1 ? netbufReadU8(&buf) : 0xFF;
-            if (previous >= 0 && previous < s_max_players && previous != s_host_slot &&
-                s_lobby_state.slots[previous].connected && s_client_peers[previous] == NULL &&
-                s_slot_grace_us[previous] && strcasecmp(s_lobby_state.slots[previous].name, clean) == 0) {
-                assigned = previous;
-                NET_LOG("%s is back in slot %d after the host change", clean, previous);
-            }
-            for (int i = 0; assigned < 0 && i < s_max_players; i++) {
-                if (i != s_host_slot && !s_lobby_state.slots[i].connected) {
-                    assigned = i;
-                }
-            }
-            
-            if (assigned < 0 || (assigned != previous && netGetConnectedPlayerCount() >= netGetMaxPlayers())) {
+            bool replacing_bot = false;
+            uint8_t bot_team = NET_TEAM_NONE;
+            int assigned = netJoinSlot(previous, clean, &replacing_bot, &bot_team);
+
+            if (assigned < 0) {
                 NET_ERR("Rejecting connection: lobby full");
                 enet_peer_disconnect(peer, 0);
                 break;
@@ -2691,14 +2916,15 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
             s_lobby_state.slots[assigned].loaded = 0;
             s_lobby_state.slots[assigned].chr_id = requested_chr;
             if (!s_slot_grace_us[assigned]) {
-                s_lobby_state.slots[assigned].team = NET_TEAM_NONE;
+                s_lobby_state.slots[assigned].team = bot_team;
                 s_lobby_state.slots[assigned].eliminated = 0;
                 s_lobby_state.slots[assigned].ping_ms = NET_PING_UNKNOWN;
-                s_round.team[assigned] = NET_TEAM_NONE;
-                /* a deathmatch's late joiner watches until the next round; a co-op one drops in (#94) */
+                s_round.team[assigned] = bot_team;
+                /* a deathmatch's late joiner watches until the next round; a co-op one, or one taking a bot's place, drops in (#94) */
                 s_lobby_state.slots[assigned].spectator = s_state == NET_STATE_INGAME && s_phase == NET_PHASE_IN_PROGRESS &&
-                    s_round.config.mode != NET_MODE_COOP;
-                s_round.character[assigned] = requested_chr;
+                    s_round.config.mode != NET_MODE_COOP && !replacing_bot;
+                /* a bot's place in a loaded stage keeps its body until the next load */
+                if (!replacing_bot || s_state != NET_STATE_INGAME) s_round.character[assigned] = requested_chr;
                 memset(s_round.loadout[assigned], 0, 4);
             }
             if (assigned != previous) memset(s_lobby_state.slots[assigned].loadout, 0, 4);   /* a returning player keeps its guns */
@@ -2738,6 +2964,7 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 }
             }
             
+            netUpdateBots(false);
             netBroadcastLobbyState();
             if (s_state == NET_STATE_INGAME) netSendMatchStartTo(peer);
             netSendLobbyHandoffTo(peer);
@@ -2796,8 +3023,9 @@ static void netHandlePacket(ENetPeer *peer, const uint8_t *data, size_t size) {
                 slot->spectator = netbufReadU8(&buf);
                 slot->team = netbufReadU8(&buf);
                 slot->eliminated = netbufReadU8(&buf);
+                slot->is_bot = netbufReadU8(&buf);
                 slot->ping_ms = netbufReadU16(&buf);
-                if (slot->connected > 1 || slot->ready > 1 || slot->loaded > 1 || slot->spectator > 1 || slot->eliminated > 1 || slot->team > NET_TEAM_NONE || slot->chr_id >= netCharacterCount()) valid = false;
+                if (slot->connected > 1 || slot->ready > 1 || slot->loaded > 1 || slot->spectator > 1 || slot->eliminated > 1 || slot->is_bot > 1 || slot->team > NET_TEAM_NONE || slot->chr_id >= netCharacterCount()) valid = false;
                 for (int k = 0; k < 4; k++) {
                     slot->loadout[k] = netbufReadU8(&buf);
                     if (slot->loadout[k] && netItemIndexOf(slot->loadout[k]) < 0) valid = false;
@@ -3857,7 +4085,7 @@ static void netHostLost(ENetPeer *peer) {
         netClearVotes(old);
     }
     for (int i = 0; i < s_max_players; i++) {
-        if (i != old && (i == s_local_slot || s_lobby_state.slots[i].connected)) {
+        if (i != old && (i == s_local_slot || (s_lobby_state.slots[i].connected && !s_lobby_state.slots[i].is_bot))) {
             elected = i;
             break;
         }
@@ -3913,25 +4141,31 @@ bool netHostTakeOver(uint16_t port) {
     s_takeover_pending = false;
     s_max_players = s_lobby_max_players;
     uint64_t now = sysGetMicroseconds();
-    int waiting = 0;
+    int waiting = 0, bots = 0;
     for (int i = 0; i < GEVR_MAX_PLAYERS; i++) {
         s_client_peers[i] = NULL;
         s_remote_active[i] = false;
         if (i == s_local_slot) {
             s_lobby_state.slots[i].connected = 1;
             s_lobby_state.slots[i].loaded = 1;
+        } else if (netSlotIsBot(i)) {
+            /* the bots are this headset's now (gevr_bot.c), from where their copies stand */
+            s_lobby_state.slots[i].loaded = 1;
+            s_slot_grace_us[i] = 0;
+            bots++;
         } else if (s_lobby_state.slots[i].connected) {
             s_lobby_state.slots[i].loaded = 0;
             s_slot_grace_us[i] = now + 20ull * 1000000;
             waiting++;
         }
     }
-    if (!waiting && s_round.config.mode != NET_MODE_COOP) netBeginRoundReset(false);
+    /* alone with bots, the match goes on (user, 2026-10-07) */
+    if (!waiting && !bots && s_round.config.mode != NET_MODE_COOP) netBeginRoundReset(false);
     else if (s_match_ended || g_gameOverFlag) {
         s_match_ended = true;
         s_results_deadline_us = now + 30000000ull;
     }
-    NET_LOG("Hosting the match from slot %d on port %d; %d player(s) have 20 s to come back", s_local_slot, address.port, waiting);
+    NET_LOG("Hosting the match from slot %d on port %d; %d player(s) have 20 s to come back, %d bot(s) adopted", s_local_slot, address.port, waiting, bots);
     netCoopBecameHost();   /* co-op: the guards' AI resumes here */
     return true;
 }
@@ -3980,6 +4214,7 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
     s_slot_grace_us[slot] = 0;
     s_slot_heard_us[slot] = 0;
     netClearVotes(slot);
+    netUpdateBots(false);
 
     netBroadcastLobbyState();
     netBroadcastAllVotes();
@@ -3997,14 +4232,29 @@ static void netHostDropSlot(int slot, ENetPeer *stale) {
 
 int netHostCanKickPlayer(int slot) {
     if (!netIsHost() || (s_state != NET_STATE_INGAME && s_state != NET_STATE_HOSTING_LOBBY) ||
-        slot == s_local_slot || slot == s_host_slot || !netLobbySlotConnected(slot) ||
-        !s_client_can_be_kicked[slot]) return 0;
+        slot == s_local_slot || slot == s_host_slot || !netLobbySlotConnected(slot)) return 0;
+    if (netSlotIsBot(slot)) return 1;
+    if (!s_client_can_be_kicked[slot]) return 0;
     ENetPeer *peer = s_client_peers[slot];
     return peer && (int)(intptr_t)peer->data - 1 == slot;
 }
 
 int netHostKickPlayer(int slot) {
     if (!netHostCanKickPlayer(slot)) return 0;
+    if (netSlotIsBot(slot)) {
+        /* the bot stays gone: Fill becomes Fixed with one fewer, Fixed counts one fewer */
+        NET_LOG("bots: %s removed by the host", s_lobby_state.slots[slot].name);
+        netReleaseBotSlot(slot);
+        int left = 0;
+        for (int i = 0; i < GEVR_MAX_PLAYERS; i++) if (netSlotIsBot(i)) left++;
+        s_lobby_state.config.bot_mode = left ? NET_BOT_FIXED : NET_BOT_OFF;
+        if (left) s_lobby_state.config.bot_count = (uint8_t)left;
+        VrMpBotMode = s_lobby_state.config.bot_mode;
+        VrMpBotCount = s_lobby_state.config.bot_count;
+        vrSettingsSave();
+        netBroadcastLobbyState();
+        return 1;
+    }
     ENetPeer *peer = s_client_peers[slot];
     /* Graceful ENet disconnect delivers the reason. Free the roster now;
      * detach the old peer so its eventual event cannot drop a reused slot. */

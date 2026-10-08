@@ -2667,9 +2667,11 @@ bool handles_shot_actors(ChrRecord *self, s32 hitpart, coord3d *vector, s32 weap
             extern bool netIsActive(void);
             extern int netGetLocalSlot(void);
             extern void netSendHitReport(uint8_t target_slot, uint8_t weapon_id, uint8_t hit_part, float hit_x, float hit_y, float hit_z, float dmg);
+            extern int gevrNetOwnsSlot(int slot);
             if (netIsActive())
             {
-                if (playerNum == netGetLocalSlot())
+                /* the shooter's owner reports: the local player, or the host for its bot */
+                if (gevrNetOwnsSlot(playerNum))
                 {
                     extern s32 g_gevrShotHand;
                     s32 hand = g_gevrShotHand >= 0 && g_gevrShotHand <= 1 ? g_gevrShotHand : GUNRIGHT;

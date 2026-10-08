@@ -165,3 +165,15 @@ const char *netNextRoundName(int mode) {
 
 const char *netVoiceModeName(int mode) { return mode == NET_VOICE_COUCH ? "Couch" : "Proximity"; }
 const char *netTeamName(int team) { return team == NET_TEAM_RED ? "Red" : team == NET_TEAM_BLUE ? "Blue" : "Unassigned"; }
+const char *netBotModeName(int mode) {
+    return mode == NET_BOT_FILL ? "Fill empty slots" : mode == NET_BOT_FIXED ? "Fixed count" : "Off";
+}
+const char *netBotDifficultyName(int difficulty) {
+    static const char *const names[NET_BOT_DIFF_COUNT] = { "Meat", "Easy", "Normal", "Hard", "Perfect", "Dark" };
+    return difficulty >= 0 && difficulty < NET_BOT_DIFF_COUNT ? names[difficulty] : "";
+}
+/* s_characters indices: Natalya, Trevelyan, Xenia, Ourumov, Boris, Valentin, Jaws, Baron Samedi */
+int netBotCharacter(int n) {
+    static const uint8_t leads[] = { 1, 2, 3, 4, 5, 6, 9, 11 };
+    return n >= 0 && n < (int)sizeof(leads) ? leads[n] : -1;
+}

@@ -11,7 +11,8 @@ struct player *g_playerPointers[MAX_PLAYER_COUNT];
 s32 startpadcount=8;
 static unsigned char sent_data[1024];   /* an eight-player match snapshot is 715 bytes */
 static size_t sent_size;
-s32 get_cur_playernum(void) { return s_local_slot; }
+static int fixture_cur=-1;   /* the player ticking, when not the local one (a bot) */
+s32 get_cur_playernum(void) { return fixture_cur>=0 ? fixture_cur : s_local_slot; }
 static int respawn_calls;
 void set_cur_player(s32 slot) { (void)slot; }
 void mp_respawn_handler_net(s32 pad,float theta) { (void)pad;(void)theta;respawn_calls++; }
@@ -19,6 +20,7 @@ void mp_respawn_handler_net(s32 pad,float theta) { (void)pad;(void)theta;respawn
 int bondinvHasInvItem(ITEM_IDS item) { (void)item; return 0; }
 int VrMpStage,VrMpWeaponSet,VrMpChr,VrMpScenario,VrMpLength,VrMpHealth;
 int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize,VrMpMaxPlayers;
+int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=2;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 int VrCoopFastReinforcements;
 unsigned VrMpFavStages,VrMpFavSets;
@@ -690,10 +692,10 @@ EXPORT int test_core_timed_hits(void) {
     CHECK(!netAcceptRespawn(0,s_combat_epoch,previous,netNextLife(previous)));
     CHECK(!netAcceptRespawn(0,s_combat_epoch+1,s_hit_life[0],netNextLife(s_hit_life[0])));
     CHECK(!netAcceptRespawn(0,s_combat_epoch,s_hit_life[0],s_hit_life[0]+2));
-    hitFixture();netBeginLocalShot();NetHitReport a=netMakeLocalHit(1,ITEM_SHOTGUN,0,1,2,3,1);
-    clock_us+=1000;NetHitReport b=netMakeLocalHit(1,ITEM_SHOTGUN,0,1,2,3,1);netEndLocalShot();
+    hitFixture();netBeginLocalShot();NetHitReport a=netMakeLocalHit(s_local_slot,1,ITEM_SHOTGUN,0,1,2,3,1);
+    clock_us+=1000;NetHitReport b=netMakeLocalHit(s_local_slot,1,ITEM_SHOTGUN,0,1,2,3,1);netEndLocalShot();
     CHECK(a.shot_id==b.shot_id && a.shot_us==b.shot_us && a.hit_id!=b.hit_id);
-    NetHitReport c=netMakeLocalHit(1,ITEM_WPPK,0,1,2,3,1);CHECK(c.shot_id!=a.shot_id && c.shot_us==clock_us);
+    NetHitReport c=netMakeLocalHit(s_local_slot,1,ITEM_WPPK,0,1,2,3,1);CHECK(c.shot_id!=a.shot_id && c.shot_us==clock_us);
     shoot(1);CHECK(queued()==1);CHECK(netAcceptRespawn(1,s_combat_epoch,s_hit_life[1],netNextLife(s_hit_life[1])));
     clock_us+=20000;netDrainHostHits();CHECK(!damage_count && !queued());
     // Owner death uses synchronized time and life; older movement cannot reset it.
@@ -742,8 +744,8 @@ EXPORT int test_core_owner_packets(void) {
     h.target_life=s_hit_life[1];receiveDamageBody(s_server_peer,2,h,0);CHECK(damage_count==2);
     h.epoch++;receiveDamageBody(s_server_peer,2,h,0);CHECK(damage_count==2);
     // A client polling host queues must retain its original owner death time.
-    struct netplayermove m={0};m.dead=1;m.tick=1;netSendLocalPlayerMove(&m);uint64_t death=s_local_death_us;CHECK(death);
-    clock_us+=20000;netDrainHostHits();netSendLocalPlayerMove(&m);CHECK(s_local_death_us==death);
+    struct netplayermove m={0};m.dead=1;m.tick=1;netSendLocalPlayerMove(&m);uint64_t death=s_local_death_us[s_local_slot];CHECK(death);
+    clock_us+=20000;netDrainHostHits();netSendLocalPlayerMove(&m);CHECK(s_local_death_us[s_local_slot]==death);
     hitFixture();static PropRecord prop;hit_players[1].prop=&prop;respawn_calls=0;
     previous=s_hit_life[1];s_remote_moves[1].dead=1;s_remote_moves[1].death_us=clock_us;s_remote_active[1]=true;
     receiveRespawnBody(&hit_peers[2],1,s_combat_epoch,previous,netNextLife(previous));CHECK(!respawn_calls);
@@ -810,11 +812,11 @@ EXPORT int test_core_eight_slots(void) {
     g_playerPlayerData[7].kill_counts[0]=2;g_playerPlayerData[4].kill_counts[5]=1;
     CHECK(netTeamScore(NET_TEAM_BLUE)==1 && netTeamScore(NET_TEAM_RED)==0);
 
-    /* the late-join snapshot: 71 + 49N + 4N^2 bytes (two match configs with co-op's mode and difficulty), past the old 512 */
+    /* the late-join snapshot: 77 + 49N + 4N^2 bytes (two match configs with co-op's mode and difficulty and the bots), past the old 512 */
     s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
     g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
     sent_size=0;netSendMatchSnapshot(NULL);
-    CHECK(sent_size==71+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    CHECK(sent_size==77+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
     struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
     netbufStartReadData(&b,sent_data,sent_size);
     netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);
@@ -849,5 +851,135 @@ EXPORT int test_core_eight_slots(void) {
     s_host_slot=7;netResetCombatEpoch();CHECK((s_combat_epoch&15)==8);
     uint64_t epoch=s_combat_epoch;netResetCombatEpoch();CHECK(s_combat_epoch!=epoch && (s_combat_epoch&15)==8);
     s_host_slot=0;
+    return 0;
+}
+
+/* Bots: the host's roster follows the config (Fill, Fixed, the count, teams) */
+static int botsIn(void) { int n=0;for(int i=0;i<GEVR_MAX_PLAYERS;i++) if(netSlotIsBot(i)) n++;return n; }
+static void botFixture(int scenario) {
+    fixture(scenario);
+    for(int i=1;i<GEVR_MAX_PLAYERS;i++) memset(&s_lobby_state.slots[i],0,sizeof(s_lobby_state.slots[i]));
+    for(int i=1;i<GEVR_MAX_PLAYERS;i++) {s_lobby_state.slots[i].team=NET_TEAM_NONE;s_lobby_state.slots[i].ping_ms=NET_PING_UNKNOWN;}
+    s_lobby_state.slots[0].chr_id=0;
+    gevrNetConfigSet(CFG_MAX_PLAYERS,4);
+}
+EXPORT int test_core_bot_roster(void) {
+    botFixture(0);
+    CHECK(s_max_players==4 && botsIn()==0 && netLobbyMinPlayers()==2);
+    gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);
+    CHECK(VrMpBotMode==NET_BOT_FILL && botsIn()==3 && netGetHumanPlayerCount()==1 && netGetConnectedPlayerCount()==4);
+    /* the leads by their own names, ready, outside the human counts */
+    CHECK(s_lobby_state.slots[1].chr_id==1 && !strcmp(s_lobby_state.slots[1].name,"Natalya (Bot)"));
+    CHECK(s_lobby_state.slots[2].chr_id==2 && !strcmp(s_lobby_state.slots[2].name,"Trevelyan (Bot)"));
+    CHECK(s_lobby_state.slots[3].chr_id==3 && s_lobby_state.slots[3].ready && !s_lobby_state.slots[3].loaded);
+    CHECK(netLobbyMinPlayers()==2 && netLobbyCanLaunch() && netRoundRosterReady());
+    /* a config change clears consent; a bot gives it again */
+    gevrNetConfigSet(CFG_HEALTH,3);CHECK(s_lobby_state.slots[2].ready && netLobbyCanLaunch());
+    /* fewer players: the bots past the count leave, the rest fill it */
+    gevrNetConfigSet(CFG_MAX_PLAYERS,2);
+    CHECK(gevrNetConfigGet(CFG_MAX_PLAYERS)==2 && botsIn()==1 && netSlotIsBot(1) && !s_lobby_state.slots[2].connected && !s_lobby_state.slots[3].connected);
+    gevrNetConfigSet(CFG_MAX_PLAYERS,8);CHECK(botsIn()==7);
+    /* Fixed keeps its count; a count of none is refused */
+    gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FIXED);gevrNetConfigSet(CFG_BOT_COUNT,2);
+    CHECK(botsIn()==2 && netSlotIsBot(1) && netSlotIsBot(2) && VrMpBotCount==2);
+    gevrNetConfigSet(CFG_BOT_COUNT,0);CHECK(gevrNetConfigGet(CFG_BOT_COUNT)==2);
+    gevrNetConfigSet(CFG_BOT_DIFFICULTY,NET_BOT_DARK);CHECK(VrMpBotDifficulty==NET_BOT_DARK);
+    gevrNetConfigSet(CFG_BOT_DIFFICULTY,NET_BOT_DIFF_COUNT);CHECK(gevrNetConfigGet(CFG_BOT_DIFFICULTY)==NET_BOT_DARK);
+    /* a kick in Fixed counts one fewer; in Fill it becomes Fixed */
+    CHECK(netHostCanKickPlayer(2) && netHostKickPlayer(2) && botsIn()==1 && gevrNetConfigGet(CFG_BOT_COUNT)==1);
+    gevrNetConfigSet(CFG_MAX_PLAYERS,4);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);CHECK(botsIn()==3);
+    CHECK(netHostKickPlayer(3) && botsIn()==2 && gevrNetConfigGet(CFG_BOT_MODE)==NET_BOT_FIXED && gevrNetConfigGet(CFG_BOT_COUNT)==2);
+    CHECK(!s_lobby_state.slots[3].connected);
+    /* teams: the bots fill the sides the humans leave, and move for a human's pick */
+    gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);gevrNetConfigSet(CFG_SCENARIO,5);   /* 2v2 */
+    CHECK(botsIn()==3 && s_max_players==4);
+    CHECK(netSetSlotTeam(0,NET_TEAM_BLUE) && netTeamRosterReady());
+    CHECK(netSetSlotTeam(0,NET_TEAM_RED) && netTeamRosterReady());
+    int red=0,blue=0;for(int i=0;i<4;i++) {red+=s_lobby_state.slots[i].team==NET_TEAM_RED;blue+=s_lobby_state.slots[i].team==NET_TEAM_BLUE;}
+    CHECK(red==2 && blue==2);
+    gevrNetConfigSet(CFG_SCENARIO,0);CHECK(s_lobby_state.slots[1].team==NET_TEAM_NONE);
+    /* eight bots' names fit the lobby packet */
+    static ENetHost bot_host;s_host=&bot_host;
+    gevrNetConfigSet(CFG_MAX_PLAYERS,8);CHECK(botsIn()==7);
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++) memset(s_lobby_state.slots[i].name,'W',GEVR_MAX_NAME_LEN-1);
+    s_client_peers[1]=&hit_peers[1];
+    sent_size=0;netBroadcastLobbyState();CHECK(sent_size>400 && sent_size<=512);
+    s_host=NULL;s_client_peers[1]=NULL;
+    /* the round in progress keeps its players: the rows stop and the roster stays */
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+    CHECK(!gevrNetBotRowsEditable());
+    gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_OFF);CHECK(gevrNetConfigGet(CFG_BOT_MODE)==NET_BOT_FILL && botsIn()==7);
+    /* the host's load stands its bots in the stage */
+    for(int i=0;i<GEVR_MAX_PLAYERS;i++) s_lobby_state.slots[i].loaded=0;
+    netStageLoaded();CHECK(s_lobby_state.slots[5].loaded && netSlotOccupied(5));
+    /* co-op has no bots */
+    s_state=NET_STATE_HOSTING_LOBBY;s_phase=NET_PHASE_WAITING;
+    s_lobby_state.config.mode=NET_MODE_COOP;netUpdateBots(false);CHECK(botsIn()==0);
+    s_lobby_state.config.mode=NET_MODE_DEATHMATCH;VrMpBotMode=0;
+    return 0;
+}
+/* Joins: a bot gives its place up (the lowest score), a leaver's comes back to the bots between rounds */
+EXPORT int test_core_bot_join(void) {
+    bool rb;uint8_t team;
+    botFixture(0);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);CHECK(botsIn()==3);
+    int slot=netJoinSlot(0xFF,"Guest",&rb,&team);
+    CHECK(slot==3 && rb && team==NET_TEAM_NONE && !s_lobby_state.slots[3].connected);
+    s_lobby_state.slots[3].connected=1;snprintf(s_lobby_state.slots[3].name,GEVR_MAX_NAME_LEN,"Guest");
+    netUpdateBots(false);CHECK(botsIn()==2 && netGetHumanPlayerCount()==2);
+    netHostDropSlot(3,NULL);CHECK(botsIn()==3 && netSlotIsBot(3));
+    /* Fixed below the room: a free slot first */
+    gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FIXED);gevrNetConfigSet(CFG_BOT_COUNT,1);CHECK(botsIn()==1);
+    slot=netJoinSlot(0xFF,"Guest",&rb,&team);CHECK(slot==2 && !rb);
+    /* mid-round: the lowest score leaves, the joiner plays on its side, no refill after */
+    gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);CHECK(botsIn()==3);
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+    g_playerPlayerData[3].kill_counts[0]=2;
+    slot=netJoinSlot(0xFF,"Late",&rb,&team);CHECK(slot==2 && rb);
+    CHECK(g_playerPlayerData[0].gevr_score_bank==0 && g_playerPlayerData[3].kill_counts[0]==2);
+    s_lobby_state.slots[2].connected=1;s_lobby_state.slots[2].loaded=1;
+    netHostDropSlot(2,NULL);CHECK(botsIn()==2 && !s_lobby_state.slots[2].connected);
+    /* full of people: no place */
+    for(int i=1;i<4;i++) {memset(&s_lobby_state.slots[i],0,sizeof(NetLobbySlot));s_lobby_state.slots[i].connected=1;}
+    CHECK(netJoinSlot(0xFF,"Nope",&rb,&team)<0 && !rb);
+    /* a host change never elects a bot */
+    s_state=NET_STATE_INGAME;s_host_slot=0;s_local_slot=3;
+    memset(&s_lobby_state.slots[1],0,sizeof(NetLobbySlot));memset(&s_lobby_state.slots[2],0,sizeof(NetLobbySlot));
+    s_lobby_state.slots[1].connected=s_lobby_state.slots[1].is_bot=1;s_lobby_state.slots[2].connected=s_lobby_state.slots[2].is_bot=1;
+    netHostLost(&hit_peers[0]);CHECK(s_host_slot==3);
+    s_state=NET_STATE_HOSTING_LOBBY;s_host_slot=s_local_slot=0;VrMpBotMode=0;
+    return 0;
+}
+
+/* The host owns its bots: their moves, hits and respawns go out as an owner's */
+EXPORT int test_core_bot_owner(void) {
+    botFixture(0);gevrNetConfigSet(CFG_BOT_MODE,NET_BOT_FILL);
+    netLatchRoundSettings();s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;netResetCombatEpoch();
+    for(int i=0;i<4;i++) {s_lobby_state.slots[i].loaded=1;g_playerPointers[i]=&hit_players[i];memset(&hit_players[i],0,sizeof(hit_players[i]));}
+    CHECK(netSlotOwned(0) && netSlotOwned(2) && !netSlotOwned(5) && !netIsRemotePlayerActive(2));
+    s_remote_active[2]=true;CHECK(!netIsRemotePlayerActive(2) && !netRemoteTrigger(2,GUNRIGHT));
+    /* a bot's move carries its own slot and life */
+    static ENetHost owner_host;s_host=&owner_host;s_client_peers[1]=&hit_peers[1];
+    struct netplayermove m={0};m.tick=5;
+    sent_size=0;netSendOwnedMove(2,&m);CHECK(sent_size>8 && sent_data[6]==NET_MSG_PLAYER_STATE && sent_data[7]==2);
+    m.dead=1;netSendOwnedMove(2,&m);CHECK(s_local_death_us[2] && !s_local_death_us[0]);
+    m.dead=0;netSendOwnedMove(2,&m);
+    /* a bot's shot: its own ids and life, through the host's queue to the damage */
+    netSetHostEqualization(0,0);damage_count=0;
+    fixture_cur=2;netBeginLocalShot();CHECK(s_local_shot_active[2] && !s_local_shot_active[0]);
+    netSendHitReport(3,ITEM_AK47,0,1,2,3,0.2f);netEndLocalShot();
+    CHECK(damage_count==1 && damage_target[0]==3 && s_last_hit_id[2]==s_local_hit_id[2]);
+    /* a copy's hit is its owner's to send */
+    fixture_cur=5;netSendHitReport(3,ITEM_AK47,0,1,2,3,0.2f);CHECK(damage_count==1);
+    /* a bot's blast, reported for it while another player ticks */
+    fixture_cur=-1;netSendHitReportAs(2,1,ITEM_GRENADE,0,1,2,3,0.5f);CHECK(damage_count==2 && damage_target[1]==1);
+    /* a bot's respawn: a new life, sent as the bot's */
+    uint32_t life=s_hit_life[2];fixture_cur=2;sent_size=0;netSendRespawnEvent(1,0);fixture_cur=-1;
+    CHECK(s_hit_life[2]==netNextLife(life) && sent_data[6]==NET_MSG_RESPAWN && sent_data[7]==2);
+    /* a client owns its own slot only */
+    s_host=NULL;s_server_peer=&hit_peers[0];s_local_slot=1;
+    CHECK(!netIsHost() && netSlotOwned(1) && !netSlotOwned(2));
+    s_server_peer=NULL;s_local_slot=0;s_client_peers[1]=NULL;fixture_cur=-1;
+    memset(g_playerPointers,0,sizeof(g_playerPointers));
+    s_state=NET_STATE_HOSTING_LOBBY;VrMpBotMode=0;netSetHostEqualization(1,50);
     return 0;
 }

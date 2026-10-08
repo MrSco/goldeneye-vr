@@ -534,6 +534,12 @@ void bossMainloop(void)
         for (int slot = 0; slot < MAX_PLAYER_COUNT; slot++) s_net_slot_enabled[slot] = TRUE;
         s_net_session_started = netIsActive() && (g_StageNum != LEVELID_TITLE || netCoopSession());
         netCoopStageLoaded();   /* a load, which netStageLoaded's other calls are not */
+        {
+            extern void gevrBotStageLoaded(void);
+            extern void gevrSndPathStageLoaded(void);
+            gevrBotStageLoaded();   /* the bots' props, routes and players were the last stage's */
+            gevrSndPathStageLoaded();   /* how sound travels between this stage's rooms */
+        }
         netStageLoaded();
 #endif
         sysLogPrintf(LOG_NOTE, "stage: loading: lvlStageLoad done (stage pool %d bytes left)", mempGetBankSizeLeft(MEMPOOL_STAGE));
@@ -670,8 +676,18 @@ void bossMainloop(void)
 
 #ifdef GEVR
                                     netPlayerSyncBeforeTick(playernum);
-#endif
+                                    {
+                                        /* the host's bot: its AI fills the pad the tick reads (gevr_bot.c) */
+                                        extern s32 gevrBotTickBegin(s32 slot);
+                                        extern void gevrBotTickEnd(s32 slot, s32 began);
+                                        s32 bot = gevrBotTickBegin(playernum);
+
+                                        lvlViewMoveTick();
+                                        gevrBotTickEnd(playernum, bot);
+                                    }
+#else
                                     lvlViewMoveTick();
+#endif
 #ifdef GEVR
                                     netPlayerSyncAfterTick(playernum);
 #endif

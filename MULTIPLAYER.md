@@ -86,6 +86,28 @@ Issue #88 raises the slots from four to eight. Every slot is still a game player
 - **Stage look.** Past four players a stage loads its objects, fog, glass and debris budgets as for four (the setup files and fog tables stop at four). Each player past four adds a share to the vertex/matrix buffer that the view passes draw from.
 - **Not yet done** (from the issue's plan): batching the host's relayed player states into one packet per client, running the other players' view passes only when they fire, spawn protection, and binaural voice for only the nearest speakers. At eight players the host relays about 6 Mbit/s of player state at 90 Hz, and every headset runs up to fourteen view passes a frame; measure both on a Quest before deciding.
 
+## Bots (protocol 19)
+
+The host can fill a deathmatch with bots: **Bots** in the launcher's match options and on the pause window's **Rules** tab (lobby and warmup only). The choices are **Off**, **Fill empty slots** (every place no human holds, up to the player count) and **Fixed count** (1 to 7). A single **Bot difficulty** covers them all, with Perfect Dark's six steps: Meat, Easy, Normal, Hard, Perfect, Dark. A host can start alone with bots. Co-op has none.
+
+- **What a bot is.** A bot is a real player slot that the host runs the way GoldenEye runs a split-screen player. An AI fills in its controller (`src/game/gevr_bot.c`, 1.1 Honey's layout), and its view is set directly. The game moves it (walls, steps, doors), fires its gun and judges the shot in the bot's own view pass. The game hurts, kills, respawns and scores it. The host owns its slot as a player owns their own (`net_core.c netSlotOwned`): damage applies there, and its moves, hit reports, respawns, projectiles, explosions and pickups go out under its slot. The other headsets see an ordinary remote player. It counts on the scoreboard and can win.
+- **Brain.** Perfect Dark's simulants (`bot.c`, `botcmd.c`, `botinv.c`):
+  - Choosing a target: one line-of-sight check a tick, round the players. Sight is GoldenEye's own, as a guard sees Bond.
+  - Reaction time before the first shot.
+  - Aim error: wide while a target is fresh, settling as it stays in sight.
+  - Firing only within 45 degrees.
+  - Attack distances by the gun in hand.
+  - Weapon preferences from PD's rows for its copies of GoldenEye's guns.
+  - Pickups: a better gun, ammo when short, armour when hurt.
+  - Flag Tag and Golden Gun: the prize on the floor first; a foe holding it is the target; with the flag, run from the nearest foe.
+- **Routes.** Multiplayer setups have no path tables, so bots route over the stage's floor tiles (`gevr_botnav.c`: A* over the stan links, corners cut by the game's own straight-walk test). A bot that walks without moving presses B (a closed door), then sidesteps and plans again (log `bots: slot N stuck at ...`).
+- **Joins and departures.**
+  - In the lobby or warmup, a joiner takes a free slot or a bot's, and a leaver's place goes back to the bots (Fill).
+  - Mid-round, with every place taken, the lowest-scoring bot leaves and the joiner drops in on its side at once.
+  - Kicking a bot sticks: Fill becomes Fixed with one fewer.
+  - Host migration never elects a bot. The new host adopts the bots and plays on, even alone with them.
+  - The LAN beacon and the internet lobby count humans, so a game full of bots is still joinable.
+
 ## Voice chat
 
 Allow microphone access when hosting or joining to talk. Denying it leaves voice receive available. The lobby uses full-volume voice; in a match voices pan with direction and fade from 2 m to silence at 20 m. Spectators speak and hear only other spectators, without positional attenuation. In play, hold **Menu + physical right B** to toggle microphone mute (displays "MIC MUTED" / "MIC ON"). The mute choice is remembered. Leaving the game or opening the Quest system menu stops capture and transmission.
@@ -123,5 +145,15 @@ Allow microphone access when hosting or joining to talk. Denying it leaves voice
    - Spectators: a late joiner during live play spectates a living player; A/B buttons cycle between living players; spectator voice is heard only by other spectators.
    - Dual wielding: with dual wield enabled (doubles or any-two), both hands fire with independent aim and view passes, and gunfire sounds originate from the firing hand.
    - Loadouts: players spawn with their selected 4-gun kit, equipped with their primary weapon.
+
+10. Bots (protocol 19). Solo first, on one headset:
+   - Host with **Bots: Fill empty slots**, 4 players, Normal: the roster shows three bots ("Natalya (Bot)" and so on, state **Bot**, ping —). **Launch** with no one else.
+   - In the match the bots roam, fetch guns and ammo, open doors, fight you and each other, die, respawn after their fall, and score. Try Facility, Complex, Caverns and Temple. Log: `bots: floor graph, N tiles, M links` once per stage, and `bots: slot N stuck at ...` for any bot that gets stuck (report the place).
+   - Difficulty: Meat misses a lot and is slow to react; Dark reacts at once and rarely misses.
+   - Lower the player count to 2 in the lobby: two bots leave. Kick a bot: the mode becomes Fixed with one fewer.
+   - Team 2v2: the bots fill the sides you leave open; pick the other side and a bot moves over.
+   - Flag Tag: bots go for the flag, chase its holder, and run with it. Golden Gun: they go for the gun.
+
+   Then with two headsets: the client sees the bots move smoothly and fire. Shots and kills land both ways, and the scores agree. A client joining a full game mid-round replaces the lowest-scoring bot at once. A client joining the warmup takes a bot's slot, and the bot comes back when the client leaves. When the host quits, the client takes the match over with the bots (`... bot(s) adopted`).
 
 The mode still needs a two-headset playtest of steps 8 and 9. Also test two separate home networks, a phone hotspot, a four-player and an eight-player game with mixed LAN and internet joins, private code visibility, and reconnecting after a disconnect. Confirm that damage and respawn state agree on all headsets after several kills.

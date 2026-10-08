@@ -6915,6 +6915,13 @@ void currentPlayerSetYAutoAimEnabled(bool enabled)
  */
 bool currentPlayerGetYAutoAimEnabled(void)
 {
+#ifdef GEVR
+    /* a bot aims with Perfect Dark's aim error alone (gevr_bot.c), as a simulant does */
+    if (gevrNetSlotIsBot(get_cur_playernum()))
+    {
+        return FALSE;
+    }
+#endif
     if (getPlayerCount() == 1)
     {
         return g_CurrentPlayer->autoyaimenabled;
@@ -6979,6 +6986,12 @@ void currentPlayerSetXAutoAimEnabled(bool enabled)
  */
 bool currentPlayerGetXAutoAimEnabled(void)
 {
+#ifdef GEVR
+    if (gevrNetSlotIsBot(get_cur_playernum()))
+    {
+        return FALSE;
+    }
+#endif
     if (getPlayerCount() == 1)
     {
         return g_CurrentPlayer->autoxaimenabled;
@@ -11640,6 +11653,17 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 */
 void bondviewPlayerTickDamageAndHealth(void)
 {
+#ifdef GEVR
+    /*
+     * The top message and the match clock have one switch for the screen
+     * (g_UpperTextDisplayFlag, clock_drawn_flag), not one a player: online
+     * only the local player's damage flash hides them. A host's bots hit
+     * each other all match, and each hit blinked the local player's
+     * countdown and clock (user, 2026-10-07).
+     */
+    extern int netGetLocalSlot(void);
+    const bool screenHud = !netIsActive() || get_cur_playernum() == netGetLocalSlot();
+#endif
     // update damage showtime
     if (g_CurrentPlayer->damageshowtime >= 0)
     {
@@ -11649,8 +11673,13 @@ void bondviewPlayerTickDamageAndHealth(void)
             gunSetGunAmmoVisible(GUNAMMOREASON_DAMAGE, FALSE);
             gunSetSightVisible(GUNSIGHTREASON_DAMAGE, FALSE);
             hudmsgsSetOff(4);
-            bondviewSetUpperTextDisplayFlag(PLAYERFLAG_NOTIMER);
-            countdownTimerSetVisible(8, 0);
+#ifdef GEVR
+            if (screenHud)
+#endif
+            {
+                bondviewSetUpperTextDisplayFlag(PLAYERFLAG_NOTIMER);
+                countdownTimerSetVisible(8, 0);
+            }
 
             g_CurrentPlayer->damagetype = (s32)(currentPlayerGetHealth() * 8.0f);
 
@@ -11751,8 +11780,13 @@ void bondviewPlayerTickDamageAndHealth(void)
                 gunSetGunAmmoVisible(GUNAMMOREASON_DAMAGE, TRUE);
                 gunSetSightVisible(GUNSIGHTREASON_DAMAGE, TRUE);
                 hudmsgsSetOn(4);
-                bondviewClearUpperTextDisplayFlag(PLAYERFLAG_NOTIMER);
-                countdownTimerSetVisible(8, 1);
+#ifdef GEVR
+                if (screenHud)
+#endif
+                {
+                    bondviewClearUpperTextDisplayFlag(PLAYERFLAG_NOTIMER);
+                    countdownTimerSetVisible(8, 1);
+                }
             }
         }
     }
@@ -15059,7 +15093,7 @@ static void mp_respawn_handler_internal(s32 forced_pad, f32 forced_theta)
 #ifdef GEVR
     if (forced_pad < 0)
     {
-        if (netIsActive() && get_cur_playernum() == netGetLocalSlot())
+        if (netIsActive() && gevrNetOwnsSlot(get_cur_playernum()))
         {
             netSendRespawnEvent((u8)var_v1, g_CurrentPlayer->vv_theta);
         }
@@ -18322,6 +18356,27 @@ static s32 gevrOnlineRespawnReady(struct player *pl)
 }
 #endif
 
+/* The host's bot (gevr_bot.c), as the current player: once its fall has
+ * played it respawns, as an owner does with A below (YOLT's lives too) */
+void gevrBotRespawn(void)
+{
+    s32 deaths = 0;
+    s32 j;
+
+    if (!gevrOnlineRespawnReady(g_CurrentPlayer) || g_stopPlayFlag || g_gameOverFlag)
+    {
+        return;
+    }
+    for (j = 0; j < getPlayerCount(); j++)
+    {
+        deaths += g_playerPlayerData[j].kill_counts[get_cur_playernum()];
+    }
+    if (get_scenario() != SCENARIO_YOLT || deaths < 2)
+    {
+        mp_respawn_handler();
+    }
+}
+
 Gfx *maybe_mp_interface(Gfx *gdl)
 {
     s32 ulx;
@@ -18447,7 +18502,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     }
 
 #ifdef GEVR
-    if (netIsActive() && get_cur_playernum() == netGetLocalSlot() &&
+    if (netIsActive() && gevrNetOwnsSlot(get_cur_playernum()) &&
         gevrOnlineRespawnReady(g_CurrentPlayer) && !g_CurrentPlayer->mpmenuon && !g_stopPlayFlag && !g_gameOverFlag &&
         !netPlayerIsSpectator(get_cur_playernum()) &&
         joyGetButtonsPressedThisFrame(get_cur_playernum(), A_BUTTON | B_BUTTON | Z_TRIG)) {
@@ -18492,6 +18547,30 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                 }
                 else
                 {
+#ifdef GEVR
+                    /*
+                     * The cartridge stepped the drip once a drawn frame, about
+                     * 20 a second in multiplayer. At 72-90 Hz it ran out in
+                     * 0.7 s, and its end brings the level music back (lv.c,
+                     * MISSION_STATE_6), so the death sting was cut off at
+                     * once (playtest log 2026-10-07: state 1 -> 6, 0.7 s,
+                     * 6 -> 1). Step it every 3 ticks, the N64's pace; between
+                     * steps it shows the same frame (2), as on a frame with
+                     * no tick.
+                     */
+                    static s32 s_gevrBloodTicks;
+
+                    s_gevrBloodTicks += g_ClockTimer;
+                    if (s_gevrBloodTicks >= 3)
+                    {
+                        s_gevrBloodTicks -= 3;
+                        doblood = 1;
+                    }
+                    else
+                    {
+                        doblood = 2;
+                    }
+#else
                     if (g_ClockTimer > 0)
                     {
                         doblood = 1;
@@ -18500,6 +18579,7 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                     {
                         doblood = 2;
                     }
+#endif
                     if (die_blood_image_routine(doblood))
                     {
                         g_CurrentPlayer->redbloodfinished = TRUE;
@@ -18539,11 +18619,11 @@ Gfx *maybe_mp_interface(Gfx *gdl)
                         {
                             if (
 #ifdef GEVR
-                                (netIsActive() && get_cur_playernum() == netGetLocalSlot()) ||
+                                (netIsActive() && gevrNetOwnsSlot(get_cur_playernum())) ||
 #endif
                                 joyGetButtons(get_cur_playernum(), 0xB000)
 #ifdef GEVR
-                                && (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
+                                && (!netIsActive() || gevrNetOwnsSlot(get_cur_playernum()))
 #endif
                             )
                             {
@@ -19616,6 +19696,10 @@ void hudmsgTopShow(char* mess)
  * every second overflowed it and numbers went missing (user, 2026-09-30).
  * A queued message that starts with prefix is rewritten in place and kept
  * up; otherwise the message is queued as usual.
+ * Kept up for two seconds, not the window's one (TIMER_A, a tick over a
+ * second): a frame running long let a once-a-second update come after the
+ * message had already dropped, and the warmup countdown blinked out and
+ * back (user, 2026-10-07, a host running bots).
  */
 void gevrHudTopReplace(const char *mess, const char *prefix)
 {
@@ -19630,9 +19714,9 @@ void gevrHudTopReplace(const char *mess, const char *prefix)
         {
             strncpy(stringbuffer_top[index], mess, BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH - 1);
             stringbuffer_top[index][BONDVIEW_HUD_MSG_TOP_BUFFER_LENGTH - 1] = 0;
-            if (k == 0 && upper_text_window_timer < BONDVIEW_UPPER_TEXT_TIMER_A)
+            if (k == 0 && upper_text_window_timer < BONDVIEW_UPPER_TEXT_TIMER_A * 2)
             {
-                upper_text_window_timer = BONDVIEW_UPPER_TEXT_TIMER_A;
+                upper_text_window_timer = BONDVIEW_UPPER_TEXT_TIMER_A * 2;
             }
             return;
         }
