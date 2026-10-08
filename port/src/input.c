@@ -102,6 +102,14 @@ extern float *gevrGexWellFit(s32 item);
 extern void gevrReloadFitSetWell(void);
 extern int VrGexGuns;                     /* vr_settings_defaults.c: GoldenEye X's models */
 extern s32 gevrGexMineDetonates(void);    /* gun.c: GE-X's remote mines, detonated from the watch */
+#include "gevr_bodyslot.h"
+extern float VrBodySlotFit[GEVR_BODY_SLOTS][3];   /* vr_settings_defaults.c */
+/* src/game/gevr_bodyslots.c: Gun fit's Slots mode */
+extern int gevrBodySlotFitting;
+extern s32 gevrBodySlotFitAvailable(void);
+extern void gevrBodySlotFitPick(int dir);
+extern void gevrBodySlotFitSet(int ctrl);
+extern void gevrBodySlotFitReset(void);
 extern void gevrGexDetonateRequest(void);
 
 /* Gun fit's values as last saved, which B goes back to: both models' sets */
@@ -114,6 +122,7 @@ static struct {
     float pp7SupportRot[3];
     float kf7Well[3], pp7Well[3];
     float weaponFits[64][10][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
+    float bodySlots[GEVR_BODY_SLOTS][3];
 } s_gunFitSaved;
 _Static_assert(sizeof(s_gunFitSaved.weaponFits) == sizeof(VrGexWeaponFits), "fit snapshot matches the fits");
 
@@ -143,6 +152,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(VrGexPp7SupportRot, s_gunFitSaved.pp7SupportRot, sizeof(VrGexPp7SupportRot));
         memcpy(VrGexKf7WellOff, s_gunFitSaved.kf7Well, sizeof(VrGexKf7WellOff));
         memcpy(VrGexPp7WellOff, s_gunFitSaved.pp7Well, sizeof(VrGexPp7WellOff));
+        memcpy(VrBodySlotFit, s_gunFitSaved.bodySlots, sizeof(VrBodySlotFit));
     } else {
         memcpy(s_gunFitSaved.weaponFits, VrGexWeaponFits, sizeof(VrGexWeaponFits));
         s_gunFitSaved.gun[0] = VrGunOffX;
@@ -167,6 +177,7 @@ static void gevrGunFitSaved(bool restore)
         memcpy(s_gunFitSaved.pp7SupportRot, VrGexPp7SupportRot, sizeof(VrGexPp7SupportRot));
         memcpy(s_gunFitSaved.kf7Well, VrGexKf7WellOff, sizeof(VrGexKf7WellOff));
         memcpy(s_gunFitSaved.pp7Well, VrGexPp7WellOff, sizeof(VrGexPp7WellOff));
+        memcpy(s_gunFitSaved.bodySlots, VrBodySlotFit, sizeof(VrBodySlotFit));
     }
 }
 extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
@@ -1249,6 +1260,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (!gex || !gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT))) gevrInstalledMagFitting = 0;
             if (!fitting || !gevrMuzzleFitAvailable()) gevrMuzzleFitting = 0;
             if (!gex) gevrGunHandFitting = 0;
+            if (!fitting || !gevrBodySlotFitAvailable()) gevrBodySlotFitting = 0;
             if (fitting && !fitWas) {
                 gevrGunFitSaved(false);
                 gevrGadgetFitBegin();
@@ -1267,18 +1279,18 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 float rx = fabsf(right.x) < dz ? 0.0f : right.x;
                 const s32 gadget = gevrGadgetFitItem();
                 /* X: gun, scope, reload places, off hand, held magazine, well, installed magazine, barrel tip,
-                 * GE-X's gun hand (bondview2.c gevrFitNextLine says which is next) */
+                 * GE-X's gun hand, the body slots (bondview2.c gevrFitNextLine says which is next) */
                 const bool x = get_button_state(0, "x");
                 if (x && !xHeld && gadget < 0) {
-                    static const char *const names[9] = { "gun", "scope", "reload", "off hand", "held magazine", "magazine well", "installed magazine", "barrel tip", "gun hand" };
-                    const bool can[9] = { true, scope >= 0, gevrReloadFitAvailable() != 0, gex != 0,
+                    static const char *const names[10] = { "gun", "scope", "reload", "off hand", "held magazine", "magazine well", "installed magazine", "barrel tip", "gun hand", "body slots" };
+                    const bool can[10] = { true, scope >= 0, gevrReloadFitAvailable() != 0, gex != 0,
                         gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasAmmo(gevrGexWeaponForHand(GUNRIGHT)), gevrGexHasMagazine(gevrGexWeaponForHand(GUNRIGHT)), gevrMuzzleFitAvailable() != 0,
-                        gex != 0 };
+                        gex != 0, gevrBodySlotFitAvailable() != 0 };
                     int mode = gevrScopeFitting ? 1 : gevrReloadFitting ? 2 : gevrOffHandFitting ? 3
                         : gevrHeldMagFitting ? 4 : gevrWellFitting ? 5 : gevrInstalledMagFitting ? 6 : gevrMuzzleFitting ? 7
-                        : gevrGunHandFitting ? 8 : 0;
+                        : gevrGunHandFitting ? 8 : gevrBodySlotFitting ? 9 : 0;
                     do {
-                        mode = (mode + 1) % 9;
+                        mode = (mode + 1) % 10;
                     } while (!can[mode]);
                     gevrScopeFitting = mode == 1;
                     gevrReloadFitting = mode == 2;
@@ -1288,6 +1300,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     gevrInstalledMagFitting = mode == 6;
                     gevrMuzzleFitting = mode == 7;
                     gevrGunHandFitting = mode == 8;
+                    gevrBodySlotFitting = mode == 9;
                     LOGI("input: gun fit on the %s\n", names[mode]);
                 }
                 xHeld = x;
@@ -1297,6 +1310,24 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 if (gevrReloadFitting && lt && !ltHeld) gevrReloadFitSetGrab();
                 if (gevrReloadFitting && yb && !yHeld) gevrReloadFitSetBelt();
                 if (gevrWellFitting && lt && !ltHeld) gevrReloadFitSetWell();
+                /* the body slots (gevr_bodyslots.c): the move stick's sideways flick
+                 * picks a slot, a fresh grip puts it where that hand is, Y back to
+                 * its default for your height; shown, not steered */
+                {
+                    static bool slotFlick, slotGrip[2];
+                    for (int c = 0; c < 2; c++) {
+                        const bool g = get_button_state(c, "grip");
+                        if (gevrBodySlotFitting && g && !slotGrip[c]) gevrBodySlotFitSet(c);
+                        slotGrip[c] = g;
+                    }
+                    if (gevrBodySlotFitting && fabsf(left.x) >= 0.65f && !slotFlick) {
+                        gevrBodySlotFitPick(left.x > 0.0f ? 1 : -1);
+                        slotFlick = true;
+                    } else if (fabsf(left.x) <= 0.3f) {
+                        slotFlick = false;
+                    }
+                    if (gevrBodySlotFitting && yb && !yHeld) gevrBodySlotFitReset();
+                }
                 ltHeld = lt;
                 yHeld = yb;
                 if (gadget >= 0) {
@@ -1310,8 +1341,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     } else {
                         gevrGadgetFitNudge(gadget, mx * rate * dt * side, ry * rate * dt, my * rate * dt, 0, 0, 0, rx * 0.5f * dt);
                     }
-                } else if (gevrReloadFitting) {
-                    /* the places are shown with the off hand (above): the sticks rest */
+                } else if (gevrReloadFitting || gevrBodySlotFitting) {
+                    /* the places are shown with the hands (above): the sticks rest */
                 } else if (gevrGunHandFitting) {
                     /* GE-X's own gun hand on the gun (user: the grenade launcher's hand
                      * missed its grip): the sticks move it, as the gun on its hand;

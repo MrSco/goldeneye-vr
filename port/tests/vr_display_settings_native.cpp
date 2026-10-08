@@ -111,8 +111,10 @@ int main(int argc, char **argv) {
         VrMuzzleTrim[1][8][2] = 4.25f;
         VrGexWeaponFits[6][3][2] = 47.25f;
         VrGexWeaponFits[12][6][0] = -3.25f;
+        VrBodySlotFit[GEVR_BS_BELT][1] = 6.5f;
         newFamilyFits(-5,false);
         gevrGunFitSaved(false);
+        VrBodySlotFit[GEVR_BS_BELT][1] = 99;   /* B puts the body slots' fits back too */
         newFamilyFits(99,false);
         VrGexPp7MagOff[0] = 99;
         VrGexKf7MagOff[0] = 99;
@@ -129,6 +131,7 @@ int main(int argc, char **argv) {
         assert(VrGexPp7MagOff[0] == 1.25f && VrGexKf7MagOff[0] == -0.5f && VrGexHeldMag[1] == 2.25f);
         assert(VrGexPp7SupportRot[2] == 90);
         assert(VrGexKf7WellOff[0] == -0.75f && VrGexPp7WellOff[1] == -2.25f);
+        assert(VrBodySlotFit[GEVR_BS_BELT][1] == 6.5f);
         vrSettingsSave();
         return 0;
     }
