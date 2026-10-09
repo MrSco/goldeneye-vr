@@ -9,7 +9,7 @@ struct player_data g_playerPlayerData[MAX_PLAYER_COUNT];
 s32 g_gameOverFlag, D_80048394;
 struct player *g_playerPointers[MAX_PLAYER_COUNT];
 s32 startpadcount=8;
-static unsigned char sent_data[1024];   /* an eight-player match snapshot is 715 bytes */
+static unsigned char sent_data[1024];   /* an eight-player match snapshot is 727 bytes */
 static size_t sent_size;
 static int fixture_cur=-1;   /* the player ticking, when not the local one (a bot) */
 s32 get_cur_playernum(void) { return fixture_cur>=0 ? fixture_cur : s_local_slot; }
@@ -20,6 +20,7 @@ void mp_respawn_handler_net(s32 pad,float theta) { (void)pad;(void)theta;respawn
 int bondinvHasInvItem(ITEM_IDS item) { (void)item; return 0; }
 int VrMpStage,VrMpWeaponSet,VrMpChr,VrMpScenario,VrMpLength,VrMpHealth;
 int VrMpDual,VrMpLoadouts,VrMpNextRound,VrMpCustom[4],VrMpLoadout[4],VrMpVoiceMode,VrMpFriendlyFire,VrMpFunFlags,VrMpGunSize,VrMpMaxPlayers;
+int VrMpMovementSpeed;
 int VrMpBotMode,VrMpBotCount=3,VrMpBotDifficulty=2;
 int VrHostEqualization=1,VrHostLatencyCapMs=50;
 int VrCoopFastReinforcements;
@@ -79,6 +80,7 @@ static void fixture(int scenario) {
     s_round_reset_loading=false;s_waiting_for_match_snapshot=false;
     s_round_reset_pending=s_start_after_load=s_stage_ready_sent=false;s_results_deadline_us=0;
     clock_us=10000000;
+    netClearVotes(-1); /* match the real session start: no ballots cast yet */
     memset(g_playerPointers,0,sizeof(g_playerPointers));memset(s_client_peers,0,sizeof(s_client_peers));
     for(int i=0;i<4;i++) {s_lobby_state.slots[i].connected=1;s_lobby_state.slots[i].ready=1;s_lobby_state.slots[i].loaded=1;}
 }
@@ -202,6 +204,36 @@ EXPORT int test_core_late_join_snapshot(void) {
         if(i==2 && (!eliminated || ping!=83 || order!=1)) return 5;
     }
     return b.error ? 6 : 0;
+}
+
+EXPORT int test_core_movement_speed(void) {
+    for (int coop=0;coop<2;coop++) {
+        fixture(0);s_max_players=4;
+        if(coop) {s_lobby_state.config.mode=NET_MODE_COOP;s_lobby_state.config.stage=NET_COOP_FRONT_STAGE;}
+        netLatchRoundSettings();
+        s_phase=NET_PHASE_WARMUP;s_countdown_end_us=clock_us+5000000;
+        gevrNetConfigSet(CFG_MOVEMENT_SPEED,NET_MOVE_50);
+        CHECK(netActiveMovementSpeed()==NET_MOVE_50 && VrMpMovementSpeed==NET_MOVE_50);
+        CHECK(s_phase==NET_PHASE_WARMUP && s_countdown_end_us==clock_us+5000000);
+        for(int i=0;i<4;i++) CHECK(s_lobby_state.slots[i].ready);
+        s_state=NET_STATE_INGAME;s_phase=NET_PHASE_IN_PROGRESS;
+        gevrNetConfigSet(CFG_MOVEMENT_SPEED,NET_MOVE_200);
+        CHECK(netActiveMovementSpeed()==NET_MOVE_200 && gevrNetConfigGet(CFG_MOVEMENT_SPEED)==NET_MOVE_200);
+        CHECK(s_phase==NET_PHASE_IN_PROGRESS);
+        gevrNetConfigSet(CFG_MOVEMENT_SPEED,NET_MOVE_COUNT);
+        CHECK(netActiveMovementSpeed()==NET_MOVE_200);
+        s_local_slot=2;gevrNetConfigSet(CFG_MOVEMENT_SPEED,NET_MOVE_50);
+        CHECK(netActiveMovementSpeed()==NET_MOVE_200 && VrMpMovementSpeed==NET_MOVE_200);
+        s_local_slot=0;netSendMatchSnapshot(NULL);
+        struct netbuf b;NetRoundSettings active;NetMatchConfig pending;
+        netbufStartReadData(&b,sent_data,sent_size);
+        netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);
+        CHECK(netReadRoundSettings(&b,&active));netbufReadMatchConfig(&b,&pending);
+        CHECK(!b.error && active.config.movement_speed==NET_MOVE_200 && pending.movement_speed==NET_MOVE_200);
+        s_local_slot=1;ENetPeer peer={0};netHostLost(&peer);
+        CHECK(s_host_slot==1 && netActiveMovementSpeed()==NET_MOVE_200 && s_lobby_state.config.movement_speed==NET_MOVE_200);
+    }
+    return 0;
 }
 
 EXPORT int test_core_fun(void) {
@@ -812,11 +844,11 @@ EXPORT int test_core_eight_slots(void) {
     g_playerPlayerData[7].kill_counts[0]=2;g_playerPlayerData[4].kill_counts[5]=1;
     CHECK(netTeamScore(NET_TEAM_BLUE)==1 && netTeamScore(NET_TEAM_RED)==0);
 
-    /* the late-join snapshot: 77 + 49N + 4N^2 bytes (two match configs with co-op's mode and difficulty and the bots), past the old 512 */
+    /* the late-join snapshot: 79 + 49N + 4N^2 bytes (two match configs with co-op's mode and difficulty and the bots), past the old 512 */
     s_lobby_state.slots[7].eliminated=1;s_lobby_state.slots[7].ping_ms=77;g_playerPlayerData[7].order_out_in_yolt=GEVR_MAX_PLAYERS;
     g_playerPlayerData[6].kill_counts[7]=5;g_playerPlayerData[7].gevr_score_bank=9;
     sent_size=0;netSendMatchSnapshot(NULL);
-    CHECK(sent_size==77+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
+    CHECK(sent_size==79+49*GEVR_MAX_PLAYERS+4*GEVR_MAX_PLAYERS*GEVR_MAX_PLAYERS && sent_size>512);
     struct netbuf b;NetRoundSettings r;NetMatchConfig pending;
     netbufStartReadData(&b,sent_data,sent_size);
     netbufReadU32(&b);netbufReadU16(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU8(&b);netbufReadU32(&b);
