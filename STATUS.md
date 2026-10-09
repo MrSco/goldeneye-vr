@@ -12,6 +12,9 @@ GitHub release. No game data is shipped.
 **v0.4.14:** bots handle doors, soft player collision, the hit immunity rule
 (Short default), object escape, HUD through hits (#153). Notes:
 [v0.4.14](docs/releases/v0.4.14.md).
+**After v0.4.14:** co-op briefing hang and the Caverns music-stop wait
+(reports 7b162d90, 919e73ee, c3ad6b13). Notes:
+[unreleased](docs/releases/unreleased.md).
 **v0.4.13:** crash fixes (#151): stale portal table at the title, full sound
 queue. Notes: [v0.4.13](docs/releases/v0.4.13.md).
 **v0.4.12:** the GE-X detonator watch's default fit. Notes: [v0.4.12](docs/releases/v0.4.12.md).
