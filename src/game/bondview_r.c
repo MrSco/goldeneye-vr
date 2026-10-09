@@ -66,6 +66,8 @@ void gevrStageGunsReset(void)
         extern void gevrBodySlotsReset(void);   /* gevr_bodyslots.c: a new stage's slots start empty */
 
         gevrBodySlotsReset();
+        extern void gevrReloadInventoryReset(void);
+        gevrReloadInventoryReset();
     }
 }
 

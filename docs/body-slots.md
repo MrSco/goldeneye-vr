@@ -49,7 +49,8 @@ greyed out while body slots are on.
   starts it again.
 - **On the body.** Only the hips show what they hold, when you look down;
   the chest, belt and shoulders show just the label when a hand is there.
-  No rings in play (Gun fit's Slots mode rings every slot). Looking ahead,
+  After the 150 ms dwell, the occupied slot gets a ring and a hovered hip
+  gun gets its category highlight. Gun fit's Slots mode rings every slot. Looking ahead,
   nothing is drawn. GoldenEye X players see GoldenEye's models on the hips
   for now.
 
@@ -67,11 +68,32 @@ neck, so looking down doesn't move these.
 Small and Large scale the reach by 0.8 and 1.25.
 
 **Hand reload (GoldenEye X) with body slots on.** The fitted belt sits where
-the hip holster does. A touch there still reloads, 100 ms later. A squeeze
-in that time (holstering) drops the reload until the hand has left the belt.
+the hip holster does. A touch there still reloads, 100 ms later. While a
+magazine is missing, its pickup sphere wins over the hip and belt slots;
+the off hand takes a magazine and the gun hand can load at the belt.
+Otherwise a squeeze in that time (holstering) cancels the belt touch until the hand has left it.
 The chest cross doesn't fire while the hand is in a slot. While the GE-X gun
 waits for a magazine, the off hand's grip at its belt takes a magazine, as
 it did with the old hip holster.
+
+With hand reload on, switching or holstering keeps each hand's weapon's
+loaded rounds and missing-magazine state. Stored rounds stay with that gun,
+so another gun sharing the ammo type cannot spend them. Turning hand reload
+off returns those stored rounds to reserve; a new stage clears the saved state.
+Closing the watch also keeps the current magazine's rounds.
+
+B/Y eject only and no longer activate doors or switches. Grip use is forced
+on while GoldenEye X hand reload is active; the launcher and watch show it
+as required. The saved grip-use preference returns when hand reload is off.
+
+A missing removable magazine gets a cyan translucent copy at its fitted
+installed position. The insertion target gets a green ring when the held
+magazine is within 1.5 times the seating radius, and briefly after seating.
+The actual seating radius and ammunition transfer are unchanged. While a
+magazine is missing, the corresponding hip guns give way to matching GE-X
+magazines at the fitted reload-belt points. A green ring marks a hand inside
+the pickup sphere; this uses the same calibration as the gesture. These ammo
+guides also work with body slots off.
 
 ## Headset rounds and what's next
 
@@ -125,6 +147,34 @@ the next iteration:
 Other things still to check: the throw-versus-swap gate (120 ms / 1 m/s)
 is a guess; GE-X players see GoldenEye's models on the hips; seated reach
 for the shoulders; two-headset Doubles/CTF.
+
+**Next iteration (2026-10-09, awaiting headset testing).** Occupied-slot
+rings and hip highlights are restored. Missing-magazine pickup now wins for
+both controllers, including dual wielding. Ammo persistence, exclusive
+B/Y eject, required grip use, ghost magazines and reload rings are added.
+The full-magazine belt/holster arbitration and the head-frame belt versus
+torso-frame hip placement remain as before; the ammo model and pickup ring
+now show where the fitted belt actually is.
+
+Reload checks for the next headset round:
+
+1. Fire part of a PP7 and KF7 magazine, switch away and back using the wheel,
+   A/X and a body slot. Check the round count stays the same; repeat empty.
+2. Eject with B/Y, switch away and back. Check the magazine remains missing,
+   the gun stays empty, and the cyan ghost stays in its installed position.
+3. Stand at a door or switch and press B/Y: it should eject only. Squeeze
+   grip with the hand in use range: it should activate, including when the
+   saved Grip use option was off before enabling hand reload.
+4. Look at the hips after ejecting. Check matching magazines replace the
+   hip guns, at the points set in Gun fit's reload mode. Reach into that
+   sphere: a green ring should appear and a squeeze must not draw a pistol.
+5. Bring the held magazine toward the well. Check the green ring appears
+   before seating, the ghost disappears when seated, and the ring follows
+   the gun briefly afterward. Remove/reinsert a partially loaded magazine:
+   its round count must remain the same.
+6. Repeat left-handed, with two pistols, and with a custom belt fit. Toggle
+   hand reload off and confirm B/Y activation and the saved Grip use choice
+   return. Check extra guides do not cause a noticeable frame-rate drop.
 
 ## Test sheet (one headset session)
 

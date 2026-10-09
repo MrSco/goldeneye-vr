@@ -2780,8 +2780,16 @@ extern "C" void gevrLauncherRun(void)
                                : "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.\n"
                                  "A fresh grip press takes priority over the belt reload gesture.");
             ImGui::EndDisabled();
-            toggle("Grip use", &VrGestureGripUse,
-                   "The hand at a door, switch or console: use it, as B does.");
+            int effectiveGripUse = (VrManualReloading && VrGexGuns) ? 1 : VrGestureGripUse;
+            ImGui::BeginDisabled(VrManualReloading && VrGexGuns);
+            toggle("Grip use", &effectiveGripUse,
+                   "The hand at a door, switch or console: squeeze to use.\n"
+                   "Required with hand reload: B/Y only eject magazines.");
+            ImGui::EndDisabled();
+            if (!(VrManualReloading && VrGexGuns) && VrGestureGripUse != effectiveGripUse) {
+                VrGestureGripUse = effectiveGripUse;
+                vrSettingsSave();
+            }
             toggle("Grip to hand (WIP)", &VrGesturePickup,
                    "The hand at a gun on the floor: that gun goes into that hand\n"
                    "(picked up if the game would, else the one you carry).\n"
@@ -2821,9 +2829,11 @@ extern "C" void gevrLauncherRun(void)
             toggle(VrGexGuns ? "Hand reload (WIP)" : "Hand reload (needs GoldenEye X)", &VrManualReloading,
                    "Needs GoldenEye X's models (Mods). Bring the gun into your fitted belt zone to reload.\n"
                    "Move 5 cm beyond the zone before another belt reload.\n"
-                   "A fresh grip at the hip holsters instead if Hip holster is on.\n"
+                   "When a magazine is missing, a grip at its belt point takes ammo before a holster.\n"
                    "Magazine pulls and pistol/shotgun/dual-gun chest crosses also work.\n"
-                   "Auto-reload is off; GE-X magazine buttons still eject the magazine.");
+                   "Auto-reload is off; switching weapons keeps their loaded rounds.\n"
+                   "B/Y eject magazines only; grip use is required for doors and switches.\n"
+                   "A ghost magazine marks the missing magazine; green rings mark pickup and insertion.");
             ImGui::EndDisabled();
             toggle("Per-gun recoil", &VrPerWeaponRecoil,
                    "Each gun kicks with its own recoil (Perfect Dark VR's table)\ninstead of one kick for all.");

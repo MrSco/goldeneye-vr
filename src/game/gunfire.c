@@ -4,6 +4,7 @@
 #include "gevr_scope.h"   /* the per-hand VR scope (issue #40) */
 #include "gevr_model.h"
 #include "gevr_gexweapon.h"
+#include "gevr_hand_reload.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -3002,6 +3003,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                 extern Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand);
 
                 renderdata.gdl = gevrGexDrawPayload(renderdata.gdl, &renderdata, handnum);
+                extern Gfx *gevrGexDrawReloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand);
+                renderdata.gdl = gevrGexDrawReloadGuide(renderdata.gdl, &renderdata, handnum);
             }
         }
 #endif
@@ -5148,6 +5151,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
         if (handptr->field_890 >= sp188)
         {
+#ifdef GEVR
+            extern s32 gevrReloadStow(s32 hand, s32 item);
+            if (!gevrReloadStow(hand, var_s1))
+#endif
             g_CurrentPlayer->ammoheldarr[get_ammo_type_for_weapon(var_s1)] += handptr->weapon_ammo_in_magazine;
             handptr->weapon_ammo_in_magazine = 0;
 
@@ -5256,6 +5263,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 sub_GAME_7F09B398(hand);
             }
 
+#ifdef GEVR
+            extern s32 gevrReloadDraw(s32 hand);
+            if (!gevrReloadDraw(hand))
+#endif
             sub_GAME_7F0649D8(hand);
 
             g_CurrentPlayer->trigger_released = 0;
@@ -5584,6 +5595,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 sub_GAME_7F09B398(hand);
             }
+#ifdef GEVR
+            /* Closing the watch must not top up a hand-reloaded gun. */
+            if (!gevrManualReloadOn(hand))
+#endif
             sub_GAME_7F0649D8(hand);
             g_CurrentPlayer->trigger_released = 0;
         }
@@ -7780,6 +7795,10 @@ s32 check_cur_player_ammo_amount_in_inventory(AMMOTYPE ammotype) {
 s32 currentPlayerGetAmmoCount(AMMOTYPE ammotype) {
 
     s32 total_ammo = check_cur_player_ammo_amount_in_inventory(ammotype);
+#ifdef GEVR
+    extern s32 gevrReloadReservedRounds(s32 ammoType);
+    total_ammo += gevrReloadReservedRounds(ammotype);
+#endif
 
     if (get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNRIGHT)) == ammotype) {
         total_ammo += get_ammo_in_hands_magazine(GUNRIGHT);
