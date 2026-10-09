@@ -28,6 +28,8 @@ static int s_gevrMuzzleValid[2];
 static float s_gevrMuzzle[2][3];
 static int VrGexGuns, tracked[2] = {1, 1}, grip[2];
 static float pose[2][3]; /* physical controller positions, metres */
+static float VrGexHeldMag[3], gexFore[3];
+static int gexForeValid;
 static int online, localSlot, playerSlot, reloadClaims, haveSniper;
 static unsigned frame;
 static int buzzes, buzzCtrl = -1;
@@ -44,8 +46,9 @@ static int netGetLocalSlot(void) { return localSlot; }
 static int gevrGexHeld(int hand) { (void)hand; return 0; }
 static int gevrGexPistolSupportAllowed(void) { return 1; }
 static int gevrGexPistolPoint(int support, float out[3]) { (void)support; (void)out; return 0; }
-static int gevrGexForePoint(float out[3]) { (void)out; return 0; }
-static int gevrGexHeldPalm(float out[3]) { (void)out; return 0; }
+static int gevrGexForePoint(float out[3]) { memcpy(out,gexFore,sizeof(gexFore)); return gexForeValid; }
+static int gevrReloadSupportGun(void)
+{ return player.hands[GUNRIGHT].weaponnum <= ITEM_FIST ? GUNLEFT : GUNRIGHT; }
 static int gevrReloadClaimsOffHand(void) { return reloadClaims; }
 static int gevrAimLogEnabled(void) { return 0; }
 static unsigned gevrVrGripSnapshotId(void) { return frame; }
@@ -210,6 +213,19 @@ int main(void)
     {
         testSlot(gun, lh, ITEM_ROCKETLAUNCH);
         testSlot(gun, lh, ITEM_AK47);
+        /* Use the production GE-X palm getter, with gun and support separated
+         * far enough that reading the weapon controller rejects acquisition. */
+        setup(gun,lh,ITEM_AK47);
+        pose[gevrPhysHand(gun)][2] = -0.35f;
+        gexFore[0] = 0.06f*GEVR_UNITS_PER_METRE;
+        gexFore[1] = 0;
+        gexFore[2] = -0.35f*GEVR_UNITS_PER_METRE;
+        VrGexGuns = gexForeValid = 1;
+        hold(gun);
+        float opos[3],snap[3],distance;
+        assert(gevrTwoHandBarrel(opos,snap,&distance,0)); near(distance,0);
+        assert(gevrStereoTwoHandSupportCtrl()==gun);
+        release(); VrGexGuns = gexForeValid = 0;
         /* A supporting hand has no sight quad, including the scope path;
          * the weapon hand still gets the normal sight. */
         setup(gun, lh, ITEM_AK47); hold(gun);

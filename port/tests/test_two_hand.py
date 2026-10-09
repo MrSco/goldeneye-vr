@@ -43,6 +43,7 @@ production.extend(function(math, signature) for signature in (
     'void matrix_4x4_set_rotation_around_xyz(', 'void matrix_4x4_set_identity('))
 production.extend(function(view, signature) for signature in (
     'static s32 gevrGripAxesRaw(', 'static s32 gevrGripAxes(',
+    's32 gevrGexHeldPalm(f32 out[3])\n{',
     's32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)',
     's32 gevrStereoTwoHandItem(', 'static s32 gevrTwoHandGunCandidate(',
     's32 gevrStereoTwoHandGun(void)', 's32 gevrStereoTwoHandSupportCtrl(void)',
