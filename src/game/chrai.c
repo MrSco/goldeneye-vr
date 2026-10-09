@@ -2184,7 +2184,11 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                 {
                     AiIFBondCollectedObjectRecord *ai  = AiListp + Offset;
                     ObjectRecord                  *obj = objFindByTagId(ai->OBJECT_TAG);
-                    if (obj && obj->prop && bondinvHasPropInInv(obj->prop))
+                    if (
+#ifdef GEVR
+                        gevrCoopTeammateHolds(ai->OBJECT_TAG) ||
+#endif
+                        (obj && obj->prop && bondinvHasPropInInv(obj->prop)))
                     {
                         Offset = chraiGoToLabel(AiListp, Offset, ai->GOTOLABEL);
                     }
