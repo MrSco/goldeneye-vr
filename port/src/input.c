@@ -257,8 +257,7 @@ extern int VrPerWeaponRecoil;   /* launcher "Per-gun recoil" */
 extern void gevrGripGestureInput(int ctrl, int pressed, int held);
 /* src/game/gevr_bodyslots.c: a hand in a body slot steps through it */
 extern int gevrBodySlotButton(int ctrl);
-extern int gevrBodySlotStick(int ctrl, float x, float y, float dtMs);
-extern int gevrBodySlotSticks(int swap, float sticks[2][2], float dtMs);
+extern int gevrBodySlotSticks(int swap, float sticks[2][2]);
 extern int gevrGripGestureTaken(int ctrl);
 extern ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand);
 
@@ -1697,9 +1696,9 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
             aimWas = aim;
         }
-        // Body slots (gevr_bodyslots.c): with a hand in a slot, its own A or X
-        // steps through what the slot holds instead of cycling or opening the
-        // wheel, swallowed until let go.
+        // Body slots (gevr_bodyslots.c): with a looked-at slot's wheel up, the
+        // hand's own A or X steps through what the slot holds instead of
+        // cycling or opening the wheel, swallowed until let go.
         {
             static bool slotA, slotX;
             const bool a = get_button_state(1, "a"), x = get_button_state(0, "x");
@@ -1920,17 +1919,13 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 changed = false;
             }
         }
-        // Body slots: a hand in a slot steps through it with its own stick's
-        // sideways flick. Browsing captures both sticks until leaving/centring.
+        // Body slots: with a looked-at slot's wheel up, the hand's own stick
+        // points round it. Browsing captures both sticks until leaving/centring.
         // "left" is the move stick: the off hand's
         // unless Swap sticks.
         if (stereoplay && !fitting && !adjusting) {
-            static u32 slotStickAt;
-            const u32 now = SDL_GetTicks();
-            const float dt = slotStickAt && now - slotStickAt < 200 ? (float)(now - slotStickAt) : 0.0f;
-            slotStickAt = now;
             float slotSticks[2][2] = {{left.x, left.y}, {right.x, right.y}};
-            if (gevrBodySlotSticks(VrSwapJoysticks, slotSticks, dt))
+            if (gevrBodySlotSticks(VrSwapJoysticks, slotSticks))
                 npad->button &= ~(L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS);
             left.x = slotSticks[0][0]; left.y = slotSticks[0][1];
             right.x = slotSticks[1][0]; right.y = slotSticks[1][1];

@@ -125,3 +125,21 @@ slots. Native checks cover all four captured axes, release/centre behavior,
 disabled slots, category snapshots and shared ring/model routing for 1..24
 choices across both hands and frame buffers. Headset readability and preview
 animation still require playtesting.
+
+## Looked-at slot wheel and stick pointing
+
+Headset test of the slot wheel: it only answered left/right, and it came up
+in front of the eyes whenever an arm hung by the hip or brushed the belt
+reaching for a magazine. The hand's own stick now points round the slot
+wheel as the held-A wheel's does: clockwise from the top, past half way,
+held a quarter wedge (at most 6 degrees) past its edge, the choice kept when
+the stick lets go. The wheel, and with it stick capture and A/X stepping,
+now needs the head to face the slot as well: within 40 degrees to come up
+after 150 ms, 55 to stay (the wheel sits in front of the eyes, so a glance
+at it can't drop it). The shoulders are exempt because they can't be seen.
+A hand resting in a slot without a look leaves the sticks and A/X to the
+player, and a grip still takes the slot's last choice. Native checks cover
+pointing in every direction for 1..24 choices, the hold, arming after
+centring, release capture, the gaze cone and its hysteresis, and production
+polling with an unlooked-at hip slot. Whether 40/55 degrees suits real
+looking-down still requires a headset test.

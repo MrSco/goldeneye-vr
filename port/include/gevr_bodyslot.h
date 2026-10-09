@@ -151,18 +151,30 @@ float gevrBodySettleMs(float ms, float speed, float dtMs, float maxSpeed);
 int gevrBodyGripHeld(int wasHeld, int pressed, float squeeze);
 
 /*
- * The hovering hand's own stick steps through the choices: sideways only, a
- * flick at 0.65, again after 450 ms held and every 250 ms; taken only once it
- * has been centred (<= 0.3) since the hover began, so walking or strafing as
- * the hand reaches keeps going, and held after the hover ends until it
- * centres, so leaving can't snap-turn. Returns the step (-1, 0, +1); *take
- * is 1 while the whole stick belongs to the slot. Both axes must centre.
+ * The head faces a point (cm from the eye, level frame) along fwd: within
+ * 40 degrees to start, and while it was, within 55 to keep (the slot's wheel
+ * sits in front of the eyes, so a glance at it mustn't drop it). A hand
+ * hanging by the hip or passing the belt for a magazine isn't looked at.
+ */
+#define GEVR_BODY_GAZE_IN_COS  0.76604444f   /* cos 40 degrees */
+#define GEVR_BODY_GAZE_OUT_COS 0.57357644f   /* cos 55 degrees */
+int gevrBodyGaze(int was, const float fwd[3], const float at[3]);
+
+/*
+ * The hovering hand's own stick points at the slot wheel's choices as the
+ * weapon wheel's does (bondview2.c gevrWheelStep): count wedges clockwise
+ * from up, chosen past 0.5 and kept until the stick is a quarter wedge (6
+ * degrees at most) past the edge; the choice stays when the stick lets go.
+ * Taken only once it has been centred (<= 0.3) since the hover began, so
+ * walking or strafing as the hand reaches keeps going, and held after the
+ * hover ends until it centres, so leaving can't snap-turn. Returns the wedge
+ * pointed at, -1 for none; *take is 1 while the whole stick belongs to the
+ * slot. Both axes must centre.
  */
 typedef struct GevrBodyStick {
-    int armed, latched, dir;
-    float held, next;
+    int armed, latched, wedge;
 } GevrBodyStick;
-int gevrBodyStickStep(GevrBodyStick *s, int hovering, float x, float y, float dtMs, int *take);
+int gevrBodyStickPoint(GevrBodyStick *s, int hovering, int count, float x, float y, int *take);
 
 /*
  * Hand reload's belt with body slots on: entering the belt waits deferMs, and

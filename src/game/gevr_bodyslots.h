@@ -24,20 +24,22 @@ void gevrBodySlotGripLetGo(int ctrl);
 /* a slot took the grip still held: a throw doesn't wind up from it */
 int gevrBodySlotHoldsGrip(int ctrl);
 /* port/src/input.c: the hand's own A or X pressed, its own stick each
- * poll; 1 when the slot takes it (the wheel, the cycle, the strafe or the
- * turn don't) */
+ * poll (pointing round the slot's wheel); 1 when the slot takes it (the
+ * wheel, the cycle, the strafe or the turn don't). Only while the slot's
+ * wheel is up: the hand there and the head facing it. */
 int gevrBodySlotButton(int ctrl);
-int gevrBodySlotStick(int ctrl, float x, float y, float dtMs);
-/* Move/turn stick pairs, with Swap sticks applied inside. Capture both until
- * leaving the slot and centring both sticks. */
-int gevrBodySlotSticks(int swap, float sticks[2][2], float dtMs);
+int gevrBodySlotStick(int ctrl, float x, float y);
+/* Move/turn stick pairs, with Swap sticks applied inside. Capture both while
+ * a slot's wheel is up, then until both sticks centre. */
+int gevrBodySlotSticks(int swap, float sticks[2][2]);
 #define GEVR_BODY_WHEEL_MAX 24
 typedef struct {
     int ctrl, category, count, index, ready;
     int items[GEVR_BODY_WHEEL_MAX];
     char names[GEVR_BODY_WHEEL_MAX][48];
 } GevrBodySlotWheel;
-/* The hovered category and exact grip choices for the shared wheel renderer. */
+/* The looked-at slot's category and exact grip choices for the shared wheel
+ * renderer. */
 int gevrBodySlotWheelInfo(GevrBodySlotWheel *out);
 /* hand reload (bondview2.c gevrHandReloadTick): the belt touch with the slots
  * on, 1 fire, 0 wait, -1 slots off (fire at once); a hand in or just out of a
