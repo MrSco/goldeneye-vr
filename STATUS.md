@@ -17,6 +17,11 @@ headset checks pending. Details: [movement speed](docs/player-movement-speed.md)
 Launcher Match and Comfort now use two columns to fit without scrolling.
 Chest and Belt defaults use the user's saved Quest fits at 170 cm; custom
 fits remain intact. See [body slots](docs/body-slots.md).
+Eight-player lobby: setup/code/count share two columns; tighter roster rows
+keep all eight names visible. Custom weapons use an Edit popup. The watch
+Controls model now starts a fresh depth pass to avoid inherited world depth
+hiding its shell. Native layout/render-dispatch checks pass; headset review
+of the controller remains pending.
 
 ## Recent releases
 

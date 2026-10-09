@@ -3541,6 +3541,13 @@ Gfx *draw_watch_controller(Gfx *gdl)
     gSPMatrix(cmd0, osVirtualToPhysical(perspmtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
 
     gdl = sub_GAME_7F0A6EE8(gdl);
+#ifdef GEVR
+    /* The watch overlays the world. Its controller has its own projection:
+     * old world depth can hide the shell while nearer grips remain visible.
+     * Start a fresh depth pass once, preserving depth between both models
+     * and their animated buttons. Colour and watch text stay intact. */
+    gDPParam(gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
+#endif
     green = g_WatchBackgroundGreen;
 
     if (green < 0xe0)
