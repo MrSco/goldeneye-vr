@@ -4004,8 +4004,9 @@ static void gevrVrValueText(s32 row, char *buf)
     switch (row)
     {
         case GEVR_VR_MOVESPEED:
-            sprintf(buf, netIsActive() ? "HOST %d%%" : "%d%%",
-                    netMovementSpeedPercent(netIsActive() ? netActiveMovementSpeed() : VrMovementSpeed));
+            if (!netIsActive() && VrMovementSpeed == NET_MOVE_NORMAL) sprintf(buf, "100%% DEFAULT");
+            else sprintf(buf, netIsActive() ? "HOST %d%%" : "%d%%",
+                         netMovementSpeedPercent(netIsActive() ? netActiveMovementSpeed() : VrMovementSpeed));
             break;
         case GEVR_VR_TURN:
             if (VrUseSnapTurn == 0.0f)

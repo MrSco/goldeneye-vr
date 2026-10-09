@@ -760,7 +760,7 @@ const char *gevrPauseChoice(int id,int index)
     if(!strcmp(n,"CHARACTER"))return netCharacterName(index);
     if(!strcmp(n,"YOUR TEAM"))return netTeamName(index);
     if(!strncmp(n,"CUSTOM ",7) || !strncmp(n,"LOADOUT ",8))return netItemName(gevrNetItemAt(index));
-    if(!strcmp(n,"MOVEMENT SPEED")) {const char*names[]={"50%","75%","100%","125%","150%","175%","200%"};return names[index];}
+    if(!strcmp(n,"MOVEMENT SPEED")) {const char*names[]={"50%","75%","100% (default)","125%","150%","175%","200%"};return names[index];}
     if(!strcmp(n,"GUN SIZE")) {const char*names[]={"Normal","Tiny","Big"};return names[index];}
     if(!strcmp(n,"HIT IMMUNITY")) {const char*names[]={"None: every hit counts","Short: a quarter second","GoldenEye: up to a second"};return names[index];}
     if(!strcmp(n,"HOST DELAY CAP")) {const char*names[]={"20 ms","40 ms","50 ms","60 ms","80 ms"};return names[index];}

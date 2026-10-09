@@ -13,6 +13,10 @@ VR Settings > Comfort > Movement speed. During a multiplayer session, open
 pause > Rules > Movement speed. The multiplayer watch's Fun options also
 expose the host control. Clients can view the host's percentage but cannot
 change the session speed or override it with their saved solo preference.
+The launcher slider marks 100% as the default and has a Reset button beside
+it. Reset applies immediately to solo or the host's whole session and saves
+the corresponding preference. The multiplayer pause picker marks 100% as
+the default; the solo watch shows `100% DEFAULT` at normal speed.
 
 Solo changes take effect on the next movement tick. Host changes update the
 active and pending match config immediately and broadcast the updated rule

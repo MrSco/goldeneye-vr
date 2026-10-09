@@ -14,6 +14,9 @@ Comfort, multiplayer pause Rules. Changes apply immediately to solo or
 everyone in the host's session, including bots. Room-scale walking stays
 unchanged. Native movement, settings, multiplayer and pause checks pass;
 headset checks pending. Details: [movement speed](docs/player-movement-speed.md).
+Launcher Match and Comfort now use two columns to fit without scrolling.
+Chest and Belt defaults use the user's saved Quest fits at 170 cm; custom
+fits remain intact. See [body slots](docs/body-slots.md).
 
 ## Recent releases
 
