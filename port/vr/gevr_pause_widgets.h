@@ -197,7 +197,7 @@ inline int gevrDrawPauseWindow(const GevrPauseView& model,GevrPauseUi& ui,ImText
         for(int i=0;gevrPauseReadField(ui.tab,i,&field);i++)
             gevrPauseFieldWidget(field,audio?18:18+(i%2)*642,212+(audio?i:i/2)*step,audio?1100:602);
         ImGui::SetCursorPos(ImVec2(18,816));
-        if(212+(rows-1)*step+48<810) ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Host settings. Round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
+        if(212+(rows-1)*step+48<810) ImGui::TextDisabled("%s",ui.tab==GEVR_PAUSE_AUDIO?"Volumes and microphone are yours. The host chooses voice mode.":ui.tab==GEVR_PAUSE_RULES?"Movement speed applies immediately. Other round rules and fun options apply on the next load.":model.coop?"Your character and status. Teammates continue while this window is open.":"Your character, team and loadout. The match continues while this window is open.");
     }
     ImGui::SetCursorPos(ImVec2(18,864));ImGui::Separator();
     ImGui::SetCursorPos(ImVec2(18,886));

@@ -213,6 +213,7 @@ typedef struct {
 static NetRoundSettings s_round;
 extern int VrMpStage, VrMpWeaponSet, VrMpChr, VrMpScenario, VrMpLength, VrMpHealth;
 extern int VrMpDual, VrMpLoadouts, VrMpNextRound, VrMpCustom[4], VrMpLoadout[4];
+extern int VrMpMovementSpeed;
 extern int VrMpVoiceMode, VrMpFriendlyFire, VrMpFunFlags, VrMpGunSize, VrMpMaxPlayers;
 extern int VrMpBotMode, VrMpBotCount, VrMpBotDifficulty;
 extern int VrCoopFastReinforcements;
@@ -1164,7 +1165,7 @@ static void netBroadcastLobbyState(void) {
 static void netTakeSpecialItem(int slot, int item);
 
 static void netSendMatchSnapshot(ENetPeer *peer) {
-    u8 raw[1024];   /* 67 + 49N + 4N^2 bytes: 715 at eight players */
+    u8 raw[1024];   /* 79 + 49N + 4N^2 bytes: 727 at eight players */
     struct netbuf buf = { .data = raw, .size = sizeof(raw) };
     netbufStartWrite(&buf);
     netbufWriteU32(&buf, GEVR_NET_MAGIC);
@@ -1947,6 +1948,7 @@ void netLobbySetConfig(const NetMatchConfig *config) {
     if (netGetHumanPlayerCount() > netConfigMaxPlayers(config)) return;
     NetMatchConfig oldRound = s_lobby_state.config, newRound = *config;
     oldRound.voice_mode = newRound.voice_mode = 0;
+    oldRound.movement_speed = newRound.movement_speed = 0;
     oldRound.friendly_fire = newRound.friendly_fire = 0;
     if (oldRound.mode == NET_MODE_COOP && newRound.mode == NET_MODE_COOP) {
         oldRound.fun_flags &= ~NET_COOP_FAST_REINFORCEMENTS;
@@ -1963,6 +1965,7 @@ void netLobbySetConfig(const NetMatchConfig *config) {
         for (int i=0;i<GEVR_MAX_PLAYERS;i++) netVoiceForgetSlot((uint8_t)i);
     }
     s_round.config.friendly_fire = config->friendly_fire;
+    s_round.config.movement_speed = config->movement_speed;
     if (s_round.config.mode == NET_MODE_COOP && config->mode == NET_MODE_COOP)
         s_round.config.fun_flags = (s_round.config.fun_flags & ~NET_COOP_FAST_REINFORCEMENTS)
             | (config->fun_flags & NET_COOP_FAST_REINFORCEMENTS);
@@ -2273,6 +2276,7 @@ int gevrNetConfigGet(int field) {
     case CFG_BOT_MODE: return c->bot_mode;
     case CFG_BOT_COUNT: return c->bot_count;
     case CFG_BOT_DIFFICULTY: return c->bot_difficulty;
+    case CFG_MOVEMENT_SPEED: return c->movement_speed;
     default: return field >= CFG_CUSTOM0 && field <= CFG_CUSTOM3 ? c->custom_set[field-CFG_CUSTOM0] : 0;
     }
 }
@@ -2309,6 +2313,7 @@ void gevrNetConfigSet(int field, int value) {
     case CFG_BOT_MODE: if (!gevrNetBotRowsEditable()) return; c.bot_mode = value; break;
     case CFG_BOT_COUNT: if (!gevrNetBotRowsEditable() || value < 1) return; c.bot_count = value; break;
     case CFG_BOT_DIFFICULTY: if (!gevrNetBotRowsEditable()) return; c.bot_difficulty = value; break;
+    case CFG_MOVEMENT_SPEED: c.movement_speed = value; break;
     default: if (field < CFG_CUSTOM0 || field > CFG_CUSTOM3) return; c.custom_set[field-CFG_CUSTOM0] = value; break;
     }
     if (!netValidConfig(&c)) return;
@@ -2317,6 +2322,7 @@ void gevrNetConfigSet(int field, int value) {
     VrMpStage=c.stage; VrMpScenario=c.scenario; VrMpWeaponSet=c.weapon_set;
     VrMpLength=c.game_length; VrMpHealth=c.health; VrMpDual=c.dual_wield;
     VrMpLoadouts=c.loadouts; VrMpNextRound=c.next_round; VrMpVoiceMode=s_lobby_state.config.voice_mode; VrMpFriendlyFire=c.friendly_fire; VrMpFunFlags=c.fun_flags & NET_FUN_MASK; VrMpGunSize=c.gun_size; VrMpMaxPlayers=c.max_players;
+    VrMpMovementSpeed=c.movement_speed;
     VrMpBotMode=c.bot_mode; VrMpBotCount=c.bot_count; VrMpBotDifficulty=c.bot_difficulty;
     if (c.mode == NET_MODE_COOP) VrCoopFastReinforcements = (c.fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
     for (int k=0;k<4;k++) VrMpCustom[k]=c.custom_set[k];
@@ -2376,6 +2382,7 @@ int netLobbyCanLaunch(void) {
 int netActiveFunFlags(void) { return s_round.config.fun_flags; }
 int netActiveLineMode(void) { return netIsActive() && (s_round.config.fun_flags & NET_FUN_LINE) != 0; }
 int netActiveGunSize(void) { return s_round.config.gun_size; }
+int netActiveMovementSpeed(void) { return s_round.config.movement_speed; }
 
 bool netLobbyHostLaunchMatch(void) {
     if (!netLobbyCanLaunch()) return false;

@@ -201,6 +201,8 @@ static void slots(void)
     CHECK(NEAR(off[0], 64.6f, 1e-3f) && NEAR(off[1], 20.4f, 1e-3f) && NEAR(off[2], -10.2f, 1e-3f));
     gevrBodySlotDefault(GEVR_BS_HIP_GUN, 150.0f, off);
     CHECK(NEAR(off[0], 57.0f, 1e-3f));
+    gevrBodySlotDefault(GEVR_BS_BELT, 170.0f, off);
+    CHECK(NEAR(off[0], 33.52f, 1e-3f) && NEAR(off[1], 16.82f, 1e-3f) && NEAR(off[2], 2.21f, 1e-3f));
     /* a fit replaces the default; 0 0 0 is no fit */
     {
         const float fit[3] = { 50.0f, 0.0f, 0.0f }, none[3] = { 0.0f, 0.0f, 0.0f };
@@ -208,7 +210,7 @@ static void slots(void)
         gevrBodySlotOffsets(GEVR_BS_CHEST, fit, 170.0f, off);
         CHECK(off[0] == 50.0f && off[1] == 0.0f);
         gevrBodySlotOffsets(GEVR_BS_CHEST, none, 170.0f, off);
-        CHECK(NEAR(off[0], 0.23f * 170.0f, 1e-3f));
+        CHECK(NEAR(off[0], 32.73f, 1e-3f) && NEAR(off[1], 12.91f, 1e-3f) && NEAR(off[2], -0.77f, 1e-3f));
     }
     CHECK(NEAR(gevrBodySlotRadius(GEVR_BS_HIP_GUN, 1), 13.0f, 1e-5f));
     CHECK(NEAR(gevrBodySlotRadius(GEVR_BS_HIP_GUN, 0), 10.4f, 1e-4f));

@@ -23,6 +23,24 @@ static inline int netWithHitImmunity(int flags, int immunity) {
 /* Co-op-only rule in the existing config byte; no packet layout changes. */
 #define NET_COOP_FAST_REINFORCEMENTS 8
 #define NET_COOP_FUN_MASK (NET_FUN_MASK | NET_COOP_FAST_REINFORCEMENTS)
+/* Zero is normal so existing saved preferences and zeroed configs stay normal. */
+enum { NET_MOVE_NORMAL, NET_MOVE_50, NET_MOVE_75, NET_MOVE_125,
+       NET_MOVE_150, NET_MOVE_175, NET_MOVE_200, NET_MOVE_COUNT };
+static inline int netMovementSpeedPercent(int mode) {
+    static const int percent[NET_MOVE_COUNT] = {100, 50, 75, 125, 150, 175, 200};
+    return mode >= 0 && mode < NET_MOVE_COUNT ? percent[mode] : 100;
+}
+static inline int netMovementSpeedMode(int percent) {
+    percent = percent < 50 ? 50 : percent > 200 ? 200 : percent;
+    percent = ((percent + 12) / 25) * 25;
+    for (int i = 0; i < NET_MOVE_COUNT; i++)
+        if (netMovementSpeedPercent(i) == percent) return i;
+    return NET_MOVE_NORMAL;
+}
+static inline float netMovementSpeedFactor(int mode) {
+    return netMovementSpeedPercent(mode) * 0.01f;
+}
+
 enum { NET_GUN_NORMAL, NET_GUN_TINY, NET_GUN_BIG };
 static inline float netGunSizeFactor(int mode) { return mode == NET_GUN_TINY ? 0.2f : mode == NET_GUN_BIG ? 2.0f : 1.0f; }
 #include <stdint.h>

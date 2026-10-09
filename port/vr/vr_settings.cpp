@@ -143,6 +143,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "SnapTurn=%.1f\n", VrUseSnapTurn);
     fprintf(f, "; Smooth turning speed in degrees per second, %d..%d.\n", SMOOTHTURN_MIN, SMOOTHTURN_MAX);
     fprintf(f, "SmoothTurnSpeed=%d\n", VrSmoothTurnSpeed);
+    fprintf(f, "MovementSpeed=%d\nMpMovementSpeed=%d\n",
+            netMovementSpeedPercent(VrMovementSpeed), netMovementSpeedPercent(VrMpMovementSpeed));
     fprintf(f, "; Grip gestures (stereo), 1 = on: holster at the hip, use a door or switch\n");
     fprintf(f, "; at the hand, put a gun on the floor in that hand (grip to hand), take back your own mine.\n");
     fprintf(f, "GestureHolster=%d\nGestureGripUse=%d\nGestureGripToHand=%d\nGestureMineGrab=%d\n",
@@ -574,6 +576,8 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "WatchGesturePause") == 0) VrWatchGesturePause = (ival != 0);
             else if (strcmp(key, "SwapJoysticks") == 0) VrSwapJoysticks = (ival != 0);
             else if (strcmp(key, "AimSteadying") == 0) VrAimSteady = ival < 0 ? 0 : ival > 2 ? 2 : ival;
+            else if (strcmp(key, "MovementSpeed") == 0) VrMovementSpeed = netMovementSpeedMode(ival);
+            else if (strcmp(key, "MpMovementSpeed") == 0) VrMpMovementSpeed = netMovementSpeedMode(ival);
             else if (strcmp(key, "SmoothTurnSpeed") == 0)
                 VrSmoothTurnSpeed = ival < SMOOTHTURN_MIN ? SMOOTHTURN_MIN : ival > SMOOTHTURN_MAX ? SMOOTHTURN_MAX : ival;
             else if (strcmp(key, "GestureHolster") == 0) VrGestureHolster = ival != 0;

@@ -78,6 +78,8 @@ extern float VrUseSnapTurn;
 #define SMOOTHTURN_MAX  240
 #define SMOOTHTURN_STEP 15
 extern int VrSmoothTurnSpeed;
+// NET_MOVE_* indices, independent solo and host preferences; 0 = 100%.
+extern int VrMovementSpeed, VrMpMovementSpeed;
 // GEVR PC's grip gestures, one toggle each (vr_settings_defaults.c).
 extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
 // Body slots (gevr_bodyslot.h): on/off, draw what they hold, zone size 0..2,
