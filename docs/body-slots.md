@@ -73,17 +73,58 @@ The chest cross doesn't fire while the hand is in a slot. While the GE-X gun
 waits for a magazine, the off hand's grip at its belt takes a magazine, as
 it did with the old hip holster.
 
-## Round 1 (2026-10-08): fixed
+## Headset rounds and what's next
 
+**Round 1 (2026-10-08, build 4753007): fixed in 7c72bc7 and 088c037.**
 The guns and the ring blinked and the slots moved about: the torso started
 again at the head every tick (8,668 log lines in three minutes). The game
 links GoldenEye's own atan2f, which returns 0..2 pi, so a small turn read
 as 359 degrees, a "jump". The slots now use their own atan2 (tested against
 the game's math too). Also from that round: the chest's and belt's models
-were in the way when looking down (not drawn now), the ring and the
-highlight were too much (gone), a label waits 150 ms so a passing hand
-shows nothing, a hand leaves 5 cm past the reach (was 3), and the torso
-holds from a 20 degree downward look (was 35).
+were in the way when looking down (not drawn now), a label waits 150 ms so
+a passing hand shows nothing, a hand leaves 5 cm past the reach (was 3), and
+the torso holds from a 20 degree downward look (was 35). 088c037 also took
+out the ring and the highlight.
+
+**Round 1 follow-up from the user (2026-10-09, build 088c037).** Open, for
+the next iteration:
+
+1. *Bring back the ring and the highlight, one at a time.* The user liked
+   them; the trouble was too many on screen at once (with the torso bug,
+   several slots' rings and highlights blinked together). Restore them only
+   for the slot a hand is actually in, after the 150 ms dwell: the hovered
+   hip gun drawn brighter, one ring at that slot's centre, at most one per
+   hand, nothing on slots without a hand. Both were in b345a45:
+   gevrBodySlotsDraw's envcolour lift for `by >= 0`, and the 4 cm
+   gevrBodyRing in gevrBodySlotsDrawLabels, tagged with the body
+   (0x565F0003).
+2. *Hand reload: reaching for a new magazine sometimes takes the
+   holstered gun instead (a swap).* The off hand's GoldenEye X magazine
+   claim (bondview2.c gevrGexClaimsOffHand, checked first in
+   gevrGripGestureTry) only holds at the belt while the gun hand's GE-X
+   magazine is already OUT and the off hand is inside the fitted belt
+   sphere (VrReloadBelt, radius 18, in the head-yaw frame). Every other
+   reach falls through to the hip slot:
+   - the magazine still in the gun when the hand reaches for the next one
+     (the claim checks the gun's magazine, not the belt, then);
+   - the belt sphere is in the head's frame and the hip slot in the
+     torso's, so looking toward the hip turns the sphere away from the hand
+     while the slot stays put;
+   - dual wielding (a reloadable gun in the left hand ends the claim);
+   - the gun hand, which has no claim at all: its belt touch reloads, but
+     a squeeze there swaps.
+
+   Suggested rule: while hand reload is on and a gun the hand could reload
+   at the belt isn't full (gevrReloadNeedsAmmo), or its GE-X magazine is
+   out, the belt wins at the hip. A grip there goes to the magazine or the
+   reload, never the holster. With every gun full, the hip swaps as now.
+   Test the belt with the hand reload test cases (port/tests
+   test_hand_reload.py). Another option the user could choose instead: move
+   the hips' default away from the belt, or show both in Gun fit.
+
+Other things still to check: the throw-versus-swap gate (120 ms / 1 m/s)
+is a guess; GE-X players see GoldenEye's models on the hips; seated reach
+for the shoulders; two-headset Doubles/CTF.
 
 ## Test sheet (one headset session)
 
