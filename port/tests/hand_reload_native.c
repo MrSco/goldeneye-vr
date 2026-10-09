@@ -20,6 +20,7 @@ static struct Player *g_CurrentPlayer = &player;
 static int VrManualReloading = 1, g_gevrStereo = 1, g_PlayerIsInTank, VrLeftHandedMode;
 static int VrGexGuns = 1;   /* hand reload is GoldenEye X's (bondview2.c gevrHandReloadEnabled) */
 static float D_800364CC = 1;
+static const float *s_gevrGunOffOverride;
 static int s_gevrMagGrab, s_gevrGexGripSpent, s_gevrGexMag[2], s_gevrGexSeatArmed;
 static int s_gevrGexHeldRounds = -1;
 static int s_gevrGexHeldGun = GUNRIGHT;
@@ -90,6 +91,8 @@ static int gevrGripAxesRaw(int ctrl, float p[3], float r[3], float u[3], float b
     r[0] = u[1] = b[2] = 1;
     return tracked[ctrl];
 }
+static int gevrGripAxes(int ctrl, float p[3], float r[3], float u[3], float b[3])
+{ return gevrGripAxesRaw(ctrl,p,r,u,b); }
 _Bool get_button_state(int ctrl, const char *button) { (void)button; return gripHeld[ctrl]; }
 static int pointsValid;
 static float wellPoint[3], heldPoint[3];
@@ -816,6 +819,79 @@ static void torsoReloadBelt(void)
 }
 
 /* All physical reload steps must follow the gun slot, not a fixed hand. */
+/* Compute from the actual gun matrix and renderer's left-slot mirror;
+ * this reference must not use the interaction getter under test. */
+static void fittedGrabPoint(int gun, float out[3])
+{
+    Mtxf base; assert(gevrStereoGunMatrix(gun,&base));
+    const GexWeaponDef *def=gevrGexWeaponForHand(gun);
+    const float *fit=gevrGexGrabFit(def->item);
+    if (gun==GUNLEFT) for (int i=0;i<3;i++) base.m[0][i]=-base.m[0][i];
+    for (int row=0;row<3;row++) for (int i=0;i<3;i++) base.m[row][i]*=0.1f;
+    for (int i=0;i<3;i++) {
+        out[i]=base.m[3][i];
+        for (int row=0;row<3;row++) out[i]+=def->grabRoot[row]*base.m[row][i];
+        const float k=GEVR_VIEWMODEL_CM*0.1f;
+        out[i]+=(-fit[0]*base.m[0][i]+fit[1]*base.m[1][i]-fit[2]*base.m[2][i])/k;
+    }
+}
+static void klobbPullFromEitherSlot(void)
+{
+    float cm=GEVR_UNITS_PER_METRE*D_800364CC/100;
+    const int items[]={ITEM_SKORPION,ITEM_UZI,ITEM_TT33};
+    for (int gun=0;gun<2;gun++) for (unsigned item=0;item<sizeof(items)/sizeof(items[0]);item++) {
+        reset();
+        player.hands[gun].weapon=items[item]; gex[gun]=1;
+        player.hands[1-gun].weapon=ITEM_FIST;
+        player.hands[gun].weapon_ammo_in_magazine=7;
+        pistolTick();
+        float want[3],actual[3]; fittedGrabPoint(gun,want);
+        assert(gevrGexPistolPoint(0,actual));
+        for (int i=0;i<3;i++) {
+            if (fabsf(want[i]-actual[i])/cm>=0.001f)
+                fprintf(stderr,"grab mismatch: item %d gun %d left-handed %d axis %d, %.2f cm\n",
+                    items[item],gun,VrLeftHandedMode,i,(actual[i]-want[i])/cm);
+            assert(fabsf(want[i]-actual[i])/cm<0.001f);
+        }
+        memcpy(poses[gun],want,sizeof(want));
+        gripHeld[gun]=1; pistolTick();
+        assert(s_gevrPistolGripOwner==GEVR_GEXGRIP_MAG);
+        assert(s_gevrGexMag[gun]==GEVR_GEXMAG_GRIPPED);
+        poses[gun][1]-=(gevrGexReloadDistance(GEVR_RT_PULL)+0.1f)*cm;
+        pistolTick();
+        assert(s_gevrGexMag[gun]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==7);
+        assert(player.hands[gun].weapon_ammo_in_magazine==0 && reserve==50);
+    }
+}
+static void reloadGrabFitMirroring(void)
+{
+    const float cm=GEVR_UNITS_PER_METRE*D_800364CC/100;
+    reset(); player.hands[GUNRIGHT].weapon=ITEM_SKORPION; gex[GUNRIGHT]=1; pistolTick();
+    float *fit=gevrGexGrabFit(ITEM_SKORPION), saved[3],target[3],actual[3];
+    memcpy(saved,fit,sizeof(saved)); fittedGrabPoint(GUNRIGHT,target);
+    target[0]+=2*cm; target[1]-=cm; target[2]+=3*cm;
+    memcpy(poses[0],target,sizeof(target)); gevrReloadFitSetGrab();
+    assert(gevrGexPistolPoint(0,actual));
+    for (int i=0;i<3;i++) assert(fabsf(actual[i]-target[i])/cm<0.001f);
+    /* The same saved calibration also follows the reversed weapon slot. */
+    player.hands[GUNLEFT].weapon=ITEM_SKORPION; player.hands[GUNRIGHT].weapon=ITEM_FIST;
+    gex[GUNLEFT]=1; gex[GUNRIGHT]=0;
+    fittedGrabPoint(GUNLEFT,target); assert(gevrGexPistolPoint(0,actual));
+    for (int i=0;i<3;i++) assert(fabsf(actual[i]-target[i])/cm<0.001f);
+    memcpy(fit,saved,sizeof(saved));
+    /* KF7 uses the calibrated controller-relative point, without a root point. */
+    for (int gun=0;gun<2;gun++) {
+        reset(); player.hands[gun].weapon=ITEM_AK47; player.hands[1-gun].weapon=ITEM_FIST; gex[gun]=1;
+        float r[3],u[3],b[3],at[3]; gevrGripAxesRaw(1-gun,at,r,u,b);
+        gevrReloadMagPoint(at,r,u,b,cm,1,actual);
+        const float *grab=gevrGexGrabFit(ITEM_AK47);
+        float sign=(VrLeftHandedMode != (gun==GUNLEFT)) ? -1 : 1;
+        assert(fabsf(actual[0]-at[0]-sign*grab[0]*cm)/cm<0.001f);
+        assert(fabsf(actual[1]-at[1]-grab[1]*cm)/cm<0.001f);
+        assert(fabsf(actual[2]-at[2]-grab[2]*cm)/cm<0.001f);
+    }
+}
+
 static void reversedReloads(void)
 {
     const int items[] = {ITEM_AK47, ITEM_WPPK, ITEM_TT33, ITEM_UZI, ITEM_M16};
@@ -936,6 +1012,8 @@ int main(void)
         torsoReloadBelt();
         reversedReloads();
         reloadRoleChanges();
+        klobbPullFromEitherSlot();
+        reloadGrabFitMirroring();
     }
     /* A custom belt and radius must control both reload paths. */
     reset();
