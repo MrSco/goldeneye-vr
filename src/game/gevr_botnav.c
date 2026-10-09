@@ -18,6 +18,7 @@
 #include <bondtypes.h>
 #include <bondconstants.h>
 #include "gevr_bot.h"
+#include "stan.h"
 
 struct StanPrefixRecord {
     s32 stanfile;
@@ -97,6 +98,17 @@ static f32 navDist(const coord3d *a, const coord3d *b)
     f32 dz = a->z - b->z;
 
     return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+/* Glass and other path blockers sit on connected floor tiles. They can be
+ * transparent to sight while still stopping a player's body (Library's
+ * panes). Check the standing body's height above the floor, without the
+ * AI-opaque sight filter. Doors remain traversable: the bot opens them.
+ * Query live collision so broken glass becomes traversable on the next plan. */
+static s32 navWalkClear(StandTile *tile, const coord3d *from, const coord3d *to)
+{
+    return tile != NULL && stanTestLineUnobstructed(&tile, from->x, from->z, to->x, to->z,
+                                                   CDTYPE_PATHBLOCKER, 150.0f, 30.0f, 0.0f, 1.0f);
 }
 
 static void navFree(void)
@@ -293,6 +305,10 @@ s32 gevrBotNavPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
         expanded++;
         if (i == end)
         {
+            if (i == start && !navWalkClear(fromtile, from, goal))
+            {
+                break;
+            }
             found = TRUE;
             break;
         }
@@ -300,15 +316,23 @@ s32 gevrBotNavPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
         {
             s32 to = s_edges[e].to;
             f32 cost = s_cost[i] + s_edges[e].cost;
+            const coord3d *entry = i == start ? from : &s_tiles[i].mid;
+            const coord3d *exit = to == end ? goal : &s_tiles[to].mid;
+
+            if (s_seen[to] == s_search && (s_closed[to] || cost >= s_cost[to]))
+            {
+                continue;
+            }
+            if (!navWalkClear(s_tiles[i].tile, entry, &s_edges[e].portal)
+                || !navWalkClear(s_tiles[to].tile, &s_edges[e].portal, exit))
+            {
+                continue;
+            }
 
             if (s_seen[to] != s_search)
             {
                 s_seen[to] = s_search;
                 s_closed[to] = FALSE;
-            }
-            else if (s_closed[to] || cost >= s_cost[to])
-            {
-                continue;
             }
             s_cost[to] = cost;
             s_from[to] = e;
@@ -319,28 +343,40 @@ s32 gevrBotNavPlan(GevrBotRoute *route, StandTile *fromtile, const coord3d *from
     {
         return FALSE;
     }
-    /* the sides crossed, counted back from the goal, then laid out from the start */
+    /* Keep the tile middles as well as the sides: the search checked a path
+     * via those middles. A direct line between two portals in one tile may
+     * cut through glass even when the two legs via its middle are clear. */
     count = 0;
     for (t = end; s_from[t] >= 0; t = s_edges[s_from[t]].from)
     {
         count++;
     }
-    keep = count < GEVR_BOT_ROUTE_POINTS - 1 ? count : GEVR_BOT_ROUTE_POINTS - 1;
+    keep = count < GEVR_BOT_ROUTE_POINTS / 2 ? count : GEVR_BOT_ROUTE_POINTS / 2;
     for (j = 0, t = end; s_from[t] >= 0; j++, t = s_edges[s_from[t]].from)
     {
         if (count - 1 - j < keep)
         {
-            route->points[count - 1 - j] = s_edges[s_from[t]].portal;
+            s32 point = (count - 1 - j) * 2;
+
+            route->points[point] = s_edges[s_from[t]].portal;
+            route->points[point + 1] = t == end ? *goal : s_tiles[t].mid;
         }
     }
     if (count > keep)
     {
         /* longer than a route holds: walk its first part, then plan again */
-        route->count = keep;
+        route->count = keep * 2;
         return TRUE;
     }
-    route->points[count] = *goal;
-    route->count = count + 1;
+    if (count == 0)
+    {
+        route->points[0] = *goal;
+        route->count = 1;
+    }
+    else
+    {
+        route->count = count * 2;
+    }
     return TRUE;
 }
 
@@ -361,22 +397,36 @@ s32 gevrBotNavNext(GevrBotRoute *route, const coord3d *pos, StandTile *tile, coo
     {
         return FALSE;
     }
-    /* points within a stride are behind the bot */
-    while (route->next < route->count && navFlatDist(pos, &route->points[route->next]) < 40.0f)
+    /* Nearby points are reached only on this side of any glass. */
+    while (route->next < route->count && navFlatDist(pos, &route->points[route->next]) < 40.0f
+           && navWalkClear(tile, pos, &route->points[route->next]))
     {
+        /* Near a corner, finish approaching this point if skipping it would
+         * put glass across the next leg. Replan if it is actually reached
+         * and the next leg has become blocked. */
+        if (route->next + 1 < route->count && navFlatDist(pos, &route->points[route->next]) > 1.0f
+            && !navWalkClear(tile, pos, &route->points[route->next + 1]))
+        {
+            break;
+        }
         route->next++;
     }
     if (route->next >= route->count)
     {
         return FALSE;
     }
-    /* cut the corners a straight walk over the floor allows, a few points ahead */
+    /* An obstacle added since planning, or a bot displaced off its route:
+     * let the caller replan instead of walking into the same pane forever. */
+    if (!navWalkClear(tile, pos, &route->points[route->next]))
+    {
+        route->count = 0;
+        return FALSE;
+    }
+    /* Cut corners only when both floor and path blockers allow the shortcut. */
     best = route->next;
     for (k = route->next + 1; tile != NULL && k < route->count && k <= route->next + 4; k++)
     {
-        StandTile *walk = tile;
-
-        if (!walkTilesBetweenPoints_NoCallback(&walk, pos->x, pos->z, route->points[k].x, route->points[k].z))
+        if (!navWalkClear(tile, pos, &route->points[k]))
         {
             break;
         }
