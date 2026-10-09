@@ -16982,11 +16982,17 @@ static void gevrGexMagIn(s32 hand, const char *how, s32 rounds)
  * gesture gives way while a gun waits for a magazine
  * (gevrGexClaimsOffHand). Squared distance, cm.
  */
+static s32 gevrReloadBeltLocal(s32 ctrl, const f32 at[3], f32 out[3])
+{
+    extern int gevrBodyReloadLocal(int ctrl, const float at[3], float out[3]);
+    return gevrBodyReloadLocal(ctrl, at, out) || gevrHandOnBody(ctrl, at, &out[0], &out[1], &out[2]);
+}
+
 static f32 gevrBeltDist2(s32 ctrl, const f32 at[3])
 {
     f32 b[3];
 
-    if (!gevrHandOnBody(ctrl, at, &b[0], &b[1], &b[2]))
+    if (!gevrReloadBeltLocal(ctrl, at, b))
     {
         return 1e9f;
     }
@@ -17032,15 +17038,22 @@ s32 gevrReloadGrabBelt(s32 ctrl)
     return TRUE;
 }
 
-/* Invert the same levelled camera frame used by gevrHandOnBody. The model
- * and ring must be at the actual fitted pickup sphere, even after Gun fit. */
+/* The shared torso supplies the displayed belt and its pickup zone. The
+ * legacy frame covers calls before the first torso tick. */
 s32 gevrReloadBeltPoint(s32 ctrl, f32 out[3])
 {
+    extern int gevrBodyReloadPose(int ctrl, const float fit[3], float out[4][3]);
+    f32 pose[4][3];
     Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
     struct coord3d fwd = { .x = 0, .y = 0, .z = -1 }, right = { .x = 1, .y = 0, .z = 0 };
     f32 fwlen, rtlen, det, side, world[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     s32 i;
+    if (gevrBodyReloadPose(ctrl, VrReloadBelt, pose))
+    {
+        memcpy(out, pose[3], sizeof(pose[3]));
+        return TRUE;
+    }
     if (v2w == NULL || ctrl < 0 || ctrl > 1 || cm < 1e-6f) return FALSE;
     mtx4RotateVecInPlace(v2w, &fwd);
     mtx4RotateVecInPlace(v2w, &right);
@@ -17128,8 +17141,7 @@ static s32 gevrReloadBeltReach(s32 ctrl)
     {
         next[i] = at[i] + (loc[0] * r[i] + loc[1] * b[i] - loc[2] * u[i]) * step;
     }
-    if (!gevrHandOnBody(ctrl, at, &nowBody[0], &nowBody[1], &nowBody[2])
-        || !gevrHandOnBody(ctrl, next, &nextBody[0], &nextBody[1], &nextBody[2]))
+    if (!gevrReloadBeltLocal(ctrl, at, nowBody) || !gevrReloadBeltLocal(ctrl, next, nextBody))
     {
         s_gevrBeltMeleeTaken[ctrl] = FALSE;
         return FALSE;
@@ -17460,7 +17472,7 @@ void gevrReloadFitSetBelt(void)
     f32 off[3], r[3], u[3], b[3];
 
     if (gevrGripAxesRaw(0, off, r, u, b)
-        && gevrHandOnBody(0, off, &VrReloadBelt[0], &VrReloadBelt[1], &VrReloadBelt[2]))
+        && gevrReloadBeltLocal(0, off, VrReloadBelt))
     {
         sysLogPrintf(LOG_NOTE, "stereo: reload fit, the belt %.0f below %.0f out %.0f ahead",
                      VrReloadBelt[0], VrReloadBelt[1], VrReloadBelt[2]);
@@ -17798,7 +17810,7 @@ void gevrHandReloadTick(void)
         s32 item = ctrl ? right : left;
         s32 other = ctrl ? left : right;
         const f32 *at = ctrl ? gun : off;
-        f32 drop, side, ahead;
+        f32 drop, side, ahead, loc[3];
         f32 beltDist2;
         s32 beltFire, beltWait;
         extern int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped);   /* gevr_bodyslots.c */
@@ -17807,13 +17819,14 @@ void gevrHandReloadTick(void)
         const f32 beltExit = beltRadius + GEVR_RELOAD_BELT_EXIT_CM;
 
         if (!gevrReloadGun(item) || s_gevrGripGesture[ctrl] == 2
-            || !gevrHandOnBody(ctrl, at, &drop, &side, &ahead))
+            || !gevrReloadBeltLocal(ctrl, at, loc))
         {
             s_crossArmed[ctrl] = FALSE;
             s_beltArmed[ctrl] = FALSE;
             gevrBodySlotBeltWait(ctrl, FALSE, FALSE, FALSE);   /* a waiting touch is dropped */
             continue;
         }
+        drop = loc[0]; side = loc[1]; ahead = loc[2];
         if (gevrGexByHand(hand) || (gevrReloadMagazineFed(item) && !gevrReloadGun(other)))
         {
             s_crossArmed[ctrl] = FALSE;

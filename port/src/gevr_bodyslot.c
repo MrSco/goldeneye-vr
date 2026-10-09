@@ -163,7 +163,7 @@ static const float s_gevrBodyDefault[GEVR_BODY_SLOTS][3] = {
     { 0.38f, 0.12f, -0.06f },
     { 0.05f, 0.11f, -0.12f },   /* shoulders: 8 below, 19 out, 20 behind */
     { 0.05f, 0.11f, -0.12f },
-    { 0.23f, 0.00f, 0.05f },    /* chest: 39 below, 8 ahead */
+    { 0.23f, 0.00f, 0.025f },   /* chest: 39 below, 4 ahead; closer to the sternum */
     { 0.35f, 0.04f, 0.06f },    /* belt: 60 below, 7 out, 10 ahead */
 };
 /* cm at Normal; the shoulders are reached blind, so they are larger (Quake VR's 30 cm) */

@@ -35,4 +35,10 @@ int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped);
 int gevrBodySlotBusy(int ctrl);
 int gevrBodySlotQuiet(int ctrl);
 
+/* Reload belt and holsters share the torso, including its neck origin.
+ * Local: view point into cm below/out/ahead. Pose: unit view-space axes
+ * (right/up/back), then the belt centre in view units. */
+int gevrBodyReloadLocal(int ctrl, const float at[3], float out[3]);
+int gevrBodyReloadPose(int ctrl, const float fit[3], float out[4][3]);
+
 #endif

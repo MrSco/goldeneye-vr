@@ -2062,9 +2062,9 @@ enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT 
 extern s32 gevrGexMagState(s32 hand, f32 off[3]);
 
 /* Isolate the installed magazine in a scratch model. Its live switches,
- * falling pose and hand matrices remain untouched. at == NULL draws the
+ * falling pose and hand matrices remain untouched. beltPose == NULL draws the
  * ghost exactly where the fitted installed magazine would sit. */
-Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const f32 at[3], u32 tint)
+Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const Mtxf *beltPose, u32 tint)
 {
     const GexWeaponDef *def = gevrGexWeaponForHand(hand);
     Model *source = &g_CurrentPlayer->hands[hand].weaponModel;
@@ -2086,15 +2086,19 @@ Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
         gevrGexCollapse(&matrices[i]);
     }
     matrices[def->magMatrix] = s_gevrGexLastMag[hand];
-    if (at != NULL)
+    if (beltPose != NULL)
     {
         Mtxf *mag = &matrices[def->magMatrix];
         f32 size = sqrtf(mag->m[0][0]*mag->m[0][0] + mag->m[0][1]*mag->m[0][1] + mag->m[0][2]*mag->m[0][2]);
-        matrix_4x4_set_identity(mag);
+        *mag = *beltPose;
         for (i = 0; i < 3; i++)
         {
-            mag->m[i][i] = size;
-            mag->m[3][i] = at[i] - def->magCentre[i]*size;
+            for (j = 0; j < 3; j++) mag->m[i][j] *= size;
+        }
+        for (i = 0; i < 3; i++)
+        {
+            mag->m[3][i] = beltPose->m[3][i] - def->magCentre[0]*mag->m[0][i]
+                - def->magCentre[1]*mag->m[1][i] - def->magCentre[2]*mag->m[2][i];
         }
     }
     copy.render_pos = (RenderPosView *)matrices;
@@ -2105,7 +2109,7 @@ Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const 
             *(s32 *)modelGetNodeRwData(&copy, hdr->Switches[j]) = FALSE;
     rd.gdl = gdl;
     rd.flags = 3;
-    rd.PropType = at == NULL ? GEVR_MODEL_RELOAD_GHOST : PROP_TYPE_CHR + 1;
+    rd.PropType = beltPose == NULL ? GEVR_MODEL_RELOAD_GHOST : PROP_TYPE_CHR + 1;
     rd.envcolour.word = tint;
     rd.zbufferenabled = TRUE;
     rd.cullmode = CULLMODE_NONE;

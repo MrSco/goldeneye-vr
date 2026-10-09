@@ -356,6 +356,7 @@ static s32 gevrBodyFrameUpdate(void)
             {
                 freeze = TRUE;
             }
+            if (gevrReloadBeltHover(ctrl)) freeze = TRUE;
         }
     }
     if (gevrBodyTorsoUpdate(&s_bodyTorso, hp, follow, (f32) g_ClockTimer, freeze, s_bodyTune[BT_TWIST], 45.0f))
@@ -495,6 +496,13 @@ void gevrBodySlotsTick(void)
         {
             gevrBodyIdle(VrBodySlots ? "not in play" : "off");
         }
+        /* Hand reload still needs the same torso with holsters disabled,
+         * while choosing a weapon, and while calibrating its belt. */
+        if (gevrHandReloadActive() && !g_CurrentPlayer->bonddead && !g_CurrentPlayer->watch_animation_state
+            && !g_CurrentPlayer->mpmenuon && g_PlayerIsInTank != 1 && !gevrSpectating()
+            && !gevrCoopLocalDowned() && D_800364CC > 1e-6f)
+            s_bodyFrameValid = gevrBodyFrameUpdate();
+        else s_bodyFrameValid = FALSE;
         return;
     }
     if (!gevrBodyFrameUpdate())
@@ -728,6 +736,35 @@ static void gevrBodyToView(const f32 p[3], f32 scale, f32 out[3])
     }
 }
 
+int gevrBodyReloadLocal(int ctrl, const float at[3], float out[3])
+{
+    Mtxf *v2w = currentPlayerGetViewToWorldMtxf();
+    struct coord3d p;
+    f32 world[3];
+    s32 i;
+    if (!s_bodyFrameValid || v2w == NULL || ctrl < 0 || ctrl > 1 || D_800364CC < 1e-6f) return FALSE;
+    p.x = at[0]; p.y = at[1]; p.z = at[2];
+    mtx4RotateVecInPlace(v2w, &p);
+    for (i = 0; i < 3; i++) world[i] = p.f[i] / D_800364CC;
+    gevrBodyLocal(&s_bodyFrame, world, out);
+    if ((ctrl == 0) != (VrLeftHandedMode != 0)) out[1] = -out[1];
+    return TRUE;
+}
+
+int gevrBodyReloadPose(int ctrl, const float fit[3], float out[4][3])
+{
+    f32 centre[3], back[3];
+    s32 i;
+    if (!s_bodyFrameValid || ctrl < 0 || ctrl > 1) return FALSE;
+    gevrBodySlotCentre(&s_bodyFrame, ctrl ? GEVR_BS_HIP_GUN : GEVR_BS_HIP_OFF, fit, VrLeftHandedMode, centre);
+    for (i = 0; i < 3; i++) back[i] = -s_bodyFrame.fwd[i];
+    gevrBodyToView(s_bodyFrame.right, 1.0f, out[0]);
+    gevrBodyToView(s_bodyFrame.up, 1.0f, out[1]);
+    gevrBodyToView(back, 1.0f, out[2]);
+    gevrBodyToView(centre, D_800364CC, out[3]);
+    return TRUE;
+}
+
 /* what a slot shows: a hovering hand's choice, else what its own hand would take */
 static s32 gevrBodyShownItem(s32 slot, s32 *hoveredBy)
 {
@@ -826,7 +863,7 @@ static s32 gevrBodyInView(const f32 v[3])
  */
 static Gfx *gevrReloadBeltDraw(Gfx *gdl)
 {
-    extern Gfx *gevrGexDrawMagazineGuide(Gfx *, ModelRenderData *, s32, const f32 *, u32);
+    extern Gfx *gevrGexDrawMagazineGuide(Gfx *, ModelRenderData *, s32, const Mtxf *, u32);
     extern Gfx *gevrDrawInteractionRing(Gfx *, const f32 *, f32, u32);
     ModelRenderData rd = {0};
     s32 ctrl;
@@ -839,14 +876,20 @@ static Gfx *gevrReloadBeltDraw(Gfx *gdl)
     for (ctrl = 0; ctrl < 2; ctrl++)
     {
         const s32 hand = gevrReloadBeltAmmo(ctrl);
-        f32 at[3];
+        extern float VrReloadBelt[3];
+        f32 pose[4][3];
+        Mtxf belt;
+        s32 i, j;
         const s32 hover = gevrReloadBeltHover(ctrl);
-        if (hand < 0 || !gevrReloadBeltPoint(ctrl, at) || !gevrBodyInView(at)) continue;
+        if (hand < 0 || !gevrBodyReloadPose(ctrl, VrReloadBelt, pose) || !gevrBodyInView(pose[3])) continue;
+        matrix_4x4_set_identity(&belt);
+        for (i = 0; i < 4; i++)
+            for (j = 0; j < 3; j++) belt.m[i][j] = pose[i][j];
         matrix_4x4_7F058C64();
-        gdl = gevrGexDrawMagazineGuide(gdl, &rd, hand, at,
+        gdl = gevrGexDrawMagazineGuide(gdl, &rd, hand, &belt,
             (hover ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xFF);
         matrix_4x4_7F058C88();
-        if (hover) gdl = gevrDrawInteractionRing(gdl, at, 4.0f, GEVR_RELOAD_READY_TINT | 0xE0);
+        if (hover) gdl = gevrDrawInteractionRing(gdl, pose[3], 4.0f, GEVR_RELOAD_READY_TINT | 0xE0);
     }
     gSPPerspNormalize(gdl++, viGetPerspNorm());
     gDPNoOpTag(gdl++, 0x565F0000);
