@@ -3,6 +3,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static int failures;
 #define CHECK(cond) do { if (!(cond)) { fprintf(stderr, "FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); failures++; } } while (0)
@@ -308,10 +309,25 @@ static void choices(void)
     CHECK(gevrBodyGripAction(GEVR_BODY_HOLSTER, 0) == GEVR_BODY_STOW);
     CHECK(gevrBodyGripAction(-1, 0) == GEVR_BODY_FALL && gevrBodyGripAction(-1, 1) == GEVR_BODY_FALL);
     CHECK(gevrBodyGripAction(7, 1) == GEVR_BODY_DENY && gevrBodyGripAction(GEVR_BODY_HOLSTER, 1) == GEVR_BODY_DENY);
+    /* The ready pause must be continuous; a wind-up resets it. */
+    float settled = gevrBodySettleMs(0, 0.1f, 200, 0.35f);
+    CHECK(settled == 200);
+    settled = gevrBodySettleMs(settled, 0.5f, 16, 0.35f);
+    CHECK(settled == 0);
+    settled = gevrBodySettleMs(settled, 0.1f, 349, 0.35f);
+    CHECK(!gevrBodyThrowGate(settled, 0.1f, 350, 0.35f));
+    settled = gevrBodySettleMs(settled, 0.1f, 1, 0.35f);
+    CHECK(gevrBodyThrowGate(settled, 0.1f, 350, 0.35f));
+    /* A partial release and squeeze cannot choose another gesture. */
+    CHECK(gevrBodyGripHeld(0, 1, 0.7f));
+    CHECK(gevrBodyGripHeld(1, 0, 0.4f));
+    CHECK(gevrBodyGripHeld(1, 0, 0.25f));
+    CHECK(!gevrBodyGripHeld(1, 0, 0.24f));
+    CHECK(!gevrBodyGripHeld(0, 0, 0.4f));
     /* a throwable's grip goes to the slot only after a pause there */
-    CHECK(!gevrBodyThrowGate(100.0f, 0.2f, 120.0f, 1.0f));
-    CHECK(gevrBodyThrowGate(130.0f, 0.2f, 120.0f, 1.0f));
-    CHECK(!gevrBodyThrowGate(500.0f, 1.5f, 120.0f, 1.0f));
+    CHECK(!gevrBodyThrowGate(100.0f, 0.2f, 350.0f, 0.35f));
+    CHECK(gevrBodyThrowGate(350.0f, 0.2f, 350.0f, 0.35f));
+    CHECK(!gevrBodyThrowGate(500.0f, 1.5f, 350.0f, 0.35f));
 }
 
 static void stick(void)
@@ -319,21 +335,32 @@ static void stick(void)
     GevrBodyStick s = { 0 };
     int take;
 
+    /* Diagonal scrolling owns both axes, even after leaving the slot. */
+    CHECK(gevrBodyStickStep(&s, 1, 0.0f, 0.8f, 16.0f, &take) == 0 && !take);
+    CHECK(gevrBodyStickStep(&s, 1, 0.0f, 0.0f, 16.0f, &take) == 0 && !take);
+    CHECK(gevrBodyStickStep(&s, 1, 0.0f, 0.8f, 16.0f, &take) == 0 && !take); /* walking isn't scrolling */
+    CHECK(gevrBodyStickStep(&s, 1, 0.0f, 0.0f, 16.0f, &take) == 0 && !take);
+    CHECK(gevrBodyStickStep(&s, 1, 0.8f, 0.6f, 16.0f, &take) == 1 && take);
+    CHECK(gevrBodyStickStep(&s, 0, 0.0f, 0.8f, 16.0f, &take) == 0 && take);
+    CHECK(gevrBodyStickStep(&s, 0, 0.0f, 0.4f, 16.0f, &take) == 0 && take);
+    CHECK(gevrBodyStickStep(&s, 0, 0.2f, 0.25f, 16.0f, &take) == 0 && take);
+    CHECK(gevrBodyStickStep(&s, 0, 0.0f, 0.0f, 16.0f, &take) == 0 && !take);
+    memset(&s, 0, sizeof(s));
     /* pushed before the reach: the player's until it centres */
-    CHECK(gevrBodyStickStep(&s, 1, 0.8f, 16.0f, &take) == 0 && !take);
-    CHECK(gevrBodyStickStep(&s, 1, 0.1f, 16.0f, &take) == 0 && take);
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 16.0f, &take) == 1 && take);
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 400.0f, &take) == 0);
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 60.0f, &take) == 1);    /* 460 ms held: again */
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 200.0f, &take) == 0);
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 60.0f, &take) == 1);    /* then every 250 ms */
-    CHECK(gevrBodyStickStep(&s, 1, 0.2f, 16.0f, &take) == 0);
-    CHECK(gevrBodyStickStep(&s, 1, -0.9f, 16.0f, &take) == -1);
+    CHECK(gevrBodyStickStep(&s, 1, 0.8f, 0.0f, 16.0f, &take) == 0 && !take);
+    CHECK(gevrBodyStickStep(&s, 1, 0.1f, 0.0f, 16.0f, &take) == 0 && !take);
+    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 16.0f, &take) == 1 && take);
+    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 400.0f, &take) == 0);
+    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 60.0f, &take) == 1);    /* 460 ms held: again */
+    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 200.0f, &take) == 0);
+    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 60.0f, &take) == 1);    /* then every 250 ms */
+    CHECK(gevrBodyStickStep(&s, 1, 0.2f, 0.0f, 16.0f, &take) == 0);
+    CHECK(gevrBodyStickStep(&s, 1, -0.9f, 0.0f, 16.0f, &take) == -1);
     /* the hover ends with the stick still pushed: held until it centres */
-    CHECK(gevrBodyStickStep(&s, 0, -0.9f, 16.0f, &take) == 0 && take);
-    CHECK(gevrBodyStickStep(&s, 0, -0.5f, 16.0f, &take) == 0 && take);
-    CHECK(gevrBodyStickStep(&s, 0, -0.2f, 16.0f, &take) == 0 && !take);
-    CHECK(gevrBodyStickStep(&s, 0, -0.9f, 16.0f, &take) == 0 && !take);
+    CHECK(gevrBodyStickStep(&s, 0, -0.9f, 0.0f, 16.0f, &take) == 0 && take);
+    CHECK(gevrBodyStickStep(&s, 0, -0.5f, 0.0f, 16.0f, &take) == 0 && take);
+    CHECK(gevrBodyStickStep(&s, 0, -0.2f, 0.0f, 16.0f, &take) == 0 && !take);
+    CHECK(gevrBodyStickStep(&s, 0, -0.9f, 0.0f, 16.0f, &take) == 0 && !take);
 }
 
 static void belt(void)

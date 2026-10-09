@@ -7,6 +7,7 @@
 #include "gevr_watch_status.h"
 #include "gevr_scope.h"
 #include "gevr_gexweapon.h"
+#include "gevr_bodyslot.h"
 #endif
 #include <string.h>
 #include <stddef.h>
@@ -254,7 +255,7 @@ extern int VrPerWeaponRecoil;   /* launcher "Per-gun recoil" */
 extern void gevrGripGestureInput(int ctrl, int pressed, int held);
 /* src/game/gevr_bodyslots.c: a hand in a body slot steps through it */
 extern int gevrBodySlotButton(int ctrl);
-extern int gevrBodySlotStick(int ctrl, float x, float dtMs);
+extern int gevrBodySlotStick(int ctrl, float x, float y, float dtMs);
 extern int gevrGripGestureTaken(int ctrl);
 extern ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand);
 
@@ -1658,7 +1659,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             static bool gripWas[2];
             const bool grips[2] = { leftGrip, rightGrip };
             for (int c = 0; c < 2; c++) {
-                const bool on = grips[c] && stereoplay && !fitting;
+                const bool on = stereoplay && !fitting
+                    && gevrBodyGripHeld(gripWas[c], grips[c], get_analog_value(c, "grip"));
                 gevrGripGestureInput(c, on && !gripWas[c], on);
                 gripWas[c] = on;
                 gripTaken[c] = on && gevrGripGestureTaken(c);
@@ -1911,8 +1913,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
         }
         // Body slots: a hand in a slot steps through it with its own stick's
-        // sideways flick, which stops strafing or turning meanwhile (forward and
-        // back stay the player's). "left" is the move stick: the off hand's
+        // sideways flick, which owns both axes until the stick centres.
+        // "left" is the move stick: the off hand's
         // unless Swap sticks.
         if (stereoplay && !fitting && !adjusting) {
             static u32 slotStickAt;
@@ -1921,7 +1923,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             slotStickAt = now;
             for (int c = 0; c < 2; c++) {
                 XrVector2f *own = ((c == 0) == (VrSwapJoysticks == 0)) ? &left : &right;
-                if (gevrBodySlotStick(c, own->x, dt)) own->x = 0.0f;
+                if (gevrBodySlotStick(c, own->x, own->y, dt)) own->x = own->y = 0.0f;
             }
         }
         // In menus either stick navigates (whichever is pushed further).

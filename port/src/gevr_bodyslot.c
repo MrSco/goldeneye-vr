@@ -394,9 +394,20 @@ int gevrBodyThrowGate(float hoverMs, float speed, float dwellMs, float maxSpeed)
     return hoverMs >= dwellMs && speed < maxSpeed;
 }
 
-int gevrBodyStickStep(GevrBodyStick *s, int hovering, float x, float dtMs, int *take)
+float gevrBodySettleMs(float ms, float speed, float dtMs, float maxSpeed)
+{
+    return speed < maxSpeed ? ms + dtMs : 0.0f;
+}
+
+int gevrBodyGripHeld(int wasHeld, int pressed, float squeeze)
+{
+    return pressed || (wasHeld && squeeze >= 0.25f);
+}
+
+int gevrBodyStickStep(GevrBodyStick *s, int hovering, float x, float y, float dtMs, int *take)
 {
     const float ax = fabsf(x);
+    const float magnitude = sqrtf(x * x + y * y);
     int step = 0;
 
     *take = 0;
@@ -406,7 +417,7 @@ int gevrBodyStickStep(GevrBodyStick *s, int hovering, float x, float dtMs, int *
         s->dir = 0;
         if (s->latched)
         {
-            if (ax <= 0.3f)
+            if (magnitude <= 0.3f)
             {
                 s->latched = 0;
             }
@@ -419,14 +430,15 @@ int gevrBodyStickStep(GevrBodyStick *s, int hovering, float x, float dtMs, int *
     }
     if (!s->armed)
     {
-        if (ax > 0.3f)
+        if (magnitude > 0.3f)
         {
             return 0;   /* still pushed from before the reach: it stays the player's */
         }
         s->armed = 1;
     }
-    *take = 1;
-    s->latched = ax > 0.3f;
+    if (magnitude <= 0.3f) s->latched = 0;
+    else if (ax >= 0.65f) s->latched = 1;
+    *take = s->latched;
     if (s->dir == 0)
     {
         if (ax >= 0.65f)

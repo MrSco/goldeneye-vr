@@ -8420,7 +8420,7 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
  * point v; k view units a font pixel; the panel's colour (RGBA). The name
  * tags below, and the body slots' labels (gevr_bodyslots.c).
  */
-Gfx *gevrDrawViewTag(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 speaking, u32 panel)
+static Gfx *gevrDrawViewTagMode(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 speaking, u32 panel, s32 overlay)
 {
     struct fontchar *chars = ptrFontZurichBoldChars;
     struct font *font = ptrFontZurichBold;
@@ -8525,9 +8525,11 @@ Gfx *gevrDrawViewTag(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 spe
         gSPMatrix(gdl++, osVirtualToPhysical(mv), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
         gDPPipeSync(gdl++);
         gSPClearGeometryMode(gdl++, G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
-        gSPSetGeometryMode(gdl++, G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH);
+        if (overlay) gSPClearGeometryMode(gdl++, G_ZBUFFER);
+        gSPSetGeometryMode(gdl++, (overlay ? 0 : G_ZBUFFER) | G_SHADE | G_SHADING_SMOOTH);
         gDPSetCycleType(gdl++, G_CYC_1CYCLE);
-        gDPSetRenderMode(gdl++, G_RM_ZB_XLU_SURF, G_RM_ZB_XLU_SURF2);
+        gDPSetRenderMode(gdl++, overlay ? G_RM_XLU_SURF : G_RM_ZB_XLU_SURF,
+                        overlay ? G_RM_XLU_SURF2 : G_RM_ZB_XLU_SURF2);
         gDPSetAlphaCompare(gdl++, G_AC_NONE);
         gDPSetTexturePersp(gdl++, G_TP_PERSP);
         gDPSetTextureLOD(gdl++, G_TL_TILE);
@@ -8556,8 +8558,23 @@ Gfx *gevrDrawViewTag(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 spe
             gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
         }
         gDPPipeSync(gdl++);
+        if (overlay)
+        {
+            gSPSetGeometryMode(gdl++, G_ZBUFFER);
+            gDPSetRenderMode(gdl++, G_RM_ZB_XLU_SURF, G_RM_ZB_XLU_SURF2);
+        }
     }
     return gdl;
+}
+
+Gfx *gevrDrawViewTag(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 speaking, u32 panel)
+{
+    return gevrDrawViewTagMode(gdl, name, at, k, speaking, panel, FALSE);
+}
+
+Gfx *gevrDrawViewTagOverlay(Gfx *gdl, const char *name, const f32 at[3], f32 k, u32 panel)
+{
+    return gevrDrawViewTagMode(gdl, name, at, k, FALSE, panel, TRUE);
 }
 
 /* one name, its panel's foot at the world point at */

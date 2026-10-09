@@ -145,6 +145,10 @@ int gevrBodyGripAction(int choice, int blocked);
  * moving slower than maxSpeed (m/s, against the head).
  */
 int gevrBodyThrowGate(float hoverMs, float speed, float dwellMs, float maxSpeed);
+/* Consecutive time at rest; moving again cancels the ready-to-grab pause. */
+float gevrBodySettleMs(float ms, float speed, float dtMs, float maxSpeed);
+/* Keep the grip's decision through partial release until a full let-go. */
+int gevrBodyGripHeld(int wasHeld, int pressed, float squeeze);
 
 /*
  * The hovering hand's own stick steps through the choices: sideways only, a
@@ -152,13 +156,13 @@ int gevrBodyThrowGate(float hoverMs, float speed, float dwellMs, float maxSpeed)
  * has been centred (<= 0.3) since the hover began, so walking or strafing as
  * the hand reaches keeps going, and held after the hover ends until it
  * centres, so leaving can't snap-turn. Returns the step (-1, 0, +1); *take
- * is 1 while the stick's X belongs to the slot.
+ * is 1 while the whole stick belongs to the slot. Both axes must centre.
  */
 typedef struct GevrBodyStick {
     int armed, latched, dir;
     float held, next;
 } GevrBodyStick;
-int gevrBodyStickStep(GevrBodyStick *s, int hovering, float x, float dtMs, int *take);
+int gevrBodyStickStep(GevrBodyStick *s, int hovering, float x, float y, float dtMs, int *take);
 
 /*
  * Hand reload's belt with body slots on: entering the belt waits deferMs, and
