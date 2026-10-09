@@ -12,6 +12,7 @@
 #include <macro.h>
 #ifdef GEVR
 #include "system.h"
+#include "libultra/audio/cseqp.h"
 #endif
 
 /**
@@ -36,8 +37,8 @@
  * drops it, so the player stays AL_PLAYING; a dropped follow-up leaves it
  * AL_STOPPING. Waiting without a bound spun until the watchdog aborted the
  * match (report c3ad6b13, the Caverns intro, musicTrack2Play from
- * set_missionstate). Two seconds is past the 50 ms note release. Forcing
- * AL_STOPPED lets the new track load.
+ * set_missionstate). After two seconds, recover through the audio engine:
+ * free its voices and cancel old events before reusing the sequence data.
  */
 static void gevrWaitSeqStopped(ALCSPlayer *seqp)
 {
@@ -50,10 +51,14 @@ static void gevrWaitSeqStopped(ALCSPlayer *seqp)
             alCSPStop(seqp);
         }
         gevrAudioFrame();
+        if (alCSPGetState(seqp) == AL_STOPPED)
+        {
+            return;
+        }
         if (++spins >= 120)
         {
             sysLogPrintf(LOG_ERROR, "music: sequence player stayed in state %d; forcing stop", alCSPGetState(seqp));
-            seqp->state = AL_STOPPED;
+            gevrCSPForceStop(seqp);
             break;
         }
         sysSleep(166667); /* one NTSC retrace, in 100 ns units */

@@ -29,8 +29,18 @@ def build(directory, name, fixture):
     exe = directory / name
     source.write_text(fixture, encoding="utf-8")
     gcc = shutil.which("gcc") or "gcc"
+    flags = []
+    if name == "music-wait":
+        # The AL helpers share the players' common layout, as in the game build.
+        flags = ["-fms-extensions", "-fno-strict-aliasing", "-fno-inline",
+                 "-Wno-builtin-declaration-mismatch",
+                 "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C=1", "-DVERSION=2",
+                 "-DVERSION_US=1", "-DLANG_US=1"]
+        flags += ["-I" + str(ROOT / path) for path in
+                  ("include", "include/PR", "port/include", "src/libultra/audio")]
     result = subprocess.run(
-        [gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-DGEVR=1", str(source), "-o", str(exe)],
+        [gcc, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror", "-DGEVR=1"] +
+        flags + [str(source), "-o", str(exe)],
         capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr)
@@ -45,6 +55,21 @@ def main():
         "port/src/net/net_coop_menu.c", "static int gevrCoopMenuMissionAction(int target)"))
 
     music = (ROOT / "port/tests/music_wait_native.c").read_text(encoding="utf-8")
+    for file in ("sl.c", "copy.c", "event.c", "cspstop.c", "cspgetstate.c",
+                 "cspsetseq.c", "cspplay.c"):
+        music = music.replace("../../src/libultra/audio/" + file,
+                              str(ROOT / "src/libultra/audio" / file))
+    helpers = [function("src/libultra/audio/seqplayer.c", signature) for signature in (
+        "ALVoiceState *__mapVoice(ALSeqPlayer *seqp, u8 key, u8 vel, u8 channel)",
+        "void __unmapVoice(ALSeqPlayer *seqp, ALVoice *voice)",
+        "void __seqpReleaseVoice(ALSeqPlayer *seqp, ALVoice *voice,",
+        "char __voiceNeedsNoteKill (ALSeqPlayer *seqp, ALVoice *voice, ALMicroTime killTime)",
+        "void __seqpStopOsc(ALSeqPlayer *seqp, ALVoiceState *vs)")]
+    music = music.replace("/* INSERT_VOICE_HELPERS */", "\n\n".join(helpers))
+    music = music.replace("/* INSERT_FORCE_STOP */", function(
+        "src/libultra/audio/csplayer.c", "void gevrCSPForceStop(ALCSPlayer *seqp)"))
+    music = music.replace("/* INSERT_VOICE_HANDLER */", function(
+        "src/libultra/audio/csplayer.c", "static ALMicroTime __CSPVoiceHandler(void *node)\n"))
     music = music.replace("/* INSERT_WAIT */", function(
         "src/music.c", "static void gevrWaitSeqStopped(ALCSPlayer *seqp)"))
 

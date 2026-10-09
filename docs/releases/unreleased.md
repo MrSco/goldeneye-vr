@@ -12,7 +12,8 @@
   Caverns intro waited forever for sequence player 2 to reach stopped.
   The stop is a queue event and can be dropped. The wait now posts the
   stop again while the player is still playing, and after two seconds
-  forces stopped so the new track can load. The same bound covers
+  stops and frees remaining voices, cancels old events, and restarts the
+  audio heartbeat before the new track loads. The same bound covers
   players 1 and 3.
 
 See [v0.4.14](v0.4.14.md) for bots handling doors, soft collision between players

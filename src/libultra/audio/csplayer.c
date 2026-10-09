@@ -134,6 +134,46 @@ void alCSPNew(ALCSPlayer *seqp, ALSeqpConfig *c)
 /*************************************************************
  * private routines or driver callback routines
  *************************************************************/
+#ifdef GEVR
+/* Called between audio frames: no audio thread runs concurrently on this port.
+ * A lost stop/note-end event must not leave voices allocated, or leave queued
+ * events referring to voices and sequence data the next track will reuse. */
+void gevrCSPForceStop(ALCSPlayer *seqp)
+{
+    ALVoiceState *vs;
+    s32 paramSamples = seqp->drvr->paramSamples;
+
+    /* Stop updates belong to now, even if the next callback was far away. */
+    seqp->drvr->paramSamples = seqp->drvr->curSamples;
+
+    /* The prefetched oscillator event is outside evtq, so StopOsc cannot see it. */
+    if ((seqp->nextEvent.type == AL_TREM_OSC_EVT ||
+         seqp->nextEvent.type == AL_VIB_OSC_EVT) && seqp->stopOsc)
+    {
+        (*seqp->stopOsc)(seqp->nextEvent.msg.osc.oscState);
+        seqp->nextEvent.msg.osc.vs->flags &=
+            seqp->nextEvent.type == AL_TREM_OSC_EVT ? 0xFE : 0xFD;
+    }
+
+    for (vs = seqp->vAllocHead; vs != NULL; vs = seqp->vAllocHead)
+    {
+        alSynStopVoice(seqp->drvr, &vs->voice);
+        alSynFreeVoice(seqp->drvr, &vs->voice);
+        if (vs->flags)
+            __seqpStopOsc((ALSeqPlayer *)seqp, vs);
+        __unmapVoice((ALSeqPlayer *)seqp, &vs->voice);
+    }
+    seqp->drvr->paramSamples = paramSamples;
+
+    alEvtqFlush(&seqp->evtq);
+    seqp->nextEvent.type = AL_SEQP_API_EVT;
+    seqp->nextDelta = 0;
+    seqp->node.samplesLeft = seqp->drvr->curSamples;
+    seqp->target = NULL;
+    seqp->state = AL_STOPPED;
+}
+#endif
+
 static ALMicroTime __CSPVoiceHandler(void *node)
 {
     ALCSPlayer      *seqp = (ALCSPlayer *) node;
