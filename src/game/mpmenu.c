@@ -462,6 +462,12 @@ static void rowImmunityValue(char *b,s32 n) { const char *names[] = { "NONE", "S
 static void rowImmunityStep(s32 dir) { s32 f=gevrNetConfigGet(CFG_FUN_FLAGS); gevrNetConfigSet(CFG_FUN_FLAGS, netWithHitImmunity(f, gevrCycled(netHitImmunity(f),dir,3))); }
 static void rowGunSizeValue(char *b,s32 n) { const char *names[] = { "NORMAL", "TINY", "BIG" }; snprintf(b,n,"%s",names[gevrNetConfigGet(CFG_GUN_SIZE)]); }
 static void rowGunSizeStep(s32 dir) { gevrNetConfigSet(CFG_GUN_SIZE,gevrCycled(gevrNetConfigGet(CFG_GUN_SIZE),dir,3)); }
+/* Movement speed is live, shared by humans and bots; the other fun rows latch next round. */
+static void rowMovementSpeedValue(char *b,s32 n) { snprintf(b,n,"%d%%",netMovementSpeedPercent(netActiveMovementSpeed())); }
+static void rowMovementSpeedStep(s32 dir) {
+    s32 percent=netMovementSpeedPercent(gevrNetConfigGet(CFG_MOVEMENT_SPEED));
+    gevrNetConfigSet(CFG_MOVEMENT_SPEED,netMovementSpeedMode(50+gevrCycled((percent-50)/25,dir,7)*25));
+}
 static const GevrMenuRow s_funRows[] = {
     { "DK MODE", GEVR_ROW_VALUE, 1, NULL, rowDkValue, rowDkStep, "R-STICK:ON/OFF" },
     { "PAINTBALL", GEVR_ROW_VALUE, 1, NULL, rowPaintValue, rowPaintStep, "R-STICK:ON/OFF" },
@@ -469,6 +475,7 @@ static const GevrMenuRow s_funRows[] = {
     { "NO RADAR", GEVR_ROW_VALUE, 1, NULL, rowRadarValue, rowRadarStep, "R-STICK:ON/OFF" },
     { "HIT IMMUNITY", GEVR_ROW_VALUE, 1, NULL, rowImmunityValue, rowImmunityStep, "R-STICK:PICK" },
     { "GUN SIZE", GEVR_ROW_VALUE, 1, NULL, rowGunSizeValue, rowGunSizeStep, "R-STICK:PICK" },
+    { "MOVEMENT SPEED", GEVR_ROW_VALUE, 1, NULL, rowMovementSpeedValue, rowMovementSpeedStep, "LIVE:HOST CHOOSES" },
 };
 static GevrMenuPage s_funPage = { s_funRows, sizeof(s_funRows) / sizeof(s_funRows[0]), 0, 0 };
 static GevrMenuPage s_pausePage = { s_pauseRows, sizeof(s_pauseRows) / sizeof(s_pauseRows[0]), 0, 0 };
@@ -697,6 +704,7 @@ static int gevrPauseChoiceInfo(const GevrMenuRow *r, int *selected)
     if (!strcmp(n,"DUAL WIELD")) {field=CFG_DUAL_WIELD;count=3;}
     if (!strcmp(n,"NEXT ROUND")) {field=CFG_NEXT_ROUND;count=3;}
     if (!strcmp(n,"VOICE MODE")) {field=CFG_VOICE_MODE;count=2;}
+    if (!strcmp(n,"MOVEMENT SPEED")) { *selected=(netMovementSpeedPercent(netActiveMovementSpeed())-50)/25;return 7; }
     if (!strcmp(n,"GUN SIZE")) {field=CFG_GUN_SIZE;count=3;}
     if (!strcmp(n,"HIT IMMUNITY")) { *selected=netHitImmunity(gevrNetConfigGet(CFG_FUN_FLAGS)); return 3; }
     if (!strcmp(n,"HOST DELAY CAP")) {
@@ -752,6 +760,7 @@ const char *gevrPauseChoice(int id,int index)
     if(!strcmp(n,"CHARACTER"))return netCharacterName(index);
     if(!strcmp(n,"YOUR TEAM"))return netTeamName(index);
     if(!strncmp(n,"CUSTOM ",7) || !strncmp(n,"LOADOUT ",8))return netItemName(gevrNetItemAt(index));
+    if(!strcmp(n,"MOVEMENT SPEED")) {const char*names[]={"50%","75%","100% (default)","125%","150%","175%","200%"};return names[index];}
     if(!strcmp(n,"GUN SIZE")) {const char*names[]={"Normal","Tiny","Big"};return names[index];}
     if(!strcmp(n,"HIT IMMUNITY")) {const char*names[]={"None: every hit counts","Short: a quarter second","GoldenEye: up to a second"};return names[index];}
     if(!strcmp(n,"HOST DELAY CAP")) {const char*names[]={"20 ms","40 ms","50 ms","60 ms","80 ms"};return names[index];}

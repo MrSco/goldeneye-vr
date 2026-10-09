@@ -176,8 +176,14 @@ static void netSyncCopyHand(struct player *pl, int slot, int hand, int weapon, i
      * hand; the chr is consulted only for an item that has a model, which a
      * new chr (a stage load) will lack.
      */
-    bool has_model = weapon > ITEM_UNARMED && weapon < ITEM_IDS_MAX && (s32)getPropForHeldItem((ITEM_IDS)weapon) >= 0;
-    if (s_copy_weapon[slot][hand] != weapon || (has_model && current != weapon)) {
+    /* Mission scripts search world weapon props for landed throws. A remote
+     * hand must follow the local hand's rule: selecting a mine cannot create
+     * a world mine before its owner throws it (#161). */
+    bool has_model = weapon > ITEM_UNARMED && weapon < ITEM_IDS_MAX
+        && !(netCoopActive() && gevrCoopThrownMissionItem(weapon))
+        && (s32)getPropForHeldItem((ITEM_IDS)weapon) >= 0;
+    if (s_copy_weapon[slot][hand] != weapon || (has_model && current != weapon)
+        || (!has_model && current != ITEM_UNARMED)) {
         sysLogPrintf(LOG_NOTE, "net: copy %d %s hand weapon %d -> %d (held %d, given %d)", slot,
                      hand == GUNLEFT ? "left" : "right", current, weapon, pl->hands[hand].weaponnum, s_copy_weapon[slot][hand]);
         chrSetWeaponFlag4(chr, hand);

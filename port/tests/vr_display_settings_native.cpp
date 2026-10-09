@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cstring>
 #include "vr_settings.h"
+#include "net_rules.h"
 #include "gevr_scope.h"
 #include "vr_screen.h"
 #include "vr_haptics.h"
@@ -66,6 +67,17 @@ int main(int argc, char **argv) {
         assert(VrFastReinforcements == std::atoi(argv[2]));
         assert(VrBodiesStay == std::atoi(argv[3]));
         assert(VrCoopFastReinforcements == std::atoi(argv[4]));
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "speed_write") == 0) {
+        VrMovementSpeed = netMovementSpeedMode(std::atoi(argv[2]));
+        VrMpMovementSpeed = netMovementSpeedMode(std::atoi(argv[3]));
+        vrSettingsSave();
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "speed_read") == 0) {
+        assert(netMovementSpeedPercent(VrMovementSpeed) == std::atoi(argv[2]));
+        assert(netMovementSpeedPercent(VrMpMovementSpeed) == std::atoi(argv[3]));
         return 0;
     }
     // Gun fit: GoldenEye X's models' own trims and the scopes'

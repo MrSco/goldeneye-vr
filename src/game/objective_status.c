@@ -8,6 +8,9 @@
 #include "str.h"
 #include "bondview.h"
 #ifdef GEVR
+#include "system.h"
+#include "chrai.h"
+#include "aicommands2.h"
 #include "net_coop.h"
 #include "../../port/vr/gevr_pause_menu.h"
 #include "net_game.h"
@@ -628,7 +631,24 @@ s32 gevrCoopObjectiveSnapshot(u8 *statuses, s32 max, s32 localslot)
     return count;
 }
 
-/* A teammate's headset: the objective items (collect, deposit) its player holds */
+static s32 gevrCoopAppendHeldTag(s32 tag, s32 *tags, s32 n, s32 max)
+{
+    ObjectRecord *obj = objFindByTagId(tag);
+    s32 i;
+    if (obj == NULL || obj->prop == NULL || !bondinvHasPropInInv(obj->prop)) return n;
+    for (i = 0; i < n; i++) if (tags[i] == tag) return n;
+    if (n >= max)
+    {
+        sysLogPrintf(LOG_ERROR, "coop: held mission tag limit %d exceeded", max);
+        return n;
+    }
+    tags[n++] = tag;
+    return n;
+}
+
+/* Include tags tested only by AI (#162), but not every tagged gun: Train
+ * has more than the packet's eight tags. Retail mission criteria fit it.
+ * Exact prop identity matters; granting a weapon ID cannot satisfy the AI. */
 s32 gevrCoopHeldObjectiveTags(s32 *tags, s32 max, s32 localslot)
 {
     MissionObjectiveRecord *objective;
@@ -639,20 +659,29 @@ s32 gevrCoopHeldObjectiveTags(s32 *tags, s32 max, s32 localslot)
     set_cur_player(localslot);
     for (i = 0; i < objectiveGetCount() && i < OBJECTIVES_MAX; i++)
     {
-        if (objective_ptrs[i] == NULL)
-        {
-            continue;
-        }
-        for (objective = &objective_ptrs[i]->id; objective->type != PROPDEF_OBJECTIVE_END; objective = sizepropdef(objective) + (PropDefHeaderRecord *)objective)
+        if (objective_ptrs[i] == NULL) continue;
+        for (objective = &objective_ptrs[i]->id; objective->type != PROPDEF_OBJECTIVE_END;
+                objective = sizepropdef(objective) + (PropDefHeaderRecord *)objective)
         {
             if (objective->type == PROPDEF_OBJECTIVE_COLLECT_OBJECT || objective->type == PROPDEF_OBJECTIVE_DEPOSIT_OBJECT)
+                n = gevrCoopAppendHeldTag(objective->ObjRefID, tags, n, max);
+        }
+    }
+    if (g_CurrentSetup.ailists != NULL)
+    {
+        for (i = 0; g_CurrentSetup.ailists[i].ailist != NULL; i++)
+        {
+            u8 *list = (u8 *)g_CurrentSetup.ailists[i].ailist;
+            s32 offset = 0;
+            while (list[offset] != AI_EndList)
             {
-                ObjectRecord *obj = objFindByTagId(objective->ObjRefID);
-
-                if (obj != NULL && obj->prop != NULL && bondinvHasPropInInv(obj->prop) && n < max)
+                if (list[offset] == AI_IFBondCollectedObject)
                 {
-                    tags[n++] = objective->ObjRefID;
+                    AiIFBondCollectedObjectRecord *ai = (AiIFBondCollectedObjectRecord *)(list + offset);
+                    n = gevrCoopAppendHeldTag(ai->OBJECT_TAG, tags, n, max);
                 }
+                /* Stage-local PRINT commands retain their strings. */
+                offset += chraiitemsize(list, offset);
             }
         }
     }

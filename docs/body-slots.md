@@ -83,8 +83,8 @@ neck, so looking down doesn't move these.
 |---|---|---|---|---|
 | Hips | 65 | 20 | -10 | 13 |
 | Shoulders | 8 | 19 | -20 | 20 |
-| Chest | 39 | 0 | 4 | 10 |
-| Belt (off side, front) | 60 | 7 | 10 | 10 |
+| Chest (gun side) | 32.73 | 12.91 | -0.77 | 10 |
+| Belt (off side) | 33.52 | 16.82 | 2.21 | 10 |
 
 Small and Large scale the reach by 0.8 and 1.25.
 
@@ -97,13 +97,15 @@ positions can be set by reach without seeing the ring behind you. Y resets
 the selected slot, A saves, B restores the last save, and Menu + A exits.
 Magazine pickup has its own belt fit: in Gun fit's Reload mode, put the off
 hand at the desired pickup point and press Y, then A to save.
-The Belt slot here holds gadgets, including the taser. Its default is low
-on the front of the waist, slightly toward the off-hand side; it is separate
+The Belt slot here holds gadgets, including the taser. Its default is
+toward the off-hand side at the user's fitted height; it is separate
 from the wrist/watch interaction and the chest's thrown items. Moving Belt
 in Slots fit moves that shared gadget location.
 
-The chest default was moved about 4 cm closer after the combined headset
-test. Saved custom slot fits take priority and are kept.
+Chest and Belt defaults use the user's saved Quest fits pulled on 2026-10-09,
+at 170 cm standing eye height. They scale with eye height, as the other
+defaults do. Saved custom slot fits take priority and are kept; resetting a
+fit uses these new defaults. Hips and shoulders keep their existing defaults.
 
 **Reloading an off-hand gun.** With the primary hand empty, it can grip and
 pull the off-hand gun's magazine, carry it and insert it at the green reload

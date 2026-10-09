@@ -72,12 +72,21 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
                         "-include", str(root / "port/tests/vr_display_settings_stubs.h"),
                         "-I" + str(root / "include"), "-I" + str(root / "port/vr"),
                         "-I" + str(root / "port/include"),
-                        str(settings_fixture),
+                        "-I" + str(root / "port/src/net"), str(settings_fixture),
                         str(root / "port/vr/vr_settings.cpp"), str(defaults), str(registry),
                         "-o", str(exe)], check=True)
         ini = temp / "goldeneye-vr.ini"
         ini.unlink(missing_ok=True)
         subprocess.run([str(exe)], cwd=temp, check=True, stdout=subprocess.DEVNULL)
+        subprocess.run([str(exe), "speed_read", "100", "100"], cwd=temp, check=True)
+        for solo in range(50, 201, 25):
+            for host in range(50, 201, 25):
+                subprocess.run([str(exe), "speed_write", str(solo), str(host)], cwd=temp, check=True)
+                subprocess.run([str(exe), "speed_read", str(solo), str(host)], cwd=temp, check=True)
+        for value, expected in ((-1,50),(999,200),(113,125)):
+            ini.write_text(f"MovementSpeed={value}\nMpMovementSpeed=75\n", encoding="utf-8")
+            subprocess.run([str(exe), "speed_read", str(expected), "75"], cwd=temp, check=True)
+        print("PASS: solo and host movement speed defaults, independent round trips and clamping")
         for fast in (0, 1):
             for bodies in (0, 12, 24, 48):
                 for coop in (0, 1):
