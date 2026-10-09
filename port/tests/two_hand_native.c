@@ -31,6 +31,8 @@ static float pose[2][3]; /* physical controller positions, metres */
 static int online, localSlot, playerSlot, reloadClaims, haveSniper;
 static unsigned frame;
 static int buzzes, buzzCtrl = -1;
+static int aimQueries;
+static int gevrStereoAimCached(int hand, coord3d *out) { (void)hand; (void)out; aimQueries++; return 1; }
 static int gevrPhysHand(int ctrl);
 static s32 gevrStereoTwoHandGrip(void);
 static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3]);
@@ -208,6 +210,15 @@ int main(void)
     {
         testSlot(gun, lh, ITEM_ROCKETLAUNCH);
         testSlot(gun, lh, ITEM_AK47);
+        /* A supporting hand has no sight quad, including the scope path;
+         * the weapon hand still gets the normal sight. */
+        setup(gun, lh, ITEM_AK47); hold(gun);
+        for (int i=0;i<20;i++) tick();
+        Gfx commands[2]; aimQueries=0;
+        assert(sightGuard(commands,1-gun)==commands && aimQueries==0);
+        assert(sightGuard(commands,gun)==commands+1 && aimQueries==1);
+        grip[gevrPhysHand(gun)]=0; tick();
+        assert(sightGuard(commands,1-gun)==commands+1 && aimQueries==2);
     }
     testClub();
     setup(GUNLEFT, 1, ITEM_WPPK);

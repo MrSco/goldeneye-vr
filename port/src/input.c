@@ -1455,16 +1455,18 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     mtrim[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     mtrim[2] += my * rate * dt;
                     mtrim[1] += ry * rate * dt;
-                } else if (gevrStereoTwoHandGrip() && gex && VrGexGuns) {
+                } else if (gevrStereoTwoHandGrip() && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns) {
                     /* GoldenEye X's own left hand holds it (gun.c): where, cm forward,
                      * up and out along the gun (user: the hold was taken too near the
                      * magazine); the hold is taken there too */
-                    if (gevrGexWeaponGet(fitItem) != NULL && get_button_state(1, "grip")) {
-                        gevrGexSupportRotFit(fitItem)[0] += my * 45.0f * dt;
-                        gevrGexSupportRotFit(fitItem)[1] += ry * 45.0f * dt;
-                        gevrGexSupportRotFit(fitItem)[2] += mx * 45.0f * dt;
+                    const s32 gun = gevrStereoTwoHandGun();
+                    const s32 supportItem = getCurrentPlayerWeaponId(gun);
+                    if (gevrGexWeaponGet(supportItem) != NULL && get_button_state(1 - gun, "grip")) {
+                        gevrGexSupportRotFit(supportItem)[0] += my * 45.0f * dt;
+                        gevrGexSupportRotFit(supportItem)[1] += ry * 45.0f * dt;
+                        gevrGexSupportRotFit(supportItem)[2] += mx * 45.0f * dt;
                     } else {
-                        float *supportFit = gevrGexSupportFit(fitItem);
+                        float *supportFit = gevrGexSupportFit(supportItem);
                         supportFit[0] += my * rate * dt;
                         supportFit[2] += mx * rate * dt;
                         supportFit[1] += ry * rate * dt;
@@ -1668,12 +1670,15 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 gripTaken[c] = on && gevrGripGestureTaken(c);
             }
         }
-        if (!menu && ((rightGrip && !rightThrowable && !gripTaken[1]) || (!stereoplay && leftGrip && !leftThrowable)))
+        if (!menu && ((rightGrip && !rightThrowable && !gripTaken[1]
+                      && !(stereoplay && gevrStereoTwoHandGrip() && gevrStereoTwoHandSupportCtrl() == 1))
+                     || (!stereoplay && leftGrip && !leftThrowable)))
             npad->button |= R_TRIG;
         // Issue #37: dual-wielding, the left grip shows the left gun's sight,
         // as Perfect Dark VR's (sight.c sightDrawLeftHand, on vr_button_L_grip).
         // Not R as well: here R aims and zooms.
-        vr_button_L_grip = stereoplay && gevrDualWielding() && leftGrip && !leftThrowable && !gripTaken[0];
+        vr_button_L_grip = stereoplay && gevrDualWielding() && leftGrip && !leftThrowable && !gripTaken[0]
+            && !(gevrStereoTwoHandGrip() && gevrStereoTwoHandSupportCtrl() == 0);
         // Scope sight diagnosis (sniper/laser headset reports): every source of
         // the aim request, logged only when one of them changes.
         {

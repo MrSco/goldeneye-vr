@@ -2344,11 +2344,17 @@ static s32 gevrGexArmsOn(void)
     return g_gevrStereo && VrGexGuns;
 }
 
-/* gunfire.c, bondview2.c: GE-X's left hand holds the gun with both hands */
+/* The rig's support mesh follows its weapon, mirrored with an off-hand gun. */
+s32 gevrGexSupportHandShown(s32 hand)
+{
+    return gevrGexArmsOn() && gevrGexHeld(hand) && gevrStereoTwoHandGrip()
+        && gevrStereoTwoHandGun() == hand;
+}
+
+/* Magazine/watch paths specifically refer to the main gun's left rig hand. */
 s32 gevrGexLeftHandShown(void)
 {
-    return gevrGexArmsOn() && gevrGexHeld(GUNRIGHT) && gevrStereoTwoHandGrip()
-        && gevrStereoTwoHandGun() == GUNRIGHT;
+    return gevrGexSupportHandShown(GUNRIGHT);
 }
 
 /*
@@ -2471,15 +2477,17 @@ static void gevrGexWatchAt(s32 hand, const Mtxf *forearm)
 extern float VrGexForeHold[3];   /* vr_settings_defaults.c */
 static f32 s_gevrGexForeAt[3], s_gevrGexForeOff[3];
 static s32 s_gevrGexForeValid;
+static s32 s_gevrGexForeGun = -1;
 
-static void gevrGexForeFrom(const Mtxf *rwmtx)
+static void gevrGexForeFrom(s32 hand, const Mtxf *rwmtx)
 {
-    const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
     const f32 *fit = gevrGexSupportFit(def->item);
     const f32 palmLocal[3] = { 0.0f, 0.0f, GEVR_GEX_PALM_Z };
     const Mtxf *g = &rwmtx[def->gunMatrix];
     f32 l[3], u, original[3];
     s32 i, r;
+    s_gevrGexForeGun = hand;
 
     for (r = 0; r < 3; r++)
     {
@@ -2510,7 +2518,8 @@ s32 gevrGexForePoint(f32 out[3])
 {
     s32 i;
 
-    if (!s_gevrGexForeValid || !gevrGexHeld(GUNRIGHT))
+    const s32 hand = gevrStereoTwoHandGun();
+    if (!s_gevrGexForeValid || s_gevrGexForeGun != hand || !gevrGexHeld(hand))
     {
         return FALSE;
     }
@@ -3000,9 +3009,9 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
                          palm[0], palm[1], palm[2], g_CurrentPlayer->hands[hand].field_92C, hdr->numMatrices);
         }
     }
-    if (g_gevrStereo && hand == GUNRIGHT && hdr->numMatrices > def->gunMatrix)
+    if (g_gevrStereo && hand == gevrStereoTwoHandGun() && hdr->numMatrices > def->gunMatrix)
     {
-        gevrGexForeFrom(rwmtx);   /* before a magazine in the hand moves the left hand */
+        gevrGexForeFrom(hand, rwmtx);   /* before a magazine moves the support hand */
     }
     /* the visible magazine's fit is the model's: the screen too (user) */
     if (gevrGexHasMagazine(def))
@@ -3067,7 +3076,7 @@ void gevrGexPoseGun(ModelFileHeader *hdr, Model *model, Mtxf *rwmtx, GUNHAND han
         s_gevrGexWatch[hand].on = FALSE;
         if (gevrGexArmsOn() && hdr->numMatrices > GEVR_GEX_LHAND_WRIST)
         {
-            if (hand == GUNRIGHT && !offHolds && s_gevrGexForeValid && gevrGexLeftHandShown())
+            if (!offHolds && s_gevrGexForeValid && s_gevrGexForeGun == hand && gevrGexSupportHandShown(hand))
             {
                 /* the holding hand where Gun fit's grip mode put it */
                 s32 i, j;
@@ -3212,10 +3221,11 @@ static void gevrGexResetModel(s32 hand, s32 rebuildCache)
         s_gevrGexLastValid[hand] = s_gevrGexFall[hand].on = FALSE;
         s_gevrGexPayloadOn[hand] = FALSE;
         s_gevrGexWatch[hand].on = FALSE;
+        if (s_gevrGexForeGun == hand) s_gevrGexForeValid = FALSE;
+        if (rebuildCache) s_gevrGexOffStale = TRUE;
         if (hand == GUNRIGHT)
         {
-            s_gevrGexMagPointsValid = s_gevrGexLastHeldValid = s_gevrGexForeValid = FALSE;
-            if (rebuildCache) s_gevrGexOffStale = TRUE;
+            s_gevrGexMagPointsValid = s_gevrGexLastHeldValid = FALSE;
         }
     }
 }
@@ -3325,7 +3335,7 @@ Model *gevrGexHands(GUNHAND hand)
     ModelFileHeader *hdr = &s_gevrGexHandHeader;
     const s32 mag = hand == GUNRIGHT ? gevrGexMagState(hand, NULL) : GEVR_GEXMAG_IN;
     const s32 leftShown = mag == GEVR_GEXMAG_GRIPPED || mag == GEVR_GEXMAG_INHAND   /* it holds the magazine */
-                       || (hand == GUNRIGHT && (gevrGexLeftHandShown() || gevrGexMagazineFitting()));
+                       || gevrGexSupportHandShown(hand) || (hand == GUNRIGHT && gevrGexMagazineFitting());
     const s32 dual = getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED;
     const s32 watch = g_CurrentPlayer->watch_animation_state != 0;   /* its arm is up */
     s32 i;

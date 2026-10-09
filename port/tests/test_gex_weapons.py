@@ -86,6 +86,29 @@ static f32 offPalm[3];
 static f32 s_gevrGexForeAt[3];
 static f32 s_gevrGexForeOff[3];
 static s32 s_gevrGexForeValid;
+static s32 s_gevrGexForeGun = -1;
+static int supportGun, supportHeld = 1, VrGexGuns = 1;
+static int physicalGrips[2];
+s32 gevrStereoTwoHandGun(void) { return supportGun; }
+s32 gevrStereoTwoHandGrip(void) { return supportHeld; }
+struct player { int watch_animation_state; };
+static struct player player;
+struct player *g_CurrentPlayer = &player;
+s32 getCurrentPlayerWeaponId(s32 hand) { return hand == supportGun ? active->item : ITEM_UNARMED; }
+bool get_button_state(int ctrl, const char *name) { (void)name; return physicalGrips[VrLeftHandedMode ? 1-ctrl : ctrl]; }
+static ModelFileHeader s_gevrGexHandHeader;
+static Model s_gevrGexHandModel;
+static s32 s_gevrGexHandRw[128];
+#define GEVR_GEX_HAND_SW_LEFT 0
+#define GEVR_GEX_HAND_SW_RIGHT 1
+s32 gevrGexHandLoad(void) { return 1; }
+s32 gevrGexMagState(s32 hand, f32 *off) { (void)hand; (void)off; return 0; }
+void modelInit(Model *model, ModelFileHeader *hdr, s32 *rw) { model->obj=hdr; model->datas=(u32 *)rw; }
+static int legacySupportDraws;
+static Gfx *gevrHandTag(Gfx *gdl, int ctrl) { (void)ctrl; return gdl; }
+static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *rd) { (void)rd; legacySupportDraws++; return gdl; }
+static s32 gevrGexMagazineFitting(void);
+static s32 gevrGexIsHandHeld(const GexWeaponDef *def);
 s32 gevrStereoOffHandMatrix(Mtxf *out) { *out=offController; return 1; }
 s32 gevrGexHeldPalm(f32 out[3]) { memcpy(out,offPalm,sizeof(offPalm)); return 1; }
 static int get_cur_playernum(void) { return 0; }
@@ -177,7 +200,7 @@ static void reloadGrip(ModelFileHeader *hdr) {
     }
     if (active->item != ITEM_AK47) {
         gevrGexPoseWalk(hdr,&ident,gevrGexRestAnim(active),0,poses);
-        gevrGexForeFrom(poses);
+        gevrGexForeFrom(GUNRIGHT,poses);
         gevrGexPistolSupportPose(hdr,poses);
         Mtxf support[64]; memcpy(support,poses,sizeof(support));
         /* Controller translation and rotation cannot pivot a supported pistol hand. */
@@ -196,7 +219,7 @@ static void reloadGrip(ModelFileHeader *hdr) {
             world.m[1][1]=k; world.m[2][0]=-k*sinf(angle); world.m[2][2]=k*cosf(angle);
             world.m[3][0]=100; world.m[3][1]=-30; world.m[3][2]=60;
             gevrGexPoseWalk(hdr,&world,gevrGexRestAnim(active),0,poses);
-            gevrGexForeFrom(poses);
+            gevrGexForeFrom(GUNRIGHT,poses);
             gevrGexPistolSupportPose(hdr,poses);
             for (int j=17;j<=32;j++) {
                 matrix_4x4_multiply(&world,&support[j],&expected);
@@ -205,7 +228,7 @@ static void reloadGrip(ModelFileHeader *hdr) {
             }
         }
         gevrGexPoseWalk(hdr,&ident,gevrGexRestAnim(active),0,poses);
-        gevrGexForeFrom(poses);
+        gevrGexForeFrom(GUNRIGHT,poses);
         float *supportRot=gevrGexSupportRotFit(active->item);
         supportRot[0]=30; supportRot[1]=-45; supportRot[2]=90;
         gevrGexPistolSupportPose(hdr,poses);
@@ -218,6 +241,68 @@ static void reloadGrip(ModelFileHeader *hdr) {
         for (int j=17;j<=32;j++) assert(!memcmp(&poses[j],&support[j],sizeof(Mtxf)));
         memset(supportRot,0,3*sizeof(float));
     }
+    /* The same GE-X rig and saved support fit for a gun in either slot.
+     * Mirroring the weapon mirrors its support mesh, including its cuff. */
+    for (int hand=0;hand<2;hand++) for (int mirror=0;mirror<2;mirror++) {
+        supportGun=hand;
+        Mtxf base; matrix_4x4_set_identity(&base);
+        base.m[0][0]=mirror ? -0.085f : 0.085f;
+        base.m[1][1]=base.m[2][2]=0.085f;
+        base.m[3][0]=40; base.m[3][1]=-30; base.m[3][2]=-60;
+        gevrGexPoseWalk(hdr,&base,gevrGexRestAnim(active),0,poses);
+        gevrGexForeFrom(hand,poses);
+        f32 pickup[3]; assert(gevrGexForePoint(pickup));
+        gevrGexPistolSupportPose(hdr,poses);
+        f32 palm[3]; gevrGexMtxPoint(&poses[GEVR_GEX_LHAND_WRIST],(f32[]){0,0,GEVR_GEX_PALM_Z},palm);
+        for (int a=0;a<3;a++) assert(fabsf(palm[a]-pickup[a])<0.0001f);
+        supportGun=1-hand; assert(!gevrGexForePoint(pickup)); /* no stale point from the other gun */
+    }
+    supportGun=GUNRIGHT;
+}
+static void supportMeshes(void) {
+    ModelNode nodes[2]={0}; union ModelRoData records[2]={0}; ModelNode *table[2]={&nodes[0],&nodes[1]};
+    s_gevrGexHandHeader.numSwitches=2; s_gevrGexHandHeader.Switches=table;
+    for (int i=0;i<2;i++) { nodes[i].Data=&records[i]; records[i].Switch.RwDataIndex=i; }
+    Gfx commands[4];
+    for (int hand=0;hand<2;hand++) for (int handed=0;handed<2;handed++) {
+        supportGun=hand; supportHeld=1; VrLeftHandedMode=handed;
+        Mtxf poses[64];
+        const f32 sign=(handed != (hand==GUNLEFT)) ? -1 : 1;
+        for (int i=0;i<64;i++) {
+            matrix_4x4_set_identity(&poses[i]);
+            poses[i].m[0][0]=sign*0.085f; poses[i].m[1][1]=poses[i].m[2][2]=0.085f;
+        }
+        poses[GEVR_GEX_LHAND_WRIST].m[3][0]=10;
+        poses[GEVR_GEX_RHAND_WRIST].m[3][0]=20;
+        gevrGexForeFrom(hand,poses);
+        f32 point[3], expected[3];
+        gevrGexMtxPoint(&poses[active->compact ? GEVR_GEX_RHAND_WRIST : GEVR_GEX_LHAND_WRIST],
+            (f32[]){0,0,GEVR_GEX_PALM_Z},expected);
+        const f32 *supportFit=gevrGexSupportFit(active->item);
+        expected[0]+=sign*supportFit[2]; expected[1]+=supportFit[1]; expected[2]+=supportFit[0];
+        assert(gevrGexForePoint(point));
+        for (int a=0;a<3;a++) assert(fabsf(point[a]-expected[a])<0.0001f);
+        supportGun=1-hand; assert(!gevrGexForePoint(point)); supportGun=hand;
+        assert(gevrGexSupportHandShown(hand) && !gevrGexSupportHandShown(1-hand));
+        assert(gevrGexLeftHandShown()==(hand==GUNRIGHT));
+        gevrGexHands(hand); assert(visible[0] && visible[1]);
+        legacySupportDraws=0; drawLegacySupport(commands); assert(legacySupportDraws==0);
+        supportHeld=0; gevrGexHands(hand); assert(!visible[0] && visible[1]);
+        supportHeld=1; VrGexGuns=0;
+        drawLegacySupport(commands); assert(legacySupportDraws==1);
+        VrGexGuns=1;
+        f32 *fit=gevrGexSupportFit(active->item), *rotation=gevrGexSupportRotFit(active->item);
+        f32 saved[3], savedRot[3]; memcpy(saved,fit,sizeof(saved)); memcpy(savedRot,rotation,sizeof(savedRot));
+        memset(physicalGrips,0,sizeof(physicalGrips));
+        fitSupport(1,2,3,4,0.5f);
+        assert(fit[0]==saved[0]+4 && fit[1]==saved[1]+6 && fit[2]==saved[2]+2);
+        memcpy(fit,saved,sizeof(saved));
+        physicalGrips[handed ? hand : 1-hand]=1; /* the trigger hand, not the support hand */
+        fitSupport(1,2,3,4,0.5f);
+        assert(rotation[0]==savedRot[0]+45 && rotation[1]==savedRot[1]+67.5f && rotation[2]==savedRot[2]+22.5f);
+        assert(!memcmp(fit,saved,sizeof(saved))); memcpy(rotation,savedRot,sizeof(savedRot));
+    }
+    VrLeftHandedMode=0; supportGun=GUNRIGHT; supportHeld=1;
 }
 static void switches(void) {
     if (!gevrGexHasAmmo(active)) return;
@@ -331,7 +416,7 @@ static u8 *partVertices(u8 *source,int wanted) {
 }
 int main(int argc,char **argv) {
     const int items[]={ITEM_AK47,ITEM_WPPK,ITEM_WPPKSIL,ITEM_TT33,ITEM_SKORPION,ITEM_UZI,ITEM_MP5K,ITEM_MP5KSIL,ITEM_SPECTRE,ITEM_M16,ITEM_FNP90,ITEM_SNIPERRIFLE,ITEM_LASER,ITEM_SHOTGUN,ITEM_AUTOSHOT,ITEM_ROCKETLAUNCH,ITEM_GOLDENGUN,ITEM_RUGER,ITEM_GRENADELAUNCH,ITEM_SILVERWPPK,ITEM_GOLDWPPK,ITEM_KNIFE,ITEM_THROWKNIFE,ITEM_GRENADE,ITEM_TIMEDMINE,ITEM_PROXIMITYMINE,ITEM_REMOTEMINE,ITEM_TASER,ITEM_FIST,ITEM_PLASTIQUE,ITEM_WATCHLASER};
-    for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) { active=gevrGexWeaponGet(items[i]); assert(active); switches(); }
+    for (unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) { active=gevrGexWeaponGet(items[i]); assert(active); switches(); supportMeshes(); }
     assert(gevrGexWeaponGet(ITEM_WPPK)->magMatrix==38);
     assert(gevrGexWeaponGet(ITEM_WPPK)->heldMatrix==42);
     assert(gevrGexHeldMagFit(ITEM_WPPK)==gevrGexHeldMagFit(ITEM_WPPKSIL));
@@ -697,6 +782,8 @@ production.extend(function(gun,s) for s in ("static void gevrGexMtxPoint(const M
     "static void gevrGexPistolMagGrip(", "static s32 gevrGexOffSteady("))
 production.extend(function(gun,s) for s in ("static void gevrGexHeldMagFitTo(", "static void gevrGexPistolSupportPose("))
 production.append(function(gun,"static void gevrGexForeFrom("))
+production.extend(function(gun,s) for s in ("s32 gevrGexForePoint(", "static s32 gevrGexArmsOn(",
+    "s32 gevrGexSupportHandShown(", "s32 gevrGexLeftHandShown(void)\n{", "Model *gevrGexHands("))
 production.append(function(gun,"static s32 gevrGexIsHandHeld("))
 production.append(function(gun,"s32 gevrGexHandHeld(s32 hand)"))
 production.append(function(gun,"static void gevrGexHandFitTo(const GexWeaponDef *def, Mtxf *rwmtx, s32 numMatrices)\n{"))
@@ -708,6 +795,11 @@ production.append(function(view,"static void gevrScopeLensPlace("))
 input_source=(ROOT/"port/src/input.c").read_text()
 cycle=function(input_source,"if (x && !xHeld && gadget < 0)")
 production.append('static void cycleFit(void) { const int gex=active!=NULL,scope=fitScope; '+cycle[cycle.index('{')+1:-1]+' }')
+fit=function(input_source,'if (gevrStereoTwoHandGrip() && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns)')
+production.append('static void fitSupport(float mx,float my,float ry,float rate,float dt) { '+fit+' }')
+fire=(ROOT/"src/game/gunfire.c").read_text(encoding="utf-8")
+legacy=function(fire,'if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun()))')
+production.append('static void drawLegacySupport(Gfx *gdl) { ModelRenderData renderdata={0}; '+legacy+' }')
 with tempfile.TemporaryDirectory(prefix="gex-weapons-") as directory:
     temp=Path(directory); file=temp/"test.c"; exe=temp/"test.exe"
     file.write_text(HARNESS.replace('/* PRODUCTION */','\n'.join(production)))

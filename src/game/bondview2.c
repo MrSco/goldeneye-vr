@@ -2927,7 +2927,7 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
         *distcm = sqrtf(d[0]*d[0] + d[1]*d[1] + d[2]*d[2]) / cm;
         return TRUE;
     }
-    if (!drawn && gun == GUNRIGHT && gevrGexForePoint(snap))
+    if (!drawn && gevrGexForePoint(snap))
     {
         /* GoldenEye X: where its own left hand holds (gun.c; Gun fit's grip mode
          * moves it), from the off hand as drawn (user: it was taken too near
@@ -15752,12 +15752,13 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
                  "BARREL TIP FIT: %s%s\nFORWARD: %.1f CM  SIDE: %.1f CM  UP: %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  label, gex, t ? t[2] : 0.0f, t ? t[0] : 0.0f, t ? t[1] : 0.0f, gevrFitNextLine(7));
     }
-    else if (gevrStereoTwoHandGrip() && gevrGexHeld(GUNRIGHT) && VrGexGuns)
+    else if (gevrStereoTwoHandGrip() && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns)
     {
         /* GoldenEye X's own left hand holding: where it holds (input.c) */
-        const float *supportFit = gevrGexSupportFit(getCurrentPlayerWeaponId(GUNRIGHT));
-        const GexWeaponDef *def = gevrGexWeaponForHand(GUNRIGHT);
-        const float *rotationFit = gevrGexSupportRotFit(getCurrentPlayerWeaponId(GUNRIGHT));
+        const s32 gun = gevrStereoTwoHandGun();
+        const float *supportFit = gevrGexSupportFit(getCurrentPlayerWeaponId(gun));
+        const GexWeaponDef *def = gevrGexWeaponForHand(gun);
+        const float *rotationFit = gevrGexSupportRotFit(getCurrentPlayerWeaponId(gun));
         if (def != NULL)
         {
             snprintf(buf, sizeof(buf),
