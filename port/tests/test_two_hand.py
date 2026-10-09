@@ -52,6 +52,9 @@ production.extend(function(view, signature) for signature in (
     'static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3])\n{'))
 production.extend(function(gun, signature) for signature in (
     'static s32 gevrUnarmedModelItem(', 'static void gevrUnarmedModelUpdate('))
+sight=function(gun,'static Gfx *gevrDrawSight3D(')
+guard=function(sight,'if ((gevrStereoTwoHandGrip()')
+production.append('static Gfx *sightGuard(Gfx *gdl,s32 hand) { coord3d p; '+guard+' return gdl+1; }')
 fixture = (ROOT / 'port/tests/two_hand_native.c').read_text(encoding='utf-8')
 fixture = fixture.replace('/* DEFINITIONS */', '\n'.join(definitions))
 fixture = fixture.replace('/* PRODUCTION */', '\n'.join(production))

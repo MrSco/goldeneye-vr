@@ -2821,9 +2821,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
      */
     {
         extern s32 gevrStereoTwoHandGrip(void);
-        extern s32 gevrGexLeftHandShown(void);   /* gun.c: GoldenEye X's own left hand holds it */
+        extern s32 gevrGexSupportHandShown(s32 hand);   /* gun.c: the gun rig draws its support hand */
 
-        if (gevrStereoTwoHandGrip() && (gevrStereoTwoHandGun() == GUNLEFT || !gevrGexLeftHandShown()))
+        if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun()))
         {
             gdl = gevrHandTag(gdl, 1 - gevrStereoTwoHandGun());
             gdl = gevrRenderLeftArm(gdl, &renderdata);
@@ -8380,7 +8380,7 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
     f32 k;
     s32 i;
 
-    if (!gevrStereoAimCached(hand, &p))
+    if ((gevrStereoTwoHandGrip() && hand != gevrStereoTwoHandGun()) || !gevrStereoAimCached(hand, &p))
     {
         return gdl;
     }

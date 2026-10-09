@@ -10,6 +10,11 @@ barrel proximity, aim, spread, recoil, palm placement and grip feedback use that
 slot. Controller roles still pass through the existing handedness mapping.
 The support hand is drawn attached to the gun and its trigger, motion melee and
 pickup/holster grip gestures are suppressed while supporting it.
+With GoldenEye X enabled, either weapon slot draws the rig's own support
+mesh and shares that weapon's GE-X support-position and rotation fits. An
+off-hand weapon mirrors both gun and support mesh together. The original
+GoldenEye gripping hand is used for original models. Support hands do not
+request their own aim/crosshair, and their normal or scoped sight is hidden.
 
 Unarmed uses the bare fist while an off-hand gun is equipped or queued. The
 loaded melee model is refreshed when that choice changes. Once the off-hand gun
@@ -27,6 +32,9 @@ is holstered, owning a sniper selects the original sniper butt again.
 - `python port/tests/test_v043.py`: production controller mapping and independent
   reload routing.
 - Watch-grip and GoldenEye X model harnesses passed with Linux header wrappers.
+- GE-X harness checks support-mesh visibility, absence of the original hand
+  fallback, fitted pickup positions and support-fit controls for either slot
+  and handedness. Two-hand checks cover the support-hand sight guard.
 - Android `assembleDebug` passed; the debug APK signature verified.
 
 ## Headset playtest needed
@@ -40,6 +48,16 @@ is holstered, owning a sniper selects the original sniper butt again.
    returns. Repeat starting with the butt already loaded before equipping the
    off-hand gun.
 4. Repeat in left-handed mode, and with GoldenEye X models enabled. Check the
-   support palm, cuff and face culling in the headset.
+   support palm, cuff and face culling in the headset. In Gun fit while
+   supporting the weapon, check that the readout says SUPPORT FIT (GOLDENEYE X),
+   sticks move the correct hand and holding the weapon hand's grip rotates it.
+   Check that the gripping hand has no crosshair, with crosshairs enabled and
+   while using a scoped weapon. Release the support grip and verify the usual
+   independent aim behavior returns.
 5. Check a dominant-hand gun with the off hand holstered, then two independently
    equipped guns. Check that the former supports and the latter fires separately.
+
+The combined build c64e34c headset test exposed a legacy support hand and
+crosshair on reversed holds. The follow-up extends the GE-X rig path and
+fitting to the supported weapon slot, and suppresses aim/sights on its support
+hand. Retest these visual changes in-headset.

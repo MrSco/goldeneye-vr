@@ -19,6 +19,9 @@
   When the off hand holds a gun, Unarmed stays bare even if a sniper is owned,
   so the free hand can support it. Holstering the off-hand gun restores the
   original sniper-butt substitution.
+- GoldenEye X two-handed holds use the matching rig hand in either weapon
+  slot, with the weapon's support fit and rotation. The supporting hand no
+  longer shows its own crosshair.
 
 See [v0.4.14](v0.4.14.md) for bots handling doors, soft collision between players
 and the hit immunity rule,
