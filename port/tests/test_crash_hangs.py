@@ -1,7 +1,8 @@
-"""Regressions for the v0.4.14 co-op briefing hang.
+"""Regressions for the v0.4.14 watchdog hangs.
 
 Reports 7b162d90 and 919e73ee (manual 3e30f876 is the same session as
-919e73ee) hung leaving the briefing for mission select.
+919e73ee) hung leaving the co-op briefing. Report c3ad6b13 hung waiting
+for a sequence player to stop during the Caverns intro.
 """
 from pathlib import Path
 import shutil
@@ -43,6 +44,10 @@ def main():
     menu = menu.replace("/* INSERT_ACTION */", function(
         "port/src/net/net_coop_menu.c", "static int gevrCoopMenuMissionAction(int target)"))
 
+    music = (ROOT / "port/tests/music_wait_native.c").read_text(encoding="utf-8")
+    music = music.replace("/* INSERT_WAIT */", function(
+        "src/music.c", "static void gevrWaitSeqStopped(ALCSPlayer *seqp)"))
+
     briefing = (ROOT / "port/tests/briefing_level_native.c").read_text(encoding="utf-8")
     briefing = briefing.replace("/* INSERT_LEVEL */", function(
         "src/game/front.c", "static s32 gevrBriefingLevel(void)"))
@@ -50,6 +55,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix="gevr-crash-hangs-") as temp:
         directory = Path(temp)
         build(directory, "coop-menu", menu)
+        build(directory, "music-wait", music)
         build(directory, "briefing-level", briefing)
     print("crash hang regressions passed")
 
