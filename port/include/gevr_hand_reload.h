@@ -4,6 +4,8 @@
 /* Local stereo gameplay; also used to reserve B/Y exclusively for eject. */
 int gevrHandReloadActive(void);
 int gevrManualReloadOn(int hand);
+/* A single gun's slot; its index is also the opposite controller's role. */
+int gevrReloadSupportGun(void);
 int gevrReloadStow(int hand, int item);
 int gevrReloadDraw(int hand);
 int gevrReloadStoredRounds(int hand, int item);

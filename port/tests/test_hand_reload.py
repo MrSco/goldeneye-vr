@@ -71,7 +71,8 @@ production.append(function(read("src/game/gunfire.c"), "void sub_GAME_7F0649D8(e
 production.extend(function(view, signature) for signature in (
     "static void gevrWorldToLocal(",
     "static s32 gevrHandOnBody(", "static s32 gevrHipZone(",
-    "static s32 gevrReloadGun(", "static s32 gevrReloadMagazineFed(",
+    "static s32 gevrReloadGun(", "s32 gevrReloadSupportGun(void)\n{", "static s32 gevrReloadMagazineFed(",
+    "s32 gevrStereoReloadHandMatrix(Mtxf *out)\n{",
     "s32 gevrHandReloadActive(", "s32 gevrManualReloadOn(", "static s32 gevrGexByHand(",
     "s32 gevrGexHeldRoundCount(void)\n{",
     "static void gevrGexHeldDropped(", "static void gevrGexMagOut(",
@@ -84,7 +85,8 @@ production.extend(function(view, signature) for signature in (
     "static s32 gevrGexPistolSupportAllowed(void)\n{", "static f32 gevrGexReloadDistance(s32 index)\n{",
     "s32 gevrReloadBeltAmmo(", "s32 gevrReloadBeltHover(", "s32 gevrReloadGrabBelt(", "s32 gevrReloadBeltPoint(", "s32 gevrReloadSeatHover(",
     "void gevrGexReloadReset(",
-    "s32 gevrGexClaimsOffHand(void)\n{", "void gevrGexDropMagazine(",
+    "s32 gevrGexClaimsOffHand(void)\n{", "s32 gevrGexHeldPalm(f32 out[3])\n{",
+    "s32 gevrGexMagState(s32 hand, f32 off[3])\n{", "void gevrGexDropMagazine(",
     "static void gevrHandReloadFire(", "static void gevrGexRoundTick(", "void gevrHandReloadTick("))
 for signature in ("static s32 gevrReloadNeedsAmmo(", "static s32 gevrReloadBeltReach("):
     if signature in view:

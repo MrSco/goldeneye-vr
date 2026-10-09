@@ -61,3 +61,35 @@ The combined build c64e34c headset test exposed a legacy support hand and
 crosshair on reversed holds. The follow-up extends the GE-X rig path and
 fitting to the supported weapon slot, and suppresses aim/sights on its support
 hand. Retest these visual changes in-headset.
+
+## Follow-up to the ed74919 headset test
+
+Reversed GE-X holds measured the weapon controller rather than the free
+primary hand. The palm getter and compact-weapon pickup points now select the
+free controller for either weapon slot. Reload arbitration uses that same
+role, so a magazine grip cannot also acquire two-handed support.
+
+Physical magazine pulling, belt pickup, held-hand rendering, insertion guides
+and round ownership now work with the gun in either slot. With a lone off-hand
+gun, its ammunition is also offered on the primary-hand hip. Native checks
+exercise the full reversed reload sequence in both handedness modes, along
+with partial magazines, drop refunds, holstered missing magazines, single
+rounds and speedloaders. The two-hand harness uses the production palm getter
+with a separated weapon controller to catch the original regression.
+
+A separate report described automatic-weapon support-hand jitter without
+identifying the weapon, model setting or whether it happened during firing.
+The GE-X anchor followed its animated wrist while the weapon could stay fixed;
+a native regression reproduced that dependency. It now maps the resting palm
+through the current gun frame and rebuilds the complete support arm/fingers
+from the resting chain, including the KF7. Checks cover 100 frames of joint
+noise, mirrored holds, model fits and actual weapon movement. This fixes the
+confirmed animation dependency; the reported headset symptom remains unverified.
+
+For the next headset pass, equip a gun in the off hand with an empty primary
+hand. Check two-handed acquisition/release, pull/drop its magazine, take one
+from the primary-hand hip and insert it at the highlighted well. Confirm the
+GE-X free hand follows the magazine without a second fist overlapping it.
+Repeat with a pistol, rifle and single-round weapon, with body slots on/off
+and left-handed mode. Fire sustained bursts with a supported KF7 and another
+automatic, then compare with idle holding and with original models.

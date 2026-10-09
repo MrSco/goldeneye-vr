@@ -2847,7 +2847,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         }
 #ifdef GEVR
         /* The support hand was drawn attached to the gun before this pass. */
-        if (gevrStereoTwoHandGrip() && handnum == 1 - gevrStereoTwoHandGun()) continue;
+        extern s32 gevrGexMagazineHandShown(s32 hand);
+        if (gevrGexMagazineHandShown(handnum)
+            || (gevrStereoTwoHandGrip() && handnum == 1 - gevrStereoTwoHandGun())) continue;
         /* stereo: the watch arm is drawn on the left controller instead
          * (gevrRenderLeftWatchArm), not as a weapon in the left hand */
         if (g_gevrStereo && item == ITEM_SUIT_LF_HAND)

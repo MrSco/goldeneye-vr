@@ -95,6 +95,12 @@ in Slots fit moves that shared gadget location.
 The chest default was moved about 4 cm closer after the combined headset
 test. Saved custom slot fits take priority and are kept.
 
+**Reloading an off-hand gun.** With the primary hand empty, it can grip and
+pull the off-hand gun's magazine, carry it and insert it at the green reload
+ring. Its replacement magazine is offered at the primary-hand hip as well.
+The held magazine keeps its rounds; releasing it refunds them once. These
+reload controls and visual guides also work with Body slots disabled.
+
 **Hand reload (GoldenEye X) with body slots on.** The fitted belt sits where
 the hip holster does. A touch there still reloads, 100 ms later. While a
 magazine is missing, its pickup sphere wins over the hip and belt slots;
