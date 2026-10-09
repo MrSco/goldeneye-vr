@@ -44,6 +44,16 @@ static void heading(void)
         CHECK(NEAR(gevrBodyAngle(a, b), 30.0f, 1e-3f));
         gevrBodyTurn(a, -170.0f, b);
         CHECK(NEAR(gevrBodyAngle(a, b), -170.0f, 1e-3f));
+        /* small turns either way stay small and signed (GoldenEye's atan2f is 0..2 pi) */
+        gevrBodyTurn(a, -0.3f, b);
+        CHECK(NEAR(gevrBodyAngle(a, b), -0.3f, 2e-3f));
+        gevrBodyTurn(a, 0.05f, b);
+        CHECK(NEAR(gevrBodyAngle(a, b), 0.05f, 2e-3f));
+        for (int k = -179; k <= 179; k += 7)
+        {
+            gevrBodyTurn(a, (float) k, b);
+            CHECK(NEAR(gevrBodyAngle(a, b), (float) k, 2e-3f));
+        }
     }
 }
 
@@ -65,6 +75,20 @@ static void torso(void)
     }
     /* Perfect Dark VR's chase: 0.98 a tick */
     CHECK(NEAR(gevrBodyAngle(head, t.heading), -30.0f * powf(0.98f, 60.0f), 0.05f));
+    /* a head turned a little the other way: no jump, no reset */
+    {
+        GevrBodyTorso u;
+        float h2[2];
+
+        gevrBodyTorsoReset(&u);
+        gevrBodyTorsoUpdate(&u, ahead, 0.02f, 1.0f, 0, 60.0f, 45.0f);
+        for (i = 1; i <= 30; i++)
+        {
+            gevrBodyTurn(ahead, -0.5f * i, h2);
+            CHECK(gevrBodyTorsoUpdate(&u, h2, 0.02f, 1.0f, 0, 60.0f, 45.0f) == 0);
+        }
+        CHECK(gevrBodyAngle(h2, u.heading) > 5.0f && gevrBodyAngle(h2, u.heading) < 15.0f);
+    }
     /* two ticks at once chase as far as two single ticks */
     {
         GevrBodyTorso a = t, b = t;
