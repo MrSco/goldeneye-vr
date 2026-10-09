@@ -198,6 +198,15 @@ def build_fixture(name, source=None):
         fixture=fixture.replace("/* INSERT_VOICE_HANDLER */", function("src/snd.c", "ALMicroTime sndPlayerVoiceHandler(void *node)\n"))
     elif name == "botnav_native":
         fixture=fixture.replace('../../src/game/gevr_botnav.c',(ROOT/'src/game/gevr_botnav.c').as_posix())
+        collision=(ROOT/'src/game/chrprop.c').read_text(encoding='utf-8')
+        start=collision.index('s32 propIsOfCdType(')
+        end=collision.index('{',start)+1
+        depth=1
+        while depth:
+            if collision[end]=='{': depth+=1
+            elif collision[end]=='}': depth-=1
+            end+=1
+        fixture=fixture.replace('/* INSERT_PRODUCTION_CD_SELECTOR */',collision[start:end])
     elif name == "objects_native":
         fixture=fixture.replace('../src/net/net_objects.c',(ROOT/'port/src/net/net_objects.c').as_posix())
     path=NATIVE/f"{name}.c";path.write_text(fixture,encoding="utf-8")
@@ -300,6 +309,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_bot_join_and_election(self): self.assertEqual(self.core.test_core_bot_join(),0)
     def test_bot_owner(self): self.assertEqual(self.core.test_core_bot_owner(),0)
     def test_bot_floor_routes(self): self.assertEqual(self.botnav.test_botnav(),0)
+    def test_bot_glass_routes(self): self.assertEqual(self.botnav.test_botnav_glass(),0)
     def test_sound_through_portals(self): self.assertEqual(self.sndpath.test_sndpath(),0)
     def test_sound_queue_yields_a_frame(self): self.assertEqual(self.sfxqueue.test_sfx_queue(),0)
     def test_host_player_count_any_stage(self): self.assertEqual(self.core.test_core_player_count(),0)
