@@ -162,6 +162,15 @@ static void runtimeIntegration() {
     assert(gevrVrRedrawDelta(replay)); near(s_presentedCamera.position[0],-10);
     near(s_presentedCamera.position[2],9);
     near(s_presentedCamera.rotation[0],-std::cos(0.2f));
+    /* What sits on the body turns against the head's turn but keeps its place
+     * by the head: the redraw's rotation, no translation, no locomotion. */
+    {
+        float body[16]; assert(gevrVrRedrawBodyDelta(body));
+        for (int i=0;i<3;i++) near(body[12+i],0);
+        near(body[15],1);
+        near(body[0],std::cos(0.2f)); near(body[10],std::cos(0.2f));
+        near(std::fabs(body[8]),std::sin(0.2f));
+    }
     /* Locomotion corrections must not displace a stationary tracked gun. */
     float hand[16]; assert(gevrVrRedrawHandDelta(0,hand));
     for (int i=0;i<16;i++) near(hand[i],identity4[i]);
@@ -283,6 +292,9 @@ static void matricesAndUniforms() {
     float expected[16]; gevrMat4Multiply(proj,a,expected);
     for (int i=0;i<16;i++) near(lastUniformMatrix[i],expected[i]);
     s_uniCacheValid=true; gfx_vr_eye_hand(0); gevr_eye_present_draw(); assert(reprojection[1]==0);
+    gfx_vr_eye_hand(-1); gevr_eye_present_draw(); assert(reprojection[1]==1);
+    gfx_vr_eye_hand(2); gevr_eye_present_draw(); assert(reprojection[1]==0);   // the body: no locomotion
+    gfx_vr_eye_hand(3); gevr_eye_present_draw(); assert(reprojection[1]==1);   // unknown: the world
     gfx_vr_eye_hand(-1); gevr_eye_present_draw(); assert(reprojection[1]==1);
     gForceFlatShaderForMenu=true; gevr_eye_present_draw(); assert(reprojection[1]==0);
     gForceFlatShaderForMenu=false; gVrFlatPass=true; gevr_eye_present_draw(); assert(reprojection[1]==0);

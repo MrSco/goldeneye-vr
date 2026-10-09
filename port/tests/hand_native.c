@@ -47,6 +47,8 @@ ITEM_IDS get_item_in_hand_or_watch_menu(GUNHAND hand) { return getCurrentPlayerW
 /* gun.c's GE-X remote mines: the hand stays on them while any are out */
 int VrGexGuns;
 static int minesOut;
+static int reloadCarriesRounds;
+s32 gevrReloadCarriesRounds(s32 hand) { return hand == GUNRIGHT && reloadCarriesRounds; }
 s32 gevrGexMinesHold(GUNHAND hand) {
     return VrGexGuns && hand == GUNRIGHT && getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_REMOTEMINE
         && bondinvItemAvailable(ITEM_TRIGGER) && minesOut;
@@ -226,6 +228,9 @@ EXPORT int test_hand_depletion(void) {
     CHECK(!player.hands[GUNRIGHT].weapon_animation_trigger);
     reset(); gevrAutoAdvanceHand(GUNLEFT);
     CHECK(gevrHandSelected(GUNLEFT) == ITEM_UNARMED);
+    reset(); player.hands[GUNRIGHT].weaponnum = ITEM_AK47; reloadCarriesRounds = 1;
+    gevrAutoAdvanceHand(GUNRIGHT); CHECK(!player.hands[GUNRIGHT].weapon_animation_trigger);
+    reloadCarriesRounds = 0;
     reset(); player.hands[GUNLEFT].weapon_ammo_in_magazine = 1;
     gevrAutoAdvanceHand(GUNLEFT); CHECK(!player.hands[GUNLEFT].weapon_animation_trigger);
     player.hands[GUNLEFT].weapon_ammo_in_magazine = 0; reserve[ITEM_GRENADE] = 2;

@@ -38,6 +38,7 @@ runtime = [
     'extern "C" void gevrVrMarkEyesRendered(int stereo)',
     'extern "C" int gevrVrRedrawDelta(float out[16])',
     'extern "C" int gevrVrRedrawHandDelta(int hand, float out[16])',
+    'extern "C" int gevrVrRedrawBodyDelta(float out[16])',
     'extern "C" void gevrVrMarkRedrawn(void)',
 ]
 backend = [

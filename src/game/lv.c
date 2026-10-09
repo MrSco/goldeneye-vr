@@ -1,6 +1,7 @@
 #ifdef GEVR
 #include "net_game.h"
 #include "gevr_reload_input.h"
+#include "gevr_hand_reload.h"
 #include "gevr_locomotion.h"
 #endif
 #include "system.h"
@@ -1107,7 +1108,13 @@ Gfx* lvlRender(Gfx* DL)
             if (!netIsActive() || get_cur_playernum() == netGetLocalSlot())
                 reloadMask = gevrVrTakeReloadMask();
 #endif
-            if (bond_pressed_reload_activate() && bond_interact_object())
+            if (bond_pressed_reload_activate() &&
+#ifdef GEVR
+                (gevrHandReloadActive() || bond_interact_object())
+#else
+                bond_interact_object()
+#endif
+                )
             {
 #ifdef GEVR
                 extern s32 gevrManualReloadOn(s32 hand);
@@ -1121,12 +1128,12 @@ Gfx* lvlRender(Gfx* DL)
 
                 if (reloadMask & 1)
                 {
-                    if (!gevrManualReloadOn(GUNRIGHT)) attempt_reload_item_in_hand(GUNRIGHT);
+                    if (!gevrHandReloadActive()) attempt_reload_item_in_hand(GUNRIGHT);
                     else gevrGexDropMagazine(GUNRIGHT);
                 }
                 if (reloadMask & 2)
                 {
-                    if (!gevrManualReloadOn(GUNLEFT)) attempt_reload_item_in_hand(GUNLEFT);
+                    if (!gevrHandReloadActive()) attempt_reload_item_in_hand(GUNLEFT);
                     else gevrGexDropMagazine(GUNLEFT);
                 }
 #else

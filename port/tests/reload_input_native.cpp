@@ -15,6 +15,7 @@ struct Controller {
            button_x, button_y, thumbstick_click, trackpad_click, trackpad_touch;
 } gControllerStates[2];
 int VrLeftHandedMode, VrSwapJoysticks, VrPlayMode = 1;
+int VrManualReloading, VrGexGuns = 1;
 bool gIsValveIndex;
 struct Hand { int weapon, weapon_current_animation; };
 struct player { int bonddead, field_D0; Hand hands[2]; } players[8];
@@ -36,7 +37,10 @@ int getCurrentPlayerWeaponId(int h) { return g_CurrentPlayer->hands[h].weapon; }
 int get_ammo_type_for_weapon(int weapon) { return weapon; }
 int bond_pressed_reload_activate() { return g_CurrentPlayer->field_D0; }
 bool bond_interact_object() { interactionCount++; return !interact; }
-int gevrManualReloadOn(int) { return 0; }   /* Hand reload (WIP) off: B/Y reload as before */
+int gevrHandReloadActive() { return VrManualReloading && VrGexGuns && (!connected || slot == localSlot); }
+int gevrManualReloadOn(int) { return gevrHandReloadActive(); }
+int ejections[2];
+void gevrGexDropMagazine(int hand) { ejections[hand]++; }
 struct Pad { unsigned button; } pad, *npad = &pad;
 int idx;
 void vr_log(const char *, ...) {}
@@ -103,5 +107,21 @@ int main() {
     buttons(0,0); buttons(1,0);
     slot = 3; g_CurrentPlayer = &players[3]; move(); act(); assert(gevrVrReloadPressedMask() == 1);
     slot = 7; g_CurrentPlayer = &players[7]; tick(); assert(players[7].hands[0].weapon_current_animation == 9);
+    /* A door consumes B in normal mode. Hand reload reserves it for eject,
+     * and never calls the interaction code, in either handedness. */
+    connected = false; slot = localSlot = idx = 0; g_CurrentPlayer = &players[0]; VrPlayMode = 1;
+    for (int lefty = 0; lefty < 2; lefty++) {
+        VrLeftHandedMode = lefty; VrManualReloading = 1; buttons(0,0); clearGuns();
+        interact = true;
+        int before = interactionCount, dropped = ejections[lefty ? 1 : 0];
+        buttons(1,0); tick();
+        assert(interactionCount == before && ejections[lefty ? 1 : 0] == dropped + 1);
+        assert(!players[0].hands[0].weapon_current_animation && !players[0].hands[1].weapon_current_animation);
+        /* A held button cannot become a reload on disabling the mode. */
+        VrManualReloading = 0; interact = false; buttons(1,0); tick();
+        assert(!players[0].hands[0].weapon_current_animation && !players[0].hands[1].weapon_current_animation);
+        buttons(0,0); buttons(1,0); tick();
+        assert(players[0].hands[lefty ? 1 : 0].weapon_current_animation == 9);
+    }
     puts("PASS: production button mapping, queued independent reloads, activation priority, chords, lifecycle and local slots");
 }

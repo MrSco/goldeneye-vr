@@ -44,7 +44,8 @@ float VrGexKf7MagOff[3], VrGexPp7MagOff[3];
 float VrGexPp7SupportRot[3], VrGexWeaponFits[64][10][3];
 float VrGexKf7WellOff[3],VrGexPp7WellOff[3];
 static int gevrScopeFitting,gevrReloadFitting,gevrOffHandFitting,gevrHeldMagFitting,gevrMuzzleFitting,gevrGunHandFitting;
-static int gevrWellFitting,gevrInstalledMagFitting;
+static int gevrWellFitting,gevrInstalledMagFitting,gevrBodySlotFitting,bodySlots;
+s32 gevrBodySlotFitAvailable(void) { return bodySlots; }
 static int gevrGunFitActive,g_gevrStereo=1,fitReload,fitScope=-1;
 #define LOGI(...) ((void)0)
 s32 gevrScopeFitIndex(void) { return fitScope; }
@@ -403,7 +404,13 @@ int main(int argc,char **argv) {
     drawn=0; assert(gevrGexOffHandConsumed(GEVR_GEXMAG_INHAND,&drawn) && drawn);
     cycleFit(); assert(gevrGunHandFitting && !gevrMuzzleFitting);
     assert(strstr(gevrFitNextLine(8),"FIT THE GUN\n"));
-    cycleFit(); assert(!gevrGunHandFitting && !gevrMuzzleFitting && !gevrOffHandFitting);
+    /* body slots on: their places come after the gun hand, then the gun again */
+    bodySlots=1;
+    assert(strstr(gevrFitNextLine(8),"FIT THE BODY SLOTS"));
+    cycleFit(); assert(gevrBodySlotFitting && !gevrGunHandFitting);
+    assert(strstr(gevrFitNextLine(9),"FIT THE GUN\n"));
+    cycleFit(); assert(!gevrBodySlotFitting && !gevrGunHandFitting && !gevrMuzzleFitting && !gevrOffHandFitting);
+    bodySlots=0;
     active=gevrGexWeaponGet(ITEM_LASER); fitScope=1;
     cycleFit(); assert(gevrScopeFitting);
     cycleFit(); assert(gevrOffHandFitting);

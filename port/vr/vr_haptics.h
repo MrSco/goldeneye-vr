@@ -7,6 +7,10 @@ extern "C" {
 #define GEVR_ACTION_DAMAGE_BULLET    1001
 #define GEVR_ACTION_DAMAGE_EXPLOSION 1002
 #define GEVR_ACTION_GRENADE_COOK     1003   // each pulse while a grenade cooks (bondview2.c)
+#define GEVR_ACTION_SLOT_HOVER       1004   // body slots (gevr_bodyslots.c): the hand enters a slot
+#define GEVR_ACTION_SLOT_TAKE        1005   // a weapon taken from or put in a slot
+#define GEVR_ACTION_SLOT_DENY        1006   // the slot can't give that hand anything
+#define GEVR_ACTION_SLOT_STEP        1007   // stepping through a slot's category
 
 typedef enum {
     HAPTIC_CAT_PISTOLS = 0,

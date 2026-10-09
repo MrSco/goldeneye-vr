@@ -6,6 +6,9 @@
 #include <music.h>
 #include <snd.h>
 #include "bondview.h"
+#ifdef GEVR
+#include "gevr_hand_reload.h"
+#endif
 #include "bondinv.h"
 #include "gun.h"
 #include "chrobjdata.h"
@@ -2054,6 +2057,94 @@ s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3])
     return s_gevrGexMagPointsValid;
 }
 
+/* bondview2.c gevrGexMagState */
+enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT };
+extern s32 gevrGexMagState(s32 hand, f32 off[3]);
+
+/* Isolate the installed magazine in a scratch model. Its live switches,
+ * falling pose and hand matrices remain untouched. at == NULL draws the
+ * ghost exactly where the fitted installed magazine would sit. */
+Gfx *gevrGexDrawMagazineGuide(Gfx *gdl, ModelRenderData *templ, s32 hand, const f32 at[3], u32 tint)
+{
+    const GexWeaponDef *def = gevrGexWeaponForHand(hand);
+    Model *source = &g_CurrentPlayer->hands[hand].weaponModel;
+    Model copy;
+    ModelFileHeader *hdr = source->obj;
+    ModelRenderData rd = *templ;
+    Mtxf *matrices;
+    s32 i, j;
+    if (!gevrHandReloadActive() || !gevrGexHasMagazine(def) || !s_gevrGexLastValid[hand]
+        || hdr == NULL || hdr->numMatrices <= def->magMatrix || hdr->numMatrices > 64
+        || hdr->numRecords <= 0 || source->datas == NULL) return gdl;
+    copy = *source;
+    copy.datas = dynAllocate(hdr->numRecords * sizeof(u32));
+    memcpy(copy.datas, source->datas, hdr->numRecords * sizeof(u32));
+    matrices = dynAllocate(hdr->numMatrices * sizeof(Mtxf));
+    for (i = 0; i < hdr->numMatrices; i++)
+    {
+        matrix_4x4_set_identity(&matrices[i]);
+        gevrGexCollapse(&matrices[i]);
+    }
+    matrices[def->magMatrix] = s_gevrGexLastMag[hand];
+    if (at != NULL)
+    {
+        Mtxf *mag = &matrices[def->magMatrix];
+        f32 size = sqrtf(mag->m[0][0]*mag->m[0][0] + mag->m[0][1]*mag->m[0][1] + mag->m[0][2]*mag->m[0][2]);
+        matrix_4x4_set_identity(mag);
+        for (i = 0; i < 3; i++)
+        {
+            mag->m[i][i] = size;
+            mag->m[3][i] = at[i] - def->magCentre[i]*size;
+        }
+    }
+    copy.render_pos = (RenderPosView *)matrices;
+    gevrGexShowMagazines(hdr, &copy, TRUE, FALSE);
+    /* Every other switch is off: no muzzle flash or extra rig parts. */
+    for (j = 0; j < hdr->numSwitches; j++)
+        if (j != hdr->numSwitches - def->numParts && hdr->Switches[j] != NULL)
+            *(s32 *)modelGetNodeRwData(&copy, hdr->Switches[j]) = FALSE;
+    rd.gdl = gdl;
+    rd.flags = 3;
+    rd.PropType = at == NULL ? GEVR_MODEL_RELOAD_GHOST : PROP_TYPE_CHR + 1;
+    rd.envcolour.word = tint;
+    rd.zbufferenabled = TRUE;
+    rd.cullmode = CULLMODE_NONE;
+    gSPClearGeometryMode(rd.gdl++, G_CULL_BOTH);
+    /* Walk only this switch's subtree. A whole rig with collapsed matrices
+     * still emits its gun's draw calls, three extra times per frame. */
+    ModelNode *root = hdr->Switches[hdr->numSwitches - def->numParts], *node = root;
+    ModelNode *savedChild = root != NULL ? root->Child : NULL;
+    gSPSegment(rd.gdl++, 3, osVirtualToPhysical(copy.render_pos));
+    while (node != NULL)
+    {
+        sub_GAME_7F074534(&rd, &copy, node);
+        if (node->Child != NULL) node = node->Child;
+        else
+        {
+            while (node != root && node->Next == NULL) node = node->Parent;
+            if (node == root) break;
+            node = node->Next;
+        }
+    }
+    if (root != NULL) root->Child = savedChild;
+    bondviewTransformManyPosToViewMatrix(copy.render_pos, hdr->numMatrices);
+    return rd.gdl;
+}
+
+Gfx *gevrGexDrawReloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand)
+{
+    extern Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba);
+    f32 well[3];
+    s32 hover = hand == GUNRIGHT && gevrReloadSeatHover(well);
+    const s32 state = gevrGexMagState(hand, NULL);
+    if (state == GEVR_GEXMAG_OUT || state == GEVR_GEXMAG_INHAND)
+        gdl = gevrGexDrawMagazineGuide(gdl, templ, hand, NULL,
+            (hover ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0x50);
+    if (hover)
+        gdl = gevrDrawInteractionRing(gdl, well, 3.0f, GEVR_RELOAD_READY_TINT | 0xE0);
+    return gdl;
+}
+
 /* a joint's matrix without scale, undone: rotation transposed, translation turned back */
 static void gevrGexRigidInverse(const Mtxf *g, Mtxf *inv)
 {
@@ -2093,10 +2184,6 @@ static void gevrGexScaledInverse(const Mtxf *g, Mtxf *inv)
         }
     }
 }
-
-/* bondview2.c gevrGexMagState */
-enum { GEVR_GEXMAG_IN, GEVR_GEXMAG_GRIPPED, GEVR_GEXMAG_INHAND, GEVR_GEXMAG_OUT };
-extern s32 gevrGexMagState(s32 hand, f32 off[3]);
 
 /* the mechanism only (matrices after the gun's, bar the magazines) at a clip's
  * frame, on the gun as tracked: the hands and the body stay where they are */
@@ -4116,6 +4203,12 @@ void currentPlayerUnEquipWeaponWrapper(enum GUNHAND hand, enum ITEM_IDS weapid)
     weapon_num = g_CurrentPlayer->hands[hand].weaponnum;
     ammo_type = get_ammo_type_for_weapon(weapon_num);
 
+#ifdef GEVR
+    /* Store before loading another model clears its magazine gesture state. */
+    extern s32 gevrReloadStow(s32 hand, s32 item);
+    gevrReloadStow(hand, weapon_num);
+#endif
+
     if (g_CurrentPlayer->hands[hand].weaponnum_watchmenu < 0)
     {
         place_item_in_hand_swap_and_make_visible(hand, weapid);
@@ -4316,6 +4409,7 @@ s32 bondwalkItemHasAmmo(ITEM_IDS item)
     {
         return 0;
     }
+    if (gevrReloadStoredRounds(GUNRIGHT, item) > 0 || gevrReloadStoredRounds(GUNLEFT, item) > 0) return 1;
     if (VrGexGuns && item == ITEM_REMOTEMINE && get_ammo_count_for_weapon(item) <= 0
         && bondinvItemAvailable(ITEM_TRIGGER) && gevrGexRemoteMinesOut())
     {

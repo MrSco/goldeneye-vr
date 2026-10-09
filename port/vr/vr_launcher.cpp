@@ -2774,11 +2774,22 @@ extern "C" void gevrLauncherRun(void)
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::TextWrapped("Squeeze the grip with the hand in place. Anywhere else the grip aims as before.");
             ImGui::PopStyleColor();
+            ImGui::BeginDisabled(VrBodySlots != 0);
             toggle("Hip holster (WIP)", &VrGestureHolster,
-                   "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.\n"
-                   "A fresh grip press takes priority over the belt reload gesture.");
-            toggle("Grip use", &VrGestureGripUse,
-                   "The hand at a door, switch or console: use it, as B does.");
+                   VrBodySlots ? "Body slots replace the hip holster while they are on."
+                               : "The hand at its own hip: holster what it holds.\nSqueeze there again to draw it.\n"
+                                 "A fresh grip press takes priority over the belt reload gesture.");
+            ImGui::EndDisabled();
+            int effectiveGripUse = (VrManualReloading && VrGexGuns) ? 1 : VrGestureGripUse;
+            ImGui::BeginDisabled(VrManualReloading && VrGexGuns);
+            toggle("Grip use", &effectiveGripUse,
+                   "The hand at a door, switch or console: squeeze to use.\n"
+                   "Required with hand reload: B/Y only eject magazines.");
+            ImGui::EndDisabled();
+            if (!(VrManualReloading && VrGexGuns) && VrGestureGripUse != effectiveGripUse) {
+                VrGestureGripUse = effectiveGripUse;
+                vrSettingsSave();
+            }
             toggle("Grip to hand (WIP)", &VrGesturePickup,
                    "The hand at a gun on the floor: that gun goes into that hand\n"
                    "(picked up if the game would, else the one you carry).\n"
@@ -2788,14 +2799,41 @@ extern "C" void gevrLauncherRun(void)
             toggle("Watch gesture to pause", &VrWatchGesturePause,
                    "Raise your left wrist to your face to open Bond's watch.\nThe Menu button pauses either way.");
             ImGui::Spacing();
+            // the wheel's categories on the body (gevr_bodyslot.h); the wheel stays
+            ImGui::TextColored(gold, "BODY SLOTS (stereo)");
+            toggle("Body slots (WIP)", &VrBodySlots,
+                   "Weapons live on your body: pistols at each hip, rifles and SMGs over\n"
+                   "the gun hand's shoulder, heavy guns over the other, grenades and mines\n"
+                   "on the chest, gadgets at the front of the belt. Reach and squeeze the grip.\n"
+                   "While the hand is there, A/X or a sideways flick of its stick picks\n"
+                   "which one. Squeeze with the same weapon to put it away.\n"
+                   "The weapon wheel and A/X cycling still work. Gun fit's Slots mode\n"
+                   "moves the slots.");
+            ImGui::BeginDisabled(VrBodySlots == 0);
+            static const char *const slotSizes[] = { "Small", "Normal", "Large" };
+            for (int i = 0; i < 3; i++) {
+                ImGui::SameLine();
+                if (ImGui::RadioButton(slotSizes[i], VrBodySlotSize == i)) {
+                    VrBodySlotSize = i;
+                    vrSettingsSave();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far from a slot your hand still reaches it.");
+            }
+            ImGui::SameLine();
+            toggle("Show", &VrBodySlotShow,
+                   "Draw what the hips, chest and belt hold when you look down.");
+            ImGui::EndDisabled();
+            ImGui::Spacing();
             ImGui::TextColored(gold, "RELOAD & RECOIL (stereo)");
             ImGui::BeginDisabled(VrGexGuns == 0);
             toggle(VrGexGuns ? "Hand reload (WIP)" : "Hand reload (needs GoldenEye X)", &VrManualReloading,
                    "Needs GoldenEye X's models (Mods). Bring the gun into your fitted belt zone to reload.\n"
                    "Move 5 cm beyond the zone before another belt reload.\n"
-                   "A fresh grip at the hip holsters instead if Hip holster is on.\n"
+                   "When a magazine is missing, a grip at its belt point takes ammo before a holster.\n"
                    "Magazine pulls and pistol/shotgun/dual-gun chest crosses also work.\n"
-                   "Auto-reload is off; GE-X magazine buttons still eject the magazine.");
+                   "Auto-reload is off; switching weapons keeps their loaded rounds.\n"
+                   "B/Y eject magazines only; grip use is required for doors and switches.\n"
+                   "A ghost magazine marks the missing magazine; green rings mark pickup and insertion.");
             ImGui::EndDisabled();
             toggle("Per-gun recoil", &VrPerWeaponRecoil,
                    "Each gun kicks with its own recoil (Perfect Dark VR's table)\ninstead of one kick for all.");
@@ -2804,6 +2842,8 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::Button("Defaults")) {
                 VrGestureHolster = VrGestureGripUse = VrGestureMineGrab = 1;
                 VrGesturePickup = 0;
+                VrBodySlots = 0;
+                VrBodySlotShow = VrBodySlotSize = 1;
                 VrManualReloading = 0;
                 VrWatchGesturePause = 1;
                 VrPerWeaponRecoil = 0;
@@ -3050,7 +3090,7 @@ extern "C" void gevrLauncherRun(void)
                 ImGui::SameLine();
                 if (ImGui::Button("Gestures...")) gesturesPage = true;
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("Grip gestures (holster, use, pickup, mine re-grab),\nhand reload and per-gun recoil.");
+                    ImGui::SetTooltip("Grip gestures (holster, use, pickup, mine re-grab),\nbody slots, hand reload and per-gun recoil.");
                 char throwLabel[64];
                 snprintf(throwLabel, sizeof(throwLabel), "Motion Throwing%s...", VrMotionThrowing ? "" : " (Off)");
                 if (ImGui::Button(throwLabel)) throwingPage = true;
