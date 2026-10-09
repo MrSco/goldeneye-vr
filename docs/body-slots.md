@@ -27,8 +27,8 @@ greyed out while body slots are on.
 ## How it works
 
 - **Taking.** A slot holds the last weapon you used from its category. With
-  the hand in it (a light buzz on the way in, a ring and a label by the hand),
-  squeeze the grip: that weapon goes into the hand, and what the hand held
+  the hand in it (a light buzz on the way in, and after a moment a label by
+  the hand), squeeze the grip: that weapon goes into the hand, and what the hand held
   goes back to its own slot. Nothing is lost: GoldenEye keeps everything you
   carry. A full hip swaps; an empty one takes the gun.
 - **Choosing.** While the hand is there, its own A (gun hand) or X (off hand)
@@ -44,12 +44,14 @@ greyed out while body slots are on.
   on to mine re-grab, pickup, use or aim as before.
 - **The torso.** The slots ride on a torso that follows your head slowly
   (Perfect Dark VR's smoothed yaw, ArmBodyFollow). It holds still while a
-  hand is in a front slot or you look down, so glancing aside or looking down
-  at the belt doesn't move them. Stick turns carry it with you. Recentring
+  hand is in a front slot or you look down more than 20 degrees, so glancing
+  aside or looking down at the belt doesn't move them. Stick turns carry it with you. Recentring
   starts it again.
-- **On the body.** The hips, chest and belt show what they hold when you
-  look down. Looking ahead, nothing is drawn. GoldenEye X players see
-  GoldenEye's models there for now.
+- **On the body.** Only the hips show what they hold, when you look down;
+  the chest, belt and shoulders show just the label when a hand is there.
+  No rings in play (Gun fit's Slots mode rings every slot). Looking ahead,
+  nothing is drawn. GoldenEye X players see GoldenEye's models on the hips
+  for now.
 
 Defaults at 170 cm eye height (PlayerHeight), in cm below the eye / out to
 that side / ahead. The torso frame's eye is the eye held upright over the
@@ -70,6 +72,18 @@ in that time (holstering) drops the reload until the hand has left the belt.
 The chest cross doesn't fire while the hand is in a slot. While the GE-X gun
 waits for a magazine, the off hand's grip at its belt takes a magazine, as
 it did with the old hip holster.
+
+## Round 1 (2026-10-08): fixed
+
+The guns and the ring blinked and the slots moved about: the torso started
+again at the head every tick (8,668 log lines in three minutes). The game
+links GoldenEye's own atan2f, which returns 0..2 pi, so a small turn read
+as 359 degrees, a "jump". The slots now use their own atan2 (tested against
+the game's math too). Also from that round: the chest's and belt's models
+were in the way when looking down (not drawn now), the ring and the
+highlight were too much (gone), a label waits 150 ms so a passing hand
+shows nothing, a hand leaves 5 cm past the reach (was 3), and the torso
+holds from a 20 degree downward look (was 35).
 
 ## Test sheet (one headset session)
 
@@ -104,7 +118,8 @@ Chest and belt:
 
 The torso:
 9. Look down at your hips: the pistols on the hips are drawn and stay put as
-   you turn your head while looking down.
+   you turn your head while looking down. Nothing blinks; nothing from the
+   chest or belt is in the way.
 10. Stand still, turn your head 45 degrees and hold it: after about a
     second the slots turn to follow. Snap and smooth turn: the slots turn
     with you. Recentre (both stick clicks): they face ahead again.
@@ -142,7 +157,7 @@ take, stow, refuse, belt touch, torso reset and every 10 degrees of twist.
 
 ```
 hipr backr chestr beltr exitcm dwellms deferms follow freezepitch maxtwist markers
-0    0     0      0     3      120     100     0      -35         60       0
+0    0     0      0     5      120     100     0      -20         60       0
 ```
 
 A radius of 0 keeps the size setting's. follow 0 keeps ArmBodyFollow (0.02).
