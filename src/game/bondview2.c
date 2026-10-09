@@ -4972,12 +4972,17 @@ static void gevrScopeTune(void)
 }
 
 /* the lens on the eyepiece, from the hand's grip (vr_openxr.cpp places it),
- * moved and sized by Gun fit's scope trim (user) */
+ * moved and sized by Gun fit's scope trim (user). A GoldenEye X gun in the
+ * left hand is drawn mirrored about its origin (gunfire.c gevrGexLeftMirrored),
+ * so its eyepiece and the right hand's fit mirror with it: one fit serves
+ * both hands (user: the left sniper's lens sat ~14 cm left of the scope). */
 static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4])
 {
     f32 size = gevrGunSizeFactor();
     f32 unit = GEVR_VIEWMODEL_CM * 0.1f / 100.0f * size;   /* metres a model unit */
-    f32 left = VrLeftHandedMode ? -1.0f : 1.0f;             /* model +X, in the holder's right */
+    f32 originSide = VrLeftHandedMode ? -1.0f : 1.0f;       /* the gun origin, in the holder's right */
+    f32 mirror = (hand == GUNLEFT && gevrGexHeld(GUNLEFT)) ? -1.0f : 1.0f;
+    f32 left = mirror * originSide;                         /* model +X, in the holder's right */
     f32 ex = sc->x;
     f32 ey = sc->y;
     f32 ez = sc->z;
@@ -4988,7 +4993,7 @@ static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4]
     const GexWeaponDef *gexDef = gevrGexHeld(hand) ? gevrGexWeaponForHand(hand) : NULL;
     if (gexDef && gexDef->hasScope) { ex=gexDef->scopeRoot[0]; ey=gexDef->scopeRoot[1]; ez=gexDef->scopeRoot[2]; }
     gevrGunOff(hand, off);
-    lens[0] = (VrLeftHandedMode ? -(off[0] + fit[0]) : off[0] + fit[0]) * size / 100.0f
+    lens[0] = (originSide * off[0] + left * fit[0]) * size / 100.0f
             - left * ex * unit + s_gevrScopeTrim[0];
     lens[1] = (off[1] + fit[1]) * size / 100.0f + ey * unit + s_gevrScopeTrim[1];
     lens[2] = (GEVR_GRIP_TO_ORIGIN_CM + off[2] + fit[2]) * size / 100.0f
@@ -5002,9 +5007,10 @@ static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4]
 
 /*
  * One hand's scope this frame. The left gun (GUNLEFT, controller 0) is the
- * same model unmirrored (gevrStereoGunMatrix: none of the scoped guns is
- * MIRROR_DUAL), so the eyepiece's place on it carries over; only the pose
- * comes from the other controller.
+ * GoldenEye model unmirrored (gevrStereoGunMatrix: none of the scoped guns is
+ * MIRROR_DUAL), so the eyepiece's place on it carries over; a GoldenEye X gun
+ * there is mirrored, and gevrScopeLensPlace mirrors its lens. The pose comes
+ * from the other controller.
  */
 static s32 gevrScopeBeginHand(s32 hand)
 {
