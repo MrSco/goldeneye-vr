@@ -65,8 +65,11 @@ this stack.
   level logs and returns `-1`. Load and clear ignore a bank index outside
   the table.
 - The three music play waits post the stop again while the player is still
-  playing, and after 120 retraces (two seconds) force `AL_STOPPED`. Voices
-  already allocated on that player are not freed on the forced path.
+  playing. After 120 retraces (two seconds), `gevrCSPForceStop` stops and frees
+  every remaining voice, returns its voice state to the free list, stops
+  oscillators, and discards queued and prefetched events from the old track.
+  It restarts the player's heartbeat at the current audio sample time before
+  reporting `AL_STOPPED`, so the next track can load and reuse all voices.
 
 Protocol and release version are unchanged.
 
@@ -76,6 +79,11 @@ Protocol and release version are unchanged.
 decision, the briefing-entry check, and the music wait. A follower on the
 briefing does not apply mission select. The init frame of the next briefing
 does apply. Page `-1`, a chapter row, and an out-of-range page yield no
-stage. A stop that lands returns immediately. A player that stays playing
-or stopping is forced stopped inside the 120-retrace bound, and a player
-already stopped is left alone.
+stage. The music fixture uses the real event queue, stop handler, voice
+release/unmap routines, and timeout recovery; only the synthesizer output and
+sequence parser are mocked. It checks a dropped initial stop, dropped release
+and final-stop events, an already-stopping player, stale queued and prefetched
+events, oscillator cleanup, and a stop landing on the last allowed retrace.
+Recovery returns all 16 voices and all 64 event slots, and the next track
+starts and allocates every voice without an old event freeing one again.
+A player already stopped is left alone.
