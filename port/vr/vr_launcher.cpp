@@ -1144,71 +1144,79 @@ static bool favoriteRow(const char *label, int count, const char *(*name)(int), 
 }
 
 // The host's match options: a section of the Host tab, before and while hosting.
+static void gevrMatchLiveOptions();
 static void gevrMatchOptions(bool favorites = false) {
     bool changed = false;
-    if (!favorites) {
+    if (!favorites && ImGui::BeginTable("match-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextColumn();
+        ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "MATCH SETUP");
         ImGui::Text("Scenario:");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14.0f);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         changed |= namedCombo("##scenario", netScenarioCount(), netScenarioName, &VrMpScenario);
         if (VrMpScenario == SCENARIO_YOLT) {
-            ImGui::TextDisabled("Length: last one standing (the scenario's own)");
+            ImGui::TextDisabled("Length: last one standing");
         } else {
             ImGui::Text("Length:");
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
             // The Living Daylights takes the time limits only, as the game's own menu has it
             changed |= namedCombo("##length", VrMpScenario == SCENARIO_TLD ? 4 : 7, netGameLengthName, &VrMpLength);
         }
         ImGui::Text("Health:");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         changed |= namedCombo("##health", netHealthCount(), netHealthName, &VrMpHealth);
         ImGui::Text("Dual wield:");
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
         changed |= namedCombo("##dual", 3, netDualWieldName, &VrMpDual);
-        ImGui::SameLine();
-        ImGui::TextDisabled(VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", VrMpDual == NET_DUAL_DOUBLES ? "a second copy of your gun makes a pair"
                             : VrMpDual == NET_DUAL_ANY   ? "hold X for the left hand's panel"
                                                          : "");
+        ImGui::Text("Next round:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+        changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
+                                  : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
+                                                                       : "the players vote in the pause menu");
+        ImGui::Spacing();
         bool loadouts = VrMpLoadouts != 0;
-        if (ImGui::Checkbox("Players spawn with their own four guns (loadouts)", &loadouts)) {
+        if (ImGui::Checkbox("Use player loadouts", &loadouts)) {
             VrMpLoadouts = loadouts ? 1 : 0;
             changed = true;
         }
-        ImGui::Text("Next round:");
-        ImGui::SameLine();
-        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-        changed |= namedCombo("##nextround", 3, netNextRoundName, &VrMpNextRound);
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", VrMpNextRound == NET_NEXT_SHUFFLE    ? "a random favorite map and set"
-                                  : VrMpNextRound == NET_NEXT_PLAYLIST ? "your favorites in order"
-                                                                       : "the players vote in the pause menu");
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Players spawn with their own four selected guns.");
+        ImGui::TableNextColumn();
+        ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.47f, 1.0f), "BOTS AND LIVE SETTINGS");
         // Bots: player slots the host runs (gevr_bot.c); they change between rounds only
         if (VrMpMode != NET_MODE_COOP) {
             ImGui::BeginDisabled(netIsActive() && !gevrNetBotRowsEditable());
             ImGui::Text("Bots:");
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * (VrMpBotMode == NET_BOT_FIXED ? 0.65f : 1.0f));
             changed |= namedCombo("##botmode", NET_BOT_MODE_COUNT, netBotModeName, &VrMpBotMode);
             if (VrMpBotMode == NET_BOT_FIXED) {
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 int count = VrMpBotCount - 1;
                 if (namedCombo("##botcount", GEVR_MAX_PLAYERS - 1, gevrBotCountName, &count)) {
                     VrMpBotCount = count + 1;
                     changed = true;
                 }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Number of bots");
             }
             if (VrMpBotMode != NET_BOT_OFF) {
                 ImGui::Text("Bot difficulty:");
                 ImGui::SameLine();
-                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
                 changed |= namedCombo("##botdiff", NET_BOT_DIFF_COUNT, netBotDifficultyName, &VrMpBotDifficulty);
             }
             ImGui::EndDisabled();
         }
+        gevrMatchLiveOptions();
+        ImGui::EndTable();
     }
 
     if (favorites) {
@@ -1234,8 +1242,16 @@ static void gevrMovementSpeedOptions(bool hostPage) {
                       : hostPage ? VrMpMovementSpeed : VrMovementSpeed;
     int percent = netMovementSpeedPercent(mode);
     ImGui::BeginDisabled(online && !netIsHost());
-    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-    if (ImGui::SliderInt("Movement speed", &percent, 50, 200, "%d%%", ImGuiSliderFlags_AlwaysClamp)) {
+    ImGui::TextUnformatted("Movement speed");
+    const float resetWidth = ImGui::CalcTextSize("Reset").x + ImGui::GetStyle().FramePadding.x * 2;
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - resetWidth - ImGui::GetStyle().ItemSpacing.x);
+    bool changed = ImGui::SliderInt("##MovementSpeed", &percent, 50, 200,
+                                   percent == 100 ? "%d%% (default)" : "%d%%", ImGuiSliderFlags_AlwaysClamp);
+    bool hovered = ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    ImGui::SameLine();
+    if (ImGui::Button("Reset##MovementSpeed")) { percent = 100; changed = true; }
+    hovered |= ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled);
+    if (changed) {
         mode = netMovementSpeedMode(percent);
         if (online) gevrNetConfigSet(CFG_MOVEMENT_SPEED, mode);
         else {
@@ -1244,9 +1260,32 @@ static void gevrMovementSpeedOptions(bool hostPage) {
         }
     }
     ImGui::EndDisabled();
-    ImGui::TextWrapped(online || hostPage
-        ? "Host chooses for everyone. Changes apply immediately. Room-scale walking keeps its normal speed."
+    if (hovered) ImGui::SetTooltip("%s", online || hostPage
+        ? "100% is the default. Reset restores it for everyone. Host changes apply immediately. Room-scale walking keeps its normal speed."
         : "Solo stick movement, 100% is normal. Room-scale walking keeps its normal speed.");
+}
+
+static void gevrMatchLiveOptions() {
+    gevrMovementSpeedOptions(true);
+    ImGui::BeginDisabled(netIsActive() && !netIsHost());
+    unsigned cap; bool equalized = netGetHostEqualization(&cap) != 0;
+    if (ImGui::Checkbox("Host hit equalization", &equalized)) netSetHostEqualization(equalized, cap);
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delay host hits to balance latency with guests.");
+    int limit = (int)cap;
+    ImGui::TextUnformatted("Host delay cap (ms)");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1.0f);
+    if (ImGui::SliderInt("##HostDelayCap", &limit, 0, 80)) netSetHostEqualization(equalized, (unsigned)limit);
+    ImGui::EndDisabled();
+    char delays[128]; netHostEqualizationText(delays, sizeof(delays));
+    if (delays[0] && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", delays);
+    if (VrMpMode != NET_MODE_COOP && netScenarioHasTeams(VrMpScenario)) {
+        bool ff = VrMpFriendlyFire != 0;
+        if (ImGui::Checkbox("Friendly fire", &ff)) {
+            VrMpFriendlyFire = ff;
+            gevrHostChoiceChanged();
+        }
+    }
 }
 
 static void gevrFunOptions(bool hostPage) {
@@ -1734,39 +1773,31 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                     }
                     if (ImGui::BeginTabItem("Match")) {
                         if (VrMpMode == NET_MODE_COOP) {
-                            // co-op: the mission and difficulty decide the rest (Lobby tab)
-                            ImGui::BeginDisabled(netIsActive() && !netIsHost());
-                            bool ff = VrMpFriendlyFire != 0;
-                            if (ImGui::Checkbox("Friendly fire", &ff)) {
-                                VrMpFriendlyFire = ff;
-                                gevrHostChoiceChanged();
+                            if (ImGui::BeginTable("coop-match-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
+                                ImGui::TableNextColumn();
+                                ImGui::TextColored(gold, "MISSION RULES");
+                                // co-op: the mission and difficulty decide the rest (Lobby tab)
+                                ImGui::BeginDisabled(netIsActive() && !netIsHost());
+                                bool ff = VrMpFriendlyFire != 0;
+                                if (ImGui::Checkbox("Friendly fire", &ff)) {
+                                    VrMpFriendlyFire = ff;
+                                    gevrHostChoiceChanged();
+                                }
+                                bool fast = netIsActive() ? (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
+                                                    : VrCoopFastReinforcements != 0;
+                                if (ImGui::Checkbox("Fast reinforcements", &fast)) {
+                                    VrCoopFastReinforcements = fast ? 1 : 0;
+                                    gevrHostChoiceChanged();
+                                }
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Harder: guards can call more reinforcements while earlier ones are alive. Changes apply immediately.");
+                                ImGui::EndDisabled();
+                                ImGui::TableNextColumn();
+                                ImGui::TextColored(gold, "LIVE SETTINGS");
+                                gevrMatchLiveOptions();
+                                ImGui::EndTable();
                             }
-                            bool fast = netIsActive() ? (netGetMatchConfig()->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0
-                                                : VrCoopFastReinforcements != 0;
-                            if (ImGui::Checkbox("Fast reinforcements", &fast)) {
-                                VrCoopFastReinforcements = fast ? 1 : 0;
-                                gevrHostChoiceChanged();
-                            }
-                            ImGui::TextWrapped("Harder: guards can call more reinforcements while earlier ones are alive. Host chooses; changes apply immediately.");
-                            ImGui::EndDisabled();
-                        } else
-                        gevrMatchOptions();
-                        gevrMovementSpeedOptions(true);
-                        ImGui::BeginDisabled(netIsActive() && !netIsHost());
-                        unsigned cap; bool equalized=netGetHostEqualization(&cap)!=0;
-                        if (ImGui::Checkbox("Host hit equalization", &equalized)) netSetHostEqualization(equalized,cap);
-                        int limit=(int)cap;
-                        if (ImGui::SliderInt("Host delay cap (ms)",&limit,0,80)) netSetHostEqualization(equalized,(unsigned)limit);
-                        ImGui::EndDisabled();
-                        char delays[128];netHostEqualizationText(delays,sizeof(delays));
-                        if (delays[0]) ImGui::TextDisabled("%s",delays);
-
-                        if (VrMpMode != NET_MODE_COOP && netScenarioHasTeams(VrMpScenario)) {
-                            bool ff = VrMpFriendlyFire != 0;
-                            if (ImGui::Checkbox("Friendly fire", &ff)) {
-                                VrMpFriendlyFire = ff;
-                                gevrHostChoiceChanged();
-                            }
+                        } else {
+                            gevrMatchOptions();
                         }
                         ImGui::EndTabItem();
                     }
@@ -3141,58 +3172,65 @@ extern "C" void gevrLauncherRun(void)
             }
         },
         [&]() {
-            ImGui::TextColored(gold, "TURNING (stereo)");
-            static const float snaps[] = {0.0f, 30.0f, 45.0f, 90.0f};
-            bool turnChanged = false;
-            turnChanged |= ImGui::RadioButton("Smooth", &turn, 0);
-            ImGui::SameLine();
-            turnChanged |= ImGui::RadioButton("Snap 30", &turn, 1);
-            turnChanged |= ImGui::RadioButton("Snap 45", &turn, 2);
-            ImGui::SameLine();
-            turnChanged |= ImGui::RadioButton("Snap 90", &turn, 3);
-            if (turnChanged) {
-                VrUseSnapTurn = snaps[turn < 0 ? 0 : turn > 3 ? 3 : turn];
-                vrSettingsSave();
-            }
-            ImGui::BeginDisabled(turn != 0);
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-            if (ImGui::SliderInt("Turn speed", &VrSmoothTurnSpeed, SMOOTHTURN_MIN, SMOOTHTURN_MAX, "%d deg/s")) {
-                // steps of 15, as the watch's VR settings page steps it
-                VrSmoothTurnSpeed = (VrSmoothTurnSpeed + SMOOTHTURN_STEP / 2) / SMOOTHTURN_STEP * SMOOTHTURN_STEP;
-                vrSettingsSave();
-            }
-            ImGui::EndDisabled();
-            ImGui::Spacing();
-            gevrMovementSpeedOptions(false);
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "MOVEMENT COMFORT (stereo)");
-            if (ImGui::Checkbox("Darken edges when moving", &vignetteOn)) {
-                VrComfortVignette = vignetteOn ? vignette : 0.0f;
-                vrSettingsSave();
-            }
-            ImGui::BeginDisabled(!vignetteOn);
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
-            if (ImGui::SliderFloat("Strength", &vignette, 0.1f, 1.0f, "%.1f")) {
-                VrComfortVignette = vignette;
-                vrSettingsSave();
-            }
-            ImGui::EndDisabled();
-            // #95, from GE Plus's comfort options: the push of a hit, the
-            // trigger dropped while the hit shows, the red flash
-            ImGui::Spacing();
-            ImGui::TextColored(gold, "WHEN HIT (stereo)");
-            bool noPush = VrNoKnockback != 0, noStun = VrNoHitstun != 0, flash = VrDamageFlash != 0;
-            if (ImGui::Checkbox("No knockback", &noPush)) {
-                VrNoKnockback = noPush ? 1 : 0;
-                vrSettingsSave();
-            }
-            if (ImGui::Checkbox("Keep firing when hit (no hitstun)", &noStun)) {
-                VrNoHitstun = noStun ? 1 : 0;
-                vrSettingsSave();
-            }
-            if (ImGui::Checkbox("Red flash when hit", &flash)) {
-                VrDamageFlash = flash ? 1 : 0;
-                vrSettingsSave();
+            if (ImGui::BeginTable("comfort-columns", 2, ImGuiTableFlags_SizingStretchSame)) {
+                ImGui::TableNextColumn();
+                ImGui::TextColored(gold, "TURNING (stereo)");
+                static const float snaps[] = {0.0f, 30.0f, 45.0f, 90.0f};
+                bool turnChanged = false;
+                turnChanged |= ImGui::RadioButton("Smooth", &turn, 0);
+                ImGui::SameLine();
+                turnChanged |= ImGui::RadioButton("Snap 30", &turn, 1);
+                turnChanged |= ImGui::RadioButton("Snap 45", &turn, 2);
+                ImGui::SameLine();
+                turnChanged |= ImGui::RadioButton("Snap 90", &turn, 3);
+                if (turnChanged) {
+                    VrUseSnapTurn = snaps[turn < 0 ? 0 : turn > 3 ? 3 : turn];
+                    vrSettingsSave();
+                }
+                ImGui::BeginDisabled(turn != 0);
+                ImGui::TextUnformatted("Turn speed");
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::SliderInt("##TurnSpeed", &VrSmoothTurnSpeed, SMOOTHTURN_MIN, SMOOTHTURN_MAX, "%d deg/s")) {
+                    // steps of 15, as the watch's VR settings page steps it
+                    VrSmoothTurnSpeed = (VrSmoothTurnSpeed + SMOOTHTURN_STEP / 2) / SMOOTHTURN_STEP * SMOOTHTURN_STEP;
+                    vrSettingsSave();
+                }
+                ImGui::EndDisabled();
+                ImGui::Spacing();
+                gevrMovementSpeedOptions(false);
+                ImGui::Spacing();
+                ImGui::TableNextColumn();
+                ImGui::TextColored(gold, "MOVEMENT COMFORT (stereo)");
+                if (ImGui::Checkbox("Darken edges when moving", &vignetteOn)) {
+                    VrComfortVignette = vignetteOn ? vignette : 0.0f;
+                    vrSettingsSave();
+                }
+                ImGui::BeginDisabled(!vignetteOn);
+                ImGui::TextUnformatted("Vignette strength");
+                ImGui::SetNextItemWidth(-1.0f);
+                if (ImGui::SliderFloat("##VignetteStrength", &vignette, 0.1f, 1.0f, "%.1f")) {
+                    VrComfortVignette = vignette;
+                    vrSettingsSave();
+                }
+                ImGui::EndDisabled();
+                // #95, from GE Plus's comfort options: the push of a hit, the
+                // trigger dropped while the hit shows, the red flash
+                ImGui::Spacing();
+                ImGui::TextColored(gold, "WHEN HIT (stereo)");
+                bool noPush = VrNoKnockback != 0, noStun = VrNoHitstun != 0, flash = VrDamageFlash != 0;
+                if (ImGui::Checkbox("No knockback", &noPush)) {
+                    VrNoKnockback = noPush ? 1 : 0;
+                    vrSettingsSave();
+                }
+                if (ImGui::Checkbox("Keep firing when hit", &noStun)) {
+                    VrNoHitstun = noStun ? 1 : 0;
+                    vrSettingsSave();
+                }
+                if (ImGui::Checkbox("Red flash when hit", &flash)) {
+                    VrDamageFlash = flash ? 1 : 0;
+                    vrSettingsSave();
+                }
+                ImGui::EndTable();
             }
         },
         [&]() {
