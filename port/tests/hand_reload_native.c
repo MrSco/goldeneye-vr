@@ -99,6 +99,8 @@ static int gevrGexMagPoints(float c[3], float w[3], float h[3])
     return pointsValid;
 }
 static int supportHeld;
+static int supportCtrl;
+static int gevrStereoTwoHandSupportCtrl(void) { return supportCtrl; }
 static int gevrStereoTwoHandGrip(void) { return supportHeld; }
 static int gevrMagNearerThanFore(float d) { (void)d; return 1; }
 static void gevrOffHandGripBuzz(void) {}
@@ -165,7 +167,7 @@ static void reset(void)
     player.hands[GUNRIGHT].weapon = ITEM_WPPK;
     player.hands[GUNLEFT].weapon = ITEM_UNARMED;
     gex[0] = gex[1] = 0;
-    pointsValid = supportHeld = falls = 0;
+    pointsValid = supportHeld = supportCtrl = falls = 0;
     readyEvents = 0;
     s_gevrGexHeldRounds = -1;
     s_gevrPistolGripOwner = s_gevrPistolGripWas = 0;
@@ -389,6 +391,14 @@ static void meleeArbitration(void)
     at(1, 30, VrReloadBelt[1], VrReloadBelt[2]);
     vr_ctrl_velocity_play[1][2] = 2.5f;
     chopHits = 0; gevrHandChopTick(1); assert(chopHits == 1);   /* bare-hand punch */
+    /* A dominant bare hand supporting an off-hand gun cannot punch while held. */
+    reset(); player.hands[GUNRIGHT].weapon = ITEM_FIST;
+    player.hands[GUNLEFT].weapon = ITEM_AK47;
+    supportHeld = supportCtrl = 1;
+    at(1, 30, VrReloadBelt[1], 80);
+    vr_ctrl_velocity_play[1][2] = 2.5f;
+    chopHits = whiffs = 0; gevrHandChopTick(1);
+    assert(chopHits == 0 && whiffs == 0 && !gevrHandChopSwinging(1));
     reset(); VrManualReloading = 0;
     at(1, 30, VrReloadBelt[1], VrReloadBelt[2]);
     vr_ctrl_velocity_play[1][2] = 2.5f;
