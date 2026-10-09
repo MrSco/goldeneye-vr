@@ -366,6 +366,9 @@ s32 gevrCoopPlaceBeside(s32 target)
     coord3d pos;
     StandTile *stan;
     f32 facing;
+    coord3d reserved[4];
+    s32 count = 0, i;
+    extern s32 gevrCoopFindSpawnSpot(coord3d *, StandTile **, f32, const coord3d *, s32);
 
     if (chr == NULL || them == NULL || them == g_CurrentPlayer || them->prop == NULL)
     {
@@ -391,7 +394,13 @@ s32 gevrCoopPlaceBeside(s32 target)
         facing -= M_TAU_F;
     }
     sub_GAME_7F03D058(prop, FALSE);
-    if (!chrAdjustPosForSpawn(&pos, &stan, facing, TRUE))
+    for (i = 0; i < 4; i++)
+    {
+        struct player *other = g_playerPointers[i];
+        if (other && other != g_CurrentPlayer && other->prop && !other->bonddead)
+            reserved[count++] = other->prop->pos;
+    }
+    if (!gevrCoopFindSpawnSpot(&pos, &stan, facing, reserved, count))
     {
         sub_GAME_7F03D058(prop, TRUE);
         return FALSE;

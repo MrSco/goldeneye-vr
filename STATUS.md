@@ -67,6 +67,8 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
+- #161–#164: campaign fixes implemented; native regressions and the twenty-stage
+  ROM floor audit pass. Headset validation remains; see docs/issue-161-164-campaign-fixes.md.
 - Co-op cutscenes on a teammate, revive, menus and debrief need continued
   two-headset testing; the invisible ending report remains open. Bond's
   cinema animation and script music stay on the host.
@@ -91,6 +93,7 @@ is goldeneyevr.com, in its own repository.
 
 - Build: android/gradlew.bat assembleRelease; signing uses gitignored
   android/keystore.properties and the existing .jks. Preserve the key.
+  On this Windows machine set JAVA_HOME=C:/Program Files/Java/jdk-20 each time.
   NDK 25.1.8937393, CMake 3.22.1; short junctions avoid long-path failures.
   Debug loop: tools/gevr_boot_test.ps1. Clean configure fetches SDL2/Opus.
 - Release: bump versionCode/versionName, tag the build commit, release-sign

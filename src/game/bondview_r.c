@@ -366,6 +366,79 @@ static s32 gevrAmmoSpawnSpot(PadRecord *pad, f32 lift, coord3d *pos, StandTile *
     return FALSE;
 }
 
+/* Shared by mission starts and late joins/revives. Search near the intended
+ * entrance, testing the whole player cylinder and the path to it, rather
+ * than accepting a floor point inside scenery (#164). Reservations keep
+ * all four placements separate even before their player props exist. */
+s32 gevrCoopFindSpawnSpot(coord3d *pos, StandTile **stan, f32 facing,
+        const coord3d *reserved, s32 count)
+{
+    const coord3d origin = *pos;
+    const f32 base = stanGetPositionYValue(*stan, origin.x, origin.z);
+    const s32 cdtypes = CDTYPE_OBJS | CDTYPE_DOORS | CDTYPE_PATHBLOCKER;
+    s32 ring, k, i;
+
+    for (ring = 1; ring <= 6; ring++)
+    {
+        for (k = 0; k < 16; k++)
+        {
+            f32 angle = facing + (f32)((k * 5) % 16) * (M_TAU_F / 16.0f);
+            coord3d candidate = origin;
+            StandTile *tile = *stan;
+            StandTile *volume;
+            candidate.x += sinf(angle) * (70.0f * ring);
+            candidate.z += cosf(angle) * (70.0f * ring);
+            for (i = 0; i < count; i++)
+            {
+                f32 dx = candidate.x - reserved[i].x;
+                f32 dz = candidate.z - reserved[i].z;
+                if (dx * dx + dz * dz < 65.0f * 65.0f) break;
+            }
+            if (i != count
+                || !stanTestLineUnobstructed(&tile, origin.x, origin.z, candidate.x, candidate.z,
+                    cdtypes, 0.0f, 1.0f, 0.0f, 1.0f)
+                || tile == NULL
+                || fabsf(stanGetPositionYValue(tile, candidate.x, candidate.z) - base) > 30.0f) continue;
+            volume = tile;
+            if (stanTestVolume(&volume, candidate.x, candidate.z, 30.0f, cdtypes, 0.0f, 1.0f) >= 0) continue;
+            /* Reject a cylinder straddling a ledge or a steep floor step. */
+            for (i = 0; i < 8; i++)
+            {
+                f32 a = (f32)i * (M_TAU_F / 8.0f);
+                f32 x = candidate.x + sinf(a) * 30.0f;
+                f32 z = candidate.z + cosf(a) * 30.0f;
+                StandTile *edge = tile;
+                if (!walkTilesBetweenPoints_NoCallback(&edge, candidate.x, candidate.z, x, z)
+                    || edge == NULL || fabsf(stanGetPositionYValue(edge, x, z) - base) > 30.0f) break;
+            }
+            if (i != 8) continue;
+            *pos = candidate;
+            *stan = tile;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+static void gevrCoopStartSpot(coord3d *pos, StandTile **stan, PadRecord *pad, s32 slot)
+{
+    coord3d reserved[4];
+    s32 i;
+    /* Recompute earlier slots from the pad, independent of loading order,
+     * local slot and match seed. Slot zero retains the game's own start. */
+    reserved[0] = pad->pos;
+    for (i = 1; i <= slot && i < 4; i++)
+    {
+        coord3d candidate = pad->pos;
+        StandTile *tile = pad->stan;
+        f32 facing = atan2f(pad->look.x, pad->look.z) + M_PI_F;
+        if (!gevrCoopFindSpawnSpot(&candidate, &tile, facing, reserved, i))
+            sysLogPrintf(LOG_ERROR, "coop: no clear start for slot %d near entrance", i);
+        reserved[i] = candidate;
+        if (i == slot) { *pos = candidate; *stan = tile; }
+    }
+}
+
 static void gevrAddOnlineStartPads(void)
 {
     extern bool netIsActive(void);
@@ -376,7 +449,7 @@ static void gevrAddOnlineStartPads(void)
     f32 cz = 0.0f;
     s32 i;
 
-    if (!netIsActive() || need <= 0 || startpadcount == 0 || g_Startpad[0]->stan == NULL || g_CurrentSetup.propDefs == NULL)
+    if (!netIsActive() || gevrCoopActive() || need <= 0 || startpadcount == 0 || g_Startpad[0]->stan == NULL || g_CurrentSetup.propDefs == NULL)
     {
         return;
     }
@@ -873,7 +946,7 @@ void bondviewLoadSetupIntroSection(void)
 
             if (netIsActive())
             {
-                rand_pad_index = netStartPad(get_cur_playernum(), startpadcount);
+                rand_pad_index = gevrCoopActive() ? 0 : netStartPad(get_cur_playernum(), startpadcount);
             }
             else
 #endif
@@ -894,41 +967,9 @@ void bondviewLoadSetupIntroSection(void)
 
         start_stan = g_Startpad[rand_pad_index]->stan;
 #ifdef GEVR
-        /*
-         * An online co-op mission (#94): a solo setup has a start pad for one,
-         * so the party would start inside each other. Every slot but the
-         * first stands beside it instead, to the pad's right, its left or
-         * behind it, where the floor reaches; the same on every headset.
-         */
         if (gevrCoopActive() && get_cur_playernum() > 0 && start_stan)
         {
-            static const f32 side[4] = { 0.0f, 1.0f, -1.0f, 0.0f };
-            static const f32 back[4] = { 0.0f, 0.0f, 0.0f, -1.0f };
-            const s32 k = get_cur_playernum() & 3;
-            f32 lx = g_Startpad[rand_pad_index]->look.f[0];
-            f32 lz = g_Startpad[rand_pad_index]->look.f[2];
-            f32 len = sqrtf(lx * lx + lz * lz);
-            StandTile *tile = start_stan;
-            f32 x;
-            f32 z;
-
-            if (len < 0.001f)
-            {
-                lx = 0.0f;
-                lz = 1.0f;
-                len = 1.0f;
-            }
-            lx /= len;
-            lz /= len;
-            x = start_pos.f[0] + 70.0f * (side[k] * lz + back[k] * lx);
-            z = start_pos.f[2] + 70.0f * (-side[k] * lx + back[k] * lz);
-            if (walkTilesBetweenPoints_NoCallback(&tile, start_pos.f[0], start_pos.f[2], x, z) &&
-                tile && stanTestPointWithinTileBoundsMaybe(tile, x, z))
-            {
-                start_pos.f[0] = x;
-                start_pos.f[2] = z;
-                start_stan = tile;
-            }
+            gevrCoopStartSpot(&start_pos, &start_stan, g_Startpad[rand_pad_index], get_cur_playernum());
         }
         else if (getPlayerCount() >= 2)
         {
