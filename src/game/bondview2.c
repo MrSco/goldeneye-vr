@@ -5450,13 +5450,20 @@ s32 watch_time_0;
  * Address 80079A28
  * EU .bss 80068508
 */
+#ifdef GEVR
+/* a row per player (the solo ring uses the first five): online eight slots
+ * post here, and rows 5-7 ran into stringbuffer_top, the one top message
+ * (user: the host's bots' pickups showed on the host's screen) */
+char stringbuffer_lowerleft[BONDVIEW_HUD_MSG_BOTTOM_ROWS][BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH];
+#else
 char stringbuffer_lowerleft[0x5][BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH];
+#endif
 char dword_CODE_bss_80079c21[0x04];
 
 #if defined(BUGFIX_R1)
 //CODE.bss:80079Cd8
-s32 dword_CODE_bss_jp80079Cd8[0x05];
-s32 dword_CODE_bss_jp80079CEC[0x05];
+s32 dword_CODE_bss_jp80079Cd8[BONDVIEW_HUD_MSG_BOTTOM_ROWS];
+s32 dword_CODE_bss_jp80079CEC[BONDVIEW_HUD_MSG_BOTTOM_ROWS];
 #endif
 
 /**
@@ -20124,6 +20131,13 @@ void hudmsgBottomShow(char *string, struct fontchar *font, struct font *arg2)
 {
     s32 abs_index;
     s32 index;
+#ifdef GEVR
+    /* the local player's row only, as the US version below */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        return;
+    }
+#endif
     if (getPlayerCount() == 1)
     {
         if (display_statusbar < 5)
@@ -20166,6 +20180,15 @@ void hudmsgBottomShow(char *mess)
         assert(font);
         assert(strlen(mess)<=MAXMESSAGELEN);
     #endif
+#ifdef GEVR
+    /* Online only the local player's row is drawn (hudmsgBottomRender from
+     * maybe_mp_interface); a host's bot or another player's copy posts nothing
+     * (user: the bots' pickups showed on the host's screen) */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        return;
+    }
+#endif
     if (getPlayerCount() == 1)
     {
         if (display_statusbar < 5)
