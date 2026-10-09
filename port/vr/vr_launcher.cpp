@@ -1329,12 +1329,13 @@ static void gevrFunOptions(bool hostPage) {
             vrSettingsSave();
     }
 }
-static void gevrLobbyRoster(const ImVec4 &gold) {
+static void gevrLobbyRoster(const ImVec4 &gold, bool showCount = true) {
     const NetMsgLobbyState *lobby = netGetLobbyState();
     static int kickSlot = -1;
     static char kickName[GEVR_MAX_NAME_LEN] = "";
     const bool canKick = netIsHost();
-    ImGui::TextColored(gold, "PLAYERS (%d/%d)", netGetConnectedPlayerCount(), netGetMaxPlayers());
+    if (showCount) ImGui::TextColored(gold, "PLAYERS (%d/%d)", netGetConnectedPlayerCount(), netGetMaxPlayers());
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(ImGui::GetStyle().CellPadding.x, 2.0f));
     if (ImGui::BeginTable("##lobbyroster", canKick ? 6 : 5, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerH)) {
         float font = ImGui::GetFontSize();
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
@@ -1371,7 +1372,7 @@ static void gevrLobbyRoster(const ImVec4 &gold) {
                 if (!host) {
                     const bool supported=netHostCanKickPlayer(i)!=0;
                     ImGui::BeginDisabled(!supported);
-                    if (ImGui::Button("Kick")) {
+                    if (ImGui::SmallButton("Kick")) {
                         kickSlot = i;snprintf(kickName,sizeof(kickName),"%s",slot.name);
                     }
                     ImGui::EndDisabled();
@@ -1383,6 +1384,7 @@ static void gevrLobbyRoster(const ImVec4 &gold) {
         }
         ImGui::EndTable();
     }
+    ImGui::PopStyleVar();
     if (kickSlot >= 0 && !ImGui::IsPopupOpen("Kick from lobby?")) ImGui::OpenPopup("Kick from lobby?");
     if (ImGui::BeginPopupModal("Kick from lobby?",nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
         const bool present = netHostCanKickPlayer(kickSlot) &&
@@ -1423,6 +1425,80 @@ static bool gevrLauncherHostIdleTick(uint64_t nowMs, bool hosting, bool act)
     }
     if (act) s_launcherHostActMs = nowMs;
     return false;
+}
+
+static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::string &code) {
+    if (ImGui::BeginTable("host-lobby-options", 2, ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextColumn();
+        if (!hosting) {
+            if (ImGui::RadioButton("Public game", VrMpVisibility == 0)) { VrMpVisibility=0;vrSettingsSave(); }
+            ImGui::SameLine();
+            if (ImGui::RadioButton("Private game", VrMpVisibility == 1)) { VrMpVisibility=1;vrSettingsSave(); }
+        }
+        ImGui::TextUnformatted("Mode:");ImGui::SameLine();
+        if (ImGui::RadioButton("Deathmatch", VrMpMode != NET_MODE_COOP)) { VrMpMode=NET_MODE_DEATHMATCH;gevrHostChoiceChanged(); }
+        ImGui::SameLine();
+        if (ImGui::RadioButton("Co-op", VrMpMode == NET_MODE_COOP)) { VrMpMode=NET_MODE_COOP;gevrHostChoiceChanged(); }
+        if (VrMpMode != NET_MODE_COOP) {
+            int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
+            ImGui::TextUnformatted("Stage:");ImGui::SameLine();
+            const bool teams=netScenarioHasTeams(VrMpScenario);
+            const float playersWidth=ImGui::GetFontSize()*5.7f;
+            const float reserve=teams ? ImGui::CalcTextSize("Players: 8").x
+                : ImGui::CalcTextSize("Players:").x+playersWidth+ImGui::GetStyle().ItemSpacing.x;
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x-reserve-ImGui::GetStyle().ItemSpacing.x);
+            if (namedCombo("##stagecombo",netStageCount(),netStageName,&stage)) { VrMpStage=netStage(stage)->level_id;gevrHostChoiceChanged(); }
+            ImGui::SameLine();
+            if (teams) {
+                ImGui::TextDisabled("Players: %d",netTeamRequiredPlayers(VrMpScenario));
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("The team scenario sets the player count.");
+            } else {
+                ImGui::TextUnformatted("Players:");ImGui::SameLine();ImGui::SetNextItemWidth(playersWidth);
+                int count=VrMpMaxPlayers-2;const int minimum=hosting?netLobbyMinPlayers():2;
+                if (gevrNamedCombo("##playerscombo",GEVR_MAX_PLAYERS-1,playerCountName,&count,false,
+                                  [&](int n){return n+2<minimum;})) { VrMpMaxPlayers=count+2;gevrHostChoiceChanged(); }
+            }
+        } else {
+            ImGui::TextDisabled("Campaign: up to %d players",NET_COOP_MAX_PLAYERS);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Each player picks a folder. The host picks missions. Players can join or leave any time.");
+        }
+        ImGui::TableNextColumn();
+        if (VrMpMode != NET_MODE_COOP) {
+            if (VrMpScenario == SCENARIO_MWTGG) ImGui::TextDisabled("Weapons: Golden Gun");
+            else {
+                ImGui::TextUnformatted("Weapons:");ImGui::SameLine();
+                const bool custom=VrMpWeaponSet==NET_WEAPON_SET_CUSTOM;
+                const float editWidth=ImGui::CalcTextSize("Edit").x+ImGui::GetStyle().FramePadding.x*2;
+                ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x-(custom?editWidth+ImGui::GetStyle().ItemSpacing.x:0));
+                if (namedCombo("##weaponcombo",netWeaponSetCount(),netWeaponSetName,&VrMpWeaponSet))gevrHostChoiceChanged();
+                if (VrMpWeaponSet==NET_WEAPON_SET_CUSTOM) {
+                    ImGui::SameLine();if (ImGui::Button("Edit##customset"))ImGui::OpenPopup("Custom weapons");
+                    if (ImGui::BeginPopup("Custom weapons")) {
+                        bool changed=false;
+                        for (int i=0;i<4;i++) {
+                            ImGui::PushID(i);ImGui::Text("Gun %d:",i+1);ImGui::SameLine();
+                            ImGui::SetNextItemWidth(ImGui::GetFontSize()*12);changed|=gunCombo("##custom",&VrMpCustom[i]);ImGui::PopID();
+                        }
+                        if (changed)gevrHostChoiceChanged();ImGui::EndPopup();
+                    }
+                }
+            }
+        }
+        if (hosting) {
+            if (!code.empty()) {
+                ImGui::TextColored(gold,"%s: %s",VrMpVisibility?"PRIVATE":"PUBLIC",code.c_str());ImGui::SameLine();
+            }
+            ImGui::TextColored(gold,"PLAYERS (%d/%d)",netGetConnectedPlayerCount(),netGetMaxPlayers());
+        }
+        ImGui::EndTable();
+    }
+    if (hosting) {
+        gevrTeamChoiceRow("##hostteam");
+        gevrLobbyRoster(gold,false);
+        if (gevrLobbyHasTeams(netGetMatchConfig()) && !netTeamRosterReady()) {
+            if (ImGui::IsItemHovered())ImGui::SetTooltip("Complete teams before countdown; warmup remains available.");
+        }
+    }
 }
 
 void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad) {
@@ -1677,98 +1753,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                 else if (ImGui::BeginTabBar("##hostpages")) {
                     if (ImGui::BeginTabItem("Lobby")) {
                         const bool hosting = netIsHost();
-                        if (!hosting) {
-                            if (ImGui::RadioButton("Public game", VrMpVisibility == 0)) {
-                                VrMpVisibility = 0;
-                                vrSettingsSave();
-                            }
-                            ImGui::SameLine();
-                            if (ImGui::RadioButton("Private game", VrMpVisibility == 1)) {
-                                VrMpVisibility = 1;
-                                vrSettingsSave();
-                            }
-                        }
-                        // Deathmatch or co-op: a solo mission played by the party (#94).
-                        ImGui::Text("Mode:");
-                        ImGui::SameLine();
-                        if (ImGui::RadioButton("Deathmatch", VrMpMode != NET_MODE_COOP)) {
-                            VrMpMode = NET_MODE_DEATHMATCH;
-                            gevrHostChoiceChanged();
-                        }
-                        ImGui::SameLine();
-                        if (ImGui::RadioButton("Co-op mission", VrMpMode == NET_MODE_COOP)) {
-                            VrMpMode = NET_MODE_COOP;
-                            gevrHostChoiceChanged();
-                        }
-                        if (VrMpMode == NET_MODE_COOP) {
-                            // the game's own menus decide the rest: each player's folder, then
-                            // the host's mission, difficulty and briefing (net_coop_menu.c)
-                            ImGui::TextDisabled("The campaign, up to %d players. Each player picks a folder;", NET_COOP_MAX_PLAYERS);
-                            ImGui::TextDisabled("the host picks missions. Players can join or leave any time.");
-                        }
-                        // The stage and the weapons, before hosting and in the lobby too,
-                        // where a change reaches everyone (gevrHostChoiceChanged).
-                        int stageIdx = netStageIndexOf((uint8_t)VrMpStage);
-                        if (stageIdx < 0)
-                            stageIdx = 9;
-                        if (VrMpMode != NET_MODE_COOP) {
-                            ImGui::Text("Stage:");
-                            ImGui::SameLine();
-                            ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-                            if (namedCombo("##stagecombo", netStageCount(), netStageName, &stageIdx)) {
-                                VrMpStage = netStage(stageIdx)->level_id;
-                                gevrHostChoiceChanged();
-                            }
-                            // The player count beside it: any stage takes 2..8, the host's
-                            // call; a team scenario takes its own size.
-                            ImGui::SameLine();
-                            if (netScenarioHasTeams(VrMpScenario)) {
-                                ImGui::TextDisabled("Players: %d (teams)", netTeamRequiredPlayers(VrMpScenario));
-                            } else {
-                                ImGui::Text("Players:");
-                                ImGui::SameLine();
-                                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 6.0f);
-                                int countIdx = VrMpMaxPlayers - 2;
-                                const int minPlayers = hosting ? netLobbyMinPlayers() : 2;
-                                if (gevrNamedCombo("##playerscombo", GEVR_MAX_PLAYERS - 1, playerCountName, &countIdx, false,
-                                                   [&](int n) { return n + 2 < minPlayers; })) {
-                                    VrMpMaxPlayers = countIdx + 2;
-                                    gevrHostChoiceChanged();
-                                }
-                            }
-                            if (VrMpScenario == SCENARIO_MWTGG) {
-                                ImGui::TextDisabled("Weapons: Golden Gun (the scenario's own set)");
-                            } else {
-                                ImGui::Text("Weapons:");
-                                ImGui::SameLine();
-                                ImGui::SetNextItemWidth(ImGui::GetFontSize() * 10.0f);
-                                if (namedCombo("##weaponcombo", netWeaponSetCount(), netWeaponSetName, &VrMpWeaponSet))
-                                    gevrHostChoiceChanged();
-                                if (VrMpWeaponSet == NET_WEAPON_SET_CUSTOM) {
-                                    bool changed = false;
-                                    for (int i = 0; i < 4; i++) {
-                                        char id[24];
-                                        snprintf(id, sizeof(id), "##custom%d", i);
-                                        if (i)
-                                            ImGui::SameLine();
-                                        ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8.0f);
-                                        changed |= gunCombo(id, &VrMpCustom[i]);
-                                    }
-                                    if (changed)
-                                        gevrHostChoiceChanged();
-                                }
-                            }
-                        } // deathmatch: stage, players and weapons
-
-                        if (hosting) {
-                            if (!hostedCode.empty())
-                                ImGui::TextColored(gold, "%s CODE: %s", VrMpVisibility ? "PRIVATE" : "PUBLIC",
-                                                   hostedCode.c_str());
-                            gevrTeamChoiceRow("##hostteam");
-                            gevrLobbyRoster(gold);
-                            if (gevrLobbyHasTeams(netGetMatchConfig()) && !netTeamRosterReady())
-                                ImGui::TextDisabled("Complete teams before countdown; warmup remains available.");
-                        }
+                        gevrHostLobbyOptions(gold, hosting, hostedCode);
                         ImGui::EndTabItem();
                     }
                     if (ImGui::BeginTabItem("Match")) {

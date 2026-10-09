@@ -46,7 +46,8 @@ while depth:
 coop=launcher[opening:end]
 fixture=(root/'port/tests/launcher_compact_native.cpp').read_text(encoding='utf-8')
 generated.write_text(fixture.replace('/* INSERT_OPTIONS */','\n'.join(function(signature) for signature in
-    ('static void gevrMatchOptions(bool', 'static void gevrMovementSpeedOptions(bool', 'static void gevrMatchLiveOptions() {')))
+    ('static void gevrMatchOptions(bool', 'static void gevrMovementSpeedOptions(bool', 'static void gevrMatchLiveOptions() {',
+     'static void gevrLobbyRoster(const', 'static const char *playerCountName(', 'static void gevrHostLobbyOptions(')))
     .replace('/* INSERT_COMFORT */',comfort).replace('/* INSERT_COOP */',coop),encoding='utf-8')
 obj=Path(tempfile.gettempdir())/'gevr-launcher-net-match.o'
 subprocess.run([shutil.which('gcc') or 'gcc','-O2','-D_LANGUAGE_C','-Wno-builtin-declaration-mismatch','-I.','-Iport/include','-Iinclude','-Isrc',
