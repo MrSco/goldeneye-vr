@@ -376,6 +376,42 @@ s32 gevrDualWielding(void)
     return g_CurrentPlayer != NULL
         && getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED;
 }
+extern s32 gevrStereoTwoHandItem(s32 item);
+extern s32 gevrStereoTwoHandGrip(void);
+extern s32 gevrStereoTwoHandGun(void);
+extern s32 gevrStereoTwoHandSupportCtrl(void);
+
+/* Unarmed remains a bare support hand while the off hand holds a gun, even
+ * when the inventory contains a sniper. With the off hand empty, keep the
+ * original sniper-club substitution. Include queued weapon changes. */
+static s32 gevrUnarmedModelItem(void)
+{
+    struct hand *left = &g_CurrentPlayer->hands[GUNLEFT];
+    s32 item = left->weapon_animation_trigger ? left->weapon_next_weapon : left->weaponnum;
+    if (g_gevrStereo && (gevrStereoTwoHandItem(left->weaponnum) || gevrStereoTwoHandItem(item))) return ITEM_FIST;
+    return bondinvItemAvailable(ITEM_SNIPERRIFLE) ? ITEM_SNIPERRIFLE : ITEM_FIST;
+}
+
+static void gevrUnarmedModelUpdate(void)
+{
+    if (!g_gevrStereo) return;
+    s32 item = gevrUnarmedModelItem();
+    if (item == g_CurrentPlayer->cur_item_weapon_getname) return;
+    g_CurrentPlayer->cur_item_weapon_getname = item;
+    /* The item slot is still FIST; changing only the name would leave its
+     * previously loaded club model in the hand. Queue the replacement too. */
+    for (s32 hand = 0; hand < 2; hand++)
+    {
+        if (g_CurrentPlayer->hand_item[hand] == ITEM_FIST
+            && !g_CurrentPlayer->lock_hand_model[hand]
+            && g_CurrentPlayer->field_2A44[hand] < 0)
+        {
+            g_CurrentPlayer->field_2A44[hand] = ITEM_FIST;
+            g_CurrentPlayer->hand_invisible[hand] = -3;
+        }
+    }
+}
+
 static s32 s_gevrHiddenShown[2];
 s32 gevrHandGadgetShown(s32 hand) { return s_gevrHiddenShown[hand]; }
 /* the stereo gun matrix's row length (the viewmodel scale), 1 when flat:
@@ -2366,11 +2402,14 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     Model *mdl = &s_gevrFistModel;
     ModelFileHeader *hdr = &s_gevrFistHeader;
     u32 *rw = s_gevrFistRw;
-    s32 held;
-    extern s32 gevrStereoTwoHandGrip(void);
+    s32 held = gevrStereoTwoHandGrip();
+    s32 gun = held ? gevrStereoTwoHandGun() : GUNRIGHT;
+    s32 support = held ? 1 - gun : GUNLEFT;
+    s32 item = get_item_in_hand_or_watch_menu(support);
+    s32 mirror = (support == GUNLEFT) != gevrStereoMirrored();
 
     if (!g_gevrStereo
-        || get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
+        || (item != ITEM_UNARMED && item != ITEM_FIST)
         || g_CurrentPlayer->watch_animation_state != 0
         || g_CurrentPlayer->bonddead)
     {
@@ -2388,15 +2427,14 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
      */
     {
         extern s32 gevrGexMagState(s32 hand, f32 off[3]);
-        const s32 mag = gevrGexMagState(GUNRIGHT, NULL);
+        const s32 mag = gun == GUNRIGHT ? gevrGexMagState(GUNRIGHT, NULL) : 0;
 
         if (mag == 1 || mag == 2)   /* GEVR_GEXMAG_GRIPPED, _INHAND */
         {
             return gdl;   /* GoldenEye X's left hand has the magazine (gun.c) */
         }
     }
-    held = gevrStereoTwoHandGrip();
-    if (!gevrStereoGunMatrix(held ? GUNRIGHT : GUNLEFT, &armmtx))
+    if (!gevrStereoGunMatrix(held ? gun : support, &armmtx))
     {
         return gdl;
     }
@@ -2411,8 +2449,8 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
         return gdl;
     }
 
-    /* a left hand: mirrored in the model's own frame, then the viewmodel scale */
-    matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
+    /* Mirror only a logical left support hand, then apply the viewmodel scale. */
+    if (support == GUNLEFT) matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
     matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
     if (held)
     {
@@ -2430,7 +2468,7 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
 
     modelInit(mdl, hdr, (s32 *) rw);
     sub_GAME_7F05E978(mdl, 1);
-    sub_GAME_7F05EA94(mdl, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    sub_GAME_7F05EA94(mdl, g_CurrentPlayer->hands[gun].field_87E);
     if (hdr->numSwitches >= 0x1E)
     {
         bondviewSelectCuff(mdl, hdr, 0x1D);
@@ -2457,9 +2495,8 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
      * mirror inverts every winding, so their culling would keep only the
      * inside faces (a hollow, inside-out arm). fast3d swaps front and back
      * between these tags (VR_CULL_MIRROR_BEGIN/END, port/vr/vr_openxr.h). */
-    /* (left-handed mode: the gun matrix is already mirrored, so this second
-     * mirror gives a plain right fist on the right controller - no swap) */
-    if (!gevrStereoMirrored())
+    /* Handedness swaps physical controllers; culling follows the final hand mirror. */
+    if (mirror)
     {
         gDPNoOpTag(renderdata.gdl++, 0x56580000);
     }
@@ -2468,7 +2505,7 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     subdraw(&renderdata, mdl);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
-    if (!gevrStereoMirrored())
+    if (mirror)
     {
         gDPNoOpTag(gdl++, 0x56580001);
     }
@@ -2785,8 +2822,9 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         extern s32 gevrStereoTwoHandGrip(void);
         extern s32 gevrGexLeftHandShown(void);   /* gun.c: GoldenEye X's own left hand holds it */
 
-        if (gevrStereoTwoHandGrip() && !gevrGexLeftHandShown())
+        if (gevrStereoTwoHandGrip() && (gevrStereoTwoHandGun() == GUNLEFT || !gevrGexLeftHandShown()))
         {
+            gdl = gevrHandTag(gdl, 1 - gevrStereoTwoHandGun());
             gdl = gevrRenderLeftArm(gdl, &renderdata);
         }
     }
@@ -2807,6 +2845,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             continue;
         }
 #ifdef GEVR
+        /* The support hand was drawn attached to the gun before this pass. */
+        if (gevrStereoTwoHandGrip() && handnum == 1 - gevrStereoTwoHandGun()) continue;
         /* stereo: the watch arm is drawn on the left controller instead
          * (gevrRenderLeftWatchArm), not as a weapon in the left hand */
         if (g_gevrStereo && item == ITEM_SUIT_LF_HAND)
@@ -5160,6 +5200,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
             handptr->weapon_action_state = GUN_ANIM_STATE_SWITCH_SWAP;
 
+#ifdef GEVR
+            if (g_gevrStereo) gevrUnarmedModelUpdate();
+            else g_CurrentPlayer->cur_item_weapon_getname = gevrUnarmedModelItem();
+#else
             if (bondinvItemAvailable(ITEM_SNIPERRIFLE) != 0)
             {
                 g_CurrentPlayer->cur_item_weapon_getname = ITEM_SNIPERRIFLE;
@@ -5168,6 +5212,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 g_CurrentPlayer->cur_item_weapon_getname = ITEM_FIST;
             }
+#endif
         }
         else
         {
@@ -6456,7 +6501,11 @@ void gunTickGameplay(s32 triggerOn)
     {
         extern s32 gevrStereoTwoHandUpdate(void);
 
-        gevrStereoTwoHandUpdate();
+        gevrUnarmedModelUpdate();
+        if (gevrStereoTwoHandUpdate())
+        {
+            trigger_state.triggerOn[1 - gevrStereoTwoHandGun()] = 0;
+        }
     }
     /* Motion throwing for throwables (grenades, knives, mines) */
     {

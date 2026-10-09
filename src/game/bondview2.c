@@ -1173,6 +1173,7 @@ void gevrStereoFrame(s32 inlevel)
 #define GEVR_VIEWMODEL_CM 0.85f
 #define GEVR_GRIP_TO_ORIGIN_CM 12.0f
 
+static s32 s_gevrTwoHandGun = GUNRIGHT;   /* the slot holding the supported gun */
 static f32 s_gevrTwoHandAmt;   /* issue #35: the two-handed hold, eased 0..1 (gevrStereoTwoHandUpdate) */
 static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3]);
 static s32 gevrCoopTankTaken(struct PropRecord *prop);   /* a teammate drives this tank (co-op) */
@@ -1224,7 +1225,7 @@ static s32 gevrGripAxes(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 back[
     {
         return FALSE;
     }
-    if (ctrl == 1 && s_gevrTwoHandAmt > 0.001f)
+    if (ctrl == 1 - s_gevrTwoHandGun && s_gevrTwoHandAmt > 0.001f)
     {
         gevrTwoHandAim(pos, right, up, back);
     }
@@ -2835,6 +2836,29 @@ s32 gevrStereoTwoHandItem(s32 item)
     }
 }
 
+/* Only a bare opposite hand can support a gun. Controller roles are logical,
+ * so vr_input.cpp's handedness mapping also covers an off-hand gun. */
+static s32 gevrTwoHandGunCandidate(void)
+{
+    s32 right = getCurrentPlayerWeaponId(GUNRIGHT);
+    s32 left = getCurrentPlayerWeaponId(GUNLEFT);
+
+    if (gevrStereoTwoHandItem(right) && (left == ITEM_UNARMED || left == ITEM_FIST)) return GUNRIGHT;
+    if (gevrStereoTwoHandItem(left) && (right == ITEM_UNARMED || right == ITEM_FIST)) return GUNLEFT;
+    return -1;
+}
+
+s32 gevrStereoTwoHandGun(void)
+{
+    return s_gevrTwoHandGun;
+}
+
+/* Logical controller holding the barrel, opposite the trigger controller. */
+s32 gevrStereoTwoHandSupportCtrl(void)
+{
+    return s_gevrTwoHandGun;
+}
+
 /*
  * Where the off hand holds (user, in the headset: it could slide right onto
  * the barrel): a handgun's at its grip, wrapping the gun hand; a long gun's
@@ -2884,18 +2908,20 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     f32 len = GEVR_TWOHAND_BARREL_CM * cm * gevrGunSizeFactor();
     f32 t, tmin, tmax, d[3];
     s32 i;
+    const s32 gun = s_gevrTwoHandGun;
+    const s32 gunctrl = 1 - gun, supportctrl = gun;
 
-    if (cm < 1e-6f || !gevrGripAxes(1, gpos, right, up, back) || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
+    if (cm < 1e-6f || !gevrGripAxes(gunctrl, gpos, right, up, back) || !gevrGripAxesRaw(supportctrl, opos, ignore, ignore, ignore))
     {
         return FALSE;
     }
-    if (!drawn && gevrGexPistolPoint(TRUE, snap))
+    if (!drawn && gun == GUNRIGHT && gevrGexPistolPoint(TRUE, snap))
     {
         for (i = 0; i < 3; i++) d[i] = opos[i] - snap[i];
         *distcm = sqrtf(d[0]*d[0] + d[1]*d[1] + d[2]*d[2]) / cm;
         return TRUE;
     }
-    if (!drawn && gevrGexForePoint(snap))
+    if (!drawn && gun == GUNRIGHT && gevrGexForePoint(snap))
     {
         /* GoldenEye X: where its own left hand holds (gun.c; Gun fit's grip mode
          * moves it), from the off hand as drawn (user: it was taken too near
@@ -2914,7 +2940,7 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     {
         Mtxf gm;
 
-        if (!gevrStereoGunMatrix(GUNRIGHT, &gm))
+        if (!gevrStereoGunMatrix(gun, &gm))
         {
             return FALSE;
         }
@@ -2924,13 +2950,13 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
                                            + s_gevrTwoHandPalm[2] * gm.m[2][i]);
         }
     }
-    if (s_gevrMuzzleValid[GUNRIGHT])
+    if (s_gevrMuzzleValid[gun])
     {
         f32 m[3];
 
         for (i = 0; i < 3; i++)
         {
-            m[i] = s_gevrMuzzle[GUNRIGHT][i] - gpos[i];
+            m[i] = s_gevrMuzzle[gun][i] - gpos[i];
         }
         len = sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
     }
@@ -2940,7 +2966,7 @@ static s32 gevrTwoHandBarrel(f32 opos[3], f32 snap[3], f32 *distcm, s32 drawn)
     }
     t = -(d[0] * back[0] + d[1] * back[1] + d[2] * back[2]);
     tmin = tmax = 0.0f;
-    if (!gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT)))
+    if (!gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(gun)))
     {
         /* drawn: the one point; taking hold: anywhere on the fore-end */
         tmin = len * (drawn ? GEVR_TWOHAND_FORE : GEVR_TWOHAND_FORE_MIN);
@@ -2973,34 +2999,44 @@ static void gevrOffHandGripBuzz(void)
 s32 gevrStereoTwoHandUpdate(void)
 {
     extern _Bool get_button_state(int hand_index, const char *button_name);
-    extern s32 gevrDualWielding(void);   /* gunfire.c */
-    s32 item = getCurrentPlayerWeaponId(GUNRIGHT);
+    s32 gun = gevrTwoHandGunCandidate();
+    s32 item = gun >= 0 ? getCurrentPlayerWeaponId(gun) : ITEM_UNARMED;
     s32 was = s_gevrTwoHand;
     f32 opos[3], snap[3], dist = 0.0f;
     const char *why = "";
     s32 claimed = FALSE;
 
     static s32 s_farFrames = 0;
-    static s32 s_gripWas = 0;
-    const s32 press = get_button_state(0, "grip") && !s_gripWas;
-
-    s_gripWas = get_button_state(0, "grip");
+    static s32 s_gripWas[2];
+    s32 press;
 
     /* Remote players have no tracked hands on this headset. */
     if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
         return FALSE;
 
-    s32 pistolSupport = gevrGexPistolSupportAllowed();
+    if (gun >= 0 && gun != s_gevrTwoHandGun)
+    {
+        s_gevrTwoHand = FALSE;
+        s_gevrTwoHandAmt = 0.0f;
+        s_gevrTwoHandResetDir = TRUE;
+        s_farFrames = 0;
+        s_gevrTwoHandGun = gun;
+    }
+    const s32 supportctrl = s_gevrTwoHandGun;
+    press = get_button_state(supportctrl, "grip") && !s_gripWas[supportctrl];
+    s_gripWas[0] = get_button_state(0, "grip");
+    s_gripWas[1] = get_button_state(1, "grip");
+    s32 pistolSupport = gun != GUNRIGHT || gevrGexPistolSupportAllowed();
 
-    if (!g_gevrStereo || gevrDualWielding() || !gevrStereoTwoHandItem(item)
+    if (!g_gevrStereo || gun < 0 || !gevrStereoTwoHandItem(item)
         || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
-        || g_CurrentPlayer->hands[GUNRIGHT].field_87F == 0)
+        || g_CurrentPlayer->hands[s_gevrTwoHandGun].field_87F == 0)
     {
         s_gevrTwoHand = FALSE;
         s_farFrames = 0;
         why = ", not a two-handed gun now";
     }
-    else if (!get_button_state(0, "grip"))
+    else if (!get_button_state(supportctrl, "grip"))
     {
         s_gevrTwoHand = FALSE;
         s_farFrames = 0;
@@ -3020,7 +3056,7 @@ s32 gevrStereoTwoHandUpdate(void)
             extern s32 gevrReloadClaimsOffHand(void);
 
             /* Hand reload: the off hand at the magazine is reloading, not holding (user) */
-            claimed = !s_gevrTwoHand && gevrReloadClaimsOffHand();
+            claimed = gun == GUNRIGHT && !s_gevrTwoHand && gevrReloadClaimsOffHand();
             if (pistolSupport
                 && dist < (s_gevrTwoHand ? GEVR_TWOHAND_KEEP_CM : GEVR_TWOHAND_PRESS_CM)
                 && (s_gevrTwoHand || !claimed))
@@ -3044,7 +3080,9 @@ s32 gevrStereoTwoHandUpdate(void)
     {
         if (s_gevrTwoHand)
         {
-            gevrOffHandGripBuzz();
+            extern s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration);
+            extern int vr_haptics_ready(void);
+            if (vr_haptics_ready()) trigger_haptic_vibration_c(supportctrl, 0.35f, 0.04f);
         }
         sysLogPrintf(LOG_NOTE, "stereo: two-handed hold %s (item %d, off hand %.1f cm from the barrel%s)",
                      s_gevrTwoHand ? "on" : "off", item, dist, s_gevrTwoHand ? "" : why);
@@ -3057,7 +3095,7 @@ s32 gevrStereoTwoHandUpdate(void)
     if (gevrAimLogEnabled() && (gevrVrGripSnapshotId() % 6) == 0)
     {
         sysLogPrintf(LOG_NOTE, "aim79 hold frame %u item %d grip %d tracked %d/%d hold %d far %d dist %.1f amt %.2f",
-                     gevrVrGripSnapshotId(), item, get_button_state(0, "grip"),
+                     gevrVrGripSnapshotId(), item, get_button_state(supportctrl, "grip"),
                      gevrVrGripTracked(0), gevrVrGripTracked(1), s_gevrTwoHand,
                      s_farFrames, dist, s_gevrTwoHandAmt);
     }
@@ -3225,7 +3263,7 @@ void gevrHandChopTick(s32 ctrl)
     /* the off hand on the gun, or either hand at the watch laser, is holding on */
     if (!g_gevrStereo || g_CurrentPlayer->bonddead || g_CurrentPlayer->watch_animation_state != 0
         || (netIsActive() && g_CurrentPlayer->mpmenuon)
-        || g_PlayerIsInTank == 1 || gevrStereoWatchGrip() || (ctrl == 0 && gevrStereoTwoHandGrip())
+        || g_PlayerIsInTank == 1 || gevrStereoWatchGrip() || (ctrl == gevrStereoTwoHandSupportCtrl() && gevrStereoTwoHandGrip())
         || gevrReloadHoldsHand(ctrl)
         || s_gevrThrowWindup[hand]   /* winding up a throw (grip held): a throw, not a blow (user) */
         || !gevrGripAxesRaw(ctrl, at, right, up, back))
@@ -3937,12 +3975,12 @@ void gevrGrenadeCookHapticTick(s32 hand, s32 cook_tick)
  */
 extern float VrGripTrim[2][6];      /* vr_settings_defaults.c */
 extern float VrGexGripTrim[2][6];
-#define s_gevrTwoHandTrim (gevrGexHeld(GUNRIGHT) ? VrGexGripTrim : VrGripTrim)
+#define s_gevrTwoHandTrim (gevrGexHeld(s_gevrTwoHandGun) ? VrGexGripTrim : VrGripTrim)
 
 /* the trim's class for the gun in hand: 0 handgun, 1 long gun */
 s32 gevrStereoTwoHandClass(void)
 {
-    return gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT)) ? 0 : 1;
+    return gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1;
 }
 
 s32 gevrStereoTwoHandMatrix(Mtxf *m)
@@ -3981,11 +4019,11 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
         }
     }
 
-    if (!gevrStereoTwoHandGrip() || !gevrTwoHandBarrel(opos, snap, &dist, TRUE) || !gevrGripAxes(1, gpos, right, up, back))
+    if (!gevrStereoTwoHandGrip() || !gevrTwoHandBarrel(opos, snap, &dist, TRUE) || !gevrGripAxes(1 - s_gevrTwoHandGun, gpos, right, up, back))
     {
         return FALSE;
     }
-    tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT)) ? 0 : 1];
+    tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1];
 
     /* the trim's turn, in the model's own frame */
     r.x = tr[3] * (M_PI_F / 180.0f);
@@ -4008,7 +4046,7 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
     /* the palm onto the hold point, plus the offset along the off hand's side, up and forward */
     for (i = 0; i < 3; i++)
     {
-        side[i] = VrLeftHandedMode ? right[i] : -right[i];
+        side[i] = (VrLeftHandedMode != (s_gevrTwoHandGun == GUNLEFT)) ? right[i] : -right[i];
         palm[i] = s_gevrTwoHandPalm[0] * m->m[0][i] + s_gevrTwoHandPalm[1] * m->m[1][i]
                 + s_gevrTwoHandPalm[2] * m->m[2][i] + m->m[3][i];
         target[i] = snap[i] + (tr[0] * side[i] + tr[1] * up[i] - tr[2] * back[i]) * cm;
@@ -4043,8 +4081,8 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
         return;
     }
 
-    if (cm < 1e-6f || gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(GUNRIGHT))
-        || !gevrGripAxesRaw(0, opos, ignore, ignore, ignore))
+    if (cm < 1e-6f || gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun))
+        || !gevrGripAxesRaw(s_gevrTwoHandGun, opos, ignore, ignore, ignore))
     {
         return;
     }
@@ -4527,7 +4565,7 @@ s32 gevrStereoShot(s32 handnum, coord2d *spreadpos, struct coord3d *origin, stru
          * tightens the game's spread too (user); not a shotgun's, whose
          * spread is its pellets' pattern */
         s32 item = getCurrentPlayerWeaponId(handnum);
-        f32 hold = handnum == GUNRIGHT && gevrStereoTwoHandGrip() && item != ITEM_SHOTGUN && item != ITEM_AUTOSHOT
+        f32 hold = handnum == s_gevrTwoHandGun && gevrStereoTwoHandGrip() && item != ITEM_SHOTGUN && item != ITEM_AUTOSHOT
             ? GEVR_TWOHAND_SPREAD : 1.0f;
         f32 dpx = (spreadpos->x - g_CurrentPlayer->crosshair_angle.f[0]) * hold;
         f32 dpy = (spreadpos->y - g_CurrentPlayer->crosshair_angle.f[1]) * hold;
@@ -4773,7 +4811,7 @@ f32 gevrScopeMagnificationHand(s32 hand)
 /* the gun hand's: the two-handed aim (gevrTwoHandAim) steadies the right gun */
 f32 gevrScopeMagnification(void)
 {
-    return gevrScopeMagnificationHand(GUNRIGHT);
+    return gevrScopeMagnificationHand(s_gevrTwoHandGun);
 }
 
 /* vr_input.cpp speaks in controllers: 1 the gun hand, 0 the off hand */
@@ -16431,7 +16469,7 @@ static s32 gevrGripGestureTry(s32 ctrl)
         return FALSE;
     }
     /* the grips' own jobs first */
-    if ((ctrl == 0 && gevrStereoTwoHandGrip()) || (ctrl == 1 && gevrStereoWatchGrip()))
+    if ((ctrl == gevrStereoTwoHandSupportCtrl() && gevrStereoTwoHandGrip()) || (ctrl == 1 && gevrStereoWatchGrip()))
     {
         sysLogPrintf(LOG_NOTE, "stereo: grip try (%s): two-handed hold or watch", ctrl ? "gun hand" : "off hand");
         return FALSE;

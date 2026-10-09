@@ -61,6 +61,8 @@ extern void vrSettingsSave(void);
 extern int gevrVrWatchGesture(void); /* vr_input.cpp */
 extern s32 g_gevrWatchGesturePending; /* bondview2.c */
 extern s32 gevrStereoWatchGrip(void);    /* bondview2.c: the gun hand holds the watch (#31) */
+extern s32 gevrStereoTwoHandGun(void);
+extern s32 gevrStereoTwoHandSupportCtrl(void);
 extern s32 gevrStereoTwoHandGrip(void);  /* bondview2.c: the off hand holds the gun (#35) */
 extern int VrGunFitArmed;                 /* vr_input.cpp: launcher "Gun fit..." */
 extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* vr_settings_defaults.c: the gun's trim in the hand, cm */
@@ -2099,7 +2101,7 @@ void inputRumble(s32 idx, f32 strength, f32 time) {
         // Support hand for a two-handed grip, same mapping vrBuildGunRotation uses: the
         // controller that is not the trigger hand. Only meaningful while it is actually
         // gripping -- an idle off hand is not touching the weapon and should stay quiet.
-        const s32  supportHand    = vr_invert_hands ? 1 : 0;
+        const s32 supportHand = gevrStereoTwoHandSupportCtrl();
         const bool supportOnWeapon = gevrStereoTwoHandGrip() != 0;   /* issue #35: the off hand at the gun */
 
         if (strength > 0.f) {
@@ -2118,7 +2120,7 @@ void inputRumble(s32 idx, f32 strength, f32 time) {
                 // holding it ever pulsed. A gripping support hand is on the same weapon
                 // taking the same recoil, so mirror the pulse onto it -- driven off the
                 // firing hand's own decay, so a burst reads as one weapon and not two.
-                if (supportOnWeapon) {
+                if (supportOnWeapon && gevrStereoTwoHandGun() == handRight) {
                     trigger_haptic_vibration_c(supportHand, strength, time);
                 }
             }
@@ -2128,6 +2130,9 @@ void inputRumble(s32 idx, f32 strength, f32 time) {
 
             if (bgunIsFiring(handLeft) && vr_left_gun_fire > 0) {
                 trigger_haptic_vibration_c(0, strength, time);
+                if (supportOnWeapon && gevrStereoTwoHandGun() == handLeft) {
+                    trigger_haptic_vibration_c(supportHand, strength, time);
+                }
             }
             if (vr_left_gun_fire > 0) {
                 vr_left_gun_fire--;
@@ -2267,7 +2272,7 @@ void gevrRumbleGunfire(s32 hand, s32 item_id) {
         trigger_haptic_vibration_freq_c(targetHand, amp, p.duration, p.frequency);
 
         // Two-handed grip support: if gripping with off hand, mirror recoil with 60% strength
-        if (gevrStereoTwoHandGrip() != 0) {
+        if (gevrStereoTwoHandGrip() != 0 && hand == gevrStereoTwoHandGun()) {
             s32 supportHand = 1 - targetHand;
             trigger_haptic_vibration_freq_c(supportHand, amp * 0.6f, p.duration, p.frequency);
         }

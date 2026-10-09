@@ -1,6 +1,9 @@
 # Changes after v0.4.14
 
-None yet.
+- Two-handed grips work with a gun in either hand, in both handedness modes.
+  When the off hand holds a gun, Unarmed stays bare even if a sniper is owned,
+  so the free hand can support it. Holstering the off-hand gun restores the
+  original sniper-butt substitution.
 
 See [v0.4.14](v0.4.14.md) for bots handling doors, soft collision between players
 and the hit immunity rule,
