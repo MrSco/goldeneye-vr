@@ -1,28 +1,10 @@
-# Changes after v0.4.14
+# Changes after v0.4.15
 
-- **Co-op briefing hang (reports 7b162d90, 919e73ee).** After a mission, a
-  follower moving from the briefing to mission select spun forever in
-  `langGetLangBankIndexFromStagenum`. The host's next screen had no folder
-  entry (`-1`), and that was applied before the briefing cleared its text
-  bank. The screen being left now keeps its mission until its own cleanup.
-  An unset page no longer looks up a text bank, and an unknown level logs
-  and returns instead of spinning. Manual report 3e30f876 is the same
-  session as 919e73ee.
-- **Music stop wait (report c3ad6b13).** Starting action music on the
-  Caverns intro waited forever for sequence player 2 to reach stopped.
-  The stop is a queue event and can be dropped. The wait now posts the
-  stop again while the player is still playing, and after two seconds
-  stops and frees remaining voices, cancels old events, and restarts the
-  audio heartbeat before the new track loads. The same bound covers
-  players 1 and 3.
-- Two-handed grips work with a gun in either hand, in both handedness modes.
-  When the off hand holds a gun, Unarmed stays bare even if a sniper is owned,
-  so the free hand can support it. Holstering the off-hand gun restores the
-  original sniper-butt substitution.
-- GoldenEye X two-handed holds use the matching rig hand in either weapon
-  slot, with the weapon's support fit and rotation. The supporting hand no
-  longer shows its own crosshair.
+None yet.
 
+See [v0.4.15](v0.4.15.md) for body slots, the GoldenEye X hand reload keeping
+magazines, two-handed grips with a gun in either hand, bots around Library's
+glass and the co-op briefing and music hangs,
 See [v0.4.14](v0.4.14.md) for bots handling doors, soft collision between players
 and the hit immunity rule,
 See [v0.4.13](v0.4.13.md) for the title-screen and full sound queue crash fixes,
