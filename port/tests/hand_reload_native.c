@@ -23,11 +23,14 @@ static float D_800364CC = 1;
 static int s_gevrMagGrab, s_gevrGexGripSpent, s_gevrGexMag[2], s_gevrGexSeatArmed;
 static int s_gevrGexHeldRounds = -1;
 static int s_gevrGexHeldAmmoType;
+static int s_gevrReloadSeatTicks;
+static float s_gevrReloadSeatAt[3];
 static float poses[2][3];
 static int gex[2], buzzes, fills, tracked[2] = {1, 1};
 #define reserve player.ammoheldarr[1]
 static int online, playerSlot, localSlot;
 static int s_gevrGripGesture[2], gripHeld[2];
+static int s_gevrGripPendAge[2], VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
 typedef struct { int MagSize, AmmoType; } WeaponStats;
 static WeaponStats stats = {30, 1};
 static WeaponStats *get_ptr_item_statistics(int item) { (void)item; return &stats; }
@@ -125,6 +128,8 @@ int vr_haptics_ready(void) { return 1; }
 #include "gevr_bodyslot.h"
 static int bodySlots, bodyBusy[2], bodyQuiet[2];
 static GevrBodyDefer bodyBelt[2];
+int gevrBodySlotsOn(void) { return bodySlots; }
+void gevrBodySlotGripLetGo(int ctrl) { (void)ctrl; }
 int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped)
 {
     if (!bodySlots) { memset(&bodyBelt[ctrl], 0, sizeof(bodyBelt[ctrl])); return -1; }
@@ -148,6 +153,7 @@ static void belt(int ctrl, float distance)
 }
 static void reset(void)
 {
+    gevrReloadInventoryReset();
     VrManualReloading = 0;
     gevrHandReloadTick();
     VrManualReloading = 1;
@@ -639,6 +645,95 @@ static void grenadeRounds(void)
     gripHeld[0]=0; pistolTick();
     stats.MagSize=30;
 }
+static void magazinePersistence(void)
+{
+    reset(); gex[GUNRIGHT] = 1;
+    player.hands[GUNRIGHT].weapon = ITEM_AK47;
+    gevrHandReloadTick();
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 7;
+    assert(gevrReloadStow(GUNRIGHT, ITEM_AK47));
+    assert(reserve == 50 && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+    assert(gevrReloadStoredRounds(GUNRIGHT, ITEM_AK47) == 7 && gevrReloadReservedRounds(1) == 7);
+    assert(gevrReloadStow(GUNRIGHT, ITEM_AK47));   /* lower and swap call it: store once */
+    player.hands[GUNRIGHT].weapon = ITEM_WPPK;
+    gevrGexReloadReset(GUNRIGHT);
+    assert(!gevrReloadDraw(GUNRIGHT));   /* never used: initial loading allowed */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 0;
+    assert(gevrReloadStow(GUNRIGHT, ITEM_WPPK));   /* empty magazines stay empty */
+    player.hands[GUNRIGHT].weapon = ITEM_AK47;
+    gevrGexReloadReset(GUNRIGHT);
+    assert(gevrReloadDraw(GUNRIGHT));
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 7 && reserve == 50);
+    assert(gevrReloadReservedRounds(1) == 0);
+    gevrGexDropMagazine(GUNRIGHT);
+    assert(reserve == 57 && s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT);
+    assert(gevrReloadStow(GUNRIGHT, ITEM_AK47));
+    player.hands[GUNRIGHT].weapon = ITEM_WPPK;
+    gevrGexReloadReset(GUNRIGHT); assert(gevrReloadDraw(GUNRIGHT));
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && reserve == 57);
+    assert(gevrReloadStow(GUNRIGHT, ITEM_WPPK));
+    player.hands[GUNRIGHT].weapon = ITEM_AK47;
+    gevrGexReloadReset(GUNRIGHT); assert(gevrReloadDraw(GUNRIGHT));
+    gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+    /* The other hand's same-item copy has its own retained rounds. */
+    gex[GUNLEFT] = 1; player.hands[GUNLEFT].weapon = ITEM_AK47;
+    player.hands[GUNLEFT].weapon_ammo_in_magazine = 3;
+    assert(gevrReloadStow(GUNLEFT, ITEM_AK47));
+    assert(gevrReloadDraw(GUNLEFT) && player.hands[GUNLEFT].weapon_ammo_in_magazine == 3);
+    player.hands[GUNLEFT].weapon_ammo_in_magazine = 3;
+    assert(gevrReloadStow(GUNLEFT, ITEM_AK47));
+    VrManualReloading = 0; gevrHandReloadTick();
+    assert(reserve == 60);   /* turning the mode off refunds holstered rounds once */
+    gevrHandReloadTick(); assert(reserve == 60);
+    VrManualReloading = 1;
+    online = 1; playerSlot = 1;
+    assert(!gevrReloadStow(GUNRIGHT, ITEM_AK47) && !gevrHandReloadActive());
+    online = playerSlot = 0;
+    gevrReloadInventoryReset();
+    assert(!gevrReloadDraw(GUNLEFT));   /* a new stage has no saved magazines */
+}
+
+static void reloadIndicators(void)
+{
+    reset(); gex[GUNRIGHT] = 1; player.hands[GUNRIGHT].weapon = ITEM_AK47;
+    gevrHandReloadTick();
+    gevrGexDropMagazine(GUNRIGHT);
+    for (int ctrl = 0; ctrl < 2; ctrl++) {
+        float point[3];
+        assert(gevrReloadBeltPoint(ctrl, point));
+        assert(gevrBeltDist2(ctrl, point) < 0.0001f);
+        memcpy(poses[ctrl], point, sizeof(point));
+        assert(gevrReloadBeltAmmo(ctrl) == GUNRIGHT && gevrReloadBeltHover(ctrl));
+        poses[ctrl][1] += 30 * GEVR_UNITS_PER_METRE * D_800364CC / 100;
+        assert(!gevrReloadBeltHover(ctrl));
+    }
+    pointsValid = 3; memset(wellPoint, 0, sizeof(wellPoint)); memset(heldPoint, 0, sizeof(heldPoint));
+    s_gevrGexMag[GUNRIGHT] = GEVR_GEXMAG_INHAND;
+    float well[3];
+    assert(gevrReloadSeatHover(well));
+    heldPoint[0] = 20 * GEVR_UNITS_PER_METRE * D_800364CC / 100;
+    assert(!gevrReloadSeatHover(well));
+    pointsValid = 1; assert(!gevrReloadSeatHover(well));   /* tracking loss never highlights an insertion */
+    s_gevrGexMag[GUNRIGHT] = GEVR_GEXMAG_OUT;
+    float atBelt[3]; assert(gevrReloadBeltPoint(1, atBelt)); memcpy(poses[1], atBelt, sizeof(atBelt));
+    assert(gevrReloadGrabBelt(1) && s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN);
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == stats.MagSize);
+    assert(!gevrReloadGrabBelt(1));   /* one squeeze loads once */
+}
+
+static void requiredGripUse(void)
+{
+    reset();
+    VrGestureHolster = VrGestureGripUse = VrGesturePickup = VrGestureMineGrab = 0;
+    gevrGripGestureInput(1, 1, 1); assert(s_gevrGripGesture[1] == 1);
+    gevrGripGestureInput(1, 0, 0); assert(s_gevrGripGesture[1] == 0);
+    VrManualReloading = 0;
+    gevrGripGestureInput(1, 1, 1); assert(s_gevrGripGesture[1] == 3);
+    gevrGripGestureInput(1, 0, 0);
+    VrManualReloading = 1;
+}
+
 int main(void)
 {
     const float scales[] = {0.2f, 1.0f};
@@ -664,6 +759,9 @@ int main(void)
         singleRoundReloads();
         speedloaderReloads();
         grenadeRounds();
+        magazinePersistence();
+        reloadIndicators();
+        requiredGripUse();
     }
     /* A custom belt and radius must control both reload paths. */
     reset();

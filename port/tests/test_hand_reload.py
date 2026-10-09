@@ -46,7 +46,9 @@ for name in ("VrReloadGrab", "VrGexGunOff", "VrGexForeHold", "VrGexPp7Grab", "Vr
 definitions.append("float VrGexWeaponFits[64][10][3];")
 for name in ("s_gevrGexMagItem", "s_gevrPistolGripOwner"):
     definitions.append(re.search(r"static s32 " + name + r"[^;]+;", view).group())
-for name in ("GEVR_UNITS_PER_METRE", "GEVR_RELOAD_BELT_EXIT_CM", "GEVR_VIEWMODEL_CM", "GEVR_GRIP_TO_ORIGIN_CM"):
+definitions.append(re.search(r"typedef struct \{[^\n]+\} GevrStoredMagazine;", view).group())
+definitions.append(re.search(r"static GevrStoredMagazine s_gevrStoredMag[^;]+;", view).group())
+for name in ("GEVR_UNITS_PER_METRE", "GEVR_RELOAD_BELT_EXIT_CM", "GEVR_VIEWMODEL_CM", "GEVR_GRIP_TO_ORIGIN_CM", "GEVR_GRIP_PEND_POLLS"):
     match = re.search(r"^#define " + name + r"\s+[^\n]+", view, re.M)
     if match:
         definitions.append(match.group())
@@ -67,13 +69,17 @@ production.extend(function(view, signature) for signature in (
     "static void gevrWorldToLocal(",
     "static s32 gevrHandOnBody(", "static s32 gevrHipZone(",
     "static s32 gevrReloadGun(", "static s32 gevrReloadMagazineFed(",
-    "s32 gevrManualReloadOn(", "static s32 gevrGexByHand(",
+    "s32 gevrHandReloadActive(", "s32 gevrManualReloadOn(", "static s32 gevrGexByHand(",
     "s32 gevrGexHeldRoundCount(void)\n{",
     "static void gevrGexHeldDropped(", "static void gevrGexMagOut(",
+    "void gevrReloadInventoryReset(", "static void gevrReloadInventoryRelease(",
+    "s32 gevrReloadStow(", "s32 gevrReloadDraw(",
+    "s32 gevrReloadStoredRounds(", "s32 gevrReloadCarriesRounds(", "s32 gevrReloadReservedRounds(",
     "static void gevrGexMagIn(",
     "static f32 gevrBeltDist2(", "static s32 gevrGexAtBelt(",
     "static s32 gevrGexPistolPoint(s32 support, f32 out[3])\n{", "static void gevrReloadMagPoint(",
-    "static s32 gevrGexPistolSupportAllowed(void)\n{", "static f32 gevrGexReloadDistance(",
+    "static s32 gevrGexPistolSupportAllowed(void)\n{", "static f32 gevrGexReloadDistance(s32 index)\n{",
+    "s32 gevrReloadBeltAmmo(", "s32 gevrReloadBeltHover(", "s32 gevrReloadGrabBelt(", "s32 gevrReloadBeltPoint(", "s32 gevrReloadSeatHover(",
     "void gevrGexReloadReset(",
     "s32 gevrGexClaimsOffHand(void)\n{", "void gevrGexDropMagazine(",
     "static void gevrHandReloadFire(", "static void gevrGexRoundTick(", "void gevrHandReloadTick("))
@@ -83,6 +89,7 @@ for signature in ("static s32 gevrReloadNeedsAmmo(", "static s32 gevrReloadBeltR
 production.extend(function(view, signature) for signature in (
     "s32 gevrReloadHoldsHand(s32 ctrl)\n{", "void gevrHandChopTick(", "s32 gevrHandChopSwinging(", "s32 gevrTaserTouch("))
 production.append(function(view,"s32 gevrReloadFitAvailable(void)\n{"))
+production.append(function(view,"void gevrGripGestureInput("))
 fixture = (ROOT / "port/tests/hand_reload_native.c").read_text(encoding="utf-8")
 fixture = fixture.replace("/* DEFINITIONS */", "\n".join(definitions))
 fixture = fixture.replace("/* PRODUCTION */", "\n".join(production))

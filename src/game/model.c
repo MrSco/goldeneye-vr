@@ -1,6 +1,9 @@
 #include <ultra64.h>
 #include <memp.h>
 #include "model.h"
+#ifdef GEVR
+#include "gevr_hand_reload.h"
+#endif
 #include "../rmon.h" /*<PR/rmon.h>*/
 #include "bondview.h"
 #include "chr.h"
@@ -3589,8 +3592,33 @@ void modelTickAnim(struct Model *model, s32 numticks, s32 update_chrstuff)
  * @brief Model Type 1: 1Cycle No Secondary
  * @param[in,out] renderdata append cycle, CC and RM to display List
  */
+#ifdef GEVR
+static bool modelApplyReloadGhost(ModelRenderData *rd)
+{
+    u32 rgba = rd->envcolour.word;
+    if (rd->PropType != GEVR_MODEL_RELOAD_GHOST) return FALSE;
+    gDPPipeSync(rd->gdl++);
+    gDPSetCycleType(rd->gdl++, G_CYC_1CYCLE);
+    gDPSetEnvColor(rd->gdl++, rgba >> 24, (rgba >> 16) & 255, (rgba >> 8) & 255, rgba & 255);
+    gDPSetCombineLERP(rd->gdl++, 0, 0, 0, ENVIRONMENT, 0, 0, 0, ENVIRONMENT,
+        0, 0, 0, ENVIRONMENT, 0, 0, 0, ENVIRONMENT);
+    if (rd->zbufferenabled)
+    {
+        gDPSetRenderMode(rd->gdl++, G_RM_AA_ZB_XLU_SURF, G_RM_AA_ZB_XLU_SURF2);
+    }
+    else
+    {
+        gDPSetRenderMode(rd->gdl++, G_RM_AA_XLU_SURF, G_RM_AA_XLU_SURF2);
+    }
+    return TRUE;
+}
+#endif
+
 void modelApplyRenderModeType1(ModelRenderData *renderdata)
 {
+#ifdef GEVR
+    if (modelApplyReloadGhost(renderdata)) return;
+#endif
     gDPPipeSync(renderdata->gdl++);
     gDPSetCycleType(renderdata->gdl++, G_CYC_1CYCLE);
 
@@ -3614,6 +3642,9 @@ void modelApplyRenderModeType1(ModelRenderData *renderdata)
  */
 void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
 {
+#ifdef GEVR
+    if (modelApplyReloadGhost(renderdata)) return;
+#endif
     if (renderdata->PropType == PROP_TYPE_VIEWER+1)
     {
         if (isPrimary)
@@ -3921,6 +3952,9 @@ void modelApplyRenderModeType3(ModelRenderData *renderdata, bool isPrimary)
  */
 void modelApplyRenderModeType4(ModelRenderData *renderdata, bool isPrimary)
 {
+#ifdef GEVR
+    if (modelApplyReloadGhost(renderdata)) return;
+#endif
     if (renderdata->PropType == PROP_TYPE_VIEWER+1)
     {
         u8 r, g, b, a;
@@ -4214,6 +4248,9 @@ void modelApplyRenderModeType4(ModelRenderData *renderdata, bool isPrimary)
  */
 void modelApplyRenderModeType2(ModelRenderData *renderdata)
 {
+#ifdef GEVR
+    if (modelApplyReloadGhost(renderdata)) return;
+#endif
     gDPPipeSync(renderdata->gdl++);
     gDPSetCycleType(renderdata->gdl++, G_CYC_2CYCLE);
 

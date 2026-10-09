@@ -3982,6 +3982,10 @@ static void gevrVrValueText(s32 row, char *buf)
         {
             sprintf(buf, "%s", "SLOTS");   /* body slots replace the hip holster */
         }
+        else if (row == GEVR_VR_GRIPUSE && VrManualReloading && VrGexGuns)
+        {
+            sprintf(buf, "%s", "REQUIRED");
+        }
         else if ((row == GEVR_VR_CURVED && !vr_screen_curve_supported())
                  || (row == GEVR_VR_PASSTHROUGH && !vr_passthrough_supported()))
         {
@@ -4106,6 +4110,7 @@ static void gevrVrStep(s32 row, s32 dir)
         if ((row == GEVR_VR_CURVED && !vr_screen_curve_supported())
             || (row == GEVR_VR_PASSTHROUGH && !vr_passthrough_supported())
             || (row == GEVR_VR_RELOAD && !VrGexGuns)
+            || (row == GEVR_VR_GRIPUSE && VrManualReloading && VrGexGuns)
             || (row == GEVR_VR_HOLSTER && VrBodySlots))
         {
             return;

@@ -101,6 +101,7 @@ extern float VrGexKf7WellOff[3], VrGexPp7WellOff[3];
 extern float *gevrGexWellFit(s32 item);
 extern void gevrReloadFitSetWell(void);
 extern int VrGexGuns;                     /* vr_settings_defaults.c: GoldenEye X's models */
+extern int VrManualReloading;
 extern s32 gevrGexMineDetonates(void);    /* gun.c: GE-X's remote mines, detonated from the watch */
 #include "gevr_bodyslot.h"
 extern float VrBodySlotFit[GEVR_BODY_SLOTS][3];   /* vr_settings_defaults.c */
@@ -2022,7 +2023,8 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         /* Menu + physical B belongs to the microphone, in either handedness. */
         if (s_menuHeld) allowed &= ~(VrLeftHandedMode ? 2u : 1u);
         const unsigned context = 1u + (unsigned)bossGetStageNum() * 32u
-            + (unsigned)localSlot * 4u + (VrLeftHandedMode ? 2u : 0u) + (VrPlayMode ? 1u : 0u);
+            + (unsigned)localSlot * 4u + (VrLeftHandedMode ? 2u : 0u) + (VrPlayMode ? 1u : 0u)
+            + ((VrManualReloading && VrGexGuns) ? 0x10000u : 0u);
         gevrReloadInputUpdate(&s_gevrReloadInput, held, allowed, context);
     }
     return 0;

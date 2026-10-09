@@ -38,6 +38,7 @@
 #include "model.h"
 #include "gevr_bodyslot.h"
 #include "gevr_bodyslots.h"
+#include "gevr_hand_reload.h"
 
 extern int VrBodySlots, VrBodySlotShow, VrBodySlotSize, VrLeftHandedMode;
 extern float VrBodySlotFit[GEVR_BODY_SLOTS][3];
@@ -429,7 +430,8 @@ static void gevrBodyHandUpdate(s32 ctrl)
 
         dist[s] = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
         /* a slot with nothing for this hand isn't there for it */
-        eligible[s] = offOk && (gevrBodySlotHands(s) & (1 << ctrl)) && gevrBodyChoicesFor(s, hand, choices) > 0;
+        eligible[s] = offOk && (gevrBodySlotHands(s) & (1 << ctrl)) && gevrBodyChoicesFor(s, hand, choices) > 0
+            && !(gevrReloadBeltHover(ctrl) && (s == GEVR_BS_HIP_GUN || s == GEVR_BS_HIP_OFF || s == GEVR_BS_BELT));
         if (eligible[s] && s != GEVR_BS_BACK_GUN && s != GEVR_BS_BACK_OFF && dist[s] < 1.25f * s_bodyRadius[s])
         {
             h->nearFront = TRUE;
@@ -537,7 +539,7 @@ int gevrBodySlotGrip(int ctrl)
     s32 hand, held, action;
     char from[48], to[48];
 
-    if (!s_bodyLive || ctrl < 0 || ctrl > 1 || s_bodyHand[ctrl].slot < 0)
+    if (!s_bodyLive || ctrl < 0 || ctrl > 1 || s_bodyHand[ctrl].slot < 0 || gevrReloadBeltHover(ctrl))
     {
         return FALSE;
     }
@@ -822,12 +824,43 @@ static s32 gevrBodyInView(const f32 v[3])
  * slots in view are drawn, so looking ahead costs nothing. Not the chest's
  * or the belt's: looking down at the hips they were in the way (user).
  */
+static Gfx *gevrReloadBeltDraw(Gfx *gdl)
+{
+    extern Gfx *gevrGexDrawMagazineGuide(Gfx *, ModelRenderData *, s32, const f32 *, u32);
+    extern Gfx *gevrDrawInteractionRing(Gfx *, const f32 *, f32, u32);
+    ModelRenderData rd = {0};
+    s32 ctrl;
+    if (!gevrHandReloadActive() || g_gevrExtraPass || g_CurrentPlayer->bonddead
+        || g_CurrentPlayer->watch_animation_state || g_CurrentPlayer->mpmenuon) return gdl;
+    rd.flags = 3;
+    rd.zbufferenabled = TRUE;
+    gDPNoOpTag(gdl++, 0x565F0003);
+    gSPPerspNormalize(gdl++, matrix_4x4_calc_depth_scale(0.0f, 300.0f));
+    for (ctrl = 0; ctrl < 2; ctrl++)
+    {
+        const s32 hand = gevrReloadBeltAmmo(ctrl);
+        f32 at[3];
+        const s32 hover = gevrReloadBeltHover(ctrl);
+        if (hand < 0 || !gevrReloadBeltPoint(ctrl, at) || !gevrBodyInView(at)) continue;
+        matrix_4x4_7F058C64();
+        gdl = gevrGexDrawMagazineGuide(gdl, &rd, hand, at,
+            (hover ? GEVR_RELOAD_READY_TINT : GEVR_RELOAD_TINT) | 0xFF);
+        matrix_4x4_7F058C88();
+        if (hover) gdl = gevrDrawInteractionRing(gdl, at, 4.0f, GEVR_RELOAD_READY_TINT | 0xE0);
+    }
+    gSPPerspNormalize(gdl++, viGetPerspNorm());
+    gDPNoOpTag(gdl++, 0x565F0000);
+    return gdl;
+}
+
 Gfx *gevrBodySlotsDraw(Gfx *gdl)
 {
     static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF };
     ModelRenderData rd;
     u32 tint;
     s32 i, inst = 0, set = FALSE;
+
+    gdl = gevrReloadBeltDraw(gdl);
 
     if (!s_bodyLive || !s_bodyFrameValid || !VrBodySlotShow || g_gevrExtraPass || g_CurrentPlayer == NULL)
     {
@@ -861,7 +894,11 @@ Gfx *gevrBodySlotsDraw(Gfx *gdl)
             gSPPerspNormalize(gdl++, matrix_4x4_calc_depth_scale(0.0f, 300.0f));   /* as the guns are */
             set = TRUE;
         }
-        rd.envcolour.word = tint;   /* as the room lights the hands; no highlight (user: too much) */
+        if (gevrReloadBeltAmmo(slot == GEVR_BS_HIP_GUN ? 1 : 0) >= 0) continue;
+        rd.envcolour.word = tint;
+        if ((s_bodyHand[0].slot == slot && s_bodyHand[0].ms >= 150.0f)
+            || (s_bodyHand[1].slot == slot && s_bodyHand[1].ms >= 150.0f))
+            rd.envcolour.word = gevrBodyCategoryTint(gevrBodySlotCategory(slot)) | 0xff;
         gevrBodySlotRoot(slot, item, &root);
         if (gevrBodyItemPosed(item))
         {
@@ -897,7 +934,7 @@ static void gevrBodyVtx(Vtx *v, s32 x, s32 y, u32 rgba)
 }
 
 /* a ring facing the eye at the view point at, radius cm (gevrDrawMuzzleMarker's way: vertices in mm) */
-static Gfx *gevrBodyRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba)
+Gfx *gevrDrawInteractionRing(Gfx *gdl, const f32 at[3], f32 radius, u32 rgba)
 {
     Mtxf mf;
     Mtx *mv = dynAllocateMatrix();
@@ -1007,11 +1044,11 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
             if (cv[2] < 0.0f)
             {
                 gDPNoOpTag(gdl++, 0x565F0003);
-                gdl = gevrBodyRing(gdl, cv, s_bodyRadius[s],
+                gdl = gevrDrawInteractionRing(gdl, cv, s_bodyRadius[s],
                                    gevrBodyCategoryTint(gevrBodySlotCategory(s)) | (chosen ? 0xF0 : 0x60));
                 if (chosen)
                 {
-                    gdl = gevrBodyRing(gdl, cv, 2.0f, 0xFFFFFFF0);   /* and its centre */
+                    gdl = gevrDrawInteractionRing(gdl, cv, 2.0f, 0xFFFFFFF0);   /* and its centre */
                 }
                 gDPNoOpTag(gdl++, 0x565F0000);
             }
@@ -1031,6 +1068,17 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
             continue;   /* a hand passing through shows nothing */
         }
         tint = gevrBodyCategoryTint(gevrBodySlotCategory(h->slot));
+        if (!gevrBodySlotFitting && s_bodyTune[BT_MARKERS] == 0.0f)
+        {
+            f32 cv[3];
+            gevrBodyToView(s_bodyCentre[h->slot], D_800364CC, cv);
+            if (cv[2] < 0.0f)
+            {
+                gDPNoOpTag(gdl++, 0x565F0003);
+                gdl = gevrDrawInteractionRing(gdl, cv, 4.0f, tint | 0xD0);
+                gDPNoOpTag(gdl++, 0x565F0000);
+            }
+        }
         if (back)
         {
             /* in front of the chest, on the shoulder's side */
