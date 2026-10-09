@@ -1,7 +1,10 @@
-# Changes after v0.4.14
+# Changes after v0.4.15
 
 None yet.
 
+See [v0.4.15](v0.4.15.md) for body slots, the GoldenEye X hand reload keeping
+magazines, two-handed grips with a gun in either hand, bots around Library's
+glass and the co-op briefing and music hangs,
 See [v0.4.14](v0.4.14.md) for bots handling doors, soft collision between players
 and the hit immunity rule,
 See [v0.4.13](v0.4.13.md) for the title-screen and full sound queue crash fixes,

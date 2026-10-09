@@ -6833,11 +6833,38 @@ void set_briefing_page(WATCH_BRIEFING_PAGE page)
 }
 
 
+#ifdef GEVR
+/* A chapter row and an unset page have no stage. Indexing the folder with
+   that page, then asking for its text bank, spun forever. */
+static s32 gevrBriefingLevel(void)
+{
+    s32 count = 0;
+
+    while (mission_folder_setup_entries[count].folder_text_preset)
+    {
+        count++;
+    }
+    if (briefingpage < 0 || briefingpage >= count)
+    {
+        return LEVELID_NONE;
+    }
+    return mission_folder_setup_entries[briefingpage].stage_id;
+}
+#endif
+
 // Address 0x7F015520 NTSC
 void load_briefing_text_for_stage(void)
 {
     u8 *temp_s0;
     s32 argg;
+#ifdef GEVR
+    s32 stage = gevrBriefingLevel();
+
+    if (stage < 0 || mission_folder_setup_entries[briefingpage].briefing_name_ptr == NULL)
+    {
+        return;
+    }
+#endif
 
     // what is this
     temp_s0 = ptr_logo_and_walletbond_DL + WALLETBOND_MODEL_BYTES;
@@ -6852,7 +6879,11 @@ void load_briefing_text_for_stage(void)
     // what is this
     argg *= 879;
 
+#ifdef GEVR
+    langLoadToBank(langGetLangBankIndexFromStagenum(stage), (u8 *)temp_s0, argg);
+#else
     langLoadToBank(langGetLangBankIndexFromStagenum(mission_folder_setup_entries[briefingpage].stage_id), (u8 *)temp_s0, argg);
+#endif
 
     // what is this
     for (argg = 0; argg < OBJECTIVES_MAX; argg++)
@@ -6880,7 +6911,16 @@ void init_menu0A_briefing(void)
 
 void update_menu0A_briefing(void)
 {
+#ifdef GEVR
+  s32 stage = gevrBriefingLevel();
+
+  if (stage >= 0)
+  {
+      langClearBank(langGetLangBankIndexFromStagenum(stage));
+  }
+#else
   langClearBank(langGetLangBankIndexFromStagenum(mission_folder_setup_entries[briefingpage].stage_id));
+#endif
   if (-1 < menu_update) {
     frontCleanUpWalletBond();
   }

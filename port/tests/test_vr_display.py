@@ -103,6 +103,17 @@ with tempfile.TemporaryDirectory(prefix="gevr-vr-display-") as temp:
         for invalid in ("-1", "3", "999", "garbage", "", "0.5", "2junk"):
             ini.write_text("WatchFaceStatus=" + invalid + "\n", encoding="utf-8")
             subprocess.run([str(exe), "watch_read", "1", "1"], cwd=temp, check=True)
+        ini.write_text("ArmBodyFollow=0.0000\n", encoding="utf-8")
+        subprocess.run([str(exe), "slots_default"], cwd=temp, check=True)
+        subprocess.run([str(exe), "slots_write"], cwd=temp, check=True)
+        subprocess.run([str(exe), "slots_read"], cwd=temp, check=True)
+        text = ini.read_text()
+        assert "BodySlots=1" in text and "BodySlotHipGun=" in text and "BodySlotBelt=" in text
+        assert all(len(line) < 128 for line in text.splitlines())   # vrSettingsLoad's line buffer
+        for row, size in (("BodySlotSize=7", 2), ("BodySlotSize=-3", 0), ("BodySlotChest=1 nan 3", 1),
+                          ("BodySlotChest=1 2", 1), ("BodySlotChestX=1 2 3", 1)):
+            ini.write_text(row + "\n", encoding="utf-8")
+            subprocess.run([str(exe), "slots_invalid", str(size)], cwd=temp, check=True)
         for flags in (0, 7, 16, 17, 23, 32, 55, 64, 87):   # 32: GoldenEye's hit immunity, 64: the short one
             subprocess.run([str(exe), "fun_write", str(flags)], cwd=temp, check=True)
             subprocess.run([str(exe), "fun_read", str(flags)], cwd=temp, check=True)

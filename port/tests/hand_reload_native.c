@@ -20,14 +20,20 @@ static struct Player *g_CurrentPlayer = &player;
 static int VrManualReloading = 1, g_gevrStereo = 1, g_PlayerIsInTank, VrLeftHandedMode;
 static int VrGexGuns = 1;   /* hand reload is GoldenEye X's (bondview2.c gevrHandReloadEnabled) */
 static float D_800364CC = 1;
+static const float *s_gevrGunOffOverride;
 static int s_gevrMagGrab, s_gevrGexGripSpent, s_gevrGexMag[2], s_gevrGexSeatArmed;
 static int s_gevrGexHeldRounds = -1;
+static int s_gevrGexHeldGun = GUNRIGHT;
+static float VrGexHeldMag[3];
 static int s_gevrGexHeldAmmoType;
+static int s_gevrReloadSeatTicks;
+static float s_gevrReloadSeatAt[3];
 static float poses[2][3];
 static int gex[2], buzzes, fills, tracked[2] = {1, 1};
 #define reserve player.ammoheldarr[1]
 static int online, playerSlot, localSlot;
 static int s_gevrGripGesture[2], gripHeld[2];
+static int s_gevrGripPendAge[2], VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
 typedef struct { int MagSize, AmmoType; } WeaponStats;
 static WeaponStats stats = {30, 1};
 static WeaponStats *get_ptr_item_statistics(int item) { (void)item; return &stats; }
@@ -85,6 +91,8 @@ static int gevrGripAxesRaw(int ctrl, float p[3], float r[3], float u[3], float b
     r[0] = u[1] = b[2] = 1;
     return tracked[ctrl];
 }
+static int gevrGripAxes(int ctrl, float p[3], float r[3], float u[3], float b[3])
+{ return gevrGripAxesRaw(ctrl,p,r,u,b); }
 _Bool get_button_state(int ctrl, const char *button) { (void)button; return gripHeld[ctrl]; }
 static int pointsValid;
 static float wellPoint[3], heldPoint[3];
@@ -96,6 +104,8 @@ static int gevrGexMagPoints(float c[3], float w[3], float h[3])
     return pointsValid;
 }
 static int supportHeld;
+static int supportCtrl;
+static int gevrStereoTwoHandSupportCtrl(void) { return supportCtrl; }
 static int gevrStereoTwoHandGrip(void) { return supportHeld; }
 static int gevrMagNearerThanFore(float d) { (void)d; return 1; }
 static void gevrOffHandGripBuzz(void) {}
@@ -120,6 +130,23 @@ s32 trigger_haptic_vibration_c(int hand_index, float amplitude, float duration)
     return 1;
 }
 int vr_haptics_ready(void) { return 1; }
+/* body slots (src/game/gevr_bodyslots.c): off unless a case turns them on;
+ * the belt's wait is the production arithmetic (port/src/gevr_bodyslot.c) */
+#include "gevr_bodyslot.h"
+static GevrBodyFrame s_bodyFrame;
+static int s_bodyFrameValid;
+static float s_bodyView[3][3];
+static int bodySlots, bodyBusy[2], bodyQuiet[2];
+static GevrBodyDefer bodyBelt[2];
+int gevrBodySlotsOn(void) { return bodySlots; }
+void gevrBodySlotGripLetGo(int ctrl) { (void)ctrl; }
+int gevrBodySlotBeltWait(int ctrl, int entered, int inside, int gripped)
+{
+    if (!bodySlots) { memset(&bodyBelt[ctrl], 0, sizeof(bodyBelt[ctrl])); return -1; }
+    return gevrBodyBeltDefer(&bodyBelt[ctrl], entered, inside, gripped, g_ClockTimer * 1000.0f / 60.0f, 100.0f);
+}
+int gevrBodySlotBusy(int ctrl) { return bodySlots && bodyBusy[ctrl]; }
+int gevrBodySlotQuiet(int ctrl) { return bodySlots && (bodyBusy[ctrl] || bodyQuiet[ctrl]); }
 /* PRODUCTION */
 
 /* Supply a body-space point in cm, independently of view scale and handedness. */
@@ -136,6 +163,8 @@ static void belt(int ctrl, float distance)
 }
 static void reset(void)
 {
+    s_bodyFrameValid = 0;
+    gevrReloadInventoryReset();
     VrManualReloading = 0;
     gevrHandReloadTick();
     VrManualReloading = 1;
@@ -143,9 +172,10 @@ static void reset(void)
     player.hands[GUNRIGHT].weapon = ITEM_WPPK;
     player.hands[GUNLEFT].weapon = ITEM_UNARMED;
     gex[0] = gex[1] = 0;
-    pointsValid = supportHeld = falls = 0;
+    pointsValid = supportHeld = supportCtrl = falls = 0;
     readyEvents = 0;
     s_gevrGexHeldRounds = -1;
+    s_gevrGexHeldGun = GUNRIGHT;
     s_gevrPistolGripOwner = s_gevrPistolGripWas = 0;
     s_gevrPistolGripItem = -1;
     s_gevrGexMag[0] = s_gevrGexMag[1] = GEVR_GEXMAG_IN;
@@ -155,6 +185,8 @@ static void reset(void)
     tracked[0] = tracked[1] = 1;
     s_gevrGripGesture[0] = s_gevrGripGesture[1] = 0;
     gripHeld[0] = gripHeld[1] = 0;
+    bodySlots = bodyBusy[0] = bodyBusy[1] = bodyQuiet[0] = bodyQuiet[1] = 0;
+    memset(bodyBelt, 0, sizeof(bodyBelt));
     memset(vr_ctrl_velocity_play, 0, sizeof(vr_ctrl_velocity_play));
     memset(vr_head_velocity_play, 0, sizeof(vr_head_velocity_play));
     at(0, 20, 20, 40);
@@ -246,6 +278,49 @@ static void lifecycleAndHands(void)
     assert(buzzes == 2 && player.hands[GUNRIGHT].weapon_current_animation == 9);
 }
 
+/* Body slots on: a touch at the belt still reloads, a moment later; a squeeze
+ * there (holstering at the hip) drops it until the hand has left; a hand in a
+ * slot makes no chest cross and, near one, no blow. */
+static void bodySlotArbitration(void)
+{
+    reset();
+    bodySlots = 1;
+    belt(1, 0); gevrHandReloadTick();
+    assert(buzzes == 0 && player.hands[GUNRIGHT].weapon_current_animation == 0);
+    for (int i = 0; i < 4; i++) gevrHandReloadTick();       /* 83 ms */
+    assert(buzzes == 0);
+    gevrHandReloadTick(); gevrHandReloadTick();             /* 100 ms: it reloads */
+    assert(player.hands[GUNRIGHT].weapon_current_animation == 9 && buzzes == 2);
+    for (int i = 0; i < 20; i++) gevrHandReloadTick();
+    assert(buzzes == 2);                                    /* once */
+    reset();
+    bodySlots = 1;
+    belt(1, 0); gevrHandReloadTick();
+    s_gevrGripGesture[1] = 1; gevrHandReloadTick();        /* a squeeze, still deciding */
+    s_gevrGripGesture[1] = 2; gevrHandReloadTick();        /* a slot took it */
+    s_gevrGripGesture[1] = 0;
+    for (int i = 0; i < 20; i++) gevrHandReloadTick();
+    assert(buzzes == 0 && player.hands[GUNRIGHT].weapon_current_animation == 0);
+    belt(1, 30); gevrHandReloadTick();                      /* out, and back: a touch again */
+    belt(1, 0);
+    for (int i = 0; i < 7; i++) gevrHandReloadTick();
+    assert(player.hands[GUNRIGHT].weapon_current_animation == 9 && buzzes == 2);
+    reset();
+    bodySlots = 1;
+    belt(1, 0); gevrHandReloadTick();
+    belt(1, 30); gevrHandReloadTick();                      /* in and straight out: no reload */
+    for (int i = 0; i < 10; i++) gevrHandReloadTick();
+    assert(buzzes == 0);
+    /* a pistol's chest cross: none while the hand is in a slot */
+    reset();
+    bodySlots = 1; bodyBusy[1] = 1;
+    at(1, 30, 15, 20); gevrHandReloadTick();
+    at(1, 30, -15, 20); gevrHandReloadTick();
+    assert(buzzes == 0);
+    bodyBusy[1] = 0; gevrHandReloadTick();                 /* out of the slot, still across: the cross */
+    assert(buzzes == 2 && player.hands[GUNRIGHT].weapon_current_animation == 9);
+}
+
 static void everyGunAndHolster(void)
 {
     for (int item = ITEM_WPPK; item <= ITEM_ROCKETLAUNCH; item++) {
@@ -322,6 +397,14 @@ static void meleeArbitration(void)
     at(1, 30, VrReloadBelt[1], VrReloadBelt[2]);
     vr_ctrl_velocity_play[1][2] = 2.5f;
     chopHits = 0; gevrHandChopTick(1); assert(chopHits == 1);   /* bare-hand punch */
+    /* A dominant bare hand supporting an off-hand gun cannot punch while held. */
+    reset(); player.hands[GUNRIGHT].weapon = ITEM_FIST;
+    player.hands[GUNLEFT].weapon = ITEM_AK47;
+    supportHeld = supportCtrl = 1;
+    at(1, 30, VrReloadBelt[1], 80);
+    vr_ctrl_velocity_play[1][2] = 2.5f;
+    chopHits = whiffs = 0; gevrHandChopTick(1);
+    assert(chopHits == 0 && whiffs == 0 && !gevrHandChopSwinging(1));
     reset(); VrManualReloading = 0;
     at(1, 30, VrReloadBelt[1], VrReloadBelt[2]);
     vr_ctrl_velocity_play[1][2] = 2.5f;
@@ -520,6 +603,22 @@ static void singleRoundReloads(void)
     }
     stats.MagSize=30;
 }
+static void reloadRoleChanges(void)
+{
+    /* Filling the free hand cancels the held magazine without leaking rounds. */
+    for (int owner=0;owner<2;owner++) {
+        reset();
+        player.hands[owner].weapon=ITEM_AK47; gex[owner]=1;
+        player.hands[1-owner].weapon=ITEM_UNARMED; pistolTick();
+        player.hands[owner].weapon_ammo_in_magazine=7;
+        gevrGexMagOut(owner,GEVR_GEXMAG_INHAND,"test pull");
+        player.hands[1-owner].weapon=ITEM_WPPK; gex[1-owner]=1;
+        pistolTick(); pistolTick();
+        assert(s_gevrGexMag[owner]==GEVR_GEXMAG_OUT && s_gevrGexHeldRounds==-1 && reserve==57);
+    }
+    reset(); player.hands[GUNRIGHT].weapon=ITEM_FIST; player.hands[GUNLEFT].weapon=ITEM_LASER;
+    assert(gevrReloadSupportGun()==GUNLEFT);   /* support includes guns without magazines */
+}
 /* Cougar speedloader: one pickup carries as many rounds as fit and the
  * reserve has; insertion adds them all; abandoning it refunds them all. */
 static void speedloaderReloads(void)
@@ -582,6 +681,306 @@ static void grenadeRounds(void)
     gripHeld[0]=0; pistolTick();
     stats.MagSize=30;
 }
+static void magazinePersistence(void)
+{
+    reset(); gex[GUNRIGHT] = 1;
+    player.hands[GUNRIGHT].weapon = ITEM_AK47;
+    gevrHandReloadTick();
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 7;
+    assert(gevrReloadStow(GUNRIGHT, ITEM_AK47));
+    assert(reserve == 50 && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+    assert(gevrReloadStoredRounds(GUNRIGHT, ITEM_AK47) == 7 && gevrReloadReservedRounds(1) == 7);
+    assert(gevrReloadStow(GUNRIGHT, ITEM_AK47));   /* lower and swap call it: store once */
+    player.hands[GUNRIGHT].weapon = ITEM_WPPK;
+    gevrGexReloadReset(GUNRIGHT);
+    assert(!gevrReloadDraw(GUNRIGHT));   /* never used: initial loading allowed */
+    player.hands[GUNRIGHT].weapon_ammo_in_magazine = 0;
+    assert(gevrReloadStow(GUNRIGHT, ITEM_WPPK));   /* empty magazines stay empty */
+    player.hands[GUNRIGHT].weapon = ITEM_AK47;
+    gevrGexReloadReset(GUNRIGHT);
+    assert(gevrReloadDraw(GUNRIGHT));
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 7 && reserve == 50);
+    assert(gevrReloadReservedRounds(1) == 0);
+    gevrGexDropMagazine(GUNRIGHT);
+    assert(reserve == 57 && s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT);
+    assert(gevrReloadStow(GUNRIGHT, ITEM_AK47));
+    player.hands[GUNRIGHT].weapon = ITEM_WPPK;
+    gevrGexReloadReset(GUNRIGHT); assert(gevrReloadDraw(GUNRIGHT));
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0 && reserve == 57);
+    assert(gevrReloadStow(GUNRIGHT, ITEM_WPPK));
+    player.hands[GUNRIGHT].weapon = ITEM_AK47;
+    gevrGexReloadReset(GUNRIGHT); assert(gevrReloadDraw(GUNRIGHT));
+    gevrHandReloadTick();
+    assert(s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_OUT && player.hands[GUNRIGHT].weapon_ammo_in_magazine == 0);
+    /* The other hand's same-item copy has its own retained rounds. */
+    gex[GUNLEFT] = 1; player.hands[GUNLEFT].weapon = ITEM_AK47;
+    player.hands[GUNLEFT].weapon_ammo_in_magazine = 3;
+    assert(gevrReloadStow(GUNLEFT, ITEM_AK47));
+    assert(gevrReloadDraw(GUNLEFT) && player.hands[GUNLEFT].weapon_ammo_in_magazine == 3);
+    player.hands[GUNLEFT].weapon_ammo_in_magazine = 3;
+    assert(gevrReloadStow(GUNLEFT, ITEM_AK47));
+    VrManualReloading = 0; gevrHandReloadTick();
+    assert(reserve == 60);   /* turning the mode off refunds holstered rounds once */
+    gevrHandReloadTick(); assert(reserve == 60);
+    VrManualReloading = 1;
+    online = 1; playerSlot = 1;
+    assert(!gevrReloadStow(GUNRIGHT, ITEM_AK47) && !gevrHandReloadActive());
+    online = playerSlot = 0;
+    gevrReloadInventoryReset();
+    assert(!gevrReloadDraw(GUNLEFT));   /* a new stage has no saved magazines */
+}
+
+static void reloadIndicators(void)
+{
+    reset(); gex[GUNRIGHT] = 1; player.hands[GUNRIGHT].weapon = ITEM_AK47;
+    gevrHandReloadTick();
+    gevrGexDropMagazine(GUNRIGHT);
+    for (int ctrl = 0; ctrl < 2; ctrl++) {
+        float point[3];
+        assert(gevrReloadBeltPoint(ctrl, point));
+        assert(gevrBeltDist2(ctrl, point) < 0.0001f);
+        memcpy(poses[ctrl], point, sizeof(point));
+        assert(gevrReloadBeltAmmo(ctrl) == GUNRIGHT && gevrReloadBeltHover(ctrl));
+        poses[ctrl][1] += 30 * GEVR_UNITS_PER_METRE * D_800364CC / 100;
+        assert(!gevrReloadBeltHover(ctrl));
+    }
+    pointsValid = 3; memset(wellPoint, 0, sizeof(wellPoint)); memset(heldPoint, 0, sizeof(heldPoint));
+    s_gevrGexMag[GUNRIGHT] = GEVR_GEXMAG_INHAND;
+    float well[3];
+    assert(gevrReloadSeatHover(well));
+    heldPoint[0] = 20 * GEVR_UNITS_PER_METRE * D_800364CC / 100;
+    assert(!gevrReloadSeatHover(well));
+    pointsValid = 1; assert(!gevrReloadSeatHover(well));   /* tracking loss never highlights an insertion */
+    s_gevrGexMag[GUNRIGHT] = GEVR_GEXMAG_OUT;
+    float atBelt[3]; assert(gevrReloadBeltPoint(1, atBelt)); memcpy(poses[1], atBelt, sizeof(atBelt));
+    assert(gevrReloadGrabBelt(1) && s_gevrGexMag[GUNRIGHT] == GEVR_GEXMAG_IN);
+    assert(player.hands[GUNRIGHT].weapon_ammo_in_magazine == stats.MagSize);
+    assert(!gevrReloadGrabBelt(1));   /* one squeeze loads once */
+}
+
+static void requiredGripUse(void)
+{
+    reset();
+    VrGestureHolster = VrGestureGripUse = VrGesturePickup = VrGestureMineGrab = 0;
+    gevrGripGestureInput(1, 1, 1); assert(s_gevrGripGesture[1] == 1);
+    gevrGripGestureInput(1, 0, 0); assert(s_gevrGripGesture[1] == 0);
+    VrManualReloading = 0;
+    gevrGripGestureInput(1, 1, 1); assert(s_gevrGripGesture[1] == 3);
+    gevrGripGestureInput(1, 0, 0);
+    VrManualReloading = 1;
+}
+
+static void torsoReloadBelt(void)
+{
+    Mtxf savedView = viewMatrix;
+    float savedFit[3]; memcpy(savedFit, VrReloadBelt, sizeof(savedFit));
+    reset();
+    memset(&s_bodyFrame, 0, sizeof(s_bodyFrame));
+    s_bodyFrame.right[0] = s_bodyFrame.up[1] = 1;
+    s_bodyFrame.fwd[2] = -1;
+    s_bodyFrame.origin[0] = 2; s_bodyFrame.origin[1] = 3; s_bodyFrame.origin[2] = 4;
+    s_bodyFrameValid = 1;
+    /* The torso stays fixed as the head yaws, pitches and rolls. */
+    for (int turn = 0; turn < 8; turn++) {
+        int angle = turn % 4;
+        float yaw = angle * 0.31f, pitch = angle * -0.29f, roll = angle * 0.12f;
+        float cy=cosf(yaw), sy=sinf(yaw), cp=cosf(pitch), sp=sinf(pitch), cr=cosf(roll), sr=sinf(roll);
+        float right[3]={cy,0,sy}, up[3]={sy*sp,cp,-cy*sp}, back[3]={-sy*cp,sp,cy*cp};
+        memset(&viewMatrix,0,sizeof(viewMatrix)); viewMatrix.m[3][3]=1;
+        for (int i=0;i<3;i++) {
+            viewMatrix.m[0][i]=(turn>=4?-1:1)*(cr*right[i]+sr*up[i]);
+            viewMatrix.m[1][i]=-sr*right[i]+cr*up[i];
+            viewMatrix.m[2][i]=back[i];
+            for (int j=0;j<3;j++) s_bodyView[j][i]=viewMatrix.m[j][i];
+        }
+        for (int ctrl=0;ctrl<2;ctrl++) {
+            float point[3], pose[4][3], world[3], local[3];
+            assert(gevrReloadBeltPoint(ctrl,point) && gevrBodyReloadPose(ctrl,VrReloadBelt,pose));
+            gevrBodySlotCentre(&s_bodyFrame,ctrl?GEVR_BS_HIP_GUN:GEVR_BS_HIP_OFF,VrReloadBelt,VrLeftHandedMode,world);
+            struct coord3d p={.x=point[0],.y=point[1],.z=point[2]};
+            mtx4RotateVecInPlace(&viewMatrix,&p);
+            for(int i=0;i<3;i++) assert(fabsf(p.f[i]/D_800364CC-world[i])<0.001f);
+            for(int row=0;row<3;row++) {
+                struct coord3d axis={.x=pose[row][0],.y=pose[row][1],.z=pose[row][2]};
+                mtx4RotateVecInPlace(&viewMatrix,&axis);
+                for(int i=0;i<3;i++) assert(fabsf(axis.f[i]-(row==i))<0.001f);
+            }
+            assert(gevrBeltDist2(ctrl,point)<0.0001f);   /* displayed model is the grab hotspot */
+            assert(gevrReloadBeltLocal(ctrl,point,local));
+            for(int i=0;i<3;i++) assert(fabsf(local[i]-VrReloadBelt[i])<0.001f);
+            memcpy(poses[ctrl],point,sizeof(point));
+            if(ctrl==0) {
+                gevrReloadFitSetBelt();
+                for(int i=0;i<3;i++) assert(fabsf(VrReloadBelt[i]-savedFit[i])<0.001f);
+            }
+        }
+    }
+    s_bodyFrameValid=0; viewMatrix=savedView; memcpy(VrReloadBelt,savedFit,sizeof(savedFit));
+}
+
+/* All physical reload steps must follow the gun slot, not a fixed hand. */
+/* Compute from the actual gun matrix and renderer's left-slot mirror;
+ * this reference must not use the interaction getter under test. */
+static void fittedGrabPoint(int gun, float out[3])
+{
+    Mtxf base; assert(gevrStereoGunMatrix(gun,&base));
+    const GexWeaponDef *def=gevrGexWeaponForHand(gun);
+    const float *fit=gevrGexGrabFit(def->item);
+    if (gun==GUNLEFT) for (int i=0;i<3;i++) base.m[0][i]=-base.m[0][i];
+    for (int row=0;row<3;row++) for (int i=0;i<3;i++) base.m[row][i]*=0.1f;
+    for (int i=0;i<3;i++) {
+        out[i]=base.m[3][i];
+        for (int row=0;row<3;row++) out[i]+=def->grabRoot[row]*base.m[row][i];
+        const float k=GEVR_VIEWMODEL_CM*0.1f;
+        out[i]+=(-fit[0]*base.m[0][i]+fit[1]*base.m[1][i]-fit[2]*base.m[2][i])/k;
+    }
+}
+static void klobbPullFromEitherSlot(void)
+{
+    float cm=GEVR_UNITS_PER_METRE*D_800364CC/100;
+    const int items[]={ITEM_SKORPION,ITEM_UZI,ITEM_TT33};
+    for (int gun=0;gun<2;gun++) for (unsigned item=0;item<sizeof(items)/sizeof(items[0]);item++) {
+        reset();
+        player.hands[gun].weapon=items[item]; gex[gun]=1;
+        player.hands[1-gun].weapon=ITEM_FIST;
+        player.hands[gun].weapon_ammo_in_magazine=7;
+        pistolTick();
+        float want[3],actual[3]; fittedGrabPoint(gun,want);
+        assert(gevrGexPistolPoint(0,actual));
+        for (int i=0;i<3;i++) {
+            if (fabsf(want[i]-actual[i])/cm>=0.001f)
+                fprintf(stderr,"grab mismatch: item %d gun %d left-handed %d axis %d, %.2f cm\n",
+                    items[item],gun,VrLeftHandedMode,i,(actual[i]-want[i])/cm);
+            assert(fabsf(want[i]-actual[i])/cm<0.001f);
+        }
+        memcpy(poses[gun],want,sizeof(want));
+        gripHeld[gun]=1; pistolTick();
+        assert(s_gevrPistolGripOwner==GEVR_GEXGRIP_MAG);
+        assert(s_gevrGexMag[gun]==GEVR_GEXMAG_GRIPPED);
+        poses[gun][1]-=(gevrGexReloadDistance(GEVR_RT_PULL)+0.1f)*cm;
+        pistolTick();
+        assert(s_gevrGexMag[gun]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==7);
+        assert(player.hands[gun].weapon_ammo_in_magazine==0 && reserve==50);
+    }
+}
+static void reloadGrabFitMirroring(void)
+{
+    const float cm=GEVR_UNITS_PER_METRE*D_800364CC/100;
+    reset(); player.hands[GUNRIGHT].weapon=ITEM_SKORPION; gex[GUNRIGHT]=1; pistolTick();
+    float *fit=gevrGexGrabFit(ITEM_SKORPION), saved[3],target[3],actual[3];
+    memcpy(saved,fit,sizeof(saved)); fittedGrabPoint(GUNRIGHT,target);
+    target[0]+=2*cm; target[1]-=cm; target[2]+=3*cm;
+    memcpy(poses[0],target,sizeof(target)); gevrReloadFitSetGrab();
+    assert(gevrGexPistolPoint(0,actual));
+    for (int i=0;i<3;i++) assert(fabsf(actual[i]-target[i])/cm<0.001f);
+    /* The same saved calibration also follows the reversed weapon slot. */
+    player.hands[GUNLEFT].weapon=ITEM_SKORPION; player.hands[GUNRIGHT].weapon=ITEM_FIST;
+    gex[GUNLEFT]=1; gex[GUNRIGHT]=0;
+    fittedGrabPoint(GUNLEFT,target); assert(gevrGexPistolPoint(0,actual));
+    for (int i=0;i<3;i++) assert(fabsf(actual[i]-target[i])/cm<0.001f);
+    memcpy(fit,saved,sizeof(saved));
+    /* KF7 uses the calibrated controller-relative point, without a root point. */
+    for (int gun=0;gun<2;gun++) {
+        reset(); player.hands[gun].weapon=ITEM_AK47; player.hands[1-gun].weapon=ITEM_FIST; gex[gun]=1;
+        float r[3],u[3],b[3],at[3]; gevrGripAxesRaw(1-gun,at,r,u,b);
+        gevrReloadMagPoint(at,r,u,b,cm,1,actual);
+        const float *grab=gevrGexGrabFit(ITEM_AK47);
+        float sign=(VrLeftHandedMode != (gun==GUNLEFT)) ? -1 : 1;
+        assert(fabsf(actual[0]-at[0]-sign*grab[0]*cm)/cm<0.001f);
+        assert(fabsf(actual[1]-at[1]-grab[1]*cm)/cm<0.001f);
+        assert(fabsf(actual[2]-at[2]-grab[2]*cm)/cm<0.001f);
+    }
+}
+
+static void reversedReloads(void)
+{
+    const int items[] = {ITEM_AK47, ITEM_WPPK, ITEM_TT33, ITEM_UZI, ITEM_M16};
+    const float cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    for (unsigned n=0; n<sizeof(items)/sizeof(items[0]); n++) {
+        reset();
+        player.hands[GUNRIGHT].weapon = ITEM_FIST;
+        player.hands[GUNLEFT].weapon = items[n];
+        player.hands[GUNLEFT].weapon_ammo_in_magazine = 7;
+        gex[GUNLEFT] = 1;
+        pistolTick();
+        assert(gevrReloadSupportGun() == GUNLEFT);
+        float mag[3], r[3], u[3], b[3], at[3];
+        gevrGripAxesRaw(0, at, r, u, b);
+        gevrReloadMagPoint(at, r, u, b, cm, 1, mag);
+        memcpy(poses[1], mag, sizeof(mag));
+        gripHeld[1] = 1; pistolTick();
+        assert(gevrGexClaimsOffHand() && gevrReloadHoldsHand(1));
+        assert(s_gevrGexMag[GUNLEFT] == GEVR_GEXMAG_GRIPPED);
+        const GexWeaponDef *def = gevrGexWeaponGet(items[n]);
+        poses[1][1] += (def->pullUp ? 1 : -1)*(gevrGexReloadDistance(GEVR_RT_PULL)+0.1f)*cm;
+        pistolTick();
+        assert(s_gevrGexMag[GUNLEFT] == GEVR_GEXMAG_INHAND);
+        assert(player.hands[GUNLEFT].weapon_ammo_in_magazine == 0 && reserve == 50);
+        assert(gevrReloadCarriesRounds(GUNLEFT) && !gevrReloadCarriesRounds(GUNRIGHT));
+        assert(gevrReloadReservedRounds(1) == 7);
+        assert(gevrGexMagState(GUNLEFT, at) == GEVR_GEXMAG_INHAND);
+        assert(!memcmp(at, poses[1], sizeof(at)));
+        assert(gevrGexHeldPalm(at) && !memcmp(at, poses[1], sizeof(at)));
+        Mtxf magHand;
+        assert(gevrStereoReloadHandMatrix(&magHand));
+        float *fit=gevrGexGunFit(items[n]);
+        float side=VrLeftHandedMode ? -1 : 1;
+        assert(fabsf(magHand.m[0][0]-side*GEVR_VIEWMODEL_CM*cm*0.1f)<0.0001f);
+        assert(fabsf(magHand.m[3][0]-(poses[1][0]-side*fit[0]*cm))<0.0001f);
+        assert(fabsf(magHand.m[3][1]-(poses[1][1]+fit[1]*cm))<0.0001f);
+        assert(fabsf(magHand.m[3][2]-(poses[1][2]+(GEVR_GRIP_TO_ORIGIN_CM+fit[2])*cm))<0.0001f);
+
+        pointsValid = 3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint));
+        heldPoint[1] = 3*gevrGexReloadDistance(GEVR_RT_SEAT)*cm; pistolTick();
+        heldPoint[1] = 0; assert(gevrReloadSeatHover(at)); pistolTick();
+        assert(s_gevrGexMag[GUNLEFT] == GEVR_GEXMAG_IN && s_gevrGexGripSpent);
+        assert(player.hands[GUNLEFT].weapon_ammo_in_magazine == 7 && reserve == 50);
+
+        /* Eject, show the other hip, and take a fresh magazine with primary. */
+        gevrGexDropMagazine(GUNLEFT);
+        assert(s_gevrGexMag[GUNLEFT] == GEVR_GEXMAG_OUT && reserve == 57);
+        assert(gevrReloadBeltAmmo(0) == GUNLEFT && gevrReloadBeltAmmo(1) == GUNLEFT);
+        gripHeld[1] = 0; pistolTick();
+        belt(1,0); assert(gevrReloadBeltHover(1));
+        assert(!gevrReloadGrabBelt(1));   /* the free hand physically carries it */
+        gripHeld[1] = 1; pistolTick();
+        assert(s_gevrGexMag[GUNLEFT] == GEVR_GEXMAG_INHAND && s_gevrGexHeldGun == GUNLEFT);
+        pistolTick();
+        assert(s_gevrGexMag[GUNLEFT] == GEVR_GEXMAG_IN && readyEvents == 2);
+        assert(player.hands[GUNLEFT].weapon_ammo_in_magazine == 30 && reserve == 27);
+
+        /* Dropping a partial magazine refunds it once to its captured ammo. */
+        gripHeld[1]=0; pistolTick();
+        gevrGripAxesRaw(0, at, r, u, b);
+        gevrReloadMagPoint(at,r,u,b,cm,1,mag); memcpy(poses[1],mag,sizeof(mag));
+        gripHeld[1]=1; pistolTick();
+        poses[1][1]+=(def->pullUp ? 1 : -1)*(gevrGexReloadDistance(GEVR_RT_PULL)+0.1f)*cm; pistolTick();
+        assert(s_gevrGexHeldRounds == 30 && reserve == 27);
+        gripHeld[1]=0; pistolTick(); pistolTick();
+        assert(reserve == 57 && s_gevrGexHeldRounds == -1 && s_gevrGexMag[GUNLEFT] == GEVR_GEXMAG_OUT);
+        assert(gevrReloadStow(GUNLEFT,items[n]));
+        assert(s_gevrStoredMag[GUNLEFT][items[n]].missing);
+        player.hands[GUNLEFT].weapon_ammo_in_magazine=30;
+        assert(gevrReloadDraw(GUNLEFT));
+        assert(player.hands[GUNLEFT].weapon_ammo_in_magazine==0 && s_gevrGexMag[GUNLEFT]==GEVR_GEXMAG_OUT);
+    }
+    /* Single rounds and speedloaders use the same free-hand role. */
+    const int rounds[] = {ITEM_SHOTGUN, ITEM_ROCKETLAUNCH, ITEM_RUGER};
+    for (unsigned n=0;n<sizeof(rounds)/sizeof(rounds[0]);n++) {
+        reset(); stats.MagSize = n==1 ? 1 : 5;
+        player.hands[GUNRIGHT].weapon=ITEM_UNARMED;
+        player.hands[GUNLEFT].weapon=rounds[n]; gex[GUNLEFT]=1; pistolTick();
+        belt(1,0); gripHeld[1]=1; pistolTick();
+        int amount = n==2 ? 5 : 1;
+        assert(s_gevrGexMag[GUNLEFT]==GEVR_GEXMAG_INHAND && s_gevrGexHeldRounds==amount);
+        assert(gevrReloadCarriesRounds(GUNLEFT) && reserve==50-amount);
+        pointsValid=3; memset(wellPoint,0,sizeof(wellPoint)); memset(heldPoint,0,sizeof(heldPoint)); pistolTick();
+        assert(s_gevrGexMag[GUNLEFT]==GEVR_GEXMAG_IN && player.hands[GUNLEFT].weapon_ammo_in_magazine==amount);
+        assert(reserve==50-amount);
+    }
+    stats.MagSize=30;
+}
+
 int main(void)
 {
     const float scales[] = {0.2f, 1.0f};
@@ -600,12 +999,21 @@ int main(void)
         gexEntry();
         lifecycleAndHands();
         everyGunAndHolster();
+        bodySlotArbitration();
         meleeArbitration();
         pp7Reload();
         nextGunReloads();
         singleRoundReloads();
         speedloaderReloads();
         grenadeRounds();
+        magazinePersistence();
+        reloadIndicators();
+        requiredGripUse();
+        torsoReloadBelt();
+        reversedReloads();
+        reloadRoleChanges();
+        klobbPullFromEitherSlot();
+        reloadGrabFitMirroring();
     }
     /* A custom belt and radius must control both reload paths. */
     reset();

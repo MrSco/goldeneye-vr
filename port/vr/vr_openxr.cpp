@@ -3126,6 +3126,33 @@ extern "C" int gevrVrRedrawHandDelta(int hand, float out[16])
     return 1;
 }
 
+/*
+ * ... and what sits on the body (gevr_bodyslots.c, VR_HAND_DRAW 3): the body
+ * stands under the head, so between game frames it goes with the head's
+ * position, the stick's locomotion included, but not with its turn (the
+ * torso's yaw follows the head slowly). A body point c in the game frame's
+ * camera space is then R_new^T R_old c: the head's rotation only.
+ */
+extern "C" int gevrVrRedrawBodyDelta(float out[16])
+{
+    if (!g_haveRecordedViews || !g_frameStarted || !g_frameState.shouldRender) {
+        return 0;
+    }
+    float Ro[9], Rn[9];
+    vr_quat_to_mat3(g_recordedViews[0].pose.orientation, Ro);
+    vr_quat_to_mat3(g_frameViews[0].pose.orientation, Rn);
+    for (int r = 0; r < 3; r++) {
+        for (int c = 0; c < 3; c++) {
+            // (R_new^T R_old)[r][c] = sum_k Rn[k][r] Ro[k][c], as gevrVrRedrawDelta's
+            out[c * 4 + r] = Rn[0 * 3 + r] * Ro[0 * 3 + c] + Rn[1 * 3 + r] * Ro[1 * 3 + c] + Rn[2 * 3 + r] * Ro[2 * 3 + c];
+        }
+        out[12 + r] = 0.0f;
+        out[r * 4 + 3] = 0.0f;
+    }
+    out[15] = 1.0f;
+    return 1;
+}
+
 // the in-between frame was drawn for this XR frame's own views
 extern "C" void gevrVrMarkRedrawn(void)
 {
@@ -3689,6 +3716,7 @@ extern "C" float gevrWeaponPanelRect[4];
 extern "C" float gevrWeaponPanelAspect;   /* bondview2.c: its width over height in screen units */
 extern "C" int gevrWeaponPanelInFront;   /* bondview2.c tuning: before the eyes */
 extern "C" int gevrWeaponPanelLeft;      /* bondview2.c: the left hand's panel (#56) */
+extern "C" int gevrWeaponPanelBody;      /* the body-slot category wheel */
 
 static const float VR_MENU_FACING_THRESHOLD = 0.8f;
 
@@ -3951,7 +3979,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         float px = cx + wx * 0.22f + cx / cl * 0.06f;
         float py = cy + wy * 0.22f + cy / cl * 0.06f;
         float pz = cz + wz * 0.22f + cz / cl * 0.06f;
-        if (gevrWeaponPanelInFront) { px = 0.f; py = -0.05f; pz = -0.45f; }
+        if (gevrWeaponPanelInFront || gevrWeaponPanelBody) { px = 0.f; py = -0.05f; pz = -0.45f; }
         menuLayerP.pose.position = {px, py, pz};
         float fx = -px, fy = -py, fz = -pz;
         float fl = sqrtf(fx * fx + fy * fy + fz * fz);
