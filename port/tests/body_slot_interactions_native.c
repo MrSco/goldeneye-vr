@@ -32,7 +32,7 @@ struct coord3d { float x, y, z; };
 struct hand { int weapon_ammo_in_magazine, weapon_action_state, item; };
 struct Player { int bonddead, watch_animation_state, mpmenuon; struct hand hands[2]; } player;
 static struct Player *g_CurrentPlayer = &player;
-typedef struct { int slot, pick, gripHeld, quiet, n, choices[24], steps, throwReady; float ms, settledMs; GevrBodyStick stick; } GevrBodyHand;
+typedef struct { int slot, pick, gripHeld, quiet, n, choices[24], steps, throwReady, looking; float ms, lookMs, settledMs; GevrBodyStick stick; } GevrBodyHand;
 static GevrBodyHand s_bodyHand[2];
 static GevrBodyMru s_bodyMru[GEVR_BODY_SLOTS];
 static int s_bodyLive = 1, VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
@@ -149,26 +149,39 @@ int main(void) {
         s_bodyHand[ctrl].slot = GEVR_BS_BACK_GUN; s_bodyHand[ctrl].pick = 9;
         frame(ctrl, 0.9f); gevrGripGestureTick(); assert(changes == 1);
     }
-    /* The actual poll captures all four axes, even before a sideways scroll. */
+    /* The actual poll: a hand hanging in a slot that isn't looked at leaves
+     * the sticks, A/X and the wheel alone; the looked-at slot's wheel captures
+     * all four axes, even before pointing, and its own stick points round it. */
     for (VrSwapJoysticks = 0; VrSwapJoysticks < 2; VrSwapJoysticks++) {
         for (int ctrl = 0; ctrl < 2; ctrl++) {
-            reset(7); steps = 0; s_bodyHand[ctrl].slot = GEVR_BS_HIP_GUN;
+            GevrBodySlotWheel info;
+            reset(7); steps = 0; s_bodyHand[ctrl].slot = GEVR_BS_HIP_GUN; s_bodyHand[ctrl].ms = 1000;
             left = right = (XrVector2f){0, 0}; sticks();
             XrVector2f *own = ((ctrl == 0) == (VrSwapJoysticks == 0)) ? &left : &right;
             XrVector2f *other = own == &left ? &right : &left;
             *own = (XrVector2f){0,0.9f}; *other = (XrVector2f){0.6f,0}; pad.button=15; sticks();
+            assert(own->y==0.9f && other->x==0.6f && pad.button==15 && s_bodyHand[ctrl].steps==0);
+            assert(!gevrBodySlotButton(ctrl) && !gevrBodySlotWheelInfo(&info) && s_bodyHand[ctrl].pick==7);
+            s_bodyHand[ctrl].lookMs = 149; sticks(); assert(own->y==0.9f && !gevrBodySlotWheelInfo(&info));
+            /* Looked at: pushed since before the wheel, so captured but not pointing. */
+            s_bodyHand[ctrl].lookMs = 150;
+            *own = (XrVector2f){0,0.9f}; *other = (XrVector2f){0.6f,0}; pad.button=15; sticks();
             assert(own->y==0 && other->x==0 && pad.button==0 && s_bodyHand[ctrl].steps==0);
-            *own = (XrVector2f){0.8f, 0.6f}; *other = (XrVector2f){0.1f, 0.9f}; sticks();
+            *own = (XrVector2f){0,0}; sticks();
+            /* Three choices clockwise from up: 7 up, 8 lower right, 9 lower left. */
+            *own = (XrVector2f){0.8f, -0.5f}; *other = (XrVector2f){0.1f, 0.9f}; sticks();
             assert(s_bodyHand[ctrl].steps==1 && s_bodyHand[ctrl].pick==8 && own->x==0 && own->y==0 && other->y==0);
+            *own = (XrVector2f){-0.8f, -0.5f}; sticks(); assert(s_bodyHand[ctrl].steps==2 && s_bodyHand[ctrl].pick==9);
+            *own = (XrVector2f){-0.1f, -0.2f}; sticks(); assert(s_bodyHand[ctrl].pick==9);   /* let go: it stays */
+            *own = (XrVector2f){0.05f, 0.9f}; sticks(); assert(s_bodyHand[ctrl].steps==3 && s_bodyHand[ctrl].pick==7);
             s_bodyHand[ctrl].slot = -1; *own = (XrVector2f){0, 0.8f}; sticks(); assert(own->y == 0);
             *own=(XrVector2f){0,0}; *other=(XrVector2f){0,0.9f}; sticks(); assert(other->y==0);
             *own=(XrVector2f){0,0}; *other=(XrVector2f){0.2f,0}; sticks(); assert(other->x==0);
             *own = (XrVector2f){0, 0}; sticks();
             *own = (XrVector2f){0, 0.8f}; sticks(); assert(own->y == 0.8f);
-            GevrBodySlotWheel info;
-            s_bodyHand[ctrl].slot=GEVR_BS_BELT; s_bodyHand[ctrl].ms=149;
+            s_bodyHand[ctrl].slot=GEVR_BS_BELT; s_bodyHand[ctrl].pick=8; s_bodyHand[ctrl].lookMs=149;
             assert(!gevrBodySlotWheelInfo(&info));
-            s_bodyHand[ctrl].ms=150; assert(gevrBodySlotWheelInfo(&info));
+            s_bodyHand[ctrl].lookMs=150; assert(gevrBodySlotWheelInfo(&info));
             assert(info.ctrl==ctrl && info.category==GEVR_BODY_CAT_GADGETS && info.count==3 && info.index==1 && info.items[1]==8);
             gevrBodySlotButton(ctrl); assert(s_bodyHand[ctrl].pick==9);
             assert(gevrBodySlotWheelInfo(&info) && info.index==2 && info.items[2]==9);
@@ -180,6 +193,6 @@ int main(void) {
             assert(left.x==0.7f && left.y==0.7f && right.x==0.8f);
         }
     }
-    puts("PASS: body-slot grip ownership, throwable-only pause, partial release, diagonal stick capture");
+    puts("PASS: body-slot grip ownership, throwable-only pause, partial release, looked-at wheel, pointing and stick capture");
     return 0;
 }

@@ -28,6 +28,8 @@ motion = function(view, "void gevrMotionThrowTick(")
 motion = motion[:motion.index("    f32 at[3], right[3], up[3], back[3];")]
 motion += "if (release && s_gevrThrowWindup[hand]) { throws++; s_gevrThrowWindup[hand] = 0; }\n}"
 production = "\n".join([
+    function(body, "static s32 gevrBodyWheelUp("),
+    function(body, "static void gevrBodyChoose("),
     function(body, "static void gevrBodyStep("),
     function(body, "int gevrBodySlotButton("),
     function(body, "int gevrBodySlotGrip("),

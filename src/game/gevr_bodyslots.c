@@ -112,6 +112,8 @@ typedef struct
 {
     s32 slot;                 /* GEVR_BS_*, -1 none */
     f32 ms;                   /* in it so far */
+    s32 looking;              /* the head faces it (a shoulder always counts) */
+    f32 lookMs;               /* in it and looked at so far: its wheel waits 150 ms */
     f32 settledMs;
     s32 throwReady;
     s32 pick;                 /* what a grip takes: an item, GEVR_BODY_HOLSTER, -1 none */
@@ -122,7 +124,7 @@ typedef struct
     f32 at[3];                /* the hand, level frame cm */
     s32 tracked;
     s32 gripHeld;             /* the slot took this grip: nothing else does until it's let go */
-    GevrBodyStick stick;      /* its own stick's flicks */
+    GevrBodyStick stick;      /* its own stick, pointing round the wheel */
     GevrBodyDefer belt;       /* hand reload's belt touch, waiting for a holstering grip */
     s32 nearFront;            /* within 1.25 radii of a hip, the chest or the belt it could use */
     s32 quiet;                /* ticks the hand stays quiet after a take (no blow, no reload) */
@@ -282,6 +284,8 @@ static void gevrBodyLeave(s32 ctrl, const char *why)
     h->slot = -1;
     h->nearFront = FALSE;
     h->ms = 0.0f;
+    h->looking = FALSE;
+    h->lookMs = 0.0f;
     h->settledMs = 0.0f;
     h->throwReady = FALSE;
     h->steps = 0;
@@ -416,6 +420,16 @@ static s32 gevrBodyHandAt(s32 ctrl, f32 out[3])
     return TRUE;
 }
 
+/* The head faces the slot: its wheel waits for a look, not an arm hanging by
+ * the hip or brushing the belt for a magazine (user, 2026-10-09). A shoulder
+ * can't be looked at, and no arm rests there. */
+static s32 gevrBodyLookedAt(s32 slot, s32 was)
+{
+    const f32 fwd[3] = { -s_bodyView[2][0], -s_bodyView[2][1], -s_bodyView[2][2] };
+
+    return slot == GEVR_BS_BACK_GUN || slot == GEVR_BS_BACK_OFF || gevrBodyGaze(was, fwd, s_bodyCentre[slot]);
+}
+
 static void gevrBodyHandUpdate(s32 ctrl)
 {
     GevrBodyHand *h = &s_bodyHand[ctrl];
@@ -457,6 +471,7 @@ static void gevrBodyHandUpdate(s32 ctrl)
             return;
         }
         h->slot = slot;
+        h->looking = gevrBodyLookedAt(slot, FALSE);
         h->n = gevrBodyChoicesFor(slot, hand, h->choices);
         h->pick = gevrBodyDefaultPick(&s_bodyMru[slot], h->choices, h->n);
         h->dist = dist[slot];
@@ -474,6 +489,17 @@ static void gevrBodyHandUpdate(s32 ctrl)
     }
     /* still there: the inventory may have changed under it */
     h->ms += g_ClockTimer * BS_TICK_MS;
+    {
+        s32 looking = gevrBodyLookedAt(slot, h->looking);
+
+        if (looking != h->looking)
+        {
+            sysLogPrintf(LOG_NOTE, "bodyslot: %s (%s) %s after %.2f s", looking ? "look at" : "look away",
+                         gevrBodyHandName(ctrl), gevrBodySlotName(slot), h->ms / 1000.0f);
+        }
+        h->looking = looking;
+        h->lookMs = looking ? h->lookMs + g_ClockTimer * BS_TICK_MS : 0.0f;
+    }
     {
         f32 speed = 0.0f;
         s32 ready;
@@ -631,8 +657,19 @@ int gevrBodySlotGrip(int ctrl)
     return TRUE;
 }
 
-/* the hand's choice moves on by dir (A/X, the stick) */
-static void gevrBodyStep(s32 ctrl, s32 dir, const char *how)
+/* The hand's slot is up as a wheel: looked at (a shoulder needn't be) for
+ * 150 ms. Only then do its stick and A/X choose; otherwise they stay the
+ * player's, and a grip still takes the slot's choice. */
+static s32 gevrBodyWheelUp(s32 ctrl)
+{
+    const GevrBodyHand *h = &s_bodyHand[ctrl];
+
+    return s_bodyLive && gevrGunFitActive != 1 && h->slot >= 0 && h->n > 0 && h->pick != -1
+        && h->lookMs >= 150.0f;
+}
+
+/* the hand's choice becomes pick (A/X, the stick) */
+static void gevrBodyChoose(s32 ctrl, s32 pick, const char *how)
 {
     GevrBodyHand *h = &s_bodyHand[ctrl];
     s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
@@ -640,11 +677,11 @@ static void gevrBodyStep(s32 ctrl, s32 dir, const char *how)
 
     s_bodyWheelCtrl = ctrl;
 
-    if (h->n <= 1)
+    if (pick == h->pick)
     {
-        return;   /* one choice: nothing to step to */
+        return;
     }
-    h->pick = gevrBodyStepPick(h->choices, h->n, h->pick, dir);
+    h->pick = pick;
     h->steps++;
     if (h->pick >= 0)
     {
@@ -656,10 +693,24 @@ static void gevrBodyStep(s32 ctrl, s32 dir, const char *how)
                  gevrBodySlotName(h->slot), how, h->pick, name);
 }
 
+/* the hand's choice moves on by dir (A/X) */
+static void gevrBodyStep(s32 ctrl, s32 dir, const char *how)
+{
+    GevrBodyHand *h = &s_bodyHand[ctrl];
+
+    s_bodyWheelCtrl = ctrl;
+
+    if (h->n <= 1)
+    {
+        return;   /* one choice: nothing to step to */
+    }
+    gevrBodyChoose(ctrl, gevrBodyStepPick(h->choices, h->n, h->pick, dir), how);
+}
+
 /* port/src/input.c: the hand's own A or X, pressed. 1: the slot has it */
 int gevrBodySlotButton(int ctrl)
 {
-    if (!s_bodyLive || ctrl < 0 || ctrl > 1 || s_bodyHand[ctrl].slot < 0)
+    if (ctrl < 0 || ctrl > 1 || !gevrBodyWheelUp(ctrl))
     {
         return FALSE;
     }
@@ -667,34 +718,34 @@ int gevrBodySlotButton(int ctrl)
     return TRUE;
 }
 
-/* port/src/input.c, each poll: the hand's own stick's X. 1: the slot has it */
-int gevrBodySlotStick(int ctrl, float x, float y, float dtMs)
+/* port/src/input.c, each poll: the hand's own stick points round its wheel.
+ * 1: the slot has the stick */
+int gevrBodySlotStick(int ctrl, float x, float y)
 {
     GevrBodyHand *h;
-    s32 take, step;
+    s32 take, wedge;
 
     if (ctrl < 0 || ctrl > 1)
     {
         return FALSE;
     }
     h = &s_bodyHand[ctrl];
-    step = gevrBodyStickStep(&h->stick, s_bodyLive && h->slot >= 0, x, y, dtMs, &take);
-    if (step != 0)
+    wedge = gevrBodyStickPoint(&h->stick, gevrBodyWheelUp(ctrl), h->n, x, y, &take);
+    if (wedge >= 0 && wedge < h->n)
     {
-        gevrBodyStep(ctrl, step, "stick");
+        gevrBodyChoose(ctrl, h->choices[wedge], "stick");
     }
     return take;
 }
 
-int gevrBodySlotSticks(int swap, float sticks[2][2], float dtMs)
+int gevrBodySlotSticks(int swap, float sticks[2][2])
 {
-    s32 browsing = s_bodyLive && gevrGunFitActive != 1
-        && (s_bodyHand[0].slot >= 0 || s_bodyHand[1].slot >= 0);
+    s32 browsing = gevrBodyWheelUp(0) || gevrBodyWheelUp(1);
     s32 take = FALSE, centred = TRUE;
     for (s32 ctrl = 0; ctrl < 2; ctrl++)
     {
         const s32 own = ((ctrl == 0) == (swap == 0)) ? 0 : 1;
-        if (gevrBodySlotStick(ctrl, sticks[own][0], sticks[own][1], dtMs)) take = TRUE;
+        if (gevrBodySlotStick(ctrl, sticks[own][0], sticks[own][1])) take = TRUE;
         /* Match the turning dead zone: releasing capture must not start a turn. */
         if (sticks[own][0]*sticks[own][0] + sticks[own][1]*sticks[own][1] > 0.0225f) centred = FALSE;
     }
@@ -709,10 +760,10 @@ int gevrBodySlotWheelInfo(GevrBodySlotWheel *out)
     s32 ctrl = s_bodyWheelCtrl;
     if (!s_bodyLive || gevrGunFitActive == 1 || g_CurrentPlayer == NULL
         || (netIsActive() && get_cur_playernum() != netGetLocalSlot())) return FALSE;
-    if (ctrl < 0 || s_bodyHand[ctrl].slot < 0 || s_bodyHand[ctrl].n <= 0)
-        ctrl = s_bodyHand[1].slot >= 0 && s_bodyHand[1].n > 0 ? 1 : 0;
+    if (ctrl < 0 || !gevrBodyWheelUp(ctrl))
+        ctrl = gevrBodyWheelUp(1) ? 1 : 0;
+    if (!gevrBodyWheelUp(ctrl)) return FALSE;
     const GevrBodyHand *h = &s_bodyHand[ctrl];
-    if (h->slot < 0 || h->n <= 0 || h->ms < 150.0f || h->pick == -1) return FALSE;
     out->ctrl = ctrl;
     out->category = gevrBodySlotCategory(h->slot);
     out->count = h->n < GEVR_BODY_WHEEL_MAX ? h->n : GEVR_BODY_WHEEL_MAX;

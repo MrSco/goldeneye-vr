@@ -18752,7 +18752,7 @@ static Gfx *gevrDrawBodySlotWheel(Gfx *gdl, const GevrBodySlotWheel *slot)
     gdl = gevrWpText(gdl,s_gevrWcLabel[slot->category],cx,cy-40,0xFFE65AFF,lh,100,NULL);
     gevrWcShorten(slot->names[slot->index],name,sizeof(name));
     gdl = gevrWpText(gdl,name,cx,cy+27,0xFFFFFFFF,lh,120,NULL);
-    gdl = gevrWpText(gdl,slot->ready ? "STICK / A / X: SCROLL   GRIP: TAKE" : "PAUSE AT SLOT BEFORE GRIPPING",
+    gdl = gevrWpText(gdl,slot->ready ? "STICK: POINT  A/X: NEXT  GRIP: TAKE" : "PAUSE AT SLOT BEFORE GRIPPING",
         cx,by0+GEVR_WP_H-lp,slot->ready ? 0x80FF80FF : 0xFFE65AFF,lh,GEVR_WP_W-8,NULL);
     s32 shown = slot->items[slot->index];
     if (shown <= ITEM_UNARMED) shown = ITEM_FIST;   /* includes HOLSTER */

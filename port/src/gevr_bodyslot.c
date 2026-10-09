@@ -404,17 +404,25 @@ int gevrBodyGripHeld(int wasHeld, int pressed, float squeeze)
     return pressed || (wasHeld && squeeze >= 0.25f);
 }
 
-int gevrBodyStickStep(GevrBodyStick *s, int hovering, float x, float y, float dtMs, int *take)
+int gevrBodyGaze(int was, const float fwd[3], const float at[3])
 {
-    const float ax = fabsf(x);
+    const float dot = fwd[0] * at[0] + fwd[1] * at[1] + fwd[2] * at[2];
+    const float len = sqrtf((fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2])
+                            * (at[0] * at[0] + at[1] * at[1] + at[2] * at[2]));
+
+    return len > 1e-6f && dot >= (was ? GEVR_BODY_GAZE_OUT_COS : GEVR_BODY_GAZE_IN_COS) * len;
+}
+
+int gevrBodyStickPoint(GevrBodyStick *s, int hovering, int count, float x, float y, int *take)
+{
     const float magnitude = sqrtf(x * x + y * y);
-    int step = 0;
+    float span, hyst, deg, rel;
 
     *take = 0;
-    if (!hovering)
+    if (!hovering || count <= 0)
     {
         s->armed = 0;
-        s->dir = 0;
+        s->wedge = -1;
         if (s->latched)
         {
             if (magnitude <= 0.3f)
@@ -426,43 +434,44 @@ int gevrBodyStickStep(GevrBodyStick *s, int hovering, float x, float y, float dt
                 *take = 1;
             }
         }
-        return 0;
+        return -1;
     }
     if (!s->armed)
     {
         if (magnitude > 0.3f)
         {
-            return 0;   /* still pushed from before the reach: it stays the player's */
+            return -1;   /* still pushed from before the reach: it stays the player's */
         }
         s->armed = 1;
+        s->wedge = -1;
     }
     if (magnitude <= 0.3f) s->latched = 0;
-    else if (ax >= 0.65f) s->latched = 1;
+    else if (magnitude >= 0.5f) s->latched = 1;
     *take = s->latched;
-    if (s->dir == 0)
+    if (magnitude < 0.5f)
     {
-        if (ax >= 0.65f)
+        s->wedge = -1;   /* the highlight stays put */
+        return -1;
+    }
+    span = 360.0f / count;
+    hyst = span * 0.25f < 6.0f ? span * 0.25f : 6.0f;
+    deg = gevrBodyAtan2(x, y) * (180.0f / GEVR_BODY_PI);   /* clockwise from up */
+    if (deg < 0.0f)
+    {
+        deg += 360.0f;
+    }
+    if (s->wedge >= 0 && s->wedge < count)
+    {
+        rel = deg - s->wedge * span;
+        while (rel >= 180.0f) rel -= 360.0f;
+        while (rel < -180.0f) rel += 360.0f;
+        if (fabsf(rel) <= span * 0.5f + hyst)
         {
-            s->dir = x > 0.0f ? 1 : -1;
-            s->held = 0.0f;
-            s->next = 450.0f;
-            step = s->dir;
+            return s->wedge;
         }
     }
-    else if (ax <= 0.3f)
-    {
-        s->dir = 0;
-    }
-    else
-    {
-        s->held += dtMs;
-        if (s->held >= s->next)
-        {
-            s->next += 250.0f;
-            step = s->dir;
-        }
-    }
-    return step;
+    s->wedge = (int) (deg / span + 0.5f) % count;
+    return s->wedge;
 }
 
 int gevrBodyBeltDefer(GevrBodyDefer *d, int entered, int inside, int gripped, float dtMs, float deferMs)

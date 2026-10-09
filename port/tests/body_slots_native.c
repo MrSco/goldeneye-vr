@@ -330,37 +330,90 @@ static void choices(void)
     CHECK(!gevrBodyThrowGate(500.0f, 1.5f, 350.0f, 0.35f));
 }
 
+/* the stick at deg clockwise from up, pushed to r */
+static int point(GevrBodyStick *s, int hovering, int count, float deg, float r, int *take)
+{
+    const float a = deg * (3.14159265f / 180.0f);
+
+    return gevrBodyStickPoint(s, hovering, count, r * sinf(a), r * cosf(a), take);
+}
+
 static void stick(void)
 {
-    GevrBodyStick s = { 0 };
+    GevrBodyStick s = { 0, 0, -1 };
     int take;
 
-    /* Diagonal scrolling owns both axes, even after leaving the slot. */
-    CHECK(gevrBodyStickStep(&s, 1, 0.0f, 0.8f, 16.0f, &take) == 0 && !take);
-    CHECK(gevrBodyStickStep(&s, 1, 0.0f, 0.0f, 16.0f, &take) == 0 && !take);
-    CHECK(gevrBodyStickStep(&s, 1, 0.0f, 0.8f, 16.0f, &take) == 0 && !take); /* walking isn't scrolling */
-    CHECK(gevrBodyStickStep(&s, 1, 0.0f, 0.0f, 16.0f, &take) == 0 && !take);
-    CHECK(gevrBodyStickStep(&s, 1, 0.8f, 0.6f, 16.0f, &take) == 1 && take);
-    CHECK(gevrBodyStickStep(&s, 0, 0.0f, 0.8f, 16.0f, &take) == 0 && take);
-    CHECK(gevrBodyStickStep(&s, 0, 0.0f, 0.4f, 16.0f, &take) == 0 && take);
-    CHECK(gevrBodyStickStep(&s, 0, 0.2f, 0.25f, 16.0f, &take) == 0 && take);
-    CHECK(gevrBodyStickStep(&s, 0, 0.0f, 0.0f, 16.0f, &take) == 0 && !take);
-    memset(&s, 0, sizeof(s));
-    /* pushed before the reach: the player's until it centres */
-    CHECK(gevrBodyStickStep(&s, 1, 0.8f, 0.0f, 16.0f, &take) == 0 && !take);
-    CHECK(gevrBodyStickStep(&s, 1, 0.1f, 0.0f, 16.0f, &take) == 0 && !take);
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 16.0f, &take) == 1 && take);
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 400.0f, &take) == 0);
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 60.0f, &take) == 1);    /* 460 ms held: again */
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 200.0f, &take) == 0);
-    CHECK(gevrBodyStickStep(&s, 1, 0.7f, 0.0f, 60.0f, &take) == 1);    /* then every 250 ms */
-    CHECK(gevrBodyStickStep(&s, 1, 0.2f, 0.0f, 16.0f, &take) == 0);
-    CHECK(gevrBodyStickStep(&s, 1, -0.9f, 0.0f, 16.0f, &take) == -1);
-    /* the hover ends with the stick still pushed: held until it centres */
-    CHECK(gevrBodyStickStep(&s, 0, -0.9f, 0.0f, 16.0f, &take) == 0 && take);
-    CHECK(gevrBodyStickStep(&s, 0, -0.5f, 0.0f, 16.0f, &take) == 0 && take);
-    CHECK(gevrBodyStickStep(&s, 0, -0.2f, 0.0f, 16.0f, &take) == 0 && !take);
-    CHECK(gevrBodyStickStep(&s, 0, -0.9f, 0.0f, 16.0f, &take) == 0 && !take);
+    /* pushed before the wheel: walking isn't pointing, until it centres */
+    CHECK(gevrBodyStickPoint(&s, 1, 4, 0.0f, 0.8f, &take) == -1 && !take);
+    CHECK(gevrBodyStickPoint(&s, 1, 4, 0.0f, 0.0f, &take) == -1 && !take);
+    /* the weapon wheel's way round: clockwise from up, any direction */
+    CHECK(gevrBodyStickPoint(&s, 1, 4, 0.0f, 0.8f, &take) == 0 && take);
+    CHECK(gevrBodyStickPoint(&s, 1, 4, 0.8f, 0.0f, &take) == 1 && take);
+    CHECK(gevrBodyStickPoint(&s, 1, 4, 0.0f, -0.8f, &take) == 2 && take);
+    CHECK(gevrBodyStickPoint(&s, 1, 4, -0.8f, 0.0f, &take) == 3 && take);
+    /* a wedge holds 6 degrees past its edge, then the nearest takes over */
+    CHECK(point(&s, 1, 4, 320.0f, 0.8f, &take) == 3);
+    CHECK(point(&s, 1, 4, 322.0f, 0.8f, &take) == 0);
+    CHECK(point(&s, 1, 4, 44.0f, 0.8f, &take) == 0);
+    CHECK(point(&s, 1, 4, 52.0f, 0.8f, &take) == 1);
+    /* under 0.5 nothing is pointed at (the choice stays); 0.3 lets the stick go */
+    CHECK(point(&s, 1, 4, 52.0f, 0.4f, &take) == -1 && take);
+    CHECK(point(&s, 1, 4, 44.0f, 0.8f, &take) == 0);   /* afresh: no hold */
+    CHECK(point(&s, 1, 4, 44.0f, 0.2f, &take) == -1 && !take);
+    /* many choices: a quarter wedge's hold, all the way round */
+    CHECK(point(&s, 1, 24, 7.0f, 0.9f, &take) == 0);
+    CHECK(point(&s, 1, 24, 11.0f, 0.9f, &take) == 0);
+    CHECK(point(&s, 1, 24, 11.5f, 0.9f, &take) == 1);
+    CHECK(point(&s, 1, 24, 359.0f, 0.9f, &take) == 0);
+    CHECK(point(&s, 1, 24, 345.0f, 0.9f, &take) == 23);
+    CHECK(point(&s, 1, 1, 200.0f, 0.9f, &take) == 0);
+    CHECK(point(&s, 1, 2, 100.0f, 0.9f, &take) == 1);
+    /* the wheel goes with the stick still pushed: held until it centres */
+    CHECK(gevrBodyStickPoint(&s, 0, 2, -0.9f, 0.0f, &take) == -1 && take);
+    CHECK(gevrBodyStickPoint(&s, 0, 2, -0.5f, 0.0f, &take) == -1 && take);
+    CHECK(gevrBodyStickPoint(&s, 0, 2, -0.2f, 0.0f, &take) == -1 && !take);
+    CHECK(gevrBodyStickPoint(&s, 0, 2, -0.9f, 0.0f, &take) == -1 && !take);
+    /* back again with it pushed: still the player's */
+    CHECK(gevrBodyStickPoint(&s, 1, 2, -0.9f, 0.0f, &take) == -1 && !take);
+}
+
+/* looking down by pitch degrees, turned yaw degrees toward the right */
+static void look(float pitch, float yaw, float out[3])
+{
+    const float p = pitch * (3.14159265f / 180.0f), y = yaw * (3.14159265f / 180.0f);
+
+    out[0] = cosf(p) * sinf(y);
+    out[1] = -sinf(p);
+    out[2] = cosf(p) * cosf(y);
+}
+
+static void gaze(void)
+{
+    const float hip[3] = { 20.0f, -65.0f, -10.0f }, chest[3] = { 0.0f, -39.0f, 4.0f }, none[3] = { 0 };
+    float fwd[3], at[3];
+
+    /* walking, or just looking ahead: an arm hanging by the hip isn't looked at */
+    look(0.0f, 0.0f, fwd);
+    CHECK(!gevrBodyGaze(0, fwd, hip) && !gevrBodyGaze(1, fwd, hip));
+    look(20.0f, 0.0f, fwd);
+    CHECK(!gevrBodyGaze(0, fwd, hip) && !gevrBodyGaze(0, fwd, chest));
+    /* looking down at it */
+    look(65.0f, 25.0f, fwd);
+    CHECK(gevrBodyGaze(0, fwd, hip));
+    look(60.0f, 0.0f, fwd);
+    CHECK(gevrBodyGaze(0, fwd, chest));
+    /* 40 degrees to start, 55 to keep; any lengths */
+    fwd[0] = 0.0f; fwd[1] = 0.0f; fwd[2] = 3.0f;
+    look(0.0f, 39.0f, at);
+    CHECK(gevrBodyGaze(0, fwd, at));
+    look(0.0f, 41.0f, at);
+    CHECK(!gevrBodyGaze(0, fwd, at) && gevrBodyGaze(1, fwd, at));
+    look(0.0f, -54.0f, at);
+    at[0] *= 50.0f; at[1] *= 50.0f; at[2] *= 50.0f;
+    CHECK(gevrBodyGaze(1, fwd, at));
+    look(0.0f, 56.0f, at);
+    CHECK(!gevrBodyGaze(1, fwd, at));
+    CHECK(!gevrBodyGaze(1, fwd, none));
 }
 
 static void belt(void)
@@ -389,12 +442,13 @@ int main(void)
     zones();
     choices();
     stick();
+    gaze();
     belt();
     if (failures)
     {
         fprintf(stderr, "%d failure(s)\n", failures);
         return 1;
     }
-    puts("PASS: body slots (heading, torso chase, neck frame, slots and fits, zones, choices, stick, belt)");
+    puts("PASS: body slots (heading, torso chase, neck frame, slots and fits, zones, choices, stick, gaze, belt)");
     return 0;
 }
