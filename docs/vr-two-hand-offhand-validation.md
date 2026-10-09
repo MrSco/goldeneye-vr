@@ -93,3 +93,16 @@ GE-X free hand follows the magazine without a second fist overlapping it.
 Repeat with a pistol, rifle and single-round weapon, with body slots on/off
 and left-handed mode. Fire sustained bursts with a supported KF7 and another
 automatic, then compare with idle holding and with original models.
+
+The `be2aaae` headset test confirmed insertion and both waist pickups, but
+pulling an off-hand Klobb's magazine still failed. Its grab-fit sideways offset
+was not mirrored, while its gun-fit origin was incorrectly mirrored. With
+the shipped settings, the resulting grab point was 29.26 cm from the intended
+mirrored point. Interaction points now mirror their model basis and saved
+grab offsets while keeping the rendered gun origin. KF7's controller-relative
+grab offset follows the same handedness rule, and grab fitting stores the
+canonical offset so the fit works in either slot. The reload harness now loads
+the shipped model fits instead of zeroing them, compares Klobb/ZMG/DD44 grab
+points to the production gun matrix and exercises pulling plus saved-fit
+round trips in both handedness settings. This regression fails at `be2aaae`
+and passes with the correction; the new Klobb pull still needs a headset test.

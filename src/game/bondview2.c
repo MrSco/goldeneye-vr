@@ -17280,13 +17280,14 @@ static void gevrReloadMagPoint(const f32 gun[3], const f32 gr[3], const f32 gu[3
                                f32 mag[3])
 {
     const f32 *g = gex ? gevrGexGrabFit(getCurrentPlayerWeaponId(gevrReloadSupportGun())) : VrReloadGrab[0];
+    const f32 sideways = (VrLeftHandedMode != (gevrReloadSupportGun() == GUNLEFT)) ? -1.0f : 1.0f;
     s32 i;
 
     if (gex && gevrGexPistolPoint(FALSE, mag)) return;
 
     for (i = 0; i < 3; i++)
     {
-        mag[i] = gun[i] + (g[0] * gr[i] + g[1] * gu[i] + g[2] * gb[i]) * cm;
+        mag[i] = gun[i] + (sideways * g[0] * gr[i] + g[1] * gu[i] + g[2] * gb[i]) * cm;
     }
 }
 
@@ -17300,6 +17301,7 @@ static s32 gevrGexPistolPoint(s32 support, f32 out[3])
     f32 gun[3], r[3], u[3], b[3], off[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     f32 size = gevrGunSizeFactor(), side = (VrLeftHandedMode != (gunHand == GUNLEFT)) ? 1.0f : -1.0f;
+    const f32 originSide = VrLeftHandedMode ? -1.0f : 1.0f;
     const f32 *root, *fit;
     s32 i;
     if (def == NULL || def->item == ITEM_AK47 || cm < 1e-6f || !gevrGripAxesRaw(1-gunHand, gun, r, u, b)) return FALSE;
@@ -17308,11 +17310,12 @@ static s32 gevrGexPistolPoint(s32 support, f32 out[3])
     gevrGunOff(gunHand, off);
     for (i=0; i<3; i++)
     {
-        out[i] = gun[i] + ((-side*off[0]*r[i] + off[1]*u[i]
+        /* Rendering mirrors the left slot's basis, retaining its gun origin. */
+        out[i] = gun[i] + ((originSide*off[0]*r[i] + off[1]*u[i]
             + (GEVR_GRIP_TO_ORIGIN_CM+off[2])*b[i])
             + 0.1f*GEVR_VIEWMODEL_CM*(side*root[0]*r[i] + root[1]*u[i] - root[2]*b[i]))*cm*size;
         out[i] += support ? (-fit[0]*b[i] + fit[1]*u[i] + side*fit[2]*r[i])*cm*size
-                         : (fit[0]*r[i] + fit[1]*u[i] + fit[2]*b[i])*cm;
+                         : (-side*fit[0]*r[i] + fit[1]*u[i] + fit[2]*b[i])*cm;
     }
     return TRUE;
 }
@@ -17530,6 +17533,7 @@ s32 gevrReloadFitAvailable(void)
 void gevrReloadFitSetGrab(void)
 {
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    const f32 sideways = VrLeftHandedMode ? -1.0f : 1.0f;
     f32 gun[3], gr[3], gu[3], gb[3], off[3], r[3], u[3], b[3], d[3];
     f32 *g = gevrGexHeld(GUNRIGHT) ? gevrGexGrabFit(getCurrentPlayerWeaponId(GUNRIGHT)) : VrReloadGrab[0];
     s32 i;
@@ -17548,13 +17552,13 @@ void gevrReloadFitSetGrab(void)
         if (gevrGexPistolPoint(FALSE, mag))
         {
             for (i=0; i<3; i++) d[i] = (off[i]-mag[i])/cm;
-            g[0] += d[0]*gr[0] + d[1]*gr[1] + d[2]*gr[2];
+            g[0] += sideways * (d[0]*gr[0] + d[1]*gr[1] + d[2]*gr[2]);
             g[1] += d[0]*gu[0] + d[1]*gu[1] + d[2]*gu[2];
             g[2] += d[0]*gb[0] + d[1]*gb[1] + d[2]*gb[2];
             return;
         }
     }
-    g[0] = d[0] * gr[0] + d[1] * gr[1] + d[2] * gr[2];
+    g[0] = sideways * (d[0] * gr[0] + d[1] * gr[1] + d[2] * gr[2]);
     g[1] = d[0] * gu[0] + d[1] * gu[1] + d[2] * gu[2];
     g[2] = d[0] * gb[0] + d[1] * gb[1] + d[2] * gb[2];
     sysLogPrintf(LOG_NOTE, "stereo: reload fit, the magazine at %.1f right %.1f up %.1f back of the grip (%s)",

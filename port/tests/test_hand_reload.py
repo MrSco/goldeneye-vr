@@ -43,7 +43,7 @@ definitions.append(re.search(r"float VrReloadBelt\[3\] = [^;]+;", defaults).grou
 for name in ("VrReloadGrab", "VrGexGunOff", "VrGexForeHold", "VrGexPp7Grab", "VrGexPp7Support", "VrGexPp7GunOff",
              "VrGexKf7MagOff", "VrGexPp7MagOff", "VrGexKf7WellOff", "VrGexPp7WellOff", "VrGexPp7SupportRot"):
     definitions.append(re.search(r"float " + name + r"\[[^;]+;", defaults).group())
-definitions.append("float VrGexWeaponFits[64][10][3];")
+definitions.append(re.search(r"float VrGexWeaponFits\[64\]\[10\]\[3\] = \{.*?^\};", defaults, re.S | re.M).group())
 for name in ("s_gevrGexMagItem", "s_gevrPistolGripOwner"):
     definitions.append(re.search(r"static s32 " + name + r"[^;]+;", view).group())
 definitions.append(re.search(r"typedef struct \{[^\n]+\} GevrStoredMagazine;", view).group())
@@ -73,6 +73,7 @@ production.extend(function(view, signature) for signature in (
     "static s32 gevrHandOnBody(", "static s32 gevrHipZone(",
     "static s32 gevrReloadGun(", "s32 gevrReloadSupportGun(void)\n{", "static s32 gevrReloadMagazineFed(",
     "s32 gevrStereoReloadHandMatrix(Mtxf *out)\n{",
+    "s32 gevrStereoGunMatrix(s32 handnum, Mtxf *out)\n{",
     "s32 gevrHandReloadActive(", "s32 gevrManualReloadOn(", "static s32 gevrGexByHand(",
     "s32 gevrGexHeldRoundCount(void)\n{",
     "static void gevrGexHeldDropped(", "static void gevrGexMagOut(",
@@ -96,6 +97,7 @@ production.extend(function(view, signature) for signature in (
 production.append(function(view,"s32 gevrReloadFitAvailable(void)\n{"))
 production.append(function(view,"void gevrGripGestureInput("))
 production.append(function(view,"void gevrReloadFitSetBelt("))
+production.append(function(view,"void gevrReloadFitSetGrab("))
 fixture = (ROOT / "port/tests/hand_reload_native.c").read_text(encoding="utf-8")
 fixture = fixture.replace("/* DEFINITIONS */", "\n".join(definitions))
 fixture = fixture.replace("/* PRODUCTION */", "\n".join(production))
