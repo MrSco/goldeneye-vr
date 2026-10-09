@@ -1,6 +1,13 @@
 # Changes after v0.4.14
 
-None yet.
+- **Co-op briefing hang (reports 7b162d90, 919e73ee).** After a mission, a
+  follower moving from the briefing to mission select spun forever in
+  `langGetLangBankIndexFromStagenum`. The host's next screen had no folder
+  entry (`-1`), and that was applied before the briefing cleared its text
+  bank. The screen being left now keeps its mission until its own cleanup.
+  An unset page no longer looks up a text bank, and an unknown level logs
+  and returns instead of spinning. Manual report 3e30f876 is the same
+  session as 919e73ee.
 
 See [v0.4.14](v0.4.14.md) for bots handling doors, soft collision between players
 and the hit immunity rule,

@@ -225,8 +225,19 @@ LEVELID langGetLangBankIndexFromStagenum(LEVELID level)
             #ifdef DEBUG
                 osSyncPrintf("gettextloadnum: level %d unknown. (HANG now.)\n",level);
             #endif
+#ifdef GEVR
+            /*
+             * Retail spins here. A co-op follower leaving the briefing was
+             * handed a folder entry with no stage (reports 7b162d90 and
+             * 919e73ee) and the watchdog aborted the match.
+             */
+            sysLogPrintf(LOG_ERROR, "lang: no text bank for level %d", (s32)level);
+            return_id = -1;
+            break;
+#else
             /* infinite loop on invalid text bank */
             while(1) {};
+#endif
         }
     }
 
@@ -358,17 +369,38 @@ struct jpncharpixels *langGetJpnCharPixels(s32 codepoint)
 
 void langLoadToAddr(u32 id)
 {
+#ifdef GEVR
+    if (id >= ARRAYCOUNT(g_LangBanks))
+    {
+        sysLogPrintf(LOG_ERROR, "lang: load ignored, bank %u", id);
+        return;
+    }
+#endif
     g_LangBanks[id] = _fileNameLoadToBank(LnameX_lookuptable[id][j_text_trigger],1,0x100,MEMPOOL_STAGE);
 }
 
 
 void langLoadToBank(int id,u8 *target,int size)
 {
+#ifdef GEVR
+    if ((u32)id >= ARRAYCOUNT(g_LangBanks))
+    {
+        sysLogPrintf(LOG_ERROR, "lang: load ignored, bank %d", id);
+        return;
+    }
+#endif
     g_LangBanks[id] = _fileNameLoadToAddr(LnameX_lookuptable[id][j_text_trigger],1,target,size);
 }
 
 
 void langClearBank(s32 textBank) {
+#ifdef GEVR
+    if ((u32)textBank >= ARRAYCOUNT(g_LangBanks))
+    {
+        sysLogPrintf(LOG_ERROR, "lang: clear ignored, bank %d", textBank);
+        return;
+    }
+#endif
     g_LangBanks[textBank] = 0;
 }
 

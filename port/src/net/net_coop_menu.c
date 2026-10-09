@@ -184,20 +184,43 @@ static void coopMenuApply(const CoopMenuState *st)
     if (current_menu == MENU_BRIEFING) current_menu_briefing_page = st->page;
 }
 
+/*
+ * 0: the host has left this screen and nothing is in flight. Change screen,
+ *    but leave the mission globals alone. The screen being left still reads
+ *    them; the briefing clears that stage's text bank. Applying the host's
+ *    next entry first (mission select sends -1) made
+ *    langGetLangBankIndexFromStagenum spin forever.
+ * 1: apply the host's mission. This screen is showing it, or its init runs
+ *    this frame (maybe_prev_menu is set, current_menu is still the switch).
+ * 2: a switch is already under way. Leave the mission alone until init.
+ */
+static int gevrCoopMenuMissionAction(int target)
+{
+    if (target != coopMenuTarget() && current_menu != MENU_SWITCH_SCREENS &&
+        menu_update == MENU_INVALID && maybe_prev_menu == MENU_INVALID)
+        return 0;
+    if (current_menu == target || maybe_prev_menu == target)
+        return 1;
+    return 2;
+}
+
 static void coopMenuFollow(void)
 {
     int target;
 
     if (!gevrCoopMenuFollowing() || !s_host_valid) return;
     target = s_host.menu;
-    if (target != coopMenuTarget() && current_menu != MENU_SWITCH_SCREENS &&
-        menu_update == MENU_INVALID && maybe_prev_menu == MENU_INVALID) {
+    switch (gevrCoopMenuMissionAction(target)) {
+    case 0:
         sysLogPrintf(LOG_NOTE, "coop: menus: following the host to screen %d", target);
-        coopMenuApply(&s_host);
         frontChangeMenu((MENU)target, TRUE);
         return;
+    case 1:
+        coopMenuApply(&s_host);
+        return;
+    default:
+        return;
     }
-    if (current_menu == target) coopMenuApply(&s_host);
 }
 
 /* front.c menu_init, every frame of the title stage: the host's screen out, the others' in */
