@@ -23,3 +23,14 @@ with tempfile.TemporaryDirectory(prefix="gevr-body-slots-") as temp:
                     str(ROOT / "port/tests/body_slots_native.c"), str(ROOT / "port/src/gevr_bodyslot.c"),
                     "-lm", "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
+    # As the game links it: GoldenEye's own atan2f (0..2 pi) and its table
+    # acosf/asinf over the C library's. The torso reset every tick on the
+    # headset with those until the slots stopped using them.
+    game = [str(ROOT / "src/game" / name) for name in ("math_atan2f.c", "math_asinfacosf.c", "math_asinacos.c")]
+    exe = Path(temp) / "body_slots_game_math.exe"
+    subprocess.run([shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-D_LANGUAGE_C",
+                    "-I" + str(ROOT / "port/include"), "-I" + str(ROOT / "include"), "-I" + str(ROOT / "src"),
+                    "-I" + str(ROOT / "src/game"),
+                    str(ROOT / "port/tests/body_slots_native.c"), str(ROOT / "port/src/gevr_bodyslot.c"), *game,
+                    "-lm", "-o", str(exe)], check=True)
+    subprocess.run([str(exe)], check=True)

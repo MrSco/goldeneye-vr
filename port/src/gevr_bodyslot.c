@@ -4,6 +4,39 @@
 
 #define GEVR_BODY_PI 3.14159265358979f
 
+/*
+ * Its own atan2: in the game, atan2f, acosf and asinf are GoldenEye's
+ * (src/game/math_atan2f.c, math_asinfacosf.c), linked over the C library's.
+ * That atan2f returns 0..2 pi, so a small turn one way read as 359 degrees
+ * and the torso "jumped" back to the head every tick (headset log,
+ * 2026-10-08), and its acosf goes through a 16-bit table, half a degree a
+ * step near nought. A polynomial within 2e-6 radians.
+ */
+static float gevrBodyAtan2(float y, float x)
+{
+    const float ax = fabsf(x), ay = fabsf(y);
+    const float lo = ax < ay ? ax : ay, hi = ax < ay ? ay : ax;
+    float z, z2, a;
+
+    if (!(hi > 0.0f))
+    {
+        return 0.0f;
+    }
+    z = lo / hi;
+    z2 = z * z;
+    a = z * (0.99997726f + z2 * (-0.33262347f + z2 * (0.19354346f + z2 * (-0.11643287f
+        + z2 * (0.05265332f + z2 * -0.01172120f)))));
+    if (ay > ax)
+    {
+        a = GEVR_BODY_PI * 0.5f - a;
+    }
+    if (x < 0.0f)
+    {
+        a = GEVR_BODY_PI - a;
+    }
+    return y < 0.0f ? -a : a;
+}
+
 void gevrBodyQuatRotate(const float q[4], const float v[3], float out[3])
 {
     const float qx = q[0], qy = q[1], qz = q[2], qw = q[3];
@@ -36,7 +69,7 @@ int gevrBodyHeading(const float fwd[3], const float up[3], float out[2])
 
 float gevrBodyAngle(const float a[2], const float b[2])
 {
-    return atan2f(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1]) * (180.0f / GEVR_BODY_PI);
+    return gevrBodyAtan2(a[0] * b[1] - a[1] * b[0], a[0] * b[0] + a[1] * b[1]) * (180.0f / GEVR_BODY_PI);
 }
 
 void gevrBodyTurn(const float a[2], float degrees, float out[2])
@@ -113,7 +146,7 @@ void gevrBodyFrameBuild(GevrBodyFrame *f, const GevrBodyTorso *t, const float he
                      + GEVR_BODY_NECK_UP_CM * f->up[i] + GEVR_BODY_NECK_AHEAD_CM * f->fwd[i];
     }
     f->twist = delta;
-    f->pitch = asinf(fwd[1] > 1.0f ? 1.0f : fwd[1] < -1.0f ? -1.0f : fwd[1]) * (180.0f / GEVR_BODY_PI);
+    f->pitch = gevrBodyAtan2(fwd[1], sqrtf(fwd[0] * fwd[0] + fwd[2] * fwd[2])) * (180.0f / GEVR_BODY_PI);
 }
 
 /*
