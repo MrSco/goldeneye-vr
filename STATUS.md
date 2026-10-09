@@ -3,28 +3,24 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-09, v0.4.16 development (versionCode 71,
-protocol 21: live host movement speed; v0.4.15 and older can't join).
-Latest release: v0.4.15. Building does not publish a GitHub release.
-No game data is shipped.
+**Current build:** v0.4.16 (versionCode 71, protocol 21), released 2026-10-09.
+Latest release: v0.4.16. v0.4.15 and older can't join. Building does not
+publish a GitHub release. No game data is shipped.
 
-Movement speed: 50%-200% in 25% steps, 100% default. Separate solo and host
-preferences; launcher Comfort / Host > Match, solo watch VR Settings >
-Comfort, multiplayer pause Rules. Changes apply immediately to solo or
-everyone in the host's session, including bots. Room-scale walking stays
-unchanged. Native movement, settings, multiplayer and pause checks pass;
-headset checks pending. Details: [movement speed](docs/player-movement-speed.md).
-Launcher Match and Comfort now use two columns to fit without scrolling.
-Chest and Belt defaults use the user's saved Quest fits at 170 cm; custom
-fits remain intact. See [body slots](docs/body-slots.md).
-Eight-player lobby: setup/code/count share two columns; tighter roster rows
-keep all eight names visible. Custom weapons use an Edit popup. The watch
-Controls model now starts a fresh depth pass to avoid inherited world depth
-hiding its shell. Native layout/render-dispatch checks pass; headset review
-of the controller remains pending.
+Movement speed: 50%-200%, 100% default, separate solo and host settings;
+host changes apply to the whole session, bots included. Room-scale walking
+is unchanged. Native checks pass; two-headset checks pending. Details:
+[movement speed](docs/player-movement-speed.md). Launcher Match and Comfort
+use two columns, and the eight-player lobby fits without scrolling. Chest
+and Belt defaults use saved Quest fits at 170 cm; custom fits stay intact.
+See [body slots](docs/body-slots.md). Watch Controls clears inherited depth
+before drawing; headset review of the controller is pending.
 
 ## Recent releases
 
+**v0.4.16:** live solo and host movement speed (protocol 21), two-column
+launcher, eight-player lobby fit, Chest/Belt fits, campaign co-op fixes
+#161-#164 (PR #165). Notes: [v0.4.16](docs/releases/v0.4.16.md).
 **v0.4.15:** body slots with looked-at slot wheels (#157), GE-X hand reload
 keeps magazines, guides and off-hand reloads (#157, #160), two-handed grips
 with a gun in either hand (#160), bots around Library glass (#158), co-op
@@ -83,9 +79,9 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
-- #161–#164: campaign fixes implemented; native regressions and the twenty-stage
-  ROM floor audit pass. User reports Natalya's solo movement/combat working;
-  co-op checks remain. See docs/issue-161-164-campaign-fixes.md.
+- #161–#164: fixes released in v0.4.16; issues stay open for co-op headset
+  checks. User reports Natalya's solo movement/combat working. See
+  docs/issue-161-164-campaign-fixes.md.
 - Co-op cutscenes on a teammate, revive, menus and debrief need continued
   two-headset testing; the invisible ending report remains open. Bond's
   cinema animation and script music stay on the host.
