@@ -84,9 +84,18 @@ int main(void) {
     assert(visits==2 && switches==1 && meshes==1);
     assert(!memcmp(&rendered,&s_gevrGexLastMag[0],sizeof(Mtxf)));
     assert(original[0]==0 && original[1]==1 && magSwitch.Child==NULL);   /* live magazine stays absent */
-    float belt[]={-22,-65,-10};
-    gevrGexDrawMagazineGuide(commands,&rd,0,belt,GEVR_RELOAD_TINT|0x50);
-    for(int i=0;i<3;i++) assert(fabsf(rendered.m[3][i]+def->magCentre[i]*0.12f-belt[i])<0.0001f);
+    Mtxf belt; matrix_4x4_set_identity(&belt);
+    belt.m[0][0]=0; belt.m[0][2]=-1; belt.m[2][0]=1; belt.m[2][2]=0;
+    belt.m[3][0]=-22; belt.m[3][1]=-65; belt.m[3][2]=-10;
+    gevrGexDrawMagazineGuide(commands,&rd,0,&belt,GEVR_RELOAD_TINT|0x50);
+    for(int i=0;i<3;i++) {
+        float centre=rendered.m[3][i];
+        for(int j=0;j<3;j++) {
+            assert(fabsf(rendered.m[j][i]-belt.m[j][i]*0.12f)<0.0001f);
+            centre+=def->magCentre[j]*rendered.m[j][i];
+        }
+        assert(fabsf(centre-belt.m[3][i])<0.0001f);
+    }
     rd.gdl=commands; rd.PropType=GEVR_MODEL_RELOAD_GHOST; rd.envcolour.word=GEVR_RELOAD_TINT|0x50; rd.zbufferenabled=1;
     assert(modelApplyReloadGhost(&rd));
     assert(commands[2].words.w1==(GEVR_RELOAD_TINT|0x50));

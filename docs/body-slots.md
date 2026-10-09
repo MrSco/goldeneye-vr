@@ -62,10 +62,23 @@ neck, so looking down doesn't move these.
 |---|---|---|---|---|
 | Hips | 65 | 20 | -10 | 13 |
 | Shoulders | 8 | 19 | -20 | 20 |
-| Chest | 39 | 0 | 8 | 10 |
+| Chest | 39 | 0 | 4 | 10 |
 | Belt (off side, front) | 60 | 7 | 10 | 10 |
 
 Small and Large scale the reach by 0.8 and 1.25.
+
+**Personal slot positions.** With Body slots on and a gun equipped, Menu + A
+opens Gun fit. Press X until "BODY SLOT FIT", then flick the move stick
+left/right to select either hip, either shoulder, the chest or the gadget
+belt. Put either hand where you want that slot and squeeze its grip. The
+readout names the selected slot and shows the hand's distance, so shoulder
+positions can be set by reach without seeing the ring behind you. Y resets
+the selected slot, A saves, B restores the last save, and Menu + A exits.
+Magazine pickup has its own belt fit: in Gun fit's Reload mode, put the off
+hand at the desired pickup point and press Y, then A to save.
+
+The chest default was moved about 4 cm closer after the combined headset
+test. Saved custom slot fits take priority and are kept.
 
 **Hand reload (GoldenEye X) with body slots on.** The fitted belt sits where
 the hip holster does. A touch there still reloads, 100 ms later. While a
@@ -93,7 +106,11 @@ The actual seating radius and ammunition transfer are unchanged. While a
 magazine is missing, the corresponding hip guns give way to matching GE-X
 magazines at the fitted reload-belt points. A green ring marks a hand inside
 the pickup sphere; this uses the same calibration as the gesture. These ammo
-guides also work with body slots off.
+guides also work with body slots off. Their position, orientation, grab
+sphere and belt calibration now use the same smoothed torso and neck frame
+as the holsters, so head turns and tilts do not twist the magazines around
+the player. Reaching into an available magazine's belt sphere holds the
+torso just as reaching into a holster does.
 
 ## Headset rounds and what's next
 
@@ -152,9 +169,17 @@ for the shoulders; two-headset Doubles/CTF.
 rings and hip highlights are restored. Missing-magazine pickup now wins for
 both controllers, including dual wielding. Ammo persistence, exclusive
 B/Y eject, required grip use, ghost magazines and reload rings are added.
-The full-magazine belt/holster arbitration and the head-frame belt versus
-torso-frame hip placement remain as before; the ammo model and pickup ring
-now show where the fitted belt actually is.
+The full-magazine belt/holster arbitration remains as before. The ammo model
+and pickup ring show where the fitted belt actually is.
+
+**Headset follow-up (2026-10-09, combined test build b694283).** The belt
+magazines twisted with head movement while the holstered guns stayed on the
+torso. Both their centres and mesh axes were in the camera's frame. Belt
+magazines, pickup zones and Gun fit now share the holsters' torso frame;
+the frame stays available for hand reload with body slots off. Check this
+by looking down and slowly turning/tilting the head: magazines should move
+with the hips' guns, and a hand at the visible magazine should still get the
+pickup ring. Repeat with a custom belt fit and left-handed mode.
 
 Reload checks for the next headset round:
 

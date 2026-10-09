@@ -126,6 +126,9 @@ int vr_haptics_ready(void) { return 1; }
 /* body slots (src/game/gevr_bodyslots.c): off unless a case turns them on;
  * the belt's wait is the production arithmetic (port/src/gevr_bodyslot.c) */
 #include "gevr_bodyslot.h"
+static GevrBodyFrame s_bodyFrame;
+static int s_bodyFrameValid;
+static float s_bodyView[3][3];
 static int bodySlots, bodyBusy[2], bodyQuiet[2];
 static GevrBodyDefer bodyBelt[2];
 int gevrBodySlotsOn(void) { return bodySlots; }
@@ -153,6 +156,7 @@ static void belt(int ctrl, float distance)
 }
 static void reset(void)
 {
+    s_bodyFrameValid = 0;
     gevrReloadInventoryReset();
     VrManualReloading = 0;
     gevrHandReloadTick();
@@ -734,6 +738,54 @@ static void requiredGripUse(void)
     VrManualReloading = 1;
 }
 
+static void torsoReloadBelt(void)
+{
+    Mtxf savedView = viewMatrix;
+    float savedFit[3]; memcpy(savedFit, VrReloadBelt, sizeof(savedFit));
+    reset();
+    memset(&s_bodyFrame, 0, sizeof(s_bodyFrame));
+    s_bodyFrame.right[0] = s_bodyFrame.up[1] = 1;
+    s_bodyFrame.fwd[2] = -1;
+    s_bodyFrame.origin[0] = 2; s_bodyFrame.origin[1] = 3; s_bodyFrame.origin[2] = 4;
+    s_bodyFrameValid = 1;
+    /* The torso stays fixed as the head yaws, pitches and rolls. */
+    for (int turn = 0; turn < 8; turn++) {
+        int angle = turn % 4;
+        float yaw = angle * 0.31f, pitch = angle * -0.29f, roll = angle * 0.12f;
+        float cy=cosf(yaw), sy=sinf(yaw), cp=cosf(pitch), sp=sinf(pitch), cr=cosf(roll), sr=sinf(roll);
+        float right[3]={cy,0,sy}, up[3]={sy*sp,cp,-cy*sp}, back[3]={-sy*cp,sp,cy*cp};
+        memset(&viewMatrix,0,sizeof(viewMatrix)); viewMatrix.m[3][3]=1;
+        for (int i=0;i<3;i++) {
+            viewMatrix.m[0][i]=(turn>=4?-1:1)*(cr*right[i]+sr*up[i]);
+            viewMatrix.m[1][i]=-sr*right[i]+cr*up[i];
+            viewMatrix.m[2][i]=back[i];
+            for (int j=0;j<3;j++) s_bodyView[j][i]=viewMatrix.m[j][i];
+        }
+        for (int ctrl=0;ctrl<2;ctrl++) {
+            float point[3], pose[4][3], world[3], local[3];
+            assert(gevrReloadBeltPoint(ctrl,point) && gevrBodyReloadPose(ctrl,VrReloadBelt,pose));
+            gevrBodySlotCentre(&s_bodyFrame,ctrl?GEVR_BS_HIP_GUN:GEVR_BS_HIP_OFF,VrReloadBelt,VrLeftHandedMode,world);
+            struct coord3d p={.x=point[0],.y=point[1],.z=point[2]};
+            mtx4RotateVecInPlace(&viewMatrix,&p);
+            for(int i=0;i<3;i++) assert(fabsf(p.f[i]/D_800364CC-world[i])<0.001f);
+            for(int row=0;row<3;row++) {
+                struct coord3d axis={.x=pose[row][0],.y=pose[row][1],.z=pose[row][2]};
+                mtx4RotateVecInPlace(&viewMatrix,&axis);
+                for(int i=0;i<3;i++) assert(fabsf(axis.f[i]-(row==i))<0.001f);
+            }
+            assert(gevrBeltDist2(ctrl,point)<0.0001f);   /* displayed model is the grab hotspot */
+            assert(gevrReloadBeltLocal(ctrl,point,local));
+            for(int i=0;i<3;i++) assert(fabsf(local[i]-VrReloadBelt[i])<0.001f);
+            memcpy(poses[ctrl],point,sizeof(point));
+            if(ctrl==0) {
+                gevrReloadFitSetBelt();
+                for(int i=0;i<3;i++) assert(fabsf(VrReloadBelt[i]-savedFit[i])<0.001f);
+            }
+        }
+    }
+    s_bodyFrameValid=0; viewMatrix=savedView; memcpy(VrReloadBelt,savedFit,sizeof(savedFit));
+}
+
 int main(void)
 {
     const float scales[] = {0.2f, 1.0f};
@@ -762,6 +814,7 @@ int main(void)
         magazinePersistence();
         reloadIndicators();
         requiredGripUse();
+        torsoReloadBelt();
     }
     /* A custom belt and radius must control both reload paths. */
     reset();

@@ -62,6 +62,9 @@ for name in ("s_gevrClubButt", "s_gevrChopSwing", "s_gevrBeltMeleeTaken", "s_gev
 
 production = [function(matrix, signature) for signature in (
     "void matrix_4x4_rotate_vector(", "void mtx4RotateVecInPlace(")]
+body = read("src/game/gevr_bodyslots.c")
+production.extend(function(body, signature) for signature in (
+    "static void gevrBodyToView(", "int gevrBodyReloadLocal(", "int gevrBodyReloadPose("))
 production.append(function(read("src/game/gun.c"), "void attempt_reload_item_in_hand("))
 production.append(function(read("src/game/gunfire.c"), "void sub_GAME_7F0649D8(enum GUNHAND hand)\n{").replace(
     "sub_GAME_7F0649D8", "testTopUp", 1))
@@ -76,7 +79,7 @@ production.extend(function(view, signature) for signature in (
     "s32 gevrReloadStow(", "s32 gevrReloadDraw(",
     "s32 gevrReloadStoredRounds(", "s32 gevrReloadCarriesRounds(", "s32 gevrReloadReservedRounds(",
     "static void gevrGexMagIn(",
-    "static f32 gevrBeltDist2(", "static s32 gevrGexAtBelt(",
+    "static s32 gevrReloadBeltLocal(", "static f32 gevrBeltDist2(", "static s32 gevrGexAtBelt(",
     "static s32 gevrGexPistolPoint(s32 support, f32 out[3])\n{", "static void gevrReloadMagPoint(",
     "static s32 gevrGexPistolSupportAllowed(void)\n{", "static f32 gevrGexReloadDistance(s32 index)\n{",
     "s32 gevrReloadBeltAmmo(", "s32 gevrReloadBeltHover(", "s32 gevrReloadGrabBelt(", "s32 gevrReloadBeltPoint(", "s32 gevrReloadSeatHover(",
@@ -90,6 +93,7 @@ production.extend(function(view, signature) for signature in (
     "s32 gevrReloadHoldsHand(s32 ctrl)\n{", "void gevrHandChopTick(", "s32 gevrHandChopSwinging(", "s32 gevrTaserTouch("))
 production.append(function(view,"s32 gevrReloadFitAvailable(void)\n{"))
 production.append(function(view,"void gevrGripGestureInput("))
+production.append(function(view,"void gevrReloadFitSetBelt("))
 fixture = (ROOT / "port/tests/hand_reload_native.c").read_text(encoding="utf-8")
 fixture = fixture.replace("/* DEFINITIONS */", "\n".join(definitions))
 fixture = fixture.replace("/* PRODUCTION */", "\n".join(production))
