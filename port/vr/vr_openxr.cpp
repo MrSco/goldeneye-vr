@@ -3716,6 +3716,7 @@ extern "C" float gevrWeaponPanelRect[4];
 extern "C" float gevrWeaponPanelAspect;   /* bondview2.c: its width over height in screen units */
 extern "C" int gevrWeaponPanelInFront;   /* bondview2.c tuning: before the eyes */
 extern "C" int gevrWeaponPanelLeft;      /* bondview2.c: the left hand's panel (#56) */
+extern "C" int gevrWeaponPanelBody;      /* the body-slot category wheel */
 
 static const float VR_MENU_FACING_THRESHOLD = 0.8f;
 
@@ -3978,7 +3979,7 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
         float px = cx + wx * 0.22f + cx / cl * 0.06f;
         float py = cy + wy * 0.22f + cy / cl * 0.06f;
         float pz = cz + wz * 0.22f + cz / cl * 0.06f;
-        if (gevrWeaponPanelInFront) { px = 0.f; py = -0.05f; pz = -0.45f; }
+        if (gevrWeaponPanelInFront || gevrWeaponPanelBody) { px = 0.f; py = -0.05f; pz = -0.45f; }
         menuLayerP.pose.position = {px, py, pz};
         float fx = -px, fy = -py, fz = -pz;
         float fl = sqrtf(fx * fx + fy * fy + fz * fz);

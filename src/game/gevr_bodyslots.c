@@ -91,7 +91,7 @@ extern s32 getPlayerCount(void);
 #define GEVR_ACTION_SLOT_STEP  1007
 
 #define BS_LIST    96                 /* bondview2.c GEVR_WP_MAX */
-#define BS_CHOICES 24
+#define BS_CHOICES GEVR_BODY_WHEEL_MAX
 #define BS_TICK_MS (1000.0f / 60.0f)
 #define BS_SETTLE_SPEED 0.35f    /* m/s relative to the head: an intentional pause */
 
@@ -133,6 +133,7 @@ static GevrBodyTorso s_bodyTorso;
 static GevrBodyFrame s_bodyFrame;
 static s32 s_bodyFrameValid;
 static s32 s_bodyLive;
+static s32 s_bodyWheelCtrl = -1, s_bodySticksCaptured;
 static f32 s_bodyCentre[GEVR_BODY_SLOTS][3];
 static f32 s_bodyRadius[GEVR_BODY_SLOTS];
 static GevrBodyMru s_bodyMru[GEVR_BODY_SLOTS];
@@ -637,6 +638,8 @@ static void gevrBodyStep(s32 ctrl, s32 dir, const char *how)
     s32 hand = ctrl ? GUNRIGHT : GUNLEFT;
     char name[48];
 
+    s_bodyWheelCtrl = ctrl;
+
     if (h->n <= 1)
     {
         return;   /* one choice: nothing to step to */
@@ -681,6 +684,47 @@ int gevrBodySlotStick(int ctrl, float x, float y, float dtMs)
         gevrBodyStep(ctrl, step, "stick");
     }
     return take;
+}
+
+int gevrBodySlotSticks(int swap, float sticks[2][2], float dtMs)
+{
+    s32 browsing = s_bodyLive && gevrGunFitActive != 1
+        && (s_bodyHand[0].slot >= 0 || s_bodyHand[1].slot >= 0);
+    s32 take = FALSE, centred = TRUE;
+    for (s32 ctrl = 0; ctrl < 2; ctrl++)
+    {
+        const s32 own = ((ctrl == 0) == (swap == 0)) ? 0 : 1;
+        if (gevrBodySlotStick(ctrl, sticks[own][0], sticks[own][1], dtMs)) take = TRUE;
+        /* Match the turning dead zone: releasing capture must not start a turn. */
+        if (sticks[own][0]*sticks[own][0] + sticks[own][1]*sticks[own][1] > 0.0225f) centred = FALSE;
+    }
+    if (browsing || take) s_bodySticksCaptured = TRUE;
+    else if (centred) s_bodySticksCaptured = FALSE;
+    if (s_bodySticksCaptured) memset(sticks, 0, sizeof(float)*4);
+    return s_bodySticksCaptured;
+}
+
+int gevrBodySlotWheelInfo(GevrBodySlotWheel *out)
+{
+    s32 ctrl = s_bodyWheelCtrl;
+    if (!s_bodyLive || gevrGunFitActive == 1 || g_CurrentPlayer == NULL
+        || (netIsActive() && get_cur_playernum() != netGetLocalSlot())) return FALSE;
+    if (ctrl < 0 || s_bodyHand[ctrl].slot < 0 || s_bodyHand[ctrl].n <= 0)
+        ctrl = s_bodyHand[1].slot >= 0 && s_bodyHand[1].n > 0 ? 1 : 0;
+    const GevrBodyHand *h = &s_bodyHand[ctrl];
+    if (h->slot < 0 || h->n <= 0 || h->ms < 150.0f || h->pick == -1) return FALSE;
+    out->ctrl = ctrl;
+    out->category = gevrBodySlotCategory(h->slot);
+    out->count = h->n < GEVR_BODY_WHEEL_MAX ? h->n : GEVR_BODY_WHEEL_MAX;
+    out->index = 0;
+    out->ready = !VrMotionThrowing || !gevrIsThrowable(gevrBodyHandSelected(ctrl ? GUNRIGHT : GUNLEFT)) || h->throwReady;
+    for (s32 i = 0; i < out->count; i++)
+    {
+        out->items[i] = h->choices[i];
+        if (h->choices[i] == h->pick) out->index = i;
+        gevrBodyPickName(ctrl ? GUNRIGHT : GUNLEFT, h->choices[i], out->names[i], sizeof(out->names[i]));
+    }
+    return TRUE;
 }
 
 /*
@@ -1258,6 +1302,8 @@ void gevrBodySlotFitText(char *out, s32 size)
 
 void gevrBodySlotsReset(void)
 {
+    s_bodyWheelCtrl = -1;
+    s_bodySticksCaptured = FALSE;
     memset(s_bodyMru, 0, sizeof(s_bodyMru));
     gevrHolsterReset();   /* the old hip holster's memory, which no stage ever cleared */
     gevrBodyTorsoReset(&s_bodyTorso);

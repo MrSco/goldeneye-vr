@@ -258,6 +258,7 @@ extern void gevrGripGestureInput(int ctrl, int pressed, int held);
 /* src/game/gevr_bodyslots.c: a hand in a body slot steps through it */
 extern int gevrBodySlotButton(int ctrl);
 extern int gevrBodySlotStick(int ctrl, float x, float y, float dtMs);
+extern int gevrBodySlotSticks(int swap, float sticks[2][2], float dtMs);
 extern int gevrGripGestureTaken(int ctrl);
 extern ITEM_IDS getCurrentPlayerWeaponId(GUNHAND hand);
 
@@ -1920,7 +1921,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             }
         }
         // Body slots: a hand in a slot steps through it with its own stick's
-        // sideways flick, which owns both axes until the stick centres.
+        // sideways flick. Browsing captures both sticks until leaving/centring.
         // "left" is the move stick: the off hand's
         // unless Swap sticks.
         if (stereoplay && !fitting && !adjusting) {
@@ -1928,10 +1929,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             const u32 now = SDL_GetTicks();
             const float dt = slotStickAt && now - slotStickAt < 200 ? (float)(now - slotStickAt) : 0.0f;
             slotStickAt = now;
-            for (int c = 0; c < 2; c++) {
-                XrVector2f *own = ((c == 0) == (VrSwapJoysticks == 0)) ? &left : &right;
-                if (gevrBodySlotStick(c, own->x, own->y, dt)) own->x = own->y = 0.0f;
-            }
+            float slotSticks[2][2] = {{left.x, left.y}, {right.x, right.y}};
+            if (gevrBodySlotSticks(VrSwapJoysticks, slotSticks, dt))
+                npad->button &= ~(L_CBUTTONS | R_CBUTTONS | U_CBUTTONS | D_CBUTTONS);
+            left.x = slotSticks[0][0]; left.y = slotSticks[0][1];
+            right.x = slotSticks[1][0]; right.y = slotSticks[1][1];
         }
         // In menus either stick navigates (whichever is pushed further).
         XrVector2f look = right;

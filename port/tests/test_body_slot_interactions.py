@@ -28,17 +28,23 @@ motion = function(view, "void gevrMotionThrowTick(")
 motion = motion[:motion.index("    f32 at[3], right[3], up[3], back[3];")]
 motion += "if (release && s_gevrThrowWindup[hand]) { throws++; s_gevrThrowWindup[hand] = 0; }\n}"
 production = "\n".join([
+    function(body, "static void gevrBodyStep("),
+    function(body, "int gevrBodySlotButton("),
     function(body, "int gevrBodySlotGrip("),
     function(body, "void gevrBodySlotGripLetGo("),
     function(body, "int gevrBodySlotHoldsGrip("),
     function(body, "int gevrBodySlotStick("),
+    function(body, "int gevrBodySlotSticks("),
+    function(body, "int gevrBodySlotWheelInfo("),
     function(view, "void gevrGripGestureInput("),
     function(view, "s32 gevrGripGestureTaken(s32 ctrl)\n{"),
     function(view, "void gevrGripGestureTick("),
     motion,
 ])
 poll = function(inputs[inputs.index("static bool gripWas[2];"):], "for (int c = 0; c < 2; c++)")
-stick_poll = function(inputs[inputs.index("// Body slots: a hand in a slot steps"):], "for (int c = 0; c < 2; c++)")
+start = inputs.index("            float slotSticks[2][2]")
+stick_poll = inputs[start:inputs.index("        // In menus either stick",start)].rstrip()
+stick_poll = stick_poll[:stick_poll.rfind("}")]
 production += "\nstatic void poll(void) { " + poll + " }"
 production += "\nstatic void sticks(void) { " + stick_poll + " }"
 fixtures = {
@@ -53,6 +59,6 @@ with tempfile.TemporaryDirectory(prefix="gevr-slot-interactions-") as temp:
         source.write_text(fixture.replace("/* PRODUCTION */", production), encoding="utf-8")
         subprocess.run([shutil.which("gcc") or "gcc", "-std=c11", "-O2", "-Wall", "-Werror",
                         "-Wno-unused-variable", "-Wno-unused-but-set-variable", "-Wno-unused-parameter",
-                        "-I" + str(ROOT / "port/include"), str(source),
+                        "-I" + str(ROOT / "port/include"), "-I" + str(ROOT / "src/game"), str(source),
                         str(ROOT / "port/src/gevr_bodyslot.c"), "-lm", "-o", str(exe)], check=True)
         subprocess.run([str(exe)], check=True)

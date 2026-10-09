@@ -36,10 +36,15 @@ greyed out while body slots are on.
   (the gun hand's turn stick, the off hand's move stick; Swap sticks swaps
   them). The label says what a squeeze takes ("DD44 2/3"). The last choice
   is "HOLSTER <what the hand holds>", which puts it away. When the category
-  has nothing else, that is the only choice. A scrolling flick captures both
-  stick axes until they return to centre, even if the hand leaves the slot;
-  a diagonal flick cannot also walk or turn. Walking before scrolling remains
-  available. Labels draw over hands and arms so they stay readable.
+  has nothing else, that is the only choice. After a 150 ms hover, the weapon
+  wheel shows this category's choices around a ring, with its selected weapon
+  spinning in the centre. It appears in front of the eyes, including when
+  reaching behind a shoulder. The slot's own left/right stick and A/X still
+  scroll; grip takes the highlighted choice. Both sticks stop movement and
+  turning while browsing a slot, including vertical pushes before a scroll.
+  After leaving, both sticks must centre before movement returns. Labels draw
+  over hands and arms so they stay readable. Throwable readiness is shown in
+  the wheel as well as the slot label.
 - **Throwing or grabbing.** With motion throwing enabled and a throwable in
   that hand, grabbing needs a continuous 350 ms pause at the slot, moving
   slower than 0.35 m/s relative to the head. The label/ring turns green and
