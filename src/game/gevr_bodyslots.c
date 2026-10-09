@@ -7,6 +7,10 @@
  * while a hand is in it, A/X or a flick of that hand's stick steps through the
  * category; a fresh grip there takes it.
  *
+ * Only the hips' pistols are drawn on the body: the chest's and the belt's
+ * things sat between the eyes and the hips when looking down (user,
+ * 2026-10-08: "too many things"); every slot gets the label by the hand.
+ *
  * The torso is Perfect Dark VR's smoothed yaw (VrBodyYaw, ArmBodyFollow)
  * under Doom3Quest's neck model, so a glance aside or a look down at the belt
  * leaves the slots where they are. The arithmetic is
@@ -92,11 +96,11 @@ enum { BT_HIPR, BT_BACKR, BT_CHESTR, BT_BELTR, BT_EXIT, BT_DWELL, BT_DEFER, BT_F
        BT_FREEZE, BT_TWIST, BT_MARKERS, BT_COUNT };
 static f32 s_bodyTune[BT_COUNT] = {
     0.0f, 0.0f, 0.0f, 0.0f,   /* radii: the size setting's */
-    3.0f,     /* cm past a slot's radius before the hand has left it */
+    5.0f,     /* cm past a slot's radius before the hand has left it */
     120.0f,   /* ms a throwable's hand stays before the slot takes its grip */
     100.0f,   /* ms hand reload's belt waits for a holstering grip */
     0.0f,     /* the torso's follow rate: ArmBodyFollow's */
-    -35.0f,   /* degrees of head pitch below which the torso holds */
+    -20.0f,   /* degrees of head pitch below which the torso holds */
     60.0f,    /* degrees the torso may lag the head */
     0.0f,     /* 1: rings at every slot outside Gun fit */
 };
@@ -802,23 +806,25 @@ static void gevrBodySlotRoot(s32 slot, s32 item, Mtxf *root)
     }
 }
 
-/* in view, and near enough the view's axis to be seen (the hips when looking down) */
+/* in view, near enough the view's axis to be seen: about 70 degrees, past the
+ * field of view's edge, so a gun at the edge doesn't pop in and out */
 static s32 gevrBodyInView(const f32 v[3])
 {
     f32 len = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
 
-    return -v[2] > 10.0f * D_800364CC && -v[2] > 0.57f * len;   /* inside about 55 degrees */
+    return -v[2] > 10.0f * D_800364CC && -v[2] > 0.34f * len;
 }
 
 /*
  * bondview2.c maybe_mp_interface, before the first-person guns, culling off:
- * what the hips, the chest and the belt hold, drawn on the body (Doom3Quest
- * and Perfect Dark VR draw their holster and belt magazine always). Only the
- * slots in view are drawn, so looking ahead costs nothing.
+ * the pistols in the hips' holsters, drawn on the body (Doom3Quest and
+ * Perfect Dark VR draw their holster and belt magazine always). Only the
+ * slots in view are drawn, so looking ahead costs nothing. Not the chest's
+ * or the belt's: looking down at the hips they were in the way (user).
  */
 Gfx *gevrBodySlotsDraw(Gfx *gdl)
 {
-    static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF, GEVR_BS_CHEST, GEVR_BS_BELT };
+    static const s32 shown[] = { GEVR_BS_HIP_GUN, GEVR_BS_HIP_OFF };
     ModelRenderData rd;
     u32 tint;
     s32 i, inst = 0, set = FALSE;
@@ -855,16 +861,7 @@ Gfx *gevrBodySlotsDraw(Gfx *gdl)
             gSPPerspNormalize(gdl++, matrix_4x4_calc_depth_scale(0.0f, 300.0f));   /* as the guns are */
             set = TRUE;
         }
-        rd.envcolour.word = tint;
-        if (by >= 0)
-        {
-            /* the one the hand is on, lit up */
-            u32 r = (tint >> 24) & 0xff, g = (tint >> 16) & 0xff, b = (tint >> 8) & 0xff;
-
-            r = r * 3 / 2 + 24; g = g * 3 / 2 + 20; b = b * 3 / 2 + 8;
-            rd.envcolour.word = (r > 255 ? 255u : r) << 24 | (g > 255 ? 255u : g) << 16
-                              | (b > 255 ? 255u : b) << 8 | (tint & 0xff);
-        }
+        rd.envcolour.word = tint;   /* as the room lights the hands; no highlight (user: too much) */
         gevrBodySlotRoot(slot, item, &root);
         if (gevrBodyItemPosed(item))
         {
@@ -984,10 +981,10 @@ static void gevrBodyLabel(s32 ctrl, char *out, s32 size)
 }
 
 /*
- * bondview2.c maybe_mp_interface, after the sight: by a hand in a slot, what a
- * grip takes there (the shoulders are behind the head: theirs sits in front of
- * the chest), and a ring on a front slot's centre. Gun fit's Slots mode, or the
- * tune file's markers, ring every slot.
+ * bondview2.c maybe_mp_interface, after the sight: by a hand that has stayed
+ * a moment in a slot, what a grip takes there (the shoulders are behind the
+ * head: theirs sits in front of the chest). Gun fit's Slots mode, or the tune
+ * file's markers, ring every slot; play draws no rings.
  */
 Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
 {
@@ -1029,9 +1026,9 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
         char text[48];
         s32 i;
 
-        if (h->slot < 0 || h->pick == -1)
+        if (h->slot < 0 || h->pick == -1 || h->ms < 150.0f)
         {
-            continue;
+            continue;   /* a hand passing through shows nothing */
         }
         tint = gevrBodyCategoryTint(gevrBodySlotCategory(h->slot));
         if (back)
@@ -1050,13 +1047,6 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
             for (i = 0; i < 3; i++)
             {
                 p[i] = h->at[i] + 9.0f * s_bodyFrame.up[i];
-            }
-            gevrBodyToView(s_bodyCentre[h->slot], D_800364CC, v);
-            if (v[2] < 0.0f)
-            {
-                gDPNoOpTag(gdl++, 0x565F0003);   /* on the body */
-                gdl = gevrBodyRing(gdl, v, 4.0f, tint | 0xC0);
-                gDPNoOpTag(gdl++, 0x565F0000);
             }
         }
         gevrBodyToView(p, D_800364CC, v);
