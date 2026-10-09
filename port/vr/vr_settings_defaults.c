@@ -73,6 +73,15 @@ int VrGestureHolster  = 1;   /* grip at the hip holsters the gun, again draws it
 int VrGestureGripUse  = 1;   /* grip with the hand at a door or switch uses it (vr450, #90) */
 int VrGesturePickup   = 0;   /* Grip to hand: grip at a gun on the floor puts it in that hand (vr451); off by default (user) */
 int VrGestureMineGrab = 1;   /* grip at your own stuck mine takes it back (vr450.2) */
+/* Body slots (port/include/gevr_bodyslot.h, src/game/gevr_bodyslots.c): the
+ * wheel's categories on the body, pistols at the hips, long guns over the
+ * shoulders, thrown on the chest, gadgets at the belt; off by default. */
+int VrBodySlots    = 0;
+int VrBodySlotShow = 1;      /* draw what the hips, chest and belt hold */
+int VrBodySlotSize = 1;      /* zone size: 0 small, 1 normal, 2 large */
+/* each slot's centre, cm below the eye, out to its side and ahead in the
+ * torso's frame (Gun fit's Slots mode); 0 0 0 = the default for your height */
+float VrBodySlotFit[GEVR_BODY_SLOTS][3];
 /* PD VR's per-weapon recoil table instead of the one generic kick. */
 int VrPerWeaponRecoil = 0;
 /* Game rules GEVR PC changed; off keeps the original game's rule. */
@@ -193,7 +202,7 @@ float VrScopeFit[2][4][4] = {
     { { 0 }, { 0 }, { -2.86f, 4.01f, 2.76f, 0.59f }, { 0 } },
 };
 float VrArmElbowTuck  = 0.0f;  /* 0..1, how tightly the elbow is pinned to the body */
-float VrArmBodyFollow = 0.0f;  /* how fast the smoothed torso yaw chases the head */
+float VrArmBodyFollow = 0.02f; /* how fast the smoothed torso yaw chases the head (PD VR's VrBodyYaw; body slots) */
 int   VrFistClench    = 0;     /* close the off hand while the left grip is squeezed */
 /*
  * Muzzle / barrel tip trim in cm, set with Gun fit's barrel tip mode (X):

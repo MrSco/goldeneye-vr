@@ -12,6 +12,7 @@
 #include <macro.h>
 #ifdef GEVR
 #include "system.h"
+#include "libultra/audio/cseqp.h"
 #endif
 
 /**
@@ -28,6 +29,41 @@
 #define FADE_FRAMERATE 50.0f
 #else
 #define FADE_FRAMERATE 60.0f
+#endif
+
+#ifdef GEVR
+/*
+ * The stop is an event on the sequence player's own queue. A full queue
+ * drops it, so the player stays AL_PLAYING; a dropped follow-up leaves it
+ * AL_STOPPING. Waiting without a bound spun until the watchdog aborted the
+ * match (report c3ad6b13, the Caverns intro, musicTrack2Play from
+ * set_missionstate). After two seconds, recover through the audio engine:
+ * free its voices and cancel old events before reusing the sequence data.
+ */
+static void gevrWaitSeqStopped(ALCSPlayer *seqp)
+{
+    s32 spins = 0;
+
+    while (alCSPGetState(seqp) != AL_STOPPED)
+    {
+        if (alCSPGetState(seqp) == AL_PLAYING)
+        {
+            alCSPStop(seqp);
+        }
+        gevrAudioFrame();
+        if (alCSPGetState(seqp) == AL_STOPPED)
+        {
+            return;
+        }
+        if (++spins >= 120)
+        {
+            sysLogPrintf(LOG_ERROR, "music: sequence player stayed in state %d; forcing stop", alCSPGetState(seqp));
+            gevrCSPForceStop(seqp);
+            break;
+        }
+        sysSleep(166667); /* one NTSC retrace, in 100 ns units */
+    }
+}
 #endif
 
 /**
@@ -901,14 +937,12 @@ void musicTrack1Play(s32 track)
 
     g_musicXTrack1CurrentTrackNum = track;
 
-    while (alCSPGetState(g_musicXTrack1SeqPlayer)) {
 #ifdef GEVR
-        /* No audio thread: service the queued stop before reusing sequence data. */
-        extern void gevrAudioFrame(void);
-        gevrAudioFrame();
-        sysSleep(166667); /* one NTSC retrace, in 100 ns units */
-#endif
+    gevrWaitSeqStopped(g_musicXTrack1SeqPlayer);
+#else
+    while (alCSPGetState(g_musicXTrack1SeqPlayer)) {
     }
+#endif
 
     romAddress = g_musicDataTable->seqArray[g_musicXTrack1CurrentTrackNum].address;
 
@@ -1102,14 +1136,12 @@ void musicTrack2Play(s32 track)
 
     g_musicXTrack2CurrentTrackNum = track;
 
-    while (alCSPGetState(g_musicXTrack2SeqPlayer)) {
 #ifdef GEVR
-        /* No audio thread: service the queued stop before reusing sequence data. */
-        extern void gevrAudioFrame(void);
-        gevrAudioFrame();
-        sysSleep(166667); /* one NTSC retrace, in 100 ns units */
-#endif
+    gevrWaitSeqStopped(g_musicXTrack2SeqPlayer);
+#else
+    while (alCSPGetState(g_musicXTrack2SeqPlayer)) {
     }
+#endif
 
     romAddress = g_musicDataTable->seqArray[g_musicXTrack2CurrentTrackNum].address;
 
@@ -1303,14 +1335,12 @@ void musicTrack3Play(s32 track)
 
     g_musicXTrack3CurrentTrackNum = track;
 
-    while (alCSPGetState(g_musicXTrack3SeqPlayer)) {
 #ifdef GEVR
-        /* No audio thread: service the queued stop before reusing sequence data. */
-        extern void gevrAudioFrame(void);
-        gevrAudioFrame();
-        sysSleep(166667); /* one NTSC retrace, in 100 ns units */
-#endif
+    gevrWaitSeqStopped(g_musicXTrack3SeqPlayer);
+#else
+    while (alCSPGetState(g_musicXTrack3SeqPlayer)) {
     }
+#endif
 
     romAddress = g_musicDataTable->seqArray[g_musicXTrack3CurrentTrackNum].address;
 

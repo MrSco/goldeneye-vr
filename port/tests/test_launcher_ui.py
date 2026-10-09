@@ -13,7 +13,14 @@ fixture=(root/'port/tests/launcher_ui_native.cpp').read_text(encoding='utf-8')
 generated=Path(tempfile.gettempdir())/'gevr-launcher-ui-test.cpp'
 controls=launcher[opening:end].replace('ImGui::EndTable();',
     'watchControlsRect=ImRect(ImGui::GetItemRectMin(),ImGui::GetItemRectMax());ImGui::EndTable();')
-generated.write_text(fixture.replace('/* INSERT_CONTROLS */','void gevrTestControls() '+controls),encoding='utf-8')
+# the Gestures page's own branch, to check it fits the panel without scrolling
+gstart=launcher.index('} else if (gesturesPage) {')+len('} else if (gesturesPage) ')
+gend=gstart+1;depth=1
+while depth:
+    depth+=(launcher[gend]=='{')-(launcher[gend]=='}');gend+=1
+gestures='void gevrTestGestures() '+launcher[gstart:gend]
+generated.write_text(fixture.replace('/* INSERT_CONTROLS */','void gevrTestControls() '+controls)
+                     .replace('/* INSERT_GESTURES */',gestures),encoding='utf-8')
 args=[shutil.which("g++") or "g++","-std=c++17","-O2","-Iport/vr","-Iport/include",str(generated)]
 args += ["port/vr/imgui/"+s for s in ("imgui.cpp","imgui_draw.cpp","imgui_tables.cpp","imgui_widgets.cpp")]
 args += ["-o",str(out)]

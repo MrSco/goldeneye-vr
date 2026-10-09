@@ -39,10 +39,10 @@
 > file on your headset. Please don't ask for ROMs, and don't share them in Issues.
 
 > [!NOTE]
-> **v0.4.14** teaches bots to open doors, lets online players push apart instead of
-> pinning each other, and adds a **Hit immunity** rule so fast guns land their hits.
-> For multiplayer, everyone needs v0.4.14: older versions can't join its games. See
-> [the v0.4.14 notes](docs/releases/v0.4.14.md).
+> **v0.4.15** adds **Body slots** (weapons holstered on your body, with a wheel
+> when you look at a slot), a GoldenEye X hand reload that keeps your magazines,
+> and two-handed grips with a gun in either hand. It plays online with v0.4.14;
+> v0.4.13 and older can't join. See [the v0.4.15 notes](docs/releases/v0.4.15.md).
 
 ## ✨ What you get
 

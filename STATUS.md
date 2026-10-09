@@ -3,12 +3,17 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-08, v0.4.14 released (versionCode 69,
-protocol 20; v0.4.13 and older can't join). Building does not publish a
-GitHub release. No game data is shipped.
+**Updated / current build:** 2026-10-09, v0.4.15 released (versionCode 70,
+protocol 20, unchanged from v0.4.14; v0.4.13 and older can't join). Building
+does not publish a GitHub release. No game data is shipped.
 
 ## Recent releases
 
+**v0.4.15:** body slots with looked-at slot wheels (#157), GE-X hand reload
+keeps magazines, guides and off-hand reloads (#157, #160), two-handed grips
+with a gun in either hand (#160), bots around Library glass (#158), co-op
+briefing and Caverns music hangs (#156); combined in #159. Notes:
+[v0.4.15](docs/releases/v0.4.15.md).
 **v0.4.14:** bots handle doors, soft player collision, the hit immunity rule
 (Short default), object escape, HUD through hits (#153). Notes:
 [v0.4.14](docs/releases/v0.4.14.md).

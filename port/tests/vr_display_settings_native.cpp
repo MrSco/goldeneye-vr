@@ -111,8 +111,10 @@ int main(int argc, char **argv) {
         VrMuzzleTrim[1][8][2] = 4.25f;
         VrGexWeaponFits[6][3][2] = 47.25f;
         VrGexWeaponFits[12][6][0] = -3.25f;
+        VrBodySlotFit[GEVR_BS_BELT][1] = 6.5f;
         newFamilyFits(-5,false);
         gevrGunFitSaved(false);
+        VrBodySlotFit[GEVR_BS_BELT][1] = 99;   /* B puts the body slots' fits back too */
         newFamilyFits(99,false);
         VrGexPp7MagOff[0] = 99;
         VrGexKf7MagOff[0] = 99;
@@ -129,6 +131,7 @@ int main(int argc, char **argv) {
         assert(VrGexPp7MagOff[0] == 1.25f && VrGexKf7MagOff[0] == -0.5f && VrGexHeldMag[1] == 2.25f);
         assert(VrGexPp7SupportRot[2] == 90);
         assert(VrGexKf7WellOff[0] == -0.75f && VrGexPp7WellOff[1] == -2.25f);
+        assert(VrBodySlotFit[GEVR_BS_BELT][1] == 6.5f);
         vrSettingsSave();
         return 0;
     }
@@ -164,6 +167,36 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && std::strcmp(argv[1], "fun_read") == 0) {
         assert(VrMpFunFlags == std::atoi(argv[2]));
+        return 0;
+    }
+    /* Body slots: the toggles, the zone size, each slot's fit and the torso's follow rate. */
+    if (argc > 1 && std::strcmp(argv[1], "slots_default") == 0) {
+        assert(VrBodySlots == 0 && VrBodySlotShow == 1 && VrBodySlotSize == 1);
+        for (int s = 0; s < GEVR_BODY_SLOTS; s++)
+            assert(VrBodySlotFit[s][0] == 0 && VrBodySlotFit[s][1] == 0 && VrBodySlotFit[s][2] == 0);
+        assert(VrArmBodyFollow == 0.02f);   // a saved 0 (every file before body slots) is the default
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "slots_write") == 0) {
+        VrBodySlots = 1;
+        VrBodySlotShow = 0;
+        VrBodySlotSize = 2;
+        for (int s = 0; s < GEVR_BODY_SLOTS; s++)
+            for (int i = 0; i < 3; i++) VrBodySlotFit[s][i] = s * 10 + i + 0.25f - (i == 2 ? 20 : 0);
+        VrArmBodyFollow = 0.05f;
+        vrSettingsSave();
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "slots_read") == 0) {
+        assert(VrBodySlots == 1 && VrBodySlotShow == 0 && VrBodySlotSize == 2);
+        for (int s = 0; s < GEVR_BODY_SLOTS; s++)
+            for (int i = 0; i < 3; i++) assert(VrBodySlotFit[s][i] == s * 10 + i + 0.25f - (i == 2 ? 20 : 0));
+        assert(VrArmBodyFollow == 0.05f);
+        return 0;
+    }
+    if (argc > 1 && std::strcmp(argv[1], "slots_invalid") == 0) {
+        assert(VrBodySlotSize == std::atoi(argv[2]));
+        assert(VrBodySlotFit[GEVR_BS_CHEST][0] == 0);   // a malformed fit leaves the default
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "watch_write") == 0) {

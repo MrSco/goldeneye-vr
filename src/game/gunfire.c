@@ -4,6 +4,7 @@
 #include "gevr_scope.h"   /* the per-hand VR scope (issue #40) */
 #include "gevr_model.h"
 #include "gevr_gexweapon.h"
+#include "gevr_hand_reload.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -376,6 +377,42 @@ s32 gevrDualWielding(void)
     return g_CurrentPlayer != NULL
         && getCurrentPlayerWeaponId(GUNLEFT) != ITEM_UNARMED;
 }
+extern s32 gevrStereoTwoHandItem(s32 item);
+extern s32 gevrStereoTwoHandGrip(void);
+extern s32 gevrStereoTwoHandGun(void);
+extern s32 gevrStereoTwoHandSupportCtrl(void);
+
+/* Unarmed remains a bare support hand while the off hand holds a gun, even
+ * when the inventory contains a sniper. With the off hand empty, keep the
+ * original sniper-club substitution. Include queued weapon changes. */
+static s32 gevrUnarmedModelItem(void)
+{
+    struct hand *left = &g_CurrentPlayer->hands[GUNLEFT];
+    s32 item = left->weapon_animation_trigger ? left->weapon_next_weapon : left->weaponnum;
+    if (g_gevrStereo && (gevrStereoTwoHandItem(left->weaponnum) || gevrStereoTwoHandItem(item))) return ITEM_FIST;
+    return bondinvItemAvailable(ITEM_SNIPERRIFLE) ? ITEM_SNIPERRIFLE : ITEM_FIST;
+}
+
+static void gevrUnarmedModelUpdate(void)
+{
+    if (!g_gevrStereo) return;
+    s32 item = gevrUnarmedModelItem();
+    if (item == g_CurrentPlayer->cur_item_weapon_getname) return;
+    g_CurrentPlayer->cur_item_weapon_getname = item;
+    /* The item slot is still FIST; changing only the name would leave its
+     * previously loaded club model in the hand. Queue the replacement too. */
+    for (s32 hand = 0; hand < 2; hand++)
+    {
+        if (g_CurrentPlayer->hand_item[hand] == ITEM_FIST
+            && !g_CurrentPlayer->lock_hand_model[hand]
+            && g_CurrentPlayer->field_2A44[hand] < 0)
+        {
+            g_CurrentPlayer->field_2A44[hand] = ITEM_FIST;
+            g_CurrentPlayer->hand_invisible[hand] = -3;
+        }
+    }
+}
+
 static s32 s_gevrHiddenShown[2];
 s32 gevrHandGadgetShown(s32 hand) { return s_gevrHiddenShown[hand]; }
 /* the stereo gun matrix's row length (the viewmodel scale), 1 when flat:
@@ -2366,11 +2403,14 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     Model *mdl = &s_gevrFistModel;
     ModelFileHeader *hdr = &s_gevrFistHeader;
     u32 *rw = s_gevrFistRw;
-    s32 held;
-    extern s32 gevrStereoTwoHandGrip(void);
+    s32 held = gevrStereoTwoHandGrip();
+    s32 gun = held ? gevrStereoTwoHandGun() : GUNRIGHT;
+    s32 support = held ? 1 - gun : GUNLEFT;
+    s32 item = get_item_in_hand_or_watch_menu(support);
+    s32 mirror = (support == GUNLEFT) != gevrStereoMirrored();
 
     if (!g_gevrStereo
-        || get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
+        || (item != ITEM_UNARMED && item != ITEM_FIST)
         || g_CurrentPlayer->watch_animation_state != 0
         || g_CurrentPlayer->bonddead)
     {
@@ -2388,15 +2428,14 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
      */
     {
         extern s32 gevrGexMagState(s32 hand, f32 off[3]);
-        const s32 mag = gevrGexMagState(GUNRIGHT, NULL);
+        const s32 mag = gun == GUNRIGHT ? gevrGexMagState(GUNRIGHT, NULL) : 0;
 
         if (mag == 1 || mag == 2)   /* GEVR_GEXMAG_GRIPPED, _INHAND */
         {
             return gdl;   /* GoldenEye X's left hand has the magazine (gun.c) */
         }
     }
-    held = gevrStereoTwoHandGrip();
-    if (!gevrStereoGunMatrix(held ? GUNRIGHT : GUNLEFT, &armmtx))
+    if (!gevrStereoGunMatrix(held ? gun : support, &armmtx))
     {
         return gdl;
     }
@@ -2411,8 +2450,8 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
         return gdl;
     }
 
-    /* a left hand: mirrored in the model's own frame, then the viewmodel scale */
-    matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
+    /* Mirror only a logical left support hand, then apply the viewmodel scale. */
+    if (support == GUNLEFT) matrix_column_1_scalar_multiply(-1.0f, armmtx.m[0]);
     matrix_scalar_multiply(IDO_POINT_ONE, armmtx.m[0]);
     if (held)
     {
@@ -2430,7 +2469,7 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
 
     modelInit(mdl, hdr, (s32 *) rw);
     sub_GAME_7F05E978(mdl, 1);
-    sub_GAME_7F05EA94(mdl, g_CurrentPlayer->hands[GUNRIGHT].field_87E);
+    sub_GAME_7F05EA94(mdl, g_CurrentPlayer->hands[gun].field_87E);
     if (hdr->numSwitches >= 0x1E)
     {
         bondviewSelectCuff(mdl, hdr, 0x1D);
@@ -2457,9 +2496,8 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
      * mirror inverts every winding, so their culling would keep only the
      * inside faces (a hollow, inside-out arm). fast3d swaps front and back
      * between these tags (VR_CULL_MIRROR_BEGIN/END, port/vr/vr_openxr.h). */
-    /* (left-handed mode: the gun matrix is already mirrored, so this second
-     * mirror gives a plain right fist on the right controller - no swap) */
-    if (!gevrStereoMirrored())
+    /* Handedness swaps physical controllers; culling follows the final hand mirror. */
+    if (mirror)
     {
         gDPNoOpTag(renderdata.gdl++, 0x56580000);
     }
@@ -2468,7 +2506,7 @@ static Gfx *gevrRenderLeftArm(Gfx *gdl, ModelRenderData *templ)
     subdraw(&renderdata, mdl);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
-    if (!gevrStereoMirrored())
+    if (mirror)
     {
         gDPNoOpTag(gdl++, 0x56580001);
     }
@@ -2783,10 +2821,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
      */
     {
         extern s32 gevrStereoTwoHandGrip(void);
-        extern s32 gevrGexLeftHandShown(void);   /* gun.c: GoldenEye X's own left hand holds it */
+        extern s32 gevrGexSupportHandShown(s32 hand);   /* gun.c: the gun rig draws its support hand */
 
-        if (gevrStereoTwoHandGrip() && !gevrGexLeftHandShown())
+        if (gevrStereoTwoHandGrip() && !gevrGexSupportHandShown(gevrStereoTwoHandGun()))
         {
+            gdl = gevrHandTag(gdl, 1 - gevrStereoTwoHandGun());
             gdl = gevrRenderLeftArm(gdl, &renderdata);
         }
     }
@@ -2807,6 +2846,10 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
             continue;
         }
 #ifdef GEVR
+        /* The support hand was drawn attached to the gun before this pass. */
+        extern s32 gevrGexMagazineHandShown(s32 hand);
+        if (gevrGexMagazineHandShown(handnum)
+            || (gevrStereoTwoHandGrip() && handnum == 1 - gevrStereoTwoHandGun())) continue;
         /* stereo: the watch arm is drawn on the left controller instead
          * (gevrRenderLeftWatchArm), not as a weapon in the left hand */
         if (g_gevrStereo && item == ITEM_SUIT_LF_HAND)
@@ -3002,6 +3045,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                 extern Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand);
 
                 renderdata.gdl = gevrGexDrawPayload(renderdata.gdl, &renderdata, handnum);
+                extern Gfx *gevrGexDrawReloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand);
+                renderdata.gdl = gevrGexDrawReloadGuide(renderdata.gdl, &renderdata, handnum);
             }
         }
 #endif
@@ -5148,6 +5193,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
         if (handptr->field_890 >= sp188)
         {
+#ifdef GEVR
+            extern s32 gevrReloadStow(s32 hand, s32 item);
+            if (!gevrReloadStow(hand, var_s1))
+#endif
             g_CurrentPlayer->ammoheldarr[get_ammo_type_for_weapon(var_s1)] += handptr->weapon_ammo_in_magazine;
             handptr->weapon_ammo_in_magazine = 0;
 
@@ -5160,6 +5209,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
             handptr->weapon_action_state = GUN_ANIM_STATE_SWITCH_SWAP;
 
+#ifdef GEVR
+            if (g_gevrStereo) gevrUnarmedModelUpdate();
+            else g_CurrentPlayer->cur_item_weapon_getname = gevrUnarmedModelItem();
+#else
             if (bondinvItemAvailable(ITEM_SNIPERRIFLE) != 0)
             {
                 g_CurrentPlayer->cur_item_weapon_getname = ITEM_SNIPERRIFLE;
@@ -5168,6 +5221,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 g_CurrentPlayer->cur_item_weapon_getname = ITEM_FIST;
             }
+#endif
         }
         else
         {
@@ -5256,6 +5310,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 sub_GAME_7F09B398(hand);
             }
 
+#ifdef GEVR
+            extern s32 gevrReloadDraw(s32 hand);
+            if (!gevrReloadDraw(hand))
+#endif
             sub_GAME_7F0649D8(hand);
 
             g_CurrentPlayer->trigger_released = 0;
@@ -5584,6 +5642,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 sub_GAME_7F09B398(hand);
             }
+#ifdef GEVR
+            /* Closing the watch must not top up a hand-reloaded gun. */
+            if (!gevrManualReloadOn(hand))
+#endif
             sub_GAME_7F0649D8(hand);
             g_CurrentPlayer->trigger_released = 0;
         }
@@ -6456,7 +6518,11 @@ void gunTickGameplay(s32 triggerOn)
     {
         extern s32 gevrStereoTwoHandUpdate(void);
 
-        gevrStereoTwoHandUpdate();
+        gevrUnarmedModelUpdate();
+        if (gevrStereoTwoHandUpdate())
+        {
+            trigger_state.triggerOn[1 - gevrStereoTwoHandGun()] = 0;
+        }
     }
     /* Motion throwing for throwables (grenades, knives, mines) */
     {
@@ -7780,6 +7846,10 @@ s32 check_cur_player_ammo_amount_in_inventory(AMMOTYPE ammotype) {
 s32 currentPlayerGetAmmoCount(AMMOTYPE ammotype) {
 
     s32 total_ammo = check_cur_player_ammo_amount_in_inventory(ammotype);
+#ifdef GEVR
+    extern s32 gevrReloadReservedRounds(s32 ammoType);
+    total_ammo += gevrReloadReservedRounds(ammotype);
+#endif
 
     if (get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNRIGHT)) == ammotype) {
         total_ammo += get_ammo_in_hands_magazine(GUNRIGHT);
@@ -8312,7 +8382,7 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
     f32 k;
     s32 i;
 
-    if (!gevrStereoAimCached(hand, &p))
+    if ((gevrStereoTwoHandGrip() && hand != gevrStereoTwoHandGun()) || !gevrStereoAimCached(hand, &p))
     {
         return gdl;
     }
@@ -8396,10 +8466,13 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
  * the eye, as the 3D sight does; up close a font pixel is 0.7 cm of world, and
  * far off never under ~0.07 degrees, so a name stays readable across a map.
  */
-/* one name, its panel's foot at the world point at */
-static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking)
+/*
+ * A name on its panel, facing the eye, the panel's foot at the view-space
+ * point v; k view units a font pixel; the panel's colour (RGBA). The name
+ * tags below, and the body slots' labels (gevr_bodyslots.c).
+ */
+static Gfx *gevrDrawViewTagMode(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 speaking, u32 panel, s32 overlay)
 {
-    extern f32 D_800364CC;
     struct fontchar *chars = ptrFontZurichBoldChars;
     struct font *font = ptrFontZurichBold;
 
@@ -8408,13 +8481,11 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
         s32 gx[20];
         s32 n = 0, x = 0, top = 0x7fff, bottom = 0, prev = 'H', g;
         const char *c;
-        coord3d v;
         Mtxf mf;
         Mtx *mv;
         Vtx *vtx;
-        f32 dist, k;
 
-        if (chars == NULL || font == NULL || D_800364CC <= 1e-6f)
+        if (chars == NULL || font == NULL)
         {
             return gdl;
         }
@@ -8453,30 +8524,13 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
                 glyph[n]=ch; gx[n++]=icon_x; icon_x+=ch->width+1;
             }
         }
-        v = at;
-        mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &v);
-        v.x *= D_800364CC;   /* view space is world * D_800364CC (bondviewUpdateCameraMatrices) */
-        v.y *= D_800364CC;
-        v.z *= D_800364CC;
-        if (v.z > -1.0f)
-        {
-            return gdl;   /* behind the eye */
-        }
-        dist = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z) / D_800364CC;
-        k = dist * 0.0012f;
-        if (k < 0.7f)
-        {
-            k = 0.7f;
-        }
-        k *= D_800364CC;
-
         matrix_4x4_set_identity(&mf);
         mf.m[0][0] = k;
         mf.m[1][1] = k;
         mf.m[2][2] = k;
-        mf.m[3][0] = v.x;
-        mf.m[3][1] = v.y;
-        mf.m[3][2] = v.z;
+        mf.m[3][0] = at[0];
+        mf.m[3][1] = at[1];
+        mf.m[3][2] = at[2];
         mv = dynAllocateMatrix();
         guMtxF2L(mf.m, mv);
 
@@ -8522,9 +8576,11 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
         gSPMatrix(gdl++, osVirtualToPhysical(mv), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_MODELVIEW);
         gDPPipeSync(gdl++);
         gSPClearGeometryMode(gdl++, G_LIGHTING | G_FOG | G_CULL_BOTH | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR);
-        gSPSetGeometryMode(gdl++, G_ZBUFFER | G_SHADE | G_SHADING_SMOOTH);
+        if (overlay) gSPClearGeometryMode(gdl++, G_ZBUFFER);
+        gSPSetGeometryMode(gdl++, (overlay ? 0 : G_ZBUFFER) | G_SHADE | G_SHADING_SMOOTH);
         gDPSetCycleType(gdl++, G_CYC_1CYCLE);
-        gDPSetRenderMode(gdl++, G_RM_ZB_XLU_SURF, G_RM_ZB_XLU_SURF2);
+        gDPSetRenderMode(gdl++, overlay ? G_RM_XLU_SURF : G_RM_ZB_XLU_SURF,
+                        overlay ? G_RM_XLU_SURF2 : G_RM_ZB_XLU_SURF2);
         gDPSetAlphaCompare(gdl++, G_AC_NONE);
         gDPSetTexturePersp(gdl++, G_TP_PERSP);
         gDPSetTextureLOD(gdl++, G_TL_TILE);
@@ -8534,7 +8590,7 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
 
         /* the panel */
         gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
-        gDPSetPrimColor(gdl++, 0, 0, 0x00, 0x00, 0x00, 0x70);
+        gDPSetPrimColor(gdl++, 0, 0, panel >> 24, (panel >> 16) & 0xff, (panel >> 8) & 0xff, panel & 0xff);
         gSPVertex(gdl++, osVirtualToPhysical(vtx), 4, 0);
         gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
 
@@ -8553,8 +8609,55 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
             gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
         }
         gDPPipeSync(gdl++);
+        if (overlay)
+        {
+            gSPSetGeometryMode(gdl++, G_ZBUFFER);
+            gDPSetRenderMode(gdl++, G_RM_ZB_XLU_SURF, G_RM_ZB_XLU_SURF2);
+        }
     }
     return gdl;
+}
+
+Gfx *gevrDrawViewTag(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 speaking, u32 panel)
+{
+    return gevrDrawViewTagMode(gdl, name, at, k, speaking, panel, FALSE);
+}
+
+Gfx *gevrDrawViewTagOverlay(Gfx *gdl, const char *name, const f32 at[3], f32 k, u32 panel)
+{
+    return gevrDrawViewTagMode(gdl, name, at, k, FALSE, panel, TRUE);
+}
+
+/* one name, its panel's foot at the world point at */
+static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking)
+{
+    extern f32 D_800364CC;
+    coord3d v;
+    f32 dist, k, view[3];
+
+    if (D_800364CC <= 1e-6f)
+    {
+        return gdl;
+    }
+    v = at;
+    mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &v);
+    v.x *= D_800364CC;   /* view space is world * D_800364CC (bondviewUpdateCameraMatrices) */
+    v.y *= D_800364CC;
+    v.z *= D_800364CC;
+    if (v.z > -1.0f)
+    {
+        return gdl;   /* behind the eye */
+    }
+    dist = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z) / D_800364CC;
+    k = dist * 0.0012f;
+    if (k < 0.7f)
+    {
+        k = 0.7f;
+    }
+    view[0] = v.x;
+    view[1] = v.y;
+    view[2] = v.z;
+    return gevrDrawViewTag(gdl, name, view, k * D_800364CC, speaking, 0x00000070);
 }
 
 Gfx *gevrDrawNameTags(Gfx *gdl)
