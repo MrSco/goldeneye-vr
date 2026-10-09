@@ -3,9 +3,17 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-09, v0.4.15 released (versionCode 70,
-protocol 20, unchanged from v0.4.14; v0.4.13 and older can't join). Building
-does not publish a GitHub release. No game data is shipped.
+**Updated / current build:** 2026-10-09, v0.4.16 development (versionCode 71,
+protocol 21: live host movement speed; v0.4.15 and older can't join).
+Latest release: v0.4.15. Building does not publish a GitHub release.
+No game data is shipped.
+
+Movement speed: 50%-200% in 25% steps, 100% default. Separate solo and host
+preferences; launcher Comfort / Host > Match, solo watch VR Settings >
+Comfort, multiplayer pause Rules. Changes apply immediately to solo or
+everyone in the host's session, including bots. Room-scale walking stays
+unchanged. Native movement, settings, multiplayer and pause checks pass;
+headset checks pending. Details: [movement speed](docs/player-movement-speed.md).
 
 ## Recent releases
 

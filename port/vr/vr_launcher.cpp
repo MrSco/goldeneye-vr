@@ -1006,6 +1006,7 @@ static NetMatchConfig gevrLauncherConfig() {
     c.voice_mode = (uint8_t)clampi(VrMpVoiceMode, 2, 0);
     c.fun_flags = (uint8_t)(VrMpFunFlags & NET_FUN_MASK);
     c.gun_size = (uint8_t)clampi(VrMpGunSize, 3, 0);
+    c.movement_speed = (uint8_t)clampi(VrMpMovementSpeed, NET_MOVE_COUNT, NET_MOVE_NORMAL);
     for (int i = 0; i < 4; i++)
         c.custom_set[i] = (uint8_t)(netItemIndexOf(VrMpCustom[i]) >= 0 ? VrMpCustom[i] : netItem(0)->item);
     c.max_players = (uint8_t)(VrMpMaxPlayers >= 2 && VrMpMaxPlayers <= GEVR_MAX_PLAYERS ? VrMpMaxPlayers : 4);
@@ -1074,6 +1075,7 @@ static void gevrHostChoiceChanged() {
     if (accepted->mode == NET_MODE_COOP)
         VrCoopFastReinforcements = (accepted->fun_flags & NET_COOP_FAST_REINFORCEMENTS) != 0;
     VrMpGunSize = accepted->gun_size;
+    VrMpMovementSpeed = accepted->movement_speed;
     if (accepted->mode != NET_MODE_COOP) // co-op's four is not the deathmatch count
         VrMpMaxPlayers = accepted->max_players;
     VrMpBotMode = accepted->bot_mode;
@@ -1226,6 +1228,27 @@ static const char *gevrHitImmunityName(int n) {
     const char *names[] = {"None", "Short", "GoldenEye"};
     return names[n];
 }
+static void gevrMovementSpeedOptions(bool hostPage) {
+    bool online = netIsActive();
+    int mode = online ? netGetMatchConfig()->movement_speed
+                      : hostPage ? VrMpMovementSpeed : VrMovementSpeed;
+    int percent = netMovementSpeedPercent(mode);
+    ImGui::BeginDisabled(online && !netIsHost());
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.62f);
+    if (ImGui::SliderInt("Movement speed", &percent, 50, 200, "%d%%", ImGuiSliderFlags_AlwaysClamp)) {
+        mode = netMovementSpeedMode(percent);
+        if (online) gevrNetConfigSet(CFG_MOVEMENT_SPEED, mode);
+        else {
+            (hostPage ? VrMpMovementSpeed : VrMovementSpeed) = mode;
+            vrSettingsSave();
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::TextWrapped(online || hostPage
+        ? "Host chooses for everyone. Changes apply immediately. Room-scale walking keeps its normal speed."
+        : "Solo stick movement, 100% is normal. Room-scale walking keeps its normal speed.");
+}
+
 static void gevrFunOptions(bool hostPage) {
     int flags = (netIsActive() ? netGetMatchConfig()->fun_flags : VrMpFunFlags) & NET_FUN_MASK;
     int size = netIsActive() ? netGetMatchConfig()->gun_size : VrMpGunSize;
@@ -1728,6 +1751,7 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
                             ImGui::EndDisabled();
                         } else
                         gevrMatchOptions();
+                        gevrMovementSpeedOptions(true);
                         ImGui::BeginDisabled(netIsActive() && !netIsHost());
                         unsigned cap; bool equalized=netGetHostEqualization(&cap)!=0;
                         if (ImGui::Checkbox("Host hit equalization", &equalized)) netSetHostEqualization(equalized,cap);
@@ -3138,6 +3162,8 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
             }
             ImGui::EndDisabled();
+            ImGui::Spacing();
+            gevrMovementSpeedOptions(false);
             ImGui::Spacing();
             ImGui::TextColored(gold, "MOVEMENT COMFORT (stereo)");
             if (ImGui::Checkbox("Darken edges when moving", &vignetteOn)) {
