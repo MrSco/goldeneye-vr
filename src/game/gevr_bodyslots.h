@@ -28,6 +28,17 @@ int gevrBodySlotHoldsGrip(int ctrl);
  * turn don't) */
 int gevrBodySlotButton(int ctrl);
 int gevrBodySlotStick(int ctrl, float x, float y, float dtMs);
+/* Move/turn stick pairs, with Swap sticks applied inside. Capture both until
+ * leaving the slot and centring both sticks. */
+int gevrBodySlotSticks(int swap, float sticks[2][2], float dtMs);
+#define GEVR_BODY_WHEEL_MAX 24
+typedef struct {
+    int ctrl, category, count, index, ready;
+    int items[GEVR_BODY_WHEEL_MAX];
+    char names[GEVR_BODY_WHEEL_MAX][48];
+} GevrBodySlotWheel;
+/* The hovered category and exact grip choices for the shared wheel renderer. */
+int gevrBodySlotWheelInfo(GevrBodySlotWheel *out);
 /* hand reload (bondview2.c gevrHandReloadTick): the belt touch with the slots
  * on, 1 fire, 0 wait, -1 slots off (fire at once); a hand in or just out of a
  * slot makes no chest cross (Busy) and, near one, no blow (Quiet) */

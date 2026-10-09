@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "gevr_bodyslot.h"
+#include "gevr_bodyslots.h"
 typedef int s32;
 typedef float f32;
 #define TRUE 1
@@ -22,6 +23,7 @@ typedef float f32;
 #define GEVR_ACTION_SLOT_HOVER 1004
 #define GEVR_ACTION_SLOT_TAKE 1005
 #define GEVR_ACTION_SLOT_DENY 1006
+#define GEVR_ACTION_SLOT_STEP 1007
 #define BS_SETTLE_SPEED 0.35f
 #define BT_DWELL 0
 #define GEVR_GRIP_PEND_POLLS 30
@@ -30,10 +32,11 @@ struct coord3d { float x, y, z; };
 struct hand { int weapon_ammo_in_magazine, weapon_action_state, item; };
 struct Player { int bonddead, watch_animation_state, mpmenuon; struct hand hands[2]; } player;
 static struct Player *g_CurrentPlayer = &player;
-typedef struct { int slot, pick, gripHeld, quiet; float ms, settledMs; GevrBodyStick stick; } GevrBodyHand;
+typedef struct { int slot, pick, gripHeld, quiet, n, choices[24], steps, throwReady; float ms, settledMs; GevrBodyStick stick; } GevrBodyHand;
 static GevrBodyHand s_bodyHand[2];
 static GevrBodyMru s_bodyMru[GEVR_BODY_SLOTS];
 static int s_bodyLive = 1, VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+static int gevrGunFitActive, s_bodyWheelCtrl=-1, s_bodySticksCaptured;
 int VrMotionThrowing = 1, g_gevrStereo = 1;
 static int g_PlayerIsInTank, s_gevrGripGesture[2], s_gevrGripPendAge[2];
 static float s_bodyTune[] = {350};
@@ -64,9 +67,8 @@ static void gevrBodyBuzz(int ctrl, int event) { (void)ctrl; (void)event; }
 static void gunRequestHandWeaponChange(int hand, int pick, int dir) { (void)hand; (void)dir; changes++; lastChoice = pick; }
 static int gevrBodyItemKept(int item) { (void)item; return 0; }
 static int gevrBodySlotForItem(int item, int hand) { (void)item; (void)hand; return 0; }
-static void gevrBodyStep(int ctrl, int step, const char *how) { (void)ctrl; (void)step; (void)how; steps++; }
 static int gevrHandReloadActive(void) { return 0; }
-static int gevrBodySlotsOn(void) { return s_bodyLive; }
+int gevrBodySlotsOn(void) { return s_bodyLive; }
 static void gevrGestureTuneRead(void) {}
 void gevrBodySlotsTick(void) {} /* Test positions and settled times are supplied explicitly. */
 float get_analog_value(int ctrl, const char *name) { (void)name; return squeeze[ctrl]; }
@@ -82,6 +84,12 @@ static int stereoplay = 1, fitting, grips[2], gripWas[2], gripTaken[2], VrSwapJo
 typedef struct { float x, y; } XrVector2f;
 static XrVector2f left, right;
 static float dt = 16;
+#define L_CBUTTONS 1
+#define R_CBUTTONS 2
+#define U_CBUTTONS 4
+#define D_CBUTTONS 8
+static struct TestPad { int button; } pad;
+static struct TestPad *npad = &pad;
 /* PRODUCTION */
 static void frame(int ctrl, float value) {
     squeeze[ctrl] = value;
@@ -96,6 +104,9 @@ static void reset(int item) {
     memset(s_gevrThrowWindup, 0, sizeof(s_gevrThrowWindup)); memset(s_gevrGripArmed, 0, sizeof(s_gevrGripArmed));
     memset(s_gevrThrowSpent, 0, sizeof(s_gevrThrowSpent));
     s_bodyHand[0].slot = s_bodyHand[1].slot = -1;
+    s_bodyWheelCtrl=-1; s_bodySticksCaptured=gevrGunFitActive=0;
+    for(int c=0;c<2;c++) { s_bodyHand[c].n=3; s_bodyHand[c].pick=7;
+        for(int i=0;i<3;i++) s_bodyHand[c].choices[i]=7+i; }
     changes = throws = pressDecisions = 0;
     VrMotionThrowing = s_bodyLive = 1;
     for (int hand = 0; hand < 2; hand++) { player.hands[hand].item = item; player.hands[hand].weapon_ammo_in_magazine = 5; }
@@ -138,18 +149,35 @@ int main(void) {
         s_bodyHand[ctrl].slot = GEVR_BS_BACK_GUN; s_bodyHand[ctrl].pick = 9;
         frame(ctrl, 0.9f); gevrGripGestureTick(); assert(changes == 1);
     }
-    /* The actual poll clears both axes of the correct logical stick. */
+    /* The actual poll captures all four axes, even before a sideways scroll. */
     for (VrSwapJoysticks = 0; VrSwapJoysticks < 2; VrSwapJoysticks++) {
         for (int ctrl = 0; ctrl < 2; ctrl++) {
             reset(7); steps = 0; s_bodyHand[ctrl].slot = GEVR_BS_HIP_GUN;
             left = right = (XrVector2f){0, 0}; sticks();
             XrVector2f *own = ((ctrl == 0) == (VrSwapJoysticks == 0)) ? &left : &right;
             XrVector2f *other = own == &left ? &right : &left;
+            *own = (XrVector2f){0,0.9f}; *other = (XrVector2f){0.6f,0}; pad.button=15; sticks();
+            assert(own->y==0 && other->x==0 && pad.button==0 && s_bodyHand[ctrl].steps==0);
             *own = (XrVector2f){0.8f, 0.6f}; *other = (XrVector2f){0.1f, 0.9f}; sticks();
-            assert(steps == 1 && own->x == 0 && own->y == 0 && other->y == 0.9f);
+            assert(s_bodyHand[ctrl].steps==1 && s_bodyHand[ctrl].pick==8 && own->x==0 && own->y==0 && other->y==0);
             s_bodyHand[ctrl].slot = -1; *own = (XrVector2f){0, 0.8f}; sticks(); assert(own->y == 0);
+            *own=(XrVector2f){0,0}; *other=(XrVector2f){0,0.9f}; sticks(); assert(other->y==0);
+            *own=(XrVector2f){0,0}; *other=(XrVector2f){0.2f,0}; sticks(); assert(other->x==0);
             *own = (XrVector2f){0, 0}; sticks();
             *own = (XrVector2f){0, 0.8f}; sticks(); assert(own->y == 0.8f);
+            GevrBodySlotWheel info;
+            s_bodyHand[ctrl].slot=GEVR_BS_BELT; s_bodyHand[ctrl].ms=149;
+            assert(!gevrBodySlotWheelInfo(&info));
+            s_bodyHand[ctrl].ms=150; assert(gevrBodySlotWheelInfo(&info));
+            assert(info.ctrl==ctrl && info.category==GEVR_BODY_CAT_GADGETS && info.count==3 && info.index==1 && info.items[1]==8);
+            gevrBodySlotButton(ctrl); assert(s_bodyHand[ctrl].pick==9);
+            assert(gevrBodySlotWheelInfo(&info) && info.index==2 && info.items[2]==9);
+            online=1; currentSlot=1; localSlot=0; assert(!gevrBodySlotWheelInfo(&info)); online=currentSlot=0;
+            gevrGunFitActive=1; assert(!gevrBodySlotWheelInfo(&info)); gevrGunFitActive=0;
+            s_bodyHand[ctrl].slot=-1; assert(!gevrBodySlotWheelInfo(&info));
+            /* A disabled slot system leaves ordinary movement available. */
+            s_bodyLive=0; left=(XrVector2f){0.7f,0.7f}; right=(XrVector2f){0.8f,0}; sticks();
+            assert(left.x==0.7f && left.y==0.7f && right.x==0.8f);
         }
     }
     puts("PASS: body-slot grip ownership, throwable-only pause, partial release, diagonal stick capture");

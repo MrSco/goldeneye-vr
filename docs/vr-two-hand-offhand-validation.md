@@ -106,3 +106,22 @@ the shipped model fits instead of zeroing them, compares Klobb/ZMG/DD44 grab
 points to the production gun matrix and exercises pulling plus saved-fit
 round trips in both handedness settings. This regression fails at `be2aaae`
 and passes with the correction; the new Klobb pull still needs a headset test.
+
+## Slot category wheel and stick capture
+
+Slot browsing now captures both sticks from hover, rather than waiting for a
+sideways scroll. It clears movement buttons and turn input, including vertical
+pushes, diagonals and swapped sticks. After leaving the slot both sticks must
+return inside the turning dead zone before capture ends. Menus and fitting
+keep their own input paths.
+
+The hovered slot supplies its exact grip choices to the existing weapon-wheel
+renderer: a wedge per choice, category tint, selected highlight, spinning model
+in the middle and the shared VR overlay. It faces the eyes so shoulder slots
+remain visible. Left/right scrolling, A/X, holstering and grip/throw ownership
+keep their existing actions; the wheel shows the throwable pause prompt until
+ready. The original full-category wheel remains available with A/X away from
+slots. Native checks cover all four captured axes, release/centre behavior,
+disabled slots, category snapshots and shared ring/model routing for 1..24
+choices across both hands and frame buffers. Headset readability and preview
+animation still require playtesting.
