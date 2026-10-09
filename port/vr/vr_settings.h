@@ -1,6 +1,7 @@
 
 #define VR_INI_PATH "goldeneye-vr.ini"
 #include "gevr_watch_status.h"
+#include "gevr_bodyslot.h"
 extern int VrManualReloading;
 extern bool VrlaserDotForALL;
 extern bool inputRumbleSupported(int playernum);
@@ -79,6 +80,10 @@ extern float VrUseSnapTurn;
 extern int VrSmoothTurnSpeed;
 // GEVR PC's grip gestures, one toggle each (vr_settings_defaults.c).
 extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab;
+// Body slots (gevr_bodyslot.h): on/off, draw what they hold, zone size 0..2,
+// and each slot's fitted centre (cm below the eye, out, ahead; 0 0 0 default).
+extern int VrBodySlots, VrBodySlotShow, VrBodySlotSize;
+extern float VrBodySlotFit[GEVR_BODY_SLOTS][3];
 extern int VrPerWeaponRecoil;   // PD VR's per-weapon recoil table
 extern int VrMinesStickToGuards; // thrown mines stick to guards (GEVR PC vr450.2)
 extern int VrBodiesStay;        // bodies kept: 0 (original fade), 12, 24 or 48

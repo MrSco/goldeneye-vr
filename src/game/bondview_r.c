@@ -62,6 +62,13 @@ void gevrStageGunsReset(void)
     memset(s_gevrStageGuns, 0, sizeof(s_gevrStageGuns));
     gevrTexpackWarmDl(NULL, NULL);
     gevrHeldGunReset();
+    {
+        extern void gevrBodySlotsReset(void);   /* gevr_bodyslots.c: a new stage's slots start empty */
+
+        gevrBodySlotsReset();
+        extern void gevrReloadInventoryReset(void);
+        gevrReloadInventoryReset();
+    }
 }
 
 /*

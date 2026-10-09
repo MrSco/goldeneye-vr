@@ -49,7 +49,7 @@ extern int VrDetailedGuns;             /* goldeneye-vr.ini DetailedGuns */
 extern s32 g_gevrHandPatchSkip;        /* gevr_handpatch.c: the hands are hidden here */
 extern s32 g_gevrExtraPass;            /* lv.c: an extra view pass (the copies' own views) */
 
-#define HG_FILES      24
+#define HG_FILES      32               /* the stage's guns, and what the body slots show */
 #define HG_BUFSIZE    0x23000          /* the game's per-hand gun buffer (gun.c size_item_buffer) */
 #define HG_MODELSIZE  0xF000           /* and its model region (gun.c D_80032464) */
 #define HG_RW         256              /* rwdata words per instance */
@@ -82,6 +82,10 @@ typedef struct
 
 static HeldGunFile s_files[HG_FILES];
 static HeldGunInst s_inst[MAX_PLAYER_COUNT][2];
+
+/* the body slots' own instances (gevr_bodyslots.c): a hip each, the chest, the belt */
+#define HG_BODY 4
+static HeldGunInst s_bodyinst[HG_BODY];
 
 /*
  * Guards' instances, by chr: the least recently posed is reused, so a pool
@@ -175,6 +179,11 @@ void gevrHeldGunReset(void)
     {
         s_files[i].item = 0;
         s_files[i].ok = FALSE;
+    }
+
+    for (i = 0; i < HG_BODY; i++)
+    {
+        s_bodyinst[i].file = NULL;
     }
 
     for (i = 0; i < MAX_PLAYER_COUNT; i++)
@@ -579,6 +588,56 @@ s32 gevrHeldGunCompute(ChrRecord *chr, PropRecord *weapon, GUNHAND hand, Mtxf *b
     inst->chr = chr;
     inst->pending = TRUE;
     return TRUE;
+}
+
+/*
+ * Body slots (gevr_bodyslots.c): what a hip, the chest or the belt holds,
+ * the item's G model from this cache posed as the watch poses it, at root
+ * (view space, the first-person gun's units), in instance inst. The caller
+ * brackets it with matrix_4x4_7F058C64/C88 as the first-person guns are.
+ */
+Gfx *gevrHeldGunDrawPosed(s32 inst, s32 item, Mtxf *root, ModelRenderData *templ, Gfx *gdl)
+{
+    HeldGunInst *in;
+    HeldGunFile *f;
+    ModelFileHeader *h;
+    ModelRenderData rd;
+    Mtxf *mtx;
+
+    if (inst < 0 || inst >= HG_BODY || (f = gevrHeldGunLoad(item)) == NULL)
+    {
+        return gdl;
+    }
+
+    in = &s_bodyinst[inst];
+    h = &f->header;
+
+    if (in->file != f || in->model.obj != h)
+    {
+        modelInit(&in->model, h, in->rw);
+        gevrHeldGunStaticPose(&in->model, h);
+        in->file = f;
+        in->envmap = item == ITEM_GOLDENGUN || item == ITEM_RUGER || item == ITEM_KNIFE || item == ITEM_THROWKNIFE
+                  || item == ITEM_SILVERWPPK || item == ITEM_GOLDWPPK;
+    }
+
+    mtx = dynAllocate(h->numMatrices * sizeof(Mtxf));
+    gevrHeldGunMatrices(h, root, mtx);
+    in->model.render_pos = (RenderPosView *)mtx;
+    modelUpdateNodeRelations(&in->model);
+
+    rd = *templ;
+    rd.gdl = gdl;
+
+    if (in->envmap)
+    {
+        gSPSetLights1(rd.gdl++, g_WeaponEnvmapLight);
+        gSPLookAt(rd.gdl++, sub_GAME_7F078474());
+    }
+
+    subdraw(&rd, &in->model);
+    bondviewTransformManyPosToViewMatrix(in->model.render_pos, h->numMatrices);
+    return rd.gdl;
 }
 
 /* gun.c gevrNetSpawnProjectile: the copy fired its rocket */

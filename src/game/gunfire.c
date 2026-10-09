@@ -4,6 +4,7 @@
 #include "gevr_scope.h"   /* the per-hand VR scope (issue #40) */
 #include "gevr_model.h"
 #include "gevr_gexweapon.h"
+#include "gevr_hand_reload.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -3002,6 +3003,8 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                 extern Gfx *gevrGexDrawPayload(Gfx *gdl, ModelRenderData *templ, GUNHAND hand);
 
                 renderdata.gdl = gevrGexDrawPayload(renderdata.gdl, &renderdata, handnum);
+                extern Gfx *gevrGexDrawReloadGuide(Gfx *gdl, ModelRenderData *templ, s32 hand);
+                renderdata.gdl = gevrGexDrawReloadGuide(renderdata.gdl, &renderdata, handnum);
             }
         }
 #endif
@@ -5148,6 +5151,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
         if (handptr->field_890 >= sp188)
         {
+#ifdef GEVR
+            extern s32 gevrReloadStow(s32 hand, s32 item);
+            if (!gevrReloadStow(hand, var_s1))
+#endif
             g_CurrentPlayer->ammoheldarr[get_ammo_type_for_weapon(var_s1)] += handptr->weapon_ammo_in_magazine;
             handptr->weapon_ammo_in_magazine = 0;
 
@@ -5256,6 +5263,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 sub_GAME_7F09B398(hand);
             }
 
+#ifdef GEVR
+            extern s32 gevrReloadDraw(s32 hand);
+            if (!gevrReloadDraw(hand))
+#endif
             sub_GAME_7F0649D8(hand);
 
             g_CurrentPlayer->trigger_released = 0;
@@ -5584,6 +5595,10 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
             {
                 sub_GAME_7F09B398(hand);
             }
+#ifdef GEVR
+            /* Closing the watch must not top up a hand-reloaded gun. */
+            if (!gevrManualReloadOn(hand))
+#endif
             sub_GAME_7F0649D8(hand);
             g_CurrentPlayer->trigger_released = 0;
         }
@@ -7780,6 +7795,10 @@ s32 check_cur_player_ammo_amount_in_inventory(AMMOTYPE ammotype) {
 s32 currentPlayerGetAmmoCount(AMMOTYPE ammotype) {
 
     s32 total_ammo = check_cur_player_ammo_amount_in_inventory(ammotype);
+#ifdef GEVR
+    extern s32 gevrReloadReservedRounds(s32 ammoType);
+    total_ammo += gevrReloadReservedRounds(ammotype);
+#endif
 
     if (get_ammo_type_for_weapon(getCurrentPlayerWeaponId(GUNRIGHT)) == ammotype) {
         total_ammo += get_ammo_in_hands_magazine(GUNRIGHT);
@@ -8396,10 +8415,13 @@ static Gfx *gevrDrawSight3D(Gfx *gdl, s32 hand, s32 scope)
  * the eye, as the 3D sight does; up close a font pixel is 0.7 cm of world, and
  * far off never under ~0.07 degrees, so a name stays readable across a map.
  */
-/* one name, its panel's foot at the world point at */
-static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking)
+/*
+ * A name on its panel, facing the eye, the panel's foot at the view-space
+ * point v; k view units a font pixel; the panel's colour (RGBA). The name
+ * tags below, and the body slots' labels (gevr_bodyslots.c).
+ */
+Gfx *gevrDrawViewTag(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 speaking, u32 panel)
 {
-    extern f32 D_800364CC;
     struct fontchar *chars = ptrFontZurichBoldChars;
     struct font *font = ptrFontZurichBold;
 
@@ -8408,13 +8430,11 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
         s32 gx[20];
         s32 n = 0, x = 0, top = 0x7fff, bottom = 0, prev = 'H', g;
         const char *c;
-        coord3d v;
         Mtxf mf;
         Mtx *mv;
         Vtx *vtx;
-        f32 dist, k;
 
-        if (chars == NULL || font == NULL || D_800364CC <= 1e-6f)
+        if (chars == NULL || font == NULL)
         {
             return gdl;
         }
@@ -8453,30 +8473,13 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
                 glyph[n]=ch; gx[n++]=icon_x; icon_x+=ch->width+1;
             }
         }
-        v = at;
-        mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &v);
-        v.x *= D_800364CC;   /* view space is world * D_800364CC (bondviewUpdateCameraMatrices) */
-        v.y *= D_800364CC;
-        v.z *= D_800364CC;
-        if (v.z > -1.0f)
-        {
-            return gdl;   /* behind the eye */
-        }
-        dist = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z) / D_800364CC;
-        k = dist * 0.0012f;
-        if (k < 0.7f)
-        {
-            k = 0.7f;
-        }
-        k *= D_800364CC;
-
         matrix_4x4_set_identity(&mf);
         mf.m[0][0] = k;
         mf.m[1][1] = k;
         mf.m[2][2] = k;
-        mf.m[3][0] = v.x;
-        mf.m[3][1] = v.y;
-        mf.m[3][2] = v.z;
+        mf.m[3][0] = at[0];
+        mf.m[3][1] = at[1];
+        mf.m[3][2] = at[2];
         mv = dynAllocateMatrix();
         guMtxF2L(mf.m, mv);
 
@@ -8534,7 +8537,7 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
 
         /* the panel */
         gDPSetCombineMode(gdl++, G_CC_PRIMITIVE, G_CC_PRIMITIVE);
-        gDPSetPrimColor(gdl++, 0, 0, 0x00, 0x00, 0x00, 0x70);
+        gDPSetPrimColor(gdl++, 0, 0, panel >> 24, (panel >> 16) & 0xff, (panel >> 8) & 0xff, panel & 0xff);
         gSPVertex(gdl++, osVirtualToPhysical(vtx), 4, 0);
         gSP2Triangles(gdl++, 0, 1, 2, 0, 0, 2, 3, 0);
 
@@ -8555,6 +8558,38 @@ static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking
         gDPPipeSync(gdl++);
     }
     return gdl;
+}
+
+/* one name, its panel's foot at the world point at */
+static Gfx *gevrDrawNameTag(Gfx *gdl, const char *name, coord3d at, s32 speaking)
+{
+    extern f32 D_800364CC;
+    coord3d v;
+    f32 dist, k, view[3];
+
+    if (D_800364CC <= 1e-6f)
+    {
+        return gdl;
+    }
+    v = at;
+    mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &v);
+    v.x *= D_800364CC;   /* view space is world * D_800364CC (bondviewUpdateCameraMatrices) */
+    v.y *= D_800364CC;
+    v.z *= D_800364CC;
+    if (v.z > -1.0f)
+    {
+        return gdl;   /* behind the eye */
+    }
+    dist = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z) / D_800364CC;
+    k = dist * 0.0012f;
+    if (k < 0.7f)
+    {
+        k = 0.7f;
+    }
+    view[0] = v.x;
+    view[1] = v.y;
+    view[2] = v.z;
+    return gevrDrawViewTag(gdl, name, view, k * D_800364CC, speaking, 0x00000070);
 }
 
 Gfx *gevrDrawNameTags(Gfx *gdl)
