@@ -2326,6 +2326,7 @@ static void gevrGexLeftHandTo(ModelFileHeader *hdr, Mtxf *rwmtx, const f32 off[3
 #define GEVR_GEX_CUFF_Z 330.0f   /* where the hand model's sleeves end, on their arm joints' z */
 static void gevrGexOffCache(ModelFileHeader *gunhdr);
 static s32 gevrGexOffHandPose(Mtxf *m, s32 n);
+extern s32 gevrStereoTwoHandGun(void);
 extern s32 gevrStereoTwoHandGrip(void);   /* bondview2.c */
 extern float VrGexWatch[4];   /* vr_settings_defaults.c: the watch's place and size (Gun fit) */
 extern float VrGexOffRot[3];  /* vr_settings_defaults.c: the empty off hand's turn (Gun fit) */
@@ -2346,7 +2347,8 @@ static s32 gevrGexArmsOn(void)
 /* gunfire.c, bondview2.c: GE-X's left hand holds the gun with both hands */
 s32 gevrGexLeftHandShown(void)
 {
-    return gevrGexArmsOn() && gevrGexHeld(GUNRIGHT) && gevrStereoTwoHandGrip();
+    return gevrGexArmsOn() && gevrGexHeld(GUNRIGHT) && gevrStereoTwoHandGrip()
+        && gevrStereoTwoHandGun() == GUNRIGHT;
 }
 
 /*
