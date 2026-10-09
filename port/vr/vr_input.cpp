@@ -1275,6 +1275,7 @@ extern "C" void vrRecoilNotifyShotFired(int handnum)
  * is the other way round, as vrRecoilNotifyShotFired has it. The kick shows
  * through the grip poses the game reads (gevrRecoilGripPose).
  */
+extern "C" int gevrStereoTwoHandGun(void);
 extern "C" int gevrStereoTwoHandGrip(void);   // bondview2.c: issue #35's hold
 // Held with both hands, every gun keeps only this share of its kick: next to
 // none, as in the original game (user).
@@ -1286,7 +1287,7 @@ extern "C" void vrRecoilKick(int gunhand, int recoilClass, float strength)
     WeaponRecoilProfile p = GetRecoilProfileForGEClass(recoilClass);
     // the gun's own share of its class's kick (port/src/input.c gevrRecoilFor),
     // and the two-handed hold's
-    if (gunhand == 0 && gevrStereoTwoHandGrip() != 0) {
+    if (gunhand == gevrStereoTwoHandGun() && gevrStereoTwoHandGrip() != 0) {
         strength *= GEVR_RECOIL_TWOHAND_SHARE;
     }
     p.kickPitch *= strength;
@@ -1963,8 +1964,8 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
     float targetA = aMin[lvl];
     float maxA = 1.0f;
 
-    // the off hand supporting the right gun takes that gun's magnification; a scope of its own, its own
-    const float mag = gevrStereoTwoHandGrip() ? gevrScopeMagnificationCtrl(1) : gevrScopeMagnificationCtrl(gevrPhysHand(h));
+    // Both hands supporting a gun use that gun's magnification.
+    const float mag = gevrStereoTwoHandGrip() ? gevrScopeMagnificationCtrl(1 - gevrStereoTwoHandGun()) : gevrScopeMagnificationCtrl(gevrPhysHand(h));
     if (grip) {
         // Base alpha respects launcher setting: Low = 0.15f, High = 0.08f, Off = 0.25f
         float baseA = (lvl == 2) ? 0.08f : (lvl == 0 ? 0.25f : 0.15f);
