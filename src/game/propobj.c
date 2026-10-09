@@ -10858,7 +10858,7 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
     {
         case PROPDEF_KEY:
         {
-            sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, KEYCARD_SFX, 0);
+            sndPlayPickupSfx(KEYCARD_SFX);
 
             if (showstring)
             {
@@ -11043,7 +11043,7 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
         case PROPDEF_ARMOUR: // Body armor
         {
             bondviewAddCurrentPlayerArmor(((struct BodyArmourRecord *)prop->obj)->amount);
-            sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, ARMOUR_COLLECT_SFX, 0);
+            sndPlayPickupSfx(ARMOUR_COLLECT_SFX);
 
             if (showstring)
             {
@@ -11112,7 +11112,7 @@ TICKOP propPickupByPlayer(PropRecord *prop, bool showstring)
         case PROPDEF_TINTED_GLASS:
         default:
         {
-            sndPlaySfx((struct ALBankAlt_s *)g_musicSfxBufferPtr, KEYCARD_SFX, 0);
+            sndPlayPickupSfx(KEYCARD_SFX);
 
             if (showstring)
             {
