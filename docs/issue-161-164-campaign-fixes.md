@@ -64,6 +64,15 @@ It writes no ROM bytes and does not validate loaded scenery or ceiling height.
 Existing gadget/settlement, tank, co-op collision, soft collision,
 reinforcement and co-op spawn replication regressions also pass.
 
+## Reported headset result
+
+2026-10-09: the user tested Jungle in solo and reported Natalya following,
+shooting, walking and crouching normally. She subsequently died; the user
+attributed that to their own play rather than a stall. This validates the
+observed solo movement/combat behavior, not a full mission completion.
+Difficulty, location and Bodies stay setting were not supplied. Co-op
+behavior and the remaining mission checkpoints are still unverified.
+
 ## Headset checks still required
 
 No Quest was connected during implementation. Test at least two headsets and

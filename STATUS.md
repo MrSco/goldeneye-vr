@@ -68,7 +68,8 @@ is goldeneyevr.com, in its own repository.
 ## Outstanding issues / limits
 
 - #161–#164: campaign fixes implemented; native regressions and the twenty-stage
-  ROM floor audit pass. Headset validation remains; see docs/issue-161-164-campaign-fixes.md.
+  ROM floor audit pass. User reports Natalya's solo movement/combat working;
+  co-op checks remain. See docs/issue-161-164-campaign-fixes.md.
 - Co-op cutscenes on a teammate, revive, menus and debrief need continued
   two-headset testing; the invisible ending report remains open. Bond's
   cinema animation and script music stay on the host.
