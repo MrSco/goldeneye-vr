@@ -75,11 +75,12 @@ extern void matrix_4x4_7F058C88(void);
 extern u16 viGetPerspNorm(void);
 /* gevr_heldgun.c, gunfire.c */
 extern Gfx *gevrHeldGunDrawPosed(s32 inst, s32 item, Mtxf *root, ModelRenderData *templ, Gfx *gdl);
-extern Gfx *gevrDrawViewTag(Gfx *gdl, const char *name, const f32 at[3], f32 k, s32 speaking, u32 panel);
+extern Gfx *gevrDrawViewTagOverlay(Gfx *gdl, const char *name, const f32 at[3], f32 k, u32 panel);
 extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);
 extern s32 gevrIsThrowable(s32 item);        /* port/src/input.c */
 extern int VrMotionThrowing;
 extern float vr_ctrl_velocity_play[2][3], vr_head_velocity_play[3];
+extern float get_analog_value(int hand_index, const char *input_name);
 extern s32 bondinvIsAliveWithFlag(void);
 extern MPSCENARIOS get_scenario(void);
 extern s32 getPlayerCount(void);
@@ -92,13 +93,14 @@ extern s32 getPlayerCount(void);
 #define BS_LIST    96                 /* bondview2.c GEVR_WP_MAX */
 #define BS_CHOICES 24
 #define BS_TICK_MS (1000.0f / 60.0f)
+#define BS_SETTLE_SPEED 0.35f    /* m/s relative to the head: an intentional pause */
 
 enum { BT_HIPR, BT_BACKR, BT_CHESTR, BT_BELTR, BT_EXIT, BT_DWELL, BT_DEFER, BT_FOLLOW,
        BT_FREEZE, BT_TWIST, BT_MARKERS, BT_COUNT };
 static f32 s_bodyTune[BT_COUNT] = {
     0.0f, 0.0f, 0.0f, 0.0f,   /* radii: the size setting's */
     5.0f,     /* cm past a slot's radius before the hand has left it */
-    120.0f,   /* ms a throwable's hand stays before the slot takes its grip */
+    350.0f,   /* consecutive ms at rest before a throwable's hand may grab */
     100.0f,   /* ms hand reload's belt waits for a holstering grip */
     0.0f,     /* the torso's follow rate: ArmBodyFollow's */
     -20.0f,   /* degrees of head pitch below which the torso holds */
@@ -110,6 +112,8 @@ typedef struct
 {
     s32 slot;                 /* GEVR_BS_*, -1 none */
     f32 ms;                   /* in it so far */
+    f32 settledMs;
+    s32 throwReady;
     s32 pick;                 /* what a grip takes: an item, GEVR_BODY_HOLSTER, -1 none */
     s32 steps;
     s32 n;
@@ -277,6 +281,8 @@ static void gevrBodyLeave(s32 ctrl, const char *why)
     h->slot = -1;
     h->nearFront = FALSE;
     h->ms = 0.0f;
+    h->settledMs = 0.0f;
+    h->throwReady = FALSE;
     h->steps = 0;
     h->pick = -1;
     h->n = 0;
@@ -467,6 +473,22 @@ static void gevrBodyHandUpdate(s32 ctrl)
     }
     /* still there: the inventory may have changed under it */
     h->ms += g_ClockTimer * BS_TICK_MS;
+    {
+        f32 speed = 0.0f;
+        s32 ready;
+        for (s = 0; s < 3; s++)
+        {
+            f32 v = vr_ctrl_velocity_play[ctrl][s] - vr_head_velocity_play[s];
+            speed += v * v;
+        }
+        speed = sqrtf(speed);
+        h->settledMs = gevrBodySettleMs(h->settledMs, speed, g_ClockTimer * BS_TICK_MS, BS_SETTLE_SPEED);
+        ready = VrMotionThrowing && gevrIsThrowable(gevrBodyHandSelected(hand))
+            && gevrBodyThrowGate(h->settledMs, speed, s_bodyTune[BT_DWELL], BS_SETTLE_SPEED)
+            && get_analog_value(ctrl, "grip") < 0.25f;
+        if (ready && !h->throwReady) gevrBodyBuzz(ctrl, GEVR_ACTION_SLOT_HOVER);
+        h->throwReady = ready;
+    }
     h->dist = dist[slot];
     h->n = gevrBodyChoicesFor(slot, hand, h->choices);
     for (s = 0; s < h->n && h->choices[s] != h->pick; s++)
@@ -556,8 +578,8 @@ int gevrBodySlotGrip(int ctrl)
     held = gevrBodyHandSelected(hand);
     if (VrMotionThrowing && gevrIsThrowable(held))
     {
-        /* its grip winds up a throw (gevrMotionThrowTick): the slot takes it only
-         * from a hand that has settled there, so reach back and throw still throws */
+        /* The pending grip is decided before a throw can wind up. A slot
+         * needs a continuous pause; reaching back to throw keeps throwing. */
         f32 v[3], speed;
         s32 i;
 
@@ -566,10 +588,10 @@ int gevrBodySlotGrip(int ctrl)
             v[i] = vr_ctrl_velocity_play[ctrl][i] - vr_head_velocity_play[i];
         }
         speed = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-        if (!gevrBodyThrowGate(h->ms, speed, s_bodyTune[BT_DWELL], 1.0f))
+        if (!gevrBodyThrowGate(h->settledMs, speed, s_bodyTune[BT_DWELL], BS_SETTLE_SPEED))
         {
             sysLogPrintf(LOG_NOTE, "bodyslot: grip (%s) %s with throwable %d: a throw (%.0f ms there, %.1f m/s)",
-                         gevrBodyHandName(ctrl), gevrBodySlotName(h->slot), held, h->ms, speed);
+                         gevrBodyHandName(ctrl), gevrBodySlotName(h->slot), held, h->settledMs, speed);
             return FALSE;
         }
     }
@@ -643,7 +665,7 @@ int gevrBodySlotButton(int ctrl)
 }
 
 /* port/src/input.c, each poll: the hand's own stick's X. 1: the slot has it */
-int gevrBodySlotStick(int ctrl, float x, float dtMs)
+int gevrBodySlotStick(int ctrl, float x, float y, float dtMs)
 {
     GevrBodyHand *h;
     s32 take, step;
@@ -653,7 +675,7 @@ int gevrBodySlotStick(int ctrl, float x, float dtMs)
         return FALSE;
     }
     h = &s_bodyHand[ctrl];
-    step = gevrBodyStickStep(&h->stick, s_bodyLive && h->slot >= 0, x, dtMs, &take);
+    step = gevrBodyStickStep(&h->stick, s_bodyLive && h->slot >= 0, x, y, dtMs, &take);
     if (step != 0)
     {
         gevrBodyStep(ctrl, step, "stick");
@@ -1111,6 +1133,7 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
             continue;   /* a hand passing through shows nothing */
         }
         tint = gevrBodyCategoryTint(gevrBodySlotCategory(h->slot));
+        if (h->throwReady) tint = GEVR_RELOAD_READY_TINT;
         if (!gevrBodySlotFitting && s_bodyTune[BT_MARKERS] == 0.0f)
         {
             f32 cv[3];
@@ -1148,7 +1171,7 @@ Gfx *gevrBodySlotsDrawLabels(Gfx *gdl)
         gevrBodyLabel(ctrl, text, sizeof(text));
         /* with the hand (gunfire.c gevrHandTag), or for a shoulder's, the body */
         gDPNoOpTag(gdl++, 0x565F0000 | (u32) (back ? 3 : ctrl + 1));
-        gdl = gevrDrawViewTag(gdl, text, v, 0.12f * D_800364CC, FALSE, (tint & 0xffffff00) | 0xB0);
+        gdl = gevrDrawViewTagOverlay(gdl, text, v, 0.12f * D_800364CC, (tint & 0xffffff00) | 0xB0);
         gDPNoOpTag(gdl++, 0x565F0000);
     }
     return gdl;

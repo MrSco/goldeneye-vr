@@ -36,7 +36,18 @@ greyed out while body slots are on.
   (the gun hand's turn stick, the off hand's move stick; Swap sticks swaps
   them). The label says what a squeeze takes ("DD44 2/3"). The last choice
   is "HOLSTER <what the hand holds>", which puts it away. When the category
-  has nothing else, that is the only choice.
+  has nothing else, that is the only choice. A scrolling flick captures both
+  stick axes until they return to centre, even if the hand leaves the slot;
+  a diagonal flick cannot also walk or turn. Walking before scrolling remains
+  available. Labels draw over hands and arms so they stay readable.
+- **Throwing or grabbing.** With motion throwing enabled and a throwable in
+  that hand, grabbing needs a continuous 350 ms pause at the slot, moving
+  slower than 0.35 m/s relative to the head. The label/ring turns green and
+  a small buzz signals readiness. A squeeze then chooses either that grab or
+  a throw once; moving through a shoulder during the same squeeze cannot
+  switch weapons. Partial release keeps that choice until grip drops below
+  25%. A released throw cannot rearm until that full let-go. Guns, gadgets
+  and throwables with motion throwing off need no extra pause.
 - **Which hand.** Each hip is for its own hand. The shoulders, chest and belt
   take either hand. The off hand needs dual wielding (solo, or online with
   dual wield allowed) and isn't offered what it can't hold (gadgets, mission
@@ -76,6 +87,10 @@ positions can be set by reach without seeing the ring behind you. Y resets
 the selected slot, A saves, B restores the last save, and Menu + A exits.
 Magazine pickup has its own belt fit: in Gun fit's Reload mode, put the off
 hand at the desired pickup point and press Y, then A to save.
+The Belt slot here holds gadgets, including the taser. Its default is low
+on the front of the waist, slightly toward the off-hand side; it is separate
+from the wrist/watch interaction and the chest's thrown items. Moving Belt
+in Slots fit moves that shared gadget location.
 
 The chest default was moved about 4 cm closer after the combined headset
 test. Saved custom slot fits take priority and are kept.
@@ -161,7 +176,7 @@ the next iteration:
    test_hand_reload.py). Another option the user could choose instead: move
    the hips' default away from the belt, or show both in Gun fit.
 
-Other things still to check: the throw-versus-swap gate (120 ms / 1 m/s)
+Other things still to check: the throw-versus-swap gate (350 ms continuously settled / 0.35 m/s)
 is a guess; GE-X players see GoldenEye's models on the hips; seated reach
 for the shoulders; two-headset Doubles/CTF.
 
@@ -180,6 +195,15 @@ the frame stays available for hand reload with body slots off. Check this
 by looking down and slowly turning/tilting the head: magazines should move
 with the hips' guns, and a hand at the visible magazine should still get the
 pickup ring. Repeat with a custom belt fit and left-handed mode.
+
+**Next headset follow-up (combined build 5d5a510).** Magazine placement was
+better. Slot labels were obscured by arms, a diagonal scroll could also walk,
+and a throw could take the shoulder weapon as well. Labels now use a depth-free
+overlay, scrolling captures both axes through stick centring, and pending grip
+arbitration blocks throw wind-up. Grip ownership persists through partial
+release. Throwable grabs require the continuous 350 ms pause and show a green
+ready cue; other items still grab immediately. Retest fast shoulder wind-ups,
+paused deliberate swaps, partial releases and diagonal scrolling on each hand.
 
 Reload checks for the next headset round:
 
@@ -215,8 +239,9 @@ Pistols at the hips:
    right: the label steps through every pistol, then "HOLSTER ...". Squeeze
    on a pick: that one comes out. Leave and come back: the slot offers it.
 4. While the hand is at the hip, walk with the left stick: forward and back
-   keep working. Turning with a flick should not happen until you leave the
-   hip and centre the stick.
+   keep working before scrolling. Scroll with a diagonal flick on either
+   hand's stick: no movement or turn. Leave the slot with the stick still
+   pushed: it stays captured until both axes centre, then movement resumes.
 5. Off hand: same at the left hip (dual pistols).
 
 Long guns over the shoulders:
@@ -227,8 +252,10 @@ Long guns over the shoulders:
 Chest and belt:
 7. Hand to the chest: grenades, mines, knives (A steps). With motion
    throwing on and a grenade in hand: reach back and throw in one go, and it
-   still throws. Hold the hand still at the chest a moment and squeeze: the
-   slot takes it.
+   still throws. Pause at the chest/shoulder until its label turns green and
+   buzzes, then squeeze: only the slot takes it. Squeeze before reaching,
+   pause at the shoulder, partially release and squeeze again: no weapon
+   change and no second throw until a full grip release. Repeat with knives.
 8. Belt, front, off side: gadgets (camera, bug, etc. on missions that give
    them). Watch items stay on the watch.
 
@@ -273,7 +300,7 @@ take, stow, refuse, belt touch, torso reset and every 10 degrees of twist.
 
 ```
 hipr backr chestr beltr exitcm dwellms deferms follow freezepitch maxtwist markers
-0    0     0      0     5      120     100     0      -20         60       0
+0    0     0      0     5      350     100     0      -20         60       0
 ```
 
 A radius of 0 keeps the size setting's. follow 0 keeps ArmBodyFollow (0.02).
@@ -285,6 +312,9 @@ markers 1 rings every slot outside Gun fit. Push with
 - `port/src/gevr_bodyslot.c`, `port/include/gevr_bodyslot.h`: the arithmetic
   (torso chase, neck frame, slots and fits, zones, choices, stick, belt),
   tested by `port/tests/test_body_slots.py`.
+- `port/tests/test_body_slot_interactions.py`: production grip ownership,
+  throwable-only pause, partial-release behavior, diagonal stick capture
+  and label display-list depth state.
 - `src/game/gevr_bodyslots.c`: the game side (tick, grips, stepping, drawing,
   labels, Gun fit's Slots mode).
 - Hooks: `bondview2.c` gevrGripGestureTick / gevrGripGestureTry /

@@ -3437,6 +3437,7 @@ static s32 s_gevrThrowWindup[2] = { 0, 0 };
 static s32 s_gevrMotionRecover[2] = { 0, 0 };
 static f32 s_gevrGripPeak[2] = { 0.0f, 0.0f };
 static s32 s_gevrGripArmed[2] = { 0, 0 };
+static s32 s_gevrThrowSpent[2];   /* a partial let-go cannot start another throw */
 static s32 s_gevrTrackingLostFrames[2] = { 0, 0 };
 
 /*
@@ -3498,9 +3499,14 @@ void gevrMotionThrowTick(s32 hand)
 
     s32 ctrl = gevrShotCtrl(hand);
     s32 item = getCurrentPlayerWeaponId(hand);
+    f32 grip_val = get_analog_value(ctrl, "grip");
+    if (grip_val < 0.25f) s_gevrThrowSpent[hand] = FALSE;
     extern int gevrBodySlotHoldsGrip(int ctrl);   /* gevr_bodyslots.c: a body slot took this grip */
+    extern s32 gevrGripGestureTaken(s32 ctrl);
 
-    if (!gevrIsThrowable(item) || gevrBodySlotHoldsGrip(ctrl))
+    /* Wait for the fresh press's decision. Once taken, the gesture owns
+     * the whole squeeze, including a partial release below the button threshold. */
+    if (!gevrIsThrowable(item) || gevrBodySlotHoldsGrip(ctrl) || gevrGripGestureTaken(ctrl))
     {
         s_gevrThrowWindup[hand] = 0;
         s_gevrGripArmed[hand] = 0;
@@ -3518,10 +3524,8 @@ void gevrMotionThrowTick(s32 hand)
         s_gevrGripArmed[hand] = 0;
     }
 
-    f32 grip_val = get_analog_value(ctrl, "grip");
-
     /* Arm windup when grip is squeezed >= 0.55f (and user had released past 0.25f previously) */
-    if (grip_val >= 0.55f && !s_gevrGripArmed[hand])
+    if (grip_val >= 0.55f && !s_gevrGripArmed[hand] && !s_gevrThrowSpent[hand])
     {
         if (handptr->weapon_ammo_in_magazine > 0 &&
             (handptr->weapon_action_state == GUN_ANIM_STATE_IDLE ||
@@ -3560,6 +3564,7 @@ void gevrMotionThrowTick(s32 hand)
         {
             release = 1;
             s_gevrGripArmed[hand] = 0;
+            s_gevrThrowSpent[hand] = TRUE;
         }
     }
     else

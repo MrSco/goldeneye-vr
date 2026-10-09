@@ -23,11 +23,11 @@ int gevrBodySlotGrip(int ctrl);
 void gevrBodySlotGripLetGo(int ctrl);
 /* a slot took the grip still held: a throw doesn't wind up from it */
 int gevrBodySlotHoldsGrip(int ctrl);
-/* port/src/input.c: the hand's own A or X pressed, its own stick's X each
+/* port/src/input.c: the hand's own A or X pressed, its own stick each
  * poll; 1 when the slot takes it (the wheel, the cycle, the strafe or the
  * turn don't) */
 int gevrBodySlotButton(int ctrl);
-int gevrBodySlotStick(int ctrl, float x, float dtMs);
+int gevrBodySlotStick(int ctrl, float x, float y, float dtMs);
 /* hand reload (bondview2.c gevrHandReloadTick): the belt touch with the slots
  * on, 1 fire, 0 wait, -1 slots off (fire at once); a hand in or just out of a
  * slot makes no chest cross (Busy) and, near one, no blow (Quiet) */
