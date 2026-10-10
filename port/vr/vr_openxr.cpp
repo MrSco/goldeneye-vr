@@ -158,6 +158,15 @@ int32_t g_internalRenderWidth  = 0;
 int32_t g_internalRenderHeight = 0;
 float RENDER_SCALE = 1.0f;
 static uint32_t g_systemMaxRenderWidth = 0, g_systemMaxRenderHeight = 0;
+
+// The runtime's name for the headset ("Oculus Quest2", "Meta Quest 3", ...):
+// the watch's Controls page draws that headset's controllers (gevr_touch.c).
+static char g_hmdName[XR_MAX_SYSTEM_NAME_SIZE];
+
+extern "C" const char *gevrHmdName(void)
+{
+    return g_hmdName;
+}
 static uint32_t g_maxRenderWidth = 0, g_maxRenderHeight = 0;
 extern "C" int vr_get_internal_render_width()  { return g_internalRenderWidth; }
 extern "C" int vr_get_internal_render_height() { return g_internalRenderHeight; }
@@ -708,6 +717,7 @@ static bool vr_get_system()
         g_systemMaxRenderWidth = sysProps.graphicsProperties.maxSwapchainImageWidth;
         g_systemMaxRenderHeight = sysProps.graphicsProperties.maxSwapchainImageHeight;
         LOGI("HMD model: %s (vendorId=%u)", sysProps.systemName, sysProps.vendorId);
+        snprintf(g_hmdName, sizeof(g_hmdName), "%s", sysProps.systemName);
         LOGI("Max swapchain: %u x %u, max layers: %u",
              sysProps.graphicsProperties.maxSwapchainImageWidth,
              sysProps.graphicsProperties.maxSwapchainImageHeight,

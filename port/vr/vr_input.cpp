@@ -868,6 +868,15 @@ void log_controller_states() {
 */
 
 
+// The controllers' interaction profile, for the watch's Controls page
+// (src/game/gevr_touch.c: which Touch controllers to draw).
+static char gTouchProfile[256];
+
+extern "C" const char *gevrTouchProfileName(void)
+{
+    return gTouchProfile;
+}
+
 bool detect_headset_profile() {
     char profileStr[256] = {};
     uint32_t outLen = 0;
@@ -899,6 +908,7 @@ bool detect_headset_profile() {
 
     gIsValveIndex = (strstr(profileStr, "valve/index_controller") != nullptr);
     vr_log("[VR_CTRL] IsValveIndex: %d", (int)gIsValveIndex);
+    snprintf(gTouchProfile, sizeof(gTouchProfile), "%s", profileStr);
     return true; // Succès
 }
 
@@ -1803,6 +1813,36 @@ void example_vr_input_usage() {
  * the camera snapshot, which are indexed by physical controller.
  */
 static inline int gevrPhysHand(int hand) { return VrLeftHandedMode ? 1 - hand : hand; }
+
+/*
+ * The watch's Controls page (src/game/gevr_touch.c) moves each drawn
+ * controller as the one in that hand: by physical controller (0 left, 1
+ * right), whatever role it plays. buttons: bit 0 the lower face button (X on
+ * the left, A on the right), 1 the upper (Y, B), 2 Menu (the left one's; the
+ * right one's is Meta's), 3 the stick's click. Returns whether it is tracked.
+ */
+extern "C" int gevrTouchPadState(int phys, float *trigger, float *grip, float *stickx, float *sticky, int *buttons)
+{
+    *trigger = *grip = *stickx = *sticky = 0.0f;
+    *buttons = 0;
+    if (phys < 0 || phys > 1) {
+        return 0;
+    }
+    const ControllerInputState& st = gControllerStates[phys];
+    *trigger = st.trigger_value.isActive ? st.trigger_value.currentState : (st.select.currentState ? 1.0f : 0.0f);
+    *grip = st.grip_value.isActive ? st.grip_value.currentState : (st.grip_click.currentState ? 1.0f : 0.0f);
+    if (st.thumbstick.isActive) {
+        *stickx = st.thumbstick.currentState.x;
+        *sticky = st.thumbstick.currentState.y;
+    }
+    int b = 0;
+    if (phys == 0 ? st.button_x.currentState : st.button_a.currentState) b |= 1;
+    if (phys == 0 ? st.button_y.currentState : st.button_b.currentState) b |= 2;
+    if (phys == 0 && st.menu.currentState) b |= 4;
+    if (st.thumbstick_click.currentState) b |= 8;
+    *buttons = b;
+    return st.is_active ? 1 : 0;
+}
 
 extern "C" int gevrWatchFaceGripNormal(float out[3]);   // bondview2.c: GE-X's held watch face
 

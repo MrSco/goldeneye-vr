@@ -318,6 +318,12 @@ screen size/distance/curve/passthrough, stats, the GoldenEye X toggle and gun si
 Refresh** requests the supported rate immediately. Texture-pack selection and play
 mode stay outside these sections; switch play mode by holding the right stick click.
 
+The watch's **Control** page shows your Touch controllers (Quest 1, Quest 2, Touch Plus or
+Touch Pro, picked from the headset; **VR settings → Controls → Controllers** picks them by
+hand), each above a list of what its controls do in your play mode and handedness. A
+control you press lights up on the model and in the list. See
+[docs/touch-controllers.md](docs/touch-controllers.md).
+
 **Left-handed?** Tick **Left-handed** in the launcher. The gun goes in your left hand and the watch on your right wrist, and the sticks and face buttons swap sides. The **☰ Menu** button stays on the left controller: the right one is Meta's system button.
 To walk with the left stick anyway, tick **Swap sticks** as well.
 
