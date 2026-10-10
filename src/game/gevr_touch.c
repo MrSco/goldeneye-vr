@@ -22,6 +22,8 @@
 #include <math.h>
 #include "textrelated.h"
 #include "dyn.h"
+#include "player.h"
+#include "gun.h"
 #include "system.h"
 #include "gevr_touch_model.h"
 #include "gevr_touch.h"
@@ -41,8 +43,13 @@
 #define GEVR_TOUCH_LEFT_X     36
 #define GEVR_TOUCH_RIGHT_X    164
 #define GEVR_TOUCH_NAME_GAP   7
+#define GEVR_TOUCH_LEFT_EDGE  156   /* the left list ends short of the middle */
+#define GEVR_TOUCH_RIGHT_EDGE 284   /* inside the N64 page's outermost labels (287) */
+#define GEVR_TOUCH_MIN_X      24
 
-extern int VrTouchModel, VrLeftHandedMode, VrSwapJoysticks, VrPlayMode;
+extern int VrTouchModel, VrLeftHandedMode, VrSwapJoysticks, VrPlayMode, VrMotionThrowing;
+extern int VrGestureHolster, VrGestureGripUse, VrGesturePickup, VrGestureMineGrab, VrBodySlots;
+extern s32 gevrIsThrowable(s32 item);              /* port/src/input.c */
 extern const char *gevrHmdName(void);              /* vr_openxr.cpp */
 extern const char *gevrTouchProfileName(void);     /* vr_input.cpp */
 extern int gevrTouchPadState(int phys, float *trigger, float *grip, float *stickx, float *sticky, int *buttons);
@@ -486,14 +493,29 @@ typedef struct {
 } GevrTouchRow;
 
 /*
- * What each control of a physical controller does, from port/src/input.c:
- * each trigger fires (in stereo play the off hand's fires what that hand
- * holds, if anything, and with GoldenEye X's remote mines out sets them off
- * instead) and the gun hand's (the right, or the left when left-handed) grip
- * aims; in stereo the off hand's grip grabs (gestures), on the screen it
- * aims too. A/X: weapons (in stereo the off hand's lower button picks
- * that hand's item), B/Y: action. The move stick is the off hand's unless
- * Swap sticks; Menu is always the left controller's.
+ * Everything a row can say a control does. The lists are laid out for the
+ * widest of these, so no state runs a line off the page.
+ */
+static const char *const s_gevrTouchActions[] = {
+    "Fire", "Detonate", "-", "Aim", "Aim / use", "Throw", "Sight", "Grab", "Hold gun",
+    "Move", "Crouch", "Turn", "Action", "Weapon", "Hand item", "Pause",
+};
+
+/*
+ * What each control of a physical controller does now, from port/src/input.c
+ * and the VR settings, so a change on the watch's VR page shows here at once:
+ *  - triggers fire; in stereo the off hand's fires what that hand holds and
+ *    does nothing with it empty, and GoldenEye X's remote mines out take it;
+ *  - the gun hand's (the right, or the left when left-handed) grip aims, and
+ *    with Grip use on uses doors and switches it is at; in stereo the off
+ *    hand's shows its gun's sight while it holds one (issue #37), and empty
+ *    takes the gestures that are on (holster, use, pickup, mine re-grab, body
+ *    slots) and holds the gun two-handed - only that with them all off. With
+ *    Motion throwing a grip throws what its hand holds that throws. On the
+ *    screen both grips aim;
+ *  - A/X: weapons (in stereo the off hand's lower button picks that hand's
+ *    item), B/Y: action. The move stick is the off hand's unless Swap
+ *    sticks; Menu is always the left controller's.
  */
 static s32 gevrTouchRows(s32 phys, const GevrTouchPad *pad, GevrTouchRow rows[6])
 {
@@ -501,15 +523,31 @@ static s32 gevrTouchRows(s32 phys, const GevrTouchPad *pad, GevrTouchRow rows[6]
     const s32 gun = phys == (VrLeftHandedMode ? 0 : 1);
     const s32 moveStick = phys == (((VrSwapJoysticks != 0) != (VrLeftHandedMode != 0)) ? 1 : 0);
     const s32 click = (pad->buttons & 8) != 0;
+    const s32 throws = g_CurrentPlayer != NULL && VrMotionThrowing
+        && gevrIsThrowable(getCurrentPlayerWeaponId(gun ? GUNRIGHT : GUNLEFT));
+    const s32 gestures = VrGestureHolster || VrGestureGripUse || VrGesturePickup || VrGestureMineGrab || VrBodySlots;
     s32 n = 0;
 
     rows[n].name = "Trigger";
-    /* the off hand's trigger: GE-X's remote mines out in the gun hand take it;
-     * in stereo it fires what that hand holds, and with it empty does nothing */
     rows[n].action = gun ? "Fire" : gevrGexMineDetonates() ? "Detonate" : !stereo || gevrDualWielding() ? "Fire" : "-";
     rows[n++].lit = pad->trigger >= 0.5f;
     rows[n].name = "Grip";
-    rows[n].action = gun || !stereo ? "Aim" : "Grab";
+    if (!stereo)
+    {
+        rows[n].action = "Aim";
+    }
+    else if (throws)
+    {
+        rows[n].action = "Throw";
+    }
+    else if (gun)
+    {
+        rows[n].action = VrGestureGripUse ? "Aim / use" : "Aim";
+    }
+    else
+    {
+        rows[n].action = gevrDualWielding() ? "Sight" : gestures ? "Grab" : "Hold gun";
+    }
     rows[n++].lit = pad->grip >= 0.5f;
     rows[n].name = "Stick";
     rows[n].action = !moveStick ? "Turn" : click && stereo ? "Crouch" : "Move";
@@ -541,14 +579,21 @@ Gfx *gevrTouchDrawLabels(Gfx *gdl)
 {
     GevrTouchPad pads[2];
     GevrTouchRow rows[6];
+    s32 actionw = 0;
     s32 phys, i, n;
 
     gevrTouchReadPads(pads);
     gdl = microcode_constructor(gdl);
+    for (i = 0; i < (s32) ARRAYCOUNT(s_gevrTouchActions); i++)
+    {
+        s32 w = gevrTouchTextWidth(s_gevrTouchActions[i]);
+
+        actionw = w > actionw ? w : actionw;
+    }
     for (phys = 0; phys < 2; phys++)
     {
-        const s32 x = phys ? GEVR_TOUCH_RIGHT_X : GEVR_TOUCH_LEFT_X;
         s32 namew = 0;
+        s32 x, width;
 
         n = gevrTouchRows(phys, &pads[phys], rows);
         for (i = 0; i < n; i++)
@@ -556,6 +601,18 @@ Gfx *gevrTouchDrawLabels(Gfx *gdl)
             s32 w = gevrTouchTextWidth(rows[i].name);
 
             namew = w > namew ? w : namew;
+        }
+        /* each list where it stands under its controller, unless its widest
+         * line would cross the middle (left) or the page's edge (right) */
+        width = namew + GEVR_TOUCH_NAME_GAP + actionw;
+        if (phys == 0)
+        {
+            x = GEVR_TOUCH_LEFT_X + width > GEVR_TOUCH_LEFT_EDGE ? GEVR_TOUCH_LEFT_EDGE - width : GEVR_TOUCH_LEFT_X;
+            x = x < GEVR_TOUCH_MIN_X ? GEVR_TOUCH_MIN_X : x;
+        }
+        else
+        {
+            x = GEVR_TOUCH_RIGHT_X + width > GEVR_TOUCH_RIGHT_EDGE ? GEVR_TOUCH_RIGHT_EDGE - width : GEVR_TOUCH_RIGHT_X;
         }
         for (i = 0; i < n; i++)
         {
