@@ -258,7 +258,7 @@ GE-X and the Play page's **Choose ROM file...** for your GoldenEye ROM.
 | Control | Action |
 |---|---|
 | **Right trigger** | Fire (the gun in your right hand) |
-| **Left trigger** | Aim / zoom, or fire the left gun when dual-wielding |
+| **Left trigger** | Fire (or throw) what your left hand holds; nothing when it's empty. The right grip aims |
 | **Right grip** | Aim / zoom, and shows the 3D sight. Steadies a gun with a scope |
 | **Left grip** | Dual-wielding: shows the left gun's sight (blue) |
 | **Left hand on the gun** + **left grip** | Hold it with both hands |

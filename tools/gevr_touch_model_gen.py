@@ -427,7 +427,7 @@ PREVIEW_LABELS = [
     (64, 26, "CONTROL STYLE", (0xFF, 0x00, 0xB0)), (170, 26, "1.1 HONEY", (0xA0, 0xFF, 0xA0)),
     (64, 43, "CONTROLLER", (0xFF, 0x00, 0xB0)),
 ]
-for _i, (_n, _a) in enumerate([("Trigger", "Aim"), ("Grip", "Grab"), ("Stick", "Move"), ("Y", "Action"), ("X", "Hand item"), ("Menu", "Pause")]):
+for _i, (_n, _a) in enumerate([("Trigger", "Fire"), ("Grip", "Grab"), ("Stick", "Move"), ("Y", "Action"), ("X", "Hand item"), ("Menu", "Pause")]):
     PREVIEW_LABELS += [(36, 133 + 13 * _i, _n, (0x00, 0xAA, 0x00)), (86, 133 + 13 * _i, _a, (0x00, 0xFF, 0x00))]
 for _i, (_n, _a) in enumerate([("Trigger", "Fire"), ("Grip", "Aim"), ("Stick", "Turn"), ("B", "Action"), ("A", "Weapon")]):
     PREVIEW_LABELS += [(164, 133 + 13 * _i, _n, (0x00, 0xAA, 0x00)), (214, 133 + 13 * _i, _a, (0x00, 0xFF, 0x00))]

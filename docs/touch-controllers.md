@@ -6,7 +6,7 @@ your hands, each over a list of its controls:
 
 ```
    [left controller]        [right controller]
- Trigger  Aim             Trigger  Fire
+ Trigger  Fire / -        Trigger  Fire
  Grip     Grab            Grip     Aim
  Stick    Move            Stick    Turn
  Y        Action          B        Action
@@ -15,7 +15,10 @@ your hands, each over a list of its controls:
 ```
 
 - **What each control does** follows the play mode (stereo or screen), left-handed
-  mode, Swap sticks and dual wielding, from the bindings in `port/src/input.c`. A
+  mode, Swap sticks and what the off hand holds, from the bindings in
+  `port/src/input.c`. In stereo the off hand's trigger reads **Fire** while that
+  hand holds something, **-** while it's empty (it does nothing then), and
+  **Detonate** while GoldenEye X's remote mines are out. A
   pressed trigger, grip, stick or button moves on the model, as it does in the
   hand, and lights green. Its line turns white, the same way the N64 page's
   labels light up.
