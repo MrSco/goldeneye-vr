@@ -10783,7 +10783,14 @@ bool sub_GAME_7F033B38(ChrRecord *self, f32 distance)
     {
         chr = &g_ChrSlots[i];
 
-        if ((chr != self) && chr->model && !chrIsDead(chr))
+        if ((chr != self) && chr->model && !chrIsDead(chr)
+#ifdef GEVR
+            /* VR keeps Bond's body in the character pool during gameplay.
+             * Natalya's enemy scan must not choose that body (or a teammate)
+             * as its guard preset and wait forever in the attack list (#163). */
+            && chr->prop && chr->prop->type != PROP_TYPE_VIEWER
+#endif
+            )
         {
             coord3d *pos = &chr->prop->pos;
 

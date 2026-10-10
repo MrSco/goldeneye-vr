@@ -18,6 +18,8 @@ s32 debug_VisCVG_flag;
 u8 g_CheatPlayerTextRelated[CHEAT_INVALID+1];
 struct ChrModelFileRecord c_item_entries[2];
 bool netIsActive(void) { return online; }
+int netCoopActive(void) { return 0; }
+int gevrCoopThrownMissionItem(int weapon) { (void)weapon;return 0; }
 int netActiveFunFlags(void) { return flags; }
 int netActiveGunSize(void) { return gun; }
 s32 get_cur_playernum(void) { return 0; }

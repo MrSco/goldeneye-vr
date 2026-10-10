@@ -992,6 +992,14 @@ int gevrCoopHostObjectiveStatus(int objective)
 int gevrCoopTeammateHolds(int tag)
 {
     if (!netCoopActive() || !netIsHost()) return FALSE;
+    /* Background AI can run as the nearest teammate. Always include the
+     * host's real inventory, even when that is not the script's context. */
+    s32 prev = get_cur_playernum();
+    ObjectRecord *obj = objFindByTagId(tag);
+    set_cur_player(netGetLocalSlot());
+    int held = obj && obj->prop && bondinvHasPropInInv(obj->prop);
+    set_cur_player(prev);
+    if (held) return TRUE;
     for (int i = 0; i < 4; i++) {
         if (i == netGetLocalSlot() || !netSlotOccupied(i)) continue;
         for (int k = 0; k < s_held_count[i]; k++)

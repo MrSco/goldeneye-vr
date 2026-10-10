@@ -3,12 +3,24 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Updated / current build:** 2026-10-09, v0.4.15 released (versionCode 70,
-protocol 20, unchanged from v0.4.14; v0.4.13 and older can't join). Building
-does not publish a GitHub release. No game data is shipped.
+**Current build:** v0.4.16 (versionCode 71, protocol 21), released 2026-10-09.
+Latest release: v0.4.16. v0.4.15 and older can't join. Building does not
+publish a GitHub release. No game data is shipped.
+
+Movement speed: 50%-200%, 100% default, separate solo and host settings;
+host changes apply to the whole session, bots included. Room-scale walking
+is unchanged. Native checks pass; two-headset checks pending. Details:
+[movement speed](docs/player-movement-speed.md). Launcher Match and Comfort
+use two columns, and the eight-player lobby fits without scrolling. Chest
+and Belt defaults use saved Quest fits at 170 cm; custom fits stay intact.
+See [body slots](docs/body-slots.md). Watch Controls clears inherited depth
+before drawing; headset review of the controller is pending.
 
 ## Recent releases
 
+**v0.4.16:** live solo and host movement speed (protocol 21), two-column
+launcher, eight-player lobby fit, Chest/Belt fits, campaign co-op fixes
+#161-#164 (PR #165). Notes: [v0.4.16](docs/releases/v0.4.16.md).
 **v0.4.15:** body slots with looked-at slot wheels (#157), GE-X hand reload
 keeps magazines, guides and off-hand reloads (#157, #160), two-handed grips
 with a gun in either hand (#160), bots around Library glass (#158), co-op
@@ -67,6 +79,9 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
+- #161–#164: fixes released in v0.4.16; issues stay open for co-op headset
+  checks. User reports Natalya's solo movement/combat working. See
+  docs/issue-161-164-campaign-fixes.md.
 - Co-op cutscenes on a teammate, revive, menus and debrief need continued
   two-headset testing; the invisible ending report remains open. Bond's
   cinema animation and script music stay on the host.
@@ -91,6 +106,7 @@ is goldeneyevr.com, in its own repository.
 
 - Build: android/gradlew.bat assembleRelease; signing uses gitignored
   android/keystore.properties and the existing .jks. Preserve the key.
+  On this Windows machine set JAVA_HOME=C:/Program Files/Java/jdk-20 each time.
   NDK 25.1.8937393, CMake 3.22.1; short junctions avoid long-path failures.
   Debug loop: tools/gevr_boot_test.ps1. Clean configure fetches SDL2/Opus.
 - Release: bump versionCode/versionName, tag the build commit, release-sign

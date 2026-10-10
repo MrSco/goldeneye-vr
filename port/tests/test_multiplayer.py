@@ -52,7 +52,7 @@ def build_core():
     source=(ROOT/"port/src/net/net_core.c").read_text(encoding="utf-8")
     masked=re.sub(r'//[^\n]*|/\*.*?\*/|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'',lambda m:"".join("\n" if c=="\n" else " " for c in m.group()),source,flags=re.S)
     keep={"netResetLobbyState","netIsHost","netGetState","netGetConnectedPlayerCount","netGetMaxPlayers","netPlayerInRound","netVoiceSameGroup","netVoiceModeForPair","netTeamRosterReady","netGetSlotTeam","netGetSlotPing","netSlotIsSpectator","netVoiceSlotSpectating","netTeamScore","netSetSlotTeam","netLobbySetConfig","netLobbySetReady","netHostRoundEnded","netStageEligible","netLatchRoundSettings","netValidConfig","netWriteRoundSettings","netReadRoundSettings","netSendMatchSnapshot","netHostLost","netForgetPlayerScore","netClearVotes","netBroadcastBuf","netBroadcastPacket","netBroadcastLobbyState","netCancelRound","netSendCountdown"}
-    keep.update({"netLobbyCanLaunch","netRoundRosterReady","netLocalReady","gevrNetSetReady","netActiveFunFlags","netActiveLineMode","netActiveGunSize","gevrNetConfigGet","gevrNetConfigSet","netScheduleRound","netAllLoaded","netReadyProgress","netHostStartRoundNow","netHostContinue","netIsActive","netDamageAllowed","netApplyAmmoPacket","netObjectByIndex","netSnapshotObjectType","netSendAmmoState"})
+    keep.update({"netLobbyCanLaunch","netRoundRosterReady","netLocalReady","gevrNetSetReady","netActiveFunFlags","netActiveLineMode","netActiveGunSize","netActiveMovementSpeed","gevrNetConfigGet","gevrNetConfigSet","netScheduleRound","netAllLoaded","netReadyProgress","netHostStartRoundNow","netHostContinue","netIsActive","netDamageAllowed","netApplyAmmoPacket","netObjectByIndex","netSnapshotObjectType","netSendAmmoState"})
     keep.update({"netInvalidateHitSlot","netClearHostHits","netSetHostEqualization","netGetHostEqualization","netHostBaseDelayMs","netGetSlotHostDelayMs","netHostEqualizationText","netTransitionRoundPhase","netBroadcastRoundPhase","netObserveHitMove","netHitReportAllowed","netProcessHitReport","netExecuteHostHit","netQueueHostHit","netDrainHostHits","netSlotOccupied","netSendHitReport"})
     keep.update({"netStartPad","netStartPadShare","netBroadcastVotes","netClearVotes","netTeamScore","netGetSlotTeam","netSetSlotTeam","netVoiceModeForPair"})
     keep.update({"netConfigSlots","netLobbyMinPlayers", "netCoopSession", "gevrCoopFastReinforcements"})
@@ -270,6 +270,7 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_weapon_wheel_categories_and_stick(self): self.assertEqual(self.hands.test_weapon_wheel(),0)
     def test_per_hand_depletion_and_switch_animation(self): self.assertEqual(self.hands.test_hand_depletion(),0)
     def test_native_fun_preferences_and_scaling(self): self.assertEqual(self.fun.test_fun_visuals(),0)
+    def test_movement_speed_live_authority_snapshot_migration(self): self.assertEqual(self.core.test_core_movement_speed(),0)
     def test_fun_pending_authority_late_join_migration(self): self.assertEqual(self.core.test_core_fun(),0)
     def test_coop_fast_reinforcements_host_authority_and_migration(self): self.assertEqual(self.core.test_core_coop_fast(),0)
     def test_launch_consent_and_scenario_transition(self): self.assertEqual(self.core.test_core_launch_consent(),0)

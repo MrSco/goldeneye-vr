@@ -155,7 +155,7 @@ void gevrBodyFrameBuild(GevrBodyFrame *f, const GevrBodyTorso *t, const float he
  * hangs (the user's belt reaches, 2026-10-04: 45-75 below, 17-22 out); the
  * shoulders' centres behind the head at ear height, where a hand reaching
  * over the shoulder ends (Lambda1VR's backpack: within 40 cm of the head and
- * behind it); the chest in front of the sternum; the gadgets at the front of
+ * behind it); the chest toward the gun-hand side; the gadgets at the front of
  * the belt, off the buckle on the off side.
  */
 static const float s_gevrBodyDefault[GEVR_BODY_SLOTS][3] = {
@@ -163,8 +163,9 @@ static const float s_gevrBodyDefault[GEVR_BODY_SLOTS][3] = {
     { 0.38f, 0.12f, -0.06f },
     { 0.05f, 0.11f, -0.12f },   /* shoulders: 8 below, 19 out, 20 behind */
     { 0.05f, 0.11f, -0.12f },
-    { 0.23f, 0.00f, 0.025f },   /* chest: 39 below, 4 ahead; closer to the sternum */
-    { 0.35f, 0.04f, 0.06f },    /* belt: 60 below, 7 out, 10 ahead */
+    /* Quest fits saved 2026-10-09 at 170 cm standing eye height. */
+    { 32.73f / 170.0f, 12.91f / 170.0f, -0.77f / 170.0f }, /* chest, gun side */
+    { 33.52f / 170.0f, 16.82f / 170.0f,  2.21f / 170.0f }, /* gadgets, off side */
 };
 /* cm at Normal; the shoulders are reached blind, so they are larger (Quake VR's 30 cm) */
 static const float s_gevrBodyRadius[GEVR_BODY_SLOTS] = { 13.0f, 13.0f, 20.0f, 20.0f, 10.0f, 10.0f };

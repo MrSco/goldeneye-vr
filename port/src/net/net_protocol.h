@@ -11,7 +11,7 @@
 #include "net_match.h"
 
 #define GEVR_NET_MAGIC           0x47455652  /* "GEVR" */
-#define GEVR_NET_VERSION         20  /* 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
+#define GEVR_NET_VERSION         21  /* 21: host movement speed; 20: v0.4.14, the hit immunity rule's bits (NET_FUN_HIT_IMMUNITY, NET_FUN_HIT_EVERY), which v0.4.11-v0.4.13 refuse, and soft collision; 19: the No radar match rule (NET_FUN_NO_RADAR), which v0.4.11 rejects, and bots (the match config's bot fields, the lobby slot's is_bot); 18: v0.4.6, a match config may name Statue (22) and Cradle (41), which v0.4.5 rejects; 17: v0.4.0, the released form of 16 (16 named only unreleased test builds, whose packet layout changed under it); 16: eight player slots and the host's player count; co-op mode (mode, difficulty in the match config; guard, mission, menu and revive messages); 15: clock synchronization, timestamped shots, epoch/life IDs; 14: next-round fun settings; 13: team voice routing; 12: friendly fire and authoritative ammo transforms; 11: voice modes, pending/active teams, elimination, ping; 10: the owner's health, armour and death in PLAYER_STATE; 9: the match config, spectators, loadouts, the left hand; 8: votes, host migration; 7: gun aim, projectile/explosion/object events */
 #define GEVR_DEFAULT_PORT        27007
 #define GEVR_DISCOVERY_PORT      27008
 #define GEVR_MAX_PLAYERS         8   /* protocol 16; every slot is a game player number (src/bondconstants.h MAX_PLAYER_COUNT) */
@@ -261,6 +261,7 @@ typedef struct {
     uint8_t bot_mode;       /* NET_BOT_OFF / FILL / FIXED (net_match.h); deathmatch only */
     uint8_t bot_count;      /* NET_BOT_FIXED: 1..GEVR_MAX_PLAYERS-1 */
     uint8_t bot_difficulty; /* NET_BOT_MEAT .. NET_BOT_DARK */
+    uint8_t movement_speed; /* NET_MOVE_*, live host rule */
 } NetMatchConfig;
 
 /* No native pointers or structure padding enter the wire format. */
@@ -305,7 +306,7 @@ static inline int netbufReadAmmoState(struct netbuf *b, NetAmmoState *s) {
 }
 
 static inline int netMatchConfigValid(const NetMatchConfig *c) {
-    if (!c || c->mode > NET_MODE_COOP) return 0;
+    if (!c || c->mode > NET_MODE_COOP || c->movement_speed >= NET_MOVE_COUNT) return 0;
     if (c->mode == NET_MODE_COOP) {
         /* the deathmatch fields ride along unused; the mission and difficulty decide */
         if (!netCoopStageValid(c->stage) || c->difficulty >= NET_DIFFICULTY_COUNT ||
@@ -353,6 +354,7 @@ static inline u32 netbufWriteMatchConfig(struct netbuf *buf, const NetMatchConfi
     netbufWriteU8(buf, c->bot_mode);
     netbufWriteU8(buf, c->bot_count);
     netbufWriteU8(buf, c->bot_difficulty);
+    netbufWriteU8(buf, c->movement_speed);
     return buf->error;
 }
 
@@ -376,6 +378,7 @@ static inline u32 netbufReadMatchConfig(struct netbuf *buf, NetMatchConfig *c) {
     c->bot_mode = netbufReadU8(buf);
     c->bot_count = netbufReadU8(buf);
     c->bot_difficulty = netbufReadU8(buf);
+    c->movement_speed = netbufReadU8(buf);
     return buf->error;
 }
 
