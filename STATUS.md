@@ -3,9 +3,9 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current build:** v0.4.17 (versionCode 72, protocol 21), released 2026-10-09.
-Latest release: v0.4.17. v0.4.16 can join; v0.4.15 and older can't. Building
-does not publish a GitHub release. No game data is shipped.
+**Current build:** v0.4.18 (versionCode 73, protocol 21), released 2026-10-10.
+Latest release: v0.4.18. v0.4.16 and v0.4.17 can join; v0.4.15 and older
+can't. Building does not publish a GitHub release. No game data is shipped.
 
 Movement speed: 50%-200%, 100% default, separate solo and host settings;
 host changes apply to the whole session, bots included. Room-scale walking
@@ -13,16 +13,21 @@ is unchanged. Native checks pass; two-headset checks pending. Details:
 [movement speed](docs/player-movement-speed.md). Launcher Match and Comfort
 use two columns, and the eight-player lobby fits without scrolling. Chest
 and Belt defaults use saved Quest fits at 170 cm; custom fits stay intact.
-See [body slots](docs/body-slots.md). Watch Controls clears inherited depth
-before drawing; headset review of the controller is pending.
+See [body slots](docs/body-slots.md).
 
-v0.4.17 (user headset-tested): a left-hand GE-X scope mirrors its lens with
-the gun (one fit serves both hands); online only the local slot posts bottom
-messages, eight rows (bots in slots 5-7 overflowed into the top message);
-fb1c9718: stan.c line/volume room lists now hold their -1 after 20 rooms.
+v0.4.18 (user headset-tested, Quest 3): the watch's Control page draws the
+headset's Touch controllers (Quest 1/2, Touch Plus, Touch Pro; VR settings >
+Controls > Controllers overrides), each over live lists of its controls that
+follow play mode, handedness, Swap sticks, the off hand's item, grip
+gestures and Motion throwing; parts move and light when pressed. Depth is
+cleared before the pair. Data generated from Meta's controller art; see
+[Touch controllers](docs/touch-controllers.md). The empty off hand's
+trigger no longer presses R (it aimed and lit the gun hand's crosshair).
 
 ## Recent releases
 
+**v0.4.18:** Touch controllers on the watch's Control page, off-hand trigger
+no longer aims (PR #166). Notes: [v0.4.18](docs/releases/v0.4.18.md).
 **v0.4.17:** crash fix fb1c9718 (bots at match start), off-hand GE-X scope
 lens, bot messages and pickup sounds kept off the host. Notes:
 [v0.4.17](docs/releases/v0.4.17.md).
@@ -34,10 +39,8 @@ keeps magazines, guides and off-hand reloads (#157, #160), two-handed grips
 with a gun in either hand (#160), bots around Library glass (#158), co-op
 briefing and Caverns music hangs (#156); combined in #159. Notes:
 [v0.4.15](docs/releases/v0.4.15.md).
-**v0.4.14:** bots handle doors, soft player collision, the hit immunity rule
-(Short default), object escape, HUD through hits (#153). Notes:
-[v0.4.14](docs/releases/v0.4.14.md).
-**Earlier:** v0.4.13 crash fixes (#151); v0.4.12 detonator watch fit; v0.4.11
+**Earlier:** v0.4.14 bot doors, soft collision, hit immunity (#153); v0.4.13
+crash fixes (#151); v0.4.12 detonator watch fit; v0.4.11
 bots, 3D audio and GE-X for every weapon (#133-#149); v0.4.10 wall movement,
 co-op gadgets (#127, #131); v0.4.9 smooth locomotion, GE-X muzzles, belt
 reloads (#124-#126); v0.4.6-v0.4.8 settings persistence, GE-X KF7 and hand
@@ -67,9 +70,9 @@ is goldeneyevr.com, in its own repository.
 
 ## Outstanding issues / limits
 
-- #161–#164: fixes released in v0.4.16; issues stay open for co-op headset
-  checks. User reports Natalya's solo movement/combat working. See
-  docs/issue-161-164-campaign-fixes.md.
+- #161–#164: fixes released in v0.4.16; issues closed at v0.4.18 on the
+  user's say. Only Natalya's solo movement/combat is headset-confirmed; the
+  co-op checks in docs/issue-161-164-campaign-fixes.md are still owed.
 - Co-op cutscenes on a teammate, revive, menus and debrief need continued
   two-headset testing; the invisible ending report remains open. Bond's
   cinema animation and script music stay on the host.
