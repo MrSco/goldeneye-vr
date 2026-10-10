@@ -95,6 +95,9 @@ int VrCoopFastReinforcements = 0; /* host-controlled co-op rule; clients follow 
 int VrPlayMode = 1;
 int VrWatchFaceStatus = GEVR_WATCH_FACE_ON;
 int VrWatchGesturePause = 1;
+/* The watch's Controls page: 0 draws the headset's own Touch controllers,
+ * 1..4 Quest 1, Quest 2, Touch Plus, Touch Pro (src/game/gevr_touch.c). */
+int VrTouchModel = 0;
 
 /* GoldenEye: comfort vignette while moving in stereo, 0 = off .. 1. */
 float VrComfortVignette = 0.0f;
