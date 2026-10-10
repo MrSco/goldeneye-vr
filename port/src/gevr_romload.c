@@ -31,6 +31,7 @@
 #include "fs.h"
 #include "system.h"
 #include "gevr_rom_manifest.h"
+#include "gevr_romcheck.h"
 #include "gevr_rom_segments.h"
 #include "gevr_texpack_preload.h"
 
@@ -74,33 +75,6 @@ static const char *const gevrRomNames[] = {
 	"007 - GoldenEye.z64",
 	"GoldenEye 007 (U) [!].z64",
 };
-
-static s32 gevrRomNormaliseOrder(u8 *rom, u32 size)
-{
-	u32 i;
-	u8 t;
-
-	if (rom[0] == 0x80 && rom[1] == 0x37 && rom[2] == 0x12 && rom[3] == 0x40) {
-		return 1;                          /* .z64, the order the game uses */
-	}
-
-	if (rom[0] == 0x37 && rom[1] == 0x80 && rom[2] == 0x40 && rom[3] == 0x12) {
-		for (i = 0; i + 1 < size; i += 2) { /* .v64, byteswapped */
-			t = rom[i]; rom[i] = rom[i + 1]; rom[i + 1] = t;
-		}
-		return 1;
-	}
-
-	if (rom[0] == 0x40 && rom[1] == 0x12 && rom[2] == 0x37 && rom[3] == 0x80) {
-		for (i = 0; i + 3 < size; i += 4) { /* .n64, little-endian */
-			t = rom[i];     rom[i]     = rom[i + 3]; rom[i + 3] = t;
-			t = rom[i + 1]; rom[i + 1] = rom[i + 2]; rom[i + 2] = t;
-		}
-		return 1;
-	}
-
-	return 0;
-}
 
 static s32 gevrRomValidate(const u8 *rom, u32 size)
 {
@@ -208,6 +182,13 @@ s32 romdataInit(void)
 	}
 
 	if (!gevrRomValidate((const u8 *)data, size)) {
+		free(data);
+		return -1;
+	}
+
+	char error[192];
+	if (!gevrRomCheckFiles(data, size, error, sizeof(error))) {
+		sysLogPrintf(LOG_ERROR, "rom: %s", error);
 		free(data);
 		return -1;
 	}
