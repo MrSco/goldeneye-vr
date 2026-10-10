@@ -65,6 +65,7 @@ float VrUseSnapTurn = 0.0f;
 /* Smooth turning speed in degrees per second (GEVR PC vr443's turn speed;
  * 120 is PD VR's fixed VR_JOY_TURN_SPEED). */
 int VrSmoothTurnSpeed = 120;
+int VrMovementSpeed = 0, VrMpMovementSpeed = 0;
 
 /* GEVR PC's grip gestures (CONTROLS.md, vr450..vr453), one toggle each. A
  * gesture claims a fresh grip press only with the hand in its zone; any other

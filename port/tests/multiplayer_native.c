@@ -43,16 +43,17 @@ EXPORT int test_protocol(void) {
     original.health=10;original.dual_wield=2;original.loadouts=1;original.next_round=2;original.voice_mode=1;original.friendly_fire=1;
     for (int i=0;i<4;i++) original.custom_set[i]=(uint8_t)(10+i);
     original.max_players=6;original.mode=1;original.difficulty=2;
+    original.movement_speed=NET_MOVE_175;
     original.bot_mode=NET_BOT_FIXED;original.bot_count=5;original.bot_difficulty=NET_BOT_DARK;
     netbufStartWrite(&b); netbufWriteMatchConfig(&b,&original);
-    if (b.error || b.wp != 22 || GEVR_NET_VERSION != 20 || GEVR_MAX_PLAYERS != 8) return 1;
+    if (b.error || b.wp != 23 || GEVR_NET_VERSION != 21 || GEVR_MAX_PLAYERS != 8) return 1;
     netbufStartReadData(&b,raw,b.wp); netbufReadMatchConfig(&b,&received);
     if (b.error || netbufReadLeft(&b) || memcmp(&original,&received,sizeof(original))) return 2;
-    for(int size=0;size<22;size++) {
+    for(int size=0;size<23;size++) {
         netbufStartReadData(&b,raw,size); netbufReadMatchConfig(&b,&received); if(!b.error) return 3;
     }
-    netbufStartReadData(&b,raw,22); netbufReadMatchConfig(&b,&received);
-    netbufStartWrite(&b); b.size=21; netbufWriteMatchConfig(&b,&original); if(!b.error) return 4;
+    netbufStartReadData(&b,raw,23); netbufReadMatchConfig(&b,&received);
+    netbufStartWrite(&b); b.size=22; netbufWriteMatchConfig(&b,&original); if(!b.error) return 4;
     return 0;
 }
 EXPORT int test_spatial_init(void) { return netSpatialInit(); }
@@ -66,6 +67,11 @@ EXPORT int test_config_validation(void) {
     NetMatchConfig c={0}; c.stage=34; c.health=5; c.max_players=4;
     for(int i=0;i<4;i++) c.custom_set[i]=netItem(0)->item;
     if(!netMatchConfigValid(&c)) return 1;
+    for(int i=0;i<NET_MOVE_COUNT;i++) {
+        c.movement_speed=i;if(!netMatchConfigValid(&c)) return 20;
+    }
+    c.movement_speed=NET_MOVE_COUNT;if(netMatchConfigValid(&c)) return 21;
+    c.movement_speed=NET_MOVE_NORMAL;
     c.voice_mode=2; if(netMatchConfigValid(&c)) return 2; c.voice_mode=0;
     /* the host's count, two to eight, on any stage: eight on Egypt (the game's two) */
     c.stage=32; c.max_players=8; if(!netMatchConfigValid(&c) || netConfigMaxPlayers(&c)!=8) return 3;
@@ -81,6 +87,7 @@ EXPORT int test_config_validation(void) {
     c.friendly_fire=0;c.fun_flags=8;if(netMatchConfigValid(&c)) return 10;
     c.fun_flags=NET_FUN_NO_RADAR;if(!netMatchConfigValid(&c)) return 18;
     c.mode=NET_MODE_COOP;c.stage=NET_COOP_FRONT_STAGE;c.difficulty=0;
+    c.movement_speed=255;if(netMatchConfigValid(&c)) return 22;c.movement_speed=NET_MOVE_NORMAL;
     c.fun_flags=NET_FUN_NO_RADAR|NET_COOP_FAST_REINFORCEMENTS;if(!netMatchConfigValid(&c)) return 19;
     c.mode=0;c.stage=34;c.difficulty=0;c.fun_flags=255;if(netMatchConfigValid(&c)) return 11;
     c.fun_flags=7;c.gun_size=3;if(netMatchConfigValid(&c)) return 12;

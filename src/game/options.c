@@ -3529,6 +3529,11 @@ Gfx *draw_watch_controller(Gfx *gdl)
     guPerspective(perspmtx, &perspNorm, WATCH_PERSPECTIVE_FOVY, WATCH_PERSPECTIVE_ASPECT, 1000.0f, 3000.0f, 1.0f);
     gSPMatrix(gdl++, osVirtualToPhysical(perspmtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
     gdl = sub_GAME_7F0A6EE8(gdl);
+    /* The watch overlays the world. Its controllers have their own projection:
+     * old world depth can hide a shell while nearer parts remain visible.
+     * Start a fresh depth pass once, preserving depth between both controllers
+     * and their moving parts. Colour and watch text stay intact. */
+    gDPParam(gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
     green = g_WatchBackgroundGreen;
     gdl = gevrTouchRender(gdl, &finalmtx, green < 0xe0 ? green - 6 : 0xff);
     return gevrTouchDrawLabels(gdl);
@@ -3855,6 +3860,7 @@ static Gfx *gevrDrawMicOption(Gfx *gdl, s32 y)
  * the right stick click switches it in a level).
  */
 extern float VrUseSnapTurn;          /* 0 smooth, else the snap angle */
+extern int VrMovementSpeed;
 extern int VrSmoothTurnSpeed;        /* degrees per second, 45..240 */
 extern float VrComfortVignette;      /* 0 off, 0.1..1 */
 extern int VrWatchFaceStatus;        /* 0 off, 1 on, 2 only */
@@ -3901,6 +3907,7 @@ enum {
     GEVR_VR_REFRESH, GEVR_VR_WATCHFACE, GEVR_VR_STATS, GEVR_VR_SCREENSIZE, GEVR_VR_SCREENDIST, GEVR_VR_CURVED, GEVR_VR_PASSTHROUGH,
     GEVR_VR_MINESTICK, GEVR_VR_BODIES, GEVR_VR_FASTREINF,
     GEVR_VR_GEXGUNS, GEVR_VR_GUNSIZE,
+    GEVR_VR_MOVESPEED,
     GEVR_VR_ROWS
 };
 
@@ -3913,10 +3920,11 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Refresh", "Watch face", "Show stats", "Screen size", "Screen dist", "Curved", "Passthrough",
     "Mines stick", "Bodies stay", "Fast reinforcements",
     "GoldenEye X", "Gun size",
+    "Movement speed",
 };
 
 /* the sections, as the launcher groups them */
-static const s32 s_gevrVrComfort[] = { GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH };
+static const s32 s_gevrVrComfort[] = { GEVR_VR_MOVESPEED, GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH };
 static const s32 s_gevrVrControls[] = { GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_SIGHT, GEVR_VR_STEADY, GEVR_VR_GUNFIT, GEVR_VR_TOUCH };
 static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_BODYSLOTS, GEVR_VR_SLOTSIZE, GEVR_VR_HOLSTER, GEVR_VR_RELOAD,
                                          GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB };
@@ -4018,6 +4026,11 @@ static void gevrVrValueText(s32 row, char *buf)
 
     switch (row)
     {
+        case GEVR_VR_MOVESPEED:
+            if (!netIsActive() && VrMovementSpeed == NET_MOVE_NORMAL) sprintf(buf, "100%% DEFAULT");
+            else sprintf(buf, netIsActive() ? "HOST %d%%" : "%d%%",
+                         netMovementSpeedPercent(netIsActive() ? netActiveMovementSpeed() : VrMovementSpeed));
+            break;
         case GEVR_VR_TURN:
             if (VrUseSnapTurn == 0.0f)
             {
@@ -4146,6 +4159,12 @@ static void gevrVrStep(s32 row, s32 dir)
 
     switch (row)
     {
+        case GEVR_VR_MOVESPEED:
+            i = netMovementSpeedPercent(netIsActive() ? netActiveMovementSpeed() : VrMovementSpeed);
+            i = netMovementSpeedMode(50 + gevrVrClampStep((i - 50) / 25, dir, 0, 6) * 25);
+            if (netIsActive()) gevrNetConfigSet(CFG_MOVEMENT_SPEED, i);
+            else VrMovementSpeed = i;
+            break;
         case GEVR_VR_TURN:
             for (i = 0; i < 3 && snaps[i] < VrUseSnapTurn; i++)
             {

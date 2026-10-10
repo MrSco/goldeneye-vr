@@ -237,6 +237,7 @@ extern f32 D_800364CC;
 extern int gevrVrScreenMode;             /* gfx_pc.cpp: the frame goes to the virtual screen */
 extern int VrPlayMode;                   /* vr_settings: 1 = stereo gameplay */
 extern float VrUseSnapTurn;              /* vr_settings: snap angle, 0 = smooth */
+extern int VrMovementSpeed;
 extern int VrSmoothTurnSpeed;            /* vr_settings: smooth turning, degrees per second */
 extern int gevrVrReady(void);            /* vr_openxr.cpp */
 extern void gevrVrHeadQuat(float out[4]);
@@ -366,6 +367,9 @@ s32 gevrCoopPlaceBeside(s32 target)
     coord3d pos;
     StandTile *stan;
     f32 facing;
+    coord3d reserved[4];
+    s32 count = 0, i;
+    extern s32 gevrCoopFindSpawnSpot(coord3d *, StandTile **, f32, const coord3d *, s32);
 
     if (chr == NULL || them == NULL || them == g_CurrentPlayer || them->prop == NULL)
     {
@@ -391,7 +395,13 @@ s32 gevrCoopPlaceBeside(s32 target)
         facing -= M_TAU_F;
     }
     sub_GAME_7F03D058(prop, FALSE);
-    if (!chrAdjustPosForSpawn(&pos, &stan, facing, TRUE))
+    for (i = 0; i < 4; i++)
+    {
+        struct player *other = g_playerPointers[i];
+        if (other && other != g_CurrentPlayer && other->prop && !other->bonddead)
+            reserved[count++] = other->prop->pos;
+    }
+    if (!gevrCoopFindSpawnSpot(&pos, &stan, facing, reserved, count))
     {
         sub_GAME_7F03D058(prop, TRUE);
         return FALSE;
@@ -12334,6 +12344,16 @@ void gevrCoopApplyTank(s32 slot, s32 driven, const f32 pos[3], f32 yaw, f32 turr
 }
 #endif
 
+#ifdef GEVR
+/* Scale animation-driven stick travel before collision; physical walking,
+ * knockback, vertical motion and the tank use separate movement paths. */
+static void gevrScalePlayerWalk(f32 *x, f32 *z) {
+    f32 factor = netMovementSpeedFactor(netIsActive() ? netActiveMovementSpeed() : VrMovementSpeed);
+    *x *= factor;
+    *z *= factor;
+}
+#endif
+
 void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 {
     struct coord3d move_offset;
@@ -13273,6 +13293,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
         headpos_x = g_CurrentPlayer->headpos.f[0];
         headpos_z = g_CurrentPlayer->headpos.f[2];
+#ifdef GEVR
+        gevrScalePlayerWalk(&headpos_x, &headpos_z);
+#endif
 
         move_offset.f[0] +=
             (
