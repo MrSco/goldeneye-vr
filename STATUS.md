@@ -3,9 +3,9 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current build:** v0.4.16 (versionCode 71, protocol 21), released 2026-10-09.
-Latest release: v0.4.16. v0.4.15 and older can't join. Building does not
-publish a GitHub release. No game data is shipped.
+**Current build:** v0.4.17 (versionCode 72, protocol 21), released 2026-10-09.
+Latest release: v0.4.17. v0.4.16 can join; v0.4.15 and older can't. Building
+does not publish a GitHub release. No game data is shipped.
 
 Movement speed: 50%-200%, 100% default, separate solo and host settings;
 host changes apply to the whole session, bots included. Room-scale walking
@@ -16,17 +16,16 @@ and Belt defaults use saved Quest fits at 170 cm; custom fits stay intact.
 See [body slots](docs/body-slots.md). Watch Controls clears inherited depth
 before drawing; headset review of the controller is pending.
 
-Branch claude/sniper-scope-offhand-60a6ed (2026-10-09, unmerged, headset
-check pending): a GE-X scope in the left hand mirrors its lens with the gun,
-so the right hand's scope fit serves both hands. Online, only the local
-player posts bottom messages, and the rows cover eight slots (bots in slots
-5-7 wrote into the top message). A bot's armour pickup sound plays where it
-stands. Crash report fb1c9718 (v0.4.16, match start with bots): stan.c's
-line and volume tests wrote their room list's -1 one word past it after a
-full twenty-room walk; both buffers hold the terminator now.
+v0.4.17 (user headset-tested): a left-hand GE-X scope mirrors its lens with
+the gun (one fit serves both hands); online only the local slot posts bottom
+messages, eight rows (bots in slots 5-7 overflowed into the top message);
+fb1c9718: stan.c line/volume room lists now hold their -1 after 20 rooms.
 
 ## Recent releases
 
+**v0.4.17:** crash fix fb1c9718 (bots at match start), off-hand GE-X scope
+lens, bot messages and pickup sounds kept off the host. Notes:
+[v0.4.17](docs/releases/v0.4.17.md).
 **v0.4.16:** live solo and host movement speed (protocol 21), two-column
 launcher, eight-player lobby fit, Chest/Belt fits, campaign co-op fixes
 #161-#164 (PR #165). Notes: [v0.4.16](docs/releases/v0.4.16.md).
@@ -38,33 +37,13 @@ briefing and Caverns music hangs (#156); combined in #159. Notes:
 **v0.4.14:** bots handle doors, soft player collision, the hit immunity rule
 (Short default), object escape, HUD through hits (#153). Notes:
 [v0.4.14](docs/releases/v0.4.14.md).
-**v0.4.13:** crash fixes (#151): stale portal table at the title, full sound
-queue. Notes: [v0.4.13](docs/releases/v0.4.13.md).
-**v0.4.12:** the GE-X detonator watch's default fit. Notes: [v0.4.12](docs/releases/v0.4.12.md).
-**v0.4.11:** deathmatch bots and 3D game audio (#149), GE-X for every weapon and
-item (#137-#148), co-op tank sync (#143), No radar and silent-headset drop
-(#144), Statue/Depot pop-in (#133, #140), #136, #139, #145. Notes:
-[v0.4.11](docs/releases/v0.4.11.md).
-
-## Release baseline
-
-**v0.4.10:** smoother wall and curb movement, fewer render stalls, shared co-op
-mission gadgets (#127, #131). Notes: [v0.4.10](docs/releases/v0.4.10.md).
-
-**v0.4.9:** smooth VR locomotion between game ticks; performance status;
-GE-X muzzle flashes follow fitted barrel tips (#126); calibrated belt reloads
-(#124, #125). Notes: [v0.4.9](docs/releases/v0.4.9.md).
-
-**v0.4.6-v0.4.8:** settings persistence (#113), co-op spawn unclogging (#121),
-GE-X KF7 and hand reload (#114-#118), #95 round 2 (#110), watch settings (#111).
-Notes in docs/releases/.
-
-**Earlier:** v0.4.5 added screen passthrough and fixed Frigate fixtures,
-co-op readiness and sniper no-lean zoom. v0.4.4 added in-hand gadgets and
-persistent gadget fit. v0.4.3 added wrist status and independent hand reloads.
-v0.4.2 added weapon wheels and multiplayer pause UI. v0.4.1 added host-camera
-co-op cutscenes. v0.4.0 added four-player co-op and eight-player deathmatch.
-See docs/releases/, docs/playtest-* and Git history for earlier evidence.
+**Earlier:** v0.4.13 crash fixes (#151); v0.4.12 detonator watch fit; v0.4.11
+bots, 3D audio and GE-X for every weapon (#133-#149); v0.4.10 wall movement,
+co-op gadgets (#127, #131); v0.4.9 smooth locomotion, GE-X muzzles, belt
+reloads (#124-#126); v0.4.6-v0.4.8 settings persistence, GE-X KF7 and hand
+reload, watch settings (#110-#121); v0.4.0-v0.4.5 four-player co-op,
+eight-player deathmatch, weapon wheels, gadgets, passthrough. Notes for each
+are in docs/releases/; older evidence in docs/playtest-* and Git history.
 
 ## What it is and what works
 
