@@ -91,6 +91,8 @@ extern "C" {
 #endif
 // Final dimensions for a requested Quest scale, including the active device limits.
 bool vr_get_render_dimensions_for_scale(float scale, int32_t *width, int32_t *height);
+// Current XR eye midpoint in play space, for rebasing a lost controller pose.
+int gevrVrFrameHeadPose(XrPosef *out);
 // Returns total available rates; copies up to capacity whole-Hz choices from this session.
 int vr_get_supported_refresh_rates(int *rates, int capacity);
 #ifdef __cplusplus

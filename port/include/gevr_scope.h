@@ -18,8 +18,8 @@ typedef struct GevrScopeState
     float lens[4];         /* the lens from the hand's grip: right, up, back, diameter (m) */
     float origin[3];       /* the scope camera, camera space (gunfire.c sizes its sight) */
     float fovDeg;          /* the angle across the lens */
-    float gunOrigin[3];    /* gun grip pos in view space (m) */
-    float gunAxes[3][3];   /* gun right, up, back axes */
+    float gunOrigin[3];    /* game-frame grip pos in view space (m); lens submission applies the eye replay delta */
+    float gunAxes[3][3];   /* game-frame gun right/up/back axes, including two-hand aim */
     int   gunValid;        /* whether gunOrigin/gunAxes are valid */
     /*
      * Issue #58: the lens's radius over its distance from the eyes, as last

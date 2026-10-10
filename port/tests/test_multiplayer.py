@@ -82,7 +82,7 @@ def build_core():
     if result.returncode: raise RuntimeError(result.stderr)
     return C.CDLL(str(NATIVE/"net_core_native.dll"))
 
-def build_fixture(name, source=None):
+def build_fixture(name, source=None, source_ref=None):
     fixture=(ROOT/f"port/tests/{name}.c").read_text(encoding="utf-8")
     if name == "coop_drop_native":
         def function(path, signature):
@@ -119,7 +119,10 @@ def build_fixture(name, source=None):
         body=inventory[inventory.index('void bondinvReinitInv(void)'):inventory.index('/**',inventory.index('void bondinvReinitInv(void)'))]
         fixture=fixture.replace('/* INSERT_PRODUCTION_REINIT */',body)
     elif name == "hand_native":
-        panel=(ROOT/'src/game/bondview2.c').read_text(encoding='utf8')
+        panel=source if source is not None else (ROOT/'src/game/bondview2.c').read_text(encoding='utf8')
+        poses=panel[panel.index('static GevrItemPose s_gevrItemPoses[]'):panel.index('/* GoldenEye X\'s hand\'s own fits')]
+        posed_items=re.findall(r'\{ (ITEM_\w+),',poses)
+        fixture=fixture.replace('/* INSERT_POSED_ITEMS */','static const s32 posedItems[] = {'+','.join(posed_items)+'};')
         start=panel.index('#define GEVR_WP_MAX 96')
         end=panel.index('extern u16 *bondinvGetNameByIndex',start)
         region=panel[start:end]
@@ -128,6 +131,19 @@ def build_fixture(name, source=None):
         if cut>=0:
             region=region[:cut]+region[region.index("/*\n * The panel is a wheel of categories",cut):]
         fixture=fixture.replace('/* INSERT_HAND_INVENTORY */',region)
+        def extract(text,signature):
+            match=re.search(re.escape(signature)+r'[^;{]*\{',text)
+            assert match,signature
+            end=match.end();depth=1
+            while depth:
+                depth+=(text[end]=='{')-(text[end]=='}');end+=1
+            return text[match.start():end]
+        body=(ROOT/'src/game/gevr_bodyslots.c').read_text(encoding='utf8')
+        bridge='\n'.join(extract(panel,s) for s in ('s32 gevrBodyHandSelected(',
+            's32 gevrBodyHandList(','s32 gevrStereoWatchItem('))
+        bridge+='\n'+'\n'.join(extract(body,s) for s in ('static s32 gevrBodySlotForItem(',
+            'static s32 gevrBodyItemKept(','static s32 gevrBodyChoicesFor('))
+        fixture=fixture.replace('/* INSERT_BODY_INVENTORY */',bridge)
         inventory=(ROOT/'src/game/bondinv.c').read_text(encoding='utf8')
         start=inventory.index('int bondinvAddWeaponByProp(')
         end=inventory.index('#ifdef GEVR',inventory.index('    return added;',start))
@@ -142,6 +158,9 @@ def build_fixture(name, source=None):
         body=panel[start:end].split('/**',1)[0]
         fixture=fixture.replace('/* INSERT_SELECT_CUFF */',body)
         gun=(ROOT/'src/game/gun.c').read_text(encoding='utf8')
+        if source_ref:
+            gun=subprocess.check_output(['git','show',source_ref+':src/game/gun.c'],cwd=ROOT,text=True,encoding='utf8')
+        fixture=fixture.replace('/* INSERT_WATCH_HANDS */',extract(gun,'void gevrGexWatchHandsTick('))
         start=gun.index('ITEM_IDS get_next_weapon_in_cycle_for_hand(')
         end=gun.index('void gunRequestHandWeaponChange(',start)
         fixture=fixture.replace('/* INSERT_NEXT_WEAPON */',gun[start:end])
@@ -149,6 +168,8 @@ def build_fixture(name, source=None):
         end=gun.index('// Unused',start)
         fixture=fixture.replace('/* INSERT_HAND_REQUEST */',gun[start:end])
         fire=(ROOT/'src/game/gunfire.c').read_text(encoding='utf8')
+        if source_ref:
+            fire=subprocess.check_output(['git','show',source_ref+':src/game/gunfire.c'],cwd=ROOT,text=True,encoding='utf8')
         start=fire.index('                /* Stereo hands are independent;')
         end=fire.index('                currentPlayerUnEquipWeaponWrapper(hand,',start)
         fixture=fixture.replace('/* INSERT_PAIR_VALIDATION */',fire[start:end])
@@ -215,6 +236,8 @@ def build_fixture(name, source=None):
     args += ["-I"+str(ROOT/v) for v in (".","port/include","include","src","src/game","port/src","port/src/net")]
     if name == "sfx_queue_native":
         args += ["-I"+str(ROOT/"include/PR")]
+    if name == "hand_native":
+        args += [str(ROOT/'port/src/gevr_bodyslot.c')]
     args += [str(path),"-o",str(NATIVE/f"{name}.dll")]
     result=subprocess.run(args,cwd=ROOT,capture_output=True,text=True)
     if result.returncode: raise RuntimeError(result.stderr)
@@ -268,6 +291,10 @@ class MultiplayerNativeTests(unittest.TestCase):
     def test_tap_hold_grip_and_menu_input_routing(self): self.assertEqual(self.hands.test_hand_input(),0)
     def test_independent_hand_lists_and_cycling(self): self.assertEqual(self.hands.test_hand_cycles(),0)
     def test_weapon_wheel_categories_and_stick(self): self.assertEqual(self.hands.test_weapon_wheel(),0)
+    def test_mission_gadgets_in_both_body_slot_lists(self): self.assertEqual(self.hands.test_mission_gadget_slots(),0)
+    def test_mission_gadgets_have_one_hand_owner(self): self.assertEqual(self.hands.test_mission_gadget_ownership(),0)
+    def test_watch_laser_both_slots_keep_canonical_hands(self): self.assertEqual(self.hands.test_watch_laser_slots(),0)
+    def test_offhand_draw_exits_watch_laser(self): self.assertEqual(self.hands.test_watch_laser_exit(),0)
     def test_per_hand_depletion_and_switch_animation(self): self.assertEqual(self.hands.test_hand_depletion(),0)
     def test_native_fun_preferences_and_scaling(self): self.assertEqual(self.fun.test_fun_visuals(),0)
     def test_movement_speed_live_authority_snapshot_migration(self): self.assertEqual(self.core.test_core_movement_speed(),0)

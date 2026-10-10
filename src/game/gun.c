@@ -1145,6 +1145,7 @@ s32 gevrGexWatchItem(s32 item)
  */
 void gevrGexWatchHandsTick(void)
 {
+    extern s32 g_gevrStereo;
     extern void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection);   /* below */
     s32 st;
 
@@ -1154,6 +1155,15 @@ void gevrGexWatchHandsTick(void)
         || getCurrentPlayerWeaponId(GUNLEFT) == ITEM_UNARMED)
     {
         return;
+    }
+    /* Do not cancel a new offhand item while the old watch rig is lowering. */
+    if (g_gevrStereo)
+    {
+        struct hand *primary = &g_CurrentPlayer->hands[GUNRIGHT];
+        if ((primary->weapon_animation_trigger
+             || primary->weapon_action_state == GUN_ANIM_STATE_SWITCH_LOWER
+             || primary->weapon_action_state == GUN_ANIM_STATE_SWITCH_SWAP)
+            && !gevrGexWatchItem(primary->weapon_next_weapon)) return;
     }
     st = g_CurrentPlayer->hands[GUNLEFT].weapon_action_state;
     if (st != GUN_ANIM_STATE_SWITCH_LOWER && st != GUN_ANIM_STATE_SWITCH_SWAP)
@@ -3379,6 +3389,21 @@ Model *gevrGexHands(GUNHAND hand)
  * gevrStereoItemPose) - sits in it as in the fist. A left hand is the right
  * one mirrored, as the fist's was.
  */
+static Gfx *gevrGexDrawItemWatch(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, const Mtxf *forearm)
+{
+    extern Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], const f32 x[3], const f32 y[3]);
+    extern s32 g_gevrGexOffWatch;
+    f32 pos[3], x[3], y[3];
+
+    if (g_gevrStereo && hand == GUNLEFT && gevrGexWatchFrame(forearm, pos, x, y))
+    {
+        g_gevrGexOffWatch = TRUE;
+        gdl = gevrRenderGexWatch(gdl, templ, pos, x, y);
+        g_gevrGexOffWatch = FALSE;
+    }
+    return gdl;
+}
+
 Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mirror, s32 *drawn)
 {
     extern s32 gevrStereoGunMatrixFit(s32 handnum, const f32 off[3], Mtxf *out);   /* bondview2.c */
@@ -3417,9 +3442,9 @@ Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mir
     }
     if (g_gevrStereo && hand == GUNLEFT)
     {
-        for (i = 0; i < 4; i++)
+        for (i = 0; i < 3; i++)
         {
-            base.m[i][0] = -base.m[i][0];   /* a left hand: mirrored in the model's own frame */
+            base.m[0][i] = -base.m[0][i];   /* reflect model X, keeping the controller origin */
         }
     }
     for (i = 0; g_gevrStereo && i < 3; i++)
@@ -3462,6 +3487,8 @@ Gfx *gevrGexDrawItemHand(Gfx *gdl, ModelRenderData *templ, GUNHAND hand, s32 mir
     {
         gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
     }
+    /* Keep the watch on the actual posed offhand forearm, including gadgets. */
+    gdl = gevrGexDrawItemWatch(gdl, &renderdata, hand, &m[GEVR_GEX_RHAND_ARM]);
     bondviewTransformManyPosToViewMatrix(s_gevrGexHandModel.render_pos, n);
     matrix_4x4_7F058C88();
     *drawn = TRUE;
@@ -4014,6 +4041,27 @@ ITEM_IDS get_next_weapon_in_cycle_for_hand(GUNHAND hand, s32 direction)
 
 void gunRequestHandWeaponChange(enum GUNHAND hand, s32 nextWeapon, s32 cycleDirection)
 {
+#ifdef GEVR
+    extern s32 g_gevrStereo;
+    extern s32 gevrMissionItemClaimed(s32 hand, s32 item);
+
+    /* The watch laser has fixed roles even when picked with the off hand. */
+    if (g_gevrStereo && nextWeapon == ITEM_WATCHLASER)
+    {
+        gunRequestHandWeaponChange(GUNLEFT, ITEM_UNARMED, cycleDirection);
+        hand = GUNRIGHT;
+    }
+    /* Recheck stale wheel/body picks and back-to-back requests from both hands. */
+    if (g_gevrStereo && gevrMissionItemClaimed(hand, nextWeapon)) return;
+    if (g_gevrStereo && hand == GUNLEFT && nextWeapon != ITEM_UNARMED)
+    {
+        struct hand *primary = &g_CurrentPlayer->hands[GUNRIGHT];
+        s32 selected = primary->weapon_animation_trigger ? primary->weapon_next_weapon
+            : get_next_weapon_in_cycle_for_hand(GUNRIGHT, 0);
+        if (selected == ITEM_WATCHLASER)
+            gunRequestHandWeaponChange(GUNRIGHT, ITEM_FIST, cycleDirection);
+    }
+#endif
     if ((g_CurrentPlayer->hands[hand].weapon_action_state == GUN_ANIM_STATE_SWITCH_LOWER) || (g_CurrentPlayer->hands[hand].weapon_action_state == GUN_ANIM_STATE_SWITCH_SWAP))
     {
         g_CurrentPlayer->hands[hand].field_8B0 = g_CurrentPlayer->hands[hand].field_890;
