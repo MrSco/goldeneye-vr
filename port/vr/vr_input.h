@@ -74,7 +74,8 @@ struct ControllerInputState {
 
     // Calculated state
     XrPosef controller_pose;
-    bool is_active;
+    bool is_active;    // active action with a valid pose, including runtime inference
+    bool is_tracked;   // both position and orientation actively tracked
 };
 
 

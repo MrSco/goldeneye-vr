@@ -581,7 +581,8 @@ s32 inflate_block(s32 *e)
 }
 
 
-int inflate(void) {
+/* Keep the cartridge decoder private: zlib exports inflate(z_stream *, int). */
+static int inflate_legacy(void) {
   int e;
   int r;
   unsigned h;
@@ -618,7 +619,7 @@ u32 decompress_entry(void *src, void *dst, struct huft *hlist)
     inbuf = (s32) (inbuf + 2);
     wp = 0;
     inptr = 0;
-    inflate();
+    inflate_legacy();
     return wp;
 }
 

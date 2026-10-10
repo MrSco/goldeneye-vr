@@ -3,8 +3,8 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current build:** v0.4.18 (versionCode 73, protocol 21), released 2026-10-10.
-Latest release: v0.4.18. v0.4.16 and v0.4.17 can join; v0.4.15 and older
+**Current build:** v0.4.19 (versionCode 74, protocol 21), released 2026-10-10.
+Latest release: v0.4.19. v0.4.16, v0.4.17 and v0.4.18 can join; v0.4.15 and older
 can't. Building does not publish a GitHub release. No game data is shipped.
 
 Movement speed: 50%-200%, 100% default, separate solo and host settings;
@@ -14,6 +14,15 @@ is unchanged. Native checks pass; two-headset checks pending. Details:
 use two columns, and the eight-player lobby fits without scrolling. Chest
 and Belt defaults use saved Quest fits at 170 cm; custom fits stay intact.
 See [body slots](docs/body-slots.md).
+
+v0.4.19: valid inferred controller poses keep supported hands moving; scope
+and retained grip poses share the latest XR frame. Either hand can select
+mission gadgets; each device has one owner, and the GE-X gadget hand keeps
+its watch and fitted origin. Either selector invokes the canonical watch laser;
+offhand draws can leave it. ROM checks and bounded resource decoding (#168)
+include the legacy/zlib symbol collision fix. Native checks and signed build
+pass; latest startup, visual fit and occlusion behavior need headset retesting.
+Notes: [v0.4.19](docs/releases/v0.4.19.md).
 
 v0.4.18 (user headset-tested, Quest 3): the watch's Control page draws the
 headset's Touch controllers (Quest 1/2, Touch Plus, Touch Pro; VR settings >
@@ -26,6 +35,8 @@ trigger no longer presses R (it aimed and lit the gun hand's crosshair).
 
 ## Recent releases
 
+**v0.4.19:** hand/scope tracking, mission gadgets, watch laser, ROM validation
+and startup crash fix. Notes: [v0.4.19](docs/releases/v0.4.19.md).
 **v0.4.18:** Touch controllers on the watch's Control page, off-hand trigger
 no longer aims (PR #166). Notes: [v0.4.18](docs/releases/v0.4.18.md).
 **v0.4.17:** crash fix fb1c9718 (bots at match start), off-hand GE-X scope
@@ -34,11 +45,8 @@ lens, bot messages and pickup sounds kept off the host. Notes:
 **v0.4.16:** live solo and host movement speed (protocol 21), two-column
 launcher, eight-player lobby fit, Chest/Belt fits, campaign co-op fixes
 #161-#164 (PR #165). Notes: [v0.4.16](docs/releases/v0.4.16.md).
-**v0.4.15:** body slots with looked-at slot wheels (#157), GE-X hand reload
-keeps magazines, guides and off-hand reloads (#157, #160), two-handed grips
-with a gun in either hand (#160), bots around Library glass (#158), co-op
-briefing and Caverns music hangs (#156); combined in #159. Notes:
-[v0.4.15](docs/releases/v0.4.15.md).
+**v0.4.15:** body slots, hand reloads, two-handed grips and co-op hang fixes.
+Notes: [v0.4.15](docs/releases/v0.4.15.md).
 **Earlier:** v0.4.14 bot doors, soft collision, hit immunity (#153); v0.4.13
 crash fixes (#151); v0.4.12 detonator watch fit; v0.4.11
 bots, 3D audio and GE-X for every weapon (#133-#149); v0.4.10 wall movement,

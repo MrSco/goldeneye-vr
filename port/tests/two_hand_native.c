@@ -26,7 +26,7 @@ static float VrGunOffX, VrGunOffY, VrGunOffZ;
 static const float *s_gevrGunOffOverride;
 static int s_gevrMuzzleValid[2];
 static float s_gevrMuzzle[2][3];
-static int VrGexGuns, tracked[2] = {1, 1}, grip[2];
+static int VrGexGuns, tracked[2] = {1, 1}, usable[2] = {1, 1}, grip[2];
 static float pose[2][3]; /* physical controller positions, metres */
 static float VrGexHeldMag[3], gexFore[3];
 static int gexForeValid;
@@ -53,6 +53,7 @@ static int gevrReloadClaimsOffHand(void) { return reloadClaims; }
 static int gevrAimLogEnabled(void) { return 0; }
 static unsigned gevrVrGripSnapshotId(void) { return frame; }
 static int gevrVrGripTracked(int ctrl) { return tracked[gevrPhysHand(ctrl)]; }
+static int gevrVrGripUsable(int ctrl) { return usable[gevrPhysHand(ctrl)]; }
 static int gevrVrGripPoseCamera(int ctrl, float pos[3], float quat[4])
 {
     memcpy(pos, pose[gevrPhysHand(ctrl)], 3*sizeof(float));
@@ -166,6 +167,17 @@ static void testSlot(int gun, int leftHanded, int weapon)
     tracked[gevrPhysHand(gun)] = 0;
     for (int i = 0; i < 12; i++) tick();
     assert(gevrStereoTwoHandGrip());
+    /* Valid inferred support poses still advance aim; true loss retains it. */
+    assert(gevrGripAxes(1-gun, pos, r, u, b));
+    float savedDir = b[0];
+    pose[gevrPhysHand(gun)][0] += 0.08f;
+    tick(); assert(gevrGripAxes(1-gun, pos, r, u, b));
+    assert(fabsf(b[0] - savedDir) > 0.001f);
+    usable[gevrPhysHand(gun)] = 0; savedDir = b[0];
+    pose[gevrPhysHand(gun)][0] += 0.08f;
+    tick(); assert(gevrGripAxes(1-gun, pos, r, u, b));
+    near(b[0],savedDir);
+    usable[gevrPhysHand(gun)] = 1; pose[gevrPhysHand(gun)][0] = 0.06f;
     grip[gevrPhysHand(gun)] = 0; tick(); assert(!gevrStereoTwoHandGrip());
     tracked[gevrPhysHand(gun)] = 1;
     grip[gevrPhysHand(gun)] = 1; tick(); assert(gevrStereoTwoHandGrip());

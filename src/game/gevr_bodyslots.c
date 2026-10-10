@@ -209,12 +209,12 @@ static s32 gevrBodySlotForItem(s32 item, s32 hand)
     }
 }
 
-/* what a slot can hold: not the empty hands, the tank's shells, the flag, or
- * what the watch carries (the watch items and the detonator stay on the arm) */
+/* Watch laser is a shared belt selection that equips its normal watch setup;
+ * other watch devices and the detonator stay on the arm. */
 static s32 gevrBodyItemKept(s32 item)
 {
     return item > ITEM_FIST && item < ITEM_IDS_MAX && item != ITEM_TANKSHELLS && item != ITEM_TOKEN
-        && item != ITEM_SUIT_LF_HAND && !gevrStereoWatchItem(item);
+        && item != ITEM_SUIT_LF_HAND && (item == ITEM_WATCHLASER || !gevrStereoWatchItem(item));
 }
 
 /* a slot's choices for a hand, in the wheel's order; the count */

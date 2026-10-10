@@ -96,3 +96,23 @@ ROM is available here, so headset startup and gameplay remain unverified.
 Acceptance requires checking that the affected ROM shows an error in the
 launcher, and that a known-good original USA dump starts and loads missions,
 text banks and weapon models normally.
+
+## PR 168 launcher crash: decompressor symbol collision
+
+The locally built PR 168 release crashed on a connected Quest at
+2026-10-10 17:58:42, before entering the launcher. Its native stack was
+`inflate_block -> inflate -> gevrInflate1172 -> gevrRomCheckFiles` with a
+null input pointer. The cartridge decoder in `src/inflate/inflate.c` exported
+`inflate(void)`, intercepting the new zlib `inflate(z_stream *, int)` call.
+The prior isolated ROM test linked only zlib and missed this production conflict.
+
+The cartridge entry point is now named `inflate_legacy` and has static linkage;
+`decompress_entry` continues to call it. The ROM regression links the actual
+legacy decoder together with zlib and checks bounded decoding. The linked test
+passes, including malformed input and overwrite guards. The rebuilt ARM64 release
+imports zlib's `inflate` instead of defining it, passes APK signature verification,
+and retains the installed release certificate.
+
+The rebuilt APK was installed during testing, but Quest blocked startup with its
+controllers-required dialog. No successful headset launch or gameplay has been
+verified. Future APK installation requires the user's explicit instruction.
