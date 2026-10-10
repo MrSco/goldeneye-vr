@@ -61,6 +61,20 @@ extern "C" int probe(const char *path, char *error, size_t size) {
 
 def run(directory, verify_baseline):
     compiler = shutil.which("gcc") or "gcc"
+    # Link the actual cartridge decoder alongside zlib, as the Android app does.
+    # An exported legacy inflate(void) silently hijacks zlib's inflate(stream, flush).
+    (directory / "ultra64.h").write_text('''#include <stddef.h>
+#include <stdint.h>
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef int32_t s32;
+''')
+    legacy = directory / "legacy.o"
+    subprocess.run([compiler, "-std=c11", "-O2", "-fPIC",
+                    "-Wno-pointer-to-int-cast", "-Wno-int-conversion",
+                    "-I" + str(directory), "-c", str(ROOT / "src/inflate/inflate.c"),
+                    "-o", str(legacy)], check=True)
     for name, path in (("romcheck", "port/src/gevr_romcheck.c"),
                        ("manifest", "port/src/gevr_rom_manifest.c")):
         subprocess.run([compiler, "-std=c11", "-O2", "-Wall", "-Wextra", "-Werror",
@@ -68,7 +82,8 @@ def run(directory, verify_baseline):
                         "-o", str(directory / (name + ".o"))], check=True)
     library = directory / "romcheck.so"
     subprocess.run([compiler, "-shared", str(directory / "romcheck.o"),
-                    str(directory / "manifest.o"), "-lz", "-o", str(library)], check=True)
+                    str(directory / "manifest.o"), str(legacy),
+                    "-lz", "-o", str(library)], check=True)
     lib = C.CDLL(str(library))
     lib.gevrInflate1172.argtypes = [C.c_void_p, C.c_uint, C.c_void_p, C.c_uint,
                                    C.POINTER(C.c_uint)]
@@ -119,7 +134,7 @@ def run(directory, verify_baseline):
     assert not lib.gevrRomNormaliseOrder(None, 0)
     for size in range(4):
         assert not lib.gevrRomNormaliseOrder(C.create_string_buffer(b"\x80\x37\x12\x40"), size)
-    print("bounded decoding: stored/fixed/dynamic, exact capacity, overlap, padding and malformed input passed")
+    print("bounded decoding with linked legacy decoder: stored/fixed/dynamic, exact capacity, overlap, padding and malformed input passed")
 
     fixture = (ROOT / "port/tests/rom_resource_native.c").read_text()
     resource_source = directory / "resource.c"

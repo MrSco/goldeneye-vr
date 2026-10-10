@@ -146,6 +146,8 @@ void gunInitProjectileFromPlayer(ObjectRecord *obj, coord3d *targetpos, Mtxf *ar
 s32 gunSample1PTransform(Weapon1PTransformKeyframe *keyframes, f32 time, Mtxf *matrix, GUNHAND hand);
 void analyzeGEKey(void);
 void give_weapon_case_items(void);
+static void analyzeGEKeyInHand(GUNHAND hand);
+static void giveWeaponCaseItemsInHand(GUNHAND hand);
 struct ModelFileHeader *get_ptr_weapon_model_header_line(ITEM_IDS weapon);
 s32 get_ammo_in_hands_weapon(enum GUNHAND hand);
 s32 get_ammo_type_for_weapon(ITEM_IDS weapon);
@@ -458,7 +460,13 @@ static void gevrLeftGadgetMirror(Mtxf *m)
     f32 u[3], v[3], len, d;
     s32 i, j;
 
-    if (!gevrStereoGunMatrix(GUNLEFT, &g))
+    extern int VrGexGuns;
+    extern s32 gevrStereoGunMatrixFit(s32 hand, const f32 off[3], Mtxf *out);
+
+    /* The GE-X hand has its own fitted origin. Reflect the gadget about that
+     * hand, so its primary-hand calibration carries over to the off hand. */
+    if (!(VrGexGuns ? gevrStereoGunMatrixFit(GUNLEFT, gevrGexGunFit(ITEM_FIST), &g)
+                    : gevrStereoGunMatrix(GUNLEFT, &g)))
     {
         return;
     }
@@ -5246,6 +5254,14 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
                 /* Stereo hands are independent; native pair validation would
                  * holster the other hand or reject a carried mixed weapon. */
+#ifdef GEVR
+                {
+                    extern s32 gevrMissionItemClaimed(s32 hand, s32 item);
+
+                    if (g_gevrStereo && gevrMissionItemClaimed(hand, handptr->weapon_next_weapon))
+                        handptr->weapon_next_weapon = hand == GUNLEFT ? ITEM_UNARMED : ITEM_FIST;
+                }
+#endif
                 if (
 #ifdef GEVR
                     !g_gevrStereo &&
@@ -5969,14 +5985,14 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
         {
             if (handptr->field_88C == 0)
             {
-                analyzeGEKey();
+                analyzeGEKeyInHand(hand);
             }
         }
         else if (var_s1 == ITEM_WEAPONCASE)
         {
             if (handptr->field_88C == 0)
             {
-                give_weapon_case_items();
+                giveWeaponCaseItemsInHand(hand);
             }
         }
         else if ((var_s1 == ITEM_BOMBDEFUSER)
@@ -6089,7 +6105,22 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 #undef WHEN_1E_FLD890
 
 
-void analyzeGEKey(void)
+/* In stereo a gadget's result belongs to the hand which used it. Flat play
+ * keeps GoldenEye's original result in the right hand with the left cleared. */
+static void gevrEquipGadgetResult(GUNHAND hand, ITEM_IDS item)
+{
+#ifdef GEVR
+    if (g_gevrStereo)
+    {
+        currentPlayerEquipWeaponWrapper(hand, item);
+        return;
+    }
+#endif
+    currentPlayerEquipWeaponWrapper(GUNRIGHT, item);
+    currentPlayerEquipWeaponWrapper(GUNLEFT, ITEM_UNARMED);
+}
+
+static void analyzeGEKeyInHand(GUNHAND hand)
 {
     if (bondinvHasGEKey())
     {
@@ -6099,8 +6130,7 @@ void analyzeGEKey(void)
     	gevrCoopReportKeyCopy();   /* co-op (#94): the copy counts for the team, on the host */
 #endif
     	sndPlaySfx(g_musicSfxBufferPtr, KEY_ANALYSER_SFX, 0x0);
-    	currentPlayerEquipWeaponWrapper(GUNRIGHT, ITEM_GOLDENEYEKEY);
-    	currentPlayerEquipWeaponWrapper(GUNLEFT, ITEM_UNARMED);
+        gevrEquipGadgetResult(hand, ITEM_GOLDENEYEKEY);
   	}
   	else
   	{
@@ -6110,6 +6140,11 @@ void analyzeGEKey(void)
   	return;
 }
 
+void analyzeGEKey(void)
+{
+    analyzeGEKeyInHand(GUNRIGHT);
+}
+
 
 s32 get_keyanalyzer_flag(void)
 {
@@ -6117,7 +6152,7 @@ s32 get_keyanalyzer_flag(void)
 }
 
 
-void give_weapon_case_items(void)
+static void giveWeaponCaseItemsInHand(GUNHAND hand)
 {
   add_ammo_to_inventory(AMMO_KNIFE, 2, 0, 1);
   add_ammo_to_inventory(AMMO_GRENADE, 2, 0, 1);
@@ -6126,8 +6161,12 @@ void give_weapon_case_items(void)
   display_text_for_weapon_in_lower_left_corner(ITEM_SNIPERRIFLE);
   give_cur_player_ammo(sniperrifle_stats.AmmoType, check_cur_player_ammo_amount_in_inventory(sniperrifle_stats.AmmoType) + sniperrifle_stats.MagSize);
   bondinvRemoveItemByID(ITEM_WEAPONCASE);
-  currentPlayerEquipWeaponWrapper(GUNRIGHT,ITEM_SNIPERRIFLE);
-  currentPlayerEquipWeaponWrapper(GUNLEFT,ITEM_UNARMED);
+  gevrEquipGadgetResult(hand, ITEM_SNIPERRIFLE);
+}
+
+void give_weapon_case_items(void)
+{
+    giveWeaponCaseItemsInHand(GUNRIGHT);
 }
 
 

@@ -1463,7 +1463,8 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
             ImGui::TextUnformatted("Stage:");ImGui::SameLine();
             const bool teams=netScenarioHasTeams(VrMpScenario);
-            const float playersWidth=ImGui::GetFontSize()*5.7f;
+            const float playersWidth=ImGui::CalcTextSize("8 players").x + ImGui::GetFrameHeight()
+                + ImGui::GetStyle().FramePadding.x*2.0f;
             const float reserve=teams ? ImGui::CalcTextSize("Players: 8").x
                 : ImGui::CalcTextSize("Players:").x+playersWidth+ImGui::GetStyle().ItemSpacing.x;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x-reserve-ImGui::GetStyle().ItemSpacing.x);

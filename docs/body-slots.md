@@ -60,8 +60,11 @@ greyed out while body slots are on.
   and throwables with motion throwing off need no extra pause.
 - **Which hand.** Each hip is for its own hand. The shoulders, chest and belt
   take either hand. The off hand needs dual wielding (solo, or online with
-  dual wield allowed) and isn't offered what it can't hold (gadgets, mission
-  items). A slot with nothing for the hand isn't there for it: the grip goes
+  dual wield allowed), and either hand can take handheld mission gadgets
+  already in the inventory. Either belt hand can select the watch laser;
+  it equips the normal primary firing hand and offhand watch, respecting
+  handedness mode. Other watch devices and the detonator stay on the wrist.
+  A slot with nothing for the hand isn't there for it: the grip goes
   on to mine re-grab, pickup, use or aim as before.
 - **The torso.** The slots ride on a torso that follows your head slowly
   (Perfect Dark VR's smoothed yaw, ArmBodyFollow). It holds still while a
@@ -101,6 +104,60 @@ The Belt slot here holds gadgets, including the taser. Its default is
 toward the off-hand side at the user's fitted height; it is separate
 from the wrist/watch interaction and the chest's thrown items. Moving Belt
 in Slots fit moves that shared gadget location.
+
+**Mission equipment.** The gadget belt follows the current inventory in either
+hand: it includes mission-issued and collected handheld items such as the
+Dam's covert modem, tracker bug, camera, decoder, datathief and key analyser.
+It keeps the mission's text overrides and refreshes as inventory changes;
+it does not grant equipment from other stages. Plastique keeps its existing
+Thrown/chest category. Before 2026-10-10's correction, the off-hand wheel and
+body slot filtered out everything beyond the ordinary weapon IDs, so it
+could show the taser but omit mission gadgets present in the primary-hand list.
+Key analysis and opening the weapon case now equip their result into the hand
+that used them in stereo, keeping the other hand's item. Flat play retains
+GoldenEye's original right-hand result.
+
+Handheld mission equipment has one hand owner: while a device is held or
+queued in one hand, the other hand's belt and wheel omit it. The weapon
+request and swap paths also reject stale selections that would duplicate it.
+After stowing it, either hand can take it. Plastique retains shared throwable
+ammunition. `test_mission_gadgets.py` checks ownership through selection,
+lowering, stowing and swap, including direct requests from a stale menu.
+
+The GoldenEye X gadget hand now mirrors its model's X basis about the
+controller origin. It previously negated the camera-space X column,
+including the position, leaving the hand away from the gadget and moving
+oppositely across the view. `python port/tests/test_gadget_hand_pose.py`
+checks both model sets, both hands and handedness modes with moving/rotated
+controllers and the existing gadget fits. Its `--source-ref v0.4.18` option
+reproduces the original offhand hand displacement. The gadget now reflects
+about the GE-X fist's fitted origin rather than the gadget's gun trim, so
+separate primary-hand/gadget calibrations carry over to the off hand. Its
+`--legacy-gadget-mirror` check reproduces the displaced gadget when these
+fits differ. The GE-X gadget hand draws its wrist watch from its posed
+forearm, keeping it attached through controller motion and between-frame
+redraw. The watch laser appears in either gadget belt and selector, and the
+central weapon request always assigns it to the primary slot while stowing
+the offhand item for the watch. Slot/hand regressions cover that routing for
+both model sets. Headset retesting remains necessary for visual fit.
+
+Drawing a normal item with the offhand while the watch laser is equipped
+exits the laser setup: the primary slot switches to fists and the offhand
+takes the selected pistol, rifle or gadget. These choices remain visible in
+the offhand slots and selector. The GE-X watch tick leaves the replacement
+alone while its old primary rig lowers, and an already queued primary gun
+is preserved. `test_mission_gadgets.py` covers these transitions and retains
+the original flat-mode watch behavior.
+
+`python port/tests/test_mission_gadgets.py` checks the production hand lists,
+body-slot choices, mission names, inventory removal, watch exclusions and
+independent use results; `--source-ref v0.4.18` reproduces the original missing
+off-hand gadgets. Native slot interaction, wheel and campaign checks pass.
+The signed Android release build passes, and its certificate matches the
+installed APK.
+Headset validation is still needed: take and use a covert modem, camera and
+decoder with either hand, repeat in left-handed mode and with both model sets,
+and check mission objectives and consumable ammunition after use.
 
 Chest and Belt defaults use the user's saved Quest fits pulled on 2026-10-09,
 at 170 cm standing eye height. They scale with eye height, as the other
@@ -278,7 +335,9 @@ Chest and belt:
    pause at the shoulder, partially release and squeeze again: no weapon
    change and no second throw until a full grip release. Repeat with knives.
 8. Belt, front, off side: gadgets (camera, bug, etc. on missions that give
-   them). Watch items stay on the watch.
+   them). Selecting the watch laser from either hand gives the normal
+   primary firing hand and offhand watch. The watch stays visible while the
+   GE-X offhand holds a gadget. Other watch items stay on the watch.
 
 The torso:
 9. Look down at your hips: the pistols on the hips are drawn and stay put as

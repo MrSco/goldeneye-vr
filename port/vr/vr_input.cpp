@@ -524,6 +524,7 @@ XrResult create_vr_controllers_complete() {
             state.grip_force = {XR_TYPE_ACTION_STATE_FLOAT};
         }
         state.is_active = false;
+        state.is_tracked = false;
     }
 
     vr_log("[VR_CTRL] Complete initialization completed successfully");
@@ -565,8 +566,11 @@ XrResult update_vr_controllers(XrTime predicted_time) {
         auto& state = gControllerStates[hand];
         XrPath handPath = gHandPaths[hand];
 
-        // Pose
+        // Pose: validity permits rendering; tracking bits describe confidence.
+        state.is_active = false;
+        state.is_tracked = false;
         XR_TRY(GetActionState(gPoseAction, handPath, state.pose));
+        XrSpaceLocationFlags viewFlags = 0;
         {
             XrSpaceVelocity velocity = { XR_TYPE_SPACE_VELOCITY };
             XrSpaceLocation loc = { XR_TYPE_SPACE_LOCATION };
@@ -575,24 +579,24 @@ XrResult update_vr_controllers(XrTime predicted_time) {
             XrResult res = xrLocateSpace(gControllerSpace[hand], g_vrState.viewSpace, predicted_time, &loc);
 
             const XrSpaceLocationFlags f = loc.locationFlags;
-            const bool fullyTracked =
-                    XR_SUCCEEDED(res) &&
+            viewFlags = f;
+            const bool poseValid = XR_SUCCEEDED(res) && state.pose.isActive &&
                     (f & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
-                    (f & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) &&
+                    (f & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
+            const bool fullyTracked = poseValid &&
                     (f & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) &&
                     (f & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT);
 
-            if (fullyTracked) {
+            state.is_tracked = fullyTracked;
+            if (poseValid) {
+                // OpenXR may keep a valid inferred pose while a controller is
+                // occluded by the other hand. Discarding it freezes the gun.
                 state.controller_pose = loc.pose;
-                gCachedVelocity[hand] = velocity;
                 spaceLocation = loc;
                 state.is_active = true;
-            } else {
-                // Out of tracking (PSVR2 out of view, empty SteamVR pose, IMU drift):
-                // We do NOT touch controller_pose → last tracked pose is preserved.
-                state.is_active = false;
-                gCachedVelocity[hand] = { XR_TYPE_SPACE_VELOCITY };
             }
+            // Do not start a motion throw/melee from inferred velocity.
+            gCachedVelocity[hand] = fullyTracked ? velocity : XrSpaceVelocity{ XR_TYPE_SPACE_VELOCITY };
         }
 
         // Same controller, located against playSpace: the gesture frame.
@@ -604,18 +608,26 @@ XrResult update_vr_controllers(XrTime predicted_time) {
             XrResult res = xrLocateSpace(gControllerSpace[hand], g_vrState.playSpace, predicted_time, &loc);
 
             const XrSpaceLocationFlags f = loc.locationFlags;
-            const bool fullyTracked =
-                    XR_SUCCEEDED(res) &&
+            const bool poseValid = XR_SUCCEEDED(res) && state.pose.isActive &&
                     (f & XR_SPACE_LOCATION_POSITION_VALID_BIT) &&
-                    (f & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT) &&
+                    (f & XR_SPACE_LOCATION_ORIENTATION_VALID_BIT);
+            const bool fullyTracked = poseValid &&
                     (f & XR_SPACE_LOCATION_POSITION_TRACKED_BIT) &&
                     (f & XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT);
 
-            if (fullyTracked) {
-                gCtrlPosePlay[hand] = loc.pose;
-                gCachedVelocityPlay[hand] = velocity;
-            } else {
-                gCachedVelocityPlay[hand] = { XR_TYPE_SPACE_VELOCITY };
+            if (poseValid) gCtrlPosePlay[hand] = loc.pose;
+            state.is_tracked = state.is_tracked && fullyTracked;
+            gCachedVelocityPlay[hand] = fullyTracked ? velocity : XrSpaceVelocity{ XR_TYPE_SPACE_VELOCITY };
+
+            // Log changes only: correlate visible freezes with usable vs tracked
+            // runtime output, without enabling continuous aim logging.
+            static int quality[2] = { -1, -1 };
+            const int now = state.is_tracked ? 2 : state.is_active ? 1 : 0;
+            if (now != quality[hand]) {
+                vr_log("[VR_TRACK] physical hand %d %s, view flags 0x%llx play flags 0x%llx", hand,
+                       now == 2 ? "tracked" : now == 1 ? "valid inferred" : "invalid; retaining last pose",
+                       (unsigned long long)viewFlags, (unsigned long long)f);
+                quality[hand] = now;
             }
         }
 
@@ -1941,6 +1953,7 @@ extern "C" int gevrVrGripPosePlay(int hand, float pos[3], float quat[4])
 static XrPosef gCamCtrlPose[2];
 static bool gCamCtrlValid[2];
 static bool gCamCtrlTracked[2];
+static bool gCamCtrlUsable[2];
 static unsigned gCamCtrlSnapshotId;
 
 /*
@@ -2037,13 +2050,34 @@ static XrQuaternionf gevr_steady(int h, const XrQuaternionf& raw, bool grip)
     return q;
 }
 
+static XrPosef gevrPlayPoseToView(const XrPosef& play, const XrPosef& head)
+{
+    const XrQuaternionf hc = { -head.orientation.x, -head.orientation.y, -head.orientation.z, head.orientation.w };
+    const float d[3] = { play.position.x - head.position.x, play.position.y - head.position.y, play.position.z - head.position.z };
+    const float qx = hc.x, qy = hc.y, qz = hc.z, qw = hc.w;
+    const float tx = 2.0f * (qy * d[2] - qz * d[1]);
+    const float ty = 2.0f * (qz * d[0] - qx * d[2]);
+    const float tz = 2.0f * (qx * d[1] - qy * d[0]);
+    const XrQuaternionf& pq = play.orientation;
+    XrPosef v;
+    v.position = { d[0] + qw * tx + (qy * tz - qz * ty),
+                   d[1] + qw * ty + (qz * tx - qx * tz),
+                   d[2] + qw * tz + (qx * ty - qy * tx) };
+    v.orientation = { qw * pq.x + qx * pq.w + qy * pq.z - qz * pq.y,
+                      qw * pq.y - qx * pq.z + qy * pq.w + qz * pq.x,
+                      qw * pq.z + qx * pq.y - qy * pq.x + qz * pq.w,
+                      qw * pq.w - qx * pq.x - qy * pq.y - qz * pq.z };
+    return v;
+}
+
 extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
 {
     ++gCamCtrlSnapshotId;
     for (int h = 0; h < 2; h++) {
-        const bool tracked = focused && gControllerStates[h].is_active;
-        gCamCtrlTracked[h] = tracked;
-        if (tracked) {
+        const bool usable = focused && gControllerStates[h].is_active;
+        gCamCtrlUsable[h] = usable;
+        gCamCtrlTracked[h] = usable && gControllerStates[h].is_tracked;
+        if (usable) {
             const XrQuaternionf& q = gControllerStates[h].controller_pose.orientation;
             gCamCtrlValid[h] = !(q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f);
             gCamCtrlPose[h] = gControllerStates[h].controller_pose;
@@ -2067,34 +2101,23 @@ extern "C" void gevrVrSnapshotControllers(const XrPosef *head, int focused)
             }
             continue;
         }
-        const XrPosef& play = gCtrlPosePlay[h];
+        XrPosef play = gCtrlPosePlay[h];
         const XrQuaternionf& pq = play.orientation;
         if (pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f) {
             continue;   // never tracked: keep what we had
         }
-        // view = head^-1 * play
-        const XrQuaternionf hq = head->orientation;
-        const XrQuaternionf hc = { -hq.x, -hq.y, -hq.z, hq.w };
-        const float d[3] = { play.position.x - head->position.x, play.position.y - head->position.y, play.position.z - head->position.z };
-        // rotate d by hc: v' = v + 2w(q x v) + 2 q x (q x v)
-        const float qx = hc.x, qy = hc.y, qz = hc.z, qw = hc.w;
-        const float tx = 2.0f * (qy * d[2] - qz * d[1]);
-        const float ty = 2.0f * (qz * d[0] - qx * d[2]);
-        const float tz = 2.0f * (qx * d[1] - qy * d[0]);
-        XrPosef v;
-        v.position = { d[0] + qw * tx + (qy * tz - qz * ty),
-                       d[1] + qw * ty + (qz * tx - qx * tz),
-                       d[2] + qw * tz + (qx * ty - qy * tx) };
-        v.orientation = { qw * pq.x + qx * pq.w + qy * pq.z - qz * pq.y,
-                          qw * pq.y - qx * pq.z + qy * pq.w + qz * pq.x,
-                          qw * pq.z + qx * pq.y - qy * pq.x + qz * pq.w,
-                          qw * pq.w - qx * pq.x - qy * pq.y - qz * pq.z };
-        gCamCtrlPose[h] = v;
+        // Keep the same room-fixed, steadied pose on fresh frames and redraws.
+        if (gSteadyUsed[h] && gSteadyInit[h]) play.orientation = gSteadyQ[h];
+        gCamCtrlPose[h] = gevrPlayPoseToView(play, *head);
         gCamCtrlValid[h] = true;
     }
 }
 
 extern "C" unsigned gevrVrGripSnapshotId(void) { return gCamCtrlSnapshotId; }
+extern "C" int gevrVrGripUsable(int hand)
+{
+    return hand >= 0 && hand < 2 && gCamCtrlUsable[gevrPhysHand(hand)];
+}
 extern "C" int gevrVrGripTracked(int hand)
 {
     return hand >= 0 && hand < 2 && gCamCtrlTracked[gevrPhysHand(hand)];
@@ -2207,7 +2230,17 @@ extern "C" int gevrVrGripPose(int hand, float pos[3], float quat[4])
     if (vr_fake_grip(hand, pos, quat)) {
         return 1;
     }
-    const XrPosef& pose = gControllerStates[gevrPhysHand(hand)].controller_pose;
+    const int h = gevrPhysHand(hand);
+    XrPosef pose = gControllerStates[h].controller_pose;
+    if (!gControllerStates[h].is_active) {
+        const XrPosef& play = gCtrlPosePlay[h];
+        const XrQuaternionf& pq = play.orientation;
+        XrPosef head;
+        if ((pq.x == 0.0f && pq.y == 0.0f && pq.z == 0.0f && pq.w == 0.0f) || !gevrVrFrameHeadPose(&head)) return 0;
+        // A retained VIEW pose belongs to the old head. Rebase the last PLAY
+        // pose to this XR head instead, just as the game-frame snapshot does.
+        pose = gevrPlayPoseToView(play, head);
+    }
     const XrQuaternionf& q = pose.orientation;
     if (q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f) {
         return 0;
