@@ -1,4 +1,5 @@
-"""Run the production Controls-page render dispatch with a stale world depth."""
+"""Run the production Controls-page render dispatch with a stale world depth.
+Under GEVR it draws the Touch pair (src/game/gevr_touch.c) in place of the N64 controller."""
 from pathlib import Path
 import shutil
 import subprocess
@@ -56,15 +57,24 @@ Gfx *watchRenderController(Gfx *g,Mtxf *m,s32 env,bool buttons,WatchContButtonPo
 Gfx *watchRenderControllerOpaque(Gfx *g,Mtxf *m,bool b,WatchContButtonPositions *p,s8 *s){return watchRenderController(g,m,255,b,p,s);}
 Gfx *display_text_buttons_dual_control(Gfx *g){return g;}
 Gfx *sub_GAME_7F0A9AB8(Gfx *g){return g;}
+/* GEVR draws the Touch pair (gevr_touch.c) in one call instead, whatever the N64 controller count */
+static int labelCount,lastAlpha;
+Gfx *gevrTouchRender(Gfx *g,Mtxf *m,s32 alpha){
+    (void)m;lastAlpha=alpha;
+    while(consumed<g){if((consumed->words.w0>>24)==0x7E){worldDepth=0;clearCount++;}consumed++;}
+    assert(!worldDepth);assert(clearCount==1);renderCount++;return g;
+}
+Gfx *gevrTouchDrawLabels(Gfx *g){labelCount++;return g;}
 /* INSERT_FUNCTION */
 int main(void){
     Gfx commands[128];
     for(dual=0;dual<2;dual++)for(int fading=0;fading<2;fading++){
         memset(commands,0,sizeof(commands));begin=consumed=commands;
-        worldDepth=1;renderCount=clearCount=0;g_WatchBackgroundGreen=fading?100:224;
-        draw_watch_controller(commands);assert(renderCount==(dual?2:1));assert(clearCount==1);
+        worldDepth=1;renderCount=clearCount=labelCount=0;g_WatchBackgroundGreen=fading?100:224;
+        draw_watch_controller(commands);assert(renderCount==1);assert(clearCount==1);assert(labelCount==1);
+        assert(lastAlpha==(fading?94:255));
     }
-    puts("PASS: Controls page clears inherited world depth once before opaque/fading single/dual controller models");
+    puts("PASS: Controls page clears inherited world depth once before the opaque/fading Touch pair, single or dual N64 setting");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='gevr-watch-controller-') as temp:

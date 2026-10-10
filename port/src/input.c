@@ -1531,9 +1531,11 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // Screen mode: either trigger fires (the left one was unmapped).
         // Stereo: each hand's trigger is its own gun, as in Perfect Dark VR and
         // GEVR PC - the right trigger is GoldenEye's Z (the right gun) and the
-        // left one its R, which fires the left gun when dual-wielding and aims
-        // (zooms) otherwise. The left grip then has no job; the right grip
-        // keeps aim/zoom.
+        // left one fires what the left hand holds; with the left hand empty it
+        // does nothing, as GEVR PC's left trigger ("fire the gun in your left
+        // hand") and PD VR's. It used to press R there, which aimed and lit the
+        // gun hand's crosshair (user, 2026-10-10: confusing beside the gun
+        // hand's grip, which aims/zooms).
         const bool stereoplay = g_gevrStereo && !menu;
         // Dual-wielding (issue #15): GoldenEye's R only aims - both guns take
         // turns on Z - so the left trigger fires the left gun instead, as in
@@ -1555,7 +1557,6 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             if (gevrVrTriggerDown[0] || gevrVrTriggerDown[1]) npad->button |= Z_TRIG;
         } else if (stereoplay) {
             if (get_button_state(1, "trigger")) npad->button |= Z_TRIG;
-            if (get_button_state(0, "trigger") && !gevrGexMineDetonates()) npad->button |= R_TRIG;
         } else if (get_button_state(1, "trigger") || (get_button_state(0, "trigger") && !gevrGexMineDetonates())) {
             npad->button |= Z_TRIG;
         }

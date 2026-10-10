@@ -25,6 +25,7 @@
 #include "net_coop.h"
 #include "net_match.h"   /* NET_COOP_RESULT_* */
 #include "net_game.h"
+#include "gevr_touch.h"  /* the Controls page's Touch controllers */
 /*
  * Co-op (#94): the watch reads this headset's own controller. Online the
  * first controller is player one's copy, on a teammate's headset the host's
@@ -3517,6 +3518,26 @@ Gfx *draw_watch_controller(Gfx *gdl)
     matrix_4x4_set_identity_and_position(&pos, &tmpmtx1);
     matrix_4x4_multiply(&tmpmtx1, &tmpmtx2, &modelmtx);
 
+#ifdef GEVR
+    /*
+     * Quest: the Touch controllers in hand in place of the N64 controller,
+     * each over the list of its controls (gevr_touch.c). Seen as the single
+     * N64 controller is, they spin and tilt with it, and fade in with the page.
+     */
+    matrix_4x4_set_lookat_target(&lookat1, -5.0f, 2000.0f, -168.0f, -5.0f, 0.0f, -168.0f, 0.0f, 0.0f, -1.0f);
+    matrix_4x4_multiply(&lookat1, &modelmtx, &finalmtx);
+    guPerspective(perspmtx, &perspNorm, WATCH_PERSPECTIVE_FOVY, WATCH_PERSPECTIVE_ASPECT, 1000.0f, 3000.0f, 1.0f);
+    gSPMatrix(gdl++, osVirtualToPhysical(perspmtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+    gdl = sub_GAME_7F0A6EE8(gdl);
+    /* The watch overlays the world. Its controllers have their own projection:
+     * old world depth can hide a shell while nearer parts remain visible.
+     * Start a fresh depth pass once, preserving depth between both controllers
+     * and their moving parts. Colour and watch text stay intact. */
+    gDPParam(gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
+    green = g_WatchBackgroundGreen;
+    gdl = gevrTouchRender(gdl, &finalmtx, green < 0xe0 ? green - 6 : 0xff);
+    return gevrTouchDrawLabels(gdl);
+#else
     if (controllerCheckDualControllerTypesAllowed())
     {
         f32 eye = 495.0f;
@@ -3541,13 +3562,6 @@ Gfx *draw_watch_controller(Gfx *gdl)
     gSPMatrix(cmd0, osVirtualToPhysical(perspmtx), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
 
     gdl = sub_GAME_7F0A6EE8(gdl);
-#ifdef GEVR
-    /* The watch overlays the world. Its controller has its own projection:
-     * old world depth can hide the shell while nearer grips remain visible.
-     * Start a fresh depth pass once, preserving depth between both models
-     * and their animated buttons. Colour and watch text stay intact. */
-    gDPParam(gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
-#endif
     green = g_WatchBackgroundGreen;
 
     if (green < 0xe0)
@@ -3621,6 +3635,7 @@ Gfx *draw_watch_controller(Gfx *gdl)
     }
 
     return gdl;
+#endif
 }
 
 
@@ -3850,6 +3865,7 @@ extern int VrSmoothTurnSpeed;        /* degrees per second, 45..240 */
 extern float VrComfortVignette;      /* 0 off, 0.1..1 */
 extern int VrWatchFaceStatus;        /* 0 off, 1 on, 2 only */
 extern int VrAimSteady;              /* 0 off, 1 low, 2 high */
+extern int VrTouchModel;             /* the Controls page's controllers: 0 the headset's (gevr_touch.c) */
 extern int VrAimNoLean;
 extern int VrAimSight;
 extern int VrMotionThrowing;
@@ -3884,7 +3900,7 @@ extern void vrSettingsSave(void);
 
 enum {
     GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH,
-    GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_SIGHT, GEVR_VR_STEADY, GEVR_VR_GUNFIT,
+    GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_SIGHT, GEVR_VR_STEADY, GEVR_VR_GUNFIT, GEVR_VR_TOUCH,
     GEVR_VR_WATCHPAUSE, GEVR_VR_HOLSTER, GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB,
     GEVR_VR_BODYSLOTS, GEVR_VR_SLOTSIZE,
     GEVR_VR_RELOAD, GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE,
@@ -3897,7 +3913,7 @@ enum {
 
 static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
     "Turning", "Turn speed", "Vignette", "No knockback", "No hitstun", "Hit flash",
-    "Left-handed", "Swap sticks", "Aim: no lean", "Aim: crosshair", "Aim steady", "Gun fit",
+    "Left-handed", "Swap sticks", "Aim: no lean", "Aim: crosshair", "Aim steady", "Gun fit", "Controllers",
     "Watch gesture", "Holster WIP", "Grip use", "Grip hand WIP", "Mine re-grab",
     "Body slots WIP", "Slot size",
     "Hand reload WIP", "Gun recoil", "Motion throw", "Throw power", "Throw pitch", "Throw gaze",
@@ -3909,7 +3925,7 @@ static const char *s_gevrVrLabels[GEVR_VR_ROWS] = {
 
 /* the sections, as the launcher groups them */
 static const s32 s_gevrVrComfort[] = { GEVR_VR_MOVESPEED, GEVR_VR_TURN, GEVR_VR_TURNSPEED, GEVR_VR_VIGNETTE, GEVR_VR_NOPUSH, GEVR_VR_NOSTUN, GEVR_VR_FLASH };
-static const s32 s_gevrVrControls[] = { GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_SIGHT, GEVR_VR_STEADY, GEVR_VR_GUNFIT };
+static const s32 s_gevrVrControls[] = { GEVR_VR_LEFTY, GEVR_VR_SWAP, GEVR_VR_NOLEAN, GEVR_VR_SIGHT, GEVR_VR_STEADY, GEVR_VR_GUNFIT, GEVR_VR_TOUCH };
 static const s32 s_gevrVrGestures[] = { GEVR_VR_WATCHPAUSE, GEVR_VR_BODYSLOTS, GEVR_VR_SLOTSIZE, GEVR_VR_HOLSTER, GEVR_VR_RELOAD,
                                          GEVR_VR_GRIPUSE, GEVR_VR_PICKUP, GEVR_VR_MINEGRAB };
 static const s32 s_gevrVrWeapons[] = { GEVR_VR_RECOIL, GEVR_VR_THROW, GEVR_VR_THROWPOWER, GEVR_VR_THROWPITCH, GEVR_VR_THROWGAZE };
@@ -4055,6 +4071,13 @@ static void gevrVrValueText(s32 row, char *buf)
         case GEVR_VR_STEADY:
             sprintf(buf, "%s", VrAimSteady <= 0 ? "OFF" : VrAimSteady == 1 ? "LOW" : "HIGH");
             break;
+        case GEVR_VR_TOUCH:   /* the Controls page's Touch controllers */
+        {
+            static const char *names[] = { "AUTO", "QUEST", "QUEST 2", "PLUS", "PRO" };
+
+            sprintf(buf, "%s", names[VrTouchModel >= 0 && VrTouchModel <= 4 ? VrTouchModel : 0]);
+            break;
+        }
         case GEVR_VR_THROWPOWER:
             tenths = (s32) (VrMotionThrowStrength * 10.0f + 0.5f);
             sprintf(buf, "%d.%dX", tenths / 10, tenths % 10);
@@ -4178,6 +4201,9 @@ static void gevrVrStep(s32 row, s32 dir)
             break;
         case GEVR_VR_STEADY:
             VrAimSteady = gevrVrClampStep(VrAimSteady, dir, 0, 2);
+            break;
+        case GEVR_VR_TOUCH:
+            VrTouchModel = gevrVrClampStep(VrTouchModel, dir, 0, 4);
             break;
         case GEVR_VR_THROWPOWER:   /* the launcher's 0.5x..2.0x, in tenths */
             i = (s32) (VrMotionThrowStrength * 10.0f + 0.5f);
