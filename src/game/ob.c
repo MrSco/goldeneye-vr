@@ -15,6 +15,7 @@
 #ifdef GEVR
 #include <bondtypes.h> /* ModelFileHeader, for the model hook below */
 #include "gevr_model.h"
+#include "gevr_romcheck.h"
 #include "gevr_romswap.h"
 #include "gevr_stage.h"
 #include "system.h"
@@ -60,6 +61,13 @@ void load_resource(u8 *ptrdata, s32 bytes,  fileentry *srcfile,  resource_lookup
         romCopy(ptrdata, srcfile->hw_address, lookupdata->rom_size);
         return;
     }
+#ifdef GEVR
+    /* Validate integer sizes before forming a pointer outside the allocation. */
+    if (!ptrdata || bytes < 8 || lookupdata->rom_size > (((u32)bytes - 8u) & ~7u)) {
+        sysFatalError("rom: no room to load %s (%u compressed bytes, %d available)",
+                srcfile->filename, lookupdata->rom_size, bytes);
+    }
+#endif
     source = (ptrdata + bytes) - ((lookupdata->rom_size + 7) & -8);
     if ((u32) (source - ptrdata) < 8U)
     {
@@ -73,7 +81,17 @@ void load_resource(u8 *ptrdata, s32 bytes,  fileentry *srcfile,  resource_lookup
 #endif
 
         romCopy(source, srcfile->hw_address, lookupdata->rom_size);
-        lookupdata->poolRemaining = decompressdata(source, ptrdata, buffer);;
+#ifdef GEVR
+        u32 written;
+        int result = gevrInflate1172(source, lookupdata->rom_size, ptrdata, (u32)bytes, &written);
+        if (result != 0) {
+            sysFatalError("rom: cannot decompress %s (%u compressed bytes, %d available, error %d)",
+                    srcfile->filename, lookupdata->rom_size, bytes, result);
+        }
+        lookupdata->poolRemaining = written;
+#else
+        lookupdata->poolRemaining = decompressdata(source, ptrdata, buffer);
+#endif
 
 #ifdef GEVR
         /*
