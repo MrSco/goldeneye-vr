@@ -21,7 +21,9 @@ check pending): a GE-X scope in the left hand mirrors its lens with the gun,
 so the right hand's scope fit serves both hands. Online, only the local
 player posts bottom messages, and the rows cover eight slots (bots in slots
 5-7 wrote into the top message). A bot's armour pickup sound plays where it
-stands.
+stands. Crash report fb1c9718 (v0.4.16, match start with bots): stan.c's
+line and volume tests wrote their room list's -1 one word past it after a
+full twenty-room walk; both buffers hold the terminator now.
 
 ## Recent releases
 
