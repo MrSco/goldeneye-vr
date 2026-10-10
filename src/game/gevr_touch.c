@@ -46,7 +46,8 @@ extern int VrTouchModel, VrLeftHandedMode, VrSwapJoysticks, VrPlayMode;
 extern const char *gevrHmdName(void);              /* vr_openxr.cpp */
 extern const char *gevrTouchProfileName(void);     /* vr_input.cpp */
 extern int gevrTouchPadState(int phys, float *trigger, float *grip, float *stickx, float *sticky, int *buttons);
-extern s32 gevrDualWielding(void);                 /* gunfire.c */
+extern s32 gevrDualWielding(void);                 /* gunfire.c: the off hand holds something */
+extern s32 gevrGexMineDetonates(void);             /* gun.c: GE-X's remote mines are out */
 extern Gfx *draw_options_labels(Gfx *gdl, s32 x, s32 y, char *text, u32 colour, s32 outlined, u32 outlinecolour,
                                 s32 centre, s32 drawbg, u32 bgcolour, s32 rightalign);
 
@@ -486,10 +487,11 @@ typedef struct {
 
 /*
  * What each control of a physical controller does, from port/src/input.c:
- * the gun hand's (the right, or the left when left-handed) trigger fires
- * and grip aims; in stereo play the off hand's trigger aims (fires its gun
- * dual-wielding) and its grip grabs (gestures), on the screen both hands do
- * the gun hand's. A/X: weapons (in stereo the off hand's lower button picks
+ * each trigger fires (in stereo play the off hand's fires what that hand
+ * holds, if anything, and with GoldenEye X's remote mines out sets them off
+ * instead) and the gun hand's (the right, or the left when left-handed) grip
+ * aims; in stereo the off hand's grip grabs (gestures), on the screen it
+ * aims too. A/X: weapons (in stereo the off hand's lower button picks
  * that hand's item), B/Y: action. The move stick is the off hand's unless
  * Swap sticks; Menu is always the left controller's.
  */
@@ -502,7 +504,9 @@ static s32 gevrTouchRows(s32 phys, const GevrTouchPad *pad, GevrTouchRow rows[6]
     s32 n = 0;
 
     rows[n].name = "Trigger";
-    rows[n].action = gun || !stereo || gevrDualWielding() ? "Fire" : "Aim";
+    /* the off hand's trigger: GE-X's remote mines out in the gun hand take it;
+     * in stereo it fires what that hand holds, and with it empty does nothing */
+    rows[n].action = gun ? "Fire" : gevrGexMineDetonates() ? "Detonate" : !stereo || gevrDualWielding() ? "Fire" : "-";
     rows[n++].lit = pad->trigger >= 0.5f;
     rows[n].name = "Grip";
     rows[n].action = gun || !stereo ? "Aim" : "Grab";
