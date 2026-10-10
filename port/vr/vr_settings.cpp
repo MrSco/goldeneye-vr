@@ -176,6 +176,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "WatchGesturePause=%d\n", VrWatchGesturePause ? 1 : 0);
     fprintf(f, "SwapJoysticks=%d\n", VrSwapJoysticks ? 1 : 0);
     fprintf(f, "AimSteadying=%d\n", VrAimSteady);
+    fprintf(f, "; The watch's Controls page: 0 = this headset's controllers, 1 = Quest 1, 2 = Quest 2,\n");
+    fprintf(f, "; 3 = Touch Plus (Quest 3 and 3S), 4 = Touch Pro.\n");
+    fprintf(f, "TouchControllers=%d\n", VrTouchModel);
     fprintf(f, "ShowStats=%d\n", VrShowStats ? 1 : 0);
     fprintf(f, "Cheats=%llx\n", (unsigned long long)VrCheatMask);
     fprintf(f, "GunSizeCheat=%d\n", VrGunSizeCheat);
@@ -576,6 +579,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "WatchGesturePause") == 0) VrWatchGesturePause = (ival != 0);
             else if (strcmp(key, "SwapJoysticks") == 0) VrSwapJoysticks = (ival != 0);
             else if (strcmp(key, "AimSteadying") == 0) VrAimSteady = ival < 0 ? 0 : ival > 2 ? 2 : ival;
+            else if (strcmp(key, "TouchControllers") == 0) VrTouchModel = ival < 0 ? 0 : ival > 4 ? 4 : ival;
             else if (strcmp(key, "MovementSpeed") == 0) VrMovementSpeed = netMovementSpeedMode(ival);
             else if (strcmp(key, "MpMovementSpeed") == 0) VrMpMovementSpeed = netMovementSpeedMode(ival);
             else if (strcmp(key, "SmoothTurnSpeed") == 0)

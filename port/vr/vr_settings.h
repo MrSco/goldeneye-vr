@@ -98,6 +98,7 @@ extern int VrAimSight;          // stereo: crosshair while a grip aims (1) or ne
 extern int VrLeftHandedMode;
 extern int VrSwapJoysticks;
 extern int VrAimSteady;         // gun-hand steadying: 0 off, 1 low, 2 high (issue #7)
+extern int VrTouchModel;        // watch Controls page: 0 the headset's controllers, 1..4 Quest 1, 2, Touch Plus, Pro
 extern int VrShowStats;         // troubleshooting readout in game
 extern unsigned long long VrCheatMask; // launcher cheats: bit n = CHEAT_IDS n
 extern int VrGunSizeCheat;      // VR fun cheat: 0 normal, 1 tiny, 2 big guns
