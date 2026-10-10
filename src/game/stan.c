@@ -1722,7 +1722,14 @@ s32 stanTestLineUnobstructed(StandTile **pTile, f32 p_x, f32 p_z, f32 dest_x, f3
     s32 loop_flag;
     s32 sp124; // sp124
     s32 padding;
+#ifdef GEVR
+    /* twenty rooms and the -1 after them (spD0[sp124] below): retail's 21st
+     * word was the padding above; here it is the stack canary (crash report
+     * fb1c9718, a bot's path check over a line that changed room 20 times) */
+    s32 spD0[0x14 + 1];
+#else
     s32 spD0[0x14]; //spD0
+#endif
     s32 spCC; // spCC
     s32 next;
     f32 spC4;
@@ -2094,7 +2101,11 @@ s32 stanTestVolume(StandTile **arg0, f32 arg1, f32 arg2, f32 arg3, s32 cdtypes, 
     s16 *sp100;
     s32 spFC;
     struct PropRecord *prop; // no stack
+#ifdef GEVR
+    s32 spA8[0x14 + 1];   /* twenty rooms and the -1 after them (spA8[spFC] below), as stanTestLineUnobstructed */
+#else
     s32 spA8[0x14];
+#endif
     struct rect4f *polygon;
     s32 numvertices0;  // spa0
     f32 temp_f0_3; // stack ??

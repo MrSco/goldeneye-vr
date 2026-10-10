@@ -643,13 +643,16 @@ int main(int argc,char **argv) {
         const struct GevrScope *sc=&s_gevrScopes[active->item==ITEM_LASER];
         f32 ring[3]; gevrGexMtxPoint(&anchor,active->scopeRoot,ring);
         assert(fabsf(ring[0]-sc->x)<0.01f && fabsf(ring[1]-sc->y)<0.01f && fabsf(ring[2]-sc->z)<0.01f);
+        /* the left gun is drawn mirrored about its origin: its eyepiece and
+         * the right hand's fit mirror with it, the origin stays */
+        for (int hand=GUNRIGHT;hand<=GUNLEFT;hand++)
         for (int mirror=0;mirror<2;mirror++) for(int size=0;size<2;size++) {
             VrLeftHandedMode=mirror; scopeSize=size ? 2 : 1;
             f32 lens[4],*fit=VrScopeFit[1][sc-s_gevrScopes],*off=gevrGexGunFit(active->item);
             fit[0]=2; fit[1]=-3; fit[2]=4; fit[3]=0.5f;
-            gevrScopeLensPlace(0,sc,lens);
-            const f32 unit=0.00085f*scopeSize,sign=mirror ? -1 : 1;
-            assert(fabsf(lens[0]-sign*((off[0]+2)*scopeSize/100-active->scopeRoot[0]*unit))<0.00001f);
+            gevrScopeLensPlace(hand,sc,lens);
+            const f32 unit=0.00085f*scopeSize,sign=mirror ? -1 : 1,side=hand==GUNLEFT ? -1 : 1;
+            assert(fabsf(lens[0]-sign*((off[0]+side*2)*scopeSize/100-side*active->scopeRoot[0]*unit))<0.00001f);
             assert(fabsf(lens[1]-((off[1]-3)*scopeSize/100+active->scopeRoot[1]*unit))<0.00001f);
             assert(fabsf(lens[2]-((12+off[2]+4)*scopeSize/100-active->scopeRoot[2]*unit))<0.00001f);
             assert(fabsf(lens[3]-(4*sc->r*unit+0.5f*scopeSize/100))<0.00001f);

@@ -40,10 +40,15 @@ extern f32 watch_time_0;
 #else
 extern s32 watch_time_0;
 #endif
-extern char stringbuffer_lowerleft[5][BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH];
+#ifdef GEVR
+#define BONDVIEW_HUD_MSG_BOTTOM_ROWS MAX_PLAYER_COUNT   /* a row per online slot */
+#else
+#define BONDVIEW_HUD_MSG_BOTTOM_ROWS 5
+#endif
+extern char stringbuffer_lowerleft[BONDVIEW_HUD_MSG_BOTTOM_ROWS][BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH];
 #if defined(BUGFIX_R1)
-extern s32 dword_CODE_bss_jp80079Cd8[5];
-extern s32 dword_CODE_bss_jp80079CEC[5];
+extern s32 dword_CODE_bss_jp80079Cd8[BONDVIEW_HUD_MSG_BOTTOM_ROWS];
+extern s32 dword_CODE_bss_jp80079CEC[BONDVIEW_HUD_MSG_BOTTOM_ROWS];
 #endif
 extern PadRecord *g_Startpad[16];
 extern s32 startpadcount;
