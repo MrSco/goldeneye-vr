@@ -7,7 +7,7 @@ your hands, each over a list of its controls:
 ```
    [left controller]        [right controller]
  Trigger  Fire / -        Trigger  Fire
- Grip     Grab            Grip     Aim
+ Grip     Grab            Grip     Aim / use
  Stick    Move            Stick    Turn
  Y        Action          B        Action
  X        Hand item       A        Weapon
@@ -18,7 +18,20 @@ your hands, each over a list of its controls:
   mode, Swap sticks and what the off hand holds, from the bindings in
   `port/src/input.c`. In stereo the off hand's trigger reads **Fire** while that
   hand holds something, **-** while it's empty (it does nothing then), and
-  **Detonate** while GoldenEye X's remote mines are out. A
+  **Detonate** while GoldenEye X's remote mines are out. The grips follow
+  the VR settings too, and change as soon as you return from the watch's
+  VR page:
+
+  | Grip | Line |
+  |---|---|
+  | Screen play, either hand | Aim |
+  | Stereo, the hand holds a throwable and Motion throwing is on | Throw |
+  | Stereo, gun hand | Aim / use with Grip use on, else Aim |
+  | Stereo, off hand holding a gun | Sight |
+  | Stereo, off hand empty | Grab with any grip gesture on (holster, use, pickup, mine re-grab, body slots), else Hold gun |
+
+  The lists are laid out for the widest line any of them can show (measured
+  in the watch font), so none runs off the page or into the other list. A
   pressed trigger, grip, stick or button moves on the model, as it does in the
   hand, and lights green. Its line turns white, the same way the N64 page's
   labels light up.
