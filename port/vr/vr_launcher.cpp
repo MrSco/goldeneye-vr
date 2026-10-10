@@ -1,4 +1,5 @@
 #include "gevr_launcher_ui.h"
+#include "gevr_romcheck.h"
 /*
  * GoldenEye VR launcher, inside VR.
  *
@@ -151,6 +152,25 @@ RomInfo probeRom(const std::string &path)
         const char *region = hdr[0x3e] == 'P' ? "PAL" : hdr[0x3e] == 'J' ? "Japanese" : "non-USA";
         r.status = std::string(region) + " cartridge (" + std::string((const char *)hdr + 0x3b, 4)
             + ") - needs the USA one (NGEE)";
+        return r;
+    }
+    // A correct cartridge header alone does not establish usable game data.
+    // Report 109c2b77 reached langInit with a non-1172 language bank.
+    std::vector<unsigned char> rom(kRomSize);
+    f = fopen(path.c_str(), "rb");
+    if (!f) {
+        r.status = "cannot be read";
+        return r;
+    }
+    n = fread(rom.data(), 1, rom.size(), f);
+    fclose(f);
+    if (n != rom.size() || !gevrRomNormaliseOrder(rom.data(), (unsigned int)n)) {
+        r.status = "cannot read cartridge data";
+        return r;
+    }
+    char error[192];
+    if (!gevrRomCheckFiles(rom.data(), (unsigned int)n, error, sizeof(error))) {
+        r.status = error;
         return r;
     }
     r.status = std::string("GoldenEye 007 (USA)") + order + " - OK";
@@ -1443,7 +1463,8 @@ static void gevrHostLobbyOptions(const ImVec4 &gold, bool hosting, const std::st
             int stage=netStageIndexOf((uint8_t)VrMpStage);if (stage<0)stage=9;
             ImGui::TextUnformatted("Stage:");ImGui::SameLine();
             const bool teams=netScenarioHasTeams(VrMpScenario);
-            const float playersWidth=ImGui::GetFontSize()*5.7f;
+            const float playersWidth=ImGui::CalcTextSize("8 players").x + ImGui::GetFrameHeight()
+                + ImGui::GetStyle().FramePadding.x*2.0f;
             const float reserve=teams ? ImGui::CalcTextSize("Players: 8").x
                 : ImGui::CalcTextSize("Players:").x+playersWidth+ImGui::GetStyle().ItemSpacing.x;
             ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x-reserve-ImGui::GetStyle().ItemSpacing.x);

@@ -253,6 +253,7 @@ extern int gevrVrGripPose(int hand, float pos[3], float quat[4]); /* vr_input.cp
 extern int gevrVrGripPoseCamera(int hand, float pos[3], float quat[4]);
 extern unsigned gevrVrGripSnapshotId(void);
 extern int gevrVrGripTracked(int hand);
+extern int gevrVrGripUsable(int hand);
 extern float VrGunOffX, VrGunOffY, VrGunOffZ;   /* goldeneye-vr.ini grip trim, cm */
 extern float VrGexGunOff[3];        /* the same for GoldenEye X's models (GexGunOff) */
 extern s32 gevrGexHeld(s32 hand);   /* gun.c: the hand's gun is a GoldenEye X model */
@@ -4166,7 +4167,7 @@ static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3
         s_twoHandDirValid = 1;
     }
     else if (s_gevrTwoHand && s_twoHandSnapshotId != gevrVrGripSnapshotId()
-             && gevrVrGripTracked(0) && gevrVrGripTracked(1))
+             && gevrVrGripUsable(0) && gevrVrGripUsable(1))
     {
         f32 dot = s_twoHandDir[0] * d[0] + s_twoHandDir[1] * d[1] + s_twoHandDir[2] * d[2];
         f32 tdeg, mag, maxAlpha;
@@ -16100,9 +16101,12 @@ extern s32 get_ammo_in_hands_weapon(GUNHAND hand);
 
 static s32 gevrLeftGunOk(s32 item)
 {
-    /* Watch devices, the detonator and mission items belong to the dominant hand. */
-    return item > ITEM_UNARMED && item < ITEM_BOMBCASE
-        && item != ITEM_WATCHLASER && item != ITEM_TRIGGER && item != ITEM_TANKSHELLS;
+    /* Handheld mission equipment uses the same independent hand path as guns.
+     * The watch and detonator stay on the wrist; only posed inventory items
+     * beyond the normal weapons can be taken into the off hand. */
+    return item > ITEM_UNARMED && item < ITEM_IDS_MAX
+        && (item < ITEM_BOMBCASE || gevrItemPoseFind(item) != NULL)
+        && item != ITEM_TRIGGER && item != ITEM_TANKSHELLS;
 }
 
 /* the player carries this gun: on its own, in a pair, or through all guns */
@@ -16154,6 +16158,15 @@ s32 gevrWeaponUsesCopies(s32 item)
         || item == ITEM_KNIFE || item == ITEM_TASER;
 }
 
+/* Mission equipment is a single inventory object, including while a hand
+ * is lowering it or has queued it. Plastique uses shared throwable ammo. */
+s32 gevrMissionItemClaimed(s32 hand, s32 item)
+{
+    return item >= ITEM_BOMBCASE && item < ITEM_IDS_MAX && item != ITEM_PLASTIQUE
+        && gevrItemPoseFind(item) != NULL
+        && (gevrHandSelected(1 - hand) == item || getCurrentPlayerWeaponId(1 - hand) == item);
+}
+
 static s32 gevrHandItemAllowed(s32 hand, s32 item)
 {
     s32 other = gevrHandSelected(1 - hand);
@@ -16163,13 +16176,17 @@ static s32 gevrHandItemAllowed(s32 hand, s32 item)
      * ITEM_UNARMED for the left), so the panel listed the arm twice (user, 2026-10-02) */
     if (hand == GUNLEFT && item == ITEM_FIST) return FALSE;
     if (item == ITEM_TRIGGER && VrGexGuns) return FALSE;   /* GE-X's remote mines detonate themselves (gun.c) */
+    /* Either selector can invoke the canonical watch/firing-hand setup. */
+    if (item == ITEM_WATCHLASER) return TRUE;
     {
-        /* GE-X's watch rig has both arms (gun.c gevrGexWatchHandsTick): no gun beside it */
+        /* Selecting an offhand item exits the watch laser's two-arm setup.
+         * Other watch devices retain their original restrictions. */
         extern s32 gevrGexWatchItem(s32 item);
 
-        if (hand == GUNLEFT && item != ITEM_UNARMED && gevrGexWatchItem(other)) return FALSE;
+        if (hand == GUNLEFT && item != ITEM_UNARMED && other != ITEM_WATCHLASER && gevrGexWatchItem(other)) return FALSE;
     }
     if (hand == GUNLEFT && item != ITEM_UNARMED && !gevrLeftGunOk(item)) return FALSE;
+    if (gevrMissionItemClaimed(hand, item)) return FALSE;
     /* Shared throwable ammo already limits consumption. Firearms need two copies. */
     if (item == other && gevrWeaponUsesCopies(item)
         && !bondinvItemAvailableForHand(item, item)) return FALSE;

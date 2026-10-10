@@ -2715,6 +2715,17 @@ extern "C" void gevrVrSnapshotCameraPose(void)
     gevrVrSnapshotControllers(&head, g_sessionFocused ? 1 : 0);
 }
 
+extern "C" int gevrVrFrameHeadPose(XrPosef *out)
+{
+    const XrQuaternionf& q = g_frameViews[0].pose.orientation;
+    if (!g_frameStarted || (q.x == 0.0f && q.y == 0.0f && q.z == 0.0f && q.w == 0.0f)) return 0;
+    out->orientation = q;
+    out->position = { (g_frameViews[0].pose.position.x + g_frameViews[1].pose.position.x) * 0.5f,
+                      (g_frameViews[0].pose.position.y + g_frameViews[1].pose.position.y) * 0.5f,
+                      (g_frameViews[0].pose.position.z + g_frameViews[1].pose.position.z) * 0.5f };
+    return 1;
+}
+
 // gfx_run finished drawing a frame into the eye buffers: stereo (the camera
 // views above) or not (the screen pass; the eyes hold nothing pose-dependent).
 /*
@@ -3134,6 +3145,24 @@ extern "C" int gevrVrRedrawHandDelta(int hand, float out[16])
     }
     out[15] = 1.0f;
     return 1;
+}
+
+/* The stored scope axes include two-hand aim. Move that frame by the same
+ * absolute controller delta as the retained gun/sight vertices; the stored
+ * camera-relative origin alone would lock the lens to the headset on redraws. */
+static bool vr_scope_gun_pose(int ctrl, const GevrScopeState& sc, float origin[3], float axes[3][3])
+{
+    float delta[16];
+    if (!sc.gunValid || vr_world_scale <= 0.0f || !gevrVrRedrawHandDelta(ctrl, delta)) return false;
+    for (int r = 0; r < 3; r++) {
+        origin[r] = delta[12 + r] / vr_world_scale;
+        for (int k = 0; k < 3; k++) origin[r] += delta[k * 4 + r] * sc.gunOrigin[k];
+        for (int a = 0; a < 3; a++) {
+            axes[a][r] = 0.0f;
+            for (int k = 0; k < 3; k++) axes[a][r] += delta[k * 4 + r] * sc.gunAxes[a][k];
+        }
+    }
+    return true;
 }
 
 /*
@@ -4047,12 +4076,11 @@ static void vr_submit_frame(XrFrameState& frameState, const std::array<XrView, 2
             float ux, uy, uz;
             float bx, by, bz;
             if (sc.gunValid) {
-                gp[0] = sc.gunOrigin[0];
-                gp[1] = sc.gunOrigin[1];
-                gp[2] = sc.gunOrigin[2];
-                rx = sc.gunAxes[0][0]; ry = sc.gunAxes[0][1]; rz = sc.gunAxes[0][2];
-                ux = sc.gunAxes[1][0]; uy = sc.gunAxes[1][1]; uz = sc.gunAxes[1][2];
-                bx = sc.gunAxes[2][0]; by = sc.gunAxes[2][1]; bz = sc.gunAxes[2][2];
+                float axes[3][3];
+                if (!vr_scope_gun_pose(ctrl, sc, gp, axes)) continue;
+                rx = axes[0][0]; ry = axes[0][1]; rz = axes[0][2];
+                ux = axes[1][0]; uy = axes[1][1]; uz = axes[1][2];
+                bx = axes[2][0]; by = axes[2][1]; bz = axes[2][2];
             } else {
                 const float x = gq[0], y = gq[1], z = gq[2], w = gq[3];
                 rx = 1.0f - 2.0f * (y * y + z * z); ry = 2.0f * (x * y + w * z); rz = 2.0f * (x * z - w * y);

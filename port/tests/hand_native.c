@@ -6,6 +6,7 @@
 #include "bondview.h"
 #include "gun.h"
 #include "bondinv.h"
+#include "gevr_bodyslot.h"
 #include <string.h>
 #include <math.h>
 #define false 0
@@ -13,6 +14,7 @@
 int gevrVrTriggerDown[2];
 #define EXPORT __declspec(dllexport)
 #define CHECK(x) do { if (!(x)) return __LINE__; } while (0)
+#define sysLogPrintf(...) ((void)0)
 struct player *g_CurrentPlayer;
 static struct player player;
 static InvItem pair;
@@ -23,6 +25,7 @@ s32 get_scenario(void) { return 0; }
 bool bondinvIsAliveWithFlag(void) { return 0; }
 static int owned[ITEM_IDS_MAX], reserve[ITEM_IDS_MAX];
 static int inventoryItems[8], inventoryCount;
+static const char *missionName;
 s32 g_gevrStereo = 1;
 bool netIsActive(void) { return online; }
 int netActiveDualWield(void) { return mode; }
@@ -33,9 +36,15 @@ s32 gevrSpectating(void) { return spectator; }
 s32 gevrManualReloadOn(s32 hand) { (void)hand; return 0; }   /* Hand reload (WIP) off: guns reload themselves */
 s32 bondinvCountTotalItemsInInv(void) { return inventoryCount; }
 s32 bondinvGetTextbyInvIndex(s32 i) { return inventoryItems[i]; }
-u16 *bondinvGetNameByIndex(s32 i) { return (u16 *) "Carried item\n"; }
+u16 *bondinvGetNameByIndex(s32 i) { return (u16 *) (i==3 && missionName ? missionName : "Carried item\n"); }
 u16 *get_ptr_short_watch_text_for_item(ITEM_IDS item) { return (u16 *) "Weapon\n"; }
 bool bondinvItemAvailable(ITEM_IDS item) { return owned[item]; }
+/* INSERT_POSED_ITEMS */
+static void *gevrItemPoseFind(s32 item) {
+    for (unsigned i=0;i<sizeof(posedItems)/sizeof(posedItems[0]);i++)
+        if (posedItems[i]==item) return (void *)1;
+    return NULL;
+}
 bool bondinvItemAvailableForHand(s32 right, s32 left) {
     return left == ITEM_UNARMED || (pair.type == INV_ITEM_DUAL
         && right == pair.type_inv_item.type_dual.weapon_right
@@ -61,8 +70,15 @@ s32 get_ammo_type_for_weapon(ITEM_IDS item) { return item > ITEM_KNIFE && item <
 s32 get_ammo_in_hands_magazine(GUNHAND hand) { return player.hands[hand].weapon_ammo_in_magazine; }
 s32 get_ammo_in_hands_weapon(GUNHAND hand) { return reserve[player.hands[hand].weaponnum]; }
 s32 bondwalkItemHasAmmo(ITEM_IDS item) { return item == ITEM_FIST || item == ITEM_KNIFE || reserve[item] > 0; }
+s32 gevrMissionItemClaimed(s32 hand, s32 item);
 /* INSERT_HAND_REQUEST */
 /* INSERT_HAND_INVENTORY */
+/* INSERT_WATCH_HANDS */
+#define BS_LIST 96
+#define BS_CHOICES 24
+static s32 s_bodyList[2][BS_LIST],s_bodyListN[2];
+static char s_bodyNames[2][BS_LIST][48];
+/* INSERT_BODY_INVENTORY */
 static void settle(void) {
     for (int h = 0; h < 2; h++) {
         player.hands[h].weaponnum = gevrHandSelected(h);
@@ -78,6 +94,7 @@ static void reset(void) {
     g_CurrentPlayer = &player; g_gevrStereo = 1; online = mode = spectator = remote = 0;
     player.ptr_hand_weapon_buffer[GUNLEFT] = (void *) 1;
     inventoryCount = 5;
+    missionName = NULL;
     inventoryItems[0] = ITEM_WPPK; inventoryItems[1] = ITEM_AK47;
     inventoryItems[2] = ITEM_GRENADE; inventoryItems[3] = ITEM_CAMERA;
     inventoryItems[4] = ITEM_FIST;
@@ -89,8 +106,8 @@ EXPORT int test_hand_cycles(void) {
     reset();
     int count = gevrWeaponPanelBuild(); CHECK(count == 5);
     for (int i = 0; i < count; i++) CHECK(s_gevrWpList[i].left == ITEM_UNARMED && s_gevrWpList[i].right != ITEM_UNARMED);
-    count = gevrWeaponPanelBuildLeft(); CHECK(count == 3);
-    for (int i = 0; i < count; i++) CHECK(s_gevrWpList[i].left != ITEM_CAMERA && s_gevrWpList[i].left != ITEM_FIST);
+    count = gevrWeaponPanelBuildLeft(); CHECK(count == 4);
+    for (int i = 0; i < count; i++) CHECK(s_gevrWpList[i].left != ITEM_FIST);
     gevrCycleHandWeapon(GUNRIGHT, 1);
     CHECK(gevrHandSelected(GUNRIGHT) == ITEM_AK47);
     CHECK(gevrHandSelected(GUNLEFT) == ITEM_GRENADE);
@@ -100,6 +117,8 @@ EXPORT int test_hand_cycles(void) {
     gevrCycleHandWeapon(GUNRIGHT, -1); CHECK(player.hands[GUNRIGHT].weapon_next_weapon == ITEM_WPPK);
     gevrCycleHandWeapon(GUNRIGHT, 1); CHECK(player.hands[GUNRIGHT].weapon_next_weapon == ITEM_AK47);
     settle(); gevrCycleHandWeapon(GUNLEFT, 1);
+    CHECK(gevrHandSelected(GUNLEFT) == ITEM_CAMERA);
+    settle(); gevrCycleHandWeapon(GUNLEFT, 1);
     CHECK(gevrHandSelected(GUNLEFT) == ITEM_UNARMED);
     settle(); gevrCycleHandWeapon(GUNLEFT, 1);
     CHECK(gevrHandSelected(GUNLEFT) == ITEM_WPPK);
@@ -107,14 +126,17 @@ EXPORT int test_hand_cycles(void) {
     settle(); gevrCycleHandWeapon(GUNLEFT, -1);
     CHECK(gevrHandSelected(GUNLEFT) == ITEM_UNARMED);
     settle(); gevrCycleHandWeapon(GUNLEFT, -1);
+    CHECK(gevrHandSelected(GUNLEFT) == ITEM_CAMERA);
+    settle(); gevrCycleHandWeapon(GUNLEFT, -1);
     CHECK(gevrHandSelected(GUNLEFT) == ITEM_GRENADE);
     CHECK(player.ptr_inventory_first_in_cycle == NULL);
     // Pair-only weapons become distinct single entries, with no allocation.
+    settle();
     pair.type = INV_ITEM_DUAL; pair.next = &pair;
     pair.type_inv_item.type_dual.weapon_right = ITEM_SNIPERRIFLE;
     pair.type_inv_item.type_dual.weapon_left = ITEM_SNIPERRIFLE;
     player.ptr_inventory_first_in_cycle = &pair;
-    CHECK(gevrWeaponPanelBuild() == 6); CHECK(gevrWeaponPanelBuildLeft() == 4);
+    CHECK(gevrWeaponPanelBuild() == 6); CHECK(gevrWeaponPanelBuildLeft() == 5);
     CHECK(pair.next == &pair); CHECK(pair.type == INV_ITEM_DUAL);
     // Actual selector equip helper only requests the selected hand.
     GevrWpEntry e = {.right = ITEM_CAMERA, .left = ITEM_SNIPERRIFLE};
@@ -127,7 +149,7 @@ EXPORT int test_hand_cycles(void) {
     reset(); online = 1; mode = NET_DUAL_OFF;
     CHECK(!gevrLeftPanelAvailable()); gevrCycleHandWeapon(GUNLEFT, 1);
     CHECK(!player.hands[GUNLEFT].weapon_animation_trigger);
-    mode = NET_DUAL_ANY; CHECK(gevrLeftPanelAvailable()); CHECK(gevrWeaponPanelBuildLeft() == 3);
+    mode = NET_DUAL_ANY; CHECK(gevrLeftPanelAvailable()); CHECK(gevrWeaponPanelBuildLeft() == 4);
     mode = NET_DUAL_DOUBLES; CHECK(gevrWeaponPanelBuildLeft() == 1);
     pair.type = INV_ITEM_DUAL; pair.next = &pair;
     pair.type_inv_item.type_dual.weapon_right = ITEM_WPPK;
@@ -138,6 +160,43 @@ EXPORT int test_hand_cycles(void) {
     CHECK(!player.hands[GUNRIGHT].weapon_animation_trigger);
     remote = 0; spectator = 1; gevrCycleHandWeapon(GUNRIGHT, 1);
     CHECK(!player.hands[GUNRIGHT].weapon_animation_trigger);
+    return 0;
+}
+EXPORT int test_mission_gadget_slots(void) {
+    const s32 gadgets[]={ITEM_BUG,ITEM_CAMERA,ITEM_MICROCAMERA,ITEM_KEYANALYSERCASE,
+        ITEM_DOORDECODER,ITEM_DATATHIEF,ITEM_BOMBDEFUSER,ITEM_BOMBCASE,
+        ITEM_GOLDENEYEKEY,ITEM_EXPLOSIVEFLOPPY,ITEM_DATTAPE,ITEM_PLASTIQUE};
+    for (unsigned i=0;i<sizeof(gadgets)/sizeof(gadgets[0]);i++) {
+        reset(); inventoryItems[3]=gadgets[i]; owned[gadgets[i]]=1;
+        missionName=gadgets[i]==ITEM_BUG?"Covert modem\n":"Mission gadget\n";
+        for(int hand=0;hand<2;hand++) {
+            // The bridge preserves the original wheel while copying live names.
+            memset(s_gevrWpList,0x5a,sizeof(s_gevrWpList));
+            GevrWpEntry original[GEVR_WP_MAX]; memcpy(original,s_gevrWpList,sizeof(original));
+            s_bodyListN[hand]=gevrBodyHandList(hand,s_bodyList[hand],s_bodyNames[hand],BS_LIST);
+            CHECK(!memcmp(original,s_gevrWpList,sizeof(original)));
+            s32 choices[BS_CHOICES];
+            int slot=gadgets[i]==ITEM_PLASTIQUE?GEVR_BS_CHEST:GEVR_BS_BELT;
+            int count=gevrBodyChoicesFor(slot,hand,choices),found=0;
+            for(int j=0;j<count;j++) found+=choices[j]==gadgets[i];
+            CHECK(found==1);
+            for(int j=0;j<s_bodyListN[hand];j++) if(s_bodyList[hand][j]==gadgets[i])
+                CHECK(!strcmp(s_bodyNames[hand][j],missionName));
+        }
+        // Inventory loss/stage change removes the gadget without granting it.
+        inventoryCount=3;
+        for(int hand=0;hand<2;hand++) {
+            s_bodyListN[hand]=gevrBodyHandList(hand,s_bodyList[hand],s_bodyNames[hand],BS_LIST);
+            s32 choices[BS_CHOICES]; CHECK(!gevrBodyChoicesFor(GEVR_BS_BELT,hand,choices));
+        }
+    }
+    // The same bug item receives its current mission's text override.
+    reset(); inventoryItems[3]=ITEM_BUG; owned[ITEM_BUG]=1; missionName="Tracker bug\n";
+    s_bodyListN[GUNLEFT]=gevrBodyHandList(GUNLEFT,s_bodyList[GUNLEFT],s_bodyNames[GUNLEFT],BS_LIST);
+    int named=0; for(int i=0;i<s_bodyListN[GUNLEFT];i++) if(s_bodyList[GUNLEFT][i]==ITEM_BUG)
+        named=!strcmp(s_bodyNames[GUNLEFT][i],"Tracker bug\n");
+    CHECK(named && gevrLeftGunOk(ITEM_WATCHLASER) && !gevrLeftGunOk(ITEM_TRIGGER));
+    CHECK(!gevrLeftGunOk(ITEM_WATCHCOMMUNICATOR) && !gevrLeftGunOk(ITEM_SUIT_LF_HAND));
     return 0;
 }
 static int wheelAt(int hand, int index, float deg) {
@@ -185,13 +244,13 @@ EXPORT int test_weapon_wheel(void) {
     inventoryItems[inventoryCount++] = ITEM_SNIPERRIFLE; owned[ITEM_SNIPERRIFLE] = 1;
     count = gevrWeaponPanelBuild(); gevrWheelGroup(GUNRIGHT, count);
     CHECK(gevrWpItem(GUNRIGHT, idx = wheelAt(GUNRIGHT, idx, 144.0f)) == ITEM_SNIPERRIFLE);
-    // The left hand's wheel: holstered with the thrown, never a gadget.
+    // The left hand's wheel: holstered with the thrown, owned handheld gadgets too.
     reset(); memset(&s_gevrWc, 0, sizeof(s_gevrWc));
     count = gevrWeaponPanelBuildLeft(); gevrWheelOpen(GUNLEFT, count, 0);
-    CHECK(s_gevrWc.n[GEVR_WC_GADGETS] == 0);
+    CHECK(s_gevrWc.n[GEVR_WC_GADGETS] == 1);
     for (float d = 0.0f; d < 360.0f; d += 5.0f) {
         int item = gevrWpItem(GUNLEFT, wheelAt(GUNLEFT, 0, d));
-        CHECK(item != ITEM_CAMERA && item != ITEM_FIST);
+        CHECK(item != ITEM_FIST);
     }
     gevrWheelStep(GUNLEFT, 0, 0, 0);
     CHECK(gevrWeaponCategory(gevrWpItem(GUNLEFT, wheelAt(GUNLEFT, 0, 288.0f))) == GEVR_WC_THROWN);
@@ -202,6 +261,104 @@ static void validateNativePair(GUNHAND hand) {
     struct hand *handptr = &player.hands[hand];
     struct hand *temp_v1_5 = &player.hands[1 - hand];
     /* INSERT_PAIR_VALIDATION */
+}
+EXPORT int test_mission_gadget_ownership(void) {
+    const s32 gadgets[]={ITEM_BUG,ITEM_CAMERA,ITEM_MICROCAMERA,ITEM_KEYANALYSERCASE,
+        ITEM_DOORDECODER,ITEM_DATATHIEF,ITEM_BOMBDEFUSER,ITEM_BOMBCASE,
+        ITEM_GOLDENEYEKEY,ITEM_EXPLOSIVEFLOPPY,ITEM_DATTAPE};
+    for(unsigned i=0;i<sizeof(gadgets)/sizeof(gadgets[0]);i++) for(int hand=0;hand<2;hand++) {
+        reset(); int other=1-hand, item=gadgets[i];
+        inventoryItems[3]=item; owned[item]=1;
+        gunRequestHandWeaponChange(hand,item,1);
+        CHECK(gevrHandSelected(hand)==item);
+        CHECK(!gevrHandItemAllowed(other,item));
+        // A second request from an already-open wheel cannot duplicate the item.
+        gunRequestHandWeaponChange(other,item,1);
+        CHECK(gevrHandSelected(other)!=item);
+        settle();
+        s_bodyListN[other]=gevrBodyHandList(other,s_bodyList[other],s_bodyNames[other],BS_LIST);
+        for(int j=0;j<s_bodyListN[other];j++) CHECK(s_bodyList[other][j]!=item);
+        CHECK(gevrHandItemAllowed(hand,item));
+        gunRequestHandWeaponChange(hand,hand==GUNLEFT?ITEM_UNARMED:ITEM_FIST,1);
+        // Still held during lowering, so the other hand must wait for stowing.
+        CHECK(!gevrHandItemAllowed(other,item));
+        settle(); CHECK(gevrHandItemAllowed(other,item));
+        gunRequestHandWeaponChange(other,item,1); settle();
+        CHECK(getCurrentPlayerWeaponId(other)==item);
+        // Watch-driven or restored pending state also gets checked at swap time.
+        player.hands[hand].weapon_next_weapon=item;
+        player.hands[hand].weapon_animation_trigger=1;
+        validateNativePair(hand);
+        CHECK(player.hands[hand].weapon_next_weapon==(hand==GUNLEFT?ITEM_UNARMED:ITEM_FIST));
+        CHECK(getCurrentPlayerWeaponId(other)==item);
+    }
+    reset(); player.hands[GUNRIGHT].weaponnum=ITEM_PLASTIQUE;
+    CHECK(gevrHandItemAllowed(GUNLEFT,ITEM_PLASTIQUE));
+    reset(); g_gevrStereo=0; player.hands[GUNRIGHT].weaponnum=ITEM_BUG;
+    gunRequestHandWeaponChange(GUNLEFT,ITEM_BUG,1);
+    CHECK(player.hands[GUNLEFT].weapon_next_weapon==ITEM_BUG);
+    return 0;
+}
+EXPORT int test_watch_laser_slots(void) {
+    for(int models=0;models<2;models++) for(int hand=0;hand<2;hand++) {
+        reset(); VrGexGuns=models;
+        inventoryItems[3]=ITEM_WATCHLASER; owned[ITEM_WATCHLASER]=1;
+        for(int h=0;h<2;h++) {
+            s_bodyListN[h]=gevrBodyHandList(h,s_bodyList[h],s_bodyNames[h],BS_LIST);
+            s32 choices[BS_CHOICES];int n=gevrBodyChoicesFor(GEVR_BS_BELT,h,choices),found=0;
+            for(int j=0;j<n;j++) found+=choices[j]==ITEM_WATCHLASER;
+            CHECK(found==1);
+        }
+        // Either belt/wheel hand equips identical watch and firing-hand roles.
+        GevrWpEntry pick={.right=ITEM_WATCHLASER,.left=ITEM_WATCHLASER};
+        gevrWeaponPanelEquip(hand,&pick,1);
+        CHECK(gevrHandSelected(GUNRIGHT)==ITEM_WATCHLASER);
+        CHECK(gevrHandSelected(GUNLEFT)==ITEM_UNARMED);
+        settle();CHECK(gevrHandItemAllowed(GUNLEFT,ITEM_WATCHLASER));
+        gunRequestHandWeaponChange(hand,ITEM_WATCHLASER,1);
+        CHECK(gevrHandSelected(GUNRIGHT)==ITEM_WATCHLASER);
+        CHECK(gevrHandSelected(GUNLEFT)==ITEM_UNARMED);
+        CHECK(!gevrBodyItemKept(ITEM_TRIGGER) && !gevrBodyItemKept(ITEM_WATCHCOMMUNICATOR));
+    }
+    VrGexGuns=0;
+    return 0;
+}
+EXPORT int test_watch_laser_exit(void) {
+    const int items[]={ITEM_WPPK,ITEM_AK47,ITEM_CAMERA};
+    for(int models=0;models<2;models++) for(unsigned i=0;i<sizeof(items)/sizeof(items[0]);i++) {
+        reset();VrGexGuns=models;
+        player.hands[GUNRIGHT].weaponnum=ITEM_WATCHLASER;
+        player.hands[GUNLEFT].weaponnum=ITEM_UNARMED;
+        int item=items[i];CHECK(gevrHandItemAllowed(GUNLEFT,item));
+        s_bodyListN[GUNLEFT]=gevrBodyHandList(GUNLEFT,s_bodyList[GUNLEFT],s_bodyNames[GUNLEFT],BS_LIST);
+        s32 choices[BS_CHOICES];
+        int n=gevrBodyChoicesFor(gevrBodySlotForItem(item,GUNLEFT),GUNLEFT,choices),found=0;
+        for(int j=0;j<n;j++) found+=choices[j]==item;
+        CHECK(found==1);
+        GevrWpEntry pick={.right=ITEM_WATCHLASER,.left=item};
+        gevrWeaponPanelEquip(GUNLEFT,&pick,1);
+        CHECK(gevrHandSelected(GUNRIGHT)==ITEM_FIST && gevrHandSelected(GUNLEFT)==item);
+        // The watch rig's tick cannot undo the draw while its old model lowers.
+        gevrGexWatchHandsTick();CHECK(gevrHandSelected(GUNLEFT)==item);
+        player.hands[GUNRIGHT].weapon_animation_trigger=0;
+        player.hands[GUNRIGHT].weapon_action_state=GUN_ANIM_STATE_SWITCH_LOWER;
+        gevrGexWatchHandsTick();CHECK(gevrHandSelected(GUNLEFT)==item);
+        player.hands[GUNRIGHT].weapon_animation_trigger=1;settle();
+        CHECK(getCurrentPlayerWeaponId(GUNRIGHT)==ITEM_FIST && getCurrentPlayerWeaponId(GUNLEFT)==item);
+    }
+    // A queued watch laser is canceled, but a queued replacement gun is kept.
+    reset();VrGexGuns=1;gunRequestHandWeaponChange(GUNRIGHT,ITEM_WATCHLASER,1);
+    gunRequestHandWeaponChange(GUNLEFT,ITEM_CAMERA,1);
+    CHECK(gevrHandSelected(GUNRIGHT)==ITEM_FIST && gevrHandSelected(GUNLEFT)==ITEM_CAMERA);
+    reset();player.hands[GUNRIGHT].weaponnum=ITEM_WATCHLASER;
+    gunRequestHandWeaponChange(GUNRIGHT,ITEM_AK47,1);
+    gunRequestHandWeaponChange(GUNLEFT,ITEM_CAMERA,1);gevrGexWatchHandsTick();
+    CHECK(gevrHandSelected(GUNRIGHT)==ITEM_AK47 && gevrHandSelected(GUNLEFT)==ITEM_CAMERA);
+    // The original flat watch rig still clears the offhand weapon.
+    reset();g_gevrStereo=0;player.hands[GUNRIGHT].weaponnum=ITEM_WATCHLASER;
+    gevrGexWatchHandsTick();CHECK(gevrHandSelected(GUNLEFT)==ITEM_UNARMED);
+    VrGexGuns=0;
+    return 0;
 }
 static s32 lvlGetControlsLockedFlag(void) { return 0; }
 static int D_80032458;
@@ -290,7 +447,7 @@ EXPORT int test_hand_input(void) {
     settle(); rightGrip = 0;
     xDown = 1; inputTime += 80; tickInput(1, 0);
     inputTime += 80; xDown = 0; tickInput(1, 0);
-    CHECK(gevrHandSelected(GUNLEFT) == ITEM_UNARMED);
+    CHECK(gevrHandSelected(GUNLEFT) == ITEM_CAMERA);
     CHECK(gevrHandSelected(GUNRIGHT) == ITEM_WPPK);
     settle(); leftGrip = 1; xDown = 1; inputTime += 80; tickInput(1, 0);
     inputTime += 80; xDown = 0; tickInput(1, 0);
