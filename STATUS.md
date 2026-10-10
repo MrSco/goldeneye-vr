@@ -16,6 +16,15 @@ and Belt defaults use saved Quest fits at 170 cm; custom fits stay intact.
 See [body slots](docs/body-slots.md). Watch Controls clears inherited depth
 before drawing; headset review of the controller is pending.
 
+Branch claude/sniper-scope-offhand-60a6ed (2026-10-09, unmerged, headset
+check pending): a GE-X scope in the left hand mirrors its lens with the gun,
+so the right hand's scope fit serves both hands. Online, only the local
+player posts bottom messages, and the rows cover eight slots (bots in slots
+5-7 wrote into the top message). A bot's armour pickup sound plays where it
+stands. Crash report fb1c9718 (v0.4.16, match start with bots): stan.c's
+line and volume tests wrote their room list's -1 one word past it after a
+full twenty-room walk; both buffers hold the terminator now.
+
 ## Recent releases
 
 **v0.4.16:** live solo and host movement speed (protocol 21), two-column

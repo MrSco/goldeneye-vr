@@ -4972,12 +4972,17 @@ static void gevrScopeTune(void)
 }
 
 /* the lens on the eyepiece, from the hand's grip (vr_openxr.cpp places it),
- * moved and sized by Gun fit's scope trim (user) */
+ * moved and sized by Gun fit's scope trim (user). A GoldenEye X gun in the
+ * left hand is drawn mirrored about its origin (gunfire.c gevrGexLeftMirrored),
+ * so its eyepiece and the right hand's fit mirror with it: one fit serves
+ * both hands (user: the left sniper's lens sat ~14 cm left of the scope). */
 static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4])
 {
     f32 size = gevrGunSizeFactor();
     f32 unit = GEVR_VIEWMODEL_CM * 0.1f / 100.0f * size;   /* metres a model unit */
-    f32 left = VrLeftHandedMode ? -1.0f : 1.0f;             /* model +X, in the holder's right */
+    f32 originSide = VrLeftHandedMode ? -1.0f : 1.0f;       /* the gun origin, in the holder's right */
+    f32 mirror = (hand == GUNLEFT && gevrGexHeld(GUNLEFT)) ? -1.0f : 1.0f;
+    f32 left = mirror * originSide;                         /* model +X, in the holder's right */
     f32 ex = sc->x;
     f32 ey = sc->y;
     f32 ez = sc->z;
@@ -4988,7 +4993,7 @@ static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4]
     const GexWeaponDef *gexDef = gevrGexHeld(hand) ? gevrGexWeaponForHand(hand) : NULL;
     if (gexDef && gexDef->hasScope) { ex=gexDef->scopeRoot[0]; ey=gexDef->scopeRoot[1]; ez=gexDef->scopeRoot[2]; }
     gevrGunOff(hand, off);
-    lens[0] = (VrLeftHandedMode ? -(off[0] + fit[0]) : off[0] + fit[0]) * size / 100.0f
+    lens[0] = (originSide * off[0] + left * fit[0]) * size / 100.0f
             - left * ex * unit + s_gevrScopeTrim[0];
     lens[1] = (off[1] + fit[1]) * size / 100.0f + ey * unit + s_gevrScopeTrim[1];
     lens[2] = (GEVR_GRIP_TO_ORIGIN_CM + off[2] + fit[2]) * size / 100.0f
@@ -5002,9 +5007,10 @@ static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4]
 
 /*
  * One hand's scope this frame. The left gun (GUNLEFT, controller 0) is the
- * same model unmirrored (gevrStereoGunMatrix: none of the scoped guns is
- * MIRROR_DUAL), so the eyepiece's place on it carries over; only the pose
- * comes from the other controller.
+ * GoldenEye model unmirrored (gevrStereoGunMatrix: none of the scoped guns is
+ * MIRROR_DUAL), so the eyepiece's place on it carries over; a GoldenEye X gun
+ * there is mirrored, and gevrScopeLensPlace mirrors its lens. The pose comes
+ * from the other controller.
  */
 static s32 gevrScopeBeginHand(s32 hand)
 {
@@ -5444,13 +5450,20 @@ s32 watch_time_0;
  * Address 80079A28
  * EU .bss 80068508
 */
+#ifdef GEVR
+/* a row per player (the solo ring uses the first five): online eight slots
+ * post here, and rows 5-7 ran into stringbuffer_top, the one top message
+ * (user: the host's bots' pickups showed on the host's screen) */
+char stringbuffer_lowerleft[BONDVIEW_HUD_MSG_BOTTOM_ROWS][BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH];
+#else
 char stringbuffer_lowerleft[0x5][BONDVIEW_HUD_MSG_BOTTOM_BUFFER_LENGTH];
+#endif
 char dword_CODE_bss_80079c21[0x04];
 
 #if defined(BUGFIX_R1)
 //CODE.bss:80079Cd8
-s32 dword_CODE_bss_jp80079Cd8[0x05];
-s32 dword_CODE_bss_jp80079CEC[0x05];
+s32 dword_CODE_bss_jp80079Cd8[BONDVIEW_HUD_MSG_BOTTOM_ROWS];
+s32 dword_CODE_bss_jp80079CEC[BONDVIEW_HUD_MSG_BOTTOM_ROWS];
 #endif
 
 /**
@@ -20118,6 +20131,13 @@ void hudmsgBottomShow(char *string, struct fontchar *font, struct font *arg2)
 {
     s32 abs_index;
     s32 index;
+#ifdef GEVR
+    /* the local player's row only, as the US version below */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        return;
+    }
+#endif
     if (getPlayerCount() == 1)
     {
         if (display_statusbar < 5)
@@ -20160,6 +20180,15 @@ void hudmsgBottomShow(char *mess)
         assert(font);
         assert(strlen(mess)<=MAXMESSAGELEN);
     #endif
+#ifdef GEVR
+    /* Online only the local player's row is drawn (hudmsgBottomRender from
+     * maybe_mp_interface); a host's bot or another player's copy posts nothing
+     * (user: the bots' pickups showed on the host's screen) */
+    if (netIsActive() && get_cur_playernum() != netGetLocalSlot())
+    {
+        return;
+    }
+#endif
     if (getPlayerCount() == 1)
     {
         if (display_statusbar < 5)
