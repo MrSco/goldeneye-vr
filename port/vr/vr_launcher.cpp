@@ -58,6 +58,9 @@ const char *fsFullPath(const char *relPath);  // port/src/fs.c
 int fsFileSize(const char *name);             // port/src/fs.c: -1 when absent
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
+int gevrBeanIsAvailable(void);
+int gevrBeanIsEnabled(void);
+void gevrBeanSetEnabled(int on);
 void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
 void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
@@ -3069,6 +3072,21 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::RadioButton("Flat screen", &mode, 0)) {
                 VrPlayMode = VR_PLAYMODE_SCREEN;
                 vrSettingsSave();
+            }
+            {
+                bool beanHave = gevrBeanIsAvailable() != 0;
+                bool beanOn = beanHave && gevrBeanIsEnabled() != 0;
+                if (!beanHave) ImGui::BeginDisabled();
+                if (ImGui::Checkbox("Project Bean models", &beanOn)) {
+                    gevrBeanSetEnabled(beanOn ? 1 : 0);
+                    vrSettingsSave();
+                }
+                if (!beanHave) ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip(beanHave
+                        ? "HD characters, guns, rooms and skies.\nHold one grip and the right stick click for a second to use the N64 models."
+                        : "No Bean files in\nAndroid/data/com.gevr.port/files/data/added-content/xbla/files");
+                }
             }
             ImGui::Spacing();
             if (ImGui::Button("Multiplayer...")) mpPage = true;

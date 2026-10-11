@@ -3,6 +3,7 @@
 #include "model.h"
 #ifdef GEVR
 #include "gevr_hand_reload.h"
+#include "gevr_bean.h"
 #endif
 #include "../rmon.h" /*<PR/rmon.h>*/
 #include "bondview.h"
@@ -4287,10 +4288,17 @@ void modelApplyCullMode(ModelRenderData *renderdata)
 void modelRenderNodeGundl(ModelRenderData* renderdata, ModelNode* arg1)
 {
     ModelRoData_DisplayListRecord* rodata = &arg1->Data->DisplayList;
+#ifdef GEVR
+    Gfx *shownPrimary = (Gfx *)gevrBeanShownGdl(arg1, rodata->Primary);
+    s32 shownType = gevrBeanShownModelType(arg1, rodata->ModelType);
+#else
+    Gfx *shownPrimary = rodata->Primary;
+    s32 shownType = rodata->ModelType;
+#endif
 
     if (renderdata->unk18 == 0)
     {
-        if ((renderdata->flags & 1) && rodata->Primary)
+        if ((renderdata->flags & 1) && shownPrimary)
         {
             gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->BaseAddr));
 
@@ -4299,33 +4307,33 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, ModelNode* arg1)
                 modelApplyCullMode(renderdata);
             }
 
-            if (rodata->ModelType == 1)
+            if (shownType == 1)
             {
                 modelApplyRenderModeType1(renderdata);
             }
-            else if (rodata->ModelType == 3)
+            else if (shownType == 3)
             {
                 modelApplyRenderModeType3(renderdata, 1);
             }
-            else if (rodata->ModelType == 4)
+            else if (shownType == 4)
             {
                 modelApplyRenderModeType4(renderdata, 1);
             }
-            else if (rodata->ModelType == 2)
+            else if (shownType == 2)
             {
                 modelApplyRenderModeType2(renderdata);
             }
 
-            gSPDisplayList(renderdata->gdl++, rodata->Primary);
+            gSPDisplayList(renderdata->gdl++, shownPrimary);
 
-            if ((rodata->ModelType == 3) && rodata->Secondary)
+            if ((shownType == 3) && rodata->Secondary)
             {
                 modelApplyRenderModeType3(renderdata, 0);
                 gSPDisplayList(renderdata->gdl++, rodata->Secondary);
             }
         }
 
-        if ((renderdata->flags & 2) && rodata->Primary && (rodata->ModelType == 4) && rodata->Secondary)
+        if ((renderdata->flags & 2) && shownPrimary && (shownType == 4) && rodata->Secondary)
         {
             gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->BaseAddr));
 
@@ -4473,8 +4481,15 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
         if (renderdata->flags & 1)
         {
             union ModelRwData *rwdata = modelGetNodeRwData(model, node);
+#ifdef GEVR
+            Gfx *shownGdl = (Gfx *)gevrBeanShownGdl(node, rwdata->DisplayListCollisions.gdl);
+            s32 shownType = gevrBeanShownModelType(node, rodata->DisplayListCollisions.ModelType);
+#else
+            Gfx *shownGdl = rwdata->DisplayListCollisions.gdl;
+            s32 shownType = rodata->DisplayListCollisions.ModelType;
+#endif
 
-            if (rwdata->DisplayListCollisions.gdl)
+            if (shownGdl)
             {
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->DisplayListCollisions.BaseAddr));
 
@@ -4483,28 +4498,28 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
                     modelApplyCullMode(renderdata);
                 }
 
-                if (rodata->DisplayListCollisions.ModelType == 1)
+                if (shownType == 1)
                 {
                     modelApplyRenderModeType1(renderdata);
                 }
-                else if (rodata->DisplayListCollisions.ModelType == 3)
+                else if (shownType == 3)
                 {
                     modelApplyRenderModeType3(renderdata, TRUE);
                 }
-                else if (rodata->DisplayListCollisions.ModelType == 4)
+                else if (shownType == 4)
                 {
                     modelApplyRenderModeType4(renderdata, TRUE);
                 }
-                else if (rodata->DisplayListCollisions.ModelType == 2)
+                else if (shownType == 2)
                 {
                     modelApplyRenderModeType2(renderdata);
                 }
 
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->DisplayListCollisions.Vertices));
 
-                gSPDisplayList(renderdata->gdl++, rwdata->DisplayListCollisions.gdl);
+                gSPDisplayList(renderdata->gdl++, shownGdl);
 
-                if (rodata->DisplayListCollisions.ModelType == 3 && rodata->DisplayListCollisions.Secondary)
+                if (shownType == 3 && rodata->DisplayListCollisions.Secondary)
                 {
                     modelApplyRenderModeType3(renderdata, FALSE);
                     gSPDisplayList(renderdata->gdl++, rodata->DisplayListCollisions.Secondary);
@@ -4515,8 +4530,15 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
         if (renderdata->flags & 2)
         {
             union ModelRwData *rwdata = modelGetNodeRwData(model, node);
+#ifdef GEVR
+            Gfx *shownGdl = (Gfx *)gevrBeanShownGdl(node, rwdata->DisplayListCollisions.gdl);
+            s32 shownType = gevrBeanShownModelType(node, rodata->DisplayListCollisions.ModelType);
+#else
+            Gfx *shownGdl = rwdata->DisplayListCollisions.gdl;
+            s32 shownType = rodata->DisplayListCollisions.ModelType;
+#endif
 
-            if (rwdata->DisplayListCollisions.gdl && rodata->DisplayListCollisions.ModelType == 4 && rodata->DisplayListCollisions.Secondary)
+            if (shownGdl && shownType == 4 && rodata->DisplayListCollisions.Secondary)
             {
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->DisplayListCollisions.BaseAddr));
 
