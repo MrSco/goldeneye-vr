@@ -77,6 +77,9 @@ struct gevrRomLayout {
 	uint32_t hats, hatfirst, hatcount;
 	/* the gun-barrel intro's Bond (title.c), immediates at 7F009088 */
 	uint32_t titlebody, titlehead;
+	/* US items whose special cases the hack patched out, and the item that behaves as they now do
+	 * (GEVR_ITEM_AS in bondconstants.h); a 0 row ends the list */
+	uint8_t itemas[4][2];
 };
 
 struct gevrDataWindow {
@@ -139,6 +142,8 @@ int gevrRomChooseHead(int male, int head);
 struct headHat *gevrRomHeadHats(int *first, int *count);
 /* The intro's body and head in a hack campaign's character table; unchanged for GoldenEye. */
 void gevrRomTitleBond(int *body, int *head);
+/* The item whose behaviour applies in this campaign (bondconstants.h GEVR_ITEM_AS). */
+int gevrItemAs(int item);
 
 /* Sum of the image-row sizes, the span of the images bank. 0 when the table does not fit. */
 uint32_t gevrRomImageBankBytes(const uint8_t *data, uint32_t dataLen,

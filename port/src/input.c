@@ -2288,7 +2288,7 @@ struct WeaponRumbleProfile {
 static int gevrRecoilFor(s32 item, f32 *strength)
 {
     *strength = 1.0f;
-    switch (item) {
+    switch (GEVR_ITEM_AS(item)) {
         case ITEM_TT33:
             *strength = 0.5f;
             return GEVR_RECOIL_MAGNUM;

@@ -499,7 +499,7 @@ static void gevrLeftGadgetMirror(Mtxf *m)
 static void gevrWatchHandTickHiddenFinger(GUNHAND handnum, s32 item, s32 visible)
 {
     if (g_gevrStereo && handnum == GUNRIGHT && !visible
-        && (item == ITEM_WATCHLASER || item == ITEM_TRIGGER))
+        && (GEVR_ITEM_AS(item) == ITEM_WATCHLASER || item == ITEM_TRIGGER))
     {
         sub_GAME_7F05E6B4(handnum, g_CurrentPlayer->hands[handnum].weapon_hold_time);
     }
@@ -682,7 +682,7 @@ void gunUpdateAndFire(GUNHAND handnum)
     }
 #endif
 
-    if (((item == ITEM_ROCKETLAUNCH) || (item == ITEM_TRIGGER)) || (item == ITEM_WATCHLASER))
+    if (((item == ITEM_ROCKETLAUNCH) || (item == ITEM_TRIGGER)) || (GEVR_ITEM_AS(item) == ITEM_WATCHLASER))
     {
         gunofs.y += g_CurrentPlayer->ducking_height_offset / (-100.0f);
         gunofs.z += (3.0f * g_CurrentPlayer->ducking_height_offset) / (-100.0f);
@@ -692,7 +692,7 @@ void gunUpdateAndFire(GUNHAND handnum)
             gunofs.y -= 3.0f;
         }
     }
-    else if (item == ITEM_TASER)
+    else if (GEVR_ITEM_AS(item) == ITEM_TASER)
     {
         gunofs.y += (2.5f * g_CurrentPlayer->ducking_height_offset) / (-100.0f);
         gunofs.z += (7.5f * g_CurrentPlayer->ducking_height_offset) / (-100.0f);
@@ -734,7 +734,7 @@ void gunUpdateAndFire(GUNHAND handnum)
     sub_GAME_7F05C614();
     matrix_4x4_set_identity(&rotmtx);
 
-    if (((item == ITEM_TRIGGER) || (item == ITEM_WATCHLASER))
+    if (((item == ITEM_TRIGGER) || (GEVR_ITEM_AS(item) == ITEM_WATCHLASER))
 #ifdef GEVR
         && !gevrGexHeld(handnum)   /* GE-X's watch rig holds itself as posed */
 #endif
@@ -745,7 +745,7 @@ void gunUpdateAndFire(GUNHAND handnum)
             matrix_4x4_multiply_homogeneous_in_place(&tmpmtx, &rotmtx);
     }
 #ifdef GEVR
-    else if (item == ITEM_TASER && !gevrGexHeld(handnum))   /* GE-X's taser rig holds itself as posed */
+    else if (GEVR_ITEM_AS(item) == ITEM_TASER && !gevrGexHeld(handnum))   /* GE-X's taser rig holds itself as posed */
 #else
     else if (item == ITEM_TASER)
 #endif
@@ -821,7 +821,7 @@ void gunUpdateAndFire(GUNHAND handnum)
              * second time); a trigger stab or throw keeps its animation. Nor
              * the taser's thrust, either model: the arm itself reaches (user) */
             if (hand->field_92C != 0 && !gevrStereoItemShown(item) && !gevrMotionThrowOwnsHand(handnum)
-                && item != ITEM_TASER)
+                && GEVR_ITEM_AS(item) != ITEM_TASER)
             {
                 /*
                  * The keyframe turn is in the model frame, which the flat
@@ -1446,7 +1446,7 @@ void gunUpdateAndFire(GUNHAND handnum)
 
         if (hand->weapon_firing_status != 0)
         {
-            switch (item)
+            switch (GEVR_ITEM_AS(item))
             {
             case ITEM_WPPK:
             case ITEM_WPPKSIL:
@@ -1588,7 +1588,7 @@ void CapBeamLengthAndDecideIfRendered(struct BeamRecord *arg0, ITEM_IDS item, co
     arg0->delta.f[1] *= 1.0f / phi_f12_2;
     arg0->delta.f[2] *= 1.0f / phi_f12_2;
 
-    if (item == ITEM_WATCHLASER)
+    if (GEVR_ITEM_AS(item) == ITEM_WATCHLASER)
     {
         if (phi_f12_2 > 300.0f)
         {
@@ -1625,7 +1625,7 @@ void CapBeamLengthAndDecideIfRendered(struct BeamRecord *arg0, ITEM_IDS item, co
         // Laser beams are rendered more often than other normal weapons
         arg0->unk28 = (-0.1f - ((f32) (u32)randomGetNext() * (1.0f / UINT_MAX) * 0.3f)) * phi_f12_2;
     }
-    else if (item == ITEM_WATCHLASER)
+    else if (GEVR_ITEM_AS(item) == ITEM_WATCHLASER)
     {
         arg0->unk24 = phi_f12_2;
         arg0->unk20 = 2.0f * phi_f12_2;
@@ -1767,7 +1767,7 @@ Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2)
             radius = 50.0f;
             image = flareimage4;
         }
-        else if (flash->item_id == ITEM_WATCHLASER)
+        else if (GEVR_ITEM_AS(flash->item_id) == ITEM_WATCHLASER)
         {
             radius = 10.0f;
             image = flareimage4;
@@ -1861,7 +1861,7 @@ Gfx *sub_GAME_7F061E18(Gfx *gdl, BeamRecord *flash, s32 arg2)
             vtx[7] = templatevtx;
         }
 
-        if (flash->item_id == ITEM_WATCHLASER)
+        if (GEVR_ITEM_AS(flash->item_id) == ITEM_WATCHLASER)
         {
             tmp.f[0] = pos.f[0] + flash->delta.f[0] * dist;
             tmp.f[1] = pos.f[1] + flash->delta.f[1] * dist;
@@ -2208,6 +2208,10 @@ static s32 gevrTaserHandLoad(void)
     s_gevrTaserHandReady = FALSE;
     s_gevrTaserHandStage = bossGetStageNum();
 
+    if (GEVR_ITEM_AS(ITEM_TASER) != ITEM_TASER)
+    {
+        return FALSE;   /* a hack campaign's own gun is on the taser's file */
+    }
     tmpl = gitem_structs[ITEM_TASER].item_header;
     name = (s8 *) gitem_structs[ITEM_TASER].item_file_name;
     if (tmpl == NULL || name == NULL)
@@ -2613,6 +2617,10 @@ static s32 gevrWatchHandLoad(void)
     s_gevrWatchHandReady = FALSE;
     s_gevrWatchHandStage = bossGetStageNum();
 
+    if (GEVR_ITEM_AS(ITEM_WATCHLASER) != ITEM_WATCHLASER)
+    {
+        return FALSE;   /* a hack campaign's own gun is on the watch laser's file */
+    }
     tmpl = gitem_structs[ITEM_WATCHLASER].item_header;
     name = (s8 *) gitem_structs[ITEM_WATCHLASER].item_file_name;
     if (tmpl == NULL || name == NULL)
@@ -2867,7 +2875,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         gdl = gevrHandTag(gdl, handnum == GUNRIGHT ? 1 : 0);
 #endif
 
-        if (item != ITEM_WATCHLASER)
+        if (GEVR_ITEM_AS(item) != ITEM_WATCHLASER)
         {
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
         }
@@ -3083,7 +3091,7 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         gdl = gevrHandTag(gdl, -1);
 #endif
 
-        if (item == ITEM_WATCHLASER)
+        if (GEVR_ITEM_AS(item) == ITEM_WATCHLASER)
         {
             gdl = sub_GAME_7F061E18(gdl, &handptr->weapon_beam, 0);
         }
@@ -3154,7 +3162,7 @@ Gfx *set_enviro_fog_for_items_in_solo_watch_menu(Gfx *gdl, ITEM_IDS itemid, Mtxf
     s32 j;
     ModelFileHeader *bodymodel;
 
-    if ((itemid == ITEM_TRIGGER) || (itemid == ITEM_WATCHLASER))
+    if ((itemid == ITEM_TRIGGER) || (GEVR_ITEM_AS(itemid) == ITEM_WATCHLASER))
     {
         itemid = ITEM_WATCHMAGNETATTRACT;
     }
@@ -3883,7 +3891,7 @@ void recall_joy2_hits_edit_detail_edit_flag(enum ITEM_IDS item, PropRecord* prop
         || (item == ITEM_BUG)
         || (item == ITEM_MICROCAMERA)
         || (item == ITEM_PLASTIQUE)
-        || (item == ITEM_WATCHLASER)
+        || (GEVR_ITEM_AS(item) == ITEM_WATCHLASER)
         || (item == ITEM_WATCHMAGNETATTRACT))
     {
         return;
@@ -4021,7 +4029,7 @@ void recall_joy2_hits_edit_flag(enum ITEM_IDS item, coord3d* arg1, s32 texture_i
     sound_state = gunGetFreeSfxState();
     if (sound_state != NULL)
     {
-        if (item != ITEM_WATCHLASER)
+        if (GEVR_ITEM_AS(item) != ITEM_WATCHLASER)
         {
             if (item == ITEM_LASER)
             {
@@ -4069,7 +4077,7 @@ void sub_GAME_7F064934(ITEM_IDS item)
 #ifdef BUGFIX_R1
     if (g_ClockTimer <= 0) { return; }
 #endif
-    if ((item != ITEM_LASER) && (item != ITEM_WATCHLASER))
+    if ((GEVR_ITEM_AS(item) != ITEM_LASER) && (GEVR_ITEM_AS(item) != ITEM_WATCHLASER))
     {
         copied = ear_whistle_sounds;
         sndPlaySfx((struct ALBankAlt_s*) g_musicSfxBufferPtr, copied.arr[randomGetNext() % 5], 0);
@@ -4578,7 +4586,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
     if (handptr->weapon_action_state == GUN_ANIM_STATE_TRIGGER_PRESS)
     {
-        switch (var_s1)
+        switch (GEVR_ITEM_AS(var_s1))
         {
         case ITEM_RUGER:
         case ITEM_GRENADELAUNCH:
@@ -4761,7 +4769,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
     {
         if ((get_ammo_type_for_weapon(var_s1) == 0) || (handptr->weapon_ammo_in_magazine > 0))
         {
-            switch (var_s1)
+            switch (GEVR_ITEM_AS(var_s1))
             {
             case ITEM_CAMERA:
             case ITEM_WATCHMAGNETATTRACT:
@@ -4947,7 +4955,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                         }
                     }
 
-                    if (var_s1 == ITEM_WATCHLASER)
+                    if (GEVR_ITEM_AS(var_s1) == ITEM_WATCHLASER)
                     {
                         sp1B0 = watchlaser_fire_sounds;
 #ifdef GEVR
@@ -4986,7 +4994,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 
     if (handptr->weapon_action_state == GUN_ANIM_STATE_RECOIL1)
     {
-        if (var_s1 == ITEM_TASER)
+        if (GEVR_ITEM_AS(var_s1) == ITEM_TASER)
         {
             tempf = WEAPON_1P_ANIM_TIME(handptr->field_890);
             if (gunSample1PTransform(taserRaiseKeyframes, tempf, &handptr->field_8EC, hand) != 0)
@@ -5343,7 +5351,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 #endif
                )
             {
-                switch (var_s1)
+                switch (GEVR_ITEM_AS(var_s1))
                 {
                     case ITEM_LASER:
                         gevrPlaceRemoteHandSound(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, PICKUP_LASER_SFX, NULL), hand);
@@ -5466,7 +5474,7 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
 #endif
            )
         {
-            switch (var_s1)
+            switch (GEVR_ITEM_AS(var_s1))
             {
             case ITEM_UNARMED:
             case ITEM_FIST:

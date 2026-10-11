@@ -41,6 +41,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0,
 		0x8003e464, 42, 28,
 		5, 78,
+		{ { 0 } },
 	},
 	{
 		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
@@ -73,6 +74,10 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0x80703000, 0, 126,
 		/* the Fort Knox body and CheadbondhZ */
 		37, 110,
+		/* its Luger (GtaserZ) and P38 (GwatchlaserZ) are plain pistols: its code
+		 * sets every taser and watch-laser test to item 0, and its held-prop table
+		 * holds both as the PPK (ITEM_TASER 31, ITEM_WATCHLASER 23, ITEM_WPPK 4) */
+		{ { 31, 4 }, { 23, 4 } },
 	},
 	{
 		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
@@ -101,6 +106,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0,
 		0x8003e464, 42, 28,
 		5, 74,
+		{ { 0 } },
 	},
 };
 
@@ -445,6 +451,22 @@ int gevrRomAdvanceBelow(void)
 int gevrRomAiHooks(void)
 {
 	return gevrRomActiveLayout()->aihooks && gevrRomIsVariant();
+}
+
+int gevrItemAs(int item)
+{
+	const struct gevrRomLayout *L = gevrRomActiveLayout();
+	int i;
+
+	if (!L->variant) {
+		return item;
+	}
+	for (i = 0; i < 4 && L->itemas[i][0]; i++) {
+		if (L->itemas[i][0] == item) {
+			return L->itemas[i][1];
+		}
+	}
+	return item;
 }
 
 void gevrRomTitleBond(int *body, int *head)

@@ -9888,7 +9888,7 @@ void objHit(ShotData *shotdata, BulletHit *hit)
         recall_joy2_hits_edit_detail_edit_flag(shotdata->weapon, hit->prop, hit->hit.texturenum);
     }
 
-    if (shotdata->weapon != ITEM_WATCHLASER)
+    if (GEVR_ITEM_AS(shotdata->weapon) != ITEM_WATCHLASER)
     {
         if (hit->countsAsPenetration == 0)
         {

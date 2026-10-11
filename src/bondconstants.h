@@ -4198,6 +4198,18 @@ typedef enum PROJECTILES
         ITEM_TOKEN,
         ITEM_IDS_MAX
     } ITEM_IDS;
+#if defined(GEVR) && !defined(AIPARSE)
+/*
+ * The item whose behaviour applies. A hack campaign may put a plain gun on a
+ * special item's file and patch out that item's special cases (Goldfinger's
+ * Luger and P38 on the taser's and watch laser's, gevr_romlayout.c); the
+ * item itself otherwise.
+ */
+int gevrItemAs(int item);
+#define GEVR_ITEM_AS(item) gevrItemAs(item)
+#else
+#define GEVR_ITEM_AS(item) (item)
+#endif
 #ifdef AIPARSE
     char *ITEM_IDS_ToString[] = {
         "ITEM_UNARMED",

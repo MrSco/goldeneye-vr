@@ -3600,7 +3600,7 @@ void                   ai(PropDefHeaderRecord *Entityp, PROP_TYPE EntityType)
                         */
                         if (cheatIsActive(28)) // CHEAT_ENEMYROCKETS
                         {
-                            switch (ai->ITEM_NUM) // ITEM_IDS
+                            switch (GEVR_ITEM_AS(ai->ITEM_NUM)) // ITEM_IDS
                             {
                                 case ITEM_KNIFE:
                                 case ITEM_THROWKNIFE:

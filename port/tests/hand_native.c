@@ -21,6 +21,7 @@ static InvItem pair;
 static int online, mode, spectator, remote;
 static int gexHands[2];
 s32 gevrGexHeld(s32 hand) { return gexHands[hand]; }
+int gevrItemAs(int item) { return item; } /* GoldenEye: every item behaves as itself */
 s32 get_scenario(void) { return 0; }
 bool bondinvIsAliveWithFlag(void) { return 0; }
 static int owned[ITEM_IDS_MAX], reserve[ITEM_IDS_MAX];
