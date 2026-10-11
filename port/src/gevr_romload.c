@@ -23,6 +23,7 @@
  * CMakeLists.txt for why it is excluded.
  */
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
@@ -37,6 +38,7 @@
 #include "gevr_texpack_preload.h"
 
 extern int VrCampaign;
+extern int VrGexGuns;
 
 /* Mirrors of the engine's own table; ob.c defines both at file scope. */
 struct gevrFileEntry {
@@ -214,6 +216,16 @@ s32 romdataInit(void)
 			g_RomFile = (u8 *)data;
 			g_RomFileSize = size;
 			if (got == want && gevrRomApplyVariant((const u8 *)data, size)) {
+				/*
+				 * GoldenEye X's models replace GoldenEye's guns by item and
+				 * its textures take ids from 3100, inside Goldfinger's 3915:
+				 * off for this run. The saved setting stays (vr_settings.cpp).
+				 */
+				if (VrGexGuns) {
+					VrGexGuns = 0;
+					gevrGexCampaignOff = 1;
+					sysLogPrintf(LOG_NOTE, "rom: GoldenEye X models are off in %s", want->name);
+				}
 				gevrRomBindSegments();
 				return 0;
 			}
@@ -222,6 +234,15 @@ s32 romdataInit(void)
 		}
 		sysLogPrintf(LOG_ERROR, "rom: %s is not installed or did not bind. Starting GoldenEye.",
 				want ? want->name : "hack");
+		{
+			/* The launcher says so next time (vr_launcher.cpp). */
+			FILE *f = fsFileOpenWrite(GEVR_CAMPAIGN_FAILED_FILE);
+
+			if (f) {
+				fprintf(f, "%s did not load, so GoldenEye started instead.", want ? want->name : "The campaign");
+				fclose(f);
+			}
+		}
 		free(data);
 		data = NULL;
 		gevrRomCampaignSet(GEVR_CAMPAIGN_GE);

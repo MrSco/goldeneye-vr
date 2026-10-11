@@ -29,6 +29,8 @@ extern "C" {
 
 #define GEVR_ROM_GF_FILE  "goldfinger64.z64"
 #define GEVR_ROM_TND_FILE "tnd64.z64"
+/* Written when a chosen campaign did not load; the launcher shows it and deletes it. */
+#define GEVR_CAMPAIGN_FAILED_FILE "gevr_campaign_failed.txt"
 
 struct gevrRomPiece {
 	uint32_t vram;
@@ -86,6 +88,8 @@ struct gevrRomFileRow {
 void gevrRomCampaignSet(int campaign);
 int gevrRomCampaign(void);
 int gevrRomIsVariant(void);
+/* 1 when GexGuns was on but a hack campaign turned it off for this run; it is still saved as on. */
+extern int gevrGexCampaignOff;
 const struct gevrRomLayout *gevrRomActiveLayout(void);
 
 /* Title, code, size and the eight CRC bytes. NULL when nothing matches. */

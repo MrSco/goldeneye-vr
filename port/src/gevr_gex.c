@@ -19,6 +19,7 @@
 #include "fs.h"
 #include "system.h"
 #include "gevr_gex.h"
+#include "gevr_romlayout.h"
 #include "../vr/miniz/miniz.h"
 
 #define GEX_ROM_SIZE    0x2000000
@@ -156,6 +157,11 @@ s32 gevrGexOpen(void)
 		return s_rom != NULL;
 	}
 	s_tried = 1;
+	if (gevrRomIsVariant()) {
+		/* its texture ids (3100 on) are a hack's own images; see gevr_romload.c */
+		sysLogPrintf(LOG_NOTE, "gex: not loaded in a hack campaign");
+		return 0;
+	}
 	for (i = 0; i < sizeof(names) / sizeof(names[0]) && data == NULL; i++) {
 		data = (u8 *)fsFileLoad(names[i], &size);
 	}
