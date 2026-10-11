@@ -75,6 +75,8 @@ struct gevrRomLayout {
 	uint32_t headpools;
 	/* headHat_array: where each head wears each of the six hats, from head hatfirst, hatcount heads */
 	uint32_t hats, hatfirst, hatcount;
+	/* the gun-barrel intro's Bond (title.c), immediates at 7F009088 */
+	uint32_t titlebody, titlehead;
 };
 
 struct gevrDataWindow {
@@ -135,6 +137,8 @@ int gevrRomHeadPoolsLevelInit(void);
 int gevrRomChooseHead(int male, int head);
 /* The hack's hat fits (struct headHat [count][6]) and the first head they cover; NULL for GoldenEye's. */
 struct headHat *gevrRomHeadHats(int *first, int *count);
+/* The intro's body and head in a hack campaign's character table; unchanged for GoldenEye. */
+void gevrRomTitleBond(int *body, int *head);
 
 /* Sum of the image-row sizes, the span of the images bank. 0 when the table does not fit. */
 uint32_t gevrRomImageBankBytes(const uint8_t *data, uint32_t dataLen,
