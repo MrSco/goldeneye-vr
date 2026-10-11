@@ -73,6 +73,8 @@ struct gevrRomLayout {
 	uint32_t explosions;
 	/* bodyChooseHead()'s pool lengths in the game code (eight bytes, the lists' addresses after); 0 = GoldenEye's */
 	uint32_t headpools;
+	/* headHat_array: where each head wears each of the six hats, from head hatfirst, hatcount heads */
+	uint32_t hats, hatfirst, hatcount;
 };
 
 struct gevrDataWindow {
@@ -131,6 +133,8 @@ int gevrRomBondOutfit(int cuff, int *body, int *head);
  * Both return 0 / -1 where the campaign has none, and GoldenEye's code runs. */
 int gevrRomHeadPoolsLevelInit(void);
 int gevrRomChooseHead(int male, int head);
+/* The hack's hat fits (struct headHat [count][6]) and the first head they cover; NULL for GoldenEye's. */
+struct headHat *gevrRomHeadHats(int *first, int *count);
 
 /* Sum of the image-row sizes, the span of the images bank. 0 when the table does not fit. */
 uint32_t gevrRomImageBankBytes(const uint8_t *data, uint32_t dataLen,
