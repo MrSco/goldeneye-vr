@@ -260,6 +260,71 @@ void gevrBeanTexReset(void)
 	s_ntex = 0;
 }
 
+/*
+ * Repaints: a picture of the release's bound at a native texture's own
+ * address, so the model's display lists draw it with nothing rebuilt (DAB's
+ * xblaTexBindPictureAt; the folder, gevr_bean_folder.c). Kept apart from the
+ * stand-ins: gevrBeanTexReset frees those addresses, and these are the
+ * texture pool's.
+ */
+#define PAINT_SLOTS 128
+
+static struct { const void *addr; uint8_t *rgba; int w, h; } s_paint[PAINT_SLOTS];
+static int s_npaint;
+
+int gevrBeanRepaintBind(const void *addr, uint8_t *rgba, int w, int h)
+{
+	if (!addr || !rgba || w <= 0 || h <= 0 || s_npaint >= PAINT_SLOTS) {
+		free(rgba);
+		return 0;
+	}
+	for (int i = 0; i < s_npaint; i++) {
+		if (s_paint[i].addr == addr) {
+			free(s_paint[i].rgba);
+			s_paint[i].rgba = rgba;
+			s_paint[i].w = w;
+			s_paint[i].h = h;
+			videoFreeCachedTexture(addr);
+			return 1;
+		}
+	}
+	s_paint[s_npaint].addr = addr;
+	s_paint[s_npaint].rgba = rgba;
+	s_paint[s_npaint].w = w;
+	s_paint[s_npaint].h = h;
+	s_npaint++;
+	/* whatever the renderer keeps for this address is the ROM's picture */
+	videoFreeCachedTexture(addr);
+	return 1;
+}
+
+void gevrBeanRepaintForget(void)
+{
+	for (int i = 0; i < s_npaint; i++) {
+		videoFreeCachedTexture(s_paint[i].addr);
+		free(s_paint[i].rgba);
+		s_paint[i].rgba = NULL;
+		s_paint[i].addr = NULL;
+	}
+	s_npaint = 0;
+}
+
+int gevrBeanRepaint(const void *addr, const uint8_t **rgba, int *w, int *h)
+{
+	if (!addr || !s_npaint) {
+		return 0;
+	}
+	for (int i = 0; i < s_npaint; i++) {
+		if (s_paint[i].addr == addr) {
+			*rgba = s_paint[i].rgba;
+			*w = s_paint[i].w;
+			*h = s_paint[i].h;
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h)
 {
 	if (!addr) {
@@ -300,9 +365,12 @@ void gevrBeanTexPaint(const void *addr, uint32_t rgb)
 		}
 }
 
-/* Decode texture file `fileIndex` inside an open CAFF. The gpu bytes are copied. */
-const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const char *key,
-		int *outW, int *outH, int *outAlpha)
+/*
+ * Decode texture file `fileIndex` inside an open CAFF to RGBA8, bottom row
+ * first as DAB's decoder gives it. malloc'd and the caller's; NULL when the
+ * file is not a texture this decodes.
+ */
+uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *outW, int *outH)
 {
 	uint32_t blen = 0, glen = 0, w, h, base, levels, type;
 	const uint8_t *b;
@@ -310,30 +378,10 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 	int gi, format, endian, packed;
 	uint32_t bpe, ew, eh, need;
 	uint8_t *copy, *rgba;
-	struct texSlot *slot;
 
 	if (outW) *outW = 0;
 	if (outH) *outH = 0;
-	if (outAlpha) *outAlpha = 0;
-	if (!c || !key) {
-		return NULL;
-	}
-	for (int i = 0; i < s_ntex; i++) {
-		if (strcmp(s_tex[i].key, key) == 0) {
-			if (outW) *outW = s_tex[i].w;
-			if (outH) *outH = s_tex[i].h;
-			if (outAlpha && s_tex[i].rgba) {
-				for (int p = 3; p < s_tex[i].w * s_tex[i].h * 4; p += 4) {
-					if (s_tex[i].rgba[p] != 255) {
-						*outAlpha = 1;
-						break;
-					}
-				}
-			}
-			return s_tex[i].standin;
-		}
-	}
-	if (s_ntex >= TEX_SLOTS) {
+	if (!c) {
 		return NULL;
 	}
 	b = gevrCaffBlob(c, fileIndex, &blen);
@@ -408,6 +456,50 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 			uint8_t *b = rgba + (size_t)(h - 1 - y) * w * 4 + x;
 			uint8_t tmp = *a; *a = *b; *b = tmp;
 		}
+	if (outW) *outW = (int)w;
+	if (outH) *outH = (int)h;
+	return rgba;
+}
+
+/* Decode texture file `fileIndex` inside an open CAFF. The gpu bytes are copied. */
+const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const char *key,
+		int *outW, int *outH, int *outAlpha)
+{
+	int iw = 0, ih = 0;
+	uint32_t w, h;
+	uint8_t *rgba;
+	struct texSlot *slot;
+
+	if (outW) *outW = 0;
+	if (outH) *outH = 0;
+	if (outAlpha) *outAlpha = 0;
+	if (!c || !key) {
+		return NULL;
+	}
+	for (int i = 0; i < s_ntex; i++) {
+		if (strcmp(s_tex[i].key, key) == 0) {
+			if (outW) *outW = s_tex[i].w;
+			if (outH) *outH = s_tex[i].h;
+			if (outAlpha && s_tex[i].rgba) {
+				for (int p = 3; p < s_tex[i].w * s_tex[i].h * 4; p += 4) {
+					if (s_tex[i].rgba[p] != 255) {
+						*outAlpha = 1;
+						break;
+					}
+				}
+			}
+			return s_tex[i].standin;
+		}
+	}
+	if (s_ntex >= TEX_SLOTS) {
+		return NULL;
+	}
+	rgba = gevrBeanTexDecodeRgba(c, fileIndex, &iw, &ih);
+	if (!rgba) {
+		return NULL;
+	}
+	w = (uint32_t)iw;
+	h = (uint32_t)ih;
 	if (outAlpha) {
 		*outAlpha = 0;
 		for (uint32_t i = 0; i < w * h; i++) {

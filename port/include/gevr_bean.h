@@ -30,6 +30,13 @@ void gevrBeanReset(void);
 /* Stand-in tile address -> decoded RGBA8. 1 when addr is one of ours. */
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
 
+/* Native texture address -> the release's picture painted over it (the
+ * briefing folder, gevr_bean_folder.c). Bound while Bean is off too; the
+ * renderer asks only while it is on. */
+int gevrBeanRepaint(const void *addr, const uint8_t **rgba, int *w, int *h);
+/* Drops every repaint: the texture pool is reset or the folder unloaded. */
+void gevrBeanRepaintForget(void);
+
 /* Render-time selection only. Definitions retain native lists/types for
  * gameplay, including aiming and bullet collision. Disabled returns current. */
 void *gevrBeanShownGdl(void *node, void *current);

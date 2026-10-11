@@ -38,7 +38,8 @@ def main():
             "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
             *["-I" + str(ROOT / p) for p in (".", "include", "src", "src/game", "port/include")],
             *[str(ROOT / "port/tests" / p) for p in ("gevr_bean_mapping_test.c", "gevr_bean_native_model.c")],
-            *[str(ROOT / "port/src" / (p + ".c")) for p in ("gevr_bean_load", "gevr_bean_tex", "gevr_bean_logic")],
+            *[str(ROOT / "port/src" / (p + ".c")) for p in ("gevr_bean_load", "gevr_bean_tex", "gevr_bean_logic",
+                                                              "gevr_bean_folder")],
             "-lm", "-o", str(exe),
         ], check=True)
         for name, kind, source in mappings:

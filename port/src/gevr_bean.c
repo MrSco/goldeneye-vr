@@ -1636,6 +1636,41 @@ void gevrBeanForgetModelStorage(const void *base, u32 size)
 	s_nswap = kept;
 }
 
+/* The briefing folder keeps GoldenEye's model; its textures take the release's pictures. */
+static void folderRepaint(struct ModelFileHeader *header)
+{
+	char path[192];
+	struct gevrCaff caff;
+	uint8_t *file = NULL;
+	long size = 0;
+	FILE *fp;
+
+	gevrBeanRepaintForget();
+	if (!findFile("new/prop/walletbond", path, sizeof(path))) {
+		GEVR_BEAN_LOG("gevr bean folder: missing new/prop/walletbond");
+		return;
+	}
+	fp = fopen(path, "rb");
+	if (!fp) {
+		return;
+	}
+	if (fseek(fp, 0, SEEK_END) == 0 && (size = ftell(fp)) > 0 && size <= 64 * 1024 * 1024) {
+		rewind(fp);
+		file = malloc((size_t)size);
+		if (file && fread(file, 1, (size_t)size, fp) != (size_t)size) {
+			free(file);
+			file = NULL;
+		}
+	}
+	fclose(fp);
+	memset(&caff, 0, sizeof(caff));
+	if (file && gevrCaffOpen(&caff, file, (uint32_t)size)) {
+		gevrBeanFolderRepaint(header, &caff);
+		gevrCaffClose(&caff);
+	}
+	free(file);
+}
+
 void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 {
 	char source[128], path[192];
@@ -1646,6 +1681,9 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 	/* Not in a hack campaign: its models sit under GoldenEye's names but are its own. */
 	if (!header || !name || !gevrBeanIsAvailable() || gevrRomIsVariant()) {
 		return;
+	}
+	if (strcmp(name, "PwalletbondZ") == 0) {
+		folderRepaint(header);
 	}
 	kind = sourceForName(name, source, sizeof(source));
 	if (kind == BEAN_NONE) {
@@ -1690,6 +1728,7 @@ void gevrBeanReset(void)
 	}
 	s_ncache = 0;
 	gevrBeanTexReset();
+	gevrBeanRepaintForget();
 	gevrBeanWorldReset();
 }
 
