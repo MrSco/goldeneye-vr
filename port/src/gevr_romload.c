@@ -120,6 +120,11 @@ void gevrRomBindFileTable(void)
 		return;
 	}
 
+	/* A hack campaign's rows come from its own cartridge table, not the manifest. */
+	if (gevrRomRebindVariantFiles()) {
+		return;
+	}
+
 	/*
 	 * The manifest carries file_resource_table's own #ifdef VERSION_EU guards,
 	 * so the two arrays are the same length by construction. Bound the loop by
@@ -191,7 +196,6 @@ s32 romdataInit(void)
 		VrCampaign = GEVR_CAMPAIGN_GE;
 	}
 	gevrRomCampaignSet(VrCampaign);
-	gevrRomAliasReset();
 	gevrRomClearItemMap();
 	gevrRomSetImageBankBytes(0);
 
@@ -222,7 +226,6 @@ s32 romdataInit(void)
 		data = NULL;
 		gevrRomCampaignSet(GEVR_CAMPAIGN_GE);
 		VrCampaign = GEVR_CAMPAIGN_GE;
-		gevrRomAliasReset();
 		gevrRomClearItemMap();
 		gevrRomSetImageBankBytes(0);
 	}

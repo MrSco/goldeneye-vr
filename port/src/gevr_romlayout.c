@@ -125,12 +125,6 @@ static int g_MapOn;
 static int g_Host[256];
 static int16_t g_Held[32];
 
-#define GEVR_ALIAS_MAX 256
-static struct {
-	const char *name;
-	int index;
-} g_Alias[GEVR_ALIAS_MAX];
-static int g_AliasCount;
 
 static uint32_t be32(const uint8_t *p)
 {
@@ -342,37 +336,6 @@ void gevrRomDecodeImage(uint32_t word, uint32_t stride, uint32_t mask,
 	if (size) {
 		*size = word & mask;
 	}
-}
-
-void gevrRomAliasReset(void)
-{
-	g_AliasCount = 0;
-}
-
-int gevrRomAliasAdd(const char *name, int index)
-{
-	if (!name || !name[0] || index <= 0 || g_AliasCount >= GEVR_ALIAS_MAX) {
-		return 0;
-	}
-	g_Alias[g_AliasCount].name = name;
-	g_Alias[g_AliasCount].index = index;
-	g_AliasCount++;
-	return 1;
-}
-
-int gevrRomFileAlias(const char *name)
-{
-	int i;
-
-	if (!name) {
-		return -1;
-	}
-	for (i = 0; i < g_AliasCount; i++) {
-		if (g_Alias[i].name && strcmp(g_Alias[i].name, name) == 0) {
-			return g_Alias[i].index;
-		}
-	}
-	return -1;
 }
 
 void gevrRomClearItemMap(void)
