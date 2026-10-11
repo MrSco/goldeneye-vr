@@ -122,8 +122,11 @@ def test_headers(lib):
     assert lib.gevrRomMissionLimit() == 20
     # Goldfinger plays its Luger (taser file) and P38 (watch laser file) as the PPK
     assert [lib.gevrItemAs(i) for i in (31, 23, 17, 4)] == [4, 4, 17, 4]
+    # its Cradle/Dam level cases are off and it uses items 49 and 57 on objects
+    assert [lib.gevrRomBgCradle(), lib.gevrRomBgDam(), lib.gevrRomGadgetUse(0), lib.gevrRomGadgetUse(1)] == [37, 37, 49, 57]
     lib.gevrRomCampaignSet(0)
     assert [lib.gevrItemAs(i) for i in (31, 23, 17, 4)] == [31, 23, 17, 4]
+    assert [lib.gevrRomBgCradle(), lib.gevrRomBgDam(), lib.gevrRomGadgetUse(0), lib.gevrRomGadgetUse(1)] == [21, 13, 39, 55]
     lib.gevrRomCampaignSet(1)
     assert lib.gevrRomCreditsAfter() == 0
     assert lib.gevrRomAdvanceBelow() == 0

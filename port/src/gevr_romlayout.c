@@ -42,6 +42,8 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0x8003e464, 42, 28,
 		5, 78,
 		{ { 0 } },
+		21, 13,
+		{ 39, 55 },
 	},
 	{
 		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
@@ -78,6 +80,10 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		 * sets every taser and watch-laser test to item 0, and its held-prop table
 		 * holds both as the PPK (ITEM_TASER 31, ITEM_WATCHLASER 23, ITEM_WPPK 4) */
 		{ { 31, 4 }, { 23, 4 } },
+		/* its Airplane Cabin and Ramirez Cartel sit in Cradle's and Dam's slots: both off */
+		37, 37,
+		/* its Phone Tap (49) and item 57 are used on objects, not the defuser and datathief */
+		{ 49, 57 },
 	},
 	{
 		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
@@ -107,6 +113,9 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0x8003e464, 42, 28,
 		5, 74,
 		{ { 0 } },
+		/* its Cradle case moves to level 27; Dam's is off */
+		27, 37,
+		{ 39, 55 },
 	},
 };
 
@@ -451,6 +460,21 @@ int gevrRomAdvanceBelow(void)
 int gevrRomAiHooks(void)
 {
 	return gevrRomActiveLayout()->aihooks && gevrRomIsVariant();
+}
+
+int gevrRomBgCradle(void)
+{
+	return gevrRomActiveLayout()->bgcradle;
+}
+
+int gevrRomBgDam(void)
+{
+	return gevrRomActiveLayout()->bgdam;
+}
+
+int gevrRomGadgetUse(int which)
+{
+	return gevrRomActiveLayout()->gadgetuse[which & 1];
 }
 
 int gevrItemAs(int item)

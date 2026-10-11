@@ -5,6 +5,7 @@
 #include "gevr_model.h"
 #include "gevr_gexweapon.h"
 #include "gevr_hand_reload.h"
+#include "gevr_romlayout.h"
 #endif
 #include <ultra64.h>
 #include <limits.h>
@@ -6003,8 +6004,14 @@ void gunTickHandState(enum GUNHAND hand, s32 triggerOn)
                 giveWeaponCaseItemsInHand(hand);
             }
         }
+#ifdef GEVR
+        /* Goldfinger uses its Phone Tap (49) and item 57 where GoldenEye uses these two */
+        else if ((var_s1 == gevrRomGadgetUse(0))
+            || (var_s1 == gevrRomGadgetUse(1))
+#else
         else if ((var_s1 == ITEM_BOMBDEFUSER)
             || (var_s1 == ITEM_DATATHIEF)
+#endif
             || (var_s1 == ITEM_DOORDECODER)
             || (var_s1 == ITEM_EXPLOSIVEFLOPPY)
             || (var_s1 == ITEM_DATTAPE))
