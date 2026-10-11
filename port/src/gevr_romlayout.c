@@ -46,6 +46,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		{ 39, 55 },
 		/* & 1; Ruger and Silver PP7; the bomb case; AMMO_KNIFE; the sniper rifle */
 		1, { 18, 20 }, 33, 10, 17,
+		0,
 	},
 	{
 		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
@@ -92,6 +93,8 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		 * case gives grenades (AMMO_GRENADE) for throwing hats; no rifle-butt melee
 		 */
 		3, { 18, 12 }, 0, 5, 153,
+		/* its Aston Martin (PcarastonZ) on Fontainebleau's and Alpine Highway's tank records */
+		1,
 	},
 	{
 		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
@@ -125,6 +128,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		27, 37,
 		{ 39, 55 },
 		1, { 18, 20 }, 33, 10, 17,
+		0,
 	},
 };
 
@@ -509,6 +513,11 @@ int gevrRomCaseAmmo(void)
 int gevrRomButtMelee(void)
 {
 	return gevrRomActiveLayout()->buttmelee;
+}
+
+int gevrRomCars(void)
+{
+	return gevrRomActiveLayout()->cars;
 }
 
 int gevrItemAs(int item)
