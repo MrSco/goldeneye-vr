@@ -145,6 +145,8 @@ int gevrRomBondOutfit(int cuff, int *body, int *head);
 int gevrRomHeadPoolsLevelInit(void);
 /* The hack's own memory split for a stage (boss.c memallocstringtable), or NULL. */
 const char *gevrRomStageMemString(int stage, int multi);
+/* 1 or 0 when the hack flags its lamps in the image table; -1: GoldenEye's own list applies. */
+int gevrRomImageIsLamp(int image);
 int gevrRomChooseHead(int male, int head);
 /* The hack's hat fits (struct headHat [count][6]) and the first head they cover; NULL for GoldenEye's. */
 struct headHat *gevrRomHeadHats(int *first, int *count);

@@ -295,6 +295,11 @@ int main(int argc, char **argv)
 				mission_folder_setup_entries[i].stage_id, mission_folder_setup_entries[i].type,
 				mission_folder_setup_entries[i].mission_num);
 	}
+	for (i = 0; i < gevrTextureCount() + 2; i++) {
+		if (gevrRomImageIsLamp(i) != 0) {
+			printf("lamp %d %d\n", i, gevrRomImageIsLamp(i));
+		}
+	}
 	/* every level, the title, a stage with no row (the default) and two multiplayer lookups */
 	for (i = 0; i < 38 + 4; i++) {
 		static const int extra[4][2] = { { LEVELID_TITLE, 0 }, { 0x7f, 0 }, { LEVELID_BUNKER1, 1 }, { LEVELID_DAM, 1 } };

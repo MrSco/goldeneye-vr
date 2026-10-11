@@ -66,6 +66,9 @@
 #include <assets/image_externs.h>
 #include <PR/gbi.h>
 #include <gbi_extension.h>
+#ifdef GEVR
+#include "gevr_romlayout.h"
+#endif
 
 #define LIGHTFIXTURE_TABLE_MAX 0x64
 #define DARKENED_LIGHT_TABLE_MAX 0x200
@@ -143,6 +146,15 @@ void lightFixtureEntryEnd(Gfx *DL)
 
 bool check_if_imageID_is_light(s32 imageID)
 {
+#ifdef GEVR
+    /* a hack flags its own lamps in the image table (gevr_romcampaign.c) */
+    const int lamp = gevrRomImageIsLamp(imageID);
+
+    if (lamp >= 0)
+    {
+        return lamp;
+    }
+#endif
     if ((imageID == IMAGE_WALL_LAMP)     ||
         (imageID == IMAGE_203_LIGHT)     ||
         (imageID == IMAGE_205_LIGHT)     ||
