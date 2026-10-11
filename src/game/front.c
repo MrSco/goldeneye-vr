@@ -7224,10 +7224,15 @@ static void gevrApplyLauncherCheats(void)
 {
     static unsigned long long applied;
     s32 i, any = FALSE;
+    /*
+     * Not in a hack campaign: the list names GoldenEye's guns, and the hack
+     * puts its own models on those items. Its own Cheat Options still work.
+     */
+    const unsigned long long mask = gevrRomIsVariant() ? 0 : VrCheatMask;
 
     for (i = 1; i < CHEAT_INVALID && i < 64; i++)
     {
-        if ((VrCheatMask >> i) & 1ULL)
+        if ((mask >> i) & 1ULL)
         {
             g_CheatActivated[i] = TRUE;
         }
@@ -7236,7 +7241,7 @@ static void gevrApplyLauncherCheats(void)
             g_CheatActivated[i] = FALSE;
         }
     }
-    applied = VrCheatMask;
+    applied = mask;
     for (i = 1; i < CHEAT_INVALID; i++)
     {
         if (g_CheatActivated[i])
