@@ -1789,6 +1789,31 @@ static void import_texture(int i, int tile, bool is_rect) {
         loaded_texture.orig_size_bytes = loaded_texture.size_bytes;
     }
 
+#ifdef GEVR
+    /*
+     * Bean stand-in tiles are 16x16. The decoded picture is the real size.
+     * This has to run before the window-versus-block shrink, which would
+     * otherwise collapse the tile to 16 and blow the UVs up.
+     */
+    {
+        extern int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
+        const uint8_t *beanRgba = nullptr;
+        int beanW = 0, beanH = 0;
+        if (gevrBeanTexture(loaded_texture.addr, &beanRgba, &beanW, &beanH) && beanRgba && beanW > 0 && beanH > 0) {
+            TextureCacheKey key = { loaded_texture.addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
+            key.width = (uint32_t)beanW;
+            key.height = (uint32_t)beanH;
+            if (gfx_texture_cache_lookup(i, key)) {
+                loaded_texture.id_mask = 0;
+                return;
+            }
+            gfx_rapi->upload_texture(beanRgba, (uint32_t)beanW, (uint32_t)beanH);
+            loaded_texture.id_mask = 0;
+            return;
+        }
+    }
+#endif
+
     /*
      * Upload what was loaded, not a window bigger than it.
      *

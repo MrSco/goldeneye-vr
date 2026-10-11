@@ -27,6 +27,9 @@ extern int VrPauseHub;
 #define VR_PLAYMODE_SCREEN 0
 #define VR_PLAYMODE_STEREO 1
 extern int VrPlayMode;
+/* 1 = Project Bean characters, guns, rooms and skies when those files are installed.
+ * Saved as XblaVisualsMode. Hold one grip and the right stick click to switch. */
+extern int VrBeanModels;
 extern int VrMicMuted;
 extern float VrMusicVolume;
 extern float VrVoiceVolume;

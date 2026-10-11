@@ -23,6 +23,7 @@
 #include "explosion.h"
 #include "bgroomtrans.h"
 #include "gevr_stage.h"
+#include "gevr_bean.h"
 #include "system.h"
 #include "platform.h"
 #include <stdlib.h>
@@ -3028,6 +3029,16 @@ Gfx *bgRenderRoomPrimary(Gfx *gdl, s32 room_index)
         {
             gdl = applyRoomMatrixToDisplayList(gdl, room_index);
 
+#ifdef GEVR
+            {
+                int beanReplaced = 0;
+                gdl = gevrBeanRoomAppend(gdl, room_index, &beanReplaced);
+                if (beanReplaced) {
+                    g_BgRoomInfo[room_index].model_bin_loaded = 1;
+                    return gdl;
+                }
+            }
+#endif
             gSPSegment(gdl++, SPSEGMENT_BG_VTX, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].vertices));
             gSPDisplayList(gdl++, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].ptr_expanded_mapping_info));
 
@@ -3052,12 +3063,19 @@ Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
         return gdl;
     }
 
-    // Return if the room has no secondary geometry.
+    /* A Bean room still draws its glass when GoldenEye stored none. */
+#ifdef GEVR
+    if (g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info == 0 && !gevrBeanIsEnabled())
+    {
+        return gdl;
+    }
+#else
     if (g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info == 0)
     {
         return gdl;
     }
-    else if ((D_8004485C != 0) || (D_80044858 == (room_index % 10)))
+#endif
+    if ((D_8004485C != 0) || (D_80044858 == (room_index % 10)))
     {
         if (g_BgRoomInfo[room_index].model_bin_loaded == 0)
         {
@@ -3066,6 +3084,22 @@ Gfx *bgRenderRoomSecondary(Gfx *gdl, s32 room_index)
 
         if (g_BgRoomInfo[room_index].model_bin_loaded != 0)
         {
+#ifdef GEVR
+            if (gevrBeanIsEnabled())
+            {
+                int beanReplaced = 0;
+                Gfx *beanGdl = applyRoomMatrixToDisplayList(gdl, room_index);
+                beanGdl = gevrBeanRoomAppendSecondary(beanGdl, room_index, &beanReplaced);
+                if (beanReplaced) {
+                    g_BgRoomInfo[room_index].model_bin_loaded = 1;
+                    return beanGdl;
+                }
+            }
+            if (g_BgRoomInfo[room_index].ptr_secondary_expanded_mapping_info == 0)
+            {
+                return gdl;
+            }
+#endif
             gdl = applyRoomMatrixToDisplayList(gdl, room_index);
 
             gSPSegment(gdl++, SPSEGMENT_BG_VTX, OS_K0_TO_PHYSICAL(g_BgRoomInfo[room_index].vertices));

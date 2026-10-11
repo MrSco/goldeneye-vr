@@ -135,7 +135,14 @@ s32 findAvailableRoomIndex(void)
             return i;
         }
     }
+#ifdef GEVR
+    /* Slot 0 is a live room matrix. Handing it out once the table is full
+     * draws a later room with the first room's transform (Dam's ground). */
+    resetRoomState(AMT300 - 1);
+    return AMT300 - 1;
+#else
     return 0;
+#endif
 }
 
 
