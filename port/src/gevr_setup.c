@@ -2,6 +2,7 @@
  * offsets stay file-relative until proplvreset2 rebases them. */
 #include "system.h"
 #include "gevr_stage.h"
+#include "gevr_romlayout.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -186,7 +187,7 @@ static size_t convert_one_prop(uint8_t *dst, const uint8_t *src, uint8_t type) {
         break;
     case 8: /* COLLECTABLE / WeaponObj */
         conv_object(dst, src);
-        dst[HOST_OBJ] = src[N64_OBJ];
+        dst[HOST_OBJ] = (uint8_t)gevrRomItemHost(src[N64_OBJ]);
         dst[HOST_OBJ + 1] = src[N64_OBJ + 1];
         put16(dst + HOST_OBJ + 2, read16(src + N64_OBJ + 2));
         putptr(dst + HOST_OBJ + 8, (uintptr_t)read32(src + N64_OBJ + 4));
@@ -650,8 +651,13 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
                 dstpos += 56;
             } else {
                 if (dstpos + nw * 4 > capacity) { g_setup_fail = 18; free(src); return 0; }
-                for (uint8_t w = 0; w < nw; w++)
-                    put32(dst + dstpos + w * 4, read32(src + ip + w * 4));
+                for (uint8_t w = 0; w < nw; w++) {
+                    uint32_t word = read32(src + ip + w * 4);
+                    /* INTROTYPE_ITEM: item_right and item_left, rewritten to the US gun. */
+                    if (cmd == 1 && (w == 1 || w == 2))
+                        word = (uint32_t)gevrRomItemHost((int)word);
+                    put32(dst + dstpos + w * 4, word);
+                }
                 if (cmd == 8) { /* INTROTYPE_CREDITS: unk04 is a cartridge file offset */
                     credits_slot = dstpos + 4;
                     credits_src = read32(src + ip + 4);
@@ -789,6 +795,8 @@ size_t gevrConvertSetup(uint8_t *data, size_t size, size_t capacity) {
             }
             host_list_ofs[li] = dstpos;
             memcpy(dst + dstpos, src + list, len);
+            if (gevrRomIsVariant())
+                gevrRomAiPrepare(dst + dstpos, (uint32_t)len, gevrRomAiHooks());
             dstpos = align8(dstpos + len);
         }
         ail_ofs = dstpos = align8(dstpos);

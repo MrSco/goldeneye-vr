@@ -15,6 +15,7 @@
 #include "gevr_locomotion.h"
 #include "gevr_frame_timing.h"
 #include "gevr_collision_slide.h"
+#include "gevr_romlayout.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -5678,6 +5679,20 @@ void solo_char_load(void)
             head = get_player_mp_char_head(get_cur_playernum());
             body = get_player_mp_char_body(get_cur_playernum());
         }
+
+#ifdef GEVR
+        if (getPlayerCount() == 1)
+        {
+            int gevrBody = 0;
+            int gevrHead = 0;
+
+            if (gevrRomBondOutfit((int)g_CurrentPlayer->bondtype, &gevrBody, &gevrHead))
+            {
+                body = gevrBody;
+                head = gevrHead;
+            }
+        }
+#endif
 
         if (g_CameraMode == CAMERAMODE_SWIRL)
         {

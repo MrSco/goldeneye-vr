@@ -53,6 +53,7 @@ int VrMpBotMode = 0, VrMpBotCount = 3, VrMpBotDifficulty = 2;   /* off; three bo
 int VrDetailedGuns = 1;     /* guards and other players hold the first-person gun models (gevr_heldgun.c) */
 int VrGexGuns = 0;          /* GoldenEye X's first-person models: guns, items, hands and the watch arm, on the
                                screen and in the headset (gevr_gexmodel.c, gun.c); off, as the original */
+int VrCampaign = 0;         /* 0 GoldenEye, 1 Goldfinger 64 (data/goldfinger64.z64), 2 Tomorrow Never Dies */
 int VrMpScenario = 0, VrMpLength = 2, VrMpHealth = 5, VrMpDual = 0, VrMpLoadouts = 0, VrMpNextRound = 0;
 int VrMpCustom[4] = { 6, 7, 8, 25 };    /* ITEM_TT33, ITEM_SKORPION, ITEM_AK47, ITEM_ROCKETLAUNCH */
 int VrMpLoadout[4] = { 4, 8, 15, 26 };  /* ITEM_WPPK, ITEM_AK47, ITEM_SHOTGUN, ITEM_GRENADE */

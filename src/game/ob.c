@@ -20,6 +20,7 @@
 #include "gevr_stage.h"
 #include "system.h"
 extern void gevrRomBindFileTable(void);
+extern int gevrRomFileAlias(const char *name);
 extern void gevrReportUnboundFile(fileentry *entry, s32 index);
 #endif
 #include "assets/obseg/file_resource_id_enums.h"
@@ -500,6 +501,17 @@ s32 fileGetIndex(char *resname)
     s32 stack;
     s32 size;
     struct resource_lookup_data_entry *lookup;
+
+#ifdef GEVR
+    {
+        s32 gevrAlias = gevrRomFileAlias(resname);
+
+        if (gevrAlias > 0)
+        {
+            return gevrAlias;
+        }
+    }
+#endif
 
     for (i = 1; i < file_entry_max; i++)
     {

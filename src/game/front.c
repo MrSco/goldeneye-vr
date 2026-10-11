@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "system.h"
+#include "gevr_romlayout.h"
 #endif
 #include <os_extension.h>
 #include <assets/oddtextures.h>
@@ -447,7 +448,7 @@ struct coord3d folderpositions[] = {
 struct rectbbox folder_option_COPY_bound = { 0 };
 struct rectbbox folder_option_ERASE_bound = { 0 };
 
-struct mission_folder_setup mission_folder_setup_entries[];
+struct mission_folder_setup mission_folder_setup_entries[48];
 
 #ifdef GEVR
 /*
@@ -552,7 +553,7 @@ static void gevrLevelJumpProbe(void)
 }
 #endif
 
-struct mission_folder_setup mission_folder_setup_entries[] = {
+struct mission_folder_setup mission_folder_setup_entries[48] = {
   /* string_ptr  folder_text_preset                                                         icon_text_preset                                            stage_id           unknown type             mission_num briefing_name_ptr */
     {"1",        getStringID(LTITLE, TITLE_STR_120_ARK)            /* Arkangelsk */,        0,                                                          LEVELID_NONE,           0, MISSION_HEADER,          -1, 0},
     {"i",        getStringID(LTITLE, TITLE_STR_121_DAM)            /* Dam */,               0,                                                          LEVELID_DAM,            0, MISSION_PART,             0, "UbriefdamZ"},
@@ -7557,15 +7558,51 @@ void interface_menu0D_missioncomplete()
     {
         if (frontCompleteAllObjectivesAliveSuccess() && (!g_AppendCheatSinglePlayer))
         {
-            if (mission_folder_setup_entries[briefingpage].mission_num == SP_LEVEL_CRADLE)
+            s32 gevrMissionNum = mission_folder_setup_entries[briefingpage].mission_num;
+#ifdef GEVR
+            /*
+             * Tomorrow Never Dies ends its folder early: credits after mission
+             * 9, and nothing advances from 13 on. Goldfinger leaves both at 0
+             * and keeps the Cradle / Aztec rule below, including Cuba.
+             */
+            if ((gevrRomCreditsAfter() && gevrMissionNum == gevrRomCreditsAfter())
+                || (gevrRomAdvanceBelow() && gevrMissionNum >= gevrRomAdvanceBelow()))
+            {
+                frontChangeMenu(MENU_MISSION_SELECT, FALSE);
+                set_cursor_to_stage_solo(gevrMissionNum);
+            }
+            else if (gevrRomCreditsAfter() || gevrRomAdvanceBelow())
+            {
+                entry = briefingpage + 1;
+                while (mission_folder_setup_entries[entry].folder_text_preset)
+                {
+                    if (mission_folder_setup_entries[entry].stage_id >= 0)
+                    {
+                        break;
+                    }
+
+                    entry++;
+                }
+
+                if (mission_folder_setup_entries[entry].folder_text_preset)
+                {
+                    briefingpage = entry;
+                    selected_stage = mission_folder_setup_entries[entry].stage_id;
+                }
+
+                frontChangeMenu(MENU_BRIEFING, FALSE);
+            }
+            else
+#endif
+            if (gevrMissionNum == SP_LEVEL_CRADLE)
             {
                 frontChangeMenu(MENU_RUN_STAGE, TRUE);
                 selected_stage = LEVELID_CUBA;
             }
-            else if (mission_folder_setup_entries[briefingpage].mission_num >= SP_LEVEL_AZTEC)
+            else if (gevrMissionNum >= SP_LEVEL_AZTEC)
             {
                 frontChangeMenu(MENU_MISSION_SELECT, FALSE);
-                set_cursor_to_stage_solo((s32)mission_folder_setup_entries[briefingpage].mission_num);
+                set_cursor_to_stage_solo(gevrMissionNum);
             }
             else
             {
