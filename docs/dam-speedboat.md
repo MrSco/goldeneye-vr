@@ -15,5 +15,12 @@ one is as far out as the docks.
 - **Step off:** press **B** once the hull is near the island landing. **B** in
   mid-crossing does not drop you in the water.
 
-Multiplayer does not spawn it. The island's floor only covers part of the
+Multiplayer does not spawn it, nor a Goldfinger 64 or Tomorrow Never Dies
+campaign (their own levels sit in Dam's slot). The island's floor only covers part of the
 ground there, which is how the stage was left; the landing is that pad.
+
+On the retail Dam the picker takes jetty pad 238 (unused, at the waterline)
+and an island pad about 305 m across: pads 79-81 stand on a patch of floor with
+no tile link to the rest of the stage, 259-268 on the island's hut.
+`GEVR_GE_ROM=<ge.z64> python port/tests/test_speedboat.py` checks that choice
+on the player's own ROM.

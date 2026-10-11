@@ -134,7 +134,38 @@ EXPORT int test_dam_speedboat(void)
     return 0;
 }
 
-int main(void)
+/* argv[1]: a pad file, one "x y z used has_stan" line per pad (world units),
+ * from test_speedboat.py's read of the player's own Dam setup */
+static int choose_from_file(const char *path)
 {
+    static struct GevrBoatPad pads[1024];
+    struct GevrBoatPlace place;
+    FILE *f = fopen(path, "r");
+    int n = 0;
+
+    if (f == NULL)
+    {
+        return fail(20);
+    }
+    while (n < 1024 && fscanf(f, "%f %f %f %d %d", &pads[n].x, &pads[n].y, &pads[n].z,
+                              &pads[n].used, &pads[n].has_stan) == 5)
+    {
+        n++;
+    }
+    fclose(f);
+    if (!gevrBoatChoosePads(pads, n, &place))
+    {
+        return fail(21);
+    }
+    printf("jetty %d island %d\n", place.jetty, place.island);
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    if (argc > 1)
+    {
+        return choose_from_file(argv[1]);
+    }
     return test_dam_speedboat();
 }
