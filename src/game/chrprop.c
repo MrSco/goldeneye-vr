@@ -1113,6 +1113,9 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
      * Only the gun and the rendered sight use the level's visibility scale.
      * Mixing the two put the sight five times beyond a hit on Dam/Surface,
      * and tested props with a ray starting a fifth of the way to the gun.
+     * chraiDefaultWeaponFireHandler divides the damage shot the same way
+     * (issue #173): without it the ray misses a wall alarm and the mark
+     * lands on the wall behind it.
      */
     shotdata.viewOrigin.x /= viewscale;
     shotdata.viewOrigin.y /= viewscale;
@@ -1422,6 +1425,20 @@ void chraiDefaultWeaponFireHandler(s32 hand)
 
 #ifdef GEVR
     gevrViewToWorldPos(&shotdata.gunpos);   /* issue #40: view units on the scaled levels */
+    /*
+     * Same unscale as gevrStereoAimTrace, after gunpos is copied. Prop and
+     * guard hit matrices carry no visibility scale; the barrel origin does
+     * (0.2 on Dam and Surface). The scaled ray ran parallel to the barrel and
+     * missed a wall alarm, so the mark landed on the wall and the alarm never
+     * exploded (issue #173). viewDir is a direction and is already unscaled.
+     */
+    {
+        f32 viewscale = g_gevrStereo && D_800364CC > 1e-6f ? D_800364CC : 1.0f;
+
+        shotdata.viewOrigin.x /= viewscale;
+        shotdata.viewOrigin.y /= viewscale;
+        shotdata.viewOrigin.z /= viewscale;
+    }
 #else
     mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &shotdata.gunpos);
 #endif
