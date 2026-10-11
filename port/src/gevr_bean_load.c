@@ -144,7 +144,7 @@ struct beanVtx {
 	int hasuv;
 };
 
-static int readVtx(const uint8_t *gpu, const struct beanVb *vb, uint32_t i, float uvscale, struct beanVtx *v)
+static int readVtx(const uint8_t *gpu, const struct beanVb *vb, uint32_t i, float uvscale, int skinned, struct beanVtx *v)
 {
 	const uint8_t *p;
 	uint32_t k;
@@ -159,8 +159,21 @@ static int readVtx(const uint8_t *gpu, const struct beanVb *vb, uint32_t i, floa
 	for (int j = 0; j < 4; j++) {
 		v->slot[j] = -1;
 	}
+	/* The rigid stride-36 shader fetches FLOAT3 at dword 1, normal at
+	 * 4, diffuse UV at 5 and colour at 8. Dword 0 is another UV set.
+	 * Skinned stride-36 has a different layout (position at dword 0). */
+	uint32_t posoff = !skinned && vb->stride == 36 ? 4 : 0;
 	for (int j = 0; j < 3; j++) {
-		v->pos[j] = bef(p + j * 4);
+		v->pos[j] = bef(p + posoff + j * 4);
+		if (!isfinite(v->pos[j])) return 0;
+	}
+	if (!skinned && vb->stride >= 28) {
+		k = posoff + 12;
+		v->argb = colourArgb(be32(p + (vb->stride == 36 ? 32 : 20)));
+		unpackNormal(be32(p + k), v->nrm);
+		v->uv[0] = (int16_t)be16(p + k + 4) / uvscale;
+		v->uv[1] = (int16_t)be16(p + k + 6) / uvscale;
+		return 1;
 	}
 	switch (vb->stride) {
 	case 28:
@@ -326,9 +339,9 @@ static int pushTri(struct gevrBeanMesh *mesh, const struct beanVtx *a, const str
 				dom = v->slot[s];
 			}
 		}
-		bone = (dom < numpal) ? pal[dom] : -1;
-		if (bone >= 0 && bone < MAX_BONES && (int)v->weight[dom] >= bestw) {
-			bestw = v->weight[dom];
+		bone = (w >= 0 && dom < numpal) ? pal[dom] : -1;
+		if (bone >= 0 && bone < MAX_BONES && w >= bestw) {
+			bestw = w;
 			sk = boneSk[bone];
 		}
 		for (int j = 0; j < 3; j++) {
@@ -387,7 +400,7 @@ static float levelUv(const uint8_t *gpu, uint32_t len, const char *source)
 
 static float measureUv(const uint8_t *data, uint32_t dlen, const uint8_t *gpu, uint32_t glen,
 		const struct beanDraw *draws, int ndraws, const struct beanIb *ibs, int nibs,
-		int uv20, const struct gevrCaff *c, const int *texfile, int ntex)
+		int uv20, int skinned, const struct gevrCaff *c, const int *texfile, int ntex)
 {
 	uint32_t biggest[MAX_TEX];
 	uint8_t drawn[MAX_TEX];
@@ -419,6 +432,7 @@ static float measureUv(const uint8_t *data, uint32_t dlen, const uint8_t *gpu, u
 		case 24: case 20: uvo = 16; break;
 		default: continue;
 		}
+		if (!skinned && vb.stride >= 28) uvo = vb.stride == 36 ? 20 : 16;
 		if ((vb.stride == 20 && !vb.uv20) || (vb.stride == 28 && vb.col28)) {
 			continue;
 		}
@@ -513,7 +527,7 @@ static void markDecals(struct gevrBeanMesh *mesh)
 		ny = (int)lroundf(n[1] * 4.0f);
 		nz = (int)lroundf(n[2] * 4.0f);
 		dq = (int)lroundf(d);
-		key = (unsigned)(nx * 73856093 ^ ny * 19349663 ^ nz * 83492791 ^ dq * 15485863) & (BUCKETS - 1);
+	key = ((uint32_t)nx * 73856093u ^ (uint32_t)ny * 19349663u ^ (uint32_t)nz * 83492791u ^ (uint32_t)dq * 15485863u) & (BUCKETS - 1);
 		next[i] = head[key];
 		head[key] = i;
 	}
@@ -750,7 +764,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			pc = be32(stream + pc + 8);
 			continue;
 		}
-		if (type == 0x19) {
+		if (type == 0x19 && sz >= 8) {
 			pc = be32(stream + pc + 4);
 			continue;
 		}
@@ -879,7 +893,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	} else {
 		uvscale = gevrBeanShaderUvScale(gpu, glen, buffersEnd);
 		if (!(uvscale > 0.0f)) {
-			uvscale = measureUv(data, dlen, gpu, glen, draws, ndraws, ibs, nibs, uv20, &caff, texfile, ntex);
+			uvscale = measureUv(data, dlen, gpu, glen, draws, ndraws, ibs, nibs, uv20, numbones > 0, &caff, texfile, ntex);
 		}
 	}
 
@@ -910,9 +924,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		mesh->texW[mesh->ntex] = w;
 		mesh->texH[mesh->ntex] = h;
 		mesh->texCut[mesh->ntex] = cut;
-		if (mesh->standin[mesh->ntex]) {
-			mesh->ntex++;
-		}
+		/* Material indices address the original table, including failed decodes. */
+		mesh->ntex++;
 	}
 	for (int di = 0; di < ndraws; di++) {
 		struct beanDraw *d = &draws[di];
@@ -945,11 +958,11 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			struct beanVtx corner[3];
 			int ok = 1;
 			for (int k = 0; k < 3; k++) {
-				if (!readVtx(gpu, &vbrec, tris[t * 3 + k], uvscale, &corner[k])) {
+				if (!readVtx(gpu, &vbrec, tris[t * 3 + k], uvscale, numbones > 0, &corner[k])) {
 					ok = 0;
 					break;
 				}
-				corner[k].argb = colourArgb(
+				corner[k].argb = (
 					((corner[k].argb >> 24) << 24)
 					| ((((corner[k].argb >> 16) & 255) * ((cr >> 16) & 255) / 255) << 16)
 					| ((((corner[k].argb >> 8) & 255) * ((cr >> 8) & 255) / 255) << 8)

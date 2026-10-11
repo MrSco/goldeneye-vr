@@ -32,6 +32,7 @@ struct gevrCaff {
 	uint32_t numsects;
 	uint32_t nametable;
 	uint32_t labels;
+	uint32_t labelBytes;
 	struct gevrCaffSect sects[GEVR_BEAN_MAXSECT];
 	struct gevrCaffFile *files;
 };

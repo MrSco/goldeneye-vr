@@ -39,7 +39,7 @@ int gevrCaffOpen(struct gevrCaff *c, const uint8_t *d, uint32_t len)
 	memset(c, 0, sizeof(*c));
 	c->d = d;
 	c->len = len;
-	if (len < 0x68 || memcmp(d, "CAFF", 4) != 0 || d[0x4a] != 0) {
+	if (!d || len < 0x68 || memcmp(d, "CAFF", 4) != 0 || d[0x4a] != 0) {
 		return 0;
 	}
 	c->be = d[0x48] == 1;
@@ -50,7 +50,7 @@ int gevrCaffOpen(struct gevrCaff *c, const uint8_t *d, uint32_t len)
 	namelen = hdr32(c, 0x4c);
 	sectsize = hdr32(c, 0x50);
 	filesize = hdr32(c, 0x64);
-	if (c->numsects > GEVR_BEAN_MAXSECT || c->numassets > 0x10000 || c->numfiles > 0x10000) {
+	if (hsize < 0x68 || c->numsects > GEVR_BEAN_MAXSECT || c->numassets > 0x10000 || c->numfiles > 0x10000) {
 		return 0;
 	}
 	pos = hsize;
@@ -64,17 +64,30 @@ int gevrCaffOpen(struct gevrCaff *c, const uint8_t *d, uint32_t len)
 	}
 	for (uint32_t i = 0; i < c->numsects; i++) {
 		uint64_t at = pos + stroff[i];
+		if (stroff[i] >= namelen || !fits(pos, namelen, len)
+				|| !memchr(d + at, 0, namelen - stroff[i])) return 0;
 		for (int j = 0; j < 31 && at + (uint64_t)j < len && d[at + (uint64_t)j]; j++) {
 			c->sects[i].name[j] = (char)d[at + (uint64_t)j];
 		}
 	}
 	pos += namelen;
+	if (!fits(pos, 4ull + 4ull * c->numassets, len)) return 0;
 	total = hdr32(c, pos);
 	c->nametable = (uint32_t)(pos + 4);
 	c->labels = (uint32_t)(pos + 4 + 4ull * c->numassets);
+	c->labelBytes = total;
+	if (!fits(c->labels, total, len)) return 0;
 	pos = (uint64_t)c->labels + total;
+	if (!fits(pos, 4, len)) return 0;
 	adb = hdr32(c, pos);
 	pos += 4ull + adb;
+	if (!fits((uint64_t)hsize + sectsize + filesize, 0, len)) return 0;
+	data = (uint64_t)hsize + sectsize + filesize;
+	for (uint32_t i = 0; i < c->numsects; i++) {
+		c->sects[i].offset = data;
+		if (!fits(data, c->sects[i].size, len)) return 0;
+		data += c->sects[i].size;
+	}
 	if (!fits(pos, 14ull * c->numfiles, len)) {
 		return 0;
 	}
@@ -88,11 +101,6 @@ int gevrCaffOpen(struct gevrCaff *c, const uint8_t *d, uint32_t len)
 		c->files[i].size = hdr32(c, pos + 8);
 		c->files[i].sect = d[pos + 12];
 		pos += 14;
-	}
-	data = (uint64_t)hsize + sectsize + filesize;
-	for (uint32_t i = 0; i < c->numsects; i++) {
-		c->sects[i].offset = data;
-		data += c->sects[i].size;
 	}
 	return 1;
 }
@@ -116,7 +124,7 @@ const uint8_t *gevrCaffBlob(const struct gevrCaff *c, int index, uint32_t *outLe
 		return NULL;
 	}
 	at = c->sects[f->sect - 1].offset + f->start;
-	if (!fits(at, f->size, c->len)) {
+	if (!fits(f->start, f->size, c->sects[f->sect - 1].size) || !fits(at, f->size, c->len)) {
 		return NULL;
 	}
 	*outLen = f->size;
@@ -141,7 +149,7 @@ const char *gevrCaffAssetName(const struct gevrCaff *c, uint32_t asset)
 	}
 	off = hdr32(c, c->nametable + 4ull * (asset - 1));
 	at = (uint64_t)c->labels + off;
-	if (at >= c->len || !memchr(c->d + at, 0, c->len - at)) {
+	if (off >= c->labelBytes || !memchr(c->d + at, 0, c->labelBytes - off)) {
 		return "";
 	}
 	name = (const char *)c->d + at;

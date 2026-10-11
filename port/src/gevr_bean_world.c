@@ -319,7 +319,7 @@ static int buildStage(int stage)
 			if (assign[i] != r) {
 				continue;
 			}
-			if (mesh->tris[i].alpha < 250) {
+			if (mesh->tris[i].alpha < 255) {
 				nxlu++;
 			} else {
 				nopa++;
@@ -348,7 +348,7 @@ static int buildStage(int stage)
 				continue;
 			}
 			t = &mesh->tris[i];
-			if (t->alpha < 250) {
+			if (t->alpha < 255) {
 				dst = xlu;
 				slot = nxlu;
 				nxlu += 3;

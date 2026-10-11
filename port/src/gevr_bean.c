@@ -125,7 +125,7 @@ void *gevrBeanShownGdl(void *node, void *current)
 		return current;
 	}
 	s = swapOf(node);
-	return s && s->original ? s->original : current;
+	return s ? s->original : current;
 }
 
 int gevrBeanShownModelType(void *node, int current)
@@ -190,6 +190,9 @@ static const char *gunFolder(const char *stem)
 	static const struct { const char *from, *to; } alias[] = {
 		{ "wppk", "ppk" },
 		{ "wppksil", "ppksilenced" },
+		{ "goldwppk", "goldppk" },
+		{ "silverwppk", "silverPPK" },
+		{ "bombdefuser", "defuser" },
 		{ "autoshot", "automaticshotgun" },
 		{ "grenadelaunch", "grenadelauncher" },
 		{ "rocketlaunch", "rocketlauncher" },
@@ -289,7 +292,8 @@ static const struct gevrEmitVert *s_sortVerts;
 
 static int vertKey(const struct gevrEmitVert *v)
 {
-	return ((int)v->tex << 16) | ((int)v->alpha << 8) | ((int)v->cut << 4) | (int)v->decal;
+	return (int)((uint32_t)(uint16_t)v->tex << 16)
+		| ((int)v->alpha << 8) | ((int)v->cut << 4) | (int)v->decal;
 }
 
 static int triCmp(const void *a, const void *b)
@@ -354,6 +358,11 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	qsort(order, (size_t)ntri, sizeof(int), triCmp);
 	g = gdl;
 	vp = vtx;
+	gDPPipeSync(g++);
+	gDPSetCycleType(g++, G_CYC_1CYCLE);
+	gDPSetTexturePersp(g++, G_TP_PERSP);
+	gDPSetTextureLUT(g++, G_TT_NONE);
+	gDPSetAlphaCompare(g++, G_AC_NONE);
 	gSPClearGeometryMode(g++, G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LIGHTING | G_CULL_BOTH);
 	if (lit) {
 		gSPSetGeometryMode(g++, G_LIGHTING | G_SHADE | G_SHADING_SMOOTH);
@@ -384,6 +393,20 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 			logicalH = mesh->texH[tex] > 0 ? mesh->texH[tex] : 32;
 			if (logicalW > 512) logicalW = 512;
 			if (logicalH > 512) logicalH = 512;
+			/* The decoded image keeps its full resolution. Smaller logical
+			 * tiles give repeating UVs enough room in signed 10.5 coordinates. */
+			float spanS = 0, spanT = 0;
+			for (int t = batch; t < end; t++) {
+				const struct gevrEmitVert *tri = &v[order[t] * 3];
+				for (int k = 0; k < 3; k++) {
+					float s = fabsf(tri[k].uv[0] - floorf(tri[0].uv[0]));
+					float tt = fabsf(-tri[k].uv[1] - floorf(-tri[0].uv[1]));
+					if (s > spanS) spanS = s;
+					if (tt > spanT) spanT = tt;
+				}
+			}
+			while (logicalW > 1 && spanS * logicalW * 32 > 32767) logicalW /= 2;
+			while (logicalH > 1 && spanT * logicalH * 32 > 32767) logicalH /= 2;
 			maskS = texMask(logicalW);
 			maskT = texMask(logicalH);
 			gSPTexture(g++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
@@ -405,17 +428,25 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 			const int xlu2 = zbuf ? G_RM_AA_ZB_XLU_SURF2 : G_RM_XLU_SURF2;
 			const int opa = zbuf ? G_RM_AA_ZB_OPA_SURF : G_RM_AA_OPA_SURF;
 			const int opa2 = zbuf ? G_RM_AA_ZB_OPA_SURF2 : G_RM_AA_OPA_SURF2;
-			if (base->cut) {
+			if (base->alpha < 255) {
+				gDPSetRenderMode(g++, xlu, xlu2);
+				if (tex < 0) {
+					gDPSetCombineMode(g++, G_CC_SHADE, G_CC_SHADE);
+				} else if (dim) {
+					gDPSetCombineMode(g++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM);
+				} else {
+					gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_MODULATEIA);
+				}
+			} else if (base->cut) {
 				gDPSetRenderMode(g++, edge, edge2);
 				gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_MODULATEIA);
-			} else if (base->alpha < 250) {
-				gDPSetRenderMode(g++, xlu, xlu2);
-				gDPSetCombineMode(g++, dim ? G_CC_MODULATEIA_PRIM : G_CC_MODULATEIA,
-					dim ? G_CC_MODULATEIA_PRIM : G_CC_MODULATEIA);
 			} else if (base->decal && zbuf) {
 				gDPSetRenderMode(g++, G_RM_AA_ZB_OPA_DECAL, G_RM_AA_ZB_OPA_DECAL2);
-				gDPSetCombineMode(g++, dim ? G_CC_MODULATEI_PRIM : G_CC_MODULATEI,
-					dim ? G_CC_MODULATEI_PRIM : G_CC_MODULATEI);
+				if (dim) {
+					gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_MODULATEI_PRIM);
+				} else {
+					gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_MODULATEI);
+				}
 			} else if (tex < 0) {
 				gDPSetRenderMode(g++, opa, opa2);
 				gDPSetCombineMode(g++, G_CC_SHADE, G_CC_SHADE);
@@ -437,8 +468,11 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 					const struct gevrEmitVert *src = &v[order[batch + t] * 3 + k];
 					float su = src->uv[0], sv = -src->uv[1];
 					Vtx *dst = &vp[t * 3 + k];
-					su = su - floorf(su);
-					sv = sv - floorf(sv);
+					/* Rebase the whole triangle together. Per-corner wrapping
+					 * collapses 0..1 edges and tears triangles crossing a seam. */
+					const struct gevrEmitVert *anchor = &v[order[batch + t] * 3];
+					su -= floorf(anchor->uv[0]);
+					sv -= floorf(-anchor->uv[1]);
 					dst->v.ob[0] = posClamp(src->p[0]);
 					dst->v.ob[1] = posClamp(src->p[1]);
 					dst->v.ob[2] = posClamp(src->p[2]);
@@ -453,12 +487,12 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 						dst->n.n[0] = (s8)(src->n[0] * 127.0f);
 						dst->n.n[1] = (s8)(src->n[1] * 127.0f);
 						dst->n.n[2] = (s8)(src->n[2] * 127.0f);
-						dst->n.a = src->alpha;
+						dst->n.a = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					} else {
 						dst->v.cn[0] = src->rgba[0];
 						dst->v.cn[1] = src->rgba[1];
 						dst->v.cn[2] = src->rgba[2];
-						dst->v.cn[3] = src->alpha;
+						dst->v.cn[3] = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					}
 					vi++;
 				}
@@ -683,7 +717,7 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 	e->rgba[0] = t->rgba[corner * 4];
 	e->rgba[1] = t->rgba[corner * 4 + 1];
 	e->rgba[2] = t->rgba[corner * 4 + 2];
-	e->rgba[3] = t->alpha;
+	e->rgba[3] = t->rgba[corner * 4 + 3];
 	e->tex = t->tex;
 	e->alpha = t->alpha;
 	e->cut = (uint8_t)(t->alphatest || (t->tex >= 0 && texCut));
@@ -1068,6 +1102,12 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			sp++;
 		}
 	}
+	/* Do not mutate nodes unless every replacement can retain its fallback
+	 * and its allocations for this level. */
+	if (s_nswap + nd > MAX_SWAP || s_nalloc + nd * 2 > MAX_ALLOC) {
+		free(stack); free(seen); free(grp); free(dls);
+		return;
+	}
 	skinned = kind == BEAN_CHR || (kind == BEAN_PROP && mesh->haveBind[GEVR_BEAN_SK_BASE]);
 	if (kind == BEAN_HEADBODY || kind == BEAN_HEAD || kind == BEAN_GUN) {
 		skinned = 0;
@@ -1169,7 +1209,8 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 	char source[128], path[192];
 	int kind;
 	struct gevrBeanMesh *mesh;
-	if (!header || !name || !(s_want && s_available == 1)) {
+	/* Register while disabled too, so switching on works for loaded models. */
+	if (!header || !name || !gevrBeanIsAvailable()) {
 		return;
 	}
 	kind = sourceForName(name, source, sizeof(source));
@@ -1184,6 +1225,13 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 		return;
 	}
 	applyMesh(header, mesh, kind);
+	/* Once the bounded cache is full, this load is temporary. Its display
+	 * lists and decoded textures have their own lifetime until level reset. */
+	int cached = 0;
+	for (int i = 0; i < s_ncache; i++) {
+		if (s_cache[i].mesh == mesh) cached = 1;
+	}
+	if (!cached) gevrBeanMeshFree(mesh);
 }
 
 void gevrBeanReset(void)

@@ -26,6 +26,8 @@ struct texSlot {
 static struct texSlot s_tex[TEX_SLOTS];
 static int s_ntex;
 
+extern void videoFreeCachedTexture(const void *addr);
+
 static uint32_t rd16(const uint8_t *p)
 {
 	return (uint32_t)p[0] | ((uint32_t)p[1] << 8);
@@ -178,6 +180,10 @@ static uint8_t *decodeSurface(uint8_t *data, uint32_t dataLen, int format, int p
 		for (uint32_t y = 0; y < h; y++) {
 			for (uint32_t x = 0; x < w; x++) {
 				uint32_t e = tiledOffset(x + ox, y + oy, ew, log2u(bpe));
+				if ((uint64_t)e * bpe + bpe > dataLen) {
+					free(rgba);
+					return NULL;
+				}
 				const uint8_t *src = data + (size_t)e * bpe;
 				uint8_t *dst = rgba + ((size_t)y * w + x) * 4;
 				/* Bean's 8888 is RGBA. The shared decoder reads BGRA and the
@@ -216,6 +222,10 @@ static uint8_t *decodeSurface(uint8_t *data, uint32_t dataLen, int format, int p
 		for (uint32_t by = 0; by < bh; by++) {
 			for (uint32_t bx = 0; bx < bw; bx++) {
 				uint32_t e = tiledOffset(bx + ox, by + oy, ew, log2u(bpe));
+				if ((uint64_t)e * bpe + bpe > dataLen) {
+					free(rgba);
+					return NULL;
+				}
 				int remainW = (int)w - (int)bx * 4;
 				int remainH = (int)h - (int)by * 4;
 				dxtBlock(data + (size_t)e * bpe, kind,
@@ -240,6 +250,7 @@ static uint32_t be16b(const uint8_t *p)
 void gevrBeanTexReset(void)
 {
 	for (int i = 0; i < s_ntex; i++) {
+		videoFreeCachedTexture(s_tex[i].standin);
 		free(s_tex[i].standin);
 		free(s_tex[i].rgba);
 		s_tex[i].standin = NULL;
@@ -330,7 +341,7 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 		}
 	}
 	g = gi >= 0 ? gevrCaffBlob(c, gi, &glen) : NULL;
-	if (!g || w == 0 || h == 0 || base > glen) {
+	if (!g || w == 0 || h == 0 || w > 4096 || h > 4096 || base > glen) {
 		return NULL;
 	}
 	if (format == FMT_8888) {

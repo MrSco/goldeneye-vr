@@ -3,7 +3,6 @@
 #include "gevr_reload_input.h"
 #include "gevr_hand_reload.h"
 #include "gevr_locomotion.h"
-#include "gevr_bean.h"
 #endif
 #include "system.h"
 #include <ultra64.h>
@@ -1058,17 +1057,7 @@ Gfx* lvlRender(Gfx* DL)
             }
 
             DL = viSetupScreensForNumPlayers(DL);
-#ifdef GEVR
-            {
-                int beanSky = 0;
-                DL = gevrBeanSkyAppend(DL, &beanSky);
-                if (!beanSky) {
-                    DL = skyRender(DL);
-                }
-            }
-#else
             DL = skyRender(DL);
-#endif
             bgRoomVisibilityRelated();
             propsTick();
             chraiUpdateOnscreenPropCount();

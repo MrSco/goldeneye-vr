@@ -52,6 +52,7 @@ extern "C" {
 #include "gevr_texpack.h"
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
+#include "gevr_bean.h"
 
 #include "../vr/vr_hub.h"
 
@@ -1796,10 +1797,13 @@ static void import_texture(int i, int tile, bool is_rect) {
      * otherwise collapse the tile to 16 and blow the UVs up.
      */
     {
-        extern int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
         const uint8_t *beanRgba = nullptr;
         int beanW = 0, beanH = 0;
         if (gevrBeanTexture(loaded_texture.addr, &beanRgba, &beanW, &beanH) && beanRgba && beanW > 0 && beanH > 0) {
+            /* UV normalization below uses the logical tile, not the 16x16
+             * stand-in's byte count. Keep both axes in those same units. */
+            loaded_texture.orig_size_bytes = rdp.texture_tile[tile].width
+                * rdp.texture_tile[tile].height * G_IM_SIZ_16b_LINE_BYTES;
             TextureCacheKey key = { loaded_texture.addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
             key.width = (uint32_t)beanW;
             key.height = (uint32_t)beanH;
