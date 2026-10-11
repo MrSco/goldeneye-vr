@@ -23,6 +23,7 @@
 #include <iostream>
 #include <memory>
 #include <limits>
+#include <algorithm>
 
 #ifndef _LANGUAGE_C
 #define _LANGUAGE_C
@@ -52,6 +53,7 @@ extern "C" {
 #include "gevr_texpack.h"
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
+#include "gevr_static_mesh.h"
 #include "gevr_bean.h"
 #include "gevr_romlayout.h"
 extern "C" int VrCampaign; /* vr_settings: the launcher's campaign */
@@ -2676,6 +2678,23 @@ static bool gfx_rdp_uses_combiner_alpha(uint32_t mode) {
          (mode & (3U << 16)) == (G_BL_1MA << 16));
 }
 
+/*
+ * Static meshes (gevr_static_mesh.h): gfx_sp_tri1 probed (s_gevrMeshProbe) sets
+ * up the GL state for a run exactly as for its first triangle, then keeps what
+ * each vertex's floats are made of here, instead of drawing (gevr_mesh_draw_run).
+ */
+static bool s_gevrMeshProbe;
+static struct {
+    bool ok;
+    struct ColorCombiner* comb;
+    bool use_alpha, use_fog, use_grayscale;
+    uint8_t num_inputs;
+    bool used_textures[2];
+    uint32_t tex_width[2], tex_height[2], tex_width2[2], tex_height2[2];
+    bool tex_from_block[2];
+    struct GfxClipParameters clip;
+} s_gevrMeshState;
+
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
     GevrProfileSection profile(GEVR_TIME_CLIP);
     if (gevrMenuTrace) ++gevrMenuTriangles;
@@ -2992,6 +3011,27 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     gfx_rapi->shader_get_info(prg, &num_inputs, used_textures);
 
     struct GfxClipParameters clip_parameters = gfx_rapi->get_clip_parameters();
+
+    if (s_gevrMeshProbe) {   // a static mesh run: its state, not a triangle (gevr_mesh_draw_run)
+        s_gevrMeshState.ok = true;
+        s_gevrMeshState.comb = comb;
+        s_gevrMeshState.use_alpha = use_alpha;
+        s_gevrMeshState.use_fog = use_fog;
+        s_gevrMeshState.use_grayscale = use_grayscale;
+        s_gevrMeshState.num_inputs = num_inputs;
+        for (int i = 0; i < 2; i++) {
+            s_gevrMeshState.used_textures[i] = used_textures[i];
+            if (comb->used_textures[i]) {
+                s_gevrMeshState.tex_width[i] = tex_width[i];
+                s_gevrMeshState.tex_height[i] = tex_height[i];
+                s_gevrMeshState.tex_width2[i] = tex_width2[i];
+                s_gevrMeshState.tex_height2[i] = tex_height2[i];
+                s_gevrMeshState.tex_from_block[i] = tex_from_block[i];
+            }
+        }
+        s_gevrMeshState.clip = clip_parameters;
+        return;
+    }
 
     for (int i = 0; i < 3; i++) {
         float x = v_arr[i]->x, y = v_arr[i]->y, z = v_arr[i]->z, w = v_arr[i]->w;
@@ -4106,6 +4146,240 @@ static void gevr_capture_rdp_state(unsigned target, bool begin) {
     }
 }
 
+/*
+ * Static meshes (gevr_static_mesh.h). The mesh path is off with
+ * files/gevr_nomesh.txt (re-read every ~2 s, to compare in the headset).
+ * A mesh's buffers are made when first drawn and given back between frames;
+ * while Bean is off nothing draws them, so they go until it is on again.
+ */
+static bool s_gevrMeshOn = true;
+static std::vector<GevrStaticMesh*> s_gevrMeshLive;
+static std::vector<void*> s_gevrMeshDead;
+static uint32_t s_gevrMeshDraws, s_gevrMeshTris, s_gevrMeshFallbacks;   // logged with the gfx: line
+extern "C" void gfx_static_mesh_release(GevrStaticMesh* m) {
+    if (m == nullptr) {
+        return;
+    }
+    auto it = std::find(s_gevrMeshLive.begin(), s_gevrMeshLive.end(), m);
+    if (it != s_gevrMeshLive.end()) {
+        s_gevrMeshLive.erase(it);
+    }
+    if (m->gpu != nullptr) {
+        s_gevrMeshDead.push_back(m->gpu);
+        m->gpu = nullptr;
+    }
+}
+
+static void gevr_mesh_frame(void) {
+    static unsigned n;
+    if ((n++ % 240) == 0) {
+        FILE* f = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_nomesh.txt", "r");
+        const bool on = f == nullptr;
+        if (f != nullptr) {
+            fclose(f);
+        }
+        if (on != s_gevrMeshOn) {
+            s_gevrMeshOn = on;
+            sysLogPrintf(LOG_NOTE, "mesh: static meshes %s", on ? "on" : "off (gevr_nomesh.txt)");
+        }
+    }
+    if (!s_gevrMeshLive.empty() && (!s_gevrMeshOn || !gevrBeanIsEnabled())) {
+        for (GevrStaticMesh* m : s_gevrMeshLive) {
+            if (m->gpu != nullptr) {
+                s_gevrMeshDead.push_back(m->gpu);
+                m->gpu = nullptr;
+            }
+        }
+        s_gevrMeshLive.clear();
+    }
+    if (gfx_rapi->delete_mesh != nullptr) {
+        for (void* gpu : s_gevrMeshDead) {
+            gfx_rapi->delete_mesh(gpu);
+        }
+    }
+    s_gevrMeshDead.clear();
+}
+
+/*
+ * What gfx_sp_vertex and gfx_sp_tri1 would put in each vertex's floats, as
+ * the mesh shader's uniforms over the mesh's own Vtx (DAB's gfx_mesh_params):
+ * the clip position, each texture coordinate (an affine function of s, t),
+ * and each combiner input, byte by byte either a colour byte of the vertex or
+ * a constant. false for what the shader does not do: the LOD fraction by w.
+ */
+static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
+    memset(p, 0, sizeof(*p));
+    for (int r = 0; r < 4; r++) {
+        for (int c = 0; c < 4; c++) {
+            p->mp[r * 4 + c] = rsp.MP_matrix[r][c];
+        }
+        if (s_gevrMeshState.clip.invert_y) {
+            p->mp[r * 4 + 1] = -p->mp[r * 4 + 1];
+        }
+    }
+    for (int t = 0; t < 2; t++) {
+        if (!s_gevrMeshState.used_textures[t]) {
+            continue;
+        }
+        const auto& tile = rdp.texture_tile[rdp.first_tile_index + gfx_lod_tile_offset(t)];
+        // U = s * (scale + 1) / 65536 (gfx_sp_vertex), then gfx_sp_tri1's u = U / 32
+        float k[2] = { (rsp.texture_scaling_factor.s + 1) / 65536.0f / 32.0f,
+                       (rsp.texture_scaling_factor.t + 1) / 65536.0f / 32.0f };
+        float o[2] = { -(tile.uls / 4.0f), -(tile.ult / 4.0f) };
+        const int shift[2] = { tile.shifts, tile.shiftt };
+        for (int a = 0; a < 2; a++) {
+            if (shift[a] != 0) {
+                k[a] *= shift[a] <= 10 ? 1.0f / (float)(1 << shift[a]) : (float)(1 << (16 - shift[a]));
+            }
+            if (!(rdp.other_mode_h & G_TP_PERSP)) {
+                k[a] *= 0.5f;
+                o[a] *= 0.5f;
+            }
+            if ((rdp.other_mode_h & (3U << G_MDSFT_TEXTFILT)) != G_TF_POINT) {
+                o[a] += 0.5f;
+            }
+        }
+        const uint32_t w = s_gevrMeshState.tex_from_block[t] ? s_gevrMeshState.tex_width[t] : s_gevrMeshState.tex_width2[t];
+        const uint32_t h = s_gevrMeshState.tex_from_block[t] ? s_gevrMeshState.tex_height[t] : s_gevrMeshState.tex_height2[t];
+        p->tex[t][0] = k[0] / w;
+        p->tex[t][1] = k[1] / h;
+        p->tex[t][2] = o[0] / w;
+        p->tex[t][3] = o[1] / h;
+    }
+    // gfx_sp_tri1's input loop, a byte at a time: ch is the vertex colour's byte, or -1 for v
+    struct Byte { int ch; uint8_t v; };
+    const Byte none[4] = { { -1, 0 }, { -1, 0 }, { -1, 0 }, { -1, 0 } };
+    auto constant = [](const struct RGBA& c, Byte out[4]) {
+        out[0] = { -1, c.r };
+        out[1] = { -1, c.g };
+        out[2] = { -1, c.b };
+        out[3] = { -1, c.a };
+    };
+    p->num_inputs = s_gevrMeshState.num_inputs;
+    for (int j = 0; j < s_gevrMeshState.num_inputs; j++) {
+        Byte color[4], tmp[4];
+        memcpy(tmp, none, sizeof(tmp));
+        const Byte* c = tmp;
+        for (int k = 0; k < 1 + (s_gevrMeshState.use_alpha ? 1 : 0); k++) {
+            switch (s_gevrMeshState.comb->shader_input_mapping[k][j]) {
+                case G_CCMUX_PRIMITIVE:
+                    constant(rdp.prim_color, color);
+                    c = color;
+                    break;
+                case G_CCMUX_SHADE:
+                    for (int b = 0; b < 4; b++) {
+                        color[b] = { b, 0 };
+                    }
+                    c = color;
+                    break;
+                case G_CCMUX_SHADE_ALPHA:
+                    tmp[0] = tmp[1] = tmp[2] = { 3, 0 };
+                    c = tmp;
+                    break;
+                case G_CCMUX_ENVIRONMENT:
+                    constant(rdp.env_color, color);
+                    c = color;
+                    break;
+                case G_CCMUX_PRIMITIVE_ALPHA:
+                    tmp[0] = tmp[1] = tmp[2] = { -1, rdp.prim_color.a };
+                    c = tmp;
+                    break;
+                case G_CCMUX_ENV_ALPHA:
+                    tmp[0] = tmp[1] = tmp[2] = { -1, rdp.env_color.a };
+                    c = tmp;
+                    break;
+                case G_CCMUX_PRIM_LOD_FRAC:
+                    tmp[0] = tmp[1] = tmp[2] = { -1, rdp.prim_lod_fraction };
+                    c = tmp;
+                    break;
+                case G_CCMUX_LOD_FRACTION:
+                    if (rdp.other_mode_h & G_TL_LOD) {
+                        return false;   // by w, per vertex
+                    }
+                    tmp[0] = tmp[1] = tmp[2] = tmp[3] = { -1, 255 };
+                    c = tmp;
+                    break;
+                case G_ACMUX_PRIM_LOD_FRAC:
+                    tmp[3] = { -1, rdp.prim_lod_fraction };
+                    c = tmp;
+                    break;
+                default:
+                    memcpy(tmp, none, sizeof(tmp));
+                    c = tmp;
+                    break;
+            }
+            for (int b = (k == 0 ? 0 : 3); b < (k == 0 ? 3 : 4); b++) {
+                if (c[b].ch >= 0) {
+                    p->in_sel[j][c[b].ch * 4 + b] = 1.0f;   // column ch, row b
+                } else {
+                    p->in_const[j][b] = c[b].v / 255.0f;
+                }
+            }
+        }
+    }
+    return true;
+}
+
+/*
+ * One run of a static mesh in place of its G_VTX/G_TRI1 commands. false when
+ * it cannot be drawn so, and gfx_run_dl runs the commands as before. The state
+ * is set up by gfx_sp_tri1 itself, probed on a triangle it accepts (the rect
+ * slots, w = 1: inside, never hidden, not presented), so textures, the
+ * combiner, depth, viewport and blending are exactly what the run would get.
+ */
+static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run) {
+    if (!s_gevrMeshOn || gfx_rapi->draw_mesh == nullptr || run->indexCount == 0) {
+        return false;
+    }
+    // gfx_sp_vertex as the shader does it: unlit, no colour table, no aspect
+    // correction (VR), not hidden; nothing culled, as gfx_sp_tri1 would cull
+    if ((rsp.geometry_mode & (G_LIGHTING | G_CULL_BOTH)) || rsp.vertex_colors != nullptr ||
+        rsp.modelview_hidden_stack[rsp.modelview_matrix_stack_size - 1] || gevrCullOff || gevrCullMirror ||
+        !(fbActive || vr_is_initialized())) {
+        s_gevrMeshFallbacks++;
+        return false;
+    }
+    for (int i = 0; i < 3; i++) {
+        struct LoadedVertex* d = &rsp.loaded_vertices[MAX_VERTICES + i];
+        memset(d, 0, sizeof(*d));
+        d->x = i == 1 ? 0.5f : 0.0f;
+        d->y = i == 2 ? 0.5f : 0.0f;
+        d->w = 1.0f;
+    }
+    s_gevrMeshState.ok = false;
+    s_gevrMeshProbe = true;
+    gfx_sp_tri1(MAX_VERTICES, MAX_VERTICES + 1, MAX_VERTICES + 2, false);
+    s_gevrMeshProbe = false;
+    --gevr_perf_tri_calls;
+    struct GfxMeshDrawParams params;
+    if (!s_gevrMeshState.ok || s_gevrMeshState.use_fog || s_gevrMeshState.use_grayscale ||
+        s_gevrMeshState.num_inputs > GFX_MESH_MAX_INPUTS || s_gevrMeshState.clip.z_is_from_0_to_1 ||
+        !gevr_mesh_params(&params)) {
+        s_gevrMeshFallbacks++;
+        return false;
+    }
+    gfx_flush();   // what came before draws first
+    const bool made = m->gpu == nullptr;
+    if (!gfx_rapi->draw_mesh(&m->gpu, m->vertices, m->numVertices, m->indices, m->numIndices,
+                             run->firstIndex, run->indexCount, &params)) {
+        s_gevrMeshFallbacks++;
+        return false;
+    }
+    if (made && m->gpu != nullptr) {
+        s_gevrMeshLive.push_back(m);
+    }
+    const uint32_t tris = run->indexCount / 3;
+    gevr_perf_draws++;
+    gevr_perf_tris += tris;
+    g_gevrTrisThisFrame += tris;
+    if (gevrRoomDl) {
+        gevr_perf_room_tris += tris;
+    }
+    s_gevrMeshDraws++;
+    s_gevrMeshTris += tris;
+    return true;
+}
+
 static void gfx_run_dl(Gfx* cmd) {
     GevrProfileSection profile(GEVR_TIME_DL);
     // puts("dl");
@@ -4115,6 +4389,8 @@ static void gfx_run_dl(Gfx* cmd) {
 
     Gfx* dListStart = cmd;
     uint64_t ourHash = -1;
+    GevrStaticMesh* mesh = nullptr;   // G_GEVR_MESH: the runs this list draws from buffers
+    uint32_t meshRun = 0;
 
     for (;;) {
         uint32_t opcode = cmd->words.w0 >> 24;
@@ -4292,7 +4568,18 @@ static void gfx_run_dl(Gfx* cmd) {
                 memset(s_gevrPresentedFresh, 0, sizeof(s_gevrPresentedFresh));   // pre-projected: none presented
                 gfx_sp_sky_vertex(C0(0, 8), (const GevrSkyVertex*)seg_addr(cmd->words.w1));
                 break;
+            case G_GEVR_MESH:
+                mesh = (GevrStaticMesh*)cmd->words.w1;
+                meshRun = 0;
+                break;
             case G_VTX: {
+                if (mesh != nullptr && meshRun < mesh->numRuns && mesh->runs[meshRun].start == (const void*)cmd) {
+                    const GevrStaticMeshRun* run = &mesh->runs[meshRun++];
+                    if (gevr_mesh_draw_run(mesh, run)) {
+                        cmd = (Gfx*)run->end - 1;   // past the run (++cmd below)
+                        break;
+                    }
+                }
                 const uintptr_t vtxp = (uintptr_t)seg_addr(cmd->words.w1);
                 if (vtxp < 0x10000) {
                     /* PORT probe: a vertex load through an unresolved address; log the list and skip it */
@@ -4857,6 +5144,7 @@ extern "C" void gfx_run(Gfx* commands) {
 
 #ifdef GEVR
     gevr_texpack_frame();
+    gevr_mesh_frame();
 #endif
     {
         u8 rType[8]; u16 rId[8]; s32 rTexnum[8];
@@ -4976,6 +5264,9 @@ extern "C" void gfx_run(Gfx* commands) {
                 sFrames++; sTris += g_gevrTrisThisFrame; sFlushes += g_gevrFlushesThisFrame;
                 if (sFrames >= 72) {
                     vr_log("gfx: %u frames, %u tris, %u flushes, cimg %p", sFrames, sTris, sFlushes, rdp.color_image_address);
+                    vr_log("mesh: %u draws, %u tris, %u runs on the CPU, %u meshes in buffers%s", s_gevrMeshDraws,
+                           s_gevrMeshTris, s_gevrMeshFallbacks, (unsigned)s_gevrMeshLive.size(), s_gevrMeshOn ? "" : " (off)");
+                    s_gevrMeshDraws = s_gevrMeshTris = s_gevrMeshFallbacks = 0;
                     if (gevrFrameTimingTracing()) {
                         static const char *names[GEVR_FLUSH_CAUSES] = {"other", "texture", "texture_new", "combiner",
                             "depth", "viewport", "scissor", "sampler", "shader", "alpha", "full", "room"};
