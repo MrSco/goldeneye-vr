@@ -885,20 +885,23 @@ static void installLevelTables(void)
 			music_setup_entries[i].bg_sound = (s16)be16at(p + 4);
 			music_setup_entries[i].xtrack = (s16)be16at(p + 6);
 		}
-		/* random_tracks follow the end row, ended by -1 */
-		for (cap = 0; random_tracks[cap] != -1; cap++) {
+		/*
+		 * random_tracks follow the end row, ended by M_NONE (0), not -1:
+		 * the copy stops at the hack's 0 and never writes past GoldenEye's
+		 * own 0 (a scan for -1 ran off the array and over the file table).
+		 */
+		for (cap = 0; random_tracks[cap] != 0; cap++) {
 		}
-		for (i = 0; i <= cap; i++) {
+		for (i = 0; i < cap; i++) {
 			p = atVram(GEVR_MUSIC_AT + 8u * (rows + 1) + 2u * i, 2);
-			if (!p) {
+			if (!p || be16at(p) == 0) {
 				break;
 			}
 			random_tracks[i] = (s16)be16at(p);
-			if (random_tracks[i] == -1) {
-				break;
-			}
 		}
-		random_tracks[cap] = -1;
+		for (; i < cap; i++) {
+			random_tracks[i] = 0;   /* a shorter list ends where the hack's does */
+		}
 	} else {
 		sysLogPrintf(LOG_ERROR, "rom: music table does not fit GoldenEye's %u rows", cap);
 	}

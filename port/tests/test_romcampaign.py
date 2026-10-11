@@ -182,13 +182,15 @@ def expect(rom, L):
         o += 8
         if r[0] == 0:
             break
+    # random_tracks: up to GoldenEye's 43, ended by M_NONE (0)
     rnd = []
-    while len(rnd) < 52:
+    while len(rnd) < 43:
         t = struct.unpack_from(">h", d, o)[0]
-        rnd.append(t)
         o += 2
-        if t == -1:
+        if t == 0:
             break
+        rnd.append(t)
+    rnd += [0] * (44 - len(rnd))
     e["music"], e["random"] = music, rnd
     e["times"] = [struct.unpack_from(">hhh", d, 0x8002B564 - V + 6 * m) for m in range(20)]
     return e
@@ -276,6 +278,7 @@ def main():
     for i, want in enumerate(e["times"]):
         check(times[i] == list(want), "target times %d" % i)
     check(len(got.get("folder", [])) >= 20, "mission folder rows")
+    check(got.get("canaries") == [["1"]], "a table write ran past GoldenEye's rows")
     check(got.get("poolinit") == [["1"]], "head pool level init")
     check(got.get("hats") == [["0", "126"]], "hat fits cover heads 0-125: %s" % got.get("hats"))
     hats = struct.unpack_from(">%df" % (126 * 6 * 6), rom, 0x17F8800)
