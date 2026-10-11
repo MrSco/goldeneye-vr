@@ -70,6 +70,8 @@ static int vr_haptics_ready(void) { return 1; }
 static int trigger_haptic_vibration_c(int ctrl, float amplitude, float duration)
 { assert(amplitude > 0 && duration > 0); buzzes++; buzzCtrl = ctrl; return 1; }
 static int bondinvItemAvailable(int item) { assert(item == ITEM_SNIPERRIFLE); return haveSniper; }
+/* gevr_romlayout.c: GoldenEye's rifle-butt melee gun */
+static int gevrRomButtMelee(void) { return ITEM_SNIPERRIFLE; }
 typedef struct { float kickPitch, kickYaw, kickPush; } WeaponRecoilProfile;
 static WeaponRecoilProfile sRecoilProfile[2];
 static int VrPerWeaponRecoil = 1;

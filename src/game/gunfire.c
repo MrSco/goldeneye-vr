@@ -393,7 +393,8 @@ static s32 gevrUnarmedModelItem(void)
     struct hand *left = &g_CurrentPlayer->hands[GUNLEFT];
     s32 item = left->weapon_animation_trigger ? left->weapon_next_weapon : left->weaponnum;
     if (g_gevrStereo && (gevrStereoTwoHandItem(left->weaponnum) || gevrStereoTwoHandItem(item))) return ITEM_FIST;
-    return bondinvItemAvailable(ITEM_SNIPERRIFLE) ? ITEM_SNIPERRIFLE : ITEM_FIST;
+    /* Goldfinger has no rifle-butt melee (its button tests 153) */
+    return bondinvItemAvailable(gevrRomButtMelee()) ? ITEM_SNIPERRIFLE : ITEM_FIST;
 }
 
 static void gevrUnarmedModelUpdate(void)
@@ -755,7 +756,11 @@ void gunUpdateAndFire(GUNHAND handnum)
         matrix_4x4_set_rotation_around_xyz(&taserrot, &tmpmtx);
         matrix_4x4_multiply_homogeneous_in_place(&tmpmtx, &rotmtx);
     }
+#ifdef GEVR
+    else if ((item == ITEM_FIST) && (g_CurrentPlayer->cur_item_weapon_getname == gevrRomButtMelee()))
+#else
     else if ((item == ITEM_FIST) && (g_CurrentPlayer->cur_item_weapon_getname == ITEM_SNIPERRIFLE))
+#endif
     {
         fistrot = D_80035C88;
         matrix_4x4_set_rotation_around_xyz(&fistrot, &tmpmtx);
@@ -6169,7 +6174,11 @@ s32 get_keyanalyzer_flag(void)
 
 static void giveWeaponCaseItemsInHand(GUNHAND hand)
 {
+#ifdef GEVR
+  add_ammo_to_inventory(gevrRomCaseAmmo(), 2, 0, 1);   /* Goldfinger's case: grenades, no throwing hats */
+#else
   add_ammo_to_inventory(AMMO_KNIFE, 2, 0, 1);
+#endif
   add_ammo_to_inventory(AMMO_GRENADE, 2, 0, 1);
   bondinvAddInvItem(ITEM_SNIPERRIFLE);
   set_sound_effect_for_weapontype_collection(ITEM_SNIPERRIFLE);

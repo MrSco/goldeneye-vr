@@ -18,6 +18,9 @@
 #include <snd.h>
 #include <gbi_extension.h>
 #include "propobj.h"
+#ifdef GEVR
+#include "gevr_romlayout.h"
+#endif
 #include "assets/obseg/text/LpropobjE.h"
 #include "bg.h"
 #include "bgfog.h"
@@ -3570,7 +3573,12 @@ void chrobjWeaponTick(struct PropRecord* prop)
                 countdownTimerSetVisible(2, FALSE);
             }
         }
+#ifdef GEVR
+        /* Goldfinger's item 33 is its Knockout Gas: no timer */
+        else if (((weapon->weaponnum == ITEM_TIMEDMINE) || (weapon->weaponnum == gevrRomTimedCase())) && (weapon->timer >= 0))
+#else
         else if (((weapon->weaponnum == ITEM_TIMEDMINE) || (weapon->weaponnum == ITEM_BOMBCASE)) && (weapon->timer >= 0))
+#endif
         {
             weapon->timer -= g_ClockTimer;
 
@@ -6667,11 +6675,20 @@ s32 objTick(struct PropRecord *prop)
 			if ((autogun->is_active != 0) && (!(obj->flags & PROPFLAG_IS_DRONE_GUN)))
 			{
 				autogun->unkAC = autogun->unkAC + 1;
+#ifdef GEVR
+				/* Goldfinger's autoguns fire half as often (& 3) */
+				sp13C = (autogun->unkAC & gevrRomAutogunMask()) == 0;
+#else
 				sp13C = (autogun->unkAC & 1) == 0;
+#endif
 
 				if (model->obj->Switches[5] != 0)
 				{
+#ifdef GEVR
+					sp138 = (autogun->unkAC & gevrRomAutogunMask()) == 1;
+#else
 					sp138 = (autogun->unkAC & 1) == 1;
+#endif
 				}
 
 				if (autogun->unkC0 < g_GlobalTimer)

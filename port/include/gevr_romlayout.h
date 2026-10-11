@@ -86,6 +86,20 @@ struct gevrRomLayout {
 	uint8_t bgcradle, bgdam;
 	/* gunTickHandState's use-on-object items (7F066D4C): GoldenEye's bomb defuser and datathief */
 	uint8_t gadgetuse[2];
+	/*
+	 * Code patches, as the US items the port plays a hack's guns as (same gun
+	 * file): the autogun fire tick mask (objTick, 7F04935C), the two guns that
+	 * shoot through bulletproof glass (chrpropAddBulletHit, 7F03BC34), the item
+	 * that explodes on a timer beside the timed mine (chrobjWeaponTick,
+	 * 7F043F18), the weapon case's first ammo (give_weapon_case_items,
+	 * 7F066F10) and the gun whose butt is the unarmed melee (gunTickHandState
+	 * 7F065B14, gunUpdateAndFire 7F060A0C; 153 matches no item)
+	 */
+	uint8_t autogunmask;
+	uint8_t glasspen[2];
+	uint8_t timedcase;
+	uint8_t caseammo;
+	uint8_t buttmelee;
 };
 
 struct gevrDataWindow {
@@ -158,6 +172,11 @@ int gevrItemAs(int item);
 int gevrRomBgCradle(void);
 int gevrRomBgDam(void);
 int gevrRomGadgetUse(int which);
+int gevrRomAutogunMask(void);
+int gevrRomGlassPen(int which);
+int gevrRomTimedCase(void);
+int gevrRomCaseAmmo(void);
+int gevrRomButtMelee(void);
 
 /* Sum of the image-row sizes, the span of the images bank. 0 when the table does not fit. */
 uint32_t gevrRomImageBankBytes(const uint8_t *data, uint32_t dataLen,

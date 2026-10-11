@@ -5,6 +5,7 @@
 #include "net_game.h"
 #include "net_coop.h"
 #include "gevr_grip_gesture.h"
+#include "gevr_romlayout.h"
 #endif
 #include <ultra64.h>
 #include <assert.h>
@@ -1798,7 +1799,12 @@ void chrpropAddBulletHit(struct ShotData *shotdata, PropRecord *prop, f32 dist, 
     */
     if (blocksFurtherHits)
     {
+#ifdef GEVR
+        /* Goldfinger's glass stops all but its Ruger- and Spectre-file guns */
+        if (shotdata->weapon != gevrRomGlassPen(0) && shotdata->weapon != gevrRomGlassPen(1))
+#else
         if (shotdata->weapon != ITEM_RUGER && shotdata->weapon != ITEM_SILVERWPPK)
+#endif
         {
             for (i = 0; i < ARRAYCOUNT(shotdata->hits); i++)
             {

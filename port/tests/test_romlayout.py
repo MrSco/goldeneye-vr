@@ -124,9 +124,19 @@ def test_headers(lib):
     assert [lib.gevrItemAs(i) for i in (31, 23, 17, 4)] == [4, 4, 17, 4]
     # its Cradle/Dam level cases are off and it uses items 49 and 57 on objects
     assert [lib.gevrRomBgCradle(), lib.gevrRomBgDam(), lib.gevrRomGadgetUse(0), lib.gevrRomGadgetUse(1)] == [37, 37, 49, 57]
+
+    def patches():
+        return [lib.gevrRomAutogunMask(), lib.gevrRomGlassPen(0), lib.gevrRomGlassPen(1), lib.gevrRomTimedCase(),
+                lib.gevrRomCaseAmmo(), lib.gevrRomButtMelee()]
+    # autoguns & 3, glass pierced by its Ruger- and Spectre-file guns, no Knockout Gas timer,
+    # grenades from the weapon case, no rifle butt
+    assert patches() == [3, 18, 12, 0, 5, 153]
+    lib.gevrRomCampaignSet(2)
+    assert patches() == [1, 18, 20, 33, 10, 17]
     lib.gevrRomCampaignSet(0)
     assert [lib.gevrItemAs(i) for i in (31, 23, 17, 4)] == [31, 23, 17, 4]
     assert [lib.gevrRomBgCradle(), lib.gevrRomBgDam(), lib.gevrRomGadgetUse(0), lib.gevrRomGadgetUse(1)] == [21, 13, 39, 55]
+    assert patches() == [1, 18, 20, 33, 10, 17]
     lib.gevrRomCampaignSet(1)
     assert lib.gevrRomCreditsAfter() == 0
     assert lib.gevrRomAdvanceBelow() == 0
