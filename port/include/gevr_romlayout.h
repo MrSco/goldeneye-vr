@@ -71,6 +71,8 @@ struct gevrRomLayout {
 	/* PitemZ_entries and object_explosion_details (14-byte rows), a row a prop */
 	uint32_t props, numprops;
 	uint32_t explosions;
+	/* bodyChooseHead()'s pool lengths in the game code (eight bytes, the lists' addresses after); 0 = GoldenEye's */
+	uint32_t headpools;
 };
 
 struct gevrDataWindow {
@@ -125,6 +127,10 @@ int gevrRomCreditsAfter(void);
 int gevrRomAdvanceBelow(void);
 int gevrRomAiHooks(void);
 int gevrRomBondOutfit(int cuff, int *body, int *head);
+/* A hack's own random-head pools (Goldfinger): level init, and the head for a record's -1 or -2.
+ * Both return 0 / -1 where the campaign has none, and GoldenEye's code runs. */
+int gevrRomHeadPoolsLevelInit(void);
+int gevrRomChooseHead(int male, int head);
 
 /* Sum of the image-row sizes, the span of the images bank. 0 when the table does not fit. */
 uint32_t gevrRomImageBankBytes(const uint8_t *data, uint32_t dataLen,

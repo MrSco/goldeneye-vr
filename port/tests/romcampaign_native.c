@@ -200,6 +200,16 @@ int main(int argc, char **argv)
 			printf("itemname %d %s\n", i, gitem_structs[i].item_file_name);
 		}
 	}
+	/* Goldfinger's head pools: a fixed seed, its level init, then picks */
+	{
+		extern u64 g_randomSeed;
+
+		g_randomSeed = 0x0123456789ABCDEFULL;
+		printf("poolinit %d\n", gevrRomHeadPoolsLevelInit());
+		for (i = 0; i < 24; i++) {
+			printf("pick %d %d %d %d\n", i, i & 1, (i & 2) ? -2 : -1, gevrRomChooseHead(i & 1, (i & 2) ? -2 : -1));
+		}
+	}
 	for (i = 1; i < 32; i++) {
 		printf("host %d %d\n", i, gevrRomItemHost(i));
 	}
