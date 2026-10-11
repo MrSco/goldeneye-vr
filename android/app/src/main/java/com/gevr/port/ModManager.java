@@ -104,9 +104,9 @@ final class ModManager {
                 374042560L,
                 "MrSco/GoldenEye-007-HD", "ai-", "ge007-hd-ai-", "-gliden64-png.zip"),
         new Pack("ge007-bean", "GoldenEye 007 XBLA / Project Bean", "Rare / 4J Studios, Project Bean",
-                "github.com/MrSco/GoldenEye-007-Bean", "2026.10.11.2",
-                "https://github.com/MrSco/GoldenEye-007-Bean/releases/download/v2026.10.11.2/ge007-bean-2026.10.11.2-vr.zip",
-                181440383L, "MrSco/GoldenEye-007-Bean", "v", "ge007-bean-", "-vr.zip"),
+                "github.com/MrSco/GoldenEye-007-Bean", "2026.10.11.3",
+                "https://github.com/MrSco/GoldenEye-007-Bean/releases/download/v2026.10.11.3/ge007-bean-2026.10.11.3-vr.zip",
+                188298238L, "MrSco/GoldenEye-007-Bean", "v", "ge007-bean-", "-vr.zip"),
     };
 
     // Per-pack states the launcher shows (vr_launcher.cpp keeps the same names).
