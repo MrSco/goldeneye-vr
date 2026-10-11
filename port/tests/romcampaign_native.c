@@ -66,6 +66,8 @@ EnvironmentFoglessRecord fog_tables2[4];   /* 3 and the end row */
 struct gevrTestMusicRow { s16 stage_id, main_music, bg_sound, xtrack; } music_setup_entries[25];
 s16 random_tracks[52];
 
+struct ModelFileHeader cartridge_header, cartrifle_header, cartblue_header, cartshell_header;
+
 struct ModelSkeleton skeleton_cctv, skeleton_console_one_screen, skeleton_console_four_screen,
 	skeleton_tv_holder, skeleton_rotating_stuff, skeleton_eyelid_door, skeleton_iris_door,
 	skeleton_walletbond, skeleton_car, skeleton_flying, skeleton_door, skeleton_tank, skeleton_hat,
@@ -111,11 +113,14 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 	va_end(ap);
 }
 
-/* GoldenEye's gun file names the test checks, at their US items */
-static const struct { int item; const char *name; } s_items[] = {
-	{ ITEM_FIST, "GfistZ" }, { ITEM_WPPK, "GwppkZ" }, { ITEM_TASER, "GtaserZ" },
-	{ ITEM_SUIT_LF_HAND, "Csuit_lf_handZ" },
+/* GoldenEye's hand-item files at their US items (ITEM_FIST..ITEM_TASER), and the watch arm */
+static const char *const s_gunFiles[32] = {
+	NULL, "GfistZ", "GknifeZ", "GthrowknifeZ", "GwppkZ", "GwppksilZ", "Gtt33Z", "GskorpionZ",
+	"Gak47Z", "GuziZ", "Gmp5kZ", "Gmp5ksilZ", "GspectreZ", "Gm16Z", "Gfnp90Z", "GshotgunZ",
+	"GautoshotZ", "GsniperrifleZ", "GrugerZ", "GgoldengunZ", "GsilverwppkZ", "GgoldwppkZ", "GlaserZ", "GwatchlaserZ",
+	"GgrenadelaunchZ", "GrocketlaunchZ", "GgrenadeZ", "GtimedmineZ", "GproximitymineZ", "GremotemineZ", "GtriggerZ", "GtaserZ",
 };
+static WeaponStats s_stats[32];
 
 static void header(const char *what, int i, const struct ModelFileHeader *h)
 {
@@ -129,7 +134,6 @@ int main(int argc, char **argv)
 	long size;
 	u8 *rom;
 	int i;
-	size_t k;
 
 	if (argc < 3 || !(f = fopen(argv[1], "rb"))) {
 		return 2;
@@ -161,10 +165,13 @@ int main(int argc, char **argv)
 		random_tracks[i] = 1;
 	}
 	random_tracks[51] = -1;
-	for (k = 0; k < sizeof(s_items) / sizeof(s_items[0]); k++) {
-		gitem_structs[s_items[k].item].item_header = &s_itemHeaders[s_items[k].item];
-		gitem_structs[s_items[k].item].item_file_name = (char *)s_items[k].name;
+	for (i = 1; i < 32; i++) {
+		gitem_structs[i].item_header = &s_itemHeaders[i];
+		gitem_structs[i].item_file_name = (char *)s_gunFiles[i];
+		gitem_structs[i].item_weapon_stats = &s_stats[i];
 	}
+	gitem_structs[ITEM_SUIT_LF_HAND].item_header = &s_itemHeaders[ITEM_SUIT_LF_HAND];
+	gitem_structs[ITEM_SUIT_LF_HAND].item_file_name = "Csuit_lf_handZ";
 
 	gevrRomNormaliseOrder(rom, (unsigned int)size);
 	gevrRomCampaignSet(atoi(argv[2]));
@@ -187,9 +194,25 @@ int main(int argc, char **argv)
 		printf("blast %d %d %d %d\n", i, object_explosion_details[i].TypeID,
 				object_explosion_details[i].Seed[0], object_explosion_details[i].Seed[5]);
 	}
-	for (k = 0; k < sizeof(s_items) / sizeof(s_items[0]); k++) {
-		header("item", s_items[k].item, &s_itemHeaders[s_items[k].item]);
-		printf("itemname %d %s\n", s_items[k].item, s_items[k].name);
+	for (i = 1; i < ITEM_IDS_MAX; i++) {
+		if (gitem_structs[i].item_header) {
+			header("item", i, gitem_structs[i].item_header);
+			printf("itemname %d %s\n", i, gitem_structs[i].item_file_name);
+		}
+	}
+	for (i = 1; i < 32; i++) {
+		printf("host %d %d\n", i, gevrRomItemHost(i));
+	}
+	for (i = 1; i < 32; i++) {
+		const WeaponStats *s = &s_stats[i];
+		const struct ModelFileHeader *c = s->ptr_cartridge_struct;
+
+		printf("stats %d %d %d %d %d %d %d %s %.3f %.3f %.3f %d %.3f %.3f %u\n", i, s->AmmoType, s->MagSize,
+				s->AutomaticFiringRate, s->SingleFiringRate, s->ObjectsShootThrough, s->Sound,
+				c == &cartridge_header ? "cartridge" : c == &cartrifle_header ? "cartrifle"
+				: c == &cartblue_header ? "cartblue" : c == &cartshell_header ? "cartshell" : "none",
+				s->DestructionAmount, s->Inaccuracy, s->Zoom, s->RecoilSpeed, s->RecoilBack, s->ForceOfImpact,
+				(unsigned)s->BitFlags);
 	}
 	for (i = 1; i < 727; i++) {
 		if (file_resource_table[i].hw_address) {
