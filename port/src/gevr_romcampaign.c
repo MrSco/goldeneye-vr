@@ -16,6 +16,8 @@
 #include "front.h"
 #include "gun.h"
 #include "propobj.h"
+#include "bg.h"
+#include "bgfog.h"
 #include "system.h"
 
 extern fileentry file_resource_table[];
@@ -515,6 +517,182 @@ static void installItems(void)
 	gevrRomBuildItemMap(names, 32);
 }
 
+/*
+ * A row of the hack's data segment into a host row of the same layout, field
+ * by field: '4' a word, '2' a halfword, '1' a byte (bgfog.h's records hold no
+ * pointers, so the N64 and host layouts match).
+ */
+static void swapRow(uint8_t *dst, const uint8_t *src, const char *fields)
+{
+	for (; *fields; fields++) {
+		if (*fields == '4') {
+			uint32_t w = be32at(src);
+
+			memcpy(dst, &w, 4);
+			dst += 4;
+			src += 4;
+		} else if (*fields == '2') {
+			uint16_t h = be16at(src);
+
+			memcpy(dst, &h, 2);
+			dst += 2;
+			src += 2;
+		} else {
+			*dst++ = *src++;
+		}
+	}
+}
+
+/* rows up to and including the one whose first word is 0 (after the first row) */
+static uint32_t hackRows(uint32_t at, uint32_t row, uint32_t cap)
+{
+	uint32_t n;
+
+	for (n = 0; n < cap; n++) {
+		const uint8_t *p = atVram(at + row * n, row);
+
+		if (!p) {
+			return 0;
+		}
+		if (n > 0 && be32at(p) == 0) {
+			return n + 1;
+		}
+	}
+	return 0;
+}
+
+#define GEVR_LEVELINFO_AT  0x8004448cu
+#define GEVR_LEVELINFO_ROWS 38
+#define GEVR_FOG_AT        0x80044e10u
+#define GEVR_FOG_ROW       92u
+#define GEVR_FOGLESS_ROW   56u
+#define GEVR_MUSIC_AT      0x8004eb10u
+#define GEVR_TARGETTIMES_AT 0x8002b564u
+/* bgfog.h: SkyBoxRecord; EnvironmentRecord is Id, VisibilityRecord (7 words), FogRecord (2), the sky */
+#define GEVR_SKY_FIELDS     "1111" "4" "22" "444" "1111" "4" "22" "444" "4"
+#define GEVR_FOG_FIELDS     "4" "4444444" "44" GEVR_SKY_FIELDS
+#define GEVR_FOGLESS_FIELDS "4" GEVR_SKY_FIELDS
+
+static uint32_t fieldBytes(const char *fields)
+{
+	uint32_t n = 0;
+
+	for (; *fields; fields++) {
+		n += (uint32_t)(*fields - '0');
+	}
+	return n;
+}
+
+struct gevrMusicRow { s16 stage_id, main_music, bg_sound, xtrack; }; /* music_0D2720.c's struct music_setup */
+extern struct levelentry levelinfotable[];
+extern EnvironmentRecord fog_tables[];
+extern EnvironmentFoglessRecord fog_tables2[];
+extern struct gevrMusicRow music_setup_entries[];
+extern s16 random_tracks[];
+
+/*
+ * The per-level tables GoldenEye compiles in, which a hack edits in its data
+ * segment: each level's render scale, visibility and BG/clipping files
+ * (Goldfinger's Dam is drawn at 1.0, GoldenEye's at 0.23), the fog and
+ * fogless skies, the music and the cheats' target times. Same row counts as
+ * GoldenEye's, so they are written in place; a table that would not fit is
+ * left as GoldenEye's and logged.
+ */
+static void installLevelTables(void)
+{
+	const uint8_t *p;
+	uint32_t i, rows, cap;
+
+	for (i = 0; i < GEVR_LEVELINFO_ROWS; i++) {
+		p = atVram(GEVR_LEVELINFO_AT + 24u * i, 24);
+		if (!p || (s32)be32at(p) != levelinfotable[i].levelID) {
+			sysLogPrintf(LOG_ERROR, "rom: level table row %u is not level %d; left as GoldenEye's",
+					i, levelinfotable[i].levelID);
+			continue;
+		}
+		if (vramString(be32at(p + 4))[0]) {
+			levelinfotable[i].bg_seg_filename = (void *)vramString(be32at(p + 4));
+		}
+		if (vramString(be32at(p + 8))[0]) {
+			levelinfotable[i].bg_stan_filename = (void *)vramString(be32at(p + 8));
+		}
+		levelinfotable[i].levelscale = bef32(p + 12);
+		levelinfotable[i].visibility = bef32(p + 16);
+		levelinfotable[i].unknownfloat = bef32(p + 20);
+	}
+
+	for (cap = 1; fog_tables[cap - 1].Id != 0 || cap == 1; cap++) {
+	}
+	rows = hackRows(GEVR_FOG_AT, GEVR_FOG_ROW, 256);
+	if (fieldBytes(GEVR_FOG_FIELDS) != GEVR_FOG_ROW || sizeof(EnvironmentRecord) != GEVR_FOG_ROW
+			|| fieldBytes(GEVR_FOGLESS_FIELDS) != GEVR_FOGLESS_ROW
+			|| sizeof(EnvironmentFoglessRecord) != GEVR_FOGLESS_ROW) {
+		sysLogPrintf(LOG_ERROR, "rom: fog record layout is not the N64's; fog left as GoldenEye's");
+	} else if (rows && rows <= cap) {
+		const uint32_t fogless = GEVR_FOG_AT + GEVR_FOG_ROW * rows;
+		uint32_t cap2, rows2;
+
+		for (i = 0; i < rows; i++) {
+			swapRow((uint8_t *)&fog_tables[i], atVram(GEVR_FOG_AT + GEVR_FOG_ROW * i, GEVR_FOG_ROW), GEVR_FOG_FIELDS);
+		}
+		for (cap2 = 1; fog_tables2[cap2 - 1].Id != 0 || cap2 == 1; cap2++) {
+		}
+		rows2 = hackRows(fogless, GEVR_FOGLESS_ROW, 64);
+		if (rows2 && rows2 <= cap2) {
+			for (i = 0; i < rows2; i++) {
+				swapRow((uint8_t *)&fog_tables2[i], atVram(fogless + GEVR_FOGLESS_ROW * i, GEVR_FOGLESS_ROW),
+						GEVR_FOGLESS_FIELDS);
+			}
+		} else {
+			sysLogPrintf(LOG_ERROR, "rom: fogless table has %u rows, room for %u", rows2, cap2);
+		}
+	} else {
+		sysLogPrintf(LOG_ERROR, "rom: fog table has %u rows, room for %u", rows, cap);
+	}
+
+	for (cap = 0; music_setup_entries[cap].stage_id != 0; cap++) {
+	}
+	for (rows = 0; rows <= cap; rows++) {
+		p = atVram(GEVR_MUSIC_AT + 8u * rows, 8);
+		if (!p || be16at(p) == 0) {
+			break;
+		}
+	}
+	if (p && rows <= cap) {
+		for (i = 0; i <= rows; i++) {
+			p = atVram(GEVR_MUSIC_AT + 8u * i, 8);
+			music_setup_entries[i].stage_id = (s16)be16at(p);
+			music_setup_entries[i].main_music = (s16)be16at(p + 2);
+			music_setup_entries[i].bg_sound = (s16)be16at(p + 4);
+			music_setup_entries[i].xtrack = (s16)be16at(p + 6);
+		}
+		/* random_tracks follow the end row, ended by -1 */
+		for (cap = 0; random_tracks[cap] != -1; cap++) {
+		}
+		for (i = 0; i <= cap; i++) {
+			p = atVram(GEVR_MUSIC_AT + 8u * (rows + 1) + 2u * i, 2);
+			if (!p) {
+				break;
+			}
+			random_tracks[i] = (s16)be16at(p);
+			if (random_tracks[i] == -1) {
+				break;
+			}
+		}
+		random_tracks[cap] = -1;
+	} else {
+		sysLogPrintf(LOG_ERROR, "rom: music table does not fit GoldenEye's %u rows", cap);
+	}
+
+	p = atVram(GEVR_TARGETTIMES_AT, sizeof(solo_target_time_array));
+	if (p) {
+		for (i = 0; i < 20 * 3; i++) {
+			solo_target_time_array[i / 3][i % 3] = (s16)be16at(p + 2 * i);
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "rom: level scales, fog, music and target times from the hack");
+}
+
 int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 {
 	const struct gevrRomLayout *L = gevrRomActiveLayout();
@@ -601,6 +779,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	gevrRomRebindVariantFiles();
 	installFolder();
 	installItems();
+	installLevelTables();
 	ok = 1;
 	sysLogPrintf(LOG_NOTE, "rom: %s ready (%u bytes)", L->name, romLen);
 	return ok;
