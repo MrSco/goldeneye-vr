@@ -7,6 +7,10 @@ file bgroomtrans.c
 #include "bg.h"
 #include "bgroomtrans.h"
 #include "matrixmath.h"
+#ifdef GEVR
+#include "dyn.h"
+#include <string.h>
+#endif
 
 #ifdef VERSION_EU
 #define AMT300 100
@@ -240,7 +244,15 @@ Gfx * applyRoomMatrixToDisplayList(Gfx *gdl,int roomID)
     s32 roomIndex;
 
     roomIndex = setupRoomTransformationMatrix(roomID);
+#ifdef GEVR
+    /* The cache can evict a slot later in this frame. The display list is
+     * interpreted afterwards, so each command needs a stable snapshot. */
+    Mtx *snapshot = dynAllocateMatrix();
+    memcpy(snapshot, &roomMatrices[roomIndex], sizeof(*snapshot));
+    gSPMatrix(gdl++, snapshot, G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
+#else
     gSPMatrix(gdl++, &roomMatrices[roomIndex], G_MTX_MODELVIEW|G_MTX_LOAD|G_MTX_NOPUSH);
+#endif
     return gdl;
 }
 

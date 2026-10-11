@@ -76,6 +76,10 @@ Also:
 - **GoldenEye X** (optional, WIP): models and animations for every GoldenEye weapon and item, with magazines, single rounds
   and speedloaders reloaded by hand in VR, one-handed remote mines, and its arms wearing the watch, loaded from your own patched Perfect Dark ROM.
   See [GE-X setup](#-goldeneye-x-optional-wip).
+- **Project Bean visuals** (optional, experimental): characters, weapons, props,
+  rooms and skies loaded from your own extracted Bean files. Switch between
+  Bean and N64 visuals from the launcher or during play. See
+  [Project Bean setup and checks](docs/project-bean.md).
 - **Updates in the headset**: the launcher offers each new release, no computer needed.
 - **Laser-pointer menus**: point a controller at the file and mission folders and pull the trigger.
 - Menus, briefings and cutscenes play on the virtual screen in both modes.

@@ -3,9 +3,17 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current build:** v0.4.19 (versionCode 74, protocol 21), released 2026-10-10.
+**Current build:** v0.4.20 candidate (versionCode 75, protocol 21), 2026-10-11.
 Latest release: v0.4.19. v0.4.16, v0.4.17 and v0.4.18 can join; v0.4.15 and older
 can't. Building does not publish a GitHub release. No game data is shipped.
+
+PR #170: optional Project Bean CAFF models, rooms and skies from local files.
+Review fixes compile errors, rigid vertex layouts, UVs/texture scaling, weights,
+colour/alpha, texture cache lifetime, toggles, water and room matrix lifetime.
+499 local files pass (497 meshes, two N64 fallbacks); the mesh sanitizer sweep
+and native checks pass. Headset visuals/performance pending; no APK installed.
+Setup/checklist: [Project Bean](docs/project-bean.md). Candidate notes:
+[v0.4.20](docs/releases/v0.4.20.md). Latest published build remains v0.4.19.
 
 Movement speed: 50%-200%, 100% default, separate solo and host settings;
 host changes apply to the whole session, bots included. Room-scale walking
