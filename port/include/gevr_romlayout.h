@@ -66,6 +66,9 @@ struct gevrRomLayout {
 	uint8_t watchtint;
 	uint8_t maleheads;
 	uint8_t nolaser;
+	/* PitemZ_entries and object_explosion_details (14-byte rows), a row a prop */
+	uint32_t props, numprops;
+	uint32_t explosions;
 };
 
 struct gevrDataWindow {

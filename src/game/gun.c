@@ -2854,7 +2854,7 @@ Gfx *gevrGexDrawWatch(Gfx *gdl, ModelRenderData *templ, GUNHAND hand)
  * hand holds, scaled into the gun's units. Its matrices are this draw's own,
  * turned to the view's fixed point after it, as the launcher's rocket is.
  */
-extern struct ItemModelFileRecord PitemZ_entries[];
+extern struct ItemModelFileRecord *PitemZ_entries;
 static Model s_gevrGexPayloadModel;
 static u32 s_gevrGexPayloadRw[64];
 

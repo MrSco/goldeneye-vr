@@ -58,7 +58,7 @@ extern struct ModelNode *dword_CODE_bss_80075B74;
 #if defined(VERSION_EU)
 extern ExplosionDetailsRecordEuList object_explosion_details;
 #else
-extern ExplosionDetailsRecord object_explosion_details[];
+extern ExplosionDetailsRecord *object_explosion_details;
 #endif
 
 /**

@@ -14,12 +14,15 @@
 #include "image.h"
 #include "chrobjdata.h"
 #include "front.h"
+#include "gun.h"
+#include "propobj.h"
 #include "system.h"
 
 extern fileentry file_resource_table[];
 extern resource_lookup_data_entry resource_lookup_data_array[];
 extern s32 file_entry_max;
 extern u8 *g_RomFile;
+extern GunModelFileRecord gitem_structs[];
 
 #define GEVR_ITEMS_AT  0x12b94u
 #define GEVR_ITEM_ROW  56u
@@ -186,6 +189,83 @@ static int installImages(const struct gevrRomLayout *L)
 	return 1;
 }
 
+/*
+ * The skeletons a model header may name, by where GoldenEye's data segment
+ * keeps them. The skeletons themselves are compiled into the port; a hack
+ * reuses GoldenEye's (Goldfinger names no other), so its headers point at
+ * these addresses. 0 is a head, which has none.
+ */
+extern struct ModelSkeleton skeleton_cctv, skeleton_console_one_screen, skeleton_console_four_screen,
+	skeleton_tv_holder, skeleton_rotating_stuff, skeleton_eyelid_door, skeleton_iris_door,
+	skeleton_walletbond, skeleton_car, skeleton_flying, skeleton_door, skeleton_tank, skeleton_hat,
+	skeleton_standard_object, skeleton_prop_weapon, skeleton_suit_lf_hand, skeleton_standard_gun,
+	skeleton_gun_revolver, skeleton_gun_kf7, skeleton_g_weapon, skeleton_guard;
+
+static const struct {
+	uint32_t vram;
+	struct ModelSkeleton *skeleton;
+} g_Skeletons[] = {
+	{ 0x8003a05c, &skeleton_cctv },
+	{ 0x8003a070, &skeleton_console_one_screen },
+	{ 0x8003a084, &skeleton_console_four_screen },
+	{ 0x8003a0b0, &skeleton_tv_holder },
+	{ 0x8003a0e0, &skeleton_rotating_stuff },
+	{ 0x8003a100, &skeleton_eyelid_door },
+	{ 0x8003a15c, &skeleton_iris_door },
+	{ 0x8003a170, &skeleton_walletbond },
+	{ 0x8003a19c, &skeleton_car },
+	{ 0x8003a1c8, &skeleton_flying },
+	{ 0x8003a1dc, &skeleton_door },
+	{ 0x8003a208, &skeleton_tank },
+	{ 0x8003a21c, &skeleton_hat },
+	{ 0x8003c4d8, &skeleton_standard_object },
+	{ 0x8003c4fc, &skeleton_prop_weapon },
+	{ 0x8003c6e4, &skeleton_suit_lf_hand },
+	{ 0x8003c714, &skeleton_standard_gun },
+	{ 0x8003c76c, &skeleton_gun_revolver },
+	{ 0x8003c7ac, &skeleton_gun_kf7 },
+	{ 0x8003d390, &skeleton_g_weapon },
+	{ 0x8003d400, &skeleton_guard },
+};
+
+/*
+ * The fields of the N64 ModelFileHeader at vram that a load needs before the
+ * file lands: its skeleton, switch, matrix, record and texture counts and its
+ * radius. The model converter (gevr_model.c) lays the file out from these
+ * counts, so a header from another cartridge's model mis-converts it.
+ */
+static int readHeader(uint32_t vram, struct ModelFileHeader *dst)
+{
+	const uint8_t *h = atVram(vram, 0x18);
+	uint32_t skel;
+	size_t i;
+
+	if (!h) {
+		return 0;
+	}
+	skel = be32at(h + 4);
+	dst->Skeleton = NULL;
+	if (skel) {
+		for (i = 0; i < sizeof(g_Skeletons) / sizeof(g_Skeletons[0]); i++) {
+			if (g_Skeletons[i].vram == skel) {
+				dst->Skeleton = g_Skeletons[i].skeleton;
+				break;
+			}
+		}
+		if (!dst->Skeleton) {
+			sysLogPrintf(LOG_ERROR, "rom: header at %08x names skeleton %08x, not one of GoldenEye's",
+					vram, skel);
+			return 0;
+		}
+	}
+	dst->numSwitches = (s16)be16at(h + 12);
+	dst->numMatrices = (s16)be16at(h + 14);
+	dst->BoundingVolumeRadius = bef32(h + 16);
+	dst->numRecords = (s16)be16at(h + 20);
+	dst->numtextures = (s16)be16at(h + 22);
+	return 1;
+}
+
 static int installCharacters(const struct gevrRomLayout *L)
 {
 	struct ChrModelFileRecord *records;
@@ -212,6 +292,12 @@ static int installCharacters(const struct gevrRomLayout *L)
 		uint32_t flags = be32at(row + 16);
 		const char *name = vramString(be32at(row + 4));
 
+		if (!readHeader(be32at(row), &headers[i])) {
+			sysLogPrintf(LOG_ERROR, "rom: character %u (%s) has no usable header", i, name);
+			free(records);
+			free(headers);
+			return 0;
+		}
 		records[i].header = &headers[i];
 		records[i].filename = (char *)name;
 		records[i].scale = bef32(row + 8);
@@ -222,6 +308,121 @@ static int installCharacters(const struct gevrRomLayout *L)
 	records[L->numchrs].scale = 1.0f;
 	c_item_entries = records;
 	sysLogPrintf(LOG_NOTE, "rom: %s characters %u", L->tag, L->numchrs);
+	return 1;
+}
+
+/*
+ * PitemZ_entries and object_explosion_details, both by prop number. A hack's
+ * own table may be longer than GoldenEye's 340 (Goldfinger's is 416, most of
+ * them renamed) and every row's header is its own.
+ */
+static int installProps(const struct gevrRomLayout *L)
+{
+	struct ItemModelFileRecord *records;
+	struct ModelFileHeader *headers;
+	ExplosionDetailsRecord *explosions;
+	const uint8_t *table;
+	const uint8_t *blast;
+	uint32_t i;
+
+	if (!L->numprops || L->props < GEVR_DATA_VRAM) {
+		return 0;
+	}
+	table = atVram(L->props, 12u * L->numprops);
+	blast = atVram(L->explosions, 14u * L->numprops);
+	if (!table || !blast) {
+		return 0;
+	}
+	records = (struct ItemModelFileRecord *)calloc((size_t)L->numprops + 1, sizeof(*records));
+	headers = (struct ModelFileHeader *)calloc(L->numprops, sizeof(*headers));
+	explosions = (ExplosionDetailsRecord *)calloc(L->numprops, sizeof(*explosions));
+	if (!records || !headers || !explosions) {
+		free(records);
+		free(headers);
+		free(explosions);
+		return 0;
+	}
+	for (i = 0; i < L->numprops; i++) {
+		const uint8_t *row = table + 12u * i;
+		const uint8_t *seeds = blast + 14u * i;
+		int k;
+
+		if (!readHeader(be32at(row), &headers[i])) {
+			sysLogPrintf(LOG_ERROR, "rom: prop %u (%s) has no usable header", i, vramString(be32at(row + 4)));
+			free(records);
+			free(headers);
+			free(explosions);
+			return 0;
+		}
+		records[i].header = &headers[i];
+		records[i].filename = (char *)vramString(be32at(row + 4));
+		records[i].scale = bef32(row + 8);
+		explosions[i].TypeID = (s16)be16at(seeds);
+		for (k = 0; k < 6; k++) {
+			explosions[i].Seed[k] = (s16)be16at(seeds + 2 + 2 * k);
+		}
+	}
+	records[L->numprops].filename = "";
+	records[L->numprops].scale = 1.0f;
+	PitemZ_entries = records;
+	object_explosion_details = explosions;
+	g_GevrPropCount = (s32)L->numprops;
+	sysLogPrintf(LOG_NOTE, "rom: %s props %u", L->tag, L->numprops);
+	return 1;
+}
+
+/*
+ * The hand items' headers. A hack keeps GoldenEye's gun file names but puts
+ * its own models in them (Goldfinger's GtaserZ is its Luger), so each
+ * compiled header takes the counts of the hack's row that names the same
+ * file. Every loader copies these (gun.c, the watch arm, the weapon wheel,
+ * held guns), so they all lay the hack's model out right.
+ */
+static int installItemHeaders(void)
+{
+	static struct ModelFileHeader hdrs[ITEM_IDS_MAX];
+	static const char *names[ITEM_IDS_MAX];
+	int k;
+	int done = 0;
+
+	/* Read every row first: the compiled headers are written only when all of them are good. */
+	for (k = 1; k < ITEM_IDS_MAX; k++) {
+		const uint8_t *row = atVram(GEVR_DATA_VRAM + GEVR_ITEMS_AT + GEVR_ITEM_ROW * (uint32_t)k, 8);
+
+		names[k] = NULL;
+		if (!row || !be32at(row) || !be32at(row + 4) || !vramString(be32at(row + 4))[0]) {
+			continue;
+		}
+		memset(&hdrs[k], 0, sizeof(hdrs[k]));
+		if (!readHeader(be32at(row), &hdrs[k])) {
+			sysLogPrintf(LOG_ERROR, "rom: item %d (%s) has no usable header", k, vramString(be32at(row + 4)));
+			return 0;
+		}
+		names[k] = vramString(be32at(row + 4));
+	}
+	for (k = 1; k < ITEM_IDS_MAX; k++) {
+		int j;
+
+		if (!names[k]) {
+			continue;
+		}
+		for (j = 1; j < ITEM_IDS_MAX; j++) {
+			ModelFileHeader *dst = gitem_structs[j].item_header;
+
+			if (!dst || !gitem_structs[j].item_file_name
+					|| strcmp(gitem_structs[j].item_file_name, names[k]) != 0) {
+				continue;
+			}
+			dst->Skeleton = hdrs[k].Skeleton;
+			dst->numSwitches = hdrs[k].numSwitches;
+			dst->numMatrices = hdrs[k].numMatrices;
+			dst->BoundingVolumeRadius = hdrs[k].BoundingVolumeRadius;
+			dst->numRecords = hdrs[k].numRecords;
+			dst->numtextures = hdrs[k].numtextures;
+			done++;
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "rom: %d hand item headers from the hack", done);
 	return 1;
 }
 
@@ -357,11 +558,18 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 		struct image_entry *savedTex = g_Textures;
 		s32 savedCount = gevrTextureCount();
 		struct ChrModelFileRecord *savedChr = c_item_entries;
+		struct ItemModelFileRecord *savedProps = PitemZ_entries;
+		ExplosionDetailsRecord *savedBlast = object_explosion_details;
+		s32 savedPropCount = g_GevrPropCount;
 
 		g_FileRowCount = gevrRomParseFiles(g_Window.bytes, g_Window.len, g_FileRows, GEVR_FILE_ROWS);
 		g_FileRomLen = romLen;
-		/* The file table is bound last, so a failure here leaves it retail. */
-		if (g_FileRowCount < 3 || !installImages(L) || !installCharacters(L)) {
+		/*
+		 * The file table and the hand items' compiled headers are written
+		 * last, so a failure here leaves both retail.
+		 */
+		if (g_FileRowCount < 3 || !installImages(L) || !installCharacters(L) || !installProps(L)
+				|| !installItemHeaders()) {
 			if (g_Textures != savedTex) {
 				struct image_entry *hack = g_Textures;
 
@@ -374,6 +582,14 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 				free(c_item_entries);
 				free(headers);
 				c_item_entries = savedChr;
+			}
+			if (PitemZ_entries != savedProps) {
+				free(PitemZ_entries[0].header);
+				free(PitemZ_entries);
+				free(object_explosion_details);
+				PitemZ_entries = savedProps;
+				object_explosion_details = savedBlast;
+				g_GevrPropCount = savedPropCount;
 			}
 			sysLogPrintf(LOG_ERROR, "rom: %s tables did not bind", L->name);
 			g_FileRowCount = 0;
