@@ -193,6 +193,15 @@ def expect(rom, L):
     rnd += [0] * (44 - len(rnd))
     e["music"], e["random"] = music, rnd
     e["times"] = [struct.unpack_from(">hhh", d, 0x8002B564 - V + 6 * m) for m in range(20)]
+    # boss.c memallocstringtable: {id, string} rows ended by the id 0 default
+    mem, o = [], 0x800241BC - V
+    while True:
+        lid, p = struct.unpack_from(">II", d, o)
+        mem.append((lid, " ".join(cstr(d, p).split())))
+        o += 8
+        if lid == 0:
+            break
+    e["mem"] = mem
     return e
 
 
@@ -279,6 +288,15 @@ def main():
         check(times[i] == list(want), "target times %d" % i)
     check(len(got.get("folder", [])) >= 20, "mission folder rows")
     check(got.get("canaries") == [["1"]], "a table write ran past GoldenEye's rows")
+
+    def memfor(stage, multi):
+        rows = [s for lid, s in e["mem"] if multi and lid == stage + 400] + [s for lid, s in e["mem"] if lid == stage]
+        return rows[0] if rows else e["mem"][-1][1]
+    check(memfor(33, 0) == "-ml0 -me0 -mgfx200 -mvtx200 -mt800 -ma475", "the Cartel's memory split: %s" % memfor(33, 0))
+    check(len(got.get("memstr", [])) == 42, "memory string lookups")
+    for r in got.get("memstr", []):
+        want = memfor(int(r[0]), int(r[1]))
+        check(" ".join(r[2:]) == want, "memory string %s/%s: %s != %s" % (r[0], r[1], " ".join(r[2:]), want))
     check(got.get("poolinit") == [["1"]], "head pool level init")
     check(got.get("hats") == [["0", "126"]], "hat fits cover heads 0-125: %s" % got.get("hats"))
     hats = struct.unpack_from(">%df" % (126 * 6 * 6), rom, 0x17F8800)
@@ -293,8 +311,8 @@ def main():
         print("FAIL: %d mismatches" % len(bad))
         sys.exit(1)
     print("PASS: Goldfinger 64 binder: %d files, %d images, %d characters, %d props and their explosions, "
-          "the item host map, gun headers and stats, head pools, hat fits, level scales, %d fog and %d fogless rows, music, target times"
-          % (len(files), e["images"], len(chrs), len(props), len(e["fog"]), len(e["fogless"])))
+          "the item host map, gun headers and stats, head pools, hat fits, level scales, %d fog and %d fogless rows, music, target times, %d stage memory splits"
+          % (len(files), e["images"], len(chrs), len(props), len(e["fog"]), len(e["fogless"]), len(e["mem"])))
 
 
 if __name__ == "__main__":

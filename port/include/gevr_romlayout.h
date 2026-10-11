@@ -143,6 +143,8 @@ int gevrRomBondOutfit(int cuff, int *body, int *head);
 /* A hack's own random-head pools (Goldfinger): level init, and the head for a record's -1 or -2.
  * Both return 0 / -1 where the campaign has none, and GoldenEye's code runs. */
 int gevrRomHeadPoolsLevelInit(void);
+/* The hack's own memory split for a stage (boss.c memallocstringtable), or NULL. */
+const char *gevrRomStageMemString(int stage, int multi);
 int gevrRomChooseHead(int male, int head);
 /* The hack's hat fits (struct headHat [count][6]) and the first head they cover; NULL for GoldenEye's. */
 struct headHat *gevrRomHeadHats(int *first, int *count);
