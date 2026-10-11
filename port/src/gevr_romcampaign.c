@@ -915,6 +915,60 @@ static void installLevelTables(void)
 	sysLogPrintf(LOG_NOTE, "rom: level scales, fog, music and target times from the hack");
 }
 
+#define GEVR_MEMSTRINGS_AT   0x800241bcu   /* boss.c memallocstringtable: {s32 id; char *string} */
+#define GEVR_MEMSTRING_ROWS  48
+
+static struct { s32 id; char text[64]; } g_MemStrings[GEVR_MEMSTRING_ROWS];
+static uint32_t g_MemStringCount;
+
+/*
+ * Each stage's memory split. Goldfinger grows every one for the Expansion
+ * Pak: its Ramirez Cartel, in Dam's slot, has -mgfx200 -mvtx200 -mt800 -ma475
+ * where GoldenEye's Dam has -mgfx70 -mvtx50 -mt625 -ma275. With GoldenEye's,
+ * the Cartel's rooms did not fit the room heap (missing walls) and its
+ * textures overflowed the pool (flicker). Rows end with the id 0 default.
+ */
+static void installMemStrings(void)
+{
+	uint32_t i, rows = hackRows(GEVR_MEMSTRINGS_AT, 8, GEVR_MEMSTRING_ROWS);
+
+	g_MemStringCount = 0;
+	for (i = 0; i < rows; i++) {
+		const uint8_t *p = atVram(GEVR_MEMSTRINGS_AT + 8u * i, 8);
+		const char *s = vramString(be32at(p + 4));
+
+		if (!*s) {
+			sysLogPrintf(LOG_ERROR, "rom: memory string %u unreadable; stages keep GoldenEye's", i);
+			return;
+		}
+		g_MemStrings[i].id = (s32)be32at(p);
+		copyText(g_MemStrings[i].text, sizeof g_MemStrings[i].text, s);
+	}
+	g_MemStringCount = rows;
+	sysLogPrintf(LOG_NOTE, "rom: %u stage memory strings from the hack", rows);
+}
+
+/* boss.c's lookup on the hack's rows: the multiplayer row (stage + 400) first, then the stage, then the default */
+const char *gevrRomStageMemString(int stage, int multi)
+{
+	uint32_t i;
+
+	if (!gevrRomIsVariant() || !g_MemStringCount) {
+		return NULL;
+	}
+	for (i = 0; multi && i < g_MemStringCount; i++) {
+		if (g_MemStrings[i].id == stage + 400) {
+			return g_MemStrings[i].text;
+		}
+	}
+	for (i = 0; i < g_MemStringCount; i++) {
+		if (g_MemStrings[i].id == stage) {
+			return g_MemStrings[i].text;
+		}
+	}
+	return g_MemStrings[g_MemStringCount - 1].text;
+}
+
 int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 {
 	const struct gevrRomLayout *L = gevrRomActiveLayout();
@@ -924,6 +978,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	unsigned int cap;
 
 	g_FileRowCount = 0;
+	g_MemStringCount = 0;
 	gevrRomClearItemMap();
 	if (!rom || !L || !L->variant || romLen < GEVR_DATA_ROM + 3) {
 		return 0;
@@ -1005,6 +1060,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	installHeadPools(L, rom, romLen);
 	installHats(L);
 	installLevelTables();
+	installMemStrings();
 	ok = 1;
 	sysLogPrintf(LOG_NOTE, "rom: %s ready (%u bytes)", L->name, romLen);
 	return ok;

@@ -295,5 +295,14 @@ int main(int argc, char **argv)
 				mission_folder_setup_entries[i].stage_id, mission_folder_setup_entries[i].type,
 				mission_folder_setup_entries[i].mission_num);
 	}
+	/* every level, the title, a stage with no row (the default) and two multiplayer lookups */
+	for (i = 0; i < 38 + 4; i++) {
+		static const int extra[4][2] = { { LEVELID_TITLE, 0 }, { 0x7f, 0 }, { LEVELID_BUNKER1, 1 }, { LEVELID_DAM, 1 } };
+		int stage = i < 38 ? s_levelIds[i] : extra[i - 38][0];
+		int multi = i < 38 ? 0 : extra[i - 38][1];
+		const char *s = gevrRomStageMemString(stage, multi);
+
+		printf("memstr %d %d %s\n", stage, multi, s ? s : "NULL");
+	}
 	return 0;
 }
