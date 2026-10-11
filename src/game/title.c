@@ -1,4 +1,7 @@
 #include "system.h"
+#ifdef GEVR
+#include "gevr_romlayout.h"
+#endif
 #include <ultra64.h>
 #include <PR/gbi.h>
 #include <PR/gu.h>
@@ -488,6 +491,8 @@ void initializeGunBarrelIntro(u8 *gfxBuffer, s32 bufferSize)
     struct texpool texturePool;
     s32 temp_t9;
     s32 startframe;
+    s32 titlebody = BODY_Brosnan_Tuxedo;          /* the intro's Bond */
+    s32 titlehead = BODY_Male_Pierce_Bond_Tuxedo;
     
     gunbarrel_mode = 2;
     
@@ -523,19 +528,23 @@ void initializeGunBarrelIntro(u8 *gfxBuffer, s32 bufferSize)
     gfxBuffer += temp_t9;
     bufferSize -= temp_t9;
     
-    load_object_fill_header(c_item_entries[BODY_Brosnan_Tuxedo].header, c_item_entries[BODY_Brosnan_Tuxedo].filename, gfxBuffer, bufferSize, &texturePool);
+#ifdef GEVR
+    /* a hack's own Bond, where its table keeps him (Goldfinger: 37 and 110) */
+    gevrRomTitleBond(&titlebody, &titlehead);
+#endif
+    load_object_fill_header(c_item_entries[titlebody].header, c_item_entries[titlebody].filename, gfxBuffer, bufferSize, &texturePool);
     
-    temp_t9 = ((get_pc_buffer_remaining_value(c_item_entries[BODY_Brosnan_Tuxedo].filename) + 0x3F) | 0x3F) ^ 0x3F;
+    temp_t9 = ((get_pc_buffer_remaining_value(c_item_entries[titlebody].filename) + 0x3F) | 0x3F) ^ 0x3F;
     bufferSize -= temp_t9;
     gfxBuffer += temp_t9;
     
-    load_object_fill_header(c_item_entries[BODY_Male_Pierce_Bond_Tuxedo].header, c_item_entries[BODY_Male_Pierce_Bond_Tuxedo].filename, gfxBuffer, bufferSize, &texturePool);
+    load_object_fill_header(c_item_entries[titlehead].header, c_item_entries[titlehead].filename, gfxBuffer, bufferSize, &texturePool);
     
-    temp_t9 = ((get_pc_buffer_remaining_value(c_item_entries[BODY_Male_Pierce_Bond_Tuxedo].filename) + 0x3F) | 0x3F) ^ 0x3F;
+    temp_t9 = ((get_pc_buffer_remaining_value(c_item_entries[titlehead].filename) + 0x3F) | 0x3F) ^ 0x3F;
     bufferSize -= temp_t9;
     gfxBuffer += temp_t9;
     
-    chrModelInstance = setup_chr_instance(BODY_Brosnan_Tuxedo, BODY_Male_Pierce_Bond_Tuxedo, c_item_entries[BODY_Brosnan_Tuxedo].header, c_item_entries[BODY_Male_Pierce_Bond_Tuxedo].header, 0);
+    chrModelInstance = setup_chr_instance(titlebody, titlehead, c_item_entries[titlebody].header, c_item_entries[titlehead].header, 0);
 
     modelSetScale(chrModelInstance, 0.18779343f);
     modelSetAnimTranslationScale(chrModelInstance, 1.0f);
