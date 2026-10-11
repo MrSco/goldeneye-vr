@@ -43,12 +43,22 @@ Goldfinger:
   classified; any behaviour patch found there still needs porting.
 - Headset: boot, folder, briefing, a level each, guards' heads and hats, guns.
 
-Tomorrow Never Dies (Expanded 06-22), not started past the PR's numbers:
+Tomorrow Never Dies (Expanded 06-22): the binder runs on it (3045 images, 112
+characters, 340 props, 696 files, 31 gun stats) but its code diff (3791 words,
+312 runs, same method) shows what is still to port:
+- mission constants: its code moves the Cradle test 17 -> 9 (credits after
+  mission 9, the retail Cuba flow), Aztec 18 -> 11, Egypt 19 -> 12 and the
+  mission count 20 -> 14 (7F0168BC/D4, 7F011D5C, 7F0192C4, 7F01EA00-EAB0,
+  7F01F4C8). The PR's front.c branch for it (mission select instead of the
+  credits) is not what the cartridge does; use these numbers in the retail
+  flow instead,
+- the laser's tests set to 153 (its FAMAS on GlaserZ): an itemas row, a rifle,
+- `bodyChooseHead` keeps retail's form with `& 7` (7F0235E4) and its own
+  random head lists in the data segment,
 - animation records (moved; read `animation_table_ptrs1/2` from its data),
 - Rare logo at ROM 0x297930 (the PR reads GoldenEye's 0x29e560),
-- `bodyChooseHead` with `& 7` and its own head lists,
-- Girl Power hooks (Dab's `tndHookConvert`), `nolaser` (its FAMAS on GlaserZ),
-- mission names in LmiscE as well as LtitleE, credits after mission 9.
+- its own held props for the silver/gold PP7 slots (230, 231; 7F09B350),
+- Girl Power hooks (Dab's `tndHookConvert`); mission names in LmiscE.
 
 Bean + GE-X: GE-X keeps the arms and guns; draw Bean's watch (suitlfhand
 materials 9-11 and the three watch hands) on the GE-X wrist instead of the N64
