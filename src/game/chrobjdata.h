@@ -17,7 +17,8 @@ struct headHat
 
 extern struct headHat headHat_array_8003E464[168];
 
-extern struct ItemModelFileRecord PitemZ_entries[];
+extern struct ItemModelFileRecord *PitemZ_entries;
+extern s32 g_GevrPropCount; /* rows in PitemZ_entries before its terminator */
 
 extern struct ModelSkeleton SKELETON(cctv);  /* macro declaration for skeleton_cctv */
 extern struct ModelSkeleton SKELETON(console_one_screen);  /* macro declaration for skeleton_console_one_screen */
