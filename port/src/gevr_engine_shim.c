@@ -382,6 +382,10 @@ void gevrVrPumpEnd(void)
  */
 #include <time.h>
 extern uint32_t gevr_perf_draws, gevr_perf_tris;   /* fast3d gfx_pc.cpp */
+/* also gfx_pc.cpp: vertices loaded, triangles submitted and clip-rejected, drawn
+ * from room lists, and eye passes with the presentation camera of all passes */
+extern uint32_t gevr_perf_verts, gevr_perf_tri_calls, gevr_perf_clipped, gevr_perf_room_tris;
+extern uint32_t gevr_perf_present_passes, gevr_perf_passes;
 extern int VrShowStats;                            /* vr_settings: the readout is on */
 static u64 gevrPerfNs(void)
 {
@@ -393,7 +397,7 @@ static u64 gevrPerfAcc[3], gevrPerfFrameStart, gevrPerfSecStart, gevrPerfWorstGa
 static u64 gevrPerfFrameAcc[3];
 static u64 gevrPerfPeakDraw;
 static u32 gevrPerfFrames;
-static char gevrPerfBuf[192];
+static char gevrPerfBuf[256];
 const char *gevrPerfText(void) { return gevrPerfBuf; }
 void gevrPerfAdd(int section, u64 ns)
 {
@@ -422,10 +426,14 @@ static void gevrPerfFrameDone(void)
 			if (now - gevrPerfSecStart >= 1000000000ull && gevrPerfFrames) {
 				const double n = (double)gevrPerfFrames;
 				snprintf(gevrPerfBuf, sizeof(gevrPerfBuf),
-					"CPU GAME %.1f MAX %.1f MS\nDRAW/TICK %.1f PEAK %.1f MS\nFINISH %.1f WAIT %.1f MS\nDRAWS %u TRIS %uK",
+					"CPU GAME %.1f MAX %.1f MS\nDRAW/TICK %.1f PEAK %.1f MS\nFINISH %.1f WAIT %.1f MS\nDRAWS %u TRIS %uK"
+					"\nVTX %uK TRI1 %uK CLIP %uK ROOM %uK PRES %u/%u",
 					gameAcc / n / 1e6, gevrPerfWorstGame / 1e6, gevrPerfAcc[1] / n / 1e6,
 					gevrPerfPeakDraw / 1e6, gevrPerfAcc[2] / n / 1e6, gevrPerfAcc[0] / n / 1e6,
-					(unsigned)(gevr_perf_draws / gevrPerfFrames), (unsigned)(gevr_perf_tris / gevrPerfFrames / 1000));
+					(unsigned)(gevr_perf_draws / gevrPerfFrames), (unsigned)(gevr_perf_tris / gevrPerfFrames / 1000),
+					(unsigned)(gevr_perf_verts / gevrPerfFrames / 1000), (unsigned)(gevr_perf_tri_calls / gevrPerfFrames / 1000),
+					(unsigned)(gevr_perf_clipped / gevrPerfFrames / 1000), (unsigned)(gevr_perf_room_tris / gevrPerfFrames / 1000),
+					(unsigned)gevr_perf_present_passes, (unsigned)gevr_perf_passes);
 				if (VrShowStats) {
 					sysLogPrintf(LOG_NOTE, "perf: %s", gevrPerfBuf);
 				}
@@ -434,6 +442,8 @@ static void gevrPerfFrameDone(void)
 				gevrPerfPeakDraw = 0;
 				gevrPerfFrames = 0;
 				gevr_perf_draws = gevr_perf_tris = 0;
+				gevr_perf_verts = gevr_perf_tri_calls = gevr_perf_clipped = gevr_perf_room_tris = 0;
+				gevr_perf_present_passes = gevr_perf_passes = 0;
 				for (i = 0; i < 3; i++) gevrPerfAcc[i] = 0;
 				gevrPerfSecStart = now;
 			}

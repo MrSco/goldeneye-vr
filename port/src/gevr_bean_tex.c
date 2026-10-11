@@ -26,6 +26,42 @@ struct texSlot {
 static struct texSlot s_tex[TEX_SLOTS];
 static int s_ntex;
 
+/*
+ * The renderer asks for every texture it imports while Bean is on
+ * (gfx_pc.cpp import_texture), native ones included, so both registries
+ * (stand-ins and repaints) are indexed by address rather than scanned:
+ * open addressing, slot + 1 (0 empty), at most half full. The stand-in
+ * index is cleared with the pool (gevrBeanTexReset).
+ */
+#define TEX_INDEX 2048
+static uint16_t s_texIndex[TEX_INDEX];
+
+static unsigned addrHash(const void *addr, unsigned size)
+{
+	uint64_t v = (uint64_t)(uintptr_t)addr >> 4;
+	return (unsigned)((v * 0x9E3779B97F4A7C15ull) >> 40) & (size - 1);
+}
+
+/* the stand-in slot bound at addr, or -1 */
+static int texFind(const void *addr)
+{
+	for (unsigned h = addrHash(addr, TEX_INDEX);; h = (h + 1) & (TEX_INDEX - 1)) {
+		int slot = (int)s_texIndex[h] - 1;
+		if (slot < 0 || s_tex[slot].standin == addr) {
+			return slot;
+		}
+	}
+}
+
+static void texIndexAdd(int slot)
+{
+	unsigned h = addrHash(s_tex[slot].standin, TEX_INDEX);
+	while (s_texIndex[h]) {
+		h = (h + 1) & (TEX_INDEX - 1);
+	}
+	s_texIndex[h] = (uint16_t)(slot + 1);
+}
+
 extern void videoFreeCachedTexture(const void *addr);
 
 static uint32_t rd16(const uint8_t *p)
@@ -258,6 +294,7 @@ void gevrBeanTexReset(void)
 		s_tex[i].key[0] = 0;
 	}
 	s_ntex = 0;
+	memset(s_texIndex, 0, sizeof(s_texIndex));
 }
 
 /*
@@ -272,28 +309,61 @@ void gevrBeanTexReset(void)
 static struct { const void *addr; uint8_t *rgba; int w, h, owner; } s_paint[PAINT_SLOTS];
 static int s_npaint;
 
+/* addresses are unique in the table; paintDrop moves entries, so the index
+ * is rebuilt at the next lookup after one */
+#define PAINT_INDEX 4096
+static uint16_t s_paintIndex[PAINT_INDEX];
+static int s_paintIndexStale;
+
+static void paintIndexAdd(int i)
+{
+	unsigned h = addrHash(s_paint[i].addr, PAINT_INDEX);
+	while (s_paintIndex[h]) {
+		h = (h + 1) & (PAINT_INDEX - 1);
+	}
+	s_paintIndex[h] = (uint16_t)(i + 1);
+}
+
+/* the repaint entry bound at addr, or -1 */
+static int paintFind(const void *addr)
+{
+	if (s_paintIndexStale) {
+		memset(s_paintIndex, 0, sizeof(s_paintIndex));
+		for (int i = 0; i < s_npaint; i++) {
+			paintIndexAdd(i);
+		}
+		s_paintIndexStale = 0;
+	}
+	for (unsigned h = addrHash(addr, PAINT_INDEX);; h = (h + 1) & (PAINT_INDEX - 1)) {
+		int i = (int)s_paintIndex[h] - 1;
+		if (i < 0 || s_paint[i].addr == addr) {
+			return i;
+		}
+	}
+}
+
 int gevrBeanRepaintBind(int owner, const void *addr, uint8_t *rgba, int w, int h)
 {
 	if (!addr || !rgba || w <= 0 || h <= 0 || s_npaint >= PAINT_SLOTS) {
 		free(rgba);
 		return 0;
 	}
-	for (int i = 0; i < s_npaint; i++) {
-		if (s_paint[i].addr == addr) {
-			free(s_paint[i].rgba);
-			s_paint[i].rgba = rgba;
-			s_paint[i].w = w;
-			s_paint[i].h = h;
-			s_paint[i].owner = owner;
-			videoFreeCachedTexture(addr);
-			return 1;
-		}
+	int i = paintFind(addr);
+	if (i >= 0) {
+		free(s_paint[i].rgba);
+		s_paint[i].rgba = rgba;
+		s_paint[i].w = w;
+		s_paint[i].h = h;
+		s_paint[i].owner = owner;
+		videoFreeCachedTexture(addr);
+		return 1;
 	}
 	s_paint[s_npaint].addr = addr;
 	s_paint[s_npaint].rgba = rgba;
 	s_paint[s_npaint].w = w;
 	s_paint[s_npaint].h = h;
 	s_paint[s_npaint].owner = owner;
+	paintIndexAdd(s_npaint);
 	s_npaint++;
 	/* whatever the renderer keeps for this address is the ROM's picture */
 	videoFreeCachedTexture(addr);
@@ -309,6 +379,8 @@ void gevrBeanRepaintForget(void)
 		s_paint[i].addr = NULL;
 	}
 	s_npaint = 0;
+	memset(s_paintIndex, 0, sizeof(s_paintIndex));
+	s_paintIndexStale = 0;
 }
 
 /* drops entry i, keeping the table packed */
@@ -319,6 +391,7 @@ static void paintDrop(int i)
 	s_paint[i] = s_paint[--s_npaint];
 	s_paint[s_npaint].rgba = NULL;
 	s_paint[s_npaint].addr = NULL;
+	s_paintIndexStale = 1;
 }
 
 void gevrBeanRepaintForgetOwner(int owner)
@@ -332,11 +405,9 @@ void gevrBeanRepaintForgetOwner(int owner)
 
 void gevrBeanRepaintUnbind(const void *addr)
 {
-	for (int i = 0; addr && i < s_npaint; i++) {
-		if (s_paint[i].addr == addr) {
-			paintDrop(i);
-			return;
-		}
+	int i = addr ? paintFind(addr) : -1;
+	if (i >= 0) {
+		paintDrop(i);
 	}
 }
 
@@ -345,15 +416,14 @@ int gevrBeanRepaint(const void *addr, const uint8_t **rgba, int *w, int *h)
 	if (!addr || !s_npaint) {
 		return 0;
 	}
-	for (int i = 0; i < s_npaint; i++) {
-		if (s_paint[i].addr == addr) {
-			*rgba = s_paint[i].rgba;
-			*w = s_paint[i].w;
-			*h = s_paint[i].h;
-			return 1;
-		}
+	int i = paintFind(addr);
+	if (i < 0) {
+		return 0;
 	}
-	return 0;
+	*rgba = s_paint[i].rgba;
+	*w = s_paint[i].w;
+	*h = s_paint[i].h;
+	return 1;
 }
 
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h)
@@ -361,15 +431,14 @@ int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h)
 	if (!addr) {
 		return 0;
 	}
-	for (int i = 0; i < s_ntex; i++) {
-		if (s_tex[i].standin == addr) {
-			*rgba = s_tex[i].rgba;
-			*w = s_tex[i].w;
-			*h = s_tex[i].h;
-			return s_tex[i].rgba != NULL;
-		}
+	int i = texFind(addr);
+	if (i < 0) {
+		return 0;
 	}
-	return 0;
+	*rgba = s_tex[i].rgba;
+	*w = s_tex[i].w;
+	*h = s_tex[i].h;
+	return s_tex[i].rgba != NULL;
 }
 
 /* DAB's placeholder test: at least 90% magenta, no larger than 16x16. */
@@ -387,13 +456,12 @@ int gevrBeanTexIsPlaceholder(const void *addr)
 
 void gevrBeanTexPaint(const void *addr, uint32_t rgb)
 {
-	for (int i = 0; i < s_ntex; i++)
-		if (s_tex[i].standin == addr) {
-			for (int p = 0; p < s_tex[i].w * s_tex[i].h; p++)
-				for (int k = 0; k < 3; k++)
-					s_tex[i].rgba[p * 4 + k] = (uint8_t)(rgb >> (16 - k * 8));
-			return;
-		}
+	int i = addr ? texFind(addr) : -1;
+	if (i < 0)
+		return;
+	for (int p = 0; p < s_tex[i].w * s_tex[i].h; p++)
+		for (int k = 0; k < 3; k++)
+			s_tex[i].rgba[p * 4 + k] = (uint8_t)(rgb >> (16 - k * 8));
 }
 
 /*
@@ -551,6 +619,7 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 		free(rgba);
 		return NULL;
 	}
+	texIndexAdd((int)(slot - s_tex));
 	if (outW) *outW = (int)w;
 	if (outH) *outH = (int)h;
 	return slot->standin;
