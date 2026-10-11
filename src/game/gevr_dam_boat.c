@@ -17,6 +17,7 @@
 #include "chrobjdata.h"
 #include "gevr_speedboat.h"
 #include "gevr_dam_boat.h"
+#include "gevr_romlayout.h"
 
 extern bool netIsActive(void);
 extern s32 g_gevrStereo;
@@ -33,11 +34,12 @@ static s32 gevrDamBoatPadCount(void)
 {
     s32 n = 0;
 
-    if (g_CurrentSetup.padnames == NULL || g_CurrentSetup.pads == NULL)
+    if (g_CurrentSetup.pads == NULL)
     {
         return 0;
     }
-    while (n < GEVR_DAM_BOAT_MAX_PADS && g_CurrentSetup.padnames[n].p != NULL)
+    /* the pad list's own end, as proplvreset2 walks it */
+    while (n < GEVR_DAM_BOAT_MAX_PADS && g_CurrentSetup.pads[n].plink != NULL)
     {
         n++;
     }
@@ -219,7 +221,8 @@ void gevrDamBoatPrepare(s32 stageId)
     s_island_pad = -1;
     memset(&s_ride, 0, sizeof(s_ride));
     /* g_gevrStereo is per frame and still clear while the stage is loading. */
-    if (stageId != LEVELID_DAM || netIsActive() || getPlayerCount() != 1)
+    /* a hack campaign puts its own level in Dam's slot (Goldfinger's Ramirez Cartel) */
+    if (stageId != LEVELID_DAM || netIsActive() || getPlayerCount() != 1 || gevrRomIsVariant())
     {
         return;
     }
