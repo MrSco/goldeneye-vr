@@ -625,6 +625,46 @@ int gevrRomChooseHead(int male, int head)
 	return pick;
 }
 
+static struct headHat *g_Hats;
+static int g_HatFirst, g_HatCount;
+
+/* chrRender()'s hat fits: six floats a hat, six hats a head */
+static void installHats(const struct gevrRomLayout *L)
+{
+	const uint8_t *p = L->hats ? atVram(L->hats, 24u * 6u * L->hatcount) : NULL;
+	uint32_t i;
+
+	free(g_Hats);
+	g_Hats = NULL;
+	if (!p) {
+		return;
+	}
+	g_Hats = (struct headHat *)calloc(6u * L->hatcount, sizeof(*g_Hats));
+	if (!g_Hats) {
+		return;
+	}
+	for (i = 0; i < 6u * L->hatcount; i++) {
+		g_Hats[i].xoffset = bef32(p + 24 * i);
+		g_Hats[i].yoffset = bef32(p + 24 * i + 4);
+		g_Hats[i].zoffset = bef32(p + 24 * i + 8);
+		g_Hats[i].xsize = bef32(p + 24 * i + 12);
+		g_Hats[i].ysize = bef32(p + 24 * i + 16);
+		g_Hats[i].zsize = bef32(p + 24 * i + 20);
+	}
+	g_HatFirst = (int)L->hatfirst;
+	g_HatCount = (int)L->hatcount;
+}
+
+struct headHat *gevrRomHeadHats(int *first, int *count)
+{
+	if (!g_Hats || !gevrRomIsVariant()) {
+		return NULL;
+	}
+	*first = g_HatFirst;
+	*count = g_HatCount;
+	return g_Hats;
+}
+
 /* the four casing models a gun's stats may name, by their data-segment address */
 extern struct ModelFileHeader cartridge_header, cartrifle_header, cartblue_header, cartshell_header;
 
@@ -960,6 +1000,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	installItems();
 	installItemStats();
 	installHeadPools(L, rom, romLen);
+	installHats(L);
 	installLevelTables();
 	ok = 1;
 	sysLogPrintf(LOG_NOTE, "rom: %s ready (%u bytes)", L->name, romLen);

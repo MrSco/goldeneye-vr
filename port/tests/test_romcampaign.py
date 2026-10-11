@@ -277,6 +277,11 @@ def main():
         check(times[i] == list(want), "target times %d" % i)
     check(len(got.get("folder", [])) >= 20, "mission folder rows")
     check(got.get("poolinit") == [["1"]], "head pool level init")
+    check(got.get("hats") == [["0", "126"]], "hat fits cover heads 0-125: %s" % got.get("hats"))
+    hats = struct.unpack_from(">%df" % (126 * 6 * 6), rom, 0x17F8800)
+    for r in got.get("hat", []):
+        i = int(r[0])
+        check(all(close(a, b) for a, b in zip(r[1:], hats[6 * i:6 * i + 6])), "hat fit %d" % i)
     picks = [int(r[3]) for r in got.get("pick", [])]
     check(picks == head_picks(rom), "head picks %s != %s" % (picks, head_picks(rom)))
 
@@ -285,7 +290,7 @@ def main():
         print("FAIL: %d mismatches" % len(bad))
         sys.exit(1)
     print("PASS: Goldfinger 64 binder: %d files, %d images, %d characters, %d props and their explosions, "
-          "the item host map, gun headers and stats, head pools, level scales, %d fog and %d fogless rows, music, target times"
+          "the item host map, gun headers and stats, head pools, hat fits, level scales, %d fog and %d fogless rows, music, target times"
           % (len(files), e["images"], len(chrs), len(props), len(e["fog"]), len(e["fogless"])))
 
 

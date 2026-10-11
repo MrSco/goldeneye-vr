@@ -39,6 +39,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		0, 0, 0,
 		0x8003a228, 340, 0x8003b224,
 		0,
+		0x8003e464, 42, 28,
 	},
 	{
 		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
@@ -67,6 +68,8 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		1, 0, 0,
 		0x8070b400, 416, 0x8070dd28,
 		0x7f023668,
+		/* every character may wear a hat: chrRender()'s range is 0-125 */
+		0x80703000, 0, 126,
 	},
 	{
 		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
@@ -93,6 +96,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		2, 8, 1,
 		0x8003a228, 340, 0x8003b224,
 		0,
+		0x8003e464, 42, 28,
 	},
 };
 

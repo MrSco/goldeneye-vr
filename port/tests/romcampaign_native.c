@@ -200,6 +200,16 @@ int main(int argc, char **argv)
 			printf("itemname %d %s\n", i, gitem_structs[i].item_file_name);
 		}
 	}
+	{
+		int first = 0, count = 0;
+		const struct headHat *hats = gevrRomHeadHats(&first, &count);
+
+		printf("hats %d %d\n", hats ? first : -1, hats ? count : 0);
+		for (i = 0; hats && i < count * 6; i++) {
+			printf("hat %d %.4f %.4f %.4f %.4f %.4f %.4f\n", i, hats[i].xoffset, hats[i].yoffset,
+					hats[i].zoffset, hats[i].xsize, hats[i].ysize, hats[i].zsize);
+		}
+	}
 	/* Goldfinger's head pools: a fixed seed, its level init, then picks */
 	{
 		extern u64 g_randomSeed;
