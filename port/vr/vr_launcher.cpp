@@ -798,6 +798,64 @@ struct ModPack {
     int mb = 0, progress = -1;
 };
 
+/*
+ * The main page's START row, with the campaign beside it rather than above:
+ * the page is laid out to its last pixel and must not scroll, so choosing
+ * Goldfinger 64 or Tomorrow Never Dies costs no height. A hack whose ROM is
+ * not installed is listed but disabled; the last two entries open the file
+ * picker for it.
+ */
+enum {
+    GEVR_START_ROW_NONE,
+    GEVR_START_ROW_START,
+    GEVR_START_ROW_CAMPAIGN,    // *campaign changed
+    GEVR_START_ROW_PICK_GF,
+    GEVR_START_ROW_PICK_TND,
+};
+
+static int gevrLauncherStartRow(int *campaign, bool gfGood, bool tndGood, bool ready, bool focus)
+{
+    static const char *const names[] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies" };
+    const bool installed[] = { true, gfGood, tndGood };
+    const float startH = ImGui::GetFrameHeight() * 1.6f;
+    const float rowY = ImGui::GetCursorPosY();
+    int action = GEVR_START_ROW_NONE;
+    const int shown = *campaign >= 0 && *campaign < 3 ? *campaign : 0;
+
+    ImGui::SetCursorPosY(rowY + (startH - ImGui::GetFrameHeight()) * 0.5f);
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.38f);
+    if (ImGui::BeginCombo("##campaign", names[shown])) {
+        for (int c = 0; c < 3; c++) {
+            char label[64];
+
+            snprintf(label, sizeof(label), installed[c] ? "%s" : "%s (not installed)", names[c]);
+            ImGui::BeginDisabled(!installed[c]);
+            if (ImGui::Selectable(label, shown == c) && c != shown) {
+                *campaign = c;
+                action = GEVR_START_ROW_CAMPAIGN;
+            }
+            ImGui::EndDisabled();
+        }
+        ImGui::Separator();
+        if (ImGui::Selectable("Add Goldfinger 64 ROM...")) action = GEVR_START_ROW_PICK_GF;
+        if (ImGui::Selectable("Add Tomorrow Never Dies ROM...")) action = GEVR_START_ROW_PICK_TND;
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Campaign. Goldfinger 64 and Tomorrow Never Dies sit beside GoldenEye (docs/rom-hacks.md).");
+    ImGui::SameLine();
+    ImGui::SetCursorPosY(rowY);
+    ImGui::BeginDisabled(!ready);
+    if (ImGui::Button("START", ImVec2(-1, startH)))
+        action = GEVR_START_ROW_START;
+    if (focus) {
+        ImGui::SetItemDefaultFocus();
+        ImGui::SetKeyboardFocusHere(-1);
+    }
+    ImGui::EndDisabled();
+    return action;
+}
+
 static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec4 &good, const ImVec4 &bad)
 {
     static std::vector<ModPack> packs;
@@ -2501,8 +2559,9 @@ extern "C" void gevrLauncherRun(void)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    std::string active, message, gfNote, tndNote, campaignFail, campaignLine;
-    bool campaignBad = false;
+    std::string active, message, gfNote, tndNote, campaignFail;
+    std::string footerNote;    // the line under START (gevrLauncherStartRow), this frame
+    bool footerBad = false;
     bool gfGood = false, tndGood = false;   // the hack ROMs' header checks, refreshed about once a second
     Uint32 hackCheckMs = 0;
     {
@@ -2812,8 +2871,6 @@ extern "C" void gevrLauncherRun(void)
         ImGui::Separator();
 
         s_launcherFrame++;   // the host's idle clock (gevrMultiplayerPage) sees frames it missed
-        campaignLine.clear();    // set by the main page's campaign list (under START)
-        campaignBad = false;
         // GoldenEye cheats (issue #1's idea: the tiny guns as a cheat): their
         // own page. Ticked cheats are switched on as each mission starts, the
         // way the game's own cheat menu does (front.c init_menu0B_runstage).
@@ -3445,68 +3502,50 @@ extern "C" void gevrLauncherRun(void)
                     if (tndNote.empty()) tndNote = "Tomorrow Never Dies is not installed. This start uses GoldenEye.";
                 }
             }
-            // The campaign is a list beside START, so the page keeps its height
-            // (no launcher page scrolls). A hack without its ROM offers the
-            // file picker in its place.
-            static const char *const kCampaign[3] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies" };
-            const bool have[3] = { true, gfGood, tndGood };
-            const int shown = VrCampaign >= GEVR_CAMPAIGN_GE && VrCampaign <= GEVR_CAMPAIGN_TND64 ? VrCampaign : 0;
-            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.42f);
-            if (ImGui::BeginCombo("##campaign", kCampaign[shown], ImGuiComboFlags_HeightLargest)) {
-                for (int c = GEVR_CAMPAIGN_GE; c <= GEVR_CAMPAIGN_TND64; c++) {
-                    char label[64];
-                    snprintf(label, sizeof(label), have[c] ? "%s" : "%s: add ROM...", kCampaign[c]);
-                    if (ImGui::Selectable(label, shown == c)) {
-                        if (have[c]) {
-                            VrCampaign = c;
-                            gevrRomCampaignSet(VrCampaign);
-                            vrSettingsSave();
-                        } else {
-                            std::string &note = c == GEVR_CAMPAIGN_GF64 ? gfNote : tndNote;
-                            note = gevrOpenPicker(c == GEVR_CAMPAIGN_GF64 ? "openGoldfingerPicker" : "openTndPicker")
-                                ? std::string("Pick the ") + kCampaign[c] + " ROM in the window that opened."
-                                : std::string("Could not open the file picker.");
-                        }
-                    }
-                    if (shown == c)
-                        ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-            // what the line under START says
-            if (!campaignFail.empty()) {
-                campaignLine = campaignFail;
-                campaignBad = true;
-            } else if (!gfNote.empty() || !tndNote.empty()) {
-                campaignLine = !gfNote.empty() ? gfNote : tndNote;
-            } else if (shown != GEVR_CAMPAIGN_GE) {
-                campaignLine = std::string(kCampaign[shown])
-                    + ": solo only. Online play, GoldenEye X, Bean and HD packs are off; it keeps its own save.";
-            }
         }
         const bool campaignReady = VrCampaign == GEVR_CAMPAIGN_GE
             || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
             || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood);
-        ImGui::SameLine();
-        ImGui::BeginDisabled(active.empty() || !activeInfo.good || !campaignReady);
-        if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))
-            || (s_injectStart && !active.empty() && activeInfo.good && campaignReady)) {
+        switch (gevrLauncherStartRow(&VrCampaign, gfGood, tndGood,
+                                     !active.empty() && activeInfo.good && campaignReady, focusStart)) {
+        case GEVR_START_ROW_START:
+            start = true;
+            break;
+        case GEVR_START_ROW_CAMPAIGN:
+            gevrRomCampaignSet(VrCampaign);
+            vrSettingsSave();
+            gfNote.clear();
+            tndNote.clear();
+            campaignFail.clear();
+            break;
+        case GEVR_START_ROW_PICK_GF:
+            gfNote = gevrOpenPicker("openGoldfingerPicker") ? "Pick the Goldfinger 64 ROM in the window that opened."
+                                                            : "Could not open the file picker.";
+            break;
+        case GEVR_START_ROW_PICK_TND:
+            tndNote = gevrOpenPicker("openTndPicker") ? "Pick the Tomorrow Never Dies ROM in the window that opened."
+                                                      : "Could not open the file picker.";
+            break;
+        }
+        if (s_injectStart && !active.empty() && activeInfo.good && campaignReady) {
             start = true;
         }
         s_injectStart = false;
-        if (focusStart) {
-            ImGui::SetItemDefaultFocus();
-            ImGui::SetKeyboardFocusHere(-1);
-            focusStart = false;
-        }
-        ImGui::EndDisabled();
+        focusStart = false;
+        // the line under START: a campaign's news if there is any, its terms if
+        // a hack is chosen, the hint otherwise (one line, so the page keeps its height)
+        footerNote = !campaignFail.empty() ? campaignFail : !gfNote.empty() ? gfNote : !tndNote.empty() ? tndNote
+                   : VrCampaign == GEVR_CAMPAIGN_GE ? std::string()
+                   : "Solo, with its own save. Online play, GoldenEye X, Bean and HD packs are off.";
+        footerBad = !campaignFail.empty();
         }   // cheatPage
-        if (!campaignLine.empty()) {
-            ImGui::PushStyleColor(ImGuiCol_Text, campaignBad ? bad : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            gevrLauncherStatus(campaignLine.c_str());
-            ImGui::PopStyleColor();
-        } else {
+        if (footerNote.empty()) {
             ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
+        } else {
+            ImGui::PushStyleColor(ImGuiCol_Text, footerBad ? bad : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            gevrLauncherStatus(footerNote.c_str());
+            ImGui::PopStyleColor();
+            footerNote.clear();
         }
         ImGui::End();
         ImGui::Render();

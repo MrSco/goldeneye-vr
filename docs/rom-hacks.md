@@ -21,9 +21,9 @@ Tomorrow Never Dies: only **Expanded 06-22** is supported. The newer 07-23 and 1
 ## On the launcher
 
 1. Install your GoldenEye 007 (USA) ROM the usual way, so Start can fall back to it.
-2. Under **CAMPAIGN**, use **Choose ROM** on Goldfinger 64, Tomorrow Never Dies, or both. Each file is checked and stored under its own name. The retail ROM is left where it is.
-3. Select the campaign. Start loads that cartridge. The next launch keeps the same selection.
-4. If the selected hack is missing, the radio returns to GoldenEye and says so. If it is installed but fails to load, the game starts GoldenEye and the launcher says so next time.
+2. Open the campaign dropdown to the left of **START** and choose **Add Goldfinger 64 ROM...** or **Add Tomorrow Never Dies ROM...**, or copy the file into `data/` as named above. Each file is checked and stored under its own name. The retail ROM is left where it is.
+3. Choose the campaign in the same dropdown. Start loads that cartridge. The next launch keeps the same selection.
+4. A campaign whose ROM is missing is listed as not installed; if the selected one disappears, the dropdown returns to GoldenEye. If it is installed but fails to load, the game starts GoldenEye and the line under START says so next time.
 
 ## What a hack campaign leaves out
 
