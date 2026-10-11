@@ -4746,6 +4746,62 @@ void *sub_GAME_7F0B8A24(s32 *pc)
 /**
  * Address: 7F0B8A6C
  */
+#ifdef GEVR
+/*
+ * Bean stages. A room's Bean geometry reaches far past GoldenEye's own box
+ * (Dam's rooms 3, 4 and 7 wholly; room 7's rock sits 3,000-5,000 units
+ * beyond it), and a room is drawn only when the portal walk reaches it or
+ * its box is on screen, so whole surfaces went missing and the sky showed
+ * through. DAB draws every room by distance (gebeanstage.c, "showed the sky
+ * colour in the shape of what was missing"). Here a room the walk did not
+ * reach is drawn when its box grown to its Bean geometry is on screen,
+ * tested by bgIsRoomOnScreen itself. It is reached outside the N64's view,
+ * so the AI's "am I on screen" (issue #46) is unchanged.
+ */
+extern int gevrBeanIsEnabled(void);
+extern int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3]);
+
+static void gevrAddBeanRooms(void)
+{
+    s32 room;
+
+    if (!gevrBeanIsEnabled())
+    {
+        return;
+    }
+
+    for (room = 1; room < g_MaxNumRooms && room < MAXROOMCOUNT; room++)
+    {
+        s_room_info *info = &g_BgRoomInfo[room];
+        coord3d nativeMin, nativeMax;
+        float lo[3], hi[3];
+        s32 k, on;
+
+        if (info->room_rendered || info->room_loaded_mask || !gevrBeanWorldRoomBounds(room, lo, hi))
+        {
+            continue;
+        }
+
+        nativeMin = info->minbounds;
+        nativeMax = info->maxbounds;
+        for (k = 0; k < 3; k++)
+        {
+            info->minbounds.f[k] = lo[k] < nativeMin.f[k] ? lo[k] : nativeMin.f[k];
+            info->maxbounds.f[k] = hi[k] > nativeMax.f[k] ? hi[k] : nativeMax.f[k];
+        }
+        on = bgIsRoomOnScreen(room, (struct rectbbox *)&g_CurrentPlayer->screensize);
+        info->minbounds = nativeMin;
+        info->maxbounds = nativeMax;
+
+        if (on)
+        {
+            s_gevrPathN64 = 0;
+            sub_GAME_7F0B39BC(room, 1, &g_CurrentPlayer->screensize, 0);
+        }
+    }
+}
+#endif
+
 void bgDetermineVisibleRooms(void) 
 {
     f32 screenbounds[4];
@@ -4944,6 +5000,8 @@ void bgDetermineVisibleRooms(void)
             }
         }
     }
+
+    gevrAddBeanRooms();
 #endif
 }
 
