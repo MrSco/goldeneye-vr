@@ -3,9 +3,21 @@
 Rewrite this file in place and keep it under about 120 lines. Older session
 logs are in docs/archive/; feature investigations keep their own notes.
 
-**Current build:** v0.4.19 (versionCode 74, protocol 21), released 2026-10-10.
+**Current build:** v0.4.20 candidate (versionCode 75, protocol 21), 2026-10-11.
 Latest release: v0.4.19. v0.4.16, v0.4.17 and v0.4.18 can join; v0.4.15 and older
 can't. Building does not publish a GitHub release. No game data is shipped.
+
+PR #170: optional Project Bean CAFF models, rooms and skies, now downloadable
+alongside HD / AI in Mods. Bean textures are exclusive; GE-X keeps first-person
+gear. Toggle through the watch VR options or one grip + right-stick click.
+Multiplayer hit gauges restored independently of radar and hit comfort options.
+Review fixes compile errors, rigid vertex layouts, UVs/texture scaling, weights,
+colour/alpha, texture cache lifetime, toggles, water and room matrix lifetime.
+499 local files pass (497 meshes, two N64 fallbacks); the mesh sanitizer sweep
+and native checks pass; 32 release JVM tests pass. Headset visuals/performance
+pending; no APK installed.
+Setup/checklist: [Project Bean](docs/project-bean.md). Candidate notes:
+[v0.4.20](docs/releases/v0.4.20.md). Latest published build remains v0.4.19.
 
 Movement speed: 50%-200%, 100% default, separate solo and host settings;
 host changes apply to the whole session, bots included. Room-scale walking
@@ -50,7 +62,7 @@ Notes: [v0.4.15](docs/releases/v0.4.15.md).
 **Earlier:** v0.4.14 bot doors, soft collision, hit immunity (#153); v0.4.13
 crash fixes (#151); v0.4.12 detonator watch fit; v0.4.11
 bots, 3D audio and GE-X for every weapon (#133-#149); v0.4.10 wall movement,
-co-op gadgets (#127, #131); v0.4.9 smooth locomotion, GE-X muzzles, belt
+co-op gadgets (#127, #132); v0.4.9 smooth locomotion, GE-X muzzles, belt
 reloads (#124-#126); v0.4.6-v0.4.8 settings persistence, GE-X KF7 and hand
 reload, watch settings (#110-#121); v0.4.0-v0.4.5 four-player co-op,
 eight-player deathmatch, weapon wheels, gadgets, passthrough. Notes for each

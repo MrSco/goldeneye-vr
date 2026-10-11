@@ -17,11 +17,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Enumeration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 /**
  * The launcher's Mods page (port/vr/vr_launcher.cpp, through
@@ -106,6 +103,10 @@ final class ModManager {
                 "https://github.com/MrSco/GoldenEye-007-HD/releases/download/ai-2026.10.03.3/ge007-hd-ai-2026.10.03.3-gliden64-png.zip",
                 374042560L,
                 "MrSco/GoldenEye-007-HD", "ai-", "ge007-hd-ai-", "-gliden64-png.zip"),
+        new Pack("ge007-bean", "GoldenEye 007 XBLA / Project Bean", "Rare / 4J Studios, Project Bean",
+                "github.com/MrSco/GoldenEye-007-Bean", "2026.10.11.1",
+                "https://github.com/MrSco/GoldenEye-007-Bean/releases/download/v2026.10.11.1/ge007-bean-2026.10.11.1-vr.zip",
+                181276195L, "MrSco/GoldenEye-007-Bean", "v", "ge007-bean-", "-vr.zip"),
     };
 
     // Per-pack states the launcher shows (vr_launcher.cpp keeps the same names).
@@ -281,25 +282,34 @@ final class ModManager {
         if (!root.isDirectory() && !root.mkdirs()) throw new IOException("could not create " + root);
         // the zip and the unpacked files side by side (with an old version of the
         // pack still there during an update), with room to spare
-        long need = b.size * 23 / 10;
+        long need = p.id.equals("ge007-bean") ? Math.max(1L << 30, b.size * 5) : b.size * 23 / 10;
         if (root.getUsableSpace() < need) {
             throw new IOException("not enough free space (" + (need >> 20) + " MB needed)");
         }
         File zip = new File(root, "." + p.id + ".zip");
         File tmp = new File(root, "." + p.id + ".unpacking");
         File dest = new File(root, p.id);
+        File backup = new File(root, "." + p.id + ".backup");
         try {
             download(p, b, zip);
             busyState = INSTALLING;
             progress = 0;
             deleteTree(tmp);
-            int n = unpack(zip, tmp);
+            int n = ModArchive.unpack(zip, tmp, p.id.equals("ge007-bean"), percent -> {
+                if (cancelled) throw new IOException("cancelled");
+                progress = percent;
+            });
             if (n < 100) throw new IOException("the download holds " + n + " textures, not a texture pack");
             try (OutputStream o = new FileOutputStream(new File(tmp, MARKER))) {
                 o.write((b.version + "\n").getBytes("UTF-8"));
             }
-            deleteTree(dest);
-            if (!tmp.renameTo(dest)) throw new IOException("could not finish installing");
+            deleteTree(backup);
+            if (dest.exists() && !dest.renameTo(backup)) throw new IOException("could not preserve installed pack");
+            if (!tmp.renameTo(dest)) {
+                if (backup.exists() && !backup.renameTo(dest)) Log.w(TAG, "could not restore " + p.id);
+                throw new IOException("could not finish installing");
+            }
+            deleteTree(backup);
             Log.i(TAG, "installed " + p.id + " " + b.version + ": " + n + " textures");
         } finally {
             zip.delete();
@@ -336,39 +346,6 @@ final class ModManager {
         } finally {
             c.disconnect();
         }
-    }
-
-    /** The zip's PNGs, paths kept; ZipFile checks each entry's CRC as it reads. */
-    private int unpack(File zip, File dir) throws IOException {
-        String base = dir.getCanonicalPath() + File.separator;
-        int count = 0;
-        try (ZipFile z = new ZipFile(zip)) {
-            int total = z.size();
-            int seen = 0;
-            Enumeration<? extends ZipEntry> it = z.entries();
-            byte[] buf = new byte[1 << 16];
-            while (it.hasMoreElements()) {
-                if (cancelled) throw new IOException("cancelled");
-                ZipEntry e = it.nextElement();
-                seen++;
-                progress = total > 0 ? Math.min(99, seen * 100 / total) : -1;
-                String name = e.getName();
-                if (e.isDirectory() || !name.toLowerCase().endsWith(".png")) continue;
-                File f = new File(dir, name);
-                // no entry may land outside the pack's folder
-                if (!f.getCanonicalPath().startsWith(base)) throw new IOException("bad path in the zip: " + name);
-                File parent = f.getParentFile();
-                if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
-                    throw new IOException("could not create " + parent);
-                }
-                try (InputStream in = z.getInputStream(e); OutputStream o = new FileOutputStream(f)) {
-                    int n;
-                    while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
-                }
-                count++;
-            }
-        }
-        return count;
     }
 
     // ---- updates ------------------------------------------------------------------
@@ -428,6 +405,13 @@ final class ModManager {
         File[] list = root().listFiles();
         if (list == null) return;
         for (File f : list) {
+            if (f.getName().startsWith(".") && f.getName().endsWith(".backup")) {
+                File dest = new File(root(), f.getName().substring(1, f.getName().length() - 7));
+                if (!dest.exists()) {
+                    if (!f.renameTo(dest)) Log.w(TAG, "could not recover " + dest);
+                    continue;
+                }
+            }
             if (f.getName().startsWith(".")) deleteTree(f);
         }
     }

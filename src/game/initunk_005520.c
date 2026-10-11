@@ -2,6 +2,7 @@
 #include <memp.h>
 #include "model.h"
 #include "initunk_005520.h"
+#include "gevr_bean.h"
 #include "objecthandler.h"
 #include "memp.h"
 
@@ -28,6 +29,14 @@ void modelmgrResetSlotCounts(void)
 void modelmgrSetLevelResetting(bool resetting) 
 {
     g_ModelIsLvResetting = resetting;
+#ifdef GEVR
+    /* Drop Bean registrations before the old model nodes are freed. Do not
+     * walk them: they are already going away. */
+    if (resetting) {
+        gevrBeanInit();
+        gevrBeanReset();
+    }
+#endif
 }
 
 //this may be a file split

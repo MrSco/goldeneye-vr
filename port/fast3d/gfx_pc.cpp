@@ -52,6 +52,7 @@ extern "C" {
 #include "gevr_texpack.h"
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
+#include "gevr_bean.h"
 
 #include "../vr/vr_hub.h"
 
@@ -1520,11 +1521,11 @@ static int gevr_texpack_lookup(int tile, const LoadedTexture &lt, uint32_t *hw, 
         const intptr_t pstart = size == G_IM_SIZ_4b ? (intptr_t)t.palette * 32 : 0;
         s_tpSwap = 3;   // palettes are in N64 byte order
         pal = tp_rice(s_filterPalette + 8, pstart, cimax + 1, 1, 2, size == G_IM_SIZ_4b ? 32 : 512);
-        id = gevrtp::find((uint64_t)pal << 32 | tex, t.orig_fmt, (uint8_t)size);
-        if (id < 0) id = gevrtp::find(pal, t.orig_fmt, (uint8_t)size);
-        if (id < 0) id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size);
+        id = gevrtp::find((uint64_t)pal << 32 | tex, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
+        if (id < 0) id = gevrtp::find(pal, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
+        if (id < 0) id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
     } else {
-        id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size);
+        id = gevrtp::find(tex, t.orig_fmt, (uint8_t)size, gevrBeanIsEnabled());
     }
 
     if (s_tdOn && id < 0) {
@@ -1622,11 +1623,11 @@ extern "C" const char *fsFullPath(const char *relPath);
 static std::atomic<int> s_tpUserOff{0};
 static bool s_tpIndexed = false;
 extern "C" int gevrTexpackState(void) {
-    if (g_ActiveExtTexPack[0] == '\0') return -1;
+    if (g_ActiveExtTexPack[0] == '\0' && !gevrBeanIsEnabled()) return -1;
     return s_tpUserOff ? 0 : 1;
 }
 extern "C" int gevrTexpackToggle(void) {
-    if (g_ActiveExtTexPack[0] == '\0') return -1;
+    if (g_ActiveExtTexPack[0] == '\0' && !gevrBeanIsEnabled()) return -1;
     return (s_tpUserOff ^= 1) ? 0 : 1;
 }
 
@@ -1637,17 +1638,22 @@ extern "C" int gevrTexpackToggle(void) {
  * cache then to look everything up again was a visible hitch (user).
  */
 extern "C" void gevrTexpackStartEarly(void) {
-    if (g_ActiveExtTexPack[0] != '\0') {
+    std::string normal;
+    if (g_ActiveExtTexPack[0] != '\0' && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0) {
         char rel[320];
         snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
-        gevrtp::start(fsFullPath(rel));
+        normal = fsFullPath(rel);
     }
+    // Both catalogs are immutable; a live Bean toggle chooses one owner only.
+    const std::string bean = fsFullPath("$S/texture-packs/ge007-bean");
+    gevrtp::start(normal.c_str(), bean.c_str());
 }
 
 /* Once a frame: start the pack, and swap in images as they finish decoding. */
 static void gevr_texpack_frame(void) {
     GevrProfileSection profile(GEVR_TIME_TEX_READY);
     static bool started = false;
+    static int lastBean = -1;
     s_tpSyncBytes = 0;
     if (!started) {
         started = true;
@@ -1659,8 +1665,10 @@ static void gevr_texpack_frame(void) {
         s_tpActive = !s_tpUserOff;
         gfx_texture_cache_clear();   // what was uploaded before the index existed looks again
     }
-    if (s_tpIndexed && s_tpActive == (s_tpUserOff != 0)) {
-        s_tpActive = !s_tpActive;
+    const int bean = gevrBeanIsEnabled();
+    if (lastBean != bean || (s_tpIndexed && s_tpActive == (s_tpUserOff != 0))) {
+        lastBean = bean;
+        s_tpActive = s_tpIndexed && !s_tpUserOff;
         s_tpUploads.clear();
         s_tpPending.clear();
         gfx_texture_cache_clear();   // every texture looks again: the pack's, or the game's own
@@ -1788,6 +1796,34 @@ static void import_texture(int i, int tile, bool is_rect) {
         }
         loaded_texture.orig_size_bytes = loaded_texture.size_bytes;
     }
+
+#ifdef GEVR
+    /*
+     * Bean stand-in tiles are 16x16. The decoded picture is the real size.
+     * This has to run before the window-versus-block shrink, which would
+     * otherwise collapse the tile to 16 and blow the UVs up.
+     */
+    {
+        const uint8_t *beanRgba = nullptr;
+        int beanW = 0, beanH = 0;
+        if (gevrBeanTexture(loaded_texture.addr, &beanRgba, &beanW, &beanH) && beanRgba && beanW > 0 && beanH > 0) {
+            /* UV normalization below uses the logical tile, not the 16x16
+             * stand-in's byte count. Keep both axes in those same units. */
+            loaded_texture.orig_size_bytes = rdp.texture_tile[tile].width
+                * rdp.texture_tile[tile].height * G_IM_SIZ_16b_LINE_BYTES;
+            TextureCacheKey key = { loaded_texture.addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
+            key.width = (uint32_t)beanW;
+            key.height = (uint32_t)beanH;
+            if (gfx_texture_cache_lookup(i, key)) {
+                loaded_texture.id_mask = 0;
+                return;
+            }
+            gfx_rapi->upload_texture(beanRgba, (uint32_t)beanW, (uint32_t)beanH);
+            loaded_texture.id_mask = 0;
+            return;
+        }
+    }
+#endif
 
     /*
      * Upload what was loaded, not a window bigger than it.
@@ -1929,7 +1965,7 @@ static void import_texture(int i, int tile, bool is_rect) {
     // ---------------------------------------------------------
 
     TextureCacheKey key;
-	uint8_t external = loaded_texture.ext_key >> 7*8;
+	uint8_t external = gevrBeanIsEnabled() ? 0 : loaded_texture.ext_key >> 7*8;
 
 	if (!external) {
 		if (fmt == G_IM_FMT_CI) {
@@ -3435,7 +3471,7 @@ static void gfx_dp_load_block(uint8_t tile, uint32_t uls, uint32_t ult, uint32_t
     loaded_texture.addr = rdp.texture_to_load.addr;
     loaded_texture.src_fmt = rdp.texture_to_load.fmt; /* gepc-ref D229 */
 
-    if (gfx_external_textures_enabled && extTexExists(type, id, texnum)) {
+    if (!gevrBeanIsEnabled() && gfx_external_textures_enabled && extTexExists(type, id, texnum)) {
         loaded_texture.type = type;
         loaded_texture.id = id;
         loaded_texture.texnum = texnum;

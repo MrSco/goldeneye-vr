@@ -12,6 +12,7 @@
 #include "fs.h"
 #include "romdata.h"
 #include "ext_tex.h"
+#include "gevr_bean.h"
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -328,6 +329,8 @@ u8 getTexPath(char *dst, u8 type, u16 id, s32 texnum)
 
 u8 *extTexLoad(u8 type, u16 id, s32 texnum, u32 *width, u32 *height)
 {
+    /* Bean is an exclusive texture source, including legacy numeric packs. */
+    if (gevrBeanIsEnabled()) return NULL;
     struct ExtTexture *tex = getExtTexture(type, id, texnum);
 
     // If texnum < 0, the texture failed previously, ignore it.

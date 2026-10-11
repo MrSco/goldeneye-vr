@@ -59,6 +59,8 @@ extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the 
 extern int gevrVrScreenMode;      /* gfx_pc.cpp: this frame is on the virtual screen */
 extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
 extern void vrSettingsSave(void);
+extern void gevrBeanToggle(void);
+extern int gevrBeanIsEnabled(void);
 extern int gevrVrWatchGesture(void); /* vr_input.cpp */
 extern s32 g_gevrWatchGesturePending; /* bondview2.c */
 extern s32 gevrStereoWatchGrip(void);    /* bondview2.c: the gun hand holds the watch (#31) */
@@ -1875,11 +1877,35 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     fired = spoilt = false;
                 }
                 if (lclick) spoilt = true;
+                /* One grip plus this click is the Bean mesh switch, below. */
+                if (get_button_state(0, "grip") || get_button_state(1, "grip")) spoilt = true;
                 if (!fired && !spoilt && now - downat >= 1000) {
                     VrPlayMode = VrPlayMode ? 0 : 1; /* VR_PLAYMODE_SCREEN : VR_PLAYMODE_STEREO */
                     vrSettingsSave();
                     fired = true;
                     LOGI("input: play mode -> %s\n", VrPlayMode ? "stereo" : "screen");
+                }
+            } else {
+                downat = 0;
+            }
+        }
+        /* One grip (not both: both grips grab the screen) plus a held right-stick
+         * click swaps Project Bean meshes and the N64 models. */
+        {
+            static u32 downat = 0;
+            static bool fired = false;
+            const bool grip0 = get_button_state(0, "grip");
+            const bool grip1 = get_button_state(1, "grip");
+            if (rclick && (grip0 != grip1)) {
+                if (!downat) {
+                    downat = now ? now : 1;
+                    fired = false;
+                }
+                if (!fired && now - downat >= 1000) {
+                    gevrBeanToggle();
+                    vrSettingsSave();
+                    fired = true;
+                    LOGI("input: bean models -> %s\n", gevrBeanIsEnabled() ? "on" : "off");
                 }
             } else {
                 downat = 0;
