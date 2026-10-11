@@ -35,6 +35,34 @@ usage has only 2% remaining. Do not consume reset credits automatically.
 - Signed diagnostic c220561 (already tested): build/diagnostics/bean-c220561/
   GoldenEye-VR-Bean-diagnostic-c220561.apk. Do not reoffer this as a new fix.
 
+## Headset round 2026-10-11 evening (build cb33888+, Dam)
+
+Reported: Nintendo logo translucent, fonts upside down, file-select cursor
+low-res, watch see-through, guns and guards' hands set back, holes in the
+map, stutter (52 fps of 120; DRAW/TICK 16 ms, GPU 2.6 ms).
+
+- Done: fonts the right way up (1634b10); 121 HUD/menu/effect images
+  repainted from files/texture with pack 2026.10.11.3 (56ecb44, b23acea);
+  guns in GoldenEye's frame, glove on the hand list, pickups un-mirrored
+  (2334405); props and guns two-sided (ca729c0); fast3d presentation clip
+  once per vertex, 1024-triangle batches, hashed Bean lookups, new
+  VTX/TRI1/CLIP/ROOM/PRES stats (cf59657). Tests: test_bean_images.py,
+  test_bean_fonts.py shape check, mapping-test gun/orientation checks.
+- Diagnosed, not fixed: the logo (blended alpha 255 demoted to 254, so
+  drawn as glass), the watch (markDecals buckets flag 521 suitlfhand
+  triangles with nothing under them), the water (material alpha 0 taken
+  on level triangles). A patch for gevr_bean_load.c porting DAB's rules
+  was written but its edit was refused by the permission system; it waits
+  in the session's bean-material-agent scratch for the user's decision.
+- Holes: Bean triangles reach far outside GoldenEye's room boxes (rooms
+  3, 4, 7 entirely), and rooms are drawn only through the native portal
+  walk and box test. DAB draws every room by distance. Waits for:
+- Performance: the cost is fast3d's per-triangle CPU path (110K Bean
+  triangles on Dam vs 12K native). Next is DAB's static GPU mesh path
+  (G_MESH_EXT: VBO/IBO per room built once, a mesh vertex shader with MP,
+  eye shear, fog and lighting, redraw/scope recording), then drawing Bean
+  rooms by their own bounds.
+
 ## What still needs work
 
 1. Validate the next candidate's Dam placement, full limbs, guard neck seams,
