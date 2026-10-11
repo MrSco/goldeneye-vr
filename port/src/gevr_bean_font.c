@@ -103,7 +103,7 @@ void gevrBeanFontRepaint(struct fontchar *native, int gothic, int character) {
             unsigned char *dst=rgba+(row*pw+col)*4;
             dst[0]=dst[1]=dst[2]=255; dst[3]=src[3];
         }
-        gevrBeanRepaintBind(native->pixeldata, rgba, pw, h);
+        gevrBeanRepaintBind(GEVR_PAINT_FONT, native->pixeldata, rgba, pw, h);
         return;
     }
 }

@@ -2329,9 +2329,9 @@ void frontCleanUpWalletBond(void)
 {
     s32 i;
 #ifdef GEVR
-    extern void gevrBeanRepaintForget(void);
+    extern void gevrBeanRepaintForgetOwner(int owner);
 
-    gevrBeanRepaintForget();   /* the folder's textures go with it */
+    gevrBeanRepaintForgetOwner(1 /* GEVR_PAINT_FOLDER */);   /* the folder's textures go with it */
 #endif
 
     for (i = FOLDER1; i < MAX_FOLDER_COUNT; i++)

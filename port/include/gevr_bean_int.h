@@ -71,8 +71,8 @@ int gevrBeanTexIsPlaceholder(const void *addr);
 void gevrBeanTexPaint(const void *addr, uint32_t rgb);
 void gevrBeanTexReset(void);
 uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *outW, int *outH);
-/* Takes rgba (freed on failure). Bound by native address. */
-int gevrBeanRepaintBind(const void *addr, uint8_t *rgba, int w, int h);
+/* Takes rgba (freed on failure). Bound by native address; owner is a GEVR_PAINT_*. */
+int gevrBeanRepaintBind(int owner, const void *addr, uint8_t *rgba, int w, int h);
 /* The briefing folder's textures repainted with the release's walletbond pictures. */
 struct ModelFileHeader;
 int gevrBeanFolderRepaint(struct ModelFileHeader *header, const struct gevrCaff *caff);
