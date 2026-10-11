@@ -170,7 +170,8 @@ static int communityEdition(void)
 static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t,
 		struct gevrEmitVert *e, const float p[3], int corner)
 {
-	int cut = t->tex >= 0 && t->tex < mesh->ntex && mesh->texCut[t->tex];
+	/* Material alpha testing owns cutouts; texture alpha alone may be
+	 * an overlay that needs the opaque surface underneath it. */
 	e->p[0] = p[0];
 	e->p[1] = p[1];
 	e->p[2] = p[2];
@@ -185,7 +186,7 @@ static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 	e->rgba[3] = t->rgba[corner * 4 + 3];
 	e->tex = t->tex;
 	e->alpha = t->alpha;
-	e->cut = (uint8_t)(t->alphatest || cut);
+	e->cut = t->alphatest;
 	e->decal = (t->flags & GEVR_BEAN_F_DECAL) ? 1 : 0;
 }
 

@@ -29,6 +29,32 @@ public class ModArchiveTest {
         assertEquals(100, ModArchive.unpack(pack("files/new/char/boilerbond/default.bin", new byte[]{'C','A','F','F',1}), dir, true, p -> {}));
         assertTrue(new File(dir, "files/new/char/boilerbond/default.bin").isFile());
     }
+    @Test public void extractsOnlyAllowlistedBeanFonts() throws Exception {
+        File zip = temp.newFile();
+        try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(zip))) {
+            for (int i = 0; i < 100; i++) {
+                z.putNextEntry(new ZipEntry("GOLDENEYE/" + i + ".png"));
+                z.write(new byte[]{1,2,3,4}); z.closeEntry();
+            }
+            for (String path : new String[]{"files/new/char/boilerbond/default.bin",
+                    "files/misc/alps3/default.dt", "files/misc/doc0/default.dt",
+                    "files/misc/other/default.dt"}) {
+                z.putNextEntry(new ZipEntry(path));
+                z.write(new byte[]{'C','A','F','F'}); z.closeEntry();
+            }
+        }
+        File dir = temp.newFolder();
+        assertEquals(100, ModArchive.unpack(zip, dir, true, p -> {}));
+        assertTrue(new File(dir, "files/misc/alps3/default.dt").isFile());
+        assertTrue(new File(dir, "files/misc/doc0/default.dt").isFile());
+        assertFalse(new File(dir, "files/misc/other/default.dt").exists());
+        dir = temp.newFolder();
+        assertEquals(100, ModArchive.unpack(zip, dir, false, p -> {}));
+        assertFalse(new File(dir, "files").exists());
+    }
+    @Test public void rejectsInvalidFontMagic() throws Exception {
+        assertThrows(IOException.class, () -> ModArchive.unpack(pack("files/misc/alps3/default.dt", new byte[]{1,2,3,4}), temp.newFolder(), true, p -> {}));
+    }
     @Test public void rejectsTextureOnlyBeanPack() throws Exception {
         assertThrows(IOException.class, () -> ModArchive.unpack(pack(null, null), temp.newFolder(), true, p -> {}));
     }

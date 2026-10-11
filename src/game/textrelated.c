@@ -2,6 +2,9 @@
 #include <memp.h>
 #include "textrelated.h"
 #include "gevr_romswap.h"
+#ifdef GEVR
+#include "gevr_bean.h"
+#endif
 #include "bondtypes.h"
 #include "game/language.h"
 #include "gevr_rom_segments.h"
@@ -221,6 +224,9 @@ Gfx *textRenderGlyph(Gfx *gdl, s32 *x, s32 *y, struct fontchar *curchar, struct 
                 gDPSetTile(gdl++,G_IM_FMT_I,G_IM_SIZ_8b,0,0,G_TX_RENDERTILE,0,G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK,G_TX_NOLOD,G_TX_NOMIRROR | G_TX_WRAP,G_TX_NOMASK,G_TX_NOLOD);
                 gDPSetTileSize(gdl++, G_TX_RENDERTILE, 0, 0, (curchar->unkc - 1) << 2, (curchar->height - 1) << 2);
                 */
+#ifdef GEVR
+                gevrBeanFontRepaint(curchar, font == ptrFontBankGothic, (int)(curchar - font->chars) + 0x21);
+#endif
                 gDPLoadTextureBlock(gdl++, curchar->pixeldata, G_IM_FMT_I, G_IM_SIZ_8b, ((curchar->width + 7) & 0xF8), curchar->height, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, 0, 0);
             }
             else
@@ -489,6 +495,9 @@ Gfx *textRenderGlyphOutlined(Gfx *gdl, s32 *x, s32 *y, struct fontchar *curchar,
             && drawY + curchar->baseline + curchar->height >= clipY) {
         if (curchar->index < 0x80) {
             gDPSetTextureLUT(gdl++, G_TT_NONE);
+#ifdef GEVR
+            gevrBeanFontRepaint(curchar, font == ptrFontBankGothic, (int)(curchar - font->chars) + 0x21);
+#endif
             gDPLoadTextureBlock(gdl++, curchar->pixeldata, G_IM_FMT_I, G_IM_SIZ_8b, ((curchar->width + 7) & 0xF8), curchar->height, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOMASK, 0, 0);
         } else {
             gDPPipeSync(gdl++);

@@ -22,9 +22,10 @@ final class ModArchive {
                 progress.entry(Math.min(99, ++seen * 100 / Math.max(1, z.size())));
                 String name = entry.getName();
                 boolean mesh = bean && name.matches("files/new/(background|char|gun|head|prop|skydome)/[^/]+/default\\.bin");
+                boolean font = bean && name.matches("files/misc/(alps3|doc0)/default\\.dt");
                 boolean png = name.toLowerCase(Locale.ROOT).endsWith(".png")
                         && (!bean || name.startsWith("GOLDENEYE/"));
-                if (entry.isDirectory() || (!mesh && !png)) continue;
+                if (entry.isDirectory() || (!mesh && !font && !png)) continue;
                 File file = new File(dir, name);
                 String path = file.getCanonicalPath();
                 if (!path.startsWith(base) || !paths.add(path)) throw new IOException("bad or duplicate path: " + name);
@@ -36,8 +37,8 @@ final class ModArchive {
                     int n;
                     while ((n = in.read(buffer)) != -1) {
                         progress.entry(Math.min(99, seen * 100 / Math.max(1, z.size())));
-                        if (mesh && bytes == 0 && (n < 4 || buffer[0] != 'C' || buffer[1] != 'A' || buffer[2] != 'F' || buffer[3] != 'F'))
-                            throw new IOException("invalid CAFF mesh: " + name);
+                        if ((mesh || font) && bytes == 0 && (n < 4 || buffer[0] != 'C' || buffer[1] != 'A' || buffer[2] != 'F' || buffer[3] != 'F'))
+                            throw new IOException("invalid CAFF asset: " + name);
                         bytes += n;
                         extracted += n;
                         if (bytes > entry.getSize() || extracted > (bean ? 768L << 20 : 4L << 30)) throw new IOException("pack exceeds extraction limit");
@@ -49,7 +50,7 @@ final class ModArchive {
                 if (mesh) {
                     meshes++;
                     if (name.equals("files/new/char/boilerbond/default.bin")) bond = true;
-                } else textures++;
+                } else if (png) textures++;
             }
         }
         if (textures < 100 || (bean && (meshes == 0 || !bond))) throw new IOException("download is missing pack textures or Bean meshes");

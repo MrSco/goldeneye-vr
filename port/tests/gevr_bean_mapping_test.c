@@ -20,6 +20,7 @@ void videoFreeCachedTexture(const void *p)
 {
 	(void)p;
 }
+void gevrBeanFontReset(void) {}
 void gevrBeanWorldReset(void)
 {
 }
@@ -73,6 +74,10 @@ int main(int argc, char **argv)
 		assert(!primary || ((uintptr_t)primary >> 24) == 5);
 		if (s_swap[i].ours == s_blank)
 			continue;
+        if (kind == BEAN_GUN) {
+            assert(!gunFlashNode(&header, node));
+            assert(nodeMatrix(node) == nodeMatrix(header.RootNode));
+        }
 		lists++;
 		skin += s_swap[i].skin != NULL;
 		int matrix = nodeMatrix(s_swap[i].node);
