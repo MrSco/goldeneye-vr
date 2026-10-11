@@ -183,6 +183,19 @@ extern void netSendRespawnEvent(u8 pad_index, f32 theta);
 #define SPEED_RUN_MAX      1.25f
 #define SPEED_TICK_ADJUST  0.01f
 #define TANK_MAX_SPEED     15.0f
+#ifdef GEVR
+/*
+ * Goldfinger drives a tank record whose model is not PtankZ as a car (its
+ * code at 0x8005C550, entered from 7F082ADC): no shells, no start or crush
+ * sound, engine sound 63, top speed 20.0 and acceleration offset 0.75 for the
+ * tank's 15.0 and 0.5 (deceleration keeps 0.5). Making room for that, it also
+ * dropped the digital step-back reverse (7F082F60), for tanks too.
+ */
+static s32 s_gevrDrivingCar;
+#define GEVR_VEHICLE_MAX_SPEED (s_gevrDrivingCar ? 20.0f : TANK_MAX_SPEED)
+#define GEVR_VEHICLE_ACCEL     (s_gevrDrivingCar ? 0.75f : 0.5f)
+#define GEVR_VEHICLE_SFX(tank, car) (s_gevrDrivingCar ? (car) : (tank))
+#endif
 
 
 #define FLOAT_TEN_A 10.0f
@@ -11164,8 +11177,17 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         {
             spEC = (struct TankRecord *)g_PlayerTankProp->obj;
 
+#ifdef GEVR
+            s_gevrDrivingCar = gevrRomCars() && spEC->obj != PROP_TANK;
+            if (!s_gevrDrivingCar)
+            {
+                bondinvAddInvItem(ITEM_TANKSHELLS);
+                add_ammo_to_weapon(ITEM_TANKSHELLS, spEC->unkD8);
+            }
+#else
             bondinvAddInvItem(ITEM_TANKSHELLS);
             add_ammo_to_weapon(ITEM_TANKSHELLS, spEC->unkD8);
+#endif
             spEC->unkD8 = 0;
             g_TankTurretVerticalAngle = spEC->turret_vertical_angle;
             g_TankTurretVerticalAngleRelated = g_TankTurretVerticalAngle / TANK_VERT_ANGLE_FACTOR;
@@ -11322,7 +11344,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 {
                     ftemp_nostack_spD8 = 1.0f;
                 }
+#ifdef GEVR
+                else if (moveData.digitalStepBack && !gevrRomCars())
+#else
                 else if (moveData.digitalStepBack)
+#endif
                 {
                     ftemp_nostack_spD8 = -1.0f;
                 }
@@ -11336,7 +11362,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                     ftemp_nostack_spD8 = -1.0f;
                 }
 
+#ifdef GEVR
+                unadjustedTargetSpeed = ftemp_nostack_spD8 * GEVR_VEHICLE_MAX_SPEED;
+#else
                 unadjustedTargetSpeed = ftemp_nostack_spD8 * TANK_MAX_SPEED;
+#endif
                 targetSpeed = unadjustedTargetSpeed;
 
                 if (g_TankDamagePenaltyTicks > 0)
@@ -11350,7 +11380,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 {
                     if (g_CurrentPlayer->speedforwards < targetSpeed)
                     {
+#ifdef GEVR
+                        unadjustedTargetSpeed = ((((((targetSpeed - g_CurrentPlayer->speedforwards) / 4.0f) / GEVR_VEHICLE_MAX_SPEED) + GEVR_VEHICLE_ACCEL) * ftemp_nostack_spE8 * FLOAT_TEN_A) / 60.0f);
+#else
                         unadjustedTargetSpeed = ((((((targetSpeed - g_CurrentPlayer->speedforwards) / 4.0f) / TANK_MAX_SPEED) + 0.5f) * ftemp_nostack_spE8 * FLOAT_TEN_A) / 60.0f);
+#endif
 
                         g_CurrentPlayer->speedforwards += (unadjustedTargetSpeed) * g_GlobalTimerDelta;
 
@@ -11361,7 +11395,11 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                     }
                     else if (targetSpeed < g_CurrentPlayer->speedforwards)
                     {
+#ifdef GEVR
+                        unadjustedTargetSpeed = ((((((g_CurrentPlayer->speedforwards - targetSpeed) / 4.0f) / GEVR_VEHICLE_MAX_SPEED) + 0.5f) * ftemp_nostack_spE8 * -FLOAT_TEN_A) / 60.0f);
+#else
                         unadjustedTargetSpeed = ((((((g_CurrentPlayer->speedforwards - targetSpeed) / 4.0f) / TANK_MAX_SPEED) + 0.5f) * ftemp_nostack_spE8 * -FLOAT_TEN_A) / 60.0f);
+#endif
 
                         g_CurrentPlayer->speedforwards += (unadjustedTargetSpeed) * g_GlobalTimerDelta;
 
@@ -13012,7 +13050,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                 g_EnterTankAudioState = TANK_RUN_STATE_RUNNING;
                 if ((g_TankSfxState[0] == NULL) && (lvlGetControlsLockedFlag() == 0))
                 {
+#ifdef GEVR
+                    sndPlaySfx(g_musicSfxBufferPtr, GEVR_VEHICLE_SFX(TRUCK_START_SFX, NOTHING_SFX), &g_TankSfxState[0]);
+#else
                     sndPlaySfx(g_musicSfxBufferPtr, TRUCK_START_SFX, &g_TankSfxState[0]);
+#endif
                 }
 
                 sndCreatePostEvent(g_TankSfxState[0], 8, 0x61A8);
@@ -13058,7 +13100,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                     {
                         if (lvlGetControlsLockedFlag() == 0)
                         {
+#ifdef GEVR
+                            sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, GEVR_VEHICLE_SFX(TANK_SFX, TRAIN_STOP_SFX), &g_TankSfxState[1]);
+#else
                             sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, TANK_SFX, &g_TankSfxState[1]);
+#endif
                         }
                     }
 
@@ -13711,7 +13757,11 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
                                 }
                                 if ((D_80048380 % 3) > 0)
                                 {
+#ifdef GEVR
+                                    chrobjSndCreatePostEventDefault(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, GEVR_VEHICLE_SFX(TANK_CRUSH_MAN_SFX, NOTHING_SFX), NULL), &prop->pos);
+#else
                                     chrobjSndCreatePostEventDefault(sndPlaySfx((struct ALBankAlt_s *) g_musicSfxBufferPtr, TANK_CRUSH_MAN_SFX, NULL), &prop->pos);
+#endif
                                 }
                             }
                         }

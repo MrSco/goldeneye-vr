@@ -127,16 +127,16 @@ def test_headers(lib):
 
     def patches():
         return [lib.gevrRomAutogunMask(), lib.gevrRomGlassPen(0), lib.gevrRomGlassPen(1), lib.gevrRomTimedCase(),
-                lib.gevrRomCaseAmmo(), lib.gevrRomButtMelee()]
+                lib.gevrRomCaseAmmo(), lib.gevrRomButtMelee(), lib.gevrRomCars()]
     # autoguns & 3, glass pierced by its Ruger- and Spectre-file guns, no Knockout Gas timer,
-    # grenades from the weapon case, no rifle butt
-    assert patches() == [3, 18, 12, 0, 5, 153]
+    # grenades from the weapon case, no rifle butt, its Aston Martin on tank records
+    assert patches() == [3, 18, 12, 0, 5, 153, 1]
     lib.gevrRomCampaignSet(2)
-    assert patches() == [1, 18, 20, 33, 10, 17]
+    assert patches() == [1, 18, 20, 33, 10, 17, 0]
     lib.gevrRomCampaignSet(0)
     assert [lib.gevrItemAs(i) for i in (31, 23, 17, 4)] == [31, 23, 17, 4]
     assert [lib.gevrRomBgCradle(), lib.gevrRomBgDam(), lib.gevrRomGadgetUse(0), lib.gevrRomGadgetUse(1)] == [21, 13, 39, 55]
-    assert patches() == [1, 18, 20, 33, 10, 17]
+    assert patches() == [1, 18, 20, 33, 10, 17, 0]
     lib.gevrRomCampaignSet(1)
     assert lib.gevrRomCreditsAfter() == 0
     assert lib.gevrRomAdvanceBelow() == 0

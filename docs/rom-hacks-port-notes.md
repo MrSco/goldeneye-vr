@@ -46,11 +46,10 @@ Expansion Pak RAM; the Cartel places 1158), Cradle/Dam level cases off,
 gadget-use items 49/57, each stage's memory split, lamps by image-row bit 23
 (7F0BB630; Tomorrow Never Dies has the same code), and as layout values: autoguns
 `& 3`, glass pierced by its Ruger/Spectre-file guns, no timer on item 33 (its
-Knockout Gas), weapon-case grenades, no rifle-butt melee. Still to port, by
-impact:
-- drivable Aston Martin: a tank record whose model is not PtankZ gets no
-  shells, sounds 0/63/0, speed 20 and factor 0.75 (7F082ADC, data 0x8005C550;
-  Fontainebleau, Alpine Highway),
+Knockout Gas), weapon-case grenades, no rifle-butt melee; the drivable Aston
+Martin (a tank record not on PtankZ: no shells, sounds 0/63/0, speed 20,
+acceleration offset 0.75; no digital step-back reverse in any vehicle;
+7F082ADC, code at 0x8005C550). Still to port, by impact:
 - knife/golf club fist reach 100 (7F03BED8; intent inferred, first candidate only),
 - hat types for props 212-223, default 4 (`get_hat_model` 7F05268C),
 - monitor programmes (7F049CDC),

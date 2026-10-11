@@ -100,6 +100,8 @@ struct gevrRomLayout {
 	uint8_t timedcase;
 	uint8_t caseammo;
 	uint8_t buttmelee;
+	/* Goldfinger drives a tank record whose model is not PtankZ as a car (bondview2.c) */
+	uint8_t cars;
 };
 
 struct gevrDataWindow {
@@ -177,6 +179,7 @@ int gevrRomGlassPen(int which);
 int gevrRomTimedCase(void);
 int gevrRomCaseAmmo(void);
 int gevrRomButtMelee(void);
+int gevrRomCars(void);
 
 /* Sum of the image-row sizes, the span of the images bank. 0 when the table does not fit. */
 uint32_t gevrRomImageBankBytes(const uint8_t *data, uint32_t dataLen,
