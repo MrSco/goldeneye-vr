@@ -2577,6 +2577,17 @@ static inline bool gfx_is_matrix_inverted() {
     return det < 0.0f;
 }
 
+/* Coverage-selected opaque surfaces ignore the combiner's alpha. The RDP
+ * can use its memory blender for antialiasing without making the surface
+ * translucent. Goldfinger's opaque rooms deliberately output zero alpha.
+ * CVG_X_ALPHA still needs the combiner alpha for texture cutouts. */
+static bool gfx_rdp_uses_combiner_alpha(uint32_t mode) {
+    if ((mode & ALPHA_CVG_SEL) && !(mode & CVG_X_ALPHA)) return false;
+    return (mode & CVG_X_ALPHA) ||
+        ((mode & (3U << 20)) == (G_BL_CLR_MEM << 20) &&
+         (mode & (3U << 16)) == (G_BL_1MA << 16));
+}
+
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
     GevrProfileSection profile(GEVR_TIME_CLIP);
     if (gevrMenuTrace) ++gevrMenuTriangles;
@@ -2723,8 +2734,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
     }
 
     uint64_t cc_options = 0;
-    bool use_alpha =
-            (rdp.other_mode_l & (3 << 20)) == (G_BL_CLR_MEM << 20) && (rdp.other_mode_l & (3 << 16)) == (G_BL_1MA << 16);
+    bool use_alpha = gfx_rdp_uses_combiner_alpha(rdp.other_mode_l);
     const bool use_fog = ((rdp.other_mode_l >> 30) == G_BL_CLR_FOG) || ((rdp.other_mode_l >> 26) == G_BL_A_FOG);
     const bool texture_edge = (rdp.other_mode_l & CVG_X_ALPHA) == CVG_X_ALPHA;
     const bool use_noise = (rdp.other_mode_l & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_DITHER;
