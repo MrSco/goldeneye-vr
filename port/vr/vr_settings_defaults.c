@@ -95,6 +95,7 @@ int VrCoopFastReinforcements = 0; /* host-controlled co-op rule; clients follow 
 /* GoldenEye: 1 = true stereo in first-person play, 0 = everything on the virtual
  * screen. See vr_settings.h. */
 int VrPlayMode = 1;
+int VrBeanModels = 1;
 int VrWatchFaceStatus = GEVR_WATCH_FACE_ON;
 int VrWatchGesturePause = 1;
 /* The watch's Controls page: 0 draws the headset's own Touch controllers,

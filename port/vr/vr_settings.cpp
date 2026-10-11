@@ -201,6 +201,9 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; virtual screen), 0 = everything on the virtual screen. Hold the right stick click\n");
     fprintf(f, "; in game to switch.\n");
     fprintf(f, "PlayMode=%d\n", VrPlayMode);
+    fprintf(f, "; 1 = Project Bean characters, guns, rooms and skies, when the files are in\n");
+    fprintf(f, "; added-content/xbla. Hold one grip and the right stick click to switch.\n");
+    fprintf(f, "XblaVisualsMode=%d\n", VrBeanModels);
     fprintf(f, "MicMuted=%d\n", VrMicMuted ? 1 : 0);
     fprintf(f, "MusicVolume=%.2f\n", VrMusicVolume);
     fprintf(f, "VoiceVolume=%.2f\n", VrVoiceVolume);
@@ -609,6 +612,7 @@ extern "C" void vrSettingsLoad(void)
             else if (strcmp(key, "MatchCharacterHeight") == 0) VrMatchCharacterHeight = (ival != 0);
             else if (strcmp(key, "FistClench") == 0) VrFistClench = ival;
             else if (strcmp(key, "PlayMode") == 0) VrPlayMode = ival != 0 ? VR_PLAYMODE_STEREO : VR_PLAYMODE_SCREEN;
+            else if (strcmp(key, "XblaVisualsMode") == 0) VrBeanModels = ival != 0;
             else if (strcmp(key, "MicMuted") == 0) VrMicMuted = ival != 0;
             else if (strcmp(key, "MpStage") == 0) VrMpStage = ival;
             else if (strcmp(key, "MpWeaponSet") == 0) VrMpWeaponSet = ival;

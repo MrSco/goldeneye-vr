@@ -19195,19 +19195,12 @@ Gfx *maybe_mp_interface(Gfx *gdl)
     }
 #endif
     if (
-#ifdef GEVR
-        !(netIsActive() && !g_CurrentPlayer->mpmenuon && !cheatIsActive(CHEAT_NO_RADAR_MP)) &&
-#endif
         bondviewGetIfCurrentPlayerHealthShowTime() &&
         (g_CurrentPlayer->watch_animation_state == 0) && !g_CurrentPlayer->mpmenuon)
     {
-        if (
-#ifdef GEVR
-            gevrWatchShowsStandard(g_gevrStereo, FALSE, VrWatchFaceStatus)
-#else
-            TRUE
-#endif
-            ) gdl = bondviewRenderGaugeBars(gdl);
+        /* The temporary hit gauges are feedback, independent of radar,
+         * watch-face preference and the three hit comfort settings. */
+        gdl = bondviewRenderGaugeBars(gdl);
     }
     else if (mpwatchShouldDisplayGauges()
 #ifdef GEVR

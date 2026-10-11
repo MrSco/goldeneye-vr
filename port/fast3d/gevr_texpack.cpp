@@ -53,6 +53,7 @@ enum { UNLOADED, QUEUED, DECODING, READY, FAILED };
 
 struct Entry {
     std::string path;
+    bool bean = false;
     uint8_t fmt, siz;
     int state = UNLOADED;
     std::vector<uint8_t> rgba;
@@ -231,7 +232,7 @@ static bool parseName(const char *name, uint64_t *key, uint8_t *fmt, uint8_t *si
 }
 
 static void scan(const std::string &dir, std::vector<Entry> &out,
-                 std::unordered_map<uint64_t, std::vector<int>> &index) {
+                 std::unordered_map<uint64_t, std::vector<int>> &index, bool bean) {
     DIR *d = opendir(dir.c_str());
     if (d == nullptr) {
         TPLOG("texpack: can't open %s (%s)", dir.c_str(), strerror(errno));
@@ -250,7 +251,7 @@ static void scan(const std::string &dir, std::vector<Entry> &out,
             isDir = stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
         }
         if (isDir) {
-            scan(path, out, index);
+            scan(path, out, index, bean);
             continue;
         }
         uint64_t key;
@@ -262,13 +263,14 @@ static void scan(const std::string &dir, std::vector<Entry> &out,
         std::vector<int> &slot = index[key];
         bool dup = false;
         for (int i : slot) {
-            if (out[i].fmt == fmt && out[i].siz == siz) {
+            if (out[i].fmt == fmt && out[i].siz == siz && out[i].bean == bean) {
                 dup = true;
                 break;
             }
         }
         if (dup) continue;
         Entry e;
+        e.bean = bean;
         e.path = path;
         e.fmt = fmt;
         e.siz = siz;
@@ -300,14 +302,15 @@ static void shrink(std::vector<uint8_t> &px, uint32_t &w, uint32_t &h) {
     }
 }
 
-static void worker(std::string dir) {
+static void worker(std::string dir, std::string beanDir) {
 #ifdef __ANDROID__
     // issue #52: never ahead of the game's own thread (it decodes flat out as a level starts)
     setpriority(PRIO_PROCESS, (id_t)gettid(), 10);
 #endif
     std::vector<Entry> entries;
     std::unordered_map<uint64_t, std::vector<int>> index;
-    scan(dir, entries, index);
+    if (!dir.empty()) scan(dir, entries, index, false);
+    if (!beanDir.empty()) scan(beanDir + "/GOLDENEYE", entries, index, true);
     TPLOG("texpack: %zu textures indexed in %s", entries.size(), dir.c_str());
     {
         std::lock_guard<std::mutex> lk(s_mu);
@@ -397,10 +400,11 @@ static void worker(std::string dir) {
     }
 }
 
-void start(const char *dir) {
+void start(const char *dir, const char *beanDir) {
     bool expected = false;
-    if (dir == nullptr || dir[0] == 0 || !s_started.compare_exchange_strong(expected, true)) return;
-    std::thread(worker, std::string(dir)).detach();
+    if ((!dir || !*dir) && (!beanDir || !*beanDir)) return;
+    if (!s_started.compare_exchange_strong(expected, true)) return;
+    std::thread(worker, dir ? dir : "", beanDir ? beanDir : "").detach();
 }
 
 bool takeIndexReady() {
@@ -422,12 +426,12 @@ const char *name(int id) {
     return p.c_str() + (slash == std::string::npos ? 0 : slash + 1);
 }
 
-int find(uint64_t key, uint8_t fmt, uint8_t siz) {
+int find(uint64_t key, uint8_t fmt, uint8_t siz, bool bean) {
     if (!s_ready) return -1;
     auto it = s_index.find(key);   // read-only after publishing
     if (it == s_index.end()) return -1;
     for (int i : it->second) {
-        if (s_entries[i].fmt == fmt && s_entries[i].siz == siz) return i;
+        if (s_entries[i].fmt == fmt && s_entries[i].siz == siz && s_entries[i].bean == bean) return i;
     }
     return -1;
 }

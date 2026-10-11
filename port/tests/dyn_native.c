@@ -17,6 +17,7 @@ static int expectFatal, logCount, warningCount;
 static char fatalMessage[512], lastLog[512];
 static u64 clockUs = 1000000;
 
+void gevrBeanBeginFrame(void) {}
 void debTryAdd(void *data, const char *name) { (void)data; (void)name; }
 s32 getPlayerCount(void) { return players; }
 LEVELID bossGetStageNum(void) { return (LEVELID)stage; }
