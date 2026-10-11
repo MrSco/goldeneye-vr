@@ -48,6 +48,8 @@ static int s_eyeHand=-1, boundProgram=1;
 static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16];
 static std::vector<ShaderProgram*> s_eyePresentationPrograms;
 static std::vector<int> s_eyeDraws;
+struct GevrEyeMesh { int vao; };   /* gfx_opengl.cpp: a static mesh draw kept for the redraw */
+static std::vector<GevrEyeMesh> s_eyeMeshes;
 static void *s_pmPtr = &program;
 static std::map<int,int> reprojection;
 static float lastUniformMatrix[16];
