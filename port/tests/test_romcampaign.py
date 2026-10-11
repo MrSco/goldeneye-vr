@@ -67,13 +67,52 @@ def header(d, vram):
     return [SKELETONS[skel], nsw, nmtx, nrec, ntex]
 
 
+def advance(seed):
+    """src/random.c's randomAdvance, in 64 bits."""
+    m = (1 << 64) - 1
+    v = (((seed << 63) & m) >> 31) | (((seed << 31) & m) >> 32)
+    v ^= ((seed << 44) & m) >> 32
+    v ^= (v >> 20) & 0xFFF
+    return v & m
+
+
+def head_picks(rom):
+    """Goldfinger's bodyChooseHead() and level init (7F0235AC, 7F000F88), from its own tables."""
+    code = rom[0x34B30:]
+    at = lambda va, n: code[va - 0x7F000000:va - 0x7F000000 + n]
+    sizes = at(0x7F023668, 8)
+    ptrs = struct.unpack(">4I", at(0x7F023670, 16))
+    lists = {}
+    for i in range(8):
+        pool, male = 3 - (i & 3), i >> 2
+        if sizes[i] and pool <= 1:
+            lists[i] = at(ptrs[2 * pool + male], sizes[i])
+    seed = 0x0123456789ABCDEF
+    seed = advance(seed)
+    r = seed & 0xFFFFFFFF
+    start = []
+    for i in range(8):
+        start.append(r % sizes[i] if sizes[i] else 0)
+        r >>= 1
+    picks = []
+    for n in range(24):
+        male, head = n & 1, (-2 if n & 2 else -1)
+        i = 4 * male + 4 + head
+        if not sizes[i]:
+            i = 4 * male + 3
+        a = start[i] + (((seed >> 16) & 3) if male else 0)
+        picks.append(lists[i][a % sizes[i]])
+        seed = advance(seed)
+    return picks
+
+
 def build():
     out = Path(tempfile.mkdtemp(prefix="gevr-romcampaign-")) / "romcampaign_native.exe"
     args = [shutil.which("gcc") or "gcc", "-O1", "-fms-extensions", "-Wno-builtin-declaration-mismatch", "-static"]
     args += ["-D" + v for v in ("GEVR=1", "PLATFORM_64BIT=1", "_LANGUAGE_C=1", "VERSION=2", "VERSION_US=1", "LANG_US=1")]
     args += ["-I" + str(ROOT / v) for v in (".", "port/include", "include", "src", "src/game", "port/src")]
     args += [str(ROOT / p) for p in ("port/tests/romcampaign_native.c", "port/src/gevr_romcampaign.c",
-                                      "port/src/gevr_romlayout.c", "port/src/gevr_romcheck.c",
+                                      "port/src/gevr_romlayout.c", "port/src/gevr_romcheck.c", "src/random.c",
                                       "port/src/gevr_rom_manifest.c")]
     args += ["-lz", "-o", str(out)]
     subprocess.run(args, check=True, cwd=ROOT)
@@ -237,13 +276,16 @@ def main():
     for i, want in enumerate(e["times"]):
         check(times[i] == list(want), "target times %d" % i)
     check(len(got.get("folder", [])) >= 20, "mission folder rows")
+    check(got.get("poolinit") == [["1"]], "head pool level init")
+    picks = [int(r[3]) for r in got.get("pick", [])]
+    check(picks == head_picks(rom), "head picks %s != %s" % (picks, head_picks(rom)))
 
     if bad:
         print("\n".join(bad[:40]))
         print("FAIL: %d mismatches" % len(bad))
         sys.exit(1)
     print("PASS: Goldfinger 64 binder: %d files, %d images, %d characters, %d props and their explosions, "
-          "the item host map, gun headers and stats, level scales, %d fog and %d fogless rows, music, target times"
+          "the item host map, gun headers and stats, head pools, level scales, %d fog and %d fogless rows, music, target times"
           % (len(files), e["images"], len(chrs), len(props), len(e["fog"]), len(e["fogless"])))
 
 

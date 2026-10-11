@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "system.h"
+#include "gevr_romlayout.h"
 #endif
 #include <ultra64.h>
 #include <bondaicommands.h>
@@ -235,6 +236,20 @@ s32 bodyChooseHead(s32 id)
     return ret;
 }
 
+#ifdef GEVR
+/*
+ * Goldfinger rewrote bodyChooseHead() to take the record's head as well, -1
+ * or -2, each a pool of its own (gevr_romcampaign.c reads them off its code).
+ * GoldenEye's own choice where the campaign has none.
+ */
+s32 gevrBodyChooseHead(s32 id, s32 head)
+{
+    s32 ret = gevrRomChooseHead(c_item_entries[id].isMale, head);
+
+    return ret >= 0 ? ret : bodyChooseHead(id);
+}
+#endif
+
 
 /**
  * Get a Random head for body ID
@@ -298,7 +313,11 @@ void expand_09_characters(s32 stageid, GuardRecord *arg1, s32 arg2)
         {
             headid = (arg1->HeadID >= 0)
                 ? arg1->HeadID
+#ifdef GEVR
+                : gevrBodyChooseHead(bodyid, arg1->HeadID);
+#else
                 : bodyChooseHead(bodyid);
+#endif
         }
 
         sp38 = retrieve_header_for_body_and_head(bodyid, headid, (u32) arg1->bitflags);
@@ -10993,7 +11012,11 @@ PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *s
     {
         if (headnum < 0)
         {
+#ifdef GEVR
+            headnum = gevrBodyChooseHead(bodynum, headnum);
+#else
             headnum = bodyChooseHead(bodynum);
+#endif
         }
 
         newpos.x = pos->x;

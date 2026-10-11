@@ -518,6 +518,113 @@ static void installItems(void)
 	gevrRomBuildItemMap(names, 32);
 }
 
+/*
+ * Goldfinger's bodyChooseHead() (7F0235AC), read off its code: a record's
+ * head of -1 or -2 picks a pool, each pool a list for men and one for women,
+ * and the head is the pool's list at (start + (seed bits 16-17, men only))
+ * modulo its length. The eight starts are drawn at level init (7F000F88),
+ * one random number shifted right a bit per entry. The tables sit in the
+ * game code, which the cartridge keeps unpacked at 0x34B30 (TLB-paged), and
+ * are indexed 4 * male + 4 + head: 3 and 2 the women's pools -1 and -2, 7
+ * and 6 the men's. Lengths at L->headpools, the lists' addresses after them.
+ */
+#define GEVR_CODE_ROM   0x34b30u
+#define GEVR_CODE_VRAM  0x7f000000u
+#define GEVR_CODE_LEN   0xe2d51u
+#define GEVR_POOL_MAX   32
+
+static uint8_t g_PoolLen[8];
+static uint8_t g_PoolStart[8];
+static uint8_t g_PoolHeads[8][GEVR_POOL_MAX];
+static int g_HasPools;
+
+extern u64 g_randomSeed;
+u32 randomGetNext(void);
+
+static const uint8_t *codeAt(const uint8_t *rom, uint32_t romLen, uint32_t va, uint32_t need)
+{
+	if (va < GEVR_CODE_VRAM || va - GEVR_CODE_VRAM + need > GEVR_CODE_LEN
+			|| GEVR_CODE_ROM + (va - GEVR_CODE_VRAM) + need > romLen) {
+		return NULL;
+	}
+	return rom + GEVR_CODE_ROM + (va - GEVR_CODE_VRAM);
+}
+
+static void installHeadPools(const struct gevrRomLayout *L, const uint8_t *rom, uint32_t romLen)
+{
+	const uint8_t *len = L->headpools ? codeAt(rom, romLen, L->headpools, 24) : NULL;
+	int i;
+
+	g_HasPools = 0;
+	memset(g_PoolLen, 0, sizeof(g_PoolLen));
+	if (!len) {
+		return;
+	}
+	for (i = 0; i < 8; i++) {
+		/* entry i = 4 * male + 4 + head: 3 and 7 are pool 0 (head -1), 2 and 6 pool 1 (-2) */
+		const int pool = 3 - (i & 3);
+		const int male = i >> 2;
+		const uint8_t *list;
+		uint32_t ptr;
+
+		if (!len[i] || pool > 1) {
+			continue;
+		}
+		ptr = be32at(len + 8 + 8 * pool + 4 * male);
+		list = codeAt(rom, romLen, ptr, len[i]);
+		if (!list || len[i] > GEVR_POOL_MAX) {
+			sysLogPrintf(LOG_ERROR, "rom: head pool %d (%s) is not where its code says", pool, male ? "men" : "women");
+			return;
+		}
+		g_PoolLen[i] = len[i];
+		memcpy(g_PoolHeads[i], list, len[i]);
+	}
+	g_HasPools = 1;
+	sysLogPrintf(LOG_NOTE, "rom: head pools men %d/%d, women %d/%d", g_PoolLen[7], g_PoolLen[6], g_PoolLen[3], g_PoolLen[2]);
+}
+
+int gevrRomHeadPoolsLevelInit(void)
+{
+	u32 r;
+	int i;
+
+	if (!g_HasPools || !gevrRomIsVariant()) {
+		return 0;
+	}
+	r = randomGetNext();
+	for (i = 0; i < 8; i++) {
+		g_PoolStart[i] = g_PoolLen[i] ? (uint8_t)(r % g_PoolLen[i]) : 0;
+		r >>= 1;
+	}
+	return 1;
+}
+
+int gevrRomChooseHead(int male, int head)
+{
+	int i;
+	int at;
+	int pick;
+
+	if (!g_HasPools || !gevrRomIsVariant()) {
+		return -1;
+	}
+	if (head != -2) {
+		head = -1;
+	}
+	i = 4 * (male ? 1 : 0) + 4 + head;
+	if (!g_PoolLen[i]) {
+		/* Goldfinger has no women in its second pool; its code would divide by zero */
+		i = 4 * (male ? 1 : 0) + 3;
+		if (!g_PoolLen[i]) {
+			return -1;
+		}
+	}
+	at = g_PoolStart[i] + (male ? (int)((g_randomSeed >> 16) & 3) : 0);
+	pick = g_PoolHeads[i][at % g_PoolLen[i]];
+	randomGetNext();
+	return pick;
+}
+
 /* the four casing models a gun's stats may name, by their data-segment address */
 extern struct ModelFileHeader cartridge_header, cartrifle_header, cartblue_header, cartshell_header;
 
@@ -852,6 +959,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	installFolder();
 	installItems();
 	installItemStats();
+	installHeadPools(L, rom, romLen);
 	installLevelTables();
 	ok = 1;
 	sysLogPrintf(LOG_NOTE, "rom: %s ready (%u bytes)", L->name, romLen);
