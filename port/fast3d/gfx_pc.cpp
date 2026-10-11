@@ -53,6 +53,8 @@ extern "C" {
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
 #include "gevr_bean.h"
+#include "gevr_romlayout.h"
+extern "C" int VrCampaign; /* vr_settings: the launcher's campaign */
 
 #include "../vr/vr_hub.h"
 
@@ -1623,10 +1625,12 @@ extern "C" const char *fsFullPath(const char *relPath);
 static std::atomic<int> s_tpUserOff{0};
 static bool s_tpIndexed = false;
 extern "C" int gevrTexpackState(void) {
+    if (gevrRomIsVariant()) return -1;  /* a hack campaign: no pack, as Dab's Mod */
     if (g_ActiveExtTexPack[0] == '\0' && !gevrBeanIsEnabled()) return -1;
     return s_tpUserOff ? 0 : 1;
 }
 extern "C" int gevrTexpackToggle(void) {
+    if (gevrRomIsVariant()) return -1;
     if (g_ActiveExtTexPack[0] == '\0' && !gevrBeanIsEnabled()) return -1;
     return (s_tpUserOff ^= 1) ? 0 : 1;
 }
@@ -1639,7 +1643,13 @@ extern "C" int gevrTexpackToggle(void) {
  */
 extern "C" void gevrTexpackStartEarly(void) {
     std::string normal;
-    if (g_ActiveExtTexPack[0] != '\0' && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0) {
+    /*
+     * Not for a Goldfinger 64 or Tomorrow Never Dies run: the packs match
+     * textures by content, so they would only replace the ones the hack kept
+     * from GoldenEye. Dab's Mod turns its HD assets off on hack stages too.
+     * The launcher's choice, as the ROM layer has not bound a campaign yet.
+     */
+    if (VrCampaign == 0 && g_ActiveExtTexPack[0] != '\0' && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0) {
         char rel[320];
         snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
         normal = fsFullPath(rel);
