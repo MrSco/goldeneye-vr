@@ -530,11 +530,31 @@ uint32_t gevrRomAiPrepare(uint8_t *code, uint32_t len, int dropHooks)
 			drop = 1;
 		}
 		if (!drop) {
+			int at = 0;
+
 			if (w != r) {
 				memmove(code + w, code + r, n);
 			}
-			if (code[w] == 0xbf && n >= 4) {
-				code[w + 3] = (uint8_t)gevrRomItemHost(code[w + 3]);
+			/*
+			 * The commands that name a hand item (geaitable.h): the item byte
+			 * goes to the US item on the same gun file, as setups' are.
+			 * TRYDroppingItem and TRYGiveMeItem carry a prop first.
+			 */
+			switch (code[w]) {
+			case 0x1b: /* TRYDroppingItem prop16 item label */
+			case 0xbf: /* TRYGiveMeItem prop16 item flags32 label */
+				at = 3;
+				break;
+			case 0x57: /* IFKeyDropped item label */
+			case 0x58: /* IFItemIsAttachedToObject item obj label */
+			case 0x59: /* IFBondHasItemEquipped item label */
+			case 0xe3: /* BondEquipItem item */
+			case 0xe4: /* BondEquipItemCinema item */
+				at = 1;
+				break;
+			}
+			if (at && (uint32_t)at < n) {
+				code[w + at] = (uint8_t)gevrRomItemHost(code[w + at]);
 			}
 			w += n;
 		}

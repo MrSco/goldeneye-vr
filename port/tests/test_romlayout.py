@@ -197,6 +197,12 @@ def test_piece_and_items(lib):
     nlen = lib.gevrRomAiPrepare(raw, len(code), 1)
     assert nlen == 10
     assert list(code[:10]) == [0xBF, 0, 0, 4, 0, 0, 0, 0, 0, 0x04]
+    # every command that names a hand item (geaitable.h), item 7 -> the PP7 host
+    code = bytearray([0x1B, 0, 0, 7, 9,  0x57, 7, 9,  0x58, 7, 1, 9,  0x59, 7, 9,  0xE3, 7,  0xE4, 7])
+    raw = (C.c_ubyte * len(code)).from_buffer(code)
+    assert lib.gevrRomAiPrepare(raw, len(code), 0) == len(code)
+    assert [code[i] for i in (3, 6, 9, 13, 16, 18)] == [4] * 6
+    assert [code[i] for i in (4, 7, 10, 11, 14)] == [9, 9, 1, 9, 9]
     lib.gevrRomClearItemMap()
     assert lib.gevrRomItemHost(7) == 7
     assert lib.gevrRomHeldProp(4) == -2
