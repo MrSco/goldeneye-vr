@@ -1213,7 +1213,7 @@ Gfx* lvlRender(Gfx* DL)
 #if defined(BUGFIX_R1)
                 cheatIsActive(CHEAT_INFINITE_AMMO) != 0
                 && (
-                    (getCurrentPlayerWeaponId(GUNRIGHT) != ITEM_WATCHLASER)
+                    (GEVR_ITEM_AS(getCurrentPlayerWeaponId(GUNRIGHT)) != ITEM_WATCHLASER)
                     || (g_CurrentPlayer->trigger_down == 0)
                 )
 #else /* VERSION_US */

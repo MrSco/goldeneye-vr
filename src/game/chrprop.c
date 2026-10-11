@@ -2681,7 +2681,7 @@ void chraiCheckUseHeldItem(s32 hand)
             chraiFistAttackHandler(hand, item_id);
         }
 #ifdef GEVR
-        else if (item_id == ITEM_TASER && g_gevrStereo)
+        else if (GEVR_ITEM_AS(item_id) == ITEM_TASER && g_gevrStereo)
         {
             /*
              * The headset's taser reaches as far as the arm (user: GoldenEye's

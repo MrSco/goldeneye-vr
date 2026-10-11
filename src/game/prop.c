@@ -536,7 +536,7 @@ void weaponAssignToHome(s32 arg0, WeaponObjRecord* weapon, s32 cmdindex)
         {
             if (cheatIsActive(CHEAT_ENEMY_ROCKETS))
             {
-                switch ((s8)weapon->weaponnum)
+                switch ((s8)GEVR_ITEM_AS(weapon->weaponnum))
                 {
                     case ITEM_KNIFE:
                     case ITEM_THROWKNIFE:

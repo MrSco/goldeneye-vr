@@ -2630,7 +2630,7 @@ s32 gevrStereoWatchItem(s32 item)
     {
         return FALSE;
     }
-    switch (item)
+    switch (GEVR_ITEM_AS(item))
     {
         case ITEM_WATCHLASER:
         case ITEM_TRIGGER:
@@ -2871,7 +2871,7 @@ static s32 gevrAimLogEnabled(void)
 /* guns, and the launchers; not knives, gadgets, throwables or the watch items */
 s32 gevrStereoTwoHandItem(s32 item)
 {
-    switch (item)
+    switch (GEVR_ITEM_AS(item))
     {
         case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33: case ITEM_SKORPION: case ITEM_AK47:
         case ITEM_UZI: case ITEM_MP5K: case ITEM_MP5KSIL: case ITEM_SPECTRE: case ITEM_M16:
@@ -2922,7 +2922,7 @@ s32 gevrStereoTwoHandSupportCtrl(void)
 
 static s32 gevrTwoHandIsHandgun(s32 item)
 {
-    switch (item)
+    switch (GEVR_ITEM_AS(item))
     {
         case ITEM_WPPK: case ITEM_WPPKSIL: case ITEM_TT33: case ITEM_RUGER: case ITEM_GOLDENGUN:
         case ITEM_SILVERWPPK: case ITEM_GOLDWPPK: case ITEM_FLAREPISTOL: case ITEM_TASER: case ITEM_LASER:
@@ -3483,7 +3483,7 @@ s32 gevrTaserTouch(s32 hand)
     }
     for (i = 0; i < 3; i++)
     {
-        end[i] = s_gevrMuzzleValid[hand] && s_gevrMuzzleItem[hand] == ITEM_TASER
+        end[i] = s_gevrMuzzleValid[hand] && GEVR_ITEM_AS(s_gevrMuzzleItem[hand]) == ITEM_TASER
             ? s_gevrMuzzle[hand][i] : at[i] - back[i] * GEVR_TASER_TIP_CM * cm;
     }
     len = sqrtf(end[0] * end[0] + end[1] * end[1] + end[2] * end[2]);
@@ -9012,7 +9012,7 @@ void bondviewWatchAnimationTick(void)
 
     if (g_CurrentPlayer->watch_animation_state)
     {
-        sp34 = getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TRIGGER || getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_WATCHLASER;
+        sp34 = getCurrentPlayerWeaponId(GUNRIGHT) == ITEM_TRIGGER || GEVR_ITEM_AS(getCurrentPlayerWeaponId(GUNRIGHT)) == ITEM_WATCHLASER;
         sp3c = sp34;
 
 #if defined (VERSION_US)
@@ -16169,8 +16169,8 @@ static s32 gevrHandSelected(s32 hand)
 
 s32 gevrWeaponUsesCopies(s32 item)
 {
-    return (item >= ITEM_WPPK && item <= ITEM_ROCKETLAUNCH && item != ITEM_WATCHLASER)
-        || item == ITEM_KNIFE || item == ITEM_TASER;
+    return (GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER)
+        || item == ITEM_KNIFE || GEVR_ITEM_AS(item) == ITEM_TASER;
 }
 
 /* Mission equipment is a single inventory object, including while a hand
@@ -16192,13 +16192,13 @@ static s32 gevrHandItemAllowed(s32 hand, s32 item)
     if (hand == GUNLEFT && item == ITEM_FIST) return FALSE;
     if (item == ITEM_TRIGGER && VrGexGuns) return FALSE;   /* GE-X's remote mines detonate themselves (gun.c) */
     /* Either selector can invoke the canonical watch/firing-hand setup. */
-    if (item == ITEM_WATCHLASER) return TRUE;
+    if (GEVR_ITEM_AS(item) == ITEM_WATCHLASER) return TRUE;
     {
         /* Selecting an offhand item exits the watch laser's two-arm setup.
          * Other watch devices retain their original restrictions. */
         extern s32 gevrGexWatchItem(s32 item);
 
-        if (hand == GUNLEFT && item != ITEM_UNARMED && other != ITEM_WATCHLASER && gevrGexWatchItem(other)) return FALSE;
+        if (hand == GUNLEFT && item != ITEM_UNARMED && GEVR_ITEM_AS(other) != ITEM_WATCHLASER && gevrGexWatchItem(other)) return FALSE;
     }
     if (hand == GUNLEFT && item != ITEM_UNARMED && !gevrLeftGunOk(item)) return FALSE;
     if (gevrMissionItemClaimed(hand, item)) return FALSE;
@@ -16220,14 +16220,14 @@ void gevrWeaponPickedUp(s32 item, s32 alreadyOwned)
     s32 held, i;
     if (!g_gevrStereo || !g_CurrentPlayer || g_CurrentPlayer->bonddead || alreadyOwned || s_gevrGripGrabbing
         || gevrSpectating() || (netIsActive() && get_cur_playernum() != netGetLocalSlot())
-        || item < ITEM_WPPK || item > ITEM_ROCKETLAUNCH || item == ITEM_WATCHLASER
+        || GEVR_ITEM_AS(item) < ITEM_WPPK || GEVR_ITEM_AS(item) > ITEM_ROCKETLAUNCH || GEVR_ITEM_AS(item) == ITEM_WATCHLASER
         || !gevrWeaponOwned(item) || !bondwalkItemHasAmmo(item)
         || !gevrHandItemAllowed(GUNRIGHT, item)) return;
     held = gevrHandSelected(GUNRIGHT);
     if (held != ITEM_FIST && held != ITEM_UNARMED) return;
     /* Only the first usable firearm: choosing fists later isn't undone by pickups. */
     for (i = ITEM_WPPK; i <= ITEM_ROCKETLAUNCH; i++)
-        if (i != item && i != ITEM_WATCHLASER && gevrWeaponOwned(i) && bondwalkItemHasAmmo(i)) return;
+        if (i != item && GEVR_ITEM_AS(i) != ITEM_WATCHLASER && gevrWeaponOwned(i) && bondwalkItemHasAmmo(i)) return;
     gunRequestHandWeaponChange(GUNRIGHT, item, 1);
 }
 
@@ -16559,7 +16559,7 @@ static s32 gevrHolsterTry(s32 hand)
 /* a gun just picked up goes into the hand that took it, where the rules allow */
 static void gevrGripEquip(s32 hand, s32 item)
 {
-    if (!((item >= ITEM_WPPK && item <= ITEM_ROCKETLAUNCH && item != ITEM_WATCHLASER) || item == ITEM_KNIFE)
+    if (!((GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER) || item == ITEM_KNIFE)
         || !gevrLeftHasGun(item))
     {
         return;
@@ -16827,7 +16827,7 @@ extern int VrManualReloading;
 
 static s32 gevrReloadGun(s32 item)
 {
-    return item >= ITEM_WPPK && item <= ITEM_ROCKETLAUNCH && item != ITEM_WATCHLASER && item != ITEM_LASER;
+    return GEVR_ITEM_AS(item) >= ITEM_WPPK && GEVR_ITEM_AS(item) <= ITEM_ROCKETLAUNCH && GEVR_ITEM_AS(item) != ITEM_WATCHLASER && GEVR_ITEM_AS(item) != ITEM_LASER;
 }
 
 /* The free controller follows the weapon slot, independently of handedness. */
@@ -18824,7 +18824,7 @@ static Gfx *gevrDrawBodySlotWheel(Gfx *gdl, const GevrBodySlotWheel *slot)
         cx,by0+GEVR_WP_H-lp,slot->ready ? 0x80FF80FF : 0xFFE65AFF,lh,GEVR_WP_W-8,NULL);
     s32 shown = slot->items[slot->index];
     if (shown <= ITEM_UNARMED) shown = ITEM_FIST;   /* includes HOLSTER */
-    else if (shown == ITEM_TRIGGER || shown == ITEM_WATCHLASER) shown = ITEM_WATCHMAGNETATTRACT;
+    else if (shown == ITEM_TRIGGER || GEVR_ITEM_AS(shown) == ITEM_WATCHLASER) shown = ITEM_WATCHMAGNETATTRACT;
     const s32 savedLeft = gevrWeaponPanelLeft;
     gevrWeaponPanelLeft = slot->ctrl == 0;
     gdl = gevrDrawWeaponPanelModel(gdl,shown,cx-GEVR_WP_MODEL_W/2,cy-GEVR_WP_MODEL_H/2,
@@ -19029,7 +19029,7 @@ Gfx *gevrDrawWeaponPanel(Gfx *gdl)
              */
             shown = ITEM_FIST;
         }
-        else if (shown == ITEM_TRIGGER || shown == ITEM_WATCHLASER)
+        else if (shown == ITEM_TRIGGER || GEVR_ITEM_AS(shown) == ITEM_WATCHLASER)
         {
             shown = ITEM_WATCHMAGNETATTRACT;
         }
