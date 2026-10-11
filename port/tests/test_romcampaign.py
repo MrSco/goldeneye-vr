@@ -30,6 +30,12 @@ SKELETONS = {
     0x8003C714: "standard_gun", 0x8003C76C: "gun_revolver", 0x8003C7AC: "gun_kf7", 0x8003D390: "g_weapon",
     0x8003D400: "guard", 0: "none",
 }
+GUN_FILES = [None, "GfistZ", "GknifeZ", "GthrowknifeZ", "GwppkZ", "GwppksilZ", "Gtt33Z", "GskorpionZ",
+             "Gak47Z", "GuziZ", "Gmp5kZ", "Gmp5ksilZ", "GspectreZ", "Gm16Z", "Gfnp90Z", "GshotgunZ",
+             "GautoshotZ", "GsniperrifleZ", "GrugerZ", "GgoldengunZ", "GsilverwppkZ", "GgoldwppkZ", "GlaserZ",
+             "GwatchlaserZ", "GgrenadelaunchZ", "GrocketlaunchZ", "GgrenadeZ", "GtimedmineZ", "GproximitymineZ",
+             "GremotemineZ", "GtriggerZ", "GtaserZ"]
+CASINGS = {0x8003CB60: "cartridge", 0x8003CB80: "cartrifle", 0x8003CBA0: "cartblue", 0x8003CBC0: "cartshell"}
 FOG = ">IffffffIiiBBBBfhHfffB3xfhHffff"
 FOGLESS = ">IBBBBfhHfffB3xfhHffff"
 
@@ -91,6 +97,18 @@ def expect(rom, L):
         if hp and np_ and cstr(d, np_):
             items.setdefault(cstr(d, np_), []).append(header(d, hp))
     e["items"] = items
+    # item k fires with its own row's stats, on the US item whose gun file it uses
+    stats = {}
+    for k in range(1, 32):
+        sp = struct.unpack_from(">I", d, ITEMS_AT + 56 * k + 12)[0]
+        name = cstr(d, struct.unpack_from(">I", d, ITEMS_AT + 56 * k + 4)[0])
+        if sp and name in GUN_FILES:
+            s = struct.unpack_from(">7fihBbBBHI6fi9fI", d, sp - V)
+            stats[GUN_FILES.index(name)] = [s[7], s[8], s[9], s[10], s[11], s[13], CASINGS.get(s[14], "none"),
+                                            s[15], s[16], s[17], s[21], s[22], s[30], s[31]]
+    e["stats"] = stats
+    e["host"] = {k: GUN_FILES.index(cstr(d, struct.unpack_from(">I", d, ITEMS_AT + 56 * k + 4)[0]))
+                 for k in range(1, 32)}
     rows = 0
     while struct.unpack_from(">I", d, 0x252C4 + 12 * rows)[0] == rows:
         rows += 1
@@ -185,6 +203,14 @@ def main():
         if want:
             check(all(w == want[0] for w in want), "item %s rows disagree: %s" % (n[1], want))
             check(r[1:] == [str(x) for x in want[-1]], "item %s: %s != %s" % (n[1], r[1:], want[-1]))
+    host = {int(r[0]): int(r[1]) for r in got.get("host", [])}
+    check(host == e["host"], "item host map: %s != %s" % (host, e["host"]))
+    stats = {int(r[0]): r[1:] for r in got.get("stats", [])}
+    check(len(e["stats"]) == 31, "31 guns with stats in the hack, got %d" % len(e["stats"]))
+    for host, want in e["stats"].items():
+        row = stats.get(host, [])
+        check(len(row) == len(want) and all((a == b) if isinstance(b, str) else close(a, b) for a, b in zip(row, want)),
+              "stats of US item %d (%s): %s != %s" % (host, GUN_FILES[host], row, want))
     files = {int(r[0]): (r[1], int(r[2]), int(r[3])) for r in got.get("file", [])}
     check(len(files) == len(e["files"]), "bound files %d of %d" % (len(files), len(e["files"])))
     for idx, want in e["files"].items():
@@ -217,7 +243,7 @@ def main():
         print("FAIL: %d mismatches" % len(bad))
         sys.exit(1)
     print("PASS: Goldfinger 64 binder: %d files, %d images, %d characters, %d props and their explosions, "
-          "hand item headers, level scales, %d fog and %d fogless rows, music, target times"
+          "the item host map, gun headers and stats, level scales, %d fog and %d fogless rows, music, target times"
           % (len(files), e["images"], len(chrs), len(props), len(e["fog"]), len(e["fogless"])))
 
 

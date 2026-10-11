@@ -500,7 +500,8 @@ static void installItems(void)
 	int item;
 
 	for (item = 0; item < 32; item++) {
-		const uint8_t *row = atVram(GEVR_ITEMS_AT + GEVR_ITEM_ROW * (uint32_t)item, 8);
+		/* GEVR_ITEMS_AT is an offset into the data segment, not an address */
+		const uint8_t *row = atVram(GEVR_DATA_VRAM + GEVR_ITEMS_AT + GEVR_ITEM_ROW * (uint32_t)item, 8);
 		uint32_t namePtr;
 		const uint8_t *text;
 
@@ -515,6 +516,77 @@ static void installItems(void)
 		}
 	}
 	gevrRomBuildItemMap(names, 32);
+}
+
+/* the four casing models a gun's stats may name, by their data-segment address */
+extern struct ModelFileHeader cartridge_header, cartrifle_header, cartblue_header, cartshell_header;
+
+/*
+ * The hand guns' stats. A hack keeps GoldenEye's rows in place and edits
+ * them, and its item k is bound to the US item on k's gun file (installItems),
+ * so row k's stats go into that item's: Goldfinger's Luger, on GtaserZ, fires
+ * with the Luger's numbers rather than the taser's. 112 bytes on the
+ * cartridge, one pointer (the casing it ejects).
+ */
+static void installItemStats(void)
+{
+	int k;
+	int done = 0;
+
+	for (k = 1; k < 32 && k < ITEM_IDS_MAX; k++) {
+		const uint8_t *row = atVram(GEVR_DATA_VRAM + GEVR_ITEMS_AT + GEVR_ITEM_ROW * (uint32_t)k, 16);
+		const int host = gevrRomItemHost(k);
+		const uint8_t *s;
+		WeaponStats *dst;
+		uint32_t casing;
+
+		if (!row || host <= 0 || host >= ITEM_IDS_MAX || !gitem_structs[host].item_weapon_stats) {
+			continue;
+		}
+		s = atVram(be32at(row + 12), 0x70);
+		if (!s) {
+			continue;
+		}
+		dst = gitem_structs[host].item_weapon_stats;
+		casing = be32at(s + 40);
+		dst->MuzzleFlashExtension = bef32(s + 0);
+		dst->PosX = bef32(s + 4);
+		dst->PosY = bef32(s + 8);
+		dst->PosZ = bef32(s + 12);
+		dst->PlayX = bef32(s + 16);
+		dst->PlayY = bef32(s + 20);
+		dst->PlayZ = bef32(s + 24);
+		dst->AmmoType = (s32)be32at(s + 28);
+		dst->MagSize = (s16)be16at(s + 32);
+		dst->AutomaticFiringRate = s[34];
+		dst->SingleFiringRate = (s8)s[35];
+		dst->ObjectsShootThrough = s[36];
+		dst->SoundTriggerRate = s[37];
+		dst->Sound = be16at(s + 38);
+		dst->ptr_cartridge_struct = casing == 0x8003cb60 ? &cartridge_header
+				: casing == 0x8003cb80 ? &cartrifle_header
+				: casing == 0x8003cba0 ? &cartblue_header
+				: casing == 0x8003cbc0 ? &cartshell_header : NULL;
+		dst->DestructionAmount = bef32(s + 44);
+		dst->Inaccuracy = bef32(s + 48);
+		dst->Zoom = bef32(s + 52);
+		dst->CrosshairSpeed = bef32(s + 56);
+		dst->AimLockSpeed = bef32(s + 60);
+		dst->Sway = bef32(s + 64);
+		dst->RecoilSpeed = (s32)be32at(s + 68);
+		dst->RecoilBack = bef32(s + 72);
+		dst->RecoilUp = bef32(s + 76);
+		dst->BoltRecoilBack = bef32(s + 80);
+		dst->LoudnessMin = bef32(s + 84);
+		dst->LoudnessMax = bef32(s + 88);
+		dst->NoiseIncreasePerShot = bef32(s + 92);
+		dst->NoiseDecayLinearTime = bef32(s + 96);
+		dst->NoiseDecayScaledTime = bef32(s + 100);
+		dst->ForceOfImpact = bef32(s + 104);
+		dst->BitFlags = be32at(s + 108);
+		done++;
+	}
+	sysLogPrintf(LOG_NOTE, "rom: %d gun stats rows from the hack", done);
 }
 
 /*
@@ -779,6 +851,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	gevrRomRebindVariantFiles();
 	installFolder();
 	installItems();
+	installItemStats();
 	installLevelTables();
 	ok = 1;
 	sysLogPrintf(LOG_NOTE, "rom: %s ready (%u bytes)", L->name, romLen);
