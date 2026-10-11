@@ -82,8 +82,11 @@ uintptr_t gfxFramebuffer;
 
 #ifdef ANDROID
 /* 64 suited the original glBufferData-per-draw path. With the persistent
- * vertex ring a batch is a memcpy, and every split is one more draw call. */
-#define MAX_BUFFERED 256
+ * vertex ring a batch is a memcpy, and every split is one more draw call.
+ * 1024 as on the desktop: Bean's large material groups were split every 256
+ * triangles. A full batch (1024 x 3 vertices x 32 floats, 384 KiB) still fits
+ * one of the ring's 4 MiB segments (gfx_opengl.cpp gevr_pm_next_segment). */
+#define MAX_BUFFERED 1024
 #else
 #define MAX_BUFFERED 1024
 #endif
@@ -448,6 +451,12 @@ static constexpr float clampf(const float x, const float min, const float max) {
 
 /* the stats readout's per-frame draw count (port/src/gevr_engine_shim.c gevrPerf*) */
 extern "C" { uint32_t gevr_perf_draws, gevr_perf_tris; }
+/* Show stats, beside those: vertices loaded, triangles submitted, those the
+ * clip test rejected, those drawn from rooms' own lists (bg.c VR_ROOM_DL_*),
+ * and eye passes drawn with the presentation camera, of all eye passes. */
+extern "C" { uint32_t gevr_perf_verts, gevr_perf_tri_calls, gevr_perf_clipped, gevr_perf_room_tris,
+                      gevr_perf_present_passes, gevr_perf_passes; }
+extern bool gevrRoomDl;   // gfx_opengl.cpp: inside a room's own display list
 static uint32_t g_gevrTrisThisFrame, g_gevrFlushesThisFrame; /* PORT probe: per-frame draw statistic, logged once a second from gfx_run */
 /* Why each batch was drawn, counted only during an opt-in profiling trace
  * (tools/perf): every state change that flushes splits the batch into one
@@ -2278,9 +2287,51 @@ struct GfxVtx {
     };
 };
 
+/*
+ * The presentation camera's clip test (gfx_sp_tri1), once per loaded vertex
+ * instead of once per triangle corner. Bean's lists share no vertices, and
+ * the per-corner pass was about a third of fast3d's time on them (measured
+ * offline on the Dam rooms). gevrPresentationClip (gevr_locomotion.c) is
+ * affine in the clip position, clip' = A * clip + b, so A and b are composed
+ * once per eye pass. Each slot keeps its presented position and outcodes;
+ * the HUD markers, the both-views reject and the behind-the-eye rule are
+ * gfx_sp_tri1's own. A slot not filled this way (a rectangle's, the sky's)
+ * takes the per-corner path there, as before.
+ */
+static float s_gevrPresentA[4][4], s_gevrPresentB[4];
+static bool s_gevrPresentReady;
+static struct LoadedVertex s_gevrPresented[MAX_VERTICES + 4];
+static bool s_gevrPresentedFresh[MAX_VERTICES + 4];
+
+static void gevr_presentation_prepare(bool on) {
+    memset(s_gevrPresentedFresh, 0, sizeof(s_gevrPresentedFresh));
+    const float* P = &g_viProjectionMatrixF[0][0];
+    const float* D = s_gevrPresentationDelta;
+    s_gevrPresentReady = on && P[0] != 0.0f && P[5] != 0.0f;
+    if (!s_gevrPresentReady) {
+        return;
+    }
+    // gevrPresentationClip: c = (x / P[0], y / P[5], -w, 1), out = P * (D * c)
+    for (int r = 0; r < 4; r++) {
+        float k[4];
+        for (int c = 0; c < 4; c++) {
+            k[c] = 0.0f;
+            for (int m = 0; m < 4; m++) {
+                k[c] += P[m * 4 + r] * D[c * 4 + m];
+            }
+        }
+        s_gevrPresentA[r][0] = k[0] / P[0];
+        s_gevrPresentA[r][1] = k[1] / P[5];
+        s_gevrPresentA[r][2] = 0.0f;
+        s_gevrPresentA[r][3] = -k[2];
+        s_gevrPresentB[r] = k[3];
+    }
+}
+
 static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
     GevrProfileSection profile(GEVR_TIME_VERTEX);
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
+    gevr_perf_verts += (uint32_t)n_vertices;
 
     const bool probe = s_surfaceSampleFrame && (rsp.geometry_mode & G_LIGHTING)
         && (rsp.geometry_mode & G_TEXTURE_GEN) && s_surfaceVertexBatches < 4;
@@ -2483,6 +2534,42 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
         } else {
             d->color.a = 255;
         }
+
+        if (s_gevrPresentReady) {   // otherwise no slot is fresh (gevr_presentation_prepare)
+            s_gevrPresentedFresh[dest_index] = true;
+            // only what gfx_sp_tri1's clip and winding tests read
+            struct LoadedVertex* p = &s_gevrPresented[dest_index];
+            p->x = d->x;
+            p->y = d->y;
+            p->z = d->z;
+            p->w = d->w;
+            p->clip_rej = d->clip_rej;
+            const float wm1 = fabsf(d->w - 1.0f);
+            if (!(wm1 == 0 || wm1 == 7 || wm1 == 8 || wm1 == 9)) { // not a HUD marker
+                float c[4];
+                for (int r = 0; r < 4; r++) {
+                    c[r] = s_gevrPresentA[r][0] * d->x + s_gevrPresentA[r][1] * d->y +
+                           s_gevrPresentA[r][3] * d->w + s_gevrPresentB[r];
+                }
+                const float paw = fabsf(c[3]);
+                const float pmx = vr_clip_margin_x_const + vr_clip_margin_x_w * paw;
+                const float pmy = vr_clip_margin_y_w * paw;
+                uint8_t reject = 0;
+                if (c[0] < -c[3] - pmx) reject |= 1;
+                if (c[0] > c[3] + pmx) reject |= 2;
+                if (c[1] < -c[3] - pmy) reject |= 4;
+                if (c[1] > c[3] + pmy) reject |= 8;
+                if (c[2] * GEVR_FAR_DEPTH_SCALE > c[3]) reject |= 32;
+                p->x = c[0];
+                p->y = c[1];
+                p->z = c[2];
+                p->w = c[3];
+                p->clip_rej = (d->clip_rej & reject) | (d->clip_rej & 64);
+                if (d->w < 0) {
+                    p->clip_rej &= 64;
+                }
+            }
+        }
     }
 }
 
@@ -2600,7 +2687,14 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
      * presentation views. A triangle visible in either must reach the GPU. */
     LoadedVertex presented[3];
     const bool presentation = s_gevrPresentationOn && s_gevrPresentationHand < 0 && !gVrFlatPass;
-    if (presentation) {
+    ++gevr_perf_tri_calls;
+    if (presentation && s_gevrPresentedFresh[vtx1_idx] && s_gevrPresentedFresh[vtx2_idx] &&
+        s_gevrPresentedFresh[vtx3_idx]) {
+        // presented once per vertex by gfx_sp_vertex (gevr_presentation_prepare)
+        v1 = &s_gevrPresented[vtx1_idx];
+        v2 = &s_gevrPresented[vtx2_idx];
+        v3 = &s_gevrPresented[vtx3_idx];
+    } else if (presentation) {
         for (int i = 0; i < 3; i++) {
             presented[i] = *v_arr[i];
             const float clip[4] = {presented[i].x, presented[i].y, presented[i].z, presented[i].w};
@@ -2643,6 +2737,7 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         const bool any_behind_camera = (v1->w < 0) || (v2->w < 0) || (v3->w < 0);
         if (!any_behind_camera && (v1->clip_rej & v2->clip_rej & v3->clip_rej)) {
             if (gevrMenuTrace) ++gevrMenuClipped;
+            ++gevr_perf_clipped;
             // The whole triangle lies outside the visible area
             return;
         }
@@ -3054,6 +3149,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         }
     }
 
+    if (gevrRoomDl) {
+        ++gevr_perf_room_tris;
+    }
     if (++buf_vbo_num_tris == MAX_BUFFERED) {
         GEVR_FLUSH_BECAUSE(GEVR_FLUSH_FULL);
     }
@@ -4191,6 +4289,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
                 break;
             case G_GEVR_SKY_VTX:
+                memset(s_gevrPresentedFresh, 0, sizeof(s_gevrPresentedFresh));   // pre-projected: none presented
                 gfx_sp_sky_vertex(C0(0, 8), (const GevrSkyVertex*)seg_addr(cmd->words.w1));
                 break;
             case G_VTX: {
@@ -4934,12 +5033,16 @@ extern "C" void gfx_run(Gfx* commands) {
                 // (its draws kept for the XR frames before the next game frame: issue #53)
                 s_gevrPresentationHand = -1;
                 s_gevrPresentationOn = gevrVrPresentationDelta(s_gevrPresentationDelta) != 0;
+                gevr_presentation_prepare(s_gevrPresentationOn);
+                ++gevr_perf_passes;
+                gevr_perf_present_passes += s_gevrPresentationOn ? 1 : 0;
                 gfx_vr_eye_record(true, &g_viProjectionMatrixF[0][0], gfx_rapi->get_clip_parameters().invert_y,
                                   s_gevrPresentationOn ? s_gevrPresentationDelta : nullptr);
                 run_display_list();
                 gfx_flush();
                 gfx_vr_eye_record(false, nullptr, false, nullptr);
                 s_gevrPresentationOn = false;
+                gevr_presentation_prepare(false);
                 gevrVrMarkEyesRendered(1);
                 gfx_vr_scope_render();   // issue #40: the world again, through the sniper scope
                 s_gevrLastVignette = gevrStereoVignette();
