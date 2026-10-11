@@ -16,6 +16,7 @@
 #include "gevr_frame_timing.h"
 #include "gevr_collision_slide.h"
 #include "gevr_romlayout.h"
+#include "gevr_dam_boat.h"
 #endif
 #include <ultra64.h>
 #ifdef GEVR
@@ -11116,6 +11117,13 @@ void bondviewProcessInput(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
 
     if (moveData.btap)
     {
+#ifdef GEVR
+        /* Dam speedboat: B boards at the jetty and steps off at the island. */
+        if (gevrDamBoatOnB())
+        {
+        }
+        else
+#endif
         /* If Bond is in the tank and pressed B, then exit. */
         if (g_PlayerIsInTank == 1)
         {
@@ -12436,6 +12444,13 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
         g_CurrentPlayer->speedforwards = 0.0f;
         g_CurrentPlayer->speedsideways = 0.0f;
     }
+    if (gevrDamBoatAboard())
+    {
+        gevrDamBoatDrive(stick_x, stick_y);
+        g_CurrentPlayer->speedforwards = 0.0f;
+        g_CurrentPlayer->speedsideways = 0.0f;
+        g_CurrentPlayer->speedtheta = 0.0f;
+    }
 #endif
 
     if (lvlGetControlsLockedFlag())
@@ -13734,6 +13749,9 @@ void MoveBond(s8 stick_x, s8 stick_y, u16 buttons, u16 oldbuttons)
     }
 
     bondviewUpdatePlayerY(use_stanHeight, sp390);
+#ifdef GEVR
+    gevrDamBoatApplySeat();
+#endif
     bondviewUpdatePlayerCollisionPositionFields();
     bondviewUpdatePlayerCollisionBounds();
 
@@ -16631,6 +16649,10 @@ static s32 gevrGripGestureTry(s32 ctrl)
     for (i = 0; i < 3; i++)
     {
         p[i] = at[i] - back[i] * GEVR_GESTURE_FINGERS_CM * cm;
+    }
+    if (gevrDamBoatTryHand(p))
+    {
+        return TRUE;
     }
     {
         /* tuning, one line a press: where the hand is and what is nearest it */
