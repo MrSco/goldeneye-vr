@@ -31,6 +31,7 @@ A hack campaign is solo play with the hack's own look:
 
 - **Online play, co-op and bots** are off. Both headsets would have to run the same hack, and the network does not check that yet.
 - **GoldenEye X**, **XBLA / Bean** and the **HD texture packs** are off for that run. They are made for GoldenEye's own models and textures. Your settings for them are kept for the next GoldenEye run.
+- **The launcher's cheat list** is off: it names GoldenEye's guns, and the hack puts its own on those items. The game's own Cheat Options, **Unlock all missions and cheats** and the VR gun size still work.
 - **Progress** is saved separately (`eeprom-gf64.bin`, `eeprom-tnd64.bin`), so a hack's missions never unlock GoldenEye's or the other way round.
 
 Guns use the hack's own models and stats.

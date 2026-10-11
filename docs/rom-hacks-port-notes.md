@@ -18,20 +18,21 @@ characters with their model headers, the 416-row prop table and explosions, gun
 headers and stats (each hack item on the US item with the same gun file), AI item
 arguments, level scale/visibility/BG names, fog and fogless skies, music, target
 times, mission folder, random-head pools (Goldfinger's own `bodyChooseHead`), hat
-fits, the intro Bond, special items played as plain guns (`GEVR_ITEM_AS`).
+fits, the intro Bond, special items played as plain guns (`GEVR_ITEM_AS`), each
+stage's memory split (`memallocstringtable`; a hack run keeps at least GEVR PC's
+4 MB room heap).
 
-Held out of a hack run: online/co-op/bots, GoldenEye X, Bean, HD packs. Separate
-save per campaign.
+Held out of a hack run: online/co-op/bots, GoldenEye X, Bean, HD packs, the
+launcher's cheat list (the game's own Cheat Options stay). Separate save per
+campaign.
 
 ## Verified
-
-Offline only; nothing has run on a headset yet.
 
 - `GEVR_GF64_ROM=<goldfinger64.z64> python port/tests/test_romcampaign.py` runs
   the production binder on the real Goldfinger 64 1.0 ROM and compares every
   table it writes with an independent decode (716 files, 3915 images, 126
   characters, 416 props, 31 guns' stats, head picks, 756 hat fits, levels, fog,
-  music, times). It says SKIP without the ROM.
+  music, times, memory splits). It says SKIP without the ROM.
 - All `port/tests/test_*.py` pass except `test_romcheck` (fails the same way on
   main: Windows ctypes cannot find zlib1.dll). Bean tests run under WSL
   (`port/tests/test_bean*.py`, `test_launcher_mods.py`); see the Bean handoff.
@@ -58,7 +59,11 @@ gadget-use items 49/57. Still to port, by impact:
   yellow watch/HUD (`watchtint`), the attract cast table (0x8002B600,
   7F01881C), no-armour cheat, explosion retry (optional).
 - Headset: the Cartel loaded through models before the prop pool fix
-  (2026-10-11 13:02); next: a mission end to end.
+  (2026-10-11 13:02); with it, it played with walls missing and textures
+  flickering (13:27): GoldenEye's Dam memory split (room heap 275 KB for
+  rooms that unpack to 1.6 MB of vertices; texture pool 625 KB, the hack's is
+  800). Fixed by binding the hack's split; next: retest, then a mission end
+  to end.
 
 Tomorrow Never Dies (Expanded 06-22): the binder runs on it (3045 images, 112
 characters, 340 props, 696 files, 31 gun stats) but its code diff (3791 words,
