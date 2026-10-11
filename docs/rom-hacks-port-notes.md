@@ -43,7 +43,8 @@ Goldfinger: its whole code diff (2125 changed instructions, 347 runs) is
 classified (session scratch `gfdiff/classification.md`; rebuild with the same
 word diff). Done from it: prop pool 1600 (its init at 7F0014E8 chains 1000 in
 Expansion Pak RAM; the Cartel places 1158), Cradle/Dam level cases off,
-gadget-use items 49/57. Still to port, by impact:
+gadget-use items 49/57, each stage's memory split, lamps by image-row bit 23
+(7F0BB630; Tomorrow Never Dies has the same code). Still to port, by impact:
 - drivable Aston Martin: a tank record whose model is not PtankZ gets no
   shells, sounds 0/63/0, speed 20 and factor 0.75 (7F082ADC, data 0x8005C550;
   Fontainebleau, Alpine Highway),
@@ -55,7 +56,7 @@ gadget-use items 49/57. Still to port, by impact:
 - melee: sniper butt off, knife/golf club reach 100 (7F060A0C, 7F065B14,
   7F03BED8),
 - hat types for props 212-223, default 4 (`get_hat_model` 7F05268C),
-- breakable lamps by image bit 23 (7F0BB630), monitor programmes (7F049CDC),
+- monitor programmes (7F049CDC),
   yellow watch/HUD (`watchtint`), the attract cast table (0x8002B600,
   7F01881C), no-armour cheat, explosion retry (optional).
 - Headset: the Cartel loaded through models before the prop pool fix

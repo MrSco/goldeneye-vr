@@ -154,6 +154,30 @@ int gevrRomRebindVariantFiles(void)
 	return 1;
 }
 
+/*
+ * Lamps: both hacks' check_if_imageID_is_light (7F0BB630) returns bit 23 of
+ * the image's 4-byte row instead of GoldenEye's list of ten ids, so a
+ * GoldenEye lamp number no longer darkens the hack's room and its own lamps
+ * break (Goldfinger flags 121, 1211, 1345, 1823, 2004, 2056, 3406, 3729).
+ */
+static uint8_t *g_LampBits;
+static uint32_t g_LampImages;
+
+int gevrRomImageIsLamp(int image)
+{
+	if (!g_LampBits || !gevrRomIsVariant()) {
+		return -1;
+	}
+	return image >= 0 && (uint32_t)image < g_LampImages && (g_LampBits[image >> 3] >> (image & 7)) & 1;
+}
+
+static void clearLamps(void)
+{
+	free(g_LampBits);
+	g_LampBits = NULL;
+	g_LampImages = 0;
+}
+
 static int installImages(const struct gevrRomLayout *L)
 {
 	struct image_entry *entries;
@@ -173,6 +197,11 @@ static int installImages(const struct gevrRomLayout *L)
 	if (!entries) {
 		return 0;
 	}
+	clearLamps();
+	if (L->imagestride == 4) {
+		g_LampBits = (uint8_t *)calloc((L->numimages + 7) / 8, 1);
+		g_LampImages = g_LampBits ? L->numimages : 0;
+	}
 	for (i = 0; i < L->numimages; i++) {
 		uint32_t word = be32at(table + L->imagestride * i);
 		uint32_t hitSound = 0;
@@ -183,6 +212,9 @@ static int installImages(const struct gevrRomLayout *L)
 		entries[i].hitSound = (u8)hitSound;
 		entries[i].hitTexture = hitTexture;
 		entries[i].dataoffset = size;
+		if (g_LampBits && (word >> 23) & 1u) {
+			g_LampBits[i >> 3] |= (uint8_t)(1u << (i & 7));
+		}
 	}
 	entries[L->numimages].dataoffset = 0xffff;
 	gevrRomSetImageBankBytes(bytes);
@@ -979,6 +1011,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 
 	g_FileRowCount = 0;
 	g_MemStringCount = 0;
+	clearLamps();
 	gevrRomClearItemMap();
 	if (!rom || !L || !L->variant || romLen < GEVR_DATA_ROM + 3) {
 		return 0;
@@ -1046,6 +1079,7 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 				object_explosion_details = savedBlast;
 				g_GevrPropCount = savedPropCount;
 			}
+			clearLamps();
 			sysLogPrintf(LOG_ERROR, "rom: %s tables did not bind", L->name);
 			g_FileRowCount = 0;
 			gevrRomDataFree(&g_Window);

@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 V = 0x80020D90
 ITEMS_AT = 0x12B94
 GF = dict(
-    campaign=1, images=3915, chrs=(0x80700FC0, 126), props=(0x8070B400, 416), blast=0x8070DD28,
+    campaign=1, images=3915, imagerows=(0x80049300, 3915), chrs=(0x80700FC0, 126), props=(0x8070B400, 416), blast=0x8070DD28,
     pieces=[(0x80700000, 0x17FD000, 0x3000), (0x80703000, 0x17F8800, 0x4800), (0x80708000, 0x17F0000, 0x8800)],
 )
 SKELETONS = {
@@ -202,6 +202,9 @@ def expect(rom, L):
         if lid == 0:
             break
     e["mem"] = mem
+    # check_if_imageID_is_light: bit 23 of each 4-byte image row
+    iv, n = L["imagerows"]
+    e["lamps"] = [i for i in range(n) if struct.unpack_from(">I", d, iv - V + 4 * i)[0] >> 23 & 1]
     return e
 
 
@@ -288,6 +291,10 @@ def main():
         check(times[i] == list(want), "target times %d" % i)
     check(len(got.get("folder", [])) >= 20, "mission folder rows")
     check(got.get("canaries") == [["1"]], "a table write ran past GoldenEye's rows")
+    lamps = [int(r[0]) for r in got.get("lamp", []) if r[1] == "1"]
+    check(lamps == e["lamps"] == [121, 1211, 1345, 1823, 2004, 2056, 3406, 3729],
+          "lamps %s, image rows %s" % (lamps, e["lamps"]))
+    check(all(r[1] in ("0", "1") for r in got.get("lamp", [])), "lamp test fell back to GoldenEye's list")
 
     def memfor(stage, multi):
         rows = [s for lid, s in e["mem"] if multi and lid == stage + 400] + [s for lid, s in e["mem"] if lid == stage]
