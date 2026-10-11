@@ -3134,7 +3134,10 @@ extern "C" void gevrLauncherRun(void)
             };
             ImGui::TextColored(gold, "CHEATS");
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("On from the next mission. * stops missions saving, as in the original game.");
+            // a hack campaign skips this list (front.c gevrApplyLauncherCheats)
+            const bool hackCampaign = VrCampaign != GEVR_CAMPAIGN_GE;
+            ImGui::TextWrapped(hackCampaign ? "Off with Goldfinger 64 or TND chosen: use the game's own Cheat Options."
+                                            : "On from the next mission. * stops missions saving, as in the original game.");
             ImGui::PopStyleColor();
             if (ImGui::BeginTable("cheats", 3, ImGuiTableFlags_SizingStretchSame)) {
                 ImGui::TableNextColumn();
@@ -3147,6 +3150,7 @@ extern "C" void gevrLauncherRun(void)
                     vrSettingsSave();
                 }
                 // three even columns: the launcher page does not scroll
+                ImGui::BeginDisabled(hackCampaign);
                 ImGui::TextColored(gold, "FUN");
                 for (int i = 0; i < 7; i++) row(fun[i]);
                 ImGui::TableNextColumn();
@@ -3157,6 +3161,7 @@ extern "C" void gevrLauncherRun(void)
                 for (int i = 0; i < 2; i++) row(arms[i]);
                 ImGui::TableNextColumn();
                 for (int i = 2; i < (int)(sizeof(arms) / sizeof(arms[0])); i++) row(arms[i]);
+                ImGui::EndDisabled();
                 ImGui::EndTable();
             }
             if (ImGui::Button("All off")) {
@@ -3210,7 +3215,7 @@ extern "C" void gevrLauncherRun(void)
             if (ImGui::Button(gevrBeanIsEnabled() ? "Mods... (Bean on)" : g_ActiveExtTexPack[0] && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0 ? "Mods... (HD textures on)" : "Mods..."))
                 modsPage = true;
             int n = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
-            for (int b = 0; b < 64; b++) n += (int)((VrCheatMask >> b) & 1ULL);
+            for (int b = 0; b < 64 && VrCampaign == GEVR_CAMPAIGN_GE; b++) n += (int)((VrCheatMask >> b) & 1ULL);
             char label[48];
             snprintf(label, sizeof(label), n ? "Cheats... (%d on)" : "Cheats...", n);
             if (ImGui::Button(label)) cheatPage = true;
