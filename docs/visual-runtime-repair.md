@@ -15,7 +15,9 @@ and inverse alpha. It ignored `ALPHA_CVG_SEL`, which selects coverage instead
 of combiner alpha. Cartel's opaque room lists use mode `0x0c182078` and
 combiner `fc26a004 1ffc93ff`, whose second-cycle alpha is zero. They therefore
 became fully transparent on the host. Coverage-selected surfaces now ignore
-combiner alpha unless `CVG_X_ALPHA` requires it for cutouts. Glass, cutouts,
+combiner alpha when alpha comparison is disabled, unless `CVG_X_ALPHA`
+requires it for cutouts. Explicit alpha comparisons retain their existing
+behavior. Glass, cutouts,
 fog and the custom depth-writing translucent mode have regression checks.
 
 Bean changes:

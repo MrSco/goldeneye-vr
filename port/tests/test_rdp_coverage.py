@@ -51,6 +51,9 @@ int main(void) {
     assert(!gfx_rdp_uses_combiner_alpha(G_RM_PASS | G_RM_AA_ZB_OPA_SURF2));
     assert(!gfx_rdp_uses_combiner_alpha(G_RM_PASS | G_RM_AA_ZB_OPA_DECAL2));
     assert(!gfx_rdp_uses_combiner_alpha(G_RM_PASS | G_RM_AA_OPA_SURF2));
+    /* Preserve an explicit alpha comparison, even in a coverage mode. */
+    assert(gfx_rdp_uses_combiner_alpha(0x0c182078u | G_AC_THRESHOLD));
+    assert(gfx_rdp_uses_combiner_alpha(0x0c182078u | G_AC_DITHER));
     assert(gfx_rdp_uses_combiner_alpha(G_RM_PASS | G_RM_AA_ZB_TEX_EDGE2));
     assert(gfx_rdp_uses_combiner_alpha(G_RM_FOG_SHADE_A | G_RM_AA_ZB_TEX_EDGE2));
     assert(gfx_rdp_uses_combiner_alpha(G_RM_PASS | G_RM_AA_ZB_XLU_SURF2));
