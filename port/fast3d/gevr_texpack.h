@@ -14,8 +14,9 @@
 
 namespace gevrtp {
 
-// Once: scan the pack at dir in the background. Nothing matches until the scan is done.
-void start(const char *dir);
+// Once: scan the selected pack plus Bean/GOLDENEYE in the background.
+// Entries retain their owner so a live toggle never mixes packs.
+void start(const char *dir, const char *beanDir = nullptr);
 // True once, the first time it's asked after the scan finished with textures in it.
 bool takeIndexReady();
 // Wait up to ms for a started scan to finish (at once if none was started).
@@ -24,7 +25,7 @@ void waitIndex(int ms);
 const char *name(int id);
 // The entry for a checksum key (see gfx_pc.cpp gevr_texpack_lookup) and the draw
 // tile's format and size, or -1.
-int find(uint64_t key, uint8_t fmt, uint8_t siz);
+int find(uint64_t key, uint8_t fmt, uint8_t siz, bool bean = false);
 // The decoded image (RGBA8, top row first) when it's ready; otherwise NULL, and
 // the decode is queued.
 const uint8_t *image(int id, uint32_t *w, uint32_t *h);

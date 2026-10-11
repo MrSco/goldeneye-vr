@@ -3,6 +3,7 @@
 #include "gevr_model.h"
 #include "gevr_handpatch.h"
 #include "gevr_bean.h"
+#include "gevr_gexmodel.h"
 #include "system.h"
 #include "image.h"
 #include "math_asinfacosf.h"
@@ -141,7 +142,8 @@ void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8* ds
 
     /* PORT: close the hand and arm models' open shells for VR (issue #9) */
     gevrHandPatchApply(objheader, (const char *)name, buffer);
-    gevrBeanModelApply(objheader, (const char *)name);
+    /* Converted GE-X first-person rigs retain their arms, guns and reloads. */
+    if (!gevrGexPendingFile) gevrBeanModelApply(objheader, (const char *)name);
 }
 
 

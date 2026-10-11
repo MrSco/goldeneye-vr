@@ -13,7 +13,8 @@ scan_start = production.index("static void scan(")
 scan_end = production.index("// halve (2x2 box)")
 production = production[:scan_start] + r"""
 static void scan(const std::string &, std::vector<Entry> &entries,
-                 std::unordered_map<uint64_t, std::vector<int>> &index) {
+                 std::unordered_map<uint64_t, std::vector<int>> &index, bool bean) {
+    if (bean) return;
     for (int i = 0; i < 8; ++i) {
         Entry e; e.path = std::to_string(i); e.fmt = 4; e.siz = i < 4 ? 0 : 1;
         entries.push_back(std::move(e));
@@ -176,7 +177,7 @@ int main() {
     fixtureBackgroundKey = backgroundKey;
     s_bootGlyphs.push_back(glyphKey); // font request made before scan publication
     s_bootBackgroundKeys.push_back(backgroundKey);
-    std::thread(worker, "fixtures").detach();
+    std::thread(worker, "fixtures", "").detach();
     {
         std::unique_lock<std::mutex> lk(gateMu);
         assert(gateCv.wait_for(lk, std::chrono::seconds(5), [] { return inspecting; }));

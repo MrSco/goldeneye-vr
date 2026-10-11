@@ -10,7 +10,8 @@ extern "C" {
 #endif
 
 /* Project Bean meshes (CAFF) in place of GoldenEye's N64 models.
- * Files live under added-content/xbla/files/new/.../default.bin. */
+ * Downloaded files live under ../texture-packs/ge007-bean/files/new/;
+ * added-content/xbla/files/new/ remains supported for manual installs. */
 
 void gevrBeanInit(void);
 int gevrBeanIsAvailable(void);
