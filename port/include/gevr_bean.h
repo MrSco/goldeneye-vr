@@ -37,8 +37,19 @@ int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
  * briefing folder, gevr_bean_folder.c). Bound while Bean is off too; the
  * renderer asks only while it is on. */
 int gevrBeanRepaint(const void *addr, const uint8_t **rgba, int *w, int *h);
-/* Drops every repaint: the texture pool is reset or the folder unloaded. */
+/* Who bound a repaint, so each can drop its own. */
+#define GEVR_PAINT_FOLDER 1   /* gevr_bean_folder.c: until the folder is unloaded */
+#define GEVR_PAINT_FONT   2   /* gevr_bean_font.c */
+#define GEVR_PAINT_IMAGE  3   /* gevr_bean_images.c: per image id, as each loads */
+/* Drops every repaint: the texture pool is reset or Bean resets. */
 void gevrBeanRepaintForget(void);
+void gevrBeanRepaintForgetOwner(int owner);
+/* Drops the repaint at one address: another texture took it. */
+void gevrBeanRepaintUnbind(const void *addr);
+/* texLoad: image (-1 for none of GoldenEye's) just loaded to data; G_IM_SIZ depth.
+ * Binds the release's own picture for it (gevr_bean_images.c). */
+void gevrBeanImageLoaded(int image, const void *data, int width, int height, int depth);
+void gevrBeanImagesReset(void);
 
 /* Render-time selection only. Definitions retain native lists/types for
  * gameplay, including aiming and bullet collision. Disabled returns current. */

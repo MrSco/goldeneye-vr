@@ -12,6 +12,7 @@
 #include <string.h>
 #include "gevr_gex.h"
 #include "gevr_gexmodel.h"
+#include "gevr_bean.h"
 #endif
 #include "gevr_rom_segments.h"
 
@@ -2656,6 +2657,10 @@ void texLoad(uintptr_t *updateword, struct texpool *pool)
         }
 
         texFreeBytesInBuffer(pool);
+#ifdef GEVR
+        /* Bean: the release's picture for this image, at the address it just loaded to */
+        gevrBeanImageLoaded(gevrgex != NULL ? -1 : g_TexNumToLoad, tex->data, tex->width, tex->height, tex->depth);
+#endif
     }
 
     *updateword = osVirtualToPhysical(tex->data);

@@ -23,9 +23,11 @@ final class ModArchive {
                 String name = entry.getName();
                 boolean mesh = bean && name.matches("files/new/(background|char|gun|head|prop|skydome)/[^/]+/default\\.bin");
                 boolean font = bean && name.matches("files/misc/(alps3|doc0)/default\\.dt");
+                /* the release's HUD, menu and effect pictures (gevr_bean_images.c) */
+                boolean picture = bean && name.matches("files/(new/)?texture/[a-z0-9_]+(/[a-z0-9_.]+)?/default\\.rba");
                 boolean png = name.toLowerCase(Locale.ROOT).endsWith(".png")
                         && (!bean || name.startsWith("GOLDENEYE/"));
-                if (entry.isDirectory() || (!mesh && !font && !png)) continue;
+                if (entry.isDirectory() || (!mesh && !font && !picture && !png)) continue;
                 File file = new File(dir, name);
                 String path = file.getCanonicalPath();
                 if (!path.startsWith(base) || !paths.add(path)) throw new IOException("bad or duplicate path: " + name);
@@ -37,7 +39,7 @@ final class ModArchive {
                     int n;
                     while ((n = in.read(buffer)) != -1) {
                         progress.entry(Math.min(99, seen * 100 / Math.max(1, z.size())));
-                        if ((mesh || font) && bytes == 0 && (n < 4 || buffer[0] != 'C' || buffer[1] != 'A' || buffer[2] != 'F' || buffer[3] != 'F'))
+                        if ((mesh || font || picture) && bytes == 0 && (n < 4 || buffer[0] != 'C' || buffer[1] != 'A' || buffer[2] != 'F' || buffer[3] != 'F'))
                             throw new IOException("invalid CAFF asset: " + name);
                         bytes += n;
                         extracted += n;

@@ -267,12 +267,12 @@ void gevrBeanTexReset(void)
  * stand-ins: gevrBeanTexReset frees those addresses, and these are the
  * texture pool's.
  */
-#define PAINT_SLOTS 512
+#define PAINT_SLOTS 1024
 
-static struct { const void *addr; uint8_t *rgba; int w, h; } s_paint[PAINT_SLOTS];
+static struct { const void *addr; uint8_t *rgba; int w, h, owner; } s_paint[PAINT_SLOTS];
 static int s_npaint;
 
-int gevrBeanRepaintBind(const void *addr, uint8_t *rgba, int w, int h)
+int gevrBeanRepaintBind(int owner, const void *addr, uint8_t *rgba, int w, int h)
 {
 	if (!addr || !rgba || w <= 0 || h <= 0 || s_npaint >= PAINT_SLOTS) {
 		free(rgba);
@@ -284,6 +284,7 @@ int gevrBeanRepaintBind(const void *addr, uint8_t *rgba, int w, int h)
 			s_paint[i].rgba = rgba;
 			s_paint[i].w = w;
 			s_paint[i].h = h;
+			s_paint[i].owner = owner;
 			videoFreeCachedTexture(addr);
 			return 1;
 		}
@@ -292,6 +293,7 @@ int gevrBeanRepaintBind(const void *addr, uint8_t *rgba, int w, int h)
 	s_paint[s_npaint].rgba = rgba;
 	s_paint[s_npaint].w = w;
 	s_paint[s_npaint].h = h;
+	s_paint[s_npaint].owner = owner;
 	s_npaint++;
 	/* whatever the renderer keeps for this address is the ROM's picture */
 	videoFreeCachedTexture(addr);
@@ -307,6 +309,35 @@ void gevrBeanRepaintForget(void)
 		s_paint[i].addr = NULL;
 	}
 	s_npaint = 0;
+}
+
+/* drops entry i, keeping the table packed */
+static void paintDrop(int i)
+{
+	videoFreeCachedTexture(s_paint[i].addr);
+	free(s_paint[i].rgba);
+	s_paint[i] = s_paint[--s_npaint];
+	s_paint[s_npaint].rgba = NULL;
+	s_paint[s_npaint].addr = NULL;
+}
+
+void gevrBeanRepaintForgetOwner(int owner)
+{
+	for (int i = s_npaint - 1; i >= 0; i--) {
+		if (s_paint[i].owner == owner) {
+			paintDrop(i);
+		}
+	}
+}
+
+void gevrBeanRepaintUnbind(const void *addr)
+{
+	for (int i = 0; addr && i < s_npaint; i++) {
+		if (s_paint[i].addr == addr) {
+			paintDrop(i);
+			return;
+		}
+	}
 }
 
 int gevrBeanRepaint(const void *addr, const uint8_t **rgba, int *w, int *h)

@@ -1681,7 +1681,7 @@ static void folderRepaint(struct ModelFileHeader *header)
 	long size = 0;
 	FILE *fp;
 
-	gevrBeanRepaintForget();
+	gevrBeanRepaintForgetOwner(GEVR_PAINT_FOLDER);
 	if (!findFile("new/prop/walletbond", path, sizeof(path))) {
 		GEVR_BEAN_LOG("gevr bean folder: missing new/prop/walletbond");
 		return;

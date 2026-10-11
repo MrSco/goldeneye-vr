@@ -31,6 +31,7 @@
 #include <string.h>
 
 #include <bondtypes.h>
+#include "gevr_bean.h"
 #include "gevr_bean_int.h"
 
 #define FOLDER_MAXPICTURES 128
@@ -584,7 +585,7 @@ static void folderBind(const struct ModelFileHeader *header, const struct folder
 	s32 outw = 0, outh = 0;
 	u8 *crop = folderMake(header, row, &outw, &outh);
 
-	if (crop && gevrBeanRepaintBind(folderTexels(&header->Textures[row->config]), crop, outw, outh)) {
+	if (crop && gevrBeanRepaintBind(GEVR_PAINT_FOLDER, folderTexels(&header->Textures[row->config]), crop, outw, outh)) {
 		numBound++;
 	}
 }

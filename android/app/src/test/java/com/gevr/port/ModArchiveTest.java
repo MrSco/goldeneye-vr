@@ -52,6 +52,36 @@ public class ModArchiveTest {
         assertEquals(100, ModArchive.unpack(zip, dir, false, p -> {}));
         assertFalse(new File(dir, "files").exists());
     }
+    @Test public void extractsOnlyAllowlistedBeanPictures() throws Exception {
+        File zip = temp.newFile();
+        try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(zip))) {
+            for (int i = 0; i < 100; i++) {
+                z.putNextEntry(new ZipEntry("GOLDENEYE/" + i + ".png"));
+                z.write(new byte[]{1,2,3,4}); z.closeEntry();
+            }
+            for (String path : new String[]{"files/new/char/boilerbond/default.bin",
+                    "files/texture/bg/sight/default.rba", "files/texture/sight/default.rba",
+                    "files/new/texture/monitors/bondlogo/default.rba",
+                    "files/texture/bg/sight/other.rba", "files/texture/Bad Name/default.rba"}) {
+                z.putNextEntry(new ZipEntry(path));
+                z.write(new byte[]{'C','A','F','F'}); z.closeEntry();
+            }
+        }
+        File dir = temp.newFolder();
+        assertEquals(100, ModArchive.unpack(zip, dir, true, p -> {}));
+        assertTrue(new File(dir, "files/texture/bg/sight/default.rba").isFile());
+        assertTrue(new File(dir, "files/texture/sight/default.rba").isFile());
+        assertTrue(new File(dir, "files/new/texture/monitors/bondlogo/default.rba").isFile());
+        assertFalse(new File(dir, "files/texture/bg/sight/other.rba").exists());
+        assertFalse(new File(dir, "files/texture/Bad Name/default.rba").exists());
+        dir = temp.newFolder();
+        assertEquals(100, ModArchive.unpack(zip, dir, false, p -> {}));
+        assertFalse(new File(dir, "files").exists());
+    }
+    @Test public void rejectsInvalidPictureMagic() throws Exception {
+        IOException e = assertThrows(IOException.class, () -> ModArchive.unpack(pack("files/texture/bg/sight/default.rba", new byte[]{1,2,3,4}), temp.newFolder(), true, p -> {}));
+        assertTrue(e.getMessage(), e.getMessage().contains("invalid CAFF asset"));
+    }
     @Test public void rejectsInvalidFontMagic() throws Exception {
         assertThrows(IOException.class, () -> ModArchive.unpack(pack("files/misc/alps3/default.dt", new byte[]{1,2,3,4}), temp.newFolder(), true, p -> {}));
     }
