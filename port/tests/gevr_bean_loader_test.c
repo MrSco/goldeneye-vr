@@ -44,7 +44,7 @@ int main(void)
     int boneSk[MAX_BONES] = {0};
     for (int s = 0; s < 4; s++) v.slot[s] = -1;
     v.slot[2] = 20; v.weight[2] = 200; pal[20] = 5; boneSk[5] = 7;
-    assert(pushTri(&mesh, &v, &v, &v, -1, 255, 0, 0, pal, 21, boneSk, muzzle, slide));
+    assert(pushTri(&mesh, &v, &v, &v, -1, 255, 0, pal, 21, boneSk, muzzle, slide));
     assert(mesh.tris[0].sk == 7);
 	assert(mesh.tris[0].bone[2] == 5 && mesh.tris[0].weight[2] == 200);
     struct beanVtx boundary[3] = {0};
@@ -53,7 +53,7 @@ int main(void)
     boundary[0].slot[0] = 0; boundary[0].weight[0] = 255;
     boundary[1].slot[0] = boundary[2].slot[0] = 1;
     boundary[1].weight[0] = boundary[2].weight[0] = 240;
-    assert(pushTri(&mesh, boundary, boundary+1, boundary+2, -1, 255, 0, 0, pal, 2, boneSk, muzzle, slide));
+    assert(pushTri(&mesh, boundary, boundary+1, boundary+2, -1, 255, 0, pal, 2, boneSk, muzzle, slide));
     assert(mesh.tris[1].sk == 11); /* 480 total wins over one corner's 255. */
 	assert(boneIs("SKEL_LF_WRIST_WPRE", "SKEL_LF_WRIST"));
 	assert(!boneIs("SKEL_LF_WRIST_OTHER", "SKEL_LF_WRIST"));
