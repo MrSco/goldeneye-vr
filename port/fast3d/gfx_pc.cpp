@@ -1953,6 +1953,30 @@ static void import_texture(int i, int tile, bool is_rect) {
     // ---------------------------------------------------------
     // ---> LOAD MENU IMAGE COVER <---
     // ---------------------------------------------------------
+#ifdef GEVR
+    /*
+     * A native texture Bean repaints (the briefing folder, gevr_bean_folder.c):
+     * the model's own tile and UV normalisation stay, as the picture is padded
+     * like the loaded block; only the texels change.
+     */
+    {
+        const uint8_t *paint = nullptr;
+        int paintW = 0, paintH = 0;
+        if (gevrBeanIsEnabled() && gevrBeanRepaint(orig_addr, &paint, &paintW, &paintH)
+                && paint && paintW > 0 && paintH > 0) {
+            TextureCacheKey key = { orig_addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
+            key.width = (uint32_t)paintW;
+            key.height = (uint32_t)paintH;
+            if (gfx_texture_cache_lookup(i, key)) {
+                loaded_texture.id_mask = 0;
+                return;
+            }
+            gfx_rapi->upload_texture(paint, (uint32_t)paintW, (uint32_t)paintH);
+            loaded_texture.id_mask = 0;
+            return;
+        }
+    }
+#endif
     int32_t menuImgW, menuImgH;
     uint8_t* hdImage = menuImageLoadReplacement(orig_addr, &menuImgW, &menuImgH);
     if (hdImage != nullptr) {

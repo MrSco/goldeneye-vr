@@ -2328,6 +2328,11 @@ void load_walletbond(void)
 void frontCleanUpWalletBond(void)
 {
     s32 i;
+#ifdef GEVR
+    extern void gevrBeanRepaintForget(void);
+
+    gevrBeanRepaintForget();   /* the folder's textures go with it */
+#endif
 
     for (i = FOLDER1; i < MAX_FOLDER_COUNT; i++)
     {

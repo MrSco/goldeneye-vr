@@ -25,6 +25,11 @@ int gevrBeanLoad(const char *source, int parts, struct gevrBeanMesh **out)
 }
 void gevrBeanMeshFree(struct gevrBeanMesh *m) { free(m->tris); free(m); }
 void gevrBeanTexReset(void) {}
+/* the folder repaint (gevr_bean_folder.c, gevr_bean_tex.c) is tested on its own */
+void gevrBeanRepaintForget(void) {}
+int gevrBeanFolderRepaint(struct ModelFileHeader *h, const struct gevrCaff *c) { (void)h; (void)c; return 0; }
+int gevrCaffOpen(struct gevrCaff *c, const uint8_t *d, uint32_t len) { (void)c; (void)d; (void)len; return 0; }
+void gevrCaffClose(struct gevrCaff *c) { (void)c; }
 void gevrBeanWorldReset(void) {}
 void *gevrBeanWorldRoom(void *g, int r, int *replaced) { (void)r; *replaced = 0; return g; }
 void *gevrBeanWorldSky(void *g, int *drew) { *drew = 0; return g; }

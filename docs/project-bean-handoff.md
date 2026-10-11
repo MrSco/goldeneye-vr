@@ -45,7 +45,12 @@ usage has only 2% remaining. Do not consume reset credits automatically.
    per-bone fitting and palette handling, full shader/sampler/mask/UV2 logic.
    Current emitHead is an approximation. Do not add arbitrary centroid cuts
    and call them a faithful mapping.
-3. Menu textures: packaged Bean PNGs number only 122. DAB's gefolder.c repaints
+3. Menu textures (folder done 2026-10-11): `port/src/gevr_bean_folder.c` ports
+   DAB's gefolder.c repaint of PwalletbondZ's 84 textures, bound by native
+   address (gevr_bean_tex.c repaint registry, gfx_pc.cpp import_texture).
+   `port/tests/test_bean_folder.py ROM FILES` checks it against the ROM's own
+   pictures. Still open below: fonts, portraits, stage pictures.
+   Packaged Bean PNGs number only 122. DAB's gefolder.c repaints
    native walletbond textures using new/prop/walletbond (already packaged),
    using folderRows plus briefPicture/slidePicture, crop/padding, masks and
    paper/grey matching. PwalletbondZ was excluded from full mesh mapping,
