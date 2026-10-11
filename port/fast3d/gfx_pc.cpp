@@ -2582,7 +2582,8 @@ static inline bool gfx_is_matrix_inverted() {
  * translucent. Goldfinger's opaque rooms deliberately output zero alpha.
  * CVG_X_ALPHA still needs the combiner alpha for texture cutouts. */
 static bool gfx_rdp_uses_combiner_alpha(uint32_t mode) {
-    if ((mode & ALPHA_CVG_SEL) && !(mode & CVG_X_ALPHA)) return false;
+    if ((mode & ALPHA_CVG_SEL) && !(mode & CVG_X_ALPHA) &&
+        (mode & (3U << G_MDSFT_ALPHACOMPARE)) == G_AC_NONE) return false;
     return (mode & CVG_X_ALPHA) ||
         ((mode & (3U << 20)) == (G_BL_CLR_MEM << 20) &&
          (mode & (3U << 16)) == (G_BL_1MA << 16));
