@@ -44,6 +44,8 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		{ { 0 } },
 		21, 13,
 		{ 39, 55 },
+		/* & 1; Ruger and Silver PP7; the bomb case; AMMO_KNIFE; the sniper rifle */
+		1, { 18, 20 }, 33, 10, 17,
 	},
 	{
 		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
@@ -84,6 +86,12 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		37, 37,
 		/* its Phone Tap (49) and item 57 are used on objects, not the defuser and datathief */
 		{ 49, 57 },
+		/*
+		 * its autoguns fire half as often (& 3); its items 23 and 17 (on GrugerZ and
+		 * GspectreZ) pierce glass; item 33 is its Knockout Gas, no timer; the weapon
+		 * case gives grenades (AMMO_GRENADE) for throwing hats; no rifle-butt melee
+		 */
+		3, { 18, 12 }, 0, 5, 153,
 	},
 	{
 		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
@@ -116,6 +124,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		/* its Cradle case moves to level 27; Dam's is off */
 		27, 37,
 		{ 39, 55 },
+		1, { 18, 20 }, 33, 10, 17,
 	},
 };
 
@@ -475,6 +484,31 @@ int gevrRomBgDam(void)
 int gevrRomGadgetUse(int which)
 {
 	return gevrRomActiveLayout()->gadgetuse[which & 1];
+}
+
+int gevrRomAutogunMask(void)
+{
+	return gevrRomActiveLayout()->autogunmask;
+}
+
+int gevrRomGlassPen(int which)
+{
+	return gevrRomActiveLayout()->glasspen[which & 1];
+}
+
+int gevrRomTimedCase(void)
+{
+	return gevrRomActiveLayout()->timedcase;
+}
+
+int gevrRomCaseAmmo(void)
+{
+	return gevrRomActiveLayout()->caseammo;
+}
+
+int gevrRomButtMelee(void)
+{
+	return gevrRomActiveLayout()->buttmelee;
 }
 
 int gevrItemAs(int item)
