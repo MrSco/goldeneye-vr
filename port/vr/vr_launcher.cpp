@@ -1,5 +1,6 @@
 #include "gevr_launcher_ui.h"
 #include "gevr_romcheck.h"
+#include "gevr_bean.h"
 /*
  * GoldenEye VR launcher, inside VR.
  *
@@ -58,9 +59,6 @@ const char *fsFullPath(const char *relPath);  // port/src/fs.c
 int fsFileSize(const char *name);             // port/src/fs.c: -1 when absent
 extern const char gevrBuildId[];              // generated, port/cmake/buildid.cmake
 void vrSettingsSave(void);            // vr_settings.cpp
-int gevrBeanIsAvailable(void);
-int gevrBeanIsEnabled(void);
-void gevrBeanSetEnabled(int on);
 void vrEnsurePlayerName(void);        // vr_settings.cpp: make up a name if there is none
 extern char g_ActiveExtTexPack[];     // port/src/ext_tex.c: the texture pack in use ("" = none), saved in the ini
 void gevrTexpackStartEarly(void);     // fast3d/gfx_pc.cpp: index that pack in the background
@@ -774,6 +772,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     if (now - lastPoll > 250 || lastPoll == 0) {
         lastPoll = now;
+        gevrBeanInit();   // a downloaded pack becomes available without reopening the launcher
         packs.clear();
         std::string raw = gevrJavaString("modsStatus");
         if (!raw.empty()) {
@@ -798,7 +797,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
 
     ImGui::TextColored(gold, "MODS");
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Texture packs made by fans replace the game's textures with sharper ones. They download "
+    ImGui::TextWrapped("Choose original, HD or XBLA / Project Bean visuals. Packs download "
                        "when you ask; nothing is included with GoldenEye VR. A pack is used from the "
                        "next START.");
     ImGui::PopStyleColor();
@@ -821,11 +820,14 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                 ImGui::TextColored(gold, "%s...", what);
             }
         } else if (p.state == "installed") {
-            bool inuse = p.id == g_ActiveExtTexPack;
+            const bool bean = p.id == "ge007-bean";
+            bool inuse = bean ? gevrBeanIsEnabled() : !gevrBeanIsEnabled() && p.id == g_ActiveExtTexPack;
             ImGui::TextColored(good, inuse ? "Installed, in use." : "Installed.");
             ImGui::SameLine();
             if (ImGui::SmallButton("Remove")) {
-                if (inuse) g_ActiveExtTexPack[0] = '\0';
+                if (bean) gevrBeanSetEnabled(0);
+                if (p.id == g_ActiveExtTexPack) g_ActiveExtTexPack[0] = '\0';
+                vrSettingsSave();
                 gevrJavaCommand("modsCommand", ("remove:" + p.id).c_str());
             }
             if (!p.update.empty()) {
@@ -858,9 +860,10 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     ImGui::Separator();
 
     // which textures the game uses
-    ImGui::TextColored(gold, "TEXTURES");
-    if (ImGui::RadioButton("Original", g_ActiveExtTexPack[0] == '\0')) {
+    ImGui::TextColored(gold, "VISUALS");
+    if (ImGui::RadioButton("Original", !gevrBeanIsEnabled() && g_ActiveExtTexPack[0] == '\0')) {
         g_ActiveExtTexPack[0] = '\0';
+        gevrBeanSetEnabled(0);
     }
     for (const ModPack &p : packs) {
         if (p.state != "installed") continue;
@@ -868,9 +871,21 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
         const float w = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(p.title.c_str()).x;
         ImGui::SameLine();
         if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
-        if (ImGui::RadioButton(p.title.c_str(), p.id == g_ActiveExtTexPack)) {
+        const bool bean = p.id == "ge007-bean";
+        if (ImGui::RadioButton(p.title.c_str(), bean ? gevrBeanIsEnabled() : !gevrBeanIsEnabled() && p.id == g_ActiveExtTexPack)) {
             snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
+            gevrBeanSetEnabled(bean);
         }
+    }
+    bool beanListed = false;
+    for (const ModPack &p : packs) if (p.id == "ge007-bean" && p.state == "installed") beanListed = true;
+    if (!beanListed && gevrBeanIsAvailable()
+        && ImGui::RadioButton("XBLA / Project Bean (local files)", gevrBeanIsEnabled())) {
+        gevrBeanSetEnabled(1);
+    }
+    if (gevrBeanIsEnabled()) {
+        ImGui::TextWrapped("Bean meshes and textures only; missing replacements use the originals. "
+                           "Toggle in the watch's VR options, or hold one grip + right-stick click for one second.");
     }
     ImGui::Separator();
 
@@ -924,8 +939,10 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                        : s_gexRom ? "Uses your GoldenEye X ROM (data/gex.z64)."
                                   : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
     ImGui::PopStyleColor();
+    if (gex && gevrBeanIsEnabled()) ImGui::TextWrapped("GE-X keeps its first-person guns, hands, watch and reloads.");
     ImGui::Spacing();
     if (ImGui::Button("Done", ImVec2(-1, 0))) {
+        vrSettingsSave();
         open = false;
     }
 }
@@ -3073,26 +3090,11 @@ extern "C" void gevrLauncherRun(void)
                 VrPlayMode = VR_PLAYMODE_SCREEN;
                 vrSettingsSave();
             }
-            {
-                bool beanHave = gevrBeanIsAvailable() != 0;
-                bool beanOn = beanHave && gevrBeanIsEnabled() != 0;
-                if (!beanHave) ImGui::BeginDisabled();
-                if (ImGui::Checkbox("Project Bean models", &beanOn)) {
-                    gevrBeanSetEnabled(beanOn ? 1 : 0);
-                    vrSettingsSave();
-                }
-                if (!beanHave) ImGui::EndDisabled();
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-                    ImGui::SetTooltip(beanHave
-                        ? "HD characters, guns, rooms and skies.\nHold one grip and the right stick click for a second to use the N64 models."
-                        : "No Bean files in\nAndroid/data/com.gevr.port/files/data/added-content/xbla/files");
-                }
-            }
             ImGui::Spacing();
             if (ImGui::Button("Multiplayer...")) mpPage = true;
             ImGui::Spacing();
             ImGui::TextColored(gold, "MODS & CHEATS");
-            if (ImGui::Button(g_ActiveExtTexPack[0] ? "Mods... (HD textures on)" : "Mods..."))
+            if (ImGui::Button(gevrBeanIsEnabled() ? "Mods... (Bean on)" : g_ActiveExtTexPack[0] && strcmp(g_ActiveExtTexPack, "ge007-bean") != 0 ? "Mods... (HD textures on)" : "Mods..."))
                 modsPage = true;
             int n = (VrGunSizeCheat ? 1 : 0) + (VrUnlockAll ? 1 : 0);
             for (int b = 0; b < 64; b++) n += (int)((VrCheatMask >> b) & 1ULL);

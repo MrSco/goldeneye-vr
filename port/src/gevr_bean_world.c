@@ -53,6 +53,7 @@ static int s_skyOk;
 static int s_ce = -1;
 
 static const char *const s_roots[] = {
+    "../texture-packs/ge007-bean/files",
 	"added-content/xbla/files",
 	"added-content/xbla",
 	"xbla/files",

@@ -5,18 +5,27 @@ the player's own extracted Project Bean files. No game files ship in the APK.
 The GoldenEye USA ROM remains required; gameplay, collision and animation
 remain the original game's.
 
-Copy the extracted `files` directory to:
+Open **Mods** in the launcher, download **GoldenEye 007 XBLA / Project Bean**,
+then select it under **Visuals** alongside Original, HD and HD + AI. The VR
+pack contains 499 CAFF files and 122 Bean PNG textures (173 MiB download).
+It installs in `Android/data/com.gevr.port/files/texture-packs/ge007-bean`.
+The standalone PNG archive in the same release remains available for emulators.
 
-```
-Android/data/com.gevr.port/files/data/added-content/xbla/files
-```
+Bean uses only its own CAFF textures and PNG replacements. Missing replacements
+use the original game textures; HD / AI and legacy texture packs cannot fill
+those gaps. Switching during a level clears previous texture uploads and caches.
+With GoldenEye X enabled, its first-person guns, arms, watch and hand-reload rig
+keep priority and their own ROM textures. Bean supplies the other models and rooms.
 
-For example, Bond's body must exist at
-`files/new/char/boilerbond/default.bin`. Restart the app after copying files.
-The launcher's Play tab enables **Project Bean models** when that file exists.
-Models default on when installed. Disable the checkbox to use N64 visuals.
-During play, hold exactly one grip and the right stick click for one second
-to switch. The right stick click alone still changes play mode.
+During play, use **watch → VR options → Mods and fun → Project Bean** or hold
+exactly one grip + right-stick click for one second. Both switches affect meshes
+and texture ownership together. Right-stick click alone still changes play mode.
+Without installed meshes, the watch shows **NEEDS FILES**.
+
+Manual installs remain supported: copy your extracted `files` directory to
+`Android/data/com.gevr.port/files/data/added-content/xbla/files`, preserving
+`files/new/char/boilerbond/default.bin`. Restart after copying. The launcher
+shows a local-files choice when it detects these meshes.
 
 Files under `new/` preserve their original names and case, including
 `new/gun/silverPPK/default.bin`. Copy the full tree to retain all categories.
@@ -50,7 +59,7 @@ N64 fallbacks. Dam decodes 110,448 triangles and 73 textures. The mesh sweep
 passes AddressSanitizer and UndefinedBehaviorSanitizer under WSL/Linux. The
 surface and GE-X regression checks also pass.
 
-The release JVM tests pass (24 tests), as do frame-pool, launcher and bounded
+The release JVM tests pass (32 tests), as do frame-pool, launcher and bounded
 ROM decoding checks. Full `lintRelease` reports 35 errors and 74 warnings in
 unchanged Android Java/resources, primarily SDL Bluetooth permissions. The
 normal release assembly uses the passing fatal-issue `lintVitalRelease` gate.
@@ -65,10 +74,14 @@ diffuse UV at dword 5 and colour at dword 8.
 - Dam: ground alignment, sky rotation, water, portal visibility, texture seams,
   Bond's body and head, KF7, slide and muzzle flash.
 - A water stage with a replacement sky, plus Facility, Silo and Statue.
+- Start with HD + AI and toggle Bean through both the watch and controller shortcut.
+  Check that HD textures disappear, including where Bean has no PNG replacement.
 - Turn Bean off at launch, start a stage and toggle on, then off again. Check
   characters, gun and rooms together, and repeat after restarting a mission.
 - Look at glass, fences and decals. Check left-handed mode and GE-X hands,
   weapon fits, scopes and reloads with Bean enabled.
+- In multiplayer, take health and armour hits with each hit comfort toggle on and off.
+  Check the temporary gauges with radar enabled and disabled.
 - Measure frame time and memory on Quest 2 and Quest 3, including stage changes.
 
 The character replacement uses one rigid triangle group per joint. Visual
