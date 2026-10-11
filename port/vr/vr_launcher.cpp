@@ -2501,7 +2501,8 @@ extern "C" void gevrLauncherRun(void)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    std::string active, message, gfNote, tndNote, campaignFail;
+    std::string active, message, gfNote, tndNote, campaignFail, campaignLine;
+    bool campaignBad = false;
     bool gfGood = false, tndGood = false;   // the hack ROMs' header checks, refreshed about once a second
     Uint32 hackCheckMs = 0;
     {
@@ -2811,6 +2812,8 @@ extern "C" void gevrLauncherRun(void)
         ImGui::Separator();
 
         s_launcherFrame++;   // the host's idle clock (gevrMultiplayerPage) sees frames it missed
+        campaignLine.clear();    // set by the main page's campaign list (under START)
+        campaignBad = false;
         // GoldenEye cheats (issue #1's idea: the tiny guns as a cheat): their
         // own page. Ticked cheats are switched on as each mission starts, the
         // way the game's own cheat menu does (front.c init_menu0B_runstage).
@@ -3442,54 +3445,49 @@ extern "C" void gevrLauncherRun(void)
                     if (tndNote.empty()) tndNote = "Tomorrow Never Dies is not installed. This start uses GoldenEye.";
                 }
             }
-            ImGui::TextColored(gold, "CAMPAIGN");
-            if (ImGui::RadioButton("GoldenEye", VrCampaign == GEVR_CAMPAIGN_GE)) {
-                VrCampaign = GEVR_CAMPAIGN_GE;
-                gevrRomCampaignSet(VrCampaign);
-                vrSettingsSave();
+            // The campaign is a list beside START, so the page keeps its height
+            // (no launcher page scrolls). A hack without its ROM offers the
+            // file picker in its place.
+            static const char *const kCampaign[3] = { "GoldenEye", "Goldfinger 64", "Tomorrow Never Dies" };
+            const bool have[3] = { true, gfGood, tndGood };
+            const int shown = VrCampaign >= GEVR_CAMPAIGN_GE && VrCampaign <= GEVR_CAMPAIGN_TND64 ? VrCampaign : 0;
+            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x * 0.42f);
+            if (ImGui::BeginCombo("##campaign", kCampaign[shown], ImGuiComboFlags_HeightLargest)) {
+                for (int c = GEVR_CAMPAIGN_GE; c <= GEVR_CAMPAIGN_TND64; c++) {
+                    char label[64];
+                    snprintf(label, sizeof(label), have[c] ? "%s" : "%s: add ROM...", kCampaign[c]);
+                    if (ImGui::Selectable(label, shown == c)) {
+                        if (have[c]) {
+                            VrCampaign = c;
+                            gevrRomCampaignSet(VrCampaign);
+                            vrSettingsSave();
+                        } else {
+                            std::string &note = c == GEVR_CAMPAIGN_GF64 ? gfNote : tndNote;
+                            note = gevrOpenPicker(c == GEVR_CAMPAIGN_GF64 ? "openGoldfingerPicker" : "openTndPicker")
+                                ? std::string("Pick the ") + kCampaign[c] + " ROM in the window that opened."
+                                : std::string("Could not open the file picker.");
+                        }
+                    }
+                    if (shown == c)
+                        ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
             }
-            ImGui::BeginDisabled(!gfGood);
-            if (ImGui::RadioButton("Goldfinger 64", VrCampaign == GEVR_CAMPAIGN_GF64)) {
-                VrCampaign = GEVR_CAMPAIGN_GF64;
-                gevrRomCampaignSet(VrCampaign);
-                vrSettingsSave();
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Choose ROM##gf")) {
-                if (gevrOpenPicker("openGoldfingerPicker")) gfNote = "Pick the Goldfinger 64 ROM in the window that opened.";
-                else gfNote = "Could not open the file picker.";
-            }
-            ImGui::BeginDisabled(!tndGood);
-            if (ImGui::RadioButton("Tomorrow Never Dies", VrCampaign == GEVR_CAMPAIGN_TND64)) {
-                VrCampaign = GEVR_CAMPAIGN_TND64;
-                gevrRomCampaignSet(VrCampaign);
-                vrSettingsSave();
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Choose ROM##tnd")) {
-                if (gevrOpenPicker("openTndPicker")) tndNote = "Pick the Tomorrow Never Dies ROM in the window that opened.";
-                else tndNote = "Could not open the file picker.";
-            }
+            // what the line under START says
             if (!campaignFail.empty()) {
-                ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                ImGui::TextWrapped("%s", campaignFail.c_str());
-                ImGui::PopStyleColor();
+                campaignLine = campaignFail;
+                campaignBad = true;
+            } else if (!gfNote.empty() || !tndNote.empty()) {
+                campaignLine = !gfNote.empty() ? gfNote : tndNote;
+            } else if (shown != GEVR_CAMPAIGN_GE) {
+                campaignLine = std::string(kCampaign[shown])
+                    + ": solo only. Online play, GoldenEye X, Bean and HD packs are off; it keeps its own save.";
             }
-            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            if (!gfNote.empty()) ImGui::TextWrapped("%s", gfNote.c_str());
-            if (!tndNote.empty()) ImGui::TextWrapped("%s", tndNote.c_str());
-            if (gfNote.empty() && tndNote.empty() && campaignFail.empty()) {
-                ImGui::TextWrapped(VrCampaign == GEVR_CAMPAIGN_GE
-                    ? "GoldenEye stays installed. Add Goldfinger 64 and Tomorrow Never Dies once, then pick the campaign here."
-                    : "Solo only: online play and GoldenEye X are off, and progress has its own save.");
-            }
-            ImGui::PopStyleColor();
         }
         const bool campaignReady = VrCampaign == GEVR_CAMPAIGN_GE
             || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
             || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood);
+        ImGui::SameLine();
         ImGui::BeginDisabled(active.empty() || !activeInfo.good || !campaignReady);
         if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))
             || (s_injectStart && !active.empty() && activeInfo.good && campaignReady)) {
@@ -3503,7 +3501,13 @@ extern "C" void gevrLauncherRun(void)
         }
         ImGui::EndDisabled();
         }   // cheatPage
-        ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
+        if (!campaignLine.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, campaignBad ? bad : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+            gevrLauncherStatus(campaignLine.c_str());
+            ImGui::PopStyleColor();
+        } else {
+            ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
+        }
         ImGui::End();
         ImGui::Render();
         showKeyboard(io);
