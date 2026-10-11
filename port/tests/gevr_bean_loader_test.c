@@ -29,6 +29,14 @@ int main(void)
     assert(v.pos[0] == 1 && v.pos[1] == 2 && v.pos[2] == 3);
     assert(v.uv[0] == 1 && v.uv[1] == 0.5f && v.argb == 0xff563412);
     assert(!readVtx(bytes, &vb, 1, 128, 0, &v));
+    /* A rigid room vertex keeps its second UV apart from the lit colour. */
+    memset(bytes, 0, sizeof(bytes)); vb.stride = 32;
+    put32(bytes + 16, 0x00800040); /* diffuse UV */
+    put32(bytes + 20, 0x00000000); /* second UV, black if misread */
+    put32(bytes + 24, 0x11223344); /* blend word */
+    put32(bytes + 28, 0xff123456); /* ABGR colour */
+    assert(readVtx(bytes, &vb, 0, 128, 0, &v));
+    assert(v.uv[0] == 1 && v.uv[1] == 0.5f && v.argb == 0xff563412);
     /* Palette slot 20 is not a weight-array index. The winning influence
      * here is weight[2], mapped through slot[2] to palette[20]. */
     struct gevrBeanMesh mesh = {0};
@@ -39,6 +47,14 @@ int main(void)
     assert(pushTri(&mesh, &v, &v, &v, -1, 255, 0, 0, pal, 21, boneSk, muzzle, slide));
     assert(mesh.tris[0].sk == 7);
 	assert(mesh.tris[0].bone[2] == 5 && mesh.tris[0].weight[2] == 200);
+    struct beanVtx boundary[3] = {0};
+    for (int c = 0; c < 3; c++) for (int w = 0; w < 4; w++) boundary[c].slot[w] = -1;
+    pal[0] = 0; pal[1] = 1; boneSk[0] = 5; boneSk[1] = 11;
+    boundary[0].slot[0] = 0; boundary[0].weight[0] = 255;
+    boundary[1].slot[0] = boundary[2].slot[0] = 1;
+    boundary[1].weight[0] = boundary[2].weight[0] = 240;
+    assert(pushTri(&mesh, boundary, boundary+1, boundary+2, -1, 255, 0, 0, pal, 2, boneSk, muzzle, slide));
+    assert(mesh.tris[1].sk == 11); /* 480 total wins over one corner's 255. */
 	assert(boneIs("SKEL_LF_WRIST_WPRE", "SKEL_LF_WRIST"));
 	assert(!boneIs("SKEL_LF_WRIST_OTHER", "SKEL_LF_WRIST"));
 	/* Animated type-4 textures put dimensions in frame tables, not +0x24. */

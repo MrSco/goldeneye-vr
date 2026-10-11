@@ -40,6 +40,46 @@ Other confirmed omissions corrected in this pass:
 - Asset diagnostics used stderr and were absent from exported game reports.
   They now use the persistent game logger.
 
+## Follow-up report 22ffdb80
+
+Quest 3 build `c220561` no longer crashed in the reported test, but showed
+missing Dam surfaces, multiple arms, stretched necks, incomplete characters,
+native-resolution menu textures and poor performance. The screenshot and
+exported log confirm the renderer was still incorrect. The log loaded Dam's
+110,448 triangles and 3,400 sky triangles, so missing mesh downloads were not
+the main cause.
+
+Subsequent source fixes (headset verification still outstanding):
+
+- DAB's `gen_stagetable.py` explicitly targets geometry divided by GoldenEye's
+  level scale. `bgSetScale()` stores that reciprocal in `room_data_float2`.
+  The native adapter must therefore use `DAB scale / room_data_float2` before
+  room assignment and subtract the native room position. Applying the DAB
+  table directly made Dam 4.28 times too large. The former file comment was
+  wrong. With the correction all 1,985 sampled Bean original Dam vertices are
+  within two units of native geometry. All 26 stage entries now test their
+  original Bean geometry against the actual cartridge's room surfaces.
+- Rigid stride-32 room vertices store their lit colour at +28, not +20; the
+  latter is their second UV set. An asymmetric layout fixture catches this.
+- Bean solid rooms now follow DAB's two-sided default. Special overlap and
+  outside-camera culling remain unimplemented.
+- GoldenEye retains a pelvis GROUP (joint 1) below its HEADER at the same rest
+  origin but with a separate rotation matrix. DAB's converted root folds it
+  away. Classifying that extra pelvis as BACK shifted the true back into a
+  leg slot and dropped an ankle. It now remains BASE. Native body probes
+  check actual joint identities and every torso/limb section's triangle count.
+- Triangle section selection now follows DAB's total influence weight across
+  all three corners rather than the strongest weight at one corner.
+- Bean honours native list hiding, and GE-X owns the whole watch-arm path
+  while enabled. Its native watch pieces and switches must stay available;
+  Bean combines those pieces into its wrist list, so hiding that list alone
+  would also hide the dial. The original arm is no longer resurrected during
+  GE-X's watch draw.
+- Transparent-only model passes no longer compute an unused Bean CPU pose.
+- Launcher Mods combines selection and downloads into one row per pack. All
+  download states, update actions and errors fit at Quest font size in a
+  1280x960 ImGui layout check; Done is fixed at the bottom.
+
 ## Remaining mapping acceptance failures
 
 The user reported wrong/missing geometry and textures in addition to the

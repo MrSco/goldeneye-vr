@@ -21,8 +21,10 @@ static int beanInverse3(const float a[9], float out[9])
 
 void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 {
-	struct beanSwap *swap = swapOf(node);
+	struct beanSwap *swap = activeSwap(node);
 	struct beanSkin *skin = swap ? swap->skin : NULL;
+	if (swap && swap->original && !current)
+		return NULL;
 	if (gevrBeanIsEnabled() && swap && swap->deferredMatrix && !skin) {
 		int matrix = nodeMatrix(node);
 		if (matrix >= 0) {

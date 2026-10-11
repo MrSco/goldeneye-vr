@@ -10,6 +10,7 @@
 	} while (0)
 
 int VrBeanModels = 1;
+int VrGexGuns;
 uintptr_t osVirtualToPhysical(void *p)
 {
 	return (uintptr_t)p;
@@ -93,6 +94,29 @@ int main(int argc, char **argv)
 				}
 		}
 	}
+
+    if (!strcmp(argv[2], "CdjbondZ") || !strcmp(argv[2], "Cgreatguard2Z")) {
+        /* Check actual cartridge joint identities against the mesh sections,
+         * rather than merely accepting valid but wrong matrix indices. */
+        static const int skForJoint[16] = {-1, 0, 1, 2, 4, 7, 5, 8, 6, 9, 10, 13, 11, 14, 12, 15};
+        unsigned seen = 0;
+        for (int i = 0; i < s_nswap; i++) {
+            if (!s_swap[i].skin) continue;
+            ModelNode *joint = s_swap[i].node;
+            while (joint && nodeOp(joint) != MODELNODE_OPCODE_GROUP) joint = joint->Parent;
+            assert(joint && joint->Data->Group.JointID < 16);
+            int expected = skForJoint[joint->Data->Group.JointID], triangles = 0;
+            assert(expected >= 0);
+            seen |= 1u << expected;
+            for (int t = 0; t < mesh->ntris; t++)
+                if (triWanted(mesh, &mesh->tris[t], BEAN_CHR, 1) &&
+                    (mesh->tris[t].sk == expected ||
+                     (expected == GEVR_BEAN_SK_BASE && (mesh->tris[t].sk == GEVR_BEAN_SK_POS || !mesh->haveBind[mesh->tris[t].sk]))))
+                    triangles++;
+            assert(s_swap[i].skin->nverts == triangles * 3);
+        }
+        assert(seen == 0xfff7u); /* Base, back, neck and all four full limbs. */
+    }
 	printf("REGISTERED %s %d lists %d skinned %d bones\n", argv[2], lists, skin, mesh->nbones);
 	if (!lists) {
 		fprintf(stderr, "swaps %d, dominant bones:", s_nswap);

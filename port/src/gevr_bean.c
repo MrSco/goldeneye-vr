@@ -21,6 +21,7 @@
 #include "gevr_bean_int.h"
 
 extern int VrBeanModels;
+extern int VrGexGuns;
 
 #define MAX_SWAP  4096
 #define MAX_ALLOC 8192
@@ -50,6 +51,7 @@ static const struct beanSkinVert *s_emitSkin;
 static struct beanSkin *s_emittedSkin;
 
 static ModelFileHeader *s_registrationOwner;
+static int s_registrationWatchArm;
 struct beanSwap {
 	ModelFileHeader *owner;
 	void *node;
@@ -58,6 +60,7 @@ struct beanSwap {
 	s16 origType;
 	struct beanSkin *skin;
 	int deferredMatrix;
+	int watchArm;
 };
 
 static struct beanSwap s_swap[MAX_SWAP];
@@ -169,21 +172,32 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].origType = (s16)origType;
 	s_swap[s_nswap].skin = s_emittedSkin;
 	s_swap[s_nswap].deferredMatrix = 0;
+	s_swap[s_nswap].watchArm = s_registrationWatchArm;
 	s_emittedSkin = NULL;
 	s_nswap++;
+}
+
+/* GE-X supplies the complete first-person arm. Its watch path needs the
+ * native watch pieces and switches, which the Bean arm combines into one list. */
+static struct beanSwap *activeSwap(void *node)
+{
+    struct beanSwap *s = gevrBeanIsEnabled() ? swapOf(node) : NULL;
+    return s && !(s->watchArm && VrGexGuns) ? s : NULL;
 }
 
 /* Replacements belong to the renderer. Native lists and model types are also
  * read by aiming, bullet hits and other gameplay walkers; never overwrite them. */
 void *gevrBeanShownGdl(void *node, void *current)
 {
-	struct beanSwap *s = gevrBeanIsEnabled() ? swapOf(node) : NULL;
-	return s ? s->ours : current;
+	struct beanSwap *s = activeSwap(node);
+	/* GE-X and the VR watch hide the hand by clearing its native list.
+	 * Honour that per-draw visibility instead of resurrecting the Bean arm. */
+	return s && (current || !s->original) ? s->ours : current;
 }
 
 int gevrBeanShownModelType(void *node, int current)
 {
-	return gevrBeanIsEnabled() && swapOf(node) ? 0 : current;
+	return activeSwap(node) ? 0 : current;
 }
 
 static int openRel(const char *rel, char *out, int outlen)
@@ -1092,6 +1106,16 @@ static void classifyGroups(struct beanGrp *grp, int ng)
 	}
 	if (base >= 0) {
 		grp[base].sk = GEVR_BEAN_SK_BASE;
+        /* GoldenEye retains a pelvis GROUP under its HEADER, on the same
+         * root rest position, with its own rotation matrix. DAB's converted model
+         * folds that alias into CHRINFO. It is another base here, not BACK:
+         * treating it as BACK shifts the torso and every leg assignment. */
+        for (int i = 0; i < ng; i++)
+            if (i != base && grp[i].joint == 1 &&
+                fabsf(grp[i].o[0] - grp[base].o[0]) < 0.001f &&
+                fabsf(grp[i].o[1] - grp[base].o[1]) < 0.001f &&
+                fabsf(grp[i].o[2] - grp[base].o[2]) < 0.001f)
+                grp[i].sk = GEVR_BEAN_SK_BASE;
 	}
 	for (int i = 0; i < ng; i++) {
 		if (grp[i].sk >= 0 || nodeOp(grp[i].node) == MODELNODE_OPCODE_GROUPSIMPLE) {
@@ -1311,6 +1335,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		return;
 	}
 	s_registrationOwner = header;
+	s_registrationWatchArm = kind == BEAN_CHR && mesh->ntex == 12 && header->numSwitches == 10;
 	stack = calloc(MAX_WALK, sizeof(*stack));
 	seen = calloc(MAX_WALK, sizeof(*seen));
 	grp = calloc(MAX_GRP, sizeof(*grp));

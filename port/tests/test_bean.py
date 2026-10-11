@@ -71,7 +71,8 @@ with tempfile.TemporaryDirectory(prefix="gevr-bean-") as directory:
                     "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
                     *["-I" + str(ROOT / path) for path in (".", "include", "src", "src/game", "port/include")],
                     str(ROOT / "port/tests/gevr_bean_room_mapping_test.c"),
-                    str(ROOT / "port/src/gevr_romcheck.c"), str(ROOT / "port/src/gevr_rom_manifest.c"), "-lz", "-lm", "-o", str(mapping)], check=True)
+                    str(ROOT / "port/src/gevr_romcheck.c"), str(ROOT / "port/src/gevr_rom_manifest.c"),
+            *[str(ROOT / "port/src" / (p + ".c")) for p in ("gevr_bean_load", "gevr_bean_tex", "gevr_bean_logic")], "-lz", "-lm", "-o", str(mapping)], check=True)
     subprocess.run([str(mapping)], check=True)
     if len(sys.argv) > 1:
         assets = Path(sys.argv[1]).resolve() / "new"
