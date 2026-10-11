@@ -6,6 +6,7 @@
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 
 int VrBeanModels = 1;
+int VrGexGuns;
 uintptr_t osVirtualToPhysical(void *addr) { return (uintptr_t)addr; }
 Vtx *dynAllocateVertices(s32 n) { return calloc(n, sizeof(Vtx)); }
 void *dynAllocate(s32 n) { return calloc(1, n); }
@@ -85,6 +86,40 @@ int main(void)
     gevrBeanModelApply(&header, "Gak47Z");
     gevrBeanForgetModel(&header); /* The GE-X load path also forgets. */
     assert(gevrBeanShownGdl(&node, ro.DisplayList.Primary) == NULL);
+    /* Both static and skinned replacements honour GE-X's temporary hide. */
+    Gfx *nativeList = (void *)(uintptr_t)0x05000010;
+    ro.DisplayList.Primary = nativeList;
+    gevrBeanForgetModel(&header);
+    gevrBeanModelApply(&header, "Gak47Z");
+    Model model = {0}; model.obj = &header;
+    assert(gevrBeanShownGdl(&node, nativeList) != nativeList);
+    assert(gevrBeanShownGdl(&node, NULL) == NULL);
+    assert(gevrBeanRenderGdl(&node, NULL, &model) == NULL);
+    assert(gevrBeanRenderGdl(&node, nativeList, &model) != NULL);
+    swapOf(&node)->watchArm = 1;
+    VrGexGuns = 1;
+    assert(gevrBeanShownGdl(&node, nativeList) == nativeList);
+    assert(gevrBeanShownModelType(&node, 3) == 3);
+    assert(gevrBeanRenderGdl(&node, nativeList, &model) == nativeList);
+    VrGexGuns = 0;
+    assert(gevrBeanShownGdl(&node, nativeList) != nativeList);
+    /* Native GoldenEye keeps both root nodes that DAB's converter folds
+     * together. The duplicate pelvis must not steal the torso's BACK slot. */
+    union ModelRoData rigData[4] = {0};
+    ModelNode rigNodes[4] = {0};
+    struct beanGrp rigGroups[4] = {0};
+    for (int i = 0; i < 4; i++) {
+        rigNodes[i].Data = &rigData[i];
+        rigNodes[i].Opcode = i ? MODELNODE_OPCODE_GROUP : MODELNODE_OPCODE_HEADER;
+        rigGroups[i].node = &rigNodes[i];
+    }
+    rigData[0].Header.MatrixIndex = 4; rigData[1].Group.MatrixIDs[0] = 5;
+    rigGroups[1].joint = 1;
+    rigData[2].Group.MatrixIDs[0] = 1; rigGroups[2].o[1] = 62;
+    rigData[3].Group.MatrixIDs[0] = 0; rigGroups[3].o[1] = 534;
+    classifyGroups(rigGroups, 4);
+    assert(rigGroups[0].sk == GEVR_BEAN_SK_BASE && rigGroups[1].sk == GEVR_BEAN_SK_BASE);
+    assert(rigGroups[2].sk == GEVR_BEAN_SK_BACK && rigGroups[3].sk == GEVR_BEAN_SK_NECK);
     hitChecks();
     poseChecks();
     gevrBeanReset();

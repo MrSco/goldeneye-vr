@@ -16,6 +16,10 @@
 	} while (0)
 #include "bg.h"
 #include "../src/gevr_bean_rooms.inc.h"
+#include "../src/gevr_bean_room_scale.inc.h"
+#include "gevr_bean_int.h"
+void videoFreeCachedTexture(const void *p) { (void)p; }
+void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 
 struct levelentry levelinfotable[1];
 s32 levelentry_index;
@@ -126,6 +130,27 @@ int main(int argc, char **argv)
 			roomReferenceNearest(0, p, &distance, &room);
 			assert(distance < 0.1f && room > 0 && room < rooms);
 		}
+
+        if (argc == 5) {
+            struct gevrBeanMesh *mesh = NULL;
+            assert(gevrBeanLoad(argv[2], 1, &mesh));
+            float scale = beanRoomFileScale(strtof(argv[3], NULL), strtof(argv[4], NULL));
+            assert(scale > 0);
+            int samples = 0, matched = 0;
+            for (int t = 0; t < mesh->ntris; t += mesh->ntris / 2048 + 1) {
+                float point[3];
+                for (int k = 0; k < 3; k++) point[k] = mesh->tris[t].p[k] * scale;
+                distance = 1e30f; room = -1;
+                roomReferenceNearest(0, point, &distance, &room);
+                samples++; matched += distance < 4.0f;
+            }
+            printf("Bean original/native geometry: %d/%d samples within 2 units (%.1f%%), scale %.8f\n",
+                   matched, samples, 100.f * matched / samples, scale);
+            fflush(stdout);
+            assert(samples > 100 && matched * 10 >= samples * 6);
+            gevrBeanMeshFree(mesh);
+            gevrBeanTexReset();
+        }
 		printf("Original room references: %u rooms, %d triangles\n", rooms, s_referenceCount);
 		roomReferenceFree();
 		free(ptr_bgdata_room_fileposition_list);

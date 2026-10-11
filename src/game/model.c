@@ -4289,8 +4289,12 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
 {
     ModelRoData_DisplayListRecord* rodata = &arg1->Data->DisplayList;
 #ifdef GEVR
-    Gfx *shownPrimary = (Gfx *)gevrBeanRenderGdl(arg1, rodata->Primary, model);
     s32 shownType = gevrBeanShownModelType(arg1, rodata->ModelType);
+    Gfx *shownPrimary = rodata->Primary;
+    /* Bean owns its render modes in the primary list; the transparent-only
+     * pass cannot draw it. Avoid posing and copying that mesh a second time. */
+    if (renderdata->unk18 == 0 && (renderdata->flags & 1))
+        shownPrimary = (Gfx *)gevrBeanRenderGdl(arg1, rodata->Primary, model);
 #else
     Gfx *shownPrimary = rodata->Primary;
     s32 shownType = rodata->ModelType;
@@ -4531,7 +4535,7 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
         {
             union ModelRwData *rwdata = modelGetNodeRwData(model, node);
 #ifdef GEVR
-            Gfx *shownGdl = (Gfx *)gevrBeanRenderGdl(node, rwdata->DisplayListCollisions.gdl, model);
+            Gfx *shownGdl = rwdata->DisplayListCollisions.gdl;
             s32 shownType = gevrBeanShownModelType(node, rodata->DisplayListCollisions.ModelType);
 #else
             Gfx *shownGdl = rwdata->DisplayListCollisions.gdl;

@@ -172,7 +172,9 @@ static int readVtx(const uint8_t *gpu, const struct beanVb *vb, uint32_t i, floa
 	}
 	if (!skinned && vb->stride >= 28) {
 		k = posoff + 12;
-		v->argb = colourArgb(be32(p + (vb->stride == 36 ? 32 : 20)));
+		/* DAB's level layout: stride 32 has UV2 at +20, blend at
+		 * +24 and the lit colour at +28. UV bytes are not a colour. */
+		v->argb = colourArgb(be32(p + (vb->stride == 36 ? 32 : vb->stride == 32 ? 28 : 20)));
 		unpackNormal(be32(p + k), v->nrm);
 		v->uv[0] = (int16_t)be16(p + k + 4) / uvscale;
 		v->uv[1] = (int16_t)be16(p + k + 6) / uvscale;
@@ -314,7 +316,8 @@ static int pushTri(struct gevrBeanMesh *mesh, const struct beanVtx *a, const str
 {
 	struct gevrBeanTri *t;
 	const struct beanVtx *corner[3] = { a, b, c };
-	int sk = 0, bestw = -1, flags = 0, named = 0, flash = 1, slideAll = 1;
+	int sk = 0, flags = 0, named = 0, flash = 1, slideAll = 1;
+	int total[GEVR_BEAN_SK_COUNT] = {0};
 	if (mesh->ntris >= MAX_TRIS) {
 		return 0;
 	}
@@ -355,24 +358,21 @@ static int pushTri(struct gevrBeanMesh *mesh, const struct beanVtx *a, const str
 	memset(t, 0, sizeof(*t));
 	for (int cnr = 0; cnr < 3; cnr++) {
 		const struct beanVtx *v = corner[cnr];
-		int dom = 0, w = -1, bone;
 		for (int s = 0; s < 4; s++) {
 			int slot = v->slot[s];
 			int b = slot >= 0 && slot < numpal ? pal[slot] : -1;
 			t->bone[cnr * 4 + s] = b >= 0 && b < MAX_BONES ? b : 255;
 			t->weight[cnr * 4 + s] = b >= 0 && b < MAX_BONES ? v->weight[s] : 0;
 		}
-		for (int s = 0; s < 4; s++) {
-			if (v->slot[s] >= 0 && (int)v->weight[s] > w) {
-				w = v->weight[s];
-				dom = v->slot[s];
-			}
-		}
-		bone = (w >= 0 && dom < numpal) ? pal[dom] : -1;
-		if (bone >= 0 && bone < MAX_BONES && w >= bestw) {
-			bestw = w;
-			sk = boneSk[bone];
-		}
+        /* DAB deals a triangle by the total weight of all three corners,
+         * not the largest individual influence at one corner. */
+        for (int s = 0; s < 4; s++) {
+            int slot = v->slot[s];
+            int bone = slot >= 0 && slot < numpal ? pal[slot] : -1;
+            int joint = bone >= 0 && bone < MAX_BONES ? boneSk[bone] : -1;
+            if (joint >= 0 && joint < GEVR_BEAN_SK_COUNT)
+                total[joint] += v->weight[s];
+        }
 		for (int j = 0; j < 3; j++) {
 			t->p[cnr * 3 + j] = v->pos[j];
 			t->n[cnr * 3 + j] = v->nrm[j];
@@ -384,6 +384,8 @@ static int pushTri(struct gevrBeanMesh *mesh, const struct beanVtx *a, const str
 		t->rgba[cnr * 4 + 2] = (uint8_t)(v->argb & 255);
 		t->rgba[cnr * 4 + 3] = (uint8_t)((v->argb >> 24) & 255);
 	}
+    for (int joint = 1; joint < GEVR_BEAN_SK_COUNT; joint++)
+        if (total[joint] > total[sk]) sk = joint;
 	t->tex = (int16_t)tex;
 	t->alpha = (uint8_t)alpha;
 	t->alphatest = (uint8_t)alphatest;

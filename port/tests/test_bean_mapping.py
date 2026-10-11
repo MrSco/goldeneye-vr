@@ -67,6 +67,7 @@ def main():
             *["-I" + str(ROOT / p) for p in (".", "include", "src", "src/game", "port/include")],
             str(ROOT / "port/tests/gevr_bean_room_mapping_test.c"),
             str(ROOT / "port/src/gevr_romcheck.c"), str(ROOT / "port/src/gevr_rom_manifest.c"),
+            *[str(ROOT / "port/src" / (p + ".c")) for p in ("gevr_bean_load", "gevr_bean_tex", "gevr_bean_logic")],
             "-lz", "-lm", "-o", str(room_exe),
         ], check=True)
         stage_ids = re.findall(r'\{\s*(LEVELID_\w+),', (ROOT / "port/src/gevr_bean_world.c").read_text())
@@ -77,7 +78,15 @@ def main():
             offset, size = manifest_lookup(name)
             raw = directory / "bg.bin"
             raw.write_bytes(rom[offset:offset + size])
-            run = subprocess.run([str(room_exe), str(raw)], capture_output=True, text=True)
+            world = (ROOT / "port/src/gevr_bean_world.c").read_text()
+            bean_name, converted_scale = re.search(r'\{\s*' + stage + r',\s*"([^" ]+)",\s*([0-9.]+)f', world).groups()
+            render_level_scale = float(re.search(r'\{' + stage + r',\s*"[^" ]+",\s*"[^" ]+",\s*([0-9.]+)',
+                                                   (ROOT / "src/game/bg.c").read_text()).group(1))
+            original = assets / "original/background" / bean_name / "default.bin"
+            args = [str(room_exe), str(raw)]
+            if original.exists():
+                args += [str(original), converted_scale, str(1 / render_level_scale)]
+            run = subprocess.run(args, capture_output=True, text=True)
             if run.returncode:
                 failures.append(stage)
                 print(stage, run.stderr[-1200:], flush=True)

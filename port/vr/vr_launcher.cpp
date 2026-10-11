@@ -796,97 +796,79 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
 
     ImGui::TextColored(gold, "MODS");
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    ImGui::TextWrapped("Choose original, HD or XBLA / Project Bean visuals. Packs download "
-                       "when you ask; nothing is included with GoldenEye VR. A pack is used from the "
-                       "next START.");
-    ImGui::PopStyleColor();
+    ImGui::TextDisabled("Choose a look for your next game.");
     ImGui::Separator();
 
-    for (const ModPack &p : packs) {
-        ImGui::PushID(p.id.c_str());
-        ImGui::Text("%s  %s", p.title.c_str(), p.version.c_str());
-        // wrapped: the AI pack's credit ran off the page's right edge (user)
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-        ImGui::TextWrapped("by %s  -  %s  -  %d MB", p.by.c_str(), p.site.c_str(), p.mb);
-        ImGui::PopStyleColor();
-        if (p.state == "downloading" || p.state == "installing") {
-            if (ImGui::SmallButton("Cancel")) gevrJavaCommand("modsCommand", "cancel");
-            ImGui::SameLine();
-            const char *what = p.state == "downloading" ? "Downloading" : "Unpacking";
-            if (p.progress >= 0) {
-                ImGui::TextColored(gold, "%s... %d%%", what, p.progress);
-            } else {
-                ImGui::TextColored(gold, "%s...", what);
-            }
-        } else if (p.state == "installed") {
-            const bool bean = p.id == "ge007-bean";
-            bool inuse = bean ? gevrBeanIsEnabled() : !gevrBeanIsEnabled() && p.id == g_ActiveExtTexPack;
-            ImGui::TextColored(good, inuse ? "Installed, in use." : "Installed.");
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Remove")) {
-                if (bean) gevrBeanSetEnabled(0);
-                if (p.id == g_ActiveExtTexPack) g_ActiveExtTexPack[0] = '\0';
-                vrSettingsSave();
-                gevrJavaCommand("modsCommand", ("remove:" + p.id).c_str());
-            }
-            if (!p.update.empty()) {
-                // a newer release of the pack (ModManager.checkLatest): it replaces this one
-                char label[64];
-                snprintf(label, sizeof(label), "Update to %s (%d MB)", p.update.c_str(), p.mb);
-                const float w = ImGui::CalcTextSize(label).x + ImGui::GetStyle().FramePadding.x * 2;
-                ImGui::SameLine();
-                if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
-                if (ImGui::SmallButton(label)) gevrJavaCommand("modsCommand", ("install:" + p.id).c_str());
-            }
-            if (!p.message.empty()) {   // an update that failed; the installed pack stays
-                ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                ImGui::TextWrapped("%s", p.message.c_str());
-                ImGui::PopStyleColor();
-            }
-        } else {
-            if (p.state == "error") {
-                ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                ImGui::TextWrapped("%s", p.message.c_str());
-                ImGui::PopStyleColor();
-            }
-            char label[64];
-            snprintf(label, sizeof(label), p.state == "error" ? "Try again (%d MB)" : "Download and install (%d MB)", p.mb);
-            if (ImGui::Button(label)) gevrJavaCommand("modsCommand", ("install:" + p.id).c_str());
-        }
-        ImGui::PopID();
-        ImGui::Spacing();
-    }
-    ImGui::Separator();
-
-    // which textures the game uses
-    ImGui::TextColored(gold, "VISUALS");
-    if (ImGui::RadioButton("Original", !gevrBeanIsEnabled() && g_ActiveExtTexPack[0] == '\0')) {
+    if (ImGui::RadioButton("Original", !gevrBeanIsEnabled() && !g_ActiveExtTexPack[0])) {
         g_ActiveExtTexPack[0] = '\0';
         gevrBeanSetEnabled(0);
     }
-    for (const ModPack &p : packs) {
-        if (p.state != "installed") continue;
-        // beside the last choice while it fits, else on the next line
-        const float w = ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x + ImGui::CalcTextSize(p.title.c_str()).x;
-        ImGui::SameLine();
-        if (ImGui::GetContentRegionAvail().x < w) ImGui::NewLine();
-        const bool bean = p.id == "ge007-bean";
-        if (ImGui::RadioButton(p.title.c_str(), bean ? gevrBeanIsEnabled() : !gevrBeanIsEnabled() && p.id == g_ActiveExtTexPack)) {
-            snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
-            gevrBeanSetEnabled(bean);
-        }
-    }
     bool beanListed = false;
-    for (const ModPack &p : packs) if (p.id == "ge007-bean" && p.state == "installed") beanListed = true;
-    if (!beanListed && gevrBeanIsAvailable()
-        && ImGui::RadioButton("XBLA / Project Bean (local files)", gevrBeanIsEnabled())) {
+    if (ImGui::BeginTable("##visual-packs", 3, ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Look", ImGuiTableColumnFlags_WidthStretch, 1.4f);
+        ImGui::TableSetupColumn("Status", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        for (const ModPack &p : packs) {
+            ImGui::PushID(p.id.c_str());
+            const bool bean = p.id == "ge007-bean";
+            const bool installed = p.state == "installed";
+            const bool localBean = bean && gevrBeanIsAvailable();
+            const bool usable = installed || localBean;
+            const bool active = bean ? gevrBeanIsEnabled() : !gevrBeanIsEnabled() && p.id == g_ActiveExtTexPack;
+            const char *title = bean ? "XBLA / Bean" : p.id == "ge007-hd-ai" ? "HD + AI" : "HD";
+            beanListed |= bean && usable;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::BeginDisabled(!usable);
+            if (ImGui::RadioButton(title, active)) {
+                snprintf(g_ActiveExtTexPack, 256, "%s", p.id.c_str());
+                gevrBeanSetEnabled(bean);
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("%s\nby %s\n%s\nVersion %s", p.title.c_str(), p.by.c_str(), p.site.c_str(), p.version.c_str());
+            ImGui::TextDisabled("%s", bean ? "Meshes + textures" : "Textures");
+            ImGui::TableNextColumn();
+            if (p.state == "downloading" || p.state == "installing") {
+                const char *verb = p.state == "downloading" ? "Downloading" : "Unpacking";
+                if (p.progress >= 0) ImGui::TextColored(gold, "%s %d%%", verb, p.progress);
+                else ImGui::TextColored(gold, "%s...", verb);
+            } else {
+                ImGui::TextColored(p.state == "error" ? bad : usable ? good : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),
+                                   "%s", active ? "Selected" : installed ? "Installed" : localBean ? "Local files" : p.state == "error" ? "Download failed" : "Not installed");
+                if (!p.update.empty()) ImGui::TextDisabled("Update available");
+            }
+            if (!p.message.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                gevrLauncherStatus(p.message.c_str());
+                ImGui::PopStyleColor();
+            }
+            ImGui::TableNextColumn();
+            if (p.state == "downloading" || p.state == "installing") {
+                if (ImGui::Button("Cancel")) gevrJavaCommand("modsCommand", "cancel");
+            } else if (!installed || !p.update.empty()) {
+                char label[64];
+                snprintf(label, sizeof(label), "%s (%d MB)", installed ? "Update" : p.state == "error" ? "Retry" : "Download", p.mb);
+                if (ImGui::Button(label)) gevrJavaCommand("modsCommand", ("install:" + p.id).c_str());
+            }
+            if (installed) {
+                if (!p.update.empty()) ImGui::SameLine();
+                if (ImGui::SmallButton("Remove")) {
+                    if (bean) gevrBeanSetEnabled(0);
+                    if (p.id == g_ActiveExtTexPack) g_ActiveExtTexPack[0] = '\0';
+                    vrSettingsSave();
+                    gevrJavaCommand("modsCommand", ("remove:" + p.id).c_str());
+                }
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    if (!beanListed && gevrBeanIsAvailable() && ImGui::RadioButton("XBLA / Bean (local files)", gevrBeanIsEnabled())) {
         gevrBeanSetEnabled(1);
     }
-    if (gevrBeanIsEnabled()) {
-        ImGui::TextWrapped("Bean meshes and textures only; missing replacements use the originals. "
-                           "Toggle in the watch's VR options, or hold one grip + right-stick click for one second.");
-    }
+    if (gevrBeanIsEnabled())
+        ImGui::TextWrapped("Bean uses its own textures. Toggle in VR options or hold one grip + right-stick click for 1 second.");
     ImGui::Separator();
 
     // GoldenEye X's first-person guns, read from the player's own patched ROM
@@ -927,7 +909,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     ImGui::TextColored(gold, "GOLDENEYE X");
     bool gex = VrGexGuns != 0;
-    if (ImGui::Checkbox("Its guns, items, hands and watch arm", &gex)) VrGexGuns = gex ? 1 : 0;
+    if (ImGui::Checkbox("GE-X guns, hands and watch", &gex)) VrGexGuns = gex ? 1 : 0;
     ImGui::SameLine();
     if (ImGui::SmallButton(s_gexRom ? "Change ROM..." : "Choose ROM...")) {
         s_gexPicking = gevrOpenPicker("openGexPicker");
@@ -939,8 +921,10 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                        : s_gexRom ? "Uses your GoldenEye X ROM (data/gex.z64)."
                                   : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
     ImGui::PopStyleColor();
-    if (gex && gevrBeanIsEnabled()) ImGui::TextWrapped("GE-X keeps its first-person guns, hands, watch and reloads.");
+    if (gex && gevrBeanIsEnabled()) ImGui::TextDisabled("GE-X supplies first-person gear; Bean supplies the world.");
     ImGui::Spacing();
+    // Keep the exit in the same place in every download state.
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::fmax(0.0f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight()));
     if (ImGui::Button("Done", ImVec2(-1, 0))) {
         vrSettingsSave();
         open = false;

@@ -1,10 +1,12 @@
 /*
  * Bean rooms and skies.
  *
- * A room vertex is stored in the file's own units, already relative to that
- * room: bean * stageScale - room.pos. The room matrix multiplies by the
- * level scale, so Dam (4.2801 * 0.23364) lands 1:1 with bg_dam. The conversion
- * offsets in the Perfect Dark fork are a recentering and are not applied.
+ * DAB's table targets the converted Perfect Dark level: native file units
+ * divided by GoldenEye's level scale, then recentered. GoldenEye instead
+ * applies the reciprocal level scale in its room matrix (room_data_float2).
+ * Undo that conversion before dealing triangles against the native rooms:
+ * bean * (DAB scale / room_data_float2) - native room.pos.
+ * The Perfect Dark recentering offset does not apply to native room files.
  *
  * The sky is the camera's turn with the translation removed, scaled so the
  * farthest vertex sits at half the far plane. It is drawn instead of the
@@ -29,6 +31,7 @@
 #include "fr.h"
 #include "matrixmath.h"
 #include "gevr_bean_int.h"
+#include "gevr_bean_room_scale.inc.h"
 
 #define MAX_ROOMS 160
 #define SKY_EXTENT 30000.0f
@@ -264,6 +267,7 @@ static int buildStage(int stage)
 	struct gevrBeanMesh *mesh = NULL;
 	int *assign;
 	int nrooms;
+	float fileScale;
 	clearRooms();
 	s_stage = stage;
 	st = stageOf(stage);
@@ -271,6 +275,9 @@ static int buildStage(int stage)
 		s_tried = 1;
 		return 0;
 	}
+	fileScale = beanRoomFileScale(st->scale, room_data_float2);
+	if (!(fileScale > 0.0f))
+		return 0;
 	/* Room boxes are filled at level load. If this draw is early, try again. */
 	if (!ptr_bgdata_room_fileposition_list || g_MaxNumRooms <= 0) {
 		return 0;
@@ -313,9 +320,9 @@ static int buildStage(int stage)
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		float c[3] = { 0, 0, 0 };
 		for (int k = 0; k < 3; k++) {
-			c[0] += t->p[k * 3] * st->scale;
-			c[1] += t->p[k * 3 + 1] * st->scale;
-			c[2] += t->p[k * 3 + 2] * st->scale;
+			c[0] += t->p[k * 3] * fileScale;
+			c[1] += t->p[k * 3 + 1] * fileScale;
+			c[2] += t->p[k * 3 + 2] * fileScale;
 		}
 		c[0] /= 3.0f;
 		c[1] /= 3.0f;
@@ -370,13 +377,15 @@ static int buildStage(int stage)
 			}
 			for (int k = 0; k < 3; k++) {
 				float p[3];
-				p[0] = t->p[k * 3] * st->scale - ptr_bgdata_room_fileposition_list[r].pos.x;
-				p[1] = t->p[k * 3 + 1] * st->scale - ptr_bgdata_room_fileposition_list[r].pos.y;
-				p[2] = t->p[k * 3 + 2] * st->scale - ptr_bgdata_room_fileposition_list[r].pos.z;
+				p[0] = t->p[k * 3] * fileScale - ptr_bgdata_room_fileposition_list[r].pos.x;
+				p[1] = t->p[k * 3 + 1] * fileScale - ptr_bgdata_room_fileposition_list[r].pos.y;
+				p[2] = t->p[k * 3 + 2] * fileScale - ptr_bgdata_room_fileposition_list[r].pos.z;
 				fillVert(mesh, t, &dst[slot + k], p, k);
 			}
 		}
-		if (nopa && gevrBeanEmitList(mesh, opa, nopa, 0, 0, 1, 1, &gdl, &vtx)) {
+		/* DAB draws the level two-sided: decks and stair undersides
+		 * are single sheets in Bean. */
+		if (nopa && gevrBeanEmitList(mesh, opa, nopa, 0, 0, 0, 1, &gdl, &vtx)) {
 			s_room[r].opa = gdl;
 			s_room[r].vtxOpa = vtx;
 			s_room[r].has = 1;
@@ -395,7 +404,7 @@ static int buildStage(int stage)
 	free(assign);
 	s_nrooms = nrooms;
 	s_ok = 1;
-	GEVR_BEAN_LOG("gevr bean: HD rooms %s, %d tris across %d rooms\n", st->bg, mesh->ntris, nrooms);
+	GEVR_BEAN_LOG("gevr bean: HD rooms %s, %d tris across %d rooms, native scale %.8f\n", st->bg, mesh->ntris, nrooms, fileScale);
 	gevrBeanMeshFree(mesh);
 	return 1;
 }
