@@ -92,33 +92,61 @@ static void copyText(char *dst, size_t dstLen, const char *src)
 	dst[i] = 0;
 }
 
-static int bindFiles(const struct gevrRomFileRow *rows, int count, uint32_t romLen)
+/*
+ * The hack's own file table, kept: obInit() rebinds the table after
+ * romdataInit has run, and must put these rows back rather than the retail
+ * manifest's offsets (gevrRomBindFileTable).
+ */
+#define GEVR_FILE_ROWS 1024
+static struct gevrRomFileRow g_FileRows[GEVR_FILE_ROWS];
+static int g_FileRowCount;
+static uint32_t g_FileRomLen;
+
+/*
+ * Each slot takes the hack's row whole: its address, its size and its name,
+ * as the cartridge's own table gives them. Goldfinger renames 487 of 725, and
+ * its code and data look files up by those names, so fileGetIndex finds them
+ * in the table itself and a retail name the hack dropped is not found.
+ */
+static int bindFiles(void)
 {
 	int i;
 	int bound = 0;
 
-	gevrRomAliasReset();
-	for (i = 0; i < count; i++) {
-		const struct gevrRomFileRow *row = &rows[i];
+	for (i = 0; i < g_FileRowCount; i++) {
+		const struct gevrRomFileRow *row = &g_FileRows[i];
 		fileentry *slot;
 
 		if (row->index == 0 || (s32)row->index >= file_entry_max) {
 			continue;
 		}
-		if (!row->size || (uint64_t)row->addr + row->size > romLen || !g_RomFile) {
+		slot = &file_resource_table[row->index];
+		if (!row->size || (uint64_t)row->addr + row->size > g_FileRomLen || !g_RomFile) {
+			slot->hw_address = NULL;
+			resource_lookup_data_array[row->index].rom_size = 0;
 			continue;
 		}
-		slot = &file_resource_table[row->index];
 		slot->hw_address = g_RomFile + row->addr;
 		resource_lookup_data_array[row->index].rom_size = row->size;
-		if (row->name && row->name[0]
-				&& (!slot->filename || strcmp(slot->filename, row->name) != 0)) {
-			gevrRomAliasAdd(row->name, (int)row->index);
+		if (row->name && row->name[0]) {
+			slot->filename = (char *)row->name;
 		}
 		bound++;
 	}
-	sysLogPrintf(LOG_NOTE, "rom: hack bound %d files", bound);
-	return bound > 0;
+	return bound;
+}
+
+int gevrRomRebindVariantFiles(void)
+{
+	int bound;
+
+	if (!gevrRomIsVariant() || !g_FileRowCount) {
+		return 0;
+	}
+	bound = bindFiles();
+	sysLogPrintf(LOG_NOTE, "rom: %s file table bound, %d of %d rows",
+			gevrRomActiveLayout()->tag, bound, g_FileRowCount);
+	return 1;
 }
 
 static int installImages(const struct gevrRomLayout *L)
@@ -291,12 +319,10 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	const struct gevrRomLayout *L = gevrRomActiveLayout();
 	unsigned char *inflated = NULL;
 	unsigned int inflatedLen = 0;
-	struct gevrRomFileRow *rows = NULL;
-	int nfiles;
 	int ok = 0;
 	unsigned int cap;
 
-	gevrRomAliasReset();
+	g_FileRowCount = 0;
 	gevrRomClearItemMap();
 	if (!rom || !L || !L->variant || romLen < GEVR_DATA_ROM + 3) {
 		return 0;
@@ -327,18 +353,15 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 	free(inflated);
 	inflated = NULL;
 
-	rows = (struct gevrRomFileRow *)calloc(1024, sizeof(*rows));
-	if (!rows) {
-		gevrRomDataFree(&g_Window);
-		return 0;
-	}
 	{
 		struct image_entry *savedTex = g_Textures;
 		s32 savedCount = gevrTextureCount();
 		struct ChrModelFileRecord *savedChr = c_item_entries;
 
-		nfiles = gevrRomParseFiles(g_Window.bytes, g_Window.len, rows, 1024);
-		if (!bindFiles(rows, nfiles, romLen) || !installImages(L) || !installCharacters(L)) {
+		g_FileRowCount = gevrRomParseFiles(g_Window.bytes, g_Window.len, g_FileRows, GEVR_FILE_ROWS);
+		g_FileRomLen = romLen;
+		/* The file table is bound last, so a failure here leaves it retail. */
+		if (g_FileRowCount < 3 || !installImages(L) || !installCharacters(L)) {
 			if (g_Textures != savedTex) {
 				struct image_entry *hack = g_Textures;
 
@@ -353,14 +376,13 @@ int gevrRomApplyVariant(const uint8_t *rom, uint32_t romLen)
 				c_item_entries = savedChr;
 			}
 			sysLogPrintf(LOG_ERROR, "rom: %s tables did not bind", L->name);
-			free(rows);
+			g_FileRowCount = 0;
 			gevrRomDataFree(&g_Window);
-			gevrRomAliasReset();
 			gevrRomClearItemMap();
 			return 0;
 		}
 	}
-	free(rows);
+	gevrRomRebindVariantFiles();
 	installFolder();
 	installItems();
 	ok = 1;

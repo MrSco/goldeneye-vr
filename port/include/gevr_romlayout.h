@@ -104,9 +104,8 @@ int gevrRomParseFiles(const uint8_t *data, uint32_t dataLen,
 void gevrRomDecodeImage(uint32_t word, uint32_t stride, uint32_t mask,
 		uint32_t *hitSound, uint32_t *hitTexture, uint32_t *size);
 
-void gevrRomAliasReset(void);
-int gevrRomAliasAdd(const char *name, int index);
-int gevrRomFileAlias(const char *name); /* -1 when the name is not a hack alias */
+/* Put the hack's file table back in file_resource_table (obInit rebinds it). */
+int gevrRomRebindVariantFiles(void);
 
 /* names[item] is the hack's gun file. Held props land on the US item that file is. */
 void gevrRomClearItemMap(void);
