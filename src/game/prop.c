@@ -29,6 +29,9 @@
 #include "prop.h"
 #include "stan.h"
 #include "model.h"
+#ifdef GEVR
+#include "gevr_dam_boat.h"
+#endif
 #include "token.h"
 
 /**
@@ -2108,6 +2111,9 @@ void proplvreset2(enum LEVELID stageId)
                 pdefIndex += 1;
             }
         }
+#ifdef GEVR
+        gevrDamBoatPrepare(stageId);
+#endif
     }
     else
     {

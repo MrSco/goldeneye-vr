@@ -96,8 +96,9 @@ is goldeneyevr.com, in its own repository.
   grip to hand/game rules need real-play and two-headset checks.
 - GE-X: KF7/arms only; Dam headset play covered magazines/holds/fits/watch.
   Mid-level watch refresh and handedness changes still need headset checks.
-- Debug markers: gevr_zdebug.txt, gevr_decal.txt, cryptdoor logging;
-  surface probe disabled unless its marker is present.
+- Solo Dam speedboat: board at the north jetty (B, or a hand on the hull),
+  ride to the island, B to step off. Hull is 1.75× retail. See
+  [Dam speedboat](docs/dam-speedboat.md). Headset crossing still to confirm.
 - Use git worktree list for checkouts. Unmerged: feature/xbla-hd,
   fix/30-water-sky; claude/gex-watch-sleeves is parked, not for merge.
 
