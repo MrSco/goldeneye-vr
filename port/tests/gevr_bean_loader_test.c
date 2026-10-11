@@ -1,5 +1,6 @@
 /* Exercise the production vertex reader and joint selection without game data. */
 #include "../src/gevr_bean_load.c"
+#include "../src/gevr_bean_tex.c"
 #include <assert.h>
 void videoFreeCachedTexture(const void *addr) { (void)addr; }
 
@@ -52,6 +53,12 @@ int main(void)
 	put32(texture + 0x54, 8);
 	put32(texture + 0x58, 1);
 	memset(texture + 0x80, 255, 4096);
+	/* An asymmetric tiled picture detects vertical reversal and channel swaps. */
+	for (unsigned y = 0; y < 8; y++)
+		for (unsigned x = 0; x < 4; x++) {
+			uint8_t *p = texture + 0x80 + tiledOffset(x, y, 32, 2) * 4;
+			p[0] = x * 30; p[1] = y * 20; p[2] = 10; p[3] = 255;
+		}
 	struct gevrCaffFile files[2] = {{1, 0, 0x60, 1}, {1, 0, 4096, 2}};
 	struct gevrCaff image = {
 	    .d = texture, .len = sizeof(texture), .numfiles = 2, .numsects = 2, .files = files};
@@ -63,6 +70,39 @@ int main(void)
 	int width = 0, height = 0, alpha = 0;
 	assert(gevrBeanTexDecode(&image, 0, "authored:type4", &width, &height, &alpha));
 	assert(width == 4 && height == 8 && alpha == 0);
+	const uint8_t *decoded;
+	const void *tile = gevrBeanTexDecode(&image, 0, "authored:type4", &width, &height, &alpha);
+	assert(gevrBeanTexture(tile, &decoded, &width, &height));
+	assert(decoded[0] == 0 && decoded[1] == 140 && decoded[2] == 10);
+	assert(decoded[(7 * 4 + 3) * 4] == 90 && decoded[(7 * 4 + 3) * 4 + 1] == 0);
+	/* A real coloured 4x8 picture must never be treated as missing art. */
+	assert(!gevrBeanTexIsPlaceholder(tile));
+	gevrBeanTexPaint(tile, 0xff00ff);
+	assert(gevrBeanTexIsPlaceholder(tile));
+	gevrBeanTexPaint(tile, 0x808080);
+	assert(!gevrBeanTexIsPlaceholder(tile) && decoded[0] == 128 && decoded[3] == 255);
+	/* DAB borrows cutout art only across draws sharing a vertex shader. */
+	gevrBeanTexPaint(tile, 0xff00ff);
+	for (unsigned y = 0; y < 8; y++)
+		for (unsigned x = 0; x < 4; x++) {
+			uint8_t *p = texture + 0x80 + tiledOffset(x, y, 32, 2) * 4;
+			p[0] = 10; p[1] = 180; p[2] = 30; p[3] = x == 0 ? 0 : 255;
+		}
+	const void *leaves = gevrBeanTexDecode(&image, 0, "authored:leaves", &width, &height, &alpha);
+	assert(leaves && alpha == 1);
+	struct gevrBeanMesh foliage = {.ntex = 2};
+	foliage.standin[0] = tile; foliage.standin[1] = leaves;
+	foliage.texW[1] = 4; foliage.texH[1] = 8; foliage.texCut[1] = 1;
+	struct beanDraw neighbours[2] = {{.tex = 0, .alphatest = 1, .vs = 7},
+	                                  {.tex = 1, .alphatest = 1, .vs = 7}};
+	fixPlaceholders(&foliage, neighbours, 2, "authored:matching-shader");
+	assert(foliage.standin[0] == leaves && foliage.texCut[0] == 1);
+	foliage.standin[0] = tile; neighbours[1].vs = 8;
+	fixPlaceholders(&foliage, neighbours, 2, "authored:shader-boundary");
+	assert(foliage.standin[0] == tile && !gevrBeanTexIsPlaceholder(tile));
+	assert(decoded[0] == 128 && decoded[1] == 128 && decoded[2] == 128);
+
+
 	put32(texture + 0x44, 0xffffffff);
 	assert(!gevrBeanTexDecode(&image, 0, "authored:bad-table", &width, &height, &alpha));
 	gevrBeanTexReset();

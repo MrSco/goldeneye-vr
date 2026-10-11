@@ -3,6 +3,8 @@
  * all come through here. The display lists are built by gevr_bean.c.
  */
 
+#include "gevr_bean_log.h"
+
 #include "gevr_bean_int.h"
 
 #include <math.h>
@@ -18,7 +20,7 @@
 #define MAX_TRIS  500000
 
 struct beanDraw {
-	uint32_t vb, tex, prim, count, ib;
+	uint32_t vb, tex, prim, count, ib, vs;
 	int16_t inst;
 	uint8_t blend, alpha, alphatest;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
@@ -602,6 +604,8 @@ static void markDecals(struct gevrBeanMesh *mesh)
 }
 
 /* flag bit 8: decal. Kept off the public flags so flash/slide/neck stay 1/2/4. */
+#include "gevr_bean_placeholder.inc.h"
+
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 {
 	FILE *fp;
@@ -626,11 +630,11 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	int numbones = 0;
 	float insts[MAX_INST][16];
 	int ninst = 0;
-	int original;
+	int original, levelFade;
 	int section = -1, afterpieces = 0;
 	uint32_t sectionend = 0, repeatvb = ~0u;
 	int triggerCuffs;
-	uint32_t end, pc, vb = 0, tex = 0, matpc = 0;
+	uint32_t end, pc, vb = 0, tex = 0, matpc = 0, vs = 0;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint16_t remap[GEVR_BEAN_MAXPAL];
 	int numremap = 0;
@@ -706,7 +710,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			uint32_t count = be32(data + at + 0x18);
 			uint32_t entries = be32(data + at + 0x34);
 			if (count > MAX_BONES) {
-				fprintf(stderr, "gevr bean: %s pose has %u bones, keeping %d\n", source, count, MAX_BONES);
+				GEVR_BEAN_LOG("gevr bean: %s pose has %u bones, keeping %d\n", source, count, MAX_BONES);
 				count = MAX_BONES;
 			}
 			for (uint32_t i = 0; i < count && fits(entries + 52ull * i, 52, dlen); i++) {
@@ -778,6 +782,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	}
 	original = strncmp(source, "original/", 9) == 0 || strstr(source, "/original/") != NULL ||
 	           strstr(source, "\\original\\") != NULL;
+	levelFade = strstr(source, "background/") || strstr(source, "background\\");
 	triggerCuffs = strstr(source, "/gun/trigger/") != NULL || strstr(source, "\\gun\\trigger\\") != NULL;
 	pal[0] = 0;
 	end = slen >= 8 ? be32(stream + 4) : 0;
@@ -834,6 +839,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			}
 		} else if (type == 0x2e && sz >= 12) {
 			vb = be32(stream + pc + 8);
+		} else if (type == 0x02) {
+			vs = sz >= 8 ? be32(stream + pc + 4) : 0;
 		} else if (type == 0x1a && sz >= 8) {
 			passblend = (be32(stream + pc + 4) & 0xff) == 2;
 			secend = 0;
@@ -893,6 +900,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 					else if (section >= 3 && section <= 5)
 						d->cuff = sections[section - 3];
 				}
+				d->vs = vs;
 				d->vb = vb;
 				d->tex = tex;
 				d->prim = be32(stream + pc + 4);
@@ -915,7 +923,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		} else if ((type == 0x01 || type == 0x30) && ndraws >= MAX_DRAWS) {
 			static int told;
 			if (!told) {
-				fprintf(stderr, "gevr bean: draw cap %d hit in %s\n", MAX_DRAWS, source);
+				GEVR_BEAN_LOG("gevr bean: draw cap %d hit in %s\n", MAX_DRAWS, source);
 				told = 1;
 			}
 		}
@@ -1010,6 +1018,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		/* Material indices address the original table, including failed decodes. */
 		mesh->ntex++;
 	}
+	fixPlaceholders(mesh, draws, ndraws, source);
 	for (int di = 0; di < ndraws; di++) {
 		struct beanDraw *d = &draws[di];
 		if (triggerCuffs && d->cuff == -2)
@@ -1047,6 +1056,10 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 					ok = 0;
 					break;
 				}
+				/* DAB ignores the native/fog alpha outside a fading material.
+				 * Nintendo's blended shader has no material fade and many zeros. */
+				if (!(d->blend && (d->alpha < 255 || levelFade)))
+					corner[k].argb |= 0xff000000u;
 				corner[k].argb = (
 					((corner[k].argb >> 24) << 24)
 					| ((((corner[k].argb >> 16) & 255) * ((cr >> 16) & 255) / 255) << 16)
@@ -1079,7 +1092,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		gevrBeanMeshFree(mesh);
 		return 0;
 	}
-	fprintf(stderr, "gevr bean: %s %d tris, uv %.0f\n", source, mesh->ntris, uvscale);
+	GEVR_BEAN_LOG("gevr bean: %s %d tris, uv %.0f\n", source, mesh->ntris, uvscale);
 	*out = mesh;
 	return 1;
 }

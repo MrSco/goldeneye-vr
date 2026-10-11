@@ -30,7 +30,7 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 			if (wrapper) {
 				gSPMatrix(wrapper, (void *)(uintptr_t)(0x03000000u + matrix * sizeof(Mtx)),
 				          G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
-				gSPDisplayList(wrapper + 1, current);
+				gSPDisplayList(wrapper + 1, swap->ours);
 				gSPEndDisplayList(wrapper + 2);
 				return wrapper;
 			}

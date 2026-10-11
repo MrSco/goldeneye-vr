@@ -66,6 +66,9 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		int lit, int dim, int cull, int zbuf, void **gdlOut, void **vtxOut);
 const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const char *key,
 		int *outW, int *outH, int *outAlpha);
+int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
+int gevrBeanTexIsPlaceholder(const void *addr);
+void gevrBeanTexPaint(const void *addr, uint32_t rgb);
 void gevrBeanTexReset(void);
 
 void gevrBeanWorldReset(void);

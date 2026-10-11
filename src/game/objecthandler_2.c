@@ -142,6 +142,9 @@ void load_object_fill_header(struct ModelFileHeader *objheader, u8 *name, u8* ds
 
     /* PORT: close the hand and arm models' open shells for VR (issue #9) */
     gevrHandPatchApply(objheader, (const char *)name, buffer);
+    /* Clear stale registrations even when GE-X or an unmapped file takes this slot. */
+    gevrBeanForgetModel(objheader);
+    gevrBeanForgetModelStorage(filedata, (u32)get_pc_remaining_buffer_for_index(fileGetIndex((char *)name)));
     /* Converted GE-X first-person rigs retain their arms, guns and reloads. */
     if (!gevrGexPendingFile) gevrBeanModelApply(objheader, (const char *)name);
 }

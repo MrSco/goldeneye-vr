@@ -5,15 +5,17 @@ Game files stay outside the repository and are never copied into artifacts.
 """
 from pathlib import Path
 import shutil
+import os
 import subprocess
 import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+sanitizers = ["-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-no-pie"] if os.environ.get("BEAN_SANITIZE") else []
 with tempfile.TemporaryDirectory(prefix="gevr-bean-") as directory:
     exe = Path(directory) / "bean.exe"
     subprocess.run([
-        shutil.which("gcc") or "cc", "-std=c11", "-O2", "-Wall", "-Wextra",
+        shutil.which("gcc") or "cc", "-std=c11", "-O2", "-include", "stdarg.h", *sanitizers, "-Wall", "-Wextra",
         "-I" + str(ROOT / "port/include"),
         str(ROOT / "port/tests/gevr_bean_assets_test.c"),
         *[str(ROOT / "port/src" / (name + ".c")) for name in
@@ -23,17 +25,25 @@ with tempfile.TemporaryDirectory(prefix="gevr-bean-") as directory:
     subprocess.run([str(exe)], check=True)
     loader = Path(directory) / "loader.exe"
     subprocess.run([
-        shutil.which("gcc") or "cc", "-std=c11", "-O2", "-I" + str(ROOT / "port/include"),
+        shutil.which("gcc") or "cc", "-std=c11", "-O2", "-include", "stdarg.h", *sanitizers, "-I" + str(ROOT / "port/include"),
         str(ROOT / "port/tests/gevr_bean_loader_test.c"),
-        str(ROOT / "port/src/gevr_bean_logic.c"), str(ROOT / "port/src/gevr_bean_tex.c"),
+        str(ROOT / "port/src/gevr_bean_logic.c"),
         "-lm", "-o", str(loader),
     ], check=True)
     subprocess.run([str(loader)], check=True)
+    # Use the production object ray walkers so a render-only mesh cannot leak
+    # into stereo aiming or bullet collision. Keep their address logic intact.
+    propobj = (ROOT / "src/game/propobj.c").read_text()
+    hit_start = propobj.index("BoundVec D_8003204C =")
+    hit_end = propobj.index("void sub_GAME_7F04DCB4(", hit_start)
+    hit = Path(directory) / "gevr_bean_hit_test.inc.h"
+    hit.write_text((ROOT / "port/tests/gevr_bean_hit_test.inc.h").read_text()
+                   .replace("/* PRODUCTION HIT WALKERS */", propobj[hit_start:hit_end]))
     render = Path(directory) / "render.exe"
     subprocess.run([
-        shutil.which("gcc") or "cc", "-std=c11", "-O2", "-fms-extensions", "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
+        shutil.which("gcc") or "cc", "-std=c11", "-O2", "-include", "stdarg.h", *sanitizers, "-fms-extensions", "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
         *["-I" + str(ROOT / path) for path in (".", "include", "src", "src/game", "port/include")],
-        str(ROOT / "port/tests/gevr_bean_render_test.c"), "-lm", "-o", str(render),
+        "-I" + directory, str(ROOT / "port/tests/gevr_bean_render_test.c"), "-lm", "-o", str(render),
     ], check=True)
     for name in ("char/boilerbond", "gun/ak47"):
         marker = Path(directory) / "added-content/xbla/files/new" / name / "default.bin"
@@ -52,12 +62,12 @@ with tempfile.TemporaryDirectory(prefix="gevr-bean-") as directory:
                     .replace("/* PRODUCTION */", source[start:end]))
     room_exe = Path(directory) / "room.exe"
     subprocess.run([
-        shutil.which("gcc") or "cc", "-std=c11", "-O2", "-D_LANGUAGE_C", "-DGEVR", "-DPLATFORM_64BIT=1",
+        shutil.which("gcc") or "cc", "-std=c11", "-O2", "-include", "stdarg.h", *sanitizers, "-D_LANGUAGE_C", "-DGEVR", "-DPLATFORM_64BIT=1",
         "-I" + str(ROOT / "include"), "-I" + str(ROOT / "port/include"), str(room), "-o", str(room_exe),
     ], check=True)
     subprocess.run([str(room_exe)], check=True)
     mapping = Path(directory) / "rooms.exe"
-    subprocess.run([shutil.which("gcc") or "cc", "-std=c11", "-O2", "-fms-extensions",
+    subprocess.run([shutil.which("gcc") or "cc", "-std=c11", "-O2", "-include", "stdarg.h", *sanitizers, "-fms-extensions",
                     "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
                     *["-I" + str(ROOT / path) for path in (".", "include", "src", "src/game", "port/include")],
                     str(ROOT / "port/tests/gevr_bean_room_mapping_test.c"),

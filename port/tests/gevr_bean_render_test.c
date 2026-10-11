@@ -3,6 +3,8 @@
 #include "../src/gevr_bean.c"
 #include <assert.h>
 
+void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
+
 int VrBeanModels = 1;
 uintptr_t osVirtualToPhysical(void *addr) { return (uintptr_t)addr; }
 Vtx *dynAllocateVertices(s32 n) { return calloc(n, sizeof(Vtx)); }
@@ -26,6 +28,7 @@ void *gevrBeanWorldRoom(void *g, int r, int *replaced) { (void)r; *replaced = 0;
 void *gevrBeanWorldSky(void *g, int *drew) { *drew = 0; return g; }
 
 #include "gevr_bean_pose_test.inc.h"
+#include <gevr_bean_hit_test.inc.h>
 
 int main(void)
 {
@@ -65,12 +68,24 @@ int main(void)
     ModelFileHeader header = {0}; header.RootNode = &node;
     gevrBeanInit(); gevrBeanSetEnabled(0);
     gevrBeanModelApply(&header, "Gak47Z");
-    assert(loads == 1 && ro.DisplayList.Primary);
+    assert(loads == 1 && !ro.DisplayList.Primary && ro.DisplayList.ModelType == 3);
     assert(gevrBeanShownGdl(&node, ro.DisplayList.Primary) == NULL);
-    assert(gevrBeanShownModelType(&node, 0) == 3);
+    assert(gevrBeanShownModelType(&node, ro.DisplayList.ModelType) == 3);
     gevrBeanSetEnabled(1);
-    assert(gevrBeanShownGdl(&node, ro.DisplayList.Primary) == ro.DisplayList.Primary);
+    assert(gevrBeanShownGdl(&node, ro.DisplayList.Primary) != NULL);
     assert(gevrBeanShownModelType(&node, ro.DisplayList.ModelType) == 0);
+    /* Reloading an unsupported model at the same header/node must clear ours. */
+    gevrBeanModelApply(&header, "NoBeanReplacementZ");
+    assert(gevrBeanShownGdl(&node, ro.DisplayList.Primary) == NULL);
+    assert(gevrBeanShownModelType(&node, ro.DisplayList.ModelType) == 3);
+    gevrBeanModelApply(&header, "Gak47Z");
+    assert(gevrBeanShownGdl(&node, ro.DisplayList.Primary) != NULL);
+    gevrBeanForgetModelStorage(&node, sizeof(node)); /* A different header reuses intro storage. */
+    assert(gevrBeanShownGdl(&node, ro.DisplayList.Primary) == NULL);
+    gevrBeanModelApply(&header, "Gak47Z");
+    gevrBeanForgetModel(&header); /* The GE-X load path also forgets. */
+    assert(gevrBeanShownGdl(&node, ro.DisplayList.Primary) == NULL);
+    hitChecks();
     poseChecks();
     gevrBeanReset();
     puts("Bean UV, vertex alpha and same-level toggle checks passed");
