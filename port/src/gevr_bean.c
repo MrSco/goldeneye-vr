@@ -931,9 +931,67 @@ static int watchTriangleWanted(const struct gevrBeanTri *t, int cuff)
 	return outfit < 0 ? cuff == -1 : cuff == outfit || (t->tex == 8 && cuff == 2);
 }
 
+/* DAB beanNodeIsToggled (gebean.c:7987): a list under a toggle is one of the
+ * model's switchable pieces, which keeps its own geometry. A switch right
+ * under a head's placeholder switches the whole head, not a piece. GoldenEye
+ * toggles a switch through the model's part table; one it never names starts
+ * visible (model.c modelInitRwData) and stays so. */
+static int listToggled(const ModelFileHeader *header, const ModelNode *node)
+{
+	int walked = 0;
+	for (node = node->Parent; node && walked < 64; node = node->Parent, walked++) {
+		if (nodeOp(node) == MODELNODE_OPCODE_HEAD)
+			break;
+		if (nodeOp(node) != MODELNODE_OPCODE_SWITCH || !node->Parent || nodeOp(node->Parent) == MODELNODE_OPCODE_HEAD)
+			continue;
+		for (int s = 0; header->Switches && s < header->numSwitches; s++)
+			if (header->Switches[s] == node)
+				return 1;
+	}
+	return 0;
+}
+
+/* A first-person gun's hand and sleeve: GoldenEye shows and hides Switches
+ * 8-13 and 35 together (gun.c sub_GAME_7F05E978). The watch inventory and the
+ * guns guards hold (gevr_heldgun.c) draw the gun bare. */
+static int gunHandNode(const ModelFileHeader *header, const ModelNode *node)
+{
+	for (; node; node = node->Parent)
+		for (int s = 8; s <= 35 && s < header->numSwitches; s = s == 13 ? 35 : s + 1)
+			if (header->Switches[s] && node == header->Switches[s])
+				return 1;
+	return 0;
+}
+
+/* DAB beanDrawIsGlove (gebean.c:11505): GoldenEye's glove is the HD gun's one
+ * 512x511 picture. It is drawn where GoldenEye draws the hand. */
+static int gunGloveTri(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t)
+{
+	return t->tex >= 0 && t->tex < mesh->ntex && mesh->texW[t->tex] == 512 && mesh->texH[t->tex] == 511;
+}
+
+/* DAB gebean.c:10560: an odd permutation swaps two axes and each negative
+ * sign mirrors once. A mirrored fit's triangles are wound the other way. */
+static int fitMirrors(const struct beanFit *fit)
+{
+	int mirror = (fit->perm[0] == 0) + (fit->perm[1] == 1) + (fit->perm[2] == 2) == 1;
+	for (int k = 0; k < 3; k++)
+		mirror ^= fit->sign[k] < 0;
+	return mirror;
+}
+
+/* A fitted point in the native model's own rest space. */
+static void fitPoint(const struct beanFit *fit, const float *src, float *out)
+{
+	for (int k = 0; k < 3; k++)
+		out[k] = (src[fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k];
+}
+
+/* rest: the rest of the matrix the list is drawn under, taken off every vertex
+ * (DAB gebean.c:12941). glove: -1 every triangle, 0 not the glove, 1 the glove. */
 static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, ModelNode *host,
-                     const struct beanFit *fit, const struct beanRigidBinding *binding, int cuff, void **gdl,
-                     void **vtx)
+                     const struct beanFit *fit, const struct beanRigidBinding *binding, int cuff,
+                     const float *rest, int glove, void **gdl, void **vtx)
 {
 	if (kind == BEAN_HEAD || kind == BEAN_HEADBODY)
 		return emitHead(mesh, kind, gdl, vtx);
@@ -984,10 +1042,12 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 		hc_[k] = (hmin[k] + hmax[k]) * 0.5f;
 	}
 	scale = bext > 1e-4f ? hext / bext : 1.0f;
+	int mirror = fit && fitMirrors(fit);
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		if (!triWanted(mesh, t, kind, hasHead) || (mesh->triggerCuffs && t->cuff != cuff) ||
-		    (binding && rigidTriangleGroup(t, binding) != binding->target)) {
+		    (binding && rigidTriangleGroup(t, binding) != binding->target) ||
+		    (glove >= 0 && gunGloveTri(mesh, t) != glove)) {
 			continue;
 		}
 		if (n + 3 > cap) {
@@ -999,15 +1059,19 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 		}
 		for (int c = 0; c < 3; c++) {
 			float p[3], nr[3];
+			if (fit)
+				fitPoint(fit, &t->p[c * 3], p);
 			for (int k = 0; k < 3; k++) {
-				p[k] =
-				    fit ? (t->p[c * 3 + fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k]
-					    : (t->p[c * 3 + k] - bc[k]) * scale + hc_[k];
+				if (!fit)
+					p[k] = (t->p[c * 3 + k] - bc[k]) * scale + hc_[k];
 				if (fit && binding && binding->base >= 0 && binding->target >= 0)
 					p[k] += binding->groups[binding->base].o[k] - binding->pivot[binding->target][k];
+				if (rest)
+					p[k] -= rest[k];
 				nr[k] = fit ? t->n[c * 3 + fit->perm[k]] * fit->sign[k] : t->n[c * 3 + k];
 			}
-			fillEmit(t, t->tex >= 0 && t->tex < mesh->ntex && mesh->texCut[t->tex], &ev[n + c], p, nr, c);
+			int slot = mirror && c ? 3 - c : c;
+			fillEmit(t, t->tex >= 0 && t->tex < mesh->ntex && mesh->texCut[t->tex], &ev[n + slot], p, nr, c);
 		}
 		n += 3;
 	}
@@ -1562,7 +1626,10 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		int best = -1;
 		float bestSpan = -1.0f;
 		int restrictType = kind == BEAN_GUN && !fit;
-		for (int pass = 0; pass < (restrictType ? 2 : 1); pass++) {
+		/* DAB gebean.c:12966: a first-person gun goes on the untoggled lists;
+		 * a second pass takes toggled ones for a gun that has nothing else. */
+		int untoggled = kind == BEAN_GUN && fit;
+		for (int pass = 0; pass < (restrictType || untoggled ? 2 : 1); pass++) {
 			for (int i = 0; i < nd; i++) {
 				int g = dls[i].grp;
 				int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
@@ -1570,6 +1637,9 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					continue;
 				}
 				if (pass == 0 && restrictType && dls[i].modelType != 3) {
+					continue;
+				}
+				if (pass == 0 && untoggled && listToggled(header, dls[i].node)) {
 					continue;
 				}
 				int far = 0;
@@ -1593,8 +1663,20 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			rigidBindings(mesh, fit, grp, ng, dls[best].grp, &binding);
 			binding.target = binding.base;
 			void *gdl = NULL, *vtx = NULL;
+			/* Bean's gun is GoldenEye's model at 4.7 times in GoldenEye's frame
+			 * (DAB gebean.c:775): each list takes its matrix's rest off. */
+			int gun = kind == BEAN_GUN && fit && dls[best].grp >= 0;
+			int glove = 0, hand = -1;
+			for (int t = 0; gun && !mesh->triggerCuffs && t < mesh->ntris && !glove; t++)
+				glove = triWanted(mesh, &mesh->tris[t], kind, hasHead) && gunGloveTri(mesh, &mesh->tris[t]);
+			for (int i = 0; glove && i < nd && hand < 0; i++) {
+				int g = dls[i].grp;
+				if (i != best && g >= 0 && !dls[i].simple && !grp[g].joint && gunHandNode(header, dls[i].node))
+					hand = i;
+			}
 			int mainEmitted = emitRigid(mesh, kind, hasHead, dls[best].node, fit,
-			                            kind == BEAN_PROP ? &binding : NULL, -1, &gdl, &vtx);
+			                            kind == BEAN_PROP ? &binding : NULL, -1, gun ? grp[dls[best].grp].o : NULL,
+			                            gun && !mesh->triggerCuffs ? 0 : -1, &gdl, &vtx);
 			if (mainEmitted || kind == BEAN_PROP) {
 				if (mainEmitted) {
 					keepAlloc(gdl);
@@ -1612,7 +1694,8 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 						int cuff = cuffOf(header, dls[i].node, 29);
 						void *cuffG = NULL, *cuffV = NULL;
 						if (cuff >= 0 &&
-						    emitRigid(mesh, kind, hasHead, dls[i].node, fit, NULL, cuff, &cuffG, &cuffV)) {
+						    emitRigid(mesh, kind, hasHead, dls[i].node, fit, NULL, cuff,
+						              gun && g >= 0 ? grp[g].o : NULL, -1, &cuffG, &cuffV)) {
 							keepAlloc(cuffG);
 							keepAlloc(cuffV);
 							registerPrimary(dls[i].node, cuffG, 0);
@@ -1623,7 +1706,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					if (kind == BEAN_PROP && g >= 0 && g != binding.base) {
 						binding.target = g;
 						void *partGdl = NULL, *partVtx = NULL;
-						if (emitRigid(mesh, kind, hasHead, dls[i].node, fit, &binding, -1, &partGdl,
+						if (emitRigid(mesh, kind, hasHead, dls[i].node, fit, &binding, -1, NULL, -1, &partGdl,
 						              &partVtx)) {
 							keepAlloc(partGdl);
 							keepAlloc(partVtx);
@@ -1634,6 +1717,20 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					}
 					if (kind == BEAN_GUN && (dls[i].simple || underJoint || gunFlashNode(header, dls[i].node)))
 						continue;
+					/* Without Bean's glove GoldenEye's own hand stays (DAB keeps a
+					 * toggled list's geometry); with it the glove takes the hand. */
+					if (gun && gunHandNode(header, dls[i].node)) {
+						void *handG = NULL, *handV = NULL;
+						if (!glove)
+							continue;
+						if (i == hand && emitRigid(mesh, kind, hasHead, dls[i].node, fit, NULL, -1, grp[g].o, 1,
+						                           &handG, &handV)) {
+							keepAlloc(handG);
+							keepAlloc(handV);
+							registerPrimary(dls[i].node, handG, 0);
+							continue;
+						}
+					}
 					registerPrimary(dls[i].node, s_blank, 1);
 				}
 			}

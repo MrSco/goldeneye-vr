@@ -45,6 +45,195 @@ void *dynAllocate(s32 size)
 }
 extern void *beanNativeModel(const char *, const char *, int, int, int, ModelFileHeader *);
 
+/* A node's rest: the group origins above it, as applyMesh adds them up. */
+static void restOf(const ModelNode *n, float o[3])
+{
+	o[0] = o[1] = o[2] = 0;
+	for (; n; n = n->Parent) {
+		const coord3d *c = !n->Data                                   ? NULL
+		                   : nodeOp(n) == MODELNODE_OPCODE_GROUP       ? &n->Data->Group.Origin
+		                   : nodeOp(n) == MODELNODE_OPCODE_GROUPSIMPLE ? &n->Data->GroupSimple.Origin
+		                                                               : NULL;
+		for (int k = 0; c && k < 3; k++)
+			o[k] += c->f[k];
+	}
+}
+
+/* The vertices a registered list draws, in the model's rest space. */
+static int swapVerts(const struct beanSwap *s, float (**out)[3])
+{
+	const Gfx *body = (const Gfx *)(uintptr_t)((const Gfx *)s->ours)[1].words.w1;
+	float rest[3];
+	int n = 0;
+	restOf(s->node, rest);
+	*out = NULL;
+	for (int c = 0; (body[c].words.w0 >> 24) != (G_ENDDL & 255); c++) {
+		if ((body[c].words.w0 >> 24) != (G_VTX & 255))
+			continue;
+		const Vtx *v = (const Vtx *)(uintptr_t)body[c].words.w1;
+		int count = (int)((body[c].words.w0 & 0xffff) / sizeof(Vtx));
+		*out = realloc(*out, (size_t)(n + count) * sizeof(**out));
+		assert(*out);
+		for (int j = 0; j < count; j++, n++)
+			for (int k = 0; k < 3; k++)
+				(*out)[n][k] = v[j].v.ob[k] + rest[k];
+	}
+	return n;
+}
+
+/* A gun's untoggled native lists, which Bean's gun stands in for, and whether
+ * any of them could carry it (on the root matrix, off the joints). */
+static void nativeGun(ModelFileHeader *h, ModelNode *n, float (**out)[3], int *count, int *candidates,
+                      int *handLists)
+{
+	for (; n; n = n->Next) {
+		int op = nodeOp(n);
+		if ((op == MODELNODE_OPCODE_DL || op == MODELNODE_OPCODE_DLCOLLISION) && n->Data) {
+			int joint = 0, simple = 0, owner = 1;
+			for (const ModelNode *up = n->Parent; up; up = up->Parent) {
+				int upOp = nodeOp(up);
+				simple |= upOp == MODELNODE_OPCODE_GROUPSIMPLE;
+				if (owner && upOp == MODELNODE_OPCODE_GROUP && up->Data)
+					joint = up->Data->Group.JointID != 0;
+				owner &= upOp != MODELNODE_OPCODE_GROUP && upOp != MODELNODE_OPCODE_HEADER &&
+				         upOp != MODELNODE_OPCODE_GROUPSIMPLE;
+			}
+			*handLists += !joint && !simple && gunHandNode(h, n);
+			if (!joint && !simple && !listToggled(h, n)) {
+				Vertex *v;
+				int vc, type;
+				Gfx *primary;
+				float rest[3];
+				dlVerts(n, &v, &vc, &type, &primary);
+				restOf(n, rest);
+				*candidates += nodeMatrix(n) == nodeMatrix(h->RootNode);
+				*out = realloc(*out, (size_t)(*count + vc) * sizeof(**out));
+				assert(*out);
+				for (int j = 0; j < vc; j++, (*count)++)
+					for (int k = 0; k < 3; k++)
+						(*out)[*count][k] = v[j].coord.AsArray[k] + rest[k];
+			}
+		}
+		ModelNode *child = n->Child;
+		if (!child && op == MODELNODE_OPCODE_HEADER && n->Data)
+			child = n->Data->Header.FirstGroupNode;
+		if (!child && op == MODELNODE_OPCODE_GROUP && n->Data)
+			child = n->Data->Group.ChildGroupNode;
+		nativeGun(h, child, out, count, candidates, handLists);
+	}
+}
+
+static double signedVolume(float (*p)[3], int n)
+{
+	double o[3] = {0}, v = 0;
+	for (int i = 0; i < n; i++)
+		for (int k = 0; k < 3; k++)
+			o[k] += p[i][k] / n;
+	for (int i = 0; i + 2 < n; i += 3) {
+		double a[3], b[3], c[3];
+		for (int k = 0; k < 3; k++) {
+			a[k] = p[i][k] - o[k];
+			b[k] = p[i + 1][k] - o[k];
+			c[k] = p[i + 2][k] - o[k];
+		}
+		v += a[0] * (b[1] * c[2] - b[2] * c[1]) - a[1] * (b[0] * c[2] - b[2] * c[0]) + a[2] * (b[0] * c[1] - b[1] * c[0]);
+	}
+	return v / 6;
+}
+
+/* Rigid replacements against the cartridge: Bean's first-person gun is
+ * GoldenEye's model at 4.7 times in GoldenEye's frame (DAB gebean.c:775), it
+ * hangs on an untoggled list (gebean.c:12966), the glove goes with GoldenEye's
+ * hand, and no fit turns a model inside out (gebean.c:8304). */
+static void checkRigid(ModelFileHeader *h, const struct gevrBeanMesh *mesh, int kind, const struct beanFit *fit,
+                       const char *name)
+{
+	if (!fit || (kind != BEAN_GUN && kind != BEAN_PROP) || mesh->triggerCuffs ||
+	    !strcmp(fit->source, "prop/helicopter"))
+		return;
+	float (*bean)[3] = NULL, (*native)[3] = NULL;
+	int nb = 0, nn = 0, candidates = 0, handLists = 0, lists = 0, handBlanks = 0, glove = 0, wanted = 0;
+	ModelNode *anchor = NULL, *hand = NULL;
+	for (int t = 0; t < mesh->ntris; t++)
+		glove |= kind == BEAN_GUN && triWanted(mesh, &mesh->tris[t], kind, 0) && gunGloveTri(mesh, &mesh->tris[t]);
+	if (kind == BEAN_GUN)
+		nativeGun(h, h->RootNode, &native, &nn, &candidates, &handLists);
+	for (int i = 0; i < s_nswap; i++) {
+		handBlanks += kind == BEAN_GUN && s_swap[i].ours == s_blank && gunHandNode(h, s_swap[i].node);
+		if (s_swap[i].ours == s_blank)
+			continue;
+		/* The gun's own list is registered first, then the glove's. */
+		if (kind == BEAN_GUN && lists++)
+			hand = s_swap[i].node;
+		else if (kind == BEAN_GUN)
+			anchor = s_swap[i].node;
+		float (*v)[3];
+		int n = swapVerts(&s_swap[i], &v);
+		bean = realloc(bean, (size_t)(nb + n) * sizeof(*bean));
+		assert(bean);
+		memcpy(bean + nb, v, (size_t)n * sizeof(*v));
+		nb += n;
+		free(v);
+	}
+	assert(nb > 0 && nb % 3 == 0);
+	if (kind == BEAN_GUN) {
+		assert(anchor && lists <= 2 && (!listToggled(h, anchor) || !candidates));
+		/* Bean's glove takes GoldenEye's hand; without one the hand stays. */
+		if (glove && handLists)
+			assert(hand && gunHandNode(h, hand));
+		else
+			assert(!hand && !handBlanks);
+	}
+
+	/* Same orientation as the release: a mirrored fit winds the other way. */
+	float (*source)[3] = malloc((size_t)mesh->ntris * 3 * sizeof(*source));
+	assert(source);
+	for (int t = 0; t < mesh->ntris; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		if (!triWanted(mesh, tri, kind, 0) || (kind == BEAN_GUN && gunGloveTri(mesh, tri) && !hand))
+			continue;
+		memcpy(source[wanted * 3], tri->p, 9 * sizeof(float));
+		wanted++;
+	}
+	double expected = signedVolume(source, wanted * 3) * fit->scale * fit->scale * fit->scale;
+	double drawn = signedVolume(bean, nb);
+	if (wanted * 3 == nb && fabs(expected) > 1000.0)
+		assert(drawn / expected > 0.5 && drawn / expected < 2.0);
+
+	double top = -1, nearest = 0;
+	if (kind == BEAN_GUN) {
+		/* SKEL_TOP binds at 4.7 times GoldenEye's root group (DAB gebean.c:787). */
+		for (int b = 0; b < mesh->nbones; b++)
+			if (!strcmp(mesh->boneName[b], "SKEL_TOP")) {
+				float at[3], root[3];
+				fitPoint(fit, mesh->boneBind[b], at);
+				restOf(h->RootNode, root);
+				top = sqrtf((at[0] - root[0]) * (at[0] - root[0]) + (at[1] - root[1]) * (at[1] - root[1]) +
+				            (at[2] - root[2]) * (at[2] - root[2]));
+				assert(top < 1.5);
+			}
+		/* Every vertex of GoldenEye's gun has Bean's nearby. */
+		for (int i = 0; i < nn; i++) {
+			float best = 1e30f;
+			for (int j = 0; j < nb; j++) {
+				float d = 0;
+				for (int k = 0; k < 3; k++)
+					d += (native[i][k] - bean[j][k]) * (native[i][k] - bean[j][k]);
+				if (d < best)
+					best = d;
+			}
+			nearest += sqrtf(best) / nn;
+		}
+		/* Bean's watch-alone magnet file (DAB gebean.c:510) lacks GoldenEye's arm. */
+		assert(nearest < (strcmp(name, "GwatchmagnetattractZ") ? 30.0 : 60.0));
+	}
+	printf("PLACED %s nearest %.1f volume %.3f top %.2f glove %d\n", name, nearest,
+	       fabs(expected) > 1000.0 && wanted * 3 == nb ? drawn / expected : 0.0, top, hand != NULL);
+	free(source);
+	free(bean);
+	free(native);
+}
+
 int main(int argc, char **argv)
 {
 	assert(argc == 8);
@@ -76,7 +265,7 @@ int main(int argc, char **argv)
 			continue;
         if (kind == BEAN_GUN) {
             assert(!gunFlashNode(&header, node));
-            assert(nodeMatrix(node) == nodeMatrix(header.RootNode));
+            assert(gunHandNode(&header, node) || nodeMatrix(node) == nodeMatrix(header.RootNode));
         }
 		lists++;
 		skin += s_swap[i].skin != NULL;
@@ -100,6 +289,7 @@ int main(int argc, char **argv)
 				}
 		}
 	}
+	checkRigid(&header, mesh, kind, fitForName(argv[2]), argv[2]);
 
     if (!strcmp(argv[2], "CdjbondZ") || !strcmp(argv[2], "Cgreatguard2Z")) {
         /* Check actual cartridge joint identities against the mesh sections,
