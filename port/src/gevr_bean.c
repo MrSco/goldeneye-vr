@@ -1080,7 +1080,10 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 			free(ev);
 			return 0;
 		}
-		int ok = gevrBeanEmitList(mesh, ev, n, kind == BEAN_CHR, kind == BEAN_GUN, 1, 1, gdl, vtx);
+		/* DAB xblamesh.c:7171: characters cull their back faces as the N64 models
+		 * do; props and guns stay two-sided (Dam's truck cab and gates lost their
+		 * far walls when they culled) */
+		int ok = gevrBeanEmitList(mesh, ev, n, kind == BEAN_CHR, kind == BEAN_GUN, kind == BEAN_CHR, 1, gdl, vtx);
 		free(ev);
 		return ok;
 	}
