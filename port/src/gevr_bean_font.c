@@ -95,9 +95,12 @@ void gevrBeanFontRepaint(struct fontchar *native, int gothic, int character) {
         int pw=(w*padded+native->width-1)/native->width;
         unsigned char *rgba=calloc((size_t)pw*h, 4);
         if (!rgba) return;
+        /* The atlas decodes bottom row first and y counts from its top; the
+         * native glyph's row 0 is its top, so the glyph is written top down.
+         * Writing it bottom up as well drew every letter upside down. */
         for (int row=0; row<h; row++) for (int col=0; col<w; col++) {
             const unsigned char *src=f->atlas+((f->h-1-y-row)*f->w+x+col)*4;
-            unsigned char *dst=rgba+((h-1-row)*pw+col)*4;
+            unsigned char *dst=rgba+(row*pw+col)*4;
             dst[0]=dst[1]=dst[2]=255; dst[3]=src[3];
         }
         gevrBeanRepaintBind(native->pixeldata, rgba, pw, h);
