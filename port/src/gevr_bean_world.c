@@ -68,34 +68,34 @@ struct beanStage {
 	const char *skyRelease;
 };
 
-/* stageScale is Bean units -> GoldenEye file units. Statue is omitted. */
+/* DAB fitted scales in GoldenEye file units (no Perfect Dark recentering). */
 static const struct beanStage s_stages[] = {
-	{ LEVELID_ARCHIVES, "archives", 1.072400836f, "archives", NULL },
-	{ LEVELID_CONTROL,  "control",  1.616580623f, "control",  NULL },
-	{ LEVELID_FACILITY, "facility", 0.531318270f, NULL,       NULL },
-	{ LEVELID_AZTEC,    "aztec",    1.475407422f, "aztec",    NULL },
-	{ LEVELID_BASEMENT, "library",  0.573907333f, "library",  NULL },
-	{ LEVELID_STACK,    "library",  0.573907333f, "library",  NULL },
-	{ LEVELID_LIBRARY,  "library",  0.573907333f, "library",  NULL },
-	{ LEVELID_CAVERNS,  "cavern",   0.501072787f, "caves",    NULL },
-	{ LEVELID_CRADLE,   "cradle",   1.828668257f, "cradle",   NULL },
-	{ LEVELID_EGYPT,    "temple",   0.921010121f, "temple",   NULL },
-	{ LEVELID_DAM,      "dam",      4.280101153f, "dam",      "dam" },
-	{ LEVELID_DEPOT,    "depot",    0.805820509f, "depot",    NULL },
-	{ LEVELID_FRIGATE,  "frigate",  0.821433927f, "frigate",  NULL },
-	{ LEVELID_TEMPLE,   "multitemple", 3.119410587f, "multitemple", NULL },
-	{ LEVELID_JUNGLE,   "jungle",   0.706146978f, NULL,       NULL },
-	{ LEVELID_CAVES,    "caves",    0.715800060f, "caves",    NULL },
-	{ LEVELID_STREETS,  "streets",  1.239411313f, "streets",  NULL },
-	{ LEVELID_COMPLEX,  "complex",  0.401740938f, "complex",  NULL },
-	{ LEVELID_RUNWAY,   "runway",   0.508383572f, "runway",   "runway" },
-	{ LEVELID_BUNKER1,  "bunker",   0.429214082f, "bunker",   NULL },
-	{ LEVELID_BUNKER2,  "bunker2",  0.429214887f, "bunker2",  NULL },
-	{ LEVELID_SURFACE,  "surface",  0.497385395f, "sf1",      "surface" },
-	{ LEVELID_SURFACE2, "surface",  0.497385395f, "sf2",      "surface" },
-	{ LEVELID_SILO,     "silo",     0.615140709f, "silo",     NULL },
-	{ LEVELID_TRAIN,    "train",    1.300371514f, "train",    NULL }
-};
+    {LEVELID_ARCHIVES, "archives", 1.072400836f, "archives", NULL},
+    {LEVELID_CONTROL, "control", 1.616580623f, "control", NULL},
+    {LEVELID_FACILITY, "facility", 0.531318270f, NULL, NULL},
+    {LEVELID_AZTEC, "aztec", 1.475407422f, "aztec", NULL},
+    {LEVELID_BASEMENT, "library", 0.573907333f, "library", NULL},
+    {LEVELID_STACK, "library", 0.573907333f, "library", NULL},
+    {LEVELID_LIBRARY, "library", 0.573907333f, "library", NULL},
+    {LEVELID_CAVERNS, "cavern", 0.501072787f, "caves", "caverns"},
+    {LEVELID_CRADLE, "cradle", 1.828668257f, "cradle", NULL},
+    {LEVELID_EGYPT, "temple", 0.921010121f, "temple", "egyptian"},
+    {LEVELID_DAM, "dam", 4.280101153f, "dam", "dam"},
+    {LEVELID_DEPOT, "depot", 0.805820509f, "depot", NULL},
+    {LEVELID_FRIGATE, "frigate", 0.821433927f, "frigate", "frigate"},
+    {LEVELID_TEMPLE, "multitemple", 3.119410587f, "multitemple", "temple"},
+    {LEVELID_JUNGLE, "jungle", 0.706146978f, NULL, NULL},
+    {LEVELID_CAVES, "caves", 0.715800060f, "caves", NULL},
+    {LEVELID_STREETS, "streets", 1.239411313f, "streets", NULL},
+    {LEVELID_COMPLEX, "complex", 0.401740938f, "complex", "complex"},
+    {LEVELID_RUNWAY, "runway", 0.508383572f, "runway", "runway"},
+    {LEVELID_BUNKER1, "bunker", 0.429214082f, "bunker", "bunker"},
+    {LEVELID_BUNKER2, "bunker2", 0.429214887f, "bunker2", "bunker2"},
+    {LEVELID_SURFACE, "surface", 0.497385395f, "sf1", "surface"},
+    {LEVELID_SURFACE2, "surface", 0.497385395f, "sf2", "surface2"},
+    {LEVELID_SILO, "silo", 0.615140709f, "silo", NULL},
+    {LEVELID_STATUE, "statuepark", 0.007471857f, "statuepark", NULL},
+    {LEVELID_TRAIN, "train", 1.300371514f, "train", NULL}};
 
 static int baseStage(int stage)
 {
@@ -114,9 +114,6 @@ static int baseStage(int stage)
 static const struct beanStage *stageOf(int stage)
 {
 	stage = baseStage(stage);
-	if (stage == LEVELID_STATUE) {
-		return NULL;
-	}
 	for (int i = 0; i < (int)(sizeof(s_stages) / sizeof(s_stages[0])); i++) {
 		if (s_stages[i].stage == stage) {
 			return &s_stages[i];
@@ -187,8 +184,17 @@ static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 	e->decal = (t->flags & GEVR_BEAN_F_DECAL) ? 1 : 0;
 }
 
+#include "gevr_bean_rooms.inc.h"
+
 static int roomFor(const float c[3], int nrooms)
 {
+	if (s_tree) {
+		float distance = 1e30f;
+		int room = -1;
+		roomReferenceNearest(0, c, &distance, &room);
+		if (room >= 0)
+			return room;
+	}
 	int best = -1;
 	float bestVol = 1e30f;
 	int near = -1;
@@ -299,6 +305,8 @@ static int buildStage(int stage)
 		gevrBeanMeshFree(mesh);
 		return 0;
 	}
+	if (!roomReferenceBuild(nrooms))
+		fprintf(stderr, "gevr bean: no reference room triangles, using room boxes\n");
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		float c[3] = { 0, 0, 0 };
@@ -381,6 +389,7 @@ static int buildStage(int stage)
 		free(opa);
 		free(xlu);
 	}
+	roomReferenceFree();
 	free(assign);
 	s_nrooms = nrooms;
 	s_ok = 1;

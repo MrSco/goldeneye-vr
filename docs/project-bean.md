@@ -32,8 +32,10 @@ Files under `new/` preserve their original names and case, including
 The package's XEX, music and sound banks are not used by this feature.
 
 Missing or unsupported models keep their N64 geometry. The two TV-screen
-CAFF files have no GPU mesh payload and use this fallback. Statue keeps its
-N64 rooms and sky. The installed edition determines which skies exist;
+CAFF files have no GPU mesh payload and use this fallback. The three broken
+release civilian bodies, poorly fitting wallet/plastique meshes and animated
+intro logo also keep native geometry, following DAB's fallback choices.
+Statue now has Bean rooms. The installed edition determines which skies exist;
 the game keeps its sky when a replacement is absent and keeps its original
 water pass when a Bean dome is drawn.
 
@@ -47,11 +49,32 @@ texture normalization, failed texture decode indices, texture-cache
 invalidation, same-level toggles, bounded allocations and room-matrix
 snapshots. Display lists establish their cycle and texture state explicitly.
 
+The mapping follows [DAB's Bean importer](https://github.com/DabDavis/perfect-dark-dabs-mod/tree/adef1dc2d4eca1a5c453a7f2bf03a3b6cdad99b8)
+and its native prop fits, adapted to GoldenEye's own skeleton and room format.
+There are 457 case-sensitive native model mappings across characters, heads,
+first-person guns and props. The catalog audit applies each to the actual USA
+cartridge model, rather than checking CAFF decoding alone. Two mapped TV files
+intentionally fall back. The remaining 55 native catalog entries have absent,
+broken or unsupported release replacements.
+
+Characters retain four bone weights per vertex and blend the game's animated
+matrices. Definitions stay shared; each instance gets its own frame copy.
+Heads resolve the body's neck/back matrices after attachment. Watch and detonator
+sleeves follow all six outfit switches; clock hands follow the native clock
+matrices. Moving prop parts retain their wheel, rotor, turret and barrel matrices.
+The ending helicopter keeps the native pilot inside the Bean aircraft.
+
+Room ownership uses the nearest original room triangle, with a temporary BVH
+for the search. This removes ambiguous overlapping-box assignments. All 26
+supported stage entries, including multiplayer aliases and Statue, pass native
+room-reference checks. The retail sky filenames are mapped explicitly.
+
 Run the authored regression fixtures, then optionally test local game files:
 
 ```
 python port/tests/test_bean.py
 python port/tests/test_bean.py path/to/xbla/files
+python port/tests/test_bean_mapping.py path/to/GoldenEye-USA.z64 path/to/xbla/files
 ```
 
 The supplied local set contains 499 files: 497 decoded meshes and two expected
@@ -84,6 +107,10 @@ diffuse UV at dword 5 and colour at dword 8.
   Check the temporary gauges with radar enabled and disabled.
 - Measure frame time and memory on Quest 2 and Quest 3, including stage changes.
 
-The character replacement uses one rigid triangle group per joint. Visual
-fit and animation quality, room assignment and performance still require
-headset testing. A successful host decoder check does not establish those.
+Mapping validation passes for all 457 catalog rows and 26 stage entries,
+including ASan/UBSan checks. This confirms decoding, native matrix bindings,
+weighted pose isolation, source filename case and reference-room decoding.
+Visual fit, head/neck seams, portal visibility and Quest performance still need
+headset testing. Animated CAFF pictures currently use their first frame, and
+layered reflections/material shaders are simplified; this is not full visual
+parity with DAB's renderer.

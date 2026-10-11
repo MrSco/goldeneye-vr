@@ -1,5 +1,8 @@
 #include <ultra64.h>
 #include "dyn.h"
+#ifdef GEVR
+#include "gevr_bean.h"
+#endif
 #include <deb.h>
 #include <token.h>
 #include <str.h>
@@ -229,6 +232,9 @@ void dynInitMemory(void) {
 }
 
 Gfx *dynGetMasterDisplayList(void) {
+#ifdef GEVR
+    gevrBeanBeginFrame();
+#endif
     g_GfxRequestedDisplayList = TRUE;
 
     return (Gfx*)g_GfxBuffers[g_GfxActiveBufferIndex];

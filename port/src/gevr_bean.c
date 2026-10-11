@@ -1,5 +1,5 @@
 /*
- * Bean meshes on GoldenEye's model nodes. One display list per joint.
+ * Bean meshes on GoldenEye's model nodes. Weighted vertices on the native animation matrices.
  * Muzzle flash, slide and cartridge lists are left as the game drew them.
  * Level reset drops the registry and does not walk nodes.
  */
@@ -14,6 +14,7 @@
 #include <bondtypes.h>
 #include <bondconstants.h>
 
+#include "dyn.h"
 #include "gevr_bean.h"
 #include "gevr_bean_int.h"
 
@@ -25,16 +26,34 @@ extern int VrBeanModels;
 #define MAX_DL    1024
 #define MAX_WALK  4096
 
+#include "gevr_bean_frame.inc.h"
+
 static Gfx s_blank[1];
 static int s_blankReady;
 static int s_want;
 static int s_available = -1;
+
+struct beanSkinVert {
+	float p[4][3], n[4][3];
+	uint8_t weight[4];
+	int16_t matrix[4];
+};
+struct beanSkin {
+	struct beanSkinVert *verts;
+	Vtx *vtx;
+	Gfx *gdl;
+	int nverts, ncommands, anchor;
+};
+static const struct beanSkinVert *s_emitSkin;
+static struct beanSkin *s_emittedSkin;
 
 struct beanSwap {
 	void *node;
 	void *original;
 	void *ours;
 	s16 origType;
+	struct beanSkin *skin;
+	int deferredMatrix;
 };
 
 static struct beanSwap s_swap[MAX_SWAP];
@@ -67,10 +86,37 @@ enum {
 	BEAN_HEADBODY
 };
 
-static const int s_child[GEVR_BEAN_SK_COUNT] = {
-	GEVR_BEAN_SK_BACK, GEVR_BEAN_SK_NECK, -1, -1,
-	GEVR_BEAN_SK_COUNT + 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+struct beanFile {
+	const char *name;
+	int kind;
+	const char *source;
 };
+static const struct beanFile s_files[] = {
+#include "gevr_bean_files.h"
+};
+struct beanFit {
+	const char *name, *source;
+	int perm[3], sign[3];
+	float scale, bc[3], nc[3];
+};
+#define BEANFIT(name, source, p0, p1, p2, s0, s1, s2, scale, b0, b1, b2, n0, n1, n2)                         \
+	{                                                                                                        \
+		name, source, {p0, p1, p2}, {s0, s1, s2}, scale, {b0, b1, b2},                                       \
+		{                                                                                                    \
+			n0, n1, n2                                                                                       \
+		}                                                                                                    \
+	}
+static const struct beanFit s_fits[] = {
+#include "gevr_bean_fits.h"
+};
+#undef BEANFIT
+static const struct beanFit *fitForName(const char *name)
+{
+	for (unsigned i = 0; i < sizeof(s_fits) / sizeof(s_fits[0]); i++)
+		if (!strcmp(name, s_fits[i].name))
+			return &s_fits[i];
+	return NULL;
+}
 
 static void blankInit(void)
 {
@@ -116,6 +162,9 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].original = original;
 	s_swap[s_nswap].ours = ours ? ours : s_blank;
 	s_swap[s_nswap].origType = (s16)origType;
+	s_swap[s_nswap].skin = s_emittedSkin;
+	s_swap[s_nswap].deferredMatrix = 0;
+	s_emittedSkin = NULL;
 	s_nswap++;
 }
 
@@ -170,102 +219,18 @@ static int findFile(const char *source, char *out, int outlen)
 	return 0;
 }
 
-static void lowerCopy(const char *in, char *out, int outlen)
-{
-	int j = 0;
-	for (int i = 0; in[i] && j + 1 < outlen; i++) {
-		char c = in[i];
-		if (c == '_') {
-			continue;
-		}
-		if (c >= 'A' && c <= 'Z') {
-			c = (char)(c - 'A' + 'a');
-		}
-		out[j++] = c;
-	}
-	out[j] = 0;
-}
-
-static const char *gunFolder(const char *stem)
-{
-	static const struct { const char *from, *to; } alias[] = {
-		{ "wppk", "ppk" },
-		{ "wppksil", "ppksilenced" },
-		{ "goldwppk", "goldppk" },
-		{ "silverwppk", "silverPPK" },
-		{ "bombdefuser", "defuser" },
-		{ "autoshot", "automaticshotgun" },
-		{ "grenadelaunch", "grenadelauncher" },
-		{ "rocketlaunch", "rocketlauncher" },
-		{ "throwknife", "throwingknife" }
-	};
-	for (int i = 0; i < (int)(sizeof(alias) / sizeof(alias[0])); i++) {
-		if (strcmp(stem, alias[i].from) == 0) {
-			return alias[i].to;
-		}
-	}
-	return stem;
-}
-
-static const char *bondHeadBody(const char *stem)
-{
-	if (strcmp(stem, "headbrosnanboiler") == 0) return "boilerbond";
-	if (strcmp(stem, "headbrosnansuit") == 0) return "suitbond";
-	if (strcmp(stem, "headbrosnantimber") == 0) return "timberbond";
-	if (strcmp(stem, "headbrosnansnow") == 0) return "snowbond";
-	if (strcmp(stem, "headbrosnan") == 0) return "djbond";
-	return NULL;
-}
-
 /* Cartridge name -> new/... source and a kind. 0 when this file stays N64. */
 static int sourceForName(const char *name, char *source, int sourcelen)
 {
-	char stem[96];
-	const char *body;
-	char kind = 0;
-	if (!name || !name[0]) {
+	if (!name)
 		return BEAN_NONE;
-	}
-	if (name[0] == 'C' || name[0] == 'G' || name[0] == 'P') {
-		kind = name[0];
-		name++;
-	}
-	lowerCopy(name, stem, sizeof(stem));
-	{
-		size_t n = strlen(stem);
-		if (n > 0 && stem[n - 1] == 'z') {
-			stem[n - 1] = 0;
+	for (unsigned i = 0; i < sizeof(s_files) / sizeof(s_files[0]); i++) {
+		if (!strcmp(name, s_files[i].name)) {
+			snprintf(source, sourcelen, "%s", s_files[i].source);
+			return s_files[i].kind;
 		}
 	}
-	if (strstr(stem, "cartridge") || strstr(stem, "casing") || strstr(stem, "bullet") || strstr(stem, "shell")) {
-		return BEAN_NONE;
-	}
-	if (strcmp(stem, "blueman") == 0 || strcmp(stem, "bluewoman") == 0 || strcmp(stem, "greyman") == 0) {
-		return BEAN_NONE;
-	}
-	if (strcmp(stem, "headdave") == 0) {
-		snprintf(source, sourcelen, "new/head/headneil");
-		return BEAN_HEAD;
-	}
-	body = bondHeadBody(stem);
-	if (body) {
-		snprintf(source, sourcelen, "new/char/%s", body);
-		return BEAN_HEADBODY;
-	}
-	if (kind == 'G') {
-		snprintf(source, sourcelen, "new/gun/%s", gunFolder(stem));
-		return BEAN_GUN;
-	}
-	if (kind == 'P') {
-		snprintf(source, sourcelen, "new/prop/%s", stem);
-		return BEAN_PROP;
-	}
-	if (strncmp(stem, "head", 4) == 0) {
-		snprintf(source, sourcelen, "new/head/%s", stem);
-		return BEAN_HEAD;
-	}
-	snprintf(source, sourcelen, "new/char/%s", stem);
-	return BEAN_CHR;
+	return BEAN_NONE;
 }
 
 static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts)
@@ -340,6 +305,16 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	if (!mesh || !v || nverts < 3 || !gdlOut || !vtxOut) {
 		return 0;
 	}
+	struct beanSkin *skin = s_emitSkin ? calloc(1, sizeof(*skin)) : NULL;
+	if (s_emitSkin && !skin)
+		return 0;
+	if (skin) {
+		skin->verts = malloc((size_t)nverts * sizeof(*skin->verts));
+		if (!skin->verts) {
+			free(skin);
+			return 0;
+		}
+	}
 	ntri = nverts / 3;
 	order = malloc((size_t)ntri * sizeof(int));
 	/* One texture group can be a single triangle, and gDPLoadTextureBlock writes several commands. */
@@ -347,6 +322,10 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	gdl = malloc((size_t)cmdcap * sizeof(Gfx));
 	vtx = malloc((size_t)nverts * sizeof(Vtx));
 	if (!order || !gdl || !vtx) {
+		if (skin) {
+			free(skin->verts);
+			free(skin);
+		}
 		free(order);
 		free(gdl);
 		free(vtx);
@@ -485,9 +464,10 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 						dst->v.tc[0] = dst->v.tc[1] = 0;
 					}
 					if (lit) {
-						dst->n.n[0] = (s8)(src->n[0] * 127.0f);
-						dst->n.n[1] = (s8)(src->n[1] * 127.0f);
-						dst->n.n[2] = (s8)(src->n[2] * 127.0f);
+						float length =
+						    sqrtf(src->n[0] * src->n[0] + src->n[1] * src->n[1] + src->n[2] * src->n[2]);
+						for (int k = 0; k < 3; k++)
+							dst->n.n[k] = length > 1e-6f ? (s8)(src->n[k] * 127.0f / length) : 0;
 						dst->n.a = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					} else {
 						dst->v.cn[0] = src->rgba[0];
@@ -495,6 +475,8 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 						dst->v.cn[2] = src->rgba[2];
 						dst->v.cn[3] = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					}
+					if (skin)
+						skin->verts[vi] = s_emitSkin[order[batch + t] * 3 + k];
 					vi++;
 				}
 			}
@@ -514,6 +496,15 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	}
 	gSPEndDisplayList(g);
 	free(order);
+	if (skin) {
+		skin->gdl = gdl;
+		skin->vtx = vtx;
+		skin->nverts = vi;
+		skin->ncommands = (int)(g - gdl) + 1;
+		keepAlloc(skin->verts);
+		keepAlloc(skin);
+		s_emittedSkin = skin;
+	}
 	*gdlOut = gdl;
 	*vtxOut = vtx;
 	(void)vi;
@@ -574,11 +565,46 @@ static float dlSpan(ModelNode *n)
 	return span;
 }
 
+static int nodeMatrix(ModelNode *n)
+{
+	for (; n; n = n->Parent) {
+		if (!n->Data)
+			continue;
+		switch (nodeOp(n)) {
+		case MODELNODE_OPCODE_HEADER:
+			return n->Data->Header.MatrixIndex;
+		case MODELNODE_OPCODE_GROUP:
+		case MODELNODE_OPCODE_OP03:
+			return n->Data->Group.MatrixIDs[0];
+		case MODELNODE_OPCODE_GROUPSIMPLE:
+			return n->Data->GroupSimple.Group1;
+		}
+	}
+	return -1;
+}
+
 static void writePrimary(ModelNode *n, Gfx *gdl, int blankType)
 {
 	int op = nodeOp(n);
 	Gfx *old = NULL;
 	int oldType = 0;
+	if (gdl && gdl != s_blank) {
+		int matrix = nodeMatrix(n);
+		if (s_emittedSkin)
+			s_emittedSkin->anchor = matrix;
+		if (matrix >= 0) {
+			Gfx *wrapper = malloc(3 * sizeof(Gfx));
+			if (!wrapper || !keepAlloc(wrapper)) {
+				free(wrapper);
+				return;
+			}
+			gSPMatrix(wrapper, (void *)(uintptr_t)(0x03000000u + matrix * sizeof(Mtx)),
+			          G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
+			gSPDisplayList(wrapper + 1, gdl);
+			gSPEndDisplayList(wrapper + 2);
+			gdl = wrapper;
+		}
+	}
 	if (op == MODELNODE_OPCODE_DL && n->Data) {
 		old = n->Data->DisplayList.Primary;
 		oldType = n->Data->DisplayList.ModelType;
@@ -592,8 +618,13 @@ static void writePrimary(ModelNode *n, Gfx *gdl, int blankType)
 		n->Data->DisplayListCollisions.Primary = gdl ? gdl : s_blank;
 		n->Data->DisplayListCollisions.ModelType = 0;
 	}
+	struct beanSwap *registered = swapOf(n);
+	if (registered && gdl != s_blank)
+		registered->deferredMatrix = nodeMatrix(n) < 0;
 	(void)blankType;
 }
+
+#include "gevr_bean_pilot.inc.h"
 
 struct beanGrp {
 	ModelNode *node;
@@ -683,7 +714,7 @@ static const int s_inherit[GEVR_BEAN_SK_COUNT] = {
 	-1, -1, 14
 };
 
-static int triWanted(const struct gevrBeanTri *t, int kind, int hasHead)
+static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t, int kind, int hasHead)
 {
 	if (t->flags & GEVR_BEAN_F_FLASH) {
 		return 0;
@@ -692,9 +723,11 @@ static int triWanted(const struct gevrBeanTri *t, int kind, int hasHead)
 		return 0;
 	}
 	if (kind == BEAN_HEADBODY) {
-		return (t->flags & GEVR_BEAN_F_NECK) != 0;
+		return (t->flags & GEVR_BEAN_F_NECK) &&
+		       (t->p[1] + t->p[4] + t->p[7]) / 3 >= mesh->bind[GEVR_BEAN_SK_NECK][1] - 30.0f;
 	}
-	if (hasHead && (t->flags & GEVR_BEAN_F_NECK)) {
+	if (hasHead && (t->flags & GEVR_BEAN_F_NECK) &&
+	    (t->p[1] + t->p[4] + t->p[7]) / 3 > mesh->bind[GEVR_BEAN_SK_NECK][1] + 30.0f) {
 		return 0;
 	}
 	return 1;
@@ -725,9 +758,142 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 	e->decal = (t->flags & GEVR_BEAN_F_DECAL) ? 1 : 0;
 }
 
-static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, ModelNode *host,
-		void **gdl, void **vtx)
+struct beanRigidBinding {
+	int group[64], base, target;
+	const struct beanGrp *groups;
+	float pivot[MAX_GRP][3];
+};
+static int rigidTriangleGroup(const struct gevrBeanTri *t, const struct beanRigidBinding *binding)
 {
+	int winner = binding->base, best = 0;
+	for (int i = 0; i < 12; i++) {
+		int bone = t->bone[i], score = 0;
+		if (bone >= 64 || !t->weight[i])
+			continue;
+		int group = binding->group[bone];
+		for (int j = 0; j < 12; j++)
+			if (t->bone[j] < 64 && binding->group[t->bone[j]] == group)
+				score += t->weight[j];
+		if (score > best) {
+			best = score;
+			winner = group;
+		}
+	}
+	return winner;
+}
+static void rigidBindings(const struct gevrBeanMesh *mesh, const struct beanFit *fit,
+                          const struct beanGrp *groups, int count, int base, struct beanRigidBinding *binding)
+{
+	binding->base = base;
+	binding->groups = groups;
+	for (int g = 0; g < count; g++)
+		memcpy(binding->pivot[g], groups[g].o, sizeof(binding->pivot[g]));
+	for (int b = 0; b < 64; b++)
+		binding->group[b] = base;
+	if (!fit || base < 0)
+		return;
+	for (int b = 0; b < mesh->nbones; b++) {
+		if (!strncmp(mesh->boneName[b], "SKEL_POSITION", 13) || !strncmp(mesh->boneName[b], "SKEL_BASE", 9))
+			continue;
+		float at[3], best = 10000.0f;
+		for (int k = 0; k < 3; k++)
+			at[k] = (mesh->boneBind[b][fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k] +
+			        groups[base].o[k];
+		for (int g = 0; g < count; g++) {
+			if (g == base || nodeMatrix(groups[g].node) == nodeMatrix(groups[base].node))
+				continue;
+			float dx = at[0] - groups[g].o[0], dy = at[1] - groups[g].o[1], dz = at[2] - groups[g].o[2];
+			float distance = dx * dx + dy * dy + dz * dz;
+			int held = nodeOp(groups[g].node) == MODELNODE_OPCODE_GROUPSIMPLE;
+			if ((held && distance < 2500.0f) ||
+			    (!held && dy * dy + dz * dz < 625.0f && dx * dx < 122500.0f)) {
+				if (distance < best || binding->group[b] == base) {
+					best = distance;
+					binding->group[b] = g;
+				}
+			} else if (!held && distance < best) {
+				best = distance;
+				binding->group[b] = g;
+			}
+		}
+	}
+	/* The ending helicopter's new rotors have different hub positions. Match
+	 * its remaining weighted rotor bones to distinct native held matrices. */
+	if (strcmp(fit->source, "prop/helicopter"))
+		return;
+	int counts[64] = {0}, body = -1, taken[MAX_GRP] = {0};
+	for (int t = 0; t < mesh->ntris; t++)
+		for (int v = 0; v < 12; v++)
+			if (mesh->tris[t].bone[v] < 64)
+				counts[mesh->tris[t].bone[v]] += mesh->tris[t].weight[v];
+	for (int b = 0; b < mesh->nbones; b++)
+		if (body < 0 || counts[b] > counts[body])
+			body = b;
+	for (int b = 0; b < mesh->nbones; b++)
+		binding->group[b] = base;
+	for (int b = 0; b < mesh->nbones; b++) {
+		if (b == body || !counts[b] || binding->group[b] != base)
+			continue;
+		float at[3], best = 1e30f;
+		int target = -1;
+		for (int k = 0; k < 3; k++)
+			at[k] = (mesh->boneBind[b][fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k] +
+			        groups[base].o[k];
+		for (int g = 0; g < count; g++) {
+			if (taken[g] || nodeOp(groups[g].node) != MODELNODE_OPCODE_GROUPSIMPLE)
+				continue;
+			float distance = 0;
+			for (int k = 0; k < 3; k++)
+				distance += (at[k] - groups[g].o[k]) * (at[k] - groups[g].o[k]);
+			if (distance < best) {
+				best = distance;
+				target = g;
+			}
+		}
+		if (target >= 0) {
+			binding->group[b] = target;
+			taken[target] = 1;
+			memcpy(binding->pivot[target], at, sizeof(at));
+		}
+	}
+}
+
+#include "gevr_bean_heads.inc.h"
+
+/* All six sleeves share one release mesh; retain the cartridge's switches. */
+static int cuffOf(const ModelFileHeader *header, ModelNode *node, int first)
+{
+	for (int cuff = 0; header->Switches && cuff < 6 && cuff + first < header->numSwitches; cuff++) {
+		ModelNode *toggle = header->Switches[cuff + first];
+		ModelNode *controls = toggle && toggle->Data && nodeOp(toggle) == MODELNODE_OPCODE_SWITCH
+		                          ? toggle->Data->Switch.Controls
+		                          : NULL;
+		for (ModelNode *up = node; up; up = up->Parent)
+			if (up == toggle || (controls && up == controls))
+				return cuff;
+	}
+	return -1;
+}
+static int watchTriangleWanted(const struct gevrBeanTri *t, int cuff)
+{
+	/* char/suitlfhand material order from DAB; suit also dresses Connery. */
+	static const int sleeve[12] = {-1, -1, -1, -1, 1, 4, 5, 0, 3, -1, -1, -1};
+	if (cuff == -2)
+		return 1;
+	if (t->tex < 0 || t->tex >= 12)
+		return cuff == -1;
+	if (t->tex == 9)
+		return 0;
+	int outfit = sleeve[t->tex];
+	return outfit < 0 ? cuff == -1 : cuff == outfit || (t->tex == 8 && cuff == 2);
+}
+
+static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, ModelNode *host,
+                     const struct beanFit *fit, const struct beanRigidBinding *binding, int cuff, void **gdl,
+                     void **vtx)
+{
+	if (kind == BEAN_HEAD || kind == BEAN_HEADBODY)
+		return emitHead(mesh, kind, gdl, vtx);
 	Vertex *hv;
 	int hc, ht;
 	Gfx *hp;
@@ -747,7 +913,7 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 		hmax[k] = -1e9f;
 	}
 	for (int i = 0; i < mesh->ntris; i++) {
-		if (!triWanted(&mesh->tris[i], kind, hasHead)) {
+		if (!triWanted(mesh, &mesh->tris[i], kind, hasHead)) {
 			continue;
 		}
 		any = 1;
@@ -777,7 +943,8 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 	scale = bext > 1e-4f ? hext / bext : 1.0f;
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
-		if (!triWanted(t, kind, hasHead)) {
+		if (!triWanted(mesh, t, kind, hasHead) || (mesh->triggerCuffs && t->cuff != cuff) ||
+		    (binding && rigidTriangleGroup(t, binding) != binding->target)) {
 			continue;
 		}
 		if (n + 3 > cap) {
@@ -790,14 +957,22 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 		for (int c = 0; c < 3; c++) {
 			float p[3], nr[3];
 			for (int k = 0; k < 3; k++) {
-				p[k] = (t->p[c * 3 + k] - bc[k]) * scale + hc_[k];
-				nr[k] = t->n[c * 3 + k];
+				p[k] =
+				    fit ? (t->p[c * 3 + fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k]
+					    : (t->p[c * 3 + k] - bc[k]) * scale + hc_[k];
+				if (fit && binding && binding->base >= 0 && binding->target >= 0)
+					p[k] += binding->groups[binding->base].o[k] - binding->pivot[binding->target][k];
+				nr[k] = fit ? t->n[c * 3 + fit->perm[k]] * fit->sign[k] : t->n[c * 3 + k];
 			}
 			fillEmit(t, t->tex >= 0 && t->tex < mesh->ntex && mesh->texCut[t->tex], &ev[n + c], p, nr, c);
 		}
 		n += 3;
 	}
 	{
+		if (!n) {
+			free(ev);
+			return 0;
+		}
 		int ok = gevrBeanEmitList(mesh, ev, n, kind == BEAN_CHR, kind == BEAN_GUN, 1, 1, gdl, vtx);
 		free(ev);
 		return ok;
@@ -805,23 +980,37 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 }
 
 static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
-		const float R[GEVR_BEAN_SK_COUNT][9], float scale, void **gdl, void **vtx)
+                       const float R[GEVR_BEAN_SK_COUNT][9], float scale, const struct beanGrp *grp, int ng,
+                       const ModelFileHeader *header, int cuff, void **gdl, void **vtx)
 {
 	int n = 0, cap = 0;
+	struct beanSkinVert *skin = calloc((size_t)mesh->ntris * 3, sizeof(*skin));
+	if (!skin)
+		return 0;
+	int matrices[16];
+	for (int i = 0; i < 16; i++)
+		matrices[i] = -1;
+	for (int i = 0; i < ng; i++)
+		if (grp[i].sk >= 0)
+			matrices[grp[i].sk] = nodeMatrix(grp[i].node);
+	matrices[GEVR_BEAN_SK_POS] = matrices[GEVR_BEAN_SK_BASE];
 	struct gevrEmitVert *ev = NULL;
 	if (!mesh->haveBind[sk]) {
+		free(skin);
 		return 0;
 	}
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
-		int use = t->sk == sk || (sk == GEVR_BEAN_SK_BASE && !mesh->haveBind[t->sk]);
-		if (!use || !triWanted(t, BEAN_CHR, hasHead)) {
+		int use =
+		    t->sk == sk || (sk == GEVR_BEAN_SK_BASE && (t->sk == GEVR_BEAN_SK_POS || !mesh->haveBind[t->sk]));
+		if (!use || !triWanted(mesh, t, BEAN_CHR, hasHead) || !watchTriangleWanted(t, cuff)) {
 			continue;
 		}
 		if (n + 3 > cap) {
 			cap = cap ? cap * 2 : 256;
 			ev = realloc(ev, (size_t)cap * sizeof(*ev));
 			if (!ev) {
+				free(skin);
 				return 0;
 			}
 		}
@@ -831,6 +1020,33 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 				d[k] = (t->p[c * 3 + k] - mesh->bind[sk][k]) * scale;
 				nr[k] = t->n[c * 3 + k];
 			}
+			for (int w = 0; w < 4; w++) {
+				int bone = t->bone[c * 4 + w];
+				int bs = bone < mesh->nbones ? mesh->boneSk[bone] : sk;
+				if (bs == GEVR_BEAN_SK_POS)
+					bs = GEVR_BEAN_SK_BASE;
+				if (matrices[bs] < 0 || !mesh->haveBind[bs])
+					bs = sk;
+				skin[n + c].weight[w] = t->weight[c * 4 + w];
+				skin[n + c].matrix[w] = matrices[bs];
+				float local[3];
+				for (int k = 0; k < 3; k++)
+					local[k] = (t->p[c * 3 + k] - mesh->bind[bs][k]) * scale;
+				applyR(R[bs], local, skin[n + c].p[w]);
+				applyR(R[bs], nr, skin[n + c].n[w]);
+				if (cuff != -2 && bone < mesh->nbones && header->Switches) {
+					static const char *const hands[3] = {"SKEL_HOUR", "SKEL_MINUTE", "SKEL_SECOND"};
+					for (int h = 0; h < 3 && h < header->numSwitches; h++) {
+						ModelNode *hand = header->Switches[h];
+						if (strcmp(mesh->boneName[bone], hands[h]) || !hand || !hand->Data ||
+						    nodeOp(hand) != MODELNODE_OPCODE_GROUPSIMPLE)
+							continue;
+						skin[n + c].matrix[w] = hand->Data->GroupSimple.Group1;
+						for (int k = 0; k < 3; k++)
+							skin[n + c].p[w][k] -= hand->Data->GroupSimple.Origin.f[k];
+					}
+				}
+			}
 			applyR(R[sk], d, p);
 			applyR(R[sk], nr, nn);
 			fillEmit(t, t->tex >= 0 && t->tex < mesh->ntex && mesh->texCut[t->tex], &ev[n + c], p, nn, c);
@@ -839,14 +1055,20 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 	}
 	if (n < 3) {
 		free(ev);
+		free(skin);
 		return 0;
 	}
 	{
+		s_emitSkin = skin;
 		int ok = gevrBeanEmitList(mesh, ev, n, 1, 0, 1, 1, gdl, vtx);
+		s_emitSkin = NULL;
+		free(skin);
 		free(ev);
 		return ok;
 	}
 }
+
+#include "gevr_bean_pose.inc.h"
 
 static void classifyGroups(struct beanGrp *grp, int ng)
 {
@@ -859,7 +1081,7 @@ static void classifyGroups(struct beanGrp *grp, int ng)
 		grp[i].sk = -1;
 	}
 	for (int i = 0; i < ng; i++) {
-		if (fabsf(grp[i].o[0]) < 30.0f && fabsf(grp[i].o[2]) < 30.0f && grp[i].o[1] < baseY) {
+		if (nodeOp(grp[i].node) == MODELNODE_OPCODE_HEADER) {
 			baseY = grp[i].o[1];
 			base = i;
 		}
@@ -878,7 +1100,7 @@ static void classifyGroups(struct beanGrp *grp, int ng)
 		grp[base].sk = GEVR_BEAN_SK_BASE;
 	}
 	for (int i = 0; i < ng; i++) {
-		if (grp[i].sk >= 0) {
+		if (grp[i].sk >= 0 || nodeOp(grp[i].node) == MODELNODE_OPCODE_GROUPSIMPLE) {
 			continue;
 		}
 		if (fabsf(grp[i].o[0]) < 30.0f && fabsf(grp[i].o[2]) < 30.0f) {
@@ -904,14 +1126,17 @@ static void classifyGroups(struct beanGrp *grp, int ng)
 	for (int i = 0; i < ng; i++) {
 		float dx, dy, dz, dist;
 		int bucket;
-		if (grp[i].sk >= 0) {
+		if (grp[i].sk >= 0 || nodeOp(grp[i].node) == MODELNODE_OPCODE_GROUPSIMPLE) {
 			continue;
 		}
 		bucket = (grp[i].o[1] > 200.0f ? 0 : 2) + (grp[i].o[0] > 0.0f ? 0 : 1);
 		dx = grp[i].o[0] - (base >= 0 ? grp[base].o[0] : 0);
 		dy = grp[i].o[1] - (base >= 0 ? grp[base].o[1] : 0);
 		dz = grp[i].o[2] - (base >= 0 ? grp[base].o[2] : 0);
-		dist = sqrtf(dx * dx + dy * dy + dz * dz);
+		dist = fabsf(grp[i].o[0]);
+		(void)dx;
+		(void)dy;
+		(void)dz;
 		if (limbCount[bucket] < 8) {
 			int at = limbCount[bucket]++;
 			while (at > 0 && limbDist[bucket][at - 1] > dist) {
@@ -1002,17 +1227,88 @@ static void buildRot(const struct gevrBeanMesh *mesh, const struct beanGrp *grp,
 			memcpy(R[s], R[inh], sizeof(R[s]));
 		}
 	}
+	float rotations[16][9];
+	memcpy(rotations, R, sizeof(rotations));
+	for (int s = 0; s < 16; s++) {
+		int child = s_limbChild[s];
+		if (child < 0 || !have[s] || !have[child] || !mesh->haveBind[s] || !mesh->haveBind[child])
+			continue;
+		float u[3], native[3], length = 0, nlength = 0;
+		for (int k = 0; k < 3; k++) {
+			u[k] = mesh->bind[child][k] - mesh->bind[s][k];
+			native[k] = n64[child][k] - n64[s][k];
+			length += u[k] * u[k];
+			nlength += native[k] * native[k];
+		}
+		length = sqrtf(length);
+		nlength = sqrtf(nlength);
+		if (length < 1e-6f || *scaleOut < 1e-6f)
+			continue;
+		for (int k = 0; k < 3; k++)
+			u[k] /= length;
+		float stretch[9], ratio = nlength / (length * *scaleOut);
+		for (int i = 0; i < 3; i++)
+			for (int j = 0; j < 3; j++)
+				stretch[i * 3 + j] = (i == j) + (ratio - 1) * u[i] * u[j];
+		for (int i = 0; i < 3; i++)
+			for (int j = 0; j < 3; j++) {
+				R[s][i * 3 + j] = 0;
+				for (int k = 0; k < 3; k++)
+					R[s][i * 3 + j] += rotations[s][i * 3 + k] * stretch[k * 3 + j];
+			}
+	}
+	static const int branches[2][3] = {{1, 10, 13}, {2, 4, 7}};
+	for (int s = 0; s < 2; s++) {
+		float b[4][3], j[4][3], covariance[9] = {0}, gram[9] = {0}, inverse[9], length = 0, targetLength = 0;
+		int valid = have[s] && mesh->haveBind[s];
+		for (int c = 0; c < 3; c++) {
+			int child = branches[s][c];
+			valid &= have[child] && mesh->haveBind[child];
+			if (!valid)
+				break;
+			for (int k = 0; k < 3; k++) {
+				b[c][k] = (mesh->bind[child][k] - mesh->bind[s][k]) * *scaleOut;
+				j[c][k] = n64[child][k] - n64[s][k];
+			}
+		}
+		if (!valid)
+			continue;
+		for (int k = 0; k < 3; k++) {
+			b[3][k] = b[1][(k + 1) % 3] * b[2][(k + 2) % 3] - b[1][(k + 2) % 3] * b[2][(k + 1) % 3];
+			j[3][k] = j[1][(k + 1) % 3] * j[2][(k + 2) % 3] - j[1][(k + 2) % 3] * j[2][(k + 1) % 3];
+			length += b[3][k] * b[3][k];
+			targetLength += j[3][k] * j[3][k];
+		}
+		if (length < 1e-12f || targetLength < 1e-12f)
+			continue;
+		for (int k = 0; k < 3; k++)
+			j[3][k] *= sqrtf(length / targetLength);
+		for (int p = 0; p < 4; p++)
+			for (int r = 0; r < 3; r++)
+				for (int c = 0; c < 3; c++) {
+					covariance[r * 3 + c] += j[p][r] * b[p][c];
+					gram[r * 3 + c] += b[p][r] * b[p][c];
+				}
+		if (!beanInverse3(gram, inverse))
+			continue;
+		for (int r = 0; r < 3; r++)
+			for (int c = 0; c < 3; c++) {
+				R[s][r * 3 + c] = 0;
+				for (int k = 0; k < 3; k++)
+					R[s][r * 3 + c] += covariance[r * 3 + k] * inverse[k * 3 + c];
+			}
+	}
+	memcpy(R[GEVR_BEAN_SK_POS], R[GEVR_BEAN_SK_BASE], sizeof(R[0]));
 }
 
-static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, int kind)
+static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, int kind,
+                      const struct beanFit *fit)
 {
 	struct beanWalk *stack;
 	ModelNode **seen;
 	int nseen = 0, sp = 0, ng = 0, nd = 0, hasHead = 0;
 	struct beanGrp *grp;
 	struct beanDl *dls;
-	void *listForSk[GEVR_BEAN_SK_COUNT];
-	void *vtxForSk[GEVR_BEAN_SK_COUNT];
 	float R[GEVR_BEAN_SK_COUNT][9];
 	float scale = 1.0f;
 	int skinned;
@@ -1055,25 +1351,37 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		if (op == MODELNODE_OPCODE_HEAD) {
 			hasHead = 1;
 		}
-		if (op == MODELNODE_OPCODE_GROUP && n->Data && ng < MAX_GRP) {
+		if ((op == MODELNODE_OPCODE_GROUP || op == MODELNODE_OPCODE_HEADER ||
+		     op == MODELNODE_OPCODE_GROUPSIMPLE) &&
+		    n->Data && ng < MAX_GRP) {
 			grp[ng].node = n;
-			grp[ng].o[0] = fr.ox + n->Data->Group.Origin.x;
-			grp[ng].o[1] = fr.oy + n->Data->Group.Origin.y;
-			grp[ng].o[2] = fr.oz + n->Data->Group.Origin.z;
-			grp[ng].joint = n->Data->Group.JointID;
+			coord3d origin = {0};
+			if (op == MODELNODE_OPCODE_GROUP)
+				origin = n->Data->Group.Origin;
+			if (op == MODELNODE_OPCODE_GROUPSIMPLE)
+				origin = n->Data->GroupSimple.Origin;
+			grp[ng].o[0] = fr.ox + origin.x;
+			grp[ng].o[1] = fr.oy + origin.y;
+			grp[ng].o[2] = fr.oz + origin.z;
+			grp[ng].joint = op == MODELNODE_OPCODE_GROUP ? n->Data->Group.JointID : 0;
 			grp[ng].sk = -1;
 			if (n->Next && sp < MAX_WALK) {
 				stack[sp] = fr;
 				stack[sp].node = n->Next;
 				sp++;
 			}
-			if (n->Child && sp < MAX_WALK) {
-				stack[sp].node = n->Child;
+			ModelNode *child = n->Child;
+			if (!child && op == MODELNODE_OPCODE_HEADER)
+				child = n->Data->Header.FirstGroupNode;
+			if (!child && op == MODELNODE_OPCODE_GROUP)
+				child = n->Data->Group.ChildGroupNode;
+			if (child && sp < MAX_WALK) {
+				stack[sp].node = child;
 				stack[sp].grp = ng;
 				stack[sp].ox = grp[ng].o[0];
 				stack[sp].oy = grp[ng].o[1];
 				stack[sp].oz = grp[ng].o[2];
-				stack[sp].simple = fr.simple;
+				stack[sp].simple = fr.simple || op == MODELNODE_OPCODE_GROUPSIMPLE;
 				sp++;
 			}
 			ng++;
@@ -1091,6 +1399,21 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			dls[nd].span = dlSpan(n);
 			nd++;
 		}
+		if (n->Data && sp + 2 < MAX_WALK) {
+			ModelNode *a = op == MODELNODE_OPCODE_SWITCH ? n->Data->Switch.Controls
+			               : op == MODELNODE_OPCODE_LOD  ? n->Data->LOD.Affects
+			               : op == MODELNODE_OPCODE_BSP  ? n->Data->BSP.leftChild
+			                                             : NULL;
+			ModelNode *b = op == MODELNODE_OPCODE_BSP ? n->Data->BSP.rightChild : NULL;
+			if (a && a != n->Child) {
+				stack[sp] = fr;
+				stack[sp++].node = a;
+			}
+			if (b && b != n->Child) {
+				stack[sp] = fr;
+				stack[sp++].node = b;
+			}
+		}
 		if (n->Next && sp < MAX_WALK) {
 			stack[sp] = fr;
 			stack[sp].node = n->Next;
@@ -1105,11 +1428,11 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 	}
 	/* Do not mutate nodes unless every replacement can retain its fallback
 	 * and its allocations for this level. */
-	if (s_nswap + nd > MAX_SWAP || s_nalloc + nd * 2 > MAX_ALLOC) {
+	if (s_nswap + nd > MAX_SWAP || s_nalloc + nd * 5 > MAX_ALLOC) {
 		free(stack); free(seen); free(grp); free(dls);
 		return;
 	}
-	skinned = kind == BEAN_CHR || (kind == BEAN_PROP && mesh->haveBind[GEVR_BEAN_SK_BASE]);
+	skinned = kind == BEAN_CHR;
 	if (kind == BEAN_HEADBODY || kind == BEAN_HEAD || kind == BEAN_GUN) {
 		skinned = 0;
 	}
@@ -1117,13 +1440,18 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		int found = 0;
 		void *sharedG[GEVR_BEAN_SK_COUNT];
 		void *sharedV[GEVR_BEAN_SK_COUNT];
+		struct beanSkin *sharedSkin[GEVR_BEAN_SK_COUNT] = {0};
 		classifyGroups(grp, ng);
+		int watchArm = mesh->ntex == 12 && header->numSwitches == 10;
+		int bareDrawn[GEVR_BEAN_SK_COUNT] = {0};
+		if (watchArm)
+			for (int i = 0; i < ng; i++)
+				if (grp[i].sk == GEVR_BEAN_SK_NECK)
+					grp[i].sk = -1;
 		buildRot(mesh, grp, ng, R, &scale);
 		for (int s = 0; s < GEVR_BEAN_SK_COUNT; s++) {
 			sharedG[s] = NULL;
 			sharedV[s] = NULL;
-			(void)listForSk;
-			(void)vtxForSk;
 		}
 		for (int i = 0; i < ng; i++) {
 			if (grp[i].sk >= 0) {
@@ -1138,6 +1466,8 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				int sk = (g >= 0 && g < ng) ? grp[g].sk : -1;
 				int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
 				if (dls[i].simple) {
+					if (watchArm)
+						writePrimary(dls[i].node, s_blank, 1);
 					continue;
 				}
 				if (sk < 0) {
@@ -1146,14 +1476,30 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					}
 					continue;
 				}
+				if (watchArm) {
+					int cuff = cuffOf(header, dls[i].node, 4);
+					void *watchG = NULL, *watchV = NULL;
+					if ((cuff < 0 && bareDrawn[sk]++) ||
+					    !emitSkinned(mesh, sk, hasHead, R, scale, grp, ng, header, cuff, &watchG, &watchV)) {
+						writePrimary(dls[i].node, s_blank, 1);
+					} else {
+						keepAlloc(watchG);
+						keepAlloc(watchV);
+						writePrimary(dls[i].node, watchG, 0);
+					}
+					continue;
+				}
 				if (!sharedG[sk]) {
-					if (!emitSkinned(mesh, sk, hasHead, R, scale, &sharedG[sk], &sharedV[sk])) {
+					if (!emitSkinned(mesh, sk, hasHead, R, scale, grp, ng, header, -2, &sharedG[sk],
+					                 &sharedV[sk])) {
 						writePrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
+					sharedSkin[sk] = s_emittedSkin;
 					keepAlloc(sharedG[sk]);
 					keepAlloc(sharedV[sk]);
 				}
+				s_emittedSkin = sharedSkin[sk];
 				writePrimary(dls[i].node, sharedG[sk], 0);
 			}
 		}
@@ -1161,18 +1507,23 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 	if (!skinned) {
 		int best = -1;
 		float bestSpan = -1.0f;
-		int restrictType = kind == BEAN_GUN;
+		int restrictType = kind == BEAN_GUN && !fit;
 		for (int pass = 0; pass < (restrictType ? 2 : 1); pass++) {
 			for (int i = 0; i < nd; i++) {
 				int g = dls[i].grp;
 				int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
-				if (dls[i].simple || underJoint) {
+				if ((dls[i].simple || underJoint) && kind == BEAN_GUN) {
 					continue;
 				}
 				if (pass == 0 && restrictType && dls[i].modelType != 3) {
 					continue;
 				}
-				if (dls[i].span > bestSpan) {
+				int far = 0;
+				for (ModelNode *up = dls[i].node->Parent; up; up = up->Parent)
+					if (nodeOp(up) == MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance > 0)
+						far = 1;
+				if ((fit && !far && nodeMatrix(dls[i].node) == nodeMatrix(dls[0].node) && best < 0) ||
+				    (!fit && dls[i].span > bestSpan)) {
 					bestSpan = dls[i].span;
 					best = i;
 				}
@@ -1181,18 +1532,54 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				break;
 			}
 		}
+		if (best < 0 && fit && nd > 0)
+			best = 0;
 		if (best >= 0) {
+			struct beanRigidBinding binding;
+			rigidBindings(mesh, fit, grp, ng, dls[best].grp, &binding);
+			binding.target = binding.base;
 			void *gdl = NULL, *vtx = NULL;
-			if (emitRigid(mesh, kind == BEAN_HEADBODY ? BEAN_HEADBODY : kind, hasHead, dls[best].node, &gdl, &vtx)) {
-				keepAlloc(gdl);
-				keepAlloc(vtx);
-				writePrimary(dls[best].node, gdl, 0);
+			int mainEmitted = emitRigid(mesh, kind, hasHead, dls[best].node, fit,
+			                            kind == BEAN_PROP ? &binding : NULL, -1, &gdl, &vtx);
+			if (mainEmitted || kind == BEAN_PROP) {
+				if (mainEmitted) {
+					keepAlloc(gdl);
+					keepAlloc(vtx);
+				}
+				if (mainEmitted && fit && !strcmp(fit->source, "prop/helicopter"))
+					gdl = helicopterWithPilot(dls[best].node, gdl);
+				writePrimary(dls[best].node, mainEmitted ? gdl : s_blank, 0);
 				for (int i = 0; i < nd; i++) {
 					int g = dls[i].grp;
 					int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
-					if (i == best || dls[i].simple || underJoint) {
+					if (i == best)
+						continue;
+					if (mesh->triggerCuffs) {
+						int cuff = cuffOf(header, dls[i].node, 29);
+						void *cuffG = NULL, *cuffV = NULL;
+						if (cuff >= 0 &&
+						    emitRigid(mesh, kind, hasHead, dls[i].node, fit, NULL, cuff, &cuffG, &cuffV)) {
+							keepAlloc(cuffG);
+							keepAlloc(cuffV);
+							writePrimary(dls[i].node, cuffG, 0);
+						} else
+							writePrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
+					if (kind == BEAN_PROP && g >= 0 && g != binding.base) {
+						binding.target = g;
+						void *partGdl = NULL, *partVtx = NULL;
+						if (emitRigid(mesh, kind, hasHead, dls[i].node, fit, &binding, -1, &partGdl,
+						              &partVtx)) {
+							keepAlloc(partGdl);
+							keepAlloc(partVtx);
+							writePrimary(dls[i].node, partGdl, 0);
+						} else if (!dls[i].simple && !underJoint)
+							writePrimary(dls[i].node, s_blank, 1);
+						continue;
+					}
+					if (kind == BEAN_GUN && (dls[i].simple || underJoint))
+						continue;
 					writePrimary(dls[i].node, s_blank, 1);
 				}
 			}
@@ -1202,7 +1589,6 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 	free(seen);
 	free(grp);
 	free(dls);
-	(void)s_child;
 }
 
 void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
@@ -1221,11 +1607,11 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 	if (!findFile(source, path, sizeof(path))) {
 		return;
 	}
-	mesh = cachedLoad(path, kind == BEAN_GUN);
+	mesh = cachedLoad(path, 1);
 	if (!mesh) {
 		return;
 	}
-	applyMesh(header, mesh, kind);
+	applyMesh(header, mesh, kind, fitForName(name));
 	/* Once the bounded cache is full, this load is temporary. Its display
 	 * lists and decoded textures have their own lifetime until level reset. */
 	int cached = 0;
@@ -1237,6 +1623,7 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 
 void gevrBeanReset(void)
 {
+	beanFrameReset();
 	for (int i = 0; i < s_nalloc; i++) {
 		free(s_alloc[i]);
 		s_alloc[i] = NULL;

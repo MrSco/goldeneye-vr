@@ -324,8 +324,14 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 	format = b[0x1b] & 0x3f;
 	endian = b[0x1a] ? (format == FMT_8888 ? 2 : 1) : 0;
 	packed = levels > 1;
-	if (type == 4 || type == 5) {
-		/* Animated pictures: the first frame only. */
+	if (type == 4 && blen >= 0x50) {
+		uint32_t wt = be32b(b + 0x44), ht = be32b(b + 0x48), lt = be32b(b + 0x4c);
+		if (wt > blen - 4 || ht > blen - 4 || lt > blen - 4)
+			return NULL;
+		w = be32b(b + wt);
+		h = be32b(b + ht);
+		levels = be32b(b + lt);
+		packed = levels > 1;
 	}
 	gi = gevrCaffFind(c, c->files[fileIndex].asset, ".gpu");
 	if (gi >= 0) {
