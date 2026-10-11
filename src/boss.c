@@ -534,12 +534,12 @@ void bossMainloop(void)
         }
 #ifdef GEVR
         /*
-         * A hack's -ma is sized for the cartridge's display lists and view
-         * distance. Goldfinger's Cartel rooms unpack to 1.6 MB of vertices
-         * (GoldenEye's Dam: 0.35 MB) and stereo draws them further: keep at
-         * least the heap GEVR PC ships (ROOMHEAP=4096) in a hack campaign.
+         * Stage -ma tokens size the cartridge's room heap, even in retail
+         * GoldenEye. Converted display lists and stereo need the 4 MB floor
+         * GEVR PC ships (ROOMHEAP=4096) after these tokens are parsed. Keep
+         * larger explicit heaps for campaigns that request them.
          */
-        if (gevrRomIsVariant() && g_CurentMaMallocValue < GEVR_ROOM_HEAP)
+        if (g_CurentMaMallocValue < GEVR_ROOM_HEAP)
         {
             g_CurentMaMallocValue = GEVR_ROOM_HEAP;
         }
