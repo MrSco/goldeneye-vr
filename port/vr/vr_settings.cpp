@@ -1,4 +1,5 @@
 #include "gevr_gexweapon.h"
+#include "gevr_romlayout.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -220,7 +221,8 @@ extern "C" void vrSettingsSave(void)
     fprintf(f, "; 1 = guards and other players hold the detailed first-person gun models, 0 = the game's own.\n");
     fprintf(f, "DetailedGuns=%d\n", VrDetailedGuns ? 1 : 0);
     fprintf(f, "; 1 = GoldenEye X's first-person guns from data/gex.z64 (experimental, docs/gex-weapons.md).\n");
-    fprintf(f, "GexGuns=%d\n", VrGexGuns ? 1 : 0);
+    /* a hack campaign turns the models off for its run only (gevr_romload.c) */
+    fprintf(f, "GexGuns=%d\n", (VrGexGuns || gevrGexCampaignOff) ? 1 : 0);
     fprintf(f, "; Campaign at Start: 0 GoldenEye, 1 Goldfinger 64, 2 Tomorrow Never Dies.\n");
     fprintf(f, "; The three ROMs stay installed together (docs/rom-hacks.md).\n");
     fprintf(f, "Campaign=%d\n", VrCampaign);

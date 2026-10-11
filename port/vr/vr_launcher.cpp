@@ -946,7 +946,11 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     ImGui::TextColored(gold, "GOLDENEYE X");
     bool gex = VrGexGuns != 0;
+    // Off for a Goldfinger 64 or Tomorrow Never Dies run (gevr_romload.c): its
+    // models would replace the hack's guns and its textures share Goldfinger's ids.
+    ImGui::BeginDisabled(VrCampaign != GEVR_CAMPAIGN_GE);
     if (ImGui::Checkbox("Its guns, items, hands and watch arm", &gex)) VrGexGuns = gex ? 1 : 0;
+    ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::SmallButton(s_gexRom ? "Change ROM..." : "Choose ROM...")) {
         s_gexPicking = gevrOpenPicker("openGexPicker");
@@ -955,6 +959,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     }
     ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     ImGui::TextWrapped("%s", !s_gexMessage.empty() ? s_gexMessage.c_str()
+                       : VrCampaign != GEVR_CAMPAIGN_GE ? "Off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen."
                        : s_gexRom ? "Uses your GoldenEye X ROM (data/gex.z64)."
                                   : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
     ImGui::PopStyleColor();
@@ -1577,6 +1582,11 @@ void gevrMultiplayerPage(bool &open, bool &startMatch, bool romReady, const ImVe
     static uint32_t lastListMs = 0;
     static uint32_t lastHeartbeatMs = 0;
 
+    if (VrCampaign != GEVR_CAMPAIGN_GE && !netIsActive()) {
+        // the main page's button is off in a hack campaign; this covers a page left open
+        open = false;
+        return;
+    }
     vrEnsurePlayerName(); // here, not at launcher start: the settings load on the first frame
     for (int i = 0; i < 32; ++i) {
         const std::string raw = gevrJavaString("lobbyEvent");
@@ -2484,7 +2494,21 @@ extern "C" void gevrLauncherRun(void)
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    std::string active, message, gfNote, tndNote;
+    std::string active, message, gfNote, tndNote, campaignFail;
+    bool gfGood = false, tndGood = false;   // the hack ROMs' header checks, refreshed about once a second
+    Uint32 hackCheckMs = 0;
+    {
+        // gevr_romload.c leaves this when a chosen campaign did not load
+        const std::string failed = dataDir() + "/" + GEVR_CAMPAIGN_FAILED_FILE;
+        FILE *f = fopen(failed.c_str(), "rb");
+        if (f) {
+            char text[160] = {};
+            fread(text, 1, sizeof(text) - 1, f);
+            fclose(f);
+            remove(failed.c_str());
+            campaignFail = text;
+        }
+    }
     RomInfo activeInfo;
     std::vector<RomInfo> others;
     bool pickerPending = false;
@@ -2524,22 +2548,6 @@ extern "C" void gevrLauncherRun(void)
                 }
                 pickerPending = false;
             }
-        }
-        if (adoptHackFile("picked-goldfinger.z64", GEVR_ROM_GF_FILE, "gf64",
-                          "Goldfinger 64 ROM chosen.",
-                          "That is not Goldfinger 64 1.0 (24 MB, title GOLDFINGER).",
-                          gfNote)) {
-            VrCampaign = GEVR_CAMPAIGN_GF64;
-            gevrRomCampaignSet(VrCampaign);
-            vrSettingsSave();
-        }
-        if (adoptHackFile("picked-tnd.z64", GEVR_ROM_TND_FILE, "tnd64",
-                          "Tomorrow Never Dies ROM chosen.",
-                          "That is not Tomorrow Never Dies 64 Expanded 06-22.",
-                          tndNote)) {
-            VrCampaign = GEVR_CAMPAIGN_TND64;
-            gevrRomCampaignSet(VrCampaign);
-            vrSettingsSave();
         }
         active = activeRomPath();
         others = findRoms(active);
@@ -3124,7 +3132,12 @@ extern "C" void gevrLauncherRun(void)
                 vrSettingsSave();
             }
             ImGui::Spacing();
+            // Online play, co-op and bots: GoldenEye only. A hack's levels and
+            // characters sit under GoldenEye's numbers and peers do not compare
+            // campaigns, so the two sides would load different games.
+            ImGui::BeginDisabled(VrCampaign != GEVR_CAMPAIGN_GE);
             if (ImGui::Button("Multiplayer...")) mpPage = true;
+            ImGui::EndDisabled();
             ImGui::Spacing();
             ImGui::TextColored(gold, "MODS & CHEATS");
             if (ImGui::Button(g_ActiveExtTexPack[0] ? "Mods... (HD textures on)" : "Mods..."))
@@ -3386,34 +3399,41 @@ extern "C" void gevrLauncherRun(void)
         ImGui::EndChild();
         ImGui::Separator();
         {
-            if (adoptHackFile("picked-goldfinger.z64", GEVR_ROM_GF_FILE, "gf64",
-                              "Goldfinger 64 ROM chosen.",
-                              "That is not Goldfinger 64 1.0 (24 MB, title GOLDFINGER).",
-                              gfNote)) {
-                VrCampaign = GEVR_CAMPAIGN_GF64;
-                gevrRomCampaignSet(VrCampaign);
-                vrSettingsSave();
-            }
-            if (adoptHackFile("picked-tnd.z64", GEVR_ROM_TND_FILE, "tnd64",
-                              "Tomorrow Never Dies ROM chosen.",
-                              "That is not Tomorrow Never Dies 64 Expanded 06-22.",
-                              tndNote)) {
-                VrCampaign = GEVR_CAMPAIGN_TND64;
-                gevrRomCampaignSet(VrCampaign);
-                vrSettingsSave();
-            }
-            const bool gfGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_GF_FILE, "gf64");
-            const bool tndGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_TND_FILE, "tnd64");
-            if (VrCampaign == GEVR_CAMPAIGN_GF64 && !gfGood) {
-                VrCampaign = GEVR_CAMPAIGN_GE;
-                gevrRomCampaignSet(VrCampaign);
-                vrSettingsSave();
-                if (gfNote.empty()) gfNote = "Goldfinger 64 is not installed. This start uses GoldenEye.";
-            } else if (VrCampaign == GEVR_CAMPAIGN_TND64 && !tndGood) {
-                VrCampaign = GEVR_CAMPAIGN_GE;
-                gevrRomCampaignSet(VrCampaign);
-                vrSettingsSave();
-                if (tndNote.empty()) tndNote = "Tomorrow Never Dies is not installed. This start uses GoldenEye.";
+            // About once a second, not every frame: each check opens a 16-24 MB
+            // file on the headset's shared storage. A pick lands as
+            // data/picked-*.z64 and is adopted here.
+            const Uint32 nowMs = SDL_GetTicks();
+            if (hackCheckMs == 0 || nowMs - hackCheckMs > 1000) {
+                hackCheckMs = nowMs ? nowMs : 1;
+                if (adoptHackFile("picked-goldfinger.z64", GEVR_ROM_GF_FILE, "gf64",
+                                  "Goldfinger 64 ROM chosen.",
+                                  "That is not Goldfinger 64 1.0 (24 MB, title GOLDFINGER).",
+                                  gfNote)) {
+                    VrCampaign = GEVR_CAMPAIGN_GF64;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                }
+                if (adoptHackFile("picked-tnd.z64", GEVR_ROM_TND_FILE, "tnd64",
+                                  "Tomorrow Never Dies ROM chosen.",
+                                  "That is not Tomorrow Never Dies 64 Expanded 06-22.",
+                                  tndNote)) {
+                    VrCampaign = GEVR_CAMPAIGN_TND64;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                }
+                gfGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_GF_FILE, "gf64");
+                tndGood = hackHeaderOk(dataDir() + "/" + GEVR_ROM_TND_FILE, "tnd64");
+                if (VrCampaign == GEVR_CAMPAIGN_GF64 && !gfGood) {
+                    VrCampaign = GEVR_CAMPAIGN_GE;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                    if (gfNote.empty()) gfNote = "Goldfinger 64 is not installed. This start uses GoldenEye.";
+                } else if (VrCampaign == GEVR_CAMPAIGN_TND64 && !tndGood) {
+                    VrCampaign = GEVR_CAMPAIGN_GE;
+                    gevrRomCampaignSet(VrCampaign);
+                    vrSettingsSave();
+                    if (tndNote.empty()) tndNote = "Tomorrow Never Dies is not installed. This start uses GoldenEye.";
+                }
             }
             ImGui::TextColored(gold, "CAMPAIGN");
             if (ImGui::RadioButton("GoldenEye", VrCampaign == GEVR_CAMPAIGN_GE)) {
@@ -3445,20 +3465,27 @@ extern "C" void gevrLauncherRun(void)
                 if (gevrOpenPicker("openTndPicker")) tndNote = "Pick the Tomorrow Never Dies ROM in the window that opened.";
                 else tndNote = "Could not open the file picker.";
             }
+            if (!campaignFail.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text, bad);
+                ImGui::TextWrapped("%s", campaignFail.c_str());
+                ImGui::PopStyleColor();
+            }
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             if (!gfNote.empty()) ImGui::TextWrapped("%s", gfNote.c_str());
             if (!tndNote.empty()) ImGui::TextWrapped("%s", tndNote.c_str());
-            if (gfNote.empty() && tndNote.empty()) {
-                ImGui::TextWrapped("GoldenEye stays installed. Add Goldfinger 64 and Tomorrow Never Dies once, then pick the campaign here.");
+            if (gfNote.empty() && tndNote.empty() && campaignFail.empty()) {
+                ImGui::TextWrapped(VrCampaign == GEVR_CAMPAIGN_GE
+                    ? "GoldenEye stays installed. Add Goldfinger 64 and Tomorrow Never Dies once, then pick the campaign here."
+                    : "Solo only: online play and GoldenEye X are off, and progress has its own save.");
             }
             ImGui::PopStyleColor();
         }
         const bool campaignReady = VrCampaign == GEVR_CAMPAIGN_GE
-            || (VrCampaign == GEVR_CAMPAIGN_GF64 && hackHeaderOk(dataDir() + "/" + GEVR_ROM_GF_FILE, "gf64"))
-            || (VrCampaign == GEVR_CAMPAIGN_TND64 && hackHeaderOk(dataDir() + "/" + GEVR_ROM_TND_FILE, "tnd64"));
+            || (VrCampaign == GEVR_CAMPAIGN_GF64 && gfGood)
+            || (VrCampaign == GEVR_CAMPAIGN_TND64 && tndGood);
         ImGui::BeginDisabled(active.empty() || !activeInfo.good || !campaignReady);
         if (ImGui::Button("START", ImVec2(-1, ImGui::GetFrameHeight() * 1.6f))
-            || (s_injectStart && !active.empty() && activeInfo.good)) {
+            || (s_injectStart && !active.empty() && activeInfo.good && campaignReady)) {
             start = true;
         }
         s_injectStart = false;

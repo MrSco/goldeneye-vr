@@ -123,6 +123,7 @@ static const char *const g_GeItemFiles[32] = {
 };
 
 static int g_Campaign;
+int gevrGexCampaignOff;
 static uint32_t g_ImageBankBytes;
 static int g_MapOn;
 static int g_Host[256];

@@ -15,6 +15,7 @@ int VrPauseHub = 0, VrLeftHandedMode = 0, VrSwapJoysticks = 0, VrAimSteady = 2, 
     VrGunSizeCheat = 0, VrUnlockAll = 0, VrGunFitArmed = 0;
 unsigned long long VrCheatMask = 0;
 extern "C" {
+int gevrGexCampaignOff = 0; // gevr_romlayout.c: a hack campaign's GE-X switch-off
 float VrScreenDistance = 2, VrScreenFov = 70, VrScreenHeight = 0;
 int VrScreenCurved = 1;
 int VrScreenPassthrough = 0;
