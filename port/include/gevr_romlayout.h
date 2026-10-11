@@ -102,6 +102,8 @@ struct gevrRomLayout {
 	uint8_t buttmelee;
 	/* Goldfinger drives a tank record whose model is not PtankZ as a car (bondview2.c) */
 	uint8_t cars;
+	/* Solo sequence numbers: TND moves the Aztec/Egypt difficulty gates. */
+	uint8_t bonusmissions[2];
 };
 
 struct gevrDataWindow {
@@ -152,6 +154,9 @@ int gevrRomItemHost(int item);
 int gevrRomHeldProp(int usItem); /* -2 = no override, -1 = nothing in the hand */
 
 int gevrRomMissionLimit(void);
+int gevrRomFinalMission(void);
+int gevrRomBonusMission(int which);
+int gevrRomAdvanceLimit(void);
 int gevrRomCreditsAfter(void);
 int gevrRomAdvanceBelow(void);
 int gevrRomAiHooks(void);

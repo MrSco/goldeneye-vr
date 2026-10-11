@@ -5199,7 +5199,7 @@ void init_menu0f_mpcharsel(void)
 
     if (num_chars_selectable_mp != 0x40)
     {
-        if (fileIsStageUnlockedAtDifficulty(selected_folder_num, SP_LEVEL_CRADLE, DIFFICULTY_AGENT) == STAGESTATUS_COMPLETED)
+        if (fileIsStageUnlockedAtDifficulty(selected_folder_num, GEVR_SP_CRADLE, DIFFICULTY_AGENT) == STAGESTATUS_COMPLETED)
         {
             num_chars_selectable_mp = 0x21;
         }
@@ -7569,47 +7569,12 @@ void interface_menu0D_missioncomplete()
         if (frontCompleteAllObjectivesAliveSuccess() && (!g_AppendCheatSinglePlayer))
         {
             s32 gevrMissionNum = mission_folder_setup_entries[briefingpage].mission_num;
-#ifdef GEVR
-            /*
-             * Tomorrow Never Dies ends its folder early: credits after mission
-             * 9, and nothing advances from 13 on. Goldfinger leaves both at 0
-             * and keeps the Cradle / Aztec rule below, including Cuba.
-             */
-            if ((gevrRomCreditsAfter() && gevrMissionNum == gevrRomCreditsAfter())
-                || (gevrRomAdvanceBelow() && gevrMissionNum >= gevrRomAdvanceBelow()))
-            {
-                frontChangeMenu(MENU_MISSION_SELECT, FALSE);
-                set_cursor_to_stage_solo(gevrMissionNum);
-            }
-            else if (gevrRomCreditsAfter() || gevrRomAdvanceBelow())
-            {
-                entry = briefingpage + 1;
-                while (mission_folder_setup_entries[entry].folder_text_preset)
-                {
-                    if (mission_folder_setup_entries[entry].stage_id >= 0)
-                    {
-                        break;
-                    }
-
-                    entry++;
-                }
-
-                if (mission_folder_setup_entries[entry].folder_text_preset)
-                {
-                    briefingpage = entry;
-                    selected_stage = mission_folder_setup_entries[entry].stage_id;
-                }
-
-                frontChangeMenu(MENU_BRIEFING, FALSE);
-            }
-            else
-#endif
-            if (gevrMissionNum == SP_LEVEL_CRADLE)
+            if (gevrMissionNum == GEVR_SP_CRADLE)
             {
                 frontChangeMenu(MENU_RUN_STAGE, TRUE);
                 selected_stage = LEVELID_CUBA;
             }
-            else if (gevrMissionNum >= SP_LEVEL_AZTEC)
+            else if (gevrMissionNum >= GEVR_SP_ADVANCE_LIMIT)
             {
                 frontChangeMenu(MENU_MISSION_SELECT, FALSE);
                 set_cursor_to_stage_solo(gevrMissionNum);
@@ -8521,7 +8486,7 @@ void interface_menu18_displaycast(void)
         else if (full_actor_intro != 0)
         {
             frontChangeMenu(MENU_MISSION_SELECT, 1);
-            set_cursor_to_stage_solo(SP_LEVEL_CRADLE);
+            set_cursor_to_stage_solo(GEVR_SP_CRADLE);
             full_actor_intro = 0;
         }
         else

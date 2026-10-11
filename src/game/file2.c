@@ -651,7 +651,7 @@ STAGESTATUS fileIsStageUnlockedAtDifficulty(s32 foldernum, LEVEL_SOLO_SEQUENCE l
     s32 i;
 
     if (( fileIsFolderValid(foldernum)) &&
-        (levelid >= SP_LEVEL_DAM && levelid < SP_LEVEL_MAX) &&
+        (levelid >= SP_LEVEL_DAM && levelid < GEVR_SP_MAX) &&
         (difficulty >= DIFFICULTY_AGENT && difficulty < DIFFICULTY_MAX))
     {
         save = fileGetSaveForFoldernum(foldernum);
@@ -663,8 +663,8 @@ STAGESTATUS fileIsStageUnlockedAtDifficulty(s32 foldernum, LEVEL_SOLO_SEQUENCE l
                 return STAGESTATUS_COMPLETED; //found on first try, stage has been completed and a time saved.
             }
 
-            if ((levelid == SP_LEVEL_AZTEC && difficulty < DIFFICULTY_SECRET) ||
-                (levelid == SP_LEVEL_EGYPT && difficulty < DIFFICULTY_00))
+            if ((levelid == GEVR_SP_AZTEC && difficulty < DIFFICULTY_SECRET) ||
+                (levelid == GEVR_SP_EGYPT && difficulty < DIFFICULTY_00))
             {
                 return STAGESTATUS_LOCKED; //we cant possibly have a completed bonus stage below each set dificulty
             }
@@ -688,7 +688,7 @@ STAGESTATUS fileIsStageUnlockedAtDifficulty(s32 foldernum, LEVEL_SOLO_SEQUENCE l
             }
 
             // if we still cant find it
-            if ((difficulty < DIFFICULTY_007) && (levelid < SP_LEVEL_AZTEC))
+            if ((difficulty < DIFFICULTY_007) && (levelid < GEVR_SP_AZTEC))
             {
                 for (i = difficulty; i < DIFFICULTY_MAX; i++)
                 {
@@ -701,7 +701,7 @@ STAGESTATUS fileIsStageUnlockedAtDifficulty(s32 foldernum, LEVEL_SOLO_SEQUENCE l
 
             if (difficulty < DIFFICULTY_007)
             {
-                for (i = SP_LEVEL_DAM; i < SP_LEVEL_AZTEC; i++)
+                for (i = SP_LEVEL_DAM; i < GEVR_SP_AZTEC; i++)
                 {
                     if (! fileGetSaveStageCompletedForDifficulty(save, i, DIFFICULTY_AGENT))
                     {
@@ -709,7 +709,7 @@ STAGESTATUS fileIsStageUnlockedAtDifficulty(s32 foldernum, LEVEL_SOLO_SEQUENCE l
                     }
                 }
                 //this cant actually fire an it?
-                if (i >= SP_LEVEL_AZTEC)
+                if (i >= GEVR_SP_AZTEC)
                 {
                     for (i = DIFFICULTY_AGENT; i < difficulty; i++)
                     {
@@ -878,7 +878,7 @@ void fileGetHighestStageDifficultyCompletedForFolder(s32 foldernum, LEVEL_SOLO_S
     {
         for (difficultyid = DIFFICULTY_007; difficultyid >= DIFFICULTY_AGENT; difficultyid--)
         {
-            for (stageid = SP_LEVEL_EGYPT; stageid >= SP_LEVEL_DAM; stageid--)
+            for (stageid = GEVR_SP_MAX - 1; stageid >= SP_LEVEL_DAM; stageid--)
             {
                 if ( fileGetSaveStageCompletedForDifficulty(folder, stageid, difficultyid))
                 {
@@ -906,7 +906,7 @@ LEVEL_SOLO_SEQUENCE fileGetHighestStageUnlockedForFolder(s32 foldernum)
 
     if ( fileGetSaveForFoldernum(foldernum) != NULL)
     {
-        for (levelid = SP_LEVEL_EGYPT; levelid >= SP_LEVEL_DAM; levelid--)
+        for (levelid = GEVR_SP_MAX - 1; levelid >= SP_LEVEL_DAM; levelid--)
         {
             for (difficulty = DIFFICULTY_AGENT; difficulty < DIFFICULTY_MAX; difficulty++)
             {
@@ -951,9 +951,9 @@ LEVEL_SOLO_SEQUENCE fileGetHighestStageUnlockedAnyFolder(void)
  */
 bool fileIsCradleCompletedForFolder(s32 folder)
 {
-    return (fileIsStageUnlockedAtDifficulty(folder, SP_LEVEL_CRADLE, DIFFICULTY_AGENT) == STAGESTATUS_COMPLETED) ||
-           (fileIsStageUnlockedAtDifficulty(folder, SP_LEVEL_CRADLE, DIFFICULTY_SECRET) == STAGESTATUS_COMPLETED) ||
-           (fileIsStageUnlockedAtDifficulty(folder, SP_LEVEL_CRADLE, DIFFICULTY_00) == STAGESTATUS_COMPLETED);
+    return (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_CRADLE, DIFFICULTY_AGENT) == STAGESTATUS_COMPLETED) ||
+           (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_CRADLE, DIFFICULTY_SECRET) == STAGESTATUS_COMPLETED) ||
+           (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_CRADLE, DIFFICULTY_00) == STAGESTATUS_COMPLETED);
 }
 
 /**
@@ -964,8 +964,8 @@ bool fileIsCradleCompletedForFolder(s32 folder)
  */
 bool fileIsAztecCompletedOnSecretOr00ForFolder(s32 folder)
 {
-    return (fileIsStageUnlockedAtDifficulty(folder, SP_LEVEL_AZTEC, DIFFICULTY_SECRET) == STAGESTATUS_COMPLETED) ||
-           (fileIsStageUnlockedAtDifficulty(folder, SP_LEVEL_AZTEC, DIFFICULTY_00) == STAGESTATUS_COMPLETED);
+    return (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_AZTEC, DIFFICULTY_SECRET) == STAGESTATUS_COMPLETED) ||
+           (fileIsStageUnlockedAtDifficulty(folder, GEVR_SP_AZTEC, DIFFICULTY_00) == STAGESTATUS_COMPLETED);
 }
 
 /**
@@ -976,7 +976,7 @@ bool fileIsAztecCompletedOnSecretOr00ForFolder(s32 folder)
  */
 bool fileIsEgyptCompletedOn00ForFolder(int foldernum)
 {
-    return fileIsStageUnlockedAtDifficulty(foldernum, SP_LEVEL_EGYPT, DIFFICULTY_00) == STAGESTATUS_COMPLETED;
+    return fileIsStageUnlockedAtDifficulty(foldernum, GEVR_SP_EGYPT, DIFFICULTY_00) == STAGESTATUS_COMPLETED;
 }
 
 /**
@@ -1445,7 +1445,7 @@ s32 fileIs007ModeUnlocked(u32 folder)
             return TRUE;
         }
 
-        for (levelid = SP_LEVEL_DAM; levelid < SP_LEVEL_MAX; levelid++)
+        for (levelid = SP_LEVEL_DAM; levelid < GEVR_SP_MAX; levelid++)
         {
             if (! fileGetSaveStageCompletedForDifficulty(save, levelid, DIFFICULTY_00))
             {
@@ -1453,7 +1453,7 @@ s32 fileIs007ModeUnlocked(u32 folder)
             }
         }
 
-        if (levelid == SP_LEVEL_MAX)
+        if (levelid == GEVR_SP_MAX)
         {
             return TRUE;
         }
