@@ -119,6 +119,31 @@ int main(void)
 	assert(decoded[0] == 128 && decoded[1] == 128 && decoded[2] == 128);
 
 
+    struct gevrBeanMesh terrain = {.ntex=2};
+    struct beanDraw draw = {.tex=1, .masktex=0, .maskslot=0};
+    struct beanVb ground = {.stride=32, .count=3};
+    uint8_t gpu[96] = {0}; uint32_t indices[3] = {0,1,2};
+    gpu[24]=0; gpu[56]=128; gpu[88]=255;
+    struct beanLayers layers=levelLayers(&terrain,&draw,&ground,gpu,indices,1,1);
+    assert(layers.base==1 && layers.other==0 && layers.blend && !layers.decal && !layers.mask);
+    gpu[24]=gpu[56]=gpu[88]=128;
+    layers=levelLayers(&terrain,&draw,&ground,gpu,indices,1,1);
+    assert(!layers.blend); /* An unrelated lightmap is not terrain. */
+    draw.terrainBlend=1;
+    layers=levelLayers(&terrain,&draw,&ground,gpu,indices,1,1);
+    assert(layers.blend); /* A matching shader keeps its partial snow blend. */
+    draw.terrainBlend=0;
+    /* A cut-out decal cannot replace the opaque wall underneath it. */
+    terrain.texCut[1]=1; draw.maskslot=1;
+    layers=levelLayers(&terrain,&draw,&ground,gpu,indices,1,1);
+    assert(layers.decal && !layers.blend);
+    /* Alpha testing selects the mask's own second UV set. */
+    draw.tex=0; draw.masktex=1; draw.alphatest=1;
+    layers=levelLayers(&terrain,&draw,&ground,gpu,indices,1,1);
+    assert(layers.mask && layers.base==1 && !layers.decal);
+    draw.alphatest=0; ground.stride=12;
+    layers=levelLayers(&terrain,&draw,&ground,gpu,indices,1,1);
+    assert(layers.base==-1 && !layers.mask);
 	put32(texture + 0x44, 0xffffffff);
 	assert(!gevrBeanTexDecode(&image, 0, "authored:bad-table", &width, &height, &alpha));
 	gevrBeanTexReset();

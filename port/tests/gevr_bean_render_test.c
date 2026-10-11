@@ -30,6 +30,7 @@ void gevrBeanRepaintForget(void) {}
 int gevrBeanFolderRepaint(struct ModelFileHeader *h, const struct gevrCaff *c) { (void)h; (void)c; return 0; }
 int gevrCaffOpen(struct gevrCaff *c, const uint8_t *d, uint32_t len) { (void)c; (void)d; (void)len; return 0; }
 void gevrCaffClose(struct gevrCaff *c) { (void)c; }
+void gevrBeanFontReset(void) {}
 void gevrBeanWorldReset(void) {}
 void *gevrBeanWorldRoom(void *g, int r, int *replaced) { (void)r; *replaced = 0; return g; }
 void *gevrBeanWorldSky(void *g, int *drew) { *drew = 0; return g; }

@@ -20,9 +20,10 @@
 #define MAX_TRIS  500000
 
 struct beanDraw {
-	uint32_t vb, tex, prim, count, ib, vs;
+	uint32_t vb, tex, prim, count, ib, vs, masktex, matpc;
+	uint8_t maskslot;
 	int16_t inst;
-	uint8_t blend, alpha, alphatest;
+	uint8_t blend, alpha, alphatest, terrainBlend;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint8_t numpal;
 	uint32_t colour;
@@ -608,6 +609,67 @@ static void markDecals(struct gevrBeanMesh *mesh)
 /* flag bit 8: decal. Kept off the public flags so flash/slide/neck stay 1/2/4. */
 #include "gevr_bean_placeholder.inc.h"
 
+struct beanLayers { int base, other, mask, blend, decal; };
+/* DAB's two-picture terrain and decal shaders retain an opaque base. */
+static struct beanLayers levelLayers(const struct gevrBeanMesh *mesh, const struct beanDraw *d,
+        const struct beanVb *vb, const uint8_t *gpu, const uint32_t *tris, int ntris, int levelFade)
+{
+        int baseTex = d->tex < (uint32_t)mesh->ntex ? (int)d->tex : -1;
+        int otherTex = d->masktex < (uint32_t)mesh->ntex ? (int)d->masktex : -1;
+        int mask = 0, blendpic = 0, decalpic = 0;
+        if (levelFade && vb->stride == 12) baseTex = -1;
+        if (levelFade && vb->stride == 32 && baseTex >= 0 && otherTex >= 0) {
+            mask = d->alphatest && d->maskslot == 1 && !mesh->texCut[baseTex] && mesh->texCut[otherTex];
+            if (mask) baseTex = otherTex;
+            if (!mask && !d->alphatest && !d->blend) {
+                int amin = 255, amax = 0;
+                for (int v = 0; v < ntris*3; v++) if (tris[v] < vb->count) {
+                    int a = gpu[vb->off + tris[v]*32 + 24];
+                    if (a < amin) amin = a;
+                    if (a > amax) amax = a;
+                }
+                blendpic = d->maskslot == 0 && !mesh->texCut[baseTex] && !mesh->texCut[otherTex]
+                         && ((amin == 0 && amax == 255) || d->terrainBlend);
+                decalpic = d->maskslot == 1 && mesh->texCut[baseTex] && !mesh->texCut[otherTex];
+            }
+        }
+    return (struct beanLayers){baseTex, otherTex, mask, blendpic, decalpic};
+}
+
+/* Identify a terrain shader from a full-range blend, then keep the same
+ * material on its partial-range draws (Dam has six near the manhole). */
+static void markLevelBlendShaders(const struct gevrBeanMesh *mesh, struct beanDraw *draws,
+        int ndraws, const struct beanIb *ibs, int nibs, const uint8_t *data, uint32_t dlen,
+        const uint8_t *gpu, uint32_t glen, int uv20)
+{
+    uint32_t shaders[32][2];
+    int known = 0;
+    for (int di=0; di<ndraws; di++) {
+        struct beanDraw *d = draws+di;
+        struct beanVb vb;
+        if (d->alphatest || d->blend || d->maskslot != 0 ||
+                !readVb(data, dlen, gpu, glen, d->vb, uv20, &vb) || vb.stride != 32) continue;
+        for (int i=0; i<nibs; i++) if (ibs[i].obj == d->ib) {
+            struct gevrBeanTriIn in = {.prim=d->prim, .count=d->count,
+                .idx=gpu+ibs[i].off, .idxBytes=ibs[i].size, .width=ibs[i].width};
+            uint32_t *tris = NULL;
+            int ntris = gevrBeanTriangles(&in, &tris);
+            struct beanLayers layers = levelLayers(mesh, d, &vb, gpu, tris, ntris, 1);
+            free(tris);
+            if (layers.blend) {
+                int seen = 0;
+                for (int s=0; s<known; s++) seen |= shaders[s][0] == d->vs && shaders[s][1] == d->matpc;
+                if (!seen && known < 32) { shaders[known][0]=d->vs; shaders[known++][1]=d->matpc; }
+            }
+            break;
+        }
+    }
+    for (int di=0; di<ndraws; di++)
+        for (int s=0; s<known; s++)
+            if (draws[di].vs == shaders[s][0] && draws[di].matpc == shaders[s][1])
+                draws[di].terrainBlend = 1;
+}
+
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 {
 	FILE *fp;
@@ -636,7 +698,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	int section = -1, afterpieces = 0;
 	uint32_t sectionend = 0, repeatvb = ~0u;
 	int triggerCuffs;
-	uint32_t end, pc, vb = 0, tex = 0, matpc = 0, vs = 0;
+	uint32_t end, pc, vb = 0, tex = 0, matpc = 0, vs = 0, masktex = ~0u;
+	uint8_t maskslot = 0;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint16_t remap[GEVR_BEAN_MAXPAL];
 	int numremap = 0;
@@ -855,6 +918,15 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		} else if (type == 0x2d && sz >= 20) {
 			tex = materialTex(&caff, stream, pc, sz, slen, texfile, ntex);
 			matpc = pc;
+            masktex = ~0u;
+            maskslot = 0;
+            for (uint32_t k = 0; 12 + 8*k + 8 <= sz && fits(pc+12+8*k, 8, slen); k++) {
+                uint32_t other = be32(stream+pc+12+8*k);
+                if (other != tex && other < (uint32_t)ntex && masktex == ~0u) {
+                    masktex = other;
+                    maskslot = be32(stream+pc+16+8*k) >> 16;
+                }
+            }
 			alpha = 0xff;
 			colour = 0xffffffu;
 		} else if (type == 0x06 && sz >= 28 && be32(stream + pc + 4) == 0 &&
@@ -905,6 +977,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				d->vs = vs;
 				d->vb = vb;
 				d->tex = tex;
+                d->masktex = masktex;
+                d->maskslot = maskslot;
+                d->matpc = matpc;
 				d->prim = be32(stream + pc + 4);
 				d->count = be32(stream + pc + 8);
 				d->ib = be32(stream + pc + 12);
@@ -1021,6 +1096,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		mesh->ntex++;
 	}
 	fixPlaceholders(mesh, draws, ndraws, source);
+    if (levelFade) markLevelBlendShaders(mesh, draws, ndraws, ibs, nibs, data, dlen, gpu, glen, uv20);
 	for (int di = 0; di < ndraws; di++) {
 		struct beanDraw *d = &draws[di];
 		if (triggerCuffs && d->cuff == -2)
@@ -1050,6 +1126,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		in.idxBytes = ib->size;
 		in.width = ib->width;
 		ntris = gevrBeanTriangles(&in, &tris);
+        struct beanLayers layers = levelLayers(mesh, d, &vbrec, gpu, tris, ntris, levelFade);
+        int baseTex=layers.base, otherTex=layers.other;
+        int mask=layers.mask, blendpic=layers.blend, decalpic=layers.decal;
 		for (int t = 0; t < ntris; t++) {
 			struct beanVtx corner[3];
 			int ok = 1;
@@ -1058,10 +1137,17 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 					ok = 0;
 					break;
 				}
+                const uint8_t *raw = gpu + vbrec.off + tris[t*3+k]*vbrec.stride;
+                if (mask || blendpic || decalpic) {
+                    corner[k].uv[0] = (int16_t)be16(raw+20)/uvscale;
+                    corner[k].uv[1] = (int16_t)be16(raw+22)/uvscale;
+                }
+                for (int j=0; j<3; j++) if (fabsf(corner[k].pos[j]) > 1e8f) ok = 0;
 				/* DAB ignores the native/fog alpha outside a fading material.
 				 * Nintendo's blended shader has no material fade and many zeros. */
 				if (!(d->blend && (d->alpha < 255 || levelFade)))
 					corner[k].argb |= 0xff000000u;
+                if (mask) corner[k].argb = (corner[k].argb & 0xffffff) | (uint32_t)raw[24]<<24;
 				corner[k].argb = (
 					((corner[k].argb >> 24) << 24)
 					| ((((corner[k].argb >> 16) & 255) * ((cr >> 16) & 255) / 255) << 16)
@@ -1073,14 +1159,28 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				}
 			}
 			if (ok) {
-				int texi = (int)d->tex < mesh->ntex ? (int)d->tex : -1;
+				int texi = decalpic ? otherTex : baseTex;
 				uint8_t a = d->alpha;
 				if (!pushTri(mesh, &corner[0], &corner[1], &corner[2], texi, a,
-						d->alphatest || (texi >= 0 && mesh->texCut[texi]), d->blend,
+						d->alphatest || (!levelFade && texi >= 0 && mesh->texCut[texi]), d->blend,
 						d->pal, d->numpal, boneSk, muzzle, slideb)) {
 					break;
 				}
 				mesh->tris[mesh->ntris - 1].cuff = d->cuff;
+                if (blendpic || decalpic) {
+                    int seen = decalpic;
+                    for (int k=0; k<3; k++) {
+                        const uint8_t *raw = gpu+vbrec.off+tris[t*3+k]*32;
+                        corner[k].uv[0] = (int16_t)be16(raw+16)/uvscale;
+                        corner[k].uv[1] = (int16_t)be16(raw+18)/uvscale;
+                        int a = decalpic ? 255 : raw[24];
+                        seen |= a != 0;
+                        corner[k].argb = (corner[k].argb & 0xffffff) | (uint32_t)a<<24;
+                    }
+                    if (seen && pushTri(mesh, corner, corner+1, corner+2, decalpic ? baseTex : otherTex,
+                            255, 0, 1, d->pal, d->numpal, boneSk, muzzle, slideb))
+                        mesh->tris[mesh->ntris-1].flags |= GEVR_BEAN_F_DECAL;
+                }
 			}
 		}
 		free(tris);

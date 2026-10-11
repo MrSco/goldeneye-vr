@@ -267,7 +267,7 @@ void gevrBeanTexReset(void)
  * stand-ins: gevrBeanTexReset frees those addresses, and these are the
  * texture pool's.
  */
-#define PAINT_SLOTS 128
+#define PAINT_SLOTS 512
 
 static struct { const void *addr; uint8_t *rgba; int w, h; } s_paint[PAINT_SLOTS];
 static int s_npaint;

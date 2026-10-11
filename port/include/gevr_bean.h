@@ -5,6 +5,9 @@
 
 struct ModelFileHeader;
 struct Model;
+struct fontchar;
+void gevrBeanFontRepaint(struct fontchar *glyph, int gothic, int character);
+void gevrBeanFontReset(void);
 
 #ifdef __cplusplus
 extern "C" {

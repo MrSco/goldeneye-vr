@@ -66,6 +66,8 @@ struct beanSwap {
 
 static struct beanSwap s_swap[MAX_SWAP];
 static int s_nswap;
+/* Node selection is repeated for each body part and pass. */
+static uint16_t s_swapIndex[MAX_SWAP * 2];
 static void *s_alloc[MAX_ALLOC];
 static int s_nalloc;
 
@@ -147,14 +149,34 @@ static int keepAlloc(void *p)
 	return 1;
 }
 
+static unsigned swapBucket(const void *node)
+{
+    uintptr_t key = (uintptr_t)node >> 4;
+    key ^= key >> 17;
+    key *= 0x9e3779b1u;
+    return (unsigned)key & (MAX_SWAP * 2 - 1);
+}
+static void swapIndexAdd(int i)
+{
+    unsigned bucket = swapBucket(s_swap[i].node);
+    while (s_swapIndex[bucket]) bucket = (bucket + 1) & (MAX_SWAP * 2 - 1);
+    s_swapIndex[bucket] = (uint16_t)(i + 1);
+}
+static void swapIndexRebuild(void)
+{
+    memset(s_swapIndex, 0, sizeof(s_swapIndex));
+    for (int i=0; i<s_nswap; i++) swapIndexAdd(i);
+}
 static struct beanSwap *swapOf(void *node)
 {
-	for (int i = 0; i < s_nswap; i++) {
-		if (s_swap[i].node == node) {
-			return &s_swap[i];
-		}
-	}
-	return NULL;
+    if (!node) return NULL;
+    unsigned bucket = swapBucket(node);
+    while (s_swapIndex[bucket]) {
+        struct beanSwap *s = &s_swap[s_swapIndex[bucket] - 1];
+        if (s->node == node) return s;
+        bucket = (bucket + 1) & (MAX_SWAP * 2 - 1);
+    }
+    return NULL;
 }
 
 static void swapAdd(void *node, void *original, void *ours, int origType)
@@ -175,6 +197,7 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].deferredMatrix = 0;
 	s_swap[s_nswap].watchArm = s_registrationWatchArm;
 	s_emittedSkin = NULL;
+	swapIndexAdd(s_nswap);
 	s_nswap++;
 }
 
@@ -367,6 +390,8 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	}
 	if (!zbuf) {
 		gSPClearGeometryMode(g++, G_ZBUFFER);
+	} else {
+		gSPSetGeometryMode(g++, G_ZBUFFER);
 	}
 	if (dim) {
 		gDPSetPrimColor(g++, 0, 0, 96, 96, 96, 255);
@@ -594,6 +619,15 @@ static int nodeMatrix(ModelNode *n)
 		}
 	}
 	return -1;
+}
+
+/* First-person Switch 1 gates only the muzzle flash, never the gun body. */
+static int gunFlashNode(const ModelFileHeader *header, const ModelNode *node)
+{
+    if (header->numSwitches <= 1 || !header->Switches[1]) return 0;
+    for (; node; node = node->Parent)
+        if (node == header->Switches[1]) return 1;
+    return 0;
 }
 
 static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
@@ -1532,7 +1566,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			for (int i = 0; i < nd; i++) {
 				int g = dls[i].grp;
 				int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
-				if ((dls[i].simple || underJoint) && kind == BEAN_GUN) {
+				if (kind == BEAN_GUN && (dls[i].simple || underJoint || gunFlashNode(header, dls[i].node))) {
 					continue;
 				}
 				if (pass == 0 && restrictType && dls[i].modelType != 3) {
@@ -1542,7 +1576,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				for (ModelNode *up = dls[i].node->Parent; up; up = up->Parent)
 					if (nodeOp(up) == MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance > 0)
 						far = 1;
-				if ((fit && !far && nodeMatrix(dls[i].node) == nodeMatrix(dls[0].node) && best < 0) ||
+				if ((fit && !far && nodeMatrix(dls[i].node) == nodeMatrix(header->RootNode) && best < 0) ||
 				    (!fit && dls[i].span > bestSpan)) {
 					bestSpan = dls[i].span;
 					best = i;
@@ -1598,7 +1632,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 							registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
-					if (kind == BEAN_GUN && (dls[i].simple || underJoint))
+					if (kind == BEAN_GUN && (dls[i].simple || underJoint || gunFlashNode(header, dls[i].node)))
 						continue;
 					registerPrimary(dls[i].node, s_blank, 1);
 				}
@@ -1620,6 +1654,7 @@ void gevrBeanForgetModel(struct ModelFileHeader *header)
 		if (s_swap[i].owner != header)
 			s_swap[kept++] = s_swap[i];
 	s_nswap = kept;
+	swapIndexRebuild();
 }
 
 /* Different intro headers share the same file buffer. Forget all old node
@@ -1634,6 +1669,7 @@ void gevrBeanForgetModelStorage(const void *base, u32 size)
 			s_swap[kept++] = s_swap[i];
 	}
 	s_nswap = kept;
+	swapIndexRebuild();
 }
 
 /* The briefing folder keeps GoldenEye's model; its textures take the release's pictures. */
@@ -1720,6 +1756,7 @@ void gevrBeanReset(void)
 	}
 	s_nalloc = 0;
 	s_nswap = 0;
+	memset(s_swapIndex, 0, sizeof(s_swapIndex));
 	s_registrationOwner = NULL;
 	for (int i = 0; i < s_ncache; i++) {
 		gevrBeanMeshFree(s_cache[i].mesh);
@@ -1727,6 +1764,7 @@ void gevrBeanReset(void)
 		s_cache[i].path[0] = 0;
 	}
 	s_ncache = 0;
+	gevrBeanFontReset();
 	gevrBeanTexReset();
 	gevrBeanRepaintForget();
 	gevrBeanWorldReset();
