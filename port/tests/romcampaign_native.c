@@ -61,10 +61,15 @@ static const s32 s_levelIds[38] = {
 	LEVELID_CAVES, LEVELID_EAR, LEVELID_LEE, LEVELID_LIP, LEVELID_CUBA, LEVELID_WAX, LEVELID_PAM, LEVELID_MAX,
 };
 struct levelentry levelinfotable[38];
-EnvironmentRecord fog_tables[48];          /* GoldenEye's 47 and the end row */
-EnvironmentFoglessRecord fog_tables2[4];   /* 3 and the end row */
-struct gevrTestMusicRow { s16 stage_id, main_music, bg_sound, xtrack; } music_setup_entries[25];
-s16 random_tracks[52];
+/*
+ * Shaped as the game's (bgfog.c, music_0D2720.c): rows, then the end row the
+ * binder finds, then CANARY rows it must never touch.
+ */
+#define CANARY 4
+EnvironmentRecord fog_tables[48 + CANARY];          /* GoldenEye's 47 and the end row */
+EnvironmentFoglessRecord fog_tables2[4 + CANARY];   /* 3 and the end row */
+struct gevrTestMusicRow { s16 stage_id, main_music, bg_sound, xtrack; } music_setup_entries[25 + CANARY];
+s16 random_tracks[44 + CANARY];                     /* 43 tracks and M_NONE (0) */
 
 struct ModelFileHeader cartridge_header, cartrifle_header, cartblue_header, cartshell_header;
 
@@ -161,10 +166,15 @@ int main(int argc, char **argv)
 	for (i = 0; i < 24; i++) {
 		music_setup_entries[i].stage_id = 1;
 	}
-	for (i = 0; i < 51; i++) {
+	for (i = 0; i < 43; i++) {
 		random_tracks[i] = 1;
 	}
-	random_tracks[51] = -1;
+	for (i = 0; i < CANARY; i++) {
+		fog_tables[48 + i].Id = 0x7777;
+		fog_tables2[4 + i].Id = 0x7777;
+		music_setup_entries[25 + i].stage_id = 0x777;
+		random_tracks[44 + i] = 0x777;
+	}
 	for (i = 1; i < 32; i++) {
 		gitem_structs[i].item_header = &s_itemHeaders[i];
 		gitem_structs[i].item_file_name = (char *)s_gunFiles[i];
@@ -264,7 +274,16 @@ int main(int argc, char **argv)
 		printf("music %d %d %d %d %d\n", i, music_setup_entries[i].stage_id, music_setup_entries[i].main_music,
 				music_setup_entries[i].bg_sound, music_setup_entries[i].xtrack);
 	}
-	for (i = 0; i < 52; i++) {
+	{
+		int intact = 1;
+
+		for (i = 0; i < CANARY; i++) {
+			intact &= fog_tables[48 + i].Id == 0x7777 && fog_tables2[4 + i].Id == 0x7777
+				&& music_setup_entries[25 + i].stage_id == 0x777 && random_tracks[44 + i] == 0x777;
+		}
+		printf("canaries %d\n", intact);
+	}
+	for (i = 0; i < 44; i++) {
 		printf("random %d %d\n", i, random_tracks[i]);
 	}
 	for (i = 0; i < 20; i++) {
