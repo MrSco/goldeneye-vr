@@ -14,6 +14,20 @@ struct GfxClipParameters {
 
 enum FilteringMode { FILTER_NONE, FILTER_LINEAR, FILTER_THREE_POINT, FILTER_TRILINEAR };
 
+/*
+ * A static mesh's draw (gevr_static_mesh.h): what gfx_sp_vertex and
+ * gfx_sp_tri1 would have put in each vertex of the batch, as uniforms over the
+ * mesh's own Vtx (DAB's GFX_MESH_PARAMS, port/licenses/dabs-mod.txt).
+ */
+#define GFX_MESH_MAX_INPUTS 7
+struct GfxMeshDrawParams {
+    float mp[16];        // clip = mp * (x, y, z, 1), column-major; y negated when the target is
+    float tex[2][4];     // per texture: u = s * [0] + [2], v = t * [1] + [3]
+    float in_sel[GFX_MESH_MAX_INPUTS][16];   // per combiner input: which colour bytes (column-major)
+    float in_const[GFX_MESH_MAX_INPUTS][4];  // ... plus what does not come from the vertex
+    int num_inputs;
+};
+
 struct GfxRenderingAPI {
     const char* (*get_name)(void);
     int (*get_max_texture_size)(void);
@@ -61,6 +75,12 @@ struct GfxRenderingAPI {
 
     // GoldenEye issue #25: a texture-pack image, with mipmaps (gevr_texpack.cpp)
     void (*upload_texture_hd)(const uint8_t* rgba32_buf, uint32_t width, uint32_t height);
+
+    // GoldenEye: a static mesh (gevr_static_mesh.h), its buffers made into *gpu the
+    // first time; false when it cannot be drawn so, and the caller draws it as before
+    bool (*draw_mesh)(void** gpu, const void* vertices, uint32_t num_vertices, const uint32_t* indices,
+                      uint32_t num_indices, uint32_t first, uint32_t count, const struct GfxMeshDrawParams* params);
+    void (*delete_mesh)(void* gpu);
 
 };
 

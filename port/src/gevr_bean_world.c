@@ -32,6 +32,7 @@
 #include "matrixmath.h"
 #include "gevr_bean_int.h"
 #include "gevr_bean_room_scale.inc.h"
+#include "gevr_static_mesh.h"
 
 #define MAX_ROOMS 160
 #define SKY_EXTENT 30000.0f
@@ -42,6 +43,11 @@ struct roomSlot {
 	void *vtxOpa;
 	void *vtxXlu;
 	int has;
+	/* opa and xlu as static meshes (gevr_static_mesh.h): the lists drawn, or NULL */
+	Gfx *wrap[2];
+	GevrStaticMesh *mesh[2];
+	/* the Bean geometry's bounds, in the room table's units (world, not room-local) */
+	float lo[3], hi[3];
 };
 
 static struct roomSlot s_room[MAX_ROOMS];
@@ -52,6 +58,8 @@ static int s_ok;
 
 static Gfx *s_skyGdl;
 static void *s_skyVtx;
+static Gfx *s_skyWrap;
+static GevrStaticMesh *s_skyMesh;
 static int s_skyStage = -9999;
 static int s_skyTried;
 static int s_skyOk;
@@ -244,9 +252,158 @@ static int roomFor(const float c[3], int nrooms)
 	return best >= 0 ? best : near;
 }
 
+/*
+ * A list made of state commands and runs of G_VTX/G_TRI1 (gevrBeanEmitList)
+ * as one mesh: each distinct vertex once, three indices per triangle in the
+ * list's order, and where each run starts and ends, so fast3d can draw a run
+ * from buffers made once (gevr_static_mesh.h; DAB keeps its room runs the
+ * same way, fast3d gfx_room_read_run).
+ */
+GevrStaticMesh *gevrStaticMeshBuild(const void *gdl)
+{
+	const Gfx *g;
+	unsigned ntri = 0, nruns = 0, inRun = 0;
+	if (!gdl)
+		return NULL;
+	for (g = gdl;; g++) {
+		unsigned op = (unsigned)(g->words.w0 >> 24) & 0xff;
+		if (op == (G_ENDDL & 0xff))
+			break;
+		if (op == (G_VTX & 0xff)) {
+			nruns += !inRun;
+			inRun = 1;
+		} else if (op == (G_TRI1 & 0xff)) {
+			if (!inRun)
+				return NULL;   /* drawn from vertices an earlier run loaded */
+			ntri++;
+		} else if (op == 0xb1) {
+			return NULL;   /* G_TRI4: not a list gevrBeanEmitList makes */
+		} else {
+			inRun = 0;
+		}
+	}
+	if (!ntri)
+		return NULL;
+	unsigned cap = 1;
+	while (cap < ntri * 6)
+		cap <<= 1;
+	GevrStaticMesh *m = calloc(1, sizeof(*m));
+	Vtx *verts = malloc((size_t)ntri * 3 * sizeof(Vtx));
+	uint32_t *indices = malloc((size_t)ntri * 3 * sizeof(uint32_t));
+	GevrStaticMeshRun *runs = calloc(nruns, sizeof(*runs));
+	uint32_t *table = calloc(cap, sizeof(uint32_t));   /* vertex + 1, 0 empty */
+	if (!m || !verts || !indices || !runs || !table) {
+		free(m);
+		free(verts);
+		free(indices);
+		free(runs);
+		free(table);
+		return NULL;
+	}
+	const Vtx *slot[16] = {0};
+	uint32_t nverts = 0, nindices = 0, run = 0;
+	unsigned loaded = 0;
+	inRun = 0;
+	for (g = gdl;; g++) {
+		unsigned op = (unsigned)(g->words.w0 >> 24) & 0xff;
+		if (op == (G_VTX & 0xff)) {
+			unsigned n = (unsigned)(g->words.w0 & 0xffff) / sizeof(Vtx), dest = (unsigned)(g->words.w0 >> 16) & 15;
+			if (!inRun) {
+				runs[run].start = g;
+				runs[run].firstIndex = nindices;
+				loaded = 0;   /* a run may use only what it loads */
+				inRun = 1;
+			}
+			for (unsigned k = 0; k < n && dest + k < 16; k++) {
+				slot[dest + k] = (const Vtx *)g->words.w1 + k;
+				loaded |= 1u << (dest + k);
+			}
+			continue;
+		}
+		if (op == (G_TRI1 & 0xff)) {
+			const unsigned corner[3] = {(unsigned)(g->words.w1 >> 16 & 255) / 10, (unsigned)(g->words.w1 >> 8 & 255) / 10,
+			                           (unsigned)(g->words.w1 & 255) / 10};
+			for (int k = 0; k < 3; k++) {
+				if (corner[k] >= 16 || !(loaded & (1u << corner[k]))) {
+					m->vertices = verts;
+					m->indices = indices;
+					m->runs = runs;
+					free(table);
+					gevrStaticMeshFree(m);
+					return NULL;
+				}
+				const Vtx *v = slot[corner[k]];
+				uint32_t h = 2166136261u;
+				for (size_t b = 0; b < sizeof(Vtx); b++)
+					h = (h ^ ((const uint8_t *)v)[b]) * 16777619u;
+				for (h &= cap - 1; table[h] && memcmp(&verts[table[h] - 1], v, sizeof(Vtx)) != 0; h = (h + 1) & (cap - 1))
+					;
+				if (!table[h]) {
+					verts[nverts] = *v;
+					table[h] = ++nverts;
+				}
+				indices[nindices++] = table[h] - 1;
+			}
+			continue;
+		}
+		if (inRun) {
+			runs[run].end = g;
+			runs[run].indexCount = nindices - runs[run].firstIndex;
+			run++;
+			inRun = 0;
+		}
+		if (op == (G_ENDDL & 0xff))
+			break;
+	}
+	free(table);
+	m->vertices = verts;
+	m->numVertices = nverts;
+	m->indices = indices;
+	m->numIndices = nindices;
+	m->runs = runs;
+	m->numRuns = run;
+	return m;
+}
+
+void gevrStaticMeshFree(GevrStaticMesh *m)
+{
+	if (!m)
+		return;
+	gfx_static_mesh_release(m);
+	free((void *)m->vertices);
+	free((void *)m->indices);
+	free((void *)m->runs);
+	free(m);
+}
+
+/* G_GEVR_MESH ahead of the list, then on into the list itself */
+static Gfx *meshWrap(Gfx *list, GevrStaticMesh **mesh)
+{
+	Gfx *w;
+	*mesh = gevrStaticMeshBuild(list);
+	if (!*mesh)
+		return NULL;
+	w = malloc(2 * sizeof(Gfx));
+	if (!w) {
+		gevrStaticMeshFree(*mesh);
+		*mesh = NULL;
+		return NULL;
+	}
+	w[0].words.w0 = (uintptr_t)G_GEVR_MESH << 24;
+	w[0].words.w1 = (uintptr_t)*mesh;
+	gSPBranchList(&w[1], list);
+	return w;
+}
+
 static void clearRooms(void)
 {
 	for (int i = 0; i < MAX_ROOMS; i++) {
+		for (int k = 0; k < 2; k++) {
+			gevrStaticMeshFree(s_room[i].mesh[k]);
+			free(s_room[i].wrap[k]);
+			s_room[i].mesh[k] = NULL;
+			s_room[i].wrap[k] = NULL;
+		}
 		free(s_room[i].opa);
 		free(s_room[i].xlu);
 		free(s_room[i].vtxOpa);
@@ -359,6 +516,10 @@ static int buildStage(int stage)
 			continue;
 		}
 		nopa = nxlu = 0;
+		for (int k = 0; k < 3; k++) {
+			s_room[r].lo[k] = 1e30f;
+			s_room[r].hi[k] = -1e30f;
+		}
 		for (int i = 0; i < mesh->ntris; i++) {
 			const struct gevrBeanTri *t;
 			struct gevrEmitVert *dst;
@@ -382,6 +543,13 @@ static int buildStage(int stage)
 				p[1] = t->p[k * 3 + 1] * fileScale - ptr_bgdata_room_fileposition_list[r].pos.y;
 				p[2] = t->p[k * 3 + 2] * fileScale - ptr_bgdata_room_fileposition_list[r].pos.z;
 				fillVert(mesh, t, &dst[slot + k], p, k);
+				for (int j = 0; j < 3; j++) {
+					const float world = p[j] + ptr_bgdata_room_fileposition_list[r].pos.f[j];
+					if (world < s_room[r].lo[j])
+						s_room[r].lo[j] = world;
+					if (world > s_room[r].hi[j])
+						s_room[r].hi[j] = world;
+				}
 			}
 		}
 		/* DAB draws the level two-sided: decks and stair undersides
@@ -390,6 +558,7 @@ static int buildStage(int stage)
 			s_room[r].opa = gdl;
 			s_room[r].vtxOpa = vtx;
 			s_room[r].has = 1;
+			s_room[r].wrap[0] = meshWrap(gdl, &s_room[r].mesh[0]);
 		}
 		gdl = NULL;
 		vtx = NULL;
@@ -397,6 +566,7 @@ static int buildStage(int stage)
 			s_room[r].xlu = gdl;
 			s_room[r].vtxXlu = vtx;
 			s_room[r].has = 1;
+			s_room[r].wrap[1] = meshWrap(gdl, &s_room[r].mesh[1]);
 		}
 		free(opa);
 		free(xlu);
@@ -421,6 +591,10 @@ static int ensureStage(void)
 
 static void clearSky(void)
 {
+	gevrStaticMeshFree(s_skyMesh);
+	free(s_skyWrap);
+	s_skyMesh = NULL;
+	s_skyWrap = NULL;
 	free(s_skyGdl);
 	free(s_skyVtx);
 	s_skyGdl = NULL;
@@ -492,6 +666,7 @@ static int buildSky(int stage)
 	free(ev);
 	s_skyGdl = gdl;
 	s_skyVtx = vtx;
+	s_skyWrap = meshWrap(s_skyGdl, &s_skyMesh);
 	s_skyOk = 1;
 	GEVR_BEAN_LOG("gevr bean: HD sky %s, %d tris, extent %.0f\n", name, mesh->ntris, extent);
 	gevrBeanMeshFree(mesh);
@@ -535,12 +710,26 @@ void *gevrBeanWorldRoom(void *gdl, int room, int *replaced)
 		*replaced = 1;
 	}
 	list = xlu ? s_room[room].xlu : s_room[room].opa;
+	if (list && s_room[room].wrap[xlu])
+		list = s_room[room].wrap[xlu];
 	if (!list) {
 		return gdl;
 	}
 	g = gdl;
 	gSPDisplayList(g++, list);
 	return g;
+}
+
+/* Whether the stage's Bean geometry has room `room`, and its bounds. */
+int gevrBeanWorldRoomBounds(int room, float lo[3], float hi[3])
+{
+	if (!ensureStage() || room < 0 || room >= s_nrooms || !s_room[room].has)
+		return 0;
+	for (int k = 0; k < 3; k++) {
+		lo[k] = s_room[room].lo[k];
+		hi[k] = s_room[room].hi[k];
+	}
+	return 1;
 }
 
 void *gevrBeanWorldSky(void *gdl, int *drew)
@@ -578,7 +767,7 @@ void *gevrBeanWorldSky(void *gdl, int *drew)
 		G_MTX_PROJECTION | G_MTX_LOAD | G_MTX_NOPUSH);
 	gSPClearGeometryMode(g++, G_ZBUFFER | G_CULL_BOTH | G_LIGHTING | G_FOG);
 	gSPMatrix(g++, osVirtualToPhysical(packed), G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
-	gSPDisplayList(g++, s_skyGdl);
+	gSPDisplayList(g++, s_skyWrap ? s_skyWrap : s_skyGdl);
 	gSPSetGeometryMode(g++, G_ZBUFFER);
 	if (drew) {
 		*drew = 1;

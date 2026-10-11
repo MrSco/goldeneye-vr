@@ -71,6 +71,11 @@ static void gevr_issue_draw(GLint first,GLsizei count,bool,bool,float,bool){
         assert(filters[boundProgram][t]==(int)d.linear[t]);
     }
 }
+/* Static-mesh draws (gfx_opengl_draw_mesh) bind their own vertex arrays; none here. */
+static int meshHooks;
+static void gevr_eye_replay_vao(const GevrEyeDraw& d){assert(d.mesh==0);meshHooks++;}
+static void gevr_eye_replay_mesh(const GevrEyeDraw& d){assert(d.mesh==0);}
+static void gevr_eye_replay_done(){}
 /* INSERT_REPLAY */
 int main(){
     ShaderProgram a,b;a.opengl_program_id=1;b.opengl_program_id=2;
@@ -84,7 +89,7 @@ int main(){
     d.tex[1]=45;d.linear[0]=false;s_eyeDraws.push_back(d);
     float delta[16]={};delta[0]=delta[5]=delta[10]=delta[15]=1;
     gfx_vr_eye_replay(delta,nullptr,nullptr,nullptr);
-    assert(issued==104);
+    assert(issued==104 && meshHooks==104);
     /* 3 changed texture bindings + 2 restores, rather than 208 bindings.
      * Program-local filtering is refreshed on switches and value changes. */
     assert(textureCalls==5 && filterCalls==6);
