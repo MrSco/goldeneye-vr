@@ -48,7 +48,13 @@ map, stutter (52 fps of 120; DRAW/TICK 16 ms, GPU 2.6 ms).
   once per vertex, 1024-triangle batches, hashed Bean lookups, new
   VTX/TRI1/CLIP/ROOM/PRES stats (cf59657). Tests: test_bean_images.py,
   test_bean_fonts.py shape check, mapping-test gun/orientation checks.
-- Diagnosed, not fixed: the logo (blended alpha 255 demoted to 254, so
+- Then: DAB's translucency and decal rules for the logo, the wrist watch
+  and the water (1d02ef1, test_bean_material.py); rooms and sky as static
+  GPU meshes (7f75f48; files/gevr_nomesh.txt turns them off; offline
+  bit-identical to the CPU path, 10 ms -> 0.13 ms of fast3d per frame);
+  rooms drawn by their Bean bounds (915f6c8). All need the headset.
+  Next: phase 2, GPU skinning of characters (xblaMeshGpuPalette).
+- First diagnosis (now fixed): the logo (blended alpha 255 demoted to 254, so
   drawn as glass), the watch (markDecals buckets flag 521 suitlfhand
   triangles with nothing under them), the water (material alpha 0 taken
   on level triangles). A patch for gevr_bean_load.c porting DAB's rules
