@@ -5,6 +5,8 @@
 
 int VrBeanModels = 1;
 uintptr_t osVirtualToPhysical(void *addr) { return (uintptr_t)addr; }
+Vtx *dynAllocateVertices(s32 n) { return calloc(n, sizeof(Vtx)); }
+void *dynAllocate(s32 n) { return calloc(1, n); }
 static int loads;
 int gevrBeanLoad(const char *source, int parts, struct gevrBeanMesh **out)
 {
@@ -22,6 +24,8 @@ void gevrBeanTexReset(void) {}
 void gevrBeanWorldReset(void) {}
 void *gevrBeanWorldRoom(void *g, int r, int *replaced) { (void)r; *replaced = 0; return g; }
 void *gevrBeanWorldSky(void *g, int *drew) { *drew = 0; return g; }
+
+#include "gevr_bean_pose_test.inc.h"
 
 int main(void)
 {
@@ -67,6 +71,7 @@ int main(void)
     gevrBeanSetEnabled(1);
     assert(gevrBeanShownGdl(&node, ro.DisplayList.Primary) == ro.DisplayList.Primary);
     assert(gevrBeanShownModelType(&node, ro.DisplayList.ModelType) == 0);
+    poseChecks();
     gevrBeanReset();
     puts("Bean UV, vertex alpha and same-level toggle checks passed");
     return 0;

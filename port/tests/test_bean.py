@@ -56,6 +56,13 @@ with tempfile.TemporaryDirectory(prefix="gevr-bean-") as directory:
         "-I" + str(ROOT / "include"), "-I" + str(ROOT / "port/include"), str(room), "-o", str(room_exe),
     ], check=True)
     subprocess.run([str(room_exe)], check=True)
+    mapping = Path(directory) / "rooms.exe"
+    subprocess.run([shutil.which("gcc") or "cc", "-std=c11", "-O2", "-fms-extensions",
+                    "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
+                    *["-I" + str(ROOT / path) for path in (".", "include", "src", "src/game", "port/include")],
+                    str(ROOT / "port/tests/gevr_bean_room_mapping_test.c"),
+                    str(ROOT / "port/src/gevr_romcheck.c"), str(ROOT / "port/src/gevr_rom_manifest.c"), "-lz", "-lm", "-o", str(mapping)], check=True)
+    subprocess.run([str(mapping)], check=True)
     if len(sys.argv) > 1:
         assets = Path(sys.argv[1]).resolve() / "new"
         samples = sorted(path for category in ("char", "head", "gun", "prop", "background", "skydome")

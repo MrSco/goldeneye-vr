@@ -18,7 +18,9 @@ struct gevrBeanTri {
 	float p[9];
 	float n[9];
 	float uv[6];
+	uint8_t bone[12], weight[12];
 	uint8_t rgba[12];
+	int8_t cuff;
 	int16_t tex;
 	uint8_t alpha;
 	uint8_t alphatest;
@@ -37,6 +39,11 @@ struct gevrBeanMesh {
 	int texCut[256];
 	int ntex;
 	float uvscale;
+	int triggerCuffs;
+	int nbones;
+	float boneBind[64][3];
+	char boneName[64][64];
+	uint8_t boneSk[64];
 	int tricaps;
 };
 

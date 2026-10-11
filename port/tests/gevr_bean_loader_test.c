@@ -37,7 +37,36 @@ int main(void)
     v.slot[2] = 20; v.weight[2] = 200; pal[20] = 5; boneSk[5] = 7;
     assert(pushTri(&mesh, &v, &v, &v, -1, 255, 0, 0, pal, 21, boneSk, muzzle, slide));
     assert(mesh.tris[0].sk == 7);
-    free(mesh.tris);
+	assert(mesh.tris[0].bone[2] == 5 && mesh.tris[0].weight[2] == 200);
+	assert(boneIs("SKEL_LF_WRIST_WPRE", "SKEL_LF_WRIST"));
+	assert(!boneIs("SKEL_LF_WRIST_OTHER", "SKEL_LF_WRIST"));
+	/* Animated type-4 textures put dimensions in frame tables, not +0x24. */
+	uint8_t texture[0x1080] = {0};
+	memcpy(texture, "texture", 7);
+	texture[0x1b] = 6;
+	put32(texture + 0x1c, 4);
+	put32(texture + 0x44, 0x50);
+	put32(texture + 0x48, 0x54);
+	put32(texture + 0x4c, 0x58);
+	put32(texture + 0x50, 4);
+	put32(texture + 0x54, 8);
+	put32(texture + 0x58, 1);
+	memset(texture + 0x80, 255, 4096);
+	struct gevrCaffFile files[2] = {{1, 0, 0x60, 1}, {1, 0, 4096, 2}};
+	struct gevrCaff image = {
+	    .d = texture, .len = sizeof(texture), .numfiles = 2, .numsects = 2, .files = files};
+	image.sects[0].size = 0x60;
+	strcpy(image.sects[0].name, ".data");
+	image.sects[1].size = 4096;
+	image.sects[1].offset = 0x80;
+	strcpy(image.sects[1].name, ".gpu");
+	int width = 0, height = 0, alpha = 0;
+	assert(gevrBeanTexDecode(&image, 0, "authored:type4", &width, &height, &alpha));
+	assert(width == 4 && height == 8 && alpha == 0);
+	put32(texture + 0x44, 0xffffffff);
+	assert(!gevrBeanTexDecode(&image, 0, "authored:bad-table", &width, &height, &alpha));
+	gevrBeanTexReset();
+	free(mesh.tris);
     puts("Bean vertex layout and palette checks passed");
     return 0;
 }

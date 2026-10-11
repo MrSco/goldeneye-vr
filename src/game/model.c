@@ -4285,11 +4285,11 @@ void modelApplyCullMode(ModelRenderData *renderdata)
 }
 
 
-void modelRenderNodeGundl(ModelRenderData* renderdata, ModelNode* arg1)
+void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* arg1)
 {
     ModelRoData_DisplayListRecord* rodata = &arg1->Data->DisplayList;
 #ifdef GEVR
-    Gfx *shownPrimary = (Gfx *)gevrBeanShownGdl(arg1, rodata->Primary);
+    Gfx *shownPrimary = (Gfx *)gevrBeanRenderGdl(arg1, rodata->Primary, model);
     s32 shownType = gevrBeanShownModelType(arg1, rodata->ModelType);
 #else
     Gfx *shownPrimary = rodata->Primary;
@@ -4482,7 +4482,7 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
         {
             union ModelRwData *rwdata = modelGetNodeRwData(model, node);
 #ifdef GEVR
-            Gfx *shownGdl = (Gfx *)gevrBeanShownGdl(node, rwdata->DisplayListCollisions.gdl);
+            Gfx *shownGdl = (Gfx *)gevrBeanRenderGdl(node, rwdata->DisplayListCollisions.gdl, model);
             s32 shownType = gevrBeanShownModelType(node, rodata->DisplayListCollisions.ModelType);
 #else
             Gfx *shownGdl = rwdata->DisplayListCollisions.gdl;
@@ -4531,7 +4531,7 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
         {
             union ModelRwData *rwdata = modelGetNodeRwData(model, node);
 #ifdef GEVR
-            Gfx *shownGdl = (Gfx *)gevrBeanShownGdl(node, rwdata->DisplayListCollisions.gdl);
+            Gfx *shownGdl = (Gfx *)gevrBeanRenderGdl(node, rwdata->DisplayListCollisions.gdl, model);
             s32 shownType = gevrBeanShownModelType(node, rodata->DisplayListCollisions.ModelType);
 #else
             Gfx *shownGdl = rwdata->DisplayListCollisions.gdl;
@@ -5287,7 +5287,7 @@ void sub_GAME_7F074534(ModelRenderData* data, Model* model, ModelNode* node) {
         sub_GAME_7F074524(data, model, node);
         return;
     case MODELNODE_OPCODE_DL:
-        modelRenderNodeGundl(data, node);
+        modelRenderNodeGundl(data, model, node);
         return;
     case MODELNODE_OPCODE_DLCOLLISION:
         modelRenderNodeDl(data, model, node);

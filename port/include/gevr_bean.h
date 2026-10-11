@@ -4,6 +4,7 @@
 #include <PR/ultratypes.h>
 
 struct ModelFileHeader;
+struct Model;
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,6 +15,7 @@ extern "C" {
  * added-content/xbla/files/new/ remains supported for manual installs. */
 
 void gevrBeanInit(void);
+void gevrBeanBeginFrame(void);
 int gevrBeanIsAvailable(void);
 int gevrBeanIsEnabled(void);
 void gevrBeanSetEnabled(int on);
@@ -29,6 +31,7 @@ int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
 /* While the toggle is off, a replaced node draws the list and render type it
  * had before. The definition is left pointing at the Bean list. */
 void *gevrBeanShownGdl(void *node, void *current);
+void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
 int gevrBeanShownModelType(void *node, int current);
 
 /* HD level rooms. Advances the display list. *replaced is 1 when the N64

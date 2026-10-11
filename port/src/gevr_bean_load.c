@@ -24,6 +24,7 @@ struct beanDraw {
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint8_t numpal;
 	uint32_t colour;
+	int8_t cuff;
 };
 
 struct beanIb {
@@ -254,6 +255,24 @@ static uint32_t texArea(const struct gevrCaff *c, const int *texfile, int ntex, 
 	return (uint32_t)be16(b + 0x24) * be16(b + 0x26);
 }
 
+/* Surface-map classification follows DAB's importer; see port/licenses/dabs-mod.txt. */
+static int reflectionTex(const struct gevrCaff *c, const int *texfile, int ntex, uint32_t t)
+{
+	static const char *const names[] = {
+	    "_0x059B9F65.tga.bin", "_0x00B5FD45.bin",     "_0x00B5FD45.bmp.bin", "_0x03B30B95.tga.bin",
+	    "_0x018952E5.tga.bin", "_0x0F0BCEB5.tga.bin", "_0x0E1C2BF5.tga.bin", "_0x081346B5.tga.bin",
+	    "_0x0B9D6195.tga.bin", "_0x0C2BCE25.tga.bin", "_0x018248E5.tga.bin",
+	};
+	const char *name;
+	if (t >= (uint32_t)ntex)
+		return 1;
+	name = gevrCaffAssetName(c, c->files[texfile[t]].asset);
+	for (unsigned i = 0; name && i < sizeof(names) / sizeof(names[0]); i++)
+		if (!strcmp(name, names[i]))
+			return 1;
+	return 0;
+}
+
 static uint32_t materialTex(const struct gevrCaff *c, const uint8_t *st, uint32_t pc, uint32_t size,
 		uint32_t len, const int *texfile, int ntex)
 {
@@ -273,7 +292,9 @@ static uint32_t materialTex(const struct gevrCaff *c, const uint8_t *st, uint32_
 				geshape = 0;
 			}
 		}
-		if (!found || area >= bestarea) {
+		if (!found || (!reflectionTex(c, texfile, ntex, t) && reflectionTex(c, texfile, ntex, best)) ||
+		    (reflectionTex(c, texfile, ntex, t) == reflectionTex(c, texfile, ntex, best) &&
+		     area >= bestarea)) {
 			found = 1;
 			best = t;
 			bestarea = area;
@@ -333,6 +354,12 @@ static int pushTri(struct gevrBeanMesh *mesh, const struct beanVtx *a, const str
 	for (int cnr = 0; cnr < 3; cnr++) {
 		const struct beanVtx *v = corner[cnr];
 		int dom = 0, w = -1, bone;
+		for (int s = 0; s < 4; s++) {
+			int slot = v->slot[s];
+			int b = slot >= 0 && slot < numpal ? pal[slot] : -1;
+			t->bone[cnr * 4 + s] = b >= 0 && b < MAX_BONES ? b : 255;
+			t->weight[cnr * 4 + s] = b >= 0 && b < MAX_BONES ? v->weight[s] : 0;
+		}
 		for (int s = 0; s < 4; s++) {
 			if (v->slot[s] >= 0 && (int)v->weight[s] > w) {
 				w = v->weight[s];
@@ -592,6 +619,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	const char *names[MAX_BONES];
 	int numnames = 0;
 	int boneSk[MAX_BONES];
+	int namedSk[MAX_BONES];
 	uint8_t muzzle[MAX_BONES], slideb[MAX_BONES];
 	int16_t parent[MAX_BONES];
 	float bind[MAX_BONES][3];
@@ -599,8 +627,13 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	float insts[MAX_INST][16];
 	int ninst = 0;
 	int original;
+	int section = -1, afterpieces = 0;
+	uint32_t sectionend = 0, repeatvb = ~0u;
+	int triggerCuffs;
 	uint32_t end, pc, vb = 0, tex = 0, matpc = 0;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
+	uint16_t remap[GEVR_BEAN_MAXPAL];
+	int numremap = 0;
 	uint8_t numpal = 1, passblend = 0, blend = 0, alphatest = 0;
 	uint8_t alpha = 0xff;
 	uint32_t colour = 0xffffffu;
@@ -709,6 +742,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			}
 		}
 	}
+	memcpy(namedSk, boneSk, sizeof(namedSk));
 	for (int i = 0; i < numbones; i++) {
 		if (boneSk[i] >= 0) {
 			continue;
@@ -718,7 +752,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			int sk = 0;
 			for (int j = 0; j < numbones; j++) {
 				float d;
-				if (boneSk[j] < 0) {
+				if (namedSk[j] < 0) {
 					continue;
 				}
 				d = (bind[i][0] - bind[j][0]) * (bind[i][0] - bind[j][0])
@@ -742,7 +776,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		free(file);
 		return 0;
 	}
-	original = strncmp(source, "original/", 9) == 0;
+	original = strncmp(source, "original/", 9) == 0 || strstr(source, "/original/") != NULL ||
+	           strstr(source, "\\original\\") != NULL;
+	triggerCuffs = strstr(source, "/gun/trigger/") != NULL || strstr(source, "\\gun\\trigger\\") != NULL;
 	pal[0] = 0;
 	end = slen >= 8 ? be32(stream + 4) : 0;
 	if (end > slen) {
@@ -775,7 +811,28 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			pc = be32(stream + pc + 8);
 			continue;
 		}
-		if (type == 0x2e && sz >= 12) {
+		if (sectionend && pc >= sectionend) {
+			section = -1;
+			sectionend = 0;
+		}
+		if (type == 0x17 && sz >= 12) {
+			section = be32(stream + pc + 4);
+			sectionend = be32(stream + pc + 8);
+			afterpieces = 1;
+		} else if (type == 0x2d || type == 0x2e)
+			afterpieces = 0;
+		if (type == 0x12 && sz >= 12) {
+			numremap = be16(stream + pc + 8);
+			if (numremap > GEVR_BEAN_MAXPAL)
+				numremap = GEVR_BEAN_MAXPAL;
+			for (int k = 0; k < numremap; k++) {
+				if (!fits(pc + 12 + 8ull * k, 2, slen) || 12u + 8u * k + 2u > sz) {
+					numremap = k;
+					break;
+				}
+				remap[k] = be16(stream + pc + 12 + 8 * k);
+			}
+		} else if (type == 0x2e && sz >= 12) {
 			vb = be32(stream + pc + 8);
 		} else if (type == 0x1a && sz >= 8) {
 			passblend = (be32(stream + pc + 4) & 0xff) == 2;
@@ -791,7 +848,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			matpc = pc;
 			alpha = 0xff;
 			colour = 0xffffffu;
-		} else if (type == 0x06 && sz >= 28 && be32(stream + pc + 4) == 0 && (be32(stream + pc + 8) >> 16) == 0x0c) {
+		} else if (type == 0x06 && sz >= 28 && be32(stream + pc + 4) == 0 &&
+		           (be32(stream + pc + 8) >> 16) == 0x0c) {
 			float a = bef(stream + pc + 24);
 			alpha = a >= 1.0f ? 0xff : a <= 0.0f ? 0 : (uint8_t)(a * 255.0f + 0.5f);
 			colour = 0;
@@ -823,6 +881,18 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			int part = type == 0x30 && sz >= 20 ? (int)be32(stream + pc + 16) : -1;
 			if (part <= 1 || keepparts) {
 				struct beanDraw *d = &draws[ndraws++];
+				d->cuff = -1;
+				if (triggerCuffs) {
+					static const int pieces[3] = {3, 1, 2}, sections[3] = {4, 0, 5};
+					if ((type == 0x01 && section < 0 && afterpieces) ||
+					    (repeatvb != ~0u && vb == repeatvb && part < 0 && section < 0)) {
+						repeatvb = vb;
+						d->cuff = -2;
+					} else if (part >= 0 && part < 3)
+						d->cuff = pieces[part];
+					else if (section >= 3 && section <= 5)
+						d->cuff = sections[section - 3];
+				}
 				d->vb = vb;
 				d->tex = tex;
 				d->prim = be32(stream + pc + 4);
@@ -834,9 +904,14 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				d->alphatest = alphatest;
 				d->numpal = numpal;
 				d->colour = colour;
-				memcpy(d->pal, pal, numpal);
+				for (int k = 0; k < numpal; k++) {
+					uint16_t bone = pal[k] < numremap ? remap[pal[k]] : pal[k];
+					d->pal[k] = bone < MAX_BONES ? bone : 255;
+				}
 				(void)matpc;
 			}
+			if (type == 0x30)
+				afterpieces = 1;
 		} else if ((type == 0x01 || type == 0x30) && ndraws >= MAX_DRAWS) {
 			static int told;
 			if (!told) {
@@ -906,9 +981,17 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		return 0;
 	}
 	mesh->uvscale = uvscale;
+	mesh->triggerCuffs = triggerCuffs;
+	mesh->nbones = numbones;
+	for (int i = 0; i < numbones; i++) {
+		memcpy(mesh->boneBind[i], bind[i], sizeof(bind[i]));
+		mesh->boneSk[i] = boneSk[i] < 0 ? 0 : boneSk[i];
+		if (i < numnames)
+			snprintf(mesh->boneName[i], 64, "%s", names[i]);
+	}
 	for (int s = 0; s < GEVR_BEAN_SK_COUNT; s++) {
 		for (int i = 0; i < numbones; i++) {
-			if (boneSk[i] == s) {
+			if (namedSk[i] == s) {
 				mesh->bind[s][0] = bind[i][0];
 				mesh->bind[s][1] = bind[i][1];
 				mesh->bind[s][2] = bind[i][2];
@@ -929,6 +1012,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	}
 	for (int di = 0; di < ndraws; di++) {
 		struct beanDraw *d = &draws[di];
+		if (triggerCuffs && d->cuff == -2)
+			continue;
 		struct beanVb vbrec;
 		struct beanIb *ib = NULL;
 		struct gevrBeanTriIn in;
@@ -980,6 +1065,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 						d->pal, d->numpal, boneSk, muzzle, slideb)) {
 					break;
 				}
+				mesh->tris[mesh->ntris - 1].cuff = d->cuff;
 			}
 		}
 		free(tris);
