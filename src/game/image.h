@@ -80,7 +80,10 @@ struct texcacheitem {
 
 extern struct texcacheitem g_TexCacheItems[];
 extern struct texpool ptr_texture_alloc_start; /* the struct itself; see image.c */
-extern struct image_entry g_Textures[];
+extern struct image_entry *g_Textures;
+/* Entries before the 0xFFFF terminator. Hack tables are longer than the US one. */
+s32 gevrTextureCount(void);
+void gevrTextureUse(struct image_entry *entries, s32 count);
 extern s32 g_TexCacheCount;
 extern u32 bytes;
 

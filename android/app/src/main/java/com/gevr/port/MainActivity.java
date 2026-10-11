@@ -149,6 +149,16 @@ public class MainActivity extends SDLActivity {
         openPicker("picked-gex.z64");
     }
 
+    /** Goldfinger 64, copied to data/picked-goldfinger.z64 and kept beside ge.z64. */
+    public void openGoldfingerPicker() {
+        openPicker("picked-goldfinger.z64");
+    }
+
+    /** Tomorrow Never Dies 64, copied to data/picked-tnd.z64 and kept beside ge.z64. */
+    public void openTndPicker() {
+        openPicker("picked-tnd.z64");
+    }
+
     private void openPicker(String target) {
         pickTarget = target;
         runOnUiThread(() -> {

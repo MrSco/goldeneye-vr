@@ -1656,7 +1656,8 @@ void chraiDefaultWeaponFireHandler(s32 hand)
             {
                 recall_joy2_hits_edit_flag(shotdata.weapon, finalpos, besttexture);
 
-                if (((0xf & ((u8 *) g_Textures)[besttexture * 8]) != 5) && ((((u8 *) g_Textures)[besttexture * 8] & 0xf) != 6))
+                if (besttexture < 0 || besttexture >= gevrTextureCount()
+                    || (g_Textures[besttexture].hitTexture != 5 && g_Textures[besttexture].hitTexture != 6))
                 {
                     rooms[0] = bestroom;
                     rooms[1] = 255;

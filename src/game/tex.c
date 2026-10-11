@@ -430,7 +430,8 @@ Gfx *texWriteTileFromDefinition(Gfx *gdl, struct tex *tex, s32 offset, s32 shift
 #ifdef GEVR
     /* GoldenEye X's textures sit past the table (gevr_gexmodel.c) */
     static struct image_entry gevrNoEntry;
-    struct image_entry *s0 = tex->texturenum < MAX_TEXTURES ? &g_Textures[tex->texturenum] : &gevrNoEntry;
+    struct image_entry *s0 = (s32)tex->texturenum >= 0 && (s32)tex->texturenum < gevrTextureCount()
+            ? &g_Textures[tex->texturenum] : &gevrNoEntry;
 #else
     struct image_entry *s0 = &g_Textures[tex->texturenum];
 #endif

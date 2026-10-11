@@ -563,7 +563,7 @@ extern struct ModelFileHeader doorconsole_header;
 extern struct ModelFileHeader chrtesttube_header;
 extern struct ModelFileHeader bollard_header;
 
-extern struct ChrModelFileRecord c_item_entries[];
+extern struct ChrModelFileRecord *c_item_entries;
 extern struct ModelSkeleton SKELETON(guard);
 extern struct ModelSkeleton SKELETON(suit_lf_hand);
 
