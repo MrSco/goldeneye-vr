@@ -7,6 +7,9 @@
 #include <fr.h>
 #include <memp.h>
 #include "bg.h"
+#ifdef GEVR
+#include "gevr_romlayout.h"
+#endif
 #include "ob.h" /* _fileNameLoadToBank returns a pointer; without the prototype it was truncated */
 #include "bondview.h"
 #include "chr.h"
@@ -4797,9 +4800,15 @@ void bgDetermineVisibleRooms(void)
      * If the level is Cradle or Statue, or has no portals, skip the portal occlusion culling algorithm. Just add every room in the player's
      * screen bounds to the list of rooms to draw.
      */
-    if ((levelentry_index == LEVEL_INDEX_CRAD) || (levelentry_index == LEVEL_INDEX_STATUE) || (g_BgPortals->offset_portal == NULL)) 
+#ifdef GEVR
+    /* the campaign's own Cradle case: Goldfinger switches it off, Tomorrow Never Dies moves it */
+    const s32 gevrCrad = gevrRomBgCradle();
+#else
+    const s32 gevrCrad = LEVEL_INDEX_CRAD;
+#endif
+    if ((levelentry_index == gevrCrad) || (levelentry_index == LEVEL_INDEX_STATUE) || (g_BgPortals->offset_portal == NULL)) 
     {
-        if (levelentry_index == LEVEL_INDEX_CRAD) 
+        if (levelentry_index == gevrCrad) 
         {
             sub_GAME_7F0B39BC(9, 0, &g_CurrentPlayer->screensize, 1);
         }
@@ -4823,7 +4832,7 @@ void bgDetermineVisibleRooms(void)
     else 
     {
         // This can never execute since the above branch is taken if the level is Cradle.
-        if (levelentry_index == LEVEL_INDEX_CRAD) 
+        if (levelentry_index == gevrCrad) 
         {
             sub_GAME_7F0B39BC(9, 0, &g_CurrentPlayer->screensize, 1);
         }
@@ -4945,7 +4954,11 @@ void bgDetermineVisibleRooms(void)
 Gfx *sub_GAME_7F0B8D78(Gfx *arg0)
 {
     s32 i;
+#ifdef GEVR
+    if (levelentry_index == gevrRomBgDam())   /* Goldfinger's Ramirez Cartel is in Dam's slot */
+#else
     if (levelentry_index == LEVEL_INDEX_DAM)
+#endif
     {
         for (i=0; i<g_BgNumberOfRoomsDrawn; i++)
         {

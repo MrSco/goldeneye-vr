@@ -80,6 +80,12 @@ struct gevrRomLayout {
 	/* US items whose special cases the hack patched out, and the item that behaves as they now do
 	 * (GEVR_ITEM_AS in bondconstants.h); a 0 row ends the list */
 	uint8_t itemas[4][2];
+	/* bgDetermineVisibleRooms' and sub_GAME_7F0B8D78's level tests (7F0B8B50, 7F0B8D84):
+	 * the levelentry index that skips portal culling from room 9 (Cradle) and the one
+	 * that draws room 0x23 first (Dam); 37 matches no level */
+	uint8_t bgcradle, bgdam;
+	/* gunTickHandState's use-on-object items (7F066D4C): GoldenEye's bomb defuser and datathief */
+	uint8_t gadgetuse[2];
 };
 
 struct gevrDataWindow {
@@ -144,6 +150,10 @@ struct headHat *gevrRomHeadHats(int *first, int *count);
 void gevrRomTitleBond(int *body, int *head);
 /* The item whose behaviour applies in this campaign (bondconstants.h GEVR_ITEM_AS). */
 int gevrItemAs(int item);
+/* The campaign's own level special cases and gadget-use items (GoldenEye's for GoldenEye). */
+int gevrRomBgCradle(void);
+int gevrRomBgDam(void);
+int gevrRomGadgetUse(int which);
 
 /* Sum of the image-row sizes, the span of the images bank. 0 when the table does not fit. */
 uint32_t gevrRomImageBankBytes(const uint8_t *data, uint32_t dataLen,
