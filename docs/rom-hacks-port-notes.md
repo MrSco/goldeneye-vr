@@ -54,4 +54,3 @@ Bean + GE-X: GE-X keeps the arms and guns; draw Bean's watch (suitlfhand
 materials 9-11 and the three watch hands) on the GE-X wrist instead of the N64
 watch, refitting the face gauges to it.
 
-Haptics key on the item, so Goldfinger's P38 buzzes as the watch laser.
