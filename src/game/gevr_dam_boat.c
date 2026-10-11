@@ -104,6 +104,8 @@ static void gevrDamBoatPush(void)
     pos[1] = s_ride.y;
     pos[2] = s_ride.z;
     matrix_4x4_set_position_and_rotation_around_y(pos, s_ride.yaw, &obj->mtx);
+    /* Ordinary props render this basis directly; model->scale is metadata. */
+    matrix_scalar_multiply(obj->model->scale, obj->mtx.m[0]);
     obj->runtime_pos.x = s_boat->pos.x = s_ride.x;
     obj->runtime_pos.y = s_boat->pos.y = s_ride.y;
     obj->runtime_pos.z = s_boat->pos.z = s_ride.z;

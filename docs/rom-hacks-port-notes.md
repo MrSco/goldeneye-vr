@@ -64,13 +64,13 @@ acceleration offset 0.75; no digital step-back reverse in any vehicle;
 
 Tomorrow Never Dies (Expanded 06-22): the binder runs on it (3045 images, 112
 characters, 340 props, 696 files, 31 gun stats) but its code diff (3791 words,
-312 runs, same method) shows what is still to port:
-- mission constants: its code moves the Cradle test 17 -> 9 (credits after
-  mission 9, the retail Cuba flow), Aztec 18 -> 11, Egypt 19 -> 12 and the
-  mission count 20 -> 14 (7F0168BC/D4, 7F011D5C, 7F0192C4, 7F01EA00-EAB0,
-  7F01F4C8). The PR's front.c branch for it (mission select instead of the
-  credits) is not what the cartridge does; use these numbers in the retail
-  flow instead,
+312 runs, same method) identified the following campaign changes.
+Mission progression now uses its Cradle test 17 -> 9 (credits after
+mission 9, the retail Cuba flow), Aztec 18 -> 11, Egypt 19 -> 12 and mission
+count 20 -> 14 (7F0168BC/D4, 7F011D5C, 7F0192C4, 7F01EA00-EAB0,
+7F01F4C8), including bonus difficulty gates, completion flags and the return
+from credits. Mission 13 retains its no-advance boundary. Remaining code changes:
+
 - the laser's tests set to 153 (its FAMAS on GlaserZ): an itemas row, a rifle,
 - `bodyChooseHead` keeps retail's form with `& 7` (7F0235E4) and its own
   random head lists in the data segment,

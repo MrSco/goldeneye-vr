@@ -47,6 +47,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		/* & 1; Ruger and Silver PP7; the bomb case; AMMO_KNIFE; the sniper rifle */
 		1, { 18, 20 }, 33, 10, 17,
 		0,
+		{ 18, 19 },
 	},
 	{
 		"Goldfinger 64", "gf64", "GOLDFINGER", "NGFE",
@@ -95,6 +96,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		3, { 18, 12 }, 0, 5, 153,
 		/* its Aston Martin (PcarastonZ) on Fontainebleau's and Alpine Highway's tank records */
 		1,
+		{ 18, 19 },
 	},
 	{
 		"Tomorrow Never Dies 64", "tnd64", "GOLDENEYE", "NGEE",
@@ -129,6 +131,7 @@ static const struct gevrRomLayout g_Layouts[GEVR_LAYOUT_COUNT] = {
 		{ 39, 55 },
 		1, { 18, 20 }, 33, 10, 17,
 		0,
+		{ 11, 12 },
 	},
 };
 
@@ -454,6 +457,25 @@ int gevrRomMissionLimit(void)
 		return 20;
 	}
 	return L->nummissions;
+}
+
+int gevrRomFinalMission(void)
+{
+	const struct gevrRomLayout *L = gevrRomActiveLayout();
+
+	return L->variant && L->creditsafter ? L->creditsafter : 17;
+}
+
+int gevrRomBonusMission(int which)
+{
+	return gevrRomActiveLayout()->bonusmissions[which & 1];
+}
+
+int gevrRomAdvanceLimit(void)
+{
+	const struct gevrRomLayout *L = gevrRomActiveLayout();
+
+	return L->variant && L->advancebelow ? L->advancebelow : L->bonusmissions[0];
 }
 
 int gevrRomCreditsAfter(void)
