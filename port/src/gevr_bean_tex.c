@@ -276,6 +276,30 @@ int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h)
 	return 0;
 }
 
+/* DAB's placeholder test: at least 90% magenta, no larger than 16x16. */
+int gevrBeanTexIsPlaceholder(const void *addr)
+{
+	const uint8_t *rgba;
+	int w, h, magenta = 0;
+	if (!gevrBeanTexture(addr, &rgba, &w, &h) || w > 16 || h > 16) return 0;
+	for (int i = 0; i < w * h; i++) {
+		const uint8_t *p = rgba + i * 4;
+		magenta += p[0] >= p[1] + 64 && p[2] >= p[1] + 64 && abs(p[0] - p[2]) < 48;
+	}
+	return magenta * 10 >= w * h * 9;
+}
+
+void gevrBeanTexPaint(const void *addr, uint32_t rgb)
+{
+	for (int i = 0; i < s_ntex; i++)
+		if (s_tex[i].standin == addr) {
+			for (int p = 0; p < s_tex[i].w * s_tex[i].h; p++)
+				for (int k = 0; k < 3; k++)
+					s_tex[i].rgba[p * 4 + k] = (uint8_t)(rgb >> (16 - k * 8));
+			return;
+		}
+}
+
 /* Decode texture file `fileIndex` inside an open CAFF. The gpu bytes are copied. */
 const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const char *key,
 		int *outW, int *outH, int *outAlpha)
@@ -376,6 +400,14 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 	if (!rgba) {
 		return NULL;
 	}
+	/* DAB's mesh V reversal requires its decoded bottom-row-first images.
+	 * Without both steps every CAFF picture is mirrored vertically. */
+	for (uint32_t y = 0; y < h / 2; y++)
+		for (uint32_t x = 0; x < w * 4; x++) {
+			uint8_t *a = rgba + (size_t)y * w * 4 + x;
+			uint8_t *b = rgba + (size_t)(h - 1 - y) * w * 4 + x;
+			uint8_t tmp = *a; *a = *b; *b = tmp;
+		}
 	if (outAlpha) {
 		*outAlpha = 0;
 		for (uint32_t i = 0; i < w * h; i++) {

@@ -62,6 +62,13 @@ int main(int argc, char **argv)
 	applyMesh(&header, mesh, kind, fitForName(argv[2]));
 	int lists = 0, skin = 0;
 	for (int i = 0; i < s_nswap; i++) {
+		ModelNode *node = s_swap[i].node;
+		Gfx *primary = nodeOp(node) == MODELNODE_OPCODE_DL ? node->Data->DisplayList.Primary
+		                                                     : node->Data->DisplayListCollisions.Primary;
+		int type = nodeOp(node) == MODELNODE_OPCODE_DL ? node->Data->DisplayList.ModelType
+		                                                : node->Data->DisplayListCollisions.ModelType;
+		assert(primary == s_swap[i].original && type == s_swap[i].origType);
+		assert(!primary || ((uintptr_t)primary >> 24) == 5);
 		if (s_swap[i].ours == s_blank)
 			continue;
 		lists++;
@@ -86,7 +93,7 @@ int main(int argc, char **argv)
 				}
 		}
 	}
-	printf("MAPPED %s %d lists %d skinned %d bones\n", argv[2], lists, skin, mesh->nbones);
+	printf("REGISTERED %s %d lists %d skinned %d bones\n", argv[2], lists, skin, mesh->nbones);
 	if (!lists) {
 		fprintf(stderr, "swaps %d, dominant bones:", s_nswap);
 		int counts[16] = {0};
@@ -134,6 +141,11 @@ int main(int argc, char **argv)
 				pilot++;
 		}
 		assert(pilot == 1);
+	}
+	if (!strcmp(argv[2], "PnintendologoZ")) {
+		assert(mesh->ntex == 1 && !gevrBeanTexIsPlaceholder(mesh->standin[0]));
+		for (int t = 0; t < mesh->ntris; t++)
+			for (int k = 0; k < 3; k++) assert(mesh->tris[t].rgba[k * 4 + 3] == 255);
 	}
 	gevrBeanMeshFree(mesh);
 	gevrBeanReset();

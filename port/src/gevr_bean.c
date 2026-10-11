@@ -4,6 +4,8 @@
  * Level reset drops the registry and does not walk nodes.
  */
 
+#include "gevr_bean_log.h"
+
 #include <ultra64.h>
 #include <PR/gbi.h>
 #include <math.h>
@@ -47,7 +49,9 @@ struct beanSkin {
 static const struct beanSkinVert *s_emitSkin;
 static struct beanSkin *s_emittedSkin;
 
+static ModelFileHeader *s_registrationOwner;
 struct beanSwap {
+	ModelFileHeader *owner;
 	void *node;
 	void *original;
 	void *ours;
@@ -132,7 +136,7 @@ static int keepAlloc(void *p)
 		return 0;
 	}
 	if (s_nalloc >= MAX_ALLOC) {
-		fprintf(stderr, "gevr bean: allocation table full\n");
+		GEVR_BEAN_LOG("gevr bean: allocation table full\n");
 		return 0;
 	}
 	s_alloc[s_nalloc++] = p;
@@ -155,9 +159,10 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 		return;
 	}
 	if (s_nswap >= MAX_SWAP) {
-		fprintf(stderr, "gevr bean: swap table full\n");
+		GEVR_BEAN_LOG("gevr bean: swap table full\n");
 		return;
 	}
+	s_swap[s_nswap].owner = s_registrationOwner;
 	s_swap[s_nswap].node = node;
 	s_swap[s_nswap].original = original;
 	s_swap[s_nswap].ours = ours ? ours : s_blank;
@@ -168,24 +173,17 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_nswap++;
 }
 
+/* Replacements belong to the renderer. Native lists and model types are also
+ * read by aiming, bullet hits and other gameplay walkers; never overwrite them. */
 void *gevrBeanShownGdl(void *node, void *current)
 {
-	struct beanSwap *s;
-	if (s_want && s_available == 1) {
-		return current;
-	}
-	s = swapOf(node);
-	return s ? s->original : current;
+	struct beanSwap *s = gevrBeanIsEnabled() ? swapOf(node) : NULL;
+	return s ? s->ours : current;
 }
 
 int gevrBeanShownModelType(void *node, int current)
 {
-	struct beanSwap *s;
-	if (s_want && s_available == 1) {
-		return current;
-	}
-	s = swapOf(node);
-	return s ? s->origType : current;
+	return gevrBeanIsEnabled() && swapOf(node) ? 0 : current;
 }
 
 static int openRel(const char *rel, char *out, int outlen)
@@ -583,7 +581,7 @@ static int nodeMatrix(ModelNode *n)
 	return -1;
 }
 
-static void writePrimary(ModelNode *n, Gfx *gdl, int blankType)
+static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 {
 	int op = nodeOp(n);
 	Gfx *old = NULL;
@@ -609,14 +607,10 @@ static void writePrimary(ModelNode *n, Gfx *gdl, int blankType)
 		old = n->Data->DisplayList.Primary;
 		oldType = n->Data->DisplayList.ModelType;
 		swapAdd(n, old, gdl, oldType);
-		n->Data->DisplayList.Primary = gdl ? gdl : s_blank;
-		n->Data->DisplayList.ModelType = 0;
 	} else if (op == MODELNODE_OPCODE_DLCOLLISION && n->Data) {
 		old = n->Data->DisplayListCollisions.Primary;
 		oldType = n->Data->DisplayListCollisions.ModelType;
 		swapAdd(n, old, gdl, oldType);
-		n->Data->DisplayListCollisions.Primary = gdl ? gdl : s_blank;
-		n->Data->DisplayListCollisions.ModelType = 0;
 	}
 	struct beanSwap *registered = swapOf(n);
 	if (registered && gdl != s_blank)
@@ -1316,6 +1310,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 	if (!header || !header->RootNode || !mesh) {
 		return;
 	}
+	s_registrationOwner = header;
 	stack = calloc(MAX_WALK, sizeof(*stack));
 	seen = calloc(MAX_WALK, sizeof(*seen));
 	grp = calloc(MAX_GRP, sizeof(*grp));
@@ -1426,8 +1421,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			sp++;
 		}
 	}
-	/* Do not mutate nodes unless every replacement can retain its fallback
-	 * and its allocations for this level. */
+	/* Register only if every replacement fits the level allocation limits. */
 	if (s_nswap + nd > MAX_SWAP || s_nalloc + nd * 5 > MAX_ALLOC) {
 		free(stack); free(seen); free(grp); free(dls);
 		return;
@@ -1467,12 +1461,12 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
 				if (dls[i].simple) {
 					if (watchArm)
-						writePrimary(dls[i].node, s_blank, 1);
+						registerPrimary(dls[i].node, s_blank, 1);
 					continue;
 				}
 				if (sk < 0) {
 					if (!underJoint) {
-						writePrimary(dls[i].node, s_blank, 1);
+						registerPrimary(dls[i].node, s_blank, 1);
 					}
 					continue;
 				}
@@ -1481,18 +1475,18 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					void *watchG = NULL, *watchV = NULL;
 					if ((cuff < 0 && bareDrawn[sk]++) ||
 					    !emitSkinned(mesh, sk, hasHead, R, scale, grp, ng, header, cuff, &watchG, &watchV)) {
-						writePrimary(dls[i].node, s_blank, 1);
+						registerPrimary(dls[i].node, s_blank, 1);
 					} else {
 						keepAlloc(watchG);
 						keepAlloc(watchV);
-						writePrimary(dls[i].node, watchG, 0);
+						registerPrimary(dls[i].node, watchG, 0);
 					}
 					continue;
 				}
 				if (!sharedG[sk]) {
 					if (!emitSkinned(mesh, sk, hasHead, R, scale, grp, ng, header, -2, &sharedG[sk],
 					                 &sharedV[sk])) {
-						writePrimary(dls[i].node, s_blank, 1);
+						registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
 					sharedSkin[sk] = s_emittedSkin;
@@ -1500,7 +1494,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					keepAlloc(sharedV[sk]);
 				}
 				s_emittedSkin = sharedSkin[sk];
-				writePrimary(dls[i].node, sharedG[sk], 0);
+				registerPrimary(dls[i].node, sharedG[sk], 0);
 			}
 		}
 	}
@@ -1548,7 +1542,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				}
 				if (mainEmitted && fit && !strcmp(fit->source, "prop/helicopter"))
 					gdl = helicopterWithPilot(dls[best].node, gdl);
-				writePrimary(dls[best].node, mainEmitted ? gdl : s_blank, 0);
+				registerPrimary(dls[best].node, mainEmitted ? gdl : s_blank, 0);
 				for (int i = 0; i < nd; i++) {
 					int g = dls[i].grp;
 					int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
@@ -1561,9 +1555,9 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 						    emitRigid(mesh, kind, hasHead, dls[i].node, fit, NULL, cuff, &cuffG, &cuffV)) {
 							keepAlloc(cuffG);
 							keepAlloc(cuffV);
-							writePrimary(dls[i].node, cuffG, 0);
+							registerPrimary(dls[i].node, cuffG, 0);
 						} else
-							writePrimary(dls[i].node, s_blank, 1);
+							registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
 					if (kind == BEAN_PROP && g >= 0 && g != binding.base) {
@@ -1573,14 +1567,14 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 						              &partVtx)) {
 							keepAlloc(partGdl);
 							keepAlloc(partVtx);
-							writePrimary(dls[i].node, partGdl, 0);
+							registerPrimary(dls[i].node, partGdl, 0);
 						} else if (!dls[i].simple && !underJoint)
-							writePrimary(dls[i].node, s_blank, 1);
+							registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
 					if (kind == BEAN_GUN && (dls[i].simple || underJoint))
 						continue;
-					writePrimary(dls[i].node, s_blank, 1);
+					registerPrimary(dls[i].node, s_blank, 1);
 				}
 			}
 		}
@@ -1591,11 +1585,37 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 	free(dls);
 }
 
+/* A file header can be reused without a level reset (weapons, watch, intro).
+ * DAB forgets a definition on registration too: do not inherit freed geometry. */
+void gevrBeanForgetModel(struct ModelFileHeader *header)
+{
+	int kept = 0;
+	for (int i = 0; i < s_nswap; i++)
+		if (s_swap[i].owner != header)
+			s_swap[kept++] = s_swap[i];
+	s_nswap = kept;
+}
+
+/* Different intro headers share the same file buffer. Forget all old node
+ * addresses overwritten by this load, even when their header was different. */
+void gevrBeanForgetModelStorage(const void *base, u32 size)
+{
+	uintptr_t start = (uintptr_t)base;
+	int kept = 0;
+	for (int i = 0; i < s_nswap; i++) {
+		uintptr_t node = (uintptr_t)s_swap[i].node;
+		if (node < start || node - start >= size)
+			s_swap[kept++] = s_swap[i];
+	}
+	s_nswap = kept;
+}
+
 void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 {
 	char source[128], path[192];
 	int kind;
 	struct gevrBeanMesh *mesh;
+	if (header) gevrBeanForgetModel(header);
 	/* Register while disabled too, so switching on works for loaded models. */
 	if (!header || !name || !gevrBeanIsAvailable()) {
 		return;
@@ -1605,13 +1625,18 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name)
 		return;
 	}
 	if (!findFile(source, path, sizeof(path))) {
+		GEVR_BEAN_LOG("gevr bean: %s: missing %s", name, source);
 		return;
 	}
 	mesh = cachedLoad(path, 1);
 	if (!mesh) {
+		GEVR_BEAN_LOG("gevr bean: %s: native fallback, CAFF not decoded (%s)", name, path);
 		return;
 	}
+	int before = s_nswap;
 	applyMesh(header, mesh, kind, fitForName(name));
+	GEVR_BEAN_LOG("gevr bean: %s -> %s: %d draw nodes, %d triangles, %d textures",
+	             name, source, s_nswap - before, mesh->ntris, mesh->ntex);
 	/* Once the bounded cache is full, this load is temporary. Its display
 	 * lists and decoded textures have their own lifetime until level reset. */
 	int cached = 0;
@@ -1630,6 +1655,7 @@ void gevrBeanReset(void)
 	}
 	s_nalloc = 0;
 	s_nswap = 0;
+	s_registrationOwner = NULL;
 	for (int i = 0; i < s_ncache; i++) {
 		gevrBeanMeshFree(s_cache[i].mesh);
 		s_cache[i].mesh = NULL;

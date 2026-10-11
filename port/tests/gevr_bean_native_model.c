@@ -1,4 +1,6 @@
-/* Exercise the production cartridge converter without loading game assets
+/* Display-list primaries stay segmented, exactly as modelPromoteNodeOffsetsToPointers
+ * leaves them in game. Only CPU-side node and vertex pointers are promoted.
+ * Exercise the production cartridge converter without loading game assets
  * into the repository. The caller supplies an ignored, decompressed file. */
 #include "../src/gevr_model.c"
 #include <stdarg.h>
@@ -97,7 +99,6 @@ void *beanNativeModel(const char *path, const char *name, int switches, int text
 			case 4:
 				r->DisplayList.BaseAddr = out;
 				PROMOTE(r->DisplayList.Vertices);
-				PROMOTE(r->DisplayList.Primary);
 				break;
 			case 8:
 				PROMOTE(r->LOD.Affects);
@@ -116,7 +117,6 @@ void *beanNativeModel(const char *path, const char *name, int switches, int text
 			case 24:
 				r->DisplayListCollisions.BaseAddr = out;
 				PROMOTE(r->DisplayListCollisions.Vertices);
-				PROMOTE(r->DisplayListCollisions.Primary);
 				break;
 			}
 		}

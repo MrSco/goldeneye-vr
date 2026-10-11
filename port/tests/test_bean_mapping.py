@@ -1,4 +1,6 @@
-"""Map the real native model catalog, beyond testing CAFF decoding alone.
+"""Check real native catalog registration and memory safety.
+
+Passing these checks does not establish correct meshes, materials or visual fit.
 
 python port/tests/test_bean_mapping.py ROM.z64 path/to/xbla/files
 The cartridge and extracted models are read locally and never committed.
@@ -88,8 +90,8 @@ def main():
     unmapped = sorted(set(catalog) - {row[0] for row in mappings})
     report = ROOT / "build/bean/mapping-audit.json"
     report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(json.dumps({"mappedFiles": len(mappings), "results": results, "rooms": rooms, "nativeFallbackFiles": unmapped, "failures": failures}, indent=2))
-    print(f"Native Bean mapping: {len(results)}/{len(mappings)} passed; report: {report}")
+    report.write_text(json.dumps({"catalogRows": len(mappings), "renderParityVerified": False, "results": results, "rooms": rooms, "nativeFallbackFiles": unmapped, "failures": failures}, indent=2))
+    print(f"Native Bean registration checks: {len(results)}/{len(mappings)} passed; report: {report}")
     if failures:
         raise SystemExit("Failed mapping: " + ", ".join(failures))
 

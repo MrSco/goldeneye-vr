@@ -14,6 +14,12 @@ static Gfx *helicopterPilotList(ModelNode *node)
 	dlVerts(node, &vertices, &count, &type, &original);
 	if (count != 1624 || !original)
 		return NULL;
+	uintptr_t address = (uintptr_t)original;
+	if ((address >> 24) == SPSEGMENT_MODEL_COL1) {
+		void *base = nodeOp(node) == MODELNODE_OPCODE_DL ? node->Data->DisplayList.BaseAddr
+		                                                       : node->Data->DisplayListCollisions.BaseAddr;
+		original = (Gfx *)((uint8_t *)base + (address & 0xffffff));
+	}
 	int commands = 0;
 	while (commands < 8192 && (original[commands].words.w0 >> 24) != (G_ENDDL & 255)) {
 		if ((original[commands].words.w0 >> 24) == (G_DL & 255))

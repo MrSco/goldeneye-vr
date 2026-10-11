@@ -11,6 +11,8 @@
  * N64 sky plane.
  */
 
+#include "gevr_bean_log.h"
+
 #include <ultra64.h>
 #include <PR/gbi.h>
 #include <math.h>
@@ -297,7 +299,7 @@ static int buildStage(int stage)
 	snprintf(source, sizeof(source), "new/background/%s", st->bg);
 	s_tried = 1;
 	if (!findFile(source, path, sizeof(path)) || !gevrBeanLoad(path, 1, &mesh) || !mesh) {
-		fprintf(stderr, "gevr bean: no HD rooms for stage %d (%s)\n", stage, st->bg);
+		GEVR_BEAN_LOG("gevr bean: no HD rooms for stage %d (%s)\n", stage, st->bg);
 		return 0;
 	}
 	assign = malloc((size_t)mesh->ntris * sizeof(int));
@@ -306,7 +308,7 @@ static int buildStage(int stage)
 		return 0;
 	}
 	if (!roomReferenceBuild(nrooms))
-		fprintf(stderr, "gevr bean: no reference room triangles, using room boxes\n");
+		GEVR_BEAN_LOG("gevr bean: no reference room triangles, using room boxes\n");
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
 		float c[3] = { 0, 0, 0 };
@@ -393,7 +395,7 @@ static int buildStage(int stage)
 	free(assign);
 	s_nrooms = nrooms;
 	s_ok = 1;
-	fprintf(stderr, "gevr bean: HD rooms %s, %d tris across %d rooms\n", st->bg, mesh->ntris, nrooms);
+	GEVR_BEAN_LOG("gevr bean: HD rooms %s, %d tris across %d rooms\n", st->bg, mesh->ntris, nrooms);
 	gevrBeanMeshFree(mesh);
 	return 1;
 }
@@ -438,7 +440,7 @@ static int buildSky(int stage)
 	}
 	snprintf(source, sizeof(source), "new/skydome/%s", name);
 	if (!findFile(source, path, sizeof(path)) || !gevrBeanLoad(path, 1, &mesh) || !mesh) {
-		fprintf(stderr, "gevr bean: no HD sky %s\n", name);
+		GEVR_BEAN_LOG("gevr bean: no HD sky %s\n", name);
 		return 0;
 	}
 	for (int i = 0; i < mesh->ntris; i++) {
@@ -481,7 +483,7 @@ static int buildSky(int stage)
 	s_skyGdl = gdl;
 	s_skyVtx = vtx;
 	s_skyOk = 1;
-	fprintf(stderr, "gevr bean: HD sky %s, %d tris, extent %.0f\n", name, mesh->ntris, extent);
+	GEVR_BEAN_LOG("gevr bean: HD sky %s, %d tris, extent %.0f\n", name, mesh->ntris, extent);
 	gevrBeanMeshFree(mesh);
 	return 1;
 }

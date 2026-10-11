@@ -54,7 +54,7 @@ static void poseChecks(void)
 	assert(secondVertices[0].v.ob[0] == 50 && firstVertices[0].v.ob[0] == 10);
 	assert(list[0].words.w1 == (uintptr_t)original && original[0].v.ob[0] == 0);
 	gevrBeanSetEnabled(0);
-	assert(gevrBeanRenderGdl(&node, list, &model) == NULL);
+	assert(gevrBeanRenderGdl(&node, list, &model) == list);
 	gevrBeanSetEnabled(1);
 	gevrBeanBeginFrame();
 	assert((uintptr_t)beanFrameAllocate(300000) % 16 == 0);

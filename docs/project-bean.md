@@ -1,5 +1,25 @@
 # Project Bean visuals (experimental)
 
+**Runtime validation failed on Quest 3.** Report `a2167162` from build
+`0bf6179` reproduced a Dam crash and incorrect model/texture rendering. That
+APK is withdrawn as a release candidate. The catalog checks below establish
+registration and memory safety, not correct visual mapping. DAB renderer
+parity and headset acceptance remain unfinished.
+
+The crash was in `bgTestHitOnObj` during stereo aiming: the importer had
+replaced native segmented display-list pointers with Bean heap pointers.
+Replacements are now selected only during rendering. Native pointers, model
+types and collision geometry remain intact. Model reloads also discard old
+registrations, including different intro headers sharing one buffer.
+
+The source comparison additionally found a missing decoded-image row
+reversal, missing DAB magenta-placeholder handling, and fog/unset vertex alpha
+being used as opacity. These have regression coverage and source fixes.
+Bean diagnostics now use the game logger so exported reports include asset
+names and replacement counts. These fixes still require headset verification.
+See the [runtime audit](project-bean-runtime-audit.md) for evidence and the
+remaining DAB paths required for mapping acceptance.
+
 GoldenEye VR can load characters, heads, weapons, props, rooms and skies from
 the player's own extracted Project Bean files. No game files ship in the APK.
 The GoldenEye USA ROM remains required; gameplay, collision and animation
@@ -49,7 +69,7 @@ texture normalization, failed texture decode indices, texture-cache
 invalidation, same-level toggles, bounded allocations and room-matrix
 snapshots. Display lists establish their cycle and texture state explicitly.
 
-The mapping follows [DAB's Bean importer](https://github.com/DabDavis/perfect-dark-dabs-mod/tree/adef1dc2d4eca1a5c453a7f2bf03a3b6cdad99b8)
+The adapter reuses parts of [DAB's Bean importer](https://github.com/DabDavis/perfect-dark-dabs-mod/tree/adef1dc2d4eca1a5c453a7f2bf03a3b6cdad99b8)
 and its native prop fits, adapted to GoldenEye's own skeleton and room format.
 There are 457 case-sensitive native model mappings across characters, heads,
 first-person guns and props. The catalog audit applies each to the actual USA
@@ -107,10 +127,11 @@ diffuse UV at dword 5 and colour at dword 8.
   Check the temporary gauges with radar enabled and disabled.
 - Measure frame time and memory on Quest 2 and Quest 3, including stage changes.
 
-Mapping validation passes for all 457 catalog rows and 26 stage entries,
-including ASan/UBSan checks. This confirms decoding, native matrix bindings,
+Registration checks pass for all 457 catalog rows and 26 stage entries,
+including ASan/UBSan checks. This confirms decoding and matrix-index bounds,
 weighted pose isolation, source filename case and reference-room decoding.
-Visual fit, head/neck seams, portal visibility and Quest performance still need
-headset testing. Animated CAFF pictures currently use their first frame, and
+The reported wrong/missing meshes and materials remain acceptance failures.
+Visual fit, head/neck seams, portal visibility and Quest performance require
+rendered comparison and headset testing. Animated CAFF pictures currently use their first frame, and
 layered reflections/material shaders are simplified; this is not full visual
 parity with DAB's renderer.
