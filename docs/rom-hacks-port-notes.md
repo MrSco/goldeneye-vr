@@ -38,10 +38,27 @@ Offline only; nothing has run on a headset yet.
 
 ## Open
 
-Goldfinger:
-- The rest of its code diff (2125 changed instructions, 347 runs) is being
-  classified; any behaviour patch found there still needs porting.
-- Headset: boot, folder, briefing, a level each, guards' heads and hats, guns.
+Goldfinger: its whole code diff (2125 changed instructions, 347 runs) is
+classified (session scratch `gfdiff/classification.md`; rebuild with the same
+word diff). Done from it: prop pool 1600 (its init at 7F0014E8 chains 1000 in
+Expansion Pak RAM; the Cartel places 1158), Cradle/Dam level cases off,
+gadget-use items 49/57. Still to port, by impact:
+- drivable Aston Martin: a tank record whose model is not PtankZ gets no
+  shells, sounds 0/63/0, speed 20 and factor 0.75 (7F082ADC, data 0x8005C550;
+  Fontainebleau, Alpine Highway),
+- item 33 ("Knockout Gas", the bomb case's slot) no longer explodes on a timer
+  (7F043EB0; the Clubhouse starts Bond with it),
+- autoguns fire half as often (7F04935C, `andi 1 -> 3`),
+- bulletproof glass: the guns on GspectreZ and GrugerZ penetrate (7F03BC34),
+- the weapon case gives 2 grenades, not 2 throwing hats (7F066F10),
+- melee: sniper butt off, knife/golf club reach 100 (7F060A0C, 7F065B14,
+  7F03BED8),
+- hat types for props 212-223, default 4 (`get_hat_model` 7F05268C),
+- breakable lamps by image bit 23 (7F0BB630), monitor programmes (7F049CDC),
+  yellow watch/HUD (`watchtint`), the attract cast table (0x8002B600,
+  7F01881C), no-armour cheat, explosion retry (optional).
+- Headset: the Cartel loaded through models before the prop pool fix
+  (2026-10-11 13:02); next: a mission end to end.
 
 Tomorrow Never Dies (Expanded 06-22): the binder runs on it (3045 images, 112
 characters, 340 props, 696 files, 31 gun stats) but its code diff (3791 words,
