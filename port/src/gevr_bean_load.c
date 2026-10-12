@@ -2079,7 +2079,12 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 						d->pal, d->numpal, boneSk, muzzle, slideb)) {
 					break;
 				}
-				if (fpCards && d->piece == 0)
+				/* DAB fpDrawIsCard(): piece 0 is the flash; and beanGunExtent()
+				 * leaves the HD gun's small pictures (64x64 and under) out with
+				 * the hand's, which takes every flash card - the rocket
+				 * launcher's in its mouth is on no piece and no muzzle bone */
+				if (fpCards && (d->piece == 0 ||
+				                (!original && texi >= 0 && mesh->texW[texi] <= 64 && mesh->texH[texi] <= 64)))
 					mesh->tris[mesh->ntris - 1].flags |= GEVR_BEAN_F_FLASH;
 				mesh->tris[mesh->ntris - 1].reflection=texi==(int)d->tex ? drawReflection : NULL;
                 mesh->tris[mesh->ntris - 1].reflectionDiffuse=d->reflectionDiffuse;
