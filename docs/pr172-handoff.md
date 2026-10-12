@@ -135,6 +135,21 @@ first) before designing anything Bean, XBLA or GE-X.
   Bean's) and did not come back with a probe build: Bean's picture was bound
   and drawn (74x280 over the 8x22 block). Cause unknown.
 
+## Headset round 2026-10-12 night (e00bdf3 on the Quest)
+
+- ef5ce48 (another agent): the eye is kept 20 cm under background straight
+  above it (bg.c gevrBgClampCameraCeiling), for Jaws in Caverns' tunnel
+  doors. 4face0f: it never ran online - multiplayer plays in
+  CAMERAMODE_NONE - and now does. Not yet confirmed in a match.
+- b2d16b6: Gun fit keeps each gun's own place in the hand and two-handed
+  hold (GunFit<gun>, GripFit<gun>, Bean*; gevr_scope.h), made from the
+  shared ones the first time it moves them (user: the models hold the hand
+  differently). PP7 variants share the PP7's, the silenced D5K the D5K's.
+- e00bdf3: Gun fit's grab. The off hand's trigger puts the holding hand
+  where the off hand is, turned as it is (gevrStereoTwoHandFollow), or moves
+  the gun with the off hand (gevrGunFitOffHand). test_two_hand checks the
+  hold lands exactly on the free hand.
+
 ## Repository and build
 
 - Worktree: `C:/Users/Occor/.codex/worktrees/abe0/goldeneye-vr`.
