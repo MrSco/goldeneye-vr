@@ -7,103 +7,49 @@ import java.io.*;
 import java.util.zip.*;
 import static org.junit.Assert.*;
 
+/* The texture packs' downloads. Bean is never downloaded: its import from the
+ * player's own copy is port/src/gevr_bean_import.c, tested by
+ * port/tests/test_bean_import.py. */
 public class ModArchiveTest {
     @Rule public TemporaryFolder temp = new TemporaryFolder();
 
-    private File pack(String mesh, byte[] data) throws IOException {
+    private File pack(String extra, byte[] data) throws IOException {
         File zip = temp.newFile();
         try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(zip))) {
             for (int i = 0; i < 100; i++) {
                 z.putNextEntry(new ZipEntry("GOLDENEYE/" + i + ".png"));
                 z.write(new byte[]{1,2,3,4}); z.closeEntry();
             }
-            if (mesh != null) {
-                z.putNextEntry(new ZipEntry(mesh)); z.write(data); z.closeEntry();
+            if (extra != null) {
+                z.putNextEntry(new ZipEntry(extra)); z.write(data); z.closeEntry();
             }
         }
         return zip;
     }
 
-    @Test public void extractsBeanMeshesAndTexturesWithNamesIntact() throws Exception {
+    @Test public void extractsTexturesWithNamesIntact() throws Exception {
         File dir = temp.newFolder();
-        assertEquals(100, ModArchive.unpack(pack("files/new/char/boilerbond/default.bin", new byte[]{'C','A','F','F',1}), dir, true, p -> {}));
-        assertTrue(new File(dir, "files/new/char/boilerbond/default.bin").isFile());
+        assertEquals(100, ModArchive.unpack(pack(null, null), dir, p -> {}));
+        assertTrue(new File(dir, "GOLDENEYE/42.png").isFile());
     }
-    @Test public void extractsOnlyAllowlistedBeanFonts() throws Exception {
+    @Test public void texturePacksCannotInstallMeshes() throws Exception {
+        File dir = temp.newFolder();
+        assertEquals(100, ModArchive.unpack(pack("files/new/char/boilerbond/default.bin", new byte[]{'C','A','F','F'}), dir, p -> {}));
+        assertFalse(new File(dir, "files").exists());
+    }
+    @Test public void rejectsTooFewTextures() throws Exception {
         File zip = temp.newFile();
         try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(zip))) {
-            for (int i = 0; i < 100; i++) {
-                z.putNextEntry(new ZipEntry("GOLDENEYE/" + i + ".png"));
-                z.write(new byte[]{1,2,3,4}); z.closeEntry();
-            }
-            for (String path : new String[]{"files/new/char/boilerbond/default.bin",
-                    "files/misc/alps3/default.dt", "files/misc/doc0/default.dt",
-                    "files/misc/other/default.dt"}) {
-                z.putNextEntry(new ZipEntry(path));
-                z.write(new byte[]{'C','A','F','F'}); z.closeEntry();
-            }
+            z.putNextEntry(new ZipEntry("GOLDENEYE/0.png"));
+            z.write(new byte[]{1,2,3,4}); z.closeEntry();
         }
-        File dir = temp.newFolder();
-        assertEquals(100, ModArchive.unpack(zip, dir, true, p -> {}));
-        assertTrue(new File(dir, "files/misc/alps3/default.dt").isFile());
-        assertTrue(new File(dir, "files/misc/doc0/default.dt").isFile());
-        assertFalse(new File(dir, "files/misc/other/default.dt").exists());
-        dir = temp.newFolder();
-        assertEquals(100, ModArchive.unpack(zip, dir, false, p -> {}));
-        assertFalse(new File(dir, "files").exists());
-    }
-    @Test public void extractsOnlyAllowlistedBeanPictures() throws Exception {
-        File zip = temp.newFile();
-        try (ZipOutputStream z = new ZipOutputStream(new FileOutputStream(zip))) {
-            for (int i = 0; i < 100; i++) {
-                z.putNextEntry(new ZipEntry("GOLDENEYE/" + i + ".png"));
-                z.write(new byte[]{1,2,3,4}); z.closeEntry();
-            }
-            for (String path : new String[]{"files/new/char/boilerbond/default.bin",
-                    "files/texture/bg/sight/default.rba", "files/texture/sight/default.rba",
-                    "files/new/texture/monitors/bondlogo/default.rba",
-                    "files/texture/bg/sight/other.rba", "files/texture/Bad Name/default.rba"}) {
-                z.putNextEntry(new ZipEntry(path));
-                z.write(new byte[]{'C','A','F','F'}); z.closeEntry();
-            }
-        }
-        File dir = temp.newFolder();
-        assertEquals(100, ModArchive.unpack(zip, dir, true, p -> {}));
-        assertTrue(new File(dir, "files/texture/bg/sight/default.rba").isFile());
-        assertTrue(new File(dir, "files/texture/sight/default.rba").isFile());
-        assertTrue(new File(dir, "files/new/texture/monitors/bondlogo/default.rba").isFile());
-        assertFalse(new File(dir, "files/texture/bg/sight/other.rba").exists());
-        assertFalse(new File(dir, "files/texture/Bad Name/default.rba").exists());
-        dir = temp.newFolder();
-        assertEquals(100, ModArchive.unpack(zip, dir, false, p -> {}));
-        assertFalse(new File(dir, "files").exists());
-    }
-    @Test public void rejectsInvalidPictureMagic() throws Exception {
-        IOException e = assertThrows(IOException.class, () -> ModArchive.unpack(pack("files/texture/bg/sight/default.rba", new byte[]{1,2,3,4}), temp.newFolder(), true, p -> {}));
-        assertTrue(e.getMessage(), e.getMessage().contains("invalid CAFF asset"));
-    }
-    @Test public void rejectsInvalidFontMagic() throws Exception {
-        assertThrows(IOException.class, () -> ModArchive.unpack(pack("files/misc/alps3/default.dt", new byte[]{1,2,3,4}), temp.newFolder(), true, p -> {}));
-    }
-    @Test public void rejectsTextureOnlyBeanPack() throws Exception {
-        assertThrows(IOException.class, () -> ModArchive.unpack(pack(null, null), temp.newFolder(), true, p -> {}));
-    }
-    @Test public void ordinaryPacksCannotInstallMeshes() throws Exception {
-        File dir = temp.newFolder();
-        assertEquals(100, ModArchive.unpack(pack("files/new/char/boilerbond/default.bin", new byte[]{'C','A','F','F'}), dir, false, p -> {}));
-        assertFalse(new File(dir, "files").exists());
-    }
-    @Test public void rejectsInvalidMeshMagic() throws Exception {
-        assertThrows(IOException.class, () -> ModArchive.unpack(pack("files/new/char/boilerbond/default.bin", new byte[]{1,2,3,4}), temp.newFolder(), true, p -> {}));
+        assertThrows(IOException.class, () -> ModArchive.unpack(zip, temp.newFolder(), p -> {}));
     }
     @Test public void preventsZipTraversal() throws Exception {
-        assertThrows(IOException.class, () -> ModArchive.unpack(pack("GOLDENEYE/../../escape.png", new byte[]{1,2,3,4}), temp.newFolder(), true, p -> {}));
+        assertThrows(IOException.class, () -> ModArchive.unpack(pack("GOLDENEYE/../../escape.png", new byte[]{1,2,3,4}), temp.newFolder(), p -> {}));
     }
     @Test public void cancelsDuringExtraction() throws Exception {
-        assertThrows(IOException.class, () -> ModArchive.unpack(pack(null, null), temp.newFolder(), false, p -> { throw new IOException("cancelled"); }));
-    }
-    @Test public void requiresBondMarker() throws Exception {
-        assertThrows(IOException.class, () -> ModArchive.unpack(pack("files/new/gun/silverPPK/default.bin", new byte[]{'C','A','F','F'}), temp.newFolder(), true, p -> {}));
+        assertThrows(IOException.class, () -> ModArchive.unpack(pack(null, null), temp.newFolder(), p -> { throw new IOException("cancelled"); }));
     }
     @Test public void rejectsCorruptCrc() throws Exception {
         File zip = pack(null, null);
@@ -115,6 +61,6 @@ public class ModArchiveTest {
                 }
             }
         }
-        assertThrows(IOException.class, () -> ModArchive.unpack(zip, temp.newFolder(), false, p -> {}));
+        assertThrows(IOException.class, () -> ModArchive.unpack(zip, temp.newFolder(), p -> {}));
     }
 }

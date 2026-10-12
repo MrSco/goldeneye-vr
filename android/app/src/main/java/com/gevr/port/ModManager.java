@@ -1,6 +1,8 @@
 package com.gevr.port;
 
 import android.content.Context;
+import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -28,6 +30,11 @@ import java.util.concurrent.Executors;
  * unpacked into files/texture-packs/&lt;id&gt;, where the renderer looks for
  * them (port/fast3d/gevr_texpack.cpp). Nothing of theirs ships with the app;
  * the list below only says where each pack lives.
+ *
+ * XBLA / Bean is never downloaded: it is GoldenEye's own art, so the player
+ * picks their own copy of the release (MainActivity.openXblaPicker) and the
+ * files Bean draws are imported from it into the same folder
+ * (port/src/gevr_bean_import.c).
  *
  * One job at a time on one worker thread; the launcher polls status().
  *
@@ -74,6 +81,15 @@ final class ModManager {
             this.assetSuffix = assetSuffix;
         }
 
+        /** A pack read from the player's own copy of a game: nothing to download or follow. */
+        Pack(String id, String title, String by, String site) {
+            this(id, title, by, site, "", null, 0L, null, null, null, null);
+        }
+
+        boolean own() {
+            return listed.url == null;
+        }
+
         /** What an install gets: a release newer than the list's, or the list's. */
         Build target() {
             Build l = latest;
@@ -104,15 +120,14 @@ final class ModManager {
                 374042560L,
                 "MrSco/GoldenEye-007-HD", "ai-", "ge007-hd-ai-", "-gliden64-png.zip"),
         new Pack("ge007-bean", "GoldenEye 007 XBLA / Project Bean", "Rare / 4J Studios, Project Bean",
-                "github.com/MrSco/GoldenEye-007-Bean", "2026.10.11.3",
-                "https://github.com/MrSco/GoldenEye-007-Bean/releases/download/v2026.10.11.3/ge007-bean-2026.10.11.3-vr.zip",
-                188298238L, "MrSco/GoldenEye-007-Bean", "v", "ge007-bean-", "-vr.zip"),
+                "your own copy of the game"),
     };
 
     // Per-pack states the launcher shows (vr_launcher.cpp keeps the same names).
     static final String NONE = "none";
     static final String DOWNLOADING = "downloading";
     static final String INSTALLING = "installing";
+    static final String IMPORTING = "importing";
     static final String INSTALLED = "installed";
     static final String ERROR = "error";
 
@@ -185,7 +200,7 @@ final class ModManager {
             int pr = -1;
             if (p.id.equals(busyId)) {
                 state = busyState;
-                pr = progress;
+                pr = IMPORTING.equals(state) ? nativeBeanImportPercent() : progress;
             } else if (p.id.equals(errorId)) {
                 // a failed update leaves the installed pack in place (and usable)
                 state = installed(p) ? INSTALLED : ERROR;
@@ -195,7 +210,9 @@ final class ModManager {
             }
             Build t = p.target();
             String version = t.version, update = "";
-            if (installed(p)) {
+            if (p.own()) {
+                version = installed(p) ? installedVersion(p) : "";
+            } else if (installed(p)) {
                 // what an install would get now (the list's, or a newer release)
                 // against what the marker says is installed
                 String have = installedVersion(p);
@@ -219,6 +236,7 @@ final class ModManager {
         if (cmd == null) return;
         if (cmd.equals("cancel")) {
             cancelled = true;
+            if (IMPORTING.equals(busyState)) nativeBeanImportCancel();
             return;
         }
         if (cmd.equals("check")) {
@@ -233,7 +251,7 @@ final class ModManager {
         final Pack p = find(cmd.substring(colon + 1));
         if (p == null || busyId != null) return;
         final String verb = cmd.substring(0, colon);
-        if (verb.equals("install")) {
+        if (verb.equals("install") && !p.own()) {
             errorId = null;
             cancelled = false;
             progress = 0;
@@ -274,6 +292,56 @@ final class ModManager {
         }
     }
 
+    // ---- the player's own copy ------------------------------------------------------
+
+    private static native String nativeBeanImport(int fd, String dest);
+    private static native int nativeBeanImportPercent();
+    private static native void nativeBeanImportCancel();
+
+    /** The file the player picked for an own-copy pack (MainActivity.openXblaPicker). */
+    synchronized void importOwn(String id, Uri uri) {
+        final Pack p = find(id);
+        if (p == null || !p.own() || busyId != null) return;
+        errorId = null;
+        cancelled = false;
+        progress = 0;
+        busyState = IMPORTING;
+        busyId = p.id;
+        worker.execute(() -> run(p, () -> importFrom(p, uri)));
+    }
+
+    private void importFrom(Pack p, Uri uri) throws Exception {
+        File root = root();
+        if (!root.isDirectory() && !root.mkdirs()) throw new IOException("could not create " + root);
+        File tmp = new File(root, "." + p.id + ".unpacking");
+        File dest = new File(root, p.id);
+        File backup = new File(root, "." + p.id + ".backup");
+        try {
+            deleteTree(tmp);
+            if (!tmp.mkdirs()) throw new IOException("could not create " + tmp);
+            String failure;
+            try (ParcelFileDescriptor fd = app.getContentResolver().openFileDescriptor(uri, "r")) {
+                if (fd == null) throw new IOException("could not open that file");
+                // the native side reads and closes it (fdopen)
+                failure = nativeBeanImport(fd.detachFd(), tmp.getAbsolutePath());
+            }
+            if (!failure.isEmpty()) throw new IOException(failure);
+            try (OutputStream o = new FileOutputStream(new File(tmp, MARKER))) {
+                o.write("own\n".getBytes("UTF-8"));
+            }
+            deleteTree(backup);
+            if (dest.exists() && !dest.renameTo(backup)) throw new IOException("could not preserve installed pack");
+            if (!tmp.renameTo(dest)) {
+                if (backup.exists() && !backup.renameTo(dest)) Log.w(TAG, "could not restore " + p.id);
+                throw new IOException("could not finish importing");
+            }
+            deleteTree(backup);
+            Log.i(TAG, "imported " + p.id + " from the player's copy");
+        } finally {
+            deleteTree(tmp);
+        }
+    }
+
     // ---- install -----------------------------------------------------------------
 
     private void install(Pack p) throws Exception {
@@ -282,7 +350,7 @@ final class ModManager {
         if (!root.isDirectory() && !root.mkdirs()) throw new IOException("could not create " + root);
         // the zip and the unpacked files side by side (with an old version of the
         // pack still there during an update), with room to spare
-        long need = p.id.equals("ge007-bean") ? Math.max(1L << 30, b.size * 5) : b.size * 23 / 10;
+        long need = b.size * 23 / 10;
         if (root.getUsableSpace() < need) {
             throw new IOException("not enough free space (" + (need >> 20) + " MB needed)");
         }
@@ -295,7 +363,7 @@ final class ModManager {
             busyState = INSTALLING;
             progress = 0;
             deleteTree(tmp);
-            int n = ModArchive.unpack(zip, tmp, p.id.equals("ge007-bean"), percent -> {
+            int n = ModArchive.unpack(zip, tmp, percent -> {
                 if (cancelled) throw new IOException("cancelled");
                 progress = percent;
             });
