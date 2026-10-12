@@ -128,9 +128,19 @@ int main(void)
     eye = (coord3d){.f={0,175,0}};
     gevrBgClampCameraCeiling(eye.f,0,1,TRUE);
     closeTo(eye.y,145);
-    eye.x = 30; eye.y = 175;
+    eye.x = 40; eye.y = 175;
     gevrBgClampCameraCeiling(eye.f,0,1,TRUE);
     closeTo(eye.y,175); // restores standing height on leaving the doorway
+
+    reset();
+    ceiling(1,170,10,40,-64,64); // the lintel starts 10 units ahead: inside the near plane
+    eye = (coord3d){.f={0,175,0}};
+    gevrBgClampCameraCeiling(eye.f,0,1,TRUE);
+    closeTo(eye.y,150); // lowered before the near plane can cut into it (user: a moment's clip)
+    ceiling(1,170,3,9,-64,64); // a thin lintel between the outer samples is not missed
+    eye = (coord3d){.f={0,175,0}};
+    gevrBgClampCameraCeiling(eye.f,0,1,TRUE);
+    closeTo(eye.y,150);
 
     reset();
     room_data_float1 = 0.25f;
