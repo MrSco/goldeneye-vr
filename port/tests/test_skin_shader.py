@@ -111,12 +111,12 @@ class GLES:
             self.call("glAttachShader", None, [U, U], program, shader)
             self.call("glDeleteShader", None, [U], shader)
         names = ["aMeshPos", "aMeshST", "aMeshColor", "aSkinWeight", "aSkinBone"]
-        names += [f"aSkinP{i}" for i in range(4)] + [f"aSkinN{i}" for i in range(4)]
+        names += [f"aSkinP{i}" for i in range(4)] + [f"aSkinN{i}" for i in range(4)] + ["aSkinTint", "aSkinUnlit"]
         for i, name in enumerate(names):
             self.call("glBindAttribLocation", None, [U, U, C.c_char_p], program, i, name.encode())
         if capture:
-            varyings = (C.c_char_p * 3)(b"gl_Position", b"vInput1", b"vFog")
-            self.call("glTransformFeedbackVaryings", None, [U, I, P, U], program, 3, varyings, 0x8C8C)
+            varyings = (C.c_char_p * 4)(b"gl_Position", b"vInput1", b"vFog", b"vTexCoord0")
+            self.call("glTransformFeedbackVaryings", None, [U, I, P, U], program, 4, varyings, 0x8C8C)
         self.call("glLinkProgram", None, [U], program)
         status = I()
         self.call("glGetProgramiv", None, [U, U, P], program, 0x8B82, C.byref(status))
@@ -158,9 +158,9 @@ class GLES:
         self.call("glDrawArrays", None, [U, I, I], 0, 0, 1)
         self.call("glEndTransformFeedback", None, [])
         assert self.call("glGetError", U, []) == 0
-        ptr = self.call("glMapBufferRange", P, [U, C.c_ssize_t, C.c_ssize_t, U], 0x8C8E, 0, 48, 1)
+        ptr = self.call("glMapBufferRange", P, [U, C.c_ssize_t, C.c_ssize_t, U], 0x8C8E, 0, 56, 1)
         assert ptr
-        result = list(C.cast(ptr, C.POINTER(F * 12)).contents)
+        result = list(C.cast(ptr, C.POINTER(F * 14)).contents)
         self.call("glUnmapBuffer", U, [U], 0x8C8E)
         return result
 
@@ -178,7 +178,7 @@ def execution(gl, program):
     ubo = gl.buffer(0x8A11, C.sizeof(data), data, 0)
     block = gl.call("glGetUniformBlockIndex", U, [U, C.c_char_p], program, b"SkinPalette")
     gl.call("glUniformBlockBinding", None, [U, U, U], program, block, 0)
-    gl.buffer(0x8C8E, 48, binding=0)
+    gl.buffer(0x8C8E, 56, binding=0)
     identity = [1 if c == r else 0 for c in range(4) for r in range(4)]
     for name in ("uMeshMP", "uMeshInSel[0]"):
         gl.uniform(program, name, "m", identity)
@@ -202,6 +202,20 @@ def execution(gl, program):
     first = gl.capture()
     expected = [10, 5, .3, 1, 110/255, 130/255, 150/255, .7, .1, .2, .3, 150/255]
     assert all(abs(a-b) < 2e-5 for a, b in zip(first, expected)), (first, expected)
+    gl.uniform(program, "uMeshTinted", "i", 1)
+    gl.attribute(13, [.25,.5,.75,1])
+    out=gl.capture()
+    assert all(abs(a-b)<2e-5 for a,b in zip(out[4:7], [110/255*.25,130/255*.5,150/255*.75])),out
+    gl.attribute(14,[1])
+    out=gl.capture()
+    assert all(abs(a-b)<2e-5 for a,b in zip(out[4:7],[.25,.5,.75])),out
+    gl.attribute(14,[0]); gl.uniform(program,"uMeshTinted","i",0)
+    gl.attribute(1,[.2,.7]); gl.uniform(program,"uMeshTex[0]","f",[1,1,1,0])
+    gl.uniform(program,"uMeshTexRotation[0]","f",[0,1])
+    uv=gl.capture()[12:14]
+    assert all(abs(a-b)<2e-5 for a,b in zip(uv,[.3,.2])),uv
+    gl.uniform(program,"uMeshTexRotation[0]","f",[1,0])
+    gl.uniform(program,"uMeshTex[0]","f",[0,0,0,0])
     # Invalid bone drops out, leaving bone 1's entire weight (not /255).
     gl.uniform(program, "uSkinValid", "u", [2, 0])
     out = gl.capture()

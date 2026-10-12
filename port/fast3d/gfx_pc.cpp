@@ -57,6 +57,8 @@ extern "C" {
 #include "gevr_mesh_visibility.h"
 #include "gevr_bean_room_state.h"
 extern "C" int32_t g_GlobalTimer;
+static const uint8_t *s_beanVertexTint;
+static unsigned s_beanVertexTintStride;
 static bool s_beanRoomFogLinear;
 static float s_beanRoomFogLine[2];
 static unsigned s_beanPaintUploads, s_beanPaintHits;
@@ -1833,12 +1835,13 @@ static void import_texture(int i, int tile, bool is_rect) {
     {
         const uint8_t *beanRgba = nullptr;
         int beanW = 0, beanH = 0;
-        if (gevrBeanTexture(loaded_texture.addr, &beanRgba, &beanW, &beanH) && beanRgba && beanW > 0 && beanH > 0) {
+        const void *frameAddr = gevrBeanTextureFrame(loaded_texture.addr, g_GlobalTimer / 60.0f);
+        if (gevrBeanTexture(frameAddr, &beanRgba, &beanW, &beanH) && beanRgba && beanW > 0 && beanH > 0) {
             /* UV normalization below uses the logical tile, not the 16x16
              * stand-in's byte count. Keep both axes in those same units. */
             loaded_texture.orig_size_bytes = rdp.texture_tile[tile].width
                 * rdp.texture_tile[tile].height * G_IM_SIZ_16b_LINE_BYTES;
-            TextureCacheKey key = { loaded_texture.addr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
+            TextureCacheKey key = { (const uint8_t *)frameAddr, {}, G_IM_FMT_RGBA, G_IM_SIZ_32b, 0, 0, 0 };
             key.width = (uint32_t)beanW;
             key.height = (uint32_t)beanH;
             if (gfx_texture_cache_lookup(i, key)) {
@@ -2480,6 +2483,13 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
             }
         }
 
+        if (s_beanVertexTint && s_beanVertexTintStride >= sizeof(GevrVertexTint)) {
+            const auto *tint = (const GevrVertexTint *)(s_beanVertexTint + i*s_beanVertexTintStride);
+            uint8_t *rgb = &d->color.r;
+            for (int k=0;k<3;k++) rgb[k] = (tint->unlit || !(rsp.geometry_mode & G_LIGHTING)) ? tint->rgba[k] :
+                (uint8_t)((unsigned)rgb[k]*tint->rgba[k]/255);
+        }
+
         d->u = U;
         d->v = V;
 
@@ -2704,7 +2714,7 @@ static struct {
     struct GfxClipParameters clip;
 } s_gevrMeshState;
 
-static void gevr_bean_scroll(int t, float offset[2]);
+static void gevr_bean_transform(int t, float matrix[6]);
 
 static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bool is_rect) {
     GevrProfileSection profile(GEVR_TIME_CLIP);
@@ -3044,8 +3054,8 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
         return;
     }
 
-    float beanScroll[2][2] = {};
-    for (int t = 0; t < 2; t++) if (comb->used_textures[t]) gevr_bean_scroll(t, beanScroll[t]);
+    float beanMotion[2][6];
+    for (int t = 0; t < 2; t++) gevr_bean_transform(t, beanMotion[t]);
     for (int i = 0; i < 3; i++) {
         float x = v_arr[i]->x, y = v_arr[i]->y, z = v_arr[i]->z, w = v_arr[i]->w;
         if (gevrBackFace) {
@@ -3117,8 +3127,9 @@ static void gfx_sp_tri1(uint8_t vtx1_idx, uint8_t vtx2_idx, uint8_t vtx3_idx, bo
 			uint32_t tex_w = (is_rect || tex_from_block[t]) ? tex_width[t] : tex_width2[t];
 			uint32_t tex_h = (is_rect || tex_from_block[t]) ? tex_height[t] : tex_height2[t];
 
-			buf_vbo[buf_vbo_len++] = u / tex_w + beanScroll[t][0];
-			buf_vbo[buf_vbo_len++] = v / tex_h + beanScroll[t][1];
+			float un = u / tex_w, vn = v / tex_h;
+            buf_vbo[buf_vbo_len++] = beanMotion[t][0]*un + beanMotion[t][2]*vn + beanMotion[t][4];
+            buf_vbo[buf_vbo_len++] = beanMotion[t][1]*un + beanMotion[t][3]*vn + beanMotion[t][5];
         }
 
         if (use_fog) {
@@ -4229,10 +4240,10 @@ static void gevr_mesh_frame(void) {
  * and each combiner input, byte by byte either a colour byte of the vertex or
  * a constant. false for what the shader does not do: the LOD fraction by w.
  */
-static void gevr_bean_scroll(int t, float offset[2])
+static void gevr_bean_transform(int t, float matrix[6])
 {
     const auto& tile = rdp.texture_tile[rdp.first_tile_index + gfx_lod_tile_offset(t)];
-    gevrBeanTextureScroll(rdp.loaded_texture[tile.tmem].addr, g_GlobalTimer / 60.0f, offset);
+    gevrBeanTextureTransform(rdp.loaded_texture[tile.tmem].addr, g_GlobalTimer / 60.0f, matrix);
 }
 
 static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
@@ -4273,8 +4284,10 @@ static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
         p->tex[t][1] = k[1] / h;
         p->tex[t][2] = o[0] / w;
         p->tex[t][3] = o[1] / h;
-        float scroll[2]; gevr_bean_scroll(t, scroll);
-        p->tex[t][2] += scroll[0]; p->tex[t][3] += scroll[1];
+        float motion[6]; gevr_bean_transform(t, motion);
+        p->tex_rotation[t][0] = motion[0]; p->tex_rotation[t][1] = motion[1];
+        p->tex[t][2] = motion[0]*o[0]/w + motion[2]*o[1]/h + motion[4];
+        p->tex[t][3] = motion[1]*o[0]/w + motion[3]*o[1]/h + motion[5];
     }
     // gfx_sp_tri1's input loop, a byte at a time: ch is the vertex colour's byte, or -1 for v
     struct Byte { int ch; uint8_t v; };
@@ -4428,6 +4441,7 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         // The MP uniform negates y on an inverted target, reversing winding.
         if (params.cull && s_gevrMeshState.clip.invert_y) params.cull = -params.cull;
         params.lit = (geometry & G_LIGHTING) != 0;
+        params.authored_color = skin->authoredColor != 0;
         if (params.lit) {
             if (rsp.current_num_lights < 1 || rsp.current_num_lights > MAX_LIGHTS + 1) return false;
             params.num_lights = rsp.current_num_lights - 1;
@@ -4669,11 +4683,21 @@ static void gfx_run_dl(Gfx* cmd) {
                 break;
             case G_GEVR_ROOM_STATE: {
                 uint8_t rgb[3];
-                s_beanRoomFogLinear = gevrRoomDl && (rsp.geometry_mode & G_FOG) && gevrBeanRoomFog(s_beanRoomFogLine, rgb);
+                const bool model = (cmd->words.w0 & 1) != 0;
+                s_beanRoomFogLinear = (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
+                    && gevrBeanRoomFog(s_beanRoomFogLine, rgb);
+                if (model) {
+                    if (s_beanRoomFogLinear) rsp.geometry_mode |= G_FOG;
+                    else rsp.geometry_mode &= ~G_FOG;
+                }
                 if (s_beanRoomFogLinear) { rdp.fog_color.r = rgb[0]; rdp.fog_color.g = rgb[1]; rdp.fog_color.b = rgb[2]; }
                 gfx_sp_set_other_mode(3, 29, gevrBeanRoomMode((uint32_t)cmd->words.w1, rsp.geometry_mode & G_FOG));
                 break;
             }
+            case G_GEVR_VERTEX_TINT:
+                s_beanVertexTint = (const uint8_t *)cmd->words.w1;
+                s_beanVertexTintStride = (cmd->words.w0 >> 8) & 0xffff;
+                break;
             case G_GEVR_SKIN:
                 skin = (GevrSkinDraw*)cmd->words.w1;
                 mesh = skin->mesh;

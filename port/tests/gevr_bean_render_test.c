@@ -57,10 +57,24 @@ int main(void)
     assert(gevrBeanEmitList(&mesh, verts, 3, 0, 0, 1, 1, &gdl, &raw));
     Gfx *commands = gdl;
     assert((commands[1].words.w0 >> 24) == (G_SETOTHERMODE_H & 0xff));
-    assert(commands[1].words.w1 == G_CYC_1CYCLE);
+    assert(commands[1].words.w1 == G_CYC_2CYCLE);
     Vtx *v = raw;
     assert(v[0].v.tc[0] == 0 && v[1].v.tc[0] == 128 * 32);
     assert(v[2].v.tc[1] == -64 * 32 && v[0].v.cn[3] == 128);
+    free(gdl); free(raw);
+    /* A rigid lit head must retain its authored colour too, even without
+     * fitted skin influences. The final clear prevents tinting native draws. */
+    mesh.watchArm = 1;
+    for(int i=0;i<3;i++) { verts[i].rgba[0]=32; verts[i].rgba[1]=200; verts[i].rgba[2]=48; verts[i].n[2]=1; }
+    assert(gevrBeanEmitList(&mesh, verts, 3, 1, 0, 1, 1, &gdl, &raw));
+    int tintLoads=0, tintClears=0;
+    for(Gfx *g=gdl; (g->words.w0>>24)!=(G_ENDDL&255); g++) if((g->words.w0>>24)==G_GEVR_VERTEX_TINT) {
+      if(!g->words.w1) {tintClears++; continue;}
+      const GevrVertexTint *t=(const void*)g->words.w1;
+      for(int i=0;i<3;i++) assert(!memcmp(t[i].rgba,verts[i].rgba,4));
+      tintLoads++;
+    }
+    assert(tintLoads==1 && tintClears==1 && ((Vtx*)raw)[0].n.n[2]==127);
     free(gdl); free(raw);
     /* A seam keeps its span, including negative V. */
     verts[0].uv[0] = 0.9f; verts[1].uv[0] = 1.1f;

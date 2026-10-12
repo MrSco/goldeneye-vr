@@ -57,6 +57,8 @@ void gevrBeanImagesReset(void);
 
 /* Normalized game-time texture offsets and the active HD room fog line. */
 int gevrBeanTextureScroll(const void *addr, float seconds, float offset[2]);
+int gevrBeanTextureTransform(const void *addr, float seconds, float matrix[6]);
+const void *gevrBeanTextureFrame(const void *addr, float seconds);
 int gevrBeanRoomFog(float line[2], uint8_t rgb[3]);
 /* Render-time selection only. Definitions retain native lists/types for
  * gameplay, including aiming and bullet collision. Disabled returns current. */

@@ -1,7 +1,7 @@
 /* Texture scroll entries in the release rendergraph (DAB beanTexAnimation,
  * MIT, port/licenses/dabs-mod.txt). Rates are repeats per game second. */
 static void readTextureScroll(struct gevrBeanMesh *mesh, const uint8_t *data, uint32_t dlen,
-                              const uint8_t *stream, uint32_t slen)
+                              const uint8_t *stream, uint32_t slen, const struct gevrCaff *caff, const int *texfile)
 {
     if (dlen < 0xe0 || memcmp(data, "rendergraph", 12) || slen < 0x28) return;
     uint32_t block = be32(data + 0xdc);
@@ -27,23 +27,30 @@ static void readTextureScroll(struct gevrBeanMesh *mesh, const uint8_t *data, ui
                 for (uint32_t r = 0; r < refs; r++) {
                     if (be32(data + list + r*4) != ptr) continue;
                     int t = count == 1 ? (int)material[0] : -1;
-                    uint32_t attr = be32(entry + 8);
+                    uint32_t attr = be32(entry + 8), frames = be32(entry + 0x4c);
                     /* A multi-input material animates the unique transparency
                      * picture, not its bump map or reflection (DAB). */
-                    if (count > 1 && fits(attr, 13, dlen) && !memcmp(data + attr, "transparency", 13)) {
+                    if (count > 1) {
                         for (uint32_t k = 0; k < count; k++) {
                             const uint8_t *rgba; int w, h, alpha = 0;
                             if (material[k] >= (uint32_t)mesh->ntex ||
                                 !gevrBeanTexture(mesh->standin[material[k]], &rgba, &w, &h)) continue;
                             for (int px = 0; px < w*h && !alpha; px++) alpha = rgba[px*4+3] < 255;
-                            if (alpha) { if (t != -1) { t = -2; break; } t = material[k]; }
+                            uint32_t len = 0; const uint8_t *header = gevrCaffBlob(caff, texfile[material[k]], &len);
+                            int match = frames > 1 ? header && len >= 0x40 && be32(header+0x38) == frames &&
+                                (be32(header+0x1c)==4 || be32(header+0x1c)==5) :
+                                alpha && fits(attr, 13, dlen) && !memcmp(data+attr,"transparency",13);
+                            if (match) { if (t != -1) { t = -2; break; } t = material[k]; }
                         }
                     }
                     if (t < 0 || t >= mesh->ntex || seen[t]) break;
                     float s = bef(entry + 0x2c), v = bef(entry + 0x30);
                     if (!isfinite(s) || fabsf(s) >= 100) s = 0;
                     if (!isfinite(v) || fabsf(v) >= 100) v = 0;
-                    gevrBeanTexScrollSet(mesh->standin[t], s, -v); /* emitted t runs upward */
+                    float rotation = bef(entry+0x40), spf = bef(entry+0x50);
+                    if (!isfinite(rotation) || fabsf(rotation)>=100000) rotation=0;
+                    if (frames<2 || !be32(entry+0x58) || !isfinite(spf) || spf<=0) spf=0;
+                    gevrBeanTexMotionSet(mesh->standin[t], s, -v, rotation*.5f, spf, caff, texfile[t]);
                     seen[t] = 1;
                     if (s || v) GEVR_BEAN_LOG("gevr bean motion: texture %u scroll %.3f %.3f repeats/s", t, s, -v);
                     break;

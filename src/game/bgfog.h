@@ -184,6 +184,9 @@ typedef struct EnvironmentFoglessRecord
 extern s32 g_FogSkyIsEnabled;
 
 struct CurrentEnvironmentRecord *fogGetCurrentEnvironmentp(void);
+#ifdef GEVR
+void fogGetBeanTransition(float *share, float *fraction, u8 target[3]);
+#endif
 f32 fogGetScaledFarFogIntensitySquared(void);
 void fogLoadLevelEnvironment(s32 level_id, s32 arg1);
 s32 fogPositionIsVisibleThroughFog(coord3d *pos, f32 range);

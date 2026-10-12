@@ -3,19 +3,50 @@
 #include <math.h>
 #include <stdint.h>
 
-/* DAB beanFogsRetail/gebeanStageFogLine, MIT (port/licenses/dabs-mod.txt).
- * Dam's verified retail HD fog starts at -100 world units, ends at 15000
- * on the plateau, and extends lower down. Other stages retain their native
- * fog, including environment transitions, until their HD states are ported. */
+/* DAB retail/CE tables and transition rules, MIT (port/licenses/dabs-mod.txt).
+ * Coordinates remain GoldenEye's: no Perfect Dark recentering offset. */
+static inline int gevrBeanFogRange(int stage, float height, int community, float *end, uint8_t rgb[3])
+{
+    static const struct { int stage, end; uint32_t rgb; } rows[] = {
+        {22,3500,0x000008},{23,10000,0},{24,3000,0},{25,1500,0x000008},
+        {27,10000,0x100000},{28,15000,0},{29,7500,0x101820},{30,5000,0x000008},
+        {31,5000,0x280000},{32,20000,0x103060},{33,15000,0x85adca},{34,5000,0x102010},
+        {35,55000,0x85adca},{36,45000,0xa49682},{37,2500,0x182000},{38,6000,0x181828},
+        {39,6000,0x080008},{41,30000,0x6080a0},{43,10000,0x201010}
+    };
+    if (!isfinite(height)) return 0;
+    for (unsigned i=0;i<sizeof(rows)/sizeof(rows[0]);i++) if(rows[i].stage==stage) {
+        *end=(float)rows[i].end;
+        uint32_t c=rows[i].rgb;
+        if(stage==33) {
+            float t=(9161-height)/(9161-2782);
+            *end+=65000*fminf(1,fmaxf(0,t));
+        }
+        if(community) {
+            switch(stage) {
+            case 22:*end=5000;break; case 24:case 25:case 37:*end=4500;break;
+            case 38:*end=22500;break; case 43:*end=6500;c=0x575f5d;break;
+            }
+        }
+        rgb[0]=(uint8_t)(c>>16);rgb[1]=(uint8_t)(c>>8);rgb[2]=(uint8_t)c;
+        return 1;
+    }
+    return 0;
+}
+static inline int gevrBeanFogLineTransition(int stage, float height, float depth, int community,
+        float share, float fraction, const uint8_t target[3], float line[2], uint8_t rgb[3])
+{
+    float end;
+    if(!isfinite(depth) || depth<=0 || !isfinite(share) || share<=0 ||
+       !gevrBeanFogRange(stage,height,community,&end,rgb)) return 0;
+    end=-100+(end+100)*share;
+    fraction=fminf(1,fmaxf(0,fraction));
+    if(target) for(int i=0;i<3;i++) rgb[i]=(uint8_t)(rgb[i]+fraction*((float)target[i]-rgb[i]));
+    line[0]=255/((end+100)*depth);line[1]=100*255/(end+100);
+    return 1;
+}
 static inline int gevrBeanFogLine(int stage, float height, float depth, float line[2], uint8_t rgb[3])
 {
-    if (stage != 33 || !isfinite(depth) || depth <= 0 || !isfinite(height)) return 0;
-    /* GoldenEye's coordinates omit PD's +13219 conversion offset. */
-    float t = (9161.0f - height) / (9161.0f - 2782.0f);
-    float end = 15000.0f + 65000.0f * fminf(1.0f, fmaxf(0.0f, t));
-    line[0] = 255.0f / ((end + 100.0f) * depth);
-    line[1] = 100.0f * 255.0f / (end + 100.0f);
-    rgb[0] = 0x85; rgb[1] = 0xad; rgb[2] = 0xca;
-    return 1;
+    return gevrBeanFogLineTransition(stage,height,depth,0,1,0,0,line,rgb);
 }
 #endif

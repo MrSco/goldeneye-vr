@@ -286,6 +286,11 @@ int main(int argc, char **argv)
             assert(pose->mesh->numVertices == (unsigned)pose->nverts);
             assert(pose->mesh->numIndices == (unsigned)pose->nverts);
             assert(pose->mesh->numRuns > 0 && pose->nbones <= GEVR_SKIN_BONES);
+            unsigned groups=0;
+            for(int c=0;c<pose->ncommands;c++) groups += (pose->gdl[c].words.w0>>24)==G_GEVR_ROOM_STATE;
+            assert(pose->mesh->numRuns<=groups); /* Tint loads must never split a material draw. */
+            const GevrSkinVertex *gpu=pose->mesh->vertices;
+            for(int v=0;v<pose->nverts;v++) assert(!memcmp(&gpu[v].tint,&pose->verts[v].tint,sizeof(GevrVertexTint)));
 			for (int v = 0; v < pose->nverts; v++)
 				for (int w = 0; w < 4; w++) {
 					if (!pose->verts[v].weight[w])
