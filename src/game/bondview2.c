@@ -1712,18 +1712,38 @@ f32 gevrGunSizeNow(s32 *setting, s32 *online)
 }
 
 /*
+ * Gun fit's look for the hand's gun: GoldenEye's models (0), GoldenEye X's
+ * (1) or Bean's (2). Each sits differently in the hand and keeps its own
+ * fits (user; Bean's 2026-10-12, its two-handed hold sat low).
+ */
+int gevrFitLook(int hand)
+{
+    extern int gevrBeanIsEnabled(void);
+
+    return gevrGexHeld(hand) ? 1 : gevrBeanIsEnabled() ? 2 : 0;
+}
+
+/*
  * The gun's fit in the hand (Gun fit), cm right, up and back: GoldenEye's,
- * or for a GoldenEye X model its own, since those sit differently in the
- * hand (user): fitting one leaves the other.
+ * or for a GoldenEye X or Bean model its own, since those sit differently in
+ * the hand (user): fitting one leaves the others.
  */
 static void gevrGunOff(s32 hand, f32 off[3])
 {
+    extern float VrBeanGunOff[3];
+
     if (gevrGexHeld(hand))
     {
         const f32 *fit = gevrGexGunFit(gevrGexWeaponForHand(hand)->item);
         off[0] = fit[0];
         off[1] = fit[1];
         off[2] = fit[2];
+    }
+    else if (gevrFitLook(hand) == 2)
+    {
+        off[0] = VrBeanGunOff[0];
+        off[1] = VrBeanGunOff[1];
+        off[2] = VrBeanGunOff[2];
     }
     else
     {
@@ -4059,13 +4079,16 @@ void gevrGrenadeCookHapticTick(s32 hand, s32 cook_tick)
  * side, up and forward; degrees about the model's X, Y and Z (Z is along the
  * barrel). It is a setting (VrGripTrim, goldeneye-vr.ini GripPistol and
  * GripRifle), set in game with the launcher's Gun fit while holding with both
- * hands (port/src/input.c; user); GoldenEye X's models keep their own
- * (GexGripPistol, GexGripRifle). files/gevr_twohand.txt "class dx dy dz rx
+ * hands (port/src/input.c; user); GoldenEye X's and Bean's models keep their
+ * own (GexGrip*, BeanGrip*). files/gevr_twohand.txt "class dx dy dz rx
  * ry rz" (a line each) overrides it too, re-read every couple of seconds.
  */
 extern float VrGripTrim[2][6];      /* vr_settings_defaults.c */
 extern float VrGexGripTrim[2][6];
-#define s_gevrTwoHandTrim (gevrGexHeld(s_gevrTwoHandGun) ? VrGexGripTrim : VrGripTrim)
+extern float VrBeanGripTrim[2][6];
+#define s_gevrTwoHandTrim (gevrFitLook(s_gevrTwoHandGun) == 1   ? VrGexGripTrim  \
+                           : gevrFitLook(s_gevrTwoHandGun) == 2 ? VrBeanGripTrim \
+                                                                : VrGripTrim)
 
 /* the trim's class for the gun in hand: 0 handgun, 1 long gun */
 s32 gevrStereoTwoHandClass(void)
@@ -5024,7 +5047,7 @@ static void gevrScopeLensPlace(s32 hand, const struct GevrScope *sc, f32 lens[4]
     f32 ey = sc->y;
     f32 ez = sc->z;
     f32 er = sc->r;
-    const f32 *fit = VrScopeFit[gevrGexHeld(hand) ? 1 : 0][sc - s_gevrScopes];
+    const f32 *fit = gevrScopeFitOf(gevrFitLook(hand), sc - s_gevrScopes);
     f32 off[3];
 
     const GexWeaponDef *gexDef = gevrGexHeld(hand) ? gevrGexWeaponForHand(hand) : NULL;
@@ -15783,7 +15806,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     char buf[480];
     s32 x, y, w = 0, h = 0;
     extern bool netIsActive(void);
-    const char *gex = gevrGexHeld(GUNRIGHT) ? " (GOLDENEYE X)" : "";
+    const char *gex = gevrGexHeld(GUNRIGHT) ? " (GOLDENEYE X)" : gevrFitLook(GUNRIGHT) == 2 ? " (BEAN)" : "";
 
     if (!gevrGunFitActive || !g_gevrStereo || (!netIsActive() && getPlayerCount() != 1))
     {
@@ -15882,7 +15905,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     else if (gevrScopeFitting && gevrScopeFitIndex() >= 0)
     {
         /* the gun's scope (X switches to it, input.c) */
-        const f32 *s = VrScopeFit[gevrGexHeld(GUNRIGHT) ? 1 : 0][gevrScopeFitIndex()];
+        const f32 *s = gevrScopeFitOf(gevrFitLook(GUNRIGHT), gevrScopeFitIndex());
         char label[32];
 
         gevrItemLabel(getCurrentPlayerWeaponId(GUNRIGHT), label, sizeof(label));
@@ -15914,9 +15937,8 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     {
         /* barrel tip / muzzle fit (X switches to it, input.c) */
         s32 item = getCurrentPlayerWeaponId(GUNRIGHT);
-        const int gexIdx = gevrGexHeld(GUNRIGHT) ? 1 : 0;
         char label[32];
-        const f32 *t = (item >= 0 && item < GEVR_MAX_WEAPONS) ? VrMuzzleTrim[gexIdx][item] : NULL;
+        const f32 *t = (item >= 0 && item < GEVR_MAX_WEAPONS) ? gevrMuzzleTrimOf(gevrFitLook(GUNRIGHT), item) : NULL;
 
         gevrItemLabel(item, label, sizeof(label));
         snprintf(buf, sizeof(buf),
@@ -16912,6 +16934,7 @@ static f32 s_gevrReloadTune[GEVR_RT_COUNT] = {
 };
 #define GEVR_RELOAD_BELT_EXIT_CM 5.0f   /* extra distance to rearm, beyond the fitted radius */
 extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3];   /* vr_settings_defaults.c: Gun fit's reload mode */
+extern float VrBeanReloadGrab[3];   /* and Bean's models' grab */
 
 extern int VrManualReloading;
 /* Hand reload needs GoldenEye X's models (user): its reloads are GE-X's magazines
@@ -17442,7 +17465,8 @@ extern s32 gevrGexMagPoints(f32 centre[3], f32 well[3], f32 held[3]);
 static void gevrReloadMagPoint(const f32 gun[3], const f32 gr[3], const f32 gu[3], const f32 gb[3], f32 cm, s32 gex,
                                f32 mag[3])
 {
-    const f32 *g = gex ? gevrGexGrabFit(getCurrentPlayerWeaponId(gevrReloadSupportGun())) : VrReloadGrab[0];
+    const f32 *g = gex ? gevrGexGrabFit(getCurrentPlayerWeaponId(gevrReloadSupportGun()))
+                 : gevrFitLook(gevrReloadSupportGun()) == 2 ? VrBeanReloadGrab : VrReloadGrab[0];
     const f32 sideways = (VrLeftHandedMode != (gevrReloadSupportGun() == GUNLEFT)) ? -1.0f : 1.0f;
     s32 i;
 
@@ -17698,7 +17722,8 @@ void gevrReloadFitSetGrab(void)
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
     const f32 sideways = VrLeftHandedMode ? -1.0f : 1.0f;
     f32 gun[3], gr[3], gu[3], gb[3], off[3], r[3], u[3], b[3], d[3];
-    f32 *g = gevrGexHeld(GUNRIGHT) ? gevrGexGrabFit(getCurrentPlayerWeaponId(GUNRIGHT)) : VrReloadGrab[0];
+    f32 *g = gevrGexHeld(GUNRIGHT) ? gevrGexGrabFit(getCurrentPlayerWeaponId(GUNRIGHT))
+           : gevrFitLook(GUNRIGHT) == 2 ? VrBeanReloadGrab : VrReloadGrab[0];
     s32 i;
 
     if (cm < 1e-6f || !gevrGripAxesRaw(1, gun, gr, gu, gb) || !gevrGripAxesRaw(0, off, r, u, b))

@@ -40,7 +40,7 @@ for first in ("GEVR_GT_HIPDROP", "GEVR_RT_MAGRADIUS", "GEVR_GEXMAG_IN"):
 for name in ("s_gevrGestureTune", "s_gevrReloadTune"):
     definitions.append(re.search(r"static f32 " + name + r"\[.*?\};", view, re.S).group())
 definitions.append(re.search(r"float VrReloadBelt\[3\] = [^;]+;", defaults).group())
-for name in ("VrReloadGrab", "VrGexGunOff", "VrGexForeHold", "VrGexPp7Grab", "VrGexPp7Support", "VrGexPp7GunOff",
+for name in ("VrReloadGrab", "VrBeanReloadGrab", "VrGexGunOff", "VrGexForeHold", "VrGexPp7Grab", "VrGexPp7Support", "VrGexPp7GunOff",
              "VrGexKf7MagOff", "VrGexPp7MagOff", "VrGexKf7WellOff", "VrGexPp7WellOff", "VrGexPp7SupportRot"):
     definitions.append(re.search(r"float " + name + r"\[[^;]+;", defaults).group())
 definitions.append(re.search(r"float VrGexWeaponFits\[64\]\[10\]\[3\] = \{.*?^\};", defaults, re.S | re.M).group())

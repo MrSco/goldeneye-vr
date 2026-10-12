@@ -220,6 +220,21 @@ float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3] = {
     [1] = { [8] = { 4.07f, 2.87f, -7.23f }, [5] = { 0.08f, 0.32f, -0.32f }, /* GE-X ITEM_AK47 / KF7 */
             [24] = { 0.15f, -0.23f, -2.39f } }, /* GE-X grenade launcher (2026-10-06) */
 };
+/*
+ * Bean's models (MODS) keep Gun fit's own set too, as GoldenEye X's do (user,
+ * 2026-10-12: the two-handed hold sat low on them): the gun, the two-handed
+ * hold, the reload grab, the scope lenses and the barrel tips. They start as
+ * GoldenEye's, and an ini with none of them yet takes the player's GoldenEye
+ * ones (vr_settings.cpp).
+ */
+float VrBeanGunOff[3] = { 2.74f, 1.94f, -12.35f };
+float VrBeanGripTrim[2][6] = {
+    { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },
+    { 0.22f, -9.08f, 13.13f, 86.3f, 0.0f, 83.1f },
+};
+float VrBeanReloadGrab[3] = { 0.0000f, -7.0000f, -8.0000f };
+float VrBeanScopeFit[4][4];
+float VrBeanMuzzleTrim[GEVR_MAX_WEAPONS][3];
 int gevrMuzzleFitting = 0;
 int gevrGunHandFitting = 0;   /* Gun fit moves GE-X's own gun hand on the gun (X), for bondview2.c and gun.c */
 
