@@ -2145,6 +2145,8 @@ static void gevrWatchArmHands(Mtxf *matrices, s32 mirrored)
 extern float VrGexWatch[4];   /* vr_settings_defaults.c */
 
 static ModelNode *s_gevrWatchHandDl;   /* the watch arm's hand: its first unswitched list */
+static f32 s_gevrWatchPalmCm[3];       /* its centre from the wrist, in the wrist frame (cm) */
+static s32 s_gevrWatchPalmKnown;
 
 /* the hand: the first display list right under the wrist, not under a switch */
 static ModelNode *gevrWatchHandDl(void)
@@ -2521,31 +2523,37 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
     {
         gevrMtxMul(&matrices[i], &corr, &matrices[i]);
     }
+    if (!s_gevrWatchPalmKnown)
+    {
+        /* the hand's centre from the wrist, for Gun fit's grab (gevrStereoTwoHandFollow) */
+        f32 palm[3], d[3];
+        const f32 unit = cm * gevrGunSizeFactor();
+        s32 j;
+
+        if (gevrWatchHandDl() != NULL && gevrWatchArmPalm(matrices, palm) && unit > 1e-6f)
+        {
+            for (j = 0; j < 3; j++)
+            {
+                d[j] = palm[j] - want.m[3][j];
+            }
+            s_gevrWatchPalmCm[0] = (d[0] * x[0] + d[1] * x[1] + d[2] * x[2]) / unit;
+            s_gevrWatchPalmCm[1] = (d[0] * y[0] + d[1] * y[1] + d[2] * y[2]) / unit;
+            s_gevrWatchPalmCm[2] = (d[0] * z[0] + d[1] * z[1] + d[2] * z[2]) / unit;
+            s_gevrWatchPalmKnown = TRUE;
+            sysLogPrintf(LOG_NOTE, "stereo: the watch arm's hand %.1f %.1f %.1f cm from the wrist (fingers, face, side)",
+                         s_gevrWatchPalmCm[0], s_gevrWatchPalmCm[1], s_gevrWatchPalmCm[2]);
+        }
+    }
     if (hold)
     {
         /* the grip fit's turn about the hand, then the hand onto the hold point */
         f32 palm[3], target[3], w[3][3], row[3];
-        static s32 logged;
         s32 j, a;
 
         if (gevrWatchHandDl() == NULL || !gevrWatchArmPalm(matrices, palm) || !gevrStereoTwoHandTarget(target)
             || !gevrStereoTwoHandTurn(w))
         {
             return gdl;
-        }
-        if (!logged)
-        {
-            f32 d[3];
-
-            for (j = 0; j < 3; j++)
-            {
-                d[j] = palm[j] - want.m[3][j];
-            }
-            sysLogPrintf(LOG_NOTE, "stereo: Bean's hold hand %.1f %.1f %.1f cm from the wrist (fingers, face, side)",
-                         (d[0] * x[0] + d[1] * x[1] + d[2] * x[2]) / (cm * gevrGunSizeFactor()),
-                         (d[0] * y[0] + d[1] * y[1] + d[2] * y[2]) / (cm * gevrGunSizeFactor()),
-                         (d[0] * z[0] + d[1] * z[1] + d[2] * z[2]) / (cm * gevrGunSizeFactor()));
-            logged = TRUE;
         }
         for (i = 0; i < n; i++)
         {
@@ -4361,6 +4369,171 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
     return TRUE;
 }
 
+/* whether Bean's arm holds the gun (gevrRenderBeanGripArm), not the taser hand */
+static s32 gevrBeanGripArmUsed(void)
+{
+    extern int gevrBeanDrawsModel(const void *header);   /* port/src/gevr_bean.c */
+
+    return g_gevrStereo && gevrStereoTwoHandGrip() && gevrFitLook(s_gevrTwoHandGun) == 2 && gevrLeftWatchLoad()
+        && gevrBeanDrawsModel(&s_gevrWatchHeader);
+}
+
+/* degrees in (-180, 180]: the game's atan2f answers 0..2 pi (gevr-game-math) */
+static f32 gevrFitTurnDegrees(f32 radians)
+{
+    f32 d = radians * (180.0f / M_PI_F);
+
+    while (d > 180.0f)
+    {
+        d -= 360.0f;
+    }
+    while (d <= -180.0f)
+    {
+        d += 360.0f;
+    }
+    return d;
+}
+
+/*
+ * Gun fit's grab (user: turning the holding hand with the sticks was
+ * awkward): the hold's trims that put the holding hand where, and turned
+ * as, the off hand itself is - the hand the off controller shows holding
+ * nothing (the taser hand on the fist's frame, gevrStereoGunMatrix and
+ * gunfire.c gevrRenderLeftArm; Bean's arm as gevrRenderLeftWatchArm draws
+ * it). Gun fit sets them every frame while the off hand's trigger is held,
+ * so the hand follows the off hand and, let go, keeps that place on the gun.
+ * The turn is the one that takes the gun hand's frame to the off hand's
+ * (both mirrored the same way), as gevrStereoTwoHandMatrix and
+ * gevrStereoTwoHandTurn apply it.
+ */
+s32 gevrStereoTwoHandFollow(f32 out[6])
+{
+    f32 snap[3], ignore[3], dist, gpos[3], gr[3], gu[3], gb[3], spos[3], sr[3], su[3], sb[3];
+    f32 eg[3][3], es[3][3], palm[3], d[3], side[3];
+    const f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    const f32 sign = (s_gevrTwoHandGun == GUNRIGHT) != (VrLeftHandedMode != 0) ? 1.0f : -1.0f;
+    const s32 support = 1 - s_gevrTwoHandGun;
+    Mtxf rot;
+    coord3d angles;
+    s32 i, j;
+
+    if (!gevrStereoTwoHandGrip() || cm <= 1e-6f || !gevrTwoHandBarrel(ignore, snap, &dist, TRUE)
+        || !gevrGripAxes(1 - s_gevrTwoHandGun, gpos, gr, gu, gb) || !gevrGripAxes(s_gevrTwoHandGun, spos, sr, su, sb))
+    {
+        return FALSE;
+    }
+
+    /* the turn: the taser hand's frame on the gun hand to the same on the off hand */
+    for (i = 0; i < 3; i++)
+    {
+        eg[0][i] = sign * gr[i];
+        eg[1][i] = gu[i];
+        eg[2][i] = -gb[i];
+        es[0][i] = sign * sr[i];
+        es[1][i] = su[i];
+        es[2][i] = -sb[i];
+    }
+    matrix_4x4_set_identity(&rot);
+    for (i = 0; i < 3; i++)
+    {
+        for (j = 0; j < 3; j++)
+        {
+            rot.m[i][j] = es[i][0] * eg[j][0] + es[i][1] * eg[j][1] + es[i][2] * eg[j][2];
+        }
+    }
+    matrix_4x4_get_rotation_around_xyz(&rot, &angles);
+    out[3] = gevrFitTurnDegrees(angles.f[0]);
+    out[4] = gevrFitTurnDegrees(angles.f[1]);
+    out[5] = gevrFitTurnDegrees(angles.f[2]);
+
+    /* the place: the free hand's centre */
+    if (gevrBeanGripArmUsed())
+    {
+        const s32 mirror = (s_gevrTwoHandGun == GUNLEFT) != (VrLeftHandedMode != 0);
+        f32 x[3], y[3], z[3];
+
+        if (!s_gevrWatchPalmKnown)
+        {
+            return FALSE;
+        }
+        for (i = 0; i < 3; i++)
+        {
+            x[i] = -sb[i];
+            y[i] = -sr[i];
+        }
+        z[0] = x[1] * y[2] - x[2] * y[1];
+        z[1] = x[2] * y[0] - x[0] * y[2];
+        z[2] = x[0] * y[1] - x[1] * y[0];
+        for (i = 0; i < 3; i++)
+        {
+            if (mirror)
+            {
+                y[i] = sr[i];
+            }
+        }
+        for (i = 0; i < 3; i++)
+        {
+            palm[i] = spos[i] + (GEVR_WRIST_BEHIND_CM + VrGunOffZ) * sb[i] * cm
+                    + (s_gevrWatchPalmCm[0] * x[i] + s_gevrWatchPalmCm[1] * y[i] + s_gevrWatchPalmCm[2] * z[i]) * cm;
+        }
+    }
+    else
+    {
+        Mtxf m;
+
+        if (!gevrStereoGunMatrix(support, &m))
+        {
+            return FALSE;
+        }
+        if (support == GUNLEFT)
+        {
+            matrix_column_1_scalar_multiply(-1.0f, m.m[0]);
+        }
+        matrix_scalar_multiply(IDO_POINT_ONE, m.m[0]);
+        for (i = 0; i < 3; i++)
+        {
+            palm[i] = s_gevrTwoHandPalm[0] * m.m[0][i] + s_gevrTwoHandPalm[1] * m.m[1][i]
+                    + s_gevrTwoHandPalm[2] * m.m[2][i] + m.m[3][i];
+        }
+    }
+
+    /* as gevrStereoTwoHandTarget takes them: cm along the off hand's side, up and forward */
+    for (i = 0; i < 3; i++)
+    {
+        d[i] = palm[i] - snap[i];
+        side[i] = (VrLeftHandedMode != (s_gevrTwoHandGun == GUNLEFT)) ? gr[i] : -gr[i];
+    }
+    out[0] = (d[0] * side[0] + d[1] * side[1] + d[2] * side[2]) / cm;
+    out[1] = (d[0] * gu[0] + d[1] * gu[1] + d[2] * gu[2]) / cm;
+    out[2] = -(d[0] * gb[0] + d[1] * gb[1] + d[2] * gb[2]) / cm;
+    return TRUE;
+}
+
+/*
+ * Gun fit's grab without a hold: the off hand from the gun hand, in GunOff's
+ * axes and units (gevrStereoGunMatrix: cm right, mirrored when left-handed,
+ * up and back), so moving the off hand moves the gun along with it.
+ */
+s32 gevrGunFitOffHand(f32 out[3])
+{
+    f32 gpos[3], gr[3], gu[3], gb[3], opos[3], orr[3], ou[3], ob[3], d[3];
+    const f32 unit = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
+    s32 i;
+
+    if (!g_gevrStereo || unit <= 1e-6f || !gevrGripAxes(1, gpos, gr, gu, gb) || !gevrGripAxes(0, opos, orr, ou, ob))
+    {
+        return FALSE;
+    }
+    for (i = 0; i < 3; i++)
+    {
+        d[i] = opos[i] - gpos[i];
+    }
+    out[0] = (d[0] * gr[0] + d[1] * gr[1] + d[2] * gr[2]) / unit * (VrLeftHandedMode ? -1.0f : 1.0f);
+    out[1] = (d[0] * gu[0] + d[1] * gu[1] + d[2] * gu[2]) / unit;
+    out[2] = (d[0] * gb[0] + d[1] * gb[1] + d[2] * gb[2]) / unit;
+    return TRUE;
+}
+
 /*
  * #35 with Bean on: the hand holding the gun with the gun hand is the
  * release's own, the arm the off hand shows the rest of the time (user: not
@@ -4378,11 +4551,8 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
  */
 Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
 {
-    extern int gevrBeanDrawsModel(const void *header);   /* port/src/gevr_bean.c */
-
     *drawn = FALSE;
-    if (!g_gevrStereo || !gevrStereoTwoHandGrip() || gevrFitLook(s_gevrTwoHandGun) != 2 || !gevrLeftWatchLoad()
-        || !gevrBeanDrawsModel(&s_gevrWatchHeader))
+    if (!gevrBeanGripArmUsed())
     {
         return gdl;
     }
@@ -16234,7 +16404,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
         const float *t = gevrTwoHandTrimNow();
 
         snprintf(buf, sizeof(buf),
-                 "GRIP FIT (THIS %s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nA: SAVE   B: UNDO   MENU + A: DONE",
+                 "GRIP FIT (THIS %s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nHOLD OFF TRIGGER: PLACE IT BY HAND\nA: SAVE   B: UNDO   MENU + A: DONE",
                  gevrStereoTwoHandClass() ? "GUN" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
     }
     else
@@ -16243,7 +16413,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
 
         gevrGunOff(GUNRIGHT, off);
         snprintf(buf, sizeof(buf),
-                 "GUN FIT (THIS GUN)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 "GUN FIT (THIS GUN)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD OFF TRIGGER: MOVE IT BY HAND\nHOLD WITH BOTH HANDS: FIT THE GRIP\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, -off[2], off[0], off[1], gevrFitNextLine(0));
     }
 

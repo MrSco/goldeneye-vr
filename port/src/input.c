@@ -210,6 +210,9 @@ static void gevrGunFitSaved(bool restore)
     }
 }
 extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
+extern s32 gevrStereoTwoHandFollow(f32 out[6]);   /* bondview2.c: Gun fit's grab, the hold's trims */
+extern s32 gevrGunFitOffHand(f32 out[3]);         /* bondview2.c: the off hand from the gun hand */
+static bool s_gunFitGrab;                         /* the off hand's trigger is Gun fit's, not the game's */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
 extern float gevrInjectTurn;   /* libultra.c: the PC input hook's turn */
@@ -1374,7 +1377,64 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
                 ltHeld = lt;
                 yHeld = yb;
-                if (gadget >= 0) {
+                /* Grab to fit (user: turning the holding hand with the sticks was
+                 * awkward): holding the off hand's trigger, the holding hand takes the
+                 * off hand's own place and turn on the gun (bondview2.c
+                 * gevrStereoTwoHandFollow) and keeps it when let go; without a hold the
+                 * gun moves with the off hand, from where the trigger was pressed. Not in
+                 * the X modes, whose trigger marks places, nor GoldenEye X's own support
+                 * hand, which has its own fit. */
+                bool grabbed = false;
+                {
+                    static bool grabWas;
+                    static float grabBase[3], grabFrom[3];
+                    const bool plainMode = !gevrScopeFitting && !gevrReloadFitting && !gevrOffHandFitting
+                        && !gevrHeldMagFitting && !gevrWellFitting && !gevrInstalledMagFitting && !gevrMuzzleFitting
+                        && !gevrGunHandFitting && !gevrBodySlotFitting;
+                    const bool twoHand = gevrStereoTwoHandGrip() != 0;
+                    const bool gexOwnHold = twoHand && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns;
+                    const bool grab = plainMode && gadget < 0 && !gexOwnHold
+                        && get_button_state(twoHand ? gevrStereoTwoHandSupportCtrl() : 0, "trigger");
+                    if (grab && twoHand) {
+                        float follow[6];
+                        if (gevrStereoTwoHandFollow(follow)) {
+                            const s32 holdGun = gevrStereoTwoHandGun();
+                            const int holdLook = gevrFitLook(holdGun);
+                            float *t = gripTrim[gevrStereoTwoHandClass()];
+                            float *own = gevrGripTrimOwnFit(holdLook, (s32)getCurrentPlayerWeaponId(holdGun), t);
+                            memcpy(own != NULL ? own : t, follow, sizeof(follow));
+                            grabbed = true;
+                        }
+                    } else if (grab) {
+                        float here[3];
+                        if (gevrGunFitOffHand(here)) {
+                            if (!grabWas) {
+                                /* the gun's own place, from the shared one if it has none yet */
+                                if (!gex) {
+                                    const float shared[3] = { *gunOff[0], *gunOff[1], *gunOff[2] };
+                                    float *own = gevrGunOffOwnFit(look, fitItem, shared);
+                                    if (own != NULL) {
+                                        gunOff[0] = &own[0];
+                                        gunOff[1] = &own[1];
+                                        gunOff[2] = &own[2];
+                                    }
+                                }
+                                for (int k = 0; k < 3; k++) {
+                                    grabBase[k] = here[k];
+                                    grabFrom[k] = *gunOff[k];
+                                }
+                            }
+                            for (int k = 0; k < 3; k++) *gunOff[k] = grabFrom[k] + here[k] - grabBase[k];
+                            grabbed = true;
+                        }
+                    }
+                    if (grabbed && !grabWas) LOGI("input: gun fit grab (%s)\n", twoHand ? "the holding hand" : "the gun");
+                    grabWas = grabbed;
+                    s_gunFitGrab = grabbed;
+                }
+                if (grabbed) {
+                    /* the hand places it; the sticks rest */
+                } else if (gadget >= 0) {
                     /* A gadget in the gun hand: its own pose (bondview2.c s_gevrItemPoses) -
                      * the move stick forward and sideways, the turn stick up and its
                      * size; holding the right grip, the sticks turn it instead, about
@@ -1579,6 +1639,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 bHeld = b;
                 left.x = left.y = right.x = right.y = 0.0f;
             }
+            if (!fitting) s_gunFitGrab = false;
             if (fitWas && !fitting) gevrGadgetFitEnd(-1);   /* paused, put away or switched off: the edits stay, unsaved */
             if (!fitting) gevrScopeFitting = gevrOffHandFitting = gevrHeldMagFitting = gevrWellFitting = gevrInstalledMagFitting = gevrMuzzleFitting = gevrGunHandFitting = 0;
             fitWas = fitting;
@@ -1603,6 +1664,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // gives each gun its own trigger (gevrVrTriggerDown).
         gevrVrTriggerDown[0] = get_button_state(1, "trigger");   /* GUNRIGHT */
         gevrVrTriggerDown[1] = get_button_state(0, "trigger");   /* GUNLEFT */
+        if (s_gunFitGrab) {
+            /* Gun fit's grab holds the off hand's trigger: neither gun fires */
+            gevrVrTriggerDown[gevrStereoTwoHandGrip() && gevrStereoTwoHandSupportCtrl() == 1 ? 0 : 1] = 0;
+        }
         /* GE-X's remote mines (gun.c): the off hand's trigger detonates them, on
          * the screen and in the headset, instead of aiming or firing */
         {
@@ -1616,7 +1681,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if (stereoplay && gevrDualWielding()) {
             if (gevrVrTriggerDown[0] || gevrVrTriggerDown[1]) npad->button |= Z_TRIG;
         } else if (stereoplay) {
-            if (get_button_state(1, "trigger")) npad->button |= Z_TRIG;
+            if (get_button_state(1, "trigger") && gevrVrTriggerDown[0]) npad->button |= Z_TRIG;
         } else if (get_button_state(1, "trigger") || (get_button_state(0, "trigger") && !gevrGexMineDetonates())) {
             npad->button |= Z_TRIG;
         }

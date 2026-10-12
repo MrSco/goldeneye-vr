@@ -26,6 +26,12 @@ static f32 VrGripTrim[2][6], VrGexGripTrim[2][6];
 static f32 ownGrip[6];
 static s32 ownGripItem = -1;
 static int gevrFitLook(int hand) { (void)hand; return 0; }
+/* Gun fit's grab: the taser hand here (Bean's arm is drawn in game only) */
+static s32 gevrBeanGripArmUsed(void) { return 0; }
+static f32 s_gevrWatchPalmCm[3];
+static s32 s_gevrWatchPalmKnown;
+#define EPSILON (FLT_EPSILON * 16)
+#include <float.h>
 static const float *gevrGripTrimOwnOf(int look, int item) { (void)look; return item == ownGripItem ? ownGrip : NULL; }
 static float VrGunOffX, VrGunOffY, VrGunOffZ;
 static const float *s_gevrGunOffOverride;
@@ -59,10 +65,12 @@ static int gevrAimLogEnabled(void) { return 0; }
 static unsigned gevrVrGripSnapshotId(void) { return frame; }
 static int gevrVrGripTracked(int ctrl) { return tracked[gevrPhysHand(ctrl)]; }
 static int gevrVrGripUsable(int ctrl) { return usable[gevrPhysHand(ctrl)]; }
+/* each physical controller's turn: by default both as the grip pose holds a gun */
+static float quats[2][4] = { { 0.70710678f, 0, 0, 0.70710678f }, { 0.70710678f, 0, 0, 0.70710678f } };
 static int gevrVrGripPoseCamera(int ctrl, float pos[3], float quat[4])
 {
     memcpy(pos, pose[gevrPhysHand(ctrl)], 3*sizeof(float));
-    quat[0] = quat[3] = sqrtf(0.5f); quat[1] = quat[2] = 0;
+    memcpy(quat, quats[gevrPhysHand(ctrl)], 4*sizeof(float));
     return 1;
 }
 static _Bool get_button_state(int ctrl, const char *button)
@@ -242,8 +250,54 @@ static void testClub(void)
     gevrUnarmedModelUpdate(); assert(player.cur_item_weapon_getname == ITEM_FIST);
     g_gevrStereo = 1;
 }
+/* the hand where the off hand is: the support's free fist frame */
+static void freeHand(int gun, Mtxf *m)
+{
+    const int support = 1 - gun;
+    assert(gevrStereoGunMatrix(support, m));
+    if (support == GUNLEFT) matrix_column_1_scalar_multiply(-1.0f, m->m[0]);
+    matrix_scalar_multiply(IDO_POINT_ONE, m->m[0]);
+}
+
+/* Gun fit's grab: trims from gevrStereoTwoHandFollow put the holding hand where
+ * the free off hand is, turned as it is, for either gun hand and handedness */
+static void testGrab(int gun, int leftHanded)
+{
+    setup(gun, leftHanded, ITEM_AK47);
+    hold(gun);
+    for (int i = 0; i < 30; i++) tick();
+    /* turn the supporting controller well away from the gun hand's */
+    const float half = 0.6f;
+    const float q[4] = { 0.70710678f * cosf(half), 0.70710678f * sinf(half), 0.3f, 0.70710678f };
+    float n = sqrtf(q[0]*q[0] + q[1]*q[1] + q[2]*q[2] + q[3]*q[3]);
+    for (int i = 0; i < 4; i++) quats[gevrPhysHand(gun)][i] = q[i] / n;
+    pose[gevrPhysHand(gun)][1] -= 0.05f;
+    tick();
+    assert(gevrStereoTwoHandGrip());
+    float follow[6];
+    assert(gevrStereoTwoHandFollow(follow));
+    const int cls = gevrStereoTwoHandClass();
+    float saved[6];
+    memcpy(saved, VrGripTrim[cls], sizeof(saved));
+    memcpy(VrGripTrim[cls], follow, sizeof(follow));
+    Mtxf held, free;
+    assert(gevrStereoGunMatrix(gun, &held));
+    if (1 - gun == GUNLEFT) matrix_column_1_scalar_multiply(-1.0f, held.m[0]);
+    matrix_scalar_multiply(IDO_POINT_ONE, held.m[0]);
+    assert(gevrStereoTwoHandMatrix(&held));
+    freeHand(gun, &free);
+    for (int r = 0; r < 4; r++)
+        for (int c = 0; c < 3; c++)
+            assert(fabsf(held.m[r][c] - free.m[r][c]) < 1e-3f * (r == 3 ? GEVR_UNITS_PER_METRE : 1.0f));
+    for (int k = 3; k < 6; k++) assert(follow[k] > -180.0f && follow[k] <= 180.0f);
+    memcpy(VrGripTrim[cls], saved, sizeof(saved));
+    for (int i = 0; i < 2; i++) { quats[i][0] = quats[i][3] = 0.70710678f; quats[i][1] = quats[i][2] = 0; }
+    release();
+}
+
 int main(void)
 {
+    for (int gun = 0; gun < 2; gun++) for (int lh = 0; lh < 2; lh++) testGrab(gun, lh);
     for (int gun = 0; gun < 2; gun++) for (int lh = 0; lh < 2; lh++)
     {
         testSlot(gun, lh, ITEM_ROCKETLAUNCH);
@@ -292,4 +346,5 @@ int main(void)
     player.bonddead = 0; tick(); assert(gevrStereoTwoHandGrip());
     player.watch_animation_state = 1; tick(); assert(!gevrStereoTwoHandGrip());
     puts("PASS: KF7/rocket support in either slot, both handedness modes, aim/recoil, palm placement, grip lifecycle and sniper-club replacement");
+    puts("PASS: Gun fit's grab puts the holding hand where the off hand is, turned as it is, either hand and handedness");
 }
