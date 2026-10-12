@@ -5,6 +5,18 @@ offline shader/pose checks. See [GPU skinning notes](bean-gpu-skinning.md) for
 the implementation, CPU fallback limits and the `gevr_noskin.txt` A/B switch.
 It has not been installed or validated on the headset.
 
+Latest follow-up (source commit `2057eb2`): the user tested `25c1c1e` with
+Bean pack `.3` and confirmed logo chrome and Dam tower glass. Remaining reports
+were watch palette/preview, Dam stutter, road paint, missing fog and water motion.
+The new fixes, evidence, limitations and tests are in
+[watch/Dam material follow-up](pr172-material-followup.md).
+
+Current worktree: `C:/Users/Occor/.codex/worktrees/abe0/goldeneye-vr`, local branch
+`codex/pr172-gpu-skinning`, pushing to PR 172's `cursor/rom-hack-layouts-026b`.
+The new APK has been built and signed, but not installed or visually validated.
+Headset frame-time improvement remains unmeasured. Menu repaints pass offline;
+the next headset log has `bean-paint` binding/hit/upload counts for runtime checks.
+
 Start here. Detailed notes: [Bean handoff](project-bean-handoff.md),
 [hack campaigns port notes](rom-hacks-port-notes.md),
 [visual runtime repair](visual-runtime-repair.md), [Dam speedboat](dam-speedboat.md).
@@ -14,7 +26,7 @@ Start here. Detailed notes: [Bean handoff](project-bean-handoff.md),
 - **Branch:** `cursor/rom-hack-layouts-026b` (draft PR #172), pushed, clean.
   - Worktree: `.claude/worktrees/goldeneye-vr-pr-146-review-b63bd3`.
   - It combines four PRs: the Goldfinger 64 / TND campaigns, Project Bean (#170), the Dam speedboat (#171) and Dam wall alarms (#174, closes #173). Those PRs are closed and their branches deleted.
-- **Latest test APK:** `GoldenEye-VR-PR172-Render-Fixes-25c1c1e.apk`, release-signed from clean commit `25c1c1e`. It has NOT been installed by this work. Exact native symbols are under `android/app/build/outputs/symbols/617800c72e33febfe8427cd593f2a54bfeec2ab6/` in the Codex `abe0` worktree. Scope GPU capture, room chunk culling, logo chrome and tower glass fixes are described in `pr172-render-followup.md`. The user tested the preceding `a47c01a` APK with Bean pack `.2`; `.3` still needs to be used for the menu repaints.
+- **Latest test APK:** `GoldenEye-VR-PR172-Watch-Dam-2057eb2.apk`, release-signed from clean source commit `2057eb2`. Not installed by this work. Exact native symbols: `android/app/build/outputs/symbols/76bbcab9a1652cd6b6dc5307ad5434637334109c/` in the Codex `abe0` worktree. See `pr172-material-followup.md`.
 - **Bean pack:** MrSco/GoldenEye-007-Bean release `v2026.10.11.3`, the Latest.
   - VR zip 188,298,238 bytes: 499 meshes, 2 font atlases, 334 pictures, 122 PNGs.
   - `ModManager.java` pins it (version, URL, size).
