@@ -38,6 +38,10 @@ Installed for them: release `07b1920` (user-authorized test install).
   - Smooth-turn fresh frames: median 6.5 -> 5.2 ms, p95 11.2 -> 10.1,
     p99 12.4 -> 11.1; compositor dropped frames 906 -> 592 per 224 s.
     Still over the 8.3 ms budget while turning: not solved.
+  - At 90 Hz (same build, 3 runs): 17 missed frames in turns vs 197 at
+    120; compositor drops 176 vs 592 per 224 s; turning p99 11.0 ms at
+    the 11.1 ms budget. The user chose a warning, not a cap: the Screen
+    tab says "90 Hz advised for Bean" when Bean is on above 90 (0557419).
   - Ruled out: mipmapping Bean textures (no GPU change on this route).
   - simpleperf after both: GL driver 37% of the render thread (mesh draw
     7.7%, redraw replay 7.4%, CPU batches 3.6%), vrapi 7%, libc 7%,
