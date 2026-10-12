@@ -14,7 +14,7 @@ Start here. Detailed notes: [Bean handoff](project-bean-handoff.md),
 - **Branch:** `cursor/rom-hack-layouts-026b` (draft PR #172), pushed, clean.
   - Worktree: `.claude/worktrees/goldeneye-vr-pr-146-review-b63bd3`.
   - It combines four PRs: the Goldfinger 64 / TND campaigns, Project Bean (#170), the Dam speedboat (#171) and Dam wall alarms (#174, closes #173). Those PRs are closed and their branches deleted.
-- **Latest test APK:** build `915f6c8` (release-signed, built 19:51). It has NOT been installed or headset-tested. Rebuild from that commit if needed; only test files and docs changed after it.
+- **Latest test APK:** `GoldenEye-VR-PR172-GPU-Skinning-a47c01a.apk`, release-signed from clean commit `a47c01a`. It has NOT been installed or headset-tested. Archived with exact native symbols under `android/app/build/outputs/symbols/3dcfdd3e761c2b83e92dee5c4dd40de868a5f245/` in the Codex `abe0` worktree. The previous room-mesh candidate was `915f6c8`.
 - **Bean pack:** MrSco/GoldenEye-007-Bean release `v2026.10.11.3`, the Latest.
   - VR zip 188,298,238 bytes: 499 meshes, 2 font atlases, 334 pictures, 122 PNGs.
   - `ModManager.java` pins it (version, URL, size).
