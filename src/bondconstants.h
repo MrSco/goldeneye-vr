@@ -4198,6 +4198,33 @@ typedef enum PROJECTILES
         ITEM_TOKEN,
         ITEM_IDS_MAX
     } ITEM_IDS;
+#if defined(GEVR) && !defined(AIPARSE)
+/*
+ * The item whose behaviour applies. A hack campaign may put a plain gun on a
+ * special item's file and patch out that item's special cases (Goldfinger's
+ * Luger and P38 on the taser's and watch laser's, gevr_romlayout.c); the
+ * item itself otherwise.
+ */
+int gevrItemAs(int item);
+#define GEVR_ITEM_AS(item) gevrItemAs(item)
+/* Cartridge mission numbers, with the original constants in non-VR builds. */
+int gevrRomMissionLimit(void);
+int gevrRomFinalMission(void);
+int gevrRomBonusMission(int which);
+int gevrRomAdvanceLimit(void);
+#define GEVR_SP_CRADLE (gevrRomFinalMission())
+#define GEVR_SP_AZTEC (gevrRomBonusMission(0))
+#define GEVR_SP_EGYPT (gevrRomBonusMission(1))
+#define GEVR_SP_MAX (gevrRomMissionLimit())
+#define GEVR_SP_ADVANCE_LIMIT (gevrRomAdvanceLimit())
+#else
+#define GEVR_ITEM_AS(item) (item)
+#define GEVR_SP_CRADLE SP_LEVEL_CRADLE
+#define GEVR_SP_AZTEC SP_LEVEL_AZTEC
+#define GEVR_SP_EGYPT SP_LEVEL_EGYPT
+#define GEVR_SP_MAX SP_LEVEL_MAX
+#define GEVR_SP_ADVANCE_LIMIT SP_LEVEL_AZTEC
+#endif
 #ifdef AIPARSE
     char *ITEM_IDS_ToString[] = {
         "ITEM_UNARMED",

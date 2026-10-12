@@ -8,6 +8,10 @@
 #include "bgfog.h"
 #include <limits.h>
 #ifdef GEVR
+#include "gevr_bean.h"
+static float s_gevrFogTransition;
+#endif
+#ifdef GEVR
 #include "player.h"
 #endif
 
@@ -440,6 +444,9 @@ void fogLoadLevelEnvironment(s32 level_id, s32 arg1)
     s32 num_players;
 
     sp1C = NULL;
+#ifdef GEVR
+    s_gevrFogTransition = 0;
+#endif
 
     num_players = getPlayerCount();
 
@@ -552,6 +559,9 @@ void fogSwitchToSolosky2(f32 arg0)
     static EnvironmentRecord static_envr;
 
     static_envr = *g_EnvironmentMainp;
+#ifdef GEVR
+    s_gevrFogTransition = arg0;
+#endif
 
     static_envr.Visibility.BlendMultiplier =
         g_EnvironmentMainp->Visibility.BlendMultiplier
@@ -705,6 +715,14 @@ s32 fogGetPropDistColor(PropRecord *prop, rgba_f32 *color)
         return 2; // Prop is behind the camera
     }
 
+#ifdef GEVR
+    float line[2]; u8 rgb[3];
+    if (gevrBeanRoomFog(line,rgb)) {
+        for(int i=0;i<3;i++) color->rgba[i]=rgb[i]/255.0f;
+        color->rgba[3]=fminf(1.0f,fmaxf(0.0f,(prop->zDepth*line[0]+line[1])/255.0f));
+        return color->rgba[3]>0 ? 1:2;
+    }
+#endif
     color->rgba[0] = (f32) g_CurrentEnvironment.Red / 255.0f;
     color->rgba[1] = (f32) g_CurrentEnvironment.Green / 255.0f;
     color->rgba[2] = (f32) g_CurrentEnvironment.Blue / 255.0f;
@@ -735,3 +753,16 @@ s32 fogGetPropDistColor(PropRecord *prop, rgba_f32 *color)
 
     return 1; // Fog color will be applied to prop
 }
+
+#ifdef GEVR
+/* Share the game's gas/sky transition with HD room and object fog. */
+void fogGetBeanTransition(float *share, float *fraction, u8 target[3])
+{
+    *share=1; *fraction=0; target[0]=target[1]=target[2]=0;
+    if (!g_EnvironmentMainp || !g_EnvironmentAltp || s_gevrFogTransition<=0 ||
+        g_EnvironmentMainp->Visibility.FarFog<=0) return;
+    *fraction=fminf(1,fmaxf(0,s_gevrFogTransition));
+    *share=1+*fraction*((float)g_EnvironmentAltp->Visibility.FarFog/g_EnvironmentMainp->Visibility.FarFog-1);
+    target[0]=g_EnvironmentAltp->Sky.Red;target[1]=g_EnvironmentAltp->Sky.Green;target[2]=g_EnvironmentAltp->Sky.Blue;
+}
+#endif

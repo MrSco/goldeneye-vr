@@ -8,6 +8,7 @@
 #include "lv.h"
 #ifdef GEVR
 #include "net_coop.h"
+#include "gevr_romlayout.h"
 extern bool netIsActive(void);
 extern bool netSlotOccupied(int slot);
 extern int netGetLocalSlot(void);
@@ -618,6 +619,16 @@ f32 get_cur_player_fovy(void) {
 PROP getPropForHeldItem(ITEM_IDS arg0)
 {
     PROP ret = -1;
+#ifdef GEVR
+    {
+        int gevrHeld = gevrRomHeldProp((int)arg0);
+
+        if (gevrHeld != -2)
+        {
+            return (PROP)gevrHeld;
+        }
+    }
+#endif
     switch (arg0)
     {
         case ITEM_KNIFE:         ret = PROP_CHRKNIFE;         break; /* weapon_multi_hunting_knife */

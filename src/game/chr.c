@@ -30,6 +30,7 @@
 #include "player.h"
 #ifdef GEVR
 #include "net_coop.h"
+#include "gevr_romlayout.h"
 #endif
 #include "propobj.h"
 #include "stan.h"
@@ -2760,7 +2761,28 @@ after_position_update:
 
             instcalcmatrices(&renderdata, hatmodel);
 
+#ifdef GEVR
+            /* a hack campaign's own fits: Goldfinger's cover all 126 characters */
+            s32 gevrHatFirst = HEAD_START;
+            s32 gevrHatEnd = BODY_Female_Sally;
+            struct headHat *gevrHats = headHat_array_8003E464;
+            {
+                s32 first = 0;
+                s32 count = 0;
+                struct headHat *own = gevrRomHeadHats(&first, &count);
+
+                if (own)
+                {
+                    gevrHats = own;
+                    gevrHatFirst = first;
+                    gevrHatEnd = first + count;
+                }
+            }
+
+            if ((chr->headnum >= gevrHatFirst) && (chr->headnum < gevrHatEnd))
+#else
             if ((chr->headnum >= HEAD_START) && (chr->headnum < BODY_Female_Sally))
+#endif
             {
                 coord3d pos;
                 f32 xscale;
@@ -2778,8 +2800,13 @@ after_position_update:
 
                 hat = get_hat_model(chr->handle_positiondata_hat);
 
+#ifdef GEVR
+                headindex = chr->headnum - gevrHatFirst;
+                entry = &((struct headHat (*)[6]) gevrHats)[headindex][hat];
+#else
                 headindex = chr->headnum - HEAD_START;
                 entry = &((struct headHat (*)[6]) headHat_array_8003E464)[headindex][hat];
+#endif
 
                 if (!get_debug_render_raster())
                 {

@@ -5,6 +5,7 @@
 #include "net_game.h"
 #include "net_coop.h"
 #include "gevr_grip_gesture.h"
+#include "gevr_romlayout.h"
 #endif
 #include <ultra64.h>
 #include <assert.h>
@@ -1112,6 +1113,9 @@ static s32 gevrStereoAimTrace(s32 hand, PropRecord *tankprop, const coord3d *vor
      * Only the gun and the rendered sight use the level's visibility scale.
      * Mixing the two put the sight five times beyond a hit on Dam/Surface,
      * and tested props with a ray starting a fifth of the way to the gun.
+     * chraiDefaultWeaponFireHandler divides the damage shot the same way
+     * (issue #173): without it the ray misses a wall alarm and the mark
+     * lands on the wall behind it.
      */
     shotdata.viewOrigin.x /= viewscale;
     shotdata.viewOrigin.y /= viewscale;
@@ -1421,6 +1425,20 @@ void chraiDefaultWeaponFireHandler(s32 hand)
 
 #ifdef GEVR
     gevrViewToWorldPos(&shotdata.gunpos);   /* issue #40: view units on the scaled levels */
+    /*
+     * Same unscale as gevrStereoAimTrace, after gunpos is copied. Prop and
+     * guard hit matrices carry no visibility scale; the barrel origin does
+     * (0.2 on Dam and Surface). The scaled ray ran parallel to the barrel and
+     * missed a wall alarm, so the mark landed on the wall and the alarm never
+     * exploded (issue #173). viewDir is a direction and is already unscaled.
+     */
+    {
+        f32 viewscale = g_gevrStereo && D_800364CC > 1e-6f ? D_800364CC : 1.0f;
+
+        shotdata.viewOrigin.x /= viewscale;
+        shotdata.viewOrigin.y /= viewscale;
+        shotdata.viewOrigin.z /= viewscale;
+    }
 #else
     mtx4TransformVecInPlace(currentPlayerGetViewToWorldMtxf(), &shotdata.gunpos);
 #endif
@@ -1656,7 +1674,8 @@ void chraiDefaultWeaponFireHandler(s32 hand)
             {
                 recall_joy2_hits_edit_flag(shotdata.weapon, finalpos, besttexture);
 
-                if (((0xf & ((u8 *) g_Textures)[besttexture * 8]) != 5) && ((((u8 *) g_Textures)[besttexture * 8] & 0xf) != 6))
+                if (besttexture < 0 || besttexture >= gevrTextureCount()
+                    || (g_Textures[besttexture].hitTexture != 5 && g_Textures[besttexture].hitTexture != 6))
                 {
                     rooms[0] = bestroom;
                     rooms[1] = 255;
@@ -1797,7 +1816,12 @@ void chrpropAddBulletHit(struct ShotData *shotdata, PropRecord *prop, f32 dist, 
     */
     if (blocksFurtherHits)
     {
+#ifdef GEVR
+        /* Goldfinger's glass stops all but its Ruger- and Spectre-file guns */
+        if (shotdata->weapon != gevrRomGlassPen(0) && shotdata->weapon != gevrRomGlassPen(1))
+#else
         if (shotdata->weapon != ITEM_RUGER && shotdata->weapon != ITEM_SILVERWPPK)
+#endif
         {
             for (i = 0; i < ARRAYCOUNT(shotdata->hits); i++)
             {
@@ -2680,7 +2704,7 @@ void chraiCheckUseHeldItem(s32 hand)
             chraiFistAttackHandler(hand, item_id);
         }
 #ifdef GEVR
-        else if (item_id == ITEM_TASER && g_gevrStereo)
+        else if (GEVR_ITEM_AS(item_id) == ITEM_TASER && g_gevrStereo)
         {
             /*
              * The headset's taser reaches as far as the arm (user: GoldenEye's

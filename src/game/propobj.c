@@ -18,6 +18,9 @@
 #include <snd.h>
 #include <gbi_extension.h>
 #include "propobj.h"
+#ifdef GEVR
+#include "gevr_romlayout.h"
+#endif
 #include "assets/obseg/text/LpropobjE.h"
 #include "bg.h"
 #include "bgfog.h"
@@ -49,6 +52,7 @@
 #ifdef GEVR
 #include "system.h"
 #include <stdio.h>   /* snprintf: the #85 cryptdoor probe */
+#include "gevr_bean.h" /* monitor screens under Bean's meshes */
 #include "net_objects.h"
 #include "net_coop.h"
 extern bool netIsActive(void);
@@ -3570,7 +3574,12 @@ void chrobjWeaponTick(struct PropRecord* prop)
                 countdownTimerSetVisible(2, FALSE);
             }
         }
+#ifdef GEVR
+        /* Goldfinger's item 33 is its Knockout Gas: no timer */
+        else if (((weapon->weaponnum == ITEM_TIMEDMINE) || (weapon->weaponnum == gevrRomTimedCase())) && (weapon->timer >= 0))
+#else
         else if (((weapon->weaponnum == ITEM_TIMEDMINE) || (weapon->weaponnum == ITEM_BOMBCASE)) && (weapon->timer >= 0))
+#endif
         {
             weapon->timer -= g_ClockTimer;
 
@@ -6667,11 +6676,20 @@ s32 objTick(struct PropRecord *prop)
 			if ((autogun->is_active != 0) && (!(obj->flags & PROPFLAG_IS_DRONE_GUN)))
 			{
 				autogun->unkAC = autogun->unkAC + 1;
+#ifdef GEVR
+				/* Goldfinger's autoguns fire half as often (& 3) */
+				sp13C = (autogun->unkAC & gevrRomAutogunMask()) == 0;
+#else
 				sp13C = (autogun->unkAC & 1) == 0;
+#endif
 
 				if (model->obj->Switches[5] != 0)
 				{
+#ifdef GEVR
+					sp138 = (autogun->unkAC & gevrRomAutogunMask()) == 1;
+#else
 					sp138 = (autogun->unkAC & 1) == 1;
+#endif
 				}
 
 				if (autogun->unkC0 < g_GlobalTimer)
@@ -7381,6 +7399,17 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
         vertices[2] = rodata->DisplayListCollisions.Vertices[2];
         vertices[3] = rodata->DisplayListCollisions.Vertices[3];
 
+#ifdef GEVR
+        /* DAB propobj.c tvscreenRender(): where Bean's HD model has its
+         * screen, when that is what is drawn, and over the back of its recess
+         * when the model has one there - in the decal z mode, which is
+         * texSelect()'s for a fixed monitor (8) (gevr_bean_screens.inc.h) */
+        if (gevrBeanScreenQuad(model, node, vertices) && arg4 == 1)
+        {
+            arg4 = 8;
+        }
+#endif
+
         if ((u32)screen->tconfig < 100) 
         {
             tconfig = &monitorimages[(s32)screen->tconfig];
@@ -7687,7 +7716,19 @@ void sub_GAME_7F04AC20(PropRecord *prop, ModelRenderData *mrData, s32 arg2)
         }
 
         mrData->gdl = gdl;
+#ifdef GEVR
+        /* DAB objRenderProp(): a monitor names its model while it is drawn,
+         * so its screen lists the programmes wrote above are the game's and
+         * not Bean's mesh (gevr_bean_screens.inc.h) */
+        if ((mrData->flags & 1) && (obj->type == PROPDEF_MONITOR || obj->type == PROPDEF_MULTI_MONITOR))
+        {
+            gevrBeanSetScreens(model);
+        }
+#endif
         subdraw(mrData, model);
+#ifdef GEVR
+        gevrBeanSetScreens(NULL);
+#endif
         gdl = mrData->gdl;
 
         if (obj->type == PROPDEF_DOOR)
@@ -9888,7 +9929,7 @@ void objHit(ShotData *shotdata, BulletHit *hit)
         recall_joy2_hits_edit_detail_edit_flag(shotdata->weapon, hit->prop, hit->hit.texturenum);
     }
 
-    if (shotdata->weapon != ITEM_WATCHLASER)
+    if (GEVR_ITEM_AS(shotdata->weapon) != ITEM_WATCHLASER)
     {
         if (hit->countsAsPenetration == 0)
         {

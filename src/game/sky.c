@@ -6,6 +6,7 @@
 #include "system.h"
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
+#include "gevr_bean.h"
 #endif
 #include "sky.h"
 #include "player.h"
@@ -368,6 +369,14 @@ Gfx *skyRender(Gfx *gdl)
     scale = get_room_data_float1() / 30.0f;
     sp430 = FALSE;
     env = fogGetCurrentEnvironmentp();
+
+#ifdef GEVR
+    int beanSky = 0;
+    gdl = gevrBeanSkyAppend(gdl, &beanSky);
+    /* The sky renderer also owns the water plane. Keep that pass when a
+     * Bean dome replaces the clouds; indoor and non-water skies are done. */
+    if (beanSky && (!env->Clouds || !env->IsWater)) return gdl;
+#endif
 
 #ifdef GEVR
     if (getenv("GE_D176")) {
@@ -1057,6 +1066,9 @@ Gfx *skyRender(Gfx *gdl)
         }
     }
 
+#ifdef GEVR
+    if (beanSky) return gdl;
+#endif
     switch ((sp538 << 3) | (sp534 << 2) | (sp530 << 1) | sp52c)
     {
         case 0:

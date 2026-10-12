@@ -306,7 +306,7 @@ extern f32 slider_007_mode_accuracy;
 extern f32 slider_007_mode_damage;
 
 
-extern struct mission_folder_setup mission_folder_setup_entries[];
+extern struct mission_folder_setup mission_folder_setup_entries[48];
 
 extern s32 selected_num_players;
 extern s32 player_char[];

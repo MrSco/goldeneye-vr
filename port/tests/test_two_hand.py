@@ -33,14 +33,16 @@ gun = read('src/game/gunfire.c')
 math = read('src/game/matrixmath.c')
 buttons = read('port/vr/vr_input.cpp')
 definitions = re.findall(r'^#define GEVR_TWOHAND_[^\n]+', view, re.M)
-for name in ('GEVR_UNITS_PER_METRE', 'GEVR_VIEWMODEL_CM', 'GEVR_GRIP_TO_ORIGIN_CM'):
+for name in ('GEVR_UNITS_PER_METRE', 'GEVR_VIEWMODEL_CM', 'GEVR_GRIP_TO_ORIGIN_CM', 'GEVR_WRIST_BEHIND_CM'):
     definitions.append(re.search(r'^#define ' + name + r'\s+[^\n]+', view, re.M).group())
 definitions.append(re.search(r'^#define GEVR_RECOIL_TWOHAND_SHARE[^\n]+', buttons, re.M).group())
 definitions.append(re.search(r'static const f32 s_gevrTwoHandPalm\[3\] = [^;]+;', view).group())
 production = [function(buttons, 'static inline int gevrPhysHand('),
               function(buttons, 'extern "C" void vrRecoilKick(').replace('extern "C" ', '')]
 production.extend(function(math, signature) for signature in (
-    'void matrix_4x4_set_rotation_around_xyz(', 'void matrix_4x4_set_identity('))
+    'void matrix_4x4_set_rotation_around_xyz(', 'void matrix_4x4_set_identity(',
+    'void matrix_4x4_get_rotation_around_xyz(', 'void matrix_column_1_scalar_multiply(',
+    'void matrix_scalar_multiply('))
 production.extend(function(view, signature) for signature in (
     'static s32 gevrGripAxesRaw(', 'static s32 gevrGripAxes(',
     's32 gevrGexHeldPalm(f32 out[3])\n{',
@@ -49,7 +51,9 @@ production.extend(function(view, signature) for signature in (
     's32 gevrStereoTwoHandGun(void)', 's32 gevrStereoTwoHandSupportCtrl(void)',
     'static s32 gevrTwoHandIsHandgun(', 'static s32 gevrTwoHandBarrel(',
     's32 gevrStereoTwoHandUpdate(void)', 's32 gevrStereoTwoHandGrip(void)',
-    's32 gevrStereoTwoHandClass(void)', 's32 gevrStereoTwoHandMatrix(',
+    's32 gevrStereoTwoHandClass(void)', 'static f32 *gevrTwoHandTrimNow(void)',
+    'static s32 gevrStereoTwoHandTarget(f32 target[3])\n{',
+    's32 gevrStereoTwoHandMatrix(', 'static f32 gevrFitTurnDegrees(', 's32 gevrStereoTwoHandFollow(f32 out[6])',
     'static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3])\n{'))
 production.extend(function(gun, signature) for signature in (
     'static s32 gevrUnarmedModelItem(', 'static void gevrUnarmedModelUpdate('))

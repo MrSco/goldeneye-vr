@@ -59,6 +59,8 @@ extern s32 gevrStereoWatchItem(s32 item);  /* bondview2.c: the watch laser, the 
 extern int gevrVrScreenMode;      /* gfx_pc.cpp: this frame is on the virtual screen */
 extern int VrPlayMode;            /* vr_settings: 1 = stereo gameplay */
 extern void vrSettingsSave(void);
+extern void gevrBeanToggle(void);
+extern int gevrBeanIsEnabled(void);
 extern int gevrVrWatchGesture(void); /* vr_input.cpp */
 extern s32 g_gevrWatchGesturePending; /* bondview2.c */
 extern s32 gevrStereoWatchGrip(void);    /* bondview2.c: the gun hand holds the watch (#31) */
@@ -91,6 +93,7 @@ extern void gevrReloadFitSetGrab(void);
 extern void gevrReloadFitSetBelt(void);
 extern s32 gevrGexMagState(s32 hand, f32 off[3]);
 extern float VrReloadGrab[2][3], VrReloadBelt[3], VrGexHeldMag[3], VrGexWatch[4], VrGexForeHold[3];   /* vr_settings_defaults.c */
+extern float VrBeanGunOff[3], VrBeanGripTrim[2][6], VrBeanReloadGrab[3];   /* and Bean's models' own */
 extern float VrGexOffRot[3];   /* vr_settings_defaults.c: GE-X's off hand's turn */
 extern float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3];
 extern float VrGexPp7Grab[3], VrGexPp7Support[3];
@@ -116,9 +119,11 @@ extern void gevrBodySlotFitSet(int ctrl);
 extern void gevrBodySlotFitReset(void);
 extern void gevrGexDetonateRequest(void);
 
-/* Gun fit's values as last saved, which B goes back to: both models' sets */
+/* Gun fit's values as last saved, which B goes back to: every model's set */
 static struct {
     float gun[3], gexGun[3], grip[2][6], gexGrip[2][6], scope[2][GEVR_SCOPE_FITS][4];
+    float beanGun[3], beanGrip[2][6], beanReloadGrab[3], beanScope[GEVR_SCOPE_FITS][4];
+    float beanMuzzle[GEVR_MAX_WEAPONS][3];
     float reloadGrab[2][3], reloadBelt[3], gexHeld[3], gexWatch[4], gexFore[3], gexOffRot[3];
     float muzzle[2][GEVR_MAX_WEAPONS][3];
     float pp7Grab[3], pp7Support[3], pp7Gun[3];
@@ -127,6 +132,8 @@ static struct {
     float kf7Well[3], pp7Well[3];
     float weaponFits[64][10][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
     float bodySlots[GEVR_BODY_SLOTS][3];
+    float gunPer[2][GEVR_MAX_WEAPONS][3], gripPer[2][GEVR_MAX_WEAPONS][6];   /* each gun's own (gevr_scope.h) */
+    unsigned char gunPerSet[2][GEVR_MAX_WEAPONS], gripPerSet[2][GEVR_MAX_WEAPONS];
 } s_gunFitSaved;
 _Static_assert(sizeof(s_gunFitSaved.weaponFits) == sizeof(VrGexWeaponFits), "fit snapshot matches the fits");
 
@@ -157,6 +164,15 @@ static void gevrGunFitSaved(bool restore)
         memcpy(VrGexKf7WellOff, s_gunFitSaved.kf7Well, sizeof(VrGexKf7WellOff));
         memcpy(VrGexPp7WellOff, s_gunFitSaved.pp7Well, sizeof(VrGexPp7WellOff));
         memcpy(VrBodySlotFit, s_gunFitSaved.bodySlots, sizeof(VrBodySlotFit));
+        memcpy(VrBeanGunOff, s_gunFitSaved.beanGun, sizeof(VrBeanGunOff));
+        memcpy(VrBeanGripTrim, s_gunFitSaved.beanGrip, sizeof(VrBeanGripTrim));
+        memcpy(VrBeanReloadGrab, s_gunFitSaved.beanReloadGrab, sizeof(VrBeanReloadGrab));
+        memcpy(VrBeanScopeFit, s_gunFitSaved.beanScope, sizeof(VrBeanScopeFit));
+        memcpy(VrBeanMuzzleTrim, s_gunFitSaved.beanMuzzle, sizeof(VrBeanMuzzleTrim));
+        memcpy(VrGunOffPer, s_gunFitSaved.gunPer, sizeof(VrGunOffPer));
+        memcpy(VrGripTrimPer, s_gunFitSaved.gripPer, sizeof(VrGripTrimPer));
+        memcpy(VrGunOffPerSet, s_gunFitSaved.gunPerSet, sizeof(VrGunOffPerSet));
+        memcpy(VrGripTrimPerSet, s_gunFitSaved.gripPerSet, sizeof(VrGripTrimPerSet));
     } else {
         memcpy(s_gunFitSaved.weaponFits, VrGexWeaponFits, sizeof(VrGexWeaponFits));
         s_gunFitSaved.gun[0] = VrGunOffX;
@@ -182,9 +198,21 @@ static void gevrGunFitSaved(bool restore)
         memcpy(s_gunFitSaved.kf7Well, VrGexKf7WellOff, sizeof(VrGexKf7WellOff));
         memcpy(s_gunFitSaved.pp7Well, VrGexPp7WellOff, sizeof(VrGexPp7WellOff));
         memcpy(s_gunFitSaved.bodySlots, VrBodySlotFit, sizeof(VrBodySlotFit));
+        memcpy(s_gunFitSaved.beanGun, VrBeanGunOff, sizeof(VrBeanGunOff));
+        memcpy(s_gunFitSaved.beanGrip, VrBeanGripTrim, sizeof(VrBeanGripTrim));
+        memcpy(s_gunFitSaved.beanReloadGrab, VrBeanReloadGrab, sizeof(VrBeanReloadGrab));
+        memcpy(s_gunFitSaved.beanScope, VrBeanScopeFit, sizeof(VrBeanScopeFit));
+        memcpy(s_gunFitSaved.beanMuzzle, VrBeanMuzzleTrim, sizeof(VrBeanMuzzleTrim));
+        memcpy(s_gunFitSaved.gunPer, VrGunOffPer, sizeof(VrGunOffPer));
+        memcpy(s_gunFitSaved.gripPer, VrGripTrimPer, sizeof(VrGripTrimPer));
+        memcpy(s_gunFitSaved.gunPerSet, VrGunOffPerSet, sizeof(VrGunOffPerSet));
+        memcpy(s_gunFitSaved.gripPerSet, VrGripTrimPerSet, sizeof(VrGripTrimPerSet));
     }
 }
 extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
+extern s32 gevrStereoTwoHandFollow(f32 out[6]);   /* bondview2.c: Gun fit's grab, the hold's trims */
+extern s32 gevrGunFitOffHand(f32 out[3]);         /* bondview2.c: the off hand from the gun hand */
+static bool s_gunFitGrab;                         /* the off hand's trigger is Gun fit's, not the game's */
 static float gevrTurnAxis = 0.0f;
 static s32 gevrRecenterPending = 0;
 extern float gevrInjectTurn;   /* libultra.c: the PC input hook's turn */
@@ -1246,8 +1274,17 @@ s32 inputReadController(s32 idx, OSContPad *npad)
             const u32 now = SDL_GetTicks();
             fitting = VrGunFitArmed && !menu && g_gevrStereo && gevrGunFitAvailable();
             const int gex = fitting && gevrGexHeld(GUNRIGHT) ? 1 : 0;
+            /* the model's own set: GoldenEye's, GoldenEye X's or Bean's (gevr_scope.h) */
+            const int look = fitting ? gevrFitLook(GUNRIGHT) : 0;
             float *gunOff[3] = { &VrGunOffX, &VrGunOffY, &VrGunOffZ };
-            float (*gripTrim)[6] = gex ? VrGexGripTrim : VrGripTrim;
+            float (*gripTrim)[6] = gex ? VrGexGripTrim : look == 2 ? VrBeanGripTrim : VrGripTrim;
+            float *reloadGrab = look == 2 ? VrBeanReloadGrab : VrReloadGrab[gex];
+            const char *lookName = gex ? ", GoldenEye X" : look == 2 ? ", Bean" : "";
+            if (look == 2) {
+                gunOff[0] = &VrBeanGunOff[0];
+                gunOff[1] = &VrBeanGunOff[1];
+                gunOff[2] = &VrBeanGunOff[2];
+            }
             const s32 scope = fitting ? gevrScopeFitIndex() : -1;
             const s32 fitItem = fitting ? (s32)getCurrentPlayerWeaponId(GUNRIGHT) : -1;
             if (gex) {
@@ -1255,6 +1292,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 gunOff[0] = &fit[0];
                 gunOff[1] = &fit[1];
                 gunOff[2] = &fit[2];
+            } else if (gevrGunOffOwnOf(look, fitItem) != NULL) {
+                /* the gun's own place (gevr_scope.h; user: each model holds the hand its own way) */
+                float *own = (float *)gevrGunOffOwnOf(look, fitItem);
+                gunOff[0] = &own[0];
+                gunOff[1] = &own[1];
+                gunOff[2] = &own[2];
             }
             if (scope < 0) gevrScopeFitting = 0;
             if (!fitting || !gevrReloadFitAvailable()) gevrReloadFitting = 0;
@@ -1270,7 +1313,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 gevrGadgetFitBegin();
                 aHeld = bHeld = xHeld = ltHeld = yHeld = true;   /* a button already down does not answer */
                 fitLast = now;
-                LOGI("input: gun fit on (%.1f %.1f %.1f%s)\n", *gunOff[0], *gunOff[1], *gunOff[2], gex ? ", GoldenEye X" : "");
+                LOGI("input: gun fit on (%.1f %.1f %.1f%s)\n", *gunOff[0], *gunOff[1], *gunOff[2], lookName);
             }
             if (fitting) {
                 const float dz = 0.15f, rate = 3.0f;
@@ -1334,7 +1377,64 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 }
                 ltHeld = lt;
                 yHeld = yb;
-                if (gadget >= 0) {
+                /* Grab to fit (user: turning the holding hand with the sticks was
+                 * awkward): holding the off hand's trigger, the holding hand takes the
+                 * off hand's own place and turn on the gun (bondview2.c
+                 * gevrStereoTwoHandFollow) and keeps it when let go; without a hold the
+                 * gun moves with the off hand, from where the trigger was pressed. Not in
+                 * the X modes, whose trigger marks places, nor GoldenEye X's own support
+                 * hand, which has its own fit. */
+                bool grabbed = false;
+                {
+                    static bool grabWas;
+                    static float grabBase[3], grabFrom[3];
+                    const bool plainMode = !gevrScopeFitting && !gevrReloadFitting && !gevrOffHandFitting
+                        && !gevrHeldMagFitting && !gevrWellFitting && !gevrInstalledMagFitting && !gevrMuzzleFitting
+                        && !gevrGunHandFitting && !gevrBodySlotFitting;
+                    const bool twoHand = gevrStereoTwoHandGrip() != 0;
+                    const bool gexOwnHold = twoHand && gevrGexHeld(gevrStereoTwoHandGun()) && VrGexGuns;
+                    const bool grab = plainMode && gadget < 0 && !gexOwnHold
+                        && get_button_state(twoHand ? gevrStereoTwoHandSupportCtrl() : 0, "trigger");
+                    if (grab && twoHand) {
+                        float follow[6];
+                        if (gevrStereoTwoHandFollow(follow)) {
+                            const s32 holdGun = gevrStereoTwoHandGun();
+                            const int holdLook = gevrFitLook(holdGun);
+                            float *t = gripTrim[gevrStereoTwoHandClass()];
+                            float *own = gevrGripTrimOwnFit(holdLook, (s32)getCurrentPlayerWeaponId(holdGun), t);
+                            memcpy(own != NULL ? own : t, follow, sizeof(follow));
+                            grabbed = true;
+                        }
+                    } else if (grab) {
+                        float here[3];
+                        if (gevrGunFitOffHand(here)) {
+                            if (!grabWas) {
+                                /* the gun's own place, from the shared one if it has none yet */
+                                if (!gex) {
+                                    const float shared[3] = { *gunOff[0], *gunOff[1], *gunOff[2] };
+                                    float *own = gevrGunOffOwnFit(look, fitItem, shared);
+                                    if (own != NULL) {
+                                        gunOff[0] = &own[0];
+                                        gunOff[1] = &own[1];
+                                        gunOff[2] = &own[2];
+                                    }
+                                }
+                                for (int k = 0; k < 3; k++) {
+                                    grabBase[k] = here[k];
+                                    grabFrom[k] = *gunOff[k];
+                                }
+                            }
+                            for (int k = 0; k < 3; k++) *gunOff[k] = grabFrom[k] + here[k] - grabBase[k];
+                            grabbed = true;
+                        }
+                    }
+                    if (grabbed && !grabWas) LOGI("input: gun fit grab (%s)\n", twoHand ? "the holding hand" : "the gun");
+                    grabWas = grabbed;
+                    s_gunFitGrab = grabbed;
+                }
+                if (grabbed) {
+                    /* the hand places it; the sticks rest */
+                } else if (gadget >= 0) {
                     /* A gadget in the gun hand: its own pose (bondview2.c s_gevrItemPoses) -
                      * the move stick forward and sideways, the turn stick up and its
                      * size; holding the right grip, the sticks turn it instead, about
@@ -1441,7 +1541,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 } else if (gevrScopeFitting) {
                     /* the scope's lens, as the gun moves, and the turn stick's
                      * sideways makes it wider or narrower */
-                    float *s = VrScopeFit[gex][scope];
+                    float *s = gevrScopeFitOf(look, scope);
                     s[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     s[2] -= my * rate * dt;
                     s[1] += ry * rate * dt;
@@ -1451,7 +1551,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                      * Left stick: Forward/Back (Z), Side (X)
                      * Right stick: Up/Down (Y)
                      */
-                    float *mtrim = VrMuzzleTrim[gex][fitItem];
+                    float *mtrim = gevrMuzzleTrimOf(look, fitItem);
                     mtrim[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     mtrim[2] += my * rate * dt;
                     mtrim[1] += ry * rate * dt;
@@ -1478,11 +1578,31 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                      * 45 degrees a second on the turn stick's sideways - or, with the
                      * right grip held, [5] its roll (user: to turn it more underhand). */
                     float *t = gripTrim[gevrStereoTwoHandClass()];
+                    /* the gun's own hold (gevr_scope.h), made from its class's the first time it moves */
+                    const s32 holdGun = gevrStereoTwoHandGun();
+                    const int holdLook = gevrFitLook(holdGun);
+                    const s32 holdItem = (s32)getCurrentPlayerWeaponId(holdGun);
+                    if (gevrGripTrimOwnOf(holdLook, holdItem) != NULL) {
+                        t = (float *)gevrGripTrimOwnOf(holdLook, holdItem);
+                    } else if (mx != 0.0f || my != 0.0f || ry != 0.0f || rx != 0.0f) {
+                        float *own = gevrGripTrimOwnFit(holdLook, holdItem, t);
+                        if (own != NULL) t = own;
+                    }
                     t[0] -= mx * rate * dt;
                     t[2] += my * rate * dt;
                     t[1] += ry * rate * dt;
                     t[get_button_state(1, "grip") ? 5 : 3] += rx * 45.0f * dt;
                 } else {
+                    /* the gun's own place, made from the shared one the first time it moves */
+                    if (!gex && (mx != 0.0f || my != 0.0f || ry != 0.0f) && gevrGunOffOwnOf(look, fitItem) == NULL) {
+                        const float shared[3] = { *gunOff[0], *gunOff[1], *gunOff[2] };
+                        float *own = gevrGunOffOwnFit(look, fitItem, shared);
+                        if (own != NULL) {
+                            gunOff[0] = &own[0];
+                            gunOff[1] = &own[1];
+                            gunOff[2] = &own[2];
+                        }
+                    }
                     /* +X is the holder's right (mirrored when left-handed), +Z back toward you */
                     *gunOff[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     *gunOff[2] -= my * rate * dt;
@@ -1496,17 +1616,17 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     gevrGadgetFitEnd(true);
                     gevrGadgetFitBegin();
                     gevrGunFitSaved(false);
-                    LOGI("input: gun fit kept (%.1f %.1f %.1f%s)\n", *gunOff[0], *gunOff[1], *gunOff[2], gex ? ", GoldenEye X" : "");
+                    LOGI("input: gun fit kept (%.1f %.1f %.1f%s)\n", *gunOff[0], *gunOff[1], *gunOff[2], lookName);
                     if (scope >= 0) {
-                        const float *s = VrScopeFit[gex][scope];
+                        const float *s = gevrScopeFitOf(look, scope);
                         LOGI("input: scope %d fit %.1f %.1f %.1f, %.1f wider\n", scope, s[0], s[1], s[2], s[3]);
                     }
                     if (fitItem > 0 && fitItem < GEVR_MAX_WEAPONS) {
-                        const float *m = VrMuzzleTrim[gex][fitItem];
-                        LOGI("input: muzzle %d fit %.1f %.1f %.1f%s\n", fitItem, m[0], m[1], m[2], gex ? ", GoldenEye X" : "");
+                        const float *m = gevrMuzzleTrimOf(look, fitItem);
+                        LOGI("input: muzzle %d fit %.1f %.1f %.1f%s\n", fitItem, m[0], m[1], m[2], lookName);
                     }
                     LOGI("input: reload fit, magazine %.1f %.1f %.1f, belt %.0f %.0f %.0f, held %.1f %.1f %.1f, watch %.1f %.1f %.1f x%.2f\n",
-                         VrReloadGrab[gex][0], VrReloadGrab[gex][1], VrReloadGrab[gex][2],
+                         reloadGrab[0], reloadGrab[1], reloadGrab[2],
                          VrReloadBelt[0], VrReloadBelt[1], VrReloadBelt[2], VrGexHeldMag[0], VrGexHeldMag[1], VrGexHeldMag[2],
                          VrGexWatch[0], VrGexWatch[1], VrGexWatch[2], VrGexWatch[3]);
                 } else if (b && !bHeld) {
@@ -1519,6 +1639,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 bHeld = b;
                 left.x = left.y = right.x = right.y = 0.0f;
             }
+            if (!fitting) s_gunFitGrab = false;
             if (fitWas && !fitting) gevrGadgetFitEnd(-1);   /* paused, put away or switched off: the edits stay, unsaved */
             if (!fitting) gevrScopeFitting = gevrOffHandFitting = gevrHeldMagFitting = gevrWellFitting = gevrInstalledMagFitting = gevrMuzzleFitting = gevrGunHandFitting = 0;
             fitWas = fitting;
@@ -1543,6 +1664,10 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         // gives each gun its own trigger (gevrVrTriggerDown).
         gevrVrTriggerDown[0] = get_button_state(1, "trigger");   /* GUNRIGHT */
         gevrVrTriggerDown[1] = get_button_state(0, "trigger");   /* GUNLEFT */
+        if (s_gunFitGrab) {
+            /* Gun fit's grab holds the off hand's trigger: neither gun fires */
+            gevrVrTriggerDown[gevrStereoTwoHandGrip() && gevrStereoTwoHandSupportCtrl() == 1 ? 0 : 1] = 0;
+        }
         /* GE-X's remote mines (gun.c): the off hand's trigger detonates them, on
          * the screen and in the headset, instead of aiming or firing */
         {
@@ -1556,7 +1681,7 @@ s32 inputReadController(s32 idx, OSContPad *npad)
         if (stereoplay && gevrDualWielding()) {
             if (gevrVrTriggerDown[0] || gevrVrTriggerDown[1]) npad->button |= Z_TRIG;
         } else if (stereoplay) {
-            if (get_button_state(1, "trigger")) npad->button |= Z_TRIG;
+            if (get_button_state(1, "trigger") && gevrVrTriggerDown[0]) npad->button |= Z_TRIG;
         } else if (get_button_state(1, "trigger") || (get_button_state(0, "trigger") && !gevrGexMineDetonates())) {
             npad->button |= Z_TRIG;
         }
@@ -1875,11 +2000,35 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                     fired = spoilt = false;
                 }
                 if (lclick) spoilt = true;
+                /* One grip plus this click is the Bean mesh switch, below. */
+                if (get_button_state(0, "grip") || get_button_state(1, "grip")) spoilt = true;
                 if (!fired && !spoilt && now - downat >= 1000) {
                     VrPlayMode = VrPlayMode ? 0 : 1; /* VR_PLAYMODE_SCREEN : VR_PLAYMODE_STEREO */
                     vrSettingsSave();
                     fired = true;
                     LOGI("input: play mode -> %s\n", VrPlayMode ? "stereo" : "screen");
+                }
+            } else {
+                downat = 0;
+            }
+        }
+        /* One grip (not both: both grips grab the screen) plus a held right-stick
+         * click swaps Project Bean meshes and the N64 models. */
+        {
+            static u32 downat = 0;
+            static bool fired = false;
+            const bool grip0 = get_button_state(0, "grip");
+            const bool grip1 = get_button_state(1, "grip");
+            if (rclick && (grip0 != grip1)) {
+                if (!downat) {
+                    downat = now ? now : 1;
+                    fired = false;
+                }
+                if (!fired && now - downat >= 1000) {
+                    gevrBeanToggle();
+                    vrSettingsSave();
+                    fired = true;
+                    LOGI("input: bean models -> %s\n", gevrBeanIsEnabled() ? "on" : "off");
                 }
             } else {
                 downat = 0;
@@ -2262,7 +2411,7 @@ struct WeaponRumbleProfile {
 static int gevrRecoilFor(s32 item, f32 *strength)
 {
     *strength = 1.0f;
-    switch (item) {
+    switch (GEVR_ITEM_AS(item)) {
         case ITEM_TT33:
             *strength = 0.5f;
             return GEVR_RECOIL_MAGNUM;

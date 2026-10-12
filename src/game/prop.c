@@ -29,6 +29,9 @@
 #include "prop.h"
 #include "stan.h"
 #include "model.h"
+#ifdef GEVR
+#include "gevr_dam_boat.h"
+#endif
 #include "token.h"
 
 /**
@@ -37,7 +40,7 @@
 ITEM_IDS lastmpweaponnum;
 
 // redeclare with the element count so ARRAYCOUNT works in proplvreset2
-extern ItemModelFileRecord PitemZ_entries[341];
+extern ItemModelFileRecord *PitemZ_entries;
 
 // forward declarations
 
@@ -536,7 +539,7 @@ void weaponAssignToHome(s32 arg0, WeaponObjRecord* weapon, s32 cmdindex)
         {
             if (cheatIsActive(CHEAT_ENEMY_ROCKETS))
             {
-                switch ((s8)weapon->weaponnum)
+                switch ((s8)GEVR_ITEM_AS(weapon->weaponnum))
                 {
                     case ITEM_KNIFE:
                     case ITEM_THROWKNIFE:
@@ -1288,7 +1291,7 @@ void proplvreset2(enum LEVELID stageId)
      * 
      * The last entry in the PitemZ_entries table is a terminator which is why 1 is subtracted from the loop length.
      */
-    for (pitem = PitemZ_entries; pitem < &PitemZ_entries[ARRAYCOUNT(PitemZ_entries) - 1]; pitem++)
+    for (pitem = PitemZ_entries; pitem < &PitemZ_entries[g_GevrPropCount]; pitem++)
     {
         pitem->header->RootNode = NULL;
     }
@@ -2108,6 +2111,9 @@ void proplvreset2(enum LEVELID stageId)
                 pdefIndex += 1;
             }
         }
+#ifdef GEVR
+        gevrDamBoatPrepare(stageId);
+#endif
     }
     else
     {

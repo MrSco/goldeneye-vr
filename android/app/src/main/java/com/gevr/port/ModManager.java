@@ -1,6 +1,8 @@
 package com.gevr.port;
 
 import android.content.Context;
+import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import android.util.Log;
 
 import org.json.JSONArray;
@@ -17,11 +19,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Enumeration;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipFile;
 
 /**
  * The launcher's Mods page (port/vr/vr_launcher.cpp, through
@@ -31,6 +30,11 @@ import java.util.zip.ZipFile;
  * unpacked into files/texture-packs/&lt;id&gt;, where the renderer looks for
  * them (port/fast3d/gevr_texpack.cpp). Nothing of theirs ships with the app;
  * the list below only says where each pack lives.
+ *
+ * XBLA / Bean is never downloaded: it is GoldenEye's own art, so the player
+ * picks their own copy of the release (MainActivity.openXblaPicker) and the
+ * files Bean draws are imported from it into the same folder
+ * (port/src/gevr_bean_import.c).
  *
  * One job at a time on one worker thread; the launcher polls status().
  *
@@ -77,6 +81,15 @@ final class ModManager {
             this.assetSuffix = assetSuffix;
         }
 
+        /** A pack read from the player's own copy of a game: nothing to download or follow. */
+        Pack(String id, String title, String by, String site) {
+            this(id, title, by, site, "", null, 0L, null, null, null, null);
+        }
+
+        boolean own() {
+            return listed.url == null;
+        }
+
         /** What an install gets: a release newer than the list's, or the list's. */
         Build target() {
             Build l = latest;
@@ -106,12 +119,15 @@ final class ModManager {
                 "https://github.com/MrSco/GoldenEye-007-HD/releases/download/ai-2026.10.03.3/ge007-hd-ai-2026.10.03.3-gliden64-png.zip",
                 374042560L,
                 "MrSco/GoldenEye-007-HD", "ai-", "ge007-hd-ai-", "-gliden64-png.zip"),
+        new Pack("ge007-bean", "GoldenEye 007 XBLA / Project Bean", "Rare / 4J Studios, Project Bean",
+                "your own copy of the game"),
     };
 
     // Per-pack states the launcher shows (vr_launcher.cpp keeps the same names).
     static final String NONE = "none";
     static final String DOWNLOADING = "downloading";
     static final String INSTALLING = "installing";
+    static final String IMPORTING = "importing";
     static final String INSTALLED = "installed";
     static final String ERROR = "error";
 
@@ -184,7 +200,7 @@ final class ModManager {
             int pr = -1;
             if (p.id.equals(busyId)) {
                 state = busyState;
-                pr = progress;
+                pr = IMPORTING.equals(state) ? nativeBeanImportPercent() : progress;
             } else if (p.id.equals(errorId)) {
                 // a failed update leaves the installed pack in place (and usable)
                 state = installed(p) ? INSTALLED : ERROR;
@@ -194,7 +210,9 @@ final class ModManager {
             }
             Build t = p.target();
             String version = t.version, update = "";
-            if (installed(p)) {
+            if (p.own()) {
+                version = installed(p) ? installedVersion(p) : "";
+            } else if (installed(p)) {
                 // what an install would get now (the list's, or a newer release)
                 // against what the marker says is installed
                 String have = installedVersion(p);
@@ -218,6 +236,7 @@ final class ModManager {
         if (cmd == null) return;
         if (cmd.equals("cancel")) {
             cancelled = true;
+            if (IMPORTING.equals(busyState)) nativeBeanImportCancel();
             return;
         }
         if (cmd.equals("check")) {
@@ -232,7 +251,7 @@ final class ModManager {
         final Pack p = find(cmd.substring(colon + 1));
         if (p == null || busyId != null) return;
         final String verb = cmd.substring(0, colon);
-        if (verb.equals("install")) {
+        if (verb.equals("install") && !p.own()) {
             errorId = null;
             cancelled = false;
             progress = 0;
@@ -273,6 +292,56 @@ final class ModManager {
         }
     }
 
+    // ---- the player's own copy ------------------------------------------------------
+
+    private static native String nativeBeanImport(int fd, String dest);
+    private static native int nativeBeanImportPercent();
+    private static native void nativeBeanImportCancel();
+
+    /** The file the player picked for an own-copy pack (MainActivity.openXblaPicker). */
+    synchronized void importOwn(String id, Uri uri) {
+        final Pack p = find(id);
+        if (p == null || !p.own() || busyId != null) return;
+        errorId = null;
+        cancelled = false;
+        progress = 0;
+        busyState = IMPORTING;
+        busyId = p.id;
+        worker.execute(() -> run(p, () -> importFrom(p, uri)));
+    }
+
+    private void importFrom(Pack p, Uri uri) throws Exception {
+        File root = root();
+        if (!root.isDirectory() && !root.mkdirs()) throw new IOException("could not create " + root);
+        File tmp = new File(root, "." + p.id + ".unpacking");
+        File dest = new File(root, p.id);
+        File backup = new File(root, "." + p.id + ".backup");
+        try {
+            deleteTree(tmp);
+            if (!tmp.mkdirs()) throw new IOException("could not create " + tmp);
+            String failure;
+            try (ParcelFileDescriptor fd = app.getContentResolver().openFileDescriptor(uri, "r")) {
+                if (fd == null) throw new IOException("could not open that file");
+                // the native side reads and closes it (fdopen)
+                failure = nativeBeanImport(fd.detachFd(), tmp.getAbsolutePath());
+            }
+            if (!failure.isEmpty()) throw new IOException(failure);
+            try (OutputStream o = new FileOutputStream(new File(tmp, MARKER))) {
+                o.write("own\n".getBytes("UTF-8"));
+            }
+            deleteTree(backup);
+            if (dest.exists() && !dest.renameTo(backup)) throw new IOException("could not preserve installed pack");
+            if (!tmp.renameTo(dest)) {
+                if (backup.exists() && !backup.renameTo(dest)) Log.w(TAG, "could not restore " + p.id);
+                throw new IOException("could not finish importing");
+            }
+            deleteTree(backup);
+            Log.i(TAG, "imported " + p.id + " from the player's copy");
+        } finally {
+            deleteTree(tmp);
+        }
+    }
+
     // ---- install -----------------------------------------------------------------
 
     private void install(Pack p) throws Exception {
@@ -288,18 +357,27 @@ final class ModManager {
         File zip = new File(root, "." + p.id + ".zip");
         File tmp = new File(root, "." + p.id + ".unpacking");
         File dest = new File(root, p.id);
+        File backup = new File(root, "." + p.id + ".backup");
         try {
             download(p, b, zip);
             busyState = INSTALLING;
             progress = 0;
             deleteTree(tmp);
-            int n = unpack(zip, tmp);
+            int n = ModArchive.unpack(zip, tmp, percent -> {
+                if (cancelled) throw new IOException("cancelled");
+                progress = percent;
+            });
             if (n < 100) throw new IOException("the download holds " + n + " textures, not a texture pack");
             try (OutputStream o = new FileOutputStream(new File(tmp, MARKER))) {
                 o.write((b.version + "\n").getBytes("UTF-8"));
             }
-            deleteTree(dest);
-            if (!tmp.renameTo(dest)) throw new IOException("could not finish installing");
+            deleteTree(backup);
+            if (dest.exists() && !dest.renameTo(backup)) throw new IOException("could not preserve installed pack");
+            if (!tmp.renameTo(dest)) {
+                if (backup.exists() && !backup.renameTo(dest)) Log.w(TAG, "could not restore " + p.id);
+                throw new IOException("could not finish installing");
+            }
+            deleteTree(backup);
             Log.i(TAG, "installed " + p.id + " " + b.version + ": " + n + " textures");
         } finally {
             zip.delete();
@@ -336,39 +414,6 @@ final class ModManager {
         } finally {
             c.disconnect();
         }
-    }
-
-    /** The zip's PNGs, paths kept; ZipFile checks each entry's CRC as it reads. */
-    private int unpack(File zip, File dir) throws IOException {
-        String base = dir.getCanonicalPath() + File.separator;
-        int count = 0;
-        try (ZipFile z = new ZipFile(zip)) {
-            int total = z.size();
-            int seen = 0;
-            Enumeration<? extends ZipEntry> it = z.entries();
-            byte[] buf = new byte[1 << 16];
-            while (it.hasMoreElements()) {
-                if (cancelled) throw new IOException("cancelled");
-                ZipEntry e = it.nextElement();
-                seen++;
-                progress = total > 0 ? Math.min(99, seen * 100 / total) : -1;
-                String name = e.getName();
-                if (e.isDirectory() || !name.toLowerCase().endsWith(".png")) continue;
-                File f = new File(dir, name);
-                // no entry may land outside the pack's folder
-                if (!f.getCanonicalPath().startsWith(base)) throw new IOException("bad path in the zip: " + name);
-                File parent = f.getParentFile();
-                if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
-                    throw new IOException("could not create " + parent);
-                }
-                try (InputStream in = z.getInputStream(e); OutputStream o = new FileOutputStream(f)) {
-                    int n;
-                    while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
-                }
-                count++;
-            }
-        }
-        return count;
     }
 
     // ---- updates ------------------------------------------------------------------
@@ -428,6 +473,13 @@ final class ModManager {
         File[] list = root().listFiles();
         if (list == null) return;
         for (File f : list) {
+            if (f.getName().startsWith(".") && f.getName().endsWith(".backup")) {
+                File dest = new File(root(), f.getName().substring(1, f.getName().length() - 7));
+                if (!dest.exists()) {
+                    if (!f.renameTo(dest)) Log.w(TAG, "could not recover " + dest);
+                    continue;
+                }
+            }
             if (f.getName().startsWith(".")) deleteTree(f);
         }
     }

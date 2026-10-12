@@ -22,6 +22,7 @@
 #include "../vr/vr_log.h"
 #include "../src/net/net_game.h"
 #include "gevr_line_geometry.h"
+#include "gevr_mesh_visibility.h"
 #include "gevr_frame_timing.h"
 #include "gevr_hud_bounds.h"
 #include "gevr_vertex_ownership.h"
@@ -273,6 +274,7 @@ static GLuint load_bmp_texture(const char* path) {
 }
 
 extern "C" void gfx_opengl_load_mirror_logo(const char* path) {
+    gevr_mesh_settle();
     // Re-open to read dimensions from the BMP header
     FILE* f = fopen(path, "rb");
     if (!f) return;
@@ -368,6 +370,18 @@ struct ShaderProgram {
     GLint reprojVPLocation;
     GLint zTintLocation;       // GoldenEye (issue #72): gevr_zdebug.txt's depth-state tint
 
+    // GoldenEye: static meshes (gevr_static_mesh.h). A program's mesh variant
+    // (gevr_mesh_program) is the same program with a vertex shader that reads a
+    // mesh's own Vtx and takes the batch's floats as uniforms.
+    uint64_t shader_id0;
+    uint32_t shader_id1;
+    bool opt_fog, opt_grayscale, is_mesh;
+    GLint meshTintLocation, meshLitLocation, meshAmbientLocation, meshLightDirLocation, meshLightColorLocation,
+        meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshValidLocation;
+    // each array element on its own: the compiler keeps only those the shader uses
+    GLint meshNormalTexLocation, meshNormalAxisLocation, meshMPLocation, meshTexLocation[2], meshTexRotationLocation[2], meshInSelLocation[GFX_MESH_MAX_INPUTS],
+        meshInConstLocation[GFX_MESH_MAX_INPUTS];
+
 };
 
 
@@ -384,6 +398,36 @@ struct Framebuffer {
 };
 
 static std::map<pair<uint64_t, uint32_t>, struct ShaderProgram> shader_program_pool;
+// GoldenEye: the static-mesh variants, by the same key; one that failed is kept with program 0
+static std::map<pair<uint64_t, uint32_t>, struct ShaderProgram> mesh_program_pool;
+static bool s_buildMesh;          // gfx_opengl_create_and_load_new_shader makes a mesh variant
+static bool s_meshClipDistance;   // GL_EXT_clip_cull_distance: the CPU's far reject under depth clamp
+static bool s_meshBroken;         // a mesh variant failed: the CPU draws the meshes
+static GLuint s_skinPaletteBuffer; // one transient UBO; redraw uploads its saved palette
+static uint32_t s_glGeneration;   // gfx_opengl_init: buffers made in an older context are gone
+static bool s_drawElements;       // gevr_issue_draw: the bound static mesh's indices, not the vertex ring
+/* gfx_opengl_draw_mesh leaves its mesh program, vertex array, clip distance
+ * and culling bound for the next run of the same list, as the redraw replay
+ * keeps a program across its draws; switching to fast3d's program and back
+ * for each of a wide view's hundreds of runs made the driver validate every
+ * draw anew. gevr_mesh_settle() puts back what fast3d left bound, before any
+ * other drawing, program, framebuffer or vertex-array work. */
+static struct ShaderProgram* s_meshLazyBase;   // fast3d's program while a mesh one is bound
+static GLuint s_meshLazyVao;
+static int s_meshLazyCull;
+static unsigned s_meshGpuMade;                // gevr_mesh_gpu binds the ring's array when it makes one
+static void gevr_mesh_settle(void);
+// What gfx_opengl_set_uniforms last wrote to each mesh variant: a mesh draw binds
+// its variant and the frontend's program again each time, and these rarely change
+struct GevrMeshUniforms {
+    int frame, filter[2], menu, title, flat;
+    float noise, eye[8], scale, tan[2];
+};
+static std::map<const struct ShaderProgram*, GevrMeshUniforms> s_meshUniforms;
+struct GevrMeshDrawUniforms { bool valid = false; GfxMeshDrawParams params = {}; };
+static std::map<const struct ShaderProgram*, GevrMeshDrawUniforms> s_meshDrawUniforms;
+static float s_skinPaletteRows[GEVR_SKIN_BONES][12];
+static bool s_skinPaletteUploaded;
 static GLuint opengl_vbo;
 static GLuint opengl_vao;
 static bool current_depth_mask;
@@ -703,6 +747,7 @@ static bool gfx_opengl_is_multiview(void) {
 
 static void gfx_opengl_set_eye_offsets(float left_ipd, float left_asym_x, float left_hud, float left_asym_y,
                                        float right_ipd, float right_asym_x, float right_hud, float right_asym_y) {
+    gevr_mesh_settle();
     // Left eye (gl_ViewID_OVR == 0)
     s_eye_offsets[0] = left_ipd;     // vec4.x: 3D IPD
     s_eye_offsets[1] = left_asym_x;  // vec4.y: horizontal lens asymmetry
@@ -719,6 +764,7 @@ static void gfx_opengl_set_eye_offsets(float left_ipd, float left_asym_x, float 
 
 
 extern "C" void gfx_opengl_connect_multiview_fbo(GLuint fbo_id, uint32_t width, uint32_t height) {
+    gevr_mesh_settle();
     if (framebuffers.empty()) framebuffers.resize(1);
     Framebuffer& fb = framebuffers[0];
     fb.fbo = fbo_id;   // points to gmultiviewFBO
@@ -733,6 +779,7 @@ extern "C" void gfx_opengl_connect_multiview_fbo(GLuint fbo_id, uint32_t width, 
 }
 
 void gfx_opengl_init_multiview() { // VR
+    gevr_mesh_settle();
     bool found = false;
     if (gl_es) {
         GLint numExts = 0;
@@ -870,6 +917,7 @@ static void menuOverlayInit() {
 
 extern "C" void gfx_opengl_draw_mirror_menu_overlay(GLuint menuTex, const float* mvp,
                                                     int vpX, int vpY, int vpW, int vpH) {
+    gevr_mesh_settle();
     if (menuTex == 0 || mvp == NULL) return;
     menuOverlayInit();
 
@@ -977,6 +1025,7 @@ static void gfx_opengl_set_uniforms(struct ShaderProgram* prg) {
 }
 
 static void gfx_opengl_unload_shader(struct ShaderProgram* old_prg) {
+    gevr_mesh_settle();
     if (old_prg != NULL) {
         for (int i = 0; i < old_prg->num_attribs; i++) {
             if (old_prg->attrib_locations[i] >= 0) {
@@ -990,6 +1039,7 @@ static void gfx_opengl_unload_shader(struct ShaderProgram* old_prg) {
  * a program is loaded, so the current program's copy is written here too. */
 void gfx_opengl_vr_hud_full_size(bool full)
 {
+    gevr_mesh_settle();
     // Nested size scopes restore their caller's choice rather than forcing
     // the ordinary HUD size when an inner timer ends.
     static bool previous[16];
@@ -1007,12 +1057,16 @@ void gfx_opengl_vr_hud_full_size(bool full)
 }
 
 static void gfx_opengl_load_shader(struct ShaderProgram* new_prg) {
+    gevr_mesh_settle();
     GevrCpuSection timing(GEVR_TIME_SHADER_BIND);
     // if (!new_prg) return;
     s_curPrg = new_prg;
     glUseProgram(new_prg->opengl_program_id);
     gfx_opengl_vertex_array_set_attribs(new_prg);
     gfx_opengl_set_uniforms(new_prg);
+    if (new_prg->is_mesh) {
+        s_meshUniforms.erase(new_prg);   // gevr_mesh_bind writes them again
+    }
 
     gCurEyeOffsetLeftLoc  = new_prg->eyeOffsetLeftLocation;
     gCurEyeOffsetRightLoc = new_prg->eyeOffsetRightLocation;
@@ -1208,6 +1262,7 @@ gl_Position = mvPos;
 
 
 static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shader_id0, uint32_t shader_id1) {
+    gevr_mesh_settle();
     GevrCpuSection timing(GEVR_TIME_SHADER_COMPILE);
     struct CCFeatures cc_features = { 0 };
     gfx_cc_get_features(shader_id0, shader_id1, &cc_features);
@@ -1225,6 +1280,9 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     // Vertex shader
 
     vs_len += sprintf(vs_buf + vs_len, "#version %s\n", gl_glsl_version_str);
+    if (s_buildMesh && s_meshClipDistance) {
+        append_line(vs_buf, &vs_len, "#extension GL_EXT_clip_cull_distance : require");
+    }
 
 
     if (use_multiview) { // VR
@@ -1268,17 +1326,48 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "#define OUTPUT varying");
     }
 
-    append_line(vs_buf, &vs_len, "INPUT vec4 aVtxPos;");
+    if (s_buildMesh) {
+        // GoldenEye: a static mesh's Vtx (gevr_mesh_gpu) and what gfx_sp_vertex and
+        // gfx_sp_tri1 would make of it (gfx_pc.cpp gevr_mesh_params; DAB's
+        // gfx_mesh_vs_main). Below, main() makes the usual inputs of them.
+        append_line(vs_buf, &vs_len, "INPUT vec3 aMeshPos; INPUT vec3 aWorldNormal;");
+        append_line(vs_buf, &vs_len, "uniform int uNormalTex1; uniform vec3 uNormalAxis[2];");
+        append_line(vs_buf, &vs_len, "INPUT vec2 aMeshST;");
+        append_line(vs_buf, &vs_len, "INPUT vec4 aMeshColor;");
+        append_line(vs_buf, &vs_len, "uniform mat4 uMeshMP;");
+        append_line(vs_buf, &vs_len, "uniform vec4 uMeshTex[2]; uniform vec2 uMeshTexRotation[2];");
+        append_line(vs_buf, &vs_len, "uniform mat4 uMeshInSel[7];");
+        append_line(vs_buf, &vs_len, "uniform vec4 uMeshInConst[7];");
+        append_line(vs_buf, &vs_len, "INPUT vec4 aSkinWeight;");
+        append_line(vs_buf, &vs_len, "INPUT vec4 aSkinBone; INPUT vec4 aSkinTint; INPUT float aSkinUnlit; uniform int uMeshTinted;");
+        for (int i = 0; i < 4; i++) {
+            vs_len += sprintf(vs_buf + vs_len, "INPUT vec3 aSkinP%d;\nINPUT vec3 aSkinN%d;\n", i, i);
+        }
+        append_line(vs_buf, &vs_len, "layout(std140) uniform SkinPalette { vec4 uSkinRows[192]; };");
+        append_line(vs_buf, &vs_len, "uniform uvec2 uSkinValid;");
+        append_line(vs_buf, &vs_len, "uniform int uMeshLit, uMeshNumLights;");
+        append_line(vs_buf, &vs_len, "uniform vec3 uMeshAmbient, uMeshLightDir[7], uMeshLightColor[7];");
+        append_line(vs_buf, &vs_len, "uniform vec4 uMeshFog;");
+        append_line(vs_buf, &vs_len, "uniform vec4 uMeshFogParams;");
+        append_line(vs_buf, &vs_len, "void skinAdd(int b, float w, vec3 p, vec3 n, inout vec3 pos, inout vec3 norm, inout float total) {");
+        append_line(vs_buf, &vs_len, "  if (w == 0.0 || (uSkinValid[b / 32] & (1u << uint(b % 32))) == 0u) return;");
+        append_line(vs_buf, &vs_len, "  vec4 r0 = uSkinRows[b*3], r1 = uSkinRows[b*3+1], r2 = uSkinRows[b*3+2];");
+        append_line(vs_buf, &vs_len, "  pos += w * vec3(dot(r0, vec4(p,1.0)), dot(r1, vec4(p,1.0)), dot(r2, vec4(p,1.0)));");
+        append_line(vs_buf, &vs_len, "  norm += w * vec3(dot(r0.xyz,n), dot(r1.xyz,n), dot(r2.xyz,n)); total += w;");
+        append_line(vs_buf, &vs_len, "}");
+    } else {
+        append_line(vs_buf, &vs_len, "INPUT vec4 aVtxPos;");
+    }
 
     for (int i = 0; i < 2; i++) {
         if (cc_features.used_textures[i]) {
-            vs_len += sprintf(vs_buf + vs_len, "INPUT vec2 aTexCoord%d;\n", i);
+            if (!s_buildMesh) vs_len += sprintf(vs_buf + vs_len, "INPUT vec2 aTexCoord%d;\n", i);
             vs_len += sprintf(vs_buf + vs_len, "OUTPUT vec2 vTexCoord%d;\n", i);
             num_floats += 2;
         }
     }
     if (cc_features.opt_fog) {
-        append_line(vs_buf, &vs_len, "INPUT vec4 aFog;");
+        if (!s_buildMesh) append_line(vs_buf, &vs_len, "INPUT vec4 aFog;");
         append_line(vs_buf, &vs_len, "OUTPUT vec4 vFog;");
         num_floats += 4;
     }
@@ -1290,7 +1379,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     }
 
     for (int i = 0; i < cc_features.num_inputs; i++) {
-        vs_len += sprintf(vs_buf + vs_len, "INPUT vec%d aInput%d;\n", cc_features.opt_alpha ? 4 : 3,
+        if (!s_buildMesh) vs_len += sprintf(vs_buf + vs_len, "INPUT vec%d aInput%d;\n", cc_features.opt_alpha ? 4 : 3,
                           i + 1);
         vs_len += sprintf(vs_buf + vs_len, "OUTPUT vec%d vInput%d;\n",
                           cc_features.opt_alpha ? 4 : 3, i + 1);
@@ -1298,6 +1387,48 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     }
 
     append_line(vs_buf, &vs_len, "void main() {");
+    if (s_buildMesh) {
+        append_line(vs_buf, &vs_len, "    vec3 meshPos = aMeshPos, meshNormal = vec3(0.0), skinnedPos = vec3(0.0); float total = 0.0;");
+        append_line(vs_buf, &vs_len, "    vec4 meshColor = aMeshColor;");
+        for (int i = 0; i < 4; i++)
+            vs_len += sprintf(vs_buf + vs_len, "    skinAdd(int(aSkinBone[%d]), aSkinWeight[%d], aSkinP%d, aSkinN%d, skinnedPos, meshNormal, total);\n", i, i, i, i);
+        append_line(vs_buf, &vs_len, "    if (total > 0.0) {");
+        append_line(vs_buf, &vs_len, "      vec3 p = skinnedPos / total;");
+        append_line(vs_buf, &vs_len, "      meshPos = trunc(clamp(p + sign(p) * 0.5, -32768.0, 32767.0));");
+        append_line(vs_buf, &vs_len, "      float len = length(meshNormal);");
+        append_line(vs_buf, &vs_len, "      meshNormal = len > 1e-6 ? trunc(meshNormal * (127.0 / len)) : vec3(0.0);");
+        append_line(vs_buf, &vs_len, "    } else { meshNormal = aMeshColor.xyz * 255.0; meshNormal -= step(vec3(128.0), meshNormal) * 256.0; }");
+        append_line(vs_buf, &vs_len, "    if (total > 0.0 && uMeshLit == 0) meshColor.rgb = mod(meshNormal, 256.0) / 255.0;");
+        append_line(vs_buf, &vs_len, "    if (uMeshLit != 0) {");
+        append_line(vs_buf, &vs_len, "      vec3 rgb = uMeshAmbient;");
+        append_line(vs_buf, &vs_len, "      for (int i = 0; i < uMeshNumLights; i++) rgb = trunc(rgb + max(0.0, dot(meshNormal, uMeshLightDir[i]) / 127.0) * uMeshLightColor[i]);");
+        append_line(vs_buf, &vs_len, "      meshColor.rgb = min(rgb, vec3(255.0)) / 255.0;");
+        append_line(vs_buf, &vs_len, "    }");
+        append_line(vs_buf, &vs_len, "    if (uMeshTinted != 0) meshColor.rgb = aSkinUnlit > 0.0 || uMeshLit == 0 ? aSkinTint.rgb : meshColor.rgb * aSkinTint.rgb;");
+        append_line(vs_buf, &vs_len, "    vec4 aVtxPos = uMeshMP * vec4(meshPos, 1.0);");
+        if (cc_features.opt_fog) {
+            append_line(vs_buf, &vs_len, "    float fw = abs(aVtxPos.w) < 0.001 ? 0.001 : aVtxPos.w;");
+            append_line(vs_buf, &vs_len, "    float wi = fw < 0.0 ? 32767.0 : 1.0 / fw;");
+            append_line(vs_buf, &vs_len, "    vec4 aFog = vec4(uMeshFog.rgb, uMeshFogParams.z != 0.0 ? clamp((uMeshFogParams.w != 0.0 ? aVtxPos.w : aVtxPos.z * wi) * uMeshFogParams.x + uMeshFogParams.y, 0.0, 255.0) / 255.0 : uMeshFog.a);");
+        }
+        if (s_meshClipDistance) {
+            // gfx_sp_tri1 drops a triangle past the squashed far plane at all three
+            // corners; depth clamp would draw it at the far plane instead (DAB)
+            append_line(vs_buf, &vs_len, "    gl_ClipDistance[0] = (aVtxPos.w > 0.0 && aVtxPos.z * 0.3 > aVtxPos.w) ? -1.0 : 1.0e6;");
+        }
+        for (int i = 0; i < 2; i++) {
+            if (cc_features.used_textures[i]) {
+                vs_len += sprintf(vs_buf + vs_len, "    vec2 st%d = aMeshST * uMeshTex[%d].xy;\n    vec2 r%d = uMeshTexRotation[%d]; if (dot(r%d,r%d) == 0.0) r%d = vec2(1.0,0.0);\n    vec2 aTexCoord%d = vec2(r%d.x*st%d.x-r%d.y*st%d.y, r%d.y*st%d.x+r%d.x*st%d.y) + uMeshTex[%d].zw;\n", i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i);
+            }
+        }
+        if(cc_features.used_textures[1]) {
+            append_line(vs_buf,&vs_len,"    if(uNormalTex1 != 0) { vec3 n=total>0.0 ? meshNormal : aWorldNormal; float l=length(n); n=l>1e-6 ? n/l : vec3(0.0); aTexCoord1=vec2(.5)+.5*clamp(vec2(dot(n,uNormalAxis[0]),dot(n,uNormalAxis[1])),vec2(-1.0),vec2(1.0)); }");
+        }
+        for (int i = 0; i < cc_features.num_inputs; i++) {
+            vs_len += sprintf(vs_buf + vs_len, "    vec%d aInput%d = (uMeshInSel[%d] * meshColor + uMeshInConst[%d])%s;\n",
+                              cc_features.opt_alpha ? 4 : 3, i + 1, i, i, cc_features.opt_alpha ? "" : ".xyz");
+        }
+    }
     for (int i = 0; i < 2; i++) {
         if (cc_features.used_textures[i]) {
             vs_len += sprintf(vs_buf + vs_len, "    vTexCoord%d = aTexCoord%d;\n", i, i);
@@ -1441,7 +1572,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
 
         if (current_filter_mode == FILTER_THREE_POINT)
             append_line(fs_buf, &fs_len,
-                        "        lowp vec4 tex = mix(SAMPLE_TEX(t, scaled_uv), filter3point(t, scaled_uv, texSize), three_point_filter);");
+                        "        lowp vec4 tex = mix(SAMPLE_TEX(t, scaled_uv), filter3point(t, scaled_uv, texSize), float(three_point_filter));");
         else
             append_line(fs_buf, &fs_len, "        lowp vec4 tex = SAMPLE_TEX(t, scaled_uv);");
 
@@ -1455,7 +1586,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
             append_line(fs_buf, &fs_len,
                         "vec4 hookTexture2D(in sampler2D tex, in vec2 uv, in vec2 texSize, in int three_point_filter) {");
             append_line(fs_buf, &fs_len,
-                        "    return mix(SAMPLE_TEX(tex, uv), filter3point(tex, uv, texSize), three_point_filter);");
+                        "    return mix(SAMPLE_TEX(tex, uv), filter3point(tex, uv, texSize), float(three_point_filter));");
             append_line(fs_buf, &fs_len, "}");
         }
         else {
@@ -1486,6 +1617,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         }
     }
 
+    if(cc_features.opt_reflect_diffuse && cc_features.used_textures[0] && cc_features.used_textures[1])
+        append_line(fs_buf,&fs_len,"    texVal1.rgb *= texVal0.rgb;");
     append_line(fs_buf, &fs_len, cc_features.opt_alpha ? "    vec4 texel;" : "    vec3 texel;");
     for (int c = 0; c < (cc_features.opt_2cyc ? 2 : 1); c++) {
         append_str(fs_buf, &fs_len, "    texel = ");
@@ -1584,6 +1717,11 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         glGetShaderInfoLog(vertex_shader, max_length, &max_length, &error_log[0]);
         sysLogPrintf(LOG_ERROR, "Failed to compile this vertex shader (ID %llx, %x):\n%s",
                      shader_id0, shader_id1, vs_buf);
+        if (s_buildMesh) {   // GoldenEye: the CPU draws what this mesh variant would have
+            sysLogPrintf(LOG_ERROR, "%s", error_log);
+            glDeleteShader(vertex_shader);
+            return NULL;
+        }
         sysFatalError("Vertex shader compilation failed:\n%s", error_log);
     }
 
@@ -1604,6 +1742,23 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     GLuint shader_program = glCreateProgram();
     glAttachShader(shader_program, vertex_shader);
     glAttachShader(shader_program, fragment_shader);
+    if (s_buildMesh) {   // one vertex array layout for every mesh variant (gevr_mesh_gpu)
+        glBindAttribLocation(shader_program, 0, "aMeshPos");
+        glBindAttribLocation(shader_program, 1, "aMeshST");
+        glBindAttribLocation(shader_program, 2, "aMeshColor");
+        glBindAttribLocation(shader_program, 3, "aSkinWeight");
+        glBindAttribLocation(shader_program, 4, "aSkinBone");
+        glBindAttribLocation(shader_program, 13, "aSkinTint");
+        glBindAttribLocation(shader_program, 14, "aSkinUnlit");
+        glBindAttribLocation(shader_program,15,"aWorldNormal");
+        for (int i = 0; i < 4; i++) {
+            char name[32];
+            snprintf(name, sizeof(name), "aSkinP%d", i);
+            glBindAttribLocation(shader_program, 5 + i, name);
+            snprintf(name, sizeof(name), "aSkinN%d", i);
+            glBindAttribLocation(shader_program, 9 + i, name);
+        }
+    }
     glLinkProgram(shader_program);
 
     glDetachShader(shader_program, vertex_shader);
@@ -1611,9 +1766,20 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     glDeleteShader(vertex_shader);
     glDeleteShader(fragment_shader);
 
+    if (s_buildMesh) {
+        GLint linked = 0;
+        glGetProgramiv(shader_program, GL_LINK_STATUS, &linked);
+        if (!linked) {
+            sysLogPrintf(LOG_ERROR, "mesh: the static-mesh variant of %llx/%x did not link",
+                         (unsigned long long)shader_id0, shader_id1);
+            glDeleteProgram(shader_program);
+            return NULL;
+        }
+    }
+
     size_t cnt = 0;
 
-    struct ShaderProgram* prg = &shader_program_pool[make_pair(shader_id0, shader_id1)];
+    struct ShaderProgram* prg = &(s_buildMesh ? mesh_program_pool : shader_program_pool)[make_pair(shader_id0, shader_id1)];
     prg->attrib_locations[cnt] = glGetAttribLocation(shader_program, "aVtxPos");
     prg->attrib_sizes[cnt] = 4;
     ++cnt;
@@ -1653,8 +1819,42 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
     prg->used_textures[0] = cc_features.used_textures[0];
     prg->used_textures[1] = cc_features.used_textures[1];
     prg->num_floats = num_floats;
-    prg->num_attribs = cnt;
+    prg->num_attribs = s_buildMesh ? 0 : cnt;   // a mesh's attributes are its vertex array's
+    prg->shader_id0 = shader_id0;
+    prg->shader_id1 = shader_id1;
+    prg->opt_fog = cc_features.opt_fog;
+    prg->opt_grayscale = cc_features.opt_grayscale;
+    prg->is_mesh = s_buildMesh;
+    prg->meshNormalTexLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uNormalTex1") : -1;
+    prg->meshNormalAxisLocation=s_buildMesh ? glGetUniformLocation(shader_program,"uNormalAxis") : -1;
+    prg->meshMPLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshMP") : -1;
+    for (int i = 0; i < GFX_MESH_MAX_INPUTS; i++) {
+        char name[32];
+        if (i < 2) {
+            snprintf(name, sizeof(name), "uMeshTex[%d]", i);
+            prg->meshTexLocation[i] = s_buildMesh ? glGetUniformLocation(shader_program, name) : -1;
+            snprintf(name, sizeof(name), "uMeshTexRotation[%d]", i);
+            prg->meshTexRotationLocation[i] = s_buildMesh ? glGetUniformLocation(shader_program, name) : -1;
+        }
+        snprintf(name, sizeof(name), "uMeshInSel[%d]", i);
+        prg->meshInSelLocation[i] = s_buildMesh ? glGetUniformLocation(shader_program, name) : -1;
+        snprintf(name, sizeof(name), "uMeshInConst[%d]", i);
+        prg->meshInConstLocation[i] = s_buildMesh ? glGetUniformLocation(shader_program, name) : -1;
+    }
 
+    if (s_buildMesh) {
+        GLuint block = glGetUniformBlockIndex(shader_program, "SkinPalette");
+        if (block != GL_INVALID_INDEX) glUniformBlockBinding(shader_program, block, 0);
+    }
+    prg->meshLitLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshLit") : -1;
+    prg->meshTintLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshTinted") : -1;
+    prg->meshAmbientLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshAmbient") : -1;
+    prg->meshLightDirLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshLightDir[0]") : -1;
+    prg->meshLightColorLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshLightColor[0]") : -1;
+    prg->meshNumLightsLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshNumLights") : -1;
+    prg->meshFogLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFog") : -1;
+    prg->meshFogParamsLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshFogParams") : -1;
+    prg->meshValidLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uSkinValid") : -1;
     glUseProgram(shader_program);
 
     if (cc_features.used_textures[0]) {
@@ -1716,11 +1916,20 @@ static void gfx_opengl_shader_get_info(struct ShaderProgram* prg, uint8_t* num_i
 }
 
 static void gfx_opengl_clear_shaders(void) {
+    gevr_mesh_settle();
     glUseProgram(0);
     for (auto& pair : shader_program_pool) {
         glDeleteProgram(pair.second.opengl_program_id);
     }
     shader_program_pool.clear();
+    for (auto& pair : mesh_program_pool) {
+        if (pair.second.opengl_program_id != 0) {
+            glDeleteProgram(pair.second.opengl_program_id);
+        }
+    }
+    mesh_program_pool.clear();
+    s_meshUniforms.clear();
+    s_meshDrawUniforms.clear();
 
 }
 
@@ -1731,6 +1940,7 @@ static GLuint gfx_opengl_new_texture(void) {
 }
 
 static void gfx_opengl_delete_texture(uint32_t texID) {
+    gevr_mesh_settle();
     glDeleteTextures(1, &texID);
 }
 
@@ -1975,11 +2185,17 @@ struct GevrScopeDraw {
     bool alpha[2];
     bool decalDepth;
     float decalPull;
+    uint32_t mesh; // 1 + scope mesh record, zero for the vertex ring
     uint8_t mask;   // which scopes see it: bit (1 << hand)
 };
 
 #define GEVR_SCOPE_RES 512
 static std::vector<GevrScopeDraw> s_scopeDraws;
+struct GevrScopeMesh { GLuint vao; GfxMeshDrawParams params; };
+static std::vector<GevrScopeMesh> s_scopeMeshes;
+static void gevr_mesh_uniforms(const ShaderProgram*, const GfxMeshDrawParams*);
+static void gevr_mesh_clip(bool);
+static void gevr_mesh_cull(int);
 static bool s_scopeRec;
 static bool s_scopeTaken[2], s_scopeDrawn[2];   // per hand: recording this frame / image ready
 static uint8_t s_scopeOnlyMask;   // VR_SCOPE_ONLY: kept for that scope alone, not drawn to the eyes
@@ -1993,11 +2209,13 @@ static bool gevr_scope_any_taken(void)
 
 void gfx_vr_scope_record(bool on, bool invert_y)
 {
+    gevr_mesh_settle();
     s_scopeRec = false;
     if (!on) {
         return;
     }
     s_scopeDraws.clear();
+    s_scopeMeshes.clear();
     s_scopeTaken[0] = s_scopeTaken[1] = false;
     // needs the mapped ring: without it every draw overwrites the last one's vertices
     if (!gevrScopeOn || s_pmPtr == NULL || gVrFlatPass) {
@@ -2048,10 +2266,67 @@ static bool gevr_scope_sees(int hand, const float* v, size_t len, size_t tris)
     return false;
 }
 
+static uint8_t gevr_scope_mesh_mask(const float* mp, const float* lo, const float* hi)
+{
+    uint8_t mask = 0;
+    for (int h = 0; h < 2; h++) {
+        if (!s_scopeTaken[h]) continue;
+        float scopeMP[16];
+        const float* vp = s_scopeVP[h];
+        for (int c = 0; c < 4; c++) {
+            const float view[4] = {mp[c*4] / s_scopeHeadP[h][0], mp[c*4+1] / s_scopeHeadP[h][1],
+                                   -mp[c*4+3], c == 3 ? 1.0f : 0.0f};
+            for (int r = 0; r < 4; r++)
+                scopeMP[c*4+r] = vp[r]*view[0] + vp[4+r]*view[1] + vp[8+r]*view[2] + vp[12+r]*view[3];
+        }
+        if (gevrMeshBoundsVisible(lo, hi, scopeMP, 0, 0, 0, 0)) mask |= 1 << h;
+    }
+    return mask;
+}
+
+static bool gfx_opengl_scope_sees_mesh(const float* mp, const float* lo, const float* hi)
+{
+    return s_scopeRec && gevr_scope_mesh_mask(mp, lo, hi) != 0;
+}
+
 // gunfire.c gunDrawSight: a hand's sight drawn for its scope alone, after the world (-1 ends)
 void gfx_vr_scope_only(int hand)
 {
+    gevr_mesh_settle();
     s_scopeOnlyMask = (hand == 0 || hand == 1) && s_scopeTaken[hand] ? (uint8_t)(1 << hand) : 0;
+}
+
+static GevrScopeDraw gevr_scope_draw_state(uint8_t mask, GLint first, GLsizei count)
+{
+    GevrScopeDraw d = {};
+    d.mask = mask;
+    d.prg = s_curPrg;
+    d.first = first;
+    d.count = count;
+    d.lineMode = get_debug_VisCVG_flag() != 0;
+    for (int t = 0; t < 2; t++) {
+        d.tex[t] = s_boundTex[t];
+        d.linear[t] = current_textures_linear_filter[t];
+    }
+    memcpy(d.depth, s_depthArgs, sizeof(d.depth));
+    d.zmode = s_depthZmode;
+    d.alpha[0] = s_alphaArgs[0];
+    d.alpha[1] = s_alphaArgs[1];
+    d.decalDepth = gevr_decal_writes_depth();
+    d.decalPull = s_drawDecalPull;
+    return d;
+}
+
+static void gevr_scope_keep_mesh(GLuint vao, GLint first, GLsizei count, const GfxMeshDrawParams* params)
+{
+    if (!s_scopeRec) return;
+    const uint8_t mask = params->has_bounds ? gevr_scope_mesh_mask(params->mp, params->lo, params->hi)
+                                           : (s_scopeTaken[0] ? 1 : 0) | (s_scopeTaken[1] ? 2 : 0);
+    if (!mask) return;
+    GevrScopeDraw d = gevr_scope_draw_state(mask, first, count);
+    s_scopeMeshes.push_back({vao, *params});
+    d.mesh = (uint32_t)s_scopeMeshes.size();
+    s_scopeDraws.push_back(d);
 }
 
 static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_len, size_t buf_vbo_num_tris)
@@ -2071,23 +2346,7 @@ static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_le
             return;
         }
     }
-    GevrScopeDraw d;
-    d.mask = mask;
-    d.prg = s_curPrg;
-    d.first = first;
-    d.count = (GLsizei)(3 * buf_vbo_num_tris);
-    d.lineMode = get_debug_VisCVG_flag() != 0;
-    for (int t = 0; t < 2; t++) {
-        d.tex[t] = s_boundTex[t];
-        d.linear[t] = current_textures_linear_filter[t];
-    }
-    memcpy(d.depth, s_depthArgs, sizeof(d.depth));
-    d.zmode = s_depthZmode;
-    d.alpha[0] = s_alphaArgs[0];
-    d.alpha[1] = s_alphaArgs[1];
-    d.decalDepth = gevr_decal_writes_depth();
-    d.decalPull = s_drawDecalPull;
-    s_scopeDraws.push_back(d);
+    s_scopeDraws.push_back(gevr_scope_draw_state(mask, first, (GLsizei)(3 * buf_vbo_num_tris)));
 }
 
 /* a hand's scope target, once (gfx_vr_scope_prepare makes both ahead of use) */
@@ -2128,6 +2387,7 @@ static void gevr_scope_make_target(int hand)
  */
 void gfx_vr_scope_prepare(void)
 {
+    gevr_mesh_settle();
     gevr_scope_make_target(0);
     gevr_scope_make_target(1);
 }
@@ -2136,6 +2396,7 @@ void gfx_vr_scope_prepare(void)
 // hand's scope. The GL state is saved and put back once around both passes.
 void gfx_vr_scope_render(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_SCOPE);
     s_scopeRec = false;
     s_scopeOnlyMask = 0;
@@ -2205,6 +2466,10 @@ void gfx_vr_scope_render(void)
                 continue;
             }
             drawn[hand]++;
+            glBindVertexArray(d.mesh ? s_scopeMeshes[d.mesh - 1].vao : opengl_vao);
+            s_drawElements = d.mesh != 0;
+            gevr_mesh_clip(d.mesh != 0);
+            if (!d.mesh) gevr_mesh_cull(0);
             if (last == NULL || d.prg != bound) {
                 if (last != NULL || d.prg != bound) {
                     gfx_opengl_unload_shader(bound);
@@ -2234,6 +2499,13 @@ void gfx_vr_scope_render(void)
             if (gevrZDebugMode == 1) gevr_zdebug_apply(d.prg, true);
             if (last == NULL || d.alpha[0] != last->alpha[0] || d.alpha[1] != last->alpha[1]) {
                 gfx_opengl_set_use_alpha(d.alpha[0], d.alpha[1]);
+            }
+            if (d.mesh) {
+                const GfxMeshDrawParams* params = &s_scopeMeshes[d.mesh - 1].params;
+                for (GLuint a = 0; a < (params->skinned ? 15u : 3u); a++) glEnableVertexAttribArray(a);
+                gevr_mesh_uniforms(d.prg, params);
+                // Scope VP uses an upright target, undo the eye target winding flip.
+                gevr_mesh_cull(params->invert_y ? -params->cull : params->cull);
             }
             gevr_issue_draw(d.first, d.count, false, d.decalDepth, d.decalPull, d.lineMode);
             last = &d;
@@ -2272,7 +2544,7 @@ void gfx_vr_scope_render(void)
                              s_scopeHeadP[hand][0], s_scopeHeadP[hand][1]);
                 unsigned k = 0;
                 for (const GevrScopeDraw& d : s_scopeDraws) {
-                    if (!(d.mask & (1 << hand)) || k >= 4) continue;
+                    if (d.mesh || !(d.mask & (1 << hand)) || k >= 4) continue;
                     const float* v = (const float*)(s_pmPtr + (size_t)d.first * d.prg->num_floats * sizeof(float));
                     const float cx = v[0] / s_scopeHeadP[hand][0], cy = v[1] / s_scopeHeadP[hand][1], cz = -v[3];
                     const float* M = s_scopeVP[hand];
@@ -2286,6 +2558,10 @@ void gfx_vr_scope_render(void)
         }
     }
 
+    s_drawElements = false;
+    gevr_mesh_clip(false);
+    gevr_mesh_cull(0);
+    glBindVertexArray(opengl_vao);
     // the programs back to the eye pass, and the state as fast3d left it
     for (struct ShaderProgram* p : touched) {
         if (p->scopeLocation >= 0) {
@@ -2336,6 +2612,7 @@ void gfx_vr_scope_render(void)
                      (unsigned)s_scopeDraws.size(), drawn[0], drawn[1]);
     }
     s_scopeDraws.clear();
+    s_scopeMeshes.clear();
 }
 
 // vr_openxr.cpp: this game frame's scope image for a hand, or 0 when there is none
@@ -2364,6 +2641,7 @@ static void gevr_eye_present_draw(void) {
 }
 
 static void gfx_opengl_draw_triangles(float buf_vbo[], size_t buf_vbo_len, size_t buf_vbo_num_tris) {
+    gevr_mesh_settle();
     GevrCpuSection timing(GEVR_TIME_DRAW_BATCH);
     gevrFrameTimingCounters(1, 3*buf_vbo_num_tris, 0, 0, 0, 0);
 
@@ -2510,6 +2788,16 @@ static void gevr_draw_world_lines(GLint first, GLsizei count) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,(GLuint)oldElements);
 }
 
+/* the draw's triangles: from the vertex ring, or the bound static mesh's indices (gfx_opengl_draw_mesh) */
+static void gevr_draw_range(GLint first, GLsizei count)
+{
+    if (s_drawElements) {
+        glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, (const void*)((uintptr_t)first * sizeof(uint32_t)));
+    } else {
+        glDrawArrays(GL_TRIANGLES, first, count);
+    }
+}
+
 static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalDepth, float decalPull, bool lineMode)
 {
     GevrCpuSection timing(GEVR_TIME_DRAW_ISSUE);
@@ -2524,7 +2812,7 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
          * on the RDP (Frigate's hull "06": shadow, then face).
          */
         gevr_set_decal_bias(gfx_decal_proj_z * gevr_room_decal_reach());
-        glDrawArrays(GL_TRIANGLES, first, count);
+        gevr_draw_range(first, count);
         gevr_set_decal_bias(0.0f);
         s_uniCacheValid = false;   /* the pass wrote the bias */
         return;
@@ -2575,7 +2863,7 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
         gevr_set_decal_bias(-gfx_decal_proj_z * bandD);   // pushed away
         glStencilFunc(GL_ALWAYS, 1, 0xff);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-        glDrawArrays(GL_TRIANGLES, first, count);
+        gevr_draw_range(first, count);
 
         glDepthFunc(GL_LEQUAL);
         gevr_set_decal_bias(gfx_decal_proj_z * bandD);   // pulled near
@@ -2586,7 +2874,7 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
         glDepthMask(prevDepthMask);
         glPolygonOffset(-2.0f, -2.0f);
         glStencilOp(GL_KEEP, GL_KEEP, GL_KEEP);
-        glDrawArrays(GL_TRIANGLES, first, count);
+        gevr_draw_range(first, count);
 
         /* Clear the marks: same push as the marking pass, so the same pixels
          * are covered; depth and colour untouched. */
@@ -2597,7 +2885,7 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
         gevr_set_decal_bias(-gfx_decal_proj_z * bandD);
         glStencilFunc(GL_ALWAYS, 0, 0xff);
         glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
-        glDrawArrays(GL_TRIANGLES, first, count);
+        gevr_draw_range(first, count);
         glDepthFunc(GL_LEQUAL);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDepthMask(prevDepthMask);
@@ -2613,7 +2901,7 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
     if (decalDepth) {
         if (decalPull != 0.0f) gevr_set_decal_bias(gfx_decal_proj_z * decalPull);
         if (!current_depth_mask) glDepthMask(GL_TRUE);
-        glDrawArrays(GL_TRIANGLES, first, count);
+        gevr_draw_range(first, count);
         if (!current_depth_mask) glDepthMask(GL_FALSE);
         if (decalPull != 0.0f) {
             gevr_set_decal_bias(0.0f);
@@ -2622,7 +2910,7 @@ static void gevr_issue_draw(GLint first, GLsizei count, bool decalZ, bool decalD
         return;
     }
 
-    glDrawArrays(GL_TRIANGLES, first, count);
+    gevr_draw_range(first, count);
     gevr_opaque_depth_after_blend(first, count);
 
 }
@@ -2639,7 +2927,7 @@ static void gevr_opaque_depth_after_blend(GLint first, GLsizei count)
     glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
     glDepthMask(GL_TRUE);
     glUniform1i(s_curPrg->opaque_depth_pass_location, 1);
-    glDrawArrays(GL_TRIANGLES, first, count);
+    gevr_draw_range(first, count);
     glUniform1i(s_curPrg->opaque_depth_pass_location, 0);
     glDepthMask(GL_FALSE);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -2683,16 +2971,25 @@ struct GevrEyeDraw {
     int8_t hand;       // the controller it follows (gunfire.c gevrHandTag), 2 the body, or -1: the world
     GLint viewport[4];
     GLint scissor[4];
+    uint32_t mesh;     // a static mesh's draw: 1 + its s_eyeMeshes entry; 0 the vertex ring
 };
 
 static std::vector<GevrEyeDraw> s_eyeDraws;
+struct GevrEyeMesh {
+    GLuint vao;
+    struct GfxMeshDrawParams params;
+};
+static std::vector<GevrEyeMesh> s_eyeMeshes;
+static uint32_t s_eyeKeepMesh;   // gfx_opengl_draw_mesh: the draw gevr_eye_keep keeps
 static void gevr_eye_proj_times(const float* delta, float M[16]);
 
 // gfx_pc.cpp gfx_run, around the stereo eye pass
 void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* presentation)
 {
+    gevr_mesh_settle();
     if (on) {
         s_eyeDraws.clear();
+        s_eyeMeshes.clear();
         s_eyeReady = false;
         s_eyeHand = -1;
         s_eyePresentationPrograms.clear();
@@ -2723,6 +3020,7 @@ void gfx_vr_eye_record(bool on, const float* proj, bool invert_y, const float* p
 // gfx_pc.cpp: VR_HAND_DRAW, what follows a controller, 2 the body (gevr_bodyslots.c), -1 the world again
 void gfx_vr_eye_hand(int ctrl)
 {
+    gevr_mesh_settle();
     s_eyeHand = (ctrl >= 0 && ctrl <= 2) ? ctrl : -1;
 }
 
@@ -2757,6 +3055,7 @@ static void gevr_eye_keep(GLint first, GLsizei count, bool lineMode)
     d.hand = (int8_t)s_eyeHand;
     memcpy(d.viewport, s_curViewport, sizeof(d.viewport));
     memcpy(d.scissor, s_curScissor, sizeof(d.scissor));
+    d.mesh = s_eyeKeepMesh;
     s_eyeDraws.push_back(d);
 }
 
@@ -2790,8 +3089,125 @@ static void gevr_eye_proj_times(const float* delta, float M[16])
  * controller tracking not as smooth). body: what sits on the body (the body
  * slots' weapons), which goes with the head's position but not its turn.
  */
+/* GoldenEye: static meshes (gfx_opengl_draw_mesh) - the batch's floats for the bound mesh variant */
+static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct GfxMeshDrawParams* p)
+{
+    const bool made = s_skinPaletteBuffer == 0;
+    if (made) glGenBuffers(1, &s_skinPaletteBuffer);
+    // Keep binding explicitly: other renderers may use the UBO target/binding.
+    glBindBuffer(GL_UNIFORM_BUFFER, s_skinPaletteBuffer);
+    if (made || (p->skinned && (!s_skinPaletteUploaded ||
+        memcmp(s_skinPaletteRows, p->palette.rows, sizeof(s_skinPaletteRows)) != 0))) {
+        glBufferData(GL_UNIFORM_BUFFER, sizeof(p->palette.rows), p->palette.rows, GL_STREAM_DRAW);
+        memcpy(s_skinPaletteRows, p->palette.rows, sizeof(s_skinPaletteRows));
+        s_skinPaletteUploaded = true;
+    }
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, s_skinPaletteBuffer);
+    // Uniform values belong to each mesh program. Capture/replay supplies owned
+    // parameters; comparing values avoids repeatedly uploading the same room,
+    // instance palette and lighting once for every material draw.
+    auto &cache = s_meshDrawUniforms[prg];
+    const auto &old = cache.params;
+    auto changed = [&](const auto &a, const auto &b) { return !cache.valid || memcmp(&a,&b,sizeof(a)) != 0; };
+    if (prg->meshValidLocation >= 0 && changed(p->palette.valid,old.palette.valid)) glUniform2uiv(prg->meshValidLocation, 1, p->palette.valid);
+    if (prg->meshLitLocation >= 0 && changed(p->lit,old.lit)) glUniform1i(prg->meshLitLocation, p->lit);
+    if (prg->meshTintLocation >= 0 && changed(p->authored_color,old.authored_color)) glUniform1i(prg->meshTintLocation, p->authored_color);
+    if (prg->meshAmbientLocation >= 0 && changed(p->ambient,old.ambient)) glUniform3fv(prg->meshAmbientLocation, 1, p->ambient);
+    if (prg->meshNumLightsLocation >= 0 && changed(p->num_lights,old.num_lights)) glUniform1i(prg->meshNumLightsLocation, p->num_lights);
+    if (p->num_lights) {
+        const bool more = p->num_lights > old.num_lights;
+        if (prg->meshLightDirLocation >= 0 && (more || changed(p->light_dir,old.light_dir))) glUniform3fv(prg->meshLightDirLocation, p->num_lights, &p->light_dir[0][0]);
+        if (prg->meshLightColorLocation >= 0 && (more || changed(p->light_color,old.light_color))) glUniform3fv(prg->meshLightColorLocation, p->num_lights, &p->light_color[0][0]);
+    }
+    if (prg->meshFogLocation >= 0 && changed(p->fog,old.fog)) glUniform4fv(prg->meshFogLocation, 1, p->fog);
+    if (prg->meshFogParamsLocation >= 0 && (changed(p->fog_mul,old.fog_mul) || changed(p->fog_offset,old.fog_offset) ||
+        changed(p->fog_enabled,old.fog_enabled) || changed(p->fog_linear,old.fog_linear)))
+        glUniform4f(prg->meshFogParamsLocation, p->fog_mul, p->fog_offset, p->fog_enabled, p->fog_linear);
+    if(prg->meshNormalTexLocation>=0 && changed(p->normal_tex1,old.normal_tex1))
+        glUniform1i(prg->meshNormalTexLocation,p->normal_tex1);
+    if(prg->meshNormalAxisLocation>=0 && p->normal_tex1 && (!cache.valid || !old.normal_tex1 || changed(p->normal_axis,old.normal_axis)))
+        glUniform3fv(prg->meshNormalAxisLocation,2,&p->normal_axis[0][0]);
+    if (prg->meshMPLocation >= 0 && changed(p->mp,old.mp)) glUniformMatrix4fv(prg->meshMPLocation, 1, GL_FALSE, p->mp);
+    for (int t = 0; t < 2; t++) {
+        if (prg->meshTexLocation[t] >= 0 && changed(p->tex[t],old.tex[t])) glUniform4fv(prg->meshTexLocation[t], 1, p->tex[t]);
+        if (prg->meshTexRotationLocation[t] >= 0 && changed(p->tex_rotation[t],old.tex_rotation[t])) {
+            const float *r = p->tex_rotation[t];
+            glUniform2f(prg->meshTexRotationLocation[t], r[0] == 0 && r[1] == 0 ? 1 : r[0], r[1]);
+        }
+    }
+    for (int j = 0; j < p->num_inputs && j < GFX_MESH_MAX_INPUTS; j++) {
+        const bool more = j >= old.num_inputs;
+        if (prg->meshInSelLocation[j] >= 0 && (more || changed(p->in_sel[j],old.in_sel[j]))) glUniformMatrix4fv(prg->meshInSelLocation[j], 1, GL_FALSE, p->in_sel[j]);
+        if (prg->meshInConstLocation[j] >= 0 && (more || changed(p->in_const[j],old.in_const[j]))) glUniform4fv(prg->meshInConstLocation[j], 1, p->in_const[j]);
+    }
+    // The shared UBO owns its own palette snapshot; only validity bits are
+    // uniforms. Avoid copying all 64 matrices into every program's cache.
+    memcpy(&cache.params, p, offsetof(GfxMeshDrawParams, palette));
+    memcpy(cache.params.palette.valid, p->palette.valid, sizeof(p->palette.valid));
+    cache.valid = true;
+}
+
+/*
+ * gfx_sp_tri1's far reject while a mesh variant draws: a triangle past the
+ * squashed far plane at all three corners is dropped on the CPU, and depth
+ * clamp would draw it at the far plane. With clip distances the shader drops
+ * it (DAB's way); without them depth clamp is off for the draw, so what lies
+ * past that plane, 3.3 times the game's far distance, is clipped instead.
+ */
+static void gevr_mesh_clip(bool on)
+{
+    if (s_meshClipDistance) {
+        if (on) glEnable(GL_CLIP_DISTANCE0); else glDisable(GL_CLIP_DISTANCE0);
+    } else if (GLAD_GL_ARB_depth_clamp) {
+        if (on) glDisable(GL_DEPTH_CLAMP); else glEnable(GL_DEPTH_CLAMP);
+    }
+}
+
+static void gevr_mesh_cull(int mode)
+{
+    if (!mode) { glDisable(GL_CULL_FACE); return; }
+    glEnable(GL_CULL_FACE);
+    glFrontFace(mode < 0 ? GL_CW : GL_CCW);
+    glCullFace(abs(mode) == 1 ? GL_BACK : GL_FRONT);
+}
+
+/* The redraw: a mesh draw binds its own vertex array before its program, so the
+ * vertex ring's attributes are never set on it; back to the ring's after. */
+static bool s_replayMesh;
+static void gevr_eye_replay_done(void)
+{
+    if (s_replayMesh) {
+        glBindVertexArray(opengl_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+        gevr_mesh_clip(false);
+        gevr_mesh_cull(0);
+        s_replayMesh = false;
+        s_drawElements = false;
+    }
+}
+static void gevr_eye_replay_vao(const GevrEyeDraw& d)
+{
+    if (d.mesh == 0) {
+        gevr_eye_replay_done();
+        return;
+    }
+    glBindVertexArray(s_eyeMeshes[d.mesh - 1].vao);
+    if (!s_replayMesh) gevr_mesh_clip(true);
+    s_replayMesh = true;
+    s_drawElements = true;
+}
+static void gevr_eye_replay_mesh(const GevrEyeDraw& d)
+{
+    if (d.mesh == 0) return;
+    // unloading the program before may have disabled these on the bound array
+    for (GLuint a = 0; a < (s_eyeMeshes[d.mesh - 1].params.skinned ? 15u : 3u); a++) glEnableVertexAttribArray(a);
+    gevr_mesh_uniforms(d.prg, &s_eyeMeshes[d.mesh - 1].params);
+    gevr_mesh_cull(s_eyeMeshes[d.mesh - 1].params.cull);
+}
+
 void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand1, const float* body)
 {
+    gevr_mesh_settle();
     if (!s_eyeReady) {
         return;
     }
@@ -2845,6 +3261,7 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     bool haveTexture[2] = {};
     int replayFilter[2] = { -1, -1 };
     for (const GevrEyeDraw& d : s_eyeDraws) {
+        gevr_eye_replay_vao(d);
         if (last == NULL || d.prg != bound) {
             if (last != NULL || d.prg != bound) {
                 gfx_opengl_unload_shader(bound);
@@ -2896,9 +3313,11 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
         if (last == NULL || memcmp(d.scissor, last->scissor, sizeof(d.scissor)) != 0) {
             glScissor(d.scissor[0], d.scissor[1], d.scissor[2], d.scissor[3]);
         }
+        gevr_eye_replay_mesh(d);
         gevr_issue_draw(d.first, d.count, d.decalZ, d.decalDepth, d.decalPull, d.lineMode);
         last = &d;
     }
+    gevr_eye_replay_done();
 
     // the programs back to the eye pass, and the state as fast3d left it
     for (struct ShaderProgram* p : touched) {
@@ -2939,6 +3358,252 @@ void gfx_vr_eye_replay(const float* delta, const float* hand0, const float* hand
     gfx_opengl_set_scissor(savedScissor[0], savedScissor[1], savedScissor[2], savedScissor[3]);
     glBindVertexArray((GLuint)prevVao);
     s_uniCacheValid = false;
+}
+
+/*
+ * GoldenEye: static meshes (gevr_static_mesh.h; DAB's gfx_opengl_mesh_create
+ * and gfx_opengl_mesh_draw, port/licenses/dabs-mod.txt). A mesh's Vtx go into
+ * buffers once, with a vertex array of their own: position and s, t as shorts,
+ * the colour as normalised bytes, where every mesh variant binds them.
+ */
+struct GevrMeshGpu {
+    GLuint vao, vbo, ibo;
+    uint32_t generation;
+};
+
+static bool gevr_mesh_supported(void)
+{
+    return use_multiview && gl_es && GLVersion.major >= 3 && opengl_vao != 0 && !s_meshBroken;
+}
+
+static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t num_vertices,
+                                  const uint32_t* indices, uint32_t num_indices, bool skinned, bool world)
+{
+    GevrMeshGpu* g = (GevrMeshGpu*)*slot;
+    if (g != NULL && g->generation != s_glGeneration) {
+        delete g;   // made in a context that is gone, and its names with it
+        g = NULL;
+        *slot = NULL;
+    }
+    if (g != NULL) {
+        return g;
+    }
+    g = new GevrMeshGpu();
+    s_meshGpuMade++;
+    g->generation = s_glGeneration;
+    glGenVertexArrays(1, &g->vao);
+    glGenBuffers(1, &g->vbo);
+    glGenBuffers(1, &g->ibo);
+    glBindVertexArray(g->vao);
+    glBindBuffer(GL_ARRAY_BUFFER, g->vbo);
+    const GLsizei stride = skinned ? sizeof(GevrSkinVertex) : world ? sizeof(GevrWorldVertex) : 16;
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)num_vertices * stride, vertices, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, world ? GL_FLOAT : GL_SHORT, GL_FALSE, stride, (const void*)0);            // Vtx ob
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_SHORT, GL_FALSE, stride, (const void*)(world ? offsetof(GevrWorldVertex,tc) : 8));            // Vtx tc
+    glEnableVertexAttribArray(2);
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (const void*)(world ? offsetof(GevrWorldVertex,rgba) : 12));    // Vtx cn
+    if(world) {
+        glEnableVertexAttribArray(15);
+        glVertexAttribPointer(15,3,GL_FLOAT,GL_FALSE,stride,(const void*)offsetof(GevrWorldVertex,normal));
+    }
+    if (skinned) {
+        glEnableVertexAttribArray(13);
+        glVertexAttribPointer(13,4,GL_UNSIGNED_BYTE,GL_TRUE,stride,(const void*)offsetof(GevrSkinVertex,tint));
+        glEnableVertexAttribArray(14);
+        glVertexAttribPointer(14,1,GL_UNSIGNED_BYTE,GL_FALSE,stride,(const void*)(offsetof(GevrSkinVertex,tint)+4));
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void*)offsetof(GevrSkinVertex, weight));
+        glEnableVertexAttribArray(4);
+        glVertexAttribPointer(4, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void*)offsetof(GevrSkinVertex, bone));
+        for (int i = 0; i < 4; i++) {
+            glEnableVertexAttribArray(5 + i);
+            glVertexAttribPointer(5 + i, 3, GL_FLOAT, GL_FALSE, stride, (const void*)(offsetof(GevrSkinVertex, p) + i * 3 * sizeof(float)));
+            glEnableVertexAttribArray(9 + i);
+            glVertexAttribPointer(9 + i, 3, GL_FLOAT, GL_FALSE, stride, (const void*)(offsetof(GevrSkinVertex, n) + i * 3 * sizeof(float)));
+        }
+    }
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, g->ibo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)num_indices * sizeof(uint32_t), indices, GL_STATIC_DRAW);
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    *slot = g;
+    return g;
+}
+
+static void gfx_opengl_delete_mesh(void* gpu)
+{
+    gevr_mesh_settle();
+    GevrMeshGpu* g = (GevrMeshGpu*)gpu;
+    if (g == NULL) {
+        return;
+    }
+    if (g->generation == s_glGeneration) {
+        glDeleteVertexArrays(1, &g->vao);
+        glDeleteBuffers(1, &g->vbo);
+        glDeleteBuffers(1, &g->ibo);
+        s_eyeReady = false;   // the redraw may still name its vertex array
+    }
+    delete g;
+}
+
+/* a mesh variant, its gfx_opengl_set_uniforms written only when they changed */
+static void gevr_mesh_refresh(struct ShaderProgram* mp);
+static void gevr_mesh_bind(struct ShaderProgram* mp)
+{
+    s_curPrg = mp;
+    glUseProgram(mp->opengl_program_id);
+    gCurEyeOffsetLeftLoc = mp->eyeOffsetLeftLocation;
+    gCurEyeOffsetRightLoc = mp->eyeOffsetRightLocation;
+    gCurVrFlatLoc = mp->vrFlatLocation;
+    gCurIsMenuLoc = mp->isMenuLocation;
+    gCurDecalBiasLoc = mp->decalBiasLocation;
+    s_uniCacheValid = false;
+    gevr_mesh_refresh(mp);
+}
+
+/* the frontend-wide uniforms a mesh program shares (filters, menu, eyes) */
+static void gevr_mesh_refresh(struct ShaderProgram* mp)
+{
+    GevrMeshUniforms now;
+    memset(&now, 0, sizeof(now));
+    now.frame = (int)frame_count;
+    now.filter[0] = current_textures_linear_filter[0];
+    now.filter[1] = current_textures_linear_filter[1];
+    now.menu = vr_dl_is_pause_or_menu ? 1 : 0;
+    now.title = VrIsTitleLegal ? 1 : 0;
+    now.flat = gVrFlatPass ? 1 : 0;
+    now.noise = current_noise_scale;
+    memcpy(now.eye, s_eye_offsets, sizeof(now.eye));
+    now.scale = vr_world_scale;
+    now.tan[0] = g_eyeTanHalfFov[0];
+    now.tan[1] = g_eyeTanHalfFov[1];
+    auto it = s_meshUniforms.find(mp);
+    if (it == s_meshUniforms.end() || memcmp(&it->second, &now, sizeof(now)) != 0) {
+        gfx_opengl_set_uniforms(mp);
+        s_meshUniforms[mp] = now;
+    }
+}
+
+/* the frontend's program again, with the uniforms it had (they are its own) */
+static void gevr_mesh_rebind(struct ShaderProgram* base)
+{
+    s_curPrg = base;
+    glUseProgram(base->opengl_program_id);
+    gCurEyeOffsetLeftLoc = base->eyeOffsetLeftLocation;
+    gCurEyeOffsetRightLoc = base->eyeOffsetRightLocation;
+    gCurVrFlatLoc = base->vrFlatLocation;
+    gCurIsMenuLoc = base->isMenuLocation;
+    gCurDecalBiasLoc = base->decalBiasLocation;
+    s_uniCacheValid = false;
+}
+
+static void gevr_mesh_settle(void)
+{
+    struct ShaderProgram* base = s_meshLazyBase;
+    if (base == NULL) return;
+    s_meshLazyBase = NULL;
+    gevr_mesh_clip(false);
+    gevr_mesh_cull(0);
+    glBindVertexArray(opengl_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, opengl_vbo);
+    gevr_mesh_rebind(base);
+}
+
+/* gfx_pc.cpp, at the end of a mesh's list: nothing else leaves it bound */
+extern "C" void gfx_opengl_mesh_settle(void)
+{
+    gevr_mesh_settle();
+}
+
+static struct ShaderProgram* gevr_mesh_program(struct ShaderProgram* base)
+{
+    const pair<uint64_t, uint32_t> key = make_pair(base->shader_id0, base->shader_id1);
+    auto it = mesh_program_pool.find(key);
+    if (it != mesh_program_pool.end()) {
+        return it->second.opengl_program_id != 0 ? &it->second : NULL;
+    }
+    s_buildMesh = true;
+    struct ShaderProgram* mp = gfx_opengl_create_and_load_new_shader(base->shader_id0, base->shader_id1);
+    s_buildMesh = false;
+    if (mp == NULL) {
+        mesh_program_pool[key].opengl_program_id = 0;   // not again
+        s_meshBroken = true;
+        sysLogPrintf(LOG_WARNING, "mesh: no static-mesh shader for %llx/%x; the CPU draws the meshes",
+                     (unsigned long long)base->shader_id0, base->shader_id1);
+    }
+    return mp;
+}
+
+/*
+ * One run of a static mesh with the state fast3d set for it (gfx_pc.cpp
+ * gevr_mesh_draw_run): what gfx_opengl_draw_triangles does for a batch, from
+ * the mesh's buffers through its program's mesh variant. false where only the
+ * vertex ring will do: scope-only sights, HUD/menu captures and line mode.
+ * World scope captures retain the mesh VAO and this draw's parameters.
+ */
+static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_vertices, const uint32_t* indices,
+                                 uint32_t num_indices, uint32_t first, uint32_t count,
+                                 const struct GfxMeshDrawParams* p)
+{
+    // fast3d's program: the one bound, or the one put back when the run before settles
+    struct ShaderProgram* base = s_meshLazyBase != NULL ? s_meshLazyBase : s_curPrg;
+    if (!gevr_mesh_supported() || base == NULL || base->is_mesh || base->opt_grayscale ||
+        p->num_inputs != base->num_inputs || s_scopeOnlyMask || gForceFlatShaderForMenu ||
+        vr_dl_is_pause_or_menu || get_debug_VisCVG_flag()) {
+        gevr_mesh_settle();
+        return false;
+    }
+    if (mesh_program_pool.find(make_pair(base->shader_id0, base->shader_id1)) == mesh_program_pool.end()) {
+        gevr_mesh_settle();   // building one binds it
+    }
+    const unsigned made = s_meshGpuMade;
+    GevrMeshGpu* g = gevr_mesh_gpu(gpu, vertices, num_vertices, indices, num_indices, p->skinned, p->world_vertices);
+    struct ShaderProgram* mp = gevr_mesh_program(base);
+    if (mp == NULL) {
+        if (s_meshLazyBase != NULL) gevr_mesh_settle();   // a program known broken: nothing was built
+        else gevr_mesh_rebind(base);   // building it bound it
+        return false;
+    }
+    GevrCpuSection timing(GEVR_TIME_DRAW_BATCH);
+    gevrFrameTimingCounters(1, count, 0, 0, 0, 0);
+    // The run before left its program, array, clip and culling bound (made: a
+    // new mesh's buffers went up since, with the ring's array bound after).
+    const bool kept = s_meshLazyBase != NULL;
+    if (!kept || s_curPrg != mp) {
+        gevr_mesh_bind(mp);
+    } else {
+        gevr_mesh_refresh(mp);
+    }
+    gevr_mesh_uniforms(mp, p);
+    // gfx_opengl_draw_triangles' per-draw uniforms, for this world draw
+    gevr_set_decal_bias((s_isDecal && s_decalMode == 2) ? gfx_decal_proj_z * s_decalA : 0.0f);
+    if (gevrZDebugMode != 0) {
+        s_zDebugCount[s_zDebugClass]++;
+    }
+    if (mp->zTintLocation >= 0) {
+        glUniform4fv(mp->zTintLocation, 1, s_zDebugTints[gevrZDebugMode == 1 ? s_zDebugClass : 5]);
+    }
+    gevr_eye_present_draw();
+    if (!kept || made != s_meshGpuMade || s_meshLazyVao != g->vao) glBindVertexArray(g->vao);
+    if (!kept) gevr_mesh_clip(true);
+    if (!kept || s_meshLazyCull != p->cull) gevr_mesh_cull(p->cull);
+    gevr_scope_keep_mesh(g->vao, (GLint)first, (GLsizei)count, p);
+    s_drawElements = true;
+    gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
+    s_drawElements = false;
+    if (s_eyeRec) {
+        s_eyeMeshes.push_back({ g->vao, *p });
+        s_eyeKeepMesh = (uint32_t)s_eyeMeshes.size();
+        gevr_eye_keep((GLint)first, (GLsizei)count, false);
+        s_eyeKeepMesh = 0;
+    }
+    // left bound for the next run: gevr_mesh_settle() puts fast3d's back
+    s_meshLazyBase = base;
+    s_meshLazyVao = g->vao;
+    s_meshLazyCull = p->cull;
+    return true;
 }
 
 typedef void (APIENTRY* DEBUGPROC)(GLenum source,
@@ -3130,6 +3795,7 @@ static void gfx_opengl_init_extensions(void) {
 
 
 static void gfx_opengl_init(void) {
+    gevr_mesh_settle();
     if (!gladLoadGLLoader(gl_load_proc) || glGetString == NULL || glEnable == NULL) {
         sysFatalError("Could not load OpenGL.\nReported SDL error: %s", SDL_GetError());
     }
@@ -3141,6 +3807,22 @@ static void gfx_opengl_init(void) {
     gl_es = (val == SDL_GL_CONTEXT_PROFILE_ES);
 
     gfx_opengl_init_extensions();
+    // GoldenEye: static meshes made in an older context are gone with it
+    s_glGeneration++;
+    s_skinPaletteBuffer = 0; // the previous context owns the old name
+    s_skinPaletteUploaded = false;
+    s_meshDrawUniforms.clear();
+    s_meshClipDistance = false;
+    if (gl_es && glGetStringi && GLVersion.major >= 3) {
+        GLint n = 0;
+        glGetIntegerv(GL_NUM_EXTENSIONS, &n);
+        for (GLint i = 0; i < n && !s_meshClipDistance; i++) {
+            const char *ext = (const char *)glGetStringi(GL_EXTENSIONS, i);
+            s_meshClipDistance = ext && strcmp(ext, "GL_EXT_clip_cull_distance") == 0;
+        }
+    }
+    sysLogPrintf(LOG_NOTE, "GL: static meshes %s", (!gl_es || GLVersion.major < 3) ? "off (not GLES 3)"
+                 : s_meshClipDistance ? "on (far reject: clip distance)" : "on (far reject: no depth clamp)");
     sysLogPrintf(LOG_NOTE, "GL: depth clamp: %s (EXT %d, NV %d, es %d)", GLAD_GL_ARB_depth_clamp ? "yes" : "no (z *= 0.3 hack)",
                  GLAD_GL_EXT_depth_clamp, GLAD_GL_NV_depth_clamp, gl_es ? 1 : 0);
 
@@ -3260,9 +3942,11 @@ static void gfx_opengl_init(void) {
 
 
 static void gfx_opengl_on_resize(void) {
+    gevr_mesh_settle();
 }
 
 static void gfx_opengl_start_frame(void) {
+    gevr_mesh_settle();
     frame_count++;
     gevr_decal_switch_poll();
     gevr_zdebug_poll();
@@ -3279,15 +3963,18 @@ static void gfx_opengl_start_frame(void) {
 }
 
 static void gfx_opengl_end_frame(void) {
+    gevr_mesh_settle();
     glFlush();
 
 }
 
 static void gfx_opengl_finish_render(void) {
+    gevr_mesh_settle();
 
 }
 
 static int gfx_opengl_create_framebuffer() {
+    gevr_mesh_settle();
     size_t i = framebuffers.size();
     framebuffers.resize(i + 1);
 
@@ -3328,6 +4015,7 @@ static int gfx_opengl_create_framebuffer() {
 static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, uint32_t height, uint32_t msaa_level,
                                                      bool opengl_invert_y, bool render_target, bool has_depth_buffer,
                                                      bool can_extract_depth) {
+    gevr_mesh_settle();
 
     if (fb_id < 0 || fb_id >= (int)framebuffers.size()) {
         return;
@@ -3397,6 +4085,7 @@ static void gfx_opengl_update_framebuffer_parameters(int fb_id, uint32_t width, 
 }
 
 bool gfx_opengl_start_draw_to_framebuffer(int fbid, float noisescale) {
+    gevr_mesh_settle();
     if (gfx_framebuffers_enabled && fbid < (int)framebuffers.size()) {
         Framebuffer& fb = framebuffers[fbid];
 
@@ -3450,12 +4139,14 @@ static void gfx_opengl_vr_menu_fb_init(void) {
 }
 
 bool gfx_vr_menu_L_dirty_and_clear(void) {
+    gevr_mesh_settle();
     // GoldenEye: kept until the next game frame, see gfx_vr_menu_H_dirty_and_clear.
     return hud_L_was_drawn;
 }
 
 void gfx_vr_hud_capture_begin_L(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_fb_init();
@@ -3501,6 +4192,7 @@ void gfx_vr_hud_capture_begin_L(void)
 
 void gfx_vr_hud_capture_end_L(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
 
     gfx_flush();
@@ -3569,6 +4261,7 @@ static void gfx_opengl_vr_menu_R_fb_init(void)
 
 void gfx_vr_hud_capture_begin_R(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_R_fb_init();
@@ -3609,6 +4302,7 @@ static void gevr_measure_R_capture(void)
 
 void gfx_vr_hud_capture_end_R(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     hud_R_was_drawn = true;
     gfx_flush();
@@ -3635,6 +4329,7 @@ GLuint gfx_opengl_get_vr_menu_texture_R(void)
 }
 
 bool gfx_vr_menu_R_dirty_and_clear(void) {
+    gevr_mesh_settle();
     // GoldenEye: kept until the next game frame, see gfx_vr_menu_H_dirty_and_clear.
     bool v = hud_R_was_drawn;
     return v;
@@ -3662,6 +4357,7 @@ static void gfx_opengl_vr_menu_H_fb_init(void) {
 
 void gfx_vr_hud_capture_begin_H(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     gfx_opengl_vr_menu_H_fb_init();
@@ -3704,6 +4400,7 @@ void gfx_vr_hud_capture_begin_H(void)
 
 void gfx_vr_hud_capture_end_H(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
 
@@ -3741,6 +4438,7 @@ void gfx_vr_hud_capture_end_H(void)
 }
 
 bool gfx_vr_menu_H_dirty_and_clear(void) {
+    gevr_mesh_settle();
     // GoldenEye: the game draws at 60 Hz and the display runs at 72+, so a
     // captured HUD must stay up through the XR frames between game frames or
     // it flickers; gfx_vr_hud_H_new_frame (gfx_run) drops it instead.
@@ -3750,6 +4448,7 @@ bool gfx_vr_menu_H_dirty_and_clear(void) {
 // A new game frame is being drawn: whether it shows the head-locked HUD is
 // decided by whether it captures one.
 void gfx_vr_hud_H_new_frame(void) {
+    gevr_mesh_settle();
     hud_H_was_drawn = false;
     hud_P_was_drawn = false;
     hud_R_was_drawn = false;
@@ -3771,6 +4470,7 @@ static GLint gVrMenuPPrevViewport[4] = {0,0,0,0};
 
 void gfx_vr_hud_capture_begin_P(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
     {
@@ -3815,6 +4515,7 @@ void gfx_vr_hud_capture_begin_P(void)
 
 void gfx_vr_hud_capture_end_P(void)
 {
+    gevr_mesh_settle();
     GevrProfileSection profile(GEVR_TIME_CAPTURE);
     gfx_flush();
 
@@ -3842,6 +4543,7 @@ void gfx_vr_hud_capture_end_P(void)
 }
 
 bool gfx_vr_menu_P_dirty_and_clear(void) {
+    gevr_mesh_settle();
     return hud_P_was_drawn;   /* dropped by gfx_vr_hud_H_new_frame, as the head-locked HUD */
 }
 
@@ -3857,6 +4559,7 @@ GLuint gfx_opengl_get_vr_menu_texture_P(void) {
 
 
 void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
+    gevr_mesh_settle();
     glDisable(GL_SCISSOR_TEST);
 
     GLbitfield mask = 0;
@@ -3878,6 +4581,7 @@ void gfx_opengl_clear_framebuffer(bool clear_color, bool clear_depth) {
 }
 
 void gfx_opengl_resolve_msaa_color_buffer(int fb_id_target, int fb_id_source) {
+    gevr_mesh_settle();
     if (!gfx_framebuffers_enabled) {
         return;
     }
@@ -3911,6 +4615,7 @@ void* gfx_opengl_get_framebuffer_texture_id(int fbid) {
 
 
 void gfx_opengl_select_texture_fb(int fb_id) {
+    gevr_mesh_settle();
     //    LOGI( "GL select_texture_fb: fbid=%d clrbuf=%u is_mv=%d",
     //                 fb_id, framebuffers[fb_id].clrbuf, framebuffers[fb_id].is_multiview);
     // glDisable(GL_DEPTH_TEST);
@@ -3925,6 +4630,7 @@ void gfx_opengl_select_texture_fb(int fb_id) {
 
 
 void gfx_opengl_copy_framebuffer(int fb_dst, int fb_src, int left, int top, bool flip_y, bool use_back) {
+    gevr_mesh_settle();
     if (!gfx_framebuffers_enabled || fb_dst >= (int)framebuffers.size() || fb_src >= (int)framebuffers.size()) {
         return;
     }
@@ -4114,6 +4820,7 @@ void gfx_opengl_copy_framebuffer(int fb_dst, int fb_src, int left, int top, bool
 
 
 void gfx_opengl_set_texture_filter(FilteringMode mode) {
+    gevr_mesh_settle();
     current_filter_mode = mode;
 }
 
@@ -4159,6 +4866,7 @@ static void gfx_opengl_mirror_to_desktop(
         uint32_t src_w, uint32_t src_h,   // VR resolution
         uint32_t dst_w, uint32_t dst_h)   // real size of mirror_wnd
 {
+    gevr_mesh_settle();
 #ifndef ANDROID // if PC
 
     if (!gfx_sdl_is_mirror_enabled()) return;
@@ -4328,7 +5036,10 @@ struct GfxRenderingAPI gfx_opengl_api = {
         gfx_opengl_set_eye_offsets,
         gfx_opengl_is_multiview,
         gfx_opengl_mirror_to_desktop,
-        gfx_opengl_upload_texture_hd
+        gfx_opengl_upload_texture_hd,
+        gfx_opengl_draw_mesh,
+        gfx_opengl_delete_mesh,
+        gfx_opengl_scope_sees_mesh
 };
 
 // ============================================================================
@@ -4350,6 +5061,7 @@ float* vr_get_eye_proj_mtx(int eye);   // vr_openxr.cpp
 
 void gfx_opengl_draw_vignette(float strength)
 {
+    gevr_mesh_settle();
     if (strength <= 0.001f || !use_multiview) {
         return;
     }

@@ -18,6 +18,7 @@ static GevrLocomotionHistory s_locomotion;
 static GevrLocomotionStats s_locomotionStats;
 static GevrPresentationCamera s_sourceCamera, s_recordedCamera, s_presentedCamera, s_recordedPresentation;
 static GevrLocomotionPose s_recordedLocomotion, s_evaluatedLocomotion;
+static float s_sourceCeilingDrop, s_recordedCeilingDrop;
 static XrTime s_lastPresentationTime;
 static bool s_collisionContact;
 static float s_collisionNormal[3], s_collisionHead[3];
@@ -28,6 +29,14 @@ static std::array<XrView, 2> g_frameViews{}, g_cameraViews{}, g_recordedViews{},
 static void vr_stats_game_frame() { freshRenders++; }
 static XrQuaternionf oldHandQ{0,0,0,1}, newHandQ{0,0,0,1};
 static float oldHandP[3], newHandP[3];
+static float cameraCeiling = 1e30f;
+static float gameCeilingDrop;
+static unsigned ceilingChecks;
+extern "C" float gevrCameraCeilingDrop(void) { return gameCeilingDrop; }
+extern "C" void gevrClampCameraCeiling(float position[3]) {
+    ceilingChecks++;
+    position[1] = std::min(position[1], cameraCeiling);
+}
 extern "C" int gevrVrGripPoseCamera(int, float p[3], float q[4]) {
     std::memcpy(p, oldHandP, sizeof(oldHandP)); std::memcpy(q, &oldHandQ, sizeof(oldHandQ)); return 1;
 }
@@ -48,6 +57,9 @@ static int s_eyeHand=-1, boundProgram=1;
 static float s_eyeProj[16], s_eyeHeadP[2], s_eyePresentationVP[16];
 static std::vector<ShaderProgram*> s_eyePresentationPrograms;
 static std::vector<int> s_eyeDraws;
+struct GevrEyeMesh { int vao; };   /* gfx_opengl.cpp: a static mesh draw kept for the redraw */
+static std::vector<GevrEyeMesh> s_eyeMeshes;
+static void gevr_mesh_settle(void) {}   /* gfx_opengl.cpp: no mesh run is left bound here */
 static void *s_pmPtr = &program;
 static std::map<int,int> reprojection;
 static float lastUniformMatrix[16];
@@ -442,6 +454,51 @@ static void collisionCadence(int hz, float origin=0) {
     gevrVrLocomotionCollision(zero,zero,zero);
 }
 
+static void ceilingContinuity() {
+    gevrVrLocomotionReset();
+    for (auto &v:g_frameViews) { v.pose.position={0,0,0}; v.pose.orientation={0,0,0,1}; }
+    g_frameState.predictedDisplayTime=1000000000;
+    g_frameState.predictedDisplayPeriod=8333333;
+    const float pos[3]={0,150,0}, tracking[3]={0,0,0}, look[3]={0,0,-1}, up[3]={0,1,0};
+    gevrVrLocomotionSnapshot(pos,tracking,0,1);
+    g_cameraViews=g_frameViews;
+    gameCeilingDrop=80; // tall eye was lowered from 230 to 150 in the game camera
+    gevrVrCameraWorld(pos,look,up);
+    cameraCeiling=150;
+    ceilingChecks=0;
+    float delta[16];
+    assert(gevrVrPresentationDelta(delta));
+    gevrVrMarkEyesRendered(1);
+    g_frameState.predictedDisplayTime+=8333333;
+    for (auto &v:g_frameViews) v.pose.position.y=0.3f;
+    assert(gevrVrRedrawDelta(delta));
+    near(s_presentedCamera.position[1],150);
+    assert(ceilingChecks==2); // fresh and redraw both check final world position
+    /* A small duck remains capped until the original tall eye clears the lintel. */
+    g_frameState.predictedDisplayTime+=8333333;
+    for (auto &v:g_frameViews) v.pose.position.y=-0.2f;
+    assert(gevrVrRedrawDelta(delta));
+    near(s_presentedCamera.position[1],150);
+    /* Rebuild the game camera after this duck; presentation must agree with
+     * the retained frame even though the amount of game-camera lowering changed. */
+    gameCeilingDrop=60;
+    g_cameraViews=g_frameViews;
+    gevrVrCameraWorld(pos,look,up);
+    assert(gevrVrPresentationDelta(delta));
+    near(s_presentedCamera.position[1],150);
+    gevrVrMarkEyesRendered(1);
+    g_frameState.predictedDisplayTime+=8333333;
+    for (auto &v:g_frameViews) v.pose.position.y=-1.0f;
+    assert(gevrVrRedrawDelta(delta));
+    near(s_presentedCamera.position[1],130);
+    cameraCeiling=1e30f;
+    g_frameState.predictedDisplayTime+=8333333;
+    for (auto &v:g_frameViews) v.pose.position.y=0;
+    assert(gevrVrRedrawDelta(delta));
+    near(s_presentedCamera.position[1],230); // restore true height when the opening clears
+    gameCeilingDrop=0;
+}
+
 int main() {
     /* Runtime periods can differ by a few ns from the rounded nominal period.
      * 8,333,332 ns must still select two 120 Hz frames, not three. */
@@ -456,9 +513,11 @@ int main() {
     stopsAndResets(); clampDiagnosticsAndPhysicalCollision(); runtimeIntegration(); combinedHeadAndBody(); matricesAndUniforms();
     for (int hz:{72,80,90,120}) for (float speed:{-2.f,0.f,2.f}) collisionContinuity(hz,speed,0.3f);
     for (int hz:{72,80,90,120}) { collisionCadence(hz); collisionCadence(hz,-30000); }
+    ceilingContinuity();
     std::puts("PASS: 72/80/90/120 Hz cadence, physical/head separation, yaw wrap, stops/stalls/resets");
     std::puts("PASS: production XR fresh/redraw continuity, current head/hands, teleport and screen reset");
     std::puts("PASS: production fresh-draw uniforms, controller/HUD exclusion, scope-state cleanup, C linkage");
     std::puts("PASS: clamp/reset reasons, timeline lag, wall jitter/sliding/retreat and blocked physical movement");
     std::puts("PASS: physical collision rebase, late contact clipping, retreat, forward/back wall slides and fresh/redraw continuity at all rates");
+    std::puts("PASS: ceiling clearance after fresh/redraw head rise, with immediate physical ducking");
 }

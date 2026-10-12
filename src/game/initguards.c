@@ -5,6 +5,9 @@
 #include "chr.h"
 #include "chrobjdata.h"
 #include "initguards.h"
+#ifdef GEVR
+#include "gevr_romlayout.h"
+#endif
 
 void init_guards(void) {
     animation_rate = 1.0f;
@@ -71,8 +74,14 @@ void bodiesReset(u32 stagenum)
         };
     }
 #else
-    current_random_male_head = randomGetNext() % num_male_heads;
-    current_random_female_head = randomGetNext() % num_female_heads;
+#ifdef GEVR
+    /* Goldfinger draws its own pools' starts here (gevr_romcampaign.c) */
+    if (!gevrRomHeadPoolsLevelInit())
+#endif
+    {
+        current_random_male_head = randomGetNext() % num_male_heads;
+        current_random_female_head = randomGetNext() % num_female_heads;
+    }
 #endif
     current_random_body = randomGetNext() % num_bodies;
 }

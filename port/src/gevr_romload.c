@@ -23,6 +23,7 @@
  * CMakeLists.txt for why it is excluded.
  */
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
@@ -33,7 +34,11 @@
 #include "gevr_rom_manifest.h"
 #include "gevr_romcheck.h"
 #include "gevr_rom_segments.h"
+#include "gevr_romlayout.h"
 #include "gevr_texpack_preload.h"
+
+extern int VrCampaign;
+extern int VrGexGuns;
 
 /* Mirrors of the engine's own table; ob.c defines both at file scope. */
 struct gevrFileEntry {
@@ -117,6 +122,11 @@ void gevrRomBindFileTable(void)
 		return;
 	}
 
+	/* A hack campaign's rows come from its own cartridge table, not the manifest. */
+	if (gevrRomRebindVariantFiles()) {
+		return;
+	}
+
 	/*
 	 * The manifest carries file_resource_table's own #ifdef VERSION_EU guards,
 	 * so the two arrays are the same length by construction. Bound the loop by
@@ -150,6 +160,30 @@ void gevrRomBindFileTable(void)
 	sysLogPrintf(LOG_NOTE, "rom: bound %u of %u files.", bound, g_GevrRomFileCount);
 }
 
+static const char *const gevrGoldfingerNames[] = {
+	GEVR_ROM_GF_FILE,
+	"data/" GEVR_ROM_GF_FILE,
+};
+
+static const char *const gevrTndNames[] = {
+	GEVR_ROM_TND_FILE,
+	"data/" GEVR_ROM_TND_FILE,
+};
+
+static void *gevrLoadNamed(const char *const *names, u32 count, u32 *size)
+{
+	u32 i;
+
+	for (i = 0; i < count; i++) {
+		void *data = fsFileLoad(names[i], size);
+		if (data) {
+			sysLogPrintf(LOG_NOTE, "rom: loaded %s (%u bytes)", names[i], *size);
+			return data;
+		}
+	}
+	return NULL;
+}
+
 s32 romdataInit(void)
 {
 	u32 size = 0;
@@ -158,6 +192,63 @@ s32 romdataInit(void)
 
 	if (g_RomFile) {
 		return 0;
+	}
+
+	if (VrCampaign < GEVR_CAMPAIGN_GE || VrCampaign > GEVR_CAMPAIGN_TND64) {
+		VrCampaign = GEVR_CAMPAIGN_GE;
+	}
+	gevrRomCampaignSet(VrCampaign);
+	gevrRomClearItemMap();
+	gevrRomSetImageBankBytes(0);
+
+	if (gevrRomIsVariant()) {
+		const char *const *names = gevrRomCampaign() == GEVR_CAMPAIGN_GF64
+				? gevrGoldfingerNames : gevrTndNames;
+		u32 nameCount = gevrRomCampaign() == GEVR_CAMPAIGN_GF64
+				? (u32)(sizeof(gevrGoldfingerNames) / sizeof(gevrGoldfingerNames[0]))
+				: (u32)(sizeof(gevrTndNames) / sizeof(gevrTndNames[0]));
+		const struct gevrRomLayout *want = gevrRomActiveLayout();
+
+		data = gevrLoadNamed(names, nameCount, &size);
+		if (data && gevrRomNormaliseOrder((u8 *)data, size)) {
+			const struct gevrRomLayout *got = gevrRomLayoutMatchHeader((const u8 *)data, size);
+
+			g_RomFile = (u8 *)data;
+			g_RomFileSize = size;
+			if (got == want && gevrRomApplyVariant((const u8 *)data, size)) {
+				/*
+				 * GoldenEye X's models replace GoldenEye's guns by item and
+				 * its textures take ids from 3100, inside Goldfinger's 3915:
+				 * off for this run. The saved setting stays (vr_settings.cpp).
+				 */
+				if (VrGexGuns) {
+					VrGexGuns = 0;
+					gevrGexCampaignOff = 1;
+					sysLogPrintf(LOG_NOTE, "rom: GoldenEye X models are off in %s", want->name);
+				}
+				gevrRomBindSegments();
+				return 0;
+			}
+			g_RomFile = NULL;
+			g_RomFileSize = 0;
+		}
+		sysLogPrintf(LOG_ERROR, "rom: %s is not installed or did not bind. Starting GoldenEye.",
+				want ? want->name : "hack");
+		{
+			/* The launcher says so next time (vr_launcher.cpp). */
+			FILE *f = fsFileOpenWrite(GEVR_CAMPAIGN_FAILED_FILE);
+
+			if (f) {
+				fprintf(f, "%s did not load, so GoldenEye started instead.", want ? want->name : "The campaign");
+				fclose(f);
+			}
+		}
+		free(data);
+		data = NULL;
+		gevrRomCampaignSet(GEVR_CAMPAIGN_GE);
+		VrCampaign = GEVR_CAMPAIGN_GE;
+		gevrRomClearItemMap();
+		gevrRomSetImageBankBytes(0);
 	}
 
 	for (i = 0; i < sizeof(gevrRomNames) / sizeof(gevrRomNames[0]); i++) {
@@ -291,19 +382,75 @@ unsigned char *gevrHeapTlbBlock(void)
 	return gevrHeap ? gevrHeap + GEVR_HEAP_SIZE : NULL;
 }
 
+static int gevrVariantSeg(s32 seg, u32 *off, u32 *size)
+{
+	const struct gevrRomLayout *L = gevrRomActiveLayout();
+
+	if (!gevrRomIsVariant() || !L) {
+		return 0;
+	}
+	switch (seg) {
+	case GEVR_SEG_ANIMATION_DATA:
+		if (!L->animdata || !L->globalimages || L->globalimages <= L->animdata) {
+			return 0;
+		}
+		*off = L->animdata;
+		*size = L->globalimages - L->animdata;
+		return 1;
+	case GEVR_SEG_GLOBALIMAGETABLE:
+		if (!L->globalimages || !L->globalbytes) {
+			return 0;
+		}
+		*off = L->globalimages;
+		*size = L->globalbytes;
+		return 1;
+	case GEVR_SEG_FONTBANKGOTHIC:
+		*off = L->raw[0][0];
+		*size = L->raw[0][1];
+		return *size != 0;
+	case GEVR_SEG_FONTZURICHBOLD:
+		*off = L->raw[1][0];
+		*size = L->raw[1][1];
+		return *size != 0;
+	case GEVR_SEG_IMAGES:
+		*off = L->imagesrom;
+		*size = gevrRomGetImageBankBytes();
+		return *off != 0 && *size != 0;
+	case GEVR_SEG_GUNBARREL:
+		*off = L->raw[7][0];
+		*size = L->raw[7][1];
+		return *size != 0;
+	default:
+		return 0;
+	}
+}
+
 static u8 *gevrSegPtr(s32 seg)
 {
+	u32 off = 0;
+	u32 size = 0;
 	const struct gevrRomFile *f = &g_GevrRomSegments[seg];
 
+	if (gevrVariantSeg(seg, &off, &size)) {
+		if (!g_RomFile || off + size > g_RomFileSize) {
+			return NULL;
+		}
+		return g_RomFile + off;
+	}
 	if (!g_RomFile || !f->size || f->offset + f->size > g_RomFileSize) {
 		return NULL;
 	}
-
 	return g_RomFile + f->offset;
 }
 
 static u32 gevrSegSize(s32 seg)
 {
+	u32 off = 0;
+	u32 size = 0;
+
+	if (gevrVariantSeg(seg, &off, &size)) {
+		return size;
+	}
 	return g_GevrRomSegments[seg].size;
 }
 

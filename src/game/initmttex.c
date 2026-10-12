@@ -26,6 +26,11 @@ void set_mt_tex_alloc(void)
         s32 size = netIsActive() ? bytes * 2 : bytes;
 
         texInitPool(&ptr_texture_alloc_start, mempAllocBytesInBank(size, MEMPOOL_STAGE), size);
+        {
+            /* Bean's folder repaints are bound by this pool's addresses */
+            extern void gevrBeanRepaintForget(void);
+            gevrBeanRepaintForget();
+        }
     }
 #else
     texInitPool(&ptr_texture_alloc_start, mempAllocBytesInBank(bytes, MEMPOOL_STAGE), bytes);

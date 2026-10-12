@@ -208,7 +208,7 @@ list(FILTER SRC_PORT EXCLUDE REGEX ".*(preprocess|pdmain|pdsched|communityart|mp
 # GoldenEye. port/src/gevr_romload.c stands in for them; see that file for what
 # a GoldenEye replacement has to do.
 list(FILTER SRC_PORT EXCLUDE REGEX "port/src/(romdata|mod)\.c$")
-# port/vr/vr_pause_menu.cpp added 2026-10-03; port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25; port/vr/vr_haptics.cpp 2026-09-29; src/game/gevr_heldgun.c 2026-10-04; port/src/gevr_gex.c, gevr_gexmodel.c, gevr_pdanim.c 2026-10-04; src/game/gevr_bot.c, gevr_sndpath.c 2026-10-07; port/src/gevr_bodyslot.c, src/game/gevr_bodyslots.c 2026-10-08; port/src/gevr_touch_model_data.c, src/game/gevr_touch.c 2026-10-09 (touching this line makes the glob re-run)
+# port/vr/vr_pause_menu.cpp added 2026-10-03; port/vr/vr_screen.cpp added 2026-09-20; gevr_setup.c 2026-09-20; port/fast3d/gevr_texpack.cpp 2026-09-25; port/vr/vr_haptics.cpp 2026-09-29; src/game/gevr_heldgun.c 2026-10-04; port/src/gevr_gex.c, gevr_gexmodel.c, gevr_pdanim.c 2026-10-04; src/game/gevr_bot.c, gevr_sndpath.c 2026-10-07; port/src/gevr_bodyslot.c, src/game/gevr_bodyslots.c 2026-10-08; port/src/gevr_touch_model_data.c, src/game/gevr_touch.c 2026-10-09; port/src/gevr_bean.c, gevr_bean_load.c, gevr_bean_tex.c, gevr_bean_logic.c, gevr_bean_world.c 2026-10-11; port/src/gevr_romlayout.c, gevr_romcampaign.c 2026-10-11; port/src/gevr_speedboat.c, src/game/gevr_dam_boat.c 2026-10-11; port/src/gevr_bean_folder.c, gevr_bean_font.c, gevr_bean_images.c 2026-10-11; port/src/gevr_bean_import.c 2026-10-12 (touching this line makes the glob re-run)
 file(GLOB_RECURSE SRC_PORT_CXX "${CMAKE_SOURCE_DIR}/port/*.cpp")
 list(FILTER SRC_PORT_CXX EXCLUDE REGEX "port/(external|tests)/.*")
 
@@ -285,6 +285,13 @@ set(SRC_NET
   "${CMAKE_SOURCE_DIR}/port/src/net/net_ice.cpp"
 )
 
+# Igor Pavlov's LZMA SDK (public domain), Dab's Mod's cut-down copy: reads the
+# player's own GoldenEye XBLA .7z (port/src/gevr_bean_import.c)
+set(SRC_LZMA)
+foreach(name 7zAlloc 7zBuf 7zCrc 7zCrcOpt 7zDec 7zFile 7zIn 7zStream Alloc Bcj2 Bra Bra86 BraIA64 CpuArch Delta Lzma2Dec LzmaDec)
+  list(APPEND SRC_LZMA "${CMAKE_SOURCE_DIR}/port/external/lzma/${name}.c")
+endforeach()
+
 include(FetchContent)
 set(OPUS_BUILD_TESTING OFF CACHE BOOL "Do not build Opus tests" FORCE)
 set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "Do not build Opus tools" FORCE)
@@ -311,6 +318,7 @@ set(SRC
   ${SRC_LIB_AUDIO}
   ${SRC_LIB_AUDIO_RE}
   ${SRC_SEGAUDIO}
+  ${SRC_LZMA}
 )
 
 # Build id for the launcher (port/cmake/buildid.cmake), regenerated every build.

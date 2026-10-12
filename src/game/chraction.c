@@ -1,5 +1,6 @@
 #ifdef GEVR
 #include "system.h"
+#include "gevr_romlayout.h"
 #endif
 #include <ultra64.h>
 #include <bondaicommands.h>
@@ -235,6 +236,20 @@ s32 bodyChooseHead(s32 id)
     return ret;
 }
 
+#ifdef GEVR
+/*
+ * Goldfinger rewrote bodyChooseHead() to take the record's head as well, -1
+ * or -2, each a pool of its own (gevr_romcampaign.c reads them off its code).
+ * GoldenEye's own choice where the campaign has none.
+ */
+s32 gevrBodyChooseHead(s32 id, s32 head)
+{
+    s32 ret = gevrRomChooseHead(c_item_entries[id].isMale, head);
+
+    return ret >= 0 ? ret : bodyChooseHead(id);
+}
+#endif
+
 
 /**
  * Get a Random head for body ID
@@ -298,7 +313,11 @@ void expand_09_characters(s32 stageid, GuardRecord *arg1, s32 arg2)
         {
             headid = (arg1->HeadID >= 0)
                 ? arg1->HeadID
+#ifdef GEVR
+                : gevrBodyChooseHead(bodyid, arg1->HeadID);
+#else
                 : bodyChooseHead(bodyid);
+#endif
         }
 
         sp38 = retrieve_header_for_body_and_head(bodyid, headid, (u32) arg1->bitflags);
@@ -6573,6 +6592,26 @@ f32 chrlvGetAimLimitAngle(f32 sqdist)
 
 
 
+#ifdef GEVR
+/*
+ * The guards' fire at the player since the last hit, for the "damage:" log
+ * line (bondview2.c record_damage_kills): shots in aim, shots out of it, shots
+ * held off while the last hit's flash runs, and the hit chance they added.
+ */
+static s32 s_gevrShotsAimed, s_gevrShotsOff, s_gevrShotsHeld;
+static f32 s_gevrShotChance;
+
+void gevrGuardFireTake(s32 *aimed, s32 *off, s32 *held, f32 *chance)
+{
+    *aimed = s_gevrShotsAimed;
+    *off = s_gevrShotsOff;
+    *held = s_gevrShotsHeld;
+    *chance = s_gevrShotChance;
+    s_gevrShotsAimed = s_gevrShotsOff = s_gevrShotsHeld = 0;
+    s_gevrShotChance = 0.0f;
+}
+#endif
+
 /**
  * @param arg0:
  * @param arg1: out parameter. bool. Whether or not self has correct line of site to hit player.
@@ -6628,6 +6667,17 @@ void chrlvUpdateShotbondsum(ChrRecord *self, s32 *arg1, s32 *arg2, ITEM_IDS item
     *arg1 = phi_v1;
     *arg2 = 0;
 
+#ifdef GEVR
+    if (phi_v1 == 0)
+    {
+        s_gevrShotsOff++;
+    }
+    else if (bondviewGetIfCurrentPlayerDamageShowTime() != 0)
+    {
+        s_gevrShotsHeld++;
+    }
+#endif
+
     if ((bondviewGetIfCurrentPlayerDamageShowTime() == 0) && (phi_v1 != 0))
     {
         temp_f0_3 = sqrtf(dxdydz_square);
@@ -6681,6 +6731,10 @@ void chrlvUpdateShotbondsum(ChrRecord *self, s32 *arg1, s32 *arg2, ITEM_IDS item
         }
 
         self->shotbondsum += phi_f2_4;
+#ifdef GEVR
+        s_gevrShotsAimed++;
+        s_gevrShotChance += phi_f2_4;
+#endif
 
         if (self->shotbondsum >= 1.0f)
         {
@@ -10993,7 +11047,11 @@ PropRecord *chrSpawnAtCoord(s32 bodynum, s32 headnum, coord3d *pos, StandTile *s
     {
         if (headnum < 0)
         {
+#ifdef GEVR
+            headnum = gevrBodyChooseHead(bodynum, headnum);
+#else
             headnum = bodyChooseHead(bodynum);
+#endif
         }
 
         newpos.x = pos->x;
