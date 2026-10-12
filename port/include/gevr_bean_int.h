@@ -21,7 +21,9 @@ struct gevrBeanTri {
 	uint8_t bone[12], weight[12];
 	uint8_t rgba[12];
     const void *reflection;
-    uint8_t reflectionDiffuse;
+    uint8_t reflectionDiffuse; /* 0 screen, 1 diffuse-tinted, 2 coloured */
+    uint8_t reflectionAlphaBase;
+    uint32_t reflectionColour;
 	int8_t cuff;
 	int16_t tex;
 	uint8_t alpha;
@@ -64,7 +66,9 @@ struct gevrEmitVert {
 	uint8_t cut;
 	uint8_t decal;
     const void *reflection;
-    uint8_t reflectionDiffuse;
+    uint8_t reflectionDiffuse; /* 0 screen, 1 diffuse-tinted, 2 coloured */
+    uint8_t reflectionAlphaBase;
+    uint32_t reflectionColour;
 };
 
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out);
@@ -81,6 +85,7 @@ void gevrBeanTexScrollSet(const void *addr, float s, float t);
 void gevrBeanTexMotionSet(const void *addr, float s, float t, float degrees, float spf,
                           const struct gevrCaff *c, int fileIndex);
 const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t amount[3],const char *key);
+const void *gevrBeanTexReflectRgba(const void *spot,const void *land,const uint8_t amount[4],const char *key);
 void gevrBeanTexPaint(const void *addr, uint32_t rgb);
 void gevrBeanTexReset(void);
 uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *outW, int *outH);

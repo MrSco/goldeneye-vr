@@ -57,8 +57,8 @@ static FilteringMode current_filter_mode = FILTER_THREE_POINT;
                     vs = vs.replace("layout(num_views = 2) in;", "")
                     vs = vs.replace("gl_ViewID_OVR", "0u")
                     yield options, vs, (directory / "mesh.frag").read_text()
-    for marker,options in [(-1,17),(-2,17|8192),(-3,17|8192),(-4,17)]:
-        subprocess.run([str(exe),str(options),"d000dadc01090108" if marker==-4 else "d000dadc10000108"]+(["cpu"] if marker==-3 else []),cwd=directory,check=True)
+    for marker,options in [(-1,17),(-2,17|8192),(-3,17|8192),(-4,17),(-5,17),(-6,17)]:
+        subprocess.run([str(exe),str(options),"3b32dad210000108" if marker in (-5,-6) else "d000dadc01090108" if marker==-4 else "d000dadc10000108"]+(["cpu"] if marker in (-3,-6) else []),cwd=directory,check=True)
         vs=(directory/"mesh.vert").read_text().replace("#extension GL_OVR_multiview2 : require","").replace("layout(num_views = 2) in;","").replace("gl_ViewID_OVR","0u")
         yield marker,vs,(directory/"mesh.frag").read_text()
 
@@ -342,7 +342,7 @@ def culling(gl, program, identity):
     print("GLES culling: back/front and inverted-target winding passed")
 
 
-def reflection_pixels(gl,program,coupled=False,cpu=False,soft=False):
+def reflection_pixels(gl,program,coupled=False,cpu=False,soft=False,coloured=False):
     gl.call("glUseProgram",None,[U],program)
     gl.call("glDisable",None,[U],0x8C89)
     gl.call("glDisable",None,[U],0x0B44)
@@ -359,8 +359,14 @@ def reflection_pixels(gl,program,coupled=False,cpu=False,soft=False):
     gl.uniform(program,"uNormalAxis[0]","f",[1,0,0]);gl.uniform(program,"uNormalAxis[1]","f",[0,1,0])
     color=gl.call("glGetAttribLocation",I,[U,C.c_char_p],program,b"aInput1" if cpu else b"aMeshColor")
     gl.attribute(color,[.2,.4,.6,.5 if soft else 1])
+    if coloured:
+        for i,value in [(2,[.26446]*4),(3,[0,0,0,1])]:
+            if cpu:
+                loc=gl.call("glGetAttribLocation",I,[U,C.c_char_p],program,f"aInput{i}".encode())
+                gl.attribute(loc,value)
+            else:gl.uniform(program,f"uMeshInConst[{i-1}]","f",value)
     if not cpu:gl.attribute(15,[0,0,1])
-    colors=[[102,128,153,128 if soft else 255],[26,51,77,255]]
+    colors=[[102,128,153,128 if soft else 255],[26,51,77,89 if coloured else 255]]
     for t,color in enumerate(colors):
         texture=U();gl.call("glGenTextures",None,[I,P],1,C.byref(texture))
         gl.call("glActiveTexture",None,[U],0x84C0+t)
@@ -378,10 +384,11 @@ def reflection_pixels(gl,program,coupled=False,cpu=False,soft=False):
     for c,tint in enumerate([.2,.4,.6]):
         lit=colors[0][c]/255*tint;r=colors[1][c]/255
         if coupled:r *= colors[0][c]/255
-        expected.append((lit*(1-r)+r)*255)
+        expected.append((lit*(1-r)+r*(.26446 if coloured else 1))*255)
     assert all(abs(pixel[c]-expected[c])<2 for c in range(3)),(list(pixel),expected)
-    assert abs(pixel[3]-(64 if soft else 255))<=1 and gl.call("glGetError",U,[])==0, (list(pixel),soft)
-    print("GLES reflection pixels: lit*(1-R)+R, " + ("R tinted by diffuse" if coupled else "independent R") + " passed")
+    expected_alpha=(1+(.26446-1)*colors[1][3]/255)*255 if coloured else 64 if soft else 255
+    assert abs(pixel[3]-expected_alpha)<=1 and gl.call("glGetError",U,[])==0, (list(pixel),soft)
+    print("GLES reflection pixels: " + ("lit*(1-R)+C*R; separate alpha" if coloured else "lit*(1-R)+R") + ("; R tinted by diffuse" if coupled else "") + " passed")
 
 
 if __name__ == "__main__":
@@ -396,7 +403,7 @@ if __name__ == "__main__":
             count += 1
             if options == 3:
                 execution(gl, program)
-            if options in (-1,-2,-3,-4):
-                reflection_pixels(gl,program,options in (-2,-3),options==-3,options==-4)
+            if options in (-1,-2,-3,-4,-5,-6):
+                reflection_pixels(gl,program,options in (-2,-3),options in (-3,-6),options==-4,options in (-5,-6))
             gl.call("glDeleteProgram", None, [U], program)
         print(f"{count} production shader variants compiled and linked")

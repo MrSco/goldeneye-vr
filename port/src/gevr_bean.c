@@ -325,7 +325,7 @@ static uint32_t spatialBits(uint32_t x)
 
 static int vertKey(const struct gevrEmitVert *v)
 {
-	return ((int)v->reflectionDiffuse << 30) | ((int)v->decal << 29) | ((int)v->cut << 28)
+	return ((int)(v->reflectionDiffuse != 0) << 30) | ((int)v->decal << 29) | ((int)v->cut << 28)
         | ((v->tex + 1) << 16) | ((int)v->alpha << 8);
 }
 
@@ -338,6 +338,12 @@ static int triCmp(const void *a, const void *b)
     if (ka != kb) return (ka > kb) - (ka < kb);
     uintptr_t ra=(uintptr_t)s_sortVerts[ia*3].reflection,rb=(uintptr_t)s_sortVerts[ib*3].reflection;
     if(ra!=rb)return (ra>rb)-(ra<rb);
+    int ma=s_sortVerts[ia*3].reflectionDiffuse,mb=s_sortVerts[ib*3].reflectionDiffuse;
+    if(ma!=mb)return (ma>mb)-(ma<mb);
+    uint32_t ca=s_sortVerts[ia*3].reflectionColour,cb=s_sortVerts[ib*3].reflectionColour;
+    if(ca!=cb)return (ca>cb)-(ca<cb);
+    int aa=s_sortVerts[ia*3].reflectionAlphaBase,ab=s_sortVerts[ib*3].reflectionAlphaBase;
+    if(aa!=ab)return (aa>ab)-(aa<ab);
     if (s_sortSpatial && s_sortSpatial[ia] != s_sortSpatial[ib])
         return (s_sortSpatial[ia] > s_sortSpatial[ib]) - (s_sortSpatial[ia] < s_sortSpatial[ib]);
     return ia - ib;
@@ -474,7 +480,10 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		int tex = base->tex;
 		int logicalW = 32, logicalH = 32;
 		int maskS, maskT;
-		while (end < ntri && vertKey(&v[order[end] * 3]) == key && v[order[end]*3].reflection==base->reflection) {
+		while (end < ntri && vertKey(&v[order[end] * 3]) == key && v[order[end]*3].reflection==base->reflection &&
+            v[order[end]*3].reflectionDiffuse==base->reflectionDiffuse &&
+            v[order[end]*3].reflectionColour==base->reflectionColour &&
+            v[order[end]*3].reflectionAlphaBase==base->reflectionAlphaBase) {
 			end++;
 		}
 		if (tex >= 0 && tex < mesh->ntex && mesh->standin[tex]) {
@@ -551,11 +560,18 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 			}
 		}
         int reflect=tex>=0 && base->reflection;
-        g->words.w0=((uintptr_t)G_GEVR_NORMAL_TEX1<<24) | (base->reflectionDiffuse ? 1 : 0); g++->words.w1=reflect;
+        g->words.w0=((uintptr_t)G_GEVR_NORMAL_TEX1<<24) | (base->reflectionDiffuse==1 ? 1 : 0); g++->words.w1=reflect;
         if(reflect) {
             gDPLoadMultiBlock(g++,base->reflection,256,1,G_IM_FMT_RGBA,G_IM_SIZ_16b,
                              16,16,0,G_TX_CLAMP,G_TX_CLAMP,4,4,G_TX_NOLOD,G_TX_NOLOD);
-            if(base->alpha<255 || base->cut) {
+            if(base->reflectionDiffuse==2) {
+                uint32_t c=base->reflectionColour;
+                gDPSetPrimColor(g++,0,0,c>>24,(c>>16)&255,(c>>8)&255,c&255);
+                gDPSetEnvColor(g++,0,0,0,base->reflectionAlphaBase);
+                gDPSetCombineLERP(g++,TEXEL0,0,SHADE,0,0,0,0,SHADE,
+                                 PRIMITIVE,COMBINED,TEXEL1,COMBINED,
+                                 PRIMITIVE,ENVIRONMENT,TEXEL1,ENVIRONMENT);
+            } else if(base->alpha<255 || base->cut) {
                 gDPSetCombineLERP(g++,TEXEL0,0,SHADE,0,TEXEL0,0,SHADE,0,
                                  1,COMBINED,TEXEL1,COMBINED,0,0,0,COMBINED);
             } else {
@@ -943,6 +959,7 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 	e->rgba[3] = t->rgba[corner * 4 + 3];
 	e->reflection=t->reflection;
     e->reflectionDiffuse=t->reflectionDiffuse;
+    e->reflectionColour=t->reflectionColour;e->reflectionAlphaBase=t->reflectionAlphaBase;
 	e->tex = t->tex;
 	e->alpha = t->alpha;
 	e->cut = (uint8_t)(t->alphatest || (t->tex >= 0 && texCut));
