@@ -254,6 +254,12 @@ def run(args, out):
         put('gevr_rigid_min.txt',str(args.rigid_min))
         put('gevr_room_draws.txt',str(args.room_draws))
         launch()
+        applied=recent()
+        expected=f'gevr bean controls: rigid_min={args.rigid_min} body_batch={args.body_batch}'
+        if expected not in applied or f'gevr bean room-draws: {args.room_draws}' not in applied:
+            raise Unavailable('Renderer did not acknowledge requested diagnostic controls')
+        if args.body_batch and 'gevr bean body-batch:' not in applied:
+            raise Unavailable('Whole-character batching was requested but never applied')
         for repeat in range(args.runs):
             label = f'{args.label}-{repeat + 1}'
             put('gevr_warp.txt', str(args.pad))

@@ -14,6 +14,7 @@
  */
 
 #include "gevr_bean_log.h"
+#include "gevr_bean_control.h"
 #include "gevr_bean_fog.h"
 
 #include <ultra64.h>
@@ -475,9 +476,10 @@ static int buildStage(int stage)
     /* Opaque depth-writing geometry can share materials across room boundaries.
      * Transparent surfaces keep the game's room order below. A diagnostic marker
      * retains the old room submission for a controlled comparison. */
-    FILE *control=fopen("gevr_room_draws.txt","r");
+    FILE *control=gevrBeanControlOpen("gevr_room_draws.txt");
     int merge=0;
     if (control) { int mode=1; if (fscanf(control,"%d",&mode)==1) merge=mode!=0; fclose(control); }
+    GEVR_BEAN_LOG("gevr bean room-draws: %d\n",merge);
     if (merge) {
         int count=0;
         for (int i=0;i<mesh->ntris;i++) if (assign[i]>=0 && mesh->tris[i].alpha==255) count+=3;
