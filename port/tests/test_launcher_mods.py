@@ -54,6 +54,8 @@ int main(){
             ImGui::Separator();ImGui::Button("ROM: ok",ImVec2(-1,0));ImGui::Separator();
             bool open=true;clockMs+=300;
             gevrModsPage(open,clockMs,ImVec4(1,.8f,.3f,1),ImVec4(.5f,1,.5f,1),ImVec4(1,.5f,.4f,1));
+            // the launcher's one-line hint, drawn under every page (vr_launcher.cpp)
+            ImGui::TextDisabled("Point and pull the trigger, or use the stick and A.");
             auto *win=ImGui::GetCurrentWindow();
             if(pass==2 && (win->DC.CursorMaxPos.y>win->ClipRect.Max.y || win->DC.CursorMaxPos.x>win->ClipRect.Max.x)){
                 std::fprintf(stderr,"Mods overflow: %s update%d bean%d extent %.1f %.1f limit %.1f %.1f\n",state,update,bean,win->DC.CursorMaxPos.x,win->DC.CursorMaxPos.y,win->ClipRect.Max.x,win->ClipRect.Max.y);return 1;
@@ -61,7 +63,7 @@ int main(){
             ImGui::End();ImGui::Render();
         }
     }
-    ImGui::DestroyContext();puts("PASS: production Mods page, including Bean, progress, errors and updates, fits at Quest font size without scrolling");
+    ImGui::DestroyContext();puts("PASS: production Mods page, including Bean, progress, errors and updates, and the hint under it fit at Quest font size without scrolling");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='gevr-mods-ui-') as d:

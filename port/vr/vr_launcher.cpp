@@ -1025,9 +1025,11 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                                   : "Needs your own GoldenEye X ROM: Perfect Dark 1.1 with the GE-X 6a patch.");
     ImGui::PopStyleColor();
     if (gex && gevrBeanIsEnabled()) ImGui::TextDisabled("GE-X supplies first-person gear; Bean supplies the world.");
-    ImGui::Spacing();
-    // Keep the exit in the same place in every download state.
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::fmax(0.0f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight()));
+    // Keep the exit in the same place in every download state, above the
+    // launcher's one-line hint, drawn under every page: placed at the very
+    // bottom, Done pushed the hint off the panel's edge.
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + std::fmax(0.0f, ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight() -
+                                                                ImGui::GetTextLineHeightWithSpacing()));
     if (ImGui::Button("Done", ImVec2(-1, 0))) {
         vrSettingsSave();
         open = false;
