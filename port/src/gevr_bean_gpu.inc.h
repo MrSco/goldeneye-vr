@@ -15,6 +15,7 @@ static int beanSkinMesh(struct beanSkin *skin)
         goto fail;
     for (int i = 0; i < skin->nverts; i++) {
         memcpy(v[i].vtx, &skin->vtx[i], sizeof(Vtx));
+        v[i].tint = skin->verts[i].tint;
         memcpy(v[i].p, skin->verts[i].p, sizeof(v[i].p));
         memcpy(v[i].n, skin->verts[i].n, sizeof(v[i].n));
         for (int w = 0; w < 4; w++) {
@@ -63,6 +64,10 @@ static int beanSkinMesh(struct beanSkin *skin)
             }
             continue;
         }
+        /* Tint is already stored in the VBO. Keep successive vertex loads in
+         * one draw; the final clear still ends the run and executes normally. */
+        if (op == G_GEVR_VERTEX_TINT && g->words.w1)
+            continue;
         if (inRun) {
             runs[nruns].end = g;
             runs[nruns].indexCount = nindices - runs[nruns].firstIndex;
@@ -141,6 +146,7 @@ static Gfx *beanSkinGpuDraw(struct beanSkin *skin, Model *model, int anchorIndex
         return NULL;
     memset(draw, 0, sizeof(*draw));
     draw->mesh = skin->mesh;
+    draw->authoredColor = 1;
     draw->bindVertices = skin->vtx;
     draw->pose = beanSkinPose;
     const float (*anchor)[4] = model->render_pos[anchorIndex].pos.m;

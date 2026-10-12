@@ -26,6 +26,7 @@
 #include <bondconstants.h>
 
 #include "bg.h"
+#include "bgfog.h"
 #include "bondview.h"
 #include "boss.h"
 #include "player.h"
@@ -471,8 +472,10 @@ static int buildStage(int stage)
 int gevrBeanRoomFog(float line[2], uint8_t rgb[3])
 {
     if (!s_ok || !gevrBeanIsEnabled() || !g_CurrentPlayer) return 0;
-    return gevrBeanFogLine(baseStage(s_stage), g_CurrentPlayer->current_model_pos.y,
-                           bgGetLevelVisibilityScale(), line, rgb);
+    float share, fraction; uint8_t target[3];
+    fogGetBeanTransition(&share,&fraction,target);
+    return gevrBeanFogLineTransition(baseStage(s_stage), g_CurrentPlayer->current_model_pos.y,
+                           bgGetLevelVisibilityScale(), communityEdition(),share,fraction,target,line,rgb);
 }
 
 static int ensureStage(void)

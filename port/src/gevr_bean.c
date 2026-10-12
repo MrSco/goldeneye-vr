@@ -43,6 +43,7 @@ struct beanSkinVert {
 	float p[4][3], n[4][3];
 	uint8_t weight[4];
 	int16_t matrix[4];
+	GevrVertexTint tint;
 };
 struct beanSkin {
 	struct beanSkinVert *verts;
@@ -354,12 +355,9 @@ static s16 posClamp(float v)
 static void beanRenderMode(Gfx **next, int mode1, int mode2, int room)
 {
     Gfx *g = *next;
-    if (room) {
-        g->words.w0 = (uintptr_t)G_GEVR_ROOM_STATE << 24;
-        g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
-        g++;
-    } else { gDPSetRenderMode(g++, mode1, mode2); }
-    *next = g;
+    g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room ? 0 : 1);
+    g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
+    *next = g + 1;
 }
 
 int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert *v, int nverts,
@@ -387,7 +385,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	/* One texture group can be a single triangle, and gDPLoadTextureBlock writes several commands. */
 	cmdcap = 64 + ntri * 32;
 	gdl = malloc((size_t)cmdcap * sizeof(Gfx));
-	vtx = malloc((size_t)nverts * sizeof(Vtx));
+	vtx = malloc((size_t)nverts * (sizeof(Vtx) + (lit && !skin ? sizeof(GevrVertexTint) : 0)));
 	if (!order || !gdl || !vtx) {
 		if (skin) {
 			free(skin->verts);
@@ -398,6 +396,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		free(vtx);
 		return 0;
 	}
+    GevrVertexTint *tints = lit && !skin ? (GevrVertexTint *)(vtx+nverts) : NULL;
 	for (int i = 0; i < ntri; i++) {
 		order[i] = i;
 	}
@@ -406,7 +405,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	g = gdl;
 	vp = vtx;
 	gDPPipeSync(g++);
-	gDPSetCycleType(g++, mesh->roomMaterial ? G_CYC_2CYCLE : G_CYC_1CYCLE);
+	gDPSetCycleType(g++, G_CYC_2CYCLE);
 	gDPSetTexturePersp(g++, G_TP_PERSP);
 	gDPSetTextureLUT(g++, G_TT_NONE);
 	gDPSetAlphaCompare(g++, G_AC_NONE);
@@ -481,42 +480,33 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
                 if (base->decal && zbuf) beanRenderMode(&g, G_RM_AA_ZB_XLU_DECAL, G_RM_AA_ZB_XLU_DECAL2, mesh->roomMaterial);
                 else beanRenderMode(&g, xlu, xlu2, mesh->roomMaterial);
 				if (tex < 0) {
-					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2); }
-					else { gDPSetCombineMode(g++, G_CC_SHADE, G_CC_SHADE); }
+					gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
 				} else if (dim) {
-					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEIA_PRIM, G_CC_PASS2); }
-					else { gDPSetCombineMode(g++, G_CC_MODULATEIA_PRIM, G_CC_MODULATEIA_PRIM); }
+					gDPSetCombineMode(g++, G_CC_MODULATEIA_PRIM, G_CC_PASS2);
 				} else {
-					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2); }
-					else { gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_MODULATEIA); }
+					gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
 				}
 			} else if (base->cut) {
                 if (base->decal && zbuf) beanRenderMode(&g, (edge & ~ZMODE_DEC) | ZMODE_DEC,
                         (edge2 & ~ZMODE_DEC) | ZMODE_DEC, mesh->roomMaterial);
                 else beanRenderMode(&g, edge, edge2, mesh->roomMaterial);
-				if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2); }
-					else { gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_MODULATEIA); }
+				gDPSetCombineMode(g++, G_CC_MODULATEIA, G_CC_PASS2);
 			} else if (base->decal && zbuf) {
 				beanRenderMode(&g, G_RM_AA_ZB_OPA_DECAL | Z_UPD, G_RM_AA_ZB_OPA_DECAL2, mesh->roomMaterial);
 				if (dim) {
-					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2); }
-					else { gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_MODULATEI_PRIM); }
+					gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2);
 				} else {
-					if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2); }
-					else { gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_MODULATEI); }
+					gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
 				}
 			} else if (tex < 0) {
 				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
-				if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2); }
-					else { gDPSetCombineMode(g++, G_CC_SHADE, G_CC_SHADE); }
+				gDPSetCombineMode(g++, G_CC_SHADE, G_CC_PASS2);
 			} else if (dim) {
 				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
-				if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2); }
-					else { gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_MODULATEI_PRIM); }
+				gDPSetCombineMode(g++, G_CC_MODULATEI_PRIM, G_CC_PASS2);
 			} else {
 				beanRenderMode(&g, opa, opa2, mesh->roomMaterial);
-				if (mesh->roomMaterial) { gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2); }
-					else { gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_MODULATEI); }
+				gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
 			}
 		}
 		while (batch < end) {
@@ -556,11 +546,25 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 						dst->v.cn[2] = src->rgba[2];
 						dst->v.cn[3] = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					}
-					if (skin)
+					if (skin) {
 						skin->verts[vi] = s_emitSkin[order[batch + t] * 3 + k];
+                        memcpy(skin->verts[vi].tint.rgba, src->rgba, 4);
+                        skin->verts[vi].tint.unlit = mesh->watchArm && tex == 9;
+                    }
+                    if (tints) {
+                        memcpy(tints[vi].rgba, src->rgba, 4);
+                        tints[vi].unlit = mesh->watchArm && tex == 9;
+                    }
 					vi++;
 				}
 			}
+            if (skin) {
+                g->words.w0 = (G_GEVR_VERTEX_TINT << 24) | (sizeof(struct beanSkinVert) << 8);
+                g++->words.w1 = (uintptr_t)&skin->verts[vi - take*3].tint;
+            } else if (tints) {
+                g->words.w0 = (G_GEVR_VERTEX_TINT << 24) | (sizeof(GevrVertexTint) << 8);
+                g++->words.w1 = (uintptr_t)&tints[vi - take*3];
+            }
 			gSPVertex(g++, osVirtualToPhysical(vp), take * 3, 0);
 			for (int t = 0; t < take; t++) {
 				gSP1Triangle(g++, t * 3, t * 3 + 1, t * 3 + 2, 0);
@@ -575,6 +579,8 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 			break;
 		}
 	}
+    if (!mesh->roomMaterial) gSPClearGeometryMode(g++, G_FOG);
+    g->words.w0 = G_GEVR_VERTEX_TINT << 24; g++->words.w1 = 0;
 	gSPEndDisplayList(g);
 	free(order);
 	if (skin) {
@@ -981,8 +987,7 @@ static int watchTriangleWanted(const struct gevrBeanTri *t, int cuff)
 		return 1;
 	if (t->tex < 0 || t->tex >= 12)
 		return cuff == -1;
-	if (t->tex == 9)
-		return 0;
+	/* The release draws texture 9: its authored green/white light quad. */
 	int outfit = sleeve[t->tex];
 	return outfit < 0 ? cuff == -1 : cuff == outfit || (t->tex == 8 && cuff == 2);
 }

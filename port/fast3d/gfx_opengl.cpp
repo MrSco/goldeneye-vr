@@ -375,10 +375,10 @@ struct ShaderProgram {
     uint64_t shader_id0;
     uint32_t shader_id1;
     bool opt_fog, opt_grayscale, is_mesh;
-    GLint meshLitLocation, meshAmbientLocation, meshLightDirLocation, meshLightColorLocation,
+    GLint meshTintLocation, meshLitLocation, meshAmbientLocation, meshLightDirLocation, meshLightColorLocation,
         meshNumLightsLocation, meshFogLocation, meshFogParamsLocation, meshValidLocation;
     // each array element on its own: the compiler keeps only those the shader uses
-    GLint meshMPLocation, meshTexLocation[2], meshInSelLocation[GFX_MESH_MAX_INPUTS],
+    GLint meshMPLocation, meshTexLocation[2], meshTexRotationLocation[2], meshInSelLocation[GFX_MESH_MAX_INPUTS],
         meshInConstLocation[GFX_MESH_MAX_INPUTS];
 
 };
@@ -1310,11 +1310,11 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "INPUT vec2 aMeshST;");
         append_line(vs_buf, &vs_len, "INPUT vec4 aMeshColor;");
         append_line(vs_buf, &vs_len, "uniform mat4 uMeshMP;");
-        append_line(vs_buf, &vs_len, "uniform vec4 uMeshTex[2];");
+        append_line(vs_buf, &vs_len, "uniform vec4 uMeshTex[2]; uniform vec2 uMeshTexRotation[2];");
         append_line(vs_buf, &vs_len, "uniform mat4 uMeshInSel[7];");
         append_line(vs_buf, &vs_len, "uniform vec4 uMeshInConst[7];");
         append_line(vs_buf, &vs_len, "INPUT vec4 aSkinWeight;");
-        append_line(vs_buf, &vs_len, "INPUT vec4 aSkinBone;");
+        append_line(vs_buf, &vs_len, "INPUT vec4 aSkinBone; INPUT vec4 aSkinTint; INPUT float aSkinUnlit; uniform int uMeshTinted;");
         for (int i = 0; i < 4; i++) {
             vs_len += sprintf(vs_buf + vs_len, "INPUT vec3 aSkinP%d;\nINPUT vec3 aSkinN%d;\n", i, i);
         }
@@ -1379,6 +1379,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         append_line(vs_buf, &vs_len, "      for (int i = 0; i < uMeshNumLights; i++) rgb = trunc(rgb + max(0.0, dot(meshNormal, uMeshLightDir[i]) / 127.0) * uMeshLightColor[i]);");
         append_line(vs_buf, &vs_len, "      meshColor.rgb = min(rgb, vec3(255.0)) / 255.0;");
         append_line(vs_buf, &vs_len, "    }");
+        append_line(vs_buf, &vs_len, "    if (uMeshTinted != 0) meshColor.rgb = aSkinUnlit > 0.0 || uMeshLit == 0 ? aSkinTint.rgb : meshColor.rgb * aSkinTint.rgb;");
         append_line(vs_buf, &vs_len, "    vec4 aVtxPos = uMeshMP * vec4(meshPos, 1.0);");
         if (cc_features.opt_fog) {
             append_line(vs_buf, &vs_len, "    float fw = abs(aVtxPos.w) < 0.001 ? 0.001 : aVtxPos.w;");
@@ -1392,7 +1393,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         }
         for (int i = 0; i < 2; i++) {
             if (cc_features.used_textures[i]) {
-                vs_len += sprintf(vs_buf + vs_len, "    vec2 aTexCoord%d = aMeshST * uMeshTex[%d].xy + uMeshTex[%d].zw;\n", i, i, i);
+                vs_len += sprintf(vs_buf + vs_len, "    vec2 st%d = aMeshST * uMeshTex[%d].xy;\n    vec2 r%d = uMeshTexRotation[%d]; if (dot(r%d,r%d) == 0.0) r%d = vec2(1.0,0.0);\n    vec2 aTexCoord%d = vec2(r%d.x*st%d.x-r%d.y*st%d.y, r%d.y*st%d.x+r%d.x*st%d.y) + uMeshTex[%d].zw;\n", i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i,i);
             }
         }
         for (int i = 0; i < cc_features.num_inputs; i++) {
@@ -1717,6 +1718,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         glBindAttribLocation(shader_program, 2, "aMeshColor");
         glBindAttribLocation(shader_program, 3, "aSkinWeight");
         glBindAttribLocation(shader_program, 4, "aSkinBone");
+        glBindAttribLocation(shader_program, 13, "aSkinTint");
+        glBindAttribLocation(shader_program, 14, "aSkinUnlit");
         for (int i = 0; i < 4; i++) {
             char name[32];
             snprintf(name, sizeof(name), "aSkinP%d", i);
@@ -1797,6 +1800,8 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         if (i < 2) {
             snprintf(name, sizeof(name), "uMeshTex[%d]", i);
             prg->meshTexLocation[i] = s_buildMesh ? glGetUniformLocation(shader_program, name) : -1;
+            snprintf(name, sizeof(name), "uMeshTexRotation[%d]", i);
+            prg->meshTexRotationLocation[i] = s_buildMesh ? glGetUniformLocation(shader_program, name) : -1;
         }
         snprintf(name, sizeof(name), "uMeshInSel[%d]", i);
         prg->meshInSelLocation[i] = s_buildMesh ? glGetUniformLocation(shader_program, name) : -1;
@@ -1809,6 +1814,7 @@ static struct ShaderProgram* gfx_opengl_create_and_load_new_shader(uint64_t shad
         if (block != GL_INVALID_INDEX) glUniformBlockBinding(shader_program, block, 0);
     }
     prg->meshLitLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshLit") : -1;
+    prg->meshTintLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshTinted") : -1;
     prg->meshAmbientLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshAmbient") : -1;
     prg->meshLightDirLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshLightDir[0]") : -1;
     prg->meshLightColorLocation = s_buildMesh ? glGetUniformLocation(shader_program, "uMeshLightColor[0]") : -1;
@@ -2456,7 +2462,7 @@ void gfx_vr_scope_render(void)
             }
             if (d.mesh) {
                 const GfxMeshDrawParams* params = &s_scopeMeshes[d.mesh - 1].params;
-                for (GLuint a = 0; a < (params->skinned ? 13u : 3u); a++) glEnableVertexAttribArray(a);
+                for (GLuint a = 0; a < (params->skinned ? 15u : 3u); a++) glEnableVertexAttribArray(a);
                 gevr_mesh_uniforms(d.prg, params);
                 // Scope VP uses an upright target, undo the eye target winding flip.
                 gevr_mesh_cull(params->invert_y ? -params->cull : params->cull);
@@ -3053,6 +3059,7 @@ static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct Gfx
     glBindBufferBase(GL_UNIFORM_BUFFER, 0, s_skinPaletteBuffer);
     if (prg->meshValidLocation >= 0) glUniform2uiv(prg->meshValidLocation, 1, p->palette.valid);
     if (prg->meshLitLocation >= 0) glUniform1i(prg->meshLitLocation, p->lit);
+    if (prg->meshTintLocation >= 0) glUniform1i(prg->meshTintLocation, p->authored_color);
     if (prg->meshAmbientLocation >= 0) glUniform3fv(prg->meshAmbientLocation, 1, p->ambient);
     if (prg->meshNumLightsLocation >= 0) glUniform1i(prg->meshNumLightsLocation, p->num_lights);
     if (p->num_lights) {
@@ -3064,6 +3071,10 @@ static void gevr_mesh_uniforms(const struct ShaderProgram* prg, const struct Gfx
     if (prg->meshMPLocation >= 0) glUniformMatrix4fv(prg->meshMPLocation, 1, GL_FALSE, p->mp);
     for (int t = 0; t < 2; t++) {
         if (prg->meshTexLocation[t] >= 0) glUniform4fv(prg->meshTexLocation[t], 1, p->tex[t]);
+        if (prg->meshTexRotationLocation[t] >= 0) {
+            const float *r = p->tex_rotation[t];
+            glUniform2f(prg->meshTexRotationLocation[t], r[0] == 0 && r[1] == 0 ? 1 : r[0], r[1]);
+        }
     }
     for (int j = 0; j < p->num_inputs && j < GFX_MESH_MAX_INPUTS; j++) {
         if (prg->meshInSelLocation[j] >= 0) glUniformMatrix4fv(prg->meshInSelLocation[j], 1, GL_FALSE, p->in_sel[j]);
@@ -3124,7 +3135,7 @@ static void gevr_eye_replay_mesh(const GevrEyeDraw& d)
 {
     if (d.mesh == 0) return;
     // unloading the program before may have disabled these on the bound array
-    for (GLuint a = 0; a < (s_eyeMeshes[d.mesh - 1].params.skinned ? 13u : 3u); a++) glEnableVertexAttribArray(a);
+    for (GLuint a = 0; a < (s_eyeMeshes[d.mesh - 1].params.skinned ? 15u : 3u); a++) glEnableVertexAttribArray(a);
     gevr_mesh_uniforms(d.prg, &s_eyeMeshes[d.mesh - 1].params);
     gevr_mesh_cull(s_eyeMeshes[d.mesh - 1].params.cull);
 }
@@ -3327,6 +3338,10 @@ static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t nu
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (const void*)12);    // Vtx cn
     if (skinned) {
+        glEnableVertexAttribArray(13);
+        glVertexAttribPointer(13,4,GL_UNSIGNED_BYTE,GL_TRUE,stride,(const void*)offsetof(GevrSkinVertex,tint));
+        glEnableVertexAttribArray(14);
+        glVertexAttribPointer(14,1,GL_UNSIGNED_BYTE,GL_FALSE,stride,(const void*)(offsetof(GevrSkinVertex,tint)+4));
         glEnableVertexAttribArray(3);
         glVertexAttribPointer(3, 4, GL_UNSIGNED_BYTE, GL_FALSE, stride, (const void*)offsetof(GevrSkinVertex, weight));
         glEnableVertexAttribArray(4);

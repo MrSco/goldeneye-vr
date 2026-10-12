@@ -1699,6 +1699,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	mesh->uvscale = uvscale;
 	mesh->triggerCuffs = triggerCuffs;
 	mesh->nativeChrome = strstr(source, "/prop/nintendologo/") != NULL;
+    mesh->watchArm = !original && ntex == 12 && strstr(source, "suitlfhand") != NULL;
 	mesh->nbones = numbones;
 	for (int i = 0; i < numbones; i++) {
 		memcpy(mesh->boneBind[i], bind[i], sizeof(bind[i]));
@@ -1728,7 +1729,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		mesh->ntex++;
 	}
 	/* Props also own scrolling pictures (the helicopter at 0.9 repeats/s). */
-	readTextureScroll(mesh, data, dlen, stream, slen);
+	readTextureScroll(mesh, data, dlen, stream, slen, &caff, texfile);
 	fixPlaceholders(mesh, draws, ndraws, source);
 	textureAlphaFlags(mesh, texAlpha, texSoft);
     if (levelFade) markLevelBlendShaders(mesh, draws, ndraws, ibs, nibs, data, dlen, gpu, glen, uv20);

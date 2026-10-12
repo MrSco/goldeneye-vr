@@ -42,6 +42,7 @@ struct gevrBeanMesh {
 	int triggerCuffs;
 	int nativeChrome;
 	int roomMaterial;
+	int watchArm;
 	int nbones;
 	float boneBind[64][3];
 	char boneName[64][64];
@@ -71,6 +72,8 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h);
 int gevrBeanTexIsPlaceholder(const void *addr);
 void gevrBeanTexScrollSet(const void *addr, float s, float t);
+void gevrBeanTexMotionSet(const void *addr, float s, float t, float degrees, float spf,
+                          const struct gevrCaff *c, int fileIndex);
 void gevrBeanTexPaint(const void *addr, uint32_t rgb);
 void gevrBeanTexReset(void);
 uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *outW, int *outH);

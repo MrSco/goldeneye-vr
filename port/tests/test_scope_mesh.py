@@ -91,9 +91,9 @@ int main() {
  }
  GfxMeshDrawParams skin={}; memcpy(skin.mp,mp,sizeof(mp)); skin.skinned=true;
  skin.cull=-1; skin.invert_y=true; skin.palette.valid[0]=1; skin.palette.rows[0][3]=42;
- skin.fog_linear=true; skin.fog_mul=.125f; skin.fog_offset=2; skin.fog[0]=.85f;
+ skin.authored_color=true; skin.tex_rotation[0][1]=1; skin.fog_linear=true; skin.fog_mul=.125f; skin.fog_offset=2; skin.fog[0]=.85f;
  gevr_scope_keep_mesh(20,3,6,&skin);
- skin.fog_linear=false; skin.fog_mul=9; skin.fog[0]=0;
+ skin.authored_color=false; skin.tex_rotation[0][1]=0; skin.fog_linear=false; skin.fog_mul=9; skin.fog[0]=0;
  skin.palette.rows[0][3]=900; // The captured instance owns its palette.
  s_curPrg=&cpu;
  float tri[12]={0,0,0,5, .5f,0,0,5, 0,.5f,0,5};
@@ -110,6 +110,7 @@ int main() {
  for(int i : {0,3}) {
   const Draw&d=issued[i]; assert(d.vao==20 && d.indexed && d.first==3 && d.count==6 && d.cull==1);
   assert(d.params.fog_linear && d.params.fog_mul==.125f && d.params.fog_offset==2 && d.params.fog[0]==.85f);
+  assert(d.params.authored_color && d.params.tex_rotation[0][1]==1);
   assert(d.params.palette.rows[0][3]==42 && d.params.palette.valid[0]==1);
  }
  for(int i : {1,4}) {const Draw&d=issued[i];assert(d.vao==7 && !d.indexed && d.first==30 && d.cull==0);}

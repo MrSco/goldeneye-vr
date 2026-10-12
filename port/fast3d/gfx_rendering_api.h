@@ -23,11 +23,12 @@ enum FilteringMode { FILTER_NONE, FILTER_LINEAR, FILTER_THREE_POINT, FILTER_TRIL
 #define GFX_MESH_MAX_INPUTS 7
 struct GfxMeshDrawParams {
     float mp[16];        // clip = mp * (x, y, z, 1), column-major; y negated when the target is
+    float tex_rotation[2][2]; // cos/sin, after normalized tile coordinates
     float tex[2][4];     // per texture: u = s * [0] + [2], v = t * [1] + [3]
     float in_sel[GFX_MESH_MAX_INPUTS][16];   // per combiner input: which colour bytes (column-major)
     float in_const[GFX_MESH_MAX_INPUTS][4];  // ... plus what does not come from the vertex
     int num_inputs;
-    bool skinned, lit, has_bounds, invert_y;
+    bool skinned, lit, has_bounds, invert_y, authored_color;
     float lo[3], hi[3];
     int cull, num_lights;
     float ambient[3], light_dir[7][3], light_color[7][3];

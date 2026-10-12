@@ -14,6 +14,8 @@
  */
 #include "gevr_bean_int.h"
 int gevrBeanTextureScroll(const void *, float, float [2]);
+int gevrBeanTextureTransform(const void *, float, float [6]);
+const void *gevrBeanTextureFrame(const void *, float);
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,16 +132,16 @@ int main(int argc, char **argv)
 		printf("%s: %d triangles, %d decal, %d opaque decal with nothing under it\n", rigid[r], m->ntris, decals, n);
         bad |= n != 0;
         if (r == 0) {
-            int glass = 0, grey = 0;
+            int glass = 0, grey = 0, light = 0;
             for (int i = 0; i < m->ntris; i++) {
-                grey += m->tris[i].tex == 10;
+                grey += m->tris[i].tex == 10; light += m->tris[i].tex == 9;
                 if (m->tris[i].tex == 11) { glass++; bad |= m->tris[i].alpha == 255; }
             }
             const uint8_t *pic = NULL; int w = 0, h = 0;
             bad |= !gevrBeanTexture(m->standin[11], &pic, &w, &h);
             if (w*h > 0) for (int i=0; i<w*h; i++) bad |= pic[i*4] || pic[i*4+1] || pic[i*4+2] || pic[i*4+3]>=128;
-            bad |= grey || glass != 135;
-            printf("Watch glass: %d translucent black faces, %d grey shader-input faces\n", glass, grey);
+            bad |= grey || glass != 135 || light != 2;
+            printf("Watch: %d translucent black faces, %d grey shader-input faces, %d light faces\n", glass, grey, light);
         }
 		gevrBeanMeshFree(m);
 	}
@@ -184,6 +186,13 @@ int main(int argc, char **argv)
             if (m->tris[i].tex == 23) { water++; bad |= m->tris[i].alpha == 255; }
         }
         bad |= reflection || water != 4;
+        const void *f0=gevrBeanTextureFrame(m->standin[24],0);
+        const void *f1=gevrBeanTextureFrame(m->standin[24],.5f);
+        bad |= f0==f1 || gevrBeanTextureFrame(m->standin[24],1)!=f0;
+        const uint8_t *p0=NULL,*p1=NULL; int w0,h0,w1,h1;
+        bad |= !gevrBeanTexture(f0,&p0,&w0,&h0) || !gevrBeanTexture(f1,&p1,&w1,&h1);
+        if(p0 && p1) bad |= w0!=w1 || h0!=h1 || !memcmp(p0,p1,(size_t)w0*h0*4);
+        printf("Complex beacon: two distinct cached frames alternate every 0.5 seconds\n");
         printf("Complex: %d translucent water faces on surface 23, %d faces incorrectly using reflection 22\n", water, reflection);
         gevrBeanMeshFree(m);
     }
@@ -195,7 +204,19 @@ int main(int argc, char **argv)
             bad |= fabsf(offset[0] - .9f) > 1e-6f || fabsf(offset[1]) > 1e-6f;
         }
         bad |= scrolling != 1;
+        float uv[6]; bad |= !gevrBeanTextureTransform(m->standin[0],3.6f,uv);
+        bad |= fabsf(uv[0])>1e-5f || fabsf(uv[1]+1)>1e-5f; /* 25 degrees/s, inverse sample. */
         printf("Helicopter: %d texture scrolls at the authored 0.9 repeats/s\n", scrolling);
+        gevrBeanMeshFree(m);
+    }
+    {
+        struct gevrBeanMesh *m=load(argv[1],"prop/bridgeconsole1a");
+        int rotating=0; float uv[6];
+        for(int t=0;t<m->ntex;t++) if(gevrBeanTextureTransform(m->standin[t],1.5f,uv)) {
+            rotating++; bad |= fabsf(uv[0])>1e-5f || fabsf(uv[1]-1)>1e-5f;
+        }
+        bad |= rotating!=1;
+        printf("Frigate radar: clockwise 60 degrees/s around its centre\n");
         gevrBeanMeshFree(m);
     }
 	puts(bad ? "FAIL" : "Bean material checks passed");

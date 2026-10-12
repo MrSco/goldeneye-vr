@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "gevr_bean_motion_math.h"
 
 #define FMT_8888  6
 #define FMT_DXT1  18
@@ -22,7 +23,9 @@ struct texSlot {
 	uint8_t *standin;
 	uint8_t *rgba;
 	int w, h;
-	float scroll[2];
+	float scroll[2], rotation, secondsPerFrame;
+	int nframes;
+	const void **frames;
 };
 
 static struct texSlot s_tex[TEX_SLOTS];
@@ -291,6 +294,8 @@ void gevrBeanTexReset(void)
 		videoFreeCachedTexture(s_tex[i].standin);
 		free(s_tex[i].standin);
 		free(s_tex[i].rgba);
+		free(s_tex[i].frames);
+		memset(&s_tex[i], 0, sizeof(s_tex[i]));
 		s_tex[i].standin = NULL;
 		s_tex[i].rgba = NULL;
 		s_tex[i].key[0] = 0;
@@ -493,13 +498,13 @@ void gevrBeanTexPaint(const void *addr, uint32_t rgb)
  * first as DAB's decoder gives it. malloc'd and the caller's; NULL when the
  * file is not a texture this decodes.
  */
-uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *outW, int *outH)
+static uint8_t *decodeFrame(const struct gevrCaff *c, int fileIndex, int frame, int *outW, int *outH)
 {
 	uint32_t blen = 0, glen = 0, w, h, base, levels, type;
 	const uint8_t *b;
 	const uint8_t *g;
 	int gi, format, endian, packed;
-	uint32_t bpe, ew, eh, need;
+	uint32_t bpe, ew, eh, need, first = 0;
 	uint8_t *copy, *rgba;
 
 	if (outW) *outW = 0;
@@ -519,13 +524,27 @@ uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *out
 	format = b[0x1b] & 0x3f;
 	endian = b[0x1a] ? (format == FMT_8888 ? 2 : 1) : 0;
 	packed = levels > 1;
+	uint32_t frames = (type == 4 || type == 5) ? be32b(b + 0x38) : 1;
+	if (frames < 1 || frames > 256) frames = 1;
+	if (frame < 0 || (uint32_t)frame >= frames) return NULL;
+	if (type == 5 && frame) {
+		uint32_t ew = format == FMT_8888 ? (w+31u)&~31u : (((w+3)/4)+31u)&~31u;
+		uint32_t eh = format == FMT_8888 ? (h+31u)&~31u : (((h+3)/4)+31u)&~31u;
+		first = (uint32_t)frame * ew * eh * (format == FMT_8888 ? 4 : format == FMT_DXT1 ? 8 : 16);
+	}
 	if (type == 4 && blen >= 0x50) {
 		uint32_t wt = be32b(b + 0x44), ht = be32b(b + 0x48), lt = be32b(b + 0x4c);
-		if (wt > blen - 4 || ht > blen - 4 || lt > blen - 4)
-			return NULL;
-		w = be32b(b + wt);
-		h = be32b(b + ht);
-		levels = be32b(b + lt);
+		if ((uint64_t)wt + frames*4 > blen || (uint64_t)ht + frames*4 > blen || (uint64_t)lt + frames*4 > blen) return NULL;
+		for (int f = 0; f <= frame; f++) {
+			w = be32b(b + wt + f*4); h = be32b(b + ht + f*4); levels = be32b(b + lt + f*4);
+			if (!w || !h || w > 4096 || h > 4096) return NULL;
+			if (f < frame) {
+				if (levels > 1 && w > 16 && h > 16) return NULL; /* separate mip chains */
+				uint32_t ew = format == FMT_8888 ? (w+31u)&~31u : (((w+3)/4)+31u)&~31u;
+				uint32_t eh = format == FMT_8888 ? (h+31u)&~31u : (((h+3)/4)+31u)&~31u;
+				first += (ew*eh*(format == FMT_8888 ? 4 : format == FMT_DXT1 ? 8 : 16)+0xfff)&~0xfffu;
+			}
+		}
 		packed = levels > 1;
 	}
 	gi = gevrCaffFind(c, c->files[fileIndex].asset, ".gpu");
@@ -542,7 +561,7 @@ uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *out
 		}
 	}
 	g = gi >= 0 ? gevrCaffBlob(c, gi, &glen) : NULL;
-	if (!g || w == 0 || h == 0 || w > 4096 || h > 4096 || base > glen) {
+	if (!g || w == 0 || h == 0 || w > 4096 || h > 4096 || (uint64_t)base + first > glen) {
 		return NULL;
 	}
 	if (format == FMT_8888) {
@@ -562,8 +581,8 @@ uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *out
 		return NULL;
 	}
 	{
-		uint32_t have = glen - base;
-		memcpy(copy, g + base, have < need ? have : need);
+		uint32_t have = glen - base - first;
+		memcpy(copy, g + base + first, have < need ? have : need);
 	}
 	endianSwap(copy, need, endian);
 	rgba = decodeSurface(copy, need, format, packed, w, h);
@@ -583,6 +602,9 @@ uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *out
 	if (outH) *outH = (int)h;
 	return rgba;
 }
+
+uint8_t *gevrBeanTexDecodeRgba(const struct gevrCaff *c, int fileIndex, int *w, int *h)
+{ return decodeFrame(c, fileIndex, 0, w, h); }
 
 /* Decode texture file `fileIndex` inside an open CAFF. The gpu bytes are copied. */
 const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const char *key,
@@ -647,4 +669,63 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 	if (outW) *outW = (int)w;
 	if (outH) *outH = (int)h;
 	return slot->standin;
+}
+
+void gevrBeanTexMotionSet(const void *addr, float s, float t, float degrees, float spf,
+                          const struct gevrCaff *c, int fileIndex)
+{
+    int index = addr ? texFind(addr) : -1;
+    if (index < 0) return;
+    struct texSlot *root = s_tex + index;
+    root->scroll[0]=s; root->scroll[1]=t; root->rotation=degrees;
+    if (!(spf > 0) || !isfinite(spf) || root->frames) return;
+    uint32_t len=0;
+    const uint8_t *b=gevrCaffBlob(c,fileIndex,&len);
+    if (!b || len<0x40) return;
+    uint32_t n=be32b(b+0x38), type=be32b(b+0x1c);
+    if ((type!=4 && type!=5) || n<2 || n>256 || s_ntex+(int)n-1>TEX_SLOTS) return;
+    const void **frames=calloc(n,sizeof(*frames));
+    if (!frames) return;
+    frames[0]=addr;
+    int begin=s_ntex;
+    for (uint32_t f=1;f<n;f++) {
+        int w=0,h=0;
+        uint8_t *rgba=decodeFrame(c,fileIndex,(int)f,&w,&h);
+        uint8_t *standin=calloc(16*16,2);
+        if (!rgba || !standin || w!=root->w || h!=root->h) {
+            free(rgba); free(standin);
+            for (int j=begin;j<s_ntex;j++) {free(s_tex[j].rgba);free(s_tex[j].standin);memset(s_tex+j,0,sizeof(*root));}
+            s_ntex=begin;
+            memset(s_texIndex,0,sizeof(s_texIndex));
+            for(int j=0;j<s_ntex;j++) texIndexAdd(j);
+            free(frames);
+            return;
+        }
+        struct texSlot *slot=s_tex+s_ntex++;
+        snprintf(slot->key,sizeof(slot->key),"frame:%d:%u",index,f);
+        slot->rgba=rgba;slot->standin=standin;slot->w=w;slot->h=h;
+        texIndexAdd((int)(slot-s_tex));
+        frames[f]=standin;
+    }
+    root->frames=frames; root->nframes=(int)n; root->secondsPerFrame=spf;
+}
+
+const void *gevrBeanTextureFrame(const void *addr, float seconds)
+{
+    int i=addr ? texFind(addr) : -1;
+    if (i<0 || !isfinite(seconds) || seconds<0 || !s_tex[i].frames) return addr;
+    const struct texSlot *s=s_tex+i;
+    int frame=(int)fmod(floor((double)seconds/s->secondsPerFrame),s->nframes);
+    return s->frames[frame];
+}
+
+int gevrBeanTextureTransform(const void *addr, float seconds, float m[6])
+{
+    m[0]=m[3]=1; m[1]=m[2]=m[4]=m[5]=0;
+    int i=addr ? texFind(addr) : -1;
+    if(i<0 || !isfinite(seconds)) return 0;
+    const struct texSlot *s=s_tex+i;
+    if(!s->scroll[0] && !s->scroll[1] && !s->rotation) return 0;
+    gevrBeanUvTransform(seconds,s->scroll[0],s->scroll[1],s->rotation,m);
+    return 1;
 }

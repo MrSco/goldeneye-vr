@@ -1,5 +1,8 @@
 # PR 172: whole-pack material audit, 2026-10-12
 
+For current repair status, see [the renderer follow-up](pr172-renderer-follow-up.md).
+The table below records the earlier `e9821e5` audit checkpoint.
+
 The starting build (`2057eb2`) has **eight confirmed material/rendering fault
 classes** in the supplied Bean pack. Two are fixed by this follow-up; six remain.
 This counts distinct implementation faults, not screenshots, draw records or

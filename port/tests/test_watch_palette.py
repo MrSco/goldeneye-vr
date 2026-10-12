@@ -34,7 +34,23 @@ int main(void) {
  assert(fabsf((7450*.25f*fog[0]+fog[1])/255-.5f)<1e-5f);
  assert(gevrBeanFogLine(33,2782,0.25f,fog,rgb));
  assert(fabsf((80000*.25f*fog[0]+fog[1])/255-1)<1e-5f);
- assert(!gevrBeanFogLine(20,5000,.25f,fog,rgb)); /* Silo has no fog row. */
+ const int stages[]={22,23,24,25,27,28,29,30,31,32,33,34,35,36,37,38,39,41,43};
+ for(unsigned i=0;i<sizeof(stages)/sizeof(stages[0]);i++) {
+  float reach; assert(gevrBeanFogRange(stages[i],9161,0,&reach,rgb));
+  assert(gevrBeanFogLine(stages[i],9161,.25f,fog,rgb));
+  assert(fabsf((reach*.25f*fog[0]+fog[1])/255-1)<1e-5f);
+ }
+ float reach; assert(gevrBeanFogRange(22,9161,1,&reach,rgb)&&reach==5000);
+ assert(rgb[0]==0&&rgb[1]==0&&rgb[2]==8);
+ assert(gevrBeanFogRange(43,9161,1,&reach,rgb)&&reach==6500);
+ assert(rgb[0]==0x57&&rgb[1]==0x5f&&rgb[2]==0x5d);
+ const u8 gas[3]={70,180,30};
+ assert(gevrBeanFogLineTransition(34,9161,.25f,0,.25f,1,gas,fog,rgb));
+ assert(rgb[0]==70&&rgb[1]==180&&rgb[2]==30);
+ assert(gevrBeanFogRange(34,9161,0,&reach,rgb));
+ reach=-100+(reach+100)*.25f;
+ assert(fabsf((reach*.25f*fog[0]+fog[1])/255-1)<1e-5f);
+ assert(!gevrBeanFogLine(20,5000,.25f,fog,rgb)); /* Not a retail stage ID. */
  assert(!gevrBeanFogLine(33,5000,0,fog,rgb));
  assert(!geometry); /* RGB bytes are colours again, not signed normals. */
  struct WatchVertex v[20]={0}; set_page_rectangle_colors(2,v);

@@ -94,7 +94,7 @@ def findings(rows):
                                   for r in rows for i, t in enumerate(r["textures"]) if not t["decoded"]],
         "emptyMeshNativeScreenFallbacks": [r["source"] for r in rows if r.get("meshLoaded") is False],
         "rotationAuthoredInHdAssets": rotation,
-        "rotationMissingOnRegisteredHdProps": rotation_props,
+        "rotationOnRegisteredHdProps": rotation_props,
         "additionalReflectionOrScratchInputs": reflection_rows,
         "registeredReflectionOrScratchAssets": sorted({r["source"] for r in reflection_rows if r["source"] in registered}),
         "genericSelectorDifferences": selection_differences,
@@ -104,7 +104,7 @@ def findings(rows):
         "countCautions": ["Material records include switch alternatives.",
                           "Model colour candidates may include discarded pieces; they are not confirmed visual defects per model.",
                           "Coincident faces can be intentional; inspect coverage and headset depth behavior before changing them.",
-                          "Array water bumps are unused by the single-input renderer; helicopter frames do not run in the authored metadata."]
+                          "Array water bumps need a reflection shader; helicopter frames do not run in the authored metadata."]
     }
 
 
