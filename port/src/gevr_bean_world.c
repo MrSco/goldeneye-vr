@@ -477,7 +477,7 @@ static int buildStage(int stage)
      * Transparent surfaces keep the game's room order below. A diagnostic marker
      * retains the old room submission for a controlled comparison. */
     FILE *control=gevrBeanControlOpen("gevr_room_draws.txt");
-    int merge=0;
+    int merge=1;
     if (control) { int mode=1; if (fscanf(control,"%d",&mode)==1) merge=mode!=0; fclose(control); }
     GEVR_BEAN_LOG("gevr bean room-draws: %d\n",merge);
     if (merge) {

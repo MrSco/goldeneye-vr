@@ -31,6 +31,15 @@ void *gevrBeanWholeModelGdl(Model *model)
     return swap && swap->skin && !swap->original ? gevrBeanRenderGdl(root,NULL,model) : NULL;
 }
 
+void *gevrBeanWholeJointGdl(ModelHitEntry *entry,ModelHitEntry *first)
+{
+    /* The joint list may interleave body, weapon and hat models after sorting.
+     * Draw each instance once, retaining all native hit and attachment entries. */
+    for(ModelHitEntry *p=first;p && p!=entry;p=p->next)
+        if(p->model==entry->model)return NULL;
+    return gevrBeanWholeModelGdl(entry->model);
+}
+
 void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 {
 	struct beanSwap *swap = activeSwap(node);

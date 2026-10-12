@@ -1704,7 +1704,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		}
 	}
 	/* Register only if every replacement fits the level allocation limits. */
-	if (s_nswap + nd > MAX_SWAP || s_nalloc + nd * 5 > MAX_ALLOC) {
+	if (s_nswap + nd + 1 > MAX_SWAP || s_nalloc + nd * 5 > MAX_ALLOC) {
 		free(stack); free(seen); free(grp); free(dls);
 		return;
 	}
@@ -1740,7 +1740,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
             /* Diagnostic only. Native distance alternatives share the same HD
              * geometry; real visibility switches still require separate limbs. */
             int combined=0; void *combinedG=NULL,*combinedV=NULL;
-            FILE *batch=gevrBeanControlOpen("gevr_body_batch.txt"); int batchOn=0;
+            FILE *batch=gevrBeanControlOpen("gevr_body_batch.txt"); int batchOn=1;
             if(batch){fscanf(batch,"%d",&batchOn);fclose(batch);}
             GEVR_BEAN_LOG("gevr bean controls: rigid_min=%d body_batch=%d\n",s_rigidMinimum,batchOn);
             if(batchOn && !watchArm && nodeMatrix(header->RootNode)>=0) {
