@@ -354,6 +354,26 @@ int main(int argc, char **argv)
             gevrBeanMeshFree(m);
         }
     }
+    {
+        /* DAB fpDrawIsCard(): a first-person gun's flash cards (piece 0, and
+         * whatever hangs off the muzzle) are left out, or they burn on the gun
+         * for good - the Automatic Shotgun's and the RC-P90's in the hand. The
+         * gadgets' piece 0 is their own body and stays. */
+        static const struct { const char *file; int flash; } guns[] = {
+            {"gun/automaticshotgun", 16}, {"gun/shotgun", 16}, {"gun/grenadelauncher", 16}, {"gun/fnp90", 22},
+            {"gun/uzi", 32}, {"gun/m16", 14}, {"gun/ak47", 16}, {"gun/laser", 8},
+            {"gun/taser", 0}, {"gun/joypad", 0}, {"gun/trigger", 0},
+        };
+        for (unsigned g = 0; g < sizeof(guns) / sizeof(guns[0]); g++) {
+            struct gevrBeanMesh *m = load(argv[1], guns[g].file);
+            int flash = 0;
+            for (int i = 0; i < m->ntris; i++)
+                flash += (m->tris[i].flags & GEVR_BEAN_F_FLASH) != 0;
+            printf("%s: %d flash-card triangles left out\n", guns[g].file, flash);
+            bad |= flash != guns[g].flash;
+            gevrBeanMeshFree(m);
+        }
+    }
     puts(bad ? "FAIL" : "Bean material checks passed");
 	return bad;
 }
