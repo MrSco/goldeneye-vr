@@ -3414,6 +3414,26 @@ extern "C" void gevrLauncherRun(void)
             }
             ImGui::Spacing();
             ImGui::TextColored(gold, "DISPLAY RATE");
+            // XBLA / Bean's frames take longer than 120 Hz's 8.3 ms when turning
+            // in open levels (Dam on Quest 3: 197 missed frames in three
+            // minutes of turning at 120 Hz, 17 at 90). A warning on the
+            // heading's line, as long as it fits: the page must not grow or scroll.
+            if (gevrBeanIsEnabled() && VrRefreshRate > 90) {
+                const char *why = "XBLA / Bean's models and textures can take longer than a 120 Hz frame "
+                                  "while turning in open levels, which stutters. 90 Hz holds nearly every frame.";
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", why);
+                const float right = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
+                const float from = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x;
+                const char *warn = from + ImGui::CalcTextSize("90 Hz advised for Bean").x <= right
+                    ? "90 Hz advised for Bean" : "Bean: 90 Hz";
+                if (from + ImGui::CalcTextSize(warn).x <= right) {
+                    ImGui::SameLine();
+                    ImGui::TextColored(bad, "%s", warn);
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip("%s", why);
+                }
+            }
             std::vector<int> rates(vr_get_supported_refresh_rates(nullptr, 0));
             const int count = vr_get_supported_refresh_rates(rates.data(), (int)rates.size());
             const int prevRate = VrRefreshRate;
