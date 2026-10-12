@@ -29,7 +29,36 @@ struct beanDraw {
 	uint8_t numpal;
 	uint32_t colour;
 	int8_t cuff;
+	int8_t piece;   /* record 0x30's fourth word, -1 for a 0x01 draw (DAB beandraw.piece) */
 };
+
+/*
+ * DAB gebean.c fpDrawIsCard(): in a first-person gun file a draw of piece 0
+ * is one of the release's flash cards, which it draws only for the frame of a
+ * shot - the ZMG's streaks on SKEL_TOP as well as the cards on the muzzle - so
+ * it is the flash with whatever hangs off the muzzle's bones. Drawn as part of
+ * the gun it was always lit: the RC-P90's cards on SKEL_TOP, the Automatic
+ * Shotgun's on the muzzle and SKEL_TOP together, which the bone test alone
+ * misses. DAB's fpRows (the 25 GoldenEye guns), with the gold and silver PP7
+ * this port maps to files of their own; not the gadgets, whose piece 0 is
+ * their body (the taser, the controller) or the trigger hand's cuffs.
+ */
+static int fpGunFile(const char *source)
+{
+	static const char *const files[] = {
+		"ppk", "ppksilenced", "tt33", "skorpion", "ak47", "uzi", "mp5k", "mp5ksilenced", "spectre", "m16",
+		"fnp90", "shotgun", "automaticshotgun", "sniperrifle", "ruger", "goldengun", "laser", "grenadelauncher",
+		"rocketlauncher", "knife", "throwingknife", "grenade", "timedmine", "proximitymine", "remotemine",
+		"goldppk", "silverPPK",
+	};
+	for (unsigned i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
+		char folder[48];
+		snprintf(folder, sizeof(folder), "/gun/%s/", files[i]);
+		if (strstr(source, folder))
+			return 1;
+	}
+	return 0;
+}
 
 struct beanIb {
 	uint32_t obj, off, size, width;
@@ -1611,6 +1640,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	rigidDecals = strstr(source, "/prop/") || strstr(source, "\\prop\\") || strstr(source, "/gun/") ||
 	              strstr(source, "\\gun\\");
 	triggerCuffs = strstr(source, "/gun/trigger/") != NULL || strstr(source, "\\gun\\trigger\\") != NULL;
+	const int fpCards = fpGunFile(source);
 	pal[0] = 0;
 	end = slen >= 8 ? be32(stream + 4) : 0;
 	if (end > slen) {
@@ -1776,6 +1806,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			if (part <= 1 || keepparts) {
 				struct beanDraw *d = &draws[ndraws++];
 				d->cuff = -1;
+				d->piece = (int8_t)(part < 0 ? -1 : part > 127 ? 127 : part);
 				if (triggerCuffs) {
 					static const int pieces[3] = {3, 1, 2}, sections[3] = {4, 0, 5};
 					if ((type == 0x01 && section < 0 && afterpieces) ||
@@ -2043,6 +2074,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 						d->pal, d->numpal, boneSk, muzzle, slideb)) {
 					break;
 				}
+				if (fpCards && d->piece == 0)
+					mesh->tris[mesh->ntris - 1].flags |= GEVR_BEAN_F_FLASH;
 				mesh->tris[mesh->ntris - 1].reflection=texi==(int)d->tex ? drawReflection : NULL;
                 mesh->tris[mesh->ntris - 1].reflectionDiffuse=d->reflectionDiffuse;
                 mesh->tris[mesh->ntris - 1].reflectionColour=d->reflectionColour;
