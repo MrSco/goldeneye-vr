@@ -6592,6 +6592,26 @@ f32 chrlvGetAimLimitAngle(f32 sqdist)
 
 
 
+#ifdef GEVR
+/*
+ * The guards' fire at the player since the last hit, for the "damage:" log
+ * line (bondview2.c record_damage_kills): shots in aim, shots out of it, shots
+ * held off while the last hit's flash runs, and the hit chance they added.
+ */
+static s32 s_gevrShotsAimed, s_gevrShotsOff, s_gevrShotsHeld;
+static f32 s_gevrShotChance;
+
+void gevrGuardFireTake(s32 *aimed, s32 *off, s32 *held, f32 *chance)
+{
+    *aimed = s_gevrShotsAimed;
+    *off = s_gevrShotsOff;
+    *held = s_gevrShotsHeld;
+    *chance = s_gevrShotChance;
+    s_gevrShotsAimed = s_gevrShotsOff = s_gevrShotsHeld = 0;
+    s_gevrShotChance = 0.0f;
+}
+#endif
+
 /**
  * @param arg0:
  * @param arg1: out parameter. bool. Whether or not self has correct line of site to hit player.
@@ -6647,6 +6667,17 @@ void chrlvUpdateShotbondsum(ChrRecord *self, s32 *arg1, s32 *arg2, ITEM_IDS item
     *arg1 = phi_v1;
     *arg2 = 0;
 
+#ifdef GEVR
+    if (phi_v1 == 0)
+    {
+        s_gevrShotsOff++;
+    }
+    else if (bondviewGetIfCurrentPlayerDamageShowTime() != 0)
+    {
+        s_gevrShotsHeld++;
+    }
+#endif
+
     if ((bondviewGetIfCurrentPlayerDamageShowTime() == 0) && (phi_v1 != 0))
     {
         temp_f0_3 = sqrtf(dxdydz_square);
@@ -6700,6 +6731,10 @@ void chrlvUpdateShotbondsum(ChrRecord *self, s32 *arg1, s32 *arg2, ITEM_IDS item
         }
 
         self->shotbondsum += phi_f2_4;
+#ifdef GEVR
+        s_gevrShotsAimed++;
+        s_gevrShotChance += phi_f2_4;
+#endif
 
         if (self->shotbondsum >= 1.0f)
         {
