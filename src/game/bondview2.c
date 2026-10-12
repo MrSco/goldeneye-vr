@@ -2430,6 +2430,8 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
     Mtxf *matrices;
     f32 pos[3], right[3], up[3], back[3], x[3], y[3], z[3];
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f;
+    /* a right arm: left-handed mode's off hand, or the hand holding a gun in the other hand */
+    const s32 mirror = hold ? (s_gevrTwoHandGun == GUNLEFT) != (VrLeftHandedMode != 0) : VrLeftHandedMode != 0;
     s32 n, i;
 
     *drawn = FALSE;
@@ -2453,7 +2455,7 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
     /* the game puts this arm (ITEM_SUIT_LF_HAND) in the left hand for the
      * watch: it stays on the controller while the pages are open */
     if (!g_gevrStereo
-        || (get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
+        || (!hold && get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_UNARMED
             && get_item_in_hand_or_watch_menu(GUNLEFT) != ITEM_SUIT_LF_HAND)
         || g_CurrentPlayer->bonddead)
     {
@@ -2478,7 +2480,7 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
     z[0] = x[1] * y[2] - x[2] * y[1];
     z[1] = x[2] * y[0] - x[0] * y[2];
     z[2] = x[0] * y[1] - x[1] * y[0];
-    if (VrLeftHandedMode)
+    if (mirror)
     {
         /* the right wrist: the same frame reflected across left/right, so
          * the left arm model comes out as a right arm, face to the holder's right */
@@ -2561,7 +2563,7 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
     }
 
     /* the watch hands: mission time, as the pause does (mirrored, they would run backwards) */
-    gevrWatchArmHands(matrices, VrLeftHandedMode);
+    gevrWatchArmHands(matrices, mirror);
     if (!hold)
     {
         /*
@@ -2604,7 +2606,7 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
                               | ((u32)g_CurrentPlayer->tileColor.b << 8);
     renderdata.cullmode = CULLMODE_NONE;
     matrix_4x4_7F058C64();
-    if (VrLeftHandedMode)
+    if (mirror)
     {
         gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
     }
@@ -2612,7 +2614,7 @@ static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 h
     subdraw(&renderdata, &s_gevrWatchModel);
     gdl = renderdata.gdl;
     gSPClearGeometryMode(gdl++, G_CULL_BOTH);
-    if (VrLeftHandedMode)
+    if (mirror)
     {
         gDPNoOpTag(gdl++, 0x56580001); /* VR_CULL_MIRROR_END */
     }
@@ -4250,8 +4252,8 @@ static s32 gevrStereoTwoHandTarget(f32 target[3])
 
 /*
  * The grip fit's turn as the taser hand takes it - about its model's X, Y
- * and Z, its model being the gun hand's frame mirrored into the off hand
- * (gunfire.c gevrRenderLeftArm, a gun in the right hand) - as a turn of view
+ * and Z, its model being the gun hand's frame mirrored into the other hand
+ * (gunfire.c gevrRenderLeftArm) - as a turn of view
  * space, w: a point p turns to p * w. gevrRenderBeanGripArm turns Bean's arm
  * by it, so the fit means the same for both hands.
  */
@@ -4270,7 +4272,8 @@ static s32 gevrStereoTwoHandTurn(f32 w[3][3])
     tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1];
     for (i = 0; i < 3; i++)
     {
-        e[0][i] = VrLeftHandedMode ? -right[i] : right[i];
+        /* gevrStereoGunMatrix's row 0, negated for a left-hand support (gevrRenderLeftArm) */
+        e[0][i] = (s_gevrTwoHandGun == GUNRIGHT) != (VrLeftHandedMode != 0) ? right[i] : -right[i];
         e[1][i] = up[i];
         e[2][i] = -back[i];
     }
@@ -4347,18 +4350,19 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
  * it pivoted, as the taser hand once did): posed as the off controller
  * poses it but on the gun hand's frame, mirrored, turned by Bean's grip fit
  * as the taser hand is (gevrStereoTwoHandTurn), and its hand moved onto the
- * hold point plus the fit's offset (gevrStereoTwoHandTarget). DAB has no
- * hold of this kind. Only for a gun in the right hand, the watch arm's other
- * hand: an off-hand gun keeps the taser hand. Sets *drawn when drawn; the
- * taser hand is the fallback.
+ * hold point plus the fit's offset (gevrStereoTwoHandTarget). Holding a gun
+ * in the other hand, it is mirrored into that hand, as left-handed mode
+ * mirrors the off hand. DAB has no hold of this kind. Sets *drawn when drawn;
+ * the taser hand is the fallback. (The grenade stays in the taser hand: the
+ * release has no hand holding one, user.)
  */
 Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
 {
     extern int gevrBeanDrawsModel(const void *header);   /* port/src/gevr_bean.c */
 
     *drawn = FALSE;
-    if (!g_gevrStereo || !gevrStereoTwoHandGrip() || s_gevrTwoHandGun != GUNRIGHT
-        || gevrFitLook(GUNRIGHT) != 2 || !gevrLeftWatchLoad() || !gevrBeanDrawsModel(&s_gevrWatchHeader))
+    if (!g_gevrStereo || !gevrStereoTwoHandGrip() || gevrFitLook(s_gevrTwoHandGun) != 2 || !gevrLeftWatchLoad()
+        || !gevrBeanDrawsModel(&s_gevrWatchHeader))
     {
         return gdl;
     }
