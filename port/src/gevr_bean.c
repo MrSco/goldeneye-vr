@@ -1042,6 +1042,11 @@ static const struct beanGunParts *s_parts;
 static const struct gevrBeanMesh *s_partsMesh;
 static int s_partWant;
 static int s_noRound;   /* laying out the launcher without its round (DAB fpRound) */
+/* the watch items' pressing hand (pressHand()): per triangle 0 the rest, 1 the
+ * palm, 2 the finger, and the one being laid out */
+static const int8_t *s_pressOf;
+static const struct gevrBeanMesh *s_pressMesh;
+static int s_pressWant;
 
 static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t, int kind, int hasHead)
 {
@@ -1054,6 +1059,10 @@ static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 			return 0;
 	}
 	if (kind == BEAN_GUN && s_noRound && (t->flags & GEVR_BEAN_F_ROUND)) {
+		return 0;
+	}
+	if (kind == BEAN_GUN && s_pressOf && mesh == s_pressMesh && t->cuff == -1 &&
+	    s_pressOf[t - mesh->tris] != s_pressWant) {
 		return 0;
 	}
 	if (kind == BEAN_GUN && s_parts && mesh == s_partsMesh) {
@@ -1378,6 +1387,104 @@ static void gunParts(struct beanGunParts *parts, const ModelFileHeader *header, 
 		parts->of[t] = (int8_t)m;
 		parts->used[m]++;
 	}
+}
+
+/*
+ * The watch laser's and the detonator's pressing hand. In the headset the
+ * watch arm is drawn on its own and the hand that presses the watch is
+ * GoldenEye's palm and finger lists alone (gunfire.c gevrRenderWatchGripHand),
+ * so the release's right hand has to be on those lists: it is the one skinned
+ * to SKEL_FINGER (its picture's triangles lie on GoldenEye's palm and finger,
+ * the other hand's on GoldenEye's left hand). Its finger goes on GoldenEye's
+ * finger (Switches[6]), which presses as the game moves it, and the rest on
+ * the root list most of it lies nearest; the left hand and the watch stay on
+ * the body's list. The sleeves are cuffOf()'s.
+ */
+struct beanPress {
+	int8_t *of;
+	int palm, finger;
+};
+
+static void pressHand(struct beanPress *press, const ModelFileHeader *header, const struct gevrBeanMesh *mesh,
+                      const struct beanFit *fit, const struct beanDl *dls, int nd, int best)
+{
+	int fb = -1, votes[MAX_DL] = {0};
+	uint8_t right[256] = {0};
+	press->of = NULL;
+	press->palm = press->finger = -1;
+	for (int b = 0; b < mesh->nbones && b < 64; b++)
+		if (!strcmp(mesh->boneName[b], "SKEL_FINGER"))
+			fb = b;
+	if (fb < 0 || !fit || header->numSwitches <= 6 || !header->Switches[6])
+		return;
+	for (int t = 0; t < mesh->ntris; t++)
+		for (int c = 0; c < 12; c++)
+			if (mesh->tris[t].bone[c] == fb && mesh->tris[t].weight[c] && mesh->tris[t].tex >= 0)
+				right[mesh->tris[t].tex & 255] = 1;
+	const int fingerMatrix = nodeMatrix(header->Switches[6]);
+	for (int i = 0; i < nd; i++) {
+		if (i == best || dls[i].simple || cuffOf(header, dls[i].node, 29) >= 0)
+			continue;
+		if (press->finger < 0 && nodeMatrix(dls[i].node) == fingerMatrix && fingerMatrix != nodeMatrix(dls[best].node))
+			press->finger = i;
+	}
+	press->of = calloc((size_t)(mesh->ntris ? mesh->ntris : 1), 1);
+	if (!press->of)
+		return;
+	/* the palm: the root list the right hand's triangles lie nearest */
+	for (int t = 0; t < mesh->ntris; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		if (tri->cuff != -1 || tri->tex < 0 || !right[tri->tex & 255])
+			continue;
+		int weight = 0, total = 0;
+		for (int c = 0; c < 12; c++) {
+			total += tri->weight[c];
+			weight += tri->bone[c] == fb ? tri->weight[c] : 0;
+		}
+		press->of[t] = weight * 2 > total && press->finger >= 0 ? 2 : 1;
+		if (press->of[t] != 1)
+			continue;
+		float c[3] = {0}, q[3];
+		for (int k = 0; k < 3; k++) {
+			fitPoint(fit, &tri->p[k * 3], q);
+			for (int a = 0; a < 3; a++)
+				c[a] += q[a] / 3;
+		}
+		int nearest = -1;
+		float bestd = 1e30f;
+		for (int i = 0; i < nd; i++) {
+			Vertex *v;
+			int vc, type;
+			Gfx *primary;
+			float rest[3] = {0};
+			if (i == press->finger || dls[i].simple || dls[i].grp < 0 || cuffOf(header, dls[i].node, 29) >= 0 ||
+			    nodeMatrix(dls[i].node) != nodeMatrix(dls[best].node))
+				continue;
+			dlVerts(dls[i].node, &v, &vc, &type, &primary);
+			for (ModelNode *up = dls[i].node; up; up = up->Parent) {
+				const coord3d *o = nodeOp(up) == MODELNODE_OPCODE_GROUP && up->Data ? &up->Data->Group.Origin : NULL;
+				for (int a = 0; o && a < 3; a++)
+					rest[a] += o->f[a];
+			}
+			for (int j = 0; j < vc; j++) {
+				float d = 0;
+				for (int a = 0; a < 3; a++)
+					d += (c[a] - v[j].coord.AsArray[a] - rest[a]) * (c[a] - v[j].coord.AsArray[a] - rest[a]);
+				if (d < bestd) {
+					bestd = d;
+					nearest = i;
+				}
+			}
+		}
+		if (nearest >= 0)
+			votes[nearest]++;
+	}
+	for (int i = 0; i < nd; i++)
+		if (i != best && votes[i] && (press->palm < 0 || votes[i] > votes[press->palm]))
+			press->palm = i;
+	for (int t = 0; t < mesh->ntris; t++)
+		if (press->of[t] == 1 && press->palm < 0)
+			press->of[t] = 0;
 }
 
 /* An untoggled list on a matrix that took a part: its own geometry gives way to the part's. */
@@ -2164,6 +2271,15 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			}
 			struct beanGunParts parts;
 			memset(&parts, 0, sizeof(parts));
+			struct beanPress press = { NULL, -1, -1 };
+			if (gun && mesh->triggerCuffs) {
+				pressHand(&press, header, mesh, fit, dls, nd, best);
+				if (press.of) {
+					s_pressOf = press.of;
+					s_pressMesh = mesh;
+					s_pressWant = 0;
+				}
+			}
 			if (gun && !mesh->triggerCuffs) {
 				gunParts(&parts, header, mesh, fit, grp, dls, nd, best);
 				if (parts.of) {
@@ -2202,6 +2318,22 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					}
 					s_noRound = 0;
 				}
+				/* the watch items' pressing hand on GoldenEye's palm and finger */
+				for (int k = 1; press.of && k <= 2; k++) {
+					const int list = k == 1 ? press.palm : press.finger;
+					void *handG = NULL, *handV = NULL;
+					if (list < 0 || dls[list].grp < 0)
+						continue;
+					s_pressWant = k;
+					if (emitRigid(mesh, kind, hasHead, dls[list].node, fit, NULL, -1, grp[dls[list].grp].o, -1,
+					              &handG, &handV)) {
+						keepAlloc(handG);
+						keepAlloc(handV);
+						registerPrimary(dls[list].node, handG, 0);
+					}
+				}
+				s_pressOf = NULL;
+				s_pressMesh = NULL;
 				/* the gun's moving parts, each on its matrix's list from that list's rest */
 				for (int m = 0; parts.of && m < BEAN_GUN_MTX; m++) {
 					const int carrier = parts.carrier[m];
@@ -2224,6 +2356,8 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					int g = dls[i].grp;
 					int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
 					if (i == best)
+						continue;
+					if (mesh->triggerCuffs && press.of && (i == press.palm || i == press.finger) && swapOf(dls[i].node))
 						continue;
 					if (mesh->triggerCuffs) {
 						int cuff = cuffOf(header, dls[i].node, 29);
@@ -2291,6 +2425,9 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			s_parts = NULL;
 			s_partsMesh = NULL;
 			free(parts.of);
+			s_pressOf = NULL;
+			s_pressMesh = NULL;
+			free(press.of);
 		}
 	}
 	free(stack);
