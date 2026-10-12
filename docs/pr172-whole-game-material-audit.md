@@ -97,3 +97,16 @@ the new room-state boundary. The helper now constructs the same blender bits
 with unsigned operands; the regression asserts the independent expected word.
 This repair changes no intended material behavior and is not counted as another
 visible material fault class.
+
+## Signed build
+
+- Clean source commit: `e9821e5187dc1bc62439110e57208dd1ab1ec728`.
+- APK: `android/app/build/outputs/apk/release/GoldenEye-VR-PR172-Material-Audit-e9821e5.apk`.
+- SHA-256: `03630864965a63fa354519df05923259d27f179b640122e15ee9bc8aa3e896e4`.
+- Exact native symbols and archive metadata: `android/app/build/outputs/symbols/af96520913944a30ecdbe042d22bda1ed7bfe619/`.
+- Release build succeeds with JDK 20. Existing JVM tests are cached/up-to-date;
+  this follow-up has no Java changes. Bean regression and real-file material
+  checks pass with address/undefined sanitizers; undefined errors halt the
+  regression run. The packaged native stamp is verified as `e9821e5`.
+- Archive metadata records `dirty: false`, `installed: false`, `published: false`.
+  Headset appearance and stutter improvement have not been validated on this APK.
