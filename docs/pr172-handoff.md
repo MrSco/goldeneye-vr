@@ -60,6 +60,32 @@ backup restoration passed. No test process or synthetic grip is left active.
 5. Complete menu/material appearance checks. Runtime folder bindings and watch
    previews have evidence; every image/effect still needs scene validation.
 
+## Older open items (from the 2026-10-11 handoff)
+
+The rewrite above left these out. Checked against `87370e0`: the watch light
+(texture 9), watch glass (texture 11), decal sort order and Nintendo logo are
+done and not listed.
+
+- **Bean world:** hide the native backdrop rooms that have no Bean triangles
+  (Dam rooms 8-13, 18 and 36-50; DAB `gebeanStageRoomHidden`) and raise the
+  far plane (DAB `gebeanStageTickFar`).
+- **Trigger finger:** the glove's finger is static and the native finger list
+  still draws. DAB routes each bone to its nearest matrix; not ported.
+- **Monitors:** DAB draws the 50 `texture/monitors` pictures; the image
+  repaints (`gevr_bean_images.c`) leave them out.
+- **`titleblood`:** its 41 frames are CAFF format 2, which the decoder does
+  not read. Unused today.
+- **GE-X with Bean (user request):** draw Bean's watch on the GE-X wrist.
+  Today `activeSwap` in `gevr_bean.c` skips the Bean watch arm when GE-X
+  guns are on.
+- **Bean PNG pack** (GoldenEye-007-Bean `GOLDENEYE/Matched`): the ammo PNGs
+  are flipped and BGR; the 4 MP stage PNGs are keyed to the wrong images; the
+  clouds PNG is flipped; the "portraits" are upscales of the ROM. VR's
+  repaints override all of these; GLideN64 users still see them.
+- **Hack campaigns:** the remaining Goldfinger/TND code changes
+  ([port notes](rom-hacks-port-notes.md)) and Goldfinger missions end to end
+  on the headset.
+
 ## Assets and references
 
 The player's ROM and extracted files stay local and must not be committed:
