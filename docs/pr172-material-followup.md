@@ -96,5 +96,12 @@ pages and guns, Dam tunnel/road paint, reservoir motion, fog and frame times.
 
 ## Build
 
-The signed APK and matching native symbol archive are recorded below after the
-clean source build. No headset installation is authorized by this task.
+- Clean source commit: `2057eb20a42b62bb4735c9aabb1da6b580729af3`.
+- Release-signed APK: `android/app/build/outputs/apk/release/GoldenEye-VR-PR172-Watch-Dam-2057eb2.apk`.
+- SHA-256: `34c1666975724926f4cc4cb8bb59ebce3c3d613e9d5af1e74ae80c26caa6e378`.
+- Exact unstripped `libgevr.so`, native-debug-symbols.zip and build.json:
+  `android/app/build/outputs/symbols/76bbcab9a1652cd6b6dc5307ad5434637334109c/`.
+- Packaged native stamp verified as `2057eb2`; archive metadata records
+  `dirty: false`, `installed: false`, `published: false`.
+
+No headset installation is authorized by this task.
