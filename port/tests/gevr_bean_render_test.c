@@ -8,6 +8,7 @@ int gevrRomIsVariant(void) { return 0; } /* GoldenEye: no hack campaign */
 void sysLogPrintf(s32 level, const char *fmt, ...) { (void)level; (void)fmt; }
 
 void gfx_static_mesh_release(GevrStaticMesh *mesh) { (void)mesh; }
+ModelSkeleton skeleton_cctv, skeleton_eyelid_door, skeleton_iris_door, skeleton_door, skeleton_prop_weapon;
 int VrBeanModels = 1;
 int VrGexGuns;
 uintptr_t osVirtualToPhysical(void *addr) { return (uintptr_t)addr; }
@@ -27,6 +28,8 @@ int gevrBeanLoad(const char *source, int parts, struct gevrBeanMesh **out)
 }
 void gevrBeanMeshFree(struct gevrBeanMesh *m) { free(m->tris); free(m); }
 void gevrBeanTexReset(void) {}
+/* the decoded pictures (gevr_bean_tex.c): a monitor's screen painted on its case */
+int gevrBeanTexture(const void *addr, const uint8_t **rgba, int *w, int *h) { (void)addr; (void)rgba; (void)w; (void)h; return 0; }
 /* the folder repaint (gevr_bean_folder.c, gevr_bean_tex.c) is tested on its own */
 void gevrBeanRepaintForget(void) {}
 void gevrBeanRepaintForgetOwner(int owner) { (void)owner; }

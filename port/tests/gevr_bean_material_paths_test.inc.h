@@ -63,4 +63,49 @@ static void materialPathChecks(void)
     }
     free(list); free(verts);
     puts("Bean glass render passes and native chrome setup passed");
+
+    /* A monitor's screen (DAB xblamesh.c xblaMeshNodeIsLiveScreen()): part 0
+     * registered blank under Bean's mesh is drawn with the list its programme
+     * wrote, at its own model type, while propobj.c names the monitor; Bean's
+     * blank otherwise, and the native list with Bean off. */
+    {
+        Gfx programme[1];
+        ModelNode *switches[1] = { &node };
+        ModelFileHeader header = {0};
+        gSPEndDisplayList(programme);
+        node.Opcode = MODELNODE_OPCODE_DLCOLLISION;
+        memset(&ro, 0, sizeof(ro));
+        ro.DisplayListCollisions.Primary = native;
+        ro.DisplayListCollisions.ModelType = 1;
+        ro.DisplayListCollisions.RwDataIndex = 0;
+        header.Switches = switches;
+        header.numSwitches = 1;
+        model.obj = &header;
+        model.datas = (u32 *)&collisionRw;
+        swapAdd(&node, native, NULL, 1); /* s_blank */
+        for (int named = 0; named < 2; named++)
+            for (int written = 0; written < 2; written++) {
+                ModelRenderData r = {0}; r.gdl = output; r.flags = 1;
+                collisionRw.gdl = written ? programme : native;
+                gevrBeanSetScreens(named ? &model : NULL);
+                modelRenderNodeDl(&r, &model, &node);
+                gevrBeanSetScreens(NULL);
+                int drew = 0;
+                for (Gfx *g = output; g < r.gdl; g++)
+                    if ((g->words.w0 >> 24) == (G_DL & 255))
+                        drew = g->words.w1 == (uintptr_t)programme ? 1 : g->words.w1 == (uintptr_t)s_blank ? 2 : 3;
+                assert(drew == (named && written ? 1 : 2));
+            }
+        gevrBeanSetEnabled(0);
+        {
+            ModelRenderData r = {0}; r.gdl = output; r.flags = 1;
+            collisionRw.gdl = programme;
+            modelRenderNodeDl(&r, &model, &node);
+            assert(r.gdl > output && output[r.gdl - output - 1].words.w1 == (uintptr_t)programme);
+        }
+        gevrBeanSetEnabled(1);
+        s_nswap = 0; swapIndexRebuild();
+        model.obj = NULL; model.datas = NULL;
+        puts("Bean monitor screens: a programme's list is the game's while its monitor is drawn");
+    }
 }

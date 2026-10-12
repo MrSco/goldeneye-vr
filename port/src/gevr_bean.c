@@ -213,12 +213,16 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_nswap++;
 }
 
+static int beanLiveScreen(void *node);
+
 /* GE-X supplies the complete first-person arm. Its watch path needs the
- * native watch pieces and switches, which the Bean arm combines into one list. */
+ * native watch pieces and switches, which the Bean arm combines into one list.
+ * A monitor's screen the programme has written is the game's (DAB xblamesh.c
+ * xblaMeshRenderNode(), gevr_bean_screens.inc.h). */
 static struct beanSwap *activeSwap(void *node)
 {
     struct beanSwap *s = gevrBeanIsEnabled() ? swapOf(node) : NULL;
-    return s && !(s->watchArm && VrGexGuns) ? s : NULL;
+    return s && !(s->watchArm && VrGexGuns) && !beanLiveScreen(node) ? s : NULL;
 }
 
 /* Replacements belong to the renderer. Native lists and model types are also
@@ -1154,6 +1158,7 @@ static void fitPoint(const struct beanFit *fit, const float *src, float *out)
 /* rest: the rest of the matrix the list is drawn under, taken off every vertex
  * (DAB gebean.c:12941). glove: -1 every triangle, 0 not the glove, 1 the glove. */
 #include "gevr_bean_chrome.inc.h"
+#include "gevr_bean_screens.inc.h"
 
 static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, ModelNode *host,
                      const struct beanFit *fit, const struct beanRigidBinding *binding, int cuff,
@@ -1223,10 +1228,20 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 				return 0;
 			}
 		}
-		for (int c = 0; c < 3; c++) {
+		int dropped = 0;
+		for (int c = 0; c < 3 && !dropped; c++) {
 			float p[3], nr[3];
+			int screen = 0;
 			if (fit)
 				fitPoint(fit, &t->p[c * 3], p);
+			/* DAB gebeanBuildRigid(): GoldenEye's monitor screens, before a
+			 * part's place is taken off (gevr_bean_screens.inc.h) */
+			if (fit && s_screenBuild)
+				screen = beanScreenVertex(s_screenBuild, mesh, i, c, p);
+			if (screen < 0) {
+				dropped = 1;
+				break;
+			}
 			for (int k = 0; k < 3; k++) {
 				if (!fit)
 					p[k] = (t->p[c * 3 + k] - bc[k]) * scale + hc_[k];
@@ -1238,7 +1253,13 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 			}
 			int slot = mirror && c ? 3 - c : c;
 			fillEmit(t, t->tex >= 0 && t->tex < mesh->ntex && mesh->texCut[t->tex], &ev[n + slot], p, nr, c);
+			if (screen == BEAN_SCREEN_BACKING) {
+				ev[n + slot].rgba[0] = ev[n + slot].rgba[1] = ev[n + slot].rgba[2] = 0;
+				ev[n + slot].rgba[3] = 255;
+			}
 		}
+		if (dropped)
+			continue;
 		n += 3;
 	}
 	{
@@ -1881,6 +1902,13 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				if (i != best && g >= 0 && !dls[i].simple && !grp[g].joint && gunHandNode(header, dls[i].node))
 					hand = i;
 			}
+			/* DAB gebeanBuildRigid(): a prop's mesh is laid out round
+			 * GoldenEye's monitor screens (gevr_bean_screens.inc.h) */
+			struct beanScreenBuild screens;
+			if (kind == BEAN_PROP) {
+				beanScreensBuild(&screens, header, mesh, fit, &binding, dls[best].node);
+				s_screenBuild = &screens;
+			}
 			int mainEmitted = emitRigid(mesh, kind, hasHead, dls[best].node, fit,
 			                            kind == BEAN_PROP ? &binding : NULL, -1, gun ? grp[dls[best].grp].o : NULL,
 			                            gun && !mesh->triggerCuffs ? 0 : -1, &gdl, &vtx);
@@ -1941,6 +1969,10 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					registerPrimary(dls[i].node, s_blank, 1);
 				}
 			}
+			if (kind == BEAN_PROP) {
+				s_screenBuild = NULL;
+				beanScreensFinish(&screens, header, dls[best].node, fit, mainEmitted);
+			}
 		}
 	}
 	free(stack);
@@ -1959,6 +1991,7 @@ void gevrBeanForgetModel(struct ModelFileHeader *header)
 			s_swap[kept++] = s_swap[i];
 	s_nswap = kept;
 	swapIndexRebuild();
+	beanScreenInfoForget(header, 0, 0);
 }
 
 /* Different intro headers share the same file buffer. Forget all old node
@@ -1974,6 +2007,7 @@ void gevrBeanForgetModelStorage(const void *base, u32 size)
 	}
 	s_nswap = kept;
 	swapIndexRebuild();
+	beanScreenInfoForget(NULL, start, size);
 }
 
 /* The briefing folder keeps GoldenEye's model; its textures take the release's pictures. */
@@ -2066,6 +2100,8 @@ void gevrBeanReset(void)
 	s_nalloc = 0;
 	s_nswap = 0;
 	memset(s_swapIndex, 0, sizeof(s_swapIndex));
+	s_nscreenInfo = 0;
+	s_screenModel = NULL;
 	s_registrationOwner = NULL;
 	for (int i = 0; i < s_ncache; i++) {
 		gevrBeanMeshFree(s_cache[i].mesh);

@@ -71,6 +71,16 @@ void *gevrBeanWholeJointGdl(struct ModelHitEntry *entry,struct ModelHitEntry *fi
 int gevrBeanShownModelType(void *node, int current);
 /* Self-contained replacement in a transparent-only native type-4 draw. */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags);
+/* GoldenEye's monitor screens under Bean's meshes (DAB xblamesh.c
+ * xblaMeshSetScreens()): the monitor whose programmes propobj.c has just
+ * written, around its model's opaque render; NULL after. Its part 0-3 lists
+ * the programmes wrote are drawn as the game's, not Bean's. */
+void gevrBeanSetScreens(struct Model *model);
+/* DAB xblaMeshScreenQuad(): moves a screen's four corners onto Bean's own
+ * screen when the model is drawn as Bean's. 1 when the screen lies on the back
+ * of Bean's recess, to be drawn in the decal z mode. */
+struct Vertex;
+int gevrBeanScreenQuad(struct Model *model, void *node, struct Vertex *vertices);
 
 /* HD level rooms. Advances the display list. *replaced is 1 when the N64
  * room list should be left out. The second call is the transparent pass. */

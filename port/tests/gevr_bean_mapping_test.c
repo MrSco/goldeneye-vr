@@ -335,12 +335,180 @@ static void combinedBodyCheck(ModelFileHeader *header,struct gevrBeanMesh *mesh,
     free(before);
 }
 
+/* GoldenEye's skeletons by the name the model header gives (the game's own
+ * are compiled from assets/embedded/skeletons); only these few are told apart. */
+ModelSkeleton skeleton_cctv, skeleton_eyelid_door, skeleton_iris_door, skeleton_door, skeleton_prop_weapon;
+static ModelSkeleton s_otherSkeleton;
+static ModelSkeleton *skeletonNamed(const char *name)
+{
+	return !strcmp(name, "cctv") ? &skeleton_cctv : !strcmp(name, "eyelid_door") ? &skeleton_eyelid_door
+	     : !strcmp(name, "iris_door") ? &skeleton_iris_door : !strcmp(name, "door") ? &skeleton_door
+	     : !strcmp(name, "prop_weapon") ? &skeleton_prop_weapon : !strcmp(name, "none") ? NULL : &s_otherSkeleton;
+}
+
+/* A screen's width along its first edge and across it (beanFindScreens()'s axes). */
+static void screenExtent(const Vertex *q, const struct beanScreen *s, float out[2])
+{
+	for (int a = 0; a < 2; a++) {
+		float lo = 1e30f, hi = -1e30f;
+		for (int c = 0; c < 4; c++) {
+			float on = 0;
+			for (int k = 0; k < 3; k++)
+				on += (q[c].coord.AsArray[k] - s->origin[k]) * s->axis[a][k];
+			lo = on < lo ? on : lo;
+			hi = on > hi ? on : hi;
+		}
+		out[a] = hi - lo;
+	}
+}
+
+/* GoldenEye's monitor screens under Bean's mesh (gevr_bean_screens.inc.h, DAB
+ * gebeanBuildRigid() and xblamesh.c): the panes of beanVertexDrops[] are not
+ * drawn where Bean has them (black behind a screen, else left out), a screen
+ * list the programme wrote is the game's while its monitor is named and Bean's
+ * otherwise, and a fitted screen takes the programme's corners. */
+static void checkScreens(ModelFileHeader *h, const struct gevrBeanMesh *mesh, int kind, const struct beanFit *fit,
+                         const char *name)
+{
+	if (kind != BEAN_PROP)
+		return;
+	const __typeof__(s_screenCounts) counts = s_screenCounts; /* applyMesh's, as its log gives them */
+	int panes = 0, panesDrawn = 0, handed = 0, fitted = 0, recess = 0, mainScreen = 0;
+	float pane[2] = {0, 0}, quad[2] = {0, 0};
+	struct beanScreen screens[4];
+	int numscreens = beanFindScreens(h, screens);
+	struct beanSwap *main = NULL;
+	for (int i = 0; i < s_nswap && !main; i++)
+		if (s_swap[i].owner == h && s_swap[i].ours != s_blank)
+			main = &s_swap[i];
+	for (int d = 0; d < mesh->ndraws; d++) {
+		int shared = 0; /* draws share a buffer: count its vertices once */
+		for (int e = 0; e < d; e++)
+			shared |= mesh->draws[e].state && mesh->draws[e].vboff == mesh->draws[d].vboff;
+		for (uint32_t v = 0; !shared && mesh->draws[d].state && v < mesh->draws[d].nverts; v++)
+			panes += (mesh->draws[d].state[v] & GEVR_BEAN_V_DROPPED) != 0;
+	}
+	/* The panes' triangles alone through the production emitter: Bean's grey
+	 * card is drawn only black, 2% of its screen's size behind it, or not at all */
+	if (panes && fit && main && mesh->triSrc) {
+		struct gevrBeanMesh only = *mesh;
+		struct beanScreenBuild sb;
+		struct beanRigidBinding binding;
+		void *gdl = NULL, *vtx = NULL;
+		only.tris = calloc(mesh->ntris, sizeof(*only.tris));
+		only.triSrc = calloc(mesh->ntris, sizeof(*only.triSrc));
+		assert(only.tris && only.triSrc);
+		only.ntris = 0;
+		for (int t = 0; t < mesh->ntris; t++)
+			if (mesh->triSrc[t].pane) {
+				only.tris[only.ntris] = mesh->tris[t];
+				only.triSrc[only.ntris++] = mesh->triSrc[t];
+			}
+		memset(&binding, 0, sizeof(binding));
+		beanScreensBuild(&sb, h, mesh, fit, &binding, main->node);
+		s_screenBuild = &sb;
+		if (only.ntris && emitRigid(&only, BEAN_PROP, 0, main->node, fit, NULL, -1, NULL, -1, &gdl, &vtx)) {
+			for (const Gfx *g = gdl; (g->words.w0 >> 24) != (G_ENDDL & 255); g++) {
+				if ((g->words.w0 >> 24) != (G_VTX & 255))
+					continue;
+				const Vtx *v = (const Vtx *)(uintptr_t)g->words.w1;
+				for (int j = 0; j < (int)((g->words.w0 & 0xffff) / sizeof(Vtx)); j++, panesDrawn++) {
+					float best = 1e30f, behind = 0;
+					assert(!(v[j].v.cn[0] | v[j].v.cn[1] | v[j].v.cn[2]));
+					for (int i = 0; i < numscreens; i++) {
+						float w = 0;
+						for (int k = 0; k < 3; k++)
+							w += (v[j].v.ob[k] - screens[i].origin[k]) * screens[i].axis[2][k];
+						if (fabsf(w + screens[i].size * 0.02f) < best) {
+							best = fabsf(w + screens[i].size * 0.02f);
+							behind = w;
+						}
+					}
+					assert(best <= 1.0f && behind < 0);
+				}
+			}
+			free(gdl);
+			free(vtx);
+		}
+		s_screenBuild = NULL;
+		beanScreensFinish(&sb, NULL, NULL, NULL, 0);
+		free(only.tris);
+		free(only.triSrc);
+	}
+
+	Model model = {0};
+	u32 datas[64] = {0};
+	int rw = 0;
+	model.obj = h;
+	model.datas = datas;
+	for (int i = 0; i < numscreens; i++) {
+		ModelNode *n = h->Switches[screens[i].part];
+		Vertex *verts, moved[4];
+		int count, type;
+		Gfx *primary;
+		dlVerts(n, &verts, &count, &type, &primary);
+		/* The programme's corners: Bean's screen when it has one of its own */
+		memcpy(moved, verts, sizeof(moved));
+		recess |= gevrBeanScreenQuad(&model, n, moved) << screens[i].part;
+		if (memcmp(moved, verts, sizeof(moved))) {
+			fitted |= 1 << screens[i].part;
+			if (!pane[0]) {
+				screenExtent(moved, &screens[i], pane);
+				screenExtent(verts, &screens[i], quad);
+			}
+			/* a hundredth of the screen's size in front of its plane */
+			for (int c = 0; c < 4; c++) {
+				float w = 0;
+				for (int k = 0; k < 3; k++)
+					w += (moved[c].coord.AsArray[k] - screens[i].origin[k]) * screens[i].axis[2][k];
+				assert(fabsf(w - screens[i].size * 0.01f) <= 1.0f);
+			}
+			s_want = 0; /* Bean off: GoldenEye's quad */
+			memcpy(moved, verts, sizeof(moved));
+			assert(!gevrBeanScreenQuad(&model, n, moved) && !memcmp(moved, verts, sizeof(moved)));
+			s_want = 1;
+		}
+		/* A list the programme wrote this frame is the game's (DAB
+		 * xblaMeshNodeIsLiveScreen()), only while its monitor is named */
+		struct beanSwap *s = swapOf(n);
+		if (nodeOp(n) != MODELNODE_OPCODE_DLCOLLISION || !s || rw + 4 > 64)
+			continue;
+		ModelRwData_DisplayList_CollisionRecord *record = (void *)&datas[rw];
+		n->Data->DisplayListCollisions.RwDataIndex = (u16)rw;
+		rw += sizeof(*record) / 4;
+		Gfx programme[1];
+		gSPEndDisplayList(programme);
+		record->gdl = primary;
+		gevrBeanSetScreens(&model);
+		assert(gevrBeanShownGdl(n, primary) == s->ours && gevrBeanShownModelType(n, type) == 0);
+		record->gdl = programme;
+		assert(gevrBeanShownGdl(n, programme) == programme && gevrBeanShownModelType(n, type) == type);
+		assert(gevrBeanRenderGdl(n, programme, &model) == programme);
+		/* the mesh's own list stays Bean's (a CCTV's mesh hangs on its part 0,
+		 * but only a monitor is ever named) */
+		mainScreen |= main && main->node == n;
+		assert(!main || main->node == n || gevrBeanShownGdl(main->node, main->original) == main->ours);
+		gevrBeanSetScreens(NULL);
+		assert(gevrBeanShownGdl(n, programme) == s->ours && gevrBeanShownModelType(n, type) == 0);
+		s_want = 0;
+		assert(gevrBeanShownGdl(n, programme) == programme && gevrBeanShownModelType(n, type) == type);
+		s_want = 1;
+		record->gdl = NULL;
+		handed++;
+	}
+	printf("SCREENS %s backing %d recess %d fitted %d panes %d screens %d handed %d drawn %d main %d pane %.0fx%.0f "
+	       "quad %.0fx%.0f\n", name, counts.numbacking, counts.numrecess, fitted, panes, numscreens, handed, panesDrawn,
+	       mainScreen, pane[0], pane[1], quad[0], quad[1]);
+	assert(fitted == counts.screenfit && recess == counts.screenrecess);
+}
+
 int main(int argc, char **argv)
 {
-	assert(argc == 8);
+	assert(argc == 9);
 	ModelFileHeader header;
 	void *native = beanNativeModel(argv[1], argv[2], atoi(argv[3]), atoi(argv[4]), atoi(argv[5]), &header);
 	assert(native);
+	header.Skeleton = skeletonNamed(argv[8]);
 	char source[192];
 	int kind = sourceForName(argv[2], source, sizeof(source));
 	assert(kind);
@@ -402,6 +570,7 @@ int main(int argc, char **argv)
 		}
 	}
     checkRigid(&header, mesh, kind, fitForName(argv[2]), argv[2]);
+    checkScreens(&header, mesh, kind, fitForName(argv[2]), argv[2]);
     if (kind == BEAN_GUN) {
         Model model = {0}; model.obj = &header;
         model.render_pos = calloc(header.numMatrices, sizeof(*model.render_pos));
