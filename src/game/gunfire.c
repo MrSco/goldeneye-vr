@@ -2950,8 +2950,12 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
                  * never sinks into a wall (gfx_pc.h G_CLEAR_DEPTH_EXT).
                  */
                 extern s32 gevrGexHeld(s32 hand);
+                extern int gevrBeanDrawsModel(const void *header);
 
-                if (gevrGexHeld(handnum))
+                /* Bean's guns too: their meshes test depth, so against the
+                 * level's they sank into the floor as the view looked down
+                 * (user: "the more down you look the worse it is") */
+                if (gevrGexHeld(handnum) || gevrBeanDrawsModel(handptr->weaponModel.obj))
                 {
                     renderdata.zbufferenabled = 1;
                     gDPParam(renderdata.gdl++, 0x7E /* G_CLEAR_DEPTH_EXT */, 0);
