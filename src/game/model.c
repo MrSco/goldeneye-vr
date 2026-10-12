@@ -4291,8 +4291,7 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
 #ifdef GEVR
     s32 shownType = gevrBeanShownModelType(arg1, rodata->ModelType);
     Gfx *shownPrimary = rodata->Primary;
-    /* Bean owns its render modes in the primary list; the transparent-only
-     * pass cannot draw it. Avoid posing and copying that mesh a second time. */
+    /* Pose ordinary replacements once; transparent-only glass is handled below. */
     if (renderdata->unk18 == 0 && (renderdata->flags & 1))
         shownPrimary = (Gfx *)gevrBeanRenderGdl(arg1, rodata->Primary, model);
 #else
@@ -4337,6 +4336,15 @@ void modelRenderNodeGundl(ModelRenderData* renderdata, Model* model, ModelNode* 
             }
         }
 
+#ifdef GEVR
+        Gfx *beanTransparent = (Gfx *)gevrBeanTransparentGdl(arg1, rodata->Primary, model, renderdata->flags);
+        if (beanTransparent)
+        {
+            gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->BaseAddr));
+            gSPDisplayList(renderdata->gdl++, beanTransparent);
+        }
+        else
+#endif
         if ((renderdata->flags & 2) && shownPrimary && (shownType == 4) && rodata->Secondary)
         {
             gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->BaseAddr));
@@ -4542,6 +4550,16 @@ void modelRenderNodeDl(ModelRenderData *renderdata, Model *model, ModelNode *nod
             s32 shownType = rodata->DisplayListCollisions.ModelType;
 #endif
 
+#ifdef GEVR
+            Gfx *beanTransparent = (Gfx *)gevrBeanTransparentGdl(node, shownGdl, model, renderdata->flags);
+            if (beanTransparent)
+            {
+                gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->DisplayListCollisions.BaseAddr));
+                gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_VTX, osVirtualToPhysical(rwdata->DisplayListCollisions.Vertices));
+                gSPDisplayList(renderdata->gdl++, beanTransparent);
+            }
+            else
+#endif
             if (shownGdl && shownType == 4 && rodata->DisplayListCollisions.Secondary)
             {
                 gSPSegment(renderdata->gdl++, SPSEGMENT_MODEL_COL1, osVirtualToPhysical(rodata->DisplayListCollisions.BaseAddr));

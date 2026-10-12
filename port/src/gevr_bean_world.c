@@ -262,7 +262,7 @@ static int roomFor(const float c[3], int nrooms)
 GevrStaticMesh *gevrStaticMeshBuild(const void *gdl)
 {
 	const Gfx *g;
-	unsigned ntri = 0, nruns = 0, inRun = 0;
+	unsigned ntri = 0, nruns = 0, inRun = 0, runTris = 0;
 	if (!gdl)
 		return NULL;
 	for (g = gdl;; g++) {
@@ -270,12 +270,13 @@ GevrStaticMesh *gevrStaticMeshBuild(const void *gdl)
 		if (op == (G_ENDDL & 0xff))
 			break;
 		if (op == (G_VTX & 0xff)) {
-			nruns += !inRun;
+			if (!inRun || runTris >= 512) { nruns++; runTris = 0; }
 			inRun = 1;
 		} else if (op == (G_TRI1 & 0xff)) {
 			if (!inRun)
 				return NULL;   /* drawn from vertices an earlier run loaded */
 			ntri++;
+			runTris++;
 		} else if (op == 0xb1) {
 			return NULL;   /* G_TRI4: not a list gevrBeanEmitList makes */
 		} else {
@@ -308,6 +309,12 @@ GevrStaticMesh *gevrStaticMeshBuild(const void *gdl)
 		unsigned op = (unsigned)(g->words.w0 >> 24) & 0xff;
 		if (op == (G_VTX & 0xff)) {
 			unsigned n = (unsigned)(g->words.w0 & 0xffff) / sizeof(Vtx), dest = (unsigned)(g->words.w0 >> 16) & 15;
+            if (inRun && nindices - runs[run].firstIndex >= 512 * 3) {
+                runs[run].end = g;
+                runs[run].indexCount = nindices - runs[run].firstIndex;
+                run++;
+                inRun = 0;
+            }
 			if (!inRun) {
 				runs[run].start = g;
 				runs[run].firstIndex = nindices;
@@ -355,6 +362,17 @@ GevrStaticMesh *gevrStaticMeshBuild(const void *gdl)
 		if (op == (G_ENDDL & 0xff))
 			break;
 	}
+    for (uint32_t r = 0; r < run; r++) {
+        const GevrStaticMeshRun *chunk = &runs[r];
+        for (uint32_t j = 0; j < chunk->indexCount; j++) {
+            const Vtx *v = &verts[indices[chunk->firstIndex + j]];
+            for (int k = 0; k < 3; k++) {
+                if (!j || v->v.ob[k] < runs[r].lo[k]) runs[r].lo[k] = v->v.ob[k];
+                if (!j || v->v.ob[k] > runs[r].hi[k]) runs[r].hi[k] = v->v.ob[k];
+            }
+        }
+        runs[r].hasBounds = chunk->indexCount != 0;
+    }
 	free(table);
 	m->vertices = verts;
 	m->numVertices = nverts;

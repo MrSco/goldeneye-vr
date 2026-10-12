@@ -368,7 +368,28 @@ int main(int argc, char **argv)
 		assert(pilot == 1);
 	}
 	if (!strcmp(argv[2], "PnintendologoZ")) {
-		assert(mesh->ntex == 1 && !gevrBeanTexIsPlaceholder(mesh->standin[0]));
+        assert(mesh->nativeChrome && lists > 0);
+        for (int i = 0; i < s_nswap; i++) {
+            if (s_swap[i].ours == s_blank) continue;
+            Gfx *wrapper = s_swap[i].ours;
+            Gfx *list = (void *)wrapper[1].words.w1;
+            int generated = 0, textured = 0, vertices = 0;
+            for (Gfx *g = list; (g->words.w0 >> 24) != (G_ENDDL & 255); g++) {
+                unsigned op = g->words.w0 >> 24;
+                textured |= op == (G_SETTIMG & 255);
+                generated |= op == (G_SETGEOMETRYMODE & 255) && (g->words.w1 & G_TEXTURE_GEN);
+                if (op == (G_VTX & 255)) {
+                    Vtx *v = (void *)g->words.w1;
+                    unsigned count = (g->words.w0 & 0xffff) / sizeof(Vtx);
+                    for (unsigned j = 0; j < count; j++) {
+                        assert(v[j].n.a == 255);
+                        assert(abs(v[j].n.n[0]) + abs(v[j].n.n[1]) + abs(v[j].n.n[2]) > 100);
+                    }
+                    vertices += count;
+                }
+            }
+            assert(generated && textured && vertices == mesh->ntris * 3);
+        }
 		for (int t = 0; t < mesh->ntris; t++)
 			for (int k = 0; k < 3; k++) assert(mesh->tris[t].rgba[k * 4 + 3] == 255);
 	}

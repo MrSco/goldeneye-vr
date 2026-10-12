@@ -94,7 +94,7 @@ fail:
 }
 
 /* Same quantization as the old CPU pose; called once only if a run cannot use
- * the GPU (scope capture, first-person cull override, or unsupported backend). */
+ * the GPU (first-person cull override or unsupported backend). */
 static void *beanSkinPose(GevrSkinDraw *draw)
 {
     if (draw->posedVertices)

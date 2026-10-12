@@ -54,6 +54,7 @@ extern "C" {
 #include "gevr_surface_probe.h"
 #include "gevr_surface_math.h"
 #include "gevr_static_mesh.h"
+#include "gevr_mesh_visibility.h"
 #include "gevr_bean.h"
 #include "gevr_romlayout.h"
 extern "C" int VrCampaign; /* vr_settings: the launcher's campaign */
@@ -4154,6 +4155,7 @@ static void gevr_capture_rdp_state(unsigned target, bool begin) {
  */
 static bool s_gevrMeshOn = true, s_gevrSkinOn = true;
 static uint32_t s_gevrSkinDraws, s_gevrSkinTris, s_gevrSkinPoses;
+static uint32_t s_gevrMeshCulled, s_gevrMeshCulledTris;
 static std::vector<GevrStaticMesh*> s_gevrMeshLive;
 static std::vector<void*> s_gevrMeshDead;
 static uint32_t s_gevrMeshDraws, s_gevrMeshTris, s_gevrMeshFallbacks;   // logged with the gfx: line
@@ -4335,9 +4337,36 @@ static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
  * slots, w = 1: inside, never hidden, not presented), so textures, the
  * combiner, depth, viewport and blending are exactly what the run would get.
  */
+static bool gevr_mesh_run_visible(const GevrStaticMeshRun* run)
+{
+    float mp[16];
+    memcpy(mp, rsp.MP_matrix, sizeof(mp));
+    if (gevrMeshBoundsVisible(run->lo, run->hi, mp, vr_clip_margin_x_const,
+                             vr_clip_margin_x_w, vr_clip_margin_y_w, GEVR_FAR_DEPTH_SCALE)) return true;
+    if (s_gevrPresentReady) {
+        float presented[16];
+        for (int c = 0; c < 4; c++)
+            for (int r = 0; r < 4; r++)
+                presented[c*4+r] = s_gevrPresentA[r][0]*mp[c*4] + s_gevrPresentA[r][1]*mp[c*4+1] +
+                                   s_gevrPresentA[r][3]*mp[c*4+3] + (c == 3 ? s_gevrPresentB[r] : 0);
+        if (gevrMeshBoundsVisible(run->lo, run->hi, presented, vr_clip_margin_x_const,
+                                 vr_clip_margin_x_w, vr_clip_margin_y_w, GEVR_FAR_DEPTH_SCALE)) return true;
+    }
+    if (gfx_rapi->get_clip_parameters().invert_y)
+        for (int c = 0; c < 4; c++) mp[c*4+1] = -mp[c*4+1];
+    return gfx_rapi->scope_sees_mesh && gfx_rapi->scope_sees_mesh(mp, run->lo, run->hi);
+}
+
 static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, GevrSkinDraw* skin) {
     if (!s_gevrMeshOn || (skin && !s_gevrSkinOn) || gfx_rapi->draw_mesh == nullptr || run->indexCount == 0) {
         return false;
+    }
+    if (!skin && run->hasBounds && (fbActive || vr_is_initialized()) &&
+        !rsp.modelview_hidden_stack[rsp.modelview_matrix_stack_size - 1] && !gevrCullOff && !gevrCullMirror &&
+        !gevr_mesh_run_visible(run)) {
+        s_gevrMeshCulled++;
+        s_gevrMeshCulledTris += run->indexCount / 3;
+        return true; // consume the run without a GPU draw or CPU vertex walk
     }
     // Rooms remain unlit. Skins supply fitted influences, lights and culling;
     // colour tables, generated UVs and first-person overrides use the CPU.
@@ -4396,6 +4425,10 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         params.fog_mul = rsp.fog_mul;
         params.fog_offset = rsp.fog_offset;
     }
+    params.invert_y = s_gevrMeshState.clip.invert_y;
+    params.has_bounds = !skin && run->hasBounds;
+    memcpy(params.lo, run->lo, sizeof(params.lo));
+    memcpy(params.hi, run->hi, sizeof(params.hi));
     gfx_flush();   // what came before draws first
     const bool made = m->gpu == nullptr;
     if (!gfx_rapi->draw_mesh(&m->gpu, m->vertices, m->numVertices, m->indices, m->numIndices,
@@ -5329,6 +5362,8 @@ extern "C" void gfx_run(Gfx* commands) {
                     vr_log("skin: %u draws, %u tris on GPU, %u CPU poses%s", s_gevrSkinDraws,
                            s_gevrSkinTris, s_gevrSkinPoses, s_gevrSkinOn ? "" : " (gevr_noskin.txt)");
                     s_gevrSkinDraws = s_gevrSkinTris = s_gevrSkinPoses = 0;
+                    vr_log("mesh-cull: %u chunks, %u tris rejected", s_gevrMeshCulled, s_gevrMeshCulledTris);
+                    s_gevrMeshCulled = s_gevrMeshCulledTris = 0;
                     s_gevrMeshDraws = s_gevrMeshTris = s_gevrMeshFallbacks = 0;
                     if (gevrFrameTimingTracing()) {
                         static const char *names[GEVR_FLUSH_CAUSES] = {"other", "texture", "texture_new", "combiner",

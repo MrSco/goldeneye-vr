@@ -230,6 +230,16 @@ int gevrBeanShownModelType(void *node, int current)
 	return activeSwap(node) ? 0 : current;
 }
 
+/* Native glass props may be submitted only with flags=2. Their replacement
+ * owns both render modes, but must still be reachable in that pass. flags=3
+ * already draws it once through the primary path. Preserve hidden/broken lists. */
+void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags)
+{
+    struct beanSwap *s = activeSwap(node);
+    return s && s->origType == 4 && (flags & 2) && !(flags & 1) && (current || !s->original)
+        ? gevrBeanRenderGdl(node, current, model) : NULL;
+}
+
 static int openRel(const char *rel, char *out, int outlen)
 {
 	FILE *fp = fopen(rel, "rb");
@@ -995,6 +1005,8 @@ static void fitPoint(const struct beanFit *fit, const float *src, float *out)
 
 /* rest: the rest of the matrix the list is drawn under, taken off every vertex
  * (DAB gebean.c:12941). glove: -1 every triangle, 0 not the glove, 1 the glove. */
+#include "gevr_bean_chrome.inc.h"
+
 static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, ModelNode *host,
                      const struct beanFit *fit, const struct beanRigidBinding *binding, int cuff,
                      const float *rest, int glove, void **gdl, void **vtx)
@@ -1089,7 +1101,8 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 		/* DAB xblamesh.c:7171: characters cull their back faces as the N64 models
 		 * do; props and guns stay two-sided (Dam's truck cab and gates lost their
 		 * far walls when they culled) */
-		int ok = gevrBeanEmitList(mesh, ev, n, kind == BEAN_CHR, kind == BEAN_GUN, kind == BEAN_CHR, 1, gdl, vtx);
+		int ok = mesh->nativeChrome ? emitChrome(ev, n, host, gdl, vtx)
+		                           : gevrBeanEmitList(mesh, ev, n, kind == BEAN_CHR, kind == BEAN_GUN, kind == BEAN_CHR, 1, gdl, vtx);
 		free(ev);
 		return ok;
 	}

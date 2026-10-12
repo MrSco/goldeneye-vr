@@ -39,6 +39,7 @@ void *gevrBeanWorldSky(void *g, int *drew) { *drew = 0; return g; }
 
 #include "gevr_bean_pose_test.inc.h"
 #include <gevr_bean_hit_test.inc.h>
+#include <gevr_bean_material_paths_test.inc.h>
 
 int main(void)
 {
@@ -129,6 +130,7 @@ int main(void)
     classifyGroups(rigGroups, 4);
     assert(rigGroups[0].sk == GEVR_BEAN_SK_BASE && rigGroups[1].sk == GEVR_BEAN_SK_BASE);
     assert(rigGroups[2].sk == GEVR_BEAN_SK_BACK && rigGroups[3].sk == GEVR_BEAN_SK_NECK);
+    materialPathChecks();
     hitChecks();
     poseChecks();
     gevrBeanReset();

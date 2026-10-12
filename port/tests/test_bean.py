@@ -39,6 +39,19 @@ with tempfile.TemporaryDirectory(prefix="gevr-bean-") as directory:
     hit = Path(directory) / "gevr_bean_hit_test.inc.h"
     hit.write_text((ROOT / "port/tests/gevr_bean_hit_test.inc.h").read_text()
                    .replace("/* PRODUCTION HIT WALKERS */", propobj[hit_start:hit_end]))
+    model = (ROOT / "src/game/model.c").read_text()
+    functions = []
+    for name in ("modelRenderNodeGundl", "modelRenderNodeDl"):
+        start = model.index("void " + name + "(")
+        opening = model.index("{", start)
+        depth, end = 1, opening + 1
+        while depth:
+            depth += (model[end] == "{") - (model[end] == "}")
+            end += 1
+        functions.append(model[start:end])
+    (Path(directory) / "gevr_bean_material_paths_test.inc.h").write_text(
+        (ROOT / "port/tests/gevr_bean_material_paths_test.inc.h").read_text()
+        .replace("/* PRODUCTION MODEL DISPATCH */", "\n".join(functions)))
     render = Path(directory) / "render.exe"
     subprocess.run([
         shutil.which("gcc") or "cc", "-std=c11", "-O2", "-include", "stdarg.h", *sanitizers, "-fms-extensions", "-DPLATFORM_64BIT=1", "-D_LANGUAGE_C", "-DGEVR", "-DVERSION_US",
