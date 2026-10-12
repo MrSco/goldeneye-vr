@@ -43,6 +43,9 @@ submission run unattended; label that evidence.
 `tools/perf/analyze.py` separates fresh/redraw, reset and detailed frames.
 Local traces/captures live in `build/perf/pr172-follow-up/`.
 
+The signed `e4367b7` checkpoint is installed and hash-verified. Full Quest
+backup restoration passed. No test process or synthetic grip is left active.
+
 ## Next work
 
 1. Finish the special Dam/Complex water and Silo/Control floor shader forms.
@@ -90,3 +93,12 @@ are separate from the renderer evidence above.
 Preserve mixed line endings (`* -text`); edit byte-preserving. Source-extraction
 fixtures need any new statics declared. A plausible offline cause is not a
 verified cause until the relevant scene is rendered and inspected.
+
+## Latest local shader research (unshipped)
+
+Ignored `build/remaining-shaders/` has CAFF extraction and a partial Xenos
+instruction decoder. Later level-shader offsets became invalid when repeated
+shader headers were counted as new physical blocks. Metadata interning is now
+being investigated in that offline script; validate every resulting program
+before using it to derive water/floor formulas. This research changes no runtime
+shader behavior and does not count as a water/reflection fix.
