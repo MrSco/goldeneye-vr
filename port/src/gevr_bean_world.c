@@ -497,7 +497,13 @@ static int buildStage(int stage)
             void *list=NULL;
             if (gevrBeanEmitList(mesh,opaque,count,0,0,0,1,&list,&s_opaqueVertices)) {
                 s_opaque=list;
+                /* Dam's two landscape pictures hold 64,000 of its 90,000 opaque
+                 * triangles: at 512 a run they made 126 of 234 draws, and a wide
+                 * view's draw calls cost a turning frame up to 13 ms on Quest 3.
+                 * 2048 cut its p99 by 2.9 ms with no GPU cost (tools/perf). */
+                s_meshRunTris=2048;
                 s_opaqueWrap=meshWrap(s_opaque,&s_opaqueMesh);
+                s_meshRunTris=512;
                 /* CPU replay of the float list is also complete if GPU creation fails. */
                 for (int r=0;r<nrooms;r++) {
                     gevrStaticMeshFree(s_room[r].mesh[0]); free(s_room[r].wrap[0]);

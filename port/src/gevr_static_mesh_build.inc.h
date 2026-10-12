@@ -1,3 +1,6 @@
+/* A run's size before it splits for culling; the opaque world sets its own. */
+static unsigned s_meshRunTris = 512;
+
 GevrStaticMesh *gevrStaticMeshBuild(const void *gdl)
 {
 	const Gfx *g;
@@ -13,7 +16,7 @@ GevrStaticMesh *gevrStaticMeshBuild(const void *gdl)
             if (vertexOp && vertexOp != op) return NULL;
             vertexOp=op;
             stride=op==G_GEVR_WORLD_VTX ? sizeof(GevrWorldVertex) : sizeof(Vtx);
-            if (!inRun || runTris >= 512) { nruns++; runTris = 0; }
+            if (!inRun || runTris >= s_meshRunTris) { nruns++; runTris = 0; }
 			inRun = 1;
 		} else if (op == (G_TRI1 & 0xff)) {
 			if (!inRun)
@@ -52,7 +55,7 @@ GevrStaticMesh *gevrStaticMeshBuild(const void *gdl)
 		unsigned op = (unsigned)(g->words.w0 >> 24) & 0xff;
 		if (op == vertexOp) {
 			unsigned n = (unsigned)(g->words.w0 & 0xffff) / stride, dest = (unsigned)(g->words.w0 >> 16) & 15;
-            if (inRun && nindices - runs[run].firstIndex >= 512 * 3) {
+            if (inRun && nindices - runs[run].firstIndex >= s_meshRunTris * 3) {
                 runs[run].end = g;
                 runs[run].indexCount = nindices - runs[run].firstIndex;
                 run++;
