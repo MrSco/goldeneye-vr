@@ -175,6 +175,12 @@ int main(int argc, char **argv)
             paint++; bad |= !(m->tris[i].flags & GEVR_BEAN_F_DECAL) || m->tris[i].alpha==255;
         }
         bad |= paint!=4;
+        int dashes=0;
+        for(int i=0;i<m->ntris;i++)if(m->tris[i].tex==58 || m->tris[i].tex==61) {
+            dashes++;bad |= !(m->tris[i].flags & GEVR_BEAN_F_DECAL);
+        }
+        bad |= dashes!=46;
+        printf("Dam: %d straight/curved dashed-road faces retain decal modes\n",dashes);
         printf("Dam: reservoir scrolls at 0.5 repeats/s on game time; %d vertex-alpha road-paint faces retain decals\n",paint);
 		gevrBeanMeshFree(m);
 	}
