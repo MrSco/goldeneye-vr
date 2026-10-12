@@ -15,6 +15,7 @@
 #include "gevr_locomotion.h"
 #include "gevr_frame_timing.h"
 #include "gevr_collision_slide.h"
+#include "gevr_camera_collision.h"
 #include "gevr_romlayout.h"
 #include "gevr_dam_boat.h"
 #endif
@@ -14737,6 +14738,44 @@ coord3d *gevrEyePosition(void)
 }
 #endif
 
+#ifdef GEVR
+static f32 s_gevrCameraFloor;
+static s32 s_gevrCameraRoom;
+static f32 s_gevrCameraCeilingDrop;
+
+f32 gevrCameraCeilingDrop(void) { return s_gevrCameraCeilingDrop; }
+
+void gevrClampCameraCeiling(float position[3])
+{
+    gevrBgClampCameraCeiling(position, s_gevrCameraFloor, s_gevrCameraRoom, FALSE);
+}
+
+static void gevrGameCameraCeiling(coord3d *position)
+{
+    s32 local = !netIsActive() || get_cur_playernum() == netGetLocalSlot();
+    s32 room;
+    f32 floor, rawY = position->y;
+    if (local && !s_gevrCopyTrace) {
+        s_gevrCameraRoom = 0;
+        s_gevrCameraCeilingDrop = 0.0f;
+    }
+    if (g_CurrentPlayer->cameramode == 1 || g_CurrentPlayer->bonddead || g_PlayerIsInTank ||
+        (g_CameraMode != CAMERAMODE_FP && g_CameraMode != CAMERAMODE_FP_NOINPUT) ||
+        !g_CurrentPlayer->field_488.current_tile_ptr_for_portals)
+        return;
+
+    room = g_CurrentPlayer->field_488.current_tile_ptr_for_portals->room;
+    floor = g_CurrentPlayer->field_488.pos3.y;
+    gevrBgClampCameraCeiling(position->f, floor, room, TRUE);
+    if (g_gevrStereo && local && !s_gevrCopyTrace)
+    {
+        s_gevrCameraFloor = floor;
+        s_gevrCameraRoom = room;
+        s_gevrCameraCeilingDrop = rawY - position->y;
+    }
+}
+#endif
+
 Gfx *bondviewRenderDebugBondView(Gfx *gdl)
 {
     coord3d cam_pos;
@@ -14840,6 +14879,8 @@ Gfx *bondviewRenderDebugBondView(Gfx *gdl)
     }
 
 #ifdef GEVR
+    /* Apply after crouch/rise/menu offsets, in both flat and stereo play. */
+    gevrGameCameraCeiling(&cam_pos);
     s_gevrEyeWorld = cam_pos;   /* gevrEyePosition: where the frame is seen from */
     if (g_gevrStereo && !s_gevrCopyTrace &&
         (!netIsActive() || get_cur_playernum() == netGetLocalSlot()))
