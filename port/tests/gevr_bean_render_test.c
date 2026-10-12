@@ -103,6 +103,17 @@ int main(void)
         assert(reflection==1);
         free(gdl);free(raw);
     }
+    for(int i=0;i<3;i++){verts[i].reflectionDiffuse=2;verts[i].reflectionColour=0x43434343u;
+        verts[i].reflectionAlphaBase=255;verts[i].cut=0;}
+    assert(gevrBeanEmitList(&mesh,verts,3,0,0,0,1,&gdl,&raw));
+    int prim=0,env=0;
+    for(Gfx *g=gdl;(g->words.w0>>24)!=(G_ENDDL&255);g++) {
+        if((g->words.w0>>24)==G_SETPRIMCOLOR){prim++;assert(g->words.w1==0x43434343u);}
+        if((g->words.w0>>24)==G_SETENVCOLOR){env++;assert(g->words.w1==255);}
+        if((g->words.w0>>24)==G_GEVR_NORMAL_TEX1 && g->words.w1)assert(!(g->words.w0&1));
+    }
+    assert(prim==1 && env==1);free(gdl);free(raw);
+    for(int i=0;i<3;i++){verts[i].reflectionColour=0;verts[i].reflectionAlphaBase=0;}
     for(int i=0;i<3;i++){verts[i].reflection=NULL;verts[i].reflectionDiffuse=0;verts[i].cut=0;verts[i].alpha=255;}
     Vertex host[3] = {0}; host[1].coord.x = 10; host[2].coord.y = 10;
     union ModelRoData ro = {0};

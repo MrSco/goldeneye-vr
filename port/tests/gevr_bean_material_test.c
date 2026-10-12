@@ -220,6 +220,20 @@ int main(int argc, char **argv)
         gevrBeanMeshFree(m);
     }
     {
+        struct gevrBeanMesh *m=load(argv[1],"prop/hathelmet");
+        int mapped=0;
+        for(int i=0;i<m->ntris;i++) {
+            const struct gevrBeanTri *t=m->tris+i;
+            mapped+=t->reflection!=NULL;
+            bad |= t->reflectionDiffuse!=2 || t->reflectionColour!=0x43434343u || t->reflectionAlphaBase!=255;
+        }
+        const uint8_t *p=NULL;int w=0,h=0;
+        bad |= mapped!=744 || !gevrBeanTexture(m->reflection[0],&p,&w,&h);
+        if(p)for(int i=0;i<w*h;i++)for(int k=0;k<4;k++)bad |= p[i*4+k]>89;
+        printf("Helmet: %d coloured normal-reflection faces; RGB and alpha retain c12/c13/c14\n",mapped);
+        gevrBeanMeshFree(m);
+    }
+    {
         struct gevrBeanMesh *m=load(argv[1],"prop/gastank");
         int mapped=0,white=0;
         for(int t=0;t<m->ntex;t++) if(m->reflection[t]) {
@@ -251,7 +265,8 @@ int main(int argc, char **argv)
                 soft+=m->tris[i].alpha<255 || (pixels && pixels[3]<255);
                 const uint8_t *map=NULL;int mw=0,mh=0;
                 bad |= !gevrBeanTexture(m->tris[i].reflection,&map,&mw,&mh);
-                if(map)for(int v=0;v<mw*mh;v++)bad |= map[v*4+3]!=255;
+                if(map)for(int v=0;v<mw*mh;v++)
+                    bad |= map[v*4+3]!=(m->tris[i].reflectionDiffuse==2 ? 89 : 255);
             }
             bad |= reflected==0;
             if(f==0) {

@@ -674,7 +674,7 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 /* Shared prop maps: screen the diffuse by c12 * spot * landscape.
  * Keep the two authored maps at their decoded resolution in one immutable map;
  * normal-derived coordinates remain a per-view renderer operation. */
-const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t amount[3],const char *key)
+const void *gevrBeanTexReflectRgba(const void *spot,const void *land,const uint8_t amount[4],const char *key)
 {
     for (int i=0;i<s_ntex;i++) if (!strcmp(s_tex[i].key,key)) return s_tex[i].standin;
     int li=texFind(land),si=spot ? texFind(spot) : li;
@@ -690,18 +690,23 @@ const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t a
         if(x0<0)x0=0;if(y0<0)y0=0;if(x1>=l->w)x1=l->w-1;if(y1>=l->h)y1=l->h-1;
         uint8_t *out=rgba+((size_t)y*w+x)*4;
         const uint8_t *sp=s->rgba+((size_t)y*w+x)*4;
-        for(int c=0;c<3;c++) {
+        for(int c=0;c<4;c++) {
             float top=l->rgba[((size_t)y0*l->w+x0)*4+c]*(1-fx)+l->rgba[((size_t)y0*l->w+x1)*4+c]*fx;
             float bot=l->rgba[((size_t)y1*l->w+x0)*4+c]*(1-fx)+l->rgba[((size_t)y1*l->w+x1)*4+c]*fx;
             float v=(top*(1-fy)+bot*fy)*(spot ? sp[c] : 255)*amount[c]/(255.0f*255.0f);
             out[c]=(uint8_t)(v+.5f);
         }
-        out[3]=255;
     }
     struct texSlot *slot=s_tex+s_ntex++;
     memset(slot,0,sizeof(*slot));snprintf(slot->key,sizeof(slot->key),"%s",key);
     slot->rgba=rgba;slot->standin=standin;slot->w=w;slot->h=h;
     texIndexAdd((int)(slot-s_tex));return standin;
+}
+
+const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t amount[3],const char *key)
+{
+    uint8_t rgba[4]={amount[0],amount[1],amount[2],255};
+    return gevrBeanTexReflectRgba(spot,land,rgba,key);
 }
 
 void gevrBeanTexMotionSet(const void *addr, float s, float t, float degrees, float spf,
