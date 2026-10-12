@@ -41,7 +41,7 @@ int main(){
     io.DeltaTime=1.f/72;io.IniFilename=nullptr;io.LogFilename=nullptr;
     io.FontGlobalScale=2.2f;ImGui::GetStyle().ScaleAllSizes(2.2f);
     unsigned char *pixels;int w,h;io.Fonts->GetTexDataAsRGBA32(&pixels,&w,&h);
-    for(const char* state : {"none","installed","downloading","installing","error"})
+    for(const char* state : {"none","installed","downloading","installing","importing","error"})
     for(int update=0;update<2;update++)for(bean=0;bean<2;bean++){
         available=bean;raw.clear();
         for(const char *id : {"ge007-hd","ge007-hd-ai","ge007-bean"})

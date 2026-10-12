@@ -24,14 +24,14 @@ static bool enabled=false,have=true,installed=true;
 static int VrGexGuns=1; static int VrCampaign=0; /* GoldenEye; hack campaigns grey out Bean and GE-X */
 #define GEVR_CAMPAIGN_GE 0
 static std::vector<std::string> commands;
-static ImVec2 bean,hd,original,downloadBean;
+static ImVec2 bean,hd,original,chooseBean;
 int gevrBeanIsEnabled(){return enabled&&have;}
 int gevrBeanIsAvailable(){return have;}
 void gevrBeanInit(){}
 void gevrBeanSetEnabled(int on){enabled=on;}
 void vrSettingsSave(){}
 int fsFileSize(const char*){return 0;}
-bool gevrOpenPicker(const char*){return false;}
+bool gevrOpenPicker(const char* method){commands.emplace_back(method);return true;}
 std::string gevrTakePickResult(){return "";}
 std::string dataDir(){return "missing-test-data";}
 void vr_log(const char*,...){}
@@ -55,7 +55,7 @@ bool radio(const char* label,bool selected){
 }
 bool download(const char* label){
  bool clicked=ImGui::Button(label);
- if(strstr(label,"173"))downloadBean=(ImGui::GetItemRectMin()+ImGui::GetItemRectMax())*.5f;
+ if(strstr(label,"copy"))chooseBean=(ImGui::GetItemRectMin()+ImGui::GetItemRectMax())*.5f;
  return clicked;
 }
 /* PAGE */
@@ -79,9 +79,10 @@ int main(){
  click(bean);assert(enabled && !strcmp(g_ActiveExtTexPack,"ge007-bean") && VrGexGuns==1);
  click(hd);assert(!enabled && !strcmp(g_ActiveExtTexPack,"ge007-hd-ai"));
  click(bean);click(original);assert(!enabled && !*g_ActiveExtTexPack);
- installed=false;have=false;frame();click(downloadBean);
- assert(commands.back()=="install:ge007-bean");
- ImGui::DestroyContext();puts("PASS: Mods offers Bean download, exclusive selection and preserves GE-X choice at Quest font scale");
+ installed=false;have=false;frame();click(chooseBean);
+ assert(commands.back()=="openXblaPicker"); /* never a download: the player's own copy */
+ for(const std::string& c:commands)assert(c!="install:ge007-bean");
+ ImGui::DestroyContext();puts("PASS: Mods offers Bean from the player's own copy, exclusive selection and preserves GE-X choice at Quest font scale");
 }
 '''.replace("/* PAGE */", page)
 with tempfile.TemporaryDirectory(prefix="gevr-bean-launcher-") as temp:

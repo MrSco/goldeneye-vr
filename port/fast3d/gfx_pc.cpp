@@ -1675,9 +1675,13 @@ extern "C" void gevrTexpackStartEarly(void) {
         snprintf(rel, sizeof(rel), "$S/texture-packs/%s", g_ActiveExtTexPack);
         normal = fsFullPath(rel);
     }
-    // Both catalogs are immutable; a live Bean toggle chooses one owner only.
-    const std::string bean = fsFullPath("$S/texture-packs/ge007-bean");
-    gevrtp::start(normal.c_str(), bean.c_str());
+    /*
+     * No catalog for Bean: its pictures are the release's own, read from the
+     * player's copy (gevr_bean_images.c), and the ROM's where it has none, as
+     * in Dab's Mod. The old downloaded pack's GOLDENEYE/ PNGs are not read, so
+     * with Bean on no pack image is found (find(..., bean)).
+     */
+    gevrtp::start(normal.c_str());
 }
 
 /* Once a frame: start the pack, and swap in images as they finish decoding. */

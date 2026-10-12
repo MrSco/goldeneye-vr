@@ -25,15 +25,20 @@ the player's own extracted Project Bean files. No game files ship in the APK.
 The GoldenEye USA ROM remains required; gameplay, collision and animation
 remain the original game's.
 
-Open **Mods** in the launcher, download **GoldenEye 007 XBLA / Project Bean**,
-then select it under **Visuals** alongside Original, HD and HD + AI. The VR
-pack contains 499 CAFF files and 122 Bean PNG textures (173 MiB download).
-It installs in `Android/data/com.gevr.port/files/texture-packs/ge007-bean`.
-The standalone PNG archive in the same release remains available for emulators.
+Nothing of the release is downloaded. Copy your own GoldenEye XBLA to the
+headset (its `.7z`, a `.zip`, or the Xbox 360 package file), open **Mods** in
+the launcher and press **Choose copy...** beside **XBLA / Bean**, then pick
+it. The app keeps only the 835 files Bean draws (meshes, the two font atlases
+and the release's pictures, about 360 MB) in
+`Android/data/com.gevr.port/files/texture-packs/ge007-bean`; the copy itself
+is read in place and can be deleted afterwards. A zip holding the package
+(the retail copy) needs about 1.2 GB free while it is read. Select Bean under
+**Visuals** alongside Original, HD and HD + AI. This is Dab's Mod's import
+(`gebean.c`, `archive.c`, `x360.c`); see `port/src/gevr_bean_import.c`.
 
-Bean uses only its own CAFF textures and PNG replacements. Missing replacements
-use the original game textures; HD / AI and legacy texture packs cannot fill
-those gaps. Switching during a level clears previous texture uploads and caches.
+Bean uses only its own CAFF textures and the release's pictures. Missing
+pictures use the original game textures, as in Dab's Mod (its explosions are
+the cartridge's); HD / AI and legacy texture packs cannot fill those gaps. Switching during a level clears previous texture uploads and caches.
 With GoldenEye X enabled, its first-person guns, arms, watch and hand-reload rig
 keep priority and their own ROM textures. Bean supplies the other models and rooms.
 

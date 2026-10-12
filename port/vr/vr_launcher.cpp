@@ -861,13 +861,14 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
     static std::vector<ModPack> packs;
     static Uint32 lastPoll = 0;
     static bool checked = false;
+    static std::string beanMessage;   // the picker would not open
     if (!checked) {
         checked = true;
         gevrJavaCommand("modsCommand", "check");   // newer pack releases on GitHub (ModManager.checkLatest)
     }
     if (now - lastPoll > 250 || lastPoll == 0) {
         lastPoll = now;
-        gevrBeanInit();   // a downloaded pack becomes available without reopening the launcher
+        gevrBeanInit();   // an imported or downloaded pack becomes available without reopening the launcher
         packs.clear();
         std::string raw = gevrJavaString("modsStatus");
         if (!raw.empty()) {
@@ -907,6 +908,7 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
             ImGui::PushID(p.id.c_str());
             const bool bean = p.id == "ge007-bean";
             const bool installed = p.state == "installed";
+            const bool busy = p.state == "downloading" || p.state == "installing" || p.state == "importing";
             const bool localBean = bean && gevrBeanIsAvailable();
             const bool usable = installed || localBean;
             const bool active = bean ? gevrBeanIsEnabled() : !gevrBeanIsEnabled() && p.id == g_ActiveExtTexPack;
@@ -921,27 +923,38 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
                 gevrBeanSetEnabled(bean);
             }
             ImGui::EndDisabled();
-            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("%s\nby %s\n%s\nVersion %s", p.title.c_str(), p.by.c_str(), p.site.c_str(), p.version.c_str());
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                if (bean) ImGui::SetTooltip("%s\nby %s\nFrom your own copy of the game", p.title.c_str(), p.by.c_str());
+                else ImGui::SetTooltip("%s\nby %s\n%s\nVersion %s", p.title.c_str(), p.by.c_str(), p.site.c_str(), p.version.c_str());
+            }
             ImGui::TextDisabled("%s", bean ? "Meshes + textures" : "Textures");
             ImGui::TableNextColumn();
-            if (p.state == "downloading" || p.state == "installing") {
-                const char *verb = p.state == "downloading" ? "Downloading" : "Unpacking";
+            if (busy) {
+                const char *verb = p.state == "downloading" ? "Downloading" : p.state == "importing" ? "Importing" : "Unpacking";
                 if (p.progress >= 0) ImGui::TextColored(gold, "%s %d%%", verb, p.progress);
                 else ImGui::TextColored(gold, "%s...", verb);
             } else {
                 ImGui::TextColored(p.state == "error" ? bad : usable ? good : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled),
-                                   "%s", active ? "Selected" : installed ? "Installed" : localBean ? "Local files" : p.state == "error" ? "Download failed" : "Not installed");
+                                   "%s", active ? "Selected" : installed ? "Installed" : localBean ? "Local files"
+                                   : p.state == "error" ? (bean ? "Import failed" : "Download failed") : "Not installed");
                 if (!p.update.empty()) ImGui::TextDisabled("Update available");
             }
-            if (!p.message.empty()) {
+            const std::string &message = bean && p.message.empty() ? beanMessage : p.message;
+            if (!message.empty()) {
                 ImGui::PushStyleColor(ImGuiCol_Text, bad);
-                gevrLauncherStatus(p.message.c_str());
+                gevrLauncherStatus(message.c_str());
                 ImGui::PopStyleColor();
             }
             ImGui::TableNextColumn();
-            if (p.state == "downloading" || p.state == "installing") {
+            if (busy) {
                 if (ImGui::Button("Cancel")) gevrJavaCommand("modsCommand", "cancel");
+            } else if (bean && !installed) {
+                // Never downloaded: the player picks their own copy of the
+                // release and ModManager imports Bean's files from it
+                // (port/src/gevr_bean_import.c)
+                const char *label = "Choose copy...";
+                if (ImGui::Button(label))
+                    beanMessage = gevrOpenPicker("openXblaPicker") ? "" : "Could not open the file picker.";
             } else if (!installed || !p.update.empty()) {
                 char label[64];
                 snprintf(label, sizeof(label), "%s (%d MB)", installed ? "Update" : p.state == "error" ? "Retry" : "Download", p.mb);
@@ -967,6 +980,8 @@ static void gevrModsPage(bool &open, Uint32 now, const ImVec4 &gold, const ImVec
         ImGui::TextWrapped("XBLA / Bean is off while the Goldfinger 64 or Tomorrow Never Dies campaign is chosen.");
     else if (gevrBeanIsEnabled())
         ImGui::TextWrapped("Bean uses its own textures. Toggle in VR options or hold one grip + right-stick click for 1 second.");
+    else if (!gevrBeanIsAvailable())
+        ImGui::TextWrapped("XBLA / Bean reads your own GoldenEye XBLA: its .7z, .zip or Xbox 360 package. Nothing is downloaded.");
     ImGui::Separator();
 
     // GoldenEye X's first-person guns, read from the player's own patched ROM

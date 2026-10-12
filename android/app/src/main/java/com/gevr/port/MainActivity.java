@@ -132,6 +132,7 @@ public class MainActivity extends SDLActivity {
 
     // --- ROM file picker (called from the in-VR launcher, port/vr/vr_launcher.cpp) ---
     private static final int REQUEST_PICK_ROM = 0x6e;
+    private static final int REQUEST_PICK_XBLA = 0x71;
 
     /** What happened to the last pick, for the launcher to show; it reads and clears it. */
     public static volatile String pickResult = null;
@@ -161,12 +162,25 @@ public class MainActivity extends SDLActivity {
 
     private void openPicker(String target) {
         pickTarget = target;
+        openDocument(REQUEST_PICK_ROM);
+    }
+
+    /**
+     * The Mods page's XBLA / Bean: the player's own copy of GoldenEye XBLA (its
+     * .7z, a .zip, or the Xbox 360 package). Nothing is copied whole: ModManager
+     * reads it in place and keeps only the files Bean draws.
+     */
+    public void openXblaPicker() {
+        openDocument(REQUEST_PICK_XBLA);
+    }
+
+    private void openDocument(int request) {
         runOnUiThread(() -> {
             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
             intent.addCategory(Intent.CATEGORY_OPENABLE);
             intent.setType("*/*");
             try {
-                startActivityForResult(intent, REQUEST_PICK_ROM);
+                startActivityForResult(intent, request);
             } catch (Exception e) {
                 Log.e(TAG, "No file picker available", e);
             }
@@ -187,6 +201,14 @@ public class MainActivity extends SDLActivity {
         if (requestCode == REQUEST_INSTALLER) {
             comeBackToVr();
             if (updater != null) updater.onInstallerClosed(resultCode == RESULT_OK);
+            return;
+        }
+        if (requestCode == REQUEST_PICK_XBLA) {
+            // the Mods page shows the import's progress; no pick, nothing to do
+            if (resultCode == RESULT_OK && data != null && data.getData() != null && mods != null) {
+                mods.importOwn("ge007-bean", data.getData());
+            }
+            comeBackToVr();
             return;
         }
         if (requestCode != REQUEST_PICK_ROM) {
