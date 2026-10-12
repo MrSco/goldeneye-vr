@@ -14760,7 +14760,10 @@ static void gevrGameCameraCeiling(coord3d *position)
         s_gevrCameraCeilingDrop = 0.0f;
     }
     if (g_CurrentPlayer->cameramode == 1 || g_CurrentPlayer->bonddead || g_PlayerIsInTank ||
-        (g_CameraMode != CAMERAMODE_FP && g_CameraMode != CAMERAMODE_FP_NOINPUT) ||
+        /* multiplayer plays in CAMERAMODE_NONE (gevrStereoFrame; user: online
+         * Caverns still showed the sky over the tunnel doors) */
+        (g_CameraMode != CAMERAMODE_FP && g_CameraMode != CAMERAMODE_FP_NOINPUT &&
+         !(g_CameraMode == CAMERAMODE_NONE && (netIsActive() || getPlayerCount() > 1))) ||
         !g_CurrentPlayer->field_488.current_tile_ptr_for_portals)
         return;
 

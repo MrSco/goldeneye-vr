@@ -61,8 +61,9 @@ static struct TestPlayer {
     struct { StandTile *current_tile_ptr_for_portals; coord3d pos3; } field_488;
 } player, *g_CurrentPlayer = &player;
 static s32 g_gevrStereo, s_gevrCopyTrace, g_PlayerIsInTank, g_CameraMode = CAMERAMODE_FP;
-static s32 online, playerSlot, localSlot;
+static s32 online, playerSlot, localSlot, players = 1;
 static s32 netIsActive(void) { return online; }
+static s32 getPlayerCount(void) { return players; }
 static s32 get_cur_playernum(void) { return playerSlot; }
 static s32 netGetLocalSlot(void) { return localSlot; }
 static f32 s_gevrCameraFloor;
@@ -185,5 +186,14 @@ int main(void)
     gevrGameCameraCeiling(&eye); closeTo(eye.y,205);
     g_PlayerIsInTank = 0; g_CameraMode = CAMERAMODE_SWIRL;
     gevrGameCameraCeiling(&eye); closeTo(eye.y,205);
+    /* multiplayer plays in CAMERAMODE_NONE: online and split screen are
+     * clamped, a solo NONE (no first-person camera yet) is not */
+    g_CameraMode = CAMERAMODE_NONE;
+    gevrGameCameraCeiling(&eye); closeTo(eye.y,205);
+    online = 1;
+    gevrGameCameraCeiling(&eye); closeTo(eye.y,150);
+    online = 0; players = 2; eye.y = 205;
+    gevrGameCameraCeiling(&eye); closeTo(eye.y,150);
+    players = 1; g_CameraMode = CAMERAMODE_FP;
     puts("PASS: production lintel clearance, recovery, ducking, neighbouring rooms, footprint, asset scale, flat/stereo and local redraw context");
 }
