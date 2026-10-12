@@ -49,7 +49,8 @@ production.extend(function(view, signature) for signature in (
     's32 gevrStereoTwoHandGun(void)', 's32 gevrStereoTwoHandSupportCtrl(void)',
     'static s32 gevrTwoHandIsHandgun(', 'static s32 gevrTwoHandBarrel(',
     's32 gevrStereoTwoHandUpdate(void)', 's32 gevrStereoTwoHandGrip(void)',
-    's32 gevrStereoTwoHandClass(void)', 's32 gevrStereoTwoHandMatrix(',
+    's32 gevrStereoTwoHandClass(void)', 'static s32 gevrStereoTwoHandTarget(f32 target[3])\n{',
+    's32 gevrStereoTwoHandMatrix(',
     'static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3])\n{'))
 production.extend(function(gun, signature) for signature in (
     'static s32 gevrUnarmedModelItem(', 'static void gevrUnarmedModelUpdate('))

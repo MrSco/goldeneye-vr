@@ -2137,6 +2137,81 @@ extern float VrGexWatch[4];   /* vr_settings_defaults.c */
 
 static ModelNode *s_gevrWatchHandDl;   /* the watch arm's hand: its first unswitched list */
 
+/* the hand: the first display list right under the wrist, not under a switch */
+static ModelNode *gevrWatchHandDl(void)
+{
+    ModelNode *node = s_gevrWatchHeader.RootNode;
+
+    while (node != NULL && s_gevrWatchHandDl == NULL)
+    {
+        if ((node->Opcode & 0xff) == MODELNODE_OPCODE_DL && node->Parent != NULL
+            && (node->Parent->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
+        {
+            s_gevrWatchHandDl = node;
+        }
+        if (node->Child != NULL)
+        {
+            node = node->Child;
+        }
+        else
+        {
+            while (node != NULL && node->Next == NULL)
+            {
+                node = node->Parent;
+            }
+            node = node != NULL ? node->Next : NULL;
+        }
+    }
+    return s_gevrWatchHandDl;
+}
+
+/* the posed watch arm's hand: the centre of its list's vertices, by its group's matrix */
+static s32 gevrWatchArmPalm(const Mtxf *matrices, f32 palm[3])
+{
+    ModelNode *dl = gevrWatchHandDl();
+    ModelNode *up;
+    ModelRoData_DisplayListRecord *rec;
+    f32 c[3] = { 0.0f, 0.0f, 0.0f };
+    s32 mi = -1, i, j;
+
+    if (dl == NULL || dl->Data == NULL)
+    {
+        return FALSE;
+    }
+    rec = &dl->Data->DisplayList;
+    if (rec->Vertices == NULL || rec->numVertices == 0)
+    {
+        return FALSE;
+    }
+    for (up = dl->Parent; up != NULL && mi < 0; up = up->Parent)
+    {
+        if ((up->Opcode & 0xff) == MODELNODE_OPCODE_GROUP && up->Data != NULL)
+        {
+            mi = up->Data->Group.MatrixID0;
+        }
+    }
+    if (mi < 0 || mi >= s_gevrWatchHeader.numMatrices)
+    {
+        return FALSE;
+    }
+    for (i = 0; i < rec->numVertices; i++)
+    {
+        c[0] += rec->Vertices[i].coord.x;
+        c[1] += rec->Vertices[i].coord.y;
+        c[2] += rec->Vertices[i].coord.z;
+    }
+    for (j = 0; j < 3; j++)
+    {
+        c[j] /= rec->numVertices;
+    }
+    for (j = 0; j < 3; j++)
+    {
+        palm[j] = c[0] * matrices[mi].m[0][j] + c[1] * matrices[mi].m[1][j] + c[2] * matrices[mi].m[2][j]
+                + matrices[mi].m[3][j];
+    }
+    return TRUE;
+}
+
 /*
  * GoldenEye's watch alone (its body, face, hands and the status on its
  * face), at its own size, on another model's left arm: the watch arm's
@@ -2258,39 +2333,9 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
     Gfx *saved[2];
     s32 n, i;
 
-    if (!g_gevrStereo || !gevrLeftWatchLoad())
+    if (!g_gevrStereo || !gevrLeftWatchLoad() || gevrWatchHandDl() == NULL)
     {
         return gdl;
-    }
-    if (s_gevrWatchHandDl == NULL)
-    {
-        /* the hand: the first display list right under the wrist, not under a switch */
-        ModelNode *node = s_gevrWatchHeader.RootNode;
-
-        while (node != NULL && s_gevrWatchHandDl == NULL)
-        {
-            if ((node->Opcode & 0xff) == MODELNODE_OPCODE_DL && node->Parent != NULL
-                && (node->Parent->Opcode & 0xff) == MODELNODE_OPCODE_GROUP)
-            {
-                s_gevrWatchHandDl = node;
-            }
-            if (node->Child != NULL)
-            {
-                node = node->Child;
-            }
-            else
-            {
-                while (node != NULL && node->Next == NULL)
-                {
-                    node = node->Parent;
-                }
-                node = node != NULL ? node->Next : NULL;
-            }
-        }
-        if (s_gevrWatchHandDl == NULL)
-        {
-            return gdl;
-        }
     }
 
     n = s_gevrWatchHeader.numMatrices;
@@ -2370,11 +2415,14 @@ Gfx *gevrRenderGexWatch(Gfx *gdl, ModelRenderData *templ, const f32 pos[3], cons
     return gdl;
 }
 
+static s32 gevrStereoTwoHandTarget(f32 target[3]);
+
 /*
  * gunfire.c gunRenderFirstPersonGunModels: returns whether the watch arm was
- * drawn (the mirrored fist is the fallback).
+ * drawn (the mirrored fist is the fallback). With `hold`, the arm holds the
+ * gun with both hands (gevrRenderBeanGripArm).
  */
-Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
+static Gfx *gevrWatchArmDraw(Gfx *gdl, ModelRenderData *templ, s32 *drawn, s32 hold)
 {
     ModelRenderData renderdata;
     Mtxf want, inv, corr;
@@ -2460,9 +2508,43 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     {
         gevrMtxMul(&matrices[i], &corr, &matrices[i]);
     }
+    if (hold)
+    {
+        /* the hand onto the hold point; the arm keeps the controller's turn */
+        f32 palm[3], target[3];
+        static s32 logged;
+        s32 j;
+
+        if (gevrWatchHandDl() == NULL || !gevrWatchArmPalm(matrices, palm) || !gevrStereoTwoHandTarget(target))
+        {
+            return gdl;
+        }
+        if (!logged)
+        {
+            f32 d[3];
+
+            for (j = 0; j < 3; j++)
+            {
+                d[j] = palm[j] - want.m[3][j];
+            }
+            sysLogPrintf(LOG_NOTE, "stereo: Bean's hold hand %.1f %.1f %.1f cm from the wrist (fingers, face, side)",
+                         (d[0] * x[0] + d[1] * x[1] + d[2] * x[2]) / (cm * gevrGunSizeFactor()),
+                         (d[0] * y[0] + d[1] * y[1] + d[2] * y[2]) / (cm * gevrGunSizeFactor()),
+                         (d[0] * z[0] + d[1] * z[1] + d[2] * z[2]) / (cm * gevrGunSizeFactor()));
+            logged = TRUE;
+        }
+        for (i = 0; i < n; i++)
+        {
+            for (j = 0; j < 3; j++)
+            {
+                matrices[i].m[3][j] += target[j] - palm[j];
+            }
+        }
+    }
 
     /* the watch hands: mission time, as the pause does (mirrored, they would run backwards) */
     gevrWatchArmHands(matrices, VrLeftHandedMode);
+    if (!hold)
     {
         /*
          * Issue #31: the watch laser leaves the watch face (gevrStereoWatchPoint),
@@ -2521,6 +2603,11 @@ Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
     matrix_4x4_7F058C88();
     *drawn = TRUE;
     return gdl;
+}
+
+Gfx *gevrRenderLeftWatchArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
+{
+    return gevrWatchArmDraw(gdl, templ, drawn, FALSE);
 }
 
 /*
@@ -4096,15 +4183,13 @@ s32 gevrStereoTwoHandClass(void)
     return gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1;
 }
 
-s32 gevrStereoTwoHandMatrix(Mtxf *m)
+/* the hold point plus the grip fit's offset along the off hand's side, up and forward */
+static s32 gevrStereoTwoHandTarget(f32 target[3])
 {
-    f32 opos[3], snap[3], dist, gpos[3], right[3], up[3], back[3];
+    f32 opos[3], snap[3], dist, gpos[3], right[3], up[3], back[3], side;
     f32 cm = GEVR_UNITS_PER_METRE * D_800364CC / 100.0f * gevrGunSizeFactor();
-    f32 bx[3], by[3], bz[3], side[3], palm[3], target[3];
     f32 *tr;
-    Mtxf rot;
-    coord3d r;
-    s32 i, j;
+    s32 i;
     static u32 tick;
 
     if ((tick++ % 120) == 0)
@@ -4137,6 +4222,27 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
         return FALSE;
     }
     tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1];
+    for (i = 0; i < 3; i++)
+    {
+        side = (VrLeftHandedMode != (s_gevrTwoHandGun == GUNLEFT)) ? right[i] : -right[i];
+        target[i] = snap[i] + (tr[0] * side + tr[1] * up[i] - tr[2] * back[i]) * cm;
+    }
+    return TRUE;
+}
+
+s32 gevrStereoTwoHandMatrix(Mtxf *m)
+{
+    f32 bx[3], by[3], bz[3], palm[3], target[3];
+    f32 *tr;
+    Mtxf rot;
+    coord3d r;
+    s32 i, j;
+
+    if (!gevrStereoTwoHandTarget(target))
+    {
+        return FALSE;
+    }
+    tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1];
 
     /* the trim's turn, in the model's own frame */
     r.x = tr[3] * (M_PI_F / 180.0f);
@@ -4156,16 +4262,39 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
         m->m[2][j] = bz[j];
     }
 
-    /* the palm onto the hold point, plus the offset along the off hand's side, up and forward */
+    /* the palm onto the hold point */
     for (i = 0; i < 3; i++)
     {
-        side[i] = (VrLeftHandedMode != (s_gevrTwoHandGun == GUNLEFT)) ? right[i] : -right[i];
         palm[i] = s_gevrTwoHandPalm[0] * m->m[0][i] + s_gevrTwoHandPalm[1] * m->m[1][i]
                 + s_gevrTwoHandPalm[2] * m->m[2][i] + m->m[3][i];
-        target[i] = snap[i] + (tr[0] * side[i] + tr[1] * up[i] - tr[2] * back[i]) * cm;
         m->m[3][i] += target[i] - palm[i];
     }
     return TRUE;
+}
+
+/*
+ * #35 with Bean on: the hand holding the gun with the gun hand is the
+ * release's own, the arm the off hand shows the rest of the time (user: not
+ * GoldenEye's taser hand, gunfire.c gevrRenderLeftArm, which looked wrong
+ * beside it and was what Bean's grip fit had been set against). It stays on
+ * the off controller as it is drawn there (its turn is the player's), its
+ * hand moved onto the hold point plus Bean's grip fit offset
+ * (gevrStereoTwoHandTarget). The fit's turn is the taser hand's, in the gun's
+ * frame, so it does not apply. DAB has no hold of this kind. Only the off
+ * controller's arm: an off-hand gun keeps the taser hand. Sets *drawn when
+ * drawn; the taser hand is the fallback.
+ */
+Gfx *gevrRenderBeanGripArm(Gfx *gdl, ModelRenderData *templ, s32 *drawn)
+{
+    extern int gevrBeanDrawsModel(const void *header);   /* port/src/gevr_bean.c */
+
+    *drawn = FALSE;
+    if (!g_gevrStereo || !gevrStereoTwoHandGrip() || s_gevrTwoHandGun != GUNRIGHT
+        || gevrFitLook(GUNRIGHT) != 2 || !gevrLeftWatchLoad() || !gevrBeanDrawsModel(&s_gevrWatchHeader))
+    {
+        return gdl;
+    }
+    return gevrWatchArmDraw(gdl, templ, drawn, TRUE);
 }
 
 static void gevrTwoHandAim(const f32 pos[3], f32 right[3], f32 up[3], f32 back[3])
