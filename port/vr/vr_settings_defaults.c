@@ -223,24 +223,63 @@ float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3] = {
 /*
  * Bean's models (MODS) keep Gun fit's own set too, as GoldenEye X's do (user,
  * 2026-10-12: the two-handed hold sat low on them): the gun, the two-handed
- * hold, the reload grab, the scope lenses and the barrel tips. They start as
- * GoldenEye's, and an ini with none of them yet takes the player's GoldenEye
- * ones (vr_settings.cpp).
+ * hold, the reload grab, the scope lenses and the barrel tips. The gun and
+ * the holds are the user's, fitted in the headset on Bean's own holding arm
+ * (2026-10-12); the reload grab, scopes and barrel tips start as GoldenEye's,
+ * and an ini with none of them yet takes the player's GoldenEye ones
+ * (vr_settings.cpp).
  */
-float VrBeanGunOff[3] = { 2.74f, 1.94f, -12.35f };
+float VrBeanGunOff[3] = { 2.9164f, -0.0594f, -13.1776f };
 float VrBeanGripTrim[2][6] = {
-    { 0.21f, -5.14f, 3.36f, 22.0f, 0.0f, -11.3f },
-    { 0.22f, -9.08f, 13.13f, 86.3f, 0.0f, 83.1f },
+    { 1.96f, -8.58f, -2.20f, -4.4f, 0.0f, -17.4f },   /* handguns */
+    { 2.04f, 0.79f, 11.90f, 32.9f, 0.0f, 85.3f },     /* long guns */
 };
 float VrBeanReloadGrab[3] = { 0.0000f, -7.0000f, -8.0000f };
 float VrBeanScopeFit[4][4];
 float VrBeanMuzzleTrim[GEVR_MAX_WEAPONS][3];
 /* each gun's own place in the hand and two-handed hold, once Gun fit moves
- * them: [0] GoldenEye's models, [1] Bean's (port/include/gevr_scope.h) */
-float VrGunOffPer[2][GEVR_MAX_WEAPONS][3];
-float VrGripTrimPer[2][GEVR_MAX_WEAPONS][6];
-unsigned char VrGunOffPerSet[2][GEVR_MAX_WEAPONS];
-unsigned char VrGripTrimPerSet[2][GEVR_MAX_WEAPONS];
+ * them: [0] GoldenEye's models, [1] Bean's (port/include/gevr_scope.h).
+ * Bean's start as the user's, fitted in the headset (2026-10-12), by item:
+ * the PP7 4 (its silenced, gold and silver kin share it), DD44 6, Klobb 7,
+ * KF7 8, ZMG 9, D5K 10 (and its silenced), Phantom 12, AR33 13, RCP90 14,
+ * shotgun 15, automatic shotgun 16, sniper rifle 17, Cougar 18, golden gun
+ * 19, Moonraker laser 22, grenade launcher 24. */
+float VrGunOffPer[2][GEVR_MAX_WEAPONS][3] = {
+    [1] = {
+        [4] = { 2.9164f, -0.1001f, -13.1776f },
+        [8] = { 2.9164f, -0.0594f, -13.1352f },
+        [17] = { 2.9818f, 0.0549f, -20.5970f },
+    },
+};
+float VrGripTrimPer[2][GEVR_MAX_WEAPONS][6] = {
+    [1] = {
+        [4] = { 2.17f, -9.12f, -3.11f, 2.3f, 29.2f, 12.9f },
+        [6] = { 3.02f, -9.03f, -2.23f, 6.1f, 24.4f, 12.7f },
+        [7] = { 1.90f, -4.27f, 8.81f, 46.8f, -1.6f, 78.4f },
+        [8] = { 2.60f, -5.26f, 8.35f, 42.1f, 2.8f, 73.7f },
+        [9] = { 0.88f, -7.64f, 1.04f, 54.5f, 17.0f, 79.4f },
+        [10] = { 2.47f, -7.89f, -0.17f, 28.6f, 33.9f, 39.9f },
+        [12] = { 2.82f, -11.31f, 12.86f, 2.2f, 42.5f, 16.4f },
+        [13] = { 3.07f, -3.92f, 9.47f, 44.2f, -4.7f, 78.2f },
+        [14] = { 1.13f, -8.83f, -1.76f, 41.6f, 21.2f, 69.3f },
+        [15] = { 2.53f, -7.22f, 10.84f, 40.8f, 0.0f, 85.3f },
+        [16] = { 2.26f, -7.70f, 11.32f, 37.8f, 0.0f, 85.3f },
+        [17] = { 1.97f, -3.21f, -0.58f, 53.7f, 3.4f, 102.3f },
+        [18] = { 2.82f, -8.99f, -0.57f, 7.5f, 24.2f, 15.4f },
+        [19] = { 2.50f, -8.91f, -2.04f, 8.1f, 24.8f, 17.7f },
+        [22] = { 3.28f, -4.40f, 7.33f, 42.3f, 8.9f, 80.0f },
+        [24] = { 2.04f, -7.76f, 11.90f, 52.9f, 0.0f, 85.3f },
+    },
+};
+unsigned char VrGunOffPerSet[2][GEVR_MAX_WEAPONS] = {
+    [1] = { [4] = 1, [8] = 1, [17] = 1 },
+};
+unsigned char VrGripTrimPerSet[2][GEVR_MAX_WEAPONS] = {
+    [1] = {
+        [4] = 1, [6] = 1, [7] = 1, [8] = 1, [9] = 1, [10] = 1, [12] = 1, [13] = 1,
+        [14] = 1, [15] = 1, [16] = 1, [17] = 1, [18] = 1, [19] = 1, [22] = 1, [24] = 1,
+    },
+};
 int gevrMuzzleFitting = 0;
 int gevrGunHandFitting = 0;   /* Gun fit moves GE-X's own gun hand on the gun (X), for bondview2.c and gun.c */
 
