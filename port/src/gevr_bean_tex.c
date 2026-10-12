@@ -709,6 +709,31 @@ const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t a
     return gevrBeanTexReflectRgba(spot,land,rgba,key);
 }
 
+/* DAB beanGoldPicture(): a metal gun's reflection, its material's own map
+ * (slot 0) stretched about its top as the shader's c12 1.77 and c14 -0.77 do -
+ * the browns towards black, the pale streaks bright - and given the metal's
+ * hue, since the map is near grey and the gun's pictures white. */
+const void *gevrBeanTexReflectMetal(const void *map,const float hue[3],const char *key)
+{
+    for (int i=0;i<s_ntex;i++) if (!strcmp(s_tex[i].key,key)) return s_tex[i].standin;
+    int mi=texFind(map);
+    if (mi<0 || s_ntex>=TEX_SLOTS) return NULL;
+    const struct texSlot *m=s_tex+mi;
+    uint8_t *rgba=malloc((size_t)m->w*m->h*4),*standin=calloc(16*16,2);
+    if (!rgba || !standin) {free(rgba);free(standin);return NULL;}
+    for (size_t i=0;i<(size_t)m->w*m->h;i++) {
+        for (int c=0;c<3;c++) {
+            float t=(m->rgba[i*4+c]*1.77f-0.77f*255.0f)*hue[c];
+            rgba[i*4+c]=(uint8_t)(t<0 ? 0 : t>255 ? 255 : t+.5f);
+        }
+        rgba[i*4+3]=255;
+    }
+    struct texSlot *slot=s_tex+s_ntex++;
+    memset(slot,0,sizeof(*slot));snprintf(slot->key,sizeof(slot->key),"%s",key);
+    slot->rgba=rgba;slot->standin=standin;slot->w=m->w;slot->h=m->h;
+    texIndexAdd((int)(slot-s_tex));return standin;
+}
+
 void gevrBeanTexMotionSet(const void *addr, float s, float t, float degrees, float spf,
                           const struct gevrCaff *c, int fileIndex)
 {

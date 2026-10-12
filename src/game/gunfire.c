@@ -2975,9 +2975,15 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
 
             if (g_gevrStereo && item == ITEM_ROCKETLAUNCH && handptr->rocket != NULL)
             {
+                extern int gevrBeanHasRound(const void *header);
+
                 model = handptr->rocket->model;
 
-                subdraw(&renderdata, model);
+                /* Bean's launcher carries its own round (DAB fpRound) */
+                if (!gevrBeanHasRound(handptr->weaponModel.obj))
+                {
+                    subdraw(&renderdata, model);
+                }
                 bondviewTransformManyPosToViewMatrix(model->render_pos, model->obj->numMatrices);
 
                 if (handptr->firedrocket != 0)
@@ -2997,6 +3003,11 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             model = handptr->rocket->model;
  
+#ifdef GEVR
+            extern int gevrBeanHasRound(const void *header);
+
+            if (!gevrBeanHasRound(handptr->weaponModel.obj))
+#endif
             subdraw(&renderdata, model);
             bondviewTransformManyPosToViewMatrix(model->render_pos, model->obj->numMatrices);
  
@@ -3043,11 +3054,15 @@ void gunRenderFirstPersonGunModels(Gfx **gdlptr)
         {
             gDPNoOpTag(renderdata.gdl++, 0x56580000); /* VR_CULL_MIRROR_BEGIN */
         }
+        /* Bean's rocket launcher with its round in the tube or without (DAB fpRound) */
+        extern void gevrBeanSetLoaded(int loaded);
+        gevrBeanSetLoaded(item != ITEM_ROCKETLAUNCH || handptr->rocket != NULL);
         /* issue #31: the watch items' arm is the tracked watch arm (bondview2.c gevrStereoWatchItem) */
         if (!gevrStereoWatchItem(item))
 #endif
         subdraw(&renderdata, &handptr->weaponModel);
 #ifdef GEVR
+        gevrBeanSetLoaded(1);
         {
             /* a GoldenEye X gun's hands, on its matrices (gun.c) */
             extern s32 gevrGexHeld(s32 hand);

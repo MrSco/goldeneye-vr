@@ -74,6 +74,7 @@ struct beanSwap {
 	struct beanSkin *skin;
 	int deferredMatrix;
 	int watchArm;
+	void *spent;   /* DAB fpRound: the rocket launcher drawn with nothing in its tube */
 };
 
 static struct beanSwap s_swap[MAX_SWAP];
@@ -208,6 +209,7 @@ static void swapAdd(void *node, void *original, void *ours, int origType)
 	s_swap[s_nswap].skin = s_emittedSkin;
 	s_swap[s_nswap].deferredMatrix = 0;
 	s_swap[s_nswap].watchArm = s_registrationWatchArm;
+	s_swap[s_nswap].spent = NULL;
     s_emittedSkin = NULL;
 	swapIndexAdd(s_nswap);
 	s_nswap++;
@@ -227,12 +229,32 @@ static struct beanSwap *activeSwap(void *node)
 
 /* Replacements belong to the renderer. Native lists and model types are also
  * read by aiming, bullet hits and other gameplay walkers; never overwrite them. */
+/* DAB fpRound: whether the launcher being drawn has a round in its tube
+ * (gunfire.c and gevr_heldgun.c set it for the hand they draw; anything else,
+ * the watch's and the panel's preview, shows the launcher loaded) */
+static int s_loaded = 1;
+
+void gevrBeanSetLoaded(int loaded)
+{
+	s_loaded = loaded != 0;
+}
+
 void *gevrBeanShownGdl(void *node, void *current)
 {
 	struct beanSwap *s = activeSwap(node);
 	/* GE-X and the VR watch hide the hand by clearing its native list.
 	 * Honour that per-draw visibility instead of resurrecting the Bean arm. */
-	return s && (current || !s->original) ? s->ours : current;
+	return s && (current || !s->original) ? (s->spent && !s_loaded ? s->spent : s->ours) : current;
+}
+
+/* DAB gebeanFirstPersonHasRound(): the model draws the release's own round,
+ * so GoldenEye's rocket is not drawn in its mouth as well */
+int gevrBeanHasRound(const void *header)
+{
+	for (int i = 0; header && i < s_nswap; i++)
+		if (s_swap[i].owner == header && s_swap[i].spent && activeSwap(s_swap[i].node) == &s_swap[i])
+			return 1;
+	return 0;
 }
 
 int gevrBeanShownModelType(void *node, int current)
@@ -778,12 +800,11 @@ static int retainedRigidList(const Gfx *gdl)
     return 0;
 }
 
-static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
+/* An emitted list as a node draws it: retained on the GPU where it can be, and
+ * under the node's own matrix. NULL when out of memory. */
+static Gfx *wrapEmitted(ModelNode *n, Gfx *gdl)
 {
-	int op = nodeOp(n);
-	Gfx *old = NULL;
-	int oldType = 0;
-	if (gdl && gdl != s_blank) {
+	{
         /* Rigid props, guns and gloves retain their material commands and CPU
          * fallback. Their vertex buffers live until the level reset. */
         if (!s_emittedSkin && s_nrigidMeshes < MAX_ALLOC && retainedRigidList(gdl)) {
@@ -809,7 +830,7 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 			Gfx *wrapper = malloc(3 * sizeof(Gfx));
 			if (!wrapper || !keepAlloc(wrapper)) {
 				free(wrapper);
-				return;
+				return NULL;
 			}
 			gSPMatrix(wrapper, (void *)(uintptr_t)(0x03000000u + matrix * sizeof(Mtx)),
 			          G_MTX_MODELVIEW | G_MTX_LOAD | G_MTX_NOPUSH);
@@ -818,6 +839,16 @@ static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 			gdl = wrapper;
 		}
 	}
+	return gdl;
+}
+
+static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
+{
+	int op = nodeOp(n);
+	Gfx *old = NULL;
+	int oldType = 0;
+	if (gdl && gdl != s_blank && !(gdl = wrapEmitted(n, gdl)))
+		return;
 	if (op == MODELNODE_OPCODE_DL && n->Data) {
 		old = n->Data->DisplayList.Primary;
 		oldType = n->Data->DisplayList.ModelType;
@@ -1010,6 +1041,7 @@ struct beanGunParts {
 static const struct beanGunParts *s_parts;
 static const struct gevrBeanMesh *s_partsMesh;
 static int s_partWant;
+static int s_noRound;   /* laying out the launcher without its round (DAB fpRound) */
 
 static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t, int kind, int hasHead)
 {
@@ -1020,6 +1052,9 @@ static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 		const int draw = mesh->triSrc[t - mesh->tris].draw;
 		if (draw >= 0 && draw < 64 && (s_flashDraws >> draw & 1))
 			return 0;
+	}
+	if (kind == BEAN_GUN && s_noRound && (t->flags & GEVR_BEAN_F_ROUND)) {
+		return 0;
 	}
 	if (kind == BEAN_GUN && s_parts && mesh == s_partsMesh) {
 		return s_parts->of[t - mesh->tris] == s_partWant;
@@ -2139,6 +2174,25 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				if (mainEmitted && fit && !strcmp(fit->source, "prop/helicopter"))
 					gdl = helicopterWithPilot(dls[best].node, gdl);
 				registerPrimary(dls[best].node, mainEmitted ? gdl : s_blank, 0);
+				/* DAB fpRound: the release's rocket launcher carries its round
+				 * in the tube, so it is laid out without it too, for while the
+				 * tube is empty (and GoldenEye's rocket is not drawn over it) */
+				int roundTris = 0;
+				for (int t = 0; gun && mainEmitted && t < mesh->ntris; t++)
+					roundTris += (mesh->tris[t].flags & GEVR_BEAN_F_ROUND) != 0;
+				if (roundTris) {
+					void *spentG = NULL, *spentV = NULL;
+					struct beanSwap *loaded = swapOf(dls[best].node);
+					s_noRound = 1;
+					if (loaded && loaded->ours != s_blank &&
+					    emitRigid(mesh, kind, hasHead, dls[best].node, fit, NULL, -1, grp[dls[best].grp].o,
+					              mesh->triggerCuffs ? -1 : 0, &spentG, &spentV)) {
+						keepAlloc(spentG);
+						keepAlloc(spentV);
+						loaded->spent = wrapEmitted(dls[best].node, spentG);
+					}
+					s_noRound = 0;
+				}
 				/* the gun's moving parts, each on its matrix's list from that list's rest */
 				for (int m = 0; parts.of && m < BEAN_GUN_MTX; m++) {
 					const int carrier = parts.carrier[m];
@@ -2190,6 +2244,14 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					if (gunPartList(&parts, header, &dls[i])) {
 						if (i != parts.carrier[nodeMatrix(dls[i].node)])
 							registerPrimary(dls[i].node, s_blank, 1);
+						continue;
+					}
+					/* Bean's glove carries its own index finger (DAB keeps the HD
+					 * files' kind 2 section), so GoldenEye's, on a joint of its
+					 * own (the pistols' Switches[6]), goes with the rest of the
+					 * hand rather than drawing a second, N64 finger on the trigger */
+					if (gun && glove && underJoint && gunHandNode(header, dls[i].node)) {
+						registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
 					if (kind == BEAN_GUN && (dls[i].simple || underJoint || gunFlashNode(header, dls[i].node)))

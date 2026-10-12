@@ -380,6 +380,50 @@ int main(int argc, char **argv)
             gevrBeanMeshFree(m);
         }
     }
+    {
+        /* DAB fpTint / beanGoldPicture(): the metal guns' white pictures take
+         * their metal's colour and, in the hand, their map as a reflection;
+         * the glove (512x511) keeps its own. Silver stays grey. */
+        static const struct { const char *file; int gold; } metals[] = {
+            {"gun/goldengun", 1}, {"gun/goldppk", 1}, {"gun/silverPPK", 0},
+        };
+        for (unsigned g = 0; g < sizeof(metals) / sizeof(metals[0]); g++) {
+            struct gevrBeanMesh *m = load(argv[1], metals[g].file);
+            int body = 0, shined = 0, coloured = 0, gloveTinted = 0;
+            for (int i = 0; i < m->ntris; i++) {
+                const struct gevrBeanTri *t = &m->tris[i];
+                const int glove = t->tex >= 0 && m->texW[t->tex] == 512 && m->texH[t->tex] == 511;
+                if ((t->flags & GEVR_BEAN_F_FLASH) || t->tex < 0)
+                    continue;
+                const int r = t->rgba[0], b = t->rgba[2];
+                if (glove) {
+                    gloveTinted += t->reflection != NULL;
+                    continue;
+                }
+                body++;
+                shined += t->reflection != NULL;
+                coloured += metals[g].gold ? r > b + 40 : abs(r - b) < 8 && r > 60;
+            }
+            printf("%s: %d body triangles, %d with its reflection, %d in its metal\n", metals[g].file, body, shined,
+                   coloured);
+            bad |= !body || shined < body / 2 || coloured != body || gloveTinted;
+            gevrBeanMeshFree(m);
+        }
+        /* DAB fpRound: the rocket launcher's round is its draws 1, 21 and 22
+         * and the front of 2 (the rocket from the mouth out) */
+        struct gevrBeanMesh *m = load(argv[1], "gun/rocketlauncher");
+        int round = 0;
+        float lo = 1e9f;
+        for (int i = 0; i < m->ntris; i++)
+            if (m->tris[i].flags & GEVR_BEAN_F_ROUND) {
+                round++;
+                for (int c = 0; c < 3; c++)
+                    lo = m->tris[i].p[c * 3 + 2] < lo ? m->tris[i].p[c * 3 + 2] : lo;
+            }
+        printf("gun/rocketlauncher: %d round triangles from z %.0f\n", round, lo);
+        bad |= round < 100 || lo < 900.0f;
+        gevrBeanMeshFree(m);
+    }
     puts(bad ? "FAIL" : "Bean material checks passed");
 	return bad;
 }

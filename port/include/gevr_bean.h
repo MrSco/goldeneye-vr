@@ -32,6 +32,11 @@ void gevrBeanModelApply(struct ModelFileHeader *header, const char *name);
 /* The watch initializes only native preview joints. Fit every replaced rigid
  * part under its own rest pivot; return whether this is a Bean preview. */
 int gevrBeanPreviewPose(struct Model *model, const float root[4][4]);
+/* DAB fpRound: the rocket launcher being drawn has a round in its tube, and
+ * whether a model draws the release's own round (GoldenEye's rocket is not
+ * drawn in its mouth then) */
+void gevrBeanSetLoaded(int loaded);
+int gevrBeanHasRound(const void *header);
 void gevrBeanReset(void);
 
 /* Stand-in tile address -> decoded RGBA8. 1 when addr is one of ours. */

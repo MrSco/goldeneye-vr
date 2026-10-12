@@ -126,6 +126,30 @@ static void nativeGun(ModelFileHeader *h, ModelNode *n, float (**out)[3], int *c
 	}
 }
 
+/* GoldenEye's hand lists still drawn as they are (no replacement registered) */
+static int nativeHandLists(ModelFileHeader *h, ModelNode *n)
+{
+	int count = 0;
+	for (; n; n = n->Next) {
+		int op = nodeOp(n);
+		if ((op == MODELNODE_OPCODE_DL || op == MODELNODE_OPCODE_DLCOLLISION) && n->Data && gunHandNode(h, n) &&
+		    !swapOf(n)) {
+			Vertex *v;
+			int vc, type;
+			Gfx *primary;
+			dlVerts(n, &v, &vc, &type, &primary);
+			count += vc > 0;
+		}
+		ModelNode *child = n->Child;
+		if (!child && op == MODELNODE_OPCODE_HEADER && n->Data)
+			child = n->Data->Header.FirstGroupNode;
+		if (!child && op == MODELNODE_OPCODE_GROUP && n->Data)
+			child = n->Data->Group.ChildGroupNode;
+		count += nativeHandLists(h, child);
+	}
+	return count;
+}
+
 static double signedVolume(float (*p)[3], int n)
 {
 	double o[3] = {0}, v = 0;
@@ -191,6 +215,10 @@ static void checkRigid(ModelFileHeader *h, const struct gevrBeanMesh *mesh, int 
 			assert(hand && gunHandNode(h, hand));
 		else
 			assert(!hand && !handBlanks);
+		/* Bean's glove brings its own index finger: none of GoldenEye's hand
+		 * stays, its trigger finger on a joint of its own included */
+		if (glove && handLists)
+			assert(!nativeHandLists(h, h->RootNode));
 	}
 
 	/* Same orientation as the release: a mirrored fit winds the other way. */
@@ -605,6 +633,20 @@ int main(int argc, char **argv)
 		}
 	}
     checkRigid(&header, mesh, kind, fitForName(argv[2]), argv[2]);
+    /* DAB fpRound: only the rocket launcher has a build for an empty tube,
+     * on the same list, smaller by its round */
+    assert(gevrBeanHasRound(&header) == !strcmp(argv[2], "GrocketlaunchZ"));
+    for (int i = 0; i < s_nswap; i++)
+        if (s_swap[i].spent) {
+            struct beanSwap loaded = s_swap[i], spent = s_swap[i];
+            float (*a)[3], (*b)[3];
+            spent.ours = spent.spent;
+            const int na = swapVerts(&loaded, &a), nb = swapVerts(&spent, &b);
+            printf("ROUND %s loaded %d spent %d vertices\n", argv[2], na, nb);
+            assert(nb > 0 && na - nb >= 3 * 100);
+            free(a);
+            free(b);
+        }
     checkScreens(&header, mesh, kind, fitForName(argv[2]), argv[2]);
     if (kind == BEAN_GUN) {
         Model model = {0}; model.obj = &header;
