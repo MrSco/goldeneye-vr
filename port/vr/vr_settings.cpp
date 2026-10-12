@@ -837,13 +837,11 @@ extern "C" void vrSettingsLoad(void)
         VrGunOffZ = gunOff[2];
     }
     // Bean's models (MODS) stand where GoldenEye's would (gevr_bean.c), so an
-    // ini from before they had a set of their own starts them from the
-    // player's GoldenEye fits
+    // ini from before they had a set of their own starts their reload grab,
+    // scopes and barrel tips from the player's GoldenEye fits. Not the gun
+    // or the holds: Bean's are fitted on its own holding arm
+    // (vr_settings_defaults.c), GoldenEye's on the taser hand.
     if (!beanFitsRead) {
-        VrBeanGunOff[0] = VrGunOffX;
-        VrBeanGunOff[1] = VrGunOffY;
-        VrBeanGunOff[2] = VrGunOffZ;
-        memcpy(VrBeanGripTrim, VrGripTrim, sizeof(VrBeanGripTrim));
         memcpy(VrBeanReloadGrab, VrReloadGrab[0], sizeof(VrBeanReloadGrab));
         memcpy(VrBeanScopeFit, VrScopeFit[0], sizeof(VrBeanScopeFit));
         memcpy(VrBeanMuzzleTrim, VrMuzzleTrim[0], sizeof(VrBeanMuzzleTrim));
