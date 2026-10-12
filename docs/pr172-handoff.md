@@ -64,9 +64,10 @@ To check on the headset:
 2. **GPU meshes phase 2:** Bean character skinning is implemented.
    - Validate GPU/CPU character parity and frame time with the checklist in
      `bean-gpu-skinning.md`. Lighting, fog, culling and palette redraws have
-     offline checks; scope and first-person overrides retain CPU fallback.
+     offline checks; first-person overrides retain CPU fallback. Scope mesh
+     capture and room chunk culling are implemented; see `pr172-render-followup.md`.
    - Then rigid models (guns and props) as static meshes.
-   - Then per-chunk culling for Dam rooms 35, 132 and 135.
+   - Validate per-chunk culling near Dam rooms 35, 132 and 135 on the headset.
    - Optionally A/B `-fno-inline-functions` for fast3d (`CMakeLists.txt:120`).
    - The `gevr_static_mesh.h` header and the agent's design notes in commit 7f75f48 are the starting point.
 3. **Bean leftovers** (details in the Bean handoff):
@@ -77,7 +78,7 @@ To check on the headset:
    - Per-bone routing of the trigger finger.
    - Monitors (Dab draws `new/texture/monitors`).
    - `titleblood` uses CAFF format 2, which doesn't decode.
-   - Nintendo logo material.
+   - Nintendo logo uses native chrome setup on Bean geometry; verify visually.
    - User request: with GE-X and Bean both on, draw Bean's watch on the GE-X wrist.
 4. **Bean PNG pack faults** (GoldenEye-007-Bean `GOLDENEYE/Matched`):
    - the ammo PNGs are flipped and BGR;

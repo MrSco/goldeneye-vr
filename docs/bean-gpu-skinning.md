@@ -24,7 +24,7 @@ Static rooms do not stream a palette on each draw.
 
 The original CPU implementation remains for palettes that cannot be built.
 For GPU-capable palettes, individual unsupported runs lazily pose vertices
-once per instance using the same palette: desktop rendering, scope capture,
+once per instance using the same palette: desktop rendering,
 menus, generated UVs, colour tables, grayscale, line mode and first-person
 culling overrides retain the CPU path. A list can mix GPU and CPU runs without
 replaying its materials or drawing previous runs twice. First-person arms and
@@ -60,8 +60,8 @@ has been measured yet. Compare the same guard-heavy view at 90/120 Hz, with
 Show stats enabled for the `skin:` log line:
 
 1. With Bean enabled, ordinary third-person guards should produce nonzero
-   `skin: ... draws, ... tris on GPU`. `CPU poses` should rise for scope or
-   first-person fallback draws, not ordinary guards.
+   `skin: ... draws, ... tris on GPU`. `CPU poses` should rise for
+   first-person fallback draws, not ordinary guards or scope capture.
 2. Add an empty `files/gevr_noskin.txt` to turn only GPU skinning off; remove it
    to re-enable it. It is polled with the existing mesh switch every 240 frames.
    `files/gevr_nomesh.txt` still disables all GPU meshes, including rooms.

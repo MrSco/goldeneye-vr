@@ -20,6 +20,8 @@
 typedef struct GevrStaticMeshRun {
     const void *start, *end;   /* the run's first command and the one after it */
     uint32_t firstIndex, indexCount;
+    float lo[3], hi[3];
+    int hasBounds; // static room chunks; skinned runs use their pose, not this box
 } GevrStaticMeshRun;
 
 typedef struct GevrStaticMesh {

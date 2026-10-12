@@ -56,6 +56,8 @@ void gevrBeanImagesReset(void);
 void *gevrBeanShownGdl(void *node, void *current);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
 int gevrBeanShownModelType(void *node, int current);
+/* Self-contained replacement in a transparent-only native type-4 draw. */
+void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags);
 
 /* HD level rooms. Advances the display list. *replaced is 1 when the N64
  * room list should be left out. The second call is the transparent pass. */

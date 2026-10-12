@@ -22,6 +22,7 @@
 #include "../vr/vr_log.h"
 #include "../src/net/net_game.h"
 #include "gevr_line_geometry.h"
+#include "gevr_mesh_visibility.h"
 #include "gevr_frame_timing.h"
 #include "gevr_hud_bounds.h"
 #include "gevr_vertex_ownership.h"
@@ -2142,11 +2143,17 @@ struct GevrScopeDraw {
     bool alpha[2];
     bool decalDepth;
     float decalPull;
+    uint32_t mesh; // 1 + scope mesh record, zero for the vertex ring
     uint8_t mask;   // which scopes see it: bit (1 << hand)
 };
 
 #define GEVR_SCOPE_RES 512
 static std::vector<GevrScopeDraw> s_scopeDraws;
+struct GevrScopeMesh { GLuint vao; GfxMeshDrawParams params; };
+static std::vector<GevrScopeMesh> s_scopeMeshes;
+static void gevr_mesh_uniforms(const ShaderProgram*, const GfxMeshDrawParams*);
+static void gevr_mesh_clip(bool);
+static void gevr_mesh_cull(int);
 static bool s_scopeRec;
 static bool s_scopeTaken[2], s_scopeDrawn[2];   // per hand: recording this frame / image ready
 static uint8_t s_scopeOnlyMask;   // VR_SCOPE_ONLY: kept for that scope alone, not drawn to the eyes
@@ -2165,6 +2172,7 @@ void gfx_vr_scope_record(bool on, bool invert_y)
         return;
     }
     s_scopeDraws.clear();
+    s_scopeMeshes.clear();
     s_scopeTaken[0] = s_scopeTaken[1] = false;
     // needs the mapped ring: without it every draw overwrites the last one's vertices
     if (!gevrScopeOn || s_pmPtr == NULL || gVrFlatPass) {
@@ -2215,10 +2223,66 @@ static bool gevr_scope_sees(int hand, const float* v, size_t len, size_t tris)
     return false;
 }
 
+static uint8_t gevr_scope_mesh_mask(const float* mp, const float* lo, const float* hi)
+{
+    uint8_t mask = 0;
+    for (int h = 0; h < 2; h++) {
+        if (!s_scopeTaken[h]) continue;
+        float scopeMP[16];
+        const float* vp = s_scopeVP[h];
+        for (int c = 0; c < 4; c++) {
+            const float view[4] = {mp[c*4] / s_scopeHeadP[h][0], mp[c*4+1] / s_scopeHeadP[h][1],
+                                   -mp[c*4+3], c == 3 ? 1.0f : 0.0f};
+            for (int r = 0; r < 4; r++)
+                scopeMP[c*4+r] = vp[r]*view[0] + vp[4+r]*view[1] + vp[8+r]*view[2] + vp[12+r]*view[3];
+        }
+        if (gevrMeshBoundsVisible(lo, hi, scopeMP, 0, 0, 0, 0)) mask |= 1 << h;
+    }
+    return mask;
+}
+
+static bool gfx_opengl_scope_sees_mesh(const float* mp, const float* lo, const float* hi)
+{
+    return s_scopeRec && gevr_scope_mesh_mask(mp, lo, hi) != 0;
+}
+
 // gunfire.c gunDrawSight: a hand's sight drawn for its scope alone, after the world (-1 ends)
 void gfx_vr_scope_only(int hand)
 {
     s_scopeOnlyMask = (hand == 0 || hand == 1) && s_scopeTaken[hand] ? (uint8_t)(1 << hand) : 0;
+}
+
+static GevrScopeDraw gevr_scope_draw_state(uint8_t mask, GLint first, GLsizei count)
+{
+    GevrScopeDraw d = {};
+    d.mask = mask;
+    d.prg = s_curPrg;
+    d.first = first;
+    d.count = count;
+    d.lineMode = get_debug_VisCVG_flag() != 0;
+    for (int t = 0; t < 2; t++) {
+        d.tex[t] = s_boundTex[t];
+        d.linear[t] = current_textures_linear_filter[t];
+    }
+    memcpy(d.depth, s_depthArgs, sizeof(d.depth));
+    d.zmode = s_depthZmode;
+    d.alpha[0] = s_alphaArgs[0];
+    d.alpha[1] = s_alphaArgs[1];
+    d.decalDepth = gevr_decal_writes_depth();
+    d.decalPull = s_drawDecalPull;
+    return d;
+}
+
+static void gevr_scope_keep_mesh(GLuint vao, GLint first, GLsizei count, const GfxMeshDrawParams* params)
+{
+    if (!s_scopeRec) return;
+    const uint8_t mask = params->has_bounds ? gevr_scope_mesh_mask(params->mp, params->lo, params->hi)
+                                           : (s_scopeTaken[0] ? 1 : 0) | (s_scopeTaken[1] ? 2 : 0);
+    if (!mask) return;
+    GevrScopeDraw d = gevr_scope_draw_state(mask, first, count);
+    s_scopeMeshes.push_back({vao, *params});
+    d.mesh = (uint32_t)s_scopeMeshes.size();
+    s_scopeDraws.push_back(d);
 }
 
 static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_len, size_t buf_vbo_num_tris)
@@ -2238,23 +2302,7 @@ static void gevr_scope_keep(GLint first, const float* buf_vbo, size_t buf_vbo_le
             return;
         }
     }
-    GevrScopeDraw d;
-    d.mask = mask;
-    d.prg = s_curPrg;
-    d.first = first;
-    d.count = (GLsizei)(3 * buf_vbo_num_tris);
-    d.lineMode = get_debug_VisCVG_flag() != 0;
-    for (int t = 0; t < 2; t++) {
-        d.tex[t] = s_boundTex[t];
-        d.linear[t] = current_textures_linear_filter[t];
-    }
-    memcpy(d.depth, s_depthArgs, sizeof(d.depth));
-    d.zmode = s_depthZmode;
-    d.alpha[0] = s_alphaArgs[0];
-    d.alpha[1] = s_alphaArgs[1];
-    d.decalDepth = gevr_decal_writes_depth();
-    d.decalPull = s_drawDecalPull;
-    s_scopeDraws.push_back(d);
+    s_scopeDraws.push_back(gevr_scope_draw_state(mask, first, (GLsizei)(3 * buf_vbo_num_tris)));
 }
 
 /* a hand's scope target, once (gfx_vr_scope_prepare makes both ahead of use) */
@@ -2372,6 +2420,10 @@ void gfx_vr_scope_render(void)
                 continue;
             }
             drawn[hand]++;
+            glBindVertexArray(d.mesh ? s_scopeMeshes[d.mesh - 1].vao : opengl_vao);
+            s_drawElements = d.mesh != 0;
+            gevr_mesh_clip(d.mesh != 0);
+            if (!d.mesh) gevr_mesh_cull(0);
             if (last == NULL || d.prg != bound) {
                 if (last != NULL || d.prg != bound) {
                     gfx_opengl_unload_shader(bound);
@@ -2401,6 +2453,13 @@ void gfx_vr_scope_render(void)
             if (gevrZDebugMode == 1) gevr_zdebug_apply(d.prg, true);
             if (last == NULL || d.alpha[0] != last->alpha[0] || d.alpha[1] != last->alpha[1]) {
                 gfx_opengl_set_use_alpha(d.alpha[0], d.alpha[1]);
+            }
+            if (d.mesh) {
+                const GfxMeshDrawParams* params = &s_scopeMeshes[d.mesh - 1].params;
+                for (GLuint a = 0; a < (params->skinned ? 13u : 3u); a++) glEnableVertexAttribArray(a);
+                gevr_mesh_uniforms(d.prg, params);
+                // Scope VP uses an upright target, undo the eye target winding flip.
+                gevr_mesh_cull(params->invert_y ? -params->cull : params->cull);
             }
             gevr_issue_draw(d.first, d.count, false, d.decalDepth, d.decalPull, d.lineMode);
             last = &d;
@@ -2439,7 +2498,7 @@ void gfx_vr_scope_render(void)
                              s_scopeHeadP[hand][0], s_scopeHeadP[hand][1]);
                 unsigned k = 0;
                 for (const GevrScopeDraw& d : s_scopeDraws) {
-                    if (!(d.mask & (1 << hand)) || k >= 4) continue;
+                    if (d.mesh || !(d.mask & (1 << hand)) || k >= 4) continue;
                     const float* v = (const float*)(s_pmPtr + (size_t)d.first * d.prg->num_floats * sizeof(float));
                     const float cx = v[0] / s_scopeHeadP[hand][0], cy = v[1] / s_scopeHeadP[hand][1], cz = -v[3];
                     const float* M = s_scopeVP[hand];
@@ -2453,6 +2512,10 @@ void gfx_vr_scope_render(void)
         }
     }
 
+    s_drawElements = false;
+    gevr_mesh_clip(false);
+    gevr_mesh_cull(0);
+    glBindVertexArray(opengl_vao);
     // the programs back to the eye pass, and the state as fast3d left it
     for (struct ShaderProgram* p : touched) {
         if (p->scopeLocation >= 0) {
@@ -2503,6 +2566,7 @@ void gfx_vr_scope_render(void)
                      (unsigned)s_scopeDraws.size(), drawn[0], drawn[1]);
     }
     s_scopeDraws.clear();
+    s_scopeMeshes.clear();
 }
 
 // vr_openxr.cpp: this game frame's scope image for a hand, or 0 when there is none
@@ -3364,9 +3428,8 @@ static struct ShaderProgram* gevr_mesh_program(struct ShaderProgram* base)
  * One run of a static mesh with the state fast3d set for it (gfx_pc.cpp
  * gevr_mesh_draw_run): what gfx_opengl_draw_triangles does for a batch, from
  * the mesh's buffers through its program's mesh variant. false where only the
- * vertex ring will do: the scope's pass and its sight test the batch's
- * vertices (gevr_scope_keep), and the HUD and menu captures and line mode are
- * left as they were.
+ * vertex ring will do: scope-only sights, HUD/menu captures and line mode.
+ * World scope captures retain the mesh VAO and this draw's parameters.
  */
 static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_vertices, const uint32_t* indices,
                                  uint32_t num_indices, uint32_t first, uint32_t count,
@@ -3374,7 +3437,7 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
 {
     struct ShaderProgram* base = s_curPrg;
     if (!gevr_mesh_supported() || base == NULL || base->is_mesh || base->opt_grayscale ||
-        p->num_inputs != base->num_inputs || s_scopeRec || s_scopeOnlyMask || gForceFlatShaderForMenu ||
+        p->num_inputs != base->num_inputs || s_scopeOnlyMask || gForceFlatShaderForMenu ||
         vr_dl_is_pause_or_menu || get_debug_VisCVG_flag()) {
         return false;
     }
@@ -3400,6 +3463,7 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
     glBindVertexArray(g->vao);
     gevr_mesh_clip(true);
     gevr_mesh_cull(p->cull);
+    gevr_scope_keep_mesh(g->vao, (GLint)first, (GLsizei)count, p);
     s_drawElements = true;
     gevr_issue_draw((GLint)first, (GLsizei)count, s_decalZ, gevrRoomDl && s_isDecal, 0.0f, false);
     s_drawElements = false;
@@ -4820,7 +4884,8 @@ struct GfxRenderingAPI gfx_opengl_api = {
         gfx_opengl_mirror_to_desktop,
         gfx_opengl_upload_texture_hd,
         gfx_opengl_draw_mesh,
-        gfx_opengl_delete_mesh
+        gfx_opengl_delete_mesh,
+        gfx_opengl_scope_sees_mesh
 };
 
 // ============================================================================

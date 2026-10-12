@@ -1671,6 +1671,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	}
 	mesh->uvscale = uvscale;
 	mesh->triggerCuffs = triggerCuffs;
+	mesh->nativeChrome = strstr(source, "/prop/nintendologo/") != NULL;
 	mesh->nbones = numbones;
 	for (int i = 0; i < numbones; i++) {
 		memcpy(mesh->boneBind[i], bind[i], sizeof(bind[i]));

@@ -40,6 +40,7 @@ struct gevrBeanMesh {
 	int ntex;
 	float uvscale;
 	int triggerCuffs;
+	int nativeChrome;
 	int nbones;
 	float boneBind[64][3];
 	char boneName[64][64];

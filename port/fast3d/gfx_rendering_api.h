@@ -27,7 +27,8 @@ struct GfxMeshDrawParams {
     float in_sel[GFX_MESH_MAX_INPUTS][16];   // per combiner input: which colour bytes (column-major)
     float in_const[GFX_MESH_MAX_INPUTS][4];  // ... plus what does not come from the vertex
     int num_inputs;
-    bool skinned, lit;
+    bool skinned, lit, has_bounds, invert_y;
+    float lo[3], hi[3];
     int cull, num_lights;
     float ambient[3], light_dir[7][3], light_color[7][3];
     float fog[4];       // RGB and constant factor when G_FOG is clear
@@ -89,6 +90,7 @@ struct GfxRenderingAPI {
     bool (*draw_mesh)(void** gpu, const void* vertices, uint32_t num_vertices, const uint32_t* indices,
                       uint32_t num_indices, uint32_t first, uint32_t count, const struct GfxMeshDrawParams* params);
     void (*delete_mesh)(void* gpu);
+    bool (*scope_sees_mesh)(const float* mp, const float* lo, const float* hi);
 
 };
 

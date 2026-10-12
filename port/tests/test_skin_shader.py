@@ -249,6 +249,24 @@ def execution(gl, program):
     # even with GL's default generic vec4 attribute (0,0,0,1).
     gl.attribute(3, [0,0,0,1])
     assert all(abs(a-b) < 2e-5 for a,b in zip(gl.capture()[:4], [7,8,2.7,1]))
+    # The mesh's head clip position must be reconstructed through the scope
+    # camera exactly as the CPU capture is, including inverted eye Y.
+    head = [2,0,0,0, 0,-3,0,0, 0,0,1,-1, 0,0,0,0]
+    scope = [4,0,0,0, 0,4,0,0, 0,0,-1.1,-1, .25,0,-1,0]
+    gl.uniform(program, "uMeshMP", "m", head)
+    gl.uniform(program, "uScopeVP", "m", scope)
+    gl.uniform(program, "uHeadP", "f", [2,-3])
+    gl.uniform(program, "uScope", "i", 1)
+    gl.attribute(0, [1,2,-10])
+    assert all(abs(a-b) < 2e-5 for a,b in zip(gl.capture()[:4], [4.25,8,10,10]))
+    gl.attribute(3, [255,0,0,0])
+    gl.attribute(5, [1,2,-10])
+    gl.uniform(program, "uSkinValid", "u", [1,0])
+    assert all(abs(a-b) < 2e-5 for a,b in zip(gl.capture()[:4], [4.25,8,10,10]))
+    gl.uniform(program, "uScope", "i", 0)
+    gl.uniform(program, "uSkinValid", "u", [0,0])
+    gl.uniform(program, "uMeshMP", "m", identity)
+    print("GLES scope: rigid and skinned positions match the scope camera with inverted eye Y")
     culling(gl, program, identity)
     print("GLES skinning: weighted pose, quantization, lighting, fog, invalid bones and palette replay passed")
 
