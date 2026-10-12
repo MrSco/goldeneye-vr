@@ -237,6 +237,104 @@ static void checkRigid(ModelFileHeader *h, const struct gevrBeanMesh *mesh, int 
 	free(native);
 }
 
+static int influenceCompare(const void *a,const void *b)
+{
+    const struct beanSkinVert *x=a,*y=b;
+    int c=memcmp(x->p,y->p,sizeof(x->p));if(c)return c;
+    c=memcmp(x->n,y->n,sizeof(x->n));if(c)return c;
+    c=memcmp(x->matrix,y->matrix,sizeof(x->matrix));if(c)return c;
+    c=memcmp(x->weight,y->weight,sizeof(x->weight));if(c)return c;
+    return memcmp(&x->tint,&y->tint,sizeof(x->tint));
+}
+
+static void posedBodyCheck(ModelFileHeader *header,struct beanSkin *body)
+{
+    Model model={0};model.obj=header;
+    model.render_pos=calloc(header->numMatrices,sizeof(*model.render_pos));assert(model.render_pos);
+    for(int pose=0;pose<3;pose++) {
+        for(int b=0;b<header->numMatrices;b++) {
+            float (*m)[4]=model.render_pos[b].pos.m;
+            float angle=.17f*(b+1)*(pose+1),s=sinf(angle),c=cosf(angle);
+            memset(m,0,sizeof(model.render_pos[b].pos.m));
+            m[0][0]=c*(1+.02f*b);m[0][1]=s*(1+.02f*b);
+            m[1][0]=-s;m[1][1]=c;m[2][2]=1+.01f*b;m[3][3]=1;
+            m[3][0]=100+3*b;m[3][1]=-80+pose*7+b;m[3][2]=60-2*b;
+        }
+        Gfx *g=gevrBeanWholeModelGdl(&model);assert(g && g[1].words.w0>>24==G_GEVR_SKIN);
+        GevrSkinDraw *draw=(void*)g[1].words.w1;
+        const GevrSkinVertex *vertices=draw->mesh->vertices;
+        const float (*anchor)[4]=model.render_pos[body->anchor].pos.m;
+        for(int v=0;v<body->nverts;v++) {
+            float expected[3]={0},local[3]={0},total=0;
+            for(int w=0;w<4;w++) {
+                int weight=body->verts[v].weight[w];if(!weight)continue;
+                const float (*m)[4]=model.render_pos[body->verts[v].matrix[w]].pos.m;
+                const float *p=body->verts[v].p[w];
+                const float *rows=draw->palette.rows[vertices[v].bone[w]];
+                for(int k=0;k<3;k++) {
+                    expected[k]+=weight*(m[0][k]*p[0]+m[1][k]*p[1]+m[2][k]*p[2]+m[3][k]);
+                    local[k]+=weight*(rows[k*4]*p[0]+rows[k*4+1]*p[1]+rows[k*4+2]*p[2]+rows[k*4+3]);
+                }
+                total+=weight;
+            }
+            assert(total>0);
+            for(int k=0;k<3;k++) {
+                float actual=anchor[3][k];
+                for(int j=0;j<3;j++)actual+=anchor[j][k]*local[j]/total;
+                assert(fabsf(actual-expected[k]/total)<.02f);
+            }
+        }
+        beanFrameReset();
+    }
+    free(model.render_pos);
+}
+
+static void combinedBodyCheck(ModelFileHeader *header,struct gevrBeanMesh *mesh,int kind,const struct beanFit *fit)
+{
+    if(kind!=BEAN_CHR || mesh->watchArm)return;
+    int count=0,parts=0;
+    for(int i=0;i<s_nswap;i++)if(s_swap[i].skin){
+        int duplicate=0;
+        for(int j=0;j<i;j++)duplicate|=s_swap[j].skin==s_swap[i].skin;
+        if(!duplicate){count+=s_swap[i].skin->nverts;parts++;}
+    }
+    if(parts<4)return;
+    struct beanSkinVert *before=calloc(count,sizeof(*before));assert(before);
+    int n=0;
+    for(int i=0;i<s_nswap;i++)if(s_swap[i].skin){
+        int duplicate=0;
+        for(int j=0;j<i;j++)duplicate|=s_swap[j].skin==s_swap[i].skin;
+        if(duplicate)continue;
+        memcpy(before+n,s_swap[i].skin->verts,s_swap[i].skin->nverts*sizeof(*before));n+=s_swap[i].skin->nverts;
+    }
+    qsort(before,count,sizeof(*before),influenceCompare);
+    /* Reset the registry/storage but keep the independently loaded source mesh. */
+    gevrBeanReset();s_want=s_available=1;
+    FILE *f=fopen("gevr_body_batch.txt","w");assert(f);fputs("1",f);fclose(f);
+    applyMesh(header,mesh,kind,fit);remove("gevr_body_batch.txt");
+    int afterCount=0,afterParts=0;
+    for(int i=0;i<s_nswap;i++)if(s_swap[i].skin){
+        int duplicate=0;
+        for(int j=0;j<i;j++)duplicate|=s_swap[j].skin==s_swap[i].skin;
+        if(!duplicate){afterCount+=s_swap[i].skin->nverts;afterParts++;}
+    }
+    /* Switched bodies intentionally retain their per-part draws. */
+    if(afterParts==1) {
+        assert(afterCount==count);
+        struct beanSkin *body=NULL;
+        for(int i=0;i<s_nswap;i++)if(s_swap[i].skin)body=s_swap[i].skin;
+        struct beanSkinVert *after=malloc(afterCount*sizeof(*after));assert(after);
+        memcpy(after,body->verts,afterCount*sizeof(*after));
+        qsort(after,afterCount,sizeof(*after),influenceCompare);
+        for(int i=0;i<count;i++)assert(!influenceCompare(before+i,after+i));
+        assert(beanSkinMesh(body) && body->mesh->numIndices==(unsigned)count);
+        posedBodyCheck(header,body);
+        printf("COMBINED %d parts -> 1, %d identical weighted corners, %u material draws, 3 affine poses\n",parts,count,body->mesh->numRuns);
+        free(after);
+    } else assert(afterParts==parts && afterCount==count);
+    free(before);
+}
+
 int main(int argc, char **argv)
 {
 	assert(argc == 8);
@@ -435,6 +533,7 @@ int main(int argc, char **argv)
 		for (int t = 0; t < mesh->ntris; t++)
 			for (int k = 0; k < 3; k++) assert(mesh->tris[t].rgba[k * 4 + 3] == 255);
 	}
+	combinedBodyCheck(&header,mesh,kind,fitForName(argv[2]));
 	gevrBeanMeshFree(mesh);
 	gevrBeanReset();
 	free(native);

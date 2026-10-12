@@ -1234,7 +1234,7 @@ static int emitRigid(const struct gevrBeanMesh *mesh, int kind, int hasHead, Mod
 
 static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
                        const float R[GEVR_BEAN_SK_COUNT][9], float scale, const struct beanGrp *grp, int ng,
-                       const ModelFileHeader *header, int cuff, void **gdl, void **vtx)
+                       const ModelFileHeader *header, int cuff, int whole, void **gdl, void **vtx)
 {
 	int n = 0, cap = 0;
 	struct beanSkinVert *skin = calloc((size_t)mesh->ntris * 3, sizeof(*skin));
@@ -1254,7 +1254,7 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 	}
 	for (int i = 0; i < mesh->ntris; i++) {
 		const struct gevrBeanTri *t = &mesh->tris[i];
-		int use =
+		int use = whole ||
 		    t->sk == sk || (sk == GEVR_BEAN_SK_BASE && (t->sk == GEVR_BEAN_SK_POS || !mesh->haveBind[t->sk]));
 		if (!use || !triWanted(mesh, t, BEAN_CHR, hasHead) || !watchTriangleWanted(t, cuff)) {
 			continue;
@@ -1273,13 +1273,15 @@ static int emitSkinned(const struct gevrBeanMesh *mesh, int sk, int hasHead,
 				d[k] = (t->p[c * 3 + k] - mesh->bind[sk][k]) * scale;
 				nr[k] = t->n[c * 3 + k];
 			}
-			for (int w = 0; w < 4; w++) {
-				int bone = t->bone[c * 4 + w];
-				int bs = bone < mesh->nbones ? mesh->boneSk[bone] : sk;
+            int partSk=whole ? t->sk : sk;
+            if(partSk==GEVR_BEAN_SK_POS || !mesh->haveBind[partSk])partSk=GEVR_BEAN_SK_BASE;
+            for (int w = 0; w < 4; w++) {
+                int bone = t->bone[c * 4 + w];
+				int bs = bone < mesh->nbones ? mesh->boneSk[bone] : partSk;
 				if (bs == GEVR_BEAN_SK_POS)
 					bs = GEVR_BEAN_SK_BASE;
 				if (matrices[bs] < 0 || !mesh->haveBind[bs])
-					bs = sk;
+					bs = partSk;
 				skin[n + c].weight[w] = t->weight[c * 4 + w];
 				skin[n + c].matrix[w] = matrices[bs];
 				float local[3];
@@ -1734,8 +1736,28 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		if (found < 4) {
 			skinned = 0;
 		} else {
-			for (int i = 0; i < nd; i++) {
-				int g = dls[i].grp;
+            /* Diagnostic only. Native distance alternatives share the same HD
+             * geometry; real visibility switches still require separate limbs. */
+            int combined=0; void *combinedG=NULL,*combinedV=NULL;
+            FILE *batch=fopen("gevr_body_batch.txt","r"); int batchOn=0;
+            if(batch){fscanf(batch,"%d",&batchOn);fclose(batch);}
+            if(batchOn && !watchArm && nodeMatrix(header->RootNode)>=0) {
+                for(int i=0;i<nd;i++) {
+                    int g=dls[i].grp;
+                    if(g<0 || grp[g].sk<0 || dls[i].simple)continue;
+                    for(ModelNode *a=dls[i].node;a;a=a->Parent)
+                        if(nodeOp(a)==MODELNODE_OPCODE_SWITCH)batchOn=0;
+                }
+                if(batchOn && emitSkinned(mesh,GEVR_BEAN_SK_BASE,hasHead,R,scale,grp,ng,
+                                          header,-2,1,&combinedG,&combinedV)) {
+                    keepAlloc(combinedG);keepAlloc(combinedV);
+                    s_emittedSkin->anchor=nodeMatrix(header->RootNode);
+                    swapAdd(header->RootNode,NULL,combinedG,0);
+                    combined=1;
+                }
+            }
+            for (int i = 0; i < nd; i++) {
+                int g = dls[i].grp;
 				int sk = (g >= 0 && g < ng) ? grp[g].sk : -1;
 				int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
 				if (dls[i].simple) {
@@ -1749,11 +1771,15 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					}
 					continue;
 				}
-				if (watchArm) {
-					int cuff = cuffOf(header, dls[i].node, 4);
+                if(combined) {
+                    registerPrimary(dls[i].node,s_blank,1);
+                    continue;
+                }
+                if (watchArm) {
+                    int cuff = cuffOf(header, dls[i].node, 4);
 					void *watchG = NULL, *watchV = NULL;
 					if ((cuff < 0 && bareDrawn[sk]++) ||
-					    !emitSkinned(mesh, sk, hasHead, R, scale, grp, ng, header, cuff, &watchG, &watchV)) {
+					    !emitSkinned(mesh, sk, hasHead, R, scale, grp, ng, header, cuff, 0, &watchG, &watchV)) {
 						registerPrimary(dls[i].node, s_blank, 1);
 					} else {
 						keepAlloc(watchG);
@@ -1763,7 +1789,7 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					continue;
 				}
 				if (!sharedG[sk]) {
-					if (!emitSkinned(mesh, sk, hasHead, R, scale, grp, ng, header, -2, &sharedG[sk],
+					if (!emitSkinned(mesh, sk, hasHead, R, scale, grp, ng, header, -2, 0, &sharedG[sk],
 					                 &sharedV[sk])) {
 						registerPrimary(dls[i].node, s_blank, 1);
 						continue;

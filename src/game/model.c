@@ -5381,6 +5381,12 @@ void subdraw(ModelRenderData *mrData, Model *mdl)
     }
     #endif
     gSPSegment(mrData->gdl++, 3, osVirtualToPhysical(mdl->render_pos));
+#ifdef GEVR
+    if(mrData->unk18==0 && (mrData->flags&1)) {
+        Gfx *body=gevrBeanWholeModelGdl(mdl);
+        if(body)gSPDisplayList(mrData->gdl++,body);
+    }
+#endif
 
     while (root != NULL)
     {

@@ -65,6 +65,7 @@ int gevrBeanRoomFog(float line[2], uint8_t rgb[3]);
  * gameplay, including aiming and bullet collision. Disabled returns current. */
 void *gevrBeanShownGdl(void *node, void *current);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
+void *gevrBeanWholeModelGdl(struct Model *model);
 int gevrBeanShownModelType(void *node, int current);
 /* Self-contained replacement in a transparent-only native type-4 draw. */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags);

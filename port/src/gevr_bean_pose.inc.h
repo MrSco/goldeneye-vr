@@ -21,6 +21,16 @@ static int beanInverse3(const float a[9], float out[9])
 
 #include "gevr_bean_gpu.inc.h"
 
+/* A root registry entry is rendered once, before native limb/LOD traversal.
+ * Heads, hats and held weapons remain independent native model attachments. */
+void *gevrBeanWholeModelGdl(Model *model)
+{
+    if(!model || !model->obj)return NULL;
+    ModelNode *root=model->obj->RootNode;
+    struct beanSwap *swap=activeSwap(root);
+    return swap && swap->skin && !swap->original ? gevrBeanRenderGdl(root,NULL,model) : NULL;
+}
+
 void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 {
 	struct beanSwap *swap = activeSwap(node);
