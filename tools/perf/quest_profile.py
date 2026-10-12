@@ -264,6 +264,10 @@ def run(args, out):
             label = f'{args.label}-{repeat + 1}'
             put('gevr_warp.txt', str(args.pad))
             time.sleep(2)
+            # Capture the actual location and geometry before recording/warm-up.
+            # A pad number alone does not establish which reported scene is tested.
+            screenshot=subprocess.check_output(['adb','exec-out','screencap','-p'],timeout=30)
+            (folder / f'{label}.view.png').write_bytes(screenshot)
             put('gevr_profile.txt', f'record {label} {WARMUP} {MEASURE} {args.detail}')
             deadline = time.monotonic() + 5
             while time.monotonic() < deadline:

@@ -37,6 +37,7 @@ static FilteringMode current_filter_mode = FILTER_THREE_POINT;
     # and the maximum seven combiner inputs (vertex uniform pressure).
     main = '''int main(int argc, char **argv) {
     uint32_t options = std::stoul(argv[1]);
+    if(argc>3)s_buildMesh=false;
     generate(argc>2 ? std::stoull(argv[2],nullptr,16) : 0x107a1788107a1788ULL, options);
 }\n'''
     cpp = directory / "generate.cpp"
@@ -56,9 +57,10 @@ static FilteringMode current_filter_mode = FILTER_THREE_POINT;
                     vs = vs.replace("layout(num_views = 2) in;", "")
                     vs = vs.replace("gl_ViewID_OVR", "0u")
                     yield options, vs, (directory / "mesh.frag").read_text()
-    subprocess.run([str(exe),"17","d000dadc10000108"],cwd=directory,check=True)
-    vs=(directory/"mesh.vert").read_text().replace("#extension GL_OVR_multiview2 : require","").replace("layout(num_views = 2) in;","").replace("gl_ViewID_OVR","0u")
-    yield -1,vs,(directory/"mesh.frag").read_text()
+    for marker,options in [(-1,17),(-2,17|8192),(-3,17|8192),(-4,17)]:
+        subprocess.run([str(exe),str(options),"d000dadc01090108" if marker==-4 else "d000dadc10000108"]+(["cpu"] if marker==-3 else []),cwd=directory,check=True)
+        vs=(directory/"mesh.vert").read_text().replace("#extension GL_OVR_multiview2 : require","").replace("layout(num_views = 2) in;","").replace("gl_ViewID_OVR","0u")
+        yield marker,vs,(directory/"mesh.frag").read_text()
 
 
 class GLES:
@@ -72,7 +74,7 @@ class GLES:
         initialize = self.proc("eglInitialize", U, [P, P, P])
         assert initialize(self.display, None, None), "EGL initialize failed"
         assert self.proc("eglBindAPI", U, [U])(0x30A0)
-        attrs = (I * 9)(0x3033, 1, 0x3040, 0x40, 0x3024, 8, 0x3025, 8, 0x3038)
+        attrs = (I * 11)(0x3033, 1, 0x3040, 0x40, 0x3024, 8, 0x3025, 8, 0x3021, 8, 0x3038)
         config, count = P(), I()
         assert self.proc("eglChooseConfig", U, [P, P, P, I, P])(
             self.display, attrs, C.byref(config), 1, C.byref(count)) and count.value
@@ -340,7 +342,7 @@ def culling(gl, program, identity):
     print("GLES culling: back/front and inverted-target winding passed")
 
 
-def reflection_pixels(gl,program):
+def reflection_pixels(gl,program,coupled=False,cpu=False,soft=False):
     gl.call("glUseProgram",None,[U],program)
     gl.call("glDisable",None,[U],0x8C89)
     gl.call("glDisable",None,[U],0x0B44)
@@ -348,14 +350,17 @@ def reflection_pixels(gl,program):
     gl.call("glBindVertexArray",None,[U],vao)
     positions=(F*9)(-.5,-.5,0,.5,-.5,0,0,.5,0)
     gl.buffer(0x8892,C.sizeof(positions),positions)
-    gl.call("glEnableVertexAttribArray",None,[U],0)
-    gl.call("glVertexAttribPointer",None,[U,I,U,U,I,P],0,3,0x1406,0,12,None)
+    pos=gl.call("glGetAttribLocation",I,[U,C.c_char_p],program,b"aVtxPos" if cpu else b"aMeshPos")
+    gl.call("glEnableVertexAttribArray",None,[U],pos)
+    gl.call("glVertexAttribPointer",None,[U,I,U,U,I,P],pos,3,0x1406,0,12,None)
     identity=[1 if c==r else 0 for c in range(4) for r in range(4)]
     gl.uniform(program,"uMeshMP","m",identity);gl.uniform(program,"uMeshInSel[0]","m",identity)
     gl.uniform(program,"uVrFlat","i",1);gl.uniform(program,"uNormalTex1","i",1)
     gl.uniform(program,"uNormalAxis[0]","f",[1,0,0]);gl.uniform(program,"uNormalAxis[1]","f",[0,1,0])
-    gl.attribute(2,[.2,.4,.6,1]);gl.attribute(15,[0,0,1])
-    colors=[[102,128,153,255],[26,51,77,255]]
+    color=gl.call("glGetAttribLocation",I,[U,C.c_char_p],program,b"aInput1" if cpu else b"aMeshColor")
+    gl.attribute(color,[.2,.4,.6,.5 if soft else 1])
+    if not cpu:gl.attribute(15,[0,0,1])
+    colors=[[102,128,153,128 if soft else 255],[26,51,77,255]]
     for t,color in enumerate(colors):
         texture=U();gl.call("glGenTextures",None,[I,P],1,C.byref(texture))
         gl.call("glActiveTexture",None,[U],0x84C0+t)
@@ -372,10 +377,11 @@ def reflection_pixels(gl,program):
     expected=[]
     for c,tint in enumerate([.2,.4,.6]):
         lit=colors[0][c]/255*tint;r=colors[1][c]/255
+        if coupled:r *= colors[0][c]/255
         expected.append((lit*(1-r)+r)*255)
     assert all(abs(pixel[c]-expected[c])<2 for c in range(3)),(list(pixel),expected)
-    assert pixel[3]==255 and gl.call("glGetError",U,[])==0
-    print("GLES reflection pixels: diffuse*(1-R)+R on independent normal UVs passed")
+    assert abs(pixel[3]-(64 if soft else 255))<=1 and gl.call("glGetError",U,[])==0, (list(pixel),soft)
+    print("GLES reflection pixels: lit*(1-R)+R, " + ("R tinted by diffuse" if coupled else "independent R") + " passed")
 
 
 if __name__ == "__main__":
@@ -390,7 +396,7 @@ if __name__ == "__main__":
             count += 1
             if options == 3:
                 execution(gl, program)
-            if options == -1:
-                reflection_pixels(gl,program)
+            if options in (-1,-2,-3,-4):
+                reflection_pixels(gl,program,options in (-2,-3),options==-3,options==-4)
             gl.call("glDeleteProgram", None, [U], program)
-        print(f"{count} production mesh shader variants compiled and linked")
+        print(f"{count} production shader variants compiled and linked")

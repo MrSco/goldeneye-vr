@@ -203,6 +203,7 @@ static void fillVert(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 	e->rgba[2] = t->rgba[corner * 4 + 2];
 	e->rgba[3] = t->rgba[corner * 4 + 3];
 	e->reflection=t->reflection;
+    e->reflectionDiffuse=t->reflectionDiffuse;
 	e->tex = t->tex;
 	e->alpha = t->alpha;
 	e->cut = t->alphatest;

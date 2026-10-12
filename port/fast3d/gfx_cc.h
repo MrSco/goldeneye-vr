@@ -40,6 +40,7 @@ enum {
 #define SHADER_OPT_TEXEL1_CLAMP_S (1 << 10)
 #define SHADER_OPT_TEXEL1_CLAMP_T (1 << 11)
 #define SHADER_OPT_BLUR (1 << 12)
+#define SHADER_OPT_REFLECT_DIFFUSE (1 << 13)
 
 struct ColorCombinerKey {
     uint64_t combine_mode;
@@ -61,6 +62,7 @@ struct CCFeatures {
     bool opt_invisible;
     bool opt_grayscale;
     bool opt_blur;
+    bool opt_reflect_diffuse;
     bool used_textures[2];
     bool clamp[2][2];
     int num_inputs;

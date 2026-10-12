@@ -266,6 +266,15 @@ int main(int argc, char **argv)
             gevrBeanMeshFree(m);
         }
     }
+    {
+        struct gevrBeanMesh *m=load(argv[1],"prop/cctv");int coupled=0;
+        for(int i=0;i<m->ntris;i++)if(m->tris[i].reflectionDiffuse && m->tris[i].reflection) {
+            coupled++;bad |= m->tris[i].alpha!=255;
+        }
+        bad |= coupled==0;
+        printf("CCTV: %d diffuse-tinted normal-reflection faces, opaque c13 alpha\n",coupled);
+        gevrBeanMeshFree(m);
+    }
     puts(bad ? "FAIL" : "Bean material checks passed");
 	return bad;
 }
