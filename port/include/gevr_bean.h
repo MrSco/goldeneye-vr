@@ -66,6 +66,8 @@ int gevrBeanRoomFog(float line[2], uint8_t rgb[3]);
 void *gevrBeanShownGdl(void *node, void *current);
 void *gevrBeanRenderGdl(void *node, void *current, struct Model *model);
 void *gevrBeanWholeModelGdl(struct Model *model);
+struct ModelHitEntry;
+void *gevrBeanWholeJointGdl(struct ModelHitEntry *entry,struct ModelHitEntry *first);
 int gevrBeanShownModelType(void *node, int current);
 /* Self-contained replacement in a transparent-only native type-4 draw. */
 void *gevrBeanTransparentGdl(void *node, void *current, struct Model *model, int flags);

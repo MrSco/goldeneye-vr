@@ -352,7 +352,9 @@ int main(int argc, char **argv)
 		return 0;
 	}
 	s_want = s_available = 1;
+    FILE *legacy=fopen("gevr_body_batch.txt","w");assert(legacy);fputs("0",legacy);fclose(legacy);
 	applyMesh(&header, mesh, kind, fitForName(argv[2]));
+    remove("gevr_body_batch.txt");
 	int lists = 0, skin = 0;
 	for (int i = 0; i < s_nswap; i++) {
 		ModelNode *node = s_swap[i].node;

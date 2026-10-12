@@ -3,6 +3,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "objecthandler.h"
+#ifdef GEVR
+#include "gevr_bean.h"
+#endif
 #include "model.h"
 
 // bss
@@ -978,6 +981,10 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
         return_null();
     }
 
+#ifdef GEVR
+    ModelHitEntry *beanFirst=entry;
+#endif
+
     while (entry != NULL)
     {
         root = entry->rootnode;
@@ -1006,6 +1013,12 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
         {
             gdl = data->gdl++;
             gSPSegment(gdl, SPSEGMENT_MODEL_MTX, osVirtualToPhysical(entry->model->render_pos));
+#ifdef GEVR
+            if(data->flags&1) {
+                Gfx *body=gevrBeanWholeJointGdl(entry,beanFirst);
+                if(body)gSPDisplayList(data->gdl++,body);
+            }
+#endif
         }
 
         if (node != NULL)
@@ -1099,6 +1112,9 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
     Gfx *gdl;
     s32 opcode;
 
+#ifdef GEVR
+    ModelHitEntry *beanFirst=entry;
+#endif
     while (entry != NULL)
     {
         root = entry->rootnode;
@@ -1115,6 +1131,12 @@ void drawjointlist(ModelRenderData *data, ModelHitEntry *entry)
         {
             gdl = data->gdl++;
             gSPSegment(gdl, SPSEGMENT_MODEL_MTX, osVirtualToPhysical(entry->model->render_pos));
+#ifdef GEVR
+            if(data->flags&1) {
+                Gfx *body=gevrBeanWholeJointGdl(entry,beanFirst);
+                if(body)gSPDisplayList(data->gdl++,body);
+            }
+#endif
         }
 
         if (node != NULL)
