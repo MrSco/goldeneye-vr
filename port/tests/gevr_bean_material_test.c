@@ -219,6 +219,28 @@ int main(int argc, char **argv)
         printf("Frigate radar: clockwise 60 degrees/s around its centre\n");
         gevrBeanMeshFree(m);
     }
-	puts(bad ? "FAIL" : "Bean material checks passed");
+    {
+        struct gevrBeanMesh *m=load(argv[1],"prop/gastank");
+        int mapped=0,white=0;
+        for(int t=0;t<m->ntex;t++) if(m->reflection[t]) {
+            mapped++;
+            const uint8_t *p=NULL;int w=0,h=0;
+            bad |= !gevrBeanTexture(m->reflection[t],&p,&w,&h);
+            if(p) {
+                int lo=255,hi=0;
+                for(int i=0;i<w*h;i++) for(int c=0;c<3;c++) {
+                    if(p[i*4+c]<lo)lo=p[i*4+c];if(p[i*4+c]>hi)hi=p[i*4+c];
+                    bad |= p[i*4+c]>143;
+                }
+                bad |= hi-lo<20;
+            }
+            for(int i=0;i<m->ntris;i++) if(m->tris[i].tex==t)
+                for(int k=0;k<3;k++) white |= m->tris[i].rgba[k*4]==255;
+        }
+        bad |= mapped==0 || !white;
+        printf("Gas tank: %d normal-dependent spot/land maps; diffuse retains c13 white\n",mapped);
+        gevrBeanMeshFree(m);
+    }
+    puts(bad ? "FAIL" : "Bean material checks passed");
 	return bad;
 }

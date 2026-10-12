@@ -61,7 +61,6 @@ static struct beanSkin *s_emittedSkin;
 
 static ModelFileHeader *s_registrationOwner;
 static int s_registrationWatchArm;
-static int s_registrationGun;
 static GevrStaticMesh *s_rigidMeshes[MAX_ALLOC];
 static int s_nrigidMeshes;
 struct beanSwap {
@@ -335,6 +334,8 @@ static int triCmp(const void *a, const void *b)
 	int ka = vertKey(&s_sortVerts[ia * 3]);
 	int kb = vertKey(&s_sortVerts[ib * 3]);
     if (ka != kb) return (ka > kb) - (ka < kb);
+    uintptr_t ra=(uintptr_t)s_sortVerts[ia*3].reflection,rb=(uintptr_t)s_sortVerts[ib*3].reflection;
+    if(ra!=rb)return (ra>rb)-(ra<rb);
     if (s_sortSpatial && s_sortSpatial[ia] != s_sortSpatial[ib])
         return (s_sortSpatial[ia] > s_sortSpatial[ib]) - (s_sortSpatial[ia] < s_sortSpatial[ib]);
     return ia - ib;
@@ -380,6 +381,8 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	Vtx *vtx, *vp;
 	int vi = 0;
     GevrWorldVertex *world = NULL;
+    int worldFormat=mesh && mesh->worldVertices;
+    if(mesh && !lit && !s_emitSkin) for(int i=0;i<mesh->ntex;i++) worldFormat |= mesh->reflection[i]!=NULL;
 	if (!mesh || !v || nverts < 3 || !gdlOut || !vtxOut) {
 		return 0;
 	}
@@ -393,15 +396,15 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 			return 0;
 		}
 	}
-    if (mesh->worldVertices && (lit || s_emitSkin)) return 0;
+    if (worldFormat && (lit || s_emitSkin)) return 0;
     ntri = nverts / 3;
     order = malloc((size_t)ntri * sizeof(int));
 	/* One texture group can be a single triangle, and gDPLoadTextureBlock writes several commands. */
 	cmdcap = 64 + ntri * 32;
 	gdl = malloc((size_t)cmdcap * sizeof(Gfx));
-    vtx = malloc((size_t)nverts * (mesh->worldVertices ? sizeof(GevrWorldVertex) :
+    vtx = malloc((size_t)nverts * (worldFormat ? sizeof(GevrWorldVertex) :
                  sizeof(Vtx) + (lit && !skin ? sizeof(GevrVertexTint) : 0)));
-    if (mesh->worldVertices) world = (GevrWorldVertex *)vtx;
+    if (worldFormat) world = (GevrWorldVertex *)vtx;
 	if (!order || !gdl || !vtx) {
 		if (skin) {
 			free(skin->verts);
@@ -469,7 +472,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		int tex = base->tex;
 		int logicalW = 32, logicalH = 32;
 		int maskS, maskT;
-		while (end < ntri && vertKey(&v[order[end] * 3]) == key) {
+		while (end < ntri && vertKey(&v[order[end] * 3]) == key && v[order[end]*3].reflection==base->reflection) {
 			end++;
 		}
 		if (tex >= 0 && tex < mesh->ntex && mesh->standin[tex]) {
@@ -545,7 +548,15 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 				gDPSetCombineMode(g++, G_CC_MODULATEI, G_CC_PASS2);
 			}
 		}
-		while (batch < end) {
+        int reflect=tex>=0 && base->reflection && base->alpha==255 && !base->cut;
+        g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=reflect;
+        if(reflect) {
+            gDPLoadMultiBlock(g++,base->reflection,256,1,G_IM_FMT_RGBA,G_IM_SIZ_16b,
+                             16,16,0,G_TX_CLAMP,G_TX_CLAMP,4,4,G_TX_NOLOD,G_TX_NOLOD);
+            gDPSetCombineLERP(g++,TEXEL0,0,SHADE,0,0,0,0,SHADE,
+                             1,COMBINED,TEXEL1,COMBINED,0,0,0,COMBINED);
+        }
+        while (batch < end) {
 			int take = end - batch;
 			if (take > 5) {
 				take = 5;
@@ -585,6 +596,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 					}
                     if (world) {
                         memcpy(world[vi].p,src->p,sizeof(world[vi].p));
+                        memcpy(world[vi].normal,src->n,sizeof(world[vi].normal));
                         memcpy(world[vi].tc,dst->v.tc,sizeof(world[vi].tc));
                         memcpy(world[vi].rgba,dst->v.cn,4);
                     }
@@ -625,6 +637,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 		}
 	}
     if (!mesh->roomMaterial) gSPClearGeometryMode(g++, G_FOG);
+    g->words.w0=(uintptr_t)G_GEVR_NORMAL_TEX1<<24; g++->words.w1=0;
     g->words.w0 = G_GEVR_VERTEX_TINT << 24; g++->words.w1 = 0;
 	gSPEndDisplayList(g);
 	free(order);
@@ -724,15 +737,29 @@ static int gunFlashNode(const ModelFileHeader *header, const ModelNode *node)
     return 0;
 }
 
+static int retainedRigidList(const Gfx *gdl)
+{
+    uint32_t geometry=0;
+    for(int i=0;i<128;i++) {
+        unsigned op=(gdl[i].words.w0>>24)&255;
+        if(op==(G_SETGEOMETRYMODE&255))geometry|=gdl[i].words.w1;
+        if(op==(G_CLEARGEOMETRYMODE&255))geometry&=~gdl[i].words.w1;
+        if(op==(G_VTX&255) || op==G_GEVR_WORLD_VTX)
+            return !(geometry&(G_LIGHTING|G_TEXTURE_GEN));
+        if(op==(G_ENDDL&255) || op==(G_DL&255))return 0;
+    }
+    return 0;
+}
+
 static void registerPrimary(ModelNode *n, Gfx *gdl, int blankType)
 {
 	int op = nodeOp(n);
 	Gfx *old = NULL;
 	int oldType = 0;
 	if (gdl && gdl != s_blank) {
-        /* Rigid gun/glove runs keep their material commands and CPU fallback,
-         * just as rooms do. Their vertex buffers live until the level reset. */
-        if (s_registrationGun && !s_emittedSkin && s_nrigidMeshes < MAX_ALLOC) {
+        /* Rigid props, guns and gloves retain their material commands and CPU
+         * fallback. Their vertex buffers live until the level reset. */
+        if (!s_emittedSkin && s_nrigidMeshes < MAX_ALLOC && retainedRigidList(gdl)) {
             GevrStaticMesh *mesh = gevrStaticMeshBuild(gdl);
             Gfx *gpu = mesh ? malloc(2 * sizeof(Gfx)) : NULL;
             if (gpu && keepAlloc(gpu)) {
@@ -902,6 +929,7 @@ static void fillEmit(const struct gevrBeanTri *t, int texCut, struct gevrEmitVer
 	e->rgba[1] = t->rgba[corner * 4 + 1];
 	e->rgba[2] = t->rgba[corner * 4 + 2];
 	e->rgba[3] = t->rgba[corner * 4 + 3];
+	e->reflection=t->reflection;
 	e->tex = t->tex;
 	e->alpha = t->alpha;
 	e->cut = (uint8_t)(t->alphatest || (t->tex >= 0 && texCut));
@@ -1547,7 +1575,6 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 		return;
 	}
 	s_registrationOwner = header;
-	s_registrationGun = kind == BEAN_GUN;
 	s_registrationWatchArm = kind == BEAN_CHR && mesh->ntex == 12 && header->numSwitches == 10;
 	stack = calloc(MAX_WALK, sizeof(*stack));
 	seen = calloc(MAX_WALK, sizeof(*seen));

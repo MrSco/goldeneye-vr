@@ -71,15 +71,15 @@ static int swapVerts(const struct beanSwap *s, float (**out)[3])
 	restOf(s->node, rest);
 	*out = NULL;
 	for (int c = 0; (body[c].words.w0 >> 24) != (G_ENDDL & 255); c++) {
-		if ((body[c].words.w0 >> 24) != (G_VTX & 255))
-			continue;
+        unsigned op=body[c].words.w0>>24;
+        if (op!=(G_VTX&255) && op!=G_GEVR_WORLD_VTX) continue;
 		const Vtx *v = (const Vtx *)(uintptr_t)body[c].words.w1;
-		int count = (int)((body[c].words.w0 & 0xffff) / sizeof(Vtx));
+		int count = (int)((body[c].words.w0 & 0xffff) / (op==G_GEVR_WORLD_VTX ? sizeof(GevrWorldVertex) : sizeof(Vtx)));
 		*out = realloc(*out, (size_t)(n + count) * sizeof(**out));
 		assert(*out);
 		for (int j = 0; j < count; j++, n++)
 			for (int k = 0; k < 3; k++)
-				(*out)[n][k] = v[j].v.ob[k] + rest[k];
+				(*out)[n][k] = (op==G_GEVR_WORLD_VTX ? ((const GevrWorldVertex *)v)[j].p[k] : v[j].v.ob[k]) + rest[k];
 	}
 	return n;
 }

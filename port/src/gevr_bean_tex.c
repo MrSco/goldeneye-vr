@@ -671,6 +671,39 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 	return slot->standin;
 }
 
+/* Shared prop maps: screen the diffuse by c12 * spot * landscape.
+ * Keep the two authored maps at their decoded resolution in one immutable map;
+ * normal-derived coordinates remain a per-view renderer operation. */
+const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t amount[3],const char *key)
+{
+    for (int i=0;i<s_ntex;i++) if (!strcmp(s_tex[i].key,key)) return s_tex[i].standin;
+    int si=texFind(spot),li=texFind(land);
+    if (si<0 || li<0 || s_ntex>=TEX_SLOTS) return NULL;
+    const struct texSlot *s=s_tex+si,*l=s_tex+li;
+    int w=s->w,h=s->h;
+    uint8_t *rgba=malloc((size_t)w*h*4),*standin=calloc(16*16,2);
+    if (!rgba || !standin) {free(rgba);free(standin);return NULL;}
+    for (int y=0;y<h;y++) for (int x=0;x<w;x++) {
+        float lx=(x+.5f)*l->w/w-.5f,ly=(y+.5f)*l->h/h-.5f;
+        int x0=(int)floorf(lx),y0=(int)floorf(ly); float fx=lx-x0,fy=ly-y0;
+        int x1=x0+1,y1=y0+1;
+        if(x0<0)x0=0;if(y0<0)y0=0;if(x1>=l->w)x1=l->w-1;if(y1>=l->h)y1=l->h-1;
+        uint8_t *out=rgba+((size_t)y*w+x)*4;
+        const uint8_t *sp=s->rgba+((size_t)y*w+x)*4;
+        for(int c=0;c<3;c++) {
+            float top=l->rgba[((size_t)y0*l->w+x0)*4+c]*(1-fx)+l->rgba[((size_t)y0*l->w+x1)*4+c]*fx;
+            float bot=l->rgba[((size_t)y1*l->w+x0)*4+c]*(1-fx)+l->rgba[((size_t)y1*l->w+x1)*4+c]*fx;
+            float v=(top*(1-fy)+bot*fy)*sp[c]*amount[c]/(255.0f*255.0f);
+            out[c]=(uint8_t)(v+.5f);
+        }
+        out[3]=255;
+    }
+    struct texSlot *slot=s_tex+s_ntex++;
+    memset(slot,0,sizeof(*slot));snprintf(slot->key,sizeof(slot->key),"%s",key);
+    slot->rgba=rgba;slot->standin=standin;slot->w=w;slot->h=h;
+    texIndexAdd((int)(slot-s_tex));return standin;
+}
+
 void gevrBeanTexMotionSet(const void *addr, float s, float t, float degrees, float spf,
                           const struct gevrCaff *c, int fileIndex)
 {

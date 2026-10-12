@@ -22,6 +22,7 @@
 struct beanDraw {
 	uint32_t vb, tex, prim, count, ib, vs, masktex, matpc;
 	uint8_t maskslot;
+    uint32_t reflectSpot,reflectLand; uint8_t reflectAmount[3];
 	int16_t inst;
 	uint8_t blend, alpha, alphatest, terrainBlend;
 	uint8_t pal[GEVR_BEAN_MAXPAL];
@@ -276,6 +277,17 @@ static int reflectionTex(const struct gevrCaff *c, const int *texfile, int ntex,
 		if (!strcmp(name, names[i]))
 			return 1;
 	return 0;
+}
+
+static int sphereTex(const struct gevrCaff *c,const int *texfile,int ntex,uint32_t t)
+{
+    if(t>=(uint32_t)ntex)return 0;
+    const char *name=gevrCaffAssetName(c,c->files[texfile[t]].asset);
+    if(!name)return 0;
+    if(!strcmp(name,"_0x0E1C2BF5.tga.bin") || !strcmp(name,"_0x081346B5.tga.bin") ||
+       !strcmp(name,"_0x0B9D6195.tga.bin"))return 1;
+    if(!strcmp(name,"_0x0C2BCE25.tga.bin") || !strcmp(name,"_0x018248E5.tga.bin"))return 2;
+    return 0;
 }
 
 static uint32_t materialTex(const struct gevrCaff *c, const uint8_t *st, uint32_t pc, uint32_t size,
@@ -1328,6 +1340,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	int triggerCuffs;
 	uint32_t end, pc, vb = 0, tex = 0, matpc = 0, vs = 0, masktex = ~0u;
 	uint8_t maskslot = 0;
+    uint32_t reflectSpot=~0u,reflectLand=~0u; int reflectForm=0;
+    uint8_t reflectAmount[3]={0};
 	uint8_t pal[GEVR_BEAN_MAXPAL];
 	uint16_t remap[GEVR_BEAN_MAXPAL];
 	int numremap = 0;
@@ -1551,22 +1565,38 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 			matpc = pc;
             masktex = ~0u;
             maskslot = 0;
+            reflectSpot=reflectLand=~0u; reflectForm=0;
+            memset(reflectAmount,0,sizeof(reflectAmount));
+            int spotSlot=-1,landSlot=-1,pictureSlot=-1;
             for (uint32_t k = 0; 12 + 8*k + 8 <= sz && fits(pc+12+8*k, 8, slen); k++) {
                 uint32_t other = be32(stream+pc+12+8*k);
+                int slot=be32(stream+pc+16+8*k)>>16;
+                int sphere=sphereTex(&caff,texfile,ntex,other);
+                if(sphere==1){reflectSpot=other;spotSlot=slot;}
+                else if(sphere==2){reflectLand=other;landSlot=slot;}
+                else if(other==tex)pictureSlot=slot;
                 if (other != tex && other < (uint32_t)ntex && masktex == ~0u) {
                     masktex = other;
                     maskslot = be32(stream+pc+16+8*k) >> 16;
                 }
             }
+			reflectForm=spotSlot==0 && landSlot==1 && pictureSlot==2;
 			alpha = 0xff;
 			colour = 0xffffffu;
 		} else if (type == 0x06 && sz >= 28 && be32(stream + pc + 4) == 0 &&
 		           (be32(stream + pc + 8) >> 16) == 0x0c) {
-			float a = bef(stream + pc + 24);
+            const int twoConstants=reflectForm && sz>=44 && (be32(stream+pc+8)&0xffff)==2;
+            if(twoConstants) for(int k=0;k<3;k++) {
+                float v=bef(stream+pc+12+k*4);
+                reflectAmount[k]=v>=1 ? 255 : v<=0 ? 0 : (uint8_t)(v*255+.5f);
+            }
+            /* c12 controls reflection on this shape; c13 tints its diffuse. */
+            uint32_t colourOffset=twoConstants ? 28 : 12;
+            float a = bef(stream + pc + (twoConstants ? 40 : 24));
 			alpha = a >= 1.0f ? 0xff : a <= 0.0f ? 0 : (uint8_t)(a * 255.0f + 0.5f);
 			colour = 0;
 			for (int k = 0; k < 3; k++) {
-				float cv = bef(stream + pc + 12 + k * 4);
+				float cv = bef(stream + pc + colourOffset + k * 4);
 				uint32_t byte = cv >= 1.0f ? 255 : cv <= 0.0f ? 0 : (uint32_t)(cv * 255.0f + 0.5f);
 				colour = (colour << 8) | byte;
 			}
@@ -1608,6 +1638,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 				d->vs = vs;
 				d->vb = vb;
 				d->tex = tex;
+                d->reflectSpot=reflectForm ? reflectSpot : ~0u;
+                d->reflectLand=reflectForm ? reflectLand : ~0u;
+                memcpy(d->reflectAmount,reflectAmount,3);
                 d->masktex = masktex;
                 d->maskslot = maskslot;
                 d->matpc = matpc;
@@ -1698,7 +1731,8 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	}
 	mesh->uvscale = uvscale;
 	mesh->triggerCuffs = triggerCuffs;
-	mesh->nativeChrome = strstr(source, "/prop/nintendologo/") != NULL;
+	mesh->nativeChrome = strstr(source, "/prop/nintendologo/") != NULL ||
+                        strstr(source, "\\prop\\nintendologo\\") != NULL;
     mesh->watchArm = !original && ntex == 12 && strstr(source, "suitlfhand") != NULL;
 	mesh->nbones = numbones;
 	for (int i = 0; i < numbones; i++) {
@@ -1742,7 +1776,14 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		struct gevrBeanTriIn in;
 		uint32_t *tris = NULL;
 		int ntris;
-		uint32_t cr = d->colour;
+        const void *drawReflection=NULL;
+        if(d->tex<(uint32_t)mesh->ntex && d->reflectSpot<(uint32_t)mesh->ntex &&
+           d->reflectLand<(uint32_t)mesh->ntex && (d->reflectAmount[0]|d->reflectAmount[1]|d->reflectAmount[2])) {
+            snprintf(key,sizeof(key),"%s#reflection-%x",source,d->matpc);
+            drawReflection=mesh->reflection[d->tex]=gevrBeanTexReflect(mesh->standin[d->reflectSpot],
+                mesh->standin[d->reflectLand],d->reflectAmount,key);
+        }
+        uint32_t cr = d->colour;
 		if (!readVb(data, dlen, gpu, glen, d->vb, uv20, &vbrec)) {
 			continue;
 		}
@@ -1832,6 +1873,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 						d->pal, d->numpal, boneSk, muzzle, slideb)) {
 					break;
 				}
+				mesh->tris[mesh->ntris - 1].reflection=texi==(int)d->tex ? drawReflection : NULL;
 				mesh->tris[mesh->ntris - 1].cuff = d->cuff;
 				notePass(&triPass, &passCap, mesh->ntris - 1, d->blend ? LDECAL_PASS_BLEND : 0);
                 if (blendpic || decalpic) {

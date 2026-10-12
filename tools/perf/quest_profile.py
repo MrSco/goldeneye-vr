@@ -336,7 +336,7 @@ if __name__ == '__main__':
     parser.add_argument('--label', default='baseline120')
     parser.add_argument('--hz', type=int, choices=[90, 120], default=120)
     parser.add_argument('--pad', type=int, default=0)
-    parser.add_argument('--room-draws',type=int,choices=[0,1],default=1)
+    parser.add_argument('--room-draws',type=int,choices=[0,1],default=0,help='1 enables experimental opaque world batching')
     parser.add_argument('--runs', type=int, default=3)
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)

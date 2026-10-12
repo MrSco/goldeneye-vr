@@ -72,6 +72,13 @@ main += '''
  p.skinned=true; gevr_mesh_uniforms(&a,&p); assert(uploads==4);
  p.num_lights=0; gevr_mesh_uniforms(&a,&p); int light=calls[a.meshLightDirLocation];
  p.num_lights=1; gevr_mesh_uniforms(&a,&p); assert(calls[a.meshLightDirLocation]==light+1);
+ p.normal_tex1=true; p.normal_axis[0][0]=.75f; gevr_mesh_uniforms(&a,&p);
+ int axis=calls[a.meshNormalAxisLocation];
+ gevr_mesh_uniforms(&a,&p); assert(calls[a.meshNormalAxisLocation]==axis);
+ p.normal_tex1=false;gevr_mesh_uniforms(&a,&p);
+ p.normal_tex1=true;gevr_mesh_uniforms(&a,&p);assert(calls[a.meshNormalAxisLocation]==axis+1);
+ GfxMeshDrawParams surface=p; p.normal_axis[0][0]=0;gevr_mesh_uniforms(&a,&p);
+ gevr_mesh_uniforms(&a,&surface);assert(calls[a.meshNormalAxisLocation]==axis+3);
  // Context/program destruction invalidates caches even with identical data.
  s_skinPaletteBuffer=0; s_skinPaletteUploaded=false; s_meshDrawUniforms.clear();
  int before=uniforms; gevr_mesh_uniforms(&a,&p);

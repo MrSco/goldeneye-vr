@@ -17,11 +17,13 @@
  */
 #define G_GEVR_MESH 0x6F
 #define G_GEVR_WORLD_VTX 0x6A
+#define G_GEVR_NORMAL_TEX1 0x69
 /* HD room coordinates retain sub-unit decal separation and large extents. */
 typedef struct GevrWorldVertex {
     float p[3];
     int16_t tc[2];
     uint8_t rgba[4];
+    float normal[3];
 } GevrWorldVertex;
 
 typedef struct GevrStaticMeshRun {
