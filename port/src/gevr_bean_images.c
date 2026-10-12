@@ -138,6 +138,7 @@ static const struct imagerow imageRows[] = {
 	{ 2168, "bulletholes/windowhit", WHOLE },
 	{ 2169, "bulletholes/bullethit", WHOLE },
 	{ 2170, "bulletholes/wallhit", WHOLE },
+	{ 2171, "bulletholes/bullethole", WHOLE },   /* DAB geimpact.c GE_IMAGE_IMPACT4 */
 	{ 206, "bulletholes/bulletholesplaster", WHOLE },
 	{ 2172, "bulletholes/bulletholesplasterrgb", WHOLE },
 	{ 1475, "bulletholes/wallhole1", WHOLE },
