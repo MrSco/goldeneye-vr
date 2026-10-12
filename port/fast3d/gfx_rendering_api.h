@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "gevr_skin_mesh.h"
 
 struct ShaderProgram;
 
@@ -26,6 +27,13 @@ struct GfxMeshDrawParams {
     float in_sel[GFX_MESH_MAX_INPUTS][16];   // per combiner input: which colour bytes (column-major)
     float in_const[GFX_MESH_MAX_INPUTS][4];  // ... plus what does not come from the vertex
     int num_inputs;
+    bool skinned, lit;
+    int cull, num_lights;
+    float ambient[3], light_dir[7][3], light_color[7][3];
+    float fog[4];       // RGB and constant factor when G_FOG is clear
+    float fog_mul, fog_offset;
+    bool fog_enabled;
+    GevrSkinPalette palette; // copied into redraw records, never a frame-arena pointer
 };
 
 struct GfxRenderingAPI {

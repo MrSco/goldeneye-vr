@@ -19,6 +19,8 @@ static int beanInverse3(const float a[9], float out[9])
 	return 1;
 }
 
+#include "gevr_bean_gpu.inc.h"
+
 void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 {
 	struct beanSwap *swap = activeSwap(node);
@@ -55,6 +57,9 @@ void *gevrBeanRenderGdl(void *node, void *current, Model *model)
 			linear[i * 3 + j] = anchor[j][i];
 	if (!beanInverse3(linear, inverse))
 		return current;
+	Gfx *gpu = beanSkinGpuDraw(skin, model, anchorIndex, backIndex, neck, inverse);
+	if (gpu)
+		return gpu;
 	Vtx *vertices = beanFrameAllocate((size_t)skin->nverts * sizeof(Vtx));
 	Gfx *commands = beanFrameAllocate((size_t)(skin->ncommands + 3) * sizeof(Gfx));
 	if (!vertices || !commands)

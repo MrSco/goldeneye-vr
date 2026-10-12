@@ -4152,7 +4152,8 @@ static void gevr_capture_rdp_state(unsigned target, bool begin) {
  * A mesh's buffers are made when first drawn and given back between frames;
  * while Bean is off nothing draws them, so they go until it is on again.
  */
-static bool s_gevrMeshOn = true;
+static bool s_gevrMeshOn = true, s_gevrSkinOn = true;
+static uint32_t s_gevrSkinDraws, s_gevrSkinTris, s_gevrSkinPoses;
 static std::vector<GevrStaticMesh*> s_gevrMeshLive;
 static std::vector<void*> s_gevrMeshDead;
 static uint32_t s_gevrMeshDraws, s_gevrMeshTris, s_gevrMeshFallbacks;   // logged with the gfx: line
@@ -4177,6 +4178,13 @@ static void gevr_mesh_frame(void) {
         const bool on = f == nullptr;
         if (f != nullptr) {
             fclose(f);
+        }
+        FILE* skin = fopen("/sdcard/Android/data/com.gevr.port/files/gevr_noskin.txt", "r");
+        const bool skinOn = skin == nullptr;
+        if (skin) fclose(skin);
+        if (skinOn != s_gevrSkinOn) {
+            s_gevrSkinOn = skinOn;
+            sysLogPrintf(LOG_NOTE, "mesh: GPU skinning %s", skinOn ? "on" : "off (gevr_noskin.txt)");
         }
         if (on != s_gevrMeshOn) {
             s_gevrMeshOn = on;
@@ -4327,13 +4335,15 @@ static bool gevr_mesh_params(struct GfxMeshDrawParams* p) {
  * slots, w = 1: inside, never hidden, not presented), so textures, the
  * combiner, depth, viewport and blending are exactly what the run would get.
  */
-static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run) {
-    if (!s_gevrMeshOn || gfx_rapi->draw_mesh == nullptr || run->indexCount == 0) {
+static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, GevrSkinDraw* skin) {
+    if (!s_gevrMeshOn || (skin && !s_gevrSkinOn) || gfx_rapi->draw_mesh == nullptr || run->indexCount == 0) {
         return false;
     }
-    // gfx_sp_vertex as the shader does it: unlit, no colour table, no aspect
-    // correction (VR), not hidden; nothing culled, as gfx_sp_tri1 would cull
-    if ((rsp.geometry_mode & (G_LIGHTING | G_CULL_BOTH)) || rsp.vertex_colors != nullptr ||
+    // Rooms remain unlit. Skins supply fitted influences, lights and culling;
+    // colour tables, generated UVs and first-person overrides use the CPU.
+    if ((!skin && (rsp.geometry_mode & (G_LIGHTING | G_CULL_BOTH))) ||
+        (rsp.geometry_mode & G_TEXTURE_GEN) ||
+        (rsp.geometry_mode & G_CULL_BOTH) == G_CULL_BOTH || rsp.vertex_colors != nullptr ||
         rsp.modelview_hidden_stack[rsp.modelview_matrix_stack_size - 1] || gevrCullOff || gevrCullMirror ||
         !(fbActive || vr_is_initialized())) {
         s_gevrMeshFallbacks++;
@@ -4348,15 +4358,43 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run) 
     }
     s_gevrMeshState.ok = false;
     s_gevrMeshProbe = true;
+    const uint32_t geometry = rsp.geometry_mode;
+    rsp.geometry_mode &= ~G_CULL_BOTH; // the probe establishes state; GL culls real vertices
     gfx_sp_tri1(MAX_VERTICES, MAX_VERTICES + 1, MAX_VERTICES + 2, false);
     s_gevrMeshProbe = false;
+    rsp.geometry_mode = geometry;
     --gevr_perf_tri_calls;
     struct GfxMeshDrawParams params;
-    if (!s_gevrMeshState.ok || s_gevrMeshState.use_fog || s_gevrMeshState.use_grayscale ||
+    if (!s_gevrMeshState.ok || (!skin && s_gevrMeshState.use_fog) || s_gevrMeshState.use_grayscale ||
         s_gevrMeshState.num_inputs > GFX_MESH_MAX_INPUTS || s_gevrMeshState.clip.z_is_from_0_to_1 ||
         !gevr_mesh_params(&params)) {
         s_gevrMeshFallbacks++;
         return false;
+    }
+    if (skin) {
+        params.skinned = true;
+        params.palette = skin->palette;
+        params.cull = (geometry & G_CULL_BACK) ? 1 : (geometry & G_CULL_FRONT) ? 2 : 0;
+        // The MP uniform negates y on an inverted target, reversing winding.
+        if (params.cull && s_gevrMeshState.clip.invert_y) params.cull = -params.cull;
+        params.lit = (geometry & G_LIGHTING) != 0;
+        if (params.lit) {
+            if (rsp.current_num_lights < 1 || rsp.current_num_lights > MAX_LIGHTS + 1) return false;
+            params.num_lights = rsp.current_num_lights - 1;
+            for (int k = 0; k < 3; k++)
+                params.ambient[k] = rsp.current_lights[params.num_lights].col[k];
+            for (int i = 0; i < params.num_lights; i++) {
+                calculate_normal_dir(&rsp.current_lights[i], params.light_dir[i]);
+                for (int k = 0; k < 3; k++) params.light_color[i][k] = rsp.current_lights[i].col[k];
+            }
+        }
+        params.fog[0] = rdp.fog_color.r / 255.0f;
+        params.fog[1] = rdp.fog_color.g / 255.0f;
+        params.fog[2] = rdp.fog_color.b / 255.0f;
+        params.fog[3] = rdp.fog_color.a / 255.0f;
+        params.fog_enabled = (geometry & G_FOG) != 0;
+        params.fog_mul = rsp.fog_mul;
+        params.fog_offset = rsp.fog_offset;
     }
     gfx_flush();   // what came before draws first
     const bool made = m->gpu == nullptr;
@@ -4377,6 +4415,7 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run) 
     }
     s_gevrMeshDraws++;
     s_gevrMeshTris += tris;
+    if (skin) { s_gevrSkinDraws++; s_gevrSkinTris += tris; }
     return true;
 }
 
@@ -4391,6 +4430,7 @@ static void gfx_run_dl(Gfx* cmd) {
     uint64_t ourHash = -1;
     GevrStaticMesh* mesh = nullptr;   // G_GEVR_MESH: the runs this list draws from buffers
     uint32_t meshRun = 0;
+    GevrSkinDraw* skin = nullptr;
 
     for (;;) {
         uint32_t opcode = cmd->words.w0 >> 24;
@@ -4568,19 +4608,39 @@ static void gfx_run_dl(Gfx* cmd) {
                 memset(s_gevrPresentedFresh, 0, sizeof(s_gevrPresentedFresh));   // pre-projected: none presented
                 gfx_sp_sky_vertex(C0(0, 8), (const GevrSkyVertex*)seg_addr(cmd->words.w1));
                 break;
+            case G_GEVR_SKIN:
+                skin = (GevrSkinDraw*)cmd->words.w1;
+                mesh = skin->mesh;
+                meshRun = 0;
+                break;
             case G_GEVR_MESH:
+                skin = nullptr;
                 mesh = (GevrStaticMesh*)cmd->words.w1;
                 meshRun = 0;
                 break;
             case G_VTX: {
+                const GevrStaticMeshRun* fallbackRun = nullptr;
                 if (mesh != nullptr && meshRun < mesh->numRuns && mesh->runs[meshRun].start == (const void*)cmd) {
                     const GevrStaticMeshRun* run = &mesh->runs[meshRun++];
-                    if (gevr_mesh_draw_run(mesh, run)) {
+                    fallbackRun = run;
+                    if (gevr_mesh_draw_run(mesh, run, skin)) {
                         cmd = (Gfx*)run->end - 1;   // past the run (++cmd below)
                         break;
                     }
                 }
-                const uintptr_t vtxp = (uintptr_t)seg_addr(cmd->words.w1);
+                uintptr_t vtxp = (uintptr_t)seg_addr(cmd->words.w1);
+                if (skin) {
+                    const uintptr_t offset = vtxp - (uintptr_t)skin->bindVertices;
+                    if (!skin->posedVertices) s_gevrSkinPoses++;
+                    const void* posed = skin->pose(skin);
+                    if (!posed || offset >= (uintptr_t)mesh->numVertices * sizeof(Vtx)) {
+                        // Do not leave TRI1 reading slots from the previous draw
+                        // when the fallback arena is full.
+                        if (fallbackRun) cmd = (Gfx*)fallbackRun->end - 1;
+                        break;
+                    }
+                    vtxp = (uintptr_t)posed + offset;
+                }
                 if (vtxp < 0x10000) {
                     /* PORT probe: a vertex load through an unresolved address; log the list and skip it */
                     static int sBadVtxLogged = 0;
@@ -5266,6 +5326,9 @@ extern "C" void gfx_run(Gfx* commands) {
                     vr_log("gfx: %u frames, %u tris, %u flushes, cimg %p", sFrames, sTris, sFlushes, rdp.color_image_address);
                     vr_log("mesh: %u draws, %u tris, %u runs on the CPU, %u meshes in buffers%s", s_gevrMeshDraws,
                            s_gevrMeshTris, s_gevrMeshFallbacks, (unsigned)s_gevrMeshLive.size(), s_gevrMeshOn ? "" : " (off)");
+                    vr_log("skin: %u draws, %u tris on GPU, %u CPU poses%s", s_gevrSkinDraws,
+                           s_gevrSkinTris, s_gevrSkinPoses, s_gevrSkinOn ? "" : " (gevr_noskin.txt)");
+                    s_gevrSkinDraws = s_gevrSkinTris = s_gevrSkinPoses = 0;
                     s_gevrMeshDraws = s_gevrMeshTris = s_gevrMeshFallbacks = 0;
                     if (gevrFrameTimingTracing()) {
                         static const char *names[GEVR_FLUSH_CAUSES] = {"other", "texture", "texture_new", "combiner",
