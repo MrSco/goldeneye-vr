@@ -269,6 +269,8 @@ int main(int argc, char **argv)
                 reflected++;const uint8_t *pixels=NULL;int w=0,h=0;
                 gevrBeanTexture(m->standin[m->tris[i].tex],&pixels,&w,&h);
                 soft+=m->tris[i].alpha<255 || (pixels && pixels[3]<255);
+                /* the tower window is glass at c12's 0.56, not c13's 1 */
+                if(f==0)bad |= m->tris[i].alpha!=142;
                 const uint8_t *map=NULL;int mw=0,mh=0;
                 bad |= !gevrBeanTexture(m->tris[i].reflection,&map,&mw,&mh);
                 if(map)for(int v=0;v<mw*mh;v++)

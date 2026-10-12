@@ -1632,9 +1632,13 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                     }
                 }
             }
-            /* c12 controls reflection on this shape; c13 tints its diffuse. */
+            /* c12 controls reflection on this shape; c13 tints its diffuse.
+             * The alpha stays c12's: a glass pane's grey (the window's 0.56,
+             * the glassware's 0.51), which the release multiplies into the
+             * picture's (DAB gebean.c, c_constant0). c13's is 1, and the
+             * tower window drew at nearly twice its opacity. */
             uint32_t colourOffset=twoConstants ? 28 : 12;
-            float a = bef(stream + pc + (twoConstants ? 40 : 24));
+            float a = bef(stream + pc + 24);
 			alpha = a >= 1.0f ? 0xff : a <= 0.0f ? 0 : (uint8_t)(a * 255.0f + 0.5f);
 			colour = 0;
 			for (int k = 0; k < 3; k++) {
