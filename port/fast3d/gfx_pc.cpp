@@ -2341,7 +2341,7 @@ static void gevr_presentation_prepare(bool on) {
     }
 }
 
-static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices) {
+static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* vertices, const GevrWorldVertex* world = nullptr) {
     GevrProfileSection profile(GEVR_TIME_VERTEX);
     SUPPORT_CHECK(n_vertices <= MAX_VERTICES);
     gevr_perf_verts += (uint32_t)n_vertices;
@@ -2350,13 +2350,21 @@ static void gfx_sp_vertex(size_t n_vertices, size_t dest_index, const Vtx* verti
         && (rsp.geometry_mode & G_TEXTURE_GEN) && s_surfaceVertexBatches < 4;
     if (probe) ++s_surfaceVertexBatches;
     for (size_t i = 0; i < n_vertices; i++, dest_index++) {
-        const struct GfxVtx* v = (const struct GfxVtx*)&vertices[i];
+        Vtx packed = {};
+        if (world) {
+            memcpy(packed.v.tc,world[i].tc,sizeof(packed.v.tc));
+            memcpy(packed.v.cn,world[i].rgba,4);
+        }
+        const struct GfxVtx* v = (const struct GfxVtx*)(world ? &packed : &vertices[i]);
+        const float position[3] = {world ? world[i].p[0] : (float)v->v[0],
+                                  world ? world[i].p[1] : (float)v->v[1],
+                                  world ? world[i].p[2] : (float)v->v[2]};
         struct LoadedVertex* d = &rsp.loaded_vertices[dest_index];
 
-        float x = v->v[0] * rsp.MP_matrix[0][0] + v->v[1] * rsp.MP_matrix[1][0] + v->v[2] * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
-        float y = v->v[0] * rsp.MP_matrix[0][1] + v->v[1] * rsp.MP_matrix[1][1] + v->v[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
-        float z = v->v[0] * rsp.MP_matrix[0][2] + v->v[1] * rsp.MP_matrix[1][2] + v->v[2] * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
-        float w = v->v[0] * rsp.MP_matrix[0][3] + v->v[1] * rsp.MP_matrix[1][3] + v->v[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
+        float x = position[0] * rsp.MP_matrix[0][0] + position[1] * rsp.MP_matrix[1][0] + position[2] * rsp.MP_matrix[2][0] + rsp.MP_matrix[3][0];
+        float y = position[0] * rsp.MP_matrix[0][1] + position[1] * rsp.MP_matrix[1][1] + position[2] * rsp.MP_matrix[2][1] + rsp.MP_matrix[3][1];
+        float z = position[0] * rsp.MP_matrix[0][2] + position[1] * rsp.MP_matrix[1][2] + position[2] * rsp.MP_matrix[2][2] + rsp.MP_matrix[3][2];
+        float w = position[0] * rsp.MP_matrix[0][3] + position[1] * rsp.MP_matrix[1][3] + position[2] * rsp.MP_matrix[2][3] + rsp.MP_matrix[3][3];
         if (gevrMenuTrace) {
             if (gevrMenuVertices < 8) {
                 vr_log("menubg-rsp: v=(%d,%d,%d) rgba=(%u,%u,%u,%u) clip=(%g,%g,%g,%g)",
@@ -4434,6 +4442,7 @@ static bool gevr_mesh_draw_run(GevrStaticMesh* m, const GevrStaticMeshRun* run, 
         s_gevrMeshFallbacks++;
         return false;
     }
+    params.world_vertices = m->worldVertices != 0;
     if (skin) {
         params.skinned = true;
         params.palette = skin->palette;
@@ -4684,7 +4693,7 @@ static void gfx_run_dl(Gfx* cmd) {
             case G_GEVR_ROOM_STATE: {
                 uint8_t rgb[3];
                 const bool model = (cmd->words.w0 & 1) != 0;
-                s_beanRoomFogLinear = (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
+                s_beanRoomFogLinear = !(cmd->words.w0 & 2) && (model ? !vr_dl_is_pause_or_menu : gevrRoomDl && (rsp.geometry_mode & G_FOG))
                     && gevrBeanRoomFog(s_beanRoomFogLine, rgb);
                 if (model) {
                     if (s_beanRoomFogLinear) rsp.geometry_mode |= G_FOG;
@@ -4708,6 +4717,7 @@ static void gfx_run_dl(Gfx* cmd) {
                 mesh = (GevrStaticMesh*)cmd->words.w1;
                 meshRun = 0;
                 break;
+            case G_GEVR_WORLD_VTX:
             case G_VTX: {
                 const GevrStaticMeshRun* fallbackRun = nullptr;
                 if (mesh != nullptr && meshRun < mesh->numRuns && mesh->runs[meshRun].start == (const void*)cmd) {
@@ -4746,7 +4756,9 @@ static void gfx_run_dl(Gfx* cmd) {
                     }
                     break;
                 }
-                gfx_sp_vertex(C0(0, 16) / sizeof(Vtx), C0(16, 4), (const Vtx*)vtxp);
+                if ((cmd->words.w0 >> 24) == G_GEVR_WORLD_VTX)
+                    gfx_sp_vertex(C0(0,16)/sizeof(GevrWorldVertex),C0(16,4),nullptr,(const GevrWorldVertex*)vtxp);
+                else gfx_sp_vertex(C0(0, 16) / sizeof(Vtx), C0(16, 4), (const Vtx*)vtxp);
                 break;
             }
             case G_DL:

@@ -3334,7 +3334,7 @@ static bool gevr_mesh_supported(void)
 }
 
 static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t num_vertices,
-                                  const uint32_t* indices, uint32_t num_indices, bool skinned)
+                                  const uint32_t* indices, uint32_t num_indices, bool skinned, bool world)
 {
     GevrMeshGpu* g = (GevrMeshGpu*)*slot;
     if (g != NULL && g->generation != s_glGeneration) {
@@ -3352,14 +3352,14 @@ static GevrMeshGpu* gevr_mesh_gpu(void** slot, const void* vertices, uint32_t nu
     glGenBuffers(1, &g->ibo);
     glBindVertexArray(g->vao);
     glBindBuffer(GL_ARRAY_BUFFER, g->vbo);
-    const GLsizei stride = skinned ? sizeof(GevrSkinVertex) : 16;
+    const GLsizei stride = skinned ? sizeof(GevrSkinVertex) : world ? sizeof(GevrWorldVertex) : 16;
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)num_vertices * stride, vertices, GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_SHORT, GL_FALSE, stride, (const void*)0);            // Vtx ob
+    glVertexAttribPointer(0, 3, world ? GL_FLOAT : GL_SHORT, GL_FALSE, stride, (const void*)0);            // Vtx ob
     glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 2, GL_SHORT, GL_FALSE, stride, (const void*)8);            // Vtx tc
+    glVertexAttribPointer(1, 2, GL_SHORT, GL_FALSE, stride, (const void*)(world ? offsetof(GevrWorldVertex,tc) : 8));            // Vtx tc
     glEnableVertexAttribArray(2);
-    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (const void*)12);    // Vtx cn
+    glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, stride, (const void*)(world ? offsetof(GevrWorldVertex,rgba) : 12));    // Vtx cn
     if (skinned) {
         glEnableVertexAttribArray(13);
         glVertexAttribPointer(13,4,GL_UNSIGNED_BYTE,GL_TRUE,stride,(const void*)offsetof(GevrSkinVertex,tint));
@@ -3479,7 +3479,7 @@ static bool gfx_opengl_draw_mesh(void** gpu, const void* vertices, uint32_t num_
         vr_dl_is_pause_or_menu || get_debug_VisCVG_flag()) {
         return false;
     }
-    GevrMeshGpu* g = gevr_mesh_gpu(gpu, vertices, num_vertices, indices, num_indices, p->skinned);
+    GevrMeshGpu* g = gevr_mesh_gpu(gpu, vertices, num_vertices, indices, num_indices, p->skinned, p->world_vertices);
     struct ShaderProgram* mp = gevr_mesh_program(base);
     if (mp == NULL) {
         gevr_mesh_rebind(base);   // building it bound it

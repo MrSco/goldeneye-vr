@@ -312,6 +312,15 @@ static struct gevrBeanMesh *cachedLoad(const char *path, int keepparts)
 }
 
 static const struct gevrEmitVert *s_sortVerts;
+static uint32_t *s_sortSpatial;
+
+static uint32_t spatialBits(uint32_t x)
+{
+    x &= 1023; x = (x | x << 16) & 0x030000ff;
+    x = (x | x << 8) & 0x0300f00f;
+    x = (x | x << 4) & 0x030c30c3;
+    return (x | x << 2) & 0x09249249;
+}
 
 static int vertKey(const struct gevrEmitVert *v)
 {
@@ -325,7 +334,10 @@ static int triCmp(const void *a, const void *b)
 	int ib = *(const int *)b;
 	int ka = vertKey(&s_sortVerts[ia * 3]);
 	int kb = vertKey(&s_sortVerts[ib * 3]);
-	return ka == kb ? ia - ib : (ka > kb) - (ka < kb);
+    if (ka != kb) return (ka > kb) - (ka < kb);
+    if (s_sortSpatial && s_sortSpatial[ia] != s_sortSpatial[ib])
+        return (s_sortSpatial[ia] > s_sortSpatial[ib]) - (s_sortSpatial[ia] < s_sortSpatial[ib]);
+    return ia - ib;
 }
 
 static int texMask(int n)
@@ -355,7 +367,7 @@ static s16 posClamp(float v)
 static void beanRenderMode(Gfx **next, int mode1, int mode2, int room)
 {
     Gfx *g = *next;
-    g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room ? 0 : 1);
+    g->words.w0 = ((uintptr_t)G_GEVR_ROOM_STATE << 24) | (room == 2 ? 2 : room ? 0 : 1);
     g->words.w1 = (uint32_t)(G_RM_PASS | mode2 | (mode1 & 0xffff));
     *next = g + 1;
 }
@@ -367,6 +379,7 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	Gfx *gdl, *g;
 	Vtx *vtx, *vp;
 	int vi = 0;
+    GevrWorldVertex *world = NULL;
 	if (!mesh || !v || nverts < 3 || !gdlOut || !vtxOut) {
 		return 0;
 	}
@@ -380,12 +393,15 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 			return 0;
 		}
 	}
-	ntri = nverts / 3;
-	order = malloc((size_t)ntri * sizeof(int));
+    if (mesh->worldVertices && (lit || s_emitSkin)) return 0;
+    ntri = nverts / 3;
+    order = malloc((size_t)ntri * sizeof(int));
 	/* One texture group can be a single triangle, and gDPLoadTextureBlock writes several commands. */
 	cmdcap = 64 + ntri * 32;
 	gdl = malloc((size_t)cmdcap * sizeof(Gfx));
-	vtx = malloc((size_t)nverts * (sizeof(Vtx) + (lit && !skin ? sizeof(GevrVertexTint) : 0)));
+    vtx = malloc((size_t)nverts * (mesh->worldVertices ? sizeof(GevrWorldVertex) :
+                 sizeof(Vtx) + (lit && !skin ? sizeof(GevrVertexTint) : 0)));
+    if (mesh->worldVertices) world = (GevrWorldVertex *)vtx;
 	if (!order || !gdl || !vtx) {
 		if (skin) {
 			free(skin->verts);
@@ -400,8 +416,28 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 	for (int i = 0; i < ntri; i++) {
 		order[i] = i;
 	}
-	s_sortVerts = v;
-	qsort(order, (size_t)ntri, sizeof(int), triCmp);
+    s_sortSpatial = NULL;
+    if (mesh->spatialSort) {
+        s_sortSpatial = malloc((size_t)ntri * sizeof(*s_sortSpatial));
+        float lo[3] = {1e30f,1e30f,1e30f}, hi[3] = {-1e30f,-1e30f,-1e30f};
+        for (int i=0;i<nverts;i++) for (int k=0;k<3;k++) {
+            if (v[i].p[k] < lo[k]) lo[k]=v[i].p[k];
+            if (v[i].p[k] > hi[k]) hi[k]=v[i].p[k];
+        }
+        if (s_sortSpatial) for (int i=0;i<ntri;i++) {
+            uint32_t key=0;
+            for (int k=0;k<3;k++) {
+                float centre=(v[i*3].p[k]+v[i*3+1].p[k]+v[i*3+2].p[k])/3;
+                float t=hi[k]>lo[k] ? (centre-lo[k])/(hi[k]-lo[k]) : 0;
+                uint32_t q=t<=0 ? 0 : t>=1 ? 1023 : (uint32_t)(t*1023);
+                key |= spatialBits(q)<<k;
+            }
+            s_sortSpatial[i]=key;
+        }
+    }
+    s_sortVerts = v;
+    qsort(order, (size_t)ntri, sizeof(int), triCmp);
+    free(s_sortSpatial); s_sortSpatial=NULL;
 	g = gdl;
 	vp = vtx;
 	gDPPipeSync(g++);
@@ -518,7 +554,8 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 				for (int k = 0; k < 3; k++) {
 					const struct gevrEmitVert *src = &v[order[batch + t] * 3 + k];
 					float su = src->uv[0], sv = -src->uv[1];
-					Vtx *dst = &vp[t * 3 + k];
+					Vtx temp;
+                    Vtx *dst = world ? &temp : &vp[t * 3 + k];
 					/* Rebase the whole triangle together. Per-corner wrapping
 					 * collapses 0..1 edges and tears triangles crossing a seam. */
 					const struct gevrEmitVert *anchor = &v[order[batch + t] * 3];
@@ -546,8 +583,13 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
 						dst->v.cn[2] = src->rgba[2];
 						dst->v.cn[3] = (uint8_t)((unsigned)src->alpha * src->rgba[3] / 255);
 					}
-					if (skin) {
-						skin->verts[vi] = s_emitSkin[order[batch + t] * 3 + k];
+                    if (world) {
+                        memcpy(world[vi].p,src->p,sizeof(world[vi].p));
+                        memcpy(world[vi].tc,dst->v.tc,sizeof(world[vi].tc));
+                        memcpy(world[vi].rgba,dst->v.cn,4);
+                    }
+                    if (skin) {
+                        skin->verts[vi] = s_emitSkin[order[batch + t] * 3 + k];
                         memcpy(skin->verts[vi].tint.rgba, src->rgba, 4);
                         skin->verts[vi].tint.unlit = mesh->watchArm && tex == 9;
                     }
@@ -565,11 +607,14 @@ int gevrBeanEmitList(const struct gevrBeanMesh *mesh, const struct gevrEmitVert 
                 g->words.w0 = (G_GEVR_VERTEX_TINT << 24) | (sizeof(GevrVertexTint) << 8);
                 g++->words.w1 = (uintptr_t)&tints[vi - take*3];
             }
-			gSPVertex(g++, osVirtualToPhysical(vp), take * 3, 0);
+            if (world) {
+                g->words.w0 = ((uintptr_t)G_GEVR_WORLD_VTX << 24) | (take*3*sizeof(*world));
+                g++->words.w1 = (uintptr_t)(world+vi-take*3);
+            } else gSPVertex(g++, osVirtualToPhysical(vp), take * 3, 0);
 			for (int t = 0; t < take; t++) {
 				gSP1Triangle(g++, t * 3, t * 3 + 1, t * 3 + 2, 0);
 			}
-			vp += take * 3;
+			if (!world) vp += take * 3;
 			batch += take;
 			if (g - gdl > cmdcap - 16) {
 				break;

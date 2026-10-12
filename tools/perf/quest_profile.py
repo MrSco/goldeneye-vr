@@ -23,7 +23,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_room_draws.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -245,11 +245,12 @@ def run(args, out):
     adb('push', str(out / 'backup/eeprom.bin'), f'{FILES}/eeprom.bin')
     info = {'apk': str(args.apk.resolve()), 'sha256': hashlib.sha256(args.apk.read_bytes()).hexdigest(),
             'hz': args.hz, 'detail': args.detail, 'showstats': args.showstats, 'runs': args.runs,
-            'pad': args.pad, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
+            'pad': args.pad, 'room_draws': args.room_draws, 'simpleperf': args.simpleperf, 'texture_pack': args.texture_pack, 'phases': PHASES, 'warmup': WARMUP, 'measure': MEASURE, 'traces': []}
     log = (folder / 'device.log').open('wb')
     logger = subprocess.Popen(['adb', 'logcat', '-T', '1', '-v', 'threadtime'], stdout=log, stderr=log)
     try:
         wake()
+        put('gevr_room_draws.txt',str(args.room_draws))
         launch()
         for repeat in range(args.runs):
             label = f'{args.label}-{repeat + 1}'
@@ -335,6 +336,7 @@ if __name__ == '__main__':
     parser.add_argument('--label', default='baseline120')
     parser.add_argument('--hz', type=int, choices=[90, 120], default=120)
     parser.add_argument('--pad', type=int, default=0)
+    parser.add_argument('--room-draws',type=int,choices=[0,1],default=1)
     parser.add_argument('--runs', type=int, default=3)
     parser.add_argument('--detail', type=int, choices=[0, 1], default=0)
     parser.add_argument('--showstats', type=int, choices=[0, 1], default=0)
