@@ -5160,7 +5160,10 @@ void gevrBgClampCameraCeiling(float position[3], float floorY, int room, int loa
     const f32 footprint = 14.0f;
     s32 rooms[MAXPORTALSPERROOM + 1];
     s32 count, r, ix, iz;
-    f32 bottom = floorY + 30.0f;
+    /* from above any stair step or railing top the footprint reaches (from 30
+     * units, the wider footprint took the next steps for a ceiling: the view
+     * flashed short on stairs, user), still below any doorway's top */
+    f32 bottom = floorY + 120.0f;
     f32 ceiling = position[1] + clearance;
     f32 scale = room_data_float1;
 

@@ -7,7 +7,10 @@ eye against background lintels. Character eye height, animation and stereo
 head rise can therefore put the camera above a walkable doorway.
 
 `gevrBgClampCameraCeiling` probes native solid background in the current room
-and its portal neighbours, upwards from 30 world units above the walking floor.
+and its portal neighbours, upwards from 120 world units above the walking floor:
+above the stair steps and railing tops the footprint reaches (from 30, the next
+steps read as a ceiling and the view flashed short on stairs), below any
+doorway's top.
 25 samples, every 7 units, cover a 14-unit horizontal footprint around the
 eye midpoint: both eyes, and the near plane 10 units ahead of them (with 8
 units the view still showed above a Caverns doorway for a moment going in
