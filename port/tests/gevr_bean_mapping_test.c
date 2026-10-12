@@ -165,11 +165,16 @@ static void checkRigid(ModelFileHeader *h, const struct gevrBeanMesh *mesh, int 
 		handBlanks += kind == BEAN_GUN && s_swap[i].ours == s_blank && gunHandNode(h, s_swap[i].node);
 		if (s_swap[i].ours == s_blank)
 			continue;
-		/* The gun's own list is registered first, then the glove's. */
-		if (kind == BEAN_GUN && lists++)
-			hand = s_swap[i].node;
-		else if (kind == BEAN_GUN)
+		/* The gun's own list is registered first, then its moving parts, each
+		 * on its own matrix's untoggled list, then the glove's. */
+		if (kind == BEAN_GUN && !lists++) {
 			anchor = s_swap[i].node;
+		} else if (kind == BEAN_GUN && gunHandNode(h, s_swap[i].node)) {
+			assert(!hand);
+			hand = s_swap[i].node;
+		} else if (kind == BEAN_GUN) {
+			assert(!hand && !listToggled(h, s_swap[i].node) && nodeMatrix(s_swap[i].node) != nodeMatrix(anchor));
+		}
 		float (*v)[3];
 		int n = swapVerts(&s_swap[i], &v);
 		bean = realloc(bean, (size_t)(nb + n) * sizeof(*bean));
@@ -180,7 +185,7 @@ static void checkRigid(ModelFileHeader *h, const struct gevrBeanMesh *mesh, int 
 	}
 	assert(nb > 0 && nb % 3 == 0);
 	if (kind == BEAN_GUN) {
-		assert(anchor && lists <= 2 && (!listToggled(h, anchor) || !candidates));
+		assert(anchor && (!listToggled(h, anchor) || !candidates));
 		/* Bean's glove takes GoldenEye's hand; without one the hand stays. */
 		if (glove && handLists)
 			assert(hand && gunHandNode(h, hand));
@@ -563,7 +568,10 @@ int main(int argc, char **argv)
 			continue;
         if (kind == BEAN_GUN) {
             assert(!gunFlashNode(&header, node));
-            assert(gunHandNode(&header, node) || nodeMatrix(node) == nodeMatrix(header.RootNode));
+            /* the body on the root's list; a moving part on its own matrix's
+             * untoggled list (DAB gebeanBuildFirstPerson()) */
+            assert(gunHandNode(&header, node) || nodeMatrix(node) == nodeMatrix(header.RootNode) ||
+                   !listToggled(&header, node));
         }
 		lists++;
 		skin += s_swap[i].skin != NULL;
@@ -603,9 +611,12 @@ int main(int argc, char **argv)
         model.render_pos = calloc(header.numMatrices, sizeof(*model.render_pos));
         float root[4][4] = {{0,2,0,0},{-2,0,0,0},{0,0,2,0},{17,23,41,1}};
         assert(gevrBeanPreviewPose(&model, root));
+        /* the watch draws the root's lists with the root at the origin */
+        float origin[3]; restOf(header.RootNode,origin);
         for(int i=0;i<s_nswap;i++) {
             const struct beanSwap *s=&s_swap[i]; if(s->ours==s_blank) continue;
             int matrix=nodeMatrix(s->node); float rest[3]; restOf(s->node,rest);
+            for(int k=0;k<3;k++) rest[k]-=origin[k];
             float (*mv)[4]=model.render_pos[matrix].pos.m;
             for(int k=0;k<3;k++) {
                 float expected=root[3][k]; for(int j=0;j<3;j++) expected+=rest[j]*root[j][k];

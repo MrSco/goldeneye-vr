@@ -998,6 +998,19 @@ static uint64_t beanGunFlashDraws(const struct gevrBeanMesh *mesh)
 static const struct gevrBeanMesh *s_flashMesh;
 static uint64_t s_flashDraws;
 
+/* DAB gebeanBuildFirstPerson(): the matrix each of a first-person gun's
+ * triangles is drawn under (gunParts()), and the one being laid out */
+#define BEAN_GUN_MTX 64
+struct beanGunParts {
+	int8_t *of;
+	int carrier[BEAN_GUN_MTX]; /* the list a matrix's part goes on, -1 none */
+	int used[BEAN_GUN_MTX];    /* its triangles */
+	int body;
+};
+static const struct beanGunParts *s_parts;
+static const struct gevrBeanMesh *s_partsMesh;
+static int s_partWant;
+
 static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *t, int kind, int hasHead)
 {
 	if (t->flags & GEVR_BEAN_F_FLASH) {
@@ -1007,6 +1020,9 @@ static int triWanted(const struct gevrBeanMesh *mesh, const struct gevrBeanTri *
 		const int draw = mesh->triSrc[t - mesh->tris].draw;
 		if (draw >= 0 && draw < 64 && (s_flashDraws >> draw & 1))
 			return 0;
+	}
+	if (kind == BEAN_GUN && s_parts && mesh == s_partsMesh) {
+		return s_parts->of[t - mesh->tris] == s_partWant;
 	}
 	if (kind == BEAN_GUN && (t->flags & GEVR_BEAN_F_SLIDE)) {
 		return 0;
@@ -1233,6 +1249,108 @@ static void fitPoint(const struct beanFit *fit, const float *src, float *out)
 {
 	for (int k = 0; k < 3; k++)
 		out[k] = (src[fit->perm[k]] * fit->sign[k] - fit->bc[k]) * fit->scale + fit->nc[k];
+}
+
+/*
+ * DAB gebeanBuildFirstPerson() (gebean.c:13447): each of the release's bones
+ * goes on the nearest of GoldenEye's matrices that has a visible list, within
+ * 30 units of its joint, else on the body's; a pistol's slide (part 7) goes
+ * on the slide's matrix and whatever else came near it on the frame's. A
+ * triangle goes where most of its corners' weight does. GoldenEye then moves
+ * the release's own slide, cylinder and drum, and the whole gun stands where
+ * its own lists would in every pose (the watch's leaves most matrices alone).
+ */
+static void gunParts(struct beanGunParts *parts, const ModelFileHeader *header, const struct gevrBeanMesh *mesh,
+                     const struct beanFit *fit, const struct beanGrp *grp, const struct beanDl *dls, int nd, int best)
+{
+	float rest[BEAN_GUN_MTX][3];
+	int bonemtx[64];
+	int slide = -1, frame = -1, slides = 0;
+	memset(parts, 0, sizeof(*parts));
+	for (int m = 0; m < BEAN_GUN_MTX; m++)
+		parts->carrier[m] = -1;
+	parts->body = nodeMatrix(dls[best].node);
+	if (parts->body < 0 || parts->body >= BEAN_GUN_MTX || dls[best].grp < 0)
+		return;
+	/* the first visible list on each matrix carries its part, from its rest */
+	for (int i = 0; i < nd; i++) {
+		const int m = nodeMatrix(dls[i].node);
+		int far = 0;
+		for (ModelNode *up = dls[i].node->Parent; up; up = up->Parent)
+			far |= nodeOp(up) == MODELNODE_OPCODE_LOD && up->Data->LOD.MinDistance > 0;
+		if (m < 0 || m >= BEAN_GUN_MTX || dls[i].grp < 0 || dls[i].simple || far || parts->carrier[m] >= 0 ||
+		    listToggled(header, dls[i].node) || gunFlashNode(header, dls[i].node) || gunHandNode(header, dls[i].node))
+			continue;
+		parts->carrier[m] = i;
+		memcpy(rest[m], grp[dls[i].grp].o, sizeof(rest[m]));
+	}
+	parts->carrier[parts->body] = best;
+	memcpy(rest[parts->body], grp[dls[best].grp].o, sizeof(rest[parts->body]));
+	for (int b = 0; b < 64; b++) {
+		float joint[3], nearest = 30.0f * 30.0f;
+		bonemtx[b] = parts->body;
+		if (b == 0 || b >= mesh->nbones)
+			continue;
+		fitPoint(fit, mesh->boneBind[b], joint);
+		for (int m = 0; m < BEAN_GUN_MTX; m++) {
+			float d = 0;
+			if (parts->carrier[m] < 0)
+				continue;
+			for (int k = 0; k < 3; k++)
+				d += (joint[k] - rest[m][k]) * (joint[k] - rest[m][k]);
+			if (d < nearest) {
+				nearest = d;
+				bonemtx[b] = m;
+			}
+		}
+	}
+	for (int t = 0; t < mesh->ntris; t++)
+		slides += (mesh->tris[t].flags & GEVR_BEAN_F_SLIDE) != 0;
+	if (slides && header->numSwitches > 7 && header->Switches[7] && nodeOp(header->Switches[7]) == MODELNODE_OPCODE_GROUP &&
+	    header->Switches[7]->Parent) {
+		slide = nodeMatrix(header->Switches[7]);
+		frame = nodeMatrix(header->Switches[7]->Parent);
+		if (slide < 0 || slide >= BEAN_GUN_MTX || frame < 0 || frame >= BEAN_GUN_MTX || slide == frame ||
+		    parts->carrier[frame] < 0)
+			slide = frame = -1;
+	}
+	parts->of = malloc((size_t)(mesh->ntris ? mesh->ntris : 1));
+	if (!parts->of)
+		return;
+	for (int t = 0; t < mesh->ntris; t++) {
+		const struct gevrBeanTri *tri = &mesh->tris[t];
+		int m = parts->body;
+		if (slide >= 0 && (tri->flags & GEVR_BEAN_F_SLIDE)) {
+			m = slide;
+		} else {
+			int weight[BEAN_GUN_MTX] = {0}, most = 0;
+			for (int c = 0; c < 12; c++) {
+				int to;
+				if (tri->bone[c] >= 64 || !tri->weight[c])
+					continue;
+				to = bonemtx[tri->bone[c]];
+				if (slide >= 0 && to == slide)
+					to = frame;
+				weight[to] += tri->weight[c];
+				if (weight[to] > most) {
+					most = weight[to];
+					m = to;
+				}
+			}
+		}
+		if (parts->carrier[m] < 0)
+			m = parts->body;
+		parts->of[t] = (int8_t)m;
+		parts->used[m]++;
+	}
+}
+
+/* An untoggled list on a matrix that took a part: its own geometry gives way to the part's. */
+static int gunPartList(const struct beanGunParts *parts, const ModelFileHeader *header, const struct beanDl *dl)
+{
+	const int m = nodeMatrix(dl->node);
+	return parts && parts->of && m >= 0 && m < BEAN_GUN_MTX && m != parts->body && parts->used[m] && !dl->simple &&
+	       !listToggled(header, dl->node) && !gunFlashNode(header, dl->node) && !gunHandNode(header, dl->node);
 }
 
 /* rest: the rest of the matrix the list is drawn under, taken off every vertex
@@ -2000,6 +2118,16 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 					GEVR_BEAN_LOG("gevr bean: %s: muzzle flash draws %llx left out\n", fit ? fit->source : "pickup",
 					              (unsigned long long)s_flashDraws);
 			}
+			struct beanGunParts parts;
+			memset(&parts, 0, sizeof(parts));
+			if (gun && !mesh->triggerCuffs) {
+				gunParts(&parts, header, mesh, fit, grp, dls, nd, best);
+				if (parts.of) {
+					s_parts = &parts;
+					s_partsMesh = mesh;
+					s_partWant = parts.body;
+				}
+			}
 			int mainEmitted = emitRigid(mesh, kind, hasHead, dls[best].node, fit,
 			                            kind == BEAN_PROP ? &binding : NULL, -1, gun ? grp[dls[best].grp].o : NULL,
 			                            gun && !mesh->triggerCuffs ? 0 : -1, &gdl, &vtx);
@@ -2011,6 +2139,24 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 				if (mainEmitted && fit && !strcmp(fit->source, "prop/helicopter"))
 					gdl = helicopterWithPilot(dls[best].node, gdl);
 				registerPrimary(dls[best].node, mainEmitted ? gdl : s_blank, 0);
+				/* the gun's moving parts, each on its matrix's list from that list's rest */
+				for (int m = 0; parts.of && m < BEAN_GUN_MTX; m++) {
+					const int carrier = parts.carrier[m];
+					void *partG = NULL, *partV = NULL;
+					if (m == parts.body || !parts.used[m] || carrier < 0)
+						continue;
+					s_partWant = m;
+					if (emitRigid(mesh, kind, hasHead, dls[carrier].node, fit, NULL, -1, grp[dls[carrier].grp].o, 0,
+					              &partG, &partV)) {
+						keepAlloc(partG);
+						keepAlloc(partV);
+						registerPrimary(dls[carrier].node, partG, 0);
+					} else {
+						parts.used[m] = 0;
+					}
+				}
+				s_parts = NULL;
+				s_partsMesh = NULL;
 				for (int i = 0; i < nd; i++) {
 					int g = dls[i].grp;
 					int underJoint = g >= 0 && g < ng && grp[g].joint != 0;
@@ -2041,6 +2187,11 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 							registerPrimary(dls[i].node, s_blank, 1);
 						continue;
 					}
+					if (gunPartList(&parts, header, &dls[i])) {
+						if (i != parts.carrier[nodeMatrix(dls[i].node)])
+							registerPrimary(dls[i].node, s_blank, 1);
+						continue;
+					}
 					if (kind == BEAN_GUN && (dls[i].simple || underJoint || gunFlashNode(header, dls[i].node)))
 						continue;
 					/* Without Bean's glove GoldenEye's own hand stays (DAB keeps a
@@ -2066,6 +2217,9 @@ static void applyMesh(ModelFileHeader *header, const struct gevrBeanMesh *mesh, 
 			}
 			s_flashMesh = NULL;
 			s_flashDraws = 0;
+			s_parts = NULL;
+			s_partsMesh = NULL;
+			free(parts.of);
 		}
 	}
 	free(stack);
