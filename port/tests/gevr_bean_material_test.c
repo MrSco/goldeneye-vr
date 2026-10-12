@@ -176,6 +176,28 @@ int main(int argc, char **argv)
         printf("Dam: reservoir scrolls at 0.5 repeats/s on game time; %d vertex-alpha road-paint faces retain decals\n",paint);
 		gevrBeanMeshFree(m);
 	}
+    {
+        struct gevrBeanMesh *m = load(argv[1], "background/complex");
+        int reflection = 0, water = 0;
+        for (int i = 0; i < m->ntris; i++) {
+            reflection += m->tris[i].tex == 22;
+            if (m->tris[i].tex == 23) { water++; bad |= m->tris[i].alpha == 255; }
+        }
+        bad |= reflection || water != 4;
+        printf("Complex: %d translucent water faces on surface 23, %d faces incorrectly using reflection 22\n", water, reflection);
+        gevrBeanMeshFree(m);
+    }
+    {
+        struct gevrBeanMesh *m = load(argv[1], "prop/helicopter");
+        float offset[2]; int scrolling = 0;
+        for (int t = 0; t < m->ntex; t++) if (gevrBeanTextureScroll(m->standin[t], 1, offset)) {
+            scrolling++;
+            bad |= fabsf(offset[0] - .9f) > 1e-6f || fabsf(offset[1]) > 1e-6f;
+        }
+        bad |= scrolling != 1;
+        printf("Helicopter: %d texture scrolls at the authored 0.9 repeats/s\n", scrolling);
+        gevrBeanMeshFree(m);
+    }
 	puts(bad ? "FAIL" : "Bean material checks passed");
 	return bad;
 }
