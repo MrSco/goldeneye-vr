@@ -702,9 +702,6 @@ static s32 gevrWatchOpeningByGesture(s32 inlevel)
 #include <unistd.h>
 #include <strings.h>
 void cheatButtonHandleCheatsTurnedOn(CHEAT_ID cheat_id);
-/* Explicit unattended scope test; resets on process restart. */
-static s32 s_gevrScopeProbe;
-
 static void gevrCheatProbe(s32 inlevel)
 {
     static const struct { const char *name; s32 id; } names[] = {
@@ -770,12 +767,6 @@ static void gevrCheatProbe(s32 inlevel)
 
             g_gevrHeldGunGuards = !g_gevrHeldGunGuards;
             sysLogPrintf(LOG_NOTE, "cheathook: guards' detailed guns %s", g_gevrHeldGunGuards ? "on" : "off");
-            continue;
-        }
-        if (strcasecmp(word, "scopeprobe") == 0)
-        {
-            s_gevrScopeProbe = !s_gevrScopeProbe;
-            sysLogPrintf(LOG_NOTE, "cheathook: synthetic scope grip %s", s_gevrScopeProbe ? "on" : "off");
             continue;
         }
         /* "hold<N>": give item N and draw it in the gun hand, e.g. hold17 = sniper rifle */
@@ -1227,16 +1218,6 @@ static s32 gevrGripAxesRaw(s32 ctrl, f32 pos[3], f32 right[3], f32 up[3], f32 ba
     f32 x, y, z, w;
     s32 i;
 
-    /* Only the explicit scopeprobe cheat supplies this pose. All held-gun,
-     * shot and scope transforms then use the ordinary production path. */
-    if (s_gevrScopeProbe && ctrl == 1)
-    {
-        f32 unit = GEVR_UNITS_PER_METRE * D_800364CC;
-        pos[0]=0;pos[1]=-.1f*unit;pos[2]=-.3f*unit;
-        for(i=0;i<3;i++)right[i]=up[i]=back[i]=0;
-        right[0]=up[1]=back[2]=1;
-        return TRUE;
-    }
     if (!gevrVrGripPoseCamera(ctrl, pos, q))
     {
         return FALSE;

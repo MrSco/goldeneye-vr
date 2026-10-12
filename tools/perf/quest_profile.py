@@ -23,7 +23,7 @@ import time
 FILES = '/sdcard/Android/data/com.gevr.port/files'
 PACKAGE = 'com.gevr.port'
 LAUNCH_CHECK = 'LaunchCheckControllerRequiredDialogActivity'
-MARKERS = ['gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
+MARKERS = ['gevr_fakegrip.txt','gevr_scopedump','gevr_scope.pam', 'gevr_body_batch.txt','gevr_rigid_min.txt','gevr_room_draws.txt', 'gevr_input.txt', 'gevr_level.txt', 'gevr_warp.txt', 'gevr_cheat.txt',
            'gevr_profile.txt', 'gevr_profile.txt.status']
 PROTECTED = ['data/goldeneye-vr.ini', 'eeprom.bin', *MARKERS]
 WARMUP, MEASURE = 15, 60
@@ -216,6 +216,9 @@ def run(args, out):
     folder = out / args.label
     folder.mkdir(parents=True, exist_ok=False)
     check_backup(out)
+    manifest=json.loads((out/'backup/manifest.json').read_text())
+    if any(marker not in manifest for marker in MARKERS):
+        raise Unavailable('Backup is missing new diagnostic markers; preserve them before running')
     # Every process starts from the user's own save and quality settings; only the
     # refresh rate, smooth turning and the stats readout (a once-a-second log
     # burst that would distort the tail) are set for the benchmark.
@@ -261,10 +264,11 @@ def run(args, out):
         if args.body_batch and 'gevr bean body-batch:' not in applied:
             raise Unavailable('Whole-character batching was requested but never applied')
         if args.scope_probe:
-            put('gevr_cheat.txt','hold17 invincible maxammo scopeprobe')
+            put('gevr_fakegrip.txt','1 0 -0.10 -0.30 0.70710678 0 0 0.70710678')
+            put('gevr_cheat.txt','hold17 invincible maxammo')
             time.sleep(3)
             scope_log=recent()
-            if 'cheathook: synthetic scope grip on' not in scope_log or 'stereo: scope on (hand 0 item 17)' not in scope_log:
+            if 'stereo: scope on (hand 0 item 17)' not in scope_log:
                 raise Unavailable('Synthetic scope probe did not activate the real scope renderer')
         for repeat in range(args.runs):
             label = f'{args.label}-{repeat + 1}'
