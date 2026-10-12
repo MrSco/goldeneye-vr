@@ -150,10 +150,11 @@ int main(int argc, char **argv)
         printf(",\"meshLoaded\":%s",ok && m ? "true":"false");
         if(m) {
             int missing=0, invalid=0, zero=0, tinted=0, hist[256]={0};
-            int flash=0, slide=0, decal=0;
+            int flash=0, slide=0, decal=0, reflected=0;
             for(int t=0;t<m->ntex;t++) missing+=!m->standin[t];
             for(int i=0;i<m->ntris;i++) {
                 const struct gevrBeanTri *t=m->tris+i;
+                reflected += t->reflection!=NULL;
                 flash += !!(t->flags & GEVR_BEAN_F_FLASH);
                 slide += !!(t->flags & GEVR_BEAN_F_SLIDE);
                 decal += !!(t->flags & GEVR_BEAN_F_DECAL);
@@ -166,6 +167,7 @@ int main(int argc, char **argv)
             printf(",\"triangles\":%d,\"missingBindings\":%d,\"invalidTextureFaces\":%d,\"clearedFaces\":%d,\"tintedFaces\":%d,\"flashFaces\":%d,\"slideFaces\":%d,\"decalFaces\":%d,\"textureFaces\":[",m->ntris,missing,invalid,zero,tinted,flash,slide,decal);
             for(int t=0;t<m->ntex;t++) printf("%s%d",t?",":"",hist[t]);
             printf("]");
+            printf(",\"normalReflectionFaces\":%d",reflected);
             if(strstr(argv[1],"/background/") || strstr(argv[1],"\\background\\")) coincident(m);
             gevrBeanMeshFree(m); gevrBeanTexReset();
         }

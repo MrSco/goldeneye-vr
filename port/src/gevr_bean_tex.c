@@ -677,7 +677,7 @@ const void *gevrBeanTexDecode(const struct gevrCaff *c, int fileIndex, const cha
 const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t amount[3],const char *key)
 {
     for (int i=0;i<s_ntex;i++) if (!strcmp(s_tex[i].key,key)) return s_tex[i].standin;
-    int si=texFind(spot),li=texFind(land);
+    int li=texFind(land),si=spot ? texFind(spot) : li;
     if (si<0 || li<0 || s_ntex>=TEX_SLOTS) return NULL;
     const struct texSlot *s=s_tex+si,*l=s_tex+li;
     int w=s->w,h=s->h;
@@ -693,7 +693,7 @@ const void *gevrBeanTexReflect(const void *spot,const void *land,const uint8_t a
         for(int c=0;c<3;c++) {
             float top=l->rgba[((size_t)y0*l->w+x0)*4+c]*(1-fx)+l->rgba[((size_t)y0*l->w+x1)*4+c]*fx;
             float bot=l->rgba[((size_t)y1*l->w+x0)*4+c]*(1-fx)+l->rgba[((size_t)y1*l->w+x1)*4+c]*fx;
-            float v=(top*(1-fy)+bot*fy)*sp[c]*amount[c]/(255.0f*255.0f);
+            float v=(top*(1-fy)+bot*fy)*(spot ? sp[c] : 255)*amount[c]/(255.0f*255.0f);
             out[c]=(uint8_t)(v+.5f);
         }
         out[3]=255;

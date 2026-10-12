@@ -290,6 +290,18 @@ static int sphereTex(const struct gevrCaff *c,const int *texfile,int ntex,uint32
     return 0;
 }
 
+/* The two-input scratch/glass shader uses R=c12*normalMap and
+ * out=lit*(c13-R)+R. Only its c13=white form fits the screen combiner. */
+static int scratchTex(const struct gevrCaff *c,const int *texfile,int ntex,uint32_t t)
+{
+    if(t>=(uint32_t)ntex)return 0;
+    const char *name=gevrCaffAssetName(c,c->files[texfile[t]].asset);
+    static const char *const names[]={"_0x059B9F65.tga.bin","_0x00B5FD45.bin",
+        "_0x00B5FD45.bmp.bin","_0x03B30B95.tga.bin","_0x018952E5.tga.bin","_0x0F0BCEB5.tga.bin"};
+    for(unsigned i=0;name && i<sizeof(names)/sizeof(names[0]);i++)if(!strcmp(name,names[i]))return 1;
+    return 0;
+}
+
 static uint32_t materialTex(const struct gevrCaff *c, const uint8_t *st, uint32_t pc, uint32_t size,
 		uint32_t len, const int *texfile, int ntex)
 {
@@ -1567,7 +1579,7 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
             maskslot = 0;
             reflectSpot=reflectLand=~0u; reflectForm=0;
             memset(reflectAmount,0,sizeof(reflectAmount));
-            int spotSlot=-1,landSlot=-1,pictureSlot=-1;
+            int spotSlot=-1,landSlot=-1,pictureSlot=-1,scratchSlot=-1;uint32_t scratch=~0u;
             for (uint32_t k = 0; 12 + 8*k + 8 <= sz && fits(pc+12+8*k, 8, slen); k++) {
                 uint32_t other = be32(stream+pc+12+8*k);
                 int slot=be32(stream+pc+16+8*k)>>16;
@@ -1575,17 +1587,24 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 if(sphere==1){reflectSpot=other;spotSlot=slot;}
                 else if(sphere==2){reflectLand=other;landSlot=slot;}
                 else if(other==tex)pictureSlot=slot;
+                if(scratchTex(&caff,texfile,ntex,other)){scratch=other;scratchSlot=slot;}
                 if (other != tex && other < (uint32_t)ntex && masktex == ~0u) {
                     masktex = other;
                     maskslot = be32(stream+pc+16+8*k) >> 16;
                 }
             }
-			reflectForm=spotSlot==0 && landSlot==1 && pictureSlot==2;
-			alpha = 0xff;
+            reflectForm=spotSlot==0 && landSlot==1 && pictureSlot==2;
+            if(!reflectForm && scratchSlot==0 && pictureSlot==1) {
+                reflectForm=2;reflectSpot=~0u;reflectLand=scratch;
+            }
+            alpha = 0xff;
 			colour = 0xffffffu;
 		} else if (type == 0x06 && sz >= 28 && be32(stream + pc + 4) == 0 &&
 		           (be32(stream + pc + 8) >> 16) == 0x0c) {
-            const int twoConstants=reflectForm && sz>=44 && (be32(stream+pc+8)&0xffff)==2;
+            int twoConstants=reflectForm && sz>=44 && (be32(stream+pc+8)&0xffff)==2;
+            if(reflectForm==2 && twoConstants)
+                for(int k=0;k<3;k++)if(fabsf(bef(stream+pc+28+k*4)-1.0f)>1e-6f)twoConstants=0;
+            if(reflectForm==2 && !twoConstants)reflectForm=0;
             if(twoConstants) for(int k=0;k<3;k++) {
                 float v=bef(stream+pc+12+k*4);
                 reflectAmount[k]=v>=1 ? 255 : v<=0 ? 0 : (uint8_t)(v*255+.5f);
@@ -1777,10 +1796,10 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 		uint32_t *tris = NULL;
 		int ntris;
         const void *drawReflection=NULL;
-        if(d->tex<(uint32_t)mesh->ntex && d->reflectSpot<(uint32_t)mesh->ntex &&
-           d->reflectLand<(uint32_t)mesh->ntex && (d->reflectAmount[0]|d->reflectAmount[1]|d->reflectAmount[2])) {
+        if(d->tex<(uint32_t)mesh->ntex &&
+           (d->reflectSpot<(uint32_t)mesh->ntex || d->reflectSpot==~0u) && d->reflectLand<(uint32_t)mesh->ntex && (d->reflectAmount[0]|d->reflectAmount[1]|d->reflectAmount[2])) {
             snprintf(key,sizeof(key),"%s#reflection-%x",source,d->matpc);
-            drawReflection=mesh->reflection[d->tex]=gevrBeanTexReflect(mesh->standin[d->reflectSpot],
+            drawReflection=mesh->reflection[d->tex]=gevrBeanTexReflect(d->reflectSpot==~0u ? NULL : mesh->standin[d->reflectSpot],
                 mesh->standin[d->reflectLand],d->reflectAmount,key);
         }
         uint32_t cr = d->colour;
