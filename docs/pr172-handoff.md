@@ -53,6 +53,33 @@ Installed for them: release `07b1920` (user-authorized test install).
   unattended captures: 336 gate switch, 104 window, 335 modem.
   Driver used: `tools/perf/quest_profile.py` backup/restore around it.
 
+## Headset round 2026-10-12 afternoon
+
+- Launcher: the Mods page's hint line clears Done (9e297ab); the Screen tab
+  warns "90 Hz advised for Bean" above 90 Hz (0557419).
+- Damage (ea90845): native behaviour, logged per hit ("damage:" lines and
+  the guards' fire counters in chrlvUpdateShotbondsum).
+- Muzzle flashes stuck on: pickups leave out the painted flash (88ef968),
+  first-person guns treat piece 0 as the flash (a9d4023, DAB fpDrawIsCard),
+  and first-person guns take no material glass alpha (984cc13). Headset
+  checked. Left as DAB has it: prop/chrfnp90's magazine (alpha 0) on the
+  pickup is see-through.
+- **Bean from the player's own copy** (9d3e89a). The user asked that no
+  game files be distributed: the Mods page no longer downloads the
+  GoldenEye-007-Bean release. "Choose copy..." opens the file picker and
+  `port/src/gevr_bean_import.c` (DAB archive.c 7z streaming, x360.c STFS,
+  LZMA SDK in port/external/lzma) imports the 835 files Bean reads from a
+  .7z of the release, a .zip, the Xbox 360 package or a zip holding it.
+  Bean reads no PNG pack now (DAB uses none): its pictures come from the
+  copy, the ROM's otherwise, so explosions are the cartridge's, as DAB's.
+  On the Quest: retail zip 4.3 s, solid 7z 11.5 s, identical output.
+  `test_bean_import.py --files <xbla>/files --copy <copy>` compares real
+  copies byte for byte. Texture 2171 takes the release's bullet hole as
+  DAB's geimpact.c (a0783d5).
+- Open: the GitHub releases of MrSco/GoldenEye-007-Bean still carry XBLA
+  files (the user decides); the multiplayer stage dropdown cuts off
+  "Caverns"; clipping through Caverns' narrow tunnel doors (likely old).
+
 ## Repository and build
 
 - Worktree: `C:/Users/Occor/.codex/worktrees/abe0/goldeneye-vr`.
