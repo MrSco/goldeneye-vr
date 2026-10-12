@@ -19695,6 +19695,8 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
     {
         playerid = get_cur_playernum();
     }
+    const f32 gevrHealthBefore = g_CurrentPlayer->bondhealth, gevrArmourBefore = g_CurrentPlayer->bondarmour;
+    const s32 gevrShowBefore = g_CurrentPlayer->damageshowtime;
 #endif
     f32 damage_dealt = g_playerPerm->handicap * damage_amount;
     s32 cur_player_num;
@@ -19904,6 +19906,33 @@ void record_damage_kills(f32 damage_amount, f32 vectorx, f32 vectorz, s32 player
             }
         }
     }
+#ifdef GEVR
+    /*
+     * One line a hit taken (a guard's, gas, an explosion), to check the
+     * player's damage against GoldenEye's rules on the headset: what the
+     * difficulty and handicap made of it, what it took off, whether the last
+     * hit's flash (show) or the watch held it off, and the guards' fire that
+     * led to it (chraction.c chrlvUpdateShotbondsum).
+     */
+    {
+        extern f32 g_AiDamageModifier, g_AiAccuracyModifier;
+        extern void gevrGuardFireTake(s32 *aimed, s32 *off, s32 *held, f32 *chance);
+        s32 aimed, off, held;
+        f32 chance;
+
+        gevrGuardFireTake(&aimed, &off, &held, &chance);
+        /* gas calls every tick; its held-off ticks change nothing */
+        if (aimed || gevrHealthBefore != g_CurrentPlayer->bondhealth || gevrArmourBefore != g_CurrentPlayer->bondarmour)
+        sysLogPrintf(LOG_NOTE,
+                     "damage: %.4f (x%.2f) from %d: health %.3f->%.3f armour %.3f->%.3f show %d->%d watch %d "
+                     "inv %d/%d dead %d; ai dmg %.2f acc %.2f, dt %.2f clock %d; guard shots %d aimed %d off %d held, chance %.2f",
+                     damage_amount, g_playerPerm->handicap, playerid, gevrHealthBefore, g_CurrentPlayer->bondhealth,
+                     gevrArmourBefore, g_CurrentPlayer->bondarmour, gevrShowBefore, g_CurrentPlayer->damageshowtime,
+                     g_CurrentPlayer->watch_animation_state, g_CurrentPlayer->cheatBondInvincible, g_PlayerInvincible,
+                     g_CurrentPlayer->bonddead, g_AiDamageModifier, g_AiAccuracyModifier, g_GlobalTimerDelta, g_ClockTimer,
+                     aimed, off, held, chance);
+    }
+#endif
 }
 
 
