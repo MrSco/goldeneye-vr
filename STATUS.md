@@ -9,11 +9,12 @@ can't. Building does not publish a GitHub release. No game data is shipped.
 
 PR #172 (draft, branch cursor/rom-hack-layouts-026b) combines Goldfinger 64 /
 Tomorrow Never Dies campaigns, Project Bean (#170), the Dam speedboat (#171)
-and Dam wall alarms (#174). Bean's latest round (2026-10-11): fonts, 121
-HUD/menu/effect images, gun and hand placement, Dab's translucency and
-decal rules, rooms and sky as static GPU meshes, rooms drawn by their Bean
-bounds. Test APK 915f6c8 is not yet headset-tested; Bean pack
-v2026.10.11.3. Start with [PR #172 handoff](docs/pr172-handoff.md); setup:
+and Dam wall alarms (#174). Bean is imported from the player's own XBLA
+copy (Mods, "Choose copy..."; nothing is downloaded, the old Bean releases
+are deleted and the repo private). Latest Bean round (2026-10-12, be8b409 on
+the Quest): guns' moving parts on GoldenEye's matrices, watch previews,
+metal guns, the rocket's round, the trigger finger, Bean's own Gun fit set.
+Start with [PR #172 handoff](docs/pr172-handoff.md); setup:
 [Project Bean](docs/project-bean.md), [hack campaigns](docs/rom-hacks.md).
 Candidate notes: [v0.4.20](docs/releases/v0.4.20.md). Latest published
 build remains v0.4.19.

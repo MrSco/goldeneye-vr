@@ -76,9 +76,42 @@ Installed for them: release `07b1920` (user-authorized test install).
   `test_bean_import.py --files <xbla>/files --copy <copy>` compares real
   copies byte for byte. Texture 2171 takes the release's bullet hole as
   DAB's geimpact.c (a0783d5).
-- Open: the GitHub releases of MrSco/GoldenEye-007-Bean still carry XBLA
-  files (the user decides); the multiplayer stage dropdown cuts off
-  "Caverns"; clipping through Caverns' narrow tunnel doors (likely old).
+- The Bean releases are deleted and MrSco/GoldenEye-007-Bean is private
+  (user, 2026-10-12).
+
+## Headset round 2026-10-12 evening (be8b409 on the Quest)
+
+Rule from the user: check Dab's Mod (other_projects/dabs-mod, `git pull`
+first) before designing anything Bean, XBLA or GE-X.
+
+- Watch and weapon panel (003475d): gevrBeanPreviewPose put the HD gun at
+  the root plus the root's origin, which the watch leaves out (PP7 root at
+  0 -58 -73, the watch prop 2732 -1247 -436): off-axis spin, parts beside
+  the gun. And as DAB gebeanBuildFirstPerson(): each release bone on the
+  nearest matrix with a visible list (30 units), the slide on part 7's, so
+  GoldenEye moves Bean's slide, cylinder, hammer and drum instead of its
+  N64 pieces drawn over the HD gun. Offline probe of all 67 hand models:
+  every visible list where its rest puts it.
+- Small pictures (a0de5fd): DAB beanGunExtent() drops the HD guns'
+  pictures of 64x64 and under (every flash card; the rocket launcher's in
+  its mouth was on no piece).
+- Gun fit (59c7199): a third look, Bean's (bondview2.c gevrFitLook), with
+  its own gun place, two-handed hold, reload grab, scope lenses and barrel
+  tips (Bean* keys); an ini without them starts from the GoldenEye fits.
+- Taser (5d10c2b): native, as DAB (the release's is the N64 one again).
+- 99f23fa: gold/silver metal (DAB fpTint, beanShadeTint, beanGoldPicture;
+  the gold and silver PP7 by the same rule, no DAB row), the N64 trigger
+  finger hidden under Bean's glove (the HD pistols carry their own), and
+  DAB fpRound (the launcher built loaded and spent, gevrBeanSetLoaded /
+  gevrBeanHasRound; GoldenEye's rocket not drawn over Bean's).
+- be8b409: watch laser on gun/trigger as DAB; watchmagnetattract turned
+  round (its strap wraps the other way from GoldenEye's); a gun's body
+  never on a hand list (the throwing knife vanished in the watch).
+- Asked, not changed: Dam water slides 0.5 repeats/s, DAB's Xenia figure
+  (the user will compare with the Xbox release); no off-hand watch fit for
+  Bean's arm (user: "nah").
+- Still open: the multiplayer stage dropdown cuts off "Caverns"; clipping
+  through Caverns' narrow tunnel doors (likely old).
 
 ## Repository and build
 
