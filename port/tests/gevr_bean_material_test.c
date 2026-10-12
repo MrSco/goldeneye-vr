@@ -241,6 +241,31 @@ int main(int argc, char **argv)
         printf("Gas tank: %d normal-dependent spot/land maps; diffuse retains c13 white\n",mapped);
         gevrBeanMeshFree(m);
     }
+    {
+        const char *families[]={"prop/window","prop/glassware1","head/headbike"};
+        for(unsigned f=0;f<sizeof(families)/sizeof(families[0]);f++) {
+            struct gevrBeanMesh *m=load(argv[1],families[f]);int reflected=0,soft=0;
+            for(int i=0;i<m->ntris;i++)if(m->tris[i].reflection) {
+                reflected++;const uint8_t *pixels=NULL;int w=0,h=0;
+                gevrBeanTexture(m->standin[m->tris[i].tex],&pixels,&w,&h);
+                soft+=m->tris[i].alpha<255 || (pixels && pixels[3]<255);
+                const uint8_t *map=NULL;int mw=0,mh=0;
+                bad |= !gevrBeanTexture(m->tris[i].reflection,&map,&mw,&mh);
+                if(map)for(int v=0;v<mw*mh;v++)bad |= map[v*4+3]!=255;
+            }
+            bad |= reflected==0;
+            if(f==0) {
+                const uint8_t *raw=NULL,*map=NULL;int w=0,h=0,mw=0,mh=0;
+                bad |= !gevrBeanTexture(m->standin[0],&raw,&w,&h);
+                bad |= !gevrBeanTexture(m->reflection[1],&map,&mw,&mh);
+                bad |= w!=mw || h!=mh;
+                if(raw && map && w==mw && h==mh)for(int v=0;v<w*h;v++)for(int c=0;c<3;c++)
+                    bad |= abs((int)map[v*4+c]-(int)(raw[v*4+c]*142.0f/255+.5f))>1;
+            }
+            printf("%s: %d normal-map reflection faces, %d soft-alpha faces\n",families[f],reflected,soft);
+            gevrBeanMeshFree(m);
+        }
+    }
     puts(bad ? "FAIL" : "Bean material checks passed");
 	return bad;
 }

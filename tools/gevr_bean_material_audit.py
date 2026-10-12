@@ -97,6 +97,9 @@ def findings(rows):
         "rotationOnRegisteredHdProps": rotation_props,
         "additionalReflectionOrScratchInputs": reflection_rows,
         "registeredReflectionOrScratchAssets": sorted({r["source"] for r in reflection_rows if r["source"] in registered}),
+        "normalReflectionFacesOnRegisteredAssets": [
+            {"source": r["source"],"faces": r["normalReflectionFaces"]}
+            for r in hd if r["source"] in registered and r.get("normalReflectionFaces",0)],
         "genericSelectorDifferences": selection_differences,
         "mappedLitModelColourCandidates": tinted,
         "frameTextures": arrays,
