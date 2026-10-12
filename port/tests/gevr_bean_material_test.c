@@ -298,6 +298,62 @@ int main(int argc, char **argv)
         printf("CCTV: %d diffuse-tinted normal-reflection faces, opaque c13 alpha\n",coupled);
         gevrBeanMeshFree(m);
     }
+    {
+        /* GoldenEye's monitor screens (gevr_bean_screens.inc.h): the props'
+         * draws as DAB reads them, DAB's beanVertexDrops[] by .gpu offset and
+         * range, and its placeholder _0x008C4635 - on the door consoles,
+         * Frigate's bridge consoles 1a/2a/3a/3b, Silo's tuning console and its
+         * console2/3 (CLAUDE-notes/ge-bean.md), nowhere else of these. */
+        static const struct { const char *source; int placeholders; unsigned vboff, first, last; } screens[] = {
+            {"prop/doorpanel", 0, 1160, 0, 7}, {"prop/modembox", 0, 1264, 0, 3},
+            {"prop/console2", 1, 0, 118, 133}, {"prop/console3", 1, 0, 118, 133},
+            {"prop/console1", 0, 0, 1, 0}, {"prop/doorconsole", 1, 0, 1, 0},
+            {"prop/bridgeconsole1a", 1, 0, 1, 0}, {"prop/bridgeconsole2a", 1, 0, 1, 0},
+            {"prop/bridgeconsole3a", 1, 0, 1, 0}, {"prop/bridgeconsole3b", 1, 0, 1, 0},
+            {"prop/tuningconsole1", 1, 0, 1, 0}, {"prop/consolesev2b", 0, 0, 1, 0}, {"prop/tv1", 0, 0, 1, 0},
+        };
+        for (unsigned s = 0; s < sizeof(screens) / sizeof(screens[0]); s++) {
+            struct gevrBeanMesh *m = load(argv[1], screens[s].source);
+            int placeholders = 0, dropped = 0, wrong = 0, panes = 0;
+            bad |= !m->draws || !m->triSrc;
+            for (int d = 0; m->draws && d < m->ndraws; d++) {
+                const struct gevrBeanDrawSrc *ds = &m->draws[d];
+                int shared = 0;
+                placeholders += ds->placeholder;
+                for (int e = 0; e < d; e++)
+                    shared |= m->draws[e].state && m->draws[e].vboff == ds->vboff;
+                for (unsigned v = 0; !shared && ds->state && v < ds->nverts; v++) {
+                    const int on = ds->vboff == screens[s].vboff && v >= screens[s].first && v <= screens[s].last;
+                    dropped += (ds->state[v] & GEVR_BEAN_V_DROPPED) != 0;
+                    wrong += !(ds->state[v] & GEVR_BEAN_V_DROPPED) != !on;
+                }
+            }
+            /* every triangle is its draw's own vertices, pane corners marked */
+            for (int t = 0; m->triSrc && t < m->ntris; t++) {
+                const struct gevrBeanTriSrc *src = &m->triSrc[t];
+                const struct gevrBeanDrawSrc *ds = &m->draws[src->draw];
+                panes += src->pane != 0;
+                for (int c = 0; c < 3; c++) {
+                    wrong += src->vi[c] >= ds->nverts || !(ds->state[src->vi[c]] & GEVR_BEAN_V_READ) ||
+                             !((ds->state[src->vi[c]] & GEVR_BEAN_V_DROPPED) != 0) != !((src->pane >> c) & 1);
+                    for (int k = 0; src->vi[c] < ds->nverts && k < 3; k++)
+                        wrong += ds->pos[src->vi[c]][k] != m->tris[t].p[c * 3 + k];
+                }
+            }
+            bad |= placeholders != screens[s].placeholders || wrong ||
+                   dropped != (int)(screens[s].last + 1 - screens[s].first) || (dropped && !panes);
+            printf("%s: %d draws, %d placeholder, %d pane vertices, %d pane triangles\n", screens[s].source,
+                   m->ndraws, placeholders, dropped, panes);
+            gevrBeanMeshFree(m);
+        }
+        /* only a prop keeps them */
+        static const char *const others[] = {"gun/spectre", "char/suitlfhand"};
+        for (unsigned o = 0; o < sizeof(others) / sizeof(others[0]); o++) {
+            struct gevrBeanMesh *m = load(argv[1], others[o]);
+            bad |= m->draws || m->triSrc || m->ndraws;
+            gevrBeanMeshFree(m);
+        }
+    }
     puts(bad ? "FAIL" : "Bean material checks passed");
 	return bad;
 }

@@ -32,9 +32,38 @@ struct gevrBeanTri {
 	uint8_t flags;
 };
 
+/* A prop's draws as DAB gebean.c reads them for GoldenEye's monitor screens
+ * (beanReadVb(), beanVertex(), beanTriangles(); pinned adef1dc2,
+ * port/licenses/dabs-mod.txt): every vertex of the draw's buffer, not only
+ * the ones its triangles use, by its index in the buffer. */
+#define GEVR_BEAN_V_READ    1 /* beanVertex() read it */
+#define GEVR_BEAN_V_DROPPED 2 /* DAB beanVertexDropped() */
+struct gevrBeanDrawSrc {
+	float (*pos)[3];
+	float (*uv)[2];
+	uint8_t *state;  /* GEVR_BEAN_V_* */
+	uint32_t *idx;   /* three per triangle */
+	uint32_t vboff;  /* the buffer's .gpu offset (DAB vb.off) */
+	uint32_t nverts;
+	int ntris;
+	int16_t tex;
+	uint8_t placeholder; /* DAB beanScreenPlaceholder: picture _0x008C4635 */
+};
+/* Which draw and buffer vertices a pushed triangle came from (DAB's mapped[]
+ * is per draw and vertex). pane: corners on DAB's beanVertexDrops[]. */
+struct gevrBeanTriSrc {
+	uint32_t vi[3];
+	int16_t draw;
+	uint8_t pane;
+};
+
 struct gevrBeanMesh {
 	struct gevrBeanTri *tris;
 	int ntris;
+	/* props only (gevr_bean_load.c); NULL otherwise */
+	struct gevrBeanDrawSrc *draws;
+	int ndraws;
+	struct gevrBeanTriSrc *triSrc;
 	float bind[GEVR_BEAN_SK_COUNT][3];
 	int haveBind[GEVR_BEAN_SK_COUNT];
 	const void *standin[256];

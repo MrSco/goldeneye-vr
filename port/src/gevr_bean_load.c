@@ -1320,6 +1320,112 @@ static void markLevelBlendShaders(const struct gevrBeanMesh *mesh, struct beanDr
 
 #include "gevr_bean_motion.inc.h"
 
+/* DAB gebean.c beanVertexDrops[]/beanVertexDropped(), pinned adef1dc2
+ * (port/licenses/dabs-mod.txt): by file, vertex buffer (.gpu offset) and
+ * vertex range. Silo's console2 and console3 have four quads of Bean's
+ * placeholder spiral on their lower screens; Dam's modem box and gate switch
+ * have their screen as a quad of its own on one flat grey texel (the modem's
+ * one, the gate switch's two lamps), in front of GoldenEye's quad. gevr_bean.c
+ * lays such a vertex behind a screen GoldenEye runs a programme on, as DAB's
+ * gebeanBuildRigid() does (beanScreenBacking()), and leaves it out elsewhere. */
+static const struct {
+	const char *source;
+	uint32_t vboff;
+	uint16_t first, last;
+} s_vertexDrops[] = {
+	{ "new/prop/console2", 0, 118, 133 },
+	{ "new/prop/console3", 0, 118, 133 },
+	{ "new/prop/modembox", 1264, 0, 3 },
+	{ "new/prop/doorpanel", 1160, 0, 7 },
+};
+
+/* path names .../new/prop/NAME/default.bin, DAB's source being new/prop/NAME */
+static int sourceIs(const char *path, const char *source)
+{
+	static const char tail[] = "/default.bin";
+	size_t n = strlen(source), len = strlen(path), want = n + sizeof(tail) - 1;
+	if (len < want)
+		return 0;
+	const char *at = path + len - want;
+	for (size_t i = 0; i < want; i++) {
+		char a = at[i] == '\\' ? '/' : at[i];
+		if (a != (i < n ? source[i] : tail[i - n]))
+			return 0;
+	}
+	return at == path || at[-1] == '/' || at[-1] == '\\';
+}
+
+static int vertexDropped(const char *path, uint32_t vboff, uint32_t vi)
+{
+	for (unsigned i = 0; i < sizeof(s_vertexDrops) / sizeof(s_vertexDrops[0]); i++)
+		if (s_vertexDrops[i].vboff == vboff && vi >= s_vertexDrops[i].first && vi <= s_vertexDrops[i].last &&
+		    sourceIs(path, s_vertexDrops[i].source))
+			return 1;
+	return 0;
+}
+
+static void freeScreenSources(struct gevrBeanMesh *mesh)
+{
+	for (int i = 0; mesh->draws && i < mesh->ndraws; i++) {
+		free(mesh->draws[i].pos);
+		free(mesh->draws[i].uv);
+		free(mesh->draws[i].state);
+		free(mesh->draws[i].idx);
+	}
+	free(mesh->draws);
+	free(mesh->triSrc);
+	mesh->draws = NULL;
+	mesh->ndraws = 0;
+	mesh->triSrc = NULL;
+}
+
+/* One draw's buffer and triangles, as DAB's beanReadVb()/beanVertex()/
+ * beanTriangles() give them to beanFindScreens()'s users. */
+static void keepScreenDraw(struct gevrBeanDrawSrc *ds, const char *path, const struct gevrCaff *caff,
+                           const int *texfile, int ntex, uint32_t tex, const uint8_t *gpu, const struct beanVb *vb,
+                           float uvscale, int skinned, const float *inst, const uint32_t *tris, int ntris)
+{
+	const char *name = tex < (uint32_t)ntex ? gevrCaffAssetName(caff, caff->files[texfile[tex]].asset) : NULL;
+	ds->tex = tex < (uint32_t)ntex ? (int16_t)tex : -1;
+	ds->placeholder = name && strncmp(name, "_0x008C4635", 11) == 0;
+	ds->vboff = vb->off;
+	ds->pos = malloc((size_t)(vb->count ? vb->count : 1) * sizeof(*ds->pos));
+	ds->uv = malloc((size_t)(vb->count ? vb->count : 1) * sizeof(*ds->uv));
+	ds->state = calloc(vb->count ? vb->count : 1, 1);
+	ds->idx = malloc((size_t)(ntris > 0 ? ntris : 1) * 3 * sizeof(*ds->idx));
+	if (!ds->pos || !ds->uv || !ds->state || !ds->idx) {
+		free(ds->pos);
+		free(ds->uv);
+		free(ds->state);
+		free(ds->idx);
+		ds->pos = NULL;
+		ds->uv = NULL;
+		ds->state = NULL;
+		ds->idx = NULL;
+		return;
+	}
+	for (uint32_t vi = 0; vi < vb->count; vi++) {
+		struct beanVtx v;
+		int ok = readVtx(gpu, vb, vi, uvscale, skinned, &v);
+		for (int j = 0; ok && j < 3; j++)
+			ok = fabsf(v.pos[j]) <= 1e8f;
+		if (ok && inst) {
+			applyInst(v.pos, inst);
+		}
+		if (ok) {
+			memcpy(ds->pos[vi], v.pos, sizeof(ds->pos[vi]));
+			memcpy(ds->uv[vi], v.uv, sizeof(ds->uv[vi]));
+			ds->state[vi] |= GEVR_BEAN_V_READ;
+		}
+		if (vertexDropped(path, vb->off, vi))
+			ds->state[vi] |= GEVR_BEAN_V_DROPPED;
+	}
+	if (ntris > 0)
+		memcpy(ds->idx, tris, (size_t)ntris * 3 * sizeof(*ds->idx));
+	ds->ntris = ntris > 0 ? ntris : 0;
+	ds->nverts = vb->count;
+}
+
 int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 {
 	FILE *fp;
@@ -1815,6 +1921,14 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
 	fixPlaceholders(mesh, draws, ndraws, source);
 	textureAlphaFlags(mesh, texAlpha, texSoft);
     if (levelFade) markLevelBlendShaders(mesh, draws, ndraws, ibs, nibs, data, dlen, gpu, glen, uv20);
+	/* A prop's draws are kept for GoldenEye's monitor screens (DAB gebean.c
+	 * beanFindScreens() and its users, in gevr_bean.c), and which of them and
+	 * which buffer vertices each triangle came from. */
+	int triSrcCap = 0;
+	if (!levelFade && ndraws > 0 && (strstr(source, "/prop/") || strstr(source, "\\prop\\"))) {
+		mesh->draws = calloc((size_t)ndraws, sizeof(*mesh->draws));
+		mesh->ndraws = mesh->draws ? ndraws : 0;
+	}
 	for (int di = 0; di < ndraws; di++) {
 		struct beanDraw *d = &draws[di];
 		if (triggerCuffs && d->cuff == -2)
@@ -1862,6 +1976,9 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
             (d->masktex == 10 || d->masktex == 11 || d->tex == 11);
         if (watchGlass) baseTex = 11;
         int mask=layers.mask, blendpic=layers.blend, decalpic=layers.decal;
+		if (mesh->draws)
+			keepScreenDraw(&mesh->draws[di], source, &caff, texfile, ntex, d->tex, gpu, &vbrec, uvscale, numbones > 0,
+			               d->inst >= 0 && d->inst < ninst ? insts[d->inst] : NULL, tris, ntris);
 		for (int t = 0; t < ntris; t++) {
 			struct beanVtx corner[3];
 			int ok = 1;
@@ -1928,6 +2045,26 @@ int gevrBeanLoad(const char *source, int keepparts, struct gevrBeanMesh **out)
                 mesh->tris[mesh->ntris - 1].reflectionColour=d->reflectionColour;
                 mesh->tris[mesh->ntris - 1].reflectionAlphaBase=d->reflectionAlphaBase;
 				mesh->tris[mesh->ntris - 1].cuff = d->cuff;
+				if (mesh->draws && mesh->ntris > triSrcCap) {
+					int cap = mesh->tricaps > mesh->ntris ? mesh->tricaps : mesh->ntris;
+					struct gevrBeanTriSrc *grown = realloc(mesh->triSrc, (size_t)cap * sizeof(*grown));
+					if (grown) {
+						mesh->triSrc = grown;
+						triSrcCap = cap;
+					} else
+						freeScreenSources(mesh);
+				}
+				if (mesh->draws) {
+					struct gevrBeanTriSrc *src = &mesh->triSrc[mesh->ntris - 1];
+					const struct gevrBeanDrawSrc *ds = &mesh->draws[di];
+					src->draw = (int16_t)di;
+					src->pane = 0;
+					for (int k = 0; k < 3; k++) {
+						src->vi[k] = tris[t * 3 + k];
+						if (ds->state && src->vi[k] < ds->nverts && (ds->state[src->vi[k]] & GEVR_BEAN_V_DROPPED))
+							src->pane |= (uint8_t)(1 << k);
+					}
+				}
 				notePass(&triPass, &passCap, mesh->ntris - 1, d->blend ? LDECAL_PASS_BLEND : 0);
                 if (blendpic || decalpic) {
                     int seen = decalpic;
@@ -1974,6 +2111,7 @@ void gevrBeanMeshFree(struct gevrBeanMesh *m)
 	if (!m) {
 		return;
 	}
+	freeScreenSources(m);
 	free(m->tris);
 	free(m);
 }

@@ -52,6 +52,7 @@
 #ifdef GEVR
 #include "system.h"
 #include <stdio.h>   /* snprintf: the #85 cryptdoor probe */
+#include "gevr_bean.h" /* monitor screens under Bean's meshes */
 #include "net_objects.h"
 #include "net_coop.h"
 extern bool netIsActive(void);
@@ -7398,6 +7399,17 @@ Gfx *process_monitor_animation_microcode(Model *model, ModelNode *node, MonitorR
         vertices[2] = rodata->DisplayListCollisions.Vertices[2];
         vertices[3] = rodata->DisplayListCollisions.Vertices[3];
 
+#ifdef GEVR
+        /* DAB propobj.c tvscreenRender(): where Bean's HD model has its
+         * screen, when that is what is drawn, and over the back of its recess
+         * when the model has one there - in the decal z mode, which is
+         * texSelect()'s for a fixed monitor (8) (gevr_bean_screens.inc.h) */
+        if (gevrBeanScreenQuad(model, node, vertices) && arg4 == 1)
+        {
+            arg4 = 8;
+        }
+#endif
+
         if ((u32)screen->tconfig < 100) 
         {
             tconfig = &monitorimages[(s32)screen->tconfig];
@@ -7704,7 +7716,19 @@ void sub_GAME_7F04AC20(PropRecord *prop, ModelRenderData *mrData, s32 arg2)
         }
 
         mrData->gdl = gdl;
+#ifdef GEVR
+        /* DAB objRenderProp(): a monitor names its model while it is drawn,
+         * so its screen lists the programmes wrote above are the game's and
+         * not Bean's mesh (gevr_bean_screens.inc.h) */
+        if ((mrData->flags & 1) && (obj->type == PROPDEF_MONITOR || obj->type == PROPDEF_MULTI_MONITOR))
+        {
+            gevrBeanSetScreens(model);
+        }
+#endif
         subdraw(mrData, model);
+#ifdef GEVR
+        gevrBeanSetScreens(NULL);
+#endif
         gdl = mrData->gdl;
 
         if (obj->type == PROPDEF_DOOR)
