@@ -1176,13 +1176,14 @@ void gunUpdateAndFire(GUNHAND handnum)
             flashpos = *(coord3d *) flashdata;
 #ifdef GEVR
             {
-                extern float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3];
-                const int gex = gevrGexHeld(handnum) ? 1 : 0;
                 if (item >= 0 && item < GEVR_MAX_WEAPONS)
                 {
-                    flashpos.x += VrMuzzleTrim[gex][item][0] * 10.0f;
-                    flashpos.y += VrMuzzleTrim[gex][item][1] * 10.0f;
-                    flashpos.z += VrMuzzleTrim[gex][item][2] * 10.0f;
+                    /* GoldenEye's, GoldenEye X's or Bean's models' own (gevr_scope.h) */
+                    const float *trim = gevrMuzzleTrimOf(gevrFitLook(handnum), item);
+
+                    flashpos.x += trim[0] * 10.0f;
+                    flashpos.y += trim[1] * 10.0f;
+                    flashpos.z += trim[2] * 10.0f;
                 }
             }
 #endif

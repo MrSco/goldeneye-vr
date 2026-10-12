@@ -49,6 +49,23 @@ extern float VrMuzzleTrim[2][GEVR_MAX_WEAPONS][3];
 extern int gevrMuzzleFitting;
 int gevrMuzzleFitAvailable(void);
 
+/*
+ * Bean's models keep their own (vr_settings_defaults.c VrBean*). Gun fit's
+ * look for a hand's gun is bondview2.c gevrFitLook(): 0 GoldenEye's models,
+ * 1 GoldenEye X's, 2 Bean's.
+ */
+extern float VrBeanScopeFit[GEVR_SCOPE_FITS][4];
+extern float VrBeanMuzzleTrim[GEVR_MAX_WEAPONS][3];
+int gevrFitLook(int hand);
+static inline float *gevrScopeFitOf(int look, int scope)
+{
+    return look == 2 ? VrBeanScopeFit[scope] : VrScopeFit[look ? 1 : 0][scope];
+}
+static inline float *gevrMuzzleTrimOf(int look, int item)
+{
+    return look == 2 ? VrBeanMuzzleTrim[item] : VrMuzzleTrim[look ? 1 : 0][item];
+}
+
 #ifdef __cplusplus
 }
 #endif

@@ -123,6 +123,9 @@ extern float VrGunOffZ;
 extern float VrGripTrim[2][6];  // two-handed hold's hand trim: [handgun, long gun][dx dy dz rx ry rz]
 extern float VrGexGunOff[3];    // the same two for GoldenEye X's models, which sit differently
 extern float VrGexGripTrim[2][6];
+extern float VrBeanGunOff[3];      // and for Bean's models (scope and barrel tip: gevr_scope.h)
+extern float VrBeanGripTrim[2][6];
+extern float VrBeanReloadGrab[3];
 extern float VrReloadGrab[2][3];   // Hand reload: the magazine from the gun hand's grip, GE / GE-X
 extern float VrReloadBelt[3];      // the belt: below the eye, out, ahead
 extern float VrGexHeldMag[3];      // a GE-X magazine's palm from the off hand's grip
