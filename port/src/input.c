@@ -132,6 +132,8 @@ static struct {
     float kf7Well[3], pp7Well[3];
     float weaponFits[64][10][3];   /* GEVR_GEX_FIT_COMPONENTS, checked below */
     float bodySlots[GEVR_BODY_SLOTS][3];
+    float gunPer[2][GEVR_MAX_WEAPONS][3], gripPer[2][GEVR_MAX_WEAPONS][6];   /* each gun's own (gevr_scope.h) */
+    unsigned char gunPerSet[2][GEVR_MAX_WEAPONS], gripPerSet[2][GEVR_MAX_WEAPONS];
 } s_gunFitSaved;
 _Static_assert(sizeof(s_gunFitSaved.weaponFits) == sizeof(VrGexWeaponFits), "fit snapshot matches the fits");
 
@@ -167,6 +169,10 @@ static void gevrGunFitSaved(bool restore)
         memcpy(VrBeanReloadGrab, s_gunFitSaved.beanReloadGrab, sizeof(VrBeanReloadGrab));
         memcpy(VrBeanScopeFit, s_gunFitSaved.beanScope, sizeof(VrBeanScopeFit));
         memcpy(VrBeanMuzzleTrim, s_gunFitSaved.beanMuzzle, sizeof(VrBeanMuzzleTrim));
+        memcpy(VrGunOffPer, s_gunFitSaved.gunPer, sizeof(VrGunOffPer));
+        memcpy(VrGripTrimPer, s_gunFitSaved.gripPer, sizeof(VrGripTrimPer));
+        memcpy(VrGunOffPerSet, s_gunFitSaved.gunPerSet, sizeof(VrGunOffPerSet));
+        memcpy(VrGripTrimPerSet, s_gunFitSaved.gripPerSet, sizeof(VrGripTrimPerSet));
     } else {
         memcpy(s_gunFitSaved.weaponFits, VrGexWeaponFits, sizeof(VrGexWeaponFits));
         s_gunFitSaved.gun[0] = VrGunOffX;
@@ -197,6 +203,10 @@ static void gevrGunFitSaved(bool restore)
         memcpy(s_gunFitSaved.beanReloadGrab, VrBeanReloadGrab, sizeof(VrBeanReloadGrab));
         memcpy(s_gunFitSaved.beanScope, VrBeanScopeFit, sizeof(VrBeanScopeFit));
         memcpy(s_gunFitSaved.beanMuzzle, VrBeanMuzzleTrim, sizeof(VrBeanMuzzleTrim));
+        memcpy(s_gunFitSaved.gunPer, VrGunOffPer, sizeof(VrGunOffPer));
+        memcpy(s_gunFitSaved.gripPer, VrGripTrimPer, sizeof(VrGripTrimPer));
+        memcpy(s_gunFitSaved.gunPerSet, VrGunOffPerSet, sizeof(VrGunOffPerSet));
+        memcpy(s_gunFitSaved.gripPerSet, VrGripTrimPerSet, sizeof(VrGripTrimPerSet));
     }
 }
 extern s32 gevrStereoTwoHandClass(void);  /* bondview2.c: 0 handgun, 1 long gun */
@@ -1279,6 +1289,12 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                 gunOff[0] = &fit[0];
                 gunOff[1] = &fit[1];
                 gunOff[2] = &fit[2];
+            } else if (gevrGunOffOwnOf(look, fitItem) != NULL) {
+                /* the gun's own place (gevr_scope.h; user: each model holds the hand its own way) */
+                float *own = (float *)gevrGunOffOwnOf(look, fitItem);
+                gunOff[0] = &own[0];
+                gunOff[1] = &own[1];
+                gunOff[2] = &own[2];
             }
             if (scope < 0) gevrScopeFitting = 0;
             if (!fitting || !gevrReloadFitAvailable()) gevrReloadFitting = 0;
@@ -1502,11 +1518,31 @@ s32 inputReadController(s32 idx, OSContPad *npad)
                      * 45 degrees a second on the turn stick's sideways - or, with the
                      * right grip held, [5] its roll (user: to turn it more underhand). */
                     float *t = gripTrim[gevrStereoTwoHandClass()];
+                    /* the gun's own hold (gevr_scope.h), made from its class's the first time it moves */
+                    const s32 holdGun = gevrStereoTwoHandGun();
+                    const int holdLook = gevrFitLook(holdGun);
+                    const s32 holdItem = (s32)getCurrentPlayerWeaponId(holdGun);
+                    if (gevrGripTrimOwnOf(holdLook, holdItem) != NULL) {
+                        t = (float *)gevrGripTrimOwnOf(holdLook, holdItem);
+                    } else if (mx != 0.0f || my != 0.0f || ry != 0.0f || rx != 0.0f) {
+                        float *own = gevrGripTrimOwnFit(holdLook, holdItem, t);
+                        if (own != NULL) t = own;
+                    }
                     t[0] -= mx * rate * dt;
                     t[2] += my * rate * dt;
                     t[1] += ry * rate * dt;
                     t[get_button_state(1, "grip") ? 5 : 3] += rx * 45.0f * dt;
                 } else {
+                    /* the gun's own place, made from the shared one the first time it moves */
+                    if (!gex && (mx != 0.0f || my != 0.0f || ry != 0.0f) && gevrGunOffOwnOf(look, fitItem) == NULL) {
+                        const float shared[3] = { *gunOff[0], *gunOff[1], *gunOff[2] };
+                        float *own = gevrGunOffOwnFit(look, fitItem, shared);
+                        if (own != NULL) {
+                            gunOff[0] = &own[0];
+                            gunOff[1] = &own[1];
+                            gunOff[2] = &own[2];
+                        }
+                    }
                     /* +X is the holder's right (mirrored when left-handed), +Z back toward you */
                     *gunOff[0] += mx * rate * dt * (VrLeftHandedMode ? -1.0f : 1.0f);
                     *gunOff[2] -= my * rate * dt;

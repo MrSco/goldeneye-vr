@@ -1732,6 +1732,8 @@ int gevrFitLook(int hand)
 static void gevrGunOff(s32 hand, f32 off[3])
 {
     extern float VrBeanGunOff[3];
+    /* the gun's own, once Gun fit has moved it (gevr_scope.h) */
+    const f32 *own = gevrGunOffOwnOf(gevrFitLook(hand), getCurrentPlayerWeaponId(hand));
 
     if (gevrGexHeld(hand))
     {
@@ -1739,6 +1741,12 @@ static void gevrGunOff(s32 hand, f32 off[3])
         off[0] = fit[0];
         off[1] = fit[1];
         off[2] = fit[2];
+    }
+    else if (own != NULL)
+    {
+        off[0] = own[0];
+        off[1] = own[1];
+        off[2] = own[2];
     }
     else if (gevrFitLook(hand) == 2)
     {
@@ -4204,6 +4212,17 @@ s32 gevrStereoTwoHandClass(void)
     return gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1;
 }
 
+/* the hold's trim for the gun in hand: its own once Gun fit has moved it
+ * (gevr_scope.h; user: the guns' models hold the hand differently), else its
+ * class's */
+static f32 *gevrTwoHandTrimNow(void)
+{
+    const s32 item = getCurrentPlayerWeaponId(s_gevrTwoHandGun);
+    const f32 *own = gevrGripTrimOwnOf(gevrFitLook(s_gevrTwoHandGun), item);
+
+    return own != NULL ? (f32 *)own : s_gevrTwoHandTrim[gevrTwoHandIsHandgun(item) ? 0 : 1];
+}
+
 /* the hold point plus the grip fit's offset along the off hand's side, up and forward */
 static s32 gevrStereoTwoHandTarget(f32 target[3])
 {
@@ -4242,7 +4261,7 @@ static s32 gevrStereoTwoHandTarget(f32 target[3])
     {
         return FALSE;
     }
-    tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1];
+    tr = gevrTwoHandTrimNow();
     for (i = 0; i < 3; i++)
     {
         side = (VrLeftHandedMode != (s_gevrTwoHandGun == GUNLEFT)) ? right[i] : -right[i];
@@ -4270,7 +4289,7 @@ static s32 gevrStereoTwoHandTurn(f32 w[3][3])
     {
         return FALSE;
     }
-    tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1];
+    tr = gevrTwoHandTrimNow();
     for (i = 0; i < 3; i++)
     {
         /* gevrStereoGunMatrix's row 0, negated for a left-hand support (gevrRenderLeftArm) */
@@ -4312,7 +4331,7 @@ s32 gevrStereoTwoHandMatrix(Mtxf *m)
     {
         return FALSE;
     }
-    tr = s_gevrTwoHandTrim[gevrTwoHandIsHandgun(getCurrentPlayerWeaponId(s_gevrTwoHandGun)) ? 0 : 1];
+    tr = gevrTwoHandTrimNow();
 
     /* the trim's turn, in the model's own frame */
     r.x = tr[3] * (M_PI_F / 180.0f);
@@ -16212,11 +16231,11 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
     else if (gevrStereoTwoHandGrip())
     {
         /* holding with both hands: the sticks move the holding hand (input.c) */
-        const float *t = s_gevrTwoHandTrim[gevrStereoTwoHandClass()];
+        const float *t = gevrTwoHandTrimNow();
 
         snprintf(buf, sizeof(buf),
-                 "GRIP FIT (%s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nA: SAVE   B: UNDO   MENU + A: DONE",
-                 gevrStereoTwoHandClass() ? "RIFLE" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
+                 "GRIP FIT (THIS %s)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nTILT %.0f  ROLL %.0f\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN, TILT\nHOLD RIGHT GRIP: TURN STICK ROLLS\nA: SAVE   B: UNDO   MENU + A: DONE",
+                 gevrStereoTwoHandClass() ? "GUN" : "PISTOL", gex, t[2], -t[0], t[1], t[3], t[5]);
     }
     else
     {
@@ -16224,7 +16243,7 @@ static Gfx *gevrDrawGunFit(Gfx *gdl)
 
         gevrGunOff(GUNRIGHT, off);
         snprintf(buf, sizeof(buf),
-                 "GUN FIT%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\n%sA: SAVE   B: UNDO   MENU + A: DONE",
+                 "GUN FIT (THIS GUN)%s\nFORWARD %.1f  RIGHT %.1f  UP %.1f CM\nMOVE STICK: FORWARD, SIDEWAYS\nTURN STICK: UP, DOWN\nHOLD WITH BOTH HANDS: FIT THE GRIP\n%sA: SAVE   B: UNDO   MENU + A: DONE",
                  gex, -off[2], off[0], off[1], gevrFitNextLine(0));
     }
 
