@@ -20,6 +20,7 @@ enum {GL_ARRAY_BUFFER=1,GL_ELEMENT_ARRAY_BUFFER=2,GL_STATIC_DRAW=3,
       GL_SHORT=4,GL_FLOAT=5,GL_UNSIGNED_BYTE=6,GL_TRUE=1,GL_FALSE=0};
 struct GevrMeshGpu {GLuint vao,vbo,ibo; unsigned generation;};
 static unsigned s_glGeneration=1,opengl_vao=1,opengl_vbo=2;
+static unsigned s_meshGpuMade;   /* gfx_opengl.cpp gevr_mesh_gpu: meshes made */
 struct Attribute {int size,type,normalized,stride; size_t offset;};
 static Attribute attr[16]; static size_t vertexBytes,indexBytes;
 static void glGenVertexArrays(int,GLuint *p) {*p=10;}

@@ -76,6 +76,7 @@ static int meshHooks;
 static void gevr_eye_replay_vao(const GevrEyeDraw& d){assert(d.mesh==0);meshHooks++;}
 static void gevr_eye_replay_mesh(const GevrEyeDraw& d){assert(d.mesh==0);}
 static void gevr_eye_replay_done(){}
+static void gevr_mesh_settle(void) {}   /* gfx_opengl.cpp: no mesh run is left bound here */
 /* INSERT_REPLAY */
 int main(){
     ShaderProgram a,b;a.opengl_program_id=1;b.opengl_program_id=2;

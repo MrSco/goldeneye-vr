@@ -32,6 +32,7 @@ static bool use_multiview = true, gl_es = true, s_buildMesh = true, s_meshClipDi
 static const char *gl_glsl_version_str = "300 es";
 static int gl_glsl_version = 300;
 static FilteringMode current_filter_mode = FILTER_THREE_POINT;
+static void gevr_mesh_settle(void) {}   // gfx_opengl.cpp: no mesh run is left bound here
 '''
     # Generate all combinations of alpha/fog/cutout/two-cycle, with both textures
     # and the maximum seven combiner inputs (vertex uniform pressure).
