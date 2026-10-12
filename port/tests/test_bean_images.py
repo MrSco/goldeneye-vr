@@ -26,6 +26,9 @@ sys.path.insert(0, str(ROOT / "tools" / "texai"))
 
 # below 0.95: pictures 4J redrew (DAB's own rows), measured on the real files
 FLOOR = {2236: 0.85, 2161: 0.75, 2164: 0.88, 2233: 0.80, 2234: 0.92, 2238: 0.85, 2235: 0.88, 2166: 0.94}
+# not the cartridge's picture at all, bound by DAB all the same: texture/bulletholes/bullethole is a
+# smaller hole than the ROM's 2171 (mean alpha 42 against 170), and geimpact.c gives it GE_IMAGE_IMPACT4
+OTHER_PICTURE = {2171}
 
 
 def padded(width, depth):
@@ -121,6 +124,8 @@ def main():
         name, _, siz, tw, th, nrgba, _ = native[image]
         if not w:
             check(False, "image %d (%s): not repainted" % (image, picture))
+            continue
+        if image in OTHER_PICTURE:
             continue
         cw = max(1, round(w * tw / padded(tw, siz)))
         mine = shrink(rgba, w, h, cw, tw, th)
